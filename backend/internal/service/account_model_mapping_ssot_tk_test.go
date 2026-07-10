@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 )
@@ -96,9 +97,12 @@ func TestAccountModelMappingFloorForOps_ExportsPolicyMetadata(t *testing.T) {
 	t.Parallel()
 	doc, err := AccountModelMappingFloorForOps(context.Background(), "")
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"claude", "gemini_text", "gemini_image"}, doc.AntigravityScopes)
-	require.Contains(t, doc.ForbiddenModelMappingKeys[PlatformAntigravity], "gemini-3-pro-high")
-	require.Contains(t, doc.ForbiddenModelMappingKeys[PlatformAntigravity], "tab_flash_lite_preview")
+	require.ElementsMatch(t, canonicalAntigravityModelScopes, doc.AntigravityScopes)
+	wantForbiddenKeys := append(
+		domain.AntigravityStructuralDeadModelMappingKeys(),
+		domain.AntigravityUnpricedModelMappingKeys()...,
+	)
+	require.ElementsMatch(t, wantForbiddenKeys, doc.ForbiddenModelMappingKeys[PlatformAntigravity])
 	require.Contains(t, doc.ForbiddenModelMappingPrefixes[PlatformAntigravity], "gpt-oss-")
 }
 

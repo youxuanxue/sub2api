@@ -10,9 +10,11 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -375,20 +377,20 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	anthropicServable := firstMapKeyForTest(t, supportedAnthropicCatalogModels)
 	openAIServable := firstMapKeyForTest(t, supportedOpenAICatalogModels)
 	geminiServable := firstMapKeyForTest(t, supportedGeminiCatalogModels)
-	require.True(t, isTkCuratedNewAPIModelDisplayed("deepseek-chat"), "manifest display fixture must stay owner-backed")
+	deepSeekDisplayID := firstManifestDisplayIDForChannelTypeForTest(t, newapiconstant.ChannelTypeDeepSeek)
 	fixture := fmt.Sprintf(`{
 	  %q: {"input_cost_per_token":0.000005,"output_cost_per_token":0.000025,"litellm_provider":"anthropic"},
 	  "claude-not-a-real-id-zzz":  {"input_cost_per_token":0.00000025,"output_cost_per_token":0.00000125,"litellm_provider":"anthropic"},
 	  %q: {"input_cost_per_token":0.0000005,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
 	  "gpt-not-a-real-id-zzz":     {"input_cost_per_token":0.0000025,"output_cost_per_token":0.00001,"litellm_provider":"openai"},
 	  %q: {"input_cost_per_token":0.00000125,"output_cost_per_token":0.00001,"litellm_provider":"vertex_ai-language-models"},
-	  "deepseek-chat":             {"input_cost_per_token":0.0000003,"output_cost_per_token":0.0000011,"litellm_provider":"deepseek"},
+	  %q:                          {"input_cost_per_token":0.0000003,"output_cost_per_token":0.0000011,"litellm_provider":"deepseek"},
 	  "deepseek-v3-2-251201":      {"input_cost_per_token":0.0000002,"output_cost_per_token":0.0000004,"litellm_provider":"volcengine"},
 	  "glm-4-7-251222":            {"input_cost_per_token":0.0000001,"output_cost_per_token":0.0000001,"litellm_provider":"volcengine"},
 	  "glm-4-32b-0414-128k":       {"input_cost_per_token":0.0000001,"output_cost_per_token":0.0000001,"litellm_provider":"zhipu"},
 	  "glm-5-turbo":               {"input_cost_per_token":0.0000012,"output_cost_per_token":0.000004,"litellm_provider":"zhipu"},
 	  "minimax-m2.7":              {"input_cost_per_token":0.000001,"output_cost_per_token":0.000008,"litellm_provider":"minimax"}
-	}`, anthropicServable, openAIServable, geminiServable)
+	}`, anthropicServable, openAIServable, geminiServable, deepSeekDisplayID)
 	s := &PricingCatalogService{}
 	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
 		return []byte(fixture), time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC), true
@@ -412,7 +414,7 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	assert.False(t, got["claude-not-a-real-id-zzz"], "non-allowlisted claude pruned")
 	assert.False(t, got["gpt-not-a-real-id-zzz"], "non-allowlisted gpt pruned")
 	assert.True(t, got[geminiServable], "gemini SSOT id passes through")
-	assert.True(t, got["deepseek-chat"], "manifest display=true deepseek kept")
+	assert.True(t, got[deepSeekDisplayID], "manifest display=true deepseek kept")
 	assert.False(t, got["deepseek-v3-2-251201"], "priced-but-unlisted volcengine residue pruned")
 	assert.False(t, got["glm-4-7-251222"], "withdrawn VolcEngine GLM SKU pruned from storefront (serve glm-4.7 via DashScope)")
 	assert.False(t, got["glm-4-32b-0414-128k"], "withdrawn GLM SKU pruned from storefront")
@@ -427,6 +429,14 @@ func firstMapKeyForTest(t *testing.T, m map[string]struct{}) string {
 		return k
 	}
 	return ""
+}
+
+func firstManifestDisplayIDForChannelTypeForTest(t *testing.T, channelType int) string {
+	t.Helper()
+	ids := tkServedModelsManifestDisplayPresetIDsByChannelType(channelType)
+	require.NotEmpty(t, ids, "channel_type %d must have a display=true manifest sample", channelType)
+	sort.Strings(ids)
+	return ids[0]
 }
 
 // TestIsPublicCatalogModelSupported exercises each branch of the gate by
@@ -509,7 +519,8 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 	})
 
 	t.Run("newapi long-tail vendor requires manifest display=true", func(t *testing.T) {
-		assert.True(t, isPublicCatalogModelSupported("deepseek", "deepseek-chat"), "deepseek-chat is manifest display=true")
+		displayed := firstManifestDisplayIDForChannelTypeForTest(t, newapiconstant.ChannelTypeDeepSeek)
+		assert.True(t, isPublicCatalogModelSupported("deepseek", displayed), "owner-derived deepseek model is manifest display=true")
 		assert.False(t, isPublicCatalogModelSupported("deepseek", "deepseek-totally-unlisted-zzz"))
 	})
 

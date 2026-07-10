@@ -52,15 +52,14 @@ func TestAccountModelMappingForAccount_AntigravityLiveClaudeSubset(t *testing.T)
 	require.True(t, ok)
 	servable := supportedCatalogModelIDsForPlatform(PlatformAntigravity)
 	servableSet := stringSet(servable)
-	require.NotEmpty(t, mapping)
+	expected := expectedAntigravityModelMappingForReconcilerTest()
+	require.Equal(t, expected, mapping, "Antigravity floor must be the complete owner-derived projection")
 	for from, to := range mapping {
 		_, fromServable := servableSet[from]
 		_, toServable := servableSet[to]
 		require.True(t, fromServable || toServable, "mapping %s -> %s must be anchored in Antigravity SSOT", from, to)
 		require.False(t, strings.HasPrefix(from, "gpt-oss-"), "gpt-oss must not enter Antigravity model_mapping")
 	}
-	from, to := firstAntigravityDefaultAliasForReconcilerTest(t, servableSet)
-	require.Equal(t, to, mapping[from])
 	for _, platform := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini} {
 		offPlatform := firstIDOutsideSetForReconcilerTest(t, supportedCatalogModelIDsForPlatform(platform), servableSet)
 		require.NotContains(t, mapping, offPlatform)
@@ -239,27 +238,24 @@ func TestAccountModelMappingReconciler_NilSafe(t *testing.T) {
 	require.NotPanics(t, func() { rec.runOnce(context.Background()); rec.RunOnce() })
 }
 
-func firstAntigravityDefaultAliasForReconcilerTest(t *testing.T, servableSet map[string]struct{}) (string, string) {
-	t.Helper()
-	keys := make([]string, 0, len(domain.DefaultAntigravityModelMapping))
-	for from := range domain.DefaultAntigravityModelMapping {
-		keys = append(keys, from)
-	}
-	sort.Strings(keys)
-	for _, from := range keys {
-		to := domain.DefaultAntigravityModelMapping[from]
-		if from == to {
+func expectedAntigravityModelMappingForReconcilerTest() map[string]string {
+	servable := stringSet(supportedCatalogModelIDsForPlatform(PlatformAntigravity))
+	expected := make(map[string]string)
+	for from, to := range domain.DefaultAntigravityModelMapping {
+		if strings.HasPrefix(from, "gpt-oss-") ||
+			domain.IsAntigravityStructuralDeadModelMappingKey(from) ||
+			domain.IsAntigravityUnpricedModelMappingKey(from) {
 			continue
 		}
-		if _, ok := servableSet[from]; ok {
-			return from, to
+		if _, ok := servable[from]; ok {
+			expected[from] = to
+			continue
 		}
-		if _, ok := servableSet[to]; ok {
-			return from, to
+		if _, ok := servable[to]; ok {
+			expected[from] = to
 		}
 	}
-	require.FailNow(t, "expected at least one Antigravity alias anchored in servable SSOT")
-	return "", ""
+	return expected
 }
 
 func firstIDOutsideSetForReconcilerTest(t *testing.T, candidates []string, excluded map[string]struct{}) string {

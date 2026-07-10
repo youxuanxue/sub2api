@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -99,11 +100,17 @@ func TestServableClientFacingIDs_DropsVisibleButUnpriced(t *testing.T) {
 func TestServableClientFacingIDs_PrunesStructurallyGone(t *testing.T) {
 	ctx := context.Background()
 	svc, repo, _ := newAvailabilityTestService(t)
-	seedAvail(repo, PlatformAnthropic, "claude-opus-4-8", AvailabilityStatusUnreachable, FailureKindModelNotFound)
-	pricing := tkBuildPricedServiceForTest(t, supportedCatalogModelIDsForPlatform(PlatformAnthropic))
-	for _, id := range ServableClientFacingIDs(ctx, PlatformAnthropic, svc, pricing) {
-		require.NotEqual(t, "claude-opus-4-8", id, "structurally-gone model must be pruned from the unified servable source")
-	}
+	ownerIDs := supportedCatalogModelIDsForPlatform(PlatformAnthropic)
+	target, survivor := firstTwoStringsForTest(t, ownerIDs)
+	pricing := tkBuildPricedServiceForTest(t, ownerIDs)
+	baseline := ServableClientFacingIDs(ctx, PlatformAnthropic, svc, pricing)
+	require.Contains(t, baseline, target, "SSOT-derived prune target must exist before availability changes")
+	require.Contains(t, baseline, survivor, "SSOT-derived survivor must exist before availability changes")
+
+	seedAvail(repo, PlatformAnthropic, target, AvailabilityStatusUnreachable, FailureKindModelNotFound)
+	got := ServableClientFacingIDs(ctx, PlatformAnthropic, svc, pricing)
+	require.NotContains(t, got, target, "structurally-gone model must be pruned from the unified servable source")
+	require.Contains(t, got, survivor, "an unaffected SSOT sibling must remain servable")
 }
 
 // TK (R-003, follow-up to PR #752): the admin model-whitelist selector now draws
@@ -131,11 +138,17 @@ func TestTkServableCandidateIDs(t *testing.T) {
 
 	t.Run("structurally-gone model is pruned; degraded model stays", func(t *testing.T) {
 		svc, repo, _ := newAvailabilityTestService(t)
-		seedAvail(repo, PlatformAnthropic, "claude-opus-4-8", AvailabilityStatusUnreachable, FailureKindModelNotFound) // gone
-		seedAvail(repo, PlatformAnthropic, "claude-sonnet-4-6", AvailabilityStatusUnreachable, FailureKindUpstream5xx) // degraded
+		ownerIDs := supportedCatalogModelIDsForPlatform(PlatformAnthropic)
+		gone, degraded := firstTwoStringsForTest(t, ownerIDs)
+		baseline := tkServableCandidateIDs(ctx, PlatformAnthropic, svc)
+		require.Contains(t, baseline, gone, "SSOT-derived prune target must exist before availability changes")
+		require.Contains(t, baseline, degraded, "SSOT-derived degraded survivor must exist before availability changes")
+
+		seedAvail(repo, PlatformAnthropic, gone, AvailabilityStatusUnreachable, FailureKindModelNotFound)
+		seedAvail(repo, PlatformAnthropic, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx)
 		ids := tkServableCandidateIDs(ctx, PlatformAnthropic, svc)
-		require.False(t, contains(ids, "claude-opus-4-8"), "model_not_found→unreachable auto-drops (self-heal)")
-		require.True(t, contains(ids, "claude-sonnet-4-6"), "transient 5xx-unreachable stays")
+		require.False(t, contains(ids, gone), "model_not_found→unreachable auto-drops (self-heal)")
+		require.True(t, contains(ids, degraded), "transient 5xx-unreachable stays")
 	})
 
 	t.Run("antigravity draws from the empirically-servable gemini plus live Claude allowlist", func(t *testing.T) {
@@ -179,6 +192,14 @@ func firstStringForTest(t *testing.T, ids []string) string {
 	t.Helper()
 	require.NotEmpty(t, ids, "SSOT sample source must be populated")
 	return ids[0]
+}
+
+func firstTwoStringsForTest(t *testing.T, ids []string) (string, string) {
+	t.Helper()
+	require.GreaterOrEqual(t, len(ids), 2, "SSOT sample source must contain a target and survivor")
+	sorted := append([]string{}, ids...)
+	sort.Strings(sorted)
+	return sorted[0], sorted[1]
 }
 
 func firstIDOutsideSetForTest(t *testing.T, candidates []string, excluded map[string]bool) string {

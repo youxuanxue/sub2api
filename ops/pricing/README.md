@@ -31,7 +31,7 @@ hand-maintained empirical sets in the same file.
 | `refresh-servable-allowlist.py` | Refreshes the shared public-catalog/user-menu servable sets. It derives candidates, runs probes (uploads `probe_reserved_resources.sh` via `run-probe.sh --with`), keeps `verdict==servable`, de-duplicates dated snapshots, and splices the anthropic/openai/gemini Go blocks. `selftest` covers deterministic glue (no prod). Optional `--skip-proven-by-traffic` short-circuits candidates already proven by 24h traffic out of the probe batches. |
 | `modelops.py` | Read-only planner for model operations: compares upstream/admin discovery, probe TSV, pricing state, manifest intent, optional live `model_mapping` snapshots, and mirror policies such as `60 -> 72`. Prints probe commands and guarded apply dry-runs; never writes accounts or pricing. |
 | `reconcile-served-models.py` | Compatibility wrapper for `modelops.py`. New runbooks should call `modelops.py`. |
-| `manage-account-model-mapping-runtime.py` | Hot-pushes optional runtime replacement scopes to `settings.tk_account_model_mapping_runtime` across prod + deployable edges, validates/diffs runtime blobs, runs the pre-deploy prod `release-gate` / read-only `check-accounts`, and applies reviewed account/group diffs only through explicit `apply-accounts --confirm ...`. |
+| `manage-account-model-mapping-runtime.py` | Hot-pushes optional runtime replacement scopes to `settings.tk_account_model_mapping_runtime` across prod + deployable edges, validates/diffs runtime blobs, runs post-release read-only `check-accounts`, exposes `release-gate` only for explicit modelops/model-activation prechecks, and applies reviewed account/group diffs only through explicit `apply-accounts --confirm ...`. |
 | `apply-pricing-hotfix.py` | Companion runbook for the **"模型缺价（已记零成本）" Feishu alert** (PricingMissingNotifier). Hot-applies channel pricing via the prod admin API (immediate, no release) and stages the durable fill-only entry into `tk_pricing_overlay.json`. `selftest` covers all pure logic (no network). See "Pricing-missing hotfix" below. |
 
 ## Re-run (operator, needs AWS creds for prod SSM)
@@ -139,15 +139,18 @@ a scope replacement layer: each listed platform or newapi `channel_type`
 replaces the compiled account mapping floor for that scope; omitted scopes keep
 the compiled floor.
 
-**prod-only SSOT gate.** Public serving requires **可展示 + 已定价 + 可服务** to
+**prod-only SSOT check.** Public serving requires **可展示 + 已定价 + 可服务** to
 align on prod: catalog allowlists, pricing overlay/channel rows, and prod
-`accounts.credentials.model_mapping` (plus optional runtime replacement). The prod
-deploy workflow runs `release-gate` **before** the SSM image swap, using the
-release checkout's Go SSOT helper against live prod accounts. The gate is a
-release-floor check: prod may already contain extra preheated mappings, but it
-must not be behind the tag being deployed or contain keys/prefixes forbidden by
-that tag's Go SSOT. Modelops diagnostics use `check-accounts` **without**
-`--include-edges`; `violation_count` must be `0` on prod for strict convergence.
+`accounts.credentials.model_mapping` (plus optional runtime replacement).
+Post-release diagnostics use `check-accounts` **without** `--include-edges`;
+its expected mappings and forbidden policy metadata come from the Go SSOT.
+Violations are yellow configuration drift and do not change a successful deploy,
+smoke, or rollback verdict.
+
+`release-gate` is reserved for an explicit modelops/model-activation precheck.
+It verifies that live prod covers the current checkout's release floor while
+allowing preheated extras, except keys/prefixes explicitly forbidden by that Go
+SSOT. It does not run in generic `deploy-stage0.yml`.
 
 **Official upstream aliases:** when a managed platform or newapi channel's provider
 model page declares an id/alias and TokenKey has priced + probe-verified servability,
@@ -170,22 +173,25 @@ python3 ops/pricing/manage-account-model-mapping-runtime.py check --file /tmp/ac
 # after review, only updates settings on prod + deployable edges (does not mutate accounts):
 python3 ops/pricing/manage-account-model-mapping-runtime.py sync-runtime --file /tmp/account-model-mapping-runtime.json
 
-# release hard gate / post-hotfix read-only diff (prod only; add --include-edges for deployable edges):
-python3 ops/pricing/manage-account-model-mapping-runtime.py release-gate
+# post-release / post-hotfix read-only diff (prod only; add --include-edges for deployable edges):
 python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json
+
+# explicit modelops/model-activation floor precheck; never a generic deploy/rollback dependency:
+python3 ops/pricing/manage-account-model-mapping-runtime.py release-gate
 
 # after reviewing the diff, explicitly apply account/group changes:
 python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts \
-  --target all-deployable-and-prod \
+  --target prod \
   --confirm yes-apply-account-model-mapping
 ```
 
-For a newly served model, preheat the live materialization first, then deploy the
-tag whose Go floor exposes it. That ordering is intentional: the old image does
-not publicly display the new model until pricing/display/catalog code ships, and
-the deploy gate prevents the new image from exposing a model that prod accounts
-cannot route yet. Rollback is not trapped by preheated extras because
-`release-gate` accepts a live superset unless the release SSOT forbids a key.
+For a newly served model, preheat the live materialization first and run the
+explicit modelops `release-gate` before activating the tag whose Go floor exposes
+it. That gate may block the model activation, not the generic deployment
+workflow. `deploy-stage0.yml` and rollback remain independent of live mapping
+convergence and target-tag helper availability; they are accepted by image,
+health, smoke, and display-canary results. Post-release `check-accounts` reports
+any remaining drift as yellow.
 
 ## Pricing-missing hotfix (Feishu「模型缺价」告警的处置 runbook)
 

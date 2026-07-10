@@ -1308,10 +1308,12 @@
       "path": "backend/internal/service/me_pricing_catalog_tk_test.go",
       "must_contain": [
         "TestBuildForUser_GrokUnrestricted_ListsServableModels",
-        "grok-4.3",
-        "grok-code-fast-1"
+        "supportedCatalogModelIDsForPlatform(PlatformGrok)",
+        "firstNIDsWithoutSubstringsForMePricingTest",
+        "mkPublicCatalogModel(chatIDs[0]",
+        "assert.Equal(t, want, modelIDsOf(resp.Models)"
       ],
-      "rationale": "Regression test for the grok per-user menu fallback: a native grok OAuth account has no channel and no model_mapping whitelist, so BuildForUser must populate the menu from supportedCatalogModelIDsForPlatform(PlatformGrok) and join catalog token prices for both current grok chat (grok-4.3) and the grok-build alias family (grok-code-fast-1). Dropping this test re-opens the 2026-06-20 empty-grok-group class and the newer official-priced grok chat visibility regression."
+      "rationale": "Regression test for the grok per-user menu fallback: a native grok OAuth account has no channel and no model_mapping whitelist, so BuildForUser must populate the menu from supportedCatalogModelIDsForPlatform(PlatformGrok), derive positive token-model samples from that owner, join catalog prices, and return the complete current owner set. Pinning semantic test anchors instead of concrete Grok ids preserves the test-data SSOT rule: refreshing the owner must not require a duplicate list edit here. Dropping this test re-opens the 2026-06-20 empty-grok-group class and later priced-chat visibility regressions."
     },
     {
       "path": "backend/internal/handler/me_pricing_catalog_handler_tk.go",
@@ -2019,9 +2021,9 @@
         "func (r *AccountModelMappingReconciler) reconcileAccounts(",
         "PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformNewAPI, PlatformKiro, PlatformGrok",
         "func (r *AccountModelMappingReconciler) reconcileAntigravityGroupScopes(",
-        "var canonicalAntigravityModelScopes = []string{\"claude\", \"gemini_text\", \"gemini_image\"}"
+        "canonicalAntigravityModelScopes"
       ],
-      "rationale": "One-shot all-platform account model_mapping applier. It can rewrite active anthropic/openai/gemini/antigravity/newapi/kiro/grok accounts to explicit credentials.model_mapping derived from the compiled/runtime SSOT, and can align Antigravity groups to the live families (claude/gemini_text/gemini_image), but production servers must not start it as a background self-healer. Empty native mappings are no longer a target operator state; they are surfaced by ops/pricing/manage-account-model-mapping-runtime.py check-accounts and corrected only after an explicit apply. If this file, the platform loop, the runtime settings read, or the Antigravity group-scope apply logic disappears, reviewed apply-accounts can no longer converge live config."
+      "rationale": "One-shot all-platform account model_mapping applier. It can rewrite active managed-platform accounts to explicit credentials.model_mapping derived from the compiled/runtime SSOT and align Antigravity groups to the canonical Go-owned scope projection, but production servers must not start it as a background self-healer. Empty native mappings are no longer a target operator state; they are surfaced by ops/pricing/manage-account-model-mapping-runtime.py check-accounts and corrected only after an explicit apply. If this file, the platform loop, the runtime settings read, or the Antigravity group-scope apply logic disappears, reviewed apply-accounts can no longer converge live config."
     },
     {
       "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
@@ -2043,21 +2045,70 @@
         "func antigravityAccountModelMappingFloor(",
         "func grokAccountModelMappingFloor("
       ],
-      "rationale": "Single SSOT selector for account model_mapping. It applies runtime replacement scopes first, then derives explicit native mappings from served+priced+displayable catalogs, Antigravity filtered default mapping, Grok default aliases, Kiro presets, Bedrock defaults, and newapi channel display presets. Losing any branch silently breaks the all-platform explicit model_mapping policy or drops compatibility aliases such as grok/grok-latest/grok-build. Runtime JSON is scope replacement, not patch; ops/pricing/manage-account-model-mapping-runtime.py calls the Go helper that exports this floor before diff/apply."
+      "rationale": "Single SSOT selector for account model_mapping. It applies runtime replacement scopes first, then derives explicit native mappings from served+priced+displayable catalogs, platform compatibility owners, Kiro presets, Bedrock defaults, and newapi channel display presets. Losing any branch silently breaks the all-platform explicit model_mapping policy or drops owner-declared compatibility aliases. Runtime JSON is scope replacement, not patch; ops/pricing/manage-account-model-mapping-runtime.py calls the Go helper that exports this floor before diff/apply."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_reconciler_test.go",
+      "must_contain": [
+        "TestAccountModelMappingForAccount_AntigravityLiveClaudeSubset",
+        "expectedAntigravityModelMappingForReconcilerTest",
+        "Antigravity floor must be the complete owner-derived projection",
+        "domain.IsAntigravityStructuralDeadModelMappingKey(from)",
+        "domain.IsAntigravityUnpricedModelMappingKey(from)"
+      ],
+      "rationale": "Independent complete-projection regression for the Antigravity account floor. The expected map is rebuilt from the servable catalog owner, DefaultAntigravityModelMapping, and the domain forbidden predicates, so dropping one required alias or key from the production floor fails without duplicating the current model list in the test or sentinel."
+    },
+    {
+      "path": "ops/antigravity/check-antigravity-account-config.py",
+      "must_contain": [
+        "GO_HELPER = [\"go\", \"run\", \"./cmd/account-model-mapping\", \"floors\", \"--runtime-json\", \"-\"]",
+        "def _antigravity_policy()",
+        "forbidden_model_mapping_keys",
+        "forbidden_model_mapping_prefixes",
+        "allow_empty_mapping=(label != PROD_TARGET[\"label\"])",
+        "active+schedulable but NOT bound"
+      ],
+      "must_not_contain": [
+        "ANTIGRAVITY_LIVE_CLAUDE_MAPPING = {",
+        "ANTIGRAVITY_CANONICAL_SCOPES = {",
+        "ANTIGRAVITY_STRUCTURAL_DEAD_MODEL_MAPPING_KEYS = {",
+        "ANTIGRAVITY_UNPRICED_MODEL_MAPPING_KEYS = {"
+      ],
+      "rationale": "Read-only Antigravity binding/config checker. Model mappings, group scopes, and forbidden policy must come from the Go account-model-mapping helper; Python owns only verdict mechanics and the independent active+schedulable account-group binding invariant. The negative anchors prevent a future edit from recreating a second model/scope list in Python."
+    },
+    {
+      "path": "ops/antigravity/test_check_antigravity_account_config.py",
+      "must_contain": [
+        "GoPolicyProjectionTest",
+        "test_checker_policy_matches_complete_go_owner_projection",
+        "test_edge_target_allows_only_empty_mapping_while_prod_enforces_floor",
+        "policy[\"mapping\"]",
+        "policy[\"forbidden_keys\"]",
+        "policy[\"forbidden_prefixes\"]"
+      ],
+      "rationale": "Independent complete-projection test for the Antigravity Python checker. It invokes the Go helper directly and compares every policy projection, so the checker cannot silently omit an owner key/scope while its behavior tests continue deriving samples from the same broken projection."
     },
     {
       "path": "backend/internal/domain/constants.go",
       "must_contain": [
         "var DefaultAntigravityModelMapping = map[string]string{",
-        "\"claude-opus-4-6\":",
-        "\"claude-sonnet-4-6\":",
         "antigravityStructuralDeadModelMappingKeys",
         "antigravityUnpricedModelMappingKeys",
         "func AntigravityStructuralDeadModelMappingKeys() []string",
         "func AntigravityUnpricedModelMappingKeys() []string",
         "func IsAntigravityStructuralDeadModelMappingKey("
       ],
-      "rationale": "DefaultAntigravityModelMapping is the compatibility base for Antigravity account mappings; the account model_mapping SSOT filters it through served+priced+displayable IDs and the structural-dead/unpriced predicates before an explicit ops apply persists account credentials.model_mapping. The #1265 live Claude subset (claude-sonnet-4-6 plus claude-opus-4-6[-thinking]) must remain explicit, while PR #921 structural-dead aliases and unpriced $0-risk models must remain machine-classified so post-release check/apply keeps persisted mappings clean."
+      "rationale": "DefaultAntigravityModelMapping is the compatibility owner for Antigravity account mappings; the account model_mapping SSOT filters it through served+priced+displayable IDs and the structural-dead/unpriced predicates before an explicit ops apply persists account credentials.model_mapping. The sentinel anchors owner and policy APIs rather than current dynamic model ids; complete projection coverage lives in account_model_mapping_reconciler_test.go."
+    },
+    {
+      "path": "backend/internal/domain/constants_test.go",
+      "must_contain": [
+        "TestAntigravityBlockedModelMappingKeyExports",
+        "TestAntigravityBlockedModelMappingPredicatesMatchOwners",
+        "antigravityStructuralDeadModelMappingKeys",
+        "antigravityUnpricedModelMappingKeys"
+      ],
+      "rationale": "Owner-derived exact projection and predicate coverage for Antigravity blocked mapping keys. Tests enumerate the package owners rather than repeat their current values, so owner refreshes require one data edit while a broken export or lookup predicate still fails mechanically."
     },
     {
       "path": "backend/migrations/tk_043_prune_antigravity_structural_dead_mapping.sql",
@@ -2123,17 +2174,31 @@
       "rationale": "Account model_mapping writes must not be wired into server startup/tick/settings fan-out. If an upstream merge reintroduces a provider or cleanup dependency here, deploys can overwrite admin UI/manual ops/runtime hotfix mappings without an operator-reviewed diff. The only live write path is ops/pricing/manage-account-model-mapping-runtime.py apply-accounts."
     },
     {
+      "path": ".github/workflows/deploy-stage0.yml",
+      "must_contain": [
+        "run: bash ops/stage0/deploy_via_ssm_bluegreen.sh \"$INPUT_TAG\" \"$INSTANCE_ID\" \"deploy-stage0 env=prod bluegreen\"",
+        "bash ops/stage0/post_deploy_smoke.sh",
+        "bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout"
+      ],
+      "must_not_contain": [
+        "manage-account-model-mapping-runtime.py"
+      ],
+      "rationale": "Generic prod deploy and rollback share deploy-stage0.yml, so they must remain independent of live account model_mapping convergence and target-tag Go-helper availability. Image replacement plus the existing post-deploy gateway smoke and SSOT display canary are the deployment acceptance path. This is a structural negative contract, not a behavior test: wiring any account model_mapping runtime subcommand into this workflow would make configuration drift or an old rollback tag block recovery."
+    },
+    {
       "path": "ops/pricing/manage-account-model-mapping-runtime.py",
       "must_contain": [
         "APPLY_CONFIRM = \"yes-apply-account-model-mapping\"",
         "GO_HELPER = [\"go\", \"run\", \"./cmd/account-model-mapping\", \"floors\", \"--runtime-json\", \"-\"]",
+        "def cmd_check_accounts(",
         "def cmd_release_gate(",
+        "include_edges=False,",
         "def cmd_apply_accounts(",
         "forbidden_model_mapping_keys",
         "\"account_bulk_changed\"",
         "\"group_changed\""
       ],
-      "rationale": "Explicit ops apply surface and pre-deploy release gate for account model_mapping. The script must call the Go SSOT helper for desired mappings/policy metadata, fail releases before image swap when prod accounts lag the checkout's floor, require a human confirmation phrase before writes, update only model_mapping/group scopes, and enqueue scheduler outbox events so live snapshots refresh. Dropping any of these anchors either forks the SSOT into Python or makes reviewed apply unsafe/no-op."
+      "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script must call the Go SSOT helper for desired mappings and forbidden policy metadata, keep post-release check-accounts read-only, scope release-gate to explicit modelops/model activation, require a human confirmation phrase before writes, update only model_mapping/group scopes, and enqueue scheduler outbox events so live snapshots refresh. Dropping any of these anchors either forks the SSOT into Python or makes reviewed diagnostics/apply unsafe or ineffective; generic deploy wiring is prohibited by the workflow sentinel above."
     },
     {
       "path": "backend/cmd/account-model-mapping/main.go",

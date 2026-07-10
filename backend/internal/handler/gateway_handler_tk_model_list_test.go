@@ -5,6 +5,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -69,13 +70,18 @@ func TestTkAntigravityDefaultModels_ScopeIsAntigravityOnly(t *testing.T) {
 }
 
 func TestTkAntigravityDefaultModels_FilterDropsUnreachable(t *testing.T) {
+	ctx := context.Background()
 	repo := &capturedRepo2{rows: map[string]service.AvailabilityState{}}
 	availSvc := service.NewPricingAvailabilityService(repo, time.Now)
+	ownerIDs := service.ServableClientFacingIDs(ctx, service.PlatformAntigravity, nil, nil)
+	targetID, survivorID := firstTwoIDsForHandlerTest(t, ownerIDs)
 
-	const targetID = "gemini-2.5-flash"
+	baseline := modelIDsFromAntigravityModels((&GatewayHandler{}).tkAntigravityDefaultModels(ctx))
+	require.Contains(t, baseline, targetID, "SSOT-derived prune target must exist before availability changes")
+	require.Contains(t, baseline, survivorID, "SSOT-derived survivor must exist before availability changes")
 
 	// Drive target model to unreachable
-	availSvc.RecordOutcome(context.Background(), service.AvailabilityOutcome{
+	availSvc.RecordOutcome(ctx, service.AvailabilityOutcome{
 		Platform:           service.PlatformAntigravity,
 		ModelID:            targetID,
 		Success:            false,
@@ -85,15 +91,14 @@ func TestTkAntigravityDefaultModels_FilterDropsUnreachable(t *testing.T) {
 
 	// FilterClientFacing requires a non-nil pricing service (pricing=nil → fail-open, skip availability check too).
 	// Use a PricingCatalogService with all antigravity models priced so the availability filter runs.
-	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs(service.ServableClientFacingIDs(context.Background(), service.PlatformAntigravity, nil, nil)))
+	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs(ownerIDs))
 
 	filter := service.NewModelListFilter(pricingSvc, availSvc)
 	h := &GatewayHandler{tkModelListFilter: filter}
 
-	result := h.tkAntigravityDefaultModels(context.Background())
-	for _, m := range result {
-		require.NotEqual(t, targetID, m.ID, "unreachable model must not appear in output")
-	}
+	resultIDs := modelIDsFromAntigravityModels(h.tkAntigravityDefaultModels(ctx))
+	require.NotContains(t, resultIDs, targetID, "unreachable model must not appear in output")
+	require.Contains(t, resultIDs, survivorID, "an unaffected SSOT sibling must remain in output")
 }
 
 func TestTkAntigravityDefaultModels_NilFilterIsFailOpen(t *testing.T) {
@@ -185,11 +190,13 @@ func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
 	repo := &capturedRepo2{rows: map[string]service.AvailabilityState{}}
 	availSvc := service.NewPricingAvailabilityService(repo, time.Now)
 
-	// Target an id that IS in the servable allowlist, so the structurally-gone
-	// prune is genuinely exercised.
 	ctx := context.Background()
 	servableGemini := service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)
-	targetID := firstIDWithPrefixForHandlerTest(t, servableGemini, "gemini-")
+	targetID, survivorID := firstTwoIDsForHandlerTest(t, servableGemini)
+	baseline := modelNamesFromGeminiModels((&GatewayHandler{}).tkGeminiFallbackModelsList(ctx).Models)
+	require.Contains(t, baseline, "models/"+targetID, "SSOT-derived prune target must exist before availability changes")
+	require.Contains(t, baseline, "models/"+survivorID, "SSOT-derived survivor must exist before availability changes")
+
 	availSvc.RecordOutcome(context.Background(), service.AvailabilityOutcome{
 		Platform:           service.PlatformGemini,
 		ModelID:            targetID,
@@ -205,11 +212,11 @@ func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
 	h := &GatewayHandler{tkModelListFilter: filter}
 
 	result := h.tkGeminiFallbackModelsList(context.Background())
-	for _, m := range result.Models {
-		require.NotEqual(t, "models/"+targetID, m.Name,
-			"structurally-gone gemini-2.5-flash must not appear in fallback response")
-	}
-	require.True(t, len(result.Models) > 0, "reachable+priced siblings (e.g. gemini-2.5-pro) must remain")
+	resultNames := modelNamesFromGeminiModels(result.Models)
+	require.NotContains(t, resultNames, "models/"+targetID,
+		"structurally-gone model must not appear in fallback response")
+	require.Contains(t, resultNames, "models/"+survivorID,
+		"an unaffected SSOT sibling must remain in fallback response")
 }
 
 // buildPricingJSON builds a minimal LiteLLM-shaped pricing JSON string where
@@ -273,15 +280,12 @@ func firstIDOutsideSetForHandlerTest(t *testing.T, candidates []string, excluded
 	return ""
 }
 
-func firstIDWithPrefixForHandlerTest(t *testing.T, candidates []string, prefix string) string {
+func firstTwoIDsForHandlerTest(t *testing.T, candidates []string) (string, string) {
 	t.Helper()
-	for _, id := range candidates {
-		if strings.HasPrefix(id, prefix) {
-			return id
-		}
-	}
-	require.FailNow(t, "expected at least one candidate with prefix %q", prefix)
-	return ""
+	require.GreaterOrEqual(t, len(candidates), 2, "SSOT sample source must contain a target and survivor")
+	sorted := append([]string{}, candidates...)
+	sort.Strings(sorted)
+	return sorted[0], sorted[1]
 }
 
 // buildPricingJSONFromIDs builds a pricing JSON where each provided model ID

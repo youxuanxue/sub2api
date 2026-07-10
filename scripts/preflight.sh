@@ -728,21 +728,21 @@ else
     echo "  ok: overlay-runtime hot-push tool selftest"
 fi
 
-# ---- sub2api: account model_mapping release gate selftest -------------------
-# The prod deploy workflow hard-gates account credentials.model_mapping against
-# the Go SSOT before swapping the image. Keep the pure diff/render logic under
-# preflight so a new catalog model cannot silently bypass the release gate.
+# ---- sub2api: account model_mapping tool/SSOT contract selftest -------------
+# Keep the pure Go-floor/policy-metadata parsing and diff/render logic under
+# preflight. This validates the modelops tool contract independently of whether
+# a caller uses check-accounts or an explicit model-activation precheck.
 echo ""
-echo "=== sub2api: account model_mapping release gate selftest ==="
+echo "=== sub2api: account model_mapping tool/SSOT contract selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for account model_mapping release gate selftest)"
+    echo "  FAIL: python3 not on PATH (required for account model_mapping tool/SSOT contract selftest)"
     errors=$((errors + 1))
 elif ! python3 ./ops/pricing/manage-account-model-mapping-runtime.py --selftest >/dev/null 2>&1; then
-    echo "  FAIL: account model_mapping release gate selftest"
+    echo "  FAIL: account model_mapping tool/SSOT contract selftest"
     echo "        — run: python3 ops/pricing/manage-account-model-mapping-runtime.py --selftest"
     errors=$((errors + 1))
 else
-    echo "  ok: account model_mapping release gate selftest"
+    echo "  ok: account model_mapping tool/SSOT contract selftest"
 fi
 
 # ---- sub2api: frontend TK sentinel registry ---------------------------------

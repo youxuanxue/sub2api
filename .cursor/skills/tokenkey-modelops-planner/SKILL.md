@@ -179,7 +179,11 @@ cd backend && go test -tags=unit ./internal/service/ -run PublicCatalog
 
 用途：把已确认 **可服务、已定价、可展示** 的账号 `model_mapping` SSOT 作为 runtime
 replacement 写入 `settings.tk_account_model_mapping_runtime`，再用只读 `release-gate` /
-`check-accounts` 对 prod 生成 diff（默认 prod only；edge 空 mapping 不纳入门禁，需 `--include-edges` 才查 edge）。`release-gate` 是待发布 tag 的 floor 覆盖检查：live prod 可以为预热/回滚保留额外 mapping，但不能少于该 tag 的 Go SSOT，也不能包含该 tag 明确 forbidden 的 key/prefix。账号和 Antigravity group 的持久化写入只通过
+`check-accounts` 对 prod 生成 diff（默认 prod only；edge 空 mapping 不纳入日常检查，需
+`--include-edges` 才查 edge）。`release-gate` 只用于显式 modelops / 模型激活预检：它检查
+live prod 是否覆盖所选 checkout 的 Go SSOT floor，并允许预热/回滚额外 mapping，但拒绝
+缺 key、错 target 或该 checkout 明确 forbidden 的 key/prefix。generic binary deploy 与
+rollback 不调用也不等待它。账号和 Antigravity group 的持久化写入只通过
 `apply-accounts --confirm yes-apply-account-model-mapping` 执行；服务进程启动、周期 tick
 和 `settings_updated` fan-out 都不会批量覆盖账号配置。该文件是 **scope replacement**，
 不是增量 patch：写了某个平台或 newapi channel_type，就必须给出该 scope 的完整期望
@@ -194,13 +198,13 @@ python3 ops/pricing/manage-account-model-mapping-runtime.py check --file /tmp/ac
 # 人审 JSON + check 输出后再写 prod + deployable edge settings（不改 accounts）：
 python3 ops/pricing/manage-account-model-mapping-runtime.py sync-runtime --file /tmp/account-model-mapping-runtime.json
 
-# 发版前硬门禁 / 热更新后只读 diff（默认 prod only）：
+# 显式模型激活前的 floor 覆盖预检 / 热更新后的严格 diff（默认 prod only）：
 python3 ops/pricing/manage-account-model-mapping-runtime.py release-gate
 python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json
 
 # 人审 diff 后，显式覆盖账号 model_mapping / Antigravity group scopes：
 python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts \
-  --target all-deployable-and-prod \
+  --target prod \
   --confirm yes-apply-account-model-mapping
 
 # 回到编译期 floor（prod + deployable edges，也需人审）：
@@ -209,9 +213,10 @@ python3 ops/pricing/manage-account-model-mapping-runtime.py clear-runtime
 
 新增模型的安全顺序：先确认 live probe / pricing / display gate，再更新 runtime JSON，
 `sync-runtime` 后跑 `check-accounts` 生成 diff，最后经人审 `apply-accounts` 预热 prod
-账号物化层；随后发带同一 Go floor 的 tag。旧镜像不会因为预热 mapping 自动公开新模型，
-新镜像也不会在账号还不能路由时上线。如果这是长期产品面，随后把同样的 mapping 折回
-Go floor 或 `tk_served_models.json`，避免 runtime 长期 shadow 编译期事实。
+账号物化层；本次意图确为激活该 model surface 时，再显式跑 `release-gate` 并发布带同一
+Go floor 的 tag。旧镜像不会因为预热 mapping 自动公开新模型；通用 hotfix deploy 与
+rollback 始终独立于这条模型激活链。如果这是长期产品面，随后把同样的 mapping 折回 Go
+floor 或 `tk_served_models.json`，避免 runtime 长期 shadow 编译期事实。
 
 ---
 

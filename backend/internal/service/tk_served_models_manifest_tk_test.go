@@ -1,25 +1,84 @@
 package service
 
-import "testing"
+import (
+	_ "embed"
+	"encoding/json"
+	"reflect"
+	"sort"
+	"testing"
+)
 
-func TestIsTkCuratedNewAPIModelListed(t *testing.T) {
-	listed := firstServedManifestKeyForTest(t, loadTkServedModelsManifestIDs())
-	if !isTkCuratedNewAPIModelListed(listed) {
-		t.Fatalf("manifest-listed model %q must be recognized", listed)
-	}
-	if isTkCuratedNewAPIModelListed("tk-not-in-served-models-manifest-zzz") {
-		t.Fatal("unknown model must not be manifest-listed")
-	}
+// Embed the manifest independently from the production loader so the test
+// derives its expectations from the declarative owner, not from a projection
+// produced by the code under test.
+//
+//go:embed tk_served_models.json
+var tkServedModelsOwnerRawForTest []byte
+
+type tkServedModelsOwnerEntryForTest struct {
+	ModelID     string `json:"model_id"`
+	ChannelType int    `json:"channel_type"`
+	Display     bool   `json:"display"`
 }
 
-func TestIsTkCuratedNewAPIModelDisplayed(t *testing.T) {
+type tkServedModelsOwnerProjectionForTest struct {
+	listedIDs           map[string]struct{}
+	displayIDs          map[string]struct{}
+	IDsByChannel        map[int][]string
+	displayIDsByChannel map[int][]string
+	channelTypes        []int
+}
+
+func TestTkServedModelsManifestProjectionsMatchRawOwner(t *testing.T) {
+	want := loadTkServedModelsOwnerProjectionForTest(t)
 	loadTkServedModelsManifest()
-	displayed := firstServedManifestKeyForTest(t, tkServedModelsManifestDisplayIDs)
-	if !isTkCuratedNewAPIModelDisplayed(displayed) {
-		t.Fatalf("display=true manifest row %q must be public-display eligible", displayed)
+
+	requireServedManifestProjectionEqualForTest(t, "listed IDs", want.listedIDs, tkServedModelsManifestIDs)
+	requireServedManifestProjectionEqualForTest(t, "display IDs", want.displayIDs, tkServedModelsManifestDisplayIDs)
+	requireServedManifestProjectionEqualForTest(t, "IDs by channel", want.IDsByChannel, tkServedModelsManifestIDsByChannelType)
+	requireServedManifestProjectionEqualForTest(t, "display IDs by channel", want.displayIDsByChannel, tkServedModelsManifestDisplayIDsByChannelType)
+	requireServedManifestProjectionEqualForTest(t, "channel types", want.channelTypes, NewAPIManifestPresetChannelTypes())
+
+	for modelID := range want.listedIDs {
+		if !isTkCuratedNewAPIModelListed(modelID) {
+			t.Errorf("raw-owner model %q must be listed", modelID)
+		}
+		_, wantDisplayed := want.displayIDs[modelID]
+		if got := isTkCuratedNewAPIModelDisplayed(modelID); got != wantDisplayed {
+			t.Errorf("display projection for %q = %t, want %t from raw owner", modelID, got, wantDisplayed)
+		}
 	}
-	if isTkCuratedNewAPIModelDisplayed("tk-not-in-served-models-manifest-zzz") {
-		t.Fatal("unlisted models must not be public-display eligible")
+
+	for _, channelType := range want.channelTypes {
+		requireServedManifestProjectionEqualForTest(t,
+			"channel preset", want.IDsByChannel[channelType], tkServedModelsManifestPresetIDsByChannelType(channelType))
+		requireServedManifestProjectionEqualForTest(t,
+			"channel display preset", want.displayIDsByChannel[channelType], tkServedModelsManifestDisplayPresetIDsByChannelType(channelType))
+	}
+
+	for _, modelID := range []string{
+		"tk-not-in-served-models-manifest-zzz", // unknown
+		"deepseek-v3-2-251201",                 // priced residue, never served
+		"glm-4-7-251222",                       // retired VolcEngine duplicate
+		"glm-4-32b-0414-128k",                  // withdrawn GLM SKU
+	} {
+		if isTkCuratedNewAPIModelListed(modelID) {
+			t.Errorf("unknown/retired model %q must not be manifest-listed", modelID)
+		}
+		if isTkCuratedNewAPIModelDisplayed(modelID) {
+			t.Errorf("unknown/retired model %q must not be public-display eligible", modelID)
+		}
+	}
+
+	const unknownChannelType = 999999
+	if _, exists := want.IDsByChannel[unknownChannelType]; exists {
+		t.Fatalf("test's unknown channel_type %d unexpectedly exists in the raw owner", unknownChannelType)
+	}
+	if got := tkServedModelsManifestPresetIDsByChannelType(unknownChannelType); got != nil {
+		t.Errorf("unknown channel_type preset = %v, want nil", got)
+	}
+	if got := tkServedModelsManifestDisplayPresetIDsByChannelType(unknownChannelType); got != nil {
+		t.Errorf("unknown channel_type display preset = %v, want nil", got)
 	}
 }
 
@@ -34,38 +93,57 @@ func TestIsNewAPILongTailCatalogVendor(t *testing.T) {
 	}
 }
 
-func TestTkServedModelsManifestPresetIDsByChannelType(t *testing.T) {
-	channelTypes := NewAPIManifestPresetChannelTypes()
-	if len(channelTypes) == 0 {
-		t.Fatal("manifest must expose at least one channel_type preset")
+func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerProjectionForTest {
+	t.Helper()
+	var doc struct {
+		Entries map[string]tkServedModelsOwnerEntryForTest `json:"entries"`
 	}
-	channelType := channelTypes[0]
-	preset := tkServedModelsManifestPresetIDsByChannelType(channelType)
-	if len(preset) == 0 {
-		t.Fatalf("manifest channel_type %d must have presets", channelType)
+	if err := json.Unmarshal(tkServedModelsOwnerRawForTest, &doc); err != nil {
+		t.Fatalf("parse raw served-models owner: %v", err)
 	}
-	if !containsString(preset, preset[0]) {
-		t.Fatalf("manifest preset %q must be returned for channel_type %d", preset[0], channelType)
+	if len(doc.Entries) == 0 {
+		t.Fatal("raw served-models owner must contain entries")
 	}
-	if tkServedModelsManifestPresetIDsByChannelType(999999) != nil {
-		t.Fatal("unknown channel_type must return nil preset")
-	}
-}
 
-func containsString(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
+	out := tkServedModelsOwnerProjectionForTest{
+		listedIDs:           make(map[string]struct{}, len(doc.Entries)),
+		displayIDs:          make(map[string]struct{}, len(doc.Entries)),
+		IDsByChannel:        make(map[int][]string),
+		displayIDsByChannel: make(map[int][]string),
+	}
+	for key, entry := range doc.Entries {
+		if entry.ModelID == "" {
+			t.Fatalf("raw owner entry %q has an empty model_id", key)
+		}
+		if entry.ChannelType <= 0 {
+			t.Fatalf("raw owner entry %q has invalid channel_type %d", key, entry.ChannelType)
+		}
+		if _, duplicate := out.listedIDs[entry.ModelID]; duplicate {
+			t.Fatalf("raw owner declares model_id %q more than once", entry.ModelID)
+		}
+		out.listedIDs[entry.ModelID] = struct{}{}
+		out.IDsByChannel[entry.ChannelType] = append(out.IDsByChannel[entry.ChannelType], entry.ModelID)
+		if entry.Display {
+			out.displayIDs[entry.ModelID] = struct{}{}
+			out.displayIDsByChannel[entry.ChannelType] = append(out.displayIDsByChannel[entry.ChannelType], entry.ModelID)
 		}
 	}
-	return false
+	for channelType, ids := range out.IDsByChannel {
+		sort.Strings(ids)
+		out.IDsByChannel[channelType] = ids
+		out.channelTypes = append(out.channelTypes, channelType)
+	}
+	for channelType, ids := range out.displayIDsByChannel {
+		sort.Strings(ids)
+		out.displayIDsByChannel[channelType] = ids
+	}
+	sort.Ints(out.channelTypes)
+	return out
 }
 
-func firstServedManifestKeyForTest(t *testing.T, m map[string]struct{}) string {
+func requireServedManifestProjectionEqualForTest(t *testing.T, name string, want, got any) {
 	t.Helper()
-	for k := range m {
-		return k
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("%s mismatch\nwant: %#v\n got: %#v", name, want, got)
 	}
-	t.Fatal("expected non-empty manifest set")
-	return ""
 }

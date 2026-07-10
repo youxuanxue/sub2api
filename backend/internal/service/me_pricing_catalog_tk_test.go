@@ -1146,6 +1146,28 @@ func firstNIDsWithPrefixForMePricingTest(t *testing.T, ids []string, prefix stri
 	return nil
 }
 
+func firstNIDsWithoutSubstringsForMePricingTest(t *testing.T, ids []string, excluded []string, n int) []string {
+	t.Helper()
+	var out []string
+	for _, id := range ids {
+		allowed := true
+		for _, needle := range excluded {
+			if strings.Contains(id, needle) {
+				allowed = false
+				break
+			}
+		}
+		if allowed {
+			out = append(out, id)
+			if len(out) == n {
+				return out
+			}
+		}
+	}
+	require.FailNow(t, "expected at least %d ids without substrings %v", n, excluded)
+	return nil
+}
+
 func firstIDContainingForMePricingTest(t *testing.T, ids []string, needle string) string {
 	t.Helper()
 	for _, id := range ids {
@@ -1386,9 +1408,7 @@ func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 	k1 := mkKeyForMe(1, 16, "grok-key", ptrI(60))
 	grokIDs := supportedCatalogModelIDsForPlatform(PlatformGrok)
 	sort.Strings(grokIDs)
-	chatIDs := []string{"grok-4.3", "grok-code-fast-1"}
-	require.Contains(t, grokIDs, chatIDs[0], "grok chat sentinel must stay in the Grok SSOT")
-	require.Contains(t, grokIDs, chatIDs[1], "grok-build alias sentinel must stay in the Grok SSOT")
+	chatIDs := firstNIDsWithoutSubstringsForMePricingTest(t, grokIDs, []string{"image", "video"}, 2)
 	imageID := firstIDContainingForMePricingTest(t, grokIDs, "image")
 	videoID := firstIDContainingForMePricingTest(t, grokIDs, "video")
 	// channel_type=0, nil whitelist → unrestricted native grok OAuth account.

@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
 """TokenKey post-rollout antigravity config check (read-only).
 
-Verifies the Antigravity explicit model_mapping policy across all deployable
-edges + prod, on BOTH surfaces managed by the reviewed account model_mapping
-ops apply flow:
+Verifies Antigravity account/group configuration across prod and all deployable
+edges. Model and scope policy is loaded from the Go account-model-mapping helper;
+this checker owns only the independent account-to-group binding invariant:
 
-  1. **accounts** — every ``platform=antigravity`` account carries an explicit
-     ``credentials.model_mapping`` for the live Antigravity Gemini set plus the
-     PR #1265 Claude subset (``claude-sonnet-4-6`` and
-     ``claude-opus-4-6[-thinking]``), with no non-live ``claude-*``,
-     ``gpt-oss-*``, PR #921 structural-dead aliases, or unpriced $0-risk models,
-     AND any active+schedulable account is bound to an antigravity group
-     (account_groups).
-  2. **groups** — every active ``platform=antigravity`` group carries explicit
-     ``supported_model_scopes`` (exactly ``[claude, gemini_text, gemini_image]``),
-     so ``/antigravity/v1/models`` exposes only the scope families this platform
-     can actually serve.
+  1. **accounts** — prod accounts cover the complete Go-SSOT mapping floor
+     with correct targets and no Go-SSOT forbidden key/prefix. On every target, any
+     active+schedulable account is bound to an antigravity group. Edge account
+     mappings remain passthrough-empty and are not treated as drift.
+  2. **groups** — every active ``platform=antigravity`` group carries exactly
+     the Go-SSOT ``supported_model_scopes`` projection.
 
 Account mappings and group scopes are not self-healed by server startup/ticks;
 operators review the diff and then run the explicit apply flow. The group
@@ -23,23 +18,22 @@ binding is a one-time provisioning step the apply flow does NOT infer, so this
 tool remains the safety net for it. This tool is the post-rollout
 *verification*.
 
-A **violation** is any antigravity account whose ``model_mapping`` is null/empty
-(all platforms now use explicit mappings) or omits the live Claude subset, or
-contains a non-live ``claude-*`` key, any ``gpt-oss-*`` key, a PR #921
-structural-dead alias, or an unpriced $0-risk key; OR an active+schedulable
-account with no antigravity-group binding (account_groups missing → scheduler
-"No available accounts" 429: looks ready but silently never serves); OR any
-active antigravity group whose ``supported_model_scopes`` is empty/unrestricted
-or not exactly the live Antigravity scope set.
+A **violation** is a prod antigravity account whose ``model_mapping`` is
+null/empty, misses or misroutes the Go-SSOT floor, or contains a Go-SSOT
+forbidden key/prefix; OR, on any target, an
+active+schedulable account with no antigravity-group binding; OR any active
+antigravity group whose scopes do not equal the Go-SSOT projection.
 
 Exit codes (mirrors the anthropic post-release check): ``0`` = all configured
 (green); ``1`` = violations found (yellow, non-blocking at rollout); ``2`` = could
-not run (yellow). Read-only - never mutates. stdlib-only; reuses the shared
-``ops/stage0`` routing + SSM identity helpers (single source for the edge matrix).
+not run (yellow). Read-only - never mutates. Python has no third-party
+dependencies; the Go helper/toolchain and source checkout are required. Routing
+and SSM identity reuse the shared ``ops/stage0`` helpers.
 """
 from __future__ import annotations
 
 import argparse
+import functools
 import importlib.util
 import json
 import pathlib
@@ -48,6 +42,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+GO_HELPER = ["go", "run", "./cmd/account-model-mapping", "floors", "--runtime-json", "-"]
 
 # prod is pinned (not an entry in the edge matrix), same as manage-anthropic-config.py.
 PROD_TARGET = {"region": "us-east-1", "stack": "tokenkey-prod-stage0", "label": "prod"}
@@ -74,30 +69,6 @@ ANTIGRAVITY_GROUPS_SQL = (
     "FROM groups WHERE platform = 'antigravity' AND status = 'active' AND deleted_at IS NULL;"
 )
 
-# Canonical Antigravity group scopes — mirrors the account model_mapping SSOT.
-ANTIGRAVITY_CANONICAL_SCOPES = {"claude", "gemini_text", "gemini_image"}
-
-ANTIGRAVITY_LIVE_CLAUDE_MAPPING = {
-    "claude-sonnet-4-6": "claude-sonnet-4-6",
-    "claude-opus-4-6": "claude-opus-4-6-thinking",
-    "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
-}
-
-ANTIGRAVITY_STRUCTURAL_DEAD_MODEL_MAPPING_KEYS = {
-    "gemini-2.5-flash-image-preview",
-    "gemini-3-flash-preview",
-    "gemini-3-pro-high",
-    "gemini-3-pro-image-preview",
-    "gemini-3-pro-low",
-    "gemini-3-pro-preview",
-    "gemini-3.1-pro-high",
-    "gemini-3.1-pro-preview",
-}
-
-ANTIGRAVITY_UNPRICED_MODEL_MAPPING_KEYS = {
-    "tab_flash_lite_preview",
-}
-
 # ops-sql-coverage gate: ssm_run_sql ships SQL over SSM, it does not build it.
 SELF_CHECK_EXEMPT: dict[str, str] = {
     "ssm_run_sql": "executes SQL over SSM, does not build it",
@@ -115,6 +86,42 @@ def iter_self_check_sql() -> list[tuple[str, str]]:
 def fail(msg: str) -> None:
     print(f"error: {msg}", file=sys.stderr)
     raise SystemExit(2)
+
+
+@functools.lru_cache(maxsize=1)
+def _antigravity_policy() -> dict:
+    proc = subprocess.run(
+        GO_HELPER,
+        cwd=REPO_ROOT / "backend",
+        input="",
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if proc.returncode != 0:
+        fail("Go account model_mapping SSOT helper failed: " + (proc.stderr or proc.stdout).strip()[:1600])
+    try:
+        doc = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        fail(f"Go account model_mapping SSOT helper emitted invalid JSON: {e}")
+
+    mapping = (doc.get("platforms") or {}).get("antigravity")
+    scopes = doc.get("antigravity_group_scopes")
+    if not isinstance(mapping, dict) or not mapping:
+        fail("Go account model_mapping SSOT helper omitted antigravity platform mapping")
+    if not isinstance(scopes, list) or not scopes:
+        fail("Go account model_mapping SSOT helper omitted antigravity group scopes")
+    return {
+        "mapping": mapping,
+        "scopes": {str(scope).strip() for scope in scopes if str(scope).strip()},
+        "forbidden_keys": set((doc.get("forbidden_model_mapping_keys") or {}).get("antigravity") or []),
+        "forbidden_prefixes": tuple(
+            str(prefix)
+            for prefix in ((doc.get("forbidden_model_mapping_prefixes") or {}).get("antigravity") or [])
+            if str(prefix)
+        ),
+    }
 
 
 def _load(rel: str, name: str):
@@ -173,12 +180,12 @@ def ssm_run_sql(region: str, instance_id: str, sql: str, comment: str) -> str:
     return (inv.get("StandardOutputContent") or "").strip()
 
 
-def _account_violation(row: dict) -> str | None:
+def _account_violation(row: dict, *, allow_empty_mapping: bool = False) -> str | None:
     """Return a human reason if the account is misconfigured, else None.
 
     Two independent checks (both reported if both fail):
-      1. explicit live model_mapping (only PR #1265 Claude keys, no gpt-oss or
-         unpriced $0-risk keys, non-empty).
+      1. explicit live model_mapping (complete Go-SSOT floor coverage and
+         forbidden key/prefix policy, non-empty; non-forbidden extras allowed).
       2. group binding — an active+schedulable account MUST be bound to an
          antigravity group via account_groups, else the scheduler finds no
          account for that group and fast-fails every request with
@@ -188,35 +195,39 @@ def _account_violation(row: dict) -> str | None:
          the only safety net.
     """
     reasons: list[str] = []
-
     mm = row.get("model_mapping")
-    if not mm or not isinstance(mm, dict):
-        reasons.append("empty/missing model_mapping (all platforms must be explicit)")
+    if allow_empty_mapping:
+        if mm is not None and mm != {}:
+            reasons.append("edge model_mapping must remain empty passthrough")
     else:
-        missing_live_claude = sorted(k for k in ANTIGRAVITY_LIVE_CLAUDE_MAPPING if k not in mm)
-        if missing_live_claude:
-            reasons.append("missing live Claude keys: " + ", ".join(missing_live_claude))
-        bad_live_targets = sorted(
-            k for k, v in ANTIGRAVITY_LIVE_CLAUDE_MAPPING.items()
-            if k in mm and mm.get(k) != v
-        )
-        if bad_live_targets:
-            reasons.append("bad live Claude remaps: " + ", ".join(
-                f"{k}->{mm.get(k)!r} want {ANTIGRAVITY_LIVE_CLAUDE_MAPPING[k]!r}" for k in bad_live_targets
-            ))
-        leaked = sorted(
-            k for k in mm
-            if (k.startswith("claude-") and k not in ANTIGRAVITY_LIVE_CLAUDE_MAPPING)
-            or k.startswith("gpt-oss-")
-        )
-        if leaked:
-            reasons.append("serves unsupported models: " + ", ".join(leaked))
-        stale = sorted(k for k in mm if k in ANTIGRAVITY_STRUCTURAL_DEAD_MODEL_MAPPING_KEYS)
-        if stale:
-            reasons.append("contains structural-dead aliases: " + ", ".join(stale))
-        unpriced = sorted(k for k in mm if k in ANTIGRAVITY_UNPRICED_MODEL_MAPPING_KEYS)
-        if unpriced:
-            reasons.append("contains unpriced $0-risk models: " + ", ".join(unpriced))
+        policy = _antigravity_policy()
+        expected_mapping = policy["mapping"]
+        forbidden_keys = policy["forbidden_keys"]
+        forbidden_prefixes = policy["forbidden_prefixes"]
+
+        if not mm or not isinstance(mm, dict):
+            reasons.append("empty/missing prod model_mapping")
+        else:
+            missing_floor_keys = sorted(k for k in expected_mapping if k not in mm)
+            if missing_floor_keys:
+                reasons.append("missing Go SSOT floor keys: " + ", ".join(missing_floor_keys))
+            bad_floor_targets = sorted(
+                k for k, v in expected_mapping.items()
+                if k in mm and mm.get(k) != v
+            )
+            if bad_floor_targets:
+                reasons.append("bad Go SSOT floor remaps: " + ", ".join(
+                    f"{k}->{mm.get(k)!r} want {expected_mapping[k]!r}" for k in bad_floor_targets
+                ))
+            leaked = sorted(
+                k for k in mm
+                if any(k.startswith(prefix) for prefix in forbidden_prefixes)
+            )
+            if leaked:
+                reasons.append("serves unsupported models: " + ", ".join(leaked))
+            forbidden = sorted(k for k in mm if k in forbidden_keys)
+            if forbidden:
+                reasons.append("contains forbidden model_mapping keys from Go SSOT: " + ", ".join(forbidden))
 
     if row.get("status") == "active" and row.get("schedulable") and not row.get("bound"):
         reasons.append("active+schedulable but NOT bound to any antigravity group "
@@ -230,12 +241,13 @@ def _group_violation(row: dict) -> str | None:
     scopes = row.get("scopes")
     if not scopes or not isinstance(scopes, list):
         return "empty/missing supported_model_scopes (unrestricted on /models + usage guide)"
+    canonical_scopes = _antigravity_policy()["scopes"]
     got = {str(s).strip() for s in scopes}
-    if got == ANTIGRAVITY_CANONICAL_SCOPES:
+    if got == canonical_scopes:
         return None
     parts = []
-    extra = sorted(got - ANTIGRAVITY_CANONICAL_SCOPES)
-    missing = sorted(ANTIGRAVITY_CANONICAL_SCOPES - got)
+    extra = sorted(got - canonical_scopes)
+    missing = sorted(canonical_scopes - got)
     if extra:
         parts.append("unexpected: " + ", ".join(extra))
     if missing:
@@ -255,7 +267,7 @@ def _check_target(label: str, region: str, instance_id: str) -> list[dict]:
     bad: list[dict] = []
     acc_out = ssm_run_sql(region, instance_id, ANTIGRAVITY_ACCOUNTS_SQL, f"antigravity-account-check {label}")
     for r in _parse_rows(label, acc_out):
-        reason = _account_violation(r)
+        reason = _account_violation(r, allow_empty_mapping=(label != PROD_TARGET["label"]))
         if reason:
             bad.append({"target": label, "kind": "account", "id": r.get("id"), "name": r.get("name"), "reason": reason})
     grp_out = ssm_run_sql(region, instance_id, ANTIGRAVITY_GROUPS_SQL, f"antigravity-group-check {label}")
@@ -287,6 +299,7 @@ def main() -> int:
     ap.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     args = ap.parse_args()
 
+    _antigravity_policy()  # Load the Go SSOT once before target workers fan out.
     targets = _resolve_targets(args.skip_prod)
     violations: list[dict] = []
     with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
