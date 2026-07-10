@@ -41,7 +41,7 @@ func sparkModelVariants() []string {
 
 func isNonDisplaySparkRoutingAlias(alias string) bool {
 	switch alias {
-	case "gpt-5.3", "gpt-5.3-none", "gpt-5.3-low", "gpt-5.3-medium", "gpt-5.3-high", "gpt-5.3-xhigh":
+	case "gpt-5.3", "gpt-5.3-none", "gpt-5.3-low", "gpt-5.3-medium", "gpt-5.3-high", "gpt-5.3-xhigh", "gpt-5.3-chat-latest":
 		return true
 	}
 	return strings.HasPrefix(alias, "gpt-5.3-codex") && !strings.HasPrefix(alias, "gpt-5.3-codex-spark") ||

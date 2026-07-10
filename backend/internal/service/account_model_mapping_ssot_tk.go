@@ -283,11 +283,17 @@ func grokAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogSe
 	displaySet := stringSet(displayIDs)
 	out := identityModelMapping(displayIDs)
 	for from, to := range xai.DefaultModelMapping() {
+		if _, publicListed := displaySet[from]; publicListed {
+			continue
+		}
 		if _, ok := displaySet[to]; ok {
 			out[from] = to
 		}
 	}
 	for from, to := range tkGrokCompatibilityAliases {
+		if _, publicListed := displaySet[from]; publicListed {
+			continue
+		}
 		if _, ok := displaySet[to]; ok {
 			out[from] = to
 		}

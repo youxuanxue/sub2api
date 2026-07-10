@@ -20,6 +20,13 @@ PY
   exit 0
 }
 
+if [[ ! "$ACCOUNT_ID" =~ ^[0-9]+$ ]]; then
+  fail_json "ACCOUNT_ID must be numeric"
+fi
+if [[ ! "$MAX_TOKENS" =~ ^[0-9]+$ ]] || [[ "$MAX_TOKENS" -lt 1 ]]; then
+  fail_json "MAX_TOKENS must be a positive integer"
+fi
+
 psql_err="$(mktemp)"
 if ! row="$("${PSQL[@]}" -c "
 SELECT COALESCE(credentials->>'access_token', '') || E'\t' ||
@@ -27,7 +34,7 @@ SELECT COALESCE(credentials->>'access_token', '') || E'\t' ||
        COALESCE(name, '') || E'\t' ||
        COALESCE(platform, '')
 FROM accounts
-WHERE id = $(printf '%d' "$ACCOUNT_ID") AND deleted_at IS NULL;
+WHERE id = ${ACCOUNT_ID} AND deleted_at IS NULL;
 " 2>"$psql_err")"; then
   err="$(tr '\n' ' ' < "$psql_err" | cut -c1-500)"
   rm -f "$psql_err"

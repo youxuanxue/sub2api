@@ -28,4 +28,6 @@ func TestSparkModelVariantsDerivedFromAliases(t *testing.T) {
 	}
 	require.NotContains(t, got, "gpt-5.3-codex", "legacy codex id is a non-display alias, not a spark shadow variant")
 	require.NotContains(t, got, "gpt-5-codex", "legacy codex id is a non-display alias, not a spark shadow variant")
+	require.NotContains(t, got, "gpt-5.3", "bare official id is a non-display alias, not a spark shadow variant")
+	require.NotContains(t, got, "gpt-5.3-chat-latest", "official chat id is a non-display alias, not a spark shadow variant")
 }
