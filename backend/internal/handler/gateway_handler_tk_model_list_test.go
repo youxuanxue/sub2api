@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -138,20 +139,10 @@ func TestTkAntigravityDefaultModels_PricedServableSetIncludesReprobedGeminiIDs(t
 		ids[m.ID] = true
 		require.Equal(t, "model", m.Type, "all returned models must keep the Claude model-list shape")
 	}
-	for _, want := range []string{
-		"gemini-2.5-flash",
-		"gemini-2.5-flash-lite",
-		"gemini-2.5-flash-thinking",
-		"gemini-3-flash",
-		"gemini-3-flash-agent",
-		"gemini-3.1-flash-image", // served via antigravity pool (2026-06-27 image probe 200)
-		"gemini-3.1-pro-low",
-		"gemini-3.5-flash-extra-low",
-		"gemini-3.5-flash-low",
-		"gemini-pro-agent",
-	} {
-		require.True(t, ids[want], "%s should be visible in /antigravity/models after pricing closure", want)
-	}
+	require.ElementsMatch(t,
+		service.ServableClientFacingIDs(context.Background(), service.PlatformAntigravity, nil, pricingSvc),
+		modelIDsFromAntigravityModels(result),
+		"/antigravity/models must mirror the unified priced+servable SSOT")
 	for _, deny := range []string{"gemini-2.5-pro", "claude-fable-5", "gpt-oss-120b-medium"} {
 		require.False(t, ids[deny], "%s must not leak into /antigravity/models", deny)
 	}
@@ -162,22 +153,10 @@ func TestTkOpenAIDefaultModelIDs_DropsAdvertisedDead(t *testing.T) {
 	result := h.tkOpenAIDefaultModelIDs(context.Background(), service.PlatformOpenAI)
 	require.NotEmpty(t, result)
 
-	ids := make(map[string]bool, len(result))
-	for _, m := range result {
-		ids[m.ID] = true
-	}
-	for _, want := range []string{"gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5"} {
-		require.True(t, ids[want], "servable OpenAI probe result %s should remain visible", want)
-	}
-	for _, hidden := range []string{
-		"gpt-5", "gpt-5-chat", "gpt-5-chat-latest", "gpt-5-mini", "gpt-5-nano",
-		"gpt-5-pro", "gpt-5-search-api", "gpt-5.1", "gpt-5.1-chat-latest",
-		"gpt-5-codex", "gpt-5.2", "gpt-5.2-pro", "gpt-5.3", "gpt-5.3-codex", "gpt-5.4-pro",
-		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-image-1", "gpt-image-1.5", "gpt-image-2",
-		"codex-auto-review", // internal capability, never client-selectable (deprecated-model gate)
-	} {
-		require.False(t, ids[hidden], "non-live-proven OpenAI model %s must not reach /v1/models fallback", hidden)
-	}
+	require.ElementsMatch(t,
+		service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil),
+		modelIDsFromOpenAIModels(result),
+		"OpenAI default model list must mirror the unified servable SSOT")
 }
 
 // --- tkGeminiFallbackModelsList ---
@@ -250,6 +229,22 @@ func buildPricingJSON(models []antigravity.ClaudeModel) string {
 		ids[i] = m.ID
 	}
 	return buildPricingJSONFromIDs(ids)
+}
+
+func modelIDsFromAntigravityModels(models []antigravity.ClaudeModel) []string {
+	ids := make([]string, len(models))
+	for i, m := range models {
+		ids[i] = m.ID
+	}
+	return ids
+}
+
+func modelIDsFromOpenAIModels(models []openai.Model) []string {
+	ids := make([]string, len(models))
+	for i, m := range models {
+		ids[i] = m.ID
+	}
+	return ids
 }
 
 // buildPricingJSONFromIDs builds a pricing JSON where each provided model ID

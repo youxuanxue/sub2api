@@ -12,6 +12,7 @@ import {
   buildModelMappingObject,
   getModelsByPlatform,
   getPresetMappingsByPlatform,
+  qwen3DenseModels,
   splitModelMappingObject
 } from '../useModelWhitelist'
 
@@ -48,9 +49,9 @@ describe('useModelWhitelist', () => {
     // INTERIM truth lives in tk_served_models.json (backend manifest); PR-C
     // will derive this list from a servable endpoint.
     const newapiModels = getModelsByPlatform('newapi')
-    expect(newapiModels).toContain('qwen3-8b')
-    expect(newapiModels).toContain('qwen3-14b')
-    expect(newapiModels).toContain('qwen3-32b')
+    for (const model of qwen3DenseModels) {
+      expect(newapiModels).toContain(model)
+    }
   })
 
   it('long-tail direct providers keep static lists', () => {
@@ -58,7 +59,9 @@ describe('useModelWhitelist', () => {
     const qwen = getModelsByPlatform('qwen')
     expect(qwen.length).toBeGreaterThan(0)
     // dense ids are also offered on the direct qwen platform
-    expect(qwen).toContain('qwen3-32b')
+    for (const model of qwen3DenseModels) {
+      expect(qwen).toContain(model)
+    }
   })
 
   it('unknown platform yields an empty list (custom input is the escape hatch)', () => {

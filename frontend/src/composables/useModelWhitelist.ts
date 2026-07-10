@@ -13,7 +13,7 @@
 // 兼容聚合器）实际可服务的稠密档位。单独成组，便于同时喂给 newapi 与直连
 // qwen 两个 picker，且与 qwenModels 里已有的 MoE 档（qwen3-235b-a22b）/ qwq
 // 不重复。
-const qwen3DenseModels = [
+export const qwen3DenseModels = [
   'qwen3-8b', 'qwen3-14b', 'qwen3-32b'
 ]
 

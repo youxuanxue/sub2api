@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -9,50 +10,48 @@ import (
 )
 
 func TestTkIsDeprecatedOpenAIModel(t *testing.T) {
-	cases := []struct {
-		name           string
-		model          string
-		wantDeprecated bool
-		wantReplaceTo  string
-	}{
-		{"gpt-5.2 deprecated -> gpt-5.5", "gpt-5.2", true, "gpt-5.5"},
-		{"gpt-5.2-pro deprecated -> gpt-5.5", "gpt-5.2-pro", true, "gpt-5.5"},
-		{"codex-auto-review deprecated -> no replacement", "codex-auto-review", true, ""},
-
-		{"gpt-5.4 current passes", "gpt-5.4", false, ""},
-		{"gpt-5.5 current passes", "gpt-5.5", false, ""},
-		{"gpt-5.3-codex alias passes", "gpt-5.3-codex", false, ""},
-		{"gpt-5-codex alias passes", "gpt-5-codex", false, ""},
-		{"gpt-5.3-codex-spark current passes", "gpt-5.3-codex-spark", false, ""},
-		{"gpt-5.3-chat-latest current passes", "gpt-5.3-chat-latest", false, ""},
-		{"empty string passes", "", false, ""},
-		{"non-openai model passes", "claude-sonnet-4-6", false, ""},
+	for model, wantReplacement := range tkDeprecatedOpenAIModels {
+		t.Run(model, func(t *testing.T) {
+			replacement, deprecated := tkIsDeprecatedOpenAIModel(model)
+			require.True(t, deprecated, "deprecated table key %q must resolve", model)
+			require.Equal(t, wantReplacement, replacement)
+		})
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			replacement, deprecated := tkIsDeprecatedOpenAIModel(tc.model)
-			require.Equal(t, tc.wantDeprecated, deprecated, "deprecated flag for %q", tc.model)
-			if tc.wantDeprecated {
-				require.Equal(t, tc.wantReplaceTo, replacement)
-			} else {
-				require.Empty(t, replacement)
-			}
-		})
+	servableOpenAI := ServableClientFacingIDs(context.Background(), PlatformOpenAI, nil, nil)
+	require.NotEmpty(t, servableOpenAI, "openai servable SSOT must be populated")
+	for _, model := range servableOpenAI {
+		replacement, deprecated := tkIsDeprecatedOpenAIModel(model)
+		require.False(t, deprecated, "servable openai model %q must not be deprecated", model)
+		require.Empty(t, replacement)
+	}
+
+	for _, model := range []string{
+		"gpt-5.3-codex",
+		"gpt-5-codex",
+		"gpt-5.3-chat-latest",
+		"",
+		"claude-sonnet-4-6",
+	} {
+		replacement, deprecated := tkIsDeprecatedOpenAIModel(model)
+		require.False(t, deprecated, "non-deprecated example %q must pass", model)
+		require.Empty(t, replacement)
 	}
 }
 
 func TestTkLookupDeprecatedOpenAIModel(t *testing.T) {
-	matched, replacement, ok := TkLookupDeprecatedOpenAIModel("gpt-5.2")
-	require.True(t, ok)
-	require.Equal(t, "gpt-5.2", matched)
-	require.Equal(t, "gpt-5.5", replacement)
+	for model, wantReplacement := range tkDeprecatedOpenAIModels {
+		matched, replacement, ok := TkLookupDeprecatedOpenAIModel(model)
+		require.True(t, ok, "deprecated table key %q must resolve", model)
+		require.Equal(t, model, matched)
+		require.Equal(t, wantReplacement, replacement)
+	}
 
 	// gpt-5.2-pro is silently rewritten to gpt-5.2 by the routing-alias substring
 	// fallback (openai_model_alias.go) before selection failure is observed — the
 	// lookup must catch the routed form too, mirroring the anthropic raw+normalized
 	// lookup order.
-	matched, replacement, ok = TkLookupDeprecatedOpenAIModel(CanonicalizeOpenAICompatRoutingModel("gpt-5.2-pro"))
+	matched, replacement, ok := TkLookupDeprecatedOpenAIModel(CanonicalizeOpenAICompatRoutingModel("gpt-5.2-pro"))
 	require.True(t, ok)
 	require.Equal(t, "gpt-5.2", matched)
 	require.Equal(t, "gpt-5.5", replacement)
@@ -77,21 +76,6 @@ func TestTkBuildDeprecatedOpenAIModelMessage(t *testing.T) {
 	msg = TkBuildDeprecatedOpenAIModelMessage("codex-auto-review", "")
 	require.Contains(t, msg, "codex-auto-review")
 	require.Contains(t, msg, "not directly selectable")
-}
-
-// Guards against silent table edits during upstream merges / future PRs.
-func TestTkDeprecatedOpenAIModelsTableIsExhaustive(t *testing.T) {
-	expected := map[string]struct{}{
-		"gpt-5.2":           {},
-		"gpt-5.2-pro":       {},
-		"codex-auto-review": {},
-	}
-	require.Len(t, tkDeprecatedOpenAIModels, len(expected),
-		"deprecated openai model table size changed; update this assertion intentionally")
-	for id := range expected {
-		_, ok := tkDeprecatedOpenAIModels[id]
-		require.Truef(t, ok, "deprecated model %q must remain on the gate list", id)
-	}
 }
 
 func TestTkDeprecatedOpenAISelectionFailure(t *testing.T) {

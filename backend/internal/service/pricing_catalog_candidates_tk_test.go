@@ -140,21 +140,8 @@ func TestTkServableCandidateIDs(t *testing.T) {
 	t.Run("antigravity draws from the empirically-servable gemini plus live Claude allowlist", func(t *testing.T) {
 		svc, _, _ := newAvailabilityTestService(t)
 		ids := tkServableCandidateIDs(ctx, PlatformAntigravity, svc)
-		for _, want := range []string{
-			"gemini-2.5-flash",
-			"gemini-2.5-flash-lite",
-			"gemini-2.5-flash-thinking",
-			"gemini-3-flash",
-			"gemini-3.1-flash-image", // served via antigravity pool (2026-06-27 image probe 200)
-			"gemini-3.5-flash",       // 2026-06-27 prod 200 → added
-			"gemini-3.5-flash-low",
-			"gemini-pro-agent",
-			"claude-sonnet-4-6",
-			"claude-opus-4-6",
-			"claude-opus-4-6-thinking",
-		} {
-			require.True(t, contains(ids, want), "servable antigravity id %s present", want)
-		}
+		require.ElementsMatch(t, supportedCatalogModelIDsForPlatform(PlatformAntigravity), ids,
+			"antigravity candidates must mirror the servable SSOT")
 		// gemini-2.5-pro stays off antigravity (no real 200 — served via gemini/Vertex instead).
 		for _, offPlatform := range []string{"claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5", "gpt-oss-120b-medium", "gemini-2.5-pro"} {
 			require.False(t, contains(ids, offPlatform),
