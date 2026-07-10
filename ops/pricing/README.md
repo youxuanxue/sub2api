@@ -25,6 +25,8 @@ hand-maintained empirical sets in the same file.
 | `probe-servable-models.sh` | Runs on prod or an edge via `ops/observability/run-probe.sh`. Sends one minimal real request per candidate model and emits `platform⇥model⇥http⇥verdict` TSV. A model is **servable** iff it returns a real `200`. Always auto-ensures reusable `__tk_probe_<scope>_group` / `__tk_probe_<scope>_key` per platform via `probe_reserved_resources.sh` (no direct-key fallback, no dependency on `TK_SMOKE_API_KEY` or customer keys). The companion is mandatory — deliver it with `run-probe.sh --with ops/pricing/probe_reserved_resources.sh` (the orchestrator and every manual invocation below do). |
 | `probe-antigravity-gemini25pro-literal.sh` | Focused prod probe for literal Antigravity chat ids on the `Google-Gemini` source group (default: `gemini-pro-agent`, `gemini-2.5-pro`). Hits both `/v1/chat/completions` and `/antigravity/v1beta/models/{id}:generateContent`, emits TSV plus a non-secret account snapshot. Companion: `probe_reserved_resources.sh`. Used when the broad servable refresh batch cannot distinguish generateContent timeout vs routing gaps for `gemini-2.5-pro`. |
 | `probe_reserved_resources.sh` | Shared DB helpers for reserved probe groups/keys (same namespace as `tokenkey-account-model-probe`). Per-scope `flock` on `/tmp/tokenkey-account-model-probe-<scope>.lock` serializes `account_groups` mutations vs account-model probes. Catalog refresh copies schedulable accounts from canonical source group ids by default, probes, then clears `account_groups` bindings and releases locks on EXIT. Group-name overrides are legacy diagnostics only. |
+| `ops/stage0/probe_direct_upstream_model.sh` | Dispatcher for provider-direct account probes. It bypasses TokenKey gateway/catalog/model_mapping floor and calls only implemented direct scripts (`openai`, `grok`); unsupported platforms return `setup_error` rather than falling back to gateway. |
+| `ops/stage0/probe_openai_upstream_model.sh` | Direct ChatGPT Codex upstream probe for one OpenAI OAuth account. Posts to `chatgpt.com/backend-api/codex/responses` with Codex headers and emits JSON `verdict`. Use when gateway/account probes may be blocked by TokenKey floor. Grok direct probing is `ops/stage0/probe_grok_upstream_model.sh`. |
 | `probe-traffic-proven-models.sh` | Runs on prod via `ops/observability/run-probe.sh`. Read-only over `usage_logs`: emits `platform⇥model⇥hits` for every model that served **real successful traffic** in the last `TRAFFIC_HOURS` (default 24). Feeds the `--skip-proven-by-traffic` short-circuit below. Positive evidence only — a model with no recent traffic is simply absent (never an unsupported signal). |
 | `refresh-servable-allowlist.py` | Refreshes the shared public-catalog/user-menu servable sets. It derives candidates, runs probes (uploads `probe_reserved_resources.sh` via `run-probe.sh --with`), keeps `verdict==servable`, de-duplicates dated snapshots, and splices the anthropic/openai/gemini Go blocks. `selftest` covers deterministic glue (no prod). Optional `--skip-proven-by-traffic` short-circuits candidates already proven by 24h traffic out of the probe batches. |
 | `modelops.py` | Read-only planner for model operations: compares upstream/admin discovery, probe TSV, pricing state, manifest intent, optional live `model_mapping` snapshots, and mirror policies such as `60 -> 72`. Prints probe commands and guarded apply dry-runs; never writes accounts or pricing. |
@@ -226,9 +228,12 @@ channel pricing is exactly the tool for that. Alert digest cadence is
   new model before account selection because the current mapping/floor omits it.
   Use `ops/stage0/probe_account_model.sh` with
   `--with ops/pricing/probe_reserved_resources.sh` on a specific prod or edge
-  account, or the platform's direct upstream probe when that is the authoritative
-  capability truth. Only promote after a target account/path returns `servable`
-  and the prod `model_mapping` path is updated/re-probed.
+  account to prove the TokenKey path, or
+  `ops/stage0/probe_direct_upstream_model.sh` with the OpenAI/Grok companion
+  scripts when raw upstream capability is the authoritative truth. Only promote
+  after the platform-appropriate probe returns `servable`, the gateway account
+  probe confirms target-account usage, and the prod `model_mapping` path is
+  updated/re-probed.
 - De-dup: when both a non-dated form and its dated snapshot serve
   (`-YYYYMMDD` for anthropic, `-YYYY-MM-DD` for openai), keep only the
   non-dated; drop `-thinking` pricing pseudo-entries.

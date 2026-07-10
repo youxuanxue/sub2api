@@ -74,10 +74,12 @@ var openAICompatRoutingAliases = map[string]string{
 	"gpt-5":             "gpt-5.5",
 	"gpt-5-chat":        "gpt-5.5",
 	"gpt-5-chat-latest": "gpt-5.5",
+	"gpt-5.5-pro":       "gpt-5.5",
 	// Non-display compatibility alias: clients that type the bare official
 	// family id should reach the live-proven Codex Spark wire id, without
 	// advertising bare gpt-5.3 in the catalog.
-	"gpt-5.3": "gpt-5.3-codex-spark",
+	"gpt-5.3":             "gpt-5.3-codex-spark",
+	"gpt-5.3-chat-latest": "gpt-5.3-codex-spark",
 }
 
 func resolveOpenAICompatRoutingAlias(model string) string {
@@ -116,7 +118,7 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	case strings.Contains(normalized, "gpt-5.6-luna"):
 		return "gpt-5.6-luna"
 	case strings.Contains(normalized, "gpt-5.5-pro"):
-		return "gpt-5.5-pro"
+		return "gpt-5.5"
 	case strings.Contains(normalized, "gpt-5.5"):
 		return "gpt-5.5"
 	case strings.Contains(normalized, "gpt-5.4-mini"):

@@ -95,7 +95,9 @@ func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
 		"gpt-5-chat-latest",
 		"gpt-5-mini",
 		"gpt-5.4-high",
+		"gpt-5.5-pro",
 		"codex-mini-latest",
+		"gpt-5.3-chat-latest",
 	} {
 		require.True(t, account.IsModelSupported(model), "known routing alias should match the OpenAI floor")
 	}

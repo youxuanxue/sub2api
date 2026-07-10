@@ -356,6 +356,11 @@
     },
     {
       "platform": "openai",
+      "model": "gpt-5.3-chat-latest",
+      "reason": "2026-07-10 native OpenAI OAuth probes reached ChatGPT Codex upstream but returned 400; operator decision: keep as a non-display alias to gpt-5.3-codex-spark, not a public catalog row."
+    },
+    {
+      "platform": "openai",
       "model": "gpt-5.3-codex",
       "reason": "2026-07-10 operator decision: legacy GPT-5.3 Codex ids are non-display aliases to gpt-5.3-codex-spark, not client-facing catalog rows."
     },
@@ -363,6 +368,11 @@
       "platform": "openai",
       "model": "gpt-5-codex",
       "reason": "2026-07-10 operator decision: legacy GPT-5 Codex ids are non-display aliases to gpt-5.3-codex-spark, not client-facing catalog rows."
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-5.5-pro",
+      "reason": "2026-07-10 native OpenAI OAuth probes reached ChatGPT Codex upstream but returned 400; operator decision: keep as a non-display alias to gpt-5.5, not a public catalog row."
     },
     {
       "platform": "gemini",

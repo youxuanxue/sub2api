@@ -79,14 +79,26 @@ bash ops/observability/run-probe.sh --target <prod|edge:edge_id> \
   --with ops/pricing/probe_reserved_resources.sh \
   --env ACCOUNT_ID=<account_id> \
   --env MODEL=<model> --env ENDPOINT=<messages|chat|responses> --timeout-seconds 180
+
+# 3) 原始上游账号能力：绕过 TokenKey gateway/catalog/model_mapping floor。
+# 只证明 provider 账号能力；不证明 TokenKey 路径已放行。
+bash ops/observability/run-probe.sh --target <prod|edge:edge_id> \
+  --script ops/stage0/probe_direct_upstream_model.sh \
+  --with ops/stage0/probe_openai_upstream_model.sh \
+  --with ops/stage0/probe_grok_upstream_model.sh \
+  --env PLATFORM=<openai|grok> \
+  --env ACCOUNT_ID=<account_id> \
+  --env MODEL=<model> --timeout-seconds 180
 ```
 
-只有单账号/平台专用探测返回 `verdict=servable` 且 usage 命中目标账号，才允许把该型号当作
+只有平台专用探测返回 `verdict=servable`，且 gateway 单账号探测能以
+`usage_match.account_id == ACCOUNT_ID` 证明 TokenKey 路径命中目标账号，才允许把该型号当作
 servable 候选进入 **分支 B**（公开 catalog/Menu）或 **分支 D**（runtime model_mapping）。若
 `verdict=gateway_rejected` 且 body 是 `Unsupported model: <id>`、空池或无 upstream event，先当作
-当前 prod mapping/floor 未放行，不能当作上游能力结论；按平台用 edge 原生账号、直连 provider
-探测（如 ark 直连）或经人审的 **分支 D** runtime mapping 更新后重探。若已到达上游但返回平台级
-`upstream_rejected`，保持不展示、不热更 `model_mapping`，直到目标账号返回 `servable`。
+当前 prod mapping/floor 未放行，不能当作上游能力结论；按平台用 direct upstream probe、edge
+原生账号直连 provider 探测（如 ark 直连）或经人审的 **分支 D** runtime mapping 更新后重探。
+若 direct upstream / 平台专用探测已到达上游但返回平台级 `upstream_rejected`，保持不展示、
+不热更 `model_mapping`，直到目标账号返回 `servable`。
 
 ---
 

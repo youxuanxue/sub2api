@@ -15,7 +15,7 @@ var codexModelMap = map[string]string{
 	"gpt-5.6-luna":               "gpt-5.6-luna",
 	"gpt-5.6-chat-latest":        "gpt-5.6-chat-latest",
 	"gpt-5.5":                    "gpt-5.5",
-	"gpt-5.5-pro":                "gpt-5.5-pro",
+	"gpt-5.5-pro":                "gpt-5.5",
 	"codex-auto-review":          "codex-auto-review",
 	"gpt-5.4":                    "gpt-5.4",
 	"gpt-5.4-mini":               "gpt-5.4-mini",
@@ -65,10 +65,9 @@ var codexModelMap = map[string]string{
 	"gpt-5.1-codex-mini":         "gpt-5.3-codex-spark",
 	"gpt-5.2-codex":              "gpt-5.2",
 	"codex-mini-latest":          "gpt-5.3-codex-spark",
-	// TK 2026-07 SSOT audit: exact-match self-mapping keeps this official chat
-	// wire id distinct from non-display legacy Codex aliases, which route to
-	// spark unless this exact official name is requested.
-	"gpt-5.3-chat-latest": "gpt-5.3-chat-latest",
+	// TK 2026-07 SSOT audit: upstream rejected this official chat id for
+	// ChatGPT-account Codex; keep it as a non-display compatibility alias.
+	"gpt-5.3-chat-latest": "gpt-5.3-codex-spark",
 }
 
 var codexVersionModelPrefixes = []struct {
@@ -88,7 +87,7 @@ var codexVersionModelPrefixes = []struct {
 	{prefix: "gpt-5.6-sol", target: "gpt-5.6-sol"},
 	{prefix: "gpt-5.6-chat-latest", target: "gpt-5.6-chat-latest"},
 	{prefix: "gpt-5.6", target: "gpt-5.6-sol"},
-	{prefix: "gpt-5.5-pro", target: "gpt-5.5-pro"},
+	{prefix: "gpt-5.5-pro", target: "gpt-5.5"},
 	{prefix: "gpt-5.5", target: "gpt-5.5"},
 	{prefix: "gpt-5.4", target: "gpt-5.4"},
 	{prefix: "gpt-5.2", target: "gpt-5.2"},

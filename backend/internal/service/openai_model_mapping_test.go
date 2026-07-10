@@ -95,7 +95,7 @@ func TestResolveOpenAIForwardModel(t *testing.T) {
 			expectedModel:      "gpt-5.5",
 		},
 		{
-			name: "preserves gpt-5.5-pro instead of group default",
+			name: "preserves gpt-5.5-pro before upstream normalization",
 			account: &Account{
 				Credentials: map[string]any{},
 			},
@@ -288,10 +288,10 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			want:    "gpt-5.4",
 		},
 		{
-			name:    "oauth preserves GPT-5.5 Pro model",
+			name:    "oauth routes GPT-5.5 Pro alias to GPT-5.5",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "openai/gpt-5.5-pro",
-			want:    "gpt-5.5-pro",
+			want:    "gpt-5.5",
 		},
 		{
 			name:    "oauth preserves codex auto review model",
@@ -318,10 +318,10 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			want:    "gpt-5.3-codex-spark",
 		},
 		{
-			name:    "oauth keeps gpt-5.3-chat-latest unrewritten (SSOT audit hotfix: substring fallback would otherwise misclassify it as gpt-5.3-codex)",
+			name:    "oauth routes gpt-5.3-chat-latest alias to spark",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "gpt-5.3-chat-latest",
-			want:    "gpt-5.3-chat-latest",
+			want:    "gpt-5.3-codex-spark",
 		},
 		{
 			name:    "oauth spark model not remapped",
@@ -393,10 +393,10 @@ func TestUsageBillingModelCandidatesPreserveCodexAutoReviewModel(t *testing.T) {
 	}
 }
 
-func TestUsageBillingModelCandidatesPreserveGPT55ProModel(t *testing.T) {
+func TestUsageBillingModelCandidatesRouteGPT55ProAlias(t *testing.T) {
 	candidates := usageBillingModelCandidates("openai/gpt-5.5-pro")
 
-	expected := []string{"openai/gpt-5.5-pro", "gpt-5.5-pro"}
+	expected := []string{"openai/gpt-5.5-pro", "gpt-5.5-pro", "gpt-5.5"}
 	if len(candidates) != len(expected) {
 		t.Fatalf("usageBillingModelCandidates(openai/gpt-5.5-pro) = %#v, want %#v", candidates, expected)
 	}

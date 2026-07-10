@@ -105,9 +105,9 @@ gpt-5.3-codex-spark  gpt-5.4  gpt-5.4-mini  gpt-5.5
 ```
 
 - native OpenAI 与 `api.ainzy.net/v1` 独立：`supportedOpenAICatalogModels` 不能由 account 76 探测结果覆盖；Ainzy 使用独立 `openai_ainzy_relay` floor。
-- **2026-07-10 边界**：native OpenAI / `api.ainzy.net/v1` floor 收敛为 4 个实测可服务 id（见 `ops/pricing/examples/openai-oauth-proven.json`）；`gpt-5.2*`、`codex-auto-review`、`gpt-5`、chat/pro/search/5.1、`gpt-5.4-pro` 暂不进入 public/menu/default catalog。可路由 legacy GPT-5 写法（如 `gpt-5.4-high`、`codex-mini-latest`、`gpt-5-chat-latest`）在账号选择前归一到上述 floor id；裸 `gpt-5.3`、`gpt-5.3-codex*`、`gpt-5-codex*` 均作为非展示 alias 指向 `gpt-5.3-codex-spark`。`gpt-5.3-chat-latest` 与 `gpt-5.5-pro` 于 2026-07-10 通过 edge-us4 account 7 / edge-us3 account 5 到达 ChatGPT Codex 上游，但均返回 400 `not supported when using Codex with a ChatGPT account`，所以不展示、不进 floor；不可服务族（如 `gpt-5.6*`）仍拒绝。
+- **2026-07-10 边界**：native OpenAI / `api.ainzy.net/v1` floor 收敛为 4 个实测可服务 id（见 `ops/pricing/examples/openai-oauth-proven.json`）；`gpt-5.2*`、`codex-auto-review`、`gpt-5`、chat/pro/search/5.1、`gpt-5.4-pro` 暂不进入 public/menu/default catalog。可路由 legacy GPT-5 写法（如 `gpt-5.4-high`、`codex-mini-latest`、`gpt-5-chat-latest`）在账号选择前归一到上述 floor id；裸 `gpt-5.3`、`gpt-5.3-chat-latest`、`gpt-5.3-codex*`、`gpt-5-codex*` 均作为非展示 alias 指向 `gpt-5.3-codex-spark`，`gpt-5.5-pro` 作为非展示 alias 指向 `gpt-5.5`。`gpt-5.3-chat-latest` 与 `gpt-5.5-pro` 于 2026-07-10 通过 edge-us4 account 7 / edge-us3 account 5 到达 ChatGPT Codex 上游，但官方名均返回 400 `not supported when using Codex with a ChatGPT account`，所以不展示、不进 floor；不可服务族（如 `gpt-5.6*`）仍拒绝。
 - **`advertised_dead` 收敛结果**：`gpt-image-1`/`gpt-image-1.5`/`gpt-image-2`（原生 OAuth 结构性做不了图，需 `type=apikey` 账号）、`gpt-5.6*` 和未列入 native floor 的旧镜像残留不进入 /v1/models fallback 或 admin 默认候选。
-- **codex 形** 走 `/v1/responses`；`codex-mini-latest`、`gpt-5.3-codex*`、`gpt-5-codex*` 均被 codex normalization 重计为 `gpt-5.3-codex-spark` 才免于 $0；这些旧写法不展示、不作为 auto-probe 候选。
+- **codex 形** 走 `/v1/responses`；`codex-mini-latest`、`gpt-5.3-chat-latest`、`gpt-5.3-codex*`、`gpt-5-codex*` 均被 codex normalization 重计为 `gpt-5.3-codex-spark` 才免于 $0；这些旧写法不展示、不作为 auto-probe 候选。
 - **channel 长尾**：ct=1（153 模型：o1/o3/o4、gpt-4*/4o*、audio/realtime/tts、embeddings、dall-e、sora-2…）与 ct=57 codex 订阅（24）**均未经原生 openai 平台服务**——是 newapi bridge 的扩展 backlog（§5）。
 
 ### 2.3 gemini / Vertex（第三平台）
@@ -292,7 +292,7 @@ glm-4.7  glm-4.6  glm-4.5  glm-4.5-air
 
 1. **永久 skip-list**：`ops/pricing/servable-reprobe-ledger.json.skiplist` 会从 `refresh-servable-allowlist.py candidates/probe/run` 的候选中排除条目；只放「死因与容量/端点无关」或当前 project-scoped 明确不可服务的项。
 2. **reprobe watchlist**：`watchlist[].auto_probe=true` 的 native refresh 三元组（anthropic/openai/gemini）会自动并入探测候选；例如未定论的 OpenAI codex 旧支线与 gemini image wrong-surface 条目会按 `probe_family` 走正确 endpoint。`auto_probe=false` 的 antigravity/grok/newapi 长尾仍由 owner 轻量复测并更新同一 JSON。
-3. **deadlist**：已退役、替代明确或产品上明确不可选的 id 进入 `deadlist`，并由 apply gate 阻止新的 probe 结果把它们直接写回 allowlist。2026-07-10 起 `gpt-5.2` / `gpt-5.2-pro` / `codex-auto-review` 属于 deprecated-model gate；`gpt-5.3` / `gpt-5.3-codex*` / `gpt-5-codex*` 属于非展示 alias，走 `skiplist` 而非 hard reject。
+3. **deadlist**：已退役、替代明确或产品上明确不可选的 id 进入 `deadlist`，并由 apply gate 阻止新的 probe 结果把它们直接写回 allowlist。2026-07-10 起 `gpt-5.2` / `gpt-5.2-pro` / `codex-auto-review` 属于 deprecated-model gate；`gpt-5.3` / `gpt-5.3-chat-latest` / `gpt-5.3-codex*` / `gpt-5-codex*` / `gpt-5.5-pro` 属于非展示 alias，走 `skiplist` 而非 hard reject。
 4. **机械护栏**：`refresh-servable-allowlist.py selftest` 校验 watch/skip/dead 双成员、skip/dead 与 servable allowlist 双成员、watchlist freshness；`scripts/preflight.sh` 已调用该 selftest。
 
 ---
