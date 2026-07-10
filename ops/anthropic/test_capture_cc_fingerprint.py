@@ -168,12 +168,16 @@ class TLSObservedFromPcapTests(unittest.TestCase):
                 "api.anthropic.com",
             ]
         )
+        source_cc = json.loads(
+            (mod.REPO_ROOT / "deploy/aws/stage0/anthropic-http-mimicry-baselines.json")
+            .read_text(encoding="utf-8")
+        )["cc_version"]
         observed = mod.tls_observed_from_tshark_tsv(
             header + "\n" + row + "\n",
-            cc_version="2.1.206",
+            cc_version=source_cc,
             source="passive-pcap:test",
         )
-        self.assertEqual(observed["user_agent"], "claude-cli/2.1.206 (external, cli)")
+        self.assertEqual(observed["user_agent"], f"claude-cli/{source_cc} (external, cli)")
         self.assertEqual(observed["server_name"], "api.anthropic.com")
         self.assertEqual(observed["source"], "passive-pcap:test")
         self.assertRegex(observed["ja3_hash"], r"^[a-f0-9]{32}$")
