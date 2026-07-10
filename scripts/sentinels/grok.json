@@ -90,6 +90,16 @@
       "rationale": "The xAI Heavy-only entitlement-403 classifier + clean client message. Without it a grok 403 (standard/expired/downgraded Heavy) fails over pool-wide and is masked into a 502 — the single xAI policy change that would silently kill a thin grok pool (the marquee sharp edge)."
     },
     {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_downstream.go",
+      "must_contain": [
+        "func tkIsOpenAICompatEdgeMirrorStub(",
+        "account.Platform == PlatformOpenAI || account.Platform == PlatformGrok",
+        "func tkIsDownstreamRateLimitEnvelope(",
+        "upstream rate limit exceeded"
+      ],
+      "rationale": "Grok prod relay stubs are OpenAI-compatible edge mirror API-key accounts. TokenKey downstream capacity envelopes from edge (including `Upstream rate limit exceeded`) must be classified as relay capacity, not xAI account health; otherwise prod writes temp_unschedulable on every grok relay stub and local routing collapses into `No available accounts`."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
       "must_contain": [
         "account.IsGrok()"
@@ -440,9 +450,10 @@
         "TestForwardGrokMediaAllowsEdgeRelayBaseURLWithAllowlistEnabled",
         "TestForwardGrokResponsesAPIKeyRelayUsesEdgeResponsesURL",
         "TestResolveGrokResponsesUpstreamAPIKeyRelayUsesEdgeOpenAIResponses",
-        "TestForwardAsAnthropic_GrokAPIKeyRelayUsesEdgeChatCompletionsURL"
+        "TestForwardAsAnthropic_GrokAPIKeyRelayUsesEdgeChatCompletionsURL",
+        "TestHandleGrokAccountUpstreamError_DownstreamCapacitySkipsRelayCooldown"
       ],
-      "rationale": "Load-bearing QA for grok apikey relay and Anthropic-shaped /v1/messages prod→edge path: native-catalog SKUs must forward to edge /v1/chat/completions with Bearer api_key (SSOT provision path). Revert to OAuth-only or responses-first routing passes other tests but breaks prod grok-us4 Claude-Code clients on catalog SKUs."
+      "rationale": "Load-bearing QA for grok apikey relay and Anthropic-shaped /v1/messages prod->edge path: native-catalog SKUs must forward to edge /v1/chat/completions with Bearer api_key (SSOT provision path), and TokenKey downstream capacity envelopes must not runtime-block/temp-unschedule relay stubs. Revert to OAuth-only, responses-first routing, or treating relay capacity as xAI account health passes other tests but breaks prod grok clients."
     },
     {
       "path": "backend/internal/server/routes/gateway_test.go",

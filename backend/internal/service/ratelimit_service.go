@@ -301,6 +301,10 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
+	if s.handleOpenAICompatDownstreamCapacityPenalty(ctx, account, statusCode, responseBody, tkFirstRequestedModel(requestedModel)) {
+		return true
+	}
+
 	// 池模式默认不标记本地账号状态；仅当用户显式配置自定义错误码时按本地策略处理。
 	if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {
 		slog.Info("pool_mode_error_skipped", "account_id", account.ID, "status_code", statusCode)
@@ -604,22 +608,6 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			// stale sticky binding — opus/haiku stay schedulable. See
 			// ratelimit_service_tk_mirror_class_429.go.
 			s.tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))
-			return true
-		}
-		// TK (prod 2026-07): OpenAI edge-mirror stubs (openai-us* → api-us*.tokenkey.dev)
-		// receive the same downstream empty-pool 429 envelope. Skip handle429 /
-		// runtime block and feed the bounded scheduler de-prioritization preference.
-		if tkSkipOpenAIDownstreamCapacityPenalty(account, statusCode, upstreamMsg, responseBody) {
-			reason := "no_available_accounts"
-			if tkSkipDownstreamFailoverExhaustedPenalty(statusCode, upstreamMsg, responseBody) {
-				reason = "all_available_accounts_exhausted"
-			}
-			slog.Info("openai_downstream_capacity_skip_penalty",
-				"account_id", account.ID,
-				"status_code", statusCode,
-				"reason", reason)
-			satCount := s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)
-			s.tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))
 			return true
 		}
 		// TK (G2, narrow): the sibling downstream capacity signal — a forwarded

@@ -1157,6 +1157,32 @@ func TestHandleGrokAccountUpstreamErrorTempUnschedulesReadinessStates(t *testing
 	}
 }
 
+func TestHandleGrokAccountUpstreamError_DownstreamCapacitySkipsRelayCooldown(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	rateLimitSvc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	sat := &fakeOpenAISaturationCounterRL{}
+	rateLimitSvc.SetOpenAISaturationCounter(sat)
+	svc := &OpenAIGatewayService{
+		accountRepo:               repo,
+		rateLimitService:          rateLimitSvc,
+		tkOpenAISaturationCounter: sat,
+	}
+	account := grokEdgeStub(80)
+	body := []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"Upstream rate limit exceeded, please retry later"}}`)
+
+	for i := 0; i < 3; i++ {
+		svc.handleGrokAccountUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body, "grok-build-0.1")
+	}
+
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Equal(t, 0, repo.tempCalls, "downstream capacity must not temp-unschedule a prod grok relay stub")
+	require.Equal(t, 0, repo.setRateLimitedCalls, "downstream capacity must not whole-account rate-limit a prod grok relay stub")
+	require.Equal(t, []int64{80, 80, 80}, sat.incrementIDs)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "grok-build-0.1", repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, tkOpenAIMirrorDownstreamEmptyReason, repo.modelRateLimitCalls[0].reason)
+}
+
 func TestHandleGrokAccountUpstreamErrorDoesNotShortenExistingPause(t *testing.T) {
 	existingUntil := time.Now().Add(15 * time.Minute)
 	account := &Account{

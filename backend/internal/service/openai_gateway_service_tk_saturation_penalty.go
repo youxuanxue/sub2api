@@ -28,7 +28,7 @@ func (s *OpenAIGatewayService) computeOpenAISaturationPenalties(ctx context.Cont
 	ids := make([]int64, 0, len(candidates))
 	for i := range candidates {
 		acc := candidates[i].account
-		if tkIsOpenAIEdgeMirrorStub(acc) {
+		if tkIsOpenAICompatEdgeMirrorStub(acc) {
 			ids = append(ids, acc.ID)
 		}
 	}
@@ -48,7 +48,7 @@ func (s *OpenAIGatewayService) computeOpenAISaturationPenalties(ctx context.Cont
 	var penalized []int64
 	for i := range candidates {
 		acc := candidates[i].account
-		if !tkIsOpenAIEdgeMirrorStub(acc) {
+		if !tkIsOpenAICompatEdgeMirrorStub(acc) {
 			continue
 		}
 		if counts[acc.ID] >= openAIEdgeMirrorStubSaturationThreshold {
