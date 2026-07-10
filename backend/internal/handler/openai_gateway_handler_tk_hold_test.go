@@ -7,10 +7,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-// The output-token ceiling feeds the hold's upper bound, so missing a surface's
-// field name silently under-caps nothing (fallback is huge) but over-caps cost:
-// every supported field spelling must be honoured, and absence must fall back
-// to the conservative ceiling.
+// The output-token count feeds the pre-flight hold. Explicit field spellings
+// must still be honored as hard reserve inputs, while omitted ceilings use the
+// low UX reserve instead of a model-sized maximum that can poison auth balance
+// snapshots for several minutes.
 func TestTkParseMaxOutputTokens(t *testing.T) {
 	cases := []struct {
 		name string
@@ -21,14 +21,23 @@ func TestTkParseMaxOutputTokens(t *testing.T) {
 		{"chat max_completion_tokens", `{"max_completion_tokens":2048}`, 2048},
 		{"responses max_output_tokens", `{"max_output_tokens":4096}`, 4096},
 		{"max of multiple fields", `{"max_tokens":100,"max_output_tokens":300,"max_completion_tokens":200}`, 300},
-		{"absent falls back", `{}`, tkHoldFallbackMaxOutputTokens},
-		{"zero falls back", `{"max_tokens":0}`, tkHoldFallbackMaxOutputTokens},
-		{"negative falls back", `{"max_tokens":-5}`, tkHoldFallbackMaxOutputTokens},
+		{"absent falls back to low reserve", `{}`, tkHoldDefaultOutputReserveTokens},
+		{"zero falls back to low reserve", `{"max_tokens":0}`, tkHoldDefaultOutputReserveTokens},
+		{"negative falls back to low reserve", `{"max_tokens":-5}`, tkHoldDefaultOutputReserveTokens},
 	}
 	for _, tc := range cases {
 		if got := tkParseMaxOutputTokens([]byte(tc.body)); got != tc.want {
 			t.Errorf("%s: tkParseMaxOutputTokens(%s) = %d, want %d", tc.name, tc.body, got, tc.want)
 		}
+	}
+}
+
+func TestTkDefaultOutputReserveTokens_StaysLow(t *testing.T) {
+	if tkHoldDefaultOutputReserveTokens > 4096 {
+		t.Fatalf("default output reserve = %d, want <= 4096", tkHoldDefaultOutputReserveTokens)
+	}
+	if tkParseMaxOutputTokens([]byte(`{}`)) != tkHoldDefaultOutputReserveTokens {
+		t.Fatal("omitted max token fields must use the low default reserve")
 	}
 }
 

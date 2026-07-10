@@ -11,17 +11,18 @@ import (
 // `balance >= amount` floor, so N concurrent requests from a barely-positive
 // balance all pass admission, all get served, then all deduct — driving the
 // balance arbitrarily negative. Post-hoc anything cannot un-serve an
-// already-served request; the only fix is to RESERVE an upper-bound estimate
-// of the cost BEFORE forwarding and RELEASE it when the request ends. Actual
-// billing stays untouched on the async path.
+// already-served request; the fix is to RESERVE an estimate of the cost BEFORE
+// forwarding and RELEASE it when the request ends. Actual billing stays
+// untouched on the async path.
 //
 // Invariant: reserve is atomic `UPDATE users SET balance = balance - hold
 // WHERE balance >= hold`. Row-lock serialization ⇒ after admitting k concurrent
-// requests balance = B - Σholdᵢ ≥ 0, so Σholdᵢ ≤ B. If hold is a true upper
-// bound (actualᵢ ≤ holdᵢ — guaranteed by the EstimateHold* formulas in
-// billing_service_tk_hold.go), then final balance = B - Σactualᵢ ≥ B - Σholdᵢ ≥ 0.
-// Provably never negative. The hold's deliberate over-estimate only briefly
-// shrinks AVAILABLE balance; settlement still bills exact actual.
+// requests balance = B - Σholdᵢ ≥ 0, so Σholdᵢ ≤ B. For explicit request
+// ceilings the hold can be a true upper bound and the old non-negative proof
+// applies. For omitted token output ceilings the gateway intentionally reserves
+// a low default instead: this still collapses concurrent overdraft
+// amplification, but it is not a mathematical guarantee that final balance can
+// never go below zero. Settlement still bills exact actual.
 //
 // Release ordering is part of the invariant: billing settles asynchronously,
 // so a hold refunded at handler return while its bill is still queued would

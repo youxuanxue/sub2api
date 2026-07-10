@@ -2,23 +2,24 @@ package service
 
 import "strings"
 
-// TK: pre-flight HOLD estimates — the LOAD-BEARING property is hold >= actual.
-// If any estimate can fall below the eventual billed cost, the overdraft
-// invariant (see usage_billing_hold_tk.go) is void. So every estimate is a
-// deliberate UPPER BOUND on what computeTokenBreakdown / CalculateImageCost /
-// CalculateVideoCost will later bill; the cost is some over-reservation, which
-// only briefly shrinks AVAILABLE balance and is corrected by exact settlement.
+// TK: pre-flight HOLD estimates. These helpers price the caller-provided
+// reserve inputs using conservative unit prices. Token holds are a true upper
+// bound only when the caller passes a real output ceiling; callers may
+// deliberately pass a lower default reserve for omitted ceilings to avoid
+// rejecting ordinary traffic on stale low-balance snapshots. Exact settlement
+// remains the source of truth for the final bill.
 
-// EstimateTokenHold returns an upper bound on the actual cost of a token-billed
-// request (chat / responses / messages; embeddings pass maxOutputTokens=0).
+// EstimateTokenHold returns the reserve amount for a token-billed request
+// (chat / responses / messages; embeddings pass maxOutputTokens=0).
 //
-// Upper-bound construction vs. computeTokenBreakdown's actual formula:
+// Conservative construction vs. computeTokenBreakdown's actual formula:
 //   - input side: every prompt token is priced at the MAX of all input-side
 //     unit prices (input / cache-creation 5m / 1h / priority). At billing time
 //     each token is one of input | cache_read | cache_creation; cache_read is
 //     the cheapest and cache_creation the dearest, so max() dominates any split.
-//   - output side: max_tokens (the hard ceiling the model cannot exceed) at the
-//     MAX of output / priority-output / image-output unit price.
+//   - output side: the caller-provided maxOutputTokens at the MAX of output /
+//     priority-output / image-output unit price. This is a hard upper bound
+//     only when maxOutputTokens came from an explicit client ceiling.
 //   - long-context: applied whenever promptTokens COULD cross the model
 //     threshold (actual triggers on input+cache_read ≤ promptTokens, so this is
 //     a safe over-approximation).

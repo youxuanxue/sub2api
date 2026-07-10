@@ -12,9 +12,9 @@ import (
 
 // TK: pre-flight balance HOLD injection for OpenAI-compatible routes.
 //
-// Reserves an upper-bound cost on the user balance BEFORE forwarding so that
-// concurrent requests cannot overdraw it (the post-hoc deduct has no floor —
-// see service/usage_billing_hold_tk.go for the invariant). Balance users only:
+// Reserves a pre-flight amount on the user balance BEFORE forwarding so
+// concurrent requests cannot freely overdraw it (the post-hoc deduct has no
+// floor — see service/usage_billing_hold_tk.go). Balance users only:
 // subscription requests have no balance to overdraw and are skipped.
 //
 // Hold lifecycle (the release-before-settle rule): the reservation must outlive
@@ -31,16 +31,15 @@ import (
 // insufficient-balance mapping).
 const tkInsufficientBalanceForHoldMsg = "Insufficient account balance to reserve this request"
 
-// tkHoldFallbackMaxOutputTokens is the conservative output-token upper bound
-// used when a request omits max_tokens / max_completion_tokens /
-// max_output_tokens. The hold must be an upper bound on actual cost; without a
-// client-declared ceiling we assume a large output so the reservation cannot
-// under-cover. (PR-follow-up: derive the exact per-model max-output from
-// pricing metadata to tighten this.)
-const tkHoldFallbackMaxOutputTokens = 200000
+// tkHoldDefaultOutputReserveTokens is the UX-friendly output-token reserve used
+// when a request omits max_tokens / max_completion_tokens / max_output_tokens.
+// Explicit client ceilings are still honored as hard reserve inputs; only the
+// omitted-ceiling path uses this lower estimate so a short-lived auth/balance
+// cache snapshot does not reject hundreds of ordinary requests.
+const tkHoldDefaultOutputReserveTokens = 4096
 
 // tkParseMaxOutputTokens extracts the output-token ceiling from the request,
-// falling back to a conservative bound when the client omits it. Field names
+// falling back to a low default reserve when the client omits it. Field names
 // per surface: max_tokens (chat, anthropic messages), max_completion_tokens
 // (chat), max_output_tokens (responses) — max() of whatever is present.
 func tkParseMaxOutputTokens(body []byte) int {
@@ -52,7 +51,7 @@ func tkParseMaxOutputTokens(body []byte) int {
 		m = mo
 	}
 	if m <= 0 {
-		m = tkHoldFallbackMaxOutputTokens
+		m = tkHoldDefaultOutputReserveTokens
 	}
 	return m
 }
@@ -131,7 +130,7 @@ func (h *OpenAIGatewayHandler) tkApplyBalanceHold(c *gin.Context, apiKey *servic
 
 // tkApplyBalanceHoldNoOutput is tkApplyBalanceHold for routes that produce no
 // output tokens (embeddings): the output side of the estimate is zero instead
-// of the fallback ceiling, so an embeddings call is not blocked by a hold three
+// of the default reserve, so an embeddings call is not blocked by a hold three
 // orders of magnitude above its real cost.
 func (h *OpenAIGatewayHandler) tkApplyBalanceHoldNoOutput(c *gin.Context, apiKey *service.APIKey, reqModel string, body []byte) (hold *tkHoldHandle, reject bool) {
 	return h.tkApplyTokenHold(c, apiKey, reqModel, body, 0, "")
