@@ -100,8 +100,8 @@ type PromptFilterRule struct {
 // egress proxying, so the vendored default is empty (no proxy).
 func GetProxyURL() string { return "" }
 
-// GetEndpointFallback reports whether to try alternate Kiro endpoints on quota
-// exhaustion. Default true preserves the upstream resilient behavior.
+// GetEndpointFallback reports whether to try the alternate supported Kiro
+// endpoint after a retryable upstream failure.
 func GetEndpointFallback() bool { return true }
 
 // GetPreferredEndpoint returns the preferred endpoint selector. "auto" keeps the

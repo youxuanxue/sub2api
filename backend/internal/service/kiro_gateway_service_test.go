@@ -271,7 +271,7 @@ func TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError(t 
 	frame := buildKiroEventStreamMessage("assistantResponseEvent",
 		[]byte(`{"content":"partial answer","inputTokens":8,"outputTokens":3}`))
 	truncatedPrelude := []byte{0, 0, 0, 20}
-	upstream := &kiroFakeUpstream{body: append(frame, truncatedPrelude...)}
+	upstream := &kiroSequenceUpstream{bodies: [][]byte{append(frame, truncatedPrelude...)}}
 
 	svc := NewKiroGatewayService(upstream, nil, nil)
 
@@ -287,6 +287,7 @@ func TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError(t 
 	require.Error(t, err)
 	require.Nil(t, result)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.Equal(t, 1, upstream.calls, "committed stream must not be retried")
 	require.True(t, IsResponseCommitted(c))
 
 	out := rec.Body.String()
@@ -311,8 +312,8 @@ func TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError(t 
 
 // kiroStatusUpstream returns a canned non-200 response with a fixed body,
 // modeling the Kiro upstream rejecting a request (e.g. 400 INVALID_MODEL_ID).
-// The vendored CallKiroAPIWithDoer reads the body into its error string, so all
-// three endpoints in the fallback list see the same rejection.
+// The vendored Kiro client reads the body into its error string, so both
+// endpoints in the supported fallback list see the same rejection.
 type kiroStatusUpstream struct {
 	status int
 	body   string

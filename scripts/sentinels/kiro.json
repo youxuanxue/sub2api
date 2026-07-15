@@ -103,13 +103,33 @@
       "path": "backend/internal/integration/kiro/client.go",
       "must_contain": [
         "func CallKiroAPIWithDoer",
+        "func CallKiroAPIWithDoerContext",
         "func callKiroAPIOnce",
+        "ResetForRetry func() bool",
         "stale profileArn",
         "func parseEventStream",
         "HTTPDoer",
-        "runtime.us-east-1.kiro.dev"
+        "runtime.us-east-1.kiro.dev",
+        "q.us-east-1.amazonaws.com"
       ],
-      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The runtime.us-east-1.kiro.dev anchor pins the go-forward *.kiro.dev data-plane host as the preferred endpoint (edge-first migration); an upstream merge that drops it would silently route serving traffic back to the deprecated amazonaws hosts."
+      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
+    },
+    {
+      "path": "backend/internal/integration/kiro/client_endpoints_test.go",
+      "must_contain": [
+        "TestKiroEndpoints_OnlyOfficialRuntimeAndTransitionalQ",
+        "unsupported fallback remains configured"
+      ],
+      "rationale": "Regression evidence that the Kiro data-plane retry chain contains exactly the current runtime host and officially transitional q host, both using the current GenerateAssistantResponse protocol. This prevents an upstream re-vendor from silently restoring undocumented or duplicate legacy retries."
+    },
+    {
+      "path": "backend/internal/integration/kiro/client_fallback_test.go",
+      "must_contain": [
+        "TestCallKiroAPI_ResponseReadFailureFallsThroughWhenConsumerCanReset",
+        "TestCallKiroAPI_ResponseReadFailureDoesNotReplayCommittedConsumer",
+        "TestCallKiroAPI_CanceledContextSkipsEndpointAttempts"
+      ],
+      "rationale": "Focused regression evidence for the truncated-response recovery contract: retry only after consumer reset, never replay committed output, and stop before dialing when the customer request is canceled."
     },
     {
       "path": "backend/internal/integration/kiro/rest.go",
@@ -155,6 +175,8 @@
       "must_contain": [
         "type KiroGatewayService",
         "func (s *KiroGatewayService) Forward",
+        "ResetForRetry: func() bool",
+        "CallKiroAPIWithDoerContext(ctx",
         "PersistKiroProfileArnIfChanged",
         "kiroproto.EstimateInputTokens",
         "kiroproto.EstimateOutputTokens",
@@ -163,7 +185,18 @@
         "classifyKiroForwardError",
         "publishKiroInternalThinkingSideChannel"
       ],
-      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream. It estimates token usage locally (EstimateInputTokens/EstimateOutputTokens) and stamps ForwardResult.BillingTier=\"kiro-estimated\", because the Kiro upstream reports credits only — without these calls both forward paths return Usage{0,0} and kiro bills as 100% free. The `callErr != nil && !enc.started` guard + classifyKiroForwardError are equally load-bearing: message_start is emitted lazily (see kiro_sse_encoder ensureBlock/writeToolUse), so an upstream failure before any content arrives surfaces a typed error instead of the old empty-but-200 SSE stream (the 'pre-content 400 returns a clean 200 lie' bug). An upstream merge that drops the estimate/BillingTier wiring (regresses kiro to free billing), reintroduces an eager enc.writeMessageStart() before the upstream call, or drops the classifier, regresses one of these."
+      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream. It estimates token usage locally (EstimateInputTokens/EstimateOutputTokens) and stamps ForwardResult.BillingTier=\"kiro-estimated\", because the Kiro upstream reports credits only — without these calls both forward paths return Usage{0,0} and kiro bills as 100% free. The context-aware call and ResetForRetry callbacks are load-bearing: non-streaming retries clear all partial buffers, while streaming retries are rejected after enc.started to prevent duplicated client output. The `callErr != nil && !enc.started` guard + classifyKiroForwardError keep pre-content failures visible instead of returning an empty 200 stream. An upstream merge that drops any of these guards silently regresses reliability, billing, or response integrity."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service_test.go",
+      "must_contain": [
+        "TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput",
+        "TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError",
+        "committed stream must not be retried",
+        "discard me",
+        "recovered"
+      ],
+      "rationale": "Service-layer regression evidence for both sides of the truncated-response contract: non-streaming partial state is fully discarded before fallback, while a stream that already committed output emits an SSE error and never calls another upstream endpoint."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder.go",
