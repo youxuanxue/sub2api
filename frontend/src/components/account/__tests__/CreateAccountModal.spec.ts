@@ -6,15 +6,17 @@ const {
   createAccountMock,
   importCodexSessionMock,
   createOpenAICodexPATMock,
+  showErrorMock,
 } = vi.hoisted(() => ({
   createAccountMock: vi.fn(),
   importCodexSessionMock: vi.fn(),
   createOpenAICodexPATMock: vi.fn(),
+  showErrorMock: vi.fn(),
 }))
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
+    showError: showErrorMock,
     showSuccess: vi.fn(),
     showWarning: vi.fn(),
   }),
@@ -245,5 +247,66 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
 
     expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
+  })
+})
+
+describe('CreateAccountModal Grok OAuth upstream config', () => {
+  beforeEach(() => {
+    createAccountMock.mockReset().mockResolvedValue({})
+    showErrorMock.mockReset()
+  })
+
+  async function fillGrokOAuthForm() {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Grok')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Grok OAuth account')
+    await wrapper
+      .get('textarea[placeholder="admin.accounts.grokPlatform.refreshTokenPlaceholder"]')
+      .setValue('grok-refresh-token')
+    return wrapper
+  }
+
+  it('shows header overrides on the direct refresh-token flow and persists them', async () => {
+    const wrapper = await fillGrokOAuthForm()
+    await wrapper.get('input[placeholder="https://api.x.ai/v1"]').setValue('https://relay.example/v1')
+    await wrapper.get('[data-testid="grok-header-override-toggle"]').trigger('click')
+    await selectButtonByText(wrapper, 'admin.accounts.headerOverride.addRow')
+    await wrapper
+      .get('input[placeholder="admin.accounts.headerOverride.namePlaceholder"]')
+      .setValue('x-relay-token')
+    await wrapper
+      .get('input[placeholder="admin.accounts.headerOverride.valuePlaceholder"]')
+      .setValue('relay-secret')
+
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platform: 'grok',
+        type: 'oauth',
+        credentials: expect.objectContaining({
+          refresh_token: 'grok-refresh-token',
+          base_url: 'https://relay.example/v1',
+          header_override_enabled: true,
+          header_overrides: { 'x-relay-token': 'relay-secret' },
+        }),
+      })
+    )
+  })
+
+  it('blocks the direct refresh-token flow when an override uses a protected header', async () => {
+    const wrapper = await fillGrokOAuthForm()
+    await wrapper.get('[data-testid="grok-header-override-toggle"]').trigger('click')
+    await selectButtonByText(wrapper, 'admin.accounts.headerOverride.addRow')
+    await wrapper
+      .get('input[placeholder="admin.accounts.headerOverride.namePlaceholder"]')
+      .setValue('Authorization')
+
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(showErrorMock).toHaveBeenCalledWith('admin.accounts.headerOverride.blockedName')
+    expect(createAccountMock).not.toHaveBeenCalled()
   })
 })

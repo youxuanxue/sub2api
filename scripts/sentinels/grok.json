@@ -238,9 +238,20 @@
       "path": "frontend/src/components/account/CreateAccountModal.vue",
       "must_contain": [
         "AccountGrokPlatformFields",
-        "grokBuildSubmitBundle"
+        "grokBuildSubmitBundle",
+        "data-testid=\"grok-header-override-toggle\"",
+        "if (!validateGrokOAuthUpstreamConfig()) return",
+        "applyGrokOAuthUpstreamConfig(bundle.credentials)"
       ],
-      "rationale": "The grok branch + field-component wiring + submit assembly in the account-create modal. Losing it strands UI account creation for grok."
+      "rationale": "The grok branch + field-component wiring + submit assembly in the account-create modal. TokenKey's canonical Grok OAuth create flow stays on step 1 and pastes a refresh_token, so upstream's interactive-OAuth-only header override block is unreachable unless it is explicitly mounted for accountCategory=oauth-based and applied to the grokBuildSubmitBundle credentials. Losing these anchors either strands Grok UI creation entirely or silently drops admin header overrides from newly created OAuth accounts."
+    },
+    {
+      "path": "frontend/src/components/account/__tests__/CreateAccountModal.spec.ts",
+      "must_contain": [
+        "shows header overrides on the direct refresh-token flow and persists them",
+        "blocks the direct refresh-token flow when an override uses a protected header"
+      ],
+      "rationale": "Behavioral regression coverage for the TokenKey direct refresh-token Grok create path: the editor must be reachable, persist base_url plus header overrides, and reject protected headers before account creation. Source-text existence checks cannot catch the prior regression where the block compiled but was guarded by isOAuthFlow, which is always false for Grok."
     },
     {
       "path": "frontend/src/components/account/EditAccountModal.vue",

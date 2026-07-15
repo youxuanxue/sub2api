@@ -2054,7 +2054,7 @@
 
       <!-- Grok OAuth Header Override (OAuth 类型没有 apikey 容器，需要独立区域) -->
       <div
-        v-if="form.platform === 'grok' && isOAuthFlow"
+        v-if="form.platform === 'grok' && accountCategory === 'oauth-based'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="mb-3 flex items-center justify-between">
@@ -2066,6 +2066,7 @@
           </div>
           <button
             type="button"
+            data-testid="grok-header-override-toggle"
             @click="headerOverrideEnabled = !headerOverrideEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
@@ -5384,8 +5385,10 @@ const handleSubmit = async () => {
       await createAccountAndFinish('grok', 'apikey', credentials, buildAPIKeyOrBedrockExtra())
       return
     }
+    if (!validateGrokOAuthUpstreamConfig()) return
     const bundle = grokBuildSubmitBundle('create')
     if (!bundle) return
+    applyGrokOAuthUpstreamConfig(bundle.credentials)
     await doCreateAccount({
       name: form.name,
       notes: form.notes,
