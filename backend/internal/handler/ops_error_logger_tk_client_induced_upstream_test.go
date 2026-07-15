@@ -156,6 +156,19 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		require.Equal(t, "client", errorOwner)
 	})
 
+	t.Run("newapi qwen non-streaming thinking validation is client-owned", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		service.SetOpsUpstreamError(c, http.StatusBadRequest,
+			"parameter.enable_thinking must be set to false for non-streaming calls", "")
+
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "invalid_request_error",
+			"parameter.enable_thinking must be set to false for non-streaming calls", "", http.StatusBadRequest)
+
+		require.Equal(t, "request", phase)
+		require.Equal(t, "client", errorOwner)
+	})
+
 	// TK (prod P0 2026-06-06, edge us5): bare "opus" on empty-mapping passthrough
 	// accounts → upstream 404 not_found_error. The gateway returns a client 400
 	// "Unsupported model", but the captured upstream status is still 404; it must
@@ -264,6 +277,7 @@ func TestClassifyOpsGenuineUpstreamErrorsStayProvider(t *testing.T) {
 		{"upstream 403 forbidden", http.StatusForbidden, "forbidden", "upstream_error", http.StatusForbidden},
 		{"account-level 400 organization disabled", http.StatusBadRequest, "This organization has been disabled.", "api_error", http.StatusBadRequest},
 		{"account-level 400 credit balance", http.StatusBadRequest, "Your credit balance is too low to access the API.", "api_error", http.StatusBadRequest},
+		{"account-level invalid request credit balance", http.StatusBadRequest, "Your credit balance is too low to access the API.", "invalid_request_error", http.StatusBadRequest},
 		// A generic 404 that is NOT a model-not-found (no "model" signal) stays provider.
 		{"generic upstream 404 not model-not-found", http.StatusNotFound, "resource not found", "upstream_error", http.StatusBadGateway},
 	}

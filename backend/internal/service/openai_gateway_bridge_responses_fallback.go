@@ -18,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
 )
 
@@ -87,6 +88,33 @@ func isNewAPIResponsesProactiveChatFallbackModel(model string) bool {
 	return false
 }
 
+func isNewAPIQwen3Model(model string) bool {
+	model = strings.TrimSpace(strings.ToLower(model))
+	return !isNewAPIResponsesQwen37PreviewVariant(model) &&
+		(strings.HasPrefix(model, "qwen3-") || strings.HasPrefix(model, "qwen3."))
+}
+
+func normalizeNewAPIQwenNonStreamingPayload(model string, payload map[string]any) {
+	if !isNewAPIQwen3Model(model) || payload == nil {
+		return
+	}
+	if stream, _ := payload["stream"].(bool); stream {
+		return
+	}
+	payload["enable_thinking"] = false
+}
+
+func applyNewAPIQwenNonStreamingShape(model string, body []byte) []byte {
+	if len(body) == 0 || !isNewAPIQwen3Model(model) || gjson.GetBytes(body, "stream").Bool() {
+		return body
+	}
+	shaped, err := sjson.SetBytes(body, "enable_thinking", false)
+	if err != nil {
+		return body
+	}
+	return shaped
+}
+
 func applyNewAPIResponsesChatFallbackShape(model string, chatBody []byte) []byte {
 	trimmedModel := strings.TrimSpace(strings.ToLower(model))
 	if trimmedModel == "" || len(chatBody) == 0 {
@@ -95,7 +123,7 @@ func applyNewAPIResponsesChatFallbackShape(model string, chatBody []byte) []byte
 
 	requiresStream := isNewAPIResponsesChatFallbackStreamModel(trimmedModel)
 	isQwenPreview := isNewAPIResponsesQwen37PreviewVariant(trimmedModel)
-	isQwen3 := strings.HasPrefix(trimmedModel, "qwen3-") || strings.HasPrefix(trimmedModel, "qwen3.")
+	isQwen3 := isNewAPIQwen3Model(trimmedModel)
 	if !requiresStream && !isQwenPreview && !isQwen3 {
 		return chatBody
 	}
@@ -110,9 +138,8 @@ func applyNewAPIResponsesChatFallbackShape(model string, chatBody []byte) []byte
 	}
 	if isQwenPreview {
 		payload["enable_thinking"] = true
-	} else if isQwen3 {
-		payload["enable_thinking"] = false
 	}
+	normalizeNewAPIQwenNonStreamingPayload(trimmedModel, payload)
 
 	shaped, err := json.Marshal(payload)
 	if err != nil {

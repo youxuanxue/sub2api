@@ -82,3 +82,33 @@ func TestForwardAsChatCompletionsDispatched_RewritesGLMDatedModelBeforeBridge(t 
 		t.Fatalf("bridge body model = %q, want glm-4.7", model)
 	}
 }
+
+func TestForwardAsChatCompletionsDispatched_QwenNonStreamingDisablesThinking(t *testing.T) {
+	oldDispatch := dispatchNewAPIChatCompletions
+	t.Cleanup(func() { dispatchNewAPIChatCompletions = oldDispatch })
+
+	var capturedBody []byte
+	dispatchNewAPIChatCompletions = func(_ context.Context, _ *gin.Context, _ bridge.ChannelContextInput, body []byte) (*bridge.DispatchOutcome, *newapitypes.NewAPIError) {
+		capturedBody = append([]byte(nil), body...)
+		return &bridge.DispatchOutcome{Model: "qwen3-8b"}, nil
+	}
+
+	account := &Account{
+		ID:          60,
+		Platform:    PlatformNewAPI,
+		ChannelType: 17,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "test-key"},
+	}
+	svc := &OpenAIGatewayService{}
+	c, _ := gin.CreateTestContext(nil)
+	body := []byte(`{"model":"qwen3-8b","stream":false,"enable_thinking":true,"messages":[{"role":"user","content":"hi"}]}`)
+
+	_, err := svc.ForwardAsChatCompletionsDispatched(context.Background(), c, account, body, "", "")
+	if err != nil {
+		t.Fatalf("ForwardAsChatCompletionsDispatched: %v", err)
+	}
+	if got := gjson.GetBytes(capturedBody, "enable_thinking"); !got.Exists() || got.Bool() {
+		t.Fatalf("bridge body enable_thinking = %s, want false", got.Raw)
+	}
+}

@@ -121,6 +121,9 @@ func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool
 	if tkOpsIsAccountLevel4xx(combined) {
 		return false
 	}
+	if strings.EqualFold(strings.TrimSpace(clientErrType), "invalid_request_error") {
+		return true
+	}
 	// Structured signal first: the upstream error envelope type.
 	if et := strings.ToLower(strings.TrimSpace(gjson.Get(body, "error.type").String())); et == "invalid_request_error" || et == "request_too_large" {
 		return true
