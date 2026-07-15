@@ -4986,6 +4986,24 @@
         "x-stainless-lang"
       ],
       "rationale": "Focused regressions: OAuth passthrough must preserve client UA/anthropic-beta and must NOT inject OAuth fingerprint headers on the forward path."
+    },
+    {
+      "path": "backend/internal/repository/migrations_runner.go",
+      "must_contain": [
+        "opsSystemLogsHostIndexMigration = \"175a_add_ops_system_logs_host_index_notx.sql\"",
+        "partitionedFallbackDDL: opsSystemLogsHostIndexDDL",
+        "applyNonTransactionalMigration(ctx, db, name, content)",
+        "return dropInvalidIndexIfPresent(ctx, db, policy.indexName)"
+      ],
+      "rationale": "PR #1353 added a host index migration using CREATE INDEX CONCURRENTLY, but prod ops_system_logs is a partitioned PostgreSQL parent where CONCURRENTLY is rejected. The shared non-transactional index policy must keep the 175a filename mapped to a blocking parent-index fallback, while non-partitioned deployments must drop an invalid interrupted index before retrying. Losing either hook makes the next prod rollout fail at startup or record a no-op retry as successful."
+    },
+    {
+      "path": "backend/internal/repository/migrations_runner_notx_test.go",
+      "must_contain": [
+        "TestApplyMigrationsFS_OpsSystemLogsHostIndex_UsesBlockingIndexOnPartitionedTable",
+        "TestApplyMigrationsFS_OpsSystemLogsHostIndex_DropsInvalidIndexBeforeNonPartitionedRetry"
+      ],
+      "rationale": "Behavioral regression coverage for the 175a migration on both live shapes: TokenKey prod's partitioned ops_system_logs parent must use the blocking fallback, and a non-partitioned interrupted concurrent build must remove the invalid index before retrying."
     }
   ]
 }
