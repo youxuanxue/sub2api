@@ -304,7 +304,9 @@ jobs:
           # "no vulns"). So: run, ignore the advisory exit, then assert the output
           # is real audit JSON (parses + has a recognized top-level key) before
           # trusting it. Fail loudly if the audit did not actually run.
-          pnpm audit --prod --audit-level=high --json > audit.json || true
+          # pnpm 9/10 still call npm's retired full/quick audit endpoints. Use
+          # pnpm 11 for this command only; dependency installation stays on v9.
+          npx --yes pnpm@11.13.0 audit --registry=https://registry.npmjs.org --prod --audit-level=high --json > audit.json || true
           python3 - <<'PY'
           import json, sys
           try:
