@@ -956,21 +956,10 @@ func shortenToolName(name string) string {
 
 // ==================== Kiro -> Claude 转换 ====================
 
-func KiroToClaudeResponse(content, thinkingContent string, includeEmptyThinkingBlock bool, toolUses []KiroToolUse, inputTokens, outputTokens int, model string) *ClaudeResponse {
+func KiroToClaudeResponse(content, _ string, includeEmptyThinkingBlock bool, toolUses []KiroToolUse, inputTokens, outputTokens int, model string) *ClaudeResponse {
 	blocks := make([]ClaudeContentBlock, 0)
-
-	if thinkingContent != "" || includeEmptyThinkingBlock {
-		if thinkingContent != "" {
-			blocks = append(blocks, ClaudeContentBlock{
-				Type: "redacted_thinking",
-				Data: RedactedThinkingData(thinkingContent),
-			})
-		} else if includeEmptyThinkingBlock {
-			blocks = append(blocks, ClaudeContentBlock{
-				Type:     "thinking",
-				Thinking: "",
-			})
-		}
+	if includeEmptyThinkingBlock {
+		blocks = append(blocks, ClaudeContentBlock{Type: "thinking", Thinking: ""})
 	}
 
 	if content != "" {

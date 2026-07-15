@@ -69,7 +69,7 @@ func publishKiroInternalThinkingSideChannel(c *gin.Context, w io.Writer, hdr htt
 
 // kiroInternalThinkingBlockJSON returns one Anthropic-shaped thinking block JSON
 // string for QA/traj export. Kiro upstream has no signature token; only plaintext
-// thinking is stashed (client-facing wire stays redacted_thinking).
+// thinking is stashed; unsigned Kiro reasoning stays off the client-facing wire.
 func kiroInternalThinkingBlockJSON(thinking string) string {
 	thinking = strings.TrimSpace(thinking)
 	if thinking == "" {

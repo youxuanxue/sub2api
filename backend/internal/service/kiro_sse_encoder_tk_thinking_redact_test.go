@@ -17,7 +17,7 @@ import (
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 )
 
-func TestKiroSSEEncoder_RedactsReasoningContentEvent(t *testing.T) {
+func TestKiroSSEEncoder_OmitsReasoningContentEvent(t *testing.T) {
 	rec := httptest.NewRecorder()
 	enc := &kiroSSEEncoder{
 		w:       rec,
@@ -33,8 +33,7 @@ func TestKiroSSEEncoder_RedactsReasoningContentEvent(t *testing.T) {
 	enc.writeMessageStop()
 
 	out := rec.Body.String()
-	require.Contains(t, out, `"type":"redacted_thinking"`)
-	require.Contains(t, out, kiroproto.RedactedThinkingData("The user asked who I am. I should answer briefly."))
+	require.NotContains(t, out, "redacted_thinking")
 	require.Contains(t, out, `"type":"text_delta"`)
 	require.Contains(t, out, "I am Claude.")
 	require.NotContains(t, out, "thinking_delta")
@@ -60,7 +59,7 @@ func TestKiroSSEEncoder_OpusStyleTextOnly_NoRedactedBlock(t *testing.T) {
 	require.Contains(t, out, "I am Claude.")
 }
 
-func TestKiroSSEEncoder_InlineThinkingTagsRedacted(t *testing.T) {
+func TestKiroSSEEncoder_InlineThinkingTagsOmitted(t *testing.T) {
 	rec := httptest.NewRecorder()
 	enc := &kiroSSEEncoder{
 		w:       rec,
@@ -78,9 +77,7 @@ func TestKiroSSEEncoder_InlineThinkingTagsRedacted(t *testing.T) {
 	enc.writeMessageStop()
 
 	out := rec.Body.String()
-	combined := "from reasoning eventinline"
-	require.Contains(t, out, "redacted_thinking")
-	require.Contains(t, out, kiroproto.RedactedThinkingData(combined))
+	require.NotContains(t, out, "redacted_thinking")
 	require.Contains(t, out, "Visible answer.")
 	require.NotContains(t, out, "<thinking>")
 	require.NotContains(t, out, "thinking_delta")
@@ -112,13 +109,13 @@ func TestKiroGatewayService_Forward_Streaming_WithReasoningEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	out := rec.Body.String()
-	require.Contains(t, out, "redacted_thinking")
+	require.NotContains(t, out, "redacted_thinking")
 	require.Contains(t, out, "final answer")
 	require.NotContains(t, out, "thinking_delta")
 	require.NotContains(t, out, "plan step one")
 }
 
-func TestKiroGatewayService_Forward_Streaming_RedactsSplitInlineThinkingTags(t *testing.T) {
+func TestKiroGatewayService_Forward_Streaming_OmitsSplitInlineThinkingTags(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -148,7 +145,7 @@ func TestKiroGatewayService_Forward_Streaming_RedactsSplitInlineThinkingTags(t *
 	require.NoError(t, err)
 
 	out := rec.Body.String()
-	require.Contains(t, out, `"type":"redacted_thinking"`)
+	require.NotContains(t, out, "redacted_thinking")
 	require.Contains(t, out, "I am Claude.")
 	require.NotContains(t, out, kiroInternalThinkingSSECommentPfx)
 	require.NotContains(t, out, "<thinking>")

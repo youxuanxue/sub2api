@@ -1,21 +1,8 @@
 package kiro
 
 import (
-	"crypto/sha256"
-	"encoding/base64"
 	"strings"
 )
-
-// RedactedThinkingData returns an opaque placeholder for a redacted_thinking block.
-// Kiro upstream reasoning is not Anthropic-signed; emitting plaintext thinking_delta
-// leaks into Claude Code terminals. OAuth parity uses redacted_thinking instead.
-func RedactedThinkingData(thinking string) string {
-	if strings.TrimSpace(thinking) == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(thinking))
-	return base64.StdEncoding.EncodeToString(sum[:])
-}
 
 // ExtractThinkingFromContent splits inline <thinking>...</thinking> tags that some
 // Kiro models embed in assistantResponseEvent text from the visible answer text.
