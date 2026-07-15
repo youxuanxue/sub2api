@@ -43,6 +43,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	// request so GLM-style adaptors can pick it up. See docs/approved/sticky-routing.md.
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	body = rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)
+	body = applyNewAPIQwenNonStreamingShape(gjson.GetBytes(body, "model").String(), body)
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
 	if strings.TrimSpace(in.APIKey) == "" {
