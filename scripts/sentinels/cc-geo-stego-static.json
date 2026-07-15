@@ -1,7 +1,7 @@
 {
   "version": 1,
   "rationale": "Static anchors for Claude Code geo-stego + prompt-surface normalizers. binary_must_contain uses stable wire/prompt literals (not minified symbol names like KSe/eca that rename every cc patch).",
-  "cc_version": "2.1.206",
+  "cc_version": "2.1.210",
   "binary_default_path": "~/.local/share/claude/versions/{cc_version}",
   "binary_must_contain": [
     "setTimeZone",

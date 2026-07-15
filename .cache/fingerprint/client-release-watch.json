@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-14T23:59:38Z",
-  "git_sha": "054451c85348ed261121f3c172e938582daef97c",
+  "updated_at": "2026-07-15T14:12:52Z",
+  "git_sha": "",
   "platforms": {
     "claude-code": {
-      "pinned": "2.1.206",
+      "pinned": "2.1.210",
       "upstream_latest": "2.1.210",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -40,9 +40,9 @@
       }
     },
     "codex": {
-      "pinned": "0.144.1",
+      "pinned": "0.144.4",
       "upstream_latest": "0.144.4",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -61,9 +61,9 @@
       }
     },
     "codex-vscode": {
-      "pinned": "0.144.1",
+      "pinned": "0.144.4",
       "upstream_latest": "0.144.4",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -97,9 +97,9 @@
       }
     },
     "grok-cli": {
-      "pinned": "0.2.93",
+      "pinned": "0.2.101",
       "upstream_latest": "0.2.101",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -112,9 +112,9 @@
       }
     },
     "antigravity": {
-      "pinned": "2.2.1",
+      "pinned": "2.3.0",
       "upstream_latest": "2.3.0",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -142,17 +142,17 @@
       }
     },
     "kiro-cli": {
-      "pinned": "2.11.1",
-      "upstream_latest": "2.12.1",
-      "status": "drift",
+      "pinned": "2.12.2",
+      "upstream_latest": "2.12.2",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "Homebrew cask kiro-cli": {
-          "version": "2.12.1",
+          "version": "2.12.2",
           "published_at": "",
-          "url": "https://desktop-release.q.us-east-1.amazonaws.com/2.12.1/Kiro%20CLI.dmg",
-          "raw_tag": "2.12.1"
+          "url": "https://desktop-release.q.us-east-1.amazonaws.com/2.12.2/Kiro%20CLI.dmg",
+          "raw_tag": "2.12.2"
         }
       }
     }
