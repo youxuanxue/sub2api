@@ -60,6 +60,8 @@ jobs:
         run: |
           # pnpm 9/10 still call npm's retired full/quick audit endpoints. Use
           # pnpm 11 for this command only; dependency installation stays on v9.
+          # The shared exception checker validates that this is a real audit
+          # result before evaluating advisories, so ignored exit codes fail closed.
           npx --yes pnpm@11.13.0 audit --registry=https://registry.npmjs.org --prod --audit-level=high --json > audit.json || true
       - name: Check audit exceptions
         run: |
