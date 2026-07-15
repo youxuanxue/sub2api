@@ -165,9 +165,17 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		OnError: func(err error) {
 			callbackErr = err
 		},
+		ResetForRetry: func() bool {
+			textBuf = ""
+			thinkingBuf = ""
+			toolUses = nil
+			callbackErr = nil
+			redactor = kiroproto.InlineThinkingRedactor{}
+			return true
+		},
 	}
 
-	if err := kiroproto.CallKiroAPIWithDoer(doer, kiroAcct, payload, callback); err != nil {
+	if err := kiroproto.CallKiroAPIWithDoerContext(ctx, doer, kiroAcct, payload, callback); err != nil {
 		return nil, classifyKiroForwardError(err, model)
 	}
 	if callbackErr != nil {
@@ -306,9 +314,23 @@ func (s *KiroGatewayService) forwardStreaming(
 			defer mu.Unlock()
 			callbackErr = err
 		},
+		ResetForRetry: func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			if enc.started {
+				return false
+			}
+			textBuf = ""
+			thinkingBuf = ""
+			toolUses = nil
+			callbackErr = nil
+			firstTokMs = nil
+			redactor = kiroproto.InlineThinkingRedactor{}
+			return true
+		},
 	}
 
-	callErr := kiroproto.CallKiroAPIWithDoer(doer, kiroAcct, payload, callback)
+	callErr := kiroproto.CallKiroAPIWithDoerContext(ctx, doer, kiroAcct, payload, callback)
 
 	mu.Lock()
 	defer mu.Unlock()

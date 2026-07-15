@@ -107,6 +107,28 @@ type kiroFakeUpstream struct {
 	gotRequest bool
 }
 
+type kiroSequenceUpstream struct {
+	bodies [][]byte
+	calls  int
+}
+
+func (u *kiroSequenceUpstream) Do(*http.Request, string, int64, int) (*http.Response, error) {
+	return nil, fmt.Errorf("unexpected Do call")
+}
+
+func (u *kiroSequenceUpstream) DoWithTLS(_ *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	index := u.calls
+	u.calls++
+	if index >= len(u.bodies) {
+		index = len(u.bodies) - 1
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(bytes.NewReader(u.bodies[index])),
+	}, nil
+}
+
 func (u *kiroFakeUpstream) Do(*http.Request, string, int64, int) (*http.Response, error) {
 	return nil, fmt.Errorf("unexpected Do call")
 }
@@ -177,6 +199,32 @@ func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 	require.Equal(t, result.RequestID, resp["id"])
 }
 
+func TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	partial := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"discard me"}`))
+	partial = append(partial, []byte{0, 0, 0, 20}...)
+	recovered := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"recovered"}`))
+	upstream := &kiroSequenceUpstream{bodies: [][]byte{partial, recovered}}
+	svc := NewKiroGatewayService(upstream, nil, nil)
+	body, _ := json.Marshal(map[string]any{
+		"model":      "claude-opus-4-8",
+		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
+		"max_tokens": 16,
+		"stream":     false,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-4-8", Stream: false}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 2, upstream.calls)
+	require.Contains(t, rec.Body.String(), "recovered")
+	require.NotContains(t, rec.Body.String(), "discard me")
+}
+
 func TestKiroGatewayService_Forward_Streaming(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -223,7 +271,7 @@ func TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError(t 
 	frame := buildKiroEventStreamMessage("assistantResponseEvent",
 		[]byte(`{"content":"partial answer","inputTokens":8,"outputTokens":3}`))
 	truncatedPrelude := []byte{0, 0, 0, 20}
-	upstream := &kiroFakeUpstream{body: append(frame, truncatedPrelude...)}
+	upstream := &kiroSequenceUpstream{bodies: [][]byte{append(frame, truncatedPrelude...)}}
 
 	svc := NewKiroGatewayService(upstream, nil, nil)
 
@@ -239,6 +287,7 @@ func TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError(t 
 	require.Error(t, err)
 	require.Nil(t, result)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.Equal(t, 1, upstream.calls, "committed stream must not be retried")
 	require.True(t, IsResponseCommitted(c))
 
 	out := rec.Body.String()
@@ -263,8 +312,8 @@ func TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError(t 
 
 // kiroStatusUpstream returns a canned non-200 response with a fixed body,
 // modeling the Kiro upstream rejecting a request (e.g. 400 INVALID_MODEL_ID).
-// The vendored CallKiroAPIWithDoer reads the body into its error string, so all
-// three endpoints in the fallback list see the same rejection.
+// The vendored Kiro client reads the body into its error string, so both
+// endpoints in the supported fallback list see the same rejection.
 type kiroStatusUpstream struct {
 	status int
 	body   string
