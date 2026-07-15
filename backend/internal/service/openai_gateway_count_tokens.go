@@ -200,7 +200,7 @@ func (s *OpenAIGatewayService) getInputTokensAuthToken(ctx context.Context, acco
 		return "", "", fmt.Errorf("count_tokens: missing account")
 	}
 	if account.Platform == PlatformGrok {
-		token, err := s.grokResponsesAuthToken(ctx, account)
+		token, err := s.grokResponsesAuthToken(ctx, nil, account)
 		return token, "", err
 	}
 	return s.GetAccessToken(ctx, account)
@@ -236,7 +236,15 @@ func (s *OpenAIGatewayService) buildInputTokensUpstreamRequest(
 		return nil, err
 	}
 	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
-	req.Header.Set("authorization", "Bearer "+token)
+	authHeaders, err := s.buildOpenAIAuthenticationHeaders(ctx, account, token)
+	if err != nil {
+		return nil, err
+	}
+	for key, values := range authHeaders {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("accept", "application/json")
 

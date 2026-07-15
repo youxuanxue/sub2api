@@ -118,7 +118,7 @@ func (s *userHandlerRepoStub) RemoveGroupFromUserAllowedGroups(context.Context, 
 func (s *userHandlerRepoStub) UpdateTotpSecret(context.Context, int64, *string) error { return nil }
 func (s *userHandlerRepoStub) EnableTotp(context.Context, int64) error                { return nil }
 func (s *userHandlerRepoStub) DisableTotp(context.Context, int64) error               { return nil }
-func (s *userHandlerRepoStub) MarkOnboardingTourSeen(context.Context, int64) error { return nil }
+func (s *userHandlerRepoStub) MarkOnboardingTourSeen(context.Context, int64) error    { return nil }
 func (s *userHandlerRepoStub) GetByIDIncludeDeleted(ctx context.Context, id int64) (*service.User, error) {
 	return s.GetByID(ctx, id)
 }

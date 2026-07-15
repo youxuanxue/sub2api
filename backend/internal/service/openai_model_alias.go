@@ -14,6 +14,23 @@ func lastOpenAIModelSegment(model string) string {
 	return strings.TrimSpace(model)
 }
 
+// isOpenAIGPT56Model accepts base names and supported GPT-5.6 variants.
+func isOpenAIGPT56Model(model string) bool {
+	normalized := canonicalizeOpenAIModelAliasSpelling(model)
+	if normalized == "gpt-5.6" {
+		return true
+	}
+	if suffix, ok := strings.CutPrefix(normalized, "gpt-5.6-"); ok && (suffix == "max" || isKnownCodexModelSuffix(suffix)) {
+		return true
+	}
+	for _, prefix := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} {
+		if normalized == prefix || strings.HasPrefix(normalized, prefix+"-") {
+			return true
+		}
+	}
+	return false
+}
+
 // CanonicalizeOpenAICompatRoutingModel normalizes OpenAI-compat model ids for
 // account selection, channel restriction, and negative-cache keys. Wire spellings
 // such as gpt5.4-mini collapse to gpt-5.4-mini; legacy Codex ids route to the
@@ -117,6 +134,14 @@ func normalizeKnownOpenAICodexModel(model string) string {
 		return "gpt-5.6-terra"
 	case strings.Contains(normalized, "gpt-5.6-luna"):
 		return "gpt-5.6-luna"
+	case normalized == "gpt-5.6":
+		return "gpt-5.6-sol"
+	case strings.HasPrefix(normalized, "gpt-5.6-"):
+		suffix := strings.TrimPrefix(normalized, "gpt-5.6-")
+		if suffix == "max" || isKnownCodexModelSuffix(suffix) {
+			return "gpt-5.6-sol"
+		}
+		return ""
 	case strings.Contains(normalized, "gpt-5.5-pro"):
 		return "gpt-5.5"
 	case strings.Contains(normalized, "gpt-5.5"):

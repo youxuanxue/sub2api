@@ -470,7 +470,7 @@ func TestMirrorCapacityPlatform(t *testing.T) {
 		"kiro":      "kiro",
 		" KIRO ":    "kiro",
 		"openai":    "openai",
-		"kir0":      "kir0",   // typo → passthrough, NOT coerced to anthropic
+		"kir0":      "kir0", // typo → passthrough, NOT coerced to anthropic
 	}
 	for raw, want := range cases {
 		if got := mirrorCapacityPlatform(raw); got != want {

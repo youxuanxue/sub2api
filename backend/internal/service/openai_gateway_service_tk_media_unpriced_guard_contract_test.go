@@ -41,7 +41,7 @@ func TestMediaUnpricedGuard_ParityWithVideoBilling(t *testing.T) {
 		"absent-model",
 	} {
 		guardRejects := svc.TkVideoModelUnpriced(model)
-		billsZero := svc.CalculateVideoCost(model, 8, 1.0).TotalCost <= 0
+		billsZero := svc.CalculateVideoCost(model, VideoBillingResolution720P, 1, 8, nil, 1.0).TotalCost <= 0
 		require.Equal(t, billsZero, guardRejects,
 			"guard/billing parity broken for %q: guard rejects=%v but bills zero=%v — "+
 				"video billing semantics changed; update TkVideoModelUnpriced in the same change",

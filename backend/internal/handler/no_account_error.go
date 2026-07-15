@@ -107,3 +107,14 @@ func classifyNoAccountErrorFromGin(
 	}
 	return classifyNoAccountError(ctx, diag, apiKey, routingModel, displayModel, platform)
 }
+
+func openAICompatibleSelectionErrorForLog(err error, platform string) error {
+	if err == nil || platform != service.PlatformGrok {
+		return err
+	}
+	message := strings.ReplaceAll(err.Error(), "OpenAI accounts", "Grok accounts")
+	if message == err.Error() {
+		return err
+	}
+	return fmt.Errorf("%s", message)
+}

@@ -19,7 +19,7 @@ func setupModelMappingPresetsRouter(adminSvc service.AdminService) *gin.Engine {
 	router := gin.New()
 	handler := NewAccountHandler(
 		adminSvc,
-		nil, nil, nil, nil,
+		nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil,
 		nil, nil, nil, nil,
 	)

@@ -351,6 +351,7 @@ func newKiroOAuth401Account(id int64, expiresAt time.Time) *Account {
 		ID:       id,
 		Platform: PlatformKiro,
 		Type:     AccountTypeOAuth,
+		Status:   StatusActive,
 		Credentials: map[string]any{
 			"access_token":  "old-at",
 			"refresh_token": "old-rt",

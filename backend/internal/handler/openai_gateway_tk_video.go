@@ -273,7 +273,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 				RequestID:            billingRequestID,
 				Stream:               false,
 				Duration:             outcome.Duration,
-				VideoDurationSeconds: &videoSeconds,
+				VideoDurationSeconds: int(videoSeconds),
 			},
 			APIKey:           apiKey,
 			User:             apiKey.User,

@@ -35,6 +35,7 @@ const messages: Record<string, string> = {
   'admin.groups.createGroup': 'Create Group',
   'admin.groups.failedToCreate': 'Failed to create group',
   'admin.groups.columns.name': 'Name',
+  'admin.groups.columns.id': 'ID',
   'admin.groups.columns.platform': 'Platform',
   'admin.groups.columns.billingType': 'Billing Type',
   'admin.groups.columns.rateMultiplier': 'Rate Multiplier',
@@ -257,7 +258,7 @@ describe('admin GroupsView column settings', () => {
     localStorage.clear()
   })
 
-  it('renders all group columns by default in the current order', async () => {
+  it('hides the id column by default while keeping other group columns visible', async () => {
     const wrapper = await mountView()
 
     expect(columnKeys(wrapper)).toEqual([
@@ -272,6 +273,8 @@ describe('admin GroupsView column settings', () => {
       'status',
       'actions',
     ])
+    expect(localStorage.getItem('group-hidden-columns')).toBe(JSON.stringify(['id']))
+    expect(localStorage.getItem('group-column-settings-version')).toBe('2')
   })
 
   it('applies saved hidden columns on mount and ignores unknown keys', async () => {
@@ -279,6 +282,26 @@ describe('admin GroupsView column settings', () => {
       'group-hidden-columns',
       JSON.stringify(['usage', 'capacity', 'removed_column', 'name', 'actions']),
     )
+    localStorage.setItem('group-column-settings-version', '2')
+
+    const wrapper = await mountView()
+
+    expect(columnKeys(wrapper)).toEqual([
+      'name',
+      'id',
+      'platform',
+      'billing_type',
+      'rate_multiplier',
+      'is_exclusive',
+      'account_count',
+      'status',
+      'actions',
+    ])
+  })
+
+  it('auto-hides id for existing saved column prefs after version bump', async () => {
+    localStorage.setItem('group-hidden-columns', JSON.stringify(['usage']))
+    // No version key → treated as version 1, migrate to 2 and hide id.
 
     const wrapper = await mountView()
 
@@ -289,9 +312,14 @@ describe('admin GroupsView column settings', () => {
       'rate_multiplier',
       'is_exclusive',
       'account_count',
+      'capacity',
       'status',
       'actions',
     ])
+    expect(JSON.parse(localStorage.getItem('group-hidden-columns')!)).toEqual(
+      expect.arrayContaining(['usage', 'id']),
+    )
+    expect(localStorage.getItem('group-column-settings-version')).toBe('2')
   })
 
   it('toggles a column and persists hidden column keys', async () => {
@@ -311,11 +339,38 @@ describe('admin GroupsView column settings', () => {
       'status',
       'actions',
     ])
-    expect(localStorage.getItem('group-hidden-columns')).toBe(JSON.stringify(['usage']))
+    expect(JSON.parse(localStorage.getItem('group-hidden-columns')!)).toEqual(
+      expect.arrayContaining(['id', 'usage']),
+    )
   })
 
-  it('skips hidden usage and capacity fetches until those columns are shown', async () => {
-    localStorage.setItem('group-hidden-columns', JSON.stringify(['usage', 'capacity']))
+  it('can show the id column from column settings', async () => {
+    const wrapper = await mountView()
+
+    await openColumnSettings(wrapper)
+    await clickColumnToggle(wrapper, 'ID')
+
+    expect(columnKeys(wrapper)).toEqual([
+      'name',
+      'id',
+      'platform',
+      'billing_type',
+      'rate_multiplier',
+      'is_exclusive',
+      'account_count',
+      'capacity',
+      'usage',
+      'status',
+      'actions',
+    ])
+    expect(localStorage.getItem('group-hidden-columns')).toBe(JSON.stringify([]))
+  })
+
+  it('skips usage and capacity fetches until consuming columns are shown', async () => {
+    localStorage.setItem(
+      'group-hidden-columns',
+      JSON.stringify(['billing_type', 'usage', 'capacity']),
+    )
 
     const wrapper = await mountView()
 

@@ -79,10 +79,10 @@ func TestAuthService_CreateUserWithSignupLedger_NilEntClient_BestEffortLedger(t 
 	}
 
 	user := &User{
-		Email:    "signup-ledger@example.com",
-		Balance:  3.5,
-		Status:   StatusActive,
-		Role:     RoleUser,
+		Email:   "signup-ledger@example.com",
+		Balance: 3.5,
+		Status:  StatusActive,
+		Role:    RoleUser,
 	}
 	require.NoError(t, user.SetPassword("pw-12345678"))
 	require.NoError(t, svc.createUserWithSignupLedger(context.Background(), user))
@@ -103,10 +103,10 @@ func TestTrialProvisionService_CreateTrialUserWithLedger_NilEntClient_BestEffort
 	}
 
 	user := &User{
-		Email:    "trial-ledger@example.com",
-		Balance:  12,
-		Status:   StatusActive,
-		Role:     RoleUser,
+		Email:   "trial-ledger@example.com",
+		Balance: 12,
+		Status:  StatusActive,
+		Role:    RoleUser,
 	}
 	require.NoError(t, user.SetPassword("pw-12345678"))
 	require.NoError(t, svc.createTrialUserWithLedger(context.Background(), user))

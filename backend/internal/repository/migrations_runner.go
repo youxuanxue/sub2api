@@ -59,6 +59,8 @@ const schedulerOutboxPendingDedupKeyIndex = "idx_scheduler_outbox_pending_dedup_
 const opsSystemLogsAPIKeyIDIndexMigration = "155_add_ops_system_logs_api_key_id_index_notx.sql"
 const opsSystemLogsAPIKeyIDIndexDDL = `CREATE INDEX IF NOT EXISTS idx_ops_system_logs_api_key_id_created_at ON ops_system_logs (api_key_id, created_at DESC)`
 const opsMonthlyPartitionsMigration = "tk_041_provision_ops_monthly_partitions.sql"
+const latestAPIKeyIPIndexMigration = "174_add_usage_logs_api_key_latest_ip_index_notx.sql"
+const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
 
 type migrationChecksumCompatibilityRule struct {
 	fileChecksum       string
@@ -81,10 +83,9 @@ var migrationChecksumCompatibilityRules = map[string]migrationChecksumCompatibil
 	"119_enforce_payment_orders_out_trade_no_unique.sql":      newMigrationChecksumCompatibilityRule("0bbe809ae48a9d811dabda1ba1c74955bd71c4a9cc610f9128816818dfa6c11e", "ebd2c67cce0116393fb4f1b5d5116a67c6aceb73820dfb5133d1ff6f36d72d34"),
 	"120_enforce_payment_orders_out_trade_no_unique_notx.sql": newMigrationChecksumCompatibilityRule("34aadc0db59a4e390f92a12b73bd74642d9724f33124f73638ae00089ea5e074", "e77921f79d539bc24575cb9c16cbe566d2b23ce816190343d0a7568f6a3fcf61", "707431450603e70a43ce9fbd61e0c12fa67da4875158ccefabacea069587ab22", "04b082b5a239c525154fe9185d324ee2b05ff90da9297e10dba19f9be79aa59a"),
 	"123_fix_legacy_auth_source_grant_on_signup_defaults.sql": newMigrationChecksumCompatibilityRule("2ce43c2cd89e9f9e1febd34a407ed9e84d177386c5544b6f02c1f58a21129f57", "6cd33422f215dcd1f486ab6f35c0ea5805d9ca69bb25906d94bc649156657145"),
-	// tk_006: prod recorded checksum from v1.7.14 file; merge #112 changed comments only → new trim-hash.
+	// tk_006: prod recorded checksum from v1.7.14 file; merge #112 changed comments only.
 	"tk_006_add_qa_records_synth_fields.sql": newMigrationChecksumCompatibilityRule("06fed3407eaa878b73f7fd0d5bd00be5c9852eb58a0c7682b49a03d36be3391e", "913563b6ed60214ea05e3d2ee2f50aeddfb015b2ade7669a62d602630b0c1a50"),
-	// tk_038: #963 mistakenly expanded CREATE TABLE in-place (v1.8.39); prod/edge DBs
-	// already recorded the v1.8.38 checksum. Metric columns belong in tk_046 only.
+	// tk_038 was expanded in place after production had recorded the earlier checksum.
 	"tk_038_usage_dashboard_group_daily.sql": newMigrationChecksumCompatibilityRule(
 		"55d565b2820aa360f3efdeb4186c78548c715bce44b93bc32da3d9946a370793",
 		"55d565b2820aa360f3efdeb4186c78548c715bce44b93bc32da3d9946a370793",
@@ -239,8 +240,6 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 					return fmt.Errorf("check ops_system_logs partition state for migration %s: %w", name, err)
 				}
 				if partitioned {
-					// PG rejects online index build on partitioned parents; tk_035 may
-					// already be applied on prod before upstream 155 lands.
 					if _, err := db.ExecContext(ctx, opsSystemLogsAPIKeyIDIndexDDL); err != nil {
 						return fmt.Errorf("apply migration %s (partitioned fallback): %w", name, err)
 					}
@@ -301,15 +300,9 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 }
 
 func shouldRecordMigrationWithoutExecution(ctx context.Context, db *sql.DB, name string) (bool, error) {
-	switch name {
-	case opsMonthlyPartitionsMigration:
-		return shouldRecordTk041WithoutExecution(ctx, db)
-	default:
+	if name != opsMonthlyPartitionsMigration {
 		return false, nil
 	}
-}
-
-func shouldRecordTk041WithoutExecution(ctx context.Context, db *sql.DB) (bool, error) {
 	for _, table := range []string{"ops_system_logs", "ops_error_logs"} {
 		partitioned, err := pgpartition.IsPartitioned(ctx, db, table)
 		if err != nil {
@@ -319,10 +312,6 @@ func shouldRecordTk041WithoutExecution(ctx context.Context, db *sql.DB) (bool, e
 			return false, nil
 		}
 	}
-	// tk_035/tk_037 already converted both parents. On fresh DBs created after
-	// 2026-07-01, their legacy partitions may overlap tk_041's fixed 202607
-	// target. Record immutable tk_041 as covered; tk_053 then provisions the same
-	// months with explicit overlap handling.
 	return true, nil
 }
 
@@ -332,6 +321,8 @@ func prepareNonTransactionalMigration(ctx context.Context, db *sql.DB, name stri
 		return preparePaymentOrdersOutTradeNoUniqueMigration(ctx, db)
 	case schedulerOutboxPendingDedupKeyMigration:
 		return dropInvalidIndexIfPresent(ctx, db, schedulerOutboxPendingDedupKeyIndex)
+	case latestAPIKeyIPIndexMigration:
+		return dropInvalidIndexIfPresent(ctx, db, latestAPIKeyIPIndex)
 	default:
 		return nil
 	}
@@ -543,11 +534,6 @@ func validateMigrationExecutionMode(name, content string) (bool, error) {
 		}
 
 		if strings.Contains(normalizedStmt, "CONCURRENTLY") {
-			// Classify by the LEADING keyword, not a substring-anywhere match: an
-			// index name can legitimately contain "create" (e.g.
-			// idx_usage_logs_created_at), and a bare Contains("CREATE") would then
-			// misclassify a DROP INDEX statement as CREATE and wrongly demand
-			// IF NOT EXISTS.
 			isCreateIndex := strings.HasPrefix(normalizedStmt, "CREATE") && strings.Contains(normalizedStmt, "INDEX")
 			isDropIndex := strings.HasPrefix(normalizedStmt, "DROP") && strings.Contains(normalizedStmt, "INDEX")
 			if !isCreateIndex && !isDropIndex {
