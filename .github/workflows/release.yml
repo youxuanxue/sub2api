@@ -188,6 +188,11 @@ jobs:
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
           go version | grep -Fq "go${expected}"
 
+      - name: Verify model surface bundle
+        run: |
+          cd backend
+          go run ./cmd/account-model-mapping bundle --check ../ops/pricing/model-surface-bundle.json
+
       # Docker setup for GoReleaser
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -311,6 +316,17 @@ jobs:
           GITHUB_REPO_OWNER_LOWER: ${{ steps.lowercase.outputs.owner }}
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'skip' }}
+
+      - name: Upload model surface bundle release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME="${{ github.event.inputs.tag }}"
+          else
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          fi
+          gh release upload "$TAG_NAME" ops/pricing/model-surface-bundle.json --clobber
 
       # Update DockerHub description
       - name: Update DockerHub description

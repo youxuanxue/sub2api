@@ -28,6 +28,7 @@ description: >-
 | 新模型已定价/可服务/可展示但 prod `Unsupported model`、空池或疑似被 `model_mapping` floor 拦 | 先按下方「新模型 prod model_mapping 判读」区分当前 prod floor 与上游账号能力；只有目标账号实测 `servable` 且 mapping 路径复核后才进入 **分支 B/D** |
 | Qwen/DeepSeek mapping 漂、429 空池、60↔72 mirror | **分支 A** |
 | 已有 servable+priced+displayable SSOT，需要快速热更新账号 `model_mapping` | **分支 D**（runtime desired layer + 显式 check/diff/apply） |
+| 已有 release bundle，要把新模型面正式激活到 prod | `modelops.py activate`（current/target bundle + 独立 probe/pricing evidence） |
 | 客户要上新模型、ready_for_onboard | **分支 C**（可先 A 再 C） |
 | 单账号单模型能不能通 | `tokenkey-account-model-probe`（诊断，非 hub 子分支） |
 
@@ -181,8 +182,9 @@ cd backend && go test -tags=unit ./internal/service/ -run PublicCatalog
 replacement 写入 `settings.tk_account_model_mapping_runtime`，再用只读 `release-gate` /
 `check-accounts` 对 prod 生成 diff（默认 prod only；edge 空 mapping 不纳入日常检查，需
 `--include-edges` 才查 edge）。`release-gate` 只用于显式 modelops / 模型激活预检：它检查
-live prod 是否覆盖所选 checkout 的 Go SSOT floor，并允许预热/回滚额外 mapping，但拒绝
-缺 key、错 target 或该 checkout 明确 forbidden 的 key/prefix。generic binary deploy 与
+live prod 是否覆盖所选 release bundle 的 required floor，并允许预热/回滚额外 mapping，但拒绝
+缺 key、错 target 或该 bundle 明确 forbidden 的 key/prefix。rollout 不编译 Go，也不发现 sibling
+source checkout。generic binary deploy 与
 rollback 不调用也不等待它。账号和 Antigravity group 的持久化写入只通过
 `apply-accounts --confirm yes-apply-account-model-mapping` 执行；服务进程启动、周期 tick
 和 `settings_updated` fan-out 都不会批量覆盖账号配置。该文件是 **scope replacement**，
@@ -192,7 +194,9 @@ mapping；未出现的 scope 继续用编译期 floor。
 ```bash
 python3 ops/pricing/manage-account-model-mapping-runtime.py --selftest
 python3 ops/pricing/manage-account-model-mapping-runtime.py example > /tmp/account-model-mapping-runtime.json
-python3 ops/pricing/manage-account-model-mapping-runtime.py validate --file /tmp/account-model-mapping-runtime.json
+python3 ops/pricing/manage-account-model-mapping-runtime.py validate \
+  --file /tmp/account-model-mapping-runtime.json \
+  --bundle /tmp/model-surface-bundle.json
 python3 ops/pricing/manage-account-model-mapping-runtime.py check --file /tmp/account-model-mapping-runtime.json
 
 # 人审 JSON + check 输出后再写 prod + deployable edge settings（不改 accounts）：
@@ -205,6 +209,7 @@ python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --jso
 # 人审 diff 后，显式覆盖账号 model_mapping / Antigravity group scopes：
 python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts \
   --target prod \
+  --bundle /tmp/model-surface-bundle.json \
   --confirm yes-apply-account-model-mapping
 
 # 回到编译期 floor（prod + deployable edges，也需人审）：
@@ -213,8 +218,25 @@ python3 ops/pricing/manage-account-model-mapping-runtime.py clear-runtime
 
 新增模型的安全顺序：先确认 live probe / pricing / display gate，再更新 runtime JSON，
 `sync-runtime` 后跑 `check-accounts` 生成 diff，最后经人审 `apply-accounts` 预热 prod
-账号物化层；本次意图确为激活该 model surface 时，再显式跑 `release-gate` 并发布带同一
-Go floor 的 tag。旧镜像不会因为预热 mapping 自动公开新模型；通用 hotfix deploy 与
+账号物化层；本次意图确为激活该 model surface 时，用唯一入口做默认 dry-run：
+
+```bash
+python3 ops/pricing/modelops.py activate \
+  --bundle /tmp/model-surface-bundle.json \
+  --current-bundle /tmp/current-model-surface-bundle.json \
+  --probe-evidence /tmp/model-activation-probe.json \
+  --pricing-evidence /tmp/model-activation-pricing.json
+```
+
+它只为 current→target 新增/retarget 的 required mappings 接受独立 evidence；两份 evidence
+必须绑定 current/target floor digest、24 小时内生成，probe 每行还必须有真实 `account_id`。
+probe/pricing 的 `source` 必须不同；prod 存在
+`tk_account_model_mapping_runtime` 也会在写前 fail closed，避免 runtime scope shadow evidence
+覆盖的 immutable bundle（先 fold-in 或 clear-runtime）。首次 gate 解析出的 prod instance 会固定给
+dry-run、apply 与 post-gate；apply 在账号写事务内锁定 settings 并再次确认 runtime replacement 不存在。
+默认只生成 prod plan + 只读 gate；人审后加
+`--confirm yes-activate-model-surface` 才 apply，并要求 post-apply gate 通过。证据 JSON 契约见
+`docs/approved/model-surface-activation-contract.md`。旧镜像不会因为预热 mapping 自动公开新模型；通用 hotfix deploy 与
 rollback 始终独立于这条模型激活链。如果这是长期产品面，随后把同样的 mapping 折回 Go
 floor 或 `tk_served_models.json`，避免 runtime 长期 shadow 编译期事实。
 

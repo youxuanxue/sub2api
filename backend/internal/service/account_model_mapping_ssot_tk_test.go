@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -104,6 +107,38 @@ func TestAccountModelMappingFloorForOps_ExportsPolicyMetadata(t *testing.T) {
 	)
 	require.ElementsMatch(t, wantForbiddenKeys, doc.ForbiddenModelMappingKeys[PlatformAntigravity])
 	require.Contains(t, doc.ForbiddenModelMappingPrefixes[PlatformAntigravity], "gpt-oss-")
+}
+
+func TestModelSurfaceBundleForOps_DigestCoversCompleteFloor(t *testing.T) {
+	t.Parallel()
+	bundle, err := ModelSurfaceBundleForOps(context.Background(), "")
+	require.NoError(t, err)
+	require.Equal(t, ModelSurfaceBundleSchemaVersion, bundle.SchemaVersion)
+	require.NotNil(t, bundle.AccountModelMapping)
+	raw, err := json.Marshal(bundle.AccountModelMapping)
+	require.NoError(t, err)
+	var projection any
+	require.NoError(t, json.Unmarshal(raw, &projection))
+	payload, err := json.Marshal(projection)
+	require.NoError(t, err)
+	digest := sha256.Sum256(payload)
+	require.Equal(t, fmt.Sprintf("%x", digest), bundle.FloorSHA256)
+}
+
+func TestModelSurfaceBundleForOps_RuntimeScopeIsFullReplacement(t *testing.T) {
+	t.Parallel()
+	compiled, err := ModelSurfaceBundleForOps(context.Background(), "")
+	require.NoError(t, err)
+	runtime, err := ModelSurfaceBundleForOps(
+		context.Background(),
+		`{"platforms":{"grok":{"test-runtime-model":"test-runtime-target"}}}`,
+	)
+	require.NoError(t, err)
+	require.NotEqual(t, compiled.FloorSHA256, runtime.FloorSHA256)
+	require.Equal(t,
+		map[string]string{"test-runtime-model": "test-runtime-target"},
+		runtime.AccountModelMapping.Platforms[PlatformGrok],
+	)
 }
 
 func TestAccountModelMappingForAccount_AinzyUsesCuratedFloor(t *testing.T) {

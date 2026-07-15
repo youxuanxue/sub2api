@@ -249,17 +249,22 @@
       "must_contain": [
         "tkGeminiAdminModelsForMapping(c.Request.Context(), mapping)",
         "func tkGeminiAdminModelsForMapping(",
-        "service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)"
+        "service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)",
+        "func tkAdminModelOptions[",
+        "[]dto.AccountModelOption",
+        "tkClaudeAdminModelsForIDs(sortedModelMappingKeys(mapping))"
       ],
-      "rationale": "Admin GET /admin/accounts/:id/models for Gemini must intersect credentials.model_mapping with the unified servable catalog (ServableClientFacingIDs), not return the raw mapping keys or re-inject the full Gemini default list for OAuth accounts. Native Gemini Google One pool retirement (2026-07-04) removed the OAuth early-return that ignored model_mapping; an upstream merge of account_handler.go could silently restore the old branch and again advertise unservable preview ids in the admin probe selector. Pins the call site and helper."
+      "rationale": "Admin GET /admin/accounts/:id/models for Gemini must intersect credentials.model_mapping with the unified servable catalog (ServableClientFacingIDs), not return the raw mapping keys or re-inject the full Gemini default list for OAuth accounts. Every platform then projects package-specific metadata through tkAdminModelOptions into the same []dto.AccountModelOption HTTP contract; an upstream merge must not restore mixed OpenAI/Claude/Gemini/Grok response structs. Pins both the Gemini servability call and the cross-platform DTO projection."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_available_models_test.go",
       "must_contain": [
         "TestAccountHandlerGetAvailableModels_GeminiOAuthMappingUsesServableIntersection",
-        "unservable mapped preview must not appear"
+        "unservable mapped preview must not appear",
+        "TestAccountHandlerGetAvailableModels_AllPlatformsUseMinimalOptionDTO",
+        "response must expose only id and display_name"
       ],
-      "rationale": "Regression guard for Gemini admin available-models mapping ∩ servable behavior: mapped preview ids that are not servable must not appear, and unmapped defaults must not be injected when model_mapping is present. Upstream merges that rewrite the available-models test file could drop this case while the handler compiles."
+      "rationale": "Regression guards for Gemini mapping ∩ servable behavior and the exact two-field response contract across every first-class account platform. Upstream merges that rewrite the handler/tests must fail if they re-advertise an unservable Gemini id or leak platform-specific model fields."
     }
   ]
 }

@@ -29,9 +29,11 @@ hand-maintained empirical sets in the same file.
 | `ops/stage0/probe_openai_upstream_model.sh` | Direct ChatGPT Codex upstream probe for one OpenAI OAuth account. Posts to `chatgpt.com/backend-api/codex/responses` with Codex headers and emits JSON `verdict`. Use when gateway/account probes may be blocked by TokenKey floor. Grok direct probing is `ops/stage0/probe_grok_upstream_model.sh`. |
 | `probe-traffic-proven-models.sh` | Runs on prod via `ops/observability/run-probe.sh`. Read-only over `usage_logs`: emits `platform⇥model⇥hits` for every model that served **real successful traffic** in the last `TRAFFIC_HOURS` (default 24). Feeds the `--skip-proven-by-traffic` short-circuit below. Positive evidence only — a model with no recent traffic is simply absent (never an unsupported signal). |
 | `refresh-servable-allowlist.py` | Refreshes the shared public-catalog/user-menu servable sets. It derives candidates, runs probes (uploads `probe_reserved_resources.sh` via `run-probe.sh --with`), keeps `verdict==servable`, de-duplicates dated snapshots, and splices the anthropic/openai/gemini Go blocks. `selftest` covers deterministic glue (no prod). Optional `--skip-proven-by-traffic` short-circuits candidates already proven by 24h traffic out of the probe batches. |
-| `modelops.py` | Read-only planner for model operations: compares upstream/admin discovery, probe TSV, pricing state, manifest intent, optional live `model_mapping` snapshots, and mirror policies such as `60 -> 72`. Prints probe commands and guarded apply dry-runs; never writes accounts or pricing. |
+| `modelops.py` | Model-operations entry. `plan` is read-only; `activate` validates current/target bundles plus independent probe/pricing evidence, renders the prod mapping plan by default, and writes only with the fixed confirmation phrase. |
 | `reconcile-served-models.py` | Compatibility wrapper for `modelops.py`. New runbooks should call `modelops.py`. |
-| `manage-account-model-mapping-runtime.py` | Hot-pushes optional runtime replacement scopes to `settings.tk_account_model_mapping_runtime` across prod + deployable edges, validates/diffs runtime blobs, runs post-release read-only `check-accounts`, exposes `release-gate` only for explicit modelops/model-activation prechecks, and applies reviewed account/group diffs only through explicit `apply-accounts --confirm ...`. |
+| `model-surface-bundle.json` | Deterministic, checksummed release projection generated once from the Go model owner and published as a release asset. |
+| `model_surface_bundle.py` | Shared stdlib-only schema and digest validator used by rollout tools; it owns no model list. |
+| `manage-account-model-mapping-runtime.py` | Consumes a generated bundle without compiling Go, hot-pushes optional runtime replacement scopes, checks required floor + forbidden policy while preserving compatible extras, keeps Edge diagnostics available, and applies reviewed account/group diffs only through explicit confirmation. |
 | `apply-pricing-hotfix.py` | Companion runbook for the **"模型缺价（已记零成本）" Feishu alert** (PricingMissingNotifier). Hot-applies channel pricing via the prod admin API (immediate, no release) and stages the durable fill-only entry into `tk_pricing_overlay.json`. `selftest` covers all pure logic (no network). See "Pricing-missing hotfix" below. |
 
 ## Re-run (operator, needs AWS creds for prod SSM)
@@ -98,7 +100,7 @@ It logs exactly what it skipped, for human review:
   logged); the query additionally requires real generation (tokens / image / video)
   so a `$0` placeholder row never counts as proof.
 
-## Modelops planner (read-only)
+## Modelops plan and activation
 
 **Operator entry:** skill `tokenkey-modelops-planner` (`.cursor/skills/tokenkey-modelops-planner/SKILL.md`).
 Script implementation below; do not treat this README as the primary runbook.
@@ -132,6 +134,19 @@ operators do not hand-maintain a second menu list. Apply still goes through
 migrations, the guarded live model-mapping tool, `refresh-servable-allowlist.py`,
 or pricing-hotfix after review.
 
+`modelops activate` is a separate prod-only path. It compares the current and
+target release bundles, requires fresh independent `servable` and `priced`
+evidence for every added/retargeted required mapping, then invokes the mapping
+manager dry-run and read-only release gate. Evidence fields and the fixed
+24-hour freshness rule are defined in
+`docs/approved/model-surface-activation-contract.md`. Add
+`--confirm yes-activate-model-surface` only after reviewing the default plan.
+Activation rejects a live `tk_account_model_mapping_runtime` setting because it
+would shadow the artifact covered by evidence; fold it into the bundle or clear
+it first. It pins one resolved prod instance for plan/apply/post-gate and repeats
+the runtime-absence check under a database lock before account writes. Direct
+runtime and Edge maintenance commands remain available.
+
 ## Account model_mapping runtime hot update
 
 Operator entry: skill `tokenkey-modelops-planner`, branch D. The runtime JSON is
@@ -143,12 +158,13 @@ the compiled floor.
 align on prod: catalog allowlists, pricing overlay/channel rows, and prod
 `accounts.credentials.model_mapping` (plus optional runtime replacement).
 Post-release diagnostics use `check-accounts` **without** `--include-edges`;
-its expected mappings and forbidden policy metadata come from the Go SSOT.
+its expected mappings and forbidden policy metadata come from the selected
+checksummed bundle.
 Violations are yellow configuration drift and do not change a successful deploy,
 smoke, or rollback verdict.
 
 `release-gate` is reserved for an explicit modelops/model-activation precheck.
-It verifies that live prod covers the current checkout's release floor while
+It verifies that live prod covers the selected bundle's release floor while
 allowing preheated extras, except keys/prefixes explicitly forbidden by that Go
 SSOT. It does not run in generic `deploy-stage0.yml`.
 
@@ -167,7 +183,9 @@ Canonical wording: `docs/global/agent-reference.md` § Model serving SSOT.
 
 ```bash
 python3 ops/pricing/manage-account-model-mapping-runtime.py --selftest
-python3 ops/pricing/manage-account-model-mapping-runtime.py validate --file /tmp/account-model-mapping-runtime.json
+python3 ops/pricing/manage-account-model-mapping-runtime.py validate \
+  --file /tmp/account-model-mapping-runtime.json \
+  --bundle /tmp/model-surface-bundle.json
 python3 ops/pricing/manage-account-model-mapping-runtime.py check --file /tmp/account-model-mapping-runtime.json
 
 # after review, only updates settings on prod + deployable edges (does not mutate accounts):
@@ -182,7 +200,15 @@ python3 ops/pricing/manage-account-model-mapping-runtime.py release-gate
 # after reviewing the diff, explicitly apply account/group changes:
 python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts \
   --target prod \
+  --bundle /tmp/model-surface-bundle.json \
   --confirm yes-apply-account-model-mapping
+
+# model activation defaults to evidence validation + prod dry-run; no writes:
+python3 ops/pricing/modelops.py activate \
+  --bundle /tmp/model-surface-bundle.json \
+  --current-bundle /tmp/current-model-surface-bundle.json \
+  --probe-evidence /tmp/model-activation-probe.json \
+  --pricing-evidence /tmp/model-activation-pricing.json
 ```
 
 For a newly served model, preheat the live materialization first and run the

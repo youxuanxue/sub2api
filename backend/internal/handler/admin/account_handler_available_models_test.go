@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -35,6 +36,59 @@ func setupAvailableModelsRouter(adminSvc service.AdminService) *gin.Engine {
 	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router.GET("/api/v1/admin/accounts/:id/models", handler.GetAvailableModels)
 	return router
+}
+
+func TestAccountHandlerGetAvailableModels_AllPlatformsUseMinimalOptionDTO(t *testing.T) {
+	floor, err := service.AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+	antigravityMapping := floor.Platforms[service.PlatformAntigravity]
+	require.NotEmpty(t, antigravityMapping)
+
+	accounts := []service.Account{
+		{ID: 901, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Status: service.StatusActive},
+		{ID: 902, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive},
+		{ID: 903, Platform: service.PlatformGemini, Type: service.AccountTypeOAuth, Status: service.StatusActive},
+		{
+			ID: 904, Platform: service.PlatformAntigravity, Type: service.AccountTypeOAuth, Status: service.StatusActive,
+			Credentials: map[string]any{"model_mapping": anyModelMappingFromStringMap(antigravityMapping)},
+		},
+		{
+			ID: 905, Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey, Status: service.StatusActive,
+			Credentials: map[string]any{"model_mapping": map[string]any{"shape-model": "shape-model"}},
+		},
+		{ID: 906, Platform: service.PlatformKiro, Type: service.AccountTypeOAuth, Status: service.StatusActive},
+		{ID: 907, Platform: service.PlatformGrok, Type: service.AccountTypeOAuth, Status: service.StatusActive},
+	}
+
+	for _, account := range accounts {
+		account := account
+		t.Run(account.Platform, func(t *testing.T) {
+			svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(
+				http.MethodGet,
+				fmt.Sprintf("/api/v1/admin/accounts/%d/models", account.ID),
+				nil,
+			)
+			setupAvailableModelsRouter(svc).ServeHTTP(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				Data []map[string]any `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NotEmpty(t, resp.Data)
+			for _, option := range resp.Data {
+				require.Len(t, option, 2, "response must expose only id and display_name: %v", option)
+				id, idOK := option["id"].(string)
+				displayName, displayNameOK := option["display_name"].(string)
+				require.True(t, idOK)
+				require.True(t, displayNameOK)
+				require.NotEmpty(t, id)
+				require.NotEmpty(t, displayName)
+			}
+		})
+	}
 }
 
 func modelIDSet(models []struct {

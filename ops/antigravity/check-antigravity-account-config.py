@@ -2,15 +2,15 @@
 """TokenKey post-rollout antigravity config check (read-only).
 
 Verifies Antigravity account/group configuration across prod and all deployable
-edges. Model and scope policy is loaded from the Go account-model-mapping helper;
+edges. Model and scope policy is loaded from the generated model-surface bundle;
 this checker owns only the independent account-to-group binding invariant:
 
-  1. **accounts** — prod accounts cover the complete Go-SSOT mapping floor
-     with correct targets and no Go-SSOT forbidden key/prefix. On every target, any
+  1. **accounts** — prod accounts cover the complete bundle mapping floor
+     with correct targets and no bundle-forbidden key/prefix. On every target, any
      active+schedulable account is bound to an antigravity group. Edge account
      mappings remain passthrough-empty and are not treated as drift.
   2. **groups** — every active ``platform=antigravity`` group carries exactly
-     the Go-SSOT ``supported_model_scopes`` projection.
+     the bundle ``supported_model_scopes`` projection.
 
 Account mappings and group scopes are not self-healed by server startup/ticks;
 operators review the diff and then run the explicit apply flow. The group
@@ -19,16 +19,16 @@ tool remains the safety net for it. This tool is the post-rollout
 *verification*.
 
 A **violation** is a prod antigravity account whose ``model_mapping`` is
-null/empty, misses or misroutes the Go-SSOT floor, or contains a Go-SSOT
+null/empty, misses or misroutes the bundle floor, or contains a bundle
 forbidden key/prefix; OR, on any target, an
 active+schedulable account with no antigravity-group binding; OR any active
-antigravity group whose scopes do not equal the Go-SSOT projection.
+antigravity group whose scopes do not equal the bundle projection.
 
 Exit codes (mirrors the anthropic post-release check): ``0`` = all configured
 (green); ``1`` = violations found (yellow, non-blocking at rollout); ``2`` = could
 not run (yellow). Read-only - never mutates. Python has no third-party
-dependencies; the Go helper/toolchain and source checkout are required. Routing
-and SSM identity reuse the shared ``ops/stage0`` helpers.
+dependencies; only the release bundle is required. Routing and SSM identity
+reuse the shared ``ops/stage0`` helpers.
 """
 from __future__ import annotations
 
@@ -42,7 +42,13 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-GO_HELPER = ["go", "run", "./cmd/account-model-mapping", "floors", "--runtime-json", "-"]
+
+_bundle_spec = importlib.util.spec_from_file_location(
+    "tk_model_surface_bundle", REPO_ROOT / "ops" / "pricing" / "model_surface_bundle.py")
+_BUNDLE = importlib.util.module_from_spec(_bundle_spec)
+_bundle_spec.loader.exec_module(_BUNDLE)
+DEFAULT_BUNDLE_PATH = _BUNDLE.DEFAULT_BUNDLE_PATH
+_BUNDLE_PATH = DEFAULT_BUNDLE_PATH
 
 # prod is pinned (not an entry in the edge matrix), same as manage-anthropic-config.py.
 PROD_TARGET = {"region": "us-east-1", "stack": "tokenkey-prod-stage0", "label": "prod"}
@@ -88,31 +94,30 @@ def fail(msg: str) -> None:
     raise SystemExit(2)
 
 
-@functools.lru_cache(maxsize=1)
+def _set_bundle_path(raw: str | None) -> pathlib.Path:
+    global _BUNDLE_PATH
+    if raw is not None and str(raw).strip():
+        _BUNDLE_PATH = pathlib.Path(str(raw)).expanduser().resolve()
+    _antigravity_policy.cache_clear()
+    return _BUNDLE_PATH
+
+
+@functools.lru_cache(maxsize=4)
 def _antigravity_policy() -> dict:
-    proc = subprocess.run(
-        GO_HELPER,
-        cwd=REPO_ROOT / "backend",
-        input="",
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if proc.returncode != 0:
-        fail("Go account model_mapping SSOT helper failed: " + (proc.stderr or proc.stdout).strip()[:1600])
     try:
-        doc = json.loads(proc.stdout)
-    except json.JSONDecodeError as e:
-        fail(f"Go account model_mapping SSOT helper emitted invalid JSON: {e}")
+        bundle = _BUNDLE.load_bundle(_BUNDLE_PATH)
+    except RuntimeError as e:
+        fail(str(e))
+    doc = bundle["account_model_mapping"]
 
     mapping = (doc.get("platforms") or {}).get("antigravity")
     scopes = doc.get("antigravity_group_scopes")
     if not isinstance(mapping, dict) or not mapping:
-        fail("Go account model_mapping SSOT helper omitted antigravity platform mapping")
+        fail("model surface bundle omitted antigravity platform mapping")
     if not isinstance(scopes, list) or not scopes:
-        fail("Go account model_mapping SSOT helper omitted antigravity group scopes")
+        fail("model surface bundle omitted antigravity group scopes")
     return {
+        "floor_sha256": bundle["floor_sha256"],
         "mapping": mapping,
         "scopes": {str(scope).strip() for scope in scopes if str(scope).strip()},
         "forbidden_keys": set((doc.get("forbidden_model_mapping_keys") or {}).get("antigravity") or []),
@@ -184,7 +189,7 @@ def _account_violation(row: dict, *, allow_empty_mapping: bool = False) -> str |
     """Return a human reason if the account is misconfigured, else None.
 
     Two independent checks (both reported if both fail):
-      1. explicit live model_mapping (complete Go-SSOT floor coverage and
+      1. explicit live model_mapping (complete bundle floor coverage and
          forbidden key/prefix policy, non-empty; non-forbidden extras allowed).
       2. group binding — an active+schedulable account MUST be bound to an
          antigravity group via account_groups, else the scheduler finds no
@@ -210,13 +215,13 @@ def _account_violation(row: dict, *, allow_empty_mapping: bool = False) -> str |
         else:
             missing_floor_keys = sorted(k for k in expected_mapping if k not in mm)
             if missing_floor_keys:
-                reasons.append("missing Go SSOT floor keys: " + ", ".join(missing_floor_keys))
+                reasons.append("missing bundle floor keys: " + ", ".join(missing_floor_keys))
             bad_floor_targets = sorted(
                 k for k, v in expected_mapping.items()
                 if k in mm and mm.get(k) != v
             )
             if bad_floor_targets:
-                reasons.append("bad Go SSOT floor remaps: " + ", ".join(
+                reasons.append("bad bundle floor remaps: " + ", ".join(
                     f"{k}->{mm.get(k)!r} want {expected_mapping[k]!r}" for k in bad_floor_targets
                 ))
             leaked = sorted(
@@ -227,7 +232,7 @@ def _account_violation(row: dict, *, allow_empty_mapping: bool = False) -> str |
                 reasons.append("serves unsupported models: " + ", ".join(leaked))
             forbidden = sorted(k for k in mm if k in forbidden_keys)
             if forbidden:
-                reasons.append("contains forbidden model_mapping keys from Go SSOT: " + ", ".join(forbidden))
+                reasons.append("contains forbidden model_mapping keys from bundle: " + ", ".join(forbidden))
 
     if row.get("status") == "active" and row.get("schedulable") and not row.get("bound"):
         reasons.append("active+schedulable but NOT bound to any antigravity group "
@@ -296,10 +301,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Post-rollout antigravity explicit model_mapping config check (read-only).")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--skip-prod", action="store_true", help="check edges only")
+    ap.add_argument("--bundle", help="generated model-surface bundle to check against")
     ap.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     args = ap.parse_args()
 
-    _antigravity_policy()  # Load the Go SSOT once before target workers fan out.
+    _set_bundle_path(args.bundle)
+    policy = _antigravity_policy()  # Validate the bundle before target workers fan out.
     targets = _resolve_targets(args.skip_prod)
     violations: list[dict] = []
     with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
@@ -312,6 +319,8 @@ def main() -> int:
 
     if args.json:
         print(json.dumps({
+            "bundle": str(_BUNDLE_PATH),
+            "floor_sha256": policy["floor_sha256"],
             "targets": [t[0] for t in targets],
             "violation_count": len(violations),
             "violations": sorted(violations, key=_sort_key),

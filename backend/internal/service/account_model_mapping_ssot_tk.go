@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -39,6 +40,16 @@ type AccountModelMappingFloorDoc struct {
 	AntigravityScopes             []string                     `json:"antigravity_group_scopes"`
 	ForbiddenModelMappingKeys     map[string][]string          `json:"forbidden_model_mapping_keys,omitempty"`
 	ForbiddenModelMappingPrefixes map[string][]string          `json:"forbidden_model_mapping_prefixes,omitempty"`
+}
+
+const ModelSurfaceBundleSchemaVersion = 1
+
+// ModelSurfaceBundle is the deterministic release artifact consumed by modelops.
+// The digest covers the Go-owned floor projection, not mutable release metadata.
+type ModelSurfaceBundle struct {
+	SchemaVersion       int                          `json:"schema_version"`
+	FloorSHA256         string                       `json:"floor_sha256"`
+	AccountModelMapping *AccountModelMappingFloorDoc `json:"account_model_mapping"`
 }
 
 func parseAccountModelMappingRuntime(raw string) (*accountModelMappingRuntime, error) {
@@ -217,6 +228,40 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 		}
 	}
 	return out, nil
+}
+
+// ModelSurfaceBundleForOps exports one checksummed artifact from the Go owner.
+// Runtime JSON is accepted for focused tests; release bundles use the compiled
+// floor with an empty runtime replacement.
+func ModelSurfaceBundleForOps(ctx context.Context, runtimeRaw string) (*ModelSurfaceBundle, error) {
+	floor, err := AccountModelMappingFloorForOps(ctx, runtimeRaw)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := canonicalModelSurfaceFloorJSON(floor)
+	if err != nil {
+		return nil, fmt.Errorf("marshal account model_mapping floor: %w", err)
+	}
+	digest := sha256.Sum256(payload)
+	return &ModelSurfaceBundle{
+		SchemaVersion:       ModelSurfaceBundleSchemaVersion,
+		FloorSHA256:         fmt.Sprintf("%x", digest),
+		AccountModelMapping: floor,
+	}, nil
+}
+
+// canonicalModelSurfaceFloorJSON removes Go struct field order from the digest
+// contract so non-Go rollout consumers can verify it with canonical JSON.
+func canonicalModelSurfaceFloorJSON(floor *AccountModelMappingFloorDoc) ([]byte, error) {
+	raw, err := json.Marshal(floor)
+	if err != nil {
+		return nil, err
+	}
+	var projection any
+	if err := json.Unmarshal(raw, &projection); err != nil {
+		return nil, err
+	}
+	return json.Marshal(projection)
 }
 
 func accountModelMappingScopeForAccount(account *Account) string {

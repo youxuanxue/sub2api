@@ -10,15 +10,16 @@ This tool writes an optional runtime replacement layer to settings key
 ``tk_account_model_mapping_runtime`` across prod/deployable edges. A present
 scope REPLACES the compiled floor for that platform or newapi channel_type;
 absent scopes keep the compiled floor. Writing the setting does not mutate
-accounts. Use ``check-accounts`` to diff live accounts against the Go SSOT, then
+accounts. Use ``check-accounts`` to diff live accounts against a generated model
+surface bundle, then
 ``apply-accounts --confirm ...`` when an operator has reviewed the diff and
 wants to overwrite persisted mappings.
 
 ``release-gate`` is an explicit, **prod-only** modelops/model-activation floor
-check. It compares live prod account mappings to the selected checkout's Go SSOT
-floor and fails closed when prod is behind that model surface. It is not a
+check. It compares live prod account mappings to the selected release bundle's
+required floor and fails closed when prod is behind that model surface. It is not a
 generic binary deploy or rollback prerequisite. Live prod may be ahead for
-preheating or rollback, but forbidden keys/prefixes from the selected Go SSOT
+preheating or rollback, but forbidden keys/prefixes from the selected bundle
 still fail the check. Edge accounts keep empty ``model_mapping`` because traffic
 is user → prod → edge relay; prod already enforces the floor. Edge-specific
 troubleshooting belongs to ``check-accounts --include-edges``; ``release-gate``
@@ -41,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import contextlib
 import gzip
 import importlib.util
@@ -50,7 +52,7 @@ import re
 import shlex
 import subprocess
 import sys
-import threading
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, NoReturn
@@ -59,10 +61,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTING_KEY = "tk_account_model_mapping_runtime"
 MANAGED_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "newapi", "kiro", "grok")
 
+_bundle_spec = importlib.util.spec_from_file_location(
+    "tk_model_surface_bundle", REPO_ROOT / "ops" / "pricing" / "model_surface_bundle.py")
+_BUNDLE = importlib.util.module_from_spec(_bundle_spec)
+_bundle_spec.loader.exec_module(_BUNDLE)
+
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
 REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
 APPLY_CONFIRM = "yes-apply-account-model-mapping"
-GO_HELPER = ["go", "run", "./cmd/account-model-mapping", "floors", "--runtime-json", "-"]
+DEFAULT_BUNDLE_PATH = _BUNDLE.DEFAULT_BUNDLE_PATH
+BUNDLE_SCHEMA_VERSION = _BUNDLE.SCHEMA_VERSION
 DEFAULT_RUNTIME_TARGET = "all-deployable-and-prod"
 
 ACCOUNT_MODEL_MAPPING_CHECK_SQL = """
@@ -197,7 +205,7 @@ def normalize_runtime_doc(doc) -> dict:
 
 
 def canonical_json(doc: dict) -> str:
-    return json.dumps(doc, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return _BUNDLE.canonical_json(doc)
 
 
 def load_doc(path: Path) -> dict:
@@ -334,10 +342,16 @@ def _resolve_single_edge_target(edge_id: str) -> tuple[str, str, str]:
     return (f"edge:{edge_id}", ident.region, ident.instance_id)
 
 
-def _resolve_apply_targets(target: str) -> list[tuple[str, str, str]]:
+def _resolve_apply_targets(
+    target: str,
+    prod_instance_id: str | None = None,
+) -> list[tuple[str, str, str]]:
     target = target.strip().lower()
+    pinned_prod_instance = _normalize_instance_id(prod_instance_id, "--prod-instance-id")
     if target == "prod":
-        return [("prod", _SSM.PROD_REGION, _SSM.resolve_prod_instance())]
+        return [("prod", _SSM.PROD_REGION, pinned_prod_instance or _SSM.resolve_prod_instance())]
+    if pinned_prod_instance:
+        fail("--prod-instance-id is only valid with --target prod")
     if target.startswith("edge:"):
         edge_id = target.split(":", 1)[1].strip()
         if not edge_id:
@@ -355,24 +369,18 @@ def _runtime_scope_summary(doc: dict) -> dict[str, list[str]]:
     }
 
 
-_FLOOR_CACHE: dict[str, dict[str, Any]] = {}
-_FLOOR_LOCK = threading.Lock()
-_SSOT_REPO_ROOT = REPO_ROOT
+_BUNDLE_PATH = DEFAULT_BUNDLE_PATH
 
 
-def _set_ssot_repo_root(raw: str | None) -> Path:
-    global _SSOT_REPO_ROOT
+def _set_bundle_path(raw: str | None) -> Path:
+    global _BUNDLE_PATH
     if raw is None or not str(raw).strip():
-        return _SSOT_REPO_ROOT
-    root = Path(str(raw)).expanduser().resolve()
-    helper = root / "backend" / "cmd" / "account-model-mapping" / "main.go"
-    gomod = root / "backend" / "go.mod"
-    if not gomod.exists():
-        fail(f"--ssot-repo-root {root}: missing backend/go.mod")
-    if not helper.exists():
-        fail(f"--ssot-repo-root {root}: missing backend/cmd/account-model-mapping/main.go")
-    _SSOT_REPO_ROOT = root
-    return _SSOT_REPO_ROOT
+        return _BUNDLE_PATH
+    path = Path(str(raw)).expanduser().resolve()
+    if not path.is_file():
+        fail(f"--bundle {path}: file not found")
+    _BUNDLE_PATH = path
+    return _BUNDLE_PATH
 
 
 def _runtime_cache_key(raw: Any) -> str:
@@ -385,39 +393,19 @@ def _runtime_cache_key(raw: Any) -> str:
     return canonical_json(doc)
 
 
+def _load_bundle() -> dict[str, Any]:
+    return _BUNDLE.load_bundle(_BUNDLE_PATH)
+
+
 def _load_effective_floor(runtime_raw: Any) -> dict[str, Any]:
     key = _runtime_cache_key(runtime_raw)
-    ssot_root = _SSOT_REPO_ROOT
-    cache_key = f"{ssot_root}:{key}"
-    with _FLOOR_LOCK:
-        cached = _FLOOR_CACHE.get(cache_key)
-        if cached is not None:
-            return cached
-
-    proc = subprocess.run(
-        GO_HELPER,
-        cwd=ssot_root / "backend",
-        input=key,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(
-            "Go account model_mapping SSOT helper failed: "
-            + (proc.stderr or proc.stdout).strip()[:1600]
-        )
-    try:
-        floor = json.loads(proc.stdout)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"Go account model_mapping SSOT helper emitted invalid JSON: {e}") from e
-    if not isinstance(floor.get("platforms"), dict):
-        raise RuntimeError("Go account model_mapping SSOT helper omitted platforms")
-    if not isinstance(floor.get("newapi_channel_types"), dict):
-        raise RuntimeError("Go account model_mapping SSOT helper omitted newapi_channel_types")
-    with _FLOOR_LOCK:
-        _FLOOR_CACHE[cache_key] = floor
+    floor = copy.deepcopy(_load_bundle()["account_model_mapping"])
+    if key:
+        runtime = json.loads(key)
+        for platform, mapping in (runtime.get("platforms") or {}).items():
+            floor["platforms"][platform] = mapping
+        for channel_type, mapping in (runtime.get("newapi_channel_types") or {}).items():
+            floor["newapi_channel_types"][channel_type] = mapping
     return floor
 
 
@@ -487,15 +475,32 @@ def _mapping_policy_violations_for_scope(
     forbidden = set(forbidden_by_scope.get(scope) or [])
     forbidden_keys = sorted(k for k in mapping if k in forbidden)
     if forbidden_keys:
-        reasons.append("contains forbidden model_mapping keys from Go SSOT: " + ", ".join(forbidden_keys))
+        reasons.append("contains forbidden model_mapping keys from bundle: " + ", ".join(forbidden_keys))
 
     forbidden_prefix_by_scope = floor.get("forbidden_model_mapping_prefixes") or {}
     prefixes = [str(p) for p in (forbidden_prefix_by_scope.get(scope) or []) if str(p)]
     prefixed = sorted(k for k in mapping if any(k.startswith(p) for p in prefixes))
     if prefixed:
-        reasons.append("contains forbidden model_mapping prefixes from Go SSOT: " + ", ".join(prefixed))
+        reasons.append("contains forbidden model_mapping prefixes from bundle: " + ", ".join(prefixed))
 
     return reasons
+
+
+def _forbidden_mapping_entries(
+    scope: str,
+    mapping: dict[str, str],
+    floor: dict[str, Any],
+) -> list[str]:
+    if scope.startswith("newapi_channel_type:"):
+        scope = "newapi"
+    forbidden_by_scope = floor.get("forbidden_model_mapping_keys") or {}
+    forbidden = set(forbidden_by_scope.get(scope) or [])
+    forbidden_prefix_by_scope = floor.get("forbidden_model_mapping_prefixes") or {}
+    prefixes = [str(p) for p in (forbidden_prefix_by_scope.get(scope) or []) if str(p)]
+    return sorted(
+        key for key in mapping
+        if key in forbidden or any(key.startswith(prefix) for prefix in prefixes)
+    )
 
 
 def _mapping_policy_violations(row: dict[str, Any], floor: dict[str, Any]) -> list[str]:
@@ -516,13 +521,19 @@ def _desired_mapping_for_account(row: dict[str, Any], floor: dict[str, Any]) -> 
     return mapping if isinstance(mapping, dict) else None, scope
 
 
-def _mapping_diff(got: dict[str, str], want: dict[str, str], *, allow_extra: bool = False) -> dict[str, Any]:
+def _mapping_diff(
+    scope: str,
+    got: dict[str, str],
+    want: dict[str, str],
+    floor: dict[str, Any],
+) -> dict[str, Any]:
     missing = sorted(k for k in want if k not in got)
-    extra = [] if allow_extra else sorted(k for k in got if k not in want)
     bad = sorted(k for k in want if k in got and got[k] != want[k])
+    forbidden = _forbidden_mapping_entries(scope, got, floor)
     return {
         "missing_keys": missing,
-        "extra_keys": extra,
+        "forbidden_keys": forbidden,
+        "compatible_extra_keys": sorted(k for k in got if k not in want and k not in forbidden),
         "bad_targets": [
             {"key": k, "got": got[k], "want": want[k]}
             for k in bad
@@ -533,7 +544,7 @@ def _mapping_diff(got: dict[str, str], want: dict[str, str], *, allow_extra: boo
 
 
 def _has_mapping_diff(diff: dict[str, Any]) -> bool:
-    return bool(diff["missing_keys"] or diff["extra_keys"] or diff["bad_targets"])
+    return bool(diff["missing_keys"] or diff["forbidden_keys"] or diff["bad_targets"])
 
 
 def _short_list(values: list[Any], limit: int = 8) -> str:
@@ -546,43 +557,47 @@ def _format_mapping_diff_reason(scope: str, diff: dict[str, Any]) -> str:
     parts = [f"model_mapping differs from SSOT (scope={scope})"]
     if diff["missing_keys"]:
         parts.append("missing: " + _short_list(diff["missing_keys"]))
-    if diff["extra_keys"]:
-        parts.append("extra: " + _short_list(diff["extra_keys"]))
+    if diff["forbidden_keys"]:
+        parts.append("forbidden: " + _short_list(diff["forbidden_keys"]))
     if diff["bad_targets"]:
         bad = [f"{b['key']}->{b['got']!r} want {b['want']!r}" for b in diff["bad_targets"]]
         parts.append("bad_targets: " + _short_list(bad))
     parts.append(f"count current={diff['current_count']} desired={diff['desired_count']}")
+    if diff["compatible_extra_keys"]:
+        parts.append("preserved_extras: " + _short_list(diff["compatible_extra_keys"]))
     return "; ".join(parts)
 
 
 def _account_plan(
     row: dict[str, Any],
     floor: dict[str, Any],
-    *,
-    allow_extra_model_mapping: bool = False,
 ) -> dict[str, Any] | None:
     want, scope = _desired_mapping_for_account(row, floor)
     if not want:
         return None
     got, err = _model_mapping(row)
     if err:
+        got = {}
         diff = {
             "missing_keys": sorted(want),
-            "extra_keys": [],
+            "forbidden_keys": [],
+            "compatible_extra_keys": [],
             "bad_targets": [],
             "current_count": 0,
             "desired_count": len(want),
         }
         reason = f"{err}; will replace with SSOT (scope={scope}, desired_count={len(want)})"
     else:
-        diff = _mapping_diff(got, want, allow_extra=allow_extra_model_mapping)
+        diff = _mapping_diff(scope, got, want, floor)
         if not _has_mapping_diff(diff):
-            policy = _mapping_policy_violations(row, floor)
-            if not policy:
-                return None
-            reason = "; ".join(policy)
-        else:
-            reason = _format_mapping_diff_reason(scope, diff)
+            return None
+        reason = _format_mapping_diff_reason(scope, diff)
+    reconciled = {
+        key: value
+        for key, value in got.items()
+        if key not in set(diff["forbidden_keys"])
+    }
+    reconciled.update(want)
     return {
         "kind": "account",
         "id": row.get("id"),
@@ -592,14 +607,14 @@ def _account_plan(
         "scope": scope,
         "reason": reason,
         "diff": diff,
-        "desired_model_mapping": dict(sorted(want.items())),
+        "desired_model_mapping": dict(sorted(reconciled.items())),
     }
 
 
 def _desired_antigravity_group_scopes(floor: dict[str, Any]) -> list[str]:
     scopes = floor.get("antigravity_group_scopes")
     if not isinstance(scopes, list) or not scopes:
-        raise RuntimeError("Go account model_mapping SSOT helper omitted antigravity_group_scopes")
+        raise RuntimeError("model surface bundle omitted antigravity_group_scopes")
     out: list[str] = []
     seen: set[str] = set()
     for raw in scopes:
@@ -608,7 +623,7 @@ def _desired_antigravity_group_scopes(floor: dict[str, Any]) -> list[str]:
             out.append(scope)
             seen.add(scope)
     if not out:
-        raise RuntimeError("Go account model_mapping SSOT helper emitted empty antigravity_group_scopes")
+        raise RuntimeError("model surface bundle emitted empty antigravity_group_scopes")
     return out
 
 
@@ -676,11 +691,12 @@ def _check_target(
     label: str,
     region: str,
     instance_id: str,
-    allow_extra_model_mapping: bool,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
     bundle = _run_check_sql_json(region, instance_id, label)
     violations: list[dict[str, Any]] = []
-    runtime_reason = _runtime_setting_violation(bundle.get("runtime_setting"))
+    runtime_raw = bundle.get("runtime_setting")
+    runtime_present = runtime_raw is not None and str(runtime_raw).strip() != ""
+    runtime_reason = _runtime_setting_violation(runtime_raw)
     if runtime_reason:
         violations.append({
             "target": label,
@@ -689,10 +705,10 @@ def _check_target(
             "name": SETTING_KEY,
             "reason": runtime_reason,
         })
-        return violations, []
-    floor = _load_effective_floor(bundle.get("runtime_setting"))
+        return violations, [], runtime_present
+    floor = _load_effective_floor(runtime_raw)
     for row in bundle.get("accounts") or []:
-        plan = _account_plan(row, floor, allow_extra_model_mapping=allow_extra_model_mapping)
+        plan = _account_plan(row, floor)
         if not plan:
             continue
         plan["target"] = label
@@ -708,15 +724,25 @@ def _check_target(
                 "platform": "antigravity",
                 "reason": reason,
             })
-    return violations, []
+    return violations, [], runtime_present
 
 
-def _collect_apply_plan(label: str, region: str, instance_id: str) -> dict[str, Any]:
+def _collect_apply_plan(
+    label: str,
+    region: str,
+    instance_id: str,
+    activation_floor_sha256: str | None = None,
+) -> dict[str, Any]:
     bundle = _run_check_sql_json(region, instance_id, label)
-    runtime_reason = _runtime_setting_violation(bundle.get("runtime_setting"))
+    runtime_raw = bundle.get("runtime_setting")
+    if activation_floor_sha256 and runtime_raw is not None and str(runtime_raw).strip():
+        raise RuntimeError(
+            f"activation bundle {activation_floor_sha256} is shadowed by {SETTING_KEY} on {label}"
+        )
+    runtime_reason = _runtime_setting_violation(runtime_raw)
     if runtime_reason:
         raise RuntimeError(runtime_reason)
-    floor = _load_effective_floor(bundle.get("runtime_setting"))
+    floor = _load_effective_floor(runtime_raw)
     account_changes: list[dict[str, Any]] = []
     for row in bundle.get("accounts") or []:
         plan = _account_plan(row, floor)
@@ -739,13 +765,16 @@ def _collect_apply_plan(label: str, region: str, instance_id: str) -> dict[str, 
             "reason": reason,
             "desired_supported_model_scopes": desired_scopes,
         })
-    return {
+    plan = {
         "target": label,
         "region": region,
         "instance_id": instance_id,
         "account_changes": sorted(account_changes, key=lambda p: int(p.get("id") or 0)),
         "group_changes": sorted(group_changes, key=lambda p: int(p.get("id") or 0)),
     }
+    if activation_floor_sha256:
+        plan["activation_floor_sha256"] = activation_floor_sha256
+    return plan
 
 
 def _ids_sql(ids: list[int]) -> str:
@@ -765,6 +794,14 @@ def _render_apply_sql(plan: dict[str, Any]) -> str:
         "BEGIN;",
         "SET LOCAL statement_timeout = '30s';",
     ]
+    if plan.get("activation_floor_sha256"):
+        lines.extend([
+            "LOCK TABLE settings IN SHARE ROW EXCLUSIVE MODE;",
+            "DO $tk_model_activation$ BEGIN "
+            f"IF EXISTS (SELECT 1 FROM settings WHERE key = '{SETTING_KEY}') THEN "
+            f"RAISE EXCEPTION '{SETTING_KEY} appeared before activation write'; "
+            "END IF; END $tk_model_activation$;",
+        ])
 
     by_mapping: dict[str, dict[str, Any]] = {}
     for change in plan.get("account_changes") or []:
@@ -797,7 +834,7 @@ def _render_apply_sql(plan: dict[str, Any]) -> str:
         group_ids = _ids_sql([int(g["id"]) for g in group_changes])
         scopes = group_changes[0].get("desired_supported_model_scopes")
         if not scopes:
-            raise ValueError("group change missing desired_supported_model_scopes from Go SSOT")
+            raise ValueError("group change missing desired_supported_model_scopes from bundle")
         scopes_b64 = _json_b64(scopes)
         lines.append(
             "UPDATE groups "
@@ -835,7 +872,7 @@ def _apply_plan_remote(plan: dict[str, Any]) -> str:
 
 
 def cmd_validate(args) -> int:
-    _set_ssot_repo_root(getattr(args, "ssot_repo_root", None))
+    _set_bundle_path(getattr(args, "bundle", None))
     doc = load_doc(args.file)
     runtime_reason = _runtime_setting_violation(canonical_json(doc))
     if runtime_reason:
@@ -900,7 +937,6 @@ def _account_check_report(
     include_edges: bool,
     parallel: int,
     prod_instance_id: str | None = None,
-    allow_extra_model_mapping: bool = False,
 ) -> dict[str, Any]:
     targets = _resolve_check_targets(
         skip_prod,
@@ -909,14 +945,17 @@ def _account_check_report(
     )
     violations: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    runtime_setting_targets: list[str] = []
     with ThreadPoolExecutor(max_workers=max(1, parallel)) as ex:
-        futs = {ex.submit(_check_target, *t, allow_extra_model_mapping): t for t in targets}
+        futs = {ex.submit(_check_target, *t): t for t in targets}
         for fut in as_completed(futs):
             label = futs[fut][0]
             try:
-                got_violations, got_errors = fut.result()
+                got_violations, got_errors, runtime_present = fut.result()
                 violations.extend(got_violations)
                 errors.extend(got_errors)
+                if runtime_present:
+                    runtime_setting_targets.append(label)
             except Exception as e:  # noqa: BLE001 - SSM failures should report all reachable targets.
                 errors.append({"target": label, "error": str(e)})
 
@@ -925,10 +964,15 @@ def _account_check_report(
 
     report = {
         "targets": [t[0] for t in targets],
+        "resolved_targets": [
+            {"target": label, "region": region, "instance_id": instance_id}
+            for label, region, instance_id in targets
+        ],
         "target_count": len(targets),
-        "ssot_repo_root": str(_SSOT_REPO_ROOT),
-        "allow_extra_model_mapping": allow_extra_model_mapping,
+        "bundle": str(_BUNDLE_PATH),
+        "floor_sha256": _load_bundle()["floor_sha256"],
         "managed_platforms": list(MANAGED_PLATFORMS),
+        "runtime_setting_targets": sorted(runtime_setting_targets),
         "violation_count": len(violations),
         "error_count": len(errors),
         "violations": sorted(violations, key=sort_key),
@@ -951,7 +995,7 @@ def _runtime_setting_remediation(report: dict[str, Any]) -> list[str]:
     targets = sorted({str(v.get("target") or "").strip() for v in violations if v.get("target")})
     steps: list[str] = []
     for target in targets:
-        sync_cmd = _command_with_ssot_root([
+        sync_cmd = _command_with_bundle([
             "python3",
             "ops/pricing/manage-account-model-mapping-runtime.py",
             "sync-runtime",
@@ -968,7 +1012,7 @@ def _runtime_setting_remediation(report: dict[str, Any]) -> list[str]:
             target,
         ])
         steps.extend([
-            f"Correct the runtime JSON so it complies with the selected Go SSOT, then sync {target}: {sync_cmd}",
+            f"Correct the runtime JSON so it complies with the selected bundle policy, then sync {target}: {sync_cmd}",
             f"Or remove the runtime replacement and return {target} to the compiled floor: {clear_cmd}",
         ])
     return steps
@@ -984,13 +1028,12 @@ def _print_runtime_setting_remediation(report: dict[str, Any]) -> None:
 
 
 def cmd_check_accounts(args) -> int:
-    _set_ssot_repo_root(getattr(args, "ssot_repo_root", None))
+    _set_bundle_path(getattr(args, "bundle", None))
     report = _account_check_report(
         skip_prod=args.skip_prod,
         include_edges=args.include_edges,
         parallel=args.parallel,
         prod_instance_id=getattr(args, "prod_instance_id", None),
-        allow_extra_model_mapping=args.allow_extra_model_mapping,
     )
     target_count = report["target_count"]
     errors = report["errors"]
@@ -1018,9 +1061,9 @@ def cmd_check_accounts(args) -> int:
     return 1 if violations else 0
 
 
-def _command_with_ssot_root(parts: list[str]) -> str:
-    if _SSOT_REPO_ROOT != REPO_ROOT:
-        parts.extend(["--ssot-repo-root", str(_SSOT_REPO_ROOT)])
+def _command_with_bundle(parts: list[str]) -> str:
+    if _BUNDLE_PATH.resolve() != DEFAULT_BUNDLE_PATH.resolve():
+        parts.extend(["--bundle", str(_BUNDLE_PATH)])
     return " ".join(shlex.quote(part) for part in parts)
 
 
@@ -1029,7 +1072,7 @@ def _release_gate_remediation(report: dict[str, Any]) -> list[str]:
     if runtime_steps:
         return runtime_steps
     return [
-        _command_with_ssot_root([
+        _command_with_bundle([
             "python3",
             "ops/pricing/manage-account-model-mapping-runtime.py",
             "apply-accounts",
@@ -1037,7 +1080,7 @@ def _release_gate_remediation(report: dict[str, Any]) -> list[str]:
             "prod",
             "--dry-run",
         ]),
-        _command_with_ssot_root([
+        _command_with_bundle([
             "python3",
             "ops/pricing/manage-account-model-mapping-runtime.py",
             "apply-accounts",
@@ -1060,7 +1103,7 @@ def _release_gate_status(report: dict[str, Any]) -> str:
 def _print_release_gate_human(report: dict[str, Any]) -> None:
     status = _release_gate_status(report)
     if status == "ok":
-        print("OK: prod account model_mapping covers the selected Go SSOT floor. Model activation may proceed.")
+        print("OK: prod account model_mapping covers the selected bundle floor. Model activation may proceed.")
         return
     if status == "error":
         print("ERROR: model-activation floor check could not read prod account model_mapping.")
@@ -1071,10 +1114,10 @@ def _print_release_gate_human(report: dict[str, Any]) -> None:
 
     runtime_conflicts = _runtime_setting_violations(report)
     if runtime_conflicts:
-        print("FAIL: prod runtime model_mapping replacement conflicts with the selected Go SSOT policy.")
+        print("FAIL: prod runtime model_mapping replacement conflicts with the selected bundle policy.")
         print("Account planning was skipped. Correct and sync the runtime, or clear it to use the compiled floor:")
     else:
-        print("FAIL: prod account model_mapping is behind the selected model-activation Go SSOT floor.")
+        print("FAIL: prod account model_mapping is behind the selected model-activation bundle floor.")
         print("Review and apply the SSOT diff before activating the model surface:")
     for step in _release_gate_remediation(report):
         print(f"  {step}")
@@ -1087,13 +1130,12 @@ def _print_release_gate_human(report: dict[str, Any]) -> None:
 
 
 def cmd_release_gate(args) -> int:
-    _set_ssot_repo_root(getattr(args, "ssot_repo_root", None))
+    _set_bundle_path(getattr(args, "bundle", None))
     report = _account_check_report(
         skip_prod=False,
         include_edges=False,
         parallel=args.parallel,
         prod_instance_id=args.prod_instance_id,
-        allow_extra_model_mapping=True,
     )
     status = _release_gate_status(report)
     if args.json:
@@ -1110,14 +1152,30 @@ def cmd_release_gate(args) -> int:
 
 
 def cmd_apply_accounts(args) -> int:
-    _set_ssot_repo_root(getattr(args, "ssot_repo_root", None))
+    _set_bundle_path(getattr(args, "bundle", None))
     if not args.dry_run and args.confirm != APPLY_CONFIRM:
         fail(f"apply-accounts requires --confirm {APPLY_CONFIRM}")
-    targets = _resolve_apply_targets(args.target)
+    activation_floor_sha256 = getattr(args, "activation_floor_sha256", None)
+    if activation_floor_sha256:
+        bundle_sha256 = _load_bundle()["floor_sha256"]
+        if activation_floor_sha256 != bundle_sha256:
+            fail(
+                "--activation-floor-sha256 does not match --bundle: "
+                f"got {activation_floor_sha256!r}, expected {bundle_sha256!r}"
+            )
+        if args.target.strip().lower() != "prod":
+            fail("--activation-floor-sha256 is only valid with --target prod")
+    targets = _resolve_apply_targets(
+        args.target,
+        prod_instance_id=getattr(args, "prod_instance_id", None),
+    )
     plans: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
-        futs = {ex.submit(_collect_apply_plan, *t): t for t in targets}
+        futs = {
+            ex.submit(_collect_apply_plan, *t, activation_floor_sha256): t
+            for t in targets
+        }
         for fut in as_completed(futs):
             label = futs[fut][0]
             try:
@@ -1127,6 +1185,8 @@ def cmd_apply_accounts(args) -> int:
 
     plans.sort(key=lambda p: str(p.get("target") or ""))
     report = {
+        "bundle": str(_BUNDLE_PATH),
+        "floor_sha256": _load_bundle()["floor_sha256"],
         "targets": [p["target"] for p in plans],
         "target_count": len(targets),
         "account_change_count": sum(len(p.get("account_changes") or []) for p in plans),
@@ -1134,6 +1194,8 @@ def cmd_apply_accounts(args) -> int:
         "plans": plans,
         "errors": sorted(errors, key=lambda e: str(e.get("target") or "")),
     }
+    if activation_floor_sha256:
+        report["activation_floor_sha256"] = activation_floor_sha256
     if errors:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 2
@@ -1142,7 +1204,6 @@ def cmd_apply_accounts(args) -> int:
         return 0
     if report["account_change_count"] == 0 and report["group_change_count"] == 0:
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        print("apply-accounts: no changes.")
         return 0
 
     apply_errors: list[dict[str, Any]] = []
@@ -1165,9 +1226,13 @@ def cmd_apply_accounts(args) -> int:
                 apply_errors.append({"target": label, "error": str(e)})
 
     result = {
+        "bundle": str(_BUNDLE_PATH),
+        "floor_sha256": _load_bundle()["floor_sha256"],
         "applied": sorted(applied, key=lambda p: str(p.get("target") or "")),
         "errors": sorted(apply_errors, key=lambda e: str(e.get("target") or "")),
     }
+    if activation_floor_sha256:
+        result["activation_floor_sha256"] = activation_floor_sha256
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 2 if apply_errors else 0
 
@@ -1233,7 +1298,7 @@ def _clear_runtime_target(label: str, region: str, instance_id: str) -> dict[str
 
 
 def cmd_sync_runtime(args) -> int:
-    _set_ssot_repo_root(getattr(args, "ssot_repo_root", None))
+    _set_bundle_path(getattr(args, "bundle", None))
     doc = load_doc(args.file)
     runtime_reason = _runtime_setting_violation(canonical_json(doc))
     if runtime_reason:
@@ -1371,39 +1436,24 @@ def cmd_selftest(_args) -> int:
         "type": "oauth",
         "model_mapping": {},
     }, floor)
-    strict_extra = _account_plan(
-        {
-            "id": 3,
-            "platform": "openai",
-            "type": "oauth",
-            "model_mapping": {
-                "gpt-5.6": "gpt-5.6",
-                "gpt-5.6-luna": "gpt-5.6-luna",
-                "gpt-5.6-sol": "gpt-5.6-sol",
-                "gpt-5.6-terra": "gpt-5.6-terra",
-                "future-model": "future-model",
-            },
+    compatible_extra_row = {
+        "id": 3,
+        "platform": "openai",
+        "type": "oauth",
+        "model_mapping": {
+            "gpt-5.6": "gpt-5.6",
+            "gpt-5.6-luna": "gpt-5.6-luna",
+            "gpt-5.6-sol": "gpt-5.6-sol",
+            "gpt-5.6-terra": "gpt-5.6-terra",
+            "future-model": "future-model",
         },
-        floor,
-    )
-    assert strict_extra and strict_extra["diff"]["extra_keys"] == ["future-model"]
-    assert _account_plan(
-        {
-            "id": 3,
-            "platform": "openai",
-            "type": "oauth",
-            "model_mapping": {
-                "gpt-5.6": "gpt-5.6",
-                "gpt-5.6-luna": "gpt-5.6-luna",
-                "gpt-5.6-sol": "gpt-5.6-sol",
-                "gpt-5.6-terra": "gpt-5.6-terra",
-                "future-model": "future-model",
-            },
-        },
-        floor,
-        allow_extra_model_mapping=True,
-    ) is None
-    _set_ssot_repo_root(str(REPO_ROOT))
+    }
+    assert _account_plan(compatible_extra_row, floor) is None
+    compatible_extra_row["model_mapping"].pop("gpt-5.6-sol")
+    preserved_extra_plan = _account_plan(compatible_extra_row, floor)
+    assert preserved_extra_plan
+    assert preserved_extra_plan["diff"]["compatible_extra_keys"] == ["future-model"]
+    assert preserved_extra_plan["desired_model_mapping"]["future-model"] == "future-model"
     plan = _account_plan(
         {"id": 1, "platform": "grok", "type": "oauth", "model_mapping": {"grok": "grok-4.3"}},
         floor,
@@ -1418,7 +1468,24 @@ def cmd_selftest(_args) -> int:
             "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
             "claude-sonnet-5": "claude-sonnet-5",
         },
+    }, floor) is None
+    forbidden_plan = _account_plan({
+        "platform": "antigravity",
+        "type": "oauth",
+        "model_mapping": {
+            **floor["platforms"]["antigravity"],
+            "future-model": "future-model",
+            "test-forbidden-exact": "test-forbidden-exact",
+            "test-forbidden-prefix-boundary": "test-forbidden-prefix-boundary",
+        },
     }, floor)
+    assert forbidden_plan
+    assert forbidden_plan["diff"]["forbidden_keys"] == [
+        "test-forbidden-exact",
+        "test-forbidden-prefix-boundary",
+    ]
+    assert forbidden_plan["desired_model_mapping"]["future-model"] == "future-model"
+    assert "test-forbidden-exact" not in forbidden_plan["desired_model_mapping"]
     policy_scope, policy_forbidden_key = next(
         (scope, sorted(keys)[0])
         for scope, keys in sorted(floor["forbidden_model_mapping_keys"].items())
@@ -1445,6 +1512,14 @@ def cmd_selftest(_args) -> int:
         "group_changes": [{"id": 7, "desired_supported_model_scopes": ["claude", "gemini_text", "gemini_image"]}],
     })
     assert "account_bulk_changed" in sql and "group_changed" in sql
+    guarded_sql = _render_apply_sql({
+        "activation_floor_sha256": "a" * 64,
+        "account_changes": [plan],
+        "group_changes": [],
+    })
+    assert "LOCK TABLE settings IN SHARE ROW EXCLUSIVE MODE" in guarded_sql
+    assert f"{SETTING_KEY} appeared before activation write" in guarded_sql
+    assert guarded_sql.index("LOCK TABLE settings") < guarded_sql.index("UPDATE accounts")
     assert _group_violation({"scopes": ["gemini_text"]}, floor)
     assert _group_violation({"scopes": ["claude", "gemini_text", "gemini_image"]}, floor) is None
     assert _runtime_setting_violation('{"platforms":{"grok":{}}}')
@@ -1485,8 +1560,10 @@ def cmd_selftest(_args) -> int:
             "antigravity_groups": [],
         }
         try:
-            checked_violations, checked_errors = _check_target("prod", "test-region", "i-test", False)
+            checked_violations, checked_errors, runtime_present = _check_target(
+                "prod", "test-region", "i-test")
             assert checked_errors == []
+            assert runtime_present
             assert len(checked_violations) == 1
             assert checked_violations[0]["kind"] == "runtime_setting"
             assert "policy conflict" in checked_violations[0]["reason"]
@@ -1495,7 +1572,7 @@ def cmd_selftest(_args) -> int:
             except RuntimeError as e:
                 assert "policy conflict" in str(e)
             else:
-                raise AssertionError("apply planning accepted a runtime mapping forbidden by the Go SSOT")
+                raise AssertionError("apply planning accepted a runtime mapping forbidden by the bundle")
         finally:
             globals()["_run_check_sql_json"] = original_run_check_sql_json
     assert _is_openai_ainzy_relay({
@@ -1542,17 +1619,71 @@ def cmd_selftest(_args) -> int:
     assert any("sync-runtime" in step for step in runtime_remediation)
     assert any("clear-runtime" in step for step in runtime_remediation)
     assert all("apply-accounts" not in step for step in runtime_remediation)
-    original_ssot_repo_root = globals()["_SSOT_REPO_ROOT"]
-    selected_ssot_repo_root = REPO_ROOT / "selected-ssot-selftest"
-    globals()["_SSOT_REPO_ROOT"] = selected_ssot_repo_root
-    try:
-        selected_root_remediation = _runtime_setting_remediation(runtime_violation_report)
-        sync_steps = [step for step in selected_root_remediation if "sync-runtime" in step]
+    original_bundle_path = _BUNDLE_PATH
+    with tempfile.TemporaryDirectory() as temp_dir:
+        selected_bundle_path = Path(temp_dir) / "selected-bundle.json"
+        valid_bundle = {
+            "schema_version": BUNDLE_SCHEMA_VERSION,
+            "floor_sha256": _BUNDLE.floor_sha256(floor),
+            "account_model_mapping": floor,
+        }
+        selected_bundle_path.write_text(json.dumps(valid_bundle), encoding="utf-8")
+        _set_bundle_path(str(selected_bundle_path))
+        assert _load_effective_floor(None) == floor
+        selected_bundle_remediation = _runtime_setting_remediation(runtime_violation_report)
+        sync_steps = [step for step in selected_bundle_remediation if "sync-runtime" in step]
         assert sync_steps
-        assert all("--ssot-repo-root" in step for step in sync_steps)
-        assert all(str(selected_ssot_repo_root) in step for step in sync_steps)
-    finally:
-        globals()["_SSOT_REPO_ROOT"] = original_ssot_repo_root
+        assert all("--bundle" in step for step in sync_steps)
+        assert all(str(selected_bundle_path) in step for step in sync_steps)
+
+        valid_bundle["floor_sha256"] = "0" * 64
+        selected_bundle_path.write_text(json.dumps(valid_bundle), encoding="utf-8")
+        try:
+            _load_bundle()
+        except RuntimeError as e:
+            assert "floor_sha256 mismatch" in str(e)
+        else:
+            raise AssertionError("bundle digest tampering was accepted")
+
+        valid_bundle["schema_version"] = BUNDLE_SCHEMA_VERSION + 1
+        selected_bundle_path.write_text(json.dumps(valid_bundle), encoding="utf-8")
+        try:
+            _load_bundle()
+        except RuntimeError as e:
+            assert "unsupported model surface bundle schema" in str(e)
+        else:
+            raise AssertionError("bundle schema tampering was accepted")
+
+        invalid_floor = copy.deepcopy(floor)
+        invalid_floor["platforms"]["openai"][""] = "invalid-target"
+        invalid_bundle = {
+            "schema_version": BUNDLE_SCHEMA_VERSION,
+            "floor_sha256": _BUNDLE.floor_sha256(invalid_floor),
+            "account_model_mapping": invalid_floor,
+        }
+        selected_bundle_path.write_text(json.dumps(invalid_bundle), encoding="utf-8")
+        try:
+            _load_bundle()
+        except RuntimeError as e:
+            assert "empty or non-string key" in str(e)
+        else:
+            raise AssertionError("self-digested bundle with an invalid mapping was accepted")
+
+        conflicting_floor = copy.deepcopy(floor)
+        conflicting_floor["platforms"]["antigravity"]["test-forbidden-exact"] = "conflict"
+        conflicting_bundle = {
+            "schema_version": BUNDLE_SCHEMA_VERSION,
+            "floor_sha256": _BUNDLE.floor_sha256(conflicting_floor),
+            "account_model_mapping": conflicting_floor,
+        }
+        selected_bundle_path.write_text(json.dumps(conflicting_bundle), encoding="utf-8")
+        try:
+            _load_bundle()
+        except RuntimeError as e:
+            assert "requires forbidden keys" in str(e)
+        else:
+            raise AssertionError("bundle with a required/forbidden conflict was accepted")
+    globals()["_BUNDLE_PATH"] = original_bundle_path
     parser = _build_parser()
     with contextlib.redirect_stderr(io.StringIO()):
         try:
@@ -1562,14 +1693,23 @@ def cmd_selftest(_args) -> int:
         else:
             raise AssertionError("release-gate accepted edge scope")
     assert parser.parse_args(["check-accounts", "--include-edges"]).include_edges
-    selected_root_args = ["--ssot-repo-root", str(REPO_ROOT)]
-    assert parser.parse_args(["validate", "--file", "runtime.json", *selected_root_args]).ssot_repo_root
-    assert parser.parse_args(["sync-runtime", "--file", "runtime.json", *selected_root_args]).ssot_repo_root
+    selected_bundle_args = ["--bundle", str(DEFAULT_BUNDLE_PATH)]
+    assert parser.parse_args(["validate", "--file", "runtime.json", *selected_bundle_args]).bundle
+    assert parser.parse_args(["sync-runtime", "--file", "runtime.json", *selected_bundle_args]).bundle
+    activation_apply_args = parser.parse_args([
+        "apply-accounts",
+        "--target", "prod",
+        "--dry-run",
+        "--prod-instance-id", "i-0123456789abcdef0",
+        "--activation-floor-sha256", "a" * 64,
+    ])
+    assert activation_apply_args.prod_instance_id == "i-0123456789abcdef0"
+    assert activation_apply_args.activation_floor_sha256 == "a" * 64
 
-    command_root_calls: list[str | None] = []
+    command_bundle_calls: list[str | None] = []
     account_report_calls: list[dict[str, Any]] = []
     original_command_helpers = {
-        "_set_ssot_repo_root": globals()["_set_ssot_repo_root"],
+        "_set_bundle_path": globals()["_set_bundle_path"],
         "load_doc": globals()["load_doc"],
         "_runtime_setting_violation": globals()["_runtime_setting_violation"],
         "_resolve_apply_targets": globals()["_resolve_apply_targets"],
@@ -1587,7 +1727,7 @@ def cmd_selftest(_args) -> int:
             "errors": [],
         }
 
-    globals()["_set_ssot_repo_root"] = lambda raw: command_root_calls.append(raw) or REPO_ROOT
+    globals()["_set_bundle_path"] = lambda raw: command_bundle_calls.append(raw) or DEFAULT_BUNDLE_PATH
     globals()["load_doc"] = lambda _path: {"platforms": {"test": {"test": "test"}}}
     globals()["_runtime_setting_violation"] = lambda _raw: None
     globals()["_resolve_apply_targets"] = lambda _target: [("prod", "test-region", "i-test")]
@@ -1595,28 +1735,25 @@ def cmd_selftest(_args) -> int:
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             assert cmd_validate(argparse.Namespace(
-                file=Path("runtime.json"), ssot_repo_root="validate-root")) == 0
+                file=Path("runtime.json"), bundle="validate-bundle")) == 0
             assert cmd_sync_runtime(argparse.Namespace(
                 file=Path("runtime.json"), target="prod", dry_run=True,
-                parallel=1, ssot_repo_root="sync-root")) == 0
+                parallel=1, bundle="sync-bundle")) == 0
             assert cmd_check_accounts(argparse.Namespace(
                 skip_prod=False, include_edges=True, parallel=1,
                 prod_instance_id="i-00000000000000000",
-                allow_extra_model_mapping=False, json=False,
-                ssot_repo_root="check-root")) == 0
+                json=False, bundle="check-bundle")) == 0
             assert cmd_release_gate(argparse.Namespace(
                 parallel=1, prod_instance_id="i-00000000000000000",
-                json=False, ssot_repo_root="release-root")) == 0
+                json=False, bundle="release-bundle")) == 0
     finally:
         globals().update(original_command_helpers)
 
-    assert command_root_calls == ["validate-root", "sync-root", "check-root", "release-root"]
+    assert command_bundle_calls == ["validate-bundle", "sync-bundle", "check-bundle", "release-bundle"]
     assert len(account_report_calls) == 2
     check_call, release_call = account_report_calls
     assert check_call["include_edges"] is True
-    assert check_call["allow_extra_model_mapping"] is False
     assert release_call["include_edges"] is False
-    assert release_call["allow_extra_model_mapping"] is True
     print("selftest ok")
     return 0
 
@@ -1627,7 +1764,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd")
     sp = sub.add_parser("validate", help="validate and print canonical JSON")
     sp.add_argument("--file", type=Path, required=True)
-    sp.add_argument("--ssot-repo-root", help="repo root whose Go account model_mapping SSOT should be used")
+    sp.add_argument("--bundle", help="generated model-surface bundle to validate against")
     sp = sub.add_parser("check", help="compare runtime settings to a JSON file")
     sp.add_argument("--file", type=Path, required=True)
     sp.add_argument("--target", default=DEFAULT_RUNTIME_TARGET, help="prod, edge:<id>, or all-deployable-and-prod")
@@ -1638,32 +1775,29 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--skip-prod", action="store_true", help="check deployable edges only")
     sp.add_argument("--include-edges", action="store_true", help="also check deployable edges (default: prod only)")
     sp.add_argument("--prod-instance-id", help="use this prod EC2 instance id instead of resolving the prod stack")
-    sp.add_argument("--ssot-repo-root", help="repo root whose Go account model_mapping SSOT should be used")
-    sp.add_argument(
-        "--allow-extra-model-mapping",
-        action="store_true",
-        help="treat live mappings as a superset floor check instead of exact equality",
-    )
+    sp.add_argument("--bundle", help="generated model-surface bundle to check against")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     sp = sub.add_parser(
         "release-gate",
-        help="explicit modelops/model-activation check: prod account model_mapping must cover the selected Go SSOT floor",
+        help="explicit model-activation check: prod account model_mapping must cover the selected bundle floor",
     )
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.add_argument("--prod-instance-id", help="use this prod EC2 instance id instead of resolving the prod stack")
-    sp.add_argument("--ssot-repo-root", help="repo root whose Go account model_mapping SSOT should be used")
+    sp.add_argument("--bundle", help="generated model-surface bundle to check against")
     sp.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
     sp = sub.add_parser("apply-accounts", help="explicitly apply reviewed SSOT diffs to live accounts")
     sp.add_argument("--target", required=True, help="prod, edge:<id>, or all-deployable-and-prod")
     sp.add_argument("--confirm", help=f"required for writes: {APPLY_CONFIRM}")
     sp.add_argument("--dry-run", action="store_true", help="print the planned account/group changes without writing")
-    sp.add_argument("--ssot-repo-root", help="repo root whose Go account model_mapping SSOT should be used")
+    sp.add_argument("--prod-instance-id", help="pin prod planning and apply to this EC2 instance id")
+    sp.add_argument("--activation-floor-sha256", help=argparse.SUPPRESS)
+    sp.add_argument("--bundle", help="generated model-surface bundle to apply")
     sp.add_argument("--parallel", type=int, default=3, help="parallel SSM workers")
     sp = sub.add_parser("sync-runtime", help="hot-push a JSON file to runtime settings")
     sp.add_argument("--file", type=Path, required=True)
     sp.add_argument("--target", default=DEFAULT_RUNTIME_TARGET, help="prod, edge:<id>, or all-deployable-and-prod")
     sp.add_argument("--dry-run", action="store_true")
-    sp.add_argument("--ssot-repo-root", help="repo root whose Go account model_mapping SSOT should be used")
+    sp.add_argument("--bundle", help="generated model-surface bundle to validate against")
     sp.add_argument("--parallel", type=int, default=3, help="parallel SSM workers")
     sp = sub.add_parser("clear-runtime", help="delete runtime override and use compiled floor")
     sp.add_argument("--target", default=DEFAULT_RUNTIME_TARGET, help="prod, edge:<id>, or all-deployable-and-prod")

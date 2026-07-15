@@ -12,7 +12,6 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
-import subprocess
 import unittest
 from unittest import mock
 
@@ -31,22 +30,14 @@ def _load_module():
 CHK = _load_module()
 
 
-class GoPolicyProjectionTest(unittest.TestCase):
-    def test_checker_policy_matches_complete_go_owner_projection(self):
-        proc = subprocess.run(
-            CHK.GO_HELPER,
-            cwd=CHK.REPO_ROOT / "backend",
-            input="",
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
-        doc = json.loads(proc.stdout)
+class BundlePolicyProjectionTest(unittest.TestCase):
+    def test_checker_policy_matches_complete_bundle_projection(self):
+        bundle = CHK._BUNDLE.load_bundle(CHK.DEFAULT_BUNDLE_PATH)
+        doc = bundle["account_model_mapping"]
         mapping = doc["platforms"]["antigravity"]
         policy = CHK._antigravity_policy()
 
+        self.assertEqual(policy["floor_sha256"], bundle["floor_sha256"])
         self.assertEqual(policy["mapping"], mapping)
         self.assertEqual(policy["scopes"], set(doc["antigravity_group_scopes"]))
         self.assertEqual(
@@ -103,7 +94,7 @@ class AccountViolationTest(unittest.TestCase):
                 del mm[missing]
                 r = CHK._account_violation({"model_mapping": mm})
                 self.assertIsNotNone(r)
-                self.assertIn("missing Go SSOT floor", r)
+                self.assertIn("missing bundle floor", r)
                 self.assertIn(missing, r)
 
     def test_each_bad_go_floor_target_is_violation(self):
@@ -113,7 +104,7 @@ class AccountViolationTest(unittest.TestCase):
                 mm[model_id] = "test-wrong-target-boundary"
                 r = CHK._account_violation({"model_mapping": mm})
                 self.assertIsNotNone(r)
-                self.assertIn("bad Go SSOT floor", r)
+                self.assertIn("bad bundle floor", r)
                 self.assertIn(model_id, r)
 
     def test_each_go_forbidden_key_is_violation(self):
