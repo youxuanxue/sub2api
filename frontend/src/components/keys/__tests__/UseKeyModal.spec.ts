@@ -26,6 +26,7 @@ vi.mock('@/api/pricing', () => ({
 }))
 
 import UseKeyModal from '../UseKeyModal.vue'
+import UseKeyGuide from '../UseKeyGuide.vue'
 
 const STUBS = {
   BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
@@ -36,6 +37,21 @@ function mountModal(props: Record<string, unknown>) {
   return mount(UseKeyModal, {
     props: { show: true, apiKey: 'sk-test', baseUrl: 'https://example.com/v1', ...props },
     global: { stubs: STUBS }
+  })
+}
+
+function mountQuickstartGuide(props: Record<string, unknown>) {
+  return mount(UseKeyGuide, {
+    props: {
+      apiKey: 'sk-test',
+      apiKeyId: 7,
+      baseUrl: 'https://example.com',
+      platform: null,
+      routingMode: 'universal',
+      showClientTabs: false,
+      ...props,
+    },
+    global: { stubs: STUBS },
   })
 }
 
@@ -254,6 +270,81 @@ describe('UseKeyModal — preserved snippet correctness', () => {
     const blocks = wrapper.findAll('pre code').map((c) => c.text())
     expect(blocks.some((c) => c.includes('"antigravity-claude"'))).toBe(false)
     expect(blocks.some((c) => c.includes('"antigravity-gemini"'))).toBe(true)
+  })
+})
+
+describe('UseKeyGuide — tool-first Quickstart contracts', () => {
+  it('generates current Qwen Code settings with the key isolated in .env', async () => {
+    const wrapper = mountQuickstartGuide({ selectedClient: 'qwen-code', selectedProtocol: 'anthropic' })
+    await flushPromises()
+    const files = wrapper.findAll('pre code').map((code) => code.text())
+    expect(files[0]).toBe('TOKENKEY_API_KEY=sk-test')
+    const settings = JSON.parse(files[1])
+    expect(settings.security.auth.selectedType).toBe('anthropic')
+    expect(settings.modelProviders.anthropic[0]).toMatchObject({
+      envKey: 'TOKENKEY_API_KEY',
+      baseUrl: 'https://example.com/v1',
+    })
+    expect(files[1]).not.toContain('sk-test')
+    expect(wrapper.find('[data-tk="quickstart-environment-picker"]').exists()).toBe(true)
+  })
+
+  it('switches Qwen Code to OpenAI Chat Completions provider without claiming Responses', async () => {
+    const wrapper = mountQuickstartGuide({ selectedClient: 'qwen-code', selectedProtocol: 'openai' })
+    await flushPromises()
+    const settings = JSON.parse(wrapper.findAll('pre code')[1].text())
+    expect(settings.security.auth.selectedType).toBe('openai')
+    expect(settings.modelProviders.openai[0].baseUrl).toBe('https://example.com/v1')
+    expect(wrapper.text()).not.toContain('Responses')
+  })
+
+  it('routes Qwen Code Anthropic requests through the Antigravity prefix for a direct key', async () => {
+    const wrapper = mountQuickstartGuide({
+      selectedClient: 'qwen-code',
+      selectedProtocol: 'anthropic',
+      platform: 'antigravity',
+      routingMode: 'direct',
+    })
+    await flushPromises()
+    const settings = JSON.parse(wrapper.findAll('pre code')[1].text())
+    expect(settings.modelProviders.anthropic[0].baseUrl).toBe('https://example.com/antigravity/v1')
+  })
+
+  it('renders exact Cline OpenAI Compatible fields without an OS selector or client tabs', async () => {
+    const wrapper = mountQuickstartGuide({ selectedClient: 'cline' })
+    await flushPromises()
+    const fields = wrapper.find('pre code').text()
+    expect(fields).toContain('API Provider: OpenAI Compatible')
+    expect(fields).toContain('Base URL: https://example.com/v1')
+    expect(fields).toContain('Model ID: gpt-5.5')
+    expect(wrapper.find('[data-tk="quickstart-environment-picker"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('keys.useKeyModal.cliTabs.codexCli')
+  })
+
+  it('uses client-specific copy for cURL instead of Codex setup instructions', async () => {
+    const wrapper = mountQuickstartGuide({ selectedClient: 'curl' })
+    await flushPromises()
+    expect(wrapper.text()).toContain('quickstart.clientConfigNote')
+    expect(wrapper.text()).not.toContain('keys.useKeyModal.openai.note')
+    expect(wrapper.text()).not.toContain('keys.useKeyModal.openai.description')
+  })
+
+  it('renders Dify Tool Call config and TokenKey ceilings without claiming streaming validation', async () => {
+    const wrapper = mountQuickstartGuide({
+      selectedClient: 'dify',
+      keyQuota: 100,
+      rateLimit5h: 25,
+      rateLimit1d: 0,
+      rateLimit7d: 80,
+    })
+    await flushPromises()
+    const files = wrapper.findAll('pre code').map((code) => code.text())
+    expect(files[0]).toContain('Function Call Type: Tool Call')
+    expect(files[0]).not.toContain('Stream function calling')
+    expect(files[1]).toContain('quickstart.keyQuota: $100')
+    expect(files[1]).toContain('quickstart.limit1d: quickstart.unlimited')
+    expect(wrapper.text()).toContain('quickstart.testToolCall')
+    expect(wrapper.text()).toContain('quickstart.difyLimitHint')
   })
 })
 

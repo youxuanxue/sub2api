@@ -18,7 +18,7 @@
       <!-- Platform-specific content -->
       <template v-else>
         <!-- Description -->
-        <p class="text-sm text-gray-600 dark:text-gray-400">
+        <p v-if="!selectedClientEntry" class="text-sm text-gray-600 dark:text-gray-400">
           {{ platformDescription }}
         </p>
 
@@ -102,21 +102,31 @@
               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-60 transition-colors"
             >
               <Icon v-if="tkTestState.status === 'running'" name="refresh" size="sm" class="animate-spin" />
-              <span>{{ tkTestState.status === 'running' ? t('keys.useKeyModal.testing') : t('keys.useKeyModal.testKey') }}</span>
+              <span>
+                {{ tkTestState.status === 'running'
+                  ? t('keys.useKeyModal.testing')
+                  : isDifyClient
+                    ? t('quickstart.testToolCall')
+                    : t('keys.useKeyModal.testKey') }}
+              </span>
             </button>
             <span v-if="tkTestState.status === 'ok'" class="inline-flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400">
               <Icon name="checkCircle" size="sm" />
-              {{ tkTestState.httpStatus }} · {{ tkTestState.latencyMs }}ms · {{ tkTestState.keyOnly ? t('keys.useKeyModal.testKeyValid') : t('keys.useKeyModal.testModelOk') }}
+              {{ tkTestState.httpStatus }} · {{ tkTestState.latencyMs }}ms · {{ tkTestState.toolCall
+                ? t('quickstart.toolCallOk')
+                : tkTestState.keyOnly
+                  ? t('keys.useKeyModal.testKeyValid')
+                  : t('keys.useKeyModal.testModelOk') }}
             </span>
             <span v-else-if="tkTestState.status === 'error'" class="inline-flex items-start gap-1.5 text-sm text-red-600 dark:text-red-400">
               <Icon name="exclamationCircle" size="sm" class="flex-shrink-0 mt-0.5" />
-              <span class="break-all"><template v-if="tkTestState.httpStatus">{{ tkTestState.httpStatus }} · </template>{{ tkTestState.message }}</span>
+              <span class="break-all"><template v-if="tkTestState.httpStatus">{{ tkTestState.httpStatus }} · </template>{{ testErrorMessage }}</span>
             </span>
           </div>
         </div>
 
         <!-- Client Tabs -->
-        <div v-if="clientTabs.length" class="border-b border-gray-200 dark:border-dark-700">
+        <div v-if="showClientTabs && clientTabs.length" class="border-b border-gray-200 dark:border-dark-700">
           <nav class="-mb-px flex space-x-6" aria-label="Client">
             <button
               v-for="tab in clientTabs"
@@ -138,11 +148,13 @@
         </div>
 
         <!-- OS/Shell Tabs -->
-        <div v-if="showShellTabs" class="border-b border-gray-200 dark:border-dark-700">
-          <nav class="-mb-px flex space-x-4" aria-label="Tabs">
+        <div v-if="showShellTabs" data-tk="quickstart-environment-picker" class="border-b border-gray-200 dark:border-dark-700">
+          <nav class="-mb-px flex flex-wrap gap-x-4" :aria-label="t('quickstart.environment')">
             <button
               v-for="tab in currentTabs"
               :key="tab.id"
+              :data-tk="`quickstart-environment-${tab.id}`"
+              :aria-pressed="activeTab === tab.id"
               @click="activeTab = tab.id"
               :class="[
                 'whitespace-nowrap py-2.5 px-1 border-b-2 font-medium text-sm transition-colors',
@@ -220,6 +232,7 @@ import {
   type UseKeyFlavor,
 } from '@/composables/useTkUseKey'
 import type { GroupPlatform, KeyRoutingMode } from '@/types'
+import { TK_QUICKSTART_CLIENTS } from '@/constants/clientIntegrations.tk'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_GROK, PLATFORM_NEWAPI, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 interface Props {
@@ -241,6 +254,19 @@ interface Props {
   // 细分仅后端 /antigravity/v1/models 生效。
   // 空/未传 = 不限制。
   supportedModelScopes?: string[]
+  /** Current key limits, shown as Dify deployment ceilings. Zero means unlimited. */
+  keyQuota?: number
+  rateLimit5h?: number
+  rateLimit1d?: number
+  rateLimit7d?: number
+  /** Controlled client surface used by /quickstart's tool-first picker. */
+  selectedClient?: string | null
+  /** Qwen Code supports Anthropic Messages and OpenAI Chat Completions. */
+  selectedProtocol?: 'anthropic' | 'openai' | null
+  /** Codex exposes WebSocket as a transport choice, not a separate client. */
+  selectedTransport?: 'http' | 'websocket' | null
+  /** Key modals keep legacy tabs; /quickstart owns client selection outside. */
+  showClientTabs?: boolean
 }
 
 interface TabConfig {
@@ -256,7 +282,13 @@ interface FileConfig {
   highlighted?: string
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  showClientTabs: true,
+})
+const emit = defineEmits<{
+  modelChange: [model: string]
+}>()
+const showClientTabs = computed(() => props.showClientTabs)
 
 const hasGuideContext = computed(
   () => props.routingMode === 'universal' || props.platform != null,
@@ -269,6 +301,11 @@ const copiedIndex = ref<number | null>(null)
 const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
 const keyRevealed = ref(false)
+const selectedClientEntry = computed(() =>
+  props.selectedClient
+    ? TK_QUICKSTART_CLIENTS.find((client) => client.guideId === props.selectedClient) ?? null
+    : null,
+)
 
 // Gateway root with any trailing /v1 stripped — single source for the locked
 // base-URL display and the live test request.
@@ -282,11 +319,16 @@ const baseRoot = computed(() =>
 // multi-model catalog (no single pick), so it has no flavor.
 const activeFlavor = computed<UseKeyFlavor | null>(() => {
   const tab = activeClientTab.value
+  if (selectedClientEntry.value?.guideMode === 'qwen') {
+    return props.selectedProtocol === 'openai' ? 'openai' : 'anthropic'
+  }
+  if (selectedClientEntry.value?.guideMode === 'openai-fields') return 'openai'
   if (tab === 'opencode') return null
   if (tab === 'claude') return 'anthropic'
   if (tab === 'gemini') return 'gemini'
   if (tab === 'codex' || tab === 'codex-ws') return 'openai'
   if (tab === 'curl' || tab === 'python') {
+    if (props.routingMode === 'universal') return 'openai'
     switch (props.platform) {
       case 'openai':
       case 'newapi':
@@ -333,9 +375,11 @@ watch(
     tk.testState.value = { status: 'idle' }
     await tk.loadModels()
     const flavor = tk.applyInitialModel(initialModel)
-    if (flavor === 'anthropic') activeClientTab.value = 'claude'
-    else if (flavor === 'gemini') activeClientTab.value = 'gemini'
-    else if (flavor === 'openai') activeClientTab.value = 'codex'
+    if (!props.selectedClient) {
+      if (flavor === 'anthropic') activeClientTab.value = 'claude'
+      else if (flavor === 'gemini') activeClientTab.value = 'gemini'
+      else if (flavor === 'openai') activeClientTab.value = 'codex'
+    }
   },
   { immediate: true },
 )
@@ -343,11 +387,19 @@ watch(
 // Models offered in the picker for the current flavor.
 const pickerModels = computed(() => (activeFlavor.value ? tk.modelsForFlavor(activeFlavor.value) : []))
 const selectedModel = computed(() => (activeFlavor.value ? tk.effectiveModel(activeFlavor.value) : ''))
+watch(selectedModel, (model) => {
+  if (model) emit('modelChange', model)
+}, { immediate: true })
 const showModelsCatalogEmpty = computed(() =>
   activeFlavor.value ? tk.shouldWarnModelsEmpty(activeFlavor.value) : false,
 )
 const currentModelMeta = computed(() =>
   pickerModels.value.find((m) => m.id === selectedModel.value),
+)
+const isDifyClient = computed(() => activeClientTab.value === 'dify')
+const testErrorMessage = computed(() => tkTestState.value.reason === 'missing_tool_call'
+  ? t('quickstart.toolCallMissing')
+  : tkTestState.value.message,
 )
 function onPickModel(e: Event): void {
   const id = (e.target as HTMLSelectElement).value
@@ -370,7 +422,9 @@ function copyText(text: string): void {
 }
 
 function onTest(): void {
-  if (activeFlavor.value) void tk.runTest(activeFlavor.value)
+  if (activeFlavor.value) {
+    void tk.runTest(activeFlavor.value, { requireToolCall: isDifyClient.value })
+  }
 }
 
 function formatCtx(n?: number): string {
@@ -414,9 +468,11 @@ const defaultClientTab = computed(() => {
   }
 })
 
-watch(() => [props.platform, props.routingMode] as const, () => {
+watch(() => [props.platform, props.routingMode, props.selectedClient, props.selectedTransport] as const, () => {
   activeTab.value = 'unix'
-  activeClientTab.value = defaultClientTab.value
+  activeClientTab.value = props.selectedClient === 'codex' && props.selectedTransport === 'websocket'
+    ? 'codex-ws'
+    : props.selectedClient || defaultClientTab.value
 }, { immediate: true })
 
 // Reset shell tab when client changes
@@ -500,7 +556,13 @@ function platformForFiles(): GroupPlatform | null {
   if (props.routingMode === 'universal') {
     const tab = activeClientTab.value
     if (tab === 'gemini') return PLATFORM_GEMINI
-    if (['codex', 'codex-ws', 'curl', 'python', 'opencode'].includes(tab)) return PLATFORM_OPENAI
+    if (selectedClientEntry.value?.guideMode === 'qwen') {
+      return props.selectedProtocol === 'openai' ? PLATFORM_OPENAI : PLATFORM_ANTHROPIC
+    }
+    if (tab === 'codex' || tab === 'codex-ws' || selectedClientEntry.value?.guideMode === 'raw'
+      || selectedClientEntry.value?.guideMode === 'openai-fields' || tab === 'opencode') {
+      return PLATFORM_OPENAI
+    }
     return PLATFORM_ANTHROPIC
   }
   return props.platform
@@ -591,10 +653,10 @@ const openaiTabs: TabConfig[] = [
   { id: 'windows', label: 'Windows', icon: WindowsIcon }
 ]
 
-// opencode (single JSON file) and the raw-protocol tabs (one cross-platform
-// snippet) have no OS/shell sub-tabs.
-const RAW_PROTO_TABS = ['opencode', 'curl', 'python']
-const showShellTabs = computed(() => !RAW_PROTO_TABS.includes(activeClientTab.value))
+const showShellTabs = computed(() => selectedClientEntry.value
+  ? selectedClientEntry.value.usesEnvironmentPicker === true
+  : ['claude', 'codex', 'codex-ws', 'gemini'].includes(activeClientTab.value),
+)
 
 const currentTabs = computed(() => {
   if (!showShellTabs.value) return []
@@ -630,6 +692,9 @@ const platformDescription = computed(() => {
 })
 
 const platformNote = computed(() => {
+  if (selectedClientEntry.value) {
+    return t('quickstart.clientConfigNote')
+  }
   if (isOpenAICompatPlatform.value) {
     if (activeClientTab.value === 'claude') {
       return t('keys.useKeyModal.note')
@@ -693,6 +758,30 @@ const currentFiles = computed((): FileConfig[] => {
   // literal / free-text hint.
   const model = selectedModel.value
 
+  if (selectedClientEntry.value?.guideMode === 'qwen') {
+    const qwenBase = props.routingMode !== 'universal'
+      && props.platform === PLATFORM_ANTIGRAVITY
+      && props.selectedProtocol !== 'openai'
+      ? antigravityBase
+      : apiBase
+    return generateQwenCodeFiles(
+      qwenBase,
+      apiKey,
+      model,
+      props.selectedProtocol === 'openai' ? 'openai' : 'anthropic',
+      activeTab.value,
+    )
+  }
+
+  if (selectedClientEntry.value?.guideMode === 'openai-fields') {
+    return generateCompatibleClientFields(activeClientTab.value, baseRoot, apiKey, model, {
+      quota: props.keyQuota,
+      rate5h: props.rateLimit5h,
+      rate1d: props.rateLimit1d,
+      rate7d: props.rateLimit7d,
+    })
+  }
+
   if (activeClientTab.value === 'opencode') {
     switch (platformForFiles()) {
       case 'anthropic':
@@ -723,7 +812,9 @@ const currentFiles = computed((): FileConfig[] => {
 
   // Raw protocol (cURL / Python): one fully-injected, correct example per
   // flavor. base / auth / endpoint / body shape are all correct-by-construction.
-  if (activeClientTab.value === 'curl' || activeClientTab.value === 'python') {
+  if (selectedClientEntry.value?.guideMode === 'raw'
+    || activeClientTab.value === 'curl'
+    || activeClientTab.value === 'python') {
     const flavor = activeFlavor.value ?? 'anthropic'
     const isAntigravity = platformForFiles() === PLATFORM_ANTIGRAVITY
     return activeClientTab.value === 'curl'
@@ -980,6 +1071,109 @@ goals = true`
       content: authContent
     }
   ]
+}
+
+function generateQwenCodeFiles(
+  apiBase: string,
+  apiKey: string,
+  model: string,
+  protocol: 'anthropic' | 'openai',
+  os: string,
+): FileConfig[] {
+  const isWindows = os !== 'unix'
+  const root = isWindows ? '%USERPROFILE%\\.qwen' : '~/.qwen'
+  const settings = {
+    security: { auth: { selectedType: protocol } },
+    model: { name: model },
+    modelProviders: {
+      [protocol]: [{
+        id: model,
+        name: model,
+        envKey: 'TOKENKEY_API_KEY',
+        baseUrl: apiBase,
+      }],
+    },
+  }
+
+  return [
+    {
+      path: `${root}/.env`,
+      content: `TOKENKEY_API_KEY=${apiKey}`,
+      hint: t('quickstart.qwenSecretHint'),
+    },
+    {
+      path: `${root}/settings.json`,
+      content: JSON.stringify(settings, null, 2),
+    },
+  ]
+}
+
+function generateCompatibleClientFields(
+  client: string,
+  baseRoot: string,
+  apiKey: string,
+  model: string,
+  limits: { quota?: number; rate5h?: number; rate1d?: number; rate7d?: number },
+): FileConfig[] {
+  const apiBase = `${baseRoot.replace(/\/+$/, '')}/v1`
+  const common = [
+    `Base URL: ${apiBase}`,
+    `API Key: ${apiKey}`,
+    `Model ID: ${model}`,
+  ]
+  let fields: string[]
+
+  switch (client) {
+    case 'dify':
+      fields = [
+        'Provider: OpenAI-API-compatible',
+        `Model Name: ${model}`,
+        `API Key: ${apiKey}`,
+        `API Base URL: ${apiBase}`,
+        'Mode: Chat',
+        'Function Call Type: Tool Call',
+      ]
+      break
+    case 'chatbox':
+      fields = [
+        'Provider: Custom Provider',
+        'API mode: OpenAI API Compatible',
+        `API Host: ${baseRoot}`,
+        'API Path: /v1/chat/completions',
+        `API Key: ${apiKey}`,
+        `Model: ${model}`,
+      ]
+      break
+    case 'cherry-studio':
+      fields = ['Provider Type: OpenAI Compatible', ...common]
+      break
+    case 'lobe-chat':
+      fields = ['Provider: OpenAI', ...common]
+      break
+    default:
+      fields = ['API Provider: OpenAI Compatible', ...common]
+      break
+  }
+
+  const files: FileConfig[] = [{
+    path: t('quickstart.configFields'),
+    content: fields.join('\n'),
+    hint: t('quickstart.secretUiHint'),
+  }]
+  if (client === 'dify') {
+    const showLimit = (value?: number) => value && value > 0 ? `$${value}` : t('quickstart.unlimited')
+    files.push({
+      path: t('quickstart.limitReference'),
+      content: [
+        `${t('quickstart.keyQuota')}: ${showLimit(limits.quota)}`,
+        `${t('quickstart.limit5h')}: ${showLimit(limits.rate5h)}`,
+        `${t('quickstart.limit1d')}: ${showLimit(limits.rate1d)}`,
+        `${t('quickstart.limit7d')}: ${showLimit(limits.rate7d)}`,
+      ].join('\n'),
+      hint: t('quickstart.difyLimitHint'),
+    })
+  }
+  return files
 }
 
 // Raw-protocol snippets: a complete, runnable request with model / base_url /
