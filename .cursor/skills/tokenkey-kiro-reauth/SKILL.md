@@ -69,10 +69,11 @@ Example: `kiro-us6-real edge-us6` resolves to edge `us6`, account id `2`, and
   `backend/internal/handler/admin/account_handler.go`, Kiro falls through to the
   Anthropic OAuth refresh branch. Use it only as code diagnosis, not as Kiro
   remediation or proof.
-- `GET /api/v1/admin/accounts/:id/usage?source=active&force=true` is not Kiro
-  `/v1/messages` truth. `backend/internal/service/account_usage_service.go`
-  drives the Anthropic OAuth usage probe path there. A 401 on that endpoint does
-  **not** prove Kiro message routing is broken.
+- `GET /api/v1/admin/accounts/:id/usage?source=active&force=true` queries Kiro's
+  `GetUsageLimits` control plane. An explicit invalid-token 401/403 may trigger
+  one lock-protected Kiro OAuth refresh and one usage retry, but usage success
+  never clears an account error or restores scheduling. It is still not Kiro
+  `/v1/messages` truth; only a real model request proves data-plane recovery.
 - `POST /api/v1/admin/accounts/:id/apply-oauth-credentials` clears account error
   and invalidates token cache, but does **not** guarantee `schedulable=true`.
   Always verify `schedulable` after apply, and flip it explicitly if still

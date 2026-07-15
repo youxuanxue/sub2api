@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AccountUsageCell from '../AccountUsageCell.vue'
-import type { Account } from '@/types'
+import type { Account, AccountUsageInfo } from '@/types'
 
 const { getUsage } = vi.hoisted(() => ({
   getUsage: vi.fn()
@@ -20,7 +20,10 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => key
+      t: (key: string, params?: Record<string, unknown>) =>
+        key === 'admin.accounts.usageWindow.passiveSampledAt'
+          ? `${key}:${String(params?.time ?? '')}`
+          : key
     })
   }
 })
@@ -433,6 +436,127 @@ describe('AccountUsageCell', () => {
     expect(getUsage).toHaveBeenCalledTimes(1)
     expect(getUsage).toHaveBeenCalledWith(2013, 'active', true)
     expect(wrapper.text()).toContain('admin.accounts.usageWindow.kiroCredits|12|2099-03-07T12:00:00Z')
+  })
+
+  it('Kiro active 查询优先使用注入 loader，并展示被动快照采样日期', async () => {
+    const activeUsage: AccountUsageInfo = {
+      source: 'active',
+      updated_at: '2026-07-15T01:02:03Z',
+      five_hour: null,
+      seven_day: null,
+      seven_day_sonnet: null,
+      kiro_usage: {
+        current: 10_000,
+        limit: 10_000,
+        percent: 100
+      }
+    }
+    const activeUsageLoader = vi.fn().mockResolvedValue(activeUsage)
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ id: 6, platform: 'kiro', type: 'oauth', extra: {} }),
+        usageOverride: {
+          source: 'passive',
+          updated_at: '2026-07-10T00:00:00Z',
+          five_hour: null,
+          seven_day: null,
+          seven_day_sonnet: null,
+          kiro_usage: { current: 3337, limit: 10_000, percent: 33.37 }
+        },
+        activeUsageLoader
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}</div>'
+          },
+          UpstreamQuotaSummary: true
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('admin.accounts.usageWindow.passiveSampledAt:')
+    expect(wrapper.text()).toContain('2026')
+    const query = wrapper.findAll('button').find((button) =>
+      button.text().includes('admin.accounts.usageWindow.activeQuery')
+    )
+    expect(query).toBeDefined()
+    await query!.trigger('click')
+    await flushPromises()
+
+    expect(activeUsageLoader).toHaveBeenCalledTimes(1)
+    expect(getUsage).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('admin.accounts.usageWindow.kiroCredits|100')
+  })
+
+  it('Kiro active 查询网络失败时保留旧快照并显示错误', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ id: 6, platform: 'kiro', type: 'oauth', extra: {} }),
+        usageOverride: {
+          source: 'passive',
+          updated_at: '2026-07-10T00:00:00Z',
+          five_hour: null,
+          seven_day: null,
+          seven_day_sonnet: null,
+          kiro_usage: { current: 3337, limit: 10_000, percent: 33.37 }
+        },
+        activeUsageLoader: vi.fn().mockRejectedValue(new Error('edge unavailable'))
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}</div>'
+          },
+          UpstreamQuotaSummary: true
+        }
+      }
+    })
+
+    const query = wrapper.findAll('button').find((button) =>
+      button.text().includes('admin.accounts.usageWindow.activeQuery')
+    )
+    await query!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.accounts.usageError')
+    expect(wrapper.text()).toContain('admin.accounts.usageWindow.kiroCredits|33.37')
+    consoleError.mockRestore()
+  })
+
+  it('Kiro 无历史快照的降级响应仍显示 usage API 错误', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ id: 11, platform: 'kiro', type: 'oauth', extra: {} }),
+        usageOverride: null,
+        activeUsageLoader: vi.fn().mockResolvedValue({
+          source: 'passive',
+          updated_at: null,
+          five_hour: null,
+          seven_day: null,
+          seven_day_sonnet: null,
+          kiro_usage: null,
+          error: 'usage API error: Invalid token'
+        } satisfies AccountUsageInfo)
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: true,
+          UpstreamQuotaSummary: true
+        }
+      }
+    })
+
+    const query = wrapper.findAll('button').find((button) =>
+      button.text().includes('admin.accounts.usageWindow.activeQuery')
+    )
+    await query!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('usage API error: Invalid token')
   })
 
   it('OpenAI 列表 batch override 从 null 更新为数据时会渲染 5h/7d 窗口', async () => {

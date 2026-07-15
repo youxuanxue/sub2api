@@ -430,7 +430,7 @@ export function toUsageInfo(s: EdgeAccountSummary): AccountUsageInfo | null {
   const k = s.usage.kiro
   return {
     source: s.usage.source === 'active' ? 'active' : 'passive',
-    updated_at: null,
+    updated_at: s.usage.updated_at ?? null,
     five_hour: mk(s.usage.five_hour),
     seven_day: mk(s.usage.seven_day),
     seven_day_sonnet: mk(s.usage.seven_day_sonnet),

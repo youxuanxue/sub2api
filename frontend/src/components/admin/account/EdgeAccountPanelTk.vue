@@ -167,6 +167,7 @@
               <AccountUsageCell
                 :account="accountVm(acct).accountLike"
                 :usage-override="usageOverrideFor(acct)"
+                :active-usage-loader="() => loadEdgeActiveUsage(acct.id)"
               />
             </td>
             <td class="px-4 py-1.5 align-top text-right text-gray-700 dark:text-gray-200">{{ acct.priority }}</td>
@@ -351,13 +352,18 @@ function toggleSchedulable(acct: EdgeAccountSummary) {
 // Active-query one edge account's usage into the override map (force=true hits the
 // edge's GetUsage → upstream). Shared by the per-row menu「查询」and the manual-
 // refresh kiro pull; the latter is silent (best-effort, no global error toast).
+async function loadEdgeActiveUsage(accountId: number): Promise<AccountUsageInfo> {
+  if (!edgeId.value) throw new Error('edge unavailable')
+  const usage = await adminAPI.edgeAccounts.getUsage(edgeId.value, accountId, 'active', true)
+  const next = new Map(activeUsage.value)
+  next.set(accountId, usage)
+  activeUsage.value = next
+  return usage
+}
+
 async function fetchActiveUsageInto(accountId: number, silent: boolean): Promise<void> {
-  if (!edgeId.value) return
   try {
-    const usage = await adminAPI.edgeAccounts.getUsage(edgeId.value, accountId, 'active', true)
-    const next = new Map(activeUsage.value)
-    next.set(accountId, usage)
-    activeUsage.value = next
+    await loadEdgeActiveUsage(accountId)
   } catch {
     if (!silent) appStore.showError(t('admin.accounts.edgePanel.queryFailed'))
   }

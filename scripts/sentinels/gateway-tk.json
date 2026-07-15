@@ -3713,6 +3713,13 @@
       ]
     },
     {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_contain": [
+        "service.NewAccountUsageService(accountRepository, usageLogRepository, claudeUsageFetcher, geminiQuotaService, antigravityQuotaFetcher, grokQuotaFetcher, openAIQuotaService, usageCache, identityCache, tlsFingerprintProfileService, oAuthRefreshAPI)"
+      ],
+      "rationale": "Generated DI seam for forced Kiro usage recovery. AccountUsageService needs the shared OAuthRefreshAPI so a 401/403 Invalid-token response can refresh credentials under the same distributed lock before a single GetUsageLimits retry, without borrowing the runtime recovery path that also clears error and re-enables scheduling. Dropping the final constructor argument compiles only against stale generated code and silently restores the misleading usage 403 failure after the account leaves the active background-refresh set."
+    },
+    {
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
         "hold, holdReject := h.tkApplyBalanceHold(c, apiKey, reqModel, body)",

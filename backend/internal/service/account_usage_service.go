@@ -335,16 +335,19 @@ type ClaudeUsageFetcher interface {
 
 // AccountUsageService 账号使用量查询服务
 type AccountUsageService struct {
-	accountRepo             AccountRepository
-	usageLogRepo            UsageLogRepository
-	usageFetcher            ClaudeUsageFetcher
-	geminiQuotaService      *GeminiQuotaService
-	antigravityQuotaFetcher *AntigravityQuotaFetcher
-	grokQuotaFetcher        *GrokQuotaFetcher
-	openAIQuotaService      *OpenAIQuotaService
-	cache                   *UsageCache
-	identityCache           IdentityCache
-	tlsFPProfileService     *TLSFingerprintProfileService
+	accountRepo              AccountRepository
+	usageLogRepo             UsageLogRepository
+	usageFetcher             ClaudeUsageFetcher
+	geminiQuotaService       *GeminiQuotaService
+	antigravityQuotaFetcher  *AntigravityQuotaFetcher
+	grokQuotaFetcher         *GrokQuotaFetcher
+	openAIQuotaService       *OpenAIQuotaService
+	cache                    *UsageCache
+	identityCache            IdentityCache
+	tlsFPProfileService      *TLSFingerprintProfileService
+	oauthRefreshAPI          *OAuthRefreshAPI
+	kiroOAuthRefreshExecutor OAuthRefreshExecutor
+	kiroUsageFetcher         kiroAccountInfoFetcher
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -359,18 +362,21 @@ func NewAccountUsageService(
 	cache *UsageCache,
 	identityCache IdentityCache,
 	tlsFPProfileService *TLSFingerprintProfileService,
+	oauthRefreshAPI *OAuthRefreshAPI,
 ) *AccountUsageService {
 	return &AccountUsageService{
-		accountRepo:             accountRepo,
-		usageLogRepo:            usageLogRepo,
-		usageFetcher:            usageFetcher,
-		geminiQuotaService:      geminiQuotaService,
-		antigravityQuotaFetcher: antigravityQuotaFetcher,
-		grokQuotaFetcher:        grokQuotaFetcher,
-		openAIQuotaService:      openAIQuotaService,
-		cache:                   cache,
-		identityCache:           identityCache,
-		tlsFPProfileService:     tlsFPProfileService,
+		accountRepo:              accountRepo,
+		usageLogRepo:             usageLogRepo,
+		usageFetcher:             usageFetcher,
+		geminiQuotaService:       geminiQuotaService,
+		antigravityQuotaFetcher:  antigravityQuotaFetcher,
+		grokQuotaFetcher:         grokQuotaFetcher,
+		openAIQuotaService:       openAIQuotaService,
+		cache:                    cache,
+		identityCache:            identityCache,
+		tlsFPProfileService:      tlsFPProfileService,
+		oauthRefreshAPI:          oauthRefreshAPI,
+		kiroOAuthRefreshExecutor: NewKiroTokenRefresher(),
 	}
 }
 
@@ -421,11 +427,9 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 		}
 	case accountUsageWindowAdapterKiro:
 		// Kiro（第六平台）：credits/额度/重置日/订阅/试用走 CodeWhisperer 的
-		// GetUsageLimits，而非 Anthropic 的 /api/oauth/usage。
+		// GetUsageLimits，而非 Anthropic 的 /api/oauth/usage。该 control-plane
+		// 查询只更新凭据和用量；绝不据此清 error 或恢复调度，恢复必须由真实模型测试确认。
 		usage, err = s.getKiroUsage(ctx, account, forceProbe)
-		if err == nil {
-			s.tryClearRecoverableAccountError(ctx, account)
-		}
 	case accountUsageWindowAdapterAnthropic:
 		// Setup Token账号：根据session_window推算（没有profile scope，无法调用usage API）。
 		if account.Type == AccountTypeSetupToken {
