@@ -2410,6 +2410,20 @@ else
     echo "  ok: release/warm cache key prefix + directionality in sync"
 fi
 
+# ---- sub2api: pnpm audit owner contract -------------------------------------
+# Project installs stay on pnpm 9, while security audit uses a pinned pnpm 11
+# owner because npm retired the quick-audit endpoint used by pnpm 9/10.
+echo ""
+echo "=== sub2api: pnpm audit owner contract ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by pnpm-audit-contract.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/pnpm-audit-contract.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: frontend security workflows share the pinned bulk-advisory audit owner"
+fi
+
 # ---- sub2api: Node version alignment -----------------------------------------
 # CI frontend jobs must build/test on the same Node major as the release
 # Dockerfile (ARG NODE_IMAGE). Drift → CI validates on a different runtime

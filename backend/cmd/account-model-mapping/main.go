@@ -109,18 +109,18 @@ func writeFileAtomic(path string, payload []byte, mode os.FileMode) error {
 		return err
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+	}()
 
 	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
 		return err
 	}
 	if _, err := tmp.Write(payload); err != nil {
-		tmp.Close()
 		return err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {

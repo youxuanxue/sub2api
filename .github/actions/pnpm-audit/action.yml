@@ -1,0 +1,54 @@
+name: Pnpm production audit
+description: Run the pinned bulk-advisory audit and validate approved exceptions
+
+runs:
+  using: composite
+  steps:
+    - name: Set up pnpm audit runner
+      uses: pnpm/action-setup@v6
+      with:
+        # pnpm 9/10 still call npm's retired quick-audit endpoint (HTTP 410).
+        # Keep project install/lockfile operations on pnpm 9; only audit uses 11.
+        version: 11.7.0
+
+    - name: Query production advisories
+      shell: bash
+      working-directory: frontend
+      run: |
+        # Advisory exit is expected. The JSON shape check distinguishes it from
+        # registry/network errors before the exception checker decides pass/fail.
+        pnpm audit \
+          --registry=https://registry.npmjs.org/ \
+          --prod \
+          --audit-level=high \
+          --json > audit.json || true # preflight-allow: swallow
+        python3 - <<'PY'
+        import json
+        import sys
+
+        try:
+            with open("audit.json", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except Exception as exc:
+            sys.stderr.write(
+                f"::error title=pnpm audit::audit.json is not valid JSON ({exc}); "
+                "audit failed to run.\n"
+            )
+            sys.exit(1)
+        if not (
+            isinstance(data, dict)
+            and any(key in data for key in ("advisories", "vulnerabilities", "metadata"))
+        ):
+            sys.stderr.write(
+                "::error title=pnpm audit::audit result lacks "
+                "advisories/vulnerabilities/metadata; refusing a vacuous pass.\n"
+            )
+            sys.exit(1)
+        PY
+
+    - name: Check audit exceptions
+      shell: bash
+      run: |
+        python3 tools/check_pnpm_audit_exceptions.py \
+          --audit frontend/audit.json \
+          --exceptions .github/audit-exceptions.yml
