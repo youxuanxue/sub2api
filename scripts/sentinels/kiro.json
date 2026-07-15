@@ -108,6 +108,7 @@
         "ResetForRetry func() bool",
         "stale profileArn",
         "func parseEventStream",
+        "extractEventStreamHeaderValue",
         "HTTPDoer",
         "runtime.us-east-1.kiro.dev",
         "q.us-east-1.amazonaws.com"
@@ -194,6 +195,7 @@
         "kiroproto.EstimateOutputTokens",
         "BillingTier:   kiroproto.KiroEstimatedBillingTier",
         "callErr != nil && !enc.started",
+        "textBuf == \"\" && thinkingBuf == \"\" && len(toolUses) == 0",
         "classifyKiroForwardError",
         "publishKiroInternalThinkingSideChannel"
       ],
@@ -204,6 +206,10 @@
       "must_contain": [
         "TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput",
         "TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError",
+        "TestKiroGatewayService_Forward_EmptyResponseTriggersFailover",
+        "TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailover",
+        "TestKiroGatewayService_Forward_EventStreamThrottlingTriggersFailover",
+        "TestKiroGatewayService_Forward_EmptyEventStreamExceptionPreservesFailoverClass",
         "committed stream must not be retried",
         "discard me",
         "recovered"
@@ -307,6 +313,7 @@
       "must_contain": [
         "account.IsKiro()",
         "service.KiroInvalidModelError",
+        "service.KiroInvalidRequestError",
         "service.KiroEndpointQuotaExhaustedError",
         "service.KiroEndpointQuotaExhaustedRetryAfterSeconds()"
       ],
@@ -316,8 +323,12 @@
       "path": "backend/internal/service/kiro_gateway_service_tk_errors.go",
       "must_contain": [
         "type KiroInvalidModelError",
+        "type KiroInvalidRequestError",
         "type KiroEndpointQuotaExhaustedError",
         "func classifyKiroForwardError",
+        "func parseKiroEventStreamError",
+        "func isKiroTransportError",
+        "errKiroEmptyResponse",
         "quota exhausted on",
         "INVALID_MODEL_ID"
       ],

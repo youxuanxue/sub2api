@@ -458,6 +458,30 @@ func TestKiroGatewayService_Forward_EventStreamThrottlingTriggersFailover(t *tes
 	require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
 }
 
+func TestKiroGatewayService_Forward_EmptyEventStreamExceptionPreservesFailoverClass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	upstream := &kiroFakeUpstream{
+		body: buildKiroEventStreamException("ThrottlingException", nil),
+	}
+	svc := NewKiroGatewayService(upstream, nil, nil)
+	body, _ := json.Marshal(map[string]any{
+		"model":    "claude-sonnet-4",
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		"stream":   false,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4", Stream: false}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
+}
+
 func TestClassifyKiroForwardError_EventStreamValidationDoesNotFailover(t *testing.T) {
 	err := classifyKiroForwardError(
 		fmt.Errorf(`kiro event stream error: ValidationException: {"message":"invalid tool schema"}`),

@@ -513,15 +513,15 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 		exceptionType := extractEventStreamHeaderValue(msgBuf[0:headersLength], ":exception-type")
 		messageType := extractEventStreamHeaderValue(msgBuf[0:headersLength], ":message-type")
 		payloadBytes := msgBuf[headersLength : len(msgBuf)-4]
-		if len(payloadBytes) == 0 {
-			continue
-		}
 		if exceptionType != "" || messageType == "exception" || messageType == "error" || eventType == "exception" || eventType == "error" {
 			kind := exceptionType
 			if kind == "" {
 				kind = messageType
 			}
 			return fmt.Errorf("kiro event stream error: %s: %s", kind, string(payloadBytes))
+		}
+		if len(payloadBytes) == 0 {
+			continue
 		}
 
 		var event map[string]interface{}
@@ -902,7 +902,7 @@ func extractEventStreamHeaderValue(headers []byte, targetName string) string {
 		}
 		if valueType == 0 || valueType == 1 {
 			if name == targetName {
-				return map[byte]string{0: "false", 1: "true"}[valueType]
+				return map[byte]string{0: "true", 1: "false"}[valueType]
 			}
 			continue
 		}
