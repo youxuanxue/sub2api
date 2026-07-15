@@ -105,7 +105,7 @@ func GetProxyURL() string { return "" }
 func GetEndpointFallback() bool { return true }
 
 // GetPreferredEndpoint returns the preferred endpoint selector. "auto" keeps the
-// upstream default ordering (Kiro IDE → CodeWhisperer → AmazonQ).
+// supported ordering (current Kiro runtime, then transitional legacy q).
 func GetPreferredEndpoint() string { return "auto" }
 
 // kiroClientConfig mirrors the upstream config.KiroClientConfig shape used by
@@ -158,7 +158,7 @@ func defaultSystemVersion() string {
 
 // Prompt filtering: Claude Code system prompts are preserved (Anthropic OAuth parity)
 // with env/boundary noise stripped. Other filters stay off until wired to settings.
-func GetFilterClaudeCode() bool { return true }
+func GetFilterClaudeCode() bool      { return true }
 func GetFilterStripBoundaries() bool { return false }
 func GetFilterEnvNoise() bool        { return false }
 

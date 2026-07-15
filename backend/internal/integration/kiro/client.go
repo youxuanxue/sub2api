@@ -4,6 +4,7 @@ package kiro
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,56 +28,12 @@ type kiroEndpoint struct {
 	Name      string
 }
 
-// NOTE (2026-06-26, endpoint-drift watch): the real Kiro IDE has moved its DATA
-// plane to the *.kiro.dev gateway — observed on-wire the IDE egresses to
-// runtime.us-east-1.kiro.dev (+ management.us-east-1.kiro.dev), not the direct
-// AWS hosts below. The AUTH/refresh plane already uses
-// prod.us-east-1.auth.desktop.kiro.dev (see refresh.go). TokenKey still forwards
-// to the legacy direct CodeWhisperer/Q endpoints, which remain LIVE as of
-// 2026-06-26 (q + codewhisperer.us-east-1.amazonaws.com resolve to the same IP
-// and still answer requests), so this is a FORWARD-COMPAT WATCH item, not an
-// outage.
-//
-// SMOKE-VALIDATED (2026-06-26, edge-us6, real OAuth account kiro-us6-real): a
-// minimal generateAssistantResponse "ping" replicating this file's exact on-wire
-// request (headers + KiroPayload body) confirmed the *.kiro.dev gateway answers the
-// same protocol shape as the legacy hosts — NOT an exhaustive parity check (tool
-// use, multi-turn, per-model behavior were not exercised):
-//   - data plane: POST https://runtime.us-east-1.kiro.dev/generateAssistantResponse
-//     with X-Amz-Target=AmazonCodeWhispererStreamingService.GenerateAssistantResponse
-//     -> HTTP 200 + a real assistant event-stream (application/vnd.amazon.eventstream),
-//     same shape as legacy q/codewhisperer generateAssistantResponse.
-//   - control plane: POST https://management.us-east-1.kiro.dev/ListAvailableProfiles
-//     -> HTTP 200 with the SAME profileArn as legacy codewhisperer.
-// So migrating looks like a host swap (q/codewhisperer.us-east-1.amazonaws.com ->
-// runtime/management.us-east-1.kiro.dev, same path / x-amz-target / body / headers),
-// deferred only because the legacy hosts still answer. Before flipping the URLs
-// below: re-validate from the SERVING edge against the edge account (the committed
-// ops/kiro/probe_runtime_gateway.py validates the *.kiro.dev protocol with the
-// operator's LOCAL Kiro login over LOCAL egress — use `--header-style tokenkey` to
-// mirror this file's UA — so it proves gateway shape but not edge-account/edge-egress
-// entitlement; that part was confirmed here with an ad-hoc edge-side probe).
-//
-// OFFICIAL DEPRECATION (kiro.dev/docs firewalls, page updated 2026-05-27): Kiro
-// states `q.<region>.amazonaws.com` is "legacy and will be deprecated in a future
-// release" (must still allowlist during the transition), and the older
-// `codewhisperer.<region>.amazonaws.com` host is no longer documented at all. The
-// go-forward hosts are runtime/management/telemetry.<region>.kiro.dev. Community
-// gateways have begun migrating (e.g. 9router -> runtime.us-east-1.kiro.dev, with
-// auto-resolved profileArn to avoid IDC-login 403 — a case TK's ResolveProfileArn
-// already covers). No firm cutoff date is published, so this stays a scheduled
-// migration, not an emergency — but it is a committed upstream deprecation.
-//
-// MIGRATION (this list, rolled out edge-first): the runtime.us-east-1.kiro.dev
-// endpoint is now PREFERRED (index 0, selected by the "auto"/"runtime" preference),
-// with the legacy q/codewhisperer hosts RETAINED below as automatic fallback — the
-// request loop falls through to them on any failure, so a runtime hiccup self-heals
-// to legacy with no behavior regression. The control plane is migrated alongside
-// it in rest.go (kiroRestFetch, management.us-east-1.kiro.dev first, codewhisperer
-// fallback) for the calls edge-us6 smoke-validated equivalent on management —
-// ListAvailableProfiles, ListAvailableModels, getUsageLimits. GetUserInfo stays on
-// codewhisperer: the new protocol has no standalone user-info op (identity is folded
-// into getUsageLimits.userInfo, which TK already reads) and TK has no caller for it.
+// Kiro's firewall documentation (updated 2026-05-27) names runtime.*.kiro.dev as
+// the current data plane. It marks q.*.amazonaws.com as legacy, but explicitly
+// requires it to remain allowlisted until deprecation is complete. The current
+// Kiro IDE ships both hosts with the GenerateAssistantResponse protocol.
+// codewhisperer.* is absent from the current official list and client bundle, so
+// it must not be treated as a supported fallback merely because it still resolves.
 var kiroEndpoints = []kiroEndpoint{
 	{
 		// Kiro Runtime — the go-forward *.kiro.dev data-plane host (preferred).
@@ -88,20 +45,8 @@ var kiroEndpoints = []kiroEndpoint{
 	{
 		URL:       "https://q.us-east-1.amazonaws.com/generateAssistantResponse",
 		Origin:    "AI_EDITOR",
-		AmzTarget: "",
-		Name:      "Kiro IDE",
-	},
-	{
-		URL:       "https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse",
-		Origin:    "AI_EDITOR",
 		AmzTarget: "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
-		Name:      "CodeWhisperer",
-	},
-	{
-		URL:       "https://q.us-east-1.amazonaws.com/generateAssistantResponse",
-		Origin:    "AI_EDITOR",
-		AmzTarget: "AmazonQDeveloperStreamingService.SendMessage",
-		Name:      "AmazonQ",
+		Name:      "Kiro Legacy Q",
 	},
 }
 
@@ -294,6 +239,10 @@ type KiroStreamCallback struct {
 	OnError        func(err error)
 	OnCredits      func(credits float64)
 	OnContextUsage func(percentage float64)
+	// ResetForRetry resets consumer-side state after a response-body read error.
+	// Returning true permits retrying the next endpoint; false preserves the
+	// error, which is required once streaming output has been committed.
+	ResetForRetry func() bool
 }
 
 // ==================== API Call ====================
@@ -317,17 +266,15 @@ func getSortedEndpoints(preferred string) []kiroEndpoint {
 
 	var primary int
 	switch preferred {
-	case "runtime":
+	case "runtime", "codewhisperer":
+		// The old codewhisperer preference is kept as a compatibility alias,
+		// but it must not route to the undocumented codewhisperer.* host.
 		primary = 0
-	case "kiro":
+	case "kiro", "amazonq":
 		primary = 1
-	case "codewhisperer":
-		primary = 2
-	case "amazonq":
-		primary = 3
 	default:
-		// "auto": runtime.kiro.dev first, then legacy hosts as fallback.
-		return []kiroEndpoint{kiroEndpoints[0], kiroEndpoints[1], kiroEndpoints[2], kiroEndpoints[3]}
+		// "auto": current runtime first, then the officially transitional q host.
+		return []kiroEndpoint{kiroEndpoints[0], kiroEndpoints[1]}
 	}
 
 	if !fallback {
@@ -357,13 +304,22 @@ type HTTPDoer interface {
 // It uses the package's built-in per-proxy HTTP client. To inject a custom
 // transport (TokenKey TLS/proxy-aware doer) use CallKiroAPIWithDoer.
 func CallKiroAPI(account *Account, payload *KiroPayload, callback *KiroStreamCallback) error {
-	return CallKiroAPIWithDoer(nil, account, payload, callback)
+	return CallKiroAPIWithDoerContext(context.Background(), nil, account, payload, callback)
 }
 
 // CallKiroAPIWithDoer is CallKiroAPI with an optional injected HTTP doer. When
 // doer is nil, the built-in per-proxy client (GetClientForProxy) is used,
 // preserving the original CallKiroAPI behavior exactly.
 func CallKiroAPIWithDoer(doer HTTPDoer, account *Account, payload *KiroPayload, callback *KiroStreamCallback) error {
+	return CallKiroAPIWithDoerContext(context.Background(), doer, account, payload, callback)
+}
+
+// CallKiroAPIWithDoerContext binds every endpoint attempt to the caller's
+// lifetime so canceled client requests do not leave long-running Kiro calls.
+func CallKiroAPIWithDoerContext(ctx context.Context, doer HTTPDoer, account *Account, payload *KiroPayload, callback *KiroStreamCallback) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	originalProfileArn := ""
 	if payload != nil {
 		originalProfileArn = payload.ProfileArn
@@ -407,25 +363,28 @@ func CallKiroAPIWithDoer(doer HTTPDoer, account *Account, payload *KiroPayload, 
 	}
 
 	endpoints := getSortedEndpoints(GetPreferredEndpoint())
-	err := callKiroAPIOnce(doer, account, payload, callback, endpoints)
+	err := callKiroAPIOnce(ctx, doer, account, payload, callback, endpoints)
 	if isInvalidProfileArnError(err) {
 		logWarnf("[KiroAPI] stale profileArn for %s, re-resolving: %v", accountEmail(account), err)
 		if resolveErr := reresolveProfileArnAfterStaleWithDoer(account, doer); resolveErr == nil && payload != nil {
 			payload.ProfileArn = strings.TrimSpace(account.ProfileArn)
-			return callKiroAPIOnce(doer, account, payload, callback, endpoints)
+			return callKiroAPIOnce(ctx, doer, account, payload, callback, endpoints)
 		}
 	}
 	return err
 }
 
-func callKiroAPIOnce(doer HTTPDoer, account *Account, payload *KiroPayload, callback *KiroStreamCallback, endpoints []kiroEndpoint) error {
+func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, payload *KiroPayload, callback *KiroStreamCallback, endpoints []kiroEndpoint) error {
 	var lastErr error
-	for _, ep := range endpoints {
+	for endpointIndex, ep := range endpoints {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// Update the origin field for the selected endpoint.
 		payload.ConversationState.CurrentMessage.UserInputMessage.Origin = ep.Origin
 
 		reqBody, _ := json.Marshal(payload)
-		req, err := http.NewRequest("POST", ep.URL, bytes.NewReader(reqBody))
+		req, err := http.NewRequestWithContext(ctx, "POST", ep.URL, bytes.NewReader(reqBody))
 		if err != nil {
 			lastErr = err
 			continue
@@ -454,6 +413,9 @@ func callKiroAPIOnce(doer HTTPDoer, account *Account, payload *KiroPayload, call
 		}
 		resp, err := httpDoer.Do(req)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			lastErr = err
 			logWarnf("[KiroAPI] Endpoint %s failed: %v", ep.Name, err)
 			continue
@@ -472,10 +434,9 @@ func callKiroAPIOnce(doer HTTPDoer, account *Account, payload *KiroPayload, call
 			lastErr = fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, ep.Name, string(errBody))
 			// Auth/payment errors normally aren't retried across endpoints (the same
 			// token would be rejected everywhere). EXCEPTION: runtime.kiro.dev is a
-			// different gateway/entitlement domain than the legacy amazonaws hosts, so
-			// a 401/403/402 there does NOT imply legacy will reject the same token —
-			// it must still fall through to legacy (the migration's self-heal). Only
-			// a legacy-host auth/payment error short-circuits.
+			// different gateway/entitlement domain than the transitional q host, so
+			// a 401/403/402 there does not imply q will reject the same token. Only
+			// the q-host auth/payment error short-circuits.
 			if resp.StatusCode == 401 || resp.StatusCode == 403 || resp.StatusCode == 402 {
 				if !strings.Contains(ep.URL, ".kiro.dev") {
 					return lastErr
@@ -489,6 +450,11 @@ func callKiroAPIOnce(doer HTTPDoer, account *Account, payload *KiroPayload, call
 
 		err = parseEventStream(resp.Body, callback)
 		resp.Body.Close()
+		if err != nil && endpointIndex+1 < len(endpoints) && callback != nil && callback.ResetForRetry != nil && callback.ResetForRetry() {
+			lastErr = err
+			logWarnf("[KiroAPI] Endpoint %s response read failed before output; trying next: %v", ep.Name, err)
+			continue
+		}
 		return err
 	}
 

@@ -1,6 +1,7 @@
 package kiro
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -27,8 +28,73 @@ func (d *recordingDoer) Do(req *http.Request) (*http.Response, error) {
 	}, nil
 }
 
-// A 403 from the runtime.kiro.dev gateway must NOT fail the request — it must fall
-// through to the legacy amazonaws hosts (the migration's self-heal guarantee). This
+type readFailureThenSuccessDoer struct {
+	seenContextValue any
+	calls            int
+}
+
+type requestMarkerContextKey struct{}
+
+func (d *readFailureThenSuccessDoer) Do(req *http.Request) (*http.Response, error) {
+	d.calls++
+	d.seenContextValue = req.Context().Value(requestMarkerContextKey{})
+	body := ""
+	if d.calls == 1 {
+		body = "\x00\x00\x00\x14"
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     http.Header{},
+	}, nil
+}
+
+func TestCallKiroAPI_ResponseReadFailureFallsThroughWhenConsumerCanReset(t *testing.T) {
+	doer := &readFailureThenSuccessDoer{}
+	account := &Account{AccessToken: "tok", ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/x"}
+	resetCalls := 0
+	callback := &KiroStreamCallback{ResetForRetry: func() bool {
+		resetCalls++
+		return true
+	}}
+	ctx := context.WithValue(context.Background(), requestMarkerContextKey{}, "customer-request")
+
+	if err := CallKiroAPIWithDoerContext(ctx, doer, account, &KiroPayload{}, callback); err != nil {
+		t.Fatalf("read failure should fall through to the next endpoint: %v", err)
+	}
+	if doer.calls != 2 || resetCalls != 1 {
+		t.Fatalf("calls=%d resetCalls=%d, want 2 and 1", doer.calls, resetCalls)
+	}
+	if doer.seenContextValue != "customer-request" {
+		t.Fatalf("upstream request did not inherit caller context: %v", doer.seenContextValue)
+	}
+}
+
+func TestCallKiroAPI_ResponseReadFailureDoesNotReplayCommittedConsumer(t *testing.T) {
+	doer := &readFailureThenSuccessDoer{}
+	account := &Account{AccessToken: "tok", ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/x"}
+	callback := &KiroStreamCallback{ResetForRetry: func() bool { return false }}
+
+	err := CallKiroAPIWithDoerContext(context.Background(), doer, account, &KiroPayload{}, callback)
+	if err == nil || doer.calls != 1 {
+		t.Fatalf("committed consumer must not be replayed: calls=%d err=%v", doer.calls, err)
+	}
+}
+
+func TestCallKiroAPI_CanceledContextSkipsEndpointAttempts(t *testing.T) {
+	doer := &readFailureThenSuccessDoer{}
+	account := &Account{AccessToken: "tok", ProfileArn: "arn:aws:codewhisperer:us-east-1:1:profile/x"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := CallKiroAPIWithDoerContext(ctx, doer, account, &KiroPayload{}, nil)
+	if err != context.Canceled || doer.calls != 0 {
+		t.Fatalf("canceled request should stop before dialing: calls=%d err=%v", doer.calls, err)
+	}
+}
+
+// A 403 from the runtime.kiro.dev gateway must not fail the request immediately;
+// it may fall through to the officially transitional q host. This
 // is the regression test for the auth-error short-circuit that, before the fix,
 // returned immediately and would have surfaced a runtime-only 403 to the customer.
 func TestCallKiroAPI_Runtime403FallsThroughToLegacy(t *testing.T) {
