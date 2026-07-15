@@ -337,9 +337,10 @@
       "must_contain": [
         "shouldFallbackNewAPIResponsesToChat(apiErr)",
         "forwardResponsesViaNewAPIBridgeChatCompletions",
-        "isNewAPIResponsesProactiveChatFallbackModel(requestedModel)"
+        "isNewAPIResponsesProactiveChatFallbackModel(requestedModel)",
+        "applyNewAPIQwenNonStreamingShape"
       ],
-      "rationale": "NewAPI channels can support /v1/chat/completions while their adaptor does not implement ConvertOpenAIResponsesRequest for /v1/responses (prod probes: Vertex ch41 and DeepSeek ch43). ForwardAsResponsesDispatched must detect that convert_request_failed/not implemented capability gap and route through the Responses->Chat fallback companion instead of returning a client 500. Dropping this injection silently breaks the /v1/responses protocol for chat-capable NewAPI models."
+      "rationale": "NewAPI channels can support /v1/chat/completions while their adaptor does not implement ConvertOpenAIResponsesRequest for /v1/responses (prod probes: Vertex ch41 and DeepSeek ch43). ForwardAsResponsesDispatched must detect that convert_request_failed/not implemented capability gap and route through the Responses->Chat fallback companion instead of returning a client 500. Native chat dispatch must also normalize dense Qwen3 non-streaming requests through applyNewAPIQwenNonStreamingShape; otherwise DashScope rejects enable_thinking with a client-visible 400. Dropping either injection silently breaks a supported NewAPI path."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_responses_fallback.go",
@@ -348,11 +349,29 @@
         "dispatchNewAPIChatCompletions",
         "isNewAPIResponsesConvertNotImplemented",
         "applyNewAPIResponsesChatFallbackShape",
+        "normalizeNewAPIQwenNonStreamingPayload",
+        "applyNewAPIQwenNonStreamingShape",
         "bufferChatCompletionsAsResponses",
         "bufferStreamChatCompletionsAsResponses",
         "streamChatCompletionsAsResponses"
       ],
-      "rationale": "TK companion for NewAPI /v1/responses fallback: convert the client Responses request to Chat Completions, dispatch through the NewAPI bridge, then convert the captured Chat response back to Responses JSON/SSE. GLM/Qwen stream-only upstream shaping must buffer SSE into JSON for non-stream clients. Without this file ch41/ch43 regress to new_api_error convert_request_failed even though the same model is servicable through /v1/chat/completions."
+      "rationale": "TK companion for NewAPI /v1/responses fallback: convert the client Responses request to Chat Completions, dispatch through the NewAPI bridge, then convert the captured Chat response back to Responses JSON/SSE. It also owns the shared dense-Qwen3 non-streaming request shape used by native chat dispatch. GLM/Qwen stream-only upstream shaping must buffer SSE into JSON for non-stream clients, while dense Qwen3 must send enable_thinking=false when stream=false. Without this file ch41/ch43 regress to conversion errors or upstream request-validation 400s."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_model_mapping_test.go",
+      "must_contain": [
+        "TestForwardAsChatCompletionsDispatched_QwenNonStreamingDisablesThinking"
+      ],
+      "rationale": "Full bridge-boundary regression for the production Qwen3 non-streaming failure: a client-supplied enable_thinking=true must reach the NewAPI adaptor as false after model rewrite. This anchors the real dispatch call site rather than only testing the shape helper."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_responses_chat_fallback_test.go",
+      "must_contain": [
+        "TestApplyNewAPIQwenNonStreamingShape",
+        "streaming qwen preserves thinking",
+        "other models remain unchanged"
+      ],
+      "rationale": "Boundary tests for the shared Qwen request-shape owner: normalize only non-streaming dense Qwen3 requests, preserve streaming thinking, and leave unrelated models byte-identical."
     },
     {
       "path": "backend/internal/service/pricing_service.go",
