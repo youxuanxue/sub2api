@@ -17,18 +17,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type usageWalletFailUserRepo struct {
+type usageWalletUserRepo struct {
 	service.UserRepository
+	user *service.User
+	err  error
 }
 
-func (usageWalletFailUserRepo) GetByID(context.Context, int64) (*service.User, error) {
-	return nil, errors.New("temporary user lookup failure")
+func (r usageWalletUserRepo) GetByID(context.Context, int64) (*service.User, error) {
+	return r.user, r.err
 }
 
-func TestGatewayHandlerUsage_WalletFallsBackToAuthenticatedBalance(t *testing.T) {
+func runGatewayUsageWalletTest(t *testing.T, repo usageWalletUserRepo) map[string]any {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	repo := usageWalletFailUserRepo{}
 	billingCache := service.NewBillingCacheService(nil, repo, nil, nil, nil, nil, &config.Config{}, nil)
 	t.Cleanup(billingCache.Stop)
 
@@ -55,6 +57,24 @@ func TestGatewayHandlerUsage_WalletFallsBackToAuthenticatedBalance(t *testing.T)
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var response map[string]any
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	return response
+}
+
+func TestGatewayHandlerUsage_WalletPrefersCurrentBalance(t *testing.T) {
+	response := runGatewayUsageWalletTest(t, usageWalletUserRepo{
+		user: &service.User{ID: 31, Balance: 19.5, Status: service.StatusActive},
+	})
+
+	require.Equal(t, "unrestricted", response["mode"])
+	require.Equal(t, 19.5, response["balance"])
+	require.Equal(t, 19.5, response["remaining"])
+}
+
+func TestGatewayHandlerUsage_WalletFallsBackToAuthenticatedBalance(t *testing.T) {
+	response := runGatewayUsageWalletTest(t, usageWalletUserRepo{
+		err: errors.New("temporary user lookup failure"),
+	})
+
 	require.Equal(t, "unrestricted", response["mode"])
 	require.Equal(t, 12.75, response["balance"])
 	require.Equal(t, 12.75, response["remaining"])
