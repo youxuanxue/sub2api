@@ -159,6 +159,7 @@ describe('toUsageInfo', () => {
         type: 'oauth',
         usage: {
           source: 'passive',
+          updated_at: '2026-07-10T00:00:00Z',
           upstream_quota: {
             provider: 'kiro',
             state: 'observed',
@@ -208,6 +209,7 @@ describe('toUsageInfo', () => {
     expect(info?.kiro_usage?.bonuses?.[0]?.code).toBe('WELCOME500')
     expect(info?.upstream_quota?.provider).toBe('kiro')
     expect(info?.upstream_quota?.credits?.[0]?.remaining).toBe(700)
+    expect(info?.updated_at).toBe('2026-07-10T00:00:00Z')
   })
 
   it('leaves kiro_usage null when the edge reported no kiro block', () => {

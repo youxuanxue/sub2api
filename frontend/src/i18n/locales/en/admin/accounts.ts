@@ -1194,6 +1194,7 @@ export default {
         grokLastProbe: 'Probe {time}',
         grokLastHeadersSeen: 'Headers {time}',
         passiveSampled: 'Passive',
+        passiveSampledAt: 'Passive {time}',
         activeQuery: 'Query'
       },
       openaiQuotaReset: {

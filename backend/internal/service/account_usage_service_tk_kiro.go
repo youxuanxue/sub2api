@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -10,9 +11,23 @@ import (
 	"time"
 
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 )
 
 var kiroBonusKeySanitizer = regexp.MustCompile(`[^a-z0-9]+`)
+
+var errKiroUsageTokenRefreshInProgress = errors.New("Kiro OAuth token refresh already in progress")
+
+var kiroUsageSensitiveErrorKeys = []string{
+	"accessToken",
+	"refreshToken",
+	"idToken",
+	"clientId",
+	"clientSecret",
+	"deviceCode",
+}
+
+type kiroAccountInfoFetcher func(*kiroproto.Account) (*kiroproto.AccountInfo, error)
 
 // KiroUsageInfo is the kiro (CodeWhisperer) credits/subscription snapshot surfaced
 // in UsageInfo. Unlike anthropic/openai's rolling 5h/7d windows, kiro exposes a
@@ -56,10 +71,10 @@ type KiroTrialInfo struct {
 //   - force=false (page load, auto-refresh, any default usage read): returns the
 //     PASSIVE snapshot rebuilt from Account.Extra. It NEVER touches CodeWhisperer,
 //     so refreshing the accounts page can never trigger an upstream kiro call.
-//   - force=true (the operator's explicit「查询」): calls the vendored
-//     RefreshAccountInfo (GetUsageLimits) once, maps it onto UsageInfo.KiroUsage,
-//     and writes it back to passive Extra so subsequent passive reads (incl. the
-//     edge overview's GetPassiveUsageBatch) render without another upstream call.
+//   - force=true (the operator's explicit「查询」): calls RefreshAccountInfo
+//     (GetUsageLimits) with the stored token. A 401/403 Invalid-token response gets
+//     one lock-protected forced refresh and one retry. The successful snapshot is
+//     written to passive Extra for later upstream-free reads.
 //
 // kiro has no「请求响应头顺带刷新」path (anthropic/openai refresh their windows
 // from rate-limit headers on every gateway request; kiro reports credits only via
@@ -83,16 +98,28 @@ func (s *AccountUsageService) getKiroUsage(ctx context.Context, account *Account
 
 	flightKey := fmt.Sprintf("kiro-usage:%d", account.ID)
 	result, flightErr, _ := s.cache.kiroFlight.Do(flightKey, func() (any, error) {
-		kiroAcct := account.toKiroProtoAccount()
-		info, err := kiroproto.RefreshAccountInfo(kiroAcct)
+		usageAccount := account
+		kiroAcct := usageAccount.toKiroProtoAccount()
+		info, err := s.fetchKiroAccountInfo(kiroAcct)
+		if err != nil && isKiroUsageTokenAuthError(err) {
+			refreshedAccount, didRefresh, refreshErr := s.refreshKiroUsageAccount(ctx, usageAccount)
+			if refreshErr != nil {
+				slog.Warn("kiro usage token refresh failed",
+					"account_id", account.ID,
+					"error", redactKiroUsageError(refreshErr))
+				err = fmt.Errorf("%v; Kiro OAuth token refresh failed", err)
+			}
+			if didRefresh {
+				usageAccount = refreshedAccount
+				kiroAcct = usageAccount.toKiroProtoAccount()
+				info, err = s.fetchKiroAccountInfo(kiroAcct)
+			}
+		}
 		if err != nil {
-			slog.Warn("kiro usage fetch failed, returning degraded response", "account_id", account.ID, "error", err)
-			passive.Error = fmt.Sprintf("usage API error: %v", err)
-			enrichUsageWithAccountError(passive, account)
-			return passive, nil
+			return s.degradedKiroUsage(passive, account, err), nil
 		}
 
-		s.persistKiroProfileArnIfChanged(ctx, account, kiroAcct)
+		s.persistKiroProfileArnIfChanged(ctx, usageAccount, kiroAcct)
 
 		usage := buildKiroUsageFromInfo(info)
 		s.syncKiroActiveToPassive(ctx, account.ID, usage)
@@ -107,6 +134,76 @@ func (s *AccountUsageService) getKiroUsage(ctx context.Context, account *Account
 		return passive, nil
 	}
 	return usage, nil
+}
+
+func (s *AccountUsageService) fetchKiroAccountInfo(account *kiroproto.Account) (*kiroproto.AccountInfo, error) {
+	if s != nil && s.kiroUsageFetcher != nil {
+		return s.kiroUsageFetcher(account)
+	}
+	return kiroproto.RefreshAccountInfo(account)
+}
+
+// refreshKiroUsageAccount force-refreshes only credentials. It deliberately does not
+// clear account errors or re-enable scheduling: a successful control-plane query
+// is not proof that a prior 402 quota rejection has recovered.
+func (s *AccountUsageService) refreshKiroUsageAccount(ctx context.Context, account *Account) (*Account, bool, error) {
+	if s == nil || account == nil || s.oauthRefreshAPI == nil {
+		return account, false, nil
+	}
+	executor := s.kiroOAuthRefreshExecutor
+	if executor == nil {
+		executor = NewKiroTokenRefresher()
+	}
+	if !executor.CanRefresh(account) {
+		return account, false, nil
+	}
+	result, err := s.oauthRefreshAPI.RefreshNow(ctx, account, executor)
+	if err != nil {
+		return account, false, err
+	}
+	if result == nil {
+		return account, false, fmt.Errorf("Kiro OAuth token refresh returned no result")
+	}
+	if result.LockHeld {
+		return account, false, errKiroUsageTokenRefreshInProgress
+	}
+	if result.Account != nil {
+		return result.Account, true, nil
+	}
+	return account, true, nil
+}
+
+func isKiroUsageTokenAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "http 401") {
+		return true
+	}
+	if !strings.Contains(msg, "http 403") {
+		return false
+	}
+	return strings.Contains(msg, "invalid token") ||
+		strings.Contains(msg, "invalid bearer") ||
+		(strings.Contains(msg, "bearer token") && strings.Contains(msg, "invalid")) ||
+		strings.Contains(msg, "token expired") ||
+		strings.Contains(msg, "expired token")
+}
+
+func (s *AccountUsageService) degradedKiroUsage(passive *UsageInfo, account *Account, err error) *UsageInfo {
+	safeError := redactKiroUsageError(err)
+	slog.Warn("kiro usage fetch failed, returning degraded response", "account_id", account.ID, "error", safeError)
+	passive.Error = "usage API error: " + safeError
+	enrichUsageWithAccountError(passive, account)
+	return passive
+}
+
+func redactKiroUsageError(err error) string {
+	if err == nil {
+		return ""
+	}
+	return logredact.RedactText(err.Error(), kiroUsageSensitiveErrorKeys...)
 }
 
 // persistKiroProfileArnIfChanged writes a freshly resolved profile_arn back to account
@@ -241,8 +338,11 @@ func (s *AccountUsageService) syncKiroActiveToPassive(ctx context.Context, accou
 // (KiroUsage=nil) UsageInfo when the account was never actively probed, so the cell
 // renders "-" rather than a zero budget. Dual to buildPassiveOpenAIUsage.
 func (s *AccountUsageService) buildPassiveKiroUsage(account *Account) *UsageInfo {
-	now := time.Now()
-	usage := &UsageInfo{Source: "passive", UpdatedAt: &now}
+	// A passive Kiro response has a meaningful timestamp only when an active
+	// GetUsageLimits call has persisted a sample. Do not stamp an empty/degraded
+	// response with the current time; that would make a missing snapshot look
+	// freshly sampled in the edge overview.
+	usage := &UsageInfo{Source: "passive"}
 	if account == nil || account.Extra == nil {
 		return usage
 	}

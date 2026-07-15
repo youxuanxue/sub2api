@@ -230,6 +230,7 @@ type edgeModelRateLimit struct {
 // overview forwards it instead of only sending utilization/reset shells.
 type edgeUsageWindows struct {
 	Source         string                     `json:"source"`
+	UpdatedAt      *time.Time                 `json:"updated_at,omitempty"`
 	FiveHour       *edgeUsageProgress         `json:"five_hour,omitempty"`
 	SevenDay       *edgeUsageProgress         `json:"seven_day,omitempty"`
 	SevenDaySonnet *edgeUsageProgress         `json:"seven_day_sonnet,omitempty"`
@@ -386,7 +387,7 @@ func (g *edgeRuntimeGauges) apply(acc *service.Account, dto *edgeAccountDTO) {
 
 // toEdgeUsageWindows maps the passive UsageInfo to the DTO's window subset.
 func toEdgeUsageWindows(u *service.UsageInfo) *edgeUsageWindows {
-	w := &edgeUsageWindows{Source: u.Source}
+	w := &edgeUsageWindows{Source: u.Source, UpdatedAt: u.UpdatedAt}
 	w.UpstreamQuota = u.UpstreamQuota
 	if u.FiveHour != nil {
 		w.FiveHour = &edgeUsageProgress{

@@ -185,9 +185,13 @@ export function useAccountUsageFetch(
 
   const loadActiveUsage = async () => {
     activeQueryLoading.value = true
+    error.value = null
     try {
-      usageInfo.value = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
+      usageInfo.value = props.activeUsageLoader
+        ? await props.activeUsageLoader()
+        : await adminAPI.accounts.getUsage(props.account.id, 'active', true)
     } catch (e: unknown) {
+      error.value = t('admin.accounts.usageError')
       console.error('Failed to load active usage:', e)
     } finally {
       activeQueryLoading.value = false

@@ -116,11 +116,23 @@
       "must_contain": [
         "kiroManagementAPIBase",
         "management.us-east-1.kiro.dev",
+        "\"/Get-Usage-Limits\"",
+        "\"/getUsageLimits\"",
         "func ensureProfileArn",
         "func reresolveProfileArnAfterStale",
         "func kiroRestFetch"
       ],
-      "rationale": "Control-plane calls (ListAvailableProfiles / ListAvailableModels / getUsageLimits) routed through management.us-east-1.kiro.dev first with a codewhisperer.* fallback via kiroRestFetch (edge-us6 smoke-validated equivalent). A missing profileArn is the classic Kiro IDC-login 403 cause, so losing the management base or its fallback silently reintroduces 403s once codewhisperer.* is deprecated."
+      "rationale": "Control-plane calls route through management.us-east-1.kiro.dev first with a codewhisperer.* fallback. Usage is not a host-only swap: the current management protocol requires /Get-Usage-Limits while legacy retains /getUsageLimits. When both fail, the primary management HTTP verdict remains authoritative so a legacy Invalid-token response cannot mask a real management quota verdict. A missing profileArn still triggers shared stale-profile recovery."
+    },
+    {
+      "path": "backend/internal/integration/kiro/rest_test.go",
+      "must_contain": [
+        "TestGetUsageLimits_UsesHostSpecificPathsAndLegacyFallback",
+        "TestGetUsageLimits_PrimaryQuotaErrorNotMaskedByLegacyInvalidToken",
+        "TestGetUsageLimits_AllHostsInvalidTokenKeepsAuthVerdict",
+        "TestGetUsageLimits_RetriesAfterStaleProfileArn"
+      ],
+      "rationale": "Behavioral coverage for the host-specific management/legacy usage paths, fallback success, primary HTTP verdict preservation, Invalid-token classification, and stale profileArn recovery."
     },
     {
       "path": "backend/internal/service/account_tk_kiro.go",
@@ -432,7 +444,11 @@
       "path": "backend/internal/service/account_usage_service_tk_kiro.go",
       "must_contain": [
         "func (s *AccountUsageService) getKiroUsage",
-        "kiroproto.RefreshAccountInfo(kiroAcct)",
+        "return kiroproto.RefreshAccountInfo(account)",
+        "func (s *AccountUsageService) refreshKiroUsageAccount",
+        "s.oauthRefreshAPI.RefreshNow",
+        "isKiroUsageTokenAuthError",
+        "redactKiroUsageError",
         "persistKiroProfileArnIfChanged",
         "func (s *AccountUsageService) buildPassiveKiroUsage",
         "func buildKiroUsageFromInfo",
@@ -440,17 +456,18 @@
         "kiro_bonuses",
         "func (s *AccountUsageService) syncKiroActiveToPassive"
       ],
-      "rationale": "The kiro usage producer. getKiroUsage calls the vendored CodeWhisperer GetUsageLimits (RefreshAccountInfo) on the manual 查询 path and writes the snapshot back to passive Extra via syncKiroActiveToPassive; buildPassiveKiroUsage rebuilds it with no upstream call for the edge accounts overview; buildKiroUsageFromInfo maps kiro.AccountInfo (credits/重置/试用/订阅) onto UsageInfo.KiroUsage. Losing this file regresses kiro accounts to empty usage windows (no credits/额度/重置/试用 ever populated)."
+      "rationale": "The kiro usage producer. Manual 查询 first calls the vendored CodeWhisperer GetUsageLimits with the stored token; only an explicit 401/403 Invalid-token verdict triggers one forced refresh through the shared lock-protected OAuthRefreshAPI and one retry. The successful snapshot is written back to passive Extra, while refresh errors are redacted with Kiro's camelCase credential keys. Credential refresh here must not clear any account error or re-enable scheduling; only a real model test proves the data plane recovered. Losing these anchors makes quota-disabled accounts decay into misleading usage 403s, leaks credential-shaped error bodies, or silently reactivates accounts without a real model test."
     },
     {
       "path": "backend/internal/service/account_usage_service.go",
       "must_contain": [
         "case accountUsageWindowAdapterKiro:",
         "s.getKiroUsage(ctx, account, forceProbe)",
+        "恢复必须由真实模型测试确认",
         "info := s.buildPassiveKiroUsage(account)",
         "attachUpstreamQuotaForAccount(account, info)"
       ],
-      "rationale": "The kiro usage-window consumers must dispatch through the adapter to active getKiroUsage and passive buildPassiveKiroUsage, then attach the unified upstream_quota projection from the same UsageInfo. Losing any branch drops kiro usage/credits from admin cards, hides the cross-platform upstream quota summary, or reintroduces the Anthropic OAuth fallthrough."
+      "rationale": "The kiro usage-window consumers must dispatch through the adapter to active getKiroUsage and passive buildPassiveKiroUsage, then attach the unified upstream_quota projection from the same UsageInfo. Control-plane usage success is not data-plane recovery evidence, so this branch must never clear account error or restore scheduling. Losing any branch drops kiro credits, hides the cross-platform quota summary, reintroduces the Anthropic OAuth fallthrough, or revives an account without a real model test."
     },
     {
       "path": "backend/internal/service/account_usage_service_tk_upstream_quota.go",
@@ -478,9 +495,16 @@
       "path": "backend/internal/service/account_usage_service_tk_kiro_test.go",
       "must_contain": [
         "TestBuildKiroUsageFromInfo_MapsCreditsAndTrial",
-        "TestBuildPassiveKiroUsage_RoundTripFromExtra"
+        "TestBuildPassiveKiroUsage_RoundTripFromExtra",
+        "TestGetKiroUsage_ExpiredQuotaAccountRefreshesTokenWithoutReenabling",
+        "TestGetKiroUsage_SuccessDoesNotClearRecoverableAccountError",
+        "TestGetKiroUsage_NearExpiryUsesStillValidTokenWithoutRefresh",
+        "TestGetKiroUsage_InvalidTokenForceRefreshesOnceAndRetries",
+        "TestGetKiroUsage_RefreshFailureDoesNotClearRecoverableAccountError",
+        "TestGetKiroUsage_RefreshLockHeldDoesNotRetryOldToken",
+        "TestRedactKiroUsageError_CamelCaseCredentials"
       ],
-      "rationale": "Load-bearing QA evidence for the kiro usage mapping + passive round-trip (matches the *_tk_*_test.go hotspot-evidence rule). Guards the 0-1→0-100 percent scaling, trial expiry parsing, and the Extra round-trip the edge overview depends on."
+      "rationale": "Load-bearing QA evidence for Kiro usage mapping, passive round-trip, expired-token recovery, Invalid-token retry, lock handling, and the invariant that usage credential refresh never re-enables a 402-disabled account."
     }
   ]
 }

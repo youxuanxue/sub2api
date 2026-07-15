@@ -321,6 +321,7 @@
                       :account="accountVm(acct).accountLike"
                       :today-stats="accountVm(acct).windowStats"
                       :usage-override="accountVm(acct).usageInfo"
+                      :active-usage-loader="() => loadEdgeActiveUsage(edge.edge_id, acct.id)"
                     />
                   </td>
                   <td class="px-4 py-2 align-top">
@@ -374,6 +375,10 @@ import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+
+function loadEdgeActiveUsage(edgeId: string, accountId: number) {
+  return adminAPI.edgeAccounts.getUsage(edgeId, accountId, 'active', true)
+}
 
 // Which edge is currently minting a handoff (disables its button). Opening the
 // edge's own /admin/accounts in a new tab keeps this read-only overview open for

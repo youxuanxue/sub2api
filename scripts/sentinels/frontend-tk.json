@@ -242,7 +242,9 @@
       "must_contain": [
         ":hidden-credit-key-prefixes=\"upstreamQuotaHiddenCreditPrefixes\"",
         "upstreamQuotaHiddenCreditPrefixes = ['kiro_']",
-        "kiro.bonuses"
+        "kiro.bonuses",
+        "const displayError = computed",
+        "passiveSampleLabel"
       ],
       "rationale": "Kiro credits/trial/bonus progress bars are the canonical visual owner; UpstreamQuotaSummary must hide all kiro_* credit chips to avoid repeating the same monthly/trial/bonus numbers while still showing the subscription tier badge."
     },
@@ -693,7 +695,8 @@
         "export function filterDisplayEdges",
         "export function shouldShowEdgeAccountError",
         "return s.status === 'error' && !!s.error_message",
-        "const k = s.usage.kiro"
+        "const k = s.usage.kiro",
+        "updated_at: s.usage.updated_at ?? null"
       ],
       "rationale": "TK-only pure helpers for the Edge Accounts overview. toUsageInfo also lifts the edge DTO's flat kiro credits block (s.usage.kiro) into the nested AccountUsageInfo.kiro_usage shape the KiroUsageCell renders (const k = s.usage.kiro) — dropping it blanks kiro credits/额度/重置/试用 on every prod-side edge kiro row. toAccountLike / toUsageInfo adapt the credential-free edge DTO into the admin Account / AccountUsageInfo shapes so the page can REUSE AccountCapacityCell + AccountUsageCell verbatim (capacity + 5h/7d windows stay pixel-aligned with the per-edge /admin/accounts page); accountVm memoizes those adapters per account object so the cells get reference-stable props and skip re-render. toAccountLike also lights up the already-mounted AccountStatusIndicator per-class 限流 badge by mapping the edge DTO's active model_rate_limits into Account.extra.model_rate_limits, with stripClassPrefix rewriting the full edge scope key (anthropic:class:sonnet → sonnet) so the shared indicator's formatScopeName aliases the bare class without touching the upstream-shared .vue; extra stays undefined (not {}) when no cooldown so mergeEdges' JSON-diff reference stability is preserved — dropping stripClassPrefix / the extra wiring re-buries the edge's per-class sonnet 5h/7d window that sits null on the prod mirror account. shouldShowEdgeAccountError keeps persisted historical error_message hidden after status recovers; without it an active edge account still displays a stale 403 in the name cell. The filter predicates encode the page's contract that filtering is keyed on the PROD mirror stub, NOT the edge-local accounts: matchesStatusFilter buckets a status-bearing record exactly like the admin accounts page's server-side filter (backend/internal/repository/account_repo.go applyStatusFilter — active/rate_limited/temp_unschedulable/unschedulable split of status=active, plus literal inactive/error); matchesCombinedStatusFilter combines the prod stub's status with each edge account's (正常 = stub正常 AND account正常; any other bucket = stub OR account); matchesStubGroupFilter filters edges by the prod stub's group and collectStubGroupNames sources the 分组 dropdown from those stub groups; filterDisplayEdges orchestrates both filters (group edge-level on the stub, status combined per account, unreachable edges matched on the stub alone) and is the single tested entry the composable's displayEdges wraps. Dropping any adapter regresses the cell reuse to a sparse static table; dropping shouldShowEdgeAccountError reintroduces stale recovered-error display; dropping/skewing a predicate reverts the filter source back to the edge-local accounts or breaks the AND/OR combined-status semantics."
     },
@@ -745,7 +748,8 @@
     {
       "path": "frontend/src/components/account/accountUsageCellProps.ts",
       "must_contain": [
-        "usageOverride?: AccountUsageInfo | null"
+        "usageOverride?: AccountUsageInfo | null",
+        "activeUsageLoader?: () => Promise<AccountUsageInfo>"
       ],
       "rationale": "TK injection point (prop contract): AccountUsageCell normally self-fetches /admin/accounts/:id/usage, which is wrong for the cross-edge Edge Accounts overview (those accounts live on a remote edge, not queryable via THIS deployment). The optional usageOverride prop lets the overview inject the edge's passive UsageInfo. Split from AccountUsageCell.vue (B6 perf) — this file is the single props/types source shared by the dispatcher + platform sub-cells."
     },
@@ -755,7 +759,9 @@
         "function canFetchUsageForAccount(props: AccountUsageCellProps): boolean",
         "function shouldAutoFetchUsageForAccount(props: AccountUsageCellProps): boolean",
         "if (props.usageOverride !== undefined) return false",
-        "if (props.usageOverride !== undefined && isBatchPassiveCapable(props.account)) return"
+        "if (props.usageOverride !== undefined && isBatchPassiveCapable(props.account)) return",
+        "props.activeUsageLoader",
+        "error.value = t('admin.accounts.usageError')"
       ],
       "rationale": "TK injection point (fetch short-circuit): when usageOverride is provided (even null), skip mount/lazy self-fetch and render injected usage verbatim. The explicit manual-refresh guard prevents Anthropic OAuth/SetupToken rows owned by the list batch loader from falling back to per-row /usage after a refresh token bump. Split from AccountUsageCell.vue (B6 perf) — dropping these guards would re-enable per-row /usage fetches on Edge Accounts overview or the admin accounts list and hammer prod."
     },
@@ -1443,7 +1449,9 @@
         "PlatformTypeBadge",
         ":subscription-expires-at=\"(accountVm(acct).accountLike.credentials?.subscription_expires_at",
         "refreshKiroToken",
-        "fetchActiveUsageInto"
+        "fetchActiveUsageInto",
+        "active-usage-loader",
+        "loadEdgeActiveUsage"
       ],
       "rationale": "TK-only #row-detail panel rendered under each cc-<edge> stub row: the focused edge header (reachable/stub badges + 管理整个 edge handoff via openEdgeManage) plus the edge's account sub-table that REUSES AccountCapacityCell/AccountUsageCell/AccountStatusIndicator via accountVm, with inline status-class write ops (clearRateLimit/resetQuota/clearTempUnschedulable/setSchedulable/getUsage) through the prod thin-proxy and EdgeAccountActionMenuTk. shouldShowEdgeAccountError gates persisted edge error_message so a recovered active account does not keep showing an old 403 under its name. The platform/type column REUSES the shared PlatformTypeBadge fed from the credential-free subscription projection (plan_type + subscription-expires-at) so an edge openai account shows its plan + 订阅到期 exactly like the prod accounts page — dropping PlatformTypeBadge / the subscription-expires-at binding re-blanks the subscription 到期 the operator asked for on edge accounts. refreshKiroToken + fetchActiveUsageInto are the「手动刷新即拉一次 kiro credits」path: AccountsView.handleManualRefresh bumps the token (ONLY there — never on the auto-refresh tick), and the panel watches it to active-query each kiro account's live credits once (kiro has no organic passive refresh). Dropping them reverts kiro credits to「passive-only, blank until you 查询 each row」. Guards against silent deletion that would drop inline edge management, the subscription badge, the manual kiro-credits pull, or reintroduce stale recovered-error display."
     },

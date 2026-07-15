@@ -17,9 +17,9 @@ const (
 	// codewhisperer.* base, which Kiro's docs no longer list at all. Used (via
 	// kiroRestFetch, management-first with codewhisperer fallback) by the calls
 	// edge-us6 smoke-validated equivalent on management: ListAvailableProfiles
-	// (same profileArn), ListAvailableModels (same model set), getUsageLimits (all
+	// (same profileArn), ListAvailableModels (same model set), Get-Usage-Limits (all
 	// fields UsageLimitsResponse reads). GetUserInfo stays on codewhisperer: the new
-	// protocol has no standalone user-info op — identity is folded into getUsageLimits
+	// protocol has no standalone user-info op — identity is folded into Get-Usage-Limits
 	// (userInfo{email,userId}); and kiro.GetUserInfo has no TK caller anyway.
 	kiroManagementAPIBase = "https://management.us-east-1.kiro.dev"
 )
@@ -27,6 +27,19 @@ const (
 // kiroRestBases lists the control-plane hosts in preference order: the go-forward
 // management.us-east-1.kiro.dev first, the legacy codewhisperer.* as fallback.
 func kiroRestBases() []string { return []string{kiroManagementAPIBase, kiroRestAPIBase} }
+
+type kiroRestTarget struct {
+	base string
+	path string
+}
+
+func kiroRestTargets(path string) []kiroRestTarget {
+	targets := make([]kiroRestTarget, 0, len(kiroRestBases()))
+	for _, base := range kiroRestBases() {
+		targets = append(targets, kiroRestTarget{base: base, path: path})
+	}
+	return targets
+}
 
 // kiroRestFetch issues method+path against each control-plane base in turn
 // (profileArn appended when withParn), returning the first HTTP-200 body. Used by
@@ -42,25 +55,34 @@ func kiroRestFetch(account *Account, method, path, body string, withParn bool) (
 }
 
 func kiroRestFetchWithDoer(account *Account, method, path, body string, withParn bool, doer HTTPDoer) ([]byte, error) {
+	return kiroRestFetchTargetsWithPolicy(account, method, kiroRestTargets(path), body, withParn, doer, false)
+}
+
+func kiroRestFetchTargetsWithDoer(account *Account, method string, targets []kiroRestTarget, body string, withParn bool, doer HTTPDoer) ([]byte, error) {
+	return kiroRestFetchTargetsWithPolicy(account, method, targets, body, withParn, doer, true)
+}
+
+func kiroRestFetchTargetsWithPolicy(account *Account, method string, targets []kiroRestTarget, body string, withParn bool, doer HTTPDoer, preferFirstHTTPError bool) ([]byte, error) {
 	if withParn {
 		if err := ensureProfileArnWithDoer(account, doer); err != nil {
 			return nil, err
 		}
 	}
-	data, err := kiroRestFetchBases(account, method, path, body, withParn, doer)
+	data, err := kiroRestFetchTargetsOnce(account, method, targets, body, withParn, doer, preferFirstHTTPError)
 	if withParn && isInvalidProfileArnError(err) {
 		logWarnf("[KiroREST] stale profileArn for %s, re-resolving: %v", accountEmail(account), err)
 		if resolveErr := reresolveProfileArnAfterStaleWithDoer(account, doer); resolveErr == nil {
-			return kiroRestFetchBases(account, method, path, body, withParn, doer)
+			return kiroRestFetchTargetsOnce(account, method, targets, body, withParn, doer, preferFirstHTTPError)
 		}
 	}
 	return data, err
 }
 
-func kiroRestFetchBases(account *Account, method, path, body string, withParn bool, doer HTTPDoer) ([]byte, error) {
-	var lastErr error
-	for _, base := range kiroRestBases() {
-		u := base + path
+func kiroRestFetchTargetsOnce(account *Account, method string, targets []kiroRestTarget, body string, withParn bool, doer HTTPDoer, preferFirstHTTPError bool) ([]byte, error) {
+	var firstHTTPError error
+	var lastError error
+	for _, target := range targets {
+		u := target.base + target.path
 		if withParn {
 			u = withProfileArnQuery(u, account)
 		}
@@ -70,7 +92,7 @@ func kiroRestFetchBases(account *Account, method, path, body string, withParn bo
 		}
 		req, err := http.NewRequest(method, u, rdr)
 		if err != nil {
-			lastErr = err
+			lastError = err
 			continue
 		}
 		setKiroHeaders(req, account)
@@ -79,20 +101,27 @@ func kiroRestFetchBases(account *Account, method, path, body string, withParn bo
 		}
 		resp, err := restHTTPDo(req, account, doer)
 		if err != nil {
-			lastErr = err
-			logWarnf("[KiroREST] %s %s failed: %v", method, base, err)
+			lastError = err
+			logWarnf("[KiroREST] %s %s failed: %v", method, target.base, err)
 			continue
 		}
 		data, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode != 200 {
-			lastErr = fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, base, string(data))
-			logWarnf("[KiroREST] %s %s -> HTTP %d", method, base, resp.StatusCode)
+			httpErr := fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, target.base, string(data))
+			lastError = httpErr
+			if firstHTTPError == nil {
+				firstHTTPError = httpErr
+			}
+			logWarnf("[KiroREST] %s %s -> HTTP %d", method, target.base, resp.StatusCode)
 			continue
 		}
 		return data, nil
 	}
-	return nil, lastErr
+	if preferFirstHTTPError && firstHTTPError != nil {
+		return nil, firstHTTPError
+	}
+	return nil, lastError
 }
 
 func ensureProfileArn(account *Account) error {
@@ -146,7 +175,16 @@ func accountEmail(account *Account) string {
 
 // GetUsageLimits 获取账户使用量和订阅信息
 func GetUsageLimits(account *Account) (*UsageLimitsResponse, error) {
-	data, err := kiroRestFetch(account, "GET", "/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true", "", true)
+	return getUsageLimitsWithDoer(account, nil)
+}
+
+func getUsageLimitsWithDoer(account *Account, doer HTTPDoer) (*UsageLimitsResponse, error) {
+	const query = "?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true"
+	targets := []kiroRestTarget{
+		{base: kiroManagementAPIBase, path: "/Get-Usage-Limits" + query},
+		{base: kiroRestAPIBase, path: "/getUsageLimits" + query},
+	}
+	data, err := kiroRestFetchTargetsWithDoer(account, "GET", targets, "", true, doer)
 	if err != nil {
 		return nil, err
 	}
@@ -401,11 +439,13 @@ func RefreshAccountInfo(account *Account) (*AccountInfo, error) {
 			info.SubscriptionType)
 	}
 
-	// 解析使用量
-	if len(usage.UsageBreakdownList) > 0 {
-		breakdown := usage.UsageBreakdownList[0]
-		info.UsageCurrent = breakdown.CurrentUsage
-		info.UsageLimit = breakdown.UsageLimit
+	// Kiro returns the legacy AGENTIC_REQUEST bucket alongside the Credits
+	// bucket consumed by its account dashboard. Keep all usage-derived fields on
+	// that same bucket so an older first entry cannot overwrite the current plan.
+	breakdown := selectKiroUsageBreakdown(usage.UsageBreakdownList)
+	if breakdown != nil {
+		info.UsageCurrent = usageValue(breakdown.CurrentUsageWithPrecision, breakdown.CurrentUsage)
+		info.UsageLimit = usageValue(breakdown.UsageLimitWithPrecision, breakdown.UsageLimit)
 		if info.UsageLimit > 0 {
 			info.UsagePercent = info.UsageCurrent / info.UsageLimit
 		}
@@ -421,11 +461,10 @@ func RefreshAccountInfo(account *Account) (*AccountInfo, error) {
 	}
 
 	// 解析试用配额与 bonus credits
-	if len(usage.UsageBreakdownList) > 0 {
-		breakdown := usage.UsageBreakdownList[0]
+	if breakdown != nil {
 		if breakdown.FreeTrialInfo != nil {
-			info.TrialUsageCurrent = breakdown.FreeTrialInfo.CurrentUsage
-			info.TrialUsageLimit = breakdown.FreeTrialInfo.UsageLimit
+			info.TrialUsageCurrent = usageValue(breakdown.FreeTrialInfo.CurrentUsageWithPrecision, breakdown.FreeTrialInfo.CurrentUsage)
+			info.TrialUsageLimit = usageValue(breakdown.FreeTrialInfo.UsageLimitWithPrecision, breakdown.FreeTrialInfo.UsageLimit)
 			if info.TrialUsageLimit > 0 {
 				info.TrialUsagePercent = info.TrialUsageCurrent / info.TrialUsageLimit
 			}
@@ -472,6 +511,36 @@ func RefreshAccountInfo(account *Account) (*AccountInfo, error) {
 	return info, nil
 }
 
+func selectKiroUsageBreakdown(breakdowns []UsageBreakdown) *UsageBreakdown {
+	var firstCurrent *UsageBreakdown
+	for i := range breakdowns {
+		resourceType := strings.ToUpper(strings.TrimSpace(breakdowns[i].ResourceType))
+		if resourceType == "AGENTIC_REQUEST" {
+			continue
+		}
+		if firstCurrent == nil {
+			firstCurrent = &breakdowns[i]
+		}
+		if strings.Contains(resourceType, "CREDIT") {
+			return &breakdowns[i]
+		}
+	}
+	if firstCurrent != nil {
+		return firstCurrent
+	}
+	if len(breakdowns) > 0 {
+		return &breakdowns[0]
+	}
+	return nil
+}
+
+func usageValue(withPrecision *float64, fallback float64) float64 {
+	if withPrecision != nil {
+		return *withPrecision
+	}
+	return fallback
+}
+
 func parseSubscriptionType(raw string) string {
 	upper := strings.ToUpper(raw)
 	if strings.Contains(upper, "PRO_PLUS") || strings.Contains(upper, "PROPLUS") {
@@ -495,21 +564,25 @@ type UsageLimitsResponse struct {
 }
 
 type UsageBreakdown struct {
-	ResourceType  string         `json:"resourceType"`
-	CurrentUsage  float64        `json:"currentUsage"`
-	UsageLimit    float64        `json:"usageLimit"`
-	Currency      string         `json:"currency"`
-	Unit          string         `json:"unit"`
-	OverageRate   float64        `json:"overageRate"`
-	FreeTrialInfo *FreeTrialInfo `json:"freeTrialInfo"`
-	Bonuses       []BonusInfo    `json:"bonuses"`
+	ResourceType              string         `json:"resourceType"`
+	CurrentUsage              float64        `json:"currentUsage"`
+	CurrentUsageWithPrecision *float64       `json:"currentUsageWithPrecision"`
+	UsageLimit                float64        `json:"usageLimit"`
+	UsageLimitWithPrecision   *float64       `json:"usageLimitWithPrecision"`
+	Currency                  string         `json:"currency"`
+	Unit                      string         `json:"unit"`
+	OverageRate               float64        `json:"overageRate"`
+	FreeTrialInfo             *FreeTrialInfo `json:"freeTrialInfo"`
+	Bonuses                   []BonusInfo    `json:"bonuses"`
 }
 
 type FreeTrialInfo struct {
-	CurrentUsage    float64     `json:"currentUsage"`
-	UsageLimit      float64     `json:"usageLimit"`
-	FreeTrialStatus string      `json:"freeTrialStatus"`
-	FreeTrialExpiry json.Number `json:"freeTrialExpiry"`
+	CurrentUsage              float64     `json:"currentUsage"`
+	CurrentUsageWithPrecision *float64    `json:"currentUsageWithPrecision"`
+	UsageLimit                float64     `json:"usageLimit"`
+	UsageLimitWithPrecision   *float64    `json:"usageLimitWithPrecision"`
+	FreeTrialStatus           string      `json:"freeTrialStatus"`
+	FreeTrialExpiry           json.Number `json:"freeTrialExpiry"`
 }
 
 type BonusInfo struct {

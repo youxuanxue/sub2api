@@ -328,6 +328,7 @@ export default {
         grokLastProbe: '探测 {time}',
         grokLastHeadersSeen: '响应头 {time}',
         passiveSampled: '被动采样',
+        passiveSampledAt: '被动采样 {time}',
         activeQuery: '查询'
       },
       openaiQuotaReset: {

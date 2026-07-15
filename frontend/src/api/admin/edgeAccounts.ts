@@ -73,6 +73,7 @@ export interface EdgeAccountSummary {
 /** Passive usage windows for one account (mirrors backend edgeUsageWindows). */
 export interface EdgeUsageWindows {
   source: string
+  updated_at?: string | null
   five_hour?: EdgeUsageProgress
   seven_day?: EdgeUsageProgress
   seven_day_sonnet?: EdgeUsageProgress

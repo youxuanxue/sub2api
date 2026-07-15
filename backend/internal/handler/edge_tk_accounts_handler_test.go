@@ -450,6 +450,7 @@ func TestEdgeAccountsHandler_PopulatesOpenAIOAuthUsageWindows(t *testing.T) {
 }
 
 func TestEdgeAccountsHandler_PopulatesKiroUsageWindows(t *testing.T) {
+	sampledAt := time.Date(2026, time.July, 10, 0, 0, 0, 0, time.UTC)
 	kiroAcct := service.Account{
 		ID:          11,
 		Name:        "edge-kiro-1",
@@ -467,7 +468,8 @@ func TestEdgeAccountsHandler_PopulatesKiroUsageWindows(t *testing.T) {
 		nil,
 		fakeUsageReader{
 			passive: &service.UsageInfo{
-				Source: "passive",
+				Source:    "passive",
+				UpdatedAt: &sampledAt,
 				KiroUsage: &service.KiroUsageInfo{
 					Current:           300,
 					Limit:             1000,
@@ -494,6 +496,7 @@ func TestEdgeAccountsHandler_PopulatesKiroUsageWindows(t *testing.T) {
 
 	require.NotNil(t, got.Usage)
 	require.Equal(t, "passive", got.Usage.Source)
+	require.Equal(t, sampledAt, *got.Usage.UpdatedAt)
 	require.NotNil(t, got.Usage.Kiro)
 	require.Equal(t, 300.0, got.Usage.Kiro.Current)
 	require.Equal(t, 1000.0, got.Usage.Kiro.Limit)

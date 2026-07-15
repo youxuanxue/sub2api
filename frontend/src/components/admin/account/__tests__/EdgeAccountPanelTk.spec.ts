@@ -1,7 +1,8 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import EdgeAccountPanelTk from '../EdgeAccountPanelTk.vue'
-import type { Account } from '@/types'
+import { adminAPI } from '@/api/admin'
+import type { Account, AccountUsageInfo } from '@/types'
 import type { EdgeAccountSummary, EdgeAccountsResult } from '@/api/admin/edgeAccounts'
 
 vi.mock('vue-i18n', async () => {
@@ -77,6 +78,14 @@ const stub: Account = {
   created_at: '2026-06-09T00:00:00Z'
 } as Account
 
+const AccountUsageCellLoaderStub = {
+  name: 'AccountUsageCell',
+  props: {
+    activeUsageLoader: Function
+  },
+  template: '<div />'
+}
+
 describe('EdgeAccountPanelTk', () => {
   it('renders edge sub-table columns aligned with the main accounts list', () => {
     const wrapper = mount(EdgeAccountPanelTk, {
@@ -135,5 +144,42 @@ describe('EdgeAccountPanelTk', () => {
 
     expect(wrapper.text()).not.toContain('admin.edgeAccounts.columns.lastUsed')
     expect(wrapper.findComponent({ name: 'AccountTodayStatsCell' }).exists()).toBe(true)
+  })
+
+  it('injects an active usage loader scoped to the edge and local account ID', async () => {
+    const activeUsage: AccountUsageInfo = {
+      source: 'active',
+      updated_at: '2026-07-15T01:02:03Z',
+      five_hour: null,
+      seven_day: null,
+      seven_day_sonnet: null,
+      kiro_usage: { current: 10_000, limit: 10_000, percent: 100 }
+    }
+    const getUsage = vi.spyOn(adminAPI.edgeAccounts, 'getUsage').mockResolvedValue(activeUsage)
+    const wrapper = mount(EdgeAccountPanelTk, {
+      props: {
+        stub,
+        edge: edge({ accounts: [acct({ id: 6, platform: 'kiro' })] })
+      },
+      global: {
+        stubs: {
+          Icon: true,
+          PlatformTypeBadge: true,
+          AccountCapacityCell: true,
+          AccountTodayStatsCell: true,
+          AccountUsageCell: AccountUsageCellLoaderStub,
+          AccountStatusIndicator: true,
+          EdgeAccountActionMenuTk: true
+        }
+      }
+    })
+
+    const loader = wrapper.findComponent(AccountUsageCellLoaderStub).props(
+      'activeUsageLoader'
+    ) as () => Promise<AccountUsageInfo>
+    await expect(loader()).resolves.toEqual(activeUsage)
+    expect(getUsage).toHaveBeenCalledWith('us3', 6, 'active', true)
+
+    getUsage.mockRestore()
   })
 })
