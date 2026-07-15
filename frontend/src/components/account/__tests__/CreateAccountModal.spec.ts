@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -57,6 +59,11 @@ vi.mock('vue-i18n', async () => {
 })
 
 import CreateAccountModal from '../CreateAccountModal.vue'
+
+const createAccountModalSource = readFileSync(
+  resolve(process.cwd(), 'src/components/account/CreateAccountModal.vue'),
+  'utf8'
+)
 
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
@@ -308,5 +315,26 @@ describe('CreateAccountModal Grok OAuth upstream config', () => {
 
     expect(showErrorMock).toHaveBeenCalledWith('admin.accounts.headerOverride.blockedName')
     expect(createAccountMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('CreateAccountModal Grok account contracts', () => {
+  it('keeps API-key setup alongside OAuth with the official xAI default', () => {
+    expect(createAccountModalSource).toContain('data-testid="grok-account-type-api-key"')
+    expect(createAccountModalSource).toContain("@click=\"accountCategory = 'apikey'\"")
+    expect(createAccountModalSource).toContain('newPlatform === PLATFORM_GROK')
+    expect(createAccountModalSource).toContain("'https://api.x.ai/v1'")
+    expect(createAccountModalSource).toContain("form.platform === 'grok'")
+  })
+
+  it('keeps custom upstream URL and header override controls on Grok OAuth', () => {
+    expect(createAccountModalSource).toContain('data-testid="grok-custom-base-url-toggle"')
+    expect(createAccountModalSource).toContain('data-testid="grok-custom-base-url-input"')
+    expect(createAccountModalSource).toContain("form.platform === 'grok' && isOAuthFlow")
+  })
+
+  it('applies upstream config on all Grok OAuth create paths', () => {
+    expect(createAccountModalSource.match(/validateGrokOAuthUpstreamConfig\(\)/g)?.length).toBe(4)
+    expect(createAccountModalSource.match(/applyGrokOAuthUpstreamConfig\(/g)?.length).toBe(4)
   })
 })

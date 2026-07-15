@@ -111,11 +111,13 @@ restores the file and removes the entry in the same change.
   merge itself removed this standalone fixture after folding its coverage into
   `CreateAccountModal.spec.ts`.
 - **Reason:** this is an upstream-owned test consolidation, not a TokenKey
-  product deletion. The replacement test file remains in the tree and covers
-  the shared account modal behavior.
-- **Regression cost:** no production behavior is removed; future changes to
-  Grok-specific account creation must update the consolidated modal tests.
-- **Upstream tests lost:** the standalone Grok fixture only; its assertions were
-  folded into `CreateAccountModal.spec.ts` by the upstream change.
+  product deletion. The replacement file kept direct refresh-token coverage;
+  TokenKey restores the source-level API-key, custom-header, and three-path
+  configuration contracts there as part of this branch.
+- **Regression cost:** no production behavior is removed. Without the restored
+  contracts, future Grok UI changes could silently remove the API-key entry or
+  skip upstream configuration on one OAuth creation path.
+- **Upstream tests lost:** the standalone Grok fixture's three source-contract
+  assertions; they are now present in `CreateAccountModal.spec.ts`.
 - **Re-adopt when:** upstream restores the standalone fixture or splits the
   coverage back out; remove this ledger entry in the same merge that re-adds it.
