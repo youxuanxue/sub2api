@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -192,14 +193,18 @@ func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Equal(t, "list", got.Object)
-	require.Contains(t, modelIDsForTest(got.Data), "gemini-2.5-flash")
-	require.NotContains(t, modelIDsForTest(got.Data), "claude-sonnet-4-6")
+	require.ElementsMatch(t,
+		service.ServableClientFacingIDs(context.Background(), service.PlatformGemini, nil, nil),
+		modelIDsForTest(got.Data),
+		"Gemini group fallback must mirror the Gemini servable SSOT")
 }
 
 func TestGatewayModels_GeminiGroupFiltersMappedModelsByPlatform(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(21)
+	anthropicModel := firstNSSOTIDsForGatewayModelsTest(t, service.PlatformAnthropic, 1)[0]
+	geminiModel := firstNSSOTIDsForGatewayModelsTest(t, service.PlatformGemini, 1)[0]
 	h := newGatewayModelsHandlerForTest(
 		&gatewayModelsAccountRepoStub{
 			byGroup: map[int64][]service.Account{
@@ -209,7 +214,7 @@ func TestGatewayModels_GeminiGroupFiltersMappedModelsByPlatform(t *testing.T) {
 						Platform: service.PlatformAnthropic,
 						Credentials: map[string]any{
 							"model_mapping": map[string]any{
-								"claude-sonnet-4-6": "claude-sonnet-4-6",
+								anthropicModel: anthropicModel,
 							},
 						},
 					},
@@ -218,7 +223,7 @@ func TestGatewayModels_GeminiGroupFiltersMappedModelsByPlatform(t *testing.T) {
 						Platform: service.PlatformGemini,
 						Credentials: map[string]any{
 							"model_mapping": map[string]any{
-								"gemini-2.5-flash": "gemini-2.5-flash",
+								geminiModel: geminiModel,
 							},
 						},
 					},
@@ -240,13 +245,14 @@ func TestGatewayModels_GeminiGroupFiltersMappedModelsByPlatform(t *testing.T) {
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gemini-2.5-flash"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{geminiModel}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_CustomModelsListDisabledKeepsOriginalModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(22)
+	openAIModels := firstNSSOTIDsForGatewayModelsTest(t, service.PlatformOpenAI, 2)
 	h := newGatewayModelsHandlerForTest(
 		&gatewayModelsAccountRepoStub{
 			byGroup: map[int64][]service.Account{
@@ -255,10 +261,7 @@ func TestGatewayModels_CustomModelsListDisabledKeepsOriginalModels(t *testing.T)
 						ID:       1,
 						Platform: service.PlatformOpenAI,
 						Credentials: map[string]any{
-							"model_mapping": map[string]any{
-								"gpt-5.5": "gpt-5.5",
-								"gpt-5.4": "gpt-5.4",
-							},
+							"model_mapping": anyMappingFromGatewayModelIDs(openAIModels),
 						},
 					},
 				},
@@ -275,7 +278,7 @@ func TestGatewayModels_CustomModelsListDisabledKeepsOriginalModels(t *testing.T)
 			Platform: service.PlatformOpenAI,
 			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: false,
-				Models:  []string{"gpt-5.5"},
+				Models:  []string{openAIModels[0]},
 			},
 		},
 	})
@@ -286,13 +289,14 @@ func TestGatewayModels_CustomModelsListDisabledKeepsOriginalModels(t *testing.T)
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gpt-5.4", "gpt-5.5"}, modelIDsForTest(got.Data))
+	require.ElementsMatch(t, openAIModels, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_CustomModelsListFiltersAndOrdersMappedModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(23)
+	openAIModels := firstNSSOTIDsForGatewayModelsTest(t, service.PlatformOpenAI, 2)
 	h := newGatewayModelsHandlerForTest(
 		&gatewayModelsAccountRepoStub{
 			byGroup: map[int64][]service.Account{
@@ -301,11 +305,7 @@ func TestGatewayModels_CustomModelsListFiltersAndOrdersMappedModels(t *testing.T
 						ID:       1,
 						Platform: service.PlatformOpenAI,
 						Credentials: map[string]any{
-							"model_mapping": map[string]any{
-								"gpt-5.4":         "gpt-5.4",
-								"gpt-5.5":         "gpt-5.5",
-								"legacy-gpt-2024": "legacy-gpt-2024",
-							},
+							"model_mapping": anyMappingFromGatewayModelIDs(append(append([]string{}, openAIModels...), "legacy-gpt-2024")),
 						},
 					},
 				},
@@ -322,7 +322,7 @@ func TestGatewayModels_CustomModelsListFiltersAndOrdersMappedModels(t *testing.T
 			Platform: service.PlatformOpenAI,
 			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: true,
-				Models:  []string{"gpt-5.5", "missing-model", "gpt-5.4"},
+				Models:  []string{openAIModels[1], "missing-model", openAIModels[0]},
 			},
 		},
 	})
@@ -333,13 +333,14 @@ func TestGatewayModels_CustomModelsListFiltersAndOrdersMappedModels(t *testing.T
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gpt-5.5", "gpt-5.4"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{openAIModels[1], openAIModels[0]}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_CustomModelsListKeepsConcreteModelAllowedByWildcardMapping(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(26)
+	anthropicModel := firstNSSOTIDsForGatewayModelsTest(t, service.PlatformAnthropic, 1)[0]
 	h := newGatewayModelsHandlerForTest(
 		&gatewayModelsAccountRepoStub{
 			byGroup: map[int64][]service.Account{
@@ -349,7 +350,7 @@ func TestGatewayModels_CustomModelsListKeepsConcreteModelAllowedByWildcardMappin
 						Platform: service.PlatformAnthropic,
 						Credentials: map[string]any{
 							"model_mapping": map[string]any{
-								"claude-*": "claude-sonnet-4-6",
+								"claude-*": anthropicModel,
 							},
 						},
 					},
@@ -367,7 +368,7 @@ func TestGatewayModels_CustomModelsListKeepsConcreteModelAllowedByWildcardMappin
 			Platform: service.PlatformAnthropic,
 			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: true,
-				Models:  []string{"claude-sonnet-4-6"},
+				Models:  []string{anthropicModel},
 			},
 		},
 	})
@@ -378,13 +379,15 @@ func TestGatewayModels_CustomModelsListKeepsConcreteModelAllowedByWildcardMappin
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"claude-sonnet-4-6"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{anthropicModel}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_AnthropicCustomModelsListIncludesOAuthClaudeAndMappedDeepSeek(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(28)
+	anthropicModels := firstNSSOTIDsForGatewayModelsTest(t, service.PlatformAnthropic, 2)
+	mappedNewAPIModel := firstNewAPIManifestIDForGatewayModelsTest(t)
 	h := newGatewayModelsHandlerForTest(
 		&gatewayModelsAccountRepoStub{
 			byGroup: map[int64][]service.Account{
@@ -400,7 +403,7 @@ func TestGatewayModels_AnthropicCustomModelsListIncludesOAuthClaudeAndMappedDeep
 						Type:     service.AccountTypeAPIKey,
 						Credentials: map[string]any{
 							"model_mapping": map[string]any{
-								"deepseek-v4-pro": "deepseek-v4-pro",
+								mappedNewAPIModel: mappedNewAPIModel,
 							},
 						},
 					},
@@ -418,7 +421,7 @@ func TestGatewayModels_AnthropicCustomModelsListIncludesOAuthClaudeAndMappedDeep
 			Platform: service.PlatformAnthropic,
 			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: true,
-				Models:  []string{"claude-fable-5", "claude-opus-4-8", "deepseek-v4-pro"},
+				Models:  []string{anthropicModels[0], anthropicModels[1], mappedNewAPIModel},
 			},
 		},
 	})
@@ -429,13 +432,14 @@ func TestGatewayModels_AnthropicCustomModelsListIncludesOAuthClaudeAndMappedDeep
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"claude-fable-5", "claude-opus-4-8", "deepseek-v4-pro"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{anthropicModels[0], anthropicModels[1], mappedNewAPIModel}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_AnthropicCustomModelsListDisabledKeepsMappedModelList(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(29)
+	mappedNewAPIModel := firstNewAPIManifestIDForGatewayModelsTest(t)
 	h := newGatewayModelsHandlerForTest(
 		&gatewayModelsAccountRepoStub{
 			byGroup: map[int64][]service.Account{
@@ -451,7 +455,7 @@ func TestGatewayModels_AnthropicCustomModelsListDisabledKeepsMappedModelList(t *
 						Type:     service.AccountTypeAPIKey,
 						Credentials: map[string]any{
 							"model_mapping": map[string]any{
-								"deepseek-v4-pro": "deepseek-v4-pro",
+								mappedNewAPIModel: mappedNewAPIModel,
 							},
 						},
 					},
@@ -469,7 +473,7 @@ func TestGatewayModels_AnthropicCustomModelsListDisabledKeepsMappedModelList(t *
 			Platform: service.PlatformAnthropic,
 			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: false,
-				Models:  []string{"claude-fable-5", "deepseek-v4-pro"},
+				Models:  []string{"claude-not-used-while-disabled", mappedNewAPIModel},
 			},
 		},
 	})
@@ -480,13 +484,14 @@ func TestGatewayModels_AnthropicCustomModelsListDisabledKeepsMappedModelList(t *
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"deepseek-v4-pro"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{mappedNewAPIModel}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_AnthropicCustomModelsListIncludesOAuthClaudeWithoutMappings(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(30)
+	anthropicModels := firstNSSOTIDsForGatewayModelsTest(t, service.PlatformAnthropic, 2)
 	h := newGatewayModelsHandlerForTest(
 		&gatewayModelsAccountRepoStub{
 			byGroup: map[int64][]service.Account{
@@ -510,7 +515,7 @@ func TestGatewayModels_AnthropicCustomModelsListIncludesOAuthClaudeWithoutMappin
 			Platform: service.PlatformAnthropic,
 			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: true,
-				Models:  []string{"claude-opus-4-6-thinking", "claude-sonnet-4-5"},
+				Models:  anthropicModels,
 			},
 		},
 	})
@@ -521,13 +526,14 @@ func TestGatewayModels_AnthropicCustomModelsListIncludesOAuthClaudeWithoutMappin
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"claude-opus-4-6-thinking", "claude-sonnet-4-5"}, modelIDsForTest(got.Data))
+	require.Equal(t, anthropicModels, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_CustomModelsListCanReturnEmptyWhenSelectionsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(24)
+	openAIModels := firstNSSOTIDsForGatewayModelsTest(t, service.PlatformOpenAI, 2)
 	h := newGatewayModelsHandlerForTest(
 		&gatewayModelsAccountRepoStub{
 			byGroup: map[int64][]service.Account{
@@ -537,7 +543,7 @@ func TestGatewayModels_CustomModelsListCanReturnEmptyWhenSelectionsUnavailable(t
 						Platform: service.PlatformOpenAI,
 						Credentials: map[string]any{
 							"model_mapping": map[string]any{
-								"gpt-5.4": "gpt-5.4",
+								openAIModels[0]: openAIModels[0],
 							},
 						},
 					},
@@ -555,7 +561,7 @@ func TestGatewayModels_CustomModelsListCanReturnEmptyWhenSelectionsUnavailable(t
 			Platform: service.PlatformOpenAI,
 			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: true,
-				Models:  []string{"gpt-5.5"},
+				Models:  []string{openAIModels[1]},
 			},
 		},
 	})
@@ -573,6 +579,8 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(25)
+	openAIModels := firstNSSOTIDsForGatewayModelsTest(t, service.PlatformOpenAI, 3)
+	requestedModels := append(append([]string{}, openAIModels...), "codex-auto-review", "gpt-image-2", "legacy-gpt-2024", "gpt-not-a-real-id-zzz")
 	h := newGatewayModelsHandlerForTest(
 		&gatewayModelsAccountRepoStub{
 			byGroup: map[int64][]service.Account{
@@ -596,7 +604,7 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 				// selectable (2026-07 SSOT audit #5) — it must be filtered out
 				// here just like the other non-servable ids, even though the
 				// admin explicitly listed it.
-				Models: []string{"gpt-5.5", "gpt-5.3-codex-spark", "codex-auto-review", "gpt-image-2", "legacy-gpt-2024", "gpt-5.2", "gpt-5.4"},
+				Models: requestedModels,
 			},
 		},
 	})
@@ -607,13 +615,14 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gpt-5.5", "gpt-5.3-codex-spark", "gpt-5.4"}, modelIDsForTest(got.Data))
+	require.Equal(t, openAIModels, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_OpenAICustomModelsListKeepsOpenAIResponseShapeForDefaultFallback(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(27)
+	openAIModels := firstNSSOTIDsForGatewayModelsTest(t, service.PlatformOpenAI, 2)
 	h := newGatewayModelsHandlerForTest(
 		&gatewayModelsAccountRepoStub{
 			byGroup: map[int64][]service.Account{
@@ -633,7 +642,7 @@ func TestGatewayModels_OpenAICustomModelsListKeepsOpenAIResponseShapeForDefaultF
 			Platform: service.PlatformOpenAI,
 			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: true,
-				Models:  []string{"gpt-5.5", "gpt-5.4"},
+				Models:  openAIModels,
 			},
 		},
 	})
@@ -644,7 +653,7 @@ func TestGatewayModels_OpenAICustomModelsListKeepsOpenAIResponseShapeForDefaultF
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gpt-5.5", "gpt-5.4"}, modelIDsForTest(got.Data))
+	require.Equal(t, openAIModels, modelIDsForTest(got.Data))
 	require.Equal(t, "model", got.Data[0].Object)
 	require.NotZero(t, got.Data[0].Created)
 	require.Equal(t, "openai", got.Data[0].OwnedBy)
@@ -669,6 +678,30 @@ func gatewayModelsSSOTUnionForTest(groups ...[]string) []string {
 	out := make([]string, 0, len(seen))
 	for id := range seen {
 		out = append(out, id)
+	}
+	return out
+}
+
+func firstNSSOTIDsForGatewayModelsTest(t *testing.T, platform string, n int) []string {
+	t.Helper()
+	ids := service.ServableClientFacingIDs(context.Background(), platform, nil, nil)
+	require.GreaterOrEqual(t, len(ids), n, "platform %s SSOT must have enough ids for this test", platform)
+	out := make([]string, n)
+	copy(out, ids[:n])
+	return out
+}
+
+func firstNewAPIManifestIDForGatewayModelsTest(t *testing.T) string {
+	t.Helper()
+	ids := service.AccountModelMappingPresetIDs(context.Background(), service.PlatformNewAPI, newapiconstant.ChannelTypeDeepSeek, nil)
+	require.NotEmpty(t, ids, "newapi manifest SSOT must expose at least one mapped id for this test")
+	return ids[0]
+}
+
+func anyMappingFromGatewayModelIDs(ids []string) map[string]any {
+	out := make(map[string]any, len(ids))
+	for _, id := range ids {
+		out[id] = id
 	}
 	return out
 }

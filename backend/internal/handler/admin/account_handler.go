@@ -2277,27 +2277,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			return
 		}
 
-		// Return mapped models
-		var models []openai.Model
-		for requestedModel := range mapping {
-			var found bool
-			for _, dm := range openai.DefaultModels {
-				if dm.ID == requestedModel {
-					models = append(models, dm)
-					found = true
-					break
-				}
-			}
-			if !found {
-				models = append(models, openai.Model{
-					ID:          requestedModel,
-					Object:      "model",
-					Type:        "model",
-					DisplayName: requestedModel,
-				})
-			}
-		}
-		response.Success(c, models)
+		response.Success(c, tkOpenAIAdminModelsForIDs(sortedModelMappingKeys(mapping)))
 		return
 	}
 
@@ -2338,35 +2318,22 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 				return
 			}
 			if len(ids) > 0 {
-				models := make([]openai.Model, 0, len(ids))
-				for _, id := range ids {
-					models = append(models, openai.Model{
-						ID:          id,
-						Object:      "model",
-						Type:        "model",
-						DisplayName: id,
-					})
-				}
-				response.Success(c, models)
+				sort.Strings(ids)
+				response.Success(c, tkAdminModelOptionsForIDs(ids))
 				return
 			}
-			response.Success(c, []openai.Model{})
+			response.Success(c, []dto.AccountModelOption{})
 			return
 		}
-		models := make([]openai.Model, 0, len(mapping))
-		for requestedModel := range mapping {
-			models = append(models, openai.Model{
-				ID:          requestedModel,
-				Object:      "model",
-				Type:        "model",
-				DisplayName: requestedModel,
-			})
-		}
-		response.Success(c, models)
+		response.Success(c, tkAdminModelOptionsForIDs(sortedModelMappingKeys(mapping)))
 		return
 	}
 
 	if account.IsGrok() {
+		if !accountHasExplicitModelMapping(account) {
+			response.Success(c, tkGrokAdminDefaultModels(c.Request.Context()))
+			return
+		}
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
 			response.Success(c, tkGrokAdminDefaultModels(c.Request.Context()))
@@ -2388,71 +2355,12 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			}
 			return ids[i] < ids[j]
 		})
-		models := make([]openai.Model, 0, len(ids))
-		for _, requestedModel := range ids {
-			models = append(models, openai.Model{
-				ID:          requestedModel,
-				Object:      "model",
-				Type:        "model",
-				DisplayName: requestedModel,
-			})
-		}
-		response.Success(c, models)
+		response.Success(c, tkGrokAdminModelsForIDs(ids))
 		return
 	}
 
 	if account.IsKiro() || account.IsKiroMirrorStub() {
-		response.Success(c, service.KiroAdminTestModels())
-		return
-	}
-
-	// Handle Grok accounts
-	if account.Platform == service.PlatformGrok {
-		defaultModels := xai.DefaultModels()
-
-		hasExplicitMapping := false
-		switch rawMapping := account.Credentials["model_mapping"].(type) {
-		case map[string]any:
-			hasExplicitMapping = len(rawMapping) > 0
-		case map[string]string:
-			hasExplicitMapping = len(rawMapping) > 0
-		}
-		if !hasExplicitMapping {
-			response.Success(c, defaultModels)
-			return
-		}
-
-		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
-			response.Success(c, defaultModels)
-			return
-		}
-
-		defaultByID := make(map[string]xai.Model, len(defaultModels))
-		for _, model := range defaultModels {
-			defaultByID[model.ID] = model
-		}
-
-		requestedModels := make([]string, 0, len(mapping))
-		for requestedModel := range mapping {
-			requestedModels = append(requestedModels, requestedModel)
-		}
-		sort.Strings(requestedModels)
-
-		var models []xai.Model
-		for _, requestedModel := range requestedModels {
-			if defaultModel, found := defaultByID[requestedModel]; found {
-				models = append(models, defaultModel)
-				continue
-			}
-			models = append(models, xai.Model{
-				ID:          requestedModel,
-				Object:      "model",
-				OwnedBy:     "xai",
-				DisplayName: requestedModel,
-			})
-		}
-		response.Success(c, models)
+		response.Success(c, tkClaudeModelsToAdminOptions(service.KiroAdminTestModels(), nil))
 		return
 	}
 
@@ -2471,44 +2379,59 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Return mapped models (keys of the mapping are the available model IDs)
-	var models []claude.Model
-	for requestedModel := range mapping {
-		// Try to find display info from default models
-		var found bool
-		for _, dm := range claude.DefaultModels {
-			if dm.ID == requestedModel {
-				models = append(models, dm)
-				found = true
-				break
-			}
+	response.Success(c, tkClaudeAdminModelsForIDs(sortedModelMappingKeys(mapping)))
+}
+
+// Admin available-models always crosses the HTTP boundary as one minimal DTO;
+// platform package model types remain internal metadata sources.
+func tkAdminModelOptions[T any](models []T, fields func(T) (string, string)) []dto.AccountModelOption {
+	out := make([]dto.AccountModelOption, 0, len(models))
+	for _, model := range models {
+		id, displayName := fields(model)
+		if displayName == "" {
+			displayName = id
 		}
-		// If not found in defaults, create a basic entry
-		if !found {
-			models = append(models, claude.Model{
-				ID:          requestedModel,
-				Type:        "model",
-				DisplayName: requestedModel,
-				CreatedAt:   "",
-			})
-		}
+		out = append(out, dto.AccountModelOption{ID: id, DisplayName: displayName})
 	}
-
-	response.Success(c, models)
+	return out
 }
 
-// tk{OpenAI,Gemini,Claude}AdminDefaultModels return the admin available-models
-// fallback for an account with no usable model_mapping, narrowed from the raw
-// canonical *.DefaultModels to the unified servable candidate set (advertised-dead
-// ids drop via the allowlist). They share the per-type synthesizers with the
-// gateway /v1/models fallback (pkg .ModelsForIDs) so the two surfaces never drift
-// on the synthesized display metadata; they pass nil availability/pricing because
-// the admin capability view wants servability, not the gateway's priced gate.
-func tkOpenAIAdminDefaultModels(ctx context.Context) []openai.Model {
-	return openai.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformOpenAI, nil, nil))
+func tkAdminModelOptionsForIDs(ids []string) []dto.AccountModelOption {
+	out := make([]dto.AccountModelOption, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, dto.AccountModelOption{ID: id, DisplayName: id})
+	}
+	return out
 }
 
-func tkGrokAdminDefaultModels(ctx context.Context) []openai.Model {
+func sortedModelMappingKeys(mapping map[string]string) []string {
+	ids := make([]string, 0, len(mapping))
+	for id := range mapping {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func tkOpenAIAdminModelsForIDs(ids []string) []dto.AccountModelOption {
+	return tkAdminModelOptions(openai.ModelsForIDs(ids), func(model openai.Model) (string, string) {
+		return model.ID, model.DisplayName
+	})
+}
+
+func tkOpenAIAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
+	return tkOpenAIAdminModelsForIDs(
+		service.ServableClientFacingIDs(ctx, service.PlatformOpenAI, nil, nil),
+	)
+}
+
+func tkGrokAdminModelsForIDs(ids []string) []dto.AccountModelOption {
+	return tkAdminModelOptions(xai.ModelsForIDs(ids), func(model xai.Model) (string, string) {
+		return model.ID, model.DisplayName
+	})
+}
+
+func tkGrokAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
 	ids := service.ServableClientFacingIDs(ctx, service.PlatformGrok, nil, nil)
 	sort.SliceStable(ids, func(i, j int) bool {
 		if ids[i] == service.GrokDefaultTestModelID {
@@ -2519,14 +2442,36 @@ func tkGrokAdminDefaultModels(ctx context.Context) []openai.Model {
 		}
 		return ids[i] < ids[j]
 	})
-	return openai.ModelsForIDs(ids)
+	return tkGrokAdminModelsForIDs(ids)
 }
 
-func tkGeminiAdminDefaultModels(ctx context.Context) []geminicli.Model {
-	return geminicli.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil))
+func accountHasExplicitModelMapping(account *service.Account) bool {
+	if account == nil {
+		return false
+	}
+	switch rawMapping := account.Credentials["model_mapping"].(type) {
+	case map[string]any:
+		return len(rawMapping) > 0
+	case map[string]string:
+		return len(rawMapping) > 0
+	default:
+		return false
+	}
 }
 
-func tkGeminiAdminModelsForMapping(ctx context.Context, mapping map[string]string) []geminicli.Model {
+func tkGeminiAdminModelsForIDs(ids []string) []dto.AccountModelOption {
+	return tkAdminModelOptions(geminicli.ModelsForIDs(ids), func(model geminicli.Model) (string, string) {
+		return model.ID, model.DisplayName
+	})
+}
+
+func tkGeminiAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
+	return tkGeminiAdminModelsForIDs(
+		service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil),
+	)
+}
+
+func tkGeminiAdminModelsForMapping(ctx context.Context, mapping map[string]string) []dto.AccountModelOption {
 	if len(mapping) == 0 {
 		return tkGeminiAdminDefaultModels(ctx)
 	}
@@ -2547,13 +2492,13 @@ func tkGeminiAdminModelsForMapping(ctx context.Context, mapping map[string]strin
 		ids = append(ids, requestedModel)
 	}
 	sort.Strings(ids)
-	return geminicli.ModelsForIDs(ids)
+	return tkGeminiAdminModelsForIDs(ids)
 }
 
 // tkAntigravityAdminDefaultModels returns admin account-test models from the unified
 // antigravity servable set, intersected with the account whitelist (mapAntigravityModel).
 // Matches gateway tkAntigravityDefaultModels; DefaultModels only supplies display metadata.
-func tkAntigravityAdminDefaultModels(ctx context.Context, account *service.Account) []antigravity.ClaudeModel {
+func tkAntigravityAdminDefaultModels(ctx context.Context, account *service.Account) []dto.AccountModelOption {
 	defaults := antigravity.DefaultModels()
 	byID := make(map[string]antigravity.ClaudeModel, len(defaults))
 	for _, m := range defaults {
@@ -2569,22 +2514,39 @@ func tkAntigravityAdminDefaultModels(ctx context.Context, account *service.Accou
 		}
 		return ids[i] < ids[j]
 	})
-	out := make([]antigravity.ClaudeModel, 0, len(ids))
+	out := make([]dto.AccountModelOption, 0, len(ids))
 	for _, id := range ids {
 		if account != nil && service.MapAntigravityModel(account, id) == "" {
 			continue
 		}
 		if m, ok := byID[id]; ok {
-			out = append(out, m)
+			out = append(out, dto.AccountModelOption{ID: id, DisplayName: m.DisplayName})
 			continue
 		}
-		out = append(out, antigravity.ClaudeModel{ID: id, Type: "model", DisplayName: id})
+		out = append(out, dto.AccountModelOption{ID: id, DisplayName: id})
 	}
 	return out
 }
 
-func tkClaudeAdminDefaultModels(ctx context.Context) []claude.Model {
-	return claude.ModelsForIDs(service.ServableClientFacingIDs(ctx, service.PlatformAnthropic, nil, nil))
+func tkClaudeModelsToAdminOptions(models []claude.Model, ids []string) []dto.AccountModelOption {
+	out := tkAdminModelOptions(models, func(model claude.Model) (string, string) {
+		return model.ID, model.DisplayName
+	})
+	if len(ids) == len(out) {
+		for i := range out {
+			out[i].ID = ids[i]
+		}
+	}
+	return out
+}
+
+func tkClaudeAdminModelsForIDs(ids []string) []dto.AccountModelOption {
+	return tkClaudeModelsToAdminOptions(claude.ModelsForIDs(ids), ids)
+}
+
+func tkClaudeAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
+	ids := service.ServableClientFacingIDs(ctx, service.PlatformAnthropic, nil, nil)
+	return tkClaudeModelsToAdminOptions(claude.ModelsForIDs(ids), nil)
 }
 
 // SyncUpstreamModels handles syncing live supported models from an account's upstream.

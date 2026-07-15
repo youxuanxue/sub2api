@@ -294,22 +294,8 @@ jobs:
       - name: Install dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
-      - name: Run pnpm audit
-        working-directory: frontend
-        run: |
-          # `pnpm audit` exits non-zero when advisories are found — that is
-          # EXPECTED here; the exception checker (next step) decides pass/fail.
-          # Registry/network failures can use the same exit status. The shared
-          # exception checker below validates that audit.json is a real audit
-          # result before evaluating advisories, so those failures stay closed.
-          # pnpm 9/10 still call npm's retired full/quick audit endpoints. Use
-          # pnpm 11 for this command only; dependency installation stays on v9.
-          npx --yes pnpm@11.13.0 audit --registry=https://registry.npmjs.org --prod --audit-level=high --json > audit.json || true
-      - name: Check audit exceptions
-        run: |
-          python tools/check_pnpm_audit_exceptions.py \
-            --audit frontend/audit.json \
-            --exceptions .github/audit-exceptions.yml
+      - name: Audit production dependencies
+        uses: ./.github/actions/pnpm-audit
 
   new-api-bump-smoke:
     if: (github.event_name == 'schedule' && github.event.schedule == '17 9 * * TUE') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'weekly-smoke'))

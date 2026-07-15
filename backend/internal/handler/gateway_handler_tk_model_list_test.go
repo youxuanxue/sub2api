@@ -5,6 +5,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -69,13 +70,18 @@ func TestTkAntigravityDefaultModels_ScopeIsAntigravityOnly(t *testing.T) {
 }
 
 func TestTkAntigravityDefaultModels_FilterDropsUnreachable(t *testing.T) {
+	ctx := context.Background()
 	repo := &capturedRepo2{rows: map[string]service.AvailabilityState{}}
 	availSvc := service.NewPricingAvailabilityService(repo, time.Now)
+	ownerIDs := service.ServableClientFacingIDs(ctx, service.PlatformAntigravity, nil, nil)
+	targetID, survivorID := firstTwoIDsForHandlerTest(t, ownerIDs)
 
-	const targetID = "gemini-2.5-flash"
+	baseline := modelIDsFromAntigravityModels((&GatewayHandler{}).tkAntigravityDefaultModels(ctx))
+	require.Contains(t, baseline, targetID, "SSOT-derived prune target must exist before availability changes")
+	require.Contains(t, baseline, survivorID, "SSOT-derived survivor must exist before availability changes")
 
 	// Drive target model to unreachable
-	availSvc.RecordOutcome(context.Background(), service.AvailabilityOutcome{
+	availSvc.RecordOutcome(ctx, service.AvailabilityOutcome{
 		Platform:           service.PlatformAntigravity,
 		ModelID:            targetID,
 		Success:            false,
@@ -85,15 +91,14 @@ func TestTkAntigravityDefaultModels_FilterDropsUnreachable(t *testing.T) {
 
 	// FilterClientFacing requires a non-nil pricing service (pricing=nil → fail-open, skip availability check too).
 	// Use a PricingCatalogService with all antigravity models priced so the availability filter runs.
-	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs(service.ServableClientFacingIDs(context.Background(), service.PlatformAntigravity, nil, nil)))
+	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs(ownerIDs))
 
 	filter := service.NewModelListFilter(pricingSvc, availSvc)
 	h := &GatewayHandler{tkModelListFilter: filter}
 
-	result := h.tkAntigravityDefaultModels(context.Background())
-	for _, m := range result {
-		require.NotEqual(t, targetID, m.ID, "unreachable model must not appear in output")
-	}
+	resultIDs := modelIDsFromAntigravityModels(h.tkAntigravityDefaultModels(ctx))
+	require.NotContains(t, resultIDs, targetID, "unreachable model must not appear in output")
+	require.Contains(t, resultIDs, survivorID, "an unaffected SSOT sibling must remain in output")
 }
 
 func TestTkAntigravityDefaultModels_NilFilterIsFailOpen(t *testing.T) {
@@ -104,48 +109,40 @@ func TestTkAntigravityDefaultModels_NilFilterIsFailOpen(t *testing.T) {
 	h := &GatewayHandler{}
 	result := h.tkAntigravityDefaultModels(context.Background())
 	require.NotEmpty(t, result, "nil filter must still produce a non-empty list")
-	ids := make(map[string]bool, len(result))
 	for _, m := range result {
-		ids[m.ID] = true
 		require.Equal(t, "model", m.Type, "synthesized allowlist-only entries must keep the Claude model shape")
 	}
-	require.True(t, ids["gemini-2.5-flash"], "live-servable Antigravity Gemini id present")
-	require.True(t, ids["gemini-2.5-flash-thinking"], "overlay-priced Antigravity thinking id present")
-	require.True(t, ids["gemini-3-flash-agent"], "allowlist-only Antigravity wire id present")
-	require.False(t, ids["gemini-2.5-pro"], "unprobed/inconclusive gemini-2.5-pro must not appear")
-	require.False(t, ids["claude-fable-5"], "claude is routed off Antigravity")
+	require.ElementsMatch(t,
+		service.ServableClientFacingIDs(context.Background(), service.PlatformAntigravity, nil, nil),
+		modelIDsFromAntigravityModels(result),
+		"nil filter must still mirror the unified Antigravity SSOT")
 }
 
 func TestTkAntigravityDefaultModels_PricedServableSetIncludesReprobedGeminiIDs(t *testing.T) {
-	// Price only the source-backed Antigravity ids; tk_pricing_overlay.json must
-	// provide the wire-only ids such as gemini-2.5-flash-thinking and
-	// gemini-3-flash-agent. gemini-2.5-pro is intentionally priced in normal
-	// Gemini catalogs but NOT in the Antigravity allowlist after the 2026-06-23
-	// reprobe, so it must remain hidden here.
-	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs([]string{
-		"gemini-2.5-flash",
-		"gemini-2.5-flash-lite",
-		"gemini-3-flash",
-		"gemini-3.1-flash-image",
-		"gemini-3.1-pro-low",
-		"gemini-2.5-pro",
-	}))
+	ctx := context.Background()
+	allow := service.ServableClientFacingIDs(ctx, service.PlatformAntigravity, nil, nil)
+	allowSet := stringBoolSetForHandlerTest(allow)
+	// Price every Antigravity SSOT id, plus a Gemini-only candidate, to prove the
+	// filter is controlled by the Antigravity owner instead of the pricing owner.
+	geminiOnly := firstIDOutsideSetForHandlerTest(t,
+		service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil), allowSet)
+	pricingIDs := append(append([]string{}, allow...), geminiOnly)
+	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs(pricingIDs))
 	filter := service.NewModelListFilter(pricingSvc, nil)
 	h := &GatewayHandler{tkModelListFilter: filter}
 
-	result := h.tkAntigravityDefaultModels(context.Background())
+	result := h.tkAntigravityDefaultModels(ctx)
 	ids := make(map[string]bool, len(result))
 	for _, m := range result {
 		ids[m.ID] = true
 		require.Equal(t, "model", m.Type, "all returned models must keep the Claude model-list shape")
 	}
 	require.ElementsMatch(t,
-		service.ServableClientFacingIDs(context.Background(), service.PlatformAntigravity, nil, pricingSvc),
+		service.ServableClientFacingIDs(ctx, service.PlatformAntigravity, nil, pricingSvc),
 		modelIDsFromAntigravityModels(result),
 		"/antigravity/models must mirror the unified priced+servable SSOT")
-	for _, deny := range []string{"gemini-2.5-pro", "claude-fable-5", "gpt-oss-120b-medium"} {
-		require.False(t, ids[deny], "%s must not leak into /antigravity/models", deny)
-	}
+	require.False(t, ids[geminiOnly], "%s must not leak into /antigravity/models", geminiOnly)
+	require.False(t, ids["gpt-oss-120b-medium"], "unsupported gpt-oss boundary sample must not leak into /antigravity/models")
 }
 
 func TestTkOpenAIDefaultModelIDs_DropsAdvertisedDead(t *testing.T) {
@@ -180,23 +177,26 @@ func TestTkGeminiFallbackModelsList_NilFilterIsFailOpen(t *testing.T) {
 	h := &GatewayHandler{}
 	result := h.tkGeminiFallbackModelsList(context.Background())
 	require.NotEmpty(t, result.Models, "nil filter must still produce a non-empty list")
-	names := make(map[string]bool, len(result.Models))
 	for _, m := range result.Models {
 		require.Contains(t, m.Name, "models/", "Gemini model Name must keep 'models/' prefix")
-		names[m.Name] = true
 	}
-	require.True(t, names["models/gemini-2.5-flash"], "servable gemini-2.5-flash present")
-	require.False(t, names["models/gemini-2.0-flash"],
-		"advertised_dead gemini-2.0-flash dropped — converged to the servable allowlist")
+	require.ElementsMatch(t,
+		withGeminiModelPrefixForTest(service.ServableClientFacingIDs(context.Background(), service.PlatformGemini, nil, nil)),
+		modelNamesFromGeminiModels(result.Models),
+		"nil filter must mirror the unified Gemini SSOT, not raw advertised defaults")
 }
 
 func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
 	repo := &capturedRepo2{rows: map[string]service.AvailabilityState{}}
 	availSvc := service.NewPricingAvailabilityService(repo, time.Now)
 
-	// Target an id that IS in the servable allowlist, so the structurally-gone
-	// prune is genuinely exercised (gemini-2.0-flash is no longer a candidate).
-	const targetID = "gemini-2.5-flash"
+	ctx := context.Background()
+	servableGemini := service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)
+	targetID, survivorID := firstTwoIDsForHandlerTest(t, servableGemini)
+	baseline := modelNamesFromGeminiModels((&GatewayHandler{}).tkGeminiFallbackModelsList(ctx).Models)
+	require.Contains(t, baseline, "models/"+targetID, "SSOT-derived prune target must exist before availability changes")
+	require.Contains(t, baseline, "models/"+survivorID, "SSOT-derived survivor must exist before availability changes")
+
 	availSvc.RecordOutcome(context.Background(), service.AvailabilityOutcome{
 		Platform:           service.PlatformGemini,
 		ModelID:            targetID,
@@ -205,20 +205,18 @@ func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
 		UpstreamErrorBody:  `{"error":{"message":"Requested entity was not found."}}`,
 	})
 
-	// Price the servable gemini chat candidates so ∩priced keeps them and the
+	// Price the servable gemini candidates so ∩priced keeps them and the
 	// structurally-gone prune is what removes the target.
-	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs([]string{
-		"gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro",
-	}))
+	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs(servableGemini))
 	filter := service.NewModelListFilter(pricingSvc, availSvc)
 	h := &GatewayHandler{tkModelListFilter: filter}
 
 	result := h.tkGeminiFallbackModelsList(context.Background())
-	for _, m := range result.Models {
-		require.NotEqual(t, "models/"+targetID, m.Name,
-			"structurally-gone gemini-2.5-flash must not appear in fallback response")
-	}
-	require.True(t, len(result.Models) > 0, "reachable+priced siblings (e.g. gemini-2.5-pro) must remain")
+	resultNames := modelNamesFromGeminiModels(result.Models)
+	require.NotContains(t, resultNames, "models/"+targetID,
+		"structurally-gone model must not appear in fallback response")
+	require.Contains(t, resultNames, "models/"+survivorID,
+		"an unaffected SSOT sibling must remain in fallback response")
 }
 
 // buildPricingJSON builds a minimal LiteLLM-shaped pricing JSON string where
@@ -245,6 +243,49 @@ func modelIDsFromOpenAIModels(models []openai.Model) []string {
 		ids[i] = m.ID
 	}
 	return ids
+}
+
+func modelNamesFromGeminiModels(models []gemini.Model) []string {
+	names := make([]string, len(models))
+	for i, m := range models {
+		names[i] = m.Name
+	}
+	return names
+}
+
+func withGeminiModelPrefixForTest(ids []string) []string {
+	names := make([]string, len(ids))
+	for i, id := range ids {
+		names[i] = "models/" + id
+	}
+	return names
+}
+
+func stringBoolSetForHandlerTest(ids []string) map[string]bool {
+	out := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out
+}
+
+func firstIDOutsideSetForHandlerTest(t *testing.T, candidates []string, excluded map[string]bool) string {
+	t.Helper()
+	for _, id := range candidates {
+		if !excluded[id] {
+			return id
+		}
+	}
+	require.FailNow(t, "expected at least one candidate outside excluded set")
+	return ""
+}
+
+func firstTwoIDsForHandlerTest(t *testing.T, candidates []string) (string, string) {
+	t.Helper()
+	require.GreaterOrEqual(t, len(candidates), 2, "SSOT sample source must contain a target and survivor")
+	sorted := append([]string{}, candidates...)
+	sort.Strings(sorted)
+	return sorted[0], sorted[1]
 }
 
 // buildPricingJSONFromIDs builds a pricing JSON where each provided model ID

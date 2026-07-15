@@ -64,13 +64,31 @@ on the target account/path, it belongs in the public catalog/menu — not only t
 stable bare id. Legacy retirement redirects and third-party slugs without an
 official declaration stay **priced-only** (explicit requests must not bill `$0`).
 
-**prod is the only post-release gate.** Run:
+**prod is the only post-release config check target.** After deploy + smoke, run:
 
 ```bash
 python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json
 ```
 
-Default scope is prod only; `violation_count` must be `0` before treating prod serving as ready.
+Default scope is prod only. A violation is a yellow configuration-drift finding:
+review the Go-SSOT-derived diff and converge prod via:
+
+```bash
+python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts --target prod --dry-run
+python3 ops/pricing/manage-account-model-mapping-runtime.py apply-accounts --target prod --confirm yes-apply-account-model-mapping
+```
+
+For an explicit new-model activation, modelops may separately run a release-floor
+precheck from the checkout that owns the intended Go SSOT:
+
+```bash
+python3 ops/pricing/manage-account-model-mapping-runtime.py release-gate
+```
+
+That command gates the modelops activation only. Generic `deploy-stage0.yml`
+deploys and rollbacks never call it and must not depend on live mapping
+convergence or on the target tag containing the Go helper. Their acceptance
+path is image deployment plus real post-deploy smoke/display canaries.
 
 **Edge accounts keep empty `model_mapping`.** User traffic is `client → prod gateway → edge relay → upstream`; prod already selects the model and routes to the edge mirror/OAuth account. Edge-side mapping is therefore platform-level passthrough (empty = unrestricted). Do **not** treat edge empty mappings as drift, do **not** bulk-apply prod floors to edges, and do **not** fail release checks because `--include-edges` shows violations. Use `--include-edges` only for explicit edge-specific troubleshooting.
 

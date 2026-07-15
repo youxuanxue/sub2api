@@ -7,7 +7,6 @@ from datetime import date
 
 HIGH_SEVERITIES = {"high", "critical"}
 REQUIRED_FIELDS = {"package", "advisory", "severity", "mitigation", "expires_on"}
-AUDIT_RESULT_KEYS = {"advisories", "vulnerabilities", "metadata"}
 
 
 def split_kv(line: str) -> tuple[str, str]:
@@ -148,12 +147,6 @@ def main() -> int:
 
     with open(args.audit, "r", encoding="utf-8") as handle:
         audit = json.load(handle)
-    if not isinstance(audit, dict) or not AUDIT_RESULT_KEYS.intersection(audit):
-        sys.stderr.write(
-            "Audit result lacks advisories/vulnerabilities/metadata; "
-            "pnpm audit likely failed before returning a real result.\n"
-        )
-        return 1
 
     # 读取异常清单并建立索引，便于快速匹配包名 + advisory。
     exceptions = parse_exceptions(args.exceptions)

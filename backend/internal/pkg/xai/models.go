@@ -30,6 +30,30 @@ func DefaultModels() []Model {
 	return out
 }
 
+// ModelsForIDs synthesizes xAI / Grok model metadata for the given servable ids,
+// preferring the curated DefaultModels entry when present.
+func ModelsForIDs(ids []string) []Model {
+	defaults := DefaultModels()
+	byID := make(map[string]Model, len(defaults))
+	for _, model := range defaults {
+		byID[model.ID] = model
+	}
+	out := make([]Model, 0, len(ids))
+	for _, id := range ids {
+		if model, ok := byID[id]; ok {
+			out = append(out, model)
+			continue
+		}
+		out = append(out, Model{
+			ID:          id,
+			Object:      "model",
+			OwnedBy:     "xai",
+			DisplayName: id,
+		})
+	}
+	return out
+}
+
 func DefaultModelIDs() []string {
 	models := DefaultModels()
 	ids := make([]string, 0, len(models))

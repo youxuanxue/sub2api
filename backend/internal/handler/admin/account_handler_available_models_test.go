@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,59 @@ func setupAvailableModelsRouter(adminSvc service.AdminService) *gin.Engine {
 	return router
 }
 
+func TestAccountHandlerGetAvailableModels_AllPlatformsUseMinimalOptionDTO(t *testing.T) {
+	floor, err := service.AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+	antigravityMapping := floor.Platforms[service.PlatformAntigravity]
+	require.NotEmpty(t, antigravityMapping)
+
+	accounts := []service.Account{
+		{ID: 901, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Status: service.StatusActive},
+		{ID: 902, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive},
+		{ID: 903, Platform: service.PlatformGemini, Type: service.AccountTypeOAuth, Status: service.StatusActive},
+		{
+			ID: 904, Platform: service.PlatformAntigravity, Type: service.AccountTypeOAuth, Status: service.StatusActive,
+			Credentials: map[string]any{"model_mapping": anyModelMappingFromStringMap(antigravityMapping)},
+		},
+		{
+			ID: 905, Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey, Status: service.StatusActive,
+			Credentials: map[string]any{"model_mapping": map[string]any{"shape-model": "shape-model"}},
+		},
+		{ID: 906, Platform: service.PlatformKiro, Type: service.AccountTypeOAuth, Status: service.StatusActive},
+		{ID: 907, Platform: service.PlatformGrok, Type: service.AccountTypeOAuth, Status: service.StatusActive},
+	}
+
+	for _, account := range accounts {
+		account := account
+		t.Run(account.Platform, func(t *testing.T) {
+			svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(
+				http.MethodGet,
+				fmt.Sprintf("/api/v1/admin/accounts/%d/models", account.ID),
+				nil,
+			)
+			setupAvailableModelsRouter(svc).ServeHTTP(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				Data []map[string]any `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NotEmpty(t, resp.Data)
+			for _, option := range resp.Data {
+				require.Len(t, option, 2, "response must expose only id and display_name: %v", option)
+				id, idOK := option["id"].(string)
+				displayName, displayNameOK := option["display_name"].(string)
+				require.True(t, idOK)
+				require.True(t, displayNameOK)
+				require.NotEmpty(t, id)
+				require.NotEmpty(t, displayName)
+			}
+		})
+	}
+}
+
 func modelIDSet(models []struct {
 	ID string `json:"id"`
 }) map[string]bool {
@@ -55,6 +109,31 @@ func availableModelIDs(models []struct {
 		ids = append(ids, m.ID)
 	}
 	return ids
+}
+
+func idsFromKiroAdminTestModels() []string {
+	models := service.KiroAdminTestModels()
+	ids := make([]string, 0, len(models))
+	for _, m := range models {
+		ids = append(ids, m.ID)
+	}
+	return ids
+}
+
+func anyModelMappingFromIDs(ids []string) map[string]any {
+	out := make(map[string]any, len(ids))
+	for _, id := range ids {
+		out[id] = id
+	}
+	return out
+}
+
+func anyModelMappingFromStringMap(in map[string]string) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 type syncUpstreamHTTPUpstream struct {
@@ -160,8 +239,10 @@ func TestAccountHandlerGetAvailableModels_GrokDefaultsToXAIModelsWithoutMapping(
 		ids = append(ids, id)
 		require.NotContains(t, strings.ToLower(id), "claude")
 	}
-	require.Contains(t, ids, "grok-4.3")
-	require.Contains(t, ids, "grok-build-0.1")
+	require.ElementsMatch(t,
+		service.ServableClientFacingIDs(context.Background(), service.PlatformGrok, nil, nil),
+		ids,
+		"grok defaults must mirror the unified servable SSOT")
 }
 
 func TestAccountHandlerGetAvailableModels_OpenAIOAuthUsesExplicitModelMapping(t *testing.T) {
@@ -296,14 +377,18 @@ func TestAccountHandlerGetAvailableModels_GeminiOAuthDropsAdvertisedDead(t *test
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
-	ids := modelIDSet(resp.Data)
-	require.True(t, ids["gemini-2.5-flash"], "servable Gemini default should remain visible")
-	for _, dead := range []string{"gemini-2.0-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-3.1-pro-preview", "gemini-3.5-flash"} {
-		require.False(t, ids[dead], "advertised_dead %s must not appear in Gemini admin defaults", dead)
-	}
+	require.ElementsMatch(t,
+		service.ServableClientFacingIDs(context.Background(), service.PlatformGemini, nil, nil),
+		availableModelIDs(resp.Data),
+		"Gemini admin defaults must mirror the unified servable SSOT")
 }
 
 func TestAccountHandlerGetAvailableModels_GeminiOAuthMappingUsesServableIntersection(t *testing.T) {
+	servable := service.ServableClientFacingIDs(context.Background(), service.PlatformGemini, nil, nil)
+	require.GreaterOrEqual(t, len(servable), 2, "Gemini SSOT needs at least two ids for this intersection test")
+	mapped := []string{servable[0], servable[1]}
+	mapping := anyModelMappingFromIDs(mapped)
+	mapping["gemini-not-a-real-id-zzz"] = "gemini-not-a-real-id-zzz"
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),
 		account: service.Account{
@@ -313,12 +398,7 @@ func TestAccountHandlerGetAvailableModels_GeminiOAuthMappingUsesServableIntersec
 			Type:     service.AccountTypeOAuth,
 			Status:   service.StatusActive,
 			Credentials: map[string]any{
-				"model_mapping": map[string]any{
-					"gemini-2.5-flash":       "gemini-2.5-flash",
-					"gemini-2.5-pro":         "gemini-2.5-pro",
-					"gemini-3-flash-preview": "gemini-3-flash-preview",
-					"gemini-3-pro-preview":   "gemini-3-pro-preview",
-				},
+				"model_mapping": mapping,
 			},
 		},
 	}
@@ -337,12 +417,9 @@ func TestAccountHandlerGetAvailableModels_GeminiOAuthMappingUsesServableIntersec
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	ids := modelIDSet(resp.Data)
-	require.True(t, ids["gemini-2.5-flash"])
-	require.True(t, ids["gemini-2.5-pro"])
-	require.False(t, ids["gemini-2.5-flash-lite"], "unmapped default model must not be injected")
-	require.False(t, ids["gemini-3-flash-preview"], "unservable mapped preview must not appear")
-	require.False(t, ids["gemini-3-pro-preview"], "deprecated mapped preview must not appear")
-	require.Len(t, resp.Data, 2)
+	require.False(t, ids["gemini-not-a-real-id-zzz"], "unservable mapped preview must not appear")
+	require.ElementsMatch(t, mapped, availableModelIDs(resp.Data),
+		"Gemini mapped response must be the intersection of account mapping and servable SSOT")
 }
 
 // TestAccountHandlerGetAvailableModels_NewAPI_DoesNotReturnClaudeCatalog is the
@@ -459,9 +536,10 @@ func TestAccountHandlerGetAvailableModels_NewAPI_VertexNoMappingReturnsServableP
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
-	ids := modelIDSet(resp.Data)
-	require.True(t, ids["gemini-2.5-flash"])
-	require.True(t, ids["imagen-4.0-fast-generate-001"])
+	require.ElementsMatch(t,
+		service.AccountModelMappingPresetIDs(context.Background(), service.PlatformNewAPI, 41, nil),
+		availableModelIDs(resp.Data),
+		"Vertex newapi fallback must mirror the model_mapping preset SSOT")
 }
 
 func TestAccountHandlerGetAvailableModels_KiroOAuthUsesShortModelIDs(t *testing.T) {
@@ -489,8 +567,8 @@ func TestAccountHandlerGetAvailableModels_KiroOAuthUsesShortModelIDs(t *testing.
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.ElementsMatch(t, idsFromKiroAdminTestModels(), availableModelIDs(resp.Data))
 	ids := modelIDSet(resp.Data)
-	require.True(t, ids["claude-sonnet-4-5"])
 	require.True(t, ids["claude-haiku-4-5"], "Kiro serves Haiku 4.5 on CodeWhisperer")
 	require.False(t, ids["claude-sonnet-4-5-20250929"], "admin list exposes short IDs only; dated IDs are normalized at forward time")
 }
@@ -525,20 +603,20 @@ func TestAccountHandlerGetAvailableModels_GrokUsesGrokCatalog(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
-	require.Equal(t, "grok-4.3", resp.Data[0].ID, "grok chat probe default must be first")
+	require.Equal(t, service.GrokDefaultTestModelID, resp.Data[0].ID, "grok chat probe default must be first")
 	ids := modelIDSet(resp.Data)
-	require.True(t, ids["grok-4.3"], "grok account test must default from the grok catalog")
+	require.ElementsMatch(t,
+		service.ServableClientFacingIDs(context.Background(), service.PlatformGrok, nil, nil),
+		availableModelIDs(resp.Data),
+		"grok account test must default from the grok catalog SSOT")
 	require.False(t, ids["claude-sonnet-4-6"], "grok must not fall through to Claude catalog")
 }
 
 func TestAccountHandlerGetAvailableModels_AntigravityUsesLiveCatalog(t *testing.T) {
-	mapping := map[string]any{
-		service.AntigravityDefaultTestModelID: "gemini-3-flash",
-		"gemini-pro-agent":                    "gemini-pro-agent",
-		"claude-sonnet-4-6":                   "claude-sonnet-4-6",
-		"claude-opus-4-6":                     "claude-opus-4-6-thinking",
-		"claude-opus-4-6-thinking":            "claude-opus-4-6-thinking",
-	}
+	floor, err := service.AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+	mapping, ok := floor.Platforms[service.PlatformAntigravity]
+	require.True(t, ok, "antigravity floor must be exported by the model_mapping SSOT")
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),
 		account: service.Account{
@@ -548,7 +626,7 @@ func TestAccountHandlerGetAvailableModels_AntigravityUsesLiveCatalog(t *testing.
 			Type:     service.AccountTypeOAuth,
 			Status:   service.StatusActive,
 			Credentials: map[string]any{
-				"model_mapping": mapping,
+				"model_mapping": anyModelMappingFromStringMap(mapping),
 			},
 		},
 	}
@@ -570,10 +648,10 @@ func TestAccountHandlerGetAvailableModels_AntigravityUsesLiveCatalog(t *testing.
 	require.Equal(t, service.AntigravityDefaultTestModelID, resp.Data[0].ID,
 		"antigravity chat probe default must be first")
 	ids := modelIDSet(resp.Data)
-	require.True(t, ids["gemini-3-flash"])
-	require.True(t, ids["gemini-pro-agent"])
-	require.True(t, ids["claude-sonnet-4-6"], "antigravity admin test must expose the #1265 live Claude subset")
-	require.False(t, ids["claude-sonnet-4-5"], "antigravity admin test must not offer non-live Claude models")
+	require.ElementsMatch(t,
+		service.ServableClientFacingIDs(context.Background(), service.PlatformAntigravity, nil, nil),
+		availableModelIDs(resp.Data),
+		"antigravity admin test must expose the current live catalog SSOT")
 	require.False(t, ids["gpt-oss-120b-medium"], "antigravity admin test must not offer gpt-oss")
 }
 
@@ -607,8 +685,8 @@ func TestAccountHandlerGetAvailableModels_KiroMirrorStubUsesKiroCatalog(t *testi
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.ElementsMatch(t, idsFromKiroAdminTestModels(), availableModelIDs(resp.Data))
 	ids := modelIDSet(resp.Data)
-	require.True(t, ids["claude-sonnet-4-5"])
 	require.False(t, ids["claude-sonnet-4-5-20250929"], "prod Kiro mirror stubs must not expose Anthropic dated test IDs")
 }
 

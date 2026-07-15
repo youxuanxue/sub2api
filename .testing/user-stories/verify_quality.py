@@ -22,7 +22,7 @@ and "drift detection"):
   * Linked Tests must include >= 1 runnable command line
     (`运行命令:` / `Run command:` / `Run:` — matched anywhere in the block).
   * Status in {InTest, Done} additionally requires:
-      - At least one concrete `path/to/file.go::TestFunc` reference;
+      - At least one concrete `path/to/file::{test}` reference;
       - Each non-`*(planned)*` reference points to a real file containing
         a `func TestFunc(` declaration;
       - Risk Focus declares >= 1 of the four risk classes
@@ -73,6 +73,9 @@ LINKED_TEST_RE = re.compile(r"`([^`]+\.go)`::`([A-Za-z0-9_/*]+)`")
 # punctuation, and Unicode — match anything inside the second
 # backtick-pair as long as the file extension is `.ts`/`.tsx`.
 LINKED_VITEST_RE = re.compile(r"`([^`]+\.tsx?)`::`([^`]+)`")
+# Python operational tools use stdlib unittest/pytest-style methods. Accept
+# `path.py`::`Class.test_method` and verify the final method name in source.
+LINKED_PYTHON_RE = re.compile(r"`([^`]+\.py)`::`([A-Za-z0-9_.]+)`")
 # Accept either list-item ("- 运行命令: ...") or section-header style
 # ("运行命令：" followed by a code fence). Both convey "here is the command
 # you can run to validate this story" — the format is cosmetic, presence
@@ -134,7 +137,11 @@ def parse_story(path: Path) -> dict:
         block = re.split(r"^## ", after, maxsplit=1, flags=re.MULTILINE)[0]
         has_run_cmd = bool(RUN_CMD_RE.search(block))
         for line in block.splitlines():
-            m = LINKED_TEST_RE.search(line) or LINKED_VITEST_RE.search(line)
+            m = (
+                LINKED_TEST_RE.search(line)
+                or LINKED_VITEST_RE.search(line)
+                or LINKED_PYTHON_RE.search(line)
+            )
             if not m:
                 continue
             file_path, func_name = m.group(1), m.group(2)
@@ -181,6 +188,9 @@ def func_exists_in_file(path: Path, func: str) -> bool:
         # We do a literal substring match on the quoted text — the test name
         # is by definition a literal string, not a regex pattern.
         return func in text
+    if suffix == ".py":
+        name = re.escape(func.rsplit(".", 1)[-1])
+        return re.search(rf"^\s*def\s+{name}\s*\(", text, re.MULTILINE) is not None
     # Go: handle two notations beyond the bare identifier:
     #   - `TestSuite/TestCase` (table-driven subtest) — only the parent
     #     `func TestSuite(...)` is declared in source; the subtest name is
@@ -219,7 +229,7 @@ def verify_alignment(story: dict) -> List[str]:
         if not concrete:
             issues.append(
                 f"Status={status} requires at least one concrete "
-                f"`file.go::Func` reference (excluding *(planned)* gaps)"
+                f"`file::test` reference (excluding *(planned)* gaps)"
             )
         for file_path, func, planned, _raw in story["linked_tests"]:
             if planned:
