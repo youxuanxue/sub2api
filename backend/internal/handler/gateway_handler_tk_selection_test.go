@@ -67,4 +67,3 @@ func TestTkPrepareParsedRequestSessionInputs_PrefersSessionIDHeader(t *testing.T
 	require.Equal(t, "sess-id", parsed.ExplicitStickyKey.Value)
 	require.Equal(t, service.StickyKeySourceClientSessionID, parsed.ExplicitStickyKey.Source)
 }
-

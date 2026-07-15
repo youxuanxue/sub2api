@@ -270,7 +270,8 @@
         ") ResetAnthropicUpstreamErrorCounter(",
         "ResetAnthropicCooldownTier",
         "if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {",
-        "if !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
+        "planGatedModel := isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody)",
+        "if !planGatedModel && !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
         "s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)",
         "s.tkDisableIfOAuth401OnValidToken(ctx, authAccount, upstreamMsg)",
         "oauth_401_immediate_disable",
@@ -3715,7 +3716,7 @@
     {
       "path": "backend/cmd/server/wire_gen.go",
       "must_contain": [
-        "service.NewAccountUsageService(accountRepository, usageLogRepository, claudeUsageFetcher, geminiQuotaService, antigravityQuotaFetcher, grokQuotaFetcher, openAIQuotaService, usageCache, identityCache, tlsFingerprintProfileService, oAuthRefreshAPI)"
+        "service.ProvideAccountUsageService(accountRepository, usageLogRepository, claudeUsageFetcher, geminiQuotaService, antigravityQuotaFetcher, grokQuotaFetcher, grokQuotaService, openAIQuotaService, usageCache, identityCache, tlsFingerprintProfileService, oAuthRefreshAPI, openAIGatewayService)"
       ],
       "rationale": "Generated DI seam for forced Kiro usage recovery. AccountUsageService needs the shared OAuthRefreshAPI so a 401/403 Invalid-token response can refresh credentials under the same distributed lock before a single GetUsageLimits retry, without borrowing the runtime recovery path that also clears error and re-enables scheduling. Dropping the final constructor argument compiles only against stale generated code and silently restores the misleading usage 403 failure after the account leaves the active background-refresh set."
     },

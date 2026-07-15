@@ -19,11 +19,14 @@ const (
 	EndpointMessages          = apipath.Messages
 	EndpointChatCompletions   = apipath.ChatCompletions
 	EndpointEmbeddings        = apipath.Embeddings
+	EndpointAlphaSearch       = "/v1/alpha/search"
 	EndpointResponses         = apipath.Responses
 	EndpointResponsesCompact  = apipath.ResponsesCompact
 	EndpointImagesGenerations = apipath.ImagesGenerations
 	EndpointImagesEdits       = apipath.ImagesEdits
 	EndpointVideosGenerations = apipath.VideosGenerations
+	EndpointVideosEdits       = "/v1/videos/edits"
+	EndpointVideosExtensions  = "/v1/videos/extensions"
 	EndpointVideos            = apipath.Videos
 	EndpointGeminiModels      = apipath.GeminiModels
 	EndpointModels            = apipath.Models
@@ -80,6 +83,8 @@ func NormalizeInboundEndpoint(path string) string {
 	switch {
 	case strings.Contains(path, EndpointEmbeddings):
 		return EndpointEmbeddings
+	case strings.Contains(path, EndpointAlphaSearch) || isBareOrSubpathOf(strings.TrimRight(path, "/"), "/alpha/search") || isBareOrSubpathOf(strings.TrimRight(path, "/"), "/backend-api/codex/alpha/search"):
+		return EndpointAlphaSearch
 	case strings.Contains(path, EndpointChatCompletions):
 		return EndpointChatCompletions
 	case strings.Contains(path, EndpointMessages):
@@ -90,6 +95,10 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointImagesEdits
 	case strings.Contains(path, EndpointVideosGenerations) || strings.Contains(path, "/videos/generations"):
 		return EndpointVideosGenerations
+	case strings.Contains(path, EndpointVideosEdits) || strings.Contains(path, "/videos/edits"):
+		return EndpointVideosEdits
+	case strings.Contains(path, EndpointVideosExtensions) || strings.Contains(path, "/videos/extensions"):
+		return EndpointVideosExtensions
 	case strings.Contains(path, EndpointVideos) || strings.Contains(path, "/videos/"):
 		return EndpointVideos
 	case strings.Contains(path, EndpointResponsesCompact) || isResponsesCompactAliasPath(path):
@@ -160,8 +169,11 @@ func isBareOrSubpathOf(path, root string) bool {
 // account platform and the normalized inbound endpoint.
 //
 // Platform-specific rules:
-//   - OpenAI always forwards to /v1/responses (with optional subpath
-//     such as /v1/responses/compact preserved from the raw URL).
+//   - OpenAI and Grok text compatibility routes forward to /v1/responses
+//     (with optional subpath such as /v1/responses/compact preserved from
+//     the raw URL); native endpoints such as embeddings and alpha search
+//     retain their paths. Grok raw Chat requests override this through the
+//     forwarding result consumed by resolveOpenAIUpstreamEndpoint.
 //   - Anthropic  → /v1/messages
 //   - Gemini     → /v1beta/models
 //   - Antigravity → /v1/messages (Claude) or gemini (Gemini)

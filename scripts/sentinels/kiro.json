@@ -23,9 +23,9 @@
       "must_contain": [
         "func (r *accountRepository) SumConcurrencyByPlatform",
         "platform = ANY($1)",
-        "pq.Array(engine.OAuthRefreshPlatforms())"
+        "pq.Array(options.Platforms)"
       ],
-      "rationale": "Two load-bearing kiro anchors. (1) SumConcurrencyByPlatform: platform-wide schedulable Σ reader backing the kiro arm of the edge capacity endpoint (the kiro pool is not group-scoped like anthropic's \"default\"); losing it breaks ?platform=kiro capacity reads. (2) ListOAuthRefreshCandidates' platform filter MUST stay parametrized from the single source of truth: `platform = ANY($1)` bound from `pq.Array(engine.OAuthRefreshPlatforms())`, with NO platform literal left in the SQL. The old `platform IN ('anthropic',...,'kiro','grok')` literal was the surface an upstream merge silently reset to its four platforms (R-001), dropping kiro so kiro accounts expire and 401 out of the pool with no auto-recovery (the background ticker is kiro's only token-renewal path). kiro membership is guaranteed upstream of the SQL: engine.OAuthRefreshPlatforms() derives from engine.AllSchedulingPlatforms() (anchored to contain domain.PlatformKiro by the kiro engine sentinel) minus the apikey-only newapi. (account_repo.go is also a gateway-tk hotspot — dual-covered on purpose.) If the parametrization anchor fails, an upstream merge reverted `= ANY($1)` back to a literal — restore the parametrized form, do NOT re-introduce a literal list."
+      "rationale": "Two load-bearing Kiro anchors. (1) SumConcurrencyByPlatform backs the platform-wide Kiro edge capacity read. (2) ListOAuthRefreshCandidatePage MUST keep `platform = ANY($1)` bound from caller-owned `options.Platforms`, with no platform literal in SQL. TokenRefreshService derives the caller set from registered refreshers, and TestRegisteredRefreshers_MatchOAuthRefreshSourceOfTruth proves those registrations exactly match engine.OAuthRefreshPlatforms(), including Kiro. The repository must preserve narrower reconciliation requests rather than silently widening them to every OAuth platform. This two-layer contract blocks both R-001 (Kiro omitted and tokens expire) and the CI regression where a Grok-only page admitted OpenAI rows."
     },
     {
       "path": "backend/internal/handler/edge_tk_capacity_handler_test.go",

@@ -233,6 +233,8 @@ func registerTKOpenAICompatVideoRoutes(group *gin.RouterGroup, h *handler.Handle
 	// routes; the video path did not). Same submit handler; GET fetch already
 	// matches `/videos/:task_id`, so no fetch alias is needed.
 	group.POST("/videos/generations", submit)
+	group.POST("/videos/edits", h.OpenAIGateway.GrokVideoEdit)
+	group.POST("/videos/extensions", h.OpenAIGateway.GrokVideoExtension)
 }
 
 // registerTKOpenAICompatVideoRoutesNoPrefix mirrors the above for the
@@ -255,4 +257,6 @@ func registerTKOpenAICompatVideoRoutesNoPrefix(r *gin.Engine, h *handler.Handler
 	// xAI-shaped submit alias — see registerTKOpenAICompatVideoRoutes (required
 	// for the prod→edge grok video relay).
 	r.POST("/videos/generations", chain(submit)...)
+	r.POST("/videos/edits", chain(h.OpenAIGateway.GrokVideoEdit)...)
+	r.POST("/videos/extensions", chain(h.OpenAIGateway.GrokVideoExtension)...)
 }

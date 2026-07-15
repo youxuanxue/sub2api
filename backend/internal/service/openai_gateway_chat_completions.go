@@ -78,7 +78,10 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// Grok OAuth 与 Grok API-key relay 都在 codex transform 之前分流到 raw 直转。
 	// 入口分流：APIKey 账号 + 强制或已探测确认上游不支持 Responses，走 CC 直转。
 	// 自动模式下标记缺失（未探测）按"现状即证据"原则继续走下方原 Responses 转换路径。
-	if account.IsGrok() || (account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra)) {
+	if account.IsGrok() {
+		return s.forwardGrokChatCompletionsViaResponses(ctx, c, account, body, promptCacheKey, defaultMappedModel)
+	}
+	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 
@@ -268,6 +271,13 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// 8. Handle error response with failover
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+		if !agentIdentityTaskRecoveryWasTried(ctx) && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, respBody) {
+			expectedTaskID := account.GetCredential("task_id")
+			if err := s.recoverAgentIdentityTask(ctx, account, expectedTaskID); err != nil {
+				return nil, fmt.Errorf("agent identity task recovery failed: %w", err)
+			}
+			return s.ForwardAsChatCompletions(markAgentIdentityTaskRecoveryTried(ctx), c, account, body, promptCacheKey, defaultMappedModel)
+		}
 		if account.Type == AccountTypeAPIKey &&
 			openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown &&
 			!openai_compat.ResponsesEndpointSupportedByStatus(resp.StatusCode) {
@@ -579,14 +589,26 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				return true
 			}
 			message = s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "http_error", payloadBytes, message)
+			defaultStatus, defaultErrType, defaultMsg := http.StatusBadGateway, "upstream_error", message
+			// 统一走语义状态推断 + body 归一化（与 /v1/responses 路径一致），
+			// 使按错误码配置的透传规则可命中。
+			if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(
+				c, account.Platform, payloadBytes, message,
+			); matched {
+				if errMsg == "" {
+					errMsg = defaultMsg
+				}
+				defaultStatus, defaultErrType, defaultMsg = status, errType, errMsg
+				MarkResponseCommitted(c)
+			}
 			errorPayload, _ := json.Marshal(gin.H{
 				"error": gin.H{
-					"type":    "upstream_error",
-					"message": message,
+					"type":    defaultErrType,
+					"message": defaultMsg,
 				},
 			})
 			if c != nil && c.Writer != nil && !c.Writer.Written() {
-				writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", message)
+				writeChatCompletionsError(c, defaultStatus, defaultErrType, defaultMsg)
 				clientOutputStarted = true
 			} else if c != nil && c.Writer != nil && !clientDisconnected {
 				if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", errorPayload); err != nil {

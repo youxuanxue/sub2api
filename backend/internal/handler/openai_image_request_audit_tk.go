@@ -71,7 +71,7 @@ func logOpenAIImageRequestAudit(
 		"surface":                  strings.TrimSpace(surface),
 		"request_path":             tkRequestPath(c),
 		"inbound_endpoint":         GetInboundEndpoint(c),
-		"upstream_endpoint":        resolveOpenAIUpstreamEndpoint(c, account),
+		"upstream_endpoint":        resolveOpenAIUpstreamEndpoint(c, account, nil),
 		"request_body_sha256":      tkSHA256Hex(body),
 		"request_body_bytes":       len(body),
 		"forward_body_sha256":      tkSHA256Hex(forwardBody),

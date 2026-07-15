@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,7 +25,7 @@ func TestResolveGrokInputTokensUpstream_OAuthUsesResponsesInputTokensPath(t *tes
 
 	got, err := svc.resolveGrokInputTokensUpstream(account)
 	require.NoError(t, err)
-	require.Equal(t, "https://api.x.ai/v1/responses/input_tokens", got)
+	require.Equal(t, xai.DefaultCLIBaseURL+"/responses/input_tokens", got)
 }
 
 func TestResolveGrokInputTokensUpstream_RelayUsesOpenAICompatBase(t *testing.T) {

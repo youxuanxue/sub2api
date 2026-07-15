@@ -18,9 +18,9 @@ import (
 // --- stubs for the edge ops handler's narrow dependencies ---
 
 type opsRateLimiterStub struct {
-	clearedRateLimit  []int64
+	clearedRateLimit   []int64
 	clearedTempUnsched []int64
-	err               error
+	err                error
 }
 
 func (s *opsRateLimiterStub) ClearRateLimit(_ context.Context, id int64) error {

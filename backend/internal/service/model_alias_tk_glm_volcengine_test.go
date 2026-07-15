@@ -6,12 +6,12 @@ import "testing"
 
 func TestNormalizeGLMVolcengineDatedModelID(t *testing.T) {
 	for in, want := range map[string]string{
-		"glm-4-7-251222": "glm-4.7",
-		"GLM-4-7-251222": "glm-4.7",
-		" glm-5-2-260115 ": "glm-5.2",
-		"glm-4.7":           "",
-		"glm-4.7-flash":     "",
-		"glm-4-32b-0414-128k": "",
+		"glm-4-7-251222":         "glm-4.7",
+		"GLM-4-7-251222":         "glm-4.7",
+		" glm-5-2-260115 ":       "glm-5.2",
+		"glm-4.7":                "",
+		"glm-4.7-flash":          "",
+		"glm-4-32b-0414-128k":    "",
 		"doubao-seed-1-6-250615": "",
 	} {
 		if got := normalizeGLMVolcengineDatedModelID(in); got != want {

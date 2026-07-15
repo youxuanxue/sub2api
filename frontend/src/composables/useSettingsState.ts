@@ -69,6 +69,7 @@ export type SettingsForm = {
   affiliate_rebate_freeze_hours: number;
   affiliate_rebate_duration_days: number;
   affiliate_rebate_per_invitee_cap: number;
+  affiliate_admin_recharge_enabled: boolean;
   default_concurrency: number;
   default_subscriptions: Array<{ group_id: number; validity_days: number }>;
   site_name: string;

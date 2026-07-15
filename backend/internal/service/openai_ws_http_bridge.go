@@ -22,6 +22,15 @@ const (
 	openAIWSHTTPBridgeErrorBodyLimitBytes         = 64 * 1024
 )
 
+// ResolveOpenAIWSClientFirstMessageTimeout returns the effective client ingress deadline.
+func ResolveOpenAIWSClientFirstMessageTimeout(cfg *config.Config) time.Duration {
+	seconds := config.DefaultOpenAIWSClientFirstMessageTimeoutSeconds
+	if cfg != nil && cfg.Gateway.OpenAIWS.ClientFirstMessageTimeoutSeconds > 0 {
+		seconds = cfg.Gateway.OpenAIWS.ClientFirstMessageTimeoutSeconds
+	}
+	return time.Duration(seconds) * time.Second
+}
+
 func ResolveOpenAIWSClientReadLimitBytes(cfg *config.Config) int64 {
 	if cfg == nil || cfg.Gateway.OpenAIWS.ClientReadLimitBytes <= 0 {
 		return openAIWSClientReadLimitBytesDefault
@@ -155,6 +164,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	imageBillingModel string,
 	imageSizeTier string,
 	imageInputSize string,
+	grokCacheIdentity string,
 	turn int,
 	writeClientMessage func([]byte) error,
 ) (*OpenAIForwardResult, error) {
@@ -179,32 +189,32 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	var upstreamReq *http.Request
 	if account.Platform == PlatformGrok {
-		upstreamModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
-		if originalModel != "" {
-			if mappedModel := normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel)); mappedModel != "" {
-				upstreamModel = mappedModel
-			}
-		}
-		if upstreamModel == "" {
-			upstreamModel = "grok-4.3"
-		}
+		upstreamModel := resolveGrokWSUpstreamModel(account, body, originalModel)
 		body, err = patchGrokResponsesBody(body, upstreamModel)
 		if err != nil {
 			releaseUpstreamCtx()
 			return nil, err
+		}
+		body, err = applyGrokResponsesCacheIdentity(body, body, grokCacheIdentity, account.IsGrokOAuth())
+		if err != nil {
+			releaseUpstreamCtx()
+			return nil, fmt.Errorf("apply grok websocket cache identity: %w", err)
 		}
 		targetURL, targetErr := s.resolveGrokResponsesUpstream(account)
 		if targetErr != nil {
 			releaseUpstreamCtx()
 			return nil, targetErr
 		}
-		upstreamReq, err = buildGrokResponsesRequest(upstreamCtx, c, targetURL, body, token)
+		upstreamReq, err = buildGrokResponsesRequestForAccount(upstreamCtx, c, account, targetURL, body, token, grokCacheIdentity)
 	} else {
 		upstreamReq, err = s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, body, token)
 	}
 	releaseUpstreamCtx()
 	if err != nil {
 		return nil, err
+	}
+	if account.Platform != PlatformGrok && isOpenAIResponsesLiteWebSocketPayload(payload) {
+		upstreamReq.Header.Set(responsesLiteHeader, "true")
 	}
 
 	proxyURL := ""
@@ -227,12 +237,18 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, openAIWSHTTPBridgeErrorBodyLimitBytes))
+		if account.Platform == PlatformGrok {
+			s.handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		}
 		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 		if upstreamMsg == "" {
 			upstreamMsg = http.StatusText(resp.StatusCode)
 		}
 		_ = writeClientMessage(buildOpenAIWSHTTPBridgeErrorEvent(resp.StatusCode, upstreamMsg))
 		return nil, fmt.Errorf("upstream http bridge error: status=%d message=%s", resp.StatusCode, upstreamMsg)
+	}
+	if account.Platform == PlatformGrok {
+		s.updateGrokUsageFromResponse(ctx, account, resp.Header, resp.StatusCode)
 	}
 
 	responseID := ""
@@ -268,7 +284,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			Model:           originalModel,
 			UpstreamModel:   mappedModel,
 			ServiceTier:     extractOpenAIServiceTierFromBody(body),
-			ReasoningEffort: ApplyThinkingEnabledFallback(extractOpenAIReasoningEffortFromBody(body, originalModel), body, mappedModel),
+			ReasoningEffort: ApplyThinkingEnabledFallback(extractOpenAIReasoningEffortFromBody(body, mappedModel, originalModel), body, mappedModel),
 			Stream:          reqStream,
 			OpenAIWSMode:    true,
 			ResponseHeaders: cloneHeader(resp.Header),
@@ -411,4 +427,26 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		return resultWithUsage(), nil
 	}
 	return resultWithUsage(), errors.New("upstream http bridge stream ended before terminal event")
+}
+
+func resolveGrokWSCacheIdentity(c *gin.Context, account *Account, payload []byte, originalModel string) (string, error) {
+	body, err := prepareOpenAIWSHTTPBridgeBody(payload)
+	if err != nil {
+		return "", err
+	}
+	upstreamModel := resolveGrokWSUpstreamModel(account, body, originalModel)
+	return resolveGrokCacheIdentity(c, body, "", upstreamModel), nil
+}
+
+func resolveGrokWSUpstreamModel(account *Account, body []byte, originalModel string) string {
+	upstreamModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	if account != nil && originalModel != "" {
+		if mappedModel := normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel)); mappedModel != "" {
+			upstreamModel = mappedModel
+		}
+	}
+	if upstreamModel == "" {
+		upstreamModel = grokDefaultResponsesModel
+	}
+	return upstreamModel
 }
