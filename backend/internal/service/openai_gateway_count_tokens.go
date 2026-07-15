@@ -200,7 +200,7 @@ func (s *OpenAIGatewayService) getInputTokensAuthToken(ctx context.Context, acco
 		return "", "", fmt.Errorf("count_tokens: missing account")
 	}
 	if account.Platform == PlatformGrok {
-		token, err := s.grokResponsesAuthToken(ctx, account)
+		token, err := s.grokResponsesAuthToken(ctx, nil, account)
 		return token, "", err
 	}
 	return s.GetAccessToken(ctx, account)

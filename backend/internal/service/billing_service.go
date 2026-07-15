@@ -90,24 +90,26 @@ type BillingCache interface {
 
 // ModelPricing 模型价格配置（per-token价格，与LiteLLM格式一致）
 type ModelPricing struct {
-	InputPricePerToken             float64           // 每token输入价格 (USD)
-	InputPricePerTokenPriority     float64           // priority service tier 下每token输入价格 (USD)
-	ImageInputPricePerToken        float64           // 图片输入 token 价格 (USD)，用于多模态 embedding 等图文不同价场景；为 0 时回退到 InputPricePerToken
-	OutputPricePerToken            float64           // 每token输出价格 (USD)
-	OutputPricePerTokenPriority    float64           // priority service tier 下每token输出价格 (USD)
-	ThinkingOutputPricePerToken    float64           // 思考模式下每token输出价格 (USD)；0 = 该模型无思考溢价。见 computeTokenBreakdown
-	CacheCreationPricePerToken     float64           // 缓存创建每token价格 (USD)
-	CacheReadPricePerToken         float64           // 缓存读取每token价格 (USD)
-	CacheReadPricePerTokenPriority float64           // priority service tier 下缓存读取每token价格 (USD)
-	CacheCreation5mPrice           float64           // 5分钟缓存创建每token价格 (USD)
-	CacheCreation1hPrice           float64           // 1小时缓存创建每token价格 (USD)
-	SupportsCacheBreakdown         bool              // 是否支持详细的缓存分类
-	LongContextInputThreshold      int               // 超过阈值后按整次会话提升输入价格
-	LongContextInputMultiplier     float64           // 长上下文整次会话输入倍率
-	LongContextOutputMultiplier    float64           // 长上下文整次会话输出倍率
-	ImageOutputPricePerToken       float64           // 图片输出 token 价格 (USD)
-	ImageOutputPriceExplicit       bool              // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
-	Intervals                      []PricingInterval // 输入-token 区间分档（来自 TK overlay；空 = 扁平）。接进 ResolvedPricing.Intervals。
+	InputPricePerToken                 float64           // 每token输入价格 (USD)
+	InputPricePerTokenPriority         float64           // priority service tier 下每token输入价格 (USD)
+	ImageInputPricePerToken            float64           // 图片输入 token 价格 (USD)，用于多模态 embedding 等图文不同价场景；为 0 时回退到 InputPricePerToken
+	OutputPricePerToken                float64           // 每token输出价格 (USD)
+	OutputPricePerTokenPriority        float64           // priority service tier 下每token输出价格 (USD)
+	ThinkingOutputPricePerToken        float64           // 思考模式下每token输出价格 (USD)；0 = 该模型无思考溢价。见 computeTokenBreakdown
+	CacheCreationPricePerToken         float64           // 缓存创建每token价格 (USD)
+	CacheCreationPricePerTokenPriority float64           // priority service tier 下缓存创建每token价格 (USD)
+	CacheCreationPriceExplicit         bool              // 是否由渠道/区间定价显式设定（为 true 时即使 == 0 也不回退）
+	CacheReadPricePerToken             float64           // 缓存读取每token价格 (USD)
+	CacheReadPricePerTokenPriority     float64           // priority service tier 下缓存读取每token价格 (USD)
+	CacheCreation5mPrice               float64           // 5分钟缓存创建每token价格 (USD)
+	CacheCreation1hPrice               float64           // 1小时缓存创建每token价格 (USD)
+	SupportsCacheBreakdown             bool              // 是否支持详细的缓存分类
+	LongContextInputThreshold          int               // 超过阈值后按整次会话提升输入价格
+	LongContextInputMultiplier         float64           // 长上下文整次会话输入倍率
+	LongContextOutputMultiplier        float64           // 长上下文整次会话输出倍率
+	ImageOutputPricePerToken           float64           // 图片输出 token 价格 (USD)
+	ImageOutputPriceExplicit           bool              // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
+	Intervals                          []PricingInterval // 输入-token 区间分档（来自 TK overlay；空 = 扁平）。接进 ResolvedPricing.Intervals。
 }
 
 const (
@@ -938,17 +940,18 @@ func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing
 
 // CostInput 统一计费输入
 type CostInput struct {
-	Ctx            context.Context
-	Model          string
-	GroupID        *int64 // 用于渠道定价查找
-	Tokens         UsageTokens
-	RequestCount   int    // 按次计费时使用
-	SizeTier       string // 按次/图片模式的层级标签（"1K","2K","4K","HD" 等）
-	RateMultiplier float64
-	ServiceTier    string                // "priority","flex","" 等
-	EnableThinking bool                  // 本次请求是否处于思考模式（含默认开启）；仅对带 ThinkingOutputPricePerToken 的模型改变输出价
-	Resolver       *ModelPricingResolver // 定价解析器
-	Resolved       *ResolvedPricing      // 可选：预解析的定价结果（避免重复 Resolve 调用）
+	Ctx                       context.Context
+	Model                     string
+	GroupID                   *int64 // 用于渠道定价查找
+	Tokens                    UsageTokens
+	RequestCount              int    // 按次计费时使用
+	SizeTier                  string // 按次/图片模式的层级标签（"1K","2K","4K","HD" 等）
+	RateMultiplier            float64
+	ServiceTier               string                // "priority","flex","" 等
+	EnableThinking            bool                  // 本次请求是否处于思考模式（含默认开启）；仅对带 ThinkingOutputPricePerToken 的模型改变输出价
+	Resolver                  *ModelPricingResolver // 定价解析器
+	Resolved                  *ResolvedPricing      // 可选：预解析的定价结果（避免重复 Resolve 调用）
+	LongContextBillingEnabled *bool
 }
 
 // CalculateCostUnified 统一计费入口，支持三种计费模式。
@@ -1067,7 +1070,7 @@ func (s *BillingService) computeTokenBreakdown(
 	longContextPricingEligible := applyLongCtx && s.shouldApplySessionLongContextPricing(tokens, pricing)
 	var baselineCost *CostBreakdown
 	if longContextPricingEligible {
-		baselineCost = s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, false)
+		baselineCost = s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, false, false)
 		inputPrice *= pricing.LongContextInputMultiplier
 		outputPrice *= pricing.LongContextOutputMultiplier
 		// 缓存读取本质上是输入侧的复用，应与 input 一同应用长上下文倍率；
@@ -1226,7 +1229,7 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 
 	// 旧路径始终检查长上下文定价（无区间定价概念）。该路径不携带 enable_thinking
 	// （仅 CalculateCostUnified/CostInput 链路透传思考模式），故按非思考计费。
-	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, false, true), nil
+	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, false, longContextBillingEnabled), nil
 }
 
 func (s *BillingService) applyModelSpecificPricingPolicy(model string, pricing *ModelPricing) *ModelPricing {
@@ -1278,6 +1281,10 @@ func (s *BillingService) shouldApplySessionLongContextPricing(tokens UsageTokens
 	}
 	totalInputTokens := tokens.InputTokens + tokens.CacheCreationTokens + tokens.CacheReadTokens
 	return totalInputTokens > pricing.LongContextInputThreshold
+}
+
+func usesOpenAILegacyLongContextPricing(normalized string) bool {
+	return normalized == "gpt-5.4" || normalized == "gpt-5.5" || normalized == "gpt-5.5-pro"
 }
 
 func isOpenAIGPT54Model(model string) bool {
@@ -1528,7 +1535,15 @@ func (s *BillingService) CalculateVideoCost(model string, resolution string, vid
 		return &CostBreakdown{}
 	}
 	resolution = NormalizeVideoBillingResolutionOrDefault(resolution)
-	durationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
+	if durationSeconds <= 0 {
+		if _, ok := getDefaultGrokImagineVideoPrice(model, resolution); ok {
+			durationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
+		} else {
+			durationSeconds = 1
+		}
+	} else {
+		durationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
+	}
 
 	perSecondPrice := s.getVideoUnitPrice(model, resolution, groupConfig)
 	totalCost := perSecondPrice * float64(durationSeconds) * float64(videoCount)
@@ -1577,35 +1592,6 @@ func (s *BillingService) getImageUnitPrice(model string, imageSize string, group
 
 	// 回退到 LiteLLM 默认价格
 	return s.getDefaultImagePrice(model, normalizedSize)
-}
-
-// CalculateVideoCost prices a video generation as duration(seconds) × per-second rate,
-// where the per-second rate comes from the LiteLLM table (e.g. veo `output_cost_per_second`,
-// resolved via the provider-prefix fallback in GetModelPricing). Callers pass the requested
-// duration (handlers default to a conservative 8s when the request omits it). When no
-// per-second price exists the cost is zero — this function stays non-blocking, but the
-// submit handler rejects unpriced models BEFORE dispatch via TkVideoModelUnpriced
-// (openai_gateway_service_tk_media_unpriced_guard.go), so a zero here should only be
-// reachable when pricing was removed between admission and billing.
-func (s *BillingService) CalculateVideoCost(model string, seconds int64, rateMultiplier float64) *CostBreakdown {
-	if seconds <= 0 {
-		seconds = 1
-	}
-	perSecond := 0.0
-	if s.pricingService != nil {
-		if pricing := s.pricingService.GetModelPricing(model); pricing != nil {
-			perSecond = pricing.OutputCostPerSecond
-		}
-	}
-	totalCost := perSecond * float64(seconds)
-	if rateMultiplier < 0 {
-		rateMultiplier = 0
-	}
-	return &CostBreakdown{
-		TotalCost:   totalCost,
-		ActualCost:  totalCost * rateMultiplier,
-		BillingMode: "video",
-	}
 }
 
 func (s *BillingService) getVideoUnitPrice(model string, resolution string, groupConfig *VideoPriceConfig) float64 {
@@ -1677,11 +1663,12 @@ func (s *BillingService) getDefaultVideoPrice(model string, resolution string) f
 		return price
 	}
 
-	// The bundled LiteLLM schema does not expose an output video generation price.
-	// Keep the historical model default as the fallback (interpreted as a per-second
-	// rate; today only Grok models reach video billing, so this path is a safety net),
-	// while letting group-level video prices override it independently from image prices.
-	return s.getDefaultImagePrice(model, ImageBillingSize2K)
+	if s.pricingService != nil {
+		if pricing := s.pricingService.GetModelPricing(model); pricing != nil && pricing.OutputCostPerSecond > 0 {
+			return pricing.OutputCostPerSecond
+		}
+	}
+	return 0
 }
 
 func getDefaultGrokImagineImagePrice(model string, imageSize string) (float64, bool) {

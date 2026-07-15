@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testSameAccountRetryLimit = 3
+
 // ---------------------------------------------------------------------------
 // Mock
 // ---------------------------------------------------------------------------
@@ -150,7 +152,7 @@ func TestHandleFailoverError_BasicSwitch(t *testing.T) {
 			NextAccountAction: service.NextAccountStop,
 		}
 
-		action := fs.HandleFailoverError(context.Background(), mock, 100, service.PlatformGrok, maxSameAccountRetries, stopErr)
+		action := fs.HandleFailoverError(context.Background(), mock, 100, service.PlatformGrok, testSameAccountRetryLimit, stopErr)
 
 		require.Equal(t, FailoverExhausted, action)
 		require.Zero(t, fs.SwitchCount)
@@ -158,7 +160,7 @@ func TestHandleFailoverError_BasicSwitch(t *testing.T) {
 		require.Equal(t, stopErr, fs.LastFailoverErr)
 
 		legacyErr := newTestFailoverErr(http.StatusTooManyRequests, false, false)
-		action = fs.HandleFailoverError(context.Background(), mock, 100, service.PlatformGrok, maxSameAccountRetries, legacyErr)
+		action = fs.HandleFailoverError(context.Background(), mock, 100, service.PlatformGrok, testSameAccountRetryLimit, legacyErr)
 
 		require.Equal(t, FailoverContinue, action)
 		require.Equal(t, 1, fs.SwitchCount)
@@ -176,7 +178,7 @@ func TestHandleFailoverError_BasicSwitch(t *testing.T) {
 			NextAccountAction: service.NextAccountRetry,
 		}
 
-		action := fs.HandleFailoverError(ctx, mock, 101, service.PlatformGrok, maxSameAccountRetries, err)
+		action := fs.HandleFailoverError(ctx, mock, 101, service.PlatformGrok, testSameAccountRetryLimit, err)
 
 		require.Equal(t, FailoverCanceled, action)
 		require.Zero(t, fs.SwitchCount)
@@ -425,7 +427,7 @@ func TestHandleFailoverError_SameAccountRetry(t *testing.T) {
 		// pool_mode_retry_count 配置。此处验证传入 retryLimit=1 时只重试 1 次即切换。
 		mock := &mockTempUnscheduler{}
 		fs := NewFailoverState(5, false)
-		err := newTestFailoverErr(403, true, false)
+		err := newTestFailoverErr(502, true, false)
 		const retryLimit = 1
 
 		// 第 1 次：同账号重试
@@ -448,7 +450,7 @@ func TestHandleFailoverError_SameAccountRetry(t *testing.T) {
 		// pool_mode_retry_count=0 表示关闭同账号重试（如 GPT Image 账号）。
 		mock := &mockTempUnscheduler{}
 		fs := NewFailoverState(5, false)
-		err := newTestFailoverErr(403, true, false)
+		err := newTestFailoverErr(502, true, false)
 
 		action := fs.HandleFailoverError(context.Background(), mock, 100, "openai", 0, err)
 		require.Equal(t, FailoverContinue, action)
@@ -828,7 +830,7 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		action := fs.HandleSelectionExhausted(ctx)
+		action := fs.HandleSelectionExhausted(ctx, false)
 		require.Equal(t, FailoverCanceled, action)
 	})
 
@@ -838,7 +840,7 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		action := fs.HandleSelectionExhausted(ctx)
+		action := fs.HandleSelectionExhausted(ctx, false)
 		require.Equal(t, FailoverCanceled, action)
 	})
 

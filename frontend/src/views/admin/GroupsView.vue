@@ -3663,6 +3663,15 @@ import {
 } from "./groupsModelsList";
 import { createModelsListCandidatesTracker } from "./groupsModelsListCandidates";
 import { normalizeSupportedModelScopesForPlatform } from "./groupsSupportedModelScopes";
+import {
+  getDefaultImagePreviewPrice,
+  getDefaultVideoPreviewPrice,
+  getImagePricePlaceholder,
+  getVideoPricePlaceholder,
+  imagePricingI18nKey,
+  supportsVideoPricingPlatform,
+  videoPricingI18nKey,
+} from "./groupsImagePricing";
 
 const { t } = useI18n();
 const appStore = useAppStore();
@@ -4575,27 +4584,6 @@ const createVideoFinalPricePreview = computed(() =>
 );
 const editVideoFinalPricePreview = computed(() =>
   buildVideoFinalPricePreview(editForm),
-);
-
-// Codex 网页搜索单次默认价（与后端 defaultWebSearchPricePerCall 一致，官方 $10/1000 次）
-const DEFAULT_WEB_SEARCH_PRICE_PER_CALL = 0.01;
-
-const buildWebSearchFinalPricePreview = (form: {
-  web_search_price_per_call: number | string | null;
-  rate_multiplier: number | string | null;
-}) => {
-  const basePrice =
-    parsePreviewPrice(form.web_search_price_per_call) ??
-    DEFAULT_WEB_SEARCH_PRICE_PER_CALL;
-  const multiplier = normalizePreviewNumber(form.rate_multiplier, 1);
-  return formatImagePricePreview(basePrice * multiplier);
-};
-
-const createWebSearchFinalPricePreview = computed(() =>
-  buildWebSearchFinalPricePreview(createForm),
-);
-const editWebSearchFinalPricePreview = computed(() =>
-  buildWebSearchFinalPricePreview(editForm),
 );
 
 const resetDisabledBatchImagePricing = (

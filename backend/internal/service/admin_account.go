@@ -348,21 +348,10 @@ func normalizeAccountPriority(platform string, priority int) int {
 	return priority
 }
 
-func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
-	// 绑定分组
-	groupIDs := input.GroupIDs
-	// 如果没有指定分组,自动绑定对应平台的默认分组
-	if len(groupIDs) == 0 && !input.SkipDefaultGroupBind {
-		defaultGroupName := input.Platform + "-default"
-		groups, err := s.groupRepo.ListActiveByPlatform(ctx, input.Platform)
-		if err == nil {
-			for _, g := range groups {
-				if g.Name == defaultGroupName {
-					groupIDs = []int64{g.ID}
-					break
-				}
-			}
-		}
+// ValidateOpenAILongContextBillingExtra validates the OpenAI account billing flag when present.
+func ValidateOpenAILongContextBillingExtra(platform string, extra map[string]any) error {
+	if platform != PlatformOpenAI {
+		return nil
 	}
 	raw, exists := extra[openAILongContextBillingEnabledKey]
 	if !exists {
@@ -384,14 +373,6 @@ func normalizeOpenAILongContextBillingExtra(platform string, extra map[string]an
 	if err := ValidateOpenAILongContextBillingExtra(platform, extra); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(input.AccountEmail) != "" {
-		var err error
-		input.Extra, input.Credentials, err = ApplyAccountEmail(input.Extra, input.Credentials, input.AccountEmail)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	normalized := maps.Clone(extra)
 	if normalized == nil {
 		normalized = make(map[string]any, 1)
@@ -462,6 +443,49 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 			return nil, errors.New("load_factor must be <= 10000")
 		}
 		account.LoadFactor = input.LoadFactor
+	}
+	return account, nil
+}
+
+func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if strings.TrimSpace(input.AccountEmail) != "" {
+		var err error
+		input.Extra, input.Credentials, err = ApplyAccountEmail(input.Extra, input.Credentials, input.AccountEmail)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
+	if err != nil {
+		return nil, err
+	}
+
+	groupIDs := input.GroupIDs
+	if len(groupIDs) == 0 && !input.SkipDefaultGroupBind {
+		defaultGroupName := input.Platform + "-default"
+		groups, listErr := s.groupRepo.ListActiveByPlatform(ctx, input.Platform)
+		if listErr == nil {
+			for _, group := range groups {
+				if group.Name == defaultGroupName {
+					groupIDs = []int64{group.ID}
+					break
+				}
+			}
+		}
+	}
+	if len(groupIDs) > 0 && !input.SkipMixedChannelCheck {
+		if err := s.checkMixedChannelRisk(ctx, 0, input.Platform, groupIDs); err != nil {
+			return nil, err
+		}
+	}
+	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
+		return nil, err
+	}
+
+	account, err := buildAccountForCreate(input, accountExtra)
+	if err != nil {
+		return nil, err
 	}
 	if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {
 		return nil, err

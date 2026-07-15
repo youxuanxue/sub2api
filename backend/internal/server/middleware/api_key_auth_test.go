@@ -1337,6 +1337,7 @@ func (r *stubApiKeyRepo) GetRateLimitData(ctx context.Context, id int64) (*servi
 }
 
 type stubUserSubscriptionRepo struct {
+	getByID            func(ctx context.Context, id int64) (*service.UserSubscription, error)
 	getActive          func(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error)
 	listActiveByUserID func(ctx context.Context, userID int64) ([]service.UserSubscription, error)
 	updateStatus       func(ctx context.Context, subscriptionID int64, status string) error

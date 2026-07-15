@@ -19,11 +19,14 @@ const (
 	EndpointMessages          = apipath.Messages
 	EndpointChatCompletions   = apipath.ChatCompletions
 	EndpointEmbeddings        = apipath.Embeddings
+	EndpointAlphaSearch       = "/v1/alpha/search"
 	EndpointResponses         = apipath.Responses
 	EndpointResponsesCompact  = apipath.ResponsesCompact
 	EndpointImagesGenerations = apipath.ImagesGenerations
 	EndpointImagesEdits       = apipath.ImagesEdits
 	EndpointVideosGenerations = apipath.VideosGenerations
+	EndpointVideosEdits       = "/v1/videos/edits"
+	EndpointVideosExtensions  = "/v1/videos/extensions"
 	EndpointVideos            = apipath.Videos
 	EndpointGeminiModels      = apipath.GeminiModels
 	EndpointModels            = apipath.Models

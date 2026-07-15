@@ -83,7 +83,7 @@ func NewAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache se
 // NewAdminAccountRepository exposes the account repository's atomic duplication capability
 // as an explicit dependency of the admin service.
 func NewAdminAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache service.SchedulerCache) service.AdminAccountRepository {
-	return newAccountRepositoryWithSQL(client, sqlDB, schedulerCache)
+	return newAccountRepositoryWithSQL(client, sqlDB, schedulerCache, nil)
 }
 
 // newAccountRepositoryWithSQL 是内部构造函数，支持依赖注入 SQL 执行器。
@@ -931,24 +931,39 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 	// token_refresh_service_candidates_test.go 断言覆盖该名单。kiro/grok 的
 	// OAuth access_token 短寿命（grok 默认 1h）且网关端只读 credentials 不做按需
 	// 刷新，后台刷新是其唯一续期路径，漏掉即 ~1h 后 401 掉出池且无自愈。
-	rows, err := r.sql.QueryContext(ctx, `
+	query := `
 		SELECT id
 		FROM accounts
 		WHERE deleted_at IS NULL
-			AND status = 'active'
-			AND type = 'oauth'
 			AND platform = ANY($1)
+			AND id > $2`
+	if options.ActiveOnly {
+		query += `
+			AND status = 'active'`
+	}
+	if options.IncludeSetupToken {
+		query += `
+			AND type IN ('oauth', 'setup-token')`
+	} else {
+		query += `
+			AND type = 'oauth'`
+	}
+	if options.RequireRefreshToken {
+		query += `
 			AND credentials ? 'refresh_token'
 			AND btrim(credentials->>'refresh_token') <> ''`
 	}
 	if options.ExcludeRetryCooldown {
 		query += `
 			AND (
-				temp_unschedulable_until > NOW()
-				AND temp_unschedulable_reason LIKE 'token refresh retry exhausted:%'
-			) IS NOT TRUE
-		ORDER BY priority ASC, id ASC
-	`, pq.Array(engine.OAuthRefreshPlatforms()))
+					temp_unschedulable_until > NOW()
+					AND temp_unschedulable_reason LIKE 'token refresh retry exhausted:%'
+				) IS NOT TRUE`
+	}
+	query += `
+		ORDER BY id ASC
+		LIMIT $3`
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(engine.OAuthRefreshPlatforms()), options.AfterID, options.Limit)
 	if err != nil {
 		return nil, err
 	}

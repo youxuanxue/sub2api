@@ -96,6 +96,15 @@ func DecodeContentEncodedBody(encoding string, raw []byte) ([]byte, error) {
 	}
 }
 
+// ReadLenientJSONRequestBodyWithPrealloc reads and normalizes JSON string control bytes.
+func ReadLenientJSONRequestBodyWithPrealloc(req *http.Request, maxNormalizedBytes int64) ([]byte, error) {
+	body, err := ReadRequestBodyWithPrealloc(req)
+	if err != nil {
+		return nil, err
+	}
+	return NormalizeLenientJSONRequestBody(body, maxNormalizedBytes)
+}
+
 // NormalizeLenientJSONRequestBody escapes raw control bytes that broken
 // OpenAI-compatible clients sometimes place inside JSON strings.
 func NormalizeLenientJSONRequestBody(body []byte, maxNormalizedBytes int64) ([]byte, error) {

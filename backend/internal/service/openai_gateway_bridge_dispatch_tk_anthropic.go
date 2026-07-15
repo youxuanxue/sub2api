@@ -654,7 +654,9 @@ func convertBufferedChatCompletionsToAnthropicJSON(
 		Content: content, Model: originalModel,
 		StopReason: stopReason,
 		Usage: apicompat.AnthropicUsage{
-			InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
+			InputTokens:          usage.InputTokens,
+			OutputTokens:         usage.OutputTokens,
+			CacheReadInputTokens: usage.CacheReadInputTokens,
 		},
 	}
 	c.JSON(http.StatusOK, resp)

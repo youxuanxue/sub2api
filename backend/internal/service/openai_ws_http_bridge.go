@@ -190,18 +190,22 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	var upstreamReq *http.Request
 	if account.Platform == PlatformGrok {
 		upstreamModel := resolveGrokWSUpstreamModel(account, body, originalModel)
-		grokIntentSourceBody := body
 		body, err = patchGrokResponsesBody(body, upstreamModel)
 		if err != nil {
 			releaseUpstreamCtx()
 			return nil, err
+		}
+		body, err = applyGrokResponsesCacheIdentity(body, body, grokCacheIdentity, account.IsGrokOAuth())
+		if err != nil {
+			releaseUpstreamCtx()
+			return nil, fmt.Errorf("apply grok websocket cache identity: %w", err)
 		}
 		targetURL, targetErr := s.resolveGrokResponsesUpstream(account)
 		if targetErr != nil {
 			releaseUpstreamCtx()
 			return nil, targetErr
 		}
-		upstreamReq, err = buildGrokResponsesRequest(upstreamCtx, c, targetURL, body, token)
+		upstreamReq, err = buildGrokResponsesRequestForAccount(upstreamCtx, c, account, targetURL, body, token, grokCacheIdentity)
 	} else {
 		upstreamReq, err = s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, body, token)
 	}

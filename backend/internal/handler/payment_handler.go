@@ -90,17 +90,6 @@ func (h *PaymentHandler) GetPlans(c *gin.Context) {
 	response.Success(c, result)
 }
 
-// GetChannels returns enabled payment channels.
-// GET /api/v1/payment/channels
-func (h *PaymentHandler) GetChannels(c *gin.Context) {
-	channels, _, err := h.channelService.List(c.Request.Context(), pagination.PaginationParams{Page: 1, PageSize: 1000}, service.StatusActive, "")
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, channels)
-}
-
 // GetCheckoutInfo returns all data the payment page needs in a single call:
 // payment methods with limits, subscription plans, and configuration.
 // GET /api/v1/payment/checkout-info

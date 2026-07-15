@@ -123,33 +123,22 @@ func NewTokenRefreshService(
 	claudeRefresher := NewClaudeTokenRefresher(oauthService)
 	geminiRefresher := NewGeminiTokenRefresher(geminiOAuthService)
 	agRefresher := NewAntigravityTokenRefresher(antigravityOAuthService)
-	// Kiro（第六平台）刷新器无外部依赖，刷新走 vendor 包级 kiroproto.RefreshToken。
 	kiroRefresher := NewKiroTokenRefresher()
-	// Grok（第七平台）刷新器走 GrokOAuthService（xAI OAuth）。
 	var grokOAuthService *GrokOAuthService
 	if len(grokOAuthServices) > 0 {
 		grokOAuthService = grokOAuthServices[0]
 	}
 	grokRefresher := NewGrokTokenRefresher(grokOAuthService)
 
-	// 注册平台特定的刷新器（TokenRefresher 接口）
-	s.refreshers = []TokenRefresher{
-		claudeRefresher,
-		openAIRefresher,
-		geminiRefresher,
-		agRefresher,
-		kiroRefresher,
-		grokRefresher,
-	}
-
-	// 注册对应的 OAuthRefreshExecutor（带 CacheKey 方法），顺序与 refreshers 一一对应
-	s.executors = []OAuthRefreshExecutor{
-		claudeRefresher,
-		openAIRefresher,
-		geminiRefresher,
-		agRefresher,
-		kiroRefresher,
-		grokRefresher,
+	// Each provider is registered exactly once. The same registry supplies both
+	// execution and repository eligibility, preventing future platform drift.
+	s.registrations = []tokenRefreshRegistration{
+		{platform: PlatformAnthropic, refresher: claudeRefresher, executor: claudeRefresher},
+		{platform: PlatformOpenAI, refresher: openAIRefresher, executor: openAIRefresher},
+		{platform: PlatformGemini, refresher: geminiRefresher, executor: geminiRefresher},
+		{platform: PlatformAntigravity, refresher: agRefresher, executor: agRefresher},
+		{platform: PlatformKiro, refresher: kiroRefresher, executor: kiroRefresher},
+		{platform: PlatformGrok, refresher: grokRefresher, executor: grokRefresher},
 	}
 
 	return s

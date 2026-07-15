@@ -93,7 +93,7 @@ func TestEstimateImageHold_CoversFewerDeliveredImages(t *testing.T) {
 func TestEstimateVideoHold_MatchesBilledDuration(t *testing.T) {
 	s := NewBillingService(&config.Config{}, nil)
 	hold := s.EstimateVideoHold("some-video-model", 8, 1.0)
-	actual := s.CalculateVideoCost("some-video-model", 8, 1.0).ActualCost
+	actual := s.CalculateVideoCost("some-video-model", VideoBillingResolution720P, 1, 8, nil, 1.0).ActualCost
 	if hold < actual {
 		t.Errorf("video hold must be ≥ billed cost for the same duration: hold=%.6f actual=%.6f", hold, actual)
 	}

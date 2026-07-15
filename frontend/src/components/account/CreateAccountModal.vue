@@ -5038,6 +5038,15 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   return Object.keys(extra).length > 0 ? extra : undefined
 }
 
+const buildOpenAICodexImportExtra = (): Record<string, unknown> | undefined => {
+  const extra = buildOpenAIExtra()
+  if (!extra) return undefined
+  if (!openAILongContextBillingTouched.value) {
+    delete extra.openai_long_context_billing_enabled
+  }
+  return Object.keys(extra).length > 0 ? extra : undefined
+}
+
 const writeAnthropicOAuthPassthroughExtra = (extra: Record<string, unknown>) => {
   if (anthropicOAuthPassthroughEnabled.value) {
     extra.anthropic_oauth_passthrough = true
@@ -5421,9 +5430,7 @@ const handleSubmit = async () => {
       ? 'https://api.openai.com'
       : form.platform === PLATFORM_GEMINI
         ? 'https://generativelanguage.googleapis.com'
-        : form.platform === 'grok'
-          ? 'https://api.x.ai/v1'
-          : 'https://api.anthropic.com'
+        : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {

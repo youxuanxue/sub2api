@@ -152,6 +152,7 @@ func ProvideAccountUsageService(
 	cache *UsageCache,
 	identityCache IdentityCache,
 	tlsFPProfileService *TLSFingerprintProfileService,
+	oauthRefreshAPI *OAuthRefreshAPI,
 	openAIGatewayService *OpenAIGatewayService,
 ) *AccountUsageService {
 	service := NewAccountUsageService(
@@ -166,6 +167,7 @@ func ProvideAccountUsageService(
 		cache,
 		identityCache,
 		tlsFPProfileService,
+		oauthRefreshAPI,
 	)
 	service.agentIdentityWS = openAIGatewayService
 	return service
@@ -177,6 +179,8 @@ func ProvideAccountTestService(
 	claudeTokenProvider *ClaudeTokenProvider,
 	grokTokenProvider *GrokTokenProvider,
 	antigravityGatewayService *AntigravityGatewayService,
+	kiroGatewayService *KiroGatewayService,
+	rateLimitService *RateLimitService,
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
 	tlsFPProfileService *TLSFingerprintProfileService,
@@ -188,6 +192,8 @@ func ProvideAccountTestService(
 		claudeTokenProvider,
 		grokTokenProvider,
 		antigravityGatewayService,
+		kiroGatewayService,
+		rateLimitService,
 		httpUpstream,
 		cfg,
 		tlsFPProfileService,
@@ -761,6 +767,7 @@ var ProviderSet = wire.NewSet(
 	NewCRSSyncService,
 	ProvideUpdateService,
 	ProvideTokenRefreshService,
+	wire.Bind(new(GrokOAuthTokenService), new(*GrokOAuthService)),
 	wire.Bind(new(GrokOAuthReconciler), new(*TokenRefreshService)),
 	ProvideAccountExpiryService,
 	ProvideProxyExpiryService,

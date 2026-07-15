@@ -36,7 +36,7 @@ func TestListSchedulableAccountLoadsUsesSingleProjectionQuery(t *testing.T) {
 	driver := entsql.OpenDB(dialect.Postgres, db)
 	client := dbent.NewClient(dbent.Driver(driver))
 	t.Cleanup(func() { _ = client.Close() })
-	repo := newAccountRepositoryWithSQL(client, db, nil)
+	repo := newAccountRepositoryWithSQL(client, db, nil, nil)
 
 	mock.ExpectQuery("schedulable account load projection").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "concurrency", "load_factor"}).

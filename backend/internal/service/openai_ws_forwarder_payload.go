@@ -135,6 +135,7 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 			inboundUA = c.GetHeader("User-Agent")
 		}
 		headers.Set("user-agent", resolveOpenAICodexUserAgent(context.Background(), s, account, inboundUA))
+		enforceCodexIdentityHeaders(headers)
 	} else {
 		customUA := ""
 		if account != nil {

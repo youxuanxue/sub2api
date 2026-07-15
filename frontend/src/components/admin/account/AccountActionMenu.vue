@@ -79,8 +79,13 @@ const props = defineProps<{
   position: { top: number; left: number } | null
   anchor?: HTMLElement | null
 }>()
-const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'set-tier', 'create-spark-shadow'])
+const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'set-tier', 'create-spark-shadow'])
 const { t } = useI18n()
+
+const canDuplicate = computed(() => {
+  if (!props.account || props.account.parent_account_id != null) return false
+  return ['apikey', 'upstream', 'bedrock', 'service_account'].includes(props.account.type)
+})
 
 const DEFAULT_MENU_WIDTH = 208
 const DEFAULT_MENU_HEIGHT = 240

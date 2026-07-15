@@ -566,7 +566,12 @@ func (c *schedulerCache) UpdateLastUsed(ctx context.Context, updates map[int64]t
 		// 白名单形状幂等，避免任何字段漂移写回。
 		metaPayload, err := json.Marshal(buildSchedulerMetadataAccount(*account))
 		if err != nil {
-			return err
+			slog.Warn("scheduler cache removes account with unencodable metadata",
+				"account_id", ids[i],
+				"error", err,
+			)
+			pipe.Del(ctx, keys[i], schedulerAccountKey(strconv.FormatInt(ids[i], 10)))
+			continue
 		}
 		pipe.Set(ctx, keys[i], metaPayload, 0)
 	}

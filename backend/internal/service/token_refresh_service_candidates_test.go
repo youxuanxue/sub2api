@@ -125,19 +125,20 @@ func TestRegisteredRefreshers_MatchOAuthRefreshSourceOfTruth(t *testing.T) {
 	// Construction stores deps without dereferencing them (only cfg is read),
 	// so nil collaborators are safe — CanRefresh inspects only Platform/Type.
 	svc := NewTokenRefreshService(nil, nil, nil, nil, nil, nil, nil, &config.Config{}, nil)
-	require.NotEmpty(t, svc.refreshers, "no refreshers registered")
+	require.NotEmpty(t, svc.registrations, "no refreshers registered")
 
-	covered := make(map[string]bool)
-	// Probe across every scheduling platform (the superset) plus a bogus one, so
-	// we detect refreshers that accept a platform outside the source of truth.
-	probeUniverse := append(engine.AllSchedulingPlatforms(), "definitely-not-a-platform")
-	for _, platform := range probeUniverse {
-		probe := &Account{Platform: platform, Type: AccountTypeOAuth}
-		for _, r := range svc.refreshers {
-			if r.CanRefresh(probe) {
-				covered[platform] = true
-			}
+	covered := make(map[string]bool, len(svc.registrations))
+	for _, registration := range svc.registrations {
+		probe := &Account{
+			Platform: registration.platform,
+			Type:     AccountTypeOAuth,
+			Credentials: map[string]any{
+				"refresh_token": "probe-refresh-token",
+			},
 		}
+		require.True(t, registration.refresher.CanRefresh(probe),
+			"registered refresher must accept a valid OAuth probe for %s", registration.platform)
+		covered[registration.platform] = true
 	}
 
 	got := make([]string, 0, len(covered))
@@ -240,6 +241,8 @@ func TestTokenRefreshService_ProcessRefreshUsesOAuthRefreshCandidates(t *testing
 			{platform: PlatformOpenAI, refresher: &tokenRefreshTestRefresher{}},
 			{platform: PlatformGemini, refresher: &tokenRefreshTestRefresher{}},
 			{platform: PlatformAntigravity, refresher: &tokenRefreshTestRefresher{}},
+			{platform: PlatformKiro, refresher: &tokenRefreshTestRefresher{}},
+			{platform: PlatformGrok, refresher: &tokenRefreshTestRefresher{}},
 		},
 		refreshPolicy: DefaultBackgroundRefreshPolicy(),
 		cfg:           &config.TokenRefreshConfig{RefreshBeforeExpiryHours: 1, MaxRetries: 1},
@@ -248,7 +251,7 @@ func TestTokenRefreshService_ProcessRefreshUsesOAuthRefreshCandidates(t *testing
 	svc.processRefresh()
 
 	require.Zero(t, repo.listActiveCalls, "TokenRefreshService should not use the broad active-account query")
-	require.Equal(t, []int64{1, 6, 7, 8}, repo.updatedCredentialIDs,
+	require.ElementsMatch(t, []int64{1, 6, 7, 8}, repo.updatedCredentialIDs,
 		"kiro/grok OAuth accounts must remain background-refresh candidates; "+
 			"antigravity with non-retry temp-unschedulable (OAuth 401) must also refresh")
 	require.Equal(t, 1, repo.clearTempCalls, "successful refresh should clear the OAuth 401 temp-unschedulable state")

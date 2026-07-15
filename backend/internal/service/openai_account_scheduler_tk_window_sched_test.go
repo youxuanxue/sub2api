@@ -56,7 +56,7 @@ func TestOpenAIAccountWindowUtilization(t *testing.T) {
 	})
 	t.Run("stale snapshot => no signal", func(t *testing.T) {
 		acc := &Account{Extra: map[string]any{
-			"codex_5h_used_percent": 99.0,
+			"codex_5h_used_percent":  99.0,
 			"codex_usage_updated_at": now.Add(-3 * time.Hour).Format(time.RFC3339),
 		}}
 		_, ok := openAIAccountWindowUtilization(acc, now)

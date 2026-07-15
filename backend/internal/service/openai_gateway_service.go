@@ -112,6 +112,8 @@ type OpenAIUsage struct {
 	ImageOutputTokens        int `json:"image_output_tokens,omitempty"`
 }
 
+const openAIUpstreamEndpointContextKey = "openai_actual_upstream_endpoint"
+
 // OpenAIForwardResult represents the result of forwarding
 type OpenAIForwardResult struct {
 	RequestID  string
@@ -153,7 +155,10 @@ type OpenAIForwardResult struct {
 	ImageOutputSizes     []string
 	ImageSizeSource      string
 	ImageSizeBreakdown   map[string]int
-	VideoDurationSeconds *int64
+	VideoCount           int
+	VideoResolution      string
+	VideoDurationSeconds int
+	WebSearchCalls       int
 
 	wsReplayInput       []json.RawMessage
 	wsReplayInputExists bool

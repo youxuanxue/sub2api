@@ -149,9 +149,8 @@ func TestResolveOpenAIForwardModel(t *testing.T) {
 				Platform:    PlatformGrok,
 				Credentials: map[string]any{},
 			},
-			requestedModel:     "grok-4.20-0309-reasoning",
-			defaultMappedModel: "grok-code-fast-1",
-			expectedModel:      "grok-4.20-0309-reasoning",
+			requestedModel: "grok-4.20-0309-reasoning",
+			expectedModel:  "grok-4.20-0309-reasoning",
 		},
 	}
 

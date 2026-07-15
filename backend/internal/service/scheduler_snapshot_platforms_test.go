@@ -40,6 +40,7 @@ func TestAllSchedulingPlatforms_IncludesNewAPI(t *testing.T) {
 // recordingSchedulerCache implements SchedulerCache and records every
 // (bucket, op) pair so tests can assert which buckets were attempted.
 type recordingSchedulerCache struct {
+	SchedulerCache
 	mu       sync.Mutex
 	locks    []SchedulerBucket
 	sets     []SchedulerBucket
@@ -50,7 +51,11 @@ func (c *recordingSchedulerCache) GetSnapshot(ctx context.Context, bucket Schedu
 	return nil, false, nil
 }
 
-func (c *recordingSchedulerCache) SetSnapshot(ctx context.Context, bucket SchedulerBucket, accounts []Account) error {
+func (c *recordingSchedulerCache) CaptureBucketWriteToken(context.Context, SchedulerBucket) (SchedulerBucketWriteToken, error) {
+	return SchedulerBucketWriteToken{}, nil
+}
+
+func (c *recordingSchedulerCache) SetSnapshot(ctx context.Context, bucket SchedulerBucket, _ SchedulerBucketWriteToken, accounts []Account) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sets = append(c.sets, bucket)
@@ -174,11 +179,7 @@ func TestRebuildByGroupIDs_RebuildsNewAPIBucket(t *testing.T) {
 // also enumerated only the 4 legacy platforms, so a fresh-process restart
 // without any persisted newapi bucket left the newapi cold snapshot empty.
 func TestDefaultBuckets_IncludesNewAPI(t *testing.T) {
-	svc := NewSchedulerSnapshotService(nil, nil, nil, nil, nil)
-	buckets, err := svc.defaultBuckets(context.Background())
-	if err != nil {
-		t.Fatalf("defaultBuckets returned error: %v", err)
-	}
+	buckets := schedulerCanonicalBuckets(0)
 
 	want := map[string]struct{ single, forced bool }{
 		PlatformAnthropic:   {},

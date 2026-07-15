@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/gin-gonic/gin"
@@ -62,14 +61,14 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 	if err != nil {
 		return nil, err
 	}
-	token, err := s.grokResponsesAuthToken(ctx, account)
+	token, err := s.grokResponsesAuthToken(ctx, c, account)
 	if err != nil {
 		return nil, err
 	}
 
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	defer releaseUpstreamCtx()
-	upstreamReq, err := buildGrokResponsesRequest(upstreamCtx, c, targetURL, patchedBody, token)
+	upstreamReq, err := buildGrokResponsesRequestForAccount(upstreamCtx, c, account, targetURL, patchedBody, token, cacheIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -108,6 +107,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
+				ResponseHeaders:        resp.Header.Clone(),
 				RetryableOnSameAccount: tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, false),
 			}
 		}
@@ -232,13 +232,13 @@ func (s *OpenAIGatewayService) resolveGrokResponsesUpstream(account *Account) (s
 	}
 }
 
-func (s *OpenAIGatewayService) grokResponsesAuthToken(ctx context.Context, account *Account) (string, error) {
+func (s *OpenAIGatewayService) grokResponsesAuthToken(ctx context.Context, c *gin.Context, account *Account) (string, error) {
 	if account == nil {
 		return "", fmt.Errorf("grok responses: account is nil")
 	}
 	switch {
 	case account.IsGrokOAuth():
-		token, _, err := s.GetAccessToken(ctx, account)
+		token, _, err := s.getRequestCredential(ctx, c, account)
 		return token, err
 	case account.IsGrokAPIKey():
 		token := account.GetOpenAIApiKey()
@@ -253,6 +253,37 @@ func (s *OpenAIGatewayService) grokResponsesAuthToken(ctx context.Context, accou
 
 var grokResponsesUnsupportedRecursiveFields = map[string]struct{}{
 	"external_web_access": {},
+}
+
+func sanitizeGrokResponsesModelCapabilities(body []byte, upstreamModel string) ([]byte, error) {
+	if !grokModelRejectsReasoningEffort(upstreamModel) {
+		return body, nil
+	}
+	out := body
+	for _, field := range []string{"reasoning", "reasoning_effort", "reasoningEffort"} {
+		if !gjson.GetBytes(out, field).Exists() {
+			continue
+		}
+		var err error
+		out, err = sjson.DeleteBytes(out, field)
+		if err != nil {
+			return nil, fmt.Errorf("remove unsupported Grok Composer %s: %w", field, err)
+		}
+	}
+	return out, nil
+}
+
+func grokModelRejectsReasoningEffort(model string) bool {
+	model = strings.TrimSpace(strings.ToLower(model))
+	if slash := strings.LastIndex(model, "/"); slash >= 0 {
+		model = strings.TrimSpace(model[slash+1:])
+	}
+	switch model {
+	case "grok-composer", "grok-composer-2.5-fast", "composer-2.5":
+		return true
+	default:
+		return false
+	}
 }
 
 func sanitizeGrokResponsesUnsupportedFields(body []byte) ([]byte, error) {
@@ -599,7 +630,7 @@ func (s *OpenAIGatewayService) describeGrokComposerImage(
 		releaseUpstreamCtx()
 		return "", OpenAIUsage{}, fmt.Errorf("resolve grok composer image bridge upstream: %w", err)
 	}
-	upstreamReq, err := buildGrokResponsesRequest(upstreamCtx, c, targetURL, body, token)
+	upstreamReq, err := buildGrokResponsesRequestForAccount(upstreamCtx, c, account, targetURL, body, token, "")
 	releaseUpstreamCtx()
 	if err != nil {
 		return "", OpenAIUsage{}, fmt.Errorf("build grok composer image bridge request: %w", err)
@@ -636,6 +667,7 @@ func (s *OpenAIGatewayService) describeGrokComposerImage(
 			return "", OpenAIUsage{}, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
+				ResponseHeaders:        resp.Header.Clone(),
 				RetryableOnSameAccount: tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, false),
 			}
 		}
@@ -764,7 +796,7 @@ func addOpenAIUsage(dst *OpenAIUsage, usage OpenAIUsage) {
 	dst.ImageOutputTokens += usage.ImageOutputTokens
 }
 
-func buildGrokResponsesRequest(ctx context.Context, c *gin.Context, targetURL string, body []byte, token string) (*http.Request, error) {
+func buildGrokResponsesRequestForAccount(ctx context.Context, c *gin.Context, account *Account, targetURL string, body []byte, token, cacheIdentity string) (*http.Request, error) {
 	if strings.TrimSpace(targetURL) == "" {
 		return nil, fmt.Errorf("grok responses target URL is empty")
 	}
@@ -790,13 +822,35 @@ func buildGrokResponsesRequest(ctx context.Context, c *gin.Context, targetURL st
 	return req, nil
 }
 
+func buildGrokResponsesRequest(ctx context.Context, c *gin.Context, targetURL string, body []byte, token string) (*http.Request, error) {
+	if strings.TrimSpace(targetURL) == "" {
+		return nil, fmt.Errorf("grok responses target URL is empty")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	applyGrokCLIHeaders(req.Header)
+	if c != nil {
+		if value := strings.TrimSpace(c.GetHeader("OpenAI-Beta")); value != "" {
+			req.Header.Set("OpenAI-Beta", value)
+		}
+	}
+	return req, nil
+}
+
 // applyGrokCLIHeaders identifies subscription traffic as a supported Grok CLI
 // version. The CLI gateway rejects otherwise valid OAuth requests without it.
 func applyGrokCLIHeaders(headers http.Header) {
 	if headers == nil {
 		return
 	}
-	headers.Set("User-Agent", grokUpstreamUserAgent)
+	if strings.TrimSpace(headers.Get("User-Agent")) == "" {
+		headers.Set("User-Agent", grokUpstreamUserAgent)
+	}
 	headers.Set("X-Grok-Client-Version", grokCLIVersion)
 }
 
@@ -1055,7 +1109,7 @@ func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Contex
 	if s.handleOpenAICompatRelayDownstreamCapacityError(ctx, account, statusCode, responseBody, tkFirstRequestedModel(requestedModel)) {
 		return
 	}
-	reasonUnauthorized := "grok oauth token unauthorized"
+	reasonUnauthorized := "grok credentials unauthorized"
 	if account.IsGrokAPIKey() {
 		reasonUnauthorized = "grok relay api_key unauthorized"
 	}
@@ -1067,6 +1121,10 @@ func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Contex
 	case http.StatusTooManyRequests:
 		cooldown, ok := s.grok429Cooldown(ctx, account, headers)
 		if !ok {
+			return
+		}
+		if snapshot := xai.ParseQuotaHeaders(headers, http.StatusTooManyRequests); snapshot != nil && snapshot.RetryAfterSeconds != nil && *snapshot.RetryAfterSeconds > 0 {
+			s.rateLimitGrok(ctx, account, time.Now().Add(cooldown))
 			return
 		}
 		s.tempUnscheduleGrok(ctx, account, cooldown, "grok rate limited")

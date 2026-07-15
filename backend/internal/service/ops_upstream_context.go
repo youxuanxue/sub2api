@@ -26,6 +26,7 @@ const (
 	OpsUpstreamErrorMessageKey = "ops_upstream_error_message"
 	OpsUpstreamErrorDetailKey  = "ops_upstream_error_detail"
 	OpsUpstreamErrorsKey       = "ops_upstream_errors"
+	OpsStreamErrorKey          = "ops_stream_error"
 
 	// OpsUpstreamKindRequestNormalized marks Anthropic request-body normalize audit
 	// events (change-kind list in Message). Recovered-200 ops logging must ignore

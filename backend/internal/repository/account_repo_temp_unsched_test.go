@@ -37,7 +37,7 @@ func TestAccountRepository_GrokCredentialConditionalMutationsAreEligibleAndAtomi
 
 	t.Run("permanent", func(t *testing.T) {
 		exec := &recordingSQLExecutor{result: rowsAffectedResult(0)}
-		repo := newAccountRepositoryWithSQL(nil, exec, nil)
+		repo := newAccountRepositoryWithSQL(nil, exec, nil, nil)
 
 		updated, err := repo.SetGrokCredentialErrorIfMatch(context.Background(), 42, snapshot, "revoked")
 
@@ -63,7 +63,7 @@ func TestAccountRepository_GrokCredentialConditionalMutationsAreEligibleAndAtomi
 
 	t.Run("transient", func(t *testing.T) {
 		exec := &recordingSQLExecutor{result: rowsAffectedResult(0)}
-		repo := newAccountRepositoryWithSQL(nil, exec, nil)
+		repo := newAccountRepositoryWithSQL(nil, exec, nil, nil)
 
 		updated, err := repo.SetGrokCredentialTempUnschedulableIfMatch(
 			context.Background(), 42, snapshot, time.Now().Add(time.Minute), "temporary",
@@ -112,7 +112,7 @@ func TestAccountRepository_GrokCredentialCommitCarriesOutboxAcrossCallerCancella
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			exec := &recordingSQLExecutor{result: rowsAffectedResult(1), afterExec: cancel}
-			repo := newAccountRepositoryWithSQL(nil, exec, nil)
+			repo := newAccountRepositoryWithSQL(nil, exec, nil, nil)
 
 			updated, err := tt.mutate(ctx, repo)
 
@@ -127,7 +127,7 @@ func TestAccountRepository_GrokCredentialCommitCarriesOutboxAcrossCallerCancella
 
 func TestAccountRepository_SetGrokOAuthErrorIfCredentialsUnchanged_RequiresActiveExactCredentialMatch(t *testing.T) {
 	exec := &recordingSQLExecutor{result: rowsAffectedResult(0)}
-	repo := newAccountRepositoryWithSQL(nil, exec, nil)
+	repo := newAccountRepositoryWithSQL(nil, exec, nil, nil)
 
 	applied, err := repo.SetGrokOAuthErrorIfCredentialsUnchanged(
 		context.Background(),
@@ -155,7 +155,7 @@ func TestAccountRepository_SetGrokOAuthErrorIfCredentialsUnchanged_RequiresActiv
 
 func TestAccountRepository_SetGrokOAuthErrorIfCredentialsUnchanged_AppliedWritesOutbox(t *testing.T) {
 	exec := &recordingSQLExecutor{result: rowsAffectedResult(1)}
-	repo := newAccountRepositoryWithSQL(nil, exec, nil)
+	repo := newAccountRepositoryWithSQL(nil, exec, nil, nil)
 
 	applied, err := repo.SetGrokOAuthErrorIfCredentialsUnchanged(
 		context.Background(),
@@ -175,7 +175,7 @@ func TestAccountRepository_SetGrokOAuthErrorIfCredentialsUnchanged_AppliedWrites
 
 func TestAccountRepository_SetGrokOAuthRefreshErrorIfCredentialsUnchanged_UsesAttemptCredentialsAndProxy(t *testing.T) {
 	exec := &recordingSQLExecutor{result: rowsAffectedResult(0)}
-	repo := newAccountRepositoryWithSQL(nil, exec, nil)
+	repo := newAccountRepositoryWithSQL(nil, exec, nil, nil)
 	proxyID := int64(17)
 
 	applied, err := repo.SetGrokOAuthRefreshErrorIfCredentialsUnchanged(
@@ -201,7 +201,7 @@ func TestAccountRepository_SetGrokOAuthRefreshErrorIfCredentialsUnchanged_UsesAt
 
 func TestAccountRepository_SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnchanged_UsesAttemptCredentialsAndProxy(t *testing.T) {
 	exec := &recordingSQLExecutor{result: rowsAffectedResult(0)}
-	repo := newAccountRepositoryWithSQL(nil, exec, nil)
+	repo := newAccountRepositoryWithSQL(nil, exec, nil, nil)
 	proxyID := int64(19)
 
 	applied, err := repo.SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnchanged(
@@ -227,7 +227,7 @@ func TestAccountRepository_SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnch
 
 func TestAccountRepository_UpdateGrokOAuthCredentialsIfUnchanged_UsesExactAttemptStateAndAtomicOutbox(t *testing.T) {
 	exec := &recordingSQLExecutor{result: rowsAffectedResult(1)}
-	repo := newAccountRepositoryWithSQL(nil, exec, nil)
+	repo := newAccountRepositoryWithSQL(nil, exec, nil, nil)
 	proxyID := int64(29)
 
 	applied, err := repo.UpdateGrokOAuthCredentialsIfUnchanged(
@@ -251,7 +251,7 @@ func TestAccountRepository_UpdateGrokOAuthCredentialsIfUnchanged_UsesExactAttemp
 	require.Equal(t, &proxyID, exec.execArgs[0][5])
 }
 
-func TestAccountRepository_ListOAuthRefreshCandidatePage_SQLFilter(t *testing.T) {
+func TestAccountRepository_ListOAuthRefreshCandidates_SQLFilter(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
@@ -279,7 +279,7 @@ func TestAccountRepository_ListOAuthRefreshCandidatePage_SQLFilter(t *testing.T)
 	normalized := normalizeSQLWhitespace(capturedSQL)
 	require.Contains(t, normalized, "deleted_at IS NULL")
 	require.Contains(t, normalized, "status = 'active'")
-	require.Contains(t, normalized, "type = 'oauth'")
+	require.Contains(t, normalized, "type IN ('oauth', 'setup-token')")
 	// The platform filter is parametrized (`= ANY($1)`) and bound from the single
 	// source of truth engine.OAuthRefreshPlatforms() — there must be NO platform
 	// literal left in the SQL for an upstream merge to reset to its four-platform
@@ -290,12 +290,14 @@ func TestAccountRepository_ListOAuthRefreshCandidatePage_SQLFilter(t *testing.T)
 		"platform filter must be parametrized from engine.OAuthRefreshPlatforms(), not a SQL literal")
 	require.NotContains(t, normalized, "platform IN (",
 		"no hand-maintained platform IN (...) literal may remain — it is the exact surface upstream silently reset in R-001")
-	require.Len(t, capturedArgs, 1, "ListOAuthRefreshCandidates must bind exactly the platform array arg")
+	require.Len(t, capturedArgs, 3, "candidate page must bind platform array, cursor, and limit")
 	boundPlatforms := pqArrayToStrings(t, capturedArgs[0])
 	require.ElementsMatch(t, engine.OAuthRefreshPlatforms(), boundPlatforms,
 		"the bound $1 platform array must equal engine.OAuthRefreshPlatforms() verbatim")
 	require.Subset(t, boundPlatforms, []string{"kiro", "grok"},
 		"TK platforms 6/7 (kiro/grok) must remain OAuth-refresh candidates")
+	require.Equal(t, int64(100), capturedArgs[1])
+	require.Equal(t, 200, capturedArgs[2])
 	require.Contains(t, normalized, "credentials ? 'refresh_token'")
 	require.Contains(t, normalized, "btrim(credentials->>'refresh_token') <> ''")
 	require.Contains(t, normalized, "temp_unschedulable_until > NOW()")
@@ -326,7 +328,7 @@ func TestAccountRepository_ListOAuthRefreshCandidatePage_ReconciliationExcludesA
 
 	var capturedSQL string
 	mock.ExpectQuery("SELECT id").WillReturnRows(sqlmock.NewRows([]string{"id"}))
-	repo := newAccountRepositoryWithSQL(nil, captureQuerySQL{db: db, captured: &capturedSQL}, nil)
+	repo := newAccountRepositoryWithSQL(nil, captureQuerySQL{db: db, captured: &capturedSQL}, nil, nil)
 
 	page, err := repo.ListOAuthRefreshCandidatePage(context.Background(), service.OAuthRefreshPageOptions{
 		Platforms: []string{service.PlatformGrok},

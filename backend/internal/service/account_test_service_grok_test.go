@@ -17,6 +17,18 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+type grokAccountTestRateLimitRepo struct {
+	*mockAccountRepoForGemini
+	rateLimitedCalls int
+	resetAt          time.Time
+}
+
+func (r *grokAccountTestRateLimitRepo) SetRateLimited(_ context.Context, _ int64, resetAt time.Time) error {
+	r.rateLimitedCalls++
+	r.resetAt = resetAt
+	return nil
+}
+
 func TestAccountTestService_GrokAPIKeyRoutesToResponses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -54,7 +66,7 @@ func TestAccountTestService_GrokAPIKeyRoutesToResponses(t *testing.T) {
 	require.Equal(t, defaultGrokTestModelID, gjson.GetBytes(readRequestBodyForTest(t, req), "model").String())
 	body := rec.Body.String()
 	require.Contains(t, body, `"type":"test_start"`)
-	require.Contains(t, body, `"model":"grok-4.3"`)
+	require.Contains(t, body, `"model":"`+defaultGrokTestModelID+`"`)
 	require.Contains(t, body, "hello from grok")
 	require.Contains(t, body, `"type":"test_complete"`)
 	require.Contains(t, body, `"success":true`)
@@ -91,7 +103,7 @@ func TestAccountTestService_GrokOAuthRoutesToXAIResponses(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, upstream.requests, 1)
 	req := upstream.requests[0]
-	require.Equal(t, "https://api.x.ai/v1/responses", req.URL.String())
+	require.Equal(t, "https://cli-chat-proxy.grok.com/v1/responses", req.URL.String())
 	require.Equal(t, "Bearer grok-oauth-token", req.Header.Get("Authorization"))
 	require.Contains(t, rec.Body.String(), `"model":"grok-code-fast-1"`)
 	require.Contains(t, rec.Body.String(), `"success":true`)

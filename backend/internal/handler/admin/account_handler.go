@@ -62,6 +62,7 @@ type AccountHandler struct {
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
 	accountTierService      *service.AccountTierService
+	grokImportProber        grokUsageProber
 }
 
 // NewAccountHandler creates a new admin account handler

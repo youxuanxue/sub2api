@@ -97,9 +97,9 @@ func TestHandle429_FallbackDisabledSkipsLocalMark(t *testing.T) {
 	require.Zero(t, accountRepo.rateLimitCalls)
 }
 
-// Anthropic 无 reset 头的 429（如 Extra usage required）也应走兜底冷却，
-// 否则账号永不冷却，调度器会让每个请求反复撞同一批 429 账号（旋转木马）。
-func TestHandle429_AnthropicNoResetTimeUsesFallbackCooldown(t *testing.T) {
+// Extra usage required is request-owned policy, not account health. It must not
+// cool the account when no authoritative Anthropic reset headers are present.
+func TestHandle429_AnthropicExtraUsageSkipsFallbackCooldown(t *testing.T) {
 	accountRepo := &rateLimit429AccountRepoStub{}
 	settingRepo := newMockSettingRepo()
 	data, _ := json.Marshal(RateLimit429CooldownSettings{Enabled: true, CooldownSeconds: 12})
@@ -110,13 +110,9 @@ func TestHandle429_AnthropicNoResetTimeUsesFallbackCooldown(t *testing.T) {
 	svc.SetSettingService(settingSvc)
 
 	account := &Account{ID: 45, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
-	before := time.Now()
 	svc.handle429(context.Background(), account, http.Header{}, []byte(`{"error":{"type":"rate_limit_error","message":"Extra usage required"}}`))
-	after := time.Now()
 
-	require.Equal(t, 1, accountRepo.rateLimitCalls)
-	require.Equal(t, int64(45), accountRepo.lastRateLimitID)
-	require.True(t, !accountRepo.lastRateLimitReset.Before(before.Add(12*time.Second)) && !accountRepo.lastRateLimitReset.After(after.Add(12*time.Second)))
+	require.Zero(t, accountRepo.rateLimitCalls)
 }
 
 // 管理端关闭兜底冷却时，Anthropic 无 reset 头的 429 保持旧行为：不标记账号。

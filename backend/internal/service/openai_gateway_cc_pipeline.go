@@ -118,6 +118,7 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	return &UpstreamFailoverError{
 		StatusCode:             resp.StatusCode,
 		ResponseBody:           respBody,
+		ResponseHeaders:        resp.Header.Clone(),
 		RetryableOnSameAccount: tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, true),
 	}
 }

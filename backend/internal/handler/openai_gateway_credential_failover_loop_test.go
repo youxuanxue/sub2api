@@ -847,7 +847,7 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 	}
 	if mode == "oauth_429_apikey_500" {
 		accounts[1].Type = service.AccountTypeAPIKey
-		accounts[1].Credentials = map[string]any{"api_key": "third-party-key"}
+		accounts[1].Credentials = map[string]any{"api_key": "third-party-key", "base_url": "https://api.example.test"}
 	}
 	if mode == "all_revoked" {
 		accounts[1].Credentials["expires_at"] = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)

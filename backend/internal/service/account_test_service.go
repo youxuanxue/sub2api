@@ -36,7 +36,7 @@ var sseDataPrefix = regexp.MustCompile(`^data:\s*`)
 const (
 	testClaudeAPIURL       = "https://api.anthropic.com/v1/messages?beta=true"
 	chatgptCodexAPIURL     = "https://chatgpt.com/backend-api/codex/responses"
-	defaultGrokTestModelID = "grok-4.3"
+	defaultGrokTestModelID = grokDefaultResponsesModel
 	GrokDefaultTestModelID = defaultGrokTestModelID
 	// Keep the default smoke on Gemini; the #1265 live Claude subset is covered by
 	// targeted mapping tests and may have account-specific upstream catalog gates.

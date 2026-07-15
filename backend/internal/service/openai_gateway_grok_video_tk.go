@@ -14,6 +14,7 @@ import (
 
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -83,7 +84,13 @@ func resolveGrokVideoCredential(account *Account) (token, baseURL string, err er
 	switch {
 	case account.IsGrokOAuth():
 		token = account.GetGrokAccessToken()
-		baseURL = account.GetGrokBaseURL()
+		// OAuth text traffic uses the CLI subscription proxy, but native video is
+		// only exposed by xAI's public API. Preserve an explicit public API base;
+		// otherwise do not inherit GetGrokBaseURL's CLI default.
+		baseURL = strings.TrimRight(strings.TrimSpace(account.GetCredential("base_url")), "/")
+		if baseURL != xai.DefaultBaseURL && baseURL != "https://api.x.ai" {
+			baseURL = xai.DefaultBaseURL
+		}
 	case account.IsGrokAPIKey(), isGrokVideoEdgeRelayStub(account):
 		token = account.GetOpenAIApiKey()
 		if token == "" {

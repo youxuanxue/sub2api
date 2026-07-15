@@ -286,10 +286,12 @@ func (s *GitHubReleaseServiceSuite) TestFetchRecentReleases_Success() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(releasesJSON))
 	}))
+	serverURL, parseErr := url.Parse(s.srv.URL)
+	require.NoError(s.T(), parseErr)
 
 	s.client = &githubReleaseClient{
 		httpClient: &http.Client{
-			Transport: &testTransport{testServerURL: s.srv.URL},
+			Transport: &testTransport{testServerURL: serverURL},
 		},
 		downloadHTTPClient: &http.Client{},
 	}
@@ -308,10 +310,12 @@ func (s *GitHubReleaseServiceSuite) TestFetchRecentReleases_Non200() {
 	s.srv = newLocalTestServer(s.T(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
+	serverURL, parseErr := url.Parse(s.srv.URL)
+	require.NoError(s.T(), parseErr)
 
 	s.client = &githubReleaseClient{
 		httpClient: &http.Client{
-			Transport: &testTransport{testServerURL: s.srv.URL},
+			Transport: &testTransport{testServerURL: serverURL},
 		},
 		downloadHTTPClient: &http.Client{},
 	}

@@ -50,8 +50,8 @@ func TestCalculateOpenAI429ResetTime_5hExhausted(t *testing.T) {
 	headers := http.Header{}
 	headers.Set("x-codex-primary-used-percent", "50")
 	headers.Set("x-codex-primary-reset-after-seconds", "500000")
-	headers.Set("x-codex-primary-window-minutes", "10080") // 7 days
-	headers.Set("x-codex-secondary-used-percent", "100")   // 5h exhausted (used%)
+	headers.Set("x-codex-primary-window-minutes", "10080")       // 7 days
+	headers.Set("x-codex-secondary-used-percent", "100")         // 5h exhausted (used%)
 	headers.Set("x-codex-secondary-reset-after-seconds", "3600") // 1 hour
 	headers.Set("x-codex-secondary-window-minutes", "300")       // 5 hours
 

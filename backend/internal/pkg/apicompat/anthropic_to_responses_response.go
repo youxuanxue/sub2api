@@ -226,9 +226,12 @@ func FinalizeAnthropicResponsesStream(state *AnthropicEventToResponsesState) []R
 
 	// Reaching here means the upstream never sent message_stop; surface the turn
 	// as incomplete instead of synthesizing a successful completion.
-	events = append(events, makeResponsesCompletedEvent(state, responsesStatusIncomplete, &ResponsesIncompleteDetails{
-		Reason: responsesIncompleteReasonInterrupted,
-	}))
+	status, details := anthropicResponsesStreamTerminalState(state.StopReason)
+	if status == "completed" {
+		status = responsesStatusIncomplete
+		details = &ResponsesIncompleteDetails{Reason: responsesIncompleteReasonInterrupted}
+	}
+	events = append(events, makeResponsesCompletedEvent(state, status, details))
 	state.CompletedSent = true
 	return events
 }
@@ -563,11 +566,6 @@ func makeResponsesCompletedEvent(
 		usage.InputTokensDetails = &ResponsesInputTokensDetails{
 			CachedTokens: state.CacheReadInputTokens,
 		}
-	}
-
-	eventType := "response.completed"
-	if status == "incomplete" {
-		eventType = "response.incomplete"
 	}
 
 	return ResponsesStreamEvent{

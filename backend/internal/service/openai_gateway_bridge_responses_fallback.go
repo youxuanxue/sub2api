@@ -312,19 +312,27 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 		Header:     captureWriter.header.Clone(),
 		Body:       io.NopCloser(bytes.NewReader(buf.Bytes())),
 	}
+	customTools := map[string]bool(nil)
+	toolSearch := false
+	namespaceTools := map[string]apicompat.NamespacedToolName(nil)
+	if effectiveTools, toolsErr := apicompat.EffectiveResponsesTools(&responsesReq); toolsErr == nil {
+		customTools = apicompat.CustomToolNames(effectiveTools)
+		toolSearch = apicompat.HasToolSearchTool(effectiveTools)
+		namespaceTools = apicompat.NamespaceToolNames(effectiveTools)
+	}
 
 	var result *OpenAIForwardResult
 	var handleErr error
 	switch {
 	case clientStream:
 		result, handleErr = s.streamChatCompletionsAsResponses(
-			c, resp, originalModel, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
+			c, resp, originalModel, customTools, toolSearch, namespaceTools, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
 	case upstreamStream:
 		result, handleErr = s.bufferStreamChatCompletionsAsResponses(
 			c, resp, originalModel, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
 	default:
 		result, handleErr = s.bufferChatCompletionsAsResponses(
-			c, resp, originalModel, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
+			c, resp, originalModel, customTools, toolSearch, namespaceTools, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
 	}
 	if handleErr == nil && result != nil {
 		if out.Usage != nil {

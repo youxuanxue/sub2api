@@ -230,7 +230,7 @@ func TestBuildGrokResponsesRequestUsesResolvedOAuthTargetURL(t *testing.T) {
 	require.Equal(t, "application/json", req.Header.Get("Content-Type"))
 	require.Contains(t, req.Header.Get("Accept"), "text/event-stream")
 	require.Equal(t, grokCLIVersion, req.Header.Get("X-Grok-Client-Version"))
-	require.Equal(t, "isolated-cache-id", req.Header.Get(grokConversationIDHeader))
+	require.Empty(t, req.Header.Get(grokConversationIDHeader))
 
 	data, err := io.ReadAll(req.Body)
 	require.NoError(t, err)
@@ -470,7 +470,7 @@ func TestForwardGrokMediaImagesGenerationStripsUnsupportedSize(t *testing.T) {
 
 	result, err := svc.ForwardGrokMedia(context.Background(), c, account, GrokMediaEndpointImagesGenerations, "", body, "application/json")
 	require.NoError(t, err)
-	require.JSONEq(t, `{"model":"grok-imagine-image","prompt":"draw a cat"}`, string(upstream.lastBody))
+	require.JSONEq(t, `{"model":"grok-imagine-image","prompt":"draw a cat","resolution":"1k","aspect_ratio":"1:1"}`, string(upstream.lastBody))
 	require.Equal(t, ImageBillingSize1K, result.ImageSize)
 	require.Equal(t, "1024x1024", result.ImageInputSize)
 }
@@ -569,8 +569,8 @@ func TestForwardGrokMediaVideoGenerationReturnsUsageAndResponseID(t *testing.T) 
 	require.Equal(t, 1, result.ImageCount)
 	require.Empty(t, result.ImageSize)
 	require.Equal(t, 1, result.VideoCount)
-	require.Equal(t, VideoBillingResolution720P, result.VideoResolution)
-	require.Equal(t, 10, result.VideoDurationSeconds)
+	require.Equal(t, VideoBillingResolution480P, result.VideoResolution)
+	require.Equal(t, 4, result.VideoDurationSeconds)
 }
 
 func TestForwardGrokMediaVideoGenerationPreservesImageToVideoModel(t *testing.T) {
@@ -988,7 +988,7 @@ func TestResolveGrokResponsesUpstreamAPIKeyRelayUsesEdgeOpenAIResponses(t *testi
 	require.NoError(t, err)
 	require.Equal(t, "https://api-us4.tokenkey.dev/v1/responses", targetURL)
 
-	token, err := svc.grokResponsesAuthToken(context.Background(), account)
+	token, err := svc.grokResponsesAuthToken(context.Background(), nil, account)
 	require.NoError(t, err)
 	require.Equal(t, "edge-grok-key", token)
 }
@@ -1156,7 +1156,7 @@ func TestForwardAsChatCompletionsForGrokStreamingUsesRawXAIChatCompletions(t *te
 	require.Equal(t, "Bearer access-token", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "text/event-stream", upstream.lastReq.Header.Get("Accept"))
 	require.Equal(t, "grok-cli/1.2.3", upstream.lastReq.Header.Get("User-Agent"))
-	require.Equal(t, "grok-4.3", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "grok-4.5", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
 	require.True(t, result.Stream)
 	require.Equal(t, 6, result.Usage.InputTokens)
@@ -1248,7 +1248,7 @@ func TestForwardAsAnthropicForGrokUsesXAIResponses(t *testing.T) {
 	chatSSE := strings.Join([]string{
 		`data: {"id":"chatcmpl_grok_messages","object":"chat.completion.chunk","model":"grok-4.3","choices":[{"index":0,"delta":{"content":"ok"}}]}`,
 		"",
-		`data: {"id":"chatcmpl_grok_messages","object":"chat.completion.chunk","model":"grok-4.3","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2}}`,
+		`data: {"id":"chatcmpl_grok_messages","object":"chat.completion.chunk","model":"grok-4.3","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":3}}}`,
 		"",
 		"data: [DONE]",
 		"",
@@ -1274,11 +1274,9 @@ func TestForwardAsAnthropicForGrokUsesXAIResponses(t *testing.T) {
 	require.Empty(t, upstream.lastReq.Header.Get("originator"))
 	require.Empty(t, upstream.lastReq.Header.Get("version"))
 	require.Equal(t, "grok-4.5", gjson.GetBytes(upstream.lastBody, "model").String())
-	require.NotEmpty(t, gjson.GetBytes(upstream.lastBody, "prompt_cache_key").String())
-	require.Equal(t, gjson.GetBytes(upstream.lastBody, "prompt_cache_key").String(), upstream.lastReq.Header.Get(grokConversationIDHeader))
-	require.Equal(t, "web_search", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
-	require.Equal(t, "x_search", gjson.GetBytes(upstream.lastBody, "tools.1.type").String())
-	require.Equal(t, "none", gjson.GetBytes(upstream.lastBody, "tool_choice").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "prompt_cache_key").Exists())
+	require.NotEmpty(t, upstream.lastReq.Header.Get(grokConversationIDHeader))
+	require.False(t, gjson.GetBytes(upstream.lastBody, "tools").Exists())
 	require.Empty(t, upstream.lastReq.Header.Get("session_id"))
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 	require.NotContains(t, string(upstream.lastBody), "chatgpt.com")
@@ -1335,21 +1333,17 @@ func testForwardAsAnthropicGrokNativeSKUFallback(t *testing.T, model string) {
 			},
 		},
 	}
-	svc := &OpenAIGatewayService{
-		cfg:          rawChatCompletionsTestConfig(),
-		httpUpstream: upstream,
-	}
-	account := &Account{
-		ID:          91,
-		Name:        "grok",
-		Platform:    PlatformGrok,
-		Type:        AccountTypeOAuth,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"access_token": "access-token",
-			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
-			"base_url":     xai.DefaultCLIBaseURL,
+	account := healthyGrokOAuthGatewayTestAccount(91, "access-token")
+	repo := &grokQuotaAccountRepo{
+		mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
+			accountsByID: map[int64]*Account{91: account},
 		},
+	}
+	svc := &OpenAIGatewayService{
+		cfg:               rawChatCompletionsTestConfig(),
+		httpUpstream:      upstream,
+		accountRepo:       repo,
+		grokTokenProvider: NewGrokTokenProvider(repo, nil),
 	}
 
 	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
@@ -1671,6 +1665,20 @@ func TestOpenAIWSHTTPBridgeGrok429PersistsRateLimit(t *testing.T) {
 	require.WithinDuration(t, before.Add(45*time.Second), repo.lastRateLimitResetAt, time.Second)
 	require.Zero(t, repo.tempUnschedCalls)
 	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
+func grokMessagesSSECompletedResponse(responseID string, cachedTokens int) *http.Response {
+	body := strings.Join([]string{
+		fmt.Sprintf(`data: {"type":"response.completed","response":{"id":%q,"object":"response","model":"grok-4.3","status":"completed","output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7,"input_tokens_details":{"cached_tokens":%d}}}}`, responseID, cachedTokens),
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
 }
 
 func TestOpenAIWSHTTPBridgeGrokExhaustedSuccessPersistsRateLimit(t *testing.T) {

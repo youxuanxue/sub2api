@@ -2003,7 +2003,7 @@ func TestGrokVideoBillingUsesSeparateVideoRateMultiplier(t *testing.T) {
 	require.NotNil(t, usageRepo.lastLog.VideoResolution)
 	require.Equal(t, VideoBillingResolution480P, *usageRepo.lastLog.VideoResolution)
 	require.NotNil(t, usageRepo.lastLog.VideoDurationSeconds)
-	require.Equal(t, 1, *usageRepo.lastLog.VideoDurationSeconds)
+	require.Equal(t, int64(1), *usageRepo.lastLog.VideoDurationSeconds)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_GrokVideoUsesDefaultRateCard(t *testing.T) {
@@ -2046,7 +2046,7 @@ func TestOpenAIGatewayServiceRecordUsage_GrokVideoUsesDefaultRateCard(t *testing
 	require.Equal(t, string(BillingModeVideo), *usageRepo.lastLog.BillingMode)
 	require.Equal(t, 1, usageRepo.lastLog.VideoCount)
 	require.NotNil(t, usageRepo.lastLog.VideoDurationSeconds)
-	require.Equal(t, VideoBillingDefaultDurationSeconds, *usageRepo.lastLog.VideoDurationSeconds)
+	require.Equal(t, int64(VideoBillingDefaultDurationSeconds), *usageRepo.lastLog.VideoDurationSeconds)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_GroupImagePriceOverridesChannelImagePrice(t *testing.T) {
@@ -2278,7 +2278,7 @@ func TestOpenAIGatewayServiceRecordUsage_GrokVideoWithTokenChannelPricingKeepsVi
 	require.NotNil(t, usageRepo.lastLog.VideoResolution)
 	require.Equal(t, VideoBillingResolution720P, *usageRepo.lastLog.VideoResolution)
 	require.NotNil(t, usageRepo.lastLog.VideoDurationSeconds)
-	require.Equal(t, 5, *usageRepo.lastLog.VideoDurationSeconds)
+	require.Equal(t, int64(5), *usageRepo.lastLog.VideoDurationSeconds)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_ChannelImageBillingUsesImageCountAndSharedMultiplier(t *testing.T) {

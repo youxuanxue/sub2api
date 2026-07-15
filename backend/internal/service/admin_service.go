@@ -146,6 +146,7 @@ type UpdateUserInput struct {
 	Password          string
 	Username          *string
 	Notes             *string
+	Role              string
 	Balance           *float64 // 使用指针区分"未提供"和"设置为0"
 	Concurrency       *int     // 使用指针区分"未提供"和"设置为0"
 	RPMLimit          *int     // 使用指针区分"未提供"和"设置为0"
@@ -612,6 +613,11 @@ type adminServiceImpl struct {
 	privacyClientFactory PrivacyClientFactory
 	runtimeBlocker       AccountRuntimeBlocker
 	availability         *PricingAvailabilityService
+	affiliateService     adminRechargeAffiliateAccruer
+}
+
+type adminRechargeAffiliateAccruer interface {
+	AccrueInviteRebate(ctx context.Context, inviteeUserID int64, baseRechargeAmount float64) (float64, error)
 }
 
 type userGroupRateBatchReader interface {
@@ -639,6 +645,7 @@ func NewAdminService(
 	privacyClientFactory PrivacyClientFactory,
 	runtimeBlocker AccountRuntimeBlocker,
 	availability *PricingAvailabilityService,
+	affiliateService *AffiliateService,
 ) AdminService {
 	return &adminServiceImpl{
 		userRepo:             userRepo,
@@ -661,5 +668,6 @@ func NewAdminService(
 		privacyClientFactory: privacyClientFactory,
 		runtimeBlocker:       runtimeBlocker,
 		availability:         availability,
+		affiliateService:     affiliateService,
 	}
 }

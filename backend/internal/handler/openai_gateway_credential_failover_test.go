@@ -159,7 +159,7 @@ func TestOpsClassificationTreatsCredentialFailureAsAuthNotInference(t *testing.T
 		},
 	})
 
-	phase, _, owner, source := classifyOpsErrorLog(c, "upstream_error", service.GrokCredentialUnavailableClientMessage, "", http.StatusServiceUnavailable)
+	phase, owner, source := classifyOpsErrorLog(c, "upstream_error", service.GrokCredentialUnavailableClientMessage, "", http.StatusServiceUnavailable)
 	require.Equal(t, "account_auth", phase)
 	require.Equal(t, "provider", owner)
 	require.Equal(t, "gateway", source)

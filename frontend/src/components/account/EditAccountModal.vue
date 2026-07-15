@@ -2773,7 +2773,6 @@ import {
   applyHeaderOverride,
   applyInterceptWarmup,
   applyPlanType,
-  buildPlanTypeOptions,
   readPlanType,
   getHeaderOverrideTemplate,
   isCustomGrokBaseUrl,

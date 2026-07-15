@@ -195,6 +195,7 @@ func (api *OAuthRefreshAPI) refresh(
 	force bool,
 ) (*OAuthRefreshResult, error) {
 	cacheKey := executor.CacheKey(account)
+	requestPath := isOAuthRefreshRequestPath(ctx)
 
 	// 0. 获取进程内互斥锁（防止同一进程内的并发刷新竞争）
 	localMu := api.getLocalLock(cacheKey)
@@ -238,7 +239,8 @@ func (api *OAuthRefreshAPI) refresh(
 	if freshAccount.ID != account.ID {
 		return nil, fmt.Errorf("%w: account identity mismatch", errOAuthRefreshAccountRereadFailed)
 	}
-	if !freshAccount.IsActive() {
+	allowKiroErrorRecovery := force && freshAccount.Platform == PlatformKiro && freshAccount.Status == StatusError
+	if !freshAccount.IsActive() && !allowKiroErrorRecovery {
 		if requestPath {
 			return nil, fmt.Errorf("%w: account is not active", errOAuthRefreshAccountStateChanged)
 		}

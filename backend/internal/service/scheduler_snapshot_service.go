@@ -722,8 +722,8 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 	return s.rebuildBuckets(ctx, buckets, reason)
 }
 
-func schedulerSnapshotPlatforms() [5]string {
-	return [5]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok}
+func schedulerSnapshotPlatforms() []string {
+	return AllSchedulingPlatforms()
 }
 
 // 生命周期辅助函数有意排除 group0；full rebuild 构造 group0 canonical 集时必须显式调用 canonical helper。
@@ -753,14 +753,9 @@ func (s *SchedulerSnapshotService) rebuildByGroupIDs(ctx context.Context, groupI
 	if len(groupIDs) == 0 {
 		return nil
 	}
-	// Derive from the canonical scheduling-platform list — adding a sixth
-	// platform must not require touching this call site. See the original
-	// regression context in account_tk_compat_pool.go::AllSchedulingPlatforms.
-	var firstErr error
-	for _, platform := range AllSchedulingPlatforms() {
-		if err := s.rebuildBucketsForPlatform(ctx, platform, groupIDs, reason, seen); err != nil && firstErr == nil {
-			firstErr = err
-		}
+	buckets := make([]SchedulerBucket, 0, len(groupIDs)*12)
+	for _, platform := range schedulerSnapshotPlatforms() {
+		buckets = append(buckets, s.bucketsForPlatform(platform, groupIDs, seen)...)
 	}
 	return s.rebuildBuckets(ctx, buckets, reason)
 }
@@ -1495,39 +1490,6 @@ func (s *SchedulerSnapshotService) fullRebuildInterval() time.Duration {
 		return 0
 	}
 	return time.Duration(sec) * time.Second
-}
-
-func (s *SchedulerSnapshotService) defaultBuckets(ctx context.Context) ([]SchedulerBucket, error) {
-	buckets := make([]SchedulerBucket, 0)
-	// Same canonical source as rebuildByGroupIDs — every platform that has
-	// a scheduling pool must seed a default bucket here.
-	for _, platform := range AllSchedulingPlatforms() {
-		buckets = append(buckets, SchedulerBucket{GroupID: 0, Platform: platform, Mode: SchedulerModeSingle})
-		buckets = append(buckets, SchedulerBucket{GroupID: 0, Platform: platform, Mode: SchedulerModeForced})
-		if platform == PlatformAnthropic || platform == PlatformGemini {
-			buckets = append(buckets, SchedulerBucket{GroupID: 0, Platform: platform, Mode: SchedulerModeMixed})
-		}
-	}
-
-	if s.isRunModeSimple() || s.groupRepo == nil {
-		return dedupeBuckets(buckets), nil
-	}
-
-	groups, err := s.groupRepo.ListActive(ctx)
-	if err != nil {
-		return dedupeBuckets(buckets), nil
-	}
-	for _, group := range groups {
-		if group.Platform == "" {
-			continue
-		}
-		buckets = append(buckets, SchedulerBucket{GroupID: group.ID, Platform: group.Platform, Mode: SchedulerModeSingle})
-		buckets = append(buckets, SchedulerBucket{GroupID: group.ID, Platform: group.Platform, Mode: SchedulerModeForced})
-		if group.Platform == PlatformAnthropic || group.Platform == PlatformGemini {
-			buckets = append(buckets, SchedulerBucket{GroupID: group.ID, Platform: group.Platform, Mode: SchedulerModeMixed})
-		}
-	}
-	return dedupeBuckets(buckets), nil
 }
 
 func dedupeBuckets(in []SchedulerBucket) []SchedulerBucket {

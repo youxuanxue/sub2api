@@ -1340,7 +1340,7 @@ func (a *Account) GetGrokBaseURL() string {
 		if baseURL == "" || xai.IsOfficialBaseURL(baseURL) {
 			return xai.DefaultCLIBaseURL
 		}
-		return baseURL
+		return strings.TrimRight(baseURL, "/")
 	}
 	if baseURL != "" {
 		// TK: trim trailing slash so edge-relay base_url overrides (e.g.

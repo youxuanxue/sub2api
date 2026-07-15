@@ -243,6 +243,9 @@ func (s *OpenAIGatewayService) forwardGrokChatCompletionsViaResponses(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
+	if eligible, _ := grokChatResponsesBridgeEligibility(body); !eligible {
+		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	}
 
 	var chatReq apicompat.ChatCompletionsRequest
 	if err := json.Unmarshal(body, &chatReq); err != nil {
@@ -294,7 +297,7 @@ func (s *OpenAIGatewayService) forwardGrokChatCompletionsViaResponses(
 	if policyErr != nil {
 		var blocked *OpenAIFastBlockedError
 		if errors.As(policyErr, &blocked) {
-			MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+			MarkOpsClientPolicyDenied(c, OpsClientPolicyDeniedReasonLocalPolicyDenied)
 			writeChatCompletionsError(c, http.StatusForbidden, "permission_error", blocked.Message)
 		}
 		return nil, policyErr
@@ -306,7 +309,12 @@ func (s *OpenAIGatewayService) forwardGrokChatCompletionsViaResponses(
 		return nil, fmt.Errorf("get grok access token: %w", err)
 	}
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
-	upstreamReq, err := buildGrokResponsesRequest(upstreamCtx, c, account, responsesBody, token, cacheIdentity, s.cfg)
+	targetURL, err := s.resolveGrokResponsesUpstream(account)
+	if err != nil {
+		releaseUpstreamCtx()
+		return nil, fmt.Errorf("resolve grok responses bridge upstream: %w", err)
+	}
+	upstreamReq, err := buildGrokResponsesRequestForAccount(upstreamCtx, c, account, targetURL, responsesBody, token, cacheIdentity)
 	releaseUpstreamCtx()
 	if err != nil {
 		return nil, fmt.Errorf("build grok responses bridge request: %w", err)

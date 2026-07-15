@@ -91,7 +91,7 @@ const antigravityUserAgentVersionDBTimeout = 5 * time.Second
 const DefaultOpenAICodexVersion = "0.144.1"
 
 // DefaultOpenAICodexUserAgent OpenAI Codex 默认 User-Agent。
-const DefaultOpenAICodexUserAgent = "codex-tui/" + DefaultOpenAICodexVersion + " (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; " + DefaultOpenAICodexVersion + ")"
+const DefaultOpenAICodexUserAgent = "codex_cli_rs/" + DefaultOpenAICodexVersion + " (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex_cli_rs; " + DefaultOpenAICodexVersion + ")"
 
 const (
 	codexCLIVersion         = DefaultOpenAICodexVersion

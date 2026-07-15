@@ -284,7 +284,7 @@ func TestLogOpsStreamError_RecordsInBandConcurrencyLimit(t *testing.T) {
 	require.NotNil(t, job.entry)
 	require.Equal(t, "rate_limit_error", job.entry.ErrorType)
 	require.Equal(t, "request", job.entry.ErrorPhase)
-	require.True(t, job.entry.IsBusinessLimited)
+	require.Equal(t, "client", job.entry.ErrorOwner)
 	require.True(t, job.entry.Stream)
 	require.Equal(t, http.StatusOK, job.entry.StatusCode) // wire 状态码保持 200
 	require.Equal(t, "P1", job.entry.Severity)            // 用 IntendedStatus 429 分级

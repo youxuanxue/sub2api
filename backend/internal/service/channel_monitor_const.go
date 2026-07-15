@@ -48,6 +48,7 @@ const (
 
 	// providerOpenAIPath OpenAI Chat Completions 路径。
 	providerOpenAIPath = apipath.ChatCompletions
+	providerGrokPath   = apipath.ChatCompletions
 	// providerOpenAIResponsesPath OpenAI Responses API 路径。
 	providerOpenAIResponsesPath = apipath.Responses
 	// providerAnthropicPath Anthropic Messages 路径。
@@ -60,6 +61,9 @@ const (
 	MonitorProviderOpenAI    = PlatformOpenAI
 	MonitorProviderAnthropic = PlatformAnthropic
 	MonitorProviderGemini    = PlatformGemini
+	MonitorProviderGrok      = PlatformGrok
+
+	MonitorDefaultGrokModel = "grok-4.5"
 
 	// MonitorStatusOperational 等监控状态字符串常量（与 ent enum 一致）。
 	MonitorStatusOperational = "operational"

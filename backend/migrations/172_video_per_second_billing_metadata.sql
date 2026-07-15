@@ -5,6 +5,7 @@
 -- token-mode channel price produces billing_mode='token' with image_count=1
 -- (legacy media counter) and no image_size, which the previous constraint
 -- rejected and silently dropped the whole billing transaction.
+-- bluegreen-safe-destructive-ok: expand-only DEFAULT 0 column; old writers omit it, and the replacement check is added NOT VALID.
 
 ALTER TABLE usage_logs
     ADD COLUMN IF NOT EXISTS video_count INTEGER NOT NULL DEFAULT 0,

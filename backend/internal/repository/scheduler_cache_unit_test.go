@@ -4,8 +4,6 @@ package repository
 
 import (
 	"context"
-	"encoding/hex"
-	"strings"
 	"testing"
 	"time"
 

@@ -427,6 +427,8 @@ interface Props {
   estimateRowHeight?: number
   /** Number of rows to render beyond the visible area (default 5) */
   overscan?: number
+  /** Only virtualize when the row count exceeds this threshold (default 100). */
+  virtualizeThreshold?: number
   /**
    * When false, sticky columns stay pinned but edge fade cues are hidden (no ::before/::after gradients).
    */
@@ -733,10 +735,6 @@ const rowVirtualizer = useVirtualizer(computed(() => ({
   getScrollElement: () => tableWrapperRef.value,
   // 用行主键(与模板 :key 一致)而非默认的 index 作为 itemSizeCache 键,
   // 这样排序/筛选/跨阈值来回都能复用正确的已测行高,而不是残留的按 index 缓存 → 消除高度校正抖动。
-  getItemKey: (index: number) => {
-    const row = sortedData.value?.[index]
-    return row != null ? resolveRowKey(row, index) : index
-  },
   estimateSize: () => props.estimateRowHeight ?? 56,
   overscan: props.overscan ?? 5,
   // 关键:用稳定的逻辑 key(flatItemKey,行/明细行各自唯一)作为测量缓存键,而非默认的 flat index。

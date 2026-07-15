@@ -135,8 +135,10 @@ func parseGrokMediaJSONRequest(body []byte, info *GrokMediaRequestInfo) {
 	info.Prompt = strings.TrimSpace(gjson.GetBytes(body, "prompt").String())
 	info.Size = strings.TrimSpace(gjson.GetBytes(body, "size").String())
 	info.Resolution = strings.TrimSpace(gjson.GetBytes(body, "resolution").String())
-	if duration := gjson.GetBytes(body, "duration"); duration.Exists() && duration.Type == gjson.Number {
-		info.DurationSeconds = int(duration.Int())
+	if duration, ok := grokVideoDurationValue(gjson.GetBytes(body, "duration")); ok {
+		info.DurationSeconds = int(duration)
+	} else if duration, ok := grokVideoDurationFromBody(body); ok {
+		info.DurationSeconds = int(duration)
 	}
 	if n := gjson.GetBytes(body, "n"); n.Exists() && n.Type == gjson.Number {
 		info.N = int(n.Int())
@@ -281,6 +283,10 @@ func (e GrokMediaEndpoint) upstreamURL(baseURL, requestID string) (string, error
 		return buildOpenAIV1SegmentURL(baseURL, "images/edits"), nil
 	case GrokMediaEndpointVideosGenerations:
 		return buildOpenAIV1SegmentURL(baseURL, "videos/generations"), nil
+	case GrokMediaEndpointVideosEdits:
+		return buildOpenAIV1SegmentURL(baseURL, "videos/edits"), nil
+	case GrokMediaEndpointVideosExtensions:
+		return buildOpenAIV1SegmentURL(baseURL, "videos/extensions"), nil
 	case GrokMediaEndpointVideoStatus:
 		requestID = strings.TrimSpace(requestID)
 		if requestID == "" {
@@ -375,8 +381,7 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	defer func() { _ = resp.Body.Close() }()
 
 	requestIDHeader := firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id"))
-	upstreamRequestInfo := ParseGrokMediaRequest(contentType, body)
-	requestModel := upstreamRequestInfo.Model
+	requestModel := requestInfo.Model
 	if resp.StatusCode >= 400 {
 		return s.handleGrokMediaErrorResponse(ctx, resp, c, account, requestIDHeader, requestModel)
 	}
@@ -643,6 +648,25 @@ func grokVideoDurationValue(value gjson.Result) (int64, bool) {
 	return int64(math.Ceil(seconds)), true
 }
 
+func sanitizeGrokMediaForwardBody(endpoint GrokMediaEndpoint, body []byte, contentType string) ([]byte, string, error) {
+	if !endpoint.RequiresRequestBody() || !gjson.ValidBytes(body) {
+		return body, contentType, nil
+	}
+	switch endpoint {
+	case GrokMediaEndpointImagesGenerations, GrokMediaEndpointImagesEdits:
+		if !gjson.GetBytes(body, "size").Exists() {
+			return body, contentType, nil
+		}
+		out, err := sjson.DeleteBytes(body, "size")
+		if err != nil {
+			return nil, "", fmt.Errorf("sanitize grok media size: %w", err)
+		}
+		return out, contentType, nil
+	default:
+		return body, contentType, nil
+	}
+}
+
 func (r GrokMediaRequestInfo) HasInputImage() bool {
 	return len(r.InputImageURLs) > 0 || len(r.Uploads) > 0
 }
@@ -788,6 +812,7 @@ func (s *OpenAIGatewayService) handleGrokMediaErrorResponse(
 		return nil, &UpstreamFailoverError{
 			StatusCode:             resp.StatusCode,
 			ResponseBody:           body,
+			ResponseHeaders:        resp.Header.Clone(),
 			RetryableOnSameAccount: tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, body, false),
 		}
 	}

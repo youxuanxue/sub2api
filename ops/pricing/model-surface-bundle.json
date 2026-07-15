@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "floor_sha256": "15bf2145e669db229837f79890b6da100c6c1e4df5bb90201faf7de725201447",
+  "floor_sha256": "50c5d59e2149f644d204a9398eb8945f19f5a317c6e8384ddf318826e9462f32",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -65,7 +65,7 @@
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "grok": {
-        "grok": "grok-4.3",
+        "grok": "grok-4.5",
         "grok-4-fast-reasoning": "grok-4.3",
         "grok-4.20-0309-non-reasoning": "grok-4.20-0309-non-reasoning",
         "grok-4.20-0309-reasoning": "grok-4.20-0309-reasoning",
@@ -84,7 +84,7 @@
         "grok-imagine-image": "grok-imagine-image",
         "grok-imagine-image-quality": "grok-imagine-image-quality",
         "grok-imagine-video": "grok-imagine-video",
-        "grok-latest": "grok-4.3"
+        "grok-latest": "grok-4.5"
       },
       "kiro": {
         "claude-haiku-4-5": "claude-haiku-4-5",

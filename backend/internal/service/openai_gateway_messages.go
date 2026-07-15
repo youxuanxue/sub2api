@@ -17,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -266,7 +267,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	grokCacheIdentity := ""
 	if account.Platform == PlatformGrok {
 		grokIntentBody := responsesBody
-		grokCacheIdentity = resolveGrokCacheIdentity(c, grokIntentBody, promptCacheKey, upstreamModel)
+		grokCacheIdentity = resolveGrokCacheIdentity(c, body, promptCacheKey, upstreamModel)
 		patchedBody, patchErr := patchGrokResponsesBody(grokIntentBody, upstreamModel)
 		if patchErr != nil {
 			return nil, patchErr
@@ -300,6 +301,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			billingModel,
 			upstreamModel,
 			token,
+			grokCacheIdentity,
 			startTime,
 		)
 		if fallbackResult != nil {
@@ -323,7 +325,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			releaseUpstreamCtx()
 			return nil, targetErr
 		}
-		upstreamReq, err = buildGrokResponsesRequest(upstreamCtx, c, targetURL, responsesBody, token)
+		upstreamReq, err = buildGrokResponsesRequestForAccount(upstreamCtx, c, account, targetURL, responsesBody, token, grokCacheIdentity)
 	} else {
 		upstreamReq, err = s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, isStream, promptCacheKey, false)
 	}
@@ -440,6 +442,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 				billingModel,
 				upstreamModel,
 				token,
+				grokCacheIdentity,
 				startTime,
 			)
 			if fallbackResult != nil {
@@ -958,7 +961,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		// Nested evt.Response.Usage takes precedence over top-level evt.Usage:
 		// upstream's spec puts usage under response.usage; some compat upstreams
 		// duplicate it at the top level. When both are present, nested wins.
-		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(event.Type)
+		eventType := strings.TrimSpace(event.Type)
+		isBareErrorEvent := eventType == "error"
+		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(eventType) || isBareErrorEvent
 		if isTerminalEvent {
 			if event.Response != nil {
 				if id := strings.TrimSpace(event.Response.ID); id != "" {
@@ -1356,6 +1361,7 @@ func (s *OpenAIGatewayService) fallbackAnthropicToGrokChatCompletions(
 	billingModel string,
 	upstreamModel string,
 	token string,
+	grokCacheIdentity string,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
 	chatBody, err := anthropicToChatCompletionsBody(anthropicReq, upstreamModel)
@@ -1372,6 +1378,7 @@ func (s *OpenAIGatewayService) fallbackAnthropicToGrokChatCompletions(
 	if err != nil {
 		return nil, fmt.Errorf("fallback build grok chat completions request: %w", err)
 	}
+	applyGrokCacheHeaders(upstreamReq.Header, grokCacheIdentity)
 
 	proxyURL := ""
 	if account.Proxy != nil {
@@ -1383,7 +1390,7 @@ func (s *OpenAIGatewayService) fallbackAnthropicToGrokChatCompletions(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
+	s.updateGrokUsageSnapshot(ctx, account, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
@@ -1438,11 +1445,14 @@ func buildGrokChatCompletionsRequest(ctx context.Context, c *gin.Context, target
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("User-Agent", "sub2api-grok/1.0")
 	if c != nil {
 		if v := strings.TrimSpace(c.GetHeader("User-Agent")); v != "" {
 			req.Header.Set("User-Agent", v)
 		}
+		if v := strings.TrimSpace(c.GetHeader("OpenAI-Beta")); v != "" {
+			req.Header.Set("OpenAI-Beta", v)
+		}
 	}
+	applyGrokCLIHeaders(req.Header)
 	return req, nil
 }

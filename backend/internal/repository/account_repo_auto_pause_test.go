@@ -45,7 +45,7 @@ func TestAutoPauseExpiredAccountsEnqueuesAffectedAccounts(t *testing.T) {
 		WithArgs(service.SchedulerOutboxEventAccountBulkChanged, nil, nil, accountIDsPayloadMatcher{want: []int64{11, 29}}).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	repo := newAccountRepositoryWithSQL(nil, db, nil)
+	repo := newAccountRepositoryWithSQL(nil, db, nil, nil)
 	updated, err := repo.AutoPauseExpiredAccounts(context.Background(), now)
 
 	require.NoError(t, err)
@@ -63,7 +63,7 @@ func TestAutoPauseExpiredAccountsSkipsOutboxWithoutChanges(t *testing.T) {
 		WithArgs(now).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 
-	repo := newAccountRepositoryWithSQL(nil, db, nil)
+	repo := newAccountRepositoryWithSQL(nil, db, nil, nil)
 	updated, err := repo.AutoPauseExpiredAccounts(context.Background(), now)
 
 	require.NoError(t, err)

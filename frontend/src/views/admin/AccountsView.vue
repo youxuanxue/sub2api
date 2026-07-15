@@ -444,7 +444,7 @@
     <AccountTestModal v-if="lazyMount('test', showTest)" :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal v-if="lazyMount('stats', showStats)" :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel v-if="lazyMount('schedule', showSchedulePanel)" :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu v-if="lazyMount('menu', menu.show)" :show="menu.show" :account="menu.acc" :position="menu.pos" :anchor="menu.anchor" @close="closeActionMenu" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @set-tier="tierCtl.open" @create-spark-shadow="handleCreateSparkShadow" />
+    <AccountActionMenu v-if="lazyMount('menu', menu.show)" :show="menu.show" :account="menu.acc" :position="menu.pos" :anchor="menu.anchor" @close="closeActionMenu" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @set-tier="tierCtl.open" @create-spark-shadow="handleCreateSparkShadow" />
     <AccountTierModal
       v-if="lazyMount('tier', tierCtl.show.value)"
       :show="tierCtl.show.value"

@@ -8,7 +8,7 @@ import (
 )
 
 func TestGatewayRoutesCodexModelsManifestPathIsRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter()
+	router := newGatewayRoutesTestRouter("")
 
 	registered := make(map[string]string)
 	for _, route := range router.Routes() {

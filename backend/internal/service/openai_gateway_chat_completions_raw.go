@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/apipath"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -163,7 +162,13 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	}
 	SetActualOpenAIUpstreamEndpoint(c, grokChatRawEndpoint)
 	customUA := account.GetOpenAIUserAgent()
-	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA)
+	if customUA == "" && account.IsGrokOAuth() && c != nil {
+		customUA = strings.TrimSpace(c.GetHeader("User-Agent"))
+	}
+	if customUA == "" && account.IsGrokOAuth() {
+		customUA = grokUpstreamUserAgent
+	}
+	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA, grokCacheIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +178,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	// every response (success or error) so the quota snapshot the admin panel /
 	// auto-pause path read stays fresh. No-op for non-grok accounts.
 	if account.IsGrok() {
-		s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
+		s.updateGrokUsageFromResponse(ctx, account, resp.Header, resp.StatusCode)
 	}
 
 	// 7. Handle error response with failover
@@ -194,6 +199,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 				return nil, &UpstreamFailoverError{
 					StatusCode:             resp.StatusCode,
 					ResponseBody:           respBody,
+					ResponseHeaders:        resp.Header.Clone(),
 					RetryableOnSameAccount: tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, false),
 				}
 			}

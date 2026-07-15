@@ -20,18 +20,7 @@ import (
 // ExtractSessionID extracts the raw session ID from headers or body without hashing.
 // Used by ForwardAsAnthropic to pass as prompt_cache_key for upstream cache.
 func (s *OpenAIGatewayService) ExtractSessionID(c *gin.Context, body []byte) string {
-	if c == nil {
-		return ""
-	}
-	if c.Request != nil {
-		if key := StickyKeyFromClientHeaders(c.Request.Header); key.Value != "" {
-			return key.Value
-		}
-	}
-	if len(body) > 0 {
-		return strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String())
-	}
-	return ""
+	return explicitOpenAIRequestSessionID(c, body)
 }
 
 func explicitOpenAISessionID(c *gin.Context, body []byte) string {
@@ -59,9 +48,9 @@ func explicitOpenAIRequestSessionID(c *gin.Context, body []byte) string {
 		return ""
 	}
 
-	sessionID := strings.TrimSpace(c.GetHeader("session_id"))
-	if sessionID == "" {
-		sessionID = strings.TrimSpace(c.GetHeader("conversation_id"))
+	sessionID := ""
+	if c.Request != nil {
+		sessionID = StickyKeyFromClientHeaders(c.Request.Header).Value
 	}
 	if sessionID == "" && isGrokRequestContext(c) {
 		sessionID = strings.TrimSpace(c.GetHeader(grokConversationIDHeader))

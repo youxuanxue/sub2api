@@ -146,6 +146,19 @@ const planLabel = computed(() => {
   }
 })
 
+const isGrokFreePlan = computed(() =>
+  props.platform === 'grok' &&
+  (normalizedPlanType.value === 'free' || normalizedPlanType.value === 'basic')
+)
+
+const planIconName = computed<'bolt' | null>(() => {
+  if (props.platform !== 'grok') return null
+  if (normalizedPlanType.value === 'supergrok' || normalizedPlanType.value === 'supergrokheavy') {
+    return 'bolt'
+  }
+  return null
+})
+
 const platformClass = computed(() => tkAdminPlatformSoftBadgeClass(props.platform))
 
 const typeClass = computed(() => tkAdminPlatformSoftBadgeClass(props.platform))

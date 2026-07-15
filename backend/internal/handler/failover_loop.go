@@ -79,17 +79,15 @@ func (s *FailoverState) HandleFailoverError(
 	sameAccountRetryLimit int,
 	failoverErr *service.UpstreamFailoverError,
 ) FailoverAction {
+	if ctx != nil && ctx.Err() != nil {
+		return FailoverCanceled
+	}
 	if sameAccountRetryLimit < 0 {
 		sameAccountRetryLimit = 0
 	}
-	s.LastFailoverErr = failoverErr
 	if failoverErr == nil || !failoverErr.ShouldRetryNextAccount() {
+		s.LastFailoverErr = failoverErr
 		return FailoverExhausted
-	}
-
-	// 缓存计费判断
-	if needForceCacheBilling(s.hasBoundSession, failoverErr) {
-		s.ForceCacheBilling = true
 	}
 
 	// TK fail-fast: 上游 403 且响应体不是结构化错误 JSON（任何 platform shape）→
@@ -110,6 +108,10 @@ func (s *FailoverState) HandleFailoverError(
 	// 仍把账号加入 FailedAccountIDs，防止上层 retry loop 立刻再选回同账号。
 	// 详见排查记录：account_id=1 (cc-am-or-ec2-5-1-b) 上 10 次 403 全部 ResponseBody 空。
 	if failoverErr.StatusCode == http.StatusForbidden && !looksLikeStructuredErrorJSON(failoverErr.ResponseBody) {
+		s.LastFailoverErr = failoverErr
+		if needForceCacheBilling(s.hasBoundSession, failoverErr) {
+			s.ForceCacheBilling = true
+		}
 		logger.FromContext(ctx).Warn("gateway.failover_forbidden_fail_fast",
 			zap.Int64("account_id", accountID),
 			zap.String("platform", platform),
@@ -122,6 +124,13 @@ func (s *FailoverState) HandleFailoverError(
 
 	// 同账号重试：对 RetryableOnSameAccount 的临时性错误，先在同一账号上重试
 	if failoverErr.RetryableOnSameAccount && s.SameAccountRetryCount[accountID] < sameAccountRetryLimit {
+		if !sleepWithContext(ctx, sameAccountRetryDelay) {
+			return FailoverCanceled
+		}
+		s.LastFailoverErr = failoverErr
+		if needForceCacheBilling(s.hasBoundSession, failoverErr) {
+			s.ForceCacheBilling = true
+		}
 		s.SameAccountRetryCount[accountID]++
 		logger.FromContext(ctx).Warn("gateway.failover_same_account_retry",
 			zap.Int64("account_id", accountID),
@@ -129,10 +138,12 @@ func (s *FailoverState) HandleFailoverError(
 			zap.Int("same_account_retry_count", s.SameAccountRetryCount[accountID]),
 			zap.Int("same_account_retry_max", sameAccountRetryLimit),
 		)
-		if !sleepWithContext(ctx, sameAccountRetryDelay) {
-			return FailoverCanceled
-		}
 		return FailoverContinue
+	}
+
+	s.LastFailoverErr = failoverErr
+	if needForceCacheBilling(s.hasBoundSession, failoverErr) {
+		s.ForceCacheBilling = true
 	}
 
 	// 同账号重试用尽，执行临时封禁
@@ -180,6 +191,9 @@ func (s *FailoverState) HandleFailoverError(
 // 返回 FailoverExhausted 时，调用方应返回错误响应。
 // 返回 FailoverCanceled 时，调用方应直接 return。
 func (s *FailoverState) HandleSelectionExhausted(ctx context.Context, thinPoolExcluded bool) FailoverAction {
+	if ctx != nil && ctx.Err() != nil {
+		return FailoverCanceled
+	}
 	retryable := thinPoolExcluded ||
 		(s.LastFailoverErr != nil && s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable)
 	if retryable && s.SwitchCount <= s.MaxSwitches {

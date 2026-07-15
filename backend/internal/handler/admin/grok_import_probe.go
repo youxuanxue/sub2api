@@ -199,6 +199,7 @@ func ProvideAccountHandler(
 		sessionLimitCache,
 		rpmCache,
 		tokenCacheInvalidator,
+		nil,
 	)
 	handler.grokImportProber = grokQuotaService
 	return handler
