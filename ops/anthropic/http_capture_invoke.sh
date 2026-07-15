@@ -67,6 +67,7 @@ OUT="$WORK_DIR/claude-${TAG}.out"
 ERR="$WORK_DIR/claude-${TAG}.err"
 
 # Neutral cwd: avoid sub2api project SessionStart context short-circuiting /v1/messages.
+set +e
 (
   cd /tmp || exit 1
   env -i \
@@ -90,13 +91,16 @@ ERR="$WORK_DIR/claude-${TAG}.err"
     "$CLAUDE_BIN" \
     -p "$PROMPT" \
     --model "$MODEL" \
+    --allowedTools '' \
     --max-budget-usd 0.15 \
     --output-format text \
     </dev/null >"$OUT" 2>"$ERR"
-) || true  # preflight-allow: swallow
+)
+rc=$?
+set -e
 
 if [[ -s "$ERR" ]]; then
   sed -n '1,5p' "$ERR" >&2 || true  # preflight-allow: swallow
 fi
 
-exit 0
+exit "$rc"

@@ -56,8 +56,11 @@ expect {
     exp_continue
   }
   timeout {
+    send "\x03"
+    after 500
     send "\x04"
-    exp_continue
+    after 500
+    exit 124
   }
   eof
 }

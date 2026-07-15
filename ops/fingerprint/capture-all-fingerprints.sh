@@ -21,16 +21,16 @@
 #     has no prerequisite stack and never needs an IDE/proxy window, so it always
 #     runs. Mechanically it is the odd one out: the gate is `check`, not `capture`.
 # This umbrella only SEQUENCES them and AGGREGATES the result; it does not merge
-# their capture mechanics. Exit non-zero if any engine reports actionable drift,
-# so CI / a wrapper skill can gate a single combined PR.
+# their capture mechanics. It fails distinctly for drift, invalid evidence/error,
+# and incomplete coverage so a wrapper cannot mistake skipped evidence for alignment.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-CC="$REPO_ROOT/ops/anthropic/capture-cc-fingerprint.sh"
-KIRO="$REPO_ROOT/ops/kiro/capture-kiro-fingerprint.sh"
-ANTIGRAVITY="$REPO_ROOT/ops/antigravity/capture-antigravity-fingerprint.sh"
-CODEX="$REPO_ROOT/ops/openai/capture-codex-fingerprint.sh"
+CC="${TOKENKEY_CAPTURE_ALL_CC:-$REPO_ROOT/ops/anthropic/capture-cc-fingerprint.sh}"
+KIRO="${TOKENKEY_CAPTURE_ALL_KIRO:-$REPO_ROOT/ops/kiro/capture-kiro-fingerprint.sh}"
+ANTIGRAVITY="${TOKENKEY_CAPTURE_ALL_ANTIGRAVITY:-$REPO_ROOT/ops/antigravity/capture-antigravity-fingerprint.sh}"
+CODEX="${TOKENKEY_CAPTURE_ALL_CODEX:-$REPO_ROOT/ops/openai/capture-codex-fingerprint.sh}"
 
 SKIP_CC=0
 SKIP_KIRO=0
@@ -61,7 +61,8 @@ runs (skip it with --skip-codex if codex is not installed). On drift, refresh th
 drifted platform(s)' artifacts and open ONE PR
 (see .cursor/skills/tokenkey-fingerprint-alignment-all).
 
-Exit: 0 = all aligned/skipped, 1 = at least one engine drifted, 2 = a run errored.
+Exit: 0 = all required evidence aligned, 1 = drift, 2 = error/invalid evidence,
+      3 = incomplete coverage (including explicitly skipped engines).
 EOF
 }
 
@@ -80,7 +81,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# status codes per engine: aligned | drift | skipped | error
+# status codes per engine: aligned | drift | incomplete | skipped | error
 CC_STATUS="skipped"
 KIRO_STATUS="skipped"
 ANTIGRAVITY_STATUS="skipped"
@@ -96,6 +97,7 @@ if [[ "$SKIP_CC" == "0" ]]; then
   case "$rc" in
     0) CC_STATUS="aligned" ;;
     1) CC_STATUS="drift" ;;
+    3) CC_STATUS="incomplete" ;;
     *) CC_STATUS="error" ;;
   esac
 fi
@@ -108,6 +110,7 @@ if [[ "$SKIP_KIRO" == "0" ]]; then
   case "$rc" in
     0) KIRO_STATUS="aligned" ;;
     1) KIRO_STATUS="drift" ;;
+    3) KIRO_STATUS="incomplete" ;;
     *) KIRO_STATUS="error" ;;
   esac
 fi
@@ -120,6 +123,7 @@ if [[ "$SKIP_ANTIGRAVITY" == "0" ]]; then
   case "$rc" in
     0) ANTIGRAVITY_STATUS="aligned" ;;
     1) ANTIGRAVITY_STATUS="drift" ;;
+    3) ANTIGRAVITY_STATUS="incomplete" ;;
     *) ANTIGRAVITY_STATUS="error" ;;
   esac
 fi
@@ -133,6 +137,7 @@ if [[ "$SKIP_CODEX" == "0" ]]; then
   case "$rc" in
     0) CODEX_STATUS="aligned" ;;
     1) CODEX_STATUS="drift" ;;
+    3) CODEX_STATUS="incomplete" ;;
     *) CODEX_STATUS="error" ;;
   esac
 fi
@@ -145,13 +150,25 @@ printf "  %-14s %s\n" "antigravity" "$ANTIGRAVITY_STATUS"
 printf "  %-14s %s\n" "codex"       "$CODEX_STATUS"
 echo "==================================================================="
 
-overall=0
+has_drift=0
+has_error=0
+has_incomplete=0
 for st in "$CC_STATUS" "$KIRO_STATUS" "$ANTIGRAVITY_STATUS" "$CODEX_STATUS"; do
   case "$st" in
-    drift) overall=1 ;;
-    error) [[ "$overall" -eq 0 ]] && overall=2 ;;
+    drift) has_drift=1 ;;
+    error) has_error=1 ;;
+    incomplete|skipped) has_incomplete=1 ;;
   esac
 done
+if [[ "$has_error" -eq 1 ]]; then
+  overall=2
+elif [[ "$has_drift" -eq 1 ]]; then
+  overall=1
+elif [[ "$has_incomplete" -eq 1 ]]; then
+  overall=3
+else
+  overall=0
+fi
 
 if [[ "$overall" -eq 1 ]]; then
   echo "→ drift detected. Refresh the drifted platform(s)' artifacts and open ONE PR"
@@ -160,13 +177,16 @@ if [[ "$overall" -eq 1 ]]; then
   echo "  ops/kiro emit-profile -> tk_canonical_kiro_ide.json; antigravity drift bumps"
   echo "  DefaultUserAgentVersion in internal/pkg/antigravity/oauth.go (+ oauth_test.go);"
   echo "  codex drift runs ops/openai emit-edits to bump the 5 codex version pins."
-elif [[ "$overall" -eq 0 ]]; then
-  echo "→ all engines aligned (or skipped). Nothing to commit."
-else
+elif [[ "$overall" -eq 2 ]]; then
   echo "→ an engine ERRORED (rc=2): capture/env failure, NOT fingerprint drift."
   echo "  Common causes: cc0 stack down; kiro got no traffic (sudo + a real Kiro"
   echo "  request needed; Kiro must egress on the captured iface/proxy); Antigravity"
   echo "  not routed through mitm :8080 or not trusting the CA. Fix and re-run."
   echo "  Do NOT refresh any fingerprint artifact on an rc=2 — there is no drift evidence."
+elif [[ "$overall" -eq 3 ]]; then
+  echo "→ coverage incomplete (rc=3): at least one engine was skipped or lacked valid evidence."
+  echo "  Do not claim all fingerprints aligned; collect the missing dimensions and re-run."
+else
+  echo "→ all required engine evidence is observed and aligned. Nothing to commit."
 fi
 exit "$overall"

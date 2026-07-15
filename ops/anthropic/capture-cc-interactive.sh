@@ -44,7 +44,7 @@ HTTP path keeps the user's ANTHROPIC_BASE_URL and steers via HTTP(S)_PROXY mitm.
 Set TOKENKEY_CC_CAPTURE_DIRECT_ANTHROPIC=1 to require gost upstream to Anthropic.
 
 Options:
-  --http-only              Skip TLS; seed bundle TLS from baseline (HTTP-only drift).
+  --http-only              Skip TLS; mark TLS not-observed (HTTP-only evidence).
   --tls-pcap               Force passive pcap during interactive mitm (skip collector).
   --tls-pcap-standalone    Use direct/bare Claude TLS trigger instead of mitm loopback pcap.
   --no-tls-pcap-fallback   Do not auto-fallback to pcap when collector fails.
@@ -65,15 +65,11 @@ require_cmd() {
 }
 
 require_sudo_for_pcap() {
-  # Non-interactive sessions cannot answer a sudo password prompt.
-  if [[ ! -t 0 ]]; then
-    if ! sudo -n true 2>/dev/null; then
-      echo "error: passive pcap needs interactive sudo for tcpdump" >&2
-      echo "  Run this capture in your terminal (not a non-interactive agent) so macOS can prompt for your password." >&2
-      echo "  Or pre-authorize once: sudo -v" >&2
-      echo "  Optional: brew install --cask wireshark-chmodbpf  # reduces capture friction on macOS" >&2
-      return 1
-    fi
+  if ! sudo -n true 2>/dev/null; then
+    echo "error: passive pcap requires a pre-authorized sudo timestamp" >&2
+    echo "  Run 'sudo -v' in this same terminal, then retry the capture." >&2
+    echo "  Optional: install Wireshark ChmodBPF and use a non-sudo capture path." >&2
+    return 1
   fi
   return 0
 }
@@ -466,8 +462,8 @@ run_tls_pcap_capture() {
 
   echo "  bpf filter: $filter"
 
-  echo "Starting tcpdump for up to ${PCAP_SECONDS}s (sudo may prompt) ..."
-  sudo tcpdump ${iface_arg[@]+"${iface_arg[@]}"} -s 0 -w "$pcap" -G "$PCAP_SECONDS" -W 1 "$filter" \
+  echo "Starting tcpdump for up to ${PCAP_SECONDS}s (sudo pre-authorized) ..."
+  sudo -n tcpdump ${iface_arg[@]+"${iface_arg[@]}"} -s 0 -w "$pcap" -G "$PCAP_SECONDS" -W 1 "$filter" \
     >"$work/tcpdump.err" 2>&1 &
   local tcpdump_pid=$!
   sleep 1
@@ -503,8 +499,8 @@ run_tls_pcap_via_mitm() {
   tsv="$work/${stamp}-cc-interactive-mitm.tshark.tsv"
 
   echo "TLS pcap (interactive mitm): iface=$PCAP_IFACE filter='tcp port $proxy_port'" >&2
-  echo "Starting tcpdump for interactive REPL session (sudo may prompt) ..." >&2
-  sudo tcpdump -i "$PCAP_IFACE" -s 0 -w "$pcap" -G "$PCAP_SECONDS" -W 1 "tcp port $proxy_port" \
+  echo "Starting tcpdump for interactive REPL session (sudo pre-authorized) ..." >&2
+  sudo -n tcpdump -i "$PCAP_IFACE" -s 0 -w "$pcap" -G "$PCAP_SECONDS" -W 1 "tcp port $proxy_port" \
     >"$work/tcpdump.err" 2>&1 &
   echo "$!" >"$work/tcpdump.pid"
   sleep 1
@@ -584,13 +580,17 @@ run_interactive_http_capture() {
   echo "Automated Claude REPL via expect (silent, up to ${expect_timeout}s) — do not type in this shell; wait for completion ..." >&2
   run_one() {
     local model="$1"
+    local expect_rc=0
     export TK_CAPTURE_WORK="$work"
     export TK_CAPTURE_MODEL="$model"
     export TK_CAPTURE_PROMPT="$PROMPT"
     export TK_CAPTURE_CONFIG_DIR="$config_dir"
     export TK_CAPTURE_CLAUDE_BIN="$claude_bin"
     echo "  expect model=$model ..." >&2
-    expect "$EXPECT_SCRIPT" >"$work/expect-${model##*-}.out" 2>"$work/expect-${model##*-}.err" || true
+    expect "$EXPECT_SCRIPT" >"$work/expect-${model##*-}.out" 2>"$work/expect-${model##*-}.err" || expect_rc=$?
+    if [[ "$expect_rc" -ne 0 ]]; then
+      echo "  warn: expect model=$model exited rc=$expect_rc; validating captured records before deciding" >&2
+    fi
     echo "  expect model=$model done (see $work/expect-${model##*-}.err on failure)" >&2
     sleep 2
   }
@@ -731,6 +731,12 @@ cmd_capture() {
   claude_bin="$(resolve_claude_bin)"
   local config_dir
   config_dir="$(resolve_config_dir "$claude_bin")"
+  local config_info auth_route
+  if ! config_info="$(python3 "$PY" classify-config --config-dir "$config_dir" --claude-bin "$claude_bin")"; then
+    echo "error: capture auth route is unknown; refusing to compare cohorts" >&2
+    return 3
+  fi
+  auth_route="$(printf '%s' "$config_info" | jq -r '.auth_route')"
 
   mkdir -p "$OUT_DIR"
   local stamp cc_version token work http_log tls_capture bundle_path collector_label
@@ -748,7 +754,7 @@ cmd_capture() {
     tls_mode="pcap"
   fi
 
-  echo "cc_version=${cc_version:-unknown} claude_bin=$claude_bin config_dir=$config_dir tls_mode=$tls_mode"
+  echo "cc_version=${cc_version:-unknown} claude_bin=$claude_bin config_dir=$config_dir tls_mode=$tls_mode auth_route=$auth_route"
   run_tls_capture_with_fallback "$work" "$token" "$config_dir" "$claude_bin" "$cc_version" "$stamp" "$tls_mode" "$pcap_fallback" "$pcap_standalone"
 
   if [[ -f "$work/pcap-deferred" ]]; then
@@ -771,6 +777,7 @@ cmd_capture() {
     --http-log "$http_log"
     --out "$bundle_path"
     --collector "$collector_label"
+    --http-cohort "$auth_route"
   )
   if [[ -n "${cc_version:-}" ]]; then
     bundle_args+=(--cc-version "$cc_version")
