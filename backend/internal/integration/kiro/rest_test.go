@@ -327,8 +327,8 @@ func TestKiroRestFetch_GenericOperationsKeepLastHTTPError(t *testing.T) {
 func TestRefreshAccountInfo_MapsBonusesFromUsageBreakdown(t *testing.T) {
 	var usageCalls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/Get-Usage-Limits" || r.URL.Path == "/getUsageLimits":
+		switch r.URL.Path {
+		case "/Get-Usage-Limits", "/getUsageLimits":
 			usageCalls.Add(1)
 			_, _ = io.WriteString(w, `{
 				"usageBreakdownList": [{

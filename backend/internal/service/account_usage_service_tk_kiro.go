@@ -16,7 +16,7 @@ import (
 
 var kiroBonusKeySanitizer = regexp.MustCompile(`[^a-z0-9]+`)
 
-var errKiroUsageTokenRefreshInProgress = errors.New("Kiro OAuth token refresh already in progress")
+var errKiroUsageTokenRefreshInProgress = errors.New("kiro OAuth token refresh already in progress")
 
 var kiroUsageSensitiveErrorKeys = []string{
 	"accessToken",
@@ -162,7 +162,7 @@ func (s *AccountUsageService) refreshKiroUsageAccount(ctx context.Context, accou
 		return account, false, err
 	}
 	if result == nil {
-		return account, false, fmt.Errorf("Kiro OAuth token refresh returned no result")
+		return account, false, fmt.Errorf("kiro OAuth token refresh returned no result")
 	}
 	if result.LockHeld {
 		return account, false, errKiroUsageTokenRefreshInProgress
