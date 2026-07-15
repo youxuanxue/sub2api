@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -43,15 +44,16 @@ func seedAvail(repo *memoryAvailabilityRepo, platform, modelID, status, kind str
 
 func TestDecorateAndPruneByAvailability(t *testing.T) {
 	svc, repo, _ := newAvailabilityTestService(t)
-	seedAvail(repo, PlatformAnthropic, "claude-fable-5", AvailabilityStatusUnreachable, FailureKindModelNotFound) // gone
-	seedAvail(repo, PlatformAnthropic, "claude-opus-4-8", AvailabilityStatusUnreachable, FailureKindUpstream5xx)  // degraded
-	// claude-sonnet-4-6 unseeded → untested → keep, no badge drop.
+	anthropic := firstNPlatformServableIDsForSelfHealTest(t, PlatformAnthropic, 3)
+	gone, degraded, untested := anthropic[0], anthropic[1], anthropic[2]
+	seedAvail(repo, PlatformAnthropic, gone, AvailabilityStatusUnreachable, FailureKindModelNotFound)
+	seedAvail(repo, PlatformAnthropic, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx)
 
 	resp := &PublicCatalogResponse{Object: "list", Data: []PublicCatalogModel{
-		{ModelID: "claude-fable-5", Vendor: "anthropic"},
-		{ModelID: "claude-opus-4-8", Vendor: "anthropic"},
-		{ModelID: "claude-sonnet-4-6", Vendor: "anthropic"},
-		{ModelID: "deepseek-chat", Vendor: "deepseek"}, // unknown platform → pass through untouched
+		{ModelID: gone, Vendor: "anthropic"},
+		{ModelID: degraded, Vendor: "anthropic"},
+		{ModelID: untested, Vendor: "anthropic"},
+		{ModelID: "custom-not-native-zzz", Vendor: "custom-vendor"}, // unknown platform → pass through untouched
 	}}
 
 	out := DecorateAndPruneByAvailability(context.Background(), resp, svc)
@@ -60,11 +62,11 @@ func TestDecorateAndPruneByAvailability(t *testing.T) {
 	for i := range out.Data {
 		got[out.Data[i].ModelID] = &out.Data[i]
 	}
-	require.NotContains(t, got, "claude-fable-5", "structurally-gone model must be hidden from the storefront")
-	require.Contains(t, got, "claude-opus-4-8", "degraded model stays listed")
-	require.Equal(t, AvailabilityStatusUnreachable, got["claude-opus-4-8"].Availability.Status, "degraded model keeps its badge")
-	require.Contains(t, got, "claude-sonnet-4-6", "untested model stays listed")
-	require.Contains(t, got, "deepseek-chat", "unknown-platform model passes through")
+	require.NotContains(t, got, gone, "structurally-gone model must be hidden from the storefront")
+	require.Contains(t, got, degraded, "degraded model stays listed")
+	require.Equal(t, AvailabilityStatusUnreachable, got[degraded].Availability.Status, "degraded model keeps its badge")
+	require.Contains(t, got, untested, "untested model stays listed")
+	require.Contains(t, got, "custom-not-native-zzz", "unknown-platform model passes through")
 
 	// nil-safe: svc == nil returns resp unchanged (no pruning).
 	require.Len(t, DecorateAndPruneByAvailability(context.Background(), resp, nil).Data, 4)
@@ -72,17 +74,27 @@ func TestDecorateAndPruneByAvailability(t *testing.T) {
 
 func TestMePricingPruneStructurallyGoneIDs(t *testing.T) {
 	svc, repo, _ := newAvailabilityTestService(t)
-	seedAvail(repo, PlatformAnthropic, "claude-fable-5", AvailabilityStatusUnreachable, FailureKindModelNotFound)
-	seedAvail(repo, PlatformAnthropic, "claude-opus-4-8", AvailabilityStatusUnreachable, FailureKindUpstream5xx)
+	anthropic := firstNPlatformServableIDsForSelfHealTest(t, PlatformAnthropic, 3)
+	gone, degraded, untested := anthropic[0], anthropic[1], anthropic[2]
+	seedAvail(repo, PlatformAnthropic, gone, AvailabilityStatusUnreachable, FailureKindModelNotFound)
+	seedAvail(repo, PlatformAnthropic, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx)
 
 	// *PricingAvailabilityService satisfies MePricingAvailability.
 	mps := &MePricingCatalogService{availability: svc}
 	got := mps.pruneStructurallyGoneIDs(context.Background(), PlatformAnthropic,
-		[]string{"claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6"})
-	require.Equal(t, []string{"claude-opus-4-8", "claude-sonnet-4-6"}, got,
-		"only the structurally-gone fable-5 is pruned from the menu fallback")
+		[]string{gone, degraded, untested})
+	require.Equal(t, []string{degraded, untested}, got,
+		"only the structurally-gone model is pruned from the menu fallback")
 
 	// nil availability → passthrough (Phase-1 / tests).
 	none := &MePricingCatalogService{}
 	require.Len(t, none.pruneStructurallyGoneIDs(context.Background(), PlatformAnthropic, []string{"a", "b"}), 2)
+}
+
+func firstNPlatformServableIDsForSelfHealTest(t *testing.T, platform string, n int) []string {
+	t.Helper()
+	ids := supportedCatalogModelIDsForPlatform(platform)
+	sort.Strings(ids)
+	require.GreaterOrEqual(t, len(ids), n, "platform %s SSOT must have enough ids for this test", platform)
+	return append([]string{}, ids[:n]...)
 }

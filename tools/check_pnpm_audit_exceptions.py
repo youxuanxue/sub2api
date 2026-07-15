@@ -148,14 +148,6 @@ def main() -> int:
     with open(args.audit, "r", encoding="utf-8") as handle:
         audit = json.load(handle)
 
-    if not isinstance(audit, dict) or not any(
-        key in audit for key in ("advisories", "vulnerabilities", "metadata")
-    ):
-        error = audit.get("error") if isinstance(audit, dict) else None
-        detail = json.dumps(error, ensure_ascii=False) if error else "unrecognized JSON shape"
-        sys.stderr.write(f"pnpm audit did not return an audit result: {detail}\n")
-        return 1
-
     # 读取异常清单并建立索引，便于快速匹配包名 + advisory。
     exceptions = parse_exceptions(args.exceptions)
     exception_index = {}

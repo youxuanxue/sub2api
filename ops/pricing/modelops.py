@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Read-only model operations planner for TokenKey.
+"""Model operations planner and explicit model-surface activation entry.
 
-This is intentionally NOT a background writer. It automates the deterministic
-parts of model operations:
+This is intentionally NOT a background writer. ``plan`` automates read-only
+reconciliation; ``activate`` is the only evidence-gated prod mapping write path.
+The deterministic model operations include:
 
   * normalize upstream-discovered model ids,
   * normalize probe TSV output from ops/pricing/probe-servable-models.sh,
@@ -27,6 +28,12 @@ Usage:
     --live-mapping /tmp/model_mapping_snapshot.json \
     --mirror "$SOURCE_QWEN_ACCOUNT_ID":"$TARGET_QWEN_ACCOUNT_ID"
 
+  python3 ops/pricing/modelops.py activate \
+    --bundle /tmp/model-surface-bundle.json \
+    --current-bundle /tmp/current-model-surface-bundle.json \
+    --probe-evidence /tmp/model-activation-probe.json \
+    --pricing-evidence /tmp/model-activation-pricing.json
+
   python3 ops/pricing/modelops.py --selftest
 """
 
@@ -34,9 +41,12 @@ from __future__ import annotations
 
 import argparse
 import collections
+import datetime as dt
+import importlib.util
 import json
 import re
 import shlex
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -47,6 +57,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVICE_DIR = REPO_ROOT / "backend" / "internal" / "service"
 MANIFEST_PATH = SERVICE_DIR / "tk_served_models.json"
 OVERLAY_PATH = SERVICE_DIR / "tk_pricing_overlay.json"
+MAPPING_MANAGER_PATH = REPO_ROOT / "ops" / "pricing" / "manage-account-model-mapping-runtime.py"
+
+_bundle_spec = importlib.util.spec_from_file_location(
+    "tk_model_surface_bundle", REPO_ROOT / "ops" / "pricing" / "model_surface_bundle.py")
+_BUNDLE = importlib.util.module_from_spec(_bundle_spec)
+_bundle_spec.loader.exec_module(_BUNDLE)
+
+ACTIVATION_EVIDENCE_SCHEMA_VERSION = 1
+ACTIVATION_EVIDENCE_MAX_AGE = dt.timedelta(hours=24)
+ACTIVATION_CONFIRM = "yes-activate-model-surface"
 
 MODE_FIELDS = {
     "image_generation": ("output_cost_per_image",),
@@ -808,6 +828,393 @@ def cmd_snapshot_sql(args: argparse.Namespace) -> int:
     return 0
 
 
+class ActivationError(RuntimeError):
+    pass
+
+
+def _parse_evidence_time(raw: Any, label: str) -> dt.datetime:
+    if not isinstance(raw, str) or not raw.strip():
+        raise ActivationError(f"{label}: observed_at must be an RFC3339 UTC timestamp")
+    value = raw.strip()
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    try:
+        parsed = dt.datetime.fromisoformat(value)
+    except ValueError as e:
+        raise ActivationError(f"{label}: invalid observed_at {raw!r}") from e
+    if parsed.tzinfo is None:
+        raise ActivationError(f"{label}: observed_at must include a UTC offset")
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def _bundle_mapping_scopes(bundle: dict[str, Any]) -> dict[str, dict[str, str]]:
+    floor = bundle["account_model_mapping"]
+    scopes = {
+        str(scope): dict(mapping)
+        for scope, mapping in (floor.get("platforms") or {}).items()
+        if isinstance(mapping, dict)
+    }
+    for channel_type, mapping in (floor.get("newapi_channel_types") or {}).items():
+        if isinstance(mapping, dict):
+            scopes[f"newapi_channel_type:{channel_type}"] = dict(mapping)
+    return scopes
+
+
+def _activation_delta(current: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    current_scopes = _bundle_mapping_scopes(current)
+    target_scopes = _bundle_mapping_scopes(target)
+    activated: list[dict[str, Any]] = []
+    removed: list[dict[str, Any]] = []
+    for scope, mapping in sorted(target_scopes.items()):
+        previous = current_scopes.get(scope, {})
+        for model_id, target_id in sorted(mapping.items()):
+            previous_target = previous.get(model_id)
+            if previous_target == target_id:
+                continue
+            activated.append({
+                "scope": scope,
+                "model_id": model_id,
+                "target": target_id,
+                "change": "added" if previous_target is None else "retargeted",
+                "previous_target": previous_target,
+            })
+    for scope, mapping in sorted(current_scopes.items()):
+        target_mapping = target_scopes.get(scope, {})
+        for model_id, previous_target in sorted(mapping.items()):
+            if model_id not in target_mapping:
+                removed.append({
+                    "scope": scope,
+                    "model_id": model_id,
+                    "previous_target": previous_target,
+                })
+
+    current_floor = current["account_model_mapping"]
+    target_floor = target["account_model_mapping"]
+
+    def policy_additions(field: str) -> list[dict[str, str]]:
+        before = current_floor.get(field) or {}
+        after = target_floor.get(field) or {}
+        rows: list[dict[str, str]] = []
+        for scope, values in sorted(after.items()):
+            old = set(before.get(scope) or [])
+            for value in sorted(set(values or []) - old):
+                rows.append({"scope": str(scope), "value": str(value)})
+        return rows
+
+    current_scopes_list = sorted(set(current_floor.get("antigravity_group_scopes") or []))
+    target_scopes_list = sorted(set(target_floor.get("antigravity_group_scopes") or []))
+    return {
+        "activated": activated,
+        "removed_required": removed,
+        "forbidden_keys_added": policy_additions("forbidden_model_mapping_keys"),
+        "forbidden_prefixes_added": policy_additions("forbidden_model_mapping_prefixes"),
+        "antigravity_group_scopes_changed": current_scopes_list != target_scopes_list,
+        "current_antigravity_group_scopes": current_scopes_list,
+        "target_antigravity_group_scopes": target_scopes_list,
+    }
+
+
+def _load_activation_evidence(
+    path: Path,
+    *,
+    kind: str,
+    current_sha256: str,
+    target_sha256: str,
+    now: dt.datetime,
+) -> tuple[dict[str, Any], dict[tuple[str, str, str], dict[str, Any]]]:
+    label = str(path)
+    try:
+        data = load_json(path)
+    except (OSError, json.JSONDecodeError) as e:
+        raise ActivationError(f"{label}: cannot load evidence: {e}") from e
+    if not isinstance(data, dict):
+        raise ActivationError(f"{label}: evidence must be a JSON object")
+    if data.get("schema_version") != ACTIVATION_EVIDENCE_SCHEMA_VERSION:
+        raise ActivationError(
+            f"{label}: unsupported evidence schema {data.get('schema_version')!r}; "
+            f"expected {ACTIVATION_EVIDENCE_SCHEMA_VERSION}"
+        )
+    if data.get("kind") != kind:
+        raise ActivationError(f"{label}: evidence kind must be {kind!r}")
+    if data.get("current_floor_sha256") != current_sha256:
+        raise ActivationError(f"{label}: current_floor_sha256 does not match --current-bundle")
+    if data.get("target_floor_sha256") != target_sha256:
+        raise ActivationError(f"{label}: target_floor_sha256 does not match --bundle")
+    observed_at = _parse_evidence_time(data.get("observed_at"), label)
+    now = now.astimezone(dt.timezone.utc)
+    if observed_at > now:
+        raise ActivationError(f"{label}: observed_at is in the future")
+    if now - observed_at > ACTIVATION_EVIDENCE_MAX_AGE:
+        raise ActivationError(f"{label}: evidence is stale (older than 24 hours)")
+    rows = data.get("models")
+    if not isinstance(rows, list):
+        raise ActivationError(f"{label}: models must be an array")
+    index: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for position, row in enumerate(rows):
+        row_label = f"{label}:models[{position}]"
+        if not isinstance(row, dict):
+            raise ActivationError(f"{row_label}: row must be an object")
+        values: dict[str, str] = {}
+        for field in ("scope", "model_id", "target", "verdict", "source"):
+            value = row.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise ActivationError(f"{row_label}: {field} must be a non-empty string")
+            values[field] = value.strip()
+        if kind == "model_activation_probe":
+            account_id = row.get("account_id")
+            if not isinstance(account_id, str) or not account_id.strip():
+                raise ActivationError(f"{row_label}: probe evidence requires account_id")
+        key = (values["scope"], values["model_id"], values["target"])
+        if key in index:
+            raise ActivationError(f"{row_label}: duplicate evidence for {key}")
+        index[key] = {**row, **values}
+    return data, index
+
+
+def build_activation_context(
+    *,
+    bundle_path: Path,
+    current_bundle_path: Path,
+    probe_evidence_path: Path,
+    pricing_evidence_path: Path,
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    try:
+        target = _BUNDLE.load_bundle(bundle_path)
+        current = _BUNDLE.load_bundle(current_bundle_path)
+    except RuntimeError as e:
+        raise ActivationError(str(e)) from e
+    target_sha256 = target["floor_sha256"]
+    current_sha256 = current["floor_sha256"]
+    if target_sha256 == current_sha256:
+        raise ActivationError("target and current bundles have the same floor_sha256")
+    delta = _activation_delta(current, target)
+    if not delta["activated"]:
+        raise ActivationError("bundle delta has no added or retargeted required model mappings")
+
+    checked_at = now or dt.datetime.now(dt.timezone.utc)
+    probe, probe_index = _load_activation_evidence(
+        probe_evidence_path,
+        kind="model_activation_probe",
+        current_sha256=current_sha256,
+        target_sha256=target_sha256,
+        now=checked_at,
+    )
+    pricing, pricing_index = _load_activation_evidence(
+        pricing_evidence_path,
+        kind="model_activation_pricing",
+        current_sha256=current_sha256,
+        target_sha256=target_sha256,
+        now=checked_at,
+    )
+    missing_probe: list[str] = []
+    missing_pricing: list[str] = []
+    shared_sources: list[str] = []
+    for row in delta["activated"]:
+        key = (row["scope"], row["model_id"], row["target"])
+        probe_row = probe_index.get(key)
+        if not probe_row or probe_row.get("verdict") != "servable":
+            missing_probe.append("/".join(key))
+        pricing_row = pricing_index.get(key)
+        if not pricing_row or pricing_row.get("verdict") != "priced":
+            missing_pricing.append("/".join(key))
+        if probe_row and pricing_row and probe_row.get("source") == pricing_row.get("source"):
+            shared_sources.append("/".join(key))
+    if missing_probe:
+        raise ActivationError("probe evidence missing servable verdicts: " + ", ".join(missing_probe))
+    if missing_pricing:
+        raise ActivationError("pricing evidence missing priced verdicts: " + ", ".join(missing_pricing))
+    if shared_sources:
+        raise ActivationError(
+            "probe and pricing evidence must use independent sources: " + ", ".join(shared_sources))
+    return {
+        "current_bundle": str(current_bundle_path.expanduser().resolve()),
+        "current_floor_sha256": current_sha256,
+        "target_bundle": str(bundle_path.expanduser().resolve()),
+        "target_floor_sha256": target_sha256,
+        "delta": delta,
+        "evidence": {
+            "probe": {"path": str(probe_evidence_path), "observed_at": probe["observed_at"]},
+            "pricing": {"path": str(pricing_evidence_path), "observed_at": pricing["observed_at"]},
+        },
+    }
+
+
+def _mapping_manager_command(
+    action: str,
+    bundle_path: Path,
+    *,
+    prod_instance_id: str | None = None,
+    activation_floor_sha256: str | None = None,
+) -> list[str]:
+    command = ["python3", str(MAPPING_MANAGER_PATH.relative_to(REPO_ROOT)), action]
+    if action == "apply-accounts-dry-run":
+        command[2:] = ["apply-accounts", "--target", "prod", "--dry-run"]
+    elif action == "apply-accounts":
+        command[2:] = [
+            "apply-accounts", "--target", "prod", "--confirm", "yes-apply-account-model-mapping",
+        ]
+    elif action == "release-gate":
+        command.extend(["--json"])
+    else:
+        raise ValueError(f"unsupported mapping manager action {action!r}")
+    if prod_instance_id:
+        command.extend(["--prod-instance-id", prod_instance_id])
+    if activation_floor_sha256:
+        if action not in {"apply-accounts-dry-run", "apply-accounts"}:
+            raise ValueError("activation floor guard is only valid for account apply")
+        command.extend(["--activation-floor-sha256", activation_floor_sha256])
+    command.extend(["--bundle", str(bundle_path.expanduser().resolve())])
+    return command
+
+
+def _run_json_command(command: list[str], allowed_returncodes: set[int]) -> tuple[int, dict[str, Any]]:
+    proc = subprocess.run(
+        command,
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    output = proc.stdout.strip()
+    try:
+        data = json.loads(output) if output else {}
+    except json.JSONDecodeError as e:
+        raise ActivationError(
+            f"command emitted invalid JSON: {' '.join(shlex.quote(p) for p in command)}: {e}"
+        ) from e
+    if proc.returncode not in allowed_returncodes:
+        detail = (proc.stderr or output or "no output").strip()[:1600]
+        raise ActivationError(
+            f"command failed rc={proc.returncode}: {' '.join(shlex.quote(p) for p in command)}: {detail}"
+        )
+    return proc.returncode, data
+
+
+def _require_unshadowed_activation_bundle(gate: dict[str, Any]) -> None:
+    targets = gate.get("runtime_setting_targets") or []
+    if targets:
+        raise ActivationError(
+            "target bundle is shadowed by tk_account_model_mapping_runtime on: "
+            + ", ".join(str(target) for target in targets)
+            + "; fold the runtime scope into the bundle or clear it before activation"
+        )
+
+
+def _resolved_prod_instance_id(gate: dict[str, Any]) -> str:
+    rows = gate.get("resolved_targets")
+    if not isinstance(rows, list):
+        raise ActivationError("release gate did not report its resolved prod target")
+    matches = [row for row in rows if isinstance(row, dict) and row.get("target") == "prod"]
+    if len(matches) != 1:
+        raise ActivationError("release gate did not resolve exactly one prod target")
+    instance_id = matches[0].get("instance_id")
+    if not isinstance(instance_id, str) or not re.fullmatch(r"i-[0-9a-f]{17}", instance_id):
+        raise ActivationError("release gate reported an invalid prod instance id")
+    return instance_id
+
+
+def _activation_confirm_command(args: argparse.Namespace) -> str:
+    command = [
+        "python3", "ops/pricing/modelops.py", "activate",
+        "--bundle", str(args.bundle),
+        "--current-bundle", str(args.current_bundle),
+        "--probe-evidence", str(args.probe_evidence),
+        "--pricing-evidence", str(args.pricing_evidence),
+    ]
+    if args.prod_instance_id:
+        command.extend(["--prod-instance-id", args.prod_instance_id])
+    command.extend(["--confirm", ACTIVATION_CONFIRM])
+    return " ".join(shlex.quote(part) for part in command)
+
+
+def _print_activation_result(result: dict[str, Any]) -> None:
+    context = result["context"]
+    delta = context["delta"]
+    plan = result["mapping_plan"]
+    print(f"modelops activation {result['status']}")
+    print(f"  current_floor_sha256={context['current_floor_sha256']}")
+    print(f"  target_floor_sha256={context['target_floor_sha256']}")
+    print(f"  activated_mappings={len(delta['activated'])}")
+    print(
+        f"  prod_plan=accounts:{plan.get('account_change_count', 0)} "
+        f"groups:{plan.get('group_change_count', 0)}"
+    )
+    print(f"  pre_activation_gate={result['pre_activation_gate'].get('status', 'unknown')}")
+    if result["status"] == "dry_run":
+        print("  writes=none")
+        print(f"  apply={result['confirm_command']}")
+    else:
+        print(f"  post_activation_gate={result['post_activation_gate'].get('status', 'unknown')}")
+
+
+def cmd_activate(args: argparse.Namespace) -> int:
+    if args.confirm is not None and args.confirm != ACTIVATION_CONFIRM:
+        print(f"ERROR: activate requires --confirm {ACTIVATION_CONFIRM}", file=sys.stderr)
+        return 2
+    try:
+        context = build_activation_context(
+            bundle_path=args.bundle,
+            current_bundle_path=args.current_bundle,
+            probe_evidence_path=args.probe_evidence,
+            pricing_evidence_path=args.pricing_evidence,
+        )
+        _, pre_gate = _run_json_command(
+            _mapping_manager_command(
+                "release-gate", args.bundle, prod_instance_id=args.prod_instance_id),
+            {0, 1},
+        )
+        _require_unshadowed_activation_bundle(pre_gate)
+        prod_instance_id = _resolved_prod_instance_id(pre_gate)
+        _, mapping_plan = _run_json_command(
+            _mapping_manager_command(
+                "apply-accounts-dry-run",
+                args.bundle,
+                prod_instance_id=prod_instance_id,
+                activation_floor_sha256=context["target_floor_sha256"],
+            ),
+            {0},
+        )
+        result: dict[str, Any] = {
+            "status": "dry_run" if args.confirm is None else "applied",
+            "context": context,
+            "mapping_plan": mapping_plan,
+            "pre_activation_gate": pre_gate,
+        }
+        if args.confirm is None:
+            result["confirm_command"] = _activation_confirm_command(args)
+        else:
+            _, applied = _run_json_command(
+                _mapping_manager_command(
+                    "apply-accounts",
+                    args.bundle,
+                    prod_instance_id=prod_instance_id,
+                    activation_floor_sha256=context["target_floor_sha256"],
+                ),
+                {0},
+            )
+            _, post_gate = _run_json_command(
+                _mapping_manager_command(
+                    "release-gate", args.bundle, prod_instance_id=prod_instance_id),
+                {0},
+            )
+            _require_unshadowed_activation_bundle(post_gate)
+            result["mapping_apply"] = applied
+            result["post_activation_gate"] = post_gate
+    except ActivationError as e:
+        if args.format == "json":
+            print(json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False, indent=2))
+        else:
+            print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+    if args.format == "json":
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        _print_activation_result(result)
+    return 0
+
+
 def _selftest() -> int:
     failures: list[str] = []
 
@@ -940,7 +1347,7 @@ def _selftest() -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="TokenKey read-only modelops planner")
+    parser = argparse.ArgumentParser(description="TokenKey modelops planner and explicit activation entry")
     parser.add_argument("--selftest", action="store_true", help="run offline selftest")
     sub = parser.add_subparsers(dest="command")
 
@@ -959,6 +1366,26 @@ def build_parser() -> argparse.ArgumentParser:
                       help="flag every live mapping key absent from manifest for removal review")
     plan.add_argument("--format", choices=("text", "json"), default="text")
     plan.set_defaults(func=cmd_plan)
+
+    activate = sub.add_parser(
+        "activate",
+        help="validate independent evidence, plan prod mapping, and explicitly activate a model-surface bundle",
+    )
+    activate.add_argument(
+        "--bundle", type=Path, default=_BUNDLE.DEFAULT_BUNDLE_PATH,
+        help="target generated model-surface bundle",
+    )
+    activate.add_argument("--current-bundle", type=Path, required=True,
+                          help="currently active model-surface bundle")
+    activate.add_argument("--probe-evidence", type=Path, required=True,
+                          help="fresh independent model_activation_probe JSON")
+    activate.add_argument("--pricing-evidence", type=Path, required=True,
+                          help="fresh independent model_activation_pricing JSON")
+    activate.add_argument("--prod-instance-id",
+                          help="pin the full prod activation chain to this EC2 instance id")
+    activate.add_argument("--confirm", help=f"write confirmation phrase: {ACTIVATION_CONFIRM}")
+    activate.add_argument("--format", choices=("text", "json"), default="text")
+    activate.set_defaults(func=cmd_activate)
 
     snap = sub.add_parser("snapshot-sql", help="print read-only SQL for a live mapping snapshot")
     snap_filter = snap.add_mutually_exclusive_group(required=True)
