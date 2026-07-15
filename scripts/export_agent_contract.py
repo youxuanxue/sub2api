@@ -26,7 +26,7 @@ the soft count warning noisy, implement a Go AST walker or runtime route dump.
 
 # What this script DOES enforce today
 
-Three cheap, high-signal contract guards that catch the regressions we
+Four cheap, high-signal contract guards that catch the regressions we
 have actually seen:
 
   A) **Notes-section coverage**: every TokenKey first-class platform
@@ -47,12 +47,18 @@ have actually seen:
      soft signal, not a hard fail — the prefix-resolution debt makes
      hard-fail premature.
 
+  D) **Retired-route tombstones**: security-sensitive contract removals are
+     registered once with their source literal and replacement. Generation
+     removes stale inventory bullets; `--check` hard-fails if either the
+     documentation or the cited source resurrects a retired route.
+
 Usage::
 
     python3 scripts/export_agent_contract.py            # refresh CLI section
     python3 scripts/export_agent_contract.py --check    # CI drift gate
 
-`--check` exits 1 on Notes coverage or CLI projection drift; the count
+`--check` exits 1 on Notes coverage, generated projection drift, or retired
+route resurrection; the count
 warning (C) never blocks. This is intentional: route docs lag by a
 few PRs in healthy projects, and we do not want the gate so strict that
 it becomes the thing devs route around. We reserve hard-fail for "doc
@@ -79,6 +85,11 @@ HANDLE_PATTERN = re.compile(
     r'\b\w+\.Handle\(\s*"(?:' + "|".join(HTTP_VERBS) + r')"\s*,'
 )
 DOC_BULLET = re.compile(r"^- `(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) ", re.MULTILINE)
+DOC_ROUTE_BULLET = re.compile(
+    r"^- `(?P<method>GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) "
+    r"(?P<path>[^`]+)` from `(?P<source>[^`]+)`\n?",
+    re.MULTILINE,
+)
 NOTES_MARKER = "# Agent Contract Notes"
 CLI_START_MARKER = "## CLI"
 CLI_END_MARKER = "## MCP"
@@ -96,6 +107,18 @@ CLI_ENTRYPOINTS = (
 #   PlatformGrok).
 REQUIRED_PLATFORMS = ("openai", "anthropic", "gemini", "antigravity", "newapi", "kiro", "grok")
 
+# Public contracts intentionally removed for security or compatibility reasons.
+# The source literal is the leaf path used inside its Gin route group.
+RETIRED_HTTP_ROUTES = (
+    {
+        "method": "GET",
+        "path": "/payment/channels",
+        "source": "backend/internal/server/routes/payment.go",
+        "source_literal": "/channels",
+        "replacement": "/payment/checkout-info",
+    },
+)
+
 COUNT_TOLERANCE = 0.10  # ±10% considered noise
 
 
@@ -112,6 +135,51 @@ def count_source_registrations() -> int:
 
 def count_doc_bullets(doc: str) -> int:
     return len(DOC_BULLET.findall(doc))
+
+
+def prune_retired_route_bullets(
+    doc: str, retired_routes: Iterable[dict[str, str]] = RETIRED_HTTP_ROUTES
+) -> str:
+    retired = {(route["method"], route["path"]) for route in retired_routes}
+
+    def replace(match: re.Match[str]) -> str:
+        key = (match.group("method"), match.group("path"))
+        return "" if key in retired else match.group(0)
+
+    return DOC_ROUTE_BULLET.sub(replace, doc)
+
+
+def find_retired_route_bullets(
+    doc: str, retired_routes: Iterable[dict[str, str]] = RETIRED_HTTP_ROUTES
+) -> list[dict[str, str]]:
+    documented = {
+        (match.group("method"), match.group("path"))
+        for match in DOC_ROUTE_BULLET.finditer(doc)
+    }
+    return [
+        route
+        for route in retired_routes
+        if (route["method"], route["path"]) in documented
+    ]
+
+
+def find_retired_source_registrations(
+    repo_root: Path = REPO_ROOT,
+    retired_routes: Iterable[dict[str, str]] = RETIRED_HTTP_ROUTES,
+) -> list[dict[str, str]]:
+    resurrected: list[dict[str, str]] = []
+    for route in retired_routes:
+        source_path = repo_root / route["source"]
+        if not source_path.exists():
+            continue
+        source = source_path.read_text(encoding="utf-8")
+        method = re.escape(route["method"])
+        literal = re.escape(route["source_literal"])
+        direct = re.compile(rf'\.{method}\(\s*"{literal}"')
+        handle = re.compile(rf'\.Handle\(\s*"{method}"\s*,\s*"{literal}"')
+        if direct.search(source) or handle.search(source):
+            resurrected.append(route)
+    return resurrected
 
 
 def check_notes_coverage(doc: str, required: Iterable[str]) -> list[str]:
@@ -260,21 +328,33 @@ def main() -> int:
         return 1
 
     doc = DOC_PATH.read_text(encoding="utf-8")
+    resurrected_routes = find_retired_source_registrations()
+    if resurrected_routes:
+        for route in resurrected_routes:
+            sys.stderr.write(
+                f"FAIL: retired route was re-registered in {route['source']}: "
+                f"{route['method']} {route['path']}; replacement is "
+                f"{route['replacement']}.\n"
+            )
+        return 1
     try:
-        expected_doc = replace_cli_contract(doc, render_cli_contract())
+        expected_doc = prune_retired_route_bullets(
+            replace_cli_contract(doc, render_cli_contract())
+        )
     except RuntimeError as e:
         sys.stderr.write(f"FAIL: {e}\n")
         return 1
-    cli_drift = expected_doc != doc
-    if cli_drift and args.check:
+    generated_drift = expected_doc != doc
+    stale_retired_routes = find_retired_route_bullets(doc)
+    if generated_drift and args.check:
         sys.stderr.write(
-            "FAIL: generated CLI contract drifted. "
+            "FAIL: generated agent contract drifted. "
             "Run: python3 scripts/export_agent_contract.py\n"
         )
-    elif cli_drift:
+    elif generated_drift:
         DOC_PATH.write_text(expected_doc, encoding="utf-8")
         doc = expected_doc
-        print("updated docs/agent_integration.md CLI contract")
+        print("updated docs/agent_integration.md generated contract")
     src_count = count_source_registrations()
     doc_count = count_doc_bullets(doc)
     missing = check_notes_coverage(doc, REQUIRED_PLATFORMS)
@@ -303,7 +383,16 @@ def main() -> int:
         )
         return 1
 
-    if cli_drift and args.check:
+    if stale_retired_routes and args.check:
+        for route in stale_retired_routes:
+            sys.stderr.write(
+                f"FAIL: retired route remains in agent contract: "
+                f"{route['method']} {route['path']}; replacement is "
+                f"{route['replacement']}.\n"
+            )
+        return 1
+
+    if generated_drift and args.check:
         return 1
 
     if args.check:
