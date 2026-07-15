@@ -1,6 +1,10 @@
 package domain
 
-import "testing"
+import (
+	"slices"
+	"sort"
+	"testing"
+)
 
 func TestDefaultAntigravityModelMapping_ImageCompatibilityAliases(t *testing.T) {
 	t.Parallel()
@@ -123,7 +127,8 @@ func TestDefaultAntigravityModelMapping_Gemini31ProAliases(t *testing.T) {
 func TestDefaultAntigravityModelMapping_DropsUnpricedAndUnsupportedFamilies(t *testing.T) {
 	t.Parallel()
 
-	for _, blocked := range []string{"tab_flash_lite_preview", "gpt-oss-120b-medium"} {
+	blockedKeys := append(AntigravityUnpricedModelMappingKeys(), "gpt-oss-120b-medium")
+	for _, blocked := range blockedKeys {
 		if _, ok := DefaultAntigravityModelMapping[blocked]; ok {
 			t.Fatalf("unsupported/unpriced antigravity model %q must not remain in default mapping", blocked)
 		}
@@ -133,16 +138,7 @@ func TestDefaultAntigravityModelMapping_DropsUnpricedAndUnsupportedFamilies(t *t
 func TestDefaultAntigravityModelMapping_DropsStructuralDeadAliases(t *testing.T) {
 	t.Parallel()
 
-	for _, key := range []string{
-		"gemini-2.5-flash-image-preview",
-		"gemini-3-flash-preview",
-		"gemini-3-pro-high",
-		"gemini-3-pro-image-preview",
-		"gemini-3-pro-low",
-		"gemini-3-pro-preview",
-		"gemini-3.1-pro-high",
-		"gemini-3.1-pro-preview",
-	} {
+	for _, key := range AntigravityStructuralDeadModelMappingKeys() {
 		if _, ok := DefaultAntigravityModelMapping[key]; ok {
 			t.Fatalf("default mapping must drop structural-dead alias %q", key)
 		}
@@ -157,6 +153,40 @@ func TestDefaultAntigravityModelMapping_DropsStructuralDeadAliases(t *testing.T)
 		if _, ok := DefaultAntigravityModelMapping[want]; !ok {
 			t.Fatalf("default mapping must keep servable target %q", want)
 		}
+	}
+}
+
+func TestAntigravityBlockedModelMappingKeyExports(t *testing.T) {
+	t.Parallel()
+
+	structural := AntigravityStructuralDeadModelMappingKeys()
+	wantStructural := sortedModelMappingKeysForTest(antigravityStructuralDeadModelMappingKeys)
+	if !slices.Equal(structural, wantStructural) {
+		t.Fatalf("structural-dead export mismatch: got %v want %v", structural, wantStructural)
+	}
+	unpriced := AntigravityUnpricedModelMappingKeys()
+	wantUnpriced := sortedModelMappingKeysForTest(antigravityUnpricedModelMappingKeys)
+	if !slices.Equal(unpriced, wantUnpriced) {
+		t.Fatalf("unpriced export mismatch: got %v want %v", unpriced, wantUnpriced)
+	}
+}
+
+func TestAntigravityBlockedModelMappingPredicatesMatchOwners(t *testing.T) {
+	t.Parallel()
+
+	for key := range antigravityStructuralDeadModelMappingKeys {
+		if !IsAntigravityStructuralDeadModelMappingKey(key) {
+			t.Fatalf("structural-dead owner key %q must be recognized", key)
+		}
+	}
+	for key := range antigravityUnpricedModelMappingKeys {
+		if !IsAntigravityUnpricedModelMappingKey(key) {
+			t.Fatalf("unpriced owner key %q must be recognized", key)
+		}
+	}
+	const unknown = "antigravity-not-blocked-owner-boundary"
+	if IsAntigravityStructuralDeadModelMappingKey(unknown) || IsAntigravityUnpricedModelMappingKey(unknown) {
+		t.Fatalf("unknown boundary key %q must not be blocked", unknown)
 	}
 }
 
@@ -177,4 +207,13 @@ func TestDefaultBedrockModelMapping_ContainsNewClaudeModels(t *testing.T) {
 			t.Fatalf("unexpected Bedrock mapping for %q: got %q want %q", from, got, want)
 		}
 	}
+}
+
+func sortedModelMappingKeysForTest(src map[string]struct{}) []string {
+	keys := make([]string, 0, len(src))
+	for key := range src {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }

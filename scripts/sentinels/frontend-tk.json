@@ -1532,6 +1532,33 @@
         "<KeepAlive :include=\"cachedUserViews\">"
       ],
       "rationale": "TK wraps the RouterView in a KeepAlive with an explicit include list (cachedUserViews) so user-facing views (Dashboard, Usage, Keys, Profile, Studio, KeyUsage) preserve component state across navigation instead of re-mounting. Upstream App.vue has no KeepAlive; an upstream merge that replaces the template block drops the wrapper silently, causing every navigation to remount and lose in-progress form/filter state on all cached views."
+    },
+    {
+      "path": "frontend/src/types/index.ts",
+      "must_contain": [
+        "export interface AccountModelOption {",
+        "display_name: string"
+      ],
+      "must_not_contain": [
+        "export interface ClaudeModel {"
+      ],
+      "rationale": "The admin account models endpoint is cross-platform and returns only id/display_name. This type prevents the UI from depending on Claude/OpenAI-specific metadata that the backend no longer exposes."
+    },
+    {
+      "path": "frontend/src/api/admin/accounts.ts",
+      "must_contain": [
+        "getAvailableModels(id: number): Promise<AccountModelOption[]>",
+        "apiClient.get<AccountModelOption[]>"
+      ],
+      "rationale": "Typed client for the cross-platform minimal admin model option contract. Losing these anchors silently reintroduces the old ClaudeModel response assumption."
+    },
+    {
+      "path": "frontend/src/views/admin/AccountsView.vue",
+      "must_contain": [
+        "models.map((m: AccountModelOption)",
+        "m.display_name || m.id"
+      ],
+      "rationale": "The scheduled-test model selector consumes only the shared account model option fields. It must not grow a dependency on platform-specific model response shapes."
     }
   ]
 }

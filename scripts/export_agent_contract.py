@@ -26,7 +26,7 @@ the soft count warning noisy, implement a Go AST walker or runtime route dump.
 
 # What this script DOES enforce today
 
-Two cheap, high-signal contract guards that catch the regressions we
+Three cheap, high-signal contract guards that catch the regressions we
 have actually seen:
 
   A) **Notes-section coverage**: every TokenKey first-class platform
@@ -35,7 +35,12 @@ have actually seen:
      the test that catches "we shipped a fifth platform but forgot to
      tell agents about it".
 
-  B) **Route-count drift sanity**: count the literal `<ident>.METHOD(`
+  B) **Live CLI projection**: import the argparse parser factories for the
+     modelops and account-model-mapping manager entrypoints, render their
+     commands/options into the `## CLI` section, and hard-fail `--check` on
+     drift.
+
+  C) **Route-count drift sanity**: count the literal `<ident>.METHOD(`
      registrations under `backend/internal/server/routes/*.go` and
      compare against the count of bulleted lines in the existing doc. Any large delta (default ±10%) prints a warning so
      the next maintainer regenerates the doc by hand. This is a
@@ -44,13 +49,11 @@ have actually seen:
 
 Usage::
 
-    python3 scripts/export_agent_contract.py            # human report
-    python3 scripts/export_agent_contract.py --check    # CI gate (exit 1
-                                                        #   on Notes
-                                                        #   coverage gap)
+    python3 scripts/export_agent_contract.py            # refresh CLI section
+    python3 scripts/export_agent_contract.py --check    # CI drift gate
 
-`--check` exits 1 only on the Notes coverage check (A); the count
-warning (B) never blocks. This is intentional: contract docs lag by a
+`--check` exits 1 on Notes coverage or CLI projection drift; the count
+warning (C) never blocks. This is intentional: route docs lag by a
 few PRs in healthy projects, and we do not want the gate so strict that
 it becomes the thing devs route around. We reserve hard-fail for "doc
 forgot a whole platform".
@@ -58,6 +61,7 @@ forgot a whole platform".
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import re
 import sys
 from pathlib import Path
@@ -76,6 +80,13 @@ HANDLE_PATTERN = re.compile(
 )
 DOC_BULLET = re.compile(r"^- `(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) ", re.MULTILINE)
 NOTES_MARKER = "# Agent Contract Notes"
+CLI_START_MARKER = "## CLI"
+CLI_END_MARKER = "## MCP"
+
+CLI_ENTRYPOINTS = (
+    ("ops/pricing/modelops.py", "build_parser"),
+    ("ops/pricing/manage-account-model-mapping-runtime.py", "_build_parser"),
+)
 
 # TokenKey first-class platforms — the doc Notes section MUST mention each
 # one so an agent reading the contract knows what gateway surface exists.
@@ -120,12 +131,127 @@ def check_notes_coverage(doc: str, required: Iterable[str]) -> list[str]:
     return missing
 
 
+def _load_argparse_parser(rel_path: str, factory_name: str) -> argparse.ArgumentParser:
+    path = REPO_ROOT / rel_path
+    module_name = "agent_contract_" + re.sub(r"[^a-zA-Z0-9_]", "_", rel_path)
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load CLI entrypoint {rel_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    factory = getattr(module, factory_name, None)
+    if not callable(factory):
+        raise RuntimeError(f"{rel_path}: parser factory {factory_name} is not callable")
+    parser = factory()
+    if not isinstance(parser, argparse.ArgumentParser):
+        raise RuntimeError(f"{rel_path}: {factory_name} did not return ArgumentParser")
+    return parser
+
+
+def _display_default(value: object) -> str | None:
+    if value in (None, False, [], argparse.SUPPRESS):
+        return None
+    if callable(value):
+        return None
+    if isinstance(value, Path):
+        try:
+            return str(value.resolve().relative_to(REPO_ROOT))
+        except ValueError:
+            return str(value)
+    return str(value)
+
+
+def _format_action(action: argparse.Action) -> str:
+    names = " / ".join(f"`{name}`" for name in action.option_strings)
+    if not names:
+        names = f"`{action.dest}`"
+    attributes: list[str] = []
+    if action.required:
+        attributes.append("required")
+    if isinstance(action, argparse._AppendAction):
+        attributes.append("repeatable")
+    if action.choices:
+        attributes.append("choices: " + ", ".join(f"`{choice}`" for choice in action.choices))
+    default = _display_default(action.default)
+    if default is not None:
+        attributes.append(f"default: `{default}`")
+    suffix = f" ({'; '.join(attributes)})" if attributes else ""
+    help_text = (action.help or "").strip()
+    return f"- {names}{suffix}: {help_text}".rstrip()
+
+
+def _parser_options(parser: argparse.ArgumentParser) -> list[argparse.Action]:
+    return [
+        action
+        for action in parser._actions
+        if (
+            not isinstance(action, argparse._SubParsersAction)
+            and action.dest != "help"
+            and action.help != argparse.SUPPRESS
+        )
+    ]
+
+
+def _exclusive_constraints(parser: argparse.ArgumentParser) -> list[str]:
+    constraints: list[str] = []
+    for group in parser._mutually_exclusive_groups:
+        names = [action.option_strings[0] for action in group._group_actions if action.option_strings]
+        if len(names) < 2:
+            continue
+        requirement = "exactly one" if group.required else "at most one"
+        constraints.append(f"- Constraint: {requirement} of " + ", ".join(f"`{name}`" for name in names) + ".")
+    return constraints
+
+
+def render_cli_contract() -> str:
+    lines = [CLI_START_MARKER, "", "Generated from the live argparse parser factories; do not edit this section."]
+    for rel_path, factory_name in CLI_ENTRYPOINTS:
+        parser = _load_argparse_parser(rel_path, factory_name)
+        command_name = Path(rel_path).name
+        lines.extend(["", f"### `python3 {rel_path}`"])
+        root_options = _parser_options(parser)
+        if root_options:
+            lines.extend(["", "Root options:"])
+            lines.extend(_format_action(action) for action in root_options)
+        subparsers = next(
+            (action for action in parser._actions if isinstance(action, argparse._SubParsersAction)),
+            None,
+        )
+        if subparsers is None:
+            continue
+        help_by_name = {
+            choice.dest: choice.help
+            for choice in subparsers._choices_actions
+        }
+        for name, child in subparsers.choices.items():
+            help_text = help_by_name.get(name) or ""
+            lines.extend(["", f"#### `{command_name} {name}`", "", help_text])
+            options = _parser_options(child)
+            if options:
+                lines.append("")
+                lines.extend(_format_action(action) for action in options)
+            constraints = _exclusive_constraints(child)
+            if constraints:
+                lines.append("")
+                lines.extend(constraints)
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def replace_cli_contract(doc: str, cli_contract: str) -> str:
+    start = doc.find(CLI_START_MARKER)
+    end = doc.find(CLI_END_MARKER, start + len(CLI_START_MARKER))
+    if start < 0 or end < 0:
+        raise RuntimeError(f"{DOC_PATH.relative_to(REPO_ROOT)} must contain {CLI_START_MARKER!r} before {CLI_END_MARKER!r}")
+    return doc[:start] + cli_contract + "\n" + doc[end:]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--check",
         action="store_true",
-        help="exit 1 if any required platform is missing from the Notes section",
+        help="exit 1 on Notes coverage or generated CLI contract drift",
     )
     args = parser.parse_args()
 
@@ -134,6 +260,21 @@ def main() -> int:
         return 1
 
     doc = DOC_PATH.read_text(encoding="utf-8")
+    try:
+        expected_doc = replace_cli_contract(doc, render_cli_contract())
+    except RuntimeError as e:
+        sys.stderr.write(f"FAIL: {e}\n")
+        return 1
+    cli_drift = expected_doc != doc
+    if cli_drift and args.check:
+        sys.stderr.write(
+            "FAIL: generated CLI contract drifted. "
+            "Run: python3 scripts/export_agent_contract.py\n"
+        )
+    elif cli_drift:
+        DOC_PATH.write_text(expected_doc, encoding="utf-8")
+        doc = expected_doc
+        print("updated docs/agent_integration.md CLI contract")
     src_count = count_source_registrations()
     doc_count = count_doc_bullets(doc)
     missing = check_notes_coverage(doc, REQUIRED_PLATFORMS)
@@ -160,6 +301,9 @@ def main() -> int:
             f"Edit {DOC_PATH.relative_to(REPO_ROOT)} (the `{NOTES_MARKER}` "
             "tail) so every first-class platform is acknowledged.\n"
         )
+        return 1
+
+    if cli_drift and args.check:
         return 1
 
     if args.check:

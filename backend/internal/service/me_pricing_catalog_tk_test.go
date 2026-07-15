@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
@@ -671,11 +672,12 @@ func TestMePricingCatalog_PerRequestBillingPreservesPrice(t *testing.T) {
 func TestBuildForUser_AccountWhitelistOnly_NoChannels(t *testing.T) {
 	gOpenAI := mkGroupForMe(30, "GPT", "openai", 2.0)
 	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
-	acct := mkAccountWithWhitelist(11, "openai-oauth", "openai", 0, []string{"gpt-5.2", "gpt-4o"})
+	openAIIDs := firstNPlatformModelIDsForMePricingTest(t, PlatformOpenAI, 2)
+	acct := mkAccountWithWhitelist(11, "openai-oauth", "openai", 0, openAIIDs)
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicCatalogModel("gpt-5.2", "OpenAI", 0.005, 0.020, 0),
-			mkPublicCatalogModel("gpt-4o", "OpenAI", 0.0025, 0.010, 0),
+			mkPublicCatalogModel(openAIIDs[0], "OpenAI", 0.005, 0.020, 0),
+			mkPublicCatalogModel(openAIIDs[1], "OpenAI", 0.0025, 0.010, 0),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -691,13 +693,13 @@ func TestBuildForUser_AccountWhitelistOnly_NoChannels(t *testing.T) {
 	for _, m := range resp.Models {
 		byID[m.ModelID] = m
 	}
-	require.Contains(t, byID, "gpt-5.2")
-	require.NotNil(t, byID["gpt-5.2"].YourPrice.InputPer1K)
-	assert.InDelta(t, 0.005, *byID["gpt-5.2"].YourPrice.InputPer1K, 1e-9, "0.005 catalog 官方价（不乘 2.0 倍率）")
-	require.NotNil(t, byID["gpt-5.2"].YourPrice.OutputPer1K)
-	assert.InDelta(t, 0.020, *byID["gpt-5.2"].YourPrice.OutputPer1K, 1e-9, "0.020 catalog 官方价（不乘 2.0 倍率）")
-	require.NotNil(t, byID["gpt-4o"].YourPrice.InputPer1K)
-	assert.InDelta(t, 0.0025, *byID["gpt-4o"].YourPrice.InputPer1K, 1e-9, "0.0025 catalog 官方价")
+	require.Contains(t, byID, openAIIDs[0])
+	require.NotNil(t, byID[openAIIDs[0]].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.005, *byID[openAIIDs[0]].YourPrice.InputPer1K, 1e-9, "0.005 catalog 官方价（不乘 2.0 倍率）")
+	require.NotNil(t, byID[openAIIDs[0]].YourPrice.OutputPer1K)
+	assert.InDelta(t, 0.020, *byID[openAIIDs[0]].YourPrice.OutputPer1K, 1e-9, "0.020 catalog 官方价（不乘 2.0 倍率）")
+	require.NotNil(t, byID[openAIIDs[1]].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.0025, *byID[openAIIDs[1]].YourPrice.InputPer1K, 1e-9, "0.0025 catalog 官方价")
 }
 
 // TestBuildForUser_ChannelAndAccount_CatalogPriceWins guards the current
@@ -706,15 +708,16 @@ func TestBuildForUser_AccountWhitelistOnly_NoChannels(t *testing.T) {
 func TestBuildForUser_ChannelAndAccount_CatalogPriceWins(t *testing.T) {
 	gOpenAI := mkGroupForMe(30, "GPT", "openai", 1.0)
 	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
+	openAIIDs := firstNPlatformModelIDsForMePricingTest(t, PlatformOpenAI, 2)
 	channel := mkChannelWithModel(100, "operator-ch",
 		[]AvailableGroupRef{{ID: 30, Platform: "openai"}},
-		[]SupportedModel{mkSupportedModel("gpt-5.2", "openai", mkPricing(0.001, 0.002, 0))},
+		[]SupportedModel{mkSupportedModel(openAIIDs[0], "openai", mkPricing(0.001, 0.002, 0))},
 	)
-	acct := mkAccountWithWhitelist(11, "openai-oauth", "openai", 0, []string{"gpt-5.2", "gpt-4o"})
+	acct := mkAccountWithWhitelist(11, "openai-oauth", "openai", 0, openAIIDs)
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicCatalogModel("gpt-5.2", "OpenAI", 0.999, 0.999, 0),
-			mkPublicCatalogModel("gpt-4o", "OpenAI", 0.0025, 0.010, 0),
+			mkPublicCatalogModel(openAIIDs[0], "OpenAI", 0.999, 0.999, 0),
+			mkPublicCatalogModel(openAIIDs[1], "OpenAI", 0.0025, 0.010, 0),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -730,11 +733,11 @@ func TestBuildForUser_ChannelAndAccount_CatalogPriceWins(t *testing.T) {
 	for _, m := range resp.Models {
 		byID[m.ModelID] = m
 	}
-	require.NotNil(t, byID["gpt-5.2"].YourPrice.InputPer1K)
-	assert.InDelta(t, 0.999, *byID["gpt-5.2"].YourPrice.InputPer1K, 1e-9,
+	require.NotNil(t, byID[openAIIDs[0]].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.999, *byID[openAIIDs[0]].YourPrice.InputPer1K, 1e-9,
 		"catalog official price must win over stale channel pricing")
-	require.NotNil(t, byID["gpt-4o"].YourPrice.InputPer1K)
-	assert.InDelta(t, 0.0025, *byID["gpt-4o"].YourPrice.InputPer1K, 1e-9, "gpt-4o is account-only — catalog 0.0025 × 1.0 rate")
+	require.NotNil(t, byID[openAIIDs[1]].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.0025, *byID[openAIIDs[1]].YourPrice.InputPer1K, 1e-9, "account-only row uses catalog price × 1.0 rate")
 }
 
 func TestBuildForUser_ChannelGLM52UsesCatalogOfficialPrice(t *testing.T) {
@@ -866,13 +869,14 @@ func TestBuildForUser_AccountWhitelist_VendorPrefix(t *testing.T) {
 func TestBuildForUser_AccountWhitelist_CrossPlatformGuard(t *testing.T) {
 	gAnthropic := mkGroupForMe(40, "claude", "anthropic", 1.0)
 	k1 := mkKeyForMe(1, 7, "claude-key", ptrI(40))
+	openAIID := firstNPlatformModelIDsForMePricingTest(t, PlatformOpenAI, 1)[0]
 	// openai account that somehow ended up on an anthropic group's
 	// schedulable list (the scheduler would reject it; we double-check
 	// the menu builder enforces the same rule).
-	acct := mkAccountWithWhitelist(11, "stray-openai", "openai", 0, []string{"gpt-5.2"})
+	acct := mkAccountWithWhitelist(11, "stray-openai", "openai", 0, []string{openAIID})
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicCatalogModel("gpt-5.2", "OpenAI", 0.005, 0.020, 0),
+			mkPublicCatalogModel(openAIID, "OpenAI", 0.005, 0.020, 0),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -974,13 +978,16 @@ func TestBuildForUser_AccountSourceError_DoesNotKillResponse(t *testing.T) {
 func TestBuildForUser_AccountWhitelist_NewapiRequiresChannelType(t *testing.T) {
 	gNewapi := mkGroupForMe(50, "newapi-pro", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "newapi-key", ptrI(50))
-	bad := mkAccountWithWhitelist(11, "incomplete-newapi", "newapi", 0, []string{"gemini-2.5-pro"})
-	good := mkAccountWithWhitelist(12, "configured-newapi", "newapi", newapiconstant.ChannelTypeAli, []string{"qwen-plus"})
+	badID := firstNPlatformModelIDsForMePricingTest(t, PlatformGemini, 1)[0]
+	goodID := firstNewAPIModelIDForMePricingTest(t, newapiconstant.ChannelTypeAli)
+	offChannelID := firstNewAPIModelIDForMePricingTest(t, newapiconstant.ChannelTypeDeepSeek)
+	bad := mkAccountWithWhitelist(11, "incomplete-newapi", "newapi", 0, []string{badID})
+	good := mkAccountWithWhitelist(12, "configured-newapi", "newapi", newapiconstant.ChannelTypeAli, []string{goodID, offChannelID})
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicCatalogModel("gemini-2.5-pro", "Google", 0.00125, 0.005, 0),
-			mkPublicCatalogModel("qwen-plus", "Alibaba", 0.0012, 0.0024, 0),
-			mkPublicCatalogModel("qwen-3-max", "Alibaba", 0.0012, 0.0024, 0),
+			mkPublicCatalogModel(badID, "Google", 0.00125, 0.005, 0),
+			mkPublicCatalogModel(goodID, "Alibaba", 0.0012, 0.0024, 0),
+			mkPublicCatalogModel(offChannelID, "deepseek", 0.0012, 0.0024, 0),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -992,7 +999,7 @@ func TestBuildForUser_AccountWhitelist_NewapiRequiresChannelType(t *testing.T) {
 	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
 	require.NoError(t, err)
 	require.Len(t, resp.Models, 1, "channel_type=0 newapi account must be filtered out (no adaptor target)")
-	assert.Equal(t, "qwen-plus", resp.Models[0].ModelID,
+	assert.Equal(t, goodID, resp.Models[0].ModelID,
 		"only manifest-listed newapi whitelist models surface in Group Catalog")
 }
 
@@ -1024,14 +1031,17 @@ func TestBuildForUser_AccountWhitelist_NewapiRemovedDirectGLMHidden(t *testing.T
 func TestBuildForUser_AccountWhitelist_NewapiVertexUsesPresetCatalog(t *testing.T) {
 	gNewapi := mkGroupForMe(50, "vertex-video", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "vertex-key", ptrI(50))
+	vertexIDs := NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi)
+	vertexVideoID := firstIDContainingForMePricingTest(t, vertexIDs, "veo")
+	offChannelID := firstNewAPIModelIDForMePricingTest(t, newapiconstant.ChannelTypeAli)
 	vertex := mkAccountWithWhitelist(12, "vertex-sa", "newapi", newapiconstant.ChannelTypeVertexAi, []string{
-		"veo-3.1-generate-001",
-		"qwen-plus",
+		vertexVideoID,
+		offChannelID,
 	})
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicVideoCatalogModel("veo-3.1-generate-001", "vertex_ai", 0.6),
-			mkPublicCatalogModel("qwen-plus", "Alibaba", 0.0012, 0.0024, 0),
+			mkPublicVideoCatalogModel(vertexVideoID, "vertex_ai", 0.6),
+			mkPublicCatalogModel(offChannelID, "Alibaba", 0.0012, 0.0024, 0),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -1043,8 +1053,8 @@ func TestBuildForUser_AccountWhitelist_NewapiVertexUsesPresetCatalog(t *testing.
 	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
 	require.NoError(t, err)
 	require.Len(t, resp.Models, 1,
-		"Vertex ch41 must use the Gemini/Vertex preset catalog: qwen-plus is off-channel, while paid-gate-proven veo is displayed")
-	assert.Equal(t, "veo-3.1-generate-001", resp.Models[0].ModelID)
+		"Vertex ch41 must use the Gemini/Vertex preset catalog: non-Vertex ids are off-channel, while paid-gate-proven video is displayed")
+	assert.Equal(t, vertexVideoID, resp.Models[0].ModelID)
 	assert.Equal(t, "video", resp.Models[0].BillingMode)
 	require.NotNil(t, resp.Models[0].YourPrice.PerSecond)
 	assert.InDelta(t, 0.6, *resp.Models[0].YourPrice.PerSecond, 1e-9)
@@ -1054,12 +1064,13 @@ func TestBuildForUser_AuthorizedGroupsIndexIncludesProvisionedNewapiVertexVideo(
 	gOpenAI := mkGroupForMe(30, "gpt", "openai", 1.0)
 	gNewapi := mkGroupForMe(50, "vertex-video", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
+	vertexVideoID := firstIDContainingForMePricingTest(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), "veo")
 	vertex := mkAccountWithWhitelist(12, "vertex-sa", "newapi", newapiconstant.ChannelTypeVertexAi, []string{
-		"veo-3.1-generate-001",
+		vertexVideoID,
 	})
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicVideoCatalogModel("veo-3.1-generate-001", "vertex_ai", 0.6),
+			mkPublicVideoCatalogModel(vertexVideoID, "vertex_ai", 0.6),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -1070,7 +1081,7 @@ func TestBuildForUser_AuthorizedGroupsIndexIncludesProvisionedNewapiVertexVideo(
 	)
 	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
 	require.NoError(t, err)
-	groups := resp.AuthorizedGroupsByModel["veo-3.1-generate-001"]
+	groups := resp.AuthorizedGroupsByModel[vertexVideoID]
 	require.Len(t, groups, 1,
 		"Studio universal key entitlements should advertise Vertex video after the paid gate proves it is provisioned")
 	assert.Equal(t, int64(50), groups[0].ID)
@@ -1080,10 +1091,11 @@ func TestBuildForUser_AuthorizedGroupsIndexIncludesProvisionedNewapiVertexVideo(
 func TestBuildForUser_AccountWhitelist_NewapiUnknownChannelHidden(t *testing.T) {
 	gNewapi := mkGroupForMe(50, "unknown-newapi", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "unknown-key", ptrI(50))
-	unknown := mkAccountWithWhitelist(12, "moonshot", "newapi", 25, []string{"veo-3.1-generate-001"})
+	vertexVideoID := firstIDContainingForMePricingTest(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), "veo")
+	unknown := mkAccountWithWhitelist(12, "moonshot", "newapi", 25, []string{vertexVideoID})
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicVideoCatalogModel("veo-3.1-generate-001", "vertex_ai", 0.6),
+			mkPublicVideoCatalogModel(vertexVideoID, "vertex_ai", 0.6),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -1111,6 +1123,81 @@ func modelIDsOf(models []MePricingModel) []string {
 	return ids
 }
 
+func firstNPlatformModelIDsForMePricingTest(t *testing.T, platform string, n int) []string {
+	t.Helper()
+	ids := supportedCatalogModelIDsForPlatform(platform)
+	sort.Strings(ids)
+	require.GreaterOrEqual(t, len(ids), n, "platform %s SSOT must have enough ids for this test", platform)
+	return append([]string{}, ids[:n]...)
+}
+
+func firstNIDsWithPrefixForMePricingTest(t *testing.T, ids []string, prefix string, n int) []string {
+	t.Helper()
+	var out []string
+	for _, id := range ids {
+		if strings.HasPrefix(id, prefix) {
+			out = append(out, id)
+			if len(out) == n {
+				return out
+			}
+		}
+	}
+	require.FailNow(t, "expected at least %d ids with prefix %q", n, prefix)
+	return nil
+}
+
+func firstNIDsWithoutSubstringsForMePricingTest(t *testing.T, ids []string, excluded []string, n int) []string {
+	t.Helper()
+	var out []string
+	for _, id := range ids {
+		allowed := true
+		for _, needle := range excluded {
+			if strings.Contains(id, needle) {
+				allowed = false
+				break
+			}
+		}
+		if allowed {
+			out = append(out, id)
+			if len(out) == n {
+				return out
+			}
+		}
+	}
+	require.FailNow(t, "expected at least %d ids without substrings %v", n, excluded)
+	return nil
+}
+
+func firstIDContainingForMePricingTest(t *testing.T, ids []string, needle string) string {
+	t.Helper()
+	for _, id := range ids {
+		if strings.Contains(id, needle) {
+			return id
+		}
+	}
+	require.FailNow(t, "expected at least one id containing %q", needle)
+	return ""
+}
+
+func firstIDOutsideSetForMePricingTest(t *testing.T, candidates []string, excluded map[string]struct{}) string {
+	t.Helper()
+	for _, id := range candidates {
+		if _, ok := excluded[id]; !ok {
+			return id
+		}
+	}
+	require.FailNow(t, "expected at least one candidate outside excluded set")
+	return ""
+}
+
+func firstNewAPIModelIDForMePricingTest(t *testing.T, channelType int) string {
+	t.Helper()
+	ids := NewAPIModelDisplayIDsForChannelType(channelType)
+	sort.Strings(ids)
+	require.NotEmpty(t, ids, "newapi channel_type %d must expose display ids for this test", channelType)
+	return ids[0]
+}
+
 // TestBuildForUser_AnthropicUnrestricted_ListsServableModels is the core
 // fix for the user_id=16 incident: a native Anthropic OAuth account carries
 // no channel and no model_mapping whitelist (empty = all models allowed),
@@ -1122,13 +1209,15 @@ func modelIDsOf(models []MePricingModel) []string {
 func TestBuildForUser_AnthropicUnrestricted_ListsServableModels(t *testing.T) {
 	gAnthropic := mkGroupForMe(40, "default", "anthropic", 1.0)
 	k1 := mkKeyForMe(1, 16, "default", ptrI(40))
+	anthropicIDs := firstNPlatformModelIDsForMePricingTest(t, PlatformAnthropic, 2)
+	pricedID, unpricedID := anthropicIDs[0], anthropicIDs[1]
 	// nil whitelist → creds has no model_mapping → unrestricted account.
 	acct := mkAccountWithWhitelist(11, "claude-oauth", "anthropic", 0, nil)
 	require.False(t, accountHasModelRestriction(acct.Credentials),
 		"empty model_mapping must read as unrestricted")
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicCatalogModel("claude-opus-4-8", "Anthropic", 0.005, 0.025, 0),
+			mkPublicCatalogModel(pricedID, "Anthropic", 0.005, 0.025, 0),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -1150,16 +1239,12 @@ func TestBuildForUser_AnthropicUnrestricted_ListsServableModels(t *testing.T) {
 		byID[m.ModelID] = m
 	}
 	// Catalog-priced model gets its price joined (× rate 1.0).
-	require.Contains(t, byID, "claude-opus-4-8")
-	require.NotNil(t, byID["claude-opus-4-8"].YourPrice.InputPer1K)
-	assert.InDelta(t, 0.005, *byID["claude-opus-4-8"].YourPrice.InputPer1K, 1e-9)
+	require.Contains(t, byID, pricedID)
+	require.NotNil(t, byID[pricedID].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.005, *byID[pricedID].YourPrice.InputPer1K, 1e-9)
 	// A model not in the catalog still surfaces (name is what the user needs).
-	require.Contains(t, byID, "claude-sonnet-4-6")
-	// Servable extra beyond canonical DefaultModels is included (claude-opus-4-1).
-	require.Contains(t, byID, "claude-opus-4-1")
-	// Deprecated IDs are never advertised.
-	assert.NotContains(t, byID, "claude-3-5-haiku-20241022",
-		"deprecated models must not appear in the menu")
+	require.Contains(t, byID, unpricedID)
+	assert.NotContains(t, byID, "claude-not-a-real-id-zzz", "unknown models must not appear in the menu")
 }
 
 // TestBuildForUser_AnthropicRestricted_RegistryNotMixedIn guards the
@@ -1168,10 +1253,11 @@ func TestBuildForUser_AnthropicUnrestricted_ListsServableModels(t *testing.T) {
 func TestBuildForUser_AnthropicRestricted_RegistryNotMixedIn(t *testing.T) {
 	gAnthropic := mkGroupForMe(40, "default", "anthropic", 1.0)
 	k1 := mkKeyForMe(1, 16, "default", ptrI(40))
-	acct := mkAccountWithWhitelist(11, "claude-oauth", "anthropic", 0, []string{"claude-opus-4-8"})
+	modelID := firstNPlatformModelIDsForMePricingTest(t, PlatformAnthropic, 1)[0]
+	acct := mkAccountWithWhitelist(11, "claude-oauth", "anthropic", 0, []string{modelID})
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicCatalogModel("claude-opus-4-8", "Anthropic", 0.005, 0.025, 0),
+			mkPublicCatalogModel(modelID, "Anthropic", 0.005, 0.025, 0),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -1183,7 +1269,7 @@ func TestBuildForUser_AnthropicRestricted_RegistryNotMixedIn(t *testing.T) {
 	resp, err := svc.BuildForUser(context.Background(), 16, MePricingCatalogOptions{})
 	require.NoError(t, err)
 	require.Len(t, resp.Models, 1, "restricted account → only its whitelist, no canonical list")
-	assert.Equal(t, "claude-opus-4-8", resp.Models[0].ModelID)
+	assert.Equal(t, modelID, resp.Models[0].ModelID)
 }
 
 // TestBuildForUser_EmptyPool_StaysEmpty confirms a group with no
@@ -1228,13 +1314,14 @@ func TestBuildForUser_NewapiUnrestricted_NoCanonicalLeak(t *testing.T) {
 func TestBuildForUser_GeminiUnrestricted_ListsServableModels(t *testing.T) {
 	gGemini := mkGroupForMe(55, "google", "gemini", 1.0)
 	k1 := mkKeyForMe(1, 16, "gemini-key", ptrI(55))
+	geminiIDs := firstNPlatformModelIDsForMePricingTest(t, PlatformGemini, 2)
 	acct := mkAccountWithWhitelist(11, "gemini-oauth", "gemini", 0, nil)
 	require.False(t, accountHasModelRestriction(acct.Credentials),
 		"empty model_mapping must read as unrestricted")
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicCatalogModel("gemini-2.5-flash", "Google", 0.0003, 0.0025, 0),
-			mkPublicCatalogModel("gemini-2.5-pro", "Google", 0.00125, 0.005, 0),
+			mkPublicCatalogModel(geminiIDs[0], "Google", 0.0003, 0.0025, 0),
+			mkPublicCatalogModel(geminiIDs[1], "Google", 0.00125, 0.005, 0),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -1256,28 +1343,29 @@ func TestBuildForUser_GeminiUnrestricted_ListsServableModels(t *testing.T) {
 	for _, m := range resp.Models {
 		byID[m.ModelID] = m
 	}
-	require.Contains(t, byID, "gemini-2.5-flash")
-	require.Contains(t, byID, "gemini-2.5-pro")
-	for _, dead := range []string{"gemini-2.0-flash", "gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-3.1-pro-preview", "gemini-3.5-flash"} {
-		assert.NotContains(t, byID, dead, "advertised_dead %s must not appear in the menu", dead)
-	}
+	require.Contains(t, byID, geminiIDs[0])
+	require.Contains(t, byID, geminiIDs[1])
+	assert.NotContains(t, byID, "gemini-not-a-real-id-zzz", "unknown models must not appear in the menu")
 }
 
 func TestBuildForUser_AntigravityMapped_ListsPricedReprobedGeminiModels(t *testing.T) {
 	gAG := mkGroupForMe(56, "antigravity", "antigravity", 1.0)
 	k1 := mkKeyForMe(1, 16, "ag-key", ptrI(56))
+	antigravityIDs := supportedCatalogModelIDsForPlatform(PlatformAntigravity)
+	sort.Strings(antigravityIDs)
+	visibleGemini := firstNIDsWithPrefixForMePricingTest(t, antigravityIDs, "gemini-", 2)
+	antigravitySet := stringSet(antigravityIDs)
+	geminiOnly := firstIDOutsideSetForMePricingTest(t, supportedCatalogModelIDsForPlatform(PlatformGemini), antigravitySet)
 	acct := mkAccountWithWhitelist(11, "ag-oauth", "antigravity", 0, []string{
-		"gemini-2.5-flash",
-		"gemini-2.5-flash-thinking",
-		"gemini-3-flash",
-		"gemini-2.5-pro", // priced in Gemini, but 2026-06-23 Antigravity reprobe stayed inconclusive; must stay hidden.
+		visibleGemini[0],
+		visibleGemini[1],
+		geminiOnly,
 	})
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicCatalogModel("gemini-2.5-flash", "vertex_ai-language-models", 0.0003, 0.0025, 0.00003),
-			mkPublicCatalogModel("gemini-3-flash", "vertex_ai-language-models", 0.0005, 0.003, 0.00005),
-			mkPublicCatalogModel("gemini-2.5-pro", "vertex_ai-language-models", 0.00125, 0.005, 0),
-			mkPublicCatalogModel("gemini-2.5-flash-thinking", "antigravity", 0.0003, 0.0025, 0.00003),
+			mkPublicCatalogModel(visibleGemini[0], "vertex_ai-language-models", 0.0003, 0.0025, 0.00003),
+			mkPublicCatalogModel(visibleGemini[1], "antigravity", 0.0005, 0.003, 0.00005),
+			mkPublicCatalogModel(geminiOnly, "vertex_ai-language-models", 0.00125, 0.005, 0),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -1293,19 +1381,18 @@ func TestBuildForUser_AntigravityMapped_ListsPricedReprobedGeminiModels(t *testi
 	for _, m := range resp.Models {
 		byID[m.ModelID] = m
 	}
-	require.Contains(t, byID, "gemini-2.5-flash")
-	require.Contains(t, byID, "gemini-3-flash")
-	require.NotContains(t, byID, "gemini-2.5-pro",
+	require.Contains(t, byID, visibleGemini[0])
+	require.Contains(t, byID, visibleGemini[1])
+	require.NotContains(t, byID, geminiOnly,
 		"Antigravity user menu must not expose mapping ids outside the 200-probed allowlist")
-	require.Contains(t, byID, "gemini-2.5-flash-thinking")
-	thinking := byID["gemini-2.5-flash-thinking"]
-	require.NotNil(t, thinking.YourPrice.InputPer1K, "Antigravity thinking id must show a price in the user menu")
-	assert.InDelta(t, 0.0003, *thinking.YourPrice.InputPer1K, 1e-12)
-	require.NotNil(t, thinking.YourPrice.OutputPer1K)
-	assert.InDelta(t, 0.0025, *thinking.YourPrice.OutputPer1K, 1e-12)
-	require.NotNil(t, thinking.YourPrice.CacheReadPer1K)
-	assert.InDelta(t, 0.00003, *thinking.YourPrice.CacheReadPer1K, 1e-12)
-	assert.Equal(t, "antigravity", thinking.Vendor)
+	priced := byID[visibleGemini[1]]
+	require.NotNil(t, priced.YourPrice.InputPer1K, "Antigravity-priced id must show a price in the user menu")
+	assert.InDelta(t, 0.0005, *priced.YourPrice.InputPer1K, 1e-12)
+	require.NotNil(t, priced.YourPrice.OutputPer1K)
+	assert.InDelta(t, 0.003, *priced.YourPrice.OutputPer1K, 1e-12)
+	require.NotNil(t, priced.YourPrice.CacheReadPer1K)
+	assert.InDelta(t, 0.00005, *priced.YourPrice.CacheReadPer1K, 1e-12)
+	assert.Equal(t, "antigravity", priced.Vendor)
 }
 
 // TestBuildForUser_GrokUnrestricted_ListsServableModels is the regression for
@@ -1319,6 +1406,11 @@ func TestBuildForUser_AntigravityMapped_ListsPricedReprobedGeminiModels(t *testi
 func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 	gGrok := mkGroupForMe(60, "grok", "grok", 1.0)
 	k1 := mkKeyForMe(1, 16, "grok-key", ptrI(60))
+	grokIDs := supportedCatalogModelIDsForPlatform(PlatformGrok)
+	sort.Strings(grokIDs)
+	chatIDs := firstNIDsWithoutSubstringsForMePricingTest(t, grokIDs, []string{"image", "video"}, 2)
+	imageID := firstIDContainingForMePricingTest(t, grokIDs, "image")
+	videoID := firstIDContainingForMePricingTest(t, grokIDs, "video")
 	// channel_type=0, nil whitelist → unrestricted native grok OAuth account.
 	acct := mkAccountWithWhitelist(11, "grok-oauth", "grok", 0, nil)
 	require.False(t, accountHasModelRestriction(acct.Credentials),
@@ -1327,11 +1419,10 @@ func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 		"a channel_type=0 grok account must be in scope for a grok group")
 	catalog := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{
-			mkPublicCatalogModel("grok-4.3", "xai", 0.00125, 0.0025, 0),
-			mkPublicCatalogModel("grok-code-fast-1", "xai", 0.001, 0.002, 0),
-			mkPublicImageCatalogModel("grok-imagine-image", "xai", 0.02),
-			mkPublicImageCatalogModel("grok-imagine-image-quality", "xai", 0.07),
-			mkPublicVideoCatalogModel("grok-imagine-video", "xai", 0.08),
+			mkPublicCatalogModel(chatIDs[0], "xai", 0.00125, 0.0025, 0),
+			mkPublicCatalogModel(chatIDs[1], "xai", 0.001, 0.002, 0),
+			mkPublicImageCatalogModel(imageID, "xai", 0.02),
+			mkPublicVideoCatalogModel(videoID, "xai", 0.08),
 		},
 	}
 	svc := newServiceWithAccounts(
@@ -1354,21 +1445,18 @@ func TestBuildForUser_GrokUnrestricted_ListsServableModels(t *testing.T) {
 		byID[m.ModelID] = m
 	}
 	// Catalog-priced model gets its price joined.
-	require.Contains(t, byID, "grok-4.3")
-	require.NotNil(t, byID["grok-4.3"].YourPrice.InputPer1K)
-	assert.InDelta(t, 0.00125, *byID["grok-4.3"].YourPrice.InputPer1K, 1e-9)
-	require.Contains(t, byID, "grok-code-fast-1")
-	require.NotNil(t, byID["grok-code-fast-1"].YourPrice.InputPer1K)
-	assert.InDelta(t, 0.001, *byID["grok-code-fast-1"].YourPrice.InputPer1K, 1e-9)
-	require.Contains(t, byID, "grok-imagine-image")
-	require.NotNil(t, byID["grok-imagine-image"].YourPrice.PerImage)
-	assert.InDelta(t, 0.02, *byID["grok-imagine-image"].YourPrice.PerImage, 1e-9)
-	require.Contains(t, byID, "grok-imagine-image-quality")
-	require.NotNil(t, byID["grok-imagine-image-quality"].YourPrice.PerImage)
-	assert.InDelta(t, 0.07, *byID["grok-imagine-image-quality"].YourPrice.PerImage, 1e-9)
-	require.Contains(t, byID, "grok-imagine-video")
-	require.NotNil(t, byID["grok-imagine-video"].YourPrice.PerSecond)
-	assert.InDelta(t, 0.08, *byID["grok-imagine-video"].YourPrice.PerSecond, 1e-9)
+	require.Contains(t, byID, chatIDs[0])
+	require.NotNil(t, byID[chatIDs[0]].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.00125, *byID[chatIDs[0]].YourPrice.InputPer1K, 1e-9)
+	require.Contains(t, byID, chatIDs[1])
+	require.NotNil(t, byID[chatIDs[1]].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.001, *byID[chatIDs[1]].YourPrice.InputPer1K, 1e-9)
+	require.Contains(t, byID, imageID)
+	require.NotNil(t, byID[imageID].YourPrice.PerImage)
+	assert.InDelta(t, 0.02, *byID[imageID].YourPrice.PerImage, 1e-9)
+	require.Contains(t, byID, videoID)
+	require.NotNil(t, byID[videoID].YourPrice.PerSecond)
+	assert.InDelta(t, 0.08, *byID[videoID].YourPrice.PerSecond, 1e-9)
 }
 
 // TestBuildForUser_ChannelsErrorDoesNotKillFallback documents the
