@@ -102,3 +102,20 @@ restores the file and removes the entry in the same change.
   should be taken as-is from upstream. Delete this entry once the merge is on
   `main` and `git diff --diff-filter=D upstream/main..HEAD -- backend/` no
   longer lists it.
+
+## frontend/src/components/account/__tests__/CreateAccountModal.grok.spec.ts
+
+- **Upstream path:** `frontend/src/components/account/__tests__/CreateAccountModal.grok.spec.ts`.
+- **Deletion commit + PR:** `3fa27f851` — "fix(upstream): address R-001..R-002 — restore Grok OAuth create wiring", landed through
+  [PR #1353](https://github.com/youxuanxue/sub2api/pull/1353). The upstream
+  merge itself removed this standalone fixture after folding its coverage into
+  `CreateAccountModal.spec.ts`.
+- **Reason:** this is an upstream-owned test consolidation, not a TokenKey
+  product deletion. The replacement test file remains in the tree and covers
+  the shared account modal behavior.
+- **Regression cost:** no production behavior is removed; future changes to
+  Grok-specific account creation must update the consolidated modal tests.
+- **Upstream tests lost:** the standalone Grok fixture only; its assertions were
+  folded into `CreateAccountModal.spec.ts` by the upstream change.
+- **Re-adopt when:** upstream restores the standalone fixture or splits the
+  coverage back out; remove this ledger entry in the same merge that re-adds it.
