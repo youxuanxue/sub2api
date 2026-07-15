@@ -178,10 +178,10 @@
     {
       "path": "backend/internal/service/kiro_sse_encoder_tk_thinking_redact_test.go",
       "must_contain": [
-        "TestKiroSSEEncoder_OmitsReasoningContentEvent",
-        "TestKiroGatewayService_Forward_Streaming_WithReasoningEvent"
+        "TestKiroGatewayService_Forward_Streaming_WithReasoningEvent",
+        "TestKiroGatewayService_Forward_Streaming_OmitsSplitInlineThinkingTags"
       ],
-      "rationale": "Client-wire compatibility guard for unsigned Kiro reasoning. Kiro reasoning is retained through the internal QA side channel but must not be forged into redacted_thinking blocks: the hash placeholder is not Anthropic-signed or replayable and breaks strict clients. These tests pin both the encoder seam and the full streaming forward path so an upstream merge cannot silently restore the incompatible block."
+      "rationale": "Client-wire compatibility guard for unsigned Kiro reasoning. Kiro reasoning is retained through the internal QA side channel but must not be forged into redacted_thinking blocks: the hash placeholder is not Anthropic-signed or replayable and breaks strict clients. These tests pin both explicit reasoning events and split inline thinking on the full streaming forward path so an upstream merge cannot silently restore the incompatible block."
     },
     {
       "path": "backend/internal/integration/kiro/thinking_redact_test.go",

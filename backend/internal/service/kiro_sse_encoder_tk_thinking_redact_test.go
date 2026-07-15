@@ -13,32 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
-
-	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 )
-
-func TestKiroSSEEncoder_OmitsReasoningContentEvent(t *testing.T) {
-	rec := httptest.NewRecorder()
-	enc := &kiroSSEEncoder{
-		w:       rec,
-		flusher: rec,
-		model:   "claude-sonnet-4-6",
-		msgID:   "msg_test",
-	}
-
-	enc.writeThinkingDelta("The user asked who I am.")
-	enc.writeThinkingDelta(" I should answer briefly.")
-	enc.writeTextDelta("I am Claude.")
-	enc.writeMessageDelta(12)
-	enc.writeMessageStop()
-
-	out := rec.Body.String()
-	require.NotContains(t, out, "redacted_thinking")
-	require.Contains(t, out, `"type":"text_delta"`)
-	require.Contains(t, out, "I am Claude.")
-	require.NotContains(t, out, "thinking_delta")
-	require.NotContains(t, out, "The user asked who I am.")
-}
 
 func TestKiroSSEEncoder_OpusStyleTextOnly_NoRedactedBlock(t *testing.T) {
 	rec := httptest.NewRecorder()
@@ -57,30 +32,6 @@ func TestKiroSSEEncoder_OpusStyleTextOnly_NoRedactedBlock(t *testing.T) {
 	require.NotContains(t, out, "redacted_thinking")
 	require.NotContains(t, out, "thinking_delta")
 	require.Contains(t, out, "I am Claude.")
-}
-
-func TestKiroSSEEncoder_InlineThinkingTagsOmitted(t *testing.T) {
-	rec := httptest.NewRecorder()
-	enc := &kiroSSEEncoder{
-		w:       rec,
-		flusher: rec,
-		model:   "claude-sonnet-4-6",
-		msgID:   "msg_test",
-	}
-
-	enc.writeThinkingDelta("from reasoning event")
-	visible, inlineThinking := kiroproto.ExtractThinkingFromContent("<thinking>inline</thinking>Visible answer.")
-	require.Equal(t, "inline", inlineThinking)
-	enc.writeThinkingDelta(inlineThinking)
-	enc.writeTextDelta(visible)
-	enc.writeMessageDelta(8)
-	enc.writeMessageStop()
-
-	out := rec.Body.String()
-	require.NotContains(t, out, "redacted_thinking")
-	require.Contains(t, out, "Visible answer.")
-	require.NotContains(t, out, "<thinking>")
-	require.NotContains(t, out, "thinking_delta")
 }
 
 func TestKiroGatewayService_Forward_Streaming_WithReasoningEvent(t *testing.T) {

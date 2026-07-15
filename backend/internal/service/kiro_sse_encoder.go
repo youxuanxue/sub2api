@@ -118,12 +118,6 @@ func (e *kiroSSEEncoder) writeTextDelta(text string) {
 	})
 }
 
-func (e *kiroSSEEncoder) writeThinkingDelta(_ string) {
-	// Kiro reasoning is retained by the gateway's internal QA side channel.
-	// It is not Anthropic-signed, so it cannot form a valid replayable thinking
-	// block and must stay off the client-facing wire.
-}
-
 // writeToolUse emits a complete tool_use block (start + input_json_delta + stop).
 // Kiro delivers tool uses whole (not incrementally), so the input is serialized
 // as a single partial_json delta.

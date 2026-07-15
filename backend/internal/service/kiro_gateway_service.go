@@ -276,12 +276,10 @@ func (s *KiroGatewayService) forwardStreaming(
 			markFirstToken()
 			if isThinking {
 				thinkingBuf += text
-				enc.writeThinkingDelta(text)
 			} else {
 				visible, inlineThinking := redactor.Push(text)
 				if inlineThinking != "" {
 					thinkingBuf += inlineThinking
-					enc.writeThinkingDelta(inlineThinking)
 				}
 				if visible != "" {
 					textBuf += visible
@@ -346,7 +344,6 @@ func (s *KiroGatewayService) forwardStreaming(
 	if visible, inlineThinking := redactor.Flush(); visible != "" || inlineThinking != "" {
 		if inlineThinking != "" {
 			thinkingBuf += inlineThinking
-			enc.writeThinkingDelta(inlineThinking)
 		}
 		if visible != "" {
 			textBuf += visible
