@@ -181,6 +181,12 @@ type AdminGroup struct {
 	StickyRoutingMode string `json:"sticky_routing_mode"`
 }
 
+// AccountModelOption is the cross-platform admin account-test model contract.
+type AccountModelOption struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+}
+
 type Account struct {
 	ID       int64   `json:"id"`
 	Name     string  `json:"name"`

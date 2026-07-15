@@ -1,5 +1,7 @@
 package domain
 
+import "sort"
+
 // Status constants
 const (
 	StatusActive   = "active"
@@ -140,6 +142,27 @@ var antigravityUnpricedModelMappingKeys = map[string]struct{}{
 	// Served by Antigravity but absent from reliable public pricing. Keeping it
 	// in a visible/custom account mapping bills successful requests at $0.
 	"tab_flash_lite_preview": {},
+}
+
+func sortedAntigravityModelMappingKeys(src map[string]struct{}) []string {
+	out := make([]string, 0, len(src))
+	for k := range src {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// AntigravityStructuralDeadModelMappingKeys returns stale Antigravity request
+// aliases that must not be persisted in account model_mapping.
+func AntigravityStructuralDeadModelMappingKeys() []string {
+	return sortedAntigravityModelMappingKeys(antigravityStructuralDeadModelMappingKeys)
+}
+
+// AntigravityUnpricedModelMappingKeys returns Antigravity keys blocked from
+// account model_mapping because they would serve at $0.
+func AntigravityUnpricedModelMappingKeys() []string {
+	return sortedAntigravityModelMappingKeys(antigravityUnpricedModelMappingKeys)
 }
 
 // IsAntigravityStructuralDeadModelMappingKey reports whether k is a stale

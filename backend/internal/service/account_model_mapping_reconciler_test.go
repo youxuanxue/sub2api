@@ -4,9 +4,14 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -45,22 +50,21 @@ func TestAccountModelMappingForAccount_AntigravityLiveClaudeSubset(t *testing.T)
 
 	mapping, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: PlatformAntigravity}, nil, nil, nil)
 	require.True(t, ok)
-	require.Equal(t, "claude-sonnet-4-6", mapping["claude-sonnet-4-6"])
-	require.Equal(t, "claude-opus-4-6-thinking", mapping["claude-opus-4-6"])
-	require.Equal(t, "claude-opus-4-6-thinking", mapping["claude-opus-4-6-thinking"])
-	require.Contains(t, mapping, "gemini-3.5-flash-low")
-	require.Contains(t, mapping, "gemini-3.1-flash-image")
-	for _, denied := range []string{
-		"claude-fable-5",
-		"claude-opus-4-8",
-		"claude-sonnet-5",
-		"claude-haiku-4-5",
-		"gpt-oss-120b-medium",
-		"tab_flash_lite_preview",
-		"gemini-3-pro-preview",
-	} {
-		require.NotContains(t, mapping, denied)
+	servable := supportedCatalogModelIDsForPlatform(PlatformAntigravity)
+	servableSet := stringSet(servable)
+	expected := expectedAntigravityModelMappingForReconcilerTest()
+	require.Equal(t, expected, mapping, "Antigravity floor must be the complete owner-derived projection")
+	for from, to := range mapping {
+		_, fromServable := servableSet[from]
+		_, toServable := servableSet[to]
+		require.True(t, fromServable || toServable, "mapping %s -> %s must be anchored in Antigravity SSOT", from, to)
+		require.False(t, strings.HasPrefix(from, "gpt-oss-"), "gpt-oss must not enter Antigravity model_mapping")
 	}
+	for _, platform := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini} {
+		offPlatform := firstIDOutsideSetForReconcilerTest(t, supportedCatalogModelIDsForPlatform(platform), servableSet)
+		require.NotContains(t, mapping, offPlatform)
+	}
+	require.NotContains(t, mapping, "gpt-oss-120b-medium")
 }
 
 func TestAccountModelMappingForAccount_GrokAppliesCompatibilityAliases(t *testing.T) {
@@ -74,23 +78,14 @@ func TestAccountModelMappingForAccount_GrokAppliesCompatibilityAliases(t *testin
 func TestAccountModelMappingForAccount_NativePlatformsExplicit(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		platform string
-		want     string
-		deny     string
-	}{
-		{PlatformAnthropic, "claude-sonnet-4-6", "claude-sonnet-4-5-20250929"},
-		{PlatformOpenAI, "gpt-5.4", "gpt-not-a-real-id-zzz"},
-		{PlatformGemini, "gemini-2.5-flash", "gemini-2.0-flash"},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.platform, func(t *testing.T) {
+	for _, platform := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini} {
+		platform := platform
+		t.Run(platform, func(t *testing.T) {
 			t.Parallel()
-			mapping, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: tc.platform}, nil, nil, nil)
+			mapping, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: platform}, nil, nil, nil)
 			require.True(t, ok)
-			require.Equal(t, tc.want, mapping[tc.want])
-			require.NotContains(t, mapping, tc.deny)
+			requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsForPlatform(platform))
+			require.NotContains(t, mapping, platform+"-not-a-real-id-zzz")
 		})
 	}
 }
@@ -100,9 +95,8 @@ func TestAccountModelMappingForAccount_KiroBedrockAndNewAPI(t *testing.T) {
 
 	kiro, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: PlatformKiro}, nil, nil, nil)
 	require.True(t, ok)
-	require.Equal(t, "claude-sonnet-4-5", kiro["claude-sonnet-4-5"])
-	require.Equal(t, "claude-sonnet-5", kiro["claude-sonnet-5"])
-	require.NotContains(t, kiro, "claude-fable-5")
+	requireIdentityMappingForIDs(t, kiro, kiroModelMappingPresetIDs())
+	require.NotContains(t, kiro, "claude-not-kiro-zzz")
 
 	kiroStub, ok := accountModelMappingForAccount(context.Background(), &Account{
 		Platform: PlatformAnthropic,
@@ -117,45 +111,48 @@ func TestAccountModelMappingForAccount_KiroBedrockAndNewAPI(t *testing.T) {
 		Type:     AccountTypeBedrock,
 	}, nil, nil, nil)
 	require.True(t, ok)
-	require.Equal(t, "us.anthropic.claude-opus-4-8-v1", bedrock["claude-opus-4-8"])
+	require.Equal(t, domain.DefaultBedrockModelMapping, bedrock)
 
 	vertex, ok := accountModelMappingForAccount(context.Background(), &Account{
 		Platform:    PlatformNewAPI,
 		ChannelType: newapiconstant.ChannelTypeVertexAi,
 	}, nil, nil, nil)
 	require.True(t, ok)
-	require.Equal(t, "imagen-4.0-generate-001", vertex["imagen-4.0-generate-001"])
+	requireIdentityMappingForIDs(t, vertex, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi))
 }
 
 func TestAccountModelMappingRuntimeOverride(t *testing.T) {
 	t.Parallel()
 
-	raw := `{
-		"platforms": {
-			"grok": {"grok": "grok-4.3"},
-			"claude": {"claude-sonnet-4-6": "claude-sonnet-4-6"}
+	grokID := firstStringSortedForReconcilerTest(t, supportedCatalogModelIDsForPlatform(PlatformGrok))
+	anthropicID := firstStringSortedForReconcilerTest(t, supportedCatalogModelIDsForPlatform(PlatformAnthropic))
+	vertexID := firstStringSortedForReconcilerTest(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi))
+	raw := runtimeOverrideRawForReconcilerTest(t, accountModelMappingRuntimeDoc{
+		Platforms: map[string]map[string]string{
+			"grok":   {grokID: grokID},
+			"claude": {anthropicID: anthropicID},
 		},
-		"newapi_channel_types": {
-			"41": {"imagen-4.0-generate-001": "imagen-4.0-generate-001"}
-		}
-	}`
+		NewAPIChannelTypes: map[string]map[string]string{
+			strconv.Itoa(newapiconstant.ChannelTypeVertexAi): {vertexID: vertexID},
+		},
+	})
 	runtime, err := parseAccountModelMappingRuntime(raw)
 	require.NoError(t, err)
 
 	grok, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: PlatformGrok}, nil, nil, runtime)
 	require.True(t, ok)
-	require.Equal(t, map[string]string{"grok": "grok-4.3"}, grok)
+	require.Equal(t, map[string]string{grokID: grokID}, grok)
 
 	anthropic, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: PlatformAnthropic}, nil, nil, runtime)
 	require.True(t, ok)
-	require.Equal(t, map[string]string{"claude-sonnet-4-6": "claude-sonnet-4-6"}, anthropic)
+	require.Equal(t, map[string]string{anthropicID: anthropicID}, anthropic)
 
 	vertex, ok := accountModelMappingForAccount(context.Background(), &Account{
 		Platform:    PlatformNewAPI,
 		ChannelType: newapiconstant.ChannelTypeVertexAi,
 	}, nil, nil, runtime)
 	require.True(t, ok)
-	require.Equal(t, map[string]string{"imagen-4.0-generate-001": "imagen-4.0-generate-001"}, vertex)
+	require.Equal(t, map[string]string{vertexID: vertexID}, vertex)
 }
 
 func TestAccountModelMappingReconciler_RewritesDriftedAccountsAcrossPlatforms(t *testing.T) {
@@ -165,7 +162,7 @@ func TestAccountModelMappingReconciler_RewritesDriftedAccountsAcrossPlatforms(t 
 				{ID: 1, Platform: PlatformAntigravity, Credentials: nil},
 			},
 			PlatformGrok: {
-				{ID: 2, Platform: PlatformGrok, Credentials: map[string]any{"model_mapping": map[string]any{"grok": "grok-4.3"}}},
+				{ID: 2, Platform: PlatformGrok, Credentials: map[string]any{"model_mapping": map[string]any{"grok-not-current-zzz": "grok-not-current-zzz"}}},
 			},
 			PlatformKiro: {
 				{ID: 3, Platform: PlatformKiro, Credentials: map[string]any{}},
@@ -189,6 +186,7 @@ func TestAccountModelMappingReconciler_RewritesDriftedAccountsAcrossPlatforms(t 
 }
 
 func TestAccountModelMappingReconciler_RuntimeOverrideFromSettings(t *testing.T) {
+	grokID := firstStringSortedForReconcilerTest(t, supportedCatalogModelIDsForPlatform(PlatformGrok))
 	acc := &reconcilerAccountStub{
 		byPlatform: map[string][]Account{
 			PlatformGrok: {
@@ -197,14 +195,18 @@ func TestAccountModelMappingReconciler_RuntimeOverrideFromSettings(t *testing.T)
 		},
 	}
 	settings := accountModelMappingSettingStub{values: map[string]string{
-		SettingKeyTKAccountModelMappingRuntime: `{"platforms":{"grok":{"grok":"grok-4.3"}}}`,
+		SettingKeyTKAccountModelMappingRuntime: runtimeOverrideRawForReconcilerTest(t, accountModelMappingRuntimeDoc{
+			Platforms: map[string]map[string]string{
+				"grok": {grokID: grokID},
+			},
+		}),
 	}}
 	r := NewAccountModelMappingReconciler(acc, nil, settings, nil, nil)
 	r.runOnce(context.Background())
 
 	require.Len(t, acc.bulkCalls, 1)
 	require.Equal(t, []int64{9}, acc.bulkCalls[0].ids)
-	require.Equal(t, map[string]any{"grok": "grok-4.3"}, acc.bulkCalls[0].updates.Credentials["model_mapping"])
+	require.Equal(t, map[string]any{grokID: grokID}, acc.bulkCalls[0].updates.Credentials["model_mapping"])
 }
 
 func TestAccountModelMappingReconciler_AntigravityGroupScopesAllowClaudeAndGemini(t *testing.T) {
@@ -234,4 +236,50 @@ func TestAccountModelMappingReconciler_NilSafe(t *testing.T) {
 
 	rec := NewAccountModelMappingReconciler(nil, nil, nil, nil, nil)
 	require.NotPanics(t, func() { rec.runOnce(context.Background()); rec.RunOnce() })
+}
+
+func expectedAntigravityModelMappingForReconcilerTest() map[string]string {
+	servable := stringSet(supportedCatalogModelIDsForPlatform(PlatformAntigravity))
+	expected := make(map[string]string)
+	for from, to := range domain.DefaultAntigravityModelMapping {
+		if strings.HasPrefix(from, "gpt-oss-") ||
+			domain.IsAntigravityStructuralDeadModelMappingKey(from) ||
+			domain.IsAntigravityUnpricedModelMappingKey(from) {
+			continue
+		}
+		if _, ok := servable[from]; ok {
+			expected[from] = to
+			continue
+		}
+		if _, ok := servable[to]; ok {
+			expected[from] = to
+		}
+	}
+	return expected
+}
+
+func firstIDOutsideSetForReconcilerTest(t *testing.T, candidates []string, excluded map[string]struct{}) string {
+	t.Helper()
+	for _, id := range candidates {
+		if _, ok := excluded[id]; !ok {
+			return id
+		}
+	}
+	require.FailNow(t, "expected at least one candidate outside excluded set")
+	return ""
+}
+
+func firstStringSortedForReconcilerTest(t *testing.T, ids []string) string {
+	t.Helper()
+	require.NotEmpty(t, ids, "SSOT sample source must be populated")
+	sorted := append([]string{}, ids...)
+	sort.Strings(sorted)
+	return sorted[0]
+}
+
+func runtimeOverrideRawForReconcilerTest(t *testing.T, doc accountModelMappingRuntimeDoc) string {
+	t.Helper()
+	raw, err := json.Marshal(doc)
+	require.NoError(t, err)
+	return string(raw)
 }

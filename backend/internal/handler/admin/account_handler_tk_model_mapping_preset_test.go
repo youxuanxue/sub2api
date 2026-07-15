@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -29,62 +30,55 @@ func setupModelMappingPresetsRouter(adminSvc service.AdminService) *gin.Engine {
 func TestGetModelMappingPresets_Grok(t *testing.T) {
 	router := setupModelMappingPresetsRouter(newStubAdminService())
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/model-mapping-presets?platform=grok", nil)
-	router.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	var resp struct {
-		Data struct {
-			ModelIDs []string `json:"model_ids"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.NotEmpty(t, resp.Data.ModelIDs)
-	require.Contains(t, resp.Data.ModelIDs, service.GrokDefaultTestModelID)
+	ids := requestModelMappingPresetIDs(t, router, "/api/v1/admin/accounts/model-mapping-presets?platform=grok")
+	require.ElementsMatch(t,
+		service.AccountModelMappingPresetIDs(context.Background(), service.PlatformGrok, 0, nil),
+		ids,
+	)
 }
 
 func TestGetModelMappingPresets_NewAPIVertex(t *testing.T) {
 	router := setupModelMappingPresetsRouter(newStubAdminService())
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(
-		http.MethodGet,
+	ids := requestModelMappingPresetIDs(t, router,
 		"/api/v1/admin/accounts/model-mapping-presets?platform=newapi&channel_type="+strconv.Itoa(newapiconstant.ChannelTypeVertexAi),
-		nil,
 	)
-	router.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	var resp struct {
-		Data struct {
-			ModelIDs []string `json:"model_ids"`
-		} `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Contains(t, resp.Data.ModelIDs, "gemini-2.5-flash")
+	require.ElementsMatch(t,
+		service.AccountModelMappingPresetIDs(context.Background(), service.PlatformNewAPI, newapiconstant.ChannelTypeVertexAi, nil),
+		ids,
+	)
 }
 
 func TestGetModelMappingPresets_NewAPIDeepSeek(t *testing.T) {
 	router := setupModelMappingPresetsRouter(newStubAdminService())
 
+	ids := requestModelMappingPresetIDs(t, router,
+		"/api/v1/admin/accounts/model-mapping-presets?platform=newapi&channel_type="+strconv.Itoa(newapiconstant.ChannelTypeDeepSeek),
+	)
+	require.ElementsMatch(t,
+		service.AccountModelMappingPresetIDs(context.Background(), service.PlatformNewAPI, newapiconstant.ChannelTypeDeepSeek, nil),
+		ids,
+	)
+}
+
+func requestModelMappingPresetIDs(t *testing.T, router *gin.Engine, target string) []string {
+	t.Helper()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(
 		http.MethodGet,
-		"/api/v1/admin/accounts/model-mapping-presets?platform=newapi&channel_type="+strconv.Itoa(newapiconstant.ChannelTypeDeepSeek),
+		target,
 		nil,
 	)
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-
 	var resp struct {
 		Data struct {
 			ModelIDs []string `json:"model_ids"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Contains(t, resp.Data.ModelIDs, "deepseek-chat")
+	return resp.Data.ModelIDs
 }
 
 func TestGetModelMappingPresets_InvalidPlatform(t *testing.T) {

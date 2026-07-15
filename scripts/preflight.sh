@@ -672,23 +672,26 @@ else
     echo "  ok: Studio presentation covers public servable media models"
 fi
 
-# ---- sub2api: modelops planner selftest --------------------------------------
-# The modelops planner is deliberately read-only: it mechanizes discovery/probe/
-# price/mapping/catalog-surface diffing and prints existing guarded apply
-# commands, but never writes accounts or pricing itself. Keep its parser/
-# classifier covered so the operator-facing plan cannot silently misclassify a
-# priced-but-unprobed model or a mirror-account drift.
+# ---- sub2api: modelops plan/activation selftest ------------------------------
+# plan remains read-only. activate validates bundle deltas and independent,
+# digest-bound, fresh probe/pricing evidence before it can reach the explicit
+# prod-only mapping apply. Keep both classifier and activation gates offline-
+# tested so bad evidence never reaches SSM.
 echo ""
-echo "=== sub2api: modelops planner selftest ==="
+echo "=== sub2api: modelops plan/activation selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for modelops planner)"
+    echo "  FAIL: python3 not on PATH (required for modelops plan/activation)"
     errors=$((errors + 1))
 elif ! python3 ./ops/pricing/modelops.py --selftest >/dev/null 2>&1; then
-    echo "  FAIL: modelops planner selftest"
+    echo "  FAIL: modelops plan/activation selftest"
     echo "        — run: python3 ops/pricing/modelops.py --selftest"
     errors=$((errors + 1))
+elif ! python3 -m unittest ops/pricing/test_model_activation.py >/dev/null 2>&1; then
+    echo "  FAIL: model activation behavior tests"
+    echo "        — run: python3 -m unittest ops/pricing/test_model_activation.py"
+    errors=$((errors + 1))
 else
-    echo "  ok: modelops planner selftest"
+    echo "  ok: modelops plan/activation selftest + behavior tests"
 fi
 
 # ---- sub2api: pricing-hotfix runbook selftest -------------------------------
@@ -726,6 +729,40 @@ elif ! python3 ./ops/pricing/manage-overlay-runtime.py --selftest >/dev/null 2>&
     errors=$((errors + 1))
 else
     echo "  ok: overlay-runtime hot-push tool selftest"
+fi
+
+# ---- sub2api: account model_mapping tool/SSOT contract selftest -------------
+# Keep the pure Go-floor/policy-metadata parsing and diff/render logic under
+# preflight. This validates the modelops tool contract independently of whether
+# a caller uses check-accounts or an explicit model-activation precheck.
+echo ""
+echo "=== sub2api: account model_mapping tool/SSOT contract selftest ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for account model_mapping tool/SSOT contract selftest)"
+    errors=$((errors + 1))
+elif ! python3 ./ops/pricing/manage-account-model-mapping-runtime.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: account model_mapping tool/SSOT contract selftest"
+    echo "        — run: python3 ops/pricing/manage-account-model-mapping-runtime.py --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: account model_mapping tool/SSOT contract selftest"
+fi
+
+# ---- sub2api: generated model-surface bundle drift -------------------------
+# Rollout consumes the generated bundle without compiling Go. Keep the checked-in
+# artifact byte-identical to the Go owner so it cannot become a second hand-edited
+# model list.
+echo ""
+echo "=== sub2api: generated model-surface bundle drift ==="
+if ! command -v go >/dev/null 2>&1; then
+    echo "  FAIL: go not on PATH (required for model-surface bundle drift check)"
+    errors=$((errors + 1))
+elif ! (cd backend && go run ./cmd/account-model-mapping bundle --check ../ops/pricing/model-surface-bundle.json); then
+    echo "  FAIL: ops/pricing/model-surface-bundle.json drifted from the Go owner"
+    echo "        — run: cd backend && go run ./cmd/account-model-mapping bundle --output ../ops/pricing/model-surface-bundle.json"
+    errors=$((errors + 1))
+else
+    echo "  ok: model-surface bundle matches the Go owner"
 fi
 
 # ---- sub2api: frontend TK sentinel registry ---------------------------------
@@ -2371,6 +2408,20 @@ elif ! python3 ./scripts/checks/release-cache-key-parity.py --quiet; then
     errors=$((errors + 1))
 else
     echo "  ok: release/warm cache key prefix + directionality in sync"
+fi
+
+# ---- sub2api: pnpm audit owner contract -------------------------------------
+# Project installs stay on pnpm 9, while security audit uses a pinned pnpm 11
+# owner because npm retired the quick-audit endpoint used by pnpm 9/10.
+echo ""
+echo "=== sub2api: pnpm audit owner contract ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by pnpm-audit-contract.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/pnpm-audit-contract.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: frontend security workflows share the pinned bulk-advisory audit owner"
 fi
 
 # ---- sub2api: Node version alignment -----------------------------------------

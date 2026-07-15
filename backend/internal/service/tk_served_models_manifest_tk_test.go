@@ -1,37 +1,84 @@
 package service
 
-import "testing"
+import (
+	_ "embed"
+	"encoding/json"
+	"reflect"
+	"sort"
+	"testing"
+)
 
-func TestIsTkCuratedNewAPIModelListed(t *testing.T) {
-	if !isTkCuratedNewAPIModelListed("deepseek-chat") {
-		t.Fatal("deepseek-chat must be manifest-listed")
-	}
-	if !isTkCuratedNewAPIModelListed("glm-5.2") {
-		t.Fatal("Qwen-served GLM models must remain manifest-listed")
-	}
-	if isTkCuratedNewAPIModelListed("glm-5-turbo") {
-		t.Fatal("direct-only GLM models must not remain manifest-listed after GLM account/group removal")
-	}
-	if isTkCuratedNewAPIModelListed("deepseek-v3-2-251201") {
-		t.Fatal("deepseek-v3-2-251201 must not be manifest-listed")
-	}
-	if isTkCuratedNewAPIModelListed("glm-4-32b-0414-128k") {
-		t.Fatal("glm-4-32b-0414-128k must not be manifest-listed after upstream 400 withdrawal")
-	}
-	if isTkCuratedNewAPIModelListed("glm-4-7-251222") {
-		t.Fatal("glm-4-7-251222 must not be manifest-listed after VolcEngine GLM withdrawal (serve glm-4.7 via DashScope)")
-	}
+// Embed the manifest independently from the production loader so the test
+// derives its expectations from the declarative owner, not from a projection
+// produced by the code under test.
+//
+//go:embed tk_served_models.json
+var tkServedModelsOwnerRawForTest []byte
+
+type tkServedModelsOwnerEntryForTest struct {
+	ModelID     string `json:"model_id"`
+	ChannelType int    `json:"channel_type"`
+	Display     bool   `json:"display"`
 }
 
-func TestIsTkCuratedNewAPIModelDisplayed(t *testing.T) {
-	if !isTkCuratedNewAPIModelDisplayed("deepseek-chat") {
-		t.Fatal("display=true manifest rows must be public-display eligible")
+type tkServedModelsOwnerProjectionForTest struct {
+	listedIDs           map[string]struct{}
+	displayIDs          map[string]struct{}
+	IDsByChannel        map[int][]string
+	displayIDsByChannel map[int][]string
+	channelTypes        []int
+}
+
+func TestTkServedModelsManifestProjectionsMatchRawOwner(t *testing.T) {
+	want := loadTkServedModelsOwnerProjectionForTest(t)
+	loadTkServedModelsManifest()
+
+	requireServedManifestProjectionEqualForTest(t, "listed IDs", want.listedIDs, tkServedModelsManifestIDs)
+	requireServedManifestProjectionEqualForTest(t, "display IDs", want.displayIDs, tkServedModelsManifestDisplayIDs)
+	requireServedManifestProjectionEqualForTest(t, "IDs by channel", want.IDsByChannel, tkServedModelsManifestIDsByChannelType)
+	requireServedManifestProjectionEqualForTest(t, "display IDs by channel", want.displayIDsByChannel, tkServedModelsManifestDisplayIDsByChannelType)
+	requireServedManifestProjectionEqualForTest(t, "channel types", want.channelTypes, NewAPIManifestPresetChannelTypes())
+
+	for modelID := range want.listedIDs {
+		if !isTkCuratedNewAPIModelListed(modelID) {
+			t.Errorf("raw-owner model %q must be listed", modelID)
+		}
+		_, wantDisplayed := want.displayIDs[modelID]
+		if got := isTkCuratedNewAPIModelDisplayed(modelID); got != wantDisplayed {
+			t.Errorf("display projection for %q = %t, want %t from raw owner", modelID, got, wantDisplayed)
+		}
 	}
-	if isTkCuratedNewAPIModelDisplayed("glm-5-turbo") {
-		t.Fatal("unlisted direct-only GLM rows must stay hidden from public catalog")
+
+	for _, channelType := range want.channelTypes {
+		requireServedManifestProjectionEqualForTest(t,
+			"channel preset", want.IDsByChannel[channelType], tkServedModelsManifestPresetIDsByChannelType(channelType))
+		requireServedManifestProjectionEqualForTest(t,
+			"channel display preset", want.displayIDsByChannel[channelType], tkServedModelsManifestDisplayPresetIDsByChannelType(channelType))
 	}
-	if isTkCuratedNewAPIModelDisplayed("deepseek-v3-2-251201") {
-		t.Fatal("unlisted models must not be public-display eligible")
+
+	for _, modelID := range []string{
+		"tk-not-in-served-models-manifest-zzz", // unknown
+		"deepseek-v3-2-251201",                 // priced residue, never served
+		"glm-4-7-251222",                       // retired VolcEngine duplicate
+		"glm-4-32b-0414-128k",                  // withdrawn GLM SKU
+	} {
+		if isTkCuratedNewAPIModelListed(modelID) {
+			t.Errorf("unknown/retired model %q must not be manifest-listed", modelID)
+		}
+		if isTkCuratedNewAPIModelDisplayed(modelID) {
+			t.Errorf("unknown/retired model %q must not be public-display eligible", modelID)
+		}
+	}
+
+	const unknownChannelType = 999999
+	if _, exists := want.IDsByChannel[unknownChannelType]; exists {
+		t.Fatalf("test's unknown channel_type %d unexpectedly exists in the raw owner", unknownChannelType)
+	}
+	if got := tkServedModelsManifestPresetIDsByChannelType(unknownChannelType); got != nil {
+		t.Errorf("unknown channel_type preset = %v, want nil", got)
+	}
+	if got := tkServedModelsManifestDisplayPresetIDsByChannelType(unknownChannelType); got != nil {
+		t.Errorf("unknown channel_type display preset = %v, want nil", got)
 	}
 }
 
@@ -46,27 +93,57 @@ func TestIsNewAPILongTailCatalogVendor(t *testing.T) {
 	}
 }
 
-func TestTkServedModelsManifestPresetIDsByChannelType(t *testing.T) {
-	deepseek := tkServedModelsManifestPresetIDsByChannelType(43)
-	if len(deepseek) == 0 {
-		t.Fatal("deepseek channel_type 43 must have manifest presets")
+func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerProjectionForTest {
+	t.Helper()
+	var doc struct {
+		Entries map[string]tkServedModelsOwnerEntryForTest `json:"entries"`
 	}
-	if !containsString(deepseek, "deepseek-chat") {
-		t.Fatal("deepseek-chat must be in ch43 preset")
+	if err := json.Unmarshal(tkServedModelsOwnerRawForTest, &doc); err != nil {
+		t.Fatalf("parse raw served-models owner: %v", err)
 	}
-	if tkServedModelsManifestPresetIDsByChannelType(25) != nil {
-		t.Fatal("unprobed channel_type 25 must return nil preset")
+	if len(doc.Entries) == 0 {
+		t.Fatal("raw served-models owner must contain entries")
 	}
-	if tkServedModelsManifestPresetIDsByChannelType(26) != nil {
-		t.Fatal("removed ZhipuV4 direct GLM channel_type 26 must return nil preset")
-	}
-}
 
-func containsString(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
+	out := tkServedModelsOwnerProjectionForTest{
+		listedIDs:           make(map[string]struct{}, len(doc.Entries)),
+		displayIDs:          make(map[string]struct{}, len(doc.Entries)),
+		IDsByChannel:        make(map[int][]string),
+		displayIDsByChannel: make(map[int][]string),
+	}
+	for key, entry := range doc.Entries {
+		if entry.ModelID == "" {
+			t.Fatalf("raw owner entry %q has an empty model_id", key)
+		}
+		if entry.ChannelType <= 0 {
+			t.Fatalf("raw owner entry %q has invalid channel_type %d", key, entry.ChannelType)
+		}
+		if _, duplicate := out.listedIDs[entry.ModelID]; duplicate {
+			t.Fatalf("raw owner declares model_id %q more than once", entry.ModelID)
+		}
+		out.listedIDs[entry.ModelID] = struct{}{}
+		out.IDsByChannel[entry.ChannelType] = append(out.IDsByChannel[entry.ChannelType], entry.ModelID)
+		if entry.Display {
+			out.displayIDs[entry.ModelID] = struct{}{}
+			out.displayIDsByChannel[entry.ChannelType] = append(out.displayIDsByChannel[entry.ChannelType], entry.ModelID)
 		}
 	}
-	return false
+	for channelType, ids := range out.IDsByChannel {
+		sort.Strings(ids)
+		out.IDsByChannel[channelType] = ids
+		out.channelTypes = append(out.channelTypes, channelType)
+	}
+	for channelType, ids := range out.displayIDsByChannel {
+		sort.Strings(ids)
+		out.displayIDsByChannel[channelType] = ids
+	}
+	sort.Ints(out.channelTypes)
+	return out
+}
+
+func requireServedManifestProjectionEqualForTest(t *testing.T, name string, want, got any) {
+	t.Helper()
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("%s mismatch\nwant: %#v\n got: %#v", name, want, got)
+	}
 }
