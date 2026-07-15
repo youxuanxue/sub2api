@@ -221,6 +221,21 @@
       "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse). ensureBlock (and writeToolUse) lazily call writeMessageStart on first content; writeMessageStart is idempotent (`if e.started { return }`). This laziness is what keeps enc.started false on a pre-content upstream 400 so the gateway service can surface the error instead of a clean empty 200 stream."
     },
     {
+      "path": "backend/internal/service/kiro_sse_encoder_tk_thinking_redact_test.go",
+      "must_contain": [
+        "TestKiroGatewayService_Forward_Streaming_WithReasoningEvent",
+        "TestKiroGatewayService_Forward_Streaming_OmitsSplitInlineThinkingTags"
+      ],
+      "rationale": "Client-wire compatibility guard for unsigned Kiro reasoning. Kiro reasoning is retained through the internal QA side channel but must not be forged into redacted_thinking blocks: the hash placeholder is not Anthropic-signed or replayable and breaks strict clients. These tests pin both explicit reasoning events and split inline thinking on the full streaming forward path so an upstream merge cannot silently restore the incompatible block."
+    },
+    {
+      "path": "backend/internal/integration/kiro/thinking_redact_test.go",
+      "must_contain": [
+        "TestKiroToClaudeResponse_OmitsUnsignedThinking"
+      ],
+      "rationale": "Non-streaming counterpart to the Kiro client-wire compatibility guard. The synthesized JSON response must omit unsigned Kiro reasoning while the service-level internal side channel remains responsible for QA export."
+    },
+    {
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
         "account.IsKiro()",
