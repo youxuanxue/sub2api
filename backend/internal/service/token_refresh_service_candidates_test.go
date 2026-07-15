@@ -99,14 +99,6 @@ func (r *tokenRefreshCandidateRepo) ClearTempUnschedulable(context.Context, int6
 	return nil
 }
 
-// isOAuthRefreshPlatform mirrors the production candidate filter. It delegates
-// to engine.IsOAuthRefreshPlatform so this test stub and repository.
-// ListOAuthRefreshCandidates' SQL `platform = ANY($1)` read the SAME single
-// source of truth (engine.OAuthRefreshPlatforms()) and can never disagree.
-func isOAuthRefreshPlatform(platform string) bool {
-	return engine.IsOAuthRefreshPlatform(platform)
-}
-
 // TestRegisteredRefreshers_MatchOAuthRefreshSourceOfTruth welds the registered
 // TokenRefresher set to engine.OAuthRefreshPlatforms() (the SQL source of
 // truth). It is the structural kill for the R-001 silent-drop class:

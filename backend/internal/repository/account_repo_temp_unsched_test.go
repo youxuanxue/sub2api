@@ -12,8 +12,6 @@ import (
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
-
-	"github.com/Wei-Shaw/sub2api/internal/engine"
 )
 
 func TestAccountRepository_SetTempUnschedulable_NoRowsAffectedDoesNotWriteOutbox(t *testing.T) {
@@ -264,8 +262,9 @@ func TestAccountRepository_ListOAuthRefreshCandidates_SQLFilter(t *testing.T) {
 
 	repo := newAccountRepositoryWithSQL(nil, captureQuerySQL{db: db, captured: &capturedSQL, capturedArgs: &capturedArgs}, nil, nil)
 
+	platforms := []string{service.PlatformAnthropic, service.PlatformOpenAI, service.PlatformGemini, service.PlatformAntigravity, service.PlatformGrok}
 	page, err := repo.ListOAuthRefreshCandidatePage(context.Background(), service.OAuthRefreshPageOptions{
-		Platforms:            []string{service.PlatformAnthropic, service.PlatformOpenAI, service.PlatformGemini, service.PlatformAntigravity, service.PlatformGrok},
+		Platforms:            platforms,
 		AfterID:              100,
 		Limit:                200,
 		ActiveOnly:           true,
@@ -280,22 +279,18 @@ func TestAccountRepository_ListOAuthRefreshCandidates_SQLFilter(t *testing.T) {
 	require.Contains(t, normalized, "deleted_at IS NULL")
 	require.Contains(t, normalized, "status = 'active'")
 	require.Contains(t, normalized, "type IN ('oauth', 'setup-token')")
-	// The platform filter is parametrized (`= ANY($1)`) and bound from the single
-	// source of truth engine.OAuthRefreshPlatforms() — there must be NO platform
-	// literal left in the SQL for an upstream merge to reset to its four-platform
-	// default (the R-001 silent-drop class). The bound arg must carry exactly the
-	// source-of-truth list, including TK platforms 6/7 (kiro/grok), which have no
-	// on-demand refresh path.
+	// The platform filter is parametrized (`= ANY($1)`) and must preserve the
+	// caller-supplied platform set. TokenRefreshService derives that set from
+	// engine.OAuthRefreshPlatforms(); the repository must not replace a narrower
+	// request with the global list.
 	require.Contains(t, normalized, "platform = ANY($1)",
-		"platform filter must be parametrized from engine.OAuthRefreshPlatforms(), not a SQL literal")
+		"platform filter must be parametrized from the caller, not a SQL literal")
 	require.NotContains(t, normalized, "platform IN (",
 		"no hand-maintained platform IN (...) literal may remain — it is the exact surface upstream silently reset in R-001")
 	require.Len(t, capturedArgs, 3, "candidate page must bind platform array, cursor, and limit")
 	boundPlatforms := pqArrayToStrings(t, capturedArgs[0])
-	require.ElementsMatch(t, engine.OAuthRefreshPlatforms(), boundPlatforms,
-		"the bound $1 platform array must equal engine.OAuthRefreshPlatforms() verbatim")
-	require.Subset(t, boundPlatforms, []string{"kiro", "grok"},
-		"TK platforms 6/7 (kiro/grok) must remain OAuth-refresh candidates")
+	require.ElementsMatch(t, platforms, boundPlatforms,
+		"the bound $1 platform array must equal the requested platform set verbatim")
 	require.Equal(t, int64(100), capturedArgs[1])
 	require.Equal(t, 200, capturedArgs[2])
 	require.Contains(t, normalized, "credentials ? 'refresh_token'")
@@ -315,9 +310,9 @@ func TestAccountRepository_ListOAuthRefreshCandidates_SQLFilter(t *testing.T) {
 	require.Equal(t, 200, capturedArgs[2])
 	valuer, ok := capturedArgs[0].(interface{ Value() (driver.Value, error) })
 	require.True(t, ok)
-	platforms, err := valuer.Value()
+	boundValue, err := valuer.Value()
 	require.NoError(t, err)
-	require.Contains(t, platforms, service.PlatformGrok)
+	require.Contains(t, boundValue, service.PlatformGrok)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

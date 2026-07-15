@@ -93,6 +93,7 @@ func buildGrokBillingURL(account *Account, cfg *config.Config, weekly bool) (str
 	return xai.BuildBillingURLWithValidator(account.GetGrokBaseURL(), weekly, validator)
 }
 
+//nolint:unused // Unit-tagged URL contract tests keep this upstream-compatible builder covered.
 func buildGrokMediaURL(account *Account, cfg *config.Config, endpoint GrokMediaEndpoint, requestID string) (string, error) {
 	validator, err := grokBaseURLValidator(account, cfg)
 	if err != nil {

@@ -242,11 +242,7 @@ func (s *OpenAIGatewayService) rawChatCompletionsURL(account *Account) (string, 
 		}
 		return buildOpenAIChatCompletionsURL(validatedURL), nil
 	case account.IsGrokOAuth():
-		validatedURL, err := s.validateUpstreamBaseURLForAccount(account, strings.TrimSpace(account.GetGrokBaseURL()))
-		if err != nil {
-			return "", fmt.Errorf("invalid grok base_url: %w", err)
-		}
-		return buildOpenAIChatCompletionsURL(validatedURL), nil
+		return buildGrokChatCompletionsURL(account, s.cfg)
 	default:
 		return s.openAIChatCompletionsTargetURL(account)
 	}

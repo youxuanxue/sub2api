@@ -85,6 +85,7 @@ func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) 
 		CreatedAt:     time.Now(),
 	}
 	applyOpsLatencyFieldsFromContext(c, entry)
+	applyOpsUpstreamFieldsFromContext(c, entry)
 	if apiKey != nil {
 		entry.APIKeyID = &apiKey.ID
 		entry.APIKeyPrefix = keyPrefix(apiKey.Key, 8)

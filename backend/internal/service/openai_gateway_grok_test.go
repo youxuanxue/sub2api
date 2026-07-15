@@ -222,7 +222,7 @@ func TestBuildGrokResponsesRequestUsesResolvedOAuthTargetURL(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "https://xai.test/v1/responses", targetURL)
 
-	req, err := buildGrokResponsesRequest(context.Background(), nil, targetURL, []byte(`{"model":"grok-4.3"}`), "access-token")
+	req, err := buildGrokResponsesRequestForAccount(context.Background(), nil, account, targetURL, []byte(`{"model":"grok-4.3"}`), "access-token", "")
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPost, req.Method)
 	require.Equal(t, "https://xai.test/v1/responses", req.URL.String())
@@ -240,7 +240,8 @@ func TestBuildGrokResponsesRequestUsesResolvedOAuthTargetURL(t *testing.T) {
 func TestBuildGrokResponsesRequestRejectsEmptyTargetURL(t *testing.T) {
 	t.Parallel()
 
-	_, err := buildGrokResponsesRequest(context.Background(), nil, " ", []byte(`{"model":"grok-4.3"}`), "access-token")
+	account := healthyGrokOAuthGatewayTestAccount(1, "access-token")
+	_, err := buildGrokResponsesRequestForAccount(context.Background(), nil, account, " ", []byte(`{"model":"grok-4.3"}`), "access-token", "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "target URL is empty")
 }

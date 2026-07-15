@@ -127,7 +127,7 @@ func TestClassifyOpenAICompatibleNoAccountError_GrokUsesGrokPlatform(t *testing.
 		},
 	}
 
-	cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, fd, apiKey, "grok-4.5", "grok-4.5")
+	cls := classifyNoAccountErrorFromGin(c, fd, apiKey, "grok-4.5", "grok-4.5", openAICompatibleRequestPlatform(apiKey))
 
 	require.Equal(t, http.StatusNotFound, cls.Status)
 	require.Equal(t, "model_not_found", cls.ErrType)

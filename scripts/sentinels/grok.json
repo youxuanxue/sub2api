@@ -61,9 +61,9 @@
       "path": "backend/internal/repository/account_repo.go",
       "must_contain": [
         "platform = ANY($1)",
-        "pq.Array(engine.OAuthRefreshPlatforms())"
+        "pq.Array(options.Platforms)"
       ],
-      "rationale": "ListOAuthRefreshCandidates' platform filter MUST stay parametrized from the single source of truth: `platform = ANY($1)` bound from `pq.Array(engine.OAuthRefreshPlatforms())`. There is intentionally NO platform literal left in this SQL — the old hand-maintained `platform IN ('anthropic','openai','gemini','antigravity','kiro','grok')` literal was the exact surface an upstream merge silently reset to its four platforms (R-001), dropping grok so every grok account 401s out of the pool within ~1h with no auto-recovery (the background ticker is grok's only token-renewal path). grok membership itself is now guaranteed upstream of the SQL: engine.OAuthRefreshPlatforms() derives from engine.AllSchedulingPlatforms() (which is anchored to contain domain.PlatformGrok by the engine/provider.go sentinel) minus the apikey-only newapi. If this anchor fails, an upstream merge reverted the parametrization back to a literal — restore `= ANY($1)`, do NOT re-introduce a literal list."
+      "rationale": "ListOAuthRefreshCandidatePage MUST keep its platform filter parametrized as `platform = ANY($1)` and bind the caller-owned `options.Platforms`. TokenRefreshService derives that request set from its registered refreshers, while TestRegisteredRefreshers_MatchOAuthRefreshSourceOfTruth proves the registrations exactly match engine.OAuthRefreshPlatforms(), including Grok. The repository must not replace a deliberately narrower caller request with the global list: doing so leaked OpenAI rows into a Grok-only cursor page in CI. There is intentionally NO platform literal in SQL; the old hand-maintained list was the surface upstream reset in R-001, dropping Grok until tokens expired."
     },
     {
       "path": "backend/internal/service/openai_gateway_service.go",

@@ -27,7 +27,6 @@ import (
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/engine"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -963,7 +962,7 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 	query += `
 		ORDER BY id ASC
 		LIMIT $3`
-	rows, err := r.sql.QueryContext(ctx, query, pq.Array(engine.OAuthRefreshPlatforms()), options.AfterID, options.Limit)
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(options.Platforms), options.AfterID, options.Limit)
 	if err != nil {
 		return nil, err
 	}

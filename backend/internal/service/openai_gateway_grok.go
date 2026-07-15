@@ -822,26 +822,6 @@ func buildGrokResponsesRequestForAccount(ctx context.Context, c *gin.Context, ac
 	return req, nil
 }
 
-func buildGrokResponsesRequest(ctx context.Context, c *gin.Context, targetURL string, body []byte, token string) (*http.Request, error) {
-	if strings.TrimSpace(targetURL) == "" {
-		return nil, fmt.Errorf("grok responses target URL is empty")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	applyGrokCLIHeaders(req.Header)
-	if c != nil {
-		if value := strings.TrimSpace(c.GetHeader("OpenAI-Beta")); value != "" {
-			req.Header.Set("OpenAI-Beta", value)
-		}
-	}
-	return req, nil
-}
-
 // applyGrokCLIHeaders identifies subscription traffic as a supported Grok CLI
 // version. The CLI gateway rejects otherwise valid OAuth requests without it.
 func applyGrokCLIHeaders(headers http.Header) {
