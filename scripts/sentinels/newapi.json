@@ -369,9 +369,10 @@
       "must_contain": [
         "TestApplyNewAPIQwenNonStreamingShape",
         "streaming qwen preserves thinking",
-        "other models remain unchanged"
+        "other models remain unchanged",
+        "unrelated large integers retain precision"
       ],
-      "rationale": "Boundary tests for the shared Qwen request-shape owner: normalize only non-streaming dense Qwen3 requests, preserve streaming thinking, and leave unrelated models byte-identical."
+      "rationale": "Boundary tests for the shared Qwen request-shape owner: normalize only non-streaming dense Qwen3 requests, preserve streaming thinking, leave unrelated models byte-identical, and patch without rounding large JSON integers elsewhere in the request."
     },
     {
       "path": "backend/internal/service/pricing_service.go",

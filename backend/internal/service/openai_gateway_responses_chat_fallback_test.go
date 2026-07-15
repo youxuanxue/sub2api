@@ -544,6 +544,13 @@ func TestApplyNewAPIQwenNonStreamingShape(t *testing.T) {
 		shaped := applyNewAPIQwenNonStreamingShape("deepseek-chat", body)
 		require.Equal(t, string(body), string(shaped))
 	})
+
+	t.Run("unrelated large integers retain precision", func(t *testing.T) {
+		body := []byte(`{"model":"qwen3-8b","stream":false,"enable_thinking":true,"tools":[{"function":{"parameters":{"const":9007199254740993}}}]}`)
+		shaped := applyNewAPIQwenNonStreamingShape("qwen3-8b", body)
+		require.False(t, gjson.GetBytes(shaped, "enable_thinking").Bool())
+		require.Equal(t, "9007199254740993", gjson.GetBytes(shaped, "tools.0.function.parameters.const").Raw)
+	})
 }
 
 func forceChatResponsesFallbackAccount() *Account {

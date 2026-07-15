@@ -18,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
 )
 
@@ -107,12 +108,7 @@ func applyNewAPIQwenNonStreamingShape(model string, body []byte) []byte {
 	if len(body) == 0 || !isNewAPIQwen3Model(model) || gjson.GetBytes(body, "stream").Bool() {
 		return body
 	}
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return body
-	}
-	normalizeNewAPIQwenNonStreamingPayload(model, payload)
-	shaped, err := json.Marshal(payload)
+	shaped, err := sjson.SetBytes(body, "enable_thinking", false)
 	if err != nil {
 		return body
 	}
