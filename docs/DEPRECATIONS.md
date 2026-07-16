@@ -23,6 +23,32 @@ restores the file and removes the entry in the same change.
 
 ---
 
+## frontend/src/components/account/__tests__/CreateAccountModal.grok.spec.ts
+
+- **Upstream path:** `frontend/src/components/account/__tests__/CreateAccountModal.grok.spec.ts`.
+- **Deletion commit + PR:** `3fa27f851ca7149560e4dcfec7baf065aabcad9d`
+  — "fix(upstream): address R-001..R-002 — restore Grok OAuth create wiring",
+  landed through [PR #1353](https://github.com/youxuanxue/sub2api/pull/1353).
+- **Reason:** the deleted file only read `CreateAccountModal.vue` as text and
+  asserted source substrings/counts. PR #1353 moved the load-bearing Grok OAuth
+  create checks into the mounted `CreateAccountModal.spec.ts`: it now exercises
+  the direct refresh-token flow, persists custom upstream/header credentials,
+  and rejects protected header names. The same change added Grok semantic
+  sentinel coverage, so keeping the source-text test would duplicate weaker
+  assertions rather than protect a distinct behavior.
+- **Regression cost:** future upstream edits to this standalone spec will not
+  merge automatically. Upstream-merge review must compare its intent against
+  the mounted Grok cases and semantic sentinel, then port any genuinely new
+  behavior assertion into those owners.
+- **Upstream tests lost:** three source-string assertions were removed. Their
+  load-bearing OAuth upstream-config behavior is covered by mounted component
+  tests; API-key setup remains covered by the shared modal/component suite and
+  frontend sentinels.
+- **Re-adopt when:** upstream replaces this file with behavior-level component
+  tests that cover a distinct workflow not owned by `CreateAccountModal.spec.ts`,
+  or the mounted Grok tests are intentionally split back into a dedicated file.
+  In either case, restore the test and remove this ledger entry together.
+
 ## backend/internal/handler/openai_embeddings.go
 
 - **Upstream path:** `backend/internal/handler/openai_embeddings.go`
@@ -112,7 +138,7 @@ restores the file and removes the entry in the same change.
   `CreateAccountModal.spec.ts`.
 - **Reason:** this is an upstream-owned test consolidation, not a TokenKey
   product deletion. The replacement file kept direct refresh-token coverage;
-  TokenKey restores the source-level API-key, custom-header, and three-path
+  TokenKey restores the source-level API-key, custom-header, and all-path
   configuration contracts there as part of this branch.
 - **Regression cost:** no production behavior is removed. Without the restored
   contracts, future Grok UI changes could silently remove the API-key entry or

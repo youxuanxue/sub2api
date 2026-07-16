@@ -225,7 +225,7 @@ cmd_capture() {
   claude_bin="$(resolve_claude_bin)"
 
   mkdir -p "$OUT_DIR"
-  local stamp cc_version token work tls_capture http_log bundle_path
+  local stamp cc_version token work tls_capture http_log bundle_path auth_route config_info
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   cc_version="$("$claude_bin" --version 2>/dev/null | awk '{print $1}' || true)"
   token="tk-cc-capture-${stamp}-$$"
@@ -238,6 +238,14 @@ cmd_capture() {
 
   http_log=""
   if [[ "$with_http" == "1" ]]; then
+    if ! config_info="$(python3 "$PY" classify-config \
+      --config-dir "${CC0_USER_OVERLAY:-$HOME/.cache/cc0/claude-user-overlay}" \
+      --claude-bin "$claude_bin")"; then
+      echo "error: capture auth route is unknown; refusing to compare cohorts" >&2
+      exit 3
+    fi
+    auth_route="$(printf '%s' "$config_info" | jq -r '.auth_route')"
+    echo "http_auth_route=$auth_route"
     http_log="$(run_http_capture "$work")" || exit 1
   fi
 
@@ -251,7 +259,7 @@ cmd_capture() {
     --collector "$COLLECTOR_ORIGIN:8090"
   )
   if [[ -n "$http_log" ]]; then
-    bundle_args+=(--http-log "$http_log")
+    bundle_args+=(--http-log "$http_log" --http-cohort "$auth_route")
   fi
   if [[ -n "${cc_version:-}" ]]; then
     bundle_args+=(--cc-version "$cc_version")
@@ -260,7 +268,11 @@ cmd_capture() {
 
   echo "bundle=$bundle_path"
   python3 "$PY" diff --bundle "$bundle_path"
-  python3 "$PY" check --bundle "$bundle_path"
+  if [[ "$with_http" == "1" ]]; then
+    python3 "$PY" check --bundle "$bundle_path"
+  else
+    python3 "$PY" check-tls --bundle "$bundle_path"
+  fi
 
   if [[ "${TOKENKEY_CC_CAPTURE_GEO:-1}" == "1" && "$with_http" == "1" ]]; then
     local geo_fix=1

@@ -476,7 +476,11 @@ func (r *usageLogRepository) getGroupStatsWithFilters(ctx context.Context, start
 			COALESCE(ul.group_id, 0) as group_id,
 			COALESCE(g.name, '') as group_name,
 			COUNT(*) as requests,
-			COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens), 0) as total_tokens,
+			COALESCE(SUM(ul.input_tokens), 0) as input_tokens,
+			COALESCE(SUM(ul.output_tokens), 0) as output_tokens,
+			COALESCE(SUM(ul.cache_creation_tokens), 0) as cache_creation_tokens,
+			COALESCE(SUM(ul.cache_read_tokens), 0) as cache_read_tokens,
+			COALESCE(SUM(ul.input_tokens) FILTER (WHERE ul.billing_tier = 'kiro-estimated'), 0) as cache_telemetry_unavailable_input_tokens,
 			COALESCE(SUM(ul.total_cost), 0) as cost,
 			COALESCE(SUM(ul.actual_cost), 0) as actual_cost,
 			COALESCE(SUM(COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1)), 0) as account_cost
@@ -513,7 +517,7 @@ func (r *usageLogRepository) getGroupStatsWithFilters(ctx context.Context, start
 		args = append(args, int16(*billingType))
 	}
 	query, args = appendUsageLogBillingModeQueryFilter(query, args, billingMode, "ul")
-	query += " GROUP BY ul.group_id, g.name ORDER BY total_tokens DESC"
+	query += " GROUP BY ul.group_id, g.name ORDER BY (COALESCE(SUM(ul.input_tokens), 0) + COALESCE(SUM(ul.output_tokens), 0) + COALESCE(SUM(ul.cache_creation_tokens), 0) + COALESCE(SUM(ul.cache_read_tokens), 0)) DESC"
 
 	rows, err := r.sql.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -533,13 +537,18 @@ func (r *usageLogRepository) getGroupStatsWithFilters(ctx context.Context, start
 			&row.GroupID,
 			&row.GroupName,
 			&row.Requests,
-			&row.TotalTokens,
+			&row.InputTokens,
+			&row.OutputTokens,
+			&row.CacheCreationTokens,
+			&row.CacheReadTokens,
+			&row.CacheTelemetryUnavailableInputTokens,
 			&row.Cost,
 			&row.ActualCost,
 			&row.AccountCost,
 		); err != nil {
 			return nil, err
 		}
+		row.TotalTokens = row.InputTokens + row.OutputTokens + row.CacheCreationTokens + row.CacheReadTokens
 		results = append(results, row)
 	}
 	if err := rows.Err(); err != nil {

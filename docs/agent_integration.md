@@ -340,7 +340,6 @@ Do not hand-edit this file; run `python3 scripts/export_agent_contract.py`.
 - `DELETE /keys/:id` from `backend/internal/server/routes/user.go`
 - `GET /keys/:id` from `backend/internal/server/routes/user.go`
 - `PUT /keys/:id` from `backend/internal/server/routes/user.go`
-- `GET /payment/channels` from `backend/internal/server/routes/payment.go`
 - `GET /payment/checkout-info` from `backend/internal/server/routes/payment.go`
 - `GET /payment/config` from `backend/internal/server/routes/payment.go`
 - `GET /payment/limits` from `backend/internal/server/routes/payment.go`

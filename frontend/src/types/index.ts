@@ -1734,6 +1734,11 @@ export interface GroupStat {
   group_id: number
   group_name: string
   requests: number
+  input_tokens: number
+  output_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+  cache_telemetry_unavailable_input_tokens: number
   total_tokens: number
   cost: number // 标准计费
   actual_cost: number // 实际扣除

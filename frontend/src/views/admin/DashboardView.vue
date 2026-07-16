@@ -215,11 +215,10 @@
           </div>
         </div>
 
-        <!-- Row 3: Prompt Cache Hit Rate (sticky-routing observability) -->
-        <!-- See docs/approved/sticky-routing.md §6 (success metric). -->
-        <div class="card p-4">
-          <div class="flex items-start gap-3">
-            <div class="rounded-lg bg-cyan-100 p-2 dark:bg-cyan-900/30">
+        <!-- Row 3: observable prompt-cache performance by group -->
+        <div class="card p-4" data-testid="prompt-cache-card">
+          <div class="flex flex-col gap-4 lg:flex-row lg:items-start">
+            <div class="self-start rounded-lg bg-cyan-100 p-2 dark:bg-cyan-900/30">
               <Icon
                 name="bolt"
                 size="md"
@@ -227,48 +226,85 @@
                 :stroke-width="2"
               />
             </div>
-            <div class="flex-1">
-              <div class="flex items-baseline justify-between">
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.promptCacheHitRate') }}
+            <div class="min-w-0 flex-1 lg:grid lg:grid-cols-[minmax(12rem,0.7fr)_minmax(24rem,1.3fr)] lg:gap-8">
+              <div>
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                    {{ t('admin.dashboard.promptCacheObservableHitRate') }}
+                  </p>
+                  <p class="text-[11px] text-gray-400 dark:text-gray-500">
+                    {{ t('admin.dashboard.promptCacheSelectedWindow') }}
+                  </p>
+                </div>
+                <p
+                  v-if="promptCacheOverview.rate !== null"
+                  class="mt-2 text-2xl font-bold text-cyan-600 dark:text-cyan-400"
+                  data-testid="prompt-cache-rate"
+                >
+                  {{ formatPercent(promptCacheOverview.rate) }}
                 </p>
-                <p class="text-[11px] text-gray-400 dark:text-gray-500">
+                <p
+                  v-else-if="promptCacheOverview.hasUnavailableTelemetry"
+                  class="mt-2 text-lg font-semibold text-gray-700 dark:text-gray-200"
+                  data-testid="prompt-cache-status"
+                >
+                  {{ t('admin.dashboard.promptCacheUnavailable') }}
+                </p>
+                <p v-else class="mt-2 text-2xl font-bold text-gray-400">—</p>
+                <p
+                  v-if="promptCacheOverview.rate !== null && promptCacheOverview.hasUnavailableTelemetry"
+                  class="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400"
+                  data-testid="prompt-cache-overall-status"
+                >
+                  {{ t('admin.dashboard.promptCachePartiallyObservable') }}
+                </p>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   {{ t('admin.dashboard.promptCacheHitRateHint') }}
                 </p>
               </div>
-              <div class="mt-2 grid grid-cols-2 gap-4">
-                <!-- Today -->
-                <div>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.dashboard.promptCacheToday') }}
-                  </p>
-                  <p class="text-2xl font-bold text-cyan-600 dark:text-cyan-400">
-                    {{ formatPercent(promptCacheHitRateToday) }}
-                  </p>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.dashboard.cacheReadTokens') }}:
-                    {{ formatTokens(stats.today_cache_read_tokens) }}
-                    ·
-                    {{ t('admin.dashboard.cacheCreateTokens') }}:
-                    {{ formatTokens(stats.today_cache_creation_tokens) }}
-                  </p>
-                </div>
-                <!-- Total -->
-                <div>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.dashboard.promptCacheTotal') }}
-                  </p>
-                  <p class="text-2xl font-bold text-gray-900 dark:text-white">
-                    {{ formatPercent(promptCacheHitRateTotal) }}
-                  </p>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.dashboard.cacheReadTokens') }}:
-                    {{ formatTokens(stats.total_cache_read_tokens) }}
-                    ·
-                    {{ t('admin.dashboard.cacheCreateTokens') }}:
-                    {{ formatTokens(stats.total_cache_creation_tokens) }}
-                  </p>
-                </div>
+
+              <div v-if="promptCacheOverview.groups.length" class="mt-4 min-w-0 lg:mt-0">
+                <button
+                  v-for="row in promptCacheOverview.groups"
+                  :key="row.group.group_id"
+                  type="button"
+                  class="grid w-full grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 border-b border-gray-100 px-2 py-2 text-left last:border-b-0 hover:bg-gray-50 dark:border-dark-700 dark:hover:bg-dark-800/50"
+                  data-testid="prompt-cache-group-row"
+                  :data-group-id="row.group.group_id"
+                  @click="goToGroupUsage(row.group.group_id)"
+                >
+                  <span class="min-w-0 truncate text-sm font-medium text-gray-900 dark:text-white">
+                    {{ row.group.group_name || t('admin.dashboard.noGroup') }}
+                  </span>
+                  <span class="whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.dashboard.cacheReadTokens') }} {{ formatTokens(row.cacheReadTokens) }}
+                  </span>
+                  <span
+                    v-if="row.rate !== null"
+                    class="min-w-14 whitespace-nowrap text-right text-sm font-semibold text-gray-900 dark:text-white"
+                    data-testid="prompt-cache-rate"
+                  >
+                    {{ formatPercent(row.rate) }}
+                  </span>
+                  <span
+                    v-else
+                    class="whitespace-nowrap text-xs font-medium text-gray-500 dark:text-gray-400"
+                    data-testid="prompt-cache-status"
+                  >
+                    {{ t('admin.dashboard.promptCacheUnavailable') }}
+                  </span>
+                  <Icon name="chevronRight" size="xs" class="text-gray-400" />
+                  <span
+                    v-if="row.partiallyObservable"
+                    class="col-start-2 col-span-3 text-right text-[11px] text-amber-600 dark:text-amber-400"
+                    data-testid="prompt-cache-status"
+                  >
+                    {{ t('admin.dashboard.promptCachePartiallyObservable') }}
+                  </span>
+                </button>
+              </div>
+              <div v-else class="mt-4 text-sm text-gray-500 dark:text-gray-400 lg:mt-0">
+                {{ t('admin.dashboard.promptCacheNoTraffic') }}
               </div>
             </div>
           </div>
@@ -449,6 +485,7 @@ import type {
   DashboardStats,
   TrendDataPoint,
   ModelStat,
+  GroupStat,
   UserUsageTrendPoint,
   UserSpendingRankingItem
 } from '@/types'
@@ -499,6 +536,8 @@ const dashboardChartsLoading = computed(() => chartsLoading.value || modelStatsL
 // Chart data
 const trendData = ref<TrendDataPoint[]>([])
 const modelStats = ref<ModelStat[]>([])
+const groupStats = ref<GroupStat[]>([])
+const loadedDashboardRollingWindow = ref<{ start_ts: number; end_ts: number } | null>(null)
 const userTrend = ref<UserUsageTrendPoint[]>([])
 const rankingItems = ref<UserSpendingRankingItem[]>([])
 const rankingTotalActualCost = ref(0)
@@ -740,56 +779,64 @@ const formatDuration = (ms: number): string => {
   return `${Math.round(ms)}ms`
 }
 
-// Prompt cache hit-rate (sticky-routing observability).
-// Definition: cache_read / (cache_read + input + cache_create).
-// Returns null when the denominator is 0 so the UI can render a "—" placeholder.
-const computeHitRate = (
-  cacheRead: number | undefined,
-  input: number | undefined,
-  cacheCreate: number | undefined
-): number | null => {
-  const r = cacheRead ?? 0
-  const i = input ?? 0
-  const c = cacheCreate ?? 0
-  const denom = r + i + c
-  if (denom <= 0) return null
-  return r / denom
-}
+const promptCacheOverview = computed(() => {
+  const rows = groupStats.value.map((group) => {
+    const inputTokens = Math.max(0, toFiniteNumber(group.input_tokens))
+    const unavailableInputTokens = Math.min(
+      inputTokens,
+      Math.max(0, toFiniteNumber(group.cache_telemetry_unavailable_input_tokens))
+    )
+    const cacheCreationTokens = Math.max(0, toFiniteNumber(group.cache_creation_tokens))
+    const cacheReadTokens = Math.max(0, toFiniteNumber(group.cache_read_tokens))
+    const observableDenominator = inputTokens - unavailableInputTokens + cacheCreationTokens + cacheReadTokens
+    return {
+      group,
+      cacheReadTokens,
+      unavailableInputTokens,
+      observableDenominator,
+      impactTokens: inputTokens + cacheCreationTokens + cacheReadTokens,
+      rate: observableDenominator > 0 ? cacheReadTokens / observableDenominator : null,
+      partiallyObservable: unavailableInputTokens > 0 && observableDenominator > 0
+    }
+  })
 
-const promptCacheHitRateToday = computed(() =>
-  computeHitRate(
-    stats.value?.today_cache_read_tokens,
-    stats.value?.today_input_tokens,
-    stats.value?.today_cache_creation_tokens
-  )
-)
-
-const promptCacheHitRateTotal = computed(() =>
-  computeHitRate(
-    stats.value?.total_cache_read_tokens,
-    stats.value?.total_input_tokens,
-    stats.value?.total_cache_creation_tokens
-  )
-)
+  const observableDenominator = rows.reduce((sum, row) => sum + row.observableDenominator, 0)
+  const cacheReadTokens = rows.reduce((sum, row) => sum + row.cacheReadTokens, 0)
+  return {
+    rate: observableDenominator > 0 ? cacheReadTokens / observableDenominator : null,
+    hasUnavailableTelemetry: rows.some((row) => row.unavailableInputTokens > 0),
+    groups: rows
+      .filter((row) => row.impactTokens > 0)
+      .sort((a, b) => b.impactTokens - a.impactTokens || a.group.group_id - b.group.group_id)
+      .slice(0, 5)
+  }
+})
 
 const formatPercent = (rate: number | null): string => {
   if (rate === null) return '—'
   return `${(rate * 100).toFixed(1)}%`
 }
 
+const usageDrilldownQuery = (filter: { user_id?: string; group_id?: string }) => ({
+  ...filter,
+  start_date: startDate.value,
+  end_date: endDate.value,
+  // Usage consumes absolute rolling instants, not Dashboard's server-TZ range token.
+  // Reuse the window that produced the visible snapshot so the drilldown is exact.
+  ...(loadedDashboardRollingWindow.value ?? rollingWindowTs(activePreset.value) ?? {})
+})
+
 const goToUserUsage = (item: UserSpendingRankingItem) => {
   void router.push({
     path: '/admin/usage',
-    query: {
-      user_id: String(item.user_id),
-      start_date: startDate.value,
-      end_date: endDate.value,
-      // The /admin/usage list parser only consumes absolute start_ts/end_ts (+
-      // date strings); it does NOT understand the server-TZ `range` token, so we
-      // forward only the rolling absolute window here. Server-TZ alignment of the
-      // usage-list drilldown itself is a separate change to parseUsageListTimeRange.
-      ...(rollingWindowTs(activePreset.value) ?? {})
-    }
+    query: usageDrilldownQuery({ user_id: String(item.user_id) })
+  })
+}
+
+const goToGroupUsage = (groupId: number) => {
+  void router.push({
+    path: '/admin/usage',
+    query: usageDrilldownQuery({ group_id: String(groupId) })
   })
 }
 
@@ -825,16 +872,17 @@ const loadAllDashboardData = async () => {
   chartsLoading.value = true
   modelStatsLoading.value = true
   userTrendLoading.value = true
+  const rollingWindow = rollingWindowTs(activePreset.value)
   try {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
       end_date: endDate.value,
-      ...(dashboardWindowParams(activePreset.value)),
+      ...(rollingWindow ?? dashboardWindowParams(activePreset.value)),
       granularity: granularity.value,
       include_stats: true,
       include_trend: true,
       include_model_stats: true,
-      include_group_stats: false,
+      include_group_stats: true,
       include_users_trend: true,
       users_trend_limit: 12
     })
@@ -844,6 +892,8 @@ const loadAllDashboardData = async () => {
     if (currentChartSeq === chartLoadSeq) {
       trendData.value = response.trend || []
       modelStats.value = response.models || []
+      groupStats.value = response.groups || []
+      loadedDashboardRollingWindow.value = rollingWindow
     }
     if (currentUserTrendSeq === userTrendLoadSeq) {
       userTrend.value = response.users_trend || []
@@ -855,6 +905,8 @@ const loadAllDashboardData = async () => {
     if (currentChartSeq === chartLoadSeq) {
       trendData.value = []
       modelStats.value = []
+      groupStats.value = []
+      loadedDashboardRollingWindow.value = null
     }
     if (currentUserTrendSeq === userTrendLoadSeq) {
       userTrend.value = []

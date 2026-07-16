@@ -4272,9 +4272,11 @@
         "func (r *usageLogRepository) groupDailyMetricsBackfilled(",
         "FROM usage_dashboard_group_daily gd",
         "WHERE gd.bucket_date > DATE '",
-        "win.rawSpans"
+        "win.rawSpans",
+        "ul.billing_tier = 'kiro-estimated'",
+        "CacheTelemetryUnavailableInputTokens"
       ],
-      "rationale": "TK read path for Dashboard/Usage group distribution: completed server-TZ days come from usage_dashboard_group_daily metrics, raw head/tail spans come from usage_logs, and the metrics-backfill marker prevents old cost-only rows from being trusted. Anchors the fast path and correctness gate so group distribution cannot silently regress to the 0.9s raw scan or zero historical tokens."
+      "rationale": "TK read path for Dashboard/Usage group distribution: completed server-TZ days come from usage_dashboard_group_daily metrics, raw head/tail spans come from usage_logs, and the metrics-backfill marker prevents old cost-only rows from being trusted. A narrow raw-window query also derives Kiro-estimated input whose cache telemetry is unavailable, keeping it out of the observable hit-rate denominator without widening the rollup schema. Anchors the fast path and cache-observability correctness so neither can disappear silently."
     },
     {
       "path": "backend/internal/repository/dashboard_aggregation_repo.go",
@@ -4338,6 +4340,15 @@
       "must_contain": [
         "return r.getUserSpendingRankingRollup(ctx, startTime, endTime, limit)"
       ]
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_trend.go",
+      "must_contain": [
+        "COALESCE(SUM(ul.input_tokens), 0) as input_tokens",
+        "FILTER (WHERE ul.billing_tier = 'kiro-estimated')",
+        "row.TotalTokens = row.InputTokens + row.OutputTokens + row.CacheCreationTokens + row.CacheReadTokens"
+      ],
+      "rationale": "The raw fallback for Dashboard/Usage group stats must expose the same input/output/cache components as the daily-rollup path and mark Kiro-estimated input as cache-telemetry unavailable. The frontend computes observable hit rate from these integer fields; dropping any component or the billing-tier filter can silently turn unavailable traffic into cache misses while legacy total/cost assertions remain green."
     },
     {
       "path": "backend/internal/service/universal_routing_tk_resolver.go",
@@ -4986,6 +4997,44 @@
         "x-stainless-lang"
       ],
       "rationale": "Focused regressions: OAuth passthrough must preserve client UA/anthropic-beta and must NOT inject OAuth fingerprint headers on the forward path."
+    },
+    {
+      "path": "backend/internal/repository/migrations_runner.go",
+      "must_contain": [
+        "opsSystemLogsHostIndexMigration = \"175a_add_ops_system_logs_host_index_notx.sql\"",
+        "partitionedIndexExpr: \"host, created_at DESC\"",
+        "createPartitionedIndexConcurrently(ctx, db, policy)",
+        "applyNonTransactionalMigration(ctx, db, name, content)",
+        "return dropInvalidIndexIfPresent(ctx, db, policy.indexName)"
+      ],
+      "rationale": "The upstream-shared migration runner owns only the declarative 175a policy and one thin call site. The TokenKey online partition-index implementation stays in a companion file to minimize upstream conflict surface while retaining invalid-index cleanup for non-partitioned deployments."
+    },
+    {
+      "path": "backend/internal/repository/migrations_runner_notx_test.go",
+      "must_contain": [
+        "TestApplyMigrationsFS_OpsSystemLogsHostIndex_BuildsPartitionIndexesConcurrently",
+        "TestApplyMigrationsFS_OpsSystemLogsHostIndex_DropsInvalidIndexBeforeNonPartitionedRetry"
+      ],
+      "rationale": "Behavioral regression coverage for both live shapes: TokenKey prod partitioned ops_system_logs parent must use the online child-build/attach path, and a non-partitioned interrupted concurrent build must remove an invalid index before retrying."
+    },
+    {
+      "path": "backend/internal/repository/pgpartition_integration_test.go",
+      "must_contain": [
+        "TestCreatePartitionedIndexConcurrently_AttachesEveryPartitionAndRetries",
+        "createPartitionedIndexConcurrently(ctx, integrationDB, policy)",
+        "require.Equal(t, tablePartitions, indexPartitions)"
+      ],
+      "rationale": "Real PostgreSQL coverage proves the online partition-index sequence produces a valid parent, attaches one index per table partition, and remains idempotent on retry; sqlmock alone cannot validate PostgreSQL partitioned-index state transitions."
+    },
+    {
+      "path": "backend/internal/repository/migrations_runner_tk_partitioned_index.go",
+      "must_contain": [
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s.%s (%s)",
+        "CREATE INDEX IF NOT EXISTS %s ON ONLY %s (%s)",
+        "ALTER INDEX %s ATTACH PARTITION %s.%s",
+        "partitioned parent index %s remains invalid"
+      ],
+      "rationale": "Prod ops_system_logs is a 12 GB partitioned parent. The companion must build child indexes concurrently, create the metadata-only parent, attach all children, and refuse to record an invalid parent; replacing it with a recursive blocking CREATE INDEX can stall production writes."
     }
   ]
 }
