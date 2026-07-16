@@ -283,7 +283,7 @@ type GroupStat struct {
 > **实施实情（2026-04-19 事后盘点）**：本表是设计当时拟定的"理想 8-PR 切分"。
 > 代码实际以**单提交 `a68dee5b`**（2026-04-18）一次性落地（schema + injector + 6 处接入点 + 单测 + UI），未拆 PR。
 > 这违反了 `product-dev.mdc` §阶段 2 → 审批 → §阶段 3 顺序，详见 §11 实施情况。
-> 下次同等规模特性必须按本表切分。
+> 本表仅保留历史设计意图，不作为后续拆 PR 规范；当前遵循 `product-dev.mdc` 的默认单 PR 路径。
 
 | 顺序 | 内容 | PR 标题 | 可独立 review |
 |---|---|---|---|
@@ -296,7 +296,7 @@ type GroupStat struct {
 | 7 | 全局 + 分组 UI | `feat: ui controls for sticky routing strategy` | ✅ |
 | 8 | Dashboard cache 命中率卡片 | `feat: cache hit rate dashboard card` | ✅ |
 
-> 本设计文档（pending）merge 后才能进入 PR 2-8。
+> 历史原计划是在设计文档从 pending 转为 approved 后再实施；当前审批状态以本文 frontmatter 为准。
 
 ---
 
