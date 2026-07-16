@@ -2,15 +2,16 @@
 
 - ID: US-006
 - Title: Upstream prompt-cache 粘性路由（统一注入）
-- Version: V1.0
+- Version: V1.1
 - Priority: P0
 - As a / I want / So that: 作为 TokenKey 网关运营方，我希望来自同一逻辑会话的请求能携带稳定的 sticky 标识送达上游，以便最大化 OpenAI/Anthropic/GLM 的 prompt cache 命中率，把长程 Agent 任务的 token 成本降下来。
 - Trace: 角色×能力（运营×成本控制）+ 系统事件（每条 gateway 转发请求）+ 防御需求（避免跨 api_key 缓存串桶）
 - Risk Focus:
   - 逻辑错误：派生算法稳定性（同输入同输出）；优先级回退（header > metadata.user_id > prompt_cache_key > derived hash）
   - 行为回归：客户端已送 prompt_cache_key 时不被覆盖；既有 compat 路径自动注入仍可用
+  - 行为回归：分组缓存统计新增字段保持旧字段兼容；raw 与 group daily rollup 分解一致
   - 安全问题：跨 api_key 不互踩；hash 不泄露 system 内容；real Claude Code 客户端的 metadata.user_id 不被改写
-  - 运行时问题：strategy 计算热路径性能（每请求 1 次）；并发 derive 一致
+  - 运行时问题：strategy 计算热路径性能（每请求 1 次）；并发 derive 一致；Dashboard 复用 snapshot group 分面而非 N+1 请求
 
 ## Acceptance Criteria
 
@@ -22,6 +23,9 @@
 6. AC-006 (回归 / 客户端键优先)：Given 客户端 body 已带 `prompt_cache_key`，When 网关派生，Then 客户端值不被覆盖（`TestUS201_DerivePrefersClientPromptCacheKey` + `TestUS201_InjectOpenAI_DoesNotOverrideExisting`）。
 7. AC-007 (安全 / 不串桶)：Given 两个不同 `api_key_id` + 完全相同 system + tools，When 派生，Then 两个 key 不相同（`TestUS201_NoCrossAPIKeyCollision`）。
 8. AC-008 (安全 / 不可逆)：Given system prompt 含敏感字符串，When 派生，Then 输出 16-hex 键不含原文任何子串（`TestUS201_HashNotReversible`）。
+9. AC-009 (正向 / 分组契约)：Given group stats 同时包含 raw 与 rollup 时段，When 查询 snapshot group 分面，Then 每个分组返回 input/output/cache-create/cache-read 分项，且相加等于 `total_tokens`。
+10. AC-010 (负向 / 遥测不可用)：Given `billing_tier=kiro-estimated` 的 usage row，When 聚合 prompt cache，Then其 input 进入 `cache_telemetry_unavailable_input_tokens` 并从可观测命中率分母剔除；纯 Kiro 分组显示“不可观测”而不是 `0%`。
+11. AC-011 (端到端 / 行动排序)：Given 超过 5 个乱序分组且包含混合可观测流量，When 管理员打开 Dashboard，Then真实 UI 按 prompt token 影响量降序只显示前 5 个，点击分组携带当前窗口进入 Usage 明细。
 
 ## Assertions
 
@@ -31,6 +35,9 @@
 - AC-005 后：`StickyStrategy{GlobalEnabled:false, Mode:auto}.EffectiveMode() == passthrough`
 - AC-006 后：注入函数返回 `(body 不变, mut=false, err=nil)`
 - AC-007 后：`derive(api_key=1, body) != derive(api_key=2, body)`
+- AC-009 后：`input + output + cache_creation + cache_read == total_tokens`
+- AC-010 后：可观测分母 `== input - unavailable + cache_creation + cache_read`，分母为 0 时 UI 不渲染 `0.0%`
+- AC-011 后：分组行数 `<= 5`，相邻行 prompt token 单调不增
 - 失败时 testify `require` 立即终止，非 0 退出码
 
 ## Linked Tests
@@ -49,7 +56,15 @@
 - `backend/internal/service/sticky_session_injector_test.go`::`TestUS201_InjectOpenAI_DoesNotOverrideExisting`
 - `backend/internal/service/sticky_session_injector_test.go`::`TestUS201_PassthroughDoesNotDerive`
 - `backend/internal/service/sticky_session_injector_test.go`::`TestUS201_InjectXSessionIDHeader`
-- 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS201_' ./internal/service/`
+- `backend/internal/repository/usage_log_repo_request_type_test.go`::`TestUsageLogRepositoryGetGroupStatsAccountCostColumn`
+- `backend/internal/repository/usage_log_repo_integration_test.go`::`TestUsageLogRepoSuite`（运行时筛选 `TestGroupStatsRollupParity_EqualsLegacyRawScanWithUngrouped` 子测试）
+- `frontend/src/views/admin/__tests__/DashboardView.spec.ts`（分组影响量排序、不可观测与 drilldown 行为）
+- `frontend/src/views/admin/__tests__/UsageView.spec.ts`（drilldown 的分组与绝对时间窗被 Usage 请求消费）
+- `frontend/e2e/dashboard-cache.e2e.ts`（真实浏览器 desktop/mobile 视觉与交互验收）
+- 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS201_|TestUsageLogRepositoryGetGroupStats' ./internal/service/ ./internal/repository/`
+- 运行命令: `cd backend && go test -tags=integration -v -run 'TestUsageLogRepoSuite/TestGroupStatsRollupParity_EqualsLegacyRawScanWithUngrouped' ./internal/repository/`
+- 运行命令: `pnpm --dir frontend exec vitest run src/views/admin/__tests__/DashboardView.spec.ts`
+- 运行命令: `pnpm --dir frontend exec playwright test e2e/dashboard-cache.e2e.ts --project=chromium`
 
 ## Evidence
 

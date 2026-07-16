@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import UsageView from '../UsageView.vue'
 
-const { list, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs } = vi.hoisted(() => {
+const { list, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs, routeQuery } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -17,6 +17,7 @@ const { list, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs } =
     getById: vi.fn(),
     getModelStats: vi.fn(),
     listErrorLogs: vi.fn(),
+    routeQuery: {} as Record<string, string>,
   }
 })
 
@@ -110,9 +111,13 @@ vi.mock('vue-i18n', async () => {
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({
-    query: {}
+    query: routeQuery
   })
 }))
+
+beforeEach(() => {
+  for (const key of Object.keys(routeQuery)) delete routeQuery[key]
+})
 
 const AppLayoutStub = { template: '<div><slot /></div>' }
 const UsageFiltersStub = { template: '<div><slot name="after-reset" /></div>' }
@@ -235,6 +240,35 @@ describe('admin UsageView distribution metric toggles', () => {
       include_summary: 0,
       include_endpoints: 1,
     }))
+  })
+
+  it('applies a group drilldown and its exact dashboard window to usage requests', async () => {
+    Object.assign(routeQuery, {
+      group_id: '101',
+      start_date: '2026-07-15',
+      end_date: '2026-07-16',
+      start_ts: String(Date.UTC(2026, 6, 15, 8, 43, 0)),
+      end_ts: String(Date.UTC(2026, 6, 16, 8, 43, 0)),
+    })
+
+    mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+      } },
+    })
+
+    await flushPromises()
+    const expected = {
+      group_id: 101,
+      start_ts: Date.UTC(2026, 6, 15, 8, 43, 0),
+      end_ts: Date.UTC(2026, 6, 16, 8, 43, 0),
+    }
+    expect(list).toHaveBeenCalledWith(expect.objectContaining(expected), expect.anything())
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining(expected))
   })
 
   it('loads summary first and endpoint distribution only after the chart enters view', async () => {

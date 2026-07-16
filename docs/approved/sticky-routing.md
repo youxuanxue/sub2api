@@ -1,9 +1,9 @@
 ---
 title: Sticky Routing & Prompt Cache Optimization
-status: shipped
-approved_by: xuejiao (post-hoc 2026-04-19)
-approved_at: 2026-04-19
-shipped_at: 2026-04-19
+status: approved
+approved_by: "xuejiao (design revision, this session, 2026-07-16)"
+approved_at: 2026-07-16
+previous_version_shipped_at: 2026-04-19
 authors: [agent]
 created: 2026-04-17
 related_prs: []
@@ -213,28 +213,39 @@ SettingKeyStickyRoutingEnabled = "gateway.sticky_routing.enabled"  // bool, defa
 
 ### 5.1 后端聚合
 
-`backend/internal/handler/admin/dashboard_handler.go` 已有 `total_cache_read_tokens`。新增按时间窗 + 按 group/api_key 的命中率字段：
+复用现有 `GET /admin/dashboard/snapshot-v2?include_group_stats=true`，禁止新增只服务同一意图的 cache-stats endpoint。`GroupStat` 在既有成本字段之外返回可核算的 prompt token 分解：
 
 ```go
-type CacheStats struct {
-    InputTokens     int64   `json:"input_tokens"`
-    CacheReadTokens int64   `json:"cache_read_tokens"`
-    HitRate         float64 `json:"hit_rate"`  // CacheReadTokens / (InputTokens + CacheReadTokens)
+type GroupStat struct {
+    InputTokens                         int64 `json:"input_tokens"`
+    OutputTokens                        int64 `json:"output_tokens"`
+    CacheCreationTokens                 int64 `json:"cache_creation_tokens"`
+    CacheReadTokens                     int64 `json:"cache_read_tokens"`
+    CacheTelemetryUnavailableInputTokens int64 `json:"cache_telemetry_unavailable_input_tokens"`
 }
 ```
 
-新接口（小步加，不动既有）：
-- `GET /admin/dashboard/cache-stats?window=24h&group_by=api_key`
-- 复用现有 `usage_logs` 查询，加 `GROUP BY api_key_id`。
+`cache_telemetry_unavailable_input_tokens` 的 SSOT 是持久化 usage row 的 `billing_tier='kiro-estimated'`。Kiro 上游只返回 credits，TokenKey 本地估算 input，不能把这部分当作 cache miss。混合分组的可观测分母为：
+
+```text
+(input_tokens - cache_telemetry_unavailable_input_tokens)
++ cache_creation_tokens
++ cache_read_tokens
+```
+
+命中率由前端基于整数 token 聚合后计算，API 不持久化易漂移的百分比。group daily rollup 已包含 input/output/cache 分项；不可观测 input 在选定窗口按 usage row 精确聚合，不按 group.platform 或分组名称猜测。
 
 ### 5.2 前端卡片
 
-`frontend/src/views/admin/DashboardView.vue` 加一个 "Prompt Cache 命中率" 卡片：
-- 顶部数字：过去 24h 整体命中率（百分比 + 绝对节省的 input tokens）
-- 下方 mini-table：top 5 API key by 命中率（升序，凸显需要优化的）
-- 颜色：>50% 绿、20-50% 黄、<20% 红
+`frontend/src/views/admin/DashboardView.vue` 的旧 Today/Total 全站卡片替换为一个行动导向的分组卡片：
 
-无需 chart 库新依赖（用现有 stat-card 组件 + 简单 v-for 列表）。
+- 顶部只显示当前筛选窗口的**可观测命中率**；默认窗口沿用 Dashboard 的滚动 24 小时，不复用 calendar-day `stats.today_*`。
+- 下方最多显示 5 个分组，按 prompt 影响量 `input + cache_creation + cache_read` 降序，而不是按百分比制造小流量噪声。
+- 每行只保留分组名、可观测命中率（或不可观测状态）、cache read 绝对量；点击进入带相同时间窗和 `group_id` 的 Usage 明细。
+- 可观测分母为 0 且存在不可观测 input 时显示“不可观测”，禁止显示 `0%`；混合流量显示可观测部分的百分比并标记“部分可观测”。
+- 不设置跨平台统一健康阈值；不同上游的 cache 语义不同，颜色阈值会制造虚假结论。
+
+无需 chart 库或新组件；该行为只在 Dashboard 消费，页面 owner 负责展示与 drilldown 编排。
 
 ---
 
@@ -321,7 +332,7 @@ type CacheStats struct {
 
 1. ✅ **字段命名 `sticky_routing_mode`** — 已采用。理由：覆盖更广（含 NewAPI X-Session-Id 等非 cache 场景），与 `prompt_cache_*` 解耦。
    schema：`backend/ent/schema/group.go` enum；migration：`backend/migrations/tk_002_add_groups_sticky_routing_mode.sql`。
-2. ✅ **Dashboard 卡片只读最近 24h** — 已采用。`frontend/src/views/admin/DashboardView.vue` 仅暴露 `promptCacheHitRateToday/Total`，不引入时间窗切换。
+2. ✅ **Dashboard 卡片跟随当前筛选窗口** — 2026-07-16 修订批准：默认仍是滚动 24h；移除误导性的 Today/Total 双值，改为分组影响量 Top 5 与不可观测状态。
 3. ✅ **derive 兜底用 system 前 2KB** — 已采用。常量：`backend/internal/service/sticky_session_injector.go::stickyDerivedSystemPromptCap = 2 * 1024`。极少数超长 system prompt 撞桶问题观察后再优化。
 4. ✅ **NewAPI X-Session-Id 与 OpenAI/Anthropic 注入同 PR** — 已采用（实际是 `a68dee5b` 一次提交全部落地）。访问点：`backend/internal/service/openai_gateway_bridge_dispatch.go::applyStickyToNewAPIBridge`。
 

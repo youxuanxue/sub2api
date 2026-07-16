@@ -44,6 +44,27 @@ func (s *UsageLogRepoSuite) rollupParityCreateUngroupedLog(user *service.User, a
 	s.Require().NoError(err)
 }
 
+func (s *UsageLogRepoSuite) rollupParityCreateKiroLog(user *service.User, apiKey *service.APIKey, account *service.Account, groupID *int64, in, out, cacheCreate, cacheRead int, cost float64, createdAt time.Time) {
+	billingTier := "kiro-estimated"
+	log := &service.UsageLog{
+		UserID:              user.ID,
+		APIKeyID:            apiKey.ID,
+		AccountID:           account.ID,
+		GroupID:             groupID,
+		Model:               "claude-3",
+		InputTokens:         in,
+		OutputTokens:        out,
+		CacheCreationTokens: cacheCreate,
+		CacheReadTokens:     cacheRead,
+		BillingTier:         &billingTier,
+		TotalCost:           cost,
+		ActualCost:          cost,
+		CreatedAt:           createdAt,
+	}
+	_, err := s.repo.Create(s.ctx, log)
+	s.Require().NoError(err)
+}
+
 // TestGroupRollupParity_EqualsLegacyRawScan is the load-bearing equality test for
 // the per-(group, day) rollup that backs GetAllGroupUsageSummary. It builds a
 // fixture spanning two groups over completed past days + today, then asserts:
@@ -133,10 +154,10 @@ func (s *UsageLogRepoSuite) TestGroupStatsRollupParity_EqualsLegacyRawScanWithUn
 
 	// Real groups across completed days + today's raw tail.
 	s.rollupParityCreateLog(user, key, acc, grpA.ID, 10, 20, 0, 0, 0.50, day5)
-	s.rollupParityCreateLog(user, key, acc, grpA.ID, 5, 7, 1, 2, 0.10, todayPoint)
+	s.rollupParityCreateKiroLog(user, key, acc, &grpA.ID, 5, 7, 1, 2, 0.10, todayPoint)
 	s.rollupParityCreateLog(user, key, acc, grpB.ID, 2, 3, 0, 0, 0.20, day2)
 	// Ungrouped usage must stay visible as group_id=0 in group distribution.
-	s.rollupParityCreateUngroupedLog(user, key, acc, 3, 4, 5, 6, 0.20, day2)
+	s.rollupParityCreateKiroLog(user, key, acc, nil, 3, 4, 5, 6, 0.20, day2)
 	s.rollupParityCreateUngroupedLog(user, key, acc, 7, 8, 0, 1, 0.05, todayPoint)
 
 	// Before aggregation the metrics marker is absent, so this is the legacy raw
@@ -146,6 +167,11 @@ func (s *UsageLogRepoSuite) TestGroupStatsRollupParity_EqualsLegacyRawScanWithUn
 	preIdx := indexGroupStats(pre)
 	s.Require().Contains(preIdx, int64(0), "legacy raw path must expose ungrouped usage as group_id=0")
 	s.Equal(int64(2), preIdx[0].Requests)
+	s.Equal(int64(10), preIdx[0].InputTokens)
+	s.Equal(int64(12), preIdx[0].OutputTokens)
+	s.Equal(int64(5), preIdx[0].CacheCreationTokens)
+	s.Equal(int64(7), preIdx[0].CacheReadTokens)
+	s.Equal(int64(3), preIdx[0].CacheTelemetryUnavailableInputTokens)
 	s.Equal(int64(34), preIdx[0].TotalTokens)
 	s.InDelta(0.25, preIdx[0].ActualCost, 1e-9)
 
@@ -163,6 +189,11 @@ func (s *UsageLogRepoSuite) TestGroupStatsRollupParity_EqualsLegacyRawScanWithUn
 		s.Require().True(ok, "rollup path missing group_id=%d", groupID)
 		s.Equal(want.GroupName, got.GroupName, "group_name group_id=%d", groupID)
 		s.Equal(want.Requests, got.Requests, "requests group_id=%d", groupID)
+		s.Equal(want.InputTokens, got.InputTokens, "input_tokens group_id=%d", groupID)
+		s.Equal(want.OutputTokens, got.OutputTokens, "output_tokens group_id=%d", groupID)
+		s.Equal(want.CacheCreationTokens, got.CacheCreationTokens, "cache_creation_tokens group_id=%d", groupID)
+		s.Equal(want.CacheReadTokens, got.CacheReadTokens, "cache_read_tokens group_id=%d", groupID)
+		s.Equal(want.CacheTelemetryUnavailableInputTokens, got.CacheTelemetryUnavailableInputTokens, "cache_telemetry_unavailable_input_tokens group_id=%d", groupID)
 		s.Equal(want.TotalTokens, got.TotalTokens, "tokens group_id=%d", groupID)
 		s.InDelta(want.Cost, got.Cost, 1e-9, "cost group_id=%d", groupID)
 		s.InDelta(want.ActualCost, got.ActualCost, 1e-9, "actual_cost group_id=%d", groupID)

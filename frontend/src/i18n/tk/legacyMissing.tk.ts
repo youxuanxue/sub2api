@@ -426,12 +426,13 @@ const en: LocaleOverlay = {
   },
   "admin": {
     "dashboard": {
-      "promptCacheHitRate": "Prompt Cache Hit Rate",
-      "promptCacheHitRateHint": "cache_read / (cache_read + input + cache_create). Higher = better. Sticky routing aims to maximize this.",
-      "cacheReadTokens": "Cache Read",
-      "cacheCreateTokens": "Cache Created",
-      "promptCacheToday": "Today",
-      "promptCacheTotal": "Total"
+      "promptCacheObservableHitRate": "Observable Prompt Cache Hit Rate",
+      "promptCacheHitRateHint": "Excludes input without upstream cache telemetry.",
+      "promptCacheSelectedWindow": "Selected period",
+      "promptCacheUnavailable": "Not observable",
+      "promptCachePartiallyObservable": "Partially observable",
+      "promptCacheNoTraffic": "No prompt traffic in this period",
+      "cacheReadTokens": "Cache Read"
     },
     "users": {
       "form": {
@@ -1257,12 +1258,13 @@ const zh: LocaleOverlay = {
   },
   "admin": {
     "dashboard": {
-      "promptCacheHitRate": "Prompt Cache 命中率",
-      "promptCacheHitRateHint": "命中率 = cache_read / (cache_read + input + cache_create)。值越高越好。粘性路由的目标就是把这一项尽量推高。",
-      "cacheReadTokens": "命中缓存",
-      "cacheCreateTokens": "写入缓存",
-      "promptCacheToday": "今日",
-      "promptCacheTotal": "累计"
+      "promptCacheObservableHitRate": "Prompt Cache 可观测命中率",
+      "promptCacheHitRateHint": "不计入上游未返回缓存明细的输入 Token。",
+      "promptCacheSelectedWindow": "当前筛选时段",
+      "promptCacheUnavailable": "不可观测",
+      "promptCachePartiallyObservable": "部分可观测",
+      "promptCacheNoTraffic": "当前时段暂无 Prompt 流量",
+      "cacheReadTokens": "命中缓存"
     },
     "users": {
       "form": {

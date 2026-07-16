@@ -90,15 +90,16 @@ func (r *usageLogRepository) groupUsageSummaryFromRollup(ctx context.Context, to
 }
 
 type groupStatAgg struct {
-	groupName           string
-	requests            int64
-	inputTokens         int64
-	outputTokens        int64
-	cacheCreationTokens int64
-	cacheReadTokens     int64
-	cost                float64
-	actualCost          float64
-	accountCost         float64
+	groupName                            string
+	requests                             int64
+	inputTokens                          int64
+	outputTokens                         int64
+	cacheCreationTokens                  int64
+	cacheReadTokens                      int64
+	cacheTelemetryUnavailableInputTokens int64
+	cost                                 float64
+	actualCost                           float64
+	accountCost                          float64
 }
 
 func shouldUseGroupDailyStatsRollup(userID, apiKeyID, accountID int64, requestType *int16, stream *bool, billingType *int8) bool {
@@ -262,16 +263,62 @@ func (r *usageLogRepository) getGroupStatsFromRollup(
 		}
 	}
 
+	// billing_tier is not part of the daily rollup. Read only Kiro-estimated rows
+	// from the selected raw window so their input is never
+	// mistaken for observable cache telemetry, without widening the rollup schema.
+	telemetryQuery := `
+		SELECT
+			COALESCE(ul.group_id, 0) AS group_id,
+			COALESCE(SUM(ul.input_tokens), 0)
+		FROM usage_logs ul
+		WHERE ul.created_at >= $1 AND ul.created_at < $2
+		  AND ul.billing_tier = 'kiro-estimated'
+	`
+	telemetryArgs := []any{startTime, endTime}
+	if groupID > 0 {
+		telemetryQuery += " AND ul.group_id = $3"
+		telemetryArgs = append(telemetryArgs, groupID)
+	}
+	telemetryQuery += " GROUP BY ul.group_id"
+	telemetryRows, err := r.sql.QueryContext(ctx, telemetryQuery, telemetryArgs...)
+	if err != nil {
+		return nil, false, err
+	}
+	for telemetryRows.Next() {
+		var id, unavailableInput int64
+		if err := telemetryRows.Scan(&id, &unavailableInput); err != nil {
+			_ = telemetryRows.Close()
+			return nil, false, err
+		}
+		a, ok := byGroupID[id]
+		if !ok {
+			a = &groupStatAgg{}
+			byGroupID[id] = a
+		}
+		a.cacheTelemetryUnavailableInputTokens = unavailableInput
+	}
+	if err := telemetryRows.Close(); err != nil {
+		return nil, false, err
+	}
+	if err := telemetryRows.Err(); err != nil {
+		return nil, false, err
+	}
+
 	results := make([]usagestats.GroupStat, 0, len(byGroupID))
 	for id, a := range byGroupID {
 		results = append(results, usagestats.GroupStat{
-			GroupID:     id,
-			GroupName:   a.groupName,
-			Requests:    a.requests,
-			TotalTokens: a.inputTokens + a.outputTokens + a.cacheCreationTokens + a.cacheReadTokens,
-			Cost:        a.cost,
-			ActualCost:  a.actualCost,
-			AccountCost: a.accountCost,
+			GroupID:                              id,
+			GroupName:                            a.groupName,
+			Requests:                             a.requests,
+			InputTokens:                          a.inputTokens,
+			OutputTokens:                         a.outputTokens,
+			CacheCreationTokens:                  a.cacheCreationTokens,
+			CacheReadTokens:                      a.cacheReadTokens,
+			CacheTelemetryUnavailableInputTokens: a.cacheTelemetryUnavailableInputTokens,
+			TotalTokens:                          a.inputTokens + a.outputTokens + a.cacheCreationTokens + a.cacheReadTokens,
+			Cost:                                 a.cost,
+			ActualCost:                           a.actualCost,
+			AccountCost:                          a.accountCost,
 		})
 	}
 	sort.Slice(results, func(i, j int) bool {
