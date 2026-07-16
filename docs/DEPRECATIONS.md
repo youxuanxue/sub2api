@@ -138,7 +138,7 @@ restores the file and removes the entry in the same change.
   `CreateAccountModal.spec.ts`.
 - **Reason:** this is an upstream-owned test consolidation, not a TokenKey
   product deletion. The replacement file kept direct refresh-token coverage;
-  TokenKey restores the source-level API-key, custom-header, and three-path
+  TokenKey restores the source-level API-key, custom-header, and all-path
   configuration contracts there as part of this branch.
 - **Regression cost:** no production behavior is removed. Without the restored
   contracts, future Grok UI changes could silently remove the API-key entry or

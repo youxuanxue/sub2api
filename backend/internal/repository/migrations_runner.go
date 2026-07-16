@@ -57,10 +57,39 @@ const paymentOrdersOutTradeNoUniqueIndex = "paymentorder_out_trade_no_unique"
 const schedulerOutboxPendingDedupKeyMigration = "153_scheduler_outbox_pending_dedup_key_index_notx.sql"
 const schedulerOutboxPendingDedupKeyIndex = "idx_scheduler_outbox_pending_dedup_key"
 const opsSystemLogsAPIKeyIDIndexMigration = "155_add_ops_system_logs_api_key_id_index_notx.sql"
+const opsSystemLogsAPIKeyIDIndex = "idx_ops_system_logs_api_key_id_created_at"
 const opsSystemLogsAPIKeyIDIndexDDL = `CREATE INDEX IF NOT EXISTS idx_ops_system_logs_api_key_id_created_at ON ops_system_logs (api_key_id, created_at DESC)`
 const opsMonthlyPartitionsMigration = "tk_041_provision_ops_monthly_partitions.sql"
 const latestAPIKeyIPIndexMigration = "174_add_usage_logs_api_key_latest_ip_index_notx.sql"
 const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
+const opsSystemLogsHostIndexMigration = "175a_add_ops_system_logs_host_index_notx.sql"
+const opsSystemLogsHostIndex = "idx_ops_system_logs_host_created_at"
+
+type nonTransactionalIndexPolicy struct {
+	indexName              string
+	partitionedTable       string
+	partitionedFallbackDDL string
+	partitionedIndexExpr   string
+}
+
+var nonTransactionalIndexPolicies = map[string]nonTransactionalIndexPolicy{
+	schedulerOutboxPendingDedupKeyMigration: {
+		indexName: schedulerOutboxPendingDedupKeyIndex,
+	},
+	opsSystemLogsAPIKeyIDIndexMigration: {
+		indexName:              opsSystemLogsAPIKeyIDIndex,
+		partitionedTable:       "ops_system_logs",
+		partitionedFallbackDDL: opsSystemLogsAPIKeyIDIndexDDL,
+	},
+	latestAPIKeyIPIndexMigration: {
+		indexName: latestAPIKeyIPIndex,
+	},
+	opsSystemLogsHostIndexMigration: {
+		indexName:            opsSystemLogsHostIndex,
+		partitionedTable:     "ops_system_logs",
+		partitionedIndexExpr: "host, created_at DESC",
+	},
+}
 
 type migrationChecksumCompatibilityRule struct {
 	fileChecksum       string
@@ -230,40 +259,8 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 		}
 
 		if nonTx {
-			if err := prepareNonTransactionalMigration(ctx, db, name); err != nil {
-				return fmt.Errorf("prepare migration %s: %w", name, err)
-			}
-
-			if name == opsSystemLogsAPIKeyIDIndexMigration {
-				partitioned, err := pgpartition.IsPartitioned(ctx, db, "ops_system_logs")
-				if err != nil {
-					return fmt.Errorf("check ops_system_logs partition state for migration %s: %w", name, err)
-				}
-				if partitioned {
-					if _, err := db.ExecContext(ctx, opsSystemLogsAPIKeyIDIndexDDL); err != nil {
-						return fmt.Errorf("apply migration %s (partitioned fallback): %w", name, err)
-					}
-					if _, err := db.ExecContext(ctx, "INSERT INTO schema_migrations (filename, checksum) VALUES ($1, $2)", name, checksum); err != nil {
-						return fmt.Errorf("record migration %s (non-tx): %w", name, err)
-					}
-					continue
-				}
-			}
-
-			// *_notx.sql：用于 CREATE/DROP INDEX CONCURRENTLY 场景，必须非事务执行。
-			// 逐条语句执行，避免将多条 CONCURRENTLY 语句放入同一个隐式事务块。
-			statements := splitSQLStatements(content)
-			for i, stmt := range statements {
-				trimmed := strings.TrimSpace(stmt)
-				if trimmed == "" {
-					continue
-				}
-				if stripSQLLineComment(trimmed) == "" {
-					continue
-				}
-				if _, err := db.ExecContext(ctx, trimmed); err != nil {
-					return fmt.Errorf("apply migration %s (non-tx statement %d): %w", name, i+1, err)
-				}
+			if err := applyNonTransactionalMigration(ctx, db, name, content); err != nil {
+				return err
 			}
 			if _, err := db.ExecContext(ctx, "INSERT INTO schema_migrations (filename, checksum) VALUES ($1, $2)", name, checksum); err != nil {
 				return fmt.Errorf("record migration %s (non-tx): %w", name, err)
@@ -315,17 +312,54 @@ func shouldRecordMigrationWithoutExecution(ctx context.Context, db *sql.DB, name
 	return true, nil
 }
 
+func applyNonTransactionalMigration(ctx context.Context, db *sql.DB, name, content string) error {
+	policy, hasPolicy := nonTransactionalIndexPolicies[name]
+	if hasPolicy && policy.partitionedTable != "" {
+		partitioned, err := pgpartition.IsPartitioned(ctx, db, policy.partitionedTable)
+		if err != nil {
+			return fmt.Errorf("check %s partition state for migration %s: %w", policy.partitionedTable, name, err)
+		}
+		if partitioned {
+			if policy.partitionedIndexExpr != "" {
+				if err := createPartitionedIndexConcurrently(ctx, db, policy); err != nil {
+					return fmt.Errorf("apply migration %s (partitioned online index): %w", name, err)
+				}
+				return nil
+			}
+			if _, err := db.ExecContext(ctx, policy.partitionedFallbackDDL); err != nil {
+				return fmt.Errorf("apply migration %s (partitioned fallback): %w", name, err)
+			}
+			return nil
+		}
+	}
+
+	if err := prepareNonTransactionalMigration(ctx, db, name); err != nil {
+		return fmt.Errorf("prepare migration %s: %w", name, err)
+	}
+
+	// *_notx.sql migrations run statement-by-statement so PostgreSQL does not
+	// wrap CONCURRENTLY operations in an implicit transaction block.
+	for i, stmt := range splitSQLStatements(content) {
+		trimmed := strings.TrimSpace(stmt)
+		if trimmed == "" || stripSQLLineComment(trimmed) == "" {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, trimmed); err != nil {
+			return fmt.Errorf("apply migration %s (non-tx statement %d): %w", name, i+1, err)
+		}
+	}
+	return nil
+}
+
 func prepareNonTransactionalMigration(ctx context.Context, db *sql.DB, name string) error {
-	switch name {
-	case paymentOrdersOutTradeNoUniqueMigration:
+	if name == paymentOrdersOutTradeNoUniqueMigration {
 		return preparePaymentOrdersOutTradeNoUniqueMigration(ctx, db)
-	case schedulerOutboxPendingDedupKeyMigration:
-		return dropInvalidIndexIfPresent(ctx, db, schedulerOutboxPendingDedupKeyIndex)
-	case latestAPIKeyIPIndexMigration:
-		return dropInvalidIndexIfPresent(ctx, db, latestAPIKeyIPIndex)
-	default:
+	}
+	policy, ok := nonTransactionalIndexPolicies[name]
+	if !ok || policy.indexName == "" {
 		return nil
 	}
+	return dropInvalidIndexIfPresent(ctx, db, policy.indexName)
 }
 
 func preparePaymentOrdersOutTradeNoUniqueMigration(ctx context.Context, db *sql.DB) error {
