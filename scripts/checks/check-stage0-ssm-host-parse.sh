@@ -104,5 +104,7 @@ check_one "sync-edge-host-units-via-ssm.sh" sync-host-units \
   bash "${OPS}/sync-edge-host-units-via-ssm.sh" mi-0stub
 check_one "sync-host-mem-guard-via-ssm.sh"  sync-mem-guard \
   bash "${OPS}/sync-host-mem-guard-via-ssm.sh" i-0stub
+check_one "sync-container-log-policy-via-ssm.sh" sync-log-policy \
+  env STAGE0_RENDER_ONLY=1 bash "${OPS}/sync-container-log-policy-via-ssm.sh" i-0stub
 
 exit "${rc}"

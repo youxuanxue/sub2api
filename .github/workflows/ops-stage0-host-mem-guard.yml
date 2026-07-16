@@ -3,7 +3,8 @@ name: Stage0 Host Mem-Guard Refresh
 # One-shot ops workflow that pushes the host memory-pressure defenses into a
 # running Stage0 prod EC2 via SSM, WITHOUT rebuilding the instance:
 #   (1) /swapfile release valve + vm.swappiness/vfs_cache_pressure sysctl
-#   (2) the memory-pressure Feishu alert in tokenkey-disk-metrics.sh
+#   (2) root/data disk metrics plus memory/disk Feishu alerts in
+#       tokenkey-disk-metrics.sh
 # Both already live in deploy/aws/stage0/stage0-ec2-bootstrap.sh (#811); this
 # brings an instance provisioned before #811 in sync without a CFN/user-data
 # rebuild (which would replace the instance). The payloads are extracted from
@@ -88,6 +89,6 @@ jobs:
             echo "- stack: \`$STACK_NAME\`"
             echo "- instance: \`$INSTANCE_ID\`"
             echo "- ssm command id: \`${CMD_ID:-none}\`"
-            echo "- pushed: /swapfile release valve + sysctl + memory-pressure alert (tokenkey-disk-metrics.sh)"
+            echo "- pushed: /swapfile release valve + sysctl + root/data disk metrics + pressure alerts"
             echo "- template-sync-from: \`${GITHUB_SHA}\` (deploy/aws/stage0/stage0-ec2-bootstrap.sh)"
           } >> "$GITHUB_STEP_SUMMARY"

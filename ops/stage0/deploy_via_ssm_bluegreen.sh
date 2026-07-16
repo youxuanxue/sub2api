@@ -264,12 +264,19 @@ drain_container() {
 write_bluegreen_compose() {
   local tmp="${BG_COMPOSE}.new"
   sudo tee "${tmp}" >/dev/null <<'YAML'
+x-tokenkey-logging: &tokenkey-logging
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "5"
+
 services:
   tokenkey-blue:
     image: ${TOKENKEY_IMAGE_BLUE:?TOKENKEY_IMAGE_BLUE is required}
     container_name: tokenkey-blue
     pull_policy: always
     restart: unless-stopped
+    logging: *tokenkey-logging
     stop_grace_period: 180s
     ulimits:
       nofile:
@@ -333,6 +340,7 @@ services:
     container_name: tokenkey-green
     pull_policy: always
     restart: unless-stopped
+    logging: *tokenkey-logging
     stop_grace_period: 180s
     ulimits:
       nofile:

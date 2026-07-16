@@ -339,6 +339,19 @@ if [ -n "${USED}" ]; then
   fi
 fi
 
+# Root volume is a separate failure domain: Docker json logs and image layers
+# live here, so it can fill while the persistent data volume remains healthy.
+ROOT_USED="$(df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
+if [ -n "${ROOT_USED}" ]; then
+  aws cloudwatch put-metric-data --region "${REGION}" \
+    --namespace tokenkey/EC2 \
+    --metric-data "MetricName=RootVolumeUsedPercent,Value=${ROOT_USED},Unit=Percent,Dimensions=[{Name=InstanceId,Value=${IID}}]"
+  ROOT_DISK_THRESHOLD="${TOKENKEY_ROOT_DISK_ALERT_THRESHOLD:-80}"
+  if [ "${ROOT_USED}" -ge "${ROOT_DISK_THRESHOLD}" ]; then
+    tk_feishu_alert /run/tokenkey-root-disk-alert.stamp "P1 root disk pressure ${NODE} — / usage ${ROOT_USED}% (threshold ${ROOT_DISK_THRESHOLD}%). Check bounded Docker logging and image cleanup before the host fills. instance=${IID}"
+  fi
+fi
+
 # --- memory-pressure alert (2026-06-17 prod P0) ------------------------------
 # Leading indicator: MemAvailable collapses (memused% high) minutes BEFORE the
 # page-cache-thrash wedge, so 90% fires while the box is still reachable and the
@@ -377,7 +390,7 @@ UNITEOF
 
 cat > /etc/systemd/system/tokenkey-disk-metrics.service <<'DMSEOF'
 [Unit]
-Description=Publish tokenkey DataVolume used_percent to CloudWatch + on-box disk-full & memory-pressure Feishu alerts
+Description=Publish tokenkey root/data disk metrics + on-box disk-full & memory-pressure Feishu alerts
 After=network-online.target tokenkey.service
 Wants=network-online.target
 
@@ -389,7 +402,7 @@ DMSEOF
 
 cat > /etc/systemd/system/tokenkey-disk-metrics.timer <<'DMTEOF'
 [Unit]
-Description=Publish DataVolume disk metric every 5 minutes
+Description=Publish root/data disk metrics every 5 minutes
 
 [Timer]
 OnBootSec=3min

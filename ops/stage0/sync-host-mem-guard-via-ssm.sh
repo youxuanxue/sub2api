@@ -7,7 +7,8 @@
 # 8 GiB box with NO swap into a page-cache-thrash half-deadlock that needed a
 # reboot. #811 added two defenses to deploy/aws/stage0/stage0-ec2-bootstrap.sh:
 #   (1) a /swapfile release valve + vm.swappiness/vfs_cache_pressure sysctl
-#   (2) a memory-pressure Feishu alert embedded in tokenkey-disk-metrics.sh
+#   (2) root/data disk metrics plus memory/disk Feishu alerts embedded in
+#       tokenkey-disk-metrics.sh
 # But those only run at instance bootstrap. `deploy-stage0` is an SSM image hot-
 # swap — it does NOT re-run bootstrap — so an instance provisioned before #811
 # stays without swap and runs the stale disk-metrics.sh (no mem alert) until it
@@ -67,9 +68,10 @@ if [ -z "${DISK_METRICS_BODY}" ]; then
   echo "::error::could not extract tokenkey-disk-metrics.sh body from ${BOOTSTRAP_SRC} (markers moved?)" >&2
   exit 2
 fi
-# Sanity: the body must carry the memory-pressure alert we are here to deliver.
-if ! printf '%s' "${DISK_METRICS_BODY}" | grep -q 'memory-pressure alert'; then
-  echo "::error::extracted disk-metrics.sh body lacks the memory-pressure alert — refusing to push a stale payload" >&2
+# Sanity: the body must carry both memory and root-disk defenses.
+if ! printf '%s' "${DISK_METRICS_BODY}" | grep -q 'memory-pressure alert' \
+  || ! printf '%s' "${DISK_METRICS_BODY}" | grep -q 'RootVolumeUsedPercent'; then
+  echo "::error::extracted disk-metrics.sh body lacks memory/root-disk guards — refusing to push a stale payload" >&2
   exit 2
 fi
 
@@ -100,17 +102,17 @@ jq -n \
       "cat /etc/sysctl.d/90-tokenkey-swap.conf 2>/dev/null || echo NO_SYSCTL_CONF",
       "echo --- meminfo ---",
       "grep -E '\''MemTotal|MemAvailable|SwapTotal'\'' /proc/meminfo",
-      "echo === 2: refresh tokenkey-disk-metrics.sh, adds memory-pressure alert ===",
+      "echo === 2: refresh tokenkey-disk-metrics.sh, adds root/data metrics and pressure alerts ===",
       ("echo " + $dm + " | base64 -d | sudo tee /usr/local/bin/tokenkey-disk-metrics.sh > /dev/null"),
       "sudo chmod 0755 /usr/local/bin/tokenkey-disk-metrics.sh",
-      "echo --- memory-pressure alert present in live script, expect 1 or more ---",
-      "grep -c '\''memory-pressure alert'\'' /usr/local/bin/tokenkey-disk-metrics.sh || true",  # preflight-allow: swallow — host-side diagnostic count; 0 matches must not abort the remote script
+      "echo --- memory/root-disk guards present in live script ---",
+      "grep -E -c '\''memory-pressure alert|RootVolumeUsedPercent'\'' /usr/local/bin/tokenkey-disk-metrics.sh || true",  # preflight-allow: swallow — host-side diagnostic count; 0 matches must not abort the remote script
       "echo --- tokenkey-disk-metrics.timer status ---",
       "sudo systemctl is-active tokenkey-disk-metrics.timer || echo TIMER_NOT_ACTIVE",
       "echo --- run disk-metrics once now to surface metric + arm alert ---",
       "sudo /usr/local/bin/tokenkey-disk-metrics.sh || true",  # preflight-allow: swallow — best-effort surface; the 5-min timer reruns it regardless
       "echo --- in-place sync trace ---",
-      ("echo Live /swapfile + tokenkey-disk-metrics.sh now match deploy/aws/stage0/stage0-ec2-bootstrap.sh@" + $sha + " on $(hostname)")
+      ("echo Live /swapfile + root/data metrics + pressure alerts now match deploy/aws/stage0/stage0-ec2-bootstrap.sh@" + $sha + " on $(hostname)")
     ]
   }' > "${params_file}"
 

@@ -1,0 +1,78 @@
+name: Stage0 Container Log Policy Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [prod]
+      confirm:
+        description: "Type recreate-caddy-for-bounded-logs"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ops-stage0-container-log-policy-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  prod:
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      STACK_NAME: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Validate confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          [ "$CONFIRM" = "recreate-caddy-for-bounded-logs" ] || {
+            echo "::error::confirmation mismatch"
+            exit 1
+          }
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Resolve prod instance id
+        id: instance
+        run: |
+          set -euo pipefail
+          id=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+          [ -n "$id" ] && [ "$id" != None ]
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - name: Sync bounded log policy and recreate Caddy
+        id: sync
+        env:
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: bash ops/stage0/sync-container-log-policy-via-ssm.sh "${{ steps.instance.outputs.id }}" "bounded Docker logs; Caddy-only recreate"
+      - name: Verify external health
+        run: bash ops/stage0/external_health.sh https://api.tokenkey.dev
+      - name: Job summary
+        if: always()
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          COMMAND_ID: ${{ steps.sync.outputs.command_id }}
+        run: |
+          {
+            echo "## Stage0 container log policy"
+            echo "- target: prod"
+            echo "- instance: \`${INSTANCE_ID:-unknown}\`"
+            echo "- SSM command: \`${COMMAND_ID:-none}\`"
+            echo "- mutation: canonical compose sync + Caddy-only recreate"
+            echo "- untouched: active app, PostgreSQL, Redis"
+          } >> "$GITHUB_STEP_SUMMARY"
