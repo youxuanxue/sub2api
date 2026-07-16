@@ -34,6 +34,47 @@ afterEach(() => {
 })
 
 describe('useTkUseKey model loading', () => {
+  it('applies a deep-linked model from the selected key live menu', async () => {
+    getMePricingCatalogMock.mockResolvedValue({
+      models: [{ model_id: 'claude-sonnet-live', capabilities: ['tools'] }],
+    })
+    const tk = createUseKey()
+
+    await tk.loadModels()
+
+    expect(tk.applyInitialModel('claude-sonnet-live')).toBe('anthropic')
+    expect(tk.effectiveModel('anthropic')).toBe('claude-sonnet-live')
+  })
+
+  it('rejects an unknown deep-linked model and retains the live-menu fallback', async () => {
+    getMePricingCatalogMock.mockResolvedValue({
+      models: [{ model_id: 'gpt-live', capabilities: [] }],
+    })
+    const tk = createUseKey()
+
+    await tk.loadModels()
+
+    expect(tk.applyInitialModel('gpt-arbitrary-query')).toBeNull()
+    expect(tk.effectiveModel('openai')).toBe('gpt-live')
+  })
+
+  it('rejects the previous key model after switching to a different live menu', async () => {
+    getMePricingCatalogMock
+      .mockResolvedValueOnce({ models: [{ model_id: 'gpt-key-one', capabilities: [] }] })
+      .mockResolvedValueOnce({ models: [{ model_id: 'gpt-key-two', capabilities: [] }] })
+    const apiKeyId = ref<number | null>(1)
+    const tk = createUseKey(apiKeyId)
+
+    await tk.loadModels()
+    expect(tk.applyInitialModel('gpt-key-one')).toBe('openai')
+
+    apiKeyId.value = 2
+    await tk.loadModels()
+
+    expect(tk.applyInitialModel('gpt-key-one')).toBeNull()
+    expect(tk.effectiveModel('openai')).toBe('gpt-key-two')
+  })
+
   it('ignores a stale model response after the selected key changes', async () => {
     let resolveFirst!: (value: { models: Array<{ model_id: string; capabilities: string[] }> }) => void
     let resolveSecond!: (value: { models: Array<{ model_id: string; capabilities: string[] }> }) => void

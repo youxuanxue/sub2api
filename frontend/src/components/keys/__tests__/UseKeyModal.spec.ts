@@ -83,93 +83,43 @@ describe('UseKeyModal — preserved snippet correctness', () => {
     await wsTab!.trigger('click')
     await nextTick()
 
-    const configToml = wrapper.findAll('pre code').map((c) => c.text()).find((c) => c.includes('supports_websockets = true'))
+    const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+    const configToml = codeBlocks.find((content) => content.includes('supports_websockets = true'))
     expect(configToml).toBeDefined()
     expect(configToml).toContain('model = "gpt-5.5"')
+    expect(configToml).toContain('requires_openai_auth = true')
+    expect(configToml).not.toContain('x-openai-actor-authorization')
     expect(configToml).toContain('[features]\nresponses_websockets_v2 = true\ngoals = true')
     expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).toContain('auth.json')
   })
 
-  it('preserves API Key Mode when switching to OpenAI Codex WebSocket config', async () => {
-    const wrapper = mount(UseKeyModal, {
-      props: {
-        show: true,
-        apiKey: 'sk-test',
-        baseUrl: 'https://example.com/v1',
-        platform: 'openai'
-      },
-      global: {
-        stubs: {
-          BaseDialog: {
-            template: '<div><slot /><slot name="footer" /></div>'
-          },
-          Icon: {
-            template: '<span />'
-          }
-        }
-      }
-    })
-
-    const apiKeyMode = wrapper.get('[data-testid="codex-auth-mode-api-key"]')
-    await apiKeyMode.trigger('click')
-
-    const wsTab = wrapper.findAll('button').find((button) =>
-      button.text().includes('keys.useKeyModal.cliTabs.codexCliWs')
-    )
-    expect(wsTab).toBeDefined()
-    await wsTab!.trigger('click')
-    await nextTick()
-
+  it('uses the current API-key auth contract without legacy actor headers', () => {
+    const wrapper = mountModal({ platform: 'openai' })
     const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
-    const configToml = codeBlocks.find((content) => content.includes('supports_websockets = true'))
+    const configToml = codeBlocks.find((content) => content.includes('model_provider = "OpenAI"'))
 
-    expect(wrapper.get('[data-testid="codex-auth-mode-api-key"]').attributes('aria-checked')).toBe('true')
     expect(configToml).toBeDefined()
-    expect(configToml).toContain('requires_openai_auth = false')
-    expect(configToml).toContain('http_headers = { "x-openai-actor-authorization" = "local-image-extension" }')
-    expect(configToml).not.toContain('env_key')
-    expect(configToml).not.toContain('image_generation')
-    expect(configToml).toContain('supports_websockets = true')
-    expect(configToml).toContain('[features]\nresponses_websockets_v2 = true\ngoals = true')
+    expect(configToml).toContain('requires_openai_auth = true')
+    expect(configToml).not.toContain('x-openai-actor-authorization')
     expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
   })
 
-  it('resets Codex authentication mode when the modal reopens or platform changes', async () => {
-    const wrapper = mount(UseKeyModal, {
-      props: {
-        show: true,
-        apiKey: 'sk-test',
-        baseUrl: 'https://example.com/v1',
-        platform: 'openai'
-      },
-      global: {
-        stubs: {
-          BaseDialog: {
-            template: '<div><slot /><slot name="footer" /></div>'
-          },
-          Icon: {
-            template: '<span />'
-          }
-        }
-      }
-    })
-
-    await wrapper.get('[data-testid="codex-auth-mode-api-key"]').trigger('click')
+  it('retains the current Codex auth contract when the modal reopens or platform changes', async () => {
+    const wrapper = mountModal({ platform: 'openai' })
     await wrapper.setProps({ show: false })
     await wrapper.setProps({ show: true })
     await nextTick()
 
-    expect(wrapper.get('[data-testid="codex-auth-mode-legacy"]').attributes('aria-checked')).toBe('true')
     expect(wrapper.findAll('pre code').map((code) => code.text()).join('\n')).toContain('requires_openai_auth = true')
 
-    await wrapper.get('[data-testid="codex-auth-mode-api-key"]').trigger('click')
     await wrapper.setProps({ platform: 'gemini' })
     await wrapper.setProps({ platform: 'openai' })
     await nextTick()
 
-    expect(wrapper.get('[data-testid="codex-auth-mode-legacy"]').attributes('aria-checked')).toBe('true')
-    expect(wrapper.findAll('pre code').map((code) => code.text()).join('\n')).not.toContain('x-openai-actor-authorization')
+    const code = wrapper.findAll('pre code').map((block) => block.text()).join('\n')
+    expect(code).toContain('requires_openai_auth = true')
+    expect(code).not.toContain('x-openai-actor-authorization')
   })
 
   it('renders GPT-5.4 mini entry in OpenCode config', async () => {
@@ -182,7 +132,7 @@ describe('UseKeyModal — preserved snippet correctness', () => {
     expect(codeBlock.text()).toContain('"name": "GPT-5.4 Mini"')
   })
 
-  it('renders GPT-5.6 alias and max variants in OpenCode config', async () => {
+  it('renders the current GPT-5.5 and GPT-5.4 reasoning variants in OpenCode config', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {
         show: true,
@@ -211,12 +161,12 @@ describe('UseKeyModal — preserved snippet correctness', () => {
 
     const parsed = JSON.parse(wrapper.find('pre code').text())
     const models = parsed.provider.openai.models
-    for (const model of ['gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+    for (const model of ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']) {
       expect(models[model]).toBeDefined()
-      expect(models[model].variants).toHaveProperty('max')
       expect(models[model].variants).toHaveProperty('xhigh')
     }
-    expect(models['gpt-5.6'].name).toBe('GPT-5.6 (Sol)')
+    expect(models['gpt-5.5'].name).toBe('GPT-5.5')
+    expect(models['gpt-5.4-mini'].name).toBe('GPT-5.4 Mini')
   })
 
   it('renders Claude Fable 5 OpenCode config with adaptive thinking', async () => {
@@ -531,7 +481,7 @@ describe('UseKeyModal — universal keys', () => {
     expect(wrapper.find('select').findAll('option').some((o) => o.text().includes('claude-opus-4-8'))).toBe(true)
   })
 
-  it('hides modelsEmpty warning when initialModel is deep-linked', async () => {
+  it('rejects a deep-linked model outside the live catalog', async () => {
     getMePricingCatalog.mockResolvedValue({ authorized_groups_by_model: {}, models: [] })
     getPublicPricing.mockResolvedValue({ data: [] })
 
@@ -543,7 +493,7 @@ describe('UseKeyModal — universal keys', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain('keys.useKeyModal.modelsEmpty')
+    expect(wrapper.text()).toContain('keys.useKeyModal.modelsEmpty')
     expect(wrapper.find('[data-tk="use-key-model-select"]').exists()).toBe(true)
   })
 })

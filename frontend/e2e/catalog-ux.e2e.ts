@@ -211,6 +211,17 @@ test.describe('catalog UX — models / pricing / quickstart', () => {
     await expect(page.locator('[data-tk="use-key-models-empty"]')).toHaveCount(0)
   })
 
+  test('quickstart rejects an unknown deep-linked model outside the key live menu', async ({ page }) => {
+    await installQuickstartFixture(page)
+    await page.goto('/quickstart?model=gpt-query-only')
+
+    const modelSelect = page.locator('[data-tk="use-key-model-select"]')
+    await expect(modelSelect).toBeVisible({ timeout: 30_000 })
+    await expect(modelSelect).toHaveValue('gpt-5.5')
+    await expect(page.locator('[data-tk="quickstart-config-preview-0"]')).not.toContainText('gpt-query-only')
+    await expect.poll(() => new URL(page.url()).searchParams.get('model')).toBe('gpt-5.5')
+  })
+
   test('quickstart tool-first picker drives client config across desktop and mobile', async ({ page }) => {
     await installQuickstartFixture(page)
     await page.addInitScript(() => {

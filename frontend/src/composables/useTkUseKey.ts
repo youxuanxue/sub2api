@@ -195,10 +195,11 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     if (testState.value.status !== 'idle') testState.value = { status: 'idle' }
   }
 
-  /** Pre-select a model from a deep link (e.g. /pricing → /quickstart?model=). */
+  /** Pre-select a model from a deep link only when the current key can serve it. */
   function applyInitialModel(modelId: string | null | undefined): UseKeyFlavor | null {
     const id = modelId?.trim()
     if (!id) return null
+    if (!servableModels.value.some((model) => model.id === id)) return null
     const flavor = flavorOfModel(id)
     setModel(flavor, id)
     return flavor
