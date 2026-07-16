@@ -6,13 +6,9 @@
 import type { MePricingModel } from '@/api/me-pricing'
 import type { PublicCatalogModel } from '@/api/pricing'
 import type { MediaPrice, MediaPriceMap, StudioModality } from '@/constants/studioMediaPresentations.tk'
+import { pricingCatalogModality } from '@/utils/pricingCatalogPresentation.tk'
 
 export type CatalogBillingIndex = ReadonlyMap<string, StudioModality>
-
-function normalizeBillingMode(raw: string | undefined): StudioModality | undefined {
-  if (raw === 'image' || raw === 'video') return raw
-  return undefined
-}
 
 /** model_id → image | video, derived from GET /api/v1/public/pricing. */
 export function buildCatalogBillingIndex(
@@ -20,8 +16,8 @@ export function buildCatalogBillingIndex(
 ): CatalogBillingIndex {
   const map = new Map<string, StudioModality>()
   for (const m of publicModels) {
-    const mode = normalizeBillingMode(m.pricing?.billing_mode)
-    if (mode) map.set(m.model_id, mode)
+    const mode = pricingCatalogModality(m.pricing?.billing_mode)
+    if (mode !== 'text') map.set(m.model_id, mode)
   }
   return map
 }
@@ -67,8 +63,8 @@ function mediaPriceFromCatalogRow(
   perSecond: number | undefined | null,
   vendor: string | undefined
 ): MediaPrice | undefined {
-  const billingMode = normalizeBillingMode(billingModeRaw)
-  if (!billingMode) return undefined
+  const billingMode = pricingCatalogModality(billingModeRaw)
+  if (billingMode === 'text') return undefined
   const hasImage = perImage != null && perImage > 0
   const hasVideo = perSecond != null && perSecond > 0
   if ((billingMode === 'image' && !hasImage) || (billingMode === 'video' && !hasVideo)) return undefined

@@ -190,7 +190,7 @@
                     <div class="min-w-0 flex-1">
                       <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
                       <p class="flex flex-wrap items-baseline gap-1 text-sm font-semibold text-gray-900 dark:text-white">
-                        {{ formatMediaPrice(model.pricing.output_cost_per_image) }}
+                        {{ formatCatalogMediaPrice(model.pricing.output_cost_per_image) }}
                         <span class="text-[10px] font-normal text-gray-400 dark:text-dark-500">{{ t('pricing.perImage') }}</span>
                       </p>
                     </div>
@@ -199,7 +199,7 @@
                     <div class="min-w-0 flex-1">
                       <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
                       <p class="flex flex-wrap items-baseline gap-1 text-sm font-semibold text-gray-900 dark:text-white">
-                        {{ formatMediaPrice(model.pricing.output_cost_per_second) }}
+                        {{ formatCatalogMediaPrice(model.pricing.output_cost_per_second) }}
                         <span class="text-[10px] font-normal text-gray-400 dark:text-dark-500">{{ t('pricing.perSecond') }}</span>
                       </p>
                     </div>
@@ -208,13 +208,13 @@
                     <div class="flex-1">
                       <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.inputPrice') }}</span>
                       <p class="text-sm font-semibold text-gray-900 dark:text-white">
-                        {{ formatPrice(model.pricing.input_per_1k_tokens) }}
+                        {{ formatCatalogPrice(model.pricing.input_per_1k_tokens) }}
                       </p>
                     </div>
                     <div class="flex-1">
                       <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
                       <p class="text-sm font-semibold text-gray-900 dark:text-white">
-                        {{ formatPrice(model.pricing.output_per_1k_tokens) }}
+                        {{ formatCatalogPrice(model.pricing.output_per_1k_tokens) }}
                       </p>
                     </div>
                     <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('models.pricePerK') }}</span>
@@ -247,6 +247,12 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { getPublicPricing, type PublicCatalogModel } from '@/api/pricing'
+import {
+  formatCatalogMediaPrice,
+  formatCatalogPrice,
+  pricingCatalogModality,
+  type PricingCatalogModality,
+} from '@/utils/pricingCatalogPresentation.tk'
 
 const { t, te } = useI18n()
 const authStore = useAuthStore()
@@ -266,14 +272,8 @@ const categoryFilters = computed(() => [
   { key: 'video', label: t('models.filterVideo') },
 ])
 
-type MarketplaceCategory = 'text' | 'image' | 'video'
-
-/** Align with PricingView + public catalog: media rows use pricing.billing_mode, not capabilities. */
-function modelListingCategory(m: PublicCatalogModel): MarketplaceCategory {
-  const mode = m.pricing?.billing_mode
-  if (mode === 'image') return 'image'
-  if (mode === 'video') return 'video'
-  return 'text'
+function modelListingCategory(m: PublicCatalogModel): PricingCatalogModality {
+  return pricingCatalogModality(m.pricing?.billing_mode)
 }
 
 /** LiteLLM uses modality-specific Vertex provider names; the marketplace groups by provider. */
@@ -323,18 +323,6 @@ const filteredModels = computed(() => {
 
   return result
 })
-
-function formatPrice(price: number): string {
-  if (price === 0) return 'Free'
-  if (price < 0.01) return `$${price.toFixed(6)}`
-  if (price < 1) return `$${price.toFixed(4)}`
-  return `$${price.toFixed(2)}`
-}
-
-function formatMediaPrice(price?: number): string {
-  if (price == null || !Number.isFinite(price) || price <= 0) return '—'
-  return formatPrice(price)
-}
 
 function formatCapabilityLabel(cap: string): string {
   const key = `models.capabilities.${cap}`

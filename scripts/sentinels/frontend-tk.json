@@ -154,12 +154,41 @@
       "rationale": "Single source of truth for the client-side media cost MIRROR (price on the Generate button + cost panel + pricing estimator). Must stay aligned with backend CalculateImageCost / CalculateVideoCost; deleting it silently drops the pre-generation price the whole 'price on the button' UX depends on."
     },
     {
+      "path": "frontend/src/utils/pricingCatalogPresentation.tk.ts",
+      "must_contain": [
+        "export function pricingCatalogModality",
+        "export function formatCatalogPrice",
+        "export function formatCatalogMediaPrice"
+      ],
+      "rationale": "Single source of truth for public pricing-catalog modality and price presentation across /models, /pricing, and Studio catalog consumers. Losing this owner can compile green if pages reintroduce local billing_mode branches, then silently split text/image/video membership or price precision between catalog surfaces."
+    },
+    {
+      "path": "frontend/src/views/ModelMarketplaceView.vue",
+      "must_contain": [
+        "from '@/utils/pricingCatalogPresentation.tk'",
+        "formatCatalogMediaPrice",
+        "pricingCatalogModality",
+        "marketplaceVendor"
+      ],
+      "rationale": "The /models injection point for shared catalog modality/price presentation plus provider-family normalization. Anchors prevent an upstream rewrite from restoring token-only Free labels for priced media or splitting Vertex modality-specific provider aliases back into separate vendors."
+    },
+    {
+      "path": "frontend/src/utils/studioMediaCatalog.tk.ts",
+      "must_contain": [
+        "from '@/utils/pricingCatalogPresentation.tk'",
+        "pricingCatalogModality"
+      ],
+      "rationale": "Studio catalog membership must consume the same billing_mode classifier as /models and /pricing. A local classifier here would recreate a second modality owner and allow Studio availability to drift from the public catalog tabs."
+    },
+    {
       "path": "frontend/src/views/PricingView.vue",
       "must_contain": [
         "row.billingMode === 'image'",
-        "row.billingMode === 'video'"
+        "row.billingMode === 'video'",
+        "from '@/utils/pricingCatalogPresentation.tk'",
+        "pricingCatalogModality"
       ],
-      "rationale": "The /pricing media rendering branches (per-image / per-second). Without them media models render as '—' (the pre-batch-2 bug); an upstream merge that reverts the price cell to token-only silently hides image/video prices from buyers."
+      "rationale": "The /pricing media rendering branches (per-image / per-second) and shared catalog-modality owner wiring. Without them media models render as '—' (the pre-batch-2 bug), or /pricing can classify billing_mode differently from /models and Studio; an upstream merge that reverts the price cell or localizes the classifier silently hides or misgroups image/video prices from buyers."
     },
     {
       "path": "frontend/src/components/layout/AppLayout.vue",
