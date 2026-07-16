@@ -1,26 +1,26 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-15T14:16:44Z",
-  "git_sha": "72987a986385efc2483f7ce41f329da3e45ae515",
+  "updated_at": "2026-07-16T02:53:43Z",
+  "git_sha": "29e700d0d54954d8f8dd02c29b543843c0da5ca2",
   "platforms": {
     "claude-code": {
-      "pinned": "2.1.210",
-      "upstream_latest": "2.1.210",
+      "pinned": "2.1.211",
+      "upstream_latest": "2.1.211",
       "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "GitHub anthropics/claude-code": {
-          "version": "2.1.210",
-          "published_at": "2026-07-14T23:45:25Z",
-          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.210",
-          "raw_tag": "v2.1.210"
+          "version": "2.1.211",
+          "published_at": "2026-07-15T23:02:35Z",
+          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.211",
+          "raw_tag": "v2.1.211"
         },
         "npm @anthropic-ai/claude-code": {
-          "version": "2.1.210",
+          "version": "2.1.211",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@anthropic-ai/claude-code",
-          "raw_tag": "2.1.210"
+          "raw_tag": "2.1.211"
         }
       }
     },
@@ -142,17 +142,17 @@
       }
     },
     "kiro-cli": {
-      "pinned": "2.12.2",
-      "upstream_latest": "2.12.2",
+      "pinned": "2.12.3",
+      "upstream_latest": "2.12.3",
       "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "Homebrew cask kiro-cli": {
-          "version": "2.12.2",
+          "version": "2.12.3",
           "published_at": "",
-          "url": "https://desktop-release.q.us-east-1.amazonaws.com/2.12.2/Kiro%20CLI.dmg",
-          "raw_tag": "2.12.2"
+          "url": "https://desktop-release.q.us-east-1.amazonaws.com/2.12.3/Kiro%20CLI.dmg",
+          "raw_tag": "2.12.3"
         }
       }
     }
