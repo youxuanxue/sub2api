@@ -365,7 +365,7 @@ const en: LocaleOverlay = {
     }
   },
   "nav": {
-    "quickstart": "Connect TokenKey",
+    "quickstart": "Tool Integrations",
     "edgeAccounts": "Edge Accounts",
     "studio": "Studio",
     "modelMarketplace": "Model Marketplace"
@@ -827,7 +827,7 @@ const en: LocaleOverlay = {
     }
   },
   "quickstart": {
-    "title": "Connect TokenKey",
+    "title": "Tool Integrations",
     "subtitle": "Choose the tool you already use. TokenKey prepares the correct connection for it.",
     "selectKey": "Select API Key",
     "chooseClient": "Choose your tool",
@@ -1252,7 +1252,7 @@ const zh: LocaleOverlay = {
     }
   },
   "nav": {
-    "quickstart": "连接 TokenKey",
+    "quickstart": "工具接入",
     "edgeAccounts": "Edge 账号",
     "studio": "工作室",
     "modelMarketplace": "模型市场"
@@ -1714,7 +1714,7 @@ const zh: LocaleOverlay = {
     }
   },
   "quickstart": {
-    "title": "连接 TokenKey",
+    "title": "工具接入",
     "subtitle": "选择你正在使用的工具，TokenKey 会准备正确的连接配置。",
     "selectKey": "选择 API Key",
     "chooseClient": "选择你正在使用的工具",
