@@ -1,26 +1,26 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-15T14:16:44Z",
-  "git_sha": "72987a986385efc2483f7ce41f329da3e45ae515",
+  "updated_at": "2026-07-16T00:05:16Z",
+  "git_sha": "7b0136c1ff243b9c5c2fc1b9bd6103d177d3b220",
   "platforms": {
     "claude-code": {
       "pinned": "2.1.210",
-      "upstream_latest": "2.1.210",
-      "status": "aligned",
+      "upstream_latest": "2.1.211",
+      "status": "drift",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "GitHub anthropics/claude-code": {
-          "version": "2.1.210",
-          "published_at": "2026-07-14T23:45:25Z",
-          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.210",
-          "raw_tag": "v2.1.210"
+          "version": "2.1.211",
+          "published_at": "2026-07-15T23:02:35Z",
+          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.211",
+          "raw_tag": "v2.1.211"
         },
         "npm @anthropic-ai/claude-code": {
-          "version": "2.1.210",
+          "version": "2.1.211",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@anthropic-ai/claude-code",
-          "raw_tag": "2.1.210"
+          "raw_tag": "2.1.211"
         }
       }
     },
