@@ -91,5 +91,29 @@ class ValidateInteractiveHTTPLogTest(unittest.TestCase):
                 mod.validate_interactive_http_log(log)
 
 
+class InteractiveDriverContractTest(unittest.TestCase):
+    def test_timeout_exits_instead_of_restarting_forever(self) -> None:
+        script = (_MOD_PATH.parent / "capture_interactive_repl.exp").read_text(
+            encoding="utf-8"
+        )
+        timeout_body = script.split("timeout {", 1)[1].split("}", 1)[0]
+        self.assertIn("exit 124", timeout_body)
+        self.assertNotIn("exp_continue", timeout_body)
+
+    def test_pcap_requires_pre_authorized_noninteractive_sudo(self) -> None:
+        script = (_MOD_PATH.parent / "capture-cc-interactive.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("sudo -n true", script)
+        self.assertIn("sudo -n tcpdump", script)
+        self.assertNotIn("sudo tcpdump", script)
+
+    def test_headless_capture_declares_allowed_tools(self) -> None:
+        script = (_MOD_PATH.parent / "http_capture_invoke.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--allowedTools ''", script)
+
+
 if __name__ == "__main__":
     unittest.main()

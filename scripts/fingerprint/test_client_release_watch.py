@@ -297,6 +297,29 @@ class MainIntegrationTest(unittest.TestCase):
             self.assertEqual(data["summary"]["drift_count"], 7)
             self.assertEqual(data["summary"]["platform_count"], 9)
 
+            plan_report = tmp_path / "plan-report.json"
+            plan_markdown = tmp_path / "plan-report.md"
+            plan_state = tmp_path / "plan-state.json"
+            with mock.patch("builtins.print"):
+                plan_code = crw.main(
+                    [
+                        "--offline-fixture",
+                        str(fixture_path),
+                        "--report-json",
+                        str(plan_report),
+                        "--report-md",
+                        str(plan_markdown),
+                        "--state",
+                        str(plan_state),
+                        "--plan",
+                        "--quiet",
+                    ]
+                )
+            self.assertIn(plan_code, (0, 1))
+            self.assertFalse(plan_report.exists())
+            self.assertFalse(plan_markdown.exists())
+            self.assertFalse(plan_state.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

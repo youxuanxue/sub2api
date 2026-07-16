@@ -13,7 +13,7 @@ PY="$REPO_ROOT/scripts/fingerprint/client_release_watch.py"
 usage() {
   cat <<'EOF'
 Usage:
-  client-release-watch.sh [scan] [--plan] [--quiet]   # poll upstream + report (default)
+  client-release-watch.sh [scan] [--plan] [--quiet]   # --plan is strictly read-only
   client-release-watch.sh plan [--report-json PATH]    # skill routing from last/new scan
   client-release-watch.sh selftest                      # engine self-test
 

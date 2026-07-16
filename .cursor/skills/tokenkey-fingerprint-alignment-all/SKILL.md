@@ -9,7 +9,7 @@ description: >-
 ## 两层入口（版本发现 → 指纹对齐）
 
 1. **版本发现（Layer 1）** — `bash ops/fingerprint/client-release-watch.sh scan --plan`
-   轮询 GitHub/npm/Homebrew 的客户端 release，对比 TokenKey pin。**只报警、不 capture、不 bump**。
+   轮询 GitHub/npm/Homebrew 的客户端 release，对比 TokenKey pin。`--plan` **严格只读**：不写 state/report/cache，只报警、不 capture、不 bump。
    输出会指向应加载的 skill（本 umbrella 或单平台 skill）。
 2. **指纹对齐（Layer 2，本 skill）** — 在 Cursor **加载本 skill 或单平台 skill 后**，跑
    `capture-all-fingerprints.sh` 做真实 capture/diff，再合一个 PR。
@@ -41,7 +41,8 @@ bash ops/fingerprint/capture-all-fingerprints.sh \
   --cc-arg --http \
   --kiro-arg --proxy-port --kiro-arg 7890 \
   --antigravity-arg --proxy-port --antigravity-arg 8080
-#   → 末尾打印 combined drift report；退出码 1=有平台漂移，0=全齐/跳过，2=出错
+#   → 末尾打印 combined coverage + drift report：
+#     0=全部要求证据已观察且 aligned，1=drift，2=error/invalid evidence，3=incomplete/skipped
 # 只跑部分引擎：--skip-cc / --skip-kiro / --skip-antigravity / --skip-codex
 # codex 无前置、默认就跑；本机没装 codex 时用 --skip-codex。
 ```
@@ -61,6 +62,8 @@ bash ops/fingerprint/capture-all-fingerprints.sh \
   fingerprint pin consistency 兜「半截 bump」。
 
 然后 `scripts/preflight.sh` 全绿 → 一个分支、一个 PR 覆盖各平台的产物变更。
+
+最终结论必须逐平台使用 `aligned / drift / incomplete / skipped / error`。显式 `--skip-*` 或证据未观察时返回 3，禁止输出“所有指纹已对齐”。Claude Code 子报告还必须区分 `first_party_oauth` 与 3p/API-key cohort，并拒绝把 HTTP-only TLS stub 当作 JA3 证据。
 
 ## 边界
 

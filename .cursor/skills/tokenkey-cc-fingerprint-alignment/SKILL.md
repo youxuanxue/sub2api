@@ -10,6 +10,18 @@ description: >-
 
 **指纹范畴（OAuth mimic 路径）**：不仅是 `User-Agent` 版本。完整出站指纹 = **TLS JA3** + **HTTP 头**（`User-Agent`、`anthropic-beta` 全集、`x-stainless-*`、`x-app`）+ **system 表面**（`x-anthropic-billing-header` 块、identity anchor、geo-stego 类）。ingress `usage_logs.user_agent`（如 `OpenAI/Python`）≠ 上游所见；用 `gateway.anthropic_oauth_mimic_egress` 或 `probe-oauth-mimicry-chain.sh` 验证出站。见 `docs/spec-delta-cc-oauth-mimicry-fingerprint-scope.md`。
 
+先机械分类证据 cohort，再比较对应 baseline：
+
+```bash
+python3 ops/anthropic/capture_cc_fingerprint.py classify-config \
+  --config-dir "${TOKENKEY_CC_CAPTURE_CONFIG_DIR:-$HOME/.claude}" \
+  --claude-bin "$HOME/.local/bin/claude"
+```
+
+- `first_party_oauth`：允许比较 OAuth beta。
+- `third_party_token` / `first_party_non_oauth`：只验证 UA、Stainless、system 等通用 HTTP 表面；OAuth beta 必须为 `NOT_OBSERVED`，禁止据此改 OAuth baseline。
+- TLS 只接受 collector 或 passive pcap；`baseline_stub_http_only` 必须为 `NOT_OBSERVED`。
+
 关联：`cc0-claude0-launcher` skill（cc0-here 环境）、`tokenkey-anthropic-oauth-config` skill（ja3 变更时的 TLS profile apply）、`docs/spec-delta-cc-canonical-ua-beta-2.1.152.md`（PR #423 实例）。
 
 ## 每日漂移流程（手动按需 —— sessionStart 自动触发已关停）
@@ -141,6 +153,19 @@ bash ops/anthropic/capture-cc-fingerprint.sh capture --http
 # 仅 TLS：bash ops/anthropic/capture-cc-fingerprint.sh capture
 ```
 
+使用本机 `~/.claude/settings.json`、交互 REPL cohort 或 collector 不可用时，走 interactive 路径：
+
+```bash
+# pcap 必须在同一个真实终端先授权；脚本只接受 sudo -n，绝不后台弹密码提示。
+sudo -v
+TOKENKEY_CC_CAPTURE_CONFIG_DIR="$HOME/.claude" \
+  bash ops/anthropic/capture-cc-interactive.sh capture --tls-pcap
+
+# HTTP-only 会把 TLS 标为 NOT_OBSERVED，并以 coverage incomplete 退出。
+TOKENKEY_CC_CAPTURE_CONFIG_DIR="$HOME/.claude" \
+  bash ops/anthropic/capture-cc-interactive.sh capture --http-only
+```
+
 `--http` 现在除 header 外还落 **`system_anchors`**（每个 system 块 text 的前 ~160 字符，仅锚点不存正文）；`bundle-from-artifacts` 汇总进 bundle 的 `system.anchors`，供 `system.identity_anchor` / `system.billing_prefix` diff 行使用（仅 TLS 跑则该维 SKIP）。
 
 ### 2.3 门禁
@@ -152,6 +177,8 @@ python3 ops/anthropic/capture_cc_fingerprint.py check --bundle .tls_list/…-cc-
 # 仅 TLS ja3（每日 hook / 开 PR 用）
 bash ops/anthropic/capture-cc-fingerprint.sh check-tls --bundle .tls_list/….bundle.json
 ```
+
+统一退出码：`0=全部要求证据已观察且 aligned`、`1=drift`、`2=invalid evidence / execution error`、`3=coverage incomplete / not observed`。不得把 `SKIP`、stub 或 3p OAuth beta 缺失解释为 aligned。
 
 ### 2.4 HTTP mitm 链（已修复）
 
@@ -172,7 +199,7 @@ plain claude + CC0_USER_OVERLAY OAuth
 
 ### 2.5 多请求 beta 一致性校验（默认必跑）
 
-`capture --http` 是**单次**抓包做 diff/check。完整 skill 跑法在单次 capture 之后**必须**再跑 comprehensive，跨 haiku/sonnet/opus 各 N 次并统计每族 beta 是否全一致（排查灰度 / 分裂）：
+`capture --http` 是**单次**抓包做 diff/check。完整 skill 跑法在单次 capture 之后**必须**再跑 comprehensive，跨 haiku/sonnet/opus 各 N 次并统计每族 HTTP record 的 beta 是否全一致（排查灰度 / 分裂）：
 
 ```bash
 bash ops/anthropic/capture-http-comprehensive.sh
@@ -183,6 +210,7 @@ bash ops/anthropic/capture-http-comprehensive.sh
 输出每个 model 族的 `N requests, M unique beta header(s)` + `OK/WARN`；末尾自动用最新 `tls-observed` bundle 跑一次 repo `diff` / `check`。复用 §2.4 同一条 mitm 链（gost + cc0 OAuth）。
 
 任一 model 族出现 `WARN`（多种 beta）→ 在 PR / spec-delta 中记录分布，**禁止**在未抓包证据下改 beta 常量。
+只有 `first_party_oauth` cohort 才把该分布与 OAuth mimicry baseline 比较；其它 cohort 只记录分布。
 
 ### 2.6 Geo stego / wire body shape（**内建于 capture；claude CLI + mitm，无 cc0/gost**）
 
@@ -364,6 +392,8 @@ bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh
 - 未抓包就改 system prompt 锚点 / 注入 banner（`cc-system-prompt.json` + Go 副本）；banner 两文件须字节一致
 - 试图 byte 对齐 system prompt 全文（动态：cwd/git/date/env）——只对齐锚点
 - 从旧 patch 推断 ja3
+- 把 HTTP-only bundle 内的 baseline stub 当成新 JA3 证据
+- 用 3p / API-key cohort 的 beta 修改 OAuth baseline
 - ja3 变了却只改 HTTP 常量
 - 用 `cc0-here` 直接做 HTTP mitm（应走 `http_capture_invoke.sh`）
 - 跳过 comprehensive 直接开 PR（beta 分裂未验证）
