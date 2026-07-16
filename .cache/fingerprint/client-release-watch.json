@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-16T00:05:16Z",
-  "git_sha": "7b0136c1ff243b9c5c2fc1b9bd6103d177d3b220",
+  "updated_at": "2026-07-16T02:53:43Z",
+  "git_sha": "29e700d0d54954d8f8dd02c29b543843c0da5ca2",
   "platforms": {
     "claude-code": {
-      "pinned": "2.1.210",
+      "pinned": "2.1.211",
       "upstream_latest": "2.1.211",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -142,17 +142,17 @@
       }
     },
     "kiro-cli": {
-      "pinned": "2.12.2",
-      "upstream_latest": "2.12.2",
+      "pinned": "2.12.3",
+      "upstream_latest": "2.12.3",
       "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "Homebrew cask kiro-cli": {
-          "version": "2.12.2",
+          "version": "2.12.3",
           "published_at": "",
-          "url": "https://desktop-release.q.us-east-1.amazonaws.com/2.12.2/Kiro%20CLI.dmg",
-          "raw_tag": "2.12.2"
+          "url": "https://desktop-release.q.us-east-1.amazonaws.com/2.12.3/Kiro%20CLI.dmg",
+          "raw_tag": "2.12.3"
         }
       }
     }
