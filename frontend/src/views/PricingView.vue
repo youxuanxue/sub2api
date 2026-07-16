@@ -569,6 +569,11 @@ import {
   filterPricingCatalogByModel,
   type PricingCatalogSearchMode
 } from '@/utils/pricingCatalogSearch'
+import {
+  formatCatalogPrice as formatPrice,
+  pricingCatalogModality,
+  type PricingCatalogModality
+} from '@/utils/pricingCatalogPresentation.tk'
 import { exportPricingCsv } from '@/composables/useTkPricingExport'
 
 const { t } = useI18n()
@@ -662,7 +667,7 @@ const modelSearchMode = ref<PricingCatalogSearchMode>('fuzzy')
 // Modality filter (text / image / video) — billing_mode-driven so media models
 // (image per-image, video per-second) are discoverable instead of buried in a
 // token-centric list.
-type PricingModality = 'all' | 'text' | 'image' | 'video'
+type PricingModality = 'all' | PricingCatalogModality
 const pricingModality = ref<PricingModality>('all')
 const modalityOptions = computed<{ value: PricingModality; label: string }[]>(() => [
   { value: 'all', label: t('pricing.modality.all') },
@@ -670,12 +675,6 @@ const modalityOptions = computed<{ value: PricingModality; label: string }[]>(()
   { value: 'image', label: t('pricing.modality.image') },
   { value: 'video', label: t('pricing.modality.video') }
 ])
-
-function rowModality(billingMode?: string): PricingModality {
-  if (billingMode === 'image') return 'image'
-  if (billingMode === 'video') return 'video'
-  return 'text'
-}
 
 function hasSavedAuthToken(): boolean {
   try {
@@ -823,7 +822,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
 const filteredRows = computed(() => {
   const byName = filterPricingCatalogByModel(normalizedRows.value, modelSearchQuery.value, modelSearchMode.value)
   if (pricingModality.value === 'all') return byName
-  return byName.filter((r) => rowModality(r.billingMode) === pricingModality.value)
+  return byName.filter((r) => pricingCatalogModality(r.billingMode) === pricingModality.value)
 })
 
 const hasCacheColumns = computed(() =>
@@ -941,14 +940,6 @@ const exploreBanner = computed<ExploreBanner | null>(() => {
 })
 
 // ============================== misc formatters ==============================
-
-function formatPrice(value: number): string {
-  if (!Number.isFinite(value)) return '—'
-  if (value === 0) return '$0'
-  if (value < 0.01) return `$${value.toFixed(6)}`
-  if (value < 1) return `$${value.toFixed(4)}`
-  return `$${value.toFixed(2)}`
-}
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value)

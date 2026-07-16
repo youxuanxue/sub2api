@@ -168,7 +168,7 @@
                     v-if="model.vendor"
                     class="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-700 dark:text-dark-300"
                   >
-                    {{ model.vendor }}
+                    {{ marketplaceVendor(model) }}
                   </span>
                 </div>
 
@@ -186,19 +186,39 @@
 
                 <!-- Pricing -->
                 <div v-if="model.pricing" class="flex items-center gap-4 border-t border-gray-100 pt-3 dark:border-dark-700">
-                  <div class="flex-1">
-                    <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.inputPrice') }}</span>
-                    <p class="text-sm font-semibold text-gray-900 dark:text-white">
-                      {{ formatPrice(model.pricing.input_per_1k_tokens) }}
-                    </p>
-                  </div>
-                  <div class="flex-1">
-                    <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
-                    <p class="text-sm font-semibold text-gray-900 dark:text-white">
-                      {{ formatPrice(model.pricing.output_per_1k_tokens) }}
-                    </p>
-                  </div>
-                  <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('models.pricePerK') }}</span>
+                  <template v-if="modelListingCategory(model) === 'image'">
+                    <div class="min-w-0 flex-1">
+                      <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
+                      <p class="flex flex-wrap items-baseline gap-1 text-sm font-semibold text-gray-900 dark:text-white">
+                        {{ formatCatalogMediaPrice(model.pricing.output_cost_per_image) }}
+                        <span class="text-[10px] font-normal text-gray-400 dark:text-dark-500">{{ t('pricing.perImage') }}</span>
+                      </p>
+                    </div>
+                  </template>
+                  <template v-else-if="modelListingCategory(model) === 'video'">
+                    <div class="min-w-0 flex-1">
+                      <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
+                      <p class="flex flex-wrap items-baseline gap-1 text-sm font-semibold text-gray-900 dark:text-white">
+                        {{ formatCatalogMediaPrice(model.pricing.output_cost_per_second) }}
+                        <span class="text-[10px] font-normal text-gray-400 dark:text-dark-500">{{ t('pricing.perSecond') }}</span>
+                      </p>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <div class="flex-1">
+                      <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.inputPrice') }}</span>
+                      <p class="text-sm font-semibold text-gray-900 dark:text-white">
+                        {{ formatCatalogPrice(model.pricing.input_per_1k_tokens) }}
+                      </p>
+                    </div>
+                    <div class="flex-1">
+                      <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
+                      <p class="text-sm font-semibold text-gray-900 dark:text-white">
+                        {{ formatCatalogPrice(model.pricing.output_per_1k_tokens) }}
+                      </p>
+                    </div>
+                    <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('models.pricePerK') }}</span>
+                  </template>
                 </div>
               </router-link>
             </div>
@@ -227,6 +247,12 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { getPublicPricing, type PublicCatalogModel } from '@/api/pricing'
+import {
+  formatCatalogMediaPrice,
+  formatCatalogPrice,
+  pricingCatalogModality,
+  type PricingCatalogModality,
+} from '@/utils/pricingCatalogPresentation.tk'
 
 const { t, te } = useI18n()
 const authStore = useAuthStore()
@@ -246,14 +272,14 @@ const categoryFilters = computed(() => [
   { key: 'video', label: t('models.filterVideo') },
 ])
 
-type MarketplaceCategory = 'text' | 'image' | 'video'
+function modelListingCategory(m: PublicCatalogModel): PricingCatalogModality {
+  return pricingCatalogModality(m.pricing?.billing_mode)
+}
 
-/** Align with PricingView + public catalog: media rows use pricing.billing_mode, not capabilities. */
-function modelListingCategory(m: PublicCatalogModel): MarketplaceCategory {
-  const mode = m.pricing?.billing_mode
-  if (mode === 'image') return 'image'
-  if (mode === 'video') return 'video'
-  return 'text'
+/** LiteLLM uses modality-specific Vertex provider names; the marketplace groups by provider. */
+function marketplaceVendor(m: PublicCatalogModel): string {
+  const vendor = m.vendor?.trim() || 'Unknown'
+  return vendor === 'vertex_ai' || vendor.startsWith('vertex_ai-') ? 'vertex_ai' : vendor
 }
 
 // Filter by category (billing_mode-driven — same truth as /pricing modality tabs)
@@ -272,7 +298,7 @@ const filteredByCategory = computed(() => {
 const vendorList = computed(() => {
   const map = new Map<string, number>()
   for (const m of filteredByCategory.value) {
-    const v = m.vendor || 'Unknown'
+    const v = marketplaceVendor(m)
     map.set(v, (map.get(v) || 0) + 1)
   }
   return Array.from(map.entries())
@@ -286,7 +312,7 @@ const filteredModels = computed(() => {
 
   // Vendor filter
   if (activeVendor.value) {
-    result = result.filter(m => (m.vendor || 'Unknown') === activeVendor.value)
+    result = result.filter(m => marketplaceVendor(m) === activeVendor.value)
   }
 
   // Search filter
@@ -297,13 +323,6 @@ const filteredModels = computed(() => {
 
   return result
 })
-
-function formatPrice(price: number): string {
-  if (price === 0) return 'Free'
-  if (price < 0.001) return `$${price.toFixed(6)}`
-  if (price < 0.01) return `$${price.toFixed(4)}`
-  return `$${price.toFixed(3)}`
-}
 
 function formatCapabilityLabel(cap: string): string {
   const key = `models.capabilities.${cap}`
