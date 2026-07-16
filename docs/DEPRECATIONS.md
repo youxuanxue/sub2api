@@ -105,28 +105,19 @@ restores the file and removes the entry in the same change.
 
 ## frontend/src/components/account/__tests__/CreateAccountModal.grok.spec.ts
 
-- **Upstream path:**
-  `frontend/src/components/account/__tests__/CreateAccountModal.grok.spec.ts`.
-- **Deletion commit + PR:** `3fa27f851ca7149560e4dcfec7baf065aabcad9d`
-  — "fix(upstream): address R-001..R-002 — restore Grok OAuth create wiring",
-  landed via [PR #1353](https://github.com/youxuanxue/sub2api/pull/1353).
-- **Reason:** the file read `CreateAccountModal.vue` as text and asserted that
-  selected strings and call counts existed. Those assertions passed while the
-  Grok header override UI was unreachable in TokenKey's canonical direct
-  refresh-token flow and while that submit path silently dropped the custom
-  upstream configuration. The replacement tests mount the component and prove
-  both credential persistence and protected-header rejection in
-  `frontend/src/components/account/__tests__/CreateAccountModal.spec.ts`.
-- **Regression cost:** a future upstream merge may resurrect the source-text
-  test and create false confidence without failing compilation or CI. The Grok
-  sentinel registry therefore anchors the mounted behavior test names plus the
-  validation and credential-application call sites.
-- **Upstream tests lost:** three source-text assertions covering API-key setup
-  strings, OAuth custom-upstream strings, and raw invocation counts. Their
-  useful intent is retained by the mounted behavior tests and existing Grok
-  account-type coverage; only the existence-only implementation assertions are
-  intentionally discarded.
-- **Re-adopt when:** upstream replaces this file with mounted component tests
-  that exercise the direct refresh-token journey and assert the submitted
-  credentials. Merge those behavioral cases into the shared modal spec and
-  remove this ledger entry; do not re-adopt the source-text version.
+- **Upstream path:** `frontend/src/components/account/__tests__/CreateAccountModal.grok.spec.ts`.
+- **Deletion commit + PR:** `3fa27f851` — "fix(upstream): address R-001..R-002 — restore Grok OAuth create wiring", landed through
+  [PR #1353](https://github.com/youxuanxue/sub2api/pull/1353). The upstream
+  merge itself removed this standalone fixture after folding its coverage into
+  `CreateAccountModal.spec.ts`.
+- **Reason:** this is an upstream-owned test consolidation, not a TokenKey
+  product deletion. The replacement file kept direct refresh-token coverage;
+  TokenKey restores the source-level API-key, custom-header, and all-path
+  configuration contracts there as part of this branch.
+- **Regression cost:** no production behavior is removed. Without the restored
+  contracts, future Grok UI changes could silently remove the API-key entry or
+  skip upstream configuration on one OAuth creation path.
+- **Upstream tests lost:** the standalone Grok fixture's three source-contract
+  assertions; they are now present in `CreateAccountModal.spec.ts`.
+- **Re-adopt when:** upstream restores the standalone fixture or splits the
+  coverage back out; remove this ledger entry in the same merge that re-adds it.

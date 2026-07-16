@@ -809,6 +809,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					return
 				}
 
+				var kiroInvalidRequestErr *service.KiroInvalidRequestError
+				if errors.As(err, &kiroInvalidRequestErr) {
+					h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", kiroInvalidRequestErr.ClientMessage())
+					return
+				}
+
 				var kiroQuotaErr *service.KiroEndpointQuotaExhaustedError
 				if errors.As(err, &kiroQuotaErr) {
 					c.Header("Retry-After", strconv.Itoa(service.KiroEndpointQuotaExhaustedRetryAfterSeconds()))

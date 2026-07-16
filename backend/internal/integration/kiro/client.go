@@ -510,7 +510,16 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 		}
 
 		eventType := extractEventType(msgBuf[0:headersLength])
+		exceptionType := extractEventStreamHeaderValue(msgBuf[0:headersLength], ":exception-type")
+		messageType := extractEventStreamHeaderValue(msgBuf[0:headersLength], ":message-type")
 		payloadBytes := msgBuf[headersLength : len(msgBuf)-4]
+		if exceptionType != "" || messageType == "exception" || messageType == "error" || eventType == "exception" || eventType == "error" {
+			kind := exceptionType
+			if kind == "" {
+				kind = messageType
+			}
+			return fmt.Errorf("kiro event stream error: %s: %s", kind, string(payloadBytes))
+		}
 		if len(payloadBytes) == 0 {
 			continue
 		}
@@ -850,6 +859,13 @@ func firstBoolField(m map[string]interface{}, keys ...string) bool {
 
 // extractEventType extracts the event type string from AWS Event Stream message headers.
 func extractEventType(headers []byte) string {
+	return extractEventStreamHeaderValue(headers, ":event-type")
+}
+
+// extractEventStreamHeaderValue extracts a string/bool AWS EventStream header.
+// Kiro uses :exception-type and :message-type for in-band failures, while
+// normal responses identify frames with :event-type.
+func extractEventStreamHeaderValue(headers []byte, targetName string) string {
 	offset := 0
 	for offset < len(headers) {
 		if offset >= len(headers) {
@@ -879,8 +895,14 @@ func extractEventType(headers []byte) string {
 			}
 			value := string(headers[offset : offset+valueLen])
 			offset += valueLen
-			if name == ":event-type" {
+			if name == targetName {
 				return value
+			}
+			continue
+		}
+		if valueType == 0 || valueType == 1 {
+			if name == targetName {
+				return map[byte]string{0: "true", 1: "false"}[valueType]
 			}
 			continue
 		}
