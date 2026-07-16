@@ -234,6 +234,26 @@ class BundleRoundtripTests(unittest.TestCase):
         self.assertTrue(all(r.status == "not_observed" for r in tls_rows))
         self.assertEqual(mod.EXIT_INCOMPLETE, mod.diff_exit_code(tls_rows))
 
+    def test_unsupported_tls_source_is_invalid_evidence(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "source": "manual-cache",
+            },
+        )
+        self.assertFalse(bundle["evidence"]["tls"]["observed"])
+        self.assertFalse(bundle["evidence"]["tls"]["valid"])
+        tls_rows = [
+            row
+            for row in mod.diff_baseline_vs_capture(baseline, bundle)
+            if row.field.startswith("tls.")
+        ]
+        self.assertTrue(all(row.status == "invalid_evidence" for row in tls_rows))
+        self.assertEqual(mod.EXIT_ERROR, mod.diff_exit_code(tls_rows))
+
     def test_third_party_http_does_not_compare_oauth_betas(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
         bundle = mod.bundle_from_artifacts(

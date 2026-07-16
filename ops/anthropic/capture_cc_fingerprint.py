@@ -437,8 +437,20 @@ def bundle_from_artifacts(
     collector_url: str = "",
     http_cohort: str = "",
 ) -> dict[str, Any]:
-    tls_source = str(tls_observed.get("source") or collector_url or "unknown")
-    tls_observed_on_wire = tls_source != "baseline_stub_http_only"
+    artifact_tls_source = str(tls_observed.get("source") or "")
+    tls_source = artifact_tls_source or collector_url or "unknown"
+    if artifact_tls_source == "baseline_stub_http_only":
+        tls_observed_on_wire = False
+        tls_evidence_valid = True
+    elif artifact_tls_source.startswith("passive-pcap"):
+        tls_observed_on_wire = True
+        tls_evidence_valid = True
+    elif not artifact_tls_source and collector_url:
+        tls_observed_on_wire = True
+        tls_evidence_valid = True
+    else:
+        tls_observed_on_wire = False
+        tls_evidence_valid = False
     http_present = bool(http_by_variant or http_variants or system_anchors)
     return {
         "schema_version": SCHEMA_VERSION,
@@ -449,6 +461,7 @@ def bundle_from_artifacts(
             "tls": {
                 "source": tls_source,
                 "observed": tls_observed_on_wire,
+                "valid": tls_evidence_valid,
             },
             "http": {
                 "source": "mitm" if http_present else "none",
@@ -501,12 +514,24 @@ def diff_baseline_vs_capture(
         tls_evidence.get("source") or cap_tls.get("source") or capture.get("collector") or ""
     )
     tls_was_observed = bool(tls_evidence.get("observed", True))
+    tls_evidence_valid = bool(tls_evidence.get("valid", True))
     if tls_source == "baseline_stub_http_only":
         tls_was_observed = False
     for key in ("ja3_hash", "ja3_raw"):
         tk = str(base_tls.get(key) or "")
         cap = str(cap_tls.get(key) or "")
-        if not tls_was_observed:
+        if explicit_tls_evidence and not tls_evidence_valid:
+            rows.append(
+                DiffRow(
+                    f"tls.{key}",
+                    tk,
+                    cap,
+                    "invalid_evidence",
+                    critical=True,
+                    note=f"Unsupported TLS evidence source {tls_source or 'unknown'}; use collector or passive pcap",
+                )
+            )
+        elif not tls_was_observed:
             rows.append(
                 DiffRow(
                     f"tls.{key}",
