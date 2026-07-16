@@ -1,9 +1,9 @@
 ---
 title: Sticky Routing & Prompt Cache Optimization
-status: shipped
-approved_by: xuejiao (post-hoc 2026-04-19)
-approved_at: 2026-04-19
-shipped_at: 2026-04-19
+status: approved
+approved_by: "xuejiao (design revision, this session, 2026-07-16)"
+approved_at: 2026-07-16
+previous_version_shipped_at: 2026-04-19
 authors: [agent]
 created: 2026-04-17
 related_prs: []
@@ -213,28 +213,39 @@ SettingKeyStickyRoutingEnabled = "gateway.sticky_routing.enabled"  // bool, defa
 
 ### 5.1 后端聚合
 
-`backend/internal/handler/admin/dashboard_handler.go` 已有 `total_cache_read_tokens`。新增按时间窗 + 按 group/api_key 的命中率字段：
+复用现有 `GET /admin/dashboard/snapshot-v2?include_group_stats=true`，禁止新增只服务同一意图的 cache-stats endpoint。`GroupStat` 在既有成本字段之外返回可核算的 prompt token 分解：
 
 ```go
-type CacheStats struct {
-    InputTokens     int64   `json:"input_tokens"`
-    CacheReadTokens int64   `json:"cache_read_tokens"`
-    HitRate         float64 `json:"hit_rate"`  // CacheReadTokens / (InputTokens + CacheReadTokens)
+type GroupStat struct {
+    InputTokens                         int64 `json:"input_tokens"`
+    OutputTokens                        int64 `json:"output_tokens"`
+    CacheCreationTokens                 int64 `json:"cache_creation_tokens"`
+    CacheReadTokens                     int64 `json:"cache_read_tokens"`
+    CacheTelemetryUnavailableInputTokens int64 `json:"cache_telemetry_unavailable_input_tokens"`
 }
 ```
 
-新接口（小步加，不动既有）：
-- `GET /admin/dashboard/cache-stats?window=24h&group_by=api_key`
-- 复用现有 `usage_logs` 查询，加 `GROUP BY api_key_id`。
+`cache_telemetry_unavailable_input_tokens` 的 SSOT 是持久化 usage row 的 `billing_tier='kiro-estimated'`。Kiro 上游只返回 credits，TokenKey 本地估算 input，不能把这部分当作 cache miss。混合分组的可观测分母为：
+
+```text
+(input_tokens - cache_telemetry_unavailable_input_tokens)
++ cache_creation_tokens
++ cache_read_tokens
+```
+
+命中率由前端基于整数 token 聚合后计算，API 不持久化易漂移的百分比。group daily rollup 已包含 input/output/cache 分项；不可观测 input 在选定窗口按 usage row 精确聚合，不按 group.platform 或分组名称猜测。
 
 ### 5.2 前端卡片
 
-`frontend/src/views/admin/DashboardView.vue` 加一个 "Prompt Cache 命中率" 卡片：
-- 顶部数字：过去 24h 整体命中率（百分比 + 绝对节省的 input tokens）
-- 下方 mini-table：top 5 API key by 命中率（升序，凸显需要优化的）
-- 颜色：>50% 绿、20-50% 黄、<20% 红
+`frontend/src/views/admin/DashboardView.vue` 的旧 Today/Total 全站卡片替换为一个行动导向的分组卡片：
 
-无需 chart 库新依赖（用现有 stat-card 组件 + 简单 v-for 列表）。
+- 顶部只显示当前筛选窗口的**可观测命中率**；默认窗口沿用 Dashboard 的滚动 24 小时，不复用 calendar-day `stats.today_*`。
+- 下方最多显示 5 个分组，按 prompt 影响量 `input + cache_creation + cache_read` 降序，而不是按百分比制造小流量噪声。
+- 每行只保留分组名、可观测命中率（或不可观测状态）、cache read 绝对量；点击进入带相同时间窗和 `group_id` 的 Usage 明细。
+- 可观测分母为 0 且存在不可观测 input 时显示“不可观测”，禁止显示 `0%`；混合流量显示可观测部分的百分比并标记“部分可观测”。
+- 不设置跨平台统一健康阈值；不同上游的 cache 语义不同，颜色阈值会制造虚假结论。
+
+无需 chart 库或新组件；该行为只在 Dashboard 消费，页面 owner 负责展示与 drilldown 编排。
 
 ---
 
@@ -242,36 +253,28 @@ type CacheStats struct {
 
 ### 6.1 User Story
 
-`.testing/user-stories/stories/US-201-sticky-routing.md`（编号待定）覆盖：
-- AC-001 (正向, OpenAI Codex)：Cursor 客户端连续 5 个请求未送 prompt_cache_key + 同 system → 全部上游 body 注入相同的 `tk_*` key
-- AC-002 (正向, Anthropic mimic)：非 Claude Code UA + Anthropic OAuth 账号 + 客户端无 metadata → 网关注入 metadata.user_id
-- AC-003 (负向, 真 Claude Code)：UA=Claude Code + Anthropic OAuth → 不注入 metadata（不打架）
-- AC-004 (负向, group=off)：分组 mode=off → 不论客户端送什么都不派生
-- AC-005 (负向, global=off)：全局开关关闭 → 所有分组都不派生
-- AC-006 (回归)：客户端已送 prompt_cache_key → 网关不覆盖（passthrough 优先）
-- AC-007 (回归, compat 路径)：`gpt-5.4` 现有自动注入行为不变
+`.testing/user-stories/stories/US-006-sticky-routing-prompt-cache.md` 是本设计的验收 SSOT。缓存可视化修订由 AC-009 至 AC-011 覆盖：分组 Token 契约与 raw/rollup 一致、Kiro 不可观测输入不计作 miss、Top 5 排序与同窗口分组钻取。
 
 ### 6.2 测试文件
 
 | 文件 | 覆盖 |
 |---|---|
 | `backend/internal/service/sticky_session_injector_test.go` | Derive 五级回退；各 Inject* 方法 |
-| `backend/internal/service/sticky_session_strategy_test.go` | global/group 合成；StickyMode 三档行为 |
-| `backend/internal/service/openai_gateway_service_sticky_test.go` | 既有 hot-path 测试加 sticky 注入用例 |
-| `backend/internal/handler/openai_gateway_handler_messages_sticky_test.go` | Messages→OpenAI 路径 |
-| `backend/internal/service/gateway_service_sticky_test.go` | Anthropic mimic / Claude Code skip |
-| `frontend/src/components/keys/__tests__/UseKeyModal.spec.ts` | 已加（P0） |
-| `frontend/src/views/admin/__tests__/GroupsViewSticky.spec.ts` | 分组下拉 |
-| `frontend/src/views/admin/__tests__/DashboardCacheCard.spec.ts` | 命中率卡片 |
+| `backend/internal/repository/usage_log_repo_request_type_test.go` | raw/rollup SQL 契约、Token 分项与 Kiro 不可观测输入 |
+| `backend/internal/repository/usage_log_repo_tk_group_rollup_integration_test.go` | PostgreSQL raw/rollup 分组统计 parity |
+| `backend/internal/handler/admin/dashboard_handler_cache_test.go` | snapshot-v2 分组字段 JSON 契约 |
+| `frontend/src/views/admin/__tests__/DashboardView.spec.ts` | 总体/分组可观测状态、Top 5 与钻取参数 |
+| `frontend/src/views/admin/__tests__/UsageView.spec.ts` | Usage 消费分组与绝对时间窗 |
+| `frontend/e2e/dashboard-cache.e2e.ts` | 真实浏览器 desktop/mobile 展示与钻取 |
 
 ### 6.3 风险覆盖
 
 | 风险类型 | 场景 | 测试 |
 |---|---|---|
-| 逻辑错误 | 派生算法稳定性（同输入得同输出） | `TestUS201_DeriveStable` |
-| 行为回归 | 既有 compat 自动注入 | `TestUS201_CompatAutoInjectUnchanged` |
-| 安全问题 | 跨 api_key 不互踩；hash 不泄露 system 内容 | `TestUS201_NoCrossAPIKeyCollision`, `TestUS201_HashNotReversible` |
-| 运行时问题 | strategy 计算的 hot-path 性能；并发 derive 一致 | benchmark + `-race` |
+| 逻辑错误 | 可观测分母、影响量排序、raw/rollup parity | repository tests + `DashboardView.spec.ts` |
+| 行为回归 | snapshot 旧字段兼容、纯 Kiro 不显示 `0%` | handler contract + frontend tests |
+| 端到端体验 | 同窗口分组钻取、desktop/mobile 无溢出 | `UsageView.spec.ts` + Playwright |
+| 上游覆盖 | TK 聚合与 UI 入口被 upstream rewrite 冲掉 | gateway/frontend sentinel registries |
 
 ---
 
@@ -280,7 +283,7 @@ type CacheStats struct {
 > **实施实情（2026-04-19 事后盘点）**：本表是设计当时拟定的"理想 8-PR 切分"。
 > 代码实际以**单提交 `a68dee5b`**（2026-04-18）一次性落地（schema + injector + 6 处接入点 + 单测 + UI），未拆 PR。
 > 这违反了 `product-dev.mdc` §阶段 2 → 审批 → §阶段 3 顺序，详见 §11 实施情况。
-> 下次同等规模特性必须按本表切分。
+> 本表仅保留历史设计意图，不作为后续拆 PR 规范；当前遵循 `product-dev.mdc` 的默认单 PR 路径。
 
 | 顺序 | 内容 | PR 标题 | 可独立 review |
 |---|---|---|---|
@@ -293,7 +296,7 @@ type CacheStats struct {
 | 7 | 全局 + 分组 UI | `feat: ui controls for sticky routing strategy` | ✅ |
 | 8 | Dashboard cache 命中率卡片 | `feat: cache hit rate dashboard card` | ✅ |
 
-> 本设计文档（pending）merge 后才能进入 PR 2-8。
+> 历史原计划是在设计文档从 pending 转为 approved 后再实施；当前审批状态以本文 frontmatter 为准。
 
 ---
 
@@ -321,7 +324,7 @@ type CacheStats struct {
 
 1. ✅ **字段命名 `sticky_routing_mode`** — 已采用。理由：覆盖更广（含 NewAPI X-Session-Id 等非 cache 场景），与 `prompt_cache_*` 解耦。
    schema：`backend/ent/schema/group.go` enum；migration：`backend/migrations/tk_002_add_groups_sticky_routing_mode.sql`。
-2. ✅ **Dashboard 卡片只读最近 24h** — 已采用。`frontend/src/views/admin/DashboardView.vue` 仅暴露 `promptCacheHitRateToday/Total`，不引入时间窗切换。
+2. ✅ **Dashboard 卡片跟随当前筛选窗口** — 2026-07-16 修订批准：默认仍是滚动 24h；移除误导性的 Today/Total 双值，改为分组影响量 Top 5 与不可观测状态。
 3. ✅ **derive 兜底用 system 前 2KB** — 已采用。常量：`backend/internal/service/sticky_session_injector.go::stickyDerivedSystemPromptCap = 2 * 1024`。极少数超长 system prompt 撞桶问题观察后再优化。
 4. ✅ **NewAPI X-Session-Id 与 OpenAI/Anthropic 注入同 PR** — 已采用（实际是 `a68dee5b` 一次提交全部落地）。访问点：`backend/internal/service/openai_gateway_bridge_dispatch.go::applyStickyToNewAPIBridge`。
 

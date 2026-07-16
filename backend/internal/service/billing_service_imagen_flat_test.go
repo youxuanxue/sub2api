@@ -47,5 +47,5 @@ func TestImagenHold_FlatNotFourKMax(t *testing.T) {
 	svc := &BillingService{}
 
 	require.InDelta(t, 0.134, svc.EstimateImageHold("imagen-4.0-fast-generate-001", "", 1, nil, 1.0), 1e-6) // flat (was 0.268)
-	require.InDelta(t, 0.268, svc.EstimateImageHold("seedream-4-0-250828", "", 1, nil, 1.0), 1e-6)           // 4K ×2 stays
+	require.InDelta(t, 0.268, svc.EstimateImageHold("seedream-4-0-250828", "", 1, nil, 1.0), 1e-6)          // 4K ×2 stays
 }

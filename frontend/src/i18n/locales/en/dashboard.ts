@@ -85,6 +85,7 @@ export default {
     editKey: 'Edit API Key',
     deleteKey: 'Delete API Key',
     deleteConfirmMessage: "Are you sure you want to delete '{name}'? This action cannot be undone.",
+    id: 'ID',
     apiKey: 'API Key',
     group: 'Group',
     currentConcurrency: 'Current Concurrency',
@@ -124,6 +125,7 @@ export default {
     total: 'Last 30d',
     quota: 'Quota',
     lastUsedAt: 'Last Used',
+    lastUsedIP: 'Last Used IP',
     useKey: 'Use Key',
     useKeyModal: {
       title: 'Use API Key',
@@ -136,6 +138,10 @@ export default {
       noGroupDescription: 'This API key has not been assigned to a group. Please click the group column in the key list to assign one before viewing the configuration.',
       openai: {
         description: 'Add the following configuration files to your Codex CLI config directory.',
+        authModeTitle: 'Codex authentication mode',
+        authModeDescription: 'Compatibility mode keeps the existing setup for older Codex clients. API Key Mode enables the client-side image executor.',
+        authModeLegacy: 'Compatibility mode',
+        authModeApiKey: 'API Key Mode',
         configTomlHint: 'Make sure the following content is at the beginning of the config.toml file',
         note: 'Make sure the config directory exists. macOS/Linux users can run mkdir -p ~/.codex to create it.',
         noteWindows: 'Press Win+R and enter %userprofile%\\.codex to open the config directory. Create it manually if it does not exist.',
@@ -145,6 +151,7 @@ export default {
         geminiCli: 'Gemini CLI',
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
+        grokCli: 'Grok CLI',
         opencode: 'OpenCode',
       },
       antigravity: {
@@ -158,6 +165,12 @@ export default {
         description: 'Add the following environment variables to your terminal profile or run directly in terminal to configure Gemini CLI access.',
         modelComment: 'If you have Gemini 3 access, you can use: gemini-3-pro-preview',
         note: 'These environment variables will be active in the current terminal session. For permanent configuration, add them to ~/.bashrc, ~/.zshrc, or the appropriate configuration file.',
+      },
+      grok: {
+        description: 'Configure Grok Build or OpenCode to send Responses API traffic through your Sub2API Grok group.',
+        configTomlHint: 'Back up an existing config.toml before merging this model entry. Run grok inspect after saving to verify the effective configuration.',
+        note: 'Save the file as ~/.grok/config.toml, then run grok inspect and select grok from /model.',
+        noteWindows: 'Save the file as %USERPROFILE%\\.grok\\config.toml, then run grok inspect and select grok from /model.',
       },
       opencode: {
         title: 'OpenCode Example',
@@ -288,6 +301,9 @@ export default {
     cost: 'Cost',
     firstToken: 'First Token',
     duration: 'Duration',
+    latency: 'Latency',
+    latencyFirstToken: 'First',
+    latencyDuration: 'Total',
     time: 'Time',
     ws: 'WS',
     stream: 'Stream',
@@ -355,7 +371,7 @@ export default {
       detailAccuracy: 'Accuracy',
       detailCoordinates: 'Coordinates',
     },
-    tabs: { usage: 'Usage', errors: 'Error Requests' },
+    tabs: { usage: 'Usage', errors: 'Error Requests', ranking: 'User Ranking' },
     errors: {
       time: 'Time', model: 'Model', endpoint: 'Endpoint', status: 'Status',
       category: 'Category', platform: 'Platform', message: 'Message',
@@ -388,7 +404,8 @@ export default {
     providers: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
-      gemini: 'Gemini'
+      gemini: 'Gemini',
+      grok: 'Grok'
     },
     extraModelsHeader: 'Extra Models',
     extraModelsEmpty: 'No extra models',
@@ -477,6 +494,7 @@ export default {
       billingModeToken: 'Per Token',
       billingModePerRequest: 'Per Request',
       billingModeImage: 'Per Image',
+      billingModeVideo: 'Per Video',
       inputPrice: 'Input',
       outputPrice: 'Output',
       cacheWritePrice: 'Cache Write',

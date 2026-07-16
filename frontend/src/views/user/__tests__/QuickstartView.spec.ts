@@ -52,9 +52,13 @@ vi.mock('@/components/keys/UseKeyGuide.vue', () => ({
       'claudeCodeOnly',
       'allowMessagesDispatch',
       'supportedModelScopes',
+      'selectedClient',
+      'selectedProtocol',
+      'selectedTransport',
+      'showClientTabs',
     ],
     template:
-      '<div data-test="use-key-guide">{{ routingMode }}|{{ platform ?? "" }}|{{ initialModel ?? "" }}</div>',
+      '<div data-test="use-key-guide">{{ routingMode }}|{{ platform ?? "" }}|{{ initialModel ?? "" }}|{{ selectedClient ?? "" }}|{{ selectedProtocol ?? "" }}|{{ selectedTransport ?? "" }}</div>',
   },
 }))
 
@@ -123,7 +127,7 @@ describe('QuickstartView', () => {
   it('embeds UseKeyGuide for universal keys without a fixed group platform', async () => {
     const wrapper = await mountView()
     const guide = wrapper.get('[data-test="use-key-guide"]')
-    expect(guide.text()).toBe('universal||')
+    expect(guide.text()).toBe('universal|||claude|anthropic|http')
     expect(wrapper.text()).not.toContain('keys.useKeyModal.noGroupTitle')
   })
 
@@ -164,5 +168,87 @@ describe('QuickstartView', () => {
     expect(replaceMock).toHaveBeenCalledWith(
       expect.objectContaining({ query: expect.objectContaining({ keyId: '99' }) }),
     )
+  })
+
+  it('shows every existing and newly supported client before the config workspace', async () => {
+    const wrapper = await mountView()
+    const expected = [
+      'claude-code', 'codex-cli', 'qwen-code', 'gemini-cli', 'opencode', 'cline', 'roo-code',
+      'cherry-studio', 'lobe-chat', 'chatbox', 'dify', 'curl', 'python',
+    ]
+    for (const id of expected) {
+      expect(wrapper.find(`[data-tk="quickstart-client-${id}"]`).exists()).toBe(true)
+    }
+    const picker = wrapper.get('[data-tk="quickstart-client-picker"]')
+    const workspace = wrapper.get('[data-tk="quickstart-config-workspace"]')
+    expect(picker.element.compareDocumentPosition(workspace.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('selects Qwen Code at the tool layer and keeps protocol as a secondary control', async () => {
+    const wrapper = await mountView()
+    await wrapper.get('[data-tk="quickstart-client-qwen-code"]').trigger('click')
+    await nextTick()
+    expect(wrapper.get('[data-tk="quickstart-client-qwen-code"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-tk="quickstart-protocol-picker"]').exists()).toBe(true)
+    expect(wrapper.get('[data-tk="quickstart-protocol-anthropic"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-tk="quickstart-protocol-openai"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-test="use-key-guide"]').text()).toContain('|qwen-code|anthropic|')
+  })
+
+  it('keeps incompatible clients visible and disabled for a direct Anthropic key', async () => {
+    listKeys.mockResolvedValue({
+      items: [{
+        ...universalKey(),
+        routing_mode: 'direct',
+        group_id: 1,
+        group: { id: 1, name: 'Claude', platform: 'anthropic', claude_code_only: false },
+      }],
+      total: 1,
+      page: 1,
+      page_size: 100,
+      pages: 1,
+    })
+    const wrapper = await mountView()
+    const codex = wrapper.get('[data-tk="quickstart-client-codex-cli"]')
+    expect(codex.attributes('data-unavailable')).toBe('true')
+    expect(codex.text()).toContain('Codex CLI')
+    await codex.trigger('click')
+    await nextTick()
+    expect(wrapper.get('[data-tk="quickstart-client-unavailable"]').text()).toBe('quickstart.unavailableProtocol')
+
+    await wrapper.get('[data-tk="quickstart-client-qwen-code"]').trigger('click')
+    await nextTick()
+    expect(wrapper.get('[data-tk="quickstart-protocol-anthropic"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-tk="quickstart-protocol-openai"]').attributes('disabled')).toBe('')
+  })
+
+  it('keeps every non-Claude client visible but disabled for an explicitly CC-only group', async () => {
+    listKeys.mockResolvedValue({
+      items: [{
+        ...universalKey(),
+        routing_mode: 'direct',
+        group_id: 1,
+        group: { id: 1, name: 'Legacy CC-only', platform: 'anthropic', claude_code_only: true },
+      }],
+      total: 1,
+      page: 1,
+      page_size: 100,
+      pages: 1,
+    })
+    const wrapper = await mountView()
+    expect(wrapper.get('[data-tk="quickstart-client-claude-code"]').attributes('data-unavailable')).toBeUndefined()
+    for (const id of ['qwen-code', 'opencode', 'curl', 'python']) {
+      expect(wrapper.get(`[data-tk="quickstart-client-${id}"]`).attributes('data-unavailable')).toBe('true')
+    }
+  })
+
+  it('writes the selected model back to the URL without exposing the API key', async () => {
+    const wrapper = await mountView()
+    wrapper.getComponent({ name: 'UseKeyGuide' }).vm.$emit('modelChange', 'gpt-5.5')
+    await nextTick()
+    expect(replaceMock).toHaveBeenLastCalledWith({
+      query: expect.objectContaining({ model: 'gpt-5.5', keyId: '42' }),
+    })
+    expect(JSON.stringify(replaceMock.mock.calls.at(-1))).not.toContain('sk-universal-test-key')
   })
 })

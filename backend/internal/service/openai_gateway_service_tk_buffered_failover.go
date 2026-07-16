@@ -76,11 +76,25 @@ func (s *OpenAIGatewayService) openAICompatBufferedFailedResponseResult(
 	if clientMsg == "" {
 		clientMsg = "Upstream returned a failed response"
 	}
-	statusCode := http.StatusBadRequest
-	errType := "invalid_request_error"
+	if status, errType, errMsg, matched := applyOpenAIStreamFailedErrorPassthroughRule(c, account.Platform, payload, clientMsg); matched {
+		if route == openAICompatBufferedRouteMessages {
+			s.recordOpenAIMessagesStreamUpstreamError(c, account, requestID, "buffered_response_failed", clientMsg)
+			writeAnthropicError(c, status, errType, errMsg)
+		} else {
+			s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "buffered_response_failed", payload, clientMsg)
+			writeChatCompletionsError(c, status, errType, errMsg)
+		}
+		return nil, fmt.Errorf("upstream response failed (passthrough rule matched): %s", message)
+	}
+
+	statusCode := openAIStreamFailedEventSemanticStatus(payload, clientMsg)
 	if isOpenAIContextWindowError(clientMsg, payload) {
+		// Preserve the existing no-rule contract for context-window failures.
 		statusCode = http.StatusBadGateway
-		errType = "upstream_error"
+	}
+	errType := "upstream_error"
+	if statusCode == http.StatusBadRequest {
+		errType = "invalid_request_error"
 	}
 	if route == openAICompatBufferedRouteMessages {
 		s.recordOpenAIMessagesStreamUpstreamError(c, account, requestID, "buffered_response_failed", clientMsg)
@@ -89,5 +103,5 @@ func (s *OpenAIGatewayService) openAICompatBufferedFailedResponseResult(
 		s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "buffered_response_failed", payload, clientMsg)
 		writeChatCompletionsError(c, statusCode, errType, clientMsg)
 	}
-	return nil, fmt.Errorf("openai buffered response.failed (non-retryable): %s", message)
+	return nil, fmt.Errorf("upstream response failed (non-retryable): %s", message)
 }

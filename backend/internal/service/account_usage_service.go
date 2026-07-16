@@ -111,6 +111,7 @@ const (
 	apiQueryMaxJitter   = 800 * time.Millisecond // 用量查询最大随机延迟
 	windowStatsCacheTTL = 1 * time.Minute
 	openAIProbeCacheTTL = 10 * time.Minute
+	grokFreeQuotaWindow = 24 * time.Hour
 )
 
 // UsageCache 封装账户使用量相关的缓存
@@ -122,6 +123,7 @@ type UsageCache struct {
 	antigravityFlight singleflight.Group // 防止同一 Antigravity 账号的并发请求击穿缓存
 	kiroFlight        singleflight.Group // Kiro 主动「查询」并发去重（仅 force=true 用，无正缓存）
 	openAIProbeCache  sync.Map           // accountID -> time.Time
+	grokProbeCache    sync.Map           // accountID -> last billing probe attempt
 }
 
 // NewUsageCache 创建 UsageCache 实例
@@ -246,15 +248,19 @@ type UsageInfo struct {
 	KiroUsage *KiroUsageInfo `json:"kiro_usage,omitempty"`
 
 	// Grok / xAI 被动额度快照
-	GrokRequestQuota       *xai.QuotaWindow `json:"grok_request_quota,omitempty"`
-	GrokTokenQuota         *xai.QuotaWindow `json:"grok_token_quota,omitempty"`
-	GrokRetryAfterSeconds  *int             `json:"grok_retry_after_seconds,omitempty"`
-	GrokEntitlementStatus  string           `json:"grok_entitlement_status,omitempty"`
-	GrokQuotaSnapshotState string           `json:"grok_quota_snapshot_state,omitempty"`
-	GrokLastQuotaProbeAt   string           `json:"grok_last_quota_probe_at,omitempty"`
-	GrokLastHeadersSeenAt  string           `json:"grok_last_headers_seen_at,omitempty"`
-	GrokLastStatusCode     int              `json:"grok_last_status_code,omitempty"`
-	GrokLocalUsage         *WindowStats     `json:"grok_local_usage,omitempty"`
+	GrokRequestQuota       *xai.QuotaWindow    `json:"grok_request_quota,omitempty"`
+	GrokTokenQuota         *xai.QuotaWindow    `json:"grok_token_quota,omitempty"`
+	GrokRetryAfterSeconds  *int                `json:"grok_retry_after_seconds,omitempty"`
+	GrokEntitlementStatus  string              `json:"grok_entitlement_status,omitempty"`
+	GrokQuotaSnapshotState string              `json:"grok_quota_snapshot_state,omitempty"`
+	GrokLastQuotaProbeAt   string              `json:"grok_last_quota_probe_at,omitempty"`
+	GrokLastHeadersSeenAt  string              `json:"grok_last_headers_seen_at,omitempty"`
+	GrokLastStatusCode     int                 `json:"grok_last_status_code,omitempty"`
+	GrokLocalUsage         *WindowStats        `json:"grok_local_usage,omitempty"`
+	GrokLocalUsage24h      *WindowStats        `json:"grok_local_usage_24h,omitempty"`
+	GrokLocalUsage7d       *WindowStats        `json:"grok_local_usage_7d,omitempty"`
+	GrokLocalUsageMonthly  *WindowStats        `json:"grok_local_usage_monthly,omitempty"`
+	GrokBilling            *xai.BillingSummary `json:"grok_billing,omitempty"`
 
 	// Antigravity 账号级信息
 	SubscriptionTier    string `json:"subscription_tier,omitempty"`     // 归一化订阅等级: FREE/PRO/ULTRA/UNKNOWN
@@ -341,6 +347,7 @@ type AccountUsageService struct {
 	geminiQuotaService       *GeminiQuotaService
 	antigravityQuotaFetcher  *AntigravityQuotaFetcher
 	grokQuotaFetcher         *GrokQuotaFetcher
+	grokQuotaService         *GrokQuotaService
 	openAIQuotaService       *OpenAIQuotaService
 	cache                    *UsageCache
 	identityCache            IdentityCache
@@ -348,6 +355,8 @@ type AccountUsageService struct {
 	oauthRefreshAPI          *OAuthRefreshAPI
 	kiroOAuthRefreshExecutor OAuthRefreshExecutor
 	kiroUsageFetcher         kiroAccountInfoFetcher
+	agentIdentityTaskMu      sync.Mutex
+	agentIdentityWS          agentIdentityWSConnectionInvalidator
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -358,6 +367,7 @@ func NewAccountUsageService(
 	geminiQuotaService *GeminiQuotaService,
 	antigravityQuotaFetcher *AntigravityQuotaFetcher,
 	grokQuotaFetcher *GrokQuotaFetcher,
+	grokQuotaService *GrokQuotaService,
 	openAIQuotaService *OpenAIQuotaService,
 	cache *UsageCache,
 	identityCache IdentityCache,
@@ -371,6 +381,7 @@ func NewAccountUsageService(
 		geminiQuotaService:       geminiQuotaService,
 		antigravityQuotaFetcher:  antigravityQuotaFetcher,
 		grokQuotaFetcher:         grokQuotaFetcher,
+		grokQuotaService:         grokQuotaService,
 		openAIQuotaService:       openAIQuotaService,
 		cache:                    cache,
 		identityCache:            identityCache,
@@ -404,6 +415,17 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 		usage *UsageInfo
 		err   error
 	)
+	if account.IsGrok() && s.grokQuotaFetcher != nil {
+		usage, err = s.getGrokUsage(ctx, account, forceProbe)
+		if err == nil && usage != nil && usage.Error == "" {
+			s.tryClearRecoverableAccountError(ctx, account)
+		}
+		if err != nil {
+			return nil, err
+		}
+		attachUpstreamQuotaForAccount(account, usage)
+		return usage, nil
+	}
 
 	switch accountUsageWindowAdapterFor(account) {
 	case accountUsageWindowAdapterOpenAI:
@@ -893,8 +915,11 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	if account == nil || !account.IsOAuth() {
 		return nil, nil
 	}
-	accessToken := account.GetOpenAIAccessToken()
-	if accessToken == "" {
+	accessToken := ""
+	if !account.IsOpenAIAgentIdentity() {
+		accessToken = account.GetOpenAIAccessToken()
+	}
+	if accessToken == "" && !account.IsOpenAIAgentIdentity() {
 		return nil, fmt.Errorf("no access token available")
 	}
 	modelID := openaipkg.DefaultTestModel
@@ -912,7 +937,19 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	}
 	req.Host = "chatgpt.com"
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+accessToken)
+	if account.IsOpenAIAgentIdentity() {
+		authHeaders, authErr := buildAgentIdentityAuthenticationHeaders(ctx, s.accountRepo, s.agentIdentityWS, &s.agentIdentityTaskMu, account)
+		if authErr != nil {
+			return nil, fmt.Errorf("build Agent Identity authentication: %w", authErr)
+		}
+		for key, values := range authHeaders {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+	} else {
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("OpenAI-Beta", "responses=experimental")
 	req.Header.Set("Originator", "codex_cli_rs")
@@ -923,6 +960,9 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 			req.Header.Set("User-Agent", strings.TrimSpace(fp.UserAgent))
 		}
 	}
+	// 与真实转发一致：originator 与最终 User-Agent（可能来自指纹缓存，如 codex-tui）首段配套，
+	// 否则探针被上游 404（issue #3901）。
+	enforceCodexIdentityHeaders(req.Header)
 	setOpenAIChatGPTAccountHeaders(req.Header, account)
 
 	proxyURL := ""
@@ -1348,6 +1388,69 @@ func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs
 		}
 	}
 	return result, nil
+}
+
+func grokLocalUsageForQuota(ctx context.Context, repo UsageLogRepository, accountID int64, billing *xai.BillingSummary, now time.Time) (*WindowStats, *WindowStats, *WindowStats) {
+	if grokBillingHasAuthoritativeQuota(billing) {
+		weekly, monthly := grokLocalUsageForBilling(ctx, repo, accountID, billing, now)
+		return nil, weekly, monthly
+	}
+	return grokLocalUsage24h(ctx, repo, accountID, now), nil, nil
+}
+
+func grokLocalUsage24h(ctx context.Context, repo UsageLogRepository, accountID int64, now time.Time) *WindowStats {
+	if repo == nil || accountID <= 0 {
+		return nil
+	}
+	start := now.UTC().Add(-grokFreeQuotaWindow)
+	stats, err := repo.GetAccountWindowStats(ctx, accountID, start)
+	if err != nil {
+		slog.Warn("grok_rolling_24h_usage_query_failed", "account_id", accountID, "window_start", start, "error", err)
+		return nil
+	}
+	return windowStatsFromAccountStats(stats)
+}
+
+func grokLocalUsageForBilling(ctx context.Context, repo UsageLogRepository, accountID int64, billing *xai.BillingSummary, now time.Time) (*WindowStats, *WindowStats) {
+	var weekly *WindowStats
+	var monthly *WindowStats
+	if repo == nil || accountID <= 0 {
+		return weekly, monthly
+	}
+	if start, ok := currentGrokBillingWindow(billing, true, now); ok {
+		if stats, err := repo.GetAccountWindowStats(ctx, accountID, start); err == nil {
+			weekly = windowStatsFromAccountStats(stats)
+		} else {
+			slog.Warn("grok_window_usage_query_failed", "account_id", accountID, "window_start", start, "error", err)
+		}
+	}
+	if start, ok := currentGrokBillingWindow(billing, false, now); ok {
+		if stats, err := repo.GetAccountWindowStats(ctx, accountID, start); err == nil {
+			monthly = windowStatsFromAccountStats(stats)
+		} else {
+			slog.Warn("grok_monthly_usage_query_failed", "account_id", accountID, "window_start", start, "error", err)
+		}
+	}
+	return weekly, monthly
+}
+
+func currentGrokBillingWindow(billing *xai.BillingSummary, weekly bool, now time.Time) (time.Time, bool) {
+	if billing == nil {
+		return time.Time{}, false
+	}
+	startRaw, endRaw := billing.BillingPeriodStart, billing.BillingPeriodEnd
+	if weekly {
+		if billing.PeriodType != "weekly" {
+			return time.Time{}, false
+		}
+		startRaw, endRaw = billing.PeriodStart, billing.PeriodEnd
+	}
+	start, startErr := parseTime(strings.TrimSpace(startRaw))
+	end, endErr := parseTime(strings.TrimSpace(endRaw))
+	if startErr != nil || endErr != nil || now.Before(start) || !now.Before(end) {
+		return time.Time{}, false
+	}
+	return start, true
 }
 
 func windowStatsFromAccountStats(stats *usagestats.AccountStats) *WindowStats {

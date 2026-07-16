@@ -219,6 +219,112 @@ class BundleRoundtripTests(unittest.TestCase):
             loaded = mod.load_capture_bundle(path)
             self.assertEqual(loaded["cc_version"], baseline["canonical_http"]["default_version"])
 
+    def test_http_only_stub_is_not_tls_evidence(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "source": "baseline_stub_http_only",
+            },
+        )
+        rows = mod.diff_baseline_vs_capture(baseline, bundle)
+        tls_rows = [r for r in rows if r.field.startswith("tls.")]
+        self.assertTrue(all(r.status == "not_observed" for r in tls_rows))
+        self.assertEqual(mod.EXIT_INCOMPLETE, mod.diff_exit_code(tls_rows))
+
+    def test_unsupported_tls_source_is_invalid_evidence(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "source": "manual-cache",
+            },
+        )
+        self.assertFalse(bundle["evidence"]["tls"]["observed"])
+        self.assertFalse(bundle["evidence"]["tls"]["valid"])
+        tls_rows = [
+            row
+            for row in mod.diff_baseline_vs_capture(baseline, bundle)
+            if row.field.startswith("tls.")
+        ]
+        self.assertTrue(all(row.status == "invalid_evidence" for row in tls_rows))
+        self.assertEqual(mod.EXIT_ERROR, mod.diff_exit_code(tls_rows))
+
+    def test_third_party_http_does_not_compare_oauth_betas(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "source": "passive-pcap:test",
+                "stainless_package_version": baseline["canonical_http"][
+                    "stainless_package_version"
+                ],
+            },
+            http_by_variant={
+                "haiku": {
+                    "anthropic_beta": "interleaved-thinking",
+                    "x_stainless": {
+                        "X-Stainless-Runtime-Version": baseline["canonical_http"][
+                            "stainless_runtime_version"
+                        ]
+                    },
+                }
+            },
+            system_anchors=[baseline["system"]["identity_prefixes"][0]],
+            http_cohort=mod.THIRD_PARTY_TOKEN,
+        )
+        rows = mod.diff_baseline_vs_capture(baseline, bundle)
+        beta_rows = [r for r in rows if r.field.startswith("betas.")]
+        self.assertTrue(beta_rows)
+        self.assertTrue(all(r.status == "not_observed" for r in beta_rows))
+        self.assertFalse(mod.has_actionable_mismatch(rows))
+        self.assertEqual(mod.EXIT_INCOMPLETE, mod.diff_exit_code(rows))
+
+    def test_unknown_http_cohort_is_invalid_evidence(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "source": "passive-pcap:test",
+            },
+            http_by_variant={"haiku": {"anthropic_beta": "interleaved-thinking"}},
+        )
+        rows = mod.diff_baseline_vs_capture(baseline, bundle)
+        self.assertTrue(mod.has_invalid_evidence(rows))
+        self.assertEqual(mod.EXIT_ERROR, mod.diff_exit_code(rows))
+
+
+class CaptureConfigClassificationTests(unittest.TestCase):
+    def test_third_party_base_url_wins_over_auth_status_label(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = pathlib.Path(tmp)
+            (config / "settings.json").write_text(
+                json.dumps({"env": {"ANTHROPIC_BASE_URL": "https://api.tokenkey.dev", "ANTHROPIC_AUTH_TOKEN": "redacted"}}),
+                encoding="utf-8",
+            )
+            result = mod.classify_capture_config(
+                config,
+                auth_status={"loggedIn": True, "authMethod": "oauth_token", "apiProvider": "firstParty"},
+            )
+        self.assertEqual(mod.THIRD_PARTY_TOKEN, result["auth_route"])
+        self.assertEqual("api.tokenkey.dev", result["base_host"])
+
+    def test_direct_anthropic_oauth_is_first_party_cohort(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = mod.classify_capture_config(
+                pathlib.Path(tmp),
+                auth_status={"loggedIn": True, "authMethod": "oauth_token", "apiProvider": "firstParty"},
+            )
+        self.assertEqual(mod.FIRST_PARTY_OAUTH, result["auth_route"])
+
     def test_has_tls_mismatch_true_only_for_tls_fields(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
         tls_rows = mod.diff_baseline_vs_capture(

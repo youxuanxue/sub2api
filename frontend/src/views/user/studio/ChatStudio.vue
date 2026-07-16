@@ -166,12 +166,17 @@
               v-for="client in TK_CLIENT_INTEGRATIONS"
               :key="client.id"
               type="button"
-              class="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 hover:border-primary-400 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-600 dark:bg-dark-950 dark:text-dark-200 dark:hover:border-primary-500 dark:hover:text-primary-400"
+              class="inline-flex min-h-9 flex-col items-center justify-center rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 hover:border-primary-400 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-600 dark:bg-dark-950 dark:text-dark-200 dark:hover:border-primary-500 dark:hover:text-primary-400"
               :disabled="!apiKey"
-              :title="client.kind === 'app' ? t('studio.chat.integrationsAppHint') : ''"
+              :title="client.carriesApiKey
+                ? t('studio.chat.integrationsAppHint')
+                : t('studio.chat.integrationsManualKeyHint')"
               @click="openIntegration(client)"
             >
               {{ client.name }}
+              <span v-if="!client.carriesApiKey" class="text-[10px] font-normal text-amber-600 dark:text-amber-300">
+                {{ t('studio.chat.integrationsManualKeyShort') }}
+              </span>
             </button>
           </div>
           <div class="mt-3 flex flex-wrap gap-3 border-t border-gray-100 pt-2 text-xs dark:border-dark-700">
@@ -314,9 +319,11 @@ function openIntegration(client: TkClientIntegration): void {
   const url = resolveTkClientIntegrationUrl({
     template: client.template,
     apiKey: props.apiKey,
-    baseUrl: props.gatewayBase
+    baseUrl: props.gatewayBase,
+    model: selectedModelId.value
   })
-  window.open(url, '_blank')
+  const target = window.open(url, '_blank', 'noopener,noreferrer')
+  if (target) target.opener = null
 }
 
 function clearConversation(): void {

@@ -161,7 +161,7 @@ func TestPricedServingGateRejected_NilDepsFailOpen(t *testing.T) {
 // floors are themselves the source-glitch protection (floored families can't mass-404).
 func TestPricedServingGate_GeminiUnknownServedAtFamilyFloor(t *testing.T) {
 	ctx := context.Background()
-	setting := newGateSettingService("*") // post-pivot default: all platforms enabled
+	setting := newGateSettingService("*")                // post-pivot default: all platforms enabled
 	resolve := gateBillingResolverWith("gemini-2.5-pro") // REAL BillingService → Go family floors apply
 
 	// A new gemini variant absent from the source now resolves via the gemini family floor.

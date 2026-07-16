@@ -12,3 +12,7 @@ dist/
 # 忽略缓存
 .cache/
 .vite/
+
+# Playwright generated output
+e2e/artifacts/
+e2e/report/

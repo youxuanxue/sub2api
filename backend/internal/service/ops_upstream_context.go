@@ -26,6 +26,7 @@ const (
 	OpsUpstreamErrorMessageKey = "ops_upstream_error_message"
 	OpsUpstreamErrorDetailKey  = "ops_upstream_error_detail"
 	OpsUpstreamErrorsKey       = "ops_upstream_errors"
+	OpsStreamErrorKey          = "ops_stream_error"
 
 	// OpsUpstreamKindRequestNormalized marks Anthropic request-body normalize audit
 	// events (change-kind list in Message). Recovered-200 ops logging must ignore
@@ -175,6 +176,52 @@ func HasOpsClientClosedRequest(c *gin.Context) bool {
 	return marked
 }
 
+// OpsStreamError 描述网关在「响应状态已固化为 200」之后（keepalive ping 或部分数据
+// 已 flush）就地以 SSE error 帧形式返回的错误。由于 HTTP 状态码停留在 200，
+// 而 ops_error_logger 以 status>=400 为采集触发条件，这类流内失败
+// （并发限流回退、Wait 后二次计费校验失败、流开始后才无可用账号等）本会在错误看板里
+// 完全隐形。handler.handleStreamingAwareError 负责标记，ops_error_logger 中间件在
+// status<400 分支消费它并补记一条错误日志。
+type OpsStreamError struct {
+	// ErrType 是写入 SSE 帧的对客错误类型（如 rate_limit_error / upstream_error / api_error）。
+	ErrType string
+	// Message 是写入 SSE 帧的对客错误消息。
+	Message string
+	// IntendedStatus 是流若未固化本应返回的 HTTP 状态码（如并发限流的 429）。
+	// 仅用于错误分级(severity/classification)；实际 wire 状态码仍为 200。
+	IntendedStatus int
+}
+
+// MarkOpsStreamError 记录一次就地 SSE 错误，供 ops 日志采集。
+// 采用「首个标记生效」策略：同一请求若先后补发多帧（如上游透传错误后又追加通用兜底帧），
+// 保留最先记录的根因错误，而不是被后续的 "Upstream request failed" 覆盖。
+func MarkOpsStreamError(c *gin.Context, errType, message string, intendedStatus int) {
+	if c == nil {
+		return
+	}
+	if _, exists := c.Get(OpsStreamErrorKey); exists {
+		return
+	}
+	c.Set(OpsStreamErrorKey, OpsStreamError{
+		ErrType:        strings.TrimSpace(errType),
+		Message:        strings.TrimSpace(message),
+		IntendedStatus: intendedStatus,
+	})
+}
+
+// GetOpsStreamError 返回本请求记录的就地 SSE 错误（若有）。
+func GetOpsStreamError(c *gin.Context) (OpsStreamError, bool) {
+	if c == nil {
+		return OpsStreamError{}, false
+	}
+	v, ok := c.Get(OpsStreamErrorKey)
+	if !ok {
+		return OpsStreamError{}, false
+	}
+	se, ok := v.(OpsStreamError)
+	return se, ok
+}
+
 // SetOpsUpstreamError is the exported wrapper for setOpsUpstreamError, used by
 // handler-layer code (e.g. failover-exhausted paths) that needs to record the
 // original upstream status code before mapping it to a client-facing code.
@@ -245,6 +292,11 @@ type OpsUpstreamErrorEvent struct {
 	// (e.g. body truncation) must NOT be appended onto this field — it has
 	// its own dedicated columns/booleans.
 	Kind string `json:"kind,omitempty"`
+	// Stage/Scope/Reason distinguish credential acquisition from inference
+	// without overloading upstream_status_code with a synthetic HTTP status.
+	Stage  string `json:"stage,omitempty"`
+	Scope  string `json:"scope,omitempty"`
+	Reason string `json:"reason,omitempty"`
 
 	Message string `json:"message,omitempty"`
 	Detail  string `json:"detail,omitempty"`
@@ -282,6 +334,9 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	ev.UpstreamRequestBody = strings.TrimSpace(ev.UpstreamRequestBody)
 	ev.UpstreamResponseBody = strings.TrimSpace(ev.UpstreamResponseBody)
 	ev.Kind = strings.TrimSpace(ev.Kind)
+	ev.Stage = strings.TrimSpace(ev.Stage)
+	ev.Scope = strings.TrimSpace(ev.Scope)
+	ev.Reason = strings.TrimSpace(ev.Reason)
 	ev.UpstreamURL = strings.TrimSpace(ev.UpstreamURL)
 	ev.Message = strings.TrimSpace(ev.Message)
 	ev.Detail = strings.TrimSpace(ev.Detail)

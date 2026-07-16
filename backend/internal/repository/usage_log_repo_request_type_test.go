@@ -81,17 +81,20 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // image_output_size
 			sqlmock.AnyArg(), // image_size_source
 			sqlmock.AnyArg(), // image_size_breakdown
+			sqlmock.AnyArg(), // video_count
+			sqlmock.AnyArg(), // video_resolution
+			sqlmock.AnyArg(), // video_duration_seconds
 			sqlmock.AnyArg(), // service_tier
 			sqlmock.AnyArg(), // reasoning_effort
 			sqlmock.AnyArg(), // inbound_endpoint
 			sqlmock.AnyArg(), // upstream_endpoint
 			log.CacheTTLOverridden,
+			log.LongContextBillingApplied,
 			sqlmock.AnyArg(), // channel_id
 			sqlmock.AnyArg(), // model_mapping_chain
 			sqlmock.AnyArg(), // billing_tier
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
-			sqlmock.AnyArg(), // video_duration_seconds
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(99), createdAt))
@@ -165,17 +168,20 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // image_output_size
 			sqlmock.AnyArg(), // image_size_source
 			sqlmock.AnyArg(), // image_size_breakdown
+			sqlmock.AnyArg(), // video_count
+			sqlmock.AnyArg(), // video_resolution
+			sqlmock.AnyArg(), // video_duration_seconds
 			serviceTier,
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
 			log.CacheTTLOverridden,
+			log.LongContextBillingApplied,
 			sqlmock.AnyArg(), // channel_id
 			sqlmock.AnyArg(), // model_mapping_chain
 			sqlmock.AnyArg(), // billing_tier
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
-			sqlmock.AnyArg(), // video_duration_seconds
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(100), createdAt))
@@ -284,9 +290,14 @@ func TestAppendUsageLogBillingModeWhereCondition(t *testing.T) {
 		wantCondition string
 	}{
 		{
-			name:          "image includes legacy image rows",
+			name:          "image includes explicit image and legacy image rows",
 			billingMode:   string(service.BillingModeImage),
-			wantCondition: "(billing_mode = $1 OR COALESCE(image_count, 0) > 0)",
+			wantCondition: "(billing_mode = $1 OR ((billing_mode IS NULL OR billing_mode = '') AND COALESCE(image_count, 0) > 0))",
+		},
+		{
+			name:          "video remains exact",
+			billingMode:   string(service.BillingModeVideo),
+			wantCondition: "billing_mode = $1",
 		},
 		{
 			name:          "token includes legacy non-image rows",
@@ -617,20 +628,27 @@ func TestUsageLogRepositoryGetGroupStatsAccountCostColumn(t *testing.T) {
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := start.Add(24 * time.Hour)
 
-	mock.ExpectQuery("FROM usage_logs").
+	mock.ExpectQuery("FILTER \\(WHERE ul.billing_tier = 'kiro-estimated'\\)").
 		WithArgs(start, end).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"group_id", "group_name", "requests", "total_tokens",
+			"group_id", "group_name", "requests", "input_tokens", "output_tokens",
+			"cache_creation_tokens", "cache_read_tokens", "cache_telemetry_unavailable_input_tokens",
 			"cost", "actual_cost", "account_cost",
 		}).
-			AddRow(int64(1), "azure-cc", int64(100), int64(5000), 10.0, 8.5, 7.2).
-			AddRow(int64(2), "max", int64(50), int64(2000), 5.0, 4.0, 3.5))
+			AddRow(int64(1), "azure-cc", int64(100), int64(1000), int64(3000), int64(500), int64(500), int64(1000), 10.0, 8.5, 7.2).
+			AddRow(int64(2), "max", int64(50), int64(500), int64(1000), int64(200), int64(300), int64(0), 5.0, 4.0, 3.5))
 
 	results, err := repo.GetGroupStatsWithFilters(context.Background(), start, end, 0, 0, 0, 0, nil, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 	require.Equal(t, int64(1), results[0].GroupID)
 	require.Equal(t, "azure-cc", results[0].GroupName)
+	require.Equal(t, int64(1000), results[0].InputTokens)
+	require.Equal(t, int64(3000), results[0].OutputTokens)
+	require.Equal(t, int64(500), results[0].CacheCreationTokens)
+	require.Equal(t, int64(500), results[0].CacheReadTokens)
+	require.Equal(t, int64(1000), results[0].CacheTelemetryUnavailableInputTokens)
+	require.Equal(t, int64(5000), results[0].TotalTokens)
 	require.Equal(t, 10.0, results[0].Cost)
 	require.Equal(t, 8.5, results[0].ActualCost)
 	require.Equal(t, 7.2, results[0].AccountCost)
@@ -654,9 +672,10 @@ func TestUsageLogRepositoryGetGroupStatsRollupFallbackUntilMetricsBackfill(t *te
 	mock.ExpectQuery("FROM usage_logs").
 		WithArgs(start, end).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"group_id", "group_name", "requests", "total_tokens",
+			"group_id", "group_name", "requests", "input_tokens", "output_tokens",
+			"cache_creation_tokens", "cache_read_tokens", "cache_telemetry_unavailable_input_tokens",
 			"cost", "actual_cost", "account_cost",
-		}).AddRow(int64(1), "azure-cc", int64(100), int64(5000), 10.0, 8.5, 7.2))
+		}).AddRow(int64(1), "azure-cc", int64(100), int64(1000), int64(3000), int64(500), int64(500), int64(1000), 10.0, 8.5, 7.2))
 
 	results, err := repo.GetGroupStatsWithFilters(context.Background(), start, end, 0, 0, 0, 0, nil, nil, nil)
 	require.NoError(t, err)
@@ -699,12 +718,25 @@ func TestUsageLogRepositoryGetGroupStatsRollupMergesCompletedDaysAndRawTail(t *t
 			AddRow(int64(1), "azure-cc", int64(3), int64(30), int64(40), int64(2), int64(1), 0.7, 0.6, 0.5).
 			AddRow(int64(3), "other", int64(1), int64(5), int64(7), int64(0), int64(0), 0.2, 0.1, 0.1))
 
+	mock.ExpectQuery("AND ul.billing_tier = 'kiro-estimated'").
+		WithArgs(start, end).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"group_id", "cache_telemetry_unavailable_input_tokens",
+		}).
+			AddRow(int64(1), int64(30)).
+			AddRow(int64(3), int64(5)))
+
 	results, err := repo.GetGroupStatsWithFilters(context.Background(), start, end, 0, 0, 0, 0, nil, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, results, 4)
 	require.Equal(t, int64(1), results[0].GroupID)
 	require.Equal(t, "azure-cc", results[0].GroupName)
 	require.Equal(t, int64(13), results[0].Requests)
+	require.Equal(t, int64(130), results[0].InputTokens)
+	require.Equal(t, int64(240), results[0].OutputTokens)
+	require.Equal(t, int64(7), results[0].CacheCreationTokens)
+	require.Equal(t, int64(4), results[0].CacheReadTokens)
+	require.Equal(t, int64(30), results[0].CacheTelemetryUnavailableInputTokens)
 	require.Equal(t, int64(381), results[0].TotalTokens)
 	require.InDelta(t, 2.7, results[0].Cost, 1e-9)
 	require.InDelta(t, 2.1, results[0].ActualCost, 1e-9)
@@ -1151,17 +1183,20 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{Valid: true, String: "3840x2160"},
 			sql.NullString{Valid: true, String: "output"},
 			sql.NullString{Valid: true, String: `{"4K":2}`},
+			0,                // video_count
+			sql.NullString{}, // video_resolution
+			sql.NullInt64{},  // video_duration_seconds
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
+			false,
 			false,
 			sql.NullInt64{},
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullFloat64{},
-			sql.NullInt64{}, // video_duration_seconds
 			now,
 		}})
 		require.NoError(t, err)
@@ -1220,17 +1255,20 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{}, // image_output_size
 			sql.NullString{}, // image_size_source
 			sql.NullString{}, // image_size_breakdown
+			0,                // video_count
+			sql.NullString{}, // video_resolution
+			sql.NullInt64{},  // video_duration_seconds
 			sql.NullString{Valid: true, String: "priority"},
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
+			false,
 			false,
 			sql.NullInt64{},   // channel_id
 			sql.NullString{},  // model_mapping_chain
 			sql.NullString{},  // billing_tier
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
-			sql.NullInt64{},   // video_duration_seconds
 			now,
 		}})
 		require.NoError(t, err)
@@ -1273,17 +1311,20 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{}, // image_output_size
 			sql.NullString{}, // image_size_source
 			sql.NullString{}, // image_size_breakdown
+			0,                // video_count
+			sql.NullString{}, // video_resolution
+			sql.NullInt64{},  // video_duration_seconds
 			sql.NullString{Valid: true, String: "flex"},
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
+			false,
 			false,
 			sql.NullInt64{},   // channel_id
 			sql.NullString{},  // model_mapping_chain
 			sql.NullString{},  // billing_tier
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
-			sql.NullInt64{},   // video_duration_seconds
 			now,
 		}})
 		require.NoError(t, err)
@@ -1326,17 +1367,20 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{}, // image_output_size
 			sql.NullString{}, // image_size_source
 			sql.NullString{}, // image_size_breakdown
+			0,                // video_count
+			sql.NullString{}, // video_resolution
+			sql.NullInt64{},  // video_duration_seconds
 			sql.NullString{Valid: true, String: "priority"},
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
+			false,
 			false,
 			sql.NullInt64{},   // channel_id
 			sql.NullString{},  // model_mapping_chain
 			sql.NullString{},  // billing_tier
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
-			sql.NullInt64{},   // video_duration_seconds
 			now,
 		}})
 		require.NoError(t, err)
@@ -1380,9 +1424,10 @@ func TestUsageLogRepositoryGetGroupStatsWithUsageFiltersAppliesRequestedModelFil
 	mock.ExpectQuery("AND COALESCE\\(NULLIF\\(TRIM\\(ul.requested_model\\), ''\\), ul.model\\) = \\$3").
 		WithArgs(start, end, "gpt-5").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"group_id", "group_name", "requests", "total_tokens",
+			"group_id", "group_name", "requests", "input_tokens", "output_tokens",
+			"cache_creation_tokens", "cache_read_tokens", "cache_telemetry_unavailable_input_tokens",
 			"cost", "actual_cost", "account_cost",
-		}).AddRow(int64(1), "default", int64(1), int64(30), 0.1, 0.08, 0.07))
+		}).AddRow(int64(1), "default", int64(1), int64(10), int64(20), int64(0), int64(0), int64(0), 0.1, 0.08, 0.07))
 
 	results, err := repo.GetGroupStatsWithUsageFilters(context.Background(), start, end, filters)
 	require.NoError(t, err)

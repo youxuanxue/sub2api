@@ -3,6 +3,26 @@
   "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), per-page sticky-edge-hints opt-out, and the control-plane login policy that does not depend on Turnstile. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces). This file now also guards upstream payment-surface carry-ins that touch shared admin/i18n/style hotspots during upstream merges; updating those hotspots in merge PRs requires explicit sentinel-registry rationale refresh or a `sentinel-registry-reviewed` / `upstream-merge` commit marker to keep the gate mechanical.",
   "sentinels": [
     {
+      "path": "frontend/src/constants/clientIntegrations.tk.ts",
+      "must_contain": [
+        "export const TK_CLIENT_CATALOG",
+        "export const TK_QUICKSTART_CLIENTS",
+        "id: 'qwen-code'",
+        "id: 'chatbox'",
+        "https://lobehub.com/?settings={\"keyVaults\":{\"openai\":{\"baseURL\":\"{address}/v1\"}}}"
+      ],
+      "rationale": "Single source of truth for TokenKey's user-visible client support. Quickstart and Studio derive their catalogs from this registry so Claude/Codex/Gemini/OpenCode and the newer Qwen/Cherry/Dify/Cline/Roo/LobeHub/Chatbox entries cannot drift into separate hand-maintained lists. The LobeHub anchor intentionally contains baseURL only: reintroducing apiKey into an HTTPS settings URL would leak credentials to a third-party origin."
+    },
+    {
+      "path": "frontend/src/views/user/studio/ChatStudio.vue",
+      "must_contain": [
+        "TK_CLIENT_INTEGRATIONS",
+        "'noopener,noreferrer'",
+        "model: selectedModelId.value"
+      ],
+      "rationale": "Studio consumes the same client registry as Quickstart and passes the selected model into imports. noopener/noreferrer is the security boundary for every external client launch; losing it silently restores opener access even while imports continue to work."
+    },
+    {
       "path": "frontend/src/constants/layout.ts",
       "must_contain": [
         "TK_SIDEBAR_WIDTH_CLASS",
@@ -1058,7 +1078,7 @@
       "must_contain": [
         "export function useTkUseKey(",
         "getMePricingCatalog({ apiKeyId: id })",
-        "function runTest(flavor: UseKeyFlavor)",
+        "function runTest(",
         "export function anthropicEnvModel("
       ],
       "rationale": "PR #788: brain of the redesigned 'Use API Key' modal. The model picker draws ONLY the key's live servable menu via getMePricingCatalog (no hand-typed/retired/bare ids), runTest fires a canonical-correct gateway request routed per platform/flavor (/v1/messages · /v1/chat/completions · :generateContent), and anthropicEnvModel re-applies the [1m] 1M-window alias for opus. TK-only module with no upstream counterpart — an upstream merge that deletes/replaces it would silently revert the modal to hardcoded model hints and drop the live test, re-opening the ~950/wk wrong-model and ~2808/wk invalid-key error classes this redesign was built (from prod ops_error_logs) to kill. Anchors the servable-menu data source + the per-platform test routing entrypoint + the [1m] helper."
@@ -1069,9 +1089,13 @@
         "const tk = useTkUseKey({",
         "function onPickModel(",
         "function onTest(",
-        "tkIsCCOnly"
+        "tkIsCCOnly",
+        "selectedClient?: string | null",
+        "generateQwenCodeFiles",
+        "generateCompatibleClientFields",
+        "data-tk=\"quickstart-environment-picker\""
       ],
-      "rationale": "PR #788 / quickstart SSOT: the wiring that mounts the redesign — useTkUseKey() composable, onPickModel (servable-model picker, injected into every client snippet), onTest (live 'test key' button), and tkIsCCOnly (CC-only anthropic groups render ONLY Claude Code + a warning, killing the ~414/wk 'use claude-cli' 403 class). Upstream sub2api's modal has none of these; a git merge upstream/main that overwrites this upstream-shaped .vue back to upstream shape would silently drop the picker, live test and CC-only gate while still compiling and passing the default-path tests. Complements anthropic [1m] literal + antigravity scope gate entries on the same file. UseKeyModal.vue is now a thin BaseDialog wrapper only."
+      "rationale": "Shared configuration owner for the key modal and tool-first Quickstart: live servable model picker/test, CC-only handling, controlled client selection, Qwen env-file credential split, compatible-client fields, and contextual OS selection. An upstream overwrite can compile while silently removing one of these paths, so the behavior owner and its Quickstart extensions are pinned together."
     },
     {
       "path": "frontend/src/components/keys/UseKeyModal.vue",
@@ -1086,10 +1110,14 @@
       "must_contain": [
         "UseKeyGuide",
         "parseKeyIdFromQuery",
-        "router.replace({ query:",
-        "keyId: String(id)"
+        "QuickstartClientPicker",
+        "data-tk=\"quickstart-config-workspace\"",
+        ":selected-client=\"selectedClient.guideId\"",
+        "data-tk=\"quickstart-transport-picker\"",
+        "data-tk=\"quickstart-protocol-picker\"",
+        "keyId: String(keyId)"
       ],
-      "rationale": "TokenKey quickstart is the canonical API-key usage guide (/quickstart): embeds UseKeyGuide, selects key from the user's list, and deep-links via ?keyId= query (KeysView 'Use Key' navigates here). Upstream QuickstartView is a separate static snippet page; an upstream merge could silently revert to the old multi-step copy-paste flow and drop UseKeyGuide + keyId routing while compiling green."
+      "rationale": "TokenKey /quickstart is the canonical tool-first connection flow: all supported clients are visible before configuration, Qwen protocol and Codex transport are secondary controls, and key/client state is deep-linked without exposing the key. Upstream QuickstartView is a separate static snippet page; a merge could silently restore that old flow while compiling green."
     },
     {
       "path": "frontend/src/views/user/KeysView.vue",
@@ -1478,9 +1506,14 @@
         "import { dashboardWindowParams, rollingWindowTs } from '@/utils/dashboardWindow.tk'",
         "const goToUserUsage = (item: UserSpendingRankingItem) => {",
         "...(dashboardWindowParams(activePreset.value))",
-        "...(rollingWindowTs(activePreset.value) ?? {})"
+        "...(rollingWindow ?? dashboardWindowParams(activePreset.value))",
+        "loadedDashboardRollingWindow.value ?? rollingWindowTs(activePreset.value) ?? {}",
+        "const promptCacheOverview = computed(() => {",
+        "cache_telemetry_unavailable_input_tokens",
+        "data-testid=\"prompt-cache-overall-status\"",
+        "include_group_stats: true"
       ],
-      "rationale": "The admin Dashboard's own requests (snapshot-v2 / user-ranking) carry the TK window via dashboardWindowParams(): rolling presets → absolute epoch-ms (timezone-independent), calendar presets ('今天'/昨天/本月/上月) → a server-TZ `range` token resolved by the backend (parseNamedRange). The `range` path is load-bearing — without it the admin per-user '今日消费' window follows the operator's browser timezone and silently disagrees with the customer dashboard (timezone.Today()) and the daily rollup buckets for the same user/day. The goToUserUsage drilldown deliberately keeps rollingWindowTs() instead, because /admin/usage's parser consumes only absolute start_ts/end_ts (+ date strings) and would silently drop a `range` token. If an upstream-shaped DashboardView rewrite collapses these two helpers, either the dashboard calendar windows fall back to browser-local date strings (mismatch returns) or the drilldown emits a dead param — both while still compiling."
+      "rationale": "The admin Dashboard's own requests carry the TK window via dashboardWindowParams(): rolling presets use absolute epoch-ms and calendar presets use a server-TZ range token. Drilldowns deliberately reuse the exact successfully loaded rolling window because /admin/usage consumes absolute start_ts/end_ts, not range. The same snapshot group facet owns the prompt-cache overview: it excludes Kiro-estimated unavailable input, ranks the top five groups by prompt-token impact, and avoids an extra endpoint. These anchors prevent an upstream-shaped Dashboard rewrite from silently restoring timezone drift, widening drilldowns, or dropping cache observability while still compiling."
     },
     {
       "path": "frontend/src/views/admin/UsageView.vue",
@@ -1489,9 +1522,11 @@
         "const getTimeWindowParams = () => selectedAbsoluteWindow.value ?? rollingWindowTs(activePreset.value)",
         "...(getTimeWindowParams() ?? {})",
         "start_time: timeWindow ? new Date(timeWindow.start_ts).toISOString()",
-        ":start-ts=\"getTimeWindowParams()?.start_ts\""
+        ":start-ts=\"getTimeWindowParams()?.start_ts\"",
+        "const queryGroupId = getNumericQueryValue(route.query.group_id)",
+        "group_id: queryGroupId"
       ],
-      "rationale": "Admin Usage rolling presets must send absolute epoch-ms windows to list, stats, charts, endpoint/model distributions, errors, and dashboard drilldown routes. Dropping any of this wiring silently restores widened local-date queries for default rolling windows, which is a production latency regression rather than an obvious functional break."
+      "rationale": "Admin Usage rolling presets must send absolute epoch-ms windows to list, stats, charts, endpoint/model distributions, errors, and dashboard drilldown routes. Dashboard group drilldowns must also consume group_id into the shared filters so the URL selection reaches every Usage query. Dropping this wiring silently restores widened local-date queries or shows unfiltered usage after a group click."
     },
     {
       "path": "frontend/src/constants/storefrontSeo.tk.ts",

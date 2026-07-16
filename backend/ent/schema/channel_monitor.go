@@ -38,7 +38,7 @@ func (ChannelMonitor) Fields() []ent.Field {
 		// internal/service/channel_monitor_const.go. Only platforms with
 		// implemented monitoring adapters are listed here.
 		field.Enum("provider").
-			Values("openai", "anthropic", "gemini"),
+			Values("openai", "anthropic", "gemini", "grok"),
 		field.String("api_mode").
 			Default("chat_completions").
 			MaxLen(32).

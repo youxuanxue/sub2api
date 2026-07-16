@@ -70,7 +70,7 @@ func TestMePricingHandler_OK(t *testing.T) {
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 	var resp struct {
-		Code int                                 `json:"code"`
+		Code int                               `json:"code"`
 		Data *service.MePricingCatalogResponse `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))

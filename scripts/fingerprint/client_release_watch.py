@@ -821,7 +821,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--plan",
         action="store_true",
-        help="After scan, print skill routing (load skill in Cursor, then run capture commands)",
+        help="Read-only scan: print report + skill routing without writing cache/report files",
     )
     parser.add_argument(
         "--plan-only",
@@ -848,10 +848,14 @@ def main(argv: list[str] | None = None) -> int:
     platforms = [scan_platform(spec, offline_upstream=offline) for spec in PLATFORM_SPECS]
     report = build_report(platforms, run_url=args.run_url, git_sha=args.git_sha)
 
-    args.report_json.parent.mkdir(parents=True, exist_ok=True)
-    args.report_json.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    args.report_md.write_text(render_markdown(report), encoding="utf-8")
-    write_state(args.state, report)
+    if not args.plan:
+        args.report_json.parent.mkdir(parents=True, exist_ok=True)
+        args.report_json.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        args.report_md.write_text(render_markdown(report), encoding="utf-8")
+        write_state(args.state, report)
 
     if not args.quiet:
         print(render_markdown(report))

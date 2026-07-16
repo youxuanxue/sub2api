@@ -30,6 +30,7 @@ func TestAccountHandler_Create_AnthropicOAuthPassthroughExtraForwarded(t *testin
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 
 	router := gin.New()
@@ -72,6 +73,7 @@ func TestAccountHandler_Create_AnthropicAPIKeyPassthroughExtraForwarded(t *testi
 	adminSvc := newStubAdminService()
 	handler := NewAccountHandler(
 		adminSvc,
+		nil,
 		nil,
 		nil,
 		nil,

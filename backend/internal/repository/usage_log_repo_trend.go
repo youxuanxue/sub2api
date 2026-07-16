@@ -476,7 +476,11 @@ func (r *usageLogRepository) getGroupStatsWithFilters(ctx context.Context, start
 			COALESCE(ul.group_id, 0) as group_id,
 			COALESCE(g.name, '') as group_name,
 			COUNT(*) as requests,
-			COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens), 0) as total_tokens,
+			COALESCE(SUM(ul.input_tokens), 0) as input_tokens,
+			COALESCE(SUM(ul.output_tokens), 0) as output_tokens,
+			COALESCE(SUM(ul.cache_creation_tokens), 0) as cache_creation_tokens,
+			COALESCE(SUM(ul.cache_read_tokens), 0) as cache_read_tokens,
+			COALESCE(SUM(ul.input_tokens) FILTER (WHERE ul.billing_tier = 'kiro-estimated'), 0) as cache_telemetry_unavailable_input_tokens,
 			COALESCE(SUM(ul.total_cost), 0) as cost,
 			COALESCE(SUM(ul.actual_cost), 0) as actual_cost,
 			COALESCE(SUM(COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1)), 0) as account_cost
@@ -513,7 +517,7 @@ func (r *usageLogRepository) getGroupStatsWithFilters(ctx context.Context, start
 		args = append(args, int16(*billingType))
 	}
 	query, args = appendUsageLogBillingModeQueryFilter(query, args, billingMode, "ul")
-	query += " GROUP BY ul.group_id, g.name ORDER BY total_tokens DESC"
+	query += " GROUP BY ul.group_id, g.name ORDER BY (COALESCE(SUM(ul.input_tokens), 0) + COALESCE(SUM(ul.output_tokens), 0) + COALESCE(SUM(ul.cache_creation_tokens), 0) + COALESCE(SUM(ul.cache_read_tokens), 0)) DESC"
 
 	rows, err := r.sql.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -533,13 +537,18 @@ func (r *usageLogRepository) getGroupStatsWithFilters(ctx context.Context, start
 			&row.GroupID,
 			&row.GroupName,
 			&row.Requests,
-			&row.TotalTokens,
+			&row.InputTokens,
+			&row.OutputTokens,
+			&row.CacheCreationTokens,
+			&row.CacheReadTokens,
+			&row.CacheTelemetryUnavailableInputTokens,
 			&row.Cost,
 			&row.ActualCost,
 			&row.AccountCost,
 		); err != nil {
 			return nil, err
 		}
+		row.TotalTokens = row.InputTokens + row.OutputTokens + row.CacheCreationTokens + row.CacheReadTokens
 		results = append(results, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -555,6 +564,9 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 			COALESCE(ul.user_id, 0) as user_id,
 			COALESCE(u.email, '') as email,
 			COUNT(*) as requests,
+			COALESCE(SUM(ul.input_tokens), 0) as input_tokens,
+			COALESCE(SUM(ul.output_tokens), 0) as output_tokens,
+			COALESCE(SUM(ul.cache_creation_tokens + ul.cache_read_tokens), 0) as cache_tokens,
 			COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens), 0) as total_tokens,
 			COALESCE(SUM(ul.total_cost), 0) as cost,
 			COALESCE(SUM(ul.actual_cost), 0) as actual_cost,
@@ -591,8 +603,9 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 		args = append(args, dim.AccountID)
 	}
 	if dim.RequestType != nil {
-		query += fmt.Sprintf(" AND ul.request_type = $%d", len(args)+1)
-		args = append(args, *dim.RequestType)
+		condition, conditionArgs := buildRequestTypeFilterConditionWithAlias(len(args)+1, *dim.RequestType, "ul")
+		query += " AND " + condition
+		args = append(args, conditionArgs...)
 	}
 	if dim.Stream != nil {
 		query += fmt.Sprintf(" AND ul.stream = $%d", len(args)+1)
@@ -603,7 +616,13 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 		args = append(args, *dim.BillingType)
 	}
 
-	query += " GROUP BY ul.user_id, u.email ORDER BY actual_cost DESC"
+	// ORDER BY 列来自固定 allowlist(非用户原样字符串),避免 SQL 注入。
+	orderBy := "actual_cost"
+	switch dim.SortBy {
+	case "total_tokens", "input_tokens", "output_tokens", "cache_tokens", "requests", "cost", "actual_cost":
+		orderBy = dim.SortBy
+	}
+	query += " GROUP BY ul.user_id, u.email ORDER BY " + orderBy + " DESC"
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
@@ -626,6 +645,9 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 			&row.UserID,
 			&row.Email,
 			&row.Requests,
+			&row.InputTokens,
+			&row.OutputTokens,
+			&row.CacheTokens,
 			&row.TotalTokens,
 			&row.Cost,
 			&row.ActualCost,

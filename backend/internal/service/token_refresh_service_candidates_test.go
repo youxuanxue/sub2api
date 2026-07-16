@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 type tokenRefreshCandidateRepo struct {
 	AccountRepository
+	mu                    sync.Mutex
 	accounts              []Account
 	updatedCredentialIDs  []int64
 	setErrorCalls         int
@@ -25,57 +27,76 @@ type tokenRefreshCandidateRepo struct {
 }
 
 func (r *tokenRefreshCandidateRepo) ListActive(context.Context) ([]Account, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.listActiveCalls++
 	return r.accounts, nil
 }
 
-func (r *tokenRefreshCandidateRepo) ListOAuthRefreshCandidates(context.Context) ([]Account, error) {
+func (r *tokenRefreshCandidateRepo) ListOAuthRefreshCandidatePage(_ context.Context, options OAuthRefreshPageOptions) (*OAuthRefreshCandidatePage, error) {
 	candidates := make([]Account, 0, len(r.accounts))
 	now := time.Now()
 	for _, account := range r.accounts {
+		if account.ID <= options.AfterID {
+			continue
+		}
 		refreshToken, _ := account.Credentials["refresh_token"].(string)
 		inRetryCooldown := account.TempUnschedulableUntil != nil &&
 			account.TempUnschedulableUntil.After(now) &&
 			strings.HasPrefix(account.TempUnschedulableReason, "token refresh retry exhausted:")
-		if account.Status != StatusActive ||
+		platformAllowed := false
+		for _, platform := range options.Platforms {
+			if account.Platform == platform {
+				platformAllowed = true
+				break
+			}
+		}
+		if options.ActiveOnly && account.Status != StatusActive ||
 			account.Type != AccountTypeOAuth ||
-			!isOAuthRefreshPlatform(account.Platform) ||
-			strings.TrimSpace(refreshToken) == "" ||
-			inRetryCooldown {
+			!platformAllowed ||
+			options.RequireRefreshToken && strings.TrimSpace(refreshToken) == "" ||
+			options.ExcludeRetryCooldown && inRetryCooldown {
 			continue
 		}
 		candidates = append(candidates, account)
+		if len(candidates) == options.Limit {
+			break
+		}
 	}
-	return candidates, nil
+	page := &OAuthRefreshCandidatePage{Accounts: candidates, HasMore: len(candidates) == options.Limit}
+	if len(candidates) > 0 {
+		page.NextAfterID = candidates[len(candidates)-1].ID
+	}
+	return page, nil
 }
 
 func (r *tokenRefreshCandidateRepo) UpdateCredentials(_ context.Context, id int64, _ map[string]any) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.updatedCredentialIDs = append(r.updatedCredentialIDs, id)
 	return nil
 }
 
 func (r *tokenRefreshCandidateRepo) SetError(context.Context, int64, string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.setErrorCalls++
 	return nil
 }
 
 func (r *tokenRefreshCandidateRepo) SetTempUnschedulable(_ context.Context, _ int64, _ time.Time, reason string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.setTempUnschedCalls++
 	r.lastTempUnschedReason = reason
 	return nil
 }
 
 func (r *tokenRefreshCandidateRepo) ClearTempUnschedulable(context.Context, int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.clearTempCalls++
 	return nil
-}
-
-// isOAuthRefreshPlatform mirrors the production candidate filter. It delegates
-// to engine.IsOAuthRefreshPlatform so this test stub and repository.
-// ListOAuthRefreshCandidates' SQL `platform = ANY($1)` read the SAME single
-// source of truth (engine.OAuthRefreshPlatforms()) and can never disagree.
-func isOAuthRefreshPlatform(platform string) bool {
-	return engine.IsOAuthRefreshPlatform(platform)
 }
 
 // TestRegisteredRefreshers_MatchOAuthRefreshSourceOfTruth welds the registered
@@ -96,19 +117,20 @@ func TestRegisteredRefreshers_MatchOAuthRefreshSourceOfTruth(t *testing.T) {
 	// Construction stores deps without dereferencing them (only cfg is read),
 	// so nil collaborators are safe — CanRefresh inspects only Platform/Type.
 	svc := NewTokenRefreshService(nil, nil, nil, nil, nil, nil, nil, &config.Config{}, nil)
-	require.NotEmpty(t, svc.refreshers, "no refreshers registered")
+	require.NotEmpty(t, svc.registrations, "no refreshers registered")
 
-	covered := make(map[string]bool)
-	// Probe across every scheduling platform (the superset) plus a bogus one, so
-	// we detect refreshers that accept a platform outside the source of truth.
-	probeUniverse := append(engine.AllSchedulingPlatforms(), "definitely-not-a-platform")
-	for _, platform := range probeUniverse {
-		probe := &Account{Platform: platform, Type: AccountTypeOAuth}
-		for _, r := range svc.refreshers {
-			if r.CanRefresh(probe) {
-				covered[platform] = true
-			}
+	covered := make(map[string]bool, len(svc.registrations))
+	for _, registration := range svc.registrations {
+		probe := &Account{
+			Platform: registration.platform,
+			Type:     AccountTypeOAuth,
+			Credentials: map[string]any{
+				"refresh_token": "probe-refresh-token",
+			},
 		}
+		require.True(t, registration.refresher.CanRefresh(probe),
+			"registered refresher must accept a valid OAuth probe for %s", registration.platform)
+		covered[registration.platform] = true
 	}
 
 	got := make([]string, 0, len(covered))
@@ -205,8 +227,15 @@ func TestTokenRefreshService_ProcessRefreshUsesOAuthRefreshCandidates(t *testing
 		},
 	}
 	svc := &TokenRefreshService{
-		accountRepo:   repo,
-		refreshers:    []TokenRefresher{&tokenRefreshTestRefresher{}},
+		accountRepo:    repo,
+		candidatePager: repo,
+		registrations: []tokenRefreshRegistration{
+			{platform: PlatformOpenAI, refresher: &tokenRefreshTestRefresher{}},
+			{platform: PlatformGemini, refresher: &tokenRefreshTestRefresher{}},
+			{platform: PlatformAntigravity, refresher: &tokenRefreshTestRefresher{}},
+			{platform: PlatformKiro, refresher: &tokenRefreshTestRefresher{}},
+			{platform: PlatformGrok, refresher: &tokenRefreshTestRefresher{}},
+		},
 		refreshPolicy: DefaultBackgroundRefreshPolicy(),
 		cfg:           &config.TokenRefreshConfig{RefreshBeforeExpiryHours: 1, MaxRetries: 1},
 	}
@@ -214,7 +243,7 @@ func TestTokenRefreshService_ProcessRefreshUsesOAuthRefreshCandidates(t *testing
 	svc.processRefresh()
 
 	require.Zero(t, repo.listActiveCalls, "TokenRefreshService should not use the broad active-account query")
-	require.Equal(t, []int64{1, 6, 7, 8}, repo.updatedCredentialIDs,
+	require.ElementsMatch(t, []int64{1, 6, 7, 8}, repo.updatedCredentialIDs,
 		"kiro/grok OAuth accounts must remain background-refresh candidates; "+
 			"antigravity with non-retry temp-unschedulable (OAuth 401) must also refresh")
 	require.Equal(t, 1, repo.clearTempCalls, "successful refresh should clear the OAuth 401 temp-unschedulable state")

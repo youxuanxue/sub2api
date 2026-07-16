@@ -21,5 +21,11 @@ export default defineConfig({
     trace: 'retain-on-failure',
     launchOptions: { args: ['--no-proxy-server'] },
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [{
+    name: 'chromium',
+    use: {
+      ...devices['Desktop Chrome'],
+      ...(process.env.E2E_USE_SYSTEM_CHROME === '1' ? { channel: 'chrome' as const } : {}),
+    },
+  }],
 })

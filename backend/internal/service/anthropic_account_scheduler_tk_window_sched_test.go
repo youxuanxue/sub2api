@@ -20,7 +20,7 @@ func anthropicHotAccount(util float64, now time.Time) *Account {
 		SessionWindowEnd:   &windowEnd,
 		Extra: map[string]any{
 			"session_window_utilization": util,
-			"passive_usage_sampled_at": now.Format(time.RFC3339),
+			"passive_usage_sampled_at":   now.Format(time.RFC3339),
 		},
 	}
 }

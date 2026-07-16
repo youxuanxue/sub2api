@@ -297,7 +297,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if err := replaceBody(applyToolNameRewriteToBody(body, rw)); err != nil {
 				return nil, err
 			}
-			c.Set(toolNameRewriteKey, rw)
+			if c != nil {
+				c.Set(toolNameRewriteKey, rw)
+			}
 		} else {
 			if err := replaceBody(applyToolsLastCacheBreakpoint(body)); err != nil {
 				return nil, err

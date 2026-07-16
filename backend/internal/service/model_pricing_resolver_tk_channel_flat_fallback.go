@@ -31,6 +31,9 @@ func tkApplyChannelFlatOverridesAsFallback(chPricing *ChannelModelPricing, resol
 	}
 	if resolved.BasePricing == nil {
 		resolved.BasePricing = &ModelPricing{}
+	} else {
+		cloned := *resolved.BasePricing
+		resolved.BasePricing = &cloned
 	}
 
 	if chPricing.InputPrice != nil {
@@ -43,6 +46,8 @@ func tkApplyChannelFlatOverridesAsFallback(chPricing *ChannelModelPricing, resol
 	}
 	if chPricing.CacheWritePrice != nil {
 		resolved.BasePricing.CacheCreationPricePerToken = *chPricing.CacheWritePrice
+		resolved.BasePricing.CacheCreationPricePerTokenPriority = *chPricing.CacheWritePrice
+		resolved.BasePricing.CacheCreationPriceExplicit = true
 		resolved.BasePricing.CacheCreation5mPrice = *chPricing.CacheWritePrice
 		resolved.BasePricing.CacheCreation1hPrice = *chPricing.CacheWritePrice
 	}
@@ -94,6 +99,8 @@ func tkOverlayIntervalOntoBasePricing(base *ModelPricing, iv *PricingInterval, s
 	}
 	if iv.CacheWritePrice != nil {
 		out.CacheCreationPricePerToken = *iv.CacheWritePrice
+		out.CacheCreationPricePerTokenPriority = *iv.CacheWritePrice
+		out.CacheCreationPriceExplicit = true
 		out.CacheCreation5mPrice = *iv.CacheWritePrice
 		out.CacheCreation1hPrice = *iv.CacheWritePrice
 	}

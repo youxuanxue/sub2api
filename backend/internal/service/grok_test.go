@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
 // TestTkIsGrokEntitlement403 is the load-bearing regression guard for the
@@ -40,14 +42,14 @@ func TestTkIsGrokEntitlement403(t *testing.T) {
 }
 
 // TestAccountGrokHelpers covers the grok account predicate + base-URL resolution
-// (default api.x.ai/v1, per-account override with trailing-slash trim).
+// (default CLI gateway, per-account override with trailing-slash trim).
 func TestAccountGrokHelpers(t *testing.T) {
 	a := &Account{Platform: PlatformGrok, Type: AccountTypeOAuth, Credentials: map[string]any{}}
 	if !a.IsGrok() {
 		t.Fatal("IsGrok should be true for platform=grok")
 	}
-	if got := a.GetGrokBaseURL(); got != "https://api.x.ai/v1" {
-		t.Errorf("default GetGrokBaseURL = %q, want https://api.x.ai/v1", got)
+	if got := a.GetGrokBaseURL(); got != xai.DefaultCLIBaseURL {
+		t.Errorf("default GetGrokBaseURL = %q, want %s", got, xai.DefaultCLIBaseURL)
 	}
 	a.Credentials["base_url"] = "https://proxy.example.com/v1/"
 	if got := a.GetGrokBaseURL(); got != "https://proxy.example.com/v1" {
@@ -95,7 +97,7 @@ func TestAccountGrokHelpers(t *testing.T) {
 // far future -> skip; within window -> refresh).
 func TestGrokTokenRefresher_CanRefreshNeedsRefresh(t *testing.T) {
 	r := NewGrokTokenRefresher(nil)
-	grok := &Account{Platform: PlatformGrok, Type: AccountTypeOAuth, Credentials: map[string]any{"refresh_token": "rt"}}
+	grok := &Account{Platform: PlatformGrok, Type: AccountTypeOAuth, Credentials: map[string]any{"access_token": "at", "refresh_token": "rt"}}
 
 	if !r.CanRefresh(grok) {
 		t.Fatal("CanRefresh should be true for grok+oauth")

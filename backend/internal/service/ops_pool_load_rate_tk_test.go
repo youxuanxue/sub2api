@@ -38,7 +38,7 @@ func TestAggregatePoolLoads_SplitsNewapiByChannelType(t *testing.T) {
 	// 已按 LoadRate 降序：deepseek 在前。
 	deepseek := pools[0]
 	require.Equal(t, 43, deepseek.ChannelType)
-	require.Equal(t, 10, deepseek.Seats)             // 5+5
+	require.Equal(t, 10, deepseek.Seats)                     // 5+5
 	require.Equal(t, 13, deepseek.InFlight+deepseek.Waiting) // 10 在途 + 3 排队
 	require.InDelta(t, 130.0, deepseek.LoadRatePct, 0.01)
 
@@ -131,6 +131,6 @@ func TestFormatPoolLoadCause_OverThresholdOnly(t *testing.T) {
 	rule := &OpsAlertRule{MetricType: "pool_load_rate", Operator: ">=", Threshold: 90}
 	got := formatPoolLoadCause(pools, rule, "", nil)
 	require.Contains(t, got, "DeepSeek")  // channel 名而非裸渠道号
-	require.Contains(t, got, "排队中")     // Waiting>0
+	require.Contains(t, got, "排队中")       // Waiting>0
 	require.NotContains(t, got, "openai") // 50% 未越阈值，不展开
 }

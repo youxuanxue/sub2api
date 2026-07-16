@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/gin-gonic/gin"
@@ -37,11 +38,7 @@ func (s *AccountTestService) testGrokAccountConnection(c *gin.Context, account *
 		if strings.TrimSpace(baseURL) == "" {
 			return s.sendErrorAndEnd(c, "No grok base URL available")
 		}
-		var err error
-		normalizedBaseURL, err = s.validateUpstreamBaseURL(baseURL)
-		if err != nil {
-			return s.sendErrorAndEnd(c, "Invalid base URL: "+err.Error())
-		}
+		normalizedBaseURL = baseURL
 	default:
 		return s.sendErrorAndEnd(c, "Unsupported grok account type: "+account.Type)
 	}
@@ -88,6 +85,10 @@ func (s *AccountTestService) testGrokResponsesConnection(
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+authToken)
+	if account.IsGrokOAuth() {
+		applyGrokCLIHeaders(req.Header)
+	}
+	account.ApplyHeaderOverrides(req.Header)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -100,11 +101,23 @@ func (s *AccountTestService) testGrokResponsesConnection(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	now := time.Now()
+	snapshot := parseGrokQuotaSnapshot(resp.Header, resp.StatusCode, now)
+	if snapshot != nil && s.accountRepo != nil {
+		resetAt, limited := grokRateLimitResetAtForAccount(account, snapshot, now)
+		if limited {
+			normalizeGrokExhaustedWindowResets(snapshot, resetAt, now)
+		}
+		_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{grokQuotaSnapshotExtraKey: snapshot})
+		if limited {
+			persistGrokRateLimit(ctx, s.accountRepo, account, resetAt)
+		} else if isSuccessfulGrokRateLimitRecovery(account, snapshot) {
+			clearGrokRateLimitAfterRecovery(ctx, s.accountRepo, account)
+		}
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode == http.StatusTooManyRequests {
-			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
-		}
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
 			errMsg := fmt.Sprintf("Responses authentication failed (401): %s", string(body))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)

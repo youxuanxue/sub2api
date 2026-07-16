@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,9 +9,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/apipath"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -73,13 +70,19 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	}
 	clientStream := gjson.GetBytes(body, "stream").Bool()
 
-	// 1b. Extract reasoning effort and service tier from the raw body before any transformation.
-	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, originalModel)
+	// 1b. Extract service tier from the raw body before any transformation.
 	serviceTier := extractOpenAIServiceTierFromBody(body)
 
 	// 2. Resolve model mapping (same as ForwardAsChatCompletions)
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	grokCacheIdentity := ""
+	if account.Platform == PlatformGrok {
+		// Resolve before image bridging or other body rewrites so the fallback is
+		// anchored to the client's stable conversation prefix.
+		grokCacheIdentity = resolveGrokCacheIdentity(c, body, "", upstreamModel)
+	}
+	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
 	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 billingModel 算出之后。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
 
@@ -106,7 +109,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 
 	// Grok Composer does not accept image_url parts directly, but Grok Build
 	// can describe the images first. Bridge only this exact failure mode.
-	token, tokenKind, err := s.GetAccessToken(ctx, account)
+	token, tokenKind, err := s.getRequestCredential(ctx, c, account)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +140,12 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 			return nil, fmt.Errorf("enable stream usage: %w", usageErr)
 		}
 	}
+	if account.Platform == PlatformGrok {
+		upstreamBody, err = stripGrokChatPromptCacheKey(upstreamBody)
+		if err != nil {
+			return nil, fmt.Errorf("remove Responses-only Grok prompt cache key: %w", err)
+		}
+	}
 
 	logger.L().Debug("openai chat_completions raw: forwarding without protocol conversion",
 		zap.Int64("account_id", account.ID),
@@ -151,8 +160,15 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if err != nil {
 		return nil, err
 	}
+	SetActualOpenAIUpstreamEndpoint(c, grokChatRawEndpoint)
 	customUA := account.GetOpenAIUserAgent()
-	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA)
+	if customUA == "" && account.IsGrokOAuth() && c != nil {
+		customUA = strings.TrimSpace(c.GetHeader("User-Agent"))
+	}
+	if customUA == "" && account.IsGrokOAuth() {
+		customUA = grokUpstreamUserAgent
+	}
+	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA, grokCacheIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -162,14 +178,13 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	// every response (success or error) so the quota snapshot the admin panel /
 	// auto-pause path read stays fresh. No-op for non-grok accounts.
 	if account.IsGrok() {
-		s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
+		s.updateGrokUsageFromResponse(ctx, account, resp.Header, resp.StatusCode)
 	}
 
 	// 7. Handle error response with failover
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
 		if account.Platform == PlatformGrok {
-			s.updateGrokUsageSnapshot(ctx, account.ID, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,
@@ -184,6 +199,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 				return nil, &UpstreamFailoverError{
 					StatusCode:             resp.StatusCode,
 					ResponseBody:           respBody,
+					ResponseHeaders:        resp.Header.Clone(),
 					RetryableOnSameAccount: tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, false),
 				}
 			}
@@ -205,6 +221,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	}
 	if result != nil {
 		addOpenAIUsage(&result.Usage, bridgeUsage)
+		result.UpstreamEndpoint = grokChatRawEndpoint
 	}
 	return result, forwardErr
 }
@@ -225,11 +242,7 @@ func (s *OpenAIGatewayService) rawChatCompletionsURL(account *Account) (string, 
 		}
 		return buildOpenAIChatCompletionsURL(validatedURL), nil
 	case account.IsGrokOAuth():
-		validatedURL, err := s.validateUpstreamBaseURLForAccount(account, strings.TrimSpace(account.GetGrokBaseURL()))
-		if err != nil {
-			return "", fmt.Errorf("invalid grok base_url: %w", err)
-		}
-		return buildOpenAIChatCompletionsURL(validatedURL), nil
+		return buildGrokChatCompletionsURL(account, s.cfg)
 	default:
 		return s.openAIChatCompletionsTargetURL(account)
 	}
@@ -421,12 +434,9 @@ func extractCCStreamUsage(payload string) *OpenAIUsage {
 	if !usageResult.Exists() || !usageResult.IsObject() {
 		return nil
 	}
-	u := OpenAIUsage{
-		InputTokens:  int(gjson.Get(payload, "usage.prompt_tokens").Int()),
-		OutputTokens: int(gjson.Get(payload, "usage.completion_tokens").Int()),
-	}
-	if cached := gjson.Get(payload, "usage.prompt_tokens_details.cached_tokens"); cached.Exists() {
-		u.CacheReadInputTokens = int(cached.Int())
+	u, ok := openAIUsageFromGJSON(usageResult)
+	if !ok {
+		return nil
 	}
 	return &u
 }
@@ -453,16 +463,9 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		return nil, fmt.Errorf("read upstream body: %w", err)
 	}
 
-	var ccResp apicompat.ChatCompletionsResponse
 	var usage OpenAIUsage
-	if err := json.Unmarshal(respBody, &ccResp); err == nil && ccResp.Usage != nil {
-		usage = OpenAIUsage{
-			InputTokens:  ccResp.Usage.PromptTokens,
-			OutputTokens: ccResp.Usage.CompletionTokens,
-		}
-		if ccResp.Usage.PromptTokensDetails != nil {
-			usage.CacheReadInputTokens = ccResp.Usage.PromptTokensDetails.CachedTokens
-		}
+	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
+		usage = parsedUsage
 	}
 
 	// Silent-refusal detection on the non-streaming response shape.
