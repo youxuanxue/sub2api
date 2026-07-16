@@ -4272,9 +4272,11 @@
         "func (r *usageLogRepository) groupDailyMetricsBackfilled(",
         "FROM usage_dashboard_group_daily gd",
         "WHERE gd.bucket_date > DATE '",
-        "win.rawSpans"
+        "win.rawSpans",
+        "ul.billing_tier = 'kiro-estimated'",
+        "CacheTelemetryUnavailableInputTokens"
       ],
-      "rationale": "TK read path for Dashboard/Usage group distribution: completed server-TZ days come from usage_dashboard_group_daily metrics, raw head/tail spans come from usage_logs, and the metrics-backfill marker prevents old cost-only rows from being trusted. Anchors the fast path and correctness gate so group distribution cannot silently regress to the 0.9s raw scan or zero historical tokens."
+      "rationale": "TK read path for Dashboard/Usage group distribution: completed server-TZ days come from usage_dashboard_group_daily metrics, raw head/tail spans come from usage_logs, and the metrics-backfill marker prevents old cost-only rows from being trusted. A narrow raw-window query also derives Kiro-estimated input whose cache telemetry is unavailable, keeping it out of the observable hit-rate denominator without widening the rollup schema. Anchors the fast path and cache-observability correctness so neither can disappear silently."
     },
     {
       "path": "backend/internal/repository/dashboard_aggregation_repo.go",
@@ -4338,6 +4340,15 @@
       "must_contain": [
         "return r.getUserSpendingRankingRollup(ctx, startTime, endTime, limit)"
       ]
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_trend.go",
+      "must_contain": [
+        "COALESCE(SUM(ul.input_tokens), 0) as input_tokens",
+        "FILTER (WHERE ul.billing_tier = 'kiro-estimated')",
+        "row.TotalTokens = row.InputTokens + row.OutputTokens + row.CacheCreationTokens + row.CacheReadTokens"
+      ],
+      "rationale": "The raw fallback for Dashboard/Usage group stats must expose the same input/output/cache components as the daily-rollup path and mark Kiro-estimated input as cache-telemetry unavailable. The frontend computes observable hit rate from these integer fields; dropping any component or the billing-tier filter can silently turn unavailable traffic into cache misses while legacy total/cost assertions remain green."
     },
     {
       "path": "backend/internal/service/universal_routing_tk_resolver.go",

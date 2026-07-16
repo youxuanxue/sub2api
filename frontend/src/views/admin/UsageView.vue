@@ -407,6 +407,7 @@ const applyRouteQueryFilters = () => {
   const queryStartDate = getSingleQueryValue(route.query.start_date)
   const queryEndDate = getSingleQueryValue(route.query.end_date)
   const queryUserId = getNumericQueryValue(route.query.user_id)
+  const queryGroupId = getNumericQueryValue(route.query.group_id)
   const queryStartTs = getNumericQueryValue(route.query.start_ts)
   const queryEndTs = getNumericQueryValue(route.query.end_ts)
 
@@ -431,6 +432,7 @@ const applyRouteQueryFilters = () => {
   filters.value = {
     ...filters.value,
     user_id: queryUserId,
+    group_id: queryGroupId,
     start_date: startDate.value,
     end_date: endDate.value
   }

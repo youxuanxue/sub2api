@@ -1478,9 +1478,14 @@
         "import { dashboardWindowParams, rollingWindowTs } from '@/utils/dashboardWindow.tk'",
         "const goToUserUsage = (item: UserSpendingRankingItem) => {",
         "...(dashboardWindowParams(activePreset.value))",
-        "...(rollingWindowTs(activePreset.value) ?? {})"
+        "...(rollingWindow ?? dashboardWindowParams(activePreset.value))",
+        "loadedDashboardRollingWindow.value ?? rollingWindowTs(activePreset.value) ?? {}",
+        "const promptCacheOverview = computed(() => {",
+        "cache_telemetry_unavailable_input_tokens",
+        "data-testid=\"prompt-cache-overall-status\"",
+        "include_group_stats: true"
       ],
-      "rationale": "The admin Dashboard's own requests (snapshot-v2 / user-ranking) carry the TK window via dashboardWindowParams(): rolling presets → absolute epoch-ms (timezone-independent), calendar presets ('今天'/昨天/本月/上月) → a server-TZ `range` token resolved by the backend (parseNamedRange). The `range` path is load-bearing — without it the admin per-user '今日消费' window follows the operator's browser timezone and silently disagrees with the customer dashboard (timezone.Today()) and the daily rollup buckets for the same user/day. The goToUserUsage drilldown deliberately keeps rollingWindowTs() instead, because /admin/usage's parser consumes only absolute start_ts/end_ts (+ date strings) and would silently drop a `range` token. If an upstream-shaped DashboardView rewrite collapses these two helpers, either the dashboard calendar windows fall back to browser-local date strings (mismatch returns) or the drilldown emits a dead param — both while still compiling."
+      "rationale": "The admin Dashboard's own requests carry the TK window via dashboardWindowParams(): rolling presets use absolute epoch-ms and calendar presets use a server-TZ range token. Drilldowns deliberately reuse the exact successfully loaded rolling window because /admin/usage consumes absolute start_ts/end_ts, not range. The same snapshot group facet owns the prompt-cache overview: it excludes Kiro-estimated unavailable input, ranks the top five groups by prompt-token impact, and avoids an extra endpoint. These anchors prevent an upstream-shaped Dashboard rewrite from silently restoring timezone drift, widening drilldowns, or dropping cache observability while still compiling."
     },
     {
       "path": "frontend/src/views/admin/UsageView.vue",
@@ -1489,9 +1494,11 @@
         "const getTimeWindowParams = () => selectedAbsoluteWindow.value ?? rollingWindowTs(activePreset.value)",
         "...(getTimeWindowParams() ?? {})",
         "start_time: timeWindow ? new Date(timeWindow.start_ts).toISOString()",
-        ":start-ts=\"getTimeWindowParams()?.start_ts\""
+        ":start-ts=\"getTimeWindowParams()?.start_ts\"",
+        "const queryGroupId = getNumericQueryValue(route.query.group_id)",
+        "group_id: queryGroupId"
       ],
-      "rationale": "Admin Usage rolling presets must send absolute epoch-ms windows to list, stats, charts, endpoint/model distributions, errors, and dashboard drilldown routes. Dropping any of this wiring silently restores widened local-date queries for default rolling windows, which is a production latency regression rather than an obvious functional break."
+      "rationale": "Admin Usage rolling presets must send absolute epoch-ms windows to list, stats, charts, endpoint/model distributions, errors, and dashboard drilldown routes. Dashboard group drilldowns must also consume group_id into the shared filters so the URL selection reaches every Usage query. Dropping this wiring silently restores widened local-date queries or shows unfiltered usage after a group click."
     },
     {
       "path": "frontend/src/constants/storefrontSeo.tk.ts",
