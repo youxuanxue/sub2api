@@ -30,7 +30,8 @@ class SyncContainerLogPolicyTest(unittest.TestCase):
             self.assertIn("--force-recreate caddy", commands)
             self.assertNotIn("--force-recreate postgres", commands)
             self.assertNotIn("--force-recreate redis", commands)
-            self.assertIn("max-size", commands)
+            self.assertIn('[ "$MAX_SIZE" = 100m ]', commands)
+            self.assertIn('[ "$MAX_FILE" = 5 ]', commands)
             self.assertIn("sync-container-log-policy: OK", commands)
             parsed = subprocess.run(
                 ["bash", "-n"], input=commands, capture_output=True, text=True, check=False
