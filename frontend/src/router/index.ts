@@ -239,7 +239,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
-      title: 'Quick Start',
+      title: 'Tool Integrations',
       titleKey: 'quickstart.title'
     }
   },

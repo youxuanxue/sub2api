@@ -50,8 +50,15 @@ export interface TestState {
   latencyMs?: number
   /** verbatim upstream/gateway message on failure (the actionable signal) */
   message?: string
+  reason?: 'missing_tool_call'
   /** true when the check was key-validity only (CC-only groups) */
   keyOnly?: boolean
+  /** true when the response completed a forced, side-effect-free tool call probe */
+  toolCall?: boolean
+}
+
+export interface RunTestOptions {
+  requireToolCall?: boolean
 }
 
 /** Per-flavor fallback when the live catalog is still loading or empty. Kept in
@@ -125,6 +132,7 @@ function mapMePricingModels(models: MePricingModel[]): UseKeyServableModel[] {
 export function useTkUseKey(args: UseTkUseKeyArgs) {
   const servableModels = ref<UseKeyServableModel[]>([])
   const modelsLoading = ref(false)
+  const modelsLoaded = ref(false)
   /** chosen model id per flavor; persists across tab switches within a session */
   const selectedByFlavor = ref<Record<UseKeyFlavor, string>>({
     anthropic: '',
@@ -133,27 +141,38 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
   })
   const testState = ref<TestState>({ status: 'idle' })
   let testController: AbortController | null = null
+  let modelLoadEpoch = 0
 
   async function loadModels(): Promise<void> {
+    const epoch = ++modelLoadEpoch
     const id = args.apiKeyId.value
     servableModels.value = []
+    modelsLoaded.value = false
     selectedByFlavor.value = { anthropic: '', openai: '', gemini: '' }
-    if (id == null) return
+    if (id == null) {
+      modelsLoading.value = false
+      return
+    }
     modelsLoading.value = true
     try {
+      let nextModels: UseKeyServableModel[]
       if (args.routingMode?.value === 'universal') {
         const [meCatalog, publicCatalog] = await Promise.all([getMePricingCatalog(), getPublicPricing()])
-        servableModels.value = servableModelsFromUniversalEntitlement(meCatalog, publicCatalog.data ?? [])
+        nextModels = servableModelsFromUniversalEntitlement(meCatalog, publicCatalog.data ?? [])
       } else {
         const res = await getMePricingCatalog({ apiKeyId: id })
-        servableModels.value = mapMePricingModels(res.models ?? [])
+        nextModels = mapMePricingModels(res.models ?? [])
       }
+      if (epoch !== modelLoadEpoch || id !== args.apiKeyId.value) return
+      servableModels.value = nextModels
+      modelsLoaded.value = true
     } catch {
+      if (epoch !== modelLoadEpoch || id !== args.apiKeyId.value) return
       // Load failure leaves servableModels empty; the modal then shows its
       // "couldn't load — type manually" hint and snippets use the fallback id.
       servableModels.value = []
     } finally {
-      modelsLoading.value = false
+      if (epoch === modelLoadEpoch) modelsLoading.value = false
     }
   }
 
@@ -176,10 +195,11 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     if (testState.value.status !== 'idle') testState.value = { status: 'idle' }
   }
 
-  /** Pre-select a model from a deep link (e.g. /pricing → /quickstart?model=). */
+  /** Pre-select a model from a deep link only when the current key can serve it. */
   function applyInitialModel(modelId: string | null | undefined): UseKeyFlavor | null {
     const id = modelId?.trim()
     if (!id) return null
+    if (!servableModels.value.some((model) => model.id === id)) return null
     const flavor = flavorOfModel(id)
     setModel(flavor, id)
     return flavor
@@ -206,7 +226,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
    * requires a claude-cli User-Agent, which fetch is forbidden from setting),
    * so we fall back to a key-validity probe (GET /v1/models) and say so.
    */
-  async function runTest(flavor: UseKeyFlavor): Promise<void> {
+  async function runTest(flavor: UseKeyFlavor, options: RunTestOptions = {}): Promise<void> {
     cancelTest()
     const root = stripTrailingSlashes(args.baseRoot.value)
     const key = args.apiKey.value
@@ -251,10 +271,36 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
       }
     } else {
       url = `${root}/v1/chat/completions`
+      const toolName = 'tokenkey_quickstart_probe'
+      const body: Record<string, unknown> = {
+        model,
+        max_tokens: 16,
+        messages: [{
+          role: 'user',
+          content: options.requireToolCall ? `Call ${toolName} with value "ok".` : 'ping',
+        }],
+        stream: false,
+      }
+      if (options.requireToolCall) {
+        body.tools = [{
+          type: 'function',
+          function: {
+            name: toolName,
+            description: 'Return a fixed probe value without side effects.',
+            parameters: {
+              type: 'object',
+              properties: { value: { type: 'string' } },
+              required: ['value'],
+              additionalProperties: false,
+            },
+          },
+        }]
+        body.tool_choice = { type: 'function', function: { name: toolName } }
+      }
       init = {
         method: 'POST',
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'ping' }], stream: false }),
+        body: JSON.stringify(body),
         signal: ctrl.signal,
       }
     }
@@ -264,7 +310,22 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
       const latencyMs = Math.max(0, Math.round((typeof performance !== 'undefined' ? performance.now() : 0) - t0))
       const text = await res.text().catch(() => '')
       if (res.ok) {
-        testState.value = { status: 'ok', httpStatus: res.status, latencyMs, keyOnly }
+        if (options.requireToolCall && !hasToolCall(text, 'tokenkey_quickstart_probe')) {
+          testState.value = {
+            status: 'error',
+            httpStatus: res.status,
+            latencyMs,
+            reason: 'missing_tool_call',
+          }
+        } else {
+          testState.value = {
+            status: 'ok',
+            httpStatus: res.status,
+            latencyMs,
+            keyOnly,
+            toolCall: options.requireToolCall,
+          }
+        }
       } else {
         testState.value = { status: 'error', httpStatus: res.status, latencyMs, message: extractMessage(text) || `HTTP ${res.status}` }
       }
@@ -283,6 +344,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
   return {
     servableModels,
     modelsLoading,
+    modelsLoaded,
     testState,
     isClaudeCodeOnly,
     loadModels,
@@ -292,6 +354,19 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     applyInitialModel,
     shouldWarnModelsEmpty,
     runTest,
+  }
+}
+
+function hasToolCall(text: string, expectedName: string): boolean {
+  try {
+    const payload = JSON.parse(text) as {
+      choices?: Array<{ message?: { tool_calls?: Array<{ function?: { name?: string } }> } }>
+    }
+    return payload.choices?.some((choice) =>
+      choice.message?.tool_calls?.some((call) => call.function?.name === expectedName),
+    ) === true
+  } catch {
+    return false
   }
 }
 
