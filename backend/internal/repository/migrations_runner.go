@@ -64,7 +64,6 @@ const latestAPIKeyIPIndexMigration = "174_add_usage_logs_api_key_latest_ip_index
 const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
 const opsSystemLogsHostIndexMigration = "175a_add_ops_system_logs_host_index_notx.sql"
 const opsSystemLogsHostIndex = "idx_ops_system_logs_host_created_at"
-const opsSystemLogsHostIndexDDL = `CREATE INDEX IF NOT EXISTS idx_ops_system_logs_host_created_at ON ops_system_logs (host, created_at DESC)`
 
 type nonTransactionalIndexPolicy struct {
 	indexName              string
