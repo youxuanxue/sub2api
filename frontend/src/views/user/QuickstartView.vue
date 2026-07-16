@@ -58,11 +58,9 @@
             </div>
           </div>
 
-          <div v-if="selectedKey" class="space-y-3">
-            <h2 class="text-sm font-semibold text-gray-900 dark:text-white">
-              {{ t('quickstart.chooseClient') }}
-            </h2>
+          <div v-if="selectedKey">
             <QuickstartClientPicker
+              :heading="t('quickstart.chooseClient')"
               :groups="clientGroups"
               :selected-id="selectedClientId"
               @select="selectClient"
