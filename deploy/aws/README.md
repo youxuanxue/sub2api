@@ -745,10 +745,13 @@ sudo systemctl status tokenkey
 sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps
 sudo journalctl -u tokenkey -n 200 --no-pager
 sudo systemctl list-timers tokenkey-pgdump.timer
-sudo systemctl list-timers tokenkey-disk-metrics.timer   # → CloudWatch tokenkey/EC2 DataVolumeUsedPercent
+sudo systemctl list-timers tokenkey-disk-metrics.timer   # → CloudWatch tokenkey/EC2 DataVolumeUsedPercent + RootVolumeUsedPercent
 sudo systemctl list-timers tokenkey-qa-stale-cleanup.timer
 ls -lh /var/lib/tokenkey/pgdump/ 2>/dev/null || echo '(no dumps yet — first dump runs on next scheduled timer tick)'
-# pg_dump 每小时一次，本地只滚动保留最近 6 份 tokenkey-*.sql.gz（S3 TOKENKEY_PGDUMP_S3_URI 才是归档源，本地仅供快速恢复）；清理在 dump 之前先跑以自愈满盘死锁。卷使用率告警：CFN DataVolumeDiskAlarm（探测）+ tokenkey-disk-metrics timer 的 on-box 飞书告警（通知，USED≥85%）/ 主文档 §3.8。CPU 持续高负载：CloudWatch `tokenkey-prod-cpu-sustained-high`（AWS/EC2 CPUUtilization 5m Average >80% 连续 15min；`ops/stage0/sync-instance-cpu-alarm.sh` 可不经全栈 CFN 单独同步）。
+# pg_dump 每小时一次，本地只滚动保留最近 6 份 tokenkey-*.sql.gz（S3 TOKENKEY_PGDUMP_S3_URI 才是归档源，本地仅供快速恢复）；清理在 dump 之前先跑以自愈满盘死锁。卷使用率告警：CFN DataVolumeDiskAlarm + RootVolumeDiskAlarm（探测）和 tokenkey-disk-metrics timer 的 on-box 飞书告警（通知）/ 主文档 §3.8。live root alarm 用 `bash ops/stage0/sync-instance-root-disk-alarm.sh --stack tokenkey-prod-stage0` 单独 upsert，避免整栈更新。CPU 持续高负载：CloudWatch `tokenkey-prod-cpu-sustained-high`（AWS/EC2 CPUUtilization 5m Average >80% 连续 15min；`ops/stage0/sync-instance-cpu-alarm.sh` 可不经全栈 CFN 单独同步）。
+
+# 现有 Caddy json log 无界时，用带 prod Environment 门禁的 workflow 同步 canonical compose 并仅重建 Caddy；Postgres/Redis/active app 不重启：
+# gh workflow run ops-stage0-container-log-policy.yml -f target=prod -f confirm=recreate-caddy-for-bounded-logs
 # 旧版手工/迁移快照 `pre-*.dump` 属存量文件；确认不需回滚后可删除，新模板的 pgdump timer 也会清理。
 # QA：`QaStaleRetentionDays`（默认 1.5 天）每日清理旧 qa_records + qa_blobs/qa_dlq；与 ops/prod/qa-export-and-purge.sh 范围对齐，0=关闭
 sudo cat /var/lib/tokenkey/.env                           # 含明文密码，慎查

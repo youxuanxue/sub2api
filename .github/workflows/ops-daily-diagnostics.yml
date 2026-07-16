@@ -271,6 +271,17 @@ jobs:
           # Read-only probe via run-probe.sh -> verdict.py -> finding. Isolated and
           # non-fatal: a probe failure only drops the capacity finding, never the run.
           if [ "$TARGET_ID" = "prod" ]; then
+            RESOURCE_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-runtime-resource-config.sh --comment "daily runtime resource config" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — invalid/missing probe becomes an explicit unknown verdict
+            RESOURCE_VERDICT="$(printf '%s' "$RESOURCE_OUT" | python3 ops/observability/runtime_resource_config_verdict.py 2>>"$STDERR" || echo '{"verdict":"unknown","violations":[]}')"
+            printf 'runtime_resource_config: %s\n' "$RESOURCE_VERDICT" >> "$STDOUT"
+            RESOURCE_V="$(printf '%s' "$RESOURCE_VERDICT" | jq -r '.verdict // "unknown"')"
+            RESOURCE_S="$(printf '%s' "$RESOURCE_VERDICT" | jq -r '[.violations[]?.summary] | join("; ")')"
+            case "$RESOURCE_V" in
+              green) add_finding "runtime_resource_config" "ok" "info" "Runtime resource config converged ($TARGET_ID)" "Caddy/app logs are bounded and Redis AOF matches canonical compose." "runtime-resource-config|$TARGET_ID" ;;
+              warning) add_finding "runtime_resource_config" "warning" "warning" "Runtime resource config drift ($TARGET_ID)" "$RESOURCE_S" "runtime-resource-config|$TARGET_ID" ;;
+              *) add_finding "runtime_resource_config" "skip" "info" "Runtime resource config inconclusive ($TARGET_ID)" "The read-only runtime config probe did not return a usable snapshot." "runtime-resource-config|$TARGET_ID" ;;
+            esac
+
             CAP_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-capacity.sh --comment "daily data-layer capacity" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — probe failure -> unknown verdict (surfaced as a finding), never breaks the run
             CAP_VERDICT="$(printf '%s' "$CAP_OUT" | python3 ops/observability/data_layer_capacity_verdict.py 2>>"$STDERR" || echo '{}')"
             printf 'data_layer_capacity: %s\n' "$CAP_VERDICT" >> "$STDOUT"

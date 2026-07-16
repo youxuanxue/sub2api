@@ -98,6 +98,10 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn("sudo docker rm -f tokenkey", remote)
         self.assertIn("DATABASE_HOST=tokenkey-postgres", remote)
         self.assertIn("REDIS_HOST=tokenkey-redis", remote)
+        self.assertIn("x-tokenkey-logging: &tokenkey-logging", remote)
+        self.assertEqual(remote.count("logging: *tokenkey-logging"), 2)
+        self.assertIn('max-size: "100m"', remote)
+        self.assertIn('max-file: "5"', remote)
 
     def test_values_are_env_overridable(self) -> None:
         proc, params, _ = _render(env_extra={

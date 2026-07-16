@@ -1399,6 +1399,20 @@ else
     echo "  ok: data-layer capacity verdict green/approaching/trigger fixtures pass"
 fi
 
+# ---- sub2api: runtime resource config verdict selftest ---------------------
+echo ""
+echo "=== sub2api: runtime resource config verdict selftest ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for runtime resource config selftest)"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/runtime_resource_config_verdict.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: runtime resource config verdict selftest"
+    echo "        — run: python3 ops/observability/runtime_resource_config_verdict.py --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: bounded Docker logging and Redis AOF drift fixtures pass"
+fi
+
 # ---- sub2api: edge-health verdict selftest ---------------------------------
 # The edge-health threshold logic (healthy/thin/degraded/down) lives in
 # edge_health_verdict.py and turns probe-edge-health.sh output into the one signal

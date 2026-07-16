@@ -1,22 +1,20 @@
 # =============================================================================
-# tokenkey · AWS Stage 0 (Single EC2, all-in-one)
-# -----------------------------------------------------------------------------
-# 与 deploy/docker-compose.yml 的差异：
-#   - 不向宿主机暴露 PostgreSQL / Redis 端口（EC2 在公有子网，避免被外网扫到）
-#   - 增加 Caddy 容器作为唯一对外服务（443 / 80），自动签 Let's Encrypt 证书
-#   - 所有数据卷集中在 /var/lib/tokenkey 下（Cloud-Init 已建好），便于 EBS 快照恢复
-# 镜像使用本仓库 fork 自己发布的版本（GHCR），而不是上游 weishaw/sub2api:latest，
-# 这样才能跑到 TokenKey 自己的 new-api 集成 / passkey / payments 等差异化代码。
-# 镜像名通过 .env 的 TOKENKEY_IMAGE 注入，例如：
-#   TOKENKEY_IMAGE=ghcr.io/<owner>/sub2api:main
-#   TOKENKEY_IMAGE=ghcr.io/<owner>/sub2api:sha-abc1234   # 推荐固定 commit
+# TokenKey AWS Stage0: Caddy-only ingress, private Postgres/Redis, persistent
+# data under /var/lib/tokenkey, and a commit-pinned TOKENKEY_IMAGE from GHCR.
 # =============================================================================
+
+x-tokenkey-logging: &tokenkey-logging
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "5"
 
 services:
   caddy:
     image: caddy:2-alpine
     container_name: tokenkey-caddy
     restart: unless-stopped
+    logging: *tokenkey-logging
     ports:
       - "80:80"
       - "443:443"
@@ -35,6 +33,7 @@ services:
     container_name: tokenkey
     pull_policy: always
     restart: unless-stopped
+    logging: *tokenkey-logging
     # 发版优雅停机：deploy 脚本会先发 SIGUSR1 让进程进入 drain，等 /health 翻 503、
     # in_flight=0 后才走 `docker stop`，此时 SIGTERM + 下面 180s 的 grace period 保证
     # 长 SSE 能跑完。app 端 TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS=150 比 grace 少 30s，
@@ -100,6 +99,7 @@ services:
     image: postgres:18-alpine
     container_name: tokenkey-postgres
     restart: unless-stopped
+    logging: *tokenkey-logging
     ulimits:
       nofile:
         soft: 100000
@@ -126,6 +126,7 @@ services:
     image: redis:8-alpine
     container_name: tokenkey-redis
     restart: unless-stopped
+    logging: *tokenkey-logging
     ulimits:
       nofile:
         soft: 100000
