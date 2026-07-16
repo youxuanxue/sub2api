@@ -83,11 +83,13 @@ VERSION_NUM="${TAG#v}"
 # by `type`). VERSION-bump and sync-version-file writebacks are dropped as noise.
 gen_changelog() {
   local prev range
-  prev=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)
+  # Merged upstream history carries its own, often closer v0.x tags.
+  # Release boundaries belong to TokenKey's first-parent mainline only.
+  prev=$(git describe --tags --first-parent --abbrev=0 HEAD 2>/dev/null || true)
   # If HEAD is already tagged (re-run, or --dry-run on a released commit), the
   # describe above returns that same tag; step back one commit for the real prev.
   if [ -n "$prev" ] && [ "$(git rev-parse "${prev}^{commit}")" = "$(git rev-parse HEAD)" ]; then
-    prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+    prev=$(git describe --tags --first-parent --abbrev=0 HEAD^ 2>/dev/null || true)
   fi
   if [ -n "$prev" ]; then
     range="${prev}..HEAD"
