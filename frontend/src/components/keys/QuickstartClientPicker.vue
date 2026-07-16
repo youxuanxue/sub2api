@@ -37,7 +37,7 @@
         {{ group.label }}
       </h3>
 
-      <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-2">
         <div
           v-for="client in group.clients"
           :key="client.id"
@@ -57,13 +57,13 @@
                 ? 'border-primary-500 bg-primary-50 text-primary-700 dark:border-primary-500 dark:bg-primary-900/25 dark:text-primary-300'
                 : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200 dark:hover:border-dark-500 dark:hover:bg-dark-700',
               client.disabled
-                ? 'cursor-not-allowed opacity-55 hover:border-gray-200 hover:bg-white dark:hover:border-dark-600 dark:hover:bg-dark-800'
+                ? 'cursor-pointer opacity-55 hover:border-amber-300 hover:bg-amber-50 dark:hover:border-amber-700 dark:hover:bg-amber-900/15'
                 : 'cursor-pointer'
             ]"
             @click="selectClient(client)"
           >
             <Icon :name="client.icon" size="sm" aria-hidden="true" class="shrink-0" />
-            <span class="min-w-0 flex-1 truncate">{{ client.name }}</span>
+            <span class="min-w-0 flex-1 whitespace-nowrap">{{ client.name }}</span>
             <Icon
               :name="supportMeta[client.supportTier].icon"
               size="xs"
@@ -83,16 +83,25 @@
           </span>
         </div>
       </div>
+
+      <p
+        v-if="selectedUnavailableInGroup(group)"
+        data-tk="quickstart-client-unavailable"
+        class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200"
+      >
+        {{ selectedUnavailableInGroup(group)?.disabledReason }}
+      </p>
     </section>
   </div>
 </template>
 
 <script lang="ts">
 import type IconComponent from '@/components/icons/Icon.vue'
+import type { TkClientSupportTier } from '@/constants/clientIntegrations.tk'
 
 export type QuickstartClientIconName = InstanceType<typeof IconComponent>['$props']['name']
 
-export type QuickstartClientSupportTier = 'verified' | 'import' | 'compatible'
+export type QuickstartClientSupportTier = TkClientSupportTier
 
 export interface QuickstartClientOption {
   id: string
@@ -114,6 +123,7 @@ export interface QuickstartClientGroup {
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import { TK_CLIENT_SUPPORT_META } from '@/constants/clientIntegrations.tk'
 
 const { t } = useI18n()
 
@@ -126,14 +136,22 @@ const emit = defineEmits<{
   select: [id: string]
 }>()
 
-const supportMeta = computed<Record<
-  QuickstartClientSupportTier,
-  { icon: QuickstartClientIconName; label: string; className: string }
->>(() => ({
-  verified: { icon: 'checkCircle', label: t('quickstart.supportVerified'), className: 'text-emerald-500' },
-  import: { icon: 'download', label: t('quickstart.supportImport'), className: 'text-primary-500' },
-  compatible: { icon: 'link', label: t('quickstart.supportCompatible'), className: 'text-gray-400 dark:text-gray-500' },
-}))
+type PickerSupportMeta = Record<QuickstartClientSupportTier, {
+  icon: QuickstartClientIconName
+  label: string
+  className: string
+}>
+
+const supportMeta = computed<PickerSupportMeta>(() =>
+  supportTierOrder.reduce<PickerSupportMeta>((result, tier) => {
+    result[tier] = {
+      icon: TK_CLIENT_SUPPORT_META[tier].icon,
+      label: t(TK_CLIENT_SUPPORT_META[tier].labelKey),
+      className: TK_CLIENT_SUPPORT_META[tier].legendClass,
+    }
+    return result
+  }, {} as PickerSupportMeta),
+)
 
 const supportTierOrder: QuickstartClientSupportTier[] = ['verified', 'import', 'compatible']
 
@@ -143,6 +161,10 @@ const hasUnavailableClients = computed(() =>
 
 function selectClient(client: QuickstartClientOption): void {
   emit('select', client.id)
+}
+
+function selectedUnavailableInGroup(group: QuickstartClientGroup): QuickstartClientOption | undefined {
+  return group.clients.find((client) => client.id === props.selectedId && client.disabled)
 }
 
 function clientTitle(client: QuickstartClientOption): string {

@@ -81,11 +81,11 @@
                     {{ selectedClient.name }}
                   </h2>
                   <span
-                    :class="supportBadgeClass"
+                    :class="selectedSupportMeta.badgeClass"
                     class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium"
                   >
-                    <Icon :name="supportBadgeIcon" size="xs" />
-                    {{ supportBadgeLabel }}
+                    <Icon :name="selectedSupportMeta.icon" size="xs" />
+                    {{ t(selectedSupportMeta.labelKey) }}
                   </span>
                 </div>
                 <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -116,15 +116,7 @@
               </div>
             </div>
 
-            <div
-              v-if="selectedClientDisabledReason"
-              data-tk="quickstart-client-unavailable"
-              class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200"
-            >
-              {{ selectedClientDisabledReason }}
-            </div>
-
-            <template v-else>
+            <template v-if="!selectedClientDisabledReason">
               <div v-if="selectedClient.id === 'qwen-code'" class="mb-4 flex flex-wrap items-center gap-3">
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('quickstart.protocol') }}</span>
                 <div
@@ -231,6 +223,7 @@ import QuickstartClientPicker, { type QuickstartClientGroup } from '@/components
 import UseKeyGuide from '@/components/keys/UseKeyGuide.vue'
 import {
   resolveTkClientIntegrationUrl,
+  TK_CLIENT_SUPPORT_META,
   TK_QUICKSTART_CLIENTS,
   type TkClientCatalogEntry,
 } from '@/constants/clientIntegrations.tk'
@@ -299,29 +292,9 @@ const selectedClientDescription = computed(() =>
   selectedClient.value ? t(`quickstart.clientDescriptions.${selectedClient.value.guideId}`) : '',
 )
 
-const supportBadgeLabel = computed(() => {
-  switch (selectedClient.value?.supportTier) {
-    case 'verified': return t('quickstart.supportVerified')
-    case 'import': return t('quickstart.supportImport')
-    default: return t('quickstart.supportCompatible')
-  }
-})
-
-const supportBadgeIcon = computed<'checkCircle' | 'download' | 'link'>(() => {
-  switch (selectedClient.value?.supportTier) {
-    case 'verified': return 'checkCircle'
-    case 'import': return 'download'
-    default: return 'link'
-  }
-})
-
-const supportBadgeClass = computed(() => {
-  switch (selectedClient.value?.supportTier) {
-    case 'verified': return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-300'
-    case 'import': return 'bg-primary-50 text-primary-700 dark:bg-primary-900/25 dark:text-primary-300'
-    default: return 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'
-  }
-})
+const selectedSupportMeta = computed(() =>
+  TK_CLIENT_SUPPORT_META[selectedClient.value?.supportTier ?? 'compatible'],
+)
 
 function maskKey(key: string) {
   if (key.length <= 14) return key

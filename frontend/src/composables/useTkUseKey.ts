@@ -132,6 +132,7 @@ function mapMePricingModels(models: MePricingModel[]): UseKeyServableModel[] {
 export function useTkUseKey(args: UseTkUseKeyArgs) {
   const servableModels = ref<UseKeyServableModel[]>([])
   const modelsLoading = ref(false)
+  const modelsLoaded = ref(false)
   /** chosen model id per flavor; persists across tab switches within a session */
   const selectedByFlavor = ref<Record<UseKeyFlavor, string>>({
     anthropic: '',
@@ -140,27 +141,38 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
   })
   const testState = ref<TestState>({ status: 'idle' })
   let testController: AbortController | null = null
+  let modelLoadEpoch = 0
 
   async function loadModels(): Promise<void> {
+    const epoch = ++modelLoadEpoch
     const id = args.apiKeyId.value
     servableModels.value = []
+    modelsLoaded.value = false
     selectedByFlavor.value = { anthropic: '', openai: '', gemini: '' }
-    if (id == null) return
+    if (id == null) {
+      modelsLoading.value = false
+      return
+    }
     modelsLoading.value = true
     try {
+      let nextModels: UseKeyServableModel[]
       if (args.routingMode?.value === 'universal') {
         const [meCatalog, publicCatalog] = await Promise.all([getMePricingCatalog(), getPublicPricing()])
-        servableModels.value = servableModelsFromUniversalEntitlement(meCatalog, publicCatalog.data ?? [])
+        nextModels = servableModelsFromUniversalEntitlement(meCatalog, publicCatalog.data ?? [])
       } else {
         const res = await getMePricingCatalog({ apiKeyId: id })
-        servableModels.value = mapMePricingModels(res.models ?? [])
+        nextModels = mapMePricingModels(res.models ?? [])
       }
+      if (epoch !== modelLoadEpoch || id !== args.apiKeyId.value) return
+      servableModels.value = nextModels
+      modelsLoaded.value = true
     } catch {
+      if (epoch !== modelLoadEpoch || id !== args.apiKeyId.value) return
       // Load failure leaves servableModels empty; the modal then shows its
       // "couldn't load — type manually" hint and snippets use the fallback id.
       servableModels.value = []
     } finally {
-      modelsLoading.value = false
+      if (epoch === modelLoadEpoch) modelsLoading.value = false
     }
   }
 
@@ -331,6 +343,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
   return {
     servableModels,
     modelsLoading,
+    modelsLoaded,
     testState,
     isClaudeCodeOnly,
     loadModels,

@@ -75,7 +75,7 @@ async function installQuickstartFixture(page: Page): Promise<void> {
   await page.route('**/api/v1/keys?**', (route) => route.fulfill({
     json: ok({ items: [universalKey], total: 1, page: 1, page_size: 100, pages: 1 }),
   }))
-  await page.route('**/api/v1/me/pricing-catalog?**', (route) => route.fulfill({
+  await page.route('**/api/v1/me/pricing-catalog**', (route) => route.fulfill({
     json: ok({
       target_group: {
         id: 1,
@@ -103,8 +103,34 @@ async function installQuickstartFixture(page: Page): Promise<void> {
       ],
       my_keys: [],
       accessible_groups: [],
+      authorized_groups_by_model: {
+        'gpt-5.5': [{ id: 1, name: 'Universal OpenAI', platform: 'openai' }],
+        'claude-opus-4-8': [{ id: 2, name: 'Universal Anthropic', platform: 'anthropic' }],
+      },
       updated_at: '2026-07-16T00:00:00Z',
     }),
+  }))
+  await page.route('**/api/v1/public/pricing**', (route) => route.fulfill({
+    json: {
+      object: 'list',
+      data: [
+        {
+          model_id: 'gpt-5.5',
+          pricing: { currency: 'USD', input_per_1k_tokens: 0, output_per_1k_tokens: 0 },
+          capabilities: ['tools'],
+          context_window: 1_050_000,
+          max_output_tokens: 128_000,
+        },
+        {
+          model_id: 'claude-opus-4-8',
+          pricing: { currency: 'USD', input_per_1k_tokens: 0, output_per_1k_tokens: 0 },
+          capabilities: ['tools'],
+          context_window: 1_000_000,
+          max_output_tokens: 128_000,
+        },
+      ],
+      updated_at: '2026-07-16T00:00:00Z',
+    },
   }))
 }
 
@@ -187,6 +213,14 @@ test.describe('catalog UX — models / pricing / quickstart', () => {
 
   test('quickstart tool-first picker drives client config across desktop and mobile', async ({ page }) => {
     await installQuickstartFixture(page)
+    await page.addInitScript(() => {
+      const openedUrls: string[] = []
+      Object.defineProperty(window, '__tkOpenedUrls', { value: openedUrls, configurable: true })
+      window.open = ((url?: string | URL) => {
+        openedUrls.push(String(url ?? ''))
+        return { opener: null } as Window
+      }) as typeof window.open
+    })
     await page.goto('/quickstart')
 
     const picker = page.locator('[data-tk="quickstart-client-picker"]')
@@ -211,7 +245,11 @@ test.describe('catalog UX — models / pricing / quickstart', () => {
       'python',
     ]
     for (const id of expectedClients) {
-      await expect(page.locator(`[data-tk="quickstart-client-${id}"]`)).toBeVisible()
+      const client = page.locator(`[data-tk="quickstart-client-${id}"]`)
+      await expect(client).toBeVisible()
+      const name = client.locator('span').first()
+      await expect(name).not.toHaveCSS('text-overflow', 'ellipsis')
+      expect(await name.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
     }
 
     const qwen = page.locator('[data-tk="quickstart-client-qwen-code"]')
@@ -255,8 +293,37 @@ test.describe('catalog UX — models / pricing / quickstart', () => {
       baseURL: `${new URL(page.url()).origin}/v1`,
       apiKey: 'sk-tokenkey-quickstart-e2e',
     })
+    expect(Object.keys(openCodeConfig.provider.openai.models)).toEqual(['gpt-5.5'])
+    const preview = workspace.locator('[data-tk="quickstart-config-preview-0"]')
+    await expect(preview).toBeVisible()
+    expect((await preview.boundingBox())?.height).toBeLessThanOrEqual(321)
+    await workspace.locator('[data-tk="quickstart-config-toggle-0"]').click()
+    expect((await preview.boundingBox())?.height).toBeGreaterThan(321)
+    await workspace.locator('[data-tk="quickstart-config-toggle-0"]').click()
 
+    await page.evaluate(() => window.scrollTo(0, 0))
     await page.screenshot({ path: 'e2e/artifacts/quickstart-desktop.png', fullPage: true })
+
+    await page.locator('[data-tk="quickstart-client-cherry-studio"]').click()
+    await page.locator('[data-tk="quickstart-client-import"]').click()
+    await page.locator('[data-tk="quickstart-client-chatbox"]').click()
+    await page.locator('[data-tk="quickstart-client-import"]').click()
+    const openedUrls = await page.evaluate(() =>
+      (window as Window & { __tkOpenedUrls?: string[] }).__tkOpenedUrls ?? [],
+    )
+    expect(openedUrls).toHaveLength(2)
+    const cherryPayload = JSON.parse(atob(new URL(openedUrls[0]).searchParams.get('data')!))
+    expect(cherryPayload).toMatchObject({
+      id: 'tokenkey',
+      baseUrl: `${new URL(page.url()).origin}/v1`,
+      apiKey: 'sk-tokenkey-quickstart-e2e',
+    })
+    const chatboxPayload = JSON.parse(atob(new URL(openedUrls[1]).searchParams.get('config')!))
+    expect(chatboxPayload.settings).toMatchObject({
+      apiKey: 'sk-tokenkey-quickstart-e2e',
+      models: [{ modelId: 'gpt-5.5' }],
+    })
+    expect(page.url()).not.toContain('sk-tokenkey-quickstart-e2e')
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.locator('[data-tk="quickstart-client-cherry-studio"]').scrollIntoViewIfNeeded()

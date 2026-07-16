@@ -187,24 +187,40 @@
               <!-- Code Header -->
               <div class="flex items-center justify-between px-4 py-2 bg-gray-800 dark:bg-dark-800 border-b border-gray-700 dark:border-dark-700">
                 <span class="text-xs text-gray-400 font-mono">{{ file.path }}</span>
-                <button
-                  @click="copyContent(file.content, index)"
-                  class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors"
-                  :class="copiedIndex === index
-                    ? 'bg-green-500/20 text-green-400'
-                    : 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white'"
-                >
-                  <svg v-if="copiedIndex === index" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                  <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
-                  </svg>
-                  {{ copiedIndex === index ? t('keys.useKeyModal.copied') : t('keys.useKeyModal.copy') }}
-                </button>
+                <div class="flex items-center gap-2">
+                  <button
+                    v-if="isCollapsible(file)"
+                    type="button"
+                    :data-tk="`quickstart-config-toggle-${index}`"
+                    class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-300 transition-colors hover:text-white"
+                    @click="toggleExpandedFile(index)"
+                  >
+                    <Icon :name="expandedFileIndex === index ? 'chevronUp' : 'chevronDown'" size="xs" />
+                    {{ expandedFileIndex === index ? t('quickstart.collapseConfig') : t('quickstart.expandConfig') }}
+                  </button>
+                  <button
+                    @click="copyContent(file.content, index)"
+                    class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors"
+                    :class="copiedIndex === index
+                      ? 'bg-green-500/20 text-green-400'
+                      : 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white'"
+                  >
+                    <svg v-if="copiedIndex === index" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                    </svg>
+                    {{ copiedIndex === index ? t('keys.useKeyModal.copied') : t('keys.useKeyModal.copy') }}
+                  </button>
+                </div>
               </div>
               <!-- Code Content -->
-              <pre class="p-4 text-sm font-mono text-gray-100 overflow-x-auto"><code v-if="file.highlighted" v-html="file.highlighted"></code><code v-else v-text="file.content"></code></pre>
+              <pre
+                :data-tk="`quickstart-config-preview-${index}`"
+                :class="{ 'max-h-80': isCollapsible(file) && expandedFileIndex !== index }"
+                class="overflow-auto p-4 text-sm font-mono text-gray-100"
+              ><code v-if="file.highlighted" v-html="file.highlighted"></code><code v-else v-text="file.content"></code></pre>
             </div>
           </div>
         </div>
@@ -229,7 +245,9 @@ import {
   useTkUseKey,
   capabilityLabel,
   anthropicEnvModel,
+  flavorOfModel,
   type UseKeyFlavor,
+  type UseKeyServableModel,
 } from '@/composables/useTkUseKey'
 import type { GroupPlatform, KeyRoutingMode } from '@/types'
 import { TK_QUICKSTART_CLIENTS } from '@/constants/clientIntegrations.tk'
@@ -300,6 +318,7 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 const copiedIndex = ref<number | null>(null)
 const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
+const expandedFileIndex = ref<number | null>(null)
 const keyRevealed = ref(false)
 const selectedClientEntry = computed(() =>
   props.selectedClient
@@ -421,6 +440,14 @@ function copyText(text: string): void {
   void clipboardCopy(text)
 }
 
+function toggleExpandedFile(index: number): void {
+  expandedFileIndex.value = expandedFileIndex.value === index ? null : index
+}
+
+function isCollapsible(file: FileConfig): boolean {
+  return file.content.split('\n').length > 16
+}
+
 function onTest(): void {
   if (activeFlavor.value) {
     void tk.runTest(activeFlavor.value, { requireToolCall: isDifyClient.value })
@@ -478,6 +505,7 @@ watch(() => [props.platform, props.routingMode, props.selectedClient, props.sele
 // Reset shell tab when client changes
 watch(activeClientTab, () => {
   activeTab.value = 'unix'
+  expandedFileIndex.value = null
 })
 
 // Icon components
@@ -783,9 +811,11 @@ const currentFiles = computed((): FileConfig[] => {
   }
 
   if (activeClientTab.value === 'opencode') {
+    const allowedModels = tk.modelsLoaded.value ? tk.servableModels.value : undefined
+    const splitAllowedModels = props.routingMode === 'universal'
     switch (platformForFiles()) {
       case 'anthropic':
-        return [generateOpenCodeConfig('anthropic', apiBase, apiKey)]
+        return [generateOpenCodeConfig('anthropic', apiBase, apiKey, undefined, allowedModels, splitAllowedModels)]
       case 'openai':
       case 'newapi':
       case 'grok':
@@ -793,20 +823,20 @@ const currentFiles = computed((): FileConfig[] => {
         // use identical config (provider=openai, baseURL=apiBase). Sticking
         // these branches together avoids a parallel catalog that would drift
         // from openai's.
-        return [generateOpenCodeConfig('openai', apiBase, apiKey)]
+        return [generateOpenCodeConfig('openai', apiBase, apiKey, undefined, allowedModels, splitAllowedModels)]
       case 'gemini':
-        return [generateOpenCodeConfig('gemini', geminiBase, apiKey)]
+        return [generateOpenCodeConfig('gemini', geminiBase, apiKey, undefined, allowedModels, splitAllowedModels)]
       case 'antigravity': {
         const configs: FileConfig[] = []
         // supported_model_scopes 不含 claude 时隐藏 antigravity-claude provider。
         if (antigravityClaudeAllowed.value) {
-          configs.push(generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)'))
+          configs.push(generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)', allowedModels))
         }
-        configs.push(generateOpenCodeConfig('antigravity-gemini', antigravityGeminiBase, apiKey, 'opencode.json (Gemini)'))
+        configs.push(generateOpenCodeConfig('antigravity-gemini', antigravityGeminiBase, apiKey, 'opencode.json (Gemini)', allowedModels))
         return configs
       }
       default:
-        return [generateOpenCodeConfig('openai', apiBase, apiKey)]
+        return [generateOpenCodeConfig('openai', apiBase, apiKey, undefined, allowedModels)]
     }
   }
 
@@ -1277,7 +1307,14 @@ print(resp.choices[0].message.content)`,
   }
 }
 
-function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: string, pathLabel?: string): FileConfig {
+function generateOpenCodeConfig(
+  platform: string,
+  baseUrl: string,
+  apiKey: string,
+  pathLabel?: string,
+  allowedModels?: UseKeyServableModel[],
+  filterAllowedByFlavor = true,
+): FileConfig {
   const provider: Record<string, any> = {
     [platform]: {
       options: {
@@ -1689,21 +1726,47 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     }
   }
 
+  function restrictModels(
+    catalog: Record<string, Record<string, unknown>>,
+    flavor: UseKeyFlavor,
+  ): Record<string, Record<string, unknown>> {
+    if (allowedModels === undefined) return catalog
+    return Object.fromEntries(
+      allowedModels
+        .filter((model) => !filterAllowedByFlavor || flavorOfModel(model.id) === flavor)
+        .map((model) => {
+          const known = catalog[model.id]
+          if (known) return [model.id, known]
+          const limit = {
+            ...(model.contextWindow ? { context: model.contextWindow } : {}),
+            ...(model.maxOutput ? { output: model.maxOutput } : {}),
+          }
+          return [model.id, {
+            name: model.id,
+            ...(Object.keys(limit).length ? { limit } : {}),
+          }]
+        }),
+    )
+  }
+
   if (platform === PLATFORM_GEMINI) {
     provider[platform].npm = '@ai-sdk/google'
-    provider[platform].models = geminiModels
+    provider[platform].models = restrictModels(geminiModels, 'gemini')
   } else if (platform === PLATFORM_ANTHROPIC) {
     provider[platform].npm = '@ai-sdk/anthropic'
+    if (allowedModels !== undefined) {
+      provider[platform].models = restrictModels({}, 'anthropic')
+    }
   } else if (platform === 'antigravity-claude') {
     provider[platform].npm = '@ai-sdk/anthropic'
     provider[platform].name = 'Antigravity (Claude)'
-    provider[platform].models = claudeModels
+    provider[platform].models = restrictModels(claudeModels, 'anthropic')
   } else if (platform === 'antigravity-gemini') {
     provider[platform].npm = '@ai-sdk/google'
     provider[platform].name = 'Antigravity (Gemini)'
-    provider[platform].models = antigravityGeminiModels
+    provider[platform].models = restrictModels(antigravityGeminiModels, 'gemini')
   } else if (platform === PLATFORM_OPENAI) {
-    provider[platform].models = openaiModels
+    provider[platform].models = restrictModels(openaiModels, 'openai')
   }
 
   const agent =

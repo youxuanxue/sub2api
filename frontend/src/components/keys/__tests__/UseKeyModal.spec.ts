@@ -318,7 +318,52 @@ describe('UseKeyGuide — tool-first Quickstart contracts', () => {
     expect(fields).toContain('Base URL: https://example.com/v1')
     expect(fields).toContain('Model ID: gpt-5.5')
     expect(wrapper.find('[data-tk="quickstart-environment-picker"]').exists()).toBe(false)
+    expect(wrapper.find('[data-tk="quickstart-config-toggle-0"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('keys.useKeyModal.cliTabs.codexCli')
+  })
+
+  it('limits OpenCode models to the selected direct key live menu', async () => {
+    getMePricingCatalog.mockResolvedValue({
+      models: [
+        { model_id: 'gpt-5.4-mini', capabilities: [], context_window: 400000, max_output_tokens: 128000 },
+        { model_id: 'tenant-custom-model', capabilities: [] },
+      ],
+    })
+    const wrapper = mountQuickstartGuide({
+      selectedClient: 'opencode',
+      platform: 'openai',
+      routingMode: 'direct',
+    })
+    await flushPromises()
+
+    const config = JSON.parse(wrapper.find('pre code').text())
+    expect(Object.keys(config.provider.openai.models)).toEqual([
+      'gpt-5.4-mini',
+      'tenant-custom-model',
+    ])
+    expect(config.provider.openai.models['gpt-5.4-mini'].name).toBe('GPT-5.4 Mini')
+    expect(config.provider.openai.models['tenant-custom-model']).toEqual({ name: 'tenant-custom-model' })
+    expect(config.provider.openai.models['gpt-5.5']).toBeUndefined()
+  })
+
+  it.each([
+    { platform: 'anthropic', alias: 'sonnet-prod' },
+    { platform: 'gemini', alias: 'flash-prod' },
+  ])('keeps a direct $platform custom alias in OpenCode models', async ({ platform, alias }) => {
+    getMePricingCatalog.mockResolvedValue({
+      models: [{ model_id: alias, capabilities: [] }],
+    })
+    const wrapper = mountQuickstartGuide({
+      selectedClient: 'opencode',
+      platform,
+      routingMode: 'direct',
+    })
+    await flushPromises()
+
+    const config = JSON.parse(wrapper.find('pre code').text())
+    expect(config.provider[platform].models).toEqual({
+      [alias]: { name: alias },
+    })
   })
 
   it('uses client-specific copy for cURL instead of Codex setup instructions', async () => {

@@ -32,6 +32,32 @@ export type TkClientSupportTier = 'verified' | 'import' | 'compatible'
 export type TkClientAction = 'copy-config' | 'app-deeplink' | 'copy-fields'
 export type TkClientGuideMode = 'native' | 'qwen' | 'openai-fields' | 'raw'
 
+export const TK_CLIENT_SUPPORT_META: Record<TkClientSupportTier, {
+  icon: 'checkCircle' | 'download' | 'link'
+  labelKey: 'quickstart.supportVerified' | 'quickstart.supportImport' | 'quickstart.supportCompatible'
+  legendClass: string
+  badgeClass: string
+}> = {
+  verified: {
+    icon: 'checkCircle',
+    labelKey: 'quickstart.supportVerified',
+    legendClass: 'text-emerald-500',
+    badgeClass: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-300',
+  },
+  import: {
+    icon: 'download',
+    labelKey: 'quickstart.supportImport',
+    legendClass: 'text-primary-500',
+    badgeClass: 'bg-primary-50 text-primary-700 dark:bg-primary-900/25 dark:text-primary-300',
+  },
+  compatible: {
+    icon: 'link',
+    labelKey: 'quickstart.supportCompatible',
+    legendClass: 'text-gray-400 dark:text-gray-500',
+    badgeClass: 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300',
+  },
+}
+
 export interface TkClientCatalogEntry {
   id: string
   name: string
