@@ -27,11 +27,21 @@ func (r usageWalletUserRepo) GetByID(context.Context, int64) (*service.User, err
 	return r.user, r.err
 }
 
-func runGatewayUsageWalletTest(t *testing.T, repo usageWalletUserRepo) map[string]any {
+type usageWalletBalanceCache struct {
+	service.BillingCache
+	balance float64
+	err     error
+}
+
+func (c usageWalletBalanceCache) GetUserBalance(context.Context, int64) (float64, error) {
+	return c.balance, c.err
+}
+
+func runGatewayUsageWalletTest(t *testing.T, cache usageWalletBalanceCache, repo usageWalletUserRepo) map[string]any {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	billingCache := service.NewBillingCacheService(nil, repo, nil, nil, nil, nil, &config.Config{}, nil)
+	billingCache := service.NewBillingCacheService(cache, repo, nil, nil, nil, nil, &config.Config{}, nil)
 	t.Cleanup(billingCache.Stop)
 
 	user := &service.User{ID: 31, Balance: 12.75, Status: service.StatusActive}
@@ -42,7 +52,6 @@ func runGatewayUsageWalletTest(t *testing.T, repo usageWalletUserRepo) map[strin
 		Status: service.StatusAPIKeyActive,
 	}
 	h := &GatewayHandler{
-		userService:         service.NewUserService(repo, nil, nil, nil),
 		billingCacheService: billingCache,
 	}
 
@@ -61,8 +70,10 @@ func runGatewayUsageWalletTest(t *testing.T, repo usageWalletUserRepo) map[strin
 }
 
 func TestGatewayHandlerUsage_WalletPrefersCurrentBalance(t *testing.T) {
-	response := runGatewayUsageWalletTest(t, usageWalletUserRepo{
-		user: &service.User{ID: 31, Balance: 19.5, Status: service.StatusActive},
+	response := runGatewayUsageWalletTest(t, usageWalletBalanceCache{
+		balance: 19.5,
+	}, usageWalletUserRepo{
+		err: errors.New("database must not be queried on a cache hit"),
 	})
 
 	require.Equal(t, "unrestricted", response["mode"])
@@ -71,7 +82,9 @@ func TestGatewayHandlerUsage_WalletPrefersCurrentBalance(t *testing.T) {
 }
 
 func TestGatewayHandlerUsage_WalletFallsBackToAuthenticatedBalance(t *testing.T) {
-	response := runGatewayUsageWalletTest(t, usageWalletUserRepo{
+	response := runGatewayUsageWalletTest(t, usageWalletBalanceCache{
+		err: errors.New("temporary cache lookup failure"),
+	}, usageWalletUserRepo{
 		err: errors.New("temporary user lookup failure"),
 	})
 

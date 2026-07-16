@@ -1541,28 +1541,6 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 	c.JSON(http.StatusOK, resp)
 }
 
-func (h *GatewayHandler) usageWalletBalance(c *gin.Context, ctx context.Context, apiKey *service.APIKey, userID int64) float64 {
-	fallback := 0.0
-	if apiKey != nil && apiKey.User != nil && apiKey.User.ID == userID {
-		fallback = apiKey.User.Balance
-	}
-	if h.billingCacheService == nil {
-		return fallback
-	}
-
-	balance, err := h.billingCacheService.GetUserBalance(ctx, userID)
-	if err == nil {
-		return balance
-	}
-	requestLogger(
-		c,
-		"handler.gateway.usage",
-		zap.Int64("user_id", userID),
-		zap.Int64("api_key_id", apiKey.ID),
-	).Warn("gateway.usage_balance_load_failed_using_auth_snapshot", zap.Error(err))
-	return fallback
-}
-
 // calculateSubscriptionRemaining 计算订阅剩余可用额度
 // 逻辑：
 // 1. 如果日/周/月任一限额达到100%，返回0
