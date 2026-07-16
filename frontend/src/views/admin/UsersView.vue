@@ -246,6 +246,15 @@
               <Icon name="gift" size="md" class="mr-2" />
               {{ t('admin.users.inviteTrial.button') }}
             </button>
+            <button
+              v-if="selectedCount > 0"
+              class="btn btn-secondary flex-1 md:flex-initial"
+              data-test="bulk-edit-limits"
+              @click="showBulkEditModal = true"
+            >
+              <Icon name="users" size="md" class="mr-2" />
+              {{ t('admin.users.bulkLimits.action', { count: selectedCount }) }}
+            </button>
 
             <!-- Create User Button (full width on mobile, auto width on desktop) -->
             <button data-testid="user-create-btn" @click="showCreateModal = true" class="btn btn-primary flex-1 md:flex-initial">
@@ -753,6 +762,12 @@
     <UserCreateModal v-if="lazyMount('create', showCreateModal)" :show="showCreateModal" @close="showCreateModal = false" @success="loadUsers" />
     <InviteTrialModal v-if="lazyMount('invite', showInviteTrialModal)" :show="showInviteTrialModal" :seed="inviteSeed" @close="showInviteTrialModal = false" @success="loadUsers" />
     <UserEditModal v-if="lazyMount('edit', showEditModal)" :show="showEditModal" :user="editingUser" @close="closeEditModal" @success="loadUsers" />
+    <BulkEditUserModal
+      :show="showBulkEditModal"
+      :selected-ids="selectedIds"
+      @close="showBulkEditModal = false"
+      @success="handleBulkLimitsSuccess"
+    />
     <UserPlatformQuotaModal
       v-if="lazyMount('platformQuota', showPlatformQuotaModal)"
       :show="showPlatformQuotaModal"

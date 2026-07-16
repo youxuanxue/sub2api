@@ -482,6 +482,7 @@
     <ErrorPassthroughRulesModal v-if="lazyMount('errPass', showErrorPassthrough)" :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal v-if="lazyMount('tls', showTLSFingerprintProfiles)" :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
     <TierTemplatesModal v-if="lazyMount('tierTpl', showTierTemplates)" :show="showTierTemplates" @close="showTierTemplates = false" />
+    <TotpStepUpDialog :controller="accountExportStepUp" />
   </template>
 
 <script setup lang="ts">
@@ -498,6 +499,8 @@ import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/us
 import { useTableSelection } from '@/composables/useTableSelection'
 import { useTkAccountTier } from '@/composables/useTkAccountTier'
 import { useTkAccountUsageBatch } from '@/composables/useTkAccountUsageBatch'
+import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
+import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
@@ -540,7 +543,8 @@ import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { accountMatchesPlatformFilter } from '@/utils/accountPlatformFilters'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
-import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, Group, WindowStats, AccountModelOption } from '@/types'
+import { extractApiErrorMessage } from '@/utils/apiError'
+import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, Group, WindowStats, AccountModelOption, ClaudeModel, UpstreamBillingProbeSettings, UpstreamBillingProbeSnapshot } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -1510,6 +1514,7 @@ const allColumns = computed(() => {
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true, class: nowrap },
     { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false, class: wrap('max-w-[9rem]') },
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true, class: nowrap },
+    { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: false },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true, class: wrap('max-w-[5rem]') },
     { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true, class: wrap('max-w-[5rem]') },
     { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true, class: wrap('max-w-[5rem]') },

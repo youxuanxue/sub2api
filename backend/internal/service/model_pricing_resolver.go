@@ -155,6 +155,19 @@ func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricin
 	tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)
 }
 
+// applyChannelImageInputPrice 应用渠道图片输入价：显式配置则用配置值；
+// 未配置时归零，使 computeTokenBreakdown 回退到文本输入价（向后兼容，
+// 避免 commit 引入的 LiteLLM 图片输入价泄漏进渠道自定义定价）。
+// 与 image_output 不同，此处不设 Explicit 标志——图片输入未配置应回退文本价，
+// 而非硬置 0。
+func applyChannelImageInputPrice(chPricing *ChannelModelPricing, pricing *ModelPricing) {
+	if chPricing != nil && chPricing.ImageInputPrice != nil {
+		pricing.ImageInputPricePerToken = *chPricing.ImageInputPrice
+	} else {
+		pricing.ImageInputPricePerToken = 0
+	}
+}
+
 // applyRequestTierOverrides 应用按次/图片模式的渠道覆盖
 func (r *ModelPricingResolver) applyRequestTierOverrides(chPricing *ChannelModelPricing, resolved *ResolvedPricing) {
 	resolved.RequestTiers = filterValidIntervals(chPricing.Intervals)
@@ -196,6 +209,42 @@ func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, tot
 	}
 
 	return tkOverlayIntervalOntoBasePricing(resolved.BasePricing, iv, resolved.SupportsCacheBreakdown)
+}
+
+// intervalToModelPricing 将区间定价转换为 ModelPricing
+func intervalToModelPricing(iv *PricingInterval, supportsCacheBreakdown bool, chPricing *ChannelModelPricing) *ModelPricing {
+	pricing := &ModelPricing{
+		SupportsCacheBreakdown: supportsCacheBreakdown,
+	}
+	if iv.InputPrice != nil {
+		pricing.InputPricePerToken = *iv.InputPrice
+		pricing.InputPricePerTokenPriority = *iv.InputPrice
+	}
+	if iv.OutputPrice != nil {
+		pricing.OutputPricePerToken = *iv.OutputPrice
+		pricing.OutputPricePerTokenPriority = *iv.OutputPrice
+	}
+	if iv.CacheWritePrice != nil {
+		pricing.CacheCreationPricePerToken = *iv.CacheWritePrice
+		pricing.CacheCreationPricePerTokenPriority = *iv.CacheWritePrice
+		pricing.CacheCreationPriceExplicit = true
+		pricing.CacheCreation5mPrice = *iv.CacheWritePrice
+		pricing.CacheCreation1hPrice = *iv.CacheWritePrice
+	}
+	if iv.CacheReadPrice != nil {
+		pricing.CacheReadPricePerToken = *iv.CacheReadPrice
+		pricing.CacheReadPricePerTokenPriority = *iv.CacheReadPrice
+	}
+	// 渠道定价存在时，ImageOutputPrice 显式覆盖；图片输入价用渠道级配置
+	// （区间不携带图片输入价，与 image_output 一致）。
+	if chPricing != nil {
+		pricing.ImageOutputPriceExplicit = true
+		if chPricing.ImageOutputPrice != nil {
+			pricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
+		}
+		applyChannelImageInputPrice(chPricing, pricing)
+	}
+	return pricing
 }
 
 // GetRequestTierPrice 根据层级标签获取按次价格

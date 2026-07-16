@@ -165,6 +165,9 @@ func provideCleanup(
 	// TokenKey: forces wire to evaluate ProvideTKGroupUnsupportedModelCache so
 	// the shared selection-time unsupported-model negative cache is wired at startup.
 	_ service.TKGroupUnsupportedModelCacheReady,
+	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
+	upstreamBillingProbe *service.UpstreamBillingProbeService,
+	auditLog *service.AuditLogService,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -192,6 +195,12 @@ func provideCleanup(
 			{"OpsSystemLogSink", func() error {
 				if opsSystemLogSink != nil {
 					opsSystemLogSink.Stop()
+				}
+				return nil
+			}},
+			{"AuditLogService", func() error {
+				if auditLog != nil {
+					auditLog.Stop()
 				}
 				return nil
 			}},
@@ -376,6 +385,12 @@ func provideCleanup(
 			{"PricingMissingNotifier", func() error {
 				if pricingMissingNotifier != nil {
 					pricingMissingNotifier.Stop()
+				}
+				return nil
+			}},
+			{"UpstreamBillingProbeService", func() error {
+				if upstreamBillingProbe != nil {
+					upstreamBillingProbe.Stop()
 				}
 				return nil
 			}},

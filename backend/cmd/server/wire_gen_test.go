@@ -102,6 +102,9 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		handler.TKGatewayHandlerModelListReady{},    // TK: forces SetModelListFilter wiring
 		service.TKUniversalModelsProviderReady{},    // TK: forces universal-key models-provider wiring
 		service.TKGroupUnsupportedModelCacheReady{}, // TK: forces group unsupported negative cache wiring
+		nil, // quotaFlusher
+		nil, // upstreamBillingProbe
+		nil, // auditLog
 	)
 
 	require.NotPanics(t, func() {

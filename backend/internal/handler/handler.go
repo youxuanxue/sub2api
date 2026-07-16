@@ -49,6 +49,7 @@ type AdminHandlers struct {
 	EdgeAccountOps *admin.EdgeAccountOpsHandler
 	// TK: Invite-to-Trial batch provisioning + 试用方案 presets — see user_handler_tk_provision.go.
 	TrialProvision *admin.TrialProvisionHandler
+	AuditLog       *admin.AuditLogHandler
 }
 
 // Handlers contains all HTTP handlers
@@ -87,6 +88,7 @@ type Handlers struct {
 	// temp-unschedulable / schedulable / usage) the prod /accounts page proxies to
 	// for inline edge-account management — see edge_tk_account_ops_handler.go.
 	EdgeAccountOps *EdgeAccountOpsHandler
+	AsyncImage     *AsyncImageHandler
 	BatchImage     *BatchImageHandler
 }
 

@@ -49,7 +49,10 @@ func ProvideAdminHandlers(
 	edgeAccountsHandler *admin.EdgeAccountsHandler,
 	edgeAccountOpsHandler *admin.EdgeAccountOpsHandler,
 	trialProvisionHandler *admin.TrialProvisionHandler,
+	auditLogHandler *admin.AuditLogHandler,
+	upstreamBillingProbe *service.UpstreamBillingProbeService,
 ) *AdminHandlers {
+	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
 		User:                   userHandler,
@@ -88,6 +91,7 @@ func ProvideAdminHandlers(
 		EdgeAccounts:           edgeAccountsHandler,
 		EdgeAccountOps:         edgeAccountOpsHandler,
 		TrialProvision:         trialProvisionHandler,
+		AuditLog:               auditLogHandler,
 	}
 }
 
@@ -304,6 +308,7 @@ func ProvideHandlers(
 	edgeAccountsHandler *EdgeAccountsHandler,
 	edgeAdminSessionHandler *EdgeAdminSessionHandler,
 	edgeAccountOpsHandler *EdgeAccountOpsHandler,
+	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
@@ -333,6 +338,7 @@ func ProvideHandlers(
 		EdgeAccounts:     edgeAccountsHandler,
 		EdgeAdminSession: edgeAdminSessionHandler,
 		EdgeAccountOps:   edgeAccountOpsHandler,
+		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
 	}
 }
@@ -369,6 +375,7 @@ var ProviderSet = wire.NewSet(
 	ProvideEdgeAdminSessionHandler,
 	// TK: edge least-privilege account WRITE ops the prod /accounts page proxies to — see edge_tk_account_ops_handler.go.
 	ProvideEdgeAccountOpsHandler,
+	NewAsyncImageHandler,
 	NewBatchImageHandler,
 
 	// Admin handlers
@@ -413,6 +420,7 @@ var ProviderSet = wire.NewSet(
 	ProvideTKEdgeAccountOpsAdminHandler,
 	// TK: Invite-to-Trial batch provisioning + 试用方案 presets — see user_handler_tk_provision.go.
 	ProvideTrialProvisionHandler,
+	admin.NewAuditLogHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

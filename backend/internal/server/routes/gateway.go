@@ -43,6 +43,7 @@ func RegisterGatewayRoutes(
 	gateway.Use(opsErrorLogger)
 	gateway.Use(endpointNorm)
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
+	gateway.GET("/sub2api/billing", h.Gateway.KeyBillingInfo)
 	gateway.Use(requireGroupAnthropic)
 	{
 		// /v1/messages: auto-route based on group platform
@@ -64,6 +65,9 @@ func RegisterGatewayRoutes(
 		// TK: re-mint a short-lived presigned URL for an already-offloaded image
 		// (the Studio reload path). Utility endpoint — no group-platform routing.
 		gateway.POST("/images/presign", h.OpenAIGateway.ImagesPresign)
+		gateway.POST("/images/generations/async", h.AsyncImage.Submit)
+		gateway.POST("/images/edits/async", h.AsyncImage.Submit)
+		gateway.GET("/images/tasks/:task_id", h.AsyncImage.Get)
 		registerTKOpenAICompatVideoRoutes(gateway, h)
 		gateway.POST("/images/batches", h.BatchImage.Submit)
 		gateway.GET("/images/batches", h.BatchImage.List)

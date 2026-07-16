@@ -610,6 +610,8 @@ func TestAPIContracts(t *testing.T) {
 							"image_size": null,
 							"image_input_size": null,
 							"image_output_size": null,
+							"image_input_tokens": 0,
+							"image_input_cost": 0,
 							"image_output_tokens": 0,
 							"image_output_cost": 0,
 							"image_size_source": null,
@@ -691,6 +693,8 @@ func TestAPIContracts(t *testing.T) {
 					service.SettingPaymentVisibleMethodWxpaySource:                       service.VisibleMethodSourceOfficialWechat,
 					service.SettingPaymentVisibleMethodAlipayEnabled:                     "true",
 					service.SettingPaymentVisibleMethodWxpayEnabled:                      "false",
+					service.SettingKeyOpenAILowUpstreamRatePriorityEnabled:               "true",
+					service.SettingKeyOpenAIOAuthSchedulingRateMultiplier:                "0.05",
 					"openai_advanced_scheduler_enabled":                                  "true",
 					service.SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled:       "false",
 					service.SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled: "false",
@@ -725,6 +729,8 @@ func TestAPIContracts(t *testing.T) {
 					"google_oauth_frontend_redirect_url": "/auth/oauth/callback",
 					"totp_enabled": false,
 					"totp_encryption_key_configured": false,
+					"session_binding_enabled": true,
+					"audit_log_retention_days": 180,
 					"login_agreement_enabled": false,
 					"login_agreement_mode": "modal",
 					"login_agreement_updated_at": "2026-03-31",
@@ -886,6 +892,8 @@ func TestAPIContracts(t *testing.T) {
 					"payment_visible_method_wxpay_source": "official_wxpay",
 					"payment_visible_method_alipay_enabled": true,
 					"payment_visible_method_wxpay_enabled": false,
+					"openai_low_upstream_rate_priority_enabled": true,
+					"openai_oauth_scheduling_rate_multiplier": 0.05,
 					"openai_advanced_scheduler_enabled": true,
 					"openai_advanced_scheduler_sticky_weighted_enabled": false,
 					"openai_advanced_scheduler_subscription_priority_enabled": false,
@@ -897,6 +905,7 @@ func TestAPIContracts(t *testing.T) {
 					"openai_advanced_scheduler_weight_ttft": "",
 					"openai_advanced_scheduler_weight_reset": "",
 					"openai_advanced_scheduler_weight_quota_headroom": "",
+					"openai_advanced_scheduler_weight_upstream_cost": "",
 					"openai_advanced_scheduler_weight_previous_response": "",
 					"openai_advanced_scheduler_weight_session_sticky": "",
 					"openai_advanced_scheduler_effective_lb_top_k": "7",
@@ -907,6 +916,7 @@ func TestAPIContracts(t *testing.T) {
 					"openai_advanced_scheduler_effective_weight_ttft": "0.5",
 					"openai_advanced_scheduler_effective_weight_reset": "0",
 					"openai_advanced_scheduler_effective_weight_quota_headroom": "0",
+					"openai_advanced_scheduler_effective_weight_upstream_cost": "0",
 					"openai_advanced_scheduler_effective_weight_previous_response": "5",
 					"openai_advanced_scheduler_effective_weight_session_sticky": "3",
 					"openai_codex_user_agent":           "",
@@ -1045,6 +1055,17 @@ func TestAPIContracts(t *testing.T) {
 					"invitation_code_enabled": false,
 					"totp_enabled": false,
 					"totp_encryption_key_configured": false,
+					"session_binding_enabled": true,
+					"audit_log_retention_days": 180,
+					"login_agreement_enabled": false,
+					"login_agreement_mode": "modal",
+					"login_agreement_updated_at": "2026-03-31",
+					"login_agreement_documents": [
+						{"id": "terms", "title": "服务条款", "content_md": ""},
+						{"id": "usage-policy", "title": "使用政策", "content_md": ""},
+						{"id": "supported-regions", "title": "支持的国家和地区", "content_md": ""},
+						{"id": "service-specific-terms", "title": "服务特定条款", "content_md": ""}
+					],
 					"smtp_host": "",
 					"smtp_port": 587,
 					"smtp_username": "",
@@ -1171,6 +1192,8 @@ func TestAPIContracts(t *testing.T) {
 					"payment_visible_method_wxpay_source": "",
 					"payment_visible_method_alipay_enabled": false,
 					"payment_visible_method_wxpay_enabled": false,
+					"openai_low_upstream_rate_priority_enabled": false,
+					"openai_oauth_scheduling_rate_multiplier": 1,
 					"openai_advanced_scheduler_enabled": false,
 					"openai_advanced_scheduler_sticky_weighted_enabled": false,
 					"openai_advanced_scheduler_subscription_priority_enabled": false,
@@ -1182,6 +1205,7 @@ func TestAPIContracts(t *testing.T) {
 					"openai_advanced_scheduler_weight_ttft": "",
 					"openai_advanced_scheduler_weight_reset": "",
 					"openai_advanced_scheduler_weight_quota_headroom": "",
+					"openai_advanced_scheduler_weight_upstream_cost": "",
 					"openai_advanced_scheduler_weight_previous_response": "",
 					"openai_advanced_scheduler_weight_session_sticky": "",
 					"openai_advanced_scheduler_effective_lb_top_k": "7",
@@ -1192,6 +1216,7 @@ func TestAPIContracts(t *testing.T) {
 					"openai_advanced_scheduler_effective_weight_ttft": "0.5",
 					"openai_advanced_scheduler_effective_weight_reset": "0",
 					"openai_advanced_scheduler_effective_weight_quota_headroom": "0",
+					"openai_advanced_scheduler_effective_weight_upstream_cost": "0",
 					"openai_advanced_scheduler_effective_weight_previous_response": "5",
 					"openai_advanced_scheduler_effective_weight_session_sticky": "3",
 					"openai_codex_user_agent":           "",
@@ -1578,6 +1603,10 @@ func (r *stubUserRepo) BatchSetConcurrency(ctx context.Context, userIDs []int64,
 	return len(userIDs), nil
 }
 
+func (r *stubUserRepo) BatchUpdateLimits(context.Context, []int64, *int, *int) (int, error) {
+	return 0, nil
+}
+
 func (r *stubUserRepo) ExistsByEmail(ctx context.Context, email string) (bool, error) {
 	return false, errors.New("not implemented")
 }
@@ -1753,6 +1782,14 @@ func (stubGroupRepo) GetAccountIDsByGroupIDs(ctx context.Context, groupIDs []int
 
 func (stubGroupRepo) UpdateSortOrders(ctx context.Context, updates []service.GroupSortOrderUpdate) error {
 	return nil
+}
+
+func (stubGroupRepo) FindByDuplicateOperationID(ctx context.Context, operationID string) (*service.Group, error) {
+	return nil, nil
+}
+
+func (stubGroupRepo) CreateFromSource(ctx context.Context, group *service.Group, sourceGroupID int64) error {
+	return errors.New("not implemented")
 }
 
 type stubAccountRepo struct {
