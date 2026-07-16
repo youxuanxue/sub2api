@@ -4991,19 +4991,39 @@
       "path": "backend/internal/repository/migrations_runner.go",
       "must_contain": [
         "opsSystemLogsHostIndexMigration = \"175a_add_ops_system_logs_host_index_notx.sql\"",
-        "partitionedFallbackDDL: opsSystemLogsHostIndexDDL",
+        "partitionedIndexExpr: \"host, created_at DESC\"",
+        "createPartitionedIndexConcurrently(ctx, db, policy)",
         "applyNonTransactionalMigration(ctx, db, name, content)",
         "return dropInvalidIndexIfPresent(ctx, db, policy.indexName)"
       ],
-      "rationale": "PR #1353 added a host index migration using CREATE INDEX CONCURRENTLY, but prod ops_system_logs is a partitioned PostgreSQL parent where CONCURRENTLY is rejected. The shared non-transactional index policy must keep the 175a filename mapped to a blocking parent-index fallback, while non-partitioned deployments must drop an invalid interrupted index before retrying. Losing either hook makes the next prod rollout fail at startup or record a no-op retry as successful."
+      "rationale": "The upstream-shared migration runner owns only the declarative 175a policy and one thin call site. The TokenKey online partition-index implementation stays in a companion file to minimize upstream conflict surface while retaining invalid-index cleanup for non-partitioned deployments."
     },
     {
       "path": "backend/internal/repository/migrations_runner_notx_test.go",
       "must_contain": [
-        "TestApplyMigrationsFS_OpsSystemLogsHostIndex_UsesBlockingIndexOnPartitionedTable",
+        "TestApplyMigrationsFS_OpsSystemLogsHostIndex_BuildsPartitionIndexesConcurrently",
         "TestApplyMigrationsFS_OpsSystemLogsHostIndex_DropsInvalidIndexBeforeNonPartitionedRetry"
       ],
-      "rationale": "Behavioral regression coverage for the 175a migration on both live shapes: TokenKey prod's partitioned ops_system_logs parent must use the blocking fallback, and a non-partitioned interrupted concurrent build must remove the invalid index before retrying."
+      "rationale": "Behavioral regression coverage for both live shapes: TokenKey prod partitioned ops_system_logs parent must use the online child-build/attach path, and a non-partitioned interrupted concurrent build must remove an invalid index before retrying."
+    },
+    {
+      "path": "backend/internal/repository/pgpartition_integration_test.go",
+      "must_contain": [
+        "TestCreatePartitionedIndexConcurrently_AttachesEveryPartitionAndRetries",
+        "createPartitionedIndexConcurrently(ctx, integrationDB, policy)",
+        "require.Equal(t, tablePartitions, indexPartitions)"
+      ],
+      "rationale": "Real PostgreSQL coverage proves the online partition-index sequence produces a valid parent, attaches one index per table partition, and remains idempotent on retry; sqlmock alone cannot validate PostgreSQL partitioned-index state transitions."
+    },
+    {
+      "path": "backend/internal/repository/migrations_runner_tk_partitioned_index.go",
+      "must_contain": [
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s.%s (%s)",
+        "CREATE INDEX IF NOT EXISTS %s ON ONLY %s (%s)",
+        "ALTER INDEX %s ATTACH PARTITION %s.%s",
+        "partitioned parent index %s remains invalid"
+      ],
+      "rationale": "Prod ops_system_logs is a 12 GB partitioned parent. The companion must build child indexes concurrently, create the metadata-only parent, attach all children, and refuse to record an invalid parent; replacing it with a recursive blocking CREATE INDEX can stall production writes."
     }
   ]
 }

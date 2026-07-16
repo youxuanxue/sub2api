@@ -70,6 +70,7 @@ type nonTransactionalIndexPolicy struct {
 	indexName              string
 	partitionedTable       string
 	partitionedFallbackDDL string
+	partitionedIndexExpr   string
 }
 
 var nonTransactionalIndexPolicies = map[string]nonTransactionalIndexPolicy{
@@ -85,9 +86,9 @@ var nonTransactionalIndexPolicies = map[string]nonTransactionalIndexPolicy{
 		indexName: latestAPIKeyIPIndex,
 	},
 	opsSystemLogsHostIndexMigration: {
-		indexName:              opsSystemLogsHostIndex,
-		partitionedTable:       "ops_system_logs",
-		partitionedFallbackDDL: opsSystemLogsHostIndexDDL,
+		indexName:            opsSystemLogsHostIndex,
+		partitionedTable:     "ops_system_logs",
+		partitionedIndexExpr: "host, created_at DESC",
 	},
 }
 
@@ -320,6 +321,12 @@ func applyNonTransactionalMigration(ctx context.Context, db *sql.DB, name, conte
 			return fmt.Errorf("check %s partition state for migration %s: %w", policy.partitionedTable, name, err)
 		}
 		if partitioned {
+			if policy.partitionedIndexExpr != "" {
+				if err := createPartitionedIndexConcurrently(ctx, db, policy); err != nil {
+					return fmt.Errorf("apply migration %s (partitioned online index): %w", name, err)
+				}
+				return nil
+			}
 			if _, err := db.ExecContext(ctx, policy.partitionedFallbackDDL); err != nil {
 				return fmt.Errorf("apply migration %s (partitioned fallback): %w", name, err)
 			}
