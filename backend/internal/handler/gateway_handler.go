@@ -1517,20 +1517,17 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 		return
 	}
 
-	// 余额模式
-	latestUser, err := h.userService.GetByID(ctx, subject.UserID)
-	if err != nil {
-		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to get user info")
-		return
-	}
+	// 余额模式。余额缓存是计费余额的 SSOT；若缓存和 DB 同时瞬时不可用，
+	// 退回本次已通过鉴权的快照。该值只用于展示，不参与计费或额度放行。
+	balance := h.usageWalletBalance(c, ctx, apiKey, subject.UserID)
 
 	resp := gin.H{
 		"mode":      "unrestricted",
 		"isValid":   true,
 		"planName":  "钱包余额",
-		"remaining": latestUser.Balance,
+		"remaining": balance,
 		"unit":      "USD",
-		"balance":   latestUser.Balance,
+		"balance":   balance,
 	}
 	if usageData != nil {
 		resp["usage"] = usageData
