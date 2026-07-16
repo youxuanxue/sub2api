@@ -63,7 +63,7 @@
 - `frontend/e2e/dashboard-cache.e2e.ts`（真实浏览器 desktop/mobile 视觉与交互验收）
 - 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS201_|TestUsageLogRepositoryGetGroupStats' ./internal/service/ ./internal/repository/`
 - 运行命令: `cd backend && go test -tags=integration -v -run 'TestUsageLogRepoSuite/TestGroupStatsRollupParity_EqualsLegacyRawScanWithUngrouped' ./internal/repository/`
-- 运行命令: `pnpm --dir frontend exec vitest run src/views/admin/__tests__/DashboardView.spec.ts`
+- 运行命令: `pnpm --dir frontend exec vitest run src/views/admin/__tests__/DashboardView.spec.ts src/views/admin/__tests__/UsageView.spec.ts`
 - 运行命令: `pnpm --dir frontend exec playwright test e2e/dashboard-cache.e2e.ts --project=chromium`
 
 ## Evidence
@@ -72,4 +72,4 @@
 
 ## Status
 
-- [x] InTest（注入器骨架 + 派生算法 + 13 个测试已落盘并通过；P1 wire-in 待并入主线后切 Done）
+- [x] InTest（V1.1 实现与自动化验证已完成，待合并后切 Done）

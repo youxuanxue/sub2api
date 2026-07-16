@@ -242,6 +242,7 @@ async function assertCacheCard(page: Page, screenshotName: string): Promise<void
   ])
   await expect(card.getByText('Small OpenAI')).toHaveCount(0)
   await expect(card.getByText('Tiny Anthropic')).toHaveCount(0)
+  await expect(card.getByTestId('prompt-cache-overall-status')).toContainText(/部分可观测|Partially observable/i)
 
   const kiroRow = rows.filter({ hasText: 'Claude Kiro' })
   await expect(kiroRow).toContainText(/不可观测|Not observable/i)

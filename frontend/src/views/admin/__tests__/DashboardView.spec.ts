@@ -218,6 +218,7 @@ describe('admin DashboardView', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-testid="prompt-cache-card"] [data-testid="prompt-cache-rate"]').text()).toBe('39.7%')
+    expect(wrapper.get('[data-testid="prompt-cache-overall-status"]').text()).toBe('admin.dashboard.promptCachePartiallyObservable')
     const rows = wrapper.findAll('[data-testid="prompt-cache-group-row"]')
     expect(rows).toHaveLength(5)
     expect(rows.map((row) => row.attributes('data-group-id'))).toEqual(['1', '2', '3', '4', '5'])

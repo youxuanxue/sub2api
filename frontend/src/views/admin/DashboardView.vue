@@ -251,6 +251,13 @@
                   {{ t('admin.dashboard.promptCacheUnavailable') }}
                 </p>
                 <p v-else class="mt-2 text-2xl font-bold text-gray-400">—</p>
+                <p
+                  v-if="promptCacheOverview.rate !== null && promptCacheOverview.hasUnavailableTelemetry"
+                  class="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400"
+                  data-testid="prompt-cache-overall-status"
+                >
+                  {{ t('admin.dashboard.promptCachePartiallyObservable') }}
+                </p>
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   {{ t('admin.dashboard.promptCacheHitRateHint') }}
                 </p>

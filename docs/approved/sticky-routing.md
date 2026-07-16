@@ -253,36 +253,28 @@ type GroupStat struct {
 
 ### 6.1 User Story
 
-`.testing/user-stories/stories/US-201-sticky-routing.md`（编号待定）覆盖：
-- AC-001 (正向, OpenAI Codex)：Cursor 客户端连续 5 个请求未送 prompt_cache_key + 同 system → 全部上游 body 注入相同的 `tk_*` key
-- AC-002 (正向, Anthropic mimic)：非 Claude Code UA + Anthropic OAuth 账号 + 客户端无 metadata → 网关注入 metadata.user_id
-- AC-003 (负向, 真 Claude Code)：UA=Claude Code + Anthropic OAuth → 不注入 metadata（不打架）
-- AC-004 (负向, group=off)：分组 mode=off → 不论客户端送什么都不派生
-- AC-005 (负向, global=off)：全局开关关闭 → 所有分组都不派生
-- AC-006 (回归)：客户端已送 prompt_cache_key → 网关不覆盖（passthrough 优先）
-- AC-007 (回归, compat 路径)：`gpt-5.4` 现有自动注入行为不变
+`.testing/user-stories/stories/US-006-sticky-routing-prompt-cache.md` 是本设计的验收 SSOT。缓存可视化修订由 AC-009 至 AC-011 覆盖：分组 Token 契约与 raw/rollup 一致、Kiro 不可观测输入不计作 miss、Top 5 排序与同窗口分组钻取。
 
 ### 6.2 测试文件
 
 | 文件 | 覆盖 |
 |---|---|
 | `backend/internal/service/sticky_session_injector_test.go` | Derive 五级回退；各 Inject* 方法 |
-| `backend/internal/service/sticky_session_strategy_test.go` | global/group 合成；StickyMode 三档行为 |
-| `backend/internal/service/openai_gateway_service_sticky_test.go` | 既有 hot-path 测试加 sticky 注入用例 |
-| `backend/internal/handler/openai_gateway_handler_messages_sticky_test.go` | Messages→OpenAI 路径 |
-| `backend/internal/service/gateway_service_sticky_test.go` | Anthropic mimic / Claude Code skip |
-| `frontend/src/components/keys/__tests__/UseKeyModal.spec.ts` | 已加（P0） |
-| `frontend/src/views/admin/__tests__/GroupsViewSticky.spec.ts` | 分组下拉 |
-| `frontend/src/views/admin/__tests__/DashboardCacheCard.spec.ts` | 命中率卡片 |
+| `backend/internal/repository/usage_log_repo_request_type_test.go` | raw/rollup SQL 契约、Token 分项与 Kiro 不可观测输入 |
+| `backend/internal/repository/usage_log_repo_tk_group_rollup_integration_test.go` | PostgreSQL raw/rollup 分组统计 parity |
+| `backend/internal/handler/admin/dashboard_handler_cache_test.go` | snapshot-v2 分组字段 JSON 契约 |
+| `frontend/src/views/admin/__tests__/DashboardView.spec.ts` | 总体/分组可观测状态、Top 5 与钻取参数 |
+| `frontend/src/views/admin/__tests__/UsageView.spec.ts` | Usage 消费分组与绝对时间窗 |
+| `frontend/e2e/dashboard-cache.e2e.ts` | 真实浏览器 desktop/mobile 展示与钻取 |
 
 ### 6.3 风险覆盖
 
 | 风险类型 | 场景 | 测试 |
 |---|---|---|
-| 逻辑错误 | 派生算法稳定性（同输入得同输出） | `TestUS201_DeriveStable` |
-| 行为回归 | 既有 compat 自动注入 | `TestUS201_CompatAutoInjectUnchanged` |
-| 安全问题 | 跨 api_key 不互踩；hash 不泄露 system 内容 | `TestUS201_NoCrossAPIKeyCollision`, `TestUS201_HashNotReversible` |
-| 运行时问题 | strategy 计算的 hot-path 性能；并发 derive 一致 | benchmark + `-race` |
+| 逻辑错误 | 可观测分母、影响量排序、raw/rollup parity | repository tests + `DashboardView.spec.ts` |
+| 行为回归 | snapshot 旧字段兼容、纯 Kiro 不显示 `0%` | handler contract + frontend tests |
+| 端到端体验 | 同窗口分组钻取、desktop/mobile 无溢出 | `UsageView.spec.ts` + Playwright |
+| 上游覆盖 | TK 聚合与 UI 入口被 upstream rewrite 冲掉 | gateway/frontend sentinel registries |
 
 ---
 

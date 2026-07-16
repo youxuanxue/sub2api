@@ -1482,6 +1482,7 @@
         "loadedDashboardRollingWindow.value ?? rollingWindowTs(activePreset.value) ?? {}",
         "const promptCacheOverview = computed(() => {",
         "cache_telemetry_unavailable_input_tokens",
+        "data-testid=\"prompt-cache-overall-status\"",
         "include_group_stats: true"
       ],
       "rationale": "The admin Dashboard's own requests carry the TK window via dashboardWindowParams(): rolling presets use absolute epoch-ms and calendar presets use a server-TZ range token. Drilldowns deliberately reuse the exact successfully loaded rolling window because /admin/usage consumes absolute start_ts/end_ts, not range. The same snapshot group facet owns the prompt-cache overview: it excludes Kiro-estimated unavailable input, ranks the top five groups by prompt-token impact, and avoids an extra endpoint. These anchors prevent an upstream-shaped Dashboard rewrite from silently restoring timezone drift, widening drilldowns, or dropping cache observability while still compiling."
