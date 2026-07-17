@@ -42,6 +42,8 @@
 - `deploy/aws/stage0/test_compose_data_layer_modes.py`::`ComposeDataLayerModesTest.test_external_mode_drops_postgres_keeps_redis`
 - `ops/stage0/test_cutover_data_layer_safety.py`::`CutoverDataLayerSafetyTest.test_prod_apply_is_blocked_while_design_is_pending`
 - `ops/stage0/test_cutover_data_layer_safety.py`::`CutoverDataLayerSafetyTest.test_stale_local_rollback_action_is_rejected`
+- `ops/stage0/test_cutover_data_layer_safety.py`::`CutoverDataLayerSafetyTest.test_failed_apply_keeps_overlay_without_safe_abort_marker`
+- `ops/stage0/test_cutover_data_layer_safety.py`::`CutoverDataLayerSafetyTest.test_failed_apply_deletes_overlay_only_with_safe_abort_marker`
 - `deploy/aws/stage0/test_data_layer_template.py`::`DataLayerTemplateTest.test_initial_capacity_matches_current_prod_baseline`
 - `deploy/aws/stage0/test_data_layer_template.py`::`DataLayerTemplateTest.test_database_is_private_retained_and_observable`
 

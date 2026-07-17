@@ -89,10 +89,13 @@ if [[ "${ENVIRONMENT}" == "prod" ]]; then
   fi
 fi
 
-ssm_region_args=()
-if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
-  ssm_region_args=(--region "${AWS_REGION:-${AWS_DEFAULT_REGION}}")
-fi
+aws_cli() {
+  if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
+    aws --region "${AWS_REGION:-${AWS_DEFAULT_REGION}}" "$@"
+  else
+    aws "$@"
+  fi
+}
 
 mkdir -p "${OUTPUT_DIR}"
 params_file="${OUTPUT_DIR}/ssm-params.json"
@@ -109,7 +112,7 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
   done
 
   echo "reading RDS master password from ${PG_PASSWORD_SSM}"
-  PG_PASSWORD="$(aws "${ssm_region_args[@]}" ssm get-parameter \
+  PG_PASSWORD="$(aws_cli ssm get-parameter \
     --name "${PG_PASSWORD_SSM}" --with-decryption \
     --query Parameter.Value --output text)"
   [[ -n "${PG_PASSWORD}" ]] || { echo "::error::empty password at ${PG_PASSWORD_SSM}" >&2; exit 1; }
@@ -144,7 +147,7 @@ EOF
   done <<< "${OVERLAY_CONTENT}"
 
   echo "writing data-layer overlay to ${OVERLAY_PARAM} (SecureString)"
-  aws "${ssm_region_args[@]}" ssm put-parameter \
+  aws_cli ssm put-parameter \
     --name "${OVERLAY_PARAM}" --type SecureString --overwrite \
     --value "${OVERLAY_CONTENT}" >/dev/null
 
@@ -156,7 +159,9 @@ EOF
   cleanup_before_submit() {
     rc=$?
     if [[ "${command_submitted}" -eq 0 ]]; then
-      aws "${ssm_region_args[@]}" ssm delete-parameter --name "${OVERLAY_PARAM}" >/dev/null 2>&1 || true
+      if ! aws_cli ssm delete-parameter --name "${OVERLAY_PARAM}" >/dev/null 2>&1; then
+        echo "::error::command submission failed and ${OVERLAY_PARAM} cleanup also failed; remove it before any reboot/replace" >&2
+      fi
     fi
     exit "${rc}"
   }
@@ -178,9 +183,9 @@ EOF
       "sudo install -d -m 0700 \"$BK\"",
       "sudo cp -a .env \"$BK/.env\"",
       "sudo cp -a docker-compose.yml \"$BK/docker-compose.yml\"",
-      "[ -f docker-compose.external-db.yml ] && sudo cp -a docker-compose.external-db.yml \"$BK/docker-compose.external-db.yml\" || true",
+      "if [ -f docker-compose.external-db.yml ]; then sudo cp -a docker-compose.external-db.yml \"$BK/docker-compose.external-db.yml\"; fi",
       "CUTOVER_PHASE=pre-rds-start",
-      "on_error() { rc=$?; if [ \"$CUTOVER_PHASE\" = pre-rds-start ]; then echo \"CUTOVER_ABORTED_BEFORE_RDS_START restoring $BK\"; sudo cp -a \"$BK/.env\" .env; sudo cp -a \"$BK/docker-compose.yml\" docker-compose.yml; [ -f \"$BK/docker-compose.external-db.yml\" ] && sudo cp -a \"$BK/docker-compose.external-db.yml\" docker-compose.external-db.yml || true; sudo docker compose --env-file .env up -d --remove-orphans || true; else echo \"CUTOVER_FORWARD_FIX_REQUIRED RDS-backed app start was attempted; keeping RDS overlay and refusing stale-local rollback\"; fi; exit $rc; }",
+      "on_error() { rc=$?; if [ \"$CUTOVER_PHASE\" = pre-rds-start ]; then echo \"restoring local mode from $BK before any RDS-backed app start\"; sudo cp -a \"$BK/.env\" .env; sudo cp -a \"$BK/docker-compose.yml\" docker-compose.yml; if [ -f \"$BK/docker-compose.external-db.yml\" ]; then sudo cp -a \"$BK/docker-compose.external-db.yml\" docker-compose.external-db.yml; fi; sudo docker compose --env-file .env up -d --remove-orphans; echo \"CUTOVER_ABORTED_BEFORE_RDS_START local restore succeeded\"; else echo \"CUTOVER_FORWARD_FIX_REQUIRED RDS-backed app start was attempted; keeping RDS overlay and refusing stale-local rollback\"; fi; exit $rc; }",
       "trap on_error ERR",
       "echo \"=== deliver compose + external-db override (bootstrap only writes them at first boot) ===\"",
       ("printf '\''%s'\'' \"" + $compose_b64 + "\" | base64 -d | sudo tee docker-compose.yml >/dev/null"),
@@ -200,7 +205,7 @@ EOF
       "sudo docker compose -f docker-compose.yml -f docker-compose.external-db.yml --env-file .env up -d --no-deps --force-recreate tokenkey",
       "for i in $(seq 1 18); do H=$(sudo docker inspect tokenkey --format \"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\" 2>/dev/null || echo none); echo \"tokenkey health: $H\"; [ \"$H\" = healthy ] && break; [ $i -eq 18 ] && { echo \"::error::tokenkey not healthy after recreate\"; exit 1; }; sleep 5; done",
       "echo \"=== stop local postgres (container only; data volume kept for evidence/delta replay) ===\"",
-      "sudo docker stop tokenkey-postgres || true",
+      "sudo docker stop tokenkey-postgres",
       "echo \"=== verify: wrapper now answers from RDS ===\"",
       "ONE=$(sudo /usr/local/bin/tokenkey-psql -X -A -t -c \"select 1\")",
       "[ \"$ONE\" = \"1\" ] || { echo \"::error::tokenkey-psql probe failed against RDS\"; exit 1; }",
@@ -212,7 +217,7 @@ EOF
   }' > "${params_file}"
 
 # --- send + poll -----------------------------------------------------------
-cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
+cmd_id="$(aws_cli ssm send-command \
   --instance-ids "${INSTANCE_ID}" \
   --document-name AWS-RunShellScript \
   --comment "data-layer-${ACTION}" \
@@ -229,7 +234,7 @@ fi
 deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
 status="InProgress"
 while true; do
-  status="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
+  status="$(aws_cli ssm get-command-invocation \
     --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
     --query 'Status' --output text 2>/dev/null || echo InProgress)"
   case "${status}" in
@@ -243,10 +248,10 @@ while true; do
   sleep 5
 done
 
-aws "${ssm_region_args[@]}" ssm get-command-invocation \
+aws_cli ssm get-command-invocation \
   --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
   --query 'StandardOutputContent' --output text > "${stdout_file}"
-aws "${ssm_region_args[@]}" ssm get-command-invocation \
+aws_cli ssm get-command-invocation \
   --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
   --query 'StandardErrorContent' --output text > "${stderr_file}"
 
@@ -260,7 +265,9 @@ echo
 if [[ "${status}" != "Success" ]]; then
   if grep -q 'CUTOVER_ABORTED_BEFORE_RDS_START' "${stdout_file}"; then
     echo "::warning::apply failed before an RDS-backed app start; deleting ${OVERLAY_PARAM} to keep next-boot state local"
-    aws "${ssm_region_args[@]}" ssm delete-parameter --name "${OVERLAY_PARAM}" 2>/dev/null || true
+    if ! aws_cli ssm delete-parameter --name "${OVERLAY_PARAM}" >/dev/null; then
+      echo "::error::failed to delete ${OVERLAY_PARAM}; remove it before any reboot/replace" >&2
+    fi
   else
     echo "::error::RDS-backed app start may have been attempted; keeping ${OVERLAY_PARAM}. Forward-fix only until RDS delta replay is proven." >&2
   fi
