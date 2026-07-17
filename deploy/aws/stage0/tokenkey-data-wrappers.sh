@@ -13,53 +13,62 @@
 # ops scripts — never `docker exec tokenkey-postgres` directly (the container
 # does not exist in external mode). See docs/deploy/aws-data-layer-migration.md.
 set -euo pipefail
+INSTALL_DIR="${TOKENKEY_WRAPPER_INSTALL_DIR:-/usr/local/bin}"
 
-install -m 0755 /dev/stdin /usr/local/bin/tokenkey-psql <<'PSQLEOF'
+install -m 0755 /dev/stdin "${INSTALL_DIR}/tokenkey-psql" <<'PSQLEOF'
 #!/bin/bash
 # tokenkey-psql — unified psql seam (local-container & external-RDS modes).
 # Managed by tokenkey-data-wrappers.sh — edit there, not here.
 set -euo pipefail
-set -a; . /var/lib/tokenkey/.env; set +a
+set -a; . "${TOKENKEY_ENV_FILE:-/var/lib/tokenkey/.env}"; set +a
+PGPASSWORD="${POSTGRES_PASSWORD}"
+PGSSLMODE="${DATABASE_SSLMODE:-disable}"
+export PGPASSWORD PGSSLMODE
 # compose prefixes the project name (actual prod name: tokenkey_tokenkey-network)
 # — resolve dynamically, never hardcode. bridge fallback covers external-RDS
 # mode on a host whose stack is down (egress still works via bridge).
 NET="$(docker network ls --format '{{.Name}}' | grep -m1 'tokenkey-network$' || echo bridge)"
 exec docker run --rm -i --network "${NET}" \
-  -e PGPASSWORD="${POSTGRES_PASSWORD}" \
-  -e PGSSLMODE="${DATABASE_SSLMODE:-disable}" \
+  -e PGPASSWORD \
+  -e PGSSLMODE \
   "${TOKENKEY_PG_CLIENT_IMAGE:-postgres:18-alpine}" \
   psql -h "${DATABASE_HOST:-postgres}" -p "${DATABASE_PORT:-5432}" \
        -U "${POSTGRES_USER:-tokenkey}" -d "${POSTGRES_DB:-tokenkey}" "$@"
 PSQLEOF
 
-install -m 0755 /dev/stdin /usr/local/bin/tokenkey-pg_dump <<'PGDEOF'
+install -m 0755 /dev/stdin "${INSTALL_DIR}/tokenkey-pg_dump" <<'PGDEOF'
 #!/bin/bash
 # tokenkey-pg_dump — unified pg_dump seam, dump to stdout.
 # Managed by tokenkey-data-wrappers.sh — edit there, not here.
 # TOKENKEY_PG_CLIENT_IMAGE (.env / SSM overlay) MUST match the server major
 # version once the ledger lives on RDS (client >= server for pg_dump).
 set -euo pipefail
-set -a; . /var/lib/tokenkey/.env; set +a
+set -a; . "${TOKENKEY_ENV_FILE:-/var/lib/tokenkey/.env}"; set +a
+PGPASSWORD="${POSTGRES_PASSWORD}"
+PGSSLMODE="${DATABASE_SSLMODE:-disable}"
+export PGPASSWORD PGSSLMODE
 NET="$(docker network ls --format '{{.Name}}' | grep -m1 'tokenkey-network$' || echo bridge)"
 exec docker run --rm -i --network "${NET}" \
-  -e PGPASSWORD="${POSTGRES_PASSWORD}" \
-  -e PGSSLMODE="${DATABASE_SSLMODE:-disable}" \
+  -e PGPASSWORD \
+  -e PGSSLMODE \
   "${TOKENKEY_PG_CLIENT_IMAGE:-postgres:18-alpine}" \
   pg_dump -h "${DATABASE_HOST:-postgres}" -p "${DATABASE_PORT:-5432}" \
           -U "${POSTGRES_USER:-tokenkey}" -d "${POSTGRES_DB:-tokenkey}" "$@"
 PGDEOF
 
-install -m 0755 /dev/stdin /usr/local/bin/tokenkey-redis-cli <<'RCEOF'
+install -m 0755 /dev/stdin "${INSTALL_DIR}/tokenkey-redis-cli" <<'RCEOF'
 #!/bin/bash
 # tokenkey-redis-cli — unified redis-cli seam (local-container & external modes).
 # Managed by tokenkey-data-wrappers.sh — edit there, not here.
 set -euo pipefail
-set -a; . /var/lib/tokenkey/.env; set +a
+set -a; . "${TOKENKEY_ENV_FILE:-/var/lib/tokenkey/.env}"; set +a
+REDISCLI_AUTH="${REDIS_PASSWORD:-}"
+export REDISCLI_AUTH
 NET="$(docker network ls --format '{{.Name}}' | grep -m1 'tokenkey-network$' || echo bridge)"
 ARGS=(-h "${REDIS_HOST:-redis}" -p "${REDIS_PORT:-6379}")
 if [ "${REDIS_ENABLE_TLS:-false}" = "true" ]; then ARGS+=(--tls); fi
 exec docker run --rm -i --network "${NET}" \
-  -e REDISCLI_AUTH="${REDIS_PASSWORD:-}" \
+  -e REDISCLI_AUTH \
   "${TOKENKEY_REDIS_CLIENT_IMAGE:-redis:8-alpine}" \
   redis-cli "${ARGS[@]}" "$@"
 RCEOF

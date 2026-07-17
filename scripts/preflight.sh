@@ -2290,6 +2290,13 @@ else
     else
         echo "  ok: stage0 RDS template defaults and private/retained controls match the approved design"
     fi
+    if ! python3 ./deploy/aws/stage0/test_data_wrappers.py >/dev/null 2>&1; then
+        echo "  FAIL: stage0 data-wrapper secret forwarding contract"
+        echo "        — run: python3 deploy/aws/stage0/test_data_wrappers.py"
+        errors=$((errors + 1))
+    else
+        echo "  ok: stage0 data wrappers keep database/Redis secrets out of Docker argv"
+    fi
 fi
 
 # Headless agent stream redactor: scripts/agent/redact-stream.py sits between

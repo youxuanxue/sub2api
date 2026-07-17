@@ -60,9 +60,10 @@ Parameters:
     Default: 'false'
     AllowedValues: ['true', 'false']
     Description: >-
-      Single-AZ by default (accepted: RDS failure/maintenance = 10-30 min
-      outage; PITR still bounds data loss to ~5 min). Flip to true online —
-      no re-migration — once traffic/revenue justifies ~2x instance cost.
+      Single-AZ is the initial candidate, not a pre-accepted outage decision.
+      The approved design must explicitly accept maintenance/AZ downtime or
+      set this true. Multi-AZ can be enabled later without re-migration, at
+      roughly twice the database compute/storage cost.
   PgBackupRetentionDays:
     Type: Number
     Default: 14
@@ -89,7 +90,7 @@ Parameters:
   AlarmSnsTopicArn:
     Type: String
     Default: ''
-    Description: Optional SNS topic for the four data-layer alarms (reuse the app-stack/Feishu topic).
+    Description: Optional SNS topic for enabled data-layer alarms (reuse the app-stack/Feishu topic).
 
 Conditions:
   AlarmTopicProvided: !Not [!Equals [!Ref AlarmSnsTopicArn, '']]
@@ -124,7 +125,7 @@ Resources:
       Tags:
         - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-data-sg'}
 
-  # 账本本体。Retain 双保险：栈删除/替换都不带走数据。
+  # 数据库本体。Retain 双保险：栈删除/替换都不带走数据。
   PgInstance:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Retain

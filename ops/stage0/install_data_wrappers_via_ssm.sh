@@ -57,10 +57,13 @@ fi
 
 WRAPPERS_B64="$(base64 < "${WRAPPERS_SRC}" | tr -d '\n')"
 
-ssm_region_args=()
-if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
-  ssm_region_args=(--region "${AWS_REGION:-${AWS_DEFAULT_REGION}}")
-fi
+aws_cli() {
+  if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
+    aws --region "${AWS_REGION:-${AWS_DEFAULT_REGION}}" "$@"
+  else
+    aws "$@"
+  fi
+}
 
 mkdir -p "${OUTPUT_DIR}"
 params_file="${OUTPUT_DIR}/ssm-params.json"
@@ -85,7 +88,7 @@ jq -n --arg b64 "${WRAPPERS_B64}" '{
 
 eff_instance_id="${INSTANCE_ID}"
 if [[ "${INSTANCE_ID}" == mi-* && -n "${EDGE_ID:-}" ]]; then
-  cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
+  cmd_id="$(aws_cli ssm send-command \
     --targets "Key=tag:EdgeId,Values=${EDGE_ID}" "Key=tag:Platform,Values=lightsail" \
     --document-name AWS-RunShellScript \
     --comment "${COMMENT}" \
@@ -96,7 +99,7 @@ if [[ "${INSTANCE_ID}" == mi-* && -n "${EDGE_ID:-}" ]]; then
     echo "::warning::SSM send resolved instance ${eff_instance_id}; caller passed ${INSTANCE_ID}"
   fi
 else
-  cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
+  cmd_id="$(aws_cli ssm send-command \
     --instance-ids "${INSTANCE_ID}" \
     --document-name AWS-RunShellScript \
     --comment "${COMMENT}" \
@@ -112,7 +115,7 @@ fi
 deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
 status="InProgress"
 while true; do
-  status="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
+  status="$(aws_cli ssm get-command-invocation \
     --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
     --query 'Status' --output text 2>/dev/null || echo InProgress)"
   case "${status}" in
@@ -126,10 +129,10 @@ while true; do
   sleep 5
 done
 
-aws "${ssm_region_args[@]}" ssm get-command-invocation \
+aws_cli ssm get-command-invocation \
   --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
   --query 'StandardOutputContent' --output text > "${stdout_file}"
-aws "${ssm_region_args[@]}" ssm get-command-invocation \
+aws_cli ssm get-command-invocation \
   --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
   --query 'StandardErrorContent' --output text > "${stderr_file}"
 

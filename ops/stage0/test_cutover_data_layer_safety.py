@@ -120,7 +120,10 @@ esac
                     "cutover exited before invoking fake aws:\n"
                     f"stdout={proc.stdout}\nstderr={proc.stderr}"
                 )
-            return proc, aws_log.read_text()
+            log_text = aws_log.read_text()
+            self.assertIn("--cli-input-json file://", log_text)
+            self.assertNotIn("0123456789abcdef", log_text)
+            return proc, log_text
 
 
 if __name__ == "__main__":

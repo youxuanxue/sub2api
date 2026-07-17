@@ -89,6 +89,8 @@ if [[ "${ENVIRONMENT}" == "prod" ]]; then
   fi
 fi
 
+: "${TK_DATA_PG_HOST:?TK_DATA_PG_HOST (RDS endpoint) is required for apply}"
+
 aws_cli() {
   if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
     aws --region "${AWS_REGION:-${AWS_DEFAULT_REGION}}" "$@"
@@ -101,9 +103,19 @@ mkdir -p "${OUTPUT_DIR}"
 params_file="${OUTPUT_DIR}/ssm-params.json"
 stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
+overlay_request_file=""
+
+cleanup_local_artifacts() {
+  rc=$?
+  if [[ -n "${overlay_request_file}" ]]; then
+    rm -f "${overlay_request_file}"
+  fi
+  trap - EXIT
+  exit "${rc}"
+}
+trap cleanup_local_artifacts EXIT
 
 # --- build the host command set ------------------------------------------
-  : "${TK_DATA_PG_HOST:?TK_DATA_PG_HOST (RDS endpoint) is required for apply}"
   PG_PORT="${TK_DATA_PG_PORT:-5432}"
   PG_PASSWORD_SSM="${TK_DATA_PG_PASSWORD_SSM:-/tokenkey/prod/stage0/rds-master-password}"
   PG_CLIENT_IMAGE="${TK_DATA_PG_CLIENT_IMAGE:-postgres:18-alpine}"
@@ -147,9 +159,16 @@ EOF
   done <<< "${OVERLAY_CONTENT}"
 
   echo "writing data-layer overlay to ${OVERLAY_PARAM} (SecureString)"
-  aws_cli ssm put-parameter \
-    --name "${OVERLAY_PARAM}" --type SecureString --overwrite \
-    --value "${OVERLAY_CONTENT}" >/dev/null
+  overlay_request_file="$(mktemp)"
+  chmod 0600 "${overlay_request_file}"
+  jq -n \
+    --arg name "${OVERLAY_PARAM}" \
+    --arg value "${OVERLAY_CONTENT}" \
+    '{Name: $name, Type: "SecureString", Overwrite: true, Value: $value}' \
+    > "${overlay_request_file}"
+  aws_cli ssm put-parameter --cli-input-json "file://${overlay_request_file}" >/dev/null
+  rm -f "${overlay_request_file}"
+  overlay_request_file=""
 
   # If command submission itself fails, no host could have started the
   # RDS-backed app, so removing the just-created desired-state overlay is safe.

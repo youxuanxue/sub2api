@@ -46,6 +46,8 @@
 - `ops/stage0/test_cutover_data_layer_safety.py`::`CutoverDataLayerSafetyTest.test_failed_apply_deletes_overlay_only_with_safe_abort_marker`
 - `deploy/aws/stage0/test_data_layer_template.py`::`DataLayerTemplateTest.test_initial_capacity_matches_current_prod_baseline`
 - `deploy/aws/stage0/test_data_layer_template.py`::`DataLayerTemplateTest.test_database_is_private_retained_and_observable`
+- `deploy/aws/stage0/test_data_wrappers.py`::`DataWrappersTest.test_psql_forwards_password_by_environment_name_not_argv`
+- `deploy/aws/stage0/test_data_wrappers.py`::`DataWrappersTest.test_redis_cli_forwards_password_by_environment_name_not_argv`
 
 运行命令：
 
