@@ -18,6 +18,7 @@ type AdminHandlers struct {
 	OpenAIOAuth            *admin.OpenAIOAuthHandler
 	GeminiOAuth            *admin.GeminiOAuthHandler
 	AntigravityOAuth       *admin.AntigravityOAuthHandler
+	GrokOAuth              *admin.GrokOAuthHandler
 	Proxy                  *admin.ProxyHandler
 	Redeem                 *admin.RedeemHandler
 	Promo                  *admin.PromoHandler
@@ -37,11 +38,17 @@ type AdminHandlers struct {
 	ContentModeration      *admin.ContentModerationHandler
 	Payment                *admin.PaymentHandler
 	Affiliate              *admin.AffiliateHandler
+	Compliance             *admin.ComplianceHandler
 	TKChannel              *admin.TKChannelAdminHandler
 	// TK: anthropic-oauth stability tier reference table CRUD — see tier_handler_tk.go.
 	Tier *admin.TierHandler
 	// TK: prod-side cross-edge read-only account overview — see edge_accounts_handler_tk.go.
 	EdgeAccounts *admin.EdgeAccountsHandler
+	// TK: prod-side thin proxy for inline edge-account WRITE ops (forwards to each
+	// edge's least-privilege ops endpoint) — see edge_account_ops_handler_tk.go.
+	EdgeAccountOps *admin.EdgeAccountOpsHandler
+	// TK: Invite-to-Trial batch provisioning + 试用方案 presets — see user_handler_tk_provision.go.
+	TrialProvision *admin.TrialProvisionHandler
 }
 
 // Handlers contains all HTTP handlers
@@ -76,6 +83,11 @@ type Handlers struct {
 	// TK: edge admin-session mint for the prod→edge "manage accounts" handoff —
 	// see edge_tk_admin_session_handler.go.
 	EdgeAdminSession *EdgeAdminSessionHandler
+	// TK: edge least-privilege account WRITE ops (clear-rate-limit / reset-quota /
+	// temp-unschedulable / schedulable / usage) the prod /accounts page proxies to
+	// for inline edge-account management — see edge_tk_account_ops_handler.go.
+	EdgeAccountOps *EdgeAccountOpsHandler
+	BatchImage     *BatchImageHandler
 }
 
 // BuildInfo contains build-time information

@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -181,6 +182,142 @@ func TestIsAnthropicWindowExceeded(t *testing.T) {
 	}
 }
 
+func TestSelectAnthropicFableWindowLimit_RejectedStatus(t *testing.T) {
+	now := time.Now()
+	reset := now.Add(80 * time.Hour).Truncate(time.Second)
+
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-7d_oi-status", "rejected")
+	headers.Set("anthropic-ratelimit-unified-7d_oi-utilization", "1.0")
+	headers.Set("anthropic-ratelimit-unified-7d_oi-surpassed-threshold", "1.0")
+	headers.Set("anthropic-ratelimit-unified-7d_oi-reset", strconv.FormatInt(reset.Unix(), 10))
+
+	limit := selectAnthropicFableWindowLimit(headers, now)
+	if limit == nil {
+		t.Fatal("expected non-nil limit")
+	}
+	if !limit.resetAt.Equal(reset) {
+		t.Errorf("expected resetAt=%v, got %v", reset, limit.resetAt)
+	}
+	if limit.reason != anthropicFableWindowReason {
+		t.Errorf("expected reason=%q, got %q", anthropicFableWindowReason, limit.reason)
+	}
+}
+
+func TestSelectAnthropicFableWindowLimit_UtilizationOnly(t *testing.T) {
+	// 无 status 头时，utilization >= 1.0 也应视为超限
+	now := time.Now()
+	reset := now.Add(3 * 24 * time.Hour).Truncate(time.Second)
+
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-7d_oi-utilization", "1.0")
+	headers.Set("anthropic-ratelimit-unified-7d_oi-reset", strconv.FormatInt(reset.Unix(), 10))
+
+	limit := selectAnthropicFableWindowLimit(headers, now)
+	if limit == nil {
+		t.Fatal("expected non-nil limit")
+	}
+	if !limit.resetAt.Equal(reset) {
+		t.Errorf("expected resetAt=%v, got %v", reset, limit.resetAt)
+	}
+}
+
+func TestSelectAnthropicFableWindowLimit_AllowedReturnsNil(t *testing.T) {
+	now := time.Now()
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-7d_oi-status", "allowed")
+	headers.Set("anthropic-ratelimit-unified-7d_oi-utilization", "0.56")
+	headers.Set("anthropic-ratelimit-unified-7d_oi-reset", strconv.FormatInt(now.Add(80*time.Hour).Unix(), 10))
+
+	if limit := selectAnthropicFableWindowLimit(headers, now); limit != nil {
+		t.Errorf("expected nil limit for allowed window, got %+v", limit)
+	}
+}
+
+func TestSelectAnthropicFableWindowLimit_NoHeadersReturnsNil(t *testing.T) {
+	if limit := selectAnthropicFableWindowLimit(http.Header{}, time.Now()); limit != nil {
+		t.Errorf("expected nil limit for empty headers, got %+v", limit)
+	}
+}
+
+func TestSelectAnthropicFableWindowLimit_FallsBackToAggregateReset(t *testing.T) {
+	// 7d_oi-reset 缺失时回退聚合 anthropic-ratelimit-unified-reset
+	now := time.Now()
+	reset := now.Add(80 * time.Hour).Truncate(time.Second)
+
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-7d_oi-status", "rejected")
+	headers.Set("anthropic-ratelimit-unified-reset", strconv.FormatInt(reset.Unix(), 10))
+
+	limit := selectAnthropicFableWindowLimit(headers, now)
+	if limit == nil {
+		t.Fatal("expected non-nil limit via aggregate reset fallback")
+	}
+	if !limit.resetAt.Equal(reset) {
+		t.Errorf("expected resetAt=%v, got %v", reset, limit.resetAt)
+	}
+}
+
+func TestSelectAnthropicFableWindowLimit_RejectedWithoutAnyResetReturnsNil(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-7d_oi-status", "rejected")
+
+	if limit := selectAnthropicFableWindowLimit(headers, time.Now()); limit != nil {
+		t.Errorf("expected nil limit when no reset time available, got %+v", limit)
+	}
+}
+
+func TestParseAnthropicAggregateReset(t *testing.T) {
+	now := time.Now()
+	future := now.Add(80 * time.Hour).Truncate(time.Second)
+
+	tests := []struct {
+		name   string
+		value  string
+		want   time.Time
+		wantOK bool
+	}{
+		{"valid seconds", strconv.FormatInt(future.Unix(), 10), future, true},
+		{"valid milliseconds", strconv.FormatInt(future.UnixMilli(), 10), future, true},
+		{"empty", "", time.Time{}, false},
+		{"garbage", "abc", time.Time{}, false},
+		{"in the past", strconv.FormatInt(now.Add(-time.Hour).Unix(), 10), time.Time{}, false},
+		{"too far in the future", strconv.FormatInt(now.Add(30*24*time.Hour).Unix(), 10), time.Time{}, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := http.Header{}
+			if tc.value != "" {
+				headers.Set("anthropic-ratelimit-unified-reset", tc.value)
+			}
+			got, ok := parseAnthropicAggregateReset(headers, now)
+			if ok != tc.wantOK {
+				t.Fatalf("expected ok=%v, got %v", tc.wantOK, ok)
+			}
+			if ok && !got.Equal(tc.want) {
+				t.Errorf("expected %v, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestIsAnthropicWindowRejected(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-7d_oi-status", "Rejected")
+	headers.Set("anthropic-ratelimit-unified-5h-status", "allowed")
+
+	if !isAnthropicWindowRejected(headers, "7d_oi") {
+		t.Error("expected 7d_oi to be rejected (case insensitive)")
+	}
+	if isAnthropicWindowRejected(headers, "5h") {
+		t.Error("expected 5h not rejected")
+	}
+	if isAnthropicWindowRejected(headers, "7d") {
+		t.Error("expected missing 7d status not rejected")
+	}
+}
+
 // assertAnthropicResult is a test helper that verifies the result is non-nil and
 // has the expected resetAt unix timestamp.
 func assertAnthropicResult(t *testing.T, result *anthropic429Result, wantUnix int64) {
@@ -199,4 +336,73 @@ func makeHeader(key, value string) http.Header {
 	h := http.Header{}
 	h.Set(key, value)
 	return h
+}
+
+// TestCalculateAnthropic429ResetTime_Window verifies the parsed result records
+// WHICH unified usage window triggered the 429 — the operator-facing dimension
+// surfaced into the account-cooldown Feishu digest.
+func TestCalculateAnthropic429ResetTime_Window(t *testing.T) {
+	cases := []struct {
+		name       string
+		util5h     string
+		util7d     string
+		wantWindow string
+	}{
+		{"only 5h exceeded", "1.02", "0.32", "5h"},
+		{"only 7d exceeded", "0.50", "1.05", "7d"},
+		{"both exceeded prefers 7d", "1.10", "1.02", "7d"},
+		{"neither exceeded undetermined", "0.95", "0.80", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			headers := http.Header{}
+			headers.Set("anthropic-ratelimit-unified-5h-utilization", c.util5h)
+			headers.Set("anthropic-ratelimit-unified-5h-reset", "1770998400")
+			headers.Set("anthropic-ratelimit-unified-7d-utilization", c.util7d)
+			headers.Set("anthropic-ratelimit-unified-7d-reset", "1771549200")
+
+			result := calculateAnthropic429ResetTime(headers)
+			if result == nil {
+				t.Fatal("expected non-nil result")
+			}
+			if result.window != c.wantWindow {
+				t.Errorf("window: want %q, got %q", c.wantWindow, result.window)
+			}
+		})
+	}
+}
+
+// TestTkAnthropicWindowLabel / TestTkAnthropicModelCooldownDetail cover the
+// digest-detail rendering helpers used by the two 429 cooldown call sites.
+func TestTkAnthropicWindowLabel(t *testing.T) {
+	if got := tkAnthropicWindowLabel(nil); got != "" {
+		t.Errorf("nil result: want empty, got %q", got)
+	}
+	if got := tkAnthropicWindowLabel(&anthropic429Result{}); got != "" {
+		t.Errorf("empty window: want empty, got %q", got)
+	}
+	if got := tkAnthropicWindowLabel(&anthropic429Result{window: "5h"}); got != "5h 窗口" {
+		t.Errorf("5h: want %q, got %q", "5h 窗口", got)
+	}
+}
+
+func TestTkAnthropicModelCooldownDetail(t *testing.T) {
+	cases := []struct {
+		name   string
+		class  string
+		result *anthropic429Result
+		want   string
+	}{
+		{"class and window", "opus", &anthropic429Result{window: "5h"}, "opus·5h 窗口"},
+		{"class no window", "sonnet", &anthropic429Result{}, "sonnet"},
+		{"no class but window", anthropicModelClassUnknown, &anthropic429Result{window: "7d"}, "7d 窗口"},
+		{"neither", anthropicModelClassUnknown, nil, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := tkAnthropicModelCooldownDetail(c.class, c.result); got != c.want {
+				t.Errorf("want %q, got %q", c.want, got)
+			}
+		})
+	}
 }

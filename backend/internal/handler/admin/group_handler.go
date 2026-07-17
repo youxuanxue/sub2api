@@ -2,18 +2,32 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
+
+// groupUsageSummaryCache short-circuits the groups/usage-summary aggregation,
+// which scans usage_logs on every call (~85ms) and was previously the only
+// admin read path with no caching. A 30s TTL keyed by the local day boundary
+// means at most one aggregation per 30s regardless of how often the GroupsView
+// list refreshes (search/sort/paginate). "Today" totals being up to 30s stale
+// is fine for a dashboard summary. Mirrors the dashboard_query_cache pattern.
+var groupUsageSummaryCache = newSnapshotCache(30 * time.Second)
+
+const groupUsageSummaryRefreshTimeout = 10 * time.Second
 
 // GroupHandler handles admin group management
 type GroupHandler struct {
@@ -84,7 +98,7 @@ func NewGroupHandler(adminService service.AdminService, dashboardService *servic
 type CreateGroupRequest struct {
 	Name             string             `json:"name" binding:"required"`
 	Description      string             `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity newapi kiro"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity newapi kiro grok"`
 	RateMultiplier   float64            `json:"rate_multiplier"`
 	IsExclusive      bool               `json:"is_exclusive"`
 	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
@@ -93,11 +107,24 @@ type CreateGroupRequest struct {
 	MonthlyLimitUSD  optionalLimitField `json:"monthly_limit_usd"`
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            bool     `json:"allow_image_generation"`
+	AllowBatchImageGeneration       bool     `json:"allow_batch_image_generation"`
 	ImageRateIndependent            bool     `json:"image_rate_independent"`
 	ImageRateMultiplier             *float64 `json:"image_rate_multiplier"`
+	BatchImageDiscountMultiplier    *float64 `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier        *float64 `json:"batch_image_hold_multiplier"`
+	VideoRateIndependent            bool     `json:"video_rate_independent"`
+	VideoRateMultiplier             *float64 `json:"video_rate_multiplier"`
+	PeakRateEnabled                 bool     `json:"peak_rate_enabled"`
+	PeakStart                       string   `json:"peak_start"`
+	PeakEnd                         string   `json:"peak_end"`
+	PeakRateMultiplier              *float64 `json:"peak_rate_multiplier"`
 	ImagePrice1K                    *float64 `json:"image_price_1k"`
 	ImagePrice2K                    *float64 `json:"image_price_2k"`
 	ImagePrice4K                    *float64 `json:"image_price_4k"`
+	VideoPrice480P                  *float64 `json:"video_price_480p"`
+	VideoPrice720P                  *float64 `json:"video_price_720p"`
+	VideoPrice1080P                 *float64 `json:"video_price_1080p"`
+	WebSearchPricePerCall           *float64 `json:"web_search_price_per_call"`
 	ClaudeCodeOnly                  bool     `json:"claude_code_only"`
 	FallbackGroupID                 *int64   `json:"fallback_group_id"`
 	FallbackGroupIDOnInvalidRequest *int64   `json:"fallback_group_id_on_invalid_request"`
@@ -128,8 +155,8 @@ type CreateGroupRequest struct {
 // UpdateGroupRequest represents update group request
 type UpdateGroupRequest struct {
 	Name             string             `json:"name"`
-	Description      string             `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity newapi kiro"`
+	Description      *string            `json:"description"`
+	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity newapi kiro grok"`
 	RateMultiplier   *float64           `json:"rate_multiplier"`
 	IsExclusive      *bool              `json:"is_exclusive"`
 	Status           string             `json:"status" binding:"omitempty,oneof=active inactive"`
@@ -139,11 +166,24 @@ type UpdateGroupRequest struct {
 	MonthlyLimitUSD  optionalLimitField `json:"monthly_limit_usd"`
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            *bool    `json:"allow_image_generation"`
+	AllowBatchImageGeneration       *bool    `json:"allow_batch_image_generation"`
 	ImageRateIndependent            *bool    `json:"image_rate_independent"`
 	ImageRateMultiplier             *float64 `json:"image_rate_multiplier"`
+	BatchImageDiscountMultiplier    *float64 `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier        *float64 `json:"batch_image_hold_multiplier"`
+	VideoRateIndependent            *bool    `json:"video_rate_independent"`
+	VideoRateMultiplier             *float64 `json:"video_rate_multiplier"`
+	PeakRateEnabled                 *bool    `json:"peak_rate_enabled"`
+	PeakStart                       *string  `json:"peak_start"`
+	PeakEnd                         *string  `json:"peak_end"`
+	PeakRateMultiplier              *float64 `json:"peak_rate_multiplier"`
 	ImagePrice1K                    *float64 `json:"image_price_1k"`
 	ImagePrice2K                    *float64 `json:"image_price_2k"`
 	ImagePrice4K                    *float64 `json:"image_price_4k"`
+	VideoPrice480P                  *float64 `json:"video_price_480p"`
+	VideoPrice720P                  *float64 `json:"video_price_720p"`
+	VideoPrice1080P                 *float64 `json:"video_price_1080p"`
+	WebSearchPricePerCall           *float64 `json:"web_search_price_per_call"`
 	ClaudeCodeOnly                  *bool    `json:"claude_code_only"`
 	FallbackGroupID                 *int64   `json:"fallback_group_id"`
 	FallbackGroupIDOnInvalidRequest *int64   `json:"fallback_group_id_on_invalid_request"`
@@ -206,15 +246,21 @@ func (h *GroupHandler) List(c *gin.Context) {
 	response.Paginated(c, outGroups, total, page, pageSize)
 }
 
-// GetAll handles getting all active groups without pagination
+// GetAll handles getting all active groups without pagination.
+// Pass ?include_inactive=true to also include disabled groups (used by the
+// API Key group filter, which needs to surface groups that still have API keys
+// bound to them even after the group is disabled).
 // GET /api/v1/admin/groups/all
 func (h *GroupHandler) GetAll(c *gin.Context) {
 	platform := c.Query("platform")
+	includeInactive := c.Query("include_inactive") == "true"
 
 	var groups []service.Group
 	var err error
 
-	if platform != "" {
+	if includeInactive {
+		groups, err = h.adminService.GetAllGroupsIncludingInactive(c.Request.Context())
+	} else if platform != "" {
 		groups, err = h.adminService.GetAllGroupsByPlatform(c.Request.Context(), platform)
 	} else {
 		groups, err = h.adminService.GetAllGroups(c.Request.Context())
@@ -277,7 +323,12 @@ func (h *GroupHandler) GetModelsListCandidates(c *gin.Context) {
 func (h *GroupHandler) Create(c *gin.Context) {
 	var req CreateGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
+		return
+	}
+
+	if err := service.ValidatePeakRateConfig(req.SubscriptionType, req.PeakRateEnabled, req.PeakStart, req.PeakEnd, float64ValueOrDefault(req.PeakRateMultiplier, 1.0)); err != nil {
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -292,8 +343,15 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		WeeklyLimitUSD:                         req.WeeklyLimitUSD.ToServiceInput(),
 		MonthlyLimitUSD:                        req.MonthlyLimitUSD.ToServiceInput(),
 		AllowImageGeneration:                   req.AllowImageGeneration,
+		AllowBatchImageGeneration:              req.AllowBatchImageGeneration,
 		ImageRateIndependent:                   req.ImageRateIndependent,
 		ImageRateMultiplier:                    req.ImageRateMultiplier,
+		BatchImageDiscountMultiplier:           req.BatchImageDiscountMultiplier,
+		BatchImageHoldMultiplier:               req.BatchImageHoldMultiplier,
+		PeakRateEnabled:                        req.PeakRateEnabled,
+		PeakStart:                              req.PeakStart,
+		PeakEnd:                                req.PeakEnd,
+		PeakRateMultiplier:                     req.PeakRateMultiplier,
 		ImagePrice1K:                           req.ImagePrice1K,
 		ImagePrice2K:                           req.ImagePrice2K,
 		ImagePrice4K:                           req.ImagePrice4K,
@@ -335,7 +393,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 
 	var req UpdateGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -351,8 +409,15 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		WeeklyLimitUSD:                         req.WeeklyLimitUSD.ToServiceInput(),
 		MonthlyLimitUSD:                        req.MonthlyLimitUSD.ToServiceInput(),
 		AllowImageGeneration:                   req.AllowImageGeneration,
+		AllowBatchImageGeneration:              req.AllowBatchImageGeneration,
 		ImageRateIndependent:                   req.ImageRateIndependent,
 		ImageRateMultiplier:                    req.ImageRateMultiplier,
+		BatchImageDiscountMultiplier:           req.BatchImageDiscountMultiplier,
+		BatchImageHoldMultiplier:               req.BatchImageHoldMultiplier,
+		PeakRateEnabled:                        req.PeakRateEnabled,
+		PeakStart:                              req.PeakStart,
+		PeakEnd:                                req.PeakEnd,
+		PeakRateMultiplier:                     req.PeakRateMultiplier,
 		ImagePrice1K:                           req.ImagePrice1K,
 		ImagePrice2K:                           req.ImagePrice2K,
 		ImagePrice4K:                           req.ImagePrice4K,
@@ -421,13 +486,43 @@ func (h *GroupHandler) GetStats(c *gin.Context) {
 }
 
 // GetUsageSummary returns today's and cumulative cost for all groups.
-// GET /api/v1/admin/groups/usage-summary?timezone=Asia/Shanghai
+// GET /api/v1/admin/groups/usage-summary
+// Day boundaries use the server-configured timezone (timezone query param is ignored).
 func (h *GroupHandler) GetUsageSummary(c *gin.Context) {
-	userTZ := c.Query("timezone")
-	now := timezone.NowInUserLocation(userTZ)
-	todayStart := timezone.StartOfDayInUserLocation(now, userTZ)
+	todayStart := timezone.Today()
 
-	results, err := h.dashboardService.GetGroupUsageSummary(c.Request.Context(), todayStart)
+	// Cache by the local day boundary (the only input that affects the result).
+	cacheKey := todayStart.UTC().Format(time.RFC3339)
+	if entry, ok := groupUsageSummaryCache.GetStale(cacheKey); ok && time.Now().After(entry.ExpiresAt) {
+		h.refreshGroupUsageSummaryInBackground(cacheKey, todayStart)
+		h.writeGroupUsageSummary(c, entry)
+		return
+	}
+
+	entry, _, err := groupUsageSummaryCache.GetOrLoad(cacheKey, func() (any, error) {
+		return h.dashboardService.GetGroupUsageSummary(c.Request.Context(), todayStart)
+	})
+	if err != nil {
+		response.Error(c, 500, "Failed to get group usage summary")
+		return
+	}
+	h.writeGroupUsageSummary(c, entry)
+}
+
+func (h *GroupHandler) refreshGroupUsageSummaryInBackground(cacheKey string, todayStart time.Time) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), groupUsageSummaryRefreshTimeout)
+		defer cancel()
+		if err := groupUsageSummaryCache.Refresh(cacheKey, func() (any, error) {
+			return h.dashboardService.GetGroupUsageSummary(ctx, todayStart)
+		}); err != nil {
+			slog.Warn("admin groups usage summary background refresh failed", "err", err)
+		}
+	}()
+}
+
+func (h *GroupHandler) writeGroupUsageSummary(c *gin.Context, entry snapshotCacheEntry) {
+	results, err := snapshotPayloadAs[[]usagestats.GroupUsageSummary](entry.Payload)
 	if err != nil {
 		response.Error(c, 500, "Failed to get group usage summary")
 		return
@@ -525,7 +620,7 @@ func (h *GroupHandler) BatchSetGroupRateMultipliers(c *gin.Context) {
 
 	var req BatchSetGroupRateMultipliersRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -553,7 +648,7 @@ func (h *GroupHandler) BatchSetGroupRPMOverrides(c *gin.Context) {
 
 	var req BatchSetGroupRPMOverridesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -595,7 +690,7 @@ type UpdateSortOrderRequest struct {
 func (h *GroupHandler) UpdateSortOrder(c *gin.Context) {
 	var req UpdateSortOrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 

@@ -15,6 +15,13 @@ type ChannelTypeInfo struct {
 	BaseURL     string `json:"base_url"`
 }
 
+// ChannelTypeName returns the human-readable name for a New API channel type
+// (e.g. 43 -> "DeepSeek"), or "" when unknown. Used by ops alert cards to label
+// per-channel newapi pools.
+func ChannelTypeName(channelType int) string {
+	return newapiconstant.GetChannelTypeName(channelType)
+}
+
 // ListChannelTypes returns New API channel type catalog for admin UIs.
 func ListChannelTypes() []ChannelTypeInfo {
 	keys := make([]int, 0, len(newapiconstant.ChannelTypeNames))

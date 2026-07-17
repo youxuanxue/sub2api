@@ -2,6 +2,9 @@ package admin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -18,6 +21,9 @@ import (
 // *service.EdgeAccountsAggregator satisfies it.
 type edgeAccountsAggregator interface {
 	Aggregate(ctx context.Context, platform string) (*service.EdgeAccountsAggregate, error)
+	AggregateFresh(ctx context.Context, platform string) (*service.EdgeAccountsAggregate, error)
+	AggregateByStub(ctx context.Context) (*service.EdgeAccountsAggregate, error)
+	AggregateByStubFresh(ctx context.Context) (*service.EdgeAccountsAggregate, error)
 	MintAdminSession(ctx context.Context, edgeID string) (*service.EdgeAdminSession, error)
 }
 
@@ -51,13 +57,80 @@ func (h *EdgeAccountsHandler) List(c *gin.Context) {
 		response.Error(c, 500, "edge accounts handler unavailable")
 		return
 	}
-	platform := strings.ToLower(strings.TrimSpace(c.DefaultQuery("platform", "all")))
-	agg, err := h.aggregator.Aggregate(c.Request.Context(), platform)
+	ctx := c.Request.Context()
+	var (
+		agg *service.EdgeAccountsAggregate
+		err error
+	)
+	// view=by-stub → the inline /accounts panel's per-stub inventory: every prod
+	// mirror stub (any platform) fanned out with ITS OWN api-key, so each result is
+	// that key's group-scoped accounts (precise correspondence), keyed by stub id.
+	// This path is the prod /accounts embedded view of edge runtime state, so it
+	// always performs a fresh fan-out before ETag comparison; otherwise a changed
+	// edge account can remain hidden behind prod's SWR cache. Default → the
+	// standalone per-edge fleet overview, narrowed by ?platform=, where passive
+	// polling can keep using the SWR cache unless force=true.
+	force := truthyQuery(c.Query("force"))
+	if strings.EqualFold(strings.TrimSpace(c.Query("view")), "by-stub") {
+		agg, err = h.aggregator.AggregateByStubFresh(ctx)
+	} else {
+		platform := strings.ToLower(strings.TrimSpace(c.DefaultQuery("platform", "all")))
+		if force {
+			agg, err = h.aggregator.AggregateFresh(ctx, platform)
+		} else {
+			agg, err = h.aggregator.Aggregate(ctx, platform)
+		}
+	}
 	if err != nil {
 		response.Error(c, 500, "failed to aggregate edge accounts")
 		return
 	}
+
+	// ETag/304 so the page's periodic auto-refresh skips the body (and the
+	// frontend skips a re-render) when nothing changed. Mirrors the admin accounts
+	// list (handler.buildAccountsListETag / ifNoneMatchMatched, same package).
+	if etag := buildEdgeAccountsETag(agg); etag != "" {
+		c.Header("ETag", etag)
+		c.Header("Vary", "If-None-Match")
+		if ifNoneMatchMatched(c.GetHeader("If-None-Match"), etag) {
+			c.Status(http.StatusNotModified)
+			return
+		}
+	}
 	response.Success(c, agg)
+}
+
+func truthyQuery(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+// buildEdgeAccountsETag hashes the aggregate's stable content — Platform + Edges —
+// deliberately EXCLUDING EdgeAccountsAggregate.TS, which is the per-fan-out wall
+// clock (time.Now().Unix()) and would otherwise churn the ETag on every refresh
+// even when the account inventory is byte-identical, defeating the 304 path.
+// Mirrors handler.buildAccountsListETag (account_handler.go).
+func buildEdgeAccountsETag(agg *service.EdgeAccountsAggregate) string {
+	if agg == nil {
+		return ""
+	}
+	payload := struct {
+		Platform string                       `json:"platform"`
+		Edges    []service.EdgeAccountsResult `json:"edges"`
+	}{
+		Platform: agg.Platform,
+		Edges:    agg.Edges,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return "\"" + hex.EncodeToString(sum[:]) + "\""
 }
 
 // adminSessionResponse is returned to the prod admin UI: a ready-to-open handoff

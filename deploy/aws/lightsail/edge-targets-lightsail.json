@@ -10,21 +10,21 @@
   ],
   "targets": {
     "uk1": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "eu-west-2",
       "ec2_equivalent_region": "eu-west-2",
       "availability_zone": "eu-west-2a",
       "domain": "api-uk1.tokenkey.dev",
-      "porkbun_a_ipv4": "13.134.80.182",
+      "porkbun_a_ipv4": "18.175.27.120",
       "instance_name": "tokenkey-edge-uk1-ls",
-      "static_ip_name": "tokenkey-edge-uk1-ls-ip",
+      "static_ip_name": "vless-uk-fresh-1",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/uk1",
-      "purpose": "uk-egress-lightsail"
+      "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed"
     },
     "us1": {
       "deployable": false,
@@ -40,7 +40,7 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us1",
-      "purpose": "us-clean-egress-lightsail-poc-planned (EC2 owns us1 today; flip deployable=true only after taking EC2 us1 deployable=false to avoid DNS collision)"
+      "purpose": "us-west-2-clean-egress-lightsail-planned (deployable=false until provisioned)"
     },
     "fra1": {
       "deployable": false,
@@ -75,7 +75,7 @@
       "purpose": "sg-egress-planned"
     },
     "us2": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "us-east-2",
@@ -89,7 +89,7 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us2",
-      "purpose": "us-east-2-ohio-egress (adopted StaticIp-oh-2 after us-east-1 100.48.129.133 pollution)"
+      "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed; had adopted StaticIp-oh-2 after us-east-1 100.48.129.133 pollution"
     },
     "us3": {
       "deployable": true,
@@ -99,14 +99,14 @@
       "ec2_equivalent_region": "us-east-2",
       "availability_zone": "us-east-2a",
       "domain": "api-us3.tokenkey.dev",
-      "porkbun_a_ipv4": "3.128.102.134",
+      "porkbun_a_ipv4": "18.220.195.44",
       "instance_name": "tokenkey-edge-us-oh1-ls",
-      "static_ip_name": "Static-oh-1",
+      "static_ip_name": "vless-oh-fresh-1",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us3",
-      "purpose": "us-east-2-ohio-egress (pre-provisioned Static-oh-1 / tokenkey-edge-us-oh1-ls)"
+      "purpose": "us-east-2-ohio-egress (rotated 2026-06-16: swapped to vless-oh-fresh-1 / 18.220.195.44 after Static-oh-1 / 3.128.102.134 upstream API risk-block; old Static-oh-1 detached, recorded in edge-polluted-ips.json)"
     },
     "us4": {
       "deployable": true,
@@ -133,14 +133,14 @@
       "ec2_equivalent_region": "us-west-2",
       "availability_zone": "us-west-2a",
       "domain": "api-us5.tokenkey.dev",
-      "porkbun_a_ipv4": "44.224.133.40",
+      "porkbun_a_ipv4": "32.185.163.163",
       "instance_name": "tokenkey-edge-us-or2-ls",
-      "static_ip_name": "StaticIp-or-2",
+      "static_ip_name": "vless-or-fresh-1",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us5",
-      "purpose": "us-west-2-oregon-egress-2 (pre-provisioned StaticIp-or-2 / tokenkey-edge-us-or2-ls)"
+      "purpose": "us-west-2-oregon-egress-2 (rotated 2026-06-16: swapped to vless-or-fresh-1 / 32.185.163.163 after StaticIp-or-2 / 44.224.133.40 upstream API risk-block; old StaticIp-or-2 detached, recorded in edge-polluted-ips.json)"
     },
     "us6": {
       "deployable": true,
@@ -150,31 +150,31 @@
       "ec2_equivalent_region": "us-east-2",
       "availability_zone": "us-east-2a",
       "domain": "api-us6.tokenkey.dev",
-      "porkbun_a_ipv4": "52.15.35.197",
+      "porkbun_a_ipv4": "3.148.79.145",
       "instance_name": "edge-ls-us-oh-3",
       "static_ip_name": "StaticIp-oh-3",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us6",
-      "purpose": "us-east-2-ohio-egress (rehomed 2026-06-05 from retired us-east-1 edge-ls-us-va-1/3.212.130.21 to adopted console-created edge-ls-us-oh-3 / StaticIp-oh-3)"
+      "purpose": "us-east-2-ohio-egress (rehomed 2026-06-05 to adopted console-created edge-ls-us-oh-3 / StaticIp-oh-3; corrected 2026-06-08: A record was stale at ephemeral 52.15.35.197 which AWS re-adopted to *.coverahealth.com — StaticIp-oh-3 truth is 3.148.79.145)"
     },
     "us7": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "us-east-2",
       "ec2_equivalent_region": "us-east-2",
       "availability_zone": "us-east-2a",
       "domain": "api-us7.tokenkey.dev",
-      "porkbun_a_ipv4": "3.139.183.116",
+      "porkbun_a_ipv4": "18.188.207.95",
       "instance_name": "edge-ls-us-oh-4",
-      "static_ip_name": "StaticIp-oh-4",
+      "static_ip_name": "StaticIp-oh-4-b",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us7",
-      "purpose": "us-east-2-ohio-egress (rehomed 2026-06-05 from retired us-east-1 edge-ls-us-va-2/44.216.223.210 to adopted console-created edge-ls-us-oh-4 / StaticIp-oh-4)"
+      "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed; had been rehomed 2026-06-05 to adopted console-created edge-ls-us-oh-4"
     }
   }
 }

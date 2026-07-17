@@ -35,7 +35,10 @@
 #   docs                   — docs/**, README*.md, *.md (root)
 #   other                  — everything else
 #
-# Also emits followup.tier (skip | single | extended) for post-release tick count.
+# Also emits followup.tier (skip | single) for post-release tick count: at most
+# ONE +5min tick per release (the multi-round "extended" tier was retired —
+# operator decision 2026-06-13: one tick catches startup/hook regressions; longer
+# windows are human-initiated, not auto-scheduled).
 #
 # Files marked as deleted (D status) are listed in a separate "deleted" array
 # (alongside their bucket classification) so callers can show §5.x risk.
@@ -189,7 +192,7 @@ if not touched:
     followup_tier = "skip"
     followup_reason = "no file changes in range"
 elif touched & HIGH_FOLLOWUP:
-    followup_tier = "extended"
+    followup_tier = "single"
     followup_reason = "gateway/runtime/schema/config paths changed"
 elif touched & MEDIUM_FOLLOWUP:
     followup_tier = "single"

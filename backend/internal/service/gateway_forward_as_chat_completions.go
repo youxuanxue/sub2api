@@ -43,6 +43,9 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	originalModel := ccReq.Model
 	clientStream := ccReq.Stream
 	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
+	if failoverErr := antigravityOpenAICompatMessagesRelayFailover(account); failoverErr != nil {
+		return nil, failoverErr
+	}
 
 	// 2. Convert CC → Responses → Anthropic (chained conversion)
 	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
@@ -77,6 +80,17 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	}
 	anthropicReq.Model = mappedModel
 
+	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
+	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
+	// OpenAI /v1/chat/completions ingress (against an anthropic account) → OPENAI
+	// 404 envelope (BLOCKER4). Judge originalModel — billing records on
+	// result.Model=originalModel here, so the gate must use billing's exact key
+	// (BLOCKER1). No-op unless account.Platform is in the enabled set. See
+	// gateway_priced_serving_gate_tk.go.
+	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
+	}
+
 	logger.L().Debug("gateway forward_as_chat_completions: model mapping applied",
 		zap.Int64("account_id", account.ID),
 		zap.String("original_model", originalModel),
@@ -104,6 +118,12 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 7. Enforce cache_control block limit
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
+	anthropicBody = tkApplyAnthropicRequestCompatibilityRules(account, anthropicBody)
+
+	// TK: thread gemini-native image aspect ratio (extra_body.google.image_config.
+	// aspect_ratio) from the raw CC body onto the relayed Anthropic body; the antigravity
+	// Gemini transform consumes it downstream. No-op for non-image / ratio-less requests.
+	anthropicBody = tkInjectGeminiImageAspectRatio(body, anthropicBody)
 
 	// 8. Get access token
 	token, tokenType, err := s.GetAccessToken(ctx, account)
@@ -151,6 +171,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		if resp.StatusCode == http.StatusBadRequest {
+			tkRecordAnthropicSamplingParamRuleFrom400(account, mappedModel, anthropicBody, resp.StatusCode, respBody)
+			tkRecordAnthropicThinkingRuleFrom400(account, mappedModel, anthropicBody, resp.StatusCode, respBody)
+		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -180,6 +204,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 13. Extract reasoning effort from CC request body
 	reasoningEffort := extractCCReasoningEffortFromBody(body)
+	// 国产模型默认 effort 补充：本路径是客户端 CC 请求 → Anthropic 上游，
+	// 如果上游是 passback-required 国产模型 (Kimi-anthropic / GLM-anthropic / MiniMax)
+	// 且客户端在 body 里传了 thinking.type=enabled，补中默认 effort。
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
 
 	// 14. Handle normal response
 	// Read Anthropic SSE → convert to Responses events → convert to CC format
@@ -318,13 +346,11 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
-	// Upstream is Anthropic SSE; we buffered and converted to a single JSON
-	// chat.completion object. WriteFilteredHeaders propagates the upstream
-	// `Content-Type: text/event-stream` and gin's c.Data / c.JSON will NOT
-	// overwrite an already-set Content-Type (render.writeContentType only writes
-	// when the header is empty), so without this override the client would
-	// receive a JSON body with an SSE Content-Type header. Same root cause as
-	// upstream Wei-Shaw/sub2api#1311.
+	// 非流式响应必须是 application/json。上游被强制流式后会返回
+	// Content-Type: text/event-stream，经 WriteFilteredHeaders 透传后会污染
+	// 响应头；而 c.Data/c.JSON 走 Gin 的 writeContentType（仅当头不存在时才设置），
+	// 无法覆盖已存在的 SSE 头。这里显式 Set 强制改回 JSON，避免下游中间层
+	// （如 new-api）按 Content-Type 误判为流式。Wei-Shaw/sub2api#1311
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	// Marshal then bytes-replace so tool name mapping is reversed at byte level
 	// (parity with Parrot non-stream flow that marshals → restore → emit).
@@ -500,6 +526,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 // writeGatewayCCError writes an error in OpenAI Chat Completions format for
 // the Anthropic-upstream CC forwarding path.
 func writeGatewayCCError(c *gin.Context, statusCode int, errType, message string) {
+	MarkResponseCommitted(c)
 	c.JSON(statusCode, gin.H{
 		"error": gin.H{
 			"type":    errType,

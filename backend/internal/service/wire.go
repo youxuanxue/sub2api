@@ -47,6 +47,16 @@ func ProvideOAuthRefreshAPI(accountRepo AccountRepository, tokenCache GeminiToke
 	return NewOAuthRefreshAPI(accountRepo, tokenCache)
 }
 
+func ProvideBatchImageModelPricingResolver(resolver *ModelPricingResolver) *BatchImageModelPricingResolver {
+	return &BatchImageModelPricingResolver{Resolver: resolver}
+}
+
+func ProvideBatchImageCleanupService(repo BatchImageRepository, accountRepo AccountRepository, cfg *config.Config) *BatchImageCleanupService {
+	svc := NewBatchImageCleanupService(repo, accountRepo, cfg)
+	svc.Start()
+	return svc
+}
+
 // ProvideOpenAIOAuthService creates OpenAIOAuthService with privacy/account enrichment support.
 func ProvideOpenAIOAuthService(
 	proxyRepo ProxyRepository,
@@ -65,6 +75,7 @@ func ProvideTokenRefreshService(
 	openaiOAuthService *OpenAIOAuthService,
 	geminiOAuthService *GeminiOAuthService,
 	antigravityOAuthService *AntigravityOAuthService,
+	grokOAuthService *GrokOAuthService,
 	cacheInvalidator TokenCacheInvalidator,
 	schedulerCache SchedulerCache,
 	cfg *config.Config,
@@ -74,7 +85,7 @@ func ProvideTokenRefreshService(
 	refreshAPI *OAuthRefreshAPI,
 	runtimeBlocker AccountRuntimeBlocker,
 ) *TokenRefreshService {
-	svc := NewTokenRefreshService(accountRepo, oauthService, openaiOAuthService, geminiOAuthService, antigravityOAuthService, cacheInvalidator, schedulerCache, cfg, tempUnschedCache)
+	svc := NewTokenRefreshService(accountRepo, oauthService, openaiOAuthService, geminiOAuthService, antigravityOAuthService, cacheInvalidator, schedulerCache, cfg, tempUnschedCache, grokOAuthService)
 	// 注入 OpenAI privacy opt-out 依赖
 	svc.SetPrivacyDeps(privacyClientFactory, proxyRepo)
 	// 注入统一 OAuth 刷新 API（消除 TokenRefreshService 与 TokenProvider 之间的竞争条件）
@@ -114,6 +125,94 @@ func ProvideOpenAITokenProvider(
 	return p
 }
 
+// ProvideOpenAIQuotaService wires the OpenAI quota query/reset service.
+// It depends on the OpenAI token provider for refreshed access tokens and the
+// privacy client factory for the impersonated upstream HTTP client.
+func ProvideOpenAIQuotaService(
+	accountRepo AccountRepository,
+	proxyRepo ProxyRepository,
+	tokenProvider *OpenAITokenProvider,
+	privacyClientFactory PrivacyClientFactory,
+	openAIGatewayService *OpenAIGatewayService,
+) *OpenAIQuotaService {
+	service := NewOpenAIQuotaService(accountRepo, proxyRepo, tokenProvider, privacyClientFactory)
+	service.agentIdentityWS = openAIGatewayService
+	return service
+}
+
+func ProvideAccountUsageService(
+	accountRepo AccountRepository,
+	usageLogRepo UsageLogRepository,
+	usageFetcher ClaudeUsageFetcher,
+	geminiQuotaService *GeminiQuotaService,
+	antigravityQuotaFetcher *AntigravityQuotaFetcher,
+	grokQuotaFetcher *GrokQuotaFetcher,
+	grokQuotaService *GrokQuotaService,
+	openAIQuotaService *OpenAIQuotaService,
+	cache *UsageCache,
+	identityCache IdentityCache,
+	tlsFPProfileService *TLSFingerprintProfileService,
+	oauthRefreshAPI *OAuthRefreshAPI,
+	openAIGatewayService *OpenAIGatewayService,
+) *AccountUsageService {
+	service := NewAccountUsageService(
+		accountRepo,
+		usageLogRepo,
+		usageFetcher,
+		geminiQuotaService,
+		antigravityQuotaFetcher,
+		grokQuotaFetcher,
+		grokQuotaService,
+		openAIQuotaService,
+		cache,
+		identityCache,
+		tlsFPProfileService,
+		oauthRefreshAPI,
+	)
+	service.agentIdentityWS = openAIGatewayService
+	return service
+}
+
+func ProvideAccountTestService(
+	accountRepo AccountRepository,
+	geminiTokenProvider *GeminiTokenProvider,
+	claudeTokenProvider *ClaudeTokenProvider,
+	grokTokenProvider *GrokTokenProvider,
+	antigravityGatewayService *AntigravityGatewayService,
+	kiroGatewayService *KiroGatewayService,
+	rateLimitService *RateLimitService,
+	httpUpstream HTTPUpstream,
+	cfg *config.Config,
+	tlsFPProfileService *TLSFingerprintProfileService,
+	openAIGatewayService *OpenAIGatewayService,
+) *AccountTestService {
+	service := NewAccountTestService(
+		accountRepo,
+		geminiTokenProvider,
+		claudeTokenProvider,
+		grokTokenProvider,
+		antigravityGatewayService,
+		kiroGatewayService,
+		rateLimitService,
+		httpUpstream,
+		cfg,
+		tlsFPProfileService,
+	)
+	service.agentIdentityWS = openAIGatewayService
+	return service
+}
+
+func ProvideGrokQuotaService(
+	accountRepo AccountRepository,
+	proxyRepo ProxyRepository,
+	tokenProvider *GrokTokenProvider,
+	httpUpstream HTTPUpstream,
+	cfg *config.Config,
+	usageLogRepo UsageLogRepository,
+) *GrokQuotaService {
+	return NewGrokQuotaService(accountRepo, proxyRepo, tokenProvider, httpUpstream, cfg, usageLogRepo)
+}
+
 // ProvideGeminiTokenProvider creates GeminiTokenProvider with OAuthRefreshAPI injection
 func ProvideGeminiTokenProvider(
 	accountRepo AccountRepository,
@@ -144,9 +243,26 @@ func ProvideAntigravityTokenProvider(
 	return p
 }
 
+// ProvideGrokTokenProvider creates GrokTokenProvider with OAuthRefreshAPI injection.
+func ProvideGrokTokenProvider(
+	accountRepo AccountRepository,
+	tokenCache GeminiTokenCache,
+	grokOAuthService *GrokOAuthService,
+	refreshAPI *OAuthRefreshAPI,
+	tempUnschedCache TempUnschedCache,
+) *GrokTokenProvider {
+	p := NewGrokTokenProvider(accountRepo, tokenCache)
+	executor := NewGrokTokenRefresher(grokOAuthService)
+	p.SetRefreshAPI(refreshAPI, executor)
+	p.SetRefreshPolicy(GrokProviderRefreshPolicy())
+	p.SetTempUnschedCache(tempUnschedCache)
+	return p
+}
+
 // ProvideDashboardAggregationService 创建并启动仪表盘聚合服务
-func ProvideDashboardAggregationService(repo DashboardAggregationRepository, timingWheel *TimingWheelService, cfg *config.Config) *DashboardAggregationService {
+func ProvideDashboardAggregationService(repo DashboardAggregationRepository, timingWheel *TimingWheelService, lockCache LeaderLockCache, db *sql.DB, cfg *config.Config) *DashboardAggregationService {
 	svc := NewDashboardAggregationService(repo, timingWheel, cfg)
+	svc.SetLeaderLock(lockCache, db)
 	svc.Start()
 	return svc
 }
@@ -165,11 +281,19 @@ func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpirySe
 	return svc
 }
 
+// ProvideProxyExpiryService creates and starts ProxyExpiryService.
+func ProvideProxyExpiryService(proxyRepo ProxyRepository) *ProxyExpiryService {
+	svc := NewProxyExpiryService(proxyRepo, time.Minute)
+	svc.Start()
+	return svc
+}
+
 // ProvideSubscriptionExpiryService creates and starts SubscriptionExpiryService.
-func ProvideSubscriptionExpiryService(userSubRepo UserSubscriptionRepository, settingRepo SettingRepository, notificationEmailService *NotificationEmailService) *SubscriptionExpiryService {
+func ProvideSubscriptionExpiryService(userSubRepo UserSubscriptionRepository, settingRepo SettingRepository, notificationEmailService *NotificationEmailService, lockCache LeaderLockCache, db *sql.DB) *SubscriptionExpiryService {
 	svc := NewSubscriptionExpiryService(userSubRepo, time.Minute)
 	svc.SetSettingRepository(settingRepo)
 	svc.SetNotificationEmailService(notificationEmailService)
+	svc.SetLeaderLock(lockCache, db)
 	svc.Start()
 	return svc
 }
@@ -261,6 +385,34 @@ func ProvideAnthropicConfigReconciler(
 	return rec
 }
 
+// ProvideUpstreamBalanceSentinel creates and starts the TK per-node upstream
+// low-balance sentinel. It polls newapi channel accounts that expose a public
+// balance API (currently DeepSeek) and fires a pre-emptive Feishu warning before
+// an account's balance hits zero. accountRepo/opsRepo satisfy the narrow
+// dependencies; ops provides the threshold + Feishu-enabled read; settingSvc
+// supplies the recharge link. Read-only against upstream; never writes accounts.
+func ProvideUpstreamBalanceSentinel(
+	accountRepo AccountRepository,
+	httpUpstream HTTPUpstream,
+	notifier *TKAccountIncidentNotifier,
+	ops *OpsService,
+	settingRepo SettingRepository,
+	opsRepo OpsRepository,
+	redisClient *redis.Client,
+) *UpstreamBalanceSentinel {
+	var cfgProvider opsFeishuConfigProvider
+	if ops != nil {
+		cfgProvider = ops
+	}
+	var recharge rechargeURLResolver
+	if settingRepo != nil {
+		recharge = settingRepo
+	}
+	s := NewUpstreamBalanceSentinel(accountRepo, httpUpstream, notifier, cfgProvider, recharge, opsRepo, redisClient)
+	s.Start()
+	return s
+}
+
 // ProvideEdgeAccountsAggregator creates the prod-side cross-edge read-only
 // account aggregator. It owns its own short-timeout HTTP client (constructed
 // here rather than wired) to avoid colliding with other *http.Client providers
@@ -279,17 +431,17 @@ func ProvideRateLimitService(
 	timeoutCounterCache TimeoutCounterCache,
 	openAI403CounterCache OpenAI403CounterCache,
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache,
-	oauth401AfterRefreshCounterCache OAuth401AfterRefreshCounterCache,
 	settingService *SettingService,
 	tokenCacheInvalidator TokenCacheInvalidator,
+	refreshAPI *OAuthRefreshAPI,
 ) *RateLimitService {
 	svc := NewRateLimitService(accountRepo, usageRepo, cfg, geminiQuotaService, tempUnschedCache)
 	svc.SetTimeoutCounterCache(timeoutCounterCache)
 	svc.SetOpenAI403CounterCache(openAI403CounterCache)
 	svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)
-	svc.SetOAuth401AfterRefreshCounter(oauth401AfterRefreshCounterCache)
 	svc.SetSettingService(settingService)
 	svc.SetTokenCacheInvalidator(tokenCacheInvalidator)
+	svc.SetOAuthRefreshAPI(refreshAPI)
 	return svc
 }
 
@@ -334,9 +486,10 @@ func ProvideOpsAlertEvaluatorService(
 	emailService *EmailService,
 	redisClient *redis.Client,
 	cfg *config.Config,
+	proxyRepo ProxyRepository,
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache,
 ) *OpsAlertEvaluatorService {
-	svc := NewOpsAlertEvaluatorService(opsService, opsRepo, emailService, redisClient, cfg)
+	svc := NewOpsAlertEvaluatorService(opsService, opsRepo, emailService, redisClient, cfg, proxyRepo)
 	svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)
 	svc.Start()
 	return svc
@@ -410,6 +563,16 @@ func ProvideIdempotencyCleanupService(repo IdempotencyRepository, cfg *config.Co
 	return svc
 }
 
+// ProvideHoldReconcilerService builds and starts the pre-flight balance-hold
+// reconciler (crash-recovery for the overdraft fix; see
+// hold_reconciler_service.go). No-op when the repository lacks the hold
+// capability.
+func ProvideHoldReconcilerService(repo UsageBillingRepository) *HoldReconcilerService {
+	svc := NewHoldReconcilerService(repo)
+	svc.Start()
+	return svc
+}
+
 // ProvideScheduledTestService creates ScheduledTestService.
 func ProvideScheduledTestService(
 	planRepo ScheduledTestPlanRepository,
@@ -475,6 +638,14 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 	// TK: fan out SystemSettings writes (e.g. HTTP UA version) across replicas via
 	// Redis pub/sub so a change is reflected within seconds, not the 60s cache TTL.
 	svc.EnableSettingsPubSub(context.Background(), pubsub)
+	// Fold deprecated codex_cli_only global toggles into the new policy model
+	// (whitelist + engine-fingerprint signal list) on startup; idempotent.
+	if err := svc.MigrateOpenAIAllowClaudeCodeCodexPluginSetting(context.Background()); err != nil {
+		logger.LegacyPrintf("service.setting", "Warning: migrate openai allow Claude Code Codex plugin setting failed: %v", err)
+	}
+	if err := svc.MigrateCodexBodyFingerprintToSignals(context.Background()); err != nil {
+		logger.LegacyPrintf("service.setting", "Warning: migrate codex body fingerprint to signals failed: %v", err)
+	}
 	antigravity.SetUserAgentVersionResolver(svc.GetAntigravityUserAgentVersion)
 	SetClaudeCodeUserAgentResolver(svc.GetClaudeCodeUserAgentVersion)
 	claude.SetClaudeCodeMimicryBetasResolver(svc.GetClaudeCodeMimicryBetas)
@@ -505,9 +676,11 @@ func ProvideAPIKeyService(
 	cache APIKeyCache,
 	cfg *config.Config,
 	billingCacheService *BillingCacheService,
+	concurrencyService *ConcurrencyService,
 ) *APIKeyService {
 	svc := NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, userGroupRateRepo, cache, cfg)
 	svc.SetRateLimitCacheInvalidator(billingCacheService)
+	svc.SetConcurrencyService(concurrencyService)
 	return svc
 }
 
@@ -536,9 +709,15 @@ var ProviderSet = wire.NewSet(
 	NewGatewayService,
 	NewKiroGatewayService,
 	NewOpenAIGatewayService,
+	ProvideBatchImageModelPricingResolver,
+	NewBatchImagePublicService,
+	NewBatchImageDownloadService,
+	ProvideBatchImageCleanupService,
+	ProvideBatchImageWorkerRuntime,
 	wire.Bind(new(AccountRuntimeBlocker), new(*OpenAIGatewayService)),
 	NewOAuthService,
 	ProvideOpenAIOAuthService,
+	NewGrokOAuthService,
 	NewGeminiOAuthService,
 	NewGeminiQuotaService,
 	NewCompositeTokenCacheInvalidator,
@@ -548,12 +727,15 @@ var ProviderSet = wire.NewSet(
 	ProvideGeminiTokenProvider,
 	NewGeminiMessagesCompatService,
 	ProvideAntigravityTokenProvider,
+	ProvideGrokTokenProvider,
 	ProvideOpenAITokenProvider,
+	ProvideOpenAIQuotaService,
+	ProvideGrokQuotaService,
 	ProvideClaudeTokenProvider,
 	NewAntigravityGatewayService,
 	ProvideRateLimitService,
-	NewAccountUsageService,
-	NewAccountTestService,
+	ProvideAccountUsageService,
+	ProvideAccountTestService,
 	ProvideSettingService,
 	NewDataManagementService,
 	ProvideBackupService,
@@ -578,19 +760,24 @@ var ProviderSet = wire.NewSet(
 	// scheduler_rate_limit_reaper.go.
 	ProvideSchedulerRateLimitReaper,
 	ProvideAnthropicConfigReconciler,
+	ProvideUpstreamBalanceSentinel,
 	// TK: prod-side cross-edge read-only account overview — see edge_accounts_aggregator_tk.go.
 	ProvideEdgeAccountsAggregator,
 	NewIdentityService,
 	NewCRSSyncService,
 	ProvideUpdateService,
 	ProvideTokenRefreshService,
+	wire.Bind(new(GrokOAuthTokenService), new(*GrokOAuthService)),
+	wire.Bind(new(GrokOAuthReconciler), new(*TokenRefreshService)),
 	ProvideAccountExpiryService,
+	ProvideProxyExpiryService,
 	ProvideSubscriptionExpiryService,
 	ProvideTimingWheelService,
 	ProvideDashboardAggregationService,
 	ProvideUsageCleanupService,
 	ProvideDeferredService,
 	NewAntigravityQuotaFetcher,
+	NewGrokQuotaFetcher,
 	NewUserAttributeService,
 	NewUsageCache,
 	NewTotpService,
@@ -604,6 +791,7 @@ var ProviderSet = wire.NewSet(
 	ProvideIdempotencyCoordinator,
 	ProvideSystemOperationLockService,
 	ProvideIdempotencyCleanupService,
+	ProvideHoldReconcilerService,
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,
@@ -628,6 +816,17 @@ var ProviderSet = wire.NewSet(
 	// Handler-side wiring lives in handler/wire.go (ProvideTKPricingCatalogHandler).
 	ProvidePricingAvailabilityService,
 	ProvideTKGatewayPricingAvailability,
+	// TokenKey: wires GatewayService.GetAvailableModels onto the universal-key
+	// resolver (APIKeyService) post-construction so resolution filters candidate
+	// groups by the models they actually serve. Consumed by provideCleanup.
+	ProvideTKUniversalModelsProvider,
+	ProvideTKGroupUnsupportedModelCache,
+	// TokenKey: runtime hot-pushable pricing overlay — wires the settings-blob
+	// getter + catalog-cache invalidator onto PricingService, does the initial
+	// load, and subscribes to the settings pub/sub for immediate reloads. Lets a
+	// new model be priced + surfaced in /pricing without a release. Consumed by
+	// provideCleanup so wire forces evaluation.
+	ProvideTKPricingOverlayRuntime,
 	// TokenKey: client model-list filter (R-003 / Goal 2) — gates /v1/models
 	// /v1beta/models /antigravity/models to priced ∩ ¬unreachable.
 	NewModelListFilter,
@@ -636,35 +835,23 @@ var ProviderSet = wire.NewSet(
 	// Same shape as ProvideTKGatewayPricingAvailability; consumed by
 	// provideCleanup in cmd/server/wire.go so wire forces evaluation.
 	ProvideTKGatewayAnthropicSigPreempt,
+	// TokenKey: anthropic saturated mirror-stub de-prioritization — wires the
+	// Redis saturation counter onto GatewayService (scheduler read) and
+	// RateLimitService (skip-penalty write). Consumed by provideCleanup so wire
+	// forces evaluation.
+	ProvideTKAnthropicSaturation,
+	ProvideTKOpenAISaturation,
 	// TokenKey: account-incident → Feishu notifier. Builds the notifier, starts
 	// its digest ticker, and wires it onto RateLimitService post-construction.
 	// Returns the instance so provideCleanup (cmd/server/wire.go) can Stop() the
 	// ticker at shutdown — same lifecycle shape as ChannelMonitorRunner.
 	ProvideTKAccountIncidentNotifier,
+	// TokenKey: pricing-missing → Feishu notifier. Builds the notifier, starts
+	// its digest ticker, and wires it onto GatewayService + OpenAIGatewayService
+	// post-construction. Returns the instance so provideCleanup
+	// (cmd/server/wire.go) can Stop() the ticker at shutdown.
+	ProvideTKPricingMissingNotifier,
 )
-
-// TKAuthServiceColdStartReady is a wire sentinel: holding it proves that
-// AuthService has had its trial-key issuer wired. provideCleanup takes this
-// type as a parameter purely to force wire to evaluate the side-effect; the
-// value itself carries no runtime data.
-type TKAuthServiceColdStartReady struct{}
-
-// ProvideTKAuthServiceColdStart wires the trial-key issuer onto AuthService
-// after both services are constructed, then returns the sentinel.
-//
-// This wrapper-style provider mirrors the pattern used by
-// ProvideTokenRefreshService / ProvideClaudeTokenProvider in this file —
-// build the underlying service, attach setter-injected deps, return.
-func ProvideTKAuthServiceColdStart(
-	auth *AuthService,
-	api *APIKeyService,
-	settings *SettingService,
-) TKAuthServiceColdStartReady {
-	if auth != nil {
-		auth.SetTrialKeyIssuer(NewTrialKeyIssuer(api, settings))
-	}
-	return TKAuthServiceColdStartReady{}
-}
 
 // ProvidePaymentConfigService wraps NewPaymentConfigService to accept the named
 // payment.EncryptionKey type instead of raw []byte, avoiding Wire ambiguity.
@@ -678,29 +865,6 @@ func ProvidePaymentConfigService(entClient *dbent.Client, settingRepo SettingRep
 // repository.NewModelAvailabilityRepository, registered in repository/wire.go.
 func ProvidePricingAvailabilityService(repo ModelAvailabilityRepository) *PricingAvailabilityService {
 	return NewPricingAvailabilityService(repo, time.Now)
-}
-
-// TKGatewayPricingAvailabilityReady is a wire sentinel: holding it proves
-// GatewayService.SetPricingAvailabilityService has been called with the
-// production availability service. provideCleanup (cmd/server/wire.go) takes
-// this type as an unused parameter to force wire to evaluate the side-effect.
-type TKGatewayPricingAvailabilityReady struct{}
-
-// ProvideTKGatewayPricingAvailability wires the availability service onto
-// GatewayService post-construction. Mirrors ProvideTKAuthServiceColdStart in
-// shape — keep upstream NewGatewayService signature stable, attach setter-only
-// dependencies in TK companion glue.
-//
-// Setter is nil-safe; if avail is nil (e.g. degraded test wiring) the service
-// remains in feature-flag-off state.
-func ProvideTKGatewayPricingAvailability(
-	gw *GatewayService,
-	avail *PricingAvailabilityService,
-) TKGatewayPricingAvailabilityReady {
-	if gw != nil {
-		gw.SetPricingAvailabilityService(avail)
-	}
-	return TKGatewayPricingAvailabilityReady{}
 }
 
 // ProvideBalanceNotifyService creates BalanceNotifyService
@@ -718,8 +882,9 @@ func ProvidePaymentService(entClient *dbent.Client, registry *payment.Registry, 
 }
 
 // ProvidePaymentOrderExpiryService creates and starts PaymentOrderExpiryService.
-func ProvidePaymentOrderExpiryService(paymentSvc *PaymentService) *PaymentOrderExpiryService {
+func ProvidePaymentOrderExpiryService(paymentSvc *PaymentService, lockCache LeaderLockCache, db *sql.DB) *PaymentOrderExpiryService {
 	svc := NewPaymentOrderExpiryService(paymentSvc, 60*time.Second)
+	svc.SetLeaderLock(lockCache, db)
 	svc.Start()
 	return svc
 }
@@ -742,62 +907,4 @@ func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *Set
 	svc.SetScheduler(r)
 	r.Start()
 	return r
-}
-
-// TKGatewayAnthropicSigPreemptReady is a wire sentinel: holding it proves that
-// GatewayService.SetAnthropicSigPreemptCache has been called. provideCleanup
-// (cmd/server/wire.go) consumes this type as an unused parameter so wire forces
-// evaluation of the side-effect.
-type TKGatewayAnthropicSigPreemptReady struct{}
-
-// ProvideTKGatewayAnthropicSigPreempt wires the Anthropic signature_error
-// preempt cache onto GatewayService post-construction. Mirrors
-// ProvideTKGatewayPricingAvailability in shape — keep upstream
-// NewGatewayService signature stable, attach setter-only dependencies in TK
-// companion glue.
-//
-// Setter is nil-safe; if cache is nil (e.g. degraded test wiring) the gateway
-// remains in feature-disabled state and applySigPreemptIfArmed / armSigPreemptOnError
-// become no-ops.
-func ProvideTKGatewayAnthropicSigPreempt(
-	gw *GatewayService,
-	cache AnthropicSignaturePreemptCache,
-) TKGatewayAnthropicSigPreemptReady {
-	if gw != nil {
-		gw.SetAnthropicSigPreemptCache(cache)
-	}
-	return TKGatewayAnthropicSigPreemptReady{}
-}
-
-// ProvideTKAccountIncidentNotifier builds the account-incident Feishu notifier,
-// starts its background digest ticker, and wires it onto RateLimitService
-// post-construction. It returns the concrete instance (not a sentinel) so
-// provideCleanup can Stop() the ticker at shutdown — mirroring the
-// ChannelMonitorRunner lifecycle shape rather than the setter-only sentinel
-// pattern.
-//
-// Node identity (prod / edge-<id>) is derived from server.frontend_url so no new
-// env / deploy-template change is needed. Setter is nil-safe; if rl is nil the
-// notifier is still returned (and Stopped) without being attached.
-func ProvideTKAccountIncidentNotifier(
-	rl *RateLimitService,
-	ops *OpsService,
-	cfg *config.Config,
-) *TKAccountIncidentNotifier {
-	site := "unknown"
-	if cfg != nil {
-		site = siteFromFrontendURL(cfg.Server.FrontendURL)
-	}
-	// Pass a nil interface (not a typed-nil *OpsService) when ops is absent so the
-	// notifier's `cfgProvider != nil` guards short-circuit cleanly.
-	var provider opsFeishuConfigProvider
-	if ops != nil {
-		provider = ops
-	}
-	n := newTKAccountIncidentNotifier(provider, site)
-	n.Start()
-	if rl != nil {
-		rl.SetAccountIncidentNotifier(n)
-	}
-	return n
 }

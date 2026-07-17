@@ -10,6 +10,7 @@ import type {
   LoginAgreementDocument,
   NotifyEmailEntry,
 } from "@/types";
+import { ALLOWED_QUOTA_PLATFORMS, type QuotaPlatform } from "@/constants/gatewayPlatforms";
 
 export interface DefaultSubscriptionSetting {
   group_id: number;
@@ -17,7 +18,7 @@ export interface DefaultSubscriptionSetting {
 }
 
 // ── 平台限额类型 ──────────────────────────────────────────────────
-export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity"
+export type PlatformType = QuotaPlatform
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
 
 /** 单平台三档限额；null = 不限制，undefined = 未填（等价 null） */
@@ -30,12 +31,10 @@ export interface PlatformQuotaLimits {
 /** 全平台默认限额 map（key = PlatformType） */
 export type DefaultPlatformQuotasMap = Partial<Record<PlatformType, PlatformQuotaLimits>>
 
-const PLATFORMS: PlatformType[] = ["anthropic", "openai", "gemini", "antigravity"]
-
-/** 归一化为全 4 平台 × 3 窗口（缺失填 null），供模板非空绑定 */
+/** 归一化为全平台 × 3 窗口（缺失填 null），供模板非空绑定 */
 export function normalizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | null): DefaultPlatformQuotasMap {
   const result: DefaultPlatformQuotasMap = {}
-  for (const p of PLATFORMS) {
+  for (const p of ALLOWED_QUOTA_PLATFORMS) {
     const src = input?.[p]
     result[p] = {
       daily:   typeof src?.daily === "number" ? src.daily : null,
@@ -50,7 +49,7 @@ export function normalizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | nu
 export function sanitizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | null): DefaultPlatformQuotasMap {
   const clean = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null)
   const result: DefaultPlatformQuotasMap = {}
-  for (const p of PLATFORMS) {
+  for (const p of ALLOWED_QUOTA_PLATFORMS) {
     const src = input?.[p]
     result[p] = { daily: clean(src?.daily), weekly: clean(src?.weekly), monthly: clean(src?.monthly) }
   }
@@ -361,7 +360,6 @@ export interface SystemSettings {
   email_verify_enabled: boolean;
   registration_email_suffix_whitelist: string[];
   promo_code_enabled: boolean;
-  kiro_enabled: boolean; // TK: Kiro 第六平台转发门禁（默认 false / ToS）
   password_reset_enabled: boolean;
   frontend_url: string;
   invitation_code_enabled: boolean;
@@ -377,6 +375,7 @@ export interface SystemSettings {
   affiliate_rebate_freeze_hours: number;
   affiliate_rebate_duration_days: number;
   affiliate_rebate_per_invitee_cap: number;
+  affiliate_admin_recharge_enabled: boolean;
   default_concurrency: number;
   default_user_rpm_limit: number;
   default_subscriptions: DefaultSubscriptionSetting[];
@@ -558,20 +557,34 @@ export interface SystemSettings {
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
   enable_cch_signing: boolean;
+  enable_claude_oauth_system_prompt_injection: boolean;
+  claude_oauth_system_prompt: string;
+  claude_oauth_system_prompt_blocks: string;
   enable_anthropic_cache_ttl_1h_injection: boolean;
   // Sticky routing kill switch (default true).
   // See docs/approved/sticky-routing.md.
   sticky_routing_enabled: boolean;
   rewrite_message_cache_control: boolean;
+  enable_client_dateline_normalization: boolean;
   antigravity_user_agent_version: string;
   openai_codex_user_agent: string;
-  openai_allow_claude_code_codex_plugin: boolean;
+  // codex_cli_only 加固
+  min_codex_version: string;
+  max_codex_version: string;
+  codex_cli_only_blacklist: string;
+  codex_cli_only_whitelist: string;
+  codex_cli_only_allow_app_server_clients: boolean;
+  codex_cli_only_engine_fingerprint_signals: string;
   web_search_emulation_enabled?: boolean;
-  openai_fast_policy_settings?: OpenAIFastPolicySettings;
 
   // Payment configuration
   payment_enabled: boolean;
   risk_control_enabled: boolean;
+
+  // Cyber session block
+  cyber_session_block_enabled: boolean;
+  cyber_session_block_ttl_seconds: number;
+
   payment_min_amount: number;
   payment_max_amount: number;
   payment_daily_limit: number;
@@ -580,6 +593,7 @@ export interface SystemSettings {
   payment_enabled_types: string[];
   payment_balance_disabled: boolean;
   payment_balance_recharge_multiplier: number;
+  payment_subscription_usd_to_cny_rate: number;
   payment_recharge_fee_rate: number;
   payment_load_balance_strategy: string;
   payment_product_name_prefix: string;
@@ -597,6 +611,28 @@ export interface SystemSettings {
   payment_visible_method_alipay_enabled?: boolean;
   payment_visible_method_wxpay_enabled?: boolean;
   openai_advanced_scheduler_enabled?: boolean;
+  openai_advanced_scheduler_sticky_weighted_enabled?: boolean;
+  openai_advanced_scheduler_subscription_priority_enabled?: boolean;
+  openai_advanced_scheduler_lb_top_k?: string;
+  openai_advanced_scheduler_weight_priority?: string;
+  openai_advanced_scheduler_weight_load?: string;
+  openai_advanced_scheduler_weight_queue?: string;
+  openai_advanced_scheduler_weight_error_rate?: string;
+  openai_advanced_scheduler_weight_ttft?: string;
+  openai_advanced_scheduler_weight_reset?: string;
+  openai_advanced_scheduler_weight_quota_headroom?: string;
+  openai_advanced_scheduler_weight_previous_response?: string;
+  openai_advanced_scheduler_weight_session_sticky?: string;
+  openai_advanced_scheduler_effective_lb_top_k?: string;
+  openai_advanced_scheduler_effective_weight_priority?: string;
+  openai_advanced_scheduler_effective_weight_load?: string;
+  openai_advanced_scheduler_effective_weight_queue?: string;
+  openai_advanced_scheduler_effective_weight_error_rate?: string;
+  openai_advanced_scheduler_effective_weight_ttft?: string;
+  openai_advanced_scheduler_effective_weight_reset?: string;
+  openai_advanced_scheduler_effective_weight_quota_headroom?: string;
+  openai_advanced_scheduler_effective_weight_previous_response?: string;
+  openai_advanced_scheduler_effective_weight_session_sticky?: string;
 
   // 余额、订阅到期与账号限额通知
   balance_low_notify_enabled: boolean;
@@ -622,6 +658,12 @@ export interface SystemSettings {
 
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: boolean;
+
+  // OpenAI fast/flex policy
+  openai_fast_policy_settings?: OpenAIFastPolicySettings;
+
+  // Allow user view error requests
+  allow_user_view_error_requests: boolean;
 }
 
 export interface UpdateSettingsRequest {
@@ -629,7 +671,6 @@ export interface UpdateSettingsRequest {
   email_verify_enabled?: boolean;
   registration_email_suffix_whitelist?: string[];
   promo_code_enabled?: boolean;
-  kiro_enabled?: boolean; // TK: Kiro 第六平台转发门禁（默认 false / ToS）
   password_reset_enabled?: boolean;
   frontend_url?: string;
   invitation_code_enabled?: boolean;
@@ -643,6 +684,7 @@ export interface UpdateSettingsRequest {
   affiliate_rebate_freeze_hours?: number;
   affiliate_rebate_duration_days?: number;
   affiliate_rebate_per_invitee_cap?: number;
+  affiliate_admin_recharge_enabled?: boolean;
   default_concurrency?: number;
   default_user_rpm_limit?: number;
   default_subscriptions?: DefaultSubscriptionSetting[];
@@ -801,17 +843,31 @@ export interface UpdateSettingsRequest {
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;
   enable_cch_signing?: boolean;
+  enable_claude_oauth_system_prompt_injection?: boolean;
+  claude_oauth_system_prompt?: string;
+  claude_oauth_system_prompt_blocks?: string;
   enable_anthropic_cache_ttl_1h_injection?: boolean;
   sticky_routing_enabled?: boolean;
   rewrite_message_cache_control?: boolean;
+  enable_client_dateline_normalization?: boolean;
   antigravity_user_agent_version?: string;
   web_search_emulation_enabled?: boolean;
-  openai_fast_policy_settings?: OpenAIFastPolicySettings;
   openai_codex_user_agent?: string;
-  openai_allow_claude_code_codex_plugin?: boolean;
+  // codex_cli_only 加固
+  min_codex_version?: string;
+  max_codex_version?: string;
+  codex_cli_only_blacklist?: string;
+  codex_cli_only_whitelist?: string;
+  codex_cli_only_allow_app_server_clients?: boolean;
+  codex_cli_only_engine_fingerprint_signals?: string;
   // Payment configuration
   payment_enabled?: boolean;
   risk_control_enabled?: boolean;
+
+  // Cyber session block
+  cyber_session_block_enabled?: boolean;
+  cyber_session_block_ttl_seconds?: number;
+
   payment_min_amount?: number;
   payment_max_amount?: number;
   payment_daily_limit?: number;
@@ -820,6 +876,7 @@ export interface UpdateSettingsRequest {
   payment_enabled_types?: string[];
   payment_balance_disabled?: boolean;
   payment_balance_recharge_multiplier?: number;
+  payment_subscription_usd_to_cny_rate?: number;
   payment_recharge_fee_rate?: number;
   payment_load_balance_strategy?: string;
   payment_product_name_prefix?: string;
@@ -837,6 +894,18 @@ export interface UpdateSettingsRequest {
   payment_visible_method_alipay_enabled?: boolean;
   payment_visible_method_wxpay_enabled?: boolean;
   openai_advanced_scheduler_enabled?: boolean;
+  openai_advanced_scheduler_sticky_weighted_enabled?: boolean;
+  openai_advanced_scheduler_subscription_priority_enabled?: boolean;
+  openai_advanced_scheduler_lb_top_k?: string;
+  openai_advanced_scheduler_weight_priority?: string;
+  openai_advanced_scheduler_weight_load?: string;
+  openai_advanced_scheduler_weight_queue?: string;
+  openai_advanced_scheduler_weight_error_rate?: string;
+  openai_advanced_scheduler_weight_ttft?: string;
+  openai_advanced_scheduler_weight_reset?: string;
+  openai_advanced_scheduler_weight_quota_headroom?: string;
+  openai_advanced_scheduler_weight_previous_response?: string;
+  openai_advanced_scheduler_weight_session_sticky?: string;
   // 余额、订阅到期与账号限额通知
   balance_low_notify_enabled?: boolean;
   balance_low_notify_threshold?: number;
@@ -861,6 +930,11 @@ export interface UpdateSettingsRequest {
 
   // Affiliate (邀请返利) feature switch
   affiliate_enabled?: boolean;
+
+  // OpenAI fast/flex policy
+  openai_fast_policy_settings?: OpenAIFastPolicySettings;
+
+  allow_user_view_error_requests?: boolean;
 }
 
 /**
@@ -1221,11 +1295,12 @@ export async function updateRectifierSettings(
  */
 export interface OpenAIFastPolicyRule {
   service_tier: "all" | "priority" | "flex";
-  action: "pass" | "filter" | "block";
+  action: "pass" | "filter" | "block" | "force_priority";
   scope: "all" | "oauth" | "apikey" | "bedrock";
+  user_ids?: number[];
   error_message?: string;
   model_whitelist?: string[];
-  fallback_action?: "pass" | "filter" | "block";
+  fallback_action?: "pass" | "filter" | "block" | "force_priority";
   fallback_error_message?: string;
 }
 

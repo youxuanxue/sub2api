@@ -28,17 +28,23 @@ type RateLimitService struct {
 	timeoutCounterCache                TimeoutCounterCache
 	openAI403CounterCache              OpenAI403CounterCache
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache
-	// TK: 「token 被成功刷新过却仍持续 401」计数器，用于把 OAuth 401 静默 flap
-	// 升级为 error 永久停调度。逻辑在 ratelimit_service_tk_oauth401.go。
-	oauth401AfterRefreshCounter OAuth401AfterRefreshCounterCache
-	settingService              *SettingService
-	tokenCacheInvalidator       TokenCacheInvalidator
-	runtimeBlocker              AccountRuntimeBlocker
+	settingService                     *SettingService
+	tokenCacheInvalidator              TokenCacheInvalidator
+	oauthRefreshAPI                    *OAuthRefreshAPI
+	kiroOAuthRefreshExecutor           OAuthRefreshExecutor
+	runtimeBlocker                     AccountRuntimeBlocker
 	// TK: 账号失效事件 → 飞书即时告警。挂钩在 notifyAccountSchedulingBlocked,
 	// 实现在 account_incident_notifier_tk.go / ratelimit_service_tk_incident.go。
 	incidentNotifier AccountIncidentNotifier
-	usageCacheMu     sync.RWMutex
-	usageCache       map[int64]*geminiUsageCacheEntry
+	// TK: anthropic 镜像 stub 「下游容量饱和」短窗计数器（可选依赖）。在 skip-penalty
+	// 路径上递增；由调度器读取施加 bounded 去优先级偏好。逻辑在
+	// ratelimit_service_tk_saturation.go。
+	anthropicSaturationCounter AnthropicSaturationCounterCache
+	// TK: OpenAI edge-mirror stub downstream-capacity counter (optional). See
+	// ratelimit_service_tk_openai_saturation.go.
+	openaiSaturationCounter OpenAISaturationCounterCache
+	usageCacheMu            sync.RWMutex
+	usageCache              map[int64]*geminiUsageCacheEntry
 }
 
 type AccountRuntimeBlocker interface {
@@ -72,10 +78,16 @@ const geminiPrecheckCacheTTL = time.Minute
 const (
 	defaultRateLimit429CooldownSeconds = 5
 	maxRateLimit429CooldownSeconds     = 7200
-	anthropic404ModelCooldown          = 24 * time.Hour
 )
 
 var anthropicNotFoundModelPattern = regexp.MustCompile(`(?i)model:\s*([A-Za-z0-9._:/-]+)`)
+
+const (
+	openAIImageRateLimitDefaultCooldown = time.Minute
+	openAIImageRateLimitReason          = "openai_image_rate_limited"
+)
+
+var openAIImageTryAgainPattern = regexp.MustCompile(`(?i)try again in\s+([0-9]+(?:\.[0-9]+)?)\s*(ms|s|sec|secs|second|seconds|m|min|mins|minute|minutes)`)
 
 const (
 	openAI403CooldownMinutesDefault = 10
@@ -100,26 +112,7 @@ const (
 	// "is the whole pool burning down right now" question; the counter
 	// expires when the window closes so a healed deploy reads zero.
 	anthropicCooldownTierEscalationsWindowMinutes = 60
-
-	// 403 keyword scan used by handle403 to surface suspected TLS / bot-
-	// detection regressions. When the upstream body contains any of these
-	// tokens we skip the long account_disabled_auth_error cooldown and
-	// keep the account on a short cooldown so an operator can react.
-	tlsFingerprintFailureCooldown = 30 * time.Second
 )
-
-// tlsFingerprintFailureKeywords matches Cloudflare / WAF responses that
-// reveal the request was rejected on TLS shape rather than on the OAuth
-// identity itself (e.g. "ja3" / "ja4" / "bot detection" / "tls fingerprint").
-// Order is insignificant; matching is case-insensitive.
-var tlsFingerprintFailureKeywords = []string{
-	"ja3",
-	"ja4",
-	"bot detection",
-	"bot management",
-	"tls fingerprint",
-	"client fingerprint",
-}
 
 // openAICloudflareChallengeKeywords matches Cloudflare / Arkose challenge
 // pages where an OpenAI 403 was returned by infrastructure (CF JS challenge,
@@ -181,6 +174,14 @@ var anthropicCooldownTierLadder = []time.Duration{
 	10 * time.Minute,
 }
 
+// anthropicCooldownEscalationSlotMaxSeconds is the placeholder TTL a threshold
+// trip uses to win the per-account escalation slot before its real cooldown is
+// known. It equals the longest ladder cooldown so that a crash between winning
+// the slot and shrinking it to the real cooldown can over-suppress escalation
+// by at most one max-cooldown window — never under-protect. See issue #623 and
+// AnthropicUpstreamErrorCounterCache.AcquireAnthropicCooldownEscalationSlot.
+var anthropicCooldownEscalationSlotMaxSeconds = int(anthropicCooldownTierLadder[len(anthropicCooldownTierLadder)-1].Seconds())
+
 // NewRateLimitService 创建RateLimitService实例
 func NewRateLimitService(accountRepo AccountRepository, usageRepo UsageLogRepository, cfg *config.Config, geminiQuotaService *GeminiQuotaService, tempUnschedCache TempUnschedCache) *RateLimitService {
 	return &RateLimitService{
@@ -217,24 +218,53 @@ func (s *RateLimitService) SetTokenCacheInvalidator(invalidator TokenCacheInvali
 	s.tokenCacheInvalidator = invalidator
 }
 
+func (s *RateLimitService) SetOAuthRefreshAPI(refreshAPI *OAuthRefreshAPI) {
+	s.oauthRefreshAPI = refreshAPI
+}
+
+func (s *RateLimitService) SetKiroOAuthRefreshExecutor(executor OAuthRefreshExecutor) {
+	s.kiroOAuthRefreshExecutor = executor
+}
+
 func (s *RateLimitService) SetAccountRuntimeBlocker(blocker AccountRuntimeBlocker) {
 	s.runtimeBlocker = blocker
 }
 
-func (s *RateLimitService) notifyAccountSchedulingBlocked(account *Account, until time.Time, reason string) {
+func (s *RateLimitService) IsOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx context.Context) bool {
+	if s == nil || s.settingService == nil {
+		return false
+	}
+	gateway := &OpenAIGatewayService{rateLimitService: s}
+	return gateway.isOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx)
+}
+
+// notifyAccountSchedulingBlocked is the single funnel for every account
+// cooldown/disable. The optional detail (variadic so existing call sites stay
+// untouched) carries an upstream-dimension hint — e.g. the Anthropic 5h/7d
+// usage window or the model class — that the Feishu digest renders so operators
+// see WHICH upstream limit fired. detail is intentionally NOT forwarded to
+// BlockAccountScheduling: the runtime blocker keys off the stable reason string.
+func (s *RateLimitService) notifyAccountSchedulingBlocked(account *Account, until time.Time, reason string, detail ...string) {
 	if s == nil || s.runtimeBlocker == nil || account == nil {
 		return
 	}
 	s.runtimeBlocker.BlockAccountScheduling(account, until, reason)
 	// TK: 同一汇聚点上报账号失效事件给飞书（kind 由 reason 在 classifyIncident 内精确派生）。
-	s.notifyAccountIncident(account, until, reason, IncidentKindUnknown)
+	s.notifyAccountIncident(account, until, reason, IncidentKindUnknown, detail...)
+	// TK: 池级检查——若这是该平台最后一个可调度账号,即时发全池不可调度 P0。
+	// 见 ratelimit_service_tk_pool_exhausted.go。
+	s.tkCheckPlatformPoolExhausted(account, until, reason)
 }
 
 func (s *RateLimitService) notifyAccountSchedulingBlockCleared(accountID int64) {
-	if s == nil || s.runtimeBlocker == nil || accountID <= 0 {
+	if s == nil || accountID <= 0 {
 		return
 	}
-	s.runtimeBlocker.ClearAccountSchedulingBlock(accountID)
+	if s.runtimeBlocker != nil {
+		s.runtimeBlocker.ClearAccountSchedulingBlock(accountID)
+	}
+	// TK: 账号真实清除事件 → 飞书恢复绿卡(事件驱动,仅对此前告警过的账号)。
+	s.notifyAccountRecovered(accountID)
 }
 
 // ErrorPolicyResult 表示错误策略检查的结果
@@ -271,6 +301,10 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
+	if s.handleOpenAICompatDownstreamCapacityPenalty(ctx, account, statusCode, responseBody, tkFirstRequestedModel(requestedModel)) {
+		return true
+	}
+
 	// 池模式默认不标记本地账号状态；仅当用户显式配置自定义错误码时按本地策略处理。
 	if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {
 		slog.Info("pool_mode_error_skipped", "account_id", account.ID, "status_code", statusCode)
@@ -279,13 +313,29 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 
 	// apikey 类型账号：检查自定义错误码配置
 	// 如果启用且错误码不在列表中，则不处理（不停止调度、不标记限流/过载）
-	if !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {
+	planGatedModel := isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody)
+	if !planGatedModel && !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {
 		slog.Info("account_error_code_skipped", "account_id", account.ID, "status_code", statusCode)
 		return false
 	}
 
 	if len(requestedModel) > 0 && s.HandleUpstreamModelNotFound(ctx, account, requestedModel[0], statusCode, responseBody) {
 		return true
+	}
+
+	// Anthropic official 5h / 7d window exhaustion is a hard account limit.
+	// It must take precedence over user-configured 429 temp-unsched rules,
+	// otherwise a broad "rate limit" keyword rule can shorten a multi-hour
+	// cooldown to a local temporary pause.
+	if statusCode == http.StatusTooManyRequests && account.Platform == PlatformAnthropic {
+		// 7d_oi 是 Fable 模型专属的 7d 窗口：只标记模型级限流，账号对其他模型仍可调度。
+		fableLimited := s.persistAnthropicFableWindowLimit(ctx, account, headers)
+		if s.persistAnthropicExhaustedWindowLimit(ctx, account, headers) {
+			return false
+		}
+		if fableLimited {
+			return false
+		}
 	}
 
 	// 先尝试临时不可调度规则（401除外）
@@ -313,6 +363,10 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		return s.handleAnthropicUsagePolicyBlock(ctx, account, statusCode, upstreamMsg, responseBody)
 	}
 
+	if handled, quotaDisable := s.tkMaybeHandleKiroEndpointQuotaExhausted(ctx, account, upstreamMsg, responseBody); handled {
+		return quotaDisable
+	}
+
 	switch statusCode {
 	case 400:
 		// "organization has been disabled" → 永久禁用
@@ -330,59 +384,104 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			msg := "Identity verification required (400): " + upstreamMsg
 			s.handleAuthError(ctx, account, msg)
 			shouldDisable = true
-		} else if account.Platform == PlatformAnthropic {
-			// TK (upstream#2608): a client-induced invalid_request_error must NOT
-			// advance the per-account cooldown counter — otherwise any caller can
-			// pause a shared OAuth subscription account by sending malformed 400s.
-			// Account-level 400s (org disabled / credit / KYC) are handled above;
-			// only atypical 400s still go through the normal threshold path.
-			if tkIsAnthropicClientInducedBadRequest(responseBody) {
-				slog.Info("anthropic_client_induced_400_skip_penalty",
-					"account_id", account.ID, "status_code", statusCode)
-			} else {
-				shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
-			}
+		} else if account.Platform == PlatformAnthropic && tkIsAnthropicClientInducedBadRequest(responseBody) {
+			// TK (upstream#2608): client-induced invalid_request_error is caller-side;
+			// atypical 400s are also out of stub-health fuse scope (see
+			// tkAnthropicStubHealthFuseEligible).
+			slog.Info("anthropic_client_induced_400_skip_penalty",
+				"account_id", account.ID, "status_code", statusCode)
 		}
 		// 其他 400 错误（如参数问题）不处理，不禁用账号
 	case 401:
+		// TK (prod incident 2026-06-24): Kiro mirror stubs ride the Anthropic
+		// api-key transport, but the 401 is owned by the downstream edge Kiro
+		// OAuth account. The edge can force-refresh and clear its own OAuth
+		// state; permanently disabling the prod relay stub strands that recovered
+		// edge behind a stale error. Treat this as a transient downstream auth
+		// blip: fail over / let pool-mode retry absorb it, record a bounded
+		// saturation preference, and leave local stub health untouched.
+		if tkSkipDownstreamKiroOAuthAuthRejectPenalty(account, statusCode, upstreamMsg, responseBody) {
+			slog.Info("anthropic_downstream_kiro_oauth_401_skip_penalty",
+				"account_id", account.ID,
+				"status_code", statusCode)
+			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "kiro_oauth_401")
+			return true
+		}
+		// TK (prod P0 2026-06-13, GPT专线): a capability/scope-level 401 (the
+		// upstream rejects a specific capability — e.g. image generation — because
+		// the serving OAuth token lacks that capability's scope) must NOT cool or
+		// disable the account. The account can still serve every other model; the
+		// caller's gateway error mapping surfaces this as a 400 capability-unservable
+		// error for THIS request only. See ratelimit_service_tk_capability_scope_401.go.
+		if tkIsCapabilityScope401(statusCode, responseBody) {
+			slog.Info("capability_scope_401_skip_penalty",
+				"account_id", account.ID, "platform", account.Platform, "message", upstreamMsg)
+			return false
+		}
+		// 外审第9轮:Spark 影子无独立凭据,401 是母账号 token 问题——失效缓存 / refresh_token 判断 /
+		// 永久禁用 / 临时不可调度都必须落到凭据 owner(母账号),否则影子(无 refresh_token)必中
+		// "refresh_token missing"永久禁用分支、母账号 token cache 也不会被清,把母账号可恢复的 token
+		// 问题变成影子永久死亡。母账号被标记 temp-unschedulable 后由 parentHealthyForShadow 级联排除影子。
+		// 非影子时 resolveCredentialAccount 返回自身;母账号缺失/损坏(orphan 影子,罕见)时回退到原 account。
+		authAccount := account
+		if resolved, rerr := resolveCredentialAccount(ctx, s.accountRepo, account); rerr == nil && resolved != nil {
+			authAccount = resolved
+		}
 		// OpenAI: token_invalidated / token_revoked 表示 token 被永久作废（非过期），直接标记 error
 		openai401Code := extractUpstreamErrorCode(responseBody)
-		if account.Platform == PlatformOpenAI && (openai401Code == "token_invalidated" || openai401Code == "token_revoked") {
+		if authAccount.Platform == PlatformOpenAI && (openai401Code == "token_invalidated" || openai401Code == "token_revoked") {
 			msg := "Token revoked (401): account authentication permanently revoked"
 			if upstreamMsg != "" {
 				msg = "Token revoked (401): " + upstreamMsg
 			}
-			s.handleAuthError(ctx, account, msg)
+			s.handleAuthError(ctx, authAccount, msg)
 			shouldDisable = true
 			break
 		}
 		// OpenAI: {"detail":"Unauthorized"} 表示 token 完全无效（非标准 OpenAI 错误格式），直接标记 error
-		if account.Platform == PlatformOpenAI && gjson.GetBytes(responseBody, "detail").String() == "Unauthorized" {
+		if authAccount.Platform == PlatformOpenAI && gjson.GetBytes(responseBody, "detail").String() == "Unauthorized" {
 			msg := "Unauthorized (401): account authentication failed permanently"
 			if upstreamMsg != "" {
 				msg = "Unauthorized (401): " + upstreamMsg
 			}
-			s.handleAuthError(ctx, account, msg)
+			s.handleAuthError(ctx, authAccount, msg)
 			shouldDisable = true
 			break
 		}
-		// OAuth 账号在 401 错误时临时不可调度（给 token 刷新窗口）；非 OAuth 账号保持原有 SetError 行为。
-		// Antigravity 除外：其 401 由 applyErrorPolicy 的 temp_unschedulable_rules 自行控制。
-		if account.Type == AccountTypeOAuth && account.Platform != PlatformAntigravity {
-			// 1. 失效缓存
+		// TK: Anthropic OAuth 任意 401 → 立即 SetError + P0 飞书（auth_error），不再区分
+		// token 是否过期、不再走 temp_unschedulable 冷却，由运营人工 re-OAuth。
+		if account.Platform == PlatformAnthropic && account.Type == AccountTypeOAuth {
 			if s.tokenCacheInvalidator != nil {
 				if err := s.tokenCacheInvalidator.InvalidateToken(ctx, account); err != nil {
 					slog.Warn("oauth_401_invalidate_cache_failed", "account_id", account.ID, "error", err)
 				}
 			}
+			msg := "OAuth 401 — manual re-authorization required (re-login via account management)"
+			if upstreamMsg != "" {
+				msg = "OAuth 401: " + upstreamMsg
+			}
+			slog.Warn("oauth_401_immediate_disable",
+				"account_id", account.ID, "platform", account.Platform)
+			s.handleAuthError(ctx, account, msg)
+			shouldDisable = true
+			break
+		}
+		// OAuth 账号在 401 错误时临时不可调度（给 token 刷新窗口）；非 OAuth 账号保持原有 SetError 行为。
+		if authAccount.Type == AccountTypeOAuth {
+			// 1. 失效缓存
+			if s.tokenCacheInvalidator != nil {
+				if err := s.tokenCacheInvalidator.InvalidateToken(ctx, authAccount); err != nil {
+					slog.Warn("oauth_401_invalidate_cache_failed", "account_id", authAccount.ID, "error", err)
+				}
+			}
 			// 缺少 refresh_token 的 OAuth 账号无法在冷却期内自愈（后台刷新服务也会跳过），
 			// 直接走 SetError 永久禁用，避免冷却结束后再被选中产生一发无意义的 502。
-			if strings.TrimSpace(account.GetCredential("refresh_token")) == "" {
+			if strings.TrimSpace(authAccount.GetCredential("refresh_token")) == "" {
 				msg := "Authentication failed (401): refresh_token missing, cannot recover"
 				if upstreamMsg != "" {
 					msg = "OAuth 401 (no refresh_token): " + upstreamMsg
 				}
-				s.handleAuthError(ctx, account, msg)
+				s.handleAuthError(ctx, authAccount, msg)
 				shouldDisable = true
 				break
 			}
@@ -395,10 +494,11 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			// tryRecoverFromRefreshRace 重读 DB 发现 currentRT == usedRT 也救不回来，账号被错误 disable。
 			// 这里仅依赖 InvalidateToken + SetTempUnschedulable 让账号在冷却期内不被调度，
 			// 冷却结束后由 token_provider 的 NeedsRefresh / token_refresh_service 走带分布式锁的正路刷新。
-			// TK: 「refresh 端点成功却仍 401」盲区——若同一窗口内换发的新 token 仍 401，
-			// 判定 grant 被上游实质吊销，升级为 error 永久停调度 + 告警（提示手工重授权），
-			// 不再无限 temp_unschedulable flap。详见 ratelimit_service_tk_oauth401.go。
-			if s.tkTryEscalateRevokedOAuth401(ctx, account, upstreamMsg) {
+			// TK: 401 发生在「仍然有效的 access_token」上 = grant 被上游吊销（一个没过期的
+			// token 不该被拒，除非 grant 没了）。第一次即 SetError 永久停调度 + 告警，提示人工
+			// 重授权，不再走冷却 flap。token 已过期/近过期则视为过期抢跑良性 401，落到下面的
+			// temp_unschedulable 冷却 + 后台刷新自愈。详见 ratelimit_service_tk_oauth401.go。
+			if s.tkDisableIfOAuth401OnValidToken(ctx, authAccount, upstreamMsg) {
 				shouldDisable = true
 				break
 			}
@@ -406,23 +506,29 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			if upstreamMsg != "" {
 				msg = "OAuth 401: " + upstreamMsg
 			}
-			cooldownMinutes := s.cfg.RateLimit.OAuth401CooldownMinutes
-			if cooldownMinutes <= 0 {
-				cooldownMinutes = 10
+			if authAccount.Platform == PlatformAntigravity {
+				extraUpdates := antigravityForceTokenRefreshExtra("401_invalid")
+				if err := s.accountRepo.UpdateExtra(ctx, authAccount.ID, extraUpdates); err != nil {
+					slog.Warn("antigravity_401_force_refresh_mark_failed", "account_id", authAccount.ID, "error", err)
+				} else {
+					if authAccount.Extra == nil {
+						authAccount.Extra = make(map[string]any, len(extraUpdates))
+					}
+					for k, v := range extraUpdates {
+						authAccount.Extra[k] = v
+					}
+					slog.Info("antigravity_401_force_refresh_marked", "account_id", authAccount.ID)
+				}
 			}
-			until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
-			s.notifyAccountSchedulingBlocked(account, until, "oauth_401")
-			if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, msg); err != nil {
-				slog.Warn("oauth_401_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
-			}
+			s.tkApplyOAuth401Cooldown(ctx, authAccount, msg)
 			shouldDisable = true
 		} else {
-			// 非 OAuth / Antigravity OAuth：保持 SetError 行为
+			// 非 OAuth：保持 SetError 行为
 			msg := "Authentication failed (401): invalid or expired credentials"
 			if upstreamMsg != "" {
 				msg = "Authentication failed (401): " + upstreamMsg
 			}
-			s.handleAuthError(ctx, account, msg)
+			s.handleAuthError(ctx, authAccount, msg)
 			shouldDisable = true
 		}
 	case 402:
@@ -433,8 +539,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = true
 			break
 		}
-		if account.Platform == PlatformAnthropic {
-			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
+		if s.tkHandleKiroQuotaLimit402(ctx, account, upstreamMsg, responseBody) {
+			shouldDisable = true
 			break
 		}
 		// 支付要求：余额不足或计费问题，停止调度
@@ -473,6 +579,19 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				"status_code", statusCode)
 		}
 	case 429:
+		// TK (prod 2026-06-11 incident): a deterministic policy 429 — e.g.
+		// "Usage credits are required for long context requests." — is a
+		// property of the REQUEST, not of account health. The gateway short-
+		// circuits it before side effects (gateway_service_tk_request_owned_429.go);
+		// this is the defense-in-depth for every other HandleUpstreamError
+		// caller: skip the ladder/cooldown so one poisoned request can never
+		// cool a healthy account, let alone lock the whole mirror pool.
+		if account.Platform == PlatformAnthropic && tkIsAnthropicRequestOwned429Message(upstreamMsg, responseBody) {
+			slog.Info("anthropic_request_owned_429_skip_penalty",
+				"account_id", account.ID,
+				"status_code", statusCode)
+			return true
+		}
 		// TK (prod 2026-06): edges empty-pool fast-fail is 429+Retry-After, not
 		// 503. Same downstream-exhaustion semantics as handleAnthropicUpstreamError
 		// skip path — do not classify as upstream rate-limit cooldown / Feishu 429.
@@ -480,6 +599,16 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			slog.Info("anthropic_downstream_no_available_accounts_skip_penalty",
 				"account_id", account.ID,
 				"status_code", statusCode)
+			// TK: feed the bounded saturation de-prioritization preference (not a
+			// cooldown; ladder/cooldown stay untouched). See
+			// ratelimit_service_tk_saturation.go.
+			satCount := s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "no_available_accounts")
+			// TK: when this edge's header-less empty-pool 429 is SUSTAINED, write a
+			// class-scoped cooldown on this MIRROR account so prod fails sonnet (the
+			// in-flight class) over to sonnet-healthy sibling mirrors and clears the
+			// stale sticky binding — opus/haiku stay schedulable. See
+			// ratelimit_service_tk_mirror_class_429.go.
+			s.tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))
 			return true
 		}
 		// TK (G2, narrow): the sibling downstream capacity signal — a forwarded
@@ -490,32 +619,69 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			slog.Info("anthropic_downstream_failover_exhausted_skip_penalty",
 				"account_id", account.ID,
 				"status_code", statusCode)
+			// TK: feed the bounded saturation de-prioritization preference.
+			satCount := s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "all_available_accounts_exhausted")
+			// TK: sustained 429 failover-exhausted envelope → class-scoped mirror
+			// cooldown + failover (see ratelimit_service_tk_mirror_class_429.go).
+			// (A genuine HTTP 502 exhausted body routes through the default→legacy
+			// path, which is intentionally not wired — it lacks requestedModel.)
+			s.tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))
+			return true
+		}
+		// TK: a 429 with NO authoritative anthropic-ratelimit-* headers is not a
+		// real account window limit (真窗口限流一定带头). This generalises the two
+		// needle-based skips above to catch the edge's header-less rate-limit
+		// failover-exhausted envelope ("Upstream rate limit exceeded, please retry
+		// later") — which neither needle matched and which cooled cc-us7 via the
+		// 3/3 ladder — plus any other header-less provider 429. Fail over without a
+		// fallback cooldown or ladder advance; a real relayed window-limit still
+		// carries the headers and is unaffected. See
+		// ratelimit_service_tk_nonauthoritative_429.go.
+		if account.Platform == PlatformAnthropic && tkIsAnthropicNonAuthoritative429(headers, responseBody) {
+			tkLogAnthropicNonAuthoritative429Skip(account, statusCode)
+			// TK: feed the bounded saturation de-prioritization preference, same as the
+			// two sibling capacity-envelope skips above — a header-less envelope means
+			// the forwarded-to edge is transiently dry, so bias scheduling away from it
+			// (no cooldown; ladder untouched). See ratelimit_service_tk_saturation.go.
+			satCount := s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "non_authoritative_429")
+			// TK: this is the cc-us7 header-less envelope from the ground-truth
+			// incident — when sustained, class-scope-cool this MIRROR account so the
+			// in-flight class fails over to sonnet-healthy siblings (opus/haiku stay
+			// schedulable). See ratelimit_service_tk_mirror_class_429.go.
+			s.tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))
 			return true
 		}
 		// handle429 returns true when SetRateLimited landed on an upstream-
 		// provided reset time. If so, suppress the ladder's parallel
 		// SetTempUnschedulable write (last-write-wins would otherwise
 		// race a less-precise local cooldown over the just-written reset).
-		// The 3/3 + tier counters still advance so persistent failure
-		// still escalates.
+		// The 3/3 + tier counters advance only when SetRateLimited landed (see
+		// tkAnthropicStubHealthFuseEligible).
 		rateLimitSet := s.handle429(ctx, account, headers, responseBody, requestedModel...)
-		if account.Platform == PlatformAnthropic {
+		if account.Platform == PlatformAnthropic && tkAnthropicStubHealthFuseEligible(statusCode, rateLimitSet) {
 			shouldDisable = s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, rateLimitSet)
 		} else {
 			shouldDisable = false
 		}
 	case 529:
-		// Same rationale as 429: when handle529 successfully wrote
-		// SetOverloaded with the configured cooldown, suppress the
-		// ladder's redundant SetTempUnschedulable write.
-		overloadSet := s.handle529(ctx, account)
+		// 529 overload: handle529 writes a SHORT transient cooldown — the upstream
+		// Retry-After when present, else a 30s floor (tier-0). It returns true ONLY
+		// when it honored a precise Retry-After, in which case we suppress the
+		// ladder so that authoritative reset is not raced. The common no-Retry-
+		// After 529 returns false, so a SUSTAINED 529 storm still escalates via the
+		// existing 3/3 ladder (30s→2m→10m, slot-gated, capped at 10min) below —
+		// while single transient 529s never reach the ladder threshold and cost
+		// only the 30s floor. This replaces the legacy flat 10-min SetOverloaded
+		// that turned a single provider-wide 529 blip into a 10-min full-pool lock
+		// on single-account edges (2026-06-11 16:50 UTC全edge全宕).
+		retryAfterOwned := s.handle529(ctx, account, headers)
 		if account.Platform == PlatformAnthropic {
-			shouldDisable = s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, overloadSet)
+			shouldDisable = s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, retryAfterOwned)
 		} else {
 			shouldDisable = false
 		}
 	default:
-		if account.Platform == PlatformAnthropic && statusCode >= 400 && statusCode <= 599 {
+		if account.Platform == PlatformAnthropic && tkAnthropicStubHealthFuseEligible(statusCode, false) {
 			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
 		} else if customErrorCodesEnabled {
 			msg := "Custom error code triggered"
@@ -906,7 +1072,11 @@ func (s *RateLimitService) GeminiCooldown(ctx context.Context, account *Account)
 
 // handleAuthError 处理认证类错误(401/403)，停止账号调度
 func (s *RateLimitService) handleAuthError(ctx context.Context, account *Account, errorMsg string) {
-	s.notifyAccountSchedulingBlocked(account, time.Time{}, "auth_error")
+	// TK: forward errorMsg as detail so the Feishu permanent-disable card shows
+	// the real upstream verdict (e.g. "Payment required (402): Insufficient
+	// Balance"), not just the opaque reason "auth_error". The 2026-06-11 newapi
+	// 402 incident had account name/platform on the card but no upstream status.
+	s.notifyAccountSchedulingBlocked(account, time.Time{}, "auth_error", errorMsg)
 	if err := s.accountRepo.SetError(ctx, account.ID, errorMsg); err != nil {
 		slog.Warn("account_set_error_failed", "account_id", account.ID, "error", err)
 		return
@@ -948,47 +1118,68 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	if account.Platform == PlatformOpenAI {
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
 	}
+	if s.tkMaybeRefreshKiroInvalidBearer403(ctx, account, upstreamMsg, responseBody) {
+		return true
+	}
 	if account.Platform == PlatformAnthropic {
-		// TLS / bot-detection 失效专项：上游用 403 拒绝是因为 Cloudflare / WAF
-		// 识别到 JA3/JA4 不像真实 Claude Code CLI（指纹库失效或 CLI 版本升级）。
-		// 这种情况下账号本身没问题，是基础设施层面的问题，需要 ops 立即介入
-		// 重新抓 TLS 指纹。用一个短 cooldown 避免持续重试加重风控，并打一个
-		// 高可见性 slog 让告警钩子能拉起来（运维侧用 log-based alert 接入即可）。
-		if matched := matchTempUnschedKeyword(strings.ToLower(string(responseBody)), tlsFingerprintFailureKeywords); matched != "" {
-			until := time.Now().Add(tlsFingerprintFailureCooldown)
-			reasonMessage := fmt.Sprintf("Anthropic 403 with TLS/bot-detection signal (%s): %s",
-				matched, upstreamMsg)
-			state := &TempUnschedState{
-				UntilUnix:       until.Unix(),
-				TriggeredAtUnix: time.Now().Unix(),
-				StatusCode:      http.StatusForbidden,
-				MatchedKeyword:  "tls_fingerprint_failure",
-				RuleIndex:       -1,
-				ErrorMessage:    truncateTempUnschedMessage([]byte(reasonMessage), tempUnschedMessageMaxBytes),
-			}
-			reasonJSON := reasonMessage
-			if raw, marshalErr := json.Marshal(state); marshalErr == nil {
-				reasonJSON = string(raw)
-			}
-			if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reasonJSON); err != nil {
-				slog.Warn("anthropic_tls_fingerprint_set_temp_unschedulable_failed",
-					"account_id", account.ID, "error", err)
-			}
-			if s.tempUnschedCache != nil {
-				if err := s.tempUnschedCache.SetTempUnsched(ctx, account.ID, state); err != nil {
-					slog.Warn("anthropic_tls_fingerprint_temp_unsched_cache_set_failed",
-						"account_id", account.ID, "error", err)
-				}
-			}
-			slog.Error("anthropic_tls_fingerprint_failure_suspected",
+		// TK (prod mirror boundary): a Kiro edge OAuth invalid-bearer 403 can be
+		// relayed to prod as an Anthropic API-key stub 403. Prod has no Kiro OAuth
+		// token to refresh; the edge owns #970-style force-refresh. Treat the relay
+		// stub as healthy and fail over without entering the generic Anthropic 403
+		// ladder / permanent-disable checks.
+		if tkSkipDownstreamKiroOAuthAuthRejectPenalty(account, http.StatusForbidden, upstreamMsg, responseBody) {
+			slog.Info("anthropic_downstream_kiro_oauth_403_skip_penalty",
 				"account_id", account.ID,
-				"matched_keyword", matched,
-				"cooldown_seconds", int(tlsFingerprintFailureCooldown.Seconds()),
-				"action", "ops_should_re-capture_claude_cli_tls_profile",
-				"upstream_msg", upstreamMsg)
+				"status_code", http.StatusForbidden)
+			s.recordAnthropicStubSaturation(ctx, account.ID, http.StatusForbidden, "kiro_oauth_403")
 			return true
 		}
-		return s.handleAnthropicUpstreamError(ctx, account, http.StatusForbidden, upstreamMsg, responseBody)
+		// TK (PR #691 cc-only canary prep): a relayed canonical-ingress strict 403
+		// from a downstream strict-mode edge is the end client's identity problem,
+		// not stub health — fail over to the next stub without advancing the 3/3
+		// ladder or cooling this stub. Matches ONLY TokenKey's own rejection
+		// phrase; genuine Anthropic 403s fall through unchanged. See
+		// ratelimit_service_tk_canonical_ingress_reject.go.
+		if tkSkipRelayedCanonicalIngressRejectPenalty(http.StatusForbidden, upstreamMsg, responseBody) {
+			slog.Info("anthropic_downstream_canonical_ingress_reject_skip_penalty",
+				"account_id", account.ID)
+			return true
+		}
+		// TK (handle403 gap, 2026-06-16 edge us6 incident): a 403 permission_error
+		// signalling a PERMANENT organization-level OAuth ban must permanently
+		// disable + alert, not flap forever on the transient 3/3 ladder (whose
+		// 10-min cooldown auto-recovers and re-offers a banned account every
+		// cycle). See ratelimit_service_tk_anthropic_org_ban_403.go.
+		if s.tkTryDisableAnthropicOrgBan403(ctx, account, upstreamMsg, responseBody) {
+			return true
+		}
+		// TLS / bot-detection 403：共享 canonical profile 失效时逐账号 30s 重试会
+		// 反复暴露 OAuth；永久 SetError + 可 grep 前缀，便于全平台重采集后 bulk recover。
+		// 见 ratelimit_service_tk_anthropic_tls_fingerprint_403.go。
+		if s.tkTryDisableAnthropicTLSFingerprint403(ctx, account, upstreamMsg, responseBody) {
+			return true
+		}
+		// TK (handle403 gap, 空 body org-ban): #810 的结构化短语 breaker 抓不到以**空 body**
+		// 返回的 org 封禁（id=1 历史即如此）。持续空 body 403 累计到阈值即永久禁用；
+		// 未达阈值则 failover + saturation（403 不在 stub-health 3/3 fuse 内）。
+		// 见 ratelimit_service_tk_anthropic_bodyless_403.go。
+		if s.tkTryEscalatePersistentBodyless403(ctx, account, upstreamMsg, responseBody) {
+			return true
+		}
+		// Structured account-auth 403 (invalid bearer / lacks scopes): permanent
+		// disable. Model-level and mirror relay wrappers fail over only.
+		if tkIsAnthropicAccountAuthFatal403(upstreamMsg, responseBody) {
+			msg := buildForbiddenErrorMessage(
+				"Access forbidden (403):",
+				upstreamMsg,
+				responseBody,
+				"account may be suspended or lack permissions",
+			)
+			s.handleAuthError(ctx, account, msg)
+			return true
+		}
+		s.recordAnthropicStubSaturation(ctx, account.ID, http.StatusForbidden, "permission_failover")
+		return true
 	}
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
@@ -1000,8 +1191,10 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	return true
 }
 
-// handleAnthropicUpstreamError counts upstream errors per account in a 1-min
-// short window and, on the 3rd hit, marks the account temp_unschedulable.
+// handleAnthropicUpstreamError counts upstream infra-health errors per account
+// in a 1-min short window and, on the 3rd hit, marks the account
+// temp_unschedulable. Only status codes passing tkAnthropicStubHealthFuseEligible
+// reach this path (502/503/504/529, plus 429 only after SetRateLimited).
 //
 // Pool-mode policy (2026-05-21 revision of PR #333, which itself reversed
 // PR #248): pool_mode accounts are NOT bypassed here. PR #333's blanket
@@ -1028,6 +1221,9 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 // in case 400, OAuth 401 refresh, 429 retry-after cooldown, 529 overload)
 // live outside this function and are unaffected.
 func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+	if tkIsKiroMirrorStub(account) && tkIsKiroEndpointQuotaExhausted(upstreamMsg, responseBody) {
+		return s.tkHandleKiroEndpointQuotaExhausted(ctx, account, upstreamMsg)
+	}
 	// TK (prod incident 2026-05-31): a 503 whose body is the downstream gateway's
 	// own "no available accounts" pool-exhaustion signal is a transient capacity
 	// blip on the *forwarded-to* pool (e.g. a thin edge bursting on parallel haiku
@@ -1042,6 +1238,9 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 		slog.Info("anthropic_downstream_no_available_accounts_skip_penalty",
 			"account_id", account.ID,
 			"status_code", statusCode)
+		// TK: feed the bounded saturation de-prioritization preference (legacy 503
+		// path). Not a cooldown — ladder/SetTempUnschedulable stay untouched.
+		s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "no_available_accounts")
 		return true
 	}
 
@@ -1056,30 +1255,12 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 		slog.Info("anthropic_downstream_failover_exhausted_skip_penalty",
 			"account_id", account.ID,
 			"status_code", statusCode)
+		// TK: feed the bounded saturation de-prioritization preference.
+		s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "all_available_accounts_exhausted")
 		return true
 	}
 
-	// TK: when status.claude.com reports a non-operational Claude API, the error is
-	// Anthropic's fault, not the account's. Skip writing temp_unschedulable_until so
-	// account health scores are not penalised during upstream incidents.
-	// Counters still advance for observability (handled inside WithOptions).
-	//
-	// Scope note: this only protects account *health* (the account stays in the
-	// pool and is immediately usable the moment Anthropic recovers — no cooldown
-	// tail). It does NOT rescue the in-flight request: shouldDisable=true still
-	// fails this request over, and once the failover loop exhausts the pool the
-	// caller receives Anthropic's real upstream error. handleAnthropicFailoverExhausted
-	// then enriches that client message via TkEnrichClaudeIncidentMessage so the
-	// user is pointed at status.claude.com instead of blaming the TokenKey pool.
-	skipCooldown := IsClaudeAPIIncident()
-	if skipCooldown {
-		snap := GetClaudeStatusSnapshot()
-		slog.Info("anthropic_upstream_error_incident_skip_cooldown",
-			"account_id", account.ID,
-			"status_code", statusCode,
-			"upstream_status", snap.Status)
-	}
-	return s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, skipCooldown)
+	return s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, false)
 }
 
 // handleAnthropicUpstreamErrorWithOptions is the implementation seam for
@@ -1090,6 +1271,9 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 // is suppressed so the just-written rate_limit_reset / overload_until is
 // not raced by a less-precise ladder cooldown (last-write-wins).
 func (s *RateLimitService) handleAnthropicUpstreamErrorWithOptions(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte, skipCooldownWrite bool) (shouldDisable bool) {
+	if !tkAnthropicStubHealthFuseEligible(statusCode, skipCooldownWrite) {
+		return false
+	}
 	msg := buildAnthropicUpstreamErrorMessage(statusCode, upstreamMsg, responseBody)
 	if s.anthropicUpstreamErrorCounterCache == nil {
 		slog.Warn("anthropic_upstream_error_counter_missing", "account_id", account.ID, "status_code", statusCode)
@@ -1114,6 +1298,37 @@ func (s *RateLimitService) handleAnthropicUpstreamErrorWithOptions(ctx context.C
 		return false
 	}
 
+	// Escalation slot (issue #623): only escalate the tier / (re)apply a cooldown
+	// once per *failure episode*. A single fast burst — e.g. an edge rolling-
+	// upgrade swap window throwing several 503s in a few seconds — otherwise
+	// re-runs this block per error and climbs 30s → 2min → 10min within seconds,
+	// even though errors #2..n are racing in-flight requests from the SAME
+	// episode that error #1 already cooled the account for. We win the slot atomically;
+	// a loser fails the in-flight request over (return true) WITHOUT advancing the
+	// tier or rewriting the cooldown. The slot auto-clears when the cooldown would
+	// have expired (shrunk below), so a genuine re-trip after the account is
+	// rescheduled is a new episode and escalates again — matching the ladder's
+	// documented "repeatedly trips ... inside 30 min" intent. Best-effort: on a
+	// Redis error we fall through and escalate as before so a persistent failure is
+	// never under-protected by a guard outage.
+	acquiredSlot := false
+	if won, slotErr := s.anthropicUpstreamErrorCounterCache.AcquireAnthropicCooldownEscalationSlot(ctx, account.ID, anthropicCooldownEscalationSlotMaxSeconds); slotErr != nil {
+		slog.Warn("anthropic_cooldown_escalation_slot_acquire_failed",
+			"account_id", account.ID,
+			"status_code", statusCode,
+			"error", slotErr)
+	} else if !won {
+		slog.Info("anthropic_upstream_error_escalation_suppressed_active_cooldown",
+			"account_id", account.ID,
+			"status_code", statusCode,
+			"count", count,
+			"threshold", threshold,
+			"pool_mode", account.IsPoolMode())
+		return true
+	} else {
+		acquiredSlot = true
+	}
+
 	// Pick the cooldown duration based on how many times this same account
 	// has tripped the threshold inside the last anthropicCooldownTierTTLMinutes.
 	// Best-effort: any Redis failure falls back to the shortest tier so we
@@ -1132,6 +1347,18 @@ func (s *RateLimitService) handleAnthropicUpstreamErrorWithOptions(ctx context.C
 		}
 	}
 	cooldown := anthropicCooldownTierLadder[tierIndex]
+
+	// Shrink the escalation slot to exactly this cooldown so the NEXT escalation
+	// can only happen after the account would have been rescheduled. Best-effort.
+	if acquiredSlot {
+		if ttlErr := s.anthropicUpstreamErrorCounterCache.SetAnthropicCooldownEscalationSlotTTL(ctx, account.ID, int(cooldown.Seconds())); ttlErr != nil {
+			slog.Warn("anthropic_cooldown_escalation_slot_ttl_failed",
+				"account_id", account.ID,
+				"status_code", statusCode,
+				"cooldown_seconds", int(cooldown.Seconds()),
+				"error", ttlErr)
+		}
+	}
 
 	// Emit a global "tier >= 1" escalation signal so ops_alert_evaluator can
 	// surface "persistent failure rising" without scanning every per-account
@@ -1254,6 +1481,23 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		return true
 	}
 
+	// TK (prod P0 2026-06-25): a client-induced model/endpoint capability 403
+	// (e.g. /v1/embeddings with a chat-only model → "not allowed to generate
+	// embeddings from this model") is deterministic per-request and would 403 on
+	// every account. Skip the 403 counter AND the temp_unschedulable write so a
+	// single malformed request cannot cool a healthy shared OAuth account out of
+	// the pool for all other models. The request still fails over (return true).
+	// See ratelimit_service_tk_openai_client_induced_403.go.
+	if matched := tkIsOpenAIClientInducedCapability403(upstreamMsg, responseBody); matched != "" {
+		slog.Warn(
+			"openai_403_client_induced_capability_skip_cooldown",
+			"account_id", account.ID,
+			"matched_keyword", matched,
+			"upstream_msg", upstreamMsg,
+		)
+		return true
+	}
+
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
 		upstreamMsg,
@@ -1359,24 +1603,25 @@ func (s *RateLimitService) handle404(ctx context.Context, account *Account, upst
 	if account.Platform != PlatformAnthropic {
 		return false
 	}
-	if !isAnthropicModelNotFound404(responseBody, upstreamMsg) {
+	if !IsAnthropicModelNotFound404(responseBody, upstreamMsg) {
 		return false
 	}
-	modelName := extractAnthropicNotFoundModel(responseBody, upstreamMsg)
-	if modelName == "" {
-		slog.Warn("anthropic_404_model_not_found_without_model", "account_id", account.ID, "upstream_msg", upstreamMsg)
-		return false
-	}
-	resetAt := time.Now().Add(anthropic404ModelCooldown)
-	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelName, resetAt); err != nil {
-		slog.Warn("anthropic_404_model_rate_limit_failed", "account_id", account.ID, "model", modelName, "error", err)
-		return false
-	}
-	slog.Warn("anthropic_404_model_rate_limited", "account_id", account.ID, "model", modelName, "reset_at", resetAt)
-	return true
+	// TK (prod P0 2026-06-06, edge us5): an Anthropic 404 model-not-found is a
+	// CLIENT error (a model name no Anthropic account can serve — the catalog is
+	// global, not per-account), so cooling account×model only drains a thin pool
+	// into "No available accounts" 429s. Skip the penalty here too — this is the
+	// fall-through gate reached when HandleUpstreamModelNotFound is bypassed
+	// (no requestedModel at the call site). See the same rationale on
+	// HandleUpstreamModelNotFound; the gateway error mapping surfaces a 400
+	// invalid_request to the client. shouldDisable=false keeps the account
+	// schedulable and avoids wrapping the 404 as an UpstreamFailoverError.
+	slog.Info("anthropic_model_not_found_skip_penalty",
+		"account_id", account.ID,
+		"requested_model", strings.TrimSpace(extractAnthropicNotFoundModel(responseBody, upstreamMsg)))
+	return false
 }
 
-func isAnthropicModelNotFound404(responseBody []byte, upstreamMsg string) bool {
+func IsAnthropicModelNotFound404(responseBody []byte, upstreamMsg string) bool {
 	errorType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.type").String()))
 	if errorType == "not_found_error" {
 		return true
@@ -1422,13 +1667,22 @@ func findAnthropicNotFoundModel(text string) string {
 // SetTempUnschedulable write is suppressed when the more authoritative
 // SetRateLimited has just landed.
 func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte, requestedModel ...string) bool {
+	// Spark 影子：限流/熔断状态 100% 由 QueryUsage(/wham/usage body 的 codex_bengalfox)驱动。
+	// /responses 的 429 携带的 x-codex-*/usage_limit_reached 是 global codex 道(plan/spec §8),
+	// 套到影子会把 spark 误耦合到 global 窗口——即便 spark 仍有配额也会被冷却到 global reset,
+	// 单影子场景直接变成无可用账号(外审第8轮 P1)。整段跳过;影子的 codex_* 仅由 account_usage 的
+	// QueryUsage→persistOpenAICodexProbeSnapshot 维护,枯竭由调度守卫处理。
+	if account.IsShadow() {
+		return false
+	}
 	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {
 		persistOpenAI429PlanType(ctx, s.accountRepo, account, responseBody)
 		s.persistOpenAICodexSnapshot(ctx, account, headers)
 		if resetAt := s.calculateOpenAI429ResetTime(headers); resetAt != nil {
-			// TK (upstream#1981): opt-in clamp of long upstream resets (e.g. 7d
-			// window exhaustion) so released accounts are not idled. Default OFF.
+			// TK (upstream#1981): DEFAULT-ON clamp of long upstream resets (e.g. 7d
+			// window exhaustion); ceiling from SettingKeyOpenAIMaxRateLimitCooldownSeconds
+			// (default 18000s / 5h). Explicit "0" disables and trusts upstream reset.
 			clamped := s.tkClampOpenAIRateLimitReset(ctx, account.ID, *resetAt)
 			s.notifyAccountSchedulingBlocked(account, clamped, "429")
 			if err := s.accountRepo.SetRateLimited(ctx, account.ID, clamped); err != nil {
@@ -1455,8 +1709,11 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		if len(requestedModel) > 0 && s.tkTryAnthropicModelScopedCooldown(ctx, account, requestedModel[0], result) {
 			return true
 		}
-		s.notifyAccountSchedulingBlocked(account, result.resetAt, "429")
-		if err := s.accountRepo.SetRateLimited(ctx, account.ID, result.resetAt); err != nil {
+		// TK: 账号级 429 附上触发的上游用量窗口（5h/7d），进飞书摘要细分。
+		// clamp 只作用于调度冷却 reset；session window gauge 仍用原始上游窗口。
+		clampedReset := s.tkClampAnthropicWindowReset(ctx, account.ID, result.resetAt)
+		s.notifyAccountSchedulingBlocked(account, clampedReset, "429", tkAnthropicWindowLabel(result))
+		if err := s.accountRepo.SetRateLimited(ctx, account.ID, clampedReset); err != nil {
 			slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 			return false
 		}
@@ -1465,7 +1722,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		// （与模型级冷却路径共用 tkUpdateAnthropic5hSessionWindow，保证两条路径写入一致）
 		s.tkUpdateAnthropic5hSessionWindow(ctx, account.ID, result)
 
-		slog.Info("anthropic_account_rate_limited", "account_id", account.ID, "reset_at", result.resetAt, "reset_in", time.Until(result.resetAt).Truncate(time.Second))
+		slog.Info("anthropic_account_rate_limited", "account_id", account.ID, "reset_at", clampedReset, "original_reset_at", result.resetAt, "reset_in", time.Until(clampedReset).Truncate(time.Second))
 		return true
 	}
 
@@ -1482,7 +1739,19 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			// 尝试解析 OpenAI 的 usage_limit_reached 错误
 			if resetAt := parseOpenAIRateLimitResetTime(responseBody); resetAt != nil {
 				resetTime := time.Unix(*resetAt, 0)
-				// TK (upstream#1981): opt-in clamp (default OFF) — see header path above.
+				// TK: a codex per-model metered sub-limit 429 (e.g.
+				// gpt-5.3-codex-spark) cools only that model, keeping the account
+				// schedulable for other models and letting spark fail over. This
+				// path is reached only when no account-wide window is >=100%
+				// (calculateOpenAI429ResetTime returned nil above), so account-wide
+				// exhaustion is already routed to the whole-account path; here the
+				// binding limit is the per-model sub-window. Uses the raw upstream
+				// reset (the sub-window reset), not the account-clamp. See
+				// ratelimit_service_tk_model_cooldown.go.
+				if len(requestedModel) > 0 && s.tkTryOpenAICodexModelScopedCooldown(ctx, account, requestedModel[0], resetTime) {
+					return true
+				}
+				// TK (upstream#1981): DEFAULT-ON clamp — see header path above.
 				resetTime = s.tkClampOpenAIRateLimitReset(ctx, account.ID, resetTime)
 				s.notifyAccountSchedulingBlocked(account, resetTime, "429")
 				if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
@@ -1528,21 +1797,25 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 
 	resetAt := time.Unix(ts, 0)
 
+	// TK: clamp scheduling cooldown only (anthropic-only path — reached via the
+	// anthropic-ratelimit-unified-reset header). 5h window gauge keeps original.
+	clampedReset := s.tkClampAnthropicWindowReset(ctx, account.ID, resetAt)
+
 	// 标记限流状态
-	s.notifyAccountSchedulingBlocked(account, resetAt, "429")
-	if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
+	s.notifyAccountSchedulingBlocked(account, clampedReset, "429")
+	if err := s.accountRepo.SetRateLimited(ctx, account.ID, clampedReset); err != nil {
 		slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 		return false
 	}
 
-	// 根据重置时间反推5h窗口
+	// 根据重置时间反推5h窗口（用原始上游 reset，clamp 只作用于调度冷却）
 	windowEnd := resetAt
 	windowStart := resetAt.Add(-5 * time.Hour)
 	if err := s.accountRepo.UpdateSessionWindow(ctx, account.ID, &windowStart, &windowEnd, "rejected"); err != nil {
 		slog.Warn("rate_limit_update_session_window_failed", "account_id", account.ID, "error", err)
 	}
 
-	slog.Info("account_rate_limited", "account_id", account.ID, "reset_at", resetAt)
+	slog.Info("account_rate_limited", "account_id", account.ID, "reset_at", clampedReset, "original_reset_at", resetAt)
 	return true
 }
 
@@ -1649,6 +1922,212 @@ func (s *RateLimitService) calculateOpenAI429ResetTime(headers http.Header) *tim
 type anthropic429Result struct {
 	resetAt       time.Time  // The correct reset time to use for SetRateLimited
 	fiveHourReset *time.Time // 5h window reset timestamp (for session window calculation), nil if not available
+	// window labels which unified usage window actually triggered the 429
+	// ("5h" / "7d" / "" when undetermined). TK: surfaced into the account
+	// cooldown Feishu digest so operators see WHICH upstream usage window
+	// rate-limited the account (not an internal rpm/concurrency/session cap).
+	window string
+}
+
+type anthropicWindowLimit struct {
+	window  string
+	resetAt time.Time
+	reason  string
+}
+
+func selectAnthropicExhaustedWindow(headers http.Header, now time.Time) *anthropicWindowLimit {
+	reset5h, ok5hReset := parseAnthropicWindowReset(headers, "5h", now)
+	reset7d, ok7dReset := parseAnthropicWindowReset(headers, "7d", now)
+
+	exceeded5h := isAnthropic5hRejected(headers) || isAnthropicWindowExceeded(headers, "5h")
+	exceeded7d := isAnthropicWindowExceeded(headers, "7d")
+
+	if exceeded7d && ok7dReset {
+		return &anthropicWindowLimit{
+			window:  "7d",
+			resetAt: reset7d,
+			reason:  "anthropic_7d_window_exhausted",
+		}
+	}
+	if exceeded5h && ok5hReset {
+		return &anthropicWindowLimit{
+			window:  "5h",
+			resetAt: reset5h,
+			reason:  "anthropic_5h_window_exhausted",
+		}
+	}
+	return nil
+}
+
+func isAnthropic5hRejected(headers http.Header) bool {
+	return isAnthropicWindowRejected(headers, "5h")
+}
+
+func isAnthropicWindowRejected(headers http.Header, window string) bool {
+	return strings.EqualFold(strings.TrimSpace(headers.Get("anthropic-ratelimit-unified-"+window+"-status")), "rejected")
+}
+
+func parseAnthropicWindowReset(headers http.Header, window string, now time.Time) (time.Time, bool) {
+	maxAge := 8 * 24 * time.Hour
+	if window == "5h" {
+		maxAge = 6 * time.Hour
+	}
+	return parseAnthropicResetTimestamp(headers.Get("anthropic-ratelimit-unified-"+window+"-reset"), now, maxAge)
+}
+
+// parseAnthropicResetTimestamp 解析 Anthropic reset 头的 Unix 时间戳（自动识别毫秒），
+// 并校验落在 (now, now+maxAge] 的合理区间内。
+func parseAnthropicResetTimestamp(raw string, now time.Time, maxAge time.Duration) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false
+	}
+	ts, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return time.Time{}, false
+	}
+	if ts > 1e11 {
+		ts = ts / 1000
+	}
+	resetAt := time.Unix(ts, 0)
+	if !resetAt.After(now) || resetAt.After(now.Add(maxAge)) {
+		return time.Time{}, false
+	}
+	return resetAt, true
+}
+
+func shouldPersistAnthropicWindowLimit(account *Account, limit *anthropicWindowLimit, now time.Time) bool {
+	if account == nil || limit == nil || !limit.resetAt.After(now) {
+		return false
+	}
+	if account.RateLimitResetAt == nil {
+		return true
+	}
+	if !account.RateLimitResetAt.After(now) {
+		return true
+	}
+	return limit.resetAt.After(*account.RateLimitResetAt)
+}
+
+func (s *RateLimitService) persistAnthropicExhaustedWindowLimit(ctx context.Context, account *Account, headers http.Header) bool {
+	if s == nil || s.accountRepo == nil || account == nil {
+		return false
+	}
+	now := time.Now()
+	limit := selectAnthropicExhaustedWindow(headers, now)
+	if limit == nil {
+		return false
+	}
+	if !shouldPersistAnthropicWindowLimit(account, limit, now) {
+		slog.Info("anthropic_window_rate_limit_kept",
+			"account_id", account.ID,
+			"window", limit.window,
+			"reset_at", limit.resetAt,
+			"existing_reset_at", account.RateLimitResetAt)
+		return true
+	}
+
+	// TK: clamp the SCHEDULING cooldown only. Anthropic's unified 7d window is
+	// rolling, so the upstream reset (a conservative weekly boundary, days out) far
+	// outlives the account's actual recovery; clamping lets traffic re-probe it.
+	// The 5h session-window gauge below keeps the ORIGINAL upstream window.
+	clampedReset := s.tkClampAnthropicWindowReset(ctx, account.ID, limit.resetAt)
+	s.notifyAccountSchedulingBlocked(account, clampedReset, limit.reason)
+	if err := s.accountRepo.SetRateLimited(ctx, account.ID, clampedReset); err != nil {
+		slog.Warn("anthropic_window_rate_limit_set_failed",
+			"account_id", account.ID,
+			"window", limit.window,
+			"reset_at", clampedReset,
+			"error", err)
+		return true
+	}
+	// TK: record the 5h session window for operator usage gauge (same invariant
+	// as the account-level path in handle429 via tkUpdateAnthropic5hSessionWindow).
+	// Uses the ORIGINAL upstream window, not the clamped scheduling reset.
+	if limit.window == "5h" {
+		windowEnd := limit.resetAt
+		windowStart := windowEnd.Add(-5 * time.Hour)
+		if err := s.accountRepo.UpdateSessionWindow(ctx, account.ID, &windowStart, &windowEnd, "rejected"); err != nil {
+			slog.Warn("rate_limit_update_session_window_failed", "account_id", account.ID, "error", err)
+		}
+	}
+	slog.Info("anthropic_window_rate_limited",
+		"account_id", account.ID,
+		"window", limit.window,
+		"reset_at", clampedReset,
+		"original_reset_at", limit.resetAt,
+		"reset_in", time.Until(clampedReset).Truncate(time.Second))
+	return true
+}
+
+const anthropicFableWindowReason = "anthropic_7d_oi_window_exhausted"
+
+// selectAnthropicFableWindowLimit parses the Anthropic 7d_oi per-model window
+// headers (the Fable-only 7d window, e.g. anthropic-ratelimit-unified-7d_oi-*).
+// Unlike 5h/7d, exhaustion of this window only limits the Fable model family —
+// the account must stay schedulable for other models.
+//
+// The 7d_oi surpassed-threshold header carries a float ("1.0") rather than
+// "true", so exhaustion is detected via status=rejected or utilization >= 1.0.
+// When the 7d_oi reset header is missing, the aggregated
+// anthropic-ratelimit-unified-reset is used (it mirrors the binding claim's
+// reset when 7d_oi is the representative claim).
+func selectAnthropicFableWindowLimit(headers http.Header, now time.Time) *anthropicWindowLimit {
+	if !isAnthropicWindowRejected(headers, "7d_oi") && !isAnthropicWindowExceeded(headers, "7d_oi") {
+		return nil
+	}
+	resetAt, ok := parseAnthropicWindowReset(headers, "7d_oi", now)
+	if !ok {
+		resetAt, ok = parseAnthropicAggregateReset(headers, now)
+	}
+	if !ok {
+		return nil
+	}
+	return &anthropicWindowLimit{
+		window:  "7d_oi",
+		resetAt: resetAt,
+		reason:  anthropicFableWindowReason,
+	}
+}
+
+// parseAnthropicAggregateReset parses the aggregated
+// anthropic-ratelimit-unified-reset header with the same sanity checks as the
+// per-window variant (7d scale).
+func parseAnthropicAggregateReset(headers http.Header, now time.Time) (time.Time, bool) {
+	return parseAnthropicResetTimestamp(headers.Get("anthropic-ratelimit-unified-reset"), now, 8*24*time.Hour)
+}
+
+// persistAnthropicFableWindowLimit marks the Fable model family as rate limited
+// when the 7d_oi window is exhausted. Returns true when the 7d_oi window was the
+// (or a) trigger of this 429, so the caller must not fall through to logic that
+// would mark the whole account as rate limited.
+func (s *RateLimitService) persistAnthropicFableWindowLimit(ctx context.Context, account *Account, headers http.Header) bool {
+	if s == nil || s.accountRepo == nil || account == nil {
+		return false
+	}
+	now := time.Now()
+	limit := selectAnthropicFableWindowLimit(headers, now)
+	if limit == nil {
+		return false
+	}
+	// 429 响应头本身携带最新的窗口用量（7d_oi utilization=1.0）。限流期内
+	// Fable 请求不再调度到该账号，若不在此处采样，7d F 进度条会冻结在
+	// 限流前的旧值直到窗口重置。
+	s.samplePassiveUsageFromHeaders(ctx, account, headers)
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, anthropicFableRateLimitKey, limit.resetAt, limit.reason); err != nil {
+		slog.Warn("anthropic_fable_window_rate_limit_set_failed",
+			"account_id", account.ID,
+			"scope", anthropicFableRateLimitKey,
+			"reset_at", limit.resetAt,
+			"error", err)
+		return true
+	}
+	slog.Info("anthropic_fable_window_model_rate_limited",
+		"account_id", account.ID,
+		"scope", anthropicFableRateLimitKey,
+		"reset_at", limit.resetAt,
+		"reset_in", time.Until(limit.resetAt).Truncate(time.Second))
+	return true
 }
 
 // calculateAnthropic429ResetTime parses Anthropic's per-window rate-limit headers
@@ -1691,18 +2170,25 @@ func calculateAnthropic429ResetTime(headers http.Header) *anthropic429Result {
 	)
 
 	// Select the correct reset time based on which window(s) are exceeded.
+	// window records which window the cooldown is attributed to (for the
+	// account-incident Feishu digest); it tracks the same branch as chosen.
 	var chosen *time.Time
+	var window string
 	switch {
 	case is5hExceeded && is7dExceeded:
 		// Both exceeded → prefer 7d (longer cooldown), fall back to 5h
 		chosen = reset7d
+		window = "7d"
 		if chosen == nil {
 			chosen = reset5h
+			window = "5h"
 		}
 	case is5hExceeded:
 		chosen = reset5h
+		window = "5h"
 	case is7dExceeded:
 		chosen = reset7d
+		window = "7d"
 	default:
 		// Neither flag clearly exceeded — pick the sooner reset as best guess
 		chosen = pickSooner(reset5h, reset7d)
@@ -1711,7 +2197,7 @@ func calculateAnthropic429ResetTime(headers http.Header) *anthropic429Result {
 	if chosen == nil {
 		return nil
 	}
-	return &anthropic429Result{resetAt: *chosen, fiveHourReset: reset5h}
+	return &anthropic429Result{resetAt: *chosen, fiveHourReset: reset5h, window: window}
 }
 
 // isAnthropicWindowExceeded checks whether a given Anthropic rate-limit window
@@ -1753,6 +2239,11 @@ func pickSooner(a, b *time.Time) *time.Time {
 
 func (s *RateLimitService) persistOpenAICodexSnapshot(ctx context.Context, account *Account, headers http.Header) {
 	if s == nil || s.accountRepo == nil || account == nil || headers == nil {
+		return
+	}
+	// spark 影子的 codex_* 仅由 QueryUsage(/wham/usage bengalfox 道)更新,不能被 /responses 的
+	// x-codex-* 全局头快照污染(外审第7轮 P1,与 updateCodexUsageSnapshot 同口径)。
+	if account.IsShadow() {
 		return
 	}
 	snapshot := ParseCodexRateLimitHeaders(headers)
@@ -1846,6 +2337,12 @@ func persistOpenAI429PlanType(ctx context.Context, repo AccountRepository, accou
 	if repo == nil || account == nil || account.Platform != PlatformOpenAI {
 		return
 	}
+	// spark 影子账号恒不持凭据:即便收到带 plan_type 的 429,也不能把 plan_type 写进影子 credentials
+	// ——该路径走 repo.BulkUpdate 直写、不经 persistAccountCredentials 守卫(外审第7轮 P1)。
+	// plan_type 由母账号在自己的请求上维护,影子跳过。
+	if account.IsCredentialShadow() {
+		return
+	}
 
 	planType := parseOpenAIRateLimitPlanType(body)
 	if planType == "" {
@@ -1871,17 +2368,27 @@ func persistOpenAI429PlanType(ctx context.Context, repo AccountRepository, accou
 	slog.Info("openai_429_plan_type_synced", "account_id", account.ID, "previous_plan_type", current, "plan_type", planType)
 }
 
-// handle529 处理529过载错误
-// 根据配置决定是否暂停账号调度及冷却时长
-// handle529 marks the account overloaded for the configured cooldown and
-// returns true when an exact SetOverloaded write succeeded. The return is
-// consumed by the case 529 dispatch so handleAnthropicUpstreamError can
-// skip writing a parallel SetTempUnschedulable cooldown that would only
-// race the just-written overload_until (last-write-wins) — the per-account
-// counter and tier counter still advance so a repeat 529 storm still
-// escalates the ladder. A false return means the caller should fall back
-// to the ladder write (settings disabled or Redis/DB failure).
-func (s *RateLimitService) handle529(ctx context.Context, account *Account) bool {
+// handle529 处理529过载错误：写一个【短】的瞬时过载冷却，而非旧的固定 10 分钟。
+//
+// 529 是 provider 级瞬时过载（不是某账号的健康问题）。旧实现对单次 529 直接
+// SetOverloaded(now + 10min)，把一次上游抖动放大成（常为单账号的）edge 池 10
+// 分钟全锁——这正是 tier 阶梯（30s→2m→10m，anthropicCooldownTierLadder）当年要
+// 取代的 flat 行为，而 529 是唯一还在走 flat 老路的状态码（2026-06-11 16:50 UTC
+// 七 edge 全宕）。新语义：
+//   - 上游带 Retry-After      → 采纳之（authoritative，clamp ≤ 阶梯末级 10min），
+//     返回 true 让调用方抑制阶梯写以免覆盖该精确值；
+//   - 否则（常见 529）        → 30s 地板（tier-0），返回 false —— 持续 529 风暴仍由
+//     case 529 里的 3/3 阶梯（slot 门控、capped 10min）
+//     升级；单次/少量瞬时 529 到不了阈值，只付 30s。
+//
+// 返回值语义随之从“是否写了 overload”改为“是否写了精确 Retry-After（调用方据此
+// 决定是否抑制阶梯）”。settings.Enabled 仍是 529 是否进入即时过载冷却的总开关。
+// settings.CooldownMinutes 的定长角色被 tier 阶梯【彻底】取代——本函数不再读取它
+// 来定时长（沿用 2026-05-21 阶梯替换 flat 的同一杠杆）。因此 admin 的 cooldown_minutes
+// 设置目前对【冷却时长】已失效（Enabled 开关仍生效）；若 operator 需要收紧 529 冷却
+// 上限，后续应把它接成阶梯末级 cap，而非在此当地板（默认 10 会把单次 529 又锁回
+// 10min，正是本次要消除的放大器）。
+func (s *RateLimitService) handle529(ctx context.Context, account *Account, headers http.Header) bool {
 	var settings *OverloadCooldownSettings
 	if s.settingService != nil {
 		var err error
@@ -1891,13 +2398,10 @@ func (s *RateLimitService) handle529(ctx context.Context, account *Account) bool
 			settings = nil
 		}
 	}
-	// 回退到配置文件
 	if settings == nil {
-		cooldown := s.cfg.RateLimit.OverloadCooldownMinutes
-		if cooldown <= 0 {
-			cooldown = 10
-		}
-		settings = &OverloadCooldownSettings{Enabled: true, CooldownMinutes: cooldown}
+		// 回退：仅需 Enabled 语义,时长走阶梯,不再读 cfg.RateLimit.OverloadCooldownMinutes
+		// 这条 flat 分钟数（CooldownMinutes 留零值,本函数也不读它定时长）。
+		settings = &OverloadCooldownSettings{Enabled: true}
 	}
 
 	if !settings.Enabled {
@@ -1905,20 +2409,37 @@ func (s *RateLimitService) handle529(ctx context.Context, account *Account) bool
 		return false
 	}
 
-	cooldownMinutes := settings.CooldownMinutes
-	if cooldownMinutes <= 0 {
-		cooldownMinutes = 10
+	now := time.Now()
+	maxCooldown := anthropicCooldownTierLadder[len(anthropicCooldownTierLadder)-1]
+
+	var cooldown time.Duration
+	retryAfterOwned := false
+	if resetAt := parseRetryAfterResetTime(headers, now); resetAt != nil && resetAt.After(now) {
+		cooldown = resetAt.Sub(now)
+		if cooldown > maxCooldown {
+			cooldown = maxCooldown
+		}
+		retryAfterOwned = true
+	} else {
+		// 30s 瞬时地板（tier-0）。CooldownMinutes 的定长角色被阶梯彻底取代——不能拿它
+		// 当地板，否则默认值 10（DefaultOverloadCooldownSettings）会把单次 529 又锁回
+		// 10min，正是本次要消除的放大器。持续 529 由 case 529 的 3/3 阶梯升级到 10min。
+		cooldown = anthropicCooldownTierLadder[0]
 	}
 
-	until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
+	until := now.Add(cooldown)
 	s.notifyAccountSchedulingBlocked(account, until, "529")
 	if err := s.accountRepo.SetOverloaded(ctx, account.ID, until); err != nil {
 		slog.Warn("overload_set_failed", "account_id", account.ID, "error", err)
 		return false
 	}
 
-	slog.Info("account_overloaded", "account_id", account.ID, "until", until)
-	return true
+	slog.Info("account_overloaded",
+		"account_id", account.ID,
+		"until", until,
+		"cooldown_seconds", int(cooldown.Seconds()),
+		"retry_after_owned", retryAfterOwned)
+	return retryAfterOwned
 }
 
 // UpdateSessionWindow 从成功响应更新5h窗口状态
@@ -1969,13 +2490,14 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 		slog.Info("account_session_window_initialized", "account_id", account.ID, "window_start", start, "window_end", end, "status", status)
 	}
 
-	// 窗口重置时清除旧的 utilization 和被动采样数据，避免残留上个窗口的数据
+	// 5h 窗口重置时只清除 5h 自己的陈旧 utilization，避免新窗口残留上个窗口的高利用率。
+	// 7d 家族（passive_usage_7d_* / passive_usage_7d_sonnet_* / passive_usage_7d_oi_*）
+	// 属于独立的 7 天窗口，绝不能被 5h 滚动连带清空——否则每天 4-5 次 5h
+	// 滚动都会把仍然有效的 7d / 7d-S / 7d-F 抹掉，UI 出现频繁空窗。7d
+	// 的新鲜度由其自身 reset 时间戳治理，并由下次真实流量或主动「查询」覆盖。
 	if windowEnd != nil && needInitWindow {
 		_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
-			"session_window_utilization":   nil,
-			"passive_usage_7d_utilization": nil,
-			"passive_usage_7d_reset":       nil,
-			"passive_usage_sampled_at":     nil,
+			"session_window_utilization": nil,
 		})
 	}
 
@@ -1983,8 +2505,24 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 		slog.Warn("session_window_update_failed", "account_id", account.ID, "error", err)
 	}
 
-	// 被动采样：从响应头收集 5h + 7d utilization，合并为一次 DB 写入
-	extraUpdates := make(map[string]any, 4)
+	// 被动采样：从响应头收集 5h + 7d + 7d_oi utilization，合并为一次 DB 写入
+	s.samplePassiveUsageFromHeaders(ctx, account, headers)
+
+	// 如果状态为allowed且之前有限流，说明窗口已重置，清除限流状态
+	if status == "allowed" && account.IsRateLimited() {
+		if err := s.ClearRateLimit(ctx, account.ID); err != nil {
+			slog.Warn("rate_limit_clear_failed", "account_id", account.ID, "error", err)
+		}
+	}
+	if status == "allowed" || status == "allowed_warning" {
+		s.ResetAnthropicUpstreamErrorCounter(ctx, account.ID)
+	}
+}
+
+// samplePassiveUsageFromHeaders 从 Anthropic 响应头收集 5h/7d/7d_oi 的
+// utilization 与 reset 被动采样数据，合并为一次 Extra 写入。无数据时不写。
+func (s *RateLimitService) samplePassiveUsageFromHeaders(ctx context.Context, account *Account, headers http.Header) {
+	extraUpdates := make(map[string]any, 6)
 	// 5h utilization（0-1 小数），供 estimateSetupTokenUsage 使用
 	if utilStr := headers.Get("anthropic-ratelimit-unified-5h-utilization"); utilStr != "" {
 		if util, err := strconv.ParseFloat(utilStr, 64); err == nil {
@@ -2006,24 +2544,26 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 			extraUpdates["passive_usage_7d_reset"] = ts
 		}
 	}
+	// 7d_oi (Fable 专属 7d 窗口) utilization（0-1 小数）
+	if utilStr := headers.Get("anthropic-ratelimit-unified-7d_oi-utilization"); utilStr != "" {
+		if util, err := strconv.ParseFloat(utilStr, 64); err == nil {
+			extraUpdates["passive_usage_7d_oi_utilization"] = util
+		}
+	}
+	// 7d_oi reset timestamp
+	if resetStr := headers.Get("anthropic-ratelimit-unified-7d_oi-reset"); resetStr != "" {
+		if ts, err := strconv.ParseInt(resetStr, 10, 64); err == nil {
+			if ts > 1e11 {
+				ts = ts / 1000
+			}
+			extraUpdates["passive_usage_7d_oi_reset"] = ts
+		}
+	}
 	if len(extraUpdates) > 0 {
 		extraUpdates["passive_usage_sampled_at"] = time.Now().UTC().Format(time.RFC3339)
 		if err := s.accountRepo.UpdateExtra(ctx, account.ID, extraUpdates); err != nil {
 			slog.Warn("passive_usage_update_failed", "account_id", account.ID, "error", err)
 		}
-	}
-
-	// 如果状态为allowed且之前有限流，说明窗口已重置，清除限流状态
-	if status == "allowed" && account.IsRateLimited() {
-		if err := s.ClearRateLimit(ctx, account.ID); err != nil {
-			slog.Warn("rate_limit_clear_failed", "account_id", account.ID, "error", err)
-		}
-	}
-	if status == "allowed" || status == "allowed_warning" {
-		s.ResetAnthropicUpstreamErrorCounter(ctx, account.ID)
-		// TK: 成功响应即清掉「refresh 后仍 401」的 baseline，避免一次良性瞬时 401
-		// 的 baseline 残留到下一次瞬时 401 凑成误升级。
-		s.ResetOAuth401AfterRefreshCounter(ctx, account.ID)
 	}
 }
 
@@ -2049,7 +2589,6 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 	}
 	s.ResetOpenAI403Counter(ctx, accountID)
 	s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
-	s.ResetOAuth401AfterRefreshCounter(ctx, accountID)
 	s.notifyAccountSchedulingBlockCleared(accountID)
 	return nil
 }
@@ -2075,6 +2614,19 @@ func (s *RateLimitService) ResetAnthropicUpstreamErrorCounter(ctx context.Contex
 	// 10-min escalation state forward.
 	if err := s.anthropicUpstreamErrorCounterCache.ResetAnthropicCooldownTier(ctx, accountID); err != nil {
 		slog.Warn("anthropic_cooldown_tier_reset_failed", "account_id", accountID, "error", err)
+	}
+	// And clear the per-episode escalation slot (issue #623) so a healed account
+	// can immediately cool again if it starts failing right after recovery,
+	// instead of waiting out a stale slot left from the previous episode.
+	if err := s.anthropicUpstreamErrorCounterCache.ResetAnthropicCooldownEscalationSlot(ctx, accountID); err != nil {
+		slog.Warn("anthropic_cooldown_escalation_slot_reset_failed", "account_id", accountID, "error", err)
+	}
+	// TK: clear the persistent-bodyless-403 strike counter too, so a healed
+	// account does not carry stale bodyless-403 strikes toward a future
+	// permanent disable. Co-located here (rather than a parallel reset method)
+	// because this helper is already invoked from every recovery hotpath.
+	if err := s.anthropicUpstreamErrorCounterCache.ResetAnthropicBodyless403Count(ctx, accountID); err != nil {
+		slog.Warn("anthropic_bodyless_403_reset_failed", "account_id", accountID, "error", err)
 	}
 }
 
@@ -2107,7 +2659,6 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 	if result.ClearedError || result.ClearedRateLimit {
 		s.ResetOpenAI403Counter(ctx, accountID)
 		s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
-		s.ResetOAuth401AfterRefreshCounter(ctx, accountID)
 		if result.ClearedError && !result.ClearedRateLimit {
 			s.notifyAccountSchedulingBlockCleared(accountID)
 		}
@@ -2136,7 +2687,6 @@ func (s *RateLimitService) ClearTempUnschedulable(ctx context.Context, accountID
 		slog.Warn("clear_model_rate_limits_on_temp_unsched_reset_failed", "account_id", accountID, "error", err)
 	}
 	s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
-	s.ResetOAuth401AfterRefreshCounter(ctx, accountID)
 	s.notifyAccountSchedulingBlockCleared(accountID)
 	return nil
 }
@@ -2230,31 +2780,178 @@ func (s *RateLimitService) HandleTempUnschedulable(ctx context.Context, account 
 	return s.tryTempUnschedulable(ctx, account, statusCode, responseBody)
 }
 
+func (s *RateLimitService) HandleOpenAIImageRateLimit(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte) bool {
+	if s == nil || account == nil || s.accountRepo == nil {
+		return false
+	}
+	if account.Platform != PlatformOpenAI {
+		return false
+	}
+	if !account.ShouldHandleErrorCode(statusCode) {
+		slog.Info("openai_image_rate_limit_skipped_by_error_code_policy", "account_id", account.ID, "status_code", statusCode)
+		return false
+	}
+	if !isOpenAIImageRateLimitError(statusCode, responseBody) {
+		return false
+	}
+
+	resetAt := openAIImageRateLimitResetAt(headers, responseBody)
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, openAIImageGenerationRateLimitKey, resetAt, openAIImageRateLimitReason); err != nil {
+		slog.Warn("openai_image_rate_limit_set_model_rate_limit_failed", "account_id", account.ID, "scope", openAIImageGenerationRateLimitKey, "error", err)
+		return true
+	}
+	slog.Info("openai_image_rate_limited", "account_id", account.ID, "scope", openAIImageGenerationRateLimitKey, "reset_at", resetAt, "reset_in", time.Until(resetAt).Truncate(time.Second))
+	return true
+}
+
+func isOpenAIImageRateLimitError(statusCode int, body []byte) bool {
+	if statusCode != http.StatusTooManyRequests || len(body) == 0 {
+		return false
+	}
+	lower := strings.ToLower(string(body))
+	for _, marker := range []string{
+		"for limit gpt-image",
+		"input-images per min",
+		"gpt-image-2-codex",
+		"gpt-image",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func openAIImageRateLimitResetAt(headers http.Header, body []byte) time.Time {
+	now := time.Now()
+	if resetAt := parseRetryAfterResetTime(headers, now); resetAt != nil && resetAt.After(now) {
+		return *resetAt
+	}
+	if resetAt := calculateOpenAI429ResetTime(headers); resetAt != nil && resetAt.After(now) {
+		return *resetAt
+	}
+	if resetUnix := parseOpenAIRateLimitResetTime(body); resetUnix != nil {
+		if resetAt := time.Unix(*resetUnix, 0); resetAt.After(now) {
+			return resetAt
+		}
+	}
+	if cooldown := parseOpenAIImageTryAgainCooldown(body); cooldown > 0 {
+		return now.Add(cooldown)
+	}
+	return now.Add(openAIImageRateLimitDefaultCooldown)
+}
+
+func parseRetryAfterResetTime(headers http.Header, now time.Time) *time.Time {
+	if headers == nil {
+		return nil
+	}
+	raw := strings.TrimSpace(headers.Get("Retry-After"))
+	if raw == "" {
+		return nil
+	}
+	if seconds, err := strconv.ParseFloat(raw, 64); err == nil {
+		resetAt := now.Add(time.Duration(seconds * float64(time.Second)))
+		return &resetAt
+	}
+	if parsed, err := http.ParseTime(raw); err == nil {
+		return &parsed
+	}
+	return nil
+}
+
+func parseOpenAIImageTryAgainCooldown(body []byte) time.Duration {
+	if len(body) == 0 {
+		return 0
+	}
+	match := openAIImageTryAgainPattern.FindSubmatch(body)
+	if len(match) != 3 {
+		return 0
+	}
+	value, err := strconv.ParseFloat(string(match[1]), 64)
+	if err != nil || value <= 0 {
+		return 0
+	}
+	switch strings.ToLower(string(match[2])) {
+	case "ms":
+		return time.Duration(value * float64(time.Millisecond))
+	case "s", "sec", "secs", "second", "seconds":
+		return time.Duration(value * float64(time.Second))
+	case "m", "min", "mins", "minute", "minutes":
+		return time.Duration(value * float64(time.Minute))
+	default:
+		return 0
+	}
+}
+
 const upstreamModelNotFoundCooldown = 30 * time.Minute
 const upstreamModelNotFoundReason = "upstream_404_model_not_found"
+const upstreamCodexPlanGatedModelCooldown = 30 * time.Minute
+const upstreamCodexPlanGatedModelReason = "upstream_400_codex_plan_gated_model"
 const tempUnschedBodyMaxBytes = 64 << 10
 const tempUnschedMessageMaxBytes = 2048
 
+// HandleUpstreamModelNotFound marks the requested model as temporarily
+// unavailable on the account when the upstream deterministically reports it
+// cannot serve that model: a 404 model-not-found, or the Codex 400 rejecting a
+// plan-gated model on a ChatGPT OAuth account. Returning true tells the caller
+// to fail the current attempt over to another account; the scheduler skips the
+// (account, model) pair via IsSchedulableForModelWithContext until the
+// cooldown expires, instead of re-selecting an account that can never serve
+// the model.
 func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, account *Account, requestedModel string, statusCode int, responseBody []byte) bool {
 	if s == nil || account == nil || s.accountRepo == nil {
 		return false
 	}
-	if !account.ShouldHandleErrorCode(statusCode) {
+	planGated := isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody)
+	if !planGated && !account.ShouldHandleErrorCode(statusCode) {
 		return false
 	}
-	if !isUpstreamModelNotFoundError(statusCode, responseBody) {
+	var cooldown time.Duration
+	var reason string
+	switch {
+	case isUpstreamModelNotFoundError(statusCode, responseBody):
+		cooldown, reason = upstreamModelNotFoundCooldown, upstreamModelNotFoundReason
+	case planGated:
+		cooldown, reason = upstreamCodexPlanGatedModelCooldown, upstreamCodexPlanGatedModelReason
+	default:
+		return false
+	}
+	// TK (prod P0 2026-06-06, edge us5): for Anthropic, an upstream 404
+	// model-not-found is a CLIENT error (the caller asked for a model name that
+	// does not exist, e.g. the bare alias "opus" instead of "claude-opus-4-8"),
+	// not a per-account availability gap. Unlike OpenAI/newapi/antigravity
+	// channels — whose per-account model catalogs genuinely differ, which is why
+	// this cooldown exists — every Anthropic subscription/apikey account shares
+	// Anthropic's GLOBAL catalog, so the same bad name 404s on ALL accounts.
+	// Cooling account×model therefore drains a thin edge pool into
+	// "No available accounts" 429s and amplifies one misconfigured client into an
+	// edge-wide outage. Skip the penalty (mirrors the client-induced 400 / 413
+	// exemptions tkIsAnthropicClientInducedBadRequest #2608 and G1). The caller's
+	// gateway error mapping surfaces this as a 400 invalid_request to the client.
+	// Skip silently here: the single skip-log (anthropic_model_not_found_skip_penalty)
+	// is emitted by handle404, the case-404 sink HandleUpstreamError always reaches
+	// for a 404, so we avoid double-logging on the common requestedModel path.
+	if account.Platform == PlatformAnthropic {
+		return false
+	}
+	// TK: ChatGPT OAuth accounts share a subscription-tier catalog; when the
+	// operator floor already maps the requested model, a 404 is a wire/config
+	// fault (missing Codex Version header, stale mapping rollout) — not a
+	// per-account catalog gap. Cooling account×model here blocks the only OAuth
+	// account for 30m after a transient false positive (gpt-5.6-luna P0).
+	if reason == upstreamModelNotFoundReason && account.Platform == PlatformOpenAI && account.IsOAuth() && account.IsModelSupported(requestedModel) {
 		return false
 	}
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
 	if modelKey == "" {
 		return false
 	}
-	resetAt := time.Now().Add(upstreamModelNotFoundCooldown)
-	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelKey, resetAt, upstreamModelNotFoundReason); err != nil {
-		slog.Warn("upstream_model_not_found_set_model_rate_limit_failed", "account_id", account.ID, "model", modelKey, "error", err)
+	resetAt := time.Now().Add(cooldown)
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelKey, resetAt, reason); err != nil {
+		slog.Warn("upstream_model_not_found_set_model_rate_limit_failed", "account_id", account.ID, "model", modelKey, "reason", reason, "error", err)
 		return true
 	}
-	slog.Info("upstream_model_not_found_model_rate_limited", "account_id", account.ID, "model", modelKey, "reset_at", resetAt)
+	slog.Info("upstream_model_not_found_model_rate_limited", "account_id", account.ID, "model", modelKey, "reason", reason, "reset_at", resetAt)
 	return true
 }
 

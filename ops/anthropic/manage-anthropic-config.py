@@ -2,7 +2,7 @@
 """
 TokenKey Anthropic OAuth tier-baseline + prod stub pool-mode orchestrator.
 
-One entrypoint, plan JSON as the only file between stages.  Four write
+One entrypoint, plan JSON as the only file between stages. Active write
 surfaces, all JSON-derived (no static SQL templates, no operator-written
 SQL):
 
@@ -16,10 +16,7 @@ SQL):
      — derived from live ``schedulable=true`` concurrency, no baseline file
      — action.kind = ``edge_operator_concurrency`` (per edge) /
                       ``prod_concurrency_mirror`` (one prod tx)
-  D. anthropic group Claude Code client restriction (Claude Code only)
-     — per ``anthropic-group-claude-code-baselines.json`` (``claude_code_only: true``)
-     — action.kind = ``anthropic_group_claude_code_only`` (one tx per edge + prod)
-  E. edge operator (``users.id=1``) balance floor
+  D. edge operator (``users.id=1``) balance floor
      — per ``anthropic-edge-operator-balance-baselines.json``
      — action.kind = ``edge_operator_balance`` (edge only; when live balance < threshold → default)
 
@@ -44,10 +41,7 @@ Stages
   3d. plan-concurrency-mirror — align edge operator concurrency + prod stub
                                concurrency + prod operator concurrency to live
                                Σ schedulable anthropic (idempotent)
-  3e. plan-group-claude-code-only — set claude_code_only=true on every
-                                   anthropic group on each deployable edge
-                                   and prod (admin UI: Claude Code only)
-  3f. plan-edge-operator-balance — top up edge users.id=1 balance when
+  3e. plan-edge-operator-balance — top up edge users.id=1 balance when
                                    live balance < min_balance_threshold
   4. apply    — render apply SQL from JSON, run via SSM, parse output
                (optional ``--sync-runtime`` post-step: settings UA + Redis
@@ -134,9 +128,6 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 EDGE_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
 TIER_BASELINES = REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json"
 STUB_POOL_BASELINES = REPO_ROOT / "deploy/aws/stage0/anthropic-stub-pool-baselines.json"
-GROUP_CLAUDE_CODE_BASELINES = (
-    REPO_ROOT / "deploy/aws/stage0/anthropic-group-claude-code-baselines.json"
-)
 EDGE_OPERATOR_BALANCE_BASELINES = (
     REPO_ROOT / "deploy/aws/stage0/anthropic-edge-operator-balance-baselines.json"
 )
@@ -211,8 +202,13 @@ TIER_EMBED_SPEC.loader.exec_module(_TIER_EMBED)
 
 CONFIRM_CODE = "yes-apply-anthropic-config-cascade"
 
+# Distinct gate for apply-tiers-live so an operator cannot paste the generic
+# cascade confirm and accidentally push git tier values fleet-wide. Literal
+# compared exactly; any mismatch -> exit 2.
+APPLY_TIERS_LIVE_CONFIRM = "yes-apply-tiers-live-from-git"
+
 PLAN_VERSION = 4
-SNAPSHOT_VERSION = 7
+SNAPSHOT_VERSION = 8
 
 # After each OAuth tier-baseline apply on an edge Postgres, bump the operator
 # (admin/default) user's row concurrency to match Σ anthropic account concurrency
@@ -585,6 +581,10 @@ def render_runtime_sync_shell(ua_version: str, mimicry_manifest_json: str | None
         "  for id in $ids; do fk=\"fingerprint:${id}\"; out=\"$($RC DEL \"$fk\" 2>&1 || true)\"; "
         "echo \"DEL ${fk} => ${out}\"; done\n"
         "fi\n"
+        "echo '=== redis_tls_fingerprint_profiles_invalidate ==='\n"
+        "out=\"$($RC DEL tls_fingerprint_profiles 2>&1 || true)\"; echo \"DEL tls_fingerprint_profiles => ${out}\"\n"
+        "out=\"$($RC PUBLISH tls_fingerprint_profiles_updated sync-runtime 2>&1 || true)\"; "
+        "echo \"PUBLISH tls_fingerprint_profiles_updated => ${out}\"\n"
         "echo '=== settings_after ==='\n"
         f"$PSQL -c \"SELECT row_to_json(t) FROM (SELECT key, value FROM settings "
         f"WHERE key IN ('{ua_key}', '{mimicry_key}')) t;\"\n"
@@ -773,8 +773,6 @@ SELECT COALESCE(jsonb_agg(jsonb_build_object(
   'rpm_sticky_buffer', NULLIF(a.extra->>'rpm_sticky_buffer', '')::int,
   'max_sessions', NULLIF(a.extra->>'max_sessions', '')::int,
   'session_idle_timeout_minutes', NULLIF(a.extra->>'session_idle_timeout_minutes', '')::int,
-  'window_cost_limit', NULLIF(a.extra->>'window_cost_limit', '')::int,
-  'window_cost_sticky_reserve', NULLIF(a.extra->>'window_cost_sticky_reserve', '')::int,
   'cache_ttl_override_enabled', NULLIF(a.extra->>'cache_ttl_override_enabled', '')::boolean
 ) ORDER BY a.id), '[]'::jsonb)
 FROM accounts a
@@ -804,23 +802,6 @@ WHERE a.platform = 'anthropic'
   AND a.deleted_at IS NULL;
 """
 
-# Surface-C inputs, identical on every target (edge or prod): the operator
-# (users.id=1) row concurrency, and the live Σ schedulable anthropic concurrency
-# the scheduler actually sees. Both numbers are computed authoritatively in SQL
-# (never re-summed in Python) so the planner trusts one source. The sum mirrors
-# render_admin_operator_concurrency_sync_sql exactly (same platform + schedulable
-# + deleted_at predicate) — keep them in lockstep.
-ANTHROPIC_GROUPS_SQL = """
-SELECT COALESCE(jsonb_agg(jsonb_build_object(
-  'id', g.id, 'name', g.name, 'platform', g.platform,
-  'status', g.status, 'claude_code_only', g.claude_code_only,
-  'fallback_group_id', g.fallback_group_id
-) ORDER BY g.id), '[]'::jsonb)
-FROM groups g
-WHERE g.platform = 'anthropic'
-  AND g.deleted_at IS NULL;
-"""
-
 # tiers reference table (PR #472): the single per-node source for tier strategy
 # values (base_rpm / max_sessions / ...). Seeded from the Go embed baseline on
 # startup (ensureSeededFromBaseline, git->DB), admin-editable via PUT
@@ -837,8 +818,6 @@ SELECT COALESCE(jsonb_agg(jsonb_build_object(
   'max_sessions', t.max_sessions,
   'rpm_sticky_buffer', t.rpm_sticky_buffer,
   'session_idle_timeout_minutes', t.session_idle_timeout_minutes,
-  'window_cost_limit', t.window_cost_limit,
-  'window_cost_sticky_reserve', t.window_cost_sticky_reserve,
   'cache_ttl_override_enabled', t.cache_ttl_override_enabled,
   'cache_ttl_override_target', t.cache_ttl_override_target,
   'tls_profile_name', t.tls_profile_name
@@ -934,7 +913,6 @@ def _sql_as_subquery(sql: str) -> str:
 EDGE_CAPTURE_BUNDLE_SQL = f"""
 SELECT jsonb_build_object(
   'oauth_accounts', ({_sql_as_subquery(EDGE_ACCOUNTS_SQL)}),
-  'anthropic_groups', ({_sql_as_subquery(ANTHROPIC_GROUPS_SQL)}),
   'tiers', ({_sql_as_subquery(TIERS_SQL)}),
   'operator_concurrency', ({_sql_as_subquery(OPERATOR_CONCURRENCY_SQL)}),
   'operator_balance', ({_sql_as_subquery(OPERATOR_BALANCE_SQL)})
@@ -944,7 +922,6 @@ SELECT jsonb_build_object(
 PROD_CAPTURE_BUNDLE_SQL = f"""
 SELECT jsonb_build_object(
   'anthropic_stubs', ({_sql_as_subquery(PROD_STUBS_SQL)}),
-  'anthropic_groups', ({_sql_as_subquery(ANTHROPIC_GROUPS_SQL)}),
   'tiers', ({_sql_as_subquery(TIERS_SQL)}),
   'operator_concurrency', ({_sql_as_subquery(OPERATOR_CONCURRENCY_SQL)})
 );
@@ -992,7 +969,6 @@ def _capture_edge_bundle(
         "domain": ident.domain,
         "ssm_routing": ident.routing,
         "oauth_accounts": bundle.get("oauth_accounts") or [],
-        "anthropic_groups": bundle.get("anthropic_groups") or [],
         "tiers": tiers_raw if isinstance(tiers_raw, list) else [],
         "operator_user_concurrency": op.get("operator_user_concurrency"),
         "schedulable_concurrency_sum": op.get("schedulable_concurrency_sum"),
@@ -1020,7 +996,6 @@ def _capture_prod_bundle(region: str, prod_inst: str) -> dict[str, Any]:
         "stack": PROD_TARGET["stack"],
         "domain": PROD_TARGET["domain"],
         "anthropic_stubs": bundle.get("anthropic_stubs") or [],
-        "anthropic_groups": bundle.get("anthropic_groups") or [],
         "tiers": tiers_raw if isinstance(tiers_raw, list) else [],
         "operator_user_concurrency": op.get("operator_user_concurrency"),
         "schedulable_concurrency_sum": op.get("schedulable_concurrency_sum"),
@@ -2061,9 +2036,10 @@ def cmd_plan_guard_drift_fix(args: argparse.Namespace) -> int:
             fail(f"guard drift account {account_name!r} on {edge_id} has unknown tier {tier_key!r}")
         edge = _find_edge(snap, edge_id)
         account = _find_edge_account(edge, account_name)
+        actual_name = str(account.get("name") or account_name)
         baseline = tiers[tier_key]
         step = len(actions) + 1
-        actions.append(_build_tier_action(edge_id, account_name, baseline, tier_key, step))
+        actions.append(_build_tier_action(edge_id, actual_name, baseline, tier_key, step))
         befores.append({"edge_id": edge_id, "drift": drift, **_account_before(account)})
 
     plan = {
@@ -2222,27 +2198,10 @@ def _load_snapshot_or_die(path: str) -> dict:
              f"v5 added per-target anthropic_groups for group claude-code-only surface; "
              f"v6 added per-edge operator_user_balance + operator_user_exists for surface E; "
              f"v7 added per-node tiers table rows for the tier_table_drift surface "
-             f"(live tiers vs git baseline; post-#472 tier reference-table model))")
+             f"(live tiers vs git baseline; post-#472 tier reference-table model); "
+             f"v8 removed the retired anthropic_groups / group-claude-code-only "
+             f"write surface)")
     return snap
-
-
-def _load_group_claude_code_policy() -> dict:
-    """Parse anthropic-group-claude-code-baselines.json — single source for
-    claude_code_only target value on anthropic groups."""
-    raw = load_json_file(GROUP_CLAUDE_CODE_BASELINES, "group claude code baselines")
-    if not isinstance(raw, dict):
-        fail("group claude code baselines: top-level must be an object")
-    if raw.get("schema_version") != 1:
-        fail(f"group claude code baselines: schema_version {raw.get('schema_version')!r} != 1")
-    pol = raw.get("policy")
-    if not isinstance(pol, dict):
-        fail("group claude code baselines: missing policy object")
-    if pol.get("platform") != "anthropic":
-        fail("group claude code baselines: policy.platform must be 'anthropic'")
-    if pol.get("claude_code_only") is not True:
-        fail("group claude code baselines: policy.claude_code_only must be true "
-             "(Claude Code client only)")
-    return pol
 
 
 def _load_stub_pool_policy() -> dict:
@@ -2324,8 +2283,10 @@ def _find_edge(snap: dict, edge_id: str) -> dict:
 
 
 def _find_edge_account(edge: dict, account_name: str) -> dict:
+    want = account_name.strip()
     for a in edge.get("oauth_accounts", []):
-        if a.get("name") == account_name:
+        live = str(a.get("name") or "").strip()
+        if live == want or a.get("name") == account_name:
             return a
     fail(f"account {account_name!r} not found in edge oauth_accounts")
     return {}  # unreachable
@@ -2334,7 +2295,7 @@ def _find_edge_account(edge: dict, account_name: str) -> dict:
 # Tier-baseline value fields that the apply SQL writes AND that this pipeline
 # owns end-to-end. The skip-as-noop gate (_tier_fields_match) and Stage-5 verify
 # must both cover this WHOLE set — otherwise a bump touching only one of them
-# (e.g. window_cost_limit-only) is silently skipped by plan-tier-bump and then
+# (e.g. session_idle_timeout_minutes-only) is silently skipped by plan-tier-bump and then
 # falsely verified clean, defeating the "no account left at the old value"
 # guarantee. snapshot already carries all of these.
 #
@@ -2349,12 +2310,12 @@ def _find_edge_account(edge: dict, account_name: str) -> dict:
 # tracked by snapshot/verify either — that is what --force-template-rewrite covers.
 _TIER_BASELINE_FIELDS = (
     "base_rpm", "rpm_sticky_buffer", "concurrency", "max_sessions",
-    "window_cost_limit", "session_idle_timeout_minutes", "window_cost_sticky_reserve",
+    "session_idle_timeout_minutes",
 )
 _ACCOUNT_BEFORE_FIELDS = (
     "id", "name", "concurrency", "stability_tier", "base_rpm",
     "rpm_sticky_buffer", "max_sessions", "session_idle_timeout_minutes",
-    "window_cost_limit", "window_cost_sticky_reserve", "status",
+    "status",
 )
 
 
@@ -2860,134 +2821,8 @@ def cmd_plan_concurrency_mirror(args: argparse.Namespace) -> int:
     return 0
 
 
-def _groups_needing_claude_code_policy(anthropic_groups: list[dict], *,
-                                       want_claude_code_only: bool,
-                                       force: bool) -> list[dict]:
-    """Return anthropic groups that still need claude_code_only aligned to policy."""
-    out: list[dict] = []
-    for g in anthropic_groups or []:
-        cur = g.get("claude_code_only")
-        if cur is not want_claude_code_only or force:
-            out.append({
-                "id": g.get("id"),
-                "name": g.get("name"),
-                "claude_code_only_before": cur,
-            })
-    return out
-
-
-def cmd_plan_group_claude_code_only(args: argparse.Namespace) -> int:
-    """Surface D — set claude_code_only=true on every anthropic group on each
-    deployable edge and on prod (admin UI: Claude Code client only)."""
-    snap = _load_snapshot_or_die(args.snapshot)
-    policy = _load_group_claude_code_policy()
-    want = bool(policy["claude_code_only"])
-    force = bool(getattr(args, "force_template_rewrite", False))
-
-    actions: list[dict] = []
-    edge_changes: list[dict] = []
-    prod_changes: list[dict] = []
-
-    for edge_id, edge in sorted(snap.get("edges", {}).items()):
-        if edge.get("error") or edge.get("skipped_reason") or not edge.get("deployable"):
-            continue
-        groups = edge.get("anthropic_groups")
-        if groups is None:
-            fail(f"snapshot.edges.{edge_id} lacks anthropic_groups; re-run snapshot v5+")
-        need = _groups_needing_claude_code_policy(
-            groups, want_claude_code_only=want, force=force,
-        )
-        if not need:
-            continue
-        step = len(actions) + 1
-        actions.append({
-            "step": step,
-            "kind": "anthropic_group_claude_code_only",
-            "target": {"env": "edge", "edge_id": edge_id},
-            "sql_source": GROUP_CLAUDE_CODE_BASELINES.name,
-            "variables": {
-                "claude_code_only": want,
-                "groups_to_fix": need,
-            },
-            "expected_after": {
-                "anthropic_groups": {
-                    str(g["id"]): {"claude_code_only": want} for g in need
-                },
-            },
-        })
-        edge_changes.append({"edge_id": edge_id, "group_count": len(need),
-                             "names": [g["name"] for g in need]})
-
-    prod = snap.get("prod") or {}
-    if prod.get("error") or prod.get("skipped_reason"):
-        fail(f"snapshot.prod not captured: {prod.get('error') or prod.get('skipped_reason')}; "
-             "re-run snapshot without --skip-prod")
-    prod_groups = prod.get("anthropic_groups")
-    if prod_groups is None:
-        fail("snapshot.prod lacks anthropic_groups; re-run snapshot v5+")
-    prod_need = _groups_needing_claude_code_policy(
-        prod_groups, want_claude_code_only=want, force=force,
-    )
-    if prod_need:
-        step = len(actions) + 1
-        actions.append({
-            "step": step,
-            "kind": "anthropic_group_claude_code_only",
-            "target": {"env": "prod"},
-            "sql_source": GROUP_CLAUDE_CODE_BASELINES.name,
-            "variables": {
-                "claude_code_only": want,
-                "groups_to_fix": prod_need,
-            },
-            "expected_after": {
-                "anthropic_groups": {
-                    str(g["id"]): {"claude_code_only": want} for g in prod_need
-                },
-            },
-        })
-        prod_changes.append({"group_count": len(prod_need),
-                             "names": [g["name"] for g in prod_need]})
-
-    plan = {
-        "version": PLAN_VERSION,
-        "kind": "anthropic_group_claude_code_only",
-        "confirm_code": CONFIRM_CODE,
-        "intent": {
-            "scope": "all-anthropic-groups-on-each-target",
-            "policy_source": GROUP_CLAUDE_CODE_BASELINES.name,
-            "claude_code_only": want,
-            "force_template_rewrite": force,
-        },
-        "snapshot_captured_at": snap.get("captured_at"),
-        "plan_built_at": now_utc_iso(),
-        "noop": len(actions) == 0,
-        "summary": {
-            "total_steps": len(actions),
-            "edge_targets": len(edge_changes),
-            "prod_targets": 1 if prod_changes else 0,
-            "groups_to_fix_total": sum(c["group_count"] for c in edge_changes)
-            + sum(c["group_count"] for c in prod_changes),
-        },
-        "live_inputs": {
-            "edge_before": edge_changes,
-            "prod_before": prod_changes,
-        },
-        "actions": actions,
-    }
-
-    out_str = json.dumps(plan, indent=2, ensure_ascii=False)
-    if args.out:
-        pathlib.Path(args.out).write_text(out_str)
-        print(f"plan-group-claude-code-only: written {args.out} "
-              f"({len(actions)} step(s); groups_to_fix={plan['summary']['groups_to_fix_total']})",
-              file=sys.stderr)
-    else:
-        print(out_str)
-    return 0
-
-
 # --------------------------------------------------------------------------
-# Stage 3f — plan-edge-operator-balance (surface E)
+# Stage 3e — plan-edge-operator-balance (surface D)
 # --------------------------------------------------------------------------
 
 def render_edge_operator_balance_sql(
@@ -3104,25 +2939,6 @@ def cmd_plan_edge_operator_balance(args: argparse.Namespace) -> int:
     else:
         print(out_str)
     return 0
-
-
-# --------------------------------------------------------------------------
-# Stage 4 — apply
-# --------------------------------------------------------------------------
-
-def render_anthropic_group_claude_code_sql(claude_code_only: bool) -> str:
-    """Bulk-flip anthropic groups to the policy claude_code_only value."""
-    val = "true" if claude_code_only else "false"
-    return (
-        f"-- Auto-generated by manage-anthropic-config.py at {now_utc_iso()}\n"
-        f"-- source of truth: {GROUP_CLAUDE_CODE_BASELINES.name}\n"
-        "BEGIN;\n"
-        f"UPDATE groups SET claude_code_only = {val}, updated_at = NOW()\n"
-        "WHERE platform = 'anthropic'\n"
-        "  AND claude_code_only IS DISTINCT FROM " + val + "\n"
-        "  AND deleted_at IS NULL;\n"
-        "COMMIT;\n"
-    )
 
 
 def render_admin_operator_concurrency_sync_sql() -> str:
@@ -3314,13 +3130,6 @@ def _apply_group_instance_key(action: dict) -> tuple[str, str, str]:
     if kind in ("prod_stub_pool", "prod_concurrency_mirror"):
         region, instance_id, label = _resolve_prod_target()
         return region, instance_id, label
-    if kind == "anthropic_group_claude_code_only":
-        if tgt.get("env") == "edge":
-            edge_id = tgt["edge_id"]
-            region, instance_id, label = _resolve_edge_target(edge_id)
-            return region, instance_id, label
-        region, instance_id, label = _resolve_prod_target()
-        return region, instance_id, label
     fail(f"unknown action.kind {kind!r}")
 
 
@@ -3353,20 +3162,6 @@ def _execute_apply_action(action: dict, job_dir: pathlib.Path) -> dict[str, Any]
         label = f"step{step:02d}-prod-{kind}".replace("/", "-")
         sql = render_prod_concurrency_mirror_sql(v.get("stub_updates") or [])
         region, instance_id, target_label = _resolve_prod_target()
-    elif kind == "anthropic_group_claude_code_only":
-        env = tgt.get("env")
-        want = bool(v.get("claude_code_only", True))
-        if env == "edge":
-            edge_id = tgt["edge_id"]
-            label = f"step{step:02d}-edge-{edge_id}-{kind}".replace("/", "-")
-            sql = render_anthropic_group_claude_code_sql(want)
-            region, instance_id, target_label = _resolve_edge_target(edge_id)
-        elif env == "prod":
-            label = f"step{step:02d}-prod-{kind}".replace("/", "-")
-            sql = render_anthropic_group_claude_code_sql(want)
-            region, instance_id, target_label = _resolve_prod_target()
-        else:
-            fail(f"anthropic_group_claude_code_only: unknown target.env {env!r}")
     elif kind == "edge_operator_balance":
         edge_id = tgt["edge_id"]
         label = f"step{step:02d}-edge-{edge_id}-{kind}".replace("/", "-")
@@ -3379,7 +3174,7 @@ def _execute_apply_action(action: dict, job_dir: pathlib.Path) -> dict[str, Any]
     else:
         fail(f"unknown action.kind {kind!r} (orchestrator handles edge_account_tier | "
              f"prod_stub_pool | edge_operator_concurrency | prod_concurrency_mirror | "
-             f"anthropic_group_claude_code_only | edge_operator_balance)")
+             f"edge_operator_balance)")
 
     sql_path = job_dir / f"{label}.sql"
     sql_path.write_text(sql)
@@ -3558,7 +3353,6 @@ def cmd_verify(args: argparse.Namespace) -> int:
         a.get("kind") in (
             "prod_stub_pool",
             "prod_concurrency_mirror",
-            "anthropic_group_claude_code_only",
         )
         for a in (plan.get("actions") or [])
     )
@@ -3639,29 +3433,6 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 got_op = prod.get("operator_user_concurrency")
                 if got_op != want_op:
                     diffs.append(f"prod operator_user_concurrency: live={got_op} expected={want_op}")
-        elif kind == "anthropic_group_claude_code_only":
-            exp_groups = exp.get("anthropic_groups") or {}
-            if tgt.get("env") == "edge":
-                view = snap.get("edges", {}).get(tgt.get("edge_id"), {})
-            elif tgt.get("env") == "prod":
-                view = snap.get("prod") or {}
-            else:
-                diffs.append(f"unknown target.env {tgt.get('env')!r}")
-                view = {}
-            if view.get("error") or view.get("skipped_reason"):
-                diffs.append(f"verify snapshot lacks target view: "
-                             f"{view.get('error') or view.get('skipped_reason')}")
-            else:
-                by_id = {g.get("id"): g for g in view.get("anthropic_groups", [])}
-                for gid_str, want_fields in exp_groups.items():
-                    gid = int(gid_str)
-                    g = by_id.get(gid)
-                    if g is None:
-                        diffs.append(f"group id={gid} not found in live snapshot")
-                        continue
-                    for fk, want_val in want_fields.items():
-                        if g.get(fk) != want_val:
-                            diffs.append(f"group id={gid} {fk}: live={g.get(fk)} expected={want_val}")
         elif kind == "edge_operator_balance":
             edge = snap.get("edges", {}).get(tgt["edge_id"], {})
             if edge.get("error") or edge.get("skipped_reason") or not edge:
@@ -3720,6 +3491,379 @@ SELF_CHECK_EXEMPT: dict[str, str] = {
 }
 
 
+# --------------------------------------------------------------------------
+# apply-tiers-live — push the git tier baseline LIVE to every node (no release)
+#
+# Why this exists: tier values flow git JSON -> Go embed -> ensureSeededFromBaseline
+# UPSERT into each node's `tiers` table (on startup) -> runtime overlay. After a
+# baseline change is merged (e.g. PR #604) the running nodes still hold the OLD
+# embedded values until a release reseeds them. This subcommand bridges that gap:
+# it writes the git values straight into each node's `tiers` table + accounts
+# concurrency, replicating EXACTLY the two side effects the admin API handlers do
+# (tier-cache invalidation + scheduler snapshot refresh), so the end state is
+# identical to admin-UI ApplyTier — but fleet-wide, deterministic, from git.
+#
+# Idempotent with the next release: because the Go embed == this same JSON
+# (pinned by scripts/sentinels/check-tier-baseline-embed.py), the next image's
+# ensureSeededFromBaseline UPSERTs the very values this tool wrote -> zero drift.
+# The only revert window is an OLD-image restart before that release (tiers rows
+# reseed to the old embed; accounts.concurrency persists). Not silent: the next
+# `check` re-reports tier_table_drift.
+# --------------------------------------------------------------------------
+
+# tiers strategy columns written from git (effective_tiers_from_json keys minus
+# `name`). tls_profile_id/name are deliberately NOT touched — UpsertByName
+# preserves the live TLS binding, and the ops TLS template owns it.
+_TIERS_LIVE_COLUMNS: list[tuple[str, str]] = [
+    ("concurrency", "int"),
+    ("priority", "int"),
+    ("rate_multiplier", "num"),
+    ("base_rpm", "int"),
+    ("max_sessions", "int"),
+    ("rpm_sticky_buffer", "int"),
+    ("session_idle_timeout_minutes", "int"),
+    ("cache_ttl_override_enabled", "bool"),
+    ("cache_ttl_override_target", "str_or_null"),
+]
+
+
+def _render_tier_col(value: Any, kind: str, *, tier: str, col: str) -> str:
+    if kind == "str_or_null":
+        if value is None:
+            return "NULL"
+        return "'" + _sql_quote_literal(str(value)) + "'"
+    if value is None:
+        fail(f"tier {tier}: column {col} missing from git baseline (refusing to write NULL)")
+    if kind == "bool":
+        if not isinstance(value, bool):
+            fail(f"tier {tier}: column {col} expected bool, got {value!r}")
+        return "true" if value else "false"
+    if kind == "int":
+        if isinstance(value, bool) or not isinstance(value, int):
+            fail(f"tier {tier}: column {col} expected int, got {value!r}")
+        return str(value)
+    if kind == "num":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            fail(f"tier {tier}: column {col} expected number, got {value!r}")
+        return repr(float(value)) if isinstance(value, float) else str(value)
+    fail(f"tier {tier}: column {col} unknown kind {kind!r}")
+    return ""  # unreachable (fail raises)
+
+
+def render_tiers_live_update_sql(expected_by_tier: dict[str, dict]) -> str:
+    """One transaction: UPDATE every tier row's strategy columns to the git
+    baseline values. Identical end state to ensureSeededFromBaseline's UpsertByName
+    for these columns. Does NOT touch tls_profile_id/name (preserved). The trailing
+    in-tx SELECT is an audit read (field names beside values). tier set = git keys,
+    never hand-typed; any required column missing -> fail."""
+    if not expected_by_tier:
+        fail("render_tiers_live_update_sql: empty tier baseline")
+    lines = [
+        f"-- Auto-generated by manage-anthropic-config.py apply-tiers-live at {now_utc_iso()}",
+        f"-- source of truth: {TIER_BASELINES.name} (effective_tiers_from_json)",
+        "-- updates strategy columns only; tls_profile_id/name preserved (UpsertByName parity)",
+        "BEGIN;",
+    ]
+    for tier in sorted(expected_by_tier):
+        row = expected_by_tier[tier]
+        qtier = _sql_quote_literal(tier)
+        set_parts = [
+            f"  {col} = {_render_tier_col(row.get(col), kind, tier=tier, col=col)}"
+            for col, kind in _TIERS_LIVE_COLUMNS
+        ]
+        set_sql = ",\n".join(set_parts)
+        lines.append(
+            f"UPDATE tiers SET\n{set_sql},\n  updated_at = NOW()\n"
+            f"WHERE name = '{qtier}';"
+        )
+    audit_cols = ", ".join(col for col, _ in _TIERS_LIVE_COLUMNS)
+    lines.append(f"SELECT name, {audit_cols} FROM tiers ORDER BY name;")
+    lines.append("COMMIT;")
+    return "\n".join(lines) + "\n"
+
+
+def render_account_concurrency_live_sql(updates: list[dict]) -> str:
+    """One transaction: set accounts.concurrency to the git tier concurrency for
+    each changed anthropic oauth account, and enqueue a scheduler_outbox
+    `account_changed` row per account so the snapshot worker (1s poll) re-reads
+    the DB and rebuilds immediately — the SQL-only equivalent of the sanctioned
+    enqueueSchedulerOutbox(AccountChanged) call. WHERE pins id+name+platform+type+
+    deleted_at so a typo can never land on the wrong row. Refuses concurrency < 1
+    (never silently drain). Empty updates is a programming error (caller skips)."""
+    if not updates:
+        fail("render_account_concurrency_live_sql: empty updates")
+    lines = [
+        f"-- Auto-generated by manage-anthropic-config.py apply-tiers-live at {now_utc_iso()}",
+        "-- accounts.concurrency <- git tier concurrency + scheduler_outbox account_changed",
+        "BEGIN;",
+    ]
+    for upd in updates:
+        aid = upd.get("id")
+        aname = upd.get("name")
+        conc = upd.get("concurrency")
+        tier = upd.get("tier")
+        if not isinstance(aid, int):
+            fail(f"render_account_concurrency_live_sql: account id must be int, got {aid!r}")
+        if not isinstance(aname, str) or not aname:
+            fail(f"render_account_concurrency_live_sql: account name required, got {aname!r}")
+        if isinstance(conc, bool) or not isinstance(conc, int) or conc < 1:
+            fail(f"render_account_concurrency_live_sql: concurrency must be int >= 1, got {conc!r} "
+                 f"(refusing to ever write < 1 — that would silently drain account {aid})")
+        qn = _sql_quote_literal(aname)
+        lines.append(f"-- account id={aid} name='{qn}' tier={tier} -> concurrency={conc}")
+        lines.append(
+            f"UPDATE accounts SET concurrency = {conc}, updated_at = NOW()\n"
+            f"WHERE id = {aid} AND name = '{qn}' AND platform = 'anthropic'\n"
+            f"  AND type = 'oauth' AND deleted_at IS NULL\n"
+            f"RETURNING id, name, concurrency AS after_concurrency;"
+        )
+        lines.append(
+            "INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)\n"
+            f"VALUES ('account_changed', {aid}, NULL, NULL);"
+        )
+    lines.append("COMMIT;")
+    body = "\n".join(lines) + "\n"
+    # Same transaction, after the account UPDATEs: re-align the operator
+    # (users.id=1) concurrency to the new Σ schedulable anthropic concurrency —
+    # exactly what render_edge_account_tier_sql injects (surface A). Without this
+    # the operator Σ is stale until reconciler Step A self-heals on its next cycle.
+    return _inject_sql_before_commit(body, render_admin_operator_concurrency_sync_sql())
+
+
+def render_tiers_cache_invalidation_shell() -> str:
+    """Remote shell: replicate the admin handler's invalidateAndNotify for the
+    tier cache after a raw `tiers` UPDATE — DEL the Redis blob then PUBLISH the
+    refresh so every replica drops its in-process cache and reloads from DB. No
+    `|| true`: a failed flush means overlay caps stay stale (DB right, runtime
+    wrong), which the caller must surface as a partial apply."""
+    return (
+        "# Generated by manage-anthropic-config.py apply-tiers-live (post tiers UPDATE)\n"
+        "set -u\n"
+        "RC='env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli'\n"
+        "echo '=== tiers_cache_del ==='\n"
+        "$RC DEL tiers\n"
+        "echo '=== tiers_cache_publish ==='\n"
+        "$RC PUBLISH tiers_updated refresh\n"
+    )
+
+
+def _tiers_live_node_from_snapshot(snap: dict, target: str) -> dict:
+    """Map an apply target ("edge:<id>" | "prod") to its snapshot node dict."""
+    if target == "prod":
+        return snap.get("prod") or {}
+    if target.startswith("edge:"):
+        return (snap.get("edges") or {}).get(target.split(":", 1)[1]) or {}
+    fail(f"apply-tiers-live: unexpected target {target!r}")
+    return {}
+
+
+def _tiers_live_concurrency_updates(node: dict, expected_by_tier: dict[str, dict]) -> list[dict]:
+    """Per-node accounts.concurrency changes needed to match git. Only oauth
+    accounts (snapshot already filters type='oauth'); only when live != desired."""
+    updates: list[dict] = []
+    for acct in node.get("oauth_accounts") or []:
+        tier = (acct.get("stability_tier") or "").strip().lower()
+        if not tier:
+            fail(f"apply-tiers-live: account id={acct.get('id')} name={acct.get('name')!r} "
+                 f"missing extra.stability_tier; cannot derive concurrency")
+        exp = expected_by_tier.get(tier)
+        if exp is None:
+            fail(f"apply-tiers-live: account id={acct.get('id')} unknown stability_tier={tier!r}; "
+                 f"known: {', '.join(sorted(expected_by_tier))}")
+        desired = exp.get("concurrency")
+        if isinstance(desired, bool) or not isinstance(desired, int):
+            fail(f"apply-tiers-live: tier {tier} concurrency not int in git baseline ({desired!r})")
+        if acct.get("concurrency") != desired:
+            updates.append({
+                "id": acct.get("id"), "name": acct.get("name"),
+                "tier": tier, "concurrency": desired,
+            })
+    return updates
+
+
+def _tiers_live_targets(snap: dict, *, skip_prod: bool, edges_filter: str | None) -> list[str]:
+    targets = _deployable_edge_targets_from_snapshot(snap)
+    if not skip_prod:
+        prod = snap.get("prod") or {}
+        if prod and not prod.get("error") and not prod.get("skipped_reason"):
+            targets.append("prod")
+    if edges_filter and edges_filter != "all":
+        wanted = {e.strip() for e in edges_filter.split(",") if e.strip()}
+        # accept both "uk1" and "edge:uk1"; "prod" passes through
+        keep: list[str] = []
+        for t in targets:
+            short = t.split(":", 1)[1] if t.startswith("edge:") else t
+            if t in wanted or short in wanted:
+                keep.append(t)
+        missing = wanted - {t for t in keep} - {(t.split(':', 1)[1] if t.startswith('edge:') else t) for t in keep}
+        if missing:
+            fail(f"apply-tiers-live: --edges names not in snapshot targets: {sorted(missing)}")
+        targets = keep
+    return targets
+
+
+def _verify_tiers_live(snap: dict, expected_by_tier: dict[str, dict], targets: list[str]) -> dict:
+    """Pure comparison against a (freshly captured) snapshot. Checks both the
+    tier_table_drift surface (the 8 overlay caps) AND tiers.concurrency AND each
+    oauth account's concurrency == git. Returns a report dict with drift lists."""
+    target_labels = set(targets)
+    tier_drift = [
+        it for it in _tier_table_drift_from_snapshot(snap, expected_by_tier)
+        if it.get("node") in target_labels
+    ]
+    conc_drift: list[dict] = []
+    for target in targets:
+        node = _tiers_live_node_from_snapshot(snap, target)
+        # tiers.concurrency (not covered by tier_table_drift, which only diffs the 8 caps)
+        live_by_name = {t.get("name"): t for t in (node.get("tiers") or []) if isinstance(t, dict)}
+        for tier, exp in sorted(expected_by_tier.items()):
+            live = live_by_name.get(tier)
+            if live is not None and not _tier_val_eq(exp.get("concurrency"), live.get("concurrency")):
+                conc_drift.append({"node": target, "kind": "tiers.concurrency", "tier": tier,
+                                   "expected": exp.get("concurrency"), "actual": live.get("concurrency")})
+        # accounts.concurrency
+        for acct in node.get("oauth_accounts") or []:
+            tier = (acct.get("stability_tier") or "").strip().lower()
+            exp = expected_by_tier.get(tier)
+            if exp is None:
+                continue
+            if not _tier_val_eq(exp.get("concurrency"), acct.get("concurrency")):
+                conc_drift.append({"node": target, "kind": "account.concurrency",
+                                   "account_id": acct.get("id"), "account_name": acct.get("name"),
+                                   "tier": tier, "expected": exp.get("concurrency"),
+                                   "actual": acct.get("concurrency")})
+    return {
+        "tier_table_drift": tier_drift,
+        "concurrency_drift": conc_drift,
+        "clean": not tier_drift and not conc_drift,
+    }
+
+
+def _apply_tiers_live_work(target: str, *, snap: dict, expected_by_tier: dict[str, dict],
+                           tiers_sql_b64: str, cache_shell: str, no_concurrency: bool,
+                           job_dir: pathlib.Path | None) -> dict:
+    node = _tiers_live_node_from_snapshot(snap, target)
+    label, region, instance_id = _resolve_runtime_sync_target(target)
+    safe = target.replace(":", "-")
+
+    # (a) tiers UPDATE
+    if job_dir is not None:
+        (job_dir / f"apply-tiers-live-{safe}-tiers.sql").write_text(
+            base64.b64decode(tiers_sql_b64).decode("utf-8"))
+    _out, cid_t, ok_t, err_t = ssm_run_sql_b64(
+        region, instance_id, tiers_sql_b64, f"apply-tiers-live tiers {label}")
+    if not ok_t:
+        print(f"apply-tiers-live: FAILED tiers UPDATE on {label} cid={cid_t}: {err_t}", file=sys.stderr)
+        return {"target": target, "target_label": label, "tiers_ok": False, "cache_ok": False,
+                "concurrency_ok": False, "concurrency_changed": 0,
+                "ssm_command_ids": [cid_t], "ok": False}
+
+    # (b) tier-cache invalidation (DEL + PUBLISH) — fail-stop on flush failure
+    _out2, cid_c, ok_c, err_c = ssm_run_shell(
+        region, instance_id, cache_shell, f"apply-tiers-live cache-invalidate {label}")
+    if not ok_c:
+        print(f"apply-tiers-live: tiers UPDATE OK but CACHE FLUSH FAILED on {label} "
+              f"cid={cid_c}: {err_c} (overlay caps stale until cache clears)", file=sys.stderr)
+        return {"target": target, "target_label": label, "tiers_ok": True, "cache_ok": False,
+                "concurrency_ok": False, "concurrency_changed": 0,
+                "ssm_command_ids": [cid_t, cid_c], "ok": False}
+
+    # (c) accounts.concurrency + scheduler_outbox (edges with changed accounts)
+    cids = [cid_t, cid_c]
+    conc_ok = True
+    conc_updates = [] if no_concurrency else _tiers_live_concurrency_updates(node, expected_by_tier)
+    if conc_updates:
+        conc_sql = render_account_concurrency_live_sql(conc_updates)
+        if job_dir is not None:
+            (job_dir / f"apply-tiers-live-{safe}-concurrency.sql").write_text(conc_sql)
+        conc_b64 = base64.b64encode(conc_sql.encode("utf-8")).decode("ascii")
+        _out3, cid_a, conc_ok, err_a = ssm_run_sql_b64(
+            region, instance_id, conc_b64,
+            f"apply-tiers-live concurrency {label} n={len(conc_updates)}")
+        cids.append(cid_a)
+        if not conc_ok:
+            print(f"apply-tiers-live: tiers OK but concurrency UPDATE FAILED on {label} "
+                  f"cid={cid_a}: {err_a}", file=sys.stderr)
+
+    return {
+        "target": target, "target_label": label,
+        "tiers_ok": True, "cache_ok": True, "concurrency_ok": conc_ok,
+        "concurrency_changed": len(conc_updates),
+        "ssm_command_ids": cids,
+        "ok": conc_ok,
+    }
+
+
+def cmd_apply_tiers_live(args: argparse.Namespace) -> int:
+    snap = _load_snapshot_or_die(args.snapshot)
+    expected_by_tier = _load_expected_tiers()
+    targets = _tiers_live_targets(snap, skip_prod=args.skip_prod, edges_filter=args.edges)
+    if not targets:
+        fail("apply-tiers-live: no deployable targets in snapshot")
+
+    if args.verify_only:
+        report = _verify_tiers_live(snap, expected_by_tier, targets)
+        out = json.dumps(report, ensure_ascii=False, indent=2)
+        if args.json:
+            print(out)
+        else:
+            print(f"apply-tiers-live verify: clean={report['clean']} "
+                  f"tier_table_drift={len(report['tier_table_drift'])} "
+                  f"concurrency_drift={len(report['concurrency_drift'])}", file=sys.stderr)
+            for it in report["tier_table_drift"] + report["concurrency_drift"]:
+                print(f"  DRIFT {json.dumps(it, ensure_ascii=False)}", file=sys.stderr)
+        return 0 if report["clean"] else 1
+
+    if args.confirm != APPLY_TIERS_LIVE_CONFIRM:
+        fail(
+            f"--confirm mismatch.\n  Got:      {args.confirm!r}\n  Required: {APPLY_TIERS_LIVE_CONFIRM!r}",
+            code=2,
+        )
+
+    job_dir = pathlib.Path(args.job_dir) if args.job_dir else pathlib.Path(
+        f"/tmp/apply-tiers-live-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+    )
+    job_dir.mkdir(parents=True, exist_ok=True)
+    print(f"apply-tiers-live: job_dir={job_dir} targets={targets}", file=sys.stderr)
+
+    tiers_sql = render_tiers_live_update_sql(expected_by_tier)
+    tiers_sql_b64 = base64.b64encode(tiers_sql.encode("utf-8")).decode("ascii")
+    cache_shell = render_tiers_cache_invalidation_shell()
+
+    def _work(target: str) -> dict:
+        return _apply_tiers_live_work(
+            target, snap=snap, expected_by_tier=expected_by_tier,
+            tiers_sql_b64=tiers_sql_b64, cache_shell=cache_shell,
+            no_concurrency=args.no_concurrency, job_dir=job_dir)
+
+    results = _run_parallel_ordered(
+        targets, _work, _parallel_edges_workers(args.parallel_edges),
+        label="apply-tiers-live")
+
+    report = {
+        "version": SNAPSHOT_VERSION,
+        "applied_at": now_utc_iso(),
+        "targets": targets,
+        "no_concurrency": bool(args.no_concurrency),
+        "results": results,
+        "all_ok": all(r.get("ok") for r in results),
+    }
+    (job_dir / "apply-tiers-live-report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2))
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        for r in results:
+            flag = "OK  " if r.get("ok") else "FAIL"
+            print(f"  {flag} {r.get('target_label')} "
+                  f"tiers={r.get('tiers_ok')} cache={r.get('cache_ok')} "
+                  f"concurrency={r.get('concurrency_ok')} (changed={r.get('concurrency_changed')})",
+                  file=sys.stderr)
+        print(f"apply-tiers-live: all_ok={report['all_ok']} report={job_dir}/apply-tiers-live-report.json",
+              file=sys.stderr)
+    return 0 if report["all_ok"] else 1
+
+
 def iter_self_check_sql() -> list[tuple[str, str]]:
     """(label, rendered_sql) for every SQL generator, with representative args
     that exercise the escaping paths. Header timestamps vary per call — consumers
@@ -3728,7 +3872,6 @@ def iter_self_check_sql() -> list[tuple[str, str]]:
     return [
         ("EDGE_ACCOUNTS_SQL", EDGE_ACCOUNTS_SQL),
         ("PROD_STUBS_SQL", PROD_STUBS_SQL),
-        ("ANTHROPIC_GROUPS_SQL", ANTHROPIC_GROUPS_SQL),
         ("TIERS_SQL", TIERS_SQL),
         ("OPERATOR_CONCURRENCY_SQL", OPERATOR_CONCURRENCY_SQL),
         ("OPERATOR_BALANCE_SQL", OPERATOR_BALANCE_SQL),
@@ -3739,13 +3882,17 @@ def iter_self_check_sql() -> list[tuple[str, str]]:
         ("EDGE_CAPTURE_BUNDLE_SQL", EDGE_CAPTURE_BUNDLE_SQL),
         ("PROD_CAPTURE_BUNDLE_SQL", PROD_CAPTURE_BUNDLE_SQL),
         ("render_edge_operator_balance_sql", render_edge_operator_balance_sql(123.45)),
-        ("render_anthropic_group_claude_code_sql", render_anthropic_group_claude_code_sql(True)),
         ("render_admin_operator_concurrency_sync_sql", render_admin_operator_concurrency_sync_sql()),
         ("render_edge_account_tier_sql", render_edge_account_tier_sql(nasty, "l5", "us1")),
         ("render_prod_stub_pool_sql", render_prod_stub_pool_sql(42, nasty, True, 3)),
         ("render_edge_operator_concurrency_sql", render_edge_operator_concurrency_sql("us1")),
         ("render_prod_concurrency_mirror_sql",
          render_prod_concurrency_mirror_sql([{"id": 42, "name": nasty, "concurrency": 10}])),
+        ("render_tiers_live_update_sql",
+         render_tiers_live_update_sql(_load_expected_tiers())),
+        ("render_account_concurrency_live_sql",
+         render_account_concurrency_live_sql(
+             [{"id": 42, "name": nasty, "tier": "l5", "concurrency": 15}])),
     ]
 
 
@@ -3869,19 +4016,6 @@ def main() -> int:
     sp.set_defaults(handler=cmd_plan_concurrency_mirror)
 
     sp = sub.add_parser(
-        "plan-group-claude-code-only",
-        help="set claude_code_only=true on every anthropic group (Claude Code client only)",
-    )
-    sp.add_argument("--snapshot", required=True)
-    sp.add_argument("--out", help="write plan JSON (otherwise stdout)")
-    sp.add_argument(
-        "--force-template-rewrite",
-        action="store_true",
-        help="re-emit actions even when live groups already have claude_code_only=true",
-    )
-    sp.set_defaults(handler=cmd_plan_group_claude_code_only)
-
-    sp = sub.add_parser(
         "plan-edge-operator-balance",
         help="top up edge users.id=1 balance when below policy min_balance_threshold",
     )
@@ -4003,6 +4137,29 @@ def main() -> int:
     sp.add_argument("--json", action="store_true")
     _add_parallel_edges_arg(sp)
     sp.set_defaults(handler=cmd_verify)
+
+    sp = sub.add_parser(
+        "apply-tiers-live",
+        help="push the git tier baseline LIVE to every node's tiers table + "
+             "accounts.concurrency (no release); idempotent with next release",
+    )
+    sp.add_argument("--snapshot", required=True,
+                    help="snapshot JSON with per-node live tiers + oauth accounts")
+    sp.add_argument("--edges", default="all",
+                    help="comma-separated edge ids (or edge:<id>; 'prod' allowed) to limit scope; default all")
+    sp.add_argument("--skip-prod", action="store_true",
+                    help="skip prod (only its tiers table; prod has no oauth accounts)")
+    sp.add_argument("--no-concurrency", action="store_true",
+                    help="only update tiers table + invalidate cache; skip accounts.concurrency writes")
+    sp.add_argument("--verify-only", action="store_true",
+                    help="pure comparison against the (freshly captured) --snapshot: "
+                         "tier_table_drift==0 + tiers/accounts concurrency==git; no writes, no --confirm")
+    sp.add_argument("--job-dir", help="scratch dir for rendered SQL + apply report")
+    sp.add_argument("--json", action="store_true")
+    sp.add_argument("--confirm", default="",
+                    help=f"must be exactly {APPLY_TIERS_LIVE_CONFIRM!r} for a real apply")
+    _add_parallel_edges_arg(sp)
+    sp.set_defaults(handler=cmd_apply_tiers_live)
 
     args = ap.parse_args()
     return args.handler(args)

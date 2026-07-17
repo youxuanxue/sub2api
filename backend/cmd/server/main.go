@@ -173,7 +173,9 @@ func runMainServer() {
 
 	pollCtx, pollCancel := context.WithCancel(context.Background())
 	defer pollCancel()
-	service.StartClaudeStatusPoller(pollCtx)
+	if !service.IsEdgeFrontendURL(cfg.Server.FrontendURL) {
+		service.StartClaudeStatusPoller(pollCtx)
+	}
 
 	// 启动服务器
 	go func() {

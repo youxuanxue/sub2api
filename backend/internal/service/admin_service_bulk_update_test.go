@@ -88,6 +88,10 @@ func (s *accountRepoStubForBulkUpdate) ListByGroup(_ context.Context, groupID in
 	return nil, nil
 }
 
+func (s *accountRepoStubForBulkUpdate) ListAllWithFilters(context.Context, string, string, string, string, int64, string) ([]Account, error) {
+	return nil, nil
+}
+
 func (s *accountRepoStubForBulkUpdate) ListWithFilters(_ context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, *pagination.PaginationResult, error) {
 	s.listCalled = true
 	s.lastListParams = params
@@ -269,6 +273,13 @@ func (s *bulkAccountRepoAnthropicSum) SumConcurrencyAnthropicByGroup(context.Con
 }
 
 func (s *bulkAccountRepoAnthropicSum) SumConcurrencyByPlatform(context.Context, string) (int64, error) {
+	if s.anthropicConcurrencyErr != nil {
+		return 0, s.anthropicConcurrencyErr
+	}
+	return s.anthropicConcurrencySum, nil
+}
+
+func (s *bulkAccountRepoAnthropicSum) SumConcurrencyByPlatformAndGroupID(context.Context, string, int64) (int64, error) {
 	if s.anthropicConcurrencyErr != nil {
 		return 0, s.anthropicConcurrencyErr
 	}

@@ -1,0 +1,3 @@
+interface:
+  display_name: "TokenKey Endpoint Compatibility Audit"
+  short_description: "Audit direct and universal endpoint support without mixing route gates with live servability."

@@ -16,27 +16,63 @@
 #   3. Send SIGUSR1 to tokenkey → wait for /health/inflight to report
 #      draining=true && in_flight=0 (pre-drain so live SSE finishes). Only now
 #      does Caddy active health (health_uri /health) remove the old upstream.
+#      Bounded by TWO early-exits so a node carrying long-lived SSE never burns
+#      the full budget for a drain that will not complete: (a) a hard cap of 15
+#      tries × 2s = 30s, and (b) a plateau break — if in_flight stops decreasing
+#      for 3 consecutive VALID readings, stop waiting (the remaining streams are
+#      long-lived and the swap will sever them regardless). A failed/empty poll
+#      is treated as no-information: it does not advance the plateau counter (and
+#      the in_flight=0 break already reads an empty poll as not-drained), so a
+#      transient wget blip cannot end the drain early. Measured on the prod
+#      1.7.100 redeploy (2026-06-13): under sustained streaming the old 38-try
+#      (76s) loop NEVER reached in_flight=0 — it drifted 18→8 and plateaued at 8
+#      from try ~31, so it paid the full 76s AND still severed 8 streams at swap.
+#      The cap+plateau cut that wasted wait to ≤30s (≈10s once plateaued) for the
+#      same client outcome.
 #      SKIPPED when the outgoing container is not `healthy`: a crash-looping /
 #      unhealthy container has no in-flight to drain (Caddy already flipped it
 #      out at /health!=200), and SIGUSR1 + the inflight-wait would block the
-#      full ~76s on a container whose `docker exec wget` never answers —
+#      full ~30s on a container whose `docker exec wget` never answers —
 #      starving the new container's health window and tripping the rollback
 #      trap, which then restores the (broken) previous image. That exact loop
 #      kept uk1 pinned to a crash-looping image on 2026-06-03; gating the drain
 #      on old-container health lets a deploy recover an already-broken node.
-#   4. `compose up -d --no-deps --force-recreate tokenkey`. The image is
-#      already on disk from step 2, so this is just stop-old + start-new.
+#   4. `compose up -d --no-deps --force-recreate --timeout 30 tokenkey`. The
+#      image is already on disk from step 2, so this is just stop-old + start-new.
 #      `--force-recreate` is load-bearing: step 3 already flipped drainFlag=true
 #      on the running container, and there is no SetDrain(false) call site —
 #      only a fresh process can clear drain. Without --force-recreate, a
 #      same-tag re-deploy (sed is a no-op when $tag matches the live image)
 #      would leave the container running with /health=503 indefinitely until
 #      manual `docker restart`. Always recreate.
+#      `--timeout 30` is ALSO load-bearing: the compose service sets
+#      `stop_grace_period: 180s` (correct for a manual `docker stop` / host
+#      reboot, where we DO want to let in-flight streams finish gracefully).
+#      But the deploy path already ran its OWN bounded drain in step 3 — and
+#      when that drain plateaus (long-lived benchmark streams that won't finish
+#      in the ~30s budget), step 3 explicitly decides "swap will sever them".
+#      Without an override here, `compose up` would then re-grant those exact
+#      streams a fresh up-to-180s graceful window before SIGKILL, silently
+#      undoing step 3 and stretching the swap to ~2.5min on a busy prod host
+#      (observed: run 27625029035, old container took 151s to stop → 226s total
+#      deploy; the 40s-254s deploy-step variance was entirely this wait scaling
+#      with live stream count). `--timeout 30` caps the stop-old wait so the
+#      swap is deterministic regardless of traffic. Do NOT lower the global
+#      `stop_grace_period` instead — that would also de-grace non-deploy stops.
 #   5. Wait for container.Health.Status=healthy; rollback on ERR (which
 #      also uses --force-recreate for the same reason).
 #
 # What this script INTENTIONALLY DOES NOT DO:
-#   - It does NOT refresh /var/lib/tokenkey/docker-compose.yml.
+#   - It does NOT wholesale-refresh /var/lib/tokenkey/docker-compose.yml.
+#     (Exception: it DOES self-heal one specific, additive line — the
+#     `SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}` env mapping in the tokenkey
+#     service — when absent. Edges provisioned before that mapping was added to
+#     the compose template carried a stale compose: the .env backfill below set
+#     SERVER_FRONTEND_URL, but with no compose mapping the var never reached the
+#     container, so alert cards showed node=unknown on us1/us2/us3/us4/us5/uk1
+#     [2026-06-06]. The insert is guarded by `! grep -q SERVER_FRONTEND_URL`, so
+#     it is a no-op on already-correct edges, and additive [one env line after
+#     the TZ line], so it cannot break an otherwise-valid compose.)
 #   - It does NOT refresh /var/lib/tokenkey/caddy/Caddyfile.
 #   Both files are written once at instance launch by UserData (gzip+base64
 #   decoded from SSM Parameter Store; see stage0-{single,edge}-ec2.yaml +
@@ -60,7 +96,8 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ssm_resolve_invocation_mi.
 TAG="${1:-${INPUT_TAG:-}}"
 INSTANCE_ID="${2:-${INSTANCE_ID:-}}"
 COMMENT="${3:-${SSM_COMMENT:-deploy-stage0}}"
-# Default bumped 300 -> 480 to cover pre-drain (≤ ~76s) + image pull + container
+# Default bumped 300 -> 480 to cover pre-drain (≤ ~30s) + bounded swap stop-old
+# (≤ ~30s via `compose up --timeout 30`, see step 4) + image pull + container
 # start + healthcheck (≤ start_period 60s) + headroom on a slow link.
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-480}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
@@ -84,31 +121,166 @@ params_file="${OUTPUT_DIR}/ssm-params.json"
 stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
 
-jq -n --arg tag "${TAG}" '{
-  commands: [
+# --- QA trajectory export → durable S3 (prod-only) ---------------------------
+# Same mechanism as the SERVER_FRONTEND_URL backfill below: additive, guarded
+# (`grep -q`), idempotent .env + compose-mapping patches on a LIVE host, re-applied
+# on every deploy. The 4 QA_CAPTURE_EXPORT_STORAGE_* vars (~588 B) are deliberately
+# NOT in the shared stage0 compose — that file is also embedded in the edge
+# Lightsail launch script, which sits ~46 B under Lightsail's 16 KB user-data cap,
+# so adding them there breaks edge provisioning. Edges are pure cc-relay mirrors
+# that never capture/export QA trajectories, so they have no use for this config.
+# Gate on the prod signal (EC2 `i-*`; every edge is a Lightsail `mi-*`) → edges get
+# an empty array, i.e. a byte-identical command list to before this change.
+# Credentials stay EMPTY on purpose: the prod instance role + the qa-exports bucket
+# policy (Principal = prod InstanceRole ARN) grant s3:PutObject, so no static keys
+# ever land in .env. Values are env-overridable but default to the prod bucket.
+# See docs/qa-export-s3-and-auto-archive.md.
+#
+# Compose insertion anchors on the tokenkey service's SERVER_FRONTEND_URL line, NOT
+# its TZ line: every service (caddy/tokenkey/postgres/redis) carries a `- TZ=` line,
+# so `/^      - TZ=/a\` matched all of them and injected the 4 mappings once PER
+# service (harmless on postgres/redis, which ignore the env, but wrong). The first
+# 1.8.11 prod deploy did exactly that; the host compose was de-duplicated out of band.
+# SERVER_FRONTEND_URL is unique to the tokenkey service and is guaranteed present by
+# the SERVER_FRONTEND_URL backfill below, which runs earlier in this command list.
+qa_export_cmds='[]'
+if [[ "${INSTANCE_ID}" == i-* ]]; then
+  qa_export_cmds="$(jq -n \
+    --arg tag "${TAG}" \
+    --arg driver "${QA_CAPTURE_EXPORT_STORAGE_DRIVER:-s3}" \
+    --arg region "${QA_CAPTURE_EXPORT_STORAGE_REGION:-us-east-1}" \
+    --arg bucket "${QA_CAPTURE_EXPORT_STORAGE_BUCKET:-tokenkey-prod-qa-exports-682751977094}" \
+    --arg prefix "${QA_CAPTURE_EXPORT_STORAGE_PREFIX:-traj-exports}" '
+    [
+      ( "qa_d=" + ($driver|@sh) + "; qa_r=" + ($region|@sh) + "; qa_b=" + ($bucket|@sh) + "; qa_p=" + ($prefix|@sh)
+        + "; for kv in \"DRIVER=$qa_d\" \"REGION=$qa_r\" \"BUCKET=$qa_b\" \"PREFIX=$qa_p\"; do"
+        + " key=\"QA_CAPTURE_EXPORT_STORAGE_${kv%%=*}\"; val=\"${kv#*=}\";"
+        + " if ! grep -q \"^${key}=\" /var/lib/tokenkey/.env; then echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured ${key}\";"
+        + " else echo \"${key} already present\"; fi; done" ),
+      ( "CF=/var/lib/tokenkey/docker-compose.yml; if [ -f \"$CF\" ]; then miss=0;"
+        + " for k in DRIVER REGION BUCKET PREFIX; do grep -q \"QA_CAPTURE_EXPORT_STORAGE_${k}=\" \"$CF\" || miss=1; done;"
+        + " if [ \"$miss\" = 1 ]; then sudo cp -a \"$CF\" \"$CF.qa-export-before-" + $tag + "\";"
+        + " for k in PREFIX BUCKET REGION DRIVER; do key=\"QA_CAPTURE_EXPORT_STORAGE_$k\";"
+        + " grep -q \"${key}=\" \"$CF\" || sudo sed -i '\''/^      - SERVER_FRONTEND_URL=/a\\      - '\''\"$key\"'\''=${'\''\"$key\"'\'':-}'\'' \"$CF\"; done;"
+        + " if grep -q QA_CAPTURE_EXPORT_STORAGE_DRIVER \"$CF\"; then echo ensured-compose-QA_CAPTURE_EXPORT_STORAGE-mappings;"
+        + " else echo '\''::warning::failed to insert compose QA_CAPTURE_EXPORT_STORAGE mappings'\''; fi;"
+        + " else echo compose-QA_CAPTURE_EXPORT_STORAGE-mappings-present; fi; fi" )
+    ]')"
+fi
+
+# --- Generated-media → S3 offload (prod-only) --------------------------------
+# Same proven mechanism as the QA-export block above (additive, grep-guarded,
+# idempotent .env + compose-mapping patches on a LIVE host). Wires the media store:
+# MEDIA_STORAGE_DRIVER/REGION/BUCKET. Credentials stay EMPTY on purpose — the prod
+# instance role + the media bucket policy (Principal = prod InstanceRole ARN) grant
+# s3:PutObject/GetObject, so no static keys land in .env.
+# Since the #944 pass-through alignment this only enables the LEGACY video re-presign
+# fast path; IMAGE offload is OPT-IN (MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED) and is
+# DELIBERATELY left unset here so generated images pass through inline (no S3 rehost,
+# no on-request PutObject pin, no per-Studio-mount presign fan-out). Do NOT add the
+# flag back without re-deciding that trade-off.
+# Prod-only (EC2 `i-*`); edges (Lightsail `mi-*`) get [] and never offload media
+# (they passthrough base64 — same byte-identical command list as before). Safe to
+# enable before the CFN media bucket exists: the store degrades to base64
+# passthrough on any S3 error. The media/ key prefix matches the bucket lifecycle.
+media_storage_cmds='[]'
+if [[ "${INSTANCE_ID}" == i-* ]]; then
+  media_storage_cmds="$(jq -n \
+    --arg tag "${TAG}" \
+    --arg driver "${MEDIA_STORAGE_DRIVER:-s3}" \
+    --arg region "${MEDIA_STORAGE_REGION:-us-east-1}" \
+    --arg bucket "${MEDIA_STORAGE_BUCKET:-tokenkey-prod-media-682751977094}" '
+    [
+      ( "ms_d=" + ($driver|@sh) + "; ms_r=" + ($region|@sh) + "; ms_b=" + ($bucket|@sh)
+        + "; for kv in \"DRIVER=$ms_d\" \"REGION=$ms_r\" \"BUCKET=$ms_b\"; do"
+        + " key=\"MEDIA_STORAGE_${kv%%=*}\"; val=\"${kv#*=}\";"
+        + " if ! grep -q \"^${key}=\" /var/lib/tokenkey/.env; then echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured ${key}\";"
+        + " else echo \"${key} already present\"; fi; done" ),
+      ( "CF=/var/lib/tokenkey/docker-compose.yml; if [ -f \"$CF\" ]; then miss=0;"
+        + " for k in DRIVER REGION BUCKET; do grep -q \"MEDIA_STORAGE_${k}=\" \"$CF\" || miss=1; done;"
+        + " if [ \"$miss\" = 1 ]; then sudo cp -a \"$CF\" \"$CF.media-storage-before-" + $tag + "\";"
+        + " for k in BUCKET REGION DRIVER; do key=\"MEDIA_STORAGE_$k\";"
+        + " grep -q \"${key}=\" \"$CF\" || sudo sed -i '\''/^      - SERVER_FRONTEND_URL=/a\\      - '\''\"$key\"'\''=${'\''\"$key\"'\'':-}'\'' \"$CF\"; done;"
+        + " if grep -q MEDIA_STORAGE_DRIVER \"$CF\"; then echo ensured-compose-MEDIA_STORAGE-mappings;"
+        + " else echo '\''::warning::failed to insert compose MEDIA_STORAGE mappings'\''; fi;"
+        + " else echo compose-MEDIA_STORAGE-mappings-present; fi; fi" )
+    ]')"
+fi
+
+# --- Image/video generation concurrency cap (prod-only) ----------------------
+# Same proven mechanism as the QA-export / media blocks above (additive,
+# grep-guarded, idempotent .env + compose-mapping patches on a LIVE host). The
+# image/video generation concurrency limiter ships DISABLED in code (a no-op),
+# leaving /v1/images/generations + /v1/video/generations exposed to a
+# "max_body_size (256MB) x unbounded concurrency" cliff. This turns it ON in prod
+# with a generous per-replica cap and reject overflow, so a burst fast-fails with
+# 429 instead of buffering unbounded large bodies (prod has no swap — see the host
+# mem-guard). The cliff is auth-gated (apiKeyAuth + group binding), so this is a
+# pre-emptive bound, not a fix for an open exploit; it pairs with media offload
+# going live, when sustained large-body generation traffic becomes likely. All
+# three knobs are env-overridable. Prod-only (EC2 `i-*`); edges (Lightsail `mi-*`)
+# never serve generation and get [] (byte-identical command list as before).
+image_concurrency_cmds='[]'
+if [[ "${INSTANCE_ID}" == i-* ]]; then
+  image_concurrency_cmds="$(jq -n \
+    --arg tag "${TAG}" \
+    --arg enabled "${GATEWAY_IMAGE_CONCURRENCY_ENABLED:-true}" \
+    --arg maxconc "${GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS:-8}" \
+    --arg overflow "${GATEWAY_IMAGE_CONCURRENCY_OVERFLOW_MODE:-reject}" '
+    [
+      ( "ic_e=" + ($enabled|@sh) + "; ic_m=" + ($maxconc|@sh) + "; ic_o=" + ($overflow|@sh)
+        + "; for kv in \"ENABLED=$ic_e\" \"MAX_CONCURRENT_REQUESTS=$ic_m\" \"OVERFLOW_MODE=$ic_o\"; do"
+        + " key=\"GATEWAY_IMAGE_CONCURRENCY_${kv%%=*}\"; val=\"${kv#*=}\";"
+        + " if ! grep -q \"^${key}=\" /var/lib/tokenkey/.env; then echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured ${key}\";"
+        + " else echo \"${key} already present\"; fi; done" ),
+      ( "CF=/var/lib/tokenkey/docker-compose.yml; if [ -f \"$CF\" ]; then miss=0;"
+        + " for k in ENABLED MAX_CONCURRENT_REQUESTS OVERFLOW_MODE; do grep -q \"GATEWAY_IMAGE_CONCURRENCY_${k}=\" \"$CF\" || miss=1; done;"
+        + " if [ \"$miss\" = 1 ]; then sudo cp -a \"$CF\" \"$CF.image-concurrency-before-" + $tag + "\";"
+        + " for k in OVERFLOW_MODE MAX_CONCURRENT_REQUESTS ENABLED; do key=\"GATEWAY_IMAGE_CONCURRENCY_$k\";"
+        + " grep -q \"${key}=\" \"$CF\" || sudo sed -i '\''/^      - SERVER_FRONTEND_URL=/a\\      - '\''\"$key\"'\''=${'\''\"$key\"'\'':-}'\'' \"$CF\"; done;"
+        + " if grep -q GATEWAY_IMAGE_CONCURRENCY_ENABLED \"$CF\"; then echo ensured-compose-GATEWAY_IMAGE_CONCURRENCY-mappings;"
+        + " else echo '\''::warning::failed to insert compose GATEWAY_IMAGE_CONCURRENCY mappings'\''; fi;"
+        + " else echo compose-GATEWAY_IMAGE_CONCURRENCY-mappings-present; fi; fi" )
+    ]')"
+fi
+
+jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" --argjson media_cmds "${media_storage_cmds}" --argjson ic_cmds "${image_concurrency_cmds}" '{
+  commands: ([
     "set -euo pipefail",
     ("echo === deploy stage0 to tag=" + $tag + " ==="),
     ("BACKUP=/var/lib/tokenkey/.env.before-" + $tag),
     "sudo cp -a /var/lib/tokenkey/.env \"$BACKUP\"",
-    "rollback() { rc=$?; echo \"::warning::deploy failed; restoring previous tokenkey image\"; if [ -f \"$BACKUP\" ]; then sudo cp -a \"$BACKUP\" /var/lib/tokenkey/.env; cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey || true; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"rollback try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done; [ \"$s\" = healthy ] || echo \"::error::rollback restored the previous image but it is ALSO not healthy (health=$s) — node requires MANUAL intervention; do NOT assume service is restored. next: deploy/aws/RUNBOOK-disaster-recovery.md — recovery decision tree + Agent handoff contract\"; sudo docker logs tokenkey --since 2m 2>&1 | tail -50 || true; fi; exit $rc; }",
+    "rollback() { rc=$?; echo \"::warning::deploy failed; restoring previous tokenkey image\"; if [ -f \"$BACKUP\" ]; then sudo cp -a \"$BACKUP\" /var/lib/tokenkey/.env; cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate --timeout 30 tokenkey || true; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"rollback try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done; [ \"$s\" = healthy ] || echo \"::error::rollback restored the previous image but it is ALSO not healthy (health=$s) — node requires MANUAL intervention; do NOT assume service is restored. next: deploy/aws/RUNBOOK-disaster-recovery.md — recovery decision tree + Agent handoff contract\"; sudo docker logs tokenkey --since 2m 2>&1 | tail -50 || true; fi; exit $rc; }",
     "trap rollback ERR",
     ("sudo sed -i '\''s|sub2api:[^[:space:]]*|sub2api:" + $tag + "|'\'' /var/lib/tokenkey/.env"),
     "if ! grep -q '\''^SERVER_FRONTEND_URL='\'' /var/lib/tokenkey/.env; then d=$(sed -n '\''s/^API_DOMAIN=//p'\'' /var/lib/tokenkey/.env | head -1); if [ -n \"$d\" ]; then echo \"SERVER_FRONTEND_URL=https://$d\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured SERVER_FRONTEND_URL=https://$d\"; else echo \"API_DOMAIN empty; skip SERVER_FRONTEND_URL backfill\"; fi; else echo \"SERVER_FRONTEND_URL already present\"; fi",
+    "if ! grep -q '\''^TOKENKEY_GHCR_KEEP_TAGS='\'' /var/lib/tokenkey/.env; then echo '\''TOKENKEY_GHCR_KEEP_TAGS=3'\'' | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo '\''ensured TOKENKEY_GHCR_KEEP_TAGS=3'\''; else echo '\''TOKENKEY_GHCR_KEEP_TAGS already present'\''; fi",
+    ("if [ -f /var/lib/tokenkey/docker-compose.yml ] && ! grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then sudo cp -a /var/lib/tokenkey/docker-compose.yml /var/lib/tokenkey/docker-compose.yml.compose-before-" + $tag + "; sudo sed -i '\''/^      - TZ=/a\\      - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}'\'' /var/lib/tokenkey/docker-compose.yml; if grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then echo ensured-compose-SERVER_FRONTEND_URL-mapping; else echo '\''::warning::failed to insert compose SERVER_FRONTEND_URL mapping'\''; fi; else echo compose-SERVER_FRONTEND_URL-mapping-present-or-no-compose; fi")
+  ] + $qa_cmds + $media_cmds + $ic_cmds + [
     "echo \"=== pull new image BEFORE drain (old container keeps serving 100% traffic) ===\"",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "echo \"=== pre-drain: SIGUSR1 + wait in_flight=0 (only when outgoing container healthy) ===\"",
     "OLD_HEALTH=$(sudo docker inspect tokenkey --format '\''{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'\'' 2>/dev/null || echo missing); echo \"pre-drain: outgoing container health=$OLD_HEALTH\"",
-    "if [ \"$OLD_HEALTH\" = healthy ]; then sudo docker kill -s USR1 tokenkey 2>/dev/null || true; for i in $(seq 1 38); do body=$(sudo docker exec tokenkey wget -q -T 3 -O - http://localhost:8080/health/inflight 2>/dev/null); n=$(printf '\''%s'\'' \"$body\" | sed -n '\''s/.*\"in_flight\":\\([0-9]*\\).*/\\1/p'\''); if printf '\''%s'\'' \"$body\" | grep -q '\''\"draining\":true'\''; then d=true; else d=false; fi; echo \"pre-drain: draining=$d in_flight=${n:-?} try=$i/38\"; [ \"$d\" = true ] && [ \"${n:-1}\" = 0 ] && break; sleep 2; done; else echo \"pre-drain SKIPPED: outgoing container not healthy (health=$OLD_HEALTH) — Caddy already flipped it out, nothing to drain; straight to recreate (avoids burning the ~76s drain budget on a crash-looping container, which previously starved the new container health window and tripped the rollback trap — uk1 2026-06-03)\"; fi",
+    "if [ \"$OLD_HEALTH\" = healthy ]; then sudo docker kill -s USR1 tokenkey 2>/dev/null || true; prev=-1; stall=0; for i in $(seq 1 15); do body=$(sudo docker exec tokenkey wget -q -T 3 -O - http://localhost:8080/health/inflight 2>/dev/null); n=$(printf '\''%s'\'' \"$body\" | sed -n '\''s/.*\"in_flight\":\\([0-9]*\\).*/\\1/p'\''); if printf '\''%s'\'' \"$body\" | grep -q '\''\"draining\":true'\''; then d=true; else d=false; fi; echo \"pre-drain: draining=$d in_flight=${n:-?} try=$i/15\"; [ \"$d\" = true ] && [ \"${n:-1}\" = 0 ] && break; if [ -n \"$n\" ]; then if [ \"$prev\" -ge 0 ] && [ \"$n\" -ge \"$prev\" ]; then stall=$((stall+1)); else stall=0; fi; prev=$n; [ \"$stall\" -ge 3 ] && { echo \"pre-drain: in_flight plateaued at $n for 3 tries (long-lived streams will not finish in the drain budget); stop waiting — swap will sever them\"; break; }; fi; sleep 2; done; else echo \"pre-drain SKIPPED: outgoing container not healthy (health=$OLD_HEALTH) — Caddy already flipped it out, nothing to drain; straight to recreate (avoids burning the ~30s drain budget on a crash-looping container, which previously starved the new container health window and tripped the rollback trap — uk1 2026-06-03)\"; fi",
     "echo \"=== swap: stop-old + start-new (image already on disk from pull above) ===\"",
-    "cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey",
+    "cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate --timeout 30 tokenkey",
     "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done",
     "FINAL=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing)",
     "if [ \"$FINAL\" != \"healthy\" ]; then echo \"::error::container did not reach healthy state (final=$FINAL)\"; sudo docker logs tokenkey --since 2m 2>&1 | tail -50; exit 1; fi",
     "trap - ERR",
+    "echo \"=== prune stale ghcr image tags (keep newest 3 + in-use) — runs on every deploy; the tokenkey.service ExecStartPost hook only fires on full restart, so deploys never pruned and tags piled to 50+/14G per node before this ===\"; PRUNE=/usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh; [ -x \"$PRUNE\" ] || PRUNE=/usr/local/bin/tokenkey-prune-ghcr-app-tags.sh; if [ -x \"$PRUNE\" ]; then sudo env TOKENKEY_GHCR_KEEP_TAGS=3 \"$PRUNE\" || echo '\''::warning::ghcr prune failed (non-fatal)'\''; else echo '\''no ghcr prune script on box; skipping'\''; fi; sudo docker image prune -f >/dev/null 2>&1 || true",
     "cd /var/lib/tokenkey && sudo docker compose ps",
     "sudo docker logs tokenkey --since 2m 2>&1 | tail -20"
-  ]
+  ])
 }' > "${params_file}"
+
+# Render-only seam: write the SSM command document and exit before any AWS call.
+# Lets the prod-vs-edge QA-export injection be asserted deterministically in tests
+# (see ops/stage0/test_deploy_via_ssm_qa_export.py) without touching live infra.
+if [[ -n "${STAGE0_RENDER_ONLY:-}" ]]; then
+  echo "stage0_deploy_via_ssm: STAGE0_RENDER_ONLY set; wrote ${params_file} and exiting" >&2
+  exit 0
+fi
 
 eff_instance_id="${INSTANCE_ID}"
 if [[ "${INSTANCE_ID}" == mi-* && -n "${EDGE_ID:-}" ]]; then

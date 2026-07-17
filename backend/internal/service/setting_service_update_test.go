@@ -49,6 +49,42 @@ func (s *settingUpdateRepoStub) Delete(ctx context.Context, key string) error {
 	panic("unexpected Delete call")
 }
 
+type settingGetAllRepoStub struct {
+	values map[string]string
+}
+
+func (s *settingGetAllRepoStub) Get(ctx context.Context, key string) (*Setting, error) {
+	panic("unexpected Get call")
+}
+
+func (s *settingGetAllRepoStub) GetValue(ctx context.Context, key string) (string, error) {
+	panic("unexpected GetValue call")
+}
+
+func (s *settingGetAllRepoStub) Set(ctx context.Context, key, value string) error {
+	panic("unexpected Set call")
+}
+
+func (s *settingGetAllRepoStub) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
+	panic("unexpected GetMultiple call")
+}
+
+func (s *settingGetAllRepoStub) SetMultiple(ctx context.Context, settings map[string]string) error {
+	panic("unexpected SetMultiple call")
+}
+
+func (s *settingGetAllRepoStub) GetAll(ctx context.Context) (map[string]string, error) {
+	out := make(map[string]string, len(s.values))
+	for key, value := range s.values {
+		out[key] = value
+	}
+	return out, nil
+}
+
+func (s *settingGetAllRepoStub) Delete(ctx context.Context, key string) error {
+	panic("unexpected Delete call")
+}
+
 type settingAntigravityUARepoStub struct {
 	values map[string]string
 }
@@ -88,6 +124,37 @@ type defaultSubGroupReaderStub struct {
 	byID  map[int64]*Group
 	errBy map[int64]error
 	calls []int64
+}
+
+func TestSettingService_AffiliateAdminRechargeSetting(t *testing.T) {
+	t.Run("missing value defaults to disabled", func(t *testing.T) {
+		svc := NewSettingService(&settingGetAllRepoStub{values: map[string]string{}}, &config.Config{})
+
+		settings, err := svc.GetAllSettings(context.Background())
+		require.NoError(t, err)
+		require.False(t, settings.AdminRechargeRebateEnabled)
+	})
+
+	t.Run("explicit value is parsed", func(t *testing.T) {
+		svc := NewSettingService(&settingGetAllRepoStub{values: map[string]string{
+			SettingKeyAffiliateAdminRechargeEnabled: "true",
+		}}, &config.Config{})
+
+		settings, err := svc.GetAllSettings(context.Background())
+		require.NoError(t, err)
+		require.True(t, settings.AdminRechargeRebateEnabled)
+	})
+
+	t.Run("value is persisted", func(t *testing.T) {
+		repo := &settingUpdateRepoStub{}
+		svc := NewSettingService(repo, &config.Config{})
+
+		err := svc.UpdateSettings(context.Background(), &SystemSettings{
+			AdminRechargeRebateEnabled: true,
+		})
+		require.NoError(t, err)
+		require.Equal(t, "true", repo.updates[SettingKeyAffiliateAdminRechargeEnabled])
+	})
 }
 
 func (s *defaultSubGroupReaderStub) GetByID(ctx context.Context, id int64) (*Group, error) {
@@ -272,15 +339,30 @@ func TestSettingService_UpdateSettings_TokenKeyBridge(t *testing.T) {
 }
 
 func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
 
 	err := svc.UpdateSettings(context.Background(), &SystemSettings{
-		PaymentVisibleMethodAlipaySource:  "alipay",
-		PaymentVisibleMethodWxpaySource:   "easypay",
-		PaymentVisibleMethodAlipayEnabled: true,
-		PaymentVisibleMethodWxpayEnabled:  false,
-		OpenAIAdvancedSchedulerEnabled:    true,
+		PaymentVisibleMethodAlipaySource:                   "alipay",
+		PaymentVisibleMethodWxpaySource:                    "easypay",
+		PaymentVisibleMethodAlipayEnabled:                  true,
+		PaymentVisibleMethodWxpayEnabled:                   false,
+		OpenAIAdvancedSchedulerEnabled:                     true,
+		OpenAIAdvancedSchedulerStickyWeightedEnabled:       true,
+		OpenAIAdvancedSchedulerSubscriptionPriorityEnabled: true,
+		OpenAIAdvancedSchedulerLBTopK:                      " 3 ",
+		OpenAIAdvancedSchedulerWeightPriority:              "2.50",
+		OpenAIAdvancedSchedulerWeightLoad:                  "0",
+		OpenAIAdvancedSchedulerWeightQueue:                 "0.75",
+		OpenAIAdvancedSchedulerWeightErrorRate:             "1.25",
+		OpenAIAdvancedSchedulerWeightTTFT:                  "0.5",
+		OpenAIAdvancedSchedulerWeightReset:                 "",
+		OpenAIAdvancedSchedulerWeightQuotaHeadroom:         "0.2",
+		OpenAIAdvancedSchedulerWeightPreviousResponse:      "8",
+		OpenAIAdvancedSchedulerWeightSessionSticky:         "4",
 	})
 	require.NoError(t, err)
 	require.Equal(t, VisibleMethodSourceOfficialAlipay, repo.updates[SettingPaymentVisibleMethodAlipaySource])
@@ -288,6 +370,69 @@ func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler
 	require.Equal(t, "true", repo.updates[SettingPaymentVisibleMethodAlipayEnabled])
 	require.Equal(t, "false", repo.updates[SettingPaymentVisibleMethodWxpayEnabled])
 	require.Equal(t, "true", repo.updates[openAIAdvancedSchedulerSettingKey])
+	require.Equal(t, "true", repo.updates[SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled])
+	require.Equal(t, "true", repo.updates[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled])
+	require.Equal(t, "3", repo.updates[SettingKeyOpenAIAdvancedSchedulerLBTopK])
+	require.Equal(t, "2.5", repo.updates[SettingKeyOpenAIAdvancedSchedulerWeightPriority])
+	require.Equal(t, "0", repo.updates[SettingKeyOpenAIAdvancedSchedulerWeightLoad])
+	require.Equal(t, "0.75", repo.updates[SettingKeyOpenAIAdvancedSchedulerWeightQueue])
+	require.Equal(t, "1.25", repo.updates[SettingKeyOpenAIAdvancedSchedulerWeightErrorRate])
+	require.Equal(t, "0.5", repo.updates[SettingKeyOpenAIAdvancedSchedulerWeightTTFT])
+	require.Equal(t, "", repo.updates[SettingKeyOpenAIAdvancedSchedulerWeightReset])
+	require.Equal(t, "0.2", repo.updates[SettingKeyOpenAIAdvancedSchedulerWeightQuotaHeadroom])
+	require.Equal(t, "8", repo.updates[SettingKeyOpenAIAdvancedSchedulerWeightPreviousResponse])
+	require.Equal(t, "4", repo.updates[SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky])
+}
+
+func TestSettingService_GetAllSettings_OpenAIAdvancedSchedulerEffectiveValuesUseConfig(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.LBTopK = 13
+	cfg.Gateway.OpenAIWS.SchedulerScoreWeights = config.GatewayOpenAIWSSchedulerScoreWeights{
+		Priority:         2,
+		Load:             3,
+		Queue:            4,
+		ErrorRate:        5,
+		TTFT:             6,
+		Reset:            7,
+		QuotaHeadroom:    8,
+		PreviousResponse: 9,
+		SessionSticky:    10,
+	}
+	svc := NewSettingService(&settingGetAllRepoStub{values: map[string]string{
+		SettingKeyOpenAIAdvancedSchedulerLBTopK:              "3",
+		SettingKeyOpenAIAdvancedSchedulerWeightPriority:      "99",
+		SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky: "88",
+	}}, cfg)
+
+	settings, err := svc.GetAllSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "3", settings.OpenAIAdvancedSchedulerLBTopK)
+	require.Equal(t, "99", settings.OpenAIAdvancedSchedulerWeightPriority)
+	require.Equal(t, "88", settings.OpenAIAdvancedSchedulerWeightSessionSticky)
+	require.Equal(t, "13", settings.OpenAIAdvancedSchedulerEffectiveLBTopK)
+	require.Equal(t, "2", settings.OpenAIAdvancedSchedulerEffectiveWeightPriority)
+	require.Equal(t, "3", settings.OpenAIAdvancedSchedulerEffectiveWeightLoad)
+	require.Equal(t, "10", settings.OpenAIAdvancedSchedulerEffectiveWeightSessionSticky)
+}
+
+func TestSettingService_GetAllSettings_TokenKeyDefaultsUseCompanions(t *testing.T) {
+	svc := NewSettingService(&settingGetAllRepoStub{values: map[string]string{}}, &config.Config{})
+
+	settings, err := svc.GetAllSettings(context.Background())
+	require.NoError(t, err)
+
+	require.Equal(t, "TokenKey", settings.SiteName)
+	require.Equal(t, "AI API Gateway Platform", settings.SiteSubtitle)
+	require.Equal(t, "claude-sonnet-4-6", settings.FallbackModelAnthropic)
+	require.Equal(t, "gpt-5.4", settings.FallbackModelOpenAI)
+	require.Equal(t, "gemini-3-flash", settings.FallbackModelAntigravity)
+	require.True(t, settings.StickyRoutingEnabled)
+	require.True(t, settings.NewAPIBridgeEnabled)
+	require.True(t, settings.SignupBonusEnabled)
+	require.True(t, settings.AutoGenerateDefaultToken)
+	require.Equal(t, "trial", settings.AutoGenerateDefaultTokenName)
+	require.True(t, settings.PricingCatalogPublic)
+	require.True(t, settings.AnthropicRequestNormalizeEnabled)
 }
 
 func TestSettingService_ParseSettings_TokenKeyBridge(t *testing.T) {

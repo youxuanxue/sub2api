@@ -32,8 +32,6 @@ type tierRequest struct {
 	MaxSessions               int     `json:"max_sessions"`
 	RPMStickyBuffer           int     `json:"rpm_sticky_buffer"`
 	SessionIdleTimeoutMinutes int     `json:"session_idle_timeout_minutes"`
-	WindowCostLimit           float64 `json:"window_cost_limit"`
-	WindowCostStickyReserve   float64 `json:"window_cost_sticky_reserve"`
 	CacheTTLOverrideEnabled   bool    `json:"cache_ttl_override_enabled"`
 	CacheTTLOverrideTarget    *string `json:"cache_ttl_override_target"`
 	TLSProfileName            *string `json:"tls_profile_name"`
@@ -51,8 +49,6 @@ func (r *tierRequest) toModel() *model.Tier {
 		MaxSessions:               r.MaxSessions,
 		RPMStickyBuffer:           r.RPMStickyBuffer,
 		SessionIdleTimeoutMinutes: r.SessionIdleTimeoutMinutes,
-		WindowCostLimit:           r.WindowCostLimit,
-		WindowCostStickyReserve:   r.WindowCostStickyReserve,
 		CacheTTLOverrideEnabled:   r.CacheTTLOverrideEnabled,
 		CacheTTLOverrideTarget:    r.CacheTTLOverrideTarget,
 		TLSProfileName:            r.TLSProfileName,

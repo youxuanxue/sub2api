@@ -28,6 +28,7 @@ func SetupRouter(
 	apiKeyAuth middleware2.APIKeyAuthMiddleware,
 	eitherAuth middleware2.EitherAuthMiddleware,
 	apiKeyService *service.APIKeyService,
+	userService *service.UserService,
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
 	settingService *service.SettingService,
@@ -64,11 +65,12 @@ func SetupRouter(
 		}
 		return nil
 	}))
+	r.Use(middleware2.ServerTiming(cfg.Server.EnableServerTiming))
 
 	// Serve embedded frontend with settings injection if available
 	if web.HasEmbeddedFrontend() {
-		frontendServer, err := web.NewFrontendServer(settingService)
-		if err != nil {
+		frontendServer, err := web.NewFrontendServer(settingService) //nolint:staticcheck // The embed-tag constructor can fail; the non-embed stub always returns an error.
+		if err != nil {                                              //nolint:staticcheck // The embed-tag constructor can fail; the non-embed stub always returns an error.
 			log.Printf("Warning: Failed to create frontend server with settings injection: %v, using legacy mode", err)
 			r.Use(web.ServeEmbeddedFrontend())
 			settingService.SetOnUpdateCallback(refreshFrameOrigins)
@@ -85,7 +87,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, jwtAuth, adminAuth, apiKeyAuth, eitherAuth, apiKeyService, subscriptionService, opsService, settingService, cfg, redisClient)
+	registerRoutes(r, handlers, jwtAuth, adminAuth, apiKeyAuth, eitherAuth, apiKeyService, userService, subscriptionService, opsService, settingService, cfg, redisClient)
 
 	return r
 }
@@ -99,6 +101,7 @@ func registerRoutes(
 	apiKeyAuth middleware2.APIKeyAuthMiddleware,
 	eitherAuth middleware2.EitherAuthMiddleware,
 	apiKeyService *service.APIKeyService,
+	userService *service.UserService,
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
 	settingService *service.SettingService,
@@ -114,9 +117,10 @@ func registerRoutes(
 	// 注册各模块路由
 	routes.RegisterAuthRoutes(v1, h, jwtAuth, redisClient, settingService)
 	routes.RegisterUserRoutes(v1, h, jwtAuth, eitherAuth, settingService)
-	routes.RegisterAdminRoutes(v1, h, adminAuth)
+	routes.RegisterAdminRoutes(v1, h, adminAuth, settingService)
 	// TK: internal edge capacity read (surface C) — prod reconciler ↔ edge over HTTP.
-	routes.RegisterTKEdgeRoutes(v1, h, apiKeyService)
+	// userService backs the admin-owner gate on the edge account WRITE ops subgroup.
+	routes.RegisterTKEdgeRoutes(v1, h, apiKeyService, userService)
 	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, cfg)
 	routes.RegisterPaymentRoutes(v1, h.Payment, h.PaymentWebhook, h.Admin.Payment, jwtAuth, adminAuth, settingService)
 

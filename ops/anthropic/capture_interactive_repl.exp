@@ -1,0 +1,66 @@
+#!/usr/bin/expect -f
+# Drive one interactive Claude Code REPL turn (PTY) for HTTP fingerprint capture.
+set timeout [expr {[info exists env(TK_CAPTURE_TIMEOUT)] ? $env(TK_CAPTURE_TIMEOUT) : 240}]
+if {[info exists env(TK_CAPTURE_VERBOSE)] && $env(TK_CAPTURE_VERBOSE) ne ""} {
+  log_user 1
+} else {
+  log_user 0
+}
+
+set home $env(HOME)
+set path $env(PATH)
+set work $env(TK_CAPTURE_WORK)
+set settings "$work/settings-override.json"
+set claude "$env(TK_CAPTURE_CLAUDE_BIN)"
+if {![info exists env(TK_CAPTURE_CLAUDE_BIN)] || $claude eq ""} {
+  set claude "$home/.local/bin/claude"
+}
+set ca "$home/.mitmproxy/mitmproxy-ca-cert.pem"
+set model "claude-haiku-4-5-20251001"
+if {[info exists env(TK_CAPTURE_MODEL)] && $env(TK_CAPTURE_MODEL) ne ""} {
+  set model $env(TK_CAPTURE_MODEL)
+}
+set prompt "Say only the word PONG"
+if {[info exists env(TK_CAPTURE_PROMPT)] && $env(TK_CAPTURE_PROMPT) ne ""} {
+  set prompt $env(TK_CAPTURE_PROMPT)
+}
+set config_dir "$home/.claude"
+if {[info exists env(TK_CAPTURE_CONFIG_DIR)] && $env(TK_CAPTURE_CONFIG_DIR) ne ""} {
+  set config_dir $env(TK_CAPTURE_CONFIG_DIR)
+}
+
+spawn -noecho bash
+expect "$ "
+send "cd /tmp\r"
+expect "$ "
+send "export HOME=$home PATH=$path TERM=xterm-256color CLAUDE_CONFIG_DIR=$config_dir NODE_EXTRA_CA_CERTS=$ca NODE_TLS_REJECT_UNAUTHORIZED=0 CLAUDE_CODE_REMOTE_SEND_KEEPALIVES=true\r"
+expect "$ "
+send "$claude --settings $settings --model $model --max-budget-usd 0.15\r"
+
+expect {
+  -re {Not logged in|Please run /login|401|403|Invalid API key|permission_error} {
+    puts "AUTH_FAIL"
+    exit 2
+  }
+  -re {trust this folder|Quick safety check|Yes, I trust|Enter to confirm} {
+    send "\r"
+    exp_continue
+  }
+  -re {How can I help|Claude Code|Welcome|>\s} {
+    send "$prompt\r"
+    exp_continue
+  }
+  -re {\mPONG\M} {
+    sleep 2
+    send "\x04"
+    exp_continue
+  }
+  timeout {
+    send "\x03"
+    after 500
+    send "\x04"
+    after 500
+    exit 124
+  }
+  eof
+}

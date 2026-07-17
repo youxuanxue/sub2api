@@ -3,6 +3,7 @@
 package apikey
 
 import (
+	"fmt"
 	"time"
 
 	"entgo.io/ent"
@@ -31,6 +32,8 @@ const (
 	FieldGroupID = "group_id"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
+	// FieldRoutingMode holds the string denoting the routing_mode field in the database.
+	FieldRoutingMode = "routing_mode"
 	// FieldLastUsedAt holds the string denoting the last_used_at field in the database.
 	FieldLastUsedAt = "last_used_at"
 	// FieldIPWhitelist holds the string denoting the ip_whitelist field in the database.
@@ -103,6 +106,7 @@ var Columns = []string{
 	FieldName,
 	FieldGroupID,
 	FieldStatus,
+	FieldRoutingMode,
 	FieldLastUsedAt,
 	FieldIPWhitelist,
 	FieldIPBlacklist,
@@ -170,6 +174,32 @@ var (
 	DefaultUsage7d float64
 )
 
+// RoutingMode defines the type for the "routing_mode" enum field.
+type RoutingMode string
+
+// RoutingModeDirect is the default value of the RoutingMode enum.
+const DefaultRoutingMode = RoutingModeDirect
+
+// RoutingMode values.
+const (
+	RoutingModeDirect    RoutingMode = "direct"
+	RoutingModeUniversal RoutingMode = "universal"
+)
+
+func (rm RoutingMode) String() string {
+	return string(rm)
+}
+
+// RoutingModeValidator is a validator for the "routing_mode" field enum values. It is called by the builders before save.
+func RoutingModeValidator(rm RoutingMode) error {
+	switch rm {
+	case RoutingModeDirect, RoutingModeUniversal:
+		return nil
+	default:
+		return fmt.Errorf("apikey: invalid enum value for routing_mode field: %q", rm)
+	}
+}
+
 // OrderOption defines the ordering options for the APIKey queries.
 type OrderOption func(*sql.Selector)
 
@@ -216,6 +246,11 @@ func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
 // ByStatus orders the results by the status field.
 func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
+}
+
+// ByRoutingMode orders the results by the routing_mode field.
+func ByRoutingMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRoutingMode, opts...).ToFunc()
 }
 
 // ByLastUsedAt orders the results by the last_used_at field.

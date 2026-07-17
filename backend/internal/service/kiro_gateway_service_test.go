@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 )
 
@@ -64,43 +65,6 @@ func TestAccount_ToKiroProtoAccount_RegionDefault(t *testing.T) {
 	require.Equal(t, "us-east-1", pa.Region)
 }
 
-// ---- IsKiroEnabled ----
-
-type kiroSettingRepoStub struct {
-	value string
-	err   error
-}
-
-func (s *kiroSettingRepoStub) Get(context.Context, string) (*Setting, error) {
-	panic("unexpected Get")
-}
-func (s *kiroSettingRepoStub) GetValue(_ context.Context, _ string) (string, error) {
-	return s.value, s.err
-}
-func (s *kiroSettingRepoStub) Set(context.Context, string, string) error { panic("unexpected Set") }
-func (s *kiroSettingRepoStub) GetMultiple(context.Context, []string) (map[string]string, error) {
-	panic("unexpected GetMultiple")
-}
-func (s *kiroSettingRepoStub) SetMultiple(context.Context, map[string]string) error {
-	panic("unexpected SetMultiple")
-}
-func (s *kiroSettingRepoStub) GetAll(context.Context) (map[string]string, error) {
-	panic("unexpected GetAll")
-}
-func (s *kiroSettingRepoStub) Delete(context.Context, string) error { panic("unexpected Delete") }
-
-func newKiroSettingService(value string, err error) *SettingService {
-	return NewSettingService(&kiroSettingRepoStub{value: value, err: err}, nil)
-}
-
-func TestSettingService_IsKiroEnabled(t *testing.T) {
-	ctx := context.Background()
-	require.True(t, newKiroSettingService("true", nil).IsKiroEnabled(ctx))
-	require.False(t, newKiroSettingService("false", nil).IsKiroEnabled(ctx))
-	require.False(t, newKiroSettingService("", nil).IsKiroEnabled(ctx))                // unset
-	require.False(t, newKiroSettingService("", ErrSettingNotFound).IsKiroEnabled(ctx)) // default closed
-}
-
 // ---- Forward (fake HTTPDoer + canned EventStream) ----
 
 // buildKiroEventStreamMessage hand-assembles a single AWS Event Stream binary
@@ -118,8 +82,27 @@ func buildKiroEventStreamMessage(eventType string, payload []byte) []byte {
 	binary.BigEndian.PutUint16(vlen[:], uint16(len(eventType)))
 	headers.Write(vlen[:])
 	headers.WriteString(eventType)
+	return buildKiroEventStreamFrame(headers.Bytes(), payload)
+}
 
-	headerBytes := headers.Bytes()
+func buildKiroEventStreamException(exceptionType string, payload []byte) []byte {
+	var headers bytes.Buffer
+	writeStringHeader := func(name, value string) {
+		headers.WriteByte(byte(len(name)))
+		headers.WriteString(name)
+		headers.WriteByte(7)
+		var vlen [2]byte
+		binary.BigEndian.PutUint16(vlen[:], uint16(len(value)))
+		headers.Write(vlen[:])
+		headers.WriteString(value)
+	}
+	writeStringHeader(":message-type", "exception")
+	writeStringHeader(":exception-type", exceptionType)
+	return buildKiroEventStreamFrame(headers.Bytes(), payload)
+}
+
+func buildKiroEventStreamFrame(headerBytes, payload []byte) []byte {
+
 	headersLen := len(headerBytes)
 	totalLen := 12 + headersLen + len(payload) + 4
 
@@ -141,6 +124,28 @@ type kiroFakeUpstream struct {
 	body       []byte
 	sawTLS     bool
 	gotRequest bool
+}
+
+type kiroSequenceUpstream struct {
+	bodies [][]byte
+	calls  int
+}
+
+func (u *kiroSequenceUpstream) Do(*http.Request, string, int64, int) (*http.Response, error) {
+	return nil, fmt.Errorf("unexpected Do call")
+}
+
+func (u *kiroSequenceUpstream) DoWithTLS(_ *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	index := u.calls
+	u.calls++
+	if index >= len(u.bodies) {
+		index = len(u.bodies) - 1
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(bytes.NewReader(u.bodies[index])),
+	}, nil
 }
 
 func (u *kiroFakeUpstream) Do(*http.Request, string, int64, int) (*http.Response, error) {
@@ -165,6 +170,7 @@ func newKiroAccountForTest() *Account {
 		Credentials: map[string]any{
 			"access_token":  "at",
 			"refresh_token": "rt",
+			"profile_arn":   "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
 			"region":        "us-east-1",
 			"auth_method":   "social",
 		},
@@ -180,7 +186,7 @@ func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 		[]byte(`{"content":"hello world","inputTokens":12,"outputTokens":5}`))
 	upstream := &kiroFakeUpstream{body: frame}
 
-	svc := NewKiroGatewayService(upstream, nil, newKiroSettingService("true", nil))
+	svc := NewKiroGatewayService(upstream, nil, nil)
 
 	body, _ := json.Marshal(map[string]any{
 		"model":      "claude-sonnet-4",
@@ -212,6 +218,53 @@ func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 	require.Equal(t, result.RequestID, resp["id"])
 }
 
+func TestKiroGatewayService_Forward_EmptyResponseTriggersFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	svc := NewKiroGatewayService(&kiroFakeUpstream{}, nil, nil)
+	body, _ := json.Marshal(map[string]any{
+		"model":    "claude-sonnet-4",
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		"stream":   false,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4", Stream: false}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+}
+
+func TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	partial := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"discard me"}`))
+	partial = append(partial, []byte{0, 0, 0, 20}...)
+	recovered := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"recovered"}`))
+	upstream := &kiroSequenceUpstream{bodies: [][]byte{partial, recovered}}
+	svc := NewKiroGatewayService(upstream, nil, nil)
+	body, _ := json.Marshal(map[string]any{
+		"model":      "claude-opus-4-8",
+		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
+		"max_tokens": 16,
+		"stream":     false,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-4-8", Stream: false}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 2, upstream.calls)
+	require.Contains(t, rec.Body.String(), "recovered")
+	require.NotContains(t, rec.Body.String(), "discard me")
+}
+
 func TestKiroGatewayService_Forward_Streaming(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -221,7 +274,7 @@ func TestKiroGatewayService_Forward_Streaming(t *testing.T) {
 		[]byte(`{"content":"hi there","inputTokens":8,"outputTokens":3}`))
 	upstream := &kiroFakeUpstream{body: frame}
 
-	svc := NewKiroGatewayService(upstream, nil, newKiroSettingService("true", nil))
+	svc := NewKiroGatewayService(upstream, nil, nil)
 
 	body, _ := json.Marshal(map[string]any{
 		"model":      "claude-sonnet-4",
@@ -250,10 +303,80 @@ func TestKiroGatewayService_Forward_Streaming(t *testing.T) {
 	require.Contains(t, out, "event: message_stop")
 }
 
+func TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	frame := buildKiroEventStreamMessage("assistantResponseEvent",
+		[]byte(`{"content":"partial answer","inputTokens":8,"outputTokens":3}`))
+	truncatedPrelude := []byte{0, 0, 0, 20}
+	upstream := &kiroSequenceUpstream{bodies: [][]byte{append(frame, truncatedPrelude...)}}
+
+	svc := NewKiroGatewayService(upstream, nil, nil)
+
+	body, _ := json.Marshal(map[string]any{
+		"model":      "claude-sonnet-4",
+		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
+		"max_tokens": 16,
+		"stream":     true,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4", Stream: true}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.Equal(t, 1, upstream.calls, "committed stream must not be retried")
+	require.True(t, IsResponseCommitted(c))
+
+	out := rec.Body.String()
+	require.Contains(t, out, "event: message_start")
+	require.Contains(t, out, "partial answer")
+	require.Contains(t, out, "event: error")
+	require.Contains(t, out, `"type":"stream_read_error"`)
+	require.Contains(t, out, "upstream stream disconnected: unexpected EOF")
+	require.NotContains(t, out, "event: message_delta")
+	require.NotContains(t, out, "event: message_stop")
+
+	rawEvents, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := rawEvents.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, "stream_error", events[0].Kind)
+	require.Equal(t, PlatformKiro, events[0].Platform)
+	require.Equal(t, int64(99), events[0].AccountID)
+	require.Contains(t, events[0].Message, "unexpected EOF")
+}
+
+func TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	upstream := &kiroSequenceUpstream{bodies: [][]byte{{0, 0, 0, 20}}}
+	svc := NewKiroGatewayService(upstream, nil, nil)
+	body, _ := json.Marshal(map[string]any{
+		"model":    "claude-sonnet-4",
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		"stream":   true,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4", Stream: true}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.Empty(t, rec.Body.String(), "no SSE bytes may be written before failover")
+}
+
 // kiroStatusUpstream returns a canned non-200 response with a fixed body,
 // modeling the Kiro upstream rejecting a request (e.g. 400 INVALID_MODEL_ID).
-// The vendored CallKiroAPIWithDoer reads the body into its error string, so all
-// three endpoints in the fallback list see the same rejection.
+// The vendored Kiro client reads the body into its error string, so both
+// endpoints in the supported fallback list see the same rejection.
 type kiroStatusUpstream struct {
 	status int
 	body   string
@@ -284,7 +407,7 @@ func TestKiroGatewayService_Forward_Streaming_InvalidModel_NoEmpty200(t *testing
 		status: http.StatusBadRequest,
 		body:   `{"reason":"INVALID_MODEL_ID","message":"model not found"}`,
 	}
-	svc := NewKiroGatewayService(upstream, nil, newKiroSettingService("true", nil))
+	svc := NewKiroGatewayService(upstream, nil, nil)
 
 	body, _ := json.Marshal(map[string]any{
 		"model":      "claude-haiku-4.5",
@@ -311,6 +434,68 @@ func TestKiroGatewayService_Forward_Streaming_InvalidModel_NoEmpty200(t *testing
 	require.NotContains(t, rec.Body.String(), "message_start")
 }
 
+func TestKiroGatewayService_Forward_EventStreamThrottlingTriggersFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	upstream := &kiroFakeUpstream{
+		body: buildKiroEventStreamException("ThrottlingException", []byte(`{"message":"slow down"}`)),
+	}
+	svc := NewKiroGatewayService(upstream, nil, nil)
+	body, _ := json.Marshal(map[string]any{
+		"model":    "claude-sonnet-4",
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		"stream":   false,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4", Stream: false}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
+}
+
+func TestKiroGatewayService_Forward_EmptyEventStreamExceptionPreservesFailoverClass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	upstream := &kiroFakeUpstream{
+		body: buildKiroEventStreamException("ThrottlingException", nil),
+	}
+	svc := NewKiroGatewayService(upstream, nil, nil)
+	body, _ := json.Marshal(map[string]any{
+		"model":    "claude-sonnet-4",
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		"stream":   false,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4", Stream: false}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
+}
+
+func TestClassifyKiroForwardError_EventStreamValidationDoesNotFailover(t *testing.T) {
+	err := classifyKiroForwardError(
+		fmt.Errorf(`kiro event stream error: ValidationException: {"message":"invalid tool schema"}`),
+		"claude-sonnet-4",
+	)
+	var invalidRequestErr *KiroInvalidRequestError
+	require.ErrorAs(t, err, &invalidRequestErr)
+	require.Equal(t, http.StatusBadRequest, invalidRequestErr.StatusCode)
+	require.Equal(t, "invalid tool schema", invalidRequestErr.ClientMessage())
+
+	var failoverErr *UpstreamFailoverError
+	require.NotErrorAs(t, err, &failoverErr)
+}
+
 func TestKiroGatewayService_Forward_NonStreaming_InvalidModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -320,7 +505,7 @@ func TestKiroGatewayService_Forward_NonStreaming_InvalidModel(t *testing.T) {
 		status: http.StatusBadRequest,
 		body:   `{"reason":"INVALID_MODEL_ID"}`,
 	}
-	svc := NewKiroGatewayService(upstream, nil, newKiroSettingService("true", nil))
+	svc := NewKiroGatewayService(upstream, nil, nil)
 
 	body, _ := json.Marshal(map[string]any{
 		"model":    "claude-haiku-4.5",
@@ -347,14 +532,24 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	require.ErrorAs(t, err, &invalidModelErr)
 	require.Equal(t, "claude-haiku-4.5", invalidModelErr.Model)
 
-	// 400 without the INVALID_MODEL_ID marker → generic wrapped error, NOT typed.
+	// 400 without the INVALID_MODEL_ID marker → failover error, NOT typed invalid-model.
 	other := classifyKiroForwardError(
 		fmt.Errorf("HTTP 400 from CodeWhisperer: {\"reason\":\"THROTTLED\"}"),
 		"claude-haiku-4.5",
 	)
 	require.Error(t, other)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, other, &failoverErr)
+	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
+
+	validation := classifyKiroForwardError(
+		fmt.Errorf("HTTP 400 from CodeWhisperer: {\"__type\":\"ValidationException\",\"message\":\"invalid tool schema\"}"),
+		"claude-sonnet-4",
+	)
+	var invalidRequestErr *KiroInvalidRequestError
+	require.ErrorAs(t, validation, &invalidRequestErr)
+	require.Equal(t, "invalid tool schema", invalidRequestErr.ClientMessage())
 	require.NotErrorAs(t, other, &invalidModelErr)
-	require.Contains(t, other.Error(), "kiro upstream call failed")
 
 	// 500 with the marker substring → still not classified as invalid-model.
 	notFourHundred := classifyKiroForwardError(
@@ -362,23 +557,92 @@ func TestClassifyKiroForwardError(t *testing.T) {
 		"claude-haiku-4.5",
 	)
 	require.NotErrorAs(t, notFourHundred, &invalidModelErr)
+	require.ErrorAs(t, notFourHundred, &failoverErr)
+	require.Equal(t, http.StatusInternalServerError, failoverErr.StatusCode)
+
+	unauthorized := classifyKiroForwardError(
+		fmt.Errorf("HTTP 401 from CodeWhisperer: Invalid bearer token"),
+		"claude-sonnet-4",
+	)
+	require.ErrorAs(t, unauthorized, &failoverErr)
+	require.Equal(t, http.StatusUnauthorized, failoverErr.StatusCode)
+	require.Equal(t, "Invalid bearer token", string(failoverErr.ResponseBody))
+
+	wrappedUnauthorized := classifyKiroForwardError(
+		fmt.Errorf("resolve profileArn: HTTP 401 from management: Invalid bearer token"),
+		"claude-sonnet-4",
+	)
+	require.ErrorAs(t, wrappedUnauthorized, &failoverErr)
+	require.Equal(t, http.StatusUnauthorized, failoverErr.StatusCode)
 
 	// nil passes through.
 	require.NoError(t, classifyKiroForwardError(nil, "m"))
+
+	quota := classifyKiroForwardError(fmt.Errorf("quota exhausted on AmazonQ"), "claude-sonnet-4-5")
+	var quotaErr *KiroEndpointQuotaExhaustedError
+	require.ErrorAs(t, quota, &quotaErr)
+	require.Equal(t, tkKiroEndpointQuotaExhaustedClient, quotaErr.ClientMessage())
 }
 
-func TestKiroGatewayService_Forward_DisabledErrors(t *testing.T) {
+func TestClassifyKiroForwardError_TransportFailureTriggersFailover(t *testing.T) {
+	err := classifyKiroForwardError(fmt.Errorf("dial tcp 10.0.0.1:443: connect: connection refused"), "claude-sonnet-4")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.JSONEq(t, `{"error":{"type":"upstream_error","message":"Upstream request failed"}}`, string(failoverErr.ResponseBody))
+}
+
+func TestClassifyKiroForwardError_ContextCanceledDoesNotTriggerFailover(t *testing.T) {
+	err := classifyKiroForwardError(context.Canceled, "claude-sonnet-4")
+	var failoverErr *UpstreamFailoverError
+	require.Error(t, err)
+	require.NotErrorAs(t, err, &failoverErr)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestGatewayService_Forward_Kiro401TriggersRateLimitRefresh(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 
-	upstream := &kiroFakeUpstream{body: nil}
-	svc := NewKiroGatewayService(upstream, nil, newKiroSettingService("false", nil))
+	upstream := &kiroStatusUpstream{
+		status: http.StatusUnauthorized,
+		body:   "Invalid bearer token",
+	}
+	expiresAt := time.Now().Add(2 * time.Hour)
+	account := newKiroOAuth401Account(730, expiresAt)
+	repo := &rateLimitAccountRepoStub{accountOnGet: account}
+	rateLimit := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	rateLimit.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	rateLimit.SetKiroOAuthRefreshExecutor(&refreshAPIExecutorStub{
+		needsRefresh: false,
+		credentials: map[string]any{
+			"access_token":  "new-at",
+			"refresh_token": "new-rt",
+			"expires_at":    expiresAt.Add(time.Hour).UTC().Format(time.RFC3339),
+		},
+	})
 
-	parsed := &ParsedRequest{Body: NewRequestBodyRef([]byte(`{"model":"claude-sonnet-4"}`)), Model: "claude-sonnet-4"}
-	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	svc := &GatewayService{
+		kiroGateway:      NewKiroGatewayService(upstream, nil, nil),
+		rateLimitService: rateLimit,
+	}
+	body, _ := json.Marshal(map[string]any{
+		"model":    "claude-sonnet-4",
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		"stream":   false,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4", Stream: false}
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+
 	require.Error(t, err)
 	require.Nil(t, result)
-	require.Contains(t, err.Error(), "kiro platform is disabled")
-	require.False(t, upstream.gotRequest, "upstream must not be called when disabled")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusUnauthorized, failoverErr.StatusCode)
+	require.Equal(t, 1, repo.updateCredentialsCalls)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 1, repo.clearErrorCalls)
+	require.Equal(t, 1, repo.setSchedulableCalls)
 }

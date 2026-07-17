@@ -7,7 +7,11 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import subscriptionsAPI from '@/api/subscriptions'
 import { isBrowserOffline, isNetworkError } from '@/api/client.tk'
+import { useVisibilityAwarePoller } from '@/composables/useVisibilityAwarePoller'
 import type { UserSubscription } from '@/types'
+
+// Poll interval: 5 minutes
+const POLL_INTERVAL_MS = 5 * 60 * 1000
 
 // Cache TTL: 60 seconds
 const CACHE_TTL_MS = 60_000
@@ -25,8 +29,16 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
   // In-flight request deduplication
   let activePromise: Promise<UserSubscription[]> | null = null
 
-  // Auto-refresh interval
-  let pollerInterval: ReturnType<typeof setInterval> | null = null
+  // Auto-refresh poller — only ticks while the tab is visible, catches up on
+  // return. A backgrounded tab no longer force-refreshes subscriptions every 5m.
+  const poller = useVisibilityAwarePoller(() => {
+    if (isBrowserOffline()) return
+    fetchActiveSubscriptions(true).catch((error) => {
+      if (!isNetworkError(error)) {
+        console.error('Subscription polling failed:', error)
+      }
+    })
+  }, POLL_INTERVAL_MS)
 
   // Computed
   const hasActiveSubscriptions = computed(() => activeSubscriptions.value.length > 0)
@@ -93,27 +105,14 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
    * Start auto-refresh polling 
    */
   function startPolling() {
-    if (pollerInterval) return
-
-    pollerInterval = setInterval(() => {
-      if (isBrowserOffline()) return
-
-      fetchActiveSubscriptions(true).catch((error) => {
-        if (!isNetworkError(error)) {
-          console.error('Subscription polling failed:', error)
-        }
-      })
-    }, 5 * 60 * 1000)
+    poller.start()
   }
 
   /**
    * Stop auto-refresh polling
    */
   function stopPolling() {
-    if (pollerInterval) {
-      clearInterval(pollerInterval)
-      pollerInterval = null
-    }
+    poller.stop()
   }
 
   /**

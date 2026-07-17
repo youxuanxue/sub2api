@@ -30,7 +30,11 @@ class CaptureCCFingerprintTest(unittest.TestCase):
             .read_text(encoding="utf-8")
         )["cc_version"]
         self.assertEqual(baseline["canonical_http"]["default_version"], source_cc)
-        self.assertEqual(baseline["mimic_http"]["stainless_package_version"], "0.94.0")
+        source_stainless = json.loads(
+            (mod.REPO_ROOT / "deploy/aws/stage0/tk_canonical_cc_oauth.json")
+            .read_text(encoding="utf-8")
+        )["observed"]["stainless_package_version"]
+        self.assertEqual(baseline["mimic_http"]["stainless_package_version"], source_stainless)
         self.assertIn("claude-code-20250219", baseline["betas"]["sonnet_mimicry"])
         self.assertNotIn("effort-2025-11-24", baseline["betas"]["sonnet_mimicry"])
         self.assertIn("thinking-token-count-2026-05-13", baseline["betas"]["haiku_mimicry"])
@@ -49,10 +53,33 @@ class CaptureCCFingerprintTest(unittest.TestCase):
             "http": {
                 "haiku": {
                     "anthropic_beta": ",".join(baseline["betas"]["haiku_mimicry"]),
+                    "x_stainless": {
+                        "X-Stainless-Runtime-Version": baseline["canonical_http"][
+                            "stainless_runtime_version"
+                        ],
+                        "X-Stainless-Package-Version": baseline["canonical_http"][
+                            "stainless_package_version"
+                        ],
+                    },
                 },
                 "sonnet": {
                     "anthropic_beta": ",".join(baseline["betas"]["sonnet_mimicry"]),
+                    "x_stainless": {
+                        "X-Stainless-Runtime-Version": baseline["canonical_http"][
+                            "stainless_runtime_version"
+                        ],
+                        "X-Stainless-Package-Version": baseline["canonical_http"][
+                            "stainless_package_version"
+                        ],
+                    },
                 },
+            },
+            "system": {
+                "anchors": [
+                    baseline["system"]["billing_prefix"] + ": cc_entrypoint=cli",
+                    baseline["system"]["identity_prefixes"][0]
+                    + ".\n\ndynamic cwd=/x git=main",
+                ]
             },
         }
         rows = mod.diff_baseline_vs_capture(baseline, capture)
@@ -76,6 +103,38 @@ class CaptureCCFingerprintTest(unittest.TestCase):
         stainless_rows = [r for r in rows if "stainless" in r.field]
         self.assertTrue(any(r.status == "mismatch" for r in stainless_rows))
 
+    def test_diff_flags_runtime_mismatch(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        capture = {
+            "schema_version": 1,
+            "cc_version": baseline["canonical_http"]["default_version"],
+            "tls": {
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "stainless_package_version": baseline["canonical_http"]["stainless_package_version"],
+            },
+            "http": {
+                "haiku": {
+                    "x_stainless": {"X-Stainless-Runtime-Version": "v24.3.0"},
+                },
+            },
+        }
+        rows = mod.diff_baseline_vs_capture(baseline, capture)
+        self.assertTrue(mod.has_actionable_mismatch(rows))
+        runtime_rows = [r for r in rows if "runtime_version" in r.field]
+        self.assertTrue(any(r.status == "mismatch" for r in runtime_rows))
+
+    def test_june27_http_bundle_runtime_matches_baseline(self) -> None:
+        bundle_path = mod.REPO_ROOT / ".tls_list/20260627T020627Z-cc-capture.bundle.json"
+        if not bundle_path.is_file():
+            self.skipTest("6/27 capture bundle not present locally")
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        capture = mod.load_capture_bundle(bundle_path)
+        rows = mod.diff_baseline_vs_capture(baseline, capture)
+        runtime_rows = [r for r in rows if "runtime_version" in r.field]
+        self.assertTrue(runtime_rows, "expected runtime_version diff rows")
+        self.assertTrue(all(r.status == "match" for r in runtime_rows))
+
     def test_diff_flags_ja3_mismatch_with_tls_action_note(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
         capture = {
@@ -90,6 +149,57 @@ class CaptureCCFingerprintTest(unittest.TestCase):
         ja3_row = next(r for r in rows if r.field == "tls.ja3_hash")
         self.assertEqual(ja3_row.status, "mismatch")
 
+class TLSObservedFromPcapTests(unittest.TestCase):
+    def test_builds_observed_json_from_tshark_tsv(self) -> None:
+        kiro = mod._load_kiro_ja3_engine()
+        header = "\t".join(kiro.TSHARK_FIELDS)
+        row = "\t".join(
+            [
+                "0x0303",
+                "4865,4866,4867",
+                "0,23,65281",
+                "29,23,24",
+                "0",
+                "0x0403,0x0804",
+                "h2,http/1.1",
+                "0x0304,0x0303",
+                "29",
+                "1",
+                "api.anthropic.com",
+            ]
+        )
+        source_cc = json.loads(
+            (mod.REPO_ROOT / "deploy/aws/stage0/anthropic-http-mimicry-baselines.json")
+            .read_text(encoding="utf-8")
+        )["cc_version"]
+        observed = mod.tls_observed_from_tshark_tsv(
+            header + "\n" + row + "\n",
+            cc_version=source_cc,
+            source="passive-pcap:test",
+        )
+        self.assertEqual(observed["user_agent"], f"claude-cli/{source_cc} (external, cli)")
+        self.assertEqual(observed["server_name"], "api.anthropic.com")
+        self.assertEqual(observed["source"], "passive-pcap:test")
+        self.assertRegex(observed["ja3_hash"], r"^[a-f0-9]{32}$")
+        self.assertTrue(observed["ja3_raw"].startswith("771,"))
+
+    def test_diff_matches_baseline_ja3_from_pcap_observed(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        capture = {
+            "schema_version": 1,
+            "cc_version": baseline["canonical_http"]["default_version"],
+            "tls": {
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+            },
+            "http": {},
+        }
+        rows = mod.diff_baseline_vs_capture(baseline, capture)
+        ja3_row = next(r for r in rows if r.field == "tls.ja3_hash")
+        self.assertEqual(ja3_row.status, "match")
+
+
+class BundleRoundtripTests(unittest.TestCase):
     def test_bundle_roundtrip_write_and_load(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
         bundle = mod.bundle_from_artifacts(
@@ -108,6 +218,112 @@ class CaptureCCFingerprintTest(unittest.TestCase):
             path.write_text(json.dumps(bundle), encoding="utf-8")
             loaded = mod.load_capture_bundle(path)
             self.assertEqual(loaded["cc_version"], baseline["canonical_http"]["default_version"])
+
+    def test_http_only_stub_is_not_tls_evidence(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "source": "baseline_stub_http_only",
+            },
+        )
+        rows = mod.diff_baseline_vs_capture(baseline, bundle)
+        tls_rows = [r for r in rows if r.field.startswith("tls.")]
+        self.assertTrue(all(r.status == "not_observed" for r in tls_rows))
+        self.assertEqual(mod.EXIT_INCOMPLETE, mod.diff_exit_code(tls_rows))
+
+    def test_unsupported_tls_source_is_invalid_evidence(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "source": "manual-cache",
+            },
+        )
+        self.assertFalse(bundle["evidence"]["tls"]["observed"])
+        self.assertFalse(bundle["evidence"]["tls"]["valid"])
+        tls_rows = [
+            row
+            for row in mod.diff_baseline_vs_capture(baseline, bundle)
+            if row.field.startswith("tls.")
+        ]
+        self.assertTrue(all(row.status == "invalid_evidence" for row in tls_rows))
+        self.assertEqual(mod.EXIT_ERROR, mod.diff_exit_code(tls_rows))
+
+    def test_third_party_http_does_not_compare_oauth_betas(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "source": "passive-pcap:test",
+                "stainless_package_version": baseline["canonical_http"][
+                    "stainless_package_version"
+                ],
+            },
+            http_by_variant={
+                "haiku": {
+                    "anthropic_beta": "interleaved-thinking",
+                    "x_stainless": {
+                        "X-Stainless-Runtime-Version": baseline["canonical_http"][
+                            "stainless_runtime_version"
+                        ]
+                    },
+                }
+            },
+            system_anchors=[baseline["system"]["identity_prefixes"][0]],
+            http_cohort=mod.THIRD_PARTY_TOKEN,
+        )
+        rows = mod.diff_baseline_vs_capture(baseline, bundle)
+        beta_rows = [r for r in rows if r.field.startswith("betas.")]
+        self.assertTrue(beta_rows)
+        self.assertTrue(all(r.status == "not_observed" for r in beta_rows))
+        self.assertFalse(mod.has_actionable_mismatch(rows))
+        self.assertEqual(mod.EXIT_INCOMPLETE, mod.diff_exit_code(rows))
+
+    def test_unknown_http_cohort_is_invalid_evidence(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "source": "passive-pcap:test",
+            },
+            http_by_variant={"haiku": {"anthropic_beta": "interleaved-thinking"}},
+        )
+        rows = mod.diff_baseline_vs_capture(baseline, bundle)
+        self.assertTrue(mod.has_invalid_evidence(rows))
+        self.assertEqual(mod.EXIT_ERROR, mod.diff_exit_code(rows))
+
+
+class CaptureConfigClassificationTests(unittest.TestCase):
+    def test_third_party_base_url_wins_over_auth_status_label(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = pathlib.Path(tmp)
+            (config / "settings.json").write_text(
+                json.dumps({"env": {"ANTHROPIC_BASE_URL": "https://api.tokenkey.dev", "ANTHROPIC_AUTH_TOKEN": "redacted"}}),
+                encoding="utf-8",
+            )
+            result = mod.classify_capture_config(
+                config,
+                auth_status={"loggedIn": True, "authMethod": "oauth_token", "apiProvider": "firstParty"},
+            )
+        self.assertEqual(mod.THIRD_PARTY_TOKEN, result["auth_route"])
+        self.assertEqual("api.tokenkey.dev", result["base_host"])
+
+    def test_direct_anthropic_oauth_is_first_party_cohort(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = mod.classify_capture_config(
+                pathlib.Path(tmp),
+                auth_status={"loggedIn": True, "authMethod": "oauth_token", "apiProvider": "firstParty"},
+            )
+        self.assertEqual(mod.FIRST_PARTY_OAUTH, result["auth_route"])
 
     def test_has_tls_mismatch_true_only_for_tls_fields(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
@@ -185,7 +401,7 @@ class CaptureCCFingerprintTest(unittest.TestCase):
             'CC_CAPTURE {"model":"claude-haiku-4-5-20251001","anthropic_beta":"variant-A"}',
             'CC_CAPTURE {"model":"claude-haiku-4-5-20251001","anthropic_beta":"variant-B"}',
             'CC_CAPTURE {"model":"claude-haiku-4-5-20251001","anthropic_beta":"variant-A"}',
-            'CC_CAPTURE {"model":"claude-sonnet-4-20250514","anthropic_beta":"sonnet-only"}',
+            'CC_CAPTURE {"model":"claude-sonnet-4-6","anthropic_beta":"sonnet-only"}',
             'CC_CAPTURE {"model":"claude-opus-4-5-20251101","anthropic_beta":"opus-only"}',
         ]
         with tempfile.TemporaryDirectory() as tmp:
@@ -280,6 +496,74 @@ class CaptureCCFingerprintTest(unittest.TestCase):
         self.assertEqual("mismatch", haiku_row.status)
         # Baseline matches no observed variant -> genuine, actionable drift.
         self.assertTrue(mod.has_actionable_mismatch(rows))
+
+    def test_system_baseline_loaded_from_registry(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        self.assertIn("system", baseline)
+        self.assertTrue(baseline["system"]["identity_prefixes"])
+        self.assertEqual(
+            "x-anthropic-billing-header", baseline["system"]["billing_prefix"]
+        )
+
+    def test_system_identity_anchor_match_and_billing_present(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={},
+            system_anchors=[
+                baseline["system"]["billing_prefix"] + ": cc_entrypoint=cli",
+                baseline["system"]["identity_prefixes"][0] + ".\n\ndynamic tail",
+            ],
+        )
+        rows = mod.diff_baseline_vs_capture(baseline, bundle)
+        ident = next(r for r in rows if r.field == "system.identity_anchor")
+        billing = next(r for r in rows if r.field == "system.billing_prefix")
+        self.assertEqual("match", ident.status)
+        self.assertEqual("match", billing.status)
+
+    def test_system_identity_anchor_drift_is_actionable(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={},
+            system_anchors=["You are SomethingElse, a totally different tool."],
+        )
+        rows = mod.diff_baseline_vs_capture(baseline, bundle)
+        ident = next(r for r in rows if r.field == "system.identity_anchor")
+        self.assertEqual("mismatch", ident.status)
+        self.assertTrue(ident.critical)
+        # Identity drift is a hard, actionable mismatch (upstream 403 risk).
+        self.assertTrue(mod.has_actionable_mismatch(rows))
+        # Billing missing on a non-billing capture is INVESTIGATE, not actionable.
+        billing = next(r for r in rows if r.field == "system.billing_prefix")
+        self.assertEqual("needs_investigation", billing.status)
+        self.assertFalse(billing.critical)
+
+    def test_system_missing_capture_is_skip_not_actionable(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={},
+            system_anchors=[],  # TLS-only run: no system blocks recorded
+        )
+        rows = mod.diff_baseline_vs_capture(baseline, bundle)
+        ident = next(r for r in rows if r.field == "system.identity_anchor")
+        self.assertEqual("missing_capture", ident.status)
+        # A missing system capture must never by itself fail the check.
+        self.assertFalse(
+            any(
+                r.field.startswith("system.") and r.status == "mismatch"
+                for r in rows
+            )
+        )
+
+    def test_aggregate_system_anchors_dedupes_across_records(self) -> None:
+        records = [
+            {"system_anchors": [{"index": 0, "text_head": "alpha"}, {"index": 1, "text_head": "beta"}]},
+            {"system_anchors": [{"index": 0, "text_head": "alpha"}]},
+            {"model": "haiku"},  # no system_anchors key
+        ]
+        self.assertEqual(["alpha", "beta"], mod.aggregate_system_anchors(records))
 
 
 if __name__ == "__main__":

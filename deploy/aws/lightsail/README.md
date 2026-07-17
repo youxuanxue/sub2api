@@ -1,10 +1,10 @@
-# Edge Stage0 on AWS Lightsail（并行路径）
+# Edge Stage0 on AWS Lightsail（edges 唯一路径）
 
-> **默认路径仍是 EC2/CFN**（`deploy-edge-stage0.yml`）。本目录是 Lightsail 实验/降本并行栈；
-> 规划依据见 `docs/deploy/tokenkey-multiregion-egress-gateway-plan.md` §6.1 与
-> `docs/spec-delta-edge-lightsail.md`。
+> **Lightsail 是 edge 的唯一路径**（2026-06-07 起；EC2/CFN 的 edge 路径已移除）。
+> **prod 主网关仍是 EC2/CFN（`tokenkey-prod-stage0`），不在本目录范围。**
+> 背景见 `docs/spec-delta/edge-lightsail.md` 与 `docs/archive/deploy/tokenkey-multiregion-egress-gateway-plan.md` §6（已标 superseded）。
 
-Lightsail Edge 与 EC2 Edge **共用**：
+Lightsail Edge 与 prod Stage0 **共用**：
 
 - `deploy/aws/stage0/docker-compose.yml`、`Caddyfile.edge`
 - `ops/stage0/verify_ghcr_manifest.sh`、`deploy_via_ssm.sh`、`edge_post_deploy_smoke.sh`
@@ -54,8 +54,8 @@ aws ssm put-parameter --region eu-west-2 \
 
 复用 `edge-uk1` / `edge-us1`（与 EC2 workflow 相同 Environment 名，但 **不要** 对同一 edge 混跑两种 provision）。
 
-Variables：`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`  
-Secrets：`TK_SMOKE_EDGE_CANARY_KEY`
+Variables：`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`、可选 `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS`
+Secrets：`TK_SMOKE_API_KEY`
 
 ## 初次 Provision
 
@@ -79,15 +79,15 @@ gh workflow run deploy-edge-lightsail-stage0.yml \
 
 ### 冒烟 / 本机 curl 对域名长期 `HTTP 000` 或 TCP 超时
 
-Lightsail **实例控制台「Networking」防火墙**必须与 EC2 Security Group 一样放行 **TCP 80、443**
-（Let’s Encrypt HTTP-01 与 HTTPS）。仅靠正确 DNS（A → Static IP）不够；若只开了 SSH，`curl https://api-…/health` 会与 GitHub runner 一致：约 130s 级连接超时。
+Lightsail **实例控制台「Networking」防火墙**的硬化基线是**放行 TCP 443 + 8443**（443 = HTTPS 业务 + ACME TLS-ALPN-01；
+8443 = 备用连接口，按设计保持开放、不强制关掉）；**80 与 22 关闭**（证书走 TLS-ALPN-01 无需 80，续签仍只走 443；SSH 走 SSM / 控制台 browser SSH，不依赖公网 22）。仅靠正确 DNS（A → Static IP）不够；若 443 没开，`curl https://api-…/health` 会与 GitHub runner 一致：约 130s 级连接超时。
 
-- 自检：`aws lightsail get-instance-port-states --region <region> --instance-name <instance_name>`
-- 一次性修复（与 provision 脚本行为一致）：  
-  `aws lightsail open-instance-public-ports --region <region> --instance-name <instance_name> --port-info fromPort=80,toPort=80,protocol=tcp,cidrs=0.0.0.0/0`  
-  再对 **443** 重复一条。
-- IaC：`provision-edge.sh` 会在 attach Static IP 后尝试打开 **80 / 443**；CI OIDC role 需在
-  `cicd-oidc-lightsail-addon.yaml` 中包含 `lightsail:OpenInstancePublicPorts`（与 `GetInstancePortStates`）。
+- 自检：`aws lightsail get-instance-port-states --region <region> --instance-name <instance_name>`（期望 443 + 8443 open，80/22 closed）
+- 一次性修复 / 收口到基线（与 provision 脚本行为一致，原子覆盖整张防火墙表）：  
+  `bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> --enforce-ports`  
+  其内部即 `aws lightsail put-instance-public-ports --region <region> --instance-name <instance_name> --port-infos fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0 fromPort=8443,toPort=8443,protocol=tcp,cidrs=0.0.0.0/0`（put = 替换语义，顺带关掉默认 22 与历史 80，同时保留 8443）。
+- IaC：`provision-edge.sh` 会在 attach Static IP 后用 `put-instance-public-ports` 设为 **443 + 8443**；CI OIDC role 需在
+  `cicd-oidc-lightsail-addon.yaml` 中包含 `lightsail:PutInstancePublicPorts`（及 `GetInstancePortStates`）。
 
 ### Admin 登录 / 忘记密码
 
@@ -156,18 +156,21 @@ PREFLIGHT_BASE=origin/main bash scripts/preflight.sh
 - **常见假阴性（已修复）**：`DescribeInstanceInformation` 不允许把「标签过滤器」与其它过滤器混在一起；也不得依赖 `ComputerName` 默认等于 Lightsail `instance_name`（AL2023 常为 DHCP hostname）。provision 脚本现以 **`ActivationIds` = 本次 Hybrid activation** 作为主查询，并在 bootstrap 里 `hostnamectl set-hostname` 对齐实例名。
 - **仍超时**：Lightsail 浏览器 SSH 查看 `/var/log/tokenkey-lightsail-bootstrap.log`；失败行以 `BOOTSTRAP_FAIL:` 开头。Workflow 末尾会打印 `describe-activations` 帮助判断 activation / 配额是否用尽。
 
-## uk1：`api-uk1.tokenkey.dev` 权威平台（Lightsail）
+## 已退役 edge 记录
 
-矩阵基线：**EC2 `uk1.deployable=false`**（`deploy/aws/stage0/edge-targets.json`），**Lightsail `uk1.deployable=true`**（本目录 `edge-targets-lightsail.json`）。
-同名域名只能由一个平台对外服务；两边的 `deployable` 同时为 `true` 会被 **`scripts/checks/edge-platform-exclusivity.py`** 拦下。
+`uk1` / `us2` / `us7` 已于 2026-06-23 退役；对应 Lightsail instance、Static IP、
+SSM managed instance、SSM 参数、DNS A 记录、prod mirror account 均已删除。矩阵保留历史
+target 元数据，但必须保持 `deployable=false`；rollout、health、飞书配置同步和手动 edge
+deploy choice 都不应再指向这些 edge。
 
-**Porkbun（prod，`api-uk1.tokenkey.dev`）：** A 记录必须等于 Lightsail Static IP（`aws lightsail get-static-ip --static-ip-name tokenkey-edge-uk1-ls-ip` 的 `ipAddress`）。当前矩阵记在 `edge-targets-lightsail.json` → **`targets.uk1.porkbun_a_ipv4`**（**`13.134.80.182`**），作为人工 DNS **唯一真值**。
+对仍在线的 edge，同名域名只能由一个平台对外服务；两边的 `deployable` 同时为 `true` 会被
+**`scripts/checks/edge-platform-exclusivity.py`** 拦下。
 
 **不能与 EC2 EIP 混用：** 旧 EC2 Edge 的 Elastic IP（例如历史 **`16.61.87.51` / `eipalloc-03b2653ddd57b9c93`**）**无法挂到 Lightsail 实例**。若 Porkbun 仍指向已游离的 EC2 EIP，公网会超时。迁到 Lightsail 后必须把 A 记录改到 **Lightsail Static IP**；不再需要的老 EIP 可通过 `release-address` 回收。
 
 核对顺序：先以 **`aws lightsail get-static-ip`** 为真，再改 Porkbun 与本仓库 `porkbun_a_ipv4`，不得在未核对前提下漂移。
 
-端到端实操（provision、旁路校验、DNS 核对、Anthropic OAuth 重建、Smoke、可选拆 EC2 栈）：**`.cursor/skills/tokenkey-stage0-edge-platform-migration/SKILL.md`**（等价副本在 `.claude/skills/…`）。
+端到端实操（provision、旁路校验、DNS 核对、Anthropic OAuth 重建、Smoke）：**`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`**（等价副本在 `.claude/skills/…`）。
 Lightsail **首次**拉起实例用 `deploy-edge-lightsail-stage0.yml` **`operation=provision`**；镜像 tag 轮转用 **`upgrade` / `rollback`**。
 
 ## IP 污染轮换

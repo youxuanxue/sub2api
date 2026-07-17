@@ -7,9 +7,33 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
+
+const opsAlertEventSelectColumns = `
+  id,
+  COALESCE(rule_id, 0),
+  COALESCE(severity, ''),
+  COALESCE(status, ''),
+  COALESCE(title, ''),
+  COALESCE(description, ''),
+  metric_value,
+  threshold_value,
+  dimensions,
+  fired_at,
+  resolved_at,
+  email_sent,
+  COALESCE(feishu_firing_sent, false),
+  feishu_firing_sent_at,
+  COALESCE(feishu_firing_status, ''),
+  COALESCE(feishu_firing_error, ''),
+  COALESCE(feishu_recovery_sent, false),
+  feishu_recovery_sent_at,
+  COALESCE(feishu_recovery_status, ''),
+  COALESCE(feishu_recovery_error, ''),
+  created_at`
 
 func (r *opsRepository) ListAlertRules(ctx context.Context) ([]*service.OpsAlertRule, error) {
 	if r == nil || r.db == nil {
@@ -338,20 +362,7 @@ func (r *opsRepository) ListAlertEvents(ctx context.Context, filter *service.Ops
 	limitArg := "$" + itoa(len(args))
 
 	q := `
-SELECT
-  id,
-  COALESCE(rule_id, 0),
-  COALESCE(severity, ''),
-  COALESCE(status, ''),
-  COALESCE(title, ''),
-  COALESCE(description, ''),
-  metric_value,
-  threshold_value,
-  dimensions,
-  fired_at,
-  resolved_at,
-  email_sent,
-  created_at
+SELECT` + opsAlertEventSelectColumns + `
 FROM ops_alert_events
 ` + where + `
 ORDER BY fired_at DESC, id DESC
@@ -365,47 +376,11 @@ LIMIT ` + limitArg
 
 	out := []*service.OpsAlertEvent{}
 	for rows.Next() {
-		var ev service.OpsAlertEvent
-		var metricValue sql.NullFloat64
-		var thresholdValue sql.NullFloat64
-		var dimensionsRaw []byte
-		var resolvedAt sql.NullTime
-		if err := rows.Scan(
-			&ev.ID,
-			&ev.RuleID,
-			&ev.Severity,
-			&ev.Status,
-			&ev.Title,
-			&ev.Description,
-			&metricValue,
-			&thresholdValue,
-			&dimensionsRaw,
-			&ev.FiredAt,
-			&resolvedAt,
-			&ev.EmailSent,
-			&ev.CreatedAt,
-		); err != nil {
+		ev, err := scanOpsAlertEvent(rows)
+		if err != nil {
 			return nil, err
 		}
-		if metricValue.Valid {
-			v := metricValue.Float64
-			ev.MetricValue = &v
-		}
-		if thresholdValue.Valid {
-			v := thresholdValue.Float64
-			ev.ThresholdValue = &v
-		}
-		if resolvedAt.Valid {
-			v := resolvedAt.Time
-			ev.ResolvedAt = &v
-		}
-		if len(dimensionsRaw) > 0 && string(dimensionsRaw) != "null" {
-			var decoded map[string]any
-			if err := json.Unmarshal(dimensionsRaw, &decoded); err == nil {
-				ev.Dimensions = decoded
-			}
-		}
-		out = append(out, &ev)
+		out = append(out, ev)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -422,20 +397,7 @@ func (r *opsRepository) GetAlertEventByID(ctx context.Context, eventID int64) (*
 	}
 
 	q := `
-SELECT
-  id,
-  COALESCE(rule_id, 0),
-  COALESCE(severity, ''),
-  COALESCE(status, ''),
-  COALESCE(title, ''),
-  COALESCE(description, ''),
-  metric_value,
-  threshold_value,
-  dimensions,
-  fired_at,
-  resolved_at,
-  email_sent,
-  created_at
+SELECT` + opsAlertEventSelectColumns + `
 FROM ops_alert_events
 WHERE id = $1`
 
@@ -459,20 +421,7 @@ func (r *opsRepository) GetActiveAlertEvent(ctx context.Context, ruleID int64) (
 	}
 
 	q := `
-SELECT
-  id,
-  COALESCE(rule_id, 0),
-  COALESCE(severity, ''),
-  COALESCE(status, ''),
-  COALESCE(title, ''),
-  COALESCE(description, ''),
-  metric_value,
-  threshold_value,
-  dimensions,
-  fired_at,
-  resolved_at,
-  email_sent,
-  created_at
+SELECT` + opsAlertEventSelectColumns + `
 FROM ops_alert_events
 WHERE rule_id = $1 AND status = $2
 ORDER BY fired_at DESC
@@ -498,20 +447,7 @@ func (r *opsRepository) GetLatestAlertEvent(ctx context.Context, ruleID int64) (
 	}
 
 	q := `
-SELECT
-  id,
-  COALESCE(rule_id, 0),
-  COALESCE(severity, ''),
-  COALESCE(status, ''),
-  COALESCE(title, ''),
-  COALESCE(description, ''),
-  metric_value,
-  threshold_value,
-  dimensions,
-  fired_at,
-  resolved_at,
-  email_sent,
-  created_at
+SELECT` + opsAlertEventSelectColumns + `
 FROM ops_alert_events
 WHERE rule_id = $1
 ORDER BY fired_at DESC
@@ -558,20 +494,7 @@ INSERT INTO ops_alert_events (
 ) VALUES (
   $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW()
 )
-RETURNING
-  id,
-  COALESCE(rule_id, 0),
-  COALESCE(severity, ''),
-  COALESCE(status, ''),
-  COALESCE(title, ''),
-  COALESCE(description, ''),
-  metric_value,
-  threshold_value,
-  dimensions,
-  fired_at,
-  resolved_at,
-  email_sent,
-  created_at`
+RETURNING` + opsAlertEventSelectColumns
 
 	row := r.db.QueryRowContext(
 		ctx,
@@ -621,6 +544,68 @@ func (r *opsRepository) UpdateAlertEventEmailSent(ctx context.Context, eventID i
 	}
 
 	_, err := r.db.ExecContext(ctx, "UPDATE ops_alert_events SET email_sent = $2 WHERE id = $1", eventID, emailSent)
+	return err
+}
+
+func (r *opsRepository) UpdateAlertEventFeishuDelivery(ctx context.Context, eventID int64, phase string, sent bool, status string, errMessage string, sentAt *time.Time) error {
+	if r == nil || r.db == nil {
+		return fmt.Errorf("nil ops repository")
+	}
+	if eventID <= 0 {
+		return fmt.Errorf("invalid event id")
+	}
+	phase = strings.TrimSpace(phase)
+	status = truncateOpsAlertFeishuDeliveryString(strings.TrimSpace(status), 128)
+	if status == "" {
+		return fmt.Errorf("invalid feishu status")
+	}
+	errMessage = truncateOpsAlertFeishuDeliveryString(strings.TrimSpace(errMessage), 2048)
+
+	var q string
+	switch phase {
+	case service.OpsAlertFeishuPhaseFiring:
+		q = `
+UPDATE ops_alert_events
+SET
+  feishu_firing_sent = COALESCE(feishu_firing_sent, false) OR $2,
+  feishu_firing_sent_at = CASE
+    WHEN $2 THEN COALESCE($5::timestamptz, NOW())
+    WHEN $5::timestamptz IS NOT NULL THEN $5::timestamptz
+    ELSE feishu_firing_sent_at
+  END,
+  feishu_firing_status = CASE
+    WHEN COALESCE(feishu_firing_sent, false) AND NOT $2 THEN feishu_firing_status
+    ELSE $3
+  END,
+  feishu_firing_error = CASE
+    WHEN COALESCE(feishu_firing_sent, false) AND NOT $2 THEN feishu_firing_error
+    ELSE $4
+  END
+WHERE id = $1`
+	case service.OpsAlertFeishuPhaseRecovery:
+		q = `
+UPDATE ops_alert_events
+SET
+  feishu_recovery_sent = COALESCE(feishu_recovery_sent, false) OR $2,
+  feishu_recovery_sent_at = CASE
+    WHEN $2 THEN COALESCE($5::timestamptz, NOW())
+    WHEN $5::timestamptz IS NOT NULL THEN $5::timestamptz
+    ELSE feishu_recovery_sent_at
+  END,
+  feishu_recovery_status = CASE
+    WHEN COALESCE(feishu_recovery_sent, false) AND NOT $2 THEN feishu_recovery_status
+    ELSE $3
+  END,
+  feishu_recovery_error = CASE
+    WHEN COALESCE(feishu_recovery_sent, false) AND NOT $2 THEN feishu_recovery_error
+    ELSE $4
+  END
+WHERE id = $1`
+	default:
+		return fmt.Errorf("invalid feishu phase")
+	}
+
+	_, err := r.db.ExecContext(ctx, q, eventID, sent, status, errMessage, opsNullTime(sentAt))
 	return err
 }
 
@@ -749,6 +734,8 @@ func scanOpsAlertEvent(row opsAlertEventRow) (*service.OpsAlertEvent, error) {
 	var thresholdValue sql.NullFloat64
 	var dimensionsRaw []byte
 	var resolvedAt sql.NullTime
+	var feishuFiringSentAt sql.NullTime
+	var feishuRecoverySentAt sql.NullTime
 
 	if err := row.Scan(
 		&ev.ID,
@@ -763,6 +750,14 @@ func scanOpsAlertEvent(row opsAlertEventRow) (*service.OpsAlertEvent, error) {
 		&ev.FiredAt,
 		&resolvedAt,
 		&ev.EmailSent,
+		&ev.FeishuFiringSent,
+		&feishuFiringSentAt,
+		&ev.FeishuFiringStatus,
+		&ev.FeishuFiringError,
+		&ev.FeishuRecoverySent,
+		&feishuRecoverySentAt,
+		&ev.FeishuRecoveryStatus,
+		&ev.FeishuRecoveryError,
 		&ev.CreatedAt,
 	); err != nil {
 		return nil, err
@@ -778,6 +773,14 @@ func scanOpsAlertEvent(row opsAlertEventRow) (*service.OpsAlertEvent, error) {
 	if resolvedAt.Valid {
 		v := resolvedAt.Time
 		ev.ResolvedAt = &v
+	}
+	if feishuFiringSentAt.Valid {
+		v := feishuFiringSentAt.Time
+		ev.FeishuFiringSentAt = &v
+	}
+	if feishuRecoverySentAt.Valid {
+		v := feishuRecoverySentAt.Time
+		ev.FeishuRecoverySentAt = &v
 	}
 	if len(dimensionsRaw) > 0 && string(dimensionsRaw) != "null" {
 		var decoded map[string]any
@@ -836,6 +839,20 @@ func buildOpsAlertEventsWhere(filter *service.OpsAlertEventFilter) (string, []an
 	}
 
 	return "WHERE " + strings.Join(clauses, " AND "), args
+}
+
+func truncateOpsAlertFeishuDeliveryString(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if len(s) <= max {
+		return s
+	}
+	cut := s[:max]
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return cut
 }
 
 func opsNullJSONMap(v map[string]any) (any, error) {

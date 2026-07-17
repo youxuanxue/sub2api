@@ -1,0 +1,681 @@
+//go:build unit
+
+package middleware
+
+import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+)
+
+var middlewareStructuredLogCaptureMu sync.Mutex
+
+type middlewareInMemoryLogSink struct {
+	mu     sync.Mutex
+	events []*logger.LogEvent
+}
+
+func (s *middlewareInMemoryLogSink) WriteLogEvent(event *logger.LogEvent) {
+	if event == nil {
+		return
+	}
+	cloned := *event
+	if event.Fields != nil {
+		cloned.Fields = make(map[string]any, len(event.Fields))
+		for k, v := range event.Fields {
+			cloned.Fields[k] = v
+		}
+	}
+	s.mu.Lock()
+	s.events = append(s.events, &cloned)
+	s.mu.Unlock()
+}
+
+func (s *middlewareInMemoryLogSink) ContainsMessageAtLevel(substr, level string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	wantLevel := strings.ToLower(strings.TrimSpace(level))
+	for _, ev := range s.events {
+		if ev == nil {
+			continue
+		}
+		if strings.Contains(ev.Message, substr) && strings.ToLower(strings.TrimSpace(ev.Level)) == wantLevel {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *middlewareInMemoryLogSink) ContainsFieldValue(field, substr string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ev := range s.events {
+		if ev == nil || ev.Fields == nil {
+			continue
+		}
+		if v, ok := ev.Fields[field]; ok && strings.Contains(fmt.Sprint(v), substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func captureMiddlewareStructuredLog(t *testing.T) (*middlewareInMemoryLogSink, func()) {
+	t.Helper()
+	middlewareStructuredLogCaptureMu.Lock()
+
+	err := logger.Init(logger.InitOptions{
+		Level:       "debug",
+		Format:      "json",
+		ServiceName: "sub2api",
+		Environment: "test",
+		Output: logger.OutputOptions{
+			ToStdout: true,
+			ToFile:   false,
+		},
+		Sampling: logger.SamplingOptions{Enabled: false},
+	})
+	require.NoError(t, err)
+
+	sink := &middlewareInMemoryLogSink{}
+	logger.SetSink(sink)
+	return sink, func() {
+		logger.SetSink(nil)
+		middlewareStructuredLogCaptureMu.Unlock()
+	}
+}
+
+type stubSpanLister struct {
+	groups []service.Group
+	err    error
+}
+
+func (s *stubSpanLister) GetAvailableGroups(_ context.Context, _ int64) ([]service.Group, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.groups, nil
+}
+
+func activeGroup(id int64, platform string) service.Group {
+	return service.Group{ID: id, Platform: platform, Status: service.StatusActive, SubscriptionType: service.SubscriptionTypeStandard}
+}
+
+// universalGroupRepoStub satisfies service.GroupRepository via an embedded nil
+// interface; only ListActive + GetByID are overridden (the methods the universal
+// resolver / GetAvailableGroups path touches). Any other method call panics,
+// which is the intended "unexpected call" signal in tests.
+type universalGroupRepoStub struct {
+	service.GroupRepository
+	active []service.Group
+}
+
+func (s *universalGroupRepoStub) ListActive(_ context.Context) ([]service.Group, error) {
+	return s.active, nil
+}
+
+func (s *universalGroupRepoStub) GetByID(_ context.Context, id int64) (*service.Group, error) {
+	for i := range s.active {
+		if s.active[i].ID == id {
+			g := s.active[i]
+			return &g, nil
+		}
+	}
+	return nil, service.ErrGroupNotFound
+}
+
+// TestAuthMiddleware_UniversalKeySwapsBackingGroupEndToEnd drives a universal key
+// through the REAL NewAPIKeyAuthMiddleware and asserts the resolver runs, swaps to
+// the entitled backing group, passes the post-swap group checks, and reaches the
+// handler — i.e. the §2 seam is wired end-to-end (not just unit-tested in isolation).
+// Uses a standard (balance) group with positive balance to keep it robust; the
+// subscription-type swap is asserted at the resolver level in
+// TestMaybeResolveUniversal_SwapsToSubscriptionGroupForBilling.
+func TestAuthMiddleware_UniversalKeySwapsBackingGroupEndToEnd(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	openaiGroup := service.Group{ID: 20, Name: "uni-openai", Status: service.StatusActive, Platform: service.PlatformOpenAI, SubscriptionType: service.SubscriptionTypeStandard, Hydrated: true}
+	user := &service.User{ID: 7, Role: service.RoleUser, Status: service.StatusActive, Balance: 100, Concurrency: 3}
+	apiKey := &service.APIKey{ID: 100, UserID: user.ID, Key: "uni-key", Status: service.StatusActive, RoutingMode: service.RoutingModeUniversal, User: user}
+
+	apiKeyRepo := &stubApiKeyRepo{getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
+		if key != apiKey.Key {
+			return nil, service.ErrAPIKeyNotFound
+		}
+		clone := *apiKey
+		cu := *user
+		clone.User = &cu
+		return &clone, nil
+	}}
+	userRepo := &stubUserRepo{getByID: func(_ context.Context, id int64) (*service.User, error) {
+		if id != user.ID {
+			return nil, service.ErrUserNotFound
+		}
+		cu := *user
+		return &cu, nil
+	}}
+	groupRepo := &universalGroupRepoStub{active: []service.Group{openaiGroup}}
+	subRepo := &stubUserSubscriptionRepo{} // no subscriptions; standard/balance path
+
+	cfg := &config.Config{RunMode: config.RunModeStandard}
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, subRepo, nil, nil, cfg)
+	subscriptionService := service.NewSubscriptionService(groupRepo, subRepo, nil, nil, cfg)
+
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, cfg)))
+	var seenGroupID int64
+	router.POST("/v1/chat/completions", func(c *gin.Context) {
+		if k, ok := GetAPIKeyFromContext(c); ok && k.GroupID != nil {
+			seenGroupID = *k.GroupID
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-5"}`))
+	req.Header.Set("x-api-key", apiKey.Key)
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("universal key should be authorized end-to-end, got %d body=%s", w.Code, w.Body.String())
+	}
+	if seenGroupID != openaiGroup.ID {
+		t.Fatalf("auth middleware should swap universal key to backing group %d, handler saw %d", openaiGroup.ID, seenGroupID)
+	}
+}
+
+func TestGoogleAuthMiddleware_UniversalGeminiShapeSwapsToAntigravityGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	antigravityGroup := service.Group{ID: 21, Name: "uni-antigravity", Status: service.StatusActive, Platform: service.PlatformAntigravity, SubscriptionType: service.SubscriptionTypeStandard, Hydrated: true}
+	user := &service.User{ID: 8, Role: service.RoleUser, Status: service.StatusActive, Balance: 100, Concurrency: 3}
+	apiKey := &service.APIKey{ID: 101, UserID: user.ID, Key: "uni-google-key", Status: service.StatusActive, RoutingMode: service.RoutingModeUniversal, User: user}
+
+	apiKeyRepo := &stubApiKeyRepo{getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
+		if key != apiKey.Key {
+			return nil, service.ErrAPIKeyNotFound
+		}
+		clone := *apiKey
+		cu := *user
+		clone.User = &cu
+		return &clone, nil
+	}}
+	userRepo := &stubUserRepo{getByID: func(_ context.Context, id int64) (*service.User, error) {
+		if id != user.ID {
+			return nil, service.ErrUserNotFound
+		}
+		cu := *user
+		return &cu, nil
+	}}
+	groupRepo := &universalGroupRepoStub{active: []service.Group{antigravityGroup}}
+	subRepo := &stubUserSubscriptionRepo{}
+
+	cfg := &config.Config{RunMode: config.RunModeStandard}
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, subRepo, nil, nil, cfg)
+	subscriptionService := service.NewSubscriptionService(groupRepo, subRepo, nil, nil, cfg)
+
+	router := gin.New()
+	router.Use(APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
+	var seenPlatform string
+	var seenGroupID int64
+	router.POST("/v1beta/models/*modelAction", func(c *gin.Context) {
+		if k, ok := GetAPIKeyFromContext(c); ok && k.GroupID != nil && k.Group != nil {
+			seenGroupID = *k.GroupID
+			seenPlatform = k.Group.Platform
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3-flash-agent:generateContent", strings.NewReader(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`))
+	req.Header.Set("x-goog-api-key", apiKey.Key)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, antigravityGroup.ID, seenGroupID)
+	require.Equal(t, service.PlatformAntigravity, seenPlatform)
+}
+
+func newTestCtx(method, path, body string) (*gin.Context, *httptest.ResponseRecorder) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	var r io.Reader
+	if body != "" {
+		r = strings.NewReader(body)
+	}
+	c.Request = httptest.NewRequest(method, path, r)
+	return c, w
+}
+
+func TestPeekModelFromJSONBody_RestoresBody(t *testing.T) {
+	const payload = `{"model":"gpt-5","messages":[{"role":"user","content":"hi"}]}`
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", payload)
+
+	if got := peekModelFromJSONBody(c); got != "gpt-5" {
+		t.Fatalf("peek model = %q want gpt-5", got)
+	}
+	// The downstream handler must still read the identical body.
+	rest, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		t.Fatalf("re-read body err: %v", err)
+	}
+	if string(rest) != payload {
+		t.Fatalf("body not restored: %q", string(rest))
+	}
+}
+
+func TestPeekImageEditModel_MultipartRestoresBody(t *testing.T) {
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	require.NoError(t, writer.WriteField("prompt", "edit this"))
+	filePart, err := writer.CreateFormFile("image", "cat.png")
+	require.NoError(t, err)
+	_, err = filePart.Write([]byte("fake-png"))
+	require.NoError(t, err)
+	require.NoError(t, writer.WriteField("model", "grok-imagine"))
+	require.NoError(t, writer.Close())
+
+	body := append([]byte(nil), buf.Bytes()...)
+	c, _ := newTestCtx(http.MethodPost, "/v1/images/edits", "")
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+
+	if got := peekImageEditModel(c); got != "grok-imagine" {
+		t.Fatalf("peek image-edit model = %q want grok-imagine", got)
+	}
+	rest, err := io.ReadAll(c.Request.Body)
+	require.NoError(t, err)
+	require.Equal(t, body, rest, "downstream image handler must see original multipart body after peek")
+}
+
+func TestPeekModelFromJSONBody_RestoresCompressedBody(t *testing.T) {
+	const payload = `{"model":"grok-4","messages":[{"role":"user","content":"hi"}]}`
+	var gz bytes.Buffer
+	w := gzip.NewWriter(&gz)
+	_, _ = w.Write([]byte(payload))
+	_ = w.Close()
+	compressed := gz.Bytes()
+
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", "")
+	c.Request.Body = io.NopCloser(bytes.NewReader(compressed))
+	c.Request.Header.Set("Content-Encoding", "gzip")
+
+	// Peek decodes a COPY to read the model, but must restore the ORIGINAL compressed bytes
+	// + headers untouched, so the downstream handler decodes identically.
+	if got := peekModelFromJSONBody(c); got != "grok-4" {
+		t.Fatalf("peek model from gzip body = %q want grok-4", got)
+	}
+	rest, _ := io.ReadAll(c.Request.Body)
+	if !bytes.Equal(rest, compressed) {
+		t.Fatalf("compressed body not restored byte-for-byte")
+	}
+	if c.Request.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("Content-Encoding header must be left intact for the handler")
+	}
+}
+
+func TestGeminiModelFromAction(t *testing.T) {
+	cases := map[string]string{
+		"gemini-3-pro:generateContent":        "gemini-3-pro",
+		"/gemini-3-pro:streamGenerateContent": "gemini-3-pro",
+		"gemini-2.5-flash":                    "gemini-2.5-flash",
+	}
+	for in, want := range cases {
+		if got := geminiModelFromAction(in); got != want {
+			t.Errorf("geminiModelFromAction(%q)=%q want %q", in, got, want)
+		}
+	}
+}
+
+func TestMaybeResolveUniversal_DirectKeyUnchanged(t *testing.T) {
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-5"}`)
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(20, service.PlatformOpenAI)}})
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeDirect}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("direct key should not be handled by universal resolver")
+	}
+	if apiKey.GroupID != nil || apiKey.Group != nil {
+		t.Fatalf("direct key must be left untouched")
+	}
+}
+
+func TestMaybeResolveUniversal_SwapsBackingGroup(t *testing.T) {
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-5"}`)
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{
+		activeGroup(10, service.PlatformAnthropic),
+		activeGroup(20, service.PlatformOpenAI),
+	}})
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("successful resolve should return handled=false (continue auth)")
+	}
+	if apiKey.GroupID == nil || *apiKey.GroupID != 20 || apiKey.Group == nil || apiKey.Group.Platform != service.PlatformOpenAI {
+		t.Fatalf("expected swap to openai group 20, got groupID=%v group=%v", apiKey.GroupID, apiKey.Group)
+	}
+	// Body must still be readable by the handler.
+	rest, _ := io.ReadAll(c.Request.Body)
+	if !strings.Contains(string(rest), `"model":"gpt-5"`) {
+		t.Fatalf("body not restored after swap: %q", string(rest))
+	}
+}
+
+// Regression guard for the correctness rule (design §2): when a universal key
+// resolves to a SUBSCRIPTION backing group, the swapped apiKey.Group must report
+// IsSubscriptionType()==true — that is exactly what the downstream
+// `isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()`
+// billing decision reads, so subscription customers are billed under their plan
+// (not silently in balance mode). The resolver runs BEFORE that decision (pinned
+// by the api_key_auth.go sentinel).
+func TestMaybeResolveUniversal_SwapsToSubscriptionGroupForBilling(t *testing.T) {
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-5"}`)
+	subGroup := activeGroup(20, service.PlatformOpenAI)
+	subGroup.SubscriptionType = service.SubscriptionTypeSubscription
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{subGroup}})
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("resolve should succeed")
+	}
+	if apiKey.Group == nil || !apiKey.Group.IsSubscriptionType() {
+		t.Fatalf("swapped group must be subscription-type so downstream bills under the plan; got %+v", apiKey.Group)
+	}
+}
+
+// R-002 regression: a span-load/internal failure must surface as 500 (retryable),
+// NOT a 403 "no platform in your plan" (which would mislabel a server error as an
+// entitlement problem).
+func TestMaybeResolveUniversal_InternalErrorIs500Not403(t *testing.T) {
+	c, w := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-5"}`)
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{err: errors.New("database unavailable")})
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); !handled {
+		t.Fatalf("internal error should be handled (aborted)")
+	}
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("span-load failure should be 500, got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "universal_no_entitled_group") {
+		t.Fatalf("internal error must not be mislabeled as no-entitled-group: %s", w.Body.String())
+	}
+}
+
+func TestMaybeResolveUniversal_InternalErrorLogsStructuredContext(t *testing.T) {
+	logSink, restore := captureMiddlewareStructuredLog(t)
+	defer restore()
+
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-5.5"}`)
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{err: errors.New("database unavailable")})
+	apiKey := &service.APIKey{ID: 11, UserID: 22, RoutingMode: service.RoutingModeUniversal}
+
+	handled := MaybeResolveUniversal(c, apiKey, resolver)
+	require.True(t, handled)
+	require.True(t, logSink.ContainsMessageAtLevel("universal_routing.resolve_failed", "error"))
+	require.True(t, logSink.ContainsFieldValue("api_key_id", "11"))
+	require.True(t, logSink.ContainsFieldValue("user_id", "22"))
+	require.True(t, logSink.ContainsFieldValue("request_model", "gpt-5.5"))
+	require.True(t, logSink.ContainsFieldValue("universal_shape", "openai"))
+}
+
+func TestMaybeResolveUniversal_NoEntitledGroupLogsStructuredContext(t *testing.T) {
+	logSink, restore := captureMiddlewareStructuredLog(t)
+	defer restore()
+
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-5.5"}`)
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(10, service.PlatformAnthropic)}})
+	apiKey := &service.APIKey{ID: 11, UserID: 22, RoutingMode: service.RoutingModeUniversal}
+
+	handled := MaybeResolveUniversal(c, apiKey, resolver)
+	require.True(t, handled)
+	require.True(t, logSink.ContainsMessageAtLevel("universal_routing.no_entitled_group", "warn"))
+	require.True(t, logSink.ContainsFieldValue("api_key_id", "11"))
+	require.True(t, logSink.ContainsFieldValue("user_id", "22"))
+	require.True(t, logSink.ContainsFieldValue("request_model", "gpt-5.5"))
+	require.True(t, logSink.ContainsFieldValue("universal_shape", "openai"))
+}
+
+func TestMaybeResolveUniversal_ResolvedLogsStructuredContext(t *testing.T) {
+	logSink, restore := captureMiddlewareStructuredLog(t)
+	defer restore()
+
+	openaiGroup := activeGroup(20, service.PlatformOpenAI)
+	openaiGroup.Name = "uni-openai"
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-5.5"}`)
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{
+		activeGroup(10, service.PlatformAnthropic),
+		openaiGroup,
+	}})
+	apiKey := &service.APIKey{ID: 11, UserID: 22, RoutingMode: service.RoutingModeUniversal}
+
+	handled := MaybeResolveUniversal(c, apiKey, resolver)
+	require.False(t, handled)
+	require.True(t, logSink.ContainsMessageAtLevel("universal_routing.resolved", "info"))
+	require.True(t, logSink.ContainsFieldValue("api_key_id", "11"))
+	require.True(t, logSink.ContainsFieldValue("user_id", "22"))
+	require.True(t, logSink.ContainsFieldValue("request_model", "gpt-5.5"))
+	require.True(t, logSink.ContainsFieldValue("backing_group_id", "20"))
+	require.True(t, logSink.ContainsFieldValue("backing_group_name", "uni-openai"))
+	require.True(t, logSink.ContainsFieldValue("backing_platform", service.PlatformOpenAI))
+}
+
+// Regression for the "prod 视频全局宕" incident (fix/video-channel-type-selection):
+// a universal key POSTing /v1/video/generations must peek the JSON body's model so the
+// resolver converges onto the video-capable backing group. Before the fix the video
+// shape returned model="" unconditionally, so the resolver fell back to the
+// deterministic sort_order/id pick and could land on a NON-video newapi group
+// (e.g. deepseek ch43 / Qwen ch17), whose selected account then failed the handler's
+// engine.IsVideoSupportedForAccount gate → "channel_type does not support video
+// generation" for every video request. Here group 30 (vertex) serves "veo-3.1...",
+// group 31 (deepseek) does not; the resolver must pick 30 even though 30 sorts after 31.
+func TestMaybeResolveUniversal_VideoSubmitPeeksModelAndRoutesToVideoGroup(t *testing.T) {
+	const videoModel = "veo-3.1-generate-001"
+	vertexGroup := activeGroup(30, service.PlatformNewAPI) // serves video, sorts AFTER 31 by id
+	deepseekGroup := activeGroup(31, service.PlatformNewAPI)
+
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{deepseekGroup, vertexGroup}})
+	// Wire the served-model truth source: only the vertex group declares the video model.
+	resolver.SetAvailableModelsProvider(func(_ context.Context, groupID *int64, _ string) []string {
+		if groupID != nil && *groupID == vertexGroup.ID {
+			return []string{videoModel}
+		}
+		return []string{"deepseek-chat"}
+	})
+
+	// No gin router here, so c.FullPath() is empty; MaybeResolveUniversal falls back
+	// to c.Request.URL.Path, which UniversalShapeForRequest matches to ShapeOpenAIVideo.
+	c, _ := newTestCtx(http.MethodPost, "/v1/video/generations", `{"model":"`+videoModel+`","prompt":"a cat"}`)
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("video submit resolve should succeed (continue auth)")
+	}
+	if apiKey.GroupID == nil || *apiKey.GroupID != vertexGroup.ID {
+		t.Fatalf("video submit must route to the video-serving group %d, got %v", vertexGroup.ID, apiKey.GroupID)
+	}
+	// Body must still be readable by the downstream VideoSubmit handler.
+	rest, _ := io.ReadAll(c.Request.Body)
+	if !strings.Contains(string(rest), `"model":"`+videoModel+`"`) {
+		t.Fatalf("video submit body not restored after peek: %q", string(rest))
+	}
+}
+
+func TestMaybeResolveUniversal_ImageEditMultipartRoutesByModel(t *testing.T) {
+	const imageModel = "grok-imagine"
+	openaiGroup := activeGroup(2, service.PlatformOpenAI) // lower id: would win without model convergence
+	openaiGroup.AllowImageGeneration = true
+	grokGroup := activeGroup(25, service.PlatformGrok)
+	grokGroup.AllowImageGeneration = true
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{openaiGroup, grokGroup}})
+	resolver.SetAvailableModelsProvider(func(_ context.Context, groupID *int64, _ string) []string {
+		if groupID == nil {
+			return nil
+		}
+		switch *groupID {
+		case openaiGroup.ID:
+			return []string{"gpt-image-1"}
+		case grokGroup.ID:
+			return []string{imageModel}
+		default:
+			return nil
+		}
+	})
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	require.NoError(t, writer.WriteField("prompt", "edit this"))
+	filePart, err := writer.CreateFormFile("image", "cat.png")
+	require.NoError(t, err)
+	_, err = filePart.Write([]byte("fake-png"))
+	require.NoError(t, err)
+	require.NoError(t, writer.WriteField("model", imageModel))
+	require.NoError(t, writer.Close())
+	body := append([]byte(nil), buf.Bytes()...)
+
+	c, _ := newTestCtx(http.MethodPost, "/v1/images/edits", "")
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("image edit resolve should succeed (continue auth)")
+	}
+	if apiKey.GroupID == nil || *apiKey.GroupID != grokGroup.ID {
+		t.Fatalf("image edit must route by multipart model to grok group %d, got %v", grokGroup.ID, apiKey.GroupID)
+	}
+	rest, err := io.ReadAll(c.Request.Body)
+	require.NoError(t, err)
+	require.Equal(t, body, rest, "downstream image-edit handler must see original multipart body after peek")
+}
+
+// The GET poll path carries no body and no model — it must NOT attempt to read a
+// body (poll uses the VideoTaskCache's submit-time pinned upstream route, not a
+// fresh selection), and any openai-compat group satisfies the route-layer platform
+// gate. Asserts poll resolves model-lessly without erroring.
+func TestMaybeResolveUniversal_VideoPollNoBodyResolves(t *testing.T) {
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(30, service.PlatformNewAPI)}})
+	c, _ := newTestCtx(http.MethodGet, "/v1/video/generations/vt_abc", "")
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("video poll resolve should succeed model-lessly")
+	}
+	if apiKey.GroupID == nil || *apiKey.GroupID != 30 {
+		t.Fatalf("video poll should route to the only eligible newapi group, got %v", apiKey.GroupID)
+	}
+}
+
+// dispatchGroup builds an active group with AllowMessagesDispatch set, so the
+// /v1/messages shape folds openai-compat platforms into its candidate set.
+func dispatchGroup(id int64, platform string) service.Group {
+	g := activeGroup(id, platform)
+	g.AllowMessagesDispatch = true
+	return g
+}
+
+// Regression for prod user_id=16 (计算所): a Claude-Code-shaped client sending a
+// newapi model (deepseek-v4-flash) to /v1/messages. With a DIRECT key bound to the
+// claude/anthropic (or Qwen) group, that request 429s with "no available accounts"
+// (account_id=null) because the bound pool has no deepseek account — 1045 such fails
+// in a ~5h prod window. A UNIVERSAL key must instead peek the body model and swap to
+// the deepseek-serving newapi group, so the request succeeds via messages-dispatch.
+//
+// The span mirrors user16: anthropic(1) + three newapi vendor groups all with dispatch
+// and sort_order 0 (deepseek=11, Qwen=18, volcengine=5 — 5 is the lowest id, the
+// blind-tiebreak trap) + an openai dispatch group(2). Only the deepseek group serves
+// the model, so the served-model truth filter must converge onto 11 — not 5 by id,
+// not 1 by anthropic native, not 2 by openai.
+func TestMaybeResolveUniversal_MessagesDispatchRoutesDeepseekToNewapiGroup_User16(t *testing.T) {
+	const model = "deepseek-v4-flash"
+	span := []service.Group{
+		dispatchGroup(5, service.PlatformNewAPI),  // volcengine — lowest id (trap)
+		activeGroup(1, service.PlatformAnthropic), // claude (native, no dispatch)
+		dispatchGroup(2, service.PlatformOpenAI),  // GPT专线
+		dispatchGroup(11, service.PlatformNewAPI), // deepseek
+		dispatchGroup(18, service.PlatformNewAPI), // Qwen
+	}
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	resolver.SetAvailableModelsProvider(func(_ context.Context, groupID *int64, _ string) []string {
+		if groupID == nil {
+			return nil
+		}
+		switch *groupID {
+		case 11:
+			return []string{"deepseek-chat", "deepseek-v4-pro", "deepseek-reasoner", "deepseek-v4-flash"}
+		case 18:
+			return []string{"qwen-max", "qwen3-235b-a22b"}
+		case 5:
+			return []string{"doubao-seed-1-6-250615"}
+		default:
+			return nil // anthropic(1) / openai(2): native empty mapping
+		}
+	})
+
+	// No gin router → c.FullPath() empty → falls back to URL.Path, matched to
+	// ShapeAnthropicMessages by UniversalShapeForRequest.
+	c, _ := newTestCtx(http.MethodPost, "/v1/messages", `{"model":"`+model+`","messages":[{"role":"user","content":"hi"}]}`)
+	apiKey := &service.APIKey{ID: 1, UserID: 16, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("deepseek @/v1/messages resolve should succeed (continue auth), got abort status=%d", c.Writer.Status())
+	}
+	if apiKey.GroupID == nil || *apiKey.GroupID != 11 {
+		t.Fatalf("must swap to deepseek-serving newapi group 11, got %v", apiKey.GroupID)
+	}
+	if apiKey.Group == nil || apiKey.Group.Platform != service.PlatformNewAPI {
+		t.Fatalf("swapped group must be newapi platform, got %+v", apiKey.Group)
+	}
+	// Body must still be readable by the downstream /v1/messages handler.
+	rest, _ := io.ReadAll(c.Request.Body)
+	if !strings.Contains(string(rest), `"model":"`+model+`"`) {
+		t.Fatalf("messages body not restored after peek: %q", string(rest))
+	}
+}
+
+func TestMaybeResolveUniversal_SkipEndpointNoSwap(t *testing.T) {
+	c, _ := newTestCtx(http.MethodGet, "/v1/models", "")
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(20, service.PlatformOpenAI)}})
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); handled {
+		t.Fatalf("metadata endpoint should not be handled")
+	}
+	if apiKey.GroupID != nil {
+		t.Fatalf("metadata endpoint must not swap a group")
+	}
+}
+
+func TestMaybeResolveUniversal_NoEntitledGroupAborts(t *testing.T) {
+	c, w := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-5"}`)
+	// user only entitled to anthropic → an openai chat request cannot be served.
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(10, service.PlatformAnthropic)}})
+	apiKey := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+
+	if handled := MaybeResolveUniversal(c, apiKey, resolver); !handled {
+		t.Fatalf("unentitled request should be handled (aborted)")
+	}
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "invalid_request_error") {
+		t.Fatalf("expected openai-shaped error, got %s", w.Body.String())
+	}
+}

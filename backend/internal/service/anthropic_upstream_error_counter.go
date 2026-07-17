@@ -14,6 +14,28 @@ type AnthropicUpstreamErrorCounterCache interface {
 	IncrementAnthropicUpstreamErrorCount(ctx context.Context, accountID int64, windowMinutes int) (int64, error)
 	ResetAnthropicUpstreamErrorCount(ctx context.Context, accountID int64) error
 
+	// Bodyless-403 counter is a SEPARATE windowed per-account counter, keyed on
+	// a distinct Redis namespace, that ONLY a repeated empty/unstructured-body
+	// Anthropic 403 advances (see tkTryEscalatePersistentBodyless403). It is
+	// deliberately NOT the general anthropic_upstream_error counter (which mixes
+	// 403/429/5xx) because crossing its threshold drives a PERMANENT disable —
+	// mixing other status codes in would risk disabling an account that is only
+	// rate-limited/overloaded. An org ban that arrives with an empty body cannot
+	// match the structured-body phrase breaker (tkTryDisableAnthropicOrgBan403),
+	// so without this terminal counter it flaps forever on the auto-recovering
+	// 3/3 ladder. Reset mirrors the error counter so a healed account does not
+	// carry stale bodyless strikes.
+	//
+	// debounceSeconds collapses a concurrent burst of bodyless 403s (many
+	// in-flight requests to the same account in one failure episode) into a
+	// SINGLE increment via a server-side-TIME gate, so the threshold counts
+	// distinct cooldown EPISODES, not racing requests. Without it a transient
+	// burst could cross the permanent-disable threshold in seconds and kill a
+	// healthy account — the same burst-vs-episode hazard the #623 escalation
+	// slot and the oauth401 same_at debounce already guard against.
+	IncrementAnthropicBodyless403Count(ctx context.Context, accountID int64, windowMinutes, debounceSeconds int) (int64, error)
+	ResetAnthropicBodyless403Count(ctx context.Context, accountID int64) error
+
 	// Tier counter tracks how many cooldowns this account has triggered in the
 	// recent past, so handleAnthropicUpstreamError can pick an exponentially
 	// longer cooldown for persistent failure (30s → 2min → 10min) instead of
@@ -31,4 +53,26 @@ type AnthropicUpstreamErrorCounterCache interface {
 	// the most recent window) or the cache backend is unhealthy.
 	IncrementAnthropicCooldownTierEscalations(ctx context.Context, ttlMinutes int) (int64, error)
 	GetAnthropicCooldownTierEscalations(ctx context.Context) (int64, error)
+
+	// Escalation slot is a per-account guard that lets the tier ladder escalate
+	// at most once per *failure episode* instead of once per error. A single
+	// fast burst — e.g. an edge rolling-upgrade swap window throwing several
+	// 503s in a few seconds (issue #623) — would otherwise re-run the threshold
+	// block per error and climb 30s → 2min → 10min within seconds, even though
+	// errors #2..n are racing in-flight requests from the SAME episode that
+	// error #1 already cooled the account for.
+	//
+	// AcquireAnthropicCooldownEscalationSlot does an atomic SET-if-absent with a
+	// placeholder TTL and returns whether THIS caller won the slot. The winner
+	// performs the escalation, then calls SetAnthropicCooldownEscalationSlotTTL
+	// to shrink the slot to exactly the cooldown it applied, so the slot
+	// auto-clears the moment the account would be rescheduled — a genuine
+	// re-trip after the cooldown expires is a new episode and escalates again
+	// (the ladder's documented "repeatedly trips ... inside 30 min" intent).
+	// Losers fail the in-flight request over without advancing the tier.
+	// Both are best-effort: a Redis failure must never under-protect a genuine
+	// persistent failure, so the caller falls back to escalating on error.
+	AcquireAnthropicCooldownEscalationSlot(ctx context.Context, accountID int64, ttlSeconds int) (bool, error)
+	SetAnthropicCooldownEscalationSlotTTL(ctx context.Context, accountID int64, ttlSeconds int) error
+	ResetAnthropicCooldownEscalationSlot(ctx context.Context, accountID int64) error
 }

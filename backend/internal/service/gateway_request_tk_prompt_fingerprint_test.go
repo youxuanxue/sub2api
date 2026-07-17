@@ -1,0 +1,296 @@
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestTkExtractAnthropicPromptFingerprint_GeoStegoInReminder(t *testing.T) {
+	reminder := "<system-reminder>\nToday\u2019s date is 2026/06/30.\n</system-reminder>"
+	body, err := json.Marshal(map[string]any{
+		"system": []map[string]any{
+			{"type": "text", "text": "You are a Claude agent, built on Anthropic's Claude Agent SDK."},
+		},
+		"messages": []map[string]any{
+			{"role": "user", "content": []map[string]any{
+				{"type": "text", "text": reminder},
+			}},
+		},
+	})
+	require.NoError(t, err)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.Equal(t, 1, fp.SystemBlockCount)
+	require.Equal(t, "claude_agent_sdk", fp.IdentityAnchorID)
+	require.True(t, fp.HasSystemReminder)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceKnownSystem, tkCCPromptSurfaceSystemReminder}, fp.PromptSurfaceClasses)
+	require.Equal(t, "SLASH_UNICODE", fp.ReminderDateLineClass)
+	require.False(t, fp.GeoStegoCanonical)
+	require.Contains(t, fp.UnknownSurfaces, "geo_stego_date_line")
+	require.NotEmpty(t, fp.SurfaceSignature)
+}
+
+func TestTkExtractAnthropicPromptFingerprint_CanonicalAfterNormalize(t *testing.T) {
+	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\nToday\u2019s date is 2026/06/30.\n</system-reminder>"}]}]}`)
+	out, changed := tkNormalizeAnthropicCCGeoStego(in)
+	require.True(t, changed)
+	fp := tkExtractAnthropicPromptFingerprint(out)
+	require.Equal(t, "ISO_DASH_ASCII", fp.ReminderDateLineClass)
+	require.True(t, fp.GeoStegoCanonical)
+	require.Empty(t, fp.UnknownSurfaces)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceSystemReminder}, fp.PromptSurfaceClasses)
+}
+
+func TestTkExtractAnthropicPromptFingerprint_BillingBlock(t *testing.T) {
+	body := []byte(`{
+		"system":[{"type":"text","text":"x-anthropic-billing-header: cc-session\nYou are Claude Code, Anthropic's official CLI for Claude."}]
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.True(t, fp.BillingPrefixPresent)
+	require.Equal(t, "claude_code_cli", fp.IdentityAnchorID)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceKnownSystem}, fp.PromptSurfaceClasses)
+}
+
+func TestTkExtractAnthropicPromptFingerprint_InteractiveAgentAnchor(t *testing.T) {
+	body := []byte(`{
+		"system":[{"type":"text","text":"You are an interactive agent that helps users with software engineering tasks. Use the instructions below."}]
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.Equal(t, "interactive_agent", fp.IdentityAnchorID)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceKnownSystem}, fp.PromptSurfaceClasses)
+}
+
+func TestTkExtractAnthropicPromptFingerprint_InteractiveCLIToolAnchor(t *testing.T) {
+	body := []byte(`{
+		"system":[{"type":"text","text":"You are an interactive CLI tool that helps users safely and efficiently.\n# Environment\nTZ=Asia/Shanghai"}]
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.Equal(t, "interactive_cli_tool", fp.IdentityAnchorID)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceKnownSystem}, fp.PromptSurfaceClasses)
+	require.Contains(t, fp.UnknownSurfaces, "cc_environment_section")
+}
+
+func TestTkExtractAnthropicPromptFingerprint_UnknownIdentity(t *testing.T) {
+	body := []byte(`{"system":[{"type":"text","text":"You are a generic assistant."}]}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.Equal(t, tkIdentityAnchorUnknown, fp.IdentityAnchorID)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceGenericSystem}, fp.PromptSurfaceClasses)
+	require.True(t, fp.GeoStegoCanonical)
+	require.Empty(t, fp.UnknownSurfaces)
+}
+
+func TestTkExtractAnthropicPromptFingerprint_UnknownSystemWithSurface(t *testing.T) {
+	body := []byte(`{"system":[{"type":"text","text":"You are a custom agent.\n# Environment\nTZ=Asia/Shanghai\nToday\u2019s date is 2026/06/30."}]}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.Equal(t, tkIdentityAnchorUnknown, fp.IdentityAnchorID)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceUnknownSystem}, fp.PromptSurfaceClasses)
+	require.False(t, fp.GeoStegoCanonical)
+	require.Equal(t, "SLASH_UNICODE", fp.ReminderDateLineClass)
+	require.ElementsMatch(t, []string{"geo_stego_date_line", "cc_environment_section"}, fp.UnknownSurfaces)
+}
+
+func TestTkExtractAnthropicPromptFingerprint_PlainUserPromptSurfaceSample(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"Please document this sample:\n# Environment\nTZ=Asia/Shanghai\nToday\u2019s date is 2026/06/30."}]}]}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.ElementsMatch(t, []tkCCPromptSurfaceClass{tkCCPromptSurfaceGenericUserText}, fp.PromptSurfaceClasses)
+	require.True(t, fp.GeoStegoCanonical)
+	require.Empty(t, fp.UnknownSurfaces)
+}
+
+func TestTkExtractAnthropicPromptFingerprint_FlagsToolResultOnlyWithoutSystem(t *testing.T) {
+	body := []byte(`{
+		"max_tokens":64000,
+		"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"raw json:\n-rw-r--r-- data.json","is_error":false}]}],
+		"model":"claude-opus-4-8",
+		"stream":true,
+		"thinking":{"type":"adaptive"}
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.True(t, fp.HasToolResult)
+	require.False(t, fp.HasAssistantToolUse)
+	require.Equal(t, 0, fp.SystemBlockCount)
+	require.False(t, fp.HasSystemReminder)
+	require.ElementsMatch(t, []string{
+		"orphan_tool_result_context",
+		"tool_result_without_system_surface",
+	}, fp.UnknownSurfaces)
+	require.True(t, fp.shouldLogPromptFingerprint(nil, ""))
+}
+
+func TestTkExtractAnthropicPromptFingerprint_FlagsNonImmediateToolResult(t *testing.T) {
+	body := []byte(`{
+		"system":[{"type":"text","text":"You are a Claude agent, built on Anthropic's Claude Agent SDK."}],
+		"messages":[
+			{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"echo late"}}]},
+			{"role":"user","content":[{"type":"text","text":"unrelated user turn"}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"late"}]}
+		]
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.True(t, fp.HasToolResult)
+	require.True(t, fp.HasAssistantToolUse)
+	require.Contains(t, fp.UnknownSurfaces, "orphan_tool_result_context")
+}
+
+func TestTkExtractAnthropicPromptFingerprint_FlagsDuplicateToolResult(t *testing.T) {
+	body := []byte(`{
+		"messages":[
+			{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{}}]},
+			{"role":"user","content":[
+				{"type":"tool_result","tool_use_id":"toolu_01","content":"first"},
+				{"type":"tool_result","tool_use_id":"toolu_01","content":"second"}
+			]}
+		]
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.True(t, fp.HasToolResult)
+	require.Contains(t, fp.UnknownSurfaces, "duplicate_tool_result_for_tool_use")
+}
+
+func TestTkExtractAnthropicPromptFingerprint_AllowsSdkToolContinuationWithContext(t *testing.T) {
+	body := []byte(`{
+		"system":[
+			{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.198.b93; cc_entrypoint=claude-vscode;"},
+			{"type":"text","text":"You are a Claude agent, built on Anthropic's Claude Agent SDK."}
+		],
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"<system-reminder>\nToday's date is 2026-07-03.\n</system-reminder>"},{"type":"text","text":"run echo"}]},
+			{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"echo TOOL_OK"}}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"TOOL_OK"}]}
+		],
+		"max_tokens":64000,
+		"thinking":{"type":"adaptive"}
+	}`)
+	fp := tkExtractAnthropicPromptFingerprint(body)
+	require.True(t, fp.HasToolResult)
+	require.True(t, fp.HasAssistantToolUse)
+	require.Equal(t, 2, fp.SystemBlockCount)
+	require.Equal(t, "claude_agent_sdk", fp.IdentityAnchorID)
+	require.NotContains(t, fp.UnknownSurfaces, "orphan_tool_result_context")
+	require.NotContains(t, fp.UnknownSurfaces, "tool_result_without_system_surface")
+}
+
+func TestTkPromptFingerprintShouldLog_OnNormalize(t *testing.T) {
+	fp := tkExtractAnthropicPromptFingerprint([]byte(`{"messages":[]}`))
+	require.True(t, fp.shouldLogPromptFingerprint(
+		[]tkAnthropicNormalizeChange{tkNormalizeChangeCCGeoStego},
+		"",
+	))
+}
+
+func TestTkPromptFingerprintShouldLog_SampleWithoutSignal(t *testing.T) {
+	fp := tkExtractAnthropicPromptFingerprint([]byte(`{"messages":[]}`))
+	seen := 0
+	for i := 0; i < 1000; i++ {
+		id := "req-" + strings.Repeat("x", i)
+		if fp.shouldLogPromptFingerprint(nil, id) {
+			seen++
+		}
+	}
+	require.Greater(t, seen, 0)
+	require.Less(t, seen, 50)
+}
+
+func TestTkPromptFingerprintShouldLog_UnknownIdentitySamplesOnly(t *testing.T) {
+	fp := tkExtractAnthropicPromptFingerprint([]byte(`{"system":[{"type":"text","text":"You are a generic assistant."}]}`))
+	require.Equal(t, tkIdentityAnchorUnknown, fp.IdentityAnchorID)
+	require.False(t, fp.shouldLogPromptFingerprint(nil, ""))
+	seen := 0
+	for i := 0; i < 1000; i++ {
+		id := "req-" + strings.Repeat("y", i)
+		if fp.shouldLogPromptFingerprint(nil, id) {
+			seen++
+		}
+	}
+	require.Greater(t, seen, 0)
+	require.Less(t, seen, 50)
+}
+
+func TestTkPromptFingerprintShouldLog_UnknownIdentityWithBilling(t *testing.T) {
+	fp := tkExtractAnthropicPromptFingerprint([]byte(`{
+		"system":[{"type":"text","text":"x-anthropic-billing-header: cc-session\nYou are a custom agent."}]
+	}`))
+	require.Equal(t, tkIdentityAnchorUnknown, fp.IdentityAnchorID)
+	require.True(t, fp.BillingPrefixPresent)
+	require.True(t, fp.shouldLogPromptFingerprint(nil, ""))
+}
+
+func TestTkNormalizeAnthropicRequestBody_FingerprintCanonicalAfterGeo(t *testing.T) {
+	svc := newNormalizeTestService(t, "true")
+	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\nToday\u2019s date is 2026/06/30.\n</system-reminder>"}]}]}`)
+	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), nil, in, nil)
+	fp := tkExtractAnthropicPromptFingerprint(out)
+	require.Equal(t, "ISO_DASH_ASCII", fp.ReminderDateLineClass)
+	require.True(t, fp.GeoStegoCanonical)
+}
+
+// TestTkProbePromptSurfaceGatewayCoverageJSONL is invoked by
+// ops/anthropic/probe_prompt_surfaces.py --check-gateway via
+// TOKENKEY_PROMPT_SURFACE_PROBE_JSONL=<capture.jsonl>.
+func TestTkProbePromptSurfaceGatewayCoverageJSONL(t *testing.T) {
+	path := os.Getenv("TOKENKEY_PROMPT_SURFACE_PROBE_JSONL")
+	if path == "" {
+		path = os.Getenv("TOKENKEY_CC_GEO_PROBE_JSONL")
+	}
+	if path == "" {
+		t.Skip("TOKENKEY_PROMPT_SURFACE_PROBE_JSONL not set")
+	}
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &rec))
+		scenario, _ := rec["scenario"].(string)
+		baseURL, _ := rec["base_url"].(string)
+		host, _ := rec["host"].(string)
+		bodyWire, _ := rec["body_wire"].(map[string]any)
+		if bodyWire == nil {
+			continue
+		}
+		wire := map[string]any{
+			"system":   bodyWire["system"],
+			"messages": bodyWire["messages"],
+		}
+		if wire["system"] == nil && wire["messages"] == nil {
+			continue
+		}
+		bodyBytes, err := json.Marshal(wire)
+		require.NoError(t, err)
+
+		oauthEmail, _ := rec["oauth_email"].(string)
+		out, changed := tkNormalizeAnthropicCCPromptSurface(bodyBytes, oauthEmail)
+		_, still := tkNormalizeAnthropicCCPromptSurface(out, oauthEmail)
+		require.False(t, still, "normalize not idempotent for scenario=%s", scenario)
+
+		isFirstPartyControl := strings.Contains(baseURL, "api.anthropic.com") &&
+			strings.Contains(host, "anthropic.com")
+		if isFirstPartyControl {
+			require.False(t, changed, "first-party anthropic.com control must stay untouched: %s", scenario)
+			continue
+		}
+		require.False(t, tkWireStillHasCCPromptSurfaceLeaks(out),
+			"gateway left prompt surface leaks in output for scenario=%s", scenario)
+
+		fp := tkExtractAnthropicPromptFingerprint(out)
+		require.True(t, fp.GeoStegoCanonical, "fingerprint not canonical for scenario=%s", scenario)
+		require.NotContains(t, fp.UnknownSurfaces, "geo_stego_date_line", "scenario=%s", scenario)
+	}
+}
+
+func TestTkIngressUAClass_OpenAIPython(t *testing.T) {
+	require.Equal(t, "openai_python_sdk", tkIngressUAClass("OpenAI/Python 2.44.0"))
+	require.Equal(t, "claude_code", tkIngressUAClass("claude-cli/2.1.205 (external, cli)"))
+}
+
+func TestTkShouldLogOAuthMimicEgressFingerprint_SDKAlways(t *testing.T) {
+	require.True(t, tkShouldLogOAuthMimicEgressFingerprint("OpenAI/Python 2.32.0", ""))
+	require.False(t, tkShouldLogOAuthMimicEgressFingerprint("claude-cli/2.1.205 (external, cli)", ""))
+}

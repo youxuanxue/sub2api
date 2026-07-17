@@ -110,13 +110,13 @@ func TestDispatchPlanUsesNewAPIBridge(t *testing.T) {
 
 func TestOpenAICompatPlatforms(t *testing.T) {
 	got := OpenAICompatPlatforms()
-	if len(got) != 2 {
-		t.Fatalf("OpenAICompatPlatforms() returned %d entries, want 2: %v", len(got), got)
-	}
-
 	want := map[string]bool{
 		domain.PlatformOpenAI: false,
 		domain.PlatformNewAPI: false,
+		domain.PlatformGrok:   false,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("OpenAICompatPlatforms() returned %d entries, want %d: %v", len(got), len(want), got)
 	}
 	for _, platform := range got {
 		if _, ok := want[platform]; !ok {
@@ -138,6 +138,7 @@ func TestIsOpenAICompatPlatform(t *testing.T) {
 	}{
 		{domain.PlatformOpenAI, true},
 		{domain.PlatformNewAPI, true},
+		{domain.PlatformGrok, true},
 		{domain.PlatformAnthropic, false},
 		{domain.PlatformGemini, false},
 		{domain.PlatformAntigravity, false},
@@ -161,6 +162,7 @@ func TestIsOpenAICompatPoolMember(t *testing.T) {
 		want            bool
 	}{
 		{"openai matches openai", domain.PlatformOpenAI, 0, domain.PlatformOpenAI, true},
+		{"grok matches grok (channel_type 0 ok, like openai)", domain.PlatformGrok, 0, domain.PlatformGrok, true},
 		{"newapi requires positive channel type", domain.PlatformNewAPI, 0, domain.PlatformNewAPI, false},
 		{"newapi positive channel type allowed", domain.PlatformNewAPI, 45, domain.PlatformNewAPI, true},
 		{"cross platform rejected", domain.PlatformNewAPI, 45, domain.PlatformOpenAI, false},
@@ -187,6 +189,7 @@ func TestAllSchedulingPlatforms(t *testing.T) {
 		domain.PlatformAntigravity: false,
 		domain.PlatformNewAPI:      false,
 		domain.PlatformKiro:        false,
+		domain.PlatformGrok:        false,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("AllSchedulingPlatforms() returned %d entries, want %d: %v", len(got), len(want), got)
@@ -309,6 +312,8 @@ func TestIsVideoSupportedChannelType(t *testing.T) {
 		channelType int
 		want        bool
 	}{
+		{"gemini", 24, true},
+		{"vertex_ai", 41, true},
 		{"volcengine", 45, true},
 		{"doubao_video", 54, true},
 		{"unknown_zero", 0, false},

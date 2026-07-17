@@ -103,12 +103,14 @@ func TestUS018_IsOpenAICompatPlatform_Truth(t *testing.T) {
 	}
 }
 
-func TestOpenAICompatPlatforms_ListsBothCanonicals(t *testing.T) {
+func TestOpenAICompatPlatforms_ListsCanonicals(t *testing.T) {
 	got := OpenAICompatPlatforms()
-	if len(got) != 2 {
-		t.Fatalf("OpenAICompatPlatforms must list exactly 2 platforms today, got %d: %v", len(got), got)
+	// openai (Codex OAuth) + newapi (apikey fifth platform) + grok (xAI OAuth
+	// seventh platform — OpenAI-wire compatible, so it rides the OpenAI-compat pool).
+	want := map[string]bool{PlatformOpenAI: false, PlatformNewAPI: false, PlatformGrok: false}
+	if len(got) != len(want) {
+		t.Fatalf("OpenAICompatPlatforms must list exactly %d platforms today, got %d: %v", len(want), len(got), got)
 	}
-	want := map[string]bool{PlatformOpenAI: false, PlatformNewAPI: false}
 	for _, p := range got {
 		if _, ok := want[p]; !ok {
 			t.Fatalf("unexpected platform %q in OpenAICompatPlatforms()", p)

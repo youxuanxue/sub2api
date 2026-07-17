@@ -44,6 +44,9 @@ func (s *GatewayService) ForwardAsResponses(
 	}
 	originalModel := responsesReq.Model
 	clientStream := responsesReq.Stream
+	if failoverErr := antigravityOpenAICompatMessagesRelayFailover(account); failoverErr != nil {
+		return nil, failoverErr
+	}
 
 	// 2. Convert Responses → Anthropic
 	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(&responsesReq)
@@ -72,7 +75,20 @@ func (s *GatewayService) ForwardAsResponses(
 			mappedModel = normalized
 		}
 	}
+	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 mapping 完成之后。
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
 	anthropicReq.Model = mappedModel
+
+	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
+	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
+	// OpenAI /v1/responses ingress (against an anthropic account) → OPENAI 404
+	// envelope (BLOCKER4). Judge originalModel — billing records on
+	// result.Model=originalModel here, so the gate must use billing's exact key
+	// (BLOCKER1). No-op unless account.Platform is in the enabled set. See
+	// gateway_priced_serving_gate_tk.go.
+	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
+	}
 
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
 		zap.Int64("account_id", account.ID),
@@ -101,6 +117,7 @@ func (s *GatewayService) ForwardAsResponses(
 
 	// 7. Enforce cache_control block limit
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
+	anthropicBody = tkApplyAnthropicRequestCompatibilityRules(account, anthropicBody)
 
 	// 8. Get access token
 	token, tokenType, err := s.GetAccessToken(ctx, account)
@@ -148,6 +165,10 @@ func (s *GatewayService) ForwardAsResponses(
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		if resp.StatusCode == http.StatusBadRequest {
+			tkRecordAnthropicSamplingParamRuleFrom400(account, mappedModel, anthropicBody, resp.StatusCode, respBody)
+			tkRecordAnthropicThinkingRuleFrom400(account, mappedModel, anthropicBody, resp.StatusCode, respBody)
+		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -337,13 +358,11 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
-	// Upstream is Anthropic SSE; we buffered and converted to a single JSON
-	// Responses object. WriteFilteredHeaders propagates the upstream
-	// `Content-Type: text/event-stream` and gin's c.Data / c.JSON will NOT
-	// overwrite an already-set Content-Type (render.writeContentType only writes
-	// when the header is empty), so without this override the client would
-	// receive a JSON body with an SSE Content-Type header. Same root cause as
-	// upstream Wei-Shaw/sub2api#1311.
+	// 非流式响应必须是 application/json。上游被强制流式后会返回
+	// Content-Type: text/event-stream，经 WriteFilteredHeaders 透传后会污染
+	// 响应头；而 c.Data/c.JSON 走 Gin 的 writeContentType（仅当头不存在时才设置），
+	// 无法覆盖已存在的 SSE 头。这里显式 Set 强制改回 JSON，避免下游中间层
+	// （如 new-api）按 Content-Type 误判为流式。Wei-Shaw/sub2api#1311
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if respBytes, err := json.Marshal(responsesResp); err == nil {
 		respBytes = reverseToolNamesIfPresent(c, respBytes)
@@ -454,6 +473,13 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 	finalizeStream := func() (*ForwardResult, error) {
 		if finalEvents := apicompat.FinalizeAnthropicResponsesStream(state); len(finalEvents) > 0 {
+			// Non-empty finalize events mean the upstream stream ended without a
+			// terminal message_stop; FinalizeAnthropicResponsesStream synthesizes a
+			// response.incomplete terminal so the strict client is not left hanging.
+			// Surface it for ops: the turn is truncated, not a clean completion.
+			logger.L().Info("forward_as_responses stream: upstream ended without terminal event; emitted response.incomplete",
+				zap.String("request_id", requestID),
+			)
 			for _, evt := range finalEvents {
 				sse, err := apicompat.ResponsesEventToSSE(evt)
 				if err != nil {
@@ -522,6 +548,7 @@ func appendRawJSON(existing json.RawMessage, fragment string) json.RawMessage {
 
 // writeResponsesError writes an error response in OpenAI Responses API format.
 func writeResponsesError(c *gin.Context, statusCode int, code, message string) {
+	MarkResponseCommitted(c)
 	c.JSON(statusCode, gin.H{
 		"error": gin.H{
 			"code":    code,

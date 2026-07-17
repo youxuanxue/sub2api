@@ -3,11 +3,82 @@
 package repository
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
+
+func newSchedulerCacheUnit(t *testing.T) *schedulerCache {
+	cache, _ := newSchedulerCacheUnitWithRedis(t)
+	return cache
+}
+
+func newSchedulerCacheUnitWithRedis(t *testing.T) (*schedulerCache, *miniredis.Miniredis) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	cache, ok := newSchedulerCacheWithChunkSizes(rdb, defaultSchedulerSnapshotMGetChunkSize, defaultSchedulerSnapshotWriteChunkSize).(*schedulerCache)
+	require.True(t, ok)
+	return cache, mr
+}
+
+func TestSchedulerCacheWriteAccountsSkipsUnencodableTimes(t *testing.T) {
+	ctx := context.Background()
+	cache := newSchedulerCacheUnit(t)
+	invalidTime := time.Date(10000, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+	cacheable, err := cache.writeAccounts(ctx, []service.Account{
+		{ID: 111, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey},
+		{ID: 112, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, ExpiresAt: &invalidTime},
+	})
+	require.NoError(t, err)
+	require.Len(t, cacheable, 1)
+	require.Equal(t, int64(111), cacheable[0].ID)
+
+	cached, err := cache.GetAccount(ctx, 111)
+	require.NoError(t, err)
+	require.NotNil(t, cached)
+
+	invalid, err := cache.GetAccount(ctx, 112)
+	require.NoError(t, err)
+	require.Nil(t, invalid)
+}
+
+func TestSchedulerCacheSetAccountClearsUnencodablePayload(t *testing.T) {
+	ctx := context.Background()
+	cache := newSchedulerCacheUnit(t)
+
+	account := service.Account{ID: 113, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey}
+	require.NoError(t, cache.SetAccount(ctx, &account))
+
+	invalidTime := time.Date(10000, time.January, 1, 0, 0, 0, 0, time.UTC)
+	account.ExpiresAt = &invalidTime
+	require.NoError(t, cache.SetAccount(ctx, &account))
+
+	cached, err := cache.GetAccount(ctx, account.ID)
+	require.NoError(t, err)
+	require.Nil(t, cached)
+}
+
+func TestSchedulerCacheUpdateLastUsedClearsUnencodablePayload(t *testing.T) {
+	ctx := context.Background()
+	cache := newSchedulerCacheUnit(t)
+	account := service.Account{ID: 114, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey}
+	require.NoError(t, cache.SetAccount(ctx, &account))
+
+	invalidTime := time.Date(10000, time.January, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, cache.UpdateLastUsed(ctx, map[int64]time.Time{account.ID: invalidTime}))
+
+	cached, err := cache.GetAccount(ctx, account.ID)
+	require.NoError(t, err)
+	require.Nil(t, cached)
+}
 
 func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 	account := service.Account{
@@ -186,4 +257,57 @@ func TestBuildSchedulerMetadataAccount_KeepsModelRateLimits(t *testing.T) {
 	require.Contains(t, limits, "gemini-3-flash")
 	require.Contains(t, limits, "antigravity:gemini")
 	require.Nil(t, got.Extra["unused_large_field"])
+}
+
+func TestBuildSchedulerMetadataAccount_KeepsSparkShadowRoutingIdentity(t *testing.T) {
+	parentID := int64(100)
+	account := service.Account{
+		ID:              200,
+		Platform:        service.PlatformOpenAI,
+		Type:            service.AccountTypeOAuth,
+		ParentAccountID: &parentID,
+		QuotaDimension:  service.QuotaDimensionSpark,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
+			},
+			"compact_model_mapping": map[string]any{
+				"gpt-5.4": "gpt-5.4-openai-compact",
+			},
+			"access_token": "drop-me",
+		},
+	}
+
+	got := buildSchedulerMetadataAccount(account)
+
+	require.NotNil(t, got.ParentAccountID)
+	require.Equal(t, parentID, *got.ParentAccountID)
+	require.Equal(t, service.QuotaDimensionSpark, got.QuotaDimension)
+	require.Equal(t, map[string]any{"gpt-5.3-codex-spark": "gpt-5.3-codex-spark"}, got.Credentials["model_mapping"])
+	require.Equal(t, map[string]any{"gpt-5.4": "gpt-5.4-openai-compact"}, got.Credentials["compact_model_mapping"])
+	require.Nil(t, got.Credentials["access_token"])
+}
+
+func TestBuildSchedulerMetadataAccount_KeepsMirrorStubRoutingMetadata(t *testing.T) {
+	account := service.Account{
+		ID:       300,
+		Name:     "kiro-us6",
+		Platform: service.PlatformAnthropic,
+		Type:     service.AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":         "tk-edge",
+			"base_url":        "https://api-us6.tokenkey.dev",
+			"mirror_platform": "kiro",
+			"pool_mode":       true,
+			"access_token":    "drop-me",
+		},
+	}
+
+	got := buildSchedulerMetadataAccount(account)
+
+	require.Equal(t, "https://api-us6.tokenkey.dev", got.Credentials["base_url"])
+	require.Equal(t, "kiro", got.Credentials["mirror_platform"])
+	require.Equal(t, true, got.Credentials["pool_mode"])
+	require.Equal(t, "tk-edge", got.Credentials["api_key"])
+	require.Nil(t, got.Credentials["access_token"])
 }

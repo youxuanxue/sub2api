@@ -67,6 +67,11 @@ func StartClaudeStatusPoller(ctx context.Context) {
 	// Prime the snapshot synchronously so the very first requests benefit too.
 	if snap, err := fetchClaudeAPIStatus(ctx, client, claudeStatusAPIURL); err == nil {
 		claudeStatusAtom.Store(snap)
+		if snap.IsIncident {
+			if n := getClaudeAPIStatusNotifier(); n != nil {
+				n.NotifyClaudeAPIIncidentStarted(snap.Status)
+			}
+		}
 	}
 
 	go func() {
@@ -85,11 +90,15 @@ func StartClaudeStatusPoller(ctx context.Context) {
 				prev := GetClaudeStatusSnapshot()
 				claudeStatusAtom.Store(snap)
 				if snap.IsIncident && !prev.IsIncident {
-					slog.Warn("claude_api_incident_detected",
-						"status", snap.Status,
-						"effect", "anthropic_account_cooldown_writes_suppressed")
+					slog.Warn("claude_api_incident_detected", "status", snap.Status)
+					if n := getClaudeAPIStatusNotifier(); n != nil {
+						n.NotifyClaudeAPIIncidentStarted(snap.Status)
+					}
 				} else if !snap.IsIncident && prev.IsIncident {
 					slog.Info("claude_api_incident_resolved", "status", snap.Status)
+					if n := getClaudeAPIStatusNotifier(); n != nil {
+						n.NotifyClaudeAPIIncidentResolved(snap.Status)
+					}
 				}
 			}
 		}
@@ -130,9 +139,8 @@ func fetchClaudeAPIStatus(ctx context.Context, client *http.Client, url string) 
 			snap.Status = c.Status
 			// Anything other than "operational" (degraded_performance /
 			// partial_outage / major_outage / under_maintenance) counts as an
-			// incident. This is intentionally conservative: a false positive
-			// only ever *avoids* penalising an account's health, never the
-			// reverse.
+			// incident. Ops are notified via Feishu P0; account-level penalties
+			// are NOT suppressed during incidents.
 			snap.IsIncident = c.Status != "operational"
 			break
 		}

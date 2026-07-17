@@ -58,6 +58,17 @@ export async function getAll(platform?: GroupPlatform): Promise<AdminGroup[]> {
 }
 
 /**
+ * Get ALL groups including disabled ones — used by the API Key group filter so
+ * that admins can filter users whose keys are still bound to a now-disabled group.
+ */
+export async function getAllIncludingInactive(): Promise<AdminGroup[]> {
+  const { data } = await apiClient.get<AdminGroup[]>('/admin/groups/all', {
+    params: { include_inactive: true }
+  })
+  return data
+}
+
+/**
  * Get active groups by platform
  * @param platform - Platform to filter by
  * @returns List of groups for the specified platform
@@ -291,18 +302,13 @@ export async function clearGroupRPMOverrides(id: number): Promise<{ message: str
 }
 
 /**
- * Get usage summary (today + cumulative cost) for all groups
- * @param timezone - IANA timezone string (e.g. "Asia/Shanghai")
- * @returns Array of group usage summaries
+ * Get usage summary (today + cumulative user-billed cost) for all groups.
+ * Day boundaries use the server-configured timezone.
  */
-export async function getUsageSummary(
-  timezone?: string
-): Promise<{ group_id: number; today_cost: number; total_cost: number }[]> {
+export async function getUsageSummary(): Promise<{ group_id: number; today_cost: number; total_cost: number }[]> {
   const { data } = await apiClient.get<
     { group_id: number; today_cost: number; total_cost: number }[]
-  >('/admin/groups/usage-summary', {
-    params: timezone ? { timezone } : undefined
-  })
+  >('/admin/groups/usage-summary')
   return data
 }
 
@@ -322,6 +328,7 @@ export const groupsAPI = {
   list,
   getAll,
   getByPlatform,
+  getAllIncludingInactive,
   getById,
   getModelsListCandidates,
   create,

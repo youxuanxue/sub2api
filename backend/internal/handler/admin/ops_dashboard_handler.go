@@ -328,6 +328,74 @@ func parseOpsOpenAITokenStatsDuration(v string) (time.Duration, bool) {
 	}
 }
 
+// GetDashboardFailoverHopStats returns the per-account wasted-failover-hop KPI for
+// the GPT line (PR #899 follow-up observability). TopN-only; mirrors the
+// openai-token-stats handler shape.
+func (h *OpsHandler) GetDashboardFailoverHopStats(c *gin.Context) {
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
+		return
+	}
+	if err := h.opsService.RequireMonitoringEnabled(c.Request.Context()); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	filter, err := parseOpsFailoverHopStatsFilter(c)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	data, err := h.opsService.GetFailoverHopStats(c.Request.Context(), filter)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, data)
+}
+
+func parseOpsFailoverHopStatsFilter(c *gin.Context) (*service.OpsFailoverHopStatsFilter, error) {
+	if c == nil {
+		return nil, fmt.Errorf("invalid request")
+	}
+
+	timeRange := strings.TrimSpace(c.Query("time_range"))
+	if timeRange == "" {
+		timeRange = "1d"
+	}
+	dur, ok := parseOpsOpenAITokenStatsDuration(timeRange)
+	if !ok {
+		return nil, fmt.Errorf("invalid time_range")
+	}
+	end := time.Now().UTC()
+	start := end.Add(-dur)
+
+	filter := &service.OpsFailoverHopStatsFilter{
+		TimeRange: timeRange,
+		StartTime: start,
+		EndTime:   end,
+		Platform:  strings.TrimSpace(c.Query("platform")),
+	}
+
+	if v := strings.TrimSpace(c.Query("group_id")); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || id <= 0 {
+			return nil, fmt.Errorf("invalid group_id")
+		}
+		filter.GroupID = &id
+	}
+
+	if topNRaw := strings.TrimSpace(c.Query("top_n")); topNRaw != "" {
+		topN, err := strconv.Atoi(topNRaw)
+		if err != nil || topN < 1 || topN > 100 {
+			return nil, fmt.Errorf("invalid top_n")
+		}
+		filter.TopN = topN
+	}
+	return filter, nil
+}
+
 func pickThroughputBucketSeconds(window time.Duration) int {
 	// Keep buckets predictable and avoid huge responses.
 	switch {

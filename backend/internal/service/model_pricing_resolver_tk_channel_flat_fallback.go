@@ -31,6 +31,9 @@ func tkApplyChannelFlatOverridesAsFallback(chPricing *ChannelModelPricing, resol
 	}
 	if resolved.BasePricing == nil {
 		resolved.BasePricing = &ModelPricing{}
+	} else {
+		cloned := *resolved.BasePricing
+		resolved.BasePricing = &cloned
 	}
 
 	if chPricing.InputPrice != nil {
@@ -43,6 +46,8 @@ func tkApplyChannelFlatOverridesAsFallback(chPricing *ChannelModelPricing, resol
 	}
 	if chPricing.CacheWritePrice != nil {
 		resolved.BasePricing.CacheCreationPricePerToken = *chPricing.CacheWritePrice
+		resolved.BasePricing.CacheCreationPricePerTokenPriority = *chPricing.CacheWritePrice
+		resolved.BasePricing.CacheCreationPriceExplicit = true
 		resolved.BasePricing.CacheCreation5mPrice = *chPricing.CacheWritePrice
 		resolved.BasePricing.CacheCreation1hPrice = *chPricing.CacheWritePrice
 	}
@@ -50,9 +55,15 @@ func tkApplyChannelFlatOverridesAsFallback(chPricing *ChannelModelPricing, resol
 		resolved.BasePricing.CacheReadPricePerToken = *chPricing.CacheReadPrice
 		resolved.BasePricing.CacheReadPricePerTokenPriority = *chPricing.CacheReadPrice
 	}
+	// Channel pricing fully overrides image output: set explicit flag so billing
+	// doesn't fall back to LiteLLM catalog. If nil, the channel intentionally
+	// prices image output at $0 (upstream Wei-Shaw/sub2api PR #2930 behavior).
 	if chPricing.ImageOutputPrice != nil {
 		resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
+	} else {
+		resolved.BasePricing.ImageOutputPricePerToken = 0
 	}
+	resolved.BasePricing.ImageOutputPriceExplicit = true
 }
 
 // tkOverlayIntervalOntoBasePricing returns the effective pricing for a matched
@@ -88,6 +99,8 @@ func tkOverlayIntervalOntoBasePricing(base *ModelPricing, iv *PricingInterval, s
 	}
 	if iv.CacheWritePrice != nil {
 		out.CacheCreationPricePerToken = *iv.CacheWritePrice
+		out.CacheCreationPricePerTokenPriority = *iv.CacheWritePrice
+		out.CacheCreationPriceExplicit = true
 		out.CacheCreation5mPrice = *iv.CacheWritePrice
 		out.CacheCreation1hPrice = *iv.CacheWritePrice
 	}

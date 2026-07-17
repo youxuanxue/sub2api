@@ -1,0 +1,315 @@
+---
+name: tokenkey-servable-model-refresh
+description: >-
+  Write sub-flow for TokenKey catalog/menu allowlist refresh (branch B). Enter via
+  tokenkey-modelops-planner first; load this skill only when executing
+  refresh-servable-allowlist probe/run/apply and Gemini/Volcengine edge cases.
+---
+
+# TokenKey：catalog/Menu allowlist 刷新（写入子流程 · 分支 B）
+
+> **入口：** 运营/agent 应先走 **`tokenkey-modelops-planner`** 路由；判定为 catalog/menu
+> 刷新后再加载本 skill。勿把本 skill 当作 model ops 总入口。
+
+适用于本仓库（TokenKey fork of sub2api）。把「公开 `/pricing` 与用户 `Your Menu`
+应该展示哪些实测可服务模型」从一次性手工探测固化为可复跑流水线。背景与解耦原因见
+`ops/pricing/README.md`、PR #605（呈现层过滤 vs IsModelPriced 解耦）、#608（本工具）。
+
+当前公开目录和用户菜单已收敛到同一 servable surface：
+
+- `FilterPublicCatalogToServable` 过滤公开 `/pricing`。
+- `supportedCatalogModelIDsForPlatform` 喂给用户菜单 fallback。
+- 两者共享 `pricing_catalog_supported_models_tk.go` 中的经验可服务集合。
+
+所以本 skill 只刷新这个共享集合；不要再为菜单维护第二份列表。
+
+测试也必须消费这个共享集合：新增/移除 servable 模型时，正向覆盖应从
+`ServableClientFacingIDs` / `supportedCatalogModelIDsForPlatform` / allowlist owner 派生；负向只保留
+真实边界样本（未知 ID、priced-but-hidden、跨平台 ID、兼容别名）。不要在测试里复制一份会随
+allowlist 同步更新的模型正/负清单。
+
+## 确定性基线（机械化 vs 真判断）
+
+按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审。本 skill
+**已达基线**——可机械化的步骤全在脚本里，prompt 不重复它们：
+
+- **机械化（脚本承载）**：候选派生（按 litellm vendor + 是否有价，分 chat/responses/image
+  家族，Gemini 另走 discovered + seed）、**24h 流量短路**（从 `usage_logs` 拉近窗成功流量、
+  与候选集求交、跳过 SSM 探测）、SSM 投递与逐模型请求、HTTP→verdict 分类、留
+  `servable`、dated 去重、Go map splice、分批避开 SSM 等待窗口、自动开 PR——全在
+  `refresh-servable-allowlist.py` / `probe-servable-models.sh` /
+  `probe-traffic-proven-models.sh` / `probe-antigravity-gemini25pro-literal.sh`，
+  `selftest` 子命令覆盖，preflight `servable-allowlist generator selftest` 门禁 + sentinel 守 splice 标记。
+- **真判断（留给人/agent）**：① `inconclusive`（429/502/503）的取舍——它常是「该探测组没有
+  这类账号」而非模型本身不可用（如 image 经 GPT专线组、专用 codex 池）；要不要给别的组 key
+  扩探测再加回，是判断。② 审 PR diff 是否合理（突然大幅增删要查是不是探测设置坏了，看
+  `auth_error` 行）。③ 合并授权（人）。
+
+## 用法
+
+需运营本机有 AWS creds（探测走 prod SSM）。默认路径不再依赖 `TK_SMOKE_API_KEY` 或业务组上已绑定的 customer key：`probe-servable-models.sh` 在每次 batch 自动 ensure 可复用的 `__tk_probe_<scope>_group` / `__tk_probe_<scope>_key`（与 `tokenkey-account-model-probe` 同命名空间），从 canonical 源 group id/组复制 schedulable 账号、探测、EXIT 时清除 account 绑定。
+
+```bash
+# 0) 预览候选切分（无需 prod）
+python3 ops/pricing/refresh-servable-allowlist.py candidates
+
+# 1) 一键：探测 → 重写 Go allowlist → 自动提 PR
+python3 ops/pricing/refresh-servable-allowlist.py run --open-pr
+
+# 或分步，先看原始 verdict 再决定：
+python3 ops/pricing/refresh-servable-allowlist.py probe | tee /tmp/servable.tsv
+python3 ops/pricing/refresh-servable-allowlist.py apply --results /tmp/servable.tsv
+cd backend && go test -tags=unit ./internal/service/ -run PublicCatalog
+```
+
+`run` 不带 `--open-pr` 只重写本地 Go 文件，便于先审 `git diff`。
+
+### 24h 流量短路（`--skip-proven-by-traffic`，加性优化、默认关、可灰度）
+
+全量探测约 162 模型 / 16 批 / 8–15 分钟。很多候选**近 24h 已被真实客流成功调用**，再探纯属浪费。
+`--skip-proven-by-traffic`（或 env `REFRESH_SKIP_PROVEN_BY_TRAFFIC=1`）在探测前先经 `run-probe.sh` 投递
+`probe-traffic-proven-models.sh`，只读聚合 `usage_logs` 近 `--traffic-hours`（默认 24）的成功流量，把
+**已被流量证明 servable 的候选直接判 servable 并移出探测批**，batch 数显著下降：
+
+```bash
+python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic
+python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic --traffic-hours 48
+# probe 子命令同样支持；被跳过的模型以 servable 行写进 TSV，apply 仍完整
+python3 ops/pricing/refresh-servable-allowlist.py probe --skip-proven-by-traffic | tee /tmp/servable.tsv
+```
+
+跳过项显式打到 stderr 供人审：`[refresh] skipping N models proven by 24h traffic: anthropic/claude-opus-4-8, …`。
+
+**正确性契约（改动前必读，全是为了不引入假阳/假阴）**：
+
+- **纯加性**：流量成功=确凿 servable 正证据；**没流量 ≠ 不可服务**（可能只是没人调）——未命中流量的候选
+  **仍正常进探测批**，短路只删探测、绝不判 unsupported。默认关，保守全探仍是基线，开关用于灰度。
+- **只能跳/加候选集内模型**：proven 集与派生候选集求交，流量无法把候选集外（无价/未知）模型塞进 allowlist。
+- **平台桶按候选集定，不按服务账号**：Vertex 经 `accounts.platform='newapi'` 服务，所以流量里的
+  `gemini-2.5-pro` 按其**候选平台** `gemini` 入桶；`usage_logs` 行只需 model id 命中候选即可。
+- **deadlist 不会因一条流量复活**：skiplist/deadlist 早已从候选集剔除，proven 再过一遍
+  `validate_results_against_reprobe_ledger` 兜底。
+- `usage_logs` 一行 = 一次**计费**请求（不耗 token 的错误不落行）；查询再要求真实产出（token/图/视频）
+  排除 `$0` 占位行，确保不把空请求当 servable 证据。
+
+### 视频族跳过（`--skip-video`，省真实付费任务、默认关）
+
+video 族（`gemini_video` → veo）的一次 submit = **一条真实付费生成任务**（不像 chat 16 token、image ~1 张那样廉价）。日常刷 catalog/menu 通常只想确认 chat/image，没必要每次为 veo 烧钱。`--skip-video`（或 env `REFRESH_SKIP_VIDEO=1`）从 `run`/`probe` 的探测族里剔除所有 `*_video`：
+
+```bash
+python3 ops/pricing/refresh-servable-allowlist.py run --skip-proven-by-traffic --skip-video
+python3 ops/pricing/refresh-servable-allowlist.py probe --skip-video | tee /tmp/servable.tsv
+```
+
+**正确性契约（关键，别破）**：splice 是**整平台块替换**——若只探 chat/image 而 video 族缺席，gemini 块会被重写成「chat+image」从而**丢掉已 servable 的 veo**。所以 `--skip-video` 不只是「不探 video」，还会把**当前 allowlist 里的 video 条目原样 carry-forward**（以 `平台\t模型\t000\tservable` 合成行回灌探测结果），`run`（parse_results）与 `probe`→`apply` 两条路都保住 veo。`live_probe` 用 `_probe_family_for` 判定 video 族，与正常探测同一分类器；`carried_forward_rows` 的 selftest + preflight `servable-allowlist generator selftest` 守住。只有真要刷 veo 可服务性 / 上架新 veo 时才省略本 flag（接受 submit 付费）。ark video 是另一条手动路径（见下「Volcengine / ark 三族」），本 flag 不管它——别给 ark probe 设 `ARK_VIDEO_MODELS` 即可。
+
+## Gemini / Vertex 三族（newapi 第五平台，探测目标 prod）
+
+gpt 经 prod 探测；claude **直探 edge 原生 OAuth 池**（见下文判断要点）；**gemini/Vertex 也经 prod 的 Vertex group_id=16 探测**（live Vertex 账号
+ids 47/57/58/59/74 在 prod；旧 us6 `google` 组账号已软删、清空）。四族：
+`GEMINI_CHAT_MODELS`→`/v1/chat/completions`、`GEMINI_IMAGE_MODELS`→`/v1/images/generations`（**imagen-*** predict API）、
+`GEMINI_CHATIMAGE_MODELS`→`/v1/chat/completions`（**gemini-*-image / nano-banana** 经 chat/generateContent 出图，非 imagen predict 面）、
+`GEMINI_VIDEO_MODELS`→`/v1/video/generations`（异步 submit 200 即 servable，best-effort）。
+`split_gemini_families` 自动按名分流：`imagen-`→`gemini_image`、`image`/`nano-banana`→`gemini_chat_image`、其余 `gemini-`→`gemini_chat`、`veo-`→`gemini_video`；watchlist `probe_family` 可覆写。
+probe key 由 `__tk_probe_newapi_google_*` 自动 ensure（从 **group_id=16** 源组复制 schedulable 账号）。
+所有默认源池以 group id 为 SSOT：prod `openai=2`、`anthropic mirror=1`、`antigravity=21`、
+`Vertex/newapi=16`、`Qwen/newapi=18`、`GLM/newapi=26`；edge-native 目标库为
+`anthropic=1`、`grok=4`。`PROBE_*_SOURCE_GROUP` 只作为 legacy 诊断覆盖，默认不得填显示名。
+
+**走 prod 公网网关外部 curl**（与 openai/zhipu 同款），不再用 edge 内网 `docker exec wget`：Vertex 迁到
+prod 后，prod 的 Caddy 不做 `/v1/*` CIDR 限制，外部 curl 直通。（历史上 gemini 探 us6 edge 才需要
+内网 wget 绕 edge Caddy；那条路径与 `GEMINI_APP_CONTAINER/URL` 已随 Vertex 迁出 us6 一并移除。
+edge native 平台如 **grok** 仍保留内网 wget。「对客 prod→edge relay 拓扑」是另一回事——产品/架构决策，与本探测无关。）
+
+### 新模型 prod model_mapping floor：prod 负例不等于上游不可服务
+
+Catalog refresh 的 prod probe 默认只证明**当前 prod serving 面**是否可服务。prod 账号会按 SSOT
+`model_mapping` 收窄可服务模型；对尚未进入当前 mapping/floor 的新型号，prod 可能在调度前返回
+`400 Unsupported model: <id>`（`ops_error_logs.account_id=null`、无 upstream event）、空池或无可用账号。
+这只是当前 prod mapping/floor 未放行，不能证明目标平台账号的上游能力。不要因为模型已补价或
+overlay/display 存在就直接把它加进 allowlist/runtime；也不要因为 prod floor 拒绝就把候选判死。
+
+需要区分时，用 `tokenkey-account-model-probe` 对目标 prod/edge 单账号实测；平台有专用直连真值时
+优先用专用探测（例如 ark 直连数据面）：
+
+```bash
+# control：先证明同一账号能服务已知型号
+bash ops/observability/run-probe.sh --target <prod|edge:edge_id> \
+  --script ops/stage0/probe_account_model.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --env ACCOUNT_ID=<account_id> --env MODEL=<known_model> \
+  --env ENDPOINT=<messages|chat|responses> --timeout-seconds 180
+
+# 目标型号：必须看到 verdict=servable 才能进 catalog/Menu 或 runtime mapping
+bash ops/observability/run-probe.sh --target <prod|edge:edge_id> \
+  --script ops/stage0/probe_account_model.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --env ACCOUNT_ID=<account_id> --env MODEL=<candidate_model> \
+  --env ENDPOINT=<messages|chat|responses> --timeout-seconds 180
+```
+
+**实测（2026-07-08）**：`gpt-5.6`/`gpt-5.6-sol` 在 prod 普通探测被
+`Unsupported model` 本地拦截；edge OpenAI OAuth account 7(`edge:us4`) 与 account 5(`edge:us3`)
+都能到达上游，但返回 `The 'gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account.`
+所以不能通过清开 prod model_mapping/floor 单独上架，当前应保持不展示。这个判读不是 OpenAI
+特例：后续所有新模型都要同时验证「上游账号能力」和「prod SSOT model_mapping 已放行」。
+
+- **候选来源（不走 litellm）**：账号的 `credentials.model_pricing_status`（上游发现清单）∪ imagen/veo
+  种子。经 `--discovered <file>` 传入（接受该 JSON 对象、JSON list 或换行清单）；省略则只探 imagen/veo 种子。
+  > **实测（2026-07-02）**：live Vertex 账号 47/57/58/59/74 的 `model_pricing_status` 当前**为空**，
+  > `credentials` 只有 `{api_key, base_url, model_mapping}`；其 `model_mapping` 是**受限 7 键**
+  > （gemini-2.5-{pro,flash,flash-lite} + imagen-4.0×3 + veo-3.1-generate-001），与当前 Go gemini
+  > allowlist 完全一致、且全部已定价（litellm 镜像 + overlay）。故 model_pricing_status 为空时，
+  > **退回用 `model_mapping` keys 作 discovered**（即受限服务集本身）；想**扩**到 gemini-3 等需先改
+  > Vertex 账号 mapping（prod 写 + 上面的 catch-all 安全闸），不在只读刷新范围内。
+  ```bash
+  # model_pricing_status 为空时，用 model_mapping keys 作 discovered（只读，键即服务模型名）：
+  #   SELECT DISTINCT k FROM accounts a, jsonb_object_keys(a.credentials::jsonb->'model_mapping') k
+  #   WHERE a.id IN (47,57,58,59,74) AND jsonb_typeof(a.credentials::jsonb->'model_mapping')='object';
+  python3 ops/pricing/refresh-servable-allowlist.py candidates --discovered /tmp/mps.json
+  python3 ops/pricing/refresh-servable-allowlist.py run --skip-video --discovered /tmp/mps.json   # 探测+重写（veo 跳过）
+  ```
+- **范围 = 仅核心生成族**（chat/image/video）。`GEMINI_EXCLUDE_RE` 排除 gemma/lyria/deep-research/
+  robotics/antigravity/computer-use/tts —— 避免清空 mapping 后这些未定价冷门模型被静默 $0 服务。
+- **gemini 集为空 = passthrough**：Go 里 `supportedGeminiCatalogModels` 空时公开目录/菜单不收窄
+  （落脚手架零回归），探测填充后才激活闸门。
+
+### 清空某 Vertex 账号 model_mapping（catch-all）前的安全闸
+
+清空 `model_mapping` → 账号放行全部模型；**未定价模型会静默计 $0**（`pricing_missing_record_zero_cost`）。
+务必按序，别跳：
+
+1. **探测窗口**：临时清空该账号 mapping + `schedulable=true` → 经 **prod（Vertex group_id=16）** 探测全核心候选 → **立即还原**。
+   （Vertex group_id=16 当前无真实客流，窗口内基本只有探测自身请求；旧 us6 `google` 组账号已软删，不再是探测目标。）
+2. **对账 `servable ∩ unpriced`**：以探测窗口内的 `pricing_missing_record_zero_cost` 日志为真值
+   （比 `model_pricing_status` 快照可靠），与发现清单对账。
+3. **补准价（禁臆造）**：每个 servable-且-缺价的核心模型，查 **Google Vertex 官方实价**补
+   `backend/internal/service/tk_pricing_overlay.json`，形状对齐既有 imagen/veo 条目并带真实 `source`
+   （URL+抓取日）。**无公开价的模型必须排除出 catch-all**（或暂缓），不得估价。
+4. 发版 → soak 回读确认零 $0 → **此时才**永久清空 `model_mapping` + `schedulable=true`
+   （裸 SQL 后刷 `scheduler_outbox`，见 memory `gemini_media`）。
+
+## Volcengine / ark 三族（直连数据面，开通真值，免调度窗口）
+
+volcengine（newapi `channel_type=45`）模型的「有权限访问」检查**不走 TK 网关**，三族直打 ark 数据面：
+`ARK_CHAT_MODELS`→`/api/v3/chat/completions`、`ARK_IMAGE_MODELS`→`/api/v3/images/generations`、
+`ARK_VIDEO_MODELS`→`/api/v3/contents/generations/tasks`。凭据取自 `accounts.id=ARK_ACCOUNT_ID`
+（默认 7）的 `credentials.api_key/base_url`，**账号保持 `schedulable=false` 也能探**——零 prod
+配置改动、零客户暴露面。
+
+```bash
+bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-servable-models.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --env "ARK_CHAT_MODELS=doubao-seed-1-6-250615 kimi-k2-250711" --timeout-seconds 300
+```
+
+- **为什么直连**（2026-06-10 实证）：ark 的 `GET /api/v3/models` 是**平台目录非开通清单**（kimi/qwen
+  在列但调用全拒）；经 TK 网关探测时 ark 的 404 被 bridge 包成不透明 502 读不出语义。直连后判别确定：
+  **200=已开通；404 `InvalidEndpointOrModel.NotFound`=未开通/已下线（落 unsupported）；429/5xx=transient**。
+- **费用**：未开通模型的 404 免费；已开通模型 chat 仅 16 token、image 计 ~1 张、**video 会创建真实
+  付费任务**——video 族只对真要上架的模型探，别全量扫。
+- **结果不进 Go allowlist**：`refresh-servable-allowlist.py parse_results` 只认 anthropic/openai/gemini，
+  `volcengine` 行天然忽略（该 vendor 在公开目录是 passthrough）。本族是运营对账工具：输出与账号
+  `model_mapping` 做差集 → 未开通的从 mapping 清掉，已开通∩未定价的先补价再放行（对照 deepseek-v4
+  渠道定价样板，见 memory `volc_video_submit_200_and_ark_pricing_path`）。
+- **translation 族探测暂缺**（`doubao-seed-translation-*`）：bare chat 体（"hi"）与朴素翻译 prompt 都 400
+  （非 retired/not-found → inconclusive），Ark 翻译模型要一套**专属请求形**（翻译参数），new-api
+  volcengine adaptor 未收录其契约。**禁臆造**：拿到权威 shape 前不写猜测体（该模型在 prod 已定价+在服务，
+  只影响探测分类，不影响计费）。`probe-servable-models.sh` 的 ark chat 分支已留 NOTE。
+
+## Grok / Antigravity（原生平台，手维 allowlist，可探测但不在 `run` tuple）
+
+grok（第七平台）与 antigravity 的 Go allowlist 是**手维**的（`refresh-servable-allowlist.py` 的探测
+tuple 只有 anthropic/openai/gemini）。但 `probe-servable-models.sh` 现已支持二者实地探测——结果**不进
+`run` 自动 splice**（`parse_results` 只认三族），是运营对账/补全清单的依据：
+
+```bash
+# grok：edge 原生 OAuth 池（当前 us4），edge-internal wget，默认 source_group_id=4
+bash ops/observability/run-probe.sh --target edge:us4 --script ops/pricing/probe-servable-models.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --env "GROK_CHAT_MODELS=grok-code-fast-1 grok-4.3 grok-build-0.1" --timeout-seconds 110
+
+# grok imagine：同一 edge group_id=4 key，覆盖图片/视频 OpenAI-compat 媒体入口
+bash ops/observability/run-probe.sh --target edge:us4 --script ops/pricing/probe-servable-models.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --env "GROK_IMAGE_MODELS=grok-imagine-image grok-imagine-image-quality" \
+  --env "GROK_VIDEO_MODELS=grok-imagine-video" --timeout-seconds 180
+
+# antigravity text/capability：账号在 PROD DB（默认 source_group_id=21，如 antigravity-us3/us4），
+# 经 PROD /antigravity/v1beta 原生入口
+bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-servable-models.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --env "ANTIGRAVITY_CHAT_MODELS=gemini-2.5-flash gemini-3-flash gemini-pro-agent" --timeout-seconds 110
+
+# antigravity Studio 图片：真实用户路径是 /v1/chat/completions（不是 /antigravity/v1beta）
+bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-servable-models.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --env "ANTIGRAVITY_IMAGE_MODELS=gemini-2.5-flash-image gemini-3.1-flash-image gemini-3-pro-image" --timeout-seconds 180
+```
+
+- **闸视角**：grok **无家族 floor** → 每个 servable grok 必须有真价（overlay），否则被价格闸拒；
+  antigravity 全是 `gemini-*` 命名 → 命中 **gemini 家族 floor**（按模型名、平台无关）→ 永不拒，
+  缺真价只走 `served_at_fallback` 告警收敛。
+- **allowlist 是手维 + 运营策展面**（antigravity 注释「gemini only per operator policy」）：探测发现
+  「servable 但未列」的 id（如实测 `gemini-3.5-flash` 200、却只列了 `-low`/`-extra-low` 变体且仅 floor 计价）
+  **先报运营定夺是否进公开菜单**，不要单方面改策展列表（无闸影响时尤其）。
+- grok imagine 图/视频族走 edge-internal `/v1/images/generations` / `/v1/video/generations`。
+  Antigravity 文本/能力探测走 `/antigravity/v1beta`；Studio `gemini-*-image` 图片必须走
+  `ANTIGRAVITY_IMAGE_MODELS` 的 `/v1/chat/completions`，否则会把 v1beta 404 误判成 Studio 不可用。
+
+### Antigravity `gemini-2.5-pro` 专项（literal id，不进 `run` splice）
+
+全量 `ANTIGRAVITY_CHAT_MODELS` 批里 `gemini-2.5-pro` 的 `:generateContent` 常 **000 timeout /
+inconclusive**（见 `docs/all-platform-model-inventory.md`），与 chat 路径结论混在一起难判根因。
+用 **`probe-antigravity-gemini25pro-literal.sh`** 窄打 Google-Gemini 源组（默认
+`gemini-pro-agent` + `gemini-2.5-pro`），**同一 key** 并排探 `/v1/chat/completions` 与
+`/antigravity/v1beta/models/{id}:generateContent`，附账号快照（无 secret）：
+
+```bash
+bash ops/observability/run-probe.sh --target prod \
+  --script ops/pricing/probe-antigravity-gemini25pro-literal.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --timeout-seconds 180
+# 可选：PROBE_MODELS='gemini-2.5-pro'  PROBE_ANTIGRAVITY_SOURCE_GROUP='Google-Gemini'
+```
+
+**何时用**：antigravity allowlist 手维决策前、或 refresh 批里该 id 长期 inconclusive 需区分
+「路由/超时」vs「上游不支持」。结果**不进** `refresh-servable-allowlist.py parse_results`。
+
+## 判断要点 / 坑
+
+- **verdict 语义**：200=servable（留）；400/404+retired/not-found/"not supported when using
+  Codex"=unsupported；429/502/503=inconclusive（容量/协议/该组无账号）；401/403=auth_error
+  （探测设置坏了，不是模型信号——先修 key/形状再重跑）。prod 普通探测里的
+  `Unsupported model: <id>`、`account_id=null`、空池或无 upstream event 可能是当前
+  account `model_mapping` / allowlist floor 拦截；要用平台合适的单账号/直连探测复核上游能力，
+  并在 **分支 D** 更新 runtime/account mapping 后重探 prod serving，再决定是否展示。
+- **探测覆盖面**：anthropic **直探 edge 原生 OAuth 池**——在各 deployable edge(`edge-targets-lightsail.json` 的 `deployable==true`,经 `refresh-servable-allowlist.py deployable_edges()`)上从 edge `source_group_id=1` 复制 schedulable 原生账号、经 edge app 内网 `docker exec wget` 探 `/v1/messages`,**任一 edge 服务即 servable**(同一 OAuth 池,一个健康 edge 即可确认全部;探到空池/不可用的 edge 报 config_error → 轮换下一个)。servability **不再依赖 prod cc-* 镜像账号**:镜像中继 prod→edge,edge 一抖动就冷却,经 prod 网关探会空池(`429 not_allowlisted`)成假阴。openai/gemini 经 `__tk_probe_*` + prod 网关(source_group_id=2 / 16)。要保留某模型得改对应的 `PROBE_*_SOURCE_GROUP_ID` 或扩 `probe-servable-models.sh`；`PROBE_*_SOURCE_GROUP` 仅作 legacy name 诊断覆盖。
+- **prod 中继健康 warning(只告警,不入 allowlist)**:edge 是 servability 真值,但客户实际经 prod 镜像访问 claude。prod `source_group_id=1` 的镜像账号按**名字前缀**分两条上游中继——`cc-*`(anthropic OAuth edges)与 `kiro-*`(Kiro edges),**必须分开探**(否则一条通会掩盖另一条的故障)。refresh 在 edge-servable 集上经 prod 网关分别探这两路(`ANTHROPIC_PROD_MIRROR_MODELS`,emit `anthropic_prodmirror_cc/_kiro` 独立 tag,`parse_results` 天然忽略),对「edge 通但某 prod 镜像不通」的模型打 `WARNING`。实证:cc 池退化时 `cc → 429`、`kiro → 200`,warning 精确指出 cc 中继故障。
+- **探测形状**（改 probe 时勿破坏，否则全假阴）：claude 路径要 `User-Agent: claude-cli/...`
+  + `anthropic-beta: claude-code-20250219` + cc system + `metadata.user_id` 是**字符串**；
+  codex 走 `/v1/responses`。详见 probe 脚本头注释。
+- **改了 allowlist 后**：公开目录 + 我的菜单两面同源（见
+  `supportedCatalogModelIDsForPlatform` / `FilterPublicCatalogToServable`），上线需**发版**才生效。
+- **合并永远等人授权**；本 skill 的 `--open-pr` 只开 PR，不合并。
+
+## 姊妹 runbook：缺价模型定价热更新
+
+收到飞书「**模型缺价（已记零成本）**」卡片（PricingMissingNotifier：缺价模型**照常服务**、
+按零成本记账，不拒绝客户）时，处置走 `ops/pricing/apply-pricing-hotfix.py`：
+
+```bash
+python3 ops/pricing/apply-pricing-hotfix.py lookup --model <模型名>   # litellm 全量源取价（含被裁剪镜像丢掉的带前缀键）
+export TOKENKEY_ADMIN_API_KEY=...                                     # settings.admin_api_key
+python3 ops/pricing/apply-pricing-hotfix.py channels                  # 选 --channel-id
+python3 ops/pricing/apply-pricing-hotfix.py apply --model <模型名> --channel-id N --platform <平台> --from-litellm --yes   # 热更：渠道定价凌驾一切，立即生效无需发版
+python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model <模型名> --from-litellm   # 固化：fill-only 进 tk_pricing_overlay.json，提 PR
+```
+
+细则（per-channel 语义、litellm 没收录时的 `--entry-json` 路径、镜像价格错误时只能用渠道定价修）
+见 `ops/pricing/README.md` §"Pricing-missing hotfix"。
+
+## 姊妹 skill
+
+- **`tokenkey-modelops-planner`**（总入口）：先路由；catalog/menu 走其 **分支 B** 再加载本 skill。
+- `tokenkey-onboard-model`：newapi 长尾 manifest+migration+价（hub **分支 C**）。

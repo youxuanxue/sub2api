@@ -135,6 +135,61 @@ func TestUsageLogRepositoryCreate_BatchPathConcurrent(t *testing.T) {
 	require.Equal(t, total, count)
 }
 
+// TestUsageLogRepositoryCreate_BatchPathVideoDurationSeconds covers the batched
+// CTE insert path of video_duration_seconds (tk_025) — its column list is
+// maintained independently from createSingle, so both need a round-trip test:
+// a value written must read back, and an omitted value must read back nil.
+func TestUsageLogRepositoryCreate_BatchPathVideoDurationSeconds(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := newUsageLogRepositoryWithSQL(client, integrationDB)
+
+	user := mustCreateUser(t, client, &service.User{Email: fmt.Sprintf("usage-video-seconds-%d@example.com", time.Now().UnixNano())})
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID, Key: "sk-usage-video-" + uuid.NewString(), Name: "k"})
+	account := mustCreateAccount(t, client, &service.Account{Name: "acc-usage-video-" + uuid.NewString()})
+
+	seconds := int64(8)
+	videoLog := &service.UsageLog{
+		UserID:               user.ID,
+		APIKeyID:             apiKey.ID,
+		AccountID:            account.ID,
+		RequestID:            uuid.NewString(),
+		Model:                "doubao-seedance-1-0-pro-250528",
+		TotalCost:            1.0,
+		ActualCost:           1.0,
+		VideoDurationSeconds: &seconds,
+		CreatedAt:            time.Now().UTC(),
+	}
+	nonVideoLog := &service.UsageLog{
+		UserID:       user.ID,
+		APIKeyID:     apiKey.ID,
+		AccountID:    account.ID,
+		RequestID:    uuid.NewString(),
+		Model:        "claude-3",
+		InputTokens:  10,
+		OutputTokens: 20,
+		TotalCost:    0.5,
+		ActualCost:   0.5,
+		CreatedAt:    time.Now().UTC(),
+	}
+
+	inserted, err := repo.Create(ctx, videoLog)
+	require.NoError(t, err)
+	require.True(t, inserted)
+	inserted, err = repo.Create(ctx, nonVideoLog)
+	require.NoError(t, err)
+	require.True(t, inserted)
+
+	gotVideo, err := repo.GetByID(ctx, videoLog.ID)
+	require.NoError(t, err)
+	require.NotNil(t, gotVideo.VideoDurationSeconds)
+	require.Equal(t, int64(8), *gotVideo.VideoDurationSeconds)
+
+	gotNonVideo, err := repo.GetByID(ctx, nonVideoLog.ID)
+	require.NoError(t, err)
+	require.Nil(t, gotNonVideo.VideoDurationSeconds)
+}
+
 func TestUsageLogRepositoryCreate_BatchPathDuplicateRequestID(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)
@@ -288,21 +343,21 @@ func TestUsageLogRepositoryCreateBestEffort_BatchPathDuplicateRequestID(t *testi
 	}, 3*time.Second, 20*time.Millisecond)
 }
 
-func TestUsageLogRepositoryCreateBestEffort_QueueFullReturnsDropped(t *testing.T) {
-	ctx := context.Background()
+func TestUsageLogRepositoryCreateBestEffort_QueueFullBlocksUntilCtxDeadline(t *testing.T) {
+	// 队列满时不再立即丢弃：阻塞等待入队，直到调用方 ctx 到期才标记 dropped（issue #3656）。
 	client := testEntClient(t)
 	repo := newUsageLogRepositoryWithSQL(client, integrationDB)
 	repo.bestEffortBatchCh = make(chan usageLogBestEffortRequest, 1)
 	repo.bestEffortBatchCh <- usageLogBestEffortRequest{}
 
-	user := mustCreateUser(t, client, &service.User{Email: fmt.Sprintf("usage-best-effort-full-%d@example.com", time.Now().UnixNano())})
-	apiKey := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID, Key: "sk-usage-best-effort-full-" + uuid.NewString(), Name: "k"})
-	account := mustCreateAccount(t, client, &service.Account{Name: "acc-usage-best-effort-full-" + uuid.NewString()})
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
 
+	start := time.Now()
 	err := repo.CreateBestEffort(ctx, &service.UsageLog{
-		UserID:       user.ID,
-		APIKeyID:     apiKey.ID,
-		AccountID:    account.ID,
+		UserID:       1,
+		APIKeyID:     2,
+		AccountID:    3,
 		RequestID:    uuid.NewString(),
 		Model:        "claude-3",
 		InputTokens:  10,
@@ -314,6 +369,40 @@ func TestUsageLogRepositoryCreateBestEffort_QueueFullReturnsDropped(t *testing.T
 
 	require.Error(t, err)
 	require.True(t, service.IsUsageLogCreateDropped(err))
+	require.GreaterOrEqual(t, time.Since(start), 150*time.Millisecond)
+}
+
+func TestUsageLogRepositoryCreateBestEffort_QueueFullWaitsForDrain(t *testing.T) {
+	// 队列满但批处理器随后排空时，阻塞的入队应成功完成而非丢弃。
+	client := testEntClient(t)
+	repo := newUsageLogRepositoryWithSQL(client, integrationDB)
+	repo.bestEffortBatchCh = make(chan usageLogBestEffortRequest, 1)
+	repo.bestEffortBatchCh <- usageLogBestEffortRequest{}
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		<-repo.bestEffortBatchCh // 排空占位请求，为阻塞中的入队腾出空间
+		req := <-repo.bestEffortBatchCh
+		sendUsageLogBestEffortResult(req.resultCh, nil)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	err := repo.CreateBestEffort(ctx, &service.UsageLog{
+		UserID:       1,
+		APIKeyID:     2,
+		AccountID:    3,
+		RequestID:    uuid.NewString(),
+		Model:        "claude-3",
+		InputTokens:  10,
+		OutputTokens: 20,
+		TotalCost:    0.5,
+		ActualCost:   0.5,
+		CreatedAt:    time.Now().UTC(),
+	})
+
+	require.NoError(t, err)
 }
 
 func TestUsageLogRepositoryCreate_BatchPathCanceledContextMarksNotPersisted(t *testing.T) {
@@ -346,7 +435,7 @@ func TestUsageLogRepositoryCreate_BatchPathCanceledContextMarksNotPersisted(t *t
 }
 
 func TestUsageLogRepositoryCreate_BatchPathQueueFullMarksNotPersisted(t *testing.T) {
-	ctx := context.Background()
+	// 队列满时阻塞等待入队，直到调用方 ctx 到期才标记 not persisted（issue #3656）。
 	client := testEntClient(t)
 	repo := newUsageLogRepositoryWithSQL(client, integrationDB)
 	repo.createBatchCh = make(chan usageLogCreateRequest, 1)
@@ -356,6 +445,10 @@ func TestUsageLogRepositoryCreate_BatchPathQueueFullMarksNotPersisted(t *testing
 	apiKey := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID, Key: "sk-usage-create-full-" + uuid.NewString(), Name: "k"})
 	account := mustCreateAccount(t, client, &service.Account{Name: "acc-usage-create-full-" + uuid.NewString()})
 
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
 	inserted, err := repo.Create(ctx, &service.UsageLog{
 		UserID:       user.ID,
 		APIKeyID:     apiKey.ID,
@@ -372,6 +465,7 @@ func TestUsageLogRepositoryCreate_BatchPathQueueFullMarksNotPersisted(t *testing
 	require.False(t, inserted)
 	require.Error(t, err)
 	require.True(t, service.IsUsageLogCreateNotPersisted(err))
+	require.GreaterOrEqual(t, time.Since(start), 150*time.Millisecond)
 }
 
 func TestUsageLogRepositoryCreate_BatchPathCanceledAfterQueueMarksNotPersisted(t *testing.T) {
@@ -518,6 +612,42 @@ func (s *UsageLogRepoSuite) TestGetByID_ReturnsOpenAIWSMode() {
 	got, err := s.repo.GetByID(s.ctx, log.ID)
 	s.Require().NoError(err)
 	s.Require().True(got.OpenAIWSMode)
+}
+
+// TestGetByID_ReturnsVideoDurationSeconds covers the createSingle path of the
+// video_duration_seconds column (tk_025): a value written at submit time must
+// round-trip, and a non-video row must read back nil (NULL, not 0).
+func (s *UsageLogRepoSuite) TestGetByID_ReturnsVideoDurationSeconds() {
+	user := mustCreateUser(s.T(), s.client, &service.User{Email: "getbyid-video-seconds@test.com"})
+	apiKey := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-getbyid-video-seconds", Name: "k"})
+	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-getbyid-video-seconds"})
+
+	seconds := int64(8)
+	videoLog := &service.UsageLog{
+		UserID:               user.ID,
+		APIKeyID:             apiKey.ID,
+		AccountID:            account.ID,
+		RequestID:            uuid.New().String(),
+		Model:                "doubao-seedance-1-0-pro-250528",
+		InputTokens:          0,
+		OutputTokens:         0,
+		TotalCost:            1.0,
+		ActualCost:           1.0,
+		VideoDurationSeconds: &seconds,
+		CreatedAt:            timezone.Today().Add(4 * time.Hour),
+	}
+	_, err := s.repo.Create(s.ctx, videoLog)
+	s.Require().NoError(err)
+
+	got, err := s.repo.GetByID(s.ctx, videoLog.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(got.VideoDurationSeconds)
+	s.Require().Equal(int64(8), *got.VideoDurationSeconds)
+
+	nonVideoLog := s.createUsageLog(user, apiKey, account, 10, 20, 0.5, time.Now())
+	gotNonVideo, err := s.repo.GetByID(s.ctx, nonVideoLog.ID)
+	s.Require().NoError(err)
+	s.Require().Nil(gotNonVideo.VideoDurationSeconds)
 }
 
 func (s *UsageLogRepoSuite) TestGetByID_ReturnsRequestTypeAndLegacyFallback() {

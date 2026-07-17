@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   createDefaultMessagesDispatchFormState,
+  GROK_MESSAGES_DISPATCH_DEFAULTS,
   messagesDispatchConfigToFormState,
+  messagesDispatchDefaultsForPlatform,
   messagesDispatchFormStateToConfig,
   resetMessagesDispatchFormState,
 } from "../groupsMessagesDispatch";
@@ -12,7 +14,7 @@ describe("groupsMessagesDispatch", () => {
     expect(createDefaultMessagesDispatchFormState()).toEqual({
       allow_messages_dispatch: false,
       opus_mapped_model: "gpt-5.5",
-      sonnet_mapped_model: "gpt-5.3-codex",
+      sonnet_mapped_model: "gpt-5.3-codex-spark",
       haiku_mapped_model: "gpt-5.4-mini",
       exact_model_mappings: [],
       messages_compaction_enabled: false,
@@ -24,7 +26,7 @@ describe("groupsMessagesDispatch", () => {
     const config = messagesDispatchFormStateToConfig({
       allow_messages_dispatch: true,
       opus_mapped_model: " gpt-5.4 ",
-      sonnet_mapped_model: "gpt-5.3-codex",
+      sonnet_mapped_model: "gpt-5.3-codex-spark",
       haiku_mapped_model: " gpt-5.4-mini ",
       exact_model_mappings: [
         {
@@ -38,7 +40,7 @@ describe("groupsMessagesDispatch", () => {
 
     expect(config).toEqual({
       opus_mapped_model: "gpt-5.4",
-      sonnet_mapped_model: "gpt-5.3-codex",
+      sonnet_mapped_model: "gpt-5.3-codex-spark",
       haiku_mapped_model: "gpt-5.4-mini",
       exact_model_mappings: {
         "claude-sonnet-4-5-20250929": "gpt-5.2",
@@ -74,7 +76,30 @@ describe("groupsMessagesDispatch", () => {
     });
   });
 
-  it("resets mutable form state when platform switches away from openai", () => {
+  it("returns grok defaults when platform is grok", () => {
+    expect(createDefaultMessagesDispatchFormState("grok")).toEqual({
+      allow_messages_dispatch: false,
+      ...GROK_MESSAGES_DISPATCH_DEFAULTS,
+      exact_model_mappings: [],
+      messages_compaction_enabled: false,
+      messages_compaction_input_tokens_threshold: null,
+    });
+    expect(messagesDispatchDefaultsForPlatform("grok")).toEqual(
+      GROK_MESSAGES_DISPATCH_DEFAULTS,
+    );
+  });
+
+  it("hydrates grok form defaults from empty api config", () => {
+    expect(messagesDispatchConfigToFormState({}, "grok")).toEqual({
+      allow_messages_dispatch: false,
+      ...GROK_MESSAGES_DISPATCH_DEFAULTS,
+      exact_model_mappings: [],
+      messages_compaction_enabled: false,
+      messages_compaction_input_tokens_threshold: null,
+    });
+  });
+
+  it("resets mutable form state to openai defaults", () => {
     const state = {
       allow_messages_dispatch: true,
       opus_mapped_model: "gpt-5.2",
@@ -90,8 +115,30 @@ describe("groupsMessagesDispatch", () => {
     expect(state).toEqual({
       allow_messages_dispatch: false,
       opus_mapped_model: "gpt-5.5",
-      sonnet_mapped_model: "gpt-5.3-codex",
+      sonnet_mapped_model: "gpt-5.3-codex-spark",
       haiku_mapped_model: "gpt-5.4-mini",
+      exact_model_mappings: [],
+      messages_compaction_enabled: false,
+      messages_compaction_input_tokens_threshold: null,
+    });
+  });
+
+  it("resets mutable form state to grok defaults", () => {
+    const state = {
+      allow_messages_dispatch: true,
+      opus_mapped_model: "gpt-5.2",
+      sonnet_mapped_model: "gpt-5.4",
+      haiku_mapped_model: "gpt-5.1",
+      exact_model_mappings: [
+        { claude_model: "claude-opus-4-6", target_model: "gpt-5.4" },
+      ],
+    };
+
+    resetMessagesDispatchFormState(state, "grok");
+
+    expect(state).toEqual({
+      allow_messages_dispatch: false,
+      ...GROK_MESSAGES_DISPATCH_DEFAULTS,
       exact_model_mappings: [],
       messages_compaction_enabled: false,
       messages_compaction_input_tokens_threshold: null,

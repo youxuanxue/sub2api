@@ -105,7 +105,7 @@ func (h *AnnouncementHandler) GetByID(c *gin.Context) {
 func (h *AnnouncementHandler) Create(c *gin.Context) {
 	var req CreateAnnouncementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -153,7 +153,7 @@ func (h *AnnouncementHandler) Update(c *gin.Context) {
 
 	var req UpdateAnnouncementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 

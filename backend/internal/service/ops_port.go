@@ -10,6 +10,8 @@ type OpsRepository interface {
 	BatchInsertErrorLogs(ctx context.Context, inputs []*OpsInsertErrorLogInput) (int64, error)
 	ListErrorLogs(ctx context.Context, filter *OpsErrorLogFilter) (*OpsErrorLogList, error)
 	GetErrorLogByID(ctx context.Context, id int64) (*OpsErrorLogDetail, error)
+	// LookupDeletedKeyAudit 按明文 key 反查最近一条已删除 key 审计;未命中返回 (nil, nil)。
+	LookupDeletedKeyAudit(ctx context.Context, key string) (*DeletedKeyAuditResult, error)
 	ListRequestDetails(ctx context.Context, filter *OpsRequestDetailFilter) ([]*OpsRequestDetail, int64, error)
 	BatchInsertSystemLogs(ctx context.Context, inputs []*OpsInsertSystemLogInput) (int64, error)
 	ListSystemLogs(ctx context.Context, filter *OpsSystemLogFilter) (*OpsSystemLogList, error)
@@ -24,11 +26,41 @@ type OpsRepository interface {
 	GetRealtimeTrafficSummary(ctx context.Context, filter *OpsDashboardFilter) (*OpsRealtimeTrafficSummary, error)
 
 	GetDashboardOverview(ctx context.Context, filter *OpsDashboardFilter) (*OpsDashboardOverview, error)
+	// TK (empty-pool-429 alert blind spot): count of routing/scheduling-phase
+	// capacity rejections (error_phase='routing' — empty-pool fast-fail 429 +
+	// relayed mirror-edge downstream-capacity) over the filter window/scope.
+	// Drives the routing_capacity_rejection_count P0 alert; see
+	// CountRoutingCapacityRejections impl + tk_035 seed.
+	CountRoutingCapacityRejections(ctx context.Context, filter *OpsDashboardFilter) (int64, error)
+	// TopRoutingCapacityRejectionByPlatform returns, for the top-platformLimit
+	// platforms by routing-phase rejection count over the filter window/scope, each
+	// platform's total rejection count plus its top-usersPerPlatform contributing
+	// users (user id + api-key name + count). This single JOINT breakdown
+	// lets a fired routing_capacity_rejection_count P0 card name WHICH pool(s) ran
+	// out of capacity AND WHO inside each pool is driving it — the platform→user
+	// attribution the old two separate marginal queries could not express.
+	TopRoutingCapacityRejectionByPlatform(ctx context.Context, filter *OpsDashboardFilter, platformLimit, usersPerPlatform int) ([]*OpsRoutingRejectionPlatform, error)
+	// TopRoutingCapacityRejectionByModel returns the top requested-model buckets
+	// over the same routing-capacity rejection window/scope. It powers the
+	// no-available-accounts P0 card's "模型" line.
+	TopRoutingCapacityRejectionByModel(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionModel, error)
+	// CountUserVisibleFailures counts terminal user-visible failures over the
+	// alert window. ownerScope is "system" (provider/platform, P0) or "client"
+	// (client-owned usage/input failures, P1).
+	CountUserVisibleFailures(ctx context.Context, filter *OpsDashboardFilter, ownerScope string) (int64, error)
+	// GetUserVisibleFailureBreakdown returns the first-screen Feishu breakdown
+	// for the same user-visible failure window/scope.
+	GetUserVisibleFailureBreakdown(ctx context.Context, filter *OpsDashboardFilter, ownerScope string, limit int) (*OpsUserVisibleFailureBreakdown, error)
 	GetThroughputTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsThroughputTrendResponse, error)
 	GetLatencyHistogram(ctx context.Context, filter *OpsDashboardFilter) (*OpsLatencyHistogramResponse, error)
 	GetErrorTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsErrorTrendResponse, error)
 	GetErrorDistribution(ctx context.Context, filter *OpsDashboardFilter) (*OpsErrorDistributionResponse, error)
+	// TK (us7 P0 2026-06-13): top offending (model, owner, upstream_status) rows
+	// behind a fired error-rate alert, over the same window/scope as the metric.
+	GetTopErrorCause(ctx context.Context, filter *OpsDashboardFilter, upstreamOnly bool, limit int) ([]*OpsTopErrorCause, error)
 	GetOpenAITokenStats(ctx context.Context, filter *OpsOpenAITokenStatsFilter) (*OpsOpenAITokenStatsResponse, error)
+	// TK (PR #899 follow-up): per-account wasted-failover-hop KPI for the GPT line.
+	GetFailoverHopStats(ctx context.Context, filter *OpsFailoverHopStatsFilter) (*OpsFailoverHopStatsResponse, error)
 
 	InsertSystemMetrics(ctx context.Context, input *OpsInsertSystemMetricsInput) error
 	GetLatestSystemMetrics(ctx context.Context, windowMinutes int) (*OpsSystemMetricsSnapshot, error)
@@ -49,6 +81,7 @@ type OpsRepository interface {
 	CreateAlertEvent(ctx context.Context, event *OpsAlertEvent) (*OpsAlertEvent, error)
 	UpdateAlertEventStatus(ctx context.Context, eventID int64, status string, resolvedAt *time.Time) error
 	UpdateAlertEventEmailSent(ctx context.Context, eventID int64, emailSent bool) error
+	UpdateAlertEventFeishuDelivery(ctx context.Context, eventID int64, phase string, sent bool, status string, errMessage string, sentAt *time.Time) error
 
 	// Alert silences
 	CreateAlertSilence(ctx context.Context, input *OpsAlertSilence) (*OpsAlertSilence, error)
@@ -59,6 +92,12 @@ type OpsRepository interface {
 	UpsertDailyMetrics(ctx context.Context, startTime, endTime time.Time) error
 	GetLatestHourlyBucketStart(ctx context.Context) (time.Time, bool, error)
 	GetLatestDailyBucketDate(ctx context.Context) (time.Time, bool, error)
+}
+
+// DeletedKeyAuditResult 是按明文 key 反查 deleted_api_key_audits 的结果。
+type DeletedKeyAuditResult struct {
+	UserID  int64
+	KeyName string
 }
 
 type OpsInsertErrorLogInput struct {
@@ -89,12 +128,11 @@ type OpsInsertErrorLogInput struct {
 	RequestType *int16
 	UserAgent   string
 
-	ErrorPhase        string
-	ErrorType         string
-	Severity          string
-	StatusCode        int
-	IsBusinessLimited bool
-	IsCountTokens     bool // 是否为 count_tokens 请求
+	ErrorPhase    string
+	ErrorType     string
+	Severity      string
+	StatusCode    int
+	IsCountTokens bool // 是否为 count_tokens 请求
 
 	ErrorMessage string
 	ErrorBody    string
@@ -119,6 +157,15 @@ type OpsInsertErrorLogInput struct {
 	TimeToFirstTokenMs *int64
 
 	CreatedAt time.Time
+
+	// 已删除 key 归因(仅 INVALID_API_KEY 认证失败时可能非空)
+	AttemptedKeyPrefix    string // 提交 key 的脱敏前缀(前 8 位)
+	DeletedKeyOwnerUserID *int64 // 反查命中的原所有者 user_id
+	DeletedKeyName        string // 反查命中的 key 名称
+
+	// 有效(未删除)key 报错时快照的 key 脱敏前缀(前 8 位);与 AttemptedKeyPrefix 互斥。
+	// 落库快照而非读时 JOIN:key 之后被删(key 列被 tombstone 覆盖)仍保留当时前缀。
+	APIKeyPrefix string
 }
 
 type OpsInsertSystemMetricsInput struct {
@@ -128,10 +175,9 @@ type OpsInsertSystemMetricsInput struct {
 	Platform *string
 	GroupID  *int64
 
-	SuccessCount         int64
-	ErrorCountTotal      int64
-	BusinessLimitedCount int64
-	ErrorCountSLA        int64
+	SuccessCount    int64
+	ErrorCountTotal int64
+	ErrorCountSLA   int64
 
 	UpstreamErrorCountExcl429529 int64
 	Upstream429Count             int64
@@ -178,12 +224,14 @@ type OpsInsertSystemMetricsInput struct {
 
 type OpsInsertSystemLogInput struct {
 	CreatedAt       time.Time
+	Host            string
 	Level           string
 	Component       string
 	Message         string
 	RequestID       string
 	ClientRequestID string
 	UserID          *int64
+	APIKeyID        *int64
 	AccountID       *int64
 	Platform        string
 	Model           string
@@ -193,6 +241,7 @@ type OpsInsertSystemLogInput struct {
 type OpsSystemLogFilter struct {
 	StartTime *time.Time
 	EndTime   *time.Time
+	Host      string
 
 	Level     string
 	Component string
@@ -200,6 +249,7 @@ type OpsSystemLogFilter struct {
 	RequestID       string
 	ClientRequestID string
 	UserID          *int64
+	APIKeyID        *int64
 	AccountID       *int64
 	Platform        string
 	Model           string
@@ -212,6 +262,7 @@ type OpsSystemLogFilter struct {
 type OpsSystemLogCleanupFilter struct {
 	StartTime *time.Time
 	EndTime   *time.Time
+	Host      string
 
 	Level     string
 	Component string
@@ -219,6 +270,7 @@ type OpsSystemLogCleanupFilter struct {
 	RequestID       string
 	ClientRequestID string
 	UserID          *int64
+	APIKeyID        *int64
 	AccountID       *int64
 	Platform        string
 	Model           string

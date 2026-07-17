@@ -11,11 +11,9 @@ import (
 	"time"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
-)
 
-// PlatformNewAPI mirrors service.PlatformNewAPI without importing the service
-// package (which would create an import cycle: service -> integration/newapi -> service).
-const PlatformNewAPI = "newapi"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
+)
 
 // MaybeResolveMoonshotBaseURLForNewAPI performs the save-time Moonshot regional
 // probe iff the account is a newapi/Moonshot account whose configured base URL
@@ -39,7 +37,7 @@ const PlatformNewAPI = "newapi"
 // admin UI silently kept whatever base_url the user typed. See Bug B notes in
 // docs/approved/admin-ui-newapi-platform-end-to-end.md.
 func MaybeResolveMoonshotBaseURLForNewAPI(ctx context.Context, platform string, channelType int, baseURL, apiKey string) (resolved string, didResolve bool, err error) {
-	if platform != PlatformNewAPI {
+	if platform != domain.PlatformNewAPI {
 		return "", false, nil
 	}
 	if channelType != newapiconstant.ChannelTypeMoonshot {

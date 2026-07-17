@@ -7,14 +7,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/baseline"
 )
 
-// reconcileAccountBaselineDrift self-heals the shared_baseline INFRASTRUCTURE for
-// every tier-bound anthropic OAuth/setup-token account on THIS node: the canonical
-// TLS profile's existence + the account's binding to it, the credentials
-// self-protection template, and the extra mimicry flags. When any drift is
-// detected it re-runs ReapplyBaselineInfra (the infra subset of the admin UI's
-// ApplyTier), so a missing TLS profile row, a dangling binding, or a missing 403
-// self-protection rule all converge — no matter how the account was created
-// (admin UI, bare SQL, partial apply).
+// reconcileAccountBaselineDrift self-heals only the narrow account-side
+// shared_baseline infrastructure for every tier-bound anthropic OAuth/setup-token
+// account on THIS node: the canonical TLS profile's existence + the account's
+// binding to it, and missing credentials self-protection template keys. It does
+// NOT re-apply the full baseline extra/concurrency/priority shape, so normal
+// admin UI edits (rpm_strategy, masking, custom base URL, etc.) stay operator-
+// owned.
 //
 // It deliberately does NOT touch priority: priority is a dynamic runtime signal
 // owned by the window-rebalance pipeline (ops/anthropic/rebalance-anthropic-
@@ -22,16 +21,19 @@ import (
 // path, and reverting it on every tick would flatten the window-aware ordering.
 // It also does NOT touch tier NUMERIC fields (base_rpm / max_sessions / window) —
 // those overlay at runtime from the tiers table and stay report-only
-// (reportTierDrift). Mirrors reconcileKiroPriorityBaseline's skip-if-aligned shape
-// and reuses the reconciler's ticker + redis leader lock; ReapplyBaselineInfra
-// itself enqueues the snapshot-rebuild outbox event via UpdateAccount.
+// (reportTierDrift). It reuses the reconciler's ticker + redis leader lock; the
+// narrow repair itself enqueues the snapshot-rebuild outbox event via
+// UpdateAccount.
 func (r *AnthropicConfigReconciler) reconcileAccountBaselineDrift(ctx context.Context, accounts []Account) {
-	if r == nil || r.tierApplier == nil || r.tiers == nil {
-		return // applier/resolver not wired (minimal test deps) → no-op
+	if r == nil || r.repairer == nil || r.tiers == nil {
+		return // repairer/resolver not wired (minimal test deps) → no-op
 	}
 	for i := range accounts {
 		a := &accounts[i]
 		if a.TierID == nil || *a.TierID <= 0 || !a.IsAnthropicOAuthOrSetupToken() {
+			continue
+		}
+		if a.IsAnthropicOAuthPassthroughEnabled() {
 			continue
 		}
 		tierName, ok := r.tiers.ResolveName(*a.TierID)
@@ -48,12 +50,12 @@ func (r *AnthropicConfigReconciler) reconcileAccountBaselineDrift(ctx context.Co
 		if reason == "" {
 			continue // aligned → skip (no write)
 		}
-		if _, err := r.tierApplier.ReapplyBaselineInfra(ctx, a.ID, tierName); err != nil {
-			slog.Warn("anthropic config reconciler: account baseline self-heal (ReapplyBaselineInfra) failed",
+		if _, err := r.repairer.RepairBaselineDrift(ctx, a.ID, tierName); err != nil {
+			slog.Warn("anthropic config reconciler: account baseline narrow repair failed",
 				"account_id", a.ID, "account_name", a.Name, "tier", tierName, "reason", reason, "err", err)
 			continue
 		}
-		slog.Info("anthropic config reconciler: account baseline self-healed via ReapplyBaselineInfra (local deployment only)",
+		slog.Info("anthropic config reconciler: account baseline narrow-repaired (local deployment only)",
 			"account_id", a.ID, "account_name", a.Name, "tier", tierName, "reason", reason)
 	}
 }

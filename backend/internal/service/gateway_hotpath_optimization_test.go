@@ -10,7 +10,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/require"
 )
@@ -33,77 +32,6 @@ func (s *userGroupRateRepoHotpathStub) GetByUserAndGroup(ctx context.Context, us
 		return nil, s.err
 	}
 	return s.rate, nil
-}
-
-type usageLogWindowBatchRepoStub struct {
-	UsageLogRepository
-
-	batchResult map[int64]*usagestats.AccountStats
-	batchErr    error
-	batchCalls  atomic.Int64
-
-	singleResult map[int64]*usagestats.AccountStats
-	singleErr    error
-	singleCalls  atomic.Int64
-}
-
-func (s *usageLogWindowBatchRepoStub) GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error) {
-	s.batchCalls.Add(1)
-	if s.batchErr != nil {
-		return nil, s.batchErr
-	}
-	out := make(map[int64]*usagestats.AccountStats, len(accountIDs))
-	for _, id := range accountIDs {
-		if stats, ok := s.batchResult[id]; ok {
-			out[id] = stats
-		}
-	}
-	return out, nil
-}
-
-func (s *usageLogWindowBatchRepoStub) GetAccountWindowStats(ctx context.Context, accountID int64, startTime time.Time) (*usagestats.AccountStats, error) {
-	s.singleCalls.Add(1)
-	if s.singleErr != nil {
-		return nil, s.singleErr
-	}
-	if stats, ok := s.singleResult[accountID]; ok {
-		return stats, nil
-	}
-	return &usagestats.AccountStats{}, nil
-}
-
-type sessionLimitCacheHotpathStub struct {
-	SessionLimitCache
-
-	batchData map[int64]float64
-	batchErr  error
-
-	setData map[int64]float64
-	setErr  error
-}
-
-func (s *sessionLimitCacheHotpathStub) GetWindowCostBatch(ctx context.Context, accountIDs []int64) (map[int64]float64, error) {
-	if s.batchErr != nil {
-		return nil, s.batchErr
-	}
-	out := make(map[int64]float64, len(accountIDs))
-	for _, id := range accountIDs {
-		if v, ok := s.batchData[id]; ok {
-			out[id] = v
-		}
-	}
-	return out, nil
-}
-
-func (s *sessionLimitCacheHotpathStub) SetWindowCost(ctx context.Context, accountID int64, cost float64) error {
-	if s.setErr != nil {
-		return s.setErr
-	}
-	if s.setData == nil {
-		s.setData = make(map[int64]float64)
-	}
-	s.setData[accountID] = cost
-	return nil
 }
 
 type modelsListAccountRepoStub struct {
@@ -169,12 +97,6 @@ func (s *modelsListAccountRepoStub) ListSchedulable(ctx context.Context) ([]Acco
 }
 
 func resetGatewayHotpathStatsForTest() {
-	windowCostPrefetchCacheHitTotal.Store(0)
-	windowCostPrefetchCacheMissTotal.Store(0)
-	windowCostPrefetchBatchSQLTotal.Store(0)
-	windowCostPrefetchFallbackTotal.Store(0)
-	windowCostPrefetchErrorTotal.Store(0)
-
 	userGroupRateCacheHitTotal.Store(0)
 	userGroupRateCacheMissTotal.Store(0)
 	userGroupRateCacheLoadTotal.Store(0)
@@ -297,170 +219,6 @@ func TestGetUserGroupRateMultiplier_CacheHitAndNilRepo(t *testing.T) {
 	require.Equal(t, 1.4, svc2.getUserGroupRateMultiplier(context.Background(), 0, 202, 1.4))
 	svc2.userGroupRateCache.Delete(key)
 	require.Equal(t, 1.4, svc2.getUserGroupRateMultiplier(context.Background(), 101, 202, 1.4))
-}
-
-func TestWithWindowCostPrefetch_BatchReadAndContextReuse(t *testing.T) {
-	resetGatewayHotpathStatsForTest()
-
-	windowStart := time.Now().Add(-30 * time.Minute).Truncate(time.Hour)
-	windowEnd := windowStart.Add(5 * time.Hour)
-	accounts := []Account{
-		{
-			ID:                 1,
-			Platform:           PlatformAnthropic,
-			Type:               AccountTypeOAuth,
-			Extra:              map[string]any{"window_cost_limit": 100.0},
-			SessionWindowStart: &windowStart,
-			SessionWindowEnd:   &windowEnd,
-		},
-		{
-			ID:                 2,
-			Platform:           PlatformAnthropic,
-			Type:               AccountTypeSetupToken,
-			Extra:              map[string]any{"window_cost_limit": 100.0},
-			SessionWindowStart: &windowStart,
-			SessionWindowEnd:   &windowEnd,
-		},
-		{
-			ID:       3,
-			Platform: PlatformAnthropic,
-			Type:     AccountTypeAPIKey,
-			Extra:    map[string]any{"window_cost_limit": 100.0},
-		},
-	}
-
-	cache := &sessionLimitCacheHotpathStub{
-		batchData: map[int64]float64{
-			1: 11.0,
-		},
-	}
-	repo := &usageLogWindowBatchRepoStub{
-		batchResult: map[int64]*usagestats.AccountStats{
-			2: {StandardCost: 22.0},
-		},
-	}
-	svc := &GatewayService{
-		sessionLimitCache: cache,
-		usageLogRepo:      repo,
-	}
-
-	outCtx := svc.withWindowCostPrefetch(context.Background(), accounts)
-	require.NotNil(t, outCtx)
-
-	cost1, ok1 := windowCostFromPrefetchContext(outCtx, 1)
-	require.True(t, ok1)
-	require.Equal(t, 11.0, cost1)
-
-	cost2, ok2 := windowCostFromPrefetchContext(outCtx, 2)
-	require.True(t, ok2)
-	require.Equal(t, 22.0, cost2)
-
-	_, ok3 := windowCostFromPrefetchContext(outCtx, 3)
-	require.False(t, ok3)
-
-	require.Equal(t, int64(1), repo.batchCalls.Load())
-	require.Equal(t, 22.0, cache.setData[2])
-
-	hit, miss, batchSQL, fallback, errCount := GatewayWindowCostPrefetchStats()
-	require.Equal(t, int64(1), hit)
-	require.Equal(t, int64(1), miss)
-	require.Equal(t, int64(1), batchSQL)
-	require.Equal(t, int64(0), fallback)
-	require.Equal(t, int64(0), errCount)
-}
-
-func TestWithWindowCostPrefetch_AllHitNoSQL(t *testing.T) {
-	resetGatewayHotpathStatsForTest()
-
-	windowStart := time.Now().Add(-30 * time.Minute).Truncate(time.Hour)
-	windowEnd := windowStart.Add(5 * time.Hour)
-	accounts := []Account{
-		{
-			ID:                 1,
-			Platform:           PlatformAnthropic,
-			Type:               AccountTypeOAuth,
-			Extra:              map[string]any{"window_cost_limit": 100.0},
-			SessionWindowStart: &windowStart,
-			SessionWindowEnd:   &windowEnd,
-		},
-		{
-			ID:                 2,
-			Platform:           PlatformAnthropic,
-			Type:               AccountTypeSetupToken,
-			Extra:              map[string]any{"window_cost_limit": 100.0},
-			SessionWindowStart: &windowStart,
-			SessionWindowEnd:   &windowEnd,
-		},
-	}
-
-	cache := &sessionLimitCacheHotpathStub{
-		batchData: map[int64]float64{
-			1: 11.0,
-			2: 22.0,
-		},
-	}
-	repo := &usageLogWindowBatchRepoStub{}
-	svc := &GatewayService{
-		sessionLimitCache: cache,
-		usageLogRepo:      repo,
-	}
-
-	outCtx := svc.withWindowCostPrefetch(context.Background(), accounts)
-	cost1, ok1 := windowCostFromPrefetchContext(outCtx, 1)
-	cost2, ok2 := windowCostFromPrefetchContext(outCtx, 2)
-	require.True(t, ok1)
-	require.True(t, ok2)
-	require.Equal(t, 11.0, cost1)
-	require.Equal(t, 22.0, cost2)
-	require.Equal(t, int64(0), repo.batchCalls.Load())
-	require.Equal(t, int64(0), repo.singleCalls.Load())
-
-	hit, miss, batchSQL, fallback, errCount := GatewayWindowCostPrefetchStats()
-	require.Equal(t, int64(2), hit)
-	require.Equal(t, int64(0), miss)
-	require.Equal(t, int64(0), batchSQL)
-	require.Equal(t, int64(0), fallback)
-	require.Equal(t, int64(0), errCount)
-}
-
-func TestWithWindowCostPrefetch_BatchErrorFallbackSingleQuery(t *testing.T) {
-	resetGatewayHotpathStatsForTest()
-
-	windowStart := time.Now().Add(-30 * time.Minute).Truncate(time.Hour)
-	windowEnd := windowStart.Add(5 * time.Hour)
-	accounts := []Account{
-		{
-			ID:                 2,
-			Platform:           PlatformAnthropic,
-			Type:               AccountTypeSetupToken,
-			Extra:              map[string]any{"window_cost_limit": 100.0},
-			SessionWindowStart: &windowStart,
-			SessionWindowEnd:   &windowEnd,
-		},
-	}
-
-	cache := &sessionLimitCacheHotpathStub{}
-	repo := &usageLogWindowBatchRepoStub{
-		batchErr: errors.New("batch failed"),
-		singleResult: map[int64]*usagestats.AccountStats{
-			2: {StandardCost: 33.0},
-		},
-	}
-	svc := &GatewayService{
-		sessionLimitCache: cache,
-		usageLogRepo:      repo,
-	}
-
-	outCtx := svc.withWindowCostPrefetch(context.Background(), accounts)
-	cost, ok := windowCostFromPrefetchContext(outCtx, 2)
-	require.True(t, ok)
-	require.Equal(t, 33.0, cost)
-	require.Equal(t, int64(1), repo.batchCalls.Load())
-	require.Equal(t, int64(1), repo.singleCalls.Load())
-
-	_, _, _, fallback, errCount := GatewayWindowCostPrefetchStats()
-	require.Equal(t, int64(1), fallback)
-	require.Equal(t, int64(1), errCount)
 }
 
 func TestGetAvailableModels_UsesShortCacheAndSupportsInvalidation(t *testing.T) {
@@ -625,23 +383,6 @@ func TestGatewayHotpathHelpers_CacheTTLAndStickyContext(t *testing.T) {
 		require.Equal(t, int64(0), prefetchedStickyAccountIDFromContext(ctx4, &groupID))
 	})
 
-	t.Run("window_cost_from_prefetch_context", func(t *testing.T) {
-		require.Equal(t, false, func() bool {
-			_, ok := windowCostFromPrefetchContext(context.TODO(), 0)
-			return ok
-		}())
-		require.Equal(t, false, func() bool {
-			_, ok := windowCostFromPrefetchContext(context.Background(), 1)
-			return ok
-		}())
-
-		ctx := context.WithValue(context.Background(), windowCostPrefetchContextKey, map[int64]float64{
-			9: 12.34,
-		})
-		cost, ok := windowCostFromPrefetchContext(ctx, 9)
-		require.True(t, ok)
-		require.Equal(t, 12.34, cost)
-	})
 }
 
 func TestInvalidateAvailableModelsCache_ByDimensions(t *testing.T) {

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	qaobs "github.com/Wei-Shaw/sub2api/internal/observability/qa"
@@ -22,6 +23,7 @@ func ProvideAdminHandlers(
 	openaiOAuthHandler *admin.OpenAIOAuthHandler,
 	geminiOAuthHandler *admin.GeminiOAuthHandler,
 	antigravityOAuthHandler *admin.AntigravityOAuthHandler,
+	grokOAuthHandler *admin.GrokOAuthHandler,
 	proxyHandler *admin.ProxyHandler,
 	redeemHandler *admin.RedeemHandler,
 	promoHandler *admin.PromoHandler,
@@ -41,9 +43,12 @@ func ProvideAdminHandlers(
 	contentModerationHandler *admin.ContentModerationHandler,
 	paymentHandler *admin.PaymentHandler,
 	affiliateHandler *admin.AffiliateHandler,
+	complianceHandler *admin.ComplianceHandler,
 	tkChannelHandler *admin.TKChannelAdminHandler,
 	tierHandler *admin.TierHandler,
 	edgeAccountsHandler *admin.EdgeAccountsHandler,
+	edgeAccountOpsHandler *admin.EdgeAccountOpsHandler,
+	trialProvisionHandler *admin.TrialProvisionHandler,
 ) *AdminHandlers {
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
@@ -57,6 +62,7 @@ func ProvideAdminHandlers(
 		OpenAIOAuth:            openaiOAuthHandler,
 		GeminiOAuth:            geminiOAuthHandler,
 		AntigravityOAuth:       antigravityOAuthHandler,
+		GrokOAuth:              grokOAuthHandler,
 		Proxy:                  proxyHandler,
 		Redeem:                 redeemHandler,
 		Promo:                  promoHandler,
@@ -76,9 +82,12 @@ func ProvideAdminHandlers(
 		ContentModeration:      contentModerationHandler,
 		Payment:                paymentHandler,
 		Affiliate:              affiliateHandler,
+		Compliance:             complianceHandler,
 		TKChannel:              tkChannelHandler,
 		Tier:                   tierHandler,
 		EdgeAccounts:           edgeAccountsHandler,
+		EdgeAccountOps:         edgeAccountOpsHandler,
+		TrialProvision:         trialProvisionHandler,
 	}
 }
 
@@ -154,8 +163,10 @@ func ProvideOpenAIGatewayHandler(
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
 	errorPassthroughService *service.ErrorPassthroughService,
 	contentModerationService *service.ContentModerationService,
+	opsService *service.OpsService,
 	cfg *config.Config,
 	videoTaskCache service.VideoTaskCache,
+	mediaStore service.MediaStore,
 ) *OpenAIGatewayHandler {
 	h := NewOpenAIGatewayHandler(
 		gatewayService,
@@ -165,9 +176,15 @@ func ProvideOpenAIGatewayHandler(
 		usageRecordWorkerPool,
 		errorPassthroughService,
 		contentModerationService,
+		opsService,
 		cfg,
 	)
 	h.SetVideoTaskCache(videoTaskCache)
+	h.SetMediaStore(mediaStore)
+	// The image offload runs at the service-layer write points (ForwardImages), so
+	// the OpenAI gateway service needs the same store the handler holds for video —
+	// see service/openai_images_s3_tk.go. nil ⇒ inline base64 passthrough.
+	gatewayService.SetMediaStore(mediaStore)
 	return h
 }
 
@@ -206,12 +223,59 @@ func ProvideEdgeAdminSessionHandler(
 	return NewEdgeAdminSessionHandler(apiKeyService, userService, authService)
 }
 
+// ProvideEdgeAccountOpsHandler adapts the wire-provided concrete services (which
+// satisfy the handler's narrow rate-limit / admin / usage interfaces) to the edge
+// account least-privilege WRITE ops handler. A dedicated provider avoids wire.Bind
+// for the unexported interfaces; mirrors ProvideEdgeAdminSessionHandler in shape.
+func ProvideEdgeAccountOpsHandler(
+	rateLimitService *service.RateLimitService,
+	adminService service.AdminService,
+	accountUsageService *service.AccountUsageService,
+) *EdgeAccountOpsHandler {
+	return NewEdgeAccountOpsHandler(rateLimitService, adminService, accountUsageService)
+}
+
 // ProvideTKEdgeAccountsAdminHandler adapts the wire-provided concrete
 // *service.EdgeAccountsAggregator (which satisfies the admin handler's narrow
 // interface) to the prod-side cross-edge account overview handler. A dedicated
 // provider avoids a wire.Bind for the unexported interface.
 func ProvideTKEdgeAccountsAdminHandler(agg *service.EdgeAccountsAggregator) *admin.EdgeAccountsHandler {
 	return admin.NewEdgeAccountsHandler(agg)
+}
+
+// ProvideTKEdgeAccountOpsAdminHandler adapts the wire-provided concrete
+// *service.EdgeAccountsAggregator (which satisfies the proxy handler's narrow
+// forwarder interface via ForwardAccountOp) to the prod-side edge account ops
+// proxy. A dedicated provider avoids a wire.Bind for the unexported interface.
+func ProvideTKEdgeAccountOpsAdminHandler(agg *service.EdgeAccountsAggregator) *admin.EdgeAccountOpsHandler {
+	return admin.NewEdgeAccountOpsHandler(agg)
+}
+
+// ProvideTrialProvisionHandler constructs the Invite-to-Trial service from
+// already-wired deps and wraps it in the admin handler. Keeping construction in
+// a Provide func (rather than registering a separate service provider) avoids
+// adding the concrete service to the provider set. See user_handler_tk_provision.go.
+func ProvideTrialProvisionHandler(
+	subscriptionService *service.SubscriptionService,
+	apiKeyService *service.APIKeyService,
+	settingService *service.SettingService,
+	userRepo service.UserRepository,
+	userGroupRateRepo service.UserGroupRateRepository,
+	groupRepo service.GroupRepository,
+	redeemCodeRepo service.RedeemCodeRepository,
+	entClient *dbent.Client,
+) *admin.TrialProvisionHandler {
+	svc := service.NewTrialProvisionService(
+		subscriptionService,
+		apiKeyService,
+		settingService,
+		userRepo,
+		userGroupRateRepo,
+		groupRepo,
+		redeemCodeRepo,
+		entClient,
+	)
+	return admin.NewTrialProvisionHandler(svc)
 }
 
 // ProvideHandlers creates the Handlers struct
@@ -239,6 +303,8 @@ func ProvideHandlers(
 	edgeCapacityHandler *EdgeCapacityHandler,
 	edgeAccountsHandler *EdgeAccountsHandler,
 	edgeAdminSessionHandler *EdgeAdminSessionHandler,
+	edgeAccountOpsHandler *EdgeAccountOpsHandler,
+	batchImageHandler *BatchImageHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -266,6 +332,8 @@ func ProvideHandlers(
 		EdgeCapacity:     edgeCapacityHandler,
 		EdgeAccounts:     edgeAccountsHandler,
 		EdgeAdminSession: edgeAdminSessionHandler,
+		EdgeAccountOps:   edgeAccountOpsHandler,
+		BatchImage:       batchImageHandler,
 	}
 }
 
@@ -299,12 +367,15 @@ var ProviderSet = wire.NewSet(
 	ProvideEdgeAccountsHandler,
 	// TK: edge admin-session mint for prod→edge "manage accounts" handoff — see edge_tk_admin_session_handler.go.
 	ProvideEdgeAdminSessionHandler,
+	// TK: edge least-privilege account WRITE ops the prod /accounts page proxies to — see edge_tk_account_ops_handler.go.
+	ProvideEdgeAccountOpsHandler,
+	NewBatchImageHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,
 	admin.NewUserHandler,
 	admin.NewGroupHandler,
-	admin.NewAccountHandler,
+	admin.ProvideAccountHandler,
 	admin.NewAnnouncementHandler,
 	admin.NewDataManagementHandler,
 	admin.NewBackupHandler,
@@ -312,6 +383,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewOpenAIOAuthHandler,
 	admin.NewGeminiOAuthHandler,
 	admin.NewAntigravityOAuthHandler,
+	admin.NewGrokOAuthHandler,
 	admin.NewProxyHandler,
 	admin.NewRedeemHandler,
 	admin.NewPromoHandler,
@@ -332,10 +404,15 @@ var ProviderSet = wire.NewSet(
 	admin.NewTKChannelAdminHandler,
 	admin.NewPaymentHandler,
 	admin.NewAffiliateHandler,
+	admin.NewComplianceHandler,
 	// TK: anthropic-oauth stability tier reference table CRUD — see tier_handler_tk.go.
 	admin.NewTierHandler,
 	// TK: prod-side cross-edge read-only account overview — see edge_accounts_handler_tk.go.
 	ProvideTKEdgeAccountsAdminHandler,
+	// TK: prod-side thin proxy for inline edge-account WRITE ops — see edge_account_ops_handler_tk.go.
+	ProvideTKEdgeAccountOpsAdminHandler,
+	// TK: Invite-to-Trial batch provisioning + 试用方案 presets — see user_handler_tk_provision.go.
+	ProvideTrialProvisionHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

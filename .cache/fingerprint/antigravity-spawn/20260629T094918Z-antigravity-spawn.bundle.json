@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "platform": "antigravity-ide-spawn",
+  "captured_at": "20260629T094918Z",
+  "method": "language_server_spawn_args",
+  "cmdline": "/Applications/Antigravity.app/Contents/Resources/bin/language_server --standalone --override_ide_name antigravity --subclient_type hub --override_ide_version 2.2.1 --override_user_agent_name antigravity --https_server_port 0 --csrf_token b642efcf-068a-451a-982b-b25eb3f2f062 --app_data_dir antigravity --api_server_url https://generativelanguage.googleapis.com --cloud_code_endpoint https://daily-cloudcode-pa.googleapis.com --enable_sidecars",
+  "binary": "/Applications/Antigravity.app/Contents/Resources/bin/language_server",
+  "app_version": "2.2.1",
+  "baseline_ua": "antigravity/hub/2.2.1 windows/amd64",
+  "spawn": {
+    "standalone": "true",
+    "override_ide_name": "antigravity",
+    "subclient_type": "hub",
+    "override_ide_version": "2.2.1",
+    "override_user_agent_name": "antigravity",
+    "https_server_port": "0",
+    "csrf_token": "b642efcf-068a-451a-982b-b25eb3f2f062",
+    "app_data_dir": "antigravity",
+    "api_server_url": "https://generativelanguage.googleapis.com",
+    "cloud_code_endpoint": "https://daily-cloudcode-pa.googleapis.com",
+    "enable_sidecars": "true"
+  },
+  "rows": [
+    {
+      "field": "ua_version",
+      "expected": "2.2.1",
+      "observed": "2.2.1",
+      "status": "match"
+    },
+    {
+      "field": "subclient_type",
+      "expected": "hub",
+      "observed": "hub",
+      "status": "match"
+    },
+    {
+      "field": "user_agent_name",
+      "expected": "antigravity",
+      "observed": "antigravity",
+      "status": "match"
+    },
+    {
+      "field": "ide_name_spawn",
+      "expected": "antigravity",
+      "observed": "antigravity",
+      "status": "match"
+    }
+  ],
+  "aligned": true
+}

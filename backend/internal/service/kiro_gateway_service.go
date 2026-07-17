@@ -30,19 +30,19 @@ import (
 type KiroGatewayService struct {
 	httpUpstream        HTTPUpstream
 	tlsFPProfileService *TLSFingerprintProfileService
-	settingService      *SettingService
+	accountRepo         AccountRepository
 }
 
 // NewKiroGatewayService constructs a KiroGatewayService.
 func NewKiroGatewayService(
 	httpUpstream HTTPUpstream,
 	tlsFPProfileService *TLSFingerprintProfileService,
-	settingService *SettingService,
+	accountRepo AccountRepository,
 ) *KiroGatewayService {
 	return &KiroGatewayService{
 		httpUpstream:        httpUpstream,
 		tlsFPProfileService: tlsFPProfileService,
-		settingService:      settingService,
+		accountRepo:         accountRepo,
 	}
 }
 
@@ -70,10 +70,6 @@ func (s *KiroGatewayService) Forward(
 	parsed *ParsedRequest,
 	startTime time.Time,
 ) (*ForwardResult, error) {
-	// ToS / enable gate (second of two; the first is tkValidateKiroAccountCreate).
-	if s.settingService == nil || !s.settingService.IsKiroEnabled(ctx) {
-		return nil, fmt.Errorf("kiro platform is disabled")
-	}
 	if parsed == nil {
 		return nil, fmt.Errorf("kiro forward: empty request")
 	}
@@ -113,9 +109,17 @@ func (s *KiroGatewayService) Forward(
 	}
 
 	if req.Stream {
-		return s.forwardStreaming(ctx, c, doer, kiroAcct, payload, &req, requestID, model, startTime)
+		result, err := s.forwardStreaming(ctx, c, account, doer, kiroAcct, payload, &req, requestID, model, startTime)
+		if err == nil {
+			PersistKiroProfileArnIfChanged(ctx, s.accountRepo, account, kiroAcct)
+		}
+		return result, err
 	}
-	return s.forwardNonStreaming(ctx, c, doer, kiroAcct, payload, &req, requestID, model, startTime)
+	result, err := s.forwardNonStreaming(ctx, c, doer, kiroAcct, payload, &req, requestID, model, startTime)
+	if err == nil {
+		PersistKiroProfileArnIfChanged(ctx, s.accountRepo, account, kiroAcct)
+	}
+	return result, err
 }
 
 // forwardNonStreaming accumulates text/thinking/tool-use then writes a single
@@ -135,6 +139,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		thinkingBuf string
 		toolUses    []kiroproto.KiroToolUse
 		callbackErr error
+		redactor    kiroproto.InlineThinkingRedactor
 	)
 
 	callback := &kiroproto.KiroStreamCallback{
@@ -142,7 +147,11 @@ func (s *KiroGatewayService) forwardNonStreaming(
 			if isThinking {
 				thinkingBuf += text
 			} else {
-				textBuf += text
+				visible, inlineThinking := redactor.Push(text)
+				if inlineThinking != "" {
+					thinkingBuf += inlineThinking
+				}
+				textBuf += visible
 			}
 		},
 		OnToolUse: func(tu kiroproto.KiroToolUse) {
@@ -156,13 +165,28 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		OnError: func(err error) {
 			callbackErr = err
 		},
+		ResetForRetry: func() bool {
+			textBuf = ""
+			thinkingBuf = ""
+			toolUses = nil
+			callbackErr = nil
+			redactor = kiroproto.InlineThinkingRedactor{}
+			return true
+		},
 	}
 
-	if err := kiroproto.CallKiroAPIWithDoer(doer, kiroAcct, payload, callback); err != nil {
+	if err := kiroproto.CallKiroAPIWithDoerContext(ctx, doer, kiroAcct, payload, callback); err != nil {
 		return nil, classifyKiroForwardError(err, model)
 	}
 	if callbackErr != nil {
-		return nil, fmt.Errorf("kiro stream error: %w", callbackErr)
+		return nil, classifyKiroForwardError(callbackErr, model)
+	}
+	if visible, inlineThinking := redactor.Flush(); visible != "" || inlineThinking != "" {
+		textBuf += visible
+		thinkingBuf += inlineThinking
+	}
+	if textBuf == "" && thinkingBuf == "" && len(toolUses) == 0 {
+		return nil, classifyKiroForwardError(errKiroEmptyResponse, model)
 	}
 
 	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
@@ -176,6 +200,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 
 	if c != nil {
 		c.Header("x-request-id", requestID)
+		publishKiroInternalThinkingSideChannel(c, nil, c.Writer.Header(), thinkingBuf)
 		c.JSON(http.StatusOK, resp)
 	}
 
@@ -197,6 +222,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 func (s *KiroGatewayService) forwardStreaming(
 	ctx context.Context,
 	c *gin.Context,
+	account *Account,
 	doer kiroproto.HTTPDoer,
 	kiroAcct *kiroproto.Account,
 	payload *kiroproto.KiroPayload,
@@ -224,6 +250,11 @@ func (s *KiroGatewayService) forwardStreaming(
 		flusher: flusher,
 		model:   model,
 		msgID:   requestID,
+		// Estimate input tokens up-front (pure function of the request) so the
+		// first message_start emitted mid-stream carries the real prompt count
+		// instead of 0 — the prod relay bills off the parsed SSE usage. See the
+		// inputTokens field doc in kiro_sse_encoder.go.
+		inputTokens: kiroproto.EstimateInputTokens(req),
 	}
 
 	var (
@@ -233,6 +264,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		toolUses    []kiroproto.KiroToolUse
 		callbackErr error
 		firstTokMs  *int
+		redactor    kiroproto.InlineThinkingRedactor
 	)
 
 	markFirstToken := func() {
@@ -255,10 +287,15 @@ func (s *KiroGatewayService) forwardStreaming(
 			markFirstToken()
 			if isThinking {
 				thinkingBuf += text
-				enc.writeThinkingDelta(text)
 			} else {
-				textBuf += text
-				enc.writeTextDelta(text)
+				visible, inlineThinking := redactor.Push(text)
+				if inlineThinking != "" {
+					thinkingBuf += inlineThinking
+				}
+				if visible != "" {
+					textBuf += visible
+					enc.writeTextDelta(visible)
+				}
 			}
 		},
 		OnToolUse: func(tu kiroproto.KiroToolUse) {
@@ -278,25 +315,70 @@ func (s *KiroGatewayService) forwardStreaming(
 			defer mu.Unlock()
 			callbackErr = err
 		},
+		ResetForRetry: func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			if enc.started {
+				return false
+			}
+			textBuf = ""
+			thinkingBuf = ""
+			toolUses = nil
+			callbackErr = nil
+			firstTokMs = nil
+			redactor = kiroproto.InlineThinkingRedactor{}
+			return true
+		},
 	}
 
-	callErr := kiroproto.CallKiroAPIWithDoer(doer, kiroAcct, payload, callback)
+	callErr := kiroproto.CallKiroAPIWithDoerContext(ctx, doer, kiroAcct, payload, callback)
 
 	mu.Lock()
 	defer mu.Unlock()
 
 	// If the upstream failed before producing any content, surface the error so
 	// the handler can decide on failover instead of emitting a half-finished
-	// SSE stream. (Once content has begun — enc.started — we close out the
-	// stream cleanly because the client has already received a 200 + bytes.)
+	// SSE stream. Once content has begun, SSE has no resume/failover point; send
+	// a protocol-level error event instead of forging message_delta/message_stop,
+	// otherwise clients such as Claude Code treat an incomplete Kiro stream as a
+	// successful assistant turn.
 	// classifyKiroForwardError maps a recognized HTTP 400 INVALID_MODEL_ID into
 	// a typed *KiroInvalidModelError so the handler can return a clean 400.
 	if callErr != nil && !enc.started {
 		return nil, classifyKiroForwardError(callErr, model)
 	}
+	if callErr != nil {
+		msg := "upstream stream disconnected: " + sanitizeStreamError(callErr)
+		recordKiroStreamError(c, account, msg)
+		writeKiroStreamError(c, flusher, "stream_read_error", msg)
+		return nil, fmt.Errorf("kiro stream read error: %w", callErr)
+	}
+	if callbackErr != nil && !enc.started {
+		return nil, classifyKiroForwardError(callbackErr, model)
+	}
+	if callbackErr != nil {
+		msg := "upstream stream disconnected: " + sanitizeStreamError(callbackErr)
+		recordKiroStreamError(c, account, msg)
+		writeKiroStreamError(c, flusher, "stream_read_error", msg)
+		return nil, fmt.Errorf("kiro stream callback error: %w", callbackErr)
+	}
+	if !enc.started && textBuf == "" && thinkingBuf == "" && len(toolUses) == 0 {
+		return nil, classifyKiroForwardError(errKiroEmptyResponse, model)
+	}
 
 	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
-	inputTokens := kiroproto.EstimateInputTokens(req)
+	// inputTokens was already computed for the encoder (message_start.usage); reuse
+	// it for the ForwardResult so the two never drift.
+	if visible, inlineThinking := redactor.Flush(); visible != "" || inlineThinking != "" {
+		if inlineThinking != "" {
+			thinkingBuf += inlineThinking
+		}
+		if visible != "" {
+			textBuf += visible
+			enc.writeTextDelta(visible)
+		}
+	}
+	inputTokens := enc.inputTokens
 	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, toolUses)
 
 	// Upstream succeeded but produced no content (enc.started still false):
@@ -305,14 +387,8 @@ func (s *KiroGatewayService) forwardStreaming(
 	enc.closeOpenBlock()
 	enc.writeMessageDelta(outputToks)
 	enc.writeMessageStop()
+	publishKiroInternalThinkingSideChannel(c, w, nil, thinkingBuf)
 	flusher.Flush()
-
-	if callbackErr != nil {
-		// Content already streamed; log-level handling happens in the handler via
-		// the returned ForwardResult/usage. We still return nil error to avoid a
-		// double-write to the client after SSE has begun.
-		_ = callbackErr
-	}
 
 	return &ForwardResult{
 		RequestID:     requestID,
@@ -324,6 +400,49 @@ func (s *KiroGatewayService) forwardStreaming(
 		FirstTokenMs:  firstTokMs,
 		BillingTier:   kiroproto.KiroEstimatedBillingTier,
 	}, nil
+}
+
+func recordKiroStreamError(c *gin.Context, account *Account, message string) {
+	setOpsUpstreamError(c, 0, message, "")
+	event := OpsUpstreamErrorEvent{
+		Platform:           PlatformKiro,
+		UpstreamStatusCode: 0,
+		Kind:               "stream_error",
+		Message:            message,
+	}
+	if account != nil {
+		event.Platform = account.Platform
+		event.AccountID = account.ID
+		event.AccountName = account.Name
+	}
+	appendOpsUpstreamError(c, event)
+}
+
+func writeKiroStreamError(c *gin.Context, flusher http.Flusher, errType, message string) {
+	if c == nil || c.Writer == nil {
+		return
+	}
+	if errType == "" {
+		errType = "stream_read_error"
+	}
+	if message == "" {
+		message = errType
+	}
+	body, err := json.Marshal(map[string]any{
+		"type": "error",
+		"error": map[string]string{
+			"type":    errType,
+			"message": message,
+		},
+	})
+	if err != nil {
+		body = []byte(fmt.Sprintf(`{"type":"error","error":{"type":%q,"message":%q}}`, errType, message))
+	}
+	_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", body)
+	if flusher != nil {
+		flusher.Flush()
+	}
+	MarkResponseCommitted(c)
 }
 
 // logKiroCredits records the Kiro upstream credits cost at info level for

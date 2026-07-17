@@ -1,5 +1,4 @@
 <template>
-  <AppLayout>
     <TablePageLayout>
       <template #filters>
         <div class="flex flex-wrap items-center gap-3">
@@ -240,8 +239,7 @@
       :announcement-id="readStatusAnnouncementId"
       @close="showReadStatusDialog = false"
     />
-  </AppLayout>
-</template>
+  </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
@@ -253,7 +251,6 @@ import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } fro
 import type { AdminGroup, Announcement, AnnouncementTargeting } from '@/types'
 import type { Column } from '@/components/common/types'
 
-import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -265,6 +262,7 @@ import Icon from '@/components/icons/Icon.vue'
 
 import AnnouncementTargetingEditor from '@/components/admin/announcements/AnnouncementTargetingEditor.vue'
 import AnnouncementReadStatusDialog from '@/components/admin/announcements/AnnouncementReadStatusDialog.vue'
+import { STATUS_ACTIVE } from '@/constants/channel'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -319,7 +317,7 @@ const columns = computed<Column[]>(() => [
 
 const statusLabel = (status: string) => {
   if (status === 'draft') return t('admin.announcements.statusLabels.draft')
-  if (status === 'active') return t('admin.announcements.statusLabels.active')
+  if (status === STATUS_ACTIVE) return t('admin.announcements.statusLabels.active')
   if (status === 'archived') return t('admin.announcements.statusLabels.archived')
   return status
 }

@@ -2,10 +2,12 @@ package middleware
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -21,6 +23,7 @@ func APIKeyAuthGoogle(apiKeyService *service.APIKeyService, cfg *config.Config) 
 //
 // It is intended for Gemini native endpoints (/v1beta) to match Gemini SDK expectations.
 func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) gin.HandlerFunc {
+	universalResolver := apiKeyService.UniversalResolver()
 	return func(c *gin.Context) {
 		if v := strings.TrimSpace(c.Query("api_key")); v != "" {
 			abortWithGoogleError(c, 400, "Query parameter api_key is deprecated. Use Authorization header or key instead.")
@@ -38,14 +41,44 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 				abortWithGoogleError(c, 401, "Invalid API key")
 				return
 			}
+			if IsClientClosedRequestError(c, err) {
+				abortWithGoogleClientClosedRequest(c, err)
+				return
+			}
 			abortWithGoogleErrorDetail(c, 500, "Failed to validate API key", err)
 			return
 		}
 
-		if !apiKey.IsActive() {
+		// 同 api_key_auth.go：早退中断前也写入 Ops 回退 key，便于错误日志展示
+		// user/group/platform。
+		SetOpsFallbackAPIKey(c, apiKey)
+
+		// disabled / 未知状态 → 无条件拦截（expired 和 quota_exhausted 留给计费阶段，
+		// 与主中间件 api_key_auth.go 保持一致）。
+		if !apiKey.IsActive() &&
+			apiKey.Status != service.StatusAPIKeyExpired &&
+			apiKey.Status != service.StatusAPIKeyQuotaExhausted {
 			abortWithGoogleError(c, 401, "API key is disabled")
 			return
 		}
+
+		// 检查 IP 限制（白名单/黑名单）。与主中间件保持一致，避免 Gemini 端点绕过 Key 的 IP ACL。
+		if len(apiKey.IPWhitelist) > 0 || len(apiKey.IPBlacklist) > 0 {
+			clientIP := ip.GetTrustedClientIP(c)
+			if cfg.TrustForwardedIPForAPIKeyACL() {
+				clientIP = ip.GetClientIP(c)
+			}
+			allowed, _ := ip.CheckIPRestrictionWithCompiledRules(clientIP, apiKey.CompiledIPWhitelist, apiKey.CompiledIPBlacklist)
+			if !allowed {
+				if clientIP == "" {
+					clientIP = "unknown"
+				}
+				service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonIPRestriction)
+				abortWithGoogleError(c, 403, fmt.Sprintf("Access denied. Your IP is %s", clientIP))
+				return
+			}
+		}
+
 		if apiKey.User == nil {
 			abortWithGoogleError(c, 401, "User associated with API key not found")
 			return
@@ -54,9 +87,22 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			abortWithGoogleError(c, 401, "User account is not active")
 			return
 		}
+
+		// 全能 Key：在分组/订阅校验之前解析后端组并就地替换（见 universal_routing_tk.go）。
+		// /v1beta 形状为 gemini，解析到 gemini/antigravity 后端组；失败时已写出 Google 形状错误。
+		if MaybeResolveUniversal(c, apiKey, universalResolver) {
+			return
+		}
+
 		if _, message, ok := validateAPIKeyGroupAvailable(apiKey); !ok {
-			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
+			service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonAPIKeyGroupUnavailable)
 			abortWithGoogleError(c, 403, message)
+			return
+		}
+		// 专属分组授权校验：用户对该专属分组的授权被撤销后应拒绝（与主中间件一致，防止越权）。
+		if !validateAPIKeyGroupAllowed(apiKey) {
+			service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonAPIKeyGroupUnavailable)
+			abortWithGoogleError(c, 403, "API Key 所属专属分组不再允许当前用户使用")
 			return
 		}
 
@@ -88,6 +134,15 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			}
 
 			needsMaintenance, err := subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
+			if needsMaintenance {
+				refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenance(c.Request.Context(), subscription)
+				if maintenanceErr != nil {
+					abortWithGoogleError(c, 500, "Failed to maintain subscription usage windows")
+					return
+				}
+				subscription = refreshed
+				_, err = subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
+			}
 			if err != nil {
 				status := 403
 				if errors.Is(err, service.ErrDailyLimitExceeded) ||
@@ -106,7 +161,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 				subscriptionService.DoWindowMaintenance(&maintenanceCopy)
 			}
 		} else if !skipBilling {
-			if apiKey.User.Balance <= 0 {
+			if apiKeyBalanceBelowAuthThreshold(apiKey.User.Balance, cfg) {
 				abortWithGoogleError(c, 403, "Insufficient account balance")
 				return
 			}
@@ -186,4 +241,14 @@ func abortWithGoogleErrorDetail(c *gin.Context, status int, message string, inte
 		}
 	}
 	abortWithGoogleError(c, status, message)
+}
+
+func abortWithGoogleClientClosedRequest(c *gin.Context, internalErr error) {
+	if c != nil {
+		service.MarkOpsClientClosedRequest(c)
+		if detail := sanitizeMiddlewareInternalErrorDetail(internalErr); detail != "" {
+			c.Set(service.OpsInternalErrorDetailKey, detail)
+		}
+	}
+	abortWithGoogleError(c, StatusClientClosedRequest, "context canceled")
 }

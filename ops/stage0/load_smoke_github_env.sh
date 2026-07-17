@@ -4,7 +4,7 @@
 # Variables (plaintext) are fetched via gh API. Secrets are write-only on GitHub —
 # this script verifies they exist on the Environment but cannot read their values.
 # Export secret values yourself (same TK_SMOKE_* names) before sourcing, or run
-# smoke via deploy-stage0 / deploy-edge-stage0 workflows.
+# smoke via deploy-stage0 / deploy-edge-lightsail-stage0 workflows.
 #
 # Usage:
 #   eval "$(bash ops/stage0/load_smoke_github_env.sh prod)"
@@ -47,8 +47,8 @@ command -v jq >/dev/null 2>&1 || {
 }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-REPO="$(cd "${REPO_ROOT}" && gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)" || {
-  echo "tk_load_smoke_github_env: gh cannot resolve GitHub repo (gh repo set-default?)" >&2
+REPO="$(bash "${REPO_ROOT}/scripts/lib/resolve-gh-repo.sh" "${REPO_ROOT}" 2>/dev/null)" || {
+  echo "tk_load_smoke_github_env: failed to resolve GitHub repo from origin/gh context" >&2
   exit 1
 }
 gh auth status >/dev/null 2>&1 || {
@@ -58,15 +58,8 @@ gh auth status >/dev/null 2>&1 || {
 
 required_secrets_for_env() {
   case "$1" in
-    prod)
-      printf '%s\n' \
-        TK_SMOKE_PROD_ANTHROPIC_KEY \
-        TK_SMOKE_PROD_GEMINI_KEY \
-        TK_SMOKE_PROD_OPENAI_OAUTH_KEY \
-        TK_SMOKE_PROD_KIRO_KEY
-      ;;
-    edge-*)
-      printf '%s\n' TK_SMOKE_EDGE_CANARY_KEY
+    prod|edge-*)
+      printf '%s\n' TK_SMOKE_API_KEY
       ;;
     *)
       echo "tk_load_smoke_github_env: unsupported environment '${1}' (want prod or edge-<id>)" >&2

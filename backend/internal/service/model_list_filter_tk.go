@@ -55,3 +55,30 @@ func (f *ModelListFilter) FilterClientFacing(ctx context.Context, platform strin
 	}
 	return out
 }
+
+// ServableClientFacingIDs returns the unified servable candidate IDs for a
+// platform — the single source the gateway /v1/models family FALLBACK shares with
+// the public /pricing catalog and the Your-Menu fallback. It is the empirical
+// allowlist (or canonical when unprobed), pruned of structurally-gone ids and
+// filtered to priced (billable), enforcing visible ⟹ reachable ∧ priced.
+//
+// This differs from FilterClientFacing in two intentional ways: (1) the candidate
+// set is the curated servable allowlist (not an arbitrary caller-supplied list —
+// used where there is no per-account model_mapping to honor), and (2) the
+// availability prune is structurally-gone-only (matching /pricing), so a transient
+// 5xx blip does not flap a model out of /v1/models while it stays in /pricing.
+//
+// Nil-safe: nil filter / nil pricing → no priced filter (fail-open); nil
+// availability → no gone-prune. A nil *PricingAvailabilityService field is NOT
+// promoted to a non-nil interface (that would panic the gone-prune on lookup).
+func (f *ModelListFilter) ServableClientFacingIDs(ctx context.Context, platform string) []string {
+	var avail MePricingAvailability
+	var pricing *PricingCatalogService
+	if f != nil {
+		if f.availability != nil {
+			avail = f.availability
+		}
+		pricing = f.pricing
+	}
+	return ServableClientFacingIDs(ctx, platform, avail, pricing)
+}

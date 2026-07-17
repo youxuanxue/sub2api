@@ -1,4 +1,5 @@
 import type { Account } from '@/types'
+import { PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 const normalizeUsageRefreshValue = (value: unknown): string => {
   if (value == null) return ''
@@ -6,7 +7,7 @@ const normalizeUsageRefreshValue = (value: unknown): string => {
 }
 
 export const buildOpenAIUsageRefreshKey = (account: Pick<Account, 'id' | 'platform' | 'type' | 'updated_at' | 'last_used_at' | 'rate_limit_reset_at' | 'extra'>): string => {
-  if (account.platform !== 'openai' || account.type !== 'oauth') {
+  if (account.platform !== PLATFORM_OPENAI || account.type !== 'oauth') {
     return ''
   }
 

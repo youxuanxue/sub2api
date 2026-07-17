@@ -97,7 +97,7 @@ func (h *PromoHandler) GetByID(c *gin.Context) {
 func (h *PromoHandler) Create(c *gin.Context) {
 	var req CreatePromoCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -133,7 +133,7 @@ func (h *PromoHandler) Update(c *gin.Context) {
 
 	var req UpdatePromoCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -148,7 +148,7 @@ func (h *PromoHandler) Update(c *gin.Context) {
 	if req.ExpiresAt != nil {
 		if *req.ExpiresAt == 0 {
 			// 0 表示清除过期时间
-			input.ExpiresAt = nil
+			input.ExpiresAt = &time.Time{}
 		} else {
 			t := time.Unix(*req.ExpiresAt, 0)
 			input.ExpiresAt = &t

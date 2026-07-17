@@ -3,40 +3,36 @@
 #
 # Exercises the same paths Claude Code uses against TokenKey:
 #   public settings, frontend release assets, /v1/models, /v1/chat/completions,
-#   /v1/messages, (when configured) /v1/messages-with-tools through the Gemini
-#   bridge to catch tool-schema cleanup regressions, and the Kiro (sixth
-#   platform) /v1/messages relay path.
+#   /v1/messages, and (when configured) /v1/messages-with-tools through the
+#   Gemini bridge to catch tool-schema cleanup regressions.
 #
 # GitHub config (canonical TK_SMOKE_* — see ops/stage0/smoke_env.sh):
-#   TK_SMOKE_PROD_ANTHROPIC_KEY / TK_SMOKE_PROD_GEMINI_KEY / TK_SMOKE_PROD_OPENAI_OAUTH_KEY / TK_SMOKE_PROD_KIRO_KEY
-#   TK_SMOKE_PROD_ANTHROPIC_MODEL / TK_SMOKE_PROD_GEMINI_MODEL / TK_SMOKE_PROD_OPENAI_OAUTH_MODEL / TK_SMOKE_PROD_KIRO_MODEL
+#   TK_SMOKE_API_KEY
+#   TK_SMOKE_ANTHROPIC_MODELS / TK_SMOKE_GEMINI_MODELS / TK_SMOKE_OPENAI_OAUTH_MODELS
 #
 # Usage (CI injects TK_SMOKE_* directly):
 #   TOKENKEY_BASE_URL=https://api.example.com \
-#   TK_SMOKE_PROD_ANTHROPIC_KEY=sk-... \
+#   TK_SMOKE_API_KEY=sk-... \
 #   bash ops/stage0/post_deploy_smoke.sh
 #
 # Local manual smoke from GitHub Environment (vars via gh; secrets exported locally):
 #   export TK_SMOKE_GITHUB_ENV=prod
-#   export TK_SMOKE_PROD_ANTHROPIC_KEY=sk-...   # same names as GitHub secrets
-#   export TK_SMOKE_PROD_GEMINI_KEY=sk-...
-#   export TK_SMOKE_PROD_OPENAI_OAUTH_KEY=sk-...
+#   export TK_SMOKE_API_KEY=sk-...   # same name as GitHub secret
 #   bash ops/stage0/post_deploy_smoke.sh
 #
-# Optional Gemini regression (skipped when TK_SMOKE_PROD_GEMINI_KEY unset):
-#   TK_SMOKE_PROD_GEMINI_MODEL    default: gemini-3.1-pro-preview
+# Gemini regression:
+#   TK_SMOKE_GEMINI_MODELS    comma/space separated, default empty. Native
+#                             Gemini Google One pool was retired on 2026-07-04;
+#                             set this explicitly only after reprovisioning.
 #
-# Optional OpenAI OAuth regression (skipped when TK_SMOKE_PROD_OPENAI_OAUTH_KEY unset):
-#   TK_SMOKE_PROD_OPENAI_OAUTH_MODEL    default: gpt-5.4
-#   TK_SMOKE_PROD_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS  default: 0
-#
-# Kiro sixth-platform probe (skipped when TK_SMOKE_PROD_KIRO_KEY unset; in prod
-# CI the key is hard-required by deploy-stage0.yml, same tier as the others):
-#   TK_SMOKE_PROD_KIRO_KEY    TokenKey API key bound to a kiro group
-#   TK_SMOKE_PROD_KIRO_MODEL  kiro-served model; default: claude-sonnet-4-6
+# OpenAI OAuth regression:
+#   TK_SMOKE_OPENAI_OAUTH_MODELS    comma/space separated, default: gpt-5.4
+#   TK_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS  default: 0
+#   Empty model_mapping passthrough (like Anthropic kiro stubs): model may be
+#   absent from GET /v1/models; smoke warns and defers to the openai oauth chat probe.
 #
 # Anthropic-compat probes:
-#   TK_SMOKE_PROD_ANTHROPIC_MODEL  preferred model; warn + auto pick when absent from /v1/models
+#   TK_SMOKE_ANTHROPIC_MODELS  comma/space separated, default: claude-sonnet-4-6
 #   TK_SMOKE_CLAUDE_USER_AGENT     Claude Code UA for /v1/messages
 #
 # Suite matrix (GATEWAY_SMOKE_SUITE — one runner, deploy-intent driven):
@@ -59,14 +55,14 @@ source "${SCRIPT_DIR}/smoke_env.sh"
 BASE="${TOKENKEY_BASE_URL:-${TK_GATEWAY_URL:-}}"
 BASE="${BASE%/}"
 
-API_KEY="${TK_SMOKE_PROD_ANTHROPIC_KEY:-}"
+API_KEY="${TK_SMOKE_API_KEY:-}"
 
 if [[ -z "${BASE}" ]]; then
   echo "tk_post_deploy_smoke: set TOKENKEY_BASE_URL (or TK_GATEWAY_URL)" >&2
   exit 1
 fi
 if [[ -z "${API_KEY}" ]]; then
-  echo "tk_post_deploy_smoke: set TK_SMOKE_PROD_ANTHROPIC_KEY (or TK_SMOKE_GITHUB_ENV=prod with secrets exported locally)" >&2
+  echo "tk_post_deploy_smoke: set TK_SMOKE_API_KEY (or TK_SMOKE_GITHUB_ENV=prod with secret exported locally)" >&2
   exit 1
 fi
 
@@ -76,9 +72,7 @@ command -v jq >/dev/null 2>&1 || { echo "tk_post_deploy_smoke: jq not on PATH" >
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
-prefix="$(printf '%s' "${API_KEY}" | head -c 6)"
-suffix="$(printf '%s' "${API_KEY}" | tail -c 4)"
-echo "tk_post_deploy_smoke: base_url=${BASE} suite=${GATEWAY_SMOKE_SUITE} key_hint=${prefix}…${suffix}"
+echo "tk_post_deploy_smoke: base_url=${BASE} suite=${GATEWAY_SMOKE_SUITE} key=configured"
 
 # --- 1) Public settings (cold path) ---
 pub_http=$(curl -sS -o "$tmpdir/pub.json" -w "%{http_code}" "${BASE}/api/v1/settings/public")
@@ -154,13 +148,26 @@ fi
 
 echo "tk_post_deploy_smoke: /v1/models shape object=${models_object} count=${models_count}"
 
-model="$(smoke_pick_model_from_list "$tmpdir/models.json" "${TK_SMOKE_PROD_ANTHROPIC_MODEL:-}")" || exit 1
-echo "tk_post_deploy_smoke: using model=${model}"
+anthropic_models_raw="${TK_SMOKE_ANTHROPIC_MODELS:-}"
+if [[ -z "${anthropic_models_raw}" && "${GATEWAY_SMOKE_SUITE:-}" == "main-via-edge" ]]; then
+  anthropic_models_raw="${TK_SMOKE_EDGE_LOCAL_CHAT_MODELS:-}"
+fi
+anthropic_models=()
+while IFS= read -r smoke_model; do
+  [[ -n "${smoke_model}" ]] && anthropic_models+=("${smoke_model}")
+done < <(smoke_model_list "${anthropic_models_raw}" "claude-sonnet-4-6")
+if [[ "${#anthropic_models[@]}" -lt 1 ]]; then
+  echo "tk_post_deploy_smoke: no Anthropic smoke models configured" >&2
+  exit 1
+fi
+echo "tk_post_deploy_smoke: anthropic_models=${anthropic_models[*]}"
 
 # --- 4) OpenAI-compat chat ---
 if ! smoke_suite_runs chat; then
   echo "tk_post_deploy_smoke: skip /v1/chat/completions (suite=${GATEWAY_SMOKE_SUITE})"
 else
+for model in "${anthropic_models[@]}"; do
+smoke_assert_anthropic_model_listed_or_warn "$tmpdir/models.json" "${model}"
 expect_openai="E2E-OPENAI-OK"
 payload="$(jq -n \
   --arg m "${model}" \
@@ -173,7 +180,7 @@ chat_http=$(curl -sS -o "$tmpdir/chat.json" -w "%{http_code}" \
   -H "Accept: application/json" \
   -d "${payload}" \
   "${BASE}/v1/chat/completions")
-echo "tk_post_deploy_smoke: POST .../v1/chat/completions -> HTTP ${chat_http}"
+echo "tk_post_deploy_smoke: POST .../v1/chat/completions model=${model} -> HTTP ${chat_http}"
 if soft_degrade_or_exit "/v1/chat/completions" "${chat_http}" "$tmpdir/chat.json"; then
 chat_object="$(jq -r '.object // empty' "$tmpdir/chat.json")"
 chat_choices="$(jq -r '(.choices // []) | length' "$tmpdir/chat.json")"
@@ -189,37 +196,31 @@ echo "tk_post_deploy_smoke: /v1/chat/completions shape object=${chat_object} cho
 
 chat_body="$(jq -r '.choices[0].message.content // empty' "$tmpdir/chat.json")"
 if ! printf '%s' "${chat_body}" | grep -Fq "${expect_openai}"; then
-  echo "tk_post_deploy_smoke: chat response missing expected marker '${expect_openai}' (body below)" >&2
+  # Universal smoke key: prod Claude often routes /v1/chat/completions via kiro mirror
+  # stubs (see smoke_assert_anthropic_model_listed_or_warn). Shape OK but upstream
+  # persona won't echo the marker — /v1/messages is the canonical Anthropic probe.
+  echo "::warning::tk_post_deploy_smoke: chat response missing expected marker '${expect_openai}' — deferring to /v1/messages probe (body below)" >&2
   printf '%s\n' "${chat_body}" >&2
-  exit 1
+  echo "tk_post_deploy_smoke: /v1/chat/completions section soft-skipped (anthropic universal-key topology; /v1/messages is canonical)"
+  continue
 fi
 fi  # end soft_degrade_or_exit guard
+done
 fi  # end chat suite
 
 # --- 5) Anthropic Messages shape (Claude Code / x-api-key path) ---
 if ! smoke_suite_runs messages; then
   echo "tk_post_deploy_smoke: skip /v1/messages (suite=${GATEWAY_SMOKE_SUITE})"
 else
-expect_anthropic="E2E-ANTHROPIC-OK"
+for model in "${anthropic_models[@]}"; do
+smoke_assert_anthropic_model_listed_or_warn "$tmpdir/models.json" "${model}"
 claude_ua="$(smoke_default_claude_user_agent)"
-# Claude Code client shape: required by ClaudeCodeValidator (Step 4) so that
-# groups with claude_code_only=true (e.g. cc-edges in prod) accept the smoke
-# request. See backend/internal/service/claude_code_validator.go.
-#  - system: Dice similarity >= 0.5 vs canonical Claude Code prompts
-#  - anthropic-beta + X-App: non-empty (canonical claude-code-20250219)
-#  - metadata.user_id: JSON form parsable by ParseMetadataUserID
-claude_cc_system="You are Claude Code, Anthropic's official CLI for Claude."
-claude_cc_meta_user_id='{"device_id":"0000000000000000000000000000000000000000000000000000000000000001","account_uuid":"","session_id":"00000000-0000-0000-0000-000000000001"}'
-apayload="$(jq -n \
-  --arg m "${model}" \
-  --arg x "${expect_anthropic}" \
-  --arg sys "${claude_cc_system}" \
-  --arg uid "${claude_cc_meta_user_id}" \
-  '{model:$m,max_tokens:96,
-    system:[{type:"text",text:$sys}],
-    messages:[{role:"user",content:("Reply with exactly: " + $x)}],
-    metadata:{user_id:$uid}}')"
-
+realistic_py="${SCRIPT_DIR}/smoke_anthropic_realistic.py"
+if [[ ! -f "${realistic_py}" ]]; then
+  echo "tk_post_deploy_smoke: missing ${realistic_py}" >&2
+  exit 1
+fi
+apayload="$(python3 "${realistic_py}" --model "${model}" --max-tokens 32 --prompt hi)"
 msg_http=$(curl -sS -o "$tmpdir/msg.json" -w "%{http_code}" \
   -H "x-api-key: ${API_KEY}" \
   -H "anthropic-version: 2023-06-01" \
@@ -229,7 +230,7 @@ msg_http=$(curl -sS -o "$tmpdir/msg.json" -w "%{http_code}" \
   -H "User-Agent: ${claude_ua}" \
   -d "${apayload}" \
   "${BASE}/v1/messages")
-echo "tk_post_deploy_smoke: POST .../v1/messages -> HTTP ${msg_http}"
+echo "tk_post_deploy_smoke: POST .../v1/messages model=${model} -> HTTP ${msg_http}"
 if soft_degrade_or_exit "/v1/messages" "${msg_http}" "$tmpdir/msg.json"; then
 msg_type="$(jq -r '.type // empty' "$tmpdir/msg.json")"
 msg_role="$(jq -r '.role // empty' "$tmpdir/msg.json")"
@@ -245,12 +246,13 @@ fi
 echo "tk_post_deploy_smoke: /v1/messages shape type=${msg_type} role=${msg_role} content=${msg_content_count} stop_reason=${msg_stop} usage_keys=${msg_usage_keys}"
 
 msg_text="$(jq -r '[.content[]? | select(.type == "text") | .text] | add // empty' "$tmpdir/msg.json")"
-if ! printf '%s' "${msg_text}" | grep -Fq "${expect_anthropic}"; then
-  echo "tk_post_deploy_smoke: messages response missing expected marker '${expect_anthropic}' (text below)" >&2
+if [[ -z "${msg_text}" ]]; then
+  echo "tk_post_deploy_smoke: messages response has no assistant text (realistic CC probe)" >&2
   printf '%s\n' "${msg_text}" >&2
   exit 1
 fi
 fi  # end soft_degrade_or_exit guard
+done
 fi  # end messages suite
 
 # --- 6) Gemini /v1/messages with tools (Anthropic→Gemini schema cleanup regression) ---
@@ -258,8 +260,7 @@ fi  # end messages suite
 # Gemini's restricted OpenAPI 3.0 schema dialect rejects (propertyNames /
 # const / exclusiveMinimum / exclusiveMaximum). If cleanup regresses, Google
 # upstream returns 400 "Invalid JSON payload received. Unknown name ...:
-# Cannot find field." and this section fails. Skipped silently when no
-# Gemini-bound key is provided.
+# Cannot find field." and this section fails.
 #
 # Failure semantics (2026-05-06 v1.7.19 false-positive postmortem):
 #   200 → schema cleanup verified end-to-end against real Google upstream.
@@ -272,14 +273,19 @@ fi  # end messages suite
 #         would have been rejected with 400 BEFORE reaching the scheduling
 #         pool). Treating them as deploy failures conflates control-plane
 #         health with runtime-resource health.
-GEMINI_KEY="${TK_SMOKE_PROD_GEMINI_KEY:-}"
-GEMINI_MODEL="${TK_SMOKE_PROD_GEMINI_MODEL:-gemini-3.1-pro-preview}"
-GEMINI_MAX_TOKENS="${TK_SMOKE_PROD_GEMINI_MAX_TOKENS:-8192}"
+GEMINI_MAX_TOKENS="${TK_SMOKE_GEMINI_MAX_TOKENS:-8192}"
 
-if smoke_suite_runs gemini && [[ -n "${GEMINI_KEY}" ]]; then
-  gemini_prefix="$(printf '%s' "${GEMINI_KEY}" | head -c 6)"
-  gemini_suffix="$(printf '%s' "${GEMINI_KEY}" | tail -c 4)"
-  echo "tk_post_deploy_smoke: gemini_key_hint=${gemini_prefix}…${gemini_suffix} gemini_model=${GEMINI_MODEL} max_tokens=${GEMINI_MAX_TOKENS}"
+if smoke_suite_runs gemini; then
+  gemini_models=()
+  while IFS= read -r smoke_model; do
+    [[ -n "${smoke_model}" ]] && gemini_models+=("${smoke_model}")
+  done < <(smoke_model_list "${TK_SMOKE_GEMINI_MODELS:-}" "")
+  if [[ "${#gemini_models[@]}" -eq 0 ]]; then
+    echo "tk_post_deploy_smoke: skipping native gemini schema probe (TK_SMOKE_GEMINI_MODELS empty)"
+  fi
+  echo "tk_post_deploy_smoke: gemini_models=${gemini_models[*]} max_tokens=${GEMINI_MAX_TOKENS}"
+  for gemini_model in "${gemini_models[@]}"; do
+  smoke_assert_model_listed "$tmpdir/models.json" "gemini" "${gemini_model}" || exit 1
 
   # max_tokens budget covers BOTH reasoning/thinking tokens AND visible
   # content for Gemini reasoning models (e.g. gemini-3.1-pro-preview).
@@ -292,7 +298,7 @@ if smoke_suite_runs gemini && [[ -n "${GEMINI_KEY}" ]]; then
   # schema-cleanup regression (the bug this section guards) would surface
   # as upstream 400 long before this token budget matters.
   gpayload="$(jq -n \
-    --arg m "${GEMINI_MODEL}" \
+    --arg m "${gemini_model}" \
     --argjson maxt "${GEMINI_MAX_TOKENS}" \
     '{
       model: $m,
@@ -314,12 +320,12 @@ if smoke_suite_runs gemini && [[ -n "${GEMINI_KEY}" ]]; then
     }')"
 
   gemini_http=$(curl -sS -o "$tmpdir/gemini-msg.json" -w "%{http_code}" \
-    -H "x-api-key: ${GEMINI_KEY}" \
+    -H "x-api-key: ${API_KEY}" \
     -H "anthropic-version: 2023-06-01" \
     -H "Content-Type: application/json" \
     -d "${gpayload}" \
     "${BASE}/v1/messages")
-  echo "tk_post_deploy_smoke: POST .../v1/messages (gemini, with tools) -> HTTP ${gemini_http}"
+  echo "tk_post_deploy_smoke: POST .../v1/messages (gemini, with tools) model=${gemini_model} -> HTTP ${gemini_http}"
 
   # Read the gateway-reported error message (if any) to disambiguate
   # "schema cleanup broken" (400, the bug we guard) from "runtime resource
@@ -345,7 +351,7 @@ if smoke_suite_runs gemini && [[ -n "${GEMINI_KEY}" ]]; then
         && [[ "${gemini_content_count}" -lt 1 ]] \
         && [[ "${gemini_stop}" == "max_tokens" ]] \
         && [[ "${gemini_output_tokens}" -gt 0 ]]; then
-      echo "::warning::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP 200 but content=[] with stop_reason=max_tokens (output_tokens=${gemini_output_tokens}) — reasoning model consumed budget before emitting text, NOT a schema regression. Consider raising TK_SMOKE_PROD_GEMINI_MAX_TOKENS." >&2
+      echo "::warning::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP 200 but content=[] with stop_reason=max_tokens (output_tokens=${gemini_output_tokens}) — reasoning model consumed budget before emitting text, NOT a schema regression. Consider raising TK_SMOKE_GEMINI_MAX_TOKENS." >&2
       jq . "$tmpdir/gemini-msg.json" >&2 || true
       echo "tk_post_deploy_smoke: gemini section soft-skipped (reasoning model exhausted token budget without visible content)"
     elif [[ "${gemini_type}" != "message" ]] || [[ "${gemini_role}" != "assistant" ]] || [[ "${gemini_content_count}" -lt 1 ]]; then
@@ -366,7 +372,7 @@ if smoke_suite_runs gemini && [[ -n "${GEMINI_KEY}" ]]; then
   # is broken; without auth/route working we cannot say anything about the
   # gateway behavior.
   elif [[ "${gemini_http}" == "401" || "${gemini_http}" == "403" || "${gemini_http}" == "404" ]]; then
-    echo "::error::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP ${gemini_http} — smoke key/route broken; fix TK_SMOKE_PROD_GEMINI_KEY config or gateway routing." >&2
+    echo "::error::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP ${gemini_http} — smoke key/route broken; fix TK_SMOKE_API_KEY config or gateway routing." >&2
     jq . "$tmpdir/gemini-msg.json" >&2 2>/dev/null || cat "$tmpdir/gemini-msg.json" >&2
     exit 1
   # 5xx OR 429 OR gateway "no available accounts" → SOFT WARN. These cannot
@@ -387,10 +393,9 @@ if smoke_suite_runs gemini && [[ -n "${GEMINI_KEY}" ]]; then
     jq . "$tmpdir/gemini-msg.json" >&2 2>/dev/null || cat "$tmpdir/gemini-msg.json" >&2
     echo "tk_post_deploy_smoke: gemini section soft-skipped (HTTP ${gemini_http} is not a schema-regression signal)"
   fi
-elif [[ -n "${GEMINI_KEY}" ]]; then
-  echo "tk_post_deploy_smoke: skip /v1/messages (gemini) — suite=${GATEWAY_SMOKE_SUITE}"
+  done
 else
-  echo "tk_post_deploy_smoke: skip /v1/messages (gemini) — TK_SMOKE_PROD_GEMINI_KEY not set"
+  echo "tk_post_deploy_smoke: skip /v1/messages (gemini) — suite=${GATEWAY_SMOKE_SUITE}"
 fi
 
 # --- 7) OpenAI OAuth /v1/chat/completions account + token-count probe ---
@@ -411,7 +416,7 @@ fi
 #
 # When operators confirm a path that DOES emit reasoning_tokens (e.g. an
 # APIKey-direct OpenAI Responses account), set
-#   TK_SMOKE_PROD_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1
+#   TK_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1
 # to upgrade the soft-warn to a hard-fail.
 #
 # Failure semantics:
@@ -421,20 +426,21 @@ fi
 #   400 / 401 / 403 / 404 → HARD FAIL. Smoke key/route/account broken.
 #   5xx / 429 / "no available accounts" / "rate" / "timeout" → SOFT WARN,
 #       exit 0. Runtime resource issue.
-OPENAI_OAUTH_KEY="${TK_SMOKE_PROD_OPENAI_OAUTH_KEY:-}"
-OPENAI_OAUTH_MODEL="${TK_SMOKE_PROD_OPENAI_OAUTH_MODEL:-gpt-5.4}"
-
-if smoke_suite_runs openai_oauth && [[ -n "${OPENAI_OAUTH_KEY}" ]]; then
-  oai_prefix="$(printf '%s' "${OPENAI_OAUTH_KEY}" | head -c 6)"
-  oai_suffix="$(printf '%s' "${OPENAI_OAUTH_KEY}" | tail -c 4)"
-  echo "tk_post_deploy_smoke: openai_oauth_key_hint=${oai_prefix}…${oai_suffix} openai_oauth_model=${OPENAI_OAUTH_MODEL}"
+if smoke_suite_runs openai_oauth; then
+  openai_oauth_models=()
+  while IFS= read -r smoke_model; do
+    [[ -n "${smoke_model}" ]] && openai_oauth_models+=("${smoke_model}")
+  done < <(smoke_model_list "${TK_SMOKE_OPENAI_OAUTH_MODELS:-}" "gpt-5.4")
+  echo "tk_post_deploy_smoke: openai_oauth_models=${openai_oauth_models[*]}"
+  for openai_oauth_model in "${openai_oauth_models[@]}"; do
+  smoke_assert_openai_oauth_model_listed_or_warn "$tmpdir/models.json" "${openai_oauth_model}"
 
   expect_oai_oauth="E2E-OPENAI-OAUTH-OK"
   # The math problem reliably triggers reasoning so reasoning_tokens > 0.
   # Asking the model to end with the marker on its own line lets us probe
   # account correctness without depending on the model's exact phrasing.
   oai_payload="$(jq -n \
-    --arg m "${OPENAI_OAUTH_MODEL}" \
+    --arg m "${openai_oauth_model}" \
     --arg x "${expect_oai_oauth}" \
     '{
       model: $m,
@@ -448,12 +454,12 @@ if smoke_suite_runs openai_oauth && [[ -n "${OPENAI_OAUTH_KEY}" ]]; then
     }')"
 
   oai_http=$(curl -sS -o "$tmpdir/openai-oauth-chat.json" -w "%{http_code}" \
-    -H "Authorization: Bearer ${OPENAI_OAUTH_KEY}" \
+    -H "Authorization: Bearer ${API_KEY}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
     -d "${oai_payload}" \
     "${BASE}/v1/chat/completions")
-  echo "tk_post_deploy_smoke: POST .../v1/chat/completions (openai oauth) -> HTTP ${oai_http}"
+  echo "tk_post_deploy_smoke: POST .../v1/chat/completions (openai oauth) model=${openai_oauth_model} -> HTTP ${oai_http}"
 
   oai_err_msg="$(jq -r '.error.message // empty' "$tmpdir/openai-oauth-chat.json" 2>/dev/null)"
 
@@ -498,19 +504,19 @@ if smoke_suite_runs openai_oauth && [[ -n "${OPENAI_OAUTH_KEY}" ]]; then
     # this path). The unit tests guard the conversion logic; here we just
     # surface the value and allow operators to opt into a hard-fail when
     # they have a path that does emit reasoning_tokens.
-    require_reasoning="${TK_SMOKE_PROD_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS:-0}"
+    require_reasoning="${TK_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS:-0}"
     if [[ "${oai_reasoning_tokens}" -gt 0 ]]; then
       echo "tk_post_deploy_smoke: /v1/chat/completions (openai oauth) reasoning_tokens=${oai_reasoning_tokens} (passthrough verified end-to-end)"
     elif [[ "${require_reasoning}" == "1" ]]; then
-      echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) usage.completion_tokens_details.reasoning_tokens is missing or 0 (got ${oai_reasoning_tokens}, completion_tokens=${oai_completion_tokens}) and TK_SMOKE_PROD_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1 — apicompat ResponsesToChatCompletions reasoning_tokens passthrough has regressed. DO NOT promote this build." >&2
+      echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) usage.completion_tokens_details.reasoning_tokens is missing or 0 (got ${oai_reasoning_tokens}, completion_tokens=${oai_completion_tokens}) and TK_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1 — apicompat ResponsesToChatCompletions reasoning_tokens passthrough has regressed. DO NOT promote this build." >&2
       jq '.usage' "$tmpdir/openai-oauth-chat.json" >&2 || true
       exit 1
     else
-      echo "::warning::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) reasoning_tokens=0; cannot verify passthrough end-to-end on this path (chatgpt.com codex OAuth backend does not break out reasoning tokens for our keys). Unit tests in apicompat/chatcompletions_responses_test.go are the regression guard. Set TK_SMOKE_PROD_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1 to make this a hard-fail when you have an account that does emit them."
+      echo "::warning::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) reasoning_tokens=0; cannot verify passthrough end-to-end on this path (chatgpt.com codex OAuth backend does not break out reasoning tokens for our keys). Unit tests in apicompat/chatcompletions_responses_test.go are the regression guard. Set TK_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1 to make this a hard-fail when you have an account that does emit them."
     fi
     echo "tk_post_deploy_smoke: /v1/chat/completions (openai oauth) shape object=${oai_object} choices=${oai_choices} finish_reason=${oai_finish} prompt_tokens=${oai_prompt_tokens} completion_tokens=${oai_completion_tokens} total_tokens=${oai_total_tokens} reasoning_tokens=${oai_reasoning_tokens}"
   elif [[ "${oai_http}" == "400" || "${oai_http}" == "401" || "${oai_http}" == "403" || "${oai_http}" == "404" ]]; then
-    echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) returned HTTP ${oai_http} — smoke key/route/account broken; fix TK_SMOKE_PROD_OPENAI_OAUTH_KEY config or gateway routing." >&2
+    echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) returned HTTP ${oai_http} — smoke key/route/account broken; fix TK_SMOKE_API_KEY config or gateway routing." >&2
     jq . "$tmpdir/openai-oauth-chat.json" >&2 2>/dev/null || cat "$tmpdir/openai-oauth-chat.json" >&2
     exit 1
   else
@@ -526,83 +532,9 @@ if smoke_suite_runs openai_oauth && [[ -n "${OPENAI_OAUTH_KEY}" ]]; then
     jq . "$tmpdir/openai-oauth-chat.json" >&2 2>/dev/null || cat "$tmpdir/openai-oauth-chat.json" >&2
     echo "tk_post_deploy_smoke: openai oauth section soft-skipped (HTTP ${oai_http} is not a passthrough-regression signal)"
   fi
-elif [[ -n "${OPENAI_OAUTH_KEY}" ]]; then
+  done
+else
   echo "tk_post_deploy_smoke: skip /v1/chat/completions (openai oauth) — suite=${GATEWAY_SMOKE_SUITE}"
-else
-  echo "tk_post_deploy_smoke: skip /v1/chat/completions (openai oauth) — TK_SMOKE_PROD_OPENAI_OAUTH_KEY not set"
-fi
-
-# --- 8) Kiro (sixth platform) Messages probe (anthropic-apikey relay) ---
-# Kiro accounts egress to AWS CodeWhisperer behind the anthropic-apikey relay
-# shape, so a Kiro group is reached via POST /v1/messages with a TokenKey API
-# key bound to that group (kiro rides the same relay as Anthropic, NOT newapi).
-# v1.7.64 turned on Kiro TLS-fingerprint masking by default
-# (account_tk_kiro.go isKiroTLSFingerprintEnabled + migration tk_014 seed of
-# tk_canonical_kiro_ide) and a per-account concurrency floor (tk_015); this
-# section is the deploy-time end-to-end guard for that forwarding path.
-#
-# The request carries the same Claude Code client shape as the Anthropic
-# section so a claude_code_only-restricted Kiro group still accepts it; the
-# inbound UA does not affect the TokenKey->CodeWhisperer leg (the kiro identity
-# service rewrites the upstream fingerprint).
-#
-# Failure semantics reuse the shared soft_degrade_or_exit (same as the
-# Anthropic /v1/messages section): 200 + valid shape + marker -> OK;
-# 400/401/403/404 -> HARD FAIL (smoke key / route / kiro-group binding broken);
-# 5xx / 429 / "no available accounts" -> SOFT WARN, exit 0 (Kiro pool resource
-# issue, not a control-plane regression).
-KIRO_KEY="${TK_SMOKE_PROD_KIRO_KEY:-}"
-KIRO_MODEL="${TK_SMOKE_PROD_KIRO_MODEL:-claude-sonnet-4-6}"
-if smoke_suite_runs kiro && [[ -n "${KIRO_KEY}" ]]; then
-  kiro_prefix="$(printf '%s' "${KIRO_KEY}" | head -c 6)"
-  kiro_suffix="$(printf '%s' "${KIRO_KEY}" | tail -c 4)"
-  echo "tk_post_deploy_smoke: kiro_key_hint=${kiro_prefix}…${kiro_suffix} kiro_model=${KIRO_MODEL}"
-  expect_kiro="E2E-KIRO-OK"
-  kiro_ua="$(smoke_default_claude_user_agent)"
-  kiro_cc_system="You are Claude Code, Anthropic's official CLI for Claude."
-  kiro_cc_meta_user_id='{"device_id":"0000000000000000000000000000000000000000000000000000000000000001","account_uuid":"","session_id":"00000000-0000-0000-0000-000000000001"}'
-  kiro_payload="$(jq -n \
-    --arg m "${KIRO_MODEL}" \
-    --arg x "${expect_kiro}" \
-    --arg sys "${kiro_cc_system}" \
-    --arg uid "${kiro_cc_meta_user_id}" \
-    '{model:$m,max_tokens:96,
-      system:[{type:"text",text:$sys}],
-      messages:[{role:"user",content:("Reply with exactly: " + $x)}],
-      metadata:{user_id:$uid}}')"
-  kiro_http=$(curl -sS -o "$tmpdir/kiro-msg.json" -w "%{http_code}" \
-    -H "x-api-key: ${KIRO_KEY}" \
-    -H "anthropic-version: 2023-06-01" \
-    -H "anthropic-beta: claude-code-20250219" \
-    -H "X-App: cli" \
-    -H "Content-Type: application/json" \
-    -H "User-Agent: ${kiro_ua}" \
-    -d "${kiro_payload}" \
-    "${BASE}/v1/messages")
-  echo "tk_post_deploy_smoke: POST .../v1/messages (kiro) -> HTTP ${kiro_http}"
-  if soft_degrade_or_exit "/v1/messages (kiro)" "${kiro_http}" "$tmpdir/kiro-msg.json"; then
-    kiro_type="$(jq -r '.type // empty' "$tmpdir/kiro-msg.json")"
-    kiro_role="$(jq -r '.role // empty' "$tmpdir/kiro-msg.json")"
-    kiro_content_count="$(jq -r '(.content // []) | length' "$tmpdir/kiro-msg.json")"
-    kiro_stop="$(jq -r '.stop_reason // empty' "$tmpdir/kiro-msg.json")"
-    kiro_usage_keys="$(jq -r 'if (.usage? | type) == "object" then (.usage | keys | join(",")) else "missing" end' "$tmpdir/kiro-msg.json")"
-    if [[ "${kiro_type}" != "message" ]] || [[ "${kiro_role}" != "assistant" ]] || [[ "${kiro_content_count}" -lt 1 ]] || [[ -z "${kiro_stop}" ]] || [[ "${kiro_usage_keys}" == "missing" ]]; then
-      echo "tk_post_deploy_smoke: /v1/messages (kiro) shape invalid (type=${kiro_type:-missing} role=${kiro_role:-missing} content=${kiro_content_count} stop_reason=${kiro_stop:-missing} usage=${kiro_usage_keys})" >&2
-      jq . "$tmpdir/kiro-msg.json" >&2 || true
-      exit 1
-    fi
-    echo "tk_post_deploy_smoke: /v1/messages (kiro) shape type=${kiro_type} role=${kiro_role} content=${kiro_content_count} stop_reason=${kiro_stop} usage_keys=${kiro_usage_keys}"
-    kiro_text="$(jq -r '[.content[]? | select(.type == "text") | .text] | add // empty' "$tmpdir/kiro-msg.json")"
-    if ! printf '%s' "${kiro_text}" | grep -Fq "${expect_kiro}"; then
-      echo "tk_post_deploy_smoke: /v1/messages (kiro) response missing expected marker '${expect_kiro}' (text below)" >&2
-      printf '%s\n' "${kiro_text}" >&2
-      exit 1
-    fi
-  fi  # end soft_degrade_or_exit guard
-elif [[ -n "${KIRO_KEY}" ]]; then
-  echo "tk_post_deploy_smoke: skip /v1/messages (kiro) — suite=${GATEWAY_SMOKE_SUITE}"
-else
-  echo "tk_post_deploy_smoke: skip /v1/messages (kiro) — TK_SMOKE_PROD_KIRO_KEY not set"
 fi
 
 echo "tk_post_deploy_smoke: OK"

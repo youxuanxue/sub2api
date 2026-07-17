@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,6 +17,19 @@ type stubOpsRepo struct {
 	OpsRepository
 	overview *OpsDashboardOverview
 	err      error
+
+	routingRejections    int64
+	routingRejectionsErr error
+	routingByPlatform    []*OpsRoutingRejectionPlatform
+	routingByPlatformErr error
+	routingByModel       []*OpsRoutingRejectionModel
+	routingByModelErr    error
+
+	userVisibleFailures     int64
+	clientVisibleFailures   int64
+	userVisibleFailuresErr  error
+	userVisibleBreakdown    *OpsUserVisibleFailureBreakdown
+	userVisibleBreakdownErr error
 }
 
 func (s *stubOpsRepo) GetDashboardOverview(ctx context.Context, filter *OpsDashboardFilter) (*OpsDashboardOverview, error) {
@@ -26,6 +40,51 @@ func (s *stubOpsRepo) GetDashboardOverview(ctx context.Context, filter *OpsDashb
 		return s.overview, nil
 	}
 	return &OpsDashboardOverview{}, nil
+}
+
+func (s *stubOpsRepo) CountRoutingCapacityRejections(ctx context.Context, filter *OpsDashboardFilter) (int64, error) {
+	if s.routingRejectionsErr != nil {
+		return 0, s.routingRejectionsErr
+	}
+	return s.routingRejections, nil
+}
+
+func (s *stubOpsRepo) TopRoutingCapacityRejectionByPlatform(ctx context.Context, filter *OpsDashboardFilter, platformLimit, usersPerPlatform int) ([]*OpsRoutingRejectionPlatform, error) {
+	if s.routingByPlatformErr != nil {
+		return nil, s.routingByPlatformErr
+	}
+	return s.routingByPlatform, nil
+}
+
+func (s *stubOpsRepo) TopRoutingCapacityRejectionByModel(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionModel, error) {
+	if s.routingByModelErr != nil {
+		return nil, s.routingByModelErr
+	}
+	return s.routingByModel, nil
+}
+
+func (s *stubOpsRepo) CountUserVisibleFailures(ctx context.Context, filter *OpsDashboardFilter, ownerScope string) (int64, error) {
+	if s.userVisibleFailuresErr != nil {
+		return 0, s.userVisibleFailuresErr
+	}
+	if ownerScope == "client" {
+		return s.clientVisibleFailures, nil
+	}
+	return s.userVisibleFailures, nil
+}
+
+func (s *stubOpsRepo) GetUserVisibleFailureBreakdown(ctx context.Context, filter *OpsDashboardFilter, ownerScope string, limit int) (*OpsUserVisibleFailureBreakdown, error) {
+	if s.userVisibleBreakdownErr != nil {
+		return nil, s.userVisibleBreakdownErr
+	}
+	return s.userVisibleBreakdown, nil
+}
+
+// GetTopErrorCause is overridden (the embedded OpsRepository is nil) so the
+// evaluator's best-effort top-cause lookup never panics in these tests; an empty
+// result simply means no 主因 line is attached.
+func (s *stubOpsRepo) GetTopErrorCause(ctx context.Context, filter *OpsDashboardFilter, upstreamOnly bool, limit int) ([]*OpsTopErrorCause, error) {
+	return nil, nil
 }
 
 func TestComputeGroupAvailableRatio(t *testing.T) {
@@ -104,6 +163,48 @@ func TestCountAccountsByCondition(t *testing.T) {
 		})
 		require.Equal(t, int64(0), got)
 	})
+}
+
+// TestComputeRuleMetric_AccountTempUnscheduledCount verifies the new
+// account_temp_unscheduled_count metric counts accounts currently in the
+// temp-unscheduled window and ignores those whose window has expired or
+// were never temp-unscheduled.
+func TestComputeRuleMetric_AccountTempUnscheduledCount(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	futureUntil := now.Add(5 * time.Minute)
+	pastUntil := now.Add(-1 * time.Minute)
+
+	availability := &OpsAccountAvailability{
+		Accounts: map[int64]*AccountAvailability{
+			// currently temp-unscheduled (window active)
+			1: {TempUnschedulableUntil: &futureUntil},
+			2: {TempUnschedulableUntil: &futureUntil},
+			// temp-unsched window already expired → should NOT count
+			3: {TempUnschedulableUntil: &pastUntil},
+			// never temp-unscheduled
+			4: {HasError: true},
+			5: {IsRateLimited: true},
+		},
+	}
+
+	opsService := &OpsService{
+		getAccountAvailability: func(_ context.Context, _ string, _ *int64) (*OpsAccountAvailability, error) {
+			return availability, nil
+		},
+	}
+	svc := &OpsAlertEvaluatorService{
+		opsService: opsService,
+		opsRepo:    &stubOpsRepo{},
+	}
+
+	rule := &OpsAlertRule{MetricType: "account_temp_unscheduled_count"}
+	val, ok := svc.computeRuleMetric(context.Background(), rule, nil,
+		now.Add(-5*time.Minute), now, "", nil, 0)
+
+	require.True(t, ok)
+	require.InDelta(t, 2.0, val, 0.0001, "only 2 accounts have an active temp-unsched window")
 }
 
 func TestComputeRuleMetricNewIndicators(t *testing.T) {
@@ -201,12 +302,370 @@ func TestComputeRuleMetricNewIndicators(t *testing.T) {
 			rule := &OpsAlertRule{
 				MetricType: tt.metricType,
 			}
-			gotValue, gotOK := svc.computeRuleMetric(ctx, rule, nil, start, end, platform, tt.groupID)
+			gotValue, gotOK := svc.computeRuleMetric(ctx, rule, nil, start, end, platform, tt.groupID, 0)
 			require.Equal(t, tt.wantOK, gotOK)
 			if !tt.wantOK {
 				return
 			}
 			require.InDelta(t, tt.wantValue, gotValue, 0.0001)
+		})
+	}
+}
+
+// TestComputeRuleMetricRateSampleFloor pins the false-P0 guard: a ratio metric
+// (upstream_error_rate) over a window holding fewer SLA-counted requests than
+// the configured floor must return ok=false so the rule is skipped, instead of
+// reporting a misleading 100% on near-empty low-traffic windows (2026-06-06
+// us2/us5 incident: 19 / 1 requests in ~25min yet upstream_error_rate=100%).
+func TestComputeRuleMetricRateSampleFloor(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now().UTC().Add(-5 * time.Minute)
+	end := time.Now().UTC()
+	ctx := context.Background()
+
+	tests := []struct {
+		name       string
+		requestSLA int64
+		minSamples int
+		wantOK     bool
+		wantValue  float64
+	}{
+		{name: "below floor is skipped (us2: 19 reqs, floor 20)", requestSLA: 19, minSamples: 20, wantOK: false},
+		{name: "single request is skipped (us5: 1 req, floor 20)", requestSLA: 1, minSamples: 20, wantOK: false},
+		{name: "at floor is evaluated", requestSLA: 20, minSamples: 20, wantOK: true, wantValue: 100},
+		{name: "above floor is evaluated", requestSLA: 200, minSamples: 20, wantOK: true, wantValue: 100},
+		{name: "floor unset (0) falls back to legacy >0 guard, evaluates 1 req", requestSLA: 1, minSamples: 0, wantOK: true, wantValue: 100},
+		{name: "floor unset (0) still skips empty window", requestSLA: 0, minSamples: 0, wantOK: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc := &OpsAlertEvaluatorService{
+				opsRepo: &stubOpsRepo{overview: &OpsDashboardOverview{
+					RequestCountTotal: tt.requestSLA,
+					UpstreamErrorRate: 1.0, // 100% of the (few) requests failed upstream
+				}},
+			}
+			rule := &OpsAlertRule{MetricType: "upstream_error_rate"}
+
+			gotValue, gotOK := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, tt.minSamples)
+			require.Equal(t, tt.wantOK, gotOK)
+			if !tt.wantOK {
+				return
+			}
+			require.InDelta(t, tt.wantValue, gotValue, 0.0001)
+		})
+	}
+}
+
+// TestComputeRuleMetricRoutingCapacityRejectionCount pins the empty-pool-429
+// blind-spot fix: the routing_capacity_rejection_count metric returns the
+// dedicated CountRoutingCapacityRejections value verbatim, and — unlike ratio
+// metrics — is NOT gated by the rate sample floor. A count is self-flooring (low
+// traffic → low count → no breach), so a real rejection storm must still surface
+// even on a window whose SLA request count is small; applying the floor here
+// would wrongly suppress it.
+func TestComputeRuleMetricRoutingCapacityRejectionCount(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now().UTC().Add(-5 * time.Minute)
+	end := time.Now().UTC()
+	ctx := context.Background()
+
+	t.Run("returns the routing-capacity rejection count verbatim", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{routingRejections: 60},
+		}
+		rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
+		got, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 100)
+		require.True(t, ok)
+		require.InDelta(t, 60.0, got, 0.0001)
+	})
+
+	t.Run("not gated by the rate sample floor (storm on a low-traffic window still fires)", func(t *testing.T) {
+		t.Parallel()
+		// rateRuleMinSamples=100 would skip any ratio metric on a near-empty
+		// window; a count must still be reported regardless of SLA volume.
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{routingRejections: 75},
+		}
+		rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
+		got, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 100)
+		require.True(t, ok)
+		require.InDelta(t, 75.0, got, 0.0001)
+	})
+
+	t.Run("zero rejections is evaluated (ok) and does not breach", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{routingRejections: 0},
+		}
+		rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
+		got, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 100)
+		require.True(t, ok)
+		require.Equal(t, 0.0, got)
+		require.False(t, compareMetric(got, ">=", 50.0))
+	})
+
+	t.Run("query error => skipped (ok=false)", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{routingRejectionsErr: context.DeadlineExceeded},
+		}
+		rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
+		_, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 100)
+		require.False(t, ok)
+	})
+}
+
+func TestComputeRuleMetricUserVisibleFailureCounts(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now().UTC().Add(-5 * time.Minute)
+	end := time.Now().UTC()
+	ctx := context.Background()
+
+	t.Run("provider/platform user-visible failures use the P0 count metric", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{userVisibleFailures: 148},
+		}
+		rule := &OpsAlertRule{MetricType: OpsAlertMetricUserVisibleFailureCount}
+		got, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 1000)
+		require.True(t, ok)
+		require.InDelta(t, 148.0, got, 0.0001)
+	})
+
+	t.Run("client-owned visible failures use the P1 count metric", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{clientVisibleFailures: 51},
+		}
+		rule := &OpsAlertRule{MetricType: OpsAlertMetricClientVisibleFailureCount}
+		got, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 1000)
+		require.True(t, ok)
+		require.InDelta(t, 51.0, got, 0.0001)
+	})
+
+	t.Run("query error => skipped", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{
+			opsRepo: &stubOpsRepo{userVisibleFailuresErr: context.DeadlineExceeded},
+		}
+		rule := &OpsAlertRule{MetricType: OpsAlertMetricUserVisibleFailureCount}
+		_, ok := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, 1000)
+		require.False(t, ok)
+	})
+}
+
+// TestComputeTopCauseRoutingCapacityRejection pins the self-diagnosing 主因 line
+// for the empty-pool P0: a single JOINT breakdown naming WHICH platform pool(s)
+// are out of capacity AND WHO inside each pool is driving it (user id + api-key
+// name + count), plus the top requested models by failed request volume. `users`
+// is always empty now — the standalone 用户 line is retired. Example names here
+// are synthetic.
+func TestComputeTopCauseRoutingCapacityRejection(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now().UTC().Add(-5 * time.Minute)
+	end := time.Now().UTC()
+	ctx := context.Background()
+	rule := &OpsAlertRule{MetricType: "routing_capacity_rejection_count"}
+
+	t.Run("joint per-platform breakdown with nested users", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
+			routingByPlatform: []*OpsRoutingRejectionPlatform{
+				{Platform: "anthropic", Count: 40, Users: []*OpsRoutingRejectionUser{
+					{UserID: 1, APIKeyName: "eval-harness", Count: 30},
+					{UserID: 16, APIKeyName: "mobile-app", Count: 10},
+				}},
+				{Platform: "newapi", Count: 8, Users: []*OpsRoutingRejectionUser{
+					{UserID: 16, APIKeyName: "ci-runner", Count: 8},
+				}},
+			},
+			routingByModel: []*OpsRoutingRejectionModel{
+				{Model: "claude-sonnet-4-5", Count: 31},
+				{Model: "claude-opus-4-8", Count: 12},
+				{Model: "qwen3-coder-plus", Count: 5},
+			},
+		}}
+		cause, users, models := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		require.Equal(t, `anthropic ×40（#1 "eval-harness" ×30 · #16 "mobile-app" ×10） · newapi ×8（#16 "ci-runner" ×8）`, cause)
+		require.Empty(t, users, "standalone 用户 line is retired for new events")
+		require.Equal(t, "claude-sonnet-4-5 ×31 · claude-opus-4-8 ×12 · qwen3-coder-plus ×5", models)
+	})
+
+	t.Run("platform with no attributable users renders bare", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{routingByPlatform: []*OpsRoutingRejectionPlatform{
+			{Platform: "anthropic", Count: 40},
+		}}}
+		cause, users, models := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		require.Equal(t, "anthropic ×40", cause)
+		require.Empty(t, users)
+		require.Empty(t, models)
+	})
+
+	t.Run("no rows => no 主因 line", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{}}
+		cause, users, models := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		require.Empty(t, cause)
+		require.Empty(t, users)
+		require.Empty(t, models)
+	})
+
+	t.Run("platform query error still keeps model line (best-effort, never blocks firing)", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
+			routingByPlatformErr: context.DeadlineExceeded,
+			routingByModel:       []*OpsRoutingRejectionModel{{Model: "claude-sonnet-4-5", Count: 9}},
+		}}
+		cause, users, models := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		require.Empty(t, cause)
+		require.Empty(t, users)
+		require.Equal(t, "claude-sonnet-4-5 ×9", models)
+	})
+
+	t.Run("model query error still keeps platform line (best-effort, never blocks firing)", func(t *testing.T) {
+		t.Parallel()
+		svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
+			routingByPlatform: []*OpsRoutingRejectionPlatform{{Platform: "anthropic", Count: 40}},
+			routingByModelErr: context.DeadlineExceeded,
+		}}
+		cause, users, models := svc.computeTopCause(ctx, rule, start, end, "", nil)
+		require.Equal(t, "anthropic ×40", cause)
+		require.Empty(t, users)
+		require.Empty(t, models)
+	})
+}
+
+func TestComputeUserVisibleFailureDimensions(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now().UTC().Add(-5 * time.Minute)
+	end := time.Now().UTC()
+	ctx := context.Background()
+	rule := &OpsAlertRule{MetricType: OpsAlertMetricUserVisibleFailureCount}
+	svc := &OpsAlertEvaluatorService{opsRepo: &stubOpsRepo{
+		userVisibleBreakdown: &OpsUserVisibleFailureBreakdown{
+			Failures:  148,
+			Successes: 17336,
+			Users: []*OpsUserVisibleFailureUser{{
+				UserID: 16, UserEmail: "compute@tk.com", APIKeyName: "训练组-何易纯", APIKeyRoutingMode: RoutingModeUniversal, GroupName: "GPT专线", Count: 138,
+			}},
+			Surfaces: []*OpsUserVisibleFailureSurface{{
+				StatusCode: 429, UpstreamStatusCode: 429, ErrorType: "rate_limit_error", Count: 148,
+			}},
+			Roots: []*OpsUserVisibleFailureRoot{{
+				Phase: "upstream", Owner: "provider", Platform: "openai", Model: "gpt-5.5", AccountID: 76, Message: "Too many pending requests", Count: 148,
+			}},
+		},
+	}}
+
+	got := svc.computeUserVisibleFailureDimensions(ctx, rule, start, end, "", nil)
+	require.Equal(t, `#16 compute@tk.com ×138（key "训练组-何易纯" / universal key / group GPT专线）`, got["user_visible_affected"])
+	require.Equal(t, "失败 148 / 成功 17336 / 失败率 0.85% / 5m", got["user_visible_impact"])
+	require.Equal(t, "final 429 / upstream 429 / rate limit error ×148", got["user_visible_surface"])
+	require.Equal(t, "upstream/provider / openai / gpt-5.5 / account #76 / Too many pending requests ×148", got["user_visible_root"])
+}
+
+// TestIsEdgeNode pins the node-identity predicate that drives edge-only alert
+// suppression. It MUST match the card-title node label derived by
+// deriveOpsNodeIdentity from the same frontend URL, so a card that would read
+// "· us6" is exactly what gets suppressed.
+func TestIsEdgeNode(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		frontendURL string
+		want        bool
+	}{
+		{"edge us6", "https://api-us6.tokenkey.dev", true},
+		{"edge uk1", "https://api-uk1.tokenkey.dev", true},
+		{"prod", "https://api.tokenkey.dev", false},
+		{"unset frontend url", "", false},
+		{"non-edge custom host", "https://gateway.example.com", false},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			svc := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: c.frontendURL}}}
+			require.Equal(t, c.want, svc.isEdgeNode())
+		})
+	}
+	t.Run("nil cfg is safe (treated as non-edge)", func(t *testing.T) {
+		t.Parallel()
+		require.False(t, (&OpsAlertEvaluatorService{}).isEdgeNode())
+	})
+}
+
+// TestIsEdgeSuppressedAlertRule pins WHICH rules are silenced on a mirror-relay
+// edge. The retired routing-capacity rule stays defensively suppressed, and both
+// real-user experience rules (P0 user-visible + P1 client-visible) are prod-only.
+// Capacity/error signals that ARE meaningful on an edge must still page.
+func TestIsEdgeSuppressedAlertRule(t *testing.T) {
+	t.Parallel()
+	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "routing_capacity_rejection_count"}))
+	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "  routing_capacity_rejection_count  "}))
+	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: OpsAlertMetricUserVisibleFailureCount}))
+	require.True(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: OpsAlertMetricClientVisibleFailureCount}))
+	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "pool_load_rate"}))
+	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "upstream_error_rate"}))
+	require.False(t, isEdgeSuppressedAlertRule(&OpsAlertRule{MetricType: "group_available_accounts"}))
+	require.False(t, isEdgeSuppressedAlertRule(nil))
+}
+
+func TestShouldEvaluateAlertRuleOnNode(t *testing.T) {
+	t.Parallel()
+
+	userVisibleRule := &OpsAlertRule{MetricType: OpsAlertMetricUserVisibleFailureCount}
+	clientVisibleRule := &OpsAlertRule{MetricType: OpsAlertMetricClientVisibleFailureCount}
+	routingRule := &OpsAlertRule{MetricType: OpsAlertMetricRoutingCapacityRejectionCount}
+
+	edge := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api-us6.tokenkey.dev"}}}
+	require.False(t, edge.shouldEvaluateAlertRuleOnNode(userVisibleRule), "user-visible P0 is prod-only")
+	require.False(t, edge.shouldEvaluateAlertRuleOnNode(clientVisibleRule), "client-visible P1 is prod-only")
+	require.True(t, edge.shouldEvaluateAlertRuleOnNode(routingRule), "retired routing rule is not changed at evaluator level")
+
+	prod := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api.tokenkey.dev"}}}
+	require.True(t, prod.shouldEvaluateAlertRuleOnNode(userVisibleRule))
+	require.True(t, prod.shouldEvaluateAlertRuleOnNode(clientVisibleRule))
+}
+
+// TestMaybeSendAlertNotificationsEdgeSuppression verifies the composed gate: on an
+// edge node prod-only rules short-circuit before any email/feishu attempt and
+// report nothing sent. The prod counterpart does NOT short-circuit on the edge
+// predicate — it proceeds into the notify paths (which then no-op here only
+// because no notifier config is wired), proving the gate is edge-scoped, not a
+// blanket drop.
+func TestMaybeSendAlertNotificationsEdgeSuppression(t *testing.T) {
+	t.Parallel()
+	edge := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api-us6.tokenkey.dev"}}}
+	prod := &OpsAlertEvaluatorService{cfg: &config.Config{Server: config.ServerConfig{FrontendURL: "https://api.tokenkey.dev"}}}
+	require.True(t, edge.isEdgeNode())
+
+	for _, metricType := range []string{
+		"routing_capacity_rejection_count",
+		OpsAlertMetricUserVisibleFailureCount,
+		OpsAlertMetricClientVisibleFailureCount,
+	} {
+		metricType := metricType
+		t.Run(metricType, func(t *testing.T) {
+			t.Parallel()
+			rule := &OpsAlertRule{MetricType: metricType}
+			require.True(t, isEdgeSuppressedAlertRule(rule), "precondition: suppressed on edge")
+			res := edge.maybeSendAlertNotifications(context.Background(), nil, rule, &OpsAlertEvent{})
+			require.False(t, res.EmailSent)
+			require.False(t, res.FeishuSent)
+			require.False(t, prod.isEdgeNode(), "prod must NOT be edge-suppressed")
 		})
 	}
 }

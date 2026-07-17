@@ -3,6 +3,10 @@ export const CHANNEL_STATUS_ACTIVE = 'active' as const
 export const CHANNEL_STATUS_DISABLED = 'disabled' as const
 export type ChannelStatus = typeof CHANNEL_STATUS_ACTIVE | typeof CHANNEL_STATUS_DISABLED
 
+/** Generic status aliases — usable across entity types (users, groups, keys, accounts). */
+export const STATUS_ACTIVE = CHANNEL_STATUS_ACTIVE
+export const STATUS_DISABLED = CHANNEL_STATUS_DISABLED
+
 /** Billing mode values (must match service.BillingMode* constants in Go). */
 export const BILLING_MODE_TOKEN = 'token' as const
 export const BILLING_MODE_PER_REQUEST = 'per_request' as const

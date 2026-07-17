@@ -4,6 +4,7 @@ package kiro
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,24 +28,25 @@ type kiroEndpoint struct {
 	Name      string
 }
 
+// Kiro's firewall documentation (updated 2026-05-27) names runtime.*.kiro.dev as
+// the current data plane. It marks q.*.amazonaws.com as legacy, but explicitly
+// requires it to remain allowlisted until deprecation is complete. The current
+// Kiro IDE ships both hosts with the GenerateAssistantResponse protocol.
+// codewhisperer.* is absent from the current official list and client bundle, so
+// it must not be treated as a supported fallback merely because it still resolves.
 var kiroEndpoints = []kiroEndpoint{
 	{
-		URL:       "https://q.us-east-1.amazonaws.com/generateAssistantResponse",
-		Origin:    "AI_EDITOR",
-		AmzTarget: "",
-		Name:      "Kiro IDE",
-	},
-	{
-		URL:       "https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse",
+		// Kiro Runtime — the go-forward *.kiro.dev data-plane host (preferred).
+		URL:       "https://runtime.us-east-1.kiro.dev/generateAssistantResponse",
 		Origin:    "AI_EDITOR",
 		AmzTarget: "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
-		Name:      "CodeWhisperer",
+		Name:      "Kiro Runtime",
 	},
 	{
 		URL:       "https://q.us-east-1.amazonaws.com/generateAssistantResponse",
 		Origin:    "AI_EDITOR",
-		AmzTarget: "AmazonQDeveloperStreamingService.SendMessage",
-		Name:      "AmazonQ",
+		AmzTarget: "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
+		Name:      "Kiro Legacy Q",
 	},
 }
 
@@ -237,6 +239,10 @@ type KiroStreamCallback struct {
 	OnError        func(err error)
 	OnCredits      func(credits float64)
 	OnContextUsage func(percentage float64)
+	// ResetForRetry resets consumer-side state after a response-body read error.
+	// Returning true permits retrying the next endpoint; false preserves the
+	// error, which is required once streaming output has been committed.
+	ResetForRetry func() bool
 }
 
 // ==================== API Call ====================
@@ -260,15 +266,15 @@ func getSortedEndpoints(preferred string) []kiroEndpoint {
 
 	var primary int
 	switch preferred {
-	case "kiro":
+	case "runtime", "codewhisperer":
+		// The old codewhisperer preference is kept as a compatibility alias,
+		// but it must not route to the undocumented codewhisperer.* host.
 		primary = 0
-	case "codewhisperer":
+	case "kiro", "amazonq":
 		primary = 1
-	case "amazonq":
-		primary = 2
 	default:
-		// "auto": Kiro first, then fallback to others
-		return []kiroEndpoint{kiroEndpoints[0], kiroEndpoints[1], kiroEndpoints[2]}
+		// "auto": current runtime first, then the officially transitional q host.
+		return []kiroEndpoint{kiroEndpoints[0], kiroEndpoints[1]}
 	}
 
 	if !fallback {
@@ -298,13 +304,22 @@ type HTTPDoer interface {
 // It uses the package's built-in per-proxy HTTP client. To inject a custom
 // transport (TokenKey TLS/proxy-aware doer) use CallKiroAPIWithDoer.
 func CallKiroAPI(account *Account, payload *KiroPayload, callback *KiroStreamCallback) error {
-	return CallKiroAPIWithDoer(nil, account, payload, callback)
+	return CallKiroAPIWithDoerContext(context.Background(), nil, account, payload, callback)
 }
 
 // CallKiroAPIWithDoer is CallKiroAPI with an optional injected HTTP doer. When
 // doer is nil, the built-in per-proxy client (GetClientForProxy) is used,
 // preserving the original CallKiroAPI behavior exactly.
 func CallKiroAPIWithDoer(doer HTTPDoer, account *Account, payload *KiroPayload, callback *KiroStreamCallback) error {
+	return CallKiroAPIWithDoerContext(context.Background(), doer, account, payload, callback)
+}
+
+// CallKiroAPIWithDoerContext binds every endpoint attempt to the caller's
+// lifetime so canceled client requests do not leave long-running Kiro calls.
+func CallKiroAPIWithDoerContext(ctx context.Context, doer HTTPDoer, account *Account, payload *KiroPayload, callback *KiroStreamCallback) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	originalProfileArn := ""
 	if payload != nil {
 		originalProfileArn = payload.ProfileArn
@@ -338,27 +353,38 @@ func CallKiroAPIWithDoer(doer HTTPDoer, account *Account, payload *KiroPayload, 
 	}
 
 	if payload != nil && strings.TrimSpace(payload.ProfileArn) == "" {
-		if profileArn, err := ResolveProfileArn(account); err == nil {
-			payload.ProfileArn = profileArn
-		} else {
-			accountEmail := "<nil>"
-			if account != nil {
-				accountEmail = account.Email
-			}
-			logWarnf("[ProfileArn] Failed to resolve profile ARN for %s: %v", accountEmail, err)
+		if err := ensureProfileArnWithDoer(account, doer); err != nil {
+			return fmt.Errorf("resolve profileArn: %w", err)
 		}
+		payload.ProfileArn = strings.TrimSpace(account.ProfileArn)
+	}
+	if payload != nil && strings.TrimSpace(payload.ProfileArn) == "" {
+		return fmt.Errorf("profileArn is required for Kiro requests")
 	}
 
-	// Build endpoint list ordered by configuration.
 	endpoints := getSortedEndpoints(GetPreferredEndpoint())
+	err := callKiroAPIOnce(ctx, doer, account, payload, callback, endpoints)
+	if isInvalidProfileArnError(err) {
+		logWarnf("[KiroAPI] stale profileArn for %s, re-resolving: %v", accountEmail(account), err)
+		if resolveErr := reresolveProfileArnAfterStaleWithDoer(account, doer); resolveErr == nil && payload != nil {
+			payload.ProfileArn = strings.TrimSpace(account.ProfileArn)
+			return callKiroAPIOnce(ctx, doer, account, payload, callback, endpoints)
+		}
+	}
+	return err
+}
 
+func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, payload *KiroPayload, callback *KiroStreamCallback, endpoints []kiroEndpoint) error {
 	var lastErr error
-	for _, ep := range endpoints {
+	for endpointIndex, ep := range endpoints {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// Update the origin field for the selected endpoint.
 		payload.ConversationState.CurrentMessage.UserInputMessage.Origin = ep.Origin
 
 		reqBody, _ := json.Marshal(payload)
-		req, err := http.NewRequest("POST", ep.URL, bytes.NewReader(reqBody))
+		req, err := http.NewRequestWithContext(ctx, "POST", ep.URL, bytes.NewReader(reqBody))
 		if err != nil {
 			lastErr = err
 			continue
@@ -387,6 +413,9 @@ func CallKiroAPIWithDoer(doer HTTPDoer, account *Account, payload *KiroPayload, 
 		}
 		resp, err := httpDoer.Do(req)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			lastErr = err
 			logWarnf("[KiroAPI] Endpoint %s failed: %v", ep.Name, err)
 			continue
@@ -403,9 +432,17 @@ func CallKiroAPIWithDoer(doer HTTPDoer, account *Account, payload *KiroPayload, 
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			lastErr = fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, ep.Name, string(errBody))
-			// Authentication errors and payment errors are not retried across endpoints.
+			// Auth/payment errors normally aren't retried across endpoints (the same
+			// token would be rejected everywhere). EXCEPTION: runtime.kiro.dev is a
+			// different gateway/entitlement domain than the transitional q host, so
+			// a 401/403/402 there does not imply q will reject the same token. Only
+			// the q-host auth/payment error short-circuits.
 			if resp.StatusCode == 401 || resp.StatusCode == 403 || resp.StatusCode == 402 {
-				return lastErr
+				if !strings.Contains(ep.URL, ".kiro.dev") {
+					return lastErr
+				}
+				logWarnf("[KiroAPI] Endpoint %s auth/payment error %d; falling through to legacy: %v", ep.Name, resp.StatusCode, lastErr)
+				continue
 			}
 			logWarnf("[KiroAPI] Endpoint %s error: %v", ep.Name, lastErr)
 			continue
@@ -413,6 +450,11 @@ func CallKiroAPIWithDoer(doer HTTPDoer, account *Account, payload *KiroPayload, 
 
 		err = parseEventStream(resp.Body, callback)
 		resp.Body.Close()
+		if err != nil && endpointIndex+1 < len(endpoints) && callback != nil && callback.ResetForRetry != nil && callback.ResetForRetry() {
+			lastErr = err
+			logWarnf("[KiroAPI] Endpoint %s response read failed before output; trying next: %v", ep.Name, err)
+			continue
+		}
 		return err
 	}
 
@@ -468,7 +510,16 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 		}
 
 		eventType := extractEventType(msgBuf[0:headersLength])
+		exceptionType := extractEventStreamHeaderValue(msgBuf[0:headersLength], ":exception-type")
+		messageType := extractEventStreamHeaderValue(msgBuf[0:headersLength], ":message-type")
 		payloadBytes := msgBuf[headersLength : len(msgBuf)-4]
+		if exceptionType != "" || messageType == "exception" || messageType == "error" || eventType == "exception" || eventType == "error" {
+			kind := exceptionType
+			if kind == "" {
+				kind = messageType
+			}
+			return fmt.Errorf("kiro event stream error: %s: %s", kind, string(payloadBytes))
+		}
 		if len(payloadBytes) == 0 {
 			continue
 		}
@@ -808,6 +859,13 @@ func firstBoolField(m map[string]interface{}, keys ...string) bool {
 
 // extractEventType extracts the event type string from AWS Event Stream message headers.
 func extractEventType(headers []byte) string {
+	return extractEventStreamHeaderValue(headers, ":event-type")
+}
+
+// extractEventStreamHeaderValue extracts a string/bool AWS EventStream header.
+// Kiro uses :exception-type and :message-type for in-band failures, while
+// normal responses identify frames with :event-type.
+func extractEventStreamHeaderValue(headers []byte, targetName string) string {
 	offset := 0
 	for offset < len(headers) {
 		if offset >= len(headers) {
@@ -837,8 +895,14 @@ func extractEventType(headers []byte) string {
 			}
 			value := string(headers[offset : offset+valueLen])
 			offset += valueLen
-			if name == ":event-type" {
+			if name == targetName {
 				return value
+			}
+			continue
+		}
+		if valueType == 0 || valueType == 1 {
+			if name == targetName {
+				return map[byte]string{0: "true", 1: "false"}[valueType]
 			}
 			continue
 		}

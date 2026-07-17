@@ -18,7 +18,7 @@ import (
 func nonzeroDispatchConfig() OpenAIMessagesDispatchModelConfig {
 	return OpenAIMessagesDispatchModelConfig{
 		OpusMappedModel:   "gpt-5.4",
-		SonnetMappedModel: "gpt-5.3-codex",
+		SonnetMappedModel: "gpt-5.3-codex-spark",
 		HaikuMappedModel:  "gpt-5.4-mini",
 		ExactModelMappings: map[string]string{
 			"claude-foo": "gpt-bar",
@@ -167,6 +167,7 @@ func TestIsOpenAICompatPlatformGroup_Truth(t *testing.T) {
 		{"nil", nil, false},
 		{"openai", &Group{Platform: PlatformOpenAI}, true},
 		{"newapi", &Group{Platform: PlatformNewAPI}, true},
+		{"grok", &Group{Platform: PlatformGrok}, true},
 		{"anthropic", &Group{Platform: PlatformAnthropic}, false},
 		{"gemini", &Group{Platform: PlatformGemini}, false},
 		{"antigravity", &Group{Platform: PlatformAntigravity}, false},
@@ -195,6 +196,7 @@ func TestTkGroupKeepsDispatchConfig_Truth(t *testing.T) {
 		{"nil", nil, false},
 		{"openai", &Group{Platform: PlatformOpenAI}, true},
 		{"newapi", &Group{Platform: PlatformNewAPI}, true},
+		{"grok", &Group{Platform: PlatformGrok}, true},
 		{"gemini", &Group{Platform: PlatformGemini}, true},
 		{"anthropic", &Group{Platform: PlatformAnthropic}, false},
 		{"antigravity", &Group{Platform: PlatformAntigravity}, false},

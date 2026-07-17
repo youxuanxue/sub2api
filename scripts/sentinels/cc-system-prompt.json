@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "rationale": "Canonical Claude Code system-prompt anchors. The CC system prompt is a load-bearing fingerprint dimension in TokenKey, used in two directions: (1) INBOUND validation in backend/internal/service/claude_code_validator.go decides whether a request counts as Claude Code (Dice similarity >= 0.5 against the templates, plus the billing-block prefix); (2) OUTBOUND spoof in backend/internal/service/gateway_service.go (injectClaudeCodePrompt) prepends the banner so non-CC clients are accepted by upstream Anthropic. Anthropic's own client detection keys on these anchors — if real CC drifts and our copies don't, spoofed traffic gets `client_validation_error 403` (the linux.do 2.1.15 incident). These strings are hardcoded in 3+ places that can silently diverge (validator has 6 templates, gateway has 4 detection prefixes + 1 injected banner). This file is the single declared source: scripts/sentinels/check-cc-system-prompt.py gates that the Go copies still contain these literals and that the canonical banner is byte-identical across files; ops/anthropic/capture_cc_fingerprint.py reads `capture_anchors` to diff real CC traffic's system block. NOTE: only the stable identity anchors + billing prefix are tracked — the full CC system prompt is dynamic (cwd/git/date/env, partly per-session) and must NOT be byte-aligned. Changing any anchor requires capture evidence (see /tokenkey-cc-fingerprint-alignment SKILL.md and docs/spec-delta/cc-system-prompt.md).",
+  "capture_anchors": {
+    "identity_prefixes": [
+      "You are Claude Code, Anthropic's official CLI for Claude",
+      "You are a Claude agent, built on Anthropic's Claude Agent SDK",
+      "You are an interactive agent that helps users with software engineering tasks",
+      "You are an interactive CLI tool that helps users",
+      "You are a file search specialist for Claude Code",
+      "You are a helpful AI assistant tasked with summarizing conversations"
+    ],
+    "billing_prefix": "x-anthropic-billing-header"
+  },
+  "byte_identical": [
+    {
+      "literal": "You are Claude Code, Anthropic's official CLI for Claude.",
+      "paths": [
+        "backend/internal/service/claude_code_validator.go",
+        "backend/internal/service/gateway_service.go"
+      ],
+      "rationale": "The canonical CC banner (full sentence WITH trailing period). The outbound injected banner (gateway_service.go claudeCodeSystemPrompt) MUST byte-match the inbound validation template (claude_code_validator.go claudeCodeSystemPrompts[0]); if they drift, what we inject for spoofed clients no longer equals what we accept as genuine CC, and upstream detection can reject the injected shape."
+    }
+  ],
+  "sentinels": [
+    {
+      "path": "backend/internal/service/claude_code_validator.go",
+      "must_contain": [
+        "You are Claude Code, Anthropic's official CLI for Claude.",
+        "You are a Claude agent, built on Anthropic's Claude Agent SDK.",
+        "You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.",
+        "You are an interactive agent that helps users with software engineering tasks",
+        "You are a file search specialist for Claude Code, Anthropic's official CLI for Claude.",
+        "You are a helpful AI assistant tasked with summarizing conversations.",
+        "You are an interactive CLI tool that helps users",
+        "x-anthropic-billing-header"
+      ],
+      "rationale": "claudeCodeSystemPrompts[] (6 Dice-similarity templates) + claudeCodeBillingHeaderPrefix. These drive INBOUND `is this Claude Code` validation. If a template is silently dropped (e.g. by an upstream merge or refactor), genuine CC requests of that variant fail validation when claude_code_only is enabled."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "You are Claude Code, Anthropic's official CLI for Claude.",
+        "You are Claude Code, Anthropic's official CLI for Claude",
+        "You are a Claude agent, built on Anthropic's Claude Agent SDK",
+        "You are an interactive agent that helps users with software engineering tasks",
+        "You are an interactive CLI tool that helps users",
+        "You are a file search specialist for Claude Code",
+        "You are a helpful AI assistant tasked with summarizing conversations"
+      ],
+      "rationale": "claudeCodeSystemPrompt (the injected banner, with period) + claudeCodePromptPrefixes[] (4 detection prefixes, without period). These drive OUTBOUND spoof injection and double-injection avoidance. If the banner drifts from the validator copy, spoofed non-CC clients diverge from genuine CC shape and risk upstream `client_validation_error 403`."
+    }
+  ]
+}

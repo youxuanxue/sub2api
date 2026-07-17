@@ -887,7 +887,7 @@ function handleToolbarRefresh() {
 
           <template v-if="props.autoRefreshEnabled && props.autoRefreshCountdown !== undefined">
             <span>·</span>
-            <span>剩余 {{ props.autoRefreshCountdown }}s</span>
+            <span>{{ t('admin.ops.autoRefreshRemaining', { seconds: props.autoRefreshCountdown }) }}</span>
           </template>
         </div>
       </div>
@@ -1269,7 +1269,7 @@ function handleToolbarRefresh() {
           <div class="mt-3 text-xs">
             <div class="flex justify-between">
               <span class="text-gray-500">{{ t('admin.ops.exceptions') }}:</span>
-              <span class="font-bold text-red-600 dark:text-red-400">{{ formatNumber((overview.request_count_sla ?? 0) - (overview.success_count ?? 0)) }}</span>
+              <span class="font-bold text-red-600 dark:text-red-400">{{ formatNumber(overview.error_count_sla ?? 0) }}</span>
             </div>
           </div>
         </div>
@@ -1396,8 +1396,8 @@ function handleToolbarRefresh() {
               <span class="font-bold text-gray-900 dark:text-white">{{ formatNumber(overview.error_count_sla ?? 0) }}</span>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-500">{{ t('admin.ops.businessLimited') }}:</span>
-              <span class="font-bold text-gray-900 dark:text-white">{{ formatNumber(overview.business_limited_count ?? 0) }}</span>
+              <span class="text-gray-500">{{ t('admin.ops.clientFaults') }}:</span>
+              <span class="font-bold text-gray-900 dark:text-white">{{ formatNumber(Math.max(0, (overview.error_count_total ?? 0) - (overview.error_count_sla ?? 0))) }}</span>
             </div>
           </div>
         </div>

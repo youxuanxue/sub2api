@@ -33,6 +33,7 @@ const (
 	AffiliateRebateDurationDaysDefault  = 0     // 0 = 永久有效
 	AffiliateRebateDurationDaysMax      = 3650  // ~10 年
 	AffiliateRebatePerInviteeCapDefault = 0.0   // 0 = 无上限
+	AdminRechargeRebateEnabledDefault   = false // 管理员充值默认不产生返利
 )
 
 // Platform constants
@@ -43,6 +44,7 @@ const (
 	PlatformAntigravity = domain.PlatformAntigravity
 	PlatformNewAPI      = domain.PlatformNewAPI
 	PlatformKiro        = domain.PlatformKiro
+	PlatformGrok        = domain.PlatformGrok
 )
 
 // AllowedQuotaPlatforms 是允许设置 user × platform quota 的平台列表（单一权威来源）。
@@ -53,6 +55,7 @@ var AllowedQuotaPlatforms = []string{
 	PlatformOpenAI,
 	PlatformGemini,
 	PlatformAntigravity,
+	PlatformGrok,
 }
 
 // IsAllowedQuotaPlatform 报告 s 是否为合法的 quota platform 标识。
@@ -81,7 +84,7 @@ const (
 	RedeemTypeConcurrency      = domain.RedeemTypeConcurrency
 	RedeemTypeSubscription     = domain.RedeemTypeSubscription
 	RedeemTypeInvitation       = domain.RedeemTypeInvitation
-	RedeemTypeAffiliateBalance = "affiliate_balance"
+	RedeemTypeAffiliateBalance = domain.RedeemTypeAffiliateBalance
 )
 
 // PromoCode status constants
@@ -107,6 +110,8 @@ const (
 	SubscriptionStatusActive    = domain.SubscriptionStatusActive
 	SubscriptionStatusExpired   = domain.SubscriptionStatusExpired
 	SubscriptionStatusSuspended = domain.SubscriptionStatusSuspended
+	// SubscriptionStatusRevoked 是 soft-deleted 订阅的 API 展示态，不写入 status 字段。
+	SubscriptionStatusRevoked = domain.SubscriptionStatusRevoked
 )
 
 // TokenKey bridge setting keys
@@ -120,6 +125,44 @@ const (
 	// gateway_anthropic_request_normalize_tk.go for the rules.
 	SettingKeyAnthropicRequestNormalizeEnabled = "tk_anthropic_request_normalize_enabled"
 
+	// The canonical Anthropic OAuth path (accounts bound to the
+	// tk_canonical_cc_oauth TLS profile) has TWO ORTHOGONAL hardening toggles,
+	// deliberately split so an operator can pick the strategy that matches their
+	// cc_only-relax plan. They are NOT redundant and are NOT meant to move
+	// together — see docs/approved/cc-only-disable-prep-decisions.md (D1/D4,
+	// 2026-06-11 direction revision).
+	//
+	// SettingKeyAnthropicCanonicalIngressStrictEnabled = INGRESS strategy "reject
+	// at the door". Defaults to false (keep deny-list / upstream behavior, zero
+	// regression). When "true":
+	//   1. the ingress UA gate flips deny-list -> allow-list — only claude-cli/ or
+	//      claude-code/ UA prefixes pass; empty + unknown UAs reject;
+	//   2. the same allow-list gate runs on the count_tokens path.
+	// Use this when you do NOT want non-CC traffic on canonical accounts at all.
+	// It is INCOMPATIBLE with "relax cc_only and let non-CC clients in", because
+	// it rejects exactly the non-CC clients such a relax aims to admit.
+	SettingKeyAnthropicCanonicalIngressStrictEnabled = "anthropic_canonical_ingress_strict_enabled"
+
+	// SettingKeyAnthropicCanonicalHaikuMimicryEnabled = EGRESS strategy "admit and
+	// launder". Defaults to false (keep the haiku skip, zero regression). When
+	// "true", a non-CC haiku request on a canonical OAuth account also gets the CC
+	// system/billing block injected, closing the "CC headers but no CC billing
+	// block" cohort gap that the default haiku skip leaves open.
+	//
+	// This is the toggle to pair with relaxing a group's cc_only and routing non-CC
+	// traffic to a canonical fallback account: ingress stays OPEN (this switch does
+	// not reject anyone), and the egress mimicry is completed so even non-CC haiku
+	// leaves the edge as a clean CC cohort. It is the missing piece that makes
+	// "admit non-CC, launder on the wire" safe; without it, non-CC haiku (heavy in
+	// Claude Code background traffic) would egress half-disguised and risk the
+	// edge subscription account's standing.
+	//
+	// Both toggles are admin-settable + settings-pubsub hot-updatable (canary a
+	// single edge, roll back in seconds, no deploy). See
+	// setting_service_tk_canonical_ingress.go and
+	// gateway_service_tk_canonical_oauth_guard.go.
+	SettingKeyAnthropicCanonicalHaikuMimicryEnabled = "anthropic_canonical_haiku_mimicry_enabled"
+
 	// SettingKeyOpenAIImplicitThrottleCooldownSeconds enables an opt-in,
 	// cross-request cooldown for OpenAI-compat accounts being implicitly throttled
 	// by the upstream (repeated 5xx / header-timeout with no explicit 429).
@@ -131,15 +174,33 @@ const (
 	SettingKeyOpenAIImplicitThrottleCooldownSeconds = "tk_openai_implicit_throttle_cooldown_seconds"
 
 	// SettingKeyOpenAIMaxRateLimitCooldownSeconds caps how long an OpenAI-compat
-	// account may stay rate-limited from a single upstream 429 reset. Default ""
-	// / "0" = disabled (trust the upstream reset verbatim — current behavior).
-	// When set to a positive integer N, an upstream reset farther out than N
-	// seconds (e.g. a 7-day window-exhaustion reset) is clamped to now+N so the
-	// account re-enters the pool after N seconds and is re-probed by natural
-	// request traffic instead of sitting idle until the full upstream reset. If it
-	// is still limited it simply 429s again and is re-cooled. See
-	// ratelimit_service_tk_openai_reset_clamp.go (upstream Wei-Shaw/sub2api#1981).
+	// (OpenAI + NewAPI) account may stay rate-limited from a single upstream
+	// window-exhaustion 429 reset. DEFAULT-ON (ceiling 18000s / 5h), in lockstep with
+	// SettingKeyAnthropicMaxRateLimitCooldownSeconds: unset / blank / non-numeric
+	// / negative → 18000; an explicit "0" disables it (trust the upstream reset
+	// verbatim). An upstream reset farther out than the ceiling (e.g. a 7-day
+	// window-exhaustion reset) is clamped to now+ceiling so the account re-enters
+	// the pool and is re-probed by natural request traffic instead of sitting idle
+	// until the full upstream reset; if still limited it simply 429s again and is
+	// re-cooled. See ratelimit_service_tk_openai_reset_clamp.go (upstream
+	// Wei-Shaw/sub2api#1981; default flipped ON for parity with the Anthropic clamp).
 	SettingKeyOpenAIMaxRateLimitCooldownSeconds = "tk_openai_max_rate_limit_cooldown_seconds"
+
+	// SettingKeyAnthropicMaxRateLimitCooldownSeconds caps how long an Anthropic
+	// account may stay rate-limited from a single upstream unified-window (5h/7d)
+	// 429 reset. Unlike its OpenAI twin this is DEFAULT-ON: when unset / blank /
+	// non-numeric / negative it falls back to defaultAnthropicMaxRateLimitCooldownSeconds
+	// (18000s / 5h). An explicit "0" disables it (trust the upstream reset verbatim).
+	//
+	// Rationale (prod 2026-06, edge-us6 account oh-3-a): Anthropic's unified 7d
+	// window is rolling — utilization that was >=1.0 at the moment of the 429
+	// decays below the limit hours later as old usage ages out, but the upstream
+	// reset header points at the conservative weekly boundary (days away). Trusting
+	// it verbatim benches a recovered account for days; on a thin/SPOF edge that is
+	// a full anthropic outage. Clamping lets natural traffic re-probe the account
+	// after the ceiling (a still-exhausted window simply 429s again and re-cools).
+	// See ratelimit_service_tk_anthropic_reset_clamp.go.
+	SettingKeyAnthropicMaxRateLimitCooldownSeconds = "tk_anthropic_max_rate_limit_cooldown_seconds"
 )
 
 // LinuxDoConnectSyntheticEmailDomain 是 LinuxDo Connect 用户的合成邮箱后缀（RFC 保留域名）。
@@ -161,7 +222,6 @@ const (
 	SettingKeyEmailVerifyEnabled               = "email_verify_enabled"                // 是否开启邮件验证
 	SettingKeyRegistrationEmailSuffixWhitelist = "registration_email_suffix_whitelist" // 注册邮箱后缀白名单（JSON 数组）
 	SettingKeyPromoCodeEnabled                 = "promo_code_enabled"                  // 是否启用优惠码功能
-	SettingKeyKiroEnabled                      = "kiro_enabled"                        // 是否启用 Kiro（第六平台）转发（ToS 门禁第二道，默认关闭）
 	SettingKeyPasswordResetEnabled             = "password_reset_enabled"              // 是否启用忘记密码功能（需要先开启邮件验证）
 	SettingKeyFrontendURL                      = "frontend_url"                        // 前端基础URL，用于生成邮件中的重置密码链接
 	SettingKeyInvitationCodeEnabled            = "invitation_code_enabled"             // 是否启用邀请码注册
@@ -170,8 +230,11 @@ const (
 	SettingKeyAffiliateRebateFreezeHours       = "affiliate_rebate_freeze_hours"       // 返利冻结期（小时，0=不冻结）
 	SettingKeyAffiliateRebateDurationDays      = "affiliate_rebate_duration_days"      // 返利有效期（天，0=永久）
 	SettingKeyAffiliateRebatePerInviteeCap     = "affiliate_rebate_per_invitee_cap"    // 单人返利上限（0=无上限）
+	SettingKeyAffiliateAdminRechargeEnabled    = "affiliate_admin_recharge_enabled"    // 管理员充值是否产生返利
 	SettingKeyRiskControlEnabled               = "risk_control_enabled"                // 是否启用风控中心入口与审计链路
 	SettingKeyContentModerationConfig          = "content_moderation_config"           // 内容审计配置（JSON）
+	SettingKeyCyberSessionBlockEnabled         = "cyber_session_block_enabled"         // cyber 命中后会话级自动屏蔽总开关(默认关)
+	SettingKeyCyberSessionBlockTTLSeconds      = "cyber_session_block_ttl_seconds"     // 会话屏蔽 TTL 秒数(默认 3600)
 	SettingKeyLoginAgreementEnabled            = "login_agreement_enabled"             // 登录前是否要求同意条款
 	SettingKeyLoginAgreementMode               = "login_agreement_mode"                // 条款确认展示模式：modal / checkbox
 	SettingKeyLoginAgreementUpdatedAt          = "login_agreement_updated_at"          // 条款更新日期（展示用）
@@ -440,12 +503,41 @@ const (
 
 	// SettingKeyMinClaudeCodeVersion 最低 Claude Code 版本号要求 (semver, 如 "2.1.0"，空值=不检查)
 	SettingKeyMinClaudeCodeVersion = "min_claude_code_version"
+	// SettingKeyMinCodexVersion 最低 Codex 引擎版本要求 (semver, 如 "0.141.0"，空值=不检查)
+	SettingKeyMinCodexVersion = "min_codex_version"
+	// SettingKeyMaxCodexVersion 最高 Codex 引擎版本限制 (semver, 如 "0.200.0"，空值=不检查)
+	SettingKeyMaxCodexVersion = "max_codex_version"
+	// SettingKeyCodexCLIOnlyBlacklist codex_cli_only 全局黑名单（[]AllowedClientEntry JSON，OR deny）。
+	SettingKeyCodexCLIOnlyBlacklist = "codex_cli_only_blacklist"
+	// SettingKeyCodexCLIOnlyWhitelist codex_cli_only 全局白名单（[]AllowedClientEntry JSON，双因子 AND allow）。
+	SettingKeyCodexCLIOnlyWhitelist = "codex_cli_only_whitelist"
+	// SettingKeyCodexCLIOnlyAllowAppServerClients App Server 开关：对未列名客户端开闸（默认 false；仅显式 "true" 开）。
+	SettingKeyCodexCLIOnlyAllowAppServerClients = "codex_cli_only_allow_app_server_clients"
+	// SettingKeyCodexCLIOnlyAllowBodyEngineFingerprint 引擎门 body 通道开关：接受 client_metadata 引擎指纹（默认 false；仅显式 "true" 开）。(已废弃，迁移并入信号列表)
+	SettingKeyCodexCLIOnlyAllowBodyEngineFingerprint = "codex_cli_only_allow_body_engine_fingerprint"
+	// SettingKeyCodexCLIOnlyEngineFingerprintSignals codex_cli_only 引擎指纹门信号列表（[]EngineFingerprintSignal JSON）。
+	// 勾选(required)信号之间 AND;每条 match 变体行内 OR;缺失/空/非法 → 默认种子(只勾 x-codex-)。
+	SettingKeyCodexCLIOnlyEngineFingerprintSignals = "codex_cli_only_engine_fingerprint_signals"
 
 	// SettingKeyMaxClaudeCodeVersion 最高 Claude Code 版本号限制 (semver, 如 "3.0.0"，空值=不检查)
 	SettingKeyMaxClaudeCodeVersion = "max_claude_code_version"
 
 	// SettingKeyAllowUngroupedKeyScheduling 允许未分组 API Key 调度（默认 false：未分组 Key 返回 403）
 	SettingKeyAllowUngroupedKeyScheduling = "allow_ungrouped_key_scheduling"
+	// SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled OpenAI 高级调度下是否启用粘性加权。
+	SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled = "openai_advanced_scheduler_sticky_weighted_enabled"
+	// SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled OpenAI 高级调度下是否优先使用订阅账号池。
+	SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled = "openai_advanced_scheduler_subscription_priority_enabled"
+	SettingKeyOpenAIAdvancedSchedulerLBTopK                      = "openai_advanced_scheduler_lb_top_k"
+	SettingKeyOpenAIAdvancedSchedulerWeightPriority              = "openai_advanced_scheduler_weight_priority"
+	SettingKeyOpenAIAdvancedSchedulerWeightLoad                  = "openai_advanced_scheduler_weight_load"
+	SettingKeyOpenAIAdvancedSchedulerWeightQueue                 = "openai_advanced_scheduler_weight_queue"
+	SettingKeyOpenAIAdvancedSchedulerWeightErrorRate             = "openai_advanced_scheduler_weight_error_rate"
+	SettingKeyOpenAIAdvancedSchedulerWeightTTFT                  = "openai_advanced_scheduler_weight_ttft"
+	SettingKeyOpenAIAdvancedSchedulerWeightReset                 = "openai_advanced_scheduler_weight_reset"
+	SettingKeyOpenAIAdvancedSchedulerWeightQuotaHeadroom         = "openai_advanced_scheduler_weight_quota_headroom"
+	SettingKeyOpenAIAdvancedSchedulerWeightPreviousResponse      = "openai_advanced_scheduler_weight_previous_response"
+	SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky         = "openai_advanced_scheduler_weight_session_sticky"
 
 	// SettingKeyBackendModeEnabled Backend 模式：禁用用户注册和自助服务，仅管理员可登录。
 	// TokenKey 默认 true（管理员发号场景），可在后台关闭恢复 sub2api 上游的"用户自助"形态。
@@ -456,7 +548,9 @@ const (
 	SettingKeyEnableFingerprintUnification = "enable_fingerprint_unification"
 	// SettingKeyEnableMetadataPassthrough 是否透传客户端原始 metadata.user_id（默认 false）
 	SettingKeyEnableMetadataPassthrough = "enable_metadata_passthrough"
-	// SettingKeyEnableCCHSigning 是否对 billing header 中的 cch 进行 xxHash64 签名（默认 false）
+	// SettingKeyEnableCCHSigning 已废弃（no-op）：新版 Claude Code CLI 已取消 cch 签名字段，
+	// 网关随之不再注入/签名 cch（见 buildBillingAttributionText）。保留该 key 仅为向后兼容，
+	// 开关不再产生任何效果。
 	SettingKeyEnableCCHSigning = "enable_cch_signing"
 	// SettingKeyStickyRoutingEnabled 全局 prompt cache 粘性路由总开关（默认 true）
 	// 当为 false 时所有分组一律退化为 passthrough（仅透传客户端已送的 sticky 字段，不派生）。
@@ -466,25 +560,67 @@ const (
 	// 全池再排队（upstream #2859，默认 true）。为 false 时退回今日行为：槽满即在
 	// 原 sticky 账号上排队。详见 docs/approved/sticky-routing.md §11.5。
 	SettingKeyStickySlotFullEscapeEnabled = "gateway.sticky_routing.slot_full_escape_enabled"
+	// SettingKeyAnthropicSaturatedStubDeprioritizeEnabled (TK) 控制是否对持续返回
+	// 下游容量信号（"No available accounts" / "all available accounts exhausted"）
+	// 的 anthropic 镜像 stub 账号施加 BOUNDED 调度去优先级偏好（默认 true）。这是
+	// 一个调度偏好而非冷却：饱和 stub 仍是候选、仍可作为最后兜底被选中；偏好随
+	// Redis 短窗计数 TTL 自行消散。为 false 时退回纯优先级/负载选择（无 saturation 项）。
+	// 详见 backend/internal/service/gateway_service_tk_saturation_penalty.go。
+	SettingKeyAnthropicSaturatedStubDeprioritizeEnabled = "gateway.anthropic_saturated_stub_deprioritize.enabled"
+	// SettingKeyOpenAISaturatedStubDeprioritizeEnabled (TK) mirrors the anthropic
+	// switch for OpenAI edge-mirror stubs (openai-us* → api-us*.tokenkey.dev).
+	SettingKeyOpenAISaturatedStubDeprioritizeEnabled = "gateway.openai_saturated_stub_deprioritize.enabled"
+	// SettingKeyEnableClaudeOAuthSystemPromptInjection 是否对 Claude OAuth mimic 路径注入 Claude Code system blocks（默认 true）
+	SettingKeyEnableClaudeOAuthSystemPromptInjection = "enable_claude_oauth_system_prompt_injection"
+	// SettingKeyClaudeOAuthSystemPrompt Claude OAuth mimic 路径注入的通用扩展 system prompt（空值使用内置默认）
+	SettingKeyClaudeOAuthSystemPrompt = "claude_oauth_system_prompt"
+	// SettingKeyClaudeOAuthSystemPromptBlocks Claude OAuth mimic 路径注入的 system blocks JSON 配置（空值使用内置默认）
+	SettingKeyClaudeOAuthSystemPromptBlocks = "claude_oauth_system_prompt_blocks"
 	// SettingKeyEnableAnthropicCacheTTL1hInjection 是否对 Anthropic OAuth/SetupToken 请求体注入 1h cache_control ttl（默认 false）
 	SettingKeyEnableAnthropicCacheTTL1hInjection = "enable_anthropic_cache_ttl_1h_injection"
+	// SettingKeyEnableClientDatelineNormalization 是否对 Anthropic OAuth/SetupToken 账号
+	// 的 /v1/messages 请求体做客户端 dateline 归一化（默认 true）。
+	// 归一化把 system prompt / <system-reminder> 块中 "Today's date is …" 语句里的
+	// 非 ASCII 撇号与 "/" 日期分隔符还原为 ASCII 撇号 + "-" 分隔符，抹除某些客户端
+	// 在检测到非官方 base URL 时注入的 3 bit 隐写指纹。仅适用于 Anthropic OAuth/SetupToken
+	// 账号；API Key 账号不受影响。
+	SettingKeyEnableClientDatelineNormalization = "enable_client_dateline_normalization"
 	// SettingKeyRewriteMessageCacheControl 是否改写 messages[*].content[*].cache_control（默认 false）
 	SettingKeyRewriteMessageCacheControl = "rewrite_message_cache_control"
 	// SettingKeyAntigravityUserAgentVersion Antigravity 上游 User-Agent 版本号（空值使用环境变量/默认值）
 	SettingKeyAntigravityUserAgentVersion = "antigravity_user_agent_version"
 	// SettingKeyClaudeCodeUserAgentVersion Claude Code CLI canonical OAuth 路径上游 User-Agent
 	// 版本号（空值使用环境变量 CLAUDE_CODE_USER_AGENT_VERSION 或编译期默认）。
-	// 仅 version 字段可配，prefix/suffix（`claude-cli/...(external, sdk-cli)`）固定。
+	// 仅 version 字段可配，prefix/suffix（`claude-cli/...(external, cli)`）固定。
 	SettingKeyClaudeCodeUserAgentVersion = "claude_code_user_agent_version"
 	// SettingKeyClaudeCodeHTTPMimicryManifest JSON manifest for OAuth mimicry
 	// anthropic-beta lists (sonnet_opus + haiku). Empty → compile-time defaults.
 	SettingKeyClaudeCodeHTTPMimicryManifest = "claude_code_http_mimicry_manifest"
+	// SettingKeyTKPricingOverlayRuntime is the runtime hot-pushable copy of
+	// tk_pricing_overlay.json (the same JSON object shape). Empty/absent → the
+	// compile-embedded overlay is used as-is (the floor). When present, its
+	// entries union OVER the embedded overlay (runtime wins on key conflict), so
+	// a new model can be priced + surfaced in /pricing WITHOUT a release. git
+	// (the embedded JSON) stays the single source of truth; ops `sync-runtime`
+	// UPSERTs this key on prod, the next release folds it into the embed (the
+	// floor catches up). Mirrors the claude_code_http_mimicry_manifest blob
+	// pattern. See pricing_service_tk_overlay_runtime.go.
+	SettingKeyTKPricingOverlayRuntime = "tk_pricing_overlay_runtime"
+	// SettingKeyTKAccountModelMappingRuntime is the runtime hot-pushable
+	// replacement layer for the account model_mapping SSOT. Empty/absent means
+	// use the compiled floor derived from supported*CatalogModels,
+	// tk_served_models.json, and compatibility aliases. When present, JSON
+	// scopes under "platforms" or "newapi_channel_types" REPLACE that compiled
+	// scope, so ops can add or remove a servable/displayable mapping without a
+	// deploy. It is only a desired layer; accounts are updated by the explicit
+	// ops check/diff/apply flow, not by server startup or settings fan-out.
+	SettingKeyTKAccountModelMappingRuntime = "tk_account_model_mapping_runtime"
 	// SettingKeyOpenAICodexUserAgent OpenAI Codex 完整 User-Agent（空值使用内置默认）
 	// 当客户端 UA 被识别为浏览器（Chrome/Firefox/Safari/Edge 等）时，转发给 OpenAI 上游前会替换为此值，
 	// 用于避免 Cloudflare 对浏览器型 UA 的质询拦截。
 	SettingKeyOpenAICodexUserAgent = "openai_codex_user_agent"
-	// SettingKeyOpenAIAllowClaudeCodeCodexPlugin 全局开关：是否额外放行 Claude Code 的 Codex 插件（默认 false）。
-	// 仅在账号 codex_cli_only 开启时生效；开启后无需逐账号配置 codex_cli_only_allowed_clients。
+	// SettingKeyOpenAIAllowClaudeCodeCodexPlugin 已废弃：历史全局开关只作为升级迁移输入读取。
+	// 迁移后等价规则写入 SettingKeyCodexCLIOnlyWhitelist，不再参与运行时判定。
 	SettingKeyOpenAIAllowClaudeCodeCodexPlugin = "openai_allow_claude_code_codex_plugin"
 
 	// 余额不足提醒
@@ -521,6 +657,14 @@ const (
 
 	// SettingKeyPricingCatalogPublic 公开模型 + 价格目录页是否对外开放（默认 true，关闭后路由 404）。
 	SettingKeyPricingCatalogPublic = "pricing_catalog_public"
+
+	// SettingKeyPricedServingGateEnabled 运行期「定了价才能上」准入闸的按平台启用集
+	// （docs/approved/priced-or-it-doesnt-ship.md）。**集合语义、非 boolean**：值是逗号分隔
+	// 的平台名集合（如 "gemini" / "gemini,openai"），某平台 ∈ 集合才对该平台启用闸。
+	// 首发启用集 = {gemini}（含 Vertex，vertex 经 channel_type 区分、不引入新维度）；
+	// 缺 row / 读失败 / 平台不在集内 → 该平台无闸（serving 照旧），即灰度/回滚旋钮。
+	// 解析见 SettingService.IsPricedServingGateEnabled（沿用 IsSignupBonusEnabled 样板）。
+	SettingKeyPricedServingGateEnabled = "priced_serving_gate_enabled"
 )
 
 // SettingKeyDefaultPlatformQuotas —— 系统全局：每用户 × 平台日/周/月 USD 上限（JSON）。
@@ -533,5 +677,15 @@ func SettingKeyAuthSourcePlatformQuotas(source string) string {
 	return fmt.Sprintf("auth_source_default_%s_platform_quotas", source)
 }
 
+// QuotaDimension constants for spark shadow accounts.
+const (
+	QuotaDimensionGlobal = "global"
+	QuotaDimensionSpark  = "spark"
+)
+
 // AdminAPIKeyPrefix is the prefix for admin API keys (distinct from user "sk-" keys).
 const AdminAPIKeyPrefix = "admin-"
+
+// SettingKeyAllowUserViewErrorRequests controls whether end users can view
+// their own failed requests on the usage page. Default false (opt-in).
+const SettingKeyAllowUserViewErrorRequests = "allow_user_view_error_requests"

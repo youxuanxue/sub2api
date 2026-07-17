@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "rationale": "Load-bearing TokenKey DI registration and handler wiring that live in upstream-shaped hotspot files. These struct fields and Wire providers are the only thing connecting TK handlers to the application — they compile cleanly if dropped, so an upstream merge can silently deregister entire TK surfaces (admin tiers, edge accounts, pricing catalog, trial provisioning, compliance gate) unless preflight anchors their literal presence.",
+  "sentinels": [
+    {
+      "path": "backend/internal/handler/handler.go",
+      "must_contain": [
+        "Tier *admin.TierHandler",
+        "EdgeAccounts *admin.EdgeAccountsHandler",
+        "EdgeAccountOps *admin.EdgeAccountOpsHandler",
+        "TrialProvision *admin.TrialProvisionHandler",
+        "PricingCatalog *PricingCatalogHandler",
+        "MePricingCatalog *MePricingCatalogHandler",
+        "QA *QAHandler",
+        "EdgeCapacity *EdgeCapacityHandler",
+        "EdgeAdminSession *EdgeAdminSessionHandler"
+      ],
+      "rationale": "DI registration center: AdminHandlers and Handlers struct fields are the sole compile-time link between TK handler implementations and the application. Dropping any field silently deregisters the corresponding TK surface (routes still reference the handler but get nil, causing runtime panics or silent 404s). The 8 anchors cover all TK-only struct fields across both structs."
+    },
+    {
+      "path": "backend/internal/handler/wire.go",
+      "must_contain": [
+        "ProvideTKPricingCatalogHandler",
+        "ProvideTKGatewayHandlerModelList",
+        "ProvideEdgeCapacityHandler",
+        "ProvideEdgeAccountsHandler",
+        "ProvideEdgeAdminSessionHandler",
+        "ProvideEdgeAccountOpsHandler",
+        "ProvideTKEdgeAccountsAdminHandler",
+        "ProvideTKEdgeAccountOpsAdminHandler",
+        "ProvideTrialProvisionHandler"
+      ],
+      "rationale": "Wire provider functions and ProviderSet entries that construct TK handlers with post-construction wiring (e.g. SetModelListFilter, SetAvailabilityService). Without these providers, Wire regeneration would fail to resolve TK handler dependencies — but if the providers are dropped AND the struct fields are dropped together (e.g. a clean upstream merge), the app compiles and silently loses the TK surfaces. These 9 anchors cover every TK-specific Wire provider."
+    },
+    {
+      "path": "backend/internal/handler/page_handler.go",
+      "must_contain": [
+        "middleware2.TkAdminComplianceGuardIfEnabled(settingService)"
+      ],
+      "rationale": "TK compliance gate on admin page-list endpoint: setting-gated middleware that blocks admin page listing when compliance mode is enabled. This is a single-line insertion in an upstream-shaped file — trivially lost on merge, compiles cleanly without it, but silently disables the compliance guard on the admin pages route."
+    },
+    {
+      "path": "backend/internal/handler/dto/settings.go",
+      "must_contain": [
+        "AnthropicCanonicalIngressStrictEnabled",
+        "AnthropicCanonicalHaikuMimicryEnabled",
+        "// New-User Cold Start"
+      ],
+      "rationale": "TK setting fields for canonical OAuth hardening toggles (ingress strict + haiku mimicry) and the cold-start diff helper call site. These are woven into the upstream-shaped GetSettings/UpdateSettings response/request structs and the settings diff function — dropping them compiles cleanly but silently removes the admin UI's ability to toggle canonical OAuth guards and loses cold-start setting change audit trail."
+    }
+  ]
+}

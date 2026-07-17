@@ -32,31 +32,38 @@
     </template>
 
     <template v-else>
-      <div
-        v-for="(row, index) in sortedData"
-        :key="resolveRowKey(row, index)"
-        class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900"
-      >
-        <div class="space-y-3">
-          <div
-            v-for="column in dataColumns"
-            :key="column.key"
-            class="flex items-start justify-between gap-4"
-          >
-            <span class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">
-              {{ column.label }}
-            </span>
-            <div class="text-right text-sm text-gray-900 dark:text-gray-100">
-              <slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]" :expanded="actionsExpanded">
-                {{ column.formatter ? column.formatter(row[column.key], row) : row[column.key] }}
-              </slot>
+      <template v-for="(row, index) in sortedData" :key="resolveRowKey(row, index)">
+        <div
+          class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900"
+          :class="{ 'cursor-pointer': clickableRows }"
+          @click="clickableRows && emit('rowClick', row)"
+        >
+          <div class="space-y-3">
+            <div
+              v-for="column in dataColumns"
+              :key="column.key"
+              class="flex items-start justify-between gap-4"
+            >
+              <span class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">
+                {{ column.label }}
+              </span>
+              <div class="text-right text-sm text-gray-900 dark:text-gray-100">
+                <slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]" :expanded="actionsExpanded">
+                  {{ column.formatter ? column.formatter(row[column.key], row) : row[column.key] }}
+                </slot>
+              </div>
+            </div>
+            <div v-if="hasActionsColumn" class="border-t border-gray-200 pt-3 dark:border-dark-700" @click.stop>
+              <slot name="cell-actions" :row="row" :value="row['actions']" :expanded="actionsExpanded"></slot>
             </div>
           </div>
-          <div v-if="hasActionsColumn" class="border-t border-gray-200 pt-3 dark:border-dark-700">
-            <slot name="cell-actions" :row="row" :value="row['actions']" :expanded="actionsExpanded"></slot>
+          <!-- TK: mobile parity for the default-expanded detail (edge panel). Not
+               virtualized here, so a simple conditional render after the card. -->
+          <div v-if="isRowExpanded(row, index)" class="mt-2">
+            <slot name="row-detail" :row="row"></slot>
           </div>
         </div>
-      </div>
+      </template>
     </template>
   </div>
 
@@ -80,6 +87,7 @@
             v-for="(column, index) in columns"
             :key="column.key"
             scope="col"
+            :aria-sort="column.sortable ? getColumnAriaSort(column.key) : undefined"
             :class="[
               'sticky-header-cell text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
               fluid ? 'whitespace-normal break-words min-w-0 py-2' : 'py-3',
@@ -96,26 +104,28 @@
               :sort-key="sortKey"
               :sort-order="sortOrder"
             >
-              <div class="flex items-center space-x-1">
+              <div :class="['flex items-center space-x-1', getHeaderContentAlignmentClass(column)]">
                 <span>{{ column.label }}</span>
-                <span v-if="column.sortable" class="text-gray-400 dark:text-dark-500">
+                <span
+                  v-if="column.sortable"
+                  class="inline-flex h-5 w-4 flex-col items-center justify-center"
+                  aria-hidden="true"
+                >
                   <svg
-                    v-if="sortKey === column.key"
-                    class="h-4 w-4"
-                    :class="{ 'rotate-180 transform': sortOrder === 'desc' }"
+                    class="h-2.5 w-2.5"
+                    :class="getSortIndicatorClass(column.key, 'asc')"
                     fill="currentColor"
-                    viewBox="0 0 20 20"
+                    viewBox="0 0 10 10"
                   >
-                    <path
-                      fill-rule="evenodd"
-                      d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z"
-                      clip-rule="evenodd"
-                    />
+                    <path d="M5 2L1.5 6.5h7L5 2z" />
                   </svg>
-                  <svg v-else class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                    />
+                  <svg
+                    class="-mt-0.5 h-2.5 w-2.5"
+                    :class="getSortIndicatorClass(column.key, 'desc')"
+                    fill="currentColor"
+                    viewBox="0 0 10 10"
+                  >
+                    <path d="M5 8L1.5 3.5h7L5 8z" />
                   </svg>
                 </span>
               </div>
@@ -155,42 +165,62 @@
         </tr>
 
         <!-- Data rows (virtual scroll) -->
+        <!--
+          TK: the virtualizer iterates flatItems (rows + optional default-expanded
+          detail rows), NOT sortedData directly. With no `expandable` prop flatItems
+          is a 1:1 row mapping → identical legacy behavior. A detail item renders a
+          single full-width colspan <tr> hosting the #row-detail slot; both kinds
+          carry :data-index so @tanstack/vue-virtual measures their (variable) height.
+        -->
         <template v-else>
           <tr v-if="virtualPaddingTop > 0" aria-hidden="true">
             <td :colspan="columns.length"
                 :style="{ height: virtualPaddingTop + 'px', padding: 0, border: 'none' }">
             </td>
           </tr>
-          <tr
-            v-for="virtualRow in virtualItems"
-            :key="resolveRowKey(sortedData[virtualRow.index], virtualRow.index)"
-            :data-row-id="resolveRowKey(sortedData[virtualRow.index], virtualRow.index)"
-            :data-index="virtualRow.index"
-            :ref="measureElement"
-            class="hover:bg-gray-50 dark:hover:bg-dark-800"
-          >
-            <td
-              v-for="(column, colIndex) in columns"
-              :key="column.key"
-              :class="[
-                fluid
-                  ? 'py-2 align-top text-sm text-gray-900 dark:text-gray-100 min-w-0 break-words whitespace-normal'
-                  : 'whitespace-nowrap py-4 text-sm text-gray-900 dark:text-gray-100',
-                getAdaptivePaddingClass(),
-                getStickyColumnClass(column, colIndex),
-                column.class
-              ]"
+          <template v-for="virtualRow in virtualItems" :key="flatItemKey(virtualRow.index)">
+            <tr
+              v-if="flatItems[virtualRow.index] && flatItems[virtualRow.index].kind === 'row'"
+              :data-row-id="flatItems[virtualRow.index].key"
+              :data-index="virtualRow.index"
+              :ref="measureElement"
+              class="hover:bg-gray-50 dark:hover:bg-dark-800"
+              :class="{ 'cursor-pointer': clickableRows }"
+              @click="clickableRows && emit('rowClick', flatItems[virtualRow.index].row)"
             >
-              <slot :name="`cell-${column.key}`"
-                    :row="sortedData[virtualRow.index]"
-                    :value="sortedData[virtualRow.index][column.key]"
-                    :expanded="actionsExpanded">
-                {{ column.formatter
-                   ? column.formatter(sortedData[virtualRow.index][column.key], sortedData[virtualRow.index])
-                   : sortedData[virtualRow.index][column.key] }}
-              </slot>
-            </td>
-          </tr>
+              <td
+                v-for="(column, colIndex) in columns"
+                :key="column.key"
+                :class="[
+                  fluid
+                    ? 'py-2 align-top text-sm text-gray-900 dark:text-gray-100 min-w-0 break-words whitespace-normal'
+                    : 'whitespace-nowrap py-4 text-sm text-gray-900 dark:text-gray-100',
+                  getAdaptivePaddingClass(),
+                  getStickyColumnClass(column, colIndex),
+                  column.class
+                ]"
+              >
+                <slot :name="`cell-${column.key}`"
+                      :row="flatItems[virtualRow.index].row"
+                      :value="flatItems[virtualRow.index].row[column.key]"
+                      :expanded="actionsExpanded">
+                  {{ column.formatter
+                     ? column.formatter(flatItems[virtualRow.index].row[column.key], flatItems[virtualRow.index].row)
+                     : flatItems[virtualRow.index].row[column.key] }}
+                </slot>
+              </td>
+            </tr>
+            <tr
+              v-else-if="flatItems[virtualRow.index] && flatItems[virtualRow.index].kind === 'detail'"
+              :data-index="virtualRow.index"
+              :ref="measureElement"
+              class="dt-detail-row"
+            >
+              <td :colspan="columns.length" class="p-0 align-top">
+                <slot name="row-detail" :row="flatItems[virtualRow.index].row"></slot>
+              </td>
+            </tr>
+          </template>
           <tr v-if="virtualPaddingBottom > 0" aria-hidden="true">
             <td :colspan="columns.length"
                 :style="{ height: virtualPaddingBottom + 'px', padding: 0, border: 'none' }">
@@ -204,7 +234,7 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { useVirtualizer } from '@tanstack/vue-virtual'
+import { useVirtualizer, observeElementRect as observeElementRectDefault } from '@tanstack/vue-virtual'
 import { useI18n } from 'vue-i18n'
 import type { Column } from './types'
 import Icon from '@/components/icons/Icon.vue'
@@ -218,12 +248,34 @@ const isDesktopViewport = ref(
 
 const emit = defineEmits<{
   sort: [key: string, order: 'asc' | 'desc']
+  rowClick: [row: any]
 }>()
 
 // 表格容器引用
 const tableWrapperRef = ref<HTMLElement | null>(null)
 const isScrollable = ref(false)
 const actionsColumnNeedsExpanding = ref(false)
+
+// --- 虚拟滚动「整表空白」根治 ---
+// 根因:本组件根 .table-wrapper 为 flex:1 / min-h-0,高度由父级 flex 链决定。@tanstack 虚拟化器
+// 仅在 observeElementRect 回调里写 scrollRect;一旦该回调读到 0 高度(加载瞬间 flex 未结算,或
+// 滚动中动态行高校正触发的 reflow),scrollRect 被钉死为 0 → calculateRange 返回 null → 整表空白。
+// 对策(见下方 virtualizer 选项):
+//   1) 覆写 observeElementRect,直接丢弃 height<=0 的读数,scrollRect 永不被钉成 0;
+//   2) initialRect 给一屏兜底高度,首个有效读数到来前也有行可渲染,绝不空白。
+// 兜底高度:表格区域大致 = 视口高度 - 顶栏/外边距/筛选/分页 ≈ 320px
+const estimatedViewportHeight = () => {
+  if (typeof window === 'undefined') return 600
+  return Math.max(window.innerHeight - 320, 400)
+}
+
+// 覆写默认 observeElementRect:过滤掉 0 高度读数(根治整表空白的关键)
+const observeElementRectNonZero = (
+  instance: any,
+  cb: (rect: { width: number; height: number }) => void
+) => observeElementRectDefault(instance, (rect) => {
+  if (rect.height > 0) cb(rect)
+})
 
 // 检查是否可滚动
 const checkScrollable = () => {
@@ -234,6 +286,11 @@ const checkScrollable = () => {
 
 // 检查操作列是否需要展开
 const checkActionsColumnWidth = () => {
+  if (!props.expandableActions) {
+    actionsColumnNeedsExpanding.value = false
+    actionsExpanded.value = false
+    return
+  }
   if (!tableWrapperRef.value) return
 
   // 查找第一行的操作列单元格
@@ -364,10 +421,14 @@ interface Props {
    * will emit 'sort' events instead of performing client-side sorting.
    */
   serverSideSort?: boolean
+  /** Emit 'rowClick' on row/card click and show pointer cursor (interactive cells should @click.stop) */
+  clickableRows?: boolean
   /** Estimated row height in px for the virtualizer (default 56) */
   estimateRowHeight?: number
   /** Number of rows to render beyond the visible area (default 5) */
   overscan?: number
+  /** Only virtualize when the row count exceeds this threshold (default 100). */
+  virtualizeThreshold?: number
   /**
    * When false, sticky columns stay pinned but edge fade cues are hidden (no ::before/::after gradients).
    */
@@ -376,6 +437,18 @@ interface Props {
    * Fit table to container width; suppress horizontal scroll (cells wrap unless column uses nowrap).
    */
   fluid?: boolean
+  /**
+   * TK: predicate marking which rows can host a default-expanded detail row
+   * (rendered via the #row-detail slot). When omitted, no row is expandable and
+   * the table behaves exactly as before (flatItems is a 1:1 row mapping).
+   */
+  expandable?: (row: any) => boolean
+  /**
+   * TK: set of row-keys (resolveRowKey) currently expanded. A detail row is
+   * inserted after each row where expandable(row) && expandedKeys.has(key).
+   * Reactive: toggling a key re-flattens the virtual list and re-measures.
+   */
+  expandedKeys?: Set<string | number>
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -460,6 +533,24 @@ const applySortState = (state: PersistedSortState | null) => {
   sortOrder.value = state.order
 }
 
+const getSortIndicatorClass = (key: string, order: 'asc' | 'desc') => {
+  return sortKey.value === key && sortOrder.value === order
+    ? 'text-primary-600 dark:text-primary-400'
+    : 'text-gray-300 transition-colors dark:text-dark-500'
+}
+
+const getColumnAriaSort = (key: string) => {
+  if (sortKey.value !== key) return 'none'
+  return sortOrder.value === 'asc' ? 'ascending' : 'descending'
+}
+
+const getHeaderContentAlignmentClass = (column: Column) => {
+  const className = column.class || ''
+  if (className.includes('text-center')) return 'justify-center'
+  if (className.includes('text-right')) return 'justify-end'
+  return 'justify-start'
+}
+
 const isNullishOrEmpty = (value: any) => value === null || value === undefined || value === ''
 
 const toFiniteNumberOrNull = (value: any): number | null => {
@@ -506,18 +597,20 @@ const compareSortValues = (a: any, b: any): number => {
   if (res === 0) return 0
   return res < 0 ? -1 : 1
 }
-const resolveRowKey = (row: any, index: number) => {
+const resolveStableRowKey = (row: any): string | number | undefined => {
   if (typeof props.rowKey === 'function') {
     const key = props.rowKey(row)
-    return key ?? index
+    return key ?? undefined
   }
   if (typeof props.rowKey === 'string' && props.rowKey) {
     const key = row?.[props.rowKey]
-    return key ?? index
+    return key ?? undefined
   }
   const key = row?.id
-  return key ?? index
+  return key ?? undefined
 }
+
+const resolveRowKey = (row: any, index: number) => resolveStableRowKey(row) ?? index
 
 const dataColumns = computed(() => props.columns.filter((column) => column.key !== 'actions'))
 const columnsSignature = computed(() =>
@@ -589,12 +682,71 @@ const sortedData = computed(() => {
     .map(item => item.row)
 })
 
+// --- TK: expandable detail rows (default-expanded edge panels) ---
+// flatItems interleaves the sorted rows with a synthetic 'detail' item after each
+// expanded, expandable row. The virtualizer iterates THIS list, so a tall detail
+// row is just another measured virtual item. Detail items are injected AFTER sort
+// and carry no 'select' cell, so sorting and selection stay row-only.
+type FlatRowItem = { kind: 'row'; row: any; index: number; key: string | number }
+type FlatDetailItem = { kind: 'detail'; row: any; index: number; key: string | number }
+type FlatItem = FlatRowItem | FlatDetailItem
+
+const isRowExpanded = (row: any, index: number): boolean => {
+  if (!props.expandable || !props.expandedKeys) return false
+  if (!props.expandable(row)) return false
+  return props.expandedKeys.has(resolveRowKey(row, index))
+}
+
+const flatItems = computed<FlatItem[]>(() => {
+  const rows = sortedData.value ?? []
+  // Fast path: no expansion configured (or nothing expanded) → 1:1 row mapping,
+  // byte-identical to the pre-expansion behavior.
+  if (!props.expandable || !props.expandedKeys || props.expandedKeys.size === 0) {
+    return rows.map((row, index) => ({ kind: 'row', row, index, key: resolveRowKey(row, index) }))
+  }
+  const out: FlatItem[] = []
+  rows.forEach((row, index) => {
+    const key = resolveRowKey(row, index)
+    out.push({ kind: 'row', row, index, key })
+    if (props.expandable!(row) && props.expandedKeys!.has(key)) {
+      out.push({ kind: 'detail', row, index, key })
+    }
+  })
+  return out
+})
+
+// flatItemKey gives each virtual <tr> a stable, unique :key. A row and its detail
+// share the parent key, so detail items get a ':detail' suffix.
+const flatItemKey = (idx: number): string => {
+  const item = flatItems.value[idx]
+  if (!item) return `empty:${idx}`
+  return item.kind === 'detail' ? `${item.key}:detail` : `${item.key}`
+}
+
 // --- Virtual scrolling ---
+// 是否启用虚拟化:仅桌面端且行数超过阈值时开启。小列表全量渲染,彻底绕开虚拟器的
+// 估算/测量/滚动补偿链路,消除可变行高导致的滚动抖动。
+const shouldVirtualize = computed(() =>
+  isDesktopViewport.value && (sortedData.value?.length ?? 0) > (props.virtualizeThreshold ?? 100)
+)
+
 const rowVirtualizer = useVirtualizer(computed(() => ({
-  count: isDesktopViewport.value ? (sortedData.value?.length ?? 0) : 0,
+  count: isDesktopViewport.value ? (flatItems.value?.length ?? 0) : 0,
   getScrollElement: () => tableWrapperRef.value,
+  // 用行主键(与模板 :key 一致)而非默认的 index 作为 itemSizeCache 键,
+  // 这样排序/筛选/跨阈值来回都能复用正确的已测行高,而不是残留的按 index 缓存 → 消除高度校正抖动。
   estimateSize: () => props.estimateRowHeight ?? 56,
   overscan: props.overscan ?? 5,
+  // 关键:用稳定的逻辑 key(flatItemKey,行/明细行各自唯一)作为测量缓存键,而非默认的 flat index。
+  // 否则展开/折叠或 flatItems 重排会使某 index 的缓存高度落到「另一条逻辑行」上,measure 时读到错位
+  // 旧值 → 反复产生非零 delta → 校正→重排→再测量,在变高明细行(edge 面板)场景下永不收敛,表现为页面持续闪烁。
+  getItemKey: (index: number) => flatItemKey(index),
+  // 兜底高度:首个有效高度读数到来前,先按一屏渲染,避免空白帧
+  initialRect: { width: 0, height: estimatedViewportHeight() },
+  // 关键:过滤 0 高度读数,杜绝 scrollRect 被钉成 0 → calculateRange 返回 null → 整表空白
+  observeElementRect: observeElementRectNonZero,
+  // 把测量类 ResizeObserver 回调批到 rAF,避免滚动中同步 reflow 风暴导致的校正抖动/空白
+  useAnimationFrameWithResizeObserver: true,
 })))
 
 const virtualItems = computed(() => rowVirtualizer.value.getVirtualItems())
@@ -615,6 +767,19 @@ const measureElement = (el: any) => {
     rowVirtualizer.value.measureElement(el as Element)
   }
 }
+
+// TK: when expansion changes, inserting/removing a detail item shifts every
+// subsequent virtual index, so the index-keyed measurement cache is stale.
+// measure() clears it and forces a fresh pass, keeping the padding math correct
+// (without this, total-size drift can blank or mis-offset the table).
+watch(
+  () => (props.expandedKeys ? Array.from(props.expandedKeys).sort().join(',') : ''),
+  async () => {
+    await nextTick()
+    rowVirtualizer.value.measure()
+  },
+  { flush: 'post' }
+)
 
 const hasActionsColumn = computed(() => {
   return props.columns.some(column => column.key === 'actions')
@@ -715,6 +880,7 @@ watch(
 
 defineExpose({
   virtualizer: rowVirtualizer,
+  shouldVirtualize,
   sortedData,
   resolveRowKey,
   tableWrapperEl: tableWrapperRef,

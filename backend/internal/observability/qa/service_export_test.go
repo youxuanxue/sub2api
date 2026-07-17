@@ -59,6 +59,14 @@ func (m *memBlobStore) Put(_ context.Context, key string, body []byte, _ string)
 	m.objects[key] = cp
 	return "mem://" + key, nil
 }
+func (m *memBlobStore) PutReader(_ context.Context, key string, r io.Reader, _ string) (string, error) {
+	body, err := io.ReadAll(r)
+	if err != nil {
+		return "", err
+	}
+	m.objects[key] = body
+	return "mem://" + key, nil
+}
 func (m *memBlobStore) Get(_ context.Context, key string) ([]byte, error) {
 	v, ok := m.objects[key]
 	if !ok {
@@ -78,6 +86,10 @@ func newQAExportTestService(t *testing.T) (*Service, *dbent.Client, *memBlobStor
 	t.Helper()
 	db, err := sql.Open("sqlite", "file:qa_export_test?mode=memory&cache=shared")
 	require.NoError(t, err)
+	// Serialize access: the async export worker writes job rows concurrently
+	// with the test polling them; a single connection avoids in-memory sqlite
+	// "database is locked" flakes.
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 
 	_, err = db.Exec("PRAGMA foreign_keys = ON")
@@ -98,9 +110,12 @@ func mustInsertQARecord(t *testing.T, ctx context.Context, client *dbent.Client,
 		SetRequestID(b.requestID).
 		SetUserID(b.userID).
 		SetAPIKeyID(b.apiKeyID).
-		SetPlatform("anthropic").
+		SetPlatform(b.platformOrDefault()).
 		SetCreatedAt(b.createdAt).
 		SetRetentionUntil(b.createdAt.Add(7 * 24 * time.Hour))
+	if b.inboundEndpoint != "" {
+		create = create.SetInboundEndpoint(b.inboundEndpoint)
+	}
 	if b.synthSession != "" {
 		create = create.SetSynthSessionID(b.synthSession)
 	}
@@ -122,11 +137,26 @@ type qaRecordBuilder struct {
 	synthSession string
 	synthRole    string
 	dialogSynth  bool
+	// platform / inboundEndpoint default to anthropic / "" so existing callers
+	// are unaffected; multi-platform export tests set them to drive the
+	// projector's wire-shape dispatch (WireShapeForRecord).
+	platform        string
+	inboundEndpoint string
+}
+
+func (b qaRecordBuilder) platformOrDefault() string {
+	if b.platform != "" {
+		return b.platform
+	}
+	return "anthropic"
 }
 
 type dlqOnlyBlobStore struct{}
 
 func (dlqOnlyBlobStore) Put(_ context.Context, _ string, _ []byte, _ string) (string, error) {
+	return "", errors.New("primary store unavailable")
+}
+func (dlqOnlyBlobStore) PutReader(_ context.Context, _ string, _ io.Reader, _ string) (string, error) {
 	return "", errors.New("primary store unavailable")
 }
 func (dlqOnlyBlobStore) Get(_ context.Context, _ string) ([]byte, error) { return nil, io.EOF }
@@ -162,7 +192,7 @@ func TestUS075_PersistCapture_DLQDowngradesCaptureStatus(t *testing.T) {
 		client:        client,
 		store:         dlqOnlyBlobStore{},
 		cfg:           config.QACaptureConfig{Enabled: true},
-		retentionDays: 7,
+		retentionDays: 1,
 		dlqDir:        filepath.Join(t.TempDir(), "qa_dlq"),
 	}
 
@@ -493,10 +523,13 @@ func mustInsertQARecordWithBlob(t *testing.T, ctx context.Context, client *dbent
 		SetRequestID(b.requestID).
 		SetUserID(b.userID).
 		SetAPIKeyID(b.apiKeyID).
-		SetPlatform("anthropic").
+		SetPlatform(b.platformOrDefault()).
 		SetCreatedAt(b.createdAt).
 		SetRetentionUntil(b.createdAt.Add(7 * 24 * time.Hour)).
 		SetBlobURI("mem://" + key)
+	if b.inboundEndpoint != "" {
+		create = create.SetInboundEndpoint(b.inboundEndpoint)
+	}
 	if b.synthSession != "" {
 		create = create.SetSynthSessionID(b.synthSession)
 	}
@@ -508,6 +541,106 @@ func mustInsertQARecordWithBlob(t *testing.T, ctx context.Context, client *dbent
 	}
 	_, err := create.Save(ctx)
 	require.NoError(t, err)
+}
+
+// The ExportFilter.Platform predicate (qarecord.PlatformEQ) still narrows the
+// export to one platform when a caller sets it. The traj export handler no
+// longer pins it (the projector dispatches per record by wire shape), but the
+// predicate remains available and sentinel-anchored, so this guards it.
+func TestExportUserTrajectoryData_PlatformFilterExcludesNonAnthropic(t *testing.T) {
+	svc, client, _ := newQAExportTestService(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	mk := func(reqID, platform string) {
+		_, err := client.QARecord.Create().
+			SetRequestID(reqID).
+			SetUserID(7).
+			SetAPIKeyID(1).
+			SetPlatform(platform).
+			SetCreatedAt(now).
+			SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
+			Save(ctx)
+		require.NoError(t, err)
+	}
+	mk("anthropic-1", "anthropic")
+	mk("openai-1", "openai")
+	mk("gemini-1", "gemini")
+
+	key1 := int64(1)
+	recs, err := svc.queryExportRecords(ctx, 7, ExportFilter{APIKeyID: &key1, Platform: "anthropic"})
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	require.Equal(t, "anthropic", recs[0].Platform)
+	require.Equal(t, "anthropic-1", recs[0].RequestID)
+}
+
+// Per-key export ("导出该 Key 的对话记录") must restrict the record set to a
+// single API key while keeping the user_id scope as the outer AND — so a
+// foreign user id with the same key id yields zero rows.
+func TestExportUserTrajectoryData_ScopedByAPIKey(t *testing.T) {
+	svc, client, store := newQAExportTestService(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	simpleBlob := map[string]any{
+		"request":  map[string]any{"path": "/v1/messages", "body": map[string]any{"messages": []any{map[string]any{"role": "user", "content": "hi"}}}},
+		"response": map[string]any{"status_code": 200, "headers": map[string]any{}, "body": map[string]any{"content": []any{map[string]any{"type": "text", "text": "ok"}}}},
+		"stream":   map[string]any{"chunks": []any{}},
+	}
+	// Same user (7), two different API keys: two records under key 1, one under key 2.
+	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{requestID: "key1-a", userID: 7, apiKeyID: 1, createdAt: now.Add(-2 * time.Hour)}, simpleBlob)
+	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{requestID: "key1-b", userID: 7, apiKeyID: 1, createdAt: now.Add(-1 * time.Hour)}, simpleBlob)
+	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{requestID: "key2-a", userID: 7, apiKeyID: 2, createdAt: now.Add(-30 * time.Minute)}, simpleBlob)
+
+	key1 := int64(1)
+	recs, err := svc.queryExportRecords(ctx, 7, ExportFilter{APIKeyID: &key1})
+	require.NoError(t, err)
+	require.Len(t, recs, 2, "only key 1's two records, key 2 excluded")
+	for _, r := range recs {
+		require.Equal(t, int64(1), r.APIKeyID)
+	}
+
+	// Foreign user id with the same key id → zero rows (user scope ANDs first).
+	foreign, err := svc.queryExportRecords(ctx, 8, ExportFilter{APIKeyID: &key1})
+	require.NoError(t, err)
+	require.Empty(t, foreign)
+
+	// End-to-end export scoped by key 1 builds a non-empty trajectory.
+	res, err := svc.ExportUserTrajectoryData(ctx, 7, ExportFilter{APIKeyID: &key1})
+	require.NoError(t, err)
+	require.Positive(t, res.RecordCount)
+}
+
+// Resilience: a single missing/pruned blob (the retention cleanup can delete a
+// blob mid-export) must NOT abort the whole export — the record is skipped and
+// the surviving records still produce a non-empty zip. Pre-fix this returned an
+// error and the user got nothing.
+func TestExportUserTrajectoryData_SkipsMissingBlob(t *testing.T) {
+	svc, client, store := newQAExportTestService(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	simpleBlob := map[string]any{
+		"request":  map[string]any{"path": "/v1/messages", "body": map[string]any{"messages": []any{map[string]any{"role": "user", "content": "hi"}}}},
+		"response": map[string]any{"status_code": 200, "headers": map[string]any{}, "body": map[string]any{"content": []any{map[string]any{"type": "text", "text": "ok"}}}},
+		"stream":   map[string]any{"chunks": []any{}},
+	}
+	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{requestID: "gone", userID: 7, apiKeyID: 1, createdAt: now.Add(-2 * time.Hour)}, simpleBlob)
+	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{requestID: "kept", userID: 7, apiKeyID: 1, createdAt: now.Add(-1 * time.Hour)}, simpleBlob)
+
+	// Simulate the "gone" record's blob being pruned out from under the export.
+	rec, err := client.QARecord.Query().Where(qarecord.RequestIDEQ("gone")).Only(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, rec.BlobURI)
+	delete(store.objects, strings.TrimPrefix(*rec.BlobURI, "mem://"))
+
+	key1 := int64(1)
+	res, err := svc.ExportUserTrajectoryData(ctx, 7, ExportFilter{APIKeyID: &key1, Format: "v2"})
+	require.NoError(t, err, "missing blob must be skipped, not abort the export")
+	require.Equal(t, 1, res.RecordCount, "only the surviving record is counted")
+	require.NotEmpty(t, res.StorageKey)
+	require.NotEmpty(t, store.objects[res.StorageKey], "zip is non-empty")
 }
 
 func TestUS077_ExportUserTrajectoryData_ProjectsSessionTurnAndTools(t *testing.T) {

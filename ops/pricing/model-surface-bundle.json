@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "floor_sha256": "50c5d59e2149f644d204a9398eb8945f19f5a317c6e8384ddf318826e9462f32",
+  "account_model_mapping": {
+    "platforms": {
+      "anthropic": {
+        "claude-fable-5": "claude-fable-5",
+        "claude-haiku-4-5": "claude-haiku-4-5",
+        "claude-opus-4-1": "claude-opus-4-1",
+        "claude-opus-4-5": "claude-opus-4-5",
+        "claude-opus-4-6": "claude-opus-4-6",
+        "claude-opus-4-7": "claude-opus-4-7",
+        "claude-opus-4-8": "claude-opus-4-8",
+        "claude-sonnet-4-5": "claude-sonnet-4-5",
+        "claude-sonnet-4-6": "claude-sonnet-4-6",
+        "claude-sonnet-5": "claude-sonnet-5"
+      },
+      "antigravity": {
+        "claude-opus-4-6": "claude-opus-4-6-thinking",
+        "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
+        "claude-sonnet-4-6": "claude-sonnet-4-6",
+        "gemini-2.5-flash": "gemini-2.5-flash",
+        "gemini-2.5-flash-image": "gemini-3.1-flash-image",
+        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-2.5-flash-thinking": "gemini-2.5-flash-thinking",
+        "gemini-3-flash": "gemini-3-flash",
+        "gemini-3-flash-agent": "gemini-3-flash-agent",
+        "gemini-3-pro-image": "gemini-3.1-flash-image",
+        "gemini-3.1-flash-image": "gemini-3.1-flash-image",
+        "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
+        "gemini-3.1-pro": "gemini-pro-agent",
+        "gemini-3.1-pro-low": "gemini-3.1-pro-low",
+        "gemini-3.5-flash": "gemini-3.5-flash-low",
+        "gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low",
+        "gemini-3.5-flash-low": "gemini-3.5-flash-low",
+        "gemini-pro-agent": "gemini-pro-agent"
+      },
+      "bedrock": {
+        "claude-fable-5": "anthropic.claude-fable-5",
+        "claude-haiku-4-5": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "claude-haiku-4-5-20251001": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "claude-opus-4-1": "us.anthropic.claude-opus-4-1-20250805-v1:0",
+        "claude-opus-4-20250514": "us.anthropic.claude-opus-4-20250514-v1:0",
+        "claude-opus-4-5-20251101": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+        "claude-opus-4-5-thinking": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+        "claude-opus-4-6": "us.anthropic.claude-opus-4-6-v1",
+        "claude-opus-4-6-thinking": "us.anthropic.claude-opus-4-6-v1",
+        "claude-opus-4-7": "us.anthropic.claude-opus-4-7-v1",
+        "claude-opus-4-8": "us.anthropic.claude-opus-4-8-v1",
+        "claude-sonnet-4-20250514": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        "claude-sonnet-4-5": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "claude-sonnet-4-5-20250929": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "claude-sonnet-4-5-thinking": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "claude-sonnet-4-6": "us.anthropic.claude-sonnet-4-6",
+        "claude-sonnet-4-6-thinking": "us.anthropic.claude-sonnet-4-6",
+        "claude-sonnet-5": "us.anthropic.claude-sonnet-5-v1"
+      },
+      "gemini": {
+        "gemini-2.5-flash": "gemini-2.5-flash",
+        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-2.5-pro": "gemini-2.5-pro",
+        "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
+        "imagen-4.0-generate-001": "imagen-4.0-generate-001",
+        "imagen-4.0-ultra-generate-001": "imagen-4.0-ultra-generate-001",
+        "veo-3.1-generate-001": "veo-3.1-generate-001"
+      },
+      "grok": {
+        "grok": "grok-4.5",
+        "grok-4-fast-reasoning": "grok-4.3",
+        "grok-4.20-0309-non-reasoning": "grok-4.20-0309-non-reasoning",
+        "grok-4.20-0309-reasoning": "grok-4.20-0309-reasoning",
+        "grok-4.20-non-reasoning": "grok-4.20-0309-non-reasoning",
+        "grok-4.20-reasoning": "grok-4.20-0309-reasoning",
+        "grok-4.3": "grok-4.3",
+        "grok-4.3-latest": "grok-4.3",
+        "grok-4.5": "grok-4.5",
+        "grok-4.5-latest": "grok-4.5",
+        "grok-build": "grok-build-0.1",
+        "grok-build-0.1": "grok-build-0.1",
+        "grok-build-latest": "grok-4.5",
+        "grok-code-fast": "grok-build-0.1",
+        "grok-code-fast-1": "grok-code-fast-1",
+        "grok-code-fast-1-0825": "grok-build-0.1",
+        "grok-imagine-image": "grok-imagine-image",
+        "grok-imagine-image-quality": "grok-imagine-image-quality",
+        "grok-imagine-video": "grok-imagine-video",
+        "grok-latest": "grok-4.5"
+      },
+      "kiro": {
+        "claude-haiku-4-5": "claude-haiku-4-5",
+        "claude-opus-4-5": "claude-opus-4-5",
+        "claude-opus-4-6": "claude-opus-4-6",
+        "claude-opus-4-7": "claude-opus-4-7",
+        "claude-opus-4-8": "claude-opus-4-8",
+        "claude-sonnet-4-5": "claude-sonnet-4-5",
+        "claude-sonnet-4-6": "claude-sonnet-4-6",
+        "claude-sonnet-5": "claude-sonnet-5"
+      },
+      "openai": {
+        "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
+        "gpt-5.4": "gpt-5.4",
+        "gpt-5.4-mini": "gpt-5.4-mini",
+        "gpt-5.5": "gpt-5.5",
+        "gpt-5.6": "gpt-5.6",
+        "gpt-5.6-luna": "gpt-5.6-luna",
+        "gpt-5.6-sol": "gpt-5.6-sol",
+        "gpt-5.6-terra": "gpt-5.6-terra"
+      },
+      "openai_ainzy_relay": {
+        "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
+        "gpt-5.4": "gpt-5.4",
+        "gpt-5.4-mini": "gpt-5.4-mini",
+        "gpt-5.5": "gpt-5.5"
+      }
+    },
+    "newapi_channel_types": {
+      "17": {
+        "glm-4.5": "glm-4.5",
+        "glm-4.5-air": "glm-4.5-air",
+        "glm-4.6": "glm-4.6",
+        "glm-4.7": "glm-4.7",
+        "glm-5": "glm-5",
+        "glm-5.1": "glm-5.1",
+        "glm-5.2": "glm-5.2",
+        "qwen-max": "qwen-max",
+        "qwen-plus": "qwen-plus",
+        "qwen-turbo": "qwen-turbo",
+        "qwen3-14b": "qwen3-14b",
+        "qwen3-235b-a22b": "qwen3-235b-a22b",
+        "qwen3-32b": "qwen3-32b",
+        "qwen3-8b": "qwen3-8b",
+        "qwen3-coder-plus": "qwen3-coder-plus",
+        "qwen3.6-27b": "qwen3.6-27b",
+        "qwen3.6-flash": "qwen3.6-flash",
+        "qwen3.7-max": "qwen3.7-max",
+        "qwen3.7-max-2026-05-17": "qwen3.7-max-2026-05-17",
+        "qwen3.7-max-2026-05-20": "qwen3.7-max-2026-05-20",
+        "qwen3.7-max-2026-06-08": "qwen3.7-max-2026-06-08",
+        "qwen3.7-max-preview": "qwen3.7-max-preview",
+        "qwen3.7-plus": "qwen3.7-plus"
+      },
+      "41": {
+        "gemini-2.5-flash": "gemini-2.5-flash",
+        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-2.5-pro": "gemini-2.5-pro",
+        "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
+        "imagen-4.0-generate-001": "imagen-4.0-generate-001",
+        "imagen-4.0-ultra-generate-001": "imagen-4.0-ultra-generate-001",
+        "veo-3.1-generate-001": "veo-3.1-generate-001"
+      },
+      "43": {
+        "deepseek-chat": "deepseek-chat",
+        "deepseek-reasoner": "deepseek-reasoner",
+        "deepseek-v4-flash": "deepseek-v4-flash",
+        "deepseek-v4-pro": "deepseek-v4-pro"
+      },
+      "45": {
+        "doubao-1-5-lite-32k-250115": "doubao-1-5-lite-32k-250115",
+        "doubao-1-5-pro-32k-250115": "doubao-1-5-pro-32k-250115",
+        "doubao-1-5-pro-32k-character-250715": "doubao-1-5-pro-32k-character-250715",
+        "doubao-1-5-vision-pro-32k-250115": "doubao-1-5-vision-pro-32k-250115",
+        "doubao-seed-1-6-250615": "doubao-seed-1-6-250615",
+        "doubao-seed-1-6-251015": "doubao-seed-1-6-251015",
+        "doubao-seed-1-6-flash-250615": "doubao-seed-1-6-flash-250615",
+        "doubao-seed-1-6-flash-250828": "doubao-seed-1-6-flash-250828",
+        "doubao-seed-1-6-vision-250815": "doubao-seed-1-6-vision-250815",
+        "doubao-seed-1-8-251228": "doubao-seed-1-8-251228",
+        "doubao-seed-2-0-code-preview-260215": "doubao-seed-2-0-code-preview-260215",
+        "doubao-seed-2-0-lite-260215": "doubao-seed-2-0-lite-260215",
+        "doubao-seed-2-0-lite-260428": "doubao-seed-2-0-lite-260428",
+        "doubao-seed-2-0-mini-260215": "doubao-seed-2-0-mini-260215",
+        "doubao-seed-2-0-mini-260428": "doubao-seed-2-0-mini-260428",
+        "doubao-seed-2-0-pro-260215": "doubao-seed-2-0-pro-260215",
+        "doubao-seed-character-251128": "doubao-seed-character-251128",
+        "doubao-seed-code-preview-251028": "doubao-seed-code-preview-251028",
+        "doubao-seedance-1-0-pro-250528": "doubao-seedance-1-0-pro-250528",
+        "doubao-seedance-1-0-pro-fast-251015": "doubao-seedance-1-0-pro-fast-251015",
+        "doubao-seedance-1-5-pro-251215": "doubao-seedance-1-5-pro-251215",
+        "doubao-seedance-2-0-260128": "doubao-seedance-2-0-260128",
+        "doubao-seedance-2-0-fast-260128": "doubao-seedance-2-0-fast-260128",
+        "doubao-seedream-4-0-250828": "doubao-seedream-4-0-250828",
+        "doubao-seedream-4-5-251128": "doubao-seedream-4-5-251128",
+        "doubao-seedream-5-0-260128": "doubao-seedream-5-0-260128"
+      }
+    },
+    "antigravity_group_scopes": [
+      "claude",
+      "gemini_text",
+      "gemini_image"
+    ],
+    "forbidden_model_mapping_keys": {
+      "antigravity": [
+        "gemini-2.5-flash-image-preview",
+        "gemini-3-flash-preview",
+        "gemini-3-pro-high",
+        "gemini-3-pro-image-preview",
+        "gemini-3-pro-low",
+        "gemini-3-pro-preview",
+        "gemini-3.1-pro-high",
+        "gemini-3.1-pro-preview",
+        "tab_flash_lite_preview"
+      ]
+    },
+    "forbidden_model_mapping_prefixes": {
+      "antigravity": [
+        "gpt-oss-"
+      ]
+    }
+  }
+}

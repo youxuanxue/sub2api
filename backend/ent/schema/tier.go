@@ -15,8 +15,8 @@ import (
 //
 // Tier 是一个「命名引用实体」，和 TLSFingerprintProfile 同构：anthropic OAuth
 // 账号通过 Account.tier_id 绑定到某个 tier，运行时按 id 解析该档位的 per-tier
-// 配置（base_rpm / max_sessions / rpm_sticky_buffer / window_cost_limit /
-// concurrency / TLS 绑定等），而不再把这些值逐个拷贝到账号上。改一行 tier 经
+// 配置（base_rpm / max_sessions / rpm_sticky_buffer / concurrency /
+// TLS 绑定等），而不再把这些值逐个拷贝到账号上。改一行 tier 经
 // Redis pub/sub 秒级 fan-out 到所有引用账号（账号零写）。
 //
 // 权威源是 git JSON（backend/internal/baseline + deploy/aws/stage0，sentinel
@@ -74,12 +74,6 @@ func (Tier) Fields() []ent.Field {
 		field.Int("max_sessions").Default(0),
 		field.Int("rpm_sticky_buffer").Default(0),
 		field.Int("session_idle_timeout_minutes").Default(8),
-		field.Float("window_cost_limit").
-			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
-			Default(0),
-		field.Float("window_cost_sticky_reserve").
-			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
-			Default(0),
 		field.Bool("cache_ttl_override_enabled").Default(false),
 		field.String("cache_ttl_override_target").
 			MaxLen(20).

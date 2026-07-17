@@ -20,24 +20,30 @@ def _env(name: str) -> str:
     return os.environ.get(name, "").strip()
 
 
-def prod_anthropic_key() -> str:
-    return _env("TK_SMOKE_PROD_ANTHROPIC_KEY")
+def smoke_api_key() -> str:
+    return _env("TK_SMOKE_API_KEY")
 
 
-def prod_anthropic_model() -> str:
-    return _env("TK_SMOKE_PROD_ANTHROPIC_MODEL")
+def anthropic_models() -> list[str]:
+    raw = _env("TK_SMOKE_ANTHROPIC_MODELS")
+    return _split_models(raw, ["claude-sonnet-4-6"])
 
 
-def prod_kiro_key() -> str:
-    return _env("TK_SMOKE_PROD_KIRO_KEY")
+def gemini_models() -> list[str]:
+    raw = _env("TK_SMOKE_GEMINI_MODELS")
+    return _split_models(raw, [])
 
 
-def prod_kiro_model() -> str:
-    return _env("TK_SMOKE_PROD_KIRO_MODEL")
+def openai_oauth_models() -> list[str]:
+    raw = _env("TK_SMOKE_OPENAI_OAUTH_MODELS")
+    return _split_models(raw, ["gpt-5.4"])
 
 
-def edge_canary_key() -> str:
-    return _env("TK_SMOKE_EDGE_CANARY_KEY")
+def _split_models(raw: str, default: list[str]) -> list[str]:
+    value = raw.strip()
+    if not value:
+        return default
+    return [part for part in value.replace(",", " ").split() if part]
 
 
 def edge_canary_base_url() -> str:
@@ -45,4 +51,10 @@ def edge_canary_base_url() -> str:
 
 
 def edge_local_chat_model() -> str:
-    return _env("TK_SMOKE_EDGE_LOCAL_CHAT_MODEL") or DEFAULT_EDGE_LOCAL_ANTHROPIC_MODEL
+    models = edge_local_chat_models()
+    return models[0] if models else DEFAULT_EDGE_LOCAL_ANTHROPIC_MODEL
+
+
+def edge_local_chat_models() -> list[str]:
+    raw = _env("TK_SMOKE_EDGE_LOCAL_CHAT_MODELS")
+    return _split_models(raw, [DEFAULT_EDGE_LOCAL_ANTHROPIC_MODEL])

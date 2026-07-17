@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "rationale": "Load-bearing TokenKey divergences in the Antigravity (cloudcode-pa) client fingerprint that an upstream merge would silently clobber. Aligned to the first real on-wire IDE 2.0.11 capture (2026-06-13, PR #756); see docs/antigravity-fingerprint-changelog.md and the tokenkey-antigravity-fingerprint-alignment skill. oauth.go/client.go are upstream-shaped (identical to Wei-Shaw/sub2api before this divergence), so a `git merge upstream/main` can revert these values with a trivial diff and no test failure — that is exactly the backward-drift this guard catches. Single source of truth read by BOTH scripts/preflight.sh (antigravity sentinel registry section, always) and .github/workflows/upstream-merge-pr-shape.yml (on merge/upstream-* PRs). Adding a new load-bearing antigravity fingerprint surface MUST add a sentinel here in the same commit. Note: the UA *version* (2.0.11) is intentionally NOT sentineled — it is a moving target managed via the admin hot-push `antigravity_user_agent_version` and tracked in the changelog; only the structural divergences (the `/hub/` subclient segment and the gl-node removal) are pinned.",
+  "sentinels": [
+    {
+      "path": "backend/internal/pkg/antigravity/oauth.go",
+      "must_contain": [
+        "antigravity/hub/%s windows/amd64"
+      ],
+      "rationale": "On-wire-confirmed: the real Antigravity IDE UA carries a `/hub/` subclient segment (`antigravity/hub/<ver> ...`). Upstream's BuildUserAgent emits `antigravity/%s windows/amd64` (no subclient). An upstream merge reverting to that silently de-aligns every Antigravity request's UA fingerprint."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/client.go",
+      "must_not_contain": [
+        "Header.Set(\"X-Goog-Api-Client\""
+      ],
+      "rationale": "On-wire-confirmed: the real IDE sends NO X-Goog-Api-Client(gl-node) header on setUserSettings/fetchUserInfo. TK removed the pinned `gl-node/22.21.1`. An upstream merge re-adding it re-introduces a header the real client never sends (fingerprint noise). Locked by client_test.go TestPrivacyCalls_无GlNode且UA带hub too — this sentinel additionally catches an upstream merge that reverts the source without the test running."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/request_transformer.go",
+      "must_contain": [
+        "func IsImageModel(model string) bool {",
+        "config.ImageConfig = &GeminiImageConfig{AspectRatio: ar}"
+      ],
+      "rationale": "Gemini-native image aspect-ratio passthrough, edge transform side. buildGenerationConfig emits generationConfig.imageConfig.aspectRatio (the GeminiImageConfig wire struct existed but was never populated until 2026-06-17) from ClaudeRequest.ImageConfig, gated on IsImageModel so chat models never get an imageConfig. A prod canary confirmed cloudcode-pa honors all 10 documented ratios; if an upstream merge or refactor drops the emit or the gate, the ratio silently reverts to the model default (1408x768) — invisible because the request still 200s. Pairs with the prod-side gateway_forward_as_chat_completions.go injection sentinel (gateway-tk.json)."
+    }
+  ]
+}

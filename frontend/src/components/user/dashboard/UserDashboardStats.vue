@@ -55,12 +55,10 @@
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayCost') }}</p>
           <p class="text-xl font-bold text-gray-900 dark:text-white">
             <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">${{ formatCost(stats?.today_actual_cost || 0) }}</span>
-            <span class="text-sm font-normal text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / ${{ formatCost(stats?.today_cost || 0) }}</span>
           </p>
           <p class="text-xs">
             <span class="text-gray-500 dark:text-gray-400">{{ t('common.total') }}: </span>
             <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">${{ formatCost(stats?.total_actual_cost || 0) }}</span>
-            <span class="text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / ${{ formatCost(stats?.total_cost || 0) }}</span>
           </p>
         </div>
       </div>
@@ -226,6 +224,8 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import { getPlatformLabel } from '@/composables/usePlatformOptions'
+import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 import type { UserDashboardStats as UserStatsType } from '@/api/usage'
 import type { PlatformQuotaItem } from '@/types'
 
@@ -247,14 +247,7 @@ const props = defineProps<{
 }>()
 const { t } = useI18n()
 
-const PLATFORM_LABELS: Record<string, string> = {
-  anthropic: 'Claude',
-  openai: 'OpenAI',
-  gemini: 'Gemini',
-  antigravity: 'Antigravity'
-}
-
-const platformLabel = (p: string) => PLATFORM_LABELS[p] ?? p
+const platformLabel = (p: string) => getPlatformLabel(p)
 
 const sortedPlatforms = computed(() => {
   const list = props.stats?.by_platform ?? []
@@ -278,7 +271,7 @@ const platformCards = computed<FusedPlatformCard[]>(() => {
   // 无需显式排除；__other__ 由下方差值补差逻辑单独追加。
   const platforms = new Set<string>([...byPlat.keys(), ...byQuota.keys()])
 
-  const PLATFORM_ORDER = ['anthropic', 'openai', 'gemini', 'antigravity']
+  const PLATFORM_ORDER: readonly string[] = GATEWAY_PLATFORMS
   const cards: FusedPlatformCard[] = []
 
   for (const p of platforms) {

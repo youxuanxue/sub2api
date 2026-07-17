@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -330,6 +329,56 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardCountTokensPreservesBo
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.JSONEq(t, upstreamRespBody, rec.Body.String())
 	require.Empty(t, rec.Header().Get("Set-Cookie"))
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_BearerAuthScheme(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Request.Header.Set("Authorization", "Bearer inbound-token")
+	c.Request.Header.Set("X-Api-Key", "inbound-api-key")
+	c.Request.Header.Set("Cookie", "secret=1")
+
+	svc := &GatewayService{
+		cfg: &config.Config{
+			Security: config.SecurityConfig{
+				URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+			},
+		},
+	}
+	account := &Account{
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "ollama-key",
+			"base_url": "https://ollama.com",
+		},
+		Extra: map[string]any{
+			"anthropic_passthrough":        true,
+			"anthropic_apikey_auth_scheme": AnthropicAPIKeyAuthSchemeAuthorizationBearer,
+		},
+	}
+
+	msgReq, wireBody, err := svc.buildUpstreamRequestAnthropicAPIKeyPassthrough(
+		context.Background(), c, account, []byte(`{"model":"gpt-oss:20b","messages":[]}`), "ollama-key",
+	)
+	require.NoError(t, err)
+	require.Equal(t, "https://ollama.com/v1/messages?beta=true", msgReq.URL.String())
+	require.JSONEq(t, `{"model":"gpt-oss:20b","messages":[]}`, string(wireBody))
+	require.Equal(t, "Bearer ollama-key", getHeaderRaw(msgReq.Header, "authorization"))
+	require.Empty(t, getHeaderRaw(msgReq.Header, "x-api-key"))
+	require.Empty(t, getHeaderRaw(msgReq.Header, "cookie"))
+
+	countReq, err := svc.buildCountTokensRequestAnthropicAPIKeyPassthrough(
+		context.Background(), c, account, []byte(`{"model":"gpt-oss:20b","messages":[]}`), "ollama-key",
+	)
+	require.NoError(t, err)
+	require.Equal(t, "https://ollama.com/v1/messages/count_tokens?beta=true", countReq.URL.String())
+	require.Equal(t, "Bearer ollama-key", getHeaderRaw(countReq.Header, "authorization"))
+	require.Empty(t, getHeaderRaw(countReq.Header, "x-api-key"))
+	require.Empty(t, getHeaderRaw(countReq.Header, "cookie"))
 }
 
 // TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingEdgeCases 覆盖透传模式下模型映射的各种边界情况
@@ -671,49 +720,45 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_EmptyModelSkipsMapping(t *tes
 	require.Equal(t, body, upstream.lastBody, "空模型名时请求体不应被修改")
 }
 
-func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotError(t *testing.T) {
+func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokensUnsupported404UsesLocalEstimate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name            string
-		statusCode      int
-		respBody        string
-		wantPassthrough bool
-		wantFailover    bool
+		name         string
+		statusCode   int
+		respBody     string
+		wantEstimate bool
+		wantFailover bool
 	}{
 		{
-			name:            "404 endpoint not found passes through as 404",
-			statusCode:      http.StatusNotFound,
-			respBody:        `{"error":{"message":"Not found: /v1/messages/count_tokens","type":"not_found_error"}}`,
-			wantPassthrough: true,
+			name:         "404 endpoint not found uses local estimate",
+			statusCode:   http.StatusNotFound,
+			respBody:     `{"error":{"message":"Not found: /v1/messages/count_tokens","type":"not_found_error"}}`,
+			wantEstimate: true,
 		},
 		{
-			name:            "404 generic not found does not passthrough",
-			statusCode:      http.StatusNotFound,
-			respBody:        `{"error":{"message":"resource not found","type":"not_found_error"}}`,
-			wantPassthrough: false,
+			name:       "404 generic not found does not fallback",
+			statusCode: http.StatusNotFound,
+			respBody:   `{"error":{"message":"resource not found","type":"not_found_error"}}`,
 		},
 		{
-			name:            "400 Invalid URL does not passthrough",
-			statusCode:      http.StatusBadRequest,
-			respBody:        `{"error":{"message":"Invalid URL (POST /v1/messages/count_tokens)","type":"invalid_request_error"}}`,
-			wantPassthrough: false,
+			name:       "400 Invalid URL does not fallback",
+			statusCode: http.StatusBadRequest,
+			respBody:   `{"error":{"message":"Invalid URL (POST /v1/messages/count_tokens)","type":"invalid_request_error"}}`,
 		},
 		{
-			name:            "400 model error does not passthrough",
-			statusCode:      http.StatusBadRequest,
-			respBody:        `{"error":{"message":"model not found: claude-unknown","type":"invalid_request_error"}}`,
-			wantPassthrough: false,
+			name:       "400 model error does not fallback",
+			statusCode: http.StatusBadRequest,
+			respBody:   `{"error":{"message":"model not found: claude-unknown","type":"invalid_request_error"}}`,
 		},
 		{
 			// 契约更新（count_tokens failover 修复）：5xx 现在是 failover-eligible，
 			// ForwardCountTokens 返回 *UpstreamFailoverError 且不写客户端响应，
 			// 交由 handler 的 failover loop 换号。
-			name:            "500 internal error triggers failover",
-			statusCode:      http.StatusInternalServerError,
-			respBody:        `{"error":{"message":"internal error","type":"api_error"}}`,
-			wantPassthrough: false,
-			wantFailover:    true,
+			name:         "500 internal error triggers failover",
+			statusCode:   http.StatusInternalServerError,
+			respBody:     `{"error":{"message":"internal error","type":"api_error"}}`,
+			wantFailover: true,
 		},
 	}
 
@@ -759,16 +804,11 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotE
 
 			err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
 
-			if tt.wantPassthrough {
-				// 返回 nil（不记录为错误），HTTP 状态码 404 + Anthropic 错误体
+			if tt.wantEstimate {
+				// 上游端点不支持：返回 nil（不记录为错误），HTTP 200 + 本地估算。
 				require.NoError(t, err)
-				require.Equal(t, http.StatusNotFound, rec.Code)
-				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-				require.Equal(t, "error", errResp["type"])
-				errObj, ok := errResp["error"].(map[string]any)
-				require.True(t, ok)
-				require.Equal(t, "not_found_error", errObj["type"])
+				require.Equal(t, http.StatusOK, rec.Code)
+				require.Greater(t, int(gjson.GetBytes(rec.Body.Bytes(), "input_tokens").Int()), 0)
 			} else if tt.wantFailover {
 				// failover-eligible：返回 *UpstreamFailoverError，状态码透传，
 				// 服务层不写客户端响应（默认 200，交由 handler 耗尽时回写）。
@@ -947,13 +987,16 @@ func TestGatewayService_AnthropicOAuth_ForwardPreservesBillingHeaderSystemBlock(
 			require.True(t, system.Exists())
 			require.True(t, system.IsArray(), "system should be an array")
 			arr := system.Array()
-			require.Len(t, arr, 2, "system array should have billing block + cc prompt block")
+			require.Len(t, arr, 3, "system array should have billing block + cc prompt block + expansion block")
 
 			require.Contains(t, arr[0].Get("text").String(), "x-anthropic-billing-header:")
 			require.Contains(t, arr[0].Get("text").String(), "cc_version=")
 
 			require.Equal(t, claudeCodeSystemPrompt, arr[1].Get("text").String())
-			require.Equal(t, "ephemeral", arr[1].Get("cache_control.type").String())
+			require.False(t, arr[1].Get("cache_control").Exists(), "身份前缀 block 不应带 cache_control")
+
+			require.Equal(t, claudeCodeSystemPromptExpansion, arr[2].Get("text").String())
+			require.Equal(t, "ephemeral", arr[2].Get("cache_control.type").String())
 
 			// 原始 system prompt 应迁移至 messages 中
 			messages := gjson.GetBytes(upstream.lastBody, "messages")
@@ -963,6 +1006,70 @@ func TestGatewayService_AnthropicOAuth_ForwardPreservesBillingHeaderSystemBlock(
 			require.Contains(t, firstMsg.Get("content.0.text").String(), "x-anthropic-billing-header keep")
 		})
 	}
+}
+
+func TestGatewayService_AnthropicOAuth_SystemPromptInjectionCanBeDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	resetGatewayForwardingSettingsCacheForTest(t)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"claude-3-5-sonnet-latest","system":"Original system prompt","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), PlatformAnthropic)
+	require.NoError(t, err)
+
+	upstream := &anthropicHTTPUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Type": []string{"application/json"},
+				"x-request-id": []string{"rid-oauth-no-system-injection"},
+			},
+			Body: io.NopCloser(strings.NewReader(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-3-5-sonnet-20241022","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":12,"output_tokens":7}}`)),
+		},
+	}
+
+	cfg := &config.Config{
+		Gateway: config.GatewayConfig{
+			MaxLineSize: defaultMaxLineSize,
+		},
+	}
+	settingService := NewSettingService(&gatewayTTLSettingRepo{data: map[string]string{
+		SettingKeyEnableClaudeOAuthSystemPromptInjection: "false",
+	}}, cfg)
+	svc := &GatewayService{
+		cfg:                  cfg,
+		responseHeaderFilter: compileResponseHeaderFilter(cfg),
+		httpUpstream:         upstream,
+		rateLimitService:     &RateLimitService{},
+		deferredService:      &DeferredService{},
+		settingService:       settingService,
+	}
+
+	account := &Account{
+		ID:          302,
+		Name:        "anthropic-oauth-no-system-injection",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "oauth-token",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	system := gjson.GetBytes(upstream.lastBody, "system")
+	require.True(t, system.Exists())
+	require.Equal(t, "Original system prompt", system.String())
+	require.NotContains(t, string(upstream.lastBody), "x-anthropic-billing-header:")
+	require.NotContains(t, string(upstream.lastBody), "[System Instructions]")
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingStillCollectsUsageAfterClientDisconnect(t *testing.T) {
@@ -1006,6 +1113,57 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingStillCollectsUsageAf
 	require.NotNil(t, result.usage)
 	require.Equal(t, 11, result.usage.InputTokens)
 	require.Equal(t, 5, result.usage.OutputTokens)
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_StripsKiroInternalThinkingSSEComment(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	svc := &GatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{
+				MaxLineSize: defaultMaxLineSize,
+			},
+		},
+		rateLimitService: &RateLimitService{},
+	}
+
+	thinking := "prod-only mirror hop reasoning"
+	payload := encodeKiroInternalThinkingPayload(kiroInternalThinkingBlocksFromPlaintext(thinking))
+	commentLine := kiroInternalThinkingSSECommentPfx + payload
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"message_start","message":{"usage":{"input_tokens":3}}}`,
+			"",
+			commentLine,
+			"",
+			`data: {"type":"message_delta","usage":{"output_tokens":2}}`,
+			"",
+			"data: [DONE]",
+			"",
+		}, "\n"))),
+	}
+
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "claude-3-7-sonnet-20250219")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	out := rec.Body.String()
+	require.NotContains(t, out, kiroInternalThinkingSSECommentPfx)
+	require.NotContains(t, out, thinking)
+
+	raw, ok := c.Get(kiroInternalThinkingGinKey)
+	require.True(t, ok)
+	blocks, ok := raw.([]string)
+	require.True(t, ok)
+	require.Len(t, blocks, 1)
+	require.Contains(t, blocks[0], thinking)
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_MissingTerminalEventReturnsError(t *testing.T) {
@@ -1123,6 +1281,9 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_Signature400Ret
 // Parity with the main Forward() path: the passthrough path must also self-heal the
 // Opus 4.7+ "thinking.type.enabled is not supported" 400 by retrying with adaptive.
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_AdaptiveRequired400RetriesWithAdaptive(t *testing.T) {
+	tkAnthropicThinkingRules.Flush()
+	defer tkAnthropicThinkingRules.Flush()
+
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -1150,7 +1311,8 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_AdaptiveRequire
 		settingService:   settingSvc,
 	}
 
-	result, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, newAnthropicAPIKeyAccountForTest(), body, "claude-opus-4-8", "claude-opus-4-8", false, time.Now())
+	account := newAnthropicAPIKeyAccountForTest()
+	result, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, account, body, "claude-opus-4-8", "claude-opus-4-8", false, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, upstreamJSON, rec.Body.String())
@@ -1158,6 +1320,61 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_AdaptiveRequire
 	require.Equal(t, "enabled", gjson.GetBytes(upstream.bodies[0], "thinking.type").String(), "first attempt preserves client manual thinking")
 	require.Equal(t, "adaptive", gjson.GetBytes(upstream.bodies[1], "thinking.type").String(), "retry converts to adaptive")
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "thinking.budget_tokens").Exists(), "retry drops budget_tokens")
+	rule, exists := tkGetCachedAnthropicThinkingRule(account, "claude-opus-4-8", body)
+	require.True(t, exists)
+	require.Equal(t, tkAnthropicThinkingRuleAdaptiveOnly, rule)
+
+	cached := tkApplyAnthropicRequestCompatibilityRules(account, body)
+	require.Equal(t, "adaptive", gjson.GetBytes(cached, "thinking.type").String())
+	require.False(t, gjson.GetBytes(cached, "thinking.budget_tokens").Exists(), "subsequent requests should be rectified before upstream")
+}
+
+func TestGatewayService_AnthropicMainForward_AdaptiveRequired400RetriesWithAdaptive(t *testing.T) {
+	tkAnthropicThinkingRules.Flush()
+	defer tkAnthropicThinkingRules.Flush()
+
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"claude-opus-4-8","thinking":{"type":"enabled","budget_tokens":1024},"max_tokens":2048,"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`)
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-4-8", Stream: false}
+	upstreamJSON := `{"id":"msg_adaptive_ok","type":"message","role":"assistant","model":"claude-opus-4-8","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":3,"output_tokens":2}}`
+	upstream := &anthropicHTTPUpstreamSequenceRecorder{resps: []*http.Response{
+		{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-main-adaptive-bad"}},
+			Body:       io.NopCloser(strings.NewReader(`{"type":"error","error":{"type":"invalid_request_error","message":"\"thinking.type.enabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\" to control thinking behavior."}}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-main-adaptive-ok"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamJSON)),
+		},
+	}}
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{},
+		deferredService:  &DeferredService{},
+	}
+	account := newAnthropicAPIKeyAccountForTest()
+	account.Extra = nil
+
+	result, err := svc.Forward(context.Background(), c, account, parsed)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, "enabled", gjson.GetBytes(upstream.bodies[0], "thinking.type").String(), "first attempt preserves client manual thinking")
+	require.Equal(t, "adaptive", gjson.GetBytes(upstream.bodies[1], "thinking.type").String(), "retry converts to adaptive")
+	require.False(t, gjson.GetBytes(upstream.bodies[1], "thinking.budget_tokens").Exists(), "retry drops budget_tokens")
+	require.Equal(t, 3, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+	rule, exists := tkGetCachedAnthropicThinkingRule(account, "claude-opus-4-8", body)
+	require.True(t, exists)
+	require.Equal(t, tkAnthropicThinkingRuleAdaptiveOnly, rule)
 }
 
 // Parity with the main Forward() path: the passthrough path must also self-heal a

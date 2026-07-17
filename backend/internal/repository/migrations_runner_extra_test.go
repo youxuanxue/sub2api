@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"io/fs"
@@ -68,6 +69,18 @@ func TestLatestMigrationBaseline(t *testing.T) {
 	})
 }
 
+func TestIsMigrationChecksumCompatible_Tk038UsageDashboardGroupDaily(t *testing.T) {
+	const (
+		appliedV138 = "55d565b2820aa360f3efdeb4186c78548c715bce44b93bc32da3d9946a370793"
+		mistakeV139 = "03b5b2d5a2ab4c714f547ee03eb08076d8ce8ff948e403d0a09dfc5e20cdd913"
+	)
+	name := "tk_038_usage_dashboard_group_daily.sql"
+
+	require.True(t, isMigrationChecksumCompatible(name, appliedV138, appliedV138))
+	require.True(t, isMigrationChecksumCompatible(name, appliedV138, mistakeV139))
+	require.False(t, isMigrationChecksumCompatible(name, "unknown-db-checksum", appliedV138))
+}
+
 func TestIsMigrationChecksumCompatible_AdditionalCases(t *testing.T) {
 	require.False(t, isMigrationChecksumCompatible("unknown.sql", "db", "file"))
 
@@ -104,6 +117,7 @@ func TestMigrationChecksumCompatibilityRules_CoverEditedUpgradeCompatibilityMigr
 		"118_wechat_dual_mode_and_auth_source_defaults.sql",
 		"120_enforce_payment_orders_out_trade_no_unique_notx.sql",
 		"123_fix_legacy_auth_source_grant_on_signup_defaults.sql",
+		"tk_038_usage_dashboard_group_daily.sql",
 	} {
 		rule, ok := migrationChecksumCompatibilityRules[name]
 		require.Truef(t, ok, "missing compatibility rule for %s", name)
@@ -300,6 +314,74 @@ func TestApplyMigrationsFS_SkipEmptyAndAlreadyApplied(t *testing.T) {
 	fsys := fstest.MapFS{
 		"000_empty.sql":   &fstest.MapFile{Data: []byte("   \n\t ")},
 		"001_already.sql": &fstest.MapFile{Data: []byte(alreadySQL)},
+	}
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_RecordsTk041WithoutExecutionWhenOpsTablesAlreadyPartitioned(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(opsMonthlyPartitionsMigration).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT EXISTS\\(").
+		WithArgs("ops_system_logs").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery("SELECT EXISTS\\(").
+		WithArgs("ops_error_logs").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(opsMonthlyPartitionsMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		opsMonthlyPartitionsMigration: &fstest.MapFile{
+			Data: []byte("CREATE TABLE should_not_execute(id int);"),
+		},
+	}
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_ExecutesTk041WhenOpsTablesAreNotBothPartitioned(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(opsMonthlyPartitionsMigration).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT EXISTS\\(").
+		WithArgs("ops_system_logs").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery("SELECT EXISTS\\(").
+		WithArgs("ops_error_logs").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectBegin()
+	mock.ExpectExec("CREATE TABLE tk041_probe").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(opsMonthlyPartitionsMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		opsMonthlyPartitionsMigration: &fstest.MapFile{
+			Data: []byte("CREATE TABLE tk041_probe(id int);"),
+		},
 	}
 	err = applyMigrationsFS(context.Background(), db, fsys)
 	require.NoError(t, err)

@@ -132,7 +132,7 @@ func (h *RedeemHandler) GetByID(c *gin.Context) {
 func (h *RedeemHandler) Generate(c *gin.Context) {
 	var req GenerateRedeemCodesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -173,17 +173,17 @@ func (h *RedeemHandler) CreateAndRedeem(c *gin.Context) {
 
 	var req CreateAndRedeemCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 	req.Code = strings.TrimSpace(req.Code)
 	// 向后兼容：旧版调用方（如 Sub2ApiPay）不传 type 字段，默认当作 balance 充值处理。
 	// 请勿删除此默认值逻辑，否则会导致旧版调用方 400 报错。
 	if req.Type == "" {
-		req.Type = "balance"
+		req.Type = service.RedeemTypeBalance
 	}
 
-	if req.Type == "subscription" {
+	if req.Type == service.RedeemTypeSubscription {
 		if req.GroupID == nil {
 			response.BadRequest(c, "group_id is required for subscription type")
 			return
@@ -291,7 +291,7 @@ func (h *RedeemHandler) BatchDelete(c *gin.Context) {
 		IDs []int64 `json:"ids" binding:"required,min=1"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -317,7 +317,7 @@ func (h *RedeemHandler) BatchUpdate(c *gin.Context) {
 
 	var req dto.BatchUpdateRedeemCodesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 

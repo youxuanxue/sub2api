@@ -14,6 +14,42 @@ func lastOpenAIModelSegment(model string) string {
 	return strings.TrimSpace(model)
 }
 
+// isOpenAIGPT56Model accepts base names and supported GPT-5.6 variants.
+func isOpenAIGPT56Model(model string) bool {
+	normalized := canonicalizeOpenAIModelAliasSpelling(model)
+	if normalized == "gpt-5.6" {
+		return true
+	}
+	if suffix, ok := strings.CutPrefix(normalized, "gpt-5.6-"); ok && (suffix == "max" || isKnownCodexModelSuffix(suffix)) {
+		return true
+	}
+	for _, prefix := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} {
+		if normalized == prefix || strings.HasPrefix(normalized, prefix+"-") {
+			return true
+		}
+	}
+	return false
+}
+
+// CanonicalizeOpenAICompatRoutingModel normalizes OpenAI-compat model ids for
+// account selection, channel restriction, and negative-cache keys. Wire spellings
+// such as gpt5.4-mini collapse to gpt-5.4-mini; legacy Codex ids route to the
+// OAuth-served spark wire id; non-OpenAI ids pass through trimmed.
+func CanonicalizeOpenAICompatRoutingModel(model string) string {
+	trimmed := strings.TrimSpace(model)
+	if trimmed == "" {
+		return ""
+	}
+	normalized := trimmed
+	if canonical := canonicalizeOpenAIModelAliasSpelling(trimmed); canonical != "" {
+		normalized = canonical
+	}
+	if alias := resolveOpenAICompatRoutingAlias(normalized); alias != "" {
+		return alias
+	}
+	return normalized
+}
+
 func canonicalizeOpenAIModelAliasSpelling(model string) string {
 	model = strings.ToLower(lastOpenAIModelSegment(model))
 	if model == "" {
@@ -49,12 +85,39 @@ func canonicalizeOpenAIModelAliasSpelling(model string) string {
 	return normalized
 }
 
+// openAICompatRoutingAliases maps legacy client ids to the OAuth-served wire id
+// without requiring per-account model_mapping keys.
+var openAICompatRoutingAliases = map[string]string{
+	"gpt-5":             "gpt-5.5",
+	"gpt-5-chat":        "gpt-5.5",
+	"gpt-5-chat-latest": "gpt-5.5",
+	"gpt-5.5-pro":       "gpt-5.5",
+	// Non-display compatibility alias: clients that type the bare official
+	// family id should reach the live-proven Codex Spark wire id, without
+	// advertising bare gpt-5.3 in the catalog.
+	"gpt-5.3":             "gpt-5.3-codex-spark",
+	"gpt-5.3-chat-latest": "gpt-5.3-codex-spark",
+}
+
+func resolveOpenAICompatRoutingAlias(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ""
+	}
+	if target, ok := openAICompatRoutingAliases[model]; ok {
+		return target
+	}
+	if target := normalizeKnownOpenAICodexModel(model); target != "" {
+		return target
+	}
+	return model
+}
+
 func normalizeKnownOpenAICodexModel(model string) string {
 	normalized := canonicalizeOpenAIModelAliasSpelling(model)
 	if normalized == "" {
 		return ""
 	}
-
 	if mapped := getNormalizedCodexModel(normalized); mapped != "" {
 		return mapped
 	}
@@ -65,6 +128,22 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	}
 
 	switch {
+	case strings.Contains(normalized, "gpt-5.6-sol"):
+		return "gpt-5.6-sol"
+	case strings.Contains(normalized, "gpt-5.6-terra"):
+		return "gpt-5.6-terra"
+	case strings.Contains(normalized, "gpt-5.6-luna"):
+		return "gpt-5.6-luna"
+	case normalized == "gpt-5.6":
+		return "gpt-5.6-sol"
+	case strings.HasPrefix(normalized, "gpt-5.6-"):
+		suffix := strings.TrimPrefix(normalized, "gpt-5.6-")
+		if suffix == "max" || isKnownCodexModelSuffix(suffix) {
+			return "gpt-5.6-sol"
+		}
+		return ""
+	case strings.Contains(normalized, "gpt-5.5-pro"):
+		return "gpt-5.5"
 	case strings.Contains(normalized, "gpt-5.5"):
 		return "gpt-5.5"
 	case strings.Contains(normalized, "gpt-5.4-mini"):
@@ -78,15 +157,40 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	case strings.Contains(normalized, "gpt-5.3-codex-spark"):
 		return "gpt-5.3-codex-spark"
 	case strings.Contains(normalized, "gpt-5.3-codex"):
-		return "gpt-5.3-codex"
-	case strings.Contains(normalized, "gpt-5.3"):
-		return "gpt-5.3-codex"
+		return "gpt-5.3-codex-spark"
+	case strings.Contains(normalized, "gpt-5-codex"):
+		return "gpt-5.3-codex-spark"
+	case normalized == "gpt-5.3":
+		return "gpt-5.3-codex-spark"
 	case strings.Contains(normalized, "codex"):
-		return "gpt-5.3-codex"
+		return "gpt-5.3-codex-spark"
+	case strings.Contains(normalized, "gpt-5-chat"):
+		return "gpt-5.5"
+	case normalized == "gpt-5":
+		return "gpt-5.5"
 	case strings.Contains(normalized, "gpt-5"):
 		return "gpt-5.4"
 	default:
 		return ""
+	}
+}
+
+// normalizeOpenAIBillingModel maps OpenAI/Codex wire ids to billing tier keys.
+// Codex wire transform keeps ids such as gpt-5.6-chat-latest; billing collapses them to Sol/Terra/Luna.
+func normalizeOpenAIBillingModel(model string) string {
+	normalized := normalizeKnownOpenAICodexModel(model)
+	if normalized == "" || !strings.Contains(normalized, "gpt-5.6") {
+		return normalized
+	}
+	switch {
+	case strings.Contains(normalized, "luna"):
+		return "gpt-5.6-luna"
+	case strings.Contains(normalized, "terra"):
+		return "gpt-5.6-terra"
+	case strings.Contains(normalized, "chat"), strings.Contains(normalized, "sol"), normalized == "gpt-5.6":
+		return "gpt-5.6-sol"
+	default:
+		return "gpt-5.6-sol"
 	}
 }
 
@@ -112,7 +216,7 @@ func appendUsageBillingModelCandidate(candidates []string, seen map[string]struc
 	if canonical := canonicalizeOpenAIModelAliasSpelling(trimmed); canonical != "" {
 		add(canonical)
 	}
-	if normalized := normalizeKnownOpenAICodexModel(trimmed); normalized != "" {
+	if normalized := normalizeOpenAIBillingModel(trimmed); normalized != "" {
 		add(normalized)
 	}
 	return candidates

@@ -1,25 +1,28 @@
 name: Edge Lightsail Stage0 Deploy
 
-# Parallel Edge path on AWS Lightsail (not EC2/CFN). Shares image manifest
-# checks, SSM upgrade primitive, and smoke scripts with deploy-edge-stage0.yml.
+# run-name carries the dispatch identity so automation (rollout-edges.sh
+# find_run) and the Actions UI can attribute a run to its edge without
+# opening logs — all edges share this one workflow file.
+run-name: "edge=${{ inputs.edge_id }} op=${{ inputs.operation }} tag=${{ inputs.tag || 'none' }}"
+
+# Sole Edge deploy path — on AWS Lightsail (the EC2/CFN edge path was removed
+# 2026-06-07; prod stays EC2/CFN). Shares image manifest checks, SSM upgrade
+# primitive, and smoke scripts with deploy-stage0.yml.
 # See deploy/aws/lightsail/README.md and docs/spec-delta-edge-lightsail.md.
 
 on:
   workflow_dispatch:
     inputs:
       edge_id:
-        description: "Edge target from deploy/aws/lightsail/edge-targets-lightsail.json (deployable=true)."
+        description: "Edge target id from deploy/aws/lightsail/edge-targets-lightsail.json (provision may target a deployable=false edge; upgrade/smoke expect it live)."
         required: true
         type: choice
         options:
-          - uk1
           - us1
-          - us2
           - us3
           - us4
           - us5
           - us6
-          - us7
       operation:
         description: "provision creates Lightsail instance; upgrade/rollback use SSM; smoke verifies."
         required: true
@@ -34,7 +37,7 @@ on:
         required: false
         type: string
       confirm_instance:
-        description: "Must match instance_name from matrix (e.g. tokenkey-edge-uk1-ls)."
+        description: "Must match instance_name from matrix (e.g. tokenkey-edge-us-oh1-ls)."
         required: true
         type: string
       recreate:
@@ -53,7 +56,7 @@ on:
         type: boolean
         default: false
       smoke_phase:
-        description: "Edge smoke scope: infra | main-via-edge | full. Empty = auto (upgrade/rollback→infra, smoke→full)."
+        description: "Edge smoke scope: infra | edge-native-oauth | main-via-edge | full. Empty = auto (upgrade/rollback→infra, smoke→full)."
         required: false
         type: string
         default: ""
@@ -230,6 +233,37 @@ jobs:
           DOMAIN: ${{ steps.edge.outputs.domain }}
         run: bash ops/stage0/external_health.sh "$API_URL"
 
+      - name: Sync Feishu alert config
+        # Inject the shared Feishu webhook/secret into this node's
+        # ops_email_notification_config and enable alerting (idempotent). The
+        # script verifies the write and exits non-zero if not applied, so a node
+        # that cannot alert FAILS the deploy (gate for the us7 silent-mute gap).
+        if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
+        env:
+          TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+        run: bash ops/stage0/sync-feishu-config.sh --platform lightsail "${{ steps.edge.outputs.edge_id }}"
+
+      - name: Sync edge host units (disk-full alert + QA stale cleanup)
+        # prod (deploy/aws/stage0/stage0-ec2-bootstrap.sh) installs AND enables
+        # tokenkey-disk-metrics.timer (#778 on-box disk alert) and
+        # tokenkey-qa-stale-cleanup.timer; the Lightsail user-data 14 KB cap means
+        # render-bootstrap can only ship the scripts, not wire the units, and
+        # deploy_via_ssm.sh never re-runs bootstrap. So existing edges silently
+        # lacked the disk alert (filled-disk crash with no notice) and QA cleanup
+        # (qa_records/qa_blobs grew unbounded). This SSM push reaches existing edges
+        # and new ones (after provision). Runs AFTER the Feishu step so the disk
+        # alert finds TOKENKEY_FEISHU_WEBHOOK_URL/_SECRET in .env on its first fire.
+        if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+          # 1 day = prod parity (CFN QaStaleRetentionDays default); edges are
+          # pure relays so QA there is low-value — keep retention short.
+          TK_QA_STALE_RETENTION_DAYS: "1"
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: bash ops/stage0/sync-edge-host-units-via-ssm.sh "$INSTANCE_ID" "edge-host-units edge=${{ steps.edge.outputs.edge_id }}"
+
       - name: Edge smoke
         if: inputs.operation == 'smoke' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
         env:
@@ -237,7 +271,8 @@ jobs:
           EDGE_API_URL: ${{ steps.instance.outputs.api_url }}
           EDGE_INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
           EDGE_SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
-          TK_SMOKE_EDGE_CANARY_KEY: ${{ secrets.TK_SMOKE_EDGE_CANARY_KEY }}
+          TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
+          TK_SMOKE_EDGE_LOCAL_CHAT_MODELS: ${{ vars.TK_SMOKE_EDGE_LOCAL_CHAT_MODELS || 'claude-sonnet-4-6' }}
         run: |
           set -euo pipefail
           PHASE="${INPUT_SMOKE_PHASE:-}"

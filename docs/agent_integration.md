@@ -340,7 +340,6 @@ Do not hand-edit this file; run `python3 scripts/export_agent_contract.py`.
 - `DELETE /keys/:id` from `backend/internal/server/routes/user.go`
 - `GET /keys/:id` from `backend/internal/server/routes/user.go`
 - `PUT /keys/:id` from `backend/internal/server/routes/user.go`
-- `GET /payment/channels` from `backend/internal/server/routes/payment.go`
 - `GET /payment/checkout-info` from `backend/internal/server/routes/payment.go`
 - `GET /payment/config` from `backend/internal/server/routes/payment.go`
 - `GET /payment/limits` from `backend/internal/server/routes/payment.go`
@@ -410,7 +409,120 @@ Do not hand-edit this file; run `python3 scripts/export_agent_contract.py`.
 
 ## CLI
 
-_No dedicated CLI contract export is implemented for this repository._
+Generated from the live argparse parser factories; do not edit this section.
+
+### `python3 ops/pricing/modelops.py`
+
+Root options:
+- `--selftest`: run offline selftest
+
+#### `modelops.py plan`
+
+build a read-only model operations plan
+
+- `--account-id`: default account id for --upstream PATH
+- `--upstream` (repeatable): ACCOUNT:PATH or PATH (with --account-id). JSON list/object or newline model list.
+- `--candidate` (repeatable): ACCOUNT:MODEL ad hoc candidate; can repeat
+- `--probe-results` (repeatable): TSV output from ops/pricing/probe-servable-models.sh; can repeat
+- `--live-mapping`: JSON snapshot of live account model_mapping
+- `--mirror` (repeatable): SOURCE:TARGET mirror policy to diff from the live snapshot
+- `--strict-manifest`: flag every live mapping key absent from manifest for removal review
+- `--format` (choices: `text`, `json`; default: `text`):
+
+#### `modelops.py activate`
+
+validate independent evidence, plan prod mapping, and explicitly activate a model-surface bundle
+
+- `--bundle` (default: `ops/pricing/model-surface-bundle.json`): target generated model-surface bundle
+- `--current-bundle` (required): currently active model-surface bundle
+- `--probe-evidence` (required): fresh independent model_activation_probe JSON
+- `--pricing-evidence` (required): fresh independent model_activation_pricing JSON
+- `--prod-instance-id`: pin the full prod activation chain to this EC2 instance id
+- `--confirm`: write confirmation phrase: yes-activate-model-surface
+- `--format` (choices: `text`, `json`; default: `text`):
+
+#### `modelops.py snapshot-sql`
+
+print read-only SQL for a live mapping snapshot
+
+- `--accounts`: comma-separated account ids for a point lookup
+- `--channel-type`: snapshot all active newapi accounts with this channel_type, e.g. 17 for DashScope/Qwen
+
+- Constraint: exactly one of `--accounts`, `--channel-type`.
+
+### `python3 ops/pricing/manage-account-model-mapping-runtime.py`
+
+Root options:
+- `--selftest`:
+
+#### `manage-account-model-mapping-runtime.py validate`
+
+validate and print canonical JSON
+
+- `--file` (required):
+- `--bundle`: generated model-surface bundle to validate against
+
+#### `manage-account-model-mapping-runtime.py check`
+
+compare runtime settings to a JSON file
+
+- `--file` (required):
+- `--target` (default: `all-deployable-and-prod`): prod, edge:<id>, or all-deployable-and-prod
+- `--json`: machine-readable output
+- `--parallel` (default: `6`): parallel SSM workers
+
+#### `manage-account-model-mapping-runtime.py check-accounts`
+
+post-release read-only account model_mapping SSOT diff (prod only by default)
+
+- `--json`: machine-readable output
+- `--skip-prod`: check deployable edges only
+- `--include-edges`: also check deployable edges (default: prod only)
+- `--prod-instance-id`: use this prod EC2 instance id instead of resolving the prod stack
+- `--bundle`: generated model-surface bundle to check against
+- `--parallel` (default: `6`): parallel SSM workers
+
+#### `manage-account-model-mapping-runtime.py release-gate`
+
+explicit model-activation check: prod account model_mapping must cover the selected bundle floor
+
+- `--json`: machine-readable output
+- `--prod-instance-id`: use this prod EC2 instance id instead of resolving the prod stack
+- `--bundle`: generated model-surface bundle to check against
+- `--parallel` (default: `6`): parallel SSM workers
+
+#### `manage-account-model-mapping-runtime.py apply-accounts`
+
+explicitly apply reviewed SSOT diffs to live accounts
+
+- `--target` (required): prod, edge:<id>, or all-deployable-and-prod
+- `--confirm`: required for writes: yes-apply-account-model-mapping
+- `--dry-run`: print the planned account/group changes without writing
+- `--prod-instance-id`: pin prod planning and apply to this EC2 instance id
+- `--bundle`: generated model-surface bundle to apply
+- `--parallel` (default: `3`): parallel SSM workers
+
+#### `manage-account-model-mapping-runtime.py sync-runtime`
+
+hot-push a JSON file to runtime settings
+
+- `--file` (required):
+- `--target` (default: `all-deployable-and-prod`): prod, edge:<id>, or all-deployable-and-prod
+- `--dry-run`:
+- `--bundle`: generated model-surface bundle to validate against
+- `--parallel` (default: `3`): parallel SSM workers
+
+#### `manage-account-model-mapping-runtime.py clear-runtime`
+
+delete runtime override and use compiled floor
+
+- `--target` (default: `all-deployable-and-prod`): prod, edge:<id>, or all-deployable-and-prod
+- `--dry-run`:
+- `--parallel` (default: `3`): parallel SSM workers
+
+#### `manage-account-model-mapping-runtime.py example`
+
+print an example runtime JSON
 
 ## MCP
 
@@ -422,10 +534,11 @@ _No MCP entrypoint detected in this repository._
 
 ## TokenKey first-class platforms (account / group `platform` field)
 
-The gateway routes above dispatch to one of five first-class platforms.
+The gateway routes above dispatch to TokenKey first-class platforms.
 The canonical names are defined in `backend/internal/domain/constants.go`
 (`PlatformOpenAI`, `PlatformAnthropic`, `PlatformGemini`,
-`PlatformAntigravity`, `PlatformNewAPI`). Every TokenKey account and
+`PlatformAntigravity`, `PlatformNewAPI`, `PlatformKiro`, `PlatformGrok`).
+Every TokenKey account and
 group MUST set `platform` to exactly one of:
 
 | Platform name | Gateway entry points (subset) | Notes |
@@ -435,6 +548,14 @@ group MUST set `platform` to exactly one of:
 | `gemini` | `GET /v1beta/models`, `GET /v1beta/models/:model`, `POST /v1beta/models/*modelAction` | Gemini-native surface. |
 | `antigravity` | `GET /antigravity/models`, the `/antigravity/v1` and `/antigravity/v1beta` subtrees | Antigravity-native surface; admin endpoints under `/admin/antigravity/*`. |
 | `newapi` | Same OpenAI-compat surface as `openai` (`/v1/chat/completions`, `/v1/messages`, `/v1/responses` and the WS variant) | First-class fifth platform — see next section. |
+| `kiro` | `POST /v1/messages` through the Anthropic-shaped client surface | Kiro-native scheduling pool backed by the vendored CodeWhisperer/EventStream protocol layer. |
+| `grok` | Same OpenAI-compat surface as `openai` (`/v1/chat/completions`, `/v1/messages`, `/v1/responses`, embeddings/images/video where enabled) | First-class Grok/xAI platform. Edge capacity is `type=oauth`; prod edge relay stubs may be `type=apikey` with an edge `base_url`. |
+
+## Admin account model options
+
+`GET /admin/accounts/:id/models` returns one cross-platform response shape for
+all account platforms. Each `data` item contains exactly `id` and
+`display_name`; platform-specific model metadata is not part of this admin API.
 
 ## NewAPI as first-class fifth platform
 

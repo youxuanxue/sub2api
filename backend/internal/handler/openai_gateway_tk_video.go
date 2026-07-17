@@ -66,11 +66,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		if maxErr, ok := extractMaxBytesError(err); ok {
-			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
-			return
-		}
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		writeReadRequestBodyError(c, err, h.errorResponse)
 		return
 	}
 	if len(body) == 0 {
@@ -92,6 +88,24 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "prompt is required")
 		return
 	}
+	// Video-INPUT (continuation / reference video) is rejected until it is
+	// priced: upstream bills (input+output) duration for video-in requests,
+	// so the per-output-second price would under-charge 1.6–2.4x. First-frame
+	// image input stays allowed. Re-pricing must land together with lifting
+	// this guard — do not add a bypass toggle without it.
+	if videoSubmitHasVideoInput(body) {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error",
+			"Video input (video_url content) is not supported: video-input generation is not yet priced on this gateway. Remove the video_url content part; first-frame image input (image_url) is supported.")
+		return
+	}
+	// Unpriced media is not served (pre-spend 400 instead of post-spend $0 +
+	// P0 alert — one video task is real upstream money); see
+	// openai_gateway_service_tk_media_unpriced_guard.go for the policy.
+	if h.gatewayService.TkVideoModelUnpriced(reqModel) {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error",
+			service.TkUnpricedMediaModelMessage(reqModel, "video"))
+		return
+	}
 	reqLog = reqLog.With(zap.String("model", reqModel))
 
 	setOpsRequestModelAndBody(c, reqModel, false, body)
@@ -101,6 +115,18 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+
+	// TK: pre-flight balance hold (concurrent-overdraft fix; see
+	// openai_gateway_handler_tk_hold.go). Video reserves the exact submit-time
+	// cost (same request-derived seconds the billing path uses); refund
+	// ownership is handed to the usage-record task at submit time. Balance
+	// users only.
+	hold, holdReject := h.tkApplyVideoHold(c, apiKey, reqModel, videoRequestedSeconds(body))
+	if holdReject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	}
+	defer hold.ReleaseUnlessSettling()
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -116,25 +142,36 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 
 	// Single account selection; video submit is one-shot (no streaming retries).
 	selectionCtx, groupName := h.tkOpenAIChatSelectionCtx(c, apiKey, reqModel)
-	selection, _, err := h.gatewayService.SelectAccountWithScheduler(
+	selection, _, err := h.gatewayService.SelectAccountWithSchedulerForVideo(
 		selectionCtx,
 		apiKey.GroupID,
-		"",
 		sessionHash,
 		reqModel,
 		map[int64]struct{}{},
 		service.OpenAIUpstreamTransportAny,
-		false,
 	)
 	if err != nil || selection == nil || selection.Account == nil {
 		reqLog.Warn("openai_video_submit.account_select_failed", zap.Error(err))
-		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable")
+		if err == nil {
+			// Scheduler returned no usable selection without an error → empty pool.
+			markOpsRoutingCapacityLimited(c)
+			h.errorResponse(c, tkNoAvailableAccounts(c), "api_error", "No available accounts")
+			return
+		}
+		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+		// Empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
+		tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)
+		h.errorResponse(c, tkStatus, tkType, tkMsg)
 		return
 	}
 	account := selection.Account
-	if !engine.IsVideoSupportedChannelType(account.ChannelType) {
-		// channel_type=0 (incomplete account) and channel_type with no task
-		// adaptor (e.g. plain OpenAI account asked to do video) collapse into
+	// Platform-aware video gate: the newapi/openai path requires a channel_type
+	// whose value maps to a new-api TaskAdaptor; grok (channel_type=0 native
+	// OAuth) qualifies via its native arm. See engine.IsVideoSupportedForAccount.
+	if !engine.IsVideoSupportedForAccount(account.Platform, account.ChannelType) &&
+		!service.UsesGrokNativeVideoArm(account) {
+		// channel_type=0 non-grok (incomplete account) and channel_type with no
+		// task adaptor (e.g. plain OpenAI account asked to do video) collapse into
 		// the same user-facing error: this group is not configured for video.
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Selected account's channel_type does not support video generation")
 		return
@@ -170,6 +207,15 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	if apiKey.GroupID != nil {
 		groupID = *apiKey.GroupID
 	}
+	// Resolved once and stamped on BOTH the registry record and the usage
+	// record below, so the terminal-failure refund can find the billed
+	// usage_logs row by request_id in every resolution branch (ctx-derived
+	// or generated).
+	billingRequestID := service.TkResolveUsageBillingRequestID(c.Request.Context())
+	platform := account.Platform
+	if service.UsesGrokNativeVideoArm(account) {
+		platform = service.PlatformGrok
+	}
 	rec := &service.VideoTaskRecord{
 		PublicTaskID:   publicTaskID,
 		UpstreamTaskID: outcome.UpstreamTaskID,
@@ -178,7 +224,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		GroupID:        groupID,
 		APIKeyID:       apiKey.ID,
 		ChannelType:    account.ChannelType,
-		Platform:       account.Platform,
+		Platform:       platform,
 		// BaseURL + APIKey snapshot the upstream routing the bridge used at
 		// submit time. We persist the bridge's resolved values (not a fresh
 		// account read) because credentials may rotate before the user polls,
@@ -187,11 +233,12 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		// (credentials.api_key → openai_api_key fallback, base_url platform
 		// guard) — duplicating it here would be a DRY violation and a source
 		// of subtle drift.
-		BaseURL:       outcome.BaseURL,
-		APIKey:        outcome.APIKey,
-		OriginModel:   outcome.OriginModel,
-		UpstreamModel: outcome.UpstreamModel,
-		CreatedAt:     time.Now(),
+		BaseURL:          outcome.BaseURL,
+		APIKey:           outcome.APIKey,
+		OriginModel:      outcome.OriginModel,
+		UpstreamModel:    outcome.UpstreamModel,
+		BillingRequestID: billingRequestID,
+		CreatedAt:        time.Now(),
 	}
 	if err := h.videoTaskCache.Save(c.Request.Context(), rec); err != nil {
 		// At this point the bridge has already written the success body
@@ -217,14 +264,16 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	// full billing context (apiKey/user/account/subscription), and 8s is veo's
 	// conservative max so we never under-charge when the field is omitted.
 	videoSeconds := videoRequestedSeconds(body)
+	tkHoldRequestID := hold.HandOffToSettlement()
 	h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 			Result: &service.OpenAIForwardResult{
 				Model:                outcome.OriginModel,
 				UpstreamModel:        outcome.UpstreamModel,
+				RequestID:            billingRequestID,
 				Stream:               false,
 				Duration:             outcome.Duration,
-				VideoDurationSeconds: &videoSeconds,
+				VideoDurationSeconds: int(videoSeconds),
 			},
 			APIKey:           apiKey,
 			User:             apiKey.User,
@@ -235,6 +284,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 			UserAgent:        userAgent,
 			IPAddress:        clientIP,
 			APIKeyService:    h.apiKeyService,
+			TkHoldRequestID:  tkHoldRequestID,
 		}); err != nil {
 			logger.L().With(
 				zap.String("component", "handler.openai_gateway.video_submit"),
@@ -294,11 +344,22 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		return
 	}
 
+	// Legacy fast path: older records may carry an S3 key from the previous video
+	// offload design. Re-presign those without touching upstream. New video
+	// results use direct upstream URL passthrough or one-time inline delivery.
+	if h.tkVideoFastPathFromS3(c, rec) {
+		return
+	}
+
 	in := bridge.VideoFetchInput{
 		UpstreamTaskID: rec.UpstreamTaskID,
 		ChannelType:    rec.ChannelType,
 		BaseURL:        rec.BaseURL,
 		APIKey:         rec.APIKey,
+		// Platform + AccountID drive the grok-native poll branch (channel_type=0,
+		// re-resolve a fresh rotating OAuth Bearer). Ignored by the bridge path.
+		Platform:  rec.Platform,
+		AccountID: rec.AccountID,
 	}
 	out, err := h.gatewayService.ForwardAsVideoFetchDispatched(c.Request.Context(), c, in)
 	if err != nil {
@@ -309,25 +370,109 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		return
 	}
 
-	// Pass the upstream JSON through untouched so volcengine / doubao SDK
-	// clients see exactly the body shape new-api would have returned for the
-	// same channel type. We deliberately do NOT wrap in {code,success,data}
-	// at this layer — the upstream already does so for the OpenAI-Video API
-	// shape that `/v1/videos/:task_id` clients rely on.
+	// Pass through the upstream result directly. If the upstream returns a short-
+	// lived video URL, the client receives that URL unchanged. If it returns
+	// inline video bytes, this request is the one-time delivery path; the Studio
+	// keeps playback browser-local and does not make TokenKey a video CDN.
+	body := out.RawResponse
+
+	// Pass the upstream JSON through so volcengine / doubao
+	// SDK clients see the body shape new-api would have returned for the same
+	// channel type. We deliberately do NOT wrap in {code,success,data} at this
+	// layer — the upstream already does so for the OpenAI-Video API shape that
+	// `/v1/videos/:task_id` clients rely on.
 	c.Header("Content-Type", "application/json")
 	c.Status(http.StatusOK)
-	if len(out.RawResponse) == 0 {
+	if len(body) == 0 {
 		_, _ = c.Writer.WriteString("{}")
 	} else {
-		_, _ = c.Writer.Write(out.RawResponse)
+		_, _ = c.Writer.Write(body)
 	}
 
-	// On terminal status we drop the entry to bound storage; clients that
-	// need the URL must have already consumed the response body above.
-	switch strings.ToLower(out.Status) {
-	case "success", "succeeded", "failure", "failed":
+	// Terminal handling. Keep successful registry records until TTL so clients can
+	// re-read provider-returned URLs if they need to. Inline video bytes are still
+	// bounded in the bridge and are intended as one-time delivery; Studio does not
+	// persist or refetch them for playback.
+	if terminal, failed := videoTerminalOutcome(out.Status); terminal && failed {
 		h.videoTaskCache.Delete(c.Request.Context(), publicTaskID)
+		// The user paid at submit for a video that never materialized — reverse
+		// the charge. Idempotency lives in the refund itself (usage_billing_dedup
+		// keyed by the public task id), so a concurrent poll racing this Delete
+		// cannot double-refund. Clients that never poll a failed task are never
+		// refunded (registry record expires with its TTL); openai_video_refund.*
+		// logs are the audit trail.
+		h.scheduleVideoRefundAttempt(c.Request.Context(), rec, 0)
 	}
+}
+
+// videoRefund* bound the terminal-failure refund re-attempt. The submit-time
+// billed row is written by the same async usage-record worker pool with no
+// ordering guarantee, so a fast terminal poll can run before it lands. Each
+// worker task has only a few seconds of ctx budget, so instead of blocking a
+// worker we re-attempt across fresh tasks spaced by a timer, up to a bound.
+const (
+	videoRefundMaxAttempts = 6
+	videoRefundRetryDelay  = 5 * time.Second
+)
+
+// shouldRetryVideoRefund reports whether a refund attempt that returned
+// `outcome` on 0-based `attempt` should be re-scheduled. Pure so the bound is
+// unit-testable: only VideoRefundOriginPending (billed row not landed yet) is
+// retryable, capped at videoRefundMaxAttempts total attempts.
+func shouldRetryVideoRefund(outcome service.VideoRefundOutcome, attempt int) bool {
+	return outcome == service.VideoRefundOriginPending && attempt+1 < videoRefundMaxAttempts
+}
+
+// scheduleVideoRefundAttempt runs the terminal-failure refund on the usage-record
+// worker pool and, when the submit-time billed row has not landed yet
+// (VideoRefundOriginPending), re-schedules a later attempt via a timer — NOT a
+// blocked worker — so the bounded per-task ctx budget does not cap the total race
+// window. Bounded by videoRefundMaxAttempts; idempotency (usage_billing_dedup
+// keyed by the public task id) makes overlapping attempts safe. When the bound is
+// exhausted and the row still has not landed (e.g. the submit-time record task was
+// dropped under load), it leaves an Error-level reconciliation trail.
+//
+// Dispatched as MANDATORY (sync fallback on pool-drop): the non-mandatory path
+// silently drops under queue pressure, which for a refund is unrecoverable money
+// loss with no audit trail — the dropped task never runs, so neither the retry
+// timer nor the reconciliation Error log fires. Mandatory guarantees the attempt
+// executes (matching how image-generation usage records are recorded).
+func (h *OpenAIGatewayHandler) scheduleVideoRefundAttempt(parent context.Context, rec *service.VideoTaskRecord, attempt int) {
+	h.submitMandatoryUsageRecordTask(parent, func(ctx context.Context) {
+		outcome := h.gatewayService.RefundVideoUsageOnFailure(ctx, rec)
+		if shouldRetryVideoRefund(outcome, attempt) {
+			time.AfterFunc(videoRefundRetryDelay, func() {
+				h.scheduleVideoRefundAttempt(parent, rec, attempt+1)
+			})
+			return
+		}
+		if outcome == service.VideoRefundOriginPending {
+			logger.L().With(
+				zap.String("component", "handler.openai_gateway.video_refund"),
+				zap.String("public_task_id", rec.PublicTaskID),
+				zap.Int64("user_id", rec.UserID),
+				zap.Int("attempts", attempt+1),
+			).Error("openai_video_refund.abandoned_origin_never_landed")
+		}
+	})
+}
+
+// videoTerminalOutcome classifies an upstream task status string for the
+// fetch path: terminal=true drops the registry entry; failed=true triggers
+// the submit-charge refund. The status reaching here is string(TaskInfo.Status)
+// — i.e. new-api's model.TaskStatus* constants ("SUCCESS"/"FAILURE"/...) plus
+// the lowercase OpenAI-video spellings some adaptors emit. The contract test
+// in openai_gateway_tk_video_contract_test.go locks this mapping against the
+// pinned new-api constants so a .new-api-ref bump that renames them goes red
+// here instead of silently disabling refunds.
+func videoTerminalOutcome(status string) (terminal bool, failed bool) {
+	switch strings.ToLower(status) {
+	case "failure", "failed":
+		return true, true
+	case "success", "succeeded":
+		return true, false
+	}
+	return false, false
 }
 
 // generateVideoTaskID — `vt_` prefix mirrors OpenAI's `vid_` / `task_`
@@ -358,4 +503,44 @@ func videoRequestedSeconds(body []byte) int64 {
 		}
 	}
 	return 8
+}
+
+// videoSubmitHasVideoInput reports whether a video submit body carries a
+// VIDEO input content part (continuation / reference video). Upstream bills
+// (input+output) duration for those, so TokenKey's per-output-second price
+// would under-charge — the submit handler rejects them until they are priced.
+// First-frame image input (image_url parts) must pass.
+//
+// Carrier shapes (new-api TaskSubmitReq semantics): on the JSON path the real
+// carrier is "metadata.content" — sent either as a nested object OR as a
+// JSON-ENCODED STRING (TaskSubmitReq.UnmarshalJSON accepts both; the doubao
+// adaptor reads metadata["content"] after either form). Top-level "content"
+// is only routed into Metadata on the multipart path; on JSON it is dropped
+// upstream — still rejected here so a client's video_url is never silently
+// ignored while they are billed for a text-to-video run.
+func videoSubmitHasVideoInput(body []byte) bool {
+	candidates := []gjson.Result{
+		gjson.GetBytes(body, "content"),
+		gjson.GetBytes(body, "metadata.content"),
+	}
+	if md := gjson.GetBytes(body, "metadata"); md.Type == gjson.String {
+		candidates = append(candidates, gjson.Parse(md.String()).Get("content"))
+	}
+	for _, parts := range candidates {
+		if !parts.IsArray() {
+			continue
+		}
+		hasVideo := false
+		parts.ForEach(func(_, part gjson.Result) bool {
+			if part.Get("type").String() == "video_url" || part.Get("video_url").Exists() {
+				hasVideo = true
+				return false
+			}
+			return true
+		})
+		if hasVideo {
+			return true
+		}
+	}
+	return false
 }

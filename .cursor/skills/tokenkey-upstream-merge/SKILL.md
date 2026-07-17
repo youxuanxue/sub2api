@@ -1,12 +1,7 @@
 ---
 name: tokenkey-upstream-merge
 description: >-
-  Standard TokenKey upstream merge workflow for regularly importing Wei-Shaw/sub2api
-  upstream/main while preserving TokenKey OPC goals: one product, one control plane,
-  minimum Engine Spine, QA/tool evidence integrity, no silent upstream feature deletion,
-  and minimum upstream conflict surface. Use when the user asks to merge upstream,
-  refresh from upstream/main, prepare an upstream merge PR, review upstream drift, or
-  create a recurring upstream update process.
+  TokenKey upstream merge workflow for importing Wei-Shaw/sub2api upstream/main. Use when merging or reviewing upstream drift, preparing an upstream merge PR, or maintaining recurring upstream update discipline.
 ---
 
 # TokenKey upstream merge SOP
@@ -170,10 +165,12 @@ bash scripts/release-rollout-summary.sh --mode upstream --fetch
 
 | 触达路径 | 验证方式 |
 |---|---|
-| Gemini 路径 | Gemini tool-schema 探针（`TK_SMOKE_PROD_GEMINI_KEY`）；HTTP 400=硬失败需回查 |
-| OpenAI-compat / Responses | OpenAI OAuth 探针（`TK_SMOKE_PROD_OPENAI_OAUTH_KEY`）；`reasoning_tokens` 是否透传 |
+| Gemini 路径 | 统一 smoke key + `TK_SMOKE_GEMINI_MODELS` 的 Gemini tool-schema 探针；HTTP 400=硬失败需回查 |
+| OpenAI-compat / Responses | 统一 smoke key + `TK_SMOKE_OPENAI_OAUTH_MODELS` 的 OpenAI OAuth 探针；`reasoning_tokens` 是否透传 |
 | pricing / model-list | `/v1/models` 数量与可用性标记 |
 | frontend 组件 | frontend release asset 探针 + 浏览器关键页 |
+| 新增/合入 admin 视图（`frontend/src/views/admin/**`） | **TK 持久壳不可退让**：上游新 admin 视图自带 `<AppLayout>` 包裹，必须①剥掉 `<AppLayout>`（布局由 `AdminShellView.vue` 持久壳统一提供）②把路由注册进 `frontend/src/router/admin.tk.ts` 的 `AdminShellView` children（**不要**在 `router/index.ts` 内联）。`scripts/checks/admin-shell-layout.py`（preflight 内）会机械拦截漏剥的 `<AppLayout>` |
+| `router/index.ts` 冲突 | admin 路由子树已隔离到 `frontend/src/router/admin.tk.ts`；冲突应只发生在非 admin 路由，admin 路由变更解析到 `admin.tk.ts` |
 | 新增 sentinel | 列出 `scripts/sentinels/*.json` 文件名，说明守卫的回归场景 |
 | upstream 删除文件（如有） | 逐一确认 PR description 有 (a)/(b)/(c) 回归说明 |
 
@@ -184,6 +181,7 @@ bash scripts/release-rollout-summary.sh --mode upstream --fetch
 Stop and fix before PR if any is true:
 
 - TokenKey-only code got added directly to `openai_gateway_service.go`, `openai_account_scheduler.go`, `gateway_bridge_dispatch.go`, `gateway.go`, or large admin Vue views without companion/facade/component extraction.
+- A merged-in admin view under `frontend/src/views/admin/**` still wraps `<AppLayout>` (layout must come from the `AdminShellView` persistent shell), or an admin route was added inline in `router/index.ts` instead of `frontend/src/router/admin.tk.ts` — `scripts/checks/admin-shell-layout.py` (in preflight) flags the `<AppLayout>` regression mechanically.
 - New endpoint lacks QA/trajectory capture or terminal semantics.
 - Sensitive payload persists without redaction version contract.
 - New upstream file/route/service was deleted or disabled without explicit regression justification.

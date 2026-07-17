@@ -2,13 +2,18 @@ package handler
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+const testSameAccountRetryLimit = 3
 
 // ---------------------------------------------------------------------------
 // Mock
@@ -138,6 +143,50 @@ func TestSleepWithContext(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHandleFailoverError_BasicSwitch(t *testing.T) {
+	t.Run("显式停止不切换账号且旧错误默认仍切换", func(t *testing.T) {
+		mock := &mockTempUnscheduler{}
+		fs := NewFailoverState(3, false)
+		stopErr := &service.UpstreamFailoverError{
+			Stage:             service.GatewayFailureStageAccountAuth,
+			Scope:             service.GatewayFailureScopeProvider,
+			NextAccountAction: service.NextAccountStop,
+		}
+
+		action := fs.HandleFailoverError(context.Background(), mock, 100, service.PlatformGrok, testSameAccountRetryLimit, stopErr)
+
+		require.Equal(t, FailoverExhausted, action)
+		require.Zero(t, fs.SwitchCount)
+		require.Empty(t, fs.FailedAccountIDs)
+		require.Equal(t, stopErr, fs.LastFailoverErr)
+
+		legacyErr := newTestFailoverErr(http.StatusTooManyRequests, false, false)
+		action = fs.HandleFailoverError(context.Background(), mock, 100, service.PlatformGrok, testSameAccountRetryLimit, legacyErr)
+
+		require.Equal(t, FailoverContinue, action)
+		require.Equal(t, 1, fs.SwitchCount)
+		require.Contains(t, fs.FailedAccountIDs, int64(100))
+	})
+
+	t.Run("已取消的认证失败不改变切换状态", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		mock := &mockTempUnscheduler{}
+		fs := NewFailoverState(3, false)
+		err := &service.UpstreamFailoverError{
+			Stage:             service.GatewayFailureStageAccountAuth,
+			Scope:             service.GatewayFailureScopeAccount,
+			NextAccountAction: service.NextAccountRetry,
+		}
+
+		action := fs.HandleFailoverError(ctx, mock, 101, service.PlatformGrok, testSameAccountRetryLimit, err)
+
+		require.Equal(t, FailoverCanceled, action)
+		require.Zero(t, fs.SwitchCount)
+		require.Empty(t, fs.FailedAccountIDs)
+		require.Nil(t, fs.LastFailoverErr)
+		require.Empty(t, mock.calls)
+	})
+
 	t.Run("非重试错误_非Antigravity_直接切换", func(t *testing.T) {
 		mock := &mockTempUnscheduler{}
 		fs := NewFailoverState(3, false)
@@ -372,6 +421,43 @@ func TestHandleFailoverError_SameAccountRetry(t *testing.T) {
 		require.Equal(t, FailoverContinue, action)
 		require.Len(t, mock.calls, 2, "第二次耗尽也应调用 TempUnschedule")
 	})
+
+	t.Run("尊重账号级retryLimit_配置1次只重试1次", func(t *testing.T) {
+		// 回归测试：Anthropic 等路径此前硬编码同账号重试 3 次，忽略账号
+		// pool_mode_retry_count 配置。此处验证传入 retryLimit=1 时只重试 1 次即切换。
+		mock := &mockTempUnscheduler{}
+		fs := NewFailoverState(5, false)
+		err := newTestFailoverErr(502, true, false)
+		const retryLimit = 1
+
+		// 第 1 次：同账号重试
+		action := fs.HandleFailoverError(context.Background(), mock, 100, "openai", retryLimit, err)
+		require.Equal(t, FailoverContinue, action)
+		require.Equal(t, 1, fs.SameAccountRetryCount[100])
+		require.Equal(t, 0, fs.SwitchCount, "首次重试不应切换账号")
+		require.Empty(t, mock.calls, "未耗尽前不应 TempUnschedule")
+
+		// 第 2 次：已达上限 1 → 不再同账号重试，直接切换 + TempUnschedule
+		action = fs.HandleFailoverError(context.Background(), mock, 100, "openai", retryLimit, err)
+		require.Equal(t, FailoverContinue, action)
+		require.Equal(t, 1, fs.SameAccountRetryCount[100], "重试计数不应超过 retryLimit")
+		require.Equal(t, 1, fs.SwitchCount, "重试耗尽应切换账号")
+		require.Contains(t, fs.FailedAccountIDs, int64(100))
+		require.Len(t, mock.calls, 1, "重试耗尽应触发 TempUnschedule")
+	})
+
+	t.Run("retryLimit为0时立即切换不重试", func(t *testing.T) {
+		// pool_mode_retry_count=0 表示关闭同账号重试（如 GPT Image 账号）。
+		mock := &mockTempUnscheduler{}
+		fs := NewFailoverState(5, false)
+		err := newTestFailoverErr(502, true, false)
+
+		action := fs.HandleFailoverError(context.Background(), mock, 100, "openai", 0, err)
+		require.Equal(t, FailoverContinue, action)
+		require.Equal(t, 0, fs.SameAccountRetryCount[100], "retryLimit=0 不应发生同账号重试")
+		require.Equal(t, 1, fs.SwitchCount, "应立即切换账号")
+		require.Len(t, mock.calls, 1, "应立即 TempUnschedule")
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -417,7 +503,10 @@ func TestHandleFailoverError_ContextCanceled(t *testing.T) {
 		err := newTestFailoverErr(400, true, false)
 
 		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // 立即取消
+		go func() {
+			time.Sleep(30 * time.Millisecond)
+			cancel() // 通过入口检查后、sleep 期间取消
+		}()
 
 		start := time.Now()
 		action := fs.HandleFailoverError(ctx, mock, 100, "openai", 3, err)
@@ -425,8 +514,12 @@ func TestHandleFailoverError_ContextCanceled(t *testing.T) {
 
 		require.Equal(t, FailoverCanceled, action)
 		require.Less(t, elapsed, 100*time.Millisecond, "应立即返回")
-		// 重试计数仍应递增
-		require.Equal(t, 1, fs.SameAccountRetryCount[100])
+		// 入口已取消时不得改变任何 failover 状态。
+		require.Equal(t, 0, fs.SwitchCount, "取消的请求不应计入切换")
+		require.Equal(t, 0, fs.SameAccountRetryCount[100], "取消的请求不应改动重试计数")
+		require.NotContains(t, fs.FailedAccountIDs, int64(100))
+		require.Nil(t, fs.LastFailoverErr)
+		require.Empty(t, mock.calls, "不应触发 TempUnschedule")
 	})
 
 	t.Run("Antigravity延迟期间context取消", func(t *testing.T) {
@@ -672,7 +765,7 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		fs := NewFailoverState(3, false)
 		// LastFailoverErr 为 nil
 
-		action := fs.HandleSelectionExhausted(context.Background())
+		action := fs.HandleSelectionExhausted(context.Background(), false)
 		require.Equal(t, FailoverExhausted, action)
 	})
 
@@ -680,7 +773,7 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		fs := NewFailoverState(3, false)
 		fs.LastFailoverErr = newTestFailoverErr(500, false, false)
 
-		action := fs.HandleSelectionExhausted(context.Background())
+		action := fs.HandleSelectionExhausted(context.Background(), false)
 		require.Equal(t, FailoverExhausted, action)
 	})
 
@@ -691,7 +784,7 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		fs.SwitchCount = 1
 
 		start := time.Now()
-		action := fs.HandleSelectionExhausted(context.Background())
+		action := fs.HandleSelectionExhausted(context.Background(), false)
 		elapsed := time.Since(start)
 
 		require.Equal(t, FailoverContinue, action)
@@ -706,7 +799,7 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		fs.SwitchCount = 3 // > MaxSwitches(2)
 
 		start := time.Now()
-		action := fs.HandleSelectionExhausted(context.Background())
+		action := fs.HandleSelectionExhausted(context.Background(), false)
 		elapsed := time.Since(start)
 
 		require.Equal(t, FailoverExhausted, action)
@@ -721,11 +814,34 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		cancel()
 
 		start := time.Now()
-		action := fs.HandleSelectionExhausted(ctx)
+		action := fs.HandleSelectionExhausted(ctx, false)
 		elapsed := time.Since(start)
 
 		require.Equal(t, FailoverCanceled, action)
 		require.Less(t, elapsed, 100*time.Millisecond, "应立即返回")
+	})
+
+	t.Run("context已取消_非503也返回Canceled而非Exhausted", func(t *testing.T) {
+		// #4257 核心场景：客户端断开后选号失败源于 context canceled，
+		// 不应被当成账号耗尽转成 502。
+		fs := NewFailoverState(3, false)
+		fs.LastFailoverErr = newTestFailoverErr(520, false, false)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		action := fs.HandleSelectionExhausted(ctx, false)
+		require.Equal(t, FailoverCanceled, action)
+	})
+
+	t.Run("context已取消_无LastFailoverErr也返回Canceled", func(t *testing.T) {
+		fs := NewFailoverState(3, false)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		action := fs.HandleSelectionExhausted(ctx, false)
+		require.Equal(t, FailoverCanceled, action)
 	})
 
 	t.Run("503且SwitchCount等于MaxSwitches_仍可重试", func(t *testing.T) {
@@ -733,8 +849,49 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		fs.LastFailoverErr = newTestFailoverErr(503, false, false)
 		fs.SwitchCount = 2 // == MaxSwitches，条件是 <=，仍可重试
 
-		action := fs.HandleSelectionExhausted(context.Background())
+		action := fs.HandleSelectionExhausted(context.Background(), false)
 		require.Equal(t, FailoverContinue, action)
+	})
+
+	// TK thin-pool guard:薄池仅因 failover 排除排空时（service.ErrThinPoolAllExcluded），
+	// 即使 LastFailoverErr 不是 503（典型为流内 502 或为 nil），也应退避重试该唯一账号。
+	t.Run("thinPool排除_无503_仍退避重试并清除失败列表", func(t *testing.T) {
+		fs := NewFailoverState(3, false)
+		fs.LastFailoverErr = newTestFailoverErr(502, false, false) // 流内 SSE 包成 502
+		fs.FailedAccountIDs[100] = struct{}{}
+		fs.SwitchCount = 1
+
+		start := time.Now()
+		action := fs.HandleSelectionExhausted(context.Background(), true)
+		elapsed := time.Since(start)
+
+		require.Equal(t, FailoverContinue, action)
+		require.Empty(t, fs.FailedAccountIDs, "薄池重试应清除排除列表，让唯一账号可再次被选中")
+		require.GreaterOrEqual(t, elapsed, 1500*time.Millisecond, "应退避约 2s")
+	})
+
+	t.Run("thinPool排除_LastFailoverErr为nil_仍退避重试", func(t *testing.T) {
+		fs := NewFailoverState(3, false)
+		// LastFailoverErr 为 nil（首轮就排空的极端情形）
+		fs.FailedAccountIDs[100] = struct{}{}
+		fs.SwitchCount = 0
+
+		action := fs.HandleSelectionExhausted(context.Background(), true)
+		require.Equal(t, FailoverContinue, action)
+		require.Empty(t, fs.FailedAccountIDs)
+	})
+
+	t.Run("thinPool排除_SwitchCount超过MaxSwitches_仍受上限约束返回Exhausted", func(t *testing.T) {
+		fs := NewFailoverState(2, false)
+		fs.LastFailoverErr = newTestFailoverErr(502, false, false)
+		fs.SwitchCount = 3 // > MaxSwitches(2)
+
+		start := time.Now()
+		action := fs.HandleSelectionExhausted(context.Background(), true)
+		elapsed := time.Since(start)
+
+		require.Equal(t, FailoverExhausted, action, "薄池重试也必须受 MaxSwitches 约束，防止死循环")
+		require.Less(t, elapsed, 100*time.Millisecond, "耗尽时不应等待")
 	})
 }
 
@@ -961,5 +1118,49 @@ func TestHandleFailoverError_Forbidden403FailFast(t *testing.T) {
 			"任何有 error object 的 JSON 都视为结构化错误")
 		require.True(t, looksLikeStructuredErrorJSON([]byte(`{"code":"INSUFFICIENT_BALANCE","message":"Insufficient account balance"}`)),
 			"TokenKey middleware shape")
+	})
+}
+
+// ---------------------------------------------------------------------------
+// failoverClientGone 测试
+// ---------------------------------------------------------------------------
+
+func TestFailoverClientGone(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("活跃请求返回false", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+		require.False(t, failoverClientGone(c))
+		require.Equal(t, http.StatusOK, c.Writer.Status(), "不应改动状态码")
+	})
+
+	t.Run("客户端已断开_返回true并标记499", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
+
+		require.True(t, failoverClientGone(c))
+		require.Equal(t, statusClientClosedRequest, c.Writer.Status())
+	})
+
+	t.Run("响应已提交_不改状态码", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
+		c.String(http.StatusOK, "partial")
+
+		require.True(t, failoverClientGone(c))
+		require.Equal(t, http.StatusOK, c.Writer.Status(), "已提交的状态码不应被覆盖")
+	})
+
+	t.Run("nil安全", func(t *testing.T) {
+		require.False(t, failoverClientGone(nil))
 	})
 }

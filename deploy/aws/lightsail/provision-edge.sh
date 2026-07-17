@@ -97,13 +97,29 @@ if [[ -n "$existing" ]]; then
     [[ "$state" == "stopped" ]] && break
     sleep 5
   done
-  aws lightsail delete-instance --region "$LIGHTSAIL_REGION" --instance-name "$INSTANCE_NAME" >/dev/null
-  # Detach only — keep the allocated Static IP (and its address) for re-attach below.
-  # Releasing would force allocate-static-ip to mint a new address, breaking
-  # pre-provisioned / DNS-pinned IPs (edge-us2/us3/us4 Lightsail rollout).
+  # Detach the Static IP BEFORE delete-instance — keep the allocated Static IP
+  # (and its address) for re-attach below. Detaching AFTER delete is too late:
+  # the original DNS-pinned address gets lost and the allocate-if-missing path
+  # mints a brand-new address (observed on uk2/uk3: 16.61.60.65/18.171.106.144
+  # → fresh addresses across recreate). Order matters — detach first, then delete.
   if aws lightsail get-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" >/dev/null 2>&1; then
     aws lightsail detach-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" >/dev/null 2>&1 || true
   fi
+  aws lightsail delete-instance --region "$LIGHTSAIL_REGION" --instance-name "$INSTANCE_NAME" >/dev/null
+  # Deregister stale SSM managed-instance(s) for this edge. delete-instance drops
+  # the Lightsail instance but its SSM managed-instance (mi-*) registration
+  # lingers Online and stays tagged EdgeId=<id>; the post-recreate mi-* resolution
+  # (tag/ComputerName fallback) could then pick the zombie and the workflow polls
+  # a dead instance. Deregister every currently-tagged mi-* so the fresh instance
+  # below registers the only one. Requires ssm:DeregisterManagedInstance
+  # (granted by cicd-oidc-lightsail-addon).
+  for stale_mi in $(aws ssm describe-instance-information --region "$LIGHTSAIL_REGION" \
+      --filters "Key=tag:EdgeId,Values=${EDGE_ID}" \
+      --query 'InstanceInformationList[].InstanceId' --output text 2>/dev/null || true); do
+    [[ -z "$stale_mi" || "$stale_mi" == "None" ]] && continue
+    echo "deregistering stale SSM managed-instance ${stale_mi} (EdgeId=${EDGE_ID})"
+    aws ssm deregister-managed-instance --region "$LIGHTSAIL_REGION" --instance-id "$stale_mi" >/dev/null 2>&1 || true
+  done
 fi
 
 user_data_payload="$(cat "$user_data_file")"
@@ -134,19 +150,26 @@ aws lightsail attach-static-ip \
   --instance-name "$INSTANCE_NAME"
 
 # Instance-level firewall (Lightsail "Networking"): distinct from EC2 SGs / Caddy allowlists.
-# Default blueprints commonly expose SSH only — without 80/443, public curls time out (~2m) despite correct DNS/static IP.
-echo "opening Lightsail public ports 80 and 443 (IPv4) on ${INSTANCE_NAME}"
-for port in 80 443; do
-  if aws lightsail open-instance-public-ports \
-    --region "$LIGHTSAIL_REGION" \
-    --instance-name "$INSTANCE_NAME" \
-    --port-info "fromPort=${port},toPort=${port},protocol=tcp,cidrs=0.0.0.0/0" >/dev/null; then
-    echo "lightsail firewall: TCP ${port} allowed from 0.0.0.0/0"
-  else
-    echo "::notice::open-instance-public-ports tcp/${port} failed or rule already exists — check:" >&2
-    echo "       aws lightsail get-instance-port-states --region ${LIGHTSAIL_REGION} --instance-name ${INSTANCE_NAME}" >&2
-  fi
-done
+# We declare the COMPLETE desired port set with put-instance-public-ports (replace
+# semantics), not open-instance-public-ports (add-only). This atomically:
+#   - opens 443 (business + ACME TLS-ALPN-01),
+#   - opens 8443 (alternate connection port — kept open by design; NOT force-closed),
+#   - drops the Lightsail-default public SSH (22) — operate via SSM / console SSH,
+#   - keeps public 80 closed — certs use TLS-ALPN-01 on 443, so HTTP-01 is unneeded.
+# Cert renewal still rides 443 only (TLS-ALPN-01); 8443 is a spare ingress port.
+# Operate existing edges to this same set via ops/stage0/verify-edge-lightsail-network.sh --enforce-ports.
+echo "setting Lightsail public ports to 443 + 8443 (IPv4) on ${INSTANCE_NAME}"
+if aws lightsail put-instance-public-ports \
+  --region "$LIGHTSAIL_REGION" \
+  --instance-name "$INSTANCE_NAME" \
+  --port-infos \
+    "fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0" \
+    "fromPort=8443,toPort=8443,protocol=tcp,cidrs=0.0.0.0/0" >/dev/null; then
+  echo "lightsail firewall: public ports set to TCP 443 + 8443 (22/80 closed)"
+else
+  echo "::notice::put-instance-public-ports failed — check:" >&2
+  echo "       aws lightsail get-instance-port-states --region ${LIGHTSAIL_REGION} --instance-name ${INSTANCE_NAME}" >&2
+fi
 
 public_ip="$(aws lightsail get-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" \
   --query 'staticIp.ipAddress' --output text)"
@@ -191,6 +214,49 @@ if [[ -z "$managed_id" || "$managed_id" == "None" || "$managed_id" == "null" ]];
     --filters "FilterKey=ActivationIds,FilterValues=${activation_id}" || true
   exit 1
 fi
+
+# SSM registration (mi-*) only proves the agent is up — the docker compose stack
+# (postgres + app) is still pulling/starting via bootstrap user-data, and the
+# app's healthcheck is /health/live (liveness), which goes green BEFORE the app
+# finishes DB migrations. Without this gate the workflow's next step (Sync Feishu
+# alert config does `docker exec tokenkey-postgres psql ... INSERT INTO settings`)
+# races and fails with either "No such container: tokenkey-postgres" (stack not
+# up) or 'relation "settings" does not exist' (migrations not done yet). Gate on
+# postgres healthy AND the settings table existing (= app migrations have run) —
+# the exact precondition for the Feishu sync — before declaring provision done.
+echo "waiting for docker compose stack health (postgres healthy + settings table) on ${managed_id} (up to 6m)"
+stack_check_json="$(mktemp)"
+# IMPORTANT: AWS-RunShellScript concatenates the `commands` array into ONE shell
+# script with NO `set -e`, so a non-zero intermediate command does NOT stop the
+# script — only the LAST command's effect is observed. If the two health checks
+# were separate array elements, `echo STACK_READY` would run unconditionally and
+# the gate would pass on the first poll regardless of actual health. Chain both
+# checks with `&&` into a single command so STACK_READY is emitted ONLY when
+# postgres is healthy AND the settings table exists.
+cat > "$stack_check_json" <<'JSON'
+{"commands":["docker ps --filter name=tokenkey-postgres --filter health=healthy --format '{{.Names}}' | grep -qx tokenkey-postgres && docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tAc \"SELECT to_regclass('public.settings')\" 2>/dev/null | grep -qx settings && echo STACK_READY"]}
+JSON
+stack_ready=false
+stack_deadline=$(( $(date +%s) + 360 ))
+while [[ $(date +%s) -lt $stack_deadline ]]; do
+  chk_id="$(aws ssm send-command --region "$LIGHTSAIL_REGION" --instance-ids "$managed_id" \
+    --document-name AWS-RunShellScript --parameters "file://${stack_check_json}" \
+    --query 'Command.CommandId' --output text 2>/dev/null || true)"
+  if [[ -n "$chk_id" && "$chk_id" != "None" ]]; then
+    sleep 8
+    chk_out="$(aws ssm get-command-invocation --region "$LIGHTSAIL_REGION" \
+      --command-id "$chk_id" --instance-id "$managed_id" \
+      --query 'StandardOutputContent' --output text 2>/dev/null || true)"
+    if grep -q STACK_READY <<<"$chk_out"; then stack_ready=true; break; fi
+  fi
+  sleep 12
+done
+rm -f "$stack_check_json"
+if [[ "$stack_ready" != true ]]; then
+  echo "::error::docker compose stack did not reach ready (tokenkey-postgres healthy + settings table migrated) within timeout; check /var/log/tokenkey-lightsail-bootstrap.log"
+  exit 1
+fi
+echo "docker compose stack healthy on ${managed_id}"
 
 put_param() {
   local name="$1" value="$2"

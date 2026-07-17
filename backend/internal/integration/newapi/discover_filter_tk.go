@@ -66,6 +66,20 @@ type rawDiscoveredModel struct {
 	ProviderUnavailable bool
 }
 
+// RawModelsFromIDs wraps plain model IDs for DiscoveryFilter.Apply (e.g. Vertex
+// ch41 presets that do not come from an upstream GET /v1/models call).
+func RawModelsFromIDs(ids []string) []rawDiscoveredModel {
+	out := make([]rawDiscoveredModel, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		out = append(out, rawDiscoveredModel{ID: id})
+	}
+	return out
+}
+
 // DiscoveryFilter applies the three-step pipeline to a list of raw models
 // fetched from an upstream provider. Both dependencies are nil-safe:
 //   - pricing nil → step [3] tags everything as missing (defensive; in

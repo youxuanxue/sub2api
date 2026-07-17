@@ -6,9 +6,10 @@ import "context"
 // transport policy.
 type HTTPUpstreamProfile string
 
+// SSOT: platform values sourced from domain.Platform* via domain_constants.go.
 const (
 	HTTPUpstreamProfileDefault HTTPUpstreamProfile = ""
-	HTTPUpstreamProfileOpenAI  HTTPUpstreamProfile = "openai"
+	HTTPUpstreamProfileOpenAI  HTTPUpstreamProfile = PlatformOpenAI
 )
 
 type httpUpstreamProfileContextKey struct{}

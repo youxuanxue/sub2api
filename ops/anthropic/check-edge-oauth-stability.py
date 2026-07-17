@@ -30,8 +30,6 @@ TIER_MANAGED_EXTRA_KEYS = frozenset({
     "max_sessions",
     "rpm_sticky_buffer",
     "session_idle_timeout_minutes",
-    "window_cost_limit",
-    "window_cost_sticky_reserve",
     "cache_ttl_override_enabled",
     "cache_ttl_override_target",
 })
@@ -342,8 +340,6 @@ WITH target AS (
     'session_id_masking_enabled',
     'cache_ttl_override_enabled',
     'cache_ttl_override_target',
-    'window_cost_limit',
-    'window_cost_sticky_reserve',
     'custom_base_url_enabled',
     'custom_base_url'
   )
@@ -352,7 +348,7 @@ WITH target AS (
          COALESCE(jsonb_agg(g.id ORDER BY g.id), '[]'::jsonb) AS ids
   FROM target t
   LEFT JOIN account_groups ag ON ag.account_id = t.id
-  LEFT JOIN groups g ON g.id = ag.group_id
+  LEFT JOIN groups g ON g.id = ag.group_id AND g.deleted_at IS NULL
   WHERE g.id IS NOT NULL
 ), tls_profile AS (
   SELECT CASE WHEN p.id IS NULL THEN NULL ELSE jsonb_build_object(
@@ -438,8 +434,6 @@ jsonb_build_object(
       'session_id_masking_enabled',
       'cache_ttl_override_enabled',
       'cache_ttl_override_target',
-      'window_cost_limit',
-      'window_cost_sticky_reserve',
       'custom_base_url_enabled',
       'custom_base_url'
     )
@@ -451,7 +445,7 @@ jsonb_build_object(
     )
     FROM {target_from} t
     LEFT JOIN account_groups ag ON ag.account_id = t.id
-    LEFT JOIN groups g ON g.id = ag.group_id
+    LEFT JOIN groups g ON g.id = ag.group_id AND g.deleted_at IS NULL
     WHERE g.id IS NOT NULL
   ),
   'tls_profile', (
@@ -731,7 +725,7 @@ def generate_sql(edge: dict[str, Any], account_name: str, baseline: dict[str, An
         extra["stability_tier"] = selected_tier
     extra_absent = base.get("extra_absent") or []
     profile = base.get("tls_profile") or {}
-    generated_at = dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
+    generated_at = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 
     profile_name = profile.get("name")
     if not profile_name:

@@ -25,9 +25,9 @@ for the dead snapshots, which needs no embed. check mode still runs in preflight
    --write (anchored regex subn; values are reviewed in the commit diff):
      - backend/internal/pkg/claude/constants.go
          CLICurrentVersion             = "X.Y.Z"
-         DefaultHeaders["User-Agent"]  = "claude-cli/X.Y.Z (external, sdk-cli)"
+         DefaultHeaders["User-Agent"]  = "claude-cli/X.Y.Z (external, cli)"
      - backend/internal/service/identity_service.go
-         defaultFingerprint.UserAgent  = "claude-cli/X.Y.Z (external, sdk-cli)"
+         defaultFingerprint.UserAgent  = "claude-cli/X.Y.Z (external, cli)"
      - backend/internal/service/identity_service_tk_canonical_http.go
          DefaultClaudeCodeUserAgentVersion = "X.Y.Z"
 
@@ -43,6 +43,7 @@ for the dead snapshots, which needs no embed. check mode still runs in preflight
    Before this entry the mirror was hand-cp'd on every bump (PR #579, #593) —
    the same forgotten-copy failure mode this guard exists to kill:
      - backend/internal/baseline/anthropic-http-mimicry-baselines.json
+     - scripts/sentinels/cc-geo-stego-static.json  (cc_version field only)
 
 Exit codes:
   0  — every copy agrees with cc_version.
@@ -58,7 +59,7 @@ Usage:
 
 cc bump workflow (see tokenkey-cc-fingerprint-alignment skill):
   1. edit cc_version in anthropic-http-mimicry-baselines.json  (the ONE hand-edit)
-  2. run this script with --write  (regenerates all 7 copies: 4 Go defaults + 2 dead snapshots + embedded mirror)
+  2. run this script with --write  (regenerates all 8 copies: 4 Go defaults + 2 dead snapshots + embedded mirror + cc-geo-stego registry)
   3. re-run this script (--check)  — must exit 0; preflight enforces it
 """
 from __future__ import annotations
@@ -83,6 +84,7 @@ SMOKE_LIB_SH = REPO_ROOT / "ops" / "stage0" / "smoke_lib.sh"
 EMBEDDED_JSON = (
     REPO_ROOT / "backend" / "internal" / "baseline" / "anthropic-http-mimicry-baselines.json"
 )
+CC_GEO_STEGO_JSON = REPO_ROOT / "scripts" / "sentinels" / "cc-geo-stego-static.json"
 
 SEMVER_RE = re.compile(r"\d+\.\d+\.\d+")
 
@@ -96,11 +98,11 @@ _PARSE_TARGETS = {
     ),
     'constants.go DefaultHeaders["User-Agent"]': (
         CONSTANTS_GO,
-        re.compile(r'"User-Agent":\s*"claude-cli/(\d+\.\d+\.\d+) \(external, sdk-cli\)"'),
+        re.compile(r'"User-Agent":\s*"claude-cli/(\d+\.\d+\.\d+) \(external, cli\)"'),
     ),
     "identity_service.go defaultFingerprint.UserAgent": (
         IDENTITY_GO,
-        re.compile(r'UserAgent:\s*"claude-cli/(\d+\.\d+\.\d+) \(external, sdk-cli\)"'),
+        re.compile(r'UserAgent:\s*"claude-cli/(\d+\.\d+\.\d+) \(external, cli\)"'),
     ),
     "identity_service_tk_canonical_http.go DefaultClaudeCodeUserAgentVersion": (
         CANONICAL_HTTP_GO,
@@ -112,10 +114,22 @@ _PARSE_TARGETS = {
 # takes the new version and returns the full replacement line text. The parse
 # regex captures the current semver for comparison.
 _SMOKE_RE = re.compile(
-    r'(printf \'%s\' "\$\{TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/)(\d+\.\d+\.\d+)( \(external, sdk-cli\)\}")'
+    r'(printf \'%s\' "\$\{TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/)(\d+\.\d+\.\d+)( \(external, cli\)\}")'
 )
 _OBSERVED_UA_RE = re.compile(
-    r'("user_agent":\s*"claude-cli/)(\d+\.\d+\.\d+)( \(external, sdk-cli\)")'
+    r'("user_agent":\s*"claude-cli/)(\d+\.\d+\.\d+)( \(external, cli\)")'
+)
+
+# Canonical egress pins must never regress to the TLS `-p` sdk-cli cohort (PR #1253).
+_SDK_CLI_UA_FORBIDDEN = re.compile(
+    r"claude-cli/\d+\.\d+\.\d+\s+\(external,\s*sdk-cli\)"
+)
+_CANONICAL_UA_PIN_PATHS: tuple[Path, ...] = (
+    CONSTANTS_GO,
+    IDENTITY_GO,
+    CANONICAL_TLS_JSON,
+    SMOKE_LIB_SH,
+    REPO_ROOT / "ops/stage0/probe_account_model.sh",
 )
 
 
@@ -171,6 +185,7 @@ def gather(
     smoke_path: Path = SMOKE_LIB_SH,
     canonical_tls_path: Path = CANONICAL_TLS_JSON,
     embedded_path: Path = EMBEDDED_JSON,
+    cc_geo_path: Path = CC_GEO_STEGO_JSON,
 ) -> list[dict[str, object]]:
     findings: list[dict[str, object]] = []
     for label, (path, regex) in parse_targets.items():
@@ -204,7 +219,38 @@ def gather(
         {"label": "backend/internal/baseline mirror (byte-identical)", "kind": "embedded-mirror",
          "found": embedded_found, "ok": embedded_ok}
     )
+    geo_found = ""
+    geo_ok = False
+    if cc_geo_path.is_file():
+        try:
+            geo_found = str(json.loads(_read(cc_geo_path)).get("cc_version") or "")
+            geo_ok = geo_found == expected
+        except json.JSONDecodeError as exc:
+            geo_found = f"parse error: {exc}"
+    else:
+        geo_found = "(file missing)"
+    findings.append(
+        {
+            "label": f"{_rel(cc_geo_path)} cc_version",
+            "kind": "sentinel-registry",
+            "found": geo_found,
+            "ok": geo_ok,
+        }
+    )
     return findings
+
+
+def check_canonical_ua_suffix_cli(
+    pin_paths: tuple[Path, ...] = _CANONICAL_UA_PIN_PATHS,
+) -> list[str]:
+    """Fail if any canonical egress pin file still carries (external, sdk-cli)."""
+    violations: list[str] = []
+    for path in pin_paths:
+        if not path.is_file():
+            continue
+        if _SDK_CLI_UA_FORBIDDEN.search(_read(path)):
+            violations.append(_rel(path))
+    return violations
 
 
 def _rel(path: Path) -> str:
@@ -257,6 +303,23 @@ def write_embedded_mirror(
     return []
 
 
+def write_cc_geo_stego_registry(
+    expected: str,
+    *,
+    cc_geo_path: Path = CC_GEO_STEGO_JSON,
+) -> list[str]:
+    """Sync cc-geo-stego-static.json cc_version from the baseline SSOT."""
+    if not cc_geo_path.is_file():
+        raise CheckError(f"file not found: {_rel(cc_geo_path)}")
+    data = json.loads(_read(cc_geo_path))
+    current = str(data.get("cc_version") or "")
+    if current == expected:
+        return []
+    data["cc_version"] = expected
+    cc_geo_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return [_rel(cc_geo_path)]
+
+
 def write_go_defaults(
     expected: str,
     *,
@@ -299,13 +362,29 @@ def run_check(args: argparse.Namespace) -> int:
     expected = load_source_version()
     findings = gather(expected)
     drift = [f for f in findings if not f["ok"]]
+    sdk_cli_hits = check_canonical_ua_suffix_cli()
 
     if args.json:
         print(json.dumps(
-            {"expected": expected, "ok": not drift, "findings": findings},
+            {
+                "expected": expected,
+                "ok": not drift and not sdk_cli_hits,
+                "findings": findings,
+                "sdk_cli_suffix_violations": sdk_cli_hits,
+            },
             indent=2, sort_keys=True,
         ))
-        return 1 if drift else 0
+        return 1 if drift or sdk_cli_hits else 0
+
+    if sdk_cli_hits:
+        print(
+            "FAIL: canonical egress UA pins must use (external, cli), not sdk-cli "
+            "(TLS `-p` capture cohort is informational only — PR #1253)",
+            file=sys.stderr,
+        )
+        for hit in sdk_cli_hits:
+            print(f"  {hit}", file=sys.stderr)
+        return 1
 
     if not drift:
         if not args.quiet:
@@ -331,7 +410,12 @@ def run_check(args: argparse.Namespace) -> int:
 
 def run_write(args: argparse.Namespace) -> int:
     expected = load_source_version()
-    changed = write_dead_snapshots(expected) + write_go_defaults(expected) + write_embedded_mirror()
+    changed = (
+        write_dead_snapshots(expected)
+        + write_go_defaults(expected)
+        + write_embedded_mirror()
+        + write_cc_geo_stego_registry(expected)
+    )
     if changed:
         for c in sorted(set(changed)):
             print(f"wrote {c} -> cc_version={expected}")
@@ -366,6 +450,7 @@ def run_selftest() -> int:
         tls = root / "tk.json"
         go_const = root / "constants.go"
         embedded = root / "embedded.json"
+        geo = root / "cc-geo-stego-static.json"
 
         src.write_text(json.dumps({"schema_version": 1, "cc_version": "9.9.9"}), encoding="utf-8")
         # Embedded mirror starts stale (old version + different bytes).
@@ -373,21 +458,22 @@ def run_selftest() -> int:
             json.dumps({"schema_version": 1, "cc_version": "1.0.0"}), encoding="utf-8"
         )
         smoke.write_text(
-            'printf \'%s\' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/1.0.0 (external, sdk-cli)}"\n',
+            'printf \'%s\' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/1.0.0 (external, cli)}"\n',
             encoding="utf-8",
         )
         tls.write_text(
-            json.dumps({"observed": {"user_agent": "claude-cli/1.0.0 (external, sdk-cli)"}}, indent=2),
+            json.dumps({"observed": {"user_agent": "claude-cli/1.0.0 (external, cli)"}}, indent=2),
             encoding="utf-8",
         )
         # Two Go targets in ONE file, to exercise the read-once/rewrite-all path.
         go_const.write_text(
             'const CLICurrentVersion = "1.0.0"\n'
             'var DefaultHeaders = map[string]string{\n'
-            '\t"User-Agent": "claude-cli/1.0.0 (external, sdk-cli)",\n'
+            '\t"User-Agent": "claude-cli/1.0.0 (external, cli)",\n'
             '}\n',
             encoding="utf-8",
         )
+        geo.write_text(json.dumps({"version": 1, "cc_version": "1.0.0"}), encoding="utf-8")
 
         expected = load_source_version(src)
         expect(expected == "9.9.9", f"source version parse: got {expected!r}")
@@ -399,7 +485,7 @@ def run_selftest() -> int:
             ),
             'constants.go DefaultHeaders["User-Agent"]': (
                 go_const,
-                re.compile(r'"User-Agent":\s*"claude-cli/(\d+\.\d+\.\d+) \(external, sdk-cli\)"'),
+                re.compile(r'"User-Agent":\s*"claude-cli/(\d+\.\d+\.\d+) \(external, cli\)"'),
             ),
         }
 
@@ -407,11 +493,12 @@ def run_selftest() -> int:
         findings = gather(
             expected, source_json=src, parse_targets=targets,
             smoke_path=smoke, canonical_tls_path=tls, embedded_path=embedded,
+            cc_geo_path=geo,
         )
         expect(all(not f["ok"] for f in findings), "pre-write: all copies should drift")
 
         # --write regenerates the dead snapshots, rewrites the Go defaults,
-        # AND byte-copies the embedded mirror
+        # byte-copies the embedded mirror, and syncs cc-geo registry
         changed_dead = write_dead_snapshots(expected, smoke_path=smoke, canonical_tls_path=tls)
         expect(len(changed_dead) == 2, f"dead write should change 2 files, got {changed_dead}")
         changed_go = write_go_defaults(expected, parse_targets=targets)
@@ -421,6 +508,8 @@ def run_selftest() -> int:
             len(changed_embedded) == 1,
             f"embedded write should change the mirror, got {changed_embedded}",
         )
+        changed_geo = write_cc_geo_stego_registry(expected, cc_geo_path=geo)
+        expect(len(changed_geo) == 1, f"geo write should change registry, got {changed_geo}")
         expect(
             embedded.read_text(encoding="utf-8") == src.read_text(encoding="utf-8"),
             "embedded mirror must be byte-identical to source after write",
@@ -429,14 +518,16 @@ def run_selftest() -> int:
         findings = gather(
             expected, source_json=src, parse_targets=targets,
             smoke_path=smoke, canonical_tls_path=tls, embedded_path=embedded,
+            cc_geo_path=geo,
         )
-        expect(all(f["ok"] for f in findings), "post-write: all copies (dead + go + embedded) should match")
+        expect(all(f["ok"] for f in findings), "post-write: all copies should match")
 
         # idempotent: a second --write touches nothing
         again = (
             write_dead_snapshots(expected, smoke_path=smoke, canonical_tls_path=tls)
             + write_go_defaults(expected, parse_targets=targets)
             + write_embedded_mirror(source_json=src, embedded_path=embedded)
+            + write_cc_geo_stego_registry(expected, cc_geo_path=geo)
         )
         expect(again == [], f"second write should be a no-op, got {again}")
 
@@ -449,6 +540,7 @@ def run_selftest() -> int:
         findings = gather(
             expected, source_json=src, parse_targets=targets,
             smoke_path=smoke, canonical_tls_path=tls, embedded_path=embedded,
+            cc_geo_path=geo,
         )
         mirror = next(f for f in findings if f["kind"] == "embedded-mirror")
         expect(not mirror["ok"], "byte-only drift (same cc_version) must be caught")
@@ -458,6 +550,15 @@ def run_selftest() -> int:
         expect(
             embedded.read_text(encoding="utf-8") == src.read_text(encoding="utf-8"),
             "embedded mirror must be byte-identical after byte-only heal",
+        )
+
+        bad = root / "bad.go"
+        bad.write_text('UserAgent: "claude-cli/9.9.9 (external, sdk-cli)"\n', encoding="utf-8")
+        sdk_hits = check_canonical_ua_suffix_cli((bad,))
+        expect(len(sdk_hits) == 1 and sdk_hits[0].endswith("bad.go"), f"sdk-cli suffix must be flagged, got {sdk_hits}")
+        expect(
+            check_canonical_ua_suffix_cli((go_const,)) == [],
+            "cli suffix must pass sdk-cli guard",
         )
 
     if failures:

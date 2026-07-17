@@ -17,6 +17,13 @@ type edgeCapacityKeyLookup interface {
 	GetByKey(ctx context.Context, key string) (*service.APIKey, error)
 }
 
+// EdgeCallerAPIKeyCtxKey is the gin context key under which this middleware stashes
+// the authenticated caller *service.APIKey. A downstream edge handler reads it to
+// scope a read to exactly that key's group (the per-stub panel's precise
+// correspondence — see EdgeAccountsHandler.ListAccounts group_scope=caller) without
+// re-looking-up the key. Read-only; the key never leaves the edge.
+const EdgeCallerAPIKeyCtxKey = "edge_caller_apikey"
+
 // NewEdgeCapacityAuthMiddleware authenticates the TokenKey edge capacity endpoint
 // with a DELIBERATELY minimal check: the request must present an x-api-key (or
 // Bearer) that resolves to an active api-key on THIS deployment. It does NOT run
@@ -47,6 +54,10 @@ func NewEdgeCapacityAuthMiddleware(lookup edgeCapacityKeyLookup) gin.HandlerFunc
 				AbortWithError(c, http.StatusUnauthorized, "INVALID_API_KEY", "Invalid API key")
 				return
 			}
+			if IsClientClosedRequestError(c, err) {
+				AbortClientClosedRequest(c, err)
+				return
+			}
 			AbortWithError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to validate API key")
 			return
 		}
@@ -60,6 +71,8 @@ func NewEdgeCapacityAuthMiddleware(lookup edgeCapacityKeyLookup) gin.HandlerFunc
 			return
 		}
 
+		// Expose the authenticated caller key for group-scoped reads (see const doc).
+		c.Set(EdgeCallerAPIKeyCtxKey, apiKey)
 		c.Next()
 	}
 }

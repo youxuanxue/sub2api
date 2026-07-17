@@ -41,14 +41,27 @@ func (s *OpenAIGatewayService) buildOpenAIV1TargetURL(account *Account, segment 
 	case AccountTypeAPIKey:
 		raw := strings.TrimSpace(account.GetOpenAIBaseURL())
 		if raw == "" {
+			if account.IsGrokAPIKey() {
+				return "", fmt.Errorf("grok relay account %d missing base_url", account.ID)
+			}
 			return buildOpenAIV1SegmentURL("", segment), nil
 		}
-		validated, err := s.validateUpstreamBaseURL(raw)
+		validated, err := s.validateUpstreamBaseURLForAccount(account, raw)
 		if err != nil {
 			return "", err
 		}
 		return buildOpenAIV1SegmentURL(validated, segment), nil
 	case AccountTypeOAuth:
+		// Grok (seventh platform) OAuth forwards to api.x.ai/v1 (OpenAI-compatible),
+		// NOT the ChatGPT platform base. The Bearer is the grok OAuth token resolved
+		// by GetAccessToken's grok branch.
+		if account.IsGrokOAuth() {
+			validated, err := s.validateUpstreamBaseURLForAccount(account, strings.TrimSpace(account.GetGrokBaseURL()))
+			if err != nil {
+				return "", err
+			}
+			return buildOpenAIV1SegmentURL(validated, segment), nil
+		}
 		return buildOpenAIV1SegmentURL(openAIPlatformV1Base, segment), nil
 	default:
 		return "", fmt.Errorf("unsupported account type: %s", account.Type)
@@ -165,15 +178,13 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 				Message:            upstreamMsg,
 				Detail:             upstreamDetail,
 			})
-			if s.rateLimitService != nil {
-				s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-			}
+			s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
 			return nil, &UpstreamFailoverError{
 				StatusCode:   resp.StatusCode,
 				ResponseBody: respBody,
 				// TK: 用 account 级判定（含 TK 默认 503/529 + per-account 覆写）而非
 				// 裸 pkg 默认，与其它 pool 路径一致（见 account_tk_pool_retry.go）。
-				RetryableOnSameAccount: account.IsPoolMode() && (account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody)),
+				RetryableOnSameAccount: tkOpenAICompatRetryableOnSameAccount(account, resp.StatusCode, upstreamMsg, respBody, true),
 			}
 		}
 		return s.handleErrorResponse(ctx, resp, c, account, body)
@@ -191,7 +202,7 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 		openAIUsage = *usage.OpenAIUsage
 	}
 
-	if account.Type == AccountTypeOAuth {
+	if account.IsOpenAIOAuth() {
 		if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
 			s.updateCodexUsageSnapshot(ctx, account.ID, snapshot)
 		}

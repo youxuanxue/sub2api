@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -37,4 +39,67 @@ const tkNoAvailableAccountsRetryAfterSeconds = "5"
 func tkNoAvailableAccounts(c *gin.Context) int {
 	c.Header("Retry-After", tkNoAvailableAccountsRetryAfterSeconds)
 	return http.StatusTooManyRequests
+}
+
+// tkSelectFailureStatusMessage maps a FIRST-attempt account-selection error
+// (len(failedAccountIDs)==0, no upstream attempt was made yet) to the
+// client-facing (status, errType, message) triple. errType is the JSON error
+// envelope "type" the caller should write (OpenAI-compat: "invalid_request_error"
+// for 4xx client faults, "api_error" otherwise).
+//
+// Unsupported model — service.ErrUnsupportedModel: the scheduler determined NO
+// account in the pool serves this model NAME (e.g. a legacy/typo'd id like
+// "deepseek-chat" or "qwen-max" when the matched newapi pool only maps
+// "deepseek-v4-pro" / "qwen3.7-*"). That is a CLIENT error, not capacity, so it
+// gets 400 invalid_request_error (parity with the anthropic path's
+// tkWriteUnsupportedModelIfApplicable). Surfacing it as 400 keeps it client-owned
+// (phase=request, out of upstream_error_rate) instead of an empty-pool 429 that
+// reads as a capacity signal and fires ops alerts (prod 2026-06-13: a client
+// hammering unservable deepseek/qwen names produced 8× empty-pool 429). Checked
+// FIRST: ErrUnsupportedModel's message deliberately omits "no available accounts"
+// so isOpsNoAvailableAccountError does not also match it.
+//
+// Empty pool — the "no available accounts" error family, classified by
+// isOpsNoAvailableAccountError, the exact predicate ops logging already uses in
+// markOpsRoutingCapacityLimitedIfNoAvailable — gets the #575 fast-fail
+// semantics: 429 + Retry-After via tkNoAvailableAccounts (see that helper's
+// comment for why 503 melts the node behind Caddy passive health). Any other
+// scheduler failure (DB outage, context errors, ...) keeps 503: those are real
+// service faults, not capacity backoff hints.
+//
+// This converged the openai/newapi compat handlers with the anthropic path,
+// which adopted the 429 semantics in #575; before this helper the two branches
+// of the same handler disagreed (selection==nil → 429, select error → 503).
+func tkSelectFailureStatusMessage(c *gin.Context, err error, reqModel string) (int, string, string) {
+	if errors.Is(err, service.ErrDeprecatedAnthropicModel) {
+		markOpsClientRequestRejected(c)
+		if _, replacement, ok := service.TkLookupDeprecatedAnthropicModel(reqModel); ok {
+			return http.StatusBadRequest, service.TkDeprecatedAnthropicErrorType,
+				service.TkBuildDeprecatedAnthropicMessage(reqModel, replacement)
+		}
+		return http.StatusBadRequest, service.TkDeprecatedAnthropicErrorType, "Model is retired or scheduled for sunset by Anthropic"
+	}
+	if errors.Is(err, service.ErrDeprecatedOpenAIModel) {
+		markOpsClientRequestRejected(c)
+		if _, replacement, ok := service.TkLookupDeprecatedOpenAIModel(reqModel); ok {
+			return http.StatusBadRequest, service.TkDeprecatedOpenAIErrorType,
+				service.TkBuildDeprecatedOpenAIModelMessage(reqModel, replacement)
+		}
+		return http.StatusBadRequest, service.TkDeprecatedOpenAIErrorType, "Model is retired or not selectable"
+	}
+	if errors.Is(err, service.ErrUnsupportedModel) {
+		// Own this to the client in ops regardless of the response envelope
+		// (/responses carries the type in `code`, not `type`).
+		markOpsClientRequestRejected(c)
+		return http.StatusBadRequest, service.TkUnsupportedModelErrType, service.TkUnsupportedModelMessage(reqModel)
+	}
+	if isOpsNoAvailableAccountError(err) {
+		if _, replacement, ok := service.TkLookupDeprecatedAnthropicModel(reqModel); ok {
+			markOpsClientRequestRejected(c)
+			return http.StatusBadRequest, service.TkDeprecatedAnthropicErrorType,
+				service.TkBuildDeprecatedAnthropicMessage(reqModel, replacement)
+		}
+		return tkNoAvailableAccounts(c), "api_error", "No available accounts: " + err.Error()
+	}
+	return http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable"
 }

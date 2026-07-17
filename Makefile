@@ -6,7 +6,11 @@ FRONTEND_CRITICAL_VITEST := \
 	src/views/user/__tests__/PaymentView.spec.ts \
 	src/views/user/__tests__/PaymentResultView.spec.ts \
 	src/components/user/profile/__tests__/ProfileInfoCard.spec.ts \
-	src/views/admin/__tests__/SettingsView.spec.ts
+	src/views/admin/__tests__/SettingsView.spec.ts \
+	src/views/admin/__tests__/DashboardView.spec.ts \
+	src/views/admin/__tests__/UsageView.spec.ts \
+	src/views/user/__tests__/UsageView.spec.ts \
+	src/composables/__tests__/useTkExportPanel.spec.ts
 
 # 一键编译前后端
 build: build-frontend build-backend
@@ -18,10 +22,6 @@ build-backend:
 # 编译前端（需要已安装依赖）
 build-frontend:
 	@pnpm --dir frontend run build
-
-# 编译 datamanagementd（宿主机数据管理进程）
-build-datamanagementd:
-	@cd datamanagement && go build -o datamanagementd ./cmd/datamanagementd
 
 # 运行测试（后端 + 前端）
 test: test-backend test-frontend

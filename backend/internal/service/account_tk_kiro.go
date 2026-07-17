@@ -1,10 +1,14 @@
 package service
 
 import (
+	"context"
+	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 )
 
 // IsKiro reports whether the account is a Kiro (sixth platform) account.
@@ -14,6 +18,120 @@ import (
 // intentionally NOT an OpenAI-compat member.
 func (a *Account) IsKiro() bool {
 	return a.Platform == PlatformKiro
+}
+
+// IsKiroMirrorStub reports whether this account is a prod Anthropic API-key
+// relay stub that represents a downstream edge Kiro pool.
+func (a *Account) IsKiroMirrorStub() bool {
+	if a == nil || a.Platform != PlatformAnthropic || a.Type != AccountTypeAPIKey {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(a.GetCredential("mirror_platform")), PlatformKiro) {
+		return true
+	}
+	name := strings.ToLower(strings.TrimSpace(a.Name))
+	if !strings.HasPrefix(name, "kiro-") {
+		return false
+	}
+	baseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(a.GetCredential("base_url"))), "/")
+	if baseURL != "" {
+		return strings.HasPrefix(baseURL, "https://api-") && strings.HasSuffix(baseURL, ".tokenkey.dev")
+	}
+	// Scheduler snapshots intentionally carry only slim metadata. Older snapshots
+	// may not include mirror_platform/base_url, but prod Kiro mirror stubs are
+	// consistently named kiro-<edge>. Keep this as a narrow compatibility fallback
+	// so model gating does not depend on cache hydration.
+	return true
+}
+
+const KiroDefaultTestModel = "claude-sonnet-4-5"
+
+// KiroAdminTestModels returns the empirically-servable client-facing Claude model
+// IDs for admin account tests and mapping presets. Dated Anthropic snapshot IDs
+// (e.g. claude-haiku-4-5-20251001) are normalized by the Kiro translator before
+// upstream; this list intentionally exposes the short undated IDs operators should
+// pick in the admin UI. Live probe source: ops/stage0/probe_kiro_claude_models.sh
+// (edge us6 account 2 + prod mirror 66, 2026-07-02).
+func KiroAdminTestModels() []claude.Model {
+	return []claude.Model{
+		{
+			ID:          KiroDefaultTestModel,
+			Type:        "model",
+			DisplayName: "Claude Sonnet 4.5",
+			CreatedAt:   "",
+		},
+		{
+			ID:          "claude-haiku-4-5",
+			Type:        "model",
+			DisplayName: "Claude Haiku 4.5",
+			CreatedAt:   "",
+		},
+		{
+			ID:          "claude-sonnet-4-6",
+			Type:        "model",
+			DisplayName: "Claude Sonnet 4.6",
+			CreatedAt:   "",
+		},
+		{
+			ID:          "claude-sonnet-5",
+			Type:        "model",
+			DisplayName: "Claude Sonnet 5",
+			CreatedAt:   "",
+		},
+		{
+			ID:          "claude-opus-4-5",
+			Type:        "model",
+			DisplayName: "Claude Opus 4.5",
+			CreatedAt:   "",
+		},
+		{
+			ID:          "claude-opus-4-6",
+			Type:        "model",
+			DisplayName: "Claude Opus 4.6",
+			CreatedAt:   "",
+		},
+		{
+			ID:          "claude-opus-4-7",
+			Type:        "model",
+			DisplayName: "Claude Opus 4.7",
+			CreatedAt:   "",
+		},
+		{
+			ID:          "claude-opus-4-8",
+			Type:        "model",
+			DisplayName: "Claude Opus 4.8",
+			CreatedAt:   "",
+		},
+	}
+}
+
+// kiroMirrorStubSupportsModel constrains prod Anthropic API-key mirror stubs
+// that forward to the Kiro platform. They intentionally have empty
+// credentials.model_mapping so older menu code could still show a useful
+// catalog, but empty mapping must not mean "all Anthropic models" for routing:
+// the downstream Kiro pool rejects Fable and older Opus ids even when CC API-key
+// accounts in the same Anthropic group can serve them.
+func kiroMirrorStubSupportsModel(requestedModel string) bool {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel == "" {
+		return true
+	}
+	// CC clients often send dated snapshot IDs (claude-haiku-4-5-20251001) while the
+	// Kiro catalog lists short IDs (claude-haiku-4-5). NormalizeModelID only expands
+	// short→dated; DenormalizeModelID collapses dated→short — both must be checked.
+	candidates := []string{
+		requestedModel,
+		claude.NormalizeModelID(requestedModel),
+		claude.DenormalizeModelID(requestedModel),
+	}
+	for _, candidate := range candidates {
+		for _, m := range KiroAdminTestModels() {
+			if candidate == m.ID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // CanonicalKiroTLSProfileName is the name of the TLS fingerprint profile captured
@@ -73,6 +191,23 @@ func (a *Account) GetKiroExpiresAt() *time.Time { return a.GetCredentialAsTime("
 // kiroDefaultRegion is the fallback AWS region used when the account has no
 // explicit region credential.
 const kiroDefaultRegion = "us-east-1"
+
+// PersistKiroProfileArnIfChanged writes a freshly resolved profile_arn back to account
+// credentials so subsequent usage/gateway calls do not repeat ListAvailableProfiles or
+// keep sending a stale ARN that triggers HTTP 400 Invalid profileArn.
+func PersistKiroProfileArnIfChanged(ctx context.Context, repo AccountRepository, account *Account, kiroAcct *kiroproto.Account) {
+	if repo == nil || account == nil || kiroAcct == nil {
+		return
+	}
+	resolved := strings.TrimSpace(kiroAcct.ProfileArn)
+	if resolved == "" || resolved == account.GetKiroProfileArn() {
+		return
+	}
+	merged := MergeCredentials(account.Credentials, map[string]any{"profile_arn": resolved})
+	if err := persistAccountCredentials(ctx, repo, account, merged); err != nil {
+		slog.Warn("persist_kiro_profile_arn_failed", "account_id", account.ID, "error", err)
+	}
+}
 
 // toKiroProtoAccount maps the business Account onto the vendored kiroproto.Account
 // shape consumed by internal/integration/kiro. The vendored ID field is a string,

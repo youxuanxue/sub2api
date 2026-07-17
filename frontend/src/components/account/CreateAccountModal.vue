@@ -51,7 +51,7 @@
         <input
           v-model="form.name"
           type="text"
-          required
+          :required="!isGrokSSOInputMethod"
           class="input"
           :placeholder="t('admin.accounts.enterAccountName')"
           data-tour="account-form-name"
@@ -67,11 +67,23 @@
         ></textarea>
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
+      <div>
+        <label class="input-label">{{ t('admin.accounts.accountEmail') }}</label>
+        <input
+          v-model="accountEmail"
+          type="email"
+          class="input"
+          autocomplete="off"
+          :placeholder="t('admin.accounts.accountEmailPlaceholder')"
+          data-tour="account-form-account-email"
+        />
+        <p class="input-hint">{{ t('admin.accounts.accountEmailHint') }}</p>
+      </div>
 
       <!-- Platform Selection - Segmented Control Style -->
       <div>
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-        <div class="mt-2 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
+        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
           <button
             type="button"
             @click="form.platform = 'anthropic'"
@@ -184,11 +196,35 @@
             <Icon name="sparkles" size="sm" />
             {{ PLATFORM_LABELS.kiro }}
           </button>
+          <!--
+            7th platform: Grok (xAI / SuperGrok Heavy, OAuth refresh_token paste).
+            Slate styling from CREATE_ACCOUNT_PLATFORM_SEGMENT_ACTIVE (single source
+            of truth per CLAUDE.md §5). xAI is OpenAI-wire compatible, so grok reuses
+            the OpenAI-compat forward/scheduling — only the OAuth refresh differs.
+          -->
+          <button
+            type="button"
+            @click="form.platform = 'grok'"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'grok'
+                ? 'bg-white text-zinc-900 shadow-sm dark:bg-dark-600 dark:text-zinc-100'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <Icon name="sparkles" size="sm" />
+            {{ PLATFORM_LABELS.grok }}
+          </button>
         </div>
       </div>
 
       <!-- newapi: channel fields directly under platform picker (avoid scrolling past other platforms). -->
       <div v-if="form.platform === 'newapi'" class="space-y-4">
+        <div
+          class="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-cyan-800 dark:border-cyan-800/40 dark:bg-cyan-900/20 dark:text-cyan-200"
+        >
+          <p>{{ t('admin.accounts.vertexNewapiMediaHint') }}</p>
+        </div>
         <AccountNewApiPlatformFields
           v-model:channelType="newapiChannelType"
           v-model:baseUrl="newapiBaseUrl"
@@ -207,23 +243,95 @@
           :fetch-models-enabled="newapiFetchModelsEnabled"
           :fetch-models-disabled="newapiFetchModelsDisabled"
           :fetch-models-loading="newapiFetchModelsLoading"
+          :hide-transport-credentials="newapiIsVertexServiceAccount"
           variant="create"
           @fetch-models="newapiHandleFetchUpstreamModels"
         />
+        <div
+          v-if="newapiIsVertexServiceAccount"
+          class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        >
+          <p class="mb-3 text-xs text-sky-800 dark:text-sky-200">
+            {{ t('admin.accounts.vertexNewapiServiceAccountHint') }}
+          </p>
+          <VertexServiceAccountFields :fields="vertexSa" variant="create" />
+        </div>
       </div>
 
       <!-- kiro (6th platform): OAuth credential fields directly under platform picker. -->
       <div v-if="form.platform === 'kiro'" class="space-y-4">
-        <AccountKiroPlatformFields
-          v-model:accessToken="kiroAccessToken"
-          v-model:refreshToken="kiroRefreshToken"
-          v-model:region="kiroRegion"
-          v-model:authMethod="kiroAuthMethod"
-          v-model:machineId="kiroMachineId"
-          v-model:clientId="kiroClientId"
-          v-model:clientSecret="kiroClientSecret"
-          v-model:profileArn="kiroProfileArn"
-          v-model:tosAcknowledged="kiroTosAcknowledged"
+        <AccountKiroPlatformFields :fields="kiro.fields" variant="create" />
+      </div>
+
+      <!-- grok (7th platform): OAuth account or prod→edge first-class relay stub. -->
+      <div v-if="form.platform === 'grok'" class="space-y-4">
+        <div>
+          <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
+          <div class="mt-2 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              @click="accountCategory = 'oauth-based'"
+              :class="[
+                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                accountCategory === 'oauth-based'
+                  ? 'border-slate-500 bg-slate-50 dark:bg-slate-900/20'
+                  : 'border-gray-200 hover:border-slate-300 dark:border-dark-600 dark:hover:border-slate-700'
+              ]"
+            >
+              <div
+                :class="[
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                  accountCategory === 'oauth-based'
+                    ? 'bg-slate-700 text-white'
+                    : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                ]"
+              >
+                <Icon name="sparkles" size="sm" />
+              </div>
+              <div>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('admin.accounts.grokPlatform.oauthMode') }}
+                </span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.grokPlatform.oauthModeHint') }}
+                </span>
+              </div>
+            </button>
+            <button
+              type="button"
+              @click="accountCategory = 'apikey'"
+              :class="[
+                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                accountCategory === 'apikey'
+                  ? 'border-slate-500 bg-slate-50 dark:bg-slate-900/20'
+                  : 'border-gray-200 hover:border-slate-300 dark:border-dark-600 dark:hover:border-slate-700'
+              ]"
+            >
+              <div
+                :class="[
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                  accountCategory === 'apikey'
+                    ? 'bg-slate-700 text-white'
+                    : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                ]"
+              >
+                <Icon name="key" size="sm" />
+              </div>
+              <div>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('admin.accounts.grokPlatform.relayMode') }}
+                </span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.grokPlatform.relayModeHint') }}
+                </span>
+              </div>
+            </button>
+          </div>
+        </div>
+        <AccountGrokPlatformFields
+          v-if="accountCategory === 'oauth-based'"
+          v-model:refreshToken="grokRefreshToken"
+          v-model:baseUrl="grokBaseUrl"
           variant="create"
         />
       </div>
@@ -343,8 +451,8 @@
               <Icon name="cloud" size="sm" />
             </div>
             <div>
-              <span class="block text-sm font-medium text-gray-900 dark:text-white">Vertex</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">Service Account</span>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.anthropicVertexLabel') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.vertexDesc') }}</span>
             </div>
           </button>
 
@@ -414,6 +522,65 @@
             </div>
           </button>
 
+        </div>
+      </div>
+
+      <!-- Account Type Selection (Grok) -->
+      <div v-if="form.platform === 'grok'">
+        <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-type">
+          <button
+            type="button"
+            @click="accountCategory = 'oauth-based'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'oauth-based'
+                ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
+                : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'oauth-based'
+                  ? 'bg-zinc-900 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <PlatformIcon platform="grok" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">OAuth</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.types.grokOauth') }}</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            data-testid="grok-account-type-api-key"
+            @click="accountCategory = 'apikey'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'apikey'
+                ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
+                : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'apikey'
+                  ? 'bg-purple-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="key" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">API Key</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.types.responsesApi') }}</span>
+            </div>
+          </button>
         </div>
       </div>
 
@@ -527,10 +694,10 @@
             </div>
             <div>
               <span class="block text-sm font-medium text-gray-900 dark:text-white">
-                Vertex
+                {{ t('admin.accounts.gemini.accountType.vertexTitle') }}
               </span>
               <span class="text-xs text-gray-500 dark:text-gray-400">
-                Service Account
+                {{ t('admin.accounts.gemini.accountType.vertexDesc') }}
               </span>
             </div>
           </button>
@@ -590,18 +757,18 @@
                   Google One
                 </span>
                 <span class="text-xs text-gray-500 dark:text-gray-400">
-                  个人账号，享受 Google One 订阅配额
+                  {{ t('admin.accounts.gemini.oauthType.googleOneDesc') }}
                 </span>
                 <div class="mt-2 flex flex-wrap gap-1">
                   <span
                     class="rounded bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
                   >
-                    推荐个人用户
+                    {{ t('admin.accounts.gemini.oauthType.badges.individuals') }}
                   </span>
                   <span
                     class="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
                   >
-                    无需 GCP
+                    {{ t('admin.accounts.gemini.oauthType.badges.noGcp') }}
                   </span>
                 </div>
               </div>
@@ -633,10 +800,10 @@
                   GCP Code Assist
                 </span>
                 <span class="text-xs text-gray-500 dark:text-gray-400">
-                  企业级，需要 GCP 项目
+                  {{ t('admin.accounts.gemini.oauthType.codeAssistDesc') }}
                 </span>
                 <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  需要激活 GCP 项目并绑定信用卡
+                  {{ t('admin.accounts.gemini.oauthType.codeAssistRequirement') }}
                   <a
                     :href="geminiHelpLinks.gcpProject"
                     class="ml-1 text-blue-600 hover:underline dark:text-blue-400"
@@ -650,12 +817,12 @@
                   <span
                     class="rounded bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
                   >
-                    企业用户
+                    {{ t('admin.accounts.gemini.oauthType.badges.enterprise') }}
                   </span>
                   <span
                     class="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
                   >
-                    高并发
+                    {{ t('admin.accounts.gemini.oauthType.badges.highConcurrency') }}
                   </span>
                 </div>
               </div>
@@ -678,7 +845,13 @@
               >
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
               </svg>
-              <span>{{ showAdvancedOAuth ? '隐藏' : '显示' }}高级选项（自建 OAuth Client）</span>
+              <span>
+                {{
+                  showAdvancedOAuth
+                    ? t('admin.accounts.gemini.oauthType.hideAdvanced')
+                    : t('admin.accounts.gemini.oauthType.showAdvanced')
+                }}
+              </span>
             </button>
           </div>
 
@@ -852,6 +1025,18 @@
         </div>
       </div>
 
+      <div v-if="form.platform === 'antigravity' && antigravityAccountType === 'oauth'">
+        <label class="input-label">{{ t('admin.accounts.antigravityProjectIdLabel') }}</label>
+        <input
+          v-model="antigravityProjectId"
+          data-testid="antigravity-project-id-input"
+          type="text"
+          class="input font-mono"
+          :placeholder="t('admin.accounts.antigravityProjectIdPlaceholder')"
+        />
+        <p class="input-hint">{{ t('admin.accounts.antigravityProjectIdHint') }}</p>
+      </div>
+
       <!-- Upstream config (only for Antigravity upstream type) -->
       <div v-if="form.platform === 'antigravity' && antigravityAccountType === 'upstream'" class="space-y-4">
         <div>
@@ -878,94 +1063,12 @@
         </div>
       </div>
 
-      <!-- Vertex Service Account -->
-      <div v-if="(form.platform === 'gemini' || form.platform === 'anthropic') && accountCategory === 'service_account'" class="space-y-4">
-        <div>
-          <label class="input-label">Service Account JSON</label>
-          <input
-            ref="vertexServiceAccountFileInput"
-            type="file"
-            accept="application/json,.json"
-            class="hidden"
-            @change="handleVertexServiceAccountFile"
-          />
-          <div
-            :class="[
-              'rounded-lg border-2 border-dashed px-4 py-5 transition-colors',
-              vertexServiceAccountDragActive
-                ? 'border-sky-500 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/20'
-                : 'border-gray-300 bg-gray-50 hover:border-sky-400 hover:bg-sky-50/60 dark:border-dark-500 dark:bg-dark-700/40 dark:hover:border-sky-600 dark:hover:bg-sky-900/10'
-            ]"
-            @dragenter.prevent="vertexServiceAccountDragActive = true"
-            @dragover.prevent="vertexServiceAccountDragActive = true"
-            @dragleave.prevent="vertexServiceAccountDragActive = false"
-            @drop.prevent="handleVertexServiceAccountDrop"
-          >
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div class="min-w-0">
-                <div class="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
-                  <Icon name="upload" size="sm" />
-                  <span>{{ vertexClientEmail ? t('admin.accounts.vertexSaJsonLoaded') : t('admin.accounts.vertexSaJsonDrop') }}</span>
-                </div>
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {{ vertexClientEmail ? t('admin.accounts.vertexSaJsonKeyHidden') : t('admin.accounts.vertexSaJsonDropHint') }}
-                </p>
-              </div>
-              <button
-                type="button"
-                class="btn btn-secondary shrink-0"
-                @click="vertexServiceAccountFileInput?.click()"
-              >
-                <Icon name="upload" size="sm" />
-                {{ t('admin.accounts.vertexSaJsonSelectBtn') }}
-              </button>
-            </div>
-            <div
-              v-if="vertexClientEmail"
-              class="mt-3 rounded-md border border-sky-200 bg-white px-3 py-2 text-xs text-sky-900 dark:border-sky-800/50 dark:bg-dark-800 dark:text-sky-200"
-            >
-              <div class="truncate">Project ID: <span class="font-mono">{{ vertexProjectId }}</span></div>
-              <div class="truncate">Client Email: <span class="font-mono">{{ vertexClientEmail }}</span></div>
-            </div>
-          </div>
-          <p class="input-hint">{{ t('admin.accounts.vertexSaJsonUploadHint') }}</p>
-        </div>
-
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label class="input-label">Project ID</label>
-            <input
-              v-model="vertexProjectId"
-              type="text"
-              class="input font-mono"
-              readonly
-              :placeholder="t('admin.accounts.vertexProjectIdPlaceholder')"
-            />
-          </div>
-          <div>
-            <label class="input-label">Location</label>
-            <select
-              v-model="vertexLocation"
-              required
-              class="input font-mono"
-            >
-              <optgroup
-                v-for="group in VERTEX_LOCATION_OPTIONS"
-                :key="group.label"
-                :label="group.label"
-              >
-                <option
-                  v-for="option in group.options"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </optgroup>
-            </select>
-            <p class="input-hint">{{ t('admin.accounts.vertexLocationHint') }}</p>
-          </div>
-        </div>
+      <!-- Vertex Service Account (Gemini / Anthropic native platform) -->
+      <div
+        v-if="(form.platform === 'gemini' || form.platform === 'anthropic') && accountCategory === 'service_account'"
+        class="space-y-4"
+      >
+        <VertexServiceAccountFields :fields="vertexSa" variant="create" />
       </div>
 
       <!-- Antigravity model restriction (applies to OAuth + Upstream) -->
@@ -1105,10 +1208,12 @@
                 ? 'https://api.openai.com'
                 : form.platform === 'gemini'
                   ? 'https://generativelanguage.googleapis.com'
-                  : 'https://api.anthropic.com'
+                  : form.platform === 'grok'
+                    ? 'https://api-us4.tokenkey.dev'
+                    : 'https://api.anthropic.com'
             "
           />
-          <p class="input-hint">{{ baseUrlHint }}</p>
+          <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
@@ -1122,10 +1227,12 @@
                 ? 'sk-proj-...'
                 : form.platform === 'gemini'
                   ? 'AIza...'
-                  : 'sk-ant-...'
+                  : form.platform === 'grok'
+                    ? 'tk-edge-...'
+                    : 'sk-ant-...'
             "
           />
-          <p class="input-hint">{{ apiKeyHint }}</p>
+          <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
         </div>
 
         <!-- Gemini API Key tier selection -->
@@ -1497,6 +1604,50 @@
           </div>
         </div>
 
+        <!-- Header Override Section (anthropic/openai apikey only) -->
+        <div
+          v-if="isHeaderOverrideCapable(form.platform, 'apikey')"
+          class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        >
+          <div class="mb-3 flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.headerOverride.title') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.headerOverride.hint') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="headerOverrideEnabled = !headerOverrideEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                headerOverrideEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  headerOverrideEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <div v-if="headerOverrideEnabled" class="space-y-3">
+            <div class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
+              <p class="text-xs text-blue-700 dark:text-blue-400">
+                <Icon name="exclamationCircle" size="sm" class="mr-1 inline" :stroke-width="2" />
+                {{ t('admin.accounts.headerOverride.info') }}
+              </p>
+            </div>
+
+            <HeaderOverrideEditor
+              :rows="headerOverrideRows"
+              @update:rows="headerOverrideRows = $event"
+            />
+          </div>
+        </div>
+
       </div>
 
       <!-- Bedrock credentials (only for Anthropic Bedrock type) -->
@@ -1861,9 +2012,94 @@
         />
       </div>
 
+      <!-- Grok OAuth Custom Upstream URL (仅改写转发端点，OAuth 授权/刷新不受影响) -->
+      <div
+        v-if="form.platform === 'grok' && isOAuthFlow"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="mb-3 flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.grokCustomBaseUrl.title') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.grokCustomBaseUrl.hint') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="grok-custom-base-url-toggle"
+            @click="grokOAuthCustomBaseUrlEnabled = !grokOAuthCustomBaseUrlEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              grokOAuthCustomBaseUrlEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                grokOAuthCustomBaseUrlEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+        <div v-if="grokOAuthCustomBaseUrlEnabled">
+          <input
+            v-model="grokOAuthBaseUrl"
+            type="text"
+            class="input"
+            data-testid="grok-custom-base-url-input"
+            :placeholder="t('admin.accounts.grokCustomBaseUrl.placeholder')"
+          />
+        </div>
+      </div>
+
+      <!-- Grok OAuth Header Override (OAuth 类型没有 apikey 容器，需要独立区域) -->
+      <div
+        v-if="form.platform === 'grok' && accountCategory === 'oauth-based'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="mb-3 flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.headerOverride.title') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.headerOverride.hint') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="grok-header-override-toggle"
+            @click="headerOverrideEnabled = !headerOverrideEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              headerOverrideEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                headerOverrideEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+
+        <div v-if="headerOverrideEnabled" class="space-y-3">
+          <div class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
+            <p class="text-xs text-blue-700 dark:text-blue-400">
+              <Icon name="exclamationCircle" size="sm" class="mr-1 inline" :stroke-width="2" />
+              {{ t('admin.accounts.headerOverride.info') }}
+            </p>
+          </div>
+
+          <HeaderOverrideEditor
+            :rows="headerOverrideRows"
+            @update:rows="headerOverrideRows = $event"
+          />
+        </div>
+      </div>
+
       <!-- OpenAI OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
       <div
-        v-if="form.platform === 'openai' && accountCategory === 'oauth-based'"
+        v-if="(form.platform === 'openai' || form.platform === 'grok') && isOAuthFlow"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -2177,6 +2413,36 @@
         </div>
       </div>
 
+      <!-- Anthropic OAuth 自动透传开关 -->
+      <div
+        v-if="form.platform === 'anthropic' && accountCategory === 'oauth-based'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.anthropic.oauthPassthrough') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.anthropic.oauthPassthroughDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            @click="anthropicOAuthPassthroughEnabled = !anthropicOAuthPassthroughEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              anthropicOAuthPassthroughEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                anthropicOAuthPassthroughEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+      </div>
+
       <!-- 配额控制 (Anthropic OAuth/SetupToken: 亲和 + 窗口费用 + 会话 + RPM 等) -->
       <div
         v-if="form.platform === 'anthropic' && accountCategory === 'oauth-based'"
@@ -2187,66 +2453,6 @@
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.accounts.quotaControl.hint') }}
           </p>
-        </div>
-
-        <!-- Window Cost Limit -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
-          <div class="mb-3 flex items-center justify-between">
-            <div>
-              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.windowCost.label') }}</label>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.quotaControl.windowCost.hint') }}
-              </p>
-            </div>
-            <button
-              type="button"
-              @click="windowCostEnabled = !windowCostEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                windowCostEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  windowCostEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
-          </div>
-
-          <div v-if="windowCostEnabled" class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.limit') }}</label>
-              <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
-                <input
-                  v-model.number="windowCostLimit"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="input pl-7"
-                  :placeholder="t('admin.accounts.quotaControl.windowCost.limitPlaceholder')"
-                />
-              </div>
-              <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.limitHint') }}</p>
-            </div>
-            <div>
-              <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.stickyReserve') }}</label>
-              <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
-                <input
-                  v-model.number="windowCostStickyReserve"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="input pl-7"
-                  :placeholder="t('admin.accounts.quotaControl.windowCost.stickyReservePlaceholder')"
-                />
-              </div>
-              <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.stickyReserveHint') }}</p>
-            </div>
-          </div>
         </div>
 
         <!-- Session Limit -->
@@ -2568,8 +2774,9 @@
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
-          <input v-model.number="form.concurrency" type="number" min="1" class="input"
-            @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
+          <input v-model.number="form.concurrency" type="number" min="0" class="input"
+            @input="form.concurrency = Math.max(0, form.concurrency || 0)" />
+          <p class="input-hint">{{ t('admin.accounts.concurrencyZeroHint') }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.loadFactor') }}</label>
@@ -2583,7 +2790,7 @@
           <input
             v-model.number="form.priority"
             type="number"
-            min="1"
+            min="0"
             class="input"
             data-tour="account-form-priority"
           />
@@ -2682,6 +2889,24 @@
         </div>
       </div>
 
+      <div
+        v-if="form.platform === 'anthropic' && accountCategory === 'apikey'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.anthropic.apiKeyAuthScheme') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.anthropic.apiKeyAuthSchemeDesc') }}
+            </p>
+          </div>
+          <select v-model="anthropicAPIKeyAuthScheme" class="input w-52 text-sm">
+            <option value="x_api_key">{{ t('admin.accounts.anthropic.apiKeyAuthSchemeXApiKey') }}</option>
+            <option value="authorization_bearer">{{ t('admin.accounts.anthropic.apiKeyAuthSchemeBearer') }}</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
       <div
         v-if="form.platform === 'anthropic' && accountCategory === 'apikey' && webSearchGlobalEnabled"
@@ -2703,6 +2928,38 @@
       </div>
 
       <!-- OpenAI OAuth Codex 官方客户端限制开关 -->
+      <div
+        v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.longContextBilling') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.longContextBillingDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="openai-long-context-billing-toggle"
+            role="switch"
+            :aria-checked="openAILongContextBillingEnabled"
+            @click="toggleOpenAILongContextBilling"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              openAILongContextBillingEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                openAILongContextBillingEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+      </div>
+
       <div
         v-if="form.platform === 'openai' && accountCategory === 'oauth-based'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
@@ -2735,23 +2992,23 @@
           class="mt-4 flex items-center justify-between border-l-2 border-gray-200 pl-4 dark:border-dark-600"
         >
           <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.openai.codexCLIOnlyAllowClaudeCode') }}</label>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.codexCLIOnlyAppServer') }}</label>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.openai.codexCLIOnlyAllowClaudeCodeDesc') }}
+              {{ t('admin.accounts.openai.codexCLIOnlyAppServerDesc') }}
             </p>
           </div>
           <button
             type="button"
-            @click="codexCLIOnlyAllowClaudeCodeEnabled = !codexCLIOnlyAllowClaudeCodeEnabled"
+            @click="codexCLIOnlyAppServerEnabled = !codexCLIOnlyAppServerEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              codexCLIOnlyAllowClaudeCodeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              codexCLIOnlyAppServerEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
             ]"
           >
             <span
               :class="[
                 'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                codexCLIOnlyAllowClaudeCodeEnabled ? 'translate-x-5' : 'translate-x-0'
+                codexCLIOnlyAppServerEnabled ? 'translate-x-5' : 'translate-x-0'
               ]"
             />
           </button>
@@ -2994,14 +3251,19 @@
         :loading="currentOAuthLoading"
         :error="currentOAuthError"
         :show-help="form.platform === 'anthropic'"
-        :show-proxy-warning="form.platform !== 'openai' && !!form.proxy_id"
+        :show-proxy-warning="form.platform !== 'openai' && form.platform !== 'grok' && !!form.proxy_id"
         :allow-multiple="form.platform === 'anthropic'"
         :show-cookie-option="form.platform === 'anthropic'"
-        :show-refresh-token-option="form.platform === 'openai' || form.platform === 'antigravity'"
+        :show-refresh-token-option="form.platform === 'openai' || form.platform === 'antigravity' || form.platform === 'grok'"
         :show-mobile-refresh-token-option="form.platform === 'openai'"
         :show-session-token-option="false"
         :show-access-token-option="false"
         :show-codex-session-import-option="form.platform === 'openai'"
+        :show-agent-identity-option="form.platform === 'openai'"
+        :show-codex-pat-option="form.platform === 'openai'"
+        :show-sso-option="form.platform === 'grok'"
+        :show-manual-option="true"
+        :initial-input-method="'manual'"
         :platform="form.platform"
         :show-project-id="geminiOAuthType === 'code_assist'"
         @generate-url="handleGenerateUrl"
@@ -3010,6 +3272,8 @@
         @validate-mobile-refresh-token="handleOpenAIValidateMobileRT"
         @validate-session-token="handleValidateSessionToken"
         @import-codex-session="handleOpenAIImportCodexSession"
+        @import-codex-pat="handleOpenAIImportCodexPAT"
+        @import-sso="handleGrokImportSSO"
       />
 
     </div>
@@ -3143,7 +3407,7 @@
                 rel="noreferrer"
                 class="text-sm text-blue-600 hover:underline dark:text-blue-400"
               >
-                修改归属地
+                {{ t('admin.accounts.gemini.setupGuide.links.countryChange') }}
               </a>
               <span class="text-gray-400">·</span>
               <a
@@ -3327,11 +3591,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import {
-  claudeModels,
   getPresetMappingsByPlatform,
   getModelsByPlatform,
   commonErrorCodes,
@@ -3339,6 +3602,7 @@ import {
   fetchAntigravityDefaultMappings,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
+import { useServableModels } from '@/composables/useServableModels'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
@@ -3350,6 +3614,7 @@ import {
 import { useOpenAIOAuth } from '@/composables/useOpenAIOAuth'
 import { useGeminiOAuth } from '@/composables/useGeminiOAuth'
 import { useAntigravityOAuth } from '@/composables/useAntigravityOAuth'
+import { useGrokOAuth } from '@/composables/useGrokOAuth'
 import type {
   Proxy,
   AdminGroup,
@@ -3365,31 +3630,50 @@ import type {
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
+import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
-import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
+import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
+import {
+  applyAntigravityProjectID,
+  applyHeaderOverride,
+  applyInterceptWarmup,
+  isHeaderOverrideCapable,
+  validateHeaderOverrideRows,
+  type HeaderOverrideRow
+} from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
-import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
+import { isNewApiVertexServiceAccountChannelType } from '@/constants/newApiChannelTypes.tk'
+import VertexServiceAccountFields from './VertexServiceAccountFields.vue'
+import { useVertexServiceAccountFields } from '@/composables/useVertexServiceAccountFields'
 import { MIRROR_PLATFORM_OPTIONS, type MirrorPlatform } from '@/constants/mirrorPlatformOptions.tk'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
   OPENAI_WS_MODE_PASSTHROUGH,
+  OPENAI_WS_MODE_HTTP_BRIDGE,
   isOpenAIWSModeEnabled,
   resolveOpenAIWSModeConcurrencyHintKey,
   type OpenAIWSMode
 } from '@/utils/openaiWsMode'
+import {
+  isValidAccountEmail,
+  withAccountEmail
+} from '@/utils/accountEmail.tk'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
 import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
 import AccountKiroPlatformFields from './AccountKiroPlatformFields.vue'
 import { useTkAccountKiroPlatform } from '@/composables/useTkAccountKiroPlatform'
+import AccountGrokPlatformFields from './AccountGrokPlatformFields.vue'
+import { useTkAccountGrokPlatform } from '@/composables/useTkAccountGrokPlatform'
 import { PLATFORM_LABELS } from '@/composables/usePlatformOptions'
+import { PLATFORM_ANTHROPIC, PLATFORM_OPENAI, PLATFORM_GEMINI, PLATFORM_ANTIGRAVITY, PLATFORM_NEWAPI, PLATFORM_KIRO, PLATFORM_GROK } from '@/constants/gatewayPlatforms'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -3401,6 +3685,8 @@ interface OAuthFlowExposed {
   refreshToken: string
   sessionToken: string
   codexSession: string
+  codexPAT: string
+  ssoCookie: string
   inputMethod: AuthInputMethod
   reset: () => void
 }
@@ -3409,22 +3695,25 @@ const { t } = useI18n()
 const authStore = useAuthStore()
 
 const oauthStepTitle = computed(() => {
-  if (form.platform === 'openai') return t('admin.accounts.oauth.openai.title')
-  if (form.platform === 'gemini') return t('admin.accounts.oauth.gemini.title')
-  if (form.platform === 'antigravity') return t('admin.accounts.oauth.antigravity.title')
+  if (form.platform === PLATFORM_OPENAI) return t('admin.accounts.oauth.openai.title')
+  if (form.platform === PLATFORM_GEMINI) return t('admin.accounts.oauth.gemini.title')
+  if (form.platform === PLATFORM_ANTIGRAVITY) return t('admin.accounts.oauth.antigravity.title')
+  if (form.platform === PLATFORM_GROK) return t('admin.accounts.oauth.grok.title')
   return t('admin.accounts.oauth.title')
 })
 
 // Platform-specific hints for API Key type
 const baseUrlHint = computed(() => {
-  if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
-  if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
+  if (form.platform === PLATFORM_OPENAI) return t('admin.accounts.openai.baseUrlHint')
+  if (form.platform === PLATFORM_GEMINI) return t('admin.accounts.gemini.baseUrlHint')
+  if (form.platform === PLATFORM_GROK && form.type === 'apikey') return t('admin.accounts.grokPlatform.relayBaseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
-  if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
-  if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
+  if (form.platform === PLATFORM_OPENAI) return t('admin.accounts.openai.apiKeyHint')
+  if (form.platform === PLATFORM_GEMINI) return t('admin.accounts.gemini.apiKeyHint')
+  if (form.platform === PLATFORM_GROK && form.type === 'apikey') return t('admin.accounts.grokPlatform.relayApiKeyHint')
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -3447,33 +3736,38 @@ const oauth = useAccountOAuth() // For Anthropic OAuth
 const openaiOAuth = useOpenAIOAuth() // For OpenAI OAuth
 const geminiOAuth = useGeminiOAuth() // For Gemini OAuth
 const antigravityOAuth = useAntigravityOAuth() // For Antigravity OAuth
+const grokOAuth = useGrokOAuth() // For Grok OAuth
 
 // Computed: current OAuth state for template binding
 const currentAuthUrl = computed(() => {
-  if (form.platform === 'openai') return openaiOAuth.authUrl.value
-  if (form.platform === 'gemini') return geminiOAuth.authUrl.value
-  if (form.platform === 'antigravity') return antigravityOAuth.authUrl.value
+  if (form.platform === PLATFORM_OPENAI) return openaiOAuth.authUrl.value
+  if (form.platform === PLATFORM_GEMINI) return geminiOAuth.authUrl.value
+  if (form.platform === PLATFORM_ANTIGRAVITY) return antigravityOAuth.authUrl.value
+  if (form.platform === PLATFORM_GROK) return grokOAuth.authUrl.value
   return oauth.authUrl.value
 })
 
 const currentSessionId = computed(() => {
-  if (form.platform === 'openai') return openaiOAuth.sessionId.value
-  if (form.platform === 'gemini') return geminiOAuth.sessionId.value
-  if (form.platform === 'antigravity') return antigravityOAuth.sessionId.value
+  if (form.platform === PLATFORM_OPENAI) return openaiOAuth.sessionId.value
+  if (form.platform === PLATFORM_GEMINI) return geminiOAuth.sessionId.value
+  if (form.platform === PLATFORM_ANTIGRAVITY) return antigravityOAuth.sessionId.value
+  if (form.platform === PLATFORM_GROK) return grokOAuth.sessionId.value
   return oauth.sessionId.value
 })
 
 const currentOAuthLoading = computed(() => {
-  if (form.platform === 'openai') return openaiOAuth.loading.value
-  if (form.platform === 'gemini') return geminiOAuth.loading.value
-  if (form.platform === 'antigravity') return antigravityOAuth.loading.value
+  if (form.platform === PLATFORM_OPENAI) return openaiOAuth.loading.value
+  if (form.platform === PLATFORM_GEMINI) return geminiOAuth.loading.value
+  if (form.platform === PLATFORM_ANTIGRAVITY) return antigravityOAuth.loading.value
+  if (form.platform === PLATFORM_GROK) return grokOAuth.loading.value
   return oauth.loading.value
 })
 
 const currentOAuthError = computed(() => {
-  if (form.platform === 'openai') return openaiOAuth.error.value
-  if (form.platform === 'gemini') return geminiOAuth.error.value
-  if (form.platform === 'antigravity') return antigravityOAuth.error.value
+  if (form.platform === PLATFORM_OPENAI) return openaiOAuth.error.value
+  if (form.platform === PLATFORM_GEMINI) return geminiOAuth.error.value
+  if (form.platform === PLATFORM_ANTIGRAVITY) return antigravityOAuth.error.value
+  if (form.platform === PLATFORM_GROK) return grokOAuth.error.value
   return oauth.error.value
 })
 
@@ -3527,9 +3821,19 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+
+// Fill allowedModels with a platform's candidate models. For API-backed
+// platforms this awaits the self-healing fetch (useServableModels) so the
+// fill reflects the live servable list instead of a stale hardcoded array.
+const { ensureLoaded } = useServableModels()
+async function fillAllowedFromPlatform(platform: string): Promise<void> {
+  await ensureLoaded(platform)
+  allowedModels.value = [...getModelsByPlatform(platform)]
+}
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
+const DEFAULT_KIRO_ACCOUNT_PRIORITY = 10
 const poolModeEnabled = ref(false)
 const poolModeRetryCount = ref(DEFAULT_POOL_MODE_RETRY_COUNT)
 const poolModeRetryStatusCodesInput = ref('')
@@ -3553,9 +3857,49 @@ function parsePoolModeRetryStatusCodes(input: string): number[] {
 const customErrorCodesEnabled = ref(false)
 const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
+const headerOverrideEnabled = ref(false)
+const headerOverrideRows = ref<HeaderOverrideRow[]>([])
+
+// Grok OAuth：自定义上游地址（base_url 仅改写转发端点，OAuth 授权/刷新不受影响）
+const grokOAuthCustomBaseUrlEnabled = ref(false)
+const grokOAuthBaseUrl = ref('')
+
+// Grok OAuth 三条创建路径（授权码/RT 批量/SSO 批量）共用的前置校验。
+// 授权码路径必须在兑换 code 之前调用，避免校验失败时白白消耗一次性授权码。
+const validateGrokOAuthUpstreamConfig = (): boolean => {
+  if (grokOAuthCustomBaseUrlEnabled.value) {
+    const trimmed = grokOAuthBaseUrl.value.trim()
+    if (!trimmed) {
+      appStore.showError(t('admin.accounts.grokCustomBaseUrl.required'))
+      return false
+    }
+    if (!/^https?:\/\//i.test(trimmed)) {
+      appStore.showError(t('admin.accounts.grokCustomBaseUrl.invalid'))
+      return false
+    }
+  }
+  if (headerOverrideEnabled.value) {
+    const headerError = validateHeaderOverrideRows(headerOverrideRows.value)
+    if (headerError) {
+      appStore.showError(t(`admin.accounts.headerOverride.${headerError}`))
+      return false
+    }
+  }
+  return true
+}
+
+// 把已通过校验的自定义上游地址与请求头覆写写入 credentials
+const applyGrokOAuthUpstreamConfig = (credentials: Record<string, unknown>) => {
+  if (grokOAuthCustomBaseUrlEnabled.value) {
+    credentials.base_url = grokOAuthBaseUrl.value.trim()
+  }
+  applyHeaderOverride(credentials, headerOverrideEnabled.value, headerOverrideRows.value, 'create')
+}
 const interceptWarmupRequests = ref(false)
 const autoPauseOnExpired = ref(true)
 const openaiPassthroughEnabled = ref(false)
+const openAILongContextBillingEnabled = ref(false)
+const openAILongContextBillingTouched = ref(false)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIMessagesCompactionEnabled = ref(false)
 const openAIMessagesCompactionInputTokensThreshold = ref<number | null>(null)
@@ -3564,10 +3908,18 @@ const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_comple
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
-const codexCLIOnlyAllowClaudeCodeEnabled = ref(false)
+const codexCLIOnlyAppServerEnabled = ref(false)
+type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
 const anthropicPassthroughEnabled = ref(false)
+const anthropicOAuthPassthroughEnabled = ref(false)
+const anthropicAPIKeyAuthScheme = ref<AnthropicAPIKeyAuthScheme>('x_api_key')
 const webSearchEmulationMode = ref('default')
 const webSearchGlobalEnabled = ref(false)
+
+const toggleOpenAILongContextBilling = () => {
+  openAILongContextBillingEnabled.value = !openAILongContextBillingEnabled.value
+  openAILongContextBillingTouched.value = true
+}
 const {
   globalEnabled: quotaNotifyGlobalEnabled,
   state: quotaNotifyState,
@@ -3584,6 +3936,7 @@ loadQuotaNotifyGlobal()
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
 const antigravityAccountType = ref<'oauth' | 'upstream'>('oauth') // For antigravity: oauth or upstream
+const antigravityProjectId = ref('')
 const upstreamBaseUrl = ref('') // For upstream type: base URL
 const upstreamApiKey = ref('') // For upstream type: API key
 const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
@@ -3600,12 +3953,7 @@ const bedrockSessionToken = ref('')
 const bedrockRegion = ref('us-east-1')
 const bedrockForceGlobal = ref(false)
 const bedrockApiKeyValue = ref('')
-const vertexServiceAccountFileInput = ref<HTMLInputElement | null>(null)
-const vertexServiceAccountJson = ref('')
-const vertexProjectId = ref('')
-const vertexClientEmail = ref('')
-const vertexLocation = ref('global')
-const vertexServiceAccountDragActive = ref(false)
+const vertexSa = useVertexServiceAccountFields()
 
 // 第五平台 newapi 的全部表单状态 + 副作用（catalog / fetch / 校验 / 提交拼装）
 // 都收口在 composable，让本上游大文件保持「模板 + wiring」形态。
@@ -3630,26 +3978,28 @@ const {
   bootstrap: newapiBootstrap,
   reset: newapiReset,
   buildSubmitBundle: newapiBuildSubmitBundle,
+  buildAuxiliaryCredentials: newapiBuildAuxiliaryCredentials,
   handleFetchUpstreamModels: newapiHandleFetchUpstreamModels,
+  applyChannelTypePresetModelsIfEmpty: newapiApplyChannelPresetIfEmpty,
 } = useTkAccountNewApiPlatform({
-  isNewapi: () => form.platform === 'newapi',
+  isNewapi: () => form.platform === PLATFORM_NEWAPI,
 })
+
+const newapiIsVertexServiceAccount = computed(() =>
+  isNewApiVertexServiceAccountChannelType(newapiChannelType.value)
+)
 
 // 第六平台 kiro 的全部表单状态 + 校验 + credentials 拼装收口在 composable，
 // 让本上游大文件保持「模板 + wiring」形态。
+const kiro = useTkAccountKiroPlatform()
+
+// 第七平台 grok 的表单状态 + 校验 + credentials 拼装收口在 composable。
 const {
-  accessToken: kiroAccessToken,
-  refreshToken: kiroRefreshToken,
-  region: kiroRegion,
-  authMethod: kiroAuthMethod,
-  machineId: kiroMachineId,
-  clientId: kiroClientId,
-  clientSecret: kiroClientSecret,
-  profileArn: kiroProfileArn,
-  tosAcknowledged: kiroTosAcknowledged,
-  reset: kiroReset,
-  buildSubmitBundle: kiroBuildSubmitBundle,
-} = useTkAccountKiroPlatform()
+  refreshToken: grokRefreshToken,
+  baseUrl: grokBaseUrl,
+  reset: grokReset,
+  buildSubmitBundle: grokBuildSubmitBundle,
+} = useTkAccountGrokPlatform()
 
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
@@ -3742,7 +4092,7 @@ const normalizeOpenAIMessagesCompactionThreshold = (): number | null => {
 }
 
 const validateOpenAIMessagesCompactionForm = (): boolean => {
-  if (form.platform !== 'openai') {
+  if (form.platform !== PLATFORM_OPENAI) {
     return true
   }
   if (!openAIMessagesCompactionEnabled.value) {
@@ -3766,9 +4116,6 @@ const showAdvancedOAuth = ref(false)
 const showGeminiHelpDialog = ref(false)
 
 // Quota control state (Anthropic OAuth/SetupToken only)
-const windowCostEnabled = ref(false)
-const windowCostLimit = ref<number | null>(null)
-const windowCostStickyReserve = ref<number | null>(null)
 const sessionLimitEnabled = ref(false)
 const maxSessions = ref<number | null>(null)
 const sessionIdleTimeout = ref<number | null>(null)
@@ -3797,7 +4144,7 @@ const geminiTierGcp = ref<'gcp_standard' | 'gcp_enterprise'>('gcp_standard')
 const geminiTierAIStudio = ref<'aistudio_free' | 'aistudio_paid'>('aistudio_free')
 
 const geminiSelectedTier = computed(() => {
-  if (form.platform !== 'gemini') return ''
+  if (form.platform !== PLATFORM_GEMINI) return ''
   if (accountCategory.value === 'apikey') return geminiTierAIStudio.value
   switch (geminiOAuthType.value) {
     case 'google_one':
@@ -3812,18 +4159,19 @@ const geminiSelectedTier = computed(() => {
 const openAIWSModeOptions = computed(() => [
   { value: OPENAI_WS_MODE_OFF, label: t('admin.accounts.openai.wsModeOff') },
   { value: OPENAI_WS_MODE_CTX_POOL, label: t('admin.accounts.openai.wsModeCtxPool') },
-  { value: OPENAI_WS_MODE_PASSTHROUGH, label: t('admin.accounts.openai.wsModePassthrough') }
+  { value: OPENAI_WS_MODE_PASSTHROUGH, label: t('admin.accounts.openai.wsModePassthrough') },
+  { value: OPENAI_WS_MODE_HTTP_BRIDGE, label: t('admin.accounts.openai.wsModeHttpBridge') }
 ])
 
 const openaiResponsesWebSocketV2Mode = computed({
   get: () => {
-    if (form.platform === 'openai' && accountCategory.value === 'apikey') {
+    if (form.platform === PLATFORM_OPENAI && accountCategory.value === 'apikey') {
       return openaiAPIKeyResponsesWebSocketV2Mode.value
     }
     return openaiOAuthResponsesWebSocketV2Mode.value
   },
   set: (mode: OpenAIWSMode) => {
-    if (form.platform === 'openai' && accountCategory.value === 'apikey') {
+    if (form.platform === PLATFORM_OPENAI && accountCategory.value === 'apikey') {
       openaiAPIKeyResponsesWebSocketV2Mode.value = mode
       return
     }
@@ -3836,7 +4184,7 @@ const openAIWSModeConcurrencyHintKey = computed(() =>
 )
 
 const isOpenAIModelRestrictionDisabled = computed(() =>
-  form.platform === 'openai' && openaiPassthroughEnabled.value
+  form.platform === PLATFORM_OPENAI && openaiPassthroughEnabled.value
 )
 
 const mixedChannelWarningMessageText = computed(() => {
@@ -3908,26 +4256,63 @@ const form = reactive({
   expires_at: null as number | null
 })
 
+watch(
+  () => form.platform,
+  (platform) => {
+    if (platform === PLATFORM_NEWAPI) {
+      newapiBootstrap()
+      void newapiApplyChannelPresetIfEmpty()
+    }
+  }
+)
+
+watch(newapiChannelType, () => {
+  if (form.platform === PLATFORM_NEWAPI) {
+    void newapiApplyChannelPresetIfEmpty()
+  }
+})
+
+const accountEmail = ref('')
+
+const prefillAccountEmailFromToken = (tokenInfo: Record<string, unknown> | null | undefined) => {
+  if (!tokenInfo || accountEmail.value.trim()) {
+    return
+  }
+  const fromAddress = typeof tokenInfo.email_address === 'string' ? tokenInfo.email_address.trim() : ''
+  const fromEmail = typeof tokenInfo.email === 'string' ? tokenInfo.email.trim() : ''
+  const resolved = fromAddress || fromEmail
+  if (resolved) {
+    accountEmail.value = resolved
+  }
+}
+
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
   // Antigravity upstream 类型不需要 OAuth 流程
-  if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
+  if (form.platform === PLATFORM_ANTIGRAVITY && antigravityAccountType.value === 'upstream') {
     return false
   }
   // Bedrock 类型不需要 OAuth 流程
-  if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
+  if (form.platform === PLATFORM_ANTHROPIC && accountCategory.value === 'bedrock') {
     return false
   }
   // newapi (5th platform) is API-key only — no OAuth flow.
-  if (form.platform === 'newapi') {
+  if (form.platform === PLATFORM_NEWAPI) {
     return false
   }
   // kiro (6th platform) creates by pasting OAuth tokens directly — no interactive OAuth step.
-  if (form.platform === 'kiro') {
+  if (form.platform === PLATFORM_KIRO) {
+    return false
+  }
+  // grok (7th platform) creates by pasting a refresh_token — no interactive OAuth step
+  // (xAI's public client is loopback-only; the token is minted out-of-band).
+  if (form.platform === PLATFORM_GROK) {
     return false
   }
   return accountCategory.value === 'oauth-based'
 })
+
+const isGrokSSOInputMethod = computed(() => form.platform === 'grok' && oauthFlowRef.value?.inputMethod === 'sso_cookie')
 
 const isManualInputMethod = computed(() => {
   return oauthFlowRef.value?.inputMethod === 'manual'
@@ -3942,72 +4327,99 @@ const expiresAtInput = computed({
 
 const canExchangeCode = computed(() => {
   const authCode = oauthFlowRef.value?.authCode || ''
-  if (form.platform === 'openai') {
+  if (form.platform === PLATFORM_OPENAI) {
     return authCode.trim() && openaiOAuth.sessionId.value && !openaiOAuth.loading.value
   }
-  if (form.platform === 'gemini') {
+  if (form.platform === PLATFORM_GEMINI) {
     return authCode.trim() && geminiOAuth.sessionId.value && !geminiOAuth.loading.value
   }
-  if (form.platform === 'antigravity') {
+  if (form.platform === PLATFORM_ANTIGRAVITY) {
     return authCode.trim() && antigravityOAuth.sessionId.value && !antigravityOAuth.loading.value
+  }
+  if (form.platform === PLATFORM_GROK) {
+    return authCode.trim() && grokOAuth.sessionId.value && !grokOAuth.loading.value
   }
   return authCode.trim() && oauth.sessionId.value && !oauth.loading.value
 })
 
 // Watchers
+// Extracted so the lazy-mount path (#900) can run the exact same load when the
+// modal is CREATED with props.show already true — the show-watch below is NOT
+// { immediate: true } (the loaders are const-declared after it → TDZ), so onMounted
+// mirrors this branch. Keep this body identical to the show-became-true branch.
+const onShown = () => {
+  // Load TLS fingerprint profiles
+  adminAPI.tlsFingerprintProfiles.list()
+    .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
+    .catch(() => { tlsFingerprintProfiles.value = [] })
+  // Modal opened - fill related models (self-healing for API-backed platforms)
+  void fillAllowedFromPlatform(form.platform)
+  // 第五平台 newapi：触发一次（已缓存）的 channel-type catalog 加载
+  newapiBootstrap()
+  // Antigravity: 默认使用映射模式并填充默认映射
+  if (form.platform === PLATFORM_ANTIGRAVITY) {
+    antigravityModelRestrictionMode.value = 'mapping'
+    fetchAntigravityDefaultMappings().then(mappings => {
+      antigravityModelMappings.value = [...mappings]
+    })
+    antigravityWhitelistModels.value = []
+  } else {
+    antigravityWhitelistModels.value = []
+    antigravityModelMappings.value = []
+    antigravityModelRestrictionMode.value = 'mapping'
+  }
+}
+
 watch(
   () => props.show,
   (newVal) => {
     if (newVal) {
-      // Load TLS fingerprint profiles
-      adminAPI.tlsFingerprintProfiles.list()
-        .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
-        .catch(() => { tlsFingerprintProfiles.value = [] })
-      // Modal opened - fill related models
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
-      // 第五平台 newapi：触发一次（已缓存）的 channel-type catalog 加载
-      newapiBootstrap()
-      // Antigravity: 默认使用映射模式并填充默认映射
-      if (form.platform === 'antigravity') {
-        antigravityModelRestrictionMode.value = 'mapping'
-        fetchAntigravityDefaultMappings().then(mappings => {
-          antigravityModelMappings.value = [...mappings]
-        })
-        antigravityWhitelistModels.value = []
-      } else {
-        antigravityWhitelistModels.value = []
-        antigravityModelMappings.value = []
-        antigravityModelRestrictionMode.value = 'mapping'
-      }
+      onShown()
     } else {
       resetForm()
     }
   }
 )
 
+// #900 lazy-mount fix: AccountsView/UsersView lazy-mount this modal with props.show
+// already true on first open, so the (non-immediate) show-watch above never fires
+// for that first open and the data never loads. Run the same load on mount when
+// already shown. onMounted fires once at mount only (not on reopen — reopen toggles
+// show and is handled by the watch), so there is no double-load on a single open.
+onMounted(() => {
+  if (props.show) {
+    onShown()
+  }
+})
+
 // Sync form.type based on accountCategory, addMethod, and platform-specific type
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
     // Antigravity upstream 类型（实际创建为 apikey）
-    if (form.platform === 'antigravity' && agType === 'upstream') {
+    if (form.platform === PLATFORM_ANTIGRAVITY && agType === 'upstream') {
       form.type = 'apikey'
       return
     }
     // Bedrock 类型
-    if (form.platform === 'anthropic' && category === 'bedrock') {
+    if (form.platform === PLATFORM_ANTHROPIC && category === 'bedrock') {
       form.type = 'bedrock' as AccountType
       return
     }
     // kiro (6th platform): always oauth type (token paste), regardless of addMethod.
-    if (form.platform === 'kiro') {
+    if (form.platform === PLATFORM_KIRO) {
       form.type = 'oauth'
       return
     }
-    if ((form.platform === 'gemini' || form.platform === 'anthropic') && category === 'service_account') {
+    // grok (7th platform): OAuth refresh_token or first-class API-key relay stub.
+    if (form.platform === PLATFORM_GROK) {
+      form.type = category === 'apikey' ? 'apikey' : 'oauth'
+      return
+    }
+    if ((form.platform === PLATFORM_GEMINI || form.platform === PLATFORM_ANTHROPIC) && category === 'service_account') {
       form.type = 'service_account' as AccountType
     } else if (category === 'oauth-based') {
-      form.type = method as AccountType // 'oauth' or 'setup-token'
+      form.type = form.platform === PLATFORM_ANTHROPIC ? method as AccountType : 'oauth'
     } else {
       form.type = 'apikey'
     }
@@ -4021,16 +4433,18 @@ watch(
   (newPlatform) => {
     // Reset base URL based on platform
     apiKeyBaseUrl.value =
-      (newPlatform === 'openai')
+      (newPlatform === PLATFORM_OPENAI)
         ? 'https://api.openai.com'
-        : newPlatform === 'gemini'
+        : newPlatform === PLATFORM_GEMINI
           ? 'https://generativelanguage.googleapis.com'
-          : 'https://api.anthropic.com'
+          : newPlatform === PLATFORM_GROK
+            ? ''
+            : 'https://api.anthropic.com'
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
     // Antigravity: 默认使用映射模式并填充默认映射
-    if (newPlatform === 'antigravity') {
+    if (newPlatform === PLATFORM_ANTIGRAVITY) {
       antigravityModelRestrictionMode.value = 'mapping'
       fetchAntigravityDefaultMappings().then(mappings => {
         antigravityModelMappings.value = [...mappings]
@@ -4038,7 +4452,7 @@ watch(
       antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
-    } else if (newPlatform === 'newapi') {
+    } else if (newPlatform === PLATFORM_NEWAPI) {
       // D1: newapi 是 apikey-only，把 accountCategory 翻到 apikey 让 watcher A
       // 把 form.type 同步成 'apikey'，与 submit 路径硬编码的 type:'apikey'
       // 对齐；否则路径 1 (fresh open + 直接点 NewAPI) 会因 form.type='oauth'
@@ -4050,11 +4464,20 @@ watch(
       antigravityModelRestrictionMode.value = 'mapping'
       // newapi 自身的字段重置由 composable.reset() 在 resetForm 中负责，
       // 平台切换不清除已填字段（避免误触切换造成数据丢失）。
-    } else if (newPlatform === 'kiro') {
+    } else if (newPlatform === PLATFORM_KIRO) {
       // 第六平台 kiro：oauth-token 直填，accountCategory 设为 oauth-based 让
       // watcher A 把 form.type 同步成 'oauth'（与后端 type=oauth 契约对齐），
       // 同时避免渲染通用 apikey / 配额块。kiro 字段重置由 composable.reset()
       // 在 resetForm 中负责，平台切换不清除已填字段。
+      accountCategory.value = 'oauth-based'
+      form.priority = DEFAULT_KIRO_ACCOUNT_PRIORITY
+      allowOverages.value = false
+      antigravityWhitelistModels.value = []
+      antigravityModelMappings.value = []
+      antigravityModelRestrictionMode.value = 'mapping'
+    } else if (newPlatform === PLATFORM_GROK) {
+      // 第七平台 grok 默认创建 OAuth 账号；需要 prod→edge relay stub 时可切到
+      // API Key，提交 platform=grok,type=apikey。
       accountCategory.value = 'oauth-based'
       allowOverages.value = false
       antigravityWhitelistModels.value = []
@@ -4062,14 +4485,22 @@ watch(
       antigravityModelRestrictionMode.value = 'mapping'
     } else {
       allowOverages.value = false
+      antigravityProjectId.value = ''
       antigravityWhitelistModels.value = []
       antigravityModelMappings.value = []
       antigravityModelRestrictionMode.value = 'mapping'
     }
-    if (newPlatform !== 'gemini' && newPlatform !== 'anthropic' && accountCategory.value === 'service_account') {
+    if (newPlatform === PLATFORM_GROK) {
+      accountCategory.value = 'oauth-based'
+      addMethod.value = 'oauth'
+      modelRestrictionMode.value = 'mapping'
+      form.concurrency = 1
+      form.load_factor = null
+    }
+    if (newPlatform !== PLATFORM_GEMINI && newPlatform !== PLATFORM_ANTHROPIC && accountCategory.value === 'service_account') {
       accountCategory.value = 'oauth-based'
     }
-    if (newPlatform !== 'anthropic' && accountCategory.value === 'bedrock') {
+    if (newPlatform !== PLATFORM_ANTHROPIC && accountCategory.value === 'bedrock') {
       accountCategory.value = 'oauth-based'
     }
     // Reset Bedrock fields when switching platforms
@@ -4080,15 +4511,12 @@ watch(
     bedrockForceGlobal.value = false
     bedrockAuthMode.value = 'sigv4'
     bedrockApiKeyValue.value = ''
-    vertexServiceAccountJson.value = ''
-    vertexProjectId.value = ''
-    vertexClientEmail.value = ''
-    vertexLocation.value = 'global'
+    vertexSa.reset()
     // Reset Anthropic/Antigravity-specific settings when switching to other platforms
-    if (newPlatform !== 'anthropic' && newPlatform !== 'antigravity') {
+    if (newPlatform !== PLATFORM_ANTHROPIC && newPlatform !== PLATFORM_ANTIGRAVITY) {
       interceptWarmupRequests.value = false
     }
-    if (newPlatform !== 'openai') {
+    if (newPlatform !== PLATFORM_OPENAI) {
       openaiPassthroughEnabled.value = false
       openAIMessagesCompactionEnabled.value = false
       openAIMessagesCompactionInputTokensThreshold.value = null
@@ -4096,18 +4524,27 @@ watch(
       openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       codexCLIOnlyEnabled.value = false
-      codexCLIOnlyAllowClaudeCodeEnabled.value = false
+      codexCLIOnlyAppServerEnabled.value = false
     }
-    if (newPlatform !== 'anthropic') {
+    if (newPlatform !== PLATFORM_ANTHROPIC) {
       anthropicPassthroughEnabled.value = false
+  anthropicOAuthPassthroughEnabled.value = false
+      anthropicAPIKeyAuthScheme.value = 'x_api_key'
       webSearchEmulationMode.value = 'default'
     }
+    // 请求头覆写为平台相关配置（常用头集合不同），切换平台时清空，
+    // 避免上一平台的配置行被提交到新平台账号
+    headerOverrideEnabled.value = false
+    headerOverrideRows.value = []
+    grokOAuthCustomBaseUrlEnabled.value = false
+    grokOAuthBaseUrl.value = ''
     // Reset OAuth states
     oauth.resetState()
     openaiOAuth.resetState()
 
     geminiOAuth.resetState()
     antigravityOAuth.resetState()
+    grokOAuth.resetState()
   }
 )
 
@@ -4115,12 +4552,14 @@ watch(
 watch(
   [accountCategory, () => form.platform],
   ([category, platform]) => {
-    if (platform === 'openai' && category !== 'oauth-based') {
+    if (platform === PLATFORM_OPENAI && category !== 'oauth-based') {
       codexCLIOnlyEnabled.value = false
-      codexCLIOnlyAllowClaudeCodeEnabled.value = false
+      codexCLIOnlyAppServerEnabled.value = false
     }
-    if (platform !== 'anthropic' || category !== 'apikey') {
+    if (platform !== PLATFORM_ANTHROPIC || category !== 'apikey') {
       anthropicPassthroughEnabled.value = false
+  anthropicOAuthPassthroughEnabled.value = false
+      anthropicAPIKeyAuthScheme.value = 'x_api_key'
       webSearchEmulationMode.value = 'default'
     }
   }
@@ -4129,7 +4568,7 @@ watch(
 watch(
   [() => props.show, () => form.platform, accountCategory],
   async ([show, platform, category]) => {
-    if (!show || platform !== 'gemini' || category !== 'oauth-based') {
+    if (!show || platform !== PLATFORM_GEMINI || category !== 'oauth-based') {
       geminiAIStudioOAuthEnabled.value = false
       return
     }
@@ -4155,7 +4594,7 @@ watch(
   [modelRestrictionMode, () => form.platform],
   ([newMode]) => {
     if (newMode === 'whitelist') {
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      void fillAllowedFromPlatform(form.platform)
     }
   }
 )
@@ -4163,7 +4602,7 @@ watch(
 watch(
   [antigravityModelRestrictionMode, () => form.platform],
   ([, platform]) => {
-    if (platform !== 'antigravity') return
+    if (platform !== PLATFORM_ANTIGRAVITY) return
     // Antigravity 默认不做限制：白名单留空表示允许所有（包含未来新增模型）。
     // 如果需要快速填充常用模型，可在组件内点“填充相关模型”。
   }
@@ -4346,7 +4785,7 @@ const splitTempUnschedKeywords = (value: string) => {
     .filter((item) => item.length > 0)
 }
 
-const needsMixedChannelCheck = (platform: AccountPlatform) => platform === 'antigravity' || platform === 'anthropic'
+const needsMixedChannelCheck = (platform: AccountPlatform) => platform === PLATFORM_ANTIGRAVITY || platform === PLATFORM_ANTHROPIC
 
 const buildMixedChannelDetails = (resp?: CheckMixedChannelResponse) => {
   const details = resp?.details
@@ -4422,9 +4861,14 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
 }
 
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
+  if (!isValidAccountEmail(accountEmail.value)) {
+    appStore.showError(t('admin.accounts.invalidAccountEmail'))
+    return
+  }
+  const finalPayload = withAccountEmail(payload, accountEmail.value)
   submitting.value = true
   try {
-    await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
+    await adminAPI.accounts.create(withAntigravityConfirmFlag(finalPayload))
     appStore.showSuccess(t('admin.accounts.accountCreated'))
     emit('created')
     handleClose()
@@ -4450,6 +4894,7 @@ const resetForm = () => {
   step.value = 1
   form.name = ''
   form.notes = ''
+  accountEmail.value = ''
   form.platform = 'anthropic'
   form.type = 'oauth'
   form.credentials = {}
@@ -4477,7 +4922,7 @@ const resetForm = () => {
   modelMappings.value = []
   openAICompactModelMappings.value = []
   modelRestrictionMode.value = 'whitelist'
-  allowedModels.value = [...claudeModels] // Default fill related models
+  void fillAllowedFromPlatform('claude') // Default fill related models (self-healing)
 
   antigravityModelRestrictionMode.value = 'mapping'
   antigravityWhitelistModels.value = []
@@ -4490,9 +4935,15 @@ const resetForm = () => {
   customErrorCodesEnabled.value = false
   selectedErrorCodes.value = []
   customErrorCodeInput.value = null
+  headerOverrideEnabled.value = false
+  headerOverrideRows.value = []
+  grokOAuthCustomBaseUrlEnabled.value = false
+  grokOAuthBaseUrl.value = ''
   interceptWarmupRequests.value = false
   autoPauseOnExpired.value = true
   openaiPassthroughEnabled.value = false
+  openAILongContextBillingEnabled.value = false
+  openAILongContextBillingTouched.value = false
   openAICompactMode.value = 'auto'
   openAIMessagesCompactionEnabled.value = false
   openAIMessagesCompactionInputTokensThreshold.value = null
@@ -4501,13 +4952,12 @@ const resetForm = () => {
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
-  codexCLIOnlyAllowClaudeCodeEnabled.value = false
+  codexCLIOnlyAppServerEnabled.value = false
   anthropicPassthroughEnabled.value = false
+  anthropicOAuthPassthroughEnabled.value = false
+  anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
   // Reset quota control state
-  windowCostEnabled.value = false
-  windowCostLimit.value = null
-  windowCostStickyReserve.value = null
   sessionLimitEnabled.value = false
   maxSessions.value = null
   sessionIdleTimeout.value = null
@@ -4525,12 +4975,16 @@ const resetForm = () => {
   customBaseUrl.value = ''
   allowOverages.value = false
   antigravityAccountType.value = 'oauth'
+  antigravityProjectId.value = ''
   upstreamBaseUrl.value = ''
   upstreamApiKey.value = ''
   // 第五平台 newapi 字段重置由 composable 统一管理
   newapiReset()
+  vertexSa.reset()
   // 第六平台 kiro 字段重置由 composable 统一管理
-  kiroReset()
+  kiro.reset()
+  // 第七平台 grok 字段重置由 composable 统一管理
+  grokReset()
   tempUnschedEnabled.value = false
   tempUnschedRules.value = []
   geminiOAuthType.value = 'code_assist'
@@ -4541,6 +4995,7 @@ const resetForm = () => {
   openaiOAuth.resetState()
   geminiOAuth.resetState()
   antigravityOAuth.resetState()
+  grokOAuth.resetState()
   oauthFlowRef.value?.reset()
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
@@ -4553,7 +5008,7 @@ const handleClose = () => {
 }
 
 const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
-  if (form.platform !== 'openai') {
+  if (form.platform !== PLATFORM_OPENAI) {
     return base
   }
 
@@ -4574,20 +5029,22 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
     delete extra.openai_passthrough
     delete extra.openai_oauth_passthrough
   }
+  extra.openai_long_context_billing_enabled = openAILongContextBillingEnabled.value
 
   if (accountCategory.value === 'oauth-based' && codexCLIOnlyEnabled.value) {
     extra.codex_cli_only = true
   } else {
     delete extra.codex_cli_only
   }
+  delete extra.codex_cli_only_allowed_clients
   if (
     accountCategory.value === 'oauth-based' &&
     codexCLIOnlyEnabled.value &&
-    codexCLIOnlyAllowClaudeCodeEnabled.value
+    codexCLIOnlyAppServerEnabled.value
   ) {
-    extra.codex_cli_only_allowed_clients = ['claude_code']
+    extra.codex_cli_only_allow_app_server = true
   } else {
-    delete extra.codex_cli_only_allowed_clients
+    delete extra.codex_cli_only_allow_app_server
   }
   if (openAICompactMode.value !== 'auto') {
     extra.openai_compact_mode = openAICompactMode.value
@@ -4618,8 +5075,25 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   return Object.keys(extra).length > 0 ? extra : undefined
 }
 
+const buildOpenAICodexImportExtra = (): Record<string, unknown> | undefined => {
+  const extra = buildOpenAIExtra()
+  if (!extra) return undefined
+  if (!openAILongContextBillingTouched.value) {
+    delete extra.openai_long_context_billing_enabled
+  }
+  return Object.keys(extra).length > 0 ? extra : undefined
+}
+
+const writeAnthropicOAuthPassthroughExtra = (extra: Record<string, unknown>) => {
+  if (anthropicOAuthPassthroughEnabled.value) {
+    extra.anthropic_oauth_passthrough = true
+  } else {
+    delete extra.anthropic_oauth_passthrough
+  }
+}
+
 const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
-  if (form.platform !== 'anthropic' || accountCategory.value !== 'apikey') {
+  if (form.platform !== PLATFORM_ANTHROPIC || accountCategory.value !== 'apikey') {
     return base
   }
 
@@ -4628,6 +5102,11 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
     extra.anthropic_passthrough = true
   } else {
     delete extra.anthropic_passthrough
+  }
+  if (anthropicAPIKeyAuthScheme.value === 'authorization_bearer') {
+    extra.anthropic_apikey_auth_scheme = 'authorization_bearer'
+  } else {
+    delete extra.anthropic_apikey_auth_scheme
   }
   if (webSearchEmulationMode.value === 'default') {
     delete extra.web_search_emulation
@@ -4710,56 +5189,10 @@ const normalizePoolModeRetryCount = (value: number) => {
   return normalized
 }
 
-const applyVertexServiceAccountJson = (value: string) => {
-  const raw = value.trim()
-  if (!raw) {
-    vertexProjectId.value = ''
-    vertexClientEmail.value = ''
-    return false
-  }
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>
-    const projectId = typeof parsed.project_id === 'string' ? parsed.project_id.trim() : ''
-    const clientEmail = typeof parsed.client_email === 'string' ? parsed.client_email.trim() : ''
-    const privateKey = typeof parsed.private_key === 'string' ? parsed.private_key.trim() : ''
-    if (!projectId || !clientEmail || !privateKey) {
-      appStore.showError(t('admin.accounts.vertexSaJsonMissingFields'))
-      return false
-    }
-    vertexProjectId.value = projectId
-    vertexClientEmail.value = clientEmail
-    vertexServiceAccountJson.value = JSON.stringify(parsed)
-    return true
-  } catch {
-    appStore.showError(t('admin.accounts.vertexSaJsonInvalid'))
-    return false
-  }
-}
-
-const parseVertexServiceAccountJson = () => applyVertexServiceAccountJson(vertexServiceAccountJson.value)
-
-const handleVertexServiceAccountFile = async (event: Event) => {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  try {
-    applyVertexServiceAccountJson(await file.text())
-  } finally {
-    input.value = ''
-  }
-}
-
-const handleVertexServiceAccountDrop = async (event: DragEvent) => {
-  vertexServiceAccountDragActive.value = false
-  const file = event.dataTransfer?.files?.[0]
-  if (!file) return
-  applyVertexServiceAccountJson(await file.text())
-}
-
 const handleSubmit = async () => {
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
-    if (!form.name.trim()) {
+    if (!isGrokSSOInputMethod.value && !form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
     }
@@ -4781,7 +5214,7 @@ const handleSubmit = async () => {
   }
 
   // For Bedrock type, create directly
-  if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
+  if (form.platform === PLATFORM_ANTHROPIC && accountCategory.value === 'bedrock') {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
@@ -4842,11 +5275,38 @@ const handleSubmit = async () => {
     return
   }
 
-  // 第五平台 newapi：直接走 apikey 路径，channel_type 上浮到顶层（admin_service
-  // 强制 > 0）；表单校验 + credentials 拼装 + JSON 校验都委托给 composable。
-  if (form.platform === 'newapi') {
+  // 第五平台 newapi：apikey 或 Vertex service_account (channel_type 41)。
+  if (form.platform === PLATFORM_NEWAPI) {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+      return
+    }
+    if (newapiIsVertexServiceAccount.value) {
+      if (!newapiChannelType.value || newapiChannelType.value <= 0) {
+        appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
+        return
+      }
+      const auxiliary = newapiBuildAuxiliaryCredentials()
+      if (!auxiliary) return
+      const vertexCredentials = vertexSa.buildCredentialsForCreate()
+      if (!vertexCredentials) return
+      await doCreateAccount({
+        name: form.name,
+        notes: form.notes,
+        platform: 'newapi',
+        type: 'service_account' as AccountType,
+        channel_type: newapiChannelType.value,
+        credentials: { ...vertexCredentials, ...auxiliary },
+        extra: buildAPIKeyOrBedrockExtra(),
+        proxy_id: form.proxy_id,
+        concurrency: form.concurrency,
+        load_factor: form.load_factor ?? undefined,
+        priority: form.priority,
+        rate_multiplier: form.rate_multiplier,
+        group_ids: form.group_ids,
+        expires_at: form.expires_at,
+        auto_pause_on_expired: autoPauseOnExpired.value
+      })
       return
     }
     const bundle = newapiBuildSubmitBundle('create')
@@ -4873,12 +5333,12 @@ const handleSubmit = async () => {
 
   // 第六平台 kiro：oauth-token 直填，type=oauth；表单校验 + credentials 拼装
   // （含 tos_acknowledged 强制勾选）都委托给 composable。
-  if (form.platform === 'kiro') {
+  if (form.platform === PLATFORM_KIRO) {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
     }
-    const bundle = kiroBuildSubmitBundle('create')
+    const bundle = kiro.buildSubmitBundle('create')
     if (!bundle) return
     await doCreateAccount({
       name: form.name,
@@ -4899,8 +5359,57 @@ const handleSubmit = async () => {
     return
   }
 
+  // 第七平台 grok：OAuth 账号粘 refresh_token；prod→edge relay stub 走
+  // first-class platform=grok,type=apikey。
+  if (form.platform === PLATFORM_GROK) {
+    if (!form.name.trim()) {
+      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+      return
+    }
+    if (accountCategory.value === 'apikey') {
+      const baseURL = apiKeyBaseUrl.value.trim()
+      const apiKey = apiKeyValue.value.trim()
+      if (!baseURL) {
+        appStore.showError(t('admin.accounts.upstream.pleaseEnterBaseUrl'))
+        return
+      }
+      if (!apiKey) {
+        appStore.showError(t('admin.accounts.apiKeyIsRequired'))
+        return
+      }
+      const credentials: Record<string, unknown> = {
+        base_url: baseURL,
+        api_key: apiKey,
+        mirror_platform: 'grok',
+      }
+      await createAccountAndFinish('grok', 'apikey', credentials, buildAPIKeyOrBedrockExtra())
+      return
+    }
+    if (!validateGrokOAuthUpstreamConfig()) return
+    const bundle = grokBuildSubmitBundle('create')
+    if (!bundle) return
+    applyGrokOAuthUpstreamConfig(bundle.credentials)
+    await doCreateAccount({
+      name: form.name,
+      notes: form.notes,
+      platform: 'grok',
+      type: 'oauth',
+      credentials: bundle.credentials,
+      extra: buildAPIKeyOrBedrockExtra(),
+      proxy_id: form.proxy_id,
+      concurrency: form.concurrency,
+      load_factor: form.load_factor ?? undefined,
+      priority: form.priority,
+      rate_multiplier: form.rate_multiplier,
+      group_ids: form.group_ids,
+      expires_at: form.expires_at,
+      auto_pause_on_expired: autoPauseOnExpired.value
+    })
+    return
+  }
+
   // For Antigravity upstream type, create directly
-  if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
+  if (form.platform === PLATFORM_ANTIGRAVITY && antigravityAccountType.value === 'upstream') {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
@@ -4937,25 +5446,13 @@ const handleSubmit = async () => {
     return
   }
 
-  if ((form.platform === 'gemini' || form.platform === 'anthropic') && accountCategory.value === 'service_account') {
+  if ((form.platform === PLATFORM_GEMINI || form.platform === PLATFORM_ANTHROPIC) && accountCategory.value === 'service_account') {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
     }
-    if (!parseVertexServiceAccountJson()) {
-      return
-    }
-    if (!vertexLocation.value.trim()) {
-      appStore.showError(t('admin.accounts.vertexLocationRequired'))
-      return
-    }
-    const credentials: Record<string, unknown> = {
-      service_account_json: vertexServiceAccountJson.value.trim(),
-      project_id: vertexProjectId.value.trim(),
-      client_email: vertexClientEmail.value.trim(),
-      location: vertexLocation.value.trim(),
-      tier_id: 'vertex'
-    }
+    const credentials = vertexSa.buildCredentialsForCreate()
+    if (!credentials) return
     await createAccountAndFinish(form.platform, 'service_account' as AccountType, credentials)
     return
   }
@@ -4968,9 +5465,9 @@ const handleSubmit = async () => {
 
   // Determine default base URL based on platform
   const defaultBaseUrl =
-    form.platform === 'openai'
+    form.platform === PLATFORM_OPENAI
       ? 'https://api.openai.com'
-      : form.platform === 'gemini'
+      : form.platform === PLATFORM_GEMINI
         ? 'https://generativelanguage.googleapis.com'
         : 'https://api.anthropic.com'
 
@@ -4979,12 +5476,12 @@ const handleSubmit = async () => {
     base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
     api_key: apiKeyValue.value.trim()
   }
-  if (form.platform === 'gemini') {
+  if (form.platform === PLATFORM_GEMINI) {
     credentials.tier_id = geminiTierAIStudio.value
   }
   // TK: edge mirror-stub pool selector (surface-C). Only anthropic apikey stubs
   // participate; default 'anthropic' keeps non-stub accounts unaffected.
-  if (form.platform === 'anthropic') {
+  if (form.platform === PLATFORM_ANTHROPIC) {
     credentials.mirror_platform = mirrorPlatform.value
   }
 
@@ -4995,7 +5492,7 @@ const handleSubmit = async () => {
       credentials.model_mapping = modelMapping
     }
   }
-  if (form.platform === 'openai') {
+  if (form.platform === PLATFORM_OPENAI) {
     applyOpenAIEndpointCapabilities(credentials)
     const compactModelMapping = buildOpenAICompactModelMapping()
     if (compactModelMapping) {
@@ -5017,6 +5514,18 @@ const handleSubmit = async () => {
   if (customErrorCodesEnabled.value) {
     credentials.custom_error_codes_enabled = true
     credentials.custom_error_codes = [...selectedErrorCodes.value]
+  }
+
+  // Add header override if enabled (anthropic/openai/grok apikey)
+  if (isHeaderOverrideCapable(form.platform, 'apikey')) {
+    if (headerOverrideEnabled.value) {
+      const headerError = validateHeaderOverrideRows(headerOverrideRows.value)
+      if (headerError) {
+        appStore.showError(t(`admin.accounts.headerOverride.${headerError}`))
+        return
+      }
+    }
+    applyHeaderOverride(credentials, headerOverrideEnabled.value, headerOverrideRows.value, 'create')
   }
 
   applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
@@ -5041,31 +5550,36 @@ const goBackToBasicInfo = () => {
   openaiOAuth.resetState()
   geminiOAuth.resetState()
   antigravityOAuth.resetState()
+  grokOAuth.resetState()
   oauthFlowRef.value?.reset()
 }
 
 const handleGenerateUrl = async () => {
-  if (form.platform === 'openai') {
+  if (form.platform === PLATFORM_OPENAI) {
     await openaiOAuth.generateAuthUrl(form.proxy_id)
-  } else if (form.platform === 'gemini') {
+  } else if (form.platform === PLATFORM_GEMINI) {
     await geminiOAuth.generateAuthUrl(
       form.proxy_id,
       oauthFlowRef.value?.projectId,
       geminiOAuthType.value,
       geminiSelectedTier.value
     )
-  } else if (form.platform === 'antigravity') {
+  } else if (form.platform === PLATFORM_ANTIGRAVITY) {
     await antigravityOAuth.generateAuthUrl(form.proxy_id)
+  } else if (form.platform === PLATFORM_GROK) {
+    await grokOAuth.generateAuthUrl(form.proxy_id)
   } else {
     await oauth.generateAuthUrl(addMethod.value, form.proxy_id)
   }
 }
 
 const handleValidateRefreshToken = (rt: string) => {
-  if (form.platform === 'openai') {
+  if (form.platform === PLATFORM_OPENAI) {
     handleOpenAIValidateRT(rt)
-  } else if (form.platform === 'antigravity') {
+  } else if (form.platform === PLATFORM_ANTIGRAVITY) {
     handleAntigravityValidateRT(rt)
+  } else if (form.platform === PLATFORM_GROK) {
+    handleGrokValidateRT(rt)
   }
 }
 
@@ -5090,7 +5604,7 @@ const createAccountAndFinish = async (
   const finalExtra = (type === 'apikey' || type === 'bedrock')
     ? buildAPIKeyOrBedrockExtra(extra)
     : extra
-  if (platform === 'openai') {
+  if (platform === PLATFORM_OPENAI) {
     if (type === 'apikey') {
       applyOpenAIEndpointCapabilities(credentials)
     }
@@ -5099,6 +5613,17 @@ const createAccountAndFinish = async (
       credentials.compact_model_mapping = compactModelMapping
     } else {
       delete credentials.compact_model_mapping
+    }
+  }
+  if (platform === PLATFORM_GROK) {
+    if (!credentials.base_url) {
+      credentials.base_url = apiKeyBaseUrl.value.trim() || 'https://api.x.ai/v1'
+    }
+    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    if (modelMapping) {
+      credentials.model_mapping = modelMapping
+    } else {
+      delete credentials.model_mapping
     }
   }
   await doCreateAccount({
@@ -5117,6 +5642,169 @@ const createAccountAndFinish = async (
     expires_at: form.expires_at,
     auto_pause_on_expired: autoPauseOnExpired.value
   })
+}
+
+// Grok 手动 RT 批量验证和创建
+const handleGrokValidateRT = async (refreshTokenInput: string) => {
+  if (!refreshTokenInput.trim()) return
+
+  const refreshTokens = refreshTokenInput
+    .split('\n')
+    .map((rt) => rt.trim())
+    .filter((rt) => rt)
+
+  if (refreshTokens.length === 0) {
+    grokOAuth.error.value = t('admin.accounts.oauth.grok.pleaseEnterRefreshToken')
+    return
+  }
+  if (!validateGrokOAuthUpstreamConfig()) return
+
+  grokOAuth.loading.value = true
+  grokOAuth.error.value = ''
+
+  let successCount = 0
+  let failedCount = 0
+  const errors: string[] = []
+
+  try {
+    for (let i = 0; i < refreshTokens.length; i++) {
+      try {
+        const tokenInfo = await grokOAuth.validateRefreshToken(refreshTokens[i], form.proxy_id)
+        if (!tokenInfo) {
+          failedCount++
+          errors.push(`#${i + 1}: ${grokOAuth.error.value || 'Validation failed'}`)
+          grokOAuth.error.value = ''
+          continue
+        }
+
+        const credentials = grokOAuth.buildCredentials(tokenInfo)
+        applyGrokOAuthUpstreamConfig(credentials)
+        const extra = grokOAuth.buildExtraInfo(tokenInfo)
+        const accountName = refreshTokens.length > 1 ? `${form.name || tokenInfo.email || 'Grok OAuth Account'} #${i + 1}` : (form.name || tokenInfo.email || 'Grok OAuth Account')
+
+        const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+        if (modelMapping) {
+          credentials.model_mapping = modelMapping
+        }
+        if (!applyTempUnschedConfig(credentials)) {
+          return
+        }
+
+        await adminAPI.accounts.create({
+          name: accountName,
+          notes: form.notes,
+          platform: 'grok',
+          type: 'oauth',
+          credentials,
+          extra,
+          proxy_id: form.proxy_id,
+          concurrency: form.concurrency,
+          load_factor: form.load_factor ?? undefined,
+          priority: form.priority,
+          rate_multiplier: form.rate_multiplier,
+          group_ids: form.group_ids,
+          expires_at: form.expires_at,
+          auto_pause_on_expired: autoPauseOnExpired.value
+        })
+        successCount++
+      } catch (error: any) {
+        failedCount++
+        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        errors.push(`#${i + 1}: ${errMsg}`)
+      }
+    }
+
+    if (successCount > 0 && failedCount === 0) {
+      appStore.showSuccess(
+        refreshTokens.length > 1
+          ? t('admin.accounts.oauth.batchSuccess', { count: successCount })
+          : t('admin.accounts.accountCreated')
+      )
+      emit('created')
+      handleClose()
+    } else if (successCount > 0) {
+      appStore.showWarning(t('admin.accounts.oauth.batchPartialSuccess', { success: successCount, failed: failedCount }))
+      grokOAuth.error.value = errors.join('\n')
+      emit('created')
+    } else {
+      grokOAuth.error.value = errors.join('\n')
+      appStore.showError(t('admin.accounts.oauth.batchFailed'))
+    }
+  } finally {
+    grokOAuth.loading.value = false
+  }
+}
+
+const handleGrokImportSSO = async (ssoInput: string) => {
+  // Align with OpenAI/Grok RT batch import: one token per line, no client-side dedupe.
+  const ssoTokens = ssoInput
+    .split('\n')
+    .map((token) => token.trim())
+    .filter((token) => token)
+  if (ssoTokens.length === 0) return
+  if (!validateGrokOAuthUpstreamConfig()) return
+
+  grokOAuth.loading.value = true
+  grokOAuth.error.value = ''
+
+  const credentials: Record<string, unknown> = {}
+  applyGrokOAuthUpstreamConfig(credentials)
+  const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+  if (modelMapping) {
+    credentials.model_mapping = modelMapping
+  }
+  if (!applyTempUnschedConfig(credentials)) {
+    grokOAuth.loading.value = false
+    return
+  }
+
+  try {
+    const result = await adminAPI.grok.createFromSSO({
+      sso_tokens: ssoTokens,
+      name: form.name || undefined,
+      notes: form.notes || undefined,
+      proxy_id: form.proxy_id,
+      group_ids: form.group_ids,
+      credentials,
+      concurrency: form.concurrency,
+      load_factor: form.load_factor ?? undefined,
+      priority: form.priority,
+      rate_multiplier: form.rate_multiplier,
+      expires_at: form.expires_at,
+      auto_pause_on_expired: autoPauseOnExpired.value
+    })
+
+    const successCount = result.created?.length || 0
+    const failedCount = result.failed?.length || 0
+    if (successCount > 0 && failedCount === 0) {
+      appStore.showSuccess(
+        ssoTokens.length > 1
+          ? t('admin.accounts.oauth.batchSuccess', { count: successCount })
+          : t('admin.accounts.accountCreated')
+      )
+      emit('created')
+      handleClose()
+    } else if (successCount > 0 && failedCount > 0) {
+      // Same as OpenAI/Grok RT: keep input, show failures, refresh list.
+      appStore.showWarning(
+        t('admin.accounts.oauth.batchPartialSuccess', { success: successCount, failed: failedCount })
+      )
+      grokOAuth.error.value = (result.failed || [])
+        .map((item) => `#${item.index}: ${item.error || 'Unknown error'}`)
+        .join('\n')
+      emit('created')
+    } else {
+      grokOAuth.error.value = (result.failed || [])
+        .map((item) => `#${item.index}: ${item.error || 'Unknown error'}`)
+        .join('\n') || t('admin.accounts.oauth.grok.failedToConvertSSO')
+      appStore.showError(t('admin.accounts.oauth.batchFailed'))
+    }
+  } catch (error: any) {
+    grokOAuth.error.value = error.response?.data?.detail || error.message || t('admin.accounts.oauth.grok.failedToConvertSSO')
+    appStore.showError(grokOAuth.error.value)
+  } finally {
+    grokOAuth.loading.value = false
+  }
 }
 
 // OpenAI OAuth 授权码兑换
@@ -5146,7 +5834,7 @@ const handleOpenAIExchange = async (authCode: string) => {
     const credentials = oauthClient.buildCredentials(tokenInfo)
     const oauthExtra = oauthClient.buildExtraInfo(tokenInfo) as Record<string, unknown> | undefined
     const extra = buildOpenAIExtra(oauthExtra)
-    const shouldCreateOpenAI = form.platform === 'openai'
+    const shouldCreateOpenAI = form.platform === PLATFORM_OPENAI
 
     // Add model mapping for OpenAI OAuth accounts（透传模式下不应用）
     if (shouldCreateOpenAI && !isOpenAIModelRestrictionDisabled.value) {
@@ -5230,11 +5918,39 @@ const formatCodexImportMessages = (messages?: CodexSessionImportMessage[]) => {
     .join('\n')
 }
 
+const isAgentIdentityImportContent = (content: string) => {
+  const isAgentIdentityValue = (value: unknown): boolean => {
+    if (Array.isArray(value)) return value.length > 0 && value.every(isAgentIdentityValue)
+    if (!value || typeof value !== 'object') return false
+    const record = value as Record<string, unknown>
+    const authMode = record.auth_mode ?? record.authMode
+    const agentIdentity = record.agent_identity ?? record.agentIdentity
+    return (typeof authMode === 'string' && authMode.toLowerCase() === 'agentidentity')
+      || (!!agentIdentity && typeof agentIdentity === 'object')
+  }
+
+  try {
+    return isAgentIdentityValue(JSON.parse(content))
+  } catch {
+    const lines = content.split('\n').map((line) => line.trim()).filter(Boolean)
+    if (lines.length === 0) return false
+    try {
+      return lines.every((line) => isAgentIdentityValue(JSON.parse(line)))
+    } catch {
+      return false
+    }
+  }
+}
+
 const handleOpenAIImportCodexSession = async (content: string) => {
   const oauthClient = openaiOAuth
   const trimmed = content.trim()
   if (!trimmed) {
     oauthClient.error.value = t('admin.accounts.oauth.openai.codexSessionEmpty')
+    return
+  }
+  if (oauthFlowRef.value?.inputMethod === 'agent_identity' && !isAgentIdentityImportContent(trimmed)) {
+    oauthClient.error.value = t('admin.accounts.oauth.openai.agentIdentityInvalid')
     return
   }
 
@@ -5247,7 +5963,7 @@ const handleOpenAIImportCodexSession = async (content: string) => {
   oauthClient.error.value = ''
 
   try {
-    const extra = buildOpenAIExtra()
+    const extra = buildOpenAICodexImportExtra()
     const result = await adminAPI.accounts.importCodexSession({
       content: trimmed,
       name: form.name,
@@ -5308,6 +6024,55 @@ const handleOpenAIImportCodexSession = async (content: string) => {
   }
 }
 
+const handleOpenAIImportCodexPAT = async (accessToken: string) => {
+  const oauthClient = openaiOAuth
+  const trimmed = accessToken.trim()
+  if (!trimmed) {
+    oauthClient.error.value = t('admin.accounts.oauth.openai.codexPatEmpty')
+    return
+  }
+
+  const credentialExtras = buildOpenAICodexImportCredentialExtras()
+  if (credentialExtras === null) {
+    return
+  }
+
+  oauthClient.loading.value = true
+  oauthClient.error.value = ''
+
+  try {
+    const extra = buildOpenAICodexImportExtra()
+    await adminAPI.accounts.createOpenAICodexPAT({
+      access_token: trimmed,
+      name: form.name,
+      notes: form.notes || null,
+      proxy_id: form.proxy_id,
+      concurrency: form.concurrency,
+      load_factor: form.load_factor ?? undefined,
+      priority: form.priority,
+      rate_multiplier: form.rate_multiplier,
+      group_ids: form.group_ids,
+      expires_at: form.expires_at,
+      auto_pause_on_expired: autoPauseOnExpired.value,
+      credential_extras: Object.keys(credentialExtras).length > 0 ? credentialExtras : undefined,
+      extra
+    })
+
+    appStore.showSuccess(t('admin.accounts.messages.accountCreated'))
+    emit('created')
+    handleClose()
+  } catch (error: any) {
+    oauthClient.error.value =
+      error.response?.data?.detail ||
+      error.response?.data?.message ||
+      error.message ||
+      t('admin.accounts.oauth.openai.codexPatImportFailed')
+    appStore.showError(oauthClient.error.value)
+  } finally {
+    oauthClient.loading.value = false
+  }
+}
+
 // OpenAI RT 批量验证和创建（共享逻辑）
 const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string) => {
   const oauthClient = openaiOAuth
@@ -5329,7 +6094,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
   let successCount = 0
   let failedCount = 0
   const errors: string[] = []
-  const shouldCreateOpenAI = form.platform === 'openai'
+  const shouldCreateOpenAI = form.platform === PLATFORM_OPENAI
 
   try {
     for (let i = 0; i < refreshTokens.length; i++) {
@@ -5464,7 +6229,8 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           continue
         }
 
-        const credentials = antigravityOAuth.buildCredentials(tokenInfo)
+        const credentials = antigravityOAuth.buildCredentials(tokenInfo, refreshTokens[i])
+        applyAntigravityProjectID(credentials, antigravityProjectId.value, 'create')
         
         // Generate account name with index for batch
         const accountName = refreshTokens.length > 1 ? `${form.name} #${i + 1}` : form.name
@@ -5581,6 +6347,7 @@ const handleAntigravityExchange = async (authCode: string) => {
 		if (!tokenInfo) return
 
 		const credentials = antigravityOAuth.buildCredentials(tokenInfo)
+		applyAntigravityProjectID(credentials, antigravityProjectId.value, 'create')
 		applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 		// Antigravity 只使用映射模式
 		const antigravityModelMapping = buildModelMappingObject(
@@ -5598,6 +6365,43 @@ const handleAntigravityExchange = async (authCode: string) => {
     appStore.showError(antigravityOAuth.error.value)
   } finally {
     antigravityOAuth.loading.value = false
+  }
+}
+
+// Grok OAuth 授权码兑换
+const handleGrokExchange = async (authCode: string) => {
+  if (!authCode.trim() || !grokOAuth.sessionId.value) return
+  if (!validateGrokOAuthUpstreamConfig()) return
+
+  grokOAuth.loading.value = true
+  grokOAuth.error.value = ''
+
+  try {
+    const stateFromInput = oauthFlowRef.value?.oauthState || ''
+    const stateToUse = stateFromInput || grokOAuth.state.value
+    if (!stateToUse) {
+      grokOAuth.error.value = t('admin.accounts.oauth.authFailed')
+      appStore.showError(grokOAuth.error.value)
+      return
+    }
+
+    const tokenInfo = await grokOAuth.exchangeAuthCode({
+      code: authCode.trim(),
+      sessionId: grokOAuth.sessionId.value,
+      state: stateToUse,
+      proxyId: form.proxy_id
+    })
+    if (!tokenInfo) return
+
+    const credentials = grokOAuth.buildCredentials(tokenInfo)
+    applyGrokOAuthUpstreamConfig(credentials)
+    const extra = grokOAuth.buildExtraInfo(tokenInfo)
+    await createAccountAndFinish('grok', 'oauth', credentials, extra)
+  } catch (error: any) {
+    grokOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    appStore.showError(grokOAuth.error.value)
+  } finally {
+    grokOAuth.loading.value = false
   }
 }
 
@@ -5620,17 +6424,13 @@ const handleAnthropicExchange = async (authCode: string) => {
       code: authCode.trim(),
       ...proxyConfig
     })
+    prefillAccountEmailFromToken(tokenInfo as Record<string, unknown>)
 
     // Build extra with quota control settings
     const baseExtra = oauth.buildExtraInfo(tokenInfo) || {}
     const extra: Record<string, unknown> = { ...baseExtra }
 
     // Add window cost limit settings
-    if (windowCostEnabled.value && windowCostLimit.value != null && windowCostLimit.value > 0) {
-      extra.window_cost_limit = windowCostLimit.value
-      extra.window_cost_sticky_reserve = windowCostStickyReserve.value ?? 10
-    }
-
     // Add session limit settings
     if (sessionLimitEnabled.value && maxSessions.value != null && maxSessions.value > 0) {
       extra.max_sessions = maxSessions.value
@@ -5679,6 +6479,8 @@ const handleAnthropicExchange = async (authCode: string) => {
       extra.custom_base_url = customBaseUrl.value.trim()
     }
 
+    writeAnthropicOAuthPassthroughExtra(extra)
+
     const credentials: Record<string, unknown> = { ...tokenInfo }
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
     await createAccountAndFinish(form.platform, addMethod.value as AccountType, credentials, extra)
@@ -5701,6 +6503,8 @@ const handleExchangeCode = async () => {
       return handleGeminiExchange(authCode)
     case 'antigravity':
       return handleAntigravityExchange(authCode)
+    case 'grok':
+      return handleGrokExchange(authCode)
     default:
       return handleAnthropicExchange(authCode)
   }
@@ -5747,12 +6551,6 @@ const handleCookieAuth = async (sessionKey: string) => {
         // Build extra with quota control settings
         const baseExtra = oauth.buildExtraInfo(tokenInfo) || {}
         const extra: Record<string, unknown> = { ...baseExtra }
-
-        // Add window cost limit settings
-        if (windowCostEnabled.value && windowCostLimit.value != null && windowCostLimit.value > 0) {
-          extra.window_cost_limit = windowCostLimit.value
-          extra.window_cost_sticky_reserve = windowCostStickyReserve.value ?? 10
-        }
 
         // Add session limit settings
         if (sessionLimitEnabled.value && maxSessions.value != null && maxSessions.value > 0) {
@@ -5801,6 +6599,8 @@ const handleCookieAuth = async (sessionKey: string) => {
           extra.custom_base_url_enabled = true
           extra.custom_base_url = customBaseUrl.value.trim()
         }
+
+        writeAnthropicOAuthPassthroughExtra(extra)
 
         const accountName = keys.length > 1 ? `${form.name} #${i + 1}` : form.name
 

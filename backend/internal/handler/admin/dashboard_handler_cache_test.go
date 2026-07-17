@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -58,13 +59,44 @@ func (r *dashboardUsageRepoCacheProbe) GetUserUsageTrend(
 	}}, nil
 }
 
+func (r *dashboardUsageRepoCacheProbe) GetGroupStatsWithFilters(
+	ctx context.Context,
+	startTime, endTime time.Time,
+	userID, apiKeyID, accountID, groupID int64,
+	requestType *int16,
+	stream *bool,
+	billingType *int8,
+) ([]usagestats.GroupStat, error) {
+	return []usagestats.GroupStat{{
+		GroupID:                              7,
+		GroupName:                            "kiro-group",
+		Requests:                             2,
+		InputTokens:                          100,
+		OutputTokens:                         20,
+		CacheCreationTokens:                  5,
+		CacheReadTokens:                      30,
+		CacheTelemetryUnavailableInputTokens: 40,
+		TotalTokens:                          155,
+	}}, nil
+}
+
 func resetDashboardReadCachesForTest() {
 	dashboardTrendCache = newSnapshotCache(30 * time.Second)
 	dashboardUsersTrendCache = newSnapshotCache(30 * time.Second)
 	dashboardAPIKeysTrendCache = newSnapshotCache(30 * time.Second)
-	dashboardModelStatsCache = newSnapshotCache(30 * time.Second)
-	dashboardGroupStatsCache = newSnapshotCache(30 * time.Second)
+	dashboardModelStatsCache = newSnapshotCache(dashboardDistributionCacheTTL)
+	dashboardGroupStatsCache = newSnapshotCache(dashboardDistributionCacheTTL)
 	dashboardSnapshotV2Cache = newSnapshotCache(30 * time.Second)
+}
+
+func TestDashboardHandler_DistributionCachesUseLongerTTL(t *testing.T) {
+	t.Cleanup(resetDashboardReadCachesForTest)
+	resetDashboardReadCachesForTest()
+
+	require.Equal(t, 30*time.Second, dashboardTrendCache.ttl)
+	require.Equal(t, dashboardDistributionCacheTTL, dashboardModelStatsCache.ttl)
+	require.Equal(t, dashboardDistributionCacheTTL, dashboardGroupStatsCache.ttl)
+	require.Equal(t, 30*time.Second, dashboardUsersTrendCache.ttl)
 }
 
 func TestDashboardHandler_GetUsageTrend_UsesCache(t *testing.T) {
@@ -115,4 +147,35 @@ func TestDashboardHandler_GetUserUsageTrend_UsesCache(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 	require.Equal(t, "hit", rec2.Header().Get("X-Snapshot-Cache"))
 	require.Equal(t, int32(1), repo.usersTrendCalls.Load())
+}
+
+func TestDashboardHandler_SnapshotV2GroupStatsIncludesCacheTelemetryFields(t *testing.T) {
+	t.Cleanup(resetDashboardReadCachesForTest)
+	resetDashboardReadCachesForTest()
+
+	gin.SetMode(gin.TestMode)
+	repo := &dashboardUsageRepoCacheProbe{}
+	dashboardSvc := service.NewDashboardService(repo, nil, nil, nil)
+	handler := NewDashboardHandler(dashboardSvc, nil)
+	router := gin.New()
+	router.GET("/admin/dashboard/snapshot-v2", handler.GetSnapshotV2)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/dashboard/snapshot-v2?include_stats=false&include_trend=false&include_model_stats=false&include_group_stats=true", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var payload struct {
+		Data struct {
+			Groups []map[string]any `json:"groups"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Len(t, payload.Data.Groups, 1)
+	group := payload.Data.Groups[0]
+	require.Equal(t, float64(100), group["input_tokens"])
+	require.Equal(t, float64(20), group["output_tokens"])
+	require.Equal(t, float64(5), group["cache_creation_tokens"])
+	require.Equal(t, float64(30), group["cache_read_tokens"])
+	require.Equal(t, float64(40), group["cache_telemetry_unavailable_input_tokens"])
 }

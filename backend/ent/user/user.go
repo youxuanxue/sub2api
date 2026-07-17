@@ -29,6 +29,8 @@ const (
 	FieldRole = "role"
 	// FieldBalance holds the string denoting the balance field in the database.
 	FieldBalance = "balance"
+	// FieldFrozenBalance holds the string denoting the frozen_balance field in the database.
+	FieldFrozenBalance = "frozen_balance"
 	// FieldConcurrency holds the string denoting the concurrency field in the database.
 	FieldConcurrency = "concurrency"
 	// FieldStatus holds the string denoting the status field in the database.
@@ -63,6 +65,8 @@ const (
 	FieldOnboardingTourSeenAt = "onboarding_tour_seen_at"
 	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
 	FieldRpmLimit = "rpm_limit"
+	// FieldTrajExportEnabled holds the string denoting the traj_export_enabled field in the database.
+	FieldTrajExportEnabled = "traj_export_enabled"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
 	EdgeAPIKeys = "api_keys"
 	// EdgeRedeemCodes holds the string denoting the redeem_codes edge name in mutations.
@@ -201,6 +205,7 @@ var Columns = []string{
 	FieldPasswordHash,
 	FieldRole,
 	FieldBalance,
+	FieldFrozenBalance,
 	FieldConcurrency,
 	FieldStatus,
 	FieldUsername,
@@ -218,6 +223,7 @@ var Columns = []string{
 	FieldTotalRecharged,
 	FieldOnboardingTourSeenAt,
 	FieldRpmLimit,
+	FieldTrajExportEnabled,
 }
 
 var (
@@ -260,6 +266,8 @@ var (
 	RoleValidator func(string) error
 	// DefaultBalance holds the default value on creation for the "balance" field.
 	DefaultBalance float64
+	// DefaultFrozenBalance holds the default value on creation for the "frozen_balance" field.
+	DefaultFrozenBalance float64
 	// DefaultConcurrency holds the default value on creation for the "concurrency" field.
 	DefaultConcurrency int
 	// DefaultStatus holds the default value on creation for the "status" field.
@@ -288,6 +296,8 @@ var (
 	DefaultTotalRecharged float64
 	// DefaultRpmLimit holds the default value on creation for the "rpm_limit" field.
 	DefaultRpmLimit int
+	// DefaultTrajExportEnabled holds the default value on creation for the "traj_export_enabled" field.
+	DefaultTrajExportEnabled bool
 )
 
 // OrderOption defines the ordering options for the User queries.
@@ -331,6 +341,11 @@ func ByRole(opts ...sql.OrderTermOption) OrderOption {
 // ByBalance orders the results by the balance field.
 func ByBalance(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldBalance, opts...).ToFunc()
+}
+
+// ByFrozenBalance orders the results by the frozen_balance field.
+func ByFrozenBalance(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFrozenBalance, opts...).ToFunc()
 }
 
 // ByConcurrency orders the results by the concurrency field.
@@ -416,6 +431,11 @@ func ByOnboardingTourSeenAt(opts ...sql.OrderTermOption) OrderOption {
 // ByRpmLimit orders the results by the rpm_limit field.
 func ByRpmLimit(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRpmLimit, opts...).ToFunc()
+}
+
+// ByTrajExportEnabled orders the results by the traj_export_enabled field.
+func ByTrajExportEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTrajExportEnabled, opts...).ToFunc()
 }
 
 // ByAPIKeysCount orders the results by api_keys count.

@@ -61,10 +61,11 @@ redirected.** Therefore:
 - **TLS (primary, deterministic):** passive `tcpdump` of the real Kiro IDE
   handshake to the CodeWhisperer IPs → `tshark` extracts the ClientHello (sent in
   the clear, no MITM) → JA3 computed with GREASE stripped.
-- **HTTP UA (secondary, best-effort):** only if the Kiro IDE honors `HTTP_PROXY`
-  + a trusted MITM CA, `mitm_kiro_http_headers.py` records the on-wire UA to
-  confirm it equals the constant-derived UA. If the IDE ignores the proxy, JA3 from
-  pcap is the load-bearing signal and the UA is confirmed manually.
+- **HTTP protocol (secondary):** `probe_runtime_gateway.py` reads the local IDE
+  token and hits the gateway directly to verify the on-wire protocol. The original
+  mitm UA-confirmation path was **empirically non-viable** — the Kiro IDE
+  direct-dials its gateway and ignores `HTTP_PROXY`, so no proxy can intercept it;
+  it was removed. JA3 from pcap is the load-bearing signal; the UA is constant-derived.
 
 ## Phase 1 deliverables (this PR)
 
@@ -74,7 +75,6 @@ Under `ops/kiro/` (parallel to cc's `ops/anthropic/`):
 |---|---|
 | `capture-kiro-fingerprint.sh` | Passive pcap orchestrator: resolve CodeWhisperer IPs → `tcpdump` handshake → `tshark` ClientHello (SNI-filtered to `amazonaws`) → call the engine → diff. Also `diff` / `check` / `check-tls` / `show-baseline` / `emit-profile` pass-throughs. |
 | `capture_kiro_fingerprint.py` | Deterministic engine (stdlib): rebuild expected UA from `kiro/constants.go`, parse the tshark TSV, compute `ja3_raw`/`ja3_hash` (GREASE-stripped, md5), assemble an upstream-shaped TLS profile, diff vs the committed profile, exit-code gating. Pure functions unit-tested. |
-| `mitm_kiro_http_headers.py` | Optional mitmproxy addon for best-effort UA confirmation. |
 | `test_capture_kiro_fingerprint.py` | Unit tests for JA3/GREASE, UA rebuild, TSV parse, profile build, diff gating. |
 
 Phase 1 does **not** touch any Go code, does **not** open the gate, and does

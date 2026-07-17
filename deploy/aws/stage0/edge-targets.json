@@ -2,21 +2,6 @@
   "schema_version": 1,
   "default_profile": "edge-minimal",
   "max_monthly_budget_usd": 16,
-  "targets": {
-    "us1": {
-      "deployable": true,
-      "profile": "edge-minimal",
-      "region": "us-west-2",
-      "domain": "api-us1.tokenkey.dev",
-      "stack": "tokenkey-edge-us1-stage0",
-      "instance_type": "t4g.micro",
-      "root_volume_gib": 20,
-      "data_volume_gib": 0,
-      "swap_gib": 2,
-      "snapshot_schedule": "none",
-      "monthly_budget_usd": 16,
-      "ssm_prefix": "/tokenkey/edge/us1",
-      "purpose": "clean-us-egress-planned"
-    }
-  }
+  "_retired": "EC2 edge path removed 2026-06-07; edges are Lightsail-only (deploy/aws/lightsail/edge-targets-lightsail.json). prod stays EC2/CFN (tokenkey-prod-stage0). Do NOT re-add EC2 edges here — the deploy-edge-stage0.yml workflow and stage0-edge-ec2.yaml template have been deleted. File kept (not removed) because edge_routing_matrix / resolve-edge-deploy-route / edge_ssm_execution hard-fail if it is missing.",
+  "targets": {}
 }

@@ -16,21 +16,33 @@ Codex 不自动加载 `.cursor/rules/*.mdc`；需要时按下表路径读取对�
 ## 可用技能（progressive disclosure）
 以下技能源在 `.cursor/skills/`（与 `~/.cursor/skills` 同源）；Codex 也可经 `~/.codex/skills/<name>` 原生加载。需要时读对应 `SKILL.md`：
 
-- **tokenkey-anthropic-oauth-config** — TokenKey Anthropic OAuth 配置流水线（snapshot → check → [TLS 模板修复 / HTTP UA 同步] → verify），由 ops/anthropic/manage-anthropic-config.py 统一编排。本 skill…
-- **tokenkey-anthropic-oauth-priority-by-window** — TokenKey 跨所有 deployable edge 的 Anthropic OAuth 账号 priority 重排流水线 （snapshot → plan → apply → verify）。按账号当前 5h/7d 可用用量窗口剩余度 打分，同 stability ti…
-- **tokenkey-cc-fingerprint-alignment** — End-to-end workflow to capture real Claude Code (cc0-here / claude0-here) TLS and HTTP fingerprints, diff against TokenKey repo constants (…
-- **tokenkey-fingerprint-alignment-all** — Umbrella that aligns ALL client fingerprints in one pass — runs both the Claude Code engine (ops/anthropic, active collector-redirect + cc0…
-- **tokenkey-kiro-fingerprint-alignment** — Capture a real Kiro IDE (AWS CodeWhisperer, sixth platform) TLS ClientHello by passive pcap and diff its JA3 + aws-sdk-js User-Agent agains…
-- **tokenkey-online-log-troubleshooting** — Read-only TokenKey production/edge troubleshooting workflow for querying live logs, ops_error_logs, Docker containers, SSM targets, gateway…
-- **tokenkey-online-traffic-profile** — Read-only TokenKey production/edge traffic-profiling workflow. Reconstructs per-minute request-traffic series for the past N hours per acco…
-- **tokenkey-stage0-edge-expansion** — End-to-end runbook for adding a new AWS Stage0 Edge gateway on the **EC2/CloudFormation** path: prepare metadata and IAM/OIDC scope, provis…
-- **tokenkey-stage0-edge-ip-rotation** — Rotate / replace the egress Elastic IP of a TokenKey Stage0 edge (uk1/us1/sg1/fra1/…) when the live IP has been risk-blocked ("polluted") b…
-- **tokenkey-stage0-edge-lightsail-expansion** — End-to-end runbook for adding a TokenKey Stage0 Edge gateway on AWS Lightsail (parallel to the EC2/CFN path): register the edge in deploy/a…
-- **tokenkey-stage0-edge-lightsail-ip-rotation** — Rotate the egress Static IP of a TokenKey Stage0 Lightsail Edge (uk1 / us1 / us2 / fra1 / sg1 / …) when the live IP has been risk-blocked (…
-- **tokenkey-stage0-edge-platform-migration** — Migrate a TokenKey Stage0 Edge **from EC2/CFN to AWS Lightsail** on the same `<edge_id>`, sharing the DNS domain `api-<id>.tokenkey.dev`. D…
-- **tokenkey-stage0-local-deploy** — Local Docker stack matching deploy/aws Stage 0 (Caddy + app + Postgres + Redis): export $HOME-pinned paths, write .cache override + .env +…
-- **tokenkey-stage0-release-rollout** — Drives TokenKey AWS Stage0 release and rollout across prod and Edge targets: sync main, decide VERSION/tag, run scripts/release-tag.sh, wat…
-- **tokenkey-upstream-merge** — Standard TokenKey upstream merge workflow for regularly importing Wei-Shaw/sub2api upstream/main while preserving TokenKey OPC goals: one p…
+- **tokenkey-account-model-probe** — Probe a specific TokenKey prod or edge account against one model by reusing reserved __tk_probe_* debug resources. Use when debugging wheth…
+- **tokenkey-anthropic-oauth-config** — TokenKey Anthropic OAuth read/check/remediation workflow. Use for manage-anthropic-config snapshot/check/sync-runtime, tk_canonical_cc_oaut…
+- **tokenkey-anthropic-oauth-cookie-edge** — TokenKey Anthropic OAuth account creation from local Claude Desktop/web cookies with edge-only Anthropic egress. Use when a user asks to tu…
+- **tokenkey-anthropic-oauth-priority-by-window** — Rebalance TokenKey Anthropic OAuth account priority by remaining 5h/7d usage windows across deployable edges. Use for snapshot/plan/apply/v…
+- **tokenkey-antigravity-fingerprint-alignment** — Capture and diff real Antigravity IDE HTTP fingerprints against TokenKey constants. Use when cloudcode-pa UA/body/header mimicry may have d…
+- **tokenkey-cc-fingerprint-alignment** — Capture real Claude Code TLS/HTTP fingerprints and diff/fix TokenKey constants. Use after cc version changes, ingress UA cohort drift, OAut…
+- **tokenkey-codex-fingerprint-alignment** — Align the TokenKey OpenAI-platform Codex client fingerprint to the locally-installed Codex CLI. Use when `codex` upgrades and the forged UA…
+- **tokenkey-endpoint-compat-audit** — Audit TokenKey endpoint compatibility across direct platform keys, universal keys, and newapi channels. Use for prod endpoint matrix probes…
+- **tokenkey-fingerprint-alignment-all** — Run the combined TokenKey fingerprint refresh for Claude Code, Kiro, Antigravity, Codex, Gemini CLI, and Grok CLI. Enter after client-relea…
+- **tokenkey-gemini-fingerprint-alignment** — Align TokenKey Gemini CLI gateway fingerprint pins to upstream @google/gemini-cli releases. Use when client-release-watch reports gemini-cl…
+- **tokenkey-grok-fingerprint-alignment** — Align TokenKey grok-cli OAuth relay fingerprint pins to upstream @xai-official/grok releases. Use when client-release-watch reports grok-cl…
+- **tokenkey-kiro-fingerprint-alignment** — Capture and diff real Kiro IDE TLS JA3 and aws-sdk-js User-Agent against TokenKey constants. Use for Kiro TLS onboarding, suspected IDE JA3…
+- **tokenkey-kiro-reauth** — TokenKey Kiro OAuth re-authorization and refresh troubleshooting workflow. Use when a Kiro edge account shows OAuth 401, Invalid bearer tok…
+- **tokenkey-modelops-planner** — TokenKey model operations hub — single ops entry for catalog/menu refresh, newapi mapping drift, mirror diff, account model_mapping runtime…
+- **tokenkey-onboard-model** — TokenKey served+priced model onboarding workflow for curated newapi mapping accounts. Use when adding/pricing Qwen or DeepSeek long-tail mo…
+- **tokenkey-online-log-troubleshooting** — Read-only TokenKey prod/edge troubleshooting workflow. Use for live logs, ops_error_logs, SSM/Docker checks, gateway UA/TLS/body evidence,…
+- **tokenkey-online-traffic-profile** — Read-only TokenKey prod/edge traffic profiling. Use to reconstruct per-minute RPM, sticky/load-balance split, sessions, concurrency, cap pr…
+- **tokenkey-servable-model-refresh** — Write sub-flow for TokenKey catalog/menu allowlist refresh (branch B). Enter via tokenkey-modelops-planner first; load this skill only when…
+- **tokenkey-stage0-edge-expansion** — Deprecated TokenKey EC2/CFN edge expansion path. Use only to redirect old edge-add requests to tokenkey-stage0-edge-lightsail-expansion.
+- **tokenkey-stage0-edge-ip-rotation** — Deprecated TokenKey EC2 edge IP rotation path. Use only to redirect polluted edge egress IP rotation requests to tokenkey-stage0-edge-light…
+- **tokenkey-stage0-edge-lightsail-expansion** — Add a TokenKey Stage0 Edge gateway on AWS Lightsail. Use for new edge registration, Lightsail provisioning, DNS pointing, smoke checks, upg…
+- **tokenkey-stage0-edge-lightsail-ip-rotation** — Rotate a TokenKey Stage0 Lightsail Edge egress Static IP after provider risk-blocking or pollution. Use for uk/us/fra/sg edge IP swaps, DNS…
+- **tokenkey-stage0-edge-platform-migration** — Deprecated TokenKey EC2 edge platform migration path. Use only to explain that edges are Lightsail-only and redirect new edge work to token…
+- **tokenkey-stage0-local-deploy** — Run the local Docker Stage0 stack for TokenKey. Use for Caddy/app/Postgres/Redis local deploy, compose setup, smoke verification, teardown,…
+- **tokenkey-stage0-release-rollout** — Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, rollback, and release-risk checks. Use for release tagging, deploy-stage0,…
+- **tokenkey-upstream-merge** — TokenKey upstream merge workflow for importing Wei-Shaw/sub2api upstream/main. Use when merging or reviewing upstream drift, preparing an u…
+- **tokenkey-user-billing-watch** — Read-only TokenKey production user billing/usage/error watch. Use for 盯盘, billing watch, user 1/16 monitoring, 30-minute reporting loops, a…
 
 ## 命令
 - `/twin <workspace>|status [workspace]|respond <text>` — 运行 xuejiao persona supervisor 驱动 worker；底层入口 `python3 -m scripts.twin`（见 `dev-rules/commands/twin.md`）。Claude-Code-only。

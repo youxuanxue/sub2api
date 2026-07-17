@@ -94,6 +94,11 @@ func SecurityHeaders(cfg config.CSPConfig, getFrameSrcOrigins func() []string) g
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		// HSTS：强制后续访问走 HTTPS，防 SSL Stripping 中间人窃取 JWT/API Key（安全审计 P0-1）。
+		// 必须无条件下发：应用位于 Caddy 反代之后，c.Request.TLS 恒为 nil（TLS 在 Caddy 终止），
+		// 浏览器本就只在 HTTPS 连接上认 HSTS、明文连接收到即忽略，故无需也不能按 TLS 探测来 gate。
+		// 不带 preload：preload 是需手动提交且近乎不可逆的运维承诺，留给运营按需开启。
+		c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		if isAPIRoutePath(c) {
 			c.Next()
 			return

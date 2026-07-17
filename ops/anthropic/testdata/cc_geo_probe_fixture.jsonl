@@ -1,0 +1,2 @@
+{"scenario":"shanghai_tokenkey","tz":"Asia/Shanghai","host":"api.tokenkey.dev","body_wire":{"messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\n# currentDate\nToday\u2019s date is 2026/06/30.\n</system-reminder>"}]}]}}
+{"scenario":"shanghai_official","tz":"Asia/Shanghai","base_url":"https://api.anthropic.com","host":"api.anthropic.com","body_wire":{"messages":[{"role":"user","content":[{"type":"text","text":"Today's date is 2026-06-30."}]}]}}

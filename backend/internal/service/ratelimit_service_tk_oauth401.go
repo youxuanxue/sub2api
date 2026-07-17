@@ -5,109 +5,186 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 )
 
-// TK：OAuth「refresh 端点成功却仍持续 401」静默 flap 盲区的升级逻辑。
+// TK：非 Anthropic OAuth 账号 401 的「grant 被上游吊销」判定。
 //
-// 背景：当 OAuth 账号的 grant 被上游实质吊销，但 refresh 端点仍返回成功（换出新
-// access_token，可新 token 拿去打上游依然 401 Invalid authentication credentials）时，
-// 网关 401 处理只会 SetTempUnschedulable（冷却 10min），后台刷新又因 refresh 本身成功
-// 而清掉冷却 → 账号复活 → 用新 token 再 401，二者谁都不升级到 error，账号在
-// active ⇄ temp_unschedulable 之间无限 flap，不报 error、不告警。本文件检测到该模式后
-// 升级为 error 永久停调度 + 告警，提示需手工重新授权。
+// Anthropic OAuth 已在 HandleUpstreamError case 401 顶层统一 SetError（不区分 token
+// 是否过期）。本文件仅服务 OpenAI / Gemini 等其它 OAuth 平台。
 
-const (
-	// oauth401AfterRefreshDisableThresholdDefault：token 版本闸门已过滤掉「过期待刷新 /
-	// 并发同 token 突发 / 首次 401」，故默认 1——第一次 401 种 baseline，其后一次版本
-	// 递增的 401（=一个完整 flap 周期）即判定 grant 被吊销并升级。
-	oauth401AfterRefreshDisableThresholdDefault = 1
-	// oauth401AfterRefreshWindowMinutesDefault：baseline token 版本的存活窗口；跨窗口的
-	// 401 重新种 baseline 而非升级，防止几小时前的良性瞬时 401 与今天一次新瞬时 401
-	// 凑成误升级。
-	oauth401AfterRefreshWindowMinutesDefault = 60
-)
+// oauth401ValidTokenMarginFloor：判定 access_token「仍然有效」所需剩余有效期的下限兜底。
+// 实际余量 = max(本下限, 刷新窗口)；下限防 refresh_before_expiry_hours 误配成 0 时退化成
+// 「任意非过期 token 即判吊销」。
+const oauth401ValidTokenMarginFloor = 5 * time.Minute
 
-// SetOAuth401AfterRefreshCounter 设置「refresh 后仍 401」计数器（可选依赖；未注入时
-// tkTryEscalateRevokedOAuth401 直接回退到既有 temp_unschedulable 冷却）。
-func (s *RateLimitService) SetOAuth401AfterRefreshCounter(cache OAuth401AfterRefreshCounterCache) {
-	s.oauth401AfterRefreshCounter = cache
+// tkOAuth401ValidTokenMargin 返回判定 token「solidly valid」所需的剩余有效期余量：
+// max(刷新窗口, 下限)。刷新窗口 = token_refresh.refresh_before_expiry_hours 小时——与后台
+// 刷新服务（ClaudeTokenRefresher.NeedsRefresh）同一口径：落在刷新窗口内的近过期 token 本应
+// 已被刷新，其 401 归入良性抢跑而非吊销。
+func (s *RateLimitService) tkOAuth401ValidTokenMargin() time.Duration {
+	margin := oauth401ValidTokenMarginFloor
+	if s != nil && s.cfg != nil {
+		if w := time.Duration(s.cfg.TokenRefresh.RefreshBeforeExpiryHours * float64(time.Hour)); w > margin {
+			margin = w
+		}
+	}
+	return margin
 }
 
-// getOAuth401AfterRefreshThreshold 返回配置的升级阈值，未设 / 零 / 负回退到默认 1。
-func (s *RateLimitService) getOAuth401AfterRefreshThreshold() int64 {
-	if s != nil && s.cfg != nil && s.cfg.RateLimit.OAuth401AfterRefreshDisableThreshold > 0 {
-		return int64(s.cfg.RateLimit.OAuth401AfterRefreshDisableThreshold)
-	}
-	return oauth401AfterRefreshDisableThresholdDefault
-}
-
-// getOAuth401AfterRefreshWindowMinutes 返回 baseline 版本存活窗口，未设 / 零 / 负回退默认 60。
-func (s *RateLimitService) getOAuth401AfterRefreshWindowMinutes() int {
-	if s != nil && s.cfg != nil && s.cfg.RateLimit.OAuth401AfterRefreshWindowMinutes > 0 {
-		return s.cfg.RateLimit.OAuth401AfterRefreshWindowMinutes
-	}
-	return oauth401AfterRefreshWindowMinutesDefault
-}
-
-// ResetOAuth401AfterRefreshCounter 在账号成功响应 / 恢复后清零计数与 baseline 版本，
-// 避免一次良性瞬时 401 的 baseline 长期残留累积。计数器未注入时为 no-op。
-func (s *RateLimitService) ResetOAuth401AfterRefreshCounter(ctx context.Context, accountID int64) {
-	if s == nil || s.oauth401AfterRefreshCounter == nil || accountID <= 0 {
-		return
-	}
-	if err := s.oauth401AfterRefreshCounter.ResetOAuth401AfterRefresh(ctx, accountID); err != nil {
-		slog.Warn("oauth_401_after_refresh_reset_failed", "account_id", accountID, "error", err)
-	}
-}
-
-// tkTryEscalateRevokedOAuth401 判定本次 OAuth 401 是否属于「token 已被成功刷新过却仍
-// 401」（grant 实质吊销）的 flap，并在达阈值时升级为 error 永久停调度 + 告警。
-// 返回 true 表示已升级（调用方应 break，不再走 temp_unschedulable 冷却）。
-//
-// 闸门：用账号请求快照里 credentials["_token_version"]（每次成功 refresh 盖一个
-// UnixMilli 戳）比对上一次 401 记录的版本——只有版本递增（其间确实换了新 token）才计数。
-//
-// 任一前置不满足（计数器未注入 / _token_version 缺失 / 计数器返回错误）时返回 false，
-// 回退到既有 temp_unschedulable 冷却。这是 fail-open：绝不因计数器缺失或故障把账号误判
-// 为永久禁用。
-func (s *RateLimitService) tkTryEscalateRevokedOAuth401(ctx context.Context, account *Account, upstreamMsg string) bool {
-	if s == nil || s.oauth401AfterRefreshCounter == nil || account == nil {
+// tkDisableIfOAuth401OnValidToken：若本次 OAuth 401 发生在一个仍然有效的 access_token 上
+// （剩余有效期 ≥ tkOAuth401ValidTokenMargin），判定 grant 被上游吊销，第一次即 SetError
+// 永久停调度 + 告警，返回 true（调用方应 break，不再走冷却）。token 已过期/近过期/expires_at
+// 不可解析时返回 false，调用方回退 temp_unschedulable 冷却。
+func (s *RateLimitService) tkDisableIfOAuth401OnValidToken(ctx context.Context, account *Account, upstreamMsg string) bool {
+	if s == nil || account == nil {
 		return false
 	}
-	// _token_version 缺失 / 非正（极老数据从未刷新过）→ 无法判断是否换过新 token，保守回退。
-	tokenVersion := account.GetCredentialAsInt64("_token_version")
-	if tokenVersion <= 0 {
+	expiresAt := account.GetCredentialAsTime("expires_at")
+	if expiresAt == nil {
+		// 无法确认有效性 → fail-safe，不永久禁用，回退冷却。
+		slog.Warn("oauth_401_expiry_unknown_fallback_cooldown",
+			"account_id", account.ID, "platform", account.Platform)
 		return false
 	}
-
-	count, err := s.oauth401AfterRefreshCounter.RecordOAuth401AfterRefresh(
-		ctx, account.ID, tokenVersion, s.getOAuth401AfterRefreshWindowMinutes(),
-	)
-	if err != nil {
-		slog.Warn("oauth_401_after_refresh_record_failed", "account_id", account.ID, "error", err)
+	// token 已过期 / 在刷新窗口内 → 过期抢跑良性 401，回退冷却 + 后台刷新自愈。
+	if time.Until(*expiresAt) < s.tkOAuth401ValidTokenMargin() {
 		return false
 	}
-
-	threshold := s.getOAuth401AfterRefreshThreshold()
-	if count < threshold {
-		return false
+	if account.Platform == PlatformKiro && account.Type == AccountTypeOAuth {
+		if s.tkHandleKiroOAuthAuthReject(ctx, account, upstreamMsg, *expiresAt, "401_valid_token") {
+			return true
+		}
 	}
-
-	msg := fmt.Sprintf(
-		"OAuth 401 persists after %d successful token refresh(es) — refresh_token likely revoked, manual re-authorization required (re-login via account management)",
-		count,
-	)
+	// token 仍 solidly valid 却被上游 401 → grant 吊销 → 第一次即禁用，人工重授权。
+	msg := "OAuth 401 on a still-valid access token — grant revoked upstream, manual re-authorization required (re-login via account management)"
 	if strings.TrimSpace(upstreamMsg) != "" {
 		msg = msg + ": " + upstreamMsg
 	}
-	// greppable marker（§8.5 排障约定）。handleAuthError 内部已 notify 告警 + SetError。
-	slog.Warn("oauth_401_after_refresh_revoked",
+	// greppable marker（§8.5 排障约定）。
+	slog.Warn("oauth_401_valid_token_revoked",
 		"account_id", account.ID,
 		"platform", account.Platform,
-		"count", count,
-		"threshold", threshold,
-		"token_version", tokenVersion,
+		"expires_at", expiresAt.UTC().Format(time.RFC3339),
 	)
 	s.handleAuthError(ctx, account, msg)
 	return true
+}
+
+func (s *RateLimitService) tkMaybeRefreshKiroInvalidBearer403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) bool {
+	if s == nil || account == nil || account.Platform != PlatformKiro || account.Type != AccountTypeOAuth {
+		return false
+	}
+	if !tkIsKiroInvalidBearer403(upstreamMsg, responseBody) {
+		return false
+	}
+	return s.tkHandleKiroOAuthAuthReject(ctx, account, upstreamMsg, time.Time{}, "403_invalid_bearer")
+}
+
+func tkIsKiroInvalidBearer403(upstreamMsg string, responseBody []byte) bool {
+	hay := strings.ToLower(strings.TrimSpace(upstreamMsg) + "\n" + strings.TrimSpace(string(responseBody)))
+	return strings.Contains(hay, "bearer token") && strings.Contains(hay, "invalid")
+}
+
+func (s *RateLimitService) tkHandleKiroOAuthAuthReject(ctx context.Context, account *Account, upstreamMsg string, expiresAt time.Time, reason string) bool {
+	if s == nil || account == nil || s.oauthRefreshAPI == nil {
+		return false
+	}
+	executor := s.kiroOAuthRefreshExecutor
+	if executor == nil {
+		executor = NewKiroTokenRefresher()
+	}
+	if !executor.CanRefresh(account) {
+		return false
+	}
+
+	result, err := s.oauthRefreshAPI.RefreshNow(ctx, account, executor)
+	if err != nil {
+		if isNonRetryableRefreshError(err) {
+			slog.Warn("kiro_oauth_auth_reject_force_refresh_nonretryable",
+				"account_id", account.ID,
+				"expires_at", tkFormatOptionalTimeUTC(expiresAt),
+				"reason", reason,
+				"error", err,
+			)
+			return false
+		}
+		msg := "Kiro OAuth auth rejection; force-refresh failed, temporary cooldown"
+		if strings.TrimSpace(upstreamMsg) != "" {
+			msg = msg + ": " + upstreamMsg
+		}
+		msg = msg + fmt.Sprintf(" (refresh_error=%v)", err)
+		slog.Warn("kiro_oauth_auth_reject_force_refresh_failed_cooldown",
+			"account_id", account.ID,
+			"expires_at", tkFormatOptionalTimeUTC(expiresAt),
+			"reason", reason,
+			"error", err,
+		)
+		s.tkApplyOAuth401Cooldown(ctx, account, msg)
+		return true
+	}
+	if result != nil && result.LockHeld {
+		msg := "Kiro OAuth auth rejection; force-refresh already in progress, temporary cooldown"
+		if strings.TrimSpace(upstreamMsg) != "" {
+			msg = msg + ": " + upstreamMsg
+		}
+		slog.Info("kiro_oauth_auth_reject_force_refresh_lock_held",
+			"account_id", account.ID,
+			"expires_at", tkFormatOptionalTimeUTC(expiresAt),
+			"reason", reason,
+		)
+		s.tkApplyOAuth401Cooldown(ctx, account, msg)
+		return true
+	}
+	if result == nil || (!result.Refreshed && result.Account == nil) {
+		return false
+	}
+
+	if err := s.accountRepo.ClearError(ctx, account.ID); err != nil {
+		slog.Warn("kiro_oauth_auth_reject_force_refresh_clear_error_failed", "account_id", account.ID, "error", err)
+	}
+	if err := s.accountRepo.SetSchedulable(ctx, account.ID, true); err != nil {
+		slog.Warn("kiro_oauth_auth_reject_force_refresh_set_schedulable_failed", "account_id", account.ID, "error", err)
+	}
+	if err := s.accountRepo.ClearTempUnschedulable(ctx, account.ID); err != nil {
+		slog.Warn("kiro_oauth_auth_reject_force_refresh_clear_temp_unschedulable_failed", "account_id", account.ID, "error", err)
+	}
+	if s.tempUnschedCache != nil {
+		if err := s.tempUnschedCache.DeleteTempUnsched(ctx, account.ID); err != nil {
+			slog.Warn("kiro_oauth_auth_reject_force_refresh_clear_temp_unsched_cache_failed", "account_id", account.ID, "error", err)
+		}
+	}
+	if s.tokenCacheInvalidator != nil {
+		if err := s.tokenCacheInvalidator.InvalidateToken(ctx, account); err != nil {
+			slog.Warn("kiro_oauth_auth_reject_force_refresh_invalidate_cache_failed", "account_id", account.ID, "error", err)
+		}
+	}
+	s.notifyAccountSchedulingBlockCleared(account.ID)
+	slog.Info("kiro_oauth_auth_reject_force_refresh_recovered",
+		"account_id", account.ID,
+		"expires_at", tkFormatOptionalTimeUTC(expiresAt),
+		"reason", reason,
+	)
+	return true
+}
+
+func tkFormatOptionalTimeUTC(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+// tkApplyOAuth401Cooldown 把一次非-Anthropic OAuth 401 落成 temp_unschedulable 冷却 +
+// 发调度阻塞通知。
+func (s *RateLimitService) tkApplyOAuth401Cooldown(ctx context.Context, account *Account, reasonMsg string) {
+	cooldownMinutes := s.cfg.RateLimit.OAuth401CooldownMinutes
+	if cooldownMinutes <= 0 {
+		cooldownMinutes = 10
+	}
+	until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
+	s.notifyAccountSchedulingBlocked(account, until, "oauth_401")
+	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reasonMsg); err != nil {
+		slog.Warn("oauth_401_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
+	}
 }

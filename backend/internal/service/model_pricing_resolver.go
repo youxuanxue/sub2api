@@ -34,6 +34,9 @@ type ResolvedPricing struct {
 
 	// 是否支持缓存细分
 	SupportsCacheBreakdown bool
+
+	// 渠道定价原始配置（用于区间模式下获取 ImageOutputPrice）
+	channelPricing *ChannelModelPricing
 }
 
 // ModelPricingResolver 统一模型定价解析器。
@@ -71,8 +74,9 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 			}
 			if mode == BillingModePerRequest || mode == BillingModeImage {
 				resolved := &ResolvedPricing{
-					Mode:   mode,
-					Source: PricingSourceChannel,
+					Mode:           mode,
+					Source:         PricingSourceChannel,
+					channelPricing: chPricing,
 				}
 				r.applyRequestTierOverrides(chPricing, resolved)
 				return resolved
@@ -93,10 +97,16 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	// 2. 如果有 GroupID，尝试渠道覆盖
 	if chPricing != nil {
 		resolved.Source = PricingSourceChannel
+		resolved.channelPricing = chPricing
 		r.applyTokenOverrides(chPricing, resolved)
 	} else if input.GroupID != nil {
 		r.applyChannelOverrides(ctx, *input.GroupID, input.Model, resolved)
 	}
+
+	// TK: fill interval (tiered) pricing from the curated overlay when channel
+	// pricing did not supply intervals (channel still wins). See
+	// model_pricing_resolver_tk_overlay_intervals.go.
+	tkApplyOverlayIntervals(resolved)
 
 	return resolved
 }
@@ -120,6 +130,7 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 	}
 
 	resolved.Source = PricingSourceChannel
+	resolved.channelPricing = chPricing
 	resolved.Mode = chPricing.BillingMode
 	if resolved.Mode == "" {
 		resolved.Mode = BillingModeToken

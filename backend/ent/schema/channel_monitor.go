@@ -34,8 +34,11 @@ func (ChannelMonitor) Fields() []ent.Field {
 		field.String("name").
 			NotEmpty().
 			MaxLen(100),
+		// SSOT: must match MonitorProvider* constants in
+		// internal/service/channel_monitor_const.go. Only platforms with
+		// implemented monitoring adapters are listed here.
 		field.Enum("provider").
-			Values("openai", "anthropic", "gemini"),
+			Values("openai", "anthropic", "gemini", "grok"),
 		field.String("api_mode").
 			Default("chat_completions").
 			MaxLen(32).
@@ -62,6 +65,10 @@ func (ChannelMonitor) Fields() []ent.Field {
 			Default(true),
 		field.Int("interval_seconds").
 			Range(15, 3600),
+		field.Int("jitter_seconds").
+			Default(0).
+			Range(0, 3600).
+			Comment("每次调度在 interval 基础上 ± [0, jitter] 的均匀随机偏移（秒）；0 表示固定间隔。service 层另保证 interval - jitter >= 15"),
 		field.Time("last_checked_at").
 			Optional().
 			Nillable(),

@@ -123,11 +123,12 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		APIMode:          defaultAPIMode(p.APIMode),
 		Endpoint:         normalizeEndpoint(p.Endpoint),
 		APIKey:           encrypted, // 注意：传入 repository 时该字段为密文
-		PrimaryModel:     strings.TrimSpace(p.PrimaryModel),
+		PrimaryModel:     normalizeMonitorPrimaryModel(p.Provider, p.PrimaryModel),
 		ExtraModels:      normalizeModels(p.ExtraModels),
 		GroupName:        strings.TrimSpace(p.GroupName),
 		Enabled:          p.Enabled,
 		IntervalSeconds:  p.IntervalSeconds,
+		JitterSeconds:    p.JitterSeconds,
 		CreatedBy:        p.CreatedBy,
 		TemplateID:       p.TemplateID,
 		ExtraHeaders:     emptyHeadersIfNil(p.ExtraHeaders),
@@ -157,13 +158,16 @@ func validateCreateParams(p ChannelMonitorCreateParams) error {
 	if err := validateInterval(p.IntervalSeconds); err != nil {
 		return err
 	}
+	if err := validateJitter(p.JitterSeconds, p.IntervalSeconds); err != nil {
+		return err
+	}
 	if err := validateEndpoint(p.Endpoint); err != nil {
 		return err
 	}
 	if strings.TrimSpace(p.APIKey) == "" {
 		return ErrChannelMonitorMissingAPIKey
 	}
-	if strings.TrimSpace(p.PrimaryModel) == "" {
+	if normalizeMonitorPrimaryModel(p.Provider, p.PrimaryModel) == "" {
 		return ErrChannelMonitorMissingPrimaryModel
 	}
 	return nil
@@ -482,8 +486,8 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 		if err := validateProvider(*p.Provider); err != nil {
 			return err
 		}
+		providerChanged = existing.Provider != *p.Provider
 		existing.Provider = *p.Provider
-		providerChanged = true
 	}
 	if p.Endpoint != nil {
 		if err := validateEndpoint(*p.Endpoint); err != nil {
@@ -492,7 +496,13 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 		existing.Endpoint = normalizeEndpoint(*p.Endpoint)
 	}
 	if p.PrimaryModel != nil {
-		existing.PrimaryModel = strings.TrimSpace(*p.PrimaryModel)
+		primaryModel := normalizeMonitorPrimaryModel(existing.Provider, *p.PrimaryModel)
+		if primaryModel == "" {
+			return ErrChannelMonitorMissingPrimaryModel
+		}
+		existing.PrimaryModel = primaryModel
+	} else if providerChanged && existing.Provider == MonitorProviderGrok {
+		existing.PrimaryModel = MonitorDefaultGrokModel
 	}
 	if p.ExtraModels != nil {
 		existing.ExtraModels = normalizeModels(*p.ExtraModels)
@@ -508,6 +518,15 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 			return err
 		}
 		existing.IntervalSeconds = *p.IntervalSeconds
+	}
+	if p.JitterSeconds != nil {
+		existing.JitterSeconds = *p.JitterSeconds
+	}
+	if p.IntervalSeconds != nil || p.JitterSeconds != nil {
+		// interval 与 jitter 任一变化都需要重新校验组合约束（interval - jitter >= 下限）。
+		if err := validateJitter(existing.JitterSeconds, existing.IntervalSeconds); err != nil {
+			return err
+		}
 	}
 	return applyMonitorAdvancedUpdate(existing, p, providerChanged)
 }

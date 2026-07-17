@@ -185,6 +185,11 @@ func RateMultiplier(v float64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldRateMultiplier, v))
 }
 
+// LongContextBillingApplied applies equality check predicate on the "long_context_billing_applied" field. It's identical to LongContextBillingAppliedEQ.
+func LongContextBillingApplied(v bool) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldLongContextBillingApplied, v))
+}
+
 // AccountRateMultiplier applies equality check predicate on the "account_rate_multiplier" field. It's identical to AccountRateMultiplierEQ.
 func AccountRateMultiplier(v float64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldAccountRateMultiplier, v))
@@ -243,6 +248,11 @@ func ImageOutputSize(v string) predicate.UsageLog {
 // ImageSizeSource applies equality check predicate on the "image_size_source" field. It's identical to ImageSizeSourceEQ.
 func ImageSizeSource(v string) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldImageSizeSource, v))
+}
+
+// VideoDurationSeconds applies equality check predicate on the "video_duration_seconds" field. It's identical to VideoDurationSecondsEQ.
+func VideoDurationSeconds(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldVideoDurationSeconds, v))
 }
 
 // CacheTTLOverridden applies equality check predicate on the "cache_ttl_overridden" field. It's identical to CacheTTLOverriddenEQ.
@@ -1450,6 +1460,16 @@ func RateMultiplierLTE(v float64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldLTE(FieldRateMultiplier, v))
 }
 
+// LongContextBillingAppliedEQ applies the EQ predicate on the "long_context_billing_applied" field.
+func LongContextBillingAppliedEQ(v bool) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldLongContextBillingApplied, v))
+}
+
+// LongContextBillingAppliedNEQ applies the NEQ predicate on the "long_context_billing_applied" field.
+func LongContextBillingAppliedNEQ(v bool) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldLongContextBillingApplied, v))
+}
+
 // AccountRateMultiplierEQ applies the EQ predicate on the "account_rate_multiplier" field.
 func AccountRateMultiplierEQ(v float64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldAccountRateMultiplier, v))
@@ -2148,6 +2168,56 @@ func ImageSizeBreakdownIsNil() predicate.UsageLog {
 // ImageSizeBreakdownNotNil applies the NotNil predicate on the "image_size_breakdown" field.
 func ImageSizeBreakdownNotNil() predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldNotNull(FieldImageSizeBreakdown))
+}
+
+// VideoDurationSecondsEQ applies the EQ predicate on the "video_duration_seconds" field.
+func VideoDurationSecondsEQ(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldVideoDurationSeconds, v))
+}
+
+// VideoDurationSecondsNEQ applies the NEQ predicate on the "video_duration_seconds" field.
+func VideoDurationSecondsNEQ(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldVideoDurationSeconds, v))
+}
+
+// VideoDurationSecondsIn applies the In predicate on the "video_duration_seconds" field.
+func VideoDurationSecondsIn(vs ...int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldVideoDurationSeconds, vs...))
+}
+
+// VideoDurationSecondsNotIn applies the NotIn predicate on the "video_duration_seconds" field.
+func VideoDurationSecondsNotIn(vs ...int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldVideoDurationSeconds, vs...))
+}
+
+// VideoDurationSecondsGT applies the GT predicate on the "video_duration_seconds" field.
+func VideoDurationSecondsGT(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldVideoDurationSeconds, v))
+}
+
+// VideoDurationSecondsGTE applies the GTE predicate on the "video_duration_seconds" field.
+func VideoDurationSecondsGTE(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldVideoDurationSeconds, v))
+}
+
+// VideoDurationSecondsLT applies the LT predicate on the "video_duration_seconds" field.
+func VideoDurationSecondsLT(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldVideoDurationSeconds, v))
+}
+
+// VideoDurationSecondsLTE applies the LTE predicate on the "video_duration_seconds" field.
+func VideoDurationSecondsLTE(v int64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldVideoDurationSeconds, v))
+}
+
+// VideoDurationSecondsIsNil applies the IsNil predicate on the "video_duration_seconds" field.
+func VideoDurationSecondsIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldVideoDurationSeconds))
+}
+
+// VideoDurationSecondsNotNil applies the NotNil predicate on the "video_duration_seconds" field.
+func VideoDurationSecondsNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldVideoDurationSeconds))
 }
 
 // CacheTTLOverriddenEQ applies the EQ predicate on the "cache_ttl_overridden" field.

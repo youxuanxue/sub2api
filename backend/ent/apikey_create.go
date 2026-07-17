@@ -113,6 +113,20 @@ func (_c *APIKeyCreate) SetNillableStatus(v *string) *APIKeyCreate {
 	return _c
 }
 
+// SetRoutingMode sets the "routing_mode" field.
+func (_c *APIKeyCreate) SetRoutingMode(v apikey.RoutingMode) *APIKeyCreate {
+	_c.mutation.SetRoutingMode(v)
+	return _c
+}
+
+// SetNillableRoutingMode sets the "routing_mode" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableRoutingMode(v *apikey.RoutingMode) *APIKeyCreate {
+	if v != nil {
+		_c.SetRoutingMode(*v)
+	}
+	return _c
+}
+
 // SetLastUsedAt sets the "last_used_at" field.
 func (_c *APIKeyCreate) SetLastUsedAt(v time.Time) *APIKeyCreate {
 	_c.mutation.SetLastUsedAt(v)
@@ -387,6 +401,10 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultStatus
 		_c.mutation.SetStatus(v)
 	}
+	if _, ok := _c.mutation.RoutingMode(); !ok {
+		v := apikey.DefaultRoutingMode
+		_c.mutation.SetRoutingMode(v)
+	}
 	if _, ok := _c.mutation.Quota(); !ok {
 		v := apikey.DefaultQuota
 		_c.mutation.SetQuota(v)
@@ -455,6 +473,14 @@ func (_c *APIKeyCreate) check() error {
 	if v, ok := _c.mutation.Status(); ok {
 		if err := apikey.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "APIKey.status": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.RoutingMode(); !ok {
+		return &ValidationError{Name: "routing_mode", err: errors.New(`ent: missing required field "APIKey.routing_mode"`)}
+	}
+	if v, ok := _c.mutation.RoutingMode(); ok {
+		if err := apikey.RoutingModeValidator(v); err != nil {
+			return &ValidationError{Name: "routing_mode", err: fmt.Errorf(`ent: validator failed for field "APIKey.routing_mode": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.Quota(); !ok {
@@ -534,6 +560,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
 		_node.Status = value
+	}
+	if value, ok := _c.mutation.RoutingMode(); ok {
+		_spec.SetField(apikey.FieldRoutingMode, field.TypeEnum, value)
+		_node.RoutingMode = value
 	}
 	if value, ok := _c.mutation.LastUsedAt(); ok {
 		_spec.SetField(apikey.FieldLastUsedAt, field.TypeTime, value)
@@ -790,6 +820,18 @@ func (u *APIKeyUpsert) SetStatus(v string) *APIKeyUpsert {
 // UpdateStatus sets the "status" field to the value that was provided on create.
 func (u *APIKeyUpsert) UpdateStatus() *APIKeyUpsert {
 	u.SetExcluded(apikey.FieldStatus)
+	return u
+}
+
+// SetRoutingMode sets the "routing_mode" field.
+func (u *APIKeyUpsert) SetRoutingMode(v apikey.RoutingMode) *APIKeyUpsert {
+	u.Set(apikey.FieldRoutingMode, v)
+	return u
+}
+
+// UpdateRoutingMode sets the "routing_mode" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateRoutingMode() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldRoutingMode)
 	return u
 }
 
@@ -1217,6 +1259,20 @@ func (u *APIKeyUpsertOne) SetStatus(v string) *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) UpdateStatus() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetRoutingMode sets the "routing_mode" field.
+func (u *APIKeyUpsertOne) SetRoutingMode(v apikey.RoutingMode) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetRoutingMode(v)
+	})
+}
+
+// UpdateRoutingMode sets the "routing_mode" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateRoutingMode() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateRoutingMode()
 	})
 }
 
@@ -1855,6 +1911,20 @@ func (u *APIKeyUpsertBulk) SetStatus(v string) *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) UpdateStatus() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateStatus()
+	})
+}
+
+// SetRoutingMode sets the "routing_mode" field.
+func (u *APIKeyUpsertBulk) SetRoutingMode(v apikey.RoutingMode) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetRoutingMode(v)
+	})
+}
+
+// UpdateRoutingMode sets the "routing_mode" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateRoutingMode() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateRoutingMode()
 	})
 }
 

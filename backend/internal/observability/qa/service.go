@@ -12,8 +12,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 
 	"github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
@@ -33,13 +36,33 @@ import (
 )
 
 type Service struct {
-	client        *ent.Client
-	cfg           config.QACaptureConfig
-	store         BlobStore
-	pool          pond.Pool
-	bodyMaxBytes  int
-	retentionDays int
-	dlqDir        string
+	client            *ent.Client
+	cfg               config.QACaptureConfig
+	store             BlobStore
+	pool              pond.Pool
+	bodyMaxBytes      int
+	optInBodyMaxBytes int
+	retentionDays     int
+	dlqDir            string
+
+	// Trajectory export runs off the request path on its own single-worker pool
+	// (NOT the capture pool) so a heavy export can never contend with live
+	// capture or the gateway. Job status is persisted in qa_export_jobs (durable
+	// across restart/redeploy — the in-memory map was wiped on every deploy,
+	// orphaning the download; see #792 follow-up). The pool itself is in-process;
+	// a startup reconciler fails any job left running by the previous process.
+	exportPool   pond.Pool
+	exportPoolMu sync.Mutex
+	// exportStore is where the finished export ZIP lives. It defaults to `store`
+	// (capture localfs) but can be pointed at S3 via qa_capture.export_storage so
+	// the large archive leaves the Postgres-shared data volume; capture blobs
+	// still go to `store`.
+	exportStore BlobStore
+
+	// autoExportStop signals the daily auto-export loop to exit; closed by Stop().
+	// Only created when qa_capture.auto_export_enabled is set.
+	autoExportStop chan struct{}
+	autoExportOnce sync.Once
 }
 
 var (
@@ -57,12 +80,12 @@ const (
 	qaCaptureStatusCapturedToDLQ     = "captured_dlq"
 	qaCapturePersistModeAsync        = "async"
 	qaCapturePersistModeSyncFallback = "sync_fallback"
-	qaEndpointChatCompletions        = "/v1/chat/completions"
-	qaEndpointMessages               = "/v1/messages"
-	qaEndpointResponses              = "/v1/responses"
-	qaEndpointGeminiModels           = "/v1beta/models"
-	qaEndpointEmbeddings             = "/v1/embeddings"
-	qaEndpointImagesGenerations      = "/v1/images/generations"
+	qaEndpointChatCompletions        = apipath.ChatCompletions
+	qaEndpointMessages               = apipath.Messages
+	qaEndpointResponses              = apipath.Responses
+	qaEndpointGeminiModels           = apipath.GeminiModels
+	qaEndpointEmbeddings             = apipath.Embeddings
+	qaEndpointImagesGenerations      = apipath.ImagesGenerations
 	qaEndpointVideoGenerations       = "/v1/video/generations"
 	qaEndpointVideoGenerationsTask   = "/v1/video/generations/:task_id"
 )
@@ -73,9 +96,10 @@ const (
 // worker pool, DLQ directory, and capture-side body limits.
 func NewServiceForTest(client *ent.Client, store BlobStore) *Service {
 	return &Service{
-		client: client,
-		store:  store,
-		cfg:    config.QACaptureConfig{Enabled: true},
+		client:      client,
+		store:       store,
+		exportStore: store,
+		cfg:         config.QACaptureConfig{Enabled: true},
 	}
 }
 
@@ -87,27 +111,63 @@ func NewService(cfg *config.Config, client *ent.Client) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Export ZIP store: separate destination (typically S3) so the large archive
+	// leaves the Postgres-shared data volume. Falls back to the capture store
+	// (localfs) when export_storage is unconfigured — preserving current behavior
+	// with no infra dependency.
+	exportStore := store
+	if strings.TrimSpace(cfg.QACapture.ExportStorage.Driver) != "" {
+		es, eerr := newBlobStore(config.QACaptureConfig{Storage: cfg.QACapture.ExportStorage})
+		if eerr != nil {
+			return nil, eerr
+		}
+		exportStore = es
+	}
 	dataDir := strings.TrimSpace(os.Getenv("DATA_DIR"))
 	if dataDir == "" {
 		dataDir = "/app/data"
 	}
 	svc := &Service{
-		client:        client,
-		cfg:           cfg.QACapture,
-		store:         store,
-		bodyMaxBytes:  cfg.QACapture.BodyMaxBytes,
-		retentionDays: cfg.QACapture.RetentionDays,
-		dlqDir:        filepath.Join(dataDir, "qa_dlq"),
+		client:            client,
+		cfg:               cfg.QACapture,
+		store:             store,
+		exportStore:       exportStore,
+		bodyMaxBytes:      cfg.QACapture.BodyMaxBytes,
+		optInBodyMaxBytes: cfg.QACapture.OptInBodyMaxBytes,
+		retentionDays:     cfg.QACapture.RetentionDays,
+		dlqDir:            filepath.Join(dataDir, "qa_dlq"),
 	}
 	svc.pool = pond.NewPool(cfg.QACapture.WorkerCount, pond.WithQueueSize(cfg.QACapture.QueueSize))
+	// Single-worker export pool: at most one trajectory export materializes at a
+	// time, so bulk export can never fan out and starve the gateway.
+	svc.exportPool = pond.NewPool(1, pond.WithQueueSize(exportQueueSize))
+	// Fail any export left "running"/"pending" by a previous process — the
+	// in-process worker that owned it is gone, so it will never complete.
+	if rcErr := svc.ReconcileOrphanedExports(context.Background()); rcErr != nil {
+		logger.L().Warn("qa export: orphan reconcile failed", zap.Error(rcErr))
+	}
+	// Daily per-(user,key) archive to the export store. Ships dormant — only
+	// runs when explicitly enabled (and only meaningful once export_storage
+	// points at durable S3, since localfs purges the source blobs each day).
+	if cfg.QACapture.AutoExportEnabled {
+		svc.StartAutoExportLoop()
+	}
 	return svc, nil
 }
 
 func (s *Service) Stop() {
-	if s == nil || s.pool == nil {
+	if s == nil {
 		return
 	}
-	s.pool.StopAndWait()
+	if s.autoExportStop != nil {
+		s.autoExportOnce.Do(func() { close(s.autoExportStop) })
+	}
+	if s.pool != nil {
+		s.pool.StopAndWait()
+	}
+	if s.exportPool != nil {
+		s.exportPool.StopAndWait()
+	}
 }
 
 func (s *Service) Middleware() gin.HandlerFunc {
@@ -123,6 +183,18 @@ func (s *Service) BodyMaxBytes() int {
 		return 256 * 1024
 	}
 	return s.bodyMaxBytes
+}
+
+// OptInBodyMaxBytes 返回 traj/synth opt-in 记录的捕获上限（默认高于普通上限，
+// 避免长 thinking 被截断）。<=0 或低于普通上限时回退到 BodyMaxBytes()。
+func (s *Service) OptInBodyMaxBytes() int {
+	if s == nil {
+		return 1024 * 1024
+	}
+	if s.optInBodyMaxBytes > s.BodyMaxBytes() {
+		return s.optInBodyMaxBytes
+	}
+	return s.BodyMaxBytes()
 }
 
 func (s *Service) Submit(input CaptureInput) {
@@ -165,6 +237,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 	if raw, ok := requestBytes.([]byte); ok {
 		requestBody = raw
 	}
+	upstreamRequestBody := captureUpstreamRequestBody(c, requestBody)
 	var responseBody []byte
 	var streamChunks []RawSSEChunk
 	var responseTruncated bool
@@ -229,6 +302,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		FirstTokenMs:               firstTokenMs,
 		Stream:                     captureStreamFlag(c, streamChunks),
 		RequestBody:                requestBody,
+		UpstreamRequestBody:        upstreamRequestBody,
 		ResponseBody:               responseBody,
 		ResponseHeaders:            captureResponseHeaders(c),
 		StreamChunks:               streamChunks,
@@ -481,14 +555,19 @@ func hasUnsafePathSegment(path string) bool {
 }
 
 func exportKeyExpired(key string, now time.Time) bool {
-	filename := filepath.Base(key)
-	stamp := strings.TrimSuffix(filename, ".zip")
-	nanos, err := strconv.ParseInt(stamp, 10, 64)
-	if err != nil {
-		return false
+	stamp := strings.TrimSuffix(filepath.Base(key), ".zip")
+	// manual exports embed unix-nanos in the filename.
+	if nanos, err := strconv.ParseInt(stamp, 10, 64); err == nil {
+		return !now.Before(time.Unix(0, nanos).UTC().Add(presignedURLTTL))
 	}
-	expiresAt := time.Unix(0, nanos).UTC().Add(presignedURLTTL)
-	return !now.Before(expiresAt)
+	// auto exports embed the archived day (YYYY-MM-DD) and are retained for the
+	// longer auto-archive TTL (matching their S3 lifecycle), not the 24h URL TTL.
+	if day, err := time.Parse("2006-01-02", stamp); err == nil {
+		return !now.Before(day.UTC().Add(autoExportArtifactTTL))
+	}
+	// Unparseable (legacy or unexpected) keys are not gated here; the store's
+	// own lifecycle (host cleanup / S3 expiration) remains the backstop.
+	return false
 }
 
 func (s *Service) DeleteUserData(ctx context.Context, userID int64, before *time.Time) (int, error) {
@@ -530,25 +609,43 @@ func (s *Service) DeleteUserData(ctx context.Context, userID int64, before *time
 }
 
 func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []string, error) {
-	requestValue := sanitizeQABytes(input.RequestBody, s.bodyMaxBytes)
-	responseValue := sanitizeQABytes(input.ResponseBody, s.bodyMaxBytes)
+	// traj-opt-in 的 Anthropic 记录：保留 thinking 块的 signature（仅 thinking 块，
+	// 见 thinking_preserve.go）。默认（非 opt-in / 非 Anthropic）行为不变。
+	preserveThinking := isAnthropicThinkingOptIn(input.Platform, input.DialogSynth)
+	requestValue := s.sanitizeQABody(input.RequestBody, preserveThinking)
+	responseValue := s.sanitizeQABody(input.ResponseBody, preserveThinking)
 
 	chunks := make([]map[string]any, 0, len(input.StreamChunks))
 	for _, chunk := range input.StreamChunks {
+		redacted := logredact.RedactText(string(chunk.Bytes))
+		if preserveThinking {
+			redacted = restoreThinkingSignatureInChunk(redacted, chunk.Bytes)
+		}
 		chunks = append(chunks, map[string]any{
 			"t":       chunk.RecvAtMs,
-			"raw_b64": base64.StdEncoding.EncodeToString([]byte(logredact.RedactText(string(chunk.Bytes)))),
+			"raw_b64": base64.StdEncoding.EncodeToString([]byte(redacted)),
 		})
+	}
+
+	requestPayload := map[string]any{
+		"path": input.InboundEndpoint,
+		"body": requestValue,
+	}
+	// 非 passthrough 网关路径（如 cc-edges）转发前可能改写请求体（normalize /
+	// alias strip / signature-preempt 剥 thinking 等）。改写发生时，「捕获的客户端
+	// 请求」≠「真正产生该响应的上游请求」——对 traj 样本这是静默失真。CaptureFromContext
+	// 只在 opt-in 且字节不等时才填 UpstreamRequestBody，这里原样落进 blob，导出侧
+	// 据此机械标记 divergent 记录。
+	if len(input.UpstreamRequestBody) > 0 {
+		requestPayload["upstream_body"] = s.sanitizeQABody(input.UpstreamRequestBody, preserveThinking)
+		requestPayload["upstream_divergent"] = true
 	}
 
 	payload := map[string]any{
 		"request_id":    input.RequestID,
 		"trajectory_id": strings.TrimSpace(input.TrajectoryID),
 		"captured_at":   input.CreatedAt.Format(time.RFC3339),
-		"request": map[string]any{
-			"path": input.InboundEndpoint,
-			"body": requestValue,
-		},
+		"request":       requestPayload,
 		"response": map[string]any{
 			"status_code": input.StatusCode,
 			"headers":     input.ResponseHeaders,
@@ -605,6 +702,37 @@ func sanitizeQABytes(raw []byte, maxBytes int) any {
 	if json.Valid([]byte(trimmed)) {
 		var out any
 		if err := json.Unmarshal([]byte(logredact.RedactJSON([]byte(trimmed))), &out); err == nil {
+			return out
+		}
+	}
+	return logredact.RedactText(trimmed)
+}
+
+// sanitizeQABody 与 sanitizeQABytes 同语义；当 preserveThinking=true 时，在脱敏后把
+// thinking 块的真实 signature 结构化回填（仅 thinking 块）。opt-in 记录用更高的截断上限，
+// 避免长 thinking 被切断。
+func (s *Service) sanitizeQABody(raw []byte, preserveThinking bool) any {
+	maxBytes := s.bodyMaxBytes
+	if preserveThinking && s.optInBodyMaxBytes > maxBytes {
+		maxBytes = s.optInBodyMaxBytes
+	}
+	if !preserveThinking {
+		return sanitizeQABytes(raw, maxBytes)
+	}
+	if len(raw) == 0 {
+		return map[string]any{}
+	}
+	if maxBytes > 0 && len(raw) > maxBytes {
+		raw = raw[:maxBytes]
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return map[string]any{}
+	}
+	if json.Valid([]byte(trimmed)) {
+		redacted := restoreThinkingSignatures(logredact.RedactJSON([]byte(trimmed)), []byte(trimmed))
+		var out any
+		if err := json.Unmarshal([]byte(redacted), &out); err == nil {
 			return out
 		}
 	}
@@ -877,9 +1005,48 @@ func captureSynthHeaders(c *gin.Context) (session, role, level string, dialogSyn
 	session = clip(c.Request.Header.Get("X-Synth-Session"))
 	role = clip(c.Request.Header.Get("X-Synth-Role"))
 	level = clip(c.Request.Header.Get("X-Synth-Engineer-Level"))
-	pipeline := clip(c.Request.Header.Get("X-Synth-Pipeline"))
-	dialogSynth = session != "" || pipeline != ""
+	dialogSynth = requestIsSynthOptIn(c)
 	return
+}
+
+// requestIsSynthOptIn 是 traj/synth opt-in 信号的唯一判定：X-Synth-Session 或
+// X-Synth-Pipeline 存在即 opt-in。captureSynthHeaders 的 dialogSynth 与请求阶段
+// （tee 上限选择）都复用这一处，避免双实现漂移。
+func requestIsSynthOptIn(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	return strings.TrimSpace(c.Request.Header.Get("X-Synth-Session")) != "" ||
+		strings.TrimSpace(c.Request.Header.Get("X-Synth-Pipeline")) != ""
+}
+
+// opsUpstreamRequestBodyContextKey 是网关在转发前存放「改写后最终上游请求体」的
+// gin context key。字面量必须与 service.OpsUpstreamRequestBodyKey 一致（qa 不能
+// import service，否则成环）；一致性由 scripts/sentinels/trajectory.json 钉住。
+const opsUpstreamRequestBodyContextKey = "ops_upstream_request_body"
+
+// captureUpstreamRequestBody 在 traj/synth opt-in 请求上读取网关 stash 的上游
+// 请求体；仅当它与客户端原始请求字节不等（= 网关真的改写过，所有改写 helper 在
+// no-op 时原样返回输入）才返回。非 opt-in 流量直接返回 nil，零额外开销。
+func captureUpstreamRequestBody(c *gin.Context, clientBody []byte) []byte {
+	if !requestIsSynthOptIn(c) {
+		return nil
+	}
+	value, ok := c.Get(opsUpstreamRequestBodyContextKey)
+	if !ok {
+		return nil
+	}
+	var upstream []byte
+	switch raw := value.(type) {
+	case []byte:
+		upstream = raw
+	case string:
+		upstream = []byte(raw)
+	}
+	if len(upstream) == 0 || bytes.Equal(upstream, clientBody) {
+		return nil
+	}
+	return upstream
 }
 
 func captureResponseHeaders(c *gin.Context) map[string]string {
@@ -899,7 +1066,17 @@ func captureInternalThinkingBlocks(c *gin.Context) []string {
 	if c == nil {
 		return nil
 	}
-	value, ok := c.Get("ops_gemini_internal_thinking_blocks")
+	out := make([]string, 0, 4)
+	out = append(out, captureInternalThinkingBlocksFromKey(c, "ops_gemini_internal_thinking_blocks")...)
+	out = append(out, captureInternalThinkingBlocksFromKey(c, "ops_kiro_internal_thinking_blocks")...)
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func captureInternalThinkingBlocksFromKey(c *gin.Context, key string) []string {
+	value, ok := c.Get(key)
 	if !ok {
 		return nil
 	}
@@ -914,9 +1091,6 @@ func captureInternalThinkingBlocks(c *gin.Context) []string {
 			continue
 		}
 		out = append(out, logredact.RedactText(trimmed))
-	}
-	if len(out) == 0 {
-		return nil
 	}
 	return out
 }

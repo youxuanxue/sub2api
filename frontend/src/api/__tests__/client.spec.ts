@@ -12,6 +12,7 @@ describe('API Client', () => {
 
   beforeEach(async () => {
     localStorage.clear()
+    window.history.replaceState({}, '', '/')
     // 每次测试重新导入以获取干净的模块状态
     vi.resetModules()
     const mod = await import('@/api/client')
@@ -20,11 +21,24 @@ describe('API Client', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllEnvs()
   })
 
   // --- 请求拦截器 ---
 
   describe('请求拦截器', () => {
+    it('规范化相对 API base，避免在回调页拼出相对 v1 路径', async () => {
+      vi.resetModules()
+      vi.stubEnv('VITE_API_BASE_URL', 'api/v1')
+
+      const mod = await import('@/api/client')
+
+      expect(mod.apiClient.defaults.baseURL).toBe('/api/v1')
+      expect(mod.buildApiUrl('/auth/oauth/github/callback?code=abc')).toBe(
+        '/api/v1/auth/oauth/github/callback?code=abc'
+      )
+    })
+
     it('自动附加 Authorization 头', async () => {
       localStorage.setItem('auth_token', 'my-jwt-token')
 
@@ -60,7 +74,7 @@ describe('API Client', () => {
       expect(config.headers.get('Authorization')).toBeFalsy()
     })
 
-    it('GET 请求自动附加 timezone 参数', async () => {
+    it('GET 请求不附加 timezone 参数（日界由服务器时区统一解析）', async () => {
       const adapter = vi.fn().mockResolvedValue({
         status: 200,
         data: { code: 0, data: {} },
@@ -73,7 +87,7 @@ describe('API Client', () => {
       await apiClient.get('/test')
 
       const config = adapter.mock.calls[0][0]
-      expect(config.params).toHaveProperty('timezone')
+      expect(config.params?.timezone).toBeUndefined()
     })
 
     it('POST 请求不附加 timezone 参数', async () => {
@@ -106,6 +120,107 @@ describe('API Client', () => {
 
       const config = adapter.mock.calls[0][0]
       expect(config.withCredentials).toBe(true)
+    })
+
+    it('Admin API 在进入管理页面前也带 Admin UI 标记', async () => {
+      const adapter = vi.fn().mockResolvedValue({
+        status: 200,
+        data: { code: 0, data: {} },
+        headers: {},
+        config: {},
+        statusText: 'OK',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await apiClient.get('/admin/users')
+
+      const config = adapter.mock.calls[0][0]
+      expect(config.headers.get('X-Admin-UI-Request')).toBe('1')
+    })
+
+    it('管理页面调用共享 API 时带 Admin UI 标记', async () => {
+      window.history.replaceState({}, '', '/admin/dashboard')
+      const adapter = vi.fn().mockResolvedValue({
+        status: 200,
+        data: { code: 0, data: {} },
+        headers: {},
+        config: {},
+        statusText: 'OK',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await apiClient.get('/groups/available')
+
+      const config = adapter.mock.calls[0][0]
+      expect(config.headers.get('X-Admin-UI-Request')).toBe('1')
+    })
+
+    it('普通用户页面调用共享 API 时不带 Admin UI 标记', async () => {
+      const adapter = vi.fn().mockResolvedValue({
+        status: 200,
+        data: { code: 0, data: {} },
+        headers: {},
+        config: {},
+        statusText: 'OK',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await apiClient.get('/groups/available')
+
+      const config = adapter.mock.calls[0][0]
+      expect(config.headers.get('X-Admin-UI-Request')).toBeFalsy()
+    })
+
+    it('用户侧 timing API 自动带 User UI 标记', async () => {
+      const adapter = vi.fn().mockResolvedValue({
+        status: 200,
+        data: { code: 0, data: {} },
+        headers: {},
+        config: {},
+        statusText: 'OK',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await apiClient.get('/auth/me')
+
+      const config = adapter.mock.calls[0][0]
+      expect(config.headers.get('X-User-UI-Request')).toBe('1')
+      expect(config.headers.get('X-Admin-UI-Request')).toBeFalsy()
+    })
+
+    it('支付用户 API 带 User UI 标记，公开支付 API 不带', async () => {
+      const adapter = vi.fn().mockResolvedValue({
+        status: 200,
+        data: { code: 0, data: {} },
+        headers: {},
+        config: {},
+        statusText: 'OK',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await apiClient.get('/payment/plans')
+      expect(adapter.mock.calls[0][0].headers.get('X-User-UI-Request')).toBe('1')
+
+      await apiClient.post('/payment/public/orders/verify', {})
+      expect(adapter.mock.calls[1][0].headers.get('X-User-UI-Request')).toBeFalsy()
+    })
+
+    it('管理页调用共享 API 时同时带 Admin 与 User UI 标记', async () => {
+      window.history.replaceState({}, '', '/admin/dashboard')
+      const adapter = vi.fn().mockResolvedValue({
+        status: 200,
+        data: { code: 0, data: {} },
+        headers: {},
+        config: {},
+        statusText: 'OK',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await apiClient.get('/keys')
+
+      const config = adapter.mock.calls[0][0]
+      expect(config.headers.get('X-Admin-UI-Request')).toBe('1')
+      expect(config.headers.get('X-User-UI-Request')).toBe('1')
     })
   })
 
@@ -142,6 +257,72 @@ describe('API Client', () => {
           message: '参数错误',
         })
       )
+    })
+
+    it('拒绝值是 Error 实例（根除全站 [object Object] 渲染）', async () => {
+      // The interceptor must reject with a real Error (ApiError), not a plain object —
+      // otherwise every `e instanceof Error ? e.message : String(e)` call site renders
+      // "[object Object]" (the bug this fixes at the source). One representative path
+      // (HTTP error response) is enough; all reject points share createApiError.
+      const adapter = vi.fn().mockRejectedValue({
+        response: { status: 500, data: { code: 'INTERNAL', message: 'edge fan-out failed' } },
+        config: { url: '/test' },
+        code: 'ERR_BAD_REQUEST',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await expect(apiClient.get('/test')).rejects.toBeInstanceOf(Error)
+      const err = await apiClient.get('/test').catch((e) => e)
+      expect(err).toBeInstanceOf(Error)
+      expect(err.message).toBe('edge fan-out failed')
+      expect(String(err)).not.toBe('[object Object]')
+    })
+
+    it('部署与运营合规未确认时广播事件且保留登录态', async () => {
+      localStorage.setItem('auth_token', 'admin-token')
+      const listener = vi.fn()
+      window.addEventListener('admin-compliance-required', listener)
+
+      const adapter = vi.fn().mockRejectedValue({
+        response: {
+          status: 423,
+          data: {
+            code: 'ADMIN_COMPLIANCE_ACK_REQUIRED',
+            message: 'administrator compliance acknowledgement is required',
+            metadata: {
+              version: 'v2026.06.10',
+              document_path_zh: 'docs/legal/admin-compliance.zh.md',
+              document_path_en: 'docs/legal/admin-compliance.en.md',
+            },
+          },
+        },
+        config: {
+          url: '/admin/users',
+          headers: { Authorization: 'Bearer admin-token' },
+        },
+        code: 'ERR_BAD_REQUEST',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await expect(apiClient.get('/admin/users')).rejects.toEqual(
+        expect.objectContaining({
+          status: 423,
+          code: 'ADMIN_COMPLIANCE_ACK_REQUIRED',
+          metadata: expect.objectContaining({
+            version: 'v2026.06.10',
+          }),
+        })
+      )
+
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual(
+        expect.objectContaining({
+          version: 'v2026.06.10',
+        })
+      )
+      expect(localStorage.getItem('auth_token')).toBe('admin-token')
+
+      window.removeEventListener('admin-compliance-required', listener)
     })
   })
 

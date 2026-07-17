@@ -5,9 +5,19 @@
     "single_account_scope": true,
     "rate_multiplier_fixed": 1.0,
     "usage_model": "Claude Code human-paced work: usage budget and session length are constrained separately; lower tiers are scheduled first but reach their local limits earlier.",
-    "tier_order": ["l1", "l2", "l3", "l4", "l5"],
+    "tier_order": [
+      "l1",
+      "l2",
+      "l3",
+      "l4",
+      "l5"
+    ],
     "escalation_model": "code-owned",
-    "cooldown_ladder_seconds": [30, 120, 600],
+    "cooldown_ladder_seconds": [
+      30,
+      120,
+      600
+    ],
     "cooldown_tier_ttl_minutes": 30,
     "rounding": {
       "integer_fields": "explicit",
@@ -52,7 +62,7 @@
     ],
     "tls_profile": {
       "name": "tk_canonical_cc_oauth",
-      "description": "TokenKey canonical Claude Code OAuth TLS profile. Stable id decoupled from cc CLI patch version (TLS ClientHello byte-identical 2.1.142 → 2.1.152). HTTP UA driven at runtime by SettingService.GetClaudeCodeUserAgentVersion. runtime=node v24.3.0 darwin/arm64. ja3_hash=d871d02cecbde59abbf8f4806134addf (2026-05-15 capture).",
+      "description": "TokenKey canonical Claude Code OAuth TLS profile. Stable id decoupled from cc CLI patch version (TLS ClientHello byte-identical 2.1.142 → 2.1.152). HTTP UA driven at runtime by SettingService.GetClaudeCodeUserAgentVersion. runtime=node v26.3.0 darwin/arm64. ja3_hash=d871d02cecbde59abbf8f4806134addf (2026-05-15 capture).",
       "enable_grease": false,
       "cipher_suites": [
         4865,
@@ -127,35 +137,30 @@
     "l1": {
       "baseline": {
         "account": {
-          "concurrency": 4,
+          "concurrency": 30,
           "priority": 1,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 21,
-          "rpm_sticky_buffer": 8,
-          "max_sessions": 45,
-          "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 800,
-          "window_cost_sticky_reserve": 0,
-          "cache_ttl_override_enabled": true
+          "base_rpm": 60,
+          "rpm_sticky_buffer": 15,
+          "max_sessions": 300,
+          "session_idle_timeout_minutes": 8
         }
       }
     },
     "l2": {
       "baseline": {
         "account": {
-          "concurrency": 6,
+          "concurrency": 30,
           "priority": 1,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 42,
+          "base_rpm": 60,
           "rpm_sticky_buffer": 15,
-          "max_sessions": 90,
+          "max_sessions": 300,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 800,
-          "window_cost_sticky_reserve": 0,
           "cache_ttl_override_enabled": true
         }
       }
@@ -163,51 +168,45 @@
     "l3": {
       "baseline": {
         "account": {
-          "concurrency": 8,
+          "concurrency": 30,
           "priority": 1,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 63,
-          "rpm_sticky_buffer": 23,
-          "max_sessions": 120,
-          "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 800,
-          "window_cost_sticky_reserve": 0
+          "base_rpm": 60,
+          "rpm_sticky_buffer": 15,
+          "max_sessions": 300,
+          "session_idle_timeout_minutes": 8
         }
       }
     },
     "l4": {
       "baseline": {
         "account": {
-          "concurrency": 10,
+          "concurrency": 40,
           "priority": 1,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 84,
-          "rpm_sticky_buffer": 30,
-          "max_sessions": 150,
-          "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 800,
-          "window_cost_sticky_reserve": 0
+          "base_rpm": 80,
+          "rpm_sticky_buffer": 20,
+          "max_sessions": 450,
+          "session_idle_timeout_minutes": 8
         }
       }
     },
     "l5": {
       "baseline": {
         "account": {
-          "concurrency": 12,
+          "concurrency": 50,
           "priority": 1,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 84,
+          "base_rpm": 100,
           "rpm_sticky_buffer": 30,
-          "max_sessions": 180,
-          "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 800,
-          "window_cost_sticky_reserve": 0
+          "max_sessions": 600,
+          "session_idle_timeout_minutes": 8
         }
       }
     }

@@ -1,0 +1,523 @@
+{
+  "version": 2,
+  "rationale": "Load-bearing files and symbols that anchor TokenKey's seventh platform `grok` (xAI / SuperGrok Heavy OAuth). Unlike kiro, xAI speaks the OpenAI-compatible wire protocol, so grok is an OpenAICompatPool member and REUSES the OpenAI-compat routing/scheduling/forward/billing path; the only grok-specific code is the OAuth refresh, the two forward seams that make the OAuth branch forward like the apikey branch (plain Bearer + api.x.ai base_url, NOT the ChatGPT/Codex branch), and the Heavy-403 honesty guard. If any sentinel below is missing, the platform either silently disappears from scheduling/UI or mis-forwards/mis-bills at runtime. Single source of truth read by both `scripts/preflight.sh` and `.github/workflows/upstream-merge-pr-shape.yml`. Adding a new load-bearing surface for grok MUST add a sentinel here in the same commit.",
+  "sentinels": [
+    {
+      "path": "backend/internal/domain/constants.go",
+      "must_contain": [
+        "PlatformGrok = \"grok\""
+      ],
+      "rationale": "Identity constant for the seventh platform string `grok`. Removing it collapses every grok invariant (pool membership, account predicate, refresher gate)."
+    },
+    {
+      "path": "backend/internal/engine/provider.go",
+      "must_contain": [
+        "domain.PlatformGrok"
+      ],
+      "rationale": "Grok must be in BOTH OpenAICompatPlatforms() (so it rides the OpenAI-compat routes/scheduler/sticky path with channel_type=0, like openai) AND AllSchedulingPlatforms() (so background sweeps/snapshot hydration include the grok pool). Losing either silently drops grok from routing or from rate-limit reaping/snapshot scheduling."
+    },
+    {
+      "path": "backend/internal/model/error_passthrough_rule.go",
+      "must_contain": [
+        "PlatformKiro, PlatformGrok}"
+      ],
+      "rationale": "The SECOND, separate platform registry (model.AllPlatforms, distinct from domain/constants.go) that feeds the error-passthrough rule UI's applicable-platform list. grok (and kiro) must stay in the AllPlatforms() return slice — anchored on the slice tail `PlatformKiro, PlatformGrok}` (not just the const, which would still match if grok were dropped only from the return). This is the one grok injection an upstream merge can drop SILENTLY: no compile error and no test pins the slice contents, so without this anchor grok would lose error-passthrough applicability unnoticed (the exact silent-drift mode the sentinel registry exists to catch)."
+    },
+    {
+      "path": "backend/internal/pkg/xai/oauth_tk_refresh.go",
+      "must_contain": [
+        "ClientID = \"b1a00492-073a-47ea-816f-4c329264a828\"",
+        "func RefreshToken",
+        "DefaultAPIBaseURL = \"https://api.x.ai/v1\""
+      ],
+      "rationale": "Stdlib-only xAI OAuth refresh helper (discovery + refresh-token grant) + the public Grok CLI client_id and the api.x.ai base URL. Losing RefreshToken stops grok token auto-refresh; accounts silently expire and drop out of the pool with no recovery. (relocated to the oauth_tk_refresh.go TK companion during the 2026-06-27 upstream-grok reconciliation; upstream now owns oauth.go's authorize/session machinery)."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "func (a *Account) IsGrok()",
+        "func (a *Account) GetGrokBaseURL()",
+        "func (a *Account) GetGrokAccessToken()",
+        "func (a *Account) GetGrokRefreshToken()"
+      ],
+      "rationale": "Account-domain predicate + the grok-specific credential getters and base URL (api.x.ai/v1). GetGrok* exist because the GetOpenAI* getters are IsOpenAI-gated and return empty for grok. Losing IsGrok() removes grok from the OpenAI-compat pool and the forward seams; losing the getters breaks token/base_url resolution. (base grok predicates relocated to account.go during the 2026-06-27 reconciliation; account_tk_grok.go retains IsGrokAPIKey/GetGrokTokenEndpoint/GetGrokExpiresAt)."
+    },
+    {
+      "path": "backend/internal/service/grok_token_refresher.go",
+      "must_contain": [
+        "type GrokTokenRefresher",
+        "func (r *GrokTokenRefresher) Refresh"
+      ],
+      "rationale": "Implements OAuthRefreshExecutor for grok (xAI OAuth, short-lived access tokens). Losing it stops grok token auto-refresh; accounts silently expire and drop out of the pool with no recovery."
+    },
+    {
+      "path": "backend/internal/service/token_refresh_service.go",
+      "must_contain": [
+        "NewGrokTokenRefresher"
+      ],
+      "rationale": "Registration of GrokTokenRefresher into the background refresh ticker's refreshers[]/executors[]. An upstream merge that rewrites NewTokenRefreshService must preserve this line, or grok refresh never runs even though the refresher type still exists."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
+        "platform = ANY($1)",
+        "pq.Array(options.Platforms)"
+      ],
+      "rationale": "ListOAuthRefreshCandidatePage MUST keep its platform filter parametrized as `platform = ANY($1)` and bind the caller-owned `options.Platforms`. TokenRefreshService derives that request set from its registered refreshers, while TestRegisteredRefreshers_MatchOAuthRefreshSourceOfTruth proves the registrations exactly match engine.OAuthRefreshPlatforms(), including Grok. The repository must not replace a deliberately narrower caller request with the global list: doing so leaked OpenAI rows into a Grok-only cursor page in CI. There is intentionally NO platform literal in SQL; the old hand-maintained list was the surface upstream reset in R-001, dropping Grok until tokens expired."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "if account.Platform == PlatformGrok {"
+      ],
+      "rationale": "The grok OAuth arm of GetAccessToken (returns the xAI OAuth Bearer instead of routing through the IsOpenAI-gated ChatGPT/Codex token provider) AND the wiring of the Heavy-403 honesty guard into shouldFailoverOpenAIUpstreamResponse (no failover) and the error mapper (clean client 403, not a masked 502). Losing the IsGrokOAuth() branch makes grok OAuth unable to fetch a token; using broad IsGrok() here would steal first-class grok API-key relay stubs from the api_key branch. Losing the tkIsGrokEntitlement403 wiring re-arms the pool-wide 403 failover amplifier and re-masks the entitlement error as 502."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_request_body.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) validateUpstreamBaseURLForAccount(",
+        "isEdgeMirrorStub(account, edgeIDPattern)",
+        "AllowedHosts:     []string{parsed.Hostname()}"
+      ],
+      "rationale": "Prod→edge grok API-key relay stubs use TokenKey edge hosts such as api-us4.tokenkey.dev as their base_url. The global upstream allowlist should still reject arbitrary hosts, but a mirror-stub account must be allowed to call its own edge host; otherwise prod direct and universal Grok media/responses fail locally with `invalid base url: host is not allowed` before reaching the edge. This pins the account-aware validation seam and the narrow edge-mirror host derivation."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_grok_entitlement_403.go",
+      "must_contain": [
+        "func tkIsGrokEntitlement403",
+        "func tkGrokEntitlement403ClientMessage"
+      ],
+      "rationale": "The xAI Heavy-only entitlement-403 classifier + clean client message. Without it a grok 403 (standard/expired/downgraded Heavy) fails over pool-wide and is masked into a 502 — the single xAI policy change that would silently kill a thin grok pool (the marquee sharp edge)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_downstream.go",
+      "must_contain": [
+        "func tkIsOpenAICompatEdgeMirrorStub(",
+        "account.Platform == PlatformOpenAI || account.Platform == PlatformGrok",
+        "func tkIsDownstreamRateLimitEnvelope(",
+        "upstream rate limit exceeded"
+      ],
+      "rationale": "Grok prod relay stubs are OpenAI-compatible edge mirror API-key accounts. TokenKey downstream capacity envelopes from edge (including `Upstream rate limit exceeded`) must be classified as relay capacity, not xAI account health; otherwise prod writes temp_unschedulable on every grok relay stub and local routing collapses into `No available accounts`."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "account.IsGrok()"
+      ],
+      "rationale": "The chat dispatch seam: grok+OAuth is routed to the RAW CC forwarder (plain Bearer + api.x.ai base_url) BEFORE the CC→Responses→Codex transform, which is hardwired to chatgpt.com. Losing this arm sends grok through the Codex path and every grok chat request fails."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "account.IsGrokOAuth()",
+        "validateUpstreamBaseURLForAccount(account, baseURL)"
+      ],
+      "rationale": "The raw CC forwarder resolves the grok OAuth Bearer + api.x.ai base_url here; first-class grok API-key relay stubs intentionally use GetOpenAIApiKey/GetOpenAIBaseURL and the edge base_url. Losing this arm makes grok OAuth forward with an empty credential / wrong base URL; broadening it back to IsGrok() breaks grok API-key relay stubs."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_v1_forward.go",
+      "must_contain": [
+        "account.IsGrokOAuth()",
+        "validateUpstreamBaseURLForAccount(account, raw)",
+        "validateUpstreamBaseURLForAccount(account, strings.TrimSpace(account.GetGrokBaseURL()))",
+        "s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)"
+      ],
+      "rationale": "The image/embeddings seam: buildOpenAIV1TargetURL hardcodes api.openai.com for the OAuth case; the grok OAuth arm redirects it to api.x.ai/v1. First-class grok API-key relay stubs use the API-key branch plus their edge base_url. Losing this arm points grok OAuth image requests at OpenAI; broadening it back to IsGrok() breaks grok API-key relay stubs. Failover path MUST route upstream errors through handleOpenAIAccountUpstreamError with upstreamModel (not bare HandleUpstreamError) so spark/model-scoped 429 cooldown semantics stay consistent with chat/responses paths."
+    },
+    {
+      "path": "backend/internal/service/tk_pricing_overlay.json",
+      "must_contain": [
+        "grok-4.3",
+        "grok-4.5",
+        "grok-code-fast-1",
+        "grok-build-0.1",
+        "grok-imagine-image",
+        "grok-imagine-video"
+      ],
+      "rationale": "Grok pricing rows. Chat models with no usable token price still serve and alert, so losing grok-4.3 / grok-build-0.1 would re-open the served-zero-cost grok chat hole; image models with no usable static price are REJECTED with a pre-spend 400 by TkImageModelUnpriced, and video models likewise by TkVideoModelUnpriced — so losing media rows makes grok image/video generation fail outright. grok-imagine-video is priced per output second at the MAX reachable tier ($0.08/s, 720p+input) per the overlay's never-under-charge convention. Non-grok overlay entries (VolcEngine doubao, DashScope GLM, etc.) live in the same JSON file but are guarded by pricing-availability sentinels; glm-4-7-251222 was withdrawn 2026-07-06 in favor of DashScope glm-4.7."
+    },
+    {
+      "path": "backend/migrations/tk_028_allow_grok_model_availability_platform.sql",
+      "must_contain": [
+        "'grok'"
+      ],
+      "rationale": "Widens the model_availability.platform CHECK to include 'grok' (paired with the ent enum). Without it every grok forward logs pricing.availability.record_failed (invalid enum value), the DB layer of the two-layered enum gate."
+    },
+    {
+      "path": "backend/ent/schema/model_availability.go",
+      "must_contain": [
+        "\"grok\""
+      ],
+      "rationale": "The ent layer of the model_availability platform enum. Must be regenerated (go generate ./ent) so the Go PlatformValidator accepts 'grok'; paired with tk_028."
+    },
+    {
+      "path": "backend/internal/service/admin_service_tk_grok_save.go",
+      "must_contain": [
+        "func resolveGrokTokenOnSave",
+        "func tkInputHasNonEmptyCredential"
+      ],
+      "rationale": "Create-time validate+prime (resolveGrokTokenOnSave): pastes a grok refresh_token, does a live xAI refresh, and either primes the account (access_token/expires_at/token_endpoint) or rejects with the exact upstream reason. tkInputHasNonEmptyCredential gates the UpdateAccount re-validate so an unrelated grok edit isn't blocked by a transient xAI outage. Losing either lets dead grok accounts materialize, or fires an xAI call on every edit."
+    },
+    {
+      "path": "backend/internal/service/admin_account.go",
+      "must_contain": [
+        "resolveGrokTokenOnSave(ctx, account)"
+      ],
+      "rationale": "The wiring of the grok create-time validate+prime into CreateAccount (next to resolveNewAPIMoonshotBaseURLOnSave). An upstream merge that rewrites CreateAccount must preserve this call, or grok accounts are created unvalidated/unprimed."
+    },
+    {
+      "path": "backend/internal/service/account_test_service.go",
+      "must_contain": [
+        "if account.IsGrok() {",
+        "return s.testGrokAccountConnection(c, account, modelID, prompt)"
+      ],
+      "rationale": "The admin account-test dispatcher must route grok accounts to the grok-specific probe before the generic Claude /v1/messages fallback. Losing this branch makes grok relay stubs test through messages dispatch instead of the dedicated /v1/responses probe."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_tk_grok.go",
+      "must_contain": [
+        "func (s *AccountTestService) testGrokAccountConnection",
+        "testGrokResponsesConnection",
+        "buildOpenAIResponsesURL",
+        "defaultGrokTestModelID"
+      ],
+      "rationale": "Grok-specific admin test companion: API-key relay stubs use GetOpenAIApiKey/GetOpenAIBaseURL against the edge via /v1/responses; OAuth grok uses GetGrokAccessToken/GetGrokBaseURL against api.x.ai /responses; requested model is normalized to a chat-capable grok default. User-facing /v1/chat/completions and /v1/messages are separately enabled on grok groups; admin probe intentionally stays on /v1/responses for OAuth parity."
+    },
+    {
+      "path": "frontend/src/constants/gatewayPlatforms.ts",
+      "must_contain": [
+        "'grok'"
+      ],
+      "rationale": "grok's membership in GATEWAY_PLATFORMS + OPENAI_COMPAT_PLATFORMS + GROUP_DISPATCH_CONFIG_PLATFORMS + the exhaustive Record<AccountPlatform> color maps. OPENAI_COMPAT_PLATFORMS must mirror the backend engine.OpenAICompatPlatforms() (preflight newapi compat-pool drift guard watches the lockstep); removing 'grok' drops it from the admin platform pickers/badges and breaks the pool mirror."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_window_adapter.go",
+      "must_contain": [
+        "func accountUsageWindowAdapterFor(account *Account) accountUsageWindowAdapter",
+        "account.IsGrok() || account.Platform == PlatformNewAPI",
+        "return accountUsageWindowAdapterLocal",
+        "accountUsageWindowAdapterSupportsPassive",
+        "accountUsageWindowAdapterLocal"
+      ],
+      "rationale": "Grok usage-window support must classify as the shared local-window adapter and stay passive-capable; it must not fall through to the Anthropic OAuth usage API. The admin usage endpoint returns local 5h/7d billing windows for grok so the accounts table can show operator-visible activity without inventing an upstream xAI quota percentage."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_upstream_quota.go",
+      "must_contain": [
+        "func buildGrokUpstreamQuota",
+        "grokQuotaSnapshotFromExtra(account.Extra)",
+        "addGrokQuotaWindow(info, \"grok_requests\"",
+        "addGrokQuotaWindow(info, \"grok_tokens\""
+      ],
+      "rationale": "Unified upstream_quota projection for Grok must map the persisted xAI response-header snapshot (extra.grok_usage_snapshot) into request/token limit+remaining dimensions. Grok still uses local TokenKey 5h/7d usage windows for billing activity; this companion carries the separate upstream capacity/limit signal. Losing it reverts the account card to local usage only and hides xAI headers operators need for capacity triage."
+    },
+    {
+      "path": "frontend/src/components/account/AccountUsageCell.vue",
+      "must_contain": [
+        "usesLocalUsageWindows(account)",
+        "return OpenAIUsageCell"
+      ],
+      "rationale": "Grok and other local-window adapters reuse the OpenAI-style 5h/7d UsageProgressBar rendering because the backend returns the same AccountUsageInfo five_hour/seven_day shape. Dropping this branch hides grok usage windows even though the backend provides them."
+    },
+    {
+      "path": "frontend/src/composables/usePlatformOptions.ts",
+      "must_contain": [
+        "grok:"
+      ],
+      "rationale": "grok's brand label (PLATFORM_LABELS, exhaustive Record<AccountPlatform>). Without it typecheck fails and the platform renders an untranslated value."
+    },
+    {
+      "path": "frontend/src/composables/useTkAccountGrokPlatform.ts",
+      "must_contain": [
+        "export function useTkAccountGrokPlatform",
+        "refresh_token"
+      ],
+      "rationale": "The grok add/edit form state + credentials assembly (refresh_token paste). Losing it makes operators unable to create grok accounts via the UI."
+    },
+    {
+      "path": "frontend/src/components/account/CreateAccountModal.vue",
+      "must_contain": [
+        "AccountGrokPlatformFields",
+        "grokBuildSubmitBundle",
+        "data-testid=\"grok-header-override-toggle\"",
+        "if (!validateGrokOAuthUpstreamConfig()) return",
+        "applyGrokOAuthUpstreamConfig(bundle.credentials)"
+      ],
+      "rationale": "The grok branch + field-component wiring + submit assembly in the account-create modal. TokenKey's canonical Grok OAuth create flow stays on step 1 and pastes a refresh_token, so upstream's interactive-OAuth-only header override block is unreachable unless it is explicitly mounted for accountCategory=oauth-based and applied to the grokBuildSubmitBundle credentials. Losing these anchors either strands Grok UI creation entirely or silently drops admin header overrides from newly created OAuth accounts."
+    },
+    {
+      "path": "frontend/src/components/account/__tests__/CreateAccountModal.spec.ts",
+      "must_contain": [
+        "shows header overrides on the direct refresh-token flow and persists them",
+        "blocks the direct refresh-token flow when an override uses a protected header"
+      ],
+      "rationale": "Behavioral regression coverage for the TokenKey direct refresh-token Grok create path: the editor must be reachable, persist base_url plus header overrides, and reject protected headers before account creation. Source-text existence checks cannot catch the prior regression where the block compiled but was guarded by isOAuthFlow, which is always false for Grok."
+    },
+    {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": [
+        "AccountGrokPlatformFields",
+        "grokBuildSubmitBundle"
+      ],
+      "rationale": "The grok credential-rotation wiring in the account-edit modal (re-paste refresh_token, blank=keep). Losing it forces delete+recreate to rotate a dead grok refresh_token (invalid_grant). Paired with the UpdateAccount resolveGrokTokenOnSave gate (admin_service.go)."
+    },
+    {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": [
+        "!submittedBaseUrl",
+        "admin.accounts.upstream.pleaseEnterBaseUrl",
+        "newCredentials.mirror_platform = 'grok'"
+      ],
+      "rationale": "The first-class grok API-key relay stub edit guard. These accounts deliberately do not expose an api_key in admin, so clearing base_url would otherwise write an empty edge target and break relay forwarding. Losing this guard lets an innocuous edit silently disable a prod grok relay stub."
+    },
+    {
+      "path": "frontend/src/components/account/__tests__/EditAccountModal.grok-relay.spec.ts",
+      "must_contain": [
+        "blocks save when the edge base URL is cleared",
+        "expect(updateAccountMock).not.toHaveBeenCalled()"
+      ],
+      "rationale": "Focused regression evidence for the grok relay-stub edit guard. It pins the admin behavior that an existing grok+apikey relay stub cannot be saved after its edge base_url is cleared."
+    },
+    {
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
+      "must_contain": [
+        "grokPlatform"
+      ],
+      "rationale": "English i18n strings for the grok account form. Losing them surfaces raw i18n keys in the UI."
+    },
+    {
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
+      "must_contain": [
+        "grokPlatform"
+      ],
+      "rationale": "Chinese i18n strings for the grok account form. Kept paired with en.ts so the two locales never drift for grok."
+    },
+    {
+      "path": "backend/internal/pkg/xai/oauth_tk_refresh_test.go",
+      "must_contain": [
+        "TestValidateEndpoint",
+        "TestRefreshToken_InputGuards"
+      ],
+      "rationale": "Load-bearing QA evidence for the OAuth helper: the SSRF endpoint guard (must stay x.ai-only) and the no-network input guards. Matches the hotspot-evidence rule."
+    },
+    {
+      "path": "backend/internal/service/grok_test.go",
+      "must_contain": [
+        "TestTkIsGrokEntitlement403",
+        "TestGrokTokenRefresher_CanRefreshNeedsRefresh"
+      ],
+      "rationale": "Load-bearing QA evidence for the Heavy-403 entitlement classifier (the pool-kill-amplifier guard) and the refresher gating/expiry-window logic. Losing it removes the regression guard around grok's two most failure-prone pure-logic surfaces."
+    },
+    {
+      "path": "backend/internal/handler/admin/group_handler.go",
+      "must_contain": [
+        "antigravity newapi kiro grok"
+      ],
+      "rationale": "grok must be an accepted group Platform value on the create/update admin DTOs (CreateGroupRequest/UpdateGroupRequest `oneof`). TK has appended a platform to this exact binding three times (newapi, kiro #481, grok #791); an upstream merge that reverts the oneof to the upstream/earlier platform set silently strips grok (and kiro/newapi), leaving platform=grok accounts with no schedulable group. Pinning the extended enum tail makes such a revert fail the merge sentinel check."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "IsOpenAICompatPlatform(a.Platform)",
+        "grokAccountServesNativeCatalogModel(a, requestedModel)"
+      ],
+      "rationale": "grok must be INSIDE the OpenAI-compat image-capability gate. accountSupportsOpenAICapabilities (openai_account_scheduler.go) runs Account.SupportsOpenAIImageCapability on EVERY OpenAI-compat candidate selection; for a non-openai account that predicate IS the gate. It previously hardcoded `!a.IsOpenAI() && a.Platform != PlatformNewAPI`, silently excluding every grok account so all grok chat/image requests fast-failed with 'no available accounts' (excluded_account_count=0) — the marquee first-real-use scheduling bug (grok last_used=never until then; survived restart because it is a deterministic logic gate). Switching it to IsOpenAICompatPlatform(a.Platform) (the openai/newapi/grok single-source predicate) fixed it. Grok native catalog models must also bypass chat-only credentials.model_mapping at Account.IsModelSupported, because the scheduler re-filters after universal routing; without that anchor curated Grok chat models can resolve to the grok group, then the group pool empties into 'No available accounts'. No compile error and no other non-grok path pins these lines, so an upstream merge that reverts either gate silently re-breaks grok scheduling."
+    },
+    {
+      "path": "backend/internal/service/account_tk_grok_capability_test.go",
+      "must_contain": [
+        "TestGrokAccount_PassesOpenAICompatCapabilityGate"
+      ],
+      "rationale": "Load-bearing QA evidence for the grok OpenAI-compat capability gate (see the account.go anchor above). Guards against silent re-introduction of the 'grok excluded from every OpenAI-compat selection' bug."
+    },
+    {
+      "path": "backend/internal/engine/capability_tk_grok_video.go",
+      "must_contain": [
+        "func IsVideoSupportedForAccount",
+        "domain.PlatformGrok"
+      ],
+      "rationale": "The platform-aware video eligibility predicate. Video on TK is otherwise channel_type-derived (IsVideoSupportedChannelType, false for channel_type<=0); grok is native xAI OAuth at channel_type=0 with NO new-api task adaptor, so it would be rejected by the channel_type gate. IsVideoSupportedForAccount adds the grok exception WITHOUT touching the channel_type predicate (deliberately separate so the two never drift). Losing this re-blocks grok video at the handler gate with a 400 'channel_type has no video task adaptor'."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok_video_tk.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) grokNativeVideoSubmit",
+        "func (s *OpenAIGatewayService) grokNativeVideoFetch",
+        "resolveGrokVideoCredential",
+        "UsesGrokNativeVideoArm",
+        "validateUpstreamBaseURLForAccount(account, grokBase)",
+        "validateUpstreamBaseURLForAccount(acc, freshBase)",
+        "/videos/generations"
+      ],
+      "rationale": "The grok-native video arm: submit (POST api.x.ai/v1/videos/generations -> request_id) + poll (GET api.x.ai/v1/videos/{id}) over the grok OAuth Bearer OR prod→edge relay api_key (resolveGrokVideoCredential mirrors chat raw), returning the same bridge.TaskSubmitOutcome/VideoFetchOutcome shapes the handler consumes so the vt_ public id, VideoTaskCache record, balance hold, per-second billing, terminal refund, direct video delivery and ownership-404 are all reused. Video has no new-api TaskAdaptor for xAI (GetTaskAdaptor has no xai entry), so this native arm is grok video's ONLY code path — losing it makes grok video fail outright."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
+      "must_contain": [
+        "UsesGrokNativeVideoArm",
+        "grokNativeVideoSubmit",
+        "in.Platform == PlatformGrok",
+        "grokNativeVideoFetch"
+      ],
+      "rationale": "The two dispatch seams that route grok to the native video arm BEFORE the new-api bridge gates: submit branches on account.IsGrok() before ShouldDispatchToNewAPIBridge/channel_type, fetch branches on in.Platform==PlatformGrok before the channel_type>0 gate. Losing either sends grok video down the bridge path, which hard-fails (no xAI task adaptor / channel_type=0)."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_tk_video.go",
+      "must_contain": [
+        "engine.IsVideoSupportedForAccount(account.Platform, account.ChannelType)",
+        "Platform:",
+        "AccountID:"
+      ],
+      "rationale": "The video submit handler gate uses the platform-aware IsVideoSupportedForAccount (not the channel_type-only predicate) so grok passes, and the VideoFetchInput it builds carries Platform + AccountID so the poll path can branch to grokNativeVideoFetch and re-resolve a fresh (rotated) grok OAuth Bearer by account id. Reverting the gate to IsVideoSupportedChannelType re-blocks grok; dropping Platform/AccountID strands the grok poll (it would fall through to the bridge fetch and fail)."
+    },
+    {
+      "path": "backend/internal/engine/capability_tk_grok_video_test.go",
+      "must_contain": [
+        "TestIsVideoSupportedForAccount"
+      ],
+      "rationale": "Load-bearing QA evidence for the platform-aware video gate (see capability_tk_grok_video.go above): pins grok eligible at channel_type=0 while non-grok still defers to the channel_type-derived predicate. Guards against a revert silently re-blocking grok video."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok_video_tk_test.go",
+      "must_contain": [
+        "TestResolveGrokVideoCredential",
+        "TestNormalizeGrokVideoStatus",
+        "TestBuildGrokVideoSubmitResponse"
+      ],
+      "rationale": "Load-bearing QA evidence for the grok-native video arm: resolveGrokVideoCredential pins OAuth vs prod→edge relay api_key (revert to access_token-only silently re-breaks prod grok-us4 video submit), the xAI status-enum -> videoTerminalOutcome mapping (drift would skip terminal-success retention or terminal-failure refund), and the submit acknowledgement shape (must carry TK's public task id, not the upstream request_id)."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_grok_models.go",
+      "must_contain": [
+        "func mergeGrokNativeCatalogModels",
+        "func grokGroupServesNativeCatalogModel",
+        "func grokAccountServesNativeCatalogModel",
+        "supportedGrokCatalogModels"
+      ],
+      "rationale": "Unions the curated grok native catalog (currently paid-gate-verified chat ids; grok-imagine media stays priced but hidden until a paid gate returns keep_displayed) into GetAvailableModels, universal routing service checks, and account-level scheduler checks. Grok accounts with chat-only credentials.model_mapping (messages-dispatch aliases) otherwise hide curated Grok catalog models from universal keys, or after resolving to grok, the scheduler empties the account pool into No available accounts."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "mergeGrokNativeCatalogModels(platform, modelSet)"
+      ],
+      "rationale": "Injection point wiring mergeGrokNativeCatalogModels into GetAvailableModels after account model_mapping aggregation. Upstream merges of the models-list helper can drop this line and silently re-break curated Grok catalog routing while the companion file still compiles."
+    },
+    {
+      "path": "backend/internal/service/universal_routing_tk_serving.go",
+      "must_contain": [
+        "grokGroupServesNativeCatalogModel(model)"
+      ],
+      "rationale": "Universal routing must treat curated grok native catalog models as served even when GetAvailableModels returns a chat-only explicit mapping set; without this guard curated Grok catalog models fail before dispatch with No platform in your plan can serve model."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_grok_models_test.go",
+      "must_contain": [
+        "TestResolve_GrokNativeCatalogWithChatOnlyMapping",
+        "TestGetAvailableModels_GrokUnionsNativeCatalogWithChatMapping",
+        "TestGrokNativeCatalogModelPassesAccountSchedulerWithChatOnlyMapping"
+      ],
+      "rationale": "Regression guard for curated Grok native catalog routing when grok groups carry chat-only model_mapping: GetAvailableModels union, Resolve(ShapeOpenAIChat), and the final OpenAI-compat scheduler predicate must stay aligned with the pricing-catalog advertised native catalog while unverified paid media stays out."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_tk_openai_compat_handlers.go",
+      "must_contain": [
+        ".POST(\"/videos/generations\""
+      ],
+      "rationale": "The xAI-shaped video submit alias POST /videos/generations (plural videos + /generations), registered in BOTH the /v1 group and the no-prefix scope. This is the path grok's native arm POSTs to ({base}/videos/generations); the gateway's canonical video routes are /video/generations (singular) + /videos (no suffix), which do NOT match it. Without this alias the prod->edge grok video relay 404s at submit: a prod grok mirror account forwards to api-<edge>.tokenkey.dev/v1/videos/generations and the edge gateway has no such route (grok chat/image relay works only because /chat/completions and /images/generations already coincide with gateway routes). Losing this alias silently re-breaks the relay while direct-to-xAI still works, so no other test would catch it."
+    },
+    {
+      "path": "backend/internal/service/grok_media.go",
+      "must_contain": [
+        "func (e GrokMediaEndpoint) upstreamURL(",
+        "buildOpenAIV1SegmentURL(baseURL, \"images/generations\")",
+        "buildOpenAIV1SegmentURL(baseURL, \"videos/generations\")",
+        "s.validateUpstreamBaseURLForAccount(account, account.GetGrokBaseURL())"
+      ],
+      "rationale": "Grok image/video OpenAI-compatible media forwarding must build /v1/images and /v1/videos URLs from the already validated account base_url. xAI's URL builder rejects TokenKey edge hosts, which made prod→edge Grok relay stubs fail locally before reaching edge. Losing the account-aware validation or reverting to xAI-only URL construction silently reopens the direct/universal Grok media 502."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) forwardGrokResponses",
+        "resolveGrokResponsesUpstream",
+        "grokResponsesAuthToken",
+        "validateUpstreamBaseURLForAccount(account, baseURL)",
+        "buildOpenAIResponsesURL"
+      ],
+      "rationale": "Grok /v1/responses forwarding must support both native OAuth (xai.BuildResponsesURL + GetAccessToken) and prod→edge apikey relay stubs (GetOpenAIApiKey + buildOpenAIResponsesURL on edge base_url). Reverting to OAuth-only silently re-breaks prod grok-us4 universal-key grok-4.3 with 502 while edge OAuth still works."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_count_tokens_tk_grok.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) resolveGrokInputTokensUpstream(",
+        "validateUpstreamBaseURLForAccount(account, baseURL)",
+        "buildOpenAIResponsesInputTokensURL(validatedURL)"
+      ],
+      "rationale": "Grok count_tokens uses the OpenAI Responses input_tokens endpoint. OAuth goes to xAI directly; prod→edge API-key relay stubs must validate and forward their TokenKey edge base_url just like responses/media. Losing the account-aware validation here re-breaks Claude Code token counting for grok relay stubs while chat still works."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok_test.go",
+      "must_contain": [
+        "TestForwardGrokMediaAllowsEdgeRelayBaseURLWithAllowlistEnabled",
+        "TestForwardGrokResponsesAPIKeyRelayUsesEdgeResponsesURL",
+        "TestResolveGrokResponsesUpstreamAPIKeyRelayUsesEdgeOpenAIResponses",
+        "TestForwardAsAnthropic_GrokAPIKeyRelayUsesEdgeChatCompletionsURL",
+        "TestHandleGrokAccountUpstreamError_DownstreamCapacitySkipsRelayCooldown"
+      ],
+      "rationale": "Load-bearing QA for grok apikey relay and Anthropic-shaped /v1/messages prod->edge path: native-catalog SKUs must forward to edge /v1/chat/completions with Bearer api_key (SSOT provision path), and TokenKey downstream capacity envelopes must not runtime-block/temp-unschedule relay stubs. Revert to OAuth-only, responses-first routing, or treating relay capacity as xAI account health passes other tests but breaks prod grok clients."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_test.go",
+      "must_contain": [
+        "TestGatewayRoutesGrokAllowsChatCompletions",
+        "TestGatewayRoutesGrokAllowsMessages",
+        "TestGatewayRoutesGrokCountTokensPathIsRegistered"
+      ],
+      "rationale": "Route-table guards: grok groups must reach OpenAIGateway ChatCompletions, Messages, and count_tokens (prod→edge relay uses raw CC, Anthropic→Responses compat, and Claude Code token counting). Re-adding rejectGrokUnsupportedEndpoint or reverting tkOpenAICompatCountTokensPOST routing silently breaks grok clients while /v1/responses still works."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw_test.go",
+      "must_contain": [
+        "TestForwardAsRawChatCompletions_GrokAPIKeyRelayUsesEdgeKeyAndBaseURL"
+      ],
+      "rationale": "Service-layer guard for prod grok-us4 apikey relay on /v1/chat/completions: pins edge base_url + api_key Bearer to /chat/completions. Route enablement alone is insufficient if this forward path regresses."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_dispatch_tk_grok.go",
+      "must_contain": [
+        "defaultGrokMessagesDispatchOpusMappedModel",
+        "defaultGrokMessagesDispatchSonnetMappedModel",
+        "defaultGrokMessagesDispatchHaikuMappedModel",
+        "defaultMessagesDispatchMappedModelForPlatform"
+      ],
+      "rationale": "Grok /v1/messages dispatch must map claude-opus/sonnet/haiku to grok-4.3 / grok-code-fast-1 instead of GPT defaults. Losing this companion re-breaks Claude Code on grok groups even when route + allow_messages_dispatch are enabled."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_dispatch_tk_grok_test.go",
+      "must_contain": [
+        "TestResolveMessagesDispatchModel_GrokPlatformUsesGrokDefaults",
+        "TestTkGroupKeepsDispatchConfig_Grok"
+      ],
+      "rationale": "QA for grok Claude-family default mapping and dispatch-config retention at sanitize time."
+    },
+    {
+      "path": "backend/migrations/tk_055_grok_enable_messages_dispatch.sql",
+      "must_contain": [
+        "allow_messages_dispatch = true",
+        "opus_mapped_model",
+        "grok-4.3",
+        "grok-code-fast-1"
+      ],
+      "rationale": "Shipped migration enables grok /v1/messages dispatch and seeds Claude→grok default mappings for existing grok groups. Reverting leaves Claude Code on prod grok groups at 403 or GPT-shaped mappings."
+    },
+    {
+      "path": "backend/internal/service/grok_token_provider.go",
+      "must_contain": [
+        "func GrokTokenCacheKey",
+        "grok:account:"
+      ],
+      "rationale": "Grok token cache-key namespace (grok:account:<id>). Relocated here from grok_token_refresher.go during the 2026-06-27 reconciliation; a drift in this prefix silently breaks grok token cache invalidation."
+    }
+  ]
+}

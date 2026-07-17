@@ -57,8 +57,8 @@ class TierManagedExtraTest(unittest.TestCase):
         # Mirror of Go model.TierManagedExtraKeys — guard must exclude exactly these.
         self.assertEqual(guard.TIER_MANAGED_EXTRA_KEYS, frozenset({
             "base_rpm", "max_sessions", "rpm_sticky_buffer",
-            "session_idle_timeout_minutes", "window_cost_limit",
-            "window_cost_sticky_reserve", "cache_ttl_override_enabled",
+            "session_idle_timeout_minutes",
+            "cache_ttl_override_enabled",
             "cache_ttl_override_target",
         }))
         baseline = _baseline({k: 1 for k in guard.TIER_MANAGED_EXTRA_KEYS})

@@ -40,6 +40,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil,
 	)
 	accountExpirySvc := service.NewAccountExpiryService(nil, time.Second)
+	proxyExpirySvc := service.NewProxyExpiryService(nil, time.Second)
 	subscriptionExpirySvc := service.NewSubscriptionExpiryService(nil, time.Second)
 	pricingSvc := service.NewPricingService(cfg, nil)
 	emailQueueSvc := service.NewEmailQueueService(nil, 1)
@@ -64,11 +65,16 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		schedulerSnapshotSvc,
 		schedulerRateLimitReaperSvc,
 		nil, // anthropicConfigReconciler
+		nil, // upstreamBalanceSentinel
 		tokenRefreshSvc,
 		accountExpirySvc,
+		proxyExpirySvc,
 		subscriptionExpirySvc,
 		&service.UsageCleanupService{},
 		idempotencyCleanupSvc,
+		nil, // holdReconciler
+		nil, // batchImageCleanup
+		nil, // batchImageWorker
 		pricingSvc,
 		emailQueueSvc,
 		billingCacheSvc,
@@ -79,16 +85,23 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		openAIOAuthSvc,
 		geminiOAuthSvc,
 		antigravityOAuthSvc,
+		nil,                                   // grokOAuth
 		nil,                                   // openAIGateway
 		nil,                                   // scheduledTestRunner
 		nil,                                   // backupSvc
 		nil,                                   // paymentOrderExpiry
 		nil,                                   // channelMonitorRunner
 		nil,                                   // accountIncidentNotifier
+		nil,                                   // pricingMissingNotifier
 		service.TKAuthServiceColdStartReady{}, // TK: forces SetTrialKeyIssuer wiring
 		service.TKGatewayPricingAvailabilityReady{}, // TK: forces SetPricingAvailabilityService wiring
+		service.TKPricingOverlayRuntimeReady{},      // TK: forces runtime overlay (settings hot-push) wiring
 		service.TKGatewayAnthropicSigPreemptReady{}, // TK: forces SetAnthropicSigPreemptCache wiring
+		service.TKAnthropicSaturationReady{},        // TK: forces SetAnthropicSaturationCounter wiring
+		service.TKOpenAISaturationReady{},           // TK: forces SetOpenAISaturationCounter wiring
 		handler.TKGatewayHandlerModelListReady{},    // TK: forces SetModelListFilter wiring
+		service.TKUniversalModelsProviderReady{},    // TK: forces universal-key models-provider wiring
+		service.TKGroupUnsupportedModelCacheReady{}, // TK: forces group unsupported negative cache wiring
 	)
 
 	require.NotPanics(t, func() {

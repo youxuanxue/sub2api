@@ -47,3 +47,22 @@ func logTokenCostPricingMissing(billingModel string, apiKey *APIKey, result *For
 	}
 	logger.L().With(fields...).Warn("gateway_usage.cost_calculation_failed_record_zero_cost")
 }
+
+// SetPricingMissingNotifier wires the pricing-missing Feishu notifier
+// post-construction (TK companion setter — same shape as
+// SetPricingAvailabilityService) so the upstream constructor signature stays
+// unchanged. nil = feature disabled.
+func (s *GatewayService) SetPricingMissingNotifier(n PricingMissingNotifier) {
+	if s == nil {
+		return
+	}
+	s.tkPricingMissingNotifier = n
+}
+
+// Note: the former recordTokenCostPricingMissing (error-side log + Feishu notify)
+// has been consolidated. The structured log is now emitted directly via
+// logTokenCostPricingMissing at the calculateTokenCost error branch, and the
+// Feishu P0 alert moved to the result-side "served but zero cost" probe
+// (tkNotifyServedZeroCost / tkServedZeroCostReason in
+// gateway_service_tk_served_zero_cost.go), which also catches the silent $0
+// paths that never return an error.

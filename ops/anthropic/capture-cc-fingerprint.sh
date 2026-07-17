@@ -12,7 +12,7 @@ HTTP_INVOKE="$SCRIPT_DIR/http_capture_invoke.sh"
 COLLECTOR_ORIGIN="${TOKENKEY_TLS_PROFILE_COLLECTOR_ORIGIN:-https://tls.sub2api.org}"
 COLLECTOR_API_ORIGIN="${TOKENKEY_TLS_PROFILE_COLLECTOR_API_ORIGIN:-https://tls.sub2api.org}"
 MODEL="${TOKENKEY_CC_CAPTURE_MODEL:-claude-haiku-4-5-20251001}"
-SONNET_MODEL="${TOKENKEY_CC_CAPTURE_SONNET_MODEL:-claude-sonnet-4-20250514}"
+SONNET_MODEL="${TOKENKEY_CC_CAPTURE_SONNET_MODEL:-claude-sonnet-4-6}"
 OUT_DIR="${TOKENKEY_CC_CAPTURE_OUT_DIR:-$REPO_ROOT/.tls_list}"
 HTTP_CAPTURE="${TOKENKEY_CC_CAPTURE_HTTP:-0}"
 MITM_PORT="${TOKENKEY_CC_CAPTURE_MITM_PORT:-11803}"
@@ -28,6 +28,8 @@ Usage:
   capture-cc-fingerprint.sh diff --bundle PATH [--check]
   capture-cc-fingerprint.sh show-baseline
   capture-cc-fingerprint.sh daily-hook   # sessionStart: TLS capture + drift PR (internal)
+  capture-cc-fingerprint.sh geo-stego [--out-dir DIR] [--fix]  # alias: prompt-surfaces align
+  capture-cc-fingerprint.sh prompt-surfaces [--out-dir DIR] [--fix]
 
 Environment (capture):
   CC0_USER_OVERLAY          cc0 overlay (default: ~/.cache/cc0/claude-user-overlay)
@@ -223,7 +225,7 @@ cmd_capture() {
   claude_bin="$(resolve_claude_bin)"
 
   mkdir -p "$OUT_DIR"
-  local stamp cc_version token work tls_capture http_log bundle_path
+  local stamp cc_version token work tls_capture http_log bundle_path auth_route config_info
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   cc_version="$("$claude_bin" --version 2>/dev/null | awk '{print $1}' || true)"
   token="tk-cc-capture-${stamp}-$$"
@@ -236,7 +238,15 @@ cmd_capture() {
 
   http_log=""
   if [[ "$with_http" == "1" ]]; then
-    http_log="$(run_http_capture "$work")"
+    if ! config_info="$(python3 "$PY" classify-config \
+      --config-dir "${CC0_USER_OVERLAY:-$HOME/.cache/cc0/claude-user-overlay}" \
+      --claude-bin "$claude_bin")"; then
+      echo "error: capture auth route is unknown; refusing to compare cohorts" >&2
+      exit 3
+    fi
+    auth_route="$(printf '%s' "$config_info" | jq -r '.auth_route')"
+    echo "http_auth_route=$auth_route"
+    http_log="$(run_http_capture "$work")" || exit 1
   fi
 
   tls_capture="$OUT_DIR/${stamp}-cc-capture.tls-observed.json"
@@ -249,7 +259,7 @@ cmd_capture() {
     --collector "$COLLECTOR_ORIGIN:8090"
   )
   if [[ -n "$http_log" ]]; then
-    bundle_args+=(--http-log "$http_log")
+    bundle_args+=(--http-log "$http_log" --http-cohort "$auth_route")
   fi
   if [[ -n "${cc_version:-}" ]]; then
     bundle_args+=(--cc-version "$cc_version")
@@ -258,7 +268,21 @@ cmd_capture() {
 
   echo "bundle=$bundle_path"
   python3 "$PY" diff --bundle "$bundle_path"
-  python3 "$PY" check --bundle "$bundle_path"
+  if [[ "$with_http" == "1" ]]; then
+    python3 "$PY" check --bundle "$bundle_path"
+  else
+    python3 "$PY" check-tls --bundle "$bundle_path"
+  fi
+
+  if [[ "${TOKENKEY_CC_CAPTURE_GEO:-1}" == "1" && "$with_http" == "1" ]]; then
+    local geo_fix=1
+    [[ "${TOKENKEY_CC_CAPTURE_GEO_FIX:-1}" == "0" ]] && geo_fix=0
+    echo "=== prompt surface align (auto after capture) ==="
+    align_args=(run --out-dir "$OUT_DIR" --stamp "$stamp")
+    [[ "$geo_fix" == "1" ]] && align_args+=(--fix)
+    bash "$SCRIPT_DIR/prompt_surface_align.sh" "${align_args[@]}"
+  fi
+
   trap - EXIT
   cleanup_work
 }
@@ -313,6 +337,12 @@ main() {
       ;;
     daily-hook)
       exec bash "$SCRIPT_DIR/cc_fingerprint_daily_hook.sh"
+      ;;
+    geo-stego)
+      exec bash "$SCRIPT_DIR/prompt_surface_align.sh" run "$@"
+      ;;
+    prompt-surfaces)
+      exec bash "$SCRIPT_DIR/prompt_surface_align.sh" run "$@"
       ;;
     -h|--help|"") usage ;;
     *) echo "unknown command: $cmd" >&2; usage; exit 1 ;;

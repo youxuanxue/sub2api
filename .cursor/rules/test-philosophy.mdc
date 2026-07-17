@@ -15,6 +15,8 @@ alwaysApply: true
 
 **测试自动化（确定性自动化运营和运维）**：所有测试必须可在 CI 中自动运行；需要前置环境的统一用 testcontainer / fixture，禁止依赖手动启动的本地服务或快照。
 
+**测试数据 SSOT 派生**：当被测事实已有 owner（如模型 catalog / allowlist / pricing、权限表、路由/契约 registry、feature flag 集合）时，正向/负向样本必须优先从 owner API、fixture builder、生成器或共享 helper 派生。禁止在测试里手写一整套会随 owner 同步变动的模型/权限/路由清单；新增一个事实只应改 owner 和少量真实边界断言，不应改 N 个重复清单测试。手写样本只允许表达 SSOT 无法推导的固定边界（空值、跨平台 ID、未知 ID、兼容别名等），并在测试名或注释里说明它是边界样本而非 owner 副本。
+
 ---
 
 ## 1. 默认路径触发与最小动作

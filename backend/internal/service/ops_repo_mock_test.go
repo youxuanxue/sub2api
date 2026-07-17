@@ -7,12 +7,14 @@ import (
 
 // opsRepoMock is a test-only OpsRepository implementation with optional function hooks.
 type opsRepoMock struct {
-	InsertErrorLogFn              func(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error)
-	BatchInsertErrorLogsFn        func(ctx context.Context, inputs []*OpsInsertErrorLogInput) (int64, error)
-	BatchInsertSystemLogsFn       func(ctx context.Context, inputs []*OpsInsertSystemLogInput) (int64, error)
-	ListSystemLogsFn              func(ctx context.Context, filter *OpsSystemLogFilter) (*OpsSystemLogList, error)
-	DeleteSystemLogsFn            func(ctx context.Context, filter *OpsSystemLogCleanupFilter) (int64, error)
-	InsertSystemLogCleanupAuditFn func(ctx context.Context, input *OpsSystemLogCleanupAudit) error
+	InsertErrorLogFn                 func(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error)
+	BatchInsertErrorLogsFn           func(ctx context.Context, inputs []*OpsInsertErrorLogInput) (int64, error)
+	BatchInsertSystemLogsFn          func(ctx context.Context, inputs []*OpsInsertSystemLogInput) (int64, error)
+	ListSystemLogsFn                 func(ctx context.Context, filter *OpsSystemLogFilter) (*OpsSystemLogList, error)
+	DeleteSystemLogsFn               func(ctx context.Context, filter *OpsSystemLogCleanupFilter) (int64, error)
+	InsertSystemLogCleanupAuditFn    func(ctx context.Context, input *OpsSystemLogCleanupAudit) error
+	LookupDeletedKeyAuditFn          func(ctx context.Context, key string) (*DeletedKeyAuditResult, error)
+	UpdateAlertEventFeishuDeliveryFn func(ctx context.Context, eventID int64, phase string, sent bool, status string, errMessage string, sentAt *time.Time) error
 }
 
 func (m *opsRepoMock) InsertErrorLog(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error) {
@@ -85,6 +87,26 @@ func (m *opsRepoMock) GetDashboardOverview(ctx context.Context, filter *OpsDashb
 	return &OpsDashboardOverview{}, nil
 }
 
+func (m *opsRepoMock) CountRoutingCapacityRejections(ctx context.Context, filter *OpsDashboardFilter) (int64, error) {
+	return 0, nil
+}
+
+func (m *opsRepoMock) TopRoutingCapacityRejectionByPlatform(ctx context.Context, filter *OpsDashboardFilter, platformLimit, usersPerPlatform int) ([]*OpsRoutingRejectionPlatform, error) {
+	return nil, nil
+}
+
+func (m *opsRepoMock) TopRoutingCapacityRejectionByModel(ctx context.Context, filter *OpsDashboardFilter, limit int) ([]*OpsRoutingRejectionModel, error) {
+	return nil, nil
+}
+
+func (m *opsRepoMock) CountUserVisibleFailures(ctx context.Context, filter *OpsDashboardFilter, ownerScope string) (int64, error) {
+	return 0, nil
+}
+
+func (m *opsRepoMock) GetUserVisibleFailureBreakdown(ctx context.Context, filter *OpsDashboardFilter, ownerScope string, limit int) (*OpsUserVisibleFailureBreakdown, error) {
+	return nil, nil
+}
+
 func (m *opsRepoMock) GetThroughputTrend(ctx context.Context, filter *OpsDashboardFilter, bucketSeconds int) (*OpsThroughputTrendResponse, error) {
 	return &OpsThroughputTrendResponse{}, nil
 }
@@ -101,8 +123,16 @@ func (m *opsRepoMock) GetErrorDistribution(ctx context.Context, filter *OpsDashb
 	return &OpsErrorDistributionResponse{}, nil
 }
 
+func (m *opsRepoMock) GetTopErrorCause(ctx context.Context, filter *OpsDashboardFilter, upstreamOnly bool, limit int) ([]*OpsTopErrorCause, error) {
+	return nil, nil
+}
+
 func (m *opsRepoMock) GetOpenAITokenStats(ctx context.Context, filter *OpsOpenAITokenStatsFilter) (*OpsOpenAITokenStatsResponse, error) {
 	return &OpsOpenAITokenStatsResponse{}, nil
+}
+
+func (m *opsRepoMock) GetFailoverHopStats(ctx context.Context, filter *OpsFailoverHopStatsFilter) (*OpsFailoverHopStatsResponse, error) {
+	return &OpsFailoverHopStatsResponse{}, nil
 }
 
 func (m *opsRepoMock) InsertSystemMetrics(ctx context.Context, input *OpsInsertSystemMetricsInput) error {
@@ -165,6 +195,13 @@ func (m *opsRepoMock) UpdateAlertEventEmailSent(ctx context.Context, eventID int
 	return nil
 }
 
+func (m *opsRepoMock) UpdateAlertEventFeishuDelivery(ctx context.Context, eventID int64, phase string, sent bool, status string, errMessage string, sentAt *time.Time) error {
+	if m.UpdateAlertEventFeishuDeliveryFn != nil {
+		return m.UpdateAlertEventFeishuDeliveryFn(ctx, eventID, phase, sent, status, errMessage, sentAt)
+	}
+	return nil
+}
+
 func (m *opsRepoMock) CreateAlertSilence(ctx context.Context, input *OpsAlertSilence) (*OpsAlertSilence, error) {
 	return input, nil
 }
@@ -187,6 +224,13 @@ func (m *opsRepoMock) GetLatestHourlyBucketStart(ctx context.Context) (time.Time
 
 func (m *opsRepoMock) GetLatestDailyBucketDate(ctx context.Context) (time.Time, bool, error) {
 	return time.Time{}, false, nil
+}
+
+func (m *opsRepoMock) LookupDeletedKeyAudit(ctx context.Context, key string) (*DeletedKeyAuditResult, error) {
+	if m.LookupDeletedKeyAuditFn != nil {
+		return m.LookupDeletedKeyAuditFn(ctx, key)
+	}
+	return nil, nil
 }
 
 var _ OpsRepository = (*opsRepoMock)(nil)

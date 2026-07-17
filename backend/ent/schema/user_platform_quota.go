@@ -38,10 +38,12 @@ func (UserPlatformQuota) Fields() []ent.Field {
 			MaxLen(32).
 			NotEmpty().
 			Validate(func(s string) error {
-				// 注意：平台列表的单一权威源为 service.AllowedQuotaPlatforms；
-				// 此处为 ent 构建期约束，需与 service.AllowedQuotaPlatforms 保持同步。
+				// SSOT: must match service.AllowedQuotaPlatforms in
+				// internal/service/domain_constants.go (intentionally a 5-platform
+				// subset of domain.Platform*; kiro and newapi are excluded from
+				// per-user quota). Update both places in lockstep.
 				switch s {
-				case "anthropic", "openai", "gemini", "antigravity":
+				case "anthropic", "openai", "gemini", "antigravity", "grok":
 					return nil
 				default:
 					return fmt.Errorf("platform %q is not allowed", s)

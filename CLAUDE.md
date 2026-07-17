@@ -41,54 +41,7 @@ pnpm lint:check && pnpm typecheck # Lint + type check
 
 ## Architecture
 
-```
-sub2api/                                  # This repo (.git)
-├── CLAUDE.md
-├── docs/                                 # Planning & operational docs
-├── backend/
-│   ├── cmd/server/                       # Entry point, Wire DI, VERSION
-│   ├── ent/schema/                       # DB schema definitions (source of truth)
-│   ├── ent/                              # Generated Ent ORM code
-│   ├── internal/
-│   │   ├── handler/                      # HTTP handlers (Gin)
-│   │   ├── service/                      # Business logic, gateway forwarding
-│   │   ├── repository/                   # Data access (Ent queries)
-│   │   ├── middleware/                   # Auth, rate-limit, concurrency
-│   │   ├── integration/newapi/           # New API bridge (affinity, payment SDKs)
-│   │   ├── pkg/                          # Platform adapters (claude, openai, gemini, etc.)
-│   │   ├── domain/                       # Constants & types
-│   │   ├── model/                        # Business models
-│   │   ├── config/                       # App configuration + Wire
-│   │   ├── server/                       # Server bootstrap + routes
-│   │   ├── setup/                        # First-run initialization
-│   │   ├── web/                          # Embedded frontend dist
-│   │   ├── testutil/                     # Test fixtures & stubs
-│   │   └── util/                         # Shared utilities
-│   ├── migrations/                       # SQL migrations (001–092+)
-│   └── resources/model-pricing/          # Model pricing data
-├── frontend/src/
-│   ├── api/                              # API client
-│   ├── views/ components/                # Pages & components
-│   ├── stores/ router/                   # Pinia stores, Vue Router
-│   ├── composables/ utils/ styles/       # Hooks, helpers, CSS
-│   ├── i18n/ types/                      # i18n (en/zh), TS types
-│   └── __tests__/                        # Frontend tests
-├── deploy/                               # Docker Compose variants
-│   ├── docker-compose.yml                #   Production
-│   ├── docker-compose.dev.yml            #   Development (with build)
-│   ├── docker-compose.local.yml          #   Local (pre-built image)
-│   └── docker-compose.standalone.yml     #   Standalone (all-in-one)
-├── assets/                               # Logos, partner assets
-└── tools/                                # check_pnpm_audit_exceptions.py
-```
-
-Sibling dependency (same parent directory):
-
-```
-tk/                         # Parent directory (NOT a git repo)
-├── sub2api/                # This repo
-└── new-api/                # QuantumNous/new-api clone (own .git)
-```
+Backend `backend/` (Go: `handler` → `service` → `repository` → `ent`), frontend `frontend/` (Vue 3 + pnpm), deploy `deploy/`. Sibling `new-api/` clone required at `../../new-api` (see §4). Key paths: `backend/internal/{handler,service,integration/newapi,relay/bridge}`, `frontend/src/{views,composables,api}`, `deploy/docker-compose*.yml`.
 
 ## Hard Rules
 
@@ -148,6 +101,14 @@ bash scripts/upstream/sync-new-api.sh --bump <sha>   # update .new-api-ref + syn
 - When upstream changes break compilation, fix the bridge — do NOT modify New API from this repo.
 - New-api packages may register top-level `flag.Bool` (e.g. `-version`) in their `init()`; check `flag.Lookup` before defining your own to avoid `flag redefined` panics at startup. See `backend/cmd/server/main.go`.
 
+**Worktrees + the `../../new-api` sibling (turnkey bootstrap):**
+
+Default to an **isolated git worktree** for any commit-bearing task — sharing the primary checkout's single mutable HEAD/index with a parallel agent (e.g. a twin worker) lets one `git checkout` land your commits on the wrong branch. A worktree created at a deep path (`EnterWorktree` → `.claude/worktrees/<name>/`) breaks the `replace … => ../../new-api` resolution, which is exactly the friction that makes people skip worktrees. Make it free instead of skipping it:
+
+- Run `bash dev-rules/templates/worktree-bootstrap.sh <worktree_dir>` after creating a worktree. It inits the `dev-rules` submodule and runs this repo's `scripts/worktree-bootstrap-hook.sh`, which symlinks the deep-path-resolved `new-api` location to the real sibling clone so `go build` / preflight work.
+- Sibling-placed worktrees (e.g. twin's `<parent>/<repo>-twin-*`) resolve `../../new-api` natively — the hook is a no-op there.
+- The real sibling clone is still located/synced by `scripts/upstream/sync-new-api.sh` (`.new-api-ref`); the hook only fixes path resolution, never the pin.
+
 ### 5. Upstream Isolation
 
 This repo is a fork of `Wei-Shaw/sub2api`, tracked via the `upstream` remote (`upstream/main`). Minimize diff against upstream:
@@ -179,58 +140,11 @@ This repo is a fork of `Wei-Shaw/sub2api`, tracked via the `upstream` remote (`u
 
 #### 5.y Forward-looking history & merge discipline
 
-The `main` branch is **immutable history** once pushed. The TK-ahead commits include both linear and merge commits and several `vX.Y.Z` tags pointing into them — rewriting history would orphan tags and break PR audit trails. Going forward:
-
-- **No history rewrites on `main`.** No `git rebase -i` of pushed commits, no `git push --force` to `main`/`master`, no squash-merge of already-merged feature branches.
-- **Every TK feature lands via PR** with a clear scope (new file or one upstream-file injection point), reviewed against rule §5 above. Small + frequent beats one giant rebase.
-- **PR merge mode is content-typed, not personal preference:**
-  - **TK feature / fix / chore PRs** (anything originating from this fork) → GitHub **"Squash and merge"**. The PR becomes **one** commit on `main` whose title = PR title and whose body aggregates the development commits. Rationale: the feature branch's work-in-progress commits (`fix lint`, `typo`, `rebase main`, sync-VERSION housekeeping) carry no long-term audit value once the PR is approved as a unit; collapsing them keeps `git log --oneline --first-parent main` readable and keeps the per-PR diff trivially `git revert`-able.
-  - **Upstream merge PRs** (`merge/upstream-YYYYMMDD`) → GitHub **"Create a merge commit"** invoked locally as `git merge --no-ff upstream/main`. Never `--squash`, never `--ff-only`. Rationale: each upstream commit is an external contract reference; squashing them severs the `git log upstream/main..HEAD` audit chain that §5.y depends on.
-  - This is **not** a contradiction with "no squash-merge of already-merged feature branches" above: that rule forbids rewriting commits **already on `main`**; the squash here happens **at PR-merge time**, before anything reaches `main`.
-- **`git merge-tree upstream/main HEAD` is the pre-merge dry-run.** Run it before any upstream merge to surface conflicts; resolve in a dedicated `merge/upstream-YYYYMMDD` branch, not on `main`.
-- **Tag = consolidation point, not a rewrite cue.** When you tag `vX.Y.Z`, all earlier commits become permanent history. If a tag points at a commit with `[skip ci]` (see §9.2), do NOT delete and re-tag — dispatch the workflow manually.
-- **Audit cadence:** every merge PR description includes `git log --oneline upstream/main..HEAD | wc -l` (TK ahead count) + `git diff --stat upstream/main..HEAD -- backend/` (top changed files). Use these numbers to decide whether the next batch of TK work should be split into smaller PRs.
+`main` history is immutable once pushed. TK PRs → **Squash and merge**; upstream merges (`merge/upstream-YYYYMMDD`) → **`git merge --no-ff upstream/main`** then **Create a merge commit** on GitHub (never squash/ff). Pre-merge dry-run: `git merge-tree upstream/main HEAD`. Merge PR body must include `upstream/main..HEAD` audit cadence. Full rules: [`docs/global/upstream-merge-discipline.md`](docs/global/upstream-merge-discipline.md).
 
 #### 5.y.1 Mechanical enforcement (no soft rule without a check)
 
-Per dev-rules §"Hard Constraint Wiring" — every soft rule above MUST have an automated gate. The §5.y enforcement stack:
-
-| Mechanism | Trigger | What it does |
-|---|---|---|
-| `scripts/upstream/check-drift.sh` | local, on demand (`bash scripts/upstream/check-drift.sh`) | Auto-adds `upstream` remote if missing, fetches both, prints TK ahead/behind counts + the §5.y procedure when behind. Exit codes: `0` = synced, `1` = behind, `2` = git/network failure. Supports `--json` for CI consumption and `--quiet` for hooks. |
-| `.github/workflows/upstream-merge-agent-daily.yml` | daily 04:00 Asia/Shanghai + manual dispatch | Single periodic upstream-sync path: computes drift, runs headless merge automation when needed, performs final preflight + PR-body cadence audit, applies output contract/reason codes, and tracks only actionable blockers via `upstream-merge-agent` issue channel. Already-synced runs complete idempotently in the same pipeline (no separate drift-only mode). |
-| `.github/workflows/upstream-merge-pr-shape.yml` | any PR whose head branch matches `merge/upstream-*` | Hard gates that fail the PR if any is violated: (a) PR must contain a merge commit whose second parent is reachable from `upstream/main` — squash and ff merges fail this, (b) PR body must include the literal substring `upstream/main..HEAD` so the §5.y audit cadence is present, (c) no first-parent commit introduced by the PR may carry literal `[skip ci]` / `[ci skip]` in its message (those silently disable downstream pipelines when the landing commit is later tagged — see §9.2 / v1.3.0 incident); imported upstream history is allowed to keep upstream's own release-sync messages because rewriting it would violate §5.y, (d) the newapi sentinel registry (`scripts/sentinels/newapi.json`) is intact after the merge — same script `scripts/preflight.sh` runs locally, so a green local preflight implies a green PR-shape check. |
-| `scripts/checks/upstream-override-marker.py` (via `scripts/preflight.sh`) | every PR (CI preflight + local pre-commit) | Whole-fork version of the sentinel-update gate, shaped like the `no-web-impact` marker. When the PR diff includes any upstream-shaped path (`backend/internal/handler|service|repository|middleware|relay|server|...`, `frontend/src/views|components|api|...`, etc., excluding `*_tk_*.go` / `*.tk.ts` / `*_test.go` / TK-only subpackages), the check requires **either** (1) any `scripts/sentinels/*.json` updated in the same PR, **or** (2) a commit message marker: `upstream-touch-guarded` (anchors pinned), `upstream-touch-trivial` (delete/rename/comment-only — no revert risk), `upstream-merge` (the upstream-merge PR itself), or `no-upstream-touch` (author asserts path misclassification). Same principle as `no-web-impact`: forced acknowledgement before merge. |
-| `.github/workflows/main-ancestry-guard.yml` | any PR with `base.ref == 'main'` | Three hard checks. **Check 1:** fails if `git merge-base --is-ancestor PR_base PR_head` exits non-zero — catches the PR #307 orphan-reset failure mode. **Check 2:** blocks modifying `.main-ancestry-anchor` unless a PR commit message carries `main-ancestry-anchor-advance` AND the new SHA is a descendant of the old SHA (one-way ratchet; see anchor advancement procedure below). **Check 3:** fails if PR title, PR body, or any PR commit message contains the bracketed forms `[skip ci]` / `[ci skip]` — these would land in the squash-merge commit body and silently disable release.yml on any future tag of that commit (v1.3.0 incident + PR #312 re-occurrence; see §9.2 discussion-of-marker discipline). |
-| `scripts/checks/main-ancestry-anchor.py` (via `scripts/preflight.sh`) | every PR (CI preflight + local pre-commit) | Verifies that the SHA pinned in repo-root `.main-ancestry-anchor` is reachable from HEAD via `git merge-base --is-ancestor`. If main has been orphan-reset since the anchor was set, preflight fails locally and in CI — covering paths the PR-level Layer A guard cannot see (direct push to main, propagated reset from a wrongly-merged PR, local `git reset --hard` followed by `git push --force`, etc.). |
-
-**Anchor advancement procedure.** `.main-ancestry-anchor` is a one-way ratchet: it points at a known-good commit SHA that every future HEAD must descend from. Initial value `62482fa9bc30ac292ecca92341ef055a024d8a26` was set after the PR #307 orphan-reset incident — that root commit is now the locked baseline (re-rewriting main back to include the pre-#307 release-tag history would itself violate §5.y a second time). To legitimately advance the anchor (e.g. after a future deliberate squash that the team accepted and a new SHA needs to be locked in), open a PR that:
-1. updates `.main-ancestry-anchor` to the new SHA, and
-2. carries the literal marker `main-ancestry-anchor-advance` + a one-line justification in at least one commit message in the PR.
-
-`main-ancestry-guard.yml` Check 2 enforces both: the marker must be present, **and** the new SHA must be a descendant of the old SHA (`git merge-base --is-ancestor old new`). Without the descendant check the marker alone would let a determined operator silently roll the anchor backward — so the descendant check is the real ratchet, the marker is the human-attention gate.
-
-**Branch protection on `main`** SHOULD list both `Upstream Merge PR Shape / validate` (required for `merge/upstream-*` PRs) and `Main Ancestry Guard / validate` (required for all PRs targeting main) as required status checks. Configure in repo Settings → Branches → main.
-
-**Trade-off acknowledged:** the daily upstream-merge agent + PR shape check cannot stop a determined operator from clicking GitHub's "Squash and merge" on a `merge/upstream-*` PR — GitHub does not expose merge-method choice as a webhook. They can only stop the merge PR from passing CI in the wrong shape. Combined with the PR Checklist reviewer reminder above, this brings the path of least resistance to the correct behavior; full lockdown requires GitHub Enterprise org-level branch rules.
-
-#### Convergence & minimal invasion (especially large upstream files)
-
-**Goal:** TK behavior should **converge** into dedicated modules so the fork stays **merge-friendly**; upstream files should read almost unchanged except for **thin injection points** (imports + a few lines, not new pages of logic).
-
-**When the file is upstream-shaped and large** (e.g. `gateway_handler*.go`, `openai_*_handler.go`, `setting_handler.go`, `endpoint.go`, `ChannelsView.vue`, account modals):
-
-1. **Do not** paste multi-screen TK branches, repeated error handling, or catalog/API glue into the upstream file.
-2. **Do** implement behavior in a companion and call it from upstream:
-   - **Go (same package):** `*_tk_*.go` — selection/affinity, relay error JSON, endpoint aliases, settings merge fields, passkey routes, admin route registration helpers (`registerTK*`), etc.
-   - **Go (shared across handlers):** small neutral helpers in the `handler` package (e.g. `TkTryWriteNewAPIRelayErrorJSON`, `TkAPIKeyGroupName`) to dedupe without inflating each upstream handler.
-   - **Routes:** move new paths and predicates into `*_tk_*.go` in `internal/server/routes/`; keep `admin.go` / `gateway.go` to a single `registerTK…()` call where possible.
-   - **Vue / TS:** `frontend/src/composables/useTk*.ts` (and `constants/` or `*.tk.ts` for pure maps). Views and modals stay **template + wiring**; composables own API calls, watchers, and state for TK-only flows.
-3. **Upstream file edits** should trend toward: **one import block delta + one-line hooks** (or replacing a repeated 10–20 line pattern with **one** helper call), not reformatting or reordering unrelated upstream code.
-4. **DTO / struct fields** that belong to the upstream request/response shape may still live in the primary handler file; **validation, merge rules, and audit diffs** belong in `*_tk_*.go` helpers.
-5. **Out of scope for this pattern:** Ent schema + generated `ent/`, `wire_gen.go`, and migration SQL — follow schema-first rules; generated churn is expected.
-
-**Anti-patterns:** Duplicating the same `errors.As` + JSON response blocks across handlers; duplicating aggregated-admin API logic across large `.vue` files; registering many new routes inline in `admin.go` instead of a `registerTK…` helper.
+Gates: `scripts/upstream/check-drift.sh`, `scripts/checks/upstream-override-marker.py`, `scripts/checks/main-ancestry-anchor.py`; workflows `upstream-merge-pr-shape.yml`, `main-ancestry-guard.yml`. `.main-ancestry-anchor` is a one-way ratchet — advance only via PR with `main-ancestry-anchor-advance` marker. Full mechanism table + minimal-invasion patterns: [`docs/global/upstream-merge-discipline.md`](docs/global/upstream-merge-discipline.md).
 
 ### 6. Interface Method Completeness
 
@@ -250,7 +164,7 @@ handler → service → repository → ent
 
 ### 9. Release Discipline (ARM + Tag Triggers)
 
-Production deployment (`api.tokenkey.dev`) runs on **AWS Graviton (`t4g.small`, `arm64`)**, and Release workflow is triggered by `tags: v*`. Two pitfalls have already broken prod once each — both are now **hard rules**:
+Production deployment (`api.tokenkey.dev`) runs on **AWS Graviton (`arm64`)**, and Release workflow is triggered by `tags: v*`. Two pitfalls have already broken prod once each — both are now **hard rules**:
 
 #### 9.1 `simple_release` MUST stay `false`
 
@@ -275,18 +189,11 @@ git push origin main vX.Y.Z                              # release.yml is silent
 
 → No image is built, prod deploy goes stale, and the only recovery is a manual `gh workflow run release.yml -f tag=vX.Y.Z`.
 
-**Rule:** when bumping `backend/cmd/server/VERSION` by hand for a release, the commit message MUST NOT contain `[skip ci]` / `[ci skip]`. **The trap goes further than the literal commit body**: the v1.3.0 release was silently broken because the squash-merge commit body contained the explanatory phrase _"this commit deliberately omits `[skip ci]`"_ — GitHub matched the literal substring inside the explanation and skipped `release.yml` anyway. Discussing the marker in commit text counts as carrying it. The **only** commits in this repo that may include `[skip ci]` are the auto-generated **`sync-version-file` writeback commits** produced by `release.yml` itself (those need `[skip ci]` to break the release → sync → release loop).
+**Rule:** when bumping `backend/cmd/server/VERSION` by hand for a release, the commit message MUST NOT contain `[skip ci]` / `[ci skip]`. **Discussing the marker counts as carrying it** — GitHub matches the literal substring even inside an explanation. The **only** commits that may include `[skip ci]` are the auto-generated **`sync-version-file` writeback commits** produced by `release.yml` itself (needed to break the release → sync → release loop).
 
-**Mechanical enforcement:** use `bash scripts/release-tag.sh vX.Y.Z` instead of `git tag` directly. The helper validates that the HEAD commit message does NOT contain literal `[skip ci]` / `[ci skip]` anywhere, that `backend/cmd/server/VERSION` matches the tag, that the tag does not already exist, and that local `main` is in sync with `origin/main`; only then does it create the annotated tag and push. If the [skip ci] check fires it prints both fix paths (reword commit / use `gh workflow run` recovery dispatch). The `merge/upstream-*` PR shape workflow (§5.y.1) enforces the same rule on first-parent commits introduced by upstream-merge PRs, while preserving imported upstream commit messages as external audit history.
+**Mechanical enforcement:** use `bash scripts/release-tag.sh vX.Y.Z` instead of `git tag` directly. It validates: HEAD commit message carries no literal `[skip ci]` / `[ci skip]`, `backend/cmd/server/VERSION` matches the tag, the tag doesn't already exist, and local `main` is in sync with `origin/main` — then creates the annotated tag and pushes. The `merge/upstream-*` PR shape workflow (§5.y.1) enforces the same rule on first-parent commits of upstream-merge PRs (imported upstream messages exempt).
 
-**Discussion-of-marker discipline.** Two squash-merge incidents have shown that referencing the bracketed marker even in passing — to *explain* the rule, not to skip CI — carries it into the landing commit body, where GitHub still matches the substring and skips `release.yml`:
-
-  - **v1.3.0:** squash body contained the explanatory phrase _"this commit deliberately omits `[skip ci]`"_ → release pipeline skipped.
-  - **PR #312 (2026-05-19):** squash body contained a per-commit review note that referenced the bracketed form when describing a separate workflow check; HEAD on main carried the substring after merge.
-
-**Rule:** any PR title, PR body, or PR commit message that lands on `main` MUST use unbracketed forms when discussing these markers — `skip-ci` (hyphen), `ci-skip` (hyphen), or `skip ci` / `ci skip` (no brackets). The bracketed form `[skip ci]` / `[ci skip]` is the only shape GitHub matches literally, and is now the only shape mechanically blocked. CLAUDE.md text itself (this file) is exempt because file contents never reach the commit-message context.
-
-`main-ancestry-guard.yml` Check 3 enforces this on every PR with `base.ref == 'main'`: it scans PR title, PR body, and all PR commit messages for the bracketed form and fails the PR if any is present, with an inline hint to switch to the hyphen form.
+**Discussion-of-marker discipline.** Two squash-merge incidents (v1.3.0; PR #312, 2026-05-19) showed that referencing the bracketed marker even in passing — to *explain* the rule — lands it in the squash-merge commit body, where GitHub still matches the substring and skips `release.yml`. **Rule:** any PR title, PR body, or PR commit message that lands on `main` MUST use unbracketed forms when discussing these markers — `skip-ci`, `ci-skip`, or `skip ci` (no brackets). CLAUDE.md text itself is exempt (file contents never reach the commit-message context). `main-ancestry-guard.yml` Check 3 enforces this on every PR targeting `main`, with an inline hint to switch to the hyphen form.
 
 See `deploy/aws/README.md` § "发版纪律（两条铁律）" for the operator-facing version of these two rules.
 
@@ -297,95 +204,26 @@ a git submodule at `dev-rules/`. The full convention is in
 `dev-rules/rules/dev-rules-convention.mdc` (synced to `.cursor/rules/`); this
 section only records sub2api-specific choices.
 
-- **`scripts/preflight.sh` is a thin wrapper, not a re-implementation.**
-  All generic checks (branch naming, submodule pointer, `.cursor/rules`
-  drift, agent contract drift, story/test alignment, `docs/approved`
-  discipline, approved-doc invariants R1-R5, doc-stat drift, cloud-agent
-  env consistency) are **delegated** to `dev-rules/templates/preflight.sh`
-  — the wrapper just invokes it. The wrapper exists ONLY to host
-  **sub2api-specific checks**:
-  - **newapi compat-pool drift** — guards the **forward-drift** failure
-    mode that triggered `docs/approved/newapi-as-fifth-platform.md`. Any
-    new scheduler/gateway caller must use `IsOpenAICompatPoolMember` /
-    `OpenAICompatPlatforms` instead of bare `PlatformOpenAI` / `IsOpenAI`.
-  - **newapi sentinel registry** — guards the **backward-drift** failure
-    mode (a load-bearing fifth-platform file/symbol gets silently deleted
-    by an upstream merge or refactor). Source of truth is
-    `scripts/sentinels/newapi.json` (declarative `path` + `must_contain`
-    list with rationale per entry). `scripts/sentinels/check-newapi.py`
-    reads the registry; the same script is invoked by
-    `.github/workflows/upstream-merge-pr-shape.yml`, so a green local
-    preflight implies a green merge-PR check. Adding a new load-bearing
-    surface for newapi MUST add a sentinel entry in the same commit. See
-    `docs/approved/newapi-as-fifth-platform.md` § 12 for the registry
-    doctrine (categories, double-trigger, evolution discipline).
-  When adding a new sub2api-only check, append it to `scripts/preflight.sh`
-  (NEVER edit the dev-rules template — it is shared across all consumer
-  projects). If the check turns out to be useful for more than just
-  sub2api, lift it into dev-rules and remove the local copy. The git
-  pre-commit hook installed by `dev-rules/templates/install-hooks.sh`
-  prefers `scripts/preflight.sh` when present and falls back to the
-  dev-rules template otherwise.
-- **CI must check out submodules.** All workflow jobs that run
-  `dev-rules/...` (preflight, contract drift, etc.) must use
-  `actions/checkout@v6` with `submodules: recursive`.
-- **Editing rules:** edit `dev-rules/rules/*.mdc` (or `commands/`,
-  `global/`), then `dev-rules/sync.sh --local`, commit submodule first, push
-  submodule, then commit parent (`dev-rules` pointer + `.cursor/rules/`).
-  The "submodule first" order is enforced by preflight § 2 (warns on offline,
-  fails if SHA missing locally) and by `dev-rules/rules/dev-rules-convention.mdc`.
+- **`scripts/preflight.sh` is a thin wrapper** delegating generic checks to `dev-rules/templates/preflight.sh`. Sub2api-specific checks only: **newapi compat-pool drift** (`IsOpenAICompatPoolMember` / `OpenAICompatPlatforms`) and **sentinel registry** (`scripts/sentinels/newapi.json` + `check-newapi.py`; new hotspot files need anchors or `sentinel-registry-reviewed` — see `docs/approved/newapi-as-fifth-platform.md` §12). Append new checks to `scripts/preflight.sh`, never the dev-rules template.
+- **CI must check out submodules** (`actions/checkout@v6` with `submodules: recursive`).
+- **Editing rules:** edit `dev-rules/rules/*.mdc`, `dev-rules/sync.sh --local`, commit submodule first + push, then parent (`dev-rules` pointer + `.cursor/rules/`).
+
+## Studio SSOT（`/studio` Image / Video / BakeOff）
+
+Owner table + extension rules: [`docs/global/agent-reference.md`](docs/global/agent-reference.md#studio-ssot-studio-image--video--bakeoff). 宪法原则见 `dev-rules/global/CLAUDE.md` §5.1。
 
 ## Agent skills（Cursor / Claude Code）
 
-技能正文只在 [.cursor/skills/](.cursor/skills/) 下各目录的 `SKILL.md`。仓库根的 `.claude/skills` **仅为**指向 `.cursor/skills` 的 symlink（不要在 `.claude/skills/` 下创建真实文件或副本）。全局禁令见 **`dev-rules/global/CLAUDE.md`** §4「Agent Skills」。
-
-- **Stage0 发布与 rollout：** [.cursor/skills/tokenkey-stage0-release-rollout/SKILL.md](.cursor/skills/tokenkey-stage0-release-rollout/SKILL.md) — `main` → VERSION/tag → `release.yml` → `deploy-stage0` prod 与 `deploy-edge-stage0` Edge rollout → 烟测。
-- **本机 Stage0 Docker：** [.cursor/skills/tokenkey-stage0-local-deploy/SKILL.md](.cursor/skills/tokenkey-stage0-local-deploy/SKILL.md) — 与 `deploy/aws/stage0` 对齐的 compose、`AUTO_SETUP`、默认 `REPO_ROOT` / sibling `new-api` / `.cache` 路径见该 skill。
-- **cc 指纹对齐（抓包 → diff → PR）：** [.cursor/skills/tokenkey-cc-fingerprint-alignment/SKILL.md](.cursor/skills/tokenkey-cc-fingerprint-alignment/SKILL.md) — `capture-cc-fingerprint.sh` + `capture_cc_fingerprint.py`；cc0-here 实机 TLS/HTTP 对照 TokenKey 常量。
+技能正文在 `.cursor/skills/<name>/SKILL.md`；`.claude/skills` 仅为 symlink。完整索引见 [`AGENTS.md`](AGENTS.md)。常用入口：modelops → `tokenkey-modelops-planner`；Stage0 发版 → `tokenkey-stage0-release-rollout`；cc/codex 指纹 → `tokenkey-cc-fingerprint-alignment` / `tokenkey-codex-fingerprint-alignment`。
 
 ## Key Reference
 
-### Current Gateway Flow
+Gateway flow, prod↔edge topology, disaster recovery, full PR checklist: [`docs/global/agent-reference.md`](docs/global/agent-reference.md).
 
-```
-HTTP Request → Auth (JWT/APIKey) → Account Scheduling (sticky/load-aware)
- → Platform-specific forwarding (Claude / OpenAI / Gemini / Antigravity / New API fifth platform `newapi`)
- → Usage recording + quota deduction
-```
+Model serving SSOT (prod `model_mapping` + catalog/pricing alignment; edge keeps empty mapping; official upstream aliases display when priced+servable): [`docs/global/agent-reference.md`](docs/global/agent-reference.md#model-serving-ssot-model_mapping-catalog-prod-vs-edge).
 
-The fifth platform **`newapi`** is a first-class account/group platform (not an add-on card on the other four): it uses OpenAI-compatible gateway routes and the New API **adaptor** layer in `internal/relay/bridge` when `channel_type > 0`. The `internal/integration/newapi/` package provides the channel-type catalog, affinity helpers, upstream model metadata helpers, and other `newapi`-specific bridge support required by TokenKey's fifth-platform flow.
+Model/catalog tests must derive positive and negative model sets from that SSOT (`ServableClientFacingIDs`, platform allowlist helpers, manifest/overlay parsers, runtime mapping helpers). Do not hand-maintain duplicate model lists in tests; only hardcode true boundary samples such as unknown IDs, cross-platform IDs, compatibility aliases, or priced-but-hidden examples.
 
-**Image and video generation surfaces** ride on the same `newapi` (and `openai`) compat-pool routing:
+Treat `internal/integration/newapi/` and `internal/relay/bridge/` as implementation source of truth; external planning docs may lag the code.
 
-- **Sync image** — `POST /v1/images/generations` (and `POST /images/generations` alias) via `bridge.RunImageRelay` and `bridge.DispatchImageGenerations`. Volcengine `channel_type=45` (Doubao Seedream) is supported through the upstream `volcengine` adapter.
-- **Async video** — `POST /v1/video/generations` + `GET /v1/video/generations/:task_id` (and the OpenAI-compat aliases `POST /v1/videos` + `GET /v1/videos/:task_id`, plus their no-prefix variants). Submit returns a TokenKey-issued `task_id` (prefix `vt_`); subsequent polls hit the upstream task adapter pinned at submit time. Supported channel types are auto-derived from `relay.GetTaskAdaptor` — currently `45` (VolcEngine, Doubao Seedance) and `54` (DoubaoVideo). Routing metadata lives in `service.VideoTaskCache` (Redis primary, in-memory fallback for single-replica dev). Default record TTL is 24h; terminal status (`succeeded`/`failed`) deletes the record. Adding a new task adapter upstream requires no TK code changes — the `IsVideoSupportedChannelType` predicate sees the new channel type as soon as the upstream adapter map registers it.
-
-**Scheduling-pool semantics (per `docs/approved/newapi-as-fifth-platform.md`, shipped):** the OpenAI-compatible pool now partitions strictly by `group.platform`. `openai` groups schedule only `openai` accounts; `newapi` groups schedule only `newapi` accounts (with `channel_type > 0`). The canonical predicate is `account.IsOpenAICompatPoolMember(groupPlatform)` in `backend/internal/service/account_tk_compat_pool.go`, used by load-balance, sticky-session, and recheck paths in `openai_account_scheduler.go` / `openai_gateway_service.go`. Cross-platform fallback is forbidden — an empty pool surfaces an error. Sticky-session bindings whose bound account drifted to the wrong platform (or whose `channel_type` was reset to 0) are invalidated and the request fails over to load-balance. `messages_dispatch_model_config` is preserved for `openai` and `newapi` groups, cleared for `anthropic` / `gemini` / `antigravity` (predicate: `isOpenAICompatPlatformGroup`). Sticky routing (per `docs/approved/sticky-routing.md`, shipped) layers above this pool to optimize prompt-cache hit rates within each platform's bucket.
-
-### Fusion / Bridge Plans
-
-Treat `internal/integration/newapi/` and `internal/relay/bridge/` as the implementation source of truth; any external planning docs may lag the code.
-
-### PR Checklist
-
-- `go test -tags=unit ./...` passes
-- `go test -tags=integration ./...` passes
-- `golangci-lint run ./...` — no new issues
-- `pnpm-lock.yaml` in sync (if `package.json` changed)
-- Test stubs complete (if interfaces changed)
-- Ent generated code committed (if schema changed)
-- `go build ./...` succeeds (cross-repo dependency compiles)
-- If bumping `backend/cmd/server/VERSION` for a release: commit message contains **no** literal `[skip ci]` / `[ci skip]` anywhere (rule 9.2 — discussion of the marker counts as carrying it). Use `bash scripts/release-tag.sh vX.Y.Z` to push the tag — it enforces this mechanically.
-- If touching `.github/workflows/release.yml`: `simple_release` default stays `false`; warning banner step is intact (rule 9.1)
-- If the PR deletes any upstream-owned file/method/route: PR description contains the (a)/(b)/(c) justification block from rule §5.x; otherwise change to "override default" or "disable via setting" instead
-- After upstream merge: PR body includes `git log --oneline upstream/main..HEAD | wc -l` and the top-5 lines of `git diff --stat upstream/main..HEAD -- backend/` (rule §5.y audit cadence). The `Upstream Merge PR Shape` workflow (§5.y.1) enforces this automatically — fix any failures it reports rather than ignoring them.
-- Drift check: before opening any non-trivial PR, run `bash scripts/upstream/check-drift.sh`. If TK is behind upstream/main, pause and either land the upstream merge first or document why this PR ships out of order.
-- Upstream override marker (rule §5.y.1): if the PR diff touches any upstream-shaped path (handlers / services / repositories / middleware / relay / server / views / components / api / migrations / ent schema, excluding `*_tk_*.go` / `*.tk.ts` / `*_test.go` / TK-only subpackages), **either** update an appropriate `scripts/sentinels/*.json` registry **or** include one of `upstream-touch-guarded` / `upstream-touch-trivial` / `upstream-merge` / `no-upstream-touch` in a commit message. `scripts/preflight.sh` enforces this mechanically via `scripts/checks/upstream-override-marker.py`.
-- Reviewer picks the GitHub merge button per rule §5.y: **Squash and merge** for TK-originated PRs (feature / fix / chore / docs), **Create a merge commit** for `merge/upstream-*` PRs. Never use **Rebase and merge** on `main`.
-- **Root docs / deploy boundary:** keep root user-facing files (`README*.md`, root compose examples, generic upstream deployment snippets) aligned with upstream by default. TokenKey-specific local Stage0 validation, AWS prod deployment, smoke-test, image/tag, domain, and operator runbook changes belong under `deploy/*` (or the matching skill text), not in root README files. Only change root files when the build/release contract truly requires it, and prefer a short pointer to `deploy/*` over duplicating deployment steps.
-- If the PR touches `dev-rules/` (submodule pointer bump or `.cursor/rules/` resync): per rule §10, the dev-rules submodule MUST be pushed first; this PR's CI `preflight` job will fail otherwise (the dev-rules SHA in `.gitmodules` won't be reachable on `origin/main`).
-- **If the PR fixes an upstream / claude-code issue, record it in the fix ledger from inside the PR** (so the issue-watchdog triage doesn't re-select an already-fixed issue, and you never need a separate固化 PR):
-  1. Add a fact-check entry to `.cache/upstream/fact-checks.json` (for Wei-Shaw/sub2api) or `.cache/anthropic/cc-fact-checks.json` (for anthropics/claude-code). The `fixed_if_all_present` anchors (`path:needle`) are the irreducible human judgment — pick stable lines that prove the fix is present on `main`.
-  2. Run `python3 scripts/upstream/apply-fix-ledger.py --ledger <upstream|anthropic> --apply` to propagate it into `fixes.json` + `triage.json` (byte-identical to the daily `*-issue-watchdog.yml`, so no dual-writer churn).
-  3. Declare the issue in a commit message trailer: `Upstream-Fixes: Wei-Shaw/sub2api#NNNN` or `Anthropic-Fixes: anthropics/claude-code#NNNN` (comma-separated for multi-issue fixes).
-  `scripts/preflight.sh` gates this mechanically (`sub2api: fix-ledger consistency`): a commit that declares a fix via the trailer must carry a matching fact-check whose anchors resolve and whose propagation is already applied — otherwise preflight fails with the exact `--apply` command to run. The gate is trailer-scoped, so PRs that don't declare a fix are unaffected.
+**Before push:** run `./scripts/preflight.sh` + `make test`. PR checklist detail in agent-reference doc above.

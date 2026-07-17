@@ -27,20 +27,29 @@ import (
 //     report (strategy A), we strip the thinking field — the client's
 //     forced-tool-use intent wins.
 //
-// Scope: only the standard forward path (gateway_service.Forward — i.e. all
-// Anthropic-platform requests EXCEPT IsAnthropicAPIKeyPassthroughEnabled and
-// Bedrock, both of which early-return before this hook). The hook runs once
+//  3. Claude Code prompt surfaces in system / system-reminder text: geo-stego
+//     date lines, # Environment (TZ/proxy), and client userEmail. Rewritten
+//     before US edge OAuth egress; userEmail is replaced with the scheduled
+//     account OAuth email when available. See gateway_request_tk_cc_prompt_surface.go.
+//
+// Scope: Anthropic-platform Forward + count_tokens (OAuth path). API-key
+// passthrough and Bedrock call tkApplyAnthropicCCPromptSurfaceNormalize at
+// their entry points. The hook runs once
 // per request before any other body rewrite so downstream code sees a
 // well-formed body.
 //
-// Original client body is preserved: the ops_error_logs.request_body field is
-// stashed by handler.setOpsRequestContext BEFORE this hook runs, so the
-// pre-normalize body remains visible for debugging even when normalize fires.
+// Original client body is preserved on the gin context (handler.setOpsRequestModelAndBody
+// via OpsRequestBodyKey) BEFORE this hook runs, so ops enrichment and RCA can still
+// read the pre-normalize payload when normalize fires.
 //
 // Observability:
 //   - Every successful normalization emits an INFO log
 //     "gateway.anthropic_request_normalized" with request_id + the list of
 //     changes applied. Use this to count total normalize hits.
+//   - Post-normalize prompt fingerprint (classes + surface_signature, no full
+//     system text) emits "gateway.anthropic_prompt_fingerprint" when normalize
+//     fired, unknown surfaces detected, or ~1% sampled. See
+//     gateway_request_tk_prompt_fingerprint.go + prompt_surface_registry.json.
 //   - Each change also appends an OpsUpstreamErrorEvent (kind="request_normalized")
 //     to the request's ops_error_logs.upstream_errors array. Combined with the
 //     INFO log this lets operators measure "save rate" = 1 - (rows-with-event
@@ -65,7 +74,7 @@ const (
 // logging, debug dumps) can read it before calling this function.
 //
 // Safe to call with body == nil / empty; returns the input unchanged.
-func (s *GatewayService) tkNormalizeAnthropicRequestBody(ctx context.Context, c *gin.Context, body []byte) []byte {
+func (s *GatewayService) tkNormalizeAnthropicRequestBody(ctx context.Context, c *gin.Context, body []byte, account *Account) []byte {
 	if s == nil || s.settingService == nil || len(body) == 0 {
 		return body
 	}
@@ -86,13 +95,51 @@ func (s *GatewayService) tkNormalizeAnthropicRequestBody(ctx context.Context, c 
 		changes = append(changes, tkNormalizeChangeThinkingForcesToolUse)
 	}
 
-	if len(changes) == 0 {
-		return next
+	oauthEmail := ""
+	if account != nil {
+		oauthEmail = account.GetOAuthAccountEmail()
+	}
+	beforePrompt := next
+	if patched, applied := tkNormalizeAnthropicCCPromptSurface(next, oauthEmail); applied {
+		next = patched
+		changes = append(changes, tkAnthropicCCPromptSurfaceChanges(beforePrompt, next)...)
 	}
 
-	tkLogAnthropicNormalize(ctx, changes)
-	tkRecordAnthropicNormalizeOpsEvent(c, changes)
+	if len(changes) > 0 {
+		tkLogAnthropicNormalize(ctx, changes)
+		tkRecordAnthropicNormalizeOpsEvent(c, changes)
+	}
+
+	s.tkMaybeLogAnthropicPromptFingerprint(ctx, c, next, changes)
 	return next
+}
+
+// tkApplyAnthropicCCPromptSurfaceNormalize runs prompt-surface normalize for
+// paths that skip tkNormalizeAnthropicRequestBody (API-key passthrough, Bedrock).
+func tkApplyAnthropicCCPromptSurfaceNormalize(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+) ([]byte, []tkAnthropicNormalizeChange) {
+	if len(body) == 0 {
+		return body, nil
+	}
+	oauthEmail := ""
+	if account != nil {
+		oauthEmail = account.GetOAuthAccountEmail()
+	}
+	before := body
+	out, applied := tkNormalizeAnthropicCCPromptSurface(body, oauthEmail)
+	if !applied {
+		return body, nil
+	}
+	changes := tkAnthropicCCPromptSurfaceChanges(before, out)
+	if len(changes) > 0 {
+		tkLogAnthropicNormalize(ctx, changes)
+		tkRecordAnthropicNormalizeOpsEvent(c, changes)
+	}
+	return out, changes
 }
 
 // tkNormalizeAnthropicToolChoiceString rewrites OpenAI-shaped string values
@@ -165,11 +212,10 @@ func tkLogAnthropicNormalize(ctx context.Context, changes []tkAnthropicNormalize
 	)
 }
 
-// tkRecordAnthropicNormalizeOpsEvent records one ops upstream-errors event
-// per request so an operator can SQL the rows that were normalized but still
-// failed. The event only persists if the request ultimately errors (ops
-// logger only writes rows for non-2xx final outcomes), so this measures
-// "normalize did not save the request" not "normalize ran".
+// tkRecordAnthropicNormalizeOpsEvent attaches normalize change kinds to the
+// request's upstream-errors event list so failed (>=400) rows retain them in
+// upstream_errors JSON. Recovered-200 ops logging intentionally skips this kind;
+// gateway.anthropic_request_normalized slog is the success-path audit trail.
 func tkRecordAnthropicNormalizeOpsEvent(c *gin.Context, changes []tkAnthropicNormalizeChange) {
 	if c == nil || len(changes) == 0 {
 		return

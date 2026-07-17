@@ -6,14 +6,14 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import type { ApiResponse } from '@/types'
 import { getLocale } from '@/i18n'
-import { createNetworkError, isNetworkError, networkErrorFromAxios, requestUrlFromError } from './client.tk'
+import { createApiError, createNetworkError, isNetworkError, networkErrorFromAxios, requestUrlFromError } from './client.tk'
+import { getAPIBaseURL } from './url'
+export { buildApiUrl, buildGatewayUrl } from './url'
 
 // ==================== Axios Instance Configuration ====================
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
-
 export const apiClient: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: getAPIBaseURL(),
   withCredentials: true,
   timeout: 30000,
   headers: {
@@ -45,15 +45,6 @@ function onTokenRefreshed(token: string, error?: unknown): void {
 
 // ==================== Request Interceptor ====================
 
-// Get user's timezone
-const getUserTimezone = (): string => {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone
-  } catch {
-    return 'UTC'
-  }
-}
-
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     // Attach token from localStorage
@@ -65,14 +56,6 @@ apiClient.interceptors.request.use(
     // Attach locale for backend translations
     if (config.headers) {
       config.headers['Accept-Language'] = getLocale()
-    }
-
-    // Attach timezone for all GET requests (backend may use it for default date ranges)
-    if (config.method === 'get') {
-      if (!config.params) {
-        config.params = {}
-      }
-      config.params.timezone = getUserTimezone()
     }
 
     return config
@@ -95,13 +78,13 @@ apiClient.interceptors.response.use(
       } else {
         // API error
         const resp = apiResponse as unknown as Record<string, unknown>
-        return Promise.reject({
+        return Promise.reject(createApiError({
           status: response.status,
           code: apiResponse.code,
           message: apiResponse.message || 'Unknown error',
-          reason: resp.reason,
-          metadata: resp.metadata,
-        })
+          reason: resp.reason as string | undefined,
+          metadata: resp.metadata as Record<string, unknown> | undefined,
+        }))
       }
     }
     return response
@@ -141,12 +124,29 @@ apiClient.interceptors.response.use(
           window.location.href = '/admin/settings'
         }
 
-        return Promise.reject({
+        return Promise.reject(createApiError({
           status,
           code: 'OPS_DISABLED',
           message: apiData.message || error.message,
           url
-        })
+        }))
+      }
+
+      if (status === 423 && apiData.code === 'ADMIN_COMPLIANCE_ACK_REQUIRED') {
+        try {
+          window.dispatchEvent(new CustomEvent('admin-compliance-required', {
+            detail: apiData.metadata || {}
+          }))
+        } catch {
+          // ignore event failures
+        }
+
+        return Promise.reject(createApiError({
+          status,
+          code: apiData.code,
+          message: apiData.message || error.message,
+          metadata: apiData.metadata,
+        }))
       }
 
       // 401: Try to refresh the token if we have a refresh token
@@ -173,11 +173,11 @@ apiClient.interceptors.response.use(
                   resolve(apiClient(originalRequest))
                 } else {
                   // Refresh failed, reject with original error
-                  reject({
+                  reject(createApiError({
                     status,
                     code: apiData.code,
                     message: apiData.message || apiData.detail || error.message
-                  })
+                  }))
                 }
               })
             })
@@ -189,9 +189,11 @@ apiClient.interceptors.response.use(
           try {
             // Call refresh endpoint directly to avoid circular dependency
             const refreshResponse = await axios.post(
-              `${API_BASE_URL}/auth/refresh`,
+              `${getAPIBaseURL()}/auth/refresh`,
               { refresh_token: refreshToken },
-              { headers: { 'Content-Type': 'application/json' } }
+              // 显式设置超时：裸 axios 默认无限等待，若刷新请求挂起会导致 isRefreshing
+              // 永远为 true，所有排队的 401 重试请求永久卡死，页面 loading 无法恢复。
+              { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
             )
 
             const refreshData = refreshResponse.data as ApiResponse<{
@@ -245,11 +247,11 @@ apiClient.interceptors.response.use(
               window.location.href = '/login'
             }
 
-            return Promise.reject({
+            return Promise.reject(createApiError({
               status: 401,
               code: 'TOKEN_REFRESH_FAILED',
               message: 'Session expired. Please log in again.'
-            })
+            }))
           }
         }
 
@@ -278,14 +280,14 @@ apiClient.interceptors.response.use(
       }
 
       // Return structured error
-      return Promise.reject({
+      return Promise.reject(createApiError({
         status,
         code: apiData.code,
         reason: apiData.reason,
         error: apiData.error,
         message: apiData.message || apiData.detail || error.message,
         metadata: apiData.metadata,
-      })
+      }))
     }
 
     // Network error

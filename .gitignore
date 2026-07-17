@@ -28,6 +28,9 @@ vendor/
 # Go 编译缓存
 backend/.gocache/
 
+# Local preflight Python venv (scripts/bootstrap-local-python.sh)
+.venv/
+
 # ===================
 # Node.js / Vue 前端
 # ===================
@@ -100,6 +103,9 @@ temp/
 # .cache/anthropic-cc-issue-watchdog/ (stays ignored).
 !.cache/anthropic/
 !.cache/anthropic/**
+# Whitelisted: client release watch cache (refreshed by client-release-watch.yml).
+!.cache/fingerprint/
+!.cache/fingerprint/**
 .dev/
 .serena/
 
@@ -160,6 +166,9 @@ tests
 !.claude/hooks
 !.claude/settings.json
 .codex
+# Antigravity CLI workspace skills symlink (.agents/skills → ../.cursor/skills),
+# generated locally by dev-rules/sync.sh; local-only like .codex.
+.agents
 # docs/ — keep fully tracked (no subtree ignore here). Generated or local-only
 # material belongs under paths already ignored (.auto-reports/, output/, etc.).
 #
@@ -177,11 +186,31 @@ backend/cmd/server/server
 deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
+# TK: upstream ignores docs/* (keeps only payment/legal docs); TokenKey tracks
+# docs/ as planning + approved-design source of truth, so that rule is not adopted.
+.serena/
 .codex/
 frontend/coverage/
+# Playwright e2e run outputs (TK Media Studio acceptance). Only the *.e2e.ts
+# sources + playwright.config.ts are tracked; screenshots/video/trace/report are
+# local-only (real-upstream runs, large binaries).
+frontend/e2e/artifacts/
+frontend/e2e/report/
+frontend/test-results/
+frontend/playwright-report/
 aicodex
 output/
 exports/
 
 # Kiro fingerprint capture artifacts (pcap/bundle), parallel to .tls_list/
 .kiro_tls/
+
+# Antigravity fingerprint capture artifacts (mitm log/bundle), parallel to .kiro_tls/
+.antigravity_fp/
+
+# Stray ops/stage0 SSM run-command artifacts — ops/stage0/*_via_ssm.sh write
+# ssm-params.json / stdout.txt / stderr.txt to OUTPUT_DIR (defaults to ".",
+# i.e. repo root when run from there). Root-anchored so subdir files unaffected.
+/ssm-params.json
+/stdout.txt
+/stderr.txt

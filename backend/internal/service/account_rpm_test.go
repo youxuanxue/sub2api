@@ -60,23 +60,23 @@ func TestCheckRPMSchedulability(t *testing.T) {
 		name       string
 		extra      map[string]any
 		currentRPM int
-		expected   WindowCostSchedulability
+		expected   WindowUtilSchedulability
 	}{
-		{"disabled", map[string]any{}, 100, WindowCostSchedulable},
-		{"green zone", map[string]any{"base_rpm": 15}, 10, WindowCostSchedulable},
-		{"yellow zone tiered", map[string]any{"base_rpm": 15}, 15, WindowCostStickyOnly},
-		{"red zone tiered", map[string]any{"base_rpm": 15}, 18, WindowCostNotSchedulable},
-		{"sticky_exempt at limit", map[string]any{"base_rpm": 15, "rpm_strategy": "sticky_exempt"}, 15, WindowCostStickyOnly},
-		{"sticky_exempt over limit", map[string]any{"base_rpm": 15, "rpm_strategy": "sticky_exempt"}, 100, WindowCostStickyOnly},
-		{"custom buffer", map[string]any{"base_rpm": 10, "rpm_sticky_buffer": 5}, 14, WindowCostStickyOnly},
-		{"custom buffer red", map[string]any{"base_rpm": 10, "rpm_sticky_buffer": 5}, 15, WindowCostNotSchedulable},
-		{"base_rpm=1 green", map[string]any{"base_rpm": 1}, 0, WindowCostSchedulable},
-		{"base_rpm=1 yellow (at limit)", map[string]any{"base_rpm": 1}, 1, WindowCostStickyOnly},
-		{"base_rpm=1 red (at limit+buffer)", map[string]any{"base_rpm": 1}, 2, WindowCostNotSchedulable},
-		{"negative currentRPM", map[string]any{"base_rpm": 15}, -1, WindowCostSchedulable},
-		{"base_rpm negative disabled", map[string]any{"base_rpm": -5}, 10, WindowCostSchedulable},
-		{"very high currentRPM", map[string]any{"base_rpm": 10}, 9999, WindowCostNotSchedulable},
-		{"sticky_exempt very high currentRPM", map[string]any{"base_rpm": 10, "rpm_strategy": "sticky_exempt"}, 9999, WindowCostStickyOnly},
+		{"disabled", map[string]any{}, 100, WindowUtilSchedulable},
+		{"green zone", map[string]any{"base_rpm": 15}, 10, WindowUtilSchedulable},
+		{"yellow zone tiered", map[string]any{"base_rpm": 15}, 15, WindowUtilStickyOnly},
+		{"red zone tiered", map[string]any{"base_rpm": 15}, 18, WindowUtilNotSchedulable},
+		{"sticky_exempt at limit", map[string]any{"base_rpm": 15, "rpm_strategy": "sticky_exempt"}, 15, WindowUtilStickyOnly},
+		{"sticky_exempt over limit", map[string]any{"base_rpm": 15, "rpm_strategy": "sticky_exempt"}, 100, WindowUtilStickyOnly},
+		{"custom buffer", map[string]any{"base_rpm": 10, "rpm_sticky_buffer": 5}, 14, WindowUtilStickyOnly},
+		{"custom buffer red", map[string]any{"base_rpm": 10, "rpm_sticky_buffer": 5}, 15, WindowUtilNotSchedulable},
+		{"base_rpm=1 green", map[string]any{"base_rpm": 1}, 0, WindowUtilSchedulable},
+		{"base_rpm=1 yellow (at limit)", map[string]any{"base_rpm": 1}, 1, WindowUtilStickyOnly},
+		{"base_rpm=1 red (at limit+buffer)", map[string]any{"base_rpm": 1}, 2, WindowUtilNotSchedulable},
+		{"negative currentRPM", map[string]any{"base_rpm": 15}, -1, WindowUtilSchedulable},
+		{"base_rpm negative disabled", map[string]any{"base_rpm": -5}, 10, WindowUtilSchedulable},
+		{"very high currentRPM", map[string]any{"base_rpm": 10}, 9999, WindowUtilNotSchedulable},
+		{"sticky_exempt very high currentRPM", map[string]any{"base_rpm": 10, "rpm_strategy": "sticky_exempt"}, 9999, WindowUtilStickyOnly},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

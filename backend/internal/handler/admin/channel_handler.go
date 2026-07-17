@@ -34,6 +34,7 @@ type createChannelRequest struct {
 	ModelPricing               []channelModelPricingRequest     `json:"model_pricing"`
 	ModelMapping               map[string]map[string]string     `json:"model_mapping"`
 	BillingModelSource         string                           `json:"billing_model_source" binding:"omitempty,oneof=requested upstream channel_mapped"`
+	ConfirmBillingModelSource  bool                             `json:"confirm_billing_model_source"` // TK: 设 requested/upstream 的人类确认闸（B1 缓解）
 	RestrictModels             bool                             `json:"restrict_models"`
 	Features                   string                           `json:"features"`
 	FeaturesConfig             map[string]any                   `json:"features_config"`
@@ -49,6 +50,7 @@ type updateChannelRequest struct {
 	ModelPricing               *[]channelModelPricingRequest     `json:"model_pricing"`
 	ModelMapping               map[string]map[string]string      `json:"model_mapping"`
 	BillingModelSource         string                            `json:"billing_model_source" binding:"omitempty,oneof=requested upstream channel_mapped"`
+	ConfirmBillingModelSource  bool                              `json:"confirm_billing_model_source"` // TK: 设 requested/upstream 的人类确认闸（B1 缓解）
 	RestrictModels             *bool                             `json:"restrict_models"`
 	Features                   *string                           `json:"features"`
 	FeaturesConfig             map[string]any                    `json:"features_config"`
@@ -347,6 +349,12 @@ func (h *ChannelHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// TK: 把 billing_model_source 拨到 requested/upstream 是影响计费的刻意动作，强制人类确认。
+	if err := tkRequireBillingModelSourceConfirm(req.BillingModelSource, req.ConfirmBillingModelSource); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
 	pricing := pricingRequestToService(req.ModelPricing)
 	// Main model_pricing requires a platform; default to anthropic for backward compatibility.
 	for i := range pricing {
@@ -405,6 +413,12 @@ func (h *ChannelHandler) Update(c *gin.Context) {
 	var req updateChannelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
+		return
+	}
+
+	// TK: 把 billing_model_source 拨到 requested/upstream 是影响计费的刻意动作，强制人类确认。
+	if err := tkRequireBillingModelSourceConfirm(req.BillingModelSource, req.ConfirmBillingModelSource); err != nil {
+		response.ErrorFrom(c, err)
 		return
 	}
 
@@ -509,6 +523,7 @@ var platformToLiteLLMProvider = map[string]string{
 	service.PlatformOpenAI:      "openai",
 	service.PlatformGemini:      "google",
 	service.PlatformAntigravity: "anthropic",
+	service.PlatformGrok:        "xai",
 }
 
 // SyncPricingModels 返回 LiteLLM 定价目录中指定平台的最新模型列表

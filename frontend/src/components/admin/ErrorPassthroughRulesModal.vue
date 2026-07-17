@@ -430,7 +430,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
@@ -511,6 +511,15 @@ const loadRules = async () => {
     loading.value = false
   }
 }
+
+// Lazy-mount latch (PR #900): when this modal is created already-shown, the
+// show-watch above does NOT fire (it is not { immediate: true }), so mirror the
+// show-became-true branch here for the first-open case (#900).
+onMounted(() => {
+  if (props.show) {
+    loadRules()
+  }
+})
 
 const resetForm = () => {
   form.name = ''

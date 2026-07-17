@@ -7,7 +7,6 @@ import { apiClient } from '../client'
 import type {
   DashboardStats,
   PaymentOrder,
-  PaymentChannel,
   SubscriptionPlan,
   ProviderInstance
 } from '@/types/payment'
@@ -24,6 +23,8 @@ export interface AdminPaymentConfig {
   enabled_payment_types: string[]
   balance_disabled: boolean
   balance_recharge_multiplier: number
+  subscription_usd_to_cny_rate: number
+  recharge_fee_rate: number
   load_balance_strategy: string
   product_name_prefix: string
   product_name_suffix: string
@@ -42,11 +43,21 @@ export interface UpdatePaymentConfigRequest {
   enabled_payment_types?: string[]
   balance_disabled?: boolean
   balance_recharge_multiplier?: number
+  subscription_usd_to_cny_rate?: number
+  recharge_fee_rate?: number
   load_balance_strategy?: string
   product_name_prefix?: string
   product_name_suffix?: string
   help_image_url?: string
   help_text?: string
+}
+
+export interface RefundResult {
+  success: boolean
+  warning?: string
+  require_force?: boolean
+  balance_deducted?: number
+  subscription_days_deducted?: number
 }
 
 export const adminPaymentAPI = {
@@ -105,29 +116,12 @@ export const adminPaymentAPI = {
 
   /** Process a refund */
   refundOrder(id: number, data: { amount: number; reason: string; deduct_balance?: boolean; force?: boolean }) {
-    return apiClient.post(`/admin/payment/orders/${id}/refund`, data)
+    return apiClient.post<RefundResult>(`/admin/payment/orders/${id}/refund`, data)
   },
 
-  // ==================== Channels ====================
-
-  /** Get all payment channels */
-  getChannels() {
-    return apiClient.get<PaymentChannel[]>('/admin/payment/channels')
-  },
-
-  /** Create a payment channel */
-  createChannel(data: Partial<PaymentChannel>) {
-    return apiClient.post<PaymentChannel>('/admin/payment/channels', data)
-  },
-
-  /** Update a payment channel */
-  updateChannel(id: number, data: Partial<PaymentChannel>) {
-    return apiClient.put<PaymentChannel>(`/admin/payment/channels/${id}`, data)
-  },
-
-  /** Delete a payment channel */
-  deleteChannel(id: number) {
-    return apiClient.delete(`/admin/payment/channels/${id}`)
+  /** Query and finalize a pending refund */
+  queryRefund(id: number) {
+    return apiClient.post<RefundResult>(`/admin/payment/orders/${id}/refund/query`)
   },
 
   // ==================== Subscription Plans ====================

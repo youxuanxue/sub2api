@@ -32,6 +32,8 @@ type userRepository struct {
 	sql    sqlExecutor
 }
 
+var _ service.RedeemUserAdjustmentRepository = (*userRepository)(nil)
+
 func NewUserRepository(client *dbent.Client, sqlDB *sql.DB) service.UserRepository {
 	return newUserRepositoryWithSQL(client, sqlDB)
 }
@@ -45,32 +47,37 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 		return nil
 	}
 
+	// Reuse an outer ent transaction (e.g. balance-grant ledger paths) without
+	// opening/committing a nested tx — same pattern as Delete.
+	if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
+		return r.createUser(ctx, existingTx.Client(), userIn)
+	}
+
 	// 统一使用 ent 的事务：保证用户与允许分组的更新原子化，
 	// 并避免基于 *sql.Tx 手动构造 ent client 导致的 ExecQuerier 断言错误。
 	tx, err := r.client.Tx(ctx)
-	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+	if err != nil {
+		if errors.Is(err, dbent.ErrTxStarted) {
+			// Repo was constructed with a tx-bound client (integration tests) but
+			// ctx carries no TxFromContext — write through r.client; caller owns commit.
+			return r.createUser(ctx, r.client, userIn)
+		}
 		return err
 	}
+	defer func() { _ = tx.Rollback() }()
 
-	var txClient *dbent.Client
-	txCtx := ctx
-	if err == nil {
-		defer func() { _ = tx.Rollback() }()
-		txClient = tx.Client()
-		txCtx = dbent.NewTxContext(ctx, tx)
-	} else {
-		// 已处于外部事务中（ErrTxStarted），复用当前事务 client 并由调用方负责提交/回滚。
-		if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
-			txClient = existingTx.Client()
-		} else {
-			txClient = r.client
-		}
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := r.createUser(txCtx, tx.Client(), userIn); err != nil {
+		return err
 	}
+	return tx.Commit()
+}
 
+func (r *userRepository) createUser(ctx context.Context, txClient *dbent.Client, userIn *service.User) error {
 	releaseEmailLock, err := lockRepositoryScopedKeys(
-		txCtx,
+		ctx,
 		txClient,
-		txAwareSQLExecutor(txCtx, r.sql, r.client),
+		txAwareSQLExecutor(ctx, r.sql, r.client),
 		normalizedEmailUniquenessLockKey(userIn.Email),
 	)
 	if err != nil {
@@ -78,7 +85,7 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 	}
 	defer releaseEmailLock()
 
-	if err := ensureNormalizedEmailAvailableWithClient(txCtx, txClient, 0, userIn.Email); err != nil {
+	if err := ensureNormalizedEmailAvailableWithClient(ctx, txClient, 0, userIn.Email); err != nil {
 		return err
 	}
 
@@ -95,22 +102,17 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 		SetNillableLastLoginAt(userIn.LastLoginAt).
 		SetNillableLastActiveAt(userIn.LastActiveAt).
 		SetRpmLimit(userIn.RPMLimit).
-		Save(txCtx)
+		SetTrajExportEnabled(userIn.TrajExportEnabled).
+		Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrEmailExists)
 	}
 
-	if err := r.syncUserAllowedGroupsWithClient(txCtx, txClient, created.ID, userIn.AllowedGroups); err != nil {
+	if err := r.syncUserAllowedGroupsWithClient(ctx, txClient, created.ID, userIn.AllowedGroups); err != nil {
 		return err
 	}
-	if err := ensureEmailAuthIdentityWithClient(txCtx, txClient, created.ID, created.Email, "user_repo_create"); err != nil {
+	if err := ensureEmailAuthIdentityWithClient(ctx, txClient, created.ID, created.Email, "user_repo_create"); err != nil {
 		return err
-	}
-
-	if tx != nil {
-		if err := tx.Commit(); err != nil {
-			return err
-		}
 	}
 
 	applyUserEntityToService(userIn, created)
@@ -183,31 +185,34 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 		return nil
 	}
 
+	// Reuse an outer ent transaction (e.g. admin balance adjustment + ledger) without
+	// opening/committing a nested tx — same pattern as Delete.
+	if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
+		return r.updateUser(ctx, existingTx.Client(), userIn)
+	}
+
 	// 使用 ent 事务包裹用户更新与 allowed_groups 同步，避免跨层事务不一致。
 	tx, err := r.client.Tx(ctx)
-	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+	if err != nil {
+		if errors.Is(err, dbent.ErrTxStarted) {
+			return r.updateUser(ctx, r.client, userIn)
+		}
 		return err
 	}
+	defer func() { _ = tx.Rollback() }()
 
-	var txClient *dbent.Client
-	txCtx := ctx
-	if err == nil {
-		defer func() { _ = tx.Rollback() }()
-		txClient = tx.Client()
-		txCtx = dbent.NewTxContext(ctx, tx)
-	} else {
-		// 已处于外部事务中（ErrTxStarted），复用当前事务 client 并由调用方负责提交/回滚。
-		if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
-			txClient = existingTx.Client()
-		} else {
-			txClient = r.client
-		}
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := r.updateUser(txCtx, tx.Client(), userIn); err != nil {
+		return err
 	}
+	return tx.Commit()
+}
 
+func (r *userRepository) updateUser(ctx context.Context, txClient *dbent.Client, userIn *service.User) error {
 	releaseEmailLock, err := lockRepositoryScopedKeys(
-		txCtx,
+		ctx,
 		txClient,
-		txAwareSQLExecutor(txCtx, r.sql, r.client),
+		txAwareSQLExecutor(ctx, r.sql, r.client),
 		normalizedEmailUniquenessLockKey(userIn.Email),
 	)
 	if err != nil {
@@ -215,11 +220,11 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 	}
 	defer releaseEmailLock()
 
-	if err := ensureNormalizedEmailAvailableWithClient(txCtx, txClient, userIn.ID, userIn.Email); err != nil {
+	if err := ensureNormalizedEmailAvailableWithClient(ctx, txClient, userIn.ID, userIn.Email); err != nil {
 		return err
 	}
 
-	existing, err := clientFromContext(txCtx, txClient).User.Get(txCtx, userIn.ID)
+	existing, err := clientFromContext(ctx, txClient).User.Get(ctx, userIn.ID)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrUserNotFound, nil)
 	}
@@ -239,7 +244,8 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 		SetNillableBalanceNotifyThreshold(userIn.BalanceNotifyThreshold).
 		SetBalanceNotifyExtraEmails(marshalExtraEmails(userIn.BalanceNotifyExtraEmails)).
 		SetTotalRecharged(userIn.TotalRecharged).
-		SetRpmLimit(userIn.RPMLimit)
+		SetRpmLimit(userIn.RPMLimit).
+		SetTrajExportEnabled(userIn.TrajExportEnabled)
 	if userIn.SignupSource != "" {
 		updateOp = updateOp.SetSignupSource(userIn.SignupSource)
 	}
@@ -252,22 +258,16 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 	if userIn.BalanceNotifyThreshold == nil {
 		updateOp = updateOp.ClearBalanceNotifyThreshold()
 	}
-	updated, err := updateOp.Save(txCtx)
+	updated, err := updateOp.Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrUserNotFound, service.ErrEmailExists)
 	}
 
-	if err := r.syncUserAllowedGroupsWithClient(txCtx, txClient, updated.ID, userIn.AllowedGroups); err != nil {
+	if err := r.syncUserAllowedGroupsWithClient(ctx, txClient, updated.ID, userIn.AllowedGroups); err != nil {
 		return err
 	}
-	if err := replaceEmailAuthIdentityWithClient(txCtx, txClient, updated.ID, oldEmail, updated.Email, "user_repo_update"); err != nil {
+	if err := replaceEmailAuthIdentityWithClient(ctx, txClient, updated.ID, oldEmail, updated.Email, "user_repo_update"); err != nil {
 		return err
-	}
-
-	if tx != nil {
-		if err := tx.Commit(); err != nil {
-			return err
-		}
 	}
 
 	userIn.UpdatedAt = updated.UpdatedAt
@@ -360,60 +360,68 @@ func normalizeEmailAuthIdentitySubject(email string) string {
 }
 
 func (r *userRepository) Delete(ctx context.Context, id int64) error {
+	// 复用 context 中已存在的事务（如 AdminService.DeleteUser 把删 Key 与删 User 包在同一事务中），
+	// 由调用方负责提交/回滚，保证两者的原子性。
+	if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
+		return r.deleteUser(ctx, existingTx.Client(), id)
+	}
+
 	tx, err := r.client.Tx(ctx)
 	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
 		return translatePersistenceError(err, service.ErrUserNotFound, nil)
 	}
-
-	var txClient *dbent.Client
+	exec := r.client
 	if err == nil {
 		defer func() { _ = tx.Rollback() }()
-		txClient = tx.Client()
-	} else {
-		if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
-			txClient = existingTx.Client()
-		} else {
-			txClient = r.client
-		}
+		exec = tx.Client()
 	}
+	// err == dbent.ErrTxStarted 时复用当前事务（exec = r.client）。
 
-	identityIDs, err := txClient.AuthIdentity.Query().
-		Where(authidentity.UserIDEQ(id)).
-		IDs(ctx)
-	if err != nil {
-		return translatePersistenceError(err, service.ErrUserNotFound, nil)
-	}
-	if len(identityIDs) > 0 {
-		if _, err := txClient.IdentityAdoptionDecision.Update().
-			Where(identityadoptiondecision.IdentityIDIn(identityIDs...)).
-			ClearIdentityID().
-			Save(ctx); err != nil {
-			return translatePersistenceError(err, service.ErrUserNotFound, nil)
-		}
-		if _, err := txClient.AuthIdentityChannel.Delete().
-			Where(authidentitychannel.IdentityIDIn(identityIDs...)).
-			Exec(ctx); err != nil {
-			return translatePersistenceError(err, service.ErrUserNotFound, nil)
-		}
-		if _, err := txClient.AuthIdentity.Delete().
-			Where(authidentity.UserIDEQ(id)).
-			Exec(ctx); err != nil {
-			return translatePersistenceError(err, service.ErrUserNotFound, nil)
-		}
-	}
-
-	affected, err := txClient.User.Delete().Where(dbuser.IDEQ(id)).Exec(ctx)
-	if err != nil {
-		return translatePersistenceError(err, service.ErrUserNotFound, nil)
-	}
-	if affected == 0 {
-		return service.ErrUserNotFound
+	if err := r.deleteUser(ctx, exec, id); err != nil {
+		return err
 	}
 
 	if tx != nil {
 		if err := tx.Commit(); err != nil {
 			return translatePersistenceError(err, service.ErrUserNotFound, nil)
 		}
+	}
+	return nil
+}
+
+// deleteUser 在给定 client（可能是外部事务 client）上删除用户及其身份关联记录，自身不开启/提交事务。
+func (r *userRepository) deleteUser(ctx context.Context, exec *dbent.Client, id int64) error {
+	identityIDs, err := exec.AuthIdentity.Query().
+		Where(authidentity.UserIDEQ(id)).
+		IDs(ctx)
+	if err != nil {
+		return translatePersistenceError(err, service.ErrUserNotFound, nil)
+	}
+	if len(identityIDs) > 0 {
+		if _, err := exec.IdentityAdoptionDecision.Update().
+			Where(identityadoptiondecision.IdentityIDIn(identityIDs...)).
+			ClearIdentityID().
+			Save(ctx); err != nil {
+			return translatePersistenceError(err, service.ErrUserNotFound, nil)
+		}
+		if _, err := exec.AuthIdentityChannel.Delete().
+			Where(authidentitychannel.IdentityIDIn(identityIDs...)).
+			Exec(ctx); err != nil {
+			return translatePersistenceError(err, service.ErrUserNotFound, nil)
+		}
+		if _, err := exec.AuthIdentity.Delete().
+			Where(authidentity.UserIDEQ(id)).
+			Exec(ctx); err != nil {
+			return translatePersistenceError(err, service.ErrUserNotFound, nil)
+		}
+	}
+
+	affected, err := exec.User.Delete().Where(dbuser.IDEQ(id)).Exec(ctx)
+	if err != nil {
+		return translatePersistenceError(err, service.ErrUserNotFound, nil)
+	}
+	if affected == 0 {
+		return service.ErrUserNotFound
 	}
 	return nil
 }
@@ -451,6 +459,17 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 	if filters.GroupName != "" {
 		q = q.Where(dbuser.HasAllowedGroupsWith(
 			dbgroup.NameContainsFold(filters.GroupName),
+		))
+	}
+
+	if filters.APIKeyGroupID > 0 {
+		// 按"API Key 实际绑定的分组"过滤：用户只要有任意一个未软删除的 API Key
+		// 绑定到该分组即命中（EXISTS 语义）。
+		// 注意：SoftDeleteMixin 的拦截器不会自动下沉到 HasAPIKeysWith 子查询，
+		// 必须显式加 apikey.DeletedAtIsNil()，否则已软删除的 key 会污染过滤结果。
+		q = q.Where(dbuser.HasAPIKeysWith(
+			apikey.GroupIDEQ(filters.APIKeyGroupID),
+			apikey.DeletedAtIsNil(),
 		))
 	}
 
@@ -608,11 +627,24 @@ func (r *userRepository) GetLatestUsedAtByUserIDs(ctx context.Context, userIDs [
 		return nil, fmt.Errorf("sql executor is not configured")
 	}
 
+	// TK perf: a single `WHERE user_id = ANY($1) GROUP BY user_id` over usage_logs
+	// makes Postgres Seq Scan the whole table — it does NOT skip-scan the
+	// idx_usage_logs_user_created (user_id, created_at) index for ANY-array
+	// grouping. On prod (~2.4M rows) that was ~1.3s and dominated the /admin/users
+	// page latency. Rewriting it as a per-user LATERAL MAX turns it into N cheap
+	// Index Only Scan Backward probes on that index (~0.4ms for a page of users).
+	// Semantics are identical: the WHERE drops users with no usage_logs (the old
+	// GROUP BY likewise produced no row for them). Keep this shape — do NOT
+	// "simplify" it back to GROUP BY.
 	const query = `
-		SELECT user_id, MAX(created_at) AS last_used_at
-		FROM usage_logs
-		WHERE user_id = ANY($1)
-		GROUP BY user_id
+		SELECT u.uid, m.last_used_at
+		FROM unnest($1::bigint[]) AS u(uid)
+		CROSS JOIN LATERAL (
+			SELECT MAX(created_at) AS last_used_at
+			FROM usage_logs
+			WHERE user_id = u.uid
+		) m
+		WHERE m.last_used_at IS NOT NULL
 	`
 
 	rows, err := r.sql.QueryContext(ctx, query, pq.Array(userIDs))
@@ -732,12 +764,44 @@ func (r *userRepository) UpdateBalance(ctx context.Context, id int64, amount flo
 	return nil
 }
 
+func (r *userRepository) ApplyRedeemBalanceAdjustment(ctx context.Context, id int64, delta float64) error {
+	const updateSQL = `
+		UPDATE users
+		SET balance = GREATEST(balance + $1, 0), updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`
+	client := clientFromContext(ctx, r.client)
+	result, err := client.ExecContext(ctx, updateSQL, delta, id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrUserNotFound
+	}
+	return nil
+}
+
 // DeductBalance 扣除用户余额
 // 透支策略：允许余额变为负数，确保当前请求能够完成
 // 中间件会阻止余额 <= 0 的用户发起后续请求
 func (r *userRepository) DeductBalance(ctx context.Context, id int64, amount float64) error {
 	client := clientFromContext(ctx, r.client)
 	n, err := client.User.Update().
+		Where(dbuser.IDEQ(id), dbuser.BalanceGTE(amount)).
+		AddBalance(-amount).
+		Save(ctx)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+
+	n, err = client.User.Update().
 		Where(dbuser.IDEQ(id)).
 		AddBalance(-amount).
 		Save(ctx)
@@ -757,6 +821,27 @@ func (r *userRepository) UpdateConcurrency(ctx context.Context, id int64, amount
 		return translatePersistenceError(err, service.ErrUserNotFound, nil)
 	}
 	if n == 0 {
+		return service.ErrUserNotFound
+	}
+	return nil
+}
+
+func (r *userRepository) ApplyRedeemConcurrencyAdjustment(ctx context.Context, id int64, delta int) error {
+	const updateSQL = `
+		UPDATE users
+		SET concurrency = GREATEST(concurrency + $1, 0), updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`
+	client := clientFromContext(ctx, r.client)
+	result, err := client.ExecContext(ctx, updateSQL, delta, id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
 		return service.ErrUserNotFound
 	}
 	return nil

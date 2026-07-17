@@ -68,16 +68,13 @@ def main() -> int:
             "confirm_value": instance_name,
         }
     else:
-        if not stack:
-            _fail(f"edge_id {edge_id} resolved to ec2 but stack name missing")
-        payload = {
-            "edge_id": edge_id,
-            "platform": "ec2",
-            "region": region,
-            "workflow_file": "deploy-edge-stage0.yml",
-            "confirm_flag": "confirm_stack",
-            "confirm_value": stack,
-        }
+        # The EC2 edge deploy path was removed 2026-06-07 (deploy-edge-stage0.yml
+        # deleted; edges are Lightsail-only). The EC2 matrix is empty so this branch
+        # is unreachable in practice — fail loud rather than emit a deleted workflow.
+        _fail(
+            f"edge_id {edge_id} resolved to the retired EC2 edge path; edges are "
+            "Lightsail-only (deploy-edge-stage0.yml was removed 2026-06-07)"
+        )
 
     if args.json:
         json.dump(payload, sys.stdout, separators=(",", ":"), sort_keys=True)

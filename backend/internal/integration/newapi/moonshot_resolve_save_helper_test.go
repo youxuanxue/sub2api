@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // TestMaybeResolveMoonshotBaseURLForNewAPI_ResolvesWhenChannelTypeMatches is
@@ -38,7 +40,7 @@ func TestMaybeResolveMoonshotBaseURLForNewAPI_ResolvesWhenChannelTypeMatches(t *
 
 	resolved, didResolve, err := MaybeResolveMoonshotBaseURLForNewAPI(
 		context.Background(),
-		PlatformNewAPI,
+		domain.PlatformNewAPI,
 		newapiconstant.ChannelTypeMoonshot,
 		"https://api.moonshot.cn", // user-typed default; key actually belongs to .ai
 		"sk-international",
@@ -60,7 +62,7 @@ func TestMaybeResolveMoonshotBaseURLForNewAPI_ResolvesWhenChannelTypeMatches(t *
 func TestMaybeResolveMoonshotBaseURLForNewAPI_SkipsForNonMoonshotChannelType(t *testing.T) {
 	resolved, didResolve, err := MaybeResolveMoonshotBaseURLForNewAPI(
 		context.Background(),
-		PlatformNewAPI,
+		domain.PlatformNewAPI,
 		newapiconstant.ChannelTypeOpenAI, // any non-Moonshot type
 		"https://api.openai.com",
 		"sk-anything",
@@ -82,7 +84,7 @@ func TestMaybeResolveMoonshotBaseURLForNewAPI_SkipsForNonMoonshotChannelType(t *
 func TestMaybeResolveMoonshotBaseURLForNewAPI_SkipsForCustomReverseProxy(t *testing.T) {
 	resolved, didResolve, err := MaybeResolveMoonshotBaseURLForNewAPI(
 		context.Background(),
-		PlatformNewAPI,
+		domain.PlatformNewAPI,
 		newapiconstant.ChannelTypeMoonshot,
 		"https://relay.example.com", // custom proxy — must not be touched
 		"sk-test",
@@ -105,7 +107,7 @@ func TestMaybeResolveMoonshotBaseURLForNewAPI_SkipsForCustomReverseProxy(t *test
 func TestMaybeResolveMoonshotBaseURLForNewAPI_SkipsWhenAPIKeyEmpty(t *testing.T) {
 	resolved, didResolve, err := MaybeResolveMoonshotBaseURLForNewAPI(
 		context.Background(),
-		PlatformNewAPI,
+		domain.PlatformNewAPI,
 		newapiconstant.ChannelTypeMoonshot,
 		"https://api.moonshot.cn",
 		"   ", // whitespace-only
@@ -158,7 +160,7 @@ func TestMaybeResolveMoonshotBaseURLForNewAPI_PropagatesProbeFailure(t *testing.
 
 	resolved, didResolve, err := MaybeResolveMoonshotBaseURLForNewAPI(
 		context.Background(),
-		PlatformNewAPI,
+		domain.PlatformNewAPI,
 		newapiconstant.ChannelTypeMoonshot,
 		"https://api.moonshot.cn",
 		"sk-bad",

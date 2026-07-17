@@ -54,6 +54,21 @@ type GeminiMessagesCompatService struct {
 	antigravityGatewayService *AntigravityGatewayService
 	cfg                       *config.Config
 	responseHeaderFilter      *responseheaders.CompiledHeaderFilter
+	// TK: runtime priced-serving gate deps (docs/approved/priced-or-it-doesnt-ship.md).
+	// This service holds neither settingService nor pricing services on the upstream
+	// constructor, so all are injected post-construction via SetPricedServingGateDeps
+	// (TK companion). nil = gate disabled (fail-open). The gate judges via
+	// tkBillingService.GetModelPricing (the same oracle billing uses to decide $0),
+	// NOT a catalog shadow predicate; tkPricingCatalog is retained for legacy/list uses.
+	tkSettingService         *SettingService
+	tkBillingService         *BillingService
+	tkPricingCatalog         *PricingCatalogService
+	tkPricingMissingNotifier PricingMissingNotifier
+	// tkPricingResolver mirrors the billing cost path's channel-pricing source
+	// (resolveChannelPricing ← resolver.Resolve). The gate probes it so a model
+	// priced ONLY via channel_model_pricing (no litellm/overlay/fallback base) is
+	// NOT falsely 404'd — keeping gate ⟺ billing on the channel source too (B1).
+	tkPricingResolver *ModelPricingResolver
 }
 
 func (s *GeminiMessagesCompatService) readUpstreamErrorBody(resp *http.Response) []byte {
@@ -606,6 +621,18 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(req.Model)
 	}
+	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
+	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
+	// No-op unless account.Platform is in the enabled set (gemini ships first).
+	// Forward serves an Anthropic /v1/messages ingress (writeClaudeError elsewhere),
+	// so the 404 body must be the ANTHROPIC envelope (BLOCKER4: byte-align to the
+	// client's wire protocol, not account.Platform). Judge originalModel — billing
+	// records on result.Model=originalModel here (forwardResultBillingModel), so the
+	// gate must use the exact key billing charges (BLOCKER1). See
+	// gateway_priced_serving_gate_tk.go.
+	if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {
+		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
+	}
 	ctx = withGeminiCodeAssistMappedModel(ctx, mappedModel)
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body)
@@ -841,15 +868,23 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 				var strippedClaudeBody []byte
 				stageName := ""
+				// 路径说明：本处上游是 Gemini，但被剥离的 body 是 Anthropic 格式。传 originalModel
+				// （客户端原 Anthropic model）而非 mappedModel（上游 Gemini model），让剥离逻辑按
+				// 客户端请求的 Anthropic 子协议族判定（详见 ResolveThinkingProtocol 文档）。
+				// thinkingRefModelForAnthropicCompat names the deliberate choice of
+				// originalModel over mappedModel on this Anthropic-shape→Gemini-backend
+				// path, so an upstream merge cannot silently swap it (see
+				// thinking_ref_model_tk.go).
+				compatRefModel := thinkingRefModelForAnthropicCompat(originalModel)
 				switch signatureRetryStage {
 				case 0:
 					// Stage 1: disable thinking + thinking->text
-					strippedClaudeBody = FilterThinkingBlocksForRetry(originalClaudeBody)
+					strippedClaudeBody = FilterThinkingBlocksForRetry(originalClaudeBody, compatRefModel)
 					stageName = "thinking-only"
 					signatureRetryStage = 1
 				default:
 					// Stage 2: additionally downgrade tool_use/tool_result blocks to text
-					strippedClaudeBody = FilterSignatureSensitiveBlocksForRetry(originalClaudeBody)
+					strippedClaudeBody = FilterSignatureSensitiveBlocksForRetry(originalClaudeBody, compatRefModel)
 					stageName = "thinking+tools"
 					signatureRetryStage = 2
 				}
@@ -1150,6 +1185,18 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	mappedModel := originalModel
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
+	}
+	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject unpriced
+	// models with a 404 BEFORE forward / stream start (SSE pre-flight). Native Gemini ingress
+	// (generateContent/streamGenerateContent) → Gemini 404 envelope. countTokens is EXEMPT
+	// (docs §4, BLOCKER5): it is zero-billing (Usage{}) and a never-hard-fail pre-flight, so
+	// gating it breaks that contract for no leak benefit. Judge originalModel — billing records
+	// result.Model=originalModel here, so the gate must use billing's exact key (BLOCKER1).
+	// No-op unless account.Platform is in the enabled set. See gateway_priced_serving_gate_tk.go.
+	if action != "countTokens" {
+		if !s.tkPricedServingGate(ctx, c, tkGateWireGemini, account.Platform, originalModel, originalModel) {
+			return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
+		}
 	}
 	ctx = withGeminiCodeAssistMappedModel(ctx, mappedModel)
 
@@ -1462,6 +1509,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				if contentType == "" {
 					contentType = "application/json"
 				}
+				MarkResponseCommitted(c)
 				c.Data(http.StatusInternalServerError, contentType, respBody)
 				return nil, fmt.Errorf("gemini upstream error: %d (skipped by error policy)", resp.StatusCode)
 			case ErrorPolicyMatched, ErrorPolicyTempUnscheduled:
@@ -1574,6 +1622,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		if contentType == "" {
 			contentType = "application/json"
 		}
+		MarkResponseCommitted(c)
 		c.Data(resp.StatusCode, contentType, respBody)
 		if upstreamMsg == "" {
 			return nil, fmt.Errorf("gemini upstream error: %d", resp.StatusCode)
@@ -1716,6 +1765,7 @@ func sanitizeUpstreamErrorMessage(msg string) string {
 }
 
 func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, account *Account, upstreamStatus int, upstreamRequestID string, body []byte) error {
+	MarkResponseCommitted(c)
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(body))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 	upstreamDetail := ""
@@ -2258,6 +2308,7 @@ func randomHex(nBytes int) string {
 }
 
 func (s *GeminiMessagesCompatService) writeClaudeError(c *gin.Context, status int, errType, message string) error {
+	MarkResponseCommitted(c)
 	c.JSON(status, gin.H{
 		"type":  "error",
 		"error": gin.H{"type": errType, "message": message},
@@ -2266,6 +2317,7 @@ func (s *GeminiMessagesCompatService) writeClaudeError(c *gin.Context, status in
 }
 
 func (s *GeminiMessagesCompatService) writeGoogleError(c *gin.Context, status int, message string) error {
+	MarkResponseCommitted(c)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,
@@ -2749,6 +2801,21 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 								"text": text,
 							})
 						}
+						if inline, ok := pm["inlineData"].(map[string]any); ok {
+							if markdown := geminiInlineDataToImageMarkdown(inline); markdown != "" {
+								contentBlocks = append(contentBlocks, map[string]any{
+									"type": "text",
+									"text": markdown,
+								})
+							}
+						} else if inline, ok := pm["inline_data"].(map[string]any); ok {
+							if markdown := geminiInlineDataToImageMarkdown(inline); markdown != "" {
+								contentBlocks = append(contentBlocks, map[string]any{
+									"type": "text",
+									"text": markdown,
+								})
+							}
+						}
 						if fc, ok := pm["functionCall"].(map[string]any); ok {
 							name, _ := fc["name"].(string)
 							if strings.TrimSpace(name) == "" {
@@ -2789,6 +2856,31 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 	}
 
 	return resp, usage
+}
+
+// geminiInlineDataToImageMarkdown mirrors antigravity/new-api: gemini-native image
+// models return inline bytes in candidates[].content.parts[].inlineData; chat
+// completions clients (ImageStudio extractChatImageItems) expect markdown in
+// choices[].message.content.
+func geminiInlineDataToImageMarkdown(inline map[string]any) string {
+	if inline == nil {
+		return ""
+	}
+	data, _ := inline["data"].(string)
+	if data == "" {
+		return ""
+	}
+	mime, _ := inline["mimeType"].(string)
+	if mime == "" {
+		mime, _ = inline["mime_type"].(string)
+	}
+	if mime == "" {
+		mime = "image/png"
+	}
+	if !strings.HasPrefix(strings.ToLower(mime), "image/") {
+		return ""
+	}
+	return fmt.Sprintf("![image](data:%s;base64,%s)", mime, data)
 }
 
 func extractGeminiUsage(data []byte) *ClaudeUsage {
@@ -3547,6 +3639,7 @@ func cleanToolSchema(schema any) any {
 		for key, value := range v {
 			// 跳过不支持的字段
 			if key == "$schema" || key == "$id" || key == "$ref" ||
+				key == "$defs" || key == "definitions" ||
 				key == "additionalProperties" || key == "patternProperties" || key == "minLength" ||
 				key == "maxLength" || key == "minItems" || key == "maxItems" {
 				continue
@@ -3557,6 +3650,17 @@ func cleanToolSchema(schema any) any {
 		// 规范化 type 字段为大写
 		if typeVal, ok := cleaned["type"].(string); ok {
 			cleaned["type"] = strings.ToUpper(typeVal)
+		} else if typeValues, ok := cleaned["type"].([]any); ok {
+			for _, typeValue := range typeValues {
+				typeName, ok := typeValue.(string)
+				if ok && !strings.EqualFold(typeName, "null") {
+					cleaned["type"] = strings.ToUpper(typeName)
+					break
+				}
+			}
+			if _, ok := cleaned["type"].([]any); ok {
+				delete(cleaned, "type")
+			}
 		}
 		return cleaned
 	case []any:

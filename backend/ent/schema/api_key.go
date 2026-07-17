@@ -47,6 +47,14 @@ func (APIKey) Fields() []ent.Field {
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),
+		// 路由模式：direct（默认，绑定固定分组的旧行为）| universal（全能 Key：
+		// 按请求模型+端点，在 key 主人有权访问的专属分组跨度内实时解析后端组）。
+		// 默认 direct，保证存量 key 行为不变；新建 key 由 service 层默认置为 universal。
+		// 见 docs/approved/universal-key-routing.md。
+		field.Enum("routing_mode").
+			Values("direct", "universal").
+			Default("direct").
+			Comment("API Key 路由模式：direct 绑定固定分组 | universal 全能 Key 按模型实时解析后端组"),
 		field.Time("last_used_at").
 			Optional().
 			Nillable().

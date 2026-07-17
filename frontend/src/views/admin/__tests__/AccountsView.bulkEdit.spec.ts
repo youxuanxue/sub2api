@@ -7,14 +7,20 @@ const {
   listAccounts,
   listWithEtag,
   getBatchTodayStats,
+  getBatchPassiveUsage,
   getAllProxies,
-  getAllGroups
+  getAllGroups,
+  getAllIncludingInactive,
+  listEdgeAccounts
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  getBatchPassiveUsage: vi.fn(),
   getAllProxies: vi.fn(),
-  getAllGroups: vi.fn()
+  getAllGroups: vi.fn(),
+  getAllIncludingInactive: vi.fn(),
+  listEdgeAccounts: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -23,6 +29,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      getBatchPassiveUsage: getBatchPassiveUsage,
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
@@ -32,7 +39,11 @@ vi.mock('@/api/admin', () => ({
       getAll: getAllProxies
     },
     groups: {
-      getAll: getAllGroups
+      getAll: getAllGroups,
+      getAllIncludingInactive
+    },
+    edgeAccounts: {
+      listWithEtag: listEdgeAccounts
     }
   }
 }))
@@ -79,6 +90,17 @@ const AccountBulkActionsBarStub = {
   template: '<button data-test="edit-filtered" @click="$emit(\'edit-filtered\')">edit filtered</button>'
 }
 
+const AccountTableActionsStub = {
+  emits: ['refresh'],
+  template: `
+    <div>
+      <button data-test="refresh-accounts" @click="$emit('refresh')">refresh</button>
+      <slot name="beforeCreate" />
+      <slot name="after" />
+    </div>
+  `
+}
+
 const BulkEditAccountModalStub = {
   props: ['show', 'target'],
   template: '<div data-test="bulk-edit-modal" :data-show="String(show)" :data-target-mode="target?.mode ?? \'\'"></div>'
@@ -91,8 +113,11 @@ describe('admin AccountsView bulk edit scope', () => {
     listAccounts.mockReset()
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
+    getBatchPassiveUsage.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
+    getAllIncludingInactive.mockReset()
+    listEdgeAccounts.mockReset()
 
     listAccounts.mockResolvedValue({
       items: [],
@@ -107,8 +132,11 @@ describe('admin AccountsView bulk edit scope', () => {
       data: null
     })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    getBatchPassiveUsage.mockResolvedValue({ usage: {} })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    getAllIncludingInactive.mockResolvedValue([])
+    listEdgeAccounts.mockResolvedValue({ notModified: false, etag: null, data: { platform: '__by_stub__', edges: [], ts: 1 } })
   })
 
   it('opens bulk edit in filtered-results mode from the bulk actions dropdown', async () => {
@@ -122,7 +150,7 @@ describe('admin AccountsView bulk edit scope', () => {
           DataTable: DataTableStub,
           Pagination: true,
           ConfirmDialog: true,
-          AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+          AccountTableActions: AccountTableActionsStub,
           AccountTableFilters: { template: '<div></div>' },
           AccountBulkActionsBar: AccountBulkActionsBarStub,
           AccountActionMenu: true,
@@ -157,7 +185,7 @@ describe('admin AccountsView bulk edit scope', () => {
     expect(wrapper.get('[data-test="bulk-edit-modal"]').attributes('data-target-mode')).toBe('filtered')
   })
 
-  it('renders the created_at column by default', async () => {
+  it('uses the compact account operation columns by default', async () => {
     listAccounts.mockResolvedValue({
       items: [
         {
@@ -187,7 +215,7 @@ describe('admin AccountsView bulk edit scope', () => {
           DataTable: DataTableStub,
           Pagination: true,
           ConfirmDialog: true,
-          AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+          AccountTableActions: AccountTableActionsStub,
           AccountTableFilters: { template: '<div></div>' },
           AccountBulkActionsBar: AccountBulkActionsBarStub,
           AccountActionMenu: true,
@@ -217,11 +245,170 @@ describe('admin AccountsView bulk edit scope', () => {
     await flushPromises()
 
     const columnKeys = wrapper.findAll('[data-test="column-key"]').map(node => node.text())
-    expect(columnKeys).toContain('created_at')
+    expect(columnKeys).toEqual([
+      'select',
+      'name',
+      'platform_type',
+      'capacity',
+      'status',
+      'schedulable',
+      'groups',
+      'usage',
+      'priority',
+      'actions'
+    ])
+    expect(columnKeys).not.toContain('id')
+    expect(columnKeys).not.toContain('today_stats')
+    expect(columnKeys).not.toContain('created_at')
     const columns = wrapper.getComponent(DataTableStub).props('columns') as Array<{ key: string; label: string; sortable: boolean }>
-    expect(columns.find(column => column.key === 'created_at')).toMatchObject({
-      label: 'admin.accounts.columns.createdAt',
+    expect(columns.find(column => column.key === 'priority')).toMatchObject({
+      label: 'admin.accounts.columns.priority',
       sortable: true
     })
+  })
+
+  it('migrates the old auto-saved default hidden columns to the compact default', async () => {
+    localStorage.setItem(
+      'account-hidden-columns',
+      JSON.stringify(['today_stats', 'proxy', 'notes', 'priority', 'rate_multiplier'])
+    )
+    listAccounts.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 20,
+      pages: 0
+    })
+
+    const wrapper = mount(AccountsView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          AccountTableActions: AccountTableActionsStub,
+          AccountTableFilters: { template: '<div></div>' },
+          AccountBulkActionsBar: AccountBulkActionsBarStub,
+          AccountActionMenu: true,
+          ImportDataModal: true,
+          ReAuthAccountModal: true,
+          AccountTestModal: true,
+          AccountStatsModal: true,
+          ScheduledTestsPanel: true,
+          SyncFromCrsModal: true,
+          TempUnschedStatusModal: true,
+          ErrorPassthroughRulesModal: true,
+          TLSFingerprintProfilesModal: true,
+          CreateAccountModal: true,
+          EditAccountModal: true,
+          BulkEditAccountModal: BulkEditAccountModalStub,
+          PlatformTypeBadge: true,
+          AccountCapacityCell: true,
+          AccountStatusIndicator: true,
+          AccountTodayStatsCell: true,
+          AccountGroupsCell: true,
+          AccountUsageCell: true,
+          Icon: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    const columnKeys = wrapper.findAll('[data-test="column-key"]').map(node => node.text())
+    expect(columnKeys).toEqual([
+      'select',
+      'name',
+      'platform_type',
+      'capacity',
+      'status',
+      'schedulable',
+      'groups',
+      'usage',
+      'priority',
+      'actions'
+    ])
+    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toEqual([
+      'id',
+      'today_stats',
+      'proxy',
+      'scheduler_score',
+      'rate_multiplier',
+      'last_used_at',
+      'created_at',
+      'expires_at',
+      'notes'
+    ])
+    expect(localStorage.getItem('account-column-settings-version')).toBe('3')
+  })
+
+  it('manual refresh also force-refreshes inline edge panels', async () => {
+    listAccounts.mockResolvedValue({
+      items: [
+        {
+          id: 69,
+          name: 'kiro-us4',
+          platform: 'anthropic',
+          type: 'apikey',
+          status: 'active',
+          schedulable: true,
+          edge_id: 'us4',
+          created_at: '2026-03-07T10:00:00Z',
+          updated_at: '2026-03-07T10:00:00Z'
+        }
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mount(AccountsView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          AccountTableActions: AccountTableActionsStub,
+          AccountTableFilters: { template: '<div></div>' },
+          AccountBulkActionsBar: AccountBulkActionsBarStub,
+          AccountActionMenu: true,
+          ImportDataModal: true,
+          ReAuthAccountModal: true,
+          AccountTestModal: true,
+          AccountStatsModal: true,
+          ScheduledTestsPanel: true,
+          SyncFromCrsModal: true,
+          TempUnschedStatusModal: true,
+          ErrorPassthroughRulesModal: true,
+          TLSFingerprintProfilesModal: true,
+          CreateAccountModal: true,
+          EditAccountModal: true,
+          BulkEditAccountModal: BulkEditAccountModalStub,
+          PlatformTypeBadge: true,
+          AccountCapacityCell: true,
+          AccountStatusIndicator: true,
+          AccountTodayStatsCell: true,
+          AccountGroupsCell: true,
+          AccountUsageCell: true,
+          Icon: true
+        }
+      }
+    })
+
+    await flushPromises()
+    listEdgeAccounts.mockClear()
+    await wrapper.get('[data-test="refresh-accounts"]').trigger('click')
+    await flushPromises()
+
+    expect(listEdgeAccounts).toHaveBeenCalledWith({ view: 'by-stub' }, { force: true })
   })
 })

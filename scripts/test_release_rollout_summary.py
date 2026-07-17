@@ -51,7 +51,8 @@ class ReleaseRolloutSummaryTest(unittest.TestCase):
         (self.repo / "backend/cmd/server/VERSION").write_text("1.0.1\n")
         _git(self.repo, "add", "-A")
         _git(self.repo, "commit", "-q", "-m", "chore: bump VERSION to 1.0.1 [skip ci]")
-        _git(self.repo, "tag", "v1.0.1")
+        self.release_commit = _git(self.repo, "rev-parse", "--short=12", "HEAD").strip()
+        _git(self.repo, "tag", "-a", "v1.0.1", "-m", "Release v1.0.1")
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -72,6 +73,13 @@ class ReleaseRolloutSummaryTest(unittest.TestCase):
         # The VERSION bump commit should be filtered out
         self.assertNotIn("bump VERSION", out)
         self.assertNotIn("[skip ci]", out)
+
+    def test_annotated_tag_reports_commit_sha_not_tag_object_sha(self) -> None:
+        tag_object = _git(self.repo, "rev-parse", "--short=12", "v1.0.1").strip()
+        self.assertNotEqual(tag_object, self.release_commit)
+        out = self._run("--mode", "release")
+        self.assertIn(f"HEAD commit sha: `{self.release_commit}`", out)
+        self.assertNotIn(f"HEAD commit sha: `{tag_object}`", out)
 
     def test_release_mode_has_required_sections(self) -> None:
         out = self._run("--mode", "release")

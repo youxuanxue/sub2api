@@ -3,6 +3,17 @@
   "rationale": "TokenKey-local registry of anthropics/claude-code issues this gateway has already addressed. Use this file before re-triaging a claude-code issue; the anthropic-cc-issue-watchdog reads it to mark issues fixed_in_tokenkey when the paired fact-check needles are present on main.",
   "issues": [
     {
+      "upstream": "anthropics/claude-code#63792, anthropics/claude-code#10199",
+      "tokenkey_pr": "youxuanxue/sub2api (ToolSearch historical thinking pre-filter)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_request_tk_toolsearch_thinking.go",
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_request_tk_toolsearch_thinking_test.go"
+      ],
+      "summary": "When Claude Code dynamic tool loading (ToolSearch) re-serializes prior assistant turns, signed thinking blocks in historical messages are perturbed and Anthropic returns 400 'cannot be modified', forcing a client strip-and-retry storm every turn. TokenKey proactively downgrades historical assistant thinking blocks to text before the first upstream call when ToolSearch tools are present, preserving assistant-prefill thinking and tool_use blocks. Wired on OAuth Forward and API-Key passthrough paths after FilterThinkingBlocks."
+    },
+    {
       "upstream": "anthropics/claude-code#60913",
       "tokenkey_pr": "youxuanxue/sub2api ([1m] context-window model-alias strip)",
       "status": "fixed_in_tokenkey",
@@ -19,10 +30,11 @@
       "status": "fixed_in_tokenkey",
       "fixed_by": [
         "backend/internal/service/gateway_request.go",
+        "backend/internal/service/gateway_request_tk_fable.go",
         "backend/internal/service/gateway_service.go",
         "backend/internal/service/gateway_request_thinking_adaptive_test.go"
       ],
-      "summary": "Opus 4.7+ thinking.type=enabled 400 self-healed to thinking.type=adaptive on both the Forward and APIKey passthrough paths; model-aware RectifyThinkingBudget; hard-gated by isOpus47OrNewer."
+      "summary": "Opus 4.7+ / Fable thinking.type=enabled 400 self-healed to thinking.type=adaptive on both the Forward and APIKey passthrough paths; model-aware RectifyThinkingBudget; hard-gated by requiresAdaptiveOnlyThinking (isOpus47OrNewer || isFableModel)."
     },
     {
       "upstream": "anthropics/claude-code#60168, anthropics/claude-code#63885, anthropics/claude-code#64777",

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -62,6 +63,65 @@ func TestGatewayHandleErrorResponse_NoRuleKeepsDefault(t *testing.T) {
 	assert.Equal(t, "Upstream request failed", errField["message"])
 }
 
+// TK (prod P0 2026-06-06, edge us5): an Anthropic upstream 404 model-not-found
+// (bare "opus" on an empty-mapping passthrough account) must surface to the client
+// as the unified 400 invalid_request_error "Unsupported model: X" (path B), the
+// same contract as the scheduler path A — NOT the generic 502 "Upstream request
+// failed". nil rateLimitService here mirrors the post-fix shouldDisable=false path
+// (HandleUpstreamModelNotFound/handle404 skip the Anthropic penalty).
+func TestGatewayHandleErrorResponse_Anthropic404ModelNotFoundReturns400Unsupported(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	svc := &GatewayService{}
+	respBody := []byte(`{"type":"error","error":{"type":"not_found_error","message":"model: opus"}}`)
+	resp := &http.Response{
+		StatusCode: http.StatusNotFound,
+		Body:       io.NopCloser(bytes.NewReader(respBody)),
+		Header:     http.Header{},
+	}
+	account := &Account{ID: 12, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
+
+	_, err := svc.handleErrorResponse(context.Background(), resp, c, account, "opus")
+	require.Error(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	errField, ok := payload["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "invalid_request_error", errField["type"])
+	assert.Equal(t, "Unsupported model: opus", errField["message"])
+}
+
+// A non-model-not-found Anthropic 404 keeps the generic 502 default (only
+// model-not-found is caller-fault).
+func TestGatewayHandleErrorResponse_Anthropic404NonModelKeeps502(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	svc := &GatewayService{}
+	respBody := []byte(`{"error":{"message":"resource not found"}}`)
+	resp := &http.Response{
+		StatusCode: http.StatusNotFound,
+		Body:       io.NopCloser(bytes.NewReader(respBody)),
+		Header:     http.Header{},
+	}
+	account := &Account{ID: 13, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
+
+	_, err := svc.handleErrorResponse(context.Background(), resp, c, account, "claude-opus-4-8")
+	require.Error(t, err)
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	errField, ok := payload["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "upstream_error", errField["type"])
+}
+
 // Bug B (prod P0 2026-06-05): the native OpenAI error path (handleErrorResponse,
 // used by /v1/responses) must pass a client-induced upstream 4xx through with its
 // REAL status + the actionable upstream message instead of masking it as a generic
@@ -109,6 +169,35 @@ func TestOpenAIHandleErrorResponse_ClientInduced4xxPassesThrough(t *testing.T) {
 			assert.Equal(t, upstreamMsg, errField["message"], "actionable upstream message must survive")
 		})
 	}
+}
+
+func TestOpenAIHandleErrorResponse_ContextWindow502KeepsMessageWithoutFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	svc := &OpenAIGatewayService{}
+	respBody := []byte(`{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","type":"upstream_error","code":null}}`)
+	resp := &http.Response{
+		StatusCode: http.StatusBadGateway,
+		Body:       io.NopCloser(bytes.NewReader(respBody)),
+		Header:     http.Header{},
+	}
+	account := &Account{ID: 14, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	_, err := svc.handleErrorResponse(context.Background(), resp, c, account, nil)
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr))
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	errField, ok := payload["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "upstream_error", errField["type"])
+	assert.Equal(t, "Your input exceeds the context window of this model. Please adjust your input and try again.", errField["message"])
 }
 
 func TestGeminiWriteGeminiMappedError_NoRuleKeepsDefault(t *testing.T) {
@@ -272,6 +361,90 @@ func TestApplyErrorPassthroughRule_NoSkipMonitoringDoesNotSetContextKey(t *testi
 	assert.True(t, matched)
 	_, exists := c.Get(OpsSkipPassthroughKey)
 	assert.False(t, exists, "OpsSkipPassthroughKey should NOT be set when skip_monitoring=false")
+}
+
+// ---- ResponseCommittedKey: service 层写完错误响应后标记，handler 层检查跳过兜底写入 ----
+
+func TestHandleErrorResponse_SetsResponseCommitted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	svc := &GatewayService{}
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(bytes.NewReader([]byte(`{"error":{"message":"temperature: range: 0..1"}}`))),
+		Header:     http.Header{},
+	}
+	account := &Account{ID: 100, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	_, err := svc.handleErrorResponse(context.Background(), resp, c, account)
+	require.Error(t, err)
+	assert.True(t, IsResponseCommitted(c), "non-failover error path must mark response committed")
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+}
+
+func TestHandleErrorResponse_PassthroughRuleSetsCommitted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	ruleSvc := &ErrorPassthroughService{}
+	ruleSvc.setLocalCache([]*model.ErrorPassthroughRule{
+		newNonFailoverPassthroughRule(http.StatusBadRequest, "temperature", http.StatusBadRequest, "参数错误"),
+	})
+	BindErrorPassthroughService(c, ruleSvc)
+
+	svc := &GatewayService{}
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(bytes.NewReader([]byte(`{"error":{"message":"temperature: range: 0..1"}}`))),
+		Header:     http.Header{},
+	}
+	account := &Account{ID: 200, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	_, err := svc.handleErrorResponse(context.Background(), resp, c, account)
+	require.Error(t, err)
+	assert.True(t, IsResponseCommitted(c), "passthrough rule path must mark response committed")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	errField, ok := payload["error"].(map[string]any)
+	require.True(t, ok, "payload[\"error\"] should be map[string]any")
+	assert.Equal(t, "参数错误", errField["message"])
+}
+
+func TestOpenAIHandleErrorResponse_SetsResponseCommitted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	svc := &OpenAIGatewayService{}
+	resp := &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Body:       io.NopCloser(bytes.NewReader([]byte(`{"error":{"message":"rate limit exceeded"}}`))),
+		Header:     http.Header{},
+	}
+	account := &Account{ID: 101, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	_, err := svc.handleErrorResponse(context.Background(), resp, c, account, nil)
+	require.Error(t, err)
+	assert.True(t, IsResponseCommitted(c), "OpenAI non-failover path must mark response committed")
+}
+
+func TestGeminiWriteGeminiMappedError_SetsResponseCommitted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	svc := &GeminiMessagesCompatService{}
+	body := []byte(`{"error":{"message":"invalid field"}}`)
+	account := &Account{ID: 102, Platform: PlatformGemini, Type: AccountTypeAPIKey}
+
+	err := svc.writeGeminiMappedError(c, account, http.StatusBadRequest, "req-99", body)
+	require.Error(t, err)
+	assert.True(t, IsResponseCommitted(c), "Gemini path must mark response committed")
 }
 
 func newNonFailoverPassthroughRule(statusCode int, keyword string, respCode int, customMessage string) *model.ErrorPassthroughRule {

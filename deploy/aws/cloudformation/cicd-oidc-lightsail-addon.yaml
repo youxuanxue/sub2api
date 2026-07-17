@@ -75,8 +75,11 @@ Resources:
               - lightsail:GetBundles
               - lightsail:GetRegions
               # Caddy/Let's Encrypt inbound; omitting firewall rules yields public HTTPS timeouts (DNS resolves, TCP never completes).
+              # PutInstancePublicPorts declares the COMPLETE firewall set (replace semantics) to
+              # enforce the hardened 443-only baseline — opens 443 and closes the Lightsail-default
+              # public SSH 22 and 80 in one call. GetInstancePortStates is the read-back check.
               - lightsail:GetInstancePortStates
-              - lightsail:OpenInstancePublicPorts
+              - lightsail:PutInstancePublicPorts
             Resource: "*"
           - Sid: SsmHybridActivation
             Effect: Allow
@@ -107,6 +110,12 @@ Resources:
             Effect: Allow
             Action:
               - ssm:SendCommand
+              # DeregisterManagedInstance: recreate provisioning deletes the old
+              # Lightsail instance but its SSM managed-instance (mi-*) registration
+              # lingers Online and stays tagged EdgeId=<id>; the next provision's
+              # mi-* resolution can then pick the stale zombie. Allow the workflow
+              # to deregister stale mi-* on recreate so resolution is unambiguous.
+              - ssm:DeregisterManagedInstance
             Resource:
               - !Sub "arn:aws:ssm:*:${AWS::AccountId}:managed-instance/*"
               - !Sub "arn:aws:ssm:*::document/AWS-RunShellScript"

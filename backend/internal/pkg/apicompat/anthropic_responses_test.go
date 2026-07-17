@@ -807,7 +807,7 @@ func TestStreamingToolCallDoneWithoutDeltaEmitsArguments(t *testing.T) {
 	assert.Equal(t, "content_block_stop", events[1].Type)
 }
 
-func TestStreamingReadToolDropsEmptyPages(t *testing.T) {
+func TestStreamingReadToolStreamsDeltas(t *testing.T) {
 	state := NewResponsesEventToAnthropicState()
 
 	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
@@ -828,18 +828,17 @@ func TestStreamingReadToolDropsEmptyPages(t *testing.T) {
 		OutputIndex: 0,
 		Delta:       `{"file_path":"/tmp/demo.py","limit":2000,"offset":0,"pages":""}`,
 	}, state)
-	assert.Len(t, events, 0)
+	require.Len(t, events, 1, "Read tool deltas must be streamed like any other tool")
+	assert.Equal(t, "content_block_delta", events[0].Type)
+	assert.Equal(t, "input_json_delta", events[0].Delta.Type)
 
 	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type:        "response.function_call_arguments.done",
 		OutputIndex: 0,
 		Arguments:   `{"file_path":"/tmp/demo.py","limit":2000,"offset":0,"pages":""}`,
 	}, state)
-	require.Len(t, events, 2)
-	assert.Equal(t, "content_block_delta", events[0].Type)
-	assert.Equal(t, "input_json_delta", events[0].Delta.Type)
-	assert.JSONEq(t, `{"file_path":"/tmp/demo.py","limit":2000,"offset":0}`, events[0].Delta.PartialJSON)
-	assert.Equal(t, "content_block_stop", events[1].Type)
+	require.Len(t, events, 1, "after streaming deltas, .done should just close the block")
+	assert.Equal(t, "content_block_stop", events[0].Type)
 }
 
 func TestStreamingReasoning(t *testing.T) {
@@ -1926,6 +1925,37 @@ func TestAnthropicToResponsesResponse_NoCacheTokens(t *testing.T) {
 	assert.Equal(t, 50, out.Usage.OutputTokens)
 	assert.Equal(t, 150, out.Usage.TotalTokens)
 	assert.Nil(t, out.Usage.InputTokensDetails)
+}
+
+func TestAnthropicToResponsesResponse_AssistantImageBlockBecomesMarkdown(t *testing.T) {
+	resp := &AnthropicResponse{
+		ID:    "msg_img",
+		Model: "gemini-3.1-flash-image",
+		Content: []AnthropicContentBlock{
+			{
+				Type: "image",
+				Source: &AnthropicImageSource{
+					Type:      "base64",
+					MediaType: "image/png",
+					Data:      "QUJD",
+				},
+			},
+		},
+		StopReason: "end_turn",
+	}
+
+	out := AnthropicToResponsesResponse(resp)
+	require.Len(t, out.Output, 1)
+	require.Equal(t, "message", out.Output[0].Type)
+	require.Len(t, out.Output[0].Content, 1)
+	require.Equal(t, "output_text", out.Output[0].Content[0].Type)
+	require.Equal(t, "![image](data:image/png;base64,QUJD)", out.Output[0].Content[0].Text)
+
+	chat := ResponsesToChatCompletions(out, resp.Model)
+	require.Len(t, chat.Choices, 1)
+	var contentText string
+	require.NoError(t, json.Unmarshal(chat.Choices[0].Message.Content, &contentText))
+	require.Contains(t, contentText, "![image](data:image/png;base64,QUJD)")
 }
 
 func TestAnthropicEventToResponses_CacheTokensRoundTripFromMessageStart(t *testing.T) {

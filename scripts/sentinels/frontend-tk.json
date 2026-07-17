@@ -3,12 +3,59 @@
   "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), per-page sticky-edge-hints opt-out, and the control-plane login policy that does not depend on Turnstile. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces). This file now also guards upstream payment-surface carry-ins that touch shared admin/i18n/style hotspots during upstream merges; updating those hotspots in merge PRs requires explicit sentinel-registry rationale refresh or a `sentinel-registry-reviewed` / `upstream-merge` commit marker to keep the gate mechanical.",
   "sentinels": [
     {
+      "path": "frontend/src/constants/clientIntegrations.tk.ts",
+      "must_contain": [
+        "export const TK_CLIENT_CATALOG",
+        "export const TK_QUICKSTART_CLIENTS",
+        "id: 'qwen-code'",
+        "id: 'chatbox'",
+        "https://lobehub.com/?settings={\"keyVaults\":{\"openai\":{\"baseURL\":\"{address}/v1\"}}}"
+      ],
+      "rationale": "Single source of truth for TokenKey's user-visible client support. Quickstart and Studio derive their catalogs from this registry so Claude/Codex/Gemini/OpenCode and the newer Qwen/Cherry/Dify/Cline/Roo/LobeHub/Chatbox entries cannot drift into separate hand-maintained lists. The LobeHub anchor intentionally contains baseURL only: reintroducing apiKey into an HTTPS settings URL would leak credentials to a third-party origin."
+    },
+    {
+      "path": "frontend/src/views/user/studio/ChatStudio.vue",
+      "must_contain": [
+        "TK_CLIENT_INTEGRATIONS",
+        "'noopener,noreferrer'",
+        "model: selectedModelId.value"
+      ],
+      "rationale": "Studio consumes the same client registry as Quickstart and passes the selected model into imports. noopener/noreferrer is the security boundary for every external client launch; losing it silently restores opener access even while imports continue to work."
+    },
+    {
       "path": "frontend/src/constants/layout.ts",
       "must_contain": [
         "TK_SIDEBAR_WIDTH_CLASS",
-        "TK_SIDEBAR_MAIN_MARGIN_CLASS"
+        "TK_SIDEBAR_MAIN_MARGIN_CLASS",
+        "TK_ADMIN_UI_ZOOM"
       ],
-      "rationale": "Single source of truth for TK sidebar geometry. AppSidebar.vue / AppLayout.vue import these so upstream-shaped layout files stay close to upstream; if either constant disappears, the import sites fail to compile (loud). The sentinel adds a second layer in case an upstream merge replaces the entire constants file."
+      "rationale": "Single source of truth for TK sidebar geometry and admin-shell default zoom. AppSidebar.vue / AppLayout.vue import the sidebar constants so upstream-shaped layout files stay close to upstream; AdminShellView imports TK_ADMIN_UI_ZOOM for the ops default 80% scale. If either constant disappears, the import sites fail to compile (loud). The sentinel adds a second layer in case an upstream merge replaces the entire constants file."
+    },
+    {
+      "path": "frontend/src/composables/useTkExportPanel.ts",
+      "must_contain": [
+        "export function useTkExportPanel",
+        "qaTrajAPI.listExports",
+        "exportNow",
+        "async function download"
+      ],
+      "rationale": "TK-only composable owning the per-API-key conversation Export Panel flow (#792 follow-up): lists the key's persisted export jobs (qaTrajAPI.listExports -> GET /users/me/qa/traj/export/jobs), runs an on-demand export with poll-to-terminal (exportNow), and triggers the download. download() re-mints the presigned URL at click time via qaTrajAPI.getJob, because prod signs export URLs with the EC2 instance role's temporary credentials whose session token rotates within hours, so a URL captured when the panel loaded otherwise dies with S3 ExpiredToken on a later click. Keeps the upstream-shaped KeysView.vue thin (template + wiring) per CLAUDE.md section 5. Guards against silent upstream-merge deletion that would orphan the panel or revert the click-time re-mint."
+    },
+    {
+      "path": "frontend/src/components/keys/ExportPanel.vue",
+      "must_contain": [
+        "useTkExportPanel",
+        "keys.exportPanel.title"
+      ],
+      "rationale": "TK-only Export Panel modal (BaseDialog) opened from the API-key card's export action. Lists exports still inside their download TTL (so a redeploy/refresh no longer orphans the download - the bug this feature fixes), shows the last export time, and offers an immediate export. Thin template over useTkExportPanel; the two anchors pin the composable wiring + the i18n title so an upstream merge can't silently drop the modal."
+    },
+    {
+      "path": "frontend/src/views/user/KeysView.vue",
+      "must_contain": [
+        "openExportPanel",
+        "ExportPanel"
+      ],
+      "rationale": "The injection point that mounts the Export Panel from the API-key card. KeysView.vue is a large upstream-shaped file; the export button calls openExportPanel(row) and the <ExportPanel> render sits beside <UseKeyModal>. An upstream merge that rewrites the key card or actions could silently drop the open handler or the render while compiling green, hiding the export feature - these anchors turn that backward-drift into a merge-gate failure (mirrors the useTkAccountTier / AccountTierModal pattern)."
     },
     {
       "path": "frontend/src/components/layout/AppSidebar.vue",
@@ -16,6 +63,132 @@
         "TK_SIDEBAR_WIDTH_CLASS"
       ],
       "rationale": "AppSidebar's expanded-rail width must reference the TK constant. Without this reference an upstream merge could silently restore the literal `w-64` and the sidebar visually reverts to upstream — compiles fine, no runtime error, just wrong-looking UI."
+    },
+    {
+      "path": "frontend/src/components/layout/AppSidebar.vue",
+      "must_contain": [
+        "t('nav.studio')"
+      ],
+      "rationale": "The Media Studio (/studio) user-nav entry. Without this anchor an upstream merge to the nav builder could silently drop the Studio link, hiding the image/video generation surface from users while everything still compiles."
+    },
+    {
+      "path": "frontend/src/views/user/studio/MediaStudioView.vue",
+      "must_contain": [
+        "data-testid=\"studio-mode-chat\"",
+        "data-testid=\"studio-mode-image\"",
+        "data-testid=\"studio-mode-video\"",
+        "data-testid=\"studio-mode-bakeoff\""
+      ],
+      "rationale": "The Studio's EXPLICIT chat|image|video|bake-off modality tabs are the source of truth for which gateway endpoint a request hits — replacing the old modalityForModel() id-prefix guess that silently misrouted non-{seedance,veo,gpt-image,imagen,seedream} media model ids to /v1/chat/completions. Chat is the folded-in /playground surface (default landing); the bake-off tab opens the cross-model compare view (BakeOff.vue). Losing these tabs regresses to implicit-modality misrouting or hides a generation surface."
+    },
+    {
+      "path": "frontend/src/router/index.ts",
+      "must_contain": [
+        "redirect: { path: '/studio', query: { mode: 'chat' } }",
+        "...adminRoutes"
+      ],
+      "rationale": "Two router invariants. (1) The retired /playground route 301-redirects to the Studio Chat modality (playground was folded in as the fourth Studio tab). This redirect is the only thing keeping old /playground bookmarks/links from 404-ing; a router-table rewrite could silently drop it. (2) The admin route subtree is isolated in router/admin.tk.ts and spread in via `...adminRoutes` to keep index.ts close to upstream shape; an upstream merge that rewrites the route table could drop the spread, silently removing the entire admin area. Anchor both so neither guarantee regresses unnoticed."
+    },
+    {
+      "path": "frontend/src/router/admin.tk.ts",
+      "must_contain": [
+        "export const adminRoutes: RouteRecordRaw[]",
+        "@/views/admin/AdminShellView.vue"
+      ],
+      "rationale": "TK-isolated admin route subtree (extracted from router/index.ts to minimize upstream-merge conflicts, see CLAUDE.md §5). The `adminRoutes` export is the contract index.ts spreads; the AdminShellView import is the persistent-shell nesting (PR #935) that the admin-shell-layout guard depends on. Anchor both so a refactor or merge that flattens the shell or breaks the export is caught at preflight time rather than in prod."
+    },
+    {
+      "path": "frontend/src/views/admin/AdminShellView.vue",
+      "must_contain": [
+        "syncAdminUiZoom",
+        "TK_ADMIN_UI_ZOOM",
+        "document.documentElement.style.zoom",
+        "tk-admin-ui-zoom",
+        "admin-ui-zoom.tk.css"
+      ],
+      "rationale": "Persistent admin shell (PR #935) owns AppLayout once for all /admin/* routes. TK applies documentElement zoom here so dense admin tables fit without per-session browser scaling; the tk-admin-ui-zoom class + admin-ui-zoom.tk.css compensate vh-based heights that would otherwise leave bottom whitespace at 80% zoom. An upstream merge that rewrites the shell file could silently drop the zoom hook while admin-shell-layout still passes."
+    },
+    {
+      "path": "frontend/src/styles/admin-ui-zoom.tk.css",
+      "must_contain": [
+        "html.tk-admin-ui-zoom .min-h-screen",
+        "html.tk-admin-ui-zoom .table-page-layout:not(.mobile-mode)",
+        "flex: 1 1 auto",
+        "height: auto !important",
+        "var(--tk-admin-ui-zoom)"
+      ],
+      "rationale": "Viewport layout for AdminShellView document zoom. min-h-screen compensation removes page-level bottom whitespace; the AppLayout flex stack + TablePageLayout flex-fill removes the residual dead band below pagination on dense admin tables (/admin/accounts)."
+    },
+    {
+      "path": "frontend/src/views/user/studio/BakeOff.vue",
+      "must_contain": [
+        "data-testid=\"bakeoff-tier\"",
+        "data-testid=\"studio-bakeoff-run\"",
+        "data-testid=\"bakeoff-panel\"",
+        "useMediaLibrary",
+        "StudioLocalSaveBanner",
+        "test-id=\"studio-bakeoff-save-reminder\"",
+        "data-testid=\"bakeoff-history\"",
+        "gatewayGeminiImageViaChat",
+        "isGeminiNativeImageModel",
+        "StudioVideoPreviewLightbox",
+        "useStudioVideoPreview",
+        "useStudioVideoCardActions",
+        "useStudioImageCardActions",
+        "useStudioVideoSubmitOptions",
+        "data-testid=\"bakeoff-video-generate-audio\"",
+        "mountStudioImageLibrary",
+        "mountStudioVideoLibrary",
+        "onStudioImageThumbError",
+        "data-testid=\"bakeoff-video-copy-card-link\"",
+        "test-id=\"bakeoff-video-preview\""
+      ],
+      "rationale": "BakeOff.vue is the TK-only Studio 'bake-off' compare surface — one prompt rendered across 2-4 priced image/video models side by side, each panel showing its own real price + latency. It is mounted by MediaStudioView.vue (view==='bakeoff') and is the only multi-model compare flow; the test-ids are the contract the studio e2e (frontend/e2e/studio.e2e.ts) drives and the anchors that keep an upstream merge from silently dropping the view (compiles green, feature gone). Note: the bakeoff image/video sub-mode toggle reuses data-testid=\"bakeoff-mode-image\"/\"bakeoff-mode-video\"; the run button + tier chips + result panels are anchored here. Both image and video card-level download actions are wired through their respective shared composables (useStudioImageCardActions / useStudioVideoCardActions) per CLAUDE.md 5.1 SSOT; the image anchor prevents a merge from reverting the image download back to a direct downloadMedia bypass."
+    },
+    {
+      "path": "frontend/src/utils/mediaCostEstimate.tk.ts",
+      "must_contain": [
+        "export function estimateImageCost",
+        "export function estimateVideoCost"
+      ],
+      "rationale": "Single source of truth for the client-side media cost MIRROR (price on the Generate button + cost panel + pricing estimator). Must stay aligned with backend CalculateImageCost / CalculateVideoCost; deleting it silently drops the pre-generation price the whole 'price on the button' UX depends on."
+    },
+    {
+      "path": "frontend/src/utils/pricingCatalogPresentation.tk.ts",
+      "must_contain": [
+        "export function pricingCatalogModality",
+        "export function formatCatalogPrice",
+        "export function formatCatalogMediaPrice"
+      ],
+      "rationale": "Single source of truth for public pricing-catalog modality and price presentation across /models, /pricing, and Studio catalog consumers. Losing this owner can compile green if pages reintroduce local billing_mode branches, then silently split text/image/video membership or price precision between catalog surfaces."
+    },
+    {
+      "path": "frontend/src/views/ModelMarketplaceView.vue",
+      "must_contain": [
+        "from '@/utils/pricingCatalogPresentation.tk'",
+        "formatCatalogMediaPrice",
+        "pricingCatalogModality",
+        "marketplaceVendor"
+      ],
+      "rationale": "The /models injection point for shared catalog modality/price presentation plus provider-family normalization. Anchors prevent an upstream rewrite from restoring token-only Free labels for priced media or splitting Vertex modality-specific provider aliases back into separate vendors."
+    },
+    {
+      "path": "frontend/src/utils/studioMediaCatalog.tk.ts",
+      "must_contain": [
+        "from '@/utils/pricingCatalogPresentation.tk'",
+        "pricingCatalogModality"
+      ],
+      "rationale": "Studio catalog membership must consume the same billing_mode classifier as /models and /pricing. A local classifier here would recreate a second modality owner and allow Studio availability to drift from the public catalog tabs."
+    },
+    {
+      "path": "frontend/src/views/PricingView.vue",
+      "must_contain": [
+        "row.billingMode === 'image'",
+        "row.billingMode === 'video'",
+        "from '@/utils/pricingCatalogPresentation.tk'",
+        "pricingCatalogModality"
+      ],
+      "rationale": "The /pricing media rendering branches (per-image / per-second) and shared catalog-modality owner wiring. Without them media models render as '—' (the pre-batch-2 bug), or /pricing can classify billing_mode differently from /models and Studio; an upstream merge that reverts the price cell or localizes the classifier silently hides or misgroups image/video prices from buyers."
     },
     {
       "path": "frontend/src/components/layout/AppLayout.vue",
@@ -30,7 +203,10 @@
         "fluid?: boolean",
         "stickyEdgeHints?: boolean",
         "table-wrapper--fluid",
-        ".table-wrapper.table-wrapper--fluid {\n  overflow-x: auto"
+        ".table-wrapper.table-wrapper--fluid {\n  overflow-x: auto",
+        "expandedKeys?: Set<string | number>",
+        "name=\"row-detail\"",
+        "flatItems"
       ],
       "rationale": "DataTable's `fluid` mode + `stickyEdgeHints` opt-out are how the admin accounts page fits the viewport without horizontal scroll. The fluid rule body must keep `overflow-x: auto` (not `hidden`) so narrow viewports get a scrollbar fallback rather than silently clipping the rightmost columns — the bug observed at 100% browser zoom on a 14-15\" laptop before that fix landed. Symbol-only sentinels (the prop names + modifier class) would let an upstream merge revert the rule body to `hidden` while keeping the symbols intact, so the multi-line literal anchors the rule body content too."
     },
@@ -44,6 +220,84 @@
       "rationale": "TablePageLayout's `fluid` prop and matching modifier-scoped CSS rules. The fluid wrapper rule must keep `overflow-x-auto` (not `overflow-x-hidden`) so a narrow viewport falls back to a scrollbar instead of clipping rightmost columns. Sibling guard to the DataTable.vue fluid-overflow sentinel above — both paths must move in lockstep."
     },
     {
+      "path": "frontend/src/components/account/usage-cells/UpstreamQuotaSummary.vue",
+      "must_contain": [
+        "hiddenDimensionKeys?: string[]",
+        "hiddenCreditKeys?: string[]",
+        "hiddenCreditKeyPrefixes?: string[]",
+        "const visibleCredits = computed",
+        "visibleDimensions.value.map(formatDimensionLine)"
+      ],
+      "rationale": "Shared usage-window quota summary de-duplication owner. Account usage cells render primary 5h/7d bars first, then UpstreamQuotaSummary renders only supplemental upstream quota facts after filtering dimensions already represented by those bars. Anchors prevent an upstream-shaped component rewrite from silently reintroducing duplicate grey quota chips beside the canonical progress bars."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/TodayStatsBadges.vue",
+      "must_contain": [
+        "formatCompactNumber(props.stats.requests",
+        "formatCompactNumber(props.stats.tokens)",
+        "props.stats.cost.toFixed(2)",
+        "stats.user_cost != null",
+        "usage.accountBilled",
+        "usage.userBilled"
+      ],
+      "rationale": "Shared owner for the compact current-day request/token/account-cost/user-cost badges rendered inside account usage cells. Plain, Gemini, OpenAI OAuth, and Anthropic OAuth usage cells should consume this component instead of duplicating badge formatting; losing it during an upstream merge can compile cleanly while dropping the generic usage window from OAuth-only accounts."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/PlainUsageCell.vue",
+      "must_contain": [
+        "TodayStatsBadges",
+        ":stats=\"todayStats\"",
+        ":loading=\"todayStatsLoading\"",
+        "!todayStats && !todayStatsLoading && !hasApiKeyQuota"
+      ],
+      "rationale": "Plain account usage cells keep the same current-day request/token/cost badges through the shared TodayStatsBadges owner while rendering API-key quota bars below it. Anchors prevent an upstream merge from silently dropping the shared badge callsite or regressing the empty-state guard back to hiding useful current-day stats."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/GeminiUsageCell.vue",
+      "must_contain": [
+        "TodayStatsBadges",
+        "v-if=\"showGeminiTodayStats\"",
+        ":stats=\"todayStats\"",
+        ":loading=\"todayStatsLoading\""
+      ],
+      "rationale": "Gemini account usage cells also consume the shared TodayStatsBadges owner, but only when useGeminiUsageMeta says current-day stats should be shown. Anchors keep upstream merges from reverting to duplicated formatter code or silently dropping the current-day badge callsite."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/AnthropicUsageCell.vue",
+      "must_contain": [
+        "TodayStatsBadges",
+        ":stats=\"todayStats\"",
+        ":loading=\"todayStatsLoading\"",
+        ":hidden-dimension-keys=\"upstreamQuotaWindowDimensionKeys\"",
+        "anthropic_5h",
+        "anthropic_7d_sonnet"
+      ],
+      "rationale": "Anthropic OAuth usage windows have two canonical visual owners: TodayStatsBadges for current-day request/token/account-cost/user-cost badges, and the 5h, 7d, and 7d S progress bars for Anthropic quota windows. The upstream_quota block may still carry the same dimensions for contract consumers, but the UI must filter them out of the supplemental summary to avoid repeating the same window percentages in the Edge panel and Accounts list. Anchors keep upstream merges from silently dropping the generic usage badges on OAuth-only accounts or restoring duplicate quota chips."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/OpenAIUsageCell.vue",
+      "must_contain": [
+        "TodayStatsBadges",
+        ":stats=\"todayStats\"",
+        ":loading=\"todayStatsLoading\"",
+        ":hidden-dimension-keys=\"upstreamQuotaWindowDimensionKeys\"",
+        "openai_codex_5h",
+        "openai_codex_7d"
+      ],
+      "rationale": "OpenAI Codex OAuth usage windows mirror the Anthropic display contract: TodayStatsBadges owns current-day request/token/account-cost/user-cost badges, the 5h and 7d progress bars own Codex quota windows, and UpstreamQuotaSummary is only for supplemental quota facts. Anchors keep upstream merges from silently dropping the generic usage badges on OAuth-only accounts or restoring duplicate Codex window chips."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/KiroUsageCell.vue",
+      "must_contain": [
+        ":hidden-credit-key-prefixes=\"upstreamQuotaHiddenCreditPrefixes\"",
+        "upstreamQuotaHiddenCreditPrefixes = ['kiro_']",
+        "kiro.bonuses",
+        "const displayError = computed",
+        "passiveSampleLabel"
+      ],
+      "rationale": "Kiro credits/trial/bonus progress bars are the canonical visual owner; UpstreamQuotaSummary must hide all kiro_* credit chips to avoid repeating the same monthly/trial/bonus numbers while still showing the subscription tier badge."
+    },
+    {
       "path": "frontend/src/views/admin/AccountsView.vue",
       "must_contain": [
         "<TablePageLayout fluid>",
@@ -51,9 +305,27 @@
         "Wrap-first column policy",
         "const wrap = (maxW: string) =>",
         "wrap('max-w-[15rem]')",
-        "current.current_rpm !== next.current_rpm"
+        "current.current_rpm !== next.current_rpm",
+        "v-if=\"row.notes\"",
+        "EdgeAccountPanelTk",
+        "useTkAccountsEdgePanels",
+        ":expanded-keys=\"edgeExpandedKeys\"",
+        "@retry=\"() => refreshEdges({ force: true })\"",
+        "await refreshEdges({ force: true })"
       ],
-      "rationale": "The TK callsite for fluid+stickyEdgeHints opt-outs (first two literals), the wrap-first column-class policy comment (third literal), and the per-column max-width discipline (fourth + fifth literals). `wrap` as a function (not a plain string constant) means every column carries an explicit cap — an upstream merge that flattens it back to a bare string would silently drop the caps and the table overflows again at 100% browser zoom. The fifth literal anchors the usage column at 15rem (the widest cap), chosen because it is uniquely wide and unlikely to clash with any upstream string. Without the max-width caps, `min-w-0 align-top` alone is insufficient: browser table-auto still sizes columns to their natural max-content width when there is no explicit upper bound. The sixth literal anchors current_rpm inside shouldReplaceAutoRefreshRow's auto-refresh field whitelist: current_rpm is a Redis-backed realtime gauge that never bumps updated_at, so an upstream merge that drops it from the whitelist would silently regress the 6s auto-refresh back to RPM-stale (only manual refresh would update the RPM badge)."
+      "rationale": "The TK callsite for fluid+stickyEdgeHints opt-outs (first two literals), the wrap-first column-class policy comment (third literal), and the per-column max-width discipline (fourth + fifth literals). `wrap` as a function (not a plain string constant) means every column carries an explicit cap — an upstream merge that flattens it back to a bare string would silently drop the caps and the table overflows again at 100% browser zoom. The fifth literal anchors the usage column at 15rem (the widest cap), chosen because it is uniquely wide and unlikely to clash with any upstream string. Without the max-width caps, `min-w-0 align-top` alone is insufficient: browser table-auto still sizes columns to their natural max-content width when there is no explicit upper bound. The sixth literal anchors current_rpm inside shouldReplaceAutoRefreshRow's auto-refresh field whitelist: current_rpm is a Redis-backed realtime gauge that never bumps updated_at, so an upstream merge that drops it from the whitelist would silently regress the 6s auto-refresh back to RPM-stale (only manual refresh would update the RPM badge). The seventh literal anchors the admin notes (备注) display under the account name in the #cell-name template: operators edit notes in EditAccountModal but the only other notes render is a default-hidden column, so dropping this line would silently hide multi-line notes again — it is rendered with whitespace-pre-wrap so newlines edited by the operator survive verbatim. The EdgeAccountPanelTk/useTkAccountsEdgePanels anchors pin the /admin/accounts inline edge panels, and the refreshEdges({force:true}) anchors pin the manual refresh/retry path that bypasses the edge aggregate SWR cache so prod stubs and edge account runtime gauges sync on operator clicks."
+    },
+    {
+      "path": "frontend/src/views/admin/AccountsView.vue",
+      "must_contain": [
+        "const DEFAULT_HIDDEN_COLUMNS = [\n  'id',\n  'today_stats',\n  'proxy',\n  'scheduler_score',\n  'rate_multiplier',\n  'last_used_at',\n  'created_at',\n  'expires_at',\n  'notes'\n]",
+        "const LEGACY_AUTO_SAVED_DEFAULT_HIDDEN_COLUMN_SETS = [\n  ['today_stats', 'proxy', 'notes', 'priority', 'rate_multiplier'],\n  ['today_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']\n]",
+        "const COLUMN_SETTINGS_VERSION_KEY = 'account-column-settings-version'",
+        "const COLUMN_SETTINGS_VERSION = '3'",
+        "shouldMigrateLegacyDefaultColumns(parsed)",
+        "localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, COLUMN_SETTINGS_VERSION)"
+      ],
+      "rationale": "Admin account-table default visible columns are TK operator workflow, not upstream defaults: platform/type, capacity, status, schedulable, groups, usage, and priority should be visible on a fresh profile, while scheduler_score stays hidden by default because showing it opts into heavy backend scoring. Legacy auto-saved defaults from version 1 or the scheduler-score migration version migrate once. The exact DEFAULT_HIDDEN_COLUMNS block pins the combined default so an upstream merge cannot silently hide priority or show scheduler_score again; the version-key and migration anchors keep old localStorage snapshots from resetting operators back to stale column sets after refresh."
     },
     {
       "path": "frontend/src/views/admin/GroupsView.vue",
@@ -173,88 +445,102 @@
     {
       "path": "frontend/src/views/admin/SettingsView.vue",
       "must_contain": [
+        "settingsTabKeyboardActions",
+        "handleSettingsTabKeydown",
+        "fallback_model_anthropic: \"claude-sonnet-4-6\""
+      ],
+      "rationale": "Tab navigation keyboard accessibility (ARIA + arrow/home/end handlers) and the fallback_model_anthropic default pinned to a currently-available 4.x model stay in the root orchestrator. Both can be silently reverted by template/script overwrites while keeping builds green."
+    },
+    {
+      "path": "frontend/src/views/admin/settings/GatewayPanel.vue",
+      "must_contain": [
         "admin.settings.gatewayForwarding.stickyRouting",
         "form.sticky_routing_enabled",
         "admin.settings.gatewayForwarding.anthropicCacheTTL1hInjection",
-        "form.enable_anthropic_cache_ttl_1h_injection",
-        "settingsTabKeyboardActions",
-        "handleSettingsTabKeydown",
-        "value: \"airwallex\"",
-        "providerAirwallex",
-        "fallback_model_anthropic: \"claude-sonnet-4-6\""
+        "form.enable_anthropic_cache_ttl_1h_injection"
       ],
-      "rationale": "The request-forwarding settings card is a large upstream-shaped admin page. Global prompt-cache sticky routing and Anthropic Cache TTL 1h injection both compile cleanly if their toggles are dropped from the template while the backend settings still exist, leaving operators unable to configure the account-safety/cache controls from the UI. This file now also carries two additional load-bearing TokenKey surfaces from the upstream merge: keyboard-accessible tab navigation (ARIA + arrow/home/end handlers) and Airwallex provider wiring in the payment-provider option lists; both can be silently reverted by template/script overwrites while keeping builds green. The fallback_model_anthropic default is pinned to a currently-available 4.x model — Anthropic OAuth subscription channels return not_found_error for retired 3.5 / 3.7 Sonnet, so any upstream merge that re-introduces those defaults silently breaks the model-fallback flow."
+      "rationale": "Gateway forwarding settings extracted from SettingsView.vue. Global prompt-cache sticky routing and Anthropic Cache TTL 1h injection toggles must remain in the gateway panel so operators can configure account-safety/cache controls."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/views/admin/settings/PaymentPanel.vue",
       "must_contain": [
-        "stickyRouting: 'Prompt Cache 粘性路由'",
+        "value: \"airwallex\"",
+        "providerAirwallex"
+      ],
+      "rationale": "Airwallex provider wiring extracted from SettingsView.vue to PaymentPanel. The payment-provider option lists must include Airwallex for operator payment configuration."
+    },
+    {
+      "path": "frontend/src/i18n/locales/zh/admin/settings.ts",
+      "must_contain": [
         "anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h 注入'",
-        "providerAirwallex: 'Airwallex'",
-        "airwallex: 'Airwallex'"
+        "providerAirwallex: 'Airwallex'"
       ],
       "rationale": "Chinese admin settings labels must keep the global sticky and Anthropic Cache TTL 1h controls discoverable. Missing locale keys render raw i18n paths in the operator UI and made this control appear broken in the edge-uk1 mitigation workflow. The Airwallex provider/method labels are also load-bearing for operator payment configuration and user recharge selection; upstream locale merges can drop them silently while code still compiles."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/locales/en/admin/settings.ts",
       "must_contain": [
-        "stickyRouting: 'Prompt Cache Sticky Routing'",
         "anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h Injection'",
-        "providerAirwallex: 'Airwallex'",
-        "airwallex: 'Airwallex'",
-        "tabMy: 'Your Menu'",
-        "exploreBanner: {"
+        "providerAirwallex: 'Airwallex'"
       ],
-      "rationale": "English admin settings labels must stay in sync with the global sticky and Anthropic Cache TTL 1h controls so upstream locale merges cannot silently regress one language while the template still compiles. The Airwallex provider/method labels are likewise load-bearing for admin payment setup and frontend method rendering. The pricing 'Your Menu' i18n keys (tabMy, exploreBanner) anchor the per-key pricing catalog feature so an upstream locale merge cannot silently strip them and degrade the segmented control + upgrade-banner UI to raw keys."
+      "rationale": "English admin settings labels must stay in sync with the global sticky and Anthropic Cache TTL 1h controls so upstream locale merges cannot silently regress one language while the template still compiles. The Airwallex provider/method labels are likewise load-bearing for admin payment setup and frontend method rendering. The pricing catalog i18n keys (tabMy='Group Catalog', exploreBanner) anchor the per-group pricing catalog feature so an upstream locale merge cannot silently strip them and degrade the segmented control + upgrade-banner UI to raw keys."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "tabMy: '我的菜单'",
-        "exploreBanner: {"
+        "\"tabMy\": \"分组目录\"",
+        "\"exploreBanner\": {"
       ],
-      "rationale": "Chinese pricing 'Your Menu' i18n keys (tabMy, exploreBanner) must move in lockstep with the English copies above. An upstream merge that drops only one language leaves operators staring at raw `pricing.my.*` paths in either zh or en — a regression that compiles but visibly breaks the page."
+      "rationale": "Chinese pricing catalog i18n keys (tabMy='分组目录', exploreBanner) must move in lockstep with the English copies above. An upstream merge that drops only one language leaves operators staring at raw `pricing.my.*` paths in either zh or en — a regression that compiles but visibly breaks the page."
+    },
+    {
+      "path": "frontend/src/views/admin/settings/GatewayPanel.vue",
+      "must_contain": [
+        "v-model=\"form.tk_anthropic_request_normalize_enabled\"",
+        "admin.settings.gatewayForwarding.anthropicRequestNormalize"
+      ],
+      "rationale": "Admin toggle for tk_anthropic_request_normalize_enabled (Gateway Forwarding tab). The Toggle v-model binding and i18n key prefix are in GatewayPanel after extraction from SettingsView. Dropping either silently breaks the operator's one-click rollback path for the Anthropic request normalize feature (2026-05-21 incident)."
     },
     {
       "path": "frontend/src/views/admin/SettingsView.vue",
       "must_contain": [
-        "v-model=\"form.tk_anthropic_request_normalize_enabled\"",
-        "admin.settings.gatewayForwarding.anthropicRequestNormalize",
         "tk_anthropic_request_normalize_enabled: true"
       ],
-      "rationale": "Admin toggle for tk_anthropic_request_normalize_enabled (Gateway Forwarding tab). Three load-bearing literals: (1) the Toggle v-model binding so the UI control actually flips the form state; (2) the i18n key prefix so the label + hint stay translated rather than falling back to raw keys; (3) the PUT payload field so saving the toggle reaches the backend. Dropping any one silently breaks the operator's one-click rollback path for the Anthropic request normalize feature (2026-05-21 incident)."
+      "rationale": "The default value for tk_anthropic_request_normalize_enabled stays in the root SettingsView form reactive. Must remain true by default so the normalize feature is on unless explicitly disabled."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "anthropicRequestNormalize:",
-        "anthropicRequestNormalizeHint:"
+        "\"anthropicRequestNormalize\":",
+        "\"anthropicRequestNormalizeHint\":"
       ],
       "rationale": "English i18n keys for the Anthropic request normalize admin toggle (label + hint). Must move in lockstep with the zh.ts counterpart so an upstream merge that drops only one language cannot leave the toggle showing raw `admin.settings.gatewayForwarding.anthropicRequestNormalize` strings."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "anthropicRequestNormalize:",
-        "anthropicRequestNormalizeHint:"
+        "\"anthropicRequestNormalize\":",
+        "\"anthropicRequestNormalizeHint\":"
       ],
       "rationale": "Chinese i18n keys for the Anthropic request normalize admin toggle. Locked in lockstep with the en.ts counterpart so neither language can silently regress to raw key strings."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/locales/zh/admin/accounts.ts",
       "must_contain": [
         "poolMode: '池模式'",
         "poolModeHint:",
+        "poolModeSystemManaged:",
         "poolModeInfo:",
         "poolModeRetryCount:"
       ],
-      "rationale": "Chinese i18n keys for the per-account pool-mode admin toggle (label / hint / info / retry-count). EditAccountModal.vue and CreateAccountModal.vue render `t('admin.accounts.poolMode*')` in the type=apikey branch for every platform. The toggle still controls in-place same-account retry semantics (isPoolModeRetryableStatus + GetPoolModeRetryCount, default 1 retry on 401/403/429/502/503/504), which is meaningful for upstream pool routing. The prior PR #333 secondary semantic of 'pool_mode also bypasses the 3/3 cooldown' was removed in the 2026-05-21 revision (see gateway-tk.json ratelimit_service.go rationale): pool_mode accounts now share the unified tiered cooldown (30s → 2min → 10min) with non-pool accounts. Locking the key names (NOT the literal text — `poolModeInfo` content is informational and may evolve) prevents an upstream merge from silently dropping the toggle into a raw `admin.accounts.poolMode` path."
+      "rationale": "Chinese i18n keys for the per-account pool-mode admin toggle (label / hint / system-managed marker / info / retry-count). EditAccountModal.vue and CreateAccountModal.vue render `t('admin.accounts.poolMode*')` in the type=apikey branch for every platform; internal Anthropic edge stubs mark pool mode as system-managed because the backend reconciler owns those fields. The toggle still controls in-place same-account retry semantics (isPoolModeRetryableStatus + GetPoolModeRetryCount, default 1 retry on 401/403/429/502/503/504), which is meaningful for upstream pool routing. The prior PR #333 secondary semantic of 'pool_mode also bypasses the 3/3 cooldown' was removed in the 2026-05-21 revision (see gateway-tk.json ratelimit_service.go rationale): pool_mode accounts now share the unified tiered cooldown (30s → 2min → 10min) with non-pool accounts. Locking the key names (NOT the literal text — `poolModeInfo` content is informational and may evolve) prevents an upstream merge from silently dropping the toggle into a raw `admin.accounts.poolMode` path."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/locales/en/admin/accounts.ts",
       "must_contain": [
         "poolMode: 'Pool Mode'",
         "poolModeHint:",
+        "poolModeSystemManaged:",
         "poolModeInfo:",
         "poolModeRetryCount:"
       ],
@@ -265,9 +551,14 @@
       "must_contain": [
         "getMePricingCatalog",
         "viewMode.value = 'my'",
-        "v-if=\"viewMode === 'my' && !loading"
+        "data-tk=\"pricing-filter-key\"",
+        "data-tk=\"pricing-filter-group\"",
+        "data-tk=\"pricing-filter-search\"",
+        "raw === 'public'",
+        "params.apiKeyId = selectedKeyId.value",
+        "params.groupId = selectedGroupId.value"
       ],
-      "rationale": "PricingView.vue must keep the per-user 'Your Menu' branch wired: (1) calling getMePricingCatalog (otherwise the page only ever shows the public LiteLLM catalog), (2) defaulting authenticated users to viewMode='my' on mount, and (3) the v-if guard that gates the key-picker / group-switcher toolbar to the 'my' view. Dropping any one silently regresses to upstream-style flat-catalog behavior even though the segmented control still renders."
+      "rationale": "PricingView.vue must keep the unified pricing toolbar wired to both per-user and public catalogs: (1) calling getMePricingCatalog, (2) defaulting authenticated users to the per-user scope on mount, (3) exposing stable API Key / group / search controls, and (4) preserving api_key_id, group_id, and public-scope selection paths. Dropping any one silently regresses the single /pricing page back to an upstream-style flat public catalog or a search-only table with no per-key/group filtering."
     },
     {
       "path": "frontend/src/components/account/AccountCapacityCell.vue",
@@ -278,16 +569,16 @@
       "rationale": "TK diverges the RPM capacity badge suffix from upstream's bare strategy tag: tiered accounts surface the actual sticky-buffer headroom as (+N sticky) instead of upstream's [T], so operators can read the total sticky capacity (base_rpm + rpm_sticky_buffer) directly off the account card. This is a cosmetic-but-load-bearing operator affordance on an upstream-owned file — upstream owns AccountCapacityCell.vue and an upstream merge that restores :suffix=\"rpmStrategyTag\" would compile cleanly while silently reverting the badge to [T] and dropping the buffer readout. The two literals pin the template wiring (rpmSuffix binding) and the i18n key reference; the locale strings themselves are anchored in the en.ts / zh.ts sentinels below."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "stickyBufferSuffix: '(+{buffer} sticky)'"
+        "\"stickyBufferSuffix\": \"(+{buffer} sticky)\""
       ],
       "rationale": "English RPM capacity badge sticky-buffer suffix. Renders as (+N sticky) on tiered accounts. Locked in lockstep with the zh.ts counterpart so an upstream locale merge cannot drop one language and leave the badge showing a raw i18n path."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "stickyBufferSuffix: '(+{buffer} 粘性)'"
+        "\"stickyBufferSuffix\": \"(+{buffer} 粘性)\""
       ],
       "rationale": "Chinese RPM capacity badge sticky-buffer suffix. Moves in lockstep with the en.ts counterpart above so neither language silently regresses to a raw key during an i18n upstream merge."
     },
@@ -327,6 +618,17 @@
       "rationale": "Post-2026-05-29 upstream merge: EditAccountModal was 3-way re-merged after the original merge took upstream wholesale and dropped TK customizations. This guards the upstream features TK adopted in that re-merge — per-account 5h/7d quota auto-pause threshold persistence (auto_pause_5h/7d_threshold, paired with the backend shouldAutoPauseOpenAIAccountByQuota gate) and the OpenAI endpoint-capability selection (openAIEndpointCapabilities). A future merge that re-overwrites this modal must keep them or the admin loses the auto-pause / capability controls. The TK compaction/pricing literals are guarded by the existing frontend-tk + newapi sentinels."
     },
     {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": [
+        "account.platform === 'newapi' && account.type === 'service_account'",
+        "VertexServiceAccountFields",
+        "vertexSa.mergeCredentialsForEdit",
+        ":hide-transport-credentials=\"true\"",
+        "vertexSa.populateFromCredentials"
+      ],
+      "rationale": "Fifth-platform newapi + Vertex service_account (channel_type=41, e.g. gemini-imagen-veo-paid) accounts fall through BOTH upstream credential blocks (apikey block is type==='apikey', Vertex block is platform gemini|anthropic), so without this dedicated branch the Edit modal renders NO credential fields and operators must edit channel_type / model_mapping / vertex_location / SA JSON via raw SQL. The first literal pins the template v-if that surfaces AccountNewApiPlatformFields (channel_type + structured model_mapping selector) for this account shape; the second pins the write-once SA JSON parse helper (paste re-derives project_id/client_email, leave empty keeps the redacted secret); the third pins the submit-path persist of a rotated service_account_json. The fourth pins the :hide-transport-credentials pass-site that suppresses the inert base_url (required-starred) + api_key inputs this SA submit path never forwards; its component-side guard is anchored in newapi.json. The fifth pins the on-blur previewEditVertexServiceAccountJson that live-updates the read-only Project ID when a new SA JSON is pasted. Compile still passes if a future upstream merge silently drops any one of these — the branch would just stop rendering, stop persisting, stop previewing, or re-show dead fields — so all are anchored to keep the load/edit/persist chain intact."
+    },
+    {
       "path": "frontend/src/constants/accountTierOptions.tk.ts",
       "must_contain": [
         "ACCOUNT_TIER_OPTIONS"
@@ -350,6 +652,15 @@
       "rationale": "TK-only modal for the admin 'Set Tier' action. Thin template that renders the tier options and the local-deployment-only scope warning (applying a tier writes ONLY this deployment's DB; fleet fan-out still needs the ops/anthropic pipeline). Guards against silent upstream-merge deletion."
     },
     {
+      "path": "frontend/src/components/admin/account/AccountActionMenu.vue",
+      "must_contain": [
+        "canSetTier",
+        "props.account?.type === 'oauth' || props.account?.type === 'setup-token'",
+        "anthropic_oauth_passthrough"
+      ],
+      "rationale": "TK-only '设置 Tier' menu entry point lives in this upstream-shaped action menu. The canSetTier gate restricts the action to platform=anthropic AND type in {oauth, setup-token} AND not anthropic_oauth_passthrough, mirroring backend AccountTierService.applyTier — which rejects api-key / mirror-stub / passthrough accounts. Without this anchor an upstream merge could silently revert the gate to a broader condition, re-exposing a tier action that always errors out or breaks passthrough semantics. The type + passthrough substrings are the load-bearing semantic; pinning them makes the regression a hard CI failure instead of a silent clobber. Companion regression test: AccountActionMenu.spec.ts."
+    },
+    {
       "path": "frontend/src/api/admin/tier.ts",
       "must_contain": [
         "/admin/tiers",
@@ -367,18 +678,18 @@
       "rationale": "TK-only full CRUD modal for the tier reference table (mirrors TLSFingerprintProfilesModal.vue). Renders the git-projection banner (UI edits are emergency/local; the ops/anthropic pipeline re-asserts from git). Mounted from AccountsView.vue. Guards against silent upstream-merge deletion."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "tierTemplates: {",
-        "createTier: 'Create Tier'"
+        "\"tierTemplates\": {",
+        "\"createTier\": \"Create Tier\""
       ],
       "rationale": "TK-only i18n DEFINITIONS for the Tier Templates modal. The TierTemplatesModal.vue sentinel only proves the component references admin.tierTemplates.*; this anchors the actual en.ts translations so an upstream merge that rewrites locales can't silently drop the block (which would render raw i18n keys in the modal)."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "tierTemplates: {",
-        "createTier: '创建 Tier'"
+        "\"tierTemplates\": {",
+        "\"createTier\": \"创建 Tier\""
       ],
       "rationale": "TK-only i18n DEFINITIONS (zh) for the Tier Templates modal — the zh counterpart of the en.ts tierTemplates anchor. Guards against an upstream locale-file rewrite silently dropping the block."
     },
@@ -388,19 +699,55 @@
         "'/admin/edge-accounts'",
         "export const edgeAccountsAPI",
         "adminSession",
-        "stub_schedulable: boolean"
+        "stub_schedulable: boolean",
+        "export async function listWithEtag",
+        "'If-None-Match'",
+        "options?: { signal?: AbortSignal; etag?: string | null; force?: boolean }",
+        "if (options?.etag && !options?.force) {",
+        "...(options?.force ? { force: 'true' } : {})",
+        "export async function clearRateLimit",
+        "export async function setSchedulable"
       ],
-      "rationale": "TK-only API client for the cross-edge read-only account overview (GET /admin/edge-accounts) plus the manage-accounts handoff (POST /admin/edge-accounts/:edge/admin-session, the adminSession method). Mirrors api/admin/tier.ts. Backs the Edge Accounts admin page; silent upstream-merge deletion would break its list or adminSession call. The EdgeAccountSummary type carries notes (the non-credential operator 备注) and is platform-agnostic — the page defaults to the backend 'all' sentinel so every platform's accounts are listed, not just anthropic. The EdgeAccountsResult type carries stub_schedulable — the prod-side stub's scheduling toggle — so the view can flag an edge whose stub was 关调度 (out of prod rotation but still reachable); dropping it would silently regress that visibility."
+      "rationale": "TK-only API client for the cross-edge read-only account overview (GET /admin/edge-accounts) plus the manage-accounts handoff (POST /admin/edge-accounts/:edge/admin-session, the adminSession method). Mirrors api/admin/tier.ts. Backs the Edge Accounts admin page; silent upstream-merge deletion would break its list or adminSession call. The EdgeAccountSummary type carries notes (the non-credential operator 备注) and is platform-agnostic — the page defaults to the backend 'all' sentinel so every platform's accounts are listed, not just anthropic. The EdgeAccountsResult type carries stub_schedulable — the prod-side stub's scheduling toggle — so the view can flag an edge whose stub was 关调度 (out of prod rotation but still reachable); dropping it would silently regress that visibility. listWithEtag is the ETag-aware variant the periodic auto-refresh uses: it sends If-None-Match and accepts a 304 (validateStatus) so an unchanged poll is a body-less no-op, mirroring api/admin/accounts.ts:listWithEtag — dropping it regresses the refresh back to a full-payload reload. The force option is the manual-refresh escape hatch: it suppresses If-None-Match and sends force=true so operator clicks bypass prod's SWR cache rather than waiting for a passive poll/background refresh."
     },
     {
       "path": "frontend/src/composables/useTkEdgeAccounts.ts",
       "must_contain": [
         "export function useTkEdgeAccounts",
-        "adminAPI.edgeAccounts.list",
+        "adminAPI.edgeAccounts.listWithEtag",
+        "export function mergeEdges",
         "useIntervalFn",
-        "function setPlatform"
+        "function setPlatform",
+        "function setAutoRefreshEnabled",
+        "const totals = computed",
+        "const displayEdges = computed",
+        "function setStatusFilter",
+        "function setGroupFilter",
+        "async function fetch(options: { force?: boolean } = {})",
+        "force: options.force === true"
       ],
-      "rationale": "TK-only composable owning the Edge Accounts overview flow (state + the single fan-out API call + periodic auto-refresh). Keeps EdgeAccountsView.vue thin (template + wiring) per CLAUDE.md §5. The useIntervalFn anchor pins the auto-refresh: without it the page only fetched on mount and showed stale snapshots (e.g. a 5h-window utilization captured right after a window roll) that diverged from the always-fresh per-edge admin page. Defaults to the 'all' platform sentinel (every platform, not just anthropic); setPlatform switches the filter and refetches immediately so the rows don't lag a full auto-refresh interval. Guards against silent upstream-merge deletion that would orphan the view, drop the freshness, or re-pin the page to anthropic-only."
+      "rationale": "TK-only composable owning the Edge Accounts overview flow (state + the ETag-aware fan-out call + the admin-accounts-style auto-refresh engine). displayEdges is the prod-side client filter (status + group, set via setStatusFilter / setGroupFilter) over the already-fetched aggregate — no per-edge re-query; dropping it regresses the page to platform-only filtering. Keeps EdgeAccountsView.vue thin (template + wiring) per CLAUDE.md §5. The auto-refresh is the admin accounts page's engine (mirrors AccountsView.vue): a useIntervalFn 1s countdown tick, a configurable interval persisted to localStorage, an enable toggle (setAutoRefreshEnabled), ETag/304 (adminAPI.edgeAccounts.listWithEtag) so an unchanged poll is a no-op, and mergeEdges — the incremental merge that keeps each unchanged edge's object reference so its card does not re-render (no full-table flicker). Without auto-refresh the page only fetched on mount and showed stale snapshots (e.g. a 5h-window utilization captured right after a window roll) diverging from the always-fresh per-edge admin page. fetch(force) is reserved for operator-initiated refreshes and forwards force=true to listWithEtag; the periodic incremental path stays ETag/SWR-friendly. Defaults to the 'all' platform sentinel (every platform, not just anthropic); setPlatform switches the filter and refetches immediately so the rows don't lag a full interval. totals is the fleet-wide current/capacity aggregate (Σ live gauge / Σ configured cap for concurrency / base+sticky RPM / sessions) over all currently-schedulable accounts that the sticky summary bar renders; dropping it regresses the at-a-glance current-vs-capacity readout the operator asked for. Guards against silent upstream-merge deletion that would orphan the view, drop the freshness/ETag/merge engine, drop manual force-refresh, or re-pin the page to anthropic-only."
+    },
+    {
+      "path": "frontend/src/utils/edgeAccounts.tk.ts",
+      "must_contain": [
+        "export function toAccountLike",
+        "export function edgeSubscriptionToCredentials",
+        "parseEdgeOperatorExpiresAt(s.expires_at)",
+        "export function stripClassPrefix",
+        "export function toUsageInfo",
+        "export function accountVm",
+        "export function matchesStatusFilter",
+        "export function matchesCombinedStatusFilter",
+        "export function matchesStubGroupFilter",
+        "export function collectStubGroupNames",
+        "export function filterDisplayEdges",
+        "export function shouldShowEdgeAccountError",
+        "return s.status === 'error' && !!s.error_message",
+        "const k = s.usage.kiro",
+        "updated_at: s.usage.updated_at ?? null"
+      ],
+      "rationale": "TK-only pure helpers for the Edge Accounts overview. toUsageInfo also lifts the edge DTO's flat kiro credits block (s.usage.kiro) into the nested AccountUsageInfo.kiro_usage shape the KiroUsageCell renders (const k = s.usage.kiro) — dropping it blanks kiro credits/额度/重置/试用 on every prod-side edge kiro row. toAccountLike / toUsageInfo adapt the credential-free edge DTO into the admin Account / AccountUsageInfo shapes so the page can REUSE AccountCapacityCell + AccountUsageCell verbatim (capacity + 5h/7d windows stay pixel-aligned with the per-edge /admin/accounts page); accountVm memoizes those adapters per account object so the cells get reference-stable props and skip re-render. toAccountLike also lights up the already-mounted AccountStatusIndicator per-class 限流 badge by mapping the edge DTO's active model_rate_limits into Account.extra.model_rate_limits, with stripClassPrefix rewriting the full edge scope key (anthropic:class:sonnet → sonnet) so the shared indicator's formatScopeName aliases the bare class without touching the upstream-shared .vue; extra stays undefined (not {}) when no cooldown so mergeEdges' JSON-diff reference stability is preserved — dropping stripClassPrefix / the extra wiring re-buries the edge's per-class sonnet 5h/7d window that sits null on the prod mirror account. shouldShowEdgeAccountError keeps persisted historical error_message hidden after status recovers; without it an active edge account still displays a stale 403 in the name cell. The filter predicates encode the page's contract that filtering is keyed on the PROD mirror stub, NOT the edge-local accounts: matchesStatusFilter buckets a status-bearing record exactly like the admin accounts page's server-side filter (backend/internal/repository/account_repo.go applyStatusFilter — active/rate_limited/temp_unschedulable/unschedulable split of status=active, plus literal inactive/error); matchesCombinedStatusFilter combines the prod stub's status with each edge account's (正常 = stub正常 AND account正常; any other bucket = stub OR account); matchesStubGroupFilter filters edges by the prod stub's group and collectStubGroupNames sources the 分组 dropdown from those stub groups; filterDisplayEdges orchestrates both filters (group edge-level on the stub, status combined per account, unreachable edges matched on the stub alone) and is the single tested entry the composable's displayEdges wraps. Dropping any adapter regresses the cell reuse to a sparse static table; dropping shouldShowEdgeAccountError reintroduces stale recovered-error display; dropping/skewing a predicate reverts the filter source back to the edge-local accounts or breaks the AND/OR combined-status semantics."
     },
     {
       "path": "frontend/src/views/admin/EdgeAccountsView.vue",
@@ -410,17 +757,32 @@
         "admin.edgeAccounts.platformFilter",
         "setPlatform",
         "acct.notes",
+        "whitespace-pre-wrap break-words",
+        "sticky top-16",
+        "totals.concurrency.current",
+        "admin.edgeAccounts.summaryConcurrency",
         "openEdgeManage",
         "admin.edgeAccounts.manageAccounts",
         "AccountCapacityCell",
         "AccountUsageCell",
         "AccountStatusIndicator",
-        "toAccountLike",
-        "toUsageInfo",
+        "accountVm",
+        "displayEdges",
+        "admin.edgeAccounts.statusFilter",
+        "admin.edgeAccounts.groupFilter",
+        "setStatusFilter",
+        "setGroupFilter",
         "!edge.stub_schedulable",
-        "admin.edgeAccounts.stubPaused"
+        "admin.edgeAccounts.stubPaused",
+        "setAutoRefreshEnabled",
+        "autoRefreshIntervalLabel",
+        "admin.accounts.autoRefreshCountdown",
+        "isTempUnschedActive",
+        "admin.edgeAccounts.cooldownRecovered",
+        "@click=\"() => fetch({ force: true })\"",
+        "shouldShowEdgeAccountError(acct)"
       ],
-      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell + AccountUsageCell (today + 5h/7d windows) via toAccountLike / toUsageInfo, so the overview's capacity + usage-window gauges stay pixel-aligned with the per-edge /admin/accounts page. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table). Also reuses AccountStatusIndicator for the 状态 column (instead of a hand-rolled badge) so it matches the per-edge admin page's status semantics; dropping it would regress status display. The platformFilter dropdown (bound through setPlatform) and the acct.notes line under the name are load-bearing: the page defaults to ALL platforms (not anthropic-only) and shows the operator 备注 like the per-edge admin page — dropping either anchor regresses the cross-platform overview or hides the remark. openEdgeManage + the manageAccounts button are the jump-to-manage entry: they mint a handoff and open the edge's own /admin/accounts in a new tab; dropping them removes cross-edge account management. The edge-header stubPaused badge (shown when !edge.stub_schedulable) is the one signal that a stub was 关调度 — prod stopped routing to a still-reachable edge; dropping it re-hides that state, the gap this surfacing closed."
+      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell + AccountUsageCell (today + 5h/7d windows) via the memoized accountVm (which wraps toAccountLike / toWindowStats / toUsageInfo and caches per account object so the cells get reference-stable props and skip re-render on auto-refresh/hover/filter ticks), so the overview's capacity + usage-window gauges stay pixel-aligned with the per-edge /admin/accounts page. The page filters the already-fetched aggregate on the prod side (no per-edge re-query): displayEdges narrows by the statusFilter / groupFilter dropdowns (admin.edgeAccounts.statusFilter / groupFilter, bound through setStatusFilter / setGroupFilter), with status buckets mirroring the admin accounts page exactly — dropping these anchors regresses the prod-side group/status filtering back to platform-only. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table). Also reuses AccountStatusIndicator for the 状态 column (instead of a hand-rolled badge) so it matches the per-edge admin page's status semantics; dropping it would regress status display. The platformFilter dropdown (bound through setPlatform) and the acct.notes line under the name are load-bearing: the page defaults to ALL platforms (not anthropic-only) and shows the operator 备注 like the per-edge admin page — dropping either anchor regresses the cross-platform overview or hides the remark. openEdgeManage + the manageAccounts button are the jump-to-manage entry: they mint a handoff and open the edge's own /admin/accounts in a new tab; dropping them removes cross-edge account management. The edge-header stubPaused badge (shown when !edge.stub_schedulable) is the one signal that a stub was 关调度 — prod stopped routing to a still-reachable edge; dropping it re-hides that state, the gap this surfacing closed. The acct.notes line uses whitespace-pre-wrap break-words (not truncate) so multi-line operator 备注 render verbatim, matching the #618 AccountsView fix — the truncate anchor would silently collapse newlines again. The header+summary live in a 'sticky top-16' wrapper pinned below the global AppHeader so the operator can refresh and read totals at any scroll depth, and the summary bar renders totals (totals.concurrency.current + the summaryConcurrency/summaryBaseRpm/summarySessions chips): the fleet-wide current/capacity aggregate (Σ live gauge / Σ configured cap) over all schedulable accounts, mirroring AccountCapacityCell's per-account current/capacity shape. Dropping the sticky or totals anchors regresses the pinned-header + at-a-glance current-vs-capacity readout the operator asked for. The header also carries the admin-accounts-style auto-refresh dropdown (setAutoRefreshEnabled toggle + autoRefreshIntervalLabel interval options + the admin.accounts.autoRefreshCountdown live countdown, reusing the accounts page's i18n keys); dropping these anchors regresses the configurable auto-refresh control back to the old fixed full-reload. The manual refresh button calls fetch({force:true}) so operator clicks bypass ETag/prod SWR cache; periodic polling stays cheap. The inline temp-unschedulable reason is gated through isTempUnschedActive (temp_unschedulable_until > now): the cooldown reason persists in the DB after the cooldown lapses (forensic breadcrumb, never cleared), so an ungated render paints every once-cooled account amber as a live problem forever — an expired cooldown must render dimmed with the admin.edgeAccounts.cooldownRecovered (已恢复) tag instead. shouldShowEdgeAccountError gates the stale error_message copy so a recovered account no longer displays an old 403. Dropping the isTempUnschedActive anchor (or the cooldownRecovered key) silently reintroduces that misleading always-alarming display."
     },
     {
       "path": "frontend/src/views/admin/EdgeHandoffView.vue",
@@ -433,12 +795,24 @@
       "rationale": "TK-only edge admin-session handoff landing. Consumes the access JWT + refresh_token from the URL FRAGMENT (tk_session / refresh_token), persists refresh + expires (persistOAuthTokenContext) so the session self-renews, establishes the session on THIS (edge) origin via authStore.setToken, then redirects to the edge's own /admin/accounts. THREE load-bearing security properties: (1) history.replaceState scrubs the token AND refresh_token from the address bar / history immediately on load so a leaked URL can't be replayed from the bar; (2) safeNext rejects protocol-relative / external redirect targets (open-redirect guard) — only same-origin absolute paths are followed; (3) the tokens are read from the fragment (never a query param) so they are never sent to the server / logged. Silent deletion or weakening of any of these is a token-leak / open-redirect regression. Pairs with edge_tk_admin_session_handler.go (mint) + buildEdgeHandoffURL (prod)."
     },
     {
-      "path": "frontend/src/components/account/AccountUsageCell.vue",
+      "path": "frontend/src/components/account/accountUsageCellProps.ts",
       "must_contain": [
         "usageOverride?: AccountUsageInfo | null",
-        "if (props.usageOverride !== undefined) return false"
+        "activeUsageLoader?: () => Promise<AccountUsageInfo>"
       ],
-      "rationale": "TK injection point: AccountUsageCell normally self-fetches /admin/accounts/:id/usage, which is wrong for the cross-edge Edge Accounts overview (those accounts live on a remote edge, not queryable via THIS deployment). The optional usageOverride prop lets the overview inject the edge's passive UsageInfo and skip the self-fetch (the shouldFetchUsage short-circuit). An upstream merge that rewrites this large cell and drops the prop or the short-circuit would silently re-enable the self-fetch — every edge account would then 404 its usage and the 5h/7d bars would vanish (or worse, hammer prod's /usage for non-existent ids). These two anchors pin the contract; the rest of the cell stays upstream-shaped."
+      "rationale": "TK injection point (prop contract): AccountUsageCell normally self-fetches /admin/accounts/:id/usage, which is wrong for the cross-edge Edge Accounts overview (those accounts live on a remote edge, not queryable via THIS deployment). The optional usageOverride prop lets the overview inject the edge's passive UsageInfo. Split from AccountUsageCell.vue (B6 perf) — this file is the single props/types source shared by the dispatcher + platform sub-cells."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/useAccountUsageFetch.ts",
+      "must_contain": [
+        "function canFetchUsageForAccount(props: AccountUsageCellProps): boolean",
+        "function shouldAutoFetchUsageForAccount(props: AccountUsageCellProps): boolean",
+        "if (props.usageOverride !== undefined) return false",
+        "if (props.usageOverride !== undefined && isBatchPassiveCapable(props.account)) return",
+        "props.activeUsageLoader",
+        "error.value = t('admin.accounts.usageError')"
+      ],
+      "rationale": "TK injection point (fetch short-circuit): when usageOverride is provided (even null), skip mount/lazy self-fetch and render injected usage verbatim. The explicit manual-refresh guard prevents Anthropic OAuth/SetupToken rows owned by the list batch loader from falling back to per-row /usage after a refresh token bump. Split from AccountUsageCell.vue (B6 perf) — dropping these guards would re-enable per-row /usage fetches on Edge Accounts overview or the admin accounts list and hammer prod."
     },
     {
       "path": "frontend/src/components/layout/AppSidebar.vue",
@@ -449,28 +823,31 @@
       "rationale": "The Edge Accounts nav entry is a TK-only admin sidebar item. AppSidebar.vue is a large upstream-shaped file; an upstream merge could silently drop this single nav line while keeping the build green, hiding the page from operators. Anchors the path + label key."
     },
     {
-      "path": "frontend/src/i18n/locales/en.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "edgeAccounts: 'Edge Accounts'",
-        "title: 'Edge Accounts'"
+        "\"edgeAccounts\": \"Edge Accounts\"",
+        "\"title\": \"Edge Accounts\""
       ],
       "rationale": "TK-only English i18n for the Edge Accounts page: the nav label (edgeAccounts) and the admin.edgeAccounts.title definition. Locked in lockstep with the zh.ts counterpart so an upstream locale merge cannot drop one language and leave raw i18n key paths in the operator UI."
     },
     {
-      "path": "frontend/src/i18n/locales/zh.ts",
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
       "must_contain": [
-        "edgeAccounts: 'Edge 账号'",
-        "title: 'Edge 账号'"
+        "\"edgeAccounts\": \"Edge 账号\"",
+        "\"title\": \"Edge 账号\""
       ],
       "rationale": "TK-only Chinese i18n for the Edge Accounts page — the zh counterpart of the en.ts edge-accounts anchor. Guards against an upstream locale-file rewrite silently dropping the block."
     },
     {
       "path": "frontend/src/components/account/AccountCapacityCell.vue",
       "must_contain": [
+        "CapacityBadge :color-class=\"concurrencyClass\""
+      ],
+      "must_not_contain": [
         "todayStats",
         "capacity.today.tooltip"
       ],
-      "rationale": "TK adds a today-usage badge (tokens·$cost) for ALL account types in the capacity column (admin accounts page + edge accounts page). The `todayStats` prop and the `admin.accounts.capacity.today.tooltip` i18n key are the TK-only contract; an upstream merge that rewrites this capacity cell could silently drop the today-usage badge — it would compile fine, just lose the feature (and the deliberate 0-value grey-out that surfaces anomalies like kiro's current 0-billing). Sentinel guards that the badge survives upstream convergence."
+      "rationale": "TK removed the today-usage badge from the capacity column — today metrics (tokens, account billing, user billing) live only in the dedicated 今日统计 column to avoid duplicating the same numbers. must_not_contain blocks an upstream merge from re-embedding tokens·$cost in capacity; must_contain keeps the concurrency capacity badge wired."
     },
     {
       "path": "frontend/src/views/admin/GroupsView.vue",
@@ -482,9 +859,770 @@
     {
       "path": "frontend/src/views/admin/groupsMessagesDispatch.ts",
       "must_contain": [
-        "opus_mapped_model: \"gpt-5.5\","
+        "opus_mapped_model: \"gpt-5.5\",",
+        "GROK_MESSAGES_DISPATCH_DEFAULTS",
+        "grok-4.3",
+        "grok-code-fast-1"
       ],
-      "rationale": "Frontend mirror of the Go code-default opus family mapping (backend/internal/service/openai_messages_dispatch.go defaultOpenAIMessagesDispatchOpusMappedModel = gpt-5.5). The admin form prefills this value when group config is empty; if the two copies drift the UI shows a default the gateway will not apply. Keep both sides in lockstep."
+      "rationale": "Frontend mirror of Go messages dispatch defaults: openai groups prefilled with gpt-5.5/gpt-5.3-codex-spark/gpt-5.4-mini; grok groups prefilled with grok-4.3/grok-code-fast-1. Drift between admin UI defaults and gateway fallbacks silently misroutes Claude Code tier picks."
+    },
+    {
+      "path": "frontend/src/components/keys/UseKeyGuide.vue",
+      "must_contain": [
+        "claude-opus-4-8[1m]"
+      ],
+      "rationale": "The 'Use API Key' guide recommends ANTHROPIC_MODEL for Claude Code. The base id MUST be an empirically-servable Anthropic model (backend supportedAnthropicCatalogModels, regenerated from a live prod probe — PR #608), NOT a bare alias. The gateway strips the trailing [1m] context-window suffix (gateway_anthropic_context_window_alias_tk.go), so a bare 'opus[1m]' collapses to 'opus' and is rejected as a non-servable model name → 400 invalid_request (PR #617), while the user silently never gets 1M context. Pinning the servable id catches a regression back to the bare alias on upstream merge or careless edit. Advance this needle (and the guide's export/settings strings) together when the servable opus generation moves past claude-opus-4-8. Canonical surface moved from UseKeyModal.vue to UseKeyGuide.vue (quickstart SSOT)."
+    },
+    {
+      "path": "frontend/src/components/keys/UseKeyGuide.vue",
+      "must_contain": [
+        "const antigravityClaudeAllowed = computed(",
+        "supportedModelScopes"
+      ],
+      "rationale": "Antigravity 使用指南的 scope gate（与后端 /antigravity/v1/models 的 supported_model_scopes 过滤同口径）。antigravityClaudeAllowed 据分组 supportedModelScopes 是否含 'claude' 决定是否展示 Claude flavor（Claude Code tab、OpenCode antigravity-claude provider）；默认全量 Antigravity 分组可展示 #1265 live Claude 子集，若运营创建 gemini_text/gemini_image-only 分组则隐藏 Claude，避免指南教用户配置该分组不可服务的 flavor。上游 merge 若删除该 computed 或 supportedModelScopes prop，指南会静默回退到无视分组 scopes。本 sentinel 与后端 gateway_handler_tk_model_list.go 的 tkAntigravityFilterModelsByGroupScopes 锚点配对。Canonical surface: UseKeyGuide.vue."
+    },
+    {
+      "path": "frontend/src/views/HomeView.vue",
+      "must_contain": [
+        "HomeTkLanding"
+      ],
+      "rationale": "TokenKey's entire public /home landing lives in the TK-only component HomeTkLanding.tk.vue (CLAUDE.md §5 convergence); HomeView.vue is a thin wrapper whose default branch renders <HomeTkLanding/> while preserving the upstream admin home_content override (iframe/HTML). Upstream's HomeView default branch is the generic sub2api landing markup — a future `git merge upstream/main` could silently re-inline that markup and drop the <HomeTkLanding/> delegation: it would compile fine, just revert the whole TokenKey landing (terminal CLI demo, advantage tags, moat cards, brand). The sentinel turns that silent backward-drift into a failed merge gate."
+    },
+    {
+      "path": "frontend/src/i18n/index.ts",
+      "must_contain": [
+        "./tk/home.tk",
+        "mergeLocaleMessage"
+      ],
+      "rationale": "All TokenKey home/landing copy (tags, feature/moat cards, comparison, providers, CTA) lives in the TK-only overlay i18n/tk/home.tk.ts and is deep-merged over the upstream locale by this two-line injection in loadLocaleMessages (await import('./tk/home.tk') + i18n.global.mergeLocaleMessage). The upstream locale files (locales/en.ts, zh.ts) are deliberately kept at ZERO diff so they merge cleanly — which means EVERY TK home string depends entirely on this overlay call. An upstream merge that rewrites loadLocaleMessages could silently drop it, reverting all TK home copy to the upstream defaults (Antigravity card, '扩展引擎', sub2api wording) with no compile error and no visible failure. This is the single most fragile point of the convergence; the sentinel makes its removal a hard merge-gate failure."
+    },
+    {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": [
+        "form.concurrency = Math.max(0, form.concurrency || 0)"
+      ],
+      "rationale": "TK changes the upstream account concurrency input default: the gateway treats concurrency<=0 as UNLIMITED (concurrency_service.go AcquireAccountSlot), so the input must allow 0. Upstream pins min=\"1\" with a Math.max(1,…) clamp, which can neither set 'unlimited' nor open+save an account already at 0 (API/SQL-seeded) — native HTML5 validation silently blocks submit with no toast. This anchors the min=\"0\" + Math.max(0,…) clamp; an upstream merge that re-overwrites this modal and reverts the clamp compiles cleanly but silently re-breaks editing 0-concurrency accounts and removes the unlimited option. priority's matching min=\"0\" reverts in the same upstream block, so this one clamp anchor guards the whole number-input fix. Mirrored in CreateAccountModal + BulkEditAccountModal entries."
+    },
+    {
+      "path": "frontend/src/components/account/CreateAccountModal.vue",
+      "must_contain": [
+        "form.concurrency = Math.max(0, form.concurrency || 0)"
+      ],
+      "rationale": "Same 0=unlimited concurrency guard as the EditAccountModal entry, for the create path. Anchors min=\"0\" + Math.max(0,…); a future upstream merge reverting to min=\"1\"/Math.max(1,…) would silently remove the ability to create an unlimited-concurrency account. See the EditAccountModal entry for the full rationale (concurrency_service.go treats concurrency<=0 as unlimited)."
+    },
+    {
+      "path": "frontend/src/components/account/BulkEditAccountModal.vue",
+      "must_contain": [
+        "concurrency = Math.max(0, concurrency || 0)"
+      ],
+      "rationale": "Same 0=unlimited concurrency guard as EditAccountModal, for the bulk-edit path (the third account-form surface). Anchors min=\"0\" + Math.max(0,…); without it a bulk update reverted by an upstream merge could neither set unlimited nor preserve a 0 and would clamp it back to 1. Keeps the 0=unlimited behavior consistent across single-edit / create / bulk-edit for every platform."
+    },
+    {
+      "path": "frontend/src/views/admin/AccountsView.vue",
+      "must_contain": [
+        ":title=\"t('admin.accounts.accountIdHint')\">ID: {{ row.id }}"
+      ],
+      "rationale": "PR #697: the account ID (database primary key) line under the name in the #cell-name template, used by operators to pinpoint an account when troubleshooting (cooldown attribution, SQL lookups, scheduler logs all key on id). A single one-line span on a large upstream-shaped view is exactly the kind of change an upstream merge silently drops while keeping the build green — without it operators are back to extra DB queries to map name→id. The literal pins both the i18n hint hook and the rendered row.id in one anchor."
+    },
+    {
+      "path": "frontend/src/views/admin/EdgeAccountsView.vue",
+      "must_contain": [
+        ":title=\"t('admin.edgeAccounts.accountIdHint')\">ID: {{ acct.id }}"
+      ],
+      "rationale": "PR #697: the edge-local account ID line under the name in the Edge Accounts overview table. The ID shown is the EDGE's own database primary key (data comes from each edge's /admin/accounts), NOT the prod account id — the i18n hint exists precisely to prevent that confusion during troubleshooting, so the anchor pins the hint hook together with the rendered acct.id. Same silent-drop risk as the AccountsView entry above; both surfaces must move in lockstep."
+    },
+    {
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
+      "must_contain": [
+        "\"accountIdHint\": \"Account ID (database primary key)",
+        "\"accountIdHint\": \"Account ID on this edge (edge-local database primary key)"
+      ],
+      "rationale": "PR #697: English hover hints for the account ID line on /admin/accounts (admin.accounts.accountIdHint) and /admin/edge-accounts (admin.edgeAccounts.accountIdHint). The edge variant's 'edge-local database primary key' wording is load-bearing — it is the only place warning operators that edge account IDs are a different keyspace from prod's. Anchored as key + distinctive prefix (not full text) so copy edits stay cheap; locked in lockstep with the zh.ts counterpart below so an upstream locale merge cannot drop one language and leave a raw i18n path in the title attribute."
+    },
+    {
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
+      "must_contain": [
+        "\"accountIdHint\": \"账号 ID（数据库主键）",
+        "\"accountIdHint\": \"该 edge 上账号的 ID（edge 本地数据库主键）"
+      ],
+      "rationale": "PR #697: Chinese counterparts of the en.ts accountIdHint anchors above (admin.accounts.accountIdHint + admin.edgeAccounts.accountIdHint, the latter carrying the edge-local-keyspace warning). Moves in lockstep with en.ts so neither language silently regresses during an i18n upstream merge."
+    },
+    {
+      "path": "frontend/src/views/user/studio/ChatStudio.vue",
+      "must_contain": [
+        "resolveTkClientIntegrationUrl",
+        "TK_CLIENT_INTEGRATIONS",
+        "gatewayChatCompletion"
+      ],
+      "rationale": "Chat surface, folded from the retired /playground into the Studio's Chat modality (route /playground now redirects to /studio?mode=chat). The external-client one-click deeplink imports (Cherry Studio etc.) and the /v1/chat/completions call live here; the key-first cascade moved to the shell (MediaStudioView selectedKeyId + pickModalityKey). An upstream merge or refactor that drops the integrations wiring silently reverts the connect-your-tools UX."
+    },
+    {
+      "path": "frontend/src/constants/clientIntegrations.tk.ts",
+      "must_contain": [
+        "resolveTkClientIntegrationUrl",
+        "cherrystudio://providers/api-keys?v=1&data={cherryConfig}",
+        "id: 'new-api'"
+      ],
+      "must_not_contain": [
+        "`sk-${"
+      ],
+      "rationale": "Deeplink templates + encoding mirror new-api's resolveChatUrl so external clients (Cherry Studio / DeepChat / AionUI) accept TokenKey unchanged: payload id/platform MUST stay 'new-api' (clients key off that identifier), and the API key MUST pass through verbatim — TokenKey keys already carry the sk- prefix (api_key_service.go), so any new-api-style `sk-${...}` prefixing would double it and break every import."
+    },
+    {
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
+      "must_contain": [
+        "\"integrationsTitle\": \"Connect external apps\"",
+        "\"pickKeyPlaceholder\": \"Select an API key…\""
+      ],
+      "rationale": "Studio chat key-selector + integrations card strings (studio.chat.integrationsTitle / studio.pickKeyPlaceholder, folded in from the retired playground block); anchors keep the TK i18n from being dropped in an i18n-heavy upstream merge."
+    },
+    {
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
+      "must_contain": [
+        "\"integrationsTitle\": \"一键接入外部客户端\"",
+        "\"pickKeyPlaceholder\": \"选择一个 API 密钥…\""
+      ],
+      "rationale": "Chinese counterparts of the en.ts Studio chat anchors above; moves in lockstep so neither language silently regresses."
+    },
+    {
+      "path": "frontend/src/constants/playgroundMedia.tk.ts",
+      "must_contain": [
+        "modalityForModel",
+        "id.startsWith('gpt-image-')",
+        "id.includes('seedance') || id.startsWith('veo-') || id === 'grok-imagine-video'",
+        "videoStateFromFetch",
+        "isGeminiNativeImageModel",
+        "extractChatImageItems"
+      ],
+      "rationale": "Playground media modality table + tolerant response parsing. /v1/models returns bare ids and the public catalog has no image/video capability tag, so this frontend table is the only thing routing gpt-image-*/imagen-*/seedream prompts to /v1/images/generations and veo-*/seedance/grok-imagine-video prompts to the vt_ video task flow. The gpt-image- prefix mirrors the backend's own intent predicate (openai_images.go isOpenAIImageGenerationModel) — if either side changes family patterns the other must follow. isGeminiNativeImageModel classifies gemini-*-image / nano-banana ids as 'image' (mirrors backend isImageGenerationModel) — they are served via /v1/chat/completions (verified prod: the image returns as ![image](data:…) markdown for antigravity + newapi groups), so extractChatImageItems is the ONLY parser pulling that inline image out of the chat response; dropping either silently regresses gemini-native image in the Studio."
+    },
+    {
+      "path": "frontend/src/constants/groupImagePricing.tk.ts",
+      "must_contain": [
+        "GROUP_IMAGE_PRICING_PLATFORMS",
+        "'newapi'",
+        "supportsGroupImagePricing"
+      ],
+      "rationale": "Admin GroupsView gates the 图片生成计费 section (allow_image_generation + image price tiers) through supportsGroupImagePricing. newapi media groups (Vertex imagen/veo, Seedream) need the same toggle migration 134 gave openai/gemini/antigravity; omitting newapi here hides the only operator-facing control and forces SQL backfills for every new media group."
+    },
+    {
+      "path": "frontend/src/views/user/studio/ChatStudio.vue",
+      "must_contain": [
+        "modalityForModel"
+      ],
+      "rationale": "The Studio Chat modality filters its model picker to chat-classified ids (chatModels = [...availableIds].filter(id => modalityForModel(id) === 'chat')) so media model ids never appear in the chat picker where they could only 400 against /v1/chat/completions. The shell (MediaStudioView) owns the key picker + /v1/models probe; this is the chat surface folded in from the retired /playground. If an upstream merge drops this filter, the chat picker re-lists media models that can only error."
+    },
+    {
+      "path": "frontend/src/api/playground.ts",
+      "must_contain": [
+        "gatewayImageGenerations",
+        "gatewayVideoFetch",
+        "/v1/video/generations/",
+        "X-TokenKey-Studio-Source",
+        "gatewayTraceHeaders"
+      ],
+      "rationale": "Gateway media calls for the playground (images sync POST with 180s timeout, video submit + per-task fetch). Paths must stay the TK gateway aliases registered in routes/gateway_tk_openai_compat_handlers.go. gatewayTraceHeaders forwards X-TokenKey-Studio-* on Studio image/video submits so backend audit.openai_image_request can correlate BakeOff/ImageStudio runs."
+    },
+    {
+      "path": "frontend/src/components/user/dashboard/UserDashboardCharts.vue",
+      "must_contain": [
+        "t('dashboard.actual')"
+      ],
+      "must_not_contain": [
+        "dashboard.standard",
+        "formatCost(model.cost)"
+      ],
+      "rationale": "PR #718: user-level model-distribution table shows ONLY actual (rate-multiplied) cost; the standard-cost column was removed by product decision. An upstream merge restoring the standard column/header here silently re-exposes pre-multiplier pricing to end users."
+    },
+    {
+      "path": "frontend/src/components/user/dashboard/UserDashboardStats.vue",
+      "must_contain": [
+        "today_actual_cost"
+      ],
+      "must_not_contain": [
+        "dashboard.standard"
+      ],
+      "rationale": "PR #718: user dashboard today/total spend cards show only actual cost — the '/ $standard' secondary span must not come back via upstream merge."
+    },
+    {
+      "path": "frontend/src/components/user/dashboard/UserDashboardRecentUsage.vue",
+      "must_contain": [
+        "formatCost(log.actual_cost)"
+      ],
+      "must_not_contain": [
+        "dashboard.standard",
+        "formatCost(log.total_cost)"
+      ],
+      "rationale": "PR #718: user recent-usage list shows only actual cost per log entry; the standard-cost span must not be restored by an upstream merge."
+    },
+    {
+      "path": "frontend/src/components/admin/usage/UsageTable.vue",
+      "must_contain": [
+        "!getDisplayBillingMode(tooltipData) || getDisplayBillingMode(tooltipData) === BILLING_MODE_TOKEN",
+        "showAccountBilling",
+        "v-if=\"showAccountBilling\""
+      ],
+      "must_not_contain": [
+        "actualized(tooltipData.input_cost)"
+      ],
+      "rationale": "PR #718 + upstream merge 2026-07: user usage records expose only actual billed amounts on the user page. The shared UsageTable now owns the tooltip; user pages pass showAccountBilling=false so Rate×N / Original rows stay hidden, while admin pages can still inspect account billing. The tooltip token branch must route through getDisplayBillingMode so historical image rows (no billing_mode) keep the Image branch."
+    },
+    {
+      "path": "frontend/src/views/user/UsageView.vue",
+      "must_contain": [
+        "'Billed Cost',",
+        "(log.actual_cost ?? 0).toFixed(8)",
+        ":show-account-billing=\"false\""
+      ],
+      "must_not_contain": [
+        "'Rate Multiplier',",
+        "'Original Cost',"
+      ],
+      "rationale": "PR #718 + upstream merge 2026-07: the user usage CSV exports Billed Cost only and the user page disables account billing details in the shared UsageTable. Upstream merges of this large upstream-shaped view tend to restore raw multiplier/original-cost columns."
+    },
+    {
+      "path": "frontend/src/utils/billingMode.ts",
+      "must_contain": [
+        "if (!row?.billing_mode && (row?.image_count ?? 0) > 0) {",
+        "return BILLING_MODE_IMAGE"
+      ],
+      "rationale": "PR #718 R-001: getDisplayBillingMode must derive Image mode for historical rows lacking billing_mode (regression originally introduced by extraction commit ef5ad0fb — signature took image_count but ignored it). Without this anchor a refactor/merge can silently re-drop the derivation; the symptom is historical image usage rendering as Token billing."
+    },
+    {
+      "path": "frontend/src/components/admin/usage/UsageTable.vue",
+      "must_contain": [
+        "!getDisplayBillingMode(tooltipData) || getDisplayBillingMode(tooltipData) === BILLING_MODE_TOKEN"
+      ],
+      "rationale": "PR #718 R-001: admin usage tooltip token-branch must route through getDisplayBillingMode (same historical-image-row fix as the user view); raw tooltipData.billing_mode here regresses historical image rows into the token branch."
+    },
+    {
+      "path": "Makefile",
+      "must_contain": [
+        "src/views/user/__tests__/UsageView.spec.ts"
+      ],
+      "rationale": "PR #718 R-002: UsageView.spec.ts sat red for ~a month because it was outside FRONTEND_CRITICAL_VITEST. Keeping it in the critical set is what makes the user usage-page behavior (actual-only display + image billing derivation) CI-visible."
+    },
+    {
+      "path": "frontend/src/composables/useTkUseKey.ts",
+      "must_contain": [
+        "export function useTkUseKey(",
+        "getMePricingCatalog({ apiKeyId: id })",
+        "function runTest(",
+        "export function anthropicEnvModel("
+      ],
+      "rationale": "PR #788: brain of the redesigned 'Use API Key' modal. The model picker draws ONLY the key's live servable menu via getMePricingCatalog (no hand-typed/retired/bare ids), runTest fires a canonical-correct gateway request routed per platform/flavor (/v1/messages · /v1/chat/completions · :generateContent), and anthropicEnvModel re-applies the [1m] 1M-window alias for opus. TK-only module with no upstream counterpart — an upstream merge that deletes/replaces it would silently revert the modal to hardcoded model hints and drop the live test, re-opening the ~950/wk wrong-model and ~2808/wk invalid-key error classes this redesign was built (from prod ops_error_logs) to kill. Anchors the servable-menu data source + the per-platform test routing entrypoint + the [1m] helper."
+    },
+    {
+      "path": "frontend/src/components/keys/UseKeyGuide.vue",
+      "must_contain": [
+        "const tk = useTkUseKey({",
+        "function onPickModel(",
+        "function onTest(",
+        "tkIsCCOnly",
+        "selectedClient?: string | null",
+        "generateQwenCodeFiles",
+        "generateCompatibleClientFields",
+        "data-tk=\"quickstart-environment-picker\""
+      ],
+      "rationale": "Shared configuration owner for the key modal and tool-first Quickstart: live servable model picker/test, CC-only handling, controlled client selection, Qwen env-file credential split, compatible-client fields, and contextual OS selection. An upstream overwrite can compile while silently removing one of these paths, so the behavior owner and its Quickstart extensions are pinned together."
+    },
+    {
+      "path": "frontend/src/components/keys/UseKeyModal.vue",
+      "must_contain": [
+        "UseKeyGuide",
+        ":routing-mode=\"routingMode\""
+      ],
+      "rationale": "Thin dialog wrapper delegating to UseKeyGuide.vue (quickstart SSOT). An upstream merge restoring a monolithic UseKeyModal would drop the shared guide and fork maintenance again; these anchors ensure the wrapper still forwards routingMode and embeds UseKeyGuide."
+    },
+    {
+      "path": "frontend/src/views/user/QuickstartView.vue",
+      "must_contain": [
+        "UseKeyGuide",
+        "parseKeyIdFromQuery",
+        "QuickstartClientPicker",
+        "data-tk=\"quickstart-config-workspace\"",
+        ":selected-client=\"selectedClient.guideId\"",
+        "data-tk=\"quickstart-transport-picker\"",
+        "data-tk=\"quickstart-protocol-picker\"",
+        "keyId: String(keyId)"
+      ],
+      "rationale": "TokenKey /quickstart is the canonical tool-first connection flow: all supported clients are visible before configuration, Qwen protocol and Codex transport are secondary controls, and key/client state is deep-linked without exposing the key. Upstream QuickstartView is a separate static snippet page; a merge could silently restore that old flow while compiling green."
+    },
+    {
+      "path": "frontend/src/views/user/KeysView.vue",
+      "must_contain": [
+        "path: '/quickstart'",
+        "query: { keyId:"
+      ],
+      "rationale": "Keys list 'Use Key' action must navigate to /quickstart?keyId= (canonical guide SSOT), not open an inline duplicate modal. Upstream merge rewriting KeysView actions could silently restore UseKeyModal wiring."
+    },
+    {
+      "path": "frontend/src/views/user/studio/ImageStudio.vue",
+      "must_contain": [
+        "data-testid=\"studio-image-model\"",
+        "data-testid=\"studio-image-aspect\"",
+        "data-testid=\"studio-image-generate\"",
+        "StudioLocalSaveBanner",
+        "test-id=\"studio-image-save-reminder\"",
+        "StudioImageExpired",
+        "mountStudioImageLibrary",
+        "useStudioImagePreview",
+        "StudioImagePreviewLightbox",
+        "pricesFlat",
+        "useStudioImageCardActions"
+      ],
+      "rationale": "TK-only Studio image-generation surface (mounted by MediaStudioView when mode==='image'). The model card picker, the per-model aspect-ratio chips, and the generate button are the contract the studio e2e drives. The aspect chips are MODEL-SPECIFIC by design: each model's imageSizes (studioMediaPresentations.tk.ts) decides the exact `size` string sent — Imagen ratio codes, Seedream pixels — so an upstream merge that drops the aspect picker or reverts it to a fixed pixel preset reintroduces the Imagen 'Invalid aspect ratio, 3:2' hard-400 on landscape/portrait. mountStudioImageLibrary (SSOT with BakeOff) anchors onMounted IndexedDB hydrate + s3Key re-presign (POST /v1/images/presign) so reloaded sessions don't show dead thumbnails; useStudioImagePreview + StudioImagePreviewLightbox mirror the video SSOT lightbox (#1092). pricesFlat is the FE mirror of the backend Imagen flat-billing exemption (billing_service_tk_flat_image.go): it ORs flatImageBilling (gemini-native) with the model's flatPricePerImage (imagen) and drives the estimate/hold/formula/billed note to drop the 1K/2K/4K size multiplier for imagen WITHOUT touching imagen's /v1/images routing, multi-image n, or no-image-input behaviors — dropping it desyncs the quoted price from settlement (UI over-quotes imagen ×1.5 while the gateway now bills flat). useStudioImageCardActions is the shared image download owner (SSOT sibling of the video path's useStudioVideoCardActions) — dropping the wiring reverts the view to a private downloadMedia bypass. Anchoring the test-ids keeps the surface from compiling green with the feature silently gone."
+    },
+    {
+      "path": "frontend/src/views/user/studio/VideoStudio.vue",
+      "must_contain": [
+        "data-testid=\"studio-video-model\"",
+        "data-testid=\"studio-video-generate\"",
+        "data-testid=\"studio-video-play\"",
+        "data-testid=\"studio-video-download\"",
+        "data-testid=\"studio-video-copy-card-link\"",
+        "StudioLocalSaveBanner",
+        "test-id=\"studio-video-save-reminder\"",
+        "StudioVideoUnavailable",
+        "StudioVideoPreviewLightbox",
+        "useStudioVideoPreview",
+        "useStudioVideoCardActions",
+        "useStudioVideoSubmitOptions",
+        "data-testid=\"studio-video-generate-audio\"",
+        "mountStudioVideoLibrary",
+        "StudioVideoPreviewChecking",
+        "StudioVideoDownloadCard",
+        "videoTaskCardPresentation"
+      ],
+      "must_not_contain": [
+        "poll.refreshUrl"
+      ],
+      "rationale": "TK-only Studio video-generation surface (mounted by MediaStudioView when mode==='video'). The model picker + generate button are the contract the studio e2e drives. studio-video-play (the succeeded-card poster tile) + studio-video-preview (the in-page lightbox) REPLACE the old always-on inline <video> and the open-in-new-tab link: the lightbox plays http(s) upstream URLs directly in the browser, while inline data:video results are converted into temporary Blob URLs for this tab and revoked on close/unmount. That keeps playback browser-local and prevents opening a succeeded card from refetching TokenKey as a video server. The data:video->Blob conversion + revoke now lives in the shared videoPlaybackUrl helper (utils/studioMedia.tk.ts), used by both this lightbox and Bake-Off; this anchor pins that import/usage so the no-rehost playback can't be silently reverted to an always-on <video>. studio-video-copy-link remains the in-lightbox affordance for copying upstream/direct media URLs, while studio-video-download + studio-video-copy-card-link are the card-level escape hatches that must stay visible when cross-origin playback fails and the preview tile is marked unavailable."
+    },
+    {
+      "path": "frontend/src/utils/studioMedia.tk.ts",
+      "must_contain": [
+        "export function videoTaskCardPresentation",
+        "export function videoTaskPlaybackAvailable",
+        "export function videoCopyLinkAvailable",
+        "export function videoTaskCopyLinkAvailable",
+        "export function videoPlaybackUrl",
+        "export function imageHistoryItemAvailable",
+        "export function shouldShowStudioSaveReminder",
+        "export function groupImageHistoryByTs",
+        "data:video",
+        "parseDataVideoUri",
+        "createObjectURL",
+        "revokeObjectURL"
+      ],
+      "rationale": "Shared Studio video-playback resolver enforcing the #944 'TokenKey is not a media CDN' rule for EVERY on-demand video surface (VideoStudio lightbox + Bake-Off panels). videoPlaybackUrl hands http(s) upstream URLs straight to the browser and converts an inline data:video result (the one response already delivered to this tab) into a tab-local Blob URL with a revoke() — never re-fetching or rehosting. Parsing/normalization of Veo codec-prefixed data: URIs lives in studioInlineVideo.tk.ts (SSOT). Deleting/inlining this back into a single view risks one surface (e.g. Bake-Off) regressing to an always-on <video> that competes loads and black-boxes pre-play; the data:video + createObjectURL + revokeObjectURL anchors pin the conversion + cleanup."
+    },
+    {
+      "path": "frontend/src/utils/studioInlineVideo.tk.ts",
+      "must_contain": [
+        "export function parseDataVideoUri",
+        "export function buildDataVideoUri",
+        "export function normalizeVideoMimeForDataUri",
+        "export function isInlineStudioVideoUrl"
+      ],
+      "rationale": "SSOT for Veo/Vertex inline data:video clips: strip codec params from mimeType, normalize base64 alphabet, and detect inline vs http(s) URLs. Consumed by extractVideoUrl, videoPlaybackUrl, IndexedDB blob cache, and copy/download — prevents Veo playback regressions when upstream mimeType carries codecs=."
+    },
+    {
+      "path": "frontend/src/composables/useStudioVideoPreview.ts",
+      "must_contain": [
+        "export function useStudioVideoPreview",
+        "videoPlaybackUrl",
+        "copyStudioVideoLink",
+        "onInlineCopyUnsupported",
+        "onPreviewError",
+        "downloadPreview",
+        "previewState",
+        "rawUrl",
+        "allowCopyLink"
+      ],
+      "rationale": "Single lightbox state machine for Studio video preview (VideoStudio + BakeOff). Centralizes open/close, Blob URL revoke, session-local preview error (lightbox stays open; card poster SSOT unchanged), retry, copy-link (raw upstream url), and download via rawUrl so surfaces cannot drift after playback fixes."
+    },
+    {
+      "path": "frontend/src/composables/useStudioVideoCardActions.ts",
+      "must_contain": [
+        "export function useStudioVideoCardActions",
+        "export function createStudioVideoActionHandlers",
+        "copyStudioVideoLink",
+        "downloadMedia",
+        "copyCardLink",
+        "downloadCardVideo",
+        "onInlineCopyUnsupported"
+      ],
+      "rationale": "Shared card-level copy-link + download actions for VideoStudio and BakeOff succeeded panels. urlExpired download path warns instead of opening a dead upstream tab."
+    },
+    {
+      "path": "frontend/src/composables/useStudioImageCardActions.ts",
+      "must_contain": [
+        "export function useStudioImageCardActions",
+        "export function studioImageDownloadFilename",
+        "downloadMedia",
+        "downloadCardImage",
+        "downloadAllImages"
+      ],
+      "rationale": "Image sibling of useStudioVideoCardActions (Studio SSOT table in docs/global/agent-reference.md): the single owner of the image card/lightbox download action and the staggered batch export. It delegates the actual save to studioDownload.tk's downloadMedia (data:/blob:/remote handling) and pins the canonical tokenkey-<id>.png filename both ImageStudio and BakeOff use, closing the ImageStudio direct-downloadMedia bypass. Silent upstream-merge deletion would orphan the ImageStudio download wiring or tempt views to re-inline their own anchor-click download."
+    },
+    {
+      "path": "frontend/src/views/user/studio/components/StudioVideoPreviewLightbox.vue",
+      "must_contain": [
+        "'studio-video-preview'",
+        "'studio-video-preview-close'",
+        "'studio-video-copy-link'",
+        "@error",
+        "studio.video.retry",
+        "emit('download')"
+      ],
+      "rationale": "Shared Teleport lightbox UI for Studio video playback. VideoStudio and BakeOff mount this instead of duplicating inline video + error/retry/download affordances."
+    },
+    {
+      "path": "frontend/src/composables/useStudioImageLibrary.ts",
+      "must_contain": [
+        "export async function mountStudioImageLibrary",
+        "export async function refreshStudioOffloadedImageUrls",
+        "export async function onStudioImageThumbError",
+        "gatewayImagePresign"
+      ],
+      "rationale": "Single reload path for Studio image history (ImageStudio + BakeOff): IndexedDB hydrate, s3Key re-presign, and thumbnail error -> IDB rehydrate. Prevents duplicate mount logic and the blob:/http localStorage persistence bug that broke previews on second refresh."
+    },
+    {
+      "path": "frontend/src/composables/useStudioVideoLibrary.ts",
+      "must_contain": [
+        "export async function mountStudioVideoLibrary",
+        "hydrateFromBlobCache"
+      ],
+      "rationale": "Single reload path for Studio video history (VideoStudio + BakeOff): IndexedDB hydrate after reload. Mirrors useStudioImageLibrary without s3Key presign — video passthrough keeps http urls out of localStorage (#944)."
+    },
+    {
+      "path": "frontend/src/composables/useStudioImagePreview.ts",
+      "must_contain": [
+        "export function useStudioImagePreview",
+        "imageHistoryItemAvailable",
+        "closePreview"
+      ],
+      "rationale": "Shared in-page image lightbox state for ImageStudio (mirrors useStudioVideoPreview from #1092). data: URIs cannot open in a new tab; preview stays in-page with Escape-to-close."
+    },
+    {
+      "path": "frontend/src/views/user/studio/components/StudioVideoDownloadCard.vue",
+      "must_contain": [
+        "studio-video-download-only",
+        "studio-video-download-primary",
+        "StudioPlaybackBadge",
+        "downloadOnlyHint"
+      ],
+      "rationale": "Download-first succeeded card when upstream http(s) URLs fail CORS inline preview (Seedance/VolcEngine). Replaces misleading play tile with primary download + copy-link — honest UX per #944 pass-through."
+    },
+    {
+      "path": "frontend/src/views/user/studio/components/StudioVideoPreviewChecking.vue",
+      "must_contain": [
+        "studio-video-checking",
+        "checkingPreview"
+      ],
+      "rationale": "Transient card while tagStudioVideoPlayback probes upstream CORS — no fake play tile before classification completes."
+    },
+    {
+      "path": "frontend/src/views/user/studio/components/StudioImagePreviewLightbox.vue",
+      "must_contain": [
+        "'studio-image-preview'",
+        "'studio-image-preview-close'",
+        "emit('download', preview)",
+        "emit('reuse', preview)"
+      ],
+      "rationale": "Shared Teleport lightbox UI for Studio image playback. ImageStudio mounts this instead of duplicating inline preview + footer actions."
+    },
+    {
+      "path": "frontend/src/utils/studioImageHistory.tk.ts",
+      "must_contain": [
+        "export function studioImageHistoryId",
+        "export function isEphemeralImageSrc",
+        "export function imageHistoryPromptTitle"
+      ],
+      "rationale": "Shared image-history helpers: unique row ids (Vue :key), ephemeral-src persistence guard, and revised_prompt tooltip text. Used by useMediaLibrary sanitizers and ImageStudio/BakeOff history cards."
+    },
+    {
+      "path": "frontend/src/utils/studioPlaybackStorage.tk.ts",
+      "must_contain": [
+        "export async function tagStudioVideoPlayback"
+      ],
+      "rationale": "Shared playback-storage tagging after video task url arrives — used by VideoStudio and BakeOff instead of duplicating CORS probe + IndexedDB mirror wiring."
+    },
+    {
+      "path": "frontend/src/constants/studioMediaPresentations.tk.ts",
+      "must_contain": [
+        "export const MEDIA_MODEL_PRESENTATIONS",
+        "export function resolveAvailableModels",
+        "doubao-seedance-1-0-pro-250528",
+        "doubao-seedance-1-5-pro-251215",
+        "doubao-seedance-2-0-260128",
+        "doubao-seedance-2-0-fast-260128",
+        "supportedParams",
+        "export const IMAGEN_IMAGE_SIZES",
+        "export const SEEDREAM_IMAGE_SIZES",
+        "export const GEMINI_IMAGE_SIZES"
+      ],
+      "rationale": "TK-only Studio presentation/capability overlay. MEDIA_MODEL_PRESENTATIONS is NOT the membership or pricing SSOT; it holds UI metadata for currently public-served media models (friendly name, vendor label, supportedParams, aspect ratios, discrete durations). resolveAvailableModels(modality, availableIds, priceMap) is the priced∩servable runtime filter the model-card picker drives. Dropping these silently regresses the transparent model picker or, worse, lets an unservable/unpriced model surface as a 400-on-submit footgun. The explicit video model anchors keep Studio presentation aligned with backend/public catalog video SSOT: routed Seedance IDs are the doubao-* manifest/mapping IDs (no-prefix seedance is billing parity only). Grok Imagine Video and Veo stay out of this presentation set until an explicit paid gate proves them keep_displayed. supportedParams is the honest Advanced-panel capability gate — only params a model actually honors are rendered. IMAGEN_IMAGE_SIZES / SEEDREAM_IMAGE_SIZES / GEMINI_IMAGE_SIZES are the per-model aspect-ratio option sets: Imagen MUST send ratio codes {1:1,3:4,4:3,9:16,16:9} verbatim, Seedream MUST send pixel WxH, and GEMINI_IMAGE_SIZES carries the 10 prod-canary-verified (2026-06-17) gemini-native ratios that ride extra_body.google.image_config.aspect_ratio. Losing the imagen set reverts to the fixed-pixel preset that made the gemini/vertex adaptor emit 3:2/2:3, which Imagen hard-400s ('Invalid aspect ratio, 3:2'); losing the gemini set silently drops the restored aspect picker back to R-001's no-control state."
+    },
+    {
+      "path": "frontend/src/views/user/KeysView.vue",
+      "must_contain": [
+        "canExportTraj && trajExportPlatforms.includes(row.group?.platform"
+      ],
+      "rationale": "PR #792/#808 + multi-platform: the per-key conversation-record (traj) Export chip is gated by BOTH the admin-granted per-user switch (canExportTraj) AND the server-driven projectable-platform allowlist (trajExportPlatforms, from /auth/me traj_export_platforms = engine.TrajProjectablePlatforms). The platform list is no longer hardcoded in the UI. KeysView.vue is upstream-shaped; a git merge that overwrites it back to upstream shape would silently drop the chip or its dual gate, exposing the export entry to every platform/user while still compiling."
+    },
+    {
+      "path": "frontend/src/api/qaTraj.ts",
+      "must_contain": [
+        "qaTrajAPI",
+        "format: 'v2'",
+        "api_key_id"
+      ],
+      "rationale": "PR #792: the TK-only conversation-export API client. qaTrajAPI.exportKey posts {api_key_id, format:'v2'} to the per-key self-export endpoint; an upstream merge replacing the api/ layer or dropping this module would silently sever the export wiring (KeysView import breaks loud, but a merge that rewrites both would not)."
+    },
+    {
+      "path": "frontend/src/api/client.tk.ts",
+      "must_contain": [
+        "class ApiError extends Error",
+        "export function createApiError"
+      ],
+      "rationale": "PR #803: ApiError is the TK-only Error subclass the axios response interceptor rejects with, so `e instanceof Error` holds across the whole app and no call site renders \"[object Object]\". It carries the flattened backend fields (status/code/message/reason/error/metadata) as enumerable own properties. If an upstream merge replaced client.tk.ts or dropped this class, client.ts's createApiError import would break loud — but a merge rewriting both would silently revert every error banner to the [object Object] bug. createNetworkError also returns an ApiError instance; the isNetworkError duck-type guard (status===0) still matches it."
+    },
+    {
+      "path": "frontend/src/api/client.ts",
+      "must_contain": [
+        "createApiError("
+      ],
+      "rationale": "PR #803: the upstream-shaped axios response interceptor must reject with createApiError(...) (a real Error), NOT a plain object. This is the load-bearing injection point — an upstream merge that restores the original `Promise.reject({ status, code, message })` plain-object shape would compile fine and silently reintroduce the app-wide [object Object] rendering bug at every `e instanceof Error ? e.message : String(e)` call site. Anchoring the createApiError( call makes that revert fail the merge gate instead of shipping silently."
+    },
+    {
+      "path": "frontend/src/utils/accountUsageBatch.tk.ts",
+      "must_contain": [
+        "export function isBatchPassiveCapable(account: Account): boolean",
+        "export function usesPassiveUsageOnMount(account: Account): boolean",
+        "export function canSelfFetchUsage(account: Account): boolean",
+        "export function usesLocalUsageWindows(account: Account): boolean",
+        "account.platform === PLATFORM_KIRO",
+        "account.platform === PLATFORM_OPENAI && account.type === 'oauth'",
+        "account.platform === PLATFORM_NEWAPI || account.platform === PLATFORM_GROK",
+        "account.platform === PLATFORM_ANTIGRAVITY && account.type !== 'oauth'"
+      ],
+      "rationale": "Single source of truth for which admin list rows are served by POST /admin/accounts/usage/batch (Anthropic OAuth/SetupToken, OpenAI OAuth, Kiro, and local-window adapters: NewAPI/Grok/Antigravity API-key stubs). Shared by useTkAccountUsageBatch and useAccountUsageFetch so batch eligibility and cell self-fetch gates cannot drift. Dropping or narrowing this module reintroduces per-row /usage fan-out or blanks passive kiro/openai/grok/newapi/antigravity rows on edge/prod account lists."
+    },
+    {
+      "path": "frontend/src/composables/useTkAccountUsageBatch.ts",
+      "must_contain": [
+        "export function useTkAccountUsageBatch(",
+        "getBatchPassiveUsage(",
+        "isBatchPassiveCapable",
+        "from '@/utils/accountUsageBatch.tk'",
+        "function usageOverrideFor(account: Account): AccountUsageInfo | null | undefined",
+        "return key in usageByAccountId.value ? usageByAccountId.value[key] : null"
+      ],
+      "rationale": "TK composable that batches Anthropic / OpenAI OAuth / Kiro / Grok passive usage for the admin accounts list and exposes a per-row usageOverride (defined => the cell never self-fetches). Owns the batch API call + race guard; platform scoping lives in accountUsageBatch.tk.ts. If deleted or narrowed back to passive-only rows, the accounts list regresses to per-row /usage XHRs. Pins the composable, the batch API call, the shared scoping import, the list-owned override function, and the present-with-null sentinel."
+    },
+    {
+      "path": "frontend/src/views/admin/AccountsView.vue",
+      "must_contain": [
+        "useTkAccountUsageBatch",
+        ":usage-override=\"accountUsageOverrideFor(row)\"",
+        "const refreshAccountRowMetrics = () => {",
+        "refreshTodayStatsBatch().catch(",
+        "refreshUsageBatch(rows).catch(",
+        "refreshAccountRowMetrics()"
+      ],
+      "rationale": "Injection points where the upstream-shaped accounts list wires the batch passive-usage composable: the cell usage-override binding (suppresses per-row self-fetch) and the refreshAccountRowMetrics helper that kicks today-stats and usage-batch loading after list load/reload/auto-refresh without serializing those background requests on the main list response. An upstream merge re-resolving AccountsView could drop the override binding (cells fall back to N self-fetches), restore serialized row metrics, or stop refreshing overrides after list changes. Pins the import, the cell binding, and the concurrent row-metric refresh helper/calls."
+    },
+    {
+      "path": "frontend/src/api/admin/accounts.ts",
+      "must_contain": [
+        "export async function getBatchPassiveUsage("
+      ],
+      "rationale": "Frontend client for POST /admin/accounts/usage/batch, mirroring getBatchTodayStats. Load-bearing for the accounts-list fan-out fix; if an upstream merge drops it, the composable's batch call fails to compile/resolve. Pins the exported client function."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/UpstreamQuotaSummary.vue",
+      "must_contain": [
+        "defineProps<{",
+        "quota?: UpstreamQuotaInfo | null",
+        "formatDimensionLine",
+        "formatCreditLine"
+      ],
+      "rationale": "Shared admin account-card renderer for UsageInfo.upstream_quota. Capacity/balance/subscription data must be displayed from one normalized field instead of each platform cell inventing its own summary. Dropping this component leaves backend upstream_quota populated but invisible, or encourages duplicated per-platform UI logic."
+    },
+    {
+      "path": "frontend/src/types/index.ts",
+      "must_contain": [
+        "export interface UpstreamQuotaInfo",
+        "export interface UpstreamQuotaDimension",
+        "export interface UpstreamQuotaCredit",
+        "upstream_quota?: UpstreamQuotaInfo | null"
+      ],
+      "rationale": "TypeScript contract for the normalized upstream_quota field returned by /admin/accounts/:id/usage and edge usage DTOs. Losing these types makes the shared renderer impossible to consume safely and pushes platform-specific quota shapes back into cells."
+    },
+    {
+      "path": "frontend/src/utils/edgeAccounts.tk.ts",
+      "must_contain": [
+        "upstream_quota: s.usage.upstream_quota ?? null"
+      ],
+      "rationale": "Edge overview must lift the edge-side UsageInfo.upstream_quota into the same AccountUsageInfo shape used by AccountUsageCell. Without this line prod inline edge panels show local windows but silently drop upstream quota/capacity/credits from edge accounts."
+    },
+    {
+      "path": "frontend/src/views/user/KeysView.vue",
+      "must_contain": [
+        "formData.universal = !formData.universal",
+        "v-if=\"!formData.universal\"",
+        "row.routing_mode === 'universal'",
+        "keys.universalBadge"
+      ],
+      "rationale": "Universal Key (全能 Key) create/edit surface (docs/approved/universal-key-routing.md): the default-ON toggle that, when on, hides the group picker (v-if=\"!formData.universal\") and submits routing_mode='universal' with no group_id; and the key-table badge that shows row.routing_mode==='universal' instead of the change-group affordance. KeysView.vue is a large upstream-shaped file; an upstream merge that rewrites the create form or key card could silently drop the toggle or the badge while compiling green, regressing every new key back to mandatory single-group binding. These anchors turn that backward-drift into a merge-gate failure."
+    },
+    {
+      "path": "frontend/src/composables/useTkAccountsEdgePanels.ts",
+      "must_contain": [
+        "export function useTkAccountsEdgePanels",
+        "isStubPanelExpanded",
+        "applyAccountUpdate"
+      ],
+      "rationale": "TK-only composable owning the inline edge-panel expand-state machine on /admin/accounts (the cc-<edge> mirror-stub second-level expansion). Composes useTkEdgeAccounts for edge data + ETag auto-refresh and exposes expandedKeys (driven by the pure isStubPanelExpanded: explicit override, else default-expand), panelForStub, toggle/expandAll/collapseAll, and applyAccountUpdate (surgical post-op edge-data patch so an inline write reflects instantly without a full refetch). Keeps the upstream-shaped AccountsView.vue thin (template + wiring) per CLAUDE.md §5. Guards against silent upstream-merge/refactor deletion that would orphan the expandable edge panels."
+    },
+    {
+      "path": "frontend/src/utils/accountsEdgePanels.tk.ts",
+      "must_contain": [
+        "export function edgePanelHasAnomaly",
+        "export function isStubPanelExpanded",
+        "export function sortEdgeAccountsAbnormalFirst"
+      ],
+      "rationale": "TK-only pure helpers for the inline edge panels. edgePanelHasAnomaly + edgeAccountIsAbnormal decide which stubs/accounts are flagged as needing attention; isStubPanelExpanded is the unit-tested v2 expand decision (explicit override, else default-expand — every stub's panel is open unless the operator collapsed it, 一目了然); sortEdgeAccountsAbnormalFirst floats abnormal edge accounts to the top of each panel so what needs attention stays reachable regardless of list length. Dropping any one regresses the default-full-expand policy or the anomaly-first ordering."
+    },
+    {
+      "path": "frontend/src/components/admin/account/EdgeAccountPanelTk.vue",
+      "must_contain": [
+        "EdgeAccountActionMenuTk",
+        "openEdgeManage",
+        "adminAPI.edgeAccounts.clearRateLimit",
+        "shouldShowEdgeAccountError(acct)",
+        "PlatformTypeBadge",
+        ":subscription-expires-at=\"(accountVm(acct).accountLike.credentials?.subscription_expires_at",
+        "refreshKiroToken",
+        "fetchActiveUsageInto",
+        "active-usage-loader",
+        "loadEdgeActiveUsage"
+      ],
+      "rationale": "TK-only #row-detail panel rendered under each cc-<edge> stub row: the focused edge header (reachable/stub badges + 管理整个 edge handoff via openEdgeManage) plus the edge's account sub-table that REUSES AccountCapacityCell/AccountUsageCell/AccountStatusIndicator via accountVm, with inline status-class write ops (clearRateLimit/resetQuota/clearTempUnschedulable/setSchedulable/getUsage) through the prod thin-proxy and EdgeAccountActionMenuTk. shouldShowEdgeAccountError gates persisted edge error_message so a recovered active account does not keep showing an old 403 under its name. The platform/type column REUSES the shared PlatformTypeBadge fed from the credential-free subscription projection (plan_type + subscription-expires-at) so an edge openai account shows its plan + 订阅到期 exactly like the prod accounts page — dropping PlatformTypeBadge / the subscription-expires-at binding re-blanks the subscription 到期 the operator asked for on edge accounts. refreshKiroToken + fetchActiveUsageInto are the「手动刷新即拉一次 kiro credits」path: AccountsView.handleManualRefresh bumps the token (ONLY there — never on the auto-refresh tick), and the panel watches it to active-query each kiro account's live credits once (kiro has no organic passive refresh). Dropping them reverts kiro credits to「passive-only, blank until you 查询 each row」. Guards against silent deletion that would drop inline edge management, the subscription badge, the manual kiro-credits pull, or reintroduce stale recovered-error display."
+    },
+    {
+      "path": "frontend/src/components/admin/account/EdgeAccountActionMenuTk.vue",
+      "must_contain": [
+        "'query-usage'",
+        "'clear-rate-limit'",
+        "manage"
+      ],
+      "rationale": "TK-only per-edge-account action menu. Emits the WHITELISTED status-class ops (query-usage / clear-rate-limit / clear-temp-unschedulable / reset-quota) the panel forwards to the edge via the prod proxy, plus a 'manage' entry that hands off to the edge's own /admin/accounts for credential-class ops — the visual separation that stops an operator expecting an inline credential edit. Guards the credential boundary affordance against silent deletion."
+    },
+    {
+      "path": "frontend/src/constants/codexRateLimitWindows.tk.ts",
+      "must_contain": [
+        "normalizeCodexAdditionalLimits",
+        "additional_rate_limits"
+      ],
+      "rationale": "TK-only normalizer that turns the OpenAI/Codex /wham/usage additional_rate_limits[] (per-model metered windows, e.g. GPT-5.3-Codex-Spark) into display-ready 5h/7d windows for OpenAIQuotaResetCell.vue. The backend already fetches these windows but they were never surfaced, so an exhausted spark sub-limit hid behind a healthy account-wide gauge ('刷不出 codex 额度'). If this helper is dropped on an upstream merge the spark window silently disappears from the admin card again; the .vue import would fail loudly, but the sentinel adds a second layer."
+    },
+    {
+      "path": "frontend/src/views/admin/DashboardView.vue",
+      "must_contain": [
+        "import { dashboardWindowParams, rollingWindowTs } from '@/utils/dashboardWindow.tk'",
+        "const goToUserUsage = (item: UserSpendingRankingItem) => {",
+        "...(dashboardWindowParams(activePreset.value))",
+        "...(rollingWindow ?? dashboardWindowParams(activePreset.value))",
+        "loadedDashboardRollingWindow.value ?? rollingWindowTs(activePreset.value) ?? {}",
+        "const promptCacheOverview = computed(() => {",
+        "cache_telemetry_unavailable_input_tokens",
+        "data-testid=\"prompt-cache-overall-status\"",
+        "include_group_stats: true"
+      ],
+      "rationale": "The admin Dashboard's own requests carry the TK window via dashboardWindowParams(): rolling presets use absolute epoch-ms and calendar presets use a server-TZ range token. Drilldowns deliberately reuse the exact successfully loaded rolling window because /admin/usage consumes absolute start_ts/end_ts, not range. The same snapshot group facet owns the prompt-cache overview: it excludes Kiro-estimated unavailable input, ranks the top five groups by prompt-token impact, and avoids an extra endpoint. These anchors prevent an upstream-shaped Dashboard rewrite from silently restoring timezone drift, widening drilldowns, or dropping cache observability while still compiling."
+    },
+    {
+      "path": "frontend/src/views/admin/UsageView.vue",
+      "must_contain": [
+        "import { rollingWindowTs } from '@/utils/dashboardWindow.tk'",
+        "const getTimeWindowParams = () => selectedAbsoluteWindow.value ?? rollingWindowTs(activePreset.value)",
+        "...(getTimeWindowParams() ?? {})",
+        "start_time: timeWindow ? new Date(timeWindow.start_ts).toISOString()",
+        ":start-ts=\"getTimeWindowParams()?.start_ts\"",
+        "const queryGroupId = getNumericQueryValue(route.query.group_id)",
+        "group_id: queryGroupId"
+      ],
+      "rationale": "Admin Usage rolling presets must send absolute epoch-ms windows to list, stats, charts, endpoint/model distributions, errors, and dashboard drilldown routes. Dashboard group drilldowns must also consume group_id into the shared filters so the URL selection reaches every Usage query. Dropping this wiring silently restores widened local-date queries or shows unfiltered usage after a group click."
+    },
+    {
+      "path": "frontend/src/constants/storefrontSeo.tk.ts",
+      "must_contain": [
+        "export const STOREFRONT_SEO",
+        "ogImageUrl: 'https://api.tokenkey.dev/og-cover.png'"
+      ],
+      "rationale": "Canonical public SEO copy for index.html meta tags, Go crawler prerender (prerender_seo_tk.go), and home.tk.ts hero overlay. Without this SSOT, SPA/prerender/social-preview copy drifts silently; scripts/checks/storefront-seo-alignment.py mechanically gates TS ↔ Go ↔ HTML surfaces."
+    },
+    {
+      "path": "frontend/src/i18n/tk/home.tk.ts",
+      "must_contain": [
+        "storefrontSeo.tk",
+        "STOREFRONT_SEO.zh.heroTitle",
+        "STOREFRONT_SEO.en.heroTitle"
+      ],
+      "rationale": "Home landing hero/CTA must consume storefrontSeo.tk.ts instead of duplicating strings; losing the import re-opens SEO/copy drift between SPA and crawler prerender."
+    },
+    {
+      "path": "backend/internal/web/embed_on.go",
+      "must_contain": [
+        "tryServeCrawlerPrerender(c)"
+      ],
+      "rationale": "TK crawler prerender hook must stay a one-line call into embed_on_tk_prerender.go so upstream embed_on.go Middleware() body stays merge-friendly (CLAUDE.md §5 minimal-invasion)."
+    },
+    {
+      "path": "backend/internal/web/embed_on_tk_prerender.go",
+      "must_contain": [
+        "func tryServeCrawlerPrerender",
+        "PrerenderMiddleware()"
+      ],
+      "rationale": "Companion file holding crawler prerender integration; deleting it or inlining back into embed_on.go re-opens upstream merge conflict surface and drops SEO prerender silently if the call site is lost."
+    },
+    {
+      "path": "frontend/src/App.vue",
+      "must_contain": [
+        "cachedUserViews",
+        "<KeepAlive :include=\"cachedUserViews\">"
+      ],
+      "rationale": "TK wraps the RouterView in a KeepAlive with an explicit include list (cachedUserViews) so user-facing views (Dashboard, Usage, Keys, Profile, Studio, KeyUsage) preserve component state across navigation instead of re-mounting. Upstream App.vue has no KeepAlive; an upstream merge that replaces the template block drops the wrapper silently, causing every navigation to remount and lose in-progress form/filter state on all cached views."
+    },
+    {
+      "path": "frontend/src/types/index.ts",
+      "must_contain": [
+        "export interface AccountModelOption {",
+        "display_name: string"
+      ],
+      "must_not_contain": [
+        "export interface ClaudeModel {"
+      ],
+      "rationale": "The admin account models endpoint is cross-platform and returns only id/display_name. This type prevents the UI from depending on Claude/OpenAI-specific metadata that the backend no longer exposes."
+    },
+    {
+      "path": "frontend/src/api/admin/accounts.ts",
+      "must_contain": [
+        "getAvailableModels(id: number): Promise<AccountModelOption[]>",
+        "apiClient.get<AccountModelOption[]>"
+      ],
+      "rationale": "Typed client for the cross-platform minimal admin model option contract. Losing these anchors silently reintroduces the old ClaudeModel response assumption."
+    },
+    {
+      "path": "frontend/src/views/admin/AccountsView.vue",
+      "must_contain": [
+        "models.map((m: AccountModelOption)",
+        "m.display_name || m.id"
+      ],
+      "rationale": "The scheduled-test model selector consumes only the shared account model option fields. It must not grow a dependency on platform-specific model response shapes."
     }
   ]
 }

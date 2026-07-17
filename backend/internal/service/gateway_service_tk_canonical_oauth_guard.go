@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,8 +15,10 @@ import (
 // 2026-05-25 Anthropic hold on edge-uk1 account EN-LD-EC2-16-3:
 //   1. third-party SDK UAs (OpenAI/Python, httpx, requests, ...) silently
 //      draining a personal Claude Code subscription
-//   2. retired models (claude-opus-4-6 / claude-opus-4-5*) routed alongside the
+//   2. retired models (claude-opus-4-5* and older) routed alongside the
 //      current 4-7 default — a mix-pattern real cc clients no longer produce.
+//      (claude-opus-4-6 is deliberately excluded — see canonicalDeprecatedOpusPrefixes:
+//      it still serves upstream WITH plaintext thinking, so remapping it away is harmful.)
 //
 // Both gates are scoped to OAuth + canonical TLS only; API-key channels and
 // non-canonical OAuth accounts keep upstream-default behavior.
@@ -27,8 +30,29 @@ type CanonicalIngressUARejectedError struct {
 	IngressUA string
 }
 
+// canonicalIngressRejectNeedle is the stable TokenKey-generated phrase carried
+// by every canonical-ingress UA rejection (Error() below). Real provider APIs
+// never emit it, so — like ErrNoAvailableAccounts — it doubles as the relay-hop
+// recognition signal: when a prod mirror stub receives this 403 from a strict-
+// mode edge, IsCanonicalIngressUARejectMessage matches it and the prod side
+// fails over without cooling the stub (see
+// ratelimit_service_tk_canonical_ingress_reject.go and
+// ops_error_logger_tk_client_induced_upstream.go). Changing this string breaks
+// that recognition across mixed prod/edge versions — treat it as a wire contract.
+const canonicalIngressRejectNeedle = "canonical claude oauth path rejects non-cc client"
+
 func (e *CanonicalIngressUARejectedError) Error() string {
-	return fmt.Sprintf("canonical claude oauth path rejects non-cc client: ingress user_agent=%q (use claude-cli)", e.IngressUA)
+	return fmt.Sprintf("%s: ingress user_agent=%q (use claude-cli)", canonicalIngressRejectNeedle, e.IngressUA)
+}
+
+// IsCanonicalIngressUARejectMessage reports whether an upstream error body /
+// message is a TokenKey canonical-ingress UA rejection relayed from a
+// downstream strict-mode edge. Exported for the handler-layer ops classifier.
+func IsCanonicalIngressUARejectMessage(responseBody []byte, upstreamMsg string) bool {
+	if strings.Contains(strings.ToLower(upstreamMsg), canonicalIngressRejectNeedle) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(string(responseBody)), canonicalIngressRejectNeedle)
 }
 
 // canonicalIngressUAForbiddenSubstrings lists case-insensitive substrings that
@@ -85,16 +109,70 @@ func checkCanonicalIngressUA(headers http.Header) error {
 	return nil
 }
 
+// canonicalIngressUAAllowedPrefixes lists the case-insensitive UA prefixes that
+// the strict allow-list gate accepts. Only real Claude Code clients emit these
+// ("claude-cli/" is the CLI/SDK, "claude-code/" is the IDE/extension build);
+// everything else — including empty and unknown UAs — is rejected.
+var canonicalIngressUAAllowedPrefixes = []string{
+	"claude-cli/",
+	"claude-code/",
+}
+
+// checkCanonicalIngressUAStrict is the allow-list counterpart of
+// checkCanonicalIngressUA, used only when
+// SettingKeyAnthropicCanonicalIngressStrictEnabled is true. It returns nil only
+// when the trimmed, lower-cased User-Agent starts with one of
+// canonicalIngressUAAllowedPrefixes; an empty UA or any unknown UA returns
+// *CanonicalIngressUARejectedError (HTTP 403 at the handler).
+//
+// Rationale: with cc_only relaxed on a group, the canonical OAuth path is the
+// only client-identity gate left for a personal subscription's edge account. An
+// empty UA is a real passed-through client signal on the transparent prod→edge
+// relay (not a relay artifact), so strict mode must require an explicit CC
+// identity rather than tolerating anonymous traffic. The default deny-list path
+// (checkCanonicalIngressUA) is preserved unchanged for zero regression.
+func checkCanonicalIngressUAStrict(headers http.Header) error {
+	ua := strings.TrimSpace(headers.Get("User-Agent"))
+	lower := strings.ToLower(ua)
+	for _, p := range canonicalIngressUAAllowedPrefixes {
+		if strings.HasPrefix(lower, p) {
+			return nil
+		}
+	}
+	return &CanonicalIngressUARejectedError{IngressUA: ua}
+}
+
+// shouldRewriteSystemForNonCCMimicry decides whether the OAuth mimicry path
+// should rewrite the system prompt for a non-CC request. Default behavior skips
+// haiku (it carries CC headers but no CC system rewrite). When canonicalStrict
+// is true the haiku skip is lifted so the cohort stays consistent (CC headers +
+// CC system/billing block together). Non-haiku models are always rewritten.
+// Pure predicate so the gating contract is unit-testable in isolation.
+func shouldRewriteSystemForNonCCMimicry(reqModel string, canonicalStrict bool) bool {
+	if canonicalStrict {
+		return true
+	}
+	return !strings.Contains(strings.ToLower(reqModel), "haiku")
+}
+
 // canonicalDefaultOpus is the current Claude Code default opus tier; deprecated
 // opus model ids are remapped to this on the canonical OAuth path.
 const canonicalDefaultOpus = "claude-opus-4-7"
 
-// canonicalDeprecatedOpusPrefixes lists the opus model ids that the 2.1.150
-// Claude Code CLI no longer emits by default; routing them alongside 4-7
-// produces a mix-pattern that current real clients do not. Each entry is the
-// model-id prefix (so dated variants like claude-opus-4-6-20250930 are caught).
+// canonicalDeprecatedOpusPrefixes lists opus model ids to remap to the current
+// default. Each entry is a model-id prefix (so dated variants like
+// claude-opus-4-5-20250520 are caught too).
+//
+// NOTE: claude-opus-4-6 is intentionally NOT in this list. It is still served
+// upstream and — unlike opus >= 4-7 — still returns PLAINTEXT extended thinking
+// (verified 2026-06-13: opus-4-6 -> HTTP 200 with ~1800-3800 chars of thinking,
+// while opus-4-7/4-8 return an empty thinking block + signature only). Remapping
+// 4-6 -> 4-7 silently destroyed that thinking (and silently substituted the
+// model the caller asked for / its billing key). The remap's original rationale
+// ("retired opus no longer emits thinking") proved false for 4-6, so it passes
+// through. opus-4-5 stays remapped only because it rejects the thinking shape we
+// send (`adaptive`); 4-4 and older are genuinely 404 upstream.
 var canonicalDeprecatedOpusPrefixes = []string{
-	"claude-opus-4-6",
 	"claude-opus-4-5",
 	"claude-opus-4-4",
 	"claude-opus-4-3",
@@ -128,4 +206,32 @@ func (s *GatewayService) isCanonicalAnthropicOAuth(account *Account) bool {
 		return false
 	}
 	return IsCanonicalTLSProfileName(s.tlsFingerprintProfileNameForAccount(account))
+}
+
+// tkGroupAdmitsNonCC reports whether the request's effective group has opted into
+// serving non-Claude-Code traffic (group.ClaudeCodeOnly == false). This is the
+// single operator-facing control that, on a canonical OAuth account, switches the
+// non-CC policy from "reject at ingress" (deny-list 403) to "admit and launder on
+// the wire" (the existing egress mimicry path completes the CC disguise).
+//
+// Rationale (no separate setting): cc_only IS the switch. A non-CC client only
+// ever reaches forwarding under a cc_only=false group — the cc-only gate
+// (gateway_service.go, ErrClaudeCodeOnly) follows fallbacks until the resolved
+// group is non-cc-only or the client is real CC. So when the deny-list would fire
+// (always on a non-CC UA), the operator has already declared admission via
+// cc_only=false; re-rejecting at the account level only contradicts that intent.
+//
+// Fail-closed: a nil request, missing group id, or resolution error returns false
+// so the canonical deny-list guard stays in force (zero regression on the unknown
+// path). The explicit strict-ingress toggle is unaffected — it remains the
+// override for operators who want to reject all non-CC even under cc_only=false.
+func (s *GatewayService) tkGroupAdmitsNonCC(ctx context.Context, parsed *ParsedRequest) bool {
+	if parsed == nil || parsed.GroupID == nil {
+		return false
+	}
+	g, err := s.resolveGroupByID(ctx, *parsed.GroupID)
+	if err != nil || g == nil {
+		return false
+	}
+	return !g.ClaudeCodeOnly
 }

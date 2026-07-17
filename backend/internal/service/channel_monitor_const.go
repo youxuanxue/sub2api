@@ -3,6 +3,7 @@ package service
 import (
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
@@ -46,18 +47,23 @@ const (
 	monitorChallengeMax = 50
 
 	// providerOpenAIPath OpenAI Chat Completions 路径。
-	providerOpenAIPath = "/v1/chat/completions"
+	providerOpenAIPath = apipath.ChatCompletions
+	providerGrokPath   = apipath.ChatCompletions
 	// providerOpenAIResponsesPath OpenAI Responses API 路径。
-	providerOpenAIResponsesPath = "/v1/responses"
+	providerOpenAIResponsesPath = apipath.Responses
 	// providerAnthropicPath Anthropic Messages 路径。
-	providerAnthropicPath = "/v1/messages"
+	providerAnthropicPath = apipath.Messages
 	// providerGeminiPathTemplate Gemini generateContent 路径模板（含 model 占位）。
 	providerGeminiPathTemplate = "/v1beta/models/%s:generateContent"
 
 	// MonitorProviderOpenAI / Anthropic / Gemini provider 字符串常量（也是 ent enum 的实际值）。
-	MonitorProviderOpenAI    = "openai"
-	MonitorProviderAnthropic = "anthropic"
-	MonitorProviderGemini    = "gemini"
+	// SSOT: values sourced from domain.Platform* via domain_constants.go.
+	MonitorProviderOpenAI    = PlatformOpenAI
+	MonitorProviderAnthropic = PlatformAnthropic
+	MonitorProviderGemini    = PlatformGemini
+	MonitorProviderGrok      = PlatformGrok
+
+	MonitorDefaultGrokModel = "grok-4.5"
 
 	// MonitorStatusOperational 等监控状态字符串常量（与 ent enum 一致）。
 	MonitorStatusOperational = "operational"
@@ -112,16 +118,19 @@ var (
 		"CHANNEL_MONITOR_NOT_FOUND", "channel monitor not found",
 	)
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini",
+		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/grok",
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions or responses; responses is only supported for openai",
 	)
 	ErrChannelMonitorInvalidRequestBody = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_REQUEST_BODY", "openai replace-mode body_override must include non-empty messages for chat_completions or non-empty instructions and input for responses",
+		"CHANNEL_MONITOR_INVALID_REQUEST_BODY", "openai-compatible replace-mode body_override must include non-empty messages for chat_completions or non-empty instructions and input for responses",
 	)
 	ErrChannelMonitorInvalidInterval = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_INTERVAL", "interval_seconds must be in [15, 3600]",
+	)
+	ErrChannelMonitorInvalidJitter = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_INVALID_JITTER", "jitter_seconds must be >= 0 and interval_seconds - jitter_seconds must be >= 15",
 	)
 	ErrChannelMonitorInvalidEndpoint = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_ENDPOINT", "endpoint must be a valid https URL",

@@ -62,7 +62,7 @@ const CountTokensBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInter
 
 // HaikuBetaHeader Haiku 模型 OAuth 回退 anthropic-beta（structured-outputs 变体）。
 // 历史观察：2026-06 / cc 2.1.160 实测 haiku 存在服务端 A/B 灰度，structured-outputs
-// 为多数态，故选它；分布详见 docs/spec-delta-cc-2.1.160.md。
+// 为多数态，故选它；分布详见 docs/spec-delta/cc-2.1.160.md。
 const HaikuBetaHeader = BetaOAuth + "," + BetaInterleavedThinking + "," + BetaThinkingTokenCount + "," +
 	BetaContextManagement + "," + BetaPromptCachingScope + "," + BetaAdvisorTool + "," +
 	BetaStructuredOutputs + "," + BetaCacheDiagnosis
@@ -81,7 +81,7 @@ const DefaultCacheControlTTL = "5m"
 // CLICurrentVersion 是 sub2api 当前对外伪装的 Claude Code CLI 版本号（三段 semver）。
 // 用于 billing attribution block 中的 cc_version=X.Y.Z.{fp} 前缀以及 fingerprint 计算。
 // 必须与 DefaultHeaders["User-Agent"] 中的版本号严格一致；不一致会被 Anthropic 判第三方。
-const CLICurrentVersion = "2.1.165"
+const CLICurrentVersion = "2.1.211"
 
 // JoinBetaHeader joins beta tokens into the wire anthropic-beta header value.
 func JoinBetaHeader(betas []string) string {
@@ -137,13 +137,13 @@ func FullClaudeCodeHaikuMimicryBetas() []string {
 // 包依赖方向为 service → claude，claude 无法反向 import service，故这里以同步字面量
 // 承载，由守卫测试强制对齐。
 var DefaultHeaders = map[string]string{
-	"User-Agent":                                "claude-cli/2.1.165 (external, sdk-cli)",
+	"User-Agent":                                "claude-cli/2.1.211 (external, cli)",
 	"X-Stainless-Lang":                          "js",
 	"X-Stainless-Package-Version":               "0.94.0",
 	"X-Stainless-OS":                            "MacOS",
 	"X-Stainless-Arch":                          "arm64",
 	"X-Stainless-Runtime":                       "node",
-	"X-Stainless-Runtime-Version":               "v24.3.0",
+	"X-Stainless-Runtime-Version":               "v26.3.0",
 	"X-Stainless-Retry-Count":                   "0",
 	"X-Stainless-Timeout":                       "600",
 	"X-App":                                     "cli",
@@ -161,10 +161,22 @@ type Model struct {
 // DefaultModels Claude Code 客户端支持的默认模型列表
 var DefaultModels = []Model{
 	{
+		ID:          "claude-fable-5",
+		Type:        "model",
+		DisplayName: "Claude Fable 5",
+		CreatedAt:   "2026-06-09T00:00:00Z",
+	},
+	{
 		ID:          "claude-opus-4-5-20251101",
 		Type:        "model",
 		DisplayName: "Claude Opus 4.5",
 		CreatedAt:   "2025-11-01T00:00:00Z",
+	},
+	{
+		ID:          "claude-opus-4-1",
+		Type:        "model",
+		DisplayName: "Claude Opus 4.1",
+		CreatedAt:   "2025-08-05T00:00:00Z",
 	},
 	{
 		ID:          "claude-opus-4-6",
@@ -183,6 +195,12 @@ var DefaultModels = []Model{
 		Type:        "model",
 		DisplayName: "Claude Opus 4.8",
 		CreatedAt:   "2026-05-29T00:00:00Z",
+	},
+	{
+		ID:          "claude-sonnet-5",
+		Type:        "model",
+		DisplayName: "Claude Sonnet 5",
+		CreatedAt:   "2026-07-01T00:00:00Z",
 	},
 	{
 		ID:          "claude-sonnet-4-6",
@@ -250,4 +268,33 @@ func DenormalizeModelID(id string) string {
 		return mapped
 	}
 	return id
+}
+
+// ModelsForIDs synthesizes a []Model for the given (servable) ids. The servable
+// allowlist carries BASE ids (claude-opus-4-5) while DefaultModels carries the
+// canonical (often DATED) form (claude-opus-4-5-20251101), so DefaultModels is
+// indexed by its denormalized (base) id: a base servable id reuses the canonical
+// entry (preserving the dated wire form + DisplayName), and allowlist-only ids
+// absent from DefaultModels are synthesized. Shared by the gateway /v1/models
+// fallback and the admin available-models surface so the two never drift on the
+// synthesized display metadata.
+func ModelsForIDs(ids []string) []Model {
+	byBase := make(map[string]Model, len(DefaultModels))
+	for _, m := range DefaultModels {
+		byBase[DenormalizeModelID(m.ID)] = m
+	}
+	out := make([]Model, 0, len(ids))
+	for _, id := range ids {
+		if m, ok := byBase[id]; ok {
+			out = append(out, m)
+			continue
+		}
+		out = append(out, Model{
+			ID:          id,
+			Type:        "model",
+			DisplayName: id,
+			CreatedAt:   "2024-01-01T00:00:00Z",
+		})
+	}
+	return out
 }

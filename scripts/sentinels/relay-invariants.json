@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "rationale": "Relay-invariant test registry. Each entry pins a load-bearing, TokenKey-DELIBERATE relay behavior to the characterization test(s) that encode it. PR #835 (80 upstream commits) showed the recurring failure class this guards: an upstream rewrite silently deletes a TK behavior (G4 5h-window cooldown class, kiro/grok refresh candidates) or overrides a deliberate TK choice (SSE stream-error 502→403) with no merge conflict, no compile error, and a green CI — because the only proof of the TK choice was a test that got deleted/gutted in the same merge. This registry makes that mechanically impossible: `must_contain` anchors each test's FUNCTION DEFINITION (`func TestX(`), so an upstream merge that removes or renames the test fails this check (run by scripts/preflight.sh AND .github/workflows/upstream-merge-pr-shape.yml). The schema is the standard sentinels/path/must_contain form (not a bespoke one) so check-registry-update-gate.py also treats these test files as covered surfaces — deleting a pinned test then additionally trips the registry-update gate. Adding a new load-bearing TK relay behavior MUST add its characterization test AND an entry here in the same commit. Conversely, if you intentionally retire a behavior, you must edit this registry in the same PR (which is the human-review checkpoint, not a rubber stamp).",
+  "sentinels": [
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_model_cooldown_test.go",
+      "must_contain": [
+        "func TestG4_OverallWindow429_CoolsAccountNotModelClass(",
+        "func TestG4_PerClassSubBucket429_ModelScopedSiblingsSchedulable(",
+        "func TestG4_OpusCooled_SonnetHaikuStillSchedulable("
+      ],
+      "rationale": "G4 — Anthropic 5h/7d unified-window 429 cooldown scoping. An account-wide overall-window 429 must cool the WHOLE account, while a per-model-class sub-bucket 429 must cool only that class (opus cooled → sonnet/haiku still schedulable). This exact behavior block was silently deleted by an upstream merge once (the marquee G4 incident) and rebuilt; these TestG4_* characterization tests are its proof. Losing them lets a future merge flatten the model-class scoping back to account-wide (over-cooling) or vice versa, unnoticed."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_temp_unsched_test.go",
+      "must_contain": [
+        "func TestAccountRepository_ListOAuthRefreshCandidates_SQLFilter("
+      ],
+      "rationale": "kiro/grok OAuth refresh candidates (R-001), SQL layer. Asserts the background-refresh candidate SQL filters platforms via the parametrized `= ANY($1)` bound from engine.OAuthRefreshPlatforms() with NO platform literal left in the SQL, and that the bound list still covers kiro/grok. This is the structural kill for the R-001 silent-drop: upstream reset the hand-maintained `platform IN (...)` list to its four platforms, dropping TK platforms 6/7 with a green CI because no test pinned the list."
+    },
+    {
+      "path": "backend/internal/service/token_refresh_service_candidates_test.go",
+      "must_contain": [
+        "func TestRegisteredRefreshers_MatchOAuthRefreshSourceOfTruth(",
+        "func TestTokenRefreshService_ProcessRefreshUsesOAuthRefreshCandidates("
+      ],
+      "rationale": "kiro/grok OAuth refresh candidates (R-001), service layer. The first test welds the registered TokenRefresher set to engine.OAuthRefreshPlatforms() (a platform in the source of truth with no refresher — or a refresher with no platform — fails). The second proves kiro/grok OAuth accounts remain background-refresh candidates end-to-end. Together they make the R-001 silent-drop a build failure on either side."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_org_ban_403_test.go",
+      "must_contain": [
+        "func TestHandle403_AnthropicOrgBan_PermanentlyDisables(",
+        "func TestTryDisableAnthropicOrgBan403_MatchesOrgBan("
+      ],
+      "rationale": "Anthropic org-ban 403 → permanent disable (#810). A repeated, non-healing 403 anthropic_upstream_error is an org-level relay ban (refresh still succeeds, masking it as alive); TK permanently disables the account on the matched phrase rather than transiently cooling it forever. Losing this test lets a merge revert to transient cooldown, re-arming a dead account in the pool indefinitely."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_bodyless_403_test.go",
+      "must_contain": [
+        "func TestRateLimitService_BodylessBan403_ThresholdPermanentlyDisables(",
+        "func TestRateLimitService_BodylessBan403_StructuredBodyNeverCounts("
+      ],
+      "rationale": "Anthropic bodyless-403 terminal counter (#832). A 403 with an EMPTY body (WAF/ban edge) counts toward a permanent-disable threshold, while a 403 with a structured error body NEVER counts (it is a normal entitlement/quota 403). This polarity is subtle and easy for a merge to invert; the tests pin both directions."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_oauth401_test.go",
+      "must_contain": [
+        "func TestRateLimitService_OAuth401_AnthropicAny401SetErrorsImmediately(",
+        "func TestRateLimitService_OAuth401_OpenAIValidTokenDisablesFirstStrike("
+      ],
+      "rationale": "Anthropic OAuth 401 → immediate SetError (any token state). OpenAI OAuth keeps valid-token first-strike disable."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_beta_selfheal_test.go",
+      "must_contain": [
+        "func TestTkIsAnthropicUsagePolicyBlock("
+      ],
+      "rationale": "Anthropic usage-policy block detection. Classifies a usage-policy rejection so it is handled as a policy block (its own cooldown/advice path) rather than a generic upstream error. Losing the classifier folds usage-policy blocks back into the generic error ladder, mis-cooling and mis-alerting."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_anthropic_consolidation_test.go",
+      "must_contain": [
+        "func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintPermanentlyDisables(",
+        "func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintNotEatenBy403Rule("
+      ],
+      "rationale": "Anthropic TLS-fingerprint 403 → permanent SetError with greppable TLS prefix (bulk recover after profile re-capture), not 30s temp or generic 403 ladder. Second test guards precedence over account_disabled_auth_error temp rules."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_request_owned_429_test.go",
+      "must_contain": [
+        "func TestRateLimitService_HandleUpstreamError_RequestOwned429_DoesNotPenalize(",
+        "func TestRateLimitService_HandleUpstreamError_Genuine429_StillPenalizes("
+      ],
+      "rationale": "Request-owned 429 skip. A 429 whose phrase identifies it as owned by THIS request (a client-side/cancel-shaped 429, not pool saturation) must NOT penalize the account's cooldown ladder, while a genuine pool 429 still does. Losing this lets request-owned 429s smear cooldown across healthy accounts (the failover-pollution failure mode)."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_request_owned_429_test.go",
+      "must_contain": [
+        "func TestTkHandleAnthropicRequestOwned429_KnownPhraseShortCircuitsFirstHop(",
+        "func TestTkHandleAnthropicRequestOwned429_CapacityEnvelopesExempt("
+      ],
+      "rationale": "Request-owned 429 short-circuit at the gateway (the phrase-detection + same-text breaker that classifies a 429 as request-owned and exempts genuine capacity-envelope 429s). Paired with the ratelimit-layer test above; both layers must agree or a request-owned 429 either over- or under-penalizes."
+    },
+    {
+      "path": "backend/internal/service/gateway_streaming_test.go",
+      "must_contain": [
+        "func TestSSEStreamErrorFailover_Returns502NotForbidden("
+      ],
+      "rationale": "SSE stream-error-after-200 → 502 (Bad Gateway), NOT 403. A mid-stream upstream death is 'upstream unavailable', so it must fail over with 502 and hit the TempUnscheduleRetryableError 502 hook — not 403, which routes the event into handle403's org-ban/WAF/entitlement space and collided with the empty-body-403 fast-fail. The merge that produced #835 overrode TK's deliberate 502 (commit c7785a7e) back to upstream's 403; this test is the graft's permanent guard (the seed of this whole registry)."
+    },
+    {
+      "path": "backend/internal/service/thinking_ref_model_tk_test.go",
+      "must_contain": [
+        "func TestThinkingRefModel_AnthropicRelayUsesMappedModel(",
+        "func TestThinkingRefModel_AnthropicCompatUsesOriginalModel("
+      ],
+      "rationale": "Thinking-protocol model-reference routing. The thinking helpers key on the MAPPED upstream model on the native Anthropic relay path but the ORIGINAL client model on the Anthropic-shape→Gemini-backend compat path — opposite variables for the same semantic role. These tests pin the behavior in BOTH directions (each proves the inversion would break the other path), welding the choice named by thinking_ref_model_tk.go so a merge cannot silently swap mappedModel↔originalModel."
+    },
+    {
+      "path": "backend/internal/service/thinking_protocol_test.go",
+      "must_contain": [
+        "func TestResolveThinkingProtocol(",
+        "func TestShouldApplyRetryFiltersMirrorsPreFilter("
+      ],
+      "rationale": "Thinking-protocol classification (anthropic-strict vs passback-required vs unknown) and the pre-filter/retry-filter symmetry. This is the family-classification logic the model-reference routing above depends on; an upstream rewrite of ResolveThinkingProtocol that drops a passback-required vendor prefix (deepseek/kimi/glm/minimax-m/qwen-thinking) would silently start stripping thinking blocks those upstreams require round-tripped."
+    }
+  ]
+}

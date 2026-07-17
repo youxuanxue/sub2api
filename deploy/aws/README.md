@@ -17,14 +17,13 @@ deploy/aws/
 ├── README.md                         本文件（quick start）
 ├── cloudformation/
 │   ├── stage0-single-ec2.yaml        主站/test Stage 0 CFN：compose+Caddyfile gzip+base64 内嵌 UserData
-│   ├── stage0-edge-ec2.yaml          Edge Stage 0 CFN：共享 compose，Edge Caddy API path allowlist
 │   └── cicd-oidc.yaml                GitHub Actions OIDC + SSM/CFN 最小权限
 └── stage0/
     ├── docker-compose.yml            源真：Caddy + tokenkey + PostgreSQL + Redis（主站与 Edge 共用）
     ├── Caddyfile                     主站/test Caddy：LE 自动签证书 + 反代到 tokenkey:8080
-    ├── Caddyfile.edge                Edge Caddy：/v1/*、/api/* 默认只允许主网关 EIP
-    ├── edge-targets.json             Edge 矩阵：uk1 / fra1 deployable；us1 / sg1 planned
-    ├── resolve-edge-target.py        workflow 解析 Edge 目标并 fail-before-AWS
+    ├── Caddyfile.edge                Edge Caddy：/v1/*、/api/* 默认只允许主网关出口；Lightsail edge 复用
+    ├── edge-targets.json             EC2 edge 矩阵（2026-06-07 已清空：edges 改 Lightsail，见 deploy/aws/lightsail/edge-targets-lightsail.json；文件保留为空 stub 供 resolver 不致缺文件 hard-fail）
+    ├── resolve-edge-target.py        workflow 解析 Edge 目标并 fail-before-AWS（合并读 Lightsail 矩阵）
     ├── .env.example                  环境变量模板（生产 .env 由 Cloud-Init 自动生成；本地调试可复制使用）
     └── build-cfn.sh                  把 docker-compose.yml + Caddyfile(.edge) + QA 清理 / GHCR prune 等脚本注入 CFN（含 SSM 段）
 ```
@@ -45,7 +44,7 @@ CFN 模板已把 `docker-compose.yml`、`Caddyfile`、`deploy/aws/stage0/tokenke
 
 ### 把 Caddyfile 改动落到「已经在跑」的主机（热同步）
 
-`deploy-stage0.yml` / `deploy_via_ssm.sh` **只换镜像，不刷新 Caddyfile**——Caddyfile 是开机时由 UserData 从 SSM Parameter 渲染一次的。所以改了 `lb_try_duration` 这类指令后，现有 prod/edge 主机要等下次重建才生效。两条生效路径：
+`deploy_via_ssm.sh`（Lightsail edge / legacy single-app path）**只换镜像，不刷新 Caddyfile**——Caddyfile 是开机时由 UserData 从 SSM Parameter 渲染一次的。所以改了 `lb_try_duration` 这类指令后，现有主机要等下次重建才生效。两条生效路径：
 
 - **下次重建生效（reboot durability）**：`build-cfn.sh` 已把新 Caddyfile 嵌进 CFN 模板的 SSM 段；一次普通 `update-stack`（或重新 provision / EIP 轮换）就把新 blob 推进 Parameter Store，下次开机渲染即新值。更新 SSM Parameter 资源**不会**替换实例（UserData 只在启动时跑）。
 - **立刻生效（live host）**：跑热同步脚本，在运行中的主机上按开机同样的方式重渲染 Caddyfile 并 `caddy reload`（零断连）：
@@ -54,14 +53,18 @@ CFN 模板已把 `docker-compose.yml`、`Caddyfile`、`deploy/aws/stage0/tokenke
 # prod（EC2 instance-id 从 deploy-stage0 的 Resolve target 步骤拿，或 describe-stacks）
 bash ops/stage0/sync_caddyfile_via_ssm.sh prod <instance-id>
 
-# edge（EC2）
-bash ops/stage0/sync_caddyfile_via_ssm.sh edge <instance-id>
-
-# edge（Lightsail Hybrid，按 EdgeId tag 寻址）
+# edge（Lightsail Hybrid，按 EdgeId tag 寻址；edges 均为 Lightsail）
 EDGE_ID=<edge> bash ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-id>
 ```
 
-脚本复刻开机渲染：`API_DOMAIN`/`ACME_EMAIL` 取自主机 `.env`；edge 的 `MAIN_GATEWAY_ALLOWED_CIDR`（不在 `.env`）从当前 Caddyfile 的 `remote_ip` 行反读以原样保留 allowlist。先在一次性 caddy 容器里 `caddy validate`，通过才**就地**写回（`cat > Caddyfile` 保 inode，避免 bind-mount 单文件换 inode 后容器看不到），再 `caddy reload`；任一步失败自动回滚到备份并 reload。
+脚本复刻开机渲染：`API_DOMAIN`/`ACME_EMAIL` 取自主机 `.env`；edge 的 `MAIN_GATEWAY_ALLOWED_CIDR`（不在 `.env`）从当前 Caddyfile 的 `remote_ip` 行反读以原样保留 allowlist。prod 主机如果已迁移到 blue/green，会在渲染 canonical Caddyfile 后保留当前 `active-color` 对应的 `tokenkey-blue|green:8080` upstream，避免热同步把流量指回 legacy `tokenkey:8080`。先在一次性 caddy 容器里 `caddy validate`，通过才**就地**写回（`cat > Caddyfile` 保 inode，避免 bind-mount 单文件换 inode 后容器看不到），再 `caddy reload`；任一步失败自动回滚到备份并 reload。
+
+### 把 #811 的 swap + 内存压力告警落到「已经在跑」的 prod（不重建实例）
+
+同一道理：`deploy-stage0.yml` 虽然会更新 app 镜像和 blue/green runtime state，但**不跑 EC2 bootstrap / CloudFormation UserData**，所以 #811 给 `stage0-ec2-bootstrap.sh` 加的 `/swapfile` 释放阀 + `vm.swappiness`/`vfs_cache_pressure` sysctl，以及 `tokenkey-disk-metrics.sh` 里的内存压力告警，都只在**实例 bootstrap**时落地——#811 之前 provision 的 prod 实例不会有。两条生效路径：
+
+- **下次重建生效**：换机 / CFN 更新时 bootstrap 自动装上（#804 已 pin AMI，换机不退版）。
+- **立刻生效（live host，prod-only）**：dispatch `ops-stage0-host-mem-guard.yml -f target=prod`（或本地 `bash ops/stage0/sync-host-mem-guard-via-ssm.sh <instance-id>`）。原语在运行中的实例上 fallocate swap + 写 sysctl + 刷新 `tokenkey-disk-metrics.sh`，**两段 payload 都从 `stage0-ec2-bootstrap.sh` 运行时抽取**（单一源、无副本漂移）；幂等（swap 已在则跳过、disk-metrics 原地覆盖由 5min timer 复跑）。edge 是 Lightsail 中继、另一套 bootstrap、无此 timer，故不覆盖。
 
 ## Quick Start
 
@@ -110,106 +113,115 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 # 期望 200；首次若 503 是 LE 还在签证书，等 1–2 min
 ```
 
-## Edge Stage 0（EC2 + Lightsail）
+## Edge Stage 0（Lightsail-only）
 
-Edge 子网关不是第二个用户入口。区域域名（如 `api-uk1.tokenkey.dev`、`api-fra1.tokenkey.dev`）只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关 EIP 访问。
+> **2026-06-07：edges 改为 Lightsail 唯一路径。** EC2/CFN 的 **Edge** 矩阵已退役（`deploy-edge-stage0.yml`、`stage0-edge-ec2.yaml`、EIP 轮换工具已删除，`edge-targets.json` 清空为 stub）。**prod 主网关仍是 EC2/CFN（`tokenkey-prod-stage0`），不受影响**——本节只讲 edge。
 
-**uk1** 已 exclusively 在 Lightsail（`deploy/aws/lightsail/edge-targets-lightsail.json`，workflow `deploy-edge-lightsail-stage0.yml`）。**EC2 矩阵**（`deploy/aws/stage0/edge-targets.json`）不再包含 uk1。
+Edge 子网关不是第二个用户入口。区域域名（如 `api-us3.tokenkey.dev`、`api-us4.tokenkey.dev`）只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关出口访问。
 
-当前 EC2 Edge 矩阵示例：
-
-```text
-us1  -> us-west-2 -> api-us1.tokenkey.dev  -> tokenkey-edge-us1-stage0  -> edge-minimal (deployable)
-fra1 -> eu-west-3 -> api-fra1.tokenkey.dev -> tokenkey-edge-fra1-stage0 -> edge-minimal (planned)
-```
-
-uk1 Lightsail：
+所有 edge 都在 Lightsail（矩阵 `deploy/aws/lightsail/edge-targets-lightsail.json`，workflow `deploy-edge-lightsail-stage0.yml`）。当前 edge 矩阵示例：
 
 ```text
-uk1 -> eu-west-2 -> api-uk1.tokenkey.dev -> tokenkey-edge-uk1-ls -> deploy-edge-lightsail-stage0.yml
+us3 -> us-east-2 -> api-us3.tokenkey.dev -> tokenkey-edge-us-oh1-ls -> deploy-edge-lightsail-stage0.yml
+us4 -> us-west-2 -> api-us4.tokenkey.dev -> tokenkey-edge-us-or1-ls -> deploy-edge-lightsail-stage0.yml
 ```
 
-见 [`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md)。
+新增 edge / 升级 / 回滚 / IP 轮换的端到端流程见
+[`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md)
+与 [`deploy/aws/lightsail/README.md`](lightsail/README.md)。日常发版 rollout 经
+`scripts/stage0/dispatch-edge-deploy.sh`（路由到 `deploy-edge-lightsail-stage0.yml`）。
 
-Edge workflow 使用独立入口 `.github/workflows/deploy-edge-stage0.yml`，但不是第二套部署逻辑：prod/test 和 Edge 都调用同一批共享脚本：
+Edge 不是第二套部署逻辑：prod/test 和 Edge 都调用同一批共享脚本：
 
 ```text
 ops/stage0/verify_ghcr_manifest.sh
 ops/stage0/deploy_via_ssm.sh
 ops/stage0/external_health.sh
+ops/stage0/sync-feishu-config.sh
 ```
 
 这保证主网关和 Edge 后续都部署同一个 GHCR image 产物、同一份 `deploy/aws/stage0/docker-compose.yml` 基线、同一套 SSM 原地升级/rollback primitive；差异只来自 Edge target 参数、EC2 profile 和 `Caddyfile.edge` 的 API path allowlist。
 
 **Anthropic OAuth 稳定基线**：新增 Edge 账号时，按 [`docs/accounts/anthropic-oauth-edge-stability-baseline-index.md`](../../docs/accounts/anthropic-oauth-edge-stability-baseline-index.md) 选择 L1-L5 等级，再用只读检查命令比对线上状态：`python3 ops/anthropic/check-edge-oauth-stability.py --edge-id <edge_id> --account-name <account_name>`。唯一机器可读基线是 `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`；脚本默认不修改线上，`--emit-sql` 只生成审阅用 SQL。
 
-**GitHub**：每种 Edge 绑定 Environment `edge-<edge_id>`（例如 `edge-uk1`、`edge-fra1`），请在仓库 Settings → Environments 里按需配置 Required reviewer。**`edge-fra1` 的 Variables / Secrets 可与 `edge-uk1` 逐项相同复制**（`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`、`TK_SMOKE_EDGE_CANARY_KEY` 等）；**例外**：不要在 fra1 复制一条指向 uk1 路径的 **`EDGE_GHCR_PAT_SSM_NAME`**——该项若在 uk1 里设为 `/tokenkey/edge/uk1/ghcr/pat`，fra1 Environment 应**不设**该变量（workflow 会按矩阵自动用 `/tokenkey/edge/fra1/ghcr/pat`）。仓库级 **`AWS_OIDC_ROLE_ARN`**、**`AWS_OIDC_STACK_REGION`/`AWS_REGION`** 仍与各 Edge 共用，无需按 Environment 重复。
+**GitHub**：每个 Edge 绑定 Environment `edge-<edge_id>`，请在仓库 Settings → Environments 里按需配置 Required reviewer。新 Edge 的 Variables / Secrets 可逐项参照已上线 Edge 复制（`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`，以及仅跑 main-via-edge smoke 的 Edge 才需的 `TK_SMOKE_API_KEY`）。**GHCR 当前为 public，默认 anonymous pull，无需 PAT**（workflow 输入 `ghcr_pat_required` 默认 `false`）；仅当镜像转私有时，按 edge 落 SSM SecureString `/tokenkey/lightsail/<edge_id>/ghcr/pat` 并在 provision 时翻 `ghcr_pat_required=true`——切勿跨 edge 复制别人路径的 PAT 配置。仓库级 **`AWS_OIDC_ROLE_ARN`**、**`AWS_OIDC_STACK_REGION`/`AWS_REGION`** 仍与各 Edge 共用，无需按 Environment 重复。
 
-**IAM**：更新 `deploy/aws/cloudformation/cicd-oidc.yaml` 并重部署 **`tokenkey-cicd-oidc`**（部署区域须与仓库变量 **`AWS_OIDC_STACK_REGION`** 一致；未设置时 workflow 使用 `vars.AWS_REGION`，再没有则用 `us-east-1`，与 `docs/approved/deploy-stage0-workflow.md` 默认一致）。EC2 Edge（fra1 / us1）各有一个 CloudFormation execution role；Lightsail uk1 走独立 addon（`cicd-oidc-lightsail-addon.yaml`）。
+**飞书告警自动接入（无需按 Edge 重复配）**：账号失效 / P0 卡片靠每个节点 DB 里的
+`settings.ops_email_notification_config.feishu`（webhook + signing_secret + enabled）。这份配置不在镜像、
+也不能进 git（密钥，规则 §7），过去是手工逐节点写，console-adopt 的新边（us6/us7）漏写 → **静默零告警**
+（2026-06-06 us7 `oh-4-b` 被 Anthropic org-disabled 却没报警即此故障）。现已自动化:
+- webhook/secret 作为**仓库级** GitHub secrets **`TK_FEISHU_WEBHOOK_URL`**、**`TK_FEISHU_SIGNING_SECRET`**
+  配置**一次**即可——repo 级密钥对**所有** `environment:`（`prod` / `edge-*`）的 job 都可见,**不要**在每个
+  `edge-<id>` Environment 里重复配（也别在 Environment 里建同名密钥,否则会覆盖 repo 级）。webhook 全 fleet 共用一个。
+- 两条部署 workflow（prod / edge-lightsail）在 health 之后、smoke 之前调用
+  `ops/stage0/sync-feishu-config.sh`,**幂等**注入并启用,然后**写后回读自验**:配不齐就让该步骤失败 →
+  部署变红（把"靠自觉的手工步骤"硬化成 deploy-time gate）。
+- 手工补配 / 排障:`TK_FEISHU_WEBHOOK_URL=… TK_FEISHU_SIGNING_SECRET=… bash ops/stage0/sync-feishu-config.sh <edge-id|prod>`;
+  只读核对用 `bash ops/observability/probe-alert-config.sh`（看 `feishu_enabled`/`feishu_webhook_present`/`feishu_secret_present`）。
+  脚本绝不打印 webhook/secret。
 
-### uk1（Lightsail，非 EC2）
+**IAM**：prod 的 OIDC/SSM/CFN 权限仍在 `deploy/aws/cloudformation/cicd-oidc.yaml`（**`tokenkey-cicd-oidc`**，部署区域须与仓库变量 **`AWS_OIDC_STACK_REGION`** 一致；未设置时 workflow 使用 `vars.AWS_REGION`，再没有则用 `us-east-1`，与 `docs/approved/deploy-stage0-workflow.md` 默认一致）。**所有 Lightsail edge** 走独立一次性 addon（`cicd-oidc-lightsail-addon.yaml`，Lightsail API + SSM Hybrid Activation 权限），不再有按 edge 的 CFN execution role。
 
-使用 `deploy-edge-lightsail-stage0.yml` + `edge-targets-lightsail.json`。勿再 dispatch `deploy-edge-stage0.yml` 的 uk1。
+> **live==repo 漂移检查（IAM/OIDC CFN stack 非自动部署，手工 deploy 易漏）。** `cicd-oidc.yaml` / `cicd-oidc-lightsail-addon.yaml` 由人工 `aws cloudformation deploy`，git 改了模板若忘了重新部署，live 就会落后（2026-06-07 addon 的 `lightsail:OpenInstancePublicPorts` 即因此缺失，导致 provision 开 443 被拒、edge 防火墙关着）。用 `ops/stage0/check-cfn-live-drift.sh` 拿 repo 模板对 live stack 建 no-execute changeset、断言无变更来抓这类漂移（需 PowerUserAccess 等带 `cloudformation:CreateChangeSet` 的凭证；退出码 0 同步 / 1 漂移 / 2 出错）：
+>
+> ```bash
+> # addon（默认参数即 live 值,无需 params）
+> bash ops/stage0/check-cfn-live-drift.sh tokenkey-cicd-lightsail-addon us-east-1 \
+>   deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml
+> # OIDC stack（参数按 region 不同,传一份全 UsePreviousValue 的 params 文件只比模板体）
+> bash ops/stage0/check-cfn-live-drift.sh tokenkey-cicd-oidc eu-west-2 \
+>   deploy/aws/cloudformation/cicd-oidc.yaml /path/to/use-previous-params.json
+> ```
+>
+> 未挂进 `ops-daily-diagnostics.yml`：那个 OIDC role 仅有 `cloudformation:DescribeStacks`,给它加 `CreateChangeSet` 会为低频检查永久放大 CI 攻击面;改完模板后顺手 deploy + 跑一次本脚本即可。
 
-### fra1（法国巴黎）初次创建顺序
+### 新增 / 初次创建 edge（Lightsail）
 
-与 uk1 相同流程，区域与栈名换为矩阵中的 fra1；GHCR PAT 写在 **`eu-west-3`**：
+所有 edge 的 provision / DNS / smoke / 升级 / 回滚都走 `deploy-edge-lightsail-stage0.yml` +
+`edge-targets-lightsail.json`。一次性 IAM addon、GHCR PAT 路径（`/tokenkey/lightsail/<edge_id>/ghcr/pat`）、
+端口放行（**仅 443**，见下「公网端口收窄」）、Static IP / DNS 核对、Anthropic OAuth 重建等完整步骤见
+[`deploy/aws/lightsail/README.md`](lightsail/README.md) 与
+[`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md)（`operation=full`）。
 
-```bash
-TAG=X.Y.Z
+IP 被上游污染需轮换 Static IP：[`.cursor/skills/tokenkey-stage0-edge-lightsail-ip-rotation/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-ip-rotation/SKILL.md) + `ops/lightsail/rotate-static-ip.sh`。
 
-# 0) eu-west-3：GHCR PAT（路径默认 /tokenkey/edge/fra1/ghcr/pat）
-aws ssm put-parameter --region eu-west-3 \
-  --name /tokenkey/edge/fra1/ghcr/pat --type SecureString \
-  --value 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+## 公网端口收窄（prod 443-only；edge 443 + 8443）
 
-# 1) GitHub Environment edge-fra1：Variables / Secrets 与 edge-uk1 **逐项复制**即可（见本节开头「GitHub」段；
-#    勿把 uk1 专属的 EDGE_GHCR_PAT_SSM_NAME=/tokenkey/edge/uk1/... 抄到 fra1；fra1 侧省略该项）。
-#    Required reviewer 等与 uk1 对齐。
+公网暴露收窄到 TCP 443（**prod 仅 443**；**edge 为 443 + 8443**，8443 为备用连接口、按设计保持开放）：
 
-# 2) 重部署 tokenkey-cicd-oidc（含 fra1 的 CFN execution role + OIDC trust environment:edge-fra1）。
-#    provision 完成后把 EdgeFra1TargetInstanceId 填成 fra1 实例 ID，再 upgrade/smoke。
+- **80 关闭**：证书改用 **TLS-ALPN-01**（走 443，Caddyfile `disable_http_challenge`），不再需要 HTTP-01 / `:80` 跳转；edge 的 8443 不参与续签，TLS-ALPN-01 仍只在 443 上完成。
+- **22 关闭**：运维全走 SSM Session Manager（prod）/ Lightsail 控制台 browser SSH（edge），均不依赖公网 22。prod 由 `AdminCidr` 默认 `127.0.0.1/32` 收口；edge 由 `put-instance-public-ports` 声明完整端口集 = 443 + 8443（覆盖掉 Lightsail 默认的 22）。
 
-# 3) provision
-gh workflow run deploy-edge-stage0.yml \
-  -f edge_id=fra1 \
-  -f operation=provision \
-  -f tag=$TAG \
-  -f confirm_stack=tokenkey-edge-fra1-stage0
+唯一实质风险是证书续签——靠「**先切 ALPN 配置 → 验证可签 → 再关 80**」的顺序消除。**rollout 必须按此序，PR 合并本身零 live 影响（现网证书 ~30d 内仍有效）：**
 
-# 4) DNS：api-fra1.tokenkey.dev A → 新 EIP；生效后 smoke
-gh workflow run deploy-edge-stage0.yml \
-  -f edge_id=fra1 \
-  -f operation=smoke \
-  -f confirm_stack=tokenkey-edge-fra1-stage0
-```
+1. **(edge) 重部署 IAM addon**：本次新增 `lightsail:PutInstancePublicPorts` 权限，必须先 `aws cloudformation deploy` 重部 `cicd-oidc-lightsail-addon.yaml`（手工 stack，见上「live==repo 漂移检查」），否则 provision / `--enforce-ports` 会 AccessDenied。
+2. **下发 ALPN 配置（80 仍开）**：`bash ops/stage0/sync_caddyfile_via_ssm.sh` 把新 Caddyfile 热同步到 prod + 全 edge，Caddy reload，业务不断。
+3. **canary 一个 edge 验签**：`bash ops/stage0/verify-edge-lightsail-network.sh <edge> --enforce-ports`（关 80/22，仅留 443）→ SSM 删该 edge 的 `caddy/data` 证书目录并重启 `tokenkey-caddy` → 确认在 80 已关 下经 TLS-ALPN-01 重新签发成功（Caddy 日志 `tls-alpn-01`）→ `https` 冒烟。**ALPN 签不出即停在此、不扩散。**
+4. **edge fleet 收口**：`for e in $(deployable edges); do bash ops/stage0/verify-edge-lightsail-network.sh "$e" --enforce-ports; done`，逐个确认仅剩 443 + https 冒烟。
+5. **prod 关 22**：`aws cloudformation deploy ... --parameter-overrides AdminCidr=127.0.0.1/32 ImageTag=<当前运行态 tag>`（pin ImageTag 防 R5 静默退版）。改 SG ingress 是 in-place 更新、不替换实例。验证 `aws ssm start-session` 可进 + `https://api.tokenkey.dev/health` 正常。
+6. **prod 关 80**：确认 prod Caddy 已在 ALPN 配置（步骤 2）且证书可续后，再 `aws cloudformation deploy`（应用去掉 80 ingress 的新模板）→ `ops/stage0/post_deploy_smoke.sh` 全链路冒烟。
 
-后续升级（fra1 / us1 EC2）不改 CFN 参数，走同一 SSM 原地升级 primitive：
-
-```bash
-gh workflow run deploy-edge-stage0.yml \
-  -f edge_id=fra1 \
-  -f operation=upgrade \
-  -f tag=$TAG \
-  -f confirm_stack=tokenkey-edge-fra1-stage0
-```
-
-`sg1` 仍在 `edge-targets.json` 中保留为 planned（`deployable=false`）。`deploy-edge-stage0.yml`
-的 dispatch **choice** 列出当前 EC2 可操作的 **`fra1` / `us1`**；启用其它 EC2 Edge 时先在矩阵设
-`deployable=true`，扩展 **`tokenkey-cicd-oidc`**（trust `environment:edge-<id>` + CFN execution role output）、
-GitHub **Environment**，并把该 `edge_id` 加入 workflow **choice** 与本仓库 provision 步骤里的 CFN role **case**。
+回滚：edge 临时重开 80 用 `aws lightsail put-instance-public-ports --port-infos "fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0" "fromPort=80,toPort=80,protocol=tcp,cidrs=0.0.0.0/0"`（声明 443+80，用已授权的 put 而非已删的 open-instance-public-ports）；prod 恢复 SG 80 规则后 `aws cloudformation deploy`。
 
 ## 数据层（账本 RDS 出机）
 
-prod 的 PostgreSQL 账本运行在独立 CFN 栈 **`tokenkey-data-stage0`**
-（`deploy/aws/cloudformation/stage0-data.yaml`：RDS 单节点起步、PITR 7 天 RPO ~5min、
-`MultiAZ=true` 在线可升、Retain + DeletionProtection）。Redis 留在 prod 机
-（全为可重建缓存/计数器；出机触发器=上第二 app 副本前）。要点：
+prod 当前仍运行本机 PostgreSQL/Redis；RDS 与归档已进入设计/非生产演练，**尚未批准
+生产切换**。目标 PostgreSQL 运行在独立 CFN 栈 **`tokenkey-data-stage0`**
+（`deploy/aws/cloudformation/stage0-data.yaml`：候选 `db.t4g.medium`、gp3 100 GiB、
+PITR 14 天、Single-AZ 起步、Retain + DeletionProtection）。最终 class/Multi-AZ/迁移方式
+以 `docs/approved/design-prod-data-archive-rds.md` 审批为准。Redis 留在 prod 机
+（MiB 级可重建缓存/计数器；出机触发器=上第二 app 副本前）。要点：
+
+- **归档、备份、RDS 是三件事**：现有每小时 S3 pgdump 是核心数据灾难备份，明确排除
+  usage/ops/QA 表行；历史归档必须另走“导出、校验、水位、再删除”的 S3 闭环。
+- **pending 期间生产 cutover 机械禁用**：只允许完善代码和非生产演练；设计批准不等于
+  自动批准生产创建/切流，生产窗口仍需单独审批。
 
 - **运行时数据层配置唯一真相 = SSM SecureString `/tokenkey/prod/stage0/data-layer-env`**，
   CFN 参数不携带任何数据层 endpoint/模式（防 ImageTag 退版同构的 split-brain）。
-  bootstrap 每次实例首启读取叠加 `.env`；切换/回滚用
-  `ops/stage0/cutover_data_layer_via_ssm.sh apply|rollback`（唯一 seam）。
+  bootstrap 每次实例首启读取叠加 `.env`；切换用
+  `ops/stage0/cutover_data_layer_via_ssm.sh apply`（唯一 seam）。RDS 开放写入后没有
+  “一键回旧本地库”：必须前向修复，或先完成 RDS 增量反向回放和逐表对账。
 - compose 单份双模式：本机 `COMPOSE_PROFILES=localpg,localredis`（edge/默认），
   外部 `localredis` + `docker-compose.external-db.yml`（经 `.env` 的 `COMPOSE_FILE`）。
   两模式行为由 `deploy/aws/stage0/test_compose_data_layer_modes.py` 门禁（preflight）。
@@ -217,8 +229,11 @@ prod 的 PostgreSQL 账本运行在独立 CFN 栈 **`tokenkey-data-stage0`**
   `tokenkey-redis-cli`（单源 `deploy/aws/stage0/tokenkey-data-wrappers.sh`，
   新机 bootstrap 安装，存量舰队用 `ops/stage0/install_data_wrappers_via_ssm.sh`）。
   **禁止**新增 `docker exec tokenkey-postgres` 直连（外部模式下无此容器）。
-- 完整迁移/回滚/恢复 SOP：`docs/deploy/aws-data-layer-migration.md`；
+- 完整迁移/回退边界/恢复 SOP：`docs/deploy/aws-data-layer-migration.md`；
   RDS 模式的灾难恢复语义：`RUNBOOK-disaster-recovery.md` §0.x。
+- live Redis 当前仍是 `appendonly=no`，PostgreSQL/Redis 日志仍是无界旧配置；仓库目标
+  是 Redis AOF everysec + `json-file 100m x 5`。应用它们需要维护窗口 recreate，
+  不能用普通 restart 冒充已生效。窗口取舍见迁移 SOP §4。
 
 ## 升级 / 发版（生产 Stage0）
 
@@ -228,10 +243,54 @@ prod 的 PostgreSQL 账本运行在独立 CFN 栈 **`tokenkey-data-stage0`**
 
 升级方式见下方 §升级 SOP（首选 `deploy-stage0.yml` dispatch；底层手工 SSM 路径作备用）。CFN deploy 改 `ImageTag` 现在数据可保留（独立 `DataVolume` detach + 新 instance attach），但实例替换仍有 1–3 min 停机窗口，生产默认走 SSM 原地升级。
 
-> **整机 / OS / 数据卷级灾难恢复**：本节讲常规升级；当 prod 实例彻底损坏、数据卷丢失或 AZ 不可用时的确定性恢复步骤（恢复决策树、CFN 替换实例保留数据卷、从 DLM 快照恢复、DNS 切换、恢复后 smoke + 真空验证）见 **[`RUNBOOK-disaster-recovery.md`](RUNBOOK-disaster-recovery.md)**。发版/修复期的「零停机」诉求（蓝绿，已按阈值封存）见 [`docs/deploy/blue-green-zero-downtime-backlog.md`](../../docs/deploy/blue-green-zero-downtime-backlog.md)。
+> **整机 / OS / 数据卷级灾难恢复**：本节讲常规升级；当 prod 实例彻底损坏、数据卷丢失或 AZ 不可用时的确定性恢复步骤（恢复决策树、CFN 替换实例保留数据卷、从 DLM 快照恢复、DNS 切换、恢复后 smoke + 真空验证）见 **[`RUNBOOK-disaster-recovery.md`](RUNBOOK-disaster-recovery.md)**。prod 发版期的「同机双 app 单数据层」蓝绿路径见 [`docs/deploy/blue-green-zero-downtime-backlog.md`](../../docs/deploy/blue-green-zero-downtime-backlog.md)。
+
+### Prod blue/green deploy path
+
+`deploy-stage0.yml` now uses `ops/stage0/deploy_via_ssm_bluegreen.sh` for prod. The first run is self-migrating: it starts `tokenkey-blue` with the current image, reloads Caddy to that color, drains/removes the legacy `tokenkey` container, then deploys the requested tag to the other color. After that, every deploy alternates `tokenkey-blue` / `tokenkey-green` while Postgres, Redis, Caddy, and `/var/lib/tokenkey/app` remain single shared data layers.
+
+Runtime state on the prod host:
+
+- active color: `/var/lib/tokenkey/active-color`
+- blue/green compose: `/var/lib/tokenkey/docker-compose.bluegreen.yml`
+- active app containers: `tokenkey-blue` or `tokenkey-green`
+- systemd restart policy: `tokenkey.service` starts Postgres/Redis, the active app color, and Caddy; it does not restart the legacy `tokenkey` app.
+
+Rollback is a normal redeploy of the previous known-good image tag through `deploy-stage0.yml`; the script pulls it into the inactive color, switches Caddy after health is green, and drains the current color. Destructive DB migrations remain the main semantic risk: any new/changed SQL migration with `DROP`, `RENAME`, `SET NOT NULL`, `ADD COLUMN ... NOT NULL`, or `ALTER ... TYPE` must pass `scripts/checks/bluegreen-migration-safety.py` via `scripts/preflight.sh` before merge, or carry an explicit `bluegreen-safe-destructive-ok` comment after manual expand-contract review.
 
 
 > 2026-04-21 实测：prod 栈 CFN `ImageTag=1.2.0`，但运行态 `TOKENKEY_IMAGE` 与容器实际镜像均为 `ghcr.io/youxuanxue/sub2api:1.4.1`（SSM 原地升级后形成的受控漂移）。
+
+### CFN DataVolume Size 参数无替换收敛
+
+prod 可能出现一种受控 drift：repo 模板已经把 `DataVolumeSizeGiB=50`、`DataVolumeIops=6000`、`DataVolumeThroughput=250` 固化，但 live stack 参数仍停在旧值。不要用普通 `aws cloudformation deploy` 一把梭收敛整个模板，因为同一 change set 可能顺手牵出 `Instance` / `EIPAssoc` 替换，导致 EIP 重绑、bootstrap 回退到陈旧 `ImageTag` 等副作用。
+
+当前可无替换收敛的窄路径只覆盖 `DataVolumeSizeGiB=50`：
+
+```bash
+# 1) 只预览并机械校验。默认会删除 change set，不改任何资源。
+bash ops/stage0/reconcile-cfn-datavolume-no-replace.sh
+
+# 2) 若需要把已校验的 change set 留给人工复核：
+bash ops/stage0/reconcile-cfn-datavolume-no-replace.sh --keep-change-set
+```
+
+脚本不会套用整份 repo 模板；它复用 live template，只把 `DataVolumeSizeGiB` 参数传成 50，其余 live 参数全部 `UsePreviousValue`。同时它会创建/更新一个稳定 SSM 参数，值为当前栈已解析的 AMI ID，并把 `AmazonLinux2023Arm64Ami` 指向这个稳定参数，避免原来的 `latest` alias 在创建 change set 时重新解析成新 AMI、误牵出实例替换。脚本会强制验证 CloudFormation change set 只包含：
+
+```text
+DataVolume  Modify  AWS::EC2::Volume  Replacement=False  Scope=Size
+```
+
+只要出现 `Instance`、`EIPAssoc`、其它资源，或 `DataVolume Replacement=True`，脚本直接失败。执行不在默认脚本路径里；`--keep-change-set` 会留下已校验的 no-execute change set 和对应的稳定 AMI SSM 参数，等待人工复核后再用 AWS CLI 执行：
+
+```bash
+bash ops/stage0/reconcile-cfn-datavolume-no-replace.sh --keep-change-set
+# 人工复核输出的 validated_change_set 后，再 execute-change-set。
+# 若执行成功，保留输出的 stable_ami_ssm_parameter；它会成为 live stack 参数值。
+# 若放弃执行，删除 change set；stable_ami_ssm_parameter 可一起删除。
+```
+
+`DataVolumeIops=6000` / `DataVolumeThroughput=250` 的 CFN 所有权收敛不在这条无替换路径里。实测把这两个参数补进 live template 后，CloudFormation 会因为 `Instance.UserData` 里引用 `${DataVolume}` 而把 `Instance` / `EIPAssoc` 标进同一个 change set（`Replacement=Conditional`），所以必须留到维护窗口或 blue/green instance 轮换方案里处理。`ImageTag` 仍是 bootstrap-only drift；任何牵出 `Instance` 的 change set 都进入维护窗口。
 
 > **数据持久化（persistent data volume hardening / issue #8 已修，2026-04-20）**：
 > `stage0-single-ec2.yaml` 现在创建独立的 `AWS::EC2::Volume`（资源名 `DataVolume`，参数
@@ -253,7 +312,7 @@ prod 的 PostgreSQL 账本运行在独立 CFN 栈 **`tokenkey-data-stage0`**
 >
 > **背景**：1000x 流量审视下，prod 单实例 `t4g.small`（2 GiB）内存是硬瓶颈（PG + Redis + app + Caddy 全家桶同机；历史上 us2 edge 曾被一个爬虫吃 ~390 MB 就拖进 swap-thrash）。升 `t4g.large`（8 GiB）消化内存红利、给 PG/Redis/Go heap 留足空间、远离 swap。
 >
-> **为何走 SOP 而非 workflow**：resize 是低频一次性操作。`deploy-stage0.yml` 用的 OIDC role 对 prod 栈**只有** `cloudformation:DescribeStacks`（见 `cloudformation/cicd-oidc.yaml` 的 `DescribeStackForInstanceLookup`），跑不了 `cloudformation deploy`。为一年一次的操作给 CI 永久放开 prod 的 CFN-deploy + `ec2` instance-replace 权限，等于为低频操作永久放大攻击面——一次性高权操作用**管理员本地凭证**执行更符合最小权限。（若 prod 将来也需要频繁 CFN 原地变更，如 EIP 轮换/卷扩容，再照 edge 的 `EdgeUs1CloudFormationExecutionRole` 范式建一套独立 execution role + PassRole，届时摊销才合理。）
+> **为何走 SOP 而非 workflow**：resize 是低频一次性操作。`deploy-stage0.yml` 用的 OIDC role 对 prod 栈**只有** `cloudformation:DescribeStacks`（见 `cloudformation/cicd-oidc.yaml` 的 `DescribeStackForInstanceLookup`），跑不了 `cloudformation deploy`。为一年一次的操作给 CI 永久放开 prod 的 CFN-deploy + `ec2` instance-replace 权限，等于为低频操作永久放大攻击面——一次性高权操作用**管理员本地凭证**执行更符合最小权限。（若 prod 将来也需要频繁 CFN 原地变更，如 EIP 轮换/卷扩容，再建一套独立的 CFN execution role + PassRole 给 OIDC role，届时摊销才合理。）
 
 **前置**：
 
@@ -279,12 +338,8 @@ TARGET=t4g.large   # 回退时改成 t4g.small，命令完全一样
 #    就会把线上静默降级（2026-06-05：prod 从 1.7.70 被 resize 降回 1.7.11）。
 OLD_ID=$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
   --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
-CMD=$(aws ssm send-command --region "$REGION" --instance-ids "$OLD_ID" \
-  --document-name AWS-RunShellScript \
-  --parameters 'commands=["docker inspect --format={{.Config.Image}} tokenkey | sed s/.*://"]' \
-  --query 'Command.CommandId' --output text); sleep 5
-RUNNING_TAG=$(aws ssm get-command-invocation --region "$REGION" \
-  --command-id "$CMD" --instance-id "$OLD_ID" --query StandardOutputContent --output text | tr -d '[:space:]')
+RUNNING_TAG=$(bash ops/stage0/resolve-prod-running-tag-via-ssm.sh \
+  --region "$REGION" --instance-id "$OLD_ID")
 echo "运行态 tag = $RUNNING_TAG"   # 必须非空、且等于你期望的线上版本；否则停手核对
 
 # 1) change-set 预览 — 确认 CFN 只 replace Instance + 重绑 EIP，DataVolume 绝不能被 replace。
@@ -317,13 +372,12 @@ for i in $(seq 1 30); do
     --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null)
   [ "$PING" = "Online" ] && { echo "SSM Online"; break; }; sleep 10
 done
-# 关键：确认新机真跑的是 $RUNNING_TAG（cloud-init 必须已正确 bootstrap；否则 #582 没生效或没救活）
-CMD=$(aws ssm send-command --region "$REGION" --instance-ids "$NEW_ID" \
-  --document-name AWS-RunShellScript \
-  --parameters 'commands=["docker inspect --format={{.Config.Image}} tokenkey","docker inspect --format={{.State.Health.Status}} tokenkey"]' \
-  --query 'Command.CommandId' --output text); sleep 6
-aws ssm get-command-invocation --region "$REGION" --command-id "$CMD" --instance-id "$NEW_ID" \
-  --query StandardOutputContent --output text   # 期望 sub2api:$RUNNING_TAG + healthy
+# 关键：确认新机真跑的是 $RUNNING_TAG（cloud-init 必须已正确 bootstrap；否则 #582 没生效或没救活）。
+# helper 自动识别 prod blue/green active container；旧 legacy tokenkey 容器也可 fallback。
+NEW_RUNNING_TAG=$(bash ops/stage0/resolve-prod-running-tag-via-ssm.sh \
+  --region "$REGION" --instance-id "$NEW_ID")
+test "$NEW_RUNNING_TAG" = "$RUNNING_TAG"
+bash ops/stage0/assert-live-host-state.sh "$NEW_ID" "$RUNNING_TAG" "post-replace live-host assert"
 curl -fsS https://api.tokenkey.dev/health && echo OK                    # 期望 200
 # 业务冒烟：参照 §升级 SOP 的 smoke（ops/stage0/post_deploy_smoke.sh）。
 
@@ -335,15 +389,16 @@ aws cloudformation update-stack --region "$REGION" --stack-name "$OIDC_STACK" \
   --use-previous-template --capabilities CAPABILITY_NAMED_IAM \
   --parameters \
     ParameterKey=TargetInstanceId,ParameterValue="$NEW_ID" \
-    ParameterKey=EdgeUs1TargetInstanceId,UsePreviousValue=true \
     ParameterKey=CreateOIDCProvider,UsePreviousValue=true \
-    ParameterKey=EdgeUs1Region,UsePreviousValue=true \
     ParameterKey=AllowedSubjects,UsePreviousValue=true \
     ParameterKey=GitHubRepo,UsePreviousValue=true
 aws cloudformation wait stack-update-complete --region "$REGION" --stack-name "$OIDC_STACK" && echo "OIDC 重指完成"
 # 验证：下次 deploy-stage0.yml dispatch 不再 AccessDenied（或直接确认参数值）：
 aws cloudformation describe-stacks --region "$REGION" --stack-name "$OIDC_STACK" \
   --query "Stacks[0].Parameters[?ParameterKey=='TargetInstanceId'].ParameterValue|[0]" --output text  # 期望 $NEW_ID
+
+# 4b) CPU 告警若经 sync 脚本落地（非全栈 CFN），实例 ID 变更后必须重指：
+bash ops/stage0/sync-instance-cpu-alarm.sh --stack "$STACK"
 
 # 回退：把 TARGET 改回 t4g.small 重跑步骤 0→4（同样 1–3 min replace，数据同样保留，
 #       同样要 pin $RUNNING_TAG + 重指 OIDC）。
@@ -359,6 +414,7 @@ aws cloudformation describe-stacks --region "$REGION" --stack-name "$OIDC_STACK"
 - **R4: 回滚能力依赖快照与冷备**：迁移窗口前必须完成 root EBS snapshot 和 tar 冷备，不满足则不应执行 deploy。
 - **R5: 实例替换会按陈旧 CFN `ImageTag` 静默降级**：日常 SSM 热更不回写 CFN，CFN `ImageTag` 是很旧的 init 值；任何 replace（resize/AMI/UserData 变更）都会让新机按它 bootstrap → 线上退版。**对策**：替换类操作必须 `--parameter-overrides ImageTag=<运行态 tag>`（见 §实例规格升级 step 0）。
 - **R6: 实例替换会锁死 CI 部署**：新实例 ID 变化后，`cicd-oidc` 的 `TargetInstanceId` 仍指旧机 → `deploy-stage0.yml`（含 release 自动触发）全部 `AccessDeniedException: ssm:SendCommand`。**对策**：替换后立即把 OIDC 栈 `TargetInstanceId` 重指新机（见 §实例规格升级 step 4）。
+- **R7: 专属分组发卡只能走 admin UI，禁手改 `api_keys.group_id`**：#669 起，key 绑的专属标准组要求用户在 `user_allowed_groups` 白名单，否则请求 403 `GROUP_NOT_ALLOWED`。admin 后台「绑定/迁移分组」会原子写白名单，自助建卡会 gate——所以正规路径不会产生孤儿。**只有直接 SQL 改 `api_keys.group_id` 会**。手术后请跑 `ops/stage0/check_exclusive_group_orphans_via_ssm.sh <instance-id>`（发版时该步自动跑，仅告警不阻断）；发现孤儿用脚本头部的 backfill SQL 补授权（确认用户确应有权后）。
 
 > **事故记录 2026-06-05（resize 三连副作用）**：prod 按本 SOP 早期版本做 `t4g.small → t4g.large` resize，CFN `UPDATE_COMPLETE`、规格与数据(`DataVolume` Retain)均正确，但触发**三个**实例替换副作用：①(已在 #582 修)`build-cfn.sh` 把注释 marker 写进 UserData 致 `#!/bin/bash` 非首行 → cloud-init 不跑 bootstrap，新机空跑、靠手动 SSM 救活；②救活/bootstrap 用的是陈旧 CFN `ImageTag=1.7.11`，线上从 1.7.70 退版（本 PR step 0 修）；③OIDC `TargetInstanceId` 仍指旧机，`deploy-stage0.yml` 部署 1.7.70 时 `ssm:SendCommand` AccessDenied（本 PR step 4 修）。恢复：用管理员本地凭证跑 `ops/stage0/deploy_via_ssm.sh 1.7.70 <new-id>`（绕过坏 OIDC）热换回 1.7.70 + 重指 OIDC。**根因共性：任何实例替换都要同步 ImageTag 与 OIDC TargetInstanceId**。
 
@@ -512,29 +568,26 @@ gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databas
 
 | 类型 | 名字 | 用途 |
 |---|---|---|
-| secret | `TK_SMOKE_PROD_ANTHROPIC_KEY` | 主 Anthropic 烟测 key（`full` suite） |
-| secret | `TK_SMOKE_PROD_GEMINI_KEY` | Gemini schema 探针 |
-| secret | `TK_SMOKE_PROD_OPENAI_OAUTH_KEY` | OpenAI OAuth 探针 |
-| secret | `TK_SMOKE_PROD_KIRO_KEY` | Kiro（第六平台）`/v1/messages` relay 探针；绑定 kiro group 的 TokenKey API key |
-| var | `TK_SMOKE_PROD_ANTHROPIC_MODEL` | 首选 Anthropic chat/messages 模型（默认 `claude-sonnet-4-6`） |
-| var | `TK_SMOKE_PROD_GEMINI_MODEL` | 可选，默认 `gemini-3.1-pro-preview` |
-| var | `TK_SMOKE_PROD_OPENAI_OAUTH_MODEL` | 可选，默认 `gpt-5.4` |
-| var | `TK_SMOKE_PROD_KIRO_MODEL` | kiro group 暴露的模型名（默认 `claude-sonnet-4-6`） |
+| secret | `TK_SMOKE_API_KEY` | 全能用户侧烟测 key；必须能看到下方所有模型清单 |
+| var | `TK_SMOKE_ANTHROPIC_MODELS` | Anthropic/chat+messages 模型清单，逗号或空格分隔（默认 `claude-sonnet-4-6`） |
+| var | `TK_SMOKE_GEMINI_MODELS` | Gemini tool-schema 探针模型清单（默认 `gemini-3.1-pro-preview`） |
+| var | `TK_SMOKE_OPENAI_OAUTH_MODELS` | OpenAI OAuth 探针模型清单（默认 `gpt-5.4`） |
 
-> 四把 prod smoke key（anthropic / gemini / openai-oauth / **kiro**）都是 `deploy-stage0.yml` 的**硬前置**：缺任意一把，发版在镜像切换前就 `::error::` 失败，不会留下"红 smoke = 其实只是没配 key"的歧义。
+> `TK_SMOKE_API_KEY` 是 `deploy-stage0.yml` 的**硬前置**：缺 key，发版在镜像切换前就 `::error::` 失败。平台覆盖只维护模型清单，不再维护多把平台专用 smoke key。
 
 **`edge-<edge_id>` Environment**（如 `edge-uk1`）
 
 | 类型 | 名字 | 用途 |
 |---|---|---|
-| secret | `TK_SMOKE_EDGE_CANARY_KEY` | main-via-edge：经 prod 调度打到 Edge 的 key |
+| secret | `TK_SMOKE_API_KEY` | main-via-edge：经 prod 调度打到 Edge 的 key |
+| var | `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS` | 可选，edge-native OAuth 烟测与可选 main-via-edge 的模型清单 |
 
 **代码内固定（无需在 Edge Environment 配置）：**
 
 | 名字 | 固定值 |
 |---|---|
 | `TK_SMOKE_EDGE_CANARY_BASE_URL` | `https://api.tokenkey.dev` |
-| `TK_SMOKE_EDGE_LOCAL_CHAT_MODEL` | `claude-sonnet-4-6` |
+| `TK_SMOKE_EDGE_LOCAL_CHAT_MODELS` | `claude-sonnet-4-6` |
 
 Edge 基础设施变量（**非烟测**，保持原名）：`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 等。
 
@@ -542,23 +595,23 @@ Edge 基础设施变量（**非烟测**，保持原名）：`EDGE_ACME_EMAIL`、
 
 ```bash
 TOKENKEY_BASE_URL=https://api.tokenkey.dev \
-TK_SMOKE_PROD_ANTHROPIC_KEY=sk-... \
-TK_SMOKE_PROD_ANTHROPIC_MODEL=... \
+TK_SMOKE_API_KEY=sk-... \
+TK_SMOKE_ANTHROPIC_MODELS=... \
+TK_SMOKE_GEMINI_MODELS=... \
+TK_SMOKE_OPENAI_OAUTH_MODELS=... \
 python3 scripts/stage0/check_smoke_config.py
 ```
 
 #### deploy-stage0 发版后网关烟测（强制）
 
-Workflow 在 `/health` 之后会执行 `ops/stage0/post_deploy_smoke.sh`（`GATEWAY_SMOKE_SUITE=full`）。必须在 **`prod`** Environment 配置上表三个 **secret**；未配置则 deploy **失败**。Secret 必须在 **`api.tokenkey.dev`（prod 栈）** 下有效。
+Workflow 在 `/health` 之后会执行 `ops/stage0/post_deploy_smoke.sh`（`GATEWAY_SMOKE_SUITE=full`）。必须在 **`prod`** Environment 配置上表 **`TK_SMOKE_API_KEY` secret**；未配置则 deploy **失败**。Secret 必须在 **`api.tokenkey.dev`（prod 栈）** 下有效。
 
 本地复现（与 CI 同一套 `TK_SMOKE_*` 名字；**GitHub secret 值无法经 gh/API 读取**，须在本机 export 同名变量）：
 
 ```bash
 export TOKENKEY_BASE_URL=https://api.tokenkey.dev
 export TK_SMOKE_GITHUB_ENV=prod          # 自动拉取 Environment 中的 TK_SMOKE_* variables
-export TK_SMOKE_PROD_ANTHROPIC_KEY=sk-...   # 与 prod Environment secret 同名
-export TK_SMOKE_PROD_GEMINI_KEY=sk-...
-export TK_SMOKE_PROD_OPENAI_OAUTH_KEY=sk-...
+export TK_SMOKE_API_KEY=sk-...           # 与 prod Environment secret 同名
 bash ops/stage0/post_deploy_smoke.sh
 ```
 
@@ -724,10 +777,13 @@ sudo systemctl status tokenkey
 sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps
 sudo journalctl -u tokenkey -n 200 --no-pager
 sudo systemctl list-timers tokenkey-pgdump.timer
-sudo systemctl list-timers tokenkey-disk-metrics.timer   # → CloudWatch tokenkey/EC2 DataVolumeUsedPercent
+sudo systemctl list-timers tokenkey-disk-metrics.timer   # → CloudWatch tokenkey/EC2 DataVolumeUsedPercent + RootVolumeUsedPercent
 sudo systemctl list-timers tokenkey-qa-stale-cleanup.timer
 ls -lh /var/lib/tokenkey/pgdump/ 2>/dev/null || echo '(no dumps yet — first dump runs on next scheduled timer tick)'
-# pg_dump 每 2 小时一次，滚动保留约 24 小时内最多 12 份 tokenkey-*.sql.gz；卷使用率告警见 CFN DataVolumeDiskAlarm / 主文档 §3.8
+# pg_dump 每小时一次，本地只滚动保留最近 6 份 tokenkey-*.sql.gz（S3 TOKENKEY_PGDUMP_S3_URI 才是归档源，本地仅供快速恢复）；清理在 dump 之前先跑以自愈满盘死锁。卷使用率告警：CFN DataVolumeDiskAlarm + RootVolumeDiskAlarm（探测）和 tokenkey-disk-metrics timer 的 on-box 飞书告警（通知）/ 主文档 §3.8。live root alarm 用 `bash ops/stage0/sync-instance-root-disk-alarm.sh --stack tokenkey-prod-stage0` 单独 upsert，避免整栈更新。CPU 持续高负载：CloudWatch `tokenkey-prod-cpu-sustained-high`（AWS/EC2 CPUUtilization 5m Average >80% 连续 15min；`ops/stage0/sync-instance-cpu-alarm.sh` 可不经全栈 CFN 单独同步）。
+
+# 现有 Caddy json log 无界时，用带 prod Environment 门禁的 workflow 同步 canonical compose 并仅重建 Caddy；Postgres/Redis/active app 不重启：
+# gh workflow run ops-stage0-container-log-policy.yml -f target=prod -f confirm=recreate-caddy-for-bounded-logs
 # 旧版手工/迁移快照 `pre-*.dump` 属存量文件；确认不需回滚后可删除，新模板的 pgdump timer 也会清理。
 # QA：`QaStaleRetentionDays`（默认 1.5 天）每日清理旧 qa_records + qa_blobs/qa_dlq；与 ops/prod/qa-export-and-purge.sh 范围对齐，0=关闭
 sudo cat /var/lib/tokenkey/.env                           # 含明文密码，慎查
@@ -840,8 +896,8 @@ GitHub Actions 不再用长期 AWS 凭证，**OIDC 临时换 STS** → `ssm:Send
 ### Workflow 行为
 
 - 触发：每天 02:00 UTC cron + 手动 `workflow_dispatch`。
-- 默认 operation：`diagnostics`，覆盖 prod + `deploy/aws/stage0/edge-targets.json` 里 `deployable=true` 的 Edge（当前 `uk1` / `fra1`）。
-- 手动 target selector：`all`、`prod`、`edge:*`、`edge:<id>`；planned Edge（例如 `us1` / `sg1`）在 `deployable=false` 时只进入 excluded summary。
+- 默认 operation：`diagnostics`，覆盖 prod + `deploy/aws/lightsail/edge-targets-lightsail.json` 里 `deployable=true` 的 Lightsail Edge（edges 均为 Lightsail；`deploy/aws/stage0/edge-targets.json` 已清空为 stub）。
+- 手动 target selector：`all`、`prod`、`edge:*`、`edge:<id>`；`deployable=false` 的 Edge 只进入 excluded summary。
 - 输出：每个目标上传 `prod-ops-target-<target>-<run_id>` artifact，汇总上传 `prod-ops-report-<run_id>`。
 - Issue 决策：`issue_candidate` / `manual_ops` findings 会创建或更新 GitHub Issue，使用 `ops-sig:*`、`target:*`、`finding:*` label 去重；error cluster 继续附带 `cluster-sig:*`。
 - 可选 Claude 诊断：`ANTHROPIC_AUTH_TOKEN` 存在时，workflow 可运行只读 Claude diagnosis 改善 issue 内容；该 job 无 AWS OIDC、无 repo 写权限，只允许 `Read/Grep/Glob`。
@@ -978,4 +1034,3 @@ IAM 信任面：
 - **应用更新 / 滚动 / 回滚** → 主文档 §3.6
 - **Stage 1/2/3 升级触发条件** → 主文档 §二、§3.9
 - **CFN 全部 18 个参数详表** → 主文档 §3.5「全部参数总表」
-

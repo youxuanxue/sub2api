@@ -7,14 +7,18 @@ const {
   listAccounts,
   listWithEtag,
   getBatchTodayStats,
+  getBatchPassiveUsage,
   getAllProxies,
-  getAllGroups
+  getAllGroups,
+  getAllIncludingInactive
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  getBatchPassiveUsage: vi.fn(),
   getAllProxies: vi.fn(),
-  getAllGroups: vi.fn()
+  getAllGroups: vi.fn(),
+  getAllIncludingInactive: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -23,6 +27,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      getBatchPassiveUsage,
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
@@ -32,7 +37,8 @@ vi.mock('@/api/admin', () => ({
       getAll: getAllProxies
     },
     groups: {
-      getAll: getAllGroups
+      getAll: getAllGroups,
+      getAllIncludingInactive
     }
   }
 }))
@@ -128,8 +134,10 @@ describe('admin AccountsView usage windows hint', () => {
     listAccounts.mockReset()
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
+    getBatchPassiveUsage.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
+    getAllIncludingInactive.mockReset()
 
     listAccounts.mockResolvedValue({
       items: [],
@@ -144,8 +152,10 @@ describe('admin AccountsView usage windows hint', () => {
       data: null
     })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    getBatchPassiveUsage.mockResolvedValue({ usage: {} })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    getAllIncludingInactive.mockResolvedValue([])
   })
 
   it('renders an explanatory tooltip next to the usage windows column header', async () => {
@@ -160,5 +170,37 @@ describe('admin AccountsView usage windows hint', () => {
     const hint = wrapper.find('[data-test="usage-windows-hint"]')
     expect(hint.exists()).toBe(true)
     expect(hint.text()).toBe('admin.accounts.usageWindowsHint')
+  })
+
+  it('does not wait for today stats before loading batch usage metrics', async () => {
+    let resolveTodayStats!: (value: { stats: Record<string, unknown> }) => void
+    getBatchTodayStats.mockReturnValue(new Promise(resolve => {
+      resolveTodayStats = resolve
+    }))
+    listAccounts.mockResolvedValue({
+      items: [{
+        id: 42,
+        name: 'anthropic-oauth',
+        platform: 'anthropic',
+        type: 'oauth',
+        status: 'active',
+        schedulable: true,
+        created_at: '2026-03-07T10:00:00Z',
+        updated_at: '2026-03-07T10:00:00Z'
+      }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    mountView()
+    await flushPromises()
+
+    expect(getBatchTodayStats).toHaveBeenCalledWith([42])
+    expect(getBatchPassiveUsage).toHaveBeenCalledWith([42])
+
+    resolveTodayStats({ stats: {} })
+    await flushPromises()
   })
 })

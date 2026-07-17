@@ -188,19 +188,18 @@ class PlanTierBumpTest(unittest.TestCase):
         self.assertEqual(len(plan["actions"]), 1)
         self.assertFalse(plan["noop"])
 
-    def test_window_cost_only_change_is_not_skipped(self) -> None:
-        # R-001 regression: an account matching the 4 capacity fields but with a
-        # stale window_cost_limit must NOT be skipped, and expected_after must
-        # carry window_cost_limit so verify can confirm it landed.
-        stale_cost = self.match_fields["window_cost_limit"] - 1
+    def test_session_idle_only_change_is_not_skipped(self) -> None:
+        # R-001 regression: an account matching capacity fields but with a stale
+        # session_idle_timeout_minutes must NOT be skipped.
+        stale_idle = self.match_fields["session_idle_timeout_minutes"] + 1
         snap = self._write_snapshot({
             "us1": {"deployable": True, "instance_id": "i-1", "region": "us-west-2",
-                    "oauth_accounts": [self._acct("a1", overrides={"window_cost_limit": stale_cost})]},
+                    "oauth_accounts": [self._acct("a1", overrides={"session_idle_timeout_minutes": stale_idle})]},
         })
         plan = self._run(snap)
-        self.assertEqual(len(plan["actions"]), 1, "window_cost_limit-only drift must emit an action")
+        self.assertEqual(len(plan["actions"]), 1, "session_idle_timeout_minutes-only drift must emit an action")
         self.assertFalse(plan["noop"])
-        self.assertIn("window_cost_limit", plan["actions"][0]["expected_after"])
+        self.assertIn("session_idle_timeout_minutes", plan["actions"][0]["expected_after"])
 
 
 class SingleSourceRenderTest(unittest.TestCase):
@@ -217,8 +216,8 @@ class SingleSourceRenderTest(unittest.TestCase):
         sql = mgr.render_edge_account_tier_sql("acct-x", "l5", "us1")
         extra = eff["extra"]
         for key in (
-            "base_rpm", "rpm_sticky_buffer", "max_sessions", "window_cost_limit",
-            "session_idle_timeout_minutes", "window_cost_sticky_reserve",
+            "base_rpm", "rpm_sticky_buffer", "max_sessions",
+            "session_idle_timeout_minutes",
         ):
             self.assertIn(f"'{key}', '{extra[key]}'::jsonb", sql)
         self.assertIn(f"concurrency = {eff['account']['concurrency']}", sql)

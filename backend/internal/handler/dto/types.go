@@ -14,6 +14,7 @@ type User struct {
 	Username      string     `json:"username"`
 	Role          string     `json:"role"`
 	Balance       float64    `json:"balance"`
+	FrozenBalance float64    `json:"frozen_balance"`
 	Concurrency   int        `json:"concurrency"`
 	Status        string     `json:"status"`
 	AllowedGroups []int64    `json:"allowed_groups"`
@@ -33,6 +34,9 @@ type User struct {
 	OnboardingTourSeenAt *time.Time `json:"onboarding_tour_seen_at"`
 	// RPMLimit 用户级每分钟请求数上限（0 = 不限制），仅在所用分组未设置 rpm_limit 时作为兜底生效。
 	RPMLimit int `json:"rpm_limit"`
+	// TrajExportEnabled 管理员授予的「可导出对话记录(traj)」开关。
+	// 前端据此在每个 API Key 行渲染导出入口；后端导出端点亦据此 403 兜底。
+	TrajExportEnabled bool `json:"traj_export_enabled"`
 
 	APIKeys       []APIKey           `json:"api_keys,omitempty"`
 	Subscriptions []UserSubscription `json:"subscriptions,omitempty"`
@@ -56,15 +60,19 @@ type APIKey struct {
 	Key         string     `json:"key"`
 	Name        string     `json:"name"`
 	GroupID     *int64     `json:"group_id"`
+	RoutingMode string     `json:"routing_mode"` // "direct" | "universal"（全能 Key）
 	Status      string     `json:"status"`
 	IPWhitelist []string   `json:"ip_whitelist"`
 	IPBlacklist []string   `json:"ip_blacklist"`
 	LastUsedAt  *time.Time `json:"last_used_at"`
+	LastUsedIP  *string    `json:"last_used_ip"`
 	Quota       float64    `json:"quota"`      // Quota limit in USD (0 = unlimited)
 	QuotaUsed   float64    `json:"quota_used"` // Used quota amount in USD
 	ExpiresAt   *time.Time `json:"expires_at"` // Expiration time (nil = never expires)
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
+	// CurrentConcurrency is the real-time active request count for this API key.
+	CurrentConcurrency int `json:"current_concurrency"`
 
 	// Rate limit fields
 	RateLimit5h   float64    `json:"rate_limit_5h"`
@@ -99,12 +107,27 @@ type Group struct {
 	MonthlyLimitUSD  *float64 `json:"monthly_limit_usd"`
 
 	// 图片生成计费配置（仅 antigravity 平台使用）
-	AllowImageGeneration bool     `json:"allow_image_generation"`
-	ImageRateIndependent bool     `json:"image_rate_independent"`
-	ImageRateMultiplier  float64  `json:"image_rate_multiplier"`
-	ImagePrice1K         *float64 `json:"image_price_1k"`
-	ImagePrice2K         *float64 `json:"image_price_2k"`
-	ImagePrice4K         *float64 `json:"image_price_4k"`
+	AllowImageGeneration         bool    `json:"allow_image_generation"`
+	AllowBatchImageGeneration    bool    `json:"allow_batch_image_generation"`
+	ImageRateIndependent         bool    `json:"image_rate_independent"`
+	ImageRateMultiplier          float64 `json:"image_rate_multiplier"`
+	BatchImageDiscountMultiplier float64 `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier     float64 `json:"batch_image_hold_multiplier"`
+	VideoRateIndependent         bool    `json:"video_rate_independent"`
+	VideoRateMultiplier          float64 `json:"video_rate_multiplier"`
+	// 高峰时段倍率配置
+	PeakRateEnabled    bool     `json:"peak_rate_enabled"`
+	PeakStart          string   `json:"peak_start"`
+	PeakEnd            string   `json:"peak_end"`
+	PeakRateMultiplier float64  `json:"peak_rate_multiplier"`
+	ImagePrice1K       *float64 `json:"image_price_1k"`
+	ImagePrice2K       *float64 `json:"image_price_2k"`
+	ImagePrice4K       *float64 `json:"image_price_4k"`
+	VideoPrice480P     *float64 `json:"video_price_480p"`
+	VideoPrice720P     *float64 `json:"video_price_720p"`
+	VideoPrice1080P    *float64 `json:"video_price_1080p"`
+	// Codex alpha/search 网页搜索单次价格（USD/次）；null 表示使用默认价 0.01
+	WebSearchPricePerCall *float64 `json:"web_search_price_per_call"`
 
 	// Claude Code 客户端限制
 	ClaudeCodeOnly  bool   `json:"claude_code_only"`
@@ -124,6 +147,11 @@ type Group struct {
 	// OpenAI /v1/messages 自动压缩策略（nil = 未配置）。
 	MessagesCompactionEnabled              *bool `json:"messages_compaction_enabled"`
 	MessagesCompactionInputTokensThreshold *int  `json:"messages_compaction_input_tokens_threshold"`
+
+	// 支持的模型系列（仅 antigravity 平台使用）。用户侧 keys 接口也需返回，供
+	// UseKeyModal 使用指南据此隐藏不含 claude scope 分组的 Claude flavor（与后端
+	// /antigravity/v1/models 的 scope 过滤同源）。空 = 不限制。
+	SupportedModelScopes []string `json:"supported_model_scopes,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -146,8 +174,8 @@ type AdminGroup struct {
 	MessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
 	ModelsListConfig            domain.GroupModelsListConfig             `json:"models_list_config"`
 
-	// 支持的模型系列（仅 antigravity 平台使用）
-	SupportedModelScopes    []string       `json:"supported_model_scopes"`
+	// 注：SupportedModelScopes 已上移到基础 Group（用户侧 keys DTO 也返回），
+	// AdminGroup 经内嵌 Group 继承，无需在此重复声明。
 	AccountGroups           []AccountGroup `json:"account_groups,omitempty"`
 	AccountCount            int64          `json:"account_count,omitempty"`
 	ActiveAccountCount      int64          `json:"active_account_count,omitempty"`
@@ -161,6 +189,12 @@ type AdminGroup struct {
 	StickyRoutingMode string `json:"sticky_routing_mode"`
 }
 
+// AccountModelOption is the cross-platform admin account-test model contract.
+type AccountModelOption struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+}
+
 type Account struct {
 	ID       int64   `json:"id"`
 	Name     string  `json:"name"`
@@ -169,22 +203,24 @@ type Account struct {
 	Type     string  `json:"type"`
 	// Credentials 经 RedactCredentials 处理后只含非敏感子键；敏感 token / api_key / 私钥
 	// 的存在性通过 CredentialsStatus（has_<key>）暴露，原始值不返回前端。
-	Credentials        map[string]any  `json:"credentials"`
-	CredentialsStatus  map[string]bool `json:"credentials_status,omitempty"`
-	Extra              map[string]any  `json:"extra"`
-	ProxyID            *int64          `json:"proxy_id"`
-	Concurrency        int             `json:"concurrency"`
-	LoadFactor         *int            `json:"load_factor,omitempty"`
-	Priority           int             `json:"priority"`
-	ChannelType        int             `json:"channel_type"`
-	RateMultiplier     float64         `json:"rate_multiplier"`
-	Status             string          `json:"status"`
-	ErrorMessage       string          `json:"error_message"`
-	LastUsedAt         *time.Time      `json:"last_used_at"`
-	ExpiresAt          *int64          `json:"expires_at"`
-	AutoPauseOnExpired bool            `json:"auto_pause_on_expired"`
-	CreatedAt          time.Time       `json:"created_at"`
-	UpdatedAt          time.Time       `json:"updated_at"`
+	Credentials             map[string]any  `json:"credentials"`
+	CredentialsStatus       map[string]bool `json:"credentials_status,omitempty"`
+	Extra                   map[string]any  `json:"extra"`
+	ProxyID                 *int64          `json:"proxy_id"`
+	ProxyFallbackOriginID   *int64          `json:"proxy_fallback_origin_id"`
+	ProxyFallbackOriginName *string         `json:"proxy_fallback_origin_name,omitempty"`
+	Concurrency             int             `json:"concurrency"`
+	LoadFactor              *int            `json:"load_factor,omitempty"`
+	Priority                int             `json:"priority"`
+	ChannelType             int             `json:"channel_type"`
+	RateMultiplier          float64         `json:"rate_multiplier"`
+	Status                  string          `json:"status"`
+	ErrorMessage            string          `json:"error_message"`
+	LastUsedAt              *time.Time      `json:"last_used_at"`
+	ExpiresAt               *int64          `json:"expires_at"`
+	AutoPauseOnExpired      bool            `json:"auto_pause_on_expired"`
+	CreatedAt               time.Time       `json:"created_at"`
+	UpdatedAt               time.Time       `json:"updated_at"`
 
 	Schedulable bool `json:"schedulable"`
 
@@ -198,11 +234,6 @@ type Account struct {
 	SessionWindowStart  *time.Time `json:"session_window_start"`
 	SessionWindowEnd    *time.Time `json:"session_window_end"`
 	SessionWindowStatus string     `json:"session_window_status"`
-
-	// 5h窗口费用控制（仅 Anthropic OAuth/SetupToken 账号有效）
-	// 从 extra 字段提取，方便前端显示和编辑
-	WindowCostLimit         *float64 `json:"window_cost_limit,omitempty"`
-	WindowCostStickyReserve *float64 `json:"window_cost_sticky_reserve,omitempty"`
 
 	// 会话数量控制（仅 Anthropic OAuth/SetupToken 账号有效）
 	// 从 extra 字段提取，方便前端显示和编辑
@@ -261,6 +292,17 @@ type Account struct {
 	QuotaNotifyTotalEnabled    *bool    `json:"quota_notify_total_enabled,omitempty"`
 	QuotaNotifyTotalThreshold  *float64 `json:"quota_notify_total_threshold,omitempty"`
 
+	// 影子账号关系（spark 维度影子）
+	ParentAccountID *int64 `json:"parent_account_id,omitempty"`
+	QuotaDimension  string `json:"quota_dimension,omitempty"`
+
+	// 影子账号回填的母账号信息（仅影子非空，源自母账号 Credentials/Extra）
+	ParentEmail                 string `json:"parent_email,omitempty"`
+	ParentPlanType              string `json:"parent_plan_type,omitempty"`
+	ParentPrivacyMode           string `json:"parent_privacy_mode,omitempty"`
+	ParentSubscriptionExpiresAt string `json:"parent_subscription_expires_at,omitempty"`
+	ParentChatGPTAccountID      string `json:"parent_chatgpt_account_id,omitempty"`
+
 	Proxy         *Proxy         `json:"proxy,omitempty"`
 	AccountGroups []AccountGroup `json:"account_groups,omitempty"`
 
@@ -289,6 +331,11 @@ type Proxy struct {
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	ExpiresAt      *time.Time `json:"expires_at"`
+	FallbackMode   string     `json:"fallback_mode"`
+	BackupProxyID  *int64     `json:"backup_proxy_id"`
+	ExpiryWarnDays int        `json:"expiry_warn_days"`
 }
 
 type ProxyWithAccountCount struct {
@@ -455,13 +502,14 @@ type UsageLog struct {
 	CacheCreation5mTokens int `json:"cache_creation_5m_tokens"`
 	CacheCreation1hTokens int `json:"cache_creation_1h_tokens"`
 
-	InputCost         float64 `json:"input_cost"`
-	OutputCost        float64 `json:"output_cost"`
-	CacheCreationCost float64 `json:"cache_creation_cost"`
-	CacheReadCost     float64 `json:"cache_read_cost"`
-	TotalCost         float64 `json:"total_cost"`
-	ActualCost        float64 `json:"actual_cost"`
-	RateMultiplier    float64 `json:"rate_multiplier"`
+	InputCost                 float64 `json:"input_cost"`
+	OutputCost                float64 `json:"output_cost"`
+	CacheCreationCost         float64 `json:"cache_creation_cost"`
+	CacheReadCost             float64 `json:"cache_read_cost"`
+	TotalCost                 float64 `json:"total_cost"`
+	ActualCost                float64 `json:"actual_cost"`
+	RateMultiplier            float64 `json:"rate_multiplier"`
+	LongContextBillingApplied bool    `json:"long_context_billing_applied"`
 
 	BillingType  int8   `json:"billing_type"`
 	RequestType  string `json:"request_type"`
@@ -475,12 +523,16 @@ type UsageLog struct {
 	ImageSize          *string        `json:"image_size"`
 	ImageInputSize     *string        `json:"image_input_size"`
 	ImageOutputSize    *string        `json:"image_output_size"`
+	ImageOutputTokens  int            `json:"image_output_tokens"`
+	ImageOutputCost    float64        `json:"image_output_cost"`
 	ImageSizeSource    *string        `json:"image_size_source"`
 	ImageSizeBreakdown map[string]int `json:"image_size_breakdown"`
 	MediaType          *string        `json:"media_type"`
 
 	// User-Agent
 	UserAgent *string `json:"user_agent"`
+	// IPAddress is visible to the owner of the usage record.
+	IPAddress *string `json:"ip_address,omitempty"`
 
 	// Cache TTL Override 标记
 	CacheTTLOverridden bool `json:"cache_ttl_overridden"`
@@ -516,7 +568,7 @@ type AdminUsageLog struct {
 	// AccountStatsCost 自定义定价规则计算的账号统计费用（nil 表示使用默认公式）
 	AccountStatsCost *float64 `json:"account_stats_cost,omitempty"`
 
-	// IPAddress 用户请求 IP（仅管理员可见）
+	// IPAddress 用户请求 IP
 	IPAddress *string `json:"ip_address,omitempty"`
 
 	// Account 最小账号信息（避免泄露敏感字段）
@@ -582,8 +634,9 @@ type UserSubscription struct {
 	WeeklyUsageUSD  float64 `json:"weekly_usage_usd"`
 	MonthlyUsageUSD float64 `json:"monthly_usage_usd"`
 
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 
 	User  *User  `json:"user,omitempty"`
 	Group *Group `json:"group,omitempty"`

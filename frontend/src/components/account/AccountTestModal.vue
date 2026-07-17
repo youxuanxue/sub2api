@@ -249,8 +249,10 @@ import Select from '@/components/common/Select.vue'
 import TextArea from '@/components/common/TextArea.vue'
 import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
+import { buildApiUrl } from '@/api/client'
 import { adminAPI } from '@/api/admin'
-import type { Account, ClaudeModel } from '@/types'
+import type { Account, AccountModelOption } from '@/types'
+import { PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
@@ -279,14 +281,14 @@ const status = ref<'idle' | 'connecting' | 'success' | 'error'>('idle')
 const outputLines = ref<OutputLine[]>([])
 const streamingContent = ref('')
 const errorMessage = ref('')
-const availableModels = ref<ClaudeModel[]>([])
+const availableModels = ref<AccountModelOption[]>([])
 const selectedModelId = ref('')
 const testPrompt = ref('')
 const loadingModels = ref(false)
 let abortController: AbortController | null = null
 const generatedImages = ref<PreviewImage[]>([])
 const testMode = ref<'default' | 'compact'>('default')
-const isOpenAIAccount = computed(() => props.account?.platform === 'openai')
+const isOpenAIAccount = computed(() => props.account?.platform === PLATFORM_OPENAI)
 const openAITestModeOptions = computed(() => [
   { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
   { value: 'compact', label: t('admin.accounts.openai.testModeCompact') }
@@ -297,18 +299,18 @@ const supportsGeminiImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
 
-  return props.account?.platform === 'gemini' || (props.account?.platform === 'antigravity' && props.account?.type === 'apikey')
+  return props.account?.platform === PLATFORM_GEMINI || (props.account?.platform === PLATFORM_ANTIGRAVITY && props.account?.type === 'apikey')
 })
 
 const supportsOpenAIImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gpt-image-')) return false
-  return props.account?.platform === 'openai'
+  return props.account?.platform === PLATFORM_OPENAI
 })
 
 const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
 
-const sortTestModels = (models: ClaudeModel[]) => {
+const sortTestModels = (models: AccountModelOption[]) => {
   const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
 
   return [...models].sort((a, b) => {
@@ -347,12 +349,12 @@ const loadAvailableModels = async () => {
   selectedModelId.value = '' // Reset selection before loading
   try {
     const models = await adminAPI.accounts.getAvailableModels(props.account.id)
-    availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
+    availableModels.value = props.account.platform === PLATFORM_GEMINI || props.account.platform === PLATFORM_ANTIGRAVITY
       ? sortTestModels(models)
       : models
     // Default selection by platform
     if (availableModels.value.length > 0) {
-      if (props.account.platform === 'gemini') {
+      if (props.account.platform === PLATFORM_GEMINI || props.account.platform === PLATFORM_ANTIGRAVITY) {
         selectedModelId.value = availableModels.value[0].id
       } else {
         // Try to select Sonnet as default, otherwise use first model
@@ -417,8 +419,8 @@ const startTest = async () => {
   abortController = new AbortController()
 
   try {
-    // Create EventSource for SSE
-    const url = `/api/v1/admin/accounts/${props.account.id}/test`
+    // Use the configured API base; EventSource does not support POST.
+    const url = buildApiUrl(`/admin/accounts/${props.account.id}/test`)
 
     // Use fetch with streaming for SSE since EventSource doesn't support POST
     const response = await fetch(url, {

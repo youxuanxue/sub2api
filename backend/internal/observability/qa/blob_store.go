@@ -20,6 +20,11 @@ import (
 
 type BlobStore interface {
 	Put(ctx context.Context, key string, body []byte, contentType string) (string, error)
+	// PutReader streams body to the store without buffering the whole payload
+	// in memory. Used by the trajectory export, whose zip can be hundreds of MB
+	// (an in-memory build is what hung prod on 2026-06-17). r SHOULD be an
+	// io.ReadSeeker (e.g. *os.File) so the S3 driver can set Content-Length.
+	PutReader(ctx context.Context, key string, r io.Reader, contentType string) (string, error)
 	Get(ctx context.Context, key string) ([]byte, error)
 	Delete(ctx context.Context, key string) error
 	PresignURL(ctx context.Context, key string, expiry time.Duration) (string, error)
@@ -39,6 +44,25 @@ func (s *localFSBlobStore) Put(_ context.Context, key string, body []byte, _ str
 		return "", err
 	}
 	if err := os.WriteFile(fullPath, body, 0o644); err != nil {
+		return "", err
+	}
+	return "file://" + fullPath, nil
+}
+
+func (s *localFSBlobStore) PutReader(_ context.Context, key string, r io.Reader, _ string) (string, error) {
+	fullPath := filepath.Join(s.root, filepath.FromSlash(key))
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		return "", err
+	}
+	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(f, r); err != nil {
+		_ = f.Close()
+		return "", err
+	}
+	if err := f.Close(); err != nil {
 		return "", err
 	}
 	return "file://" + fullPath, nil
@@ -79,16 +103,7 @@ func newBlobStore(cfg config.QACaptureConfig) (BlobStore, error) {
 		return newLocalFSBlobStore(filepath.Join(dataDir, "qa_blobs")), nil
 	}
 
-	region := strings.TrimSpace(cfg.Storage.Region)
-	if region == "" {
-		region = "auto"
-	}
-	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(),
-		awsconfig.WithRegion(region),
-		awsconfig.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(cfg.Storage.AccessKeyID, cfg.Storage.SecretAccessKey, ""),
-		),
-	)
+	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), qaS3LoadOptions(cfg.Storage)...)
 	if err != nil {
 		return nil, fmt.Errorf("load qa s3 config: %w", err)
 	}
@@ -111,6 +126,36 @@ func newBlobStore(cfg config.QACaptureConfig) (BlobStore, error) {
 	}, nil
 }
 
+// qaS3LoadOptions builds the AWS SDK config load options for the QA S3 store.
+//
+// It injects a static credentials provider ONLY when an access key is explicitly
+// configured (non-AWS / local S3-compatible stores like R2 / MinIO). When the
+// access key is empty it adds NO credentials provider, so LoadDefaultConfig uses
+// the default AWS credential chain — i.e. the EC2 instance role on prod. That is
+// exactly how the deploy is wired: ops/stage0/deploy_via_ssm.sh injects only
+// DRIVER/REGION/BUCKET/PREFIX (never a long-lived key), and the QaExports bucket
+// policy grants the app instance role Put/Get/Delete
+// (deploy/aws/cloudformation/stage0-backups.yaml).
+//
+// Previously newBlobStore unconditionally passed an empty static provider, so
+// every prod export died with "operation error S3: PutObject ... static
+// credentials are empty". This mirrors S3MediaStore
+// (internal/repository/media_s3_store.go), which is why media offload works on
+// the same instance role while export did not.
+func qaS3LoadOptions(storage config.QACaptureStorageConfig) []func(*awsconfig.LoadOptions) error {
+	region := strings.TrimSpace(storage.Region)
+	if region == "" {
+		region = "auto" // Cloudflare R2 default
+	}
+	opts := []func(*awsconfig.LoadOptions) error{awsconfig.WithRegion(region)}
+	if strings.TrimSpace(storage.AccessKeyID) != "" {
+		opts = append(opts, awsconfig.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(storage.AccessKeyID, storage.SecretAccessKey, ""),
+		))
+	}
+	return opts
+}
+
 func (s *s3BlobStore) fullKey(key string) string {
 	key = strings.TrimLeft(key, "/")
 	if s.prefix == "" {
@@ -128,6 +173,29 @@ func (s *s3BlobStore) Put(ctx context.Context, key string, body []byte, contentT
 		ContentType: &contentType,
 	})
 	if err != nil {
+		return "", err
+	}
+	return "s3://" + s.bucket + "/" + fullKey, nil
+}
+
+func (s *s3BlobStore) PutReader(ctx context.Context, key string, r io.Reader, contentType string) (string, error) {
+	fullKey := s.fullKey(key)
+	in := &s3.PutObjectInput{
+		Bucket:      &s.bucket,
+		Key:         &fullKey,
+		Body:        r,
+		ContentType: &contentType,
+	}
+	// A ReadSeeker (e.g. *os.File) lets the SDK compute Content-Length without
+	// buffering; non-seekable readers fall back to the SDK's own handling.
+	if rs, ok := r.(io.ReadSeeker); ok {
+		if size, err := rs.Seek(0, io.SeekEnd); err == nil {
+			if _, err := rs.Seek(0, io.SeekStart); err == nil {
+				in.ContentLength = &size
+			}
+		}
+	}
+	if _, err := s.client.PutObject(ctx, in); err != nil {
 		return "", err
 	}
 	return "s3://" + s.bucket + "/" + fullKey, nil

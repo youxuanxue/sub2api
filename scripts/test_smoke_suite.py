@@ -11,6 +11,7 @@ import unittest
 
 from scripts.stage0.smoke_suite import (
     edge_phase_gateway_suite,
+    edge_phase_runs_native_oauth,
     needs_chat_model,
     normalize_suite,
     pick_model,
@@ -57,13 +58,19 @@ class SmokeSuiteTest(unittest.TestCase):
     def test_edge_chat_model_gate(self) -> None:
         self.assertFalse(needs_chat_model("main-via-edge", "infra"))
         self.assertFalse(needs_chat_model("main-via-edge", "api"))
-        self.assertTrue(needs_chat_model("infra", "api"))
+        self.assertFalse(needs_chat_model("infra", "api"))
         self.assertFalse(needs_chat_model("full", "infra"))
 
     def test_edge_phase_gateway_suite(self) -> None:
         self.assertEqual(edge_phase_gateway_suite("main-via-edge"), "main-via-edge")
-        self.assertEqual(edge_phase_gateway_suite("full"), "main-via-edge")
+        self.assertIsNone(edge_phase_gateway_suite("full"))
         self.assertIsNone(edge_phase_gateway_suite("infra"))
+
+    def test_edge_phase_native_oauth(self) -> None:
+        self.assertTrue(edge_phase_runs_native_oauth("full"))
+        self.assertTrue(edge_phase_runs_native_oauth("edge-native-oauth"))
+        self.assertFalse(edge_phase_runs_native_oauth("infra"))
+        self.assertFalse(edge_phase_runs_native_oauth("main-via-edge"))
 
 
 class SoftDegradeOrExitTest(unittest.TestCase):
@@ -75,13 +82,13 @@ class SoftDegradeOrExitTest(unittest.TestCase):
     """
 
     @staticmethod
-    def _run(suite: str, http: str, body: dict) -> tuple[int, str]:
+    def _run(suite: str, http: str, body: dict, label: str = "/v1/x") -> tuple[int, str]:
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(body, f)
             resp_path = f.name
         script = (
             f'source "{SMOKE_LIB}"\n'
-            f'if soft_degrade_or_exit "/v1/x" "{http}" "{resp_path}"; then\n'
+            f'if soft_degrade_or_exit "{label}" "{http}" "{resp_path}"; then\n'
             f'  echo MARKER=continue\n'
             f'else\n'
             f'  echo MARKER=softskip\n'
@@ -133,6 +140,26 @@ class SoftDegradeOrExitTest(unittest.TestCase):
     def test_full_403_unrelated_hard_fails(self) -> None:
         rc, out = self._run(
             "full", "403", {"error": {"message": "invalid api key"}},
+        )
+        self.assertEqual(rc, 1, out)
+        self.assertNotIn("MARKER=continue", out)
+
+    def test_full_chat_400_unsupported_model_hard_fails(self) -> None:
+        rc, out = self._run(
+            "full",
+            "400",
+            {"error": {"message": "Unsupported model: claude-sonnet-4-6"}},
+            label="/v1/chat/completions",
+        )
+        self.assertEqual(rc, 1, out)
+        self.assertNotIn("MARKER=continue", out)
+
+    def test_full_messages_400_unsupported_model_hard_fails(self) -> None:
+        rc, out = self._run(
+            "full",
+            "400",
+            {"error": {"message": "Unsupported model: claude-sonnet-4-6"}},
+            label="/v1/messages",
         )
         self.assertEqual(rc, 1, out)
         self.assertNotIn("MARKER=continue", out)

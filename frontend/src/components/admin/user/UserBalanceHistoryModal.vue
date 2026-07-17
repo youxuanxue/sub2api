@@ -172,7 +172,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI, type BalanceHistoryItem } from '@/api/admin'
 import { formatDateTime } from '@/utils/format'
@@ -206,11 +206,26 @@ const typeOptions = computed(() => [
   { value: 'subscription', label: t('admin.users.typeSubscription') }
 ])
 
+// Shared open handler — runs the same load whether the modal opens by
+// show toggling (watch) or is mounted already-shown (lazy latch, PR #900).
+const onShown = () => {
+  typeFilter.value = ''
+  loadHistory(1)
+}
+
 // Watch modal open
 watch(() => props.show, (v) => {
   if (v && props.user) {
-    typeFilter.value = ''
-    loadHistory(1)
+    onShown()
+  }
+})
+
+// Lazy-mount first-open: the modal is created with show already true, so the
+// non-immediate watch above never fires on initial mount. Run the same load
+// here. Fires once at mount only; reopen still goes through the watch.
+onMounted(() => {
+  if (props.show && props.user) {
+    onShown()
   }
 })
 

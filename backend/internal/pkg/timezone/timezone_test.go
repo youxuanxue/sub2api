@@ -136,6 +136,34 @@ func TestDSTAwareness(t *testing.T) {
 	_ = StartOfDay(Now())
 }
 
+func TestInUserLocationHelpersIgnoreClientTimezone(t *testing.T) {
+	if err := Init("Asia/Shanghai"); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	t.Cleanup(func() { _ = Init("UTC") })
+
+	// A US browser zone must not shift billing-day boundaries.
+	parsed, err := ParseInUserLocation("2006-01-02", "2026-06-28", "America/New_York")
+	if err != nil {
+		t.Fatalf("ParseInUserLocation: %v", err)
+	}
+	want := time.Date(2026, 6, 28, 0, 0, 0, 0, Location())
+	if !parsed.Equal(want) {
+		t.Fatalf("ParseInUserLocation = %v, want %v", parsed, want)
+	}
+
+	now := NowInUserLocation("America/Los_Angeles")
+	if now.Location().String() != Location().String() {
+		t.Fatalf("NowInUserLocation location = %s, want %s", now.Location(), Location())
+	}
+
+	midday := time.Date(2026, 6, 28, 15, 30, 0, 0, Location())
+	start := StartOfDayInUserLocation(midday, "Europe/London")
+	if start.Hour() != 0 || start.Day() != 28 {
+		t.Fatalf("StartOfDayInUserLocation = %v, want start of server day", start)
+	}
+}
+
 func TestStartOfWeek_Boundaries(t *testing.T) {
 	if err := Init("Asia/Shanghai"); err != nil {
 		t.Fatalf("Init: %v", err)

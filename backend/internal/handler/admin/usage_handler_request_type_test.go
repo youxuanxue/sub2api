@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
@@ -94,6 +96,23 @@ func TestAdminUsageListExactTotalTrue(t *testing.T) {
 	require.True(t, repo.listFilters.ExactTotal)
 }
 
+func TestAdminUsageListAbsoluteTimeRange(t *testing.T) {
+	repo := &adminUsageRepoCapture{}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+
+	start := time.Date(2026, 6, 25, 1, 2, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage?start_ts="+strconv.FormatInt(start.UnixMilli(), 10)+"&end_ts="+strconv.FormatInt(end.UnixMilli(), 10), nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, repo.listFilters.StartTime)
+	require.NotNil(t, repo.listFilters.EndTime)
+	require.Equal(t, start, repo.listFilters.StartTime.UTC())
+	require.Equal(t, end, repo.listFilters.EndTime.UTC())
+}
+
 func TestAdminUsageListInvalidExactTotal(t *testing.T) {
 	repo := &adminUsageRepoCapture{}
 	router := newAdminUsageRequestTypeTestRouter(repo)
@@ -135,6 +154,60 @@ func TestAdminUsageStatsInvalidStream(t *testing.T) {
 	router := newAdminUsageRequestTypeTestRouter(repo)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/usage/stats?stream=oops", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAdminUsageStatsIncludeToggles(t *testing.T) {
+	repo := &adminUsageRepoCapture{}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/stats?include_summary=0&include_endpoints=false", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, repo.statsFilters.SkipSummary)
+	require.True(t, repo.statsFilters.SkipEndpointStats)
+}
+
+func TestAdminUsageStatsAbsoluteTimeRange(t *testing.T) {
+	repo := &adminUsageRepoCapture{}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+
+	start := time.Date(2026, 6, 25, 1, 2, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/stats?start_ts="+strconv.FormatInt(start.UnixMilli(), 10)+"&end_ts="+strconv.FormatInt(end.UnixMilli(), 10), nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, repo.statsFilters.StartTime)
+	require.NotNil(t, repo.statsFilters.EndTime)
+	require.Equal(t, start, repo.statsFilters.StartTime.UTC())
+	require.Equal(t, end, repo.statsFilters.EndTime.UTC())
+}
+
+func TestAdminUsageStatsEndpointSource(t *testing.T) {
+	repo := &adminUsageRepoCapture{}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/stats?include_summary=0&include_endpoints=1&endpoint_source=upstream", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.False(t, repo.statsFilters.SkipEndpointStats)
+	require.Equal(t, usagestats.EndpointSourceUpstream, repo.statsFilters.EndpointStatsSource)
+}
+
+func TestAdminUsageStatsInvalidEndpointSource(t *testing.T) {
+	repo := &adminUsageRepoCapture{}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/stats?endpoint_source=all", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 

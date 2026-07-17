@@ -23,7 +23,6 @@ function makeDetail(overrides: Partial<OpsErrorDetail>): OpsErrorDetail {
     group_name: 'group',
     error_body: '',
     user_agent: '',
-    is_business_limited: false,
     ...overrides
   }
 }

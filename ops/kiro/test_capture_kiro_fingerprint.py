@@ -75,19 +75,6 @@ class UserAgentTests(unittest.TestCase):
         self.assertIn("api/codewhispererstreaming#", ua)
 
 
-class MachineSuffixTests(unittest.TestCase):
-    def test_strip_per_account_machine_suffix(self):
-        ua = (
-            "aws-sdk-js/1.0.34 ua/2.1 os/darwin#24.0.0 lang/js md/nodejs#22.22.0 "
-            "api/codewhispererstreaming#1.0.34 m/E KiroIDE-0.11.107-abc123machine"
-        )
-        self.assertTrue(eng._strip_machine_suffix(ua).endswith("KiroIDE-0.11.107"))
-
-    def test_strip_noop_when_no_suffix(self):
-        ua = "aws-sdk-js/1.0.34 KiroIDE-0.11.107"
-        self.assertEqual(eng._strip_machine_suffix(ua), ua)
-
-
 class TsharkParseTests(unittest.TestCase):
     def test_parses_hex_and_decimal_aggregated_cells(self):
         header = "\t".join(eng.TSHARK_FIELDS)
@@ -103,7 +90,7 @@ class TsharkParseTests(unittest.TestCase):
                 "0x0304,0x0303",     # supported_version
                 "0x001d",            # key_share_group
                 "1",                 # psk_ke_modes
-                "codewhisperer.us-east-1.amazonaws.com",
+                "runtime.us-east-1.kiro.dev",
             ]
         )
         fields = eng.parse_tshark_tsv(header + "\n" + row + "\n")
@@ -113,7 +100,7 @@ class TsharkParseTests(unittest.TestCase):
         self.assertEqual(fields["curves"], [0x1D, 0x17])
         self.assertEqual(fields["alpn_protocols"], ["h2", "http/1.1"])
         self.assertEqual(fields["supported_versions"], [0x0304, 0x0303])
-        self.assertEqual(fields["server_name"], "codewhisperer.us-east-1.amazonaws.com")
+        self.assertEqual(fields["server_name"], "runtime.us-east-1.kiro.dev")
 
     def test_raises_without_data_row(self):
         with self.assertRaises(ValueError):
@@ -146,34 +133,25 @@ class ProfileAndDiffTests(unittest.TestCase):
 
     def test_diff_first_capture_is_non_actionable(self):
         prof = eng.build_canonical_profile(self._fields(), {"source": "test"})
-        bundle = {"tls": {"ja3_hash": prof["observed"]["ja3_hash"]}, "http": {}}
-        consts = UserAgentTests.SYNTH
-        rows = eng.diff_bundle(bundle, consts, committed=None)
+        bundle = {"tls": {"ja3_hash": prof["observed"]["ja3_hash"]}}
+        rows = eng.diff_bundle(bundle, committed=None)
         ja3_row = next(r for r in rows if r.field == "tls.ja3_hash")
         self.assertEqual(ja3_row.status, "missing_tokenkey")
         self.assertFalse(eng.has_actionable_mismatch(rows))
 
     def test_diff_detects_ja3_drift_against_committed(self):
         committed = {"observed": {"ja3_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
-        bundle = {"tls": {"ja3_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, "http": {}}
-        rows = eng.diff_bundle(bundle, UserAgentTests.SYNTH, committed)
+        bundle = {"tls": {"ja3_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+        rows = eng.diff_bundle(bundle, committed)
         self.assertTrue(eng.has_actionable_mismatch(rows))
 
-    def test_diff_matches_ja3_and_ua(self):
+    def test_diff_matches_ja3(self):
         committed = {"observed": {"ja3_hash": "cccccccccccccccccccccccccccccccc"}}
-        consts = UserAgentTests.SYNTH
-        bundle = {
-            "tls": {"ja3_hash": "cccccccccccccccccccccccccccccccc"},
-            "http": {
-                "user_agent": eng.expected_user_agent(consts) + "-machineXYZ",
-                "x_amz_user_agent": eng.expected_amz_user_agent(consts),
-            },
-        }
-        rows = eng.diff_bundle(bundle, consts, committed)
+        bundle = {"tls": {"ja3_hash": "cccccccccccccccccccccccccccccccc"}}
+        rows = eng.diff_bundle(bundle, committed)
         self.assertFalse(eng.has_actionable_mismatch(rows))
         statuses = {r.field: r.status for r in rows}
         self.assertEqual(statuses["tls.ja3_hash"], "match")
-        self.assertEqual(statuses["http.user_agent"], "match")  # machine suffix stripped
 
 
 if __name__ == "__main__":

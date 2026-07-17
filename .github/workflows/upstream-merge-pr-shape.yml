@@ -19,6 +19,15 @@ name: Upstream Merge PR Shape
 #      docs/approved/newapi-as-fifth-platform.md: an upstream merge
 #      silently drops a TK companion file or a `case PlatformNewAPI`
 #      branch and the regression is only noticed weeks later.
+#      (Checks 4b/4d/4c/4e mirror this for kiro / grok / antigravity /
+#      relay-invariant tests respectively — same script as preflight.)
+#   4e. Every relay-invariant characterization test listed in
+#      `scripts/sentinels/relay-invariants.json` is still present after the
+#      merge. These encode deliberate TK relay behaviors (G4 cooldown scoping,
+#      kiro/grok refresh candidates, SSE stream-error 502, cooldown polarity,
+#      thinking model-reference routing) whose only durable proof is the test —
+#      PR #835's silent-deletion/override class. Deleting/gutting a pinned test
+#      fails the check; retiring a behavior means updating the registry in-PR.
 #   5. Every outward TokenKey brand surface listed in
 #      `scripts/sentinels/brand.json` is still intact after the merge,
 #      so upstream churn cannot silently revert default title / README /
@@ -33,6 +42,12 @@ name: Upstream Merge PR Shape
 #      these are small upstream-hotspot injections that otherwise compile
 #      cleanly when silently reverted (incl. prod-to-sibling Claude sticky
 #      session header + ParsedRequest Gin fallback, and bridge metadata).
+#   5d. Every performance-critical query SHAPE listed in
+#      `scripts/sentinels/perf-query-shape.json` survives the merge. These
+#      regress semantically-invisibly (a revert returns identical results so no
+#      test catches it), so a merge could otherwise silently restore the slow
+#      form (e.g. /admin/users last_used_at reverting to a full-table
+#      `ANY($1) GROUP BY` seq scan, ~1.3s on prod — PR #877).
 #   6. The QA evidence redaction contract stays aligned: if logredact's
 #      default sensitive-key set changes, `scripts/sentinels/redaction.json`
 #      and every outward `redaction_version` literal must move in the same
@@ -63,7 +78,8 @@ name: Upstream Merge PR Shape
 #      (preflight parity, mechanical forward-drift guard).
 #
 # A green check here is a hard prerequisite for merging. Branch protection
-# on `main` should require this workflow status for `merge/upstream-*` PRs.
+# on `main` should require the `upstream-merge-pr-shape` job status for
+# `merge/upstream-*` PRs (do not add it to the global required-check list).
 
 on:
   pull_request:
@@ -75,7 +91,7 @@ permissions:
   pull-requests: read
 
 jobs:
-  validate:
+  upstream-merge-pr-shape:
     if: startsWith(github.head_ref, 'merge/upstream-')
     runs-on: ubuntu-latest
     steps:
@@ -225,6 +241,82 @@ jobs:
             exit 1
           fi
 
+      - name: Check 4d — grok sentinels still intact after merge
+        run: |
+          # Single source of truth: scripts/sentinels/grok.json. Same script that
+          # scripts/preflight.sh runs locally as the "grok sentinel registry"
+          # check, so a green local preflight implies a green check here. Failure
+          # means the upstream merge silently dropped a load-bearing seventh-platform
+          # surface — the thin grok injection branches into upstream-shaped files
+          # are the highest risk: the OAuth refresh (pkg/xai + GrokTokenRefresher),
+          # the two forward seams (grok forwards like the apikey branch, NOT the
+          # ChatGPT/Codex branch), the Heavy-403 honesty guard, the OpenAICompat
+          # pool membership, and the model.AllPlatforms entry. Fix the merge to
+          # restore the file/symbol, do NOT delete the sentinel entry.
+          if [ ! -f ./scripts/sentinels/check-grok.py ]; then
+            echo "::error::scripts/sentinels/check-grok.py missing."
+            echo "::error::Per CLAUDE.md §5.x, this guard cannot be silently disabled."
+            exit 1
+          fi
+          if ! python3 ./scripts/sentinels/check-grok.py; then
+            echo "::error::Upstream merge regressed at least one grok sentinel."
+            echo "::error::Per CLAUDE.md §5.x, restore the dropped file/symbol in this"
+            echo "::error::merge PR. Do NOT 'fix' by deleting the sentinel entry."
+            exit 1
+          fi
+
+      - name: Check 4e — relay-invariant tests still intact after merge
+        run: |
+          # Single source of truth: scripts/sentinels/relay-invariants.json. Same
+          # script scripts/preflight.sh runs locally as the "relay-invariant test
+          # registry" check, so a green local preflight implies a green check here.
+          # Unlike the per-platform sentinels (which anchor production symbols),
+          # this pins the CHARACTERIZATION TESTS that encode deliberate TK relay
+          # behaviors: G4 5h-window cooldown scoping, kiro/grok refresh candidates,
+          # SSE stream-error 502 (not 403), org-ban / bodyless / oauth401 /
+          # usage-policy / TLS-fingerprint / request-owned-429 cooldown polarity,
+          # and thinking model-reference routing. This is the exact failure class
+          # PR #835 surfaced — an upstream rewrite silently deletes a TK behavior
+          # or overrides a deliberate TK choice with a green CI because the only
+          # proof was a test gutted in the same merge. Fix the merge to restore the
+          # behavior + its test; if a behavior was intentionally retired, update
+          # the registry in this PR (the human-review checkpoint), do NOT delete
+          # the entry to silence the check.
+          if [ ! -f ./scripts/sentinels/check-relay-invariants.py ]; then
+            echo "::error::scripts/sentinels/check-relay-invariants.py missing."
+            echo "::error::Per CLAUDE.md §5.x, this guard cannot be silently disabled."
+            exit 1
+          fi
+          if ! python3 ./scripts/sentinels/check-relay-invariants.py; then
+            echo "::error::Upstream merge deleted/gutted at least one relay-invariant test."
+            echo "::error::Restore the behavior and its characterization test in this"
+            echo "::error::merge PR. Do NOT 'fix' by deleting the registry entry."
+            exit 1
+          fi
+
+      - name: Check 4c — antigravity fingerprint sentinels still intact after merge
+        run: |
+          # Single source of truth: scripts/sentinels/antigravity.json. Same script
+          # that scripts/preflight.sh runs locally as the "antigravity fingerprint
+          # sentinel registry" check, so a green local preflight implies a green
+          # check here. Failure means the upstream merge silently reverted a
+          # TokenKey fingerprint divergence — the `/hub/` subclient segment in
+          # oauth.go BuildUserAgent, or re-added the gl-node X-Goog-Api-Client
+          # header on client.go privacy calls. oauth.go/client.go are
+          # upstream-shaped, so this clobber lands with a trivial test-passing
+          # diff — fix the merge to keep the TK values, do NOT delete the entry.
+          if [ ! -f ./scripts/sentinels/check-antigravity.py ]; then
+            echo "::error::scripts/sentinels/check-antigravity.py missing."
+            echo "::error::Per CLAUDE.md §5.x, this guard cannot be silently disabled."
+            exit 1
+          fi
+          if ! python3 ./scripts/sentinels/check-antigravity.py; then
+            echo "::error::Upstream merge regressed at least one antigravity fingerprint sentinel."
+            echo "::error::Restore the TK fingerprint values (/hub/ UA segment, gl-node removal)"
+            echo "::error::in this merge PR. Do NOT 'fix' by deleting the sentinel entry."
+            exit 1
+          fi
+
       - name: Check 5 — brand sentinels still intact after merge
         run: |
           # Single source of truth: scripts/sentinels/brand.json. This stays
@@ -279,6 +371,29 @@ jobs:
           if ! python3 ./scripts/sentinels/check-gateway-tk.py; then
             echo "::error::Upstream merge regressed at least one gateway TK sentinel."
             echo "::error::Restore the dropped / reverted TK gateway hook in this merge PR."
+            echo "::error::Do NOT 'fix' by deleting the sentinel entry."
+            exit 1
+          fi
+
+      - name: Check 5d — perf query-shape sentinels still intact after merge
+        run: |
+          # Single source of truth: scripts/sentinels/perf-query-shape.json. Same
+          # script that scripts/preflight.sh runs locally, so a green local
+          # preflight implies a green check here. Guards performance-critical
+          # query SHAPES whose regression is semantically invisible — a revert
+          # returns identical results so no test catches it, and an EXPLAIN-plan
+          # test is unreliable on small fixtures. An upstream merge can silently
+          # restore the slow form with all tests green (e.g. /admin/users
+          # GetLatestUsedAtByUserIDs reverting to a full-table ANY($1) GROUP BY
+          # seq scan, ~1.3s on prod — PR #877).
+          if [ ! -f ./scripts/sentinels/check-perf-query-shape.py ]; then
+            echo "::error::scripts/sentinels/check-perf-query-shape.py missing."
+            echo "::error::Per CLAUDE.md §5 minimum-invasion guidance, this guard cannot be silently disabled."
+            exit 1
+          fi
+          if ! python3 ./scripts/sentinels/check-perf-query-shape.py; then
+            echo "::error::Upstream merge regressed at least one perf query-shape sentinel."
+            echo "::error::Restore the efficient query shape in this merge PR (re-measure if you rewrote it)."
             echo "::error::Do NOT 'fix' by deleting the sentinel entry."
             exit 1
           fi
@@ -400,16 +515,20 @@ jobs:
           fi
 
       - name: Check 12 — sentinel registry update gate (PR diff ↔ registries coupled)
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           # Preflight parity: scripts/sentinels/check-registry-update-gate.py — forces any
           # change to sentinel-covered or hotspot-listed sources to accompany a registry edit.
+          # --pr-body lets the review marker live on the mutable PR description (edit + re-run,
+          # no commit rewrite); same acceptance logic preflight runs in advisory mode locally.
           if [ ! -f ./scripts/sentinels/check-registry-update-gate.py ]; then
             echo "::error::scripts/sentinels/check-registry-update-gate.py missing."
             exit 1
           fi
           BASE_SHA='${{ github.event.pull_request.base.sha }}'
           HEAD_SHA='${{ github.event.pull_request.head.sha }}'
-          if ! python3 ./scripts/sentinels/check-registry-update-gate.py --base "$BASE_SHA" --head "$HEAD_SHA"; then
+          if ! python3 ./scripts/sentinels/check-registry-update-gate.py --base "$BASE_SHA" --head "$HEAD_SHA" --pr-body "$PR_BODY"; then
             echo "::error::Sentinel registry update gate failed."
             echo "::error::Changing load-bearing hotspots requires updating scripts/sentinels/*.json in the same PR."
             exit 1
@@ -434,7 +553,31 @@ jobs:
             exit 1
           fi
 
+      - name: Check 14 — served-models manifest agrees with price/display/migration
+        run: |
+          # Preflight parity: scripts/checks/catalog-serving-drift.py — guards the
+          # #812-class regression where a model is priced + advertised-as-intended in
+          # backend/internal/service/tk_served_models.json but never wired onto the
+          # serving account's credentials.model_mapping (=> empty pool 429/503). The
+          # same script scripts/preflight.sh runs locally, so a green local preflight
+          # implies a green check here. Selftest first (offline fixtures), then the
+          # real run against the manifest + tk_pricing_overlay.json + the Go
+          # servable-allowlist maps + tk_*.sql model_mapping migrations.
+          if [ ! -f ./scripts/checks/catalog-serving-drift.py ]; then
+            echo "::error::scripts/checks/catalog-serving-drift.py missing."
+            exit 1
+          fi
+          if ! python3 ./scripts/checks/catalog-serving-drift.py --selftest; then
+            echo "::error::catalog-serving-drift.py selftest failed (guard logic broke)."
+            exit 1
+          fi
+          if ! python3 ./scripts/checks/catalog-serving-drift.py; then
+            echo "::error::served-models manifest drift: a manifest entry disagrees with its price, display allowlist, or model_mapping migration."
+            echo "::error::Land the missing tk_NNN_*_model_mapping migration (or add the 'served-via-admin-ui' notes opt-out), or remove the row — do NOT delete the guard."
+            exit 1
+          fi
+
       - name: Summary
         run: |
-          echo "All thirteen §5.y / §5.x checks passed for merge/upstream-* PR."
+          echo "All fourteen §5.y / §5.x checks passed for merge/upstream-* PR."
           echo "Reviewer reminder: pick GitHub 'Create a merge commit' (not Squash)."

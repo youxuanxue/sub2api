@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import UsageView from '../UsageView.vue'
 
-const { list, getStats, getSnapshotV2, getById, getModelStats } = vi.hoisted(() => {
+const { list, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs, routeQuery } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -16,6 +16,8 @@ const { list, getStats, getSnapshotV2, getById, getModelStats } = vi.hoisted(() 
     getSnapshotV2: vi.fn(),
     getById: vi.fn(),
     getModelStats: vi.fn(),
+    listErrorLogs: vi.fn(),
+    routeQuery: {} as Record<string, string>,
   }
 })
 
@@ -31,6 +33,31 @@ const formatLocalDate = (date: Date): string => {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+let endpointIntersectionCallback: IntersectionObserverCallback | null = null
+
+class MockIntersectionObserver {
+  constructor(callback: IntersectionObserverCallback) {
+    endpointIntersectionCallback = callback
+  }
+
+  observe = vi.fn()
+  unobserve = vi.fn()
+  disconnect = vi.fn()
+  takeRecords = vi.fn(() => [])
+}
+
+const installIntersectionObserver = () => {
+  endpointIntersectionCallback = null
+  vi.stubGlobal('IntersectionObserver', MockIntersectionObserver)
+}
+
+const triggerEndpointIntersection = (isIntersecting = true) => {
+  endpointIntersectionCallback?.(
+    [{ isIntersecting } as IntersectionObserverEntry],
+    {} as IntersectionObserver,
+  )
 }
 
 vi.mock('@/api/admin', () => ({
@@ -53,6 +80,10 @@ vi.mock('@/api/admin/usage', () => ({
   adminUsageAPI: {
     list: vi.fn(),
   },
+}))
+
+vi.mock('@/api/admin/ops', () => ({
+  listErrorLogs,
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -80,15 +111,23 @@ vi.mock('vue-i18n', async () => {
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({
-    query: {}
+    query: routeQuery
   })
 }))
+
+beforeEach(() => {
+  for (const key of Object.keys(routeQuery)) delete routeQuery[key]
+})
 
 const AppLayoutStub = { template: '<div><slot /></div>' }
 const UsageFiltersStub = { template: '<div><slot name="after-reset" /></div>' }
 const UsageTableStub = {
   emits: ['userClick'],
   template: '<div data-test="usage-table"><button class="user-click" @click="$emit(\'userClick\', 2)">user</button></div>',
+}
+const UserTokenRankingStub = {
+  emits: ['select-user'],
+  template: '<div data-test="ranking"><button class="pick-user" @click="$emit(\'select-user\', 5, \'rank@test.com\')">pick</button></div>',
 }
 const ModelDistributionChartStub = {
   props: ['metric'],
@@ -110,10 +149,21 @@ const GroupDistributionChartStub = {
     </div>
   `,
 }
+const EndpointDistributionChartStub = {
+  props: ['source'],
+  emits: ['update:source'],
+  template: `
+    <div data-test="endpoint-chart">
+      <span class="source">{{ source }}</span>
+      <button class="switch-source" @click="$emit('update:source', 'upstream')">upstream</button>
+    </div>
+  `,
+}
 
 describe('admin UsageView distribution metric toggles', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    installIntersectionObserver()
     list.mockReset()
     getStats.mockReset()
     getSnapshotV2.mockReset()
@@ -147,6 +197,154 @@ describe('admin UsageView distribution metric toggles', () => {
     vi.useRealTimers()
   })
 
+  it('uses absolute window params for the default rolling last-24-hour requests', async () => {
+    vi.setSystemTime(new Date('2026-06-25T12:34:56.789Z'))
+    const endTs = Date.UTC(2026, 5, 25, 12, 34, 0)
+    const startTs = endTs - 24 * 60 * 60 * 1000
+    const expectedWindow = { start_ts: startTs, end_ts: endTs }
+
+    mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: EndpointDistributionChartStub,
+      } },
+    })
+
+    await flushPromises()
+    expect(list.mock.calls[0]?.[0]).toEqual(expect.objectContaining(expectedWindow))
+    expect(getStats.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      ...expectedWindow,
+      include_endpoints: 0,
+    }))
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    expect(getModelStats.mock.calls[0]?.[0]).toEqual(expect.objectContaining(expectedWindow))
+    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
+      ...expectedWindow,
+      include_trend: true,
+    }))
+    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
+      ...expectedWindow,
+      include_group_stats: true,
+    }))
+
+    triggerEndpointIntersection()
+    await flushPromises()
+    const endpointStatsParams = getStats.mock.calls[getStats.mock.calls.length - 1]?.[0]
+    expect(endpointStatsParams).toEqual(expect.objectContaining({
+      ...expectedWindow,
+      include_summary: 0,
+      include_endpoints: 1,
+    }))
+  })
+
+  it('applies a group drilldown and its exact dashboard window to usage requests', async () => {
+    Object.assign(routeQuery, {
+      group_id: '101',
+      start_date: '2026-07-15',
+      end_date: '2026-07-16',
+      start_ts: String(Date.UTC(2026, 6, 15, 8, 43, 0)),
+      end_ts: String(Date.UTC(2026, 6, 16, 8, 43, 0)),
+    })
+
+    mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+      } },
+    })
+
+    await flushPromises()
+    const expected = {
+      group_id: 101,
+      start_ts: Date.UTC(2026, 6, 15, 8, 43, 0),
+      end_ts: Date.UTC(2026, 6, 16, 8, 43, 0),
+    }
+    expect(list).toHaveBeenCalledWith(expect.objectContaining(expected), expect.anything())
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining(expected))
+  })
+
+  it('loads summary first and endpoint distribution only after the chart enters view', async () => {
+    mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: EndpointDistributionChartStub,
+      } },
+    })
+
+    await flushPromises()
+    expect(getStats).toHaveBeenCalledTimes(1)
+    expect(getStats).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      include_endpoints: 0,
+    }))
+    expect(getStats).not.toHaveBeenNthCalledWith(1, expect.objectContaining({
+      include_summary: 0,
+    }))
+
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    expect(getStats).toHaveBeenCalledTimes(1)
+    expect(getStats).not.toHaveBeenCalledWith(expect.objectContaining({
+      include_summary: 0,
+      include_endpoints: 1,
+    }))
+
+    triggerEndpointIntersection()
+    await flushPromises()
+    expect(getStats).toHaveBeenCalledTimes(2)
+    expect(getStats).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      include_summary: 0,
+      include_endpoints: 1,
+      endpoint_source: 'inbound',
+    }))
+
+    getStats.mockClear()
+    await flushPromises()
+    expect(getStats).toHaveBeenCalledTimes(0)
+  })
+
+  it('loads only the selected endpoint distribution source when switching source', async () => {
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: EndpointDistributionChartStub,
+      } },
+    })
+
+    await flushPromises()
+    triggerEndpointIntersection()
+    await flushPromises()
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({
+      include_summary: 0,
+      include_endpoints: 1,
+      endpoint_source: 'inbound',
+    }))
+
+    getStats.mockClear()
+    await wrapper.find('[data-test="endpoint-chart"] .switch-source').trigger('click')
+    await flushPromises()
+
+    expect(getStats).toHaveBeenCalledTimes(1)
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({
+      include_summary: 0,
+      include_endpoints: 1,
+      endpoint_source: 'upstream',
+    }))
+  })
+
   it('keeps previous model stats visible during refresh until new data arrives', async () => {
     // 首次加载返回 A
     getModelStats.mockResolvedValueOnce({ models: [{ model: 'A', total_tokens: 10 }] })
@@ -158,7 +356,7 @@ describe('admin UsageView distribution metric toggles', () => {
         UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: ModelDistributionChartStub, GroupDistributionChart: GroupDistributionChartStub,
-        EndpointDistributionChart: true,
+        EndpointDistributionChart: true, UserTokenRanking: true,
       } },
     })
     vi.advanceTimersByTime(120)
@@ -196,6 +394,7 @@ describe('admin UsageView distribution metric toggles', () => {
           TokenUsageTrend: true,
           ModelDistributionChart: ModelDistributionChartStub,
           GroupDistributionChart: GroupDistributionChartStub,
+          UserTokenRanking: true,
         },
       },
     })
@@ -203,13 +402,22 @@ describe('admin UsageView distribution metric toggles', () => {
     vi.advanceTimersByTime(120)
     await flushPromises()
 
-    expect(getSnapshotV2).toHaveBeenCalledTimes(1)
+    expect(getSnapshotV2).toHaveBeenCalledTimes(2)
     const now = new Date()
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
     expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
       start_date: formatLocalDate(yesterday),
       end_date: formatLocalDate(now),
-      granularity: 'hour'
+      granularity: 'hour',
+      include_trend: true,
+      include_group_stats: false,
+    }))
+    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
+      start_date: formatLocalDate(yesterday),
+      end_date: formatLocalDate(now),
+      granularity: 'hour',
+      include_trend: false,
+      include_group_stats: true,
     }))
 
     const modelChart = wrapper.find('[data-test="model-chart"]')
@@ -223,20 +431,21 @@ describe('admin UsageView distribution metric toggles', () => {
 
     expect(modelChart.find('.metric').text()).toBe('actual_cost')
     expect(groupChart.find('.metric').text()).toBe('tokens')
-    expect(getSnapshotV2).toHaveBeenCalledTimes(1)
+    expect(getSnapshotV2).toHaveBeenCalledTimes(2)
 
     await groupChart.find('.switch-metric').trigger('click')
     await flushPromises()
 
     expect(modelChart.find('.metric').text()).toBe('actual_cost')
     expect(groupChart.find('.metric').text()).toBe('actual_cost')
-    expect(getSnapshotV2).toHaveBeenCalledTimes(1)
+    expect(getSnapshotV2).toHaveBeenCalledTimes(2)
   })
 })
 
 describe('admin UsageView handleUserClick', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    installIntersectionObserver()
     list.mockReset()
     getStats.mockReset()
     getSnapshotV2.mockReset()
@@ -276,6 +485,7 @@ describe('admin UsageView handleUserClick', () => {
           ModelDistributionChart: true,
           GroupDistributionChart: true,
           EndpointDistributionChart: true,
+          UserTokenRanking: true,
         },
       },
     })
@@ -287,5 +497,119 @@ describe('admin UsageView handleUserClick', () => {
     await flushPromises()
 
     expect(getById).toHaveBeenCalledWith(2, true)
+  })
+})
+
+describe('admin UsageView errors tab filter forwarding', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    installIntersectionObserver()
+    list.mockReset()
+    getStats.mockReset()
+    getSnapshotV2.mockReset()
+    getModelStats.mockReset()
+    listErrorLogs.mockReset()
+
+    list.mockResolvedValue({ items: [], total: 0, pages: 0 })
+    getStats.mockResolvedValue({
+      total_requests: 0, total_input_tokens: 0, total_output_tokens: 0,
+      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0,
+    })
+    getSnapshotV2.mockResolvedValue({ trend: [], models: [], groups: [] })
+    getModelStats.mockResolvedValue({ models: [] })
+    listErrorLogs.mockResolvedValue({ items: [], total: 0, pages: 0 })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('forwards model/account_id/group_id to listErrorLogs on the errors tab', async () => {
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+      } },
+    })
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    // 模拟用户在过滤器里选择了模型/账户/分组
+    const vm = wrapper.vm as any
+    vm.filters.model = 'gpt-5.3-codex'
+    vm.filters.account_id = 7
+    vm.filters.group_id = 3
+    await flushPromises()
+
+    // 切换到「错误请求」标签（第二个 tab 按钮）触发 loadAdminErrors
+    const tabs = wrapper.findAll('[data-testid="usage-detail-tab"]')
+    await tabs[1].trigger('click')
+    await flushPromises()
+
+    expect(listErrorLogs).toHaveBeenCalledWith(expect.objectContaining({
+      view: 'all',
+      model: 'gpt-5.3-codex',
+      account_id: 7,
+      group_id: 3,
+    }))
+  })
+})
+
+describe('admin UsageView ranking tab', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    list.mockReset()
+    getStats.mockReset()
+    getSnapshotV2.mockReset()
+    getModelStats.mockReset()
+
+    list.mockResolvedValue({ items: [], total: 0, pages: 0 })
+    getStats.mockResolvedValue({
+      total_requests: 0, total_input_tokens: 0, total_output_tokens: 0,
+      total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0,
+    })
+    getSnapshotV2.mockResolvedValue({ trend: [], models: [], groups: [] })
+    getModelStats.mockResolvedValue({ models: [] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('mounts ranking lazily and drill-down sets user filter then jumps back to usage tab', async () => {
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+        UserTokenRanking: UserTokenRankingStub, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+      } },
+    })
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    // 懒挂载:切到排行 tab 前不渲染
+    expect(wrapper.find('[data-test="ranking"]').exists()).toBe(false)
+
+    const tabs = wrapper.findAll('[data-testid="usage-detail-tab"]')
+    expect(tabs).toHaveLength(3)
+    await tabs[2].trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="ranking"]').exists()).toBe(true)
+
+    // 下钻:设置 user_id、切回用量明细 tab 并按新筛选重新拉取列表
+    list.mockClear()
+    await wrapper.find('[data-test="ranking"] .pick-user').trigger('click')
+    await flushPromises()
+
+    expect((wrapper.vm as any).activeTab).toBe('usage')
+    expect((wrapper.vm as any).filters.user_id).toBe(5)
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ user_id: 5 }), expect.anything())
   })
 })

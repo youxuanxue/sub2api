@@ -11,13 +11,17 @@ on:
       suite:
         description: Which CI suite to run
         required: false
-        default: all
+        default: ci
         type: choice
         options:
           - all
           - ci
           - security
           - weekly-smoke
+      ssot_base:
+        description: Optional git ref/SHA for manual SSOT delta offline gate
+        required: false
+        type: string
   schedule:
     - cron: '0 3 * * 1'
     - cron: '17 9 * * TUE'
@@ -38,12 +42,30 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 64
           submodules: recursive
       # Preflight runs `go test` for QA evidence dataset validation; backend/go.mod
       # replaces new-api with ../../new-api — same sibling checkout as test/lint jobs.
       - uses: ./.github/actions/cache-and-checkout-new-api
+      - name: Fetch base ref for diff gates
+        # fetch-depth alone does not guarantee origin/main on PR checkouts; preflight
+        # deleted-file / merge-base gates need origin/main...HEAD.
+        run: git fetch --no-tags origin "${GITHUB_BASE_REF:-main}:refs/remotes/origin/${GITHUB_BASE_REF:-main}" --depth=64
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: false
+      - uses: ./.github/actions/go-rolling-cache
+        with:
+          prefix: preflight
       - name: Run preflight
+        env:
+          PREFLIGHT_FAST: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+          # The CI test-unit job runs the same prompt-surface fixture gateway.
+          # Keep local/full preflight strict, but avoid re-running that slow Go
+          # fixture inside the CI preflight job on main pushes.
+          PREFLIGHT_SKIP_PROMPT_FIXTURE_GATEWAY: "1"
         run: |
           if [ -x scripts/preflight.sh ]; then
             ./scripts/preflight.sh
@@ -51,24 +73,82 @@ jobs:
             ./dev-rules/templates/preflight.sh
           fi
 
+  ssot-delta-gate:
+    # Offline SSOT delta guard for catalog diffs. It intentionally does not hit
+    # prod: new catalog/model_mapping changes can only become live after deploy,
+    # so prod HTTP proof belongs to the post-deploy canary/closeout gate.
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.ssot_base != '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 64
+      - name: Resolve base ref for catalog diff
+        id: catalog_base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref || 'main' }}
+          MANUAL_BASE: ${{ inputs.ssot_base || '' }}
+        run: |
+          set -euo pipefail
+          if [ -n "${MANUAL_BASE:-}" ]; then
+            git fetch --no-tags origin "$MANUAL_BASE" --depth=64
+            BASE="$(git rev-parse 'FETCH_HEAD^{commit}')"
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "${BEFORE_SHA:-}" ] && ! [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            git fetch --no-tags origin "$BEFORE_SHA" --depth=64
+            BASE="$BEFORE_SHA"
+          else
+            git fetch --no-tags origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}" --depth=64
+            BASE="origin/${BASE_REF}"
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+      - name: Skip when catalog surface unchanged
+        id: touch
+        run: |
+          set -euo pipefail
+          changed=$(python3 scripts/checks/ssot-delta-gate.py paths-changed --base "${{ steps.catalog_base.outputs.base }}")
+          echo "changed=${changed}" >> "$GITHUB_OUTPUT"
+      - name: SSOT delta gate (offline, post-deploy live gate owns prod proof)
+        if: steps.touch.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          python3 scripts/checks/ssot-delta-gate.py check --base "${{ steps.catalog_base.outputs.base }}" --skip-live
+      - name: SSOT gate skip (catalog surface unchanged)
+        if: steps.touch.outputs.changed != 'true'
+        run: |
+          echo "ssot-delta-gate: ok (no catalog-surface paths changed)"
+
   test-unit:
     if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
+      # cache:false + ./.github/actions/go-rolling-cache — setup-go's built-in
+      # cache is immutable and was shared across the three Go jobs despite their
+      # differing build tags, so the test-result cache never persisted (every run
+      # cold-compiled + re-ran all packages). See that composite for the full why.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           check-latest: false
-          cache: true
-          cache-dependency-path: backend/go.sum
+          cache: false
+      - uses: ./.github/actions/go-rolling-cache
+        with:
+          prefix: unit
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
+          expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
+          go version | grep -Fq "go${expected}"
       - name: Unit tests
         working-directory: backend
         run: make test-unit
+      - name: Anthropic prompt surface fixture gateway
+        run: python3 ops/anthropic/probe_prompt_surfaces.py --check-fixture-gateway
 
   test-integration:
     if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))
@@ -76,15 +156,19 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
+      # cache:false + ./.github/actions/go-rolling-cache — see test-unit above.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           check-latest: false
-          cache: true
-          cache-dependency-path: backend/go.sum
+          cache: false
+      - uses: ./.github/actions/go-rolling-cache
+        with:
+          prefix: integration
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
+          expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
+          go version | grep -Fq "go${expected}"
       - name: Integration tests
         working-directory: backend
         run: make test-integration
@@ -101,7 +185,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          # Major must match Dockerfile ARG NODE_IMAGE — the release image's
+          # frontend builder. Gate: scripts/checks/node-version-align.py.
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install frontend dependencies
@@ -119,23 +205,30 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
+      # cache:false + ./.github/actions/go-rolling-cache — see test-unit above.
+      # golangci-lint-action manages its own analysis cache (~/.cache/golangci-lint)
+      # on top of the GOCACHE this rolls; the two are independent.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           check-latest: false
-          cache: true
-          cache-dependency-path: backend/go.sum
+          cache: false
+      - uses: ./.github/actions/go-rolling-cache
+        with:
+          prefix: lint
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
-      # PR: only-new-issues (GitHub API diff). Push/workflow_dispatch: full ./... lint on backend.
+          expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
+          go version | grep -Fq "go${expected}"
+      # Full lint on PR and push. `only-new-issues` masked base/main lint debt:
+      # PRs stayed green while push-to-main full lint failed after merge.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.9
           args: --concurrency=4 --timeout=30m
           working-directory: backend
-          only-new-issues: ${{ github.event_name == 'pull_request' }}
+          only-new-issues: false
 
   backend-security:
     if: github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 1') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'security'))
@@ -153,7 +246,8 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
+          expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
+          go version | grep -Fq "go${expected}"
       - name: Run gosec lint
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         uses: golangci/golangci-lint-action@v9
@@ -192,40 +286,16 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          # Major must match Dockerfile ARG NODE_IMAGE — the release image's
+          # frontend builder. Gate: scripts/checks/node-version-align.py.
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
-      - name: Run pnpm audit
-        working-directory: frontend
-        run: |
-          # `pnpm audit` exits non-zero when advisories are found — that is
-          # EXPECTED here; the exception checker (next step) decides pass/fail.
-          # But a registry/network failure ALSO exits non-zero with empty/garbage
-          # output, which the checker would then pass VACUOUSLY (empty audit =
-          # "no vulns"). So: run, ignore the advisory exit, then assert the output
-          # is real audit JSON (parses + has a recognized top-level key) before
-          # trusting it. Fail loudly if the audit did not actually run.
-          pnpm audit --prod --audit-level=high --json > audit.json || true
-          python3 - <<'PY'
-          import json, sys
-          try:
-              with open("audit.json") as fh:
-                  data = json.load(fh)
-          except Exception as exc:
-              sys.stderr.write(f"::error title=pnpm audit::audit.json is not valid JSON ({exc}); pnpm audit failed to run (registry/network?). Failing instead of passing vacuously.\n")
-              sys.exit(1)
-          if not (isinstance(data, dict) and any(k in data for k in ("advisories", "vulnerabilities", "metadata"))):
-              sys.stderr.write("::error title=pnpm audit::audit.json parsed but lacks advisories/vulnerabilities/metadata; not a real audit result. Failing instead of passing vacuously.\n")
-              sys.exit(1)
-          PY
-      - name: Check audit exceptions
-        run: |
-          python tools/check_pnpm_audit_exceptions.py \
-            --audit frontend/audit.json \
-            --exceptions .github/audit-exceptions.yml
+      - name: Audit production dependencies
+        uses: ./.github/actions/pnpm-audit
 
   new-api-bump-smoke:
     if: (github.event_name == 'schedule' && github.event.schedule == '17 9 * * TUE') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'weekly-smoke'))
@@ -244,7 +314,8 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
+          expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
+          go version | grep -Fq "go${expected}"
       - name: Run pinned new-api smoke via bump helper
         run: |
           CURRENT_PIN="$(tr -d '[:space:]' < .new-api-ref)"
@@ -298,7 +369,8 @@ jobs:
             ${{ runner.os }}-go-release-
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
+          expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
+          go version | grep -Fq "go${expected}"
       # Compile cmd/server for BOTH release arches to populate the cache.
       # Flags mirror .goreleaser.yaml (CGO_ENABLED=0, linux) — but WITHOUT
       # `-tags=embed`, so no frontend dist/ is required (embed_off.go satisfies
@@ -334,7 +406,8 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.26.4'
+          expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
+          go version | grep -Fq "go${expected}"
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -342,7 +415,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          # Major must match Dockerfile ARG NODE_IMAGE — the release image's
+          # frontend builder. Gate: scripts/checks/node-version-align.py.
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install frontend dependencies

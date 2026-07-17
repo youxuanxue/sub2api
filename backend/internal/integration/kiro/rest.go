@@ -12,39 +12,195 @@ import (
 
 const (
 	kiroRestAPIBase = "https://codewhisperer.us-east-1.amazonaws.com"
+	// kiroManagementAPIBase is the go-forward *.kiro.dev control-plane host
+	// (configuration / lifecycle / access management). It replaces the legacy
+	// codewhisperer.* base, which Kiro's docs no longer list at all. Used (via
+	// kiroRestFetch, management-first with codewhisperer fallback) by the calls
+	// edge-us6 smoke-validated equivalent on management: ListAvailableProfiles
+	// (same profileArn), ListAvailableModels (same model set), Get-Usage-Limits (all
+	// fields UsageLimitsResponse reads). GetUserInfo stays on codewhisperer: the new
+	// protocol has no standalone user-info op — identity is folded into Get-Usage-Limits
+	// (userInfo{email,userId}); and kiro.GetUserInfo has no TK caller anyway.
+	kiroManagementAPIBase = "https://management.us-east-1.kiro.dev"
 )
+
+// kiroRestBases lists the control-plane hosts in preference order: the go-forward
+// management.us-east-1.kiro.dev first, the legacy codewhisperer.* as fallback.
+func kiroRestBases() []string { return []string{kiroManagementAPIBase, kiroRestAPIBase} }
+
+type kiroRestTarget struct {
+	base string
+	path string
+}
+
+func kiroRestTargets(path string) []kiroRestTarget {
+	targets := make([]kiroRestTarget, 0, len(kiroRestBases()))
+	for _, base := range kiroRestBases() {
+		targets = append(targets, kiroRestTarget{base: base, path: path})
+	}
+	return targets
+}
+
+// kiroRestFetch issues method+path against each control-plane base in turn
+// (profileArn appended when withParn), returning the first HTTP-200 body. Used by
+// the calls edge-us6 smoke-validated equivalent on management — ListAvailableProfiles
+// (same profileArn), ListAvailableModels (same model set), getUsageLimits (every
+// field UsageLimitsResponse reads is present). GetUserInfo is NOT routed here: the
+// new *.kiro.dev protocol has no standalone user-info operation (management 400s
+// every GetUserInfo/getUserInfo/GetUser variant, edge-us6-probed); user identity is
+// instead folded into getUsageLimits (userInfo{email,userId} + subscriptionInfo),
+// which TK already parses. kiro.GetUserInfo has no caller in TK anyway.
+func kiroRestFetch(account *Account, method, path, body string, withParn bool) ([]byte, error) {
+	return kiroRestFetchWithDoer(account, method, path, body, withParn, nil)
+}
+
+func kiroRestFetchWithDoer(account *Account, method, path, body string, withParn bool, doer HTTPDoer) ([]byte, error) {
+	return kiroRestFetchTargetsWithPolicy(account, method, kiroRestTargets(path), body, withParn, doer, false)
+}
+
+func kiroRestFetchTargetsWithDoer(account *Account, method string, targets []kiroRestTarget, body string, withParn bool, doer HTTPDoer) ([]byte, error) {
+	return kiroRestFetchTargetsWithPolicy(account, method, targets, body, withParn, doer, true)
+}
+
+func kiroRestFetchTargetsWithPolicy(account *Account, method string, targets []kiroRestTarget, body string, withParn bool, doer HTTPDoer, preferFirstHTTPError bool) ([]byte, error) {
+	if withParn {
+		if err := ensureProfileArnWithDoer(account, doer); err != nil {
+			return nil, err
+		}
+	}
+	data, err := kiroRestFetchTargetsOnce(account, method, targets, body, withParn, doer, preferFirstHTTPError)
+	if withParn && isInvalidProfileArnError(err) {
+		logWarnf("[KiroREST] stale profileArn for %s, re-resolving: %v", accountEmail(account), err)
+		if resolveErr := reresolveProfileArnAfterStaleWithDoer(account, doer); resolveErr == nil {
+			return kiroRestFetchTargetsOnce(account, method, targets, body, withParn, doer, preferFirstHTTPError)
+		}
+	}
+	return data, err
+}
+
+func kiroRestFetchTargetsOnce(account *Account, method string, targets []kiroRestTarget, body string, withParn bool, doer HTTPDoer, preferFirstHTTPError bool) ([]byte, error) {
+	var firstHTTPError error
+	var lastError error
+	for _, target := range targets {
+		u := target.base + target.path
+		if withParn {
+			u = withProfileArnQuery(u, account)
+		}
+		var rdr io.Reader
+		if body != "" {
+			rdr = strings.NewReader(body)
+		}
+		req, err := http.NewRequest(method, u, rdr)
+		if err != nil {
+			lastError = err
+			continue
+		}
+		setKiroHeaders(req, account)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp, err := restHTTPDo(req, account, doer)
+		if err != nil {
+			lastError = err
+			logWarnf("[KiroREST] %s %s failed: %v", method, target.base, err)
+			continue
+		}
+		data, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			httpErr := fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, target.base, string(data))
+			lastError = httpErr
+			if firstHTTPError == nil {
+				firstHTTPError = httpErr
+			}
+			logWarnf("[KiroREST] %s %s -> HTTP %d", method, target.base, resp.StatusCode)
+			continue
+		}
+		return data, nil
+	}
+	if preferFirstHTTPError && firstHTTPError != nil {
+		return nil, firstHTTPError
+	}
+	return nil, lastError
+}
+
+func ensureProfileArn(account *Account) error {
+	return ensureProfileArnWithDoer(account, nil)
+}
+
+func ensureProfileArnWithDoer(account *Account, doer HTTPDoer) error {
+	if account == nil {
+		return fmt.Errorf("account is nil")
+	}
+	_, err := ResolveProfileArnWithDoer(account, doer)
+	return err
+}
+
+// reresolveProfileArnAfterStale clears a cached profileArn and fetches a fresh one.
+// Used when upstream returns HTTP 400 Invalid profileArn for REST and chat paths.
+func reresolveProfileArnAfterStale(account *Account) error {
+	return reresolveProfileArnAfterStaleWithDoer(account, nil)
+}
+
+func reresolveProfileArnAfterStaleWithDoer(account *Account, doer HTTPDoer) error {
+	if account == nil {
+		return fmt.Errorf("account is nil")
+	}
+	account.ProfileArn = ""
+	return ensureProfileArnWithDoer(account, doer)
+}
+
+func restHTTPDo(req *http.Request, account *Account, doer HTTPDoer) (*http.Response, error) {
+	if doer != nil {
+		return doer.Do(req)
+	}
+	return GetRestClientForProxy(ResolveAccountProxyURL(account)).Do(req)
+}
+
+func isInvalidProfileArnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "invalid profilearn") ||
+		strings.Contains(msg, "profilearn is required")
+}
+
+func accountEmail(account *Account) string {
+	if account == nil {
+		return ""
+	}
+	return account.Email
+}
 
 // GetUsageLimits 获取账户使用量和订阅信息
 func GetUsageLimits(account *Account) (*UsageLimitsResponse, error) {
-	url := fmt.Sprintf("%s/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true", kiroRestAPIBase)
-	url = withProfileArnQuery(url, account)
+	return getUsageLimitsWithDoer(account, nil)
+}
 
-	req, err := http.NewRequest("GET", url, nil)
+func getUsageLimitsWithDoer(account *Account, doer HTTPDoer) (*UsageLimitsResponse, error) {
+	const query = "?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true"
+	targets := []kiroRestTarget{
+		{base: kiroManagementAPIBase, path: "/Get-Usage-Limits" + query},
+		{base: kiroRestAPIBase, path: "/getUsageLimits" + query},
+	}
+	data, err := kiroRestFetchTargetsWithDoer(account, "GET", targets, "", true, doer)
 	if err != nil {
 		return nil, err
 	}
-
-	setKiroHeaders(req, account)
-
-	resp, err := GetRestClientForProxy(ResolveAccountProxyURL(account)).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
 	var result UsageLimitsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-// GetUserInfo 获取用户信息
+// GetUserInfo 获取用户信息. Legacy codewhisperer.* only — the new *.kiro.dev protocol
+// has NO standalone user-info operation (management 400s every variant; edge-us6 probe
+// 2026-06-26). On the new protocol user identity is returned inside getUsageLimits
+// (userInfo{email,userId} + subscriptionInfo), already parsed via the migrated
+// GetUsageLimits. This function additionally has no caller in TK, so it needs no
+// migration; kept as vendored API surface.
 func GetUserInfo(account *Account) (*UserInfoResponse, error) {
 	url := fmt.Sprintf("%s/GetUserInfo", kiroRestAPIBase)
 
@@ -77,31 +233,14 @@ func GetUserInfo(account *Account) (*UserInfoResponse, error) {
 
 // ListAvailableModels 获取可用模型列表
 func ListAvailableModels(account *Account) ([]ModelInfo, error) {
-	url := fmt.Sprintf("%s/ListAvailableModels?origin=AI_EDITOR&maxResults=50", kiroRestAPIBase)
-	url = withProfileArnQuery(url, account)
-
-	req, err := http.NewRequest("GET", url, nil)
+	data, err := kiroRestFetch(account, "GET", "/ListAvailableModels?origin=AI_EDITOR&maxResults=50", "", true)
 	if err != nil {
 		return nil, err
 	}
-
-	setKiroHeaders(req, account)
-
-	resp, err := GetRestClientForProxy(ResolveAccountProxyURL(account)).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
 	var result struct {
 		Models []ModelInfo `json:"models"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, err
 	}
 	return result.Models, nil
@@ -111,6 +250,10 @@ func ListAvailableModels(account *Account) ([]ModelInfo, error) {
 // when it is missing. First tries ListAvailableProfiles; if that returns empty,
 // falls back to refreshing the token (which returns profileArn in the response).
 func ResolveProfileArn(account *Account) (string, error) {
+	return ResolveProfileArnWithDoer(account, nil)
+}
+
+func ResolveProfileArnWithDoer(account *Account, doer HTTPDoer) (string, error) {
 	if account == nil {
 		return "", fmt.Errorf("account is nil")
 	}
@@ -122,7 +265,7 @@ func ResolveProfileArn(account *Account) (string, error) {
 	// NOTE: persistence removed (vendor package does not write a DB). The
 	// resolved ARN is cached only on the in-memory account; the TokenKey layer
 	// is responsible for persisting account.ProfileArn after this returns.
-	profileArn, err := listAvailableProfilesWithRetry(account)
+	profileArn, err := listAvailableProfilesWithRetryWithDoer(account, doer)
 	if err == nil && profileArn != "" {
 		account.ProfileArn = profileArn
 		return profileArn, nil
@@ -141,6 +284,10 @@ func ResolveProfileArn(account *Account) (string, error) {
 }
 
 func listAvailableProfilesWithRetry(account *Account) (string, error) {
+	return listAvailableProfilesWithRetryWithDoer(account, nil)
+}
+
+func listAvailableProfilesWithRetryWithDoer(account *Account, doer HTTPDoer) (string, error) {
 	// Retry transient failures (network errors, 5xx, 429) with short backoff.
 	// An empty profile list or 4xx (other than 429) is treated as authoritative
 	// and not retried — they reflect account state, not upstream flakiness.
@@ -149,7 +296,7 @@ func listAvailableProfilesWithRetry(account *Account) (string, error) {
 
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		profileArn, err := listAvailableProfiles(account)
+		profileArn, err := listAvailableProfilesWithDoer(account, doer)
 		if err == nil {
 			return profileArn, nil
 		}
@@ -184,30 +331,20 @@ func isTransientProfileFetchError(err error) bool {
 }
 
 func listAvailableProfiles(account *Account) (string, error) {
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/ListAvailableProfiles", kiroRestAPIBase), strings.NewReader(`{"maxResults":10}`))
+	return listAvailableProfilesWithDoer(account, nil)
+}
+
+func listAvailableProfilesWithDoer(account *Account, doer HTTPDoer) (string, error) {
+	data, err := kiroRestFetchWithDoer(account, "POST", "/ListAvailableProfiles", `{"maxResults":10}`, false, doer)
 	if err != nil {
 		return "", err
 	}
-	setKiroHeaders(req, account)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := GetRestClientForProxy(ResolveAccountProxyURL(account)).Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
 	var result struct {
 		Profiles []struct {
 			Arn string `json:"arn"`
 		} `json:"profiles"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(data, &result); err != nil {
 		return "", err
 	}
 	for _, profile := range result.Profiles {
@@ -302,11 +439,13 @@ func RefreshAccountInfo(account *Account) (*AccountInfo, error) {
 			info.SubscriptionType)
 	}
 
-	// 解析使用量
-	if len(usage.UsageBreakdownList) > 0 {
-		breakdown := usage.UsageBreakdownList[0]
-		info.UsageCurrent = breakdown.CurrentUsage
-		info.UsageLimit = breakdown.UsageLimit
+	// Kiro returns the legacy AGENTIC_REQUEST bucket alongside the Credits
+	// bucket consumed by its account dashboard. Keep all usage-derived fields on
+	// that same bucket so an older first entry cannot overwrite the current plan.
+	breakdown := selectKiroUsageBreakdown(usage.UsageBreakdownList)
+	if breakdown != nil {
+		info.UsageCurrent = usageValue(breakdown.CurrentUsageWithPrecision, breakdown.CurrentUsage)
+		info.UsageLimit = usageValue(breakdown.UsageLimitWithPrecision, breakdown.UsageLimit)
 		if info.UsageLimit > 0 {
 			info.UsagePercent = info.UsageCurrent / info.UsageLimit
 		}
@@ -321,12 +460,11 @@ func RefreshAccountInfo(account *Account) (*AccountInfo, error) {
 		}
 	}
 
-	// 解析试用配额信息
-	if len(usage.UsageBreakdownList) > 0 {
-		breakdown := usage.UsageBreakdownList[0]
+	// 解析试用配额与 bonus credits
+	if breakdown != nil {
 		if breakdown.FreeTrialInfo != nil {
-			info.TrialUsageCurrent = breakdown.FreeTrialInfo.CurrentUsage
-			info.TrialUsageLimit = breakdown.FreeTrialInfo.UsageLimit
+			info.TrialUsageCurrent = usageValue(breakdown.FreeTrialInfo.CurrentUsageWithPrecision, breakdown.FreeTrialInfo.CurrentUsage)
+			info.TrialUsageLimit = usageValue(breakdown.FreeTrialInfo.UsageLimitWithPrecision, breakdown.FreeTrialInfo.UsageLimit)
 			if info.TrialUsageLimit > 0 {
 				info.TrialUsagePercent = info.TrialUsageCurrent / info.TrialUsageLimit
 			}
@@ -341,9 +479,66 @@ func RefreshAccountInfo(account *Account) (*AccountInfo, error) {
 				}
 			}
 		}
+		for _, bonus := range breakdown.Bonuses {
+			label := strings.TrimSpace(bonus.DisplayName)
+			if label == "" {
+				label = strings.TrimSpace(bonus.BonusCode)
+			}
+			if label == "" && bonus.CurrentUsage <= 0 && bonus.UsageLimit <= 0 {
+				continue
+			}
+			item := KiroBonusInfo{
+				Code:    strings.TrimSpace(bonus.BonusCode),
+				Label:   label,
+				Current: bonus.CurrentUsage,
+				Limit:   bonus.UsageLimit,
+				Status:  strings.TrimSpace(bonus.Status),
+			}
+			if item.Limit > 0 {
+				item.Percent = (item.Current / item.Limit) * 100
+			}
+			if bonus.ExpiresAt != "" {
+				if ts, err := bonus.ExpiresAt.Int64(); err == nil && ts > 0 {
+					item.ExpiresAt = ts
+				} else if f, err := bonus.ExpiresAt.Float64(); err == nil && f > 0 {
+					item.ExpiresAt = int64(f)
+				}
+			}
+			info.Bonuses = append(info.Bonuses, item)
+		}
 	}
 
 	return info, nil
+}
+
+func selectKiroUsageBreakdown(breakdowns []UsageBreakdown) *UsageBreakdown {
+	var firstCurrent *UsageBreakdown
+	for i := range breakdowns {
+		resourceType := strings.ToUpper(strings.TrimSpace(breakdowns[i].ResourceType))
+		if resourceType == "AGENTIC_REQUEST" {
+			continue
+		}
+		if firstCurrent == nil {
+			firstCurrent = &breakdowns[i]
+		}
+		if strings.Contains(resourceType, "CREDIT") {
+			return &breakdowns[i]
+		}
+	}
+	if firstCurrent != nil {
+		return firstCurrent
+	}
+	if len(breakdowns) > 0 {
+		return &breakdowns[0]
+	}
+	return nil
+}
+
+func usageValue(withPrecision *float64, fallback float64) float64 {
+	if withPrecision != nil {
+		return *withPrecision
+	}
+	return fallback
 }
 
 func parseSubscriptionType(raw string) string {
@@ -369,21 +564,25 @@ type UsageLimitsResponse struct {
 }
 
 type UsageBreakdown struct {
-	ResourceType  string         `json:"resourceType"`
-	CurrentUsage  float64        `json:"currentUsage"`
-	UsageLimit    float64        `json:"usageLimit"`
-	Currency      string         `json:"currency"`
-	Unit          string         `json:"unit"`
-	OverageRate   float64        `json:"overageRate"`
-	FreeTrialInfo *FreeTrialInfo `json:"freeTrialInfo"`
-	Bonuses       []BonusInfo    `json:"bonuses"`
+	ResourceType              string         `json:"resourceType"`
+	CurrentUsage              float64        `json:"currentUsage"`
+	CurrentUsageWithPrecision *float64       `json:"currentUsageWithPrecision"`
+	UsageLimit                float64        `json:"usageLimit"`
+	UsageLimitWithPrecision   *float64       `json:"usageLimitWithPrecision"`
+	Currency                  string         `json:"currency"`
+	Unit                      string         `json:"unit"`
+	OverageRate               float64        `json:"overageRate"`
+	FreeTrialInfo             *FreeTrialInfo `json:"freeTrialInfo"`
+	Bonuses                   []BonusInfo    `json:"bonuses"`
 }
 
 type FreeTrialInfo struct {
-	CurrentUsage    float64     `json:"currentUsage"`
-	UsageLimit      float64     `json:"usageLimit"`
-	FreeTrialStatus string      `json:"freeTrialStatus"`
-	FreeTrialExpiry json.Number `json:"freeTrialExpiry"`
+	CurrentUsage              float64     `json:"currentUsage"`
+	CurrentUsageWithPrecision *float64    `json:"currentUsageWithPrecision"`
+	UsageLimit                float64     `json:"usageLimit"`
+	UsageLimitWithPrecision   *float64    `json:"usageLimitWithPrecision"`
+	FreeTrialStatus           string      `json:"freeTrialStatus"`
+	FreeTrialExpiry           json.Number `json:"freeTrialExpiry"`
 }
 
 type BonusInfo struct {

@@ -102,7 +102,7 @@ func TestTkTrustedProxiesClientIPResolution(t *testing.T) {
 		{
 			name:       "direct public peer ignores spoofed XFF",
 			remoteAddr: "198.51.100.50:443", // 公网对端（不受信）
-			xff:        "1.2.3.4",            // 伪造
+			xff:        "1.2.3.4",           // 伪造
 			wantIP:     "198.51.100.50",
 		},
 	}

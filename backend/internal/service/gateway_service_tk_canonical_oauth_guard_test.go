@@ -96,17 +96,154 @@ func TestCheckCanonicalIngressUA_ShortPrefixesIntentionallyNotInDenyList(t *test
 	}
 }
 
+// --- strict allow-list gate (SettingKeyAnthropicCanonicalIngressStrictEnabled) ---
+
+func TestCheckCanonicalIngressUAStrict_RejectsEmpty(t *testing.T) {
+	h := http.Header{}
+	err := checkCanonicalIngressUAStrict(h)
+	if err == nil {
+		t.Fatalf("strict mode must reject empty UA, got nil")
+	}
+	var rej *CanonicalIngressUARejectedError
+	if !errors.As(err, &rej) {
+		t.Fatalf("expected *CanonicalIngressUARejectedError, got %T", err)
+	}
+}
+
+func TestCheckCanonicalIngressUAStrict_AllowsClaudeClients(t *testing.T) {
+	cases := []string{
+		"claude-cli/2.1.170 (external, cli)",
+		"claude-cli/2.1.19 (external, sdk-cli)",
+		"claude-code/1.2.3",
+		// case-insensitive + leading whitespace must still pass
+		" Claude-CLI/2.2",
+		"  claude-code/0.5.0",
+	}
+	for _, ua := range cases {
+		h := http.Header{}
+		h.Set("User-Agent", ua)
+		if err := checkCanonicalIngressUAStrict(h); err != nil {
+			t.Errorf("strict mode must allow ua=%q, got %v", ua, err)
+		}
+	}
+}
+
+func TestCheckCanonicalIngressUAStrict_RejectsThirdPartyAndUnknown(t *testing.T) {
+	cases := []string{
+		"openai-python/1.0",
+		"python-requests/2.31",
+		"OpenAI/Python 2.38.0",
+		"httpx/0.27.0",
+		// unknown UAs that the deny-list would have ALLOWED must now be rejected
+		"foo/1.0",
+		"my-internal-test/1.0",
+		"node-fetch/2.6.1",
+		// spoof-prefix regression lock: the allow-list pins the trailing slash
+		// ("claude-cli/" / "claude-code/"). If someone drops the slash to a bare
+		// "claude-cli", these mimic UAs would silently pass — keep them rejected.
+		"claude-cli-evil/2.2", // trailing char after "claude-cli" is "-", not "/"
+		"claude-codex/1.0",    // "claude-code" + "x", not "claude-code/"
+		"claude-cli",          // no slash, no version — bare token must not match
+		"xclaude-cli/2.2",     // allowed prefix not anchored at start of UA
+	}
+	for _, ua := range cases {
+		h := http.Header{}
+		h.Set("User-Agent", ua)
+		err := checkCanonicalIngressUAStrict(h)
+		if err == nil {
+			t.Errorf("strict mode must reject ua=%q, got nil", ua)
+			continue
+		}
+		var rej *CanonicalIngressUARejectedError
+		if !errors.As(err, &rej) {
+			t.Errorf("ua=%q expected *CanonicalIngressUARejectedError, got %T", ua, err)
+		}
+	}
+}
+
+// TestCheckCanonicalIngressUA_DenyListUnchangedUnderStrictFeature documents the
+// zero-regression invariant: the original deny-list function must keep allowing
+// empty + unknown UAs regardless of the new strict gate's existence. Only the
+// strict function changes behavior, and only when the setting opts in.
+func TestCheckCanonicalIngressUA_DenyListUnchangedUnderStrictFeature(t *testing.T) {
+	allowed := []string{"", "foo/1.0", "my-internal-test/1.0"}
+	for _, ua := range allowed {
+		h := http.Header{}
+		if ua != "" {
+			h.Set("User-Agent", ua)
+		}
+		if err := checkCanonicalIngressUA(h); err != nil {
+			t.Errorf("deny-list (default path) must still allow ua=%q, got %v", ua, err)
+		}
+	}
+}
+
+// TestCountTokensSharesStrictUAGate documents D3: the count_tokens path reuses
+// checkCanonicalIngressUAStrict (the same allow-list gate as /v1/messages), so a
+// third-party / empty UA that would be rejected on messages is also rejected on
+// count_tokens when strict mode is on. The gate function is the single source of
+// truth; both call sites invoke it identically under canonical OAuth + strict.
+func TestCountTokensSharesStrictUAGate(t *testing.T) {
+	rejected := []string{"", "python-requests/2.31", "foo/1.0"}
+	for _, ua := range rejected {
+		h := http.Header{}
+		if ua != "" {
+			h.Set("User-Agent", ua)
+		}
+		if err := checkCanonicalIngressUAStrict(h); err == nil {
+			t.Errorf("count_tokens strict gate must reject ua=%q (parity with messages)", ua)
+		}
+	}
+	for _, ua := range []string{"claude-cli/2.1.170 (external, cli)", "claude-code/1.0.0"} {
+		h := http.Header{}
+		h.Set("User-Agent", ua)
+		if err := checkCanonicalIngressUAStrict(h); err != nil {
+			t.Errorf("count_tokens strict gate must allow legit cc ua=%q, got %v", ua, err)
+		}
+	}
+}
+
+// TestShouldRewriteSystemForNonCCMimicry covers the haiku mimicry gap (D2):
+// default (strict=false) skips haiku rewrite (zero regression); strict=true
+// rewrites haiku too so a non-CC haiku request gets the CC system/billing block.
+func TestShouldRewriteSystemForNonCCMimicry(t *testing.T) {
+	cases := []struct {
+		model  string
+		strict bool
+		want   bool
+	}{
+		// default mode: haiku skips, everything else rewrites (current behavior)
+		{"claude-haiku-4-5", false, false},
+		{"claude-haiku-4-5-20251001", false, false},
+		{"Claude-Haiku-4-5", false, false},
+		{"claude-sonnet-4-5", false, true},
+		{"claude-opus-4-7", false, true},
+		{"", false, true},
+		// strict mode: haiku is rewritten too (gap closed)
+		{"claude-haiku-4-5", true, true},
+		{"claude-haiku-4-5-20251001", true, true},
+		{"claude-sonnet-4-5", true, true},
+	}
+	for _, c := range cases {
+		got := shouldRewriteSystemForNonCCMimicry(c.model, c.strict)
+		if got != c.want {
+			t.Errorf("model=%q strict=%v: want %v got %v", c.model, c.strict, c.want, got)
+		}
+	}
+}
+
 func TestRemapDeprecatedOpusOnCanonical_RetiredOpusToCurrentDefault(t *testing.T) {
 	cases := map[string]string{
-		"claude-opus-4-6":          canonicalDefaultOpus,
-		"claude-opus-4-6-20250930": canonicalDefaultOpus,
+		// NOTE: claude-opus-4-6 is intentionally NOT here — it still serves upstream
+		// with plaintext thinking and must pass through (asserted in
+		// TestRemapDeprecatedOpusOnCanonical_CurrentAndNonOpusUnchanged).
 		"claude-opus-4-5":          canonicalDefaultOpus,
 		"claude-opus-4-5-20250520": canonicalDefaultOpus,
 		"claude-opus-4-4":          canonicalDefaultOpus,
 		"claude-opus-4-1":          canonicalDefaultOpus,
 		"claude-opus-4-0":          canonicalDefaultOpus,
 		// case-insensitive
-		"Claude-Opus-4-6": canonicalDefaultOpus,
+		"Claude-Opus-4-5": canonicalDefaultOpus,
 	}
 	for in, want := range cases {
 		got, remapped := remapDeprecatedOpusOnCanonical(in)
@@ -124,6 +261,12 @@ func TestRemapDeprecatedOpusOnCanonical_CurrentAndNonOpusUnchanged(t *testing.T)
 	cases := []string{
 		"claude-opus-4-7",
 		"claude-opus-4-7-20260301",
+		// opus-4-6 still serves upstream with plaintext thinking — must pass through
+		// unchanged (remapping it to 4-7 would silently drop the thinking + swap the
+		// billing key). See gateway_service_tk_canonical_oauth_guard.go NOTE.
+		"claude-opus-4-6",
+		"claude-opus-4-6-20250930",
+		"Claude-Opus-4-6",
 		"claude-sonnet-4-6",
 		"claude-sonnet-4-5",
 		"claude-haiku-4-5-20251001",
@@ -142,12 +285,13 @@ func TestRemapDeprecatedOpusOnCanonical_CurrentAndNonOpusUnchanged(t *testing.T)
 }
 
 // TestRemapDeprecatedOpusOnCanonical_OpusPrefixIsolation verifies that the
-// prefix check requires either an exact match or a "-" separator so
-// "claude-opus-4-60" (hypothetical) is NOT treated as opus-4-6.
+// prefix check requires either an exact match or a "-" separator, so a longer
+// id that merely shares a listed prefix's digits (e.g. "claude-opus-4-50" vs the
+// listed "claude-opus-4-5") is NOT remapped.
 func TestRemapDeprecatedOpusOnCanonical_OpusPrefixIsolation(t *testing.T) {
 	cases := []string{
-		"claude-opus-4-60",
-		"claude-opus-4-65",
+		"claude-opus-4-50", // shares "claude-opus-4-5" digits but no "-" boundary
+		"claude-opus-4-55",
 		"claude-opus-4-7x",
 	}
 	for _, in := range cases {

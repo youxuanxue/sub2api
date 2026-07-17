@@ -49,6 +49,17 @@ DROP INDEX CONCURRENTLY IF EXISTS idx_b;
 		require.True(t, nonTx)
 		require.NoError(t, err)
 	})
+
+	// Regression: an index NAME containing "created" must not make a DROP look like
+	// a CREATE (classification is by leading keyword, not substring-anywhere).
+	t.Run("notx迁移允许DROP含created的索引名", func(t *testing.T) {
+		nonTx, err := validateMigrationExecutionMode("tk_040_drop_unused_usage_log_indexes_notx.sql", `
+DROP INDEX CONCURRENTLY IF EXISTS idx_usage_logs_request_type_created_at;
+DROP INDEX CONCURRENTLY IF EXISTS idx_usage_logs_created_model_upstream_model;
+`)
+		require.True(t, nonTx)
+		require.NoError(t, err)
+	})
 }
 
 func TestApplyMigrationsFS_NonTransactionalMigration(t *testing.T) {
@@ -107,6 +118,45 @@ func TestApplyMigrationsFS_NonTransactionalMigration_MultiStatements(t *testing.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_a ON t(a);
 -- second
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_b ON t(b);
+`),
+		},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_NonTransactionalMigration_LatestAPIKeyIPIndexDropsInvalidIndexBeforeRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(latestAPIKeyIPIndexMigration).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT EXISTS \\(").
+		WithArgs(latestAPIKeyIPIndex).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS idx_usage_logs_api_key_latest_ip").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_logs_api_key_latest_ip").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(latestAPIKeyIPIndexMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		latestAPIKeyIPIndexMigration: &fstest.MapFile{
+			Data: []byte(`
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_logs_api_key_latest_ip
+    ON usage_logs (api_key_id, created_at DESC, id DESC)
+    INCLUDE (ip_address)
+    WHERE ip_address IS NOT NULL AND ip_address <> '';
 `),
 		},
 	}
@@ -185,6 +235,185 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS paymentorder_out_trade_no_unique
     WHERE out_trade_no <> '';
 
 DROP INDEX CONCURRENTLY IF EXISTS paymentorder_out_trade_no;
+`),
+		},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_SchedulerOutboxPendingDedupKeyMigration_DropsInvalidIndexBeforeRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs("153_scheduler_outbox_pending_dedup_key_index_notx.sql").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT EXISTS \\(").
+		WithArgs("idx_scheduler_outbox_pending_dedup_key").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS idx_scheduler_outbox_pending_dedup_key").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_scheduler_outbox_pending_dedup_key").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs("153_scheduler_outbox_pending_dedup_key_index_notx.sql", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		"153_scheduler_outbox_pending_dedup_key_index_notx.sql": &fstest.MapFile{
+			Data: []byte(`
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_scheduler_outbox_pending_dedup_key
+    ON scheduler_outbox (dedup_key)
+    WHERE dedup_key IS NOT NULL;
+`),
+		},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_OpsSystemLogsAPIKeyIDIndex_UsesBlockingIndexOnPartitionedTable(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(opsSystemLogsAPIKeyIDIndexMigration).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("pg_partitioned_table").
+		WithArgs("ops_system_logs").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec("CREATE INDEX IF NOT EXISTS idx_ops_system_logs_api_key_id_created_at ON ops_system_logs \\(api_key_id, created_at DESC\\)").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(opsSystemLogsAPIKeyIDIndexMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		opsSystemLogsAPIKeyIDIndexMigration: &fstest.MapFile{
+			Data: []byte(`
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ops_system_logs_api_key_id_created_at
+  ON ops_system_logs (api_key_id, created_at DESC);
+`),
+		},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_OpsSystemLogsHostIndex_BuildsPartitionIndexesConcurrently(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(opsSystemLogsHostIndexMigration).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("pg_partitioned_table").
+		WithArgs("ops_system_logs").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery("SELECT i.indisvalid").
+		WithArgs("public", opsSystemLogsHostIndex).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT child_ns.nspname, child.relname, child.oid").
+		WithArgs("ops_system_logs").
+		WillReturnRows(sqlmock.NewRows([]string{"nspname", "relname", "oid"}).
+			AddRow("public", "ops_system_logs_legacy", 41001).
+			AddRow("public", "ops_system_logs_202608", 41002))
+	mock.ExpectQuery("SELECT i.indisvalid").
+		WithArgs("public", "idx_ops_system_logs_host_created_at_p41001").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectExec(`CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_ops_system_logs_host_created_at_p41001" ON "public"\."ops_system_logs_legacy" \(host, created_at DESC\)`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT i.indisvalid").
+		WithArgs("public", "idx_ops_system_logs_host_created_at_p41002").
+		WillReturnRows(sqlmock.NewRows([]string{"indisvalid"}).AddRow(false))
+	mock.ExpectExec(`DROP INDEX CONCURRENTLY IF EXISTS "public"\."idx_ops_system_logs_host_created_at_p41002"`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_ops_system_logs_host_created_at_p41002" ON "public"\."ops_system_logs_202608" \(host, created_at DESC\)`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`CREATE INDEX IF NOT EXISTS "idx_ops_system_logs_host_created_at" ON ONLY "ops_system_logs" \(host, created_at DESC\)`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT EXISTS \\(").
+		WithArgs("idx_ops_system_logs_host_created_at", "idx_ops_system_logs_host_created_at_p41001").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec(`ALTER INDEX "idx_ops_system_logs_host_created_at" ATTACH PARTITION "public"\."idx_ops_system_logs_host_created_at_p41001"`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT EXISTS \\(").
+		WithArgs("idx_ops_system_logs_host_created_at", "idx_ops_system_logs_host_created_at_p41002").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery("SELECT i.indisvalid").
+		WithArgs("public", opsSystemLogsHostIndex).
+		WillReturnRows(sqlmock.NewRows([]string{"indisvalid"}).AddRow(true))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(opsSystemLogsHostIndexMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		opsSystemLogsHostIndexMigration: &fstest.MapFile{
+			Data: []byte(`
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ops_system_logs_host_created_at
+  ON ops_system_logs (host, created_at DESC);
+`),
+		},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_OpsSystemLogsHostIndex_DropsInvalidIndexBeforeNonPartitionedRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(opsSystemLogsHostIndexMigration).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("pg_partitioned_table").
+		WithArgs("ops_system_logs").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery("SELECT EXISTS \\(").
+		WithArgs(opsSystemLogsHostIndex).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS idx_ops_system_logs_host_created_at").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ops_system_logs_host_created_at").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(opsSystemLogsHostIndexMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		opsSystemLogsHostIndexMigration: &fstest.MapFile{
+			Data: []byte(`
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ops_system_logs_host_created_at
+  ON ops_system_logs (host, created_at DESC);
 `),
 		},
 	}

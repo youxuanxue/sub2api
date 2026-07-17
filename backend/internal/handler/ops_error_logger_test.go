@@ -249,6 +249,97 @@ func TestOpsErrorLoggerMiddleware_DoesNotBreakOuterMiddlewares(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, rec.Code)
 }
 
+// setupOpsErrorLogTestQueue 阻止 enqueueOpsErrorLog 启动真实 worker，改用可检查的测试队列。
+func setupOpsErrorLogTestQueue(t *testing.T, size int) {
+	t.Helper()
+	resetOpsErrorLoggerStateForTest(t)
+	opsErrorLogOnce.Do(func() {})
+	opsErrorLogMu.Lock()
+	opsErrorLogQueue = make(chan opsErrorLogJob, size)
+	opsErrorLogMu.Unlock()
+}
+
+// 就地(in-band) SSE 错误挂在已固化的 HTTP 200 流上：wire 状态码为 200，
+// 常规 status>=400 采集路径不会触发。logOpsStreamError 必须据 MarkOpsStreamError
+// 补记一条错误日志，且用 IntendedStatus(429) 分级、StatusCode 仍记 wire 的 200。
+func TestLogOpsStreamError_RecordsInBandConcurrencyLimit(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 4)
+
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Set(opsModelKey, "test-model")
+
+	service.MarkOpsStreamError(c, "rate_limit_error",
+		"Concurrency limit exceeded for account, please retry later", http.StatusTooManyRequests)
+
+	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	logOpsStreamError(c, ops, http.StatusOK)
+
+	require.Equal(t, int64(1), OpsErrorLogEnqueuedTotal())
+	require.Equal(t, int64(1), OpsErrorLogQueueLength())
+
+	job := <-opsErrorLogQueue
+	require.NotNil(t, job.entry)
+	require.Equal(t, "rate_limit_error", job.entry.ErrorType)
+	require.Equal(t, "request", job.entry.ErrorPhase)
+	require.Equal(t, "client", job.entry.ErrorOwner)
+	require.True(t, job.entry.Stream)
+	require.Equal(t, http.StatusOK, job.entry.StatusCode) // wire 状态码保持 200
+	require.Equal(t, "P1", job.entry.Severity)            // 用 IntendedStatus 429 分级
+	require.Equal(t, "test-model", job.entry.Model)
+	require.Equal(t, "Concurrency limit exceeded for account, please retry later", job.entry.ErrorMessage)
+}
+
+// 未标记流内错误时 logOpsStreamError 必须是 no-op（不误记正常的 200 流）。
+func TestLogOpsStreamError_NoopWhenNotMarked(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 4)
+
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	logOpsStreamError(c, ops, http.StatusOK)
+
+	require.Equal(t, int64(0), OpsErrorLogEnqueuedTotal())
+}
+
+// 命中 skip_monitoring=true 透传规则时不落库，与其它采集分支一致。
+func TestLogOpsStreamError_SkipWhenPassthroughSkipMonitoring(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 4)
+
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	service.MarkOpsStreamError(c, "upstream_error", "Upstream request failed", http.StatusBadGateway)
+	c.Set(service.OpsSkipPassthroughKey, true)
+
+	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	logOpsStreamError(c, ops, http.StatusOK)
+
+	require.Equal(t, int64(0), OpsErrorLogEnqueuedTotal())
+}
+
+// MarkOpsStreamError 采用「首个标记生效」：后续的通用兜底帧不得覆盖根因错误。
+func TestMarkOpsStreamError_FirstWins(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	service.MarkOpsStreamError(c, "rate_limit_error", "Concurrency limit exceeded for account", http.StatusTooManyRequests)
+	service.MarkOpsStreamError(c, "upstream_error", "Upstream request failed", http.StatusBadGateway)
+
+	se, ok := service.GetOpsStreamError(c)
+	require.True(t, ok)
+	require.Equal(t, "rate_limit_error", se.ErrType)
+	require.Equal(t, "Concurrency limit exceeded for account", se.Message)
+	require.Equal(t, http.StatusTooManyRequests, se.IntendedStatus)
+}
+
 func TestIsKnownOpsErrorType(t *testing.T) {
 	known := []string{
 		"invalid_request_error",
@@ -309,7 +400,7 @@ func TestNormalizeOpsErrorType(t *testing.T) {
 	}
 }
 
-func TestClassifyOpsNoAvailableAccountsExcludedFromSLA(t *testing.T) {
+func TestClassifyOpsNoAvailableAccountsCountsAsPlatformSLAFault(t *testing.T) {
 	const message = "No available accounts"
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -318,23 +409,22 @@ func TestClassifyOpsNoAvailableAccountsExcludedFromSLA(t *testing.T) {
 	markOpsRoutingCapacityLimited(c)
 
 	errType := normalizeOpsErrorType("api_error", "")
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, message, "", http.StatusServiceUnavailable)
+	phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, message, "", http.StatusServiceUnavailable)
 
 	require.Equal(t, "api_error", errType)
 	require.Equal(t, "routing", phase)
-	require.True(t, isBusinessLimited)
 	require.Equal(t, "platform", errorOwner)
 	require.Equal(t, "gateway", errorSource)
 }
 
-func TestClassifyOpsRoutingCapacityMarkerExcludesMaskedSelectionFailureFromSLA(t *testing.T) {
+func TestClassifyOpsRoutingCapacityMarkerCountsAsPlatformSLAFault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 
 	markOpsRoutingCapacityLimited(c)
 
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+	phase, errorOwner, errorSource := classifyOpsErrorLog(
 		c,
 		"api_error",
 		"Service temporarily unavailable",
@@ -343,7 +433,6 @@ func TestClassifyOpsRoutingCapacityMarkerExcludesMaskedSelectionFailureFromSLA(t
 	)
 
 	require.Equal(t, "routing", phase)
-	require.True(t, isBusinessLimited)
 	require.Equal(t, "platform", errorOwner)
 	require.Equal(t, "gateway", errorSource)
 }
@@ -470,11 +559,10 @@ func TestClassifyOpsAuthClientErrorsExcludedFromSLA(t *testing.T) {
 			c, _ := gin.CreateTestContext(rec)
 
 			errType := normalizeOpsErrorType(tt.errType, tt.code)
-			phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, tt.message, tt.code, tt.status)
+			phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, tt.message, tt.code, tt.status)
 
 			require.Equal(t, "api_error", errType)
 			require.Equal(t, "auth", phase)
-			require.True(t, isBusinessLimited)
 			require.Equal(t, "client", errorOwner)
 			require.Equal(t, "client_request", errorSource)
 		})
@@ -725,11 +813,10 @@ func TestClassifyOpsLocalBusinessLimitErrorsExcludedFromSLA(t *testing.T) {
 			c, _ := gin.CreateTestContext(rec)
 
 			errType := normalizeOpsErrorType(tt.errType, tt.code)
-			phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, tt.message, tt.code, tt.status)
+			phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, tt.message, tt.code, tt.status)
 
 			require.Equal(t, tt.wantErrType, errType)
 			require.Equal(t, tt.wantPhase, phase)
-			require.True(t, isBusinessLimited)
 			require.Equal(t, "client", errorOwner)
 			require.Equal(t, "client_request", errorSource)
 		})
@@ -740,30 +827,28 @@ func TestClassifyOpsIPRestrictionAccessDeniedExcludedFromSLA(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonIPRestriction)
+	service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonIPRestriction)
 
 	errType := normalizeOpsErrorType("api_error", "ACCESS_DENIED")
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "Access denied", "ACCESS_DENIED", http.StatusForbidden)
+	phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "Access denied", "ACCESS_DENIED", http.StatusForbidden)
 
 	require.Equal(t, "api_error", errType)
 	require.Equal(t, "auth", phase)
-	require.True(t, isBusinessLimited)
 	require.Equal(t, "client", errorOwner)
 	require.Equal(t, "client_request", errorSource)
 }
 
-func TestClassifyOpsClientBusinessLimitedMarkerExcludesCustomPolicyDenialFromSLA(t *testing.T) {
+func TestClassifyOpsClientPolicyDeniedMarkerExcludedFromSLAFault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
+	service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonLocalPolicyDenied)
 
 	errType := normalizeOpsErrorType("invalid_request_error", "")
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "custom admin policy message", "", http.StatusBadRequest)
+	phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "custom admin policy message", "", http.StatusBadRequest)
 
 	require.Equal(t, "invalid_request_error", errType)
 	require.Equal(t, "auth", phase)
-	require.True(t, isBusinessLimited)
 	require.Equal(t, "client", errorOwner)
 	require.Equal(t, "client_request", errorSource)
 }
@@ -774,21 +859,49 @@ func TestClassifyOpsOtherErrorsStillCountForSLA(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 
 	errType := normalizeOpsErrorType("api_error", "INTERNAL_ERROR")
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "Failed to validate API key", "INTERNAL_ERROR", http.StatusInternalServerError)
+	phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "Failed to validate API key", "INTERNAL_ERROR", http.StatusInternalServerError)
 
 	require.Equal(t, "api_error", errType)
 	require.Equal(t, "internal", phase)
-	require.False(t, isBusinessLimited)
+	require.NotEqual(t, "client", errorOwner)
 	require.Equal(t, "platform", errorOwner)
 	require.Equal(t, "gateway", errorSource)
 }
 
-func TestClassifyOpsUnsupportedModelExcludedFromSLA(t *testing.T) {
+func TestClassifyOpsClientClosedRequestExcludedFromSLAFault(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	service.MarkOpsClientClosedRequest(c)
+
+	errType := normalizeOpsErrorType("api_error", "CLIENT_CLOSED_REQUEST")
+	phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "context canceled", "CLIENT_CLOSED_REQUEST", statusClientClosedRequest)
+
+	require.Equal(t, "api_error", errType)
+	require.Equal(t, "request", phase)
+	require.Equal(t, "client", errorOwner)
+	require.Equal(t, "client_request", errorSource)
+}
+
+func TestClassifyOpsStatus499ExcludedFromSLAFault(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	errType := normalizeOpsErrorType("api_error", "")
+	phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "context canceled", "", statusClientClosedRequest)
+
+	require.Equal(t, "api_error", errType)
+	require.Equal(t, "request", phase)
+	require.Equal(t, "client", errorOwner)
+	require.Equal(t, "client_request", errorSource)
+}
+
+func TestClassifyOpsUnsupportedModelRoutingCountsAsPlatformSLAFault(t *testing.T) {
 	tests := []string{
 		"No available accounts: no available accounts supporting model: made-up-model",
 		"No available accounts: no available OpenAI accounts supporting model: made-up-model",
 		"No available Gemini accounts: no available Gemini accounts supporting model: made-up-model",
-		"No available accounts: no available accounts supporting model: made-up-model (channel pricing restriction)",
 	}
 
 	for _, message := range tests {
@@ -799,11 +912,10 @@ func TestClassifyOpsUnsupportedModelExcludedFromSLA(t *testing.T) {
 			markOpsRoutingCapacityLimited(c)
 
 			errType := normalizeOpsErrorType("api_error", "")
-			phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, message, "", http.StatusServiceUnavailable)
+			phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, message, "", http.StatusServiceUnavailable)
 
 			require.Equal(t, "api_error", errType)
 			require.Equal(t, "routing", phase)
-			require.True(t, isBusinessLimited)
 			require.Equal(t, "platform", errorOwner)
 			require.Equal(t, "gateway", errorSource)
 		})
@@ -815,7 +927,7 @@ func TestClassifyOpsUnmarkedNoAvailableTextStillCountsForSLA(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+	phase, errorOwner, errorSource := classifyOpsErrorLog(
 		c,
 		"api_error",
 		"No available accounts",
@@ -824,7 +936,7 @@ func TestClassifyOpsUnmarkedNoAvailableTextStillCountsForSLA(t *testing.T) {
 	)
 
 	require.Equal(t, "routing", phase)
-	require.False(t, isBusinessLimited)
+	require.NotEqual(t, "client", errorOwner)
 	require.Equal(t, "platform", errorOwner)
 	require.Equal(t, "gateway", errorSource)
 }
@@ -953,7 +1065,7 @@ func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {
 			c, _ := gin.CreateTestContext(rec)
 			service.SetOpsUpstreamError(c, tt.status, tt.message, "")
 
-			phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+			phase, errorOwner, errorSource := classifyOpsErrorLog(
 				c,
 				"api_error",
 				tt.message,
@@ -962,20 +1074,38 @@ func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {
 			)
 
 			require.Equal(t, "upstream", phase)
-			require.False(t, isBusinessLimited)
+			require.NotEqual(t, "client", errorOwner)
 			require.Equal(t, "provider", errorOwner)
 			require.Equal(t, "upstream_http", errorSource)
 		})
 	}
 }
 
-func TestClassifyOpsUpstreamNoAvailableTextStillCountsForSLA(t *testing.T) {
+// POLICY CHANGE (2026-06-06, mirror-edge metric pollution): an upstream verdict
+// carrying a TokenKey "No available accounts" envelope is now owned as routing (out
+// of upstream_error_rate), NOT counted as provider health. This intentionally
+// reverses the original assertion from the 2026-05-18 "SLA 排除逻辑" commit
+// (ae6ee23e), which predates the mirror-edge topology understanding.
+//
+// Why the reversal: prod relays to Edge stacks via cc-<edge> apikey mirror accounts;
+// an empty edge pool returns 429/503 "No available accounts" (tkNoAvailableAccounts,
+// PR #575). The old asymmetry — local empty pool excluded (routingCapacityLimited)
+// but a RELAYED "no available" counted — treated OUR own fleet capacity as Anthropic
+// health. During the yace load test that made upstream_error_rate read ~1300 on a
+// dead single-account edge AND a healthy 3-account edge alike (16x client-cancel +
+// failover smear), so the metric could not tell a dead edge from a healthy one. Edge
+// health now has a dedicated truthful signal (ops/observability/scan-edge-health.sh,
+// #640); upstream_error_rate is reserved for genuine provider health. A real provider
+// 429 (rate_limit_error) / raw 5xx carries no TokenKey phrase and still counts — see
+// TestClassifyOpsGenuineUpstreamStaysProviderDespiteCapacityHelper.
+// tkUpstreamDownstreamCapacity is the predicate; it folds into routingCapacityLimited.
+func TestClassifyOpsUpstreamNoAvailableTextCountsAsPlatformRoutingFault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	service.SetOpsUpstreamError(c, http.StatusServiceUnavailable, "No available accounts", "")
 
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+	phase, errorOwner, _ := classifyOpsErrorLog(
 		c,
 		"api_error",
 		"No available accounts",
@@ -983,10 +1113,8 @@ func TestClassifyOpsUpstreamNoAvailableTextStillCountsForSLA(t *testing.T) {
 		http.StatusServiceUnavailable,
 	)
 
-	require.Equal(t, "upstream", phase)
-	require.False(t, isBusinessLimited)
-	require.Equal(t, "provider", errorOwner)
-	require.Equal(t, "upstream_http", errorSource)
+	require.Equal(t, "routing", phase, "relayed downstream-capacity verdict is routing, not provider health")
+	require.Equal(t, "platform", errorOwner, "platform routing fault (SLA numerator), not provider upstream_error_rate")
 }
 
 func TestParseOpsErrorResponsePreservesNestedStringCode(t *testing.T) {
@@ -1118,4 +1246,46 @@ func TestOpsKeyContract_HandlerWriteServiceRead(t *testing.T) {
 		"opsModelKey must be defined as service.OpsModelKey")
 	require.Equal(t, service.OpsRequestBodyKey, opsRequestBodyKey,
 		"opsRequestBodyKey must be defined as service.OpsRequestBodyKey")
+}
+
+func TestGetOpsAPIKeyFallsBackToOpsFallbackKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	// 主 key 缺席（鉴权早退场景）：返回 nil。
+	require.Nil(t, getOpsAPIKey(c))
+
+	// 写入 ops 专用 fallback key 后应能取到，且带齐 user/group。
+	groupID := int64(55)
+	apiKey := &service.APIKey{
+		ID:      100,
+		GroupID: &groupID,
+		User:    &service.User{ID: 7},
+		Group:   &service.Group{ID: groupID, Platform: service.PlatformAnthropic},
+	}
+	c.Set(string(middleware2.ContextKeyOpsFallbackAPIKey), apiKey)
+
+	got := getOpsAPIKey(c)
+	require.NotNil(t, got)
+	require.Equal(t, int64(100), got.ID)
+	require.NotNil(t, got.User)
+	require.Equal(t, int64(7), got.User.ID)
+	require.NotNil(t, got.Group)
+	require.Equal(t, service.PlatformAnthropic, got.Group.Platform)
+}
+
+func TestGetOpsAPIKeyPrefersPrimaryContextKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	primary := &service.APIKey{ID: 1}
+	fallback := &service.APIKey{ID: 2}
+	c.Set(string(middleware2.ContextKeyAPIKey), primary)
+	c.Set(string(middleware2.ContextKeyOpsFallbackAPIKey), fallback)
+
+	got := getOpsAPIKey(c)
+	require.NotNil(t, got)
+	require.Equal(t, int64(1), got.ID, "已鉴权请求应优先使用正式 api key")
 }

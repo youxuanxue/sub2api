@@ -54,7 +54,14 @@ const totalUpstreamErrors = computed(() =>
 )
 
 const totalDisplayed = computed(() =>
-  sumNumbers(props.points.map((p) => (p.error_count_sla ?? 0) + (p.upstream_error_count_excl_429_529 ?? 0) + (p.business_limited_count ?? 0)))
+  sumNumbers(
+    props.points.map(
+      (p) =>
+        (p.error_count_sla ?? 0) +
+        (p.upstream_error_count_excl_429_529 ?? 0) +
+        Math.max(0, (p.error_count_total ?? 0) - (p.error_count_sla ?? 0))
+    )
+  )
 )
 
 const hasRequestErrors = computed(() => totalRequestErrors.value > 0)
@@ -86,8 +93,8 @@ const chartData = computed(() => {
         pointHitRadius: 10
       },
       {
-        label: t('admin.ops.businessLimited'),
-        data: props.points.map((p) => p.business_limited_count ?? 0),
+        label: t('admin.ops.clientFaults'),
+        data: props.points.map((p) => Math.max(0, (p.error_count_total ?? 0) - (p.error_count_sla ?? 0))),
         borderColor: colors.value.gray,
         backgroundColor: 'transparent',
         borderDash: [6, 6],

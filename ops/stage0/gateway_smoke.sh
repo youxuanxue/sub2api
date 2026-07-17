@@ -7,7 +7,7 @@
 # Usage against prod (GitHub Environment prod — vars auto-loaded when set):
 #   export TOKENKEY_BASE_URL=https://api.tokenkey.dev
 #   export TK_SMOKE_GITHUB_ENV=prod
-#   export TK_SMOKE_PROD_ANTHROPIC_KEY=sk-...   # GitHub secret names; values not readable via gh
+#   export TK_SMOKE_API_KEY=sk-...   # GitHub secret values are not readable via gh
 #   bash ops/stage0/gateway_smoke.sh
 #
 # Public-only (no API key):
@@ -27,7 +27,7 @@ fi
 # shellcheck source=smoke_env.sh
 source "${SCRIPT_DIR}/smoke_env.sh"
 
-if [[ -n "${TK_SMOKE_PROD_ANTHROPIC_KEY:-}" ]]; then
+if [[ -n "${TK_SMOKE_API_KEY:-}" ]]; then
   export TOKENKEY_BASE_URL="${BASE}"
   export GATEWAY_SMOKE_SUITE=quick
   export TK_SMOKE_SKIP_FRONTEND=1
@@ -59,5 +59,5 @@ bonus="$(jq -r '.data.signup_bonus_balance_usd // 0' "$tmpdir/pub.json")"
 bonus_on="$(jq -r '.data.signup_bonus_enabled // false' "$tmpdir/pub.json")"
 echo "public signup_bonus_enabled=${bonus_on} signup_bonus_balance_usd=${bonus}"
 
-echo "tk_gateway_smoke: gateway steps skipped (set TK_SMOKE_PROD_ANTHROPIC_KEY or TK_SMOKE_GITHUB_ENV=prod with secrets exported)."
+echo "tk_gateway_smoke: gateway steps skipped (set TK_SMOKE_API_KEY or TK_SMOKE_GITHUB_ENV=prod with secret exported)."
 echo "tk_gateway_smoke: partial OK (public settings only)."

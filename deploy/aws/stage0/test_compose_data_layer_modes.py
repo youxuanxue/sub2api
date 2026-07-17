@@ -2,7 +2,7 @@
 """Two-mode gates for the Stage0 compose data-layer split (stdlib-only).
 
 Local-container mode (COMPOSE_PROFILES=localpg,localredis) must stay
-bit-identical to historical behavior: postgres+redis active, tokenkey
+functionally identical to historical behavior: postgres+redis active, tokenkey
 depends_on both. External-RDS mode (COMPOSE_PROFILES=localredis +
 docker-compose.external-db.yml via COMPOSE_FILE) must drop postgres and
 reset tokenkey's depends_on to redis only — `!override` is the only

@@ -64,7 +64,7 @@ func (s *GatewayService) HasAnthropicSigPreemptCache() bool {
 // The returned body should replace the working body for the subsequent upstream
 // attempt; the caller is responsible for calling setOpsUpstreamRequestBody if
 // the body changed.
-func (s *GatewayService) applySigPreemptIfArmed(ctx context.Context, c *gin.Context, account *Account, body []byte) []byte {
+func (s *GatewayService) applySigPreemptIfArmed(ctx context.Context, c *gin.Context, account *Account, body []byte, mappedModel string) []byte {
 	if s == nil || s.tkAnthropicSigPreemptCache == nil || account == nil || len(body) == 0 {
 		return body
 	}
@@ -77,7 +77,10 @@ func (s *GatewayService) applySigPreemptIfArmed(ctx context.Context, c *gin.Cont
 	if !armed {
 		return body
 	}
-	filtered := FilterThinkingBlocksForRetry(body)
+	// Native Anthropic relay path: key the thinking filter on the mapped
+	// upstream model (see thinking_ref_model_tk.go for why the compat path
+	// deliberately uses the original client model instead).
+	filtered := FilterThinkingBlocksForRetry(body, thinkingRefModelForAnthropicRelay(mappedModel))
 	if bytes.Equal(filtered, body) {
 		// Armed but nothing to strip — stay silent to avoid log explosion.
 		return body

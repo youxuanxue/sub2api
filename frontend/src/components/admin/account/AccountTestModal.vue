@@ -3,6 +3,7 @@
     :show="show"
     :title="t('admin.accounts.testAccountConnection')"
     width="normal"
+    :z-index="10000"
     @close="handleClose"
   >
     <div class="space-y-4">
@@ -46,12 +47,37 @@
           {{ t('admin.accounts.selectTestModel') }}
         </label>
         <Select
+          v-if="!modelsError"
           v-model="selectedModelId"
           :options="availableModels"
           :disabled="loadingModels || status === 'connecting'"
           value-key="id"
           label-key="display_name"
           :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.accounts.selectTestModel')"
+        />
+        <div
+          v-else
+          class="rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
+        >
+          <p>{{ modelsError }}</p>
+          <button
+            type="button"
+            class="mt-1.5 font-medium text-primary-600 hover:underline dark:text-primary-400"
+            @click="loadAvailableModels"
+          >
+            {{ t('admin.accounts.retry') }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="isOpenAIAccount" class="space-y-1.5">
+        <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          {{ t('admin.accounts.openai.testMode') }}
+        </label>
+        <Select
+          v-model="testMode"
+          :options="openAITestModeOptions"
+          :disabled="status === 'connecting'"
         />
       </div>
 
@@ -231,15 +257,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, onMounted, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import TextArea from '@/components/common/TextArea.vue'
 import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
+import { buildApiUrl } from '@/api/client'
+import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { adminAPI } from '@/api/admin'
-import type { Account, ClaudeModel } from '@/types'
+import type { Account, AccountModelOption } from '@/types'
+import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_KIRO, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
@@ -268,30 +297,48 @@ const status = ref<'idle' | 'connecting' | 'success' | 'error'>('idle')
 const outputLines = ref<OutputLine[]>([])
 const streamingContent = ref('')
 const errorMessage = ref('')
-const availableModels = ref<ClaudeModel[]>([])
+const availableModels = ref<AccountModelOption[]>([])
 const selectedModelId = ref('')
 const testPrompt = ref('')
 const loadingModels = ref(false)
+// Non-empty when GetAvailableModels failed to load, so the UI can show why the
+// model picker is unavailable instead of a misleading empty "no options" box.
+const modelsError = ref('')
 let abortController: AbortController | null = null
 const generatedImages = ref<PreviewImage[]>([])
 const previewImageUrl = ref('')
+const testMode = ref<'default' | 'compact'>('default')
+const isOpenAIAccount = computed(() => props.account?.platform === 'openai')
+const openAITestModeOptions = computed(() => [
+  { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
+  { value: 'compact', label: t('admin.accounts.openai.testModeCompact') }
+])
 const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
 const supportsGeminiImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
 
-  return props.account?.platform === 'gemini' || (props.account?.platform === 'antigravity' && props.account?.type === 'apikey')
+  return props.account?.platform === PLATFORM_GEMINI || (props.account?.platform === PLATFORM_ANTIGRAVITY && props.account?.type === 'apikey')
 })
 
 const supportsOpenAIImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gpt-image-')) return false
-  return props.account?.platform === 'openai'
+  return props.account?.platform === PLATFORM_OPENAI
 })
 
 const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
 
-const sortTestModels = (models: ClaudeModel[]) => {
+const isKiroTestAccount = computed(() => (
+  props.account?.platform === PLATFORM_KIRO ||
+  (
+    props.account?.platform === PLATFORM_ANTHROPIC &&
+    props.account?.type === 'apikey' &&
+    String(props.account?.credentials?.mirror_platform || '').trim().toLowerCase() === PLATFORM_KIRO
+  )
+))
+
+const sortTestModels = (models: AccountModelOption[]) => {
   const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
 
   return [...models].sort((a, b) => {
@@ -302,12 +349,13 @@ const sortTestModels = (models: ClaudeModel[]) => {
   })
 }
 
-// Load available models when modal opens
+// Load available models when the modal becomes shown (a reopen toggles show).
 watch(
   () => props.show,
   async (newVal) => {
     if (newVal && props.account) {
       testPrompt.value = ''
+      testMode.value = 'default'
       resetState()
       await loadAvailableModels()
     } else {
@@ -315,6 +363,21 @@ watch(
     }
   }
 )
+
+// AccountsView lazy-mounts this modal (lazyMount latch, #900): on first open it is
+// CREATED with `show` already true, so the (non-immediate) watch above never fires
+// for that first open — loadAvailableModels() never ran and the picker stayed empty
+// ("无匹配选项") with no /models request at all (only a reopen, which toggles show,
+// worked). Loading on mount when already shown covers the first-open case. (We use
+// onMounted rather than the watch's `immediate` because loadAvailableModels is a
+// const declared below — an immediate watch would hit it in the temporal dead zone.)
+onMounted(() => {
+  if (props.show && props.account) {
+    testPrompt.value = ''
+    resetState()
+    void loadAvailableModels()
+  }
+})
 
 watch(selectedModelId, () => {
   if (supportsImageTest.value && !testPrompt.value.trim()) {
@@ -327,15 +390,24 @@ const loadAvailableModels = async () => {
 
   loadingModels.value = true
   selectedModelId.value = '' // Reset selection before loading
+  modelsError.value = ''
   try {
     const models = await adminAPI.accounts.getAvailableModels(props.account.id)
-    availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
+    availableModels.value = props.account.platform === PLATFORM_GEMINI || props.account.platform === PLATFORM_ANTIGRAVITY
       ? sortTestModels(models)
       : models
     // Default selection by platform
     if (availableModels.value.length > 0) {
-      if (props.account.platform === 'gemini') {
+      if (props.account.platform === PLATFORM_GEMINI) {
         selectedModelId.value = availableModels.value[0].id
+      } else if (props.account.platform === PLATFORM_ANTIGRAVITY) {
+        // Backend pins AntigravityDefaultTestModelID first; keep the test default deterministic.
+        selectedModelId.value = availableModels.value[0].id
+      } else if (isKiroTestAccount.value) {
+        selectedModelId.value =
+          availableModels.value.find((m) => m.id === 'claude-sonnet-4-5')?.id ||
+          availableModels.value.find((m) => m.id === 'claude-sonnet-4-6')?.id ||
+          availableModels.value[0].id
       } else {
         // Try to select Sonnet as default, otherwise use first model
         const sonnetModel = availableModels.value.find((m) => m.id.includes('sonnet'))
@@ -343,10 +415,23 @@ const loadAvailableModels = async () => {
       }
     }
   } catch (error) {
+    // Surface the failure instead of silently showing an empty "no options"
+    // dropdown. For every account type GetAvailableModels returns a non-empty
+    // default/mapped catalog when the account is reachable, so an empty picker
+    // almost always means the request FAILED — the account became unavailable
+    // (404, e.g. deleted / mid-reauth), the admin session expired (401/403), or
+    // a network error. Masking that as "no models" misleads the operator.
     console.error('Failed to load available models:', error)
-    // Fallback to empty list
     availableModels.value = []
     selectedModelId.value = ''
+    const status = (error as { response?: { status?: number } })?.response?.status
+    if (status === 404) {
+      modelsError.value = t('admin.accounts.loadModelsUnavailable')
+    } else if (status === 401 || status === 403) {
+      modelsError.value = t('admin.accounts.loadModelsAuthExpired')
+    } else {
+      modelsError.value = t('admin.accounts.loadModelsFailed')
+    }
   } finally {
     loadingModels.value = false
   }
@@ -399,20 +484,30 @@ const startTest = async () => {
   abortController = new AbortController()
 
   try {
-    // Create EventSource for SSE
-    const url = `/api/v1/admin/accounts/${props.account.id}/test`
+    const requestBody: {
+      model_id: string
+      prompt: string
+      mode?: 'default' | 'compact'
+    } = {
+      model_id: selectedModelId.value,
+      prompt: supportsImageTest.value ? testPrompt.value.trim() : ''
+    }
+    if (isOpenAIAccount.value) {
+      requestBody.mode = testMode.value
+    }
+
+    // Use the configured API base; EventSource does not support POST.
+    const url = buildApiUrl(`/admin/accounts/${props.account.id}/test`)
 
     // Use fetch with streaming for SSE since EventSource doesn't support POST
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        [ADMIN_UI_REQUEST_HEADER]: '1'
       },
-      body: JSON.stringify({
-              model_id: selectedModelId.value,
-              prompt: supportsImageTest.value ? testPrompt.value.trim() : ''
-            }),
+      body: JSON.stringify(requestBody),
       signal: abortController.signal
     })
 
@@ -501,6 +596,12 @@ const handleEvent = (event: {
           mimeType: event.mime_type
         })
         addLine(t('admin.accounts.imageReceived', { count: generatedImages.value.length }), 'text-purple-300')
+      }
+      break
+
+    case 'status':
+      if (event.text) {
+        addLine(event.text, 'text-cyan-300')
       }
       break
 

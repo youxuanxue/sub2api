@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/mail"
 	"strings"
 
@@ -26,7 +27,7 @@ type EmailOAuthIdentityInput struct {
 }
 
 func (s *AuthService) LoginOrRegisterVerifiedEmailOAuth(ctx context.Context, input EmailOAuthIdentityInput) (*TokenPair, *User, error) {
-	return s.loginOrRegisterVerifiedEmailOAuth(ctx, input, "", "")
+	return s.loginOrRegisterVerifiedEmailOAuth(ctx, input, "", "", "")
 }
 
 func (s *AuthService) LoginOrRegisterVerifiedEmailOAuthWithInvitation(
@@ -35,7 +36,17 @@ func (s *AuthService) LoginOrRegisterVerifiedEmailOAuthWithInvitation(
 	invitationCode string,
 	affiliateCode string,
 ) (*TokenPair, *User, error) {
-	return s.loginOrRegisterVerifiedEmailOAuth(ctx, input, invitationCode, affiliateCode)
+	return s.loginOrRegisterVerifiedEmailOAuth(ctx, input, invitationCode, affiliateCode, "")
+}
+
+func (s *AuthService) LoginOrRegisterVerifiedEmailOAuthWithSignupCodes(
+	ctx context.Context,
+	input EmailOAuthIdentityInput,
+	invitationCode string,
+	affiliateCode string,
+	promoCode string,
+) (*TokenPair, *User, error) {
+	return s.loginOrRegisterVerifiedEmailOAuth(ctx, input, invitationCode, affiliateCode, promoCode)
 }
 
 func (s *AuthService) loginOrRegisterVerifiedEmailOAuth(
@@ -43,6 +54,7 @@ func (s *AuthService) loginOrRegisterVerifiedEmailOAuth(
 	input EmailOAuthIdentityInput,
 	invitationCode string,
 	affiliateCode string,
+	promoCode string,
 ) (*TokenPair, *User, error) {
 	if s == nil || s.userRepo == nil || s.entClient == nil {
 		return nil, nil, ErrServiceUnavailable
@@ -131,6 +143,8 @@ func (s *AuthService) loginOrRegisterVerifiedEmailOAuth(
 		if err := s.ApplyProviderDefaultSettingsOnFirstBind(ctx, user.ID, providerType); err != nil {
 			logger.LegacyPrintf("service.auth", "[Auth] Failed to apply %s first bind defaults: %v", providerType, err)
 		}
+	} else {
+		user = s.applyOAuthSignupPromoCode(ctx, user, promoCode)
 	}
 	s.RecordSuccessfulLogin(ctx, user.ID)
 
@@ -190,7 +204,9 @@ func (s *AuthService) createEmailOAuthUser(ctx context.Context, email, username,
 	s.postAuthUserBootstrap(ctx, user, providerType, false)
 	s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 	// snapshot user × platform quota（fail-open）
-	_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
+	if err := s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan); err != nil {
+		slog.Error("quota snapshot failed", "user_id", user.ID, "err", err)
+	}
 	s.bindOAuthAffiliate(ctx, user.ID, affiliateCode)
 	if invitationRedeemCode != nil {
 		if err := s.useOAuthRegistrationInvitation(ctx, invitationRedeemCode.ID, user.ID); err != nil {

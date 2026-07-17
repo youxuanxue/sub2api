@@ -341,6 +341,27 @@
       "summary": "OpenAI scheduling now queries account_groups for the requested group, so grouped balance traffic should not select ungrouped accounts."
     },
     {
+      "upstream": "Wei-Shaw/sub2api#2232",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_images_responses.go",
+        "backend/internal/service/openai_images.go",
+        "backend/internal/service/openai_images_test.go"
+      ],
+      "summary": "OpenAI OAuth /v1/images/edits (gpt-image-2) bridges multipart/JSON edit requests to the ChatGPT Responses image_generation tool with action=edit (source image + optional mask as data URLs), instead of failing on unsupported native /images/edits passthrough."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2245",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/pkg/apicompat/anthropic_to_responses_response.go",
+        "backend/internal/pkg/apicompat/anthropic_to_responses_truncation_test.go",
+        "backend/internal/service/gateway_forward_as_responses.go",
+        "backend/internal/service/gateway_forward_as_responses_test.go"
+      ],
+      "summary": "OpenAI Responses streaming: when the upstream SSE stream ends without a terminal event (Anthropic message_stop), the /responses conversion finalizes the turn as a spec-valid response.incomplete (status=incomplete, incomplete_details.reason=interrupted) instead of a fake response.completed. The streaming terminal event type is now derived from response.status, so strict Responses clients (Codex CLI / OpenAI SDK) receive a correct terminal event and a truncated turn is not reported (to client or billing) as a clean success."
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#2258",
       "tokenkey_pr": "youxuanxue/sub2api#232",
       "status": "fixed_in_tokenkey",
@@ -453,11 +474,12 @@
       "upstream": "Wei-Shaw/sub2api#2413",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
+        "backend/internal/service/ratelimit_service_tk_openai_html_403.go",
         "backend/internal/service/ratelimit_service.go",
-        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go",
-        "scripts/sentinels/gateway-tk.json"
+        "backend/internal/service/ratelimit_service_tk_openai_html_403_test.go",
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go"
       ],
-      "summary": "Same fix as #1824: Cherry Studio gpt-image-2 traffic hits per-request Cloudflare challenges on OpenAI OAuth; the body keyword match in handleOpenAI403 now keeps the account schedulable for non-image traffic instead of writing temp_unschedulable on the first hit."
+      "summary": "OpenAI OAuth 403 with HTML body (OpenAI access-denied page on gpt-image-2 / image paths, not just CF/Arkose keywords) skips the 403 counter and temp_unschedulable cooldown via openAIIsHTMLBody; complements #1824 keyword matching so healthy OAuth accounts are not evicted from the pool."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2478",
@@ -474,9 +496,11 @@
       "status": "fixed_in_tokenkey",
       "fixed_by": [
         "backend/internal/service/billing_service.go",
-        "backend/internal/service/billing_service_test.go"
+        "backend/internal/service/billing_service_test.go",
+        "backend/internal/service/pricing_service_tk_overlay_test.go",
+        "backend/internal/service/tk_pricing_overlay.json"
       ],
-      "summary": "Unknown gemini-* models (including gemini-pro-agent) fall back to gemini-3.1-pro pricing instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction)."
+      "summary": "Unknown gemini-* models (including gemini-pro-agent) fall back to a non-nil pro/flash family floor instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction). Production also carries an explicit tk_pricing_overlay entry for gemini-pro-agent."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2487",
@@ -620,6 +644,25 @@
         "scripts/sentinels/gateway-tk.json"
       ],
       "summary": "OAuth/pro 账号 5h Codex 用量百分比显示异常（100-raw 反转）：上游 x-codex-*-used-percent（5h 与 7d）都直接携带 used%（消耗百分比），此前 b65dde63 误以为是 remaining% 而对 5h 套了 used=100-raw 反算，导致空闲号在 admin 账号卡显示 99%/100%，并误触 is5hExhausted 给 raw=0 账号挂上数小时 429 cooldown。#568 移除反算，5h 与 7d 对称直传 used%；窗口归属由 Normalize() 按 window_minutes 判定，非固定 primary/secondary。已由 scripts/sentinels/gateway-tk.json 钉住，防 merge/重构再加回反算。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3158",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_ws_v2_passthrough_codex_image_tk.go",
+        "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+        "backend/internal/service/openai_ws_forwarder_ingress_session_test.go"
+      ],
+      "summary": "WS v2 passthrough mode applies Codex image_generation bridge mutations on response.create frames before forwarding upstream, matching the regular WS ingress path."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3285",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout.go",
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout_test.go"
+      ],
+      "summary": "Anthropic/Kiro API-key passthrough strips client timeout headers (x-stainless-timeout and related) by default so long non-stream requests no longer hit the ~125s upstream cancel boundary; opt in via anthropic_passthrough_allow_timeout_headers."
     }
   ]
 }

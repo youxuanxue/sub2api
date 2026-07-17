@@ -40,9 +40,29 @@ type OpsFeishuAlertConfig struct {
 	SigningSecretConfigured bool   `json:"signing_secret_configured"`
 	RateLimitPerHour        int    `json:"rate_limit_per_hour"`
 	CooldownSeconds         int    `json:"cooldown_seconds"`
+	// AccountIncidentDigestEnabled 是账号失效事件中「临时冷却」类（429/529/temp）自愈
+	// 聚合摘要的总开关。**零值 false = 默认关（opt-in）**——运营判定这类自愈橙头摘要在
+	// provider 抖动时是噪音，会淹没真故障 P0。仅当显式设为 true 才发摘要；永久失效 P0、
+	// 池级全不可调度 P0、以及 ops 规则 P0 的配对恢复绿卡，走 Feishu 专用路径，
+	// 恒发不受此开关影响。
+	//
+	// 历史上 enable 语义曾错绑在 AccountIncidentDigestSeconds>0（见 PR#730），但
+	// normalizeOpsFeishuAlertConfig 的 0→600 回填使 seconds 永不为 0，致 enable 恒真、
+	// 默认关从未生效。本字段把 enable 与 interval 彻底解耦：enable 看本 bool，
+	// interval 看 seconds。
+	AccountIncidentDigestEnabled bool `json:"account_incident_digest_enabled"`
 	// AccountIncidentDigestSeconds 控制账号失效事件中「临时冷却」类（429/529/temp）
-	// 聚合摘要的 flush 间隔（秒）。永久失效类即时单发，不受此值影响。默认 600。
+	// 聚合摘要的 flush 间隔（秒）——**仅间隔，不含 enable 语义**（enable 见上面的
+	// AccountIncidentDigestEnabled）。永久失效类即时单发，不受此值影响。默认 600。
 	AccountIncidentDigestSeconds int `json:"account_incident_digest_seconds"`
+	// PricingMissingDigestSeconds 控制缺价模型零成本流量聚合摘要的 flush 间隔
+	// （秒）。首见模型的即时卡不受此值影响。默认 1800。
+	PricingMissingDigestSeconds int `json:"pricing_missing_digest_seconds"`
+	// UpstreamBalanceLowThresholdCNY 是「上游账号低余额」主动告警的触发阈值（人民币）。
+	// 后台 upstream_balance_sentinel 哨兵定时拉有公开余额 API 的上游渠道账号（当前仅
+	// DeepSeek channel_type=43）的余额，低于此值时提前发一条橙头飞书预警，让运营在归零
+	// 触发全量 402 断供前充值。正向触发级别（非开关）——总开关沿用 Feishu.Enabled。默认 50。
+	UpstreamBalanceLowThresholdCNY float64 `json:"upstream_balance_low_threshold_cny"`
 }
 
 // OpsEmailNotificationConfigUpdateRequest allows partial updates, while the
@@ -100,6 +120,17 @@ type OpsRuntimeLogConfig struct {
 type OpsAlertRuntimeSettings struct {
 	EvaluationIntervalSeconds int `json:"evaluation_interval_seconds"`
 
+	// RateRuleMinSamples is the minimum number of SLA-counted requests that must
+	// exist in a rule window before a ratio metric (success_rate / error_rate /
+	// upstream_error_rate) is evaluated. Below this floor the metric returns
+	// ok=false and the rule is skipped, so a near-empty low-traffic window cannot
+	// produce a misleading 100% rate and page a false P0 (2026-06-06 us2/us5: a
+	// ~25min window held only 19 / 1 requests, yet a couple of transient upstream
+	// blips pushed upstream_error_rate to 100%). 0 (or missing on legacy
+	// settings rows) is filled to the default; set 1 to restore the legacy
+	// behavior where only the >0 denominator guard applies.
+	RateRuleMinSamples int `json:"rate_rule_min_samples"`
+
 	DistributedLock OpsDistributedLockSettings `json:"distributed_lock"`
 	Silencing       OpsAlertSilencingSettings  `json:"silencing"`
 	Thresholds      OpsMetricThresholds        `json:"thresholds"` // 指标阈值配置
@@ -124,6 +155,16 @@ type OpsAdvancedSettings struct {
 type OpsOpenAIAccountQuotaAutoPauseSettings struct {
 	DefaultThreshold5h float64 `json:"default_threshold_5h"`
 	DefaultThreshold7d float64 `json:"default_threshold_7d"`
+	// TK: window-aware soft scheduling guard (twin of the anthropic window-cost
+	// tri-state). Steers new load-balance traffic away from a codex account
+	// approaching its 5h/7d window before it 429s, to cut failover hops. The
+	// guard is default-ON via built-in thresholds (openAIWindowStickyThreshold
+	// Default / ReserveDefault); these fields are operator overrides only. A
+	// zero-value struct => guard ON with built-in defaults. WindowStickyGuard
+	// Disabled is the global kill-switch (zero-value=false=ON, no redeploy).
+	WindowStickyGuardDisabled bool    `json:"window_sticky_guard_disabled"`
+	WindowStickyThreshold     float64 `json:"window_sticky_threshold"`
+	WindowStickyReserve       float64 `json:"window_sticky_reserve"`
 }
 
 type OpsDataRetentionSettings struct {

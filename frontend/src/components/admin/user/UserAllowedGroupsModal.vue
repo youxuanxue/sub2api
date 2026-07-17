@@ -179,9 +179,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getPlatformLabel } from '@/composables/usePlatformOptions'
+import { STATUS_ACTIVE } from '@/constants/channel'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { AdminUser, Group, GroupPlatform } from '@/types'
@@ -230,7 +231,7 @@ const load = async () => {
   try {
     const res = await adminAPI.groups.list(1, 1000)
     // 只显示标准类型且活跃的分组
-    groups.value = res.items.filter((g) => g.subscription_type === 'standard' && g.status === 'active')
+    groups.value = res.items.filter((g) => g.subscription_type === 'standard' && g.status === STATUS_ACTIVE)
 
     // 初始化配置
     const userAllowedGroups = props.user?.allowed_groups || []
@@ -256,6 +257,17 @@ const load = async () => {
     loading.value = false
   }
 }
+
+// #900: AccountsView/UsersView lazy-mount this modal with show already true on
+// first open. The show-watch is not { immediate: true } (loaders are
+// const-declared after it → TDZ), so mirror its true-branch here for the
+// already-shown initial mount. onMounted fires once at mount only, so reopens
+// (which toggle show → watch fires) do not double-load.
+onMounted(() => {
+  if (props.show && props.user) {
+    load()
+  }
+})
 
 const toggleExclusiveGroup = (groupId: number) => {
   const config = groupConfigs.value.find((c) => c.groupId === groupId)

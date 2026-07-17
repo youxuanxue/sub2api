@@ -173,7 +173,10 @@ spec delta 是意图载体，不是审批基线；若命中高风险条件，必
 - 提交消息聚焦"为什么"而非"改了什么"，一行说清单个原子变化的原因
 - 每个 PR 只解决一个问题，不混合无关变更
 - 不默认拆出 docs/prototype/dev/release 多个 PR；只有真实决策边界或风险隔离需求，才拆 PR
-- PR 描述默认只保留 `Summary`、`Risk`、`Validation`；只有高风险变更才展开 `Design` / `Contract` / `Migration`
+- PR body 必须用中文撰写；技术名词、命令、错误码、commit subject 可保留英文
+- PR 描述默认只保留中文小节：`摘要`、`风险`、`验证`、`提交`；只有高风险变更才展开 `设计` / `契约` / `迁移`
+- `提交` 小节必须从当前 PR commit 集合生成，至少包含相对 base 的所有 commit short SHA + subject，并包含 `最新提交：<HEAD short SHA>` freshness anchor
+- 每产生新的 commit 后，必须在 push 或继续 review 前用当前 `git log --oneline <base>..HEAD` 重写整个 PR body；禁止沿用旧 body 或只追加零散备注
 - review comment 默认只报阻塞问题、真实风险、缺失验证；不输出大而全的审计散文
 - 公共契约删除必须在 commit subject/body 显式声明删除说明锚点（如 `contract-deletion-notice`），禁止静默删约。
 - 有 Web surface 的仓库中，后端服务/业务逻辑改动必须同 PR 对齐对应 Web 页面、配置、契约或 Story；确无影响时必须在 commit message 中写明 `no-web-impact` / `Web impact: none`，让 preflight 可机械验证。
@@ -193,20 +196,28 @@ spec delta 是意图载体，不是审批基线；若命中高风险条件，必
 当作为 Background Agent 或 Long-running Agent 执行时：
 - 每完成一个可验证的里程碑，立即提交并推送
 - 如果连续 3 次尝试同一问题未成功，暂停并记录分析，等待人工介入
-- 产出 PR 时默认附带精简的 `Summary`、`Risk`、`Validation`；只有高风险变更才附设计/迁移等展开内容
+- 产出 PR 时默认附带精简中文 `摘要`、`风险`、`验证`、`提交`；每次新增 commit 后先重写 PR body 再 push / review
 - 高风险原型阶段完成后必须暂停等待审批，不得自行进入功能实现阶段
 
-## 完成自检（提交前必做）
+## 完成自检与门禁
 
-每次任务完成、准备提交或汇报前，Agent 必须执行一致性自检。**优先用脚本，不依赖记忆**：
+每次任务完成或准备汇报时，Agent 必须给出与风险匹配的验证证据。普通进度汇报不触发全量 preflight；汇报已完成的测试、运行检查、人工自检和剩余风险即可。
 
-### 强制：运行 preflight 脚本（机械检查）
+准备 commit / push / PR 出口 / 部署 / 发布时，必须执行一致性自检。**优先用脚本，不依赖记忆**：
+
+### 强制门禁：运行 preflight 脚本（机械检查）
 
 ```bash
 ./scripts/preflight.sh   # 模板见 dev-rules/templates/preflight.sh
 ```
 
-任何检查段失败都必须修复后重跑，**禁止带未通过的 preflight 提交**。preflight 分为默认必跑检查与高风险条件触发检查；不要把所有项目、所有任务都按最高负担执行。
+以下场景必须有新鲜 preflight 结果：
+- 创建本地 commit 前（通常由 pre-commit hook 自动触发）。
+- push 分支、创建 PR，或在新增 commit 后继续 review 前。
+- 部署、发布、打 tag 或触发 release 流程前。
+- 高风险审批门禁、代码审查或人工明确要求时。
+
+任何检查段失败都必须修复后重跑，**禁止带未通过的 preflight 提交、推送、部署或发布**。preflight 分为默认必跑检查与高风险条件触发检查；不要把所有项目、所有任务都按最高负担执行。
 
 其中新增红线由模板 preflight 机械化落地：
 - contract deletion notice：公共契约删除必须有显式 deletion notice。

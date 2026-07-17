@@ -1,11 +1,21 @@
-# tokenkey · AWS Stage 0 (Single EC2)。说明见 deploy/aws/README.md；数据层双模式见
-# docs/deploy/aws-data-layer-migration.md。本文件嵌进 Lightsail UserData（14336B 帽），注释从简。
+# =============================================================================
+# TokenKey AWS Stage0: Caddy-only ingress, private Postgres/Redis, persistent
+# data under /var/lib/tokenkey, and a commit-pinned TOKENKEY_IMAGE from GHCR.
+# Data-layer modes are documented in docs/deploy/aws-data-layer-migration.md.
+# =============================================================================
+
+x-tokenkey-logging: &tokenkey-logging
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "5"
 
 services:
   caddy:
     image: caddy:2-alpine
     container_name: tokenkey-caddy
     restart: unless-stopped
+    logging: *tokenkey-logging
     ports:
       - "80:80"
       - "443:443"
@@ -24,6 +34,7 @@ services:
     container_name: tokenkey
     pull_policy: always
     restart: unless-stopped
+    logging: *tokenkey-logging
     # 发版优雅停机：deploy 脚本会先发 SIGUSR1 让进程进入 drain，等 /health 翻 503、
     # in_flight=0 后才走 `docker stop`，此时 SIGTERM + 下面 180s 的 grace period 保证
     # 长 SSE 能跑完。app 端 TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS=150 比 grace 少 30s，
@@ -67,8 +78,10 @@ services:
       - TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY:?TOTP_ENCRYPTION_KEY is required (openssl rand -hex 32)}
       - TZ=${TZ:-UTC}
       - TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS=${TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS:-150}
-      # TK surface-C: opt-in (default false) prod stub-concurrency self-heal; set =true only on prod .env.
-      - GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED=${GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED:-false}
+      # TK surface-C: default-on (edge no-ops; override =false). Mirrors edge capacity onto prod cc-* stubs.
+      - GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED=${GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_CONCURRENCY_MIRROR_ENABLED:-true}
+      # TK Step E balance floor: default-off (prod billing surface); edge .env sets =true.
+      - GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED=${GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,6 +104,7 @@ services:
     restart: unless-stopped
     # localpg profile 不激活则本机 PG 不启动（外部模式 depends_on 由 external-db override !override 重置）
     profiles: ["localpg"]
+    logging: *tokenkey-logging
     ulimits:
       nofile:
         soft: 100000
@@ -119,6 +133,7 @@ services:
     restart: unless-stopped
     # localredis profile：prod/edge 当前都保留本机 Redis；出机触发器见迁移 SOP
     profiles: ["localredis"]
+    logging: *tokenkey-logging
     ulimits:
       nofile:
         soft: 100000

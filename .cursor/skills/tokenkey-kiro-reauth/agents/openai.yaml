@@ -1,0 +1,4 @@
+interface:
+  display_name: "TokenKey Kiro Reauth"
+  short_description: "Repair Kiro OAuth on an edge and verify a real Kiro request."
+  default_prompt: "Use $tokenkey-kiro-reauth to compare local Kiro auth with edge state, re-apply credentials, and validate a real /v1/messages request on the edge."

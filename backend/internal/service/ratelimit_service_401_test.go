@@ -18,9 +18,19 @@ type rateLimitAccountRepoStub struct {
 	setErrorCalls          int
 	tempCalls              int
 	updateCredentialsCalls int
+	clearErrorCalls        int
+	setSchedulableCalls    int
+	clearTempCalls         int
+	updateExtraCalls       int
 	lastCredentials        map[string]any
+	lastExtraUpdates       map[string]any
 	lastErrorMsg           string
+	lastSchedulable        bool
 	lastTempReason         string
+	lastErrorID            int64
+	lastTempID             int64
+	accountOnGet           *Account
+	getByIDAccounts        []*Account
 
 	// PR #338 (P3): track exact-reset-time writes so tests can assert
 	// handle429 / handle529 ran the upstream-precise path before the
@@ -72,19 +82,40 @@ func (r *rateLimitAccountRepoStub) UpdateSessionWindow(ctx context.Context, id i
 
 func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, errorMsg string) error {
 	r.setErrorCalls++
+	r.lastErrorID = id
 	r.lastErrorMsg = errorMsg
+	return nil
+}
+
+func (r *rateLimitAccountRepoStub) ClearError(ctx context.Context, id int64) error {
+	r.clearErrorCalls++
+	return nil
+}
+
+func (r *rateLimitAccountRepoStub) SetSchedulable(ctx context.Context, id int64, schedulable bool) error {
+	r.setSchedulableCalls++
+	r.lastSchedulable = schedulable
 	return nil
 }
 
 func (r *rateLimitAccountRepoStub) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
 	r.tempCalls++
+	r.lastTempID = id
 	r.lastTempReason = reason
+	return nil
+}
+
+func (r *rateLimitAccountRepoStub) ClearTempUnschedulable(ctx context.Context, id int64) error {
+	r.clearTempCalls++
 	return nil
 }
 
 func (r *rateLimitAccountRepoStub) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
 	r.updateCredentialsCalls++
-	r.lastCredentials = cloneCredentials(credentials)
+	r.lastCredentials = shallowCopyMap(credentials)
+	if r.accountOnGet != nil && r.accountOnGet.ID == id {
+		r.accountOnGet.Credentials = shallowCopyMap(credentials)
+	}
 	return nil
 }
 
@@ -101,10 +132,29 @@ func (r *rateLimitAccountRepoStub) SetOverloaded(ctx context.Context, id int64, 
 }
 
 func (r *rateLimitAccountRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
+	if len(r.getByIDAccounts) > 0 {
+		account := r.getByIDAccounts[0]
+		r.getByIDAccounts = r.getByIDAccounts[1:]
+		return account, nil
+	}
+	if r.accountOnGet != nil {
+		return r.accountOnGet, nil
+	}
+	if r.accountsByID != nil {
+		if account, ok := r.accountsByID[id]; ok {
+			return account, nil
+		}
+	}
 	if r.tempReasonOnGet == "" {
 		return nil, nil
 	}
 	return &Account{ID: id, TempUnschedulableReason: r.tempReasonOnGet}, nil
+}
+
+func (r *rateLimitAccountRepoStub) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
+	r.updateExtraCalls++
+	r.lastExtraUpdates = shallowCopyMap(updates)
+	return nil
 }
 
 type tokenCacheInvalidatorRecorder struct {
@@ -146,6 +196,15 @@ type anthropicUpstreamErrorCounterCacheStub struct {
 	resetCalls    []int64
 	err           error
 
+	// Bodyless-403 terminal counter (separate namespace from the general
+	// error counter). bodyless403Counts scripts the returned count in order
+	// so a test can drive the threshold; an empty slice returns 1 each call.
+	bodyless403Counts       []int64
+	bodyless403IncrementIDs []int64
+	bodyless403WindowMin    []int
+	bodyless403DebounceSec  []int
+	bodyless403ResetCalls   []int64
+
 	tierCounts       []int64
 	tierIncrementIDs []int64
 	tierTTLMinutes   []int
@@ -157,6 +216,18 @@ type anthropicUpstreamErrorCounterCacheStub struct {
 	// total of the escalations slice length so reads stay consistent with
 	// writes without a real Redis backend.
 	escalationTTLMinutes []int
+
+	// Per-episode escalation slot guard (issue #623). slotResults scripts the
+	// AcquireAnthropicCooldownEscalationSlot return values in order; an empty
+	// slice means the slot is always free (won=true), preserving the default
+	// "escalate on every threshold trip" behaviour for tests that don't model
+	// bursts. slotErr forces an acquire error to exercise the best-effort
+	// fall-through path.
+	slotResults    []bool
+	slotErr        error
+	slotAcquireIDs []int64
+	slotTTLSeconds []int
+	slotResetCalls []int64
 }
 
 func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicUpstreamErrorCount(_ context.Context, accountID int64, windowMinutes int) (int64, error) {
@@ -175,6 +246,26 @@ func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicUpstreamError
 
 func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicUpstreamErrorCount(_ context.Context, accountID int64) error {
 	s.resetCalls = append(s.resetCalls, accountID)
+	return nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicBodyless403Count(_ context.Context, accountID int64, windowMinutes, debounceSeconds int) (int64, error) {
+	s.bodyless403IncrementIDs = append(s.bodyless403IncrementIDs, accountID)
+	s.bodyless403WindowMin = append(s.bodyless403WindowMin, windowMinutes)
+	s.bodyless403DebounceSec = append(s.bodyless403DebounceSec, debounceSeconds)
+	if s.err != nil {
+		return 0, s.err
+	}
+	if len(s.bodyless403Counts) == 0 {
+		return 1, nil
+	}
+	count := s.bodyless403Counts[0]
+	s.bodyless403Counts = s.bodyless403Counts[1:]
+	return count, nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicBodyless403Count(_ context.Context, accountID int64) error {
+	s.bodyless403ResetCalls = append(s.bodyless403ResetCalls, accountID)
 	return nil
 }
 
@@ -201,6 +292,29 @@ func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicCooldownTierE
 
 func (s *anthropicUpstreamErrorCounterCacheStub) GetAnthropicCooldownTierEscalations(_ context.Context) (int64, error) {
 	return int64(len(s.escalationTTLMinutes)), nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) AcquireAnthropicCooldownEscalationSlot(_ context.Context, accountID int64, _ int) (bool, error) {
+	s.slotAcquireIDs = append(s.slotAcquireIDs, accountID)
+	if s.slotErr != nil {
+		return false, s.slotErr
+	}
+	if len(s.slotResults) == 0 {
+		return true, nil
+	}
+	won := s.slotResults[0]
+	s.slotResults = s.slotResults[1:]
+	return won, nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) SetAnthropicCooldownEscalationSlotTTL(_ context.Context, _ int64, ttlSeconds int) error {
+	s.slotTTLSeconds = append(s.slotTTLSeconds, ttlSeconds)
+	return nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicCooldownEscalationSlot(_ context.Context, accountID int64) error {
+	s.slotResetCalls = append(s.slotResetCalls, accountID)
+	return nil
 }
 
 func (r *tokenCacheInvalidatorRecorder) InvalidateToken(ctx context.Context, account *Account) error {
@@ -240,9 +354,7 @@ func TestRateLimitService_HandleUpstreamError_OAuth401SetsTempUnschedulable(t *t
 		require.Len(t, invalidator.accounts, 1)
 	})
 
-	t.Run("antigravity_401_uses_SetError", func(t *testing.T) {
-		// Antigravity 401 由 applyErrorPolicy 的 temp_unschedulable_rules 控制，
-		// HandleUpstreamError 中走 SetError 路径。
+	t.Run("antigravity_401_sets_temp_unschedulable", func(t *testing.T) {
 		repo := &rateLimitAccountRepoStub{}
 		invalidator := &tokenCacheInvalidatorRecorder{}
 		service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -251,15 +363,66 @@ func TestRateLimitService_HandleUpstreamError_OAuth401SetsTempUnschedulable(t *t
 			ID:       100,
 			Platform: PlatformAntigravity,
 			Type:     AccountTypeOAuth,
+			Status:   StatusActive,
+			Credentials: map[string]any{
+				"access_token":  "expired-at",
+				"refresh_token": "rt-100",
+			},
 		}
 
 		shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
 
 		require.True(t, shouldDisable)
-		require.Equal(t, 1, repo.setErrorCalls)
-		require.Equal(t, 0, repo.tempCalls)
-		require.Empty(t, invalidator.accounts)
+		require.Equal(t, 0, repo.setErrorCalls, "Antigravity OAuth 401 must keep status=active so refresh worker can recover it")
+		require.Equal(t, 1, repo.tempCalls)
+		require.Equal(t, int64(100), repo.lastTempID)
+		require.Contains(t, repo.lastTempReason, "invalid or expired credentials")
+		require.Equal(t, 1, repo.updateExtraCalls)
+		require.Equal(t, true, repo.lastExtraUpdates[antigravityForceTokenRefreshExtraKey])
+		require.Equal(t, "401_invalid", repo.lastExtraUpdates[antigravityForceTokenRefreshReasonExtraKey])
+		require.Equal(t, true, account.Extra[antigravityForceTokenRefreshExtraKey])
+		require.Len(t, invalidator.accounts, 1)
+		require.Equal(t, int64(100), invalidator.accounts[0].ID)
 	})
+}
+
+// TestRateLimitService_HandleUpstreamError_SparkShadow401RedirectsToParent 外审第9轮:影子无独立凭据,
+// 401(母账号 token 问题)必须重定向到凭据 owner(母账号)——母账号 temp-unschedulable + token cache 失效,
+// 影子不得被永久禁用(否则母账号可恢复的 token 问题会把影子永久打死)。
+func TestRateLimitService_HandleUpstreamError_SparkShadow401RedirectsToParent(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	repo.accountsByID = map[int64]*Account{}
+	invalidator := &tokenCacheInvalidatorRecorder{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetTokenCacheInvalidator(invalidator)
+
+	const parentID = int64(500)
+	mother := &Account{
+		ID:          parentID,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Credentials: map[string]any{"refresh_token": "rt-mother"},
+	}
+	repo.accountsByID[parentID] = mother
+
+	shadowParent := parentID
+	shadow := &Account{
+		ID:              501,
+		Platform:        PlatformOpenAI,
+		Type:            AccountTypeOAuth,
+		ParentAccountID: &shadowParent,
+		QuotaDimension:  QuotaDimensionSpark,
+		// 影子不持凭据:GetCredential("refresh_token") == ""
+	}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), shadow, 401, http.Header{}, []byte("unauthorized"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls, "spark shadow must not be permanently disabled on a parent-token 401")
+	require.Equal(t, 1, repo.tempCalls)
+	require.Equal(t, parentID, repo.lastTempID, "temp-unschedulable must target the credential owner (parent)")
+	require.Len(t, invalidator.accounts, 1)
+	require.Equal(t, parentID, invalidator.accounts[0].ID, "token cache invalidation must target the parent")
 }
 
 // TestRateLimitService_HandleUpstreamError_OAuth401InvalidatorError
@@ -330,6 +493,7 @@ func TestRateLimitService_HandleUpstreamError_OAuth401DoesNotOverwriteCredential
 
 	require.True(t, shouldDisable)
 	require.Equal(t, 0, repo.updateCredentialsCalls, "401 handler must not write credentials back from the request-start snapshot")
+	require.Equal(t, 0, repo.updateExtraCalls, "OpenAI 401 must not set Antigravity force-refresh marker")
 	require.Equal(t, 1, repo.tempCalls, "401 handler should still set temp-unschedulable cooldown")
 	require.Nil(t, repo.lastCredentials, "no credentials should have been persisted")
 }
@@ -380,5 +544,28 @@ func TestRateLimitService_HandleUpstreamError_OAuth401NoRefreshTokenSetsError(t 
 		require.True(t, shouldDisable)
 		require.Equal(t, 1, repo.setErrorCalls)
 		require.Equal(t, 0, repo.tempCalls)
+	})
+
+	t.Run("antigravity_no_refresh_token_sets_error", func(t *testing.T) {
+		repo := &rateLimitAccountRepoStub{}
+		invalidator := &tokenCacheInvalidatorRecorder{}
+		service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+		service.SetTokenCacheInvalidator(invalidator)
+		account := &Account{
+			ID:       2883,
+			Platform: PlatformAntigravity,
+			Type:     AccountTypeOAuth,
+			Credentials: map[string]any{
+				"access_token": "expired-at",
+			},
+		}
+
+		shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+
+		require.True(t, shouldDisable)
+		require.Equal(t, 1, repo.setErrorCalls, "Antigravity OAuth without refresh_token cannot self-recover")
+		require.Equal(t, 0, repo.tempCalls)
+		require.Contains(t, repo.lastErrorMsg, "refresh_token missing")
+		require.Len(t, invalidator.accounts, 1)
 	})
 }

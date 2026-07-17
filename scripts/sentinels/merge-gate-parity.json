@@ -3,14 +3,18 @@
   "scripts": [
     "scripts/sentinels/check-newapi.py",
     "scripts/sentinels/check-kiro.py",
+    "scripts/sentinels/check-grok.py",
+    "scripts/sentinels/check-antigravity.py",
     "scripts/sentinels/check-brand.py",
     "scripts/sentinels/check-frontend-tk.py",
     "scripts/sentinels/check-gateway-tk.py",
+    "scripts/sentinels/check-perf-query-shape.py",
     "scripts/sentinels/check-redaction-version.py",
     "scripts/sentinels/check-trajectory-hooks.py",
     "scripts/sentinels/check-terminal-events.py",
     "scripts/sentinels/check-engine-facade.py",
     "scripts/sentinels/check-pricing-availability.py",
+    "scripts/sentinels/check-relay-invariants.py",
     "scripts/sentinels/check-registry-update-gate.py",
     "scripts/checks/buffered-content-type-leak.py"
   ]

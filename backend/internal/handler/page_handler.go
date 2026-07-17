@@ -240,9 +240,9 @@ func (h *PageHandler) checkSlugVisibility(c *gin.Context, slug string) bool {
 	if !found {
 		return false
 	}
-	if visibility == "admin" {
+	if visibility == service.RoleAdmin {
 		role, _ := middleware2.GetUserRoleFromContext(c)
-		return role == "admin"
+		return role == service.RoleAdmin
 	}
 	return true
 }
@@ -254,7 +254,7 @@ func (h *PageHandler) checkImageSlugVisibility(c *gin.Context, slug string) bool
 	if !found {
 		return false
 	}
-	return visibility != "admin"
+	return visibility != service.RoleAdmin
 }
 
 // RegisterPageRoutes registers page routes on a router group.
@@ -277,6 +277,8 @@ func RegisterPageRoutes(v1 *gin.RouterGroup, dataDir string, jwtAuth gin.Handler
 	// Admin-only: list all available pages
 	adminPages := v1.Group("/pages")
 	adminPages.Use(adminAuth)
+	// TK: setting-gated, default off — see middleware/admin_compliance_tk_gate.go.
+	adminPages.Use(middleware2.TkAdminComplianceGuardIfEnabled(settingService))
 	{
 		adminPages.GET("", h.ListPages)
 	}

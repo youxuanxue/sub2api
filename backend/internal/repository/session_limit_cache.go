@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strconv"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -24,13 +23,6 @@ const (
 	// 会话限制键前缀
 	// 格式: session_limit:account:{accountID}
 	sessionLimitKeyPrefix = "session_limit:account:"
-
-	// 窗口费用缓存键前缀
-	// 格式: window_cost:account:{accountID}
-	windowCostKeyPrefix = "window_cost:account:"
-
-	// 窗口费用缓存 TTL（30秒）
-	windowCostCacheTTL = 30 * time.Second
 )
 
 var (
@@ -42,6 +34,9 @@ var (
 	// ARGV[3] = sessionUUID
 	// 返回: 1 = 允许, 0 = 拒绝
 	registerSessionScript = redis.NewScript(`
+		-- Redis 3.2-4.x compat: opt into effects replication so redis.call('TIME')
+		-- replicates correctly. No-op on Redis 5.0+ (effects replication is default).
+		redis.replicate_commands()
 		local key = KEYS[1]
 		local maxSessions = tonumber(ARGV[1])
 		local idleTimeout = tonumber(ARGV[2])
@@ -82,6 +77,9 @@ var (
 	// ARGV[1] = idleTimeout（秒）
 	// ARGV[2] = sessionUUID
 	refreshSessionScript = redis.NewScript(`
+		-- Redis 3.2-4.x compat: opt into effects replication so redis.call('TIME')
+		-- replicates correctly. No-op on Redis 5.0+ (effects replication is default).
+		redis.replicate_commands()
 		local key = KEYS[1]
 		local idleTimeout = tonumber(ARGV[1])
 		local sessionUUID = ARGV[2]
@@ -102,6 +100,9 @@ var (
 	// KEYS[1] = session_limit:account:{accountID}
 	// ARGV[1] = idleTimeout（秒）
 	getActiveSessionCountScript = redis.NewScript(`
+		-- Redis 3.2-4.x compat: opt into effects replication so redis.call('TIME')
+		-- replicates correctly. No-op on Redis 5.0+ (effects replication is default).
+		redis.replicate_commands()
 		local key = KEYS[1]
 		local idleTimeout = tonumber(ARGV[1])
 
@@ -120,6 +121,9 @@ var (
 	// ARGV[1] = idleTimeout（秒）
 	// ARGV[2] = sessionUUID
 	isSessionActiveScript = redis.NewScript(`
+		-- Redis 3.2-4.x compat: opt into effects replication so redis.call('TIME')
+		-- replicates correctly. No-op on Redis 5.0+ (effects replication is default).
+		redis.replicate_commands()
 		local key = KEYS[1]
 		local idleTimeout = tonumber(ARGV[1])
 		local sessionUUID = ARGV[2]
@@ -178,11 +182,6 @@ func NewSessionLimitCache(rdb *redis.Client, defaultIdleTimeoutMinutes int) serv
 // sessionLimitKey 生成会话限制的 Redis 键
 func sessionLimitKey(accountID int64) string {
 	return fmt.Sprintf("%s%d", sessionLimitKeyPrefix, accountID)
-}
-
-// windowCostKey 生成窗口费用缓存的 Redis 键
-func windowCostKey(accountID int64) string {
-	return fmt.Sprintf("%s%d", windowCostKeyPrefix, accountID)
 }
 
 // RegisterSession 注册会话活动
@@ -283,62 +282,4 @@ func (c *sessionLimitCache) IsSessionActive(ctx context.Context, accountID int64
 		return false, err
 	}
 	return result == 1, nil
-}
-
-// ========== 5h窗口费用缓存实现 ==========
-
-// GetWindowCost 获取缓存的窗口费用
-func (c *sessionLimitCache) GetWindowCost(ctx context.Context, accountID int64) (float64, bool, error) {
-	key := windowCostKey(accountID)
-	val, err := c.rdb.Get(ctx, key).Float64()
-	if err == redis.Nil {
-		return 0, false, nil // 缓存未命中
-	}
-	if err != nil {
-		return 0, false, err
-	}
-	return val, true, nil
-}
-
-// SetWindowCost 设置窗口费用缓存
-func (c *sessionLimitCache) SetWindowCost(ctx context.Context, accountID int64, cost float64) error {
-	key := windowCostKey(accountID)
-	return c.rdb.Set(ctx, key, cost, windowCostCacheTTL).Err()
-}
-
-// GetWindowCostBatch 批量获取窗口费用缓存
-func (c *sessionLimitCache) GetWindowCostBatch(ctx context.Context, accountIDs []int64) (map[int64]float64, error) {
-	if len(accountIDs) == 0 {
-		return make(map[int64]float64), nil
-	}
-
-	// 构建批量查询的 keys
-	keys := make([]string, len(accountIDs))
-	for i, accountID := range accountIDs {
-		keys[i] = windowCostKey(accountID)
-	}
-
-	// 使用 MGET 批量获取
-	vals, err := c.rdb.MGet(ctx, keys...).Result()
-	if err != nil {
-		return nil, err
-	}
-
-	results := make(map[int64]float64, len(accountIDs))
-	for i, val := range vals {
-		if val == nil {
-			continue // 缓存未命中
-		}
-		// 尝试解析为 float64
-		switch v := val.(type) {
-		case string:
-			if cost, err := strconv.ParseFloat(v, 64); err == nil {
-				results[accountIDs[i]] = cost
-			}
-		case float64:
-			results[accountIDs[i]] = v
-		}
-	}
-
-	return results, nil
 }

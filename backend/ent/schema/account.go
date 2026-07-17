@@ -91,6 +91,9 @@ func (Account) Fields() []ent.Field {
 		field.Int64("proxy_id").
 			Optional().
 			Nillable(),
+		field.Int64("proxy_fallback_origin_id").
+			Optional().Nillable().
+			Comment("Original proxy id replaced by expiry-fallback; for manual revert. NULL = not in fallback."),
 
 		// concurrency: 账户最大并发请求数
 		// 用于限制同一时间对该账户发起的请求数量
@@ -200,11 +203,16 @@ func (Account) Fields() []ent.Field {
 
 		// tier_id: TokenKey anthropic OAuth 稳定性档位引用（可空）。
 		// 绑定到 tiers 表，运行时按 id 解析 per-tier 配置（base_rpm / max_sessions /
-		// window_cost_limit 等）。仅 anthropic OAuth 账号使用；apikey / 其它平台为 NULL。
+		// rpm_sticky_buffer 等）。仅 anthropic OAuth 账号使用；apikey / 其它平台为 NULL。
 		field.Int64("tier_id").
 			Optional().
 			Nillable().
 			Comment("TK: bound anthropic-oauth stability tier id (tiers table)."),
+
+		field.Int64("parent_account_id").Optional().Nillable().
+			Comment("Parent account id for a linked spark shadow (NULL = normal)."),
+		field.Enum("quota_dimension").Values("global", "spark").Default("global").
+			Comment("'global' (default) or 'spark' (shadow reads codex_bengalfox)."),
 	}
 }
 
@@ -220,6 +228,14 @@ func (Account) Edges() []ent.Edge {
 		// 使用已有的 proxy_id 外键字段
 		edge.To("proxy", Proxy.Type).
 			Field("proxy_id").
+			Unique(),
+		// children/parent: linked spark shadow relationship.
+		// parent_account_id is nullable, and the active one-shadow-per-parent rule
+		// is enforced by the partial unique index in migration 154a.
+		edge.To("children", Account.Type).
+			Annotations(entsql.OnDelete(entsql.Restrict)).
+			From("parent").
+			Field("parent_account_id").
 			Unique(),
 		// usage_logs: 该账户的使用日志
 		edge.To("usage_logs", UsageLog.Type),
@@ -245,5 +261,6 @@ func (Account) Indexes() []ent.Index {
 		index.Fields("priority", "status"),
 		index.Fields("deleted_at"), // 软删除查询优化
 		index.Fields("tier_id"),    // TK: 按 tier 反查引用账号（reconciler 值同步）
+		index.Fields("parent_account_id"),
 	}
 }

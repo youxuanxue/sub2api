@@ -34,6 +34,22 @@ func NewDashboardHandler(dashboardService *service.DashboardService, aggregation
 // parseTimeRange parses start_date, end_date query parameters
 // Uses user's timezone if provided, otherwise falls back to server timezone
 func parseTimeRange(c *gin.Context) (time.Time, time.Time) {
+	// TK: rolling/duration presets send precise epoch-ms instants so the window
+	// is timezone-independent and identical across viewers. See
+	// dashboard_handler_tk_window.go for the rationale.
+	if s, e, ok := parseAbsoluteRange(c); ok {
+		return s, e
+	}
+
+	// TK: calendar presets (today/yesterday/this_month/last_month) are resolved
+	// in the SERVER/billing timezone so the admin dashboard's "今天" window is
+	// byte-identical to the customer dashboard (timezone.Today()) and the daily
+	// rollup buckets — regardless of the viewer's browser timezone. See
+	// dashboard_handler_tk_window.go.
+	if s, e, ok := parseNamedRange(c); ok {
+		return s, e
+	}
+
 	userTZ := c.Query("timezone") // Get user's timezone from request
 	now := timezone.NowInUserLocation(userTZ)
 	startDate := c.Query("start_date")
@@ -536,7 +552,7 @@ func (h *DashboardHandler) GetUserSpendingRanking(c *gin.Context) {
 func (h *DashboardHandler) GetBatchUsersUsage(c *gin.Context) {
 	var req BatchUsersUsageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -585,7 +601,7 @@ type BatchAPIKeysUsageRequest struct {
 func (h *DashboardHandler) GetBatchAPIKeysUsage(c *gin.Context) {
 	var req BatchAPIKeysUsageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -657,11 +673,14 @@ func (h *DashboardHandler) GetUserBreakdown(c *gin.Context) {
 			dim.AccountID = id
 		}
 	}
-	if v := c.Query("request_type"); v != "" {
-		if rt, err := strconv.ParseInt(v, 10, 16); err == nil {
-			rtVal := int16(rt)
-			dim.RequestType = &rtVal
+	if v := strings.TrimSpace(c.Query("request_type")); v != "" {
+		parsed, err := service.ParseUsageRequestType(v)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
 		}
+		rtVal := int16(parsed)
+		dim.RequestType = &rtVal
 	}
 	if v := c.Query("stream"); v != "" {
 		if s, err := strconv.ParseBool(v); err == nil {
@@ -674,6 +693,9 @@ func (h *DashboardHandler) GetUserBreakdown(c *gin.Context) {
 			dim.BillingType = &btVal
 		}
 	}
+
+	// sort_by 由 repo 层 allowlist 校验;非法值静默回退默认排序(actual_cost)。
+	dim.SortBy = strings.TrimSpace(c.Query("sort_by"))
 
 	limit := 50
 	if v := c.Query("limit"); v != "" {

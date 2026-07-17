@@ -12,8 +12,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
-	"github.com/Wei-Shaw/sub2api/internal/payment/provider"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
 )
 
 // --- Cancel & Expire ---
@@ -158,7 +158,9 @@ func (s *PaymentService) checkPaidWithOptions(ctx context.Context, o *dbent.Paym
 	if queryRef == "" {
 		return ""
 	}
+	finishProviderCall := servertiming.ObserveDependency(ctx, "payment")
 	resp, err := prov.QueryOrder(ctx, queryRef)
+	finishProviderCall()
 	if err != nil {
 		slog.Warn("query upstream failed", "orderID", o.ID, "error", err)
 		return ""
@@ -200,7 +202,9 @@ func (s *PaymentService) checkPaidWithOptions(ctx context.Context, o *dbent.Paym
 		return ""
 	}
 	if cp, ok := prov.(payment.CancelableProvider); ok {
+		finishProviderCall := servertiming.ObserveDependency(ctx, "payment")
 		_ = cp.CancelPayment(ctx, queryRef)
+		finishProviderCall()
 	}
 	return ""
 }
@@ -209,7 +213,9 @@ func requeryPaidOrderOnce(ctx context.Context, prov payment.Provider, queryRef s
 	if prov == nil || strings.TrimSpace(queryRef) == "" {
 		return nil, false
 	}
+	finishProviderCall := servertiming.ObserveDependency(ctx, "payment")
 	resp, err := prov.QueryOrder(ctx, queryRef)
+	finishProviderCall()
 	if err != nil {
 		slog.Warn("query upstream retry failed", "queryRef", queryRef, "error", err)
 		return nil, false
@@ -367,25 +373,49 @@ func normalizeOrderLookupOutTradeNo(raw string) (string, error) {
 }
 
 func (s *PaymentService) ExpireTimedOutOrders(ctx context.Context) (int, error) {
+	const batchSize = 100
 	now := time.Now()
-	orders, err := s.entClient.PaymentOrder.Query().Where(paymentorder.StatusEQ(OrderStatusPending), paymentorder.ExpiresAtLTE(now)).All(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("query expired: %w", err)
-	}
-	n := 0
-	for _, o := range orders {
-		// Check upstream payment status before expiring — the user may have
-		// paid just before timeout and the webhook hasn't arrived yet.
-		outcome, _ := s.cancelCore(ctx, o, OrderStatusExpired, "system", "order expired")
-		if outcome == checkPaidResultAlreadyPaid {
-			slog.Info("order was paid during expiry", "orderID", o.ID)
-			continue
+	total := 0
+	var lastID int64
+
+	for {
+		query := s.entClient.PaymentOrder.Query().
+			Where(
+				paymentorder.StatusEQ(OrderStatusPending),
+				paymentorder.ExpiresAtLTE(now),
+			).
+			Order(dbent.Asc(paymentorder.FieldID)).
+			Limit(batchSize)
+		if lastID > 0 {
+			query = query.Where(paymentorder.IDGT(lastID))
 		}
-		if outcome != "" {
-			n++
+
+		orders, err := query.All(ctx)
+		if err != nil {
+			return total, fmt.Errorf("query expired: %w", err)
+		}
+		if len(orders) == 0 {
+			break
+		}
+
+		for _, o := range orders {
+			lastID = o.ID
+			outcome, _ := s.cancelCore(ctx, o, OrderStatusExpired, "system", "order expired")
+			if outcome == checkPaidResultAlreadyPaid {
+				slog.Info("order was paid during expiry", "orderID", o.ID)
+				continue
+			}
+			if outcome != "" {
+				total++
+			}
+		}
+
+		if len(orders) < batchSize {
+			break
 		}
 	}
-	return n, nil
+
+	return total, nil
 }
 
 // getOrderProvider creates a provider using the order's original instance config.
@@ -454,7 +484,7 @@ func (s *PaymentService) createProviderFromInstance(ctx context.Context, inst *d
 	}
 
 	instID := strconv.FormatInt(int64(inst.ID), 10)
-	prov, err := provider.CreateProvider(inst.ProviderKey, instID, cfg)
+	prov, err := createPaymentProviderFromInstance(inst.ProviderKey, instID, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create provider from instance: %w", err)
 	}

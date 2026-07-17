@@ -1,11 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  tokenkey Stage 0 data layer (ledger off the app box) — RDS PostgreSQL,
+  tokenkey Stage 0 data layer (PostgreSQL off the app box) — RDS PostgreSQL,
   single-AZ by default (MultiAZ=true is an online upgrade, no re-migration).
   Lifecycle is DECOUPLED from the app stack (tokenkey-prod-stage0): app
   resize/replace must never touch the ledger. Imports VPC/subnets/SG from the
   app stack Exports. DeletionPolicy/UpdateReplacePolicy=Retain everywhere data
-  lives. Redis intentionally stays on the app box (≈3MB of rebuildable
+  lives. Redis intentionally stays on the app box (currently only MiB-scale
   cache/counters); its extraction trigger is documented in
   docs/deploy/aws-data-layer-migration.md — this template reserves no
   ElastiCache resources until that trigger fires.
@@ -34,21 +34,27 @@ Parameters:
       --query 'DBEngineVersions[*].EngineVersion'
   PgInstanceClass:
     Type: String
-    Default: db.t4g.small
-    Description: 2 vCPU / 2 GiB Graviton. Measured load (2026-06) is ~35K req/day; 100x is ~40 writes/s avg — still fine. Resize online when CloudWatch says so.
+    Default: db.t4g.medium
+    Description: >-
+      Initial candidate only. Current prod database is about 23.7 GiB
+      (2026-07-17 read-only measurement), so the old db.t4g.small assumption is
+      no longer accepted without a restore/load rehearsal. Final class must be
+      recorded in the approved design before production cutover.
   PgAllocatedStorage:
     Type: Number
-    Default: 20
-    Description: GiB. Ledger is ~1.5 GiB after ops-log pruning (measured 2026-06).
+    Default: 100
+    Description: >-
+      Initial gp3 GiB. Current prod database is about 23.7 GiB and usage_logs
+      grew about 3.6 GiB in the latest 30-day estimate (2026-07-17). RDS storage
+      cannot shrink in place, so archive/retention must control growth rather
+      than treating autoscaling as cleanup.
   PgMaxAllocatedStorage:
     Type: Number
-    Default: 200
+    Default: 500
     Description: >-
-      Storage autoscaling ceiling (GiB). NOTE measured growth math: ledger
-      grows ~1.3 KiB/request => 100x traffic ≈ 4.5 GiB/day ≈ 1.6 TiB/year.
-      No RDS size survives an unbounded detail ledger — the retention/partition
-      backlog item (docs/deploy/aws-data-layer-migration.md §backlog) MUST land
-      before 100x. This ceiling is a fuse, not a plan.
+      Storage autoscaling ceiling (GiB), used as a fuse rather than a retention
+      policy. The archive loop and hot-data windows in the approved design must
+      be working before production cutover.
   PgMultiAZ:
     Type: String
     Default: 'false'
@@ -59,8 +65,19 @@ Parameters:
       no re-migration — once traffic/revenue justifies ~2x instance cost.
   PgBackupRetentionDays:
     Type: Number
-    Default: 7
-    Description: Automated backups + PITR window (RPO ~5 min). The on-box 2h pgdump timer stays as a second, independent restore path.
+    Default: 14
+    Description: >-
+      Automated backups + PITR window. The hourly precious-class pgdump to S3
+      stays as an independent restore path; it is a disaster backup, not an
+      archive of usage/ops/QA rows excluded from that dump.
+  PgConnectionAlarmThreshold:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: >-
+      Maximum DatabaseConnections alarm threshold. Zero disables this alarm.
+      Set it after rehearsal from the selected class's actual max_connections
+      and the app pool budget; do not inherit the old db.t4g.small value.
   PgMasterPasswordSsmName:
     Type: String
     Default: /tokenkey/prod/stage0/rds-master-password
@@ -77,6 +94,7 @@ Parameters:
 Conditions:
   AlarmTopicProvided: !Not [!Equals [!Ref AlarmSnsTopicArn, '']]
   PgIsMultiAZ: !Equals [!Ref PgMultiAZ, 'true']
+  PgConnectionAlarmEnabled: !Not [!Equals [!Ref PgConnectionAlarmThreshold, 0]]
 
 Resources:
   DataSubnetGroup:
@@ -135,6 +153,8 @@ Resources:
       CopyTagsToSnapshot: true
       DeletionProtection: true
       EnableCloudwatchLogsExports: [postgresql]
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
       Tags:
         - {Key: Project, Value: !Ref ProjectName}
         - {Key: Environment, Value: !Ref Environment}
@@ -160,18 +180,19 @@ Resources:
 
   PgConnectionsAlarm:
     Type: AWS::CloudWatch::Alarm
+    Condition: PgConnectionAlarmEnabled
     Properties:
       AlarmName: !Sub '${ProjectName}-${Environment}-rds-connections'
       AlarmDescription: >-
-        RDS connections >= 180 (app DATABASE_MAX_OPEN_CONNS=50 per replica;
-        db.t4g.small max_connections ~225). Fires before the wall, not at it.
+        RDS connections reached the rehearsal-derived threshold. Check pool
+        multiplication and selected-class max_connections before resizing.
       Namespace: AWS/RDS
       MetricName: DatabaseConnections
       Statistic: Maximum
       Period: 300
       EvaluationPeriods: 2
       DatapointsToAlarm: 2
-      Threshold: 180
+      Threshold: !Ref PgConnectionAlarmThreshold
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       Dimensions:
@@ -182,14 +203,14 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub '${ProjectName}-${Environment}-rds-freeable-memory'
-      AlarmDescription: RDS freeable memory < 200 MiB — swap risk; resize before latency degrades.
+      AlarmDescription: RDS freeable memory < 512 MiB — investigate pressure and resize before latency degrades.
       Namespace: AWS/RDS
       MetricName: FreeableMemory
       Statistic: Average
       Period: 300
       EvaluationPeriods: 3
       DatapointsToAlarm: 3
-      Threshold: 209715200
+      Threshold: 536870912
       ComparisonOperator: LessThanThreshold
       TreatMissingData: breaching
       Dimensions:
@@ -201,16 +222,16 @@ Resources:
     Properties:
       AlarmName: !Sub '${ProjectName}-${Environment}-rds-free-storage'
       AlarmDescription: >-
-        RDS free storage < 5 GiB. Autoscaling buys time up to
-        PgMaxAllocatedStorage, but the real fix is the usage_logs
-        retention/partition backlog item — do not just raise the ceiling.
+        RDS free storage < 20 GiB. Autoscaling buys time up to
+        PgMaxAllocatedStorage, but the archive/retention loop is the durable
+        control; do not just raise the ceiling.
       Namespace: AWS/RDS
       MetricName: FreeStorageSpace
       Statistic: Average
       Period: 300
       EvaluationPeriods: 2
       DatapointsToAlarm: 2
-      Threshold: 5368709120
+      Threshold: 21474836480
       ComparisonOperator: LessThanThreshold
       TreatMissingData: breaching
       Dimensions:

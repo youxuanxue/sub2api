@@ -49,6 +49,52 @@ func TestAccount_IsOpenAIPassthroughEnabled(t *testing.T) {
 	})
 }
 
+func TestGatewayService_IsModelSupportedByAccount_OpenAIPassthroughRejectsForeignPlatformModels(t *testing.T) {
+	svc := &GatewayService{}
+	passthrough := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"openai_passthrough": true,
+		},
+	}
+	require.False(t, svc.isModelSupportedByAccount(passthrough, "gemini-2.5-flash"))
+	require.False(t, svc.isModelSupportedByAccount(passthrough, "claude-sonnet-4-6"))
+	require.True(t, svc.isModelSupportedByAccount(passthrough, "gpt-5.4-mini"))
+	require.True(t, svc.isModelSupportedByAccount(passthrough, "o3-mini"))
+
+	mappedPassthrough := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"openai_passthrough": true,
+		},
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"gpt-5.5": "gpt-5.5"},
+		},
+	}
+	require.False(t, svc.isModelSupportedByAccount(mappedPassthrough, "gpt-5.4-mini"))
+	require.True(t, svc.isModelSupportedByAccount(mappedPassthrough, "gpt5.5"))
+}
+
+func TestAccount_OpenAICompatModelAliasSupport(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"gpt-5.4-mini": "gpt-5.4-mini",
+			},
+		},
+	}
+
+	require.True(t, account.IsModelSupported("gpt5.4-mini"))
+	require.True(t, account.IsModelSupported("openai/gpt 5.4mini"))
+
+	mapped, matched := account.ResolveMappedModel("openai/gpt5.4-mini")
+	require.True(t, matched)
+	require.Equal(t, "gpt-5.4-mini", mapped)
+}
+
 func TestAccount_IsOpenAIOAuthPassthroughEnabled(t *testing.T) {
 	t.Run("仅OAuth类型允许返回开启", func(t *testing.T) {
 		oauthAccount := &Account{
@@ -227,6 +273,17 @@ func TestAccount_ResolveOpenAIResponsesWebSocketV2Mode(t *testing.T) {
 			},
 		}
 		require.Equal(t, OpenAIWSIngressModePassthrough, account.ResolveOpenAIResponsesWebSocketV2Mode(OpenAIWSIngressModeCtxPool))
+	})
+
+	t.Run("oauth mode supports http_bridge", func(t *testing.T) {
+		account := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeOAuth,
+			Extra: map[string]any{
+				"openai_oauth_responses_websockets_v2_mode": OpenAIWSIngressModeHTTPBridge,
+			},
+		}
+		require.Equal(t, OpenAIWSIngressModeHTTPBridge, account.ResolveOpenAIResponsesWebSocketV2Mode(OpenAIWSIngressModeCtxPool))
 	})
 
 	t.Run("legacy enabled maps to ctx_pool", func(t *testing.T) {

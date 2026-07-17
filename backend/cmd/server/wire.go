@@ -87,11 +87,19 @@ func provideCleanup(
 	// TK: per-node anthropic config self-healer — see
 	// internal/service/anthropic_config_reconciler.go.
 	anthropicConfigReconciler *service.AnthropicConfigReconciler,
+	upstreamBalanceSentinel *service.UpstreamBalanceSentinel,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
+	proxyExpiry *service.ProxyExpiryService,
 	subscriptionExpiry *service.SubscriptionExpiryService,
 	usageCleanup *service.UsageCleanupService,
 	idempotencyCleanup *service.IdempotencyCleanupService,
+	// TokenKey: pre-flight balance-hold reconciler — passed so its sweep ticker
+	// is Stopped at shutdown and so wire forces evaluation of
+	// ProvideHoldReconcilerService (which starts the ticker at construction).
+	holdReconciler *service.HoldReconcilerService,
+	batchImageCleanup *service.BatchImageCleanupService,
+	batchImageWorker *service.BatchImageWorkerRuntime,
 	pricing *service.PricingService,
 	emailQueue *service.EmailQueueService,
 	billingCache *service.BillingCacheService,
@@ -102,6 +110,7 @@ func provideCleanup(
 	openaiOAuth *service.OpenAIOAuthService,
 	geminiOAuth *service.GeminiOAuthService,
 	antigravityOAuth *service.AntigravityOAuthService,
+	grokOAuth *service.GrokOAuthService,
 	openAIGateway *service.OpenAIGatewayService,
 	scheduledTestRunner *service.ScheduledTestRunnerService,
 	backupSvc *service.BackupService,
@@ -111,6 +120,10 @@ func provideCleanup(
 	// Stopped at shutdown, and so wire forces evaluation of
 	// ProvideTKAccountIncidentNotifier (which attaches it onto RateLimitService).
 	accountIncidentNotifier *service.TKAccountIncidentNotifier,
+	// TokenKey: pricing-missing Feishu notifier. Passed so its digest ticker is
+	// Stopped at shutdown, and so wire forces evaluation of
+	// ProvideTKPricingMissingNotifier (which attaches it onto both gateways).
+	pricingMissingNotifier *service.TKPricingMissingNotifier,
 	// TokenKey: forces wire to evaluate ProvideTKAuthServiceColdStart so the
 	// trial-key issuer gets wired onto AuthService at startup. The value is
 	// unused — only the dependency edge matters. See US-029 / US-030.
@@ -121,15 +134,37 @@ func provideCleanup(
 	// the constructor used by handler ProviderSet. See R-001 of
 	// docs/approved/pricing-availability-source-of-truth.md.
 	_ service.TKGatewayPricingAvailabilityReady,
+	// TokenKey: forces wire to evaluate ProvideTKPricingOverlayRuntime so the
+	// runtime hot-pushable pricing overlay (settings-blob getter + catalog cache
+	// invalidator + pub/sub subscribe) is wired onto PricingService at startup.
+	// Without this edge wire would dead-code the post-construction setter.
+	_ service.TKPricingOverlayRuntimeReady,
 	// TokenKey: forces wire to evaluate ProvideTKGatewayAnthropicSigPreempt so
 	// GatewayService.SetAnthropicSigPreemptCache is called at startup. Without
 	// this dependency edge wire would dead-code the post-construction setter
 	// because no other production component references the sentinel.
 	_ service.TKGatewayAnthropicSigPreemptReady,
+	// TokenKey: forces wire to evaluate ProvideTKAnthropicSaturation so the
+	// saturation counter is wired onto GatewayService + RateLimitService at
+	// startup (otherwise wire dead-codes the post-construction setters).
+	_ service.TKAnthropicSaturationReady,
+	// TokenKey: forces wire to evaluate ProvideTKOpenAISaturation so the OpenAI
+	// edge-mirror saturation counter is wired at startup.
+	_ service.TKOpenAISaturationReady,
 	// TokenKey: forces wire to evaluate ProvideTKGatewayHandlerModelList so
 	// GatewayHandler.SetModelListFilter is called at startup. See R-003 /
 	// Goal 2 of docs/approved/pricing-availability-source-of-truth.md.
 	_ handler.TKGatewayHandlerModelListReady,
+	// TokenKey: forces wire to evaluate ProvideTKUniversalModelsProvider so the
+	// universal-key resolver's "group served-model set" truth source
+	// (GatewayService.GetAvailableModels) is wired onto APIKeyService at startup.
+	// Without this edge wire dead-codes the post-construction setter and the
+	// resolver silently falls back to platform-level routing. See
+	// docs/approved/universal-key-routing.md.
+	_ service.TKUniversalModelsProviderReady,
+	// TokenKey: forces wire to evaluate ProvideTKGroupUnsupportedModelCache so
+	// the shared selection-time unsupported-model negative cache is wired at startup.
+	_ service.TKGroupUnsupportedModelCacheReady,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -198,6 +233,12 @@ func provideCleanup(
 				}
 				return nil
 			}},
+			{"UpstreamBalanceSentinel", func() error {
+				if upstreamBalanceSentinel != nil {
+					upstreamBalanceSentinel.Stop()
+				}
+				return nil
+			}},
 			{"UsageCleanupService", func() error {
 				if usageCleanup != nil {
 					usageCleanup.Stop()
@@ -210,12 +251,34 @@ func provideCleanup(
 				}
 				return nil
 			}},
+			{"HoldReconcilerService", func() error {
+				if holdReconciler != nil {
+					holdReconciler.Stop()
+				}
+				return nil
+			}},
+			{"BatchImageCleanupService", func() error {
+				if batchImageCleanup != nil {
+					batchImageCleanup.Stop()
+				}
+				return nil
+			}},
+			{"BatchImageWorkerRuntime", func() error {
+				if batchImageWorker != nil {
+					batchImageWorker.Stop()
+				}
+				return nil
+			}},
 			{"TokenRefreshService", func() error {
 				tokenRefresh.Stop()
 				return nil
 			}},
 			{"AccountExpiryService", func() error {
 				accountExpiry.Stop()
+				return nil
+			}},
+			{"ProxyExpiryService", func() error {
+				proxyExpiry.Stop()
 				return nil
 			}},
 			{"SubscriptionExpiryService", func() error {
@@ -268,6 +331,12 @@ func provideCleanup(
 				antigravityOAuth.Stop()
 				return nil
 			}},
+			{"GrokOAuthService", func() error {
+				if grokOAuth != nil {
+					grokOAuth.Stop()
+				}
+				return nil
+			}},
 			{"OpenAIWSPool", func() error {
 				if openAIGateway != nil {
 					openAIGateway.CloseOpenAIWSPool()
@@ -301,6 +370,12 @@ func provideCleanup(
 			{"AccountIncidentNotifier", func() error {
 				if accountIncidentNotifier != nil {
 					accountIncidentNotifier.Stop()
+				}
+				return nil
+			}},
+			{"PricingMissingNotifier", func() error {
+				if pricingMissingNotifier != nil {
+					pricingMissingNotifier.Stop()
 				}
 				return nil
 			}},

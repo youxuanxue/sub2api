@@ -45,7 +45,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
 type qaMemBlobStore struct{ objects map[string][]byte }
 
 func (m *qaMemBlobStore) Put(_ context.Context, key string, body []byte, _ string) (string, error) {
@@ -55,6 +54,17 @@ func (m *qaMemBlobStore) Put(_ context.Context, key string, body []byte, _ strin
 		m.objects = map[string][]byte{}
 	}
 	m.objects[key] = cp
+	return "mem://" + key, nil
+}
+func (m *qaMemBlobStore) PutReader(_ context.Context, key string, r io.Reader, _ string) (string, error) {
+	body, err := io.ReadAll(r)
+	if err != nil {
+		return "", err
+	}
+	if m.objects == nil {
+		m.objects = map[string][]byte{}
+	}
+	m.objects[key] = body
 	return "mem://" + key, nil
 }
 func (m *qaMemBlobStore) Get(_ context.Context, key string) ([]byte, error) {
@@ -83,6 +93,10 @@ func newQAHandlerTestEnv(t *testing.T, withAuth bool, userID int64) (*gin.Engine
 
 	db, err := sql.Open("sqlite", "file:qa_handler_test?mode=memory&cache=shared")
 	require.NoError(t, err)
+	// Serialize access: the async export worker writes job rows concurrently
+	// with the test polling them; a single connection avoids in-memory sqlite
+	// "database is locked" flakes.
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 	_, err = db.Exec("PRAGMA foreign_keys = ON")
 	require.NoError(t, err)
@@ -117,8 +131,61 @@ func newQAHandlerRouterWithStore(
 	r.POST("/api/v1/users/me/qa/export", h.ExportSelf)
 	r.GET("/api/v1/users/me/qa/exports/*key", h.DownloadSelfExport)
 	r.POST("/api/v1/users/me/qa/traj/export", h.ExportSelfTrajectory)
+	r.GET("/api/v1/users/me/qa/traj/export/jobs/:job_id", h.GetSelfTrajectoryExportJob)
 	r.GET("/api/v1/users/me/qa/traj/exports/*key", h.DownloadSelfTrajectoryExport)
 	return r, h
+}
+
+// pollTrajExport POSTs an async traj export, then polls the job endpoint until
+// the job reaches a terminal state, returning the final job response data map.
+// The poll request carries the https host so a done job's localfs download_url
+// is rewritten to an absolute, client-reachable URL.
+func pollTrajExport(t *testing.T, r *gin.Engine, jsonBody string) map[string]any {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", bytes.NewBufferString(jsonBody))
+	req.Host = "api.tokenkey.test"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "enqueue body=%s", w.Body.String())
+	var env response.Response
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	data, _ := env.Data.(map[string]any)
+	jobID, _ := data["job_id"].(string)
+	require.NotEmpty(t, jobID, "POST must return a job_id")
+
+	for i := 0; i < 400; i++ {
+		gw := httptest.NewRecorder()
+		greq := httptest.NewRequest(http.MethodGet, "/api/v1/users/me/qa/traj/export/jobs/"+jobID, nil)
+		greq.Host = "api.tokenkey.test"
+		greq.Header.Set("X-Forwarded-Proto", "https")
+		r.ServeHTTP(gw, greq)
+		require.Equal(t, http.StatusOK, gw.Code, "poll body=%s", gw.Body.String())
+		var genv response.Response
+		require.NoError(t, json.Unmarshal(gw.Body.Bytes(), &genv))
+		gdata, _ := genv.Data.(map[string]any)
+		if s, _ := gdata["status"].(string); s == "done" || s == "failed" {
+			return gdata
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	t.Fatal("traj export job did not reach a terminal state in time")
+	return nil
+}
+
+// seedTrajExportUser inserts a user with the given traj_export_enabled flag and
+// returns its (auto-assigned) ID — the trajectory export endpoint now gates on
+// this admin-granted switch, so success-path tests must seed an authorized user.
+func seedTrajExportUser(t *testing.T, ctx context.Context, client *dbent.Client, enabled bool) int64 {
+	t.Helper()
+	u, err := client.User.Create().
+		SetEmail("traj-export@test.local").
+		SetPasswordHash("x").
+		SetTrajExportEnabled(enabled).
+		Save(ctx)
+	require.NoError(t, err)
+	return u.ID
 }
 
 func TestUS059_ExportSelf_Unauthenticated_401(t *testing.T) {
@@ -356,6 +423,7 @@ func TestUS077_ExportSelfTrajectory_BySynthSessionID_200(t *testing.T) {
 	r, client, _ := newQAHandlerTestEnv(t, true, 7)
 	ctx := context.Background()
 	now := time.Now().UTC()
+	uid := seedTrajExportUser(t, ctx, client, true)
 
 	store := &qaMemBlobStore{objects: map[string][]byte{}}
 	blob := bytes.Buffer{}
@@ -368,7 +436,7 @@ func TestUS077_ExportSelfTrajectory_BySynthSessionID_200(t *testing.T) {
 
 	_, err = client.QARecord.Create().
 		SetRequestID("traj-handler").
-		SetUserID(7).
+		SetUserID(uid).
 		SetAPIKeyID(1).
 		SetPlatform("anthropic").
 		SetSynthSessionID("m0-TRAJ-H").
@@ -380,20 +448,11 @@ func TestUS077_ExportSelfTrajectory_BySynthSessionID_200(t *testing.T) {
 		Save(ctx)
 	require.NoError(t, err)
 
-	r, _ = newQAHandlerRouterWithStore(7, true, client, store)
-	body := bytes.NewBufferString(`{"synth_session_id":"m0-TRAJ-H"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
-	var env response.Response
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	dataMap, ok := env.Data.(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, float64(4), dataMap["record_count"])
-	require.Contains(t, dataMap, "download_url")
+	r, _ = newQAHandlerRouterWithStore(uid, true, client, store)
+	job := pollTrajExport(t, r, `{"synth_session_id":"m0-TRAJ-H"}`)
+	require.Equal(t, "done", job["status"], "job=%v", job)
+	require.Equal(t, float64(4), job["record_count"])
+	require.Contains(t, job, "download_url")
 }
 
 func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing.T) {
@@ -409,6 +468,7 @@ func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing
 
 	ctx := context.Background()
 	now := time.Now().UTC()
+	uid := seedTrajExportUser(t, ctx, client, true)
 	blob := bytes.Buffer{}
 	enc, err := zstd.NewWriter(&blob)
 	require.NoError(t, err)
@@ -418,7 +478,7 @@ func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing
 
 	_, err = client.QARecord.Create().
 		SetRequestID("traj-localfs").
-		SetUserID(7).
+		SetUserID(uid).
 		SetAPIKeyID(1).
 		SetPlatform("anthropic").
 		SetSynthSessionID("m0-TRAJ-HTTP").
@@ -431,21 +491,11 @@ func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing
 	require.NoError(t, err)
 
 	store := &qaLocalFSLikeBlobStore{qaMemBlobStore{objects: map[string][]byte{"evidence/traj-localfs.zst": blob.Bytes()}}}
-	r, _ := newQAHandlerRouterWithStore(7, true, client, store)
+	r, _ := newQAHandlerRouterWithStore(uid, true, client, store)
 
-	body := bytes.NewBufferString(`{"synth_session_id":"m0-TRAJ-HTTP"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
-	req.Host = "api.tokenkey.test"
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Forwarded-Proto", "https")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
-	var env response.Response
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	dataMap := env.Data.(map[string]any)
-	downloadURL, ok := dataMap["download_url"].(string)
+	job := pollTrajExport(t, r, `{"synth_session_id":"m0-TRAJ-HTTP"}`)
+	require.Equal(t, "done", job["status"], "job=%v", job)
+	downloadURL, ok := job["download_url"].(string)
 	require.True(t, ok)
 	require.True(t, strings.HasPrefix(downloadURL, "https://api.tokenkey.test/api/v1/users/me/qa/traj/exports/"))
 	require.NotContains(t, downloadURL, "file://")
@@ -460,6 +510,23 @@ func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing
 	require.NoError(t, err)
 	require.Len(t, zr.File, 1)
 	require.Equal(t, "trajectory.jsonl", zr.File[0].Name)
+}
+
+// Per-user authorization backstop: a user whose traj_export_enabled switch is
+// off (the default) gets 403 even with a valid auth subject and captured data.
+func TestExportSelfTrajectory_Forbidden_WhenSwitchOff(t *testing.T) {
+	r, client, _ := newQAHandlerTestEnv(t, true, 7)
+	ctx := context.Background()
+	uid := seedTrajExportUser(t, ctx, client, false) // admin switch OFF
+	r, _ = newQAHandlerRouterWithStore(uid, true, client, &qaMemBlobStore{objects: map[string][]byte{}})
+
+	body := bytes.NewBufferString(`{"format":"v2"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusForbidden, w.Code, "body=%s", w.Body.String())
 }
 
 func TestUS033_DownloadSelfExport_RejectsCrossUserAndTraversalKeys(t *testing.T) {

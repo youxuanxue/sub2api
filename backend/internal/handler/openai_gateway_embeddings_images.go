@@ -17,8 +17,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// Embeddings handles POST /v1/embeddings for OpenAI-platform API keys.
-func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
+// embeddings handles POST /v1/embeddings for OpenAI-platform API keys.
+func (h *OpenAIGatewayHandler) embeddings(c *gin.Context) {
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
 
@@ -49,11 +49,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		if maxErr, ok := extractMaxBytesError(err); ok {
-			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
-			return
-		}
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		writeReadRequestBodyError(c, err, h.errorResponse)
 		return
 	}
 	if len(body) == 0 {
@@ -90,6 +86,17 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+
+	// TK: pre-flight balance hold (concurrent-overdraft fix; see
+	// openai_gateway_handler_tk_hold.go). Embeddings produce no output tokens,
+	// so the no-output estimate is used; refund ownership is handed to the
+	// usage-record task at submit time. Balance users only.
+	hold, holdReject := h.tkApplyBalanceHoldNoOutput(c, apiKey, reqModel, body)
+	if holdReject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	}
+	defer hold.ReleaseUnlessSettling()
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -160,7 +167,10 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 					}
 				}
 				if err != nil {
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
+					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+					// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
+					tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, defaultModel)
+					h.handleStreamingAwareError(c, tkStatus, tkType, tkMsg, streamStarted)
 					return
 				}
 			} else {
@@ -279,6 +289,8 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 
+		tkHoldRequestID := hold.HandOffToSettlement()
+		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			upstreamModelForUsage := ""
 			if result != nil {
@@ -295,6 +307,8 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				APIKeyService:      h.apiKeyService,
+				TkHoldRequestID:    tkHoldRequestID,
+				QuotaPlatform:      quotaPlatform,
 				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, upstreamModelForUsage),
 			}); err != nil {
 				logger.L().With(
@@ -347,11 +361,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		if maxErr, ok := extractMaxBytesError(err); ok {
-			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
-			return
-		}
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		writeReadRequestBodyError(c, err, h.errorResponse)
 		return
 	}
 	if len(body) == 0 {
@@ -381,6 +391,12 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 		return
 	}
 
+	// TK: unpriced media is not served — see openai_gateway_service_tk_media_unpriced_guard.go.
+	if h.gatewayService.TkImageModelUnpriced(reqModel, apiKey.Group) {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", service.TkUnpricedMediaModelMessage(reqModel, "image"))
+		return
+	}
+
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 
 	if h.errorPassthroughService != nil {
@@ -388,6 +404,17 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+
+	// TK: pre-flight balance hold (concurrent-overdraft fix; see
+	// openai_gateway_handler_tk_hold.go). Image holds reserve the requested
+	// image count at the tier-max price; refund ownership is handed to the
+	// usage-record task at submit time. Balance users only.
+	hold, holdReject := h.tkApplyImageHold(c, apiKey, reqModel, int(gjson.GetBytes(body, "n").Int()))
+	if holdReject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	}
+	defer hold.ReleaseUnlessSettling()
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -458,7 +485,10 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 					}
 				}
 				if err != nil {
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
+					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+					// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
+					tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, defaultModel)
+					h.handleStreamingAwareError(c, tkStatus, tkType, tkMsg, streamStarted)
 					return
 				}
 			} else {
@@ -496,6 +526,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 		}
 		writerSizeBeforeForward := c.Writer.Size()
 		TkSetBridgeGinAuth(c, subject.UserID, groupName)
+		logOpenAIImageGenerationRequestAudit(c, apiKey, subject.UserID, account, body, forwardBody)
 		result, err := h.gatewayService.ForwardAsImageGenerationsDispatched(c.Request.Context(), c, account, forwardBody, defaultMappedModel)
 
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
@@ -577,6 +608,8 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 
+		tkHoldRequestID := hold.HandOffToSettlement()
+		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			upstreamModelForUsage := ""
 			if result != nil {
@@ -593,6 +626,8 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				APIKeyService:      h.apiKeyService,
+				TkHoldRequestID:    tkHoldRequestID,
+				QuotaPlatform:      quotaPlatform,
 				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, upstreamModelForUsage),
 			}); err != nil {
 				logger.L().With(

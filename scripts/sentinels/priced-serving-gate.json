@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "rationale": "Load-bearing hooks for the runtime 'priced-or-it-doesnt-ship' serving-admission gate (docs/approved/priced-or-it-doesnt-ship.md, issue #1016 v1). The gate is a thin per-route injection (one guarded call + early return) into 6 upstream-shaped service forwarders; each touch is small and compiles clean if dropped, so an upstream merge or refactor can silently revert it and re-open the catch-all $0-billing hole. These sentinels pin the gate companion, its billing-oracle predicate, the degraded-source fail-open, the DI wiring, every per-route hook (on billing's exact key), the setting constant, and the enabled-set getter so preflight + the upstream-merge PR shape check fail loudly if any disappears.",
+  "sentinels": [
+    {
+      "path": "backend/internal/service/gateway_priced_serving_gate_tk.go",
+      "must_contain": [
+        "func tkCheckPricedServingGate(",
+        "func tkPricedServingGateRejected(",
+        "func tkWritePricedServingGateRejection(",
+        "if _, err := resolve(billingModel); !errors.Is(err, ErrModelPricingUnavailable) {",
+        "if channelProbe != nil && groupID != 0 && channelProbe(ctx, billingModel, groupID) {",
+        "setting.IsPricedServingGateEnabled(ctx, platform)",
+        "not_found_error",
+        "invalid_request_error",
+        "tkPricedServingGateSubcode = \"model_not_priced\"",
+        "priced_serving_gate.rejected",
+        "notifier.NotifyPricingMissing(ev)"
+      ],
+      "rationale": "The gate core. R3 consistency is BY CONSTRUCTION: the gate judges via billing's own two price sources — `resolve(billingModel)` is BillingService.GetModelPricing (real price + Go family floor) and channelProbe mirrors resolveChannelPricing — rejecting iff BOTH are unavailable, the SAME sources+key billing uses to decide $0. Post-pivot (family floor + alert + converge) there is NO degrade canary: the Go family floors are immune to litellm/overlay source glitches (floored platforms never mass-404), so tkPricingSystemDegraded/tkPricedServingGateCanaryModel were removed (re-adding a fail-open would contradict 'newapi 保留 reject'). The literal error envelope strings (not_found_error / invalid_request_error + model_not_priced subcode) are the byte-aligned shapes clients depend on. NotifyPricingMissing is the reject channel (gate_rejected_unpriced → Feishu → fill) satisfying R4."
+    },
+    {
+      "path": "backend/internal/service/gateway_priced_serving_gate_wiring_tk.go",
+      "must_contain": [
+        "func (s *GatewayService) SetPricingCatalogService(catalog *PricingCatalogService)",
+        "func (s *OpenAIGatewayService) SetPricingCatalogService(catalog *PricingCatalogService)",
+        "func (s *GeminiMessagesCompatService) SetPricedServingGateDeps(catalog *PricingCatalogService, billing *BillingService, setting *SettingService, notifier PricingMissingNotifier, resolver *ModelPricingResolver)",
+        "func (s *GatewayService) tkPricedServingGate(",
+        "func (s *OpenAIGatewayService) tkPricedServingGate(",
+        "func (s *GeminiMessagesCompatService) tkPricedServingGate(",
+        "func tkChannelPricingProbeFromResolver(resolver *ModelPricingResolver) tkChannelPricingProbe {",
+        "return resolved != nil && resolved.Source == PricingSourceChannel",
+        "func tkResolvedPricingChargeable(r *ResolvedPricing) bool {"
+      ],
+      "rationale": "Post-construction DI setters and the per-service one-liner wrappers each route hook calls. SetPricedServingGateDeps injects the BillingService (the gate's base oracle) AND the ModelPricingResolver (the channel-price source) alongside setting/catalog/notifier — the 5-arg shape proves BOTH billing sources are wired (drop the resolver and the gate stops seeing channel_model_pricing → false-404s channel-only-priced models, re-review BLOCKER B1). tkChannelPricingProbeFromResolver mirrors GatewayService.resolveChannelPricing EXACTLY (Source==PricingSourceChannel), so gate ⟺ billing holds on the channel source too; losing it reopens B1."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, billingModel, originalModel) {"
+      ],
+      "rationale": "Route hook 1/6 — OpenAI native /v1/responses (+chat). Judges billingModel (the mapped id openai native bills on) — its exact billing key. Before upstream forward / SSE stream start. A silent revert re-opens $0 serving for unpriced OpenAI models when openai joins the enabled set."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_responses.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {"
+      ],
+      "rationale": "Route hook 2/6 — responses-bridge (ForwardAsResponses), OpenAI wire envelope. Judges originalModel (billing's key on this path), before forward / stream start."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {"
+      ],
+      "rationale": "Route hook 3/6 — chat-completions-bridge (ForwardAsChatCompletions), OpenAI wire envelope. Judges originalModel, before forward / stream start."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {",
+        "if !s.tkPricedServingGate(ctx, c, tkGateWireGemini, account.Platform, originalModel, originalModel) {",
+        "tkBillingService         *BillingService"
+      ],
+      "rationale": "Route hooks 4/6 + 5/6 — gemini compat Forward (Anthropic /v1/messages ingress → tkGateWireAnthropic envelope) AND ForwardNative (native Gemini ingress → tkGateWireGemini envelope; countTokens is exempted just before this call). BOTH judge originalModel (billing's key here — gemini native bills result.Model=originalModel; judging mappedModel was BLOCKER1, the catch-all leak). This is the first-launch enabled platform, so a revert here is the highest-impact. The tkBillingService struct-field anchor proves the gate's oracle dep slot survives (the gemini compat service holds none of its deps on the upstream constructor)."
+    },
+    {
+      "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {"
+      ],
+      "rationale": "Route hook 6/6 — the third gemini ingress (OpenAI /v1/chat/completions onto a gemini account, forwardClaudeBodyAsChatCompletions). This route had NO gate in v1's first cut (BLOCKER2) — an OpenAI-CC client could hit a gemini account with an unpriced model and serve $0 on the launch platform. OpenAI wire envelope; judges originalModel."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {"
+      ],
+      "rationale": "Route hook (native anthropic /v1/messages catch-all). Inserted right after the deprecated-model gate (post-mapping, pre-forward) — the native catch-all (empty model_mapping = allow-all) is the original vulnerability hot spot. anthropic is NOT in the first-launch enabled set but joins per the rollout plan; the hook (on originalModel, billing's key) must survive until then."
+    },
+    {
+      "path": "backend/internal/service/domain_constants.go",
+      "must_contain": [
+        "SettingKeyPricedServingGateEnabled = \"priced_serving_gate_enabled\""
+      ],
+      "rationale": "The setting key for the per-platform enabled SET. Renaming/removing it silently disables every IsPricedServingGateEnabled lookup (gate off for all platforms) without a compile error if a stale string literal lingers elsewhere."
+    },
+    {
+      "path": "backend/internal/service/setting_service_tk_cold_start.go",
+      "must_contain": [
+        "func (s *SettingService) IsPricedServingGateEnabled(ctx context.Context, platform string) bool",
+        "if m == \"*\" || m == platform {",
+        "defaultPricedServingGateEnabledSet = \"*\"",
+        "defaults[SettingKeyPricedServingGateEnabled] = defaultPricedServingGateEnabledSet"
+      ],
+      "rationale": "The enabled-set getter (comma-separated SET membership + '*' all-wildcard, fail-open-toward-off) and the post-pivot default '*' (all platforms; safe because family floors mean floored platforms never reject). The '*' branch is load-bearing for 'default all 闸打开'; losing it or the cold-start default means a fresh DB ships with the gate OFF, regressing the launch contract."
+    },
+    {
+      "path": "backend/internal/handler/admin/channel_handler_tk_billing_source_guard.go",
+      "must_contain": [
+        "func tkRequireBillingModelSourceConfirm(source string, confirmed bool) error {",
+        "case service.BillingModelSourceRequested, service.BillingModelSourceUpstream:",
+        "BILLING_MODEL_SOURCE_CONFIRM_REQUIRED"
+      ],
+      "rationale": "B1 guardrail (re-review BLOCKER, design §8). The gate judges the same key billing charges — EXCEPT when an operator sets channels.billing_model_source=requested/upstream, which makes billing charge the client's pre-mapping id while a catch-all mapping can leave the mapped id priced: the one config switch that can silently re-open the $0 leak. prod runs 0 such channels; this guard keeps it that way by rejecting any create/update that sets a risky value without explicit confirm_billing_model_source=true. Drop it and the dangerous switch becomes settable silently again."
+    },
+    {
+      "path": "backend/internal/handler/admin/channel_handler.go",
+      "must_contain": [
+        "tkRequireBillingModelSourceConfirm(req.BillingModelSource, req.ConfirmBillingModelSource)"
+      ],
+      "rationale": "The call site wiring the B1 guardrail into both Create and Update channel handlers (the anchor is identical for both). If an upstream merge drops the call, the guard function survives but never runs — the switch goes silent again. Pinning the upstream-shaped handler here also gives the upstream-override gate verified sentinel coverage for this file."
+    },
+    {
+      "path": "backend/migrations/tk_047_default_priced_serving_gate_all.sql",
+      "must_contain": [
+        "INSERT INTO settings (key, value)",
+        "'priced_serving_gate_enabled', '*'",
+        "ON CONFLICT (key) DO NOTHING"
+      ],
+      "rationale": "BLOCKER 1 fix (god's-eye review): the in-process cold-start default (tkMergeDefaultColdStartSettings='*') does NOT run on existing prod DBs (InitializeDefaultSettings early-returns on a non-empty DB and isn't invoked on a normal deploy), so this migration is the ACTUAL load-bearing seed that turns the gate ON for ALL platforms in prod (post-pivot default). Only the cold-start default string is unit-tested; without this anchor an edit to the migration's seeded value (e.g. to '' or a single platform) would silently narrow/disable the gate with no test catching it. Pins the exact key+value('*')+idempotent-conflict clause."
+    }
+  ]
+}

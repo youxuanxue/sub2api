@@ -22,15 +22,16 @@ import (
 //     SetTempUnschedulable so last-write-wins doesn't replace the upstream-
 //     authoritative reset time with a less-precise local cooldown. The
 //     counters still advance.
-// P3: 529 with a successful SetOverloaded write must likewise suppress the
-//     ladder cooldown write.
+// P3: 529 WITHOUT Retry-After writes only the 30s tier-0 floor and does NOT
+//     suppress the ladder, so a sustained 529 storm escalates via the ladder
+//     (amplifier removal 2026-06-11). A precise Retry-After is still authoritative
+//     and suppresses the ladder, same as 429-reset.
 // P4: A second 403 hit whose prior reason was also a 403 temp-unschedulable
 //     must escalate (tryTempUnschedulable returns false) so handle403's
 //     downstream Anthropic path runs without writing yet another 6h cooldown.
-// P4: A 403 body matching tlsFingerprintFailureKeywords must apply a 30s
-//     cooldown (not 6h) so an operator can re-capture the CLI TLS profile
-//     before the next attempt — the long cooldown would mask a basic-
-//     infrastructure failure as an account-level one.
+// P4: A 403 body matching TLS-fingerprint keywords must permanently disable with
+//     the greppable TLS prefix (not 30s temp) so shared canonical profile drift
+//     does not re-expose OAuth accounts every cooldown cycle.
 // P5: cfg.RateLimit.AnthropicErrorThreshold lifts the 3/3 short-window
 //     threshold without requiring a recompile (motivation: single-account /
 //     small-pool deployments where Sonnet↔Opus burst jitter trips 3/3 too
@@ -86,11 +87,15 @@ func TestRateLimitService_HandleUpstreamError_Anthropic429PreciseResetSuppresses
 		"3/3 short-window counter advanced on every 429")
 }
 
-// 429 without an upstream reset header falls back to handle429's
-// apply429FallbackRateLimit; that path is NOT considered an "authoritative
-// upstream cooldown" so the ladder cooldown write SHOULD still happen
-// (otherwise we lose the only signal that the account is failing).
-func TestRateLimitService_HandleUpstreamError_Anthropic429NoResetHeaderStillLadders(t *testing.T) {
+// A 429 carrying NO anthropic-ratelimit-* header is non-authoritative (真窗口限流
+// 一定带头): it is the edge's capacity / failover envelope ("Upstream rate limit
+// exceeded …", "No available accounts", …) relayed to a mirror stub, NOT a
+// failing-account signal. It must fail over WITHOUT a fallback cooldown or 3/3
+// ladder advance — cooling a healthy stub here is what locked cc-us7 (2026-06-13
+// 23:11, tier-0 30s). See ratelimit_service_tk_nonauthoritative_429.go. (A
+// header-FUL genuine window-limit still ladders — see
+// TestRateLimitService_HandleUpstreamError_Genuine429_StillPenalizes.)
+func TestRateLimitService_HandleUpstreamError_Anthropic429NoResetHeaderIsNonAuthoritative(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{
 		counts:     []int64{1, 2, 3},
@@ -110,18 +115,26 @@ func TestRateLimitService_HandleUpstreamError_Anthropic429NoResetHeaderStillLadd
 			context.Background(),
 			account,
 			http.StatusTooManyRequests,
-			http.Header{}, // no reset header
-			[]byte(`{"error":{"message":"some other 429 without reset hint"}}`),
+			http.Header{}, // no anthropic-ratelimit-* header => non-authoritative
+			[]byte(`{"error":{"message":"some header-less 429 envelope"}}`),
 		)
 	}
 
-	require.Equal(t, 1, repo.tempCalls,
-		"third 429 without reset header MUST land the ladder cooldown — that's the only signal of a failing account")
+	require.Equal(t, 0, repo.tempCalls,
+		"header-less (non-authoritative) 429 must NOT land a ladder cooldown on a healthy account")
+	require.Empty(t, counter.incrementIDs,
+		"header-less 429 must NOT advance the 3/3 ladder counter")
 }
 
-// --- P3: 529 successful overload suppresses ladder cooldown -------------------
-
-func TestRateLimitService_HandleUpstreamError_Anthropic529SetOverloadedSuppressesLadder(t *testing.T) {
+// --- P3: 529 short floor, then ladder escalates on sustained ------------------
+//
+// 2026-06-11 16:50 UTC amplifier removal: a 529 WITHOUT Retry-After is no longer
+// "authoritative" — handle529 writes only the 30s tier-0 floor and does NOT
+// suppress the ladder. So a SUSTAINED 529 storm (3/3 threshold) escalates via the
+// existing ladder (SetTempUnschedulable, 30s→2m→10m), instead of being flat-
+// locked for 10 min on the first hit. (A precise Retry-After is still honored and
+// suppresses the ladder — see the 429-reset test above and the handle529 tests.)
+func TestRateLimitService_HandleUpstreamError_Anthropic529FloorThenLadderEscalates(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{
 		counts:     []int64{1, 2, 3},
@@ -145,14 +158,16 @@ func TestRateLimitService_HandleUpstreamError_Anthropic529SetOverloadedSuppresse
 			context.Background(),
 			account,
 			529,
-			http.Header{},
+			http.Header{}, // no Retry-After → 30s floor, ladder NOT suppressed
 			[]byte(`{"error":{"type":"overloaded_error","message":"upstream overloaded"}}`),
 		)
 	}
 
-	require.Equal(t, 3, repo.setOverloadedCalls, "every 529 wrote SetOverloaded")
-	require.Equal(t, 0, repo.tempCalls,
-		"ladder must NOT write SetTempUnschedulable when SetOverloaded landed")
+	require.Equal(t, 3, repo.setOverloadedCalls, "every 529 still writes the SetOverloaded floor")
+	require.Equal(t, 1, repo.tempCalls,
+		"the 3rd (threshold) 529 must escalate via the ladder — no longer suppressed when no Retry-After landed")
+	require.Equal(t, []int64{703, 703, 703}, counter.incrementIDs,
+		"3/3 short-window counter advanced on every 529")
 }
 
 // --- P4: 403 second hit escalates ---------------------------------------------
@@ -197,7 +212,7 @@ func TestRateLimitService_TryTempUnschedulable_403SecondHitEscalates(t *testing.
 
 // --- P4: TLS fingerprint failure path -----------------------------------------
 
-func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintShortCooldown(t *testing.T) {
+func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintPermanentlyDisables(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -219,19 +234,11 @@ func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintShortCoo
 	)
 
 	require.True(t, shouldDisable)
-	require.Equal(t, 1, repo.tempCalls,
-		"TLS fingerprint failure should write a SetTempUnschedulable cooldown immediately")
-
-	var state TempUnschedState
-	require.NoError(t, json.Unmarshal([]byte(repo.lastTempReason), &state))
-	require.Equal(t, http.StatusForbidden, state.StatusCode)
-	require.Equal(t, "tls_fingerprint_failure", state.MatchedKeyword)
-
-	cooldown := time.Until(time.Unix(state.UntilUnix, 0))
-	require.InDelta(t, tlsFingerprintFailureCooldown, cooldown, float64(2*time.Second),
-		"TLS fingerprint failure must use the short 30s cooldown, NOT the 6h account-disabled cooldown")
+	require.Equal(t, 1, repo.setErrorCalls, "TLS fingerprint failure must SetError immediately")
+	require.Equal(t, 0, repo.tempCalls, "TLS fingerprint must not write temp_unschedulable")
+	require.Contains(t, repo.lastErrorMsg, tkAnthropicTLSFingerprintDisablePrefix)
 	require.Zero(t, len(counter.incrementIDs),
-		"TLS fingerprint path must NOT feed the 3/3 short-window counter (the account is fine; infra is not)")
+		"TLS fingerprint path must NOT feed the 3/3 short-window counter")
 }
 
 // Production OAuth accounts ship with the baseline credentials wired —
@@ -239,9 +246,8 @@ func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintShortCoo
 // (anthropic-oauth-stability-baselines-tiered.json shared_baseline.credentials).
 // A 403 body that contains a TLS-fingerprint keyword but NOT
 // account_disabled_auth_error MUST still reach the handle403 TLS branch and
-// land the short 30s cooldown — the JSON 403 rule MUST NOT eat the request
-// just because the rule's error_code matches. Regression coverage for the
-// "production credentials path" vs the simpler bare-account test above.
+// land permanent SetError with the TLS prefix — the JSON 403 rule MUST NOT eat
+// the request just because the rule's error_code matches.
 func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintNotEatenBy403Rule(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{}
@@ -273,17 +279,10 @@ func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintNotEaten
 		body,
 	)
 	require.True(t, shouldDisable)
-	require.Equal(t, 1, repo.tempCalls,
-		"TLS fingerprint failure must still write SetTempUnschedulable even with the 403 rule armed")
-
-	var state TempUnschedState
-	require.NoError(t, json.Unmarshal([]byte(repo.lastTempReason), &state))
-	require.Equal(t, "tls_fingerprint_failure", state.MatchedKeyword,
-		"reason must record the TLS path, NOT the 6h account_disabled_auth_error rule")
-
-	cooldown := time.Until(time.Unix(state.UntilUnix, 0))
-	require.InDelta(t, tlsFingerprintFailureCooldown, cooldown, float64(2*time.Second),
-		"production credentials path must still apply 30s cooldown, not 6h")
+	require.Equal(t, 1, repo.setErrorCalls,
+		"TLS fingerprint failure must SetError even with the 403 temp rule armed")
+	require.Equal(t, 0, repo.tempCalls, "must not apply the 6h account_disabled_auth_error temp rule")
+	require.Contains(t, repo.lastErrorMsg, tkAnthropicTLSFingerprintDisablePrefix)
 }
 
 // --- P5: cfg.AnthropicErrorThreshold lifts the 3/3 bar -----------------------
@@ -483,6 +482,7 @@ func TestOpsAlertEvaluator_AnthropicCooldownTierEscalationCount_ReflectsLadderWr
 		time.Now().UTC(),
 		"",
 		nil,
+		0,
 	)
 	require.True(t, ok, "metric must be reportable when the cache is wired")
 	require.InDelta(t, 2.0, value, 0.0001,

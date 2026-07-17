@@ -19,7 +19,7 @@ func computeDashboardHealthScore(now time.Time, overview *OpsDashboardOverview) 
 
 	// Idle/no-data: avoid showing a "bad" score when there is no traffic.
 	// UI can still render a gray/idle state based on QPS + error rate.
-	if overview.RequestCountSLA <= 0 && overview.RequestCountTotal <= 0 && overview.ErrorCountTotal <= 0 {
+	if overview.RequestCountTotal <= 0 && overview.ErrorCountTotal <= 0 {
 		return 100
 	}
 
@@ -31,39 +31,45 @@ func computeDashboardHealthScore(now time.Time, overview *OpsDashboardOverview) 
 	return int(math.Round(clampFloat64(score, 0, 100)))
 }
 
-// computeBusinessHealth calculates business health score (0-100)
-// Components: Error Rate (50%) + TTFT (50%)
+// computeBusinessHealth calculates business health score (0-100).
+// Components: SLA (70%) + TTFT (30%), aligned with error_owner SLA contract (ops_sla_scope.go).
+// TTFT uses P90 when present (short windows spike P99); P99 is retained for dashboard diagnosis.
 func computeBusinessHealth(overview *OpsDashboardOverview) float64 {
-	// Error rate score: 1% → 100, 10% → 0 (linear)
-	// Combines request errors and upstream errors
-	errorScore := 100.0
-	errorPct := clampFloat64(overview.ErrorRate*100, 0, 100)
-	upstreamPct := clampFloat64(overview.UpstreamErrorRate*100, 0, 100)
-	combinedErrorPct := math.Max(errorPct, upstreamPct) // Use worst case
-	if combinedErrorPct > 1.0 {
-		if combinedErrorPct <= 10.0 {
-			errorScore = (10.0 - combinedErrorPct) / 9.0 * 100
+	// SLA score: 99.5% → 100, 95% → 0 (matches default ops alert sla_percent_min band).
+	slaScore := 100.0
+	sla := clampFloat64(overview.SLA, 0, 1)
+	if sla < 0.995 {
+		if sla >= 0.95 {
+			slaScore = (sla - 0.95) / 0.045 * 100
 		} else {
-			errorScore = 0
+			slaScore = 0
 		}
 	}
 
-	// TTFT score: 1s → 100, 3s → 0 (linear)
-	// Time to first token is critical for user experience
+	// TTFT score: 1s → 100, 10s → 0 (linear). Prefer P90 for scoring stability.
 	ttftScore := 100.0
-	if overview.TTFT.P99 != nil {
-		p99 := float64(*overview.TTFT.P99)
-		if p99 > 1000 {
-			if p99 <= 3000 {
-				ttftScore = (3000 - p99) / 2000 * 100
+	if ttftMs := ttftPercentileForHealth(overview); ttftMs != nil {
+		p := float64(*ttftMs)
+		if p > 1000 {
+			if p <= 10000 {
+				ttftScore = (10000 - p) / 9000 * 100
 			} else {
 				ttftScore = 0
 			}
 		}
 	}
 
-	// Weighted combination: 50% error rate + 50% TTFT
-	return errorScore*0.5 + ttftScore*0.5
+	return slaScore*0.7 + ttftScore*0.3
+}
+
+func ttftPercentileForHealth(overview *OpsDashboardOverview) *int {
+	if overview == nil {
+		return nil
+	}
+	if overview.TTFT.P90 != nil {
+		return overview.TTFT.P90
+	}
+	return overview.TTFT.P99
 }
 
 // computeInfraHealth calculates infrastructure health score (0-100)

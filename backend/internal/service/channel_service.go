@@ -147,6 +147,13 @@ type ChannelService struct {
 
 	cache   atomic.Value // *channelCache
 	cacheSF singleflight.Group
+
+	// availableCache caches the ListAvailable result (user-facing "available channels" page).
+	// Short TTL (30s) avoids full-table scans on every page load while staying fresh enough.
+	availableCache availableChannelsCache
+
+	// TK: flush group×model unsupported negative cache when channel config changes.
+	groupUnsupportedModelCacheFlush func()
 }
 
 // NewChannelService 创建渠道服务实例。
@@ -347,10 +354,27 @@ func (s *ChannelService) invalidateCache() {
 	s.cache.Store((*channelCache)(nil))
 	s.cacheSF.Forget("channel_cache")
 
+	// Also invalidate the user-facing available channels cache so the next
+	// ListAvailable call picks up the CRUD change.
+	s.availableCache.invalidate()
+
+	if s.groupUnsupportedModelCacheFlush != nil {
+		s.groupUnsupportedModelCacheFlush()
+	}
+
 	// 主动重建缓存，确保 CRUD 后立即生效
 	if _, err := s.buildCache(context.Background()); err != nil {
 		slog.Warn("failed to rebuild channel cache after invalidation", "error", err)
 	}
+}
+
+// SetGroupUnsupportedModelCacheFlusher registers a callback to flush the
+// selection-time unsupported-model negative cache when channel config changes.
+func (s *ChannelService) SetGroupUnsupportedModelCacheFlusher(fn func()) {
+	if s == nil {
+		return
+	}
+	s.groupUnsupportedModelCacheFlush = fn
 }
 
 // matchWildcard 在通配符定价中查找匹配项（最先匹配到优先）
@@ -567,6 +591,21 @@ func ReplaceModelInBody(body []byte, newModel string) []byte {
 		return body
 	}
 	newBody, err := sjson.SetBytes(body, "model", newModel)
+	if err != nil {
+		return body
+	}
+	return newBody
+}
+
+// RemovePreviousResponseIDFromBody 删除请求体中的 previous_response_id，用于会话失配时改用完整 input 重建上下文。
+func RemovePreviousResponseIDFromBody(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	if !gjson.GetBytes(body, "previous_response_id").Exists() {
+		return body
+	}
+	newBody, err := sjson.DeleteBytes(body, "previous_response_id")
 	if err != nil {
 		return body
 	}
@@ -969,7 +1008,8 @@ func detectConflicts(entries []modelEntry, platform, errCode, label string) erro
 		for j := i + 1; j < len(entries); j++ {
 			if conflictsBetween(entries[i], entries[j]) {
 				return infraerrors.BadRequest(errCode,
-					fmt.Sprintf("%s '%s' and '%s' conflict in platform '%s': overlapping match range",
+					fmt.Sprintf("%s '%s' and '%s' conflict in platform '%s': overlapping match range "+
+						"(model names are matched case-insensitively, so an existing entry already covers all case variants)",
 						label, entries[i].pattern, entries[j].pattern, platform))
 			}
 		}

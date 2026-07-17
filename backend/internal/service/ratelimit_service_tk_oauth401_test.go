@@ -7,109 +7,151 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
-// oauth401AfterRefreshCounterStub 是 OAuth401AfterRefreshCounterCache 的可控 fake：
-// counts 按调用顺序弹出返回值（空则返回 0，对应「种 baseline / 不计数」）；err 注入故障。
-type oauth401AfterRefreshCounterStub struct {
-	counts         []int64
-	recordIDs      []int64
-	recordVersions []int64
-	recordWindows  []int
-	resetCalls     []int64
-	err            error
-}
-
-func (s *oauth401AfterRefreshCounterStub) RecordOAuth401AfterRefresh(_ context.Context, accountID int64, tokenVersion int64, windowMinutes int) (int64, error) {
-	s.recordIDs = append(s.recordIDs, accountID)
-	s.recordVersions = append(s.recordVersions, tokenVersion)
-	s.recordWindows = append(s.recordWindows, windowMinutes)
-	if s.err != nil {
-		return 0, s.err
-	}
-	if len(s.counts) == 0 {
-		return 0, nil
-	}
-	count := s.counts[0]
-	s.counts = s.counts[1:]
-	return count, nil
-}
-
-func (s *oauth401AfterRefreshCounterStub) ResetOAuth401AfterRefresh(_ context.Context, accountID int64) error {
-	s.resetCalls = append(s.resetCalls, accountID)
-	return nil
-}
-
-func newOAuth401AnthropicAccount(id int64, tokenVersion int64) *Account {
+// newOAuth401AnthropicAccount 造一个 anthropic OAuth 账号，access_token 在 expiresAt 过期。
+func newOAuth401AnthropicAccount(id int64, expiresAt time.Time) *Account {
 	return &Account{
 		ID:       id,
 		Platform: PlatformAnthropic,
 		Type:     AccountTypeOAuth,
 		Credentials: map[string]any{
-			"refresh_token":  "rt",
-			"_token_version": tokenVersion,
+			"refresh_token": "rt",
+			"expires_at":    expiresAt.UTC().Format(time.RFC3339),
 		},
 	}
 }
 
-// 达阈值（默认 1）时：版本递增的 401 升级为 SetError 永久停调度 + 告警，
-// 不再走 temp_unschedulable 冷却，错误信息提示需手工重授权。
-func TestRateLimitService_OAuth401AfterRefresh_EscalatesAtThreshold(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	counter := &oauth401AfterRefreshCounterStub{counts: []int64{1}}
-	blocker := &runtimeBlockRecorder{}
-	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	service.SetOAuth401AfterRefreshCounter(counter)
-	service.SetAccountRuntimeBlocker(blocker)
-	account := newOAuth401AnthropicAccount(701, 1737654321000)
+func TestRateLimitService_OAuth401_AnthropicAny401SetErrorsImmediately(t *testing.T) {
+	cases := []struct {
+		name      string
+		expiresAt time.Time
+	}{
+		{"valid_token", time.Now().Add(2 * time.Hour)},
+		{"expired_token", time.Now().Add(-1 * time.Hour)},
+		{"near_expiry", time.Now().Add(1 * time.Minute)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &rateLimitAccountRepoStub{}
+			service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+			account := newOAuth401AnthropicAccount(700, tc.expiresAt)
 
-	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+			shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
 
-	require.True(t, shouldDisable)
-	require.Equal(t, 1, repo.setErrorCalls, "version-bumped 401 at threshold must SetError (permanent)")
-	require.Equal(t, 0, repo.tempCalls, "must NOT fall through to temp_unschedulable cooldown")
-	require.Contains(t, repo.lastErrorMsg, "refresh_token likely revoked")
-	require.Contains(t, repo.lastErrorMsg, "manual re-authorization")
-	require.Equal(t, []int64{701}, counter.recordIDs)
-	require.Equal(t, []int64{1737654321000}, counter.recordVersions)
-	require.Equal(t, []int{oauth401AfterRefreshWindowMinutesDefault}, counter.recordWindows)
-	require.Len(t, blocker.accounts, 1, "escalation must notify scheduling-blocked for alerting")
-	require.Equal(t, account.ID, blocker.accounts[0].ID)
-	require.Equal(t, "auth_error", blocker.reasons[0])
+			require.True(t, shouldDisable)
+			require.Equal(t, 1, repo.setErrorCalls, "anthropic OAuth 401 must SetError immediately")
+			require.Equal(t, 0, repo.tempCalls, "must not temp_unschedulable / hold")
+		})
+	}
 }
 
-// 首次 401（counter 返回 0 = 种 baseline）不升级，回退到既有 temp_unschedulable 冷却。
-func TestRateLimitService_OAuth401AfterRefresh_SeedFallsThroughToCooldown(t *testing.T) {
+func TestRateLimitService_OAuth401_AnthropicMissingExpiryStillSetErrors(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
-	counter := &oauth401AfterRefreshCounterStub{counts: []int64{0}}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	service.SetOAuth401AfterRefreshCounter(counter)
-	account := newOAuth401AnthropicAccount(702, 1737654321000)
-
-	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
-
-	require.True(t, shouldDisable)
-	require.Equal(t, 0, repo.setErrorCalls, "seed 401 must not escalate")
-	require.Equal(t, 1, repo.tempCalls, "seed 401 falls through to temp_unschedulable cooldown")
-	require.Equal(t, []int64{702}, counter.recordIDs)
-}
-
-// 缺少 _token_version（极老数据从未刷新过）：无法判断是否换过新 token，
-// 不查计数器、直接回退冷却（fail-open，不误升级）。
-func TestRateLimitService_OAuth401AfterRefresh_MissingTokenVersionFallsThrough(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	counter := &oauth401AfterRefreshCounterStub{counts: []int64{1}}
-	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	service.SetOAuth401AfterRefreshCounter(counter)
 	account := &Account{
-		ID:       703,
+		ID:       704,
 		Platform: PlatformAnthropic,
 		Type:     AccountTypeOAuth,
 		Credentials: map[string]any{
-			"refresh_token": "rt", // 无 _token_version
+			"refresh_token": "rt",
+		},
+	}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+}
+
+func TestRateLimitService_OAuth401_AnthropicMissingRefreshTokenSetErrors(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       707,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"expires_at": time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Contains(t, repo.lastErrorMsg, "OAuth 401")
+}
+
+func TestRateLimitService_OAuth401_AnthropicStillSetErrorsDuringClaudeIncident(t *testing.T) {
+	setClaudeStatusForTest(t, ClaudeStatusSnapshot{IsIncident: true, Status: "major_outage", FetchedAt: time.Now()})
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := newOAuth401AnthropicAccount(708, time.Now().Add(-1*time.Hour))
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+}
+
+func TestRateLimitService_OAuth401_SetupTokenStillSetErrorsDuringClaudeIncident(t *testing.T) {
+	setClaudeStatusForTest(t, ClaudeStatusSnapshot{IsIncident: true, Status: "partial_outage", FetchedAt: time.Now()})
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       709,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeSetupToken,
+		Credentials: map[string]any{
+			"expires_at": time.Now().Add(300 * 24 * time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+}
+
+// OpenAI OAuth 仍保留「有效 token 永久禁用 / 过期 token 冷却」分支（非 Anthropic）。
+func TestRateLimitService_OAuth401_OpenAIValidTokenDisablesFirstStrike(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       710,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"refresh_token": "rt",
+			"expires_at":    time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+}
+
+func TestRateLimitService_OAuth401_OpenAIExpiredTokenStillCools(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       711,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"refresh_token": "rt",
+			"expires_at":    time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339),
 		},
 	}
 
@@ -118,67 +160,207 @@ func TestRateLimitService_OAuth401AfterRefresh_MissingTokenVersionFallsThrough(t
 	require.True(t, shouldDisable)
 	require.Equal(t, 0, repo.setErrorCalls)
 	require.Equal(t, 1, repo.tempCalls)
-	require.Empty(t, counter.recordIDs, "missing _token_version must not consult the counter")
 }
 
-// 计数器返回错误：fail-open 到既有冷却，绝不因计数器故障误判永久禁用。
-func TestRateLimitService_OAuth401AfterRefresh_CounterErrorFailsOpen(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	counter := &oauth401AfterRefreshCounterStub{err: errors.New("redis down")}
+func TestRateLimitService_OAuth401_KiroValidTokenForceRefreshesInsteadOfSetError(t *testing.T) {
+	expiresAt := time.Now().Add(2 * time.Hour)
+	account := newKiroOAuth401Account(720, expiresAt)
+	repo := &rateLimitAccountRepoStub{accountOnGet: account}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	service.SetOAuth401AfterRefreshCounter(counter)
-	account := newOAuth401AnthropicAccount(704, 1737654321000)
+	service.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	executor := &refreshAPIExecutorStub{
+		needsRefresh: false,
+		credentials: map[string]any{
+			"access_token":  "new-at",
+			"refresh_token": "new-rt",
+			"expires_at":    expiresAt.Add(time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	service.SetKiroOAuthRefreshExecutor(executor)
 
-	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("Invalid bearer token"))
 
 	require.True(t, shouldDisable)
-	require.Equal(t, 0, repo.setErrorCalls, "counter failure must NOT permanently disable")
-	require.Equal(t, 1, repo.tempCalls)
+	require.Equal(t, 1, executor.refreshCalls, "force refresh must ignore NeedsRefresh=false")
+	require.Equal(t, 1, repo.updateCredentialsCalls)
+	require.Equal(t, "new-at", repo.lastCredentials["access_token"])
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+	require.Equal(t, 1, repo.clearErrorCalls)
+	require.Equal(t, 1, repo.setSchedulableCalls)
+	require.True(t, repo.lastSchedulable)
+	require.Equal(t, 1, repo.clearTempCalls)
 }
 
-// 计数器未注入（如未接 Redis 的精简部署）：保持既有 temp_unschedulable 行为不变。
-func TestRateLimitService_OAuth401AfterRefresh_NilCounterPreservesCooldown(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
+func TestRateLimitService_OAuth401_KiroValidTokenInvalidGrantFallsBackToSetError(t *testing.T) {
+	account := newKiroOAuth401Account(721, time.Now().Add(2*time.Hour))
+	repo := &rateLimitAccountRepoStub{accountOnGet: account}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	account := newOAuth401AnthropicAccount(705, 1737654321000)
+	service.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	service.SetKiroOAuthRefreshExecutor(&refreshAPIExecutorStub{
+		needsRefresh: false,
+		err:          errors.New("invalid_grant: token revoked"),
+	})
 
-	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("Invalid bearer token"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+	require.Contains(t, repo.lastErrorMsg, "grant revoked upstream")
+}
+
+func TestRateLimitService_OAuth401_KiroValidTokenInvalidGrantRaceRecoveryClearsState(t *testing.T) {
+	expiresAt := time.Now().Add(2 * time.Hour)
+	account := newKiroOAuth401Account(723, expiresAt)
+	recovered := newKiroOAuth401Account(723, expiresAt.Add(time.Hour))
+	recovered.Credentials["refresh_token"] = "new-rt"
+	repo := &rateLimitAccountRepoStub{
+		getByIDAccounts: []*Account{
+			account,   // OAuthRefreshAPI lock-protected reread before Refresh.
+			recovered, // invalid_grant race recovery reread.
+		},
+	}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	service.SetKiroOAuthRefreshExecutor(&refreshAPIExecutorStub{
+		needsRefresh: false,
+		err:          errors.New("invalid_grant: token already used"),
+	})
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("Invalid bearer token"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+	require.Equal(t, 0, repo.updateCredentialsCalls)
+	require.Equal(t, 1, repo.clearErrorCalls)
+	require.Equal(t, 1, repo.setSchedulableCalls)
+	require.True(t, repo.lastSchedulable)
+	require.Equal(t, 1, repo.clearTempCalls)
+}
+
+func TestRateLimitService_OAuth401_KiroValidTokenTransientRefreshFailureCoolsDown(t *testing.T) {
+	account := newKiroOAuth401Account(722, time.Now().Add(2*time.Hour))
+	repo := &rateLimitAccountRepoStub{accountOnGet: account}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	service.SetKiroOAuthRefreshExecutor(&refreshAPIExecutorStub{
+		needsRefresh: false,
+		err:          errors.New("network timeout"),
+	})
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("Invalid bearer token"))
 
 	require.True(t, shouldDisable)
 	require.Equal(t, 0, repo.setErrorCalls)
 	require.Equal(t, 1, repo.tempCalls)
+	require.Contains(t, repo.lastTempReason, "force-refresh failed")
 }
 
-// 阈值可配（=2）：count=1 仍冷却，count=2 才升级；配置的 window 透传给计数器。
-func TestRateLimitService_OAuth401AfterRefresh_ThresholdAndWindowConfigurable(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	counter := &oauth401AfterRefreshCounterStub{counts: []int64{1, 2}}
-	cfg := &config.Config{}
-	cfg.RateLimit.OAuth401AfterRefreshDisableThreshold = 2
-	cfg.RateLimit.OAuth401AfterRefreshWindowMinutes = 45
-	service := NewRateLimitService(repo, nil, cfg, nil, nil)
-	service.SetOAuth401AfterRefreshCounter(counter)
-	account := newOAuth401AnthropicAccount(706, 1737654321000)
-
-	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
-	require.True(t, shouldDisable)
-	require.Equal(t, 0, repo.setErrorCalls, "count=1 below threshold 2 must cooldown")
-	require.Equal(t, 1, repo.tempCalls)
-
-	shouldDisable = service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
-	require.True(t, shouldDisable)
-	require.Equal(t, 1, repo.setErrorCalls, "count=2 at threshold must escalate")
-	require.Equal(t, 1, repo.tempCalls, "no extra cooldown on escalation")
-	require.Equal(t, []int{45, 45}, counter.recordWindows, "configured window minutes must pass through")
-}
-
-// 恢复路径 ClearRateLimit 必须重置计数与 baseline，避免良性 baseline 残留累积。
-func TestRateLimitService_OAuth401AfterRefresh_ClearRateLimitResets(t *testing.T) {
-	repo := &rateLimitAccountRepoStub{}
-	counter := &oauth401AfterRefreshCounterStub{}
+func TestRateLimitService_OAuth403_KiroInvalidBearerForceRefreshesWithoutExpiry(t *testing.T) {
+	account := newKiroOAuth401Account(724, time.Now().Add(2*time.Hour))
+	delete(account.Credentials, "expires_at")
+	repo := &rateLimitAccountRepoStub{accountOnGet: account}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	service.SetOAuth401AfterRefreshCounter(counter)
+	service.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	executor := &refreshAPIExecutorStub{
+		needsRefresh: false,
+		credentials: map[string]any{
+			"access_token":  "new-at",
+			"refresh_token": "new-rt",
+			"expires_at":    time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	service.SetKiroOAuthRefreshExecutor(executor)
 
-	require.NoError(t, service.ClearRateLimit(context.Background(), 707))
-	require.Equal(t, []int64{707}, counter.resetCalls)
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"message":"The bearer token included in the request is invalid.","reason":null}`),
+	)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, executor.refreshCalls, "invalid bearer 403 must force refresh even when expires_at is missing")
+	require.Equal(t, 1, repo.updateCredentialsCalls)
+	require.Equal(t, "new-at", repo.lastCredentials["access_token"])
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+	require.Equal(t, 1, repo.clearErrorCalls)
+	require.Equal(t, 1, repo.setSchedulableCalls)
+	require.True(t, repo.lastSchedulable)
+	require.Equal(t, 1, repo.clearTempCalls)
+}
+
+func TestRateLimitService_OAuth403_KiroInvalidBearerInvalidGrantSetsError(t *testing.T) {
+	account := newKiroOAuth401Account(725, time.Now().Add(2*time.Hour))
+	delete(account.Credentials, "expires_at")
+	repo := &rateLimitAccountRepoStub{accountOnGet: account}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	service.SetKiroOAuthRefreshExecutor(&refreshAPIExecutorStub{
+		needsRefresh: false,
+		err:          errors.New("invalid_grant: token revoked"),
+	})
+
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"message":"The bearer token included in the request is invalid.","reason":null}`),
+	)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+	require.Contains(t, repo.lastErrorMsg, "Access forbidden (403)")
+	require.Contains(t, repo.lastErrorMsg, "bearer token")
+}
+
+func TestRateLimitService_OAuth403_KiroNonBearerStillSetErrors(t *testing.T) {
+	account := newKiroOAuth401Account(726, time.Now().Add(2*time.Hour))
+	repo := &rateLimitAccountRepoStub{accountOnGet: account}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetOAuthRefreshAPI(NewOAuthRefreshAPI(repo, nil))
+	executor := &refreshAPIExecutorStub{
+		needsRefresh: false,
+		credentials:  map[string]any{"access_token": "new-at"},
+	}
+	service.SetKiroOAuthRefreshExecutor(executor)
+
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"message":"policy denied"}`),
+	)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, executor.refreshCalls)
+	require.Equal(t, 0, repo.updateCredentialsCalls)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Equal(t, 0, repo.tempCalls)
+}
+
+func newKiroOAuth401Account(id int64, expiresAt time.Time) *Account {
+	return &Account{
+		ID:       id,
+		Platform: PlatformKiro,
+		Type:     AccountTypeOAuth,
+		Status:   StatusActive,
+		Credentials: map[string]any{
+			"access_token":  "old-at",
+			"refresh_token": "old-rt",
+			"expires_at":    expiresAt.UTC().Format(time.RFC3339),
+			"auth_method":   "idc",
+			"client_id":     "cid",
+			"client_secret": "secret",
+			"region":        "us-east-1",
+			"profile_arn":   "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
+		},
+	}
 }

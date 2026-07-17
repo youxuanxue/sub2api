@@ -19,6 +19,7 @@ type User struct {
 	PasswordHash   string
 	Role           string
 	Balance        float64
+	FrozenBalance  float64
 	Concurrency    int
 	Status         string
 	AllowedGroups  []int64
@@ -62,6 +63,10 @@ type User struct {
 	// nil = 该 API Key 对应的 (user, group) 无 override；非 nil 时 checkRPM 直接使用，
 	// 避免每请求查 DB。字段不持久化到数据库。
 	UserGroupRPMOverride *int
+
+	// TrajExportEnabled 管理员授予的「可导出对话记录(traj)」开关。默认 false。
+	// 开启后该用户每个 API Key 可独立导出其捕获的对话轨迹。
+	TrajExportEnabled bool
 
 	APIKeys       []APIKey
 	Subscriptions []UserSubscription

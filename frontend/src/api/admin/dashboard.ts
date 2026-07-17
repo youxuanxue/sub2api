@@ -47,6 +47,11 @@ export async function getRealtimeMetrics(): Promise<{
 export interface TrendParams {
   start_date?: string
   end_date?: string
+  // TK: absolute epoch-ms window for rolling presets (timezone-independent).
+  // When present, the backend uses these verbatim and ignores the timezone-
+  // derived date expansion. See utils/dashboardWindow.tk.ts.
+  start_ts?: number
+  end_ts?: number
   granularity?: 'day' | 'hour'
   user_id?: number
   api_key_id?: number
@@ -78,6 +83,8 @@ export async function getUsageTrend(params?: TrendParams): Promise<TrendResponse
 export interface ModelStatsParams {
   start_date?: string
   end_date?: string
+  start_ts?: number
+  end_ts?: number
   user_id?: number
   api_key_id?: number
   model?: string
@@ -108,6 +115,8 @@ export async function getModelStats(params?: ModelStatsParams): Promise<ModelSta
 export interface GroupStatsParams {
   start_date?: string
   end_date?: string
+  start_ts?: number
+  end_ts?: number
   user_id?: number
   api_key_id?: number
   account_id?: number
@@ -161,17 +170,21 @@ export async function getGroupStats(params?: GroupStatsParams): Promise<GroupSta
 export interface UserBreakdownParams {
   start_date?: string
   end_date?: string
+  start_ts?: number
+  end_ts?: number
   group_id?: number
   model?: string
   model_source?: 'requested' | 'upstream' | 'mapping'
   endpoint?: string
   endpoint_type?: 'inbound' | 'upstream' | 'path'
   limit?: number
+  // Sort column for the ranking (allowlisted server-side; falls back to actual_cost)
+  sort_by?: 'total_tokens' | 'input_tokens' | 'output_tokens' | 'cache_tokens' | 'requests' | 'cost' | 'actual_cost'
   // Additional filter conditions
   user_id?: number
   api_key_id?: number
   account_id?: number
-  request_type?: number
+  request_type?: UsageRequestType
   stream?: boolean
   billing_type?: number | null
 }
@@ -236,7 +249,7 @@ export interface UserTrendResponse {
 }
 
 export interface UserSpendingRankingParams
-  extends Pick<TrendParams, 'start_date' | 'end_date'> {
+  extends Pick<TrendParams, 'start_date' | 'end_date' | 'start_ts' | 'end_ts'> {
   limit?: number
 }
 

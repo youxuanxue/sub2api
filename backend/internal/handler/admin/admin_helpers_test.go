@@ -9,23 +9,28 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
 func TestParseTimeRange(t *testing.T) {
+	require.NoError(t, timezone.Init("UTC"))
+	t.Cleanup(func() { _ = timezone.Init("UTC") })
+
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "/?start_date=2024-01-01&end_date=2024-01-02&timezone=UTC", nil)
+	req := httptest.NewRequest(http.MethodGet, "/?start_date=2024-01-01&end_date=2024-01-02&timezone=Asia/Shanghai", nil)
 	c.Request = req
 
+	loc := timezone.Location()
 	start, end := parseTimeRange(c)
-	require.Equal(t, time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), start)
-	require.Equal(t, time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC), end)
+	require.Equal(t, time.Date(2024, 1, 1, 0, 0, 0, 0, loc), start)
+	require.Equal(t, time.Date(2024, 1, 3, 0, 0, 0, 0, loc), end)
 
-	req = httptest.NewRequest(http.MethodGet, "/?start_date=bad&timezone=UTC", nil)
+	req = httptest.NewRequest(http.MethodGet, "/?start_date=bad&timezone=Asia/Shanghai", nil)
 	c.Request = req
 	start, end = parseTimeRange(c)
 	require.False(t, start.IsZero())
@@ -265,10 +270,12 @@ func TestOpenAIFastPolicySettingsFromDTO_NormalizesServiceTier(t *testing.T) {
 				ServiceTier: "PRIORITY",
 				Action:      "filter",
 				Scope:       "all",
+				UserIDs:     []int64{42},
 			}},
 		}
 		out := openaiFastPolicySettingsFromDTO(in)
 		require.Equal(t, service.OpenAIFastTierPriority, out.Rules[0].ServiceTier)
+		require.Equal(t, []int64{42}, out.Rules[0].UserIDs)
 	})
 
 	t.Run("non-empty values pass through (lowercased)", func(t *testing.T) {

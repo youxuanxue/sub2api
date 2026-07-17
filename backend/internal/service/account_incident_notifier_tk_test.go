@@ -30,9 +30,19 @@ func enabledFeishuConfig() *OpsEmailNotificationConfig {
 		Feishu: OpsFeishuAlertConfig{
 			Enabled:                      true,
 			WebhookURL:                   "https://open.feishu.cn/open-apis/bot/v2/hook/test",
+			AccountIncidentDigestEnabled: true, // 显式开自愈摘要（opt-in）
 			AccountIncidentDigestSeconds: 600,
 		},
 	}
+}
+
+// disabledDigestFeishuConfig keeps Feishu on but turns the self-healing
+// temporary-cooldown digest OFF (opt-in): account_incident_digest_enabled=false.
+// seconds stays > 0 to prove enable is gated on the bool, NOT on seconds.
+func disabledDigestFeishuConfig() *OpsEmailNotificationConfig {
+	cfg := enabledFeishuConfig()
+	cfg.Feishu.AccountIncidentDigestEnabled = false
+	return cfg
 }
 
 type blockingFeishuDoer struct {
@@ -82,7 +92,7 @@ func (d *blockingFeishuDoer) lastBody() string {
 }
 
 func newTestNotifier(provider opsFeishuConfigProvider, doer opsFeishuHTTPDoer, fixedNow time.Time) *TKAccountIncidentNotifier {
-	n := newTKAccountIncidentNotifier(provider, "edge-test")
+	n := newTKAccountIncidentNotifier(provider, "prod")
 	n.httpClient = doer
 	n.now = func() time.Time { return fixedNow }
 	return n
@@ -113,6 +123,7 @@ func TestClassifyIncident(t *testing.T) {
 		{"openai_403_temp", time.Now(), IncidentKindUnknown, IncidentKindTemporaryCooldown, "403"},
 		{"temp_unschedulable", time.Now(), IncidentKindUnknown, IncidentKindTemporaryCooldown, "temp"},
 		{"stream_timeout_temp_unschedulable", time.Now(), IncidentKindUnknown, IncidentKindTemporaryCooldown, "temp"},
+		{"kiro_quota_limit", time.Time{}, IncidentKindUnknown, IncidentKindPermanentDisable, "kiro_quota_limit"},
 		// unknown reason → fall back to until/kind
 		{"mystery", time.Time{}, IncidentKindUnknown, IncidentKindPermanentDisable, "other"},
 		{"mystery", time.Now(), IncidentKindUnknown, IncidentKindTemporaryCooldown, "other"},
@@ -149,6 +160,14 @@ func TestSiteFromFrontendURL(t *testing.T) {
 	for in, want := range cases {
 		require.Equal(t, want, siteFromFrontendURL(in), "input=%q", in)
 	}
+}
+
+func TestIsEdgeFrontendURL(t *testing.T) {
+	t.Parallel()
+	require.True(t, IsEdgeFrontendURL("https://api-us3.tokenkey.dev"))
+	require.False(t, IsEdgeFrontendURL("https://api.tokenkey.dev"))
+	require.False(t, IsEdgeFrontendURL(""))
+	require.False(t, IsEdgeFrontendURL("https://gateway.example.com"))
 }
 
 func TestNotifyPermanentSendsImmediately(t *testing.T) {
@@ -197,6 +216,104 @@ func TestNotifyTemporaryBuffersUntilFlush(t *testing.T) {
 	// buffer cleared after flush
 	n.mu.Lock()
 	require.Empty(t, n.digest)
+	n.mu.Unlock()
+}
+
+// Self-healing temporary-cooldown digest is opt-in (default off). When
+// account_incident_digest_seconds<=0, a 429/529 temp cooldown must NOT buffer,
+// NOT register an active-recovery ledger entry, and NOT send — while the
+// pool-level全不可调度 P0 and permanent-failure P0 stay on their always-fire paths.
+func TestTemporaryDigestDisabled_SilencesSelfHealingButKeepsP0(t *testing.T) {
+	doer := &blockingFeishuDoer{done: make(chan struct{}, 4)}
+	fixedNow := time.Date(2026, 6, 11, 16, 50, 0, 0, time.UTC)
+	n := newTestNotifier(&fakeIncidentConfigProvider{cfg: disabledDigestFeishuConfig()}, doer, fixedNow)
+
+	// Temporary cooldown (529) is fully silenced.
+	n.NotifyAccountIncident(testAccount(1, "cc-us3", "anthropic"), fixedNow.Add(30*time.Second), "529", IncidentKindUnknown)
+	n.mu.Lock()
+	require.Empty(t, n.digest, "disabled digest must not buffer temporary cooldowns")
+	require.Empty(t, n.active, "disabled digest must not track temporary cooldowns for recovery")
+	n.mu.Unlock()
+	n.flushDigest()
+	time.Sleep(50 * time.Millisecond)
+	require.Equal(t, 0, doer.callCount(), "no temporary digest send when disabled")
+
+	// Pool-level P0 still fires.
+	n.NotifyPlatformPoolExhausted(PlatformAnthropic, testAccount(1, "cc-us3", "anthropic"), fixedNow.Add(30*time.Second), "529")
+	select {
+	case <-doer.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("pool-exhausted P0 must still fire when digest disabled")
+	}
+	require.Equal(t, 1, doer.callCount())
+	require.Contains(t, doer.lastBody(), "平台池全不可调度")
+
+	// Permanent failure P0 still fires immediately.
+	n.NotifyAccountIncident(testAccount(2, "cc-us6", "anthropic"), time.Time{}, "auth_error", IncidentKindUnknown)
+	select {
+	case <-doer.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("permanent P0 must still fire when digest disabled")
+	}
+	require.Equal(t, 2, doer.callCount())
+}
+
+func TestModelClassCooldownDetailSubdividesDigest(t *testing.T) {
+	doer := &blockingFeishuDoer{done: make(chan struct{}, 1)}
+	n := newTestNotifier(&fakeIncidentConfigProvider{cfg: enabledFeishuConfig()}, doer, time.Unix(1700000000, 0))
+
+	// Same reasonClass (429_model_class) but two different upstream dimensions →
+	// must NOT collapse into one line; the operator needs to see opus vs sonnet.
+	n.NotifyAccountIncident(testAccount(1, "edge-ls-oh-3-d", "anthropic"), time.Now().Add(time.Hour), "429_model_class", IncidentKindUnknown, "opus·5h 窗口")
+	n.NotifyAccountIncident(testAccount(2, "cc-main", "anthropic"), time.Now().Add(time.Hour), "429_model_class", IncidentKindUnknown, "sonnet·7d 窗口")
+
+	n.mu.Lock()
+	require.Len(t, n.digest, 2, "two distinct details must produce two digest entries")
+	n.mu.Unlock()
+
+	n.flushDigest()
+	select {
+	case <-doer.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("digest flush did not send within 2s")
+	}
+	body := doer.lastBody()
+	require.Contains(t, body, "模型类限流冷却")
+	require.Contains(t, body, "opus·5h 窗口")
+	require.Contains(t, body, "sonnet·7d 窗口")
+	require.Contains(t, body, "edge-ls-oh-3-d")
+}
+
+func TestAccount429WindowDetailRendered(t *testing.T) {
+	doer := &blockingFeishuDoer{done: make(chan struct{}, 1)}
+	n := newTestNotifier(&fakeIncidentConfigProvider{cfg: enabledFeishuConfig()}, doer, time.Unix(1700000000, 0))
+
+	n.NotifyAccountIncident(testAccount(55, "cc-us6", "anthropic"), time.Now().Add(time.Hour), "429", IncidentKindUnknown, "5h 窗口")
+
+	n.flushDigest()
+	select {
+	case <-doer.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("digest flush did not send within 2s")
+	}
+	body := doer.lastBody()
+	require.Contains(t, body, "限流冷却（429）｜5h 窗口")
+	require.Contains(t, body, "cc-us6")
+	// Footer must correct the rpm/concurrency/session misconception (Q2).
+	require.Contains(t, body, "非 TK 内部 rpm/并发/会话 配额")
+	require.Contains(t, body, "no available accounts")
+}
+
+func TestEmptyDetailKeepsLegacyDigestKey(t *testing.T) {
+	doer := &blockingFeishuDoer{}
+	n := newTestNotifier(&fakeIncidentConfigProvider{cfg: enabledFeishuConfig()}, doer, time.Unix(1700000000, 0))
+
+	// No detail (e.g. OpenAI / fallback 429) must still aggregate under the bare
+	// reasonClass key, preserving historical behaviour.
+	n.NotifyAccountIncident(testAccount(9, "openai-1", "openai"), time.Now().Add(time.Minute), "429", IncidentKindUnknown)
+	n.mu.Lock()
+	require.NotNil(t, n.digest["429"], "empty-detail 429 must key under bare reasonClass")
+	require.Equal(t, "", n.digest["429"].detail)
 	n.mu.Unlock()
 }
 

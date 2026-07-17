@@ -18,6 +18,26 @@
       "rationale": "TK companion that partitions the OpenAI-compat scheduling pool by `group.platform`. Without it, scheduling falls back to bare `IsOpenAI()` and silently excludes all newapi accounts (the original P0 regression that triggered docs/approved/newapi-as-fifth-platform.md)."
     },
     {
+      "path": "backend/internal/service/account_usage_service_tk_window_adapter.go",
+      "must_contain": [
+        "func accountUsageWindowAdapterFor(account *Account) accountUsageWindowAdapter",
+        "account.IsGrok() || account.Platform == PlatformNewAPI",
+        "return accountUsageWindowAdapterLocal",
+        "accountUsageWindowAdapterSupportsPassive",
+        "accountUsageWindowAdapterLocal"
+      ],
+      "rationale": "NewAPI accounts, including Vertex service_account channel_type=41, do not expose a common upstream percentage-quota protocol. They must stay in the shared local-window adapter so admin accounts and edge overview show TokenKey 5h/7d billing windows from usage_logs instead of '-'. Dropping this adapter branch recreates the empty-window operator bug."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service_tk_upstream_quota.go",
+      "must_contain": [
+        "func attachUpstreamQuotaForAccount",
+        "account.Platform == PlatformNewAPI",
+        "unsupportedUpstreamQuota(PlatformNewAPI"
+      ],
+      "rationale": "Unified upstream_quota projection must explicitly mark NewAPI/Vertex as unsupported rather than leaving the field absent. NewAPI channel providers have heterogeneous balance/quota APIs; Vertex service_account channel_type=41 currently has no GCP Billing/Monitoring/Service Usage integration, so the UI must show a clear unsupported upstream-quota state while local usage windows remain available."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_service_tk_newapi_pool.go",
       "must_contain": [
         "listOpenAICompatSchedulableAccounts",
@@ -96,17 +116,21 @@
       "must_contain": [
         "DispatchVideoSubmit",
         "DispatchVideoFetch",
-        "IsVideoSupportedChannelType"
+        "IsVideoSupportedChannelType",
+        "videoFetchResponseMaxBytes",
+        "errVideoFetchResponseTooLarge"
       ],
-      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. Without these symbols the gateway routes silently 5xx because no other code drives task adaptors. An upstream merge that drops this file regresses every Volcengine video customer."
+      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. Without these symbols the gateway routes silently 5xx because no other code drives task adaptors. videoFetchResponseMaxBytes / errVideoFetchResponseTooLarge are the pressure guard for upstreams that return inline video bytes: TokenKey may deliver one bounded response to the client, never accept unbounded media into memory."
     },
     {
       "path": "backend/internal/service/video_task_registry.go",
       "must_contain": [
         "VideoTaskCache",
-        "VideoTaskRecord"
+        "VideoTaskRecord",
+        "BillingRequestID",
+        "MediaS3Key"
       ],
-      "rationale": "Service-side interface (VideoTaskCache) + DTO (VideoTaskRecord) for the video task registry. Concrete impl lives in repository/video_task_cache.go (Redis-backed; depguard forbids service from importing redis directly). Removing this file collapses the entire video-fetch path: handler can't compile, dispatch helper can't compile, registry routing pin disappears."
+      "rationale": "Service-side interface (VideoTaskCache) + DTO (VideoTaskRecord) for the video task registry. Concrete impl lives in repository/video_task_cache.go (Redis-backed; depguard forbids service from importing redis directly). Removing this file collapses the entire video-fetch path: handler can't compile, dispatch helper can't compile, registry routing pin disappears. BillingRequestID is the refund anchor stamped at submit (matches usage_logs.request_id); dropping the field silently disables every terminal-failure refund. MediaS3Key is retained only as a legacy pointer for records already offloaded before video delivery switched to upstream URL passthrough / bounded one-time inline delivery."
     },
     {
       "path": "backend/internal/repository/video_task_cache.go",
@@ -148,6 +172,16 @@
         "OPENAI_COMPAT_PLATFORMS"
       ],
       "rationale": "Canonical 5-platform enumeration consumed by every admin UI picker, filter, and segmented control. Dropping `newapi` here silently removes the platform from every selector."
+    },
+    {
+      "path": "frontend/src/utils/accountUsageBatch.tk.ts",
+      "must_contain": [
+        "export function usesLocalUsageWindows(account: Account): boolean",
+        "account.platform === PLATFORM_NEWAPI || account.platform === PLATFORM_GROK",
+        "account.platform === PLATFORM_ANTIGRAVITY && account.type !== 'oauth'",
+        "if (usesLocalUsageWindows(account)) return true"
+      ],
+      "rationale": "Frontend SSOT for local-window usage rows. NewAPI Vertex, Grok, and Antigravity relay stubs are served by the passive batch endpoint and render generic 5h/7d bars; losing this helper or narrowing it blanks those rows or reintroduces per-row /usage fan-out."
     },
     {
       "path": "frontend/src/composables/usePlatformOptions.ts",
@@ -207,14 +241,24 @@
       "rationale": "The shared NewAPI field component must pass #128 pricing_status metadata into the whitelist selector without changing submit semantics. Dropping this binding compiles cleanly but regresses the pricing-source-of-truth UI contract."
     },
     {
+      "path": "frontend/src/components/account/AccountNewApiPlatformFields.vue",
+      "must_contain": [
+        "hideTransportCredentials",
+        "v-if=\"!hideTransportCredentials\""
+      ],
+      "rationale": "newapi + Vertex service_account (channel_type=41) authenticates via SA JSON, not base_url/api_key (ChannelBaseURLs[41]=VertexAI is empty). The EditAccountModal SA branch passes :hide-transport-credentials=true so this shared component suppresses the base_url (required-starred) + api_key inputs whose edits that submit path silently drops. Dropping the prop or the v-if guard compiles cleanly but re-surfaces a misleading required base_url field — exactly the silent-regression class sentinels guard. Paired with the EditAccountModal pass-site literal in frontend-tk.json."
+    },
+    {
       "path": "frontend/src/components/account/ModelWhitelistSelector.vue",
       "must_contain": [
         "modelValue: unknown[]",
         "const modelID = (value: unknown): string",
         "selectedModels",
-        "pricingStatusByModel"
+        "pricingStatusByModel",
+        "useServableModels",
+        "const effectivePlatforms = computed"
       ],
-      "rationale": "The selector is the UI crash point from the production incident: object-shaped model entries from #128 must be normalized to IDs before includes/render paths, while pricing_status remains badge metadata only. Upstream merges touching this shared component can revert to string[] assumptions without compile failures."
+      "rationale": "The selector is the UI crash point from the production incident: object-shaped model entries from #128 must be normalized to IDs before includes/render paths, while pricing_status remains badge metadata only. R-003: it also derives its candidate lists from the self-healing backend (useServableModels.ensureLoaded + effectivePlatforms, which fall back to all API-backed platforms when none is selected) instead of hardcoded arrays. Upstream merges touching this shared component can revert to string[] assumptions OR re-hardcode the candidate source without compile failures; these anchors pin both contracts."
     },
     {
       "path": "frontend/src/components/common/ModelIcon.vue",
@@ -231,9 +275,10 @@
         "function normalizeModelID(value: unknown): string",
         "allowedModels: unknown[]",
         "const model = normalizeModelID(item)",
-        "claude-opus-4-7"
+        "isApiBackedPlatform(platform)",
+        "return servableModelsFor(platform) ?? []"
       ],
-      "rationale": "buildModelMappingObject must tolerate stale object entries and emit only string-to-string model_mapping pairs. Without this normalization, the submit path can hit `includes is not a function` or persist invalid object-shaped model mappings after #128 responses. This file also owns the admin default model lists; keep Claude defaults on currently-available 4.5/4.6/4.7 models and do not re-add (a) retired 3.x snapshots: claude-3-7-sonnet-20250219, claude-3-5-sonnet-20241022, claude-3-5-sonnet-20240620, claude-3-5-haiku-20241022, claude-3-haiku-20240307, claude-3-opus-20240229, claude-3-sonnet-20240229 — Anthropic API returns not_found_error for these (model-deprecations page verified 2026-05-21); nor (b) deprecated 4.0 snapshots claude-sonnet-4-20250514 and claude-opus-4-20250514 which Anthropic retires on 2026-06-15."
+      "rationale": "Two load-bearing contracts. (1) buildModelMappingObject must tolerate stale object entries and emit only string-to-string model_mapping pairs (normalizeModelID), or the submit path hits `includes is not a function` after #128 responses. (2) R-003 self-heal: the per-platform candidate lists are NO LONGER hardcoded here — getModelsByPlatform routes the API-backed platforms (anthropic/openai/gemini/antigravity) to servableModelsFor (the self-healing backend cache from useServableModels), keeping only newapi + the long-tail providers static. An upstream merge that re-hardcodes claude/openai/gemini arrays here would re-introduce retired/access-gated models (e.g. claude-fable-5) and defeat the self-heal; these anchors pin the API derivation. (The retired-model list that used to live here moved to the backend allowlist + pricing-availability sentinels.)"
     },
     {
       "path": "backend/internal/service/pricing_catalog_membership_tk.go",
@@ -248,10 +293,11 @@
       "must_contain": [
         "MePricingAccountSource",
         "fillAccountFallback",
+        "NewAPIModelDisplayIDsForChannelType(a.ChannelType)",
         "parseWhitelistFromCredentials",
         "buildAccountFallbackEntry"
       ],
-      "rationale": "Post-#325/#326 bridge: /api/v1/me/pricing-catalog (Your Menu) falls back to accounts.credentials.model_mapping whitelist entries when no channel-configured pricing covers the target group's models. fillAccountFallback (renamed from fillWhitelistFallback when it grew the unrestricted-account → platform-default-models branch) is the entry point. Without these symbols, openai/newapi accounts whose operator only configured the admin 'model whitelist' (gateway routing limit) — but never created a Channel row + channel_model_pricing entry — render an empty pricing menu for users holding keys on that group, even though the gateway is happy to serve those models. This is the regression behind the TK 2026-05-21 local-stack incident: 17 GPT-family models in the GPT account's whitelist showed zero rows in /pricing until the bridge landed."
+      "rationale": "Post-#325/#326 bridge: /api/v1/me/pricing-catalog (Your Menu) falls back to accounts.credentials.model_mapping whitelist entries when no channel-configured pricing covers the target group's models. fillAccountFallback (renamed from fillWhitelistFallback when it grew the unrestricted-account → platform-default-models branch) is the entry point. Newapi account fallback MUST use NewAPIModelDisplayIDsForChannelType keyed by each account's channel_type: Vertex ch41 uses the Gemini/Vertex empirical catalog (so veo-3.1-generate-001 stays visible to universal keys), while Qwen/DeepSeek/VolcEngine use the tk_served_models manifest display=true subset and unknown channels stay hidden. Reverting to AccountModelMappingPresetIDs would leak non-display provisioning rows or historical direct-only rows into Group Catalog; reverting to a single tk_served_models manifest gate silently drops Vertex/Veo from full-key Studio; removing the fallback symbols re-opens the TK 2026-05-21 empty menu incident."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler.go",
@@ -281,9 +327,52 @@
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
       "must_contain": [
-        "ImageCount: out.ImageCount"
+        "ImageCount: out.ImageCount",
+        "EnableThinking: tkThinkingModeActiveFromBody(body)"
       ],
-      "rationale": "Per-image billing for imagen via the newapi bridge: ForwardAsImageGenerationsDispatched must propagate bridge.DispatchOutcome.ImageCount onto OpenAIForwardResult, otherwise the gateway's `result.ImageCount > 0` branch never fires and imagen bills by tokens instead of output_cost_per_image (silent under-charge). Pairs with the TK pricing overlay (without a resolvable per-image price the count is moot; without the count the resolved price never applies). An upstream merge restructuring the bridge image dispatch could drop this one line."
+      "rationale": "Per-image billing for imagen via the newapi bridge: ForwardAsImageGenerationsDispatched must propagate bridge.DispatchOutcome.ImageCount onto OpenAIForwardResult, otherwise the gateway's `result.ImageCount > 0` branch never fires and imagen bills by tokens instead of output_cost_per_image (silent under-charge). Pairs with the TK pricing overlay (without a resolvable per-image price the count is moot; without the count the resolved price never applies). An upstream merge restructuring the bridge image dispatch could drop this one line. SECOND result-field propagation in the same file (Qwen3 thinking-mode billing): the chat/completions + responses dispatch results MUST set `EnableThinking: tkThinkingModeActiveFromBody(body)`, otherwise OpenAIForwardResult.EnableThinking defaults to false and computeTokenBreakdown bills the non-thinking output rate even when the request ran in thinking mode (the default for DashScope dense Qwen3) — a silent under-charge with no compile error. The selection it feeds is anchored in pricing-availability.json (billing_service.go)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "must_contain": [
+        "shouldFallbackNewAPIResponsesToChat(apiErr)",
+        "forwardResponsesViaNewAPIBridgeChatCompletions",
+        "isNewAPIResponsesProactiveChatFallbackModel(requestedModel)",
+        "applyNewAPIQwenNonStreamingShape"
+      ],
+      "rationale": "NewAPI channels can support /v1/chat/completions while their adaptor does not implement ConvertOpenAIResponsesRequest for /v1/responses (prod probes: Vertex ch41 and DeepSeek ch43). ForwardAsResponsesDispatched must detect that convert_request_failed/not implemented capability gap and route through the Responses->Chat fallback companion instead of returning a client 500. Native chat dispatch must also normalize dense Qwen3 non-streaming requests through applyNewAPIQwenNonStreamingShape; otherwise DashScope rejects enable_thinking with a client-visible 400. Dropping either injection silently breaks a supported NewAPI path."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_responses_fallback.go",
+      "must_contain": [
+        "ResponsesToChatCompletionsRequest",
+        "dispatchNewAPIChatCompletions",
+        "isNewAPIResponsesConvertNotImplemented",
+        "applyNewAPIResponsesChatFallbackShape",
+        "normalizeNewAPIQwenNonStreamingPayload",
+        "applyNewAPIQwenNonStreamingShape",
+        "bufferChatCompletionsAsResponses",
+        "bufferStreamChatCompletionsAsResponses",
+        "streamChatCompletionsAsResponses"
+      ],
+      "rationale": "TK companion for NewAPI /v1/responses fallback: convert the client Responses request to Chat Completions, dispatch through the NewAPI bridge, then convert the captured Chat response back to Responses JSON/SSE. It also owns the shared dense-Qwen3 non-streaming request shape used by native chat dispatch. GLM/Qwen stream-only upstream shaping must buffer SSE into JSON for non-stream clients, while dense Qwen3 must send enable_thinking=false when stream=false. Without this file ch41/ch43 regress to conversion errors or upstream request-validation 400s."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_model_mapping_test.go",
+      "must_contain": [
+        "TestForwardAsChatCompletionsDispatched_QwenNonStreamingDisablesThinking"
+      ],
+      "rationale": "Full bridge-boundary regression for the production Qwen3 non-streaming failure: a client-supplied enable_thinking=true must reach the NewAPI adaptor as false after model rewrite. This anchors the real dispatch call site rather than only testing the shape helper."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_responses_chat_fallback_test.go",
+      "must_contain": [
+        "TestApplyNewAPIQwenNonStreamingShape",
+        "streaming qwen preserves thinking",
+        "other models remain unchanged",
+        "unrelated large integers retain precision"
+      ],
+      "rationale": "Boundary tests for the shared Qwen request-shape owner: normalize only non-streaming dense Qwen3 requests, preserve streaming thinking, leave unrelated models byte-identical, and patch without rounding large JSON integers elsewhere in the request."
     },
     {
       "path": "backend/internal/service/pricing_service.go",
@@ -291,6 +380,156 @@
         "applyTKPricingOverlay(result)"
       ],
       "rationale": "TK pricing overlay injection point inside parsePricingData — the single choke-point both the remote (Wei-Shaw) and disk-fallback load paths funnel through. The production price source is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries (and litellm itself lags new provider models like deepseek-v4-*), so those models resolve to nothing there; this fill-only overlay (companion pricing_service_tk_overlay.go, embedded tk_pricing_overlay.json) supplies the bare-name entries so per-image / per-second / per-token billing applies. If an upstream merge restructures parsePricingData and drops this one-line call, imagen silently reverts to the $0.134 default, veo to $0, and deepseek-v4-* to $0 (pricing_missing_record_zero_cost). The companion file's go:embed also makes the overlay JSON's presence build-enforced."
+    },
+    {
+      "path": "backend/internal/service/pricing_service_tk_overlay.go",
+      "must_contain": [
+        "p.CacheCreationInputTokenCostAbove1hr = *e.CacheCreationInputTokenCostAbove1hr",
+        "tkBuildOverlayIntervals(ext.Intervals)"
+      ],
+      "rationale": "The overlay loader manually copies LiteLLMRawEntry fields into LiteLLMModelPricing; a missing copy is invisible at compile time and silently zeroes that price for every overlay-only model. This exact field was dropped once in prod: claude-fable-5 (absent from the trimmed runtime source, priced only by the overlay) billed all 1h cache-creation tokens at the 5m rate ($12.50/MTok instead of the official $20/MTok) because billing_service.go's breakdown predicate price1h>price5m saw price1h=0. Pinning the copy line keeps the 1h cache-write tier alive for any overlay entry carrying cache_creation_input_token_cost_above_1hr. SAME silent-drop class for tiered pricing: the loader MUST parse the overlay 'intervals' array via tkBuildOverlayIntervals(ext.Intervals) (a second raw-entry unmarshal, because the upstream LiteLLMRawEntry has no intervals field); dropping it silently flattens every overlay-tiered model (qwen plus/flash/coder, doubao-*/glm-4.7/deepseek-v3.2) to its base tier with no compile error."
+    },
+    {
+      "path": "backend/internal/service/pricing_service_tk_overlay_test.go",
+      "must_contain": [
+        "TestBilling_Fable1hCacheCreationCost_ProdShape"
+      ],
+      "rationale": "Regression reproduction with the prod token shape (cache_creation_5m=0, cache_creation_1h=684124) asserting the corrected $13.68 cache-creation cost end-to-end through GetModelPricing + CalculateCost. Dropping this test re-opens the silent 5m-rate undercharge path for overlay-priced models with a 1h cache tier."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_penalty_tk.go",
+      "must_contain": [
+        "tkHandleBridgeUpstreamPenalty",
+        "tkWrapBridgeRelayErrorWithPenalty",
+        "tkBridgePenaltyStatusEligible",
+        "tkHandleBridgeArrearsPenalty(ctx, rls, account, apiErr)"
+      ],
+      "rationale": "TK companion that routes real bridge.Dispatch* upstream errors (401/402/429 allowlist) into RateLimitService.HandleUpstreamError so newapi accounts get disabled/cooled and the Feishu account-incident alert fires. Without it the fifth platform regresses to the 2026-06-11 prod incident: a 402 'Insufficient Balance' DeepSeek account stayed schedulable=true while the gateway hammered the exhausted upstream 6946 times in 2h with zero alerts. The narrow status allowlist is itself load-bearing: it is what keeps client-induced 400/404 (and the synthetic missing-credential/unsupported-channel 400s) from draining the pool (the #617 class). The tkHandleBridgeArrearsPenalty call MUST run BEFORE the tkBridgePenaltyStatusEligible allowlist (which excludes 400): an upstream DashScope arrears 400 ('Arrearage') is an account-standing failure disguised as a client 400 and must cool+alert, not pass through. Reordering it after the allowlist (or dropping it) silently re-opens the 2026-06-12 prod incident where account 60 'Qwen' stayed schedulable with confusing 400s and no recharge alert."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_arrears_tk.go",
+      "must_contain": [
+        "tkIsBridgeUpstreamArrears",
+        "tkHandleBridgeArrearsPenalty",
+        "tkBridgeArrearsIncidentReason",
+        "arrearage"
+      ],
+      "rationale": "TK companion implementing the narrow upstream account-standing / arrears (欠费) classifier + account-level penalty + immediate Feishu alert for the fifth platform. tkIsBridgeUpstreamArrears matches ONLY the DashScope/百炼 arrears verdict (provider code/type == 'Arrearage' case-insensitive, OR message containing 'account is in good standing' / 'overdue' / 'arrear') — never a generic client 400, which would re-open the #617 pool-drain. tkHandleBridgeArrearsPenalty cools the account (SetTempUnschedulable, NOT hard-disable, so a recharge auto-recovers) and funnels the incident through notifyAccountSchedulingBlocked with reason 'newapi_arrears'. Dropping any symbol or weakening the matcher regresses the 2026-06-12 prod incident (account 60 'Qwen' arrears → confusing pass-through 400 + no alert) or, if widened, drains the pool on legitimate client 400s."
+    },
+    {
+      "path": "backend/internal/service/account_incident_notifier_tk.go",
+      "must_contain": [
+        "case \"newapi_arrears\":",
+        "IncidentKindPermanentDisable, \"newapi_arrears\", \"上游账号欠费\""
+      ],
+      "rationale": "classifyIncident MUST map reason 'newapi_arrears' to the IMMEDIATE P0 card path (IncidentKindPermanentDisable), NOT the temporary-cooldown digest that PR #730 made default-OFF. Upstream arrears is persistent until a human recharges — it will not self-heal — so folding it into the silenced self-healing digest would mean operators never learn the upstream account needs a recharge. Re-mapping it to IncidentKindTemporaryCooldown silently regresses the 2026-06-12 alerting gap."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "must_contain": [
+        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)"
+      ],
+      "must_not_contain": [
+        "tkWrapBridgeRelayError(c, apiErr)"
+      ],
+      "rationale": "Every real-upstream-error dispatch site in the OpenAI-gateway bridge boundary (chat/responses/embeddings/images, 4 sites) must call the penalty-wrapping chokepoint. The 4 call lines are textually identical, so must_contain alone cannot catch a partial revert — must_not_contain asserts ZERO penalty-less tkWrapBridgeRelayError(c, apiErr) calls remain in this file, which catches any single site regressing. A refactor that reverts to the plain wrapper silently disconnects the newapi account-penalty path with no compile error."
+    },
+    {
+      "path": "backend/internal/service/gateway_bridge_dispatch.go",
+      "must_contain": [
+        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)",
+        "rewriteNewAPIBridgeBodyModel(account, body, \"\")"
+      ],
+      "must_not_contain": [
+        "tkWrapBridgeRelayError(c, apiErr)"
+      ],
+      "rationale": "The Anthropic-gateway bridge boundary (GatewayService ForwardAsChatCompletionsDispatched / ForwardAsResponsesDispatched, 2 sites) is the same penalty chokepoint class as openai_gateway_bridge_dispatch.go and must stay wired identically: zero penalty-less tkWrapBridgeRelayError(c, apiErr) calls. Without this entry only the OpenAI-gateway file was anchored and a refactor here would silently drop the account penalty for messages-dispatch newapi traffic. Both bridge dispatch sites must also rewrite body.model via rewriteNewAPIBridgeBodyModel so dated GLM ids reach DashScope as glm-4.7."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic.go",
+      "must_contain": [
+        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)"
+      ],
+      "rationale": "ForwardAsAnthropicDispatched is the 7th penalty wiring site (anthropic-shaped requests routed over the newapi bridge). Same risk class as the other dispatch boundaries: reverting to the plain wrapper compiles clean and silently disconnects the account penalty."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
+      "must_contain": [
+        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)",
+        "No account penalty here"
+      ],
+      "rationale": "Video SUBMIT must penalize (the selected account is in hand); video FETCH must NOT (account-agnostic VideoTaskCache registry routing — a poll failure long after submit must not punish whichever account currently maps to the channel). Anchors the submit-site penalty call plus the fetch-path exemption comment so neither side of the asymmetry is silently flattened: no must_not_contain here because the fetch path legitimately keeps the plain tkWrapBridgeRelayError."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "// image-partial-result path and never fires for plain chat errors.\n\t\t\t\tif TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, writerSizeBeforeForward) {"
+      ],
+      "rationale": "Chat-completions handler must preserve the NewAPIRelayError's real upstream status (402/429/...) to the client instead of masking it as 502 'Upstream request failed'. The load-bearing call lives INSIDE the non-failover error branch (mirroring the /v1/responses handler); the file contains a SECOND textually-identical call further down that is only reachable on the image-partial-result path, so a bare single-line needle would still pass after a merge dropped the reachable branch. The needle therefore pins the comment tail + if-line contiguous to the in-branch site; a merge that drops it reverts every newapi chat bridge error to an opaque 502 (the 2026-06-11 DeepSeek incident shape, 6946 masked 402s)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "s.notifyAccountSchedulingBlocked(account, time.Time{}, \"auth_error\", errorMsg)"
+      ],
+      "rationale": "handleAuthError must forward the upstream error message as the Feishu permanent-disable card detail (e.g. 'Payment required (402): Insufficient Balance'). notifyAccountSchedulingBlocked's detail parameter is variadic, so an upstream merge reverting this call to the bare 3-arg form compiles clean and silently strips the upstream status/message from the P0 card — losing the alert-content half of the 2026-06-11 incident fix while the alert itself still fires."
+    },
+    {
+      "path": "backend/internal/integration/newapi/balance_probe_tk.go",
+      "must_contain": [
+        "func BalanceProbeFor",
+        "newapiconstant.ChannelTypeDeepSeek: ProbeDeepSeekBalance"
+      ],
+      "rationale": "Per-channel upstream balance-probe dispatch for the fifth platform. The DeepSeek registry binding is the only thing wiring channel_type=43 to a real /user/balance probe; dropping it (or BalanceProbeFor) compiles clean and silently turns the upstream low-balance sentinel into a no-op (it lists accounts, finds no probe, alerts nothing) — re-opening the 2026-06-11 DeepSeek balance-zero blind spot the sentinel exists to pre-empt. Only channels with a per-api-key balance endpoint belong here (火山/千问 balances are cloud-account-level AK/SK billing APIs, intentionally absent)."
+    },
+    {
+      "path": "backend/internal/service/upstream_balance_sentinel_tk.go",
+      "must_contain": [
+        "newapi.BalanceProbeFor(acc.ChannelType)",
+        "s.notifier.NotifyUpstreamBalanceLow",
+        "ListByPlatform(ctx, PlatformNewAPI)"
+      ],
+      "rationale": "The poll->detect->alert chain of the upstream low-balance sentinel: list newapi accounts, probe those exposing a per-key balance API, fire a pre-emptive Feishu warning below threshold. An upstream merge that drops any link (the PlatformNewAPI listing, the BalanceProbeFor lookup, or the NotifyUpstreamBalanceLow call) compiles clean but silently disables proactive low-balance alerting, leaving only the reactive #724 402 path that fires after the account is already balance-exhausted and permanently disabled."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "ProvideUpstreamBalanceSentinel,"
+      ],
+      "rationale": "ProviderSet member that constructs AND Start()s the upstream low-balance sentinel. The sentinel is a side-effect service consumed only by provideCleanup, so if an upstream merge drops this wire.NewSet entry together with the provideCleanup wiring, Wire regenerates clean with no sentinel and the background poller silently never starts. The trailing comma pins the set member specifically (dropping the provider func instead fails compile, so only the registration needs guarding)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_video_refund.go",
+      "must_contain": [
+        "RefundVideoUsageOnFailure",
+        "buildVideoRefundFromUsage",
+        "TkVideoRefundRequestIDPrefix"
+      ],
+      "rationale": "TK companion that reverses the submit-time video charge when the upstream reports terminal failed: looks up the original usage_logs row by VideoTaskRecord.BillingRequestID, applies the money rollback at-most-once, writes the double-entry video_refund compensation row. Removing it silently reverts to charge-and-never-refund for every failed video task."
+    },
+    {
+      "path": "backend/internal/repository/usage_billing_repo_tk_video_refund.go",
+      "must_contain": [
+        "ApplyVideoRefund",
+        "claimUsageBillingKey",
+        "GREATEST"
+      ],
+      "rationale": "Money-movement half of the video refund: claims the same usage_billing_dedup key space as forward billing (idempotent under concurrent terminal polls), returns balance / rolls back subscription usage with a GREATEST(...,0) floor, releases api-key quota and re-activates exhausted keys. Removing it makes RefundVideoUsageOnFailure silently skip (type assertion misses) — refunds stop without any compile error."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_tk_video_refund.go",
+      "must_contain": [
+        "GetVideoUsageByBillingRequestID"
+      ],
+      "rationale": "Read half of the video refund: finds the original billing_mode='video' usage row by (request_id, user_id). Removing it makes the refund's type assertion miss and every refund silently skip."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_tk_video_contract_test.go",
+      "must_contain": [
+        "TestVideoTerminalOutcome_NewAPITaskStatusContract",
+        "TestVideoSubmitHasVideoInput_ParityWithNewAPIMetadataDecoding"
+      ],
+      "rationale": "Upstream-merge overwrite-protection gates for the video refund + video-input price guard: lock TK's terminal-status classification to the pinned new-api model.TaskStatus* constants and the input guard to TaskSubmitReq's accepted metadata carrier shapes (incl. metadata-as-JSON-string). Deleting these tests re-opens the silent-drift channel they exist to close — a .new-api-ref bump could rename statuses (refunds stop firing) or add carrier shapes (guard bypassed) with zero compile errors."
     }
   ]
 }

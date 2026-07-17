@@ -22,6 +22,12 @@ func TestNormalizeArkChannelBaseURL(t *testing.T) {
 		{newapiconstant.ChannelTypeVolcEngine, "https://ark.cn-beijing.volces.com/api/v3/models", "https://ark.cn-beijing.volces.com"},
 		{newapiconstant.ChannelTypeDoubaoVideo, "https://ark.cn-beijing.volces.com/api/v3", "https://ark.cn-beijing.volces.com"},
 		{1, "https://ark.cn-beijing.volces.com/api/v3", "https://ark.cn-beijing.volces.com/api/v3"},
+		{newapiconstant.ChannelTypeZhipu_v4, "https://open.bigmodel.cn", "https://open.bigmodel.cn"},
+		{newapiconstant.ChannelTypeZhipu_v4, "https://open.bigmodel.cn/api/paas/v4", "https://open.bigmodel.cn"},
+		{newapiconstant.ChannelTypeZhipu_v4, "https://open.bigmodel.cn/api/paas/v4/", "https://open.bigmodel.cn"},
+		{newapiconstant.ChannelTypeZhipu_v4, "https://open.bigmodel.cn/api/paas/v4/chat/completions", "https://open.bigmodel.cn"},
+		{newapiconstant.ChannelTypeZhipu_v4, "https://open.bigmodel.cn/api/paas/v4/models", "https://open.bigmodel.cn"},
+		{newapiconstant.ChannelTypeZhipu, "https://open.bigmodel.cn/api/paas/v4", "https://open.bigmodel.cn/api/paas/v4"},
 	}
 	for _, tt := range tests {
 		got := NormalizeArkChannelBaseURL(tt.channelType, tt.in)

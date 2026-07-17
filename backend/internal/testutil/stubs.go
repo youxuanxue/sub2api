@@ -76,6 +76,9 @@ func (c StubConcurrencyCache) GetAccountConcurrencyBatch(_ context.Context, acco
 func (c StubConcurrencyCache) CleanupExpiredAccountSlots(_ context.Context, _ int64) error {
 	return nil
 }
+func (c StubConcurrencyCache) CleanupExpiredAccountSlotKeys(_ context.Context) error {
+	return nil
+}
 func (c StubConcurrencyCache) CleanupStaleProcessSlots(_ context.Context, _ string) error {
 	return nil
 }
@@ -123,13 +126,4 @@ func (c StubSessionLimitCache) GetActiveSessionCountBatch(_ context.Context, _ [
 }
 func (c StubSessionLimitCache) IsSessionActive(_ context.Context, _ int64, _ string) (bool, error) {
 	return false, nil
-}
-func (c StubSessionLimitCache) GetWindowCost(_ context.Context, _ int64) (float64, bool, error) {
-	return 0, false, nil
-}
-func (c StubSessionLimitCache) SetWindowCost(_ context.Context, _ int64, _ float64) error {
-	return nil
-}
-func (c StubSessionLimitCache) GetWindowCostBatch(_ context.Context, _ []int64) (map[int64]float64, error) {
-	return nil, nil
 }

@@ -55,6 +55,7 @@ func TestUS027_StreamingEmptyResponse_SynthesizesEmptyTextBlock(t *testing.T) {
 
 	result, err := svc.handleAnthropicStreamingResponse(
 		resp, c,
+		nil,               // account
 		"claude-opus-4-6", // originalModel
 		"gpt-5.2",         // billingModel
 		"gpt-5.2",         // upstreamModel
@@ -132,7 +133,7 @@ func TestUS027_StreamingNormalText_DoesNotDoubleEmit(t *testing.T) {
 
 	svc := &OpenAIGatewayService{}
 	_, err := svc.handleAnthropicStreamingResponse(
-		resp, c, "claude-opus-4-6", "gpt-5.2", "gpt-5.2", time.Now(),
+		resp, c, nil, "claude-opus-4-6", "gpt-5.2", "gpt-5.2", time.Now(),
 	)
 	require.NoError(t, err)
 

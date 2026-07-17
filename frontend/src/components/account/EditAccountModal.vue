@@ -25,6 +25,37 @@
         ></textarea>
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
+      <div>
+        <label class="input-label">{{ t('admin.accounts.accountEmail') }}</label>
+        <input
+          v-model="accountEmail"
+          type="email"
+          class="input"
+          autocomplete="off"
+          :placeholder="t('admin.accounts.accountEmailPlaceholder')"
+          data-tour="edit-account-form-account-email"
+        />
+        <p class="input-hint">{{ t('admin.accounts.accountEmailHint') }}</p>
+      </div>
+
+      <!-- grok (7th platform, OAuth): refresh_token rotation. Blank = keep current;
+           a re-pasted token is re-validated + re-primed by the backend on save. -->
+      <div v-if="account.platform === 'grok' && account.type === 'oauth'" class="space-y-4">
+        <AccountGrokPlatformFields
+          v-model:refreshToken="grokRefreshToken"
+          v-model:baseUrl="grokBaseUrl"
+          variant="edit"
+        />
+      </div>
+
+      <!-- kiro (6th platform, OAuth): token refresh paste path. Blank secrets keep current values. -->
+      <div v-if="account.platform === 'kiro'" class="space-y-4">
+        <AccountKiroPlatformFields
+          :fields="kiro.fields"
+          variant="edit"
+          json-write-once
+        />
+      </div>
 
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
@@ -70,7 +101,9 @@
                     ? 'https://generativelanguage.googleapis.com'
                     : account.platform === 'antigravity'
                       ? 'https://cloudcode-pa.googleapis.com'
-                      : 'https://api.anthropic.com'
+                      : account.platform === 'grok'
+                        ? 'https://api-us4.tokenkey.dev'
+                        : 'https://api.anthropic.com'
               "
             />
             <p class="input-hint">{{ baseUrlHint }}</p>
@@ -92,7 +125,9 @@
                     ? 'AIza...'
                     : account.platform === 'antigravity'
                       ? 'sk-...'
-                      : 'sk-ant-...'
+                      : account.platform === 'grok'
+                        ? 'tk-edge-...'
+                        : 'sk-ant-...'
               "
             />
             <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
@@ -308,12 +343,18 @@
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.poolModeHint') }}
               </p>
+              <p v-if="isSystemManagedAnthropicStub" class="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                {{ t('admin.accounts.poolModeSystemManaged') }}
+              </p>
             </div>
             <button
               type="button"
-              @click="poolModeEnabled = !poolModeEnabled"
+              data-testid="pool-mode-toggle"
+              :disabled="isSystemManagedAnthropicStub"
+              @click="!isSystemManagedAnthropicStub && (poolModeEnabled = !poolModeEnabled)"
               :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                isSystemManagedAnthropicStub ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
                 poolModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
               ]"
             >
@@ -340,6 +381,7 @@
               :max="MAX_POOL_MODE_RETRY_COUNT"
               step="1"
               class="input"
+              :disabled="isSystemManagedAnthropicStub"
             />
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {{
@@ -356,6 +398,7 @@
               v-model="poolModeRetryStatusCodesInput"
               type="text"
               class="input"
+              :disabled="isSystemManagedAnthropicStub"
               :placeholder="DEFAULT_POOL_MODE_RETRY_STATUS_CODES.join(', ')"
             />
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -464,9 +507,90 @@
 
       </div>
 
-      <!-- OpenAI OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
+      <!-- Grok OAuth Custom Upstream URL (仅改写转发端点，OAuth 授权/刷新不受影响) -->
       <div
-        v-if="account.platform === 'openai' && account.type === 'oauth'"
+        v-if="account.platform === 'grok' && account.type === 'oauth'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="mb-3 flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.grokCustomBaseUrl.title') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.grokCustomBaseUrl.hint') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="grok-custom-base-url-toggle"
+            @click="grokOAuthCustomBaseUrlEnabled = !grokOAuthCustomBaseUrlEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              grokOAuthCustomBaseUrlEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                grokOAuthCustomBaseUrlEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+        <div v-if="grokOAuthCustomBaseUrlEnabled">
+          <input
+            v-model="grokOAuthBaseUrl"
+            type="text"
+            class="input"
+            data-testid="grok-custom-base-url-input"
+            :placeholder="t('admin.accounts.grokCustomBaseUrl.placeholder')"
+          />
+        </div>
+      </div>
+
+      <!-- Header Override Section (anthropic/openai apikey + grok apikey/oauth) -->
+      <div v-if="headerOverrideCapable" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="mb-3 flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.headerOverride.title') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.headerOverride.hint') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            @click="headerOverrideEnabled = !headerOverrideEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              headerOverrideEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                headerOverrideEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+
+        <div v-if="headerOverrideEnabled" class="space-y-3">
+          <div class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
+            <p class="text-xs text-blue-700 dark:text-blue-400">
+              <Icon name="exclamationCircle" size="sm" class="mr-1 inline" :stroke-width="2" />
+              {{ t('admin.accounts.headerOverride.info') }}
+            </p>
+          </div>
+
+          <HeaderOverrideEditor
+            :rows="headerOverrideRows"
+            @update:rows="headerOverrideRows = $event"
+          />
+        </div>
+      </div>
+
+      <!-- OpenAI/Grok OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
+      <div
+        v-if="(account.platform === 'openai' || account.platform === 'grok') && account.type === 'oauth'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -624,44 +748,12 @@
         </div>
       </div>
 
-      <!-- Vertex Service Account -->
-      <div v-if="(account.platform === 'gemini' || account.platform === 'anthropic') && account.type === 'service_account'" class="space-y-4">
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label class="input-label">Project ID</label>
-            <input
-              v-model="editVertexProjectId"
-              type="text"
-              class="input font-mono"
-              readonly
-              :placeholder="t('admin.accounts.vertexProjectIdPlaceholder')"
-            />
-            <p class="input-hint">{{ t('admin.accounts.vertexSaJsonEditHint') }}</p>
-          </div>
-          <div>
-            <label class="input-label">Location</label>
-            <select
-              v-model="editVertexLocation"
-              required
-              class="input font-mono"
-            >
-              <optgroup
-                v-for="group in VERTEX_LOCATION_OPTIONS"
-                :key="group.label"
-                :label="group.label"
-              >
-                <option
-                  v-for="option in group.options"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </optgroup>
-            </select>
-            <p class="input-hint">{{ t('admin.accounts.vertexLocationHint') }}</p>
-          </div>
-        </div>
+      <!-- Vertex Service Account (Gemini / Anthropic native platform) -->
+      <div
+        v-if="(account.platform === 'gemini' || account.platform === 'anthropic') && account.type === 'service_account'"
+        class="space-y-4"
+      >
+        <VertexServiceAccountFields :fields="vertexSa" variant="edit" json-write-once />
 
         <!-- Model Restriction Section for Service Account -->
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -836,6 +928,47 @@
               </button>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!--
+        newapi (5th platform) + Vertex service_account (channel_type=41 …).
+        These accounts (e.g. gemini-imagen-veo-paid) fell through BOTH the
+        apikey block (gated on type==='apikey') and the gemini|anthropic Vertex
+        block (gated on platform), leaving them with no editable credential
+        fields. Compose the existing pieces here: AccountNewApiPlatformFields
+        (channel_type + base_url + structured model_mapping selector) for the
+        newapi shape, plus a write-once SA JSON textarea + location for Vertex.
+      -->
+      <div
+        v-if="account.platform === 'newapi' && account.type === 'service_account'"
+        class="space-y-4"
+      >
+        <AccountNewApiPlatformFields
+          v-model:channelType="newapiChannelType"
+          v-model:baseUrl="newapiBaseUrl"
+          v-model:apiKey="newapiApiKey"
+          v-model:modelMapping="newapiModelMapping"
+          v-model:statusCodeMapping="newapiStatusCodeMapping"
+          v-model:openaiOrganization="newapiOpenAIOrganization"
+          v-model:allowedModels="newapiAllowedModels"
+          v-model:pricingStatusByModel="newapiUpstreamModelPricingStatus"
+          v-model:modelMappings="newapiModelMappings"
+          v-model:restrictionMode="newapiRestrictionMode"
+          :channel-type-options="newapiChannelTypeOptions"
+          :channel-types-loading="newapiChannelTypesLoading"
+          :channel-types-error="newapiChannelTypesError"
+          :selected-channel-type-base-url="newapiSelectedBaseUrl"
+          :fetch-models-enabled="newapiFetchModelsEnabled"
+          :fetch-models-disabled="newapiFetchModelsDisabled"
+          :fetch-models-loading="newapiFetchModelsLoading"
+          variant="edit"
+          :hide-transport-credentials="true"
+          @fetch-models="newapiHandleFetchUpstreamModels"
+        />
+
+        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+          <VertexServiceAccountFields :fields="vertexSa" variant="edit" json-write-once />
         </div>
       </div>
 
@@ -1043,6 +1176,21 @@
             </p>
           </div>
         </div>
+      </div>
+
+      <div
+        v-if="account.platform === 'antigravity' && account.type === 'oauth'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <label class="input-label">{{ t('admin.accounts.antigravityProjectIdLabel') }}</label>
+        <input
+          v-model="antigravityProjectId"
+          data-testid="antigravity-project-id-input"
+          type="text"
+          class="input font-mono"
+          :placeholder="t('admin.accounts.antigravityProjectIdPlaceholder')"
+        />
+        <p class="input-hint">{{ t('admin.accounts.antigravityProjectIdHint') }}</p>
       </div>
 
       <!-- Antigravity model restriction (applies to all antigravity types) -->
@@ -1326,7 +1474,7 @@
         </div>
       </div>
 
-      <div>
+      <div v-if="!isSparkShadow">
         <div class="mb-1 flex items-center gap-2">
           <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
           <ProxyAdBanner />
@@ -1337,8 +1485,9 @@
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
-          <input v-model.number="form.concurrency" type="number" min="1" class="input"
-            @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
+          <input v-model.number="form.concurrency" type="number" min="0" class="input"
+            @input="form.concurrency = Math.max(0, form.concurrency || 0)" />
+          <p class="input-hint">{{ t('admin.accounts.concurrencyZeroHint') }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.loadFactor') }}</label>
@@ -1352,7 +1501,7 @@
           <input
             v-model.number="form.priority"
             type="number"
-            min="1"
+            min="0"
             class="input"
             data-tour="account-form-priority"
           />
@@ -1372,7 +1521,7 @@
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -1400,9 +1549,69 @@
         </div>
       </div>
 
+      <!-- OpenAI Codex 图片工具统一策略（自动注入 + 客户端显式携带） -->
+      <div
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="overflow-hidden rounded-lg border border-sky-100 bg-sky-50/60 shadow-sm dark:border-sky-900/50 dark:bg-sky-950/20">
+          <div class="flex items-start gap-3 px-4 py-3">
+            <div class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-sky-600 shadow-sm ring-1 ring-sky-100 dark:bg-dark-800 dark:text-sky-300 dark:ring-sky-900/60">
+              <Icon name="sparkles" size="sm" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <label class="input-label mb-0">{{ t('admin.accounts.openai.codexImageTool') }}</label>
+                <span
+                  class="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                  :class="codexImageToolBadgeClass"
+                >
+                  {{ codexImageToolBadgeLabel }}
+                </span>
+              </div>
+              <p class="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+                {{ t('admin.accounts.openai.codexImageToolDesc') }}
+              </p>
+            </div>
+          </div>
+          <div class="border-t border-sky-100 bg-white/70 p-2 dark:border-sky-900/50 dark:bg-dark-800/70">
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                v-for="option in codexImageToolOptions"
+                :key="option.value"
+                type="button"
+                :data-testid="`codex-image-tool-${option.value}`"
+                @click="codexImageToolMode = option.value"
+                :class="[
+                  'group flex min-h-[62px] items-start gap-2 rounded-md border px-3 py-2 text-left transition-all',
+                  codexImageToolMode === option.value
+                    ? option.selectedCardClass
+                    : 'border-transparent bg-transparent text-slate-600 hover:border-gray-200 hover:bg-gray-50 dark:text-slate-300 dark:hover:border-dark-500 dark:hover:bg-dark-700'
+                ]"
+              >
+                <span
+                  :class="[
+                    'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors',
+                    codexImageToolMode === option.value
+                      ? option.selectedDotClass
+                      : 'border-gray-300 text-transparent group-hover:border-gray-400 dark:border-dark-500'
+                  ]"
+                >
+                  <Icon name="check" size="xs" :stroke-width="2" />
+                </span>
+                <span class="min-w-0">
+                  <span class="block text-sm font-medium">{{ option.label }}</span>
+                  <span class="mt-0.5 block text-xs leading-4 text-slate-500 dark:text-slate-400">{{ option.description }}</span>
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- OpenAI WS Mode 三态（off/ctx_pool/passthrough） -->
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -1416,7 +1625,7 @@
             </p>
           </div>
           <div class="w-52">
-            <Select v-model="openaiResponsesWebSocketV2Mode" :options="openAIWSModeOptions" />
+            <Select v-model="openaiResponsesWebSocketV2Mode" data-testid="edit-openai-ws-mode-select" :options="openAIWSModeOptions" />
           </div>
         </div>
       </div>
@@ -1504,6 +1713,24 @@
               ]"
             />
           </button>
+        </div>
+      </div>
+
+      <div
+        v-if="account?.platform === 'anthropic' && account?.type === 'apikey'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.anthropic.apiKeyAuthScheme') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.anthropic.apiKeyAuthSchemeDesc') }}
+            </p>
+          </div>
+          <select v-model="anthropicAPIKeyAuthScheme" class="input w-52 text-sm">
+            <option value="x_api_key">{{ t('admin.accounts.anthropic.apiKeyAuthSchemeXApiKey') }}</option>
+            <option value="authorization_bearer">{{ t('admin.accounts.anthropic.apiKeyAuthSchemeBearer') }}</option>
+          </select>
         </div>
       </div>
 
@@ -1630,9 +1857,41 @@
         />
       </div>
 
-      <!-- OpenAI OAuth Codex 官方客户端限制开关 -->
+      <!-- OpenAI API 长上下文计费开关 -->
       <div
-        v-if="account?.platform === 'openai' && account?.type === 'oauth'"
+        v-if="account?.platform === 'openai' && !isSparkShadow && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.longContextBilling') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.longContextBillingDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="openai-long-context-billing-toggle"
+            role="switch"
+            :aria-checked="openAILongContextBillingEnabled"
+            @click="openAILongContextBillingEnabled = !openAILongContextBillingEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              openAILongContextBillingEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                openAILongContextBillingEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+      </div>
+
+      <div
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -1663,31 +1922,73 @@
           class="mt-4 flex items-center justify-between border-l-2 border-gray-200 pl-4 dark:border-dark-600"
         >
           <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.openai.codexCLIOnlyAllowClaudeCode') }}</label>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.codexCLIOnlyAppServer') }}</label>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.openai.codexCLIOnlyAllowClaudeCodeDesc') }}
+              {{ t('admin.accounts.openai.codexCLIOnlyAppServerDesc') }}
             </p>
           </div>
           <button
             type="button"
-            @click="codexCLIOnlyAllowClaudeCodeEnabled = !codexCLIOnlyAllowClaudeCodeEnabled"
+            @click="codexCLIOnlyAppServerEnabled = !codexCLIOnlyAppServerEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              codexCLIOnlyAllowClaudeCodeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              codexCLIOnlyAppServerEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
             ]"
           >
             <span
               :class="[
                 'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                codexCLIOnlyAllowClaudeCodeEnabled ? 'translate-x-5' : 'translate-x-0'
+                codexCLIOnlyAppServerEnabled ? 'translate-x-5' : 'translate-x-0'
               ]"
             />
           </button>
         </div>
       </div>
 
+      <!-- OpenAI Codex image-generation bridge (account-level tri-state override) -->
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div>
+          <label class="input-label mb-0">{{ t('admin.accounts.openai.codexImageGenerationBridge') }}</label>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.openai.codexImageGenerationBridgeDesc') }}
+          </p>
+        </div>
+        <div class="mt-3 grid grid-cols-3 gap-2">
+          <button
+            v-for="option in codexImageGenerationBridgeOptions"
+            :key="option.value"
+            type="button"
+            :data-testid="`codex-image-bridge-${option.value}`"
+            @click="codexImageGenerationBridgeMode = option.value"
+            :class="[
+              'flex flex-col items-start rounded-lg border px-3 py-2 text-left transition-colors',
+              codexImageGenerationBridgeMode === option.value
+                ? 'border-primary-500 bg-primary-50 dark:border-primary-500 dark:bg-primary-900/20'
+                : 'border-gray-200 hover:border-gray-300 dark:border-dark-600 dark:hover:border-dark-500'
+            ]"
+          >
+            <span
+              :class="[
+                'text-sm font-medium',
+                codexImageGenerationBridgeMode === option.value
+                  ? 'text-primary-700 dark:text-primary-300'
+                  : 'text-gray-700 dark:text-gray-200'
+              ]"
+            >
+              {{ option.label }}
+            </span>
+            <span class="mt-0.5 text-[11px] leading-tight text-gray-500 dark:text-gray-400">
+              {{ option.desc }}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <div
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="flex items-center justify-between">
@@ -1810,8 +2111,14 @@
         </div>
       </div>
 
+      <!-- TK (PR #899 follow-up): the codex usage-window auto-pause is retired — the
+           window-sched tri-state guard is now the single window-avoidance mechanism
+           (backend defaults 95% sticky-only / 99% avoid, with a global kill-switch and
+           per-account override). These per-account 5h/7d threshold controls are hidden;
+           the v-model refs + save path are kept so any previously-stored thresholds
+           round-trip harmlessly. Re-enable by dropping the `false &&`. -->
       <div
-        v-if="account?.platform === 'openai'"
+        v-if="false && account?.platform === 'openai'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="space-y-2">
@@ -1888,6 +2195,36 @@
         </div>
       </div>
 
+      <!-- Anthropic OAuth 自动透传开关 -->
+      <div
+        v-if="account?.platform === 'anthropic' && (account?.type === 'oauth' || account?.type === 'setup-token')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.anthropic.oauthPassthrough') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.anthropic.oauthPassthroughDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            @click="anthropicOAuthPassthroughEnabled = !anthropicOAuthPassthroughEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              anthropicOAuthPassthroughEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                anthropicOAuthPassthroughEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+      </div>
+
       <!-- 配额控制 (Anthropic OAuth/SetupToken: 亲和 + 窗口费用 + 会话 + RPM 等) -->
       <div
         v-if="account?.platform === 'anthropic' && (account?.type === 'oauth' || account?.type === 'setup-token')"
@@ -1898,66 +2235,6 @@
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.accounts.quotaControl.hint') }}
           </p>
-        </div>
-
-        <!-- Window Cost Limit -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
-          <div class="mb-3 flex items-center justify-between">
-            <div>
-              <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.windowCost.label') }}</label>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.quotaControl.windowCost.hint') }}
-              </p>
-            </div>
-            <button
-              type="button"
-              @click="windowCostEnabled = !windowCostEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                windowCostEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  windowCostEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
-          </div>
-
-          <div v-if="windowCostEnabled" class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.limit') }}</label>
-              <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
-                <input
-                  v-model.number="windowCostLimit"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="input pl-7"
-                  :placeholder="t('admin.accounts.quotaControl.windowCost.limitPlaceholder')"
-                />
-              </div>
-              <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.limitHint') }}</p>
-            </div>
-            <div>
-              <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.stickyReserve') }}</label>
-              <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
-                <input
-                  v-model.number="windowCostStickyReserve"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="input pl-7"
-                  :placeholder="t('admin.accounts.quotaControl.windowCost.stickyReservePlaceholder')"
-                />
-              </div>
-              <p class="input-hint">{{ t('admin.accounts.quotaControl.windowCost.stickyReserveHint') }}</p>
-            </div>
-          </div>
         </div>
 
         <!-- Session Limit -->
@@ -2423,10 +2700,29 @@ import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
 import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
-import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
+import AccountKiroPlatformFields from './AccountKiroPlatformFields.vue'
+import { useTkAccountKiroPlatform } from '@/composables/useTkAccountKiroPlatform'
+import AccountGrokPlatformFields from './AccountGrokPlatformFields.vue'
+import { useTkAccountGrokPlatform } from '@/composables/useTkAccountGrokPlatform'
+import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
+import {
+  applyAntigravityProjectID,
+  applyHeaderOverride,
+  applyInterceptWarmup,
+  applyPlanType,
+  readPlanType,
+  isCustomGrokBaseUrl,
+  isHeaderOverrideCapable,
+  splitHeaderOverridesObject,
+  validateHeaderOverrideRows,
+  HEADER_OVERRIDE_ENABLED_CREDENTIAL_KEY,
+  HEADER_OVERRIDES_CREDENTIAL_KEY,
+  type HeaderOverrideRow
+} from '@/components/account/credentialsBuilder'
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
-import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
+import VertexServiceAccountFields from './VertexServiceAccountFields.vue'
+import { useVertexServiceAccountFields } from '@/composables/useVertexServiceAccountFields'
 import {
   MIRROR_PLATFORM_OPTIONS,
   normalizeMirrorPlatform,
@@ -2436,6 +2732,7 @@ import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
   OPENAI_WS_MODE_PASSTHROUGH,
+  OPENAI_WS_MODE_HTTP_BRIDGE,
   isOpenAIWSModeEnabled,
   resolveOpenAIWSModeConcurrencyHintKey,
   type OpenAIWSMode,
@@ -2448,6 +2745,20 @@ import {
   splitModelMappingObject,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
+import {
+  isValidAccountEmail,
+  resolveAccountEmail
+} from '@/utils/accountEmail.tk'
+import {
+  PLATFORM_ANTHROPIC,
+  PLATFORM_OPENAI,
+  PLATFORM_GEMINI,
+  PLATFORM_ANTIGRAVITY,
+  PLATFORM_NEWAPI,
+  PLATFORM_KIRO,
+  PLATFORM_GROK
+} from '@/constants/gatewayPlatforms'
+import { STATUS_ACTIVE } from '@/constants/channel'
 
 interface Props {
   show: boolean
@@ -2466,11 +2777,16 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
+// Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
+// 故隐藏代理选择器。
+const isSparkShadow = computed(() => props.account?.parent_account_id != null)
+
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
-  if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
-  if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
+  if (props.account.platform === PLATFORM_OPENAI) return t('admin.accounts.openai.baseUrlHint')
+  if (props.account.platform === PLATFORM_GEMINI) return t('admin.accounts.gemini.baseUrlHint')
+  if (props.account.platform === PLATFORM_GROK && props.account.type === 'apikey') return t('admin.accounts.grokPlatform.relayBaseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
@@ -2497,6 +2813,15 @@ const editApiKey = ref('')
 // TK: edge mirror-stub pool selector (anthropic + apikey only). See
 // constants/mirrorPlatformOptions.tk.ts.
 const editMirrorPlatform = ref<MirrorPlatform>('anthropic')
+const INTERNAL_EDGE_STUB_BASE_URL_RE = /^https:\/\/api-[a-z0-9-]+\.tokenkey\.dev\/?$/i
+const isSystemManagedAnthropicStub = computed(() => {
+  if (props.account?.platform !== PLATFORM_ANTHROPIC || props.account?.type !== 'apikey') {
+    return false
+  }
+  const storedBaseURL = (props.account.credentials as Record<string, unknown> | undefined)?.base_url
+  const baseURL = (editBaseUrl.value || (typeof storedBaseURL === 'string' ? storedBaseURL : '')).trim()
+  return INTERNAL_EDGE_STUB_BASE_URL_RE.test(baseURL)
+})
 // 第五平台 newapi：表单状态 + 副作用统一收口在 composable。
 // EditModal 多传一个 storedAccount，让「获取模型列表」在用户没重新输入 api_key 时走 stored
 // credential 路径——与上游 new-api 的 channel 编辑体验一致。
@@ -2521,12 +2846,31 @@ const {
   bootstrap: newapiBootstrap,
   populateFromAccount: newapiPopulateFromAccount,
   buildSubmitBundle: newapiBuildSubmitBundle,
+  buildAuxiliaryCredentials: newapiBuildAuxiliaryCredentials,
   handleFetchUpstreamModels: newapiHandleFetchUpstreamModels,
   refreshStoredPricingStatus: newapiRefreshStoredPricingStatus,
+  applyChannelTypePresetModelsIfEmpty: newapiApplyChannelPresetIfEmpty,
 } = useTkAccountNewApiPlatform({
-  isNewapi: () => props.account?.platform === 'newapi',
+  isNewapi: () => props.account?.platform === PLATFORM_NEWAPI,
   storedAccount: () => (props.account ? { id: props.account.id, channel_type: props.account.channel_type } : null),
 })
+
+watch(newapiChannelType, () => {
+  if (props.account?.platform === PLATFORM_NEWAPI) {
+    void newapiApplyChannelPresetIfEmpty()
+  }
+})
+
+// 第六平台 kiro：编辑时可轮换 access_token / refresh_token 与 IdC 字段。
+const kiro = useTkAccountKiroPlatform()
+
+// 第七平台 grok：编辑时的 refresh_token 轮换 + base_url。
+const {
+  refreshToken: grokRefreshToken,
+  baseUrl: grokBaseUrl,
+  populateFromAccount: grokPopulateFromAccount,
+  buildSubmitBundle: grokBuildSubmitBundle,
+} = useTkAccountGrokPlatform()
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -2534,9 +2878,7 @@ const editBedrockSessionToken = ref('')
 const editBedrockRegion = ref('')
 const editBedrockForceGlobal = ref(false)
 const editBedrockApiKeyValue = ref('')
-const editVertexProjectId = ref('')
-const editVertexClientEmail = ref('')
-const editVertexLocation = ref('us-central1')
+const vertexSa = useVertexServiceAccountFields()
 const isBedrockAPIKeyMode = computed(() =>
   props.account?.type === 'bedrock' &&
   (props.account?.credentials as Record<string, unknown>)?.auth_mode === 'apikey'
@@ -2587,6 +2929,17 @@ function formatPoolModeRetryStatusCodes(value: unknown): string {
 const customErrorCodesEnabled = ref(false)
 const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
+const headerOverrideEnabled = ref(false)
+const headerOverrideRows = ref<HeaderOverrideRow[]>([])
+
+const headerOverrideCapable = computed(
+  () => !!props.account && isHeaderOverrideCapable(props.account.platform, props.account.type)
+)
+
+// Grok OAuth 自定义上游地址（仅转发端点；OAuth 授权/令牌刷新不受影响）
+const grokOAuthCustomBaseUrlEnabled = ref(false)
+const grokOAuthBaseUrl = ref('')
+
 const interceptWarmupRequests = ref(false)
 const autoPauseOnExpired = ref(false)
 const autoPause5hThreshold = ref<number | null>(null)
@@ -2595,6 +2948,7 @@ const autoPause5hDisabled = ref(false)
 const autoPause7dDisabled = ref(false)
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
+const antigravityProjectId = ref('')
 const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const antigravityWhitelistModels = ref<string[]>([])
 const antigravityModelMappings = ref<ModelMapping[]>([])
@@ -2615,9 +2969,6 @@ const mixedChannelWarningAction = ref<(() => Promise<void>) | null>(null)
 const antigravityMixedChannelConfirmed = ref(false)
 
 // Quota control state (Anthropic OAuth/SetupToken only)
-const windowCostEnabled = ref(false)
-const windowCostLimit = ref<number | null>(null)
-const windowCostStickyReserve = ref<number | null>(null)
 const sessionLimitEnabled = ref(false)
 const maxSessions = ref<number | null>(null)
 const sessionIdleTimeout = ref<number | null>(null)
@@ -2642,6 +2993,9 @@ const customBaseUrl = ref('')
 
 // OpenAI 自动透传开关（OAuth/API Key）
 const openaiPassthroughEnabled = ref(false)
+const openAILongContextBillingEnabled = ref(false)
+// OpenAI 订阅档位（Plus/Pro/Free）手动覆盖值,存于 credentials.plan_type;'' 表示清空/自动识别
+const editPlanType = ref<string>('')
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIMessagesCompactionEnabled = ref(false)
 const openAIMessagesCompactionInputTokensThreshold = ref<number | null>(null)
@@ -2657,8 +3011,13 @@ const codexImageGenerationBridgeMode = ref<CodexImageGenerationBridgeMode>('inhe
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
-const codexCLIOnlyAllowClaudeCodeEnabled = ref(false)
+const codexCLIOnlyAppServerEnabled = ref(false)
+type CodexImageToolMode = 'inherit' | 'enabled' | 'disabled' | 'block'
+const codexImageToolMode = ref<CodexImageToolMode>('inherit')
+type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
 const anthropicPassthroughEnabled = ref(false)
+const anthropicOAuthPassthroughEnabled = ref(false)
+const anthropicAPIKeyAuthScheme = ref<AnthropicAPIKeyAuthScheme>('x_api_key')
 const webSearchEmulationMode = ref('default')
 const webSearchGlobalEnabled = ref(false)
 const {
@@ -2688,7 +3047,8 @@ const editResetTimezone = ref<string | null>(null)
 const openAIWSModeOptions = computed(() => [
   { value: OPENAI_WS_MODE_OFF, label: t('admin.accounts.openai.wsModeOff') },
   { value: OPENAI_WS_MODE_CTX_POOL, label: t('admin.accounts.openai.wsModeCtxPool') },
-  { value: OPENAI_WS_MODE_PASSTHROUGH, label: t('admin.accounts.openai.wsModePassthrough') }
+  { value: OPENAI_WS_MODE_PASSTHROUGH, label: t('admin.accounts.openai.wsModePassthrough') },
+  { value: OPENAI_WS_MODE_HTTP_BRIDGE, label: t('admin.accounts.openai.wsModeHttpBridge') }
 ])
 const openaiResponsesWebSocketV2Mode = computed({
   get: () => {
@@ -2708,10 +3068,93 @@ const openaiResponsesWebSocketV2Mode = computed({
 const openAIWSModeConcurrencyHintKey = computed(() =>
   resolveOpenAIWSModeConcurrencyHintKey(openaiResponsesWebSocketV2Mode.value)
 )
+const codexImageToolOptions = computed<Array<{
+  value: CodexImageToolMode
+  label: string
+  description: string
+  selectedCardClass: string
+  selectedDotClass: string
+}>>(() => [
+  {
+    value: 'inherit',
+    label: t('admin.accounts.openai.codexImageToolInherit'),
+    description: t('admin.accounts.openai.codexImageToolInheritDesc'),
+    selectedCardClass: 'border-sky-300 bg-sky-50 text-sky-900 shadow-sm ring-1 ring-sky-200 dark:border-sky-700 dark:bg-sky-900/25 dark:text-sky-100 dark:ring-sky-800',
+    selectedDotClass: 'border-sky-500 bg-sky-500 text-white'
+  },
+  {
+    value: 'enabled',
+    label: t('admin.accounts.openai.codexImageToolEnabled'),
+    description: t('admin.accounts.openai.codexImageToolEnabledDesc'),
+    selectedCardClass: 'border-emerald-300 bg-emerald-50 text-emerald-900 shadow-sm ring-1 ring-emerald-200 dark:border-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-100 dark:ring-emerald-800',
+    selectedDotClass: 'border-emerald-500 bg-emerald-500 text-white'
+  },
+  {
+    value: 'disabled',
+    label: t('admin.accounts.openai.codexImageToolDisabled'),
+    description: t('admin.accounts.openai.codexImageToolDisabledDesc'),
+    selectedCardClass: 'border-amber-300 bg-amber-50 text-amber-900 shadow-sm ring-1 ring-amber-200 dark:border-amber-700 dark:bg-amber-900/25 dark:text-amber-100 dark:ring-amber-800',
+    selectedDotClass: 'border-amber-500 bg-amber-500 text-white'
+  },
+  {
+    value: 'block',
+    label: t('admin.accounts.openai.codexImageToolBlock'),
+    description: t('admin.accounts.openai.codexImageToolBlockDesc'),
+    selectedCardClass: 'border-rose-300 bg-rose-50 text-rose-900 shadow-sm ring-1 ring-rose-200 dark:border-rose-700 dark:bg-rose-900/25 dark:text-rose-100 dark:ring-rose-800',
+    selectedDotClass: 'border-rose-500 bg-rose-500 text-white'
+  }
+])
+const codexImageToolBadgeLabel = computed(() => {
+  switch (codexImageToolMode.value) {
+    case 'enabled':
+      return t('admin.accounts.openai.codexImageToolBadgeEnabled')
+    case 'disabled':
+      return t('admin.accounts.openai.codexImageToolBadgeDisabled')
+    case 'block':
+      return t('admin.accounts.openai.codexImageToolBadgeBlock')
+    default:
+      return t('admin.accounts.openai.codexImageToolBadgeInherit')
+  }
+})
+const codexImageToolBadgeClass = computed(() => {
+  switch (codexImageToolMode.value) {
+    case 'enabled':
+      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+    case 'disabled':
+      return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+    case 'block':
+      return 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+    default:
+      return 'bg-slate-100 text-slate-600 dark:bg-dark-600 dark:text-slate-300'
+  }
+})
 const openAICompactModeOptions = computed(() => [
   { value: 'auto', label: t('admin.accounts.openai.compactModeAuto') },
   { value: 'force_on', label: t('admin.accounts.openai.compactModeForceOn') },
   { value: 'force_off', label: t('admin.accounts.openai.compactModeForceOff') }
+])
+
+// Account-level tri-state override for the Codex image-generation bridge.
+// `inherit` writes no override (follow channel/global); `enabled`/`disabled`
+// pin the account policy. Submit logic lives in handleSubmit (codex_image_generation_bridge).
+const codexImageGenerationBridgeOptions = computed<
+  { value: CodexImageGenerationBridgeMode; label: string; desc: string }[]
+>(() => [
+  {
+    value: 'inherit',
+    label: t('admin.accounts.openai.codexImageGenerationBridgeInherit'),
+    desc: t('admin.accounts.openai.codexImageGenerationBridgeInheritDesc')
+  },
+  {
+    value: 'enabled',
+    label: t('admin.accounts.openai.codexImageGenerationBridgeEnabled'),
+    desc: t('admin.accounts.openai.codexImageGenerationBridgeEnabledDesc')
+  },
+  {
+    value: 'disabled',
+    label: t('admin.accounts.openai.codexImageGenerationBridgeDisabled'),
+    desc: t('admin.accounts.openai.codexImageGenerationBridgeDisabledDesc')
+  }
 ])
 
 const normalizeOpenAIMessagesCompactionThreshold = (): number | null => {
@@ -2724,7 +3167,7 @@ const normalizeOpenAIMessagesCompactionThreshold = (): number | null => {
 }
 
 const validateOpenAIMessagesCompactionForm = (): boolean => {
-  if (props.account?.platform !== 'openai') {
+  if (props.account?.platform !== PLATFORM_OPENAI) {
     return true
   }
   if (!openAIMessagesCompactionEnabled.value) {
@@ -2828,7 +3271,7 @@ const normalizeOpenAIResponsesMode = (mode: unknown): OpenAIResponsesMode => {
   return 'auto'
 }
 const isOpenAIModelRestrictionDisabled = computed(() =>
-  props.account?.platform === 'openai' && openaiPassthroughEnabled.value
+  props.account?.platform === PLATFORM_OPENAI && openaiPassthroughEnabled.value
 )
 const openAIResponsesStatusKey = computed(() => {
   if (openAIResponsesMode.value === 'force_responses') {
@@ -2848,7 +3291,7 @@ const openAIResponsesStatusKey = computed(() => {
 })
 const openAICompactStatusKey = computed(() => {
   const extra = props.account?.extra as Record<string, unknown> | undefined
-  if (!props.account || props.account.platform !== 'openai') return ''
+  if (!props.account || props.account.platform !== PLATFORM_OPENAI) return ''
   const mode = typeof extra?.openai_compact_mode === 'string' ? extra.openai_compact_mode : 'auto'
   if (mode === 'force_on') return 'admin.accounts.openai.compactSupported'
   if (mode === 'force_off') return 'admin.accounts.openai.compactUnsupported'
@@ -2894,8 +3337,9 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
-  if (props.account?.platform === 'openai') return 'https://api.openai.com'
-  if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
+  if (props.account?.platform === PLATFORM_OPENAI) return 'https://api.openai.com'
+  if (props.account?.platform === PLATFORM_GEMINI) return 'https://generativelanguage.googleapis.com'
+  if (props.account?.platform === PLATFORM_GROK) return ''
   return 'https://api.anthropic.com'
 })
 
@@ -2918,6 +3362,8 @@ const form = reactive({
   group_ids: [] as number[],
   expires_at: null as number | null
 })
+
+const accountEmail = ref('')
 
 const statusOptions = computed(() => {
   const options = [
@@ -2965,6 +3411,28 @@ const loadModelRestrictionFromMapping = (rawMapping?: Record<string, unknown>) =
 const buildModelRestrictionMapping = () =>
   buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
 
+const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>) => {
+  const shouldApplyModelMapping = !openaiPassthroughEnabled.value
+
+  if (shouldApplyModelMapping) {
+    const modelMapping = buildModelRestrictionMapping()
+    if (modelMapping) {
+      credentials.model_mapping = modelMapping
+    } else {
+      delete credentials.model_mapping
+    }
+  } else if (!credentials.model_mapping) {
+    delete credentials.model_mapping
+  }
+
+  const compactModelMapping = buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
+  if (compactModelMapping) {
+    credentials.compact_model_mapping = compactModelMapping
+  } else {
+    delete credentials.compact_model_mapping
+  }
+}
+
 const syncFormFromAccount = (newAccount: Account | null) => {
   if (!newAccount) {
     return
@@ -2976,12 +3444,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   mixedChannelWarningAction.value = null
   form.name = newAccount.name
   form.notes = newAccount.notes || ''
+  accountEmail.value = resolveAccountEmail(newAccount)
   form.proxy_id = newAccount.proxy_id
   form.concurrency = newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
   form.priority = newAccount.priority
   form.rate_multiplier = newAccount.rate_multiplier ?? 1
-  form.status = (newAccount.status === 'active' || newAccount.status === 'inactive' || newAccount.status === 'error')
+  form.status = (newAccount.status === STATUS_ACTIVE || newAccount.status === 'inactive' || newAccount.status === 'error')
     ? newAccount.status
     : 'active'
   form.group_ids = newAccount.group_ids || []
@@ -2991,9 +3460,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
-  editVertexProjectId.value = ''
-  editVertexClientEmail.value = ''
-  editVertexLocation.value = 'us-central1'
+  vertexSa.reset()
+  antigravityProjectId.value =
+    newAccount.platform === PLATFORM_ANTIGRAVITY &&
+    newAccount.type === 'oauth' &&
+    typeof credentials?.antigravity_project_id === 'string'
+      ? credentials.antigravity_project_id.trim()
+      : ''
 
   // Load mixed scheduling setting (only for antigravity accounts)
   mixedScheduling.value = false
@@ -3006,8 +3479,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
 	autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
 
-  // Load OpenAI passthrough toggle (OpenAI OAuth/API Key)
+  // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
+  openAILongContextBillingEnabled.value = false
+  editPlanType.value = ''
   openAICompactMode.value = 'auto'
   openAIMessagesCompactionEnabled.value = false
   openAIMessagesCompactionInputTokensThreshold.value = null
@@ -3018,11 +3493,20 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
-  codexCLIOnlyAllowClaudeCodeEnabled.value = false
+  codexCLIOnlyAppServerEnabled.value = false
+  codexImageToolMode.value = 'inherit'
   anthropicPassthroughEnabled.value = false
+  anthropicOAuthPassthroughEnabled.value = false
+  anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
-  if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'apikey')) {
+  if (newAccount.platform === PLATFORM_OPENAI && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
+    const longContextBillingValue = extra?.openai_long_context_billing_enabled
+    openAILongContextBillingEnabled.value = longContextBillingValue === true
+    // plan_type 手动覆盖仅 OAuth 有实际调度语义(IsOpenAIChatGPTSubscription 要求 oauth),故只对 oauth 回填
+    editPlanType.value = newAccount.type === 'oauth'
+      ? readPlanType(newAccount.credentials as Record<string, unknown> | undefined)
+      : ''
     openAICompactMode.value = (extra?.openai_compact_mode as OpenAICompactMode) || 'auto'
     openAIMessagesCompactionEnabled.value = extra?.messages_compaction_enabled === true
     const compactionThreshold = Number(extra?.messages_compaction_input_tokens_threshold)
@@ -3042,10 +3526,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     const codexImageGenerationBridgeValue = typeof extra?.codex_image_generation_bridge === 'boolean'
       ? extra.codex_image_generation_bridge
       : extra?.codex_image_generation_bridge_enabled
-    if (codexImageGenerationBridgeValue === true) {
-      codexImageGenerationBridgeMode.value = 'enabled'
+    if (extra?.codex_image_generation_explicit_tool_policy === 'strip') {
+      codexImageToolMode.value = 'block'
+    } else if (codexImageGenerationBridgeValue === true) {
+      codexImageToolMode.value = 'enabled'
     } else if (codexImageGenerationBridgeValue === false) {
-      codexImageGenerationBridgeMode.value = 'disabled'
+      codexImageToolMode.value = 'disabled'
     }
     openaiOAuthResponsesWebSocketV2Mode.value = resolveOpenAIWSModeFromExtra(extra, {
       modeKey: 'openai_oauth_responses_websockets_v2_mode',
@@ -3059,11 +3545,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       fallbackEnabledKeys: ['responses_websockets_v2_enabled', 'openai_ws_enabled'],
       defaultMode: OPENAI_WS_MODE_OFF
     })
-    if (newAccount.type === 'oauth') {
+    if (newAccount.type === 'oauth' || newAccount.type === 'setup-token') {
       codexCLIOnlyEnabled.value = extra?.codex_cli_only === true
-      codexCLIOnlyAllowClaudeCodeEnabled.value =
-        Array.isArray(extra?.codex_cli_only_allowed_clients) &&
-        (extra.codex_cli_only_allowed_clients as unknown[]).includes('claude_code')
+      codexCLIOnlyAppServerEnabled.value =
+        extra?.codex_cli_only_allow_app_server === true
     }
     const credentials = newAccount.credentials as Record<string, unknown> | undefined
     const compactMappings = credentials?.compact_model_mapping as Record<string, string> | undefined
@@ -3071,8 +3556,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       openAICompactModelMappings.value = Object.entries(compactMappings).map(([from, to]) => ({ from, to }))
     }
   }
-  if (newAccount.platform === 'anthropic' && newAccount.type === 'apikey') {
+  if (newAccount.platform === PLATFORM_ANTHROPIC && newAccount.type === 'apikey') {
     anthropicPassthroughEnabled.value = extra?.anthropic_passthrough === true
+    anthropicAPIKeyAuthScheme.value = extra?.anthropic_apikey_auth_scheme === 'authorization_bearer'
+      ? 'authorization_bearer'
+      : 'x_api_key'
     // 三态：string "default"/"enabled"/"disabled"，向后兼容旧 bool
     const wsVal = extra?.web_search_emulation
     if (wsVal === 'enabled' || wsVal === 'disabled') {
@@ -3115,7 +3603,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   }
 
   // Load antigravity model mapping (Antigravity 只支持映射模式)
-  if (newAccount.platform === 'antigravity') {
+  if (newAccount.platform === PLATFORM_ANTIGRAVITY) {
     const credentials = newAccount.credentials as Record<string, unknown> | undefined
 
     // Antigravity 始终使用映射模式
@@ -3151,22 +3639,61 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
   loadTempUnschedRules(credentials)
 
+  if (newAccount.platform === PLATFORM_KIRO) {
+    kiro.populateFromAccount({
+      credentials: (newAccount.credentials as Record<string, unknown> | undefined) || {},
+      credentials_status: newAccount.credentials_status,
+    })
+  }
+  // 第七平台 grok OAuth：refresh_token 是敏感字段，编辑时留空表示保留现有值
+  // （composable 不回填），base_url 回填。API-key relay stub 走下面的通用
+  // apikey 编辑字段，不应进入 OAuth composable。
+  if (newAccount.platform === PLATFORM_GROK && newAccount.type === 'oauth') {
+    grokPopulateFromAccount({
+      credentials: (newAccount.credentials as Record<string, unknown> | undefined) || {},
+    })
+  }
+
+  // Reset header override state (loaded below only for apikey accounts)
+  headerOverrideEnabled.value = false
+  headerOverrideRows.value = []
+  if (newAccount.credentials && isHeaderOverrideCapable(newAccount.platform, newAccount.type)) {
+    const overrideCreds = newAccount.credentials as Record<string, unknown>
+    headerOverrideEnabled.value = overrideCreds[HEADER_OVERRIDE_ENABLED_CREDENTIAL_KEY] === true
+    headerOverrideRows.value = splitHeaderOverridesObject(
+      overrideCreds[HEADER_OVERRIDES_CREDENTIAL_KEY]
+    )
+  }
+
+  // Load Grok OAuth custom upstream URL state（存储的官方地址视同未定制）
+  grokOAuthCustomBaseUrlEnabled.value = false
+  grokOAuthBaseUrl.value = ''
+  if (newAccount.platform === 'grok' && newAccount.type === 'oauth' && newAccount.credentials) {
+    const grokCreds = newAccount.credentials as Record<string, unknown>
+    if (isCustomGrokBaseUrl(grokCreds.base_url)) {
+      grokOAuthCustomBaseUrlEnabled.value = true
+      grokOAuthBaseUrl.value = (grokCreds.base_url as string).trim()
+    }
+  }
+
   // Initialize API Key fields for apikey type
   if (newAccount.type === 'apikey' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
     const platformDefaultUrl =
-      newAccount.platform === 'openai'
+      newAccount.platform === PLATFORM_OPENAI
         ? 'https://api.openai.com'
-        : newAccount.platform === 'gemini'
+        : newAccount.platform === PLATFORM_GEMINI
           ? 'https://generativelanguage.googleapis.com'
-          : 'https://api.anthropic.com'
+          : newAccount.platform === PLATFORM_GROK
+            ? ''
+            : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
     // TK: edge mirror-stub pool (default anthropic for non-stub accounts).
     editMirrorPlatform.value = normalizeMirrorPlatform(credentials.mirror_platform)
 
     // 第五平台 newapi：把现有账号的 channel_type / credentials 一次性灌进
     // composable，模式（whitelist / mapping）由 composable 自行推断。
-    if (newAccount.platform === 'newapi') {
+    if (newAccount.platform === PLATFORM_NEWAPI) {
       newapiPopulateFromAccount({
         channel_type: newAccount.channel_type,
         credentials,
@@ -3195,6 +3722,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     } else {
       selectedErrorCodes.value = []
     }
+
   } else if (newAccount.type === 'bedrock' && newAccount.credentials) {
     const bedrockCreds = newAccount.credentials as Record<string, unknown>
     const authMode = (bedrockCreds.auth_mode as string) || 'sigv4'
@@ -3228,25 +3756,41 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   } else if (newAccount.type === 'upstream' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
     editBaseUrl.value = (credentials.base_url as string) || ''
-  } else if ((newAccount.platform === 'gemini' || newAccount.platform === 'anthropic') && newAccount.type === 'service_account' && newAccount.credentials) {
+  } else if (newAccount.platform === PLATFORM_NEWAPI && newAccount.type === 'service_account' && newAccount.credentials) {
+    // 第五平台 newapi + Vertex service_account (channel_type=41 …): channel_type
+    // + base_url + model_mapping selector 走 newapi composable（与 apikey 路径
+    // 同一套结构化 selector），Vertex SA 专属字段（service_account_json 写一次 /
+    // location）走下方 editVertex* refs。CREATE 经 channel_type=41 落地，EDIT 在
+    // 此对齐其能力，避免被迫改 SQL。
     const credentials = newAccount.credentials as Record<string, unknown>
-    editVertexProjectId.value = (credentials.project_id as string) || ''
-    editVertexClientEmail.value = (credentials.client_email as string) || ''
-    editVertexLocation.value = (credentials.location as string) || (credentials.vertex_location as string) || 'us-central1'
+    newapiPopulateFromAccount({
+      channel_type: newAccount.channel_type,
+      credentials,
+    })
+    newapiBootstrap()
+    if (!credentials.model_pricing_status) {
+      void newapiRefreshStoredPricingStatus()
+    }
+    vertexSa.populateFromCredentials(credentials)
+  } else if ((newAccount.platform === PLATFORM_GEMINI || newAccount.platform === PLATFORM_ANTHROPIC) && newAccount.type === 'service_account' && newAccount.credentials) {
+    const credentials = newAccount.credentials as Record<string, unknown>
+    vertexSa.populateFromCredentials(credentials)
 
     // Load model mappings for service_account
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
   } else {
     const platformDefaultUrl =
-      newAccount.platform === 'openai'
+      newAccount.platform === PLATFORM_OPENAI
         ? 'https://api.openai.com'
-        : newAccount.platform === 'gemini'
+        : newAccount.platform === PLATFORM_GEMINI
           ? 'https://generativelanguage.googleapis.com'
-          : 'https://api.anthropic.com'
+          : newAccount.platform === PLATFORM_GROK
+            ? ''
+            : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
 
-    // Load model mappings for OpenAI OAuth accounts
-    if (newAccount.platform === 'openai' && newAccount.credentials) {
+    // Load model mappings for OpenAI/Grok OAuth accounts
+    if ((newAccount.platform === PLATFORM_OPENAI || newAccount.platform === PLATFORM_GROK) && newAccount.credentials) {
       const oauthCredentials = newAccount.credentials as Record<string, unknown>
       loadModelRestrictionFromMapping(oauthCredentials.model_mapping as Record<string, unknown> | undefined)
     } else {
@@ -3514,9 +4058,6 @@ function loadTempUnschedRules(credentials?: Record<string, unknown>) {
 // Load quota control settings from account (Anthropic OAuth/SetupToken only)
 function loadQuotaControlSettings(account: Account) {
   // Reset all quota control state first
-  windowCostEnabled.value = false
-  windowCostLimit.value = null
-  windowCostStickyReserve.value = null
   sessionLimitEnabled.value = false
   maxSessions.value = null
   sessionIdleTimeout.value = null
@@ -3532,9 +4073,10 @@ function loadQuotaControlSettings(account: Account) {
   cacheTTLOverrideTarget.value = '5m'
   customBaseUrlEnabled.value = false
   customBaseUrl.value = ''
+  anthropicOAuthPassthroughEnabled.value = false
 
   // Remaining quota control settings only apply to Anthropic accounts
-  if (account.platform !== 'anthropic') {
+  if (account.platform !== PLATFORM_ANTHROPIC) {
     return
   }
 
@@ -3543,13 +4085,10 @@ function loadQuotaControlSettings(account: Account) {
     return
   }
 
-  // Load from extra field (via backend DTO fields)
-  if (account.window_cost_limit != null && account.window_cost_limit > 0) {
-    windowCostEnabled.value = true
-    windowCostLimit.value = account.window_cost_limit
-    windowCostStickyReserve.value = account.window_cost_sticky_reserve ?? 10
-  }
+  anthropicOAuthPassthroughEnabled.value =
+    (account.extra as Record<string, unknown> | undefined)?.anthropic_oauth_passthrough === true
 
+  // Load from extra field (via backend DTO fields)
   if (account.max_sessions != null && account.max_sessions > 0) {
     sessionLimitEnabled.value = true
     maxSessions.value = account.max_sessions
@@ -3620,7 +4159,7 @@ function toPositiveNumber(value: unknown) {
   return Math.trunc(num)
 }
 
-const needsMixedChannelCheck = () => props.account?.platform === 'antigravity' || props.account?.platform === 'anthropic'
+const needsMixedChannelCheck = () => props.account?.platform === PLATFORM_ANTIGRAVITY || props.account?.platform === PLATFORM_ANTHROPIC
 
 const buildMixedChannelDetails = (resp?: CheckMixedChannelResponse) => {
   const details = resp?.details
@@ -3741,12 +4280,18 @@ const handleSubmit = async () => {
     return
   }
 
+  if (!isValidAccountEmail(accountEmail.value)) {
+    appStore.showError(t('admin.accounts.invalidAccountEmail'))
+    return
+  }
+
   if (form.status !== 'active' && form.status !== 'inactive' && form.status !== 'error') {
     appStore.showError(t('admin.accounts.pleaseSelectStatus'))
     return
   }
 
   const updatePayload: Record<string, unknown> = { ...form }
+  updatePayload.account_email = accountEmail.value.trim()
   try {
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
     if (updatePayload.proxy_id === null) {
@@ -3762,11 +4307,40 @@ const handleSubmit = async () => {
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
 
+    // 第七平台 grok（oauth，非 apikey）：仅在重粘了 refresh_token 或改了 base_url 时
+    // 才发 credentials。refresh_token 留空 = 保留现有（后端 MergePreservingSensitiveCreds
+    // + 后台刷新器处理）；重粘则后端 resolveGrokTokenOnSave 活体校验 + 重新 prime。
+    if (props.account.platform === PLATFORM_GROK && props.account.type === 'oauth') {
+      const bundle = grokBuildSubmitBundle('edit')
+      if (!bundle) return
+      if (Object.keys(bundle.credentials).length > 0) {
+        updatePayload.credentials = bundle.credentials
+      }
+    }
+
+    if (props.account.platform === PLATFORM_KIRO) {
+      const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
+      const bundle = kiro.buildSubmitBundle('edit', {
+        credentialsStatus: props.account.credentials_status,
+      })
+      if (!bundle) return
+      const newCredentials: Record<string, unknown> = { ...currentCredentials }
+
+      delete newCredentials.machine_id
+      delete newCredentials.profile_arn
+      if (bundle.credentials.auth_method !== 'idc') {
+        delete newCredentials.client_id
+        delete newCredentials.client_secret
+      }
+
+      updatePayload.credentials = { ...newCredentials, ...bundle.credentials }
+    }
+
     // For apikey type, handle credentials update
     if (props.account.type === 'apikey') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
-      const isNewAPI = props.account.platform === 'newapi'
-      const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
+      const isNewAPI = props.account.platform === PLATFORM_NEWAPI
+      const shouldApplyModelMapping = !(props.account.platform === PLATFORM_OPENAI && openaiPassthroughEnabled.value)
 
       // 第五平台 newapi：校验 + credentials 拼装一律走 composable.buildSubmitBundle
       // （edit 模式下 api_key 留空表示保留现有密钥；非 newapi 路径下使用
@@ -3805,6 +4379,10 @@ const handleSubmit = async () => {
         updatePayload.channel_type = bundle.channelType
       } else {
         const submittedBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
+        if (props.account.platform === PLATFORM_GROK && !submittedBaseUrl) {
+          appStore.showError(t('admin.accounts.upstream.pleaseEnterBaseUrl'))
+          return
+        }
         newCredentials = { ...currentCredentials, base_url: submittedBaseUrl }
         if (editApiKey.value.trim()) {
           newCredentials.api_key = editApiKey.value.trim()
@@ -3813,11 +4391,18 @@ const handleSubmit = async () => {
           return
         }
         // TK: edge mirror-stub pool selector (surface-C). anthropic apikey only.
-        if (props.account.platform === 'anthropic') {
+        if (props.account.platform === PLATFORM_ANTHROPIC) {
           newCredentials.mirror_platform = editMirrorPlatform.value
+        } else if (props.account.platform === PLATFORM_GROK) {
+          newCredentials.mirror_platform = 'grok'
         }
         if (shouldApplyModelMapping) {
-          const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+          // Persist BOTH whitelist passthrough entries and real remaps. The mode
+          // toggle is only a view switch; an account holding both (e.g. a gpt-5.2
+          // whitelist entry + a gpt-latest→gpt-5.2 remap) must not lose the hidden
+          // remaps when the whitelist is edited. Matches the oauth/anthropic submit
+          // paths, which all use the 'combined' helper.
+          const modelMapping = buildModelRestrictionMapping()
           if (modelMapping) {
             newCredentials.model_mapping = modelMapping
           } else {
@@ -3827,7 +4412,7 @@ const handleSubmit = async () => {
           newCredentials.model_mapping = currentCredentials.model_mapping
         }
       }
-      if (props.account.platform === 'openai') {
+      if (props.account.platform === PLATFORM_OPENAI) {
         const compactModelMapping = buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
         if (compactModelMapping) {
           newCredentials.compact_model_mapping = compactModelMapping
@@ -3835,7 +4420,7 @@ const handleSubmit = async () => {
           delete newCredentials.compact_model_mapping
         }
       }
-      if (props.account.platform === 'openai') {
+      if (props.account.platform === PLATFORM_OPENAI) {
         applyOpenAIEndpointCapabilities(newCredentials)
         const compactModelMapping = buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
         if (compactModelMapping) {
@@ -3845,20 +4430,23 @@ const handleSubmit = async () => {
         }
       }
 
-      // Add pool mode if enabled
-      if (poolModeEnabled.value) {
-        newCredentials.pool_mode = true
-        newCredentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
-        const parsedRetryStatusCodes = parsePoolModeRetryStatusCodes(poolModeRetryStatusCodesInput.value)
-        if (parsedRetryStatusCodes.length > 0) {
-          newCredentials.pool_mode_retry_status_codes = parsedRetryStatusCodes
+      // Internal edge stubs are reconciler-managed for pool mode; keep the
+      // stored credentials untouched so a generic account save cannot clear them.
+      if (!isSystemManagedAnthropicStub.value) {
+        if (poolModeEnabled.value) {
+          newCredentials.pool_mode = true
+          newCredentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
+          const parsedRetryStatusCodes = parsePoolModeRetryStatusCodes(poolModeRetryStatusCodesInput.value)
+          if (parsedRetryStatusCodes.length > 0) {
+            newCredentials.pool_mode_retry_status_codes = parsedRetryStatusCodes
+          } else {
+            delete newCredentials.pool_mode_retry_status_codes
+          }
         } else {
+          delete newCredentials.pool_mode
+          delete newCredentials.pool_mode_retry_count
           delete newCredentials.pool_mode_retry_status_codes
         }
-      } else {
-        delete newCredentials.pool_mode
-        delete newCredentials.pool_mode_retry_count
-        delete newCredentials.pool_mode_retry_status_codes
       }
 
       // Add custom error codes if enabled
@@ -3868,6 +4456,18 @@ const handleSubmit = async () => {
       } else {
         delete newCredentials.custom_error_codes_enabled
         delete newCredentials.custom_error_codes
+      }
+
+      // Add header override if enabled (anthropic/openai/grok apikey)
+      if (isHeaderOverrideCapable(props.account.platform, 'apikey')) {
+        if (headerOverrideEnabled.value) {
+          const headerError = validateHeaderOverrideRows(headerOverrideRows.value)
+          if (headerError) {
+            appStore.showError(t(`admin.accounts.headerOverride.${headerError}`))
+            return
+          }
+        }
+        applyHeaderOverride(newCredentials, headerOverrideEnabled.value, headerOverrideRows.value, 'edit')
       }
 
       // Add intercept warmup requests setting
@@ -3895,54 +4495,55 @@ const handleSubmit = async () => {
       }
 
       updatePayload.credentials = newCredentials
-    } else if ((props.account.platform === 'gemini' || props.account.platform === 'anthropic') && props.account.type === 'service_account') {
+    } else if (props.account.platform === PLATFORM_NEWAPI && props.account.type === 'service_account') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
-      const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
-      if (!editVertexProjectId.value.trim()) {
-        appStore.showError(t('admin.accounts.vertexSaJsonMissingProjectId'))
+      if (!newapiChannelType.value || newapiChannelType.value <= 0) {
+        appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
         return
       }
-      if (!editVertexClientEmail.value.trim()) {
-        appStore.showError(t('admin.accounts.vertexSaJsonMissingClientEmail'))
-        return
-      }
-      if (!editVertexLocation.value.trim()) {
-        appStore.showError(t('admin.accounts.vertexLocationRequired'))
+      updatePayload.channel_type = newapiChannelType.value
+
+      const merged = vertexSa.mergeCredentialsForEdit(
+        currentCredentials,
+        props.account.credentials_status
+      )
+      if (!merged) return
+
+      const auxiliary = newapiBuildAuxiliaryCredentials()
+      if (!auxiliary) return
+
+      delete merged.api_key
+      Object.assign(merged, auxiliary)
+
+      applyInterceptWarmup(merged, interceptWarmupRequests.value, 'edit')
+      if (!applyTempUnschedConfig(merged)) {
         return
       }
 
-      // SA JSON 已脱敏不再随 credentials 返回，存在性优先读 credentials_status。
-      // 若后端尚未升级（无 credentials_status），回退读旧结构 service_account_json / service_account。
-      const credentialsStatus = props.account.credentials_status
-      const hasExistingServiceAccountJson = credentialsStatus
-        ? Boolean(
-            credentialsStatus.has_service_account_json || credentialsStatus.has_service_account
-          )
-        : Boolean(currentCredentials.service_account_json || currentCredentials.service_account)
-      if (!hasExistingServiceAccountJson) {
-        appStore.showError(t('admin.accounts.vertexSaJsonRequired'))
-        return
-      }
-      newCredentials.project_id = editVertexProjectId.value.trim()
-      newCredentials.client_email = editVertexClientEmail.value.trim()
-      newCredentials.location = editVertexLocation.value.trim()
-      newCredentials.tier_id = 'vertex'
+      updatePayload.credentials = merged
+    } else if ((props.account.platform === PLATFORM_GEMINI || props.account.platform === PLATFORM_ANTHROPIC) && props.account.type === 'service_account') {
+      const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
 
-      // Add model mapping if configured
+      const merged = vertexSa.mergeCredentialsForEdit(
+        currentCredentials,
+        props.account.credentials_status
+      )
+      if (!merged) return
+
       const modelMapping = buildModelRestrictionMapping()
       if (modelMapping) {
-        newCredentials.model_mapping = modelMapping
+        merged.model_mapping = modelMapping
       } else {
-        delete newCredentials.model_mapping
+        delete merged.model_mapping
       }
 
-      applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
-      if (!applyTempUnschedConfig(newCredentials)) {
+      applyInterceptWarmup(merged, interceptWarmupRequests.value, 'edit')
+      if (!applyTempUnschedConfig(merged)) {
         return
       }
 
-      updatePayload.credentials = newCredentials
+      updatePayload.credentials = merged
     } else if (props.account.type === 'bedrock') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
@@ -4001,8 +4602,8 @@ const handleSubmit = async () => {
 
       updatePayload.credentials = newCredentials
     } else {
-      // For oauth/setup-token types, only update intercept_warmup_requests if changed
-      const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
+      const currentCredentials = (updatePayload.credentials as Record<string, unknown>) ||
+        ((props.account.credentials as Record<string, unknown>) || {})
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
@@ -4013,40 +4614,79 @@ const handleSubmit = async () => {
       updatePayload.credentials = newCredentials
     }
 
-    // OpenAI OAuth: persist model mapping to credentials
-    if (props.account.platform === 'openai' && props.account.type === 'oauth') {
-      const currentCredentials = (updatePayload.credentials as Record<string, unknown>) ||
-        ((props.account.credentials as Record<string, unknown>) || {})
+    // OpenAI/Grok OAuth: persist model mapping to credentials
+    if ((props.account.platform === PLATFORM_OPENAI || props.account.platform === PLATFORM_GROK) && props.account.type === 'oauth') {
+      const currentCredentials = isSparkShadow.value
+        ? {}
+        : (updatePayload.credentials as Record<string, unknown>) ||
+          ((props.account.credentials as Record<string, unknown>) || {})
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
-      const shouldApplyModelMapping = !openaiPassthroughEnabled.value
-
-      if (shouldApplyModelMapping) {
+      if (props.account.platform === PLATFORM_OPENAI) {
+        applyOpenAIModelMappingCredentials(newCredentials)
+      } else {
         const modelMapping = buildModelRestrictionMapping()
         if (modelMapping) {
           newCredentials.model_mapping = modelMapping
         } else {
           delete newCredentials.model_mapping
         }
-      } else if (currentCredentials.model_mapping) {
-        // 透传模式保留现有映射
-        newCredentials.model_mapping = currentCredentials.model_mapping
-      }
-      const compactModelMapping = buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
-      if (compactModelMapping) {
-        newCredentials.compact_model_mapping = compactModelMapping
-      } else {
-        delete newCredentials.compact_model_mapping
       }
 
       updatePayload.credentials = newCredentials
     }
 
+    // Grok OAuth: 自定义上游地址 + 请求头覆写。base_url 仅改写转发端点，
+    // OAuth 授权与令牌刷新链路不读取该值；关闭开关即恢复默认官方网关。
+    if (props.account.platform === 'grok' && props.account.type === 'oauth') {
+      const currentCredentials =
+        (updatePayload.credentials as Record<string, unknown>) ||
+        ((props.account.credentials as Record<string, unknown>) || {})
+      const newCredentials: Record<string, unknown> = { ...currentCredentials }
+
+      if (grokOAuthCustomBaseUrlEnabled.value) {
+        const trimmedBaseUrl = grokOAuthBaseUrl.value.trim()
+        if (!trimmedBaseUrl) {
+          appStore.showError(t('admin.accounts.grokCustomBaseUrl.required'))
+          return
+        }
+        if (!/^https?:\/\//i.test(trimmedBaseUrl)) {
+          appStore.showError(t('admin.accounts.grokCustomBaseUrl.invalid'))
+          return
+        }
+        newCredentials.base_url = trimmedBaseUrl
+      } else {
+        delete newCredentials.base_url
+      }
+
+      if (headerOverrideEnabled.value) {
+        const headerError = validateHeaderOverrideRows(headerOverrideRows.value)
+        if (headerError) {
+          appStore.showError(t(`admin.accounts.headerOverride.${headerError}`))
+          return
+        }
+      }
+      applyHeaderOverride(newCredentials, headerOverrideEnabled.value, headerOverrideRows.value, 'edit')
+
+      updatePayload.credentials = newCredentials
+    }
+
+    // OpenAI: 手动覆盖订阅档位 plan_type（Plus/Pro/Free）。仅 OAuth 非影子账号：
+    // 影子账号凭据由母账号管理(且后端会 sanitize),setup-token 无订阅调度语义。
+    if (props.account.platform === 'openai' && props.account.type === 'oauth' && !isSparkShadow.value) {
+      const currentCredentials = (updatePayload.credentials as Record<string, unknown>) ||
+        ((props.account.credentials as Record<string, unknown>) || {})
+      updatePayload.credentials = applyPlanType({ ...currentCredentials }, editPlanType.value)
+    }
+
     // Antigravity: persist model mapping to credentials (applies to all antigravity types)
     // Antigravity 只支持映射模式
-    if (props.account.platform === 'antigravity') {
+    if (props.account.platform === PLATFORM_ANTIGRAVITY) {
       const currentCredentials = (updatePayload.credentials as Record<string, unknown>) ||
         ((props.account.credentials as Record<string, unknown>) || {})
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
+      if (props.account.type === 'oauth') {
+        applyAntigravityProjectID(newCredentials, antigravityProjectId.value, 'edit')
+      }
 
       // 移除旧字段
       delete newCredentials.model_whitelist
@@ -4066,7 +4706,7 @@ const handleSubmit = async () => {
     }
 
     // For antigravity accounts, handle mixed_scheduling and allow_overages in extra
-    if (props.account.platform === 'antigravity') {
+    if (props.account.platform === PLATFORM_ANTIGRAVITY) {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
       if (mixedScheduling.value) {
@@ -4083,19 +4723,17 @@ const handleSubmit = async () => {
     }
 
     // For Anthropic OAuth/SetupToken accounts, handle quota control settings in extra
-    if (props.account.platform === 'anthropic' && (props.account.type === 'oauth' || props.account.type === 'setup-token')) {
+    if (props.account.platform === PLATFORM_ANTHROPIC && (props.account.type === 'oauth' || props.account.type === 'setup-token')) {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
 
-      // Window cost limit settings
-      if (windowCostEnabled.value && windowCostLimit.value != null && windowCostLimit.value > 0) {
-        newExtra.window_cost_limit = windowCostLimit.value
-        newExtra.window_cost_sticky_reserve = windowCostStickyReserve.value ?? 10
+      if (anthropicOAuthPassthroughEnabled.value) {
+        newExtra.anthropic_oauth_passthrough = true
       } else {
-        delete newExtra.window_cost_limit
-        delete newExtra.window_cost_sticky_reserve
+        delete newExtra.anthropic_oauth_passthrough
       }
 
+      // Window cost limit settings
       // Session limit settings
       if (sessionLimitEnabled.value && maxSessions.value != null && maxSessions.value > 0) {
         newExtra.max_sessions = maxSessions.value
@@ -4173,13 +4811,18 @@ const handleSubmit = async () => {
     }
 
     // For Anthropic API Key accounts, handle passthrough mode + web search emulation in extra
-    if (props.account.platform === 'anthropic' && props.account.type === 'apikey') {
+    if (props.account.platform === PLATFORM_ANTHROPIC && props.account.type === 'apikey') {
       const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
       if (anthropicPassthroughEnabled.value) {
         newExtra.anthropic_passthrough = true
       } else {
         delete newExtra.anthropic_passthrough
+      }
+      if (anthropicAPIKeyAuthScheme.value === 'authorization_bearer') {
+        newExtra.anthropic_apikey_auth_scheme = 'authorization_bearer'
+      } else {
+        delete newExtra.anthropic_apikey_auth_scheme
       }
       if (webSearchEmulationMode.value === 'default') {
         delete newExtra.web_search_emulation
@@ -4189,12 +4832,12 @@ const handleSubmit = async () => {
       updatePayload.extra = newExtra
     }
 
-    // For OpenAI OAuth/API Key accounts, handle passthrough mode in extra
-	if (props.account.platform === 'openai' && (props.account.type === 'oauth' || props.account.type === 'apikey')) {
-		const currentExtra = (props.account.extra as Record<string, unknown>) || {}
-		const newExtra: Record<string, unknown> = { ...currentExtra }
+    // For OpenAI OAuth/SetupToken/API Key accounts, handle passthrough mode in extra
+    if (props.account.platform === PLATFORM_OPENAI && (props.account.type === 'oauth' || props.account.type === 'setup-token' || props.account.type === 'apikey')) {
+      const currentExtra = (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
       const hadCodexCLIOnlyEnabled = currentExtra.codex_cli_only === true
-      if (props.account.type === 'oauth') {
+      if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
         newExtra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
         newExtra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
       } else if (props.account.type === 'apikey') {
@@ -4208,6 +4851,11 @@ const handleSubmit = async () => {
       } else {
         delete newExtra.openai_passthrough
         delete newExtra.openai_oauth_passthrough
+      }
+      if (isSparkShadow.value) {
+        delete newExtra.openai_long_context_billing_enabled
+      } else {
+        newExtra.openai_long_context_billing_enabled = openAILongContextBillingEnabled.value
       }
       if (openAICompactMode.value === 'auto') {
         delete newExtra.openai_compact_mode
@@ -4254,13 +4902,22 @@ const handleSubmit = async () => {
 		}
 
 		delete newExtra.codex_image_generation_bridge_enabled
-      if (codexImageGenerationBridgeMode.value === 'inherit') {
-        delete newExtra.codex_image_generation_bridge
-      } else {
-        newExtra.codex_image_generation_bridge = codexImageGenerationBridgeMode.value === 'enabled'
+      switch (codexImageToolMode.value) {
+        case 'enabled':
+        case 'disabled':
+          newExtra.codex_image_generation_bridge = codexImageToolMode.value === 'enabled'
+          delete newExtra.codex_image_generation_explicit_tool_policy
+          break
+        case 'block':
+          newExtra.codex_image_generation_explicit_tool_policy = 'strip'
+          delete newExtra.codex_image_generation_bridge
+          break
+        default:
+          delete newExtra.codex_image_generation_bridge
+          delete newExtra.codex_image_generation_explicit_tool_policy
       }
 
-      if (props.account.type === 'oauth') {
+      if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
         if (codexCLIOnlyEnabled.value) {
           newExtra.codex_cli_only = true
         } else if (hadCodexCLIOnlyEnabled) {
@@ -4269,11 +4926,12 @@ const handleSubmit = async () => {
         } else {
           delete newExtra.codex_cli_only
         }
-        // 仅当 codex_cli_only 开启且子开关开启时写入 Claude Code 插件白名单，否则清除避免孤立字段
-        if (codexCLIOnlyEnabled.value && codexCLIOnlyAllowClaudeCodeEnabled.value) {
-          newExtra.codex_cli_only_allowed_clients = ['claude_code']
+        // Claude Code 插件放行已迁移到全局 codex_cli_only_whitelist，编辑时清理废弃账号级快捷字段。
+        delete newExtra.codex_cli_only_allowed_clients
+        if (codexCLIOnlyEnabled.value && codexCLIOnlyAppServerEnabled.value) {
+          newExtra.codex_cli_only_allow_app_server = true
         } else {
-          delete newExtra.codex_cli_only_allowed_clients
+          delete newExtra.codex_cli_only_allow_app_server
         }
       }
 

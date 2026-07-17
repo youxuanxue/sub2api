@@ -298,7 +298,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, reactive, onMounted, onUnmounted, watch } from 'vue'
+import { computed, ref, reactive, onMounted, onUnmounted, watch, defineAsyncComponent } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
@@ -308,8 +308,13 @@ import WechatOAuthSection from '@/components/auth/WechatOAuthSection.vue'
 import EmailOAuthButtons from '@/components/auth/EmailOAuthButtons.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import Icon from '@/components/icons/Icon.vue'
-import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { useAuthStore, useAppStore } from '@/stores'
+
+// Lazy-load TurnstileWidget: Cloudflare's challenge script sends continuous
+// heartbeat requests that prevent Playwright's networkidle from resolving.
+const TurnstileWidget = defineAsyncComponent(
+  () => import('@/components/TurnstileWidget.vue'),
+)
 import {
   getPublicSettings,
   isWeChatWebOAuthEnabled,
@@ -567,7 +572,7 @@ function rejectLoginAgreement(): void {
   localStorage.removeItem(LOGIN_AGREEMENT_STORAGE_KEY)
   agreementAccepted.value = false
   showAgreementModal.value = false
-  appStore.showWarning('未同意最新条款前，无法注册或使用快捷登录。')
+  appStore.showWarning(t('legal.loginAgreementPrompt.registerRejectedWarning'))
 }
 
 // ==================== Promo Code Validation ====================
@@ -757,7 +762,7 @@ function validateForm(): boolean {
   let isValid = true
 
   if (agreementGateActive.value) {
-    appStore.showWarning('请先阅读并同意最新条款后再注册。')
+    appStore.showWarning(t('legal.loginAgreementPrompt.registerRequiredWarning'))
     if (loginAgreementMode.value !== 'checkbox') {
       showAgreementModal.value = true
     }
@@ -895,8 +900,9 @@ async function handleRegister(): Promise<void> {
     // Show success toast
     appStore.showSuccess(t('auth.accountCreatedSuccess', { siteName: siteName.value }))
 
-    // Redirect to dashboard
-    await router.push('/dashboard')
+    // Redirect to ?redirect= target or /quickstart for new users
+    const redirectTo = (router.currentRoute.value.query.redirect as string) || '/quickstart'
+    await router.push(redirectTo)
   } catch (error: unknown) {
     // Reset Turnstile on error
     if (turnstileRef.value) {

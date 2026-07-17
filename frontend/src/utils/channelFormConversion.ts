@@ -28,7 +28,7 @@ import {
   mTokToPerToken,
   perTokenToMTok,
 } from '@/components/admin/channel/types'
-import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
+import { GATEWAY_PLATFORMS, PLATFORM_ANTHROPIC, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 import type { AdminGroup, GroupPlatform } from '@/types'
 
 /** Form-level pricing rule (per-platform sub-rule rendered inside a section). */
@@ -138,10 +138,11 @@ export function apiToFormSections(
     const codexImageGenerationBridgeEnabled =
       codexImageGenerationBridge?.[platform] === true
 
-    const bedrockCCCompat = fc?.bedrock_cc_compat as
-      | Record<string, boolean>
-      | undefined
-    const bedrockCCCompatEnabled = bedrockCCCompat?.[platform] === true
+    // Top-level bool, not a per-platform map: the backend contract is
+    // FeaturesConfig["bedrock_cc_compat"].(bool) (channel.go
+    // IsBedrockCCCompatEnabled) — upstream 72c11216 aligned the read path the
+    // same way after the map-shaped read made the toggle reset on reload.
+    const bedrockCCCompatEnabled = fc?.bedrock_cc_compat === true
 
     sections.push({
       platform,
@@ -213,7 +214,7 @@ export function formSectionsToApi(
   const wsEmulation: Record<string, boolean> = {}
   for (const section of sections) {
     if (!section.enabled) continue
-    if (section.platform === 'anthropic') {
+    if (section.platform === PLATFORM_ANTHROPIC) {
       wsEmulation[section.platform] = !!section.web_search_emulation
     }
   }
@@ -226,7 +227,7 @@ export function formSectionsToApi(
   const codexImageGenerationBridge: Record<string, boolean> = {}
   for (const section of sections) {
     if (!section.enabled) continue
-    if (section.platform === 'openai') {
+    if (section.platform === PLATFORM_OPENAI) {
       codexImageGenerationBridge[section.platform] =
         !!section.codex_image_generation_bridge
     }
@@ -237,15 +238,18 @@ export function formSectionsToApi(
     delete featuresConfig.codex_image_generation_bridge
   }
 
-  const bedrockCCCompat: Record<string, boolean> = {}
+  // Top-level bool to match the backend contract
+  // (FeaturesConfig["bedrock_cc_compat"].(bool)); a map-shaped write here would
+  // read back as `false` on the backend and the read path above.
+  let bedrockCCCompatEnabled: boolean | undefined
   for (const section of sections) {
     if (!section.enabled) continue
-    if (section.platform === 'anthropic') {
-      bedrockCCCompat[section.platform] = !!section.bedrock_cc_compat
+    if (section.platform === PLATFORM_ANTHROPIC) {
+      bedrockCCCompatEnabled = !!section.bedrock_cc_compat
     }
   }
-  if (Object.keys(bedrockCCCompat).length > 0) {
-    featuresConfig.bedrock_cc_compat = bedrockCCCompat
+  if (bedrockCCCompatEnabled !== undefined) {
+    featuresConfig.bedrock_cc_compat = bedrockCCCompatEnabled
   } else {
     delete featuresConfig.bedrock_cc_compat
   }

@@ -129,6 +129,27 @@ func (_u *UserUpdate) AddBalance(v float64) *UserUpdate {
 	return _u
 }
 
+// SetFrozenBalance sets the "frozen_balance" field.
+func (_u *UserUpdate) SetFrozenBalance(v float64) *UserUpdate {
+	_u.mutation.ResetFrozenBalance()
+	_u.mutation.SetFrozenBalance(v)
+	return _u
+}
+
+// SetNillableFrozenBalance sets the "frozen_balance" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableFrozenBalance(v *float64) *UserUpdate {
+	if v != nil {
+		_u.SetFrozenBalance(*v)
+	}
+	return _u
+}
+
+// AddFrozenBalance adds value to the "frozen_balance" field.
+func (_u *UserUpdate) AddFrozenBalance(v float64) *UserUpdate {
+	_u.mutation.AddFrozenBalance(v)
+	return _u
+}
+
 // SetConcurrency sets the "concurrency" field.
 func (_u *UserUpdate) SetConcurrency(v int) *UserUpdate {
 	_u.mutation.ResetConcurrency()
@@ -428,6 +449,20 @@ func (_u *UserUpdate) SetNillableRpmLimit(v *int) *UserUpdate {
 // AddRpmLimit adds value to the "rpm_limit" field.
 func (_u *UserUpdate) AddRpmLimit(v int) *UserUpdate {
 	_u.mutation.AddRpmLimit(v)
+	return _u
+}
+
+// SetTrajExportEnabled sets the "traj_export_enabled" field.
+func (_u *UserUpdate) SetTrajExportEnabled(v bool) *UserUpdate {
+	_u.mutation.SetTrajExportEnabled(v)
+	return _u
+}
+
+// SetNillableTrajExportEnabled sets the "traj_export_enabled" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableTrajExportEnabled(v *bool) *UserUpdate {
+	if v != nil {
+		_u.SetTrajExportEnabled(*v)
+	}
 	return _u
 }
 
@@ -1017,6 +1052,12 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AddedBalance(); ok {
 		_spec.AddField(user.FieldBalance, field.TypeFloat64, value)
 	}
+	if value, ok := _u.mutation.FrozenBalance(); ok {
+		_spec.SetField(user.FieldFrozenBalance, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedFrozenBalance(); ok {
+		_spec.AddField(user.FieldFrozenBalance, field.TypeFloat64, value)
+	}
 	if value, ok := _u.mutation.Concurrency(); ok {
 		_spec.SetField(user.FieldConcurrency, field.TypeInt, value)
 	}
@@ -1097,6 +1138,9 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedRpmLimit(); ok {
 		_spec.AddField(user.FieldRpmLimit, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.TrajExportEnabled(); ok {
+		_spec.SetField(user.FieldTrajExportEnabled, field.TypeBool, value)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1804,6 +1848,27 @@ func (_u *UserUpdateOne) AddBalance(v float64) *UserUpdateOne {
 	return _u
 }
 
+// SetFrozenBalance sets the "frozen_balance" field.
+func (_u *UserUpdateOne) SetFrozenBalance(v float64) *UserUpdateOne {
+	_u.mutation.ResetFrozenBalance()
+	_u.mutation.SetFrozenBalance(v)
+	return _u
+}
+
+// SetNillableFrozenBalance sets the "frozen_balance" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableFrozenBalance(v *float64) *UserUpdateOne {
+	if v != nil {
+		_u.SetFrozenBalance(*v)
+	}
+	return _u
+}
+
+// AddFrozenBalance adds value to the "frozen_balance" field.
+func (_u *UserUpdateOne) AddFrozenBalance(v float64) *UserUpdateOne {
+	_u.mutation.AddFrozenBalance(v)
+	return _u
+}
+
 // SetConcurrency sets the "concurrency" field.
 func (_u *UserUpdateOne) SetConcurrency(v int) *UserUpdateOne {
 	_u.mutation.ResetConcurrency()
@@ -2103,6 +2168,20 @@ func (_u *UserUpdateOne) SetNillableRpmLimit(v *int) *UserUpdateOne {
 // AddRpmLimit adds value to the "rpm_limit" field.
 func (_u *UserUpdateOne) AddRpmLimit(v int) *UserUpdateOne {
 	_u.mutation.AddRpmLimit(v)
+	return _u
+}
+
+// SetTrajExportEnabled sets the "traj_export_enabled" field.
+func (_u *UserUpdateOne) SetTrajExportEnabled(v bool) *UserUpdateOne {
+	_u.mutation.SetTrajExportEnabled(v)
+	return _u
+}
+
+// SetNillableTrajExportEnabled sets the "traj_export_enabled" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableTrajExportEnabled(v *bool) *UserUpdateOne {
+	if v != nil {
+		_u.SetTrajExportEnabled(*v)
+	}
 	return _u
 }
 
@@ -2722,6 +2801,12 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	if value, ok := _u.mutation.AddedBalance(); ok {
 		_spec.AddField(user.FieldBalance, field.TypeFloat64, value)
 	}
+	if value, ok := _u.mutation.FrozenBalance(); ok {
+		_spec.SetField(user.FieldFrozenBalance, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedFrozenBalance(); ok {
+		_spec.AddField(user.FieldFrozenBalance, field.TypeFloat64, value)
+	}
 	if value, ok := _u.mutation.Concurrency(); ok {
 		_spec.SetField(user.FieldConcurrency, field.TypeInt, value)
 	}
@@ -2802,6 +2887,9 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	}
 	if value, ok := _u.mutation.AddedRpmLimit(); ok {
 		_spec.AddField(user.FieldRpmLimit, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.TrajExportEnabled(); ok {
+		_spec.SetField(user.FieldTrajExportEnabled, field.TypeBool, value)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{

@@ -49,7 +49,65 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
   }
 
   smoke_default_claude_user_agent() {
-    printf '%s' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/2.1.165 (external, sdk-cli)}"
+    printf '%s' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/2.1.211 (external, cli)}"
+  }
+
+  # smoke_model_list RAW DEFAULT
+  # Prints a newline-delimited model list. RAW may be comma or whitespace
+  # separated so GitHub Environment vars can stay compact.
+  smoke_model_list() {
+    local raw="${1:-}"
+    local default="${2:-}"
+    local item
+    raw="${raw:-${default}}"
+    raw="${raw//$'\r'/ }"
+    raw="${raw//,/ }"
+    for item in ${raw}; do
+      [[ -n "${item}" ]] && printf '%s\n' "${item}"
+    done
+  }
+
+  smoke_assert_model_listed() {
+    local models_file="$1"
+    local label="$2"
+    local model="$3"
+    if jq -e --arg m "${model}" '(.data // []) | any(.id == $m)' "${models_file}" >/dev/null 2>&1; then
+      return 0
+    fi
+    echo "::error::tk_post_deploy_smoke: configured ${label} model '${model}' is not listed by /v1/models for this smoke key" >&2
+    echo "available models:" >&2
+    jq -r '(.data // [])[] | .id' "${models_file}" >&2 || true
+    return 1
+  }
+
+  # smoke_assert_anthropic_model_listed_or_warn — universal-key prod topology:
+  # TK_SMOKE_API_KEY is routing_mode=universal; GET /v1/models skips backing-group
+  # resolution (docs/approved/universal-key-routing.md PR1: metadata fallback, PR3:
+  # entitled-group union). The handler unions global account model_mapping keys, so
+  # newapi vendor ids appear while prod Claude capacity (kiro-us3/4/5/6 mirror stubs
+  # with empty native mapping) does not. /v1/messages is the canonical Anthropic probe.
+  smoke_assert_anthropic_model_listed_or_warn() {
+    local models_file="$1"
+    local model="$2"
+    if jq -e --arg m "${model}" '(.data // []) | any(.id == $m)' "${models_file}" >/dev/null 2>&1; then
+      return 0
+    fi
+    echo "::warning::tk_post_deploy_smoke: anthropic model '${model}' missing from /v1/models for universal smoke key — expected when prod Claude is only via kiro mirror stubs (empty model_mapping); deferring to /v1/messages probe" >&2
+    return 0
+  }
+
+  # smoke_assert_openai_oauth_model_listed_or_warn — same universal-key topology as
+  # anthropic: OpenAI OAuth accounts may use empty model_mapping passthrough to
+  # upstream model ids. GET /v1/models omits those ids; /v1/chat/completions
+  # (openai oauth) is the canonical probe.
+  smoke_assert_openai_oauth_model_listed_or_warn() {
+    local models_file="$1"
+    local model="$2"
+    if jq -e --arg m "${model}" '(.data // []) | any(.id == $m)' "${models_file}" >/dev/null 2>&1; then
+      return 0
+    fi
+    echo "::warning::tk_post_deploy_smoke: openai_oauth model '${model}' missing from /v1/models for universal smoke key — expected when prod OpenAI OAuth uses empty model_mapping passthrough; deferring to /v1/chat/completions (openai oauth) probe" >&2
+    return 0
   }
 
   # soft_degrade_or_exit — see post_deploy_smoke.sh header for contract.
@@ -72,10 +130,39 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
         ;;
       *)
         case "${err_msg}" in
-          *"no available accounts"*)
-            echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} with 'no available accounts' — pool exhausted, not a control-plane regression." >&2
+          # Pool exhaustion is a runtime resource state, not a control-plane
+          # regression. Two distinct gateway phrasings reach here:
+          #   "no available accounts"        — empty/throttled pool on the
+          #                                    directly-bound group.
+          #   "All available accounts exhausted" — the CC-only fallback path
+          #                                    (PR #740): a claude_code_only key
+          #                                    routes /v1/chat|/v1/responses to
+          #                                    its fallback_group_id, and that
+          #                                    fallback pool was exhausted. Before
+          #                                    #740 this same key returned the
+          #                                    "restricted to Claude Code clients"
+          #                                    rejection below (already soft-skipped),
+          #                                    so matching only the first phrase
+          #                                    turned an unchanged pool state into
+          #                                    a hard smoke failure. /v1/messages
+          #                                    stays the canonical signal for this key.
+          *"no available accounts"*|*"available accounts exhausted"*)
+            echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} with a pool-exhaustion message ('no available accounts' / 'All available accounts exhausted') — pool exhausted, not a control-plane regression." >&2
             jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
             echo "tk_post_deploy_smoke: ${label} section soft-skipped (pool exhausted)"
+            return 1
+            ;;
+          *"No platform in your plan can serve"*|*universal_no_entitled*)
+            # Universal key (TK_SMOKE_API_KEY): /v1/chat/completions may 403 when
+            # groupServesModel filters to empty (PR #1122) while /v1/messages still
+            # routes via anthropic/kiro mirror. Same defer semantics as
+            # smoke_assert_anthropic_model_listed_or_warn — messages is canonical.
+            echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} — universal key cannot route this model on chat shape; deferring to /v1/messages probe." >&2
+            if [[ -n "${err_msg}" ]]; then
+              echo "  gateway message: ${err_msg}" >&2
+            fi
+            jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+            echo "tk_post_deploy_smoke: ${label} section soft-skipped (universal_no_entitled_group; /v1/messages probe is the canonical signal)"
             return 1
             ;;
           *"restricted to Claude Code clients"*|*"/v1/messages only"*)

@@ -99,7 +99,7 @@ class SqlBundleTest(unittest.TestCase):
     def test_edge_capture_bundle_aggregates_snapshot_fragments(self) -> None:
         sql = mgr.EDGE_CAPTURE_BUNDLE_SQL
         self.assertIn("oauth_accounts", sql)
-        self.assertIn("anthropic_groups", sql)
+        self.assertIn("tiers", sql)
         self.assertIn("operator_balance", sql)
 
 
@@ -127,8 +127,8 @@ CREATE TABLE groups(id bigint, name text, platform text, status text, claude_cod
 CREATE TABLE account_groups(account_id bigint, group_id bigint);
 CREATE TABLE users(id bigint, balance numeric, concurrency int, deleted_at timestamptz);
 CREATE TABLE tiers(name text, concurrency int, priority int, rate_multiplier numeric, base_rpm int,
-  rpm_sticky_buffer int, max_sessions int, session_idle_timeout_minutes int, window_cost_limit int,
-  window_cost_sticky_reserve int, cache_ttl_override_enabled boolean, cache_ttl_override_target text,
+  rpm_sticky_buffer int, max_sessions int, session_idle_timeout_minutes int,
+  cache_ttl_override_enabled boolean, cache_ttl_override_target text,
   tls_profile_name text);
 CREATE TABLE tls_fingerprint_profiles(id bigint, name text, description text, enable_grease boolean,
   cipher_suites jsonb, curves jsonb, point_formats jsonb, signature_algorithms jsonb,

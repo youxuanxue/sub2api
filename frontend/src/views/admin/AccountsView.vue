@@ -1,5 +1,4 @@
 <template>
-  <AppLayout>
     <TablePageLayout fluid>
       <template #filters>
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
@@ -18,6 +17,17 @@
             @create="showCreate = true"
           >
             <template #after>
+              <!-- TK: expand/collapse all edge panels (only shown when the current
+                   page has cc-<edge> mirror stubs). -->
+              <button
+                v-if="hasEdgeStubs"
+                class="btn btn-secondary px-2 md:px-3"
+                :title="t('admin.accounts.edgePanel.expandHint')"
+                @click="hasCollapsedEdges ? expandAllEdges() : collapseAllEdges()"
+              >
+                <Icon :name="hasCollapsedEdges ? 'chevronDown' : 'chevronUp'" size="sm" />
+                <span class="ml-1 hidden md:inline">{{ hasCollapsedEdges ? t('admin.accounts.edgePanel.expandAll') : t('admin.accounts.edgePanel.collapseAll') }}</span>
+              </button>
               <!-- Auto Refresh Dropdown -->
               <div class="relative" ref="autoRefreshDropdownRef">
                 <button
@@ -128,7 +138,7 @@
               </div>
             </template>
             <template #beforeCreate>
-              <button @click="showImportData = true" class="btn btn-secondary">
+              <button data-testid="account-import-btn" @click="showImportData = true" class="btn btn-secondary">
                 {{ t('admin.accounts.dataImport') }}
               </button>
               <button @click="openExportDataDialog" class="btn btn-secondary">
@@ -163,6 +173,11 @@
           @toggle-schedulable="handleBulkToggleSchedulable"
         />
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <!-- TK(防闪烁): overscan = 当前 page_size,使账号页(行数天然受 page_size 上界约束)始终渲染
+             整页行,等价于不开窗。fluid 模式走 table-auto——列宽由「当前已渲染的行」内容决定,虚拟化下
+             可见行集随滚动/测量变化会让换行单元格的高度抖动,打破 @tanstack/vue-virtual 的测量自收敛
+             假设,在变高 edge 明细行场景下出现「偶发的页面持续闪烁」。整页渲染后列宽对每帧恒定(与非虚拟化
+             的 /edge-accounts 页同样稳定),根除该抖动;edge 明细行仍按需展开,DOM 量受 page_size 约束。 -->
         <DataTable
           ref="dataTableRef"
           fluid
@@ -177,8 +192,23 @@
           default-sort-order="asc"
           :sort-storage-key="ACCOUNT_SORT_STORAGE_KEY"
           :estimate-row-height="76"
-          :overscan="5"
+          :overscan="pagination.page_size"
+          :expandable="isEdgeExpandable"
+          :expanded-keys="edgeExpandedKeys"
         >
+          <!-- TK: default-expanded edge panel under each cc-<edge> mirror-stub row —
+               query + manage that edge's real accounts inline (unified governance). -->
+          <template #row-detail="{ row }">
+            <EdgeAccountPanelTk
+              :stub="row"
+              :edge="edgePanelForStub(row)"
+              :loading="edgePanelsLoading"
+              :error="edgePanelsError"
+              :refresh-kiro-token="kiroRefreshToken"
+              @mutated="(acc) => { if (row.edge_id) { applyEdgeAccountUpdate(row.edge_id, acc); setEdgeExpanded(row.id, true) } }"
+              @retry="() => refreshEdges({ force: true })"
+            />
+          </template>
           <template #header-select>
             <input
               type="checkbox"
@@ -191,43 +221,89 @@
           <template #cell-select="{ row }">
             <input type="checkbox" :checked="isSelected(row.id)" @change="toggleSel(row.id)" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
           </template>
+          <template #cell-id="{ value }">
+            <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
+          </template>
           <template #cell-name="{ row, value }">
-            <div class="flex flex-col">
-              <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
-              <span
-                v-if="row.extra?.email_address || row.extra?.email || row.credentials?.email"
-                class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
-                :title="String(row.extra?.email_address || row.extra?.email || row.credentials?.email)"
+            <div class="flex items-start gap-1.5">
+              <!-- TK: per-row chevron for edge mirror-stub rows (any platform). The
+                   panel default-expands; this lets the operator fold/unfold ONE stub. -->
+              <button
+                v-if="isEdgeExpandable(row)"
+                type="button"
+                class="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-gray-300"
+                :title="edgeExpandedKeys.has(row.id) ? t('admin.accounts.edgePanel.collapseOne') : t('admin.accounts.edgePanel.expandOne')"
+                @click.stop="toggleEdgePanel(row)"
               >
-                {{ row.extra?.email_address || row.extra?.email || row.credentials?.email }}
-              </span>
+                <Icon :name="edgeExpandedKeys.has(row.id) ? 'chevronDown' : 'chevronRight'" size="sm" />
+              </button>
+              <div class="flex min-w-0 flex-col">
+                <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+                <span class="font-mono text-xs text-gray-400 dark:text-gray-500" :title="t('admin.accounts.accountIdHint')">ID: {{ row.id }}</span>
+                <span
+                  v-if="accountDisplayEmail(row)"
+                  class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
+                  :title="accountDisplayEmail(row) + (row.parent_chatgpt_account_id ? ' · ' + row.parent_chatgpt_account_id : '')"
+                >
+                  {{ accountDisplayEmail(row) }}
+                </span>
+                <span
+                  v-if="row.notes"
+                  class="mt-0.5 max-w-[10rem] whitespace-pre-wrap break-words text-xs text-gray-400 dark:text-gray-500"
+                  :title="row.notes"
+                >{{ row.notes }}</span>
+                <!-- TK: collapsed-state summary so a folded stub still shows what's
+                     inside (the #885 invisible-collapsed bug). -->
+                <span
+                  v-if="isEdgeExpandable(row) && !edgeExpandedKeys.has(row.id)"
+                  class="mt-0.5 inline-flex flex-wrap items-center gap-1.5 text-xs"
+                >
+                  <template v-if="edgePanelSummary(row).discovered">
+                    <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.edgePanel.summary', { total: edgePanelSummary(row).total, schedulable: edgePanelSummary(row).schedulable }) }}</span>
+                    <span
+                      v-if="edgePanelSummary(row).abnormal"
+                      class="inline-flex items-center rounded bg-red-100 px-1 font-medium text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                    >⚠ {{ edgePanelSummary(row).abnormal }}</span>
+                  </template>
+                  <span v-else class="text-gray-400 dark:text-gray-500">{{ t('admin.accounts.edgePanel.summaryLoading') }}</span>
+                </span>
+              </div>
             </div>
           </template>
           <template #cell-notes="{ value }">
-            <span v-if="value" :title="value" class="block max-w-xs truncate text-sm text-gray-600 dark:text-gray-300">{{ value }}</span>
+            <span v-if="value" :title="value" class="block max-w-xs whitespace-pre-wrap break-words text-sm text-gray-600 dark:text-gray-300">{{ value }}</span>
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
           <template #cell-platform_type="{ row }">
-            <div class="flex flex-wrap items-center gap-1">
-              <PlatformTypeBadge :platform="row.platform" :type="row.type" :plan-type="row.credentials?.plan_type" :privacy-mode="row.extra?.privacy_mode" :subscription-expires-at="row.credentials?.subscription_expires_at" />
-              <ChannelTypeBadge :platform="row.platform" :channel-type="row.channel_type" />
+            <div class="flex min-w-0 flex-col gap-1">
+              <div class="flex flex-wrap items-center gap-1">
+                <PlatformTypeBadge :platform="row.platform" :type="row.type"
+                  :auth-mode="getOpenAIAuthMode(row)"
+                  :plan-type="getAccountPlanType(row)"
+                  :privacy-mode="row.extra?.privacy_mode || row.parent_privacy_mode"
+                  :subscription-expires-at="row.credentials?.subscription_expires_at || row.parent_subscription_expires_at" />
+                <ChannelTypeBadge :platform="row.platform" :channel-type="row.channel_type" />
+                <span
+                  v-if="platformTypeBadgesById[row.id].antigravityTierLabel"
+                  :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', platformTypeBadgesById[row.id].antigravityTierClass]"
+                >
+                  {{ platformTypeBadgesById[row.id].antigravityTierLabel }}
+                </span>
+              </div>
               <span
-                v-if="getOpenAICompactLabel(row)"
-                :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', getOpenAICompactClass(row)]"
-                :title="getOpenAICompactTitle(row)"
+                v-if="platformTypeBadgesById[row.id].openaiCompactLabel"
+                :class="[
+                  'inline-flex w-fit items-center rounded px-1.5 py-0.5 text-[10px] font-medium',
+                  platformTypeBadgesById[row.id].openaiCompactClass
+                ]"
+                :title="platformTypeBadgesById[row.id].openaiCompactTitle"
               >
-                {{ getOpenAICompactLabel(row) }}
-              </span>
-              <span
-                v-if="getAntigravityTierLabel(row)"
-                :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', getAntigravityTierClass(row)]"
-              >
-                {{ getAntigravityTierLabel(row) }}
+                {{ platformTypeBadgesById[row.id].openaiCompactLabel }}
               </span>
             </div>
           </template>
           <template #cell-capacity="{ row }">
-            <AccountCapacityCell :account="row" :today-stats="todayStatsByAccountId[String(row.id)] ?? null" />
+            <AccountCapacityCell :account="row" />
           </template>
           <template #cell-status="{ row }">
             <div class="flex items-center gap-1.5">
@@ -247,7 +323,7 @@
             />
           </template>
           <template #cell-groups="{ row }">
-            <AccountGroupsCell :groups="row.groups" :max-display="4" />
+            <AccountGroupsCell :groups="groupsForRow(row)" :max-display="4" />
           </template>
           <template #header-usage="{ column }">
             <div class="flex items-center">
@@ -261,16 +337,29 @@
               :today-stats="todayStatsByAccountId[String(row.id)] ?? null"
               :today-stats-loading="todayStatsLoading"
               :manual-refresh-token="usageManualRefreshToken"
+              :usage-override="accountUsageOverrideFor(row)"
             />
           </template>
           <template #cell-proxy="{ row }">
-            <div v-if="row.proxy" class="flex items-center gap-2">
-              <span class="text-sm text-gray-700 dark:text-gray-300">{{ row.proxy.name }}</span>
-              <span v-if="row.proxy.country_code" class="text-xs text-gray-500 dark:text-gray-400">
-                ({{ row.proxy.country_code }})
-              </span>
+            <div class="flex flex-col gap-1">
+              <div v-if="proxyForRow(row)" class="flex items-center gap-2">
+                <span class="text-sm text-gray-700 dark:text-gray-300">{{ proxyForRow(row)?.name }}</span>
+                <span v-if="proxyForRow(row)?.country_code" class="text-xs text-gray-500 dark:text-gray-400">
+                  ({{ proxyForRow(row)?.country_code }})
+                </span>
+              </div>
+              <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+              <div v-if="proxyForRow(row)?.expires_at" class="flex items-center gap-2 text-xs">
+                <span class="text-gray-600 dark:text-gray-300">{{ formatDateTime(proxyForRow(row)?.expires_at || '') }}</span>
+                <span :class="proxyExpiryBadge(proxyForRow(row))">{{ proxyExpiryText(proxyForRow(row)) }}</span>
+              </div>
+              <div v-if="row.proxy_fallback_origin_id" class="flex items-center gap-1">
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" :title="t('admin.accounts.fallbackActiveTip', { origin: row.proxy_fallback_origin_name })">
+                  {{ t('admin.accounts.fallbackActive') }}
+                </span>
+                <button class="text-xs px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700" @click="onRevertFallback(row)">{{ t('admin.accounts.revertProxy') }}</button>
+              </div>
             </div>
-            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
           <template #cell-rate_multiplier="{ row }">
             <span class="text-sm font-mono text-gray-700 dark:text-gray-300">
@@ -279,6 +368,29 @@
           </template>
           <template #cell-priority="{ value }">
             <span class="text-sm text-gray-700 dark:text-gray-300">{{ value }}</span>
+          </template>
+          <template #header-scheduler_score="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip :content="t('admin.accounts.schedulerScore.hint')" width-class="w-80" />
+            </div>
+          </template>
+          <template #cell-scheduler_score="{ row }">
+            <div v-if="getSchedulerScoreRows(row).length" class="flex min-w-[7rem] flex-col gap-0.5 font-mono text-[11px] leading-4">
+              <div
+                v-for="score in getSchedulerScoreRows(row)"
+                :key="String(score.group_id)"
+                class="flex items-center gap-1 whitespace-nowrap text-gray-700 dark:text-gray-300"
+                :title="`${formatSchedulerScoreGroup(score)} / ${formatSchedulerScore(score.base_score)} / ${formatStickySchedulerScore(score)}`"
+              >
+                <span class="max-w-[4.75rem] truncate text-gray-500 dark:text-dark-400">{{ formatSchedulerScoreGroup(score) }}</span>
+                <span class="text-gray-300 dark:text-gray-600">/</span>
+                <span>{{ formatSchedulerScore(score.base_score) }}</span>
+                <span class="text-gray-300 dark:text-gray-600">/</span>
+                <span class="text-primary-700 dark:text-primary-300">{{ formatStickySchedulerScore(score) }}</span>
+              </div>
+            </div>
+            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
           <template #cell-last_used_at="{ value }">
             <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatRelativeTime(value) }}</span>
@@ -307,7 +419,7 @@
           </template>
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
-              <button @click="handleEdit(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400">
+              <button data-testid="account-edit-btn" @click="handleEdit(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
                 <span class="text-xs">{{ t('common.edit') }}</span>
               </button>
@@ -326,14 +438,15 @@
       </template>
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
-    <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
-    <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
-    <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
-    <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
-    <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
-    <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @set-tier="tierCtl.open" />
+    <CreateAccountModal v-if="lazyMount('create', showCreate)" :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
+    <EditAccountModal v-if="lazyMount('edit', showEdit)" :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
+    <ReAuthAccountModal v-if="lazyMount('reauth', showReAuth)" :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
+    <AccountTestModal v-if="lazyMount('test', showTest)" :show="showTest" :account="testingAcc" @close="closeTestModal" />
+    <AccountStatsModal v-if="lazyMount('stats', showStats)" :show="showStats" :account="statsAcc" @close="closeStatsModal" />
+    <ScheduledTestsPanel v-if="lazyMount('schedule', showSchedulePanel)" :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
+    <AccountActionMenu v-if="lazyMount('menu', menu.show)" :show="menu.show" :account="menu.acc" :position="menu.pos" :anchor="menu.anchor" @close="closeActionMenu" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @set-tier="tierCtl.open" @create-spark-shadow="handleCreateSparkShadow" />
     <AccountTierModal
+      v-if="lazyMount('tier', tierCtl.show.value)"
       :show="tierCtl.show.value"
       :account="tierCtl.target.value"
       :model-value="tierCtl.selectedTier.value"
@@ -343,9 +456,10 @@
       @apply="tierCtl.apply"
       @close="tierCtl.close"
     />
-    <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
-    <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
+    <SyncFromCrsModal v-if="lazyMount('sync', showSync)" :show="showSync" @close="showSync = false" @synced="reload" />
+    <ImportDataModal v-if="lazyMount('import', showImportData)" :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
+      v-if="lazyMount('bulk', showBulkEdit)"
       :show="showBulkEdit"
       :account-ids="selIds"
       :selected-platforms="selPlatforms"
@@ -356,24 +470,26 @@
       @close="showBulkEdit = false"
       @updated="handleBulkUpdated"
     />
-    <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
-    <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
-    <ConfirmDialog :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
+    <TempUnschedStatusModal v-if="lazyMount('tempUnsched', showTempUnsched)" :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
+    <ConfirmDialog v-if="lazyMount('delete', showDeleteDialog)" :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
+    <ConfirmDialog v-if="lazyMount('createShadow', showCreateShadowDialog)" :show="showCreateShadowDialog" :title="t('admin.accounts.createSparkShadow')" :message="t('admin.accounts.createSparkShadowConfirm', { name: creatingShadowAcc?.name })" @confirm="confirmCreateSparkShadow" @cancel="showCreateShadowDialog = false" />
+    <ConfirmDialog v-if="lazyMount('exportData', showExportDataDialog)" :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
       <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
         <input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" v-model="includeProxyOnExport" />
         <span>{{ t('admin.accounts.dataExportIncludeProxies') }}</span>
       </label>
     </ConfirmDialog>
-    <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
-    <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
-    <TierTemplatesModal :show="showTierTemplates" @close="showTierTemplates = false" />
-  </AppLayout>
-</template>
+    <ErrorPassthroughRulesModal v-if="lazyMount('errPass', showErrorPassthrough)" :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
+    <TLSFingerprintProfilesModal v-if="lazyMount('tls', showTLSFingerprintProfiles)" :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
+    <TierTemplatesModal v-if="lazyMount('tierTpl', showTierTemplates)" :show="showTierTemplates" @close="showTierTemplates = false" />
+  </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onActivated, onDeactivated, onUnmounted, toRaw, watch, defineAsyncComponent } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
+
+defineOptions({ name: 'AdminAccountsView' })
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
@@ -381,46 +497,110 @@ import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
 import { useTkAccountTier } from '@/composables/useTkAccountTier'
-import AppLayout from '@/components/layout/AppLayout.vue'
+import { useTkAccountUsageBatch } from '@/composables/useTkAccountUsageBatch'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
+const CreateAccountModal = defineAsyncComponent(() => import('@/components/account/CreateAccountModal.vue'))
+const EditAccountModal = defineAsyncComponent(() => import('@/components/account/EditAccountModal.vue'))
+const BulkEditAccountModal = defineAsyncComponent(() => import('@/components/account/BulkEditAccountModal.vue'))
+const SyncFromCrsModal = defineAsyncComponent(() => import('@/components/account/SyncFromCrsModal.vue'))
+const TempUnschedStatusModal = defineAsyncComponent(() => import('@/components/account/TempUnschedStatusModal.vue'))
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
+// TK: inline edge-account panels (unified prod+edge governance) — see
+// useTkAccountsEdgePanels.ts / EdgeAccountPanelTk.vue.
+import EdgeAccountPanelTk from '@/components/admin/account/EdgeAccountPanelTk.vue'
+import { useTkAccountsEdgePanels } from '@/composables/useTkAccountsEdgePanels'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
+import { STATUS_ACTIVE } from '@/constants/channel'
+import { PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
-import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
-import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
-import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
-import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
-import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
-import AccountTierModal from '@/components/admin/account/AccountTierModal.vue'
+const ImportDataModal = defineAsyncComponent(() => import('@/components/admin/account/ImportDataModal.vue'))
+const ReAuthAccountModal = defineAsyncComponent(() => import('@/components/admin/account/ReAuthAccountModal.vue'))
+const AccountTestModal = defineAsyncComponent(() => import('@/components/admin/account/AccountTestModal.vue'))
+const AccountStatsModal = defineAsyncComponent(() => import('@/components/account/AccountStatsModal.vue'))
+const ScheduledTestsPanel = defineAsyncComponent(() => import('@/components/admin/account/ScheduledTestsPanel.vue'))
+const AccountTierModal = defineAsyncComponent(() => import('@/components/admin/account/AccountTierModal.vue'))
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
-import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
+const AccountUsageCell = defineAsyncComponent(() => import('@/components/account/AccountUsageCell.vue'))
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import ChannelTypeBadge from '@/components/common/ChannelTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
-import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
-import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
-import TierTemplatesModal from '@/components/admin/account/TierTemplatesModal.vue'
+const ErrorPassthroughRulesModal = defineAsyncComponent(() => import('@/components/admin/ErrorPassthroughRulesModal.vue'))
+const TLSFingerprintProfilesModal = defineAsyncComponent(() => import('@/components/admin/TLSFingerprintProfilesModal.vue'))
+const TierTemplatesModal = defineAsyncComponent(() => import('@/components/admin/account/TierTemplatesModal.vue'))
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
+import { accountMatchesPlatformFilter } from '@/utils/accountPlatformFilters'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
-import { migrateAccountTimestampColumnsVisibleOnce } from './migrateAccountColumnsTs'
-import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
+import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
+import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, Group, WindowStats, AccountModelOption } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
+// Active groups — feeds the filter dropdown + create/edit/bulk modals (unchanged).
 const groups = ref<AdminGroup[]>([])
+// Active + DISABLED groups — used ONLY to resolve chip names below. An account can
+// stay bound to a now-disabled group; the old embedded row.groups showed that chip,
+// so the resolver must see inactive groups too (groups.getAll() is active-only).
+const groupsForChips = ref<AdminGroup[]>([])
+
+// Group-chip resolution for the (lite) accounts list. The lite list payload omits
+// the fully-embedded group objects — which previously duplicated the same group
+// definitions across every row (~3.1KB/row) — and carries only group_ids. We
+// resolve chip names from the loaded groups list. Falls back to any embedded
+// `groups` for non-lite responses (single-account fetches, older data).
+const groupById = computed(() => {
+  const map = new Map<number, AdminGroup>()
+  // Active set first, then the inactive-inclusive set (superset) so every bound
+  // group_id resolves — including disabled groups. If the inactive fetch failed,
+  // the active set still covers active bindings.
+  for (const g of groups.value) map.set(g.id, g)
+  for (const g of groupsForChips.value) map.set(g.id, g)
+  return map
+})
+
+function groupsForRow(row: { groups?: unknown; group_ids?: unknown }): Group[] {
+  if (Array.isArray(row?.groups) && row.groups.length > 0) {
+    return row.groups as Group[]
+  }
+  const ids = Array.isArray(row?.group_ids) ? row.group_ids : []
+  const resolved: AdminGroup[] = []
+  for (const id of ids) {
+    const g = groupById.value.get(Number(id))
+    if (g) resolved.push(g)
+  }
+  return resolved as unknown as Group[]
+}
+
+// Proxy-cell resolution for the (lite) accounts list. The lite payload carries
+// only proxy_id (no embedded proxy object), so resolve the proxy from the
+// already-loaded proxies list. Falls back to any embedded `proxy` for non-lite
+// responses. Reactive on proxies.value, so the cell fills in once proxies load.
+const proxyById = computed(() => {
+  const map = new Map<number, AccountProxy>()
+  for (const p of proxies.value) map.set(p.id, p)
+  return map
+})
+
+function proxyForRow(row: { proxy?: unknown; proxy_id?: unknown }): AccountProxy | null {
+  if (row?.proxy) return row.proxy as AccountProxy
+  const pid = row?.proxy_id
+  if (typeof pid === 'number' && pid > 0) {
+    return proxyById.value.get(pid) ?? null
+  }
+  return null
+}
+
 const accountTableRef = ref<HTMLElement | null>(null)
 const dataTableRef = ref<InstanceType<typeof DataTable> | null>(null)
 type AccountBulkEditTarget =
@@ -472,6 +652,7 @@ const showBulkEdit = ref(false)
 const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
+const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
 const showStats = ref(false)
@@ -481,22 +662,49 @@ const showTierTemplates = ref(false)
 const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
+const creatingShadowAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
 const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
+
+// Lazy-mount latch for action-triggered overlays (modals/drawers/menus): a modal mounts
+// the first time its show flag goes true and then stays mounted, so first paint runs none
+// of their setup() (some, e.g. Edit/Create, fire admin API calls at setup) while open/close
+// transitions and reopen behavior stay identical to always-mounted. Keyed by a stable string.
+const everOpened = reactive(new Set<string>())
+const lazyMount = (key: string, show: boolean): boolean => {
+  if (show) everOpened.add(key)
+  return everOpened.has(key)
+}
 const togglingSchedulable = ref<number | null>(null)
-const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
+const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null, anchor:HTMLElement|null}>({ show: false, acc: null, pos: null, anchor: null })
 const exportingData = ref(false)
 
 // Column settings
 const showColumnDropdown = ref(false)
 const columnDropdownRef = ref<HTMLElement | null>(null)
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority', 'rate_multiplier']
+const DEFAULT_HIDDEN_COLUMNS = [
+  'id',
+  'today_stats',
+  'proxy',
+  'scheduler_score',
+  'rate_multiplier',
+  'last_used_at',
+  'created_at',
+  'expires_at',
+  'notes'
+]
+const LEGACY_AUTO_SAVED_DEFAULT_HIDDEN_COLUMN_SETS = [
+  ['today_stats', 'proxy', 'notes', 'priority', 'rate_multiplier'],
+  ['today_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
+]
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
+const COLUMN_SETTINGS_VERSION_KEY = 'account-column-settings-version'
+const COLUMN_SETTINGS_VERSION = '3'
 
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
@@ -506,6 +714,7 @@ type AccountSortState = {
   sort_order: AccountSortOrder
 }
 const ACCOUNT_SORTABLE_KEYS = new Set([
+  'id',
   'name',
   'status',
   'schedulable',
@@ -552,6 +761,25 @@ const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
+// Bumped only by handleManualRefresh → tells each expanded EdgeAccountPanelTk to pull
+// live kiro credits once (kiro has no organic passive refresh). Never bumped on the
+// auto-refresh tick, so kiro upstream calls stay bounded to operator 刷新 clicks.
+const kiroRefreshToken = ref(0)
+
+// TK: batch passive-usage for the list, replacing the per-row /usage fan-out for
+// Anthropic / OpenAI OAuth / Kiro rows. The cell renders usageOverrideFor(row) and
+// never self-fetches when an override is present (see useTkAccountUsageBatch).
+const { usageOverrideFor: accountUsageOverrideFor, refreshUsageBatch } = useTkAccountUsageBatch()
+
+const refreshAccountRowMetrics = () => {
+  const rows = accounts.value.slice()
+  refreshTodayStatsBatch().catch((error) => {
+    console.error('Failed to load account today stats:', error)
+  })
+  refreshUsageBatch(rows).catch((error) => {
+    console.error('Failed to load account usage:', error)
+  })
+}
 
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
@@ -562,12 +790,8 @@ const buildDefaultTodayStats = (): WindowStats => ({
 })
 
 const refreshTodayStatsBatch = async () => {
-  // Why this checks these columns:
-  // - today_stats column shows dedicated today's metrics.
-  // - usage column also embeds today's stats for Key/Bedrock rows.
-  // - capacity column now embeds a today usage badge for ALL account types.
-  // So we only skip fetching when ALL three columns are hidden.
-  if (hiddenColumns.has('today_stats') && hiddenColumns.has('usage') && hiddenColumns.has('capacity')) {
+  // today_stats column and usage column embed today's metrics; capacity does not.
+  if (hiddenColumns.has('today_stats') && hiddenColumns.has('usage')) {
     todayStatsLoading.value = false
     todayStatsError.value = null
     return
@@ -614,18 +838,58 @@ const autoRefreshIntervalLabel = (sec: number) => {
   return `${sec}s`
 }
 
+const formatSchedulerScore = (value: unknown): string => {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return '-'
+  return num.toFixed(6).replace(/\.?0+$/, '')
+}
+
+const formatStickySchedulerScore = (score: AccountSchedulerGroupScore): string => {
+  if (!score) return '-'
+  if (score.sticky_score_infinity) return '+∞'
+  return formatSchedulerScore(score.sticky_score)
+}
+
+const getSchedulerScoreRows = (account: Account): AccountSchedulerGroupScore[] => {
+  const groupRows = Array.isArray(account.scheduler_scores)
+    ? account.scheduler_scores.filter(score => score.group_id != null)
+    : []
+  if (groupRows.length) return groupRows
+  // 未分组账号没有分组维度分数，回退展示后端返回的基础分
+  if (account.scheduler_score) {
+    return [{ group_id: null, ...account.scheduler_score }]
+  }
+  return []
+}
+
+const formatSchedulerScoreGroup = (score: AccountSchedulerGroupScore): string => {
+  if ('group_name' in score && score.group_name) return score.group_name
+  if ('group_id' in score && score.group_id != null) return `#${score.group_id}`
+  return t('admin.accounts.schedulerScore.ungrouped')
+}
+
 const loadSavedColumns = () => {
   try {
     const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY)
     if (saved) {
       const parsed = JSON.parse(saved) as string[]
-      parsed.forEach(key => {
+      const keys = shouldMigrateLegacyDefaultColumns(parsed)
+        ? DEFAULT_HIDDEN_COLUMNS
+        : parsed
+      keys.forEach(key => {
         hiddenColumns.add(key)
       })
+      const storedVersion = localStorage.getItem(COLUMN_SETTINGS_VERSION_KEY)
+      if (storedVersion !== COLUMN_SETTINGS_VERSION) {
+        hiddenColumns.add('scheduler_score')
+        localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+        localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, COLUMN_SETTINGS_VERSION)
+      }
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach(key => {
         hiddenColumns.add(key)
       })
+      localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, COLUMN_SETTINGS_VERSION)
     }
   } catch (e) {
     console.error('Failed to load saved columns:', e)
@@ -638,15 +902,21 @@ const loadSavedColumns = () => {
 const saveColumnsToStorage = () => {
   try {
     localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+    localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, COLUMN_SETTINGS_VERSION)
   } catch (e) {
     console.error('Failed to save columns:', e)
   }
 }
 
-const migrateTimestampColumnsVisibleOnce = () => {
-  if (migrateAccountTimestampColumnsVisibleOnce(hiddenColumns)) {
-    saveColumnsToStorage()
-  }
+const sameColumnSet = (a: string[], b: string[]) => {
+  if (a.length !== b.length) return false
+  const set = new Set(a)
+  return b.every(key => set.has(key))
+}
+
+const shouldMigrateLegacyDefaultColumns = (keys: string[]) => {
+  if (localStorage.getItem(COLUMN_SETTINGS_VERSION_KEY) === COLUMN_SETTINGS_VERSION) return false
+  return LEGACY_AUTO_SAVED_DEFAULT_HIDDEN_COLUMN_SETS.some(legacyKeys => sameColumnSet(keys, legacyKeys))
 }
 
 const loadSavedAutoRefresh = () => {
@@ -680,7 +950,6 @@ const saveAutoRefreshToStorage = () => {
 
 if (typeof window !== 'undefined') {
   loadSavedColumns()
-  migrateTimestampColumnsVisibleOnce()
   loadSavedAutoRefresh()
 }
 
@@ -716,10 +985,26 @@ const toggleColumn = (key: string) => {
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
+    if (key === 'usage') {
+      refreshUsageBatch(accounts.value)
+    }
+  }
+  if (key === 'scheduler_score') {
+    // The server only returns scheduler scores when this column is visible, so reload the current page immediately.
+    syncAccountListDerivedParams()
+    load().catch((error) => {
+      console.error('Failed to reload accounts after toggling scheduler score column:', error)
+    })
   }
 }
 
 const isColumnVisible = (key: string) => !hiddenColumns.has(key)
+const shouldIncludeSchedulerScore = () => isColumnVisible('scheduler_score')
+const syncAccountListDerivedParams = () => {
+  // Keep every load path, including auto-refresh and sorting, aligned with the current column visibility.
+  const requestParams = params as any
+  requestParams.include_scheduler_score = shouldIncludeSchedulerScore() ? '1' : '0'
+}
 
 const {
   items: accounts,
@@ -740,9 +1025,34 @@ const {
     privacy_mode: '',
     group: '',
     search: '',
+    include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
   }
+})
+
+// TK: inline edge-account panels under each cc-<edge> mirror-stub row. Owns the
+// edge data (fetched + ETag auto-refreshed eagerly so anomaly-driven default
+// expansion works) and the expand-state machine. Driven by the CURRENT prod page
+// rows + the search box: only anomalous edges default-expand; searching
+// auto-expands matches; explicit per-row toggles persist.
+const {
+  isExpandable: isEdgeExpandable,
+  panelForStub: edgePanelForStub,
+  panelSummary: edgePanelSummary,
+  expandedKeys: edgeExpandedKeys,
+  toggle: toggleEdgePanel,
+  setExpanded: setEdgeExpanded,
+  applyAccountUpdate: applyEdgeAccountUpdate,
+  refreshEdges,
+  expandAll: expandAllEdges,
+  collapseAll: collapseAllEdges,
+  hasCollapsedVisible: hasCollapsedEdges,
+  hasAnyStub: hasEdgeStubs,
+  edgeLoading: edgePanelsLoading,
+  edgeError: edgePanelsError
+} = useTkAccountsEdgePanels({
+  prodAccounts: () => accounts.value
 })
 
 const {
@@ -784,36 +1094,46 @@ const isFirstLoad = ref(true)
 
 const load = async () => {
   const requestParams = params as any
+  syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
-  if (isFirstLoad.value) {
-    requestParams.lite = '1'
-  }
+  // Always request the lite payload for the list. The embedded group objects are
+  // redundant here (chips resolve from group_ids via groupsForRow), so every load
+  // — including the 30s auto-refresh — is ~69% smaller. Detail/edit fetches still
+  // use the full single-account endpoint.
+  requestParams.lite = '1'
+  isFirstLoad.value = false
   await baseLoad()
-  if (isFirstLoad.value) {
-    isFirstLoad.value = false
-    delete requestParams.lite
-  }
-  await refreshTodayStatsBatch()
+  refreshAccountRowMetrics()
 }
 
 const reload = async () => {
+  syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
   await baseReload()
-  await refreshTodayStatsBatch()
+  refreshAccountRowMetrics()
 }
 
 const debouncedReload = () => {
+  syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  baseDebouncedReload()
+  // Always refresh row metrics after the debounced table reload completes.
+  // Relying only on watch(loading) races with the initial onMounted load(): that
+  // load can finish while pendingTodayStatsRefresh is already true (user filtered
+  // early), consume the flag, and leave the debounced reload with no batch refresh.
+  void baseDebouncedReload().then(() => {
+    pendingTodayStatsRefresh.value = false
+    refreshAccountRowMetrics()
+  })
 }
 
 const handlePageChange = (page: number) => {
+  syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
@@ -821,6 +1141,7 @@ const handlePageChange = (page: number) => {
 }
 
 const handlePageSizeChange = (size: number) => {
+  syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
@@ -833,6 +1154,7 @@ const handleSort = (key: string, order: AccountSortOrder) => {
   const requestParams = params as any
   requestParams.sort_by = key
   requestParams.sort_order = order
+  syncAccountListDerivedParams()
   pagination.page = 1
   hasPendingListSync.value = false
   resetAutoRefreshCache()
@@ -846,6 +1168,7 @@ watch(loading, (isLoading, wasLoading) => {
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to refresh account today stats after table load:', error)
     })
+    refreshUsageBatch(accounts.value)
   }
 })
 
@@ -880,7 +1203,6 @@ const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => {
   return (
     current.updated_at !== next.updated_at ||
     current.current_concurrency !== next.current_concurrency ||
-    current.current_window_cost !== next.current_window_cost ||
     current.active_sessions !== next.active_sessions ||
     current.current_rpm !== next.current_rpm ||
     current.schedulable !== next.schedulable ||
@@ -932,6 +1254,7 @@ const mergeAccountsIncrementally = (nextRows: Account[]) => {
 
 const refreshAccountsIncrementally = async () => {
   if (autoRefreshFetching.value) return
+  syncAccountListDerivedParams()
   autoRefreshFetching.value = true
   try {
     const result = await adminAPI.accounts.listWithEtag(
@@ -961,7 +1284,7 @@ const refreshAccountsIncrementally = async () => {
       hasPendingListSync.value = false
     }
 
-    await refreshTodayStatsBatch()
+    refreshAccountRowMetrics()
   } catch (error) {
     console.error('Auto refresh failed:', error)
   } finally {
@@ -971,8 +1294,16 @@ const refreshAccountsIncrementally = async () => {
 
 const handleManualRefresh = async () => {
   await load()
-  // Force usage cells to refetch /usage on explicit user refresh.
+  await refreshEdges({ force: true })
+  // load() already starts the batch passive-usage refresh for Anthropic/OpenAI/Kiro
+  // rows (override path). Bump the token so the residual self-fetch platforms
+  // (gemini/antigravity cells) also refresh on explicit user refresh.
   usageManualRefreshToken.value += 1
+  // Edge kiro accounts have no organic passive refresh (credits come only from an
+  // explicit CodeWhisperer call), so an explicit user refresh also pulls live kiro
+  // credits once per kiro account in the expanded edge panels. Bumped ONLY here (not
+  // on the auto-refresh tick) so upstream calls stay bounded to operator clicks.
+  kiroRefreshToken.value += 1
 }
 
 const syncPendingListChanges = async () => {
@@ -1009,9 +1340,36 @@ const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
   { immediate: false }
 )
 
+// Fresh billing/quota snapshots are authoritative. Imported credential tiers
+// can be stale, so they remain fallbacks together with legacy plan_type fields.
+function getAccountPlanType(row: any): string | undefined {
+  if (!row) return undefined
+  if (row.platform === 'grok') {
+    const extra = (row.extra || {}) as Record<string, any>
+    const billing = extra.grok_billing_snapshot as Record<string, any> | undefined
+    const quota = extra.grok_quota_snapshot as Record<string, any> | undefined
+    return (
+      billing?.plan ||
+      quota?.subscription_tier ||
+      row.credentials?.subscription_tier ||
+      extra.subscription_tier ||
+      row.credentials?.plan_type ||
+      row.parent_plan_type ||
+      undefined
+    )
+  }
+  return row.credentials?.plan_type || row.parent_plan_type || undefined
+}
+
+function getOpenAIAuthMode(row: any): string | undefined {
+  if (!row || row.platform !== 'openai' || row.type !== 'oauth') return undefined
+  const authMode = row.credentials?.auth_mode
+  return typeof authMode === 'string' && authMode.trim() ? authMode : undefined
+}
+
 // Antigravity 订阅等级辅助函数
 function getAntigravityTierFromRow(row: any): string | null {
-  if (row.platform !== 'antigravity') return null
+  if (row.platform !== PLATFORM_ANTIGRAVITY) return null
   const extra = row.extra as Record<string, unknown> | undefined
   if (!extra) return null
   const lca = extra.load_code_assist as Record<string, unknown> | undefined
@@ -1033,8 +1391,14 @@ function getAntigravityTierLabel(row: any): string | null {
   }
 }
 
+// 账号显示邮箱:优先账号自身(extra/credentials),影子账号回退母账号 parent_email。
+// 供名称单元格 v-if/标题/文本三处共用,避免同一回退链在模板里重复三次。
+function accountDisplayEmail(row: any): string {
+  return row.extra?.email_address || row.extra?.email || row.credentials?.email || row.parent_email || ''
+}
+
 function getOpenAICompactState(row: any): 'supported' | 'unsupported' | 'unknown' | null {
-  if (row.platform !== 'openai' || (row.type !== 'oauth' && row.type !== 'apikey')) return null
+  if (row.platform !== PLATFORM_OPENAI || (row.type !== 'oauth' && row.type !== 'apikey')) return null
   const extra = row.extra as Record<string, unknown> | undefined
   const mode = typeof extra?.openai_compact_mode === 'string' ? extra.openai_compact_mode : 'auto'
   if (mode === 'force_on') return 'supported'
@@ -1080,6 +1444,37 @@ function getAntigravityTierClass(row: any): string {
   }
 }
 
+// Memoized platform_type badge derivation keyed by account id. The cell reads
+// platformTypeBadgesById[row.id] instead of calling 5 helpers (each re-walking
+// row.extra) per row on every reactivity tick. Recomputes only when the account
+// list changes; reuses the upstream helpers so each field is byte-identical to
+// the per-call path.
+const platformTypeBadgesById = computed<Record<number, {
+  openaiCompactLabel: string | null
+  openaiCompactClass: string
+  openaiCompactTitle: string
+  antigravityTierLabel: string | null
+  antigravityTierClass: string
+}>>(() => {
+  const byId: Record<number, {
+    openaiCompactLabel: string | null
+    openaiCompactClass: string
+    openaiCompactTitle: string
+    antigravityTierLabel: string | null
+    antigravityTierClass: string
+  }> = {}
+  for (const row of accounts.value) {
+    byId[row.id] = {
+      openaiCompactLabel: getOpenAICompactLabel(row),
+      openaiCompactClass: getOpenAICompactClass(row),
+      openaiCompactTitle: getOpenAICompactTitle(row),
+      antigravityTierLabel: getAntigravityTierLabel(row),
+      antigravityTierClass: getAntigravityTierClass(row),
+    }
+  }
+  return byId
+})
+
 // All available columns
 //
 // Wrap-first column policy under DataTable's fluid mode:
@@ -1099,6 +1494,7 @@ const allColumns = computed(() => {
   const c = [
     { key: 'select', label: '', sortable: false, class: nowrap },
     { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, class: 'min-w-0 max-w-[10rem] break-words align-top' },
+    { key: 'id', label: t('admin.accounts.columns.id'), sortable: true, class: nowrap },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false, class: wrap('max-w-[9rem]') },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false, class: wrap('max-w-[9rem]') },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, class: wrap('max-w-[8rem]') },
@@ -1112,6 +1508,7 @@ const allColumns = computed(() => {
     { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false, class: wrap('max-w-[15rem]') },
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false, class: wrap('max-w-[7rem]') },
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true, class: nowrap },
+    { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false, class: wrap('max-w-[9rem]') },
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true, class: nowrap },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true, class: wrap('max-w-[5rem]') },
     { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true, class: wrap('max-w-[5rem]') },
@@ -1135,17 +1532,26 @@ const cols = computed(() =>
 )
 
 const handleEdit = (a: Account) => { edAcc.value = a; showEdit.value = true }
+const closeActionMenu = () => {
+  menu.show = false
+  menu.anchor = null
+}
 const openMenu = (a: Account, e: MouseEvent) => {
+  // Safety net when a menu action opens a modal but a ghost click hits the row
+  // "more" trigger before the deferred menu close runs.
+  if (isAnyModalOpen.value) return
+
   menu.acc = a
 
   const target = e.currentTarget as HTMLElement
   if (target) {
     const rect = target.getBoundingClientRect()
-    const menuWidth = 200
+    const menuWidth = 208
     const menuHeight = 240
     const padding = 8
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
+    menu.anchor = target
 
     let left: number
     let top: number
@@ -1170,17 +1576,18 @@ const openMenu = (a: Account, e: MouseEvent) => {
       }
     } else {
       left = Math.max(padding, Math.min(
-        e.clientX - menuWidth,
+        rect.right - menuWidth,
         viewportWidth - menuWidth - padding
       ))
-      top = e.clientY
+      top = rect.bottom + 4
       if (top + menuHeight > viewportHeight - padding) {
-        top = viewportHeight - menuHeight - padding
+        top = Math.max(padding, Math.min(rect.top - menuHeight - 4, viewportHeight - menuHeight - padding))
       }
     }
 
     menu.pos = { top, left }
   } else {
+    menu.anchor = null
     menu.pos = { top: e.clientY, left: e.clientX - 200 }
   }
 
@@ -1391,7 +1798,7 @@ const buildAccountQueryFilters = () => ({
 })
 const accountMatchesCurrentFilters = (account: Account) => {
   const filters = buildAccountQueryFilters()
-  if (filters.platform && account.platform !== filters.platform) return false
+  if (!accountMatchesPlatformFilter(account, filters.platform)) return false
   if (filters.type && account.type !== filters.type) return false
   if (filters.status) {
     const now = Date.now()
@@ -1400,14 +1807,14 @@ const accountMatchesCurrentFilters = (account: Account) => {
     const tempUnschedUntil = account.temp_unschedulable_until ? new Date(account.temp_unschedulable_until).getTime() : Number.NaN
     const isTempUnschedulable = Number.isFinite(tempUnschedUntil) && tempUnschedUntil > now
 
-    if (filters.status === 'active') {
-      if (account.status !== 'active' || isRateLimited || isTempUnschedulable || !account.schedulable) return false
+    if (filters.status === STATUS_ACTIVE) {
+      if (account.status !== STATUS_ACTIVE || isRateLimited || isTempUnschedulable || !account.schedulable) return false
     } else if (filters.status === 'rate_limited') {
-      if (account.status !== 'active' || !isRateLimited || isTempUnschedulable) return false
+      if (account.status !== STATUS_ACTIVE || !isRateLimited || isTempUnschedulable) return false
     } else if (filters.status === 'temp_unschedulable') {
-      if (account.status !== 'active' || !isTempUnschedulable) return false
+      if (account.status !== STATUS_ACTIVE || !isTempUnschedulable) return false
     } else if (filters.status === 'unschedulable') {
-      if (account.status !== 'active' || account.schedulable || isRateLimited || isTempUnschedulable) return false
+      if (account.status !== STATUS_ACTIVE || account.schedulable || isRateLimited || isTempUnschedulable) return false
     } else if (account.status !== filters.status) {
       return false
     }
@@ -1435,7 +1842,6 @@ const accountMatchesCurrentFilters = (account: Account) => {
 const mergeRuntimeFields = (oldAccount: Account, updatedAccount: Account): Account => ({
   ...updatedAccount,
   current_concurrency: updatedAccount.current_concurrency ?? oldAccount.current_concurrency,
-  current_window_cost: updatedAccount.current_window_cost ?? oldAccount.current_window_cost,
   active_sessions: updatedAccount.active_sessions ?? oldAccount.active_sessions
 })
 
@@ -1462,7 +1868,7 @@ const patchAccountInList = (updatedAccount: Account) => {
     syncPaginationAfterLocalRemoval()
     removeSelectedAccounts([mergedAccount.id])
     if (menu.acc?.id === mergedAccount.id) {
-      menu.show = false
+      closeActionMenu()
       menu.acc = null
     }
     return
@@ -1510,7 +1916,13 @@ const handleExportData = async () => {
     link.download = filename
     link.click()
     URL.revokeObjectURL(url)
-    appStore.showSuccess(t('admin.accounts.dataExported'))
+    // spark 影子账号被后端排除出备份(其凭据透传母账号、调度配置不可经凭据型导入重建);
+    // 跳过非零时明确提示用户,避免「下载成功但少了账号」的静默丢失。
+    if (dataPayload.skipped_shadows && dataPayload.skipped_shadows > 0) {
+      appStore.showWarning(t('admin.accounts.dataExportedSkippedShadows', { count: dataPayload.skipped_shadows }))
+    } else {
+      appStore.showSuccess(t('admin.accounts.dataExported'))
+    }
   } catch (error: any) {
     appStore.showError(error?.message || t('admin.accounts.dataExportFailed'))
   } finally {
@@ -1529,13 +1941,28 @@ const handleSchedule = async (a: Account) => {
   showSchedulePanel.value = true
   try {
     const models = await adminAPI.accounts.getAvailableModels(a.id)
-    scheduleModelOptions.value = models.map((m: ClaudeModel) => ({ value: m.id, label: m.display_name || m.id }))
+    scheduleModelOptions.value = models.map((m: AccountModelOption) => ({ value: m.id, label: m.display_name || m.id }))
   } catch {
     scheduleModelOptions.value = []
   }
 }
 const closeSchedulePanel = () => { showSchedulePanel.value = false; scheduleAcc.value = null; scheduleModelOptions.value = [] }
 const handleReAuth = (a: Account) => { reAuthAcc.value = a; showReAuth.value = true }
+const duplicatingAccountIDs = new Set<number>()
+const handleDuplicateAccount = async (a: Account) => {
+  if (duplicatingAccountIDs.has(a.id)) return
+  duplicatingAccountIDs.add(a.id)
+  try {
+    const duplicate = await adminAPI.accounts.duplicate(a.id)
+    appStore.showSuccess(t('admin.accounts.duplicateSuccess', { name: duplicate.name }))
+    reload()
+  } catch (error: any) {
+    console.error('Failed to duplicate account:', error)
+    appStore.showError(error?.message || t('admin.accounts.duplicateFailed'))
+  } finally {
+    duplicatingAccountIDs.delete(a.id)
+  }
+}
 const handleRefresh = async (a: Account) => {
   try {
     const updated = await adminAPI.accounts.refreshCredentials(a.id)
@@ -1566,15 +1993,70 @@ const handleResetQuota = async (a: Account) => {
     console.error('Failed to reset quota:', error)
   }
 }
+
+const privacyResultMessageKey = (account: Account): { type: 'success' | 'error'; key: string } => {
+  const mode = typeof account.extra?.privacy_mode === 'string' ? account.extra.privacy_mode : ''
+  if (account.platform === PLATFORM_OPENAI) {
+    switch (mode) {
+      case 'training_off':
+        return { type: 'success', key: 'admin.accounts.privacyTrainingOff' }
+      case 'training_set_cf_blocked':
+        return { type: 'error', key: 'admin.accounts.privacyCfBlocked' }
+      default:
+        return { type: 'error', key: 'admin.accounts.privacyFailed' }
+    }
+  }
+  if (account.platform === PLATFORM_ANTIGRAVITY) {
+    if (mode === 'privacy_set') {
+      return { type: 'success', key: 'admin.accounts.privacyAntigravitySet' }
+    }
+    return { type: 'error', key: 'admin.accounts.privacyAntigravityFailed' }
+  }
+  return { type: 'error', key: 'admin.accounts.privacyFailed' }
+}
+
 const handleSetPrivacy = async (a: Account) => {
   try {
     const updated = await adminAPI.accounts.setPrivacy(a.id)
     patchAccountInList(updated)
     enterAutoRefreshSilentWindow()
-    appStore.showSuccess(t('common.success'))
+    const result = privacyResultMessageKey(updated)
+    if (result.type === 'success') {
+      appStore.showSuccess(t(result.key))
+    } else {
+      appStore.showError(t(result.key))
+    }
   } catch (error: any) {
     console.error('Failed to set privacy:', error)
     appStore.showError(error?.response?.data?.message || t('admin.accounts.privacyFailed'))
+  }
+}
+const onRevertFallback = async (a: Account) => {
+  try {
+    await adminAPI.accounts.revertProxyFallback(a.id)
+    appStore.showSuccess(t('admin.accounts.revertProxySuccess'))
+    reload()
+  } catch (error: any) {
+    console.error('Failed to revert proxy fallback:', error)
+    appStore.showError(error?.response?.data?.message || t('admin.accounts.revertProxyFailed'))
+  }
+}
+const handleCreateSparkShadow = (a: Account) => {
+  creatingShadowAcc.value = a
+  showCreateShadowDialog.value = true
+}
+const confirmCreateSparkShadow = async () => {
+  const a = creatingShadowAcc.value
+  if (!a) return
+  try {
+    await adminAPI.accounts.createSparkShadow(a.id, { name: `${a.name} (Spark)` })
+    showCreateShadowDialog.value = false
+    creatingShadowAcc.value = null
+    appStore.showSuccess(t('admin.accounts.createSparkShadowSuccess'))
+    reload()
+  } catch (error: any) {
+    console.error('Failed to create spark shadow:', error)
+    appStore.showError(error?.response?.data?.message || t('admin.accounts.createSparkShadowFailed'))
   }
 }
 const handleDelete = (a: Account) => { deletingAcc.value = a; showDeleteDialog.value = true }
@@ -1619,10 +2101,18 @@ const isExpired = (value: number | null) => {
   if (!value) return false
   return value * 1000 <= Date.now()
 }
+// 所绑定代理的有效期(逻辑同 /admin/proxies,见 utils/proxyExpiry)
+const proxyExpiryBadge = (p?: AccountProxy | null): string =>
+  p ? proxyExpiryBadgeClass(p.expires_at, p.status) : ''
+const proxyExpiryText = (p?: AccountProxy | null): string => {
+  if (!p) return ''
+  const { key, params } = proxyExpiryLabelKey(p.expires_at, p.status)
+  return params ? t(key, params) : t(key)
+}
 
 // 滚动时关闭操作菜单（不关闭列设置下拉菜单）
 const handleScroll = () => {
-  menu.show = false
+  closeActionMenu()
 }
 
 // 点击外部关闭列设置下拉菜单
@@ -1636,12 +2126,21 @@ const handleClickOutside = (event: MouseEvent) => {
   }
 }
 
+let lastFetchedAt = 0
+const STALE_THRESHOLD_MS = 30_000
+
 onMounted(async () => {
   load()
   try {
-    const [p, g] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll()])
+    const [p, g, gAll] = await Promise.all([
+      adminAPI.proxies.getAll(),
+      adminAPI.groups.getAll(),
+      // Inactive-inclusive set for chip resolution only (disabled-group bindings).
+      adminAPI.groups.getAllIncludingInactive()
+    ])
     proxies.value = p
     groups.value = g
+    groupsForChips.value = gAll
   } catch (error) {
     console.error('Failed to load proxies/groups:', error)
   }
@@ -1654,9 +2153,23 @@ onMounted(async () => {
   } else {
     pauseAutoRefresh()
   }
+  lastFetchedAt = Date.now()
+})
+
+onActivated(() => {
+  if (autoRefreshEnabled.value) resumeAutoRefresh()
+  if (Date.now() - lastFetchedAt > STALE_THRESHOLD_MS) {
+    load()
+    lastFetchedAt = Date.now()
+  }
+})
+
+onDeactivated(() => {
+  pauseAutoRefresh()
 })
 
 onUnmounted(() => {
+  pauseAutoRefresh()
   window.removeEventListener('scroll', handleScroll, true)
   document.removeEventListener('click', handleClickOutside)
 })

@@ -1,5 +1,7 @@
 package domain
 
+import "sort"
+
 // Status constants
 const (
 	StatusActive   = "active"
@@ -29,6 +31,12 @@ const (
 	// so it is exposed through the native Anthropic /v1/messages path and schedules
 	// in its own isolated pool — it is intentionally NOT an OpenAI-compat member.
 	PlatformKiro = "kiro"
+	// PlatformGrok is the seventh platform: xAI / Grok (SuperGrok Heavy) OAuth
+	// subscriptions relayed to api.x.ai/v1. Unlike Kiro, xAI speaks the
+	// OpenAI-compatible wire protocol, so grok is an OpenAI-compat pool member and
+	// reuses the OpenAI-compat routing/scheduling/forward path — it differs from
+	// the openai (Codex) platform only in its OAuth refresh endpoint and base URL.
+	PlatformGrok = "grok"
 )
 
 // Account type constants
@@ -43,10 +51,11 @@ const (
 
 // Redeem type constants
 const (
-	RedeemTypeBalance      = "balance"
-	RedeemTypeConcurrency  = "concurrency"
-	RedeemTypeSubscription = "subscription"
-	RedeemTypeInvitation   = "invitation"
+	RedeemTypeBalance          = "balance"
+	RedeemTypeConcurrency      = "concurrency"
+	RedeemTypeSubscription     = "subscription"
+	RedeemTypeInvitation       = "invitation"
+	RedeemTypeAffiliateBalance = "affiliate_balance"
 )
 
 // PromoCode status constants
@@ -72,56 +81,103 @@ const (
 	SubscriptionStatusActive    = "active"
 	SubscriptionStatusExpired   = "expired"
 	SubscriptionStatusSuspended = "suspended"
+	SubscriptionStatusRevoked   = "revoked"
 )
+
+// AntigravityGemini31ProAgentModel is the upstream route for Gemini 3.1 Pro High.
+const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 
 // DefaultAntigravityModelMapping 是 Antigravity 平台的默认模型映射
 // 当账号未配置 model_mapping 时使用此默认值
 // 与前端 useModelWhitelist.ts 中的 antigravityDefaultMappings 保持一致
 var DefaultAntigravityModelMapping = map[string]string{
-	// Claude 白名单
-	"claude-opus-4-8":            "claude-opus-4-8",          // 官方模型
-	"claude-opus-4-7":            "claude-opus-4-7",          // 官方模型
-	"claude-opus-4-6-thinking":   "claude-opus-4-6-thinking", // 官方模型
-	"claude-opus-4-6":            "claude-opus-4-6-thinking", // 简称映射
-	"claude-opus-4-5-thinking":   "claude-opus-4-6-thinking", // 迁移旧模型
-	"claude-sonnet-4-6":          "claude-sonnet-4-6",
-	"claude-sonnet-4-5":          "claude-sonnet-4-5",
-	"claude-sonnet-4-5-thinking": "claude-sonnet-4-5-thinking",
-	// Claude 详细版本 ID 映射
-	"claude-opus-4-5-20251101":   "claude-opus-4-6-thinking", // 迁移旧模型
-	"claude-sonnet-4-5-20250929": "claude-sonnet-4-5",
-	// Claude Haiku → Sonnet（无 Haiku 支持）
-	"claude-haiku-4-5":          "claude-sonnet-4-6",
-	"claude-haiku-4-5-20251001": "claude-sonnet-4-6",
+	// Claude 白名单（2026-07-07 live fetchAvailableModels: only these two are exposed
+	// by cloudcode-pa for antigravity-oh1-ls-b; newer Claude ids return upstream 404).
+	"claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
+	"claude-opus-4-6":          "claude-opus-4-6-thinking", // 简称映射
+	"claude-sonnet-4-6":        "claude-sonnet-4-6",
 	// Gemini 2.5 白名单
-	"gemini-2.5-flash":               "gemini-2.5-flash",
-	"gemini-2.5-flash-image":         "gemini-2.5-flash-image",
-	"gemini-2.5-flash-image-preview": "gemini-2.5-flash-image",
-	"gemini-2.5-flash-lite":          "gemini-2.5-flash-lite",
-	"gemini-2.5-flash-thinking":      "gemini-2.5-flash-thinking",
-	"gemini-2.5-pro":                 "gemini-2.5-pro",
-	// Gemini 3 白名单
-	"gemini-3-flash":    "gemini-3-flash",
-	"gemini-3-pro-high": "gemini-3-pro-high",
-	"gemini-3-pro-low":  "gemini-3-pro-low",
-	// Gemini 3 preview 映射
-	"gemini-3-flash-preview": "gemini-3-flash",
-	"gemini-3-pro-preview":   "gemini-3-pro-high",
-	// Gemini 3.1 白名单
-	"gemini-3.1-pro-high": "gemini-3.1-pro-high",
-	"gemini-3.1-pro-low":  "gemini-3.1-pro-low",
-	// Gemini 3.1 preview 映射
-	"gemini-3.1-pro-preview": "gemini-3.1-pro-high",
+	"gemini-2.5-flash":      "gemini-2.5-flash",
+	"gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+	// 2.5-flash-image 上游对该账号返回 502（2026-06-15 prod 中继实测）→ 重指可服务的
+	// 3.1-flash-image（保留别名兼容，客户端无需改名）。
+	"gemini-2.5-flash-image":    "gemini-3.1-flash-image",
+	"gemini-2.5-flash-thinking": "gemini-2.5-flash-thinking",
+	"gemini-3-flash":            "gemini-3-flash",
+	// Gemini 3.1 白名单。gemini-3.1-pro-high 在上游 deprecatedModelIds 中，直接请求返回 400
+	// （2026-06-15 实测）→ 只保留非弃用 wire id gemini-pro-agent。
+	"gemini-3.1-pro":     AntigravityGemini31ProAgentModel,
+	"gemini-3.1-pro-low": "gemini-3.1-pro-low",
 	// Gemini 3.1 image 白名单
 	"gemini-3.1-flash-image": "gemini-3.1-flash-image",
 	// Gemini 3.1 image preview 映射
 	"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
 	// Gemini 3 image 兼容映射（向 3.1 image 迁移）
-	"gemini-3-pro-image":         "gemini-3.1-flash-image",
-	"gemini-3-pro-image-preview": "gemini-3.1-flash-image",
-	// 其他官方模型
-	"gpt-oss-120b-medium":    "gpt-oss-120b-medium",
-	"tab_flash_lite_preview": "tab_flash_lite_preview",
+	"gemini-3-pro-image": "gemini-3.1-flash-image",
+	// Gemini 3.5 Flash 实测 wire id（2026-06 /v1internal:fetchAvailableModels；
+	// thinkingBudget 由 wire id 在上游决定，app 下拉显示名见各行注释）
+	"gemini-3.5-flash-low":       "gemini-3.5-flash-low",       // app "Gemini 3.5 Flash (Medium)"
+	"gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low", // app "Gemini 3.5 Flash (Low)"
+	"gemini-3-flash-agent":       "gemini-3-flash-agent",       // app "Gemini 3.5 Flash (High)"
+	"gemini-3.5-flash":           "gemini-3.5-flash-low",       // 友好别名 → Medium 档
+	// Gemini 3.1 Pro (High) 实测 wire id（gemini-3.1-pro-high 上游已废弃 → gemini-pro-agent）
+	"gemini-pro-agent": "gemini-pro-agent",
+}
+
+var antigravityStructuralDeadModelMappingKeys = map[string]struct{}{
+	// PR #921 inventory + 2026-06-22 live snapshot: these are stale request aliases
+	// in persisted antigravity account mappings. Keep them in this deadlist, not
+	// in DefaultAntigravityModelMapping or canonical account mappings.
+	"gemini-2.5-flash-image-preview": {},
+	"gemini-3-flash-preview":         {},
+	"gemini-3-pro-high":              {},
+	"gemini-3-pro-image-preview":     {},
+	"gemini-3-pro-low":               {},
+	"gemini-3-pro-preview":           {},
+	"gemini-3.1-pro-high":            {},
+	"gemini-3.1-pro-preview":         {},
+}
+
+var antigravityUnpricedModelMappingKeys = map[string]struct{}{
+	// Served by Antigravity but absent from reliable public pricing. Keeping it
+	// in a visible/custom account mapping bills successful requests at $0.
+	"tab_flash_lite_preview": {},
+}
+
+func sortedAntigravityModelMappingKeys(src map[string]struct{}) []string {
+	out := make([]string, 0, len(src))
+	for k := range src {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// AntigravityStructuralDeadModelMappingKeys returns stale Antigravity request
+// aliases that must not be persisted in account model_mapping.
+func AntigravityStructuralDeadModelMappingKeys() []string {
+	return sortedAntigravityModelMappingKeys(antigravityStructuralDeadModelMappingKeys)
+}
+
+// AntigravityUnpricedModelMappingKeys returns Antigravity keys blocked from
+// account model_mapping because they would serve at $0.
+func AntigravityUnpricedModelMappingKeys() []string {
+	return sortedAntigravityModelMappingKeys(antigravityUnpricedModelMappingKeys)
+}
+
+// IsAntigravityStructuralDeadModelMappingKey reports whether k is a stale
+// Antigravity request alias that should not be persisted in canonical account
+// mappings. DefaultAntigravityModelMapping must not keep these compatibility remaps.
+func IsAntigravityStructuralDeadModelMappingKey(k string) bool {
+	_, ok := antigravityStructuralDeadModelMappingKeys[k]
+	return ok
+}
+
+// IsAntigravityUnpricedModelMappingKey reports whether k is an Antigravity model
+// mapping key that must not be persisted because no reliable public price exists.
+func IsAntigravityUnpricedModelMappingKey(k string) bool {
+	_, ok := antigravityUnpricedModelMappingKeys[k]
+	return ok
 }
 
 // DefaultBedrockModelMapping 是 AWS Bedrock 平台的默认模型映射
@@ -129,6 +185,8 @@ var DefaultAntigravityModelMapping = map[string]string{
 // 注意：此处的 "us." 前缀仅为默认值，ResolveBedrockModelID 会根据账号配置的
 // aws_region 自动调整为匹配的区域前缀（如 eu.、apac.、jp. 等）
 var DefaultBedrockModelMapping = map[string]string{
+	// Claude Fable
+	"claude-fable-5": "anthropic.claude-fable-5",
 	// Claude Opus
 	"claude-opus-4-8":          "us.anthropic.claude-opus-4-8-v1",
 	"claude-opus-4-7":          "us.anthropic.claude-opus-4-7-v1",
@@ -139,6 +197,7 @@ var DefaultBedrockModelMapping = map[string]string{
 	"claude-opus-4-1":          "us.anthropic.claude-opus-4-1-20250805-v1:0",
 	"claude-opus-4-20250514":   "us.anthropic.claude-opus-4-20250514-v1:0",
 	// Claude Sonnet
+	"claude-sonnet-5":            "us.anthropic.claude-sonnet-5-v1",
 	"claude-sonnet-4-6-thinking": "us.anthropic.claude-sonnet-4-6",
 	"claude-sonnet-4-6":          "us.anthropic.claude-sonnet-4-6",
 	"claude-sonnet-4-5":          "us.anthropic.claude-sonnet-4-5-20250929-v1:0",

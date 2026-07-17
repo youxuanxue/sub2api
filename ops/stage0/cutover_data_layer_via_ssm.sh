@@ -1,40 +1,39 @@
 #!/usr/bin/env bash
 #
-# Stage0 data-layer cutover primitive — flip prod between local-container PG
-# and external RDS. The single seam for both directions; see
-# docs/deploy/aws-data-layer-migration.md (阶段 C / 回滚).
+# Stage0 data-layer cutover primitive — move an app from local-container PG to
+# external RDS. Production activation is gated by the approved design; see
+# docs/deploy/aws-data-layer-migration.md.
 #
 # Why this exists:
 #   /var/lib/tokenkey/{.env,docker-compose.yml} are written by bootstrap at
 #   instance FIRST boot only — a cutover without reboot must deliver the new
 #   compose + override files itself (v5 review finding) and hot-edit .env.
 #   The runtime config single source of truth is the SSM SecureString
-#   <prefix>/data-layer-env: this script WRITES it (apply) / DELETES it
-#   (rollback), then makes the live host match it. Any later reboot/replace
+#   <prefix>/data-layer-env: this script writes it during apply, then makes the
+#   live host match it. Any later reboot/replace
 #   re-derives the same state from SSM via bootstrap — no split-brain.
 #
 # apply:
 #   1. (local) read the RDS master password from its own SSM SecureString,
 #      compose the data-layer-env overlay, validate (no '|' '&' — sed-unsafe),
 #      put-parameter (SecureString, overwrite).
-#   2. (host) backup .env/compose → deliver repo compose + external-db override
+#   2. (host) backup .env/compose -> deliver repo compose + external-db override
 #      → fetch overlay FROM SSM and apply onto .env (same artifact bootstrap
 #      reads at next boot — verifies the executed artifact, not the generator)
-#      → best-effort drain → force-recreate tokenkey with explicit -f files
-#      → stop local postgres (container only; data volume kept ≥14 days for
-#      rollback) → verify tokenkey-psql now answers from RDS.
-#   3. On host failure: in-place file rollback + local deletion of the overlay
-#      param (keeps next-boot state consistent with the restored local mode).
+#      -> best-effort drain -> force-recreate tokenkey with explicit -f files
+#      -> stop local postgres (container only; data volume kept >=14 days)
+#      -> verify tokenkey-psql now answers from RDS.
+#   3. Before the RDS-backed app is started, a failure restores local files.
+#      Once an RDS-backed app start is attempted, automatic rollback is
+#      forbidden: RDS may have accepted writes, so the script keeps the overlay
+#      and requires forward repair.
 #
-# rollback:
-#   1. (local) delete the overlay param. 2. (host) restore the latest backup
-#   dir, bring local postgres back, force-recreate tokenkey, verify.
-#   NOTE: writes that landed on RDS after the apply are NOT replayed back —
-#   accepted in the SOP risk section.
+# There is intentionally no production "rollback to stale local PG" action.
+# After writes reopen, returning to local requires a rehearsed RDS delta replay
+# and separate approval; it cannot be represented as a safe one-command action.
 #
 # Usage:
 #   TK_DATA_PG_HOST=<rds-endpoint> ops/stage0/cutover_data_layer_via_ssm.sh apply <instance_id>
-#   ops/stage0/cutover_data_layer_via_ssm.sh rollback <instance_id>
 #
 # Env:
 #   TK_DATA_PG_HOST            (apply) RDS endpoint DNS name — REQUIRED
@@ -63,17 +62,31 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
 COMPOSE_SRC="${REPO_ROOT}/deploy/aws/stage0/docker-compose.yml"
 COMPOSE_EXT_SRC="${REPO_ROOT}/deploy/aws/stage0/docker-compose.external-db.yml"
+APPROVAL_DOC="${REPO_ROOT}/docs/approved/design-prod-data-archive-rds.md"
 
 case "${ACTION}" in
-  apply|rollback) ;;
+  apply) ;;
   *)
-    echo "cutover_data_layer_via_ssm: first arg must be 'apply' or 'rollback' (got '${ACTION}')" >&2
+    echo "cutover_data_layer_via_ssm: first arg must be 'apply'; rollback to stale local PG is intentionally unsupported (got '${ACTION}')" >&2
     exit 1
     ;;
 esac
 if [[ -z "${INSTANCE_ID}" ]]; then
   echo "cutover_data_layer_via_ssm: instance id is required" >&2
   exit 1
+fi
+
+if [[ "${ENVIRONMENT}" == "prod" ]]; then
+  [[ -f "${APPROVAL_DOC}" ]] || {
+    echo "cutover_data_layer_via_ssm: missing production approval doc ${APPROVAL_DOC}" >&2
+    exit 1
+  }
+  approval_status="$(awk -F': *' '$1 == "status" {print $2; exit}' "${APPROVAL_DOC}")"
+  approved_by="$(awk -F': *' '$1 == "approved_by" {print $2; exit}' "${APPROVAL_DOC}")"
+  if [[ "${approval_status}" != "approved" || -z "${approved_by}" || "${approved_by}" == "pending" ]]; then
+    echo "cutover_data_layer_via_ssm: production blocked; approve ${APPROVAL_DOC} and complete rehearsal gates first (status=${approval_status:-missing}, approved_by=${approved_by:-missing})" >&2
+    exit 1
+  fi
 fi
 
 ssm_region_args=()
@@ -87,7 +100,6 @@ stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
 
 # --- build the host command set ------------------------------------------
-if [[ "${ACTION}" == "apply" ]]; then
   : "${TK_DATA_PG_HOST:?TK_DATA_PG_HOST (RDS endpoint) is required for apply}"
   PG_PORT="${TK_DATA_PG_PORT:-5432}"
   PG_PASSWORD_SSM="${TK_DATA_PG_PASSWORD_SSM:-/tokenkey/prod/stage0/rds-master-password}"
@@ -136,6 +148,20 @@ EOF
     --name "${OVERLAY_PARAM}" --type SecureString --overwrite \
     --value "${OVERLAY_CONTENT}" >/dev/null
 
+  # If command submission itself fails, no host could have started the
+  # RDS-backed app, so removing the just-created desired-state overlay is safe.
+  # After send-command succeeds, only the host phase marker may authorize that
+  # deletion; a generic local ERR trap would risk rolling next boot to stale PG.
+  command_submitted=0
+  cleanup_before_submit() {
+    rc=$?
+    if [[ "${command_submitted}" -eq 0 ]]; then
+      aws "${ssm_region_args[@]}" ssm delete-parameter --name "${OVERLAY_PARAM}" >/dev/null 2>&1 || true
+    fi
+    exit "${rc}"
+  }
+  trap cleanup_before_submit ERR
+
   COMPOSE_B64="$(base64 < "${COMPOSE_SRC}" | tr -d '\n')"
   COMPOSE_EXT_B64="$(base64 < "${COMPOSE_EXT_SRC}" | tr -d '\n')"
 
@@ -153,8 +179,9 @@ EOF
       "sudo cp -a .env \"$BK/.env\"",
       "sudo cp -a docker-compose.yml \"$BK/docker-compose.yml\"",
       "[ -f docker-compose.external-db.yml ] && sudo cp -a docker-compose.external-db.yml \"$BK/docker-compose.external-db.yml\" || true",
-      "rollback() { rc=$?; echo \"::warning::cutover failed; restoring $BK\"; sudo cp -a \"$BK/.env\" .env; sudo cp -a \"$BK/docker-compose.yml\" docker-compose.yml; [ -f \"$BK/docker-compose.external-db.yml\" ] && sudo cp -a \"$BK/docker-compose.external-db.yml\" docker-compose.external-db.yml || true; sudo docker compose --env-file .env up -d --remove-orphans || true; sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey || true; exit $rc; }",
-      "trap rollback ERR",
+      "CUTOVER_PHASE=pre-rds-start",
+      "on_error() { rc=$?; if [ \"$CUTOVER_PHASE\" = pre-rds-start ]; then echo \"CUTOVER_ABORTED_BEFORE_RDS_START restoring $BK\"; sudo cp -a \"$BK/.env\" .env; sudo cp -a \"$BK/docker-compose.yml\" docker-compose.yml; [ -f \"$BK/docker-compose.external-db.yml\" ] && sudo cp -a \"$BK/docker-compose.external-db.yml\" docker-compose.external-db.yml || true; sudo docker compose --env-file .env up -d --remove-orphans || true; else echo \"CUTOVER_FORWARD_FIX_REQUIRED RDS-backed app start was attempted; keeping RDS overlay and refusing stale-local rollback\"; fi; exit $rc; }",
+      "trap on_error ERR",
       "echo \"=== deliver compose + external-db override (bootstrap only writes them at first boot) ===\"",
       ("printf '\''%s'\'' \"" + $compose_b64 + "\" | base64 -d | sudo tee docker-compose.yml >/dev/null"),
       ("printf '\''%s'\'' \"" + $compose_ext_b64 + "\" | base64 -d | sudo tee docker-compose.external-db.yml >/dev/null"),
@@ -169,48 +196,20 @@ EOF
       "HEALTH=$(sudo docker inspect tokenkey --format \"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\" 2>/dev/null || echo none)",
       "if [ \"$HEALTH\" = healthy ]; then sudo docker kill -s USR1 tokenkey || true; for i in $(seq 1 18); do IN=$(sudo docker exec tokenkey wget -q -T 3 -O- http://localhost:8080/health/inflight 2>/dev/null || echo \"\"); echo \"inflight: $IN\"; echo \"$IN\" | grep -q \"\\\"in_flight\\\":0\" && break; sleep 5; done; else echo \"skip drain (health=$HEALTH)\"; fi",
       "echo \"=== force-recreate tokenkey against RDS (explicit -f for determinism) ===\"",
+      "CUTOVER_PHASE=rds-start-attempted",
       "sudo docker compose -f docker-compose.yml -f docker-compose.external-db.yml --env-file .env up -d --no-deps --force-recreate tokenkey",
       "for i in $(seq 1 18); do H=$(sudo docker inspect tokenkey --format \"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\" 2>/dev/null || echo none); echo \"tokenkey health: $H\"; [ \"$H\" = healthy ] && break; [ $i -eq 18 ] && { echo \"::error::tokenkey not healthy after recreate\"; exit 1; }; sleep 5; done",
-      "echo \"=== stop local postgres (container only; data volume kept for rollback) ===\"",
+      "echo \"=== stop local postgres (container only; data volume kept for evidence/delta replay) ===\"",
       "sudo docker stop tokenkey-postgres || true",
       "echo \"=== verify: wrapper now answers from RDS ===\"",
       "ONE=$(sudo /usr/local/bin/tokenkey-psql -X -A -t -c \"select 1\")",
       "[ \"$ONE\" = \"1\" ] || { echo \"::error::tokenkey-psql probe failed against RDS\"; exit 1; }",
-      "sudo /usr/local/bin/tokenkey-psql -X -A -t -c \"select count(*) from users\" | sed \"s/^/users rows: /\"",
+      "sudo /usr/local/bin/tokenkey-psql -X -A -t -c \"select count(*) from users where deleted_at is null\" | sed \"s/^/active users rows: /\"",
       "sudo docker ps --filter name=tokenkey --format \"{{.Names}}\\t{{.Status}}\"",
       "trap - ERR",
       "echo \"=== cutover apply done ===\""
     ]
   }' > "${params_file}"
-
-else # rollback
-  echo "deleting data-layer overlay ${OVERLAY_PARAM} (next boot re-renders local mode)"
-  aws "${ssm_region_args[@]}" ssm delete-parameter --name "${OVERLAY_PARAM}" 2>/dev/null \
-    || echo "(overlay param absent — nothing to delete)"
-
-  jq -n '{
-    commands: [
-      "set -euo pipefail",
-      "cd /var/lib/tokenkey",
-      "BK=$(ls -d /var/lib/tokenkey/data-layer-backup-* 2>/dev/null | sort | tail -1)",
-      "[ -n \"$BK\" ] || { echo \"::error::no data-layer-backup-* dir found\"; exit 1; }",
-      "echo \"=== cutover rollback (restore $BK) ===\"",
-      "sudo cp -a \"$BK/.env\" .env",
-      "sudo cp -a \"$BK/docker-compose.yml\" docker-compose.yml",
-      "[ -f \"$BK/docker-compose.external-db.yml\" ] && sudo cp -a \"$BK/docker-compose.external-db.yml\" docker-compose.external-db.yml || sudo rm -f docker-compose.external-db.yml",
-      "echo \"=== bring local data layer back (restored .env has localpg,localredis) ===\"",
-      "sudo docker compose --env-file .env up -d --remove-orphans",
-      "for i in $(seq 1 18); do H=$(sudo docker inspect tokenkey-postgres --format \"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\" 2>/dev/null || echo none); echo \"postgres health: $H\"; [ \"$H\" = healthy ] && break; [ $i -eq 18 ] && { echo \"::error::local postgres not healthy\"; exit 1; }; sleep 5; done",
-      "sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey",
-      "for i in $(seq 1 18); do H=$(sudo docker inspect tokenkey --format \"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\" 2>/dev/null || echo none); echo \"tokenkey health: $H\"; [ \"$H\" = healthy ] && break; [ $i -eq 18 ] && { echo \"::error::tokenkey not healthy after rollback\"; exit 1; }; sleep 5; done",
-      "echo \"=== verify: wrapper answers from the local container again ===\"",
-      "ONE=$(sudo /usr/local/bin/tokenkey-psql -X -A -t -c \"select 1\")",
-      "[ \"$ONE\" = \"1\" ] || { echo \"::error::tokenkey-psql probe failed after rollback\"; exit 1; }",
-      "sudo docker ps --filter name=tokenkey --format \"{{.Names}}\\t{{.Status}}\"",
-      "echo \"=== cutover rollback done ===\""
-    ]
-  }' > "${params_file}"
-fi
 
 # --- send + poll -----------------------------------------------------------
 cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
@@ -219,6 +218,8 @@ cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
   --comment "data-layer-${ACTION}" \
   --parameters "file://${params_file}" \
   --query 'Command.CommandId' --output text)"
+command_submitted=1
+trap - ERR
 
 echo "ssm command-id=${cmd_id}"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
@@ -257,11 +258,11 @@ tail -c 8192 "${stderr_file}"
 echo
 
 if [[ "${status}" != "Success" ]]; then
-  if [[ "${ACTION}" == "apply" ]]; then
-    # The host-side ERR trap restored local files; delete the overlay param so
-    # the NEXT boot (bootstrap reads SSM) matches the restored local mode.
-    echo "::warning::apply failed — deleting ${OVERLAY_PARAM} to keep next-boot state consistent with the restored local mode"
+  if grep -q 'CUTOVER_ABORTED_BEFORE_RDS_START' "${stdout_file}"; then
+    echo "::warning::apply failed before an RDS-backed app start; deleting ${OVERLAY_PARAM} to keep next-boot state local"
     aws "${ssm_region_args[@]}" ssm delete-parameter --name "${OVERLAY_PARAM}" 2>/dev/null || true
+  else
+    echo "::error::RDS-backed app start may have been attempted; keeping ${OVERLAY_PARAM}. Forward-fix only until RDS delta replay is proven." >&2
   fi
   echo "::error::ssm command status=${status}" >&2
   exit 1

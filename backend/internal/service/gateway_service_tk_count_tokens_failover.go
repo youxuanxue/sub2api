@@ -18,7 +18,7 @@ import (
 //     shouldFailoverUpstreamError 对 >=500 一律 failover，pool stub（prod→edge）
 //     透回的 503（no available accounts）同属容量类瞬时错误，不应熔断主力账号。
 //
-// 由 ForwardCountTokens 与 forwardCountTokensAnthropicAPIKeyPassthrough 共用，
+// 由 ForwardCountTokens 与 forwardCountTokensAnthropicPassthrough 共用，
 // 保证两条路径的豁免集合不漂移。
 func tkCountTokensSkipBreaker(statusCode int) bool {
 	return statusCode == http.StatusBadRequest ||
@@ -39,17 +39,26 @@ func (s *GatewayService) tkCountTokensFailoverError(account *Account, resp *http
 		return nil
 	}
 	return &UpstreamFailoverError{
-		StatusCode:             resp.StatusCode,
-		ResponseBody:           respBody,
-		ResponseHeaders:        resp.Header,
-		RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+		StatusCode:      resp.StatusCode,
+		ResponseBody:    respBody,
+		ResponseHeaders: resp.Header,
+		// Use the same carve-out as the main /v1/messages path (tkRetryableOnSameAccount,
+		// account_tk_pool_retry.go) instead of the bare pool check: a header-less
+		// anthropic capacity-envelope 429 ("No available accounts") relayed by a
+		// dead edge is NON-authoritative, so it must NOT burn pool_mode_retry_count
+		// in-place same-account retries holding the dead stub's slot — it must
+		// switch accounts immediately. Without this, count_tokens on a pool_mode
+		// stub held the dead stub (part of the cc-us2 2/70 amplifier) before
+		// switching; an authoritative window-limit 429 still carries the headers and
+		// is unaffected.
+		RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, respBody),
 	}
 }
 
 // WriteCountTokensFailoverError 在 count_tokens 的 failover loop 耗尽（所有候选
 // 账号都失败 / 选号落空）时，向客户端写出 count_tokens 形状的错误响应。
 //
-// 背景：ForwardCountTokens / forwardCountTokensAnthropicAPIKeyPassthrough 对可
+// 背景：ForwardCountTokens / forwardCountTokensAnthropicPassthrough 对可
 // failover 的上游状态码返回 *UpstreamFailoverError 且**不写客户端响应**（留给
 // handler 的 failover loop 决定换号 / 池内轮换 / 耗尽）。因此耗尽分支的响应写入
 // 责任落到 handler，由本方法统一成与单发路径一致的 {type:error,error:{...}} 形状。

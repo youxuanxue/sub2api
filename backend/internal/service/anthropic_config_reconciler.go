@@ -13,13 +13,10 @@ package service
 //     (base_rpm / max_sessions / window — overlaid at runtime from the tiers
 //     table) is REPORTED ONLY (slog.Warn) — never silently rewritten, because the
 //     tier NUMBER is set explicitly via the admin UI ApplyTier action.
-//   - shared_baseline INFRASTRUCTURE, by contrast, IS self-healed (Step baseline):
-//     the canonical TLS profile's existence + the account's binding to it, the
-//     credentials self-protection template, and the (post-#551 uniform) priority.
-//     These are tier-independent and were the root cause of silent built-in-default
-//     TLS fallback when an account was created without the profile row present.
-//     Self-heal re-runs the SAME complete write path (ApplyTier), so any creation
-//     path (admin UI, bare SQL) converges.
+//   - shared_baseline INFRASTRUCTURE, by contrast, IS narrowly self-healed (Step
+//     baseline): the canonical TLS profile's existence + the account's binding to
+//     it, plus missing credentials self-protection template keys. It does not
+//     re-apply the full baseline, so normal admin UI edits are not overwritten.
 //   - surface C (concurrency mirror) NEVER writes 0 on a failed/timed-out/5xx
 //     edge read — it skips the stub and leaves the prior value intact.
 
@@ -57,6 +54,16 @@ const (
 	anthropicEdgeBalanceFloorThreshold = 100.0
 	anthropicEdgeBalanceFloorDefault   = 9999999.0
 )
+
+// surfaceCCrossPlatformMirrorPlatforms lists native-platform prod mirror stubs whose
+// edge pool capacity is mirrored via group_scope=caller (the stub relay api-key's
+// group). Anthropic-transport stubs (cc-*, kiro-*) stay on isMirrorStub +
+// mirrorCapacityPlatform; newapi "all" stubs are excluded (no single platform sum).
+var surfaceCCrossPlatformMirrorPlatforms = []string{
+	PlatformOpenAI,
+	PlatformGrok,
+	PlatformAntigravity,
+}
 
 // anthropicReconcilerLockRelease is the compare-and-delete unlock script — only
 // the instance that holds the lock may delete it (mirrors the ops alert evaluator).
@@ -102,13 +109,12 @@ type reconcilerTierResolver interface {
 	ResolveName(tierID int64) (string, bool)
 }
 
-// reconcilerTierApplier re-asserts the shared_baseline INFRASTRUCTURE onto an
-// account (TLS profile ensure+bind, credentials template, extra flags,
-// concurrency) WITHOUT touching priority — priority is owned at runtime by the
-// window-rebalance pipeline, so the per-tick self-heal must not revert it.
-// *AccountTierService satisfies it. nil-safe (Step baseline no-ops when absent).
-type reconcilerTierApplier interface {
-	ReapplyBaselineInfra(ctx context.Context, accountID int64, tier string) (*Account, error)
+// reconcilerBaselineRepairer narrowly repairs account-side baseline drift:
+// canonical TLS ensure+bind plus missing credentials template keys only. It does
+// not re-apply baseline extra/concurrency/priority. *AccountTierService
+// satisfies it. nil-safe (Step baseline no-ops when absent).
+type reconcilerBaselineRepairer interface {
+	RepairBaselineDrift(ctx context.Context, accountID int64, tier string) (*Account, error)
 }
 
 // reconcilerTLSProfileResolver reads a TLS profile by id so the baseline drift
@@ -134,7 +140,7 @@ type AnthropicConfigReconciler struct {
 	users       reconcilerUserStore
 	balance     reconcilerBalanceSetter
 	tiers       reconcilerTierResolver
-	tierApplier reconcilerTierApplier
+	repairer    reconcilerBaselineRepairer
 	tlsProfiles reconcilerTLSProfileResolver
 	mimicry     reconcilerMimicrySettings
 	cfg         *config.Config
@@ -152,14 +158,14 @@ type AnthropicConfigReconciler struct {
 
 // NewAnthropicConfigReconciler constructs the reconciler. A nil accounts/users
 // store produces a no-op on Start, keeping wire wiring safe for minimal test deps.
-// tierApplier/tlsProfiles may be nil — the baseline self-heal step degrades to a
-// no-op (applier absent) or skips the dangling-binding sub-check (resolver absent).
+// repairer/tlsProfiles may be nil — the baseline self-heal step degrades to a
+// no-op (repairer absent) or skips the dangling-binding sub-check (resolver absent).
 func NewAnthropicConfigReconciler(
 	accounts reconcilerAccountStore,
 	users reconcilerUserStore,
 	balance reconcilerBalanceSetter,
 	tiers reconcilerTierResolver,
-	tierApplier reconcilerTierApplier,
+	repairer reconcilerBaselineRepairer,
 	tlsProfiles reconcilerTLSProfileResolver,
 	mimicry reconcilerMimicrySettings,
 	cfg *config.Config,
@@ -170,7 +176,7 @@ func NewAnthropicConfigReconciler(
 		users:       users,
 		balance:     balance,
 		tiers:       tiers,
-		tierApplier: tierApplier,
+		repairer:    repairer,
 		tlsProfiles: tlsProfiles,
 		mimicry:     mimicry,
 		cfg:         cfg,
@@ -295,12 +301,10 @@ func (r *AnthropicConfigReconciler) runOnce(ctx context.Context) {
 	// Step A so the operator Σ reflects any concurrency it just re-asserted.
 	r.reconcileTierConcurrency(ctx, accounts)
 
-	// Step baseline: self-heal shared_baseline INFRASTRUCTURE (canonical TLS
-	// profile existence + binding, credentials self-protection template, extra
-	// mimicry flags) for tier-bound anthropic OAuth/setup-token accounts by
-	// re-running ReapplyBaselineInfra when drifted. Idempotent. priority is NOT in
-	// this set — it is a dynamic runtime signal owned by the window-rebalance
-	// pipeline, and reverting it every tick would flatten that ordering.
+	// Step baseline: narrowly self-heal account-side shared_baseline drift
+	// (canonical TLS profile existence + binding, and missing credentials
+	// self-protection template keys). Does not re-apply full baseline extra or
+	// priority, so ordinary admin UI edits remain operator-owned.
 	r.reconcileAccountBaselineDrift(ctx, accounts)
 
 	// Step C: surface-C concurrency mirror (prod). Runs before the operator Σ
@@ -320,12 +324,6 @@ func (r *AnthropicConfigReconciler) runOnce(ctx context.Context) {
 
 	// Step tier-drift: REPORT ONLY.
 	r.reportTierDrift(accounts)
-
-	// Step kiro-priority: HARD-ENFORCE kiro account priority baseline. Fetches its
-	// own kiro account list (the list above is anthropic-only). Kiro-scoped; the
-	// anthropic-side priority value-sync lives in Step baseline above (kiro
-	// schedules in its own isolated pool).
-	r.reconcileKiroPriorityBaseline(ctx)
 
 	// Step UA: self-heal the deployment-level Claude Code UA + mimicry manifest
 	// settings toward the embedded baseline (in-process `sync-runtime`). Runs once
@@ -354,8 +352,7 @@ func (r *AnthropicConfigReconciler) reconcileClaudeCodeMimicry(ctx context.Conte
 // priority — anthropic priority is a dynamic runtime signal owned by the
 // window-rebalance pipeline (ops/anthropic/rebalance-anthropic-priority.py); the
 // git baseline seeds it only on the operator-explicit ApplyTier path, and Step
-// baseline (ReapplyBaselineInfra) does NOT reconverge it. (kiro is the opposite —
-// hard-pinned by reconcileKiroPriorityBaseline, no rebalance pipeline.)
+// baseline repair does NOT reconverge it.
 func (r *AnthropicConfigReconciler) reconcileTierConcurrency(ctx context.Context, accounts []Account) {
 	if r.tiers == nil {
 		return
@@ -468,33 +465,57 @@ func (r *AnthropicConfigReconciler) reconcileConcurrencyMirror(ctx context.Conte
 		if !r.isMirrorStub(a, re) {
 			continue
 		}
-		baseURL := strings.TrimSpace(a.GetCredential("base_url"))
-		apiKey := strings.TrimSpace(a.GetCredential("api_key"))
-		if baseURL == "" || apiKey == "" {
-			continue
-		}
-		// A mirror stub's transport platform is always anthropic-apikey, but the
-		// edge pool it represents (its capacity source) may differ — kiro rides the
-		// same relay shape. credentials.mirror_platform declares which edge pool to
-		// mirror; absent → anthropic (back-compat: every existing stub stays correct).
 		platform := mirrorCapacityPlatform(a.GetCredential("mirror_platform"))
-		total, ok := r.fetchEdgeCapacity(ctx, baseURL, apiKey, platform)
-		if !ok {
-			// Hard rule: failure/timeout/5xx/<1 → skip, never write 0.
-			continue
-		}
-		if a.Concurrency == total {
-			continue
-		}
-		want := total
-		if _, err := r.accounts.BulkUpdate(ctx, []int64{a.ID}, AccountBulkUpdate{Concurrency: &want}); err != nil {
-			slog.Warn("anthropic config reconciler: mirror concurrency write failed",
-				"account_id", a.ID, "account_name", a.Name, "want", want, "err", err)
-			continue
-		}
-		slog.Info("anthropic config reconciler: stub concurrency mirrored from edge (local deployment only)",
-			"account_id", a.ID, "account_name", a.Name, "base_url", baseURL, "concurrency", want)
+		r.applyConcurrencyMirrorFromEdge(ctx, a, platform, false)
 	}
+	for _, platform := range surfaceCCrossPlatformMirrorPlatforms {
+		stubs, err := r.accounts.ListByPlatform(ctx, platform)
+		if err != nil {
+			slog.Warn("anthropic config reconciler: list mirror stubs failed",
+				"platform", platform, "err", err)
+			continue
+		}
+		for i := range stubs {
+			a := &stubs[i]
+			if a.Type != AccountTypeAPIKey || !isEdgeMirrorStub(a, re) {
+				continue
+			}
+			poolPlatform := edgeStubPoolPlatform(a)
+			if poolPlatform == edgeStubAllPoolsPlatform {
+				continue
+			}
+			r.applyConcurrencyMirrorFromEdge(ctx, a, poolPlatform, true)
+		}
+	}
+}
+
+func (r *AnthropicConfigReconciler) applyConcurrencyMirrorFromEdge(
+	ctx context.Context,
+	a *Account,
+	platform string,
+	groupScopeCaller bool,
+) {
+	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
+	apiKey := strings.TrimSpace(a.GetCredential("api_key"))
+	if baseURL == "" || apiKey == "" {
+		return
+	}
+	total, ok := r.fetchEdgeCapacity(ctx, baseURL, apiKey, platform, groupScopeCaller)
+	if !ok {
+		// Hard rule: failure/timeout/5xx/<1 → skip, never write 0.
+		return
+	}
+	if a.Concurrency == total {
+		return
+	}
+	want := total
+	if _, err := r.accounts.BulkUpdate(ctx, []int64{a.ID}, AccountBulkUpdate{Concurrency: &want}); err != nil {
+		slog.Warn("anthropic config reconciler: mirror concurrency write failed",
+			"account_id", a.ID, "account_name", a.Name, "want", want, "err", err)
+		return
+	}
+	slog.Info("anthropic config reconciler: stub concurrency mirrored from edge (local deployment only)",
+		"account_id", a.ID, "account_name", a.Name, "base_url", baseURL, "concurrency", want)
 }
 
 // mirrorCapacityPlatform normalizes a stub's credentials.mirror_platform into the
@@ -503,24 +524,32 @@ func (r *AnthropicConfigReconciler) reconcileConcurrencyMirror(ctx context.Conte
 // anthropic pool). A non-empty value is passed through verbatim (lower/trimmed)
 // rather than coerced to a known platform: the edge endpoint is the authoritative
 // validator and rejects anything it does not support, so an unknown/typo'd value
-// (e.g. "openai", "kir0") makes fetchEdgeCapacity see a 4xx and skip — never write
-// 0, never silently mirror the wrong pool. Coercing unknowns to "anthropic" here
-// would reintroduce the exact silent-wrong-pool bug this surface exists to kill.
+// (e.g. "kir0") makes fetchEdgeCapacity see a 4xx and skip — never write 0, never
+// silently mirror the wrong pool. Coercing unknowns to "anthropic" here would
+// reintroduce the exact silent-wrong-pool bug this surface exists to kill.
 func mirrorCapacityPlatform(raw string) string {
 	p := strings.ToLower(strings.TrimSpace(raw))
 	if p == "" {
-		return "anthropic"
+		return PlatformAnthropic
 	}
 	return p
 }
 
 // fetchEdgeCapacity GETs {base_url}/api/v1/edge/scheduling-capacity?platform={platform}
-// with x-api-key auth. Returns (total, true) only on a 2xx with total_concurrency >= 1.
-func (r *AnthropicConfigReconciler) fetchEdgeCapacity(ctx context.Context, baseURL, apiKey, platform string) (int, bool) {
+// (and &group_scope=caller for native-platform mirror stubs) with x-api-key auth.
+// Returns (total, true) only on a 2xx with total_concurrency >= 1.
+func (r *AnthropicConfigReconciler) fetchEdgeCapacity(
+	ctx context.Context,
+	baseURL, apiKey, platform string,
+	groupScopeCaller bool,
+) (int, bool) {
 	if r.http == nil {
 		return 0, false
 	}
 	endpoint := strings.TrimRight(baseURL, "/") + "/api/v1/edge/scheduling-capacity?platform=" + url.QueryEscape(platform)
+	if groupScopeCaller {
+		endpoint += "&group_scope=caller"
+	}
 	reqCtx, cancel := context.WithTimeout(ctx, anthropicReconcilerHTTPTO)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)

@@ -66,6 +66,55 @@ func TestShouldRefreshOpenAICodexSnapshot(t *testing.T) {
 	}
 }
 
+// TestShouldRefreshOpenAICodexSnapshot_SparkShadowIgnoresWSv2 外审第9轮 P1:spark 影子用量走
+// QueryUsage(/wham/usage,与 WSv2 无关),staleness 不得被 WSv2 门控,否则首刷后窗口永久冻结。
+func TestShouldRefreshOpenAICodexSnapshot_SparkShadowIgnoresWSv2(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	usage := &UsageInfo{
+		FiveHour: &UsageProgress{Utilization: 0},
+		SevenDay: &UsageProgress{Utilization: 0},
+	}
+	staleAt := now.Add(-(openAIProbeCacheTTL + time.Minute)).Format(time.RFC3339)
+	freshAt := now.Add(-time.Minute).Format(time.RFC3339)
+	parentID := int64(7001)
+
+	// 影子无 WSv2,但首刷后窗口已存在;过期 codex_usage_updated_at 必须触发再刷新。
+	shadowStale := &Account{
+		Platform:        PlatformOpenAI,
+		Type:            AccountTypeOAuth,
+		ParentAccountID: &parentID,
+		QuotaDimension:  QuotaDimensionSpark,
+		Extra:           map[string]any{"codex_usage_updated_at": staleAt},
+	}
+	if !shouldRefreshOpenAICodexSnapshot(shadowStale, usage, now) {
+		t.Fatal("expected stale spark shadow (no WSv2) to trigger refresh")
+	}
+
+	// 影子时间戳仍新鲜→不刷(TTL 生效)。
+	shadowFresh := &Account{
+		Platform:        PlatformOpenAI,
+		Type:            AccountTypeOAuth,
+		ParentAccountID: &parentID,
+		QuotaDimension:  QuotaDimensionSpark,
+		Extra:           map[string]any{"codex_usage_updated_at": freshAt},
+	}
+	if shouldRefreshOpenAICodexSnapshot(shadowFresh, usage, now) {
+		t.Fatal("expected fresh spark shadow to skip refresh (TTL not elapsed)")
+	}
+
+	// 反向对照:普通账号无 WSv2 + 过期时间戳→仍不刷(WSv2 门控普通账号的 probe 刷新)。
+	normalNoWS := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra:    map[string]any{"codex_usage_updated_at": staleAt},
+	}
+	if shouldRefreshOpenAICodexSnapshot(normalNoWS, usage, now) {
+		t.Fatal("expected non-WSv2 normal account to skip codex probe refresh")
+	}
+}
+
 func TestExtractOpenAICodexProbeUpdatesAccepts429WithCodexHeaders(t *testing.T) {
 	t.Parallel()
 
@@ -89,33 +138,6 @@ func TestExtractOpenAICodexProbeUpdatesAccepts429WithCodexHeaders(t *testing.T) 
 	}
 	if got := updates["codex_7d_used_percent"]; got != 100.0 {
 		t.Fatalf("codex_7d_used_percent = %v, want 100", got)
-	}
-}
-
-func TestBuildCodexUsageProgressFromExtra_UsesCanonicalUsedPercent(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, 5, 30, 7, 4, 9, 0, time.UTC)
-	extra := map[string]any{
-		"codex_5h_used_percent": 94.0,
-		"codex_5h_reset_at":     now.Add(2 * time.Hour).Format(time.RFC3339),
-		"codex_7d_used_percent": 93.0,
-		"codex_7d_reset_at":     now.Add(5 * 24 * time.Hour).Format(time.RFC3339),
-	}
-
-	fiveHour := buildCodexUsageProgressFromExtra(extra, "5h", now)
-	if fiveHour == nil {
-		t.Fatal("expected non-nil 5h progress")
-	}
-	if fiveHour.Utilization != 94.0 {
-		t.Fatalf("5h Utilization = %v, want 94", fiveHour.Utilization)
-	}
-
-	sevenDay := buildCodexUsageProgressFromExtra(extra, "7d", now)
-	if sevenDay == nil {
-		t.Fatal("expected non-nil 7d progress")
-	}
-	if sevenDay.Utilization != 93.0 {
-		t.Fatalf("7d Utilization = %v, want 93", sevenDay.Utilization)
 	}
 }
 
@@ -181,6 +203,41 @@ func TestAccountUsageService_GetOpenAIUsage_DoesNotPromoteCodexExtraToRateLimit(
 	case got := <-repo.rateLimitCh:
 		t.Fatalf("不应将已耗尽的 codex extra 持久化为运行时限流状态: %v", got)
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// GetPassiveUsage must rebuild OpenAI OAuth (codex) 5h/7d windows from the
+// passive codex_*_used_percent samples in Extra, WITHOUT probing upstream — this
+// is the source the prod cross-edge overview reads to render OpenAI usage windows.
+func TestAccountUsageService_GetPassiveUsage_OpenAIOAuthRebuildsCodexWindows(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	acct := Account{
+		ID:       55,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_5h_used_percent": 12.0,
+			"codex_5h_reset_at":     now.Add(2 * time.Hour).UTC().Format(time.RFC3339),
+			"codex_7d_used_percent": 34.0,
+			"codex_7d_reset_at":     now.Add(5 * 24 * time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	svc := &AccountUsageService{accountRepo: stubOpenAIAccountRepo{accounts: []Account{acct}}}
+
+	usage, err := svc.GetPassiveUsage(context.Background(), 55)
+	if err != nil {
+		t.Fatalf("GetPassiveUsage() error = %v", err)
+	}
+	if usage.Source != "passive" {
+		t.Fatalf("Source = %q, want passive", usage.Source)
+	}
+	if usage.FiveHour == nil || usage.FiveHour.Utilization != 12.0 {
+		t.Fatalf("FiveHour = %#v, want util=12", usage.FiveHour)
+	}
+	if usage.SevenDay == nil || usage.SevenDay.Utilization != 34.0 {
+		t.Fatalf("SevenDay = %#v, want util=34", usage.SevenDay)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
@@ -131,6 +132,8 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 	switch {
 	case account.Platform == PlatformAntigravity:
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
+	case account.IsGrok():
+		return s.buildGrokUpstreamModelsRequest(ctx, account)
 	case account.IsOpenAI():
 		return s.buildOpenAIUpstreamModelsRequest(ctx, account)
 	case account.IsGemini():
@@ -144,6 +147,36 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 	}
 }
 
+func (s *AccountTestService) buildGrokUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
+	if account.Type != AccountTypeAPIKey {
+		return nil, newUpstreamModelSyncUnsupportedError(
+			fmt.Sprintf("Unsupported Grok account type for upstream model sync: %s", account.Type), nil,
+		)
+	}
+	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
+	if apiKey == "" {
+		return nil, newUpstreamModelSyncConfigError("No Grok API key is available", nil)
+	}
+
+	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
+	if baseURL == "" {
+		baseURL = "https://api.x.ai"
+	}
+	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+	if err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid Grok base URL", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildOpenAIModelsURL(normalizedBaseURL), nil)
+	if err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid Grok model list URL", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	account.ApplyHeaderOverrides(req.Header)
+	return req, nil
+}
+
 func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
 	if account.IsBedrock() || account.Type == AccountTypeServiceAccount {
 		return nil, newUpstreamModelSyncUnsupportedError(
@@ -154,6 +187,7 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 	baseURL := "https://api.anthropic.com"
 	authHeaderName := ""
 	authHeaderValue := ""
+	apiKeyAuthToken := ""
 	betaHeader := ""
 
 	if account.IsOAuth() {
@@ -180,8 +214,7 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 		if strings.TrimSpace(baseURL) == "" {
 			baseURL = "https://api.anthropic.com"
 		}
-		authHeaderName = "x-api-key"
-		authHeaderValue = apiKey
+		apiKeyAuthToken = apiKey
 		betaHeader = claude.APIKeyBetaHeader
 	} else {
 		return nil, newUpstreamModelSyncUnsupportedError(
@@ -203,7 +236,13 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("anthropic-beta", betaHeader)
-	req.Header.Set(authHeaderName, authHeaderValue)
+	if authHeaderName != "" {
+		req.Header.Set(authHeaderName, authHeaderValue)
+	} else {
+		setAnthropicAPIKeyAuthHeader(req.Header, account, apiKeyAuthToken)
+	}
+	// 账号级请求头覆写：模型列表探测与真实转发保持一致的最终头
+	account.ApplyHeaderOverrides(req.Header)
 	return req, nil
 }
 
@@ -273,6 +312,8 @@ func (s *AccountTestService) buildOpenAIUpstreamModelsRequest(ctx context.Contex
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
+	// 账号级请求头覆写：模型列表探测与真实转发保持一致的最终头
+	account.ApplyHeaderOverrides(req.Header)
 	return req, nil
 }
 
@@ -373,35 +414,28 @@ func upstreamModelsProxyURL(account *Account) string {
 
 func buildV1ModelsURL(base string) string {
 	normalized := strings.TrimRight(strings.TrimSpace(base), "/")
-	if strings.HasSuffix(normalized, "/v1/models") {
+	if strings.HasSuffix(normalized, apipath.Models) {
 		return normalized
 	}
 	if strings.HasSuffix(normalized, "/v1") {
 		return normalized + "/models"
 	}
-	return normalized + "/v1/models"
+	return normalized + apipath.Models
 }
 
 func buildOpenAIModelsURL(base string) string {
-	normalized := strings.TrimRight(strings.TrimSpace(base), "/")
-	if strings.HasSuffix(normalized, "/v1/models") {
-		return normalized
-	}
-	if strings.HasSuffix(normalized, "/v1") {
-		return normalized + "/models"
-	}
-	return normalized + "/v1/models"
+	return buildOpenAIEndpointURL(base, "/v1/models")
 }
 
 func buildGeminiModelsURL(base string) string {
 	normalized := strings.TrimRight(strings.TrimSpace(base), "/")
-	if strings.HasSuffix(normalized, "/v1beta/models") {
+	if strings.HasSuffix(normalized, apipath.GeminiModels) {
 		return normalized
 	}
 	if strings.HasSuffix(normalized, "/v1beta") {
 		return normalized + "/models"
 	}
-	return normalized + "/v1beta/models"
+	return normalized + apipath.GeminiModels
 }
 
 type upstreamModelEntry struct {

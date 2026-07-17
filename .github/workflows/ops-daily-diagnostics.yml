@@ -67,7 +67,7 @@ permissions:
 
 jobs:
   discover-targets:
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation != 'log_dump')
+    if: (github.event_name == 'schedule' && github.event.schedule == '0 2 * * *') || (github.event_name == 'workflow_dispatch' && inputs.operation != 'log_dump')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -174,6 +174,27 @@ jobs:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ env.TARGET_REGION }}
 
+      - name: Assert live-host state (prod daily audit)
+        # ADVISORY ONLY — prod only (edges are lightsail anthropic relays with no
+        # QA-export / deploy-sed env surface). Daily read-only audit of the live
+        # host's deploy_via_ssm-injected env, the gap no existing detector covered:
+        # a manual host edit or a deploy-sed that wrote wrong content used to be
+        # caught only by hand. No expected_tag here (audit doesn't know the
+        # intended tag — that assertion belongs in deploy-stage0 post-deploy).
+        if: steps.precheck.outputs.skip == 'false' && env.TARGET_KIND == 'prod'
+        continue-on-error: true
+        env:
+          AWS_REGION: ${{ matrix.region }}
+        run: |
+          set -uo pipefail
+          IID=$(aws cloudformation describe-stacks --region "$TARGET_REGION" --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text 2>/dev/null || echo None)
+          if [ -n "$IID" ] && [ "$IID" != "None" ]; then
+            bash ops/stage0/assert-live-host-state.sh "$IID" "" "ops-daily-diagnostics live-host audit env=prod"
+          else
+            echo "skip live-host audit: no InstanceId for $STACK_NAME"
+          fi
+
       - name: Run target diagnostics
         if: steps.precheck.outputs.skip == 'false'
         env:
@@ -246,6 +267,34 @@ jobs:
             fi
           fi
 
+          # Data-layer capacity (prod only): the deterministic form of #587 Trigger B.
+          # Read-only probe via run-probe.sh -> verdict.py -> finding. Isolated and
+          # non-fatal: a probe failure only drops the capacity finding, never the run.
+          if [ "$TARGET_ID" = "prod" ]; then
+            RESOURCE_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-runtime-resource-config.sh --comment "daily runtime resource config" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — invalid/missing probe becomes an explicit unknown verdict
+            RESOURCE_VERDICT="$(printf '%s' "$RESOURCE_OUT" | python3 ops/observability/runtime_resource_config_verdict.py 2>>"$STDERR" || echo '{"verdict":"unknown","violations":[]}')"
+            printf 'runtime_resource_config: %s\n' "$RESOURCE_VERDICT" >> "$STDOUT"
+            RESOURCE_V="$(printf '%s' "$RESOURCE_VERDICT" | jq -r '.verdict // "unknown"')"
+            RESOURCE_S="$(printf '%s' "$RESOURCE_VERDICT" | jq -r '[.violations[]?.summary] | join("; ")')"
+            case "$RESOURCE_V" in
+              green) add_finding "runtime_resource_config" "ok" "info" "Runtime resource config converged ($TARGET_ID)" "Caddy/app logs are bounded and Redis AOF matches canonical compose." "runtime-resource-config|$TARGET_ID" ;;
+              warning) add_finding "runtime_resource_config" "warning" "warning" "Runtime resource config drift ($TARGET_ID)" "$RESOURCE_S" "runtime-resource-config|$TARGET_ID" ;;
+              *) add_finding "runtime_resource_config" "skip" "info" "Runtime resource config inconclusive ($TARGET_ID)" "The read-only runtime config probe did not return a usable snapshot." "runtime-resource-config|$TARGET_ID" ;;
+            esac
+
+            CAP_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-capacity.sh --comment "daily data-layer capacity" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — probe failure -> unknown verdict (surfaced as a finding), never breaks the run
+            CAP_VERDICT="$(printf '%s' "$CAP_OUT" | python3 ops/observability/data_layer_capacity_verdict.py 2>>"$STDERR" || echo '{}')"
+            printf 'data_layer_capacity: %s\n' "$CAP_VERDICT" >> "$STDOUT"
+            CAP_V="$(printf '%s' "$CAP_VERDICT" | jq -r '.verdict // "unknown"')"
+            CAP_S="$(printf '%s' "$CAP_VERDICT" | jq -r '.summary // "no verdict"')"
+            case "$CAP_V" in
+              green) add_finding "data_layer_capacity" "ok" "info" "Data-layer capacity OK ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
+              approaching) add_finding "data_layer_capacity" "warning" "warning" "Data-layer capacity approaching RDS trigger ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
+              trigger) add_finding "data_layer_capacity" "issue_candidate" "error" "Data-layer capacity hit RDS trigger ($TARGET_ID)" "$CAP_S — evaluate #587 RDS extraction (run off-box dump + failover rehearsal gates first)" "data-capacity|$TARGET_ID" ;;
+              *) add_finding "data_layer_capacity" "skip" "info" "Data-layer capacity inconclusive ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
+            esac
+          fi
+
           if [ "$TARGET_KIND" = "edge" ] && [ -n "$API_URL" ]; then
             BLOCKED_CODE="$(curl -sS -o "$OUT/edge-blocked.json" -w '%{http_code}' -H 'Authorization: Bearer tk_edge_smoke_should_not_work' "$API_URL/v1/models" 2>>"$STDERR" || echo 000)"
             if [ "$BLOCKED_CODE" = "403" ]; then
@@ -274,7 +323,9 @@ jobs:
               "sudo docker inspect tokenkey --format 'tokenkey_status={{.State.Status}} tokenkey_health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null || true",
               "sudo docker inspect tokenkey-postgres --format 'postgres_status={{.State.Status}}' 2>/dev/null || true",
               "sudo docker inspect tokenkey-redis --format 'redis_status={{.State.Status}}' 2>/dev/null || true",
-              "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T tokenkey wget -qO- http://localhost:8080/health",
+              "echo ===INTERNAL_HEALTH===",
+              "if sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T tokenkey wget -qO- http://localhost:8080/health/live; then echo; echo internal_health_status=ok; else rc=$?; echo internal_health_status=failed exit=$rc; fi",
+              "echo ===END_INTERNAL_HEALTH===",
               "SIG_OUT=/tmp/prod-ops-runtime-signals",
               "sudo rm -rf \"$SIG_OUT\" && sudo mkdir -p \"$SIG_OUT\" && sudo chmod 0777 \"$SIG_OUT\"",
               "sudo docker logs tokenkey --since " + quoted_since + " > \"$SIG_OUT/tokenkey.log\" 2>&1 || true",
@@ -295,9 +346,15 @@ jobs:
           ]
           print(json.dumps({"commands": commands}))
           PY
+            RUNTIME_SSM_TRANSPORT_OK=false
             if CMD_ID="$(aws ssm send-command --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --comment "prod-ops runtime diagnostics target=$TARGET_ID" --parameters "file://$OUT/runtime-params.json" --query 'Command.CommandId' --output text 2>>"$STDERR")"; then
+              RUNTIME_SSM_TRANSPORT_OK=true
               echo "runtime ssm command-id=$CMD_ID" >> "$STDOUT"
-              DEADLINE=$(( $(date +%s) + 180 ))
+              RUNTIME_WAIT_SECONDS=180
+              if [ "$TARGET_ID" = "prod" ]; then
+                RUNTIME_WAIT_SECONDS=300
+              fi
+              DEADLINE=$(( $(date +%s) + RUNTIME_WAIT_SECONDS ))
               STATUS="InProgress"
               while true; do
                 STATUS="$(aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'Status' --output text 2>/dev/null || echo InProgress)"
@@ -309,6 +366,10 @@ jobs:
               aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardErrorContent' --output text > "$OUT/runtime-stderr.txt" 2>>"$STDERR" || true
               tail -c 8192 "$OUT/runtime-stdout.txt" >> "$STDOUT" || true
               tail -c 4096 "$OUT/runtime-stderr.txt" >> "$STDERR" || true
+              if grep -q '^internal_health_status=failed' "$OUT/runtime-stdout.txt"; then
+                INTERNAL_HEALTH_SUMMARY="$(grep '^internal_health_status=failed' "$OUT/runtime-stdout.txt" | tail -1)"
+                add_finding "internal_health" "warning" "warning" "Internal container health probe failed for $TARGET_ID" "The in-container /health probe reported ${INTERNAL_HEALTH_SUMMARY}; runtime log signal collection continued." "internal-health|$TARGET_ID"
+              fi
               if grep -q '^===END_LOG_SIGNAL_COUNTS===$' "$OUT/runtime-stdout.txt"; then
                 awk '/^===LOG_SIGNAL_COUNTS===$/{f=1;next} /^===END_LOG_SIGNAL_COUNTS===$/{f=0} f' "$OUT/runtime-stdout.txt" > "$OUT/log-signal-counts.json" || true
                 python3 - <<'PY' "$OUT/log-signal-counts.json" "$FINDINGS" "$TARGET_ID" "$DIAGNOSTICS_LOG_SINCE"
@@ -350,15 +411,25 @@ jobs:
 
           caddy_incomplete = as_int("caddy_incomplete_response")
           caddy_access_error = as_int("caddy_access_error")
-          if caddy_incomplete >= 20 or caddy_access_error >= 1:
+          if caddy_incomplete >= 1000:
               findings.append({
                   "target_id": target_id,
-                  "kind": "caddy_incomplete_response",
+                  "kind": "caddy_stream_abort",
+                  "status": "warning",
+                  "severity": "info",
+                  "title": f"High Caddy streaming abort volume on {target_id}",
+                  "summary": f"Caddy logged {caddy_incomplete} incomplete streaming responses over {window}; usually client-side SSE aborts on /v1/* paths.",
+                  "signature": f"log-signal|{target_id}|caddy-stream-abort",
+              })
+          if caddy_access_error >= 10:
+              findings.append({
+                  "target_id": target_id,
+                  "kind": "caddy_access_error",
                   "status": "issue_candidate",
                   "severity": "warning",
-                  "title": f"Caddy reverse proxy anomalies on {target_id}",
-                  "summary": f"Caddy logged {caddy_incomplete} incomplete responses and {caddy_access_error} error-level access entries over {window}.",
-                  "signature": f"log-signal|{target_id}|caddy-incomplete-response",
+                  "title": f"Caddy error-level access entries on {target_id}",
+                  "summary": f"Caddy logged {caddy_access_error} error-level access entries over {window} (incomplete aborts={caddy_incomplete}, tracked separately).",
+                  "signature": f"log-signal|{target_id}|caddy-access-error",
               })
 
           with findings_path.open("a", encoding="utf-8") as fh:
@@ -371,7 +442,7 @@ jobs:
               if [ "$STATUS" = "Success" ]; then
                 add_finding "ssm_runtime" "ok" "info" "SSM runtime diagnostics passed for $TARGET_ID" "Docker runtime diagnostics completed on $INSTANCE_ID." "ssm-runtime|$TARGET_ID"
               else
-                add_finding "ssm_runtime" "manual_ops" "error" "SSM runtime diagnostics failed for $TARGET_ID" "SSM runtime diagnostics finished with status=$STATUS on $INSTANCE_ID." "ssm-runtime|$TARGET_ID|$STATUS"
+                add_finding "ssm_runtime" "manual_ops" "error" "SSM runtime diagnostics failed for $TARGET_ID" "SSM runtime diagnostics finished with status=$STATUS on $INSTANCE_ID after waiting up to ${RUNTIME_WAIT_SECONDS}s." "ssm-runtime|$TARGET_ID|$STATUS"
               fi
             else
               add_finding "ssm_send_command" "manual_ops" "error" "Could not send SSM command for $TARGET_ID" "SSM SendCommand failed for $INSTANCE_ID in $TARGET_REGION." "ssm-send|$TARGET_ID"
@@ -379,6 +450,8 @@ jobs:
 
             if [ "$INCLUDE_ERROR_CLUSTERING" != "true" ]; then
               add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "diagnostics_include_error_clustering=false; runtime/health-only lightweight diagnostics." "error-clustering|$TARGET_ID|lightweight-skip"
+            elif [ "$RUNTIME_SSM_TRANSPORT_OK" != "true" ]; then
+              add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "Runtime SSM SendCommand failed; suppressing downstream error_clustering SSM checks for the same transport root cause." "error-clustering|$TARGET_ID|runtime-ssm-send-failed"
             elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ]; then
               # ops/stage0/deploy-error-clustering-binary.sh resolves InstanceId via
               # CloudFormation; Lightsail edges have no CFN stack. Lightweight diagnostics
@@ -552,6 +625,8 @@ jobs:
       issue_count: ${{ steps.aggregate.outputs.issue_count }}
     env:
       EXCLUDED_TARGETS: ${{ needs.discover-targets.outputs.excluded || '[]' }}
+      DISCOVER_TARGETS_RESULT: ${{ needs.discover-targets.result }}
+      DIAGNOSE_TARGETS_RESULT: ${{ needs.diagnose-targets.result }}
     steps:
       - uses: actions/download-artifact@v4
         continue-on-error: true
@@ -573,19 +648,22 @@ jobs:
           for path in sorted(root.glob("*/target-report.json")):
               reports.append(json.loads(path.read_text(encoding="utf-8")))
           excluded = json.loads(os.environ.get("EXCLUDED_TARGETS") or "[]")
+          discover_result = os.environ.get("DISCOVER_TARGETS_RESULT") or ""
+          diagnose_result = os.environ.get("DIAGNOSE_TARGETS_RESULT") or ""
           findings = []
           for report in reports:
               findings.extend(report.get("findings") or [])
           if not reports:
-              findings.append({
-                  "target_id": "prod-ops",
-                  "kind": "missing_target_reports",
-                  "status": "manual_ops",
-                  "severity": "error",
-                  "title": "Prod Ops did not produce target reports",
-                  "summary": "No target-report.json artifacts were found for this run.",
-                  "signature": "missing-target-reports",
-              })
+              if discover_result == "success" and diagnose_result not in ("cancelled", "skipped"):
+                  findings.append({
+                      "target_id": "prod-ops",
+                      "kind": "missing_target_reports",
+                      "status": "manual_ops",
+                      "severity": "error",
+                      "title": "Prod Ops did not produce target reports",
+                      "summary": "No target-report.json artifacts were found for this run.",
+                      "signature": "missing-target-reports",
+                  })
           issue_findings = [f for f in findings if f.get("status") in ("issue_candidate", "manual_ops")]
           skips = [f for f in findings if f.get("status") == "skip"]
           report = {

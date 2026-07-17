@@ -23,13 +23,9 @@ import (
 // internal/integration/kiro layer so both UA-building paths stay consistent.
 const UserAgentVersionEnv = "KIRO_IDE_USER_AGENT_VERSION"
 
-// DefaultKiroAccountPriority is the HARD-ENFORCED scheduler priority baseline for
-// every active kiro-platform account. The anthropic config reconciler value-syncs
-// each kiro account's priority column to this constant on every tick (skip-if-aligned),
-// so after a DB rebuild or for a newly-created kiro account, priority deterministically
-// returns to this baseline. Smaller priority wins in the scheduler; kiro rides its own
-// isolated pool and is NOT part of the anthropic window-rebalance pipeline, so this
-// kiro-scoped value-sync does not conflict with that pipeline's priority ownership.
+// DefaultKiroAccountPriority is the creation-time scheduler priority default for
+// native Kiro accounts when the caller omits priority (0). Smaller priority wins
+// in the scheduler; after creation, admin edits own the account priority.
 const DefaultKiroAccountPriority = 10
 
 // SDK version strings carried in the aws-sdk-js style User-Agent. These mirror
@@ -47,7 +43,9 @@ const (
 // internal/integration/kiro so the on-wire fingerprint stays consistent
 // regardless of which layer builds the User-Agent.
 const (
-	DefaultKiroIDEVersion = "0.11.107"
+	DefaultKiroIDEVersion = "0.12.333"
+	// DefaultKiroCLIVersion tracks Homebrew cask kiro-cli (distinct semver from Kiro IDE).
+	DefaultKiroCLIVersion = "2.12.3"
 	DefaultSystemVersion  = "darwin#24.0.0"
 	DefaultNodeVersion    = "22.22.0"
 )

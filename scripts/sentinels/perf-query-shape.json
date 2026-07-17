@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "rationale": "Performance-critical SQL/query SHAPES whose regression is SEMANTICALLY INVISIBLE: a revert returns byte-identical results, so no unit/integration test can catch it, and an EXPLAIN-plan assertion is unreliable on small test fixtures (Postgres seq-scans tiny tables regardless of query shape). The only reliable mechanical guard is a source-substring assertion that the efficient shape is still present. These live in upstream-shaped files that upstream actively churns, so an upstream merge (or a well-meaning 'simplify' refactor) can silently restore the slow form with all tests green. Single source of truth read by both scripts/preflight.sh (perf query-shape sentinel section, always) and .github/workflows/upstream-merge-pr-shape.yml (on merge/upstream-* PRs). If you intentionally change one of these shapes to a DIFFERENT efficient form, update the must_contain anchors in the SAME commit (and re-measure) — do NOT silently delete entries to make the gate pass.",
+  "sentinels": [
+    {
+      "path": "backend/internal/repository/user_repo.go",
+      "must_contain": [
+        "FROM unnest($1::bigint[]) AS u(uid)",
+        "CROSS JOIN LATERAL"
+      ],
+      "rationale": "GetLatestUsedAtByUserIDs feeds /admin/users and is called unconditionally on every Users-page load. It MUST stay a per-user LATERAL MAX so each user resolves via an Index Only Scan Backward on idx_usage_logs_user_created. Reverting to `SELECT user_id, MAX(created_at) ... WHERE user_id = ANY($1) GROUP BY user_id` makes Postgres full Seq-Scan usage_logs (prod: 2.4M rows / 2.3 GB → ~1.3s vs ~0.4ms — measured in PR #877). The revert is semantically identical (same returned map), so the integration test TestGetLatestUsedAtByUserIDs_UsesUsageLogs stays green either way — this sentinel is the only thing that catches the perf regression."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_tk_group_rollup.go",
+      "must_contain": [
+        "groupUsageSummaryFromRollup",
+        "getGroupStatsFromRollup"
+      ],
+      "rationale": "GetAllGroupUsageSummary feeds the admin Groups page usage-summary on every load, and GetGroupStatsWithFilters feeds Dashboard/Usage group distribution. They MUST route through usage_dashboard_group_daily rollup helpers before falling back to raw usage_logs scans: groupUsageSummaryFromRollup for all-time cost summary, getGroupStatsFromRollup for completed-day requests/tokens/cost distribution plus raw head/tail. Dropping either call silently restores a 2.4M-row or wide-window scan with byte-identical results and green tests, so this sentinel is the mechanical guard."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_stats.go",
+      "must_contain": [
+        "switch strings.TrimSpace(filters.EndpointStatsSource)",
+        "case usagestats.EndpointSourceInbound:",
+        "case usagestats.EndpointSourceUpstream:",
+        "case usagestats.EndpointSourcePath:"
+      ],
+      "rationale": "Admin Usage endpoint distribution must be able to load only the visible dimension (inbound, upstream, or path). The legacy default still computes all three for compatibility, so a refactor can silently remove the single-source gate while default-response tests stay green and the UI falls back to the previous expensive three-query endpoint chart path. These anchors pin the branch points that skip the non-visible endpoint group-bys."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_tk_group_rollup.go",
+      "must_contain": [
+        "WHERE group_id > 0 AND bucket_date < $1::date",
+        "FILTER (WHERE created_at >= $2)",
+        "func (r *usageLogRepository) getGroupStatsFromRollup(",
+        "FROM usage_dashboard_group_daily gd",
+        "WHERE gd.bucket_date > DATE '",
+        "func (r *usageLogRepository) groupDailyMetricsBackfilled("
+      ],
+      "rationale": "groupUsageSummaryFromRollup's exact rollup/raw decomposition: total_cost = SUM(rollup completed days, bucket_date < server-today) + SUM(raw remainder, created_at >= server-today); today_cost = SUM(raw, created_at >= server-today start) using the same server-TZ day boundary as accounts today-stats. getGroupStatsFromRollup is the Dashboard/Usage group-distribution twin: it uses completed-day usage_dashboard_group_daily metrics plus raw head/tail spans, gated by groupDailyMetricsBackfilled so old cost-only rows are never trusted for requests/tokens. A refactor that drops the bounds, raw split, or metrics-backfill gate would double-count/miss rows or silently return zero historical tokens."
+    },
+    {
+      "path": "backend/internal/repository/dashboard_aggregation_repo_tk_group.go",
+      "must_contain": [
+        "backfillGroupDailyAllOnce",
+        "backfillGroupDailyMetricsAllOnce",
+        "usage_dashboard_group_daily"
+      ],
+      "rationale": "The per-(group,day) rollup feeder + one-time historical backfills. backfillGroupDailyAllOnce is REQUIRED for the all-time Groups cost summary; backfillGroupDailyMetricsAllOnce is REQUIRED for deployments that already had the old cost-only table before requests/tokens/account-cost columns were added. The watermark-driven incremental feeder only moves forward and never backfills pre-deploy days, so removing either backfill permanently undercounts or forces slow raw scans. A refactor that removes the backfill or the upsertGroupDailyAggregates feeder breaks the rollup silently."
+    },
+    {
+      "path": "backend/migrations/tk_046_usage_dashboard_group_daily_metrics.sql",
+      "must_contain": [
+        "ALTER TABLE usage_dashboard_group_daily",
+        "ADD COLUMN IF NOT EXISTS total_requests",
+        "ADD COLUMN IF NOT EXISTS account_cost"
+      ],
+      "rationale": "Schema bridge for old deployments that already ran tk_038 with actual_cost only. Dashboard/Usage group distribution needs requests, tokens, total_cost and account_cost; without tk_046 the Go feeder/read path cannot use usage_dashboard_group_daily safely after rollout. Pins the additive migration so the performance fix is deployable on prod, not just fresh databases."
+    },
+    {
+      "path": "backend/internal/service/ops_cleanup_executor.go",
+      "must_contain": [
+        "pgpartition.ListStraddling(ctx, db, table, timeCol, cutoff)",
+        "opsStraddleReclaimMaxRowsPerRun"
+      ],
+      "rationale": "opsCleanupRunOne's partitioned branch MUST, after DropExpired, call pgpartition.ListStraddling + a capped chunked DELETE to reclaim expired rows from the wide legacy mega-partition that DropExpired can never drop (its max(created_at) is always 'now' because it still absorbs current writes). Without it the daily retention job runs and SUCCEEDS but reclaims 0 from ops_system_logs / ops_error_logs — the silent unbounded disk growth that has caused prod login 503s (disk full). An upstream merge or a 'simplify' refactor that drops the straddle-reclaim block restores the unbounded growth with every test green (DropExpired still returns success, the heartbeat still says it ran), so this source-substring assertion is the only mechanical merge-time guard. opsStraddleReclaimMaxRowsPerRun caps each run for online safety (behavior covered by TestDeleteOldRowsByID_RespectsMaxRowsCap); this sentinel pins the call-site presence."
+    },
+    {
+      "path": "backend/internal/handler/admin/dashboard_snapshot_v2_handler.go",
+      "must_contain": [
+        "g, gctx := errgroup.WithContext(ctx)"
+      ],
+      "rationale": "buildSnapshotV2Response MUST compute its sections (stats / trend / models / groups / users_trend) CONCURRENTLY via errgroup. Reverting to the sequential if-blocks returns byte-identical output, so no unit/integration test catches it, but the 30-day admin dashboard regresses from ~max-of-sections back to ~sum-of-sections (users-trend alone is ~6.6s cold on prod), and folding users-trend into this single endpoint turns from a one-round-trip win into an ~8.6s serialization. This handler is upstream-owned and churned, so an upstream merge or refactor that restores the sequential form silently re-introduces the regression — this substring is the only mechanical guard."
+    },
+    {
+      "path": "backend/internal/handler/admin/usage_handler.go",
+      "must_contain": [
+        "func parseUsageAbsoluteRangeOrNil",
+        "parseAbsoluteRange(c)",
+        "parseUsageListTimeRange(c)",
+        "parseUsageStatsTimeRange(c)",
+        "StartTime:",
+        "EndpointStatsSource: endpointStatsSource"
+      ],
+      "rationale": "Admin Usage list/stats must honor start_ts/end_ts absolute windows before legacy start_date/end_date expansion. Dropping this silently widens the default rolling windows back to local date boundaries and restores the production /admin/usage/stats latency problem while returning semantically similar data. This upstream-shaped handler needs a source anchor so future merges cannot compile green after removing the absolute-window filter contract."
+    },
+    {
+      "path": "backend/internal/repository/affiliate_repo.go",
+      "must_contain": [
+        "COUNT(*) OVER() AS full_count"
+      ],
+      "rationale": "ListAffiliateInvite/Rebate/TransferRecords MUST use COUNT(*) OVER() instead of a separate COUNT(*) query before the paginated SELECT. Reverting to dual sequential queries returns byte-identical pagination totals but doubles DB round-trips (~780ms → ~400ms TTFB on /admin/affiliates/transfers). affiliate_repo.go is upstream-shaped and churned; integration tests do not assert query shape, so this substring is the only mechanical guard."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "g.Go(func() error { usageData = h.buildUsageData(gctx, apiKey.ID); return nil })"
+      ],
+      "rationale": "GatewayHandler.Usage (/key-usage) MUST parallelize buildUsageData, buildAPIKeyDailyUsage, and GetAPIKeyModelStats via errgroup.WithContext. Reverting to sequential calls returns byte-identical JSON but restores ~612ms TTFB (~250ms when parallel). gateway_handler.go is upstream-owned; no test asserts concurrency shape, so this call-site substring is the mechanical guard."
+    }
+  ]
+}

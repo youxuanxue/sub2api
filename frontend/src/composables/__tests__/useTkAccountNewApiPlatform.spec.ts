@@ -14,6 +14,7 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { nextTick } from 'vue'
+import { flushPromises } from '@vue/test-utils'
 
 const {
   showErrorMock,
@@ -21,12 +22,14 @@ const {
   showInfoMock,
   fetchUpstreamModelsMock,
   listChannelTypesMock,
+  getModelMappingPresetsMock,
 } = vi.hoisted(() => ({
   showErrorMock: vi.fn(),
   showSuccessMock: vi.fn(),
   showInfoMock: vi.fn(),
   fetchUpstreamModelsMock: vi.fn(),
   listChannelTypesMock: vi.fn(),
+  getModelMappingPresetsMock: vi.fn(),
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -40,6 +43,10 @@ vi.mock('@/stores/app', () => ({
 vi.mock('@/api/admin/channels', () => ({
   fetchUpstreamModels: fetchUpstreamModelsMock,
   listChannelTypes: listChannelTypesMock,
+}))
+
+vi.mock('@/api/admin/accounts', () => ({
+  getModelMappingPresets: getModelMappingPresetsMock,
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -70,7 +77,12 @@ describe('useTkAccountNewApiPlatform', () => {
     showInfoMock.mockReset()
     fetchUpstreamModelsMock.mockReset()
     listChannelTypesMock.mockReset()
+    getModelMappingPresetsMock.mockReset()
     listChannelTypesMock.mockResolvedValue([])
+    getModelMappingPresetsMock.mockResolvedValue([
+      'gemini-2.5-flash',
+      'imagen-4.0-fast-generate-001',
+    ])
   })
 
   describe('populateFromAccount', () => {
@@ -114,6 +126,17 @@ describe('useTkAccountNewApiPlatform', () => {
       expect(hook.restrictionMode.value).toBe('whitelist')
       expect(hook.allowedModels.value).toEqual([])
       expect(hook.modelMappings.value).toEqual([])
+    })
+
+    it('Vertex ch41 + 空 mapping → 自动填入 model-mapping-presets 预设', async () => {
+      const hook = useTkAccountNewApiPlatform({ isNewapi: () => true })
+      hook.populateFromAccount({ channel_type: 41, credentials: {} })
+      await nextTick()
+      await flushPromises()
+      expect(hook.allowedModels.value).toEqual([
+        'gemini-2.5-flash',
+        'imagen-4.0-fast-generate-001',
+      ])
     })
 
     it('清空 fetchLoading：上一账号 in-flight 不污染新账号的「获取模型列表」按钮（UX bug guard）', async () => {
@@ -241,6 +264,13 @@ describe('useTkAccountNewApiPlatform', () => {
   })
 
   describe('fetchModelsDisabled', () => {
+    it('Vertex ch41：无需 base_url / api_key 也可点「获取模型列表」', () => {
+      const hook = useTkAccountNewApiPlatform({ isNewapi: () => true })
+      hook.channelType.value = 41
+      expect(hook.fetchModelsEnabled.value).toBe(true)
+      expect(hook.fetchModelsDisabled.value).toBe(false)
+    })
+
     it('Create modal（无 storedAccount）：base_url + api_key 都填才启用', () => {
       const hook = useTkAccountNewApiPlatform({ isNewapi: () => true })
       hook.channelType.value = 14

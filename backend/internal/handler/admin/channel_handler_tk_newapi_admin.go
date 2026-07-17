@@ -4,8 +4,10 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapifusion "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -139,7 +141,33 @@ func (h *TKChannelAdminHandler) ListChannelTypes(c *gin.Context) {
 // ListChannelTypeModels returns default model IDs per channel type (same source as new-api "填入相关模型").
 // GET /api/v1/admin/channel-type-models
 func (h *TKChannelAdminHandler) ListChannelTypeModels(c *gin.Context) {
-	response.Success(c, newapifusion.ChannelTypeModelsJSON())
+	out := newapifusion.ChannelTypeModelsJSON()
+	ctx := c.Request.Context()
+	overlayPreset := func(channelType int) {
+		var ids []string
+		_, managed := service.NewAPIModelMappingPresetOverrideIDsForChannelType(channelType)
+		if h.adminService != nil {
+			var err error
+			ids, err = h.adminService.GetAccountModelMappingPresetIDs(ctx, service.PlatformNewAPI, channelType)
+			if err != nil {
+				return
+			}
+		} else if channelType == newapiconstant.ChannelTypeVertexAi {
+			ids = service.VertexNewAPIChannelServableModelIDs()
+		} else {
+			ids = service.NewAPIModelMappingPresetIDsForChannelType(channelType)
+		}
+		if managed {
+			if ids == nil {
+				ids = []string{}
+			}
+			out[strconv.Itoa(channelType)] = ids
+		}
+	}
+	for _, ct := range service.NewAPIModelMappingPresetOverrideChannelTypes() {
+		overlayPreset(ct)
+	}
+	response.Success(c, out)
 }
 
 type fetchUpstreamModelsRequest struct {
@@ -160,6 +188,30 @@ func (h *TKChannelAdminHandler) FetchUpstreamModels(c *gin.Context) {
 	}
 	if !newapifusion.IsKnownChannelType(req.ChannelType) {
 		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_CHANNEL_TYPE", "invalid channel_type"))
+		return
+	}
+	// Vertex AI (ch41) authenticates via service account JSON, not upstream GET /v1/models.
+	// Return TokenKey's empirical Gemini/Vertex servable preset instead.
+	if req.ChannelType == newapiconstant.ChannelTypeVertexAi {
+		ids := service.VertexNewAPIChannelServableModelIDs()
+		if h.adminService != nil {
+			var err error
+			ids, err = h.adminService.GetAccountModelMappingPresetIDs(
+				c.Request.Context(),
+				service.PlatformNewAPI,
+				newapiconstant.ChannelTypeVertexAi,
+			)
+			if err != nil {
+				response.Error(c, http.StatusInternalServerError, "failed to resolve model mapping preset")
+				return
+			}
+		}
+		models := h.discoveryFilter.Apply(
+			c.Request.Context(),
+			service.PlatformGemini,
+			newapifusion.RawModelsFromIDs(ids),
+		)
+		response.Success(c, gin.H{"models": models})
 		return
 	}
 	if !newapifusion.UpstreamModelFetchAllowed(req.ChannelType) {
@@ -185,7 +237,7 @@ func (h *TKChannelAdminHandler) FetchUpstreamModels(c *gin.Context) {
 			response.ErrorFrom(c, infraerrors.NotFound("ACCOUNT_NOT_FOUND", "account not found"))
 			return
 		}
-		if acc.Platform != "newapi" || acc.Type != "apikey" {
+		if acc.Platform != service.PlatformNewAPI || acc.Type != service.AccountTypeAPIKey {
 			response.ErrorFrom(c, infraerrors.BadRequest("INVALID_ACCOUNT", "account is not a newapi apikey account"))
 			return
 		}

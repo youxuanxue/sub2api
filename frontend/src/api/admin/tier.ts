@@ -27,8 +27,6 @@ export interface Tier {
   max_sessions: number
   rpm_sticky_buffer: number
   session_idle_timeout_minutes: number
-  window_cost_limit: number
-  window_cost_sticky_reserve: number
   cache_ttl_override_enabled: boolean
   cache_ttl_override_target: string | null
   tls_profile_name: string | null
@@ -50,8 +48,6 @@ export interface TierRequest {
   max_sessions: number
   rpm_sticky_buffer: number
   session_idle_timeout_minutes: number
-  window_cost_limit: number
-  window_cost_sticky_reserve: number
   cache_ttl_override_enabled: boolean
   cache_ttl_override_target?: string | null
   tls_profile_name?: string | null

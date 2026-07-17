@@ -1,24 +1,232 @@
 {
   "_meta": {
-    "note": "TK-owned pricing overlay for models the runtime price source lacks. fill-only: merged into PricingService AFTER any source load (Wei-Shaw remote OR disk fallback), and ONLY for keys the source does not already carry. The Wei-Shaw runtime mirror is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; litellm itself also lags new provider models (deepseek-v4-*), which then bill $0. Media price = vertex_ai provider (TK media flow routes through Vertex ch41); falls back to gemini only when no vertex variant exists. Text price = provider official list price. Self-deprecating: the day the source carries a bare key natively, the source value wins and the entry below is ignored. fill-only cannot CORRECT wrong source prices (deepseek-chat/reasoner still carry the pre-V4 rate in the mirror) — use channel pricing (DB) for that.",
-    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee)",
+    "note": "TK-owned pricing overlay for models the runtime price source lacks. Merged into PricingService AFTER any source load (Wei-Shaw remote OR disk fallback); an entry below applies when the source key is ABSENT or the source entry is EFFECTIVELY UNPRICED (every cost field 0.0 — litellm's 'unknown', not 'free'; see tkIsEffectivelyUnpriced). Entries store pre-tax official list prices; billing and public /pricing apply tkOfficialListBaseTaxMultiplier (1.06) at resolution time for deepseek, dashscope, volcengine, and zhipu so display matches charge. Channel (DB) pricing overrides sit above this layer and are not re-taxed. The Wei-Shaw runtime mirror is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; litellm itself also lags new provider models (deepseek-v4-*) or carries them as zero placeholders (deepseek-v3-2-251201), which then bill $0. Media price = vertex_ai provider (TK media flow routes through Vertex ch41); falls back to gemini only when no vertex variant exists. Text price = provider official list price. Self-deprecating: the day the source carries a real (non-zero) price under the bare key, the source value wins and the entry below is ignored. The overlay cannot CORRECT wrong NON-ZERO source prices (deepseek-chat/reasoner still carry the pre-V4 rate in the mirror) — use channel pricing (DB) for that. Video entries MUST declare failure_billing (currently only 'success_only' is legal): TokenKey refunds the user in full when a video task ends failed, which is only loss-free if the provider does not charge for failed tasks — the person pricing a new video model verifies that on the official page and declares it here; scripts/checks/pricing-overlay.py enforces the field, and any other value must first change the refund design.",
+    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); volcengine doubao-*/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=6.7); GLM text rows: PRICING SOURCE ONLY = BigModel official pricing page https://bigmodel.cn/pricing, captured 2026-07-09, CNY/USD=6.7; SERVING for manifest-listed GLM remains the configured Alibaba DashScope/Qwen pool (channel_type=17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct; qwen3.7-max* / qwen3.7-plus / qwen3.6-flash / qwen3-coder-plus / qwen-max / qwen-plus: Alibaba DashScope China-mainland (Beijing) RMB list ÷ 6.7, docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source; the qwen3.7-* / qwen3.6-flash / qwen3-coder-plus values were corrected 2026-06-13 from a prior USD-list basis ≈÷7.27 to the table's canonical CNY/USD=6.7); qwen2.5-coder-32b/7b: retired & absent from current Alibaba list — proxy-filled from lineage successors qwen3-coder-plus / qwen3-coder-flash, Beijing RMB list ÷ 6.7, docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source); seedream/seedance media: VolcEngine Ark official model-pricing page (https://www.volcengine.com/docs/82379/1099320), captured 2026-06-12/2026-07-02, CNY/USD=6.7 — per-image flat price; per-second video price derived at each model's max supported tier (1080p@24fps; 2.0-fast 720p), online standard rate, derivation formula in per-entry source; only IDs present in the live configured Ark account and priced from official sources are served — seedream-4.5/5.0 need separate 2K activation probes/pricing before serving, seedance-1.0-lite and wan2.1 returned unsupported on 2026-07-02; video failure_billing evidence: seedance entries carry the verified official Ark wording (success-only, captured 2026-06-12); veo entries are metric-inferred (billed per generated output second) with the official Google sentence still pending capture",
     "regen": "manual curation; no auto-sync (entries are few + slow-moving). If they proliferate, add provider-aware sync."
+  },
+  "grok-imagine-image": {
+    "litellm_provider": "xai",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.02,
+    "source": "xAI official API list (x.ai/api), captured 2026-06; grok-imagine-image standard tier, flat $0.02/img (1K=2K). Verify in console.x.ai before relying."
+  },
+  "grok-imagine-image-quality": {
+    "litellm_provider": "xai",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.07,
+    "source": "xAI official API list (x.ai/api), captured 2026-06; grok-imagine-image-quality $0.05/img@1K, $0.07/img@2K — priced at the 2K worst case (conservative, never under-bills; the OpenAI /v1/images path passes no size param). Replaced the retired grok-imagine-image-pro 2026-05-15. Verify in console.x.ai."
+  },
+  "grok-imagine-video": {
+    "litellm_provider": "xai",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.08,
+    "source": "xAI official video pricing (docs.x.ai/developers/models/grok-imagine-video, captured 2026-06-19): output $0.05/s base (480p text-to-video), 720p output $0.07/s, +$0.01/s when image is used as input. TK bills a single flat per-OUTPUT-second rate (no resolution/input granularity), set to the MAX reachable tier 720p+image-input = $0.07+$0.01 = $0.08/s so cheaper combos over- not under-charge (same MAX-tier convention as veo/doubao). Cross-checked live 2026-06-19 against api.x.ai/v1/videos via a grok OAuth Heavy account: a 5s text-to-video reported usage.cost_in_usd_ticks=2500000000 = $0.25 ($0.05/s), confirming 1 tick = 1e-10 USD (grok-imagine-image 2e8 ticks = its known $0.02). video_url (continuation) input is rejected at submit (unpriced under per-output-second); only first-frame image_url input is allowed. failure_billing=success_only: xAI bills generated output seconds, and TokenKey's terminal-failure refund reverses the submit-time charge.",
+    "failure_billing": "success_only"
+  },
+  "grok-4.3": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 1.25e-06,
+    "cache_read_input_token_cost": 2e-07,
+    "output_cost_per_token": 2.5e-06,
+    "source": "xAI official pricing (docs.x.ai/developers/pricing, captured 2026-06-22; page last updated 2026-06-12): grok-4.3 input $1.25/Mtok, cached input $0.20/Mtok, output $2.50/Mtok. Live probe 2026-06-22 via edge-us4 native grok group returned 200 for grok-4.3, grok-4.3-latest and grok-latest; 2026-07-10 direct upstream reprobe confirmed the alias family remains public-listable."
+  },
+  "grok-4.5": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 2e-06,
+    "cache_read_input_token_cost": 5e-07,
+    "output_cost_per_token": 6e-06,
+    "source": "xAI official pricing (docs.x.ai/developers/pricing + docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): grok-4.5 input $2.00/Mtok, cached input $0.50/Mtok, output $6.00/Mtok. Direct xAI upstream probe 2026-07-10 via ops/stage0/probe_grok_upstream_model.sh on edge-us4 account 6 returned 200, so this id is public-listable."
+  },
+  "grok-4.5-latest": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 2e-06,
+    "cache_read_input_token_cost": 5e-07,
+    "output_cost_per_token": 6e-06,
+    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): grok-4.5-latest maps to grok-4.5 at input $2.00/Mtok, cached $0.50/Mtok, output $6.00/Mtok. Direct xAI upstream probe 2026-07-10 via ops/stage0/probe_grok_upstream_model.sh on edge-us4 account 6 returned 200 with upstream model grok-4.5, so this alias is public-listable."
+  },
+  "grok-build-latest": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 2e-06,
+    "cache_read_input_token_cost": 5e-07,
+    "output_cost_per_token": 6e-06,
+    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.5, captured 2026-07-09): grok-build-latest maps to grok-4.5 at input $2.00/Mtok, cached $0.50/Mtok, output $6.00/Mtok. Direct xAI upstream probe 2026-07-10 via ops/stage0/probe_grok_upstream_model.sh on edge-us4 account 6 returned 200 with upstream model grok-4.5, so this alias is public-listable."
+  },
+  "grok-4.3-latest": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 1.25e-06,
+    "cache_read_input_token_cost": 2e-07,
+    "output_cost_per_token": 2.5e-06,
+    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.3, captured 2026-07-09): grok-4.3-latest maps to grok-4.3 at input $1.25/Mtok, cached $0.20/Mtok, output $2.50/Mtok. Direct xAI upstream probe 2026-07-10 via ops/stage0/probe_grok_upstream_model.sh on edge-us4 account 6 returned 200 with upstream model grok-4.3, so this alias is public-listable."
+  },
+  "grok-latest": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 1.25e-06,
+    "cache_read_input_token_cost": 2e-07,
+    "output_cost_per_token": 2.5e-06,
+    "source": "xAI official model page alias (docs.x.ai/developers/models/grok-4.3, captured 2026-07-09): grok-latest maps to grok-4.3 at input $1.25/Mtok, cached $0.20/Mtok, output $2.50/Mtok. Live probe 2026-06-22 edge-us4 returned 200; public-listed as official xAI alias."
+  },
+  "grok-4-fast-reasoning": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 1.25e-06,
+    "cache_read_input_token_cost": 2e-07,
+    "output_cost_per_token": 2.5e-06,
+    "source": "xAI official model-retirement page (docs.x.ai/developers/migration/may-15-retirement, captured 2026-06-22) says retired grok-4-fast-reasoning redirects to grok-4.3 and is charged as grok-4.3: input $1.25/Mtok, cached input $0.20/Mtok, output $2.50/Mtok from docs.x.ai/developers/pricing. Live probe 2026-06-22 returned 200; priced for backward compatibility, not public-listed."
+  },
+  "grok-4.20-0309-reasoning": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 1.25e-06,
+    "cache_read_input_token_cost": 2e-07,
+    "output_cost_per_token": 2.5e-06,
+    "source": "xAI official pricing (docs.x.ai/developers/pricing, captured 2026-06-22; page last updated 2026-06-12): grok-4.20-0309-reasoning input $1.25/Mtok, cached input $0.20/Mtok, output $2.50/Mtok. Live probe 2026-06-22 via edge-us4 native grok group returned 200."
+  },
+  "grok-4.20-0309-non-reasoning": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 1.25e-06,
+    "cache_read_input_token_cost": 2e-07,
+    "output_cost_per_token": 2.5e-06,
+    "source": "xAI official pricing (docs.x.ai/developers/pricing, captured 2026-06-22; page last updated 2026-06-12): grok-4.20-0309-non-reasoning input $1.25/Mtok, cached input $0.20/Mtok, output $2.50/Mtok. Live probe 2026-06-22 via edge-us4 native grok group returned 200."
+  },
+  "grok-build-0.1": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 1e-06,
+    "cache_read_input_token_cost": 2e-07,
+    "output_cost_per_token": 2e-06,
+    "source": "xAI official pricing (docs.x.ai/developers/pricing, captured 2026-06-22; page last updated 2026-06-12): grok-build-0.1 input $1/Mtok, cached input $0.20/Mtok, output $2/Mtok. Live probe 2026-06-22 via edge-us4 native grok group returned 200."
+  },
+  "grok-code-fast": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 1e-06,
+    "cache_read_input_token_cost": 2e-07,
+    "output_cost_per_token": 2e-06,
+    "source": "xAI official grok-build-0.1 model page alias (docs.x.ai/developers/models/grok-build-0.1, captured 2026-07-09): grok-code-fast maps to grok-build-0.1. Official pricing input $1/Mtok, cached $0.20/Mtok, output $2/Mtok. Direct xAI upstream probe 2026-07-10 via ops/stage0/probe_grok_upstream_model.sh on edge-us4 account 6 returned 200 with upstream model grok-build-0.1, so this alias is public-listable."
+  },
+  "grok-code-fast-1-0825": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 1e-06,
+    "cache_read_input_token_cost": 2e-07,
+    "output_cost_per_token": 2e-06,
+    "source": "xAI official grok-build-0.1 model page alias (docs.x.ai/developers/models/grok-build-0.1, captured 2026-07-09): grok-code-fast-1-0825 maps to grok-build-0.1. Official pricing input $1/Mtok, cached $0.20/Mtok, output $2/Mtok. Direct xAI upstream probe 2026-07-10 via ops/stage0/probe_grok_upstream_model.sh on edge-us4 account 6 returned 200 with upstream model grok-build-0.1, so this alias is public-listable."
+  },
+  "grok-code-fast-1": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 1e-06,
+    "cache_read_input_token_cost": 2e-07,
+    "output_cost_per_token": 2e-06,
+    "source": "xAI official grok-build-0.1 model page (docs.x.ai/developers/models/grok-code-fast-1, captured 2026-06-22) lists grok-code-fast-1 as an alias of grok-build-0.1. Official pricing page lists grok-build-0.1 at input $1/Mtok, cached input $0.20/Mtok, output $2/Mtok. This replaces the older x.ai/news/grok-code-fast-1 promo/post-promo row, which would under-bill the current routed model."
+  },
+  "claude-fable-5": {
+    "litellm_provider": "anthropic",
+    "mode": "chat",
+    "input_cost_per_token": 1e-05,
+    "output_cost_per_token": 5e-05,
+    "cache_creation_input_token_cost": 1.25e-05,
+    "cache_creation_input_token_cost_above_1hr": 2e-05,
+    "cache_read_input_token_cost": 1e-06,
+    "max_input_tokens": 1000000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "Anthropic official Fable 5 list price (2026-06: in $10/M, out $50/M, 1M ctx, 128K out); litellm mirror lags new model"
+  },
+  "gemini-2.5-flash-thinking": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 3e-07,
+    "output_cost_per_token": 2.5e-06,
+    "cache_read_input_token_cost": 3e-08,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 65535,
+    "supports_function_calling": true,
+    "supports_vision": true,
+    "supports_reasoning": true,
+    "supports_prompt_caching": true,
+    "source": "TK overlay: Antigravity wire id gemini-2.5-flash-thinking returned prod 200 on 2026-06-23. Priced at the equivalent bundled Gemini 2.5 Flash official-rate mirror (backend/resources/model-pricing/model_prices_and_context_window.json gemini-2.5-flash; source https://ai.google.dev/gemini-api/docs/models#gemini-2.5-flash-preview): input $0.30/M, output/reasoning $2.50/M, cache-read $0.03/M, no markup. Billing keys on requested_model; this Antigravity wire id is absent from the trimmed runtime mirror."
+  },
+  "gemini-3.5-flash-low": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 1.5e-06,
+    "output_cost_per_token": 9e-06,
+    "cache_read_input_token_cost": 1.5e-07,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 65536,
+    "supports_function_calling": true,
+    "supports_vision": true,
+    "supports_reasoning": true,
+    "source": "TK overlay: Antigravity wire id (app 'Gemini 3.5 Flash (Medium)', thinkingBudget 4000) priced at equivalent public model gemini-3.5-flash market rate, no markup (in $1.5/M, out $9/M, cache $0.15/M). Ref: backend/resources/model-pricing/model_prices_and_context_window.json gemini-3.5-flash; captured 2026-06-13 via /v1internal:fetchAvailableModels. Billing keys on requested_model; antigravity wire ids absent from the trimmed litellm mirror."
+  },
+  "gemini-3.5-flash-extra-low": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 1.5e-06,
+    "output_cost_per_token": 9e-06,
+    "cache_read_input_token_cost": 1.5e-07,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 65536,
+    "supports_function_calling": true,
+    "supports_vision": true,
+    "supports_reasoning": true,
+    "source": "TK overlay: Antigravity wire id (app 'Gemini 3.5 Flash (Low)', thinkingBudget 1000) priced at equivalent public model gemini-3.5-flash market rate, no markup (in $1.5/M, out $9/M, cache $0.15/M). Ref: gemini-3.5-flash; captured 2026-06-13. Billing keys on requested_model."
+  },
+  "gemini-3-flash-agent": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 1.5e-06,
+    "output_cost_per_token": 9e-06,
+    "cache_read_input_token_cost": 1.5e-07,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 65536,
+    "supports_function_calling": true,
+    "supports_vision": true,
+    "supports_reasoning": true,
+    "source": "TK overlay: Antigravity wire id (app 'Gemini 3.5 Flash (High)', thinkingBudget 10000) priced at equivalent public model gemini-3.5-flash market rate, no markup (in $1.5/M, out $9/M, cache $0.15/M). Ref: gemini-3.5-flash; captured 2026-06-13. Billing keys on requested_model."
+  },
+  "gemini-pro-agent": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 2e-06,
+    "output_cost_per_token": 1.2e-05,
+    "cache_read_input_token_cost": 2e-07,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 65536,
+    "supports_function_calling": true,
+    "supports_vision": true,
+    "supports_reasoning": true,
+    "source": "TK overlay: Antigravity wire id (app 'Gemini 3.1 Pro (High)', thinkingBudget 10001; also the migration target of deprecated gemini-3.1-pro-high) priced at equivalent public model gemini-3.1-pro market rate, no markup (in $2/M, out $12/M, cache $0.2/M). Ref: backend/resources/model-pricing/model_prices_and_context_window.json gemini-3.1-pro-low/-high; captured 2026-06-13 via /v1internal:fetchAvailableModels. Billing keys on requested_model."
   },
   "deepseek-v4-flash": {
     "litellm_provider": "deepseek",
     "mode": "chat",
-    "input_cost_per_token": 0.00000014,
-    "output_cost_per_token": 0.00000028,
-    "cache_read_input_token_cost": 0.0000000028,
+    "input_cost_per_token": 1.4e-07,
+    "output_cost_per_token": 2.8e-07,
+    "cache_read_input_token_cost": 2.8e-09,
     "supports_prompt_caching": true,
     "source": "https://api-docs.deepseek.com/quick_start/pricing (2026-06-04: in $0.14/M cache-miss, $0.0028/M cache-hit, out $0.28/M)"
   },
   "deepseek-v4-pro": {
     "litellm_provider": "deepseek",
     "mode": "chat",
-    "input_cost_per_token": 0.000000435,
-    "output_cost_per_token": 0.00000087,
-    "cache_read_input_token_cost": 0.000000003625,
+    "input_cost_per_token": 4.35e-07,
+    "output_cost_per_token": 8.7e-07,
+    "cache_read_input_token_cost": 3.625e-09,
     "supports_prompt_caching": true,
     "source": "https://api-docs.deepseek.com/quick_start/pricing (2026-06-04: in $0.435/M cache-miss, $0.003625/M cache-hit, out $0.87/M)"
   },
@@ -67,49 +275,1582 @@
   "veo-2.0-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
-    "output_cost_per_second": 0.35,
-    "source": "litellm:vertex_ai/veo-2.0-generate-001"
+    "output_cost_per_second": 0.5,
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 2 video = $0.50/second (720p). TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "failure_billing": "success_only"
   },
   "veo-3.0-fast-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.15,
-    "source": "litellm:vertex_ai/veo-3.0-fast-generate-001"
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3 Fast MAX tier = $0.12/second (1080p + audio); no 4k tier. TK's flat $0.15 already exceeds the official max across all reachable resolution/audio combos — retained (not lowered) to avoid reducing existing revenue. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "failure_billing": "success_only"
   },
   "veo-3.0-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.4,
-    "source": "litellm:vertex_ai/veo-3.0-generate-001"
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3 MAX tier = $0.40/second (720p/1080p + audio); no 4k tier. TK's flat $0.40 matches the official max — covers all reachable resolution/audio combos. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "failure_billing": "success_only"
   },
   "veo-3.1-fast-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
-    "output_cost_per_second": 0.15,
-    "source": "litellm:vertex_ai/veo-3.1-fast-generate-001"
+    "output_cost_per_second": 0.3,
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 Fast MAX tier = $0.30/second (4k + audio); lower tiers 720p $0.10, 1080p $0.12, video-only 4k $0.25. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "failure_billing": "success_only"
   },
   "veo-3.1-fast-generate-preview": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
-    "output_cost_per_second": 0.15,
-    "source": "litellm:vertex_ai/veo-3.1-fast-generate-preview"
+    "output_cost_per_second": 0.3,
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 Fast MAX tier = $0.30/second (4k + audio); lower tiers 720p $0.10, 1080p $0.12, video-only 4k $0.25. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "failure_billing": "success_only"
   },
   "veo-3.1-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
-    "output_cost_per_second": 0.4,
-    "source": "litellm:vertex_ai/veo-3.1-generate-001"
+    "output_cost_per_second": 0.6,
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 MAX tier = $0.60/second (4k + audio); lower tiers 720p/1080p + audio $0.40, video-only 4k $0.40, video-only 720p/1080p $0.20. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "failure_billing": "success_only"
   },
   "veo-3.1-generate-preview": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
-    "output_cost_per_second": 0.4,
-    "source": "litellm:vertex_ai/veo-3.1-generate-preview"
+    "output_cost_per_second": 0.6,
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 MAX tier = $0.60/second (4k + audio); lower tiers 720p/1080p + audio $0.40, video-only 4k $0.40, video-only 720p/1080p $0.20. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "failure_billing": "success_only"
   },
   "veo-3.1-lite-generate-preview": {
     "litellm_provider": "gemini",
     "mode": "video_generation",
-    "output_cost_per_second": 0.05,
-    "source": "litellm:gemini/veo-3.1-lite-generate-preview"
+    "output_cost_per_second": 0.08,
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 Lite MAX tier = $0.08/second (1080p + audio); lower tiers 720p + audio $0.05, video-only 720p $0.03 / 1080p $0.05; no 4k tier. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "failure_billing": "success_only"
+  },
+  "doubao-seedream-4-0-250828": {
+    "litellm_provider": "volcengine",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.029850746268656716,
+    "source": "VolcEngine Ark official model-pricing page https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedream-4.0 = 0.2 CNY/image (billed per successfully generated image; single flat price, no resolution tiers) ÷ 6.7 = 0.0298507 USD/image."
+  },
+  "doubao-seedream-4-5-251128": {
+    "litellm_provider": "volcengine",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.03731343283582089,
+    "source": "VolcEngine Ark official model-pricing page https://www.volcengine.com/docs/82379/1099320, verified 2026-07-02: doubao-seedream-4.5 = 0.25 CNY/image (billed per successfully generated image; single flat price, no resolution tiers) ÷ 6.7 = 0.0373134 USD/image. Direct Ark /api/v3/images/generations probe with 2048x2048 returned 200 servable on 2026-07-02."
+  },
+  "doubao-seedream-5-0-260128": {
+    "litellm_provider": "volcengine",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.03283582089552239,
+    "source": "VolcEngine Ark official model-pricing page https://www.volcengine.com/docs/82379/1099320, verified 2026-07-02: doubao-seedream-5.0 = 0.22 CNY/image (billed per successfully generated image; single flat price, no resolution tiers) ÷ 6.7 = 0.0328358 USD/image. Direct Ark /api/v3/images/generations probe with 2048x2048 returned 200 servable on 2026-07-02."
+  },
+  "seedream-4-0-250828": {
+    "litellm_provider": "volcengine",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.029850746268656716,
+    "source": "No-prefix alias of doubao-seedream-4-0-250828 (new-api relay/channel/volcengine ModelList carries both names; billing key = requested_model so the alias must price identically). Same VolcEngine Ark official 0.2 CNY/image ÷ 6.7, captured 2026-06-12."
+  },
+  "doubao-seedance-1-0-pro-250528": {
+    "litellm_provider": "volcengine",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.10880597014925374,
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-1.0-pro online = 15 CNY/M tokens; video tokens = duration*W*H*fps/1024. Priced at the model's MAX tier 1080p(1920x1080)@24fps so lower-resolution requests over- not under-charge: 1920*1080*24/1024 = 48600 tokens/s -> 48600*15/1e6 = 0.729 CNY/s ÷ 6.7 = 0.1088060 USD/s (matches official 1080p 5s example ~3.645 CNY). 720p actual cost is 4/9 of this. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "failure_billing": "success_only"
+  },
+  "seedance-1-0-pro-250528": {
+    "litellm_provider": "volcengine",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.10880597014925374,
+    "source": "No-prefix alias of doubao-seedance-1-0-pro-250528 (new-api volcengine ModelList carries both; billing key = requested_model). Same derivation: 1080p@24fps max tier, 48600 tokens/s * 15 CNY/M = 0.729 CNY/s ÷ 6.7. Captured 2026-06-12. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "failure_billing": "success_only"
+  },
+  "doubao-seedance-1-0-pro-fast-251015": {
+    "litellm_provider": "volcengine",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.030465671641791044,
+    "source": "VolcEngine Ark official model list/pricing page https://www.volcengine.com/docs/82379/1099320, verified 2026-07-02: doubao-seedance-1.0-pro-fast online = 4.2 CNY/M tokens; video tokens = duration*W*H*fps/1024. Priced at 1080p(1920x1080)@24fps to match the 1.0 Pro max-output convention: 1920*1080*24/1024 = 48600 tokens/s -> 48600*4.2/1e6 = 0.20412 CNY/s ÷ 6.7 = 0.0304657 USD/s. Direct Ark /api/v3/contents/generations/tasks probe returned 200 servable on 2026-07-02. failure_billing evidence follows the same official Seedance video wording captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "failure_billing": "success_only"
+  },
+  "doubao-seedance-1-5-pro-251215": {
+    "litellm_provider": "volcengine",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.11611940298507463,
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-1.5-pro, MAX tier = 1080p WITH audio (16 CNY/M tokens). Official example table 1080p 16:9 5s with-audio = 3.89 CNY -> 0.778 CNY/s ÷ 6.7 = 0.1161194 USD/s; token-formula cross-check 48600*16/1e6 = 0.7776 CNY/s (<0.1% off). Silent 1080p is half; 480p/720p cheaper — single per-second price never under-charges those. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "failure_billing": "success_only"
+  },
+  "doubao-seedance-2-0-260128": {
+    "litellm_provider": "volcengine",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.3698507462686567,
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-2.0, MAX output tier 1080p, input-without-video (text/image-to-video, 51 CNY/M tokens). Official example 1080p 5s = 12.39 CNY -> 2.478 CNY/s ÷ 6.7 = 0.3698507 USD/s; cross-check 48600*51/1e6 = 2.4786 CNY/s. CAVEAT: video-input continuation bills (input+output) duration upstream and can exceed this single per-second rate up to ~2.4x — restrict or re-price before enabling video input on TK. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "failure_billing": "success_only"
+  },
+  "doubao-seedance-2-0-fast-260128": {
+    "litellm_provider": "volcengine",
+    "mode": "video_generation",
+    "output_cost_per_second": 0.11940298507462686,
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-2.0-fast, MAX supported output is 720p (no 1080p), input-without-video (37 CNY/M tokens). Official example 720p 5s = 4.00 CNY -> 0.8 CNY/s ÷ 6.7 = 0.1194030 USD/s; cross-check 1280*720*24/1024 = 21600 tokens/s * 37/1e6 = 0.7992 CNY/s. Same video-input caveat as seedance-2.0. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "failure_billing": "success_only"
+  },
+  "doubao-seed-2-0-pro-260215": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 4.776119402985075e-07,
+    "output_cost_per_token": 2.3880597014925373e-06,
+    "cache_read_input_token_cost": 9.55223880597015e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 4.776119402985075e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 9.55223880597015e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 7.164179104477612e-07,
+        "output_cost_per_token": 3.582089552238806e-06,
+        "cache_read_input_token_cost": 1.4328358208955223e-07
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 1.4328358208955224e-06,
+        "output_cost_per_token": 7.164179104477612e-06,
+        "cache_read_input_token_cost": 2.8656716417910447e-07
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-2-0-code-preview-260215": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 4.776119402985075e-07,
+    "output_cost_per_token": 2.3880597014925373e-06,
+    "cache_read_input_token_cost": 9.55223880597015e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 4.776119402985075e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 9.55223880597015e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 7.164179104477612e-07,
+        "output_cost_per_token": 3.582089552238806e-06,
+        "cache_read_input_token_cost": 1.4328358208955223e-07
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 1.4328358208955224e-06,
+        "output_cost_per_token": 7.164179104477612e-06,
+        "cache_read_input_token_cost": 2.8656716417910447e-07
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-2-0-lite-260215": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 8.955223880597015e-08,
+    "output_cost_per_token": 5.373134328358209e-07,
+    "cache_read_input_token_cost": 1.791044776119403e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 8.955223880597015e-08,
+        "output_cost_per_token": 5.373134328358209e-07,
+        "cache_read_input_token_cost": 1.791044776119403e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 1.3432835820895523e-07,
+        "output_cost_per_token": 8.059701492537314e-07,
+        "cache_read_input_token_cost": 2.6865671641791042e-08
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 2.6865671641791046e-07,
+        "output_cost_per_token": 1.6119402985074628e-06,
+        "cache_read_input_token_cost": 5.3731343283582085e-08
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-2-0-lite-260428": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 8.955223880597015e-08,
+    "output_cost_per_token": 5.373134328358209e-07,
+    "cache_read_input_token_cost": 1.791044776119403e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 8.955223880597015e-08,
+        "output_cost_per_token": 5.373134328358209e-07,
+        "cache_read_input_token_cost": 1.791044776119403e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 1.3432835820895523e-07,
+        "output_cost_per_token": 8.059701492537314e-07,
+        "cache_read_input_token_cost": 2.6865671641791042e-08
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 2.6865671641791046e-07,
+        "output_cost_per_token": 1.6119402985074628e-06,
+        "cache_read_input_token_cost": 5.3731343283582085e-08
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-2-0-mini-260215": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 2.985074626865672e-08,
+    "output_cost_per_token": 2.9850746268656716e-07,
+    "cache_read_input_token_cost": 5.970149253731343e-09,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 2.985074626865672e-08,
+        "output_cost_per_token": 2.9850746268656716e-07,
+        "cache_read_input_token_cost": 5.970149253731343e-09
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 5.970149253731344e-08,
+        "output_cost_per_token": 5.970149253731343e-07,
+        "cache_read_input_token_cost": 1.1940298507462687e-08
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 1.1940298507462688e-07,
+        "output_cost_per_token": 1.1940298507462686e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-2-0-mini-260428": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 2.985074626865672e-08,
+    "output_cost_per_token": 2.9850746268656716e-07,
+    "cache_read_input_token_cost": 5.970149253731343e-09,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 2.985074626865672e-08,
+        "output_cost_per_token": 2.9850746268656716e-07,
+        "cache_read_input_token_cost": 5.970149253731343e-09
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 5.970149253731344e-08,
+        "output_cost_per_token": 5.970149253731343e-07,
+        "cache_read_input_token_cost": 1.1940298507462687e-08
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 1.1940298507462688e-07,
+        "output_cost_per_token": 1.1940298507462686e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-1-8-251228": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.1940298507462688e-07,
+    "output_cost_per_token": 1.1940298507462686e-06,
+    "cache_read_input_token_cost": 2.3880597014925373e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 1.1940298507462688e-07,
+        "output_cost_per_token": 1.1940298507462686e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 1.791044776119403e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 3.582089552238806e-07,
+        "output_cost_per_token": 3.582089552238806e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). [0,32K] uses the output>0.2K tier (TK tiers by input only). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-1-6-250615": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.1940298507462688e-07,
+    "output_cost_per_token": 1.1940298507462686e-06,
+    "cache_read_input_token_cost": 2.3880597014925373e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 1.1940298507462688e-07,
+        "output_cost_per_token": 1.1940298507462686e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 1.791044776119403e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 3.582089552238806e-07,
+        "output_cost_per_token": 3.582089552238806e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). [0,32K] uses the output>0.2K tier (TK tiers by input only). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-1-6-251015": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.1940298507462688e-07,
+    "output_cost_per_token": 1.1940298507462686e-06,
+    "cache_read_input_token_cost": 2.3880597014925373e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 1.1940298507462688e-07,
+        "output_cost_per_token": 1.1940298507462686e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 1.791044776119403e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 3.582089552238806e-07,
+        "output_cost_per_token": 3.582089552238806e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). [0,32K] uses the output>0.2K tier (TK tiers by input only). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-1-6-flash-250615": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 2.2388059701492537e-08,
+    "output_cost_per_token": 2.2388059701492537e-07,
+    "cache_read_input_token_cost": 4.477611940298507e-09,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 2.2388059701492537e-08,
+        "output_cost_per_token": 2.2388059701492537e-07,
+        "cache_read_input_token_cost": 4.477611940298507e-09
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 4.4776119402985075e-08,
+        "output_cost_per_token": 4.4776119402985074e-07,
+        "cache_read_input_token_cost": 4.477611940298507e-09
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 8.955223880597015e-08,
+        "output_cost_per_token": 8.955223880597015e-07,
+        "cache_read_input_token_cost": 4.477611940298507e-09
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-1-6-flash-250828": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 2.2388059701492537e-08,
+    "output_cost_per_token": 2.2388059701492537e-07,
+    "cache_read_input_token_cost": 4.477611940298507e-09,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 2.2388059701492537e-08,
+        "output_cost_per_token": 2.2388059701492537e-07,
+        "cache_read_input_token_cost": 4.477611940298507e-09
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 4.4776119402985075e-08,
+        "output_cost_per_token": 4.4776119402985074e-07,
+        "cache_read_input_token_cost": 4.477611940298507e-09
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 8.955223880597015e-08,
+        "output_cost_per_token": 8.955223880597015e-07,
+        "cache_read_input_token_cost": 4.477611940298507e-09
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-1-6-vision-250815": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.1940298507462688e-07,
+    "output_cost_per_token": 1.1940298507462686e-06,
+    "cache_read_input_token_cost": 2.3880597014925373e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 1.1940298507462688e-07,
+        "output_cost_per_token": 1.1940298507462686e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 1.791044776119403e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 3.582089552238806e-07,
+        "output_cost_per_token": 3.582089552238806e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-character-251128": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.1940298507462688e-07,
+    "output_cost_per_token": 2.9850746268656716e-07,
+    "cache_read_input_token_cost": 2.3880597014925373e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 1.1940298507462688e-07,
+        "output_cost_per_token": 2.9850746268656716e-07,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": null,
+        "input_cost_per_token": 1.791044776119403e-07,
+        "output_cost_per_token": 8.955223880597015e-07,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-seed-code-preview-251028": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.791044776119403e-07,
+    "output_cost_per_token": 1.1940298507462686e-06,
+    "cache_read_input_token_cost": 3.582089552238806e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 1.791044776119403e-07,
+        "output_cost_per_token": 1.1940298507462686e-06,
+        "cache_read_input_token_cost": 3.582089552238806e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 2.08955223880597e-07,
+        "output_cost_per_token": 1.791044776119403e-06,
+        "cache_read_input_token_cost": 3.582089552238806e-08
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 4.17910447761194e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 3.582089552238806e-08
+      }
+    ],
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
+  },
+  "doubao-1-5-pro-32k-250115": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.1940298507462688e-07,
+    "output_cost_per_token": 2.9850746268656716e-07,
+    "cache_read_input_token_cost": 2.3880597014925373e-08,
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; flat, USD=¥/M÷6.7)."
+  },
+  "doubao-1-5-pro-32k-character-250715": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.1940298507462688e-07,
+    "output_cost_per_token": 2.9850746268656716e-07,
+    "cache_read_input_token_cost": 2.3880597014925373e-08,
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; flat, USD=¥/M÷6.7)."
+  },
+  "doubao-1-5-lite-32k-250115": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 4.4776119402985075e-08,
+    "output_cost_per_token": 8.955223880597015e-08,
+    "cache_read_input_token_cost": 8.955223880597015e-09,
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; flat, USD=¥/M÷6.7)."
+  },
+  "doubao-1-5-vision-pro-32k-250115": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 4.4776119402985074e-07,
+    "output_cost_per_token": 1.3432835820895522e-06,
+    "cache_read_input_token_cost": 4.4776119402985074e-07,
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; flat, USD=¥/M÷6.7)."
+  },
+  "doubao-seed-translation-250915": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.791044776119403e-07,
+    "output_cost_per_token": 5.373134328358209e-07,
+    "cache_read_input_token_cost": 1.791044776119403e-07,
+    "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; flat, USD=¥/M÷6.7)."
+  },
+  "qwen3.7-max": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.7910447761194032e-06,
+    "output_cost_per_token": 5.373134328358209e-06,
+    "cache_read_input_token_cost": 1.7910447761194032e-06,
+    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
+  },
+  "qwen3.7-max-preview": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.7910447761194032e-06,
+    "output_cost_per_token": 5.373134328358209e-06,
+    "cache_read_input_token_cost": 1.7910447761194032e-06,
+    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
+  },
+  "qwen3.7-max-2026-05-17": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.7910447761194032e-06,
+    "output_cost_per_token": 5.373134328358209e-06,
+    "cache_read_input_token_cost": 1.7910447761194032e-06,
+    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
+  },
+  "qwen3.7-max-2026-05-20": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.7910447761194032e-06,
+    "output_cost_per_token": 5.373134328358209e-06,
+    "cache_read_input_token_cost": 1.7910447761194032e-06,
+    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
+  },
+  "qwen3.7-max-2026-06-08": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.7910447761194032e-06,
+    "output_cost_per_token": 5.373134328358209e-06,
+    "cache_read_input_token_cost": 1.7910447761194032e-06,
+    "source": "Alibaba DashScope qwen3.7-max official China-mainland (Beijing) RMB list ÷ 6.7 (0<Token≤1M in ¥12/M out ¥36/M; thinking & non-thinking share one price; qwen3.7-max-preview / -2026-05-17 are thinking-only at the same rate). docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 from a prior USD-list basis (≈÷7.27) to the table's canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled."
+  },
+  "qwen3.7-plus": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 2.9850746268656716e-07,
+    "output_cost_per_token": 1.1940298507462686e-06,
+    "cache_read_input_token_cost": 2.9850746268656716e-07,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 256000,
+        "input_cost_per_token": 2.9850746268656716e-07,
+        "output_cost_per_token": 1.1940298507462686e-06,
+        "cache_read_input_token_cost": 2.9850746268656716e-07
+      },
+      {
+        "min_tokens": 256000,
+        "max_tokens": null,
+        "input_cost_per_token": 8.955223880597016e-07,
+        "output_cost_per_token": 3.5820895522388063e-06,
+        "cache_read_input_token_cost": 8.955223880597016e-07
+      }
+    ],
+    "source": "Alibaba DashScope qwen3.7-plus official China-mainland RMB list ÷ 6.7, tiered by input tokens (0<256K in ¥2/M out ¥8/M; 256K<1M in ¥6/M out ¥24/M; non-thinking == thinking output); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 to canonical CNY/USD=6.7. List price only — Batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
+  },
+  "qwen-max": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 3.582089552238806e-07,
+    "output_cost_per_token": 1.432835820895522e-06,
+    "cache_read_input_token_cost": 3.582089552238806e-07,
+    "source": "Alibaba DashScope qwen-max (legacy stable alias, 当前能力等同 qwen-max snapshot) official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯计价 in ¥2.4/M out ¥9.6/M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-13: client-facing legacy alias served via the configured Qwen channel_type=17 pool; account 60 was the mapping evidence at capture time for the qwen3.7-* gap (empty-pool 429 incident). List price only — Batch (half-price)/context-cache discounts not modeled (bill at list). International deployment is ~5x higher (¥11.743/¥46.971) and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+  },
+  "qwen-turbo": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 4.477611940298507e-08,
+    "output_cost_per_token": 8.955223880597015e-08,
+    "cache_read_input_token_cost": 4.477611940298507e-08,
+    "source": "Alibaba DashScope qwen-turbo (commercial qwen3 alias) official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯 in ¥0.3/M, out 非思考 ¥0.6/M); docs/evidence/pricing/aliyun_pricing_20260612.md line 394 captured 2026-06-12. Added 2026-06-22 (Goal 2 fleet servable-expansion): client-facing model served via the configured Qwen channel_type=17 pool; account 60 was the mapping evidence at capture time, mapped by tk_042. Output priced at NON-thinking list; enable_thinking defaults FALSE for commercial qwen (same treatment as qwen-plus), thinking-mode output (¥3/M) intentionally NOT modeled (bill at non-thinking list). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+  },
+  "qwen-plus": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.194029850746269e-07,
+    "output_cost_per_token": 2.985074626865672e-07,
+    "cache_read_input_token_cost": 1.194029850746269e-07,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 128000,
+        "input_cost_per_token": 1.194029850746269e-07,
+        "output_cost_per_token": 2.985074626865672e-07,
+        "cache_read_input_token_cost": 1.194029850746269e-07
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": 256000,
+        "input_cost_per_token": 3.582089552238806e-07,
+        "output_cost_per_token": 2.985074626865672e-06,
+        "cache_read_input_token_cost": 3.582089552238806e-07
+      },
+      {
+        "min_tokens": 256000,
+        "max_tokens": null,
+        "input_cost_per_token": 7.164179104477612e-07,
+        "output_cost_per_token": 7.164179104477612e-06,
+        "cache_read_input_token_cost": 7.164179104477612e-07
+      }
+    ],
+    "source": "Alibaba DashScope qwen-plus (legacy stable alias, 当前能力等同 qwen-plus-2025-12-01) official China-mainland (Beijing) RMB list ÷ 6.7, tiered by input tokens (0<=128K in ¥0.8 out ¥2; 128K<=256K in ¥2.4 out ¥20; 256K<=1M in ¥4.8 out ¥48 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-13: client-facing legacy alias served via the configured Qwen channel_type=17 pool; account 60 was the mapping evidence at capture time for the qwen3.7-* gap. Output priced at NON-thinking list; thinking-mode output is higher (¥8/¥24/¥64 per tier) and intentionally NOT modeled (bill at non-thinking list). Batch (half-price)/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
+  },
+  "qwen3.6-flash": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.791044776119403e-07,
+    "output_cost_per_token": 1.0746268656716418e-06,
+    "cache_read_input_token_cost": 1.791044776119403e-07,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 256000,
+        "input_cost_per_token": 1.791044776119403e-07,
+        "output_cost_per_token": 1.0746268656716418e-06,
+        "cache_read_input_token_cost": 1.791044776119403e-07
+      },
+      {
+        "min_tokens": 256000,
+        "max_tokens": null,
+        "input_cost_per_token": 7.164179104477612e-07,
+        "output_cost_per_token": 4.298507462686567e-06,
+        "cache_read_input_token_cost": 7.164179104477612e-07
+      }
+    ],
+    "source": "Alibaba DashScope qwen3.6-flash official China-mainland RMB list ÷ 6.7, tiered by input tokens (0<256K in ¥1.2/M out ¥7.2/M; 256K<1M in ¥4.8/M out ¥28.8/M; 非思考和思考同价); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 to canonical CNY/USD=6.7. List price only — Batch (half-price)/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
+  },
+  "qwen3-coder-plus": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 5.970149253731343e-07,
+    "output_cost_per_token": 2.3880597014925373e-06,
+    "cache_read_input_token_cost": 5.970149253731343e-07,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 5.970149253731343e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 5.970149253731343e-07
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 8.955223880597016e-07,
+        "output_cost_per_token": 3.5820895522388063e-06,
+        "cache_read_input_token_cost": 8.955223880597016e-07
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": 256000,
+        "input_cost_per_token": 1.4925373134328358e-06,
+        "output_cost_per_token": 5.970149253731343e-06,
+        "cache_read_input_token_cost": 1.4925373134328358e-06
+      },
+      {
+        "min_tokens": 256000,
+        "max_tokens": null,
+        "input_cost_per_token": 2.9850746268656716e-06,
+        "output_cost_per_token": 2.9850746268656717e-05,
+        "cache_read_input_token_cost": 2.9850746268656716e-06
+      }
+    ],
+    "source": "Alibaba DashScope qwen3-coder-plus official China-mainland RMB list ÷ 6.7, tiered by input tokens (0<=32K ¥4/¥16; 32K<=128K ¥6/¥24; 128K<=256K ¥10/¥40; 256K<=1M ¥20/¥200 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Corrected 2026-06-13 to canonical CNY/USD=6.7. List price only — context-cache discount not modeled. Whole-request input-tier via overlay intervals."
+  },
+  "qwen3-8b": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 7.462686567164179e-08,
+    "output_cost_per_token": 2.9850746268656716e-07,
+    "thinking_output_cost_per_token": 7.462686567164179e-07,
+    "cache_read_input_token_cost": 7.462686567164179e-08,
+    "source": "Alibaba DashScope qwen3-8b (开源版 dense) official China-mainland (Beijing) RMB list ÷ 6.7; docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-17 per customer request for the original (dense) Qwen3 8B/14B/32B models. Mirrors Alibaba's two-rate table for the SAME model id (in ¥0.5/M; out 非思考 ¥2/M / 思考 ¥5/M), switched by the request's enable_thinking param — output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for open-source dense Qwen3, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+  },
+  "qwen3-14b": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.4925373134328358e-07,
+    "output_cost_per_token": 5.970149253731343e-07,
+    "thinking_output_cost_per_token": 1.4925373134328358e-06,
+    "cache_read_input_token_cost": 1.4925373134328358e-07,
+    "source": "Alibaba DashScope qwen3-14b (开源版 dense) official China-mainland (Beijing) RMB list ÷ 6.7; docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-17 per customer request for the original (dense) Qwen3 8B/14B/32B models. Mirrors Alibaba's two-rate table for the SAME model id (in ¥1/M; out 非思考 ¥4/M / 思考 ¥10/M), switched by the request's enable_thinking param — output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for open-source dense Qwen3, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+  },
+  "qwen3-32b": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 2.9850746268656716e-07,
+    "output_cost_per_token": 1.1940298507462686e-06,
+    "thinking_output_cost_per_token": 2.9850746268656716e-06,
+    "cache_read_input_token_cost": 2.9850746268656716e-07,
+    "source": "Alibaba DashScope qwen3-32b (开源版 dense) official China-mainland (Beijing) RMB list ÷ 6.7; docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-17 per customer request for the original (dense) Qwen3 8B/14B/32B models. Mirrors Alibaba's two-rate table for the SAME model id (in ¥2/M; out 非思考 ¥8/M / 思考 ¥20/M), switched by the request's enable_thinking param — output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for open-source dense Qwen3, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+  },
+  "qwen3-235b-a22b": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 2.9850746268656716e-07,
+    "output_cost_per_token": 1.1940298507462686e-06,
+    "thinking_output_cost_per_token": 2.9850746268656716e-06,
+    "cache_read_input_token_cost": 2.9850746268656716e-07,
+    "source": "Alibaba DashScope qwen3-235b-a22b (开源版 MoE, 235B total / 22B active, hybrid 非思考和思考模式) official China-mainland (Beijing) RMB list ÷ 6.7; docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (qwen3-235b-a22b 中国内地 row). Added 2026-06-18 per customer request to surface the flagship Qwen3 model on the configured Qwen channel_type=17 pool; account 60 was the mapping evidence at capture time. Mirrors Alibaba's two-rate table for the SAME model id (in ¥2/M; out 非思考 ¥8/M / 思考 ¥20/M) — coincidentally identical per-token rates to qwen3-32b — switched by the request's enable_thinking param: output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking. enable_thinking DEFAULTS to true for the open-source Qwen3 hybrid base alias, so billing defaults to the thinking rate when the param is absent (matches upstream). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+  },
+  "qwen3.6-27b": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 4.477611940298508e-07,
+    "output_cost_per_token": 2.6865671641791044e-06,
+    "thinking_output_cost_per_token": 2.6865671641791044e-06,
+    "cache_read_input_token_cost": 4.477611940298508e-07,
+    "source": "Alibaba DashScope qwen3.6-27b (开源版 dense, Qwen3.6 family, released 2026-04-22) official China-mainland (华北2北京) RMB list ÷ 6.7; docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (Qwen3.6 华北2北京 row, single tier 0<Token≤256K). Mirrors Alibaba's two-rate table for the SAME model id (in ¥3/M; out 非思考 ¥18/M / 思考 ¥18/M — i.e. 非思考和思考同价, unlike the older dense qwen3-8b/14b/32b whose thinking rate is higher), switched by the request's enable_thinking param: output_cost_per_token = non-thinking, thinking_output_cost_per_token = thinking (equal here). enable_thinking DEFAULTS to true for open-source dense Qwen3, so billing defaults to the thinking rate when the param is absent (matches upstream). Added 2026-06-21 per customer request to serve the dense 27B Qwen3.6 model on the configured Qwen channel_type=17 pool; account 60 was the mapping evidence at capture time. List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment is higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+  },
+  "qwen2.5-coder-32b": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 5.970149253731343e-07,
+    "output_cost_per_token": 2.3880597014925373e-06,
+    "cache_read_input_token_cost": 5.970149253731343e-07,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 5.970149253731343e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 5.970149253731343e-07
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 8.955223880597016e-07,
+        "output_cost_per_token": 3.5820895522388063e-06,
+        "cache_read_input_token_cost": 8.955223880597016e-07
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": 256000,
+        "input_cost_per_token": 1.4925373134328358e-06,
+        "output_cost_per_token": 5.970149253731343e-06,
+        "cache_read_input_token_cost": 1.4925373134328358e-06
+      },
+      {
+        "min_tokens": 256000,
+        "max_tokens": null,
+        "input_cost_per_token": 2.9850746268656716e-06,
+        "output_cost_per_token": 2.9850746268656717e-05,
+        "cache_read_input_token_cost": 2.9850746268656716e-06
+      }
+    ],
+    "source": "TK proxy fill — qwen2.5-coder-32b is retired/absent from the runtime price source AND from Alibaba's current price list; priced via its lineage successor qwen3-coder-plus. Alibaba DashScope qwen3-coder-plus China-mainland (Beijing) RMB list ÷ 6.7 (0<=32K ¥4/¥16, 32K<=128K ¥6/¥24, 128K<=256K ¥10/¥40, 256K<=1M ¥20/¥200 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. List price only — batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
+  },
+  "qwen2.5-coder-7b": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.4925373134328358e-07,
+    "output_cost_per_token": 5.970149253731343e-07,
+    "cache_read_input_token_cost": 1.4925373134328358e-07,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 1.4925373134328358e-07,
+        "output_cost_per_token": 5.970149253731343e-07,
+        "cache_read_input_token_cost": 1.4925373134328358e-07
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 2.2388059701492537e-07,
+        "output_cost_per_token": 8.955223880597016e-07,
+        "cache_read_input_token_cost": 2.2388059701492537e-07
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": 256000,
+        "input_cost_per_token": 3.7313432835820897e-07,
+        "output_cost_per_token": 1.4925373134328358e-06,
+        "cache_read_input_token_cost": 3.7313432835820897e-07
+      },
+      {
+        "min_tokens": 256000,
+        "max_tokens": null,
+        "input_cost_per_token": 7.462686567164179e-07,
+        "output_cost_per_token": 3.7313432835820897e-06,
+        "cache_read_input_token_cost": 7.462686567164179e-07
+      }
+    ],
+    "source": "TK proxy fill — qwen2.5-coder-7b is retired/absent from the runtime price source AND from Alibaba's current price list; priced via its lineage successor qwen3-coder-flash. Alibaba DashScope qwen3-coder-flash China-mainland (Beijing) RMB list ÷ 6.7 (0<=32K ¥1/¥4, 32K<=128K ¥1.5/¥6, 128K<=256K ¥2.5/¥10, 256K<=1M ¥5/¥25 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. List price only — batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
+  },
+  "glm-5.2": {
+    "litellm_provider": "zhipu",
+    "mode": "chat",
+    "input_cost_per_token": 1.1940298507462686e-06,
+    "output_cost_per_token": 4.17910447761194e-06,
+    "cache_read_input_token_cost": 2.9850746268656716e-07,
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-5.2 input ¥8/Mtok, output ¥28/Mtok, cache-hit ¥2/Mtok; CNY/USD=6.7. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Overlay stores pre-tax official list rates; TokenKey applies the default 1.06 base-tax multiplier for zhipu at resolution/catalog time. Cache storage is listed as limited-time free."
+  },
+  "glm-5.1": {
+    "litellm_provider": "zhipu",
+    "mode": "chat",
+    "input_cost_per_token": 8.955223880597016e-07,
+    "output_cost_per_token": 3.5820895522388063e-06,
+    "cache_read_input_token_cost": 1.9402985074626867e-07,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 8.955223880597016e-07,
+        "output_cost_per_token": 3.5820895522388063e-06,
+        "cache_read_input_token_cost": 1.9402985074626867e-07
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": null,
+        "input_cost_per_token": 1.1940298507462686e-06,
+        "output_cost_per_token": 4.17910447761194e-06,
+        "cache_read_input_token_cost": 2.9850746268656716e-07
+      }
+    ],
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-5.1 input tiers 0-32K ¥6/Mtok, 32K+ ¥8/Mtok; output ¥24/¥28; cache-hit ¥1.3/¥2. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Whole-request input-tier via overlay intervals. Cache storage is listed as limited-time free."
+  },
+  "glm-5": {
+    "litellm_provider": "zhipu",
+    "mode": "chat",
+    "input_cost_per_token": 5.970149253731343e-07,
+    "output_cost_per_token": 2.6865671641791044e-06,
+    "cache_read_input_token_cost": 1.4925373134328358e-07,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 5.970149253731343e-07,
+        "output_cost_per_token": 2.6865671641791044e-06,
+        "cache_read_input_token_cost": 1.4925373134328358e-07
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": null,
+        "input_cost_per_token": 8.955223880597016e-07,
+        "output_cost_per_token": 3.2835820895522383e-06,
+        "cache_read_input_token_cost": 2.2388059701492537e-07
+      }
+    ],
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-5 input tiers 0-32K ¥4/Mtok, 32K+ ¥6/Mtok; output ¥18/¥22; cache-hit ¥1/¥1.5. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Whole-request input-tier via overlay intervals. Cache storage is listed as limited-time free."
+  },
+  "glm-5-turbo": {
+    "litellm_provider": "zhipu",
+    "mode": "chat",
+    "input_cost_per_token": 7.462686567164179e-07,
+    "output_cost_per_token": 3.2835820895522383e-06,
+    "cache_read_input_token_cost": 1.791044776119403e-07,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 7.462686567164179e-07,
+        "output_cost_per_token": 3.2835820895522383e-06,
+        "cache_read_input_token_cost": 1.791044776119403e-07
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": null,
+        "input_cost_per_token": 1.044776119402985e-06,
+        "output_cost_per_token": 3.8805970149253735e-06,
+        "cache_read_input_token_cost": 2.6865671641791046e-07
+      }
+    ],
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-5-Turbo input tiers 0-32K ¥5/Mtok, 32K+ ¥7/Mtok; output ¥22/¥26; cache-hit ¥1.2/¥1.8. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Whole-request input-tier via overlay intervals. Cache storage is listed as limited-time free. Pricing source only; no current manifest serving path after GLM direct account/group removal. If served later, serving must be separately mapped through the DashScope/Qwen path unless explicitly approved otherwise."
+  },
+  "glm-4.7": {
+    "litellm_provider": "zhipu",
+    "mode": "chat",
+    "input_cost_per_token": 4.477611940298508e-07,
+    "output_cost_per_token": 2.08955223880597e-06,
+    "cache_read_input_token_cost": 8.955223880597015e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 4.477611940298508e-07,
+        "output_cost_per_token": 2.08955223880597e-06,
+        "cache_read_input_token_cost": 8.955223880597015e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": null,
+        "input_cost_per_token": 5.970149253731343e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 1.1940298507462686e-07
+      }
+    ],
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-4.7 has a short-output 0-32K row (¥2/M input, ¥8/M output, ¥0.4/M cache-hit) and a 0-32K output>0.2K row (¥3/M input, ¥14/M output, ¥0.6/M cache-hit). TK tiers only by input length, so the 0-32K tier uses the higher reachable output>0.2K row to avoid under-billing; 32K+ uses ¥4/M input, ¥16/M output, ¥0.8/M cache-hit. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Cache storage is listed as limited-time free."
+  },
+  "glm-4.7-flashx": {
+    "litellm_provider": "zhipu",
+    "mode": "chat",
+    "input_cost_per_token": 7.462686567164179e-08,
+    "output_cost_per_token": 4.477611940298508e-07,
+    "cache_read_input_token_cost": 1.4925373134328357e-08,
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-4.7-FlashX input ¥0.5/Mtok, output ¥3/Mtok, cache-hit ¥0.1/Mtok; CNY/USD=6.7. Overlay stores pre-tax official list rates; TokenKey applies the default 1.06 base-tax multiplier for zhipu at resolution/catalog time. Cache storage is listed as limited-time free. Pricing source only; no current manifest serving path after GLM direct account/group removal. If served later, serving must be separately mapped through the DashScope/Qwen path unless explicitly approved otherwise."
+  },
+  "glm-4.6": {
+    "litellm_provider": "zhipu",
+    "mode": "chat",
+    "input_cost_per_token": 4.477611940298508e-07,
+    "output_cost_per_token": 2.08955223880597e-06,
+    "cache_read_input_token_cost": 8.955223880597015e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 4.477611940298508e-07,
+        "output_cost_per_token": 2.08955223880597e-06,
+        "cache_read_input_token_cost": 8.955223880597015e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": null,
+        "input_cost_per_token": 5.970149253731343e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 1.1940298507462686e-07
+      }
+    ],
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09 no longer lists a separate GLM-4.6 text row. Priced to the current GLM-4.7 paid ladder so legacy glm-4.6 traffic does not retain the old USD-source rate or bill below the current GLM public paid tier. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct."
+  },
+  "glm-4.5": {
+    "litellm_provider": "zhipu",
+    "mode": "chat",
+    "input_cost_per_token": 4.477611940298508e-07,
+    "output_cost_per_token": 2.08955223880597e-06,
+    "cache_read_input_token_cost": 8.955223880597015e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 4.477611940298508e-07,
+        "output_cost_per_token": 2.08955223880597e-06,
+        "cache_read_input_token_cost": 8.955223880597015e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": null,
+        "input_cost_per_token": 5.970149253731343e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 1.1940298507462686e-07
+      }
+    ],
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09 no longer lists a separate GLM-4.5 text row. Priced to the current GLM-4.7 paid ladder so legacy glm-4.5 traffic does not retain the old USD-source rate or bill below the current GLM public paid tier. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct."
+  },
+  "glm-4.5-air": {
+    "litellm_provider": "zhipu",
+    "mode": "chat",
+    "input_cost_per_token": 1.1940298507462686e-07,
+    "output_cost_per_token": 8.955223880597016e-07,
+    "cache_read_input_token_cost": 2.3880597014925373e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 1.1940298507462686e-07,
+        "output_cost_per_token": 8.955223880597016e-07,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": null,
+        "input_cost_per_token": 1.791044776119403e-07,
+        "output_cost_per_token": 1.1940298507462686e-06,
+        "cache_read_input_token_cost": 3.582089552238805e-08
+      }
+    ],
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-4.5-Air has a short-output 0-32K row (¥0.8/M input, ¥2/M output, ¥0.16/M cache-hit) and a 0-32K output>0.2K row (¥0.8/M input, ¥6/M output, ¥0.16/M cache-hit). TK tiers only by input length, so the 0-32K tier uses the higher reachable output>0.2K row to avoid under-billing; 32K+ uses ¥1.2/M input, ¥8/M output, ¥0.24/M cache-hit. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Cache storage is listed as limited-time free."
+  },
+  "gpt-5.6-sol": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000005,
+    "output_cost_per_token": 0.00003,
+    "cache_read_input_token_cost": 0.0000005,
+    "cache_creation_input_token_cost": 0.00000625,
+    "source": "GPT-5.6 Sol official OpenAI tier. gpt-5.6 is absent from the upstream Wei-Shaw/litellm runtime mirror prod fetches, so the overlay carries it for /pricing display (billing already correct via billing_service fallbackPrices, PR #1030). Mirrors resources/model-pricing/model_prices_and_context_window.json. Captured 2026-06-27."
+  },
+  "gpt-5.6-terra": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000025,
+    "output_cost_per_token": 0.000015,
+    "cache_read_input_token_cost": 0.00000025,
+    "cache_creation_input_token_cost": 0.000003125,
+    "source": "GPT-5.6 Terra official OpenAI tier. gpt-5.6 is absent from the upstream Wei-Shaw/litellm runtime mirror prod fetches, so the overlay carries it for /pricing display (billing already correct via billing_service fallbackPrices, PR #1030). Mirrors resources/model-pricing/model_prices_and_context_window.json. Captured 2026-06-27."
+  },
+  "gpt-5.6-luna": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000001,
+    "output_cost_per_token": 0.000006,
+    "cache_read_input_token_cost": 0.0000001,
+    "cache_creation_input_token_cost": 0.00000125,
+    "source": "GPT-5.6 Luna official OpenAI tier. gpt-5.6 is absent from the upstream Wei-Shaw/litellm runtime mirror prod fetches, so the overlay carries it for /pricing display (billing already correct via billing_service fallbackPrices, PR #1030). Mirrors resources/model-pricing/model_prices_and_context_window.json. Captured 2026-06-27."
+  },
+  "gpt-5.6-chat-latest": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000005,
+    "output_cost_per_token": 0.00003,
+    "cache_read_input_token_cost": 0.0000005,
+    "cache_creation_input_token_cost": 0.00000625,
+    "source": "GPT-5.6 chat-latest bills as Sol (billing_service collapses it). gpt-5.6 is absent from the upstream Wei-Shaw/litellm runtime mirror prod fetches, so the overlay carries it for /pricing display (billing already correct via billing_service fallbackPrices, PR #1030). Mirrors resources/model-pricing/model_prices_and_context_window.json. Captured 2026-06-27."
+  },
+  "gpt-5.6": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000005,
+    "output_cost_per_token": 0.00003,
+    "cache_read_input_token_cost": 0.0000005,
+    "cache_creation_input_token_cost": 0.00000625,
+    "source": "Bare gpt-5.6 alias bills as Sol (openai_codex_transform/openai_model_alias map gpt-5.6 -> gpt-5.6-sol). gpt-5.6 is absent from the upstream Wei-Shaw/litellm runtime mirror prod fetches, so the overlay carries it for /pricing display (billing already correct via billing_service fallbackPrices, PR #1030). Mirrors resources/model-pricing/model_prices_and_context_window.json. Captured 2026-06-27."
+  },
+  "gemini-3-flash": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000005,
+    "output_cost_per_token": 0.000003,
+    "source": "Gemini 3 Flash via antigravity. antigravity-served wire id; displays via overlay because prod reads the upstream remote mirror (which lacks it) and the bundled mirror is a shadowed fallback. Rate mirrors backend/resources/model-pricing/model_prices_and_context_window.json gemini-* (vertex_ai official). Surfaced by audit-display-coverage 2026-06-27 (#1029 allowlisted it without an overlay entry — same class as #1030)."
+  },
+  "gemini-3.1-pro-low": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 0.000002,
+    "output_cost_per_token": 0.000012,
+    "source": "Gemini 3.1 Pro (low) via antigravity. antigravity-served wire id; displays via overlay because prod reads the upstream remote mirror (which lacks it) and the bundled mirror is a shadowed fallback. Rate mirrors backend/resources/model-pricing/model_prices_and_context_window.json gemini-* (vertex_ai official). Surfaced by audit-display-coverage 2026-06-27 (#1029 allowlisted it without an overlay entry — same class as #1030)."
+  },
+  "gemini-3.5-flash": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000015,
+    "output_cost_per_token": 0.000009,
+    "source": "Gemini 3.5 Flash via antigravity. antigravity-served wire id; displays via overlay because prod reads the upstream remote mirror (which lacks it) and the bundled mirror is a shadowed fallback. Rate mirrors backend/resources/model-pricing/model_prices_and_context_window.json gemini-* (vertex_ai official). Surfaced by audit-display-coverage 2026-06-27 (#1029 allowlisted it without an overlay entry — same class as #1030)."
+  },
+  "gemini-2.5-flash-image": {
+    "litellm_provider": "antigravity",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.039,
+    "source": "Gemini 2.5 Flash Image via antigravity (per-image, Vertex official). antigravity-served wire id; displays via overlay because prod reads the upstream remote mirror (which lacks it) and the bundled mirror is a shadowed fallback. Rate mirrors backend/resources/model-pricing/model_prices_and_context_window.json gemini-* (vertex_ai official). Surfaced by audit-display-coverage 2026-06-27 (#1029 allowlisted it without an overlay entry — same class as #1030)."
+  },
+  "gemini-3.1-flash-image": {
+    "litellm_provider": "antigravity",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.0672,
+    "source": "Gemini 3.1 Flash Image via antigravity (per-image, Vertex official). antigravity-served wire id; displays via overlay because prod reads the upstream remote mirror (which lacks it) and the bundled mirror is a shadowed fallback. Rate mirrors backend/resources/model-pricing/model_prices_and_context_window.json gemini-* (vertex_ai official). Surfaced by audit-display-coverage 2026-06-27 (#1029 allowlisted it without an overlay entry — same class as #1030)."
+  },
+  "gemini-3.1-flash-image-preview": {
+    "litellm_provider": "antigravity",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.0672,
+    "source": "Gemini 3.1 Flash Image (preview) via antigravity (per-image, Vertex official). antigravity-served wire id; displays via overlay because prod reads the upstream remote mirror (which lacks it) and the bundled mirror is a shadowed fallback. Rate mirrors backend/resources/model-pricing/model_prices_and_context_window.json gemini-* (vertex_ai official). Surfaced by audit-display-coverage 2026-06-27 (#1029 allowlisted it without an overlay entry — same class as #1030)."
+  },
+  "gemini-3-pro-image": {
+    "litellm_provider": "antigravity",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.134,
+    "source": "Gemini 3 Pro Image via antigravity (per-image display /bin/zsh.134 = 1K/2K official Vertex rate, 1120 output tokens; = TK getDefaultImagePrice hardcoded fallback). Ref docs/evidence/pricing/google_vertex_pricing_20260619.md. Serves as itself (migration 049 identity mapping; -preview maps into it). Gemini-native image bills via the /v1/chat/completions token path, so this is the display figure. Surfaced by audit-display-coverage 2026-06-27."
+  },
+  "claude-opus-4-6": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 0.000005,
+    "output_cost_per_token": 0.000025,
+    "cache_creation_input_token_cost": 0.00000625,
+    "cache_creation_input_token_cost_above_1hr": 0.00001,
+    "cache_read_input_token_cost": 0.0000005,
+    "max_input_tokens": 1000000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "Antigravity Claude live subset (#1265): client alias maps to claude-opus-4-6-thinking on antigravity. Display/billing price mirrors Anthropic Claude Opus 4.6 official list price from backend/resources/model-pricing/model_prices_and_context_window.json."
+  },
+  "claude-opus-4-6-thinking": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 0.000005,
+    "output_cost_per_token": 0.000025,
+    "cache_creation_input_token_cost": 0.00000625,
+    "cache_creation_input_token_cost_above_1hr": 0.00001,
+    "cache_read_input_token_cost": 0.0000005,
+    "max_input_tokens": 1000000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "Antigravity Claude live subset (#1265): upstream thinking wire id. Display/billing price mirrors Anthropic Claude Opus 4.6 official list price from backend/resources/model-pricing/model_prices_and_context_window.json."
+  },
+  "claude-sonnet-4-6": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 0.000003,
+    "output_cost_per_token": 0.000015,
+    "cache_creation_input_token_cost": 0.00000375,
+    "cache_creation_input_token_cost_above_1hr": 0.000006,
+    "cache_read_input_token_cost": 0.0000003,
+    "max_input_tokens": 1000000,
+    "max_output_tokens": 64000,
+    "max_tokens": 64000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "Antigravity Claude live subset (#1265). Display/billing price mirrors Anthropic Claude Sonnet 4.6 official list price from backend/resources/model-pricing/model_prices_and_context_window.json."
+  },
+  "claude-sonnet-5": {
+    "litellm_provider": "anthropic",
+    "mode": "chat",
+    "input_cost_per_token": 0.000003,
+    "output_cost_per_token": 0.000015,
+    "cache_creation_input_token_cost": 0.00000375,
+    "cache_creation_input_token_cost_above_1hr": 0.000006,
+    "cache_read_input_token_cost": 0.0000003,
+    "max_input_tokens": 1000000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm claude-sonnet-5 (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-codex": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5-codex (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.2": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000175,
+    "output_cost_per_token": 0.000014,
+    "cache_read_input_token_cost": 0.000000175,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.2 (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.2-pro": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000021,
+    "output_cost_per_token": 0.000168,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.2-pro (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.3-codex": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000175,
+    "output_cost_per_token": 0.000014,
+    "cache_read_input_token_cost": 0.000000175,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.3-codex (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.3": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000175,
+    "output_cost_per_token": 0.000014,
+    "cache_read_input_token_cost": 0.000000175,
+    "max_input_tokens": 128000,
+    "max_output_tokens": 16384,
+    "max_tokens": 16384,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "TokenKey pricing-only non-display alias for bare gpt-5.3; requests normalize to gpt-5.3-codex-spark after 2026-07-10 native OAuth probes found gpt-5.3-chat-latest upstream-rejected. Price/context mirror litellm gpt-5.3-chat-latest captured via apply-pricing-hotfix.py lookup on 2026-07-09 (same token rate as gpt-5.3-codex)."
+  },
+  "gpt-5.4": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000025,
+    "output_cost_per_token": 0.000015,
+    "cache_read_input_token_cost": 0.00000025,
+    "max_input_tokens": 1050000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.4 (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.4-mini": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000075,
+    "output_cost_per_token": 0.0000045,
+    "cache_read_input_token_cost": 0.000000075,
+    "max_input_tokens": 1050000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.4-mini (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.5": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000005,
+    "output_cost_per_token": 0.00003,
+    "cache_read_input_token_cost": 0.0000005,
+    "max_input_tokens": 1050000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.5 (captured via apply-pricing-hotfix.py)"
+  },
+  "codex-auto-review": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000005,
+    "input_cost_per_token_priority": 0.00001,
+    "input_cost_per_token_flex": 0.0000025,
+    "input_cost_per_token_batches": 0.0000025,
+    "input_cost_per_token_above_272k_tokens": 0.00001,
+    "output_cost_per_token": 0.00003,
+    "output_cost_per_token_priority": 0.00006,
+    "output_cost_per_token_flex": 0.000015,
+    "output_cost_per_token_batches": 0.000015,
+    "output_cost_per_token_above_272k_tokens": 0.000045,
+    "cache_read_input_token_cost": 0.0000005,
+    "cache_read_input_token_cost_priority": 0.000001,
+    "cache_read_input_token_cost_flex": 0.00000025,
+    "cache_read_input_token_cost_above_272k_tokens": 0.000001,
+    "max_input_tokens": 1050000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "Bundled litellm resource backend/resources/model-pricing/model_prices_and_context_window.json codex-auto-review; added to TK overlay because prod display mirror is trimmed and audit-display-coverage requires repo-reliable display pricing."
+  },
+  "gpt-5": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5 (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-chat": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 128000,
+    "max_output_tokens": 16384,
+    "max_tokens": 16384,
+    "supports_prompt_caching": true,
+    "supports_function_calling": false,
+    "supports_tool_choice": false,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5-chat (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-chat-latest": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 128000,
+    "max_output_tokens": 16384,
+    "max_tokens": 16384,
+    "supports_prompt_caching": true,
+    "supports_function_calling": false,
+    "supports_tool_choice": false,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5-chat-latest (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-mini": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000025,
+    "output_cost_per_token": 0.000002,
+    "cache_read_input_token_cost": 0.000000025,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5-mini (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-nano": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000005,
+    "output_cost_per_token": 0.0000004,
+    "cache_read_input_token_cost": 0.000000005,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5-nano (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-pro": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000015,
+    "output_cost_per_token": 0.00012,
+    "max_input_tokens": 128000,
+    "max_output_tokens": 272000,
+    "max_tokens": 272000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5-pro (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5-search-api": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "source": "litellm gpt-5-search-api (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.1": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.1 (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.1-chat-latest": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 0.000000125,
+    "max_input_tokens": 128000,
+    "max_output_tokens": 16384,
+    "max_tokens": 16384,
+    "supports_prompt_caching": true,
+    "supports_function_calling": false,
+    "supports_tool_choice": false,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.1-chat-latest (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.3-codex-spark": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000175,
+    "output_cost_per_token": 0.000014,
+    "cache_read_input_token_cost": 0.000000175,
+    "max_input_tokens": 272000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.3-codex-spark (captured via apply-pricing-hotfix.py)"
+  },
+  "gpt-5.4-pro": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00003,
+    "output_cost_per_token": 0.00018,
+    "cache_read_input_token_cost": 0.000003,
+    "max_input_tokens": 1050000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "litellm gpt-5.4-pro (captured via apply-pricing-hotfix.py)"
   }
 }

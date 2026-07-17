@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -13,6 +14,10 @@ import (
 )
 
 const middlewareInternalErrorDetailMaxLen = 1024
+
+// StatusClientClosedRequest mirrors nginx's 499: the caller disconnected before
+// the gateway could finish local auth/body handling. net/http has no constant.
+const StatusClientClosedRequest = 499
 
 // ContextKey 定义上下文键类型
 type ContextKey string
@@ -28,6 +33,11 @@ const (
 	ContextKeySubscription ContextKey = "subscription"
 	// ContextKeyForcePlatform 强制平台（用于 /antigravity 路由）
 	ContextKeyForcePlatform ContextKey = "force_platform"
+	// ContextKeyOpsFallbackAPIKey 运维错误日志专用回退键。
+	// 鉴权早退（分组停用/删除、Key 停用/过期/额度、用户停用、IP 限制等）时，
+	// apiKey 已加载但尚未写入 ContextKeyAPIKey；该键让 Ops 错误日志仍能取到
+	// user/group/platform。仅供 Ops 错误日志读取，不代表请求已通过鉴权。
+	ContextKeyOpsFallbackAPIKey ContextKey = "ops_fallback_api_key"
 )
 
 // ForcePlatform 返回设置强制平台的中间件
@@ -93,6 +103,26 @@ func AbortWithErrorDetail(c *gin.Context, statusCode int, code, message string, 
 	AbortWithError(c, statusCode, code, message)
 }
 
+func AbortClientClosedRequest(c *gin.Context, internalErr error) {
+	if c != nil {
+		service.MarkOpsClientClosedRequest(c)
+		if detail := sanitizeMiddlewareInternalErrorDetail(internalErr); detail != "" {
+			c.Set(service.OpsInternalErrorDetailKey, detail)
+		}
+	}
+	AbortWithError(c, StatusClientClosedRequest, "CLIENT_CLOSED_REQUEST", "context canceled")
+}
+
+func IsClientClosedRequestError(c *gin.Context, err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	if c == nil || c.Request == nil {
+		return false
+	}
+	return errors.Is(c.Request.Context().Err(), context.Canceled)
+}
+
 // sanitizeMiddlewareInternalErrorDetail trims and length-caps an internal error
 // string so it is safe to persist in ops_error_logs. Internal errors from
 // Postgres/Redis/context cancellation generally do not carry caller secrets,
@@ -146,7 +176,10 @@ func GoogleErrorWriter(c *gin.Context, status int, message string) {
 func RequireGroupAssignment(settingService *service.SettingService, writeError GatewayErrorWriter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		apiKey, ok := GetAPIKeyFromContext(c)
-		if !ok || apiKey.GroupID != nil {
+		if !ok || apiKey.GroupID != nil || apiKey.IsUniversal() {
+			// 全能 Key（universal）授权由请求级解析按权限跨度裁决：可解析端点已在认证内
+			// 替换为后端组（GroupID != nil 自然放行）；元数据端点未替换（GroupID == nil）也放行，
+			// 由 handler 回落默认。两种情况都不应被“未分组拦截”挡住。
 			c.Next()
 			return
 		}
@@ -155,7 +188,7 @@ func RequireGroupAssignment(settingService *service.SettingService, writeError G
 			c.Next()
 			return
 		}
-		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned)
+		service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonAPIKeyGroupUnassigned)
 		writeError(c, http.StatusForbidden, "API Key is not assigned to any group and cannot be used. Please contact the administrator to assign it to a group.")
 		c.Abort()
 	}

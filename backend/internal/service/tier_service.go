@@ -306,8 +306,6 @@ func tierFromEffectiveBaseline(eff *baseline.EffectiveTierBaseline) *model.Tier 
 		MaxSessions:               extraInt(eff.Extra, "max_sessions"),
 		RPMStickyBuffer:           extraInt(eff.Extra, "rpm_sticky_buffer"),
 		SessionIdleTimeoutMinutes: extraInt(eff.Extra, "session_idle_timeout_minutes"),
-		WindowCostLimit:           extraFloat(eff.Extra, "window_cost_limit"),
-		WindowCostStickyReserve:   extraFloat(eff.Extra, "window_cost_sticky_reserve"),
 		CacheTTLOverrideEnabled:   extraBool(eff.Extra, "cache_ttl_override_enabled"),
 	}
 	if v, ok := eff.Extra["cache_ttl_override_target"].(string); ok && v != "" {
@@ -327,19 +325,6 @@ func extraInt(m map[string]any, key string) int {
 		return v
 	case int64:
 		return int(v)
-	default:
-		return 0
-	}
-}
-
-func extraFloat(m map[string]any, key string) float64 {
-	switch v := m[key].(type) {
-	case float64:
-		return v
-	case int:
-		return float64(v)
-	case int64:
-		return float64(v)
 	default:
 		return 0
 	}

@@ -4,7 +4,6 @@
 # Shared by all three deploy workflows so the tag-format rule never grows
 # divergent copies:
 #   - .github/workflows/deploy-stage0.yml            (prod)
-#   - .github/workflows/deploy-edge-stage0.yml       (EC2 edge)
 #   - .github/workflows/deploy-edge-lightsail-stage0.yml (Lightsail edge)
 #
 # History: the regex was inlined in all three; the Lightsail copy had already

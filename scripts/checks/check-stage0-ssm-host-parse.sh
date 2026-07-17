@@ -2,7 +2,7 @@
 #
 # Guard: the SSM host command script must parse as shell.
 #
-# deploy_via_ssm.sh and sync_caddyfile_via_ssm.sh build a jq `commands` array
+# deploy_via_ssm*.sh and sync_caddyfile_via_ssm.sh build a jq `commands` array
 # and hand it to AWS-RunShellScript, which JOINS the elements into ONE shell
 # script and runs it on the host. A local "the JSON is valid" check does NOT
 # catch host-shell syntax errors, because the array is never executed locally —
@@ -16,7 +16,10 @@
 # This guard closes the gap: run each script with a stubbed `aws` so it emits
 # its params file WITHOUT touching AWS, then `bash -n` the joined commands.
 #
-# Scope (explicit, not silent): covers the two prod/edge MUTATION primitives.
+# Scope (explicit, not silent): covers the prod/edge MUTATION primitives
+# (deploy image, sync Caddyfile, sync docs, sync Feishu config, sync edge host
+# units, sync host mem-guard) plus the read-only warm-image primitive (same
+# jq-host-command shape, same blind spot).
 # edge_post_deploy_smoke.sh also builds an SSM `commands` array, but is left out
 # on purpose — its array is assembled inside functions behind many runtime env
 # vars (no clean "args -> params file" entrypoint to stub), and an unparseable
@@ -57,7 +60,11 @@ check_one() {
   # The missing-file case is handled explicitly below.
   PATH="${stub}:${PATH}" STAGE0_SSM_OUTPUT_DIR="${tmp}/${out}" AWS_REGION=us-east-1 \
     "$@" >/dev/null 2>"${tmp}/${out}/err" || true  # preflight-allow: swallow
-  local pf="${tmp}/${out}/ssm-params.json"
+  # Primitives name their params file differently (deploy: ssm-params.json,
+  # warm: warm-ssm-params.json) — match any *ssm-params.json so the parse gate
+  # stays agnostic to the exact filename.
+  local pf
+  pf="$(ls "${tmp}/${out}/"*ssm-params.json 2>/dev/null | head -1)"
   if [[ ! -f "${pf}" ]]; then
     echo "  FAIL: ${label} — no ssm-params.json emitted (stub run aborted before params generation)" >&2
     tail -3 "${tmp}/${out}/err" 2>/dev/null | sed 's/^/      /' >&2 || true  # preflight-allow: swallow (diagnostic only)
@@ -70,12 +77,34 @@ check_one() {
     rc=1
     return
   fi
+  if [[ -f "${tmp}/${out}/bluegreen-remote.sh" ]]; then
+    if ! bash -n "${tmp}/${out}/bluegreen-remote.sh" 2>"${tmp}/${out}/remote-parse"; then
+      echo "  FAIL: ${label} — decoded remote script has a shell syntax error:" >&2
+      sed 's/^/      /' "${tmp}/${out}/remote-parse" >&2
+      rc=1
+      return
+    fi
+  fi
   echo "  ok: ${label} host script parses"
 }
 
 check_one "deploy_via_ssm.sh"               deploy    bash "${OPS}/deploy_via_ssm.sh" 1.0.0 i-0stub probe
+check_one "deploy_via_ssm_bluegreen.sh"     bgdeploy  bash "${OPS}/deploy_via_ssm_bluegreen.sh" 1.0.0 i-0stub probe
+check_one "warm_pull_via_ssm.sh"            warm      bash "${OPS}/warm_pull_via_ssm.sh" 1.0.0 i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh prod"  sync-prod bash "${OPS}/sync_caddyfile_via_ssm.sh" prod i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh edge"  sync-edge bash "${OPS}/sync_caddyfile_via_ssm.sh" edge i-0stub probe
 check_one "sync_docs_pages.sh"              sync-docs bash "${OPS}/sync_docs_pages.sh" i-0stub
+# sync-feishu-config.sh requires the shared webhook/secret in env; pass dummies so
+# it reaches params emission (the stubbed aws makes the later verify exit nonzero,
+# which check_one swallows — we only assert the joined host script parses).
+check_one "sync-feishu-config.sh"           sync-feishu \
+  env TK_FEISHU_WEBHOOK_URL=https://example.test/hook TK_FEISHU_SIGNING_SECRET=dummy \
+  bash "${OPS}/sync-feishu-config.sh" prod
+check_one "sync-edge-host-units-via-ssm.sh" sync-host-units \
+  bash "${OPS}/sync-edge-host-units-via-ssm.sh" mi-0stub
+check_one "sync-host-mem-guard-via-ssm.sh"  sync-mem-guard \
+  bash "${OPS}/sync-host-mem-guard-via-ssm.sh" i-0stub
+check_one "sync-container-log-policy-via-ssm.sh" sync-log-policy \
+  env STAGE0_RENDER_ONLY=1 bash "${OPS}/sync-container-log-policy-via-ssm.sh" i-0stub
 
 exit "${rc}"

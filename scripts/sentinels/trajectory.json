@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "rationale": "Snapshot of the gateway trajectory / QA capture hook contract. Main gateway surfaces must keep both trajectory_id assignment and QA capture middleware, and the QA middleware must still terminate in Service.CaptureFromContext so request evidence remains on by default.",
+  "version": 3,
+  "rationale": "Snapshot of the gateway trajectory / QA capture hook contract. Main gateway surfaces must keep both trajectory_id assignment and QA capture middleware, and the QA middleware must still terminate in Service.CaptureFromContext so request evidence remains on by default. v3 adds the upstream-request divergence contract: the gateway must keep stashing the final (post-rewrite) upstream request body under the ops_upstream_request_body gin key, and the qa consumer must keep reading it by the identical duplicated literal.",
   "route_source": "backend/internal/server/routes/gateway.go",
   "capture_source": "backend/internal/observability/qa/sse_tee.go",
   "required_route_hooks": [
@@ -21,6 +21,75 @@
     "func Middleware(svc *Service) gin.HandlerFunc {",
     "c.Set(contextKeyTeeWriter, tee)",
     "svc.CaptureFromContext(c)"
+  ],
+  "required_file_hooks": [
+    {
+      "source": "backend/internal/service/ops_upstream_context.go",
+      "must_contain": [
+        "OpsUpstreamRequestBodyKey = \"ops_upstream_request_body\""
+      ],
+      "rationale": "qa capture reads this gin key by duplicated literal (qa cannot import service without an import cycle); renaming the key here silently kills upstream-request divergence capture for traj opt-in records"
+    },
+    {
+      "source": "backend/internal/observability/qa/service.go",
+      "must_contain": [
+        "opsUpstreamRequestBodyContextKey = \"ops_upstream_request_body\"",
+        "captureUpstreamRequestBody(c, requestBody)"
+      ],
+      "rationale": "consumer-side duplicate of OpsUpstreamRequestBodyKey plus the CaptureFromContext hook; either disappearing silently drops request.upstream_body / upstream_divergent from opt-in blobs"
+    },
+    {
+      "source": "backend/internal/service/gateway_forward.go",
+      "must_contain": [
+        "setOpsUpstreamRequestBody(c, body)"
+      ],
+      "rationale": "pre-flight stash of the final upstream request body on the native anthropic path; an upstream merge dropping this call disables both ops_error_logs body context and traj divergence capture"
+    },
+    {
+      "source": "backend/internal/handler/qa_handler_traj.go",
+      "must_contain": [
+        "UserTrajExportEnabled"
+      ],
+      "rationale": "Per-key conversation-record (traj) export must keep the admin-granted per-user switch (UserTrajExportEnabled -> 403). An upstream merge or refactor dropping it silently re-opens export to unauthorized users. (The former anthropic-only Platform pin was removed when the projector became multi-platform; see the projection_v2.go and engine/provider.go anchors below for the wire-shape dispatch + projectable-platform single source.)"
+    },
+    {
+      "source": "backend/internal/observability/qa/service_traj_export.go",
+      "must_contain": [
+        "func (s *Service) UserTrajExportEnabled",
+        "qarecord.APIKeyIDEQ",
+        "qarecord.PlatformEQ",
+        "trajectory.RequestContinues"
+      ],
+      "rationale": "The export authorization helper, the per-key (APIKeyIDEQ) and platform (PlatformEQ) scoping predicates, and the shape-aware streaming continuation (RequestContinues). Losing the helper drops the 403 backstop; losing a predicate silently widens a self-export beyond the UI gate; reverting RequestContinues to a messages-only predicate would mis-fold non-anthropic conversations."
+    },
+    {
+      "source": "backend/internal/observability/trajectory/projection_v2.go",
+      "must_contain": [
+        "func buildSessionForShape",
+        "case WireOpenAIChat:",
+        "case WireOpenAIResponses:",
+        "case WireGemini:"
+      ],
+      "rationale": "The traj v2 projector dispatches reconstruction by wire shape so openai / gemini / antigravity / kiro / newapi export faithfully (not just anthropic). An upstream merge collapsing buildSessionForShape back to an anthropic-only projection silently regresses every non-anthropic key's export to empty/garbage; these case anchors make that revert fail CI."
+    },
+    {
+      "source": "backend/internal/observability/trajectory/wire_shape.go",
+      "must_contain": [
+        "func WireShapeForRecord",
+        "WireAnthropicMessages",
+        "WireOpenAIChat",
+        "WireOpenAIResponses",
+        "WireGemini"
+      ],
+      "rationale": "WireShapeForRecord is the single dispatch axis keyed on (platform, inbound_endpoint). Losing a shape constant or the mapping silently drops a platform from projectable export."
+    },
+    {
+      "source": "backend/internal/engine/provider.go",
+      "must_contain": [
+        "func TrajProjectablePlatforms"
+      ],
+      "rationale": "Single source for the platforms whose captured wire the projector reconstructs; surfaced to the frontend export chip via /auth/me traj_export_platforms. Removing it would orphan the chip's server-driven allowlist."
+    }
   ],
   "semantic_route_contracts": [
     {

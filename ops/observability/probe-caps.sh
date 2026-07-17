@@ -53,14 +53,14 @@ SELECT row_to_json(t) FROM (
     ag.group_id, ag.priority AS group_priority
   FROM accounts a
   LEFT JOIN account_groups ag ON ag.account_id=a.id
-  WHERE a.platform='$PLATFORM'
+  WHERE a.platform='$PLATFORM' AND a.deleted_at IS NULL
   ORDER BY a.id, ag.group_id NULLS LAST
 ) t;
 " 2>&1
 
 echo
 echo "=== Redis snapshot (active accounts of platform=$PLATFORM) ==="
-IDS=$($PSQL -c "SELECT string_agg(id::text,' ' ORDER BY id) FROM accounts WHERE platform='$PLATFORM' AND status='active';" 2>/dev/null)
+IDS=$($PSQL -c "SELECT string_agg(id::text,' ' ORDER BY id) FROM accounts WHERE platform='$PLATFORM' AND status='active' AND deleted_at IS NULL;" 2>/dev/null)
 echo "active_ids: $IDS"
 # 2>/dev/null below 吞 redis-cli AUTH stderr 噪声（容器里 REDISCLI_AUTH 是空值副作用，
 # stdout 取值仍是正确的；详见 SKILL §1.1）。真失败时 stdout 为空，会以 conc= 形式留痕。

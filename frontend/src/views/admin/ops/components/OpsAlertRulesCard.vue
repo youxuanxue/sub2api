@@ -166,6 +166,23 @@ const metricDefinitions = computed(() => {
       recommendedOperator: '>',
       recommendedThreshold: 10
     },
+    {
+      type: 'pool_load_rate',
+      group: 'system',
+      label: t('admin.ops.alertRules.metrics.poolLoadRate'),
+      description: t('admin.ops.alertRules.metricDescriptions.poolLoadRate'),
+      recommendedOperator: '>=',
+      recommendedThreshold: 90,
+      unit: '%'
+    },
+    {
+      type: 'routing_capacity_rejection_count',
+      group: 'system',
+      label: t('admin.ops.alertRules.metrics.routingCapacityRejectionCount'),
+      description: t('admin.ops.alertRules.metricDescriptions.routingCapacityRejectionCount'),
+      recommendedOperator: '>=',
+      recommendedThreshold: 50
+    },
 
     // Group-level metrics (requires group_id filter)
     {
@@ -220,6 +237,14 @@ const metricDefinitions = computed(() => {
       recommendedOperator: '>',
       recommendedThreshold: 5,
       unit: '%'
+    },
+    {
+      type: 'account_temp_unscheduled_count',
+      group: 'account',
+      label: t('admin.ops.alertRules.metrics.accountTempUnscheduledCount'),
+      description: t('admin.ops.alertRules.metricDescriptions.accountTempUnscheduledCount'),
+      recommendedOperator: '>',
+      recommendedThreshold: 0
     },
     {
       type: 'overload_account_count',

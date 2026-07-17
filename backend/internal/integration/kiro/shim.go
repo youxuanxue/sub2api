@@ -54,23 +54,35 @@ type Account struct {
 	BanTime      int64  `json:"banTime,omitempty"`
 }
 
+// KiroBonusInfo is one promotional/bonus credits bucket from getUsageLimits.
+type KiroBonusInfo struct {
+	Code      string  `json:"code,omitempty"`
+	Label     string  `json:"label,omitempty"`
+	Current   float64 `json:"current,omitempty"`
+	Limit     float64 `json:"limit,omitempty"`
+	Percent   float64 `json:"percent,omitempty"` // 0-100
+	Status    string  `json:"status,omitempty"`
+	ExpiresAt int64   `json:"expiresAt,omitempty"` // unix seconds
+}
+
 // AccountInfo carries the account metadata returned by RefreshAccountInfo.
 // Fields cover exactly what rest.go populates.
 type AccountInfo struct {
-	Email             string  `json:"email,omitempty"`
-	UserId            string  `json:"userId,omitempty"`
-	SubscriptionType  string  `json:"subscriptionType,omitempty"`
-	SubscriptionTitle string  `json:"subscriptionTitle,omitempty"`
-	UsageCurrent      float64 `json:"usageCurrent,omitempty"`
-	UsageLimit        float64 `json:"usageLimit,omitempty"`
-	UsagePercent      float64 `json:"usagePercent,omitempty"`
-	NextResetDate     string  `json:"nextResetDate,omitempty"`
-	LastRefresh       int64   `json:"lastRefresh,omitempty"`
-	TrialUsageCurrent float64 `json:"trialUsageCurrent,omitempty"`
-	TrialUsageLimit   float64 `json:"trialUsageLimit,omitempty"`
-	TrialUsagePercent float64 `json:"trialUsagePercent,omitempty"`
-	TrialStatus       string  `json:"trialStatus,omitempty"`
-	TrialExpiresAt    int64   `json:"trialExpiresAt,omitempty"`
+	Email             string          `json:"email,omitempty"`
+	UserId            string          `json:"userId,omitempty"`
+	SubscriptionType  string          `json:"subscriptionType,omitempty"`
+	SubscriptionTitle string          `json:"subscriptionTitle,omitempty"`
+	UsageCurrent      float64         `json:"usageCurrent,omitempty"`
+	UsageLimit        float64         `json:"usageLimit,omitempty"`
+	UsagePercent      float64         `json:"usagePercent,omitempty"`
+	NextResetDate     string          `json:"nextResetDate,omitempty"`
+	LastRefresh       int64           `json:"lastRefresh,omitempty"`
+	TrialUsageCurrent float64         `json:"trialUsageCurrent,omitempty"`
+	TrialUsageLimit   float64         `json:"trialUsageLimit,omitempty"`
+	TrialUsagePercent float64         `json:"trialUsagePercent,omitempty"`
+	TrialStatus       string          `json:"trialStatus,omitempty"`
+	TrialExpiresAt    int64           `json:"trialExpiresAt,omitempty"`
+	Bonuses           []KiroBonusInfo `json:"bonuses,omitempty"`
 }
 
 // PromptFilterRule defines a single custom prompt sanitization rule used by
@@ -88,12 +100,12 @@ type PromptFilterRule struct {
 // egress proxying, so the vendored default is empty (no proxy).
 func GetProxyURL() string { return "" }
 
-// GetEndpointFallback reports whether to try alternate Kiro endpoints on quota
-// exhaustion. Default true preserves the upstream resilient behavior.
+// GetEndpointFallback reports whether to try the alternate supported Kiro
+// endpoint after a retryable upstream failure.
 func GetEndpointFallback() bool { return true }
 
 // GetPreferredEndpoint returns the preferred endpoint selector. "auto" keeps the
-// upstream default ordering (Kiro IDE → CodeWhisperer → AmazonQ).
+// supported ordering (current Kiro runtime, then transitional legacy q).
 func GetPreferredEndpoint() string { return "auto" }
 
 // kiroClientConfig mirrors the upstream config.KiroClientConfig shape used by
@@ -107,7 +119,7 @@ type kiroClientConfig struct {
 // kiroDefaultClientVersion is the canonical KiroIDE version baked into the
 // User-Agent. Keep in lockstep with internal/pkg/kiro.DefaultKiroIDEVersion
 // (that package is the TK-side authority + sentinel/test-guarded source).
-const kiroDefaultClientVersion = "0.11.107"
+const kiroDefaultClientVersion = "0.12.333"
 
 // kiroUserAgentVersionEnv lets operators bump the on-wire KiroIDE version
 // without a code change / image rebuild when the upstream Kiro client ships a
@@ -144,9 +156,9 @@ func defaultSystemVersion() string {
 	}
 }
 
-// Prompt filtering is disabled in the vendored default to avoid depending on
-// TokenKey settings; a later PR can wire these to admin-configurable knobs.
-func GetFilterClaudeCode() bool      { return false }
+// Prompt filtering: Claude Code system prompts are preserved (Anthropic OAuth parity)
+// with env/boundary noise stripped. Other filters stay off until wired to settings.
+func GetFilterClaudeCode() bool      { return true }
 func GetFilterStripBoundaries() bool { return false }
 func GetFilterEnvNoise() bool        { return false }
 

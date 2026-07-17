@@ -1,30 +1,46 @@
 ---
 name: tokenkey-cc-fingerprint-alignment
 description: >-
-  End-to-end workflow to capture real Claude Code (cc0-here / claude0-here) TLS
-  and HTTP fingerprints, diff against TokenKey repo constants
-  (tk_canonical_cc_oauth, constants.go, identity_service*), fix drift, and open
-  a spec-delta PR. Use when cc patch releases, ingress UA cohort mixes, OAuth
-  mimicry/beta/stainless drift is suspected, or after PR #423-style alignment
-  needs repeating for a new cc version.
+  Capture real Claude Code TLS/HTTP fingerprints and diff/fix TokenKey constants. Use after cc version changes, ingress UA cohort drift, OAuth mimicry/beta/stainless drift, CC geo-stego body drift (system/messages/system-reminder), or refreshing tk_canonical_cc_oauth alignment.
 ---
 
 # TokenKey：cc 指纹对齐（抓包 → diff → 修代码 → PR）
 
 适用于本仓库（TokenKey fork of sub2api）。把 **真实 cc 流量** 当作 ground truth，**TokenKey 常量 + DB TLS profile** 当作待对齐对象。TLS 与 HTTP **分轨采集、分轨决策**——禁止从 UA 版本号推断 ja3 或 `X-Stainless-Package-Version`。
 
+**指纹范畴（OAuth mimic 路径）**：不仅是 `User-Agent` 版本。完整出站指纹 = **TLS JA3** + **HTTP 头**（`User-Agent`、`anthropic-beta` 全集、`x-stainless-*`、`x-app`）+ **system 表面**（`x-anthropic-billing-header` 块、identity anchor、geo-stego 类）。ingress `usage_logs.user_agent`（如 `OpenAI/Python`）≠ 上游所见；用 `gateway.anthropic_oauth_mimic_egress` 或 `probe-oauth-mimicry-chain.sh` 验证出站。见 `docs/spec-delta-cc-oauth-mimicry-fingerprint-scope.md`。
+
+先机械分类证据 cohort，再比较对应 baseline：
+
+```bash
+python3 ops/anthropic/capture_cc_fingerprint.py classify-config \
+  --config-dir "${TOKENKEY_CC_CAPTURE_CONFIG_DIR:-$HOME/.claude}" \
+  --claude-bin "$HOME/.local/bin/claude"
+```
+
+- `first_party_oauth`：允许比较 OAuth beta。
+- `third_party_token` / `first_party_non_oauth`：只验证 UA、Stainless、system 等通用 HTTP 表面；OAuth beta 必须为 `NOT_OBSERVED`，禁止据此改 OAuth baseline。
+- TLS 只接受 collector 或 passive pcap；`baseline_stub_http_only` 必须为 `NOT_OBSERVED`。
+
 关联：`cc0-claude0-launcher` skill（cc0-here 环境）、`tokenkey-anthropic-oauth-config` skill（ja3 变更时的 TLS profile apply）、`docs/spec-delta-cc-canonical-ua-beta-2.1.152.md`（PR #423 实例）。
 
-## 自动化（每日 sessionStart）
+## 每日漂移流程（手动按需 —— sessionStart 自动触发已关停）
 
-项目已注册 Cursor hook（`.cursor/hooks.json` → `sessionStart`）：
+> **2026-06-10 起：每日 sessionStart 自动 hook 已关停**（`.cursor/hooks.json` 已清空、
+> `.claude/settings.json` 的 `export-tls-fingerprint-profile` 条目已移除，两个零调用的
+> sessionStart wrapper 脚本 `.cursor/hooks/cc-fingerprint-daily.sh`、
+> `.claude/hooks/export-tls-fingerprint-profile.sh` 已一并删除——价值不高、易污染本地 git）。
+> 下面是同一条流程的**手动**跑法：需要时直接调 `ops/anthropic/cc_fingerprint_daily_hook.sh`
+> （该脚本本身不变，只是不再被 sessionStart 自动拉起）。
 
-- 每个 **UTC 日** 在 Agent 会话启动时后台跑一次（`ops/anthropic/cc_fingerprint_daily_hook.sh`）。
-- 先 `check env`（cc0 gost/SOCKS + claude0-here；Desktop 未开仅 WARN，见 `--relax-desktop`）。
+手动跑一次 `bash ops/anthropic/cc_fingerprint_daily_hook.sh` 的行为：
+
+- 一次完整的 `check env`（cc0 gost/SOCKS + claude0-here；Desktop 未开仅 WARN，见 `--relax-desktop`）。
 - 再 TLS `capture` + `check-tls`。
 - 若 **ja3 与 TokenKey baseline 不一致**，自动 `docs/spec-delta-cc-tls-drift-*.md` + `gh pr create`（需本机 `gh auth`）。
 - 日志：`.tls_list/cc-fingerprint-daily-hook.log`；漂移摘要：`.tls_list/cc-fingerprint-drift-alert.json`。
 - 自动开 PR 时,**所有 git 操作在 `git worktree add` 出的临时 worktree 里完成**(`.tls_list/.drift-worktree-${stamp}-$$`),user 当前 checkout / 当前分支不受影响;cleanup trap 兜底。
+- 一日一锁仍生效（`TOKENKEY_CC_DAILY_STATE_DIR`）：同一 UTC 日重复手动调会被跳过，要强跑用 `TOKENKEY_CC_DAILY_FORCE=1`。
 
 ### 控制 env vars
 
@@ -60,11 +76,16 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | 读取 TokenKey baseline | 机械 | `python3 ops/anthropic/capture_cc_fingerprint.py show-baseline` |
 | TLS collector 采集 ClientHello | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture` |
 | HTTP mitm 采集 `/v1/messages` headers | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture --http` |
+| system prompt 锚点抓取 + diff（身份 banner + 计费前缀） | 机械 | mitm addon 记 `system_anchors` → `capture_cc_fingerprint.py check` 的 `system.*` 行 |
+| CC geo-stego wire body 矩阵（system / messages `<system-reminder>` / date_change） | 机械 | `capture-cc-fingerprint.sh capture` 末尾自动 `cc_geo_stego_align.sh run --fix` |
+| geo-stego 出站 normalize 覆盖 + 自动补规则 | 机械 | `probe_cc_geo_stego.py --check-gateway [--fix]` → `TestTkProbeCCGeoGatewayCoverageJSONL` |
+| system prompt 副本单一源守卫（Go 3+ 处不漂） | 机械 | `python3 scripts/sentinels/check-cc-system-prompt.py`（preflight 内）|
 | 多请求 beta 一致性校验（haiku/sonnet/opus 各 N 次） | 机械 | `bash ops/anthropic/capture-http-comprehensive.sh` |
 | bundle 组装 + diff + `--check` 门禁 | 机械 | `capture_cc_fingerprint.py` / `check-tls` |
 | HTTP 漂移修复 + spec-delta PR | 机械 | 分支 + commit + `gh pr create`（见 §5） |
 | 每日 TLS 漂移开 PR | 机械 | `ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh` |
 | Phase 0 ingress cohort / admin UA | 机械 | `ops/observability/run-probe.sh` + admin settings |
+| OAuth mimicry chain (SDK ingress → egress headers+system) | 机械 | `ops/observability/probe-oauth-mimicry-chain.sh` on edge; log `gateway.anthropic_oauth_mimic_egress`; **日检** `client-fidelity-watch` → `edge-oauth-mimic-aggregate` |
 | ja3 变更 → TLS profile SQL apply | 机械 | `manage-anthropic-config.py plan/apply/verify` |
 | HTTP beta 漂移 → runtime manifest apply | 机械 | `plan-http-mimicry-sync` + `sync-runtime` 或 `cc_fingerprint_apply_http_runtime.sh` |
 | 仅 UA/版本漂移修复 | 机械 | 编辑 baselines.json `cc_version` → `check-cc-version-sync.py --write`（自动改 7 份副本，§4.1）|
@@ -85,7 +106,14 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | `open_pr` | **true** | 漂移时修代码 + spec-delta + 开 PR；`open_pr=false` 仅 capture + diff |
 | comprehensive | **true**（内建） | 每次完整跑法在 HTTP capture 后**必跑** `capture-http-comprehensive.sh`（排查 beta 灰度/分裂）；无单独 opt-out 参数 |
 
-**默认完整链路（无参数调用）：** check env → capture `--http` → comprehensive beta 一致性 → diff/check → [有 drift] 修代码 + 测试 + preflight + 开 PR。
+**默认完整链路（无参数调用）：** check env → capture `--http`（**内建** geo-stego align + `--fix`）→ comprehensive beta 一致性 → diff/check → [有 drift] 修代码 + 测试 + preflight + 开 PR。
+
+单独只跑 geo body 矩阵（不跑 TLS/HTTP header capture）：
+
+```bash
+bash ops/anthropic/capture-cc-fingerprint.sh geo-stego [--fix]
+# 等价：bash ops/anthropic/cc_geo_stego_align.sh run --fix
+```
 
 ## 1) 环境检查（必须先过）
 
@@ -125,6 +153,21 @@ bash ops/anthropic/capture-cc-fingerprint.sh capture --http
 # 仅 TLS：bash ops/anthropic/capture-cc-fingerprint.sh capture
 ```
 
+使用本机 `~/.claude/settings.json`、交互 REPL cohort 或 collector 不可用时，走 interactive 路径：
+
+```bash
+# pcap 必须在同一个真实终端先授权；脚本只接受 sudo -n，绝不后台弹密码提示。
+sudo -v
+TOKENKEY_CC_CAPTURE_CONFIG_DIR="$HOME/.claude" \
+  bash ops/anthropic/capture-cc-interactive.sh capture --tls-pcap
+
+# HTTP-only 会把 TLS 标为 NOT_OBSERVED，并以 coverage incomplete 退出。
+TOKENKEY_CC_CAPTURE_CONFIG_DIR="$HOME/.claude" \
+  bash ops/anthropic/capture-cc-interactive.sh capture --http-only
+```
+
+`--http` 现在除 header 外还落 **`system_anchors`**（每个 system 块 text 的前 ~160 字符，仅锚点不存正文）；`bundle-from-artifacts` 汇总进 bundle 的 `system.anchors`，供 `system.identity_anchor` / `system.billing_prefix` diff 行使用（仅 TLS 跑则该维 SKIP）。
+
 ### 2.3 门禁
 
 ```bash
@@ -134,6 +177,8 @@ python3 ops/anthropic/capture_cc_fingerprint.py check --bundle .tls_list/…-cc-
 # 仅 TLS ja3（每日 hook / 开 PR 用）
 bash ops/anthropic/capture-cc-fingerprint.sh check-tls --bundle .tls_list/….bundle.json
 ```
+
+统一退出码：`0=全部要求证据已观察且 aligned`、`1=drift`、`2=invalid evidence / execution error`、`3=coverage incomplete / not observed`。不得把 `SKIP`、stub 或 3p OAuth beta 缺失解释为 aligned。
 
 ### 2.4 HTTP mitm 链（已修复）
 
@@ -154,7 +199,7 @@ plain claude + CC0_USER_OVERLAY OAuth
 
 ### 2.5 多请求 beta 一致性校验（默认必跑）
 
-`capture --http` 是**单次**抓包做 diff/check。完整 skill 跑法在单次 capture 之后**必须**再跑 comprehensive，跨 haiku/sonnet/opus 各 N 次并统计每族 beta 是否全一致（排查灰度 / 分裂）：
+`capture --http` 是**单次**抓包做 diff/check。完整 skill 跑法在单次 capture 之后**必须**再跑 comprehensive，跨 haiku/sonnet/opus 各 N 次并统计每族 HTTP record 的 beta 是否全一致（排查灰度 / 分裂）：
 
 ```bash
 bash ops/anthropic/capture-http-comprehensive.sh
@@ -165,6 +210,69 @@ bash ops/anthropic/capture-http-comprehensive.sh
 输出每个 model 族的 `N requests, M unique beta header(s)` + `OK/WARN`；末尾自动用最新 `tls-observed` bundle 跑一次 repo `diff` / `check`。复用 §2.4 同一条 mitm 链（gost + cc0 OAuth）。
 
 任一 model 族出现 `WARN`（多种 beta）→ 在 PR / spec-delta 中记录分布，**禁止**在未抓包证据下改 beta 常量。
+只有 `first_party_oauth` cohort 才把该分布与 OAuth mimicry baseline 比较；其它 cohort 只记录分布。
+
+### 2.6 Geo stego / wire body shape（**内建于 capture；claude CLI + mitm，无 cc0/gost**）
+
+CC ≥2.1.91 在**非** `api.anthropic.com` 的 `ANTHROPIC_BASE_URL` 下，把地域信号写进 **出站 JSON body**，不是 HTTP header。动态实测（2026-06）结论：
+
+| 表面 | 典型内容 | TokenKey 是否应改写 |
+|---|---|---|
+| `system[]` | Agent SDK 身份 banner；`-p` 模式通常**不含** `# currentDate` | 扫描但多数 no-op |
+| `messages[].content[].text` | `<system-reminder>` + `# currentDate` + `Today's date is …` | **是**（主战场） |
+| `messages[].content[].attachment` | `type=date_change` 的 `newDate` | **是** |
+| `# Environment` / billing block | 本机 TZ、proxy 字符串 | **否**（客户端环境自述，非隐写） |
+
+**触发器：** 每次 `capture-cc-fingerprint.sh capture --http` **自动**跑（`TOKENKEY_CC_CAPTURE_GEO=0` 可跳过）。TLS-only `capture` / daily hook 不触发；单独重跑见下方 `geo-stego` 子命令。
+
+**自动化链路（默认 `--fix` 开启）：**
+
+```text
+capture --http 完成 bundle check
+  → cc_geo_stego_align.sh run --stamp <capture> --fix
+      → probe_cc_geo_stego_direct.sh（claude -p + mitmdump 矩阵）
+      → probe_cc_geo_stego.py --check-gateway --fix
+          → go test TestTkProbeCCGeoGatewayCoverageJSONL
+          → [FAIL] 机械补 gateway_request_tk_cc_geo_stego.go 引号类 + 测试表项 → 重试
+```
+
+无 claude CLI / mitm CA 时 **SKIP**（exit 0），不阻塞 TLS/HTTP capture。
+
+**环境：**
+
+```bash
+~/.local/bin/claude --version
+# mitm CA：~/.mitmproxy/mitmproxy-ca-cert.pem
+# OAuth + 默认 BASE_URL：~/.claude/settings.json；矩阵内按场景覆盖 ANTHROPIC_BASE_URL
+```
+
+**手动重跑（调试 / 只查 body）：**
+
+```bash
+bash ops/anthropic/capture-cc-fingerprint.sh geo-stego --fix
+# 或：bash ops/anthropic/cc_geo_stego_align.sh run --fix
+python3 ops/anthropic/probe_cc_geo_stego.py .tls_list/geo-stego-*/capture.jsonl --check-gateway
+```
+
+默认场景矩阵与 `TOKENKEY_CC_GEO_SCENARIOS` 覆盖方式见 `probe_cc_geo_stego_direct.sh`。
+
+**解读：**
+
+- `probe_cc_geo_stego.py` 报告 `needs_normalize=true` = 客户端 wire 仍带隐写（**预期**于 shanghai/mirror 场景）。
+- `--check-gateway` FAIL = `tkNormalizeAnthropicCCGeoStego` **未能**把 captured body 归一到 idempotent 美区形态 → `--fix` 尝试补 regex/测试；仍 FAIL 则 agent 按 §4.4 手改。
+- `surface=messages[…]` 命中优先于 `system[…]`。
+
+**修复清单（geo body，常规风险，§4.4）：**
+
+1. `--fix` 未覆盖时：扩展 `gateway_request_tk_cc_geo_stego.go` + `gateway_request_tk_cc_geo_stego_test.go`（用 `capture.jsonl` 真实 line 作 fixture）。
+2. 确认三条出站路径挂接（Forward normalize / API Key passthrough / count_tokens passthrough）。
+3. `scripts/sentinels/gateway-tk.json` 锚点 intact。
+4. `go test -tags=unit ./internal/service -run 'TestTkNormalizeCCGeo|TestTkProbeCCGeoGatewayCoverageJSONL'` + `python3 -m unittest ops/anthropic/test_probe_cc_geo_stego.py`。
+5. PR commit 带 `Web impact: none`。
+
+> **与 §2.4 的分工：** §2.4 抓 HTTP headers + system **身份锚点**（cc0+gost）；§2.6 抓 **body 地域隐写**（plain claude+mitm），capture 末尾自动串联。
+
+> **与 §4.5 的分工：** §4.5 = 身份 banner 403 风险；§2.6 = `# currentDate` 行 CN/US 不一致。勿混用。
 
 > **双峰（bimodal）beta 不再被当成硬 mismatch。** `bundle-from-artifacts` 现在把每个 model 族的**全量** beta 分布写进 bundle 的 `http_variants`（不再 last-wins 取一条样本）。`diff` / `check` 对一个族的判定规则：
 > - 单一 beta 集合 → 老逻辑 `OK` / `FAIL`。
@@ -183,6 +291,11 @@ bash ops/anthropic/capture-http-comprehensive.sh
 | `*.stainless_package_version` | 以实测为准 | mitm/collector |
 | `betas.*` (`FAIL`) | token 集合或顺序错（且非双峰，或 baseline 一个变体都不命中）| `anthropic-http-mimicry-baselines.json` + `constants.go` + tests |
 | `betas.*` (`INVESTIGATE`) | 该族 beta **双峰**，baseline 命中其一 → 非硬错（exit 0）| 先刻画 A/B 差异，再按 #429 决定 canonical；勿凭单样本对齐 |
+| `system.identity_anchor` (`FAIL`) | 真实 CC system 块不命中任一 canonical 身份锚点 = banner 漂移（上游 403 风险，**actionable**）| 走 §4.5：改注册表 + Go 副本 + spec-delta |
+| `system.identity_anchor` (`SKIP`) | 本次未抓到 system 块（仅 TLS 跑）| 跑 `capture --http` 再看 |
+| `system.billing_prefix` (`INVESTIGATE`) | 未见 `x-anthropic-billing-header` 块 → 非硬错 | count_tokens / 子请求本就不带；仅当正常 `/v1/messages` 也缺才查 |
+| `geo.messages.currentDate` (`FAIL`) | messages `<system-reminder>` 日期行非 US 形态 | §2.6 probe + `gateway_request_tk_cc_geo_stego.go` |
+| `geo.date_change.newDate` (`FAIL`) | attachment 日期仍为 `/` | 同上 |
 
 ## 4) 代码修复清单（HTTP-only 型）
 
@@ -198,7 +311,10 @@ bash ops/anthropic/capture-http-comprehensive.sh
    - 2 个死快照：`ops/stage0/smoke_lib.sh`、`deploy/aws/stage0/tk_canonical_cc_oauth.json` 的 `observed.user_agent`。
    - 1 个 go:embed 镜像（load-bearing，reconciler 自愈目标）：`backend/internal/baseline/anthropic-http-mimicry-baselines.json`
      与 deploy 源 byte-identical 同步。
-3. 写 `docs/spec-delta-cc-<patch>.md`（人工记录，含 comprehensive 的 beta 分布）。
+3. **不写**独立 spec-delta（纯版本 bump 没有行为变更意图）。记录由提交信息
+   + `baselines.json` `cc_version` + `.tls_list/*-cc-capture.bundle.json` 天然承载；
+   只在 `docs/cc-fingerprint-changelog.md` **追加一行**（版本｜日期｜`pure UA`｜
+   `A→B, TLS/beta 未变`，含 comprehensive 的 haiku A/B 计数）。一行，不是一文件。
 
 > skill 总是跑 `--write` 并 **review 生成的 diff**（编译兜底 UA 值值得扫一眼）。
 > `check-cc-version-sync.py`（check 模式）在 preflight / CI 兜底防漂移——手工漏跑 `--write` 会被拦。
@@ -212,18 +328,45 @@ bash ops/anthropic/capture-http-comprehensive.sh
 - `backend/internal/pkg/claude/constants.go` 的 beta 常量 + `HaikuBetaHeader` / `FullClaudeCode*MimicryBetas()`。
 - claude 包对应单测。
 - 若新增 load-bearing 面：`scripts/sentinels/gateway-tk.json`。
-- `docs/spec-delta-cc-<patch>.md` 记录 token 集合与分布。
+- **写/更新一份按主题命名的决策记录** `docs/spec-delta-cc-<topic>.md`（如
+  `…-haiku-beta-ab.md`、`…-canonical-ua.md`；不要用版本号命名、不要一 patch 一份），
+  记录 token 集合、分布与抉择理由，并就地更新；代码按稳定名引用它。在
+  `docs/cc-fingerprint-changelog.md` 追加一行、type 标 `decision` 并链到该记录。
+  （bimodal Haiku A/B 已在 `spec-delta-cc-2.1.160.md` + #429 刻画，勿逐 patch 重述。）
+
+### 4.4 Geo stego body 漂移（`--check-gateway` FAIL；capture 内建 `--fix` 未收敛）
+
+`--fix` 只能机械补 **未知 Unicode 引号码点**（写入 Go regex 字符类）+ 追加 table test。**日期格式新模式 / 新 surface** 仍需人工：
+
+- `gateway_request_tk_cc_geo_stego.go` 纯函数 + 测试（fixture 来自 `.tls_list/geo-stego-*/capture.jsonl` 的 `body_wire`）。
+- 三条出站路径挂接 + `scripts/sentinels/gateway-tk.json`。
+- `Web impact: none`；不写 beta/UA spec-delta。
+
+### 4.5 system prompt 锚点漂移（`system.identity_anchor` FAIL，需抓包证据）
+
+CC system prompt 是 load-bearing 指纹维度（上游检测身份 banner + 计费块）。只对齐**稳定锚点**，不对齐动态全文。单一声明源 = `scripts/sentinels/cc-system-prompt.json` 的 `capture_anchors`，同时被守卫与抓包 diff 共用。锚点真变了才手改，且必须有正常 `/v1/messages` 抓包证据：
+
+- `scripts/sentinels/cc-system-prompt.json`（唯一声明源：`capture_anchors` + `sentinels[].must_contain` + `byte_identical`）。
+- 同一 commit 同步 Go 副本：`claude_code_validator.go` 的 `claudeCodeSystemPrompts[]` / `claudeCodeBillingHeaderPrefix`、`gateway_service.go` 的 `claudeCodeSystemPrompt`（banner）/ `claudeCodePromptPrefixes[]`；banner 在两文件须**字节一致**。
+- `ops/anthropic/test_capture_cc_fingerprint.py` 的 system 断言（如锚点串变了）。
+- 决策记录就地更新 `docs/spec-delta-cc-system-prompt.md` + `docs/cc-fingerprint-changelog.md` 追加 `decision` 行。
+
+守卫 `check-cc-system-prompt.py` 是**纯守卫无 `--write`**：它只证明"代码 == 注册表 + banner 字节一致"；漂移由抓包侧发现，人工带证据改。无发版（capture + 守卫 + 文档，无运行时/编译产物变更）。
 
 ## 5) 验证与 PR（默认 open_pr=true）
 
 ```bash
 python3 scripts/sentinels/check-cc-version-sync.py --selftest && python3 scripts/sentinels/check-cc-version-sync.py
+python3 scripts/sentinels/check-cc-system-prompt.py --selftest && python3 scripts/sentinels/check-cc-system-prompt.py
 go test -tags=unit ./internal/pkg/claude/... -run TestFullClaudeCode
 python3 -m unittest discover -s ops/anthropic -p 'test_capture_cc_fingerprint.py' -t ops/anthropic
+python3 -m unittest discover -s ops/anthropic -p 'test_probe_cc_geo_stego.py' -t ops/anthropic
+TOKENKEY_CC_GEO_PROBE_JSONL=ops/anthropic/testdata/cc_geo_probe_fixture.jsonl \
+  go test -tags=unit ./internal/service -run '^TestTkProbeCCGeoGatewayCoverageJSONL$' -count=1
 ./scripts/preflight.sh
 ```
 
-**HTTP 漂移（默认）：** 修 §4 清单（仅版本走 4.1 的 `--write`；beta 变了再走 4.2）→ spec-delta → 分支 → commit → push → `gh pr create` → **merge 后立刻**：
+**HTTP 漂移（默认）：** 修 §4 清单（仅版本走 4.1 的 `--write` + changelog 一行；beta 变了再走 4.2 写主题决策记录）→ 分支 → commit → push → `gh pr create` → **merge 后立刻**：
 
 ```bash
 bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh
@@ -246,19 +389,27 @@ bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh
 ## 6) 禁止事项
 
 - 未抓包就改 beta / stainless
+- 未抓包就改 system prompt 锚点 / 注入 banner（`cc-system-prompt.json` + Go 副本）；banner 两文件须字节一致
+- 试图 byte 对齐 system prompt 全文（动态：cwd/git/date/env）——只对齐锚点
 - 从旧 patch 推断 ja3
+- 把 HTTP-only bundle 内的 baseline stub 当成新 JA3 证据
+- 用 3p / API-key cohort 的 beta 修改 OAuth baseline
 - ja3 变了却只改 HTTP 常量
 - 用 `cc0-here` 直接做 HTTP mitm（应走 `http_capture_invoke.sh`）
 - 跳过 comprehensive 直接开 PR（beta 分裂未验证）
+- 未跑 §2.6 probe 就扩展 geo normalize 规则（须用真实 `capture.jsonl` line 作测试 fixture）
+- 把 `# Environment` 段 TZ/proxy 字符串当作 TokenKey 应改写的隐写
 
 ## 7) 流程图
 
 ```text
-check env → capture --http → comprehensive (beta consistency)
+check env → capture --http (auto geo-stego align --fix) → comprehensive (beta consistency)
     → check / check-tls
+    → [geo gateway gap?] cc_geo_stego_align --fix → §4.4
     → [ja3变?] manage-anthropic-config apply + TLS drift PR
-    → [仅UA/版本?] 编辑 baselines.json cc_version → check-cc-version-sync --write（自动改全部副本）→ spec-delta
-    → [beta集合变?] baselines 数组 + constants betas + tests + spec-delta（§4.2，需抓包证据）
+    → [仅UA/版本?] 编辑 baselines.json cc_version → check-cc-version-sync --write（自动改全部副本）→ changelog 追加一行（不写独立 spec-delta）
+    → [beta集合变?] baselines 数组 + constants betas + tests + 主题命名 spec-delta 决策记录 + changelog 一行（§4.2，需抓包证据）
+    → [system锚点变?] cc-system-prompt.json + Go 副本(validator/gateway, banner 字节一致) + tests + spec-delta-cc-system-prompt + changelog（§4.5，需抓包证据）
     → preflight → open PR (default) → merge
     → sync-runtime / cc_fingerprint_apply_http_runtime.sh（无发版）
     → [可选] 下一班 release 更新 compile default

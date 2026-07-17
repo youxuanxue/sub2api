@@ -50,7 +50,7 @@ type PublicCatalogModel struct {
 	ContextWindow   int                  `json:"context_window,omitempty"`
 	MaxOutputTokens int                  `json:"max_output_tokens,omitempty"`
 	Capabilities    []string             `json:"capabilities"`
-	// Availability is injected post-build by DecorateWithAvailability when
+	// Availability is injected post-build by DecorateAndPruneByAvailability when
 	// the PricingAvailabilityService is wired (Phase 2 / Phase 3). nil = not
 	// yet available / feature flag off. Clients that pre-date this field see
 	// no change (omitempty).
@@ -83,8 +83,44 @@ type PublicCatalogPricing struct {
 	Currency          string  `json:"currency"`
 	InputPer1KTokens  float64 `json:"input_per_1k_tokens"`
 	OutputPer1KTokens float64 `json:"output_per_1k_tokens"`
+	// ThinkingOutputPer1KTokens, when > 0, is the higher output price charged in
+	// thinking mode for the SAME model id (Alibaba DashScope qwen3-8b/14b/32b).
+	// Lets the client show "非思考 / 思考" output prices transparently. Omitted for
+	// models with no thinking-mode premium. OutputPer1KTokens stays the non-thinking
+	// rate; for these models enable_thinking defaults to true, so thinking is the
+	// default-mode price (see computeTokenBreakdown).
+	ThinkingOutputPer1KTokens float64 `json:"thinking_output_per_1k_tokens,omitempty"`
+	CacheReadPer1K            float64 `json:"cache_read_per_1k,omitempty"`
+	CacheWritePer1K           float64 `json:"cache_write_per_1k,omitempty"`
+	// TK media units. BillingMode is "token" (default, omitted), "image"
+	// (per-generated-image) or "video" (per-second). The per-image / per-second
+	// field is meaningful only when BillingMode says it is a media catalog row:
+	// some chat rows carry image-related price fields for multimodal inputs.
+	BillingMode         string  `json:"billing_mode,omitempty"`
+	OutputCostPerImage  float64 `json:"output_cost_per_image,omitempty"`
+	OutputCostPerSecond float64 `json:"output_cost_per_second,omitempty"`
+	// Tiers, when non-empty, is the input-token interval (阶梯) pricing for models
+	// whose unit price varies by request input length (overlay `intervals` —
+	// VolcEngine doubao-seed-*, DeepSeek, Qwen-plus/coder, GLM-4.7 tiered SKUs).
+	// The flat Input/OutputPer1KTokens fields above carry the FIRST (lowest) tier
+	// so pre-tier clients still render a sane base price; tier-aware clients (and
+	// the admin CSV export) render the full ladder. Per 1k tokens, USD. Until this
+	// field shipped the public /pricing endpoint silently flattened these models to
+	// their first-tier price only — the ladder lived only in the compiled-in
+	// tk_pricing_overlay.json. Omitted for flat-priced models.
+	Tiers []PublicCatalogTier `json:"tiers,omitempty"`
+}
+
+// PublicCatalogTier is one input-token bracket of a tiered (阶梯) price. MinTokens
+// is inclusive, MaxTokens exclusive; MaxTokens == nil is the open-ended top tier.
+// Prices are USD per 1k tokens (overlay intervals are stored per-token → ×1000 to
+// match the rest of the catalog).
+type PublicCatalogTier struct {
+	MinTokens         int     `json:"min_tokens"`
+	MaxTokens         *int    `json:"max_tokens,omitempty"`
+	InputPer1KTokens  float64 `json:"input_per_1k_tokens"`
+	OutputPer1KTokens float64 `json:"output_per_1k_tokens"`
 	CacheReadPer1K    float64 `json:"cache_read_per_1k,omitempty"`
-	CacheWritePer1K   float64 `json:"cache_write_per_1k,omitempty"`
 }
 
 // catalogRichEntry mirrors the litellm-shape JSON fields needed for the public
@@ -94,8 +130,11 @@ type PublicCatalogPricing struct {
 type catalogRichEntry struct {
 	InputCostPerToken           *float64 `json:"input_cost_per_token"`
 	OutputCostPerToken          *float64 `json:"output_cost_per_token"`
+	ThinkingOutputCostPerToken  *float64 `json:"thinking_output_cost_per_token"`
 	CacheCreationInputTokenCost *float64 `json:"cache_creation_input_token_cost"`
 	CacheReadInputTokenCost     *float64 `json:"cache_read_input_token_cost"`
+	OutputCostPerImage          *float64 `json:"output_cost_per_image"`
+	OutputCostPerSecond         *float64 `json:"output_cost_per_second"`
 	LiteLLMProvider             string   `json:"litellm_provider"`
 	Mode                        string   `json:"mode"`
 	MaxInputTokens              int      `json:"max_input_tokens"`
@@ -146,6 +185,21 @@ func (s *PricingCatalogService) SetSourceForTesting(src CatalogSource) {
 	s.mu.Unlock()
 }
 
+// InvalidateCache drops the cached catalog so the next BuildPublicCatalog
+// re-parses + re-applies the overlay. The cache keys on the source file's mtime
+// (model_pricing.json), so a TK pricing-overlay HOT change — which does not touch
+// that file — would otherwise serve stale prices forever. The runtime overlay
+// reload (pricing_service_tk_overlay_runtime.go) calls this after a swap. Nil-safe.
+func (s *PricingCatalogService) InvalidateCache() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.cached = nil
+	s.cachedMt = time.Time{}
+	s.mu.Unlock()
+}
+
 // BuildPublicCatalog returns the catalog DTO. Callers must not mutate the
 // returned response — it may be shared across requests via the internal cache.
 //
@@ -181,6 +235,14 @@ func (s *PricingCatalogService) BuildPublicCatalog(ctx context.Context) *PublicC
 	}
 
 	resp := buildCatalogFromBytes(data, modTime)
+	// Enrich only a healthy (non-degraded) catalog: a garbage/empty source yields
+	// an empty list and must STAY empty (AC-005 degraded→empty / 200-not-500
+	// contract) rather than surfacing a partial overlay-only catalog.
+	if len(resp.Data) > 0 {
+		applyCatalogOverlayPricing(resp)
+		attachCatalogOverlayTiers(resp)
+		applyCatalogOfficialListBaseTax(resp)
+	}
 
 	s.mu.Lock()
 	s.cached = resp
@@ -224,7 +286,12 @@ func buildCatalogFromBytes(data []byte, modTime time.Time) *PublicCatalogRespons
 		if err := json.Unmarshal(rawEntry, &e); err != nil {
 			continue
 		}
-		if e.InputCostPerToken == nil && e.OutputCostPerToken == nil {
+		// Keep token-priced entries AND true media entries (per-image / per-second).
+		// Media has no token price, so the original token-only guard dropped the
+		// entire imagen-*/veo-*/seedream/seedance family. Chat rows may also
+		// carry image-related price fields; those must not surface as empty
+		// catalog rows unless they have token prices.
+		if e.InputCostPerToken == nil && e.OutputCostPerToken == nil && catalogMediaBillingMode(&e) == "" {
 			continue
 		}
 		models = append(models, catalogModelFromEntry(name, &e))
@@ -241,20 +308,212 @@ func buildCatalogFromBytes(data []byte, modTime time.Time) *PublicCatalogRespons
 	}
 }
 
+// applyCatalogOverlayPricing fill-only-merges TK-overlay-priced models the file
+// source lacks into the public catalog, so overlay-only models (deepseek-v4-pro,
+// doubao-*, …) surface with their prices in the public catalog
+// AND Your-Menu (me_pricing_catalog reads BuildPublicCatalog as metaByID).
+//
+// The runtime price file is a TRIMMED litellm mirror; models litellm lacks are
+// priced ONLY in tk_pricing_overlay.json, which until now fed billing
+// (GetModelPricing applies it) but NOT this display path — hence empty/missing
+// price rows for the entire VolcEngine fifth-platform batch + deepseek-v4-pro.
+//
+// Fill mirrors the billing priority (model_pricing_resolver: channel DB >
+// litellm mirror > TK overlay) with the same absent-or-zero semantics as the
+// billing path (applyTKPricingOverlay / tkIsEffectivelyUnpriced): a name whose
+// file-source row carries a real non-zero price is left untouched, while an
+// all-zero placeholder row (litellm "cost unknown", e.g. deepseek-v3-2-251201)
+// gets its DISPLAYED price replaced by the overlay value — otherwise the
+// catalog would show $0 for a model billing actually charges. Channel pricing
+// stays a strictly higher tier handled upstream (me menu Stage 1 / billing
+// resolver), so the overlay only ever fills the litellm tier.
+//
+// Token-priced entries and true media entries merge. Per-image / per-second
+// overlay rows (imagen-*/veo-*/grok-imagine-*/seedream/seedance) carry no token
+// price, but they are catalog rows for Studio and must surface with their media
+// billing unit.
+func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
+	if resp == nil {
+		return
+	}
+	overlay := loadTKPricingOverlay()
+	if len(overlay) == 0 {
+		return
+	}
+	seen := make(map[string]int, len(resp.Data))
+	for i := range resp.Data {
+		seen[resp.Data[i].ModelID] = i
+	}
+	names := make([]string, 0, len(overlay))
+	for name := range overlay {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	appended := false
+	for _, name := range names {
+		p := overlay[name]
+		if p == nil {
+			continue
+		}
+		if isNewAPILongTailCatalogVendor(p.LiteLLMProvider) && !isTkCuratedNewAPIModelListed(name) {
+			continue
+		}
+		isMedia := p.OutputCostPerImage > 0 || p.OutputCostPerSecond > 0
+		if p.InputCostPerToken == 0 && p.OutputCostPerToken == 0 && !isMedia {
+			continue
+		}
+		if idx, ok := seen[name]; ok {
+			// 文件源已有该行：仅当它是全零占位（litellm "cost unknown"，与计费
+			// 侧 tkIsEffectivelyUnpriced 同语义）时用 overlay 价覆盖展示，保持
+			// 展示=计费；行内 context window 等元数据保留文件源的值。真实非零
+			// 文件价永不覆盖，除非 overlay 是 GLM 的 BigModel 官方价（litellm
+			// 镜像里的 USD 猜测会漂移）。
+			row := &resp.Data[idx]
+			hasFilePrice := row.Pricing.InputPer1KTokens != 0 || row.Pricing.OutputPer1KTokens != 0 ||
+				row.Pricing.CacheReadPer1K != 0 || row.Pricing.CacheWritePer1K != 0
+			if hasFilePrice && !tkOverlayOverridesLitellmSource(name, p) {
+				continue
+			}
+			row.Pricing.InputPer1KTokens = p.InputCostPerToken * 1000
+			row.Pricing.OutputPer1KTokens = p.OutputCostPerToken * 1000
+			row.Pricing.ThinkingOutputPer1KTokens = p.ThinkingOutputCostPerToken * 1000
+			row.Pricing.CacheReadPer1K = p.CacheReadInputTokenCost * 1000
+			row.Pricing.CacheWritePer1K = p.CacheCreationInputTokenCost * 1000
+			continue
+		}
+		in, out := p.InputCostPerToken, p.OutputCostPerToken
+		cacheRead, cacheWrite := p.CacheReadInputTokenCost, p.CacheCreationInputTokenCost
+		e := catalogRichEntry{
+			InputCostPerToken:           &in,
+			OutputCostPerToken:          &out,
+			CacheReadInputTokenCost:     &cacheRead,
+			CacheCreationInputTokenCost: &cacheWrite,
+			LiteLLMProvider:             p.LiteLLMProvider,
+			Mode:                        p.Mode,
+			SupportsPromptCaching:       p.SupportsPromptCaching,
+		}
+		// Thinking-mode output price (qwen3 dense): surface it so the public
+		// catalog can show both 非思考/思考 output rates for the one model id.
+		if p.ThinkingOutputCostPerToken > 0 {
+			tout := p.ThinkingOutputCostPerToken
+			e.ThinkingOutputCostPerToken = &tout
+		}
+		// Media overlay entries (imagen-*/veo-*/seedream/seedance) carry the
+		// per-image / per-second price the trimmed litellm mirror drops — pass
+		// it through so the public catalog can render the media unit.
+		if p.OutputCostPerImage > 0 {
+			img := p.OutputCostPerImage
+			e.OutputCostPerImage = &img
+		}
+		if p.OutputCostPerSecond > 0 {
+			sec := p.OutputCostPerSecond
+			e.OutputCostPerSecond = &sec
+		}
+		resp.Data = append(resp.Data, catalogModelFromEntry(name, &e))
+		appended = true
+	}
+	if appended {
+		sort.Slice(resp.Data, func(i, j int) bool {
+			return resp.Data[i].ModelID < resp.Data[j].ModelID
+		})
+	}
+}
+
+// attachCatalogOverlayTiers surfaces overlay-defined input-token interval (阶梯)
+// pricing on the public catalog. Runs AFTER applyCatalogOverlayPricing so it sees
+// every model (file-sourced and overlay-filled). The flat Input/OutputPer1KTokens
+// fields stay the base (first) tier for pre-tier clients; this fills the full
+// ladder on Pricing.Tiers for tier-aware clients and the admin CSV export. Overlay
+// interval prices are per-token → ×1000 to match the catalog's per-1k unit.
+// Purely additive (never mutates flat prices), idempotent, nil-safe.
+func attachCatalogOverlayTiers(resp *PublicCatalogResponse) {
+	if resp == nil || len(resp.Data) == 0 {
+		return
+	}
+	overlay := loadTKPricingOverlay()
+	if len(overlay) == 0 {
+		return
+	}
+	for i := range resp.Data {
+		p := overlay[resp.Data[i].ModelID]
+		if p == nil || len(p.Intervals) == 0 {
+			continue
+		}
+		tiers := make([]PublicCatalogTier, 0, len(p.Intervals))
+		for j := range p.Intervals {
+			iv := p.Intervals[j]
+			tier := PublicCatalogTier{MinTokens: iv.MinTokens, MaxTokens: iv.MaxTokens}
+			if iv.InputPrice != nil {
+				tier.InputPer1KTokens = *iv.InputPrice * 1000
+			}
+			if iv.OutputPrice != nil {
+				tier.OutputPer1KTokens = *iv.OutputPrice * 1000
+			}
+			if iv.CacheReadPrice != nil {
+				tier.CacheReadPer1K = *iv.CacheReadPrice * 1000
+			}
+			tiers = append(tiers, tier)
+		}
+		resp.Data[i].Pricing.Tiers = tiers
+	}
+}
+
+func applyCatalogOfficialListBaseTax(resp *PublicCatalogResponse) {
+	if resp == nil {
+		return
+	}
+	for i := range resp.Data {
+		tkApplyBaseTaxToPublicCatalogPricing(resp.Data[i].Vendor, &resp.Data[i].Pricing)
+	}
+}
+
 func catalogModelFromEntry(name string, e *catalogRichEntry) PublicCatalogModel {
+	pricing := PublicCatalogPricing{
+		Currency:                  "USD",
+		InputPer1KTokens:          perTokenTo1K(e.InputCostPerToken),
+		OutputPer1KTokens:         perTokenTo1K(e.OutputCostPerToken),
+		ThinkingOutputPer1KTokens: perTokenTo1K(e.ThinkingOutputCostPerToken),
+		CacheReadPer1K:            perTokenTo1K(e.CacheReadInputTokenCost),
+		CacheWritePer1K:           perTokenTo1K(e.CacheCreationInputTokenCost),
+	}
+	// Media billing mode is catalog membership truth for Studio. Trust explicit
+	// media modes, and keep a conservative fallback only for pure media rows
+	// whose mirrors forgot `mode`. Do not infer media from a per-image field on
+	// token-priced chat rows (Gemini chat rows can carry image-related costs).
+	switch catalogMediaBillingMode(e) {
+	case "video":
+		pricing.BillingMode = "video"
+		pricing.OutputCostPerSecond = *e.OutputCostPerSecond
+	case "image":
+		pricing.BillingMode = "image"
+		pricing.OutputCostPerImage = *e.OutputCostPerImage
+	}
 	return PublicCatalogModel{
-		ModelID: name,
-		Vendor:  e.LiteLLMProvider,
-		Pricing: PublicCatalogPricing{
-			Currency:          "USD",
-			InputPer1KTokens:  perTokenTo1K(e.InputCostPerToken),
-			OutputPer1KTokens: perTokenTo1K(e.OutputCostPerToken),
-			CacheReadPer1K:    perTokenTo1K(e.CacheReadInputTokenCost),
-			CacheWritePer1K:   perTokenTo1K(e.CacheCreationInputTokenCost),
-		},
+		ModelID:         name,
+		Vendor:          e.LiteLLMProvider,
+		Pricing:         pricing,
 		ContextWindow:   e.MaxInputTokens,
 		MaxOutputTokens: e.MaxOutputTokens,
 		Capabilities:    catalogCapabilities(e),
+	}
+}
+
+func catalogMediaBillingMode(e *catalogRichEntry) string {
+	if e == nil {
+		return ""
+	}
+	hasTokenPrice := e.InputCostPerToken != nil || e.OutputCostPerToken != nil
+	pureMediaWithoutMode := e.Mode == "" && !hasTokenPrice
+	switch {
+	case e.OutputCostPerSecond != nil && *e.OutputCostPerSecond > 0 &&
+		(e.Mode == "video_generation" || pureMediaWithoutMode):
+		return "video"
+	case e.OutputCostPerImage != nil && *e.OutputCostPerImage > 0 &&
+		(e.Mode == "image_generation" || pureMediaWithoutMode):
+		return "image"
+	default:
+		return ""
 	}
 }
 

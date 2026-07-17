@@ -1,5 +1,4 @@
 <template>
-  <AppLayout>
     <TablePageLayout>
       <template #filters>
         <div class="flex flex-wrap items-center gap-3">
@@ -138,13 +137,11 @@
         </div>
       </div>
     </BaseDialog>
-  </AppLayout>
-</template>
+  </template>
 
 <script setup lang="ts">
 import { computed, defineComponent, h, onMounted, reactive, ref, type PropType } from 'vue'
 import { useI18n } from 'vue-i18n'
-import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -231,14 +228,6 @@ function loadInitialSortState(): { sort_by: string; sort_order: 'asc' | 'desc' }
 
 const sortState = reactive(loadInitialSortState())
 
-function userTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone
-  } catch {
-    return 'UTC'
-  }
-}
-
 function buildParams(): ListAffiliateRecordsParams {
   return {
     page: pagination.page,
@@ -248,7 +237,6 @@ function buildParams(): ListAffiliateRecordsParams {
     end_at: filters.end_at || undefined,
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order,
-    timezone: userTimezone(),
   }
 }
 

@@ -1,5 +1,4 @@
 <template>
-  <AppLayout>
     <TablePageLayout>
       <template #filters>
         <!-- Top Toolbar: Left (search + filters) / Right (actions) -->
@@ -404,6 +403,14 @@
                 <Icon name="ban" size="sm" />
                 <span class="text-xs">{{ t('admin.subscriptions.revoke') }}</span>
               </button>
+              <button
+                v-if="row.status === 'revoked'"
+                @click="handleRestore(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400"
+              >
+                <Icon name="refresh" size="sm" />
+                <span class="text-xs">{{ t('admin.subscriptions.restore') }}</span>
+              </button>
             </div>
           </template>
 
@@ -645,6 +652,17 @@
       @cancel="showRevokeDialog = false"
     />
 
+    <!-- Restore Confirmation Dialog -->
+    <ConfirmDialog
+      :show="showRestoreDialog"
+      :title="t('admin.subscriptions.restoreSubscription')"
+      :message="t('admin.subscriptions.restoreConfirm', { user: restoringSubscription?.user?.email })"
+      :confirm-text="t('admin.subscriptions.restore')"
+      :cancel-text="t('common.cancel')"
+      @confirm="confirmRestore"
+      @cancel="showRestoreDialog = false"
+    />
+
     <!-- Reset Quota Confirmation Dialog -->
     <ConfirmDialog
       :show="showResetQuotaConfirm"
@@ -734,8 +752,7 @@
         </div>
       </transition>
     </teleport>
-  </AppLayout>
-</template>
+  </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
@@ -748,7 +765,6 @@ import type { Column } from '@/components/common/types'
 import { formatDateOnly } from '@/utils/format'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { usePlatformOptions } from '@/composables/usePlatformOptions'
-import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -760,6 +776,7 @@ import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { getRemainingDurationParts, isOneTimeDailyQuota, type RemainingDurationParts } from '@/utils/subscriptionQuota'
+import { STATUS_ACTIVE } from '@/constants/channel'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -941,12 +958,14 @@ const pagination = reactive({
 const showAssignModal = ref(false)
 const showExtendModal = ref(false)
 const showRevokeDialog = ref(false)
+const showRestoreDialog = ref(false)
 const showResetQuotaConfirm = ref(false)
 const submitting = ref(false)
 const resettingSubscription = ref<UserSubscription | null>(null)
 const resettingQuota = ref(false)
 const extendingSubscription = ref<UserSubscription | null>(null)
 const revokingSubscription = ref<UserSubscription | null>(null)
+const restoringSubscription = ref<UserSubscription | null>(null)
 
 const assignForm = reactive({
   user_id: null as number | null,
@@ -975,7 +994,7 @@ const platformFilterOptions = optionsWithAll(() => t('admin.subscriptions.allPla
 // Group options for assign (only subscription type groups)
 const subscriptionGroupOptions = computed(() =>
   groups.value
-    .filter((g) => g.subscription_type === 'subscription' && g.status === 'active')
+    .filter((g) => g.subscription_type === 'subscription' && g.status === STATUS_ACTIVE)
     .map((g) => ({
       value: g.id,
       label: g.name,
@@ -1259,6 +1278,26 @@ const confirmRevoke = async () => {
   } catch (error: any) {
     appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToRevoke'))
     console.error('Error revoking subscription:', error)
+  }
+}
+
+const handleRestore = (subscription: UserSubscription) => {
+  restoringSubscription.value = subscription
+  showRestoreDialog.value = true
+}
+
+const confirmRestore = async () => {
+  if (!restoringSubscription.value) return
+
+  try {
+    await adminAPI.subscriptions.restore(restoringSubscription.value.id)
+    appStore.showSuccess(t('admin.subscriptions.subscriptionRestored'))
+    showRestoreDialog.value = false
+    restoringSubscription.value = null
+    loadSubscriptions()
+  } catch (error: any) {
+    appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToRestore'))
+    console.error('Error restoring subscription:', error)
   }
 }
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	newapitypes "github.com/QuantumNous/new-api/types"
+	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
@@ -76,7 +77,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 	origWriter := c.Writer
 	origPath := c.Request.URL.Path
 	c.Writer = captureWriter
-	c.Request.URL.Path = "/v1/chat/completions"
+	c.Request.URL.Path = apipath.ChatCompletions
 
 	var dispatchPanic any
 	var out *bridge.DispatchOutcome
@@ -125,7 +126,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 			message = "Bridge dispatch failed"
 		}
 		writeAnthropicError(c, statusCode, errType, message)
-		return nil, &NewAPIRelayError{Err: apiErr}
+		return nil, s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)
 	}
 
 	logger.L().Info("openai_gateway.newapi_bridge_anthropic_dispatch",
@@ -653,7 +654,9 @@ func convertBufferedChatCompletionsToAnthropicJSON(
 		Content: content, Model: originalModel,
 		StopReason: stopReason,
 		Usage: apicompat.AnthropicUsage{
-			InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
+			InputTokens:          usage.InputTokens,
+			OutputTokens:         usage.OutputTokens,
+			CacheReadInputTokens: usage.CacheReadInputTokens,
 		},
 	}
 	c.JSON(http.StatusOK, resp)

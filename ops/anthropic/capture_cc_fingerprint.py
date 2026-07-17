@@ -9,8 +9,9 @@ Subcommands:
   check   Same as diff but exits 1 when actionable mismatches exist.
   check-env  Verify cc0-here / claude0-here launchers and proxy stack are up.
   check-tls  Exit 1 when bundle TLS ja3 fields mismatch TokenKey baseline.
-  write-drift-spec  Write docs/spec-delta-cc-tls-drift-*.md from a drift bundle.
+  write-drift-spec  Write docs/spec-delta/cc-tls-drift-*.md from a drift bundle.
   bundle-from-artifacts  Build bundle JSON from TLS capture + HTTP log files.
+  tls-observed-from-pcap  Build tls-observed.json from a passive-pcap tshark TSV.
 
 HTTP betas are recorded as a full per-model-family distribution (not last-wins):
 cc is bimodal on Haiku — two beta sets alternate across requests in one session
@@ -23,6 +24,7 @@ stdlib-only except when invoked as __main__ with no network.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -36,12 +38,22 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 1
+EXIT_ALIGNED = 0
+EXIT_DRIFT = 1
+EXIT_ERROR = 2
+EXIT_INCOMPLETE = 3
+FIRST_PARTY_OAUTH = "first_party_oauth"
+THIRD_PARTY_TOKEN = "third_party_token"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _BETA_CONST_MAP: dict[str, str] | None = None
 CONSTANTS_GO = REPO_ROOT / "backend/internal/pkg/claude/constants.go"
 IDENTITY_CANONICAL_GO = REPO_ROOT / "backend/internal/service/identity_service_tk_canonical_http.go"
 IDENTITY_GO = REPO_ROOT / "backend/internal/service/identity_service.go"
 TLS_PROFILE_JSON = REPO_ROOT / "deploy/aws/stage0/tk_canonical_cc_oauth.json"
+# Single declared source for the CC system-prompt anchors (shared with the
+# guard scripts/sentinels/check-cc-system-prompt.py). Only the stable identity
+# anchors + billing prefix are tracked — the full prompt is dynamic.
+SYSTEM_PROMPT_REGISTRY = REPO_ROOT / "scripts/sentinels/cc-system-prompt.json"
 
 # Fields that block merge / require code fix when mismatched.
 CRITICAL_HTTP_FIELDS = frozenset(
@@ -50,8 +62,13 @@ CRITICAL_HTTP_FIELDS = frozenset(
         "mimic.cli_version",
         "mimic.stainless_package_version",
         "canonical.stainless_package_version",
+        "mimic.stainless_runtime_version",
+        "canonical.stainless_runtime_version",
         "betas.sonnet_mimicry",
         "betas.haiku_mimicry",
+        # Identity banner drift means spoofed clients no longer look like real
+        # CC to upstream Anthropic (client_validation_error 403). Hard fail.
+        "system.identity_anchor",
     }
 )
 
@@ -61,7 +78,7 @@ class DiffRow:
     field: str
     tokenkey: str
     captured: str
-    status: str  # match | mismatch | missing_capture | missing_tokenkey
+    status: str  # match | mismatch | missing_capture | not_observed | invalid_evidence
     critical: bool
     note: str = ""
 
@@ -134,6 +151,68 @@ def _ua_version(ua: str) -> str:
     return m.group(1) if m else ""
 
 
+def classify_capture_config(
+    config_dir: Path,
+    *,
+    auth_status: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Classify the HTTP evidence cohort without exposing credential values."""
+    base_url = "https://api.anthropic.com"
+    settings_path = config_dir / "settings.json"
+    if settings_path.is_file():
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        env = settings.get("env") or {}
+        for key in ("ANTHROPIC_BASE_URL", "CLAUDE_CODE_API_BASE_URL"):
+            raw = str(env.get(key) or "").strip()
+            if raw:
+                base_url = raw
+                break
+
+    from urllib.parse import urlparse
+
+    parsed = urlparse(base_url)
+    host = (parsed.hostname or "api.anthropic.com").lower()
+    status = auth_status or {}
+    auth_method = str(status.get("authMethod") or "")
+    api_provider = str(status.get("apiProvider") or "")
+    logged_in = bool(status.get("loggedIn"))
+
+    if host != "api.anthropic.com":
+        cohort = THIRD_PARTY_TOKEN
+    elif logged_in and auth_method == "oauth_token" and api_provider == "firstParty":
+        cohort = FIRST_PARTY_OAUTH
+    elif logged_in:
+        cohort = "first_party_non_oauth"
+    else:
+        cohort = "unknown"
+
+    return {
+        "auth_route": cohort,
+        "base_url": f"{parsed.scheme or 'https'}://{parsed.netloc or host}",
+        "base_host": host,
+        "logged_in": logged_in,
+        "auth_method": auth_method,
+        "api_provider": api_provider,
+    }
+
+
+def _load_system_prompt_anchors(repo_root: Path | None = None) -> dict[str, Any]:
+    """Read the canonical CC system-prompt anchors from the sentinel registry.
+
+    Returns ``{"identity_prefixes": [...], "billing_prefix": "..."}``. The same
+    file is the source of truth for the Go-copy guard, so the capture diff and
+    the guard can never disagree on what "canonical" means.
+    """
+    root = repo_root or REPO_ROOT
+    path = root / SYSTEM_PROMPT_REGISTRY.relative_to(REPO_ROOT)
+    data = json.loads(_read_text(path))
+    anchors = data.get("capture_anchors") or {}
+    return {
+        "identity_prefixes": list(anchors.get("identity_prefixes") or []),
+        "billing_prefix": str(anchors.get("billing_prefix") or ""),
+    }
+
+
 def load_tokenkey_baseline(repo_root: Path | None = None) -> dict[str, Any]:
     root = repo_root or REPO_ROOT
     constants_src = _read_text(root / CONSTANTS_GO.relative_to(REPO_ROOT))
@@ -153,7 +232,7 @@ def load_tokenkey_baseline(repo_root: Path | None = None) -> dict[str, Any]:
         },
         "canonical_http": {
             "default_version": _extract_const(canonical_src, "DefaultClaudeCodeUserAgentVersion"),
-            "user_agent_shape": "claude-cli/<version> (external, sdk-cli)",
+            "user_agent_shape": "claude-cli/<version> (external, cli)",
             "stainless_package_version": _extract_go_string_var(
                 canonical_src, "StainlessPackageVersion"
             ),
@@ -169,6 +248,9 @@ def load_tokenkey_baseline(repo_root: Path | None = None) -> dict[str, Any]:
             "stainless_package_version": _extract_map_string(
                 constants_src, "X-Stainless-Package-Version"
             ),
+            "stainless_runtime_version": _extract_map_string(
+                constants_src, "X-Stainless-Runtime-Version"
+            ),
             "stainless_os": _extract_map_string(constants_src, "X-Stainless-OS"),
         },
         "mimic_default_fingerprint": {
@@ -181,6 +263,7 @@ def load_tokenkey_baseline(repo_root: Path | None = None) -> dict[str, Any]:
             "sonnet_mimicry": _resolve_betas(constants_src, "FullClaudeCodeMimicryBetas"),
             "haiku_mimicry": _resolve_betas(constants_src, "FullClaudeCodeHaikuMimicryBetas"),
         },
+        "system": _load_system_prompt_anchors(root),
     }
 
 
@@ -291,6 +374,29 @@ def load_http_records(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+INTERACTIVE_UA_SUFFIX = " (external, cli)"
+REPL_IDENTITY_BANNER = "You are Claude Code, Anthropic's official CLI for Claude"
+
+
+def validate_interactive_http_log(path: Path) -> dict[str, Any]:
+    """Validate mitm log from interactive REPL capture (prod-dominant cli cohort)."""
+    records = load_http_records(path)
+    if not records:
+        raise ValueError("empty interactive HTTP log")
+    uas = {rec.get("user_agent", "") for rec in records}
+    bad_uas = sorted(u for u in uas if INTERACTIVE_UA_SUFFIX not in u)
+    if bad_uas:
+        raise ValueError(f"expected UA suffix {INTERACTIVE_UA_SUFFIX!r}, got: {bad_uas}")
+    has_banner = any(
+        REPL_IDENTITY_BANNER in (anchor.get("text_head") or "")
+        for rec in records
+        for anchor in (rec.get("system_anchors") or [])
+    )
+    if not has_banner:
+        raise ValueError("missing Claude Code REPL identity banner in system_anchors")
+    return {"request_count": len(records), "user_agent": next(iter(uas))}
+
+
 def load_http_log(path: Path) -> dict[str, dict[str, Any]]:
     """Dominant-variant representative record per model family.
 
@@ -304,23 +410,70 @@ def load_http_log(path: Path) -> dict[str, dict[str, Any]]:
     return {variant: _dominant_record(v) for variant, v in dist.items()}
 
 
+def aggregate_system_anchors(records: list[dict[str, Any]]) -> list[str]:
+    """Union of every observed system-block head across all HTTP records.
+
+    Different CC requests carry different system blocks (main response vs
+    background tasks, billing block vs identity banner), so collect the
+    deduped set of ``text_head`` strings — order-preserving for determinism.
+    """
+    seen: dict[str, None] = {}
+    for rec in records:
+        for anchor in rec.get("system_anchors") or []:
+            if isinstance(anchor, dict):
+                head = str(anchor.get("text_head") or "").strip()
+                if head:
+                    seen.setdefault(head, None)
+    return list(seen.keys())
+
+
 def bundle_from_artifacts(
     *,
     cc_version: str,
     tls_observed: dict[str, Any],
     http_by_variant: dict[str, dict[str, Any]] | None = None,
     http_variants: dict[str, dict[str, Any]] | None = None,
+    system_anchors: list[str] | None = None,
     collector_url: str = "",
+    http_cohort: str = "",
 ) -> dict[str, Any]:
+    artifact_tls_source = str(tls_observed.get("source") or "")
+    tls_source = artifact_tls_source or collector_url or "unknown"
+    if artifact_tls_source == "baseline_stub_http_only":
+        tls_observed_on_wire = False
+        tls_evidence_valid = True
+    elif artifact_tls_source.startswith("passive-pcap"):
+        tls_observed_on_wire = True
+        tls_evidence_valid = True
+    elif not artifact_tls_source and collector_url:
+        tls_observed_on_wire = True
+        tls_evidence_valid = True
+    else:
+        tls_observed_on_wire = False
+        tls_evidence_valid = False
+    http_present = bool(http_by_variant or http_variants or system_anchors)
     return {
         "schema_version": SCHEMA_VERSION,
         "captured_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "cc_version": cc_version,
         "collector": collector_url,
+        "evidence": {
+            "tls": {
+                "source": tls_source,
+                "observed": tls_observed_on_wire,
+                "valid": tls_evidence_valid,
+            },
+            "http": {
+                "source": "mitm" if http_present else "none",
+                "observed": http_present,
+                "cohort": http_cohort or ("legacy_unknown" if http_present else "none"),
+            },
+        },
         "tls": {
             "ja3_hash": tls_observed.get("ja3_hash", ""),
             "ja3_raw": tls_observed.get("ja3_raw", ""),
             "user_agent": tls_observed.get("user_agent", ""),
+            "source": tls_source,
             "stainless_package_version": tls_observed.get(
                 "stainless_package_version", ""
             ),
@@ -330,6 +483,9 @@ def bundle_from_artifacts(
         # per-family beta distribution so bimodal fields stay visible (#429).
         "http": http_by_variant or {},
         "http_variants": http_variants or {},
+        # Deduped heads of every observed system block (identity banner + billing
+        # block). Optional — TLS-only bundles omit it; the diff then SKIPs.
+        "system": {"anchors": list(system_anchors or [])},
     }
 
 
@@ -351,18 +507,50 @@ def diff_baseline_vs_capture(
 
     cap_tls = capture.get("tls") or {}
     base_tls = baseline.get("tls") or {}
+    evidence = capture.get("evidence") or {}
+    tls_evidence = evidence.get("tls") or {}
+    explicit_tls_evidence = "tls" in evidence
+    tls_source = str(
+        tls_evidence.get("source") or cap_tls.get("source") or capture.get("collector") or ""
+    )
+    tls_was_observed = bool(tls_evidence.get("observed", True))
+    tls_evidence_valid = bool(tls_evidence.get("valid", True))
+    if tls_source == "baseline_stub_http_only":
+        tls_was_observed = False
     for key in ("ja3_hash", "ja3_raw"):
         tk = str(base_tls.get(key) or "")
         cap = str(cap_tls.get(key) or "")
-        if not cap:
+        if explicit_tls_evidence and not tls_evidence_valid:
             rows.append(
                 DiffRow(
                     f"tls.{key}",
                     tk,
                     cap,
-                    "missing_capture",
-                    critical=False,
-                    note="Run TLS collector capture",
+                    "invalid_evidence",
+                    critical=True,
+                    note=f"Unsupported TLS evidence source {tls_source or 'unknown'}; use collector or passive pcap",
+                )
+            )
+        elif not tls_was_observed:
+            rows.append(
+                DiffRow(
+                    f"tls.{key}",
+                    tk,
+                    cap,
+                    "not_observed",
+                    critical=True,
+                    note=f"TLS value came from {tls_source or 'a non-wire source'}; run collector or passive pcap",
+                )
+            )
+        elif not cap:
+            rows.append(
+                DiffRow(
+                    f"tls.{key}",
+                    tk,
+                    cap,
+                    "invalid_evidence" if explicit_tls_evidence else "missing_capture",
+                    critical=True,
+                    note="Observed TLS evidence is missing a required JA3 field",
                 )
             )
         elif tk == cap:
@@ -382,12 +570,17 @@ def diff_baseline_vs_capture(
     cap_cc = capture.get("cc_version") or _ua_version(cap_tls.get("user_agent", ""))
     canon_ver = baseline["canonical_http"]["default_version"]
     mimic_ver = baseline["mimic_http"]["cli_version"]
+    version_status = "match" if canon_ver == cap_cc else "mismatch"
+    mimic_version_status = "match" if mimic_ver == cap_cc else "mismatch"
+    if not cap_cc:
+        version_status = "invalid_evidence"
+        mimic_version_status = "invalid_evidence"
     rows.append(
         DiffRow(
             "canonical.user_agent_version",
             canon_ver,
             cap_cc,
-            "match" if canon_ver == cap_cc else "mismatch",
+            version_status,
             critical="canonical.user_agent_version" in CRITICAL_HTTP_FIELDS,
         )
     )
@@ -396,7 +589,7 @@ def diff_baseline_vs_capture(
             "mimic.cli_version",
             mimic_ver,
             cap_cc,
-            "match" if mimic_ver == cap_cc else "mismatch",
+            mimic_version_status,
             critical="mimic.cli_version" in CRITICAL_HTTP_FIELDS,
         )
     )
@@ -410,12 +603,23 @@ def diff_baseline_vs_capture(
     )
     canon_stainless = baseline["canonical_http"]["stainless_package_version"]
     mimic_stainless = baseline["mimic_http"]["stainless_package_version"]
+    http_evidence = evidence.get("http") or {}
+    stainless_status = "match" if canon_stainless == cap_stainless else "mismatch"
+    mimic_stainless_status = "match" if mimic_stainless == cap_stainless else "mismatch"
+    if not cap_stainless:
+        missing_status = (
+            "invalid_evidence"
+            if bool(http_evidence.get("observed"))
+            else "missing_capture"
+        )
+        stainless_status = missing_status
+        mimic_stainless_status = missing_status
     rows.append(
         DiffRow(
             "canonical.stainless_package_version",
             canon_stainless,
             cap_stainless,
-            "match" if canon_stainless == cap_stainless else "mismatch",
+            stainless_status,
             critical="canonical.stainless_package_version" in CRITICAL_HTTP_FIELDS,
         )
     )
@@ -424,19 +628,106 @@ def diff_baseline_vs_capture(
             "mimic.stainless_package_version",
             mimic_stainless,
             cap_stainless,
-            "match" if mimic_stainless == cap_stainless else "mismatch",
+            mimic_stainless_status,
             critical="mimic.stainless_package_version" in CRITICAL_HTTP_FIELDS,
         )
     )
 
+    def _cap_stainless_header(field: str) -> str:
+        http = capture.get("http") or {}
+        for variant in ("haiku", "sonnet", "opus"):
+            rec = http.get(variant) or {}
+            xs = rec.get("x_stainless") or {}
+            if isinstance(xs, dict):
+                val = str(xs.get(field) or "").strip()
+                if val:
+                    return val
+        return ""
+
+    cap_runtime = _cap_stainless_header("X-Stainless-Runtime-Version")
+    canon_runtime = baseline["canonical_http"]["stainless_runtime_version"]
+    mimic_runtime = baseline["mimic_http"]["stainless_runtime_version"]
+    if not cap_runtime:
+        rows.append(
+            DiffRow(
+                "canonical.stainless_runtime_version",
+                canon_runtime,
+                "",
+                "missing_capture",
+                critical="canonical.stainless_runtime_version" in CRITICAL_HTTP_FIELDS,
+                note="Run HTTP mitm capture with --http for runtime version",
+            )
+        )
+        rows.append(
+            DiffRow(
+                "mimic.stainless_runtime_version",
+                mimic_runtime,
+                "",
+                "missing_capture",
+                critical="mimic.stainless_runtime_version" in CRITICAL_HTTP_FIELDS,
+                note="Run HTTP mitm capture with --http for runtime version",
+            )
+        )
+    else:
+        rows.append(
+            DiffRow(
+                "canonical.stainless_runtime_version",
+                canon_runtime,
+                cap_runtime,
+                "match" if canon_runtime == cap_runtime else "mismatch",
+                critical="canonical.stainless_runtime_version" in CRITICAL_HTTP_FIELDS,
+            )
+        )
+        rows.append(
+            DiffRow(
+                "mimic.stainless_runtime_version",
+                mimic_runtime,
+                cap_runtime,
+                "match" if mimic_runtime == cap_runtime else "mismatch",
+                critical="mimic.stainless_runtime_version" in CRITICAL_HTTP_FIELDS,
+            )
+        )
+
     http = capture.get("http") or {}
     variants = capture.get("http_variants") or {}
+    explicit_http_evidence = "http" in evidence
+    http_cohort = str(http_evidence.get("cohort") or "")
     for variant, beta_key in (("haiku", "haiku_mimicry"), ("sonnet", "sonnet_mimicry")):
         rec = http.get(variant)
         dist = variants.get(variant) or {}
         unique = dist.get("unique") or []
         tk_betas = baseline["betas"][beta_key]
         is_critical = f"betas.{beta_key}" in CRITICAL_HTTP_FIELDS
+
+        if explicit_http_evidence and http_cohort in {
+            THIRD_PARTY_TOKEN,
+            "first_party_non_oauth",
+        }:
+            rows.append(
+                DiffRow(
+                    f"betas.{beta_key}",
+                    ",".join(tk_betas),
+                    f"cohort={http_cohort}",
+                    "not_observed",
+                    critical=is_critical,
+                    note="OAuth beta baseline is comparable only to first_party_oauth traffic",
+                )
+            )
+            continue
+        if explicit_http_evidence and bool(http_evidence.get("observed")) and http_cohort not in {
+            FIRST_PARTY_OAUTH,
+        }:
+            rows.append(
+                DiffRow(
+                    f"betas.{beta_key}",
+                    ",".join(tk_betas),
+                    f"cohort={http_cohort or 'missing'}",
+                    "invalid_evidence",
+                    critical=is_critical,
+                    note="HTTP evidence must declare a recognized cohort before beta comparison",
+                )
+            )
+            continue
 
         # Resolve the observed beta-set distribution. Prefer the full per-family
         # distribution (http_variants); fall back to the single representative
@@ -516,6 +807,82 @@ def diff_baseline_vs_capture(
                 )
             )
 
+    rows.extend(_system_prompt_rows(baseline, capture))
+    return rows
+
+
+def _system_prompt_rows(
+    baseline: dict[str, Any], capture: dict[str, Any]
+) -> list[DiffRow]:
+    """System-prompt anchor rows: identity banner (hard) + billing prefix (soft).
+
+    Only the stable anchors are compared (prefix/substring match) — the full CC
+    system prompt is dynamic (cwd/git/date/env) and is never byte-aligned.
+    """
+    base_system = baseline.get("system") or {}
+    identity_prefixes = [p for p in (base_system.get("identity_prefixes") or []) if p]
+    billing_prefix = str(base_system.get("billing_prefix") or "")
+    cap_anchors = [
+        str(a) for a in ((capture.get("system") or {}).get("anchors") or []) if a
+    ]
+
+    rows: list[DiffRow] = []
+    tk_identity = " | ".join(identity_prefixes)
+
+    if not cap_anchors:
+        rows.append(
+            DiffRow(
+                "system.identity_anchor",
+                tk_identity,
+                "",
+                "missing_capture",
+                critical="system.identity_anchor" in CRITICAL_HTTP_FIELDS,
+                note="Run HTTP mitm capture with --http (no system blocks recorded)",
+            )
+        )
+        return rows
+
+    matched_head = next(
+        (h for h in cap_anchors for p in identity_prefixes if h.startswith(p)),
+        "",
+    )
+    rows.append(
+        DiffRow(
+            "system.identity_anchor",
+            tk_identity,
+            matched_head or " | ".join(cap_anchors),
+            "match" if matched_head else "mismatch",
+            critical="system.identity_anchor" in CRITICAL_HTTP_FIELDS,
+            note=(
+                ""
+                if matched_head
+                else "No captured system block matches any canonical CC identity "
+                "anchor — real CC banner drifted. Update "
+                "scripts/sentinels/cc-system-prompt.json + the Go copies with "
+                "capture evidence (docs/spec-delta/cc-system-prompt.md)."
+            ),
+        )
+    )
+
+    billing_present = bool(billing_prefix) and any(
+        billing_prefix in h for h in cap_anchors
+    )
+    rows.append(
+        DiffRow(
+            "system.billing_prefix",
+            billing_prefix,
+            "present" if billing_present else "absent",
+            "match" if billing_present else "needs_investigation",
+            critical=False,
+            note=(
+                ""
+                if billing_present
+                else "Billing-attribution block prefix not seen in this capture. "
+                "Expected for count_tokens / some sub-requests; INVESTIGATE only "
+                "if missing from a normal /v1/messages call."
+            ),
+        )
+    )
     return rows
 
 
@@ -525,12 +892,15 @@ def format_diff_report(rows: list[DiffRow], *, capture_path: str = "") -> str:
         lines.append(f"capture: {capture_path}")
     mismatches = [r for r in rows if r.status == "mismatch" and r.critical]
     missing = [r for r in rows if r.status == "missing_capture" and r.critical]
+    not_observed = [r for r in rows if r.status == "not_observed" and r.critical]
+    invalid = [r for r in rows if r.status == "invalid_evidence" and r.critical]
     investigate = [r for r in rows if r.status == "needs_investigation"]
     matches = [r for r in rows if r.status == "match"]
 
     lines.append(
         f"match={len(matches)} mismatch={len(mismatches)} "
-        f"needs_investigation={len(investigate)} missing_capture={len(missing)}"
+        f"needs_investigation={len(investigate)} missing_capture={len(missing)} "
+        f"not_observed={len(not_observed)} invalid_evidence={len(invalid)}"
     )
     lines.append("")
     for r in rows:
@@ -539,10 +909,14 @@ def format_diff_report(rows: list[DiffRow], *, capture_path: str = "") -> str:
             "mismatch": "FAIL",
             "needs_investigation": "INVESTIGATE",
             "missing_capture": "SKIP",
+            "not_observed": "NOT_OBSERVED",
+            "invalid_evidence": "INVALID_EVIDENCE",
         }.get(r.status, r.status)
         crit = (
             " [critical]"
-            if r.critical and r.status in ("mismatch", "missing_capture")
+            if r.critical
+            and r.status
+            in ("mismatch", "missing_capture", "not_observed", "invalid_evidence")
             else ""
         )
         lines.append(f"{flag}{crit} {r.field}")
@@ -551,7 +925,8 @@ def format_diff_report(rows: list[DiffRow], *, capture_path: str = "") -> str:
             lines.append(f"  captured: {r.captured[:200]}")
             if r.note:
                 lines.append(f"  note: {r.note}")
-    if investigate:
+    beta_investigate = [r for r in investigate if r.field.startswith("betas.")]
+    if beta_investigate:
         lines.append("")
         lines.append(
             "note: bimodal beta field(s) observed — NOT a hard mismatch (exit 0)."
@@ -567,7 +942,7 @@ def format_diff_report(rows: list[DiffRow], *, capture_path: str = "") -> str:
         lines.append("")
         lines.append("action: update backend/internal/pkg/claude/constants.go,")
         lines.append("  identity_service*.go, gateway_service.go mimic path; add constants_test;")
-        lines.append("  run preflight; open docs/spec-delta-cc-<patch>.md PR.")
+        lines.append("  run preflight; open docs/spec-delta/cc-<patch>.md PR.")
     tls_mismatch = any(r.field.startswith("tls.") and r.status == "mismatch" for r in rows)
     if tls_mismatch:
         lines.append("")
@@ -584,6 +959,26 @@ def has_actionable_mismatch(rows: list[DiffRow]) -> bool:
 
 def has_needs_investigation(rows: list[DiffRow]) -> bool:
     return any(r.status == "needs_investigation" for r in rows)
+
+
+def has_invalid_evidence(rows: list[DiffRow]) -> bool:
+    return any(r.status == "invalid_evidence" and r.critical for r in rows)
+
+
+def has_incomplete_coverage(rows: list[DiffRow]) -> bool:
+    return any(
+        r.status in {"missing_capture", "not_observed"} and r.critical for r in rows
+    )
+
+
+def diff_exit_code(rows: list[DiffRow]) -> int:
+    if has_invalid_evidence(rows):
+        return EXIT_ERROR
+    if has_actionable_mismatch(rows):
+        return EXIT_DRIFT
+    if has_incomplete_coverage(rows):
+        return EXIT_INCOMPLETE
+    return EXIT_ALIGNED
 
 
 def has_tls_mismatch(rows: list[DiffRow]) -> bool:
@@ -688,8 +1083,11 @@ def run_check_env(
     gost_host = os.environ.get("CC0_GOST_HTTP_HOST", "127.0.0.1")
     gost_port = int(os.environ.get("CC0_GOST_HTTP_PORT", "11800"))
     # Fallback only — the operator's ~/.config/cc0/env CC0_EXPECT_EGRESS_IP wins.
-    # Current canonical cc0 SOCKS-chain egress (see docs/spec-delta-cc-2.1.16x.md).
-    expect_ip = os.environ.get("CC0_EXPECT_EGRESS_IP", "16.147.170.3")
+    # Current canonical cc0 SOCKS-chain egress (see docs/spec-delta/cc-2.1.16x.md).
+    # 16.147.170.3 (retired EC2 us1 EIP) was decommissioned 2026-06-07; egress moved to
+    # edge-ls-us-oh-3 (StaticIp-oh-3). Its public IP rotated 52.15.35.197 → 3.148.79.145
+    # on 2026-06-08 (old IP was an ephemeral AWS re-adopted to *.coverahealth.com).
+    expect_ip = os.environ.get("CC0_EXPECT_EGRESS_IP", "3.148.79.145")
     try:
         socks_host, socks_port = _parse_host_port(socks, default_host="127.0.0.1")
     except ValueError as exc:
@@ -800,7 +1198,7 @@ def write_tls_drift_spec(
     report = format_diff_report(rows, capture_path=str(bundle_path))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
     cc_ver = bundle.get("cc_version") or "unknown"
-    out = out_path or (repo_root / f"docs/spec-delta-cc-tls-drift-{stamp}.md")
+    out = out_path or (repo_root / f"docs/spec-delta/cc-tls-drift-{stamp}.md")
     cap_tls = bundle.get("tls") or {}
     body = "\n".join(
         [
@@ -877,6 +1275,7 @@ def cmd_check_tls(args: argparse.Namespace) -> int:
             json.dumps(
                 {
                     "tls_mismatch": has_tls_mismatch(rows),
+                    "exit_code": diff_exit_code(tls_rows),
                     "rows": [
                         {
                             "field": r.field,
@@ -893,7 +1292,7 @@ def cmd_check_tls(args: argparse.Namespace) -> int:
         )
     else:
         print(format_diff_report(rows, capture_path=str(args.bundle)))
-    return 1 if has_tls_mismatch(rows) else 0
+    return diff_exit_code([r for r in rows if r.field.startswith("tls.")])
 
 
 def cmd_write_drift_spec(args: argparse.Namespace) -> int:
@@ -917,9 +1316,7 @@ def cmd_diff(args: argparse.Namespace) -> int:
     bundle = load_capture_bundle(Path(args.bundle))
     rows = diff_baseline_vs_capture(baseline, bundle)
     print(format_diff_report(rows, capture_path=str(args.bundle)))
-    if args.check and has_actionable_mismatch(rows):
-        return 1
-    return 0
+    return diff_exit_code(rows) if args.check else EXIT_ALIGNED
 
 
 def cmd_bundle_from_artifacts(args: argparse.Namespace) -> int:
@@ -930,21 +1327,104 @@ def cmd_bundle_from_artifacts(args: argparse.Namespace) -> int:
         observed = (tls_data.get("fingerprints") or [None])[0] or observed
     http_by_variant: dict[str, dict[str, Any]] = {}
     http_variants: dict[str, dict[str, Any]] = {}
+    system_anchors: list[str] = []
     if args.http_log:
-        dist = aggregate_http_records(load_http_records(Path(args.http_log)))
+        records = load_http_records(Path(args.http_log))
+        dist = aggregate_http_records(records)
         http_by_variant = {v: _dominant_record(d) for v, d in dist.items()}
         http_variants = serialize_http_variants(dist)
+        system_anchors = aggregate_system_anchors(records)
     bundle = bundle_from_artifacts(
         cc_version=args.cc_version or _ua_version(observed.get("user_agent", "")),
         tls_observed=observed,
         http_by_variant=http_by_variant,
         http_variants=http_variants,
+        system_anchors=system_anchors,
         collector_url=args.collector or "",
+        http_cohort=args.http_cohort or "",
     )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(bundle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(out)
+    return 0
+
+
+def cmd_classify_config(args: argparse.Namespace) -> int:
+    config_dir = Path(args.config_dir).expanduser()
+    auth_status: dict[str, Any] = {}
+    env = os.environ.copy()
+    env["CLAUDE_CONFIG_DIR"] = str(config_dir)
+    try:
+        proc = subprocess.run(
+            [args.claude_bin, "auth", "status"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+            env=env,
+        )
+        if proc.returncode == 0:
+            parsed = json.loads(proc.stdout)
+            if isinstance(parsed, dict):
+                auth_status = parsed
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        auth_status = {}
+    payload = classify_capture_config(config_dir, auth_status=auth_status)
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return EXIT_ALIGNED if payload["auth_route"] != "unknown" else EXIT_INCOMPLETE
+
+
+def _load_kiro_ja3_engine() -> Any:
+    """Reuse the Kiro engine's tshark/JA3 helpers (same wire format, no network)."""
+    kiro_py = REPO_ROOT / "ops/kiro/capture_kiro_fingerprint.py"
+    spec = importlib.util.spec_from_file_location("capture_kiro_fingerprint", kiro_py)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load kiro JA3 engine from {kiro_py}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def tls_observed_from_tshark_tsv(
+    tsv_text: str,
+    *,
+    cc_version: str = "",
+    source: str = "passive-pcap",
+) -> dict[str, Any]:
+    """Parse one ClientHello row and return collector-shaped tls-observed JSON."""
+    kiro = _load_kiro_ja3_engine()
+    fields = kiro.parse_tshark_tsv(tsv_text)
+    ja3_raw, ja3_hash = kiro.compute_ja3(
+        fields["version"],
+        fields["ciphers"],
+        fields["extensions"],
+        fields["curves"],
+        fields["point_formats"],
+    )
+    ua = f"claude-cli/{cc_version} (external, cli)" if cc_version else ""
+    return {
+        "ja3_hash": ja3_hash,
+        "ja3_raw": ja3_raw,
+        "user_agent": ua,
+        "server_name": fields.get("server_name", ""),
+        "source": source,
+    }
+
+
+def cmd_tls_observed_from_pcap(args: argparse.Namespace) -> int:
+    tsv_text = Path(args.tshark_tsv).read_text(encoding="utf-8")
+    observed = tls_observed_from_tshark_tsv(
+        tsv_text,
+        cc_version=args.cc_version or "",
+        source=args.source or "passive-pcap",
+    )
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(observed, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(out)
+    print(f"ja3_hash={observed['ja3_hash']}")
     return 0
 
 
@@ -964,7 +1444,7 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument(
         "--check",
         action="store_true",
-        help="Exit 1 when critical mismatches exist",
+        help="Exit 1 on drift, 2 on invalid evidence, 3 on incomplete coverage",
     )
     diff.set_defaults(func=cmd_diff)
 
@@ -992,7 +1472,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     tls = sub.add_parser(
         "check-tls",
-        help="Exit 1 when bundle TLS ja3 mismatches TokenKey baseline",
+        help="Gate TLS evidence: 0 aligned, 1 drift, 2 invalid, 3 not observed",
     )
     tls.add_argument("--bundle", required=True)
     tls.add_argument("--repo-root", default="")
@@ -1001,7 +1481,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     drift = sub.add_parser(
         "write-drift-spec",
-        help="Write docs/spec-delta-cc-tls-drift-*.md from capture bundle",
+        help="Write docs/spec-delta/cc-tls-drift-*.md from capture bundle",
     )
     drift.add_argument("--bundle", required=True)
     drift.add_argument("--repo-root", default="")
@@ -1016,8 +1496,31 @@ def build_parser() -> argparse.ArgumentParser:
     bfa.add_argument("--http-log", default="")
     bfa.add_argument("--cc-version", default="")
     bfa.add_argument("--collector", default="")
+    bfa.add_argument(
+        "--http-cohort",
+        choices=(FIRST_PARTY_OAUTH, THIRD_PARTY_TOKEN, "first_party_non_oauth"),
+        default="",
+    )
     bfa.add_argument("--out", required=True)
     bfa.set_defaults(func=cmd_bundle_from_artifacts)
+
+    classify = sub.add_parser(
+        "classify-config",
+        help="Classify capture auth route/base URL without printing credentials",
+    )
+    classify.add_argument("--config-dir", required=True)
+    classify.add_argument("--claude-bin", required=True)
+    classify.set_defaults(func=cmd_classify_config)
+
+    pcap = sub.add_parser(
+        "tls-observed-from-pcap",
+        help="Build tls-observed.json from passive-pcap tshark TSV (JA3 ground truth)",
+    )
+    pcap.add_argument("--tshark-tsv", required=True)
+    pcap.add_argument("--out", required=True)
+    pcap.add_argument("--cc-version", default="")
+    pcap.add_argument("--source", default="passive-pcap")
+    pcap.set_defaults(func=cmd_tls_observed_from_pcap)
 
     show = sub.add_parser("show-baseline", help="Print TokenKey baseline JSON")
     show.set_defaults(func=cmd_show_baseline)

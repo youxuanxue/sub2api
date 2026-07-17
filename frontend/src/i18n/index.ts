@@ -67,6 +67,16 @@ export async function loadLocaleMessages(locale: LocaleCode): Promise<void> {
   const loader = localeLoaders[locale]
   const module = await loader()
   i18n.global.setLocaleMessage(locale, module.default)
+  // TK: deep-merge TokenKey-only home/landing strings over the upstream locale.
+  // Keeps locales/{en,zh}.ts near-upstream and merge-safe (CLAUDE.md §5).
+  const tkHome = await import('./tk/home.tk')
+  i18n.global.mergeLocaleMessage(locale, tkHome.default[locale] ?? {})
+  // TK: Invite-to-Trial admin strings (admin.users.inviteTrial.*).
+  const tkInviteTrial = await import('./tk/inviteTrial.tk')
+  i18n.global.mergeLocaleMessage(locale, tkInviteTrial.default[locale] ?? {})
+  // TK: legacy single-file locale keys not present in upstream split modules.
+  const tkLegacyMissing = await import('./tk/legacyMissing.tk')
+  i18n.global.mergeLocaleMessage(locale, tkLegacyMissing.default[locale] ?? {})
   loadedLocales.add(locale)
 }
 
@@ -88,12 +98,20 @@ export async function setLocale(locale: string): Promise<void> {
   document.documentElement.setAttribute('lang', locale)
 
   // 同步更新浏览器页签标题，使其跟随语言切换
-  const { resolveDocumentTitle } = await import('@/router/title')
+  const { resolveRouteDocumentTitle } = await import('@/router/title')
   const { default: router } = await import('@/router')
   const { useAppStore } = await import('@/stores/app')
+  const { useAuthStore } = await import('@/stores/auth')
+  const { useAdminSettingsStore } = await import('@/stores/adminSettings')
   const route = router.currentRoute.value
   const appStore = useAppStore()
-  document.title = resolveDocumentTitle(route.meta.title, appStore.siteName, route.meta.titleKey as string)
+  const authStore = useAuthStore()
+  const adminSettingsStore = useAdminSettingsStore()
+  const customMenuItems = [
+    ...(appStore.cachedPublicSettings?.custom_menu_items ?? []),
+    ...(authStore.isAdmin ? adminSettingsStore.customMenuItems : []),
+  ]
+  document.title = resolveRouteDocumentTitle(route, appStore.siteName, customMenuItems)
 }
 
 export function getLocale(): LocaleCode {

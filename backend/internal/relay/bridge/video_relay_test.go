@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -126,6 +127,28 @@ func TestDispatchVideoSubmit_RejectsEmptyPublicTaskID(t *testing.T) {
 	}
 }
 
+// TestDispatchVideoSubmit_RejectsEmptyUpstreamTaskID locks in the bridge's single-point
+// guard: DispatchVideoSubmit is the only producer of TaskSubmitOutcome, and a 200
+// upstream response carrying an empty task id must surface as an error — never as a
+// success outcome the handler would persist (the fetch path would then 404 forever
+// while the user was already billed at submit).
+func TestDispatchVideoSubmit_RejectsEmptyUpstreamTaskID(t *testing.T) {
+	upstream := &fakeUpstreamHandler{upstreamTaskID: ""}
+	srv := httptest.NewServer(upstream)
+	defer srv.Close()
+
+	body := mustJSON(t, map[string]any{"model": "doubao-seedance-1-0-pro-250528", "prompt": "x"})
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	in := ChannelContextInput{ChannelType: newapiconstant.ChannelTypeVolcEngine, ChannelID: 42, BaseURL: srv.URL, APIKey: "k", UserID: 7}
+	out, apiErr := DispatchVideoSubmit(context.Background(), c, in, "vt_test_empty", body)
+	if apiErr == nil {
+		t.Fatalf("expected error for empty upstream task id, got success outcome %+v", out)
+	}
+}
+
 // TestDispatchVideoSubmit_RejectsUnknownChannelType asserts that the bridge
 // returns a typed error rather than nil when no task adaptor is registered.
 // This protects the gateway from silently 5xx-ing if an admin assigns
@@ -196,6 +219,37 @@ func TestDispatchVideoFetch_VolcEngine_OK(t *testing.T) {
 	if !bytes.Contains(out.RawResponse, []byte("https://cdn.example.com/video.mp4")) {
 		t.Fatalf("raw response missing video url, got %q", out.RawResponse)
 	}
+}
+
+func TestReadVideoFetchResponseBody_LimitsInlineMedia(t *testing.T) {
+	body, err := readVideoFetchResponseBody(bytes.NewReader([]byte("ok")))
+	if err != nil {
+		t.Fatalf("within limit returned error: %v", err)
+	}
+	if string(body) != "ok" {
+		t.Fatalf("body=%q want ok", body)
+	}
+
+	tooLarge := io.LimitReader(&zeroReader{}, 4)
+	body, err = readVideoFetchResponseBodyLimited(tooLarge, 3)
+	if err == nil {
+		t.Fatal("expected oversized response error")
+	}
+	if body != nil {
+		t.Fatalf("oversized body should be nil, got %d bytes", len(body))
+	}
+	if !errors.Is(err, errVideoFetchResponseTooLarge) {
+		t.Fatalf("err=%v want errVideoFetchResponseTooLarge", err)
+	}
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
 }
 
 func mustJSON(t *testing.T, v any) []byte {

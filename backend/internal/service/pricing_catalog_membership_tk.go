@@ -49,21 +49,34 @@ import (
 // "openai/gpt") from being treated as priced just because some specific
 // variant exists.
 func (s *PricingCatalogService) IsModelPriced(modelID, platform string) bool {
+	_, ok := s.findCatalogModel(modelID)
+	return ok
+}
+
+// findCatalogModel resolves modelID to its PublicCatalogModel using the literal
+// + vendor-prefix-fallback lookup shared by IsModelPriced and the serving-gate
+// effective-priced predicate. Returns (nil, false) for a nil receiver, empty
+// id, cold catalog, or no match.
+func (s *PricingCatalogService) findCatalogModel(modelID string) (*PublicCatalogModel, bool) {
 	if s == nil {
-		return false
+		return nil, false
 	}
 	id := strings.TrimSpace(modelID)
 	if id == "" {
-		return false
+		return nil, false
 	}
 	resp := s.BuildPublicCatalog(context.Background())
 	if resp == nil {
-		return false
+		return nil, false
 	}
 	for i := range resp.Data {
-		if resp.Data[i].ModelID == id {
-			return true
+		if resp.Data[i].ModelID != id {
+			continue
 		}
+		if !isTkCuratedNewAPICatalogRowListed(resp.Data[i].Vendor, id) {
+			return nil, false
+		}
+		return &resp.Data[i], true
 	}
 	if tail, ok := stripVendorPrefixForCatalogLookup(id); ok {
 		allowPrefix := strings.Contains(tail, "-")
@@ -71,15 +84,29 @@ func (s *PricingCatalogService) IsModelPriced(modelID, platform string) bool {
 		for i := range resp.Data {
 			mid := resp.Data[i].ModelID
 			if mid == tail {
-				return true
+				if !isTkCuratedNewAPICatalogRowListed(resp.Data[i].Vendor, mid) {
+					continue
+				}
+				return &resp.Data[i], true
 			}
 			if allowPrefix && strings.HasPrefix(mid, prefix) {
-				return true
+				if !isTkCuratedNewAPICatalogRowListed(resp.Data[i].Vendor, mid) {
+					continue
+				}
+				return &resp.Data[i], true
 			}
 		}
 	}
-	return false
+	return nil, false
 }
+
+// NOTE: the runtime priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md)
+// does NOT use a catalog predicate. It asks billing's own oracle
+// (BillingService.GetModelPricing → ErrModelPricingUnavailable) on the exact key
+// billing will charge, so "gate ⟺ billing" holds by construction (no shadow
+// predicate to drift). An earlier draft had a stricter catalog predicate here; it
+// was removed once the gate moved to the billing oracle (R3 dissolved). findCatalogModel
+// above stays — it backs IsModelPriced (model-list / discovery membership).
 
 // stripVendorPrefixForCatalogLookup converts an OpenRouter/Azure-style
 // "<vendor>/<model>" id into the bare catalog form, normalizing "." → "-"

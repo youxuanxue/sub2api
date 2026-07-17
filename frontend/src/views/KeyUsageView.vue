@@ -404,12 +404,6 @@
             rel="noopener noreferrer"
             class="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-white"
           >{{ t('home.docs') }}</a>
-          <a
-            :href="githubUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-white"
-          >GitHub</a>
         </div>
       </div>
     </footer>
@@ -417,11 +411,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+
+defineOptions({ name: 'KeyUsageView' })
 import { useAppStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { buildGatewayUrl } from '@/api/client'
+import { STATUS_ACTIVE } from '@/constants/channel'
+import { formatDateLocalInput } from '@/utils/format'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
@@ -431,7 +430,6 @@ const appStore = useAppStore()
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'TokenKey')
 const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '')
 const docUrl = computed(() => appStore.cachedPublicSettings?.doc_url || appStore.docUrl || '')
-const githubUrl = 'https://github.com/youxuanxue/sub2api'
 
 // ==================== Theme (same as HomeView) ====================
 
@@ -488,7 +486,6 @@ function setDateRange(key: DateRangeKey) {
 
 function getDateParams(): string {
   const now = new Date()
-  const fmt = (d: Date) => d.toISOString().split('T')[0]
   const params = new URLSearchParams()
 
   if (currentRange.value === 'custom') {
@@ -497,19 +494,18 @@ function getDateParams(): string {
       params.set('end_date', customEndDate.value)
     }
   } else {
-    const end = fmt(now)
+    const end = formatDateLocalInput(now)
     let start: string
     switch (currentRange.value) {
       case 'today': start = end; break
-      case '7d': start = fmt(new Date(now.getTime() - 7 * 86400000)); break
-      case '30d': start = fmt(new Date(now.getTime() - 30 * 86400000)); break
-      default: start = fmt(new Date(now.getTime() - 30 * 86400000))
+      case '7d': start = formatDateLocalInput(new Date(now.getTime() - 7 * 86400000)); break
+      case '30d': start = formatDateLocalInput(new Date(now.getTime() - 30 * 86400000)); break
+      default: start = formatDateLocalInput(new Date(now.getTime() - 30 * 86400000))
     }
     params.set('start_date', start)
     params.set('end_date', end)
   }
   params.set('days', String(dailyUsageDays.value))
-  params.set('timezone', getBrowserTimezone())
   return params.toString()
 }
 
@@ -594,7 +590,7 @@ const statusInfo = computed(() => {
     return {
       label: t('keyUsage.quotaMode'),
       statusText: statusMap[data.status] || data.status || 'Unknown',
-      isActive: isValid && data.status === 'active',
+      isActive: isValid && data.status === STATUS_ACTIVE,
     }
   }
 
@@ -844,19 +840,11 @@ function formatDate(iso: string | null | undefined): string {
   return d.toLocaleDateString(loc, { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
-function getBrowserTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  } catch {
-    return 'UTC'
-  }
-}
-
 // ==================== API Query ====================
 
 async function fetchUsage(key: string) {
   const dateParams = getDateParams()
-  const url = '/v1/usage' + (dateParams ? '?' + dateParams : '')
+  const url = buildGatewayUrl('/v1/usage') + (dateParams ? '?' + dateParams : '')
   const res = await fetch(url, {
     headers: { 'Authorization': 'Bearer ' + key },
   })
@@ -932,8 +920,16 @@ onMounted(() => {
   resetTimer = setInterval(() => { now.value = new Date() }, 60000)
 })
 
+onActivated(() => {
+  if (!resetTimer) resetTimer = setInterval(() => { now.value = new Date() }, 60000)
+})
+
+onDeactivated(() => {
+  if (resetTimer) { clearInterval(resetTimer); resetTimer = null }
+})
+
 onUnmounted(() => {
-  if (resetTimer) clearInterval(resetTimer)
+  if (resetTimer) { clearInterval(resetTimer); resetTimer = null }
 })
 </script>
 

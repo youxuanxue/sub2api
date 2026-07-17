@@ -106,6 +106,60 @@ func TestRateLimitService_HandleUpstreamError_Bare404KeepsTempUnschedulablePath(
 	require.Empty(t, repo.modelRateLimitCalls)
 }
 
+// TK (prod P0 2026-06-06, edge us5): the same model-not-found path on an
+// Anthropic account (requestedModel present → HandleUpstreamModelNotFound) must
+// NOT cool account×model — Anthropic's catalog is global, so a bad model name
+// 404s on every account and cooling drains the pool. OpenAI/newapi keep the
+// cooldown (TestRateLimitService_HandleUpstreamError_ModelNotFoundUsesModelRateLimit).
+func TestRateLimitService_HandleUpstreamError_AnthropicModelNotFoundSkipsModelRateLimit(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := &Account{ID: 77, Platform: PlatformAnthropic, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true}
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusNotFound,
+		http.Header{},
+		[]byte(`{"type":"error","error":{"type":"not_found_error","message":"model: opus not found"}}`),
+		"opus",
+	)
+
+	require.False(t, handled)
+	require.Empty(t, repo.modelRateLimitCalls)
+	require.Zero(t, repo.tempCalls)
+}
+
+func TestRateLimitService_HandleUpstreamError_OpenAIOAuthMappedModelNotFoundSkipsModelRateLimit(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := &Account{
+		ID:          9,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"gpt-5.6-luna": "gpt-5.6-luna",
+			},
+		},
+	}
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusNotFound,
+		http.Header{},
+		[]byte(`{"error":{"message":"Model not found gpt-5.6-luna"}}`),
+		"gpt-5.6-luna",
+	)
+
+	require.False(t, handled)
+	require.Empty(t, repo.modelRateLimitCalls)
+	require.Zero(t, repo.tempCalls)
+}
+
 func openAIModelNotFoundTempAccount() *Account {
 	return &Account{
 		ID:          101,
@@ -123,5 +177,79 @@ func openAIModelNotFoundTempAccount() *Account {
 				},
 			},
 		},
+	}
+}
+
+func TestRateLimitService_HandleUpstreamError_CodexPlanGatedModelUsesModelRateLimit(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAICodexPlanGatedOAuthAccount()
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusBadRequest,
+		http.Header{},
+		[]byte(`{"detail":"The 'gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account."}`),
+		"gpt-5.6-sol",
+	)
+
+	require.True(t, handled)
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, account.ID, call.accountID)
+	require.Equal(t, "gpt-5.6-sol", call.scope)
+	require.Equal(t, upstreamCodexPlanGatedModelReason, call.reason)
+	require.WithinDuration(t, time.Now().Add(upstreamCodexPlanGatedModelCooldown), call.resetAt, 5*time.Second)
+}
+
+func TestRateLimitService_HandleUpstreamError_CodexPlanGatedModelRespectsModelMapping(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAICodexPlanGatedOAuthAccount()
+	account.Credentials["model_mapping"] = map[string]any{"gpt-5.6-sol": "gpt-5.6-sol-upstream"}
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusBadRequest,
+		http.Header{},
+		[]byte(`{"detail":"The 'gpt-5.6-sol-upstream' model is not supported when using Codex with a ChatGPT account."}`),
+		"gpt-5.6-sol",
+	)
+
+	require.True(t, handled)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "gpt-5.6-sol-upstream", repo.modelRateLimitCalls[0].scope)
+}
+
+func TestRateLimitService_HandleUpstreamError_CodexPlanGatedModelIgnoresAPIKeyAccount(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAICodexPlanGatedOAuthAccount()
+	account.Type = AccountTypeAPIKey
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusBadRequest,
+		http.Header{},
+		[]byte(`{"detail":"The 'gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account."}`),
+		"gpt-5.6-sol",
+	)
+
+	require.False(t, handled)
+	require.Empty(t, repo.modelRateLimitCalls)
+}
+
+func openAICodexPlanGatedOAuthAccount() *Account {
+	return &Account{
+		ID:          202,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{},
 	}
 }

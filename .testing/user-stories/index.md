@@ -37,3 +37,5 @@
 | US-032 | Playground prototype-first（Vue 组件，4 状态对齐） | InTest | `.testing/user-stories/stories/US-032-playground-prototype-AB.md` |
 | US-033 | 用户自助导出 qa_records（issue #59 双 Gap：HTTP endpoint + synth_* 字段） | InTest | `.testing/user-stories/stories/US-033-qa-self-export-and-synth-fields.md` |
 | US-034 | OpenAI-compat `/v1/messages` 大输入自动压缩（账号优先、分组兜底） | InTest | `.testing/user-stories/stories/US-034-messages-compaction-policy.md` |
+| US-035 | Model surface bundle activation 与 generic deploy 解耦 | InTest | `.testing/user-stories/stories/US-035-model-surface-bundle-activation.md` |
+| US-036 | Prod 数据归档与 RDS 惰性演练平台 | InTest | `.testing/user-stories/stories/US-036-prod-data-archive-rds.md` |

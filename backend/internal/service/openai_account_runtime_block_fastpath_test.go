@@ -26,6 +26,32 @@ func TestOpenAI429FastPath_MarksOAuthAccountCoolingDown(t *testing.T) {
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(apiKeyAccount))
 }
 
+// TestOpenAI429FastPath_SkipsSparkShadow 外审第8轮 P1:spark 影子被选中后若 /responses 返回 429,
+// 不得按 global x-codex-* 信号写内存运行时熔断(否则 spark 被冷却到 global reset、单影子场景无可用账号)。
+func TestOpenAI429FastPath_SkipsSparkShadow(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	parentID := int64(800)
+	shadow := &Account{
+		ID:              801,
+		Platform:        PlatformOpenAI,
+		Type:            AccountTypeOAuth,
+		ParentAccountID: &parentID,
+		QuotaDimension:  QuotaDimensionSpark,
+	}
+	normal := &Account{ID: 802, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "100")
+	headers.Set("x-codex-primary-reset-after-seconds", "18000")
+	headers.Set("x-codex-primary-window-minutes", "300")
+
+	svc.markOpenAIOAuth429RateLimited(context.Background(), shadow, headers, nil)
+	svc.markOpenAIOAuth429RateLimited(context.Background(), normal, headers, nil)
+
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(shadow), "spark shadow must not be runtime-blocked by /responses global 429")
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(normal), "normal OpenAI OAuth account should still be runtime-blocked")
+}
+
 func TestOpenAIRuntimeBlock_AppliesToOpenAIAPIKeyWhenRateLimitServiceStopsScheduling(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	account := &Account{ID: 44, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
@@ -109,15 +135,122 @@ func TestShouldStopOpenAIOAuth429Failover_OnlyDuringStorm(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	apiKeyAccount := &Account{ID: 43, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	var state OpenAIOAuth429FailoverState
 
-	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 1))
+	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 1, &state))
 
 	for i := 0; i < openAIOAuth429StormThreshold; i++ {
 		svc.recordOpenAIOAuth429()
 	}
 
-	require.True(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 1))
-	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(apiKeyAccount, http.StatusTooManyRequests, 1))
-	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusInternalServerError, 1))
-	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 0))
+	require.True(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 1, &state))
+	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(apiKeyAccount, http.StatusTooManyRequests, 1, &state))
+	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusInternalServerError, 1, &state))
+	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 0, &state))
+}
+
+func TestShouldStopOpenAIOAuth429Failover_TracksOneGrokFollowupAttempt(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := &Account{ID: 44, Platform: PlatformGrok, Type: AccountTypeOAuth}
+	apiKeyAccount := &Account{ID: 45, Platform: PlatformGrok, Type: AccountTypeAPIKey}
+
+	t.Run("429 then 500 stops after one followup", func(t *testing.T) {
+		var state OpenAIOAuth429FailoverState
+		require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 1, &state))
+		require.True(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusInternalServerError, 2, &state))
+	})
+
+	t.Run("500 then 429 still allows one followup", func(t *testing.T) {
+		var state OpenAIOAuth429FailoverState
+		require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusInternalServerError, 1, &state))
+		require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 2, &state))
+		require.True(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusBadGateway, 3, &state))
+	})
+
+	t.Run("OAuth 429 then API-key failure consumes the same followup", func(t *testing.T) {
+		var state OpenAIOAuth429FailoverState
+		require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 1, &state))
+		require.True(t, svc.ShouldStopOpenAIOAuth429Failover(apiKeyAccount, http.StatusInternalServerError, 2, &state))
+	})
+
+	var state OpenAIOAuth429FailoverState
+	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(account, http.StatusTooManyRequests, 0, &state))
+	require.False(t, svc.ShouldStopOpenAIOAuth429Failover(apiKeyAccount, http.StatusTooManyRequests, 2, &state))
+}
+
+// Prod incident 2026-07-06 (GPT-pro1): spark usage_limit_reached 429 with a healthy
+// account-wide codex window must model-scope — not whole-account runtime-block or
+// SetRateLimited — so gpt-5.4/5.5 keep scheduling on the same OAuth account.
+func TestHandleOpenAIAccountUpstreamError_Spark429HealthyWindow_ModelScopedOnly(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	svc := &OpenAIGatewayService{
+		rateLimitService: newG4RateLimitService(repo),
+	}
+	account := newOpenAICodexAccount(9, AccountTypeOAuth)
+	body := []byte(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"pro","resets_at":1783336071,"resets_in_seconds":14903}}`)
+
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		codexGeneralWindowHeaders(4, 1),
+		body,
+		codexSparkModel,
+	)
+
+	require.False(t, shouldDisable)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account), "spark sub-limit must not whole-account runtime-block")
+	require.Len(t, repo.modelRateLimitCalls, 1, "spark cooldown must be model-scoped")
+	require.Equal(t, codexSparkModel, repo.modelRateLimitCalls[0].scope)
+	require.Zero(t, repo.setRateLimitedCalls, "healthy general window must not SetRateLimited whole account")
+}
+
+func TestHandleOpenAIAccountUpstreamError_Spark429GeneralWindowExhausted_WholeAccount(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	svc := &OpenAIGatewayService{
+		rateLimitService: newG4RateLimitService(repo),
+	}
+	account := newOpenAICodexAccount(9, AccountTypeOAuth)
+	body := codexUsageLimitBody
+	headers := codexGeneralWindowHeaders(100, 1)
+	headers.Set("x-codex-primary-reset-after-seconds", "7620")
+
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		headers,
+		body,
+		codexSparkModel,
+	)
+
+	require.False(t, shouldDisable)
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account), "account-wide window exhaustion must runtime-block")
+	require.Empty(t, repo.modelRateLimitCalls)
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+}
+
+func TestPersistOpenAIWSRateLimitSignal_Spark429HealthyWindow_ModelScopedOnly(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	svc := &OpenAIGatewayService{
+		rateLimitService: newG4RateLimitService(repo),
+	}
+	account := newOpenAICodexAccount(9, AccountTypeOAuth)
+	body := []byte(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","plan_type":"pro","resets_at":1783336071,"resets_in_seconds":14903}}`)
+
+	svc.persistOpenAIWSRateLimitSignal(
+		context.Background(),
+		account,
+		codexGeneralWindowHeaders(4, 1),
+		body,
+		"rate_limit_exceeded",
+		"usage_limit_reached",
+		"The usage limit has been reached",
+		codexSparkModel,
+	)
+
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account), "WS spark sub-limit must not whole-account runtime-block")
+	require.Len(t, repo.modelRateLimitCalls, 1, "WS spark cooldown must be model-scoped")
+	require.Equal(t, codexSparkModel, repo.modelRateLimitCalls[0].scope)
+	require.Zero(t, repo.setRateLimitedCalls, "healthy general window must not SetRateLimited whole account")
 }

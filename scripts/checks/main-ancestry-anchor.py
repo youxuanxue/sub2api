@@ -27,12 +27,23 @@ Exit codes:
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ANCHOR_FILE = REPO_ROOT / ".main-ancestry-anchor"
+
+
+def git(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 def read_anchor() -> str:
@@ -52,28 +63,49 @@ def read_anchor() -> str:
     return raw
 
 
+def anchor_exists(anchor: str) -> bool:
+    return git("cat-file", "-e", anchor).returncode == 0
+
+
+def try_deepen_shallow_history(anchor: str) -> bool:
+    """Populate enough history for CI shallow clones without full-depth checkout."""
+    if not (os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")):
+        return False
+    shallow = git("rev-parse", "--is-shallow-repository")
+    if shallow.returncode != 0 or shallow.stdout.strip() != "true":
+        return False
+
+    depth = os.environ.get("PREFLIGHT_MAIN_ANCESTRY_DEEPEN", "4096")
+    remote = os.environ.get("PREFLIGHT_MAIN_ANCESTRY_REMOTE", "origin")
+    res = git("fetch", "--no-tags", f"--deepen={depth}", remote)
+    if res.returncode != 0:
+        print(f"  err: shallow-history deepen failed (remote={remote}, deepen={depth})")
+        if res.stderr:
+            print(f"  err: stderr: {res.stderr.strip()}")
+        return False
+    if anchor_exists(anchor):
+        print(f"  note: fetched shallow history deep enough to include anchor {anchor[:12]}")
+        return True
+    print(f"  err: anchor {anchor[:12]} still missing after shallow deepen={depth}")
+    return False
+
+
 def main() -> int:
     anchor = read_anchor()
     short = anchor[:12]
 
     # `git cat-file -e <sha>` exits non-zero if the object is not in the local
     # store. We check this first to give a clearer message than merge-base.
-    res = subprocess.run(
-        ["git", "cat-file", "-e", anchor],
-        cwd=REPO_ROOT,
-        capture_output=True,
-    )
-    if res.returncode != 0:
+    if not anchor_exists(anchor):
+        try_deepen_shallow_history(anchor)
+
+    if not anchor_exists(anchor):
         print(f"  err: anchor commit {short} not found in local git store")
-        print(f"  err: run `git fetch origin` and `git fetch --tags` to populate it")
+        print(f"  err: run `git fetch origin` to populate it")
         print(f"  err: if the anchor SHA itself is wrong, see CLAUDE.md §5.y.1")
         return 2
 
-    res = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", anchor, "HEAD"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-    )
+    res = git("merge-base", "--is-ancestor", anchor, "HEAD")
     if res.returncode == 0:
         print(f"  ok: main-ancestry anchor {short} reachable from HEAD")
         return 0
@@ -91,7 +123,7 @@ def main() -> int:
     # Any other exit code is a git / IO failure.
     print(f"  err: `git merge-base --is-ancestor` failed (exit {res.returncode})")
     if res.stderr:
-        print(f"  err: stderr: {res.stderr.decode('utf-8', errors='replace').strip()}")
+        print(f"  err: stderr: {res.stderr.strip()}")
     return 2
 
 

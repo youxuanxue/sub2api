@@ -4,7 +4,7 @@
  * - Dashboard overview (raw path)
  */
 
-import { apiClient } from '../client'
+import { apiClient, buildGatewayUrl } from '../client'
 import type { PaginatedResponse } from '@/types'
 
 export type OpsQueryMode = 'auto' | 'raw' | 'preagg'
@@ -38,10 +38,8 @@ export interface OpsDashboardOverview {
 
   success_count: number
   error_count_total: number
-  business_limited_count: number
   error_count_sla: number
   request_count_total: number
-  request_count_sla: number
 
   token_consumed: number
 
@@ -186,7 +184,6 @@ export interface OpsLatencyHistogramResponse {
 export interface OpsErrorTrendPoint {
   bucket_start: string
   error_count_total: number
-  business_limited_count: number
   error_count_sla: number
   upstream_error_count_excl_429_529: number
   upstream_429_count: number
@@ -201,8 +198,8 @@ export interface OpsErrorTrendResponse {
 export interface OpsErrorDistributionItem {
   status_code: number
   total: number
-  sla: number
-  business_limited: number
+  sla_faults: number
+  client_faults: number
 }
 
 export interface OpsErrorDistributionResponse {
@@ -248,6 +245,36 @@ export interface OpsOpenAITokenStatsParams {
   group_id?: number | null
   page?: number
   page_size?: number
+  top_n?: number
+}
+
+export type OpsFailoverHopStatsTimeRange = '30m' | '1h' | '1d' | '15d' | '30d'
+
+export interface OpsFailoverHopStatsItem {
+  account_id: number
+  account_name: string
+  platform: string
+  recovered_count: number
+  total_failover_hops: number
+  total_wasted_attempts: number
+  avg_failover_hops_per_recovered?: number | null
+}
+
+export interface OpsFailoverHopStatsResponse {
+  time_range: OpsFailoverHopStatsTimeRange
+  start_time: string
+  end_time: string
+  platform?: string
+  group_id?: number | null
+  items: OpsFailoverHopStatsItem[]
+  total: number
+  top_n: number
+}
+
+export interface OpsFailoverHopStatsParams {
+  time_range?: OpsFailoverHopStatsTimeRange
+  platform?: string
+  group_id?: number | null
   top_n?: number
 }
 
@@ -600,9 +627,10 @@ export function subscribeQPS(onMessage: (data: any) => void, options: SubscribeQ
 
     isConnecting = true
     setStatus(hasConnectedOnce ? 'reconnecting' : 'connecting')
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsBaseUrl = options.wsBaseUrl || import.meta.env.VITE_WS_BASE_URL || window.location.host
-    const wsURL = new URL(`${protocol}//${wsBaseUrl}/api/v1/admin/ops/ws/qps`)
+    const wsBaseUrl = options.wsBaseUrl || import.meta.env.VITE_WS_BASE_URL
+    const wsURL = wsBaseUrl
+      ? new URL(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${wsBaseUrl}/api/v1/admin/ops/ws/qps`)
+      : new URL(buildGatewayUrl('/api/v1/admin/ops/ws/qps').replace(/^http/, 'ws'))
 
     // Do NOT put admin JWT in the URL query string (it can leak via access logs, proxies, etc).
     // Browsers cannot set Authorization headers for WebSockets, so we pass the token via
@@ -686,12 +714,15 @@ export type MetricType =
   | 'cpu_usage_percent'
   | 'memory_usage_percent'
   | 'concurrency_queue_depth'
+  | 'pool_load_rate'
+  | 'routing_capacity_rejection_count'
   | 'group_available_accounts'
   | 'group_available_ratio'
   | 'group_rate_limit_ratio'
   | 'account_rate_limited_count'
   | 'account_error_count'
   | 'account_error_ratio'
+  | 'account_temp_unscheduled_count'
   | 'overload_account_count'
 export type Operator = '>' | '>=' | '<' | '<=' | '==' | '!='
 
@@ -761,6 +792,7 @@ export interface EmailNotificationConfig {
     signing_secret_configured: boolean
     rate_limit_per_hour: number
     cooldown_seconds: number
+    upstream_balance_low_threshold_cny: number
   }
 }
 
@@ -842,12 +874,14 @@ export interface OpsRuntimeLogConfig {
 export interface OpsSystemLog {
   id: number
   created_at: string
+  host: string
   level: string
   component: string
   message: string
   request_id?: string
   client_request_id?: string
   user_id?: number | null
+  api_key_id?: number | null
   account_id?: number | null
   platform?: string
   model?: string
@@ -862,11 +896,13 @@ export interface OpsSystemLogQuery {
   time_range?: '5m' | '30m' | '1h' | '6h' | '24h' | '7d' | '30d'
   start_time?: string
   end_time?: string
+  host?: string
   level?: string
   component?: string
   request_id?: string
   client_request_id?: string
   user_id?: number | null
+  api_key_id?: number | null
   account_id?: number | null
   platform?: string
   model?: string
@@ -876,11 +912,13 @@ export interface OpsSystemLogQuery {
 export interface OpsSystemLogCleanupRequest {
   start_time?: string
   end_time?: string
+  host?: string
   level?: string
   component?: string
   request_id?: string
   client_request_id?: string
   user_id?: number | null
+  api_key_id?: number | null
   account_id?: number | null
   platform?: string
   model?: string
@@ -924,7 +962,9 @@ export interface OpsErrorLog {
   user_email: string
   username?: string
   api_key_id?: number | null
+  // 关联 api_key 名称（后端 LEFT JOIN api_keys；软删保留 name，故已删 key 仍有原名）。
   api_key_name?: string
+  api_key_deleted?: boolean
   account_id?: number | null
   account_name: string
   group_id?: number | null
@@ -940,11 +980,16 @@ export interface OpsErrorLog {
   requested_model?: string
   upstream_model?: string
   request_type?: number | null
+  user_agent?: string
+
+  // 已删除 KEY 所有者(INVALID_API_KEY 归因快照):认证失败行 user_id 为空,
+  // 用户列以此回退显示所有者
+  deleted_key_owner_user_id?: number | null
+  deleted_key_owner_email?: string | null
 }
 
 export interface OpsErrorDetail extends OpsErrorLog {
   error_body: string
-  user_agent: string
 
   // Upstream context (optional; enriched by gateway services)
   upstream_status_code?: number | null
@@ -959,6 +1004,14 @@ export interface OpsErrorDetail extends OpsErrorLog {
   time_to_first_token_ms?: number | null
 
   is_business_limited: boolean
+
+  // Deleted key owner info (INVALID_API_KEY attribution);
+  // owner user_id/email 已上移到 OpsErrorLog(列表用户列回退)
+  attempted_key_prefix?: string | null
+  deleted_key_name?: string | null
+
+  // Bound (non-deleted) key prefix, snapshotted at error time
+  api_key_prefix?: string | null
 }
 
 export type OpsErrorLogsResponse = PaginatedResponse<OpsErrorLog>
@@ -1082,6 +1135,17 @@ export async function getOpenAITokenStats(
   return data
 }
 
+export async function getFailoverHopStats(
+  params: OpsFailoverHopStatsParams,
+  options: OpsRequestOptions = {}
+): Promise<OpsFailoverHopStatsResponse> {
+  const { data } = await apiClient.get<OpsFailoverHopStatsResponse>('/admin/ops/dashboard/failover-hop-stats', {
+    params,
+    signal: options.signal
+  })
+  return data
+}
+
 export type OpsErrorListView = 'errors' | 'excluded' | 'all'
 
 export type OpsErrorListQueryParams = {
@@ -1093,8 +1157,14 @@ export type OpsErrorListQueryParams = {
   platform?: string
   group_id?: number | null
   account_id?: number | null
+  user_id?: number
+  api_key_id?: number
+  // 模型过滤：后端以 COALESCE(requested_model, model) 精确匹配（admin 路径）。
+  model?: string
 
   phase?: string
+  // 分类(用户侧粗分类码,如 auth/rate_limit/upstream),后端反查为 phase/type ANY 条件
+  category?: string
   error_owner?: string
   error_source?: string
   resolved?: string
@@ -1103,6 +1173,10 @@ export type OpsErrorListQueryParams = {
   q?: string
   status_codes?: string
   status_codes_other?: string
+
+  // 服务端排序,列白名单见后端 opsErrorLogsOrderBy(created_at/model/status_code)
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
 }
 
 // Legacy unified endpoints
@@ -1306,6 +1380,7 @@ export const opsAPI = {
   getErrorTrend,
   getErrorDistribution,
   getOpenAITokenStats,
+  getFailoverHopStats,
   getConcurrencyStats,
   getUserConcurrencyStats,
   getAccountAvailabilityStats,

@@ -15,18 +15,12 @@ import (
 type anthropic404AccountRepoStub struct {
 	mockAccountRepoForGemini
 	modelRateLimitCalls int
-	lastAccountID       int64
-	lastScope           string
-	lastResetAt         time.Time
 	setErrorCalls       int
 	rateLimitCalls      int
 }
 
-func (r *anthropic404AccountRepoStub) SetModelRateLimit(_ context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {
+func (r *anthropic404AccountRepoStub) SetModelRateLimit(_ context.Context, _ int64, _ string, _ time.Time, _ ...string) error {
 	r.modelRateLimitCalls++
-	r.lastAccountID = id
-	r.lastScope = scope
-	r.lastResetAt = resetAt
 	return nil
 }
 
@@ -40,21 +34,22 @@ func (r *anthropic404AccountRepoStub) SetRateLimited(_ context.Context, _ int64,
 	return nil
 }
 
-func TestHandleUpstreamError_Anthropic404ModelNotFoundSetsModelRateLimit(t *testing.T) {
+// TK (prod P0 2026-06-06, edge us5): an Anthropic 404 model-not-found is a
+// CLIENT error (a model name no account can serve — Anthropic's catalog is
+// global, not per-account), so it must NOT cool the account×model. Cooling a
+// thin pool on a bad model name drained it into "No available accounts" 429s and
+// amplified one misconfigured client into an edge-wide P0. This pins the
+// no-penalty behavior (was: SetModelRateLimit + shouldDisable=true).
+func TestHandleUpstreamError_Anthropic404ModelNotFoundSkipsPenalty(t *testing.T) {
 	repo := &anthropic404AccountRepoStub{}
 	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	account := &Account{ID: 42, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
 	body := []byte(`{"type":"error","error":{"type":"not_found_error","message":"model: claude-haiku-4-7"}}`)
 
-	before := time.Now()
 	shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusNotFound, http.Header{}, body)
-	after := time.Now()
 
-	require.True(t, shouldDisable)
-	require.Equal(t, 1, repo.modelRateLimitCalls)
-	require.Equal(t, int64(42), repo.lastAccountID)
-	require.Equal(t, "claude-haiku-4-7", repo.lastScope)
-	require.True(t, !repo.lastResetAt.Before(before.Add(anthropic404ModelCooldown)) && !repo.lastResetAt.After(after.Add(anthropic404ModelCooldown)))
+	require.False(t, shouldDisable)
+	require.Zero(t, repo.modelRateLimitCalls)
 	require.Zero(t, repo.setErrorCalls)
 	require.Zero(t, repo.rateLimitCalls)
 }

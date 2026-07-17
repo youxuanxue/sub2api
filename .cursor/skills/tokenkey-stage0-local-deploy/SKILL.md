@@ -1,11 +1,7 @@
 ---
 name: tokenkey-stage0-local-deploy
 description: >-
-  Local Docker stack matching deploy/aws Stage 0 (Caddy + app + Postgres + Redis): export
-  $HOME-pinned paths, write .cache override + .env + Caddyfile, docker compose config/pull/up
-  with long timeouts for first pull/up, verify A curl via :8088, B bypass Caddy, optional C
-  tk_post_deploy_smoke when API key exists; compose down keeps bind-mounted DB/Redis by default.
-  Optional rm only for intentional reset. Mirrors prod skill posture (order, verify, teardown).
+  Run the local Docker Stage0 stack for TokenKey. Use for Caddy/app/Postgres/Redis local deploy, compose setup, smoke verification, teardown, or matching deploy/aws behavior on a workstation.
 ---
 
 # TokenKey：本地模拟 `deploy/aws` Stage 0（Compose + 验证 + 销毁）
@@ -34,7 +30,7 @@ description: >-
 - **数据要「跨多次本地测试」保留**：override 把 PG/Redis/app 绑到宿主机 **`${TOKENKEY_STAGE0_LOCAL_ROOT}/{postgres,redis,app}`**。**`docker compose … down`（不带 `-v`）只删容器，不删这些目录**，账号、订阅、网关 key 等会一直在。**不要**把每次跑本 skill 都当成要执行 §7 的 **`rm -rf`**——那是**有意清盘**才做。日常循环：§5 **`up -d`** ↔ §7a **`down`**，固定同一个 `TOKENKEY_STAGE0_LOCAL_ROOT`。
 - **`rm -rf "${TOKENKEY_STAGE0_LOCAL_ROOT}"`**：仅 **§7b 有意清空**时用，且 **确认路径**（默认 `.cache/tokenkey-stage0-local`）；勿对错误父目录执行。
 - **私有 GHCR**：`docker compose pull` tokenkey 镜像前应先在本机 **`docker login ghcr.io`**；Agent 若在沙箱里无法访问 daemon 或未继承登录态，需在可访问 Docker 的环境里执行 compose。
-- **`tk_post_deploy_smoke.sh`（与 prod 同款）**：见下文 **C**；需要 **`TK_SMOKE_PROD_*` 三个 key**。纯 **AUTO_SETUP** 新栈往往还没有 key——此时 **只做 A+B 或再加管理员登录**即可。
+- **`tk_post_deploy_smoke.sh`（与 prod 同款）**：见下文 **C**；需要 **`TK_SMOKE_API_KEY` 一把全能用户侧 key**，平台覆盖由 `TK_SMOKE_*_MODELS` 清单决定。纯 **AUTO_SETUP** 新栈往往还没有 key——此时 **只做 A+B 或再加管理员登录**即可。
 
 ## 本项目路径约定（本仓库克隆）
 
@@ -308,16 +304,16 @@ docker exec tokenkey wget -q -T 5 -O - http://localhost:8080/health
 ```bash
 cd “${REPO_ROOT}” # 须在含 scripts/ 的仓库根；未导出 REPO_ROOT 时见「本项目路径约定」
 export TOKENKEY_BASE_URL=http://127.0.0.1:8088    # 或 TK_GATEWAY_URL（脚本两个都识别）
-# 对 prod 同款 key：TK_SMOKE_PROD_*（与 GitHub prod Environment 同名；secret 值须本机 export）
+# 对 prod 同款 key：TK_SMOKE_API_KEY（GitHub secret 值须本机 export）
 # 可选 TK_SMOKE_GITHUB_ENV=prod 自动拉取 Environment variables
 bash ops/stage0/post_deploy_smoke.sh
 ```
 
-**前提**：须已有 **可用的用户侧网关 API Key**（新 AUTO_SETUP 栈通常没有——先在管理后台创建订阅用户与 key，或使用你专用于本地的测试 key）。**不得**打印完整 key；脚本只输出 `key_hint`。若缺 key：**不要卡住会话**，验收 **A+B**（及下方管理员登录）即可。
+**前提**：须已有 **可用的用户侧网关 API Key**（新 AUTO_SETUP 栈通常没有——先在管理后台创建订阅用户与 key，或使用你专用于本地的测试 key）。**不得**打印完整 key、前缀或后缀；脚本只输出 `key=configured`。若缺 key：**不要卡住会话**，验收 **A+B**（及下方管理员登录）即可。
 
-**烟测 key**：与 prod 一致——`TK_SMOKE_PROD_ANTHROPIC_KEY`、`TK_SMOKE_PROD_GEMINI_KEY`、`TK_SMOKE_PROD_OPENAI_OAUTH_KEY` 三个均须导出，任一缺失不得视为验收通过。
+**烟测 key**：与 prod 一致——只导出 `TK_SMOKE_API_KEY`，它必须能看到 `TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS` 中列出的模型；缺 key 或清单模型不可见不得视为验收通过。
 
-**结构化验收要求**：与 prod skill § C 完全一致，以该节为准。唯一差异是 `TOKENKEY_BASE_URL=http://127.0.0.1:8088`（本地反代端口）。若有多个分组/key，按 key 分别记录 `key_hint`、group platform、`account_id/platform/model`；不要把一个 key 的通过误当成全部通过。
+**结构化验收要求**：与 prod skill § C 完全一致，以该节为准。唯一差异是 `TOKENKEY_BASE_URL=http://127.0.0.1:8088`（本地反代端口）。若有多个分组/key，按 key 的本机标识分别记录 group platform、`account_id/platform/model`；不要把一个 key 的通过误当成全部通过，也不要把 key 的任何片段写入日志。
 
 本地 Caddy 开启压缩时，`tk_post_deploy_smoke.sh` 可能只输出启动行后等待连接关闭。若脚本卡住，不要降低验收标准：停止脚本后用同一 key 重跑等价请求，并显式加 `Accept-Encoding: identity`，仍按上面的结构化要求判定。
 

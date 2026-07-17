@@ -25,4 +25,16 @@ func TestUsageStatsCacheKey_StableAndDistinct(t *testing.T) {
 	withUser := base
 	withUser.UserID = 7
 	require.NotEqual(t, k1, usageStatsCacheKey(withUser), "different user must change key")
+
+	withoutEndpointStats := base
+	withoutEndpointStats.SkipEndpointStats = true
+	require.NotEqual(t, k1, usageStatsCacheKey(withoutEndpointStats), "endpoint stats toggle must change key")
+
+	withoutSummary := base
+	withoutSummary.SkipSummary = true
+	require.NotEqual(t, k1, usageStatsCacheKey(withoutSummary), "summary toggle must change key")
+
+	inboundOnly := base
+	inboundOnly.EndpointStatsSource = usagestats.EndpointSourceInbound
+	require.NotEqual(t, k1, usageStatsCacheKey(inboundOnly), "endpoint stats source must change key")
 }

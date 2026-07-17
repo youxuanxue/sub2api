@@ -46,7 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          submodules: recursive
+          fetch-depth: 1
 
       - name: Validate tag + resolve stack name
         id: stack
@@ -66,50 +66,79 @@ jobs:
       - name: Validate prod smoke secrets (before touching prod)
         # Fail fast BEFORE the SSM image swap: a missing smoke secret is a config
         # error, not a deploy failure. Validating here (instead of inside the
-        # post-deploy smoke step that runs AFTER deploy_via_ssm.sh) means a
+        # post-deploy smoke step that runs AFTER the SSM image swap means a
         # missing secret never leaves a freshly-swapped image live behind a red
         # "smoke" run that actually means "secret not configured".
         env:
-          TK_SMOKE_PROD_ANTHROPIC_KEY: ${{ secrets.TK_SMOKE_PROD_ANTHROPIC_KEY }}
-          TK_SMOKE_PROD_GEMINI_KEY: ${{ secrets.TK_SMOKE_PROD_GEMINI_KEY }}
-          TK_SMOKE_PROD_OPENAI_OAUTH_KEY: ${{ secrets.TK_SMOKE_PROD_OPENAI_OAUTH_KEY }}
-          TK_SMOKE_PROD_KIRO_KEY: ${{ secrets.TK_SMOKE_PROD_KIRO_KEY }}
+          TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
+          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "${TK_SMOKE_PROD_ANTHROPIC_KEY:-}" ]; then
-            echo "::error::TK_SMOKE_PROD_ANTHROPIC_KEY is not set in prod Environment."
-            echo "Add a TokenKey user API key (sk-...) that is valid for this stack's gateway."
+          if [ -z "${TK_SMOKE_API_KEY:-}" ]; then
+            echo "::error::TK_SMOKE_API_KEY is not set in prod Environment."
+            echo "Add one all-capability TokenKey user API key (sk-...) that can see every smoke model list."
             echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
             exit 1
           fi
-          if [ -z "${TK_SMOKE_PROD_GEMINI_KEY:-}" ]; then
-            echo "::error::TK_SMOKE_PROD_GEMINI_KEY is not set in prod Environment."
-            echo "Add a TokenKey API key bound to a gemini-platform group (e.g. gemini-pa) on this stack's gateway."
-            echo "This probe guards the Anthropic→Gemini tool-schema cleanup regression."
-            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
-            exit 1
-          fi
-          if [ -z "${TK_SMOKE_PROD_OPENAI_OAUTH_KEY:-}" ]; then
-            echo "::error::TK_SMOKE_PROD_OPENAI_OAUTH_KEY is not set in prod Environment."
-            echo "Add a TokenKey API key bound to an OpenAI OAuth/codex-platform group on this stack's gateway."
-            echo "This probe guards the reasoning_tokens passthrough regression."
-            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
-            exit 1
-          fi
-          if [ -z "${TK_SMOKE_PROD_KIRO_KEY:-}" ]; then
-            echo "::error::TK_SMOKE_PROD_KIRO_KEY is not set in prod Environment."
-            echo "Add a TokenKey API key bound to a kiro-platform group on this stack's gateway."
-            echo "This probe guards the kiro (sixth platform) /v1/messages relay path, incl. the default-on TLS-fingerprint masking shipped in v1.7.64."
-            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
+          if [ -z "${TK_FULLTEST_KEY:-}" ]; then
+            echo "::error::TK_FULLTEST_KEY is not set in prod Environment."
+            echo "Add the universal key used by SSOT display gate probes (ops/test/gateway_model_ssot_matrix.py gate)."
             exit 1
           fi
 
       - name: Verify GHCR multi-arch manifest
-        # Shared with deploy-edge-stage0.yml so prod and Edge never grow
-        # divergent image-architecture gates.
+        # Shared with deploy-edge-lightsail-stage0.yml so prod and Edge never
+        # grow divergent image-architecture gates.
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
+
+      - name: Blue/green migration safety gate
+        # The target app can apply migrations while the old app is still serving
+        # existing requests on the same prod DB. Advisory locks serialize
+        # migration execution, but they do not make destructive schema changes
+        # compatible with old code, so fail closed before touching prod.
+        run: |
+          set -euo pipefail
+          TARGET_REF="v${INPUT_TAG}"
+          if ! git fetch --no-tags --depth=1 origin "refs/tags/${TARGET_REF}:refs/tags/${TARGET_REF}"; then
+            echo "::warning::tag ${TARGET_REF} not found on origin; falling back to origin/main..HEAD"
+            TARGET_REF=""
+          fi
+          TAGS="$(git ls-remote --tags origin 'refs/tags/v[0-9]*.[0-9]*.[0-9]*')"
+          BASE_REF="$(printf '%s\n' "$TAGS" | python3 -c '
+          import os, re, sys
+          target = tuple(int(p) for p in os.environ["INPUT_TAG"].lstrip("v").split("."))
+          best = None
+          for line in sys.stdin:
+              parts = line.split()
+              if len(parts) < 2 or parts[1].endswith("^{}"):
+                  continue
+              name = parts[1].removeprefix("refs/tags/")
+              m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", name)
+              if not m:
+                  continue
+              version = tuple(int(p) for p in m.groups())
+              if version < target and (best is None or version > best[0]):
+                  best = (version, name)
+          if best:
+              print(best[1])
+          ')"
+          if [ -n "$TARGET_REF" ] && git rev-parse --verify "$TARGET_REF" >/dev/null 2>&1; then
+            if [ -z "$BASE_REF" ]; then
+              git fetch --no-tags origin main:refs/remotes/origin/main --depth=64
+              BASE_REF=origin/main
+            elif ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+              git fetch --no-tags --depth=1 origin "refs/tags/${BASE_REF}:refs/tags/${BASE_REF}"
+            fi
+            echo "blue/green migration safety range: ${BASE_REF}..${TARGET_REF}"
+            python3 scripts/checks/bluegreen-migration-safety.py \
+              --base "$BASE_REF" --head "$TARGET_REF" \
+              --allow-tree-diff-without-merge-base
+          else
+            git fetch --no-tags origin main:refs/remotes/origin/main --depth=64
+            python3 scripts/checks/bluegreen-migration-safety.py --base origin/main --head HEAD
+          fi
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v6
@@ -123,14 +152,15 @@ jobs:
           STACK_NAME: ${{ steps.stack.outputs.name }}
         run: |
           set -euo pipefail
-          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+          read -r ID API_URL < <(
+            aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+              --query 'Stacks[0].Outputs' --output json |
+            python3 -c 'import json, sys; rows=json.load(sys.stdin); m={r.get("OutputKey"): r.get("OutputValue", "") for r in rows}; print(m.get("InstanceId", ""), m.get("ApiUrl", ""))'
+          )
           if [ -z "$ID" ] || [ "$ID" = "None" ]; then
             echo "::error::could not resolve InstanceId from stack $STACK_NAME"
             exit 1
           fi
-          API_URL=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' --output text)
           if [ -z "$API_URL" ] || [ "$API_URL" = "None" ]; then
             echo "::error::could not resolve ApiUrl from stack $STACK_NAME"
             exit 1
@@ -144,30 +174,110 @@ jobs:
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .
-        run: bash ops/stage0/deploy_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-stage0 env=prod"
+        run: bash ops/stage0/deploy_via_ssm_bluegreen.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-stage0 env=prod bluegreen"
 
       - name: External health check
         env:
           API_URL: ${{ steps.instance.outputs.api_url }}
         run: bash ops/stage0/external_health.sh "$API_URL"
 
+      - name: Sync pricing overlay runtime
+        # The compiled-in tk_pricing_overlay.json is the pricing SSOT, but prod
+        # also has a hot runtime layer for no-release model pricing. A stale
+        # runtime row wins over the newly deployed binary unless deploy syncs it.
+        # Use the overlay from the DEPLOYED tag, not the workflow checkout's
+        # current main, so rollback deploys restore the matching runtime price set.
+        run: |
+          set -euo pipefail
+          TARGET_REF="v${INPUT_TAG}"
+          git fetch origin "refs/tags/${TARGET_REF}:refs/tags/${TARGET_REF}" --force
+          git show "${TARGET_REF}:backend/internal/service/tk_pricing_overlay.json" > /tmp/tk_pricing_overlay_runtime.json
+          python3 scripts/checks/pricing-overlay.py --path /tmp/tk_pricing_overlay_runtime.json
+          python3 ops/pricing/manage-overlay-runtime.py sync-runtime \
+            --overlay-path /tmp/tk_pricing_overlay_runtime.json
+
+      - name: Post-deploy data invariant check (exclusive-group orphans)
+        # ADVISORY ONLY — never blocks the deploy. Reads (read-only) whether any
+        # API key is bound to an exclusive standard group whose user is NOT in
+        # user_allowed_groups (would 403 under #669). The sanctioned admin-UI
+        # path can't produce this; only manual DB edits / legacy rows can — so
+        # this surfaces drift right after deploy (often follows DB surgery).
+        # continue-on-error + the script's always-0 exit are belt-and-suspenders.
+        continue-on-error: true
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: bash ops/stage0/check_exclusive_group_orphans_via_ssm.sh "$INSTANCE_ID" "deploy-stage0 orphan check env=prod"
+
+      - name: Assert live-host state (drift check)
+        # ADVISORY ONLY — never blocks the deploy. Reads (read-only) the running
+        # active app container image tag + the deploy_via_ssm-injected env (SERVER_FRONTEND_URL,
+        # QA_CAPTURE_EXPORT_STORAGE_*) and warns if the live host drifted from what
+        # this deploy intended (the running tag != the tag we just deployed, or a
+        # sed-injection that wrote the wrong content — the 2026-06 "3× repeat" was
+        # caught only by a human probing by hand; this makes it an automatic warning).
+        continue-on-error: true
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: bash ops/stage0/assert-live-host-state.sh "$INSTANCE_ID" "$INPUT_TAG" "deploy-stage0 live-host assert env=prod"
+
+      - name: Sync Feishu alert config
+        # Inject the shared Feishu webhook/secret into prod's
+        # ops_email_notification_config and enable alerting (idempotent). The
+        # script verifies the write and exits non-zero if not applied, so a node
+        # that cannot alert FAILS the deploy (gate for the us7 silent-mute gap).
+        env:
+          TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+        run: bash ops/stage0/sync-feishu-config.sh prod
+
       - name: Post-deploy gateway smoke (API + Claude paths)
         env:
           TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}
-          TK_SMOKE_PROD_ANTHROPIC_KEY: ${{ secrets.TK_SMOKE_PROD_ANTHROPIC_KEY }}
-          TK_SMOKE_PROD_GEMINI_KEY: ${{ secrets.TK_SMOKE_PROD_GEMINI_KEY }}
-          TK_SMOKE_PROD_OPENAI_OAUTH_KEY: ${{ secrets.TK_SMOKE_PROD_OPENAI_OAUTH_KEY }}
-          TK_SMOKE_PROD_KIRO_KEY: ${{ secrets.TK_SMOKE_PROD_KIRO_KEY }}
-          TK_SMOKE_PROD_ANTHROPIC_MODEL: ${{ vars.TK_SMOKE_PROD_ANTHROPIC_MODEL || 'claude-sonnet-4-6' }}
-          TK_SMOKE_PROD_GEMINI_MODEL: ${{ vars.TK_SMOKE_PROD_GEMINI_MODEL }}
-          TK_SMOKE_PROD_OPENAI_OAUTH_MODEL: ${{ vars.TK_SMOKE_PROD_OPENAI_OAUTH_MODEL }}
-          TK_SMOKE_PROD_KIRO_MODEL: ${{ vars.TK_SMOKE_PROD_KIRO_MODEL || 'claude-sonnet-4-6' }}
+          TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
+          TK_SMOKE_ANTHROPIC_MODELS: ${{ vars.TK_SMOKE_ANTHROPIC_MODELS || 'claude-sonnet-4-6' }}
+          TK_SMOKE_GEMINI_MODELS: ${{ vars.TK_SMOKE_GEMINI_MODELS || '' }}
+          TK_SMOKE_OPENAI_OAUTH_MODELS: ${{ vars.TK_SMOKE_OPENAI_OAUTH_MODELS || 'gpt-5.4' }}
         run: |
           set -euo pipefail
           # Secret presence is validated up front in "Validate prod smoke secrets"
           # (before the SSM image swap); here we just run the smoke against the
           # already-deployed image.
           bash ops/stage0/post_deploy_smoke.sh
+
+      - name: Post-deploy SSOT display gate (deploy canary)
+        env:
+          TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}
+          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
+          TK_FULLTEST_TIMEOUT: "15"
+        run: |
+          set -euo pipefail
+          bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout
+
+      - name: Notify Feishu (release rollout)
+        # Best-effort 发版公告。默认 step gating 保证它只在 prod 换镜像 +
+        # External health + smoke 全绿后才跑 —— 卡片 == "该版本已上线且烟测通过"。
+        # 标 continue-on-error 让 webhook 抽风不把成功的 prod deploy 标红(对齐
+        # release.yml 的 Telegram 步)。脚本本身也始终 exit 0(双保险),失败时
+        # 打 ::warning::,绝不打印 webhook/secret。
+        continue-on-error: true  # preflight-allow: swallow
+        env:
+          TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+          API_URL: ${{ steps.instance.outputs.api_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          # changelog 的唯一源是 tag 注解正文(release-tag.sh 自动生成,release.yml
+          # 也读它喂给 GitHub Release header)。直接读 tag body 而非渲染后的
+          # `gh release view` —— 后者还含 goreleaser 的 README 标语 header + 安装
+          # footer,会被 clean_changelog 倒进「其他」桶污染卡片。runner 默认浅克隆
+          # 无 tag,先 fetch。取不到 → NOTES 空 → 卡片降级为只留链接(best-effort,
+          # 无 set -e,失败不影响通知本身)。
+          git fetch origin "refs/tags/v${INPUT_TAG}:refs/tags/v${INPUT_TAG}" --force 2>/dev/null || true
+          NOTES="$(git tag -l --format='%(contents:body)' "v$INPUT_TAG" 2>/dev/null)"
+          bash ops/stage0/notify-feishu-release.sh "$INPUT_TAG" "$API_URL" \
+            --run-url "$RUN_URL" --notes "$NOTES"
 
       - name: Job summary
         if: always()

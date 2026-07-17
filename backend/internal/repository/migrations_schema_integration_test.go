@@ -32,6 +32,7 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "accounts", "rate_limit_reset_at", "timestamp with time zone", 0, true)
 	requireColumn(t, tx, "accounts", "overload_until", "timestamp with time zone", 0, true)
 	requireColumn(t, tx, "accounts", "session_window_status", "character varying", 20, true)
+	requireIndex(t, tx, "accounts", "idx_accounts_autopause_expiry_due")
 
 	// api_keys: key length should be 128
 	requireColumn(t, tx, "api_keys", "key", "character varying", 128, false)
@@ -48,6 +49,14 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "usage_logs", "image_output_size", "character varying", 32, true)
 	requireColumn(t, tx, "usage_logs", "image_size_source", "character varying", 16, true)
 	requireColumn(t, tx, "usage_logs", "image_size_breakdown", "jsonb", 0, true)
+	requireColumn(t, tx, "usage_dashboard_group_daily", "total_requests", "bigint", 0, false)
+	requireColumn(t, tx, "usage_dashboard_group_daily", "input_tokens", "bigint", 0, false)
+	requireColumn(t, tx, "usage_dashboard_group_daily", "output_tokens", "bigint", 0, false)
+	requireColumn(t, tx, "usage_dashboard_group_daily", "cache_creation_tokens", "bigint", 0, false)
+	requireColumn(t, tx, "usage_dashboard_group_daily", "cache_read_tokens", "bigint", 0, false)
+	requireColumn(t, tx, "usage_dashboard_group_daily", "total_cost", "numeric", 0, false)
+	requireColumn(t, tx, "usage_dashboard_group_daily", "actual_cost", "numeric", 0, false)
+	requireColumn(t, tx, "usage_dashboard_group_daily", "account_cost", "numeric", 0, false)
 	requireConstraintDefinitionContains(
 		t,
 		tx,
@@ -65,6 +74,9 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 		"usage_logs",
 		"usage_logs_image_billing_size_check",
 		"image_count",
+		"billing_mode",
+		"'video'",
+		"video_count",
 		"image_size IS NOT NULL",
 		"'1K'",
 		"'2K'",
@@ -95,6 +107,14 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	var securitySecretsRegclass sql.NullString
 	require.NoError(t, tx.QueryRowContext(context.Background(), "SELECT to_regclass('public.security_secrets')").Scan(&securitySecretsRegclass))
 	require.True(t, securitySecretsRegclass.Valid, "expected security_secrets table to exist")
+
+	// scheduler_outbox pending dedup support
+	requireColumn(t, tx, "scheduler_outbox", "dedup_key", "text", 0, true)
+	requireIndex(t, tx, "scheduler_outbox", "idx_scheduler_outbox_pending_dedup_key")
+
+	// ops_system_logs: API key id index for operational log triage
+	requireColumn(t, tx, "ops_system_logs", "api_key_id", "bigint", 0, true)
+	requireIndex(t, tx, "ops_system_logs", "idx_ops_system_logs_api_key_id_created_at")
 
 	// user_allowed_groups table should exist
 	var uagRegclass sql.NullString

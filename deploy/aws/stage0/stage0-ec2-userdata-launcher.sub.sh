@@ -24,6 +24,7 @@ export TK_STAGE0_PREFIX='/${ProjectName}/${Environment}/stage0'
 B64=""
 B64+="$(aws ssm get-parameter --name "${!TK_STAGE0_PREFIX}/bootstrap.sh.gzip.b64.part1" --region "${!TK_AWS_REGION}" --query Parameter.Value --output text)"
 B64+="$(aws ssm get-parameter --name "${!TK_STAGE0_PREFIX}/bootstrap.sh.gzip.b64.part2" --region "${!TK_AWS_REGION}" --query Parameter.Value --output text)"
+B64+="$(aws ssm get-parameter --name "${!TK_STAGE0_PREFIX}/bootstrap.sh.gzip.b64.part3" --region "${!TK_AWS_REGION}" --query Parameter.Value --output text)"
 TMP="$(mktemp)"
 cleanup() { rm -f "${!TMP}"; }
 trap cleanup EXIT

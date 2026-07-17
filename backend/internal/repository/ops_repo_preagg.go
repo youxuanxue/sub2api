@@ -46,6 +46,7 @@ usage_agg AS (
     CASE WHEN GROUPING(platform) = 1 THEN NULL ELSE platform END AS platform,
     CASE WHEN GROUPING(group_id) = 1 THEN NULL ELSE group_id END AS group_id,
     COUNT(*) AS success_count,
+    COUNT(*) FILTER (WHERE first_token_ms IS NOT NULL) AS ttft_sample_count,
     COALESCE(SUM(tokens), 0) AS token_consumed,
 
     percentile_cont(0.50) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE duration_ms IS NOT NULL) AS duration_p50_ms,
@@ -75,7 +76,6 @@ error_base AS (
     -- value so platform-level GROUPING SETS don't collide with the overall (platform=NULL) row.
     COALESCE(platform, 'unknown') AS platform,
     group_id AS group_id,
-    is_business_limited AS is_business_limited,
     error_owner AS error_owner,
     status_code AS client_status_code,
     COALESCE(upstream_status_code, status_code, 0) AS effective_status_code
@@ -90,11 +90,12 @@ error_agg AS (
     CASE WHEN GROUPING(platform) = 1 THEN NULL ELSE platform END AS platform,
     CASE WHEN GROUPING(group_id) = 1 THEN NULL ELSE group_id END AS group_id,
     COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400) AS error_count_total,
-    COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400 AND is_business_limited) AS business_limited_count,
-    COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400 AND NOT is_business_limited) AS error_count_sla,
-    COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(effective_status_code, 0) NOT IN (429, 529)) AS upstream_error_count_excl_429_529,
-    COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(effective_status_code, 0) = 429) AS upstream_429_count,
-    COUNT(*) FILTER (WHERE error_owner = 'provider' AND NOT is_business_limited AND COALESCE(effective_status_code, 0) = 529) AS upstream_529_count
+    COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400 AND COALESCE(error_owner, '') IN ('provider', 'platform')) AS error_count_sla,
+    -- TK: same final-failure (client_status >= 400) gate as dashboard upstream_excl —
+    -- recovered-to-200 provider retries must not count as upstream errors.
+    COUNT(*) FILTER (WHERE COALESCE(client_status_code, 0) >= 400 AND error_owner = 'provider' AND COALESCE(effective_status_code, 0) NOT IN (429, 529)) AS upstream_error_count_excl_429_529,
+    COUNT(*) FILTER (WHERE error_owner = 'provider' AND COALESCE(effective_status_code, 0) = 429) AS upstream_429_count,
+    COUNT(*) FILTER (WHERE error_owner = 'provider' AND COALESCE(effective_status_code, 0) = 529) AS upstream_529_count
   FROM error_base
   GROUP BY GROUPING SETS (
     (bucket_start),
@@ -110,8 +111,8 @@ combined AS (
     COALESCE(u.group_id, e.group_id) AS group_id,
 
     COALESCE(u.success_count, 0) AS success_count,
+    COALESCE(u.ttft_sample_count, 0) AS ttft_sample_count,
     COALESCE(e.error_count_total, 0) AS error_count_total,
-    COALESCE(e.business_limited_count, 0) AS business_limited_count,
     COALESCE(e.error_count_sla, 0) AS error_count_sla,
     COALESCE(e.upstream_error_count_excl_429_529, 0) AS upstream_error_count_excl_429_529,
     COALESCE(e.upstream_429_count, 0) AS upstream_429_count,
@@ -143,8 +144,8 @@ INSERT INTO ops_metrics_hourly (
   platform,
   group_id,
   success_count,
+  ttft_sample_count,
   error_count_total,
-  business_limited_count,
   error_count_sla,
   upstream_error_count_excl_429_529,
   upstream_429_count,
@@ -169,8 +170,8 @@ SELECT
   NULLIF(platform, '') AS platform,
   group_id,
   success_count,
+  ttft_sample_count,
   error_count_total,
-  business_limited_count,
   error_count_sla,
   upstream_error_count_excl_429_529,
   upstream_429_count,
@@ -194,8 +195,8 @@ WHERE bucket_start IS NOT NULL
   AND (platform IS NULL OR platform <> '')
 ON CONFLICT (bucket_start, COALESCE(platform, ''), COALESCE(group_id, 0)) DO UPDATE SET
   success_count = EXCLUDED.success_count,
+  ttft_sample_count = EXCLUDED.ttft_sample_count,
   error_count_total = EXCLUDED.error_count_total,
-  business_limited_count = EXCLUDED.business_limited_count,
   error_count_sla = EXCLUDED.error_count_sla,
   upstream_error_count_excl_429_529 = EXCLUDED.upstream_error_count_excl_429_529,
   upstream_429_count = EXCLUDED.upstream_429_count,
@@ -240,8 +241,8 @@ INSERT INTO ops_metrics_daily (
   platform,
   group_id,
   success_count,
+  ttft_sample_count,
   error_count_total,
-  business_limited_count,
   error_count_sla,
   upstream_error_count_excl_429_529,
   upstream_429_count,
@@ -267,8 +268,8 @@ SELECT
   group_id,
 
   COALESCE(SUM(success_count), 0) AS success_count,
+  COALESCE(SUM(ttft_sample_count), 0) AS ttft_sample_count,
   COALESCE(SUM(error_count_total), 0) AS error_count_total,
-  COALESCE(SUM(business_limited_count), 0) AS business_limited_count,
   COALESCE(SUM(error_count_sla), 0) AS error_count_sla,
   COALESCE(SUM(upstream_error_count_excl_429_529), 0) AS upstream_error_count_excl_429_529,
   COALESCE(SUM(upstream_429_count), 0) AS upstream_429_count,
@@ -286,14 +287,16 @@ SELECT
     / NULLIF(SUM(success_count) FILTER (WHERE duration_avg_ms IS NOT NULL), 0) AS duration_avg_ms,
   MAX(duration_max_ms) AS duration_max_ms,
 
-  ROUND(SUM(ttft_p50_ms::double precision * success_count) FILTER (WHERE ttft_p50_ms IS NOT NULL)
-    / NULLIF(SUM(success_count) FILTER (WHERE ttft_p50_ms IS NOT NULL), 0))::int AS ttft_p50_ms,
-  ROUND(SUM(ttft_p90_ms::double precision * success_count) FILTER (WHERE ttft_p90_ms IS NOT NULL)
-    / NULLIF(SUM(success_count) FILTER (WHERE ttft_p90_ms IS NOT NULL), 0))::int AS ttft_p90_ms,
+  -- TTFT is weighted by ttft_sample_count (streaming rows only), NOT success_count,
+  -- because first_token_ms is recorded only for streaming requests.
+  ROUND(SUM(ttft_p50_ms::double precision * ttft_sample_count) FILTER (WHERE ttft_p50_ms IS NOT NULL)
+    / NULLIF(SUM(ttft_sample_count) FILTER (WHERE ttft_p50_ms IS NOT NULL), 0))::int AS ttft_p50_ms,
+  ROUND(SUM(ttft_p90_ms::double precision * ttft_sample_count) FILTER (WHERE ttft_p90_ms IS NOT NULL)
+    / NULLIF(SUM(ttft_sample_count) FILTER (WHERE ttft_p90_ms IS NOT NULL), 0))::int AS ttft_p90_ms,
   MAX(ttft_p95_ms) AS ttft_p95_ms,
   MAX(ttft_p99_ms) AS ttft_p99_ms,
-  SUM(ttft_avg_ms * success_count) FILTER (WHERE ttft_avg_ms IS NOT NULL)
-    / NULLIF(SUM(success_count) FILTER (WHERE ttft_avg_ms IS NOT NULL), 0) AS ttft_avg_ms,
+  SUM(ttft_avg_ms * ttft_sample_count) FILTER (WHERE ttft_avg_ms IS NOT NULL)
+    / NULLIF(SUM(ttft_sample_count) FILTER (WHERE ttft_avg_ms IS NOT NULL), 0) AS ttft_avg_ms,
   MAX(ttft_max_ms) AS ttft_max_ms,
 
   NOW()
@@ -302,8 +305,8 @@ WHERE bucket_start >= $1 AND bucket_start < $2
 GROUP BY 1, 2, 3
 ON CONFLICT (bucket_date, COALESCE(platform, ''), COALESCE(group_id, 0)) DO UPDATE SET
   success_count = EXCLUDED.success_count,
+  ttft_sample_count = EXCLUDED.ttft_sample_count,
   error_count_total = EXCLUDED.error_count_total,
-  business_limited_count = EXCLUDED.business_limited_count,
   error_count_sla = EXCLUDED.error_count_sla,
   upstream_error_count_excl_429_529 = EXCLUDED.upstream_error_count_excl_429_529,
   upstream_429_count = EXCLUDED.upstream_429_count,

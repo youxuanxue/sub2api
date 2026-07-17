@@ -44,6 +44,60 @@ func TestIsOpus47OrNewer(t *testing.T) {
 	}
 }
 
+func TestIsFableModel(t *testing.T) {
+	cases := []struct {
+		model string
+		want  bool
+	}{
+		{"claude-fable-5", true},
+		{"claude-fable-5[1m]", true},
+		{"claude-fable-5-20260609", true},
+		{"anthropic.claude-fable-5", true}, // bedrock form
+		{"Claude-Fable-5", true},           // case-insensitive
+		{"claude-opus-4-8", false},
+		{"claude-sonnet-4-6", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.model, func(t *testing.T) {
+			require.Equal(t, tc.want, isFableModel(tc.model))
+		})
+	}
+}
+
+func TestRequiresAdaptiveOnlyThinking(t *testing.T) {
+	// True for opus-4.7+ AND fable; false for sonnet / opus-4.6 / haiku.
+	cases := []struct {
+		model string
+		want  bool
+	}{
+		{"claude-fable-5", true},
+		{"claude-fable-5[1m]", true},
+		{"claude-opus-4-7", true},
+		{"claude-opus-4-8", true},
+		{"claude-opus-4-6", false},
+		{"claude-sonnet-4-6", false},
+		{"claude-haiku-4-5-20251001", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.model, func(t *testing.T) {
+			require.Equal(t, tc.want, requiresAdaptiveOnlyThinking(tc.model))
+		})
+	}
+}
+
+func TestRectifyThinkingBudget_FableIsAdaptive(t *testing.T) {
+	// Fable shares opus-4.7+'s adaptive-only surface: a budget-constraint repair
+	// must produce adaptive (no budget_tokens), never enabled+32000 (fable 400s).
+	body := []byte(`{"model":"claude-fable-5","max_tokens":1024,"thinking":{"type":"enabled","budget_tokens":100}}`)
+	out, changed := RectifyThinkingBudget(body, "claude-fable-5")
+	require.True(t, changed)
+	require.Equal(t, "adaptive", gjson.GetBytes(out, "thinking.type").String())
+	require.False(t, gjson.GetBytes(out, "thinking.budget_tokens").Exists())
+	require.GreaterOrEqual(t, gjson.GetBytes(out, "max_tokens").Int(), int64(BudgetRectifyMinMaxTokens))
+}
+
 func TestIsThinkingTypeAdaptiveRequiredError(t *testing.T) {
 	// The exact production 400 message (CC issue #61348).
 	realMsg := `"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior.`

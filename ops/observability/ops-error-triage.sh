@@ -11,6 +11,8 @@
 #
 # Env (consumed inside the remote shell):
 #   WINDOW_HOURS    lookback hours, default 24
+#   WINDOW_MINUTES  lookback minutes; when set, OVERRIDES WINDOW_HOURS (post-
+#                   release ticks want 5-15 minute windows)
 #   PATH_FILTER     ops_error_logs.request_path exact match; empty = no filter
 #   MODEL_FILTER    ops_error_logs.requested_model exact match; empty = no filter
 #   STATUS_MIN      minimum final status_code to include in error counts; default 400
@@ -23,6 +25,7 @@ set -u
 
 PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
 WINDOW_HOURS="${WINDOW_HOURS:-24}"
+WINDOW_MINUTES="${WINDOW_MINUTES:-}"
 PATH_FILTER="${PATH_FILTER:-}"
 MODEL_FILTER="${MODEL_FILTER:-}"
 STATUS_MIN="${STATUS_MIN:-400}"
@@ -37,6 +40,15 @@ for _name in WINDOW_HOURS STATUS_MIN TOP_KIND_LIMIT TOP_MIN_LIMIT; do
     ''|*[!0-9]*) echo "[ops-error-triage] ERROR: $_name not positive int: '$_val'" >&2; exit 2 ;;
   esac
 done
+# WINDOW_MINUTES is optional; when set it must be a positive int and it wins.
+if [ -n "$WINDOW_MINUTES" ]; then
+  case "$WINDOW_MINUTES" in
+    *[!0-9]*) echo "[ops-error-triage] ERROR: WINDOW_MINUTES not positive int: '$WINDOW_MINUTES'" >&2; exit 2 ;;
+  esac
+  WINDOW_INTERVAL="${WINDOW_MINUTES} minute"
+else
+  WINDOW_INTERVAL="${WINDOW_HOURS} hour"
+fi
 
 # SQL-escape PATH_FILTER / MODEL_FILTER: double every embedded single quote so the
 # string literal we interpolate as '${VAR}' can survive an operator passing a
@@ -45,8 +57,8 @@ PATH_FILTER_SQL="${PATH_FILTER//\'/\'\'}"
 MODEL_FILTER_SQL="${MODEL_FILTER//\'/\'\'}"
 
 echo "=== meta ==="
-printf 'window_hours=%s\npath_filter=%s\nmodel_filter=%s\nstatus_min=%s\n' \
-  "$WINDOW_HOURS" "${PATH_FILTER:-<none>}" "${MODEL_FILTER:-<none>}" "$STATUS_MIN"
+printf 'window=%s\npath_filter=%s\nmodel_filter=%s\nstatus_min=%s\n' \
+  "$WINDOW_INTERVAL" "${PATH_FILTER:-<none>}" "${MODEL_FILTER:-<none>}" "$STATUS_MIN"
 
 echo
 echo "=== schema (ops_error_logs columns) ==="
@@ -64,7 +76,7 @@ echo "=== summary ==="
 # Build a parameterized CTE; PATH/MODEL filters skip the constraint when empty.
 $PSQL -c "
 WITH bounds AS (
-  SELECT now() - interval '${WINDOW_HOURS} hour' AS since,
+  SELECT now() - interval '${WINDOW_INTERVAL}' AS since,
          now()                                   AS until
 ), base AS (
   SELECT l.*
@@ -87,7 +99,7 @@ echo
 echo "=== by_status ==="
 $PSQL -c "
 WITH bounds AS (
-  SELECT now() - interval '${WINDOW_HOURS} hour' AS since,
+  SELECT now() - interval '${WINDOW_INTERVAL}' AS since,
          now()                                   AS until
 ), base AS (
   SELECT l.*
@@ -110,7 +122,7 @@ echo
 echo "=== upstream_events ==="
 $PSQL -c "
 WITH bounds AS (
-  SELECT now() - interval '${WINDOW_HOURS} hour' AS since,
+  SELECT now() - interval '${WINDOW_INTERVAL}' AS since,
          now()                                   AS until
 ), base AS (
   SELECT l.*
@@ -146,7 +158,7 @@ echo
 echo "=== by_minute_429 ==="
 $PSQL -c "
 WITH bounds AS (
-  SELECT now() - interval '${WINDOW_HOURS} hour' AS since,
+  SELECT now() - interval '${WINDOW_INTERVAL}' AS since,
          now()                                   AS until
 ), base AS (
   SELECT l.*

@@ -1,14 +1,19 @@
 package service
 
-// TokenKey: per-user pricing catalog ("Your Menu").
+// TokenKey: per-user pricing catalog ("Group Catalog" / "分组目录").
 //
 // Unlike service.PricingCatalogService.BuildPublicCatalog (a platform-wide
 // flat list of LiteLLM list prices), MePricingCatalogService builds a view
 // scoped to ONE group — the group of the user's selected API key, or any
-// other group the user can access ("explore other group" mode). Prices
-// are the prices the user is actually charged: channel-configured rates
-// multiplied by `group.rate_multiplier`, with `user_group_rate` override
-// layered on top.
+// other group the user can access ("explore other group" mode).
+//
+// TK pricing-display policy (运营要求，展示端与倍率彻底脱钩): the prices
+// emitted here are the OFFICIAL list prices (multiplier 1.0) — they do NOT
+// apply `group.rate_multiplier` nor the `user_group_rate` override. The
+// pricing page ("分组目录"/"所有目录") is a catalog of official prices; a
+// customer's real cost depends on their (hidden) rate. The billing path is
+// unaffected: the gateway still charges the true effective rate. `your_price`
+// keeps its field name for DTO stability but now carries the official price.
 //
 // Why a separate service / why not extend ChannelService.ListAvailable:
 //   - This is a TK-only surface; ChannelService is upstream-shaped and we
@@ -20,17 +25,14 @@ package service
 //   - LiteLLM metadata (context_window, capabilities) is joined post-hoc
 //     from PricingCatalogService — the channel layer doesn't carry those.
 //
-// Pricing precedence (matches gateway billing path):
-//   effective_rate = user_group_rate[group_id]  if present
-//                  else group.rate_multiplier
-//   A user_group_rate of 0 is the legitimate "free subscription" value
-//   and is NOT short-circuited — we emit zeros.
+// Effective rate (user_group_rate override else group.rate_multiplier) is
+// still computed for the target_group rate hint fields (see #693's
+// HideUserRateOverrides), but it is NO LONGER applied to model prices.
 //
 // Multi-channel dedupe rule: when the same model_id appears on multiple
-// active channels mapped to the target group, we keep the row with the
-// LOWEST combined input+output price. This matches the implicit promise
-// of "your menu" — the headline price equals the cheapest path the user
-// can actually be billed under.
+// active channels mapped to the target group, public-catalog prices win when
+// present. For channel-only/custom rows with no public-catalog entry, we keep
+// the row with the LOWEST combined input+output channel price.
 
 import (
 	"context"
@@ -83,6 +85,17 @@ type MePricingCatalogService struct {
 	channels MePricingChannelLister
 	catalog  MePricingCatalogProvider
 	accounts MePricingAccountSource
+	// availability gates the unrestricted-account fallback on live
+	// model_availability so a structurally-gone model (us7 P0 2026-06-13)
+	// auto-drops from the menu without a manual servable-allowlist edit. Nil
+	// (Phase-1 / tests) degrades to "no gating" — the static allowlist alone.
+	availability MePricingAvailability
+}
+
+// MePricingAvailability is the read slice of PricingAvailabilityService the
+// menu needs: the per-(platform, model) verified-availability state.
+type MePricingAvailability interface {
+	GetAvailability(ctx context.Context, platform, modelID string) (AvailabilityState, error)
 }
 
 // NewMePricingCatalogService is the production constructor. Any nil
@@ -94,12 +107,14 @@ func NewMePricingCatalogService(
 	channels *ChannelService,
 	catalog *PricingCatalogService,
 	accounts *AccountService,
+	availability *PricingAvailabilityService,
 ) *MePricingCatalogService {
 	var (
-		k MePricingKeyAccess
-		c MePricingChannelLister
-		p MePricingCatalogProvider
-		a MePricingAccountSource
+		k     MePricingKeyAccess
+		c     MePricingChannelLister
+		p     MePricingCatalogProvider
+		a     MePricingAccountSource
+		avail MePricingAvailability
 	)
 	if keys != nil {
 		k = keys
@@ -113,7 +128,21 @@ func NewMePricingCatalogService(
 	if accounts != nil {
 		a = accounts
 	}
-	return &MePricingCatalogService{keys: k, channels: c, catalog: p, accounts: a}
+	if availability != nil {
+		avail = availability
+	}
+	return &MePricingCatalogService{keys: k, channels: c, catalog: p, accounts: a, availability: avail}
+}
+
+// pruneStructurallyGoneIDs drops model IDs that live model_availability reports
+// as structurally gone upstream (model_not_found → unreachable). Delegates to the
+// shared tkPruneStructurallyGoneIDs so the per-user menu and the admin selector
+// prune identically. Nil-safe.
+func (s *MePricingCatalogService) pruneStructurallyGoneIDs(ctx context.Context, platform string, ids []string) []string {
+	if s == nil {
+		return ids
+	}
+	return tkPruneStructurallyGoneIDs(ctx, platform, ids, s.availability)
 }
 
 // MePricingCatalogOptions selects which group the menu is built for.
@@ -123,6 +152,11 @@ func NewMePricingCatalogService(
 type MePricingCatalogOptions struct {
 	APIKeyID *int64
 	GroupID  *int64
+	// HideUserRateOverrides 隐藏 per-user 专属倍率的"数值痕迹"：倍率提示
+	// 字段（rate_multiplier / has_override / accessible_groups 的倍率）回落
+	// 到分组默认值，但 models 的 your_price 仍按真实生效倍率计算——价格
+	// 必须与实际计费一致。非 admin 请求由 handler 置位。
+	HideUserRateOverrides bool
 }
 
 // MePricingCatalogResponse is the top-level DTO returned to the user UI.
@@ -131,7 +165,12 @@ type MePricingCatalogResponse struct {
 	Models           []MePricingModel     `json:"models"`
 	MyKeys           []MePricingKeyRef    `json:"my_keys"`
 	AccessibleGroups []MePricingGroupRef  `json:"accessible_groups"`
-	UpdatedAt        time.Time            `json:"updated_at"`
+	// AuthorizedGroupsByModel is the full model_id → accessible-groups index
+	// reused by the authenticated public-catalog view on /pricing (models[] only
+	// covers the target group's menu; the public catalog is wider). Same serving
+	// logic as per-row AuthorizedGroups — see buildAuthorizedGroupsIndex.
+	AuthorizedGroupsByModel map[string][]MePricingModelGroup `json:"authorized_groups_by_model,omitempty"`
+	UpdatedAt               time.Time                        `json:"updated_at"`
 }
 
 // MePricingTargetGroup describes the group the menu is currently scoped to.
@@ -159,6 +198,26 @@ type MePricingModel struct {
 	ContextWindow   int            `json:"context_window,omitempty"`
 	MaxOutputTokens int            `json:"max_output_tokens,omitempty"`
 	Capabilities    []string       `json:"capabilities"`
+	// AuthorizedGroups lists the caller's accessible groups (exclusive + public)
+	// that can serve this model — the "授权分组" column on /pricing when logged in
+	// (my view per-row; public view via authorized_groups_by_model lookup).
+	// Lets a user see at a glance which group/key to use, and (frontend) deep-link
+	// to /keys to create a key prefilled with that group. Empty/omitted for guests.
+	// Sorted: target group first, then exclusive, then by name.
+	AuthorizedGroups []MePricingModelGroup `json:"authorized_groups,omitempty"`
+}
+
+// MePricingModelGroup is a per-model reference to one accessible group that can
+// serve the model. A trimmed MePricingGroupRef (no per-key flags) — just what the
+// "授权分组" column + create-key deep-link need.
+type MePricingModelGroup struct {
+	ID               int64   `json:"id"`
+	Name             string  `json:"name"`
+	Platform         string  `json:"platform"`
+	IsExclusive      bool    `json:"is_exclusive"`
+	IsCurrentForKey  bool    `json:"is_current_for_key"`
+	RateMultiplier   float64 `json:"rate_multiplier"`
+	SubscriptionType string  `json:"subscription_type,omitempty"`
 }
 
 // MePricingPrice mirrors the "your price" view in USD per 1k tokens (or
@@ -172,6 +231,51 @@ type MePricingPrice struct {
 	CacheWritePer1K  *float64 `json:"cache_write_per_1k,omitempty"`
 	ImageOutputPer1K *float64 `json:"image_output_per_1k,omitempty"`
 	PerRequest       *float64 `json:"per_request,omitempty"`
+	// TK media units: per-generated-image (image billing_mode) and per-second
+	// (video billing_mode), scaled by the user's effective rate. Carried from
+	// the public catalog meta (which now surfaces media — pricing_catalog_tk.go).
+	PerImage  *float64 `json:"per_image,omitempty"`
+	PerSecond *float64 `json:"per_second,omitempty"`
+	// Tiers, when non-empty, is the input-token interval (阶梯) ladder for models
+	// whose unit price varies by request input length. Single source of truth: it
+	// is copied verbatim from the public catalog (PublicCatalogModel.Pricing.Tiers,
+	// built once in attachCatalogOverlayTiers) — me-pricing shows the OFFICIAL list
+	// price (officialRate = 1.0, no group/override scaling), so its ladder is the
+	// same one the public /pricing endpoint serves. The flat Input/OutputPer1K
+	// fields carry the first (lowest) tier. Per 1k tokens, USD.
+	Tiers []MePricingTier `json:"tiers,omitempty"`
+}
+
+// MePricingTier mirrors PublicCatalogTier (the single source) in the me-pricing
+// DTO's per-1k naming. MinTokens inclusive, MaxTokens exclusive (nil = open-ended
+// top tier). Pointer prices keep the "nil = no data" convention of MePricingPrice.
+type MePricingTier struct {
+	MinTokens      int      `json:"min_tokens"`
+	MaxTokens      *int     `json:"max_tokens,omitempty"`
+	InputPer1K     *float64 `json:"input_per_1k,omitempty"`
+	OutputPer1K    *float64 `json:"output_per_1k,omitempty"`
+	CacheReadPer1K *float64 `json:"cache_read_per_1k,omitempty"`
+}
+
+// mePricingTiersFromCatalog converts the public catalog's tier ladder into the
+// me-pricing DTO shape verbatim (no rate scaling — me-pricing is the official
+// list price). Returns nil for a flat-priced model so the field stays omitted.
+func mePricingTiersFromCatalog(tiers []PublicCatalogTier) []MePricingTier {
+	if len(tiers) == 0 {
+		return nil
+	}
+	out := make([]MePricingTier, 0, len(tiers))
+	for i := range tiers {
+		t := tiers[i]
+		in, outp := t.InputPer1KTokens, t.OutputPer1KTokens
+		mt := MePricingTier{MinTokens: t.MinTokens, MaxTokens: t.MaxTokens, InputPer1K: &in, OutputPer1K: &outp}
+		if t.CacheReadPer1K > 0 {
+			cr := t.CacheReadPer1K
+			mt.CacheReadPer1K = &cr
+		}
+		out = append(out, mt)
+	}
+	return out
 }
 
 // MePricingKeyRef populates the key-picker dropdown. Only active keys
@@ -228,7 +332,8 @@ const keyListPageSize = 200
 //  4. Walk channels, filter to active + mapped to target group, filter
 //     SupportedModels.Platform == targetGroup.Platform (cross-platform leak guard).
 //  5. Dedupe by model_id, keep the cheapest (input + output sum) row.
-//  6. Multiply every price by effectiveRate.
+//  6. Emit OFFICIAL prices (multiplier 1.0) — effectiveRate is computed but
+//     NOT applied to model prices (TK pricing-display policy; see file header).
 //  7. Join LiteLLM metadata for capabilities / context_window / max_output.
 //  8. Sort alpha by model_id.
 func (s *MePricingCatalogService) BuildForUser(
@@ -295,14 +400,33 @@ func (s *MePricingCatalogService) BuildForUser(
 		hasOverride = r != listMult
 	}
 
-	models := s.buildModelsForGroup(ctx, targetGroup, effective)
+	// TK: 模型价格一律按官方基础价（倍率 1.0）计算，不乘 effective/override。
+	// pricing 页是官方定价目录；真实计费在网关按 effective 倍率执行，不受此影响。
+	const officialRate = 1.0
+	models := s.buildModelsForGroup(ctx, targetGroup, officialRate)
+
+	// 「授权分组」列：对每个模型标注该用户可访问分组中能服务它的分组集合，
+	// 方便用户看清该用什么 key/分组（前端可点击直达建 key）。
+	authByModel := s.buildAuthorizedGroupsIndex(
+		ctx, models, accessibleGroups, userRates, targetGroupID, opts.HideUserRateOverrides,
+	)
+	models = applyAuthorizedGroupsIndex(models, authByModel)
+
+	// HideUserRateOverrides：倍率提示字段回落到分组默认值（前端已不再渲染这些
+	// 字段——pricing 页与倍率彻底脱钩——但保留 #693 的口径以稳住 DTO 与测试）。
+	shownRate := effective
+	shownOverride := hasOverride
+	if opts.HideUserRateOverrides {
+		shownRate = listMult
+		shownOverride = false
+	}
 
 	// Build picker DTO for accessible_groups with effective rate per group.
 	groupRefs := make([]MePricingGroupRef, 0, len(accessibleGroups))
 	for i := range accessibleGroups {
 		g := accessibleGroups[i]
 		rate := g.RateMultiplier
-		if r, ok := userRates[g.ID]; ok {
+		if r, ok := userRates[g.ID]; ok && !opts.HideUserRateOverrides {
 			rate = r
 		}
 		groupRefs = append(groupRefs, MePricingGroupRef{
@@ -321,16 +445,17 @@ func (s *MePricingCatalogService) BuildForUser(
 			ID:               targetGroup.ID,
 			Name:             targetGroup.Name,
 			Platform:         targetGroup.Platform,
-			RateMultiplier:   effective,
+			RateMultiplier:   shownRate,
 			ListMultiplier:   listMult,
-			HasOverride:      hasOverride,
+			HasOverride:      shownOverride,
 			IsExclusive:      targetGroup.IsExclusive,
 			SubscriptionType: targetGroup.SubscriptionType,
 		},
-		Models:           models,
-		MyKeys:           myKeys,
-		AccessibleGroups: groupRefs,
-		UpdatedAt:        time.Now().UTC(),
+		Models:                  models,
+		MyKeys:                  myKeys,
+		AccessibleGroups:        groupRefs,
+		AuthorizedGroupsByModel: authByModel,
+		UpdatedAt:               time.Now().UTC(),
 	}, nil
 }
 
@@ -440,7 +565,7 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 					if m.Platform != targetGroup.Platform {
 						continue
 					}
-					candidate := buildModelEntry(m, effectiveRate)
+					candidate := buildChannelServedEntry(m, effectiveRate, metaByID)
 					if existing, ok := bestByModel[m.Name]; ok {
 						bestByModel[m.Name] = pickCheaperModel(existing, candidate)
 					} else {
@@ -466,6 +591,9 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 			if m.Vendor == "" {
 				m.Vendor = meta.Vendor
 			}
+			// Single source of truth: the阶梯 ladder is the public catalog's,
+			// copied verbatim (me-pricing is the official list price, rate 1.0).
+			m.YourPrice.Tiers = mePricingTiersFromCatalog(meta.Pricing.Tiers)
 		}
 		if m.Capabilities == nil {
 			m.Capabilities = []string{}
@@ -477,19 +605,106 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 	return out
 }
 
+// buildAuthorizedGroupsIndex inverts buildModelsForGroup across every accessible
+// group into model_id → []group. Reuses the target group's already-built rows
+// instead of rebuilding them. The index powers both the per-row AuthorizedGroups
+// on the "my" view and the authenticated public-catalog column (wider model set).
+func (s *MePricingCatalogService) buildAuthorizedGroupsIndex(
+	ctx context.Context,
+	targetModels []MePricingModel,
+	accessibleGroups []Group,
+	userRates map[int64]float64,
+	targetGroupID int64,
+	hideOverrides bool,
+) map[string][]MePricingModelGroup {
+	if s == nil || len(accessibleGroups) == 0 {
+		return nil
+	}
+	byModel := make(map[string][]MePricingModelGroup)
+	for i := range accessibleGroups {
+		g := accessibleGroups[i]
+		rate := g.RateMultiplier
+		if r, ok := userRates[g.ID]; ok && !hideOverrides {
+			rate = r
+		}
+		ref := MePricingModelGroup{
+			ID:               g.ID,
+			Name:             g.Name,
+			Platform:         g.Platform,
+			IsExclusive:      g.IsExclusive,
+			IsCurrentForKey:  g.ID == targetGroupID,
+			RateMultiplier:   rate,
+			SubscriptionType: g.SubscriptionType,
+		}
+		if g.ID == targetGroupID {
+			for j := range targetModels {
+				byModel[targetModels[j].ModelID] = append(byModel[targetModels[j].ModelID], ref)
+			}
+			continue
+		}
+		for _, m := range s.buildModelsForGroup(ctx, g, 1.0) {
+			byModel[m.ModelID] = append(byModel[m.ModelID], ref)
+		}
+	}
+	for modelID, groups := range byModel {
+		if len(groups) == 0 {
+			delete(byModel, modelID)
+			continue
+		}
+		sortAuthorizedGroups(groups)
+		byModel[modelID] = groups
+	}
+	if len(byModel) == 0 {
+		return nil
+	}
+	return byModel
+}
+
+func applyAuthorizedGroupsIndex(
+	models []MePricingModel,
+	byModel map[string][]MePricingModelGroup,
+) []MePricingModel {
+	if len(byModel) == 0 || len(models) == 0 {
+		return models
+	}
+	for i := range models {
+		if groups := byModel[models[i].ModelID]; len(groups) > 0 {
+			models[i].AuthorizedGroups = groups
+		}
+	}
+	return models
+}
+
+// sortAuthorizedGroups orders the per-model group badges deterministically:
+// the current/target group first, then exclusive groups, then by name.
+func sortAuthorizedGroups(g []MePricingModelGroup) {
+	sort.SliceStable(g, func(i, j int) bool {
+		if g[i].IsCurrentForKey != g[j].IsCurrentForKey {
+			return g[i].IsCurrentForKey
+		}
+		if g[i].IsExclusive != g[j].IsExclusive {
+			return g[i].IsExclusive
+		}
+		return g[i].Name < g[j].Name
+	})
+}
+
 // fillAccountFallback inserts account-derived menu rows for each
 // schedulable account on the target group, branching on whether the
 // account restricts its model set:
 //
 //   - Restricted account (non-empty credentials.model_mapping) — emit one
-//     row per whitelist entry (from === to). Mapping-mode entries
+//     row per whitelist entry (from === to). Antigravity and newapi additionally
+//     intersect those identity entries with their display allowlists so stale,
+//     unprovisioned, or display=false ids do not appear in the user-facing menu.
+//     Mapping-mode entries
 //     (from != to) are routing rewrites, not user-visible offerings, so
 //     they contribute nothing (see parseWhitelistFromCredentials).
 //   - Unrestricted account (empty/absent model_mapping = all models
 //     allowed, the native OAuth case) — emit the platform's canonical
-//     model list (claude/openai/gemini/antigravity default models, the
-//     same source gateway `/v1/models` uses). This is what fixes the
-//     empty "Your Menu" for Anthropic OAuth groups: those accounts are
+//     model list (claude/openai/gemini/grok and any probed native allowlist, the
+//     same source gateway `/v1/models` uses when applicable). This is what fixes the
+//     empty "Group Catalog" for Anthropic OAuth groups: those accounts are
 //     not channels and carry no whitelist, so before this branch both
 //     the channel stage and the whitelist stage produced nothing.
 //
@@ -525,14 +740,48 @@ func (s *MePricingCatalogService) fillAccountFallback(
 	if err != nil || len(accounts) == 0 {
 		return
 	}
-	platformDefaults := platformDefaultModelIDs(targetGroup.Platform)
+	// Self-heal (us7 P0 2026-06-13): drop models live model_availability reports
+	// as structurally gone (model_not_found → unreachable) so an upstream-retired
+	// model auto-disappears from the menu without a manual servable-allowlist
+	// edit — same gone-vs-degraded rule as the public /pricing storefront.
+	platformDefaults := s.pruneStructurallyGoneIDs(ctx, targetGroup.Platform, platformDefaultModelIDs(targetGroup.Platform))
+	var restrictedDisplayAllow map[string]struct{}
+	if targetGroup.Platform == PlatformAntigravity {
+		if ids := supportedCatalogModelIDsForPlatform(targetGroup.Platform); len(ids) > 0 {
+			restrictedDisplayAllow = make(map[string]struct{}, len(ids))
+			for _, id := range ids {
+				restrictedDisplayAllow[id] = struct{}{}
+			}
+		}
+	}
 	for i := range accounts {
 		a := &accounts[i]
 		if !accountInGroupScope(a, targetGroup.Platform) {
 			continue
 		}
+		var newapiPresetAllow map[string]struct{}
+		if targetGroup.Platform == PlatformNewAPI {
+			presets := NewAPIModelDisplayIDsForChannelType(a.ChannelType)
+			if len(presets) == 0 {
+				continue
+			}
+			newapiPresetAllow = make(map[string]struct{}, len(presets))
+			for _, id := range presets {
+				newapiPresetAllow[id] = struct{}{}
+			}
+		}
 		if accountHasModelRestriction(a.Credentials) {
 			for _, modelID := range parseWhitelistFromCredentials(a.Credentials) {
+				if restrictedDisplayAllow != nil {
+					if _, ok := restrictedDisplayAllow[modelID]; !ok {
+						continue
+					}
+				}
+				if newapiPresetAllow != nil {
+					if _, ok := newapiPresetAllow[modelID]; !ok {
+						continue
+					}
+				}
 				addFallbackModel(bestByModel, modelID, effectiveRate, metaByID)
 			}
 			continue
@@ -565,19 +814,21 @@ func addFallbackModel(
 }
 
 // platformDefaultModelIDs returns the model-ID list an unrestricted native
-// account contributes to Your Menu.
+// account contributes to the Group Catalog.
 //
-// Anthropic / OpenAI use the empirically-servable allowlist
+// Anthropic / OpenAI / Grok use the empirically-servable allowlist
 // (supportedCatalogModelIDsForPlatform) — the SAME source the public /pricing
 // catalog filters by — so both surfaces advertise exactly the models that
 // passed a live prod probe (operator directive: "实测通过的才行"). This
 // supersedes the earlier canonical-list fallback, which advertised
-// upstream-rejected models (e.g. gpt-5.2, gpt-4o) that 400/502 at runtime.
+// upstream-rejected models (e.g. gpt-5.6-sol, gpt-4o) that 400/502 at runtime. Grok
+// has no canonical DefaultModels list at all — its served set IS its priced
+// overlay set, so the allowlist is the only correct source.
 //
-// Gemini uses its canonical list (defaultModelsListCandidateIDs): it was not
-// probed, and an empty credentials.model_mapping genuinely means "all gemini
-// models allowed" (resolveModelMapping returns nil), so canonical is the best
-// available list until a probe adds gemini to the empirical set.
+// Gemini uses the empirical set once populated; an empty set still degrades to
+// canonical inside tkServableCandidateIDs. This keeps advertised-dead ids such
+// as gemini-2.0-flash and gemini-3.x chat out of the unrestricted menu once the
+// live probe has populated the allowlist.
 //
 // Antigravity is deliberately EXCLUDED: resolveModelMapping injects
 // domain.DefaultAntigravityModelMapping for an antigravity account with no
@@ -589,7 +840,14 @@ func platformDefaultModelIDs(platform string) []string {
 	case PlatformAnthropic, PlatformOpenAI:
 		return supportedCatalogModelIDsForPlatform(platform)
 	case PlatformGemini:
-		return defaultModelsListCandidateIDs(platform)
+		return supportedCatalogModelIDsForPlatform(platform)
+	case PlatformGrok:
+		// Grok (seventh platform) is native OAuth-relay: accounts are
+		// unrestricted and carry no channel, so the menu must fall back to the
+		// curated grok served set (the priced overlay models) — the SAME source
+		// the public /pricing catalog filters by. Without this case grok hit the
+		// default (nil) arm and a grok group's "分组目录" was empty (2026-06-20).
+		return supportedCatalogModelIDsForPlatform(platform)
 	default:
 		return nil
 	}
@@ -625,7 +883,7 @@ func accountInGroupScope(a *Account, groupPlatform string) bool {
 		return false
 	}
 	switch groupPlatform {
-	case "openai", "newapi":
+	case PlatformOpenAI, PlatformNewAPI:
 		return a.IsOpenAICompatPoolMember(groupPlatform)
 	default:
 		return a.Platform == groupPlatform
@@ -680,21 +938,51 @@ func buildAccountFallbackEntry(modelID string, rate float64, metaByID map[string
 		YourPrice:    MePricingPrice{Currency: "USD"},
 		Capabilities: []string{},
 	}
-	meta, ok := metaByID[modelID]
-	if !ok {
-		if stripped, stripOK := stripVendorPrefixForCatalogLookup(modelID); stripOK {
-			meta, ok = metaByID[stripped]
-		}
-	}
+	meta, ok := lookupMePricingCatalogModel(modelID, metaByID)
 	if !ok {
 		return entry
 	}
+	applyCatalogMetaToMePricingModel(&entry, meta, rate)
+	return entry
+}
+
+func buildChannelServedEntry(m SupportedModel, rate float64, metaByID map[string]PublicCatalogModel) MePricingModel {
+	entry := buildModelEntry(m, rate)
+	if meta, ok := lookupMePricingCatalogModel(m.Name, metaByID); ok {
+		applyCatalogMetaToMePricingModel(&entry, meta, rate)
+	}
+	return entry
+}
+
+func lookupMePricingCatalogModel(modelID string, metaByID map[string]PublicCatalogModel) (PublicCatalogModel, bool) {
+	meta, ok := metaByID[modelID]
+	if ok {
+		return meta, true
+	}
+	if stripped, stripOK := stripVendorPrefixForCatalogLookup(modelID); stripOK {
+		meta, ok = metaByID[stripped]
+		if ok {
+			return meta, true
+		}
+	}
+	return PublicCatalogModel{}, false
+}
+
+func applyCatalogMetaToMePricingModel(entry *MePricingModel, meta PublicCatalogModel, rate float64) {
+	if entry == nil {
+		return
+	}
 	entry.Vendor = meta.Vendor
+	if meta.Pricing.BillingMode != "" {
+		entry.BillingMode = meta.Pricing.BillingMode
+	}
 	entry.YourPrice.InputPer1K = scaleCatalogPrice(meta.Pricing.InputPer1KTokens, rate)
 	entry.YourPrice.OutputPer1K = scaleCatalogPrice(meta.Pricing.OutputPer1KTokens, rate)
 	entry.YourPrice.CacheReadPer1K = scaleCatalogPrice(meta.Pricing.CacheReadPer1K, rate)
 	entry.YourPrice.CacheWritePer1K = scaleCatalogPrice(meta.Pricing.CacheWritePer1K, rate)
-	return entry
+	// Media units (nil when 0 — non-media models stay token-only).
+	entry.YourPrice.PerImage = scaleCatalogPrice(meta.Pricing.OutputCostPerImage, rate)
+	entry.YourPrice.PerSecond = scaleCatalogPrice(meta.Pricing.OutputCostPerSecond, rate)
 }
 
 // scaleCatalogPrice multiplies a PublicCatalogPricing value (already in

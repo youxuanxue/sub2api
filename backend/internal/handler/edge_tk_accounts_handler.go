@@ -4,15 +4,13 @@ import (
 	"context"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/sync/errgroup"
 )
 
 // edgeAccountsMaxPageSize bounds the single-page listing. Edges host a handful
@@ -49,6 +47,7 @@ var edgeAccountsSupportedPlatforms = map[string]struct{}{
 	service.PlatformAntigravity: {},
 	service.PlatformNewAPI:      {},
 	service.PlatformKiro:        {},
+	service.PlatformGrok:        {},
 }
 
 // edgeAccountsListFilter maps the requested platform to the ListAccounts filter
@@ -80,12 +79,15 @@ type edgeRPMReader interface {
 }
 
 type edgeUsageReader interface {
-	GetAccountWindowStats(ctx context.Context, accountID int64, startTime time.Time) (*usagestats.AccountStats, error)
 	GetTodayStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*service.WindowStats, error)
 	// GetPassiveUsage builds the 5h/7d usage windows from the account's persisted
-	// passive samples (Extra), with NO upstream Anthropic API call — the same
-	// "被动采样" source the per-edge admin page shows.
+	// passive samples (Extra), with NO upstream Anthropic API call.
 	GetPassiveUsage(ctx context.Context, accountID int64) (*service.UsageInfo, error)
+	// GetPassiveUsageBatch builds the passive 5h/7d usage windows for many accounts
+	// in one pass, prefetching window stats per window-start bucket so the per-row
+	// addWindowStats aggregation no longer fans out. Byte-identical to looping
+	// GetPassiveUsage; accounts it cannot serve passively are omitted.
+	GetPassiveUsageBatch(ctx context.Context, accountIDs []int64) map[int64]*service.UsageInfo
 }
 
 // EdgeAccountsHandler serves the TokenKey read-only "edge accounts" endpoint
@@ -176,18 +178,15 @@ type edgeAccountDTO struct {
 	OverloadUntil    *time.Time `json:"overload_until,omitempty"`
 
 	// Configured caps (anthropic oauth/setup-token).
-	WindowCostLimit           float64 `json:"window_cost_limit,omitempty"`
-	WindowCostStickyReserve   float64 `json:"window_cost_sticky_reserve,omitempty"`
-	MaxSessions               int     `json:"max_sessions,omitempty"`
-	SessionIdleTimeoutMinutes int     `json:"session_idle_timeout_minutes,omitempty"`
-	BaseRPM                   int     `json:"base_rpm,omitempty"`
-	RPMStrategy               string  `json:"rpm_strategy,omitempty"`
-	RPMStickyBuffer           int     `json:"rpm_sticky_buffer,omitempty"`
+	MaxSessions               int    `json:"max_sessions,omitempty"`
+	SessionIdleTimeoutMinutes int    `json:"session_idle_timeout_minutes,omitempty"`
+	BaseRPM                   int    `json:"base_rpm,omitempty"`
+	RPMStrategy               string `json:"rpm_strategy,omitempty"`
+	RPMStickyBuffer           int    `json:"rpm_sticky_buffer,omitempty"`
 
 	// Live gauges (this edge's local Redis/DB). Pointers so "feature off" (nil)
 	// is distinguishable from a real 0; current_concurrency is always present.
 	CurrentConcurrency int             `json:"current_concurrency"`
-	CurrentWindowCost  *float64        `json:"current_window_cost,omitempty"`
 	ActiveSessions     *int            `json:"active_sessions,omitempty"`
 	CurrentRPM         *int            `json:"current_rpm,omitempty"`
 	TodayStats         *edgeTodayStats `json:"today_stats,omitempty"`
@@ -196,29 +195,90 @@ type edgeAccountDTO struct {
 	// "passive" — read from persisted Extra samples, no upstream API call.
 	Usage *edgeUsageWindows `json:"usage,omitempty"`
 
+	// Subscription is the credential-free「订阅」projection (plan/tier + 上游订阅
+	// 到期). NON-SECRET derived strings explicitly whitelisted out of the otherwise
+	// credential-free DTO so the prod overview renders the same plan + 到期 badge
+	// (PlatformTypeBadge) the local accounts page shows. openai populates it from
+	// the ChatGPT entitlement (credentials.plan_type / subscription_expires_at, see
+	// openai_privacy_service.go); other platforms leave it nil.
+	Subscription *edgeSubscription `json:"subscription,omitempty"`
+
 	TierID *int64   `json:"tier_id,omitempty"`
 	Groups []string `json:"groups,omitempty"`
+
+	// ModelRateLimits is a curated, active-only projection of the edge account's
+	// per-model-class rate-limit state (account.Extra["model_rate_limits"]). It
+	// makes the EDGE's Anthropic unified-window 429 (e.g. sonnet 5h/7d exhausted at
+	// scope "anthropic:class:sonnet") visible to the prod overview, which otherwise
+	// reads an all-green snapshot while a single-account edge fails 100% of sonnet.
+	// Only still-active entries (reset_at in the future) are emitted; no credential
+	// substrings — scope keys + reset timestamps + an upstream reason string only.
+	ModelRateLimits map[string]edgeModelRateLimit `json:"model_rate_limits,omitempty"`
 }
 
-// edgeUsageWindows mirrors the minimal subset of service.UsageInfo the usage
-// cell reads (utilization + reset per window); window_stats is supplied
-// frontend-side from today_stats, so it is not duplicated here.
+// edgeModelRateLimit is the on-the-wire shape of one active per-model-class
+// cooldown. Timestamps marshal as RFC3339 (nil → omitted); reason carries the
+// upstream cause (e.g. "anthropic_unified_window_exceeded"). Non-credential.
+type edgeModelRateLimit struct {
+	RateLimitedAt    *time.Time `json:"rate_limited_at,omitempty"`
+	RateLimitResetAt *time.Time `json:"rate_limit_reset_at,omitempty"`
+	Reason           string     `json:"reason,omitempty"`
+}
+
+// edgeUsageWindows mirrors the subset of service.UsageInfo the usage cell reads.
+// Local-window adapters rely on window_stats to display activity, so the edge
+// overview forwards it instead of only sending utilization/reset shells.
 type edgeUsageWindows struct {
-	Source   string             `json:"source"`
-	FiveHour *edgeUsageProgress `json:"five_hour,omitempty"`
-	SevenDay *edgeUsageProgress `json:"seven_day,omitempty"`
+	Source         string                     `json:"source"`
+	UpdatedAt      *time.Time                 `json:"updated_at,omitempty"`
+	FiveHour       *edgeUsageProgress         `json:"five_hour,omitempty"`
+	SevenDay       *edgeUsageProgress         `json:"seven_day,omitempty"`
+	SevenDaySonnet *edgeUsageProgress         `json:"seven_day_sonnet,omitempty"`
+	UpstreamQuota  *service.UpstreamQuotaInfo `json:"upstream_quota,omitempty"`
+	// Kiro credits/订阅/试用 (kiro platform only). kiro 没有 5h/7d 滚动窗，而是一个
+	// credits 预算 + 月度重置日 + 可选试用额度，故单列。
+	Kiro *edgeKiroUsage `json:"kiro,omitempty"`
 }
 
 type edgeUsageProgress struct {
-	Utilization float64    `json:"utilization"`
-	ResetsAt    *time.Time `json:"resets_at,omitempty"`
+	Utilization float64              `json:"utilization"`
+	ResetsAt    *time.Time           `json:"resets_at,omitempty"`
+	WindowStats *service.WindowStats `json:"window_stats,omitempty"`
+}
+
+// edgeKiroUsage is the wire shape of service.KiroUsageInfo's display subset: the
+// credits budget (current/limit/percent), the monthly reset date, the订阅 title,
+// and the optional trial allowance (percent + expiry + status).
+type edgeKiroUsage struct {
+	Current           float64                 `json:"current,omitempty"`
+	Limit             float64                 `json:"limit,omitempty"`
+	Percent           float64                 `json:"percent,omitempty"`
+	NextResetDate     string                  `json:"next_reset_date,omitempty"`
+	SubscriptionTitle string                  `json:"subscription_title,omitempty"`
+	TrialCurrent      float64                 `json:"trial_current,omitempty"`
+	TrialLimit        float64                 `json:"trial_limit,omitempty"`
+	TrialPercent      float64                 `json:"trial_percent,omitempty"`
+	TrialStatus       string                  `json:"trial_status,omitempty"`
+	TrialExpiresAt    *time.Time              `json:"trial_expires_at,omitempty"`
+	Bonuses           []service.KiroBonusInfo `json:"bonuses,omitempty"`
+}
+
+// edgeSubscription is the credential-free「订阅」projection — see edgeAccountDTO.Subscription.
+type edgeSubscription struct {
+	PlanType  string `json:"plan_type,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
 // edgeAccountsResponse is the data envelope returned to the prod aggregator.
 type edgeAccountsResponse struct {
 	Platform string           `json:"platform"`
 	Accounts []edgeAccountDTO `json:"accounts"`
-	TS       int64            `json:"ts"`
+	// Group is the caller key's edge-side group name, set only when the read was
+	// scoped to it (group_scope=caller). The prod panel uses it for the precise
+	// "调度自 <group> 组" footnote; "" for the default full-inventory read or a
+	// universal caller key.
+	Group string `json:"group,omitempty"`
+	TS    int64  `json:"ts"`
 }
 
 // ListAccounts handles GET /api/v1/edge/accounts?platform=anthropic.
@@ -234,11 +294,32 @@ func (h *EdgeAccountsHandler) ListAccounts(c *gin.Context) {
 		return
 	}
 
+	// group_scope=caller → scope the list to the authenticated caller key's group:
+	// exactly the accounts THIS api-key schedules (the prod /accounts inline panel's
+	// precise per-stub correspondence). Default (no param) → groupID 0 = no group
+	// filter = the edge's FULL inventory, so the standalone overview is unchanged. A
+	// universal caller key has no single group → stays groupID 0 (whole-platform
+	// pool, the single-pool-per-platform case).
+	var (
+		groupID   int64
+		groupName string
+	)
+	if strings.EqualFold(strings.TrimSpace(c.Query("group_scope")), "caller") {
+		if v, ok := c.Get(middleware.EdgeCallerAPIKeyCtxKey); ok {
+			if ak, ok := v.(*service.APIKey); ok && ak != nil && !ak.IsUniversal() && ak.GroupID != nil {
+				groupID = *ak.GroupID
+				if ak.Group != nil {
+					groupName = ak.Group.Name
+				}
+			}
+		}
+	}
+
 	ctx := c.Request.Context()
 	// status="" → all statuses (active/disabled/errored), matching the edge's own
 	// /admin/accounts page. priority asc mirrors the admin default ordering.
 	// platform="all" → "" filter (every platform); a concrete platform narrows.
-	accounts, _, err := h.accounts.ListAccounts(ctx, 1, edgeAccountsMaxPageSize, edgeAccountsListFilter(platform), "", "", "", 0, "", "priority", "asc")
+	accounts, _, err := h.accounts.ListAccounts(ctx, 1, edgeAccountsMaxPageSize, edgeAccountsListFilter(platform), "", "", "", groupID, "", "priority", "asc")
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "failed to list accounts")
 		return
@@ -256,6 +337,7 @@ func (h *EdgeAccountsHandler) ListAccounts(c *gin.Context) {
 	response.Success(c, edgeAccountsResponse{
 		Platform: platform,
 		Accounts: dtos,
+		Group:    groupName,
 		TS:       time.Now().Unix(),
 	})
 }
@@ -263,7 +345,6 @@ func (h *EdgeAccountsHandler) ListAccounts(c *gin.Context) {
 // edgeRuntimeGauges holds the batch-collected live values keyed by account id.
 type edgeRuntimeGauges struct {
 	concurrency  map[int64]int
-	windowCost   map[int64]float64
 	sessions     map[int64]int
 	rpm          map[int64]int
 	today        map[int64]*service.WindowStats
@@ -277,11 +358,6 @@ func (g *edgeRuntimeGauges) apply(acc *service.Account, dto *edgeAccountDTO) {
 		return
 	}
 	dto.CurrentConcurrency = g.concurrency[acc.ID]
-	if g.windowCost != nil {
-		if cost, ok := g.windowCost[acc.ID]; ok {
-			dto.CurrentWindowCost = &cost
-		}
-	}
 	if g.sessions != nil {
 		if n, ok := g.sessions[acc.ID]; ok {
 			dto.ActiveSessions = &n
@@ -311,17 +387,66 @@ func (g *edgeRuntimeGauges) apply(acc *service.Account, dto *edgeAccountDTO) {
 
 // toEdgeUsageWindows maps the passive UsageInfo to the DTO's window subset.
 func toEdgeUsageWindows(u *service.UsageInfo) *edgeUsageWindows {
-	w := &edgeUsageWindows{Source: u.Source}
+	w := &edgeUsageWindows{Source: u.Source, UpdatedAt: u.UpdatedAt}
+	w.UpstreamQuota = u.UpstreamQuota
 	if u.FiveHour != nil {
-		w.FiveHour = &edgeUsageProgress{Utilization: u.FiveHour.Utilization, ResetsAt: u.FiveHour.ResetsAt}
+		w.FiveHour = &edgeUsageProgress{
+			Utilization: u.FiveHour.Utilization,
+			ResetsAt:    u.FiveHour.ResetsAt,
+			WindowStats: u.FiveHour.WindowStats,
+		}
 	}
 	if u.SevenDay != nil {
-		w.SevenDay = &edgeUsageProgress{Utilization: u.SevenDay.Utilization, ResetsAt: u.SevenDay.ResetsAt}
+		w.SevenDay = &edgeUsageProgress{
+			Utilization: u.SevenDay.Utilization,
+			ResetsAt:    u.SevenDay.ResetsAt,
+			WindowStats: u.SevenDay.WindowStats,
+		}
 	}
-	if w.FiveHour == nil && w.SevenDay == nil {
+	if u.SevenDaySonnet != nil {
+		w.SevenDaySonnet = &edgeUsageProgress{
+			Utilization: u.SevenDaySonnet.Utilization,
+			ResetsAt:    u.SevenDaySonnet.ResetsAt,
+			WindowStats: u.SevenDaySonnet.WindowStats,
+		}
+	}
+	if k := u.KiroUsage; k != nil {
+		w.Kiro = &edgeKiroUsage{
+			Current:           k.Current,
+			Limit:             k.Limit,
+			Percent:           k.Percent,
+			NextResetDate:     k.NextResetDate,
+			SubscriptionTitle: k.SubscriptionTitle,
+		}
+		if k.Trial != nil {
+			w.Kiro.TrialCurrent = k.Trial.Current
+			w.Kiro.TrialLimit = k.Trial.Limit
+			w.Kiro.TrialPercent = k.Trial.Percent
+			w.Kiro.TrialStatus = k.Trial.Status
+			w.Kiro.TrialExpiresAt = k.Trial.ExpiresAt
+		}
+		if len(k.Bonuses) > 0 {
+			w.Kiro.Bonuses = append([]service.KiroBonusInfo(nil), k.Bonuses...)
+		}
+	}
+	if w.FiveHour == nil && w.SevenDay == nil && w.SevenDaySonnet == nil && w.Kiro == nil && w.UpstreamQuota == nil {
 		return nil
 	}
 	return w
+}
+
+// toEdgeSubscription projects the credential-free「订阅」snapshot (plan/tier +
+// upstream subscription expiry) from the account credentials. Returns nil when the
+// account has neither (e.g. anthropic OAuth, whose refresh tokens have no fixed
+// subscription expiry). The two strings are non-secret derived values, explicitly
+// whitelisted out of the otherwise credential-free DTO.
+func toEdgeSubscription(a *service.Account) *edgeSubscription {
+	planType := strings.TrimSpace(a.GetCredential("plan_type"))
+	expiresAt := strings.TrimSpace(a.GetCredential("subscription_expires_at"))
+	if planType == "" && expiresAt == "" {
+		return nil
+	}
+	return &edgeSubscription{PlanType: planType, ExpiresAt: expiresAt}
 }
 
 // collectRuntimeGauges batch-reads the live capacity/today gauges for the given
@@ -355,8 +480,7 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 		}
 	}
 
-	// Gate window-cost / sessions / rpm by anthropic OAuth/setup-token + cap.
-	windowCostIDs := make([]int64, 0)
+	// Gate sessions / rpm by anthropic OAuth/setup-token + cap.
 	sessionIDs := make([]int64, 0)
 	rpmIDs := make([]int64, 0)
 	idleTimeouts := make(map[int64]time.Duration)
@@ -364,9 +488,6 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 		acc := &accounts[i]
 		if !acc.IsAnthropicOAuthOrSetupToken() {
 			continue
-		}
-		if acc.GetWindowCostLimit() > 0 {
-			windowCostIDs = append(windowCostIDs, acc.ID)
 		}
 		if acc.GetMaxSessions() > 0 {
 			sessionIDs = append(sessionIDs, acc.ID)
@@ -387,56 +508,17 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 			g.sessions = m
 		}
 	}
-	if len(windowCostIDs) > 0 && h.usage != nil {
-		g.windowCost = make(map[int64]float64)
-		var mu sync.Mutex
-		eg, egctx := errgroup.WithContext(ctx)
-		eg.SetLimit(10)
-		for i := range accounts {
-			acc := &accounts[i]
-			if !acc.IsAnthropicOAuthOrSetupToken() || acc.GetWindowCostLimit() <= 0 {
-				continue
-			}
-			accCopy := acc
-			eg.Go(func() error {
-				startTime := accCopy.GetCurrentWindowStartTime()
-				stats, err := h.usage.GetAccountWindowStats(egctx, accCopy.ID, startTime)
-				if err == nil && stats != nil {
-					mu.Lock()
-					g.windowCost[accCopy.ID] = stats.StandardCost
-					mu.Unlock()
-				}
-				return nil // partial failure tolerated
-			})
-		}
-		_ = eg.Wait()
-	}
 
-	// Passive 5h/7d usage windows: anthropic OAuth/setup-token only, read from
-	// persisted Extra samples (no upstream API). errgroup-bounded like window-cost.
+	// Passive usage windows: pass every account to the AccountUsageService adapter
+	// owner. Unsupported accounts are omitted there, while Anthropic/OpenAI/Kiro
+	// and local-window adapters (NewAPI/Grok/edge stubs) stay aligned with
+	// GET /admin/accounts/:id/usage?source=passive.
 	if h.usage != nil {
-		var mu sync.Mutex
-		eg, egctx := errgroup.WithContext(ctx)
-		eg.SetLimit(10)
-		usage := make(map[int64]*service.UsageInfo)
+		ids := make([]int64, 0, len(accounts))
 		for i := range accounts {
-			acc := &accounts[i]
-			if !acc.IsAnthropicOAuthOrSetupToken() {
-				continue
-			}
-			id := acc.ID
-			eg.Go(func() error {
-				info, err := h.usage.GetPassiveUsage(egctx, id)
-				if err == nil && info != nil {
-					mu.Lock()
-					usage[id] = info
-					mu.Unlock()
-				}
-				return nil // partial failure tolerated
-			})
+			ids = append(ids, accounts[i].ID)
 		}
-		_ = eg.Wait()
-		if len(usage) > 0 {
+		if usage := h.usage.GetPassiveUsageBatch(ctx, ids); len(usage) > 0 {
 			g.usageWindows = usage
 		}
 	}
@@ -445,8 +527,11 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 }
 
 // toEdgeAccountDTO maps a service.Account to the sanitized read-model's static
-// fields. It reads ONLY non-sensitive fields/getters — Credentials/Extra/Proxy/
-// Notes are never touched. The live current_* gauges are attached separately by
+// fields. It reads ONLY non-sensitive fields/getters — Credentials/Proxy/Notes are
+// never touched. The sole Extra read is a curated, active-only projection of
+// model_rate_limits (scope keys + reset timestamps + reason string — no credential
+// substrings) via a.ActiveModelRateLimits, surfacing the edge's per-class window
+// cooldown. The live current_* gauges are attached separately by
 // edgeRuntimeGauges.apply.
 func toEdgeAccountDTO(a *service.Account) edgeAccountDTO {
 	dto := edgeAccountDTO{
@@ -473,8 +558,6 @@ func toEdgeAccountDTO(a *service.Account) edgeAccountDTO {
 		RateLimitedAt:             a.RateLimitedAt,
 		RateLimitResetAt:          a.RateLimitResetAt,
 		OverloadUntil:             a.OverloadUntil,
-		WindowCostLimit:           a.GetWindowCostLimit(),
-		WindowCostStickyReserve:   a.GetWindowCostStickyReserve(),
 		MaxSessions:               a.GetMaxSessions(),
 		SessionIdleTimeoutMinutes: a.GetSessionIdleTimeoutMinutes(),
 		BaseRPM:                   a.GetBaseRPM(),
@@ -487,5 +570,30 @@ func toEdgeAccountDTO(a *service.Account) edgeAccountDTO {
 			dto.Groups = append(dto.Groups, grp.Name)
 		}
 	}
+	dto.ModelRateLimits = toEdgeModelRateLimits(a.ActiveModelRateLimits(time.Now()))
+	dto.Subscription = toEdgeSubscription(a)
 	return dto
+}
+
+// toEdgeModelRateLimits converts the service-layer active-cooldown projection into
+// the wire shape, keyed by the same scope (e.g. "anthropic:class:sonnet"). Returns
+// nil when there are no active entries so the DTO field omits cleanly.
+func toEdgeModelRateLimits(active map[string]service.ActiveModelCooldown) map[string]edgeModelRateLimit {
+	if len(active) == 0 {
+		return nil
+	}
+	out := make(map[string]edgeModelRateLimit, len(active))
+	for scope, c := range active {
+		entry := edgeModelRateLimit{Reason: c.Reason}
+		if !c.RateLimitResetAt.IsZero() {
+			resetAt := c.RateLimitResetAt
+			entry.RateLimitResetAt = &resetAt
+		}
+		if !c.RateLimitedAt.IsZero() {
+			limitedAt := c.RateLimitedAt
+			entry.RateLimitedAt = &limitedAt
+		}
+		out[scope] = entry
+	}
+	return out
 }

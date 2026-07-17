@@ -5,20 +5,74 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/sync/singleflight"
 )
+
+const availableCacheTTL = 30 * time.Second
+
+// availableChannelsCache caches the ListAvailable result to avoid repeated
+// full-table scans on every user page load. Channels change infrequently;
+// a 30-second TTL is a good trade-off between freshness and load.
+type availableChannelsCache struct {
+	mu        sync.RWMutex
+	result    []AvailableChannel
+	expiresAt time.Time
+	gen       uint64
+	sf        singleflight.Group
+}
+
+func (c *availableChannelsCache) get() ([]AvailableChannel, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.result == nil || time.Now().After(c.expiresAt) {
+		return nil, false
+	}
+	return c.result, true
+}
+
+func (c *availableChannelsCache) generation() uint64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.gen
+}
+
+func (c *availableChannelsCache) setIfCurrent(result []AvailableChannel, genAtStart uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.gen != genAtStart {
+		return
+	}
+	c.result = result
+	c.expiresAt = time.Now().Add(availableCacheTTL)
+}
+
+func (c *availableChannelsCache) invalidate() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.result = nil
+	c.gen++
+	c.sf.Forget("available")
+}
 
 // AvailableGroupRef 渠道视图中关联分组的简要信息。
 //
 // 用户侧「可用渠道」页面据此展示：专属分组 vs 公开分组（IsExclusive）、
-// 订阅 vs 标准（SubscriptionType）、默认倍率（RateMultiplier）。用户专属倍率
-// 不在这里暴露，前端自己通过 /groups/rates 拉取，和 API 密钥页面保持一致。
+// 订阅 vs 标准（SubscriptionType）、默认倍率（RateMultiplier）与高峰倍率规则。
+// 用户专属倍率不在这里暴露，前端自己通过 /groups/rates 拉取，和 API 密钥页面保持一致。
 type AvailableGroupRef struct {
-	ID               int64
-	Name             string
-	Platform         string
-	SubscriptionType string
-	RateMultiplier   float64
-	IsExclusive      bool
+	ID                 int64
+	Name               string
+	Platform           string
+	SubscriptionType   string
+	RateMultiplier     float64
+	PeakRateEnabled    bool
+	PeakStart          string
+	PeakEnd            string
+	PeakRateMultiplier float64
+	IsExclusive        bool
 }
 
 // AvailableChannel 可用渠道视图：用于「可用渠道」页面展示渠道基础信息 +
@@ -46,6 +100,31 @@ type AvailableChannel struct {
 // 前置条件：s.groupRepo 必须非 nil（由 wire DI 保证）。直接 nil-deref 用于 fail-fast，
 // 避免静默掩盖注入缺失。
 func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel, error) {
+	// Fast path: return cached result if still fresh.
+	if cached, ok := s.availableCache.get(); ok {
+		return cached, nil
+	}
+
+	gen := s.availableCache.generation()
+
+	// Deduplicate concurrent cache-miss rebuilds via singleflight.
+	// Use context.Background() so a cancelled first-caller doesn't fail all waiters.
+	value, err, _ := s.availableCache.sf.Do("available", func() (any, error) {
+		if cached, ok := s.availableCache.get(); ok {
+			return cached, nil
+		}
+		return s.buildAvailableChannels(context.Background(), gen)
+	})
+	if err != nil {
+		return nil, err
+	}
+	result, _ := value.([]AvailableChannel)
+	return result, nil
+}
+
+// buildAvailableChannels performs the actual DB queries and assembly, then
+// stores the result in the availableCache.
+func (s *ChannelService) buildAvailableChannels(ctx context.Context, gen uint64) ([]AvailableChannel, error) {
 	channels, err := s.repo.ListAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
@@ -59,12 +138,16 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 	for i := range groups {
 		g := groups[i]
 		groupByID[g.ID] = AvailableGroupRef{
-			ID:               g.ID,
-			Name:             g.Name,
-			Platform:         g.Platform,
-			SubscriptionType: g.SubscriptionType,
-			RateMultiplier:   g.RateMultiplier,
-			IsExclusive:      g.IsExclusive,
+			ID:                 g.ID,
+			Name:               g.Name,
+			Platform:           g.Platform,
+			SubscriptionType:   g.SubscriptionType,
+			RateMultiplier:     g.RateMultiplier,
+			PeakRateEnabled:    g.PeakRateEnabled,
+			PeakStart:          g.PeakStart,
+			PeakEnd:            g.PeakEnd,
+			PeakRateMultiplier: g.PeakRateMultiplier,
+			IsExclusive:        g.IsExclusive,
 		}
 	}
 
@@ -99,6 +182,8 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 	sort.SliceStable(out, func(i, j int) bool {
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
+
+	s.availableCache.setIfCurrent(out, gen)
 	return out, nil
 }
 

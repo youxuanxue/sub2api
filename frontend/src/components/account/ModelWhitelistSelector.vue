@@ -141,7 +141,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { accountsAPI } from '@/api/admin/accounts'
@@ -149,6 +149,7 @@ import type { SyncUpstreamPreviewParams } from '@/api/admin/accounts'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { allModels, getModelsByPlatform } from '@/composables/useModelWhitelist'
+import { useServableModels, apiBackedPlatforms } from '@/composables/useServableModels'
 
 const { t } = useI18n()
 
@@ -217,7 +218,7 @@ const normalizedPlatforms = computed(() => {
   )
 })
 
-const upstreamSyncPlatforms = new Set(['anthropic', 'openai', 'gemini', 'antigravity'])
+const upstreamSyncPlatforms = new Set(['anthropic', 'openai', 'gemini', 'antigravity', 'grok'])
 const canSyncUpstream = computed(() => {
   if (props.accountId) {
     if (normalizedPlatforms.value.length === 0) return true
@@ -229,19 +230,49 @@ const canSyncUpstream = computed(() => {
   return false
 })
 
-const availableOptions = computed(() => {
-  if (normalizedPlatforms.value.length === 0) {
-    return allModels
-  }
+// Effective platforms to offer candidates for: the selected platform(s), or —
+// when none is specified (e.g. RiskControlView's global model filter) — every
+// API-backed platform, so the no-platform case still shows the main
+// claude/openai/gemini/antigravity models (plus the static long-tail via
+// allModels below), not just the long-tail.
+const effectivePlatforms = computed(() =>
+  normalizedPlatforms.value.length > 0 ? normalizedPlatforms.value : [...apiBackedPlatforms]
+)
 
-  const allowedModels = new Set<string>()
-  for (const platform of normalizedPlatforms.value) {
+// Fetch the self-healing candidate list for each effective API-backed platform;
+// long-tail platforms are a no-op. The reactive cache populated here feeds
+// getModelsByPlatform, so availableOptions re-evaluates when a fetch resolves.
+const { ensureLoaded } = useServableModels()
+watch(
+  effectivePlatforms,
+  (platforms) => platforms.forEach((platform) => { void ensureLoaded(platform) }),
+  { immediate: true }
+)
+
+const availableOptions = computed(() => {
+  // Build directly from the per-platform candidate lists (self-healing for
+  // API-backed platforms, static for the long-tail) — deduped, in platform order.
+  const seen = new Set<string>()
+  const options: { value: string; label: string }[] = []
+  for (const platform of effectivePlatforms.value) {
     for (const model of getModelsByPlatform(platform)) {
-      allowedModels.add(model)
+      if (model && !seen.has(model)) {
+        seen.add(model)
+        options.push({ value: model, label: model })
+      }
     }
   }
-
-  return allModels.filter(model => allowedModels.has(model.value))
+  // No-platform case: also fold in the static long-tail master list so the
+  // global filter sees every known model, not only the API-backed set.
+  if (normalizedPlatforms.value.length === 0) {
+    for (const m of allModels) {
+      if (m.value && !seen.has(m.value)) {
+        seen.add(m.value)
+        options.push(m)
+      }
+    }
+  }
+  return options
 })
 
 const filteredModels = computed(() => {

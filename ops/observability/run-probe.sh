@@ -14,9 +14,15 @@
 #       --target prod | --target edge:<id> \
 #       --script ops/observability/probe-caps.sh \
 #       [--env KEY=VAL ...] \
+#       [--with PATH ...]   upload additional local files to /tmp/<basename> on remote
 #       [--remote-path /tmp/script-name.sh] \
 #       [--comment "free text"] \
 #       [--timeout-seconds 120]
+#
+# Endpoint route-gate matrix (group.platform × gateway path, prod):
+#   bash ops/observability/run-probe.sh --target prod \
+#       --script ops/observability/probe-endpoint-matrix.sh \
+#       --with ops/pricing/probe_reserved_resources.sh
 #
 #   --target prod        resolves region+instance from CloudFormation
 #                        (stack=tokenkey-prod-stage0, region=us-east-1)
@@ -59,6 +65,7 @@ REMOTE_PATH=""
 COMMENT="run-probe wrapper"
 TIMEOUT_SECONDS=120
 declare -a ENVS=()
+declare -a WITH_FILES=()
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -66,6 +73,7 @@ while [ "$#" -gt 0 ]; do
     --target) TARGET="${2:-}"; shift 2 ;;
     --script) SCRIPT_PATH="${2:-}"; shift 2 ;;
     --env) ENVS+=("${2:-}"); shift 2 ;;
+    --with) WITH_FILES+=("${2:-}"); shift 2 ;;
     --remote-path) REMOTE_PATH="${2:-}"; shift 2 ;;
     --comment) COMMENT="${2:-}"; shift 2 ;;
     --timeout-seconds) TIMEOUT_SECONDS="${2:-}"; shift 2 ;;
@@ -84,12 +92,31 @@ if [ ! -f "$SCRIPT_PATH" ]; then
   exit 1
 fi
 
+for extra in "${WITH_FILES[@]+"${WITH_FILES[@]}"}"; do
+  if [ ! -f "$extra" ]; then
+    echo "[run-probe] ERROR: --with file not found: $extra" >&2
+    exit 1
+  fi
+done
+
 # Default remote path to /tmp/<basename>
 if [ -z "$REMOTE_PATH" ]; then
   REMOTE_PATH="/tmp/$(basename "$SCRIPT_PATH")"
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# Local macOS/Homebrew preflight: catch the known aws/pyexpat loader breakage
+# before the first real AWS call. Diagnose only; repair stays explicit in the
+# helper's --apply mode so this wrapper remains read-only.
+if [ "$(uname -s)" = "Darwin" ]; then
+  AWS_PYEXPAT_HELPER="$REPO_ROOT/scripts/checks/check-local-aws-pyexpat.py"
+  if [ -f "$AWS_PYEXPAT_HELPER" ] && ! python3 "$AWS_PYEXPAT_HELPER" --quiet; then
+    echo "[run-probe] ERROR: local aws bootstrap check failed" >&2
+    echo "[run-probe] Fix: python3 scripts/checks/check-local-aws-pyexpat.py --apply" >&2
+    exit 2
+  fi
+fi
 
 # Resolve REGION + INSTANCE_ID per target shape
 REGION=""
@@ -181,9 +208,24 @@ for kv in "${ENVS[@]+"${ENVS[@]}"}"; do
   ENV_PREFIX="$ENV_PREFIX $K='${V//\'/\'\\\'\'}'"
 done
 
-# Pack the local script as base64 and assemble a remote one-liner
+# Pack the local script (and optional --with companions) as base64 and assemble a remote one-liner
+REMOTE_PARTS=()
+for extra in "${WITH_FILES[@]+"${WITH_FILES[@]}"}"; do
+  EB64=$(base64 < "$extra" | tr -d '\n')
+  EP="/tmp/$(basename "$extra")"
+  REMOTE_PARTS+=("echo $EB64 | base64 -d > $EP")
+done
 B64=$(base64 < "$SCRIPT_PATH" | tr -d '\n')
-REMOTE_LINE="echo $B64 | base64 -d > $REMOTE_PATH && chmod +x $REMOTE_PATH && env $ENV_PREFIX bash $REMOTE_PATH"
+REMOTE_PARTS+=("echo $B64 | base64 -d > $REMOTE_PATH && chmod +x $REMOTE_PATH")
+REMOTE_PARTS+=("env $ENV_PREFIX bash $REMOTE_PATH")
+REMOTE_LINE=""
+for part in "${REMOTE_PARTS[@]}"; do
+  if [ -z "$REMOTE_LINE" ]; then
+    REMOTE_LINE="$part"
+  else
+    REMOTE_LINE="$REMOTE_LINE && $part"
+  fi
+done
 
 # Compose the SSM command JSON via python (avoids shell-quote hell)
 PARAMS=$(python3 - "$REMOTE_LINE" <<'PY'

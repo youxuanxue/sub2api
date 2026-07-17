@@ -11,6 +11,7 @@ ARG POSTGRES_IMAGE=postgres:18-alpine
 FROM ${POSTGRES_IMAGE} AS pg-client
 
 FROM ${ALPINE_IMAGE}
+ARG TARGETPLATFORM
 
 LABEL maintainer="Wei-Shaw <github.com/Wei-Shaw>"
 LABEL description="TokenKey - AI API Gateway Platform"
@@ -42,15 +43,14 @@ RUN addgroup -g 1000 sub2api && \
 
 WORKDIR /app
 
-# Copy pre-built binary from GoReleaser
-COPY sub2api /app/sub2api
+# Copy the pre-built binary selected by GoReleaser dockers_v2 for this target platform.
+COPY --chown=sub2api:sub2api --chmod=0755 ${TARGETPLATFORM}/sub2api /app/sub2api
 
 # Create data directory
-RUN mkdir -p /app/data && chown -R sub2api:sub2api /app
+RUN mkdir -p /app/data && chown sub2api:sub2api /app/data
 
 # Copy entrypoint script (fixes volume permissions then drops to sub2api)
-COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh
+COPY --chmod=0755 deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
 
 EXPOSE 8080
 

@@ -51,6 +51,14 @@ func NewQAHandler(service *qa.Service) *QAHandler {
 type ExportSelfRequest struct {
 	SynthSessionID string `json:"synth_session_id"`
 	SynthRole      string `json:"synth_role"`
+	// APIKeyID, when non-nil, scopes the traj export to a single API key
+	// (TK per-key "导出对话记录"). When set and no synth_session_id is given,
+	// the trailing-24h default window is dropped so the export returns the
+	// key's full retained trajectory (bounded only by qa_capture.retention_days).
+	APIKeyID *int64 `json:"api_key_id"`
+	// Format: "" / "v1" = legacy ExportRow; "v2" = traj v2 session/turns
+	// (.examples-aligned, carries thinking/signature/usage/stop_reason).
+	Format string `json:"format"`
 }
 
 // ExportSelfResponse mirrors the contract documented in issue #59.
@@ -83,7 +91,7 @@ func (h *QAHandler) ExportSelf(c *gin.Context) {
 	req := ExportSelfRequest{}
 	if c.Request != nil && c.Request.ContentLength != 0 {
 		if err := c.ShouldBindJSON(&req); err != nil {
-			response.BadRequest(c, "Invalid request: "+err.Error())
+			response.InvalidRequest(c)
 			return
 		}
 	}

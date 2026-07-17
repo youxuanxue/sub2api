@@ -1,12 +1,7 @@
 ---
 name: tokenkey-anthropic-oauth-priority-by-window
 description: >-
-  TokenKey 跨所有 deployable edge 的 Anthropic OAuth 账号 priority 重排流水线
-  （snapshot → plan → apply → verify）。按账号当前 5h/7d 可用用量窗口剩余度
-  打分，同 stability tier 内重排 priority（smaller wins），剩余越多 priority
-  越小（越优先调度）。**只写** accounts.priority 一个字段，不动 tier baseline、
-  不动 group.rpm_limit、不动 credentials。单一脚本
-  ops/anthropic/rebalance-anthropic-priority.py 编排，1 个 SQL 模板固化写入。
+  Rebalance TokenKey Anthropic OAuth account priority by remaining 5h/7d usage windows across deployable edges. Use for snapshot/plan/apply/verify of accounts.priority only; does not change tier, rpm limits, groups, or credentials.
 ---
 
 # TokenKey：Anthropic OAuth 按剩余用量窗口重排 priority
@@ -36,7 +31,7 @@ tier 内重排 `accounts.priority`。
 
 | 流水线 | 写入面 | 何时跑 |
 |---|---|---|
-| `tokenkey-anthropic-oauth-config` | edge OAuth account 的 tier baseline（concurrency / base_rpm / sticky_buffer / max_sessions / window_cost_limit / `stability_tier` / credentials / extra） | tier 升降级、tier baseline drift |
+| `tokenkey-anthropic-oauth-config` | edge OAuth account 的 tier baseline（concurrency / base_rpm / sticky_buffer / max_sessions / `stability_tier` / credentials / extra） | tier 升降级、tier baseline drift |
 | **本 skill** | edge OAuth account 的 `priority`（仅 1 个 int 列） | 想让"剩余用量多的账号优先调度"时；**每次跑完 tier baseline apply 后必须再跑本流水线**（tier baseline 会把 priority 重置回 tier 基线） |
 
 两条流水线**互不重叠任何字段**，但**有先后依赖**：tier baseline 是先决条件，priority 重排是其后的微调。
@@ -133,7 +128,7 @@ remaining_score = min(remaining_5h, remaining_7d)
 
 | 配置面 | 谁负责 |
 |---|---|
-| tier baseline（concurrency / base_rpm / rpm_sticky_buffer / max_sessions / window_cost_limit / `stability_tier` / credentials / extra 其他字段） | [`tokenkey-anthropic-oauth-config`](../tokenkey-anthropic-oauth-config/SKILL.md)（manage-anthropic-config.py） |
+| tier baseline（concurrency / base_rpm / rpm_sticky_buffer / max_sessions / `stability_tier` / credentials / extra 其他字段） | [`tokenkey-anthropic-oauth-config`](../tokenkey-anthropic-oauth-config/SKILL.md)（manage-anthropic-config.py） |
 | edge / prod `group.rpm_limit` 等 group 字段 | admin UI |
 | prod anthropic apikey forward stub 任何字段 | admin UI |
 | OAuth 凭据 / status / 轮换 | admin UI / OAuth flow |

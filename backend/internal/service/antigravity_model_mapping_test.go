@@ -45,37 +45,43 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			expected:       "claude-opus-4-6-thinking",
 		},
 		{
-			name:           "默认映射 - claude-opus-4-5-20251101 → claude-opus-4-6-thinking",
+			name:           "默认映射不支持 - claude-opus-4-5-20251101 返回空",
 			requestedModel: "claude-opus-4-5-20251101",
 			accountMapping: nil,
-			expected:       "claude-opus-4-6-thinking",
+			expected:       "",
 		},
 		{
-			name:           "默认映射 - claude-opus-4-5-thinking → claude-opus-4-6-thinking",
+			name:           "默认映射不支持 - claude-opus-4-5-thinking 返回空",
 			requestedModel: "claude-opus-4-5-thinking",
 			accountMapping: nil,
-			expected:       "claude-opus-4-6-thinking",
+			expected:       "",
 		},
 		{
-			name:           "默认映射 - claude-haiku-4-5 → claude-sonnet-4-6",
+			name:           "默认映射不支持 - claude-haiku-4-5 返回空",
 			requestedModel: "claude-haiku-4-5",
 			accountMapping: nil,
-			expected:       "claude-sonnet-4-6",
+			expected:       "",
 		},
 		{
-			name:           "默认映射 - claude-haiku-4-5-20251001 → claude-sonnet-4-6",
+			name:           "默认映射不支持 - claude-haiku-4-5-20251001 返回空",
 			requestedModel: "claude-haiku-4-5-20251001",
 			accountMapping: nil,
-			expected:       "claude-sonnet-4-6",
+			expected:       "",
 		},
 		{
-			name:           "默认映射 - claude-sonnet-4-5-20250929 → claude-sonnet-4-5",
+			name:           "默认映射不支持 - claude-sonnet-4-5-20250929 返回空",
 			requestedModel: "claude-sonnet-4-5-20250929",
 			accountMapping: nil,
-			expected:       "claude-sonnet-4-5",
+			expected:       "",
 		},
 
-		// 3. 默认映射中的透传（映射到自己）
+		// 3. 默认映射中的 live 透传，以及已移除的旧 Claude 默认项
+		{
+			name:           "默认映射不支持 - claude-fable-5 返回空",
+			requestedModel: "claude-fable-5",
+			accountMapping: nil,
+			expected:       "",
+		},
 		{
 			name:           "默认映射透传 - claude-sonnet-4-6",
 			requestedModel: "claude-sonnet-4-6",
@@ -83,22 +89,28 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			expected:       "claude-sonnet-4-6",
 		},
 		{
-			name:           "默认映射透传 - claude-sonnet-4-5",
+			name:           "默认映射不支持 - claude-sonnet-5 返回空",
+			requestedModel: "claude-sonnet-5",
+			accountMapping: nil,
+			expected:       "",
+		},
+		{
+			name:           "默认映射不支持 - claude-sonnet-4-5 返回空",
 			requestedModel: "claude-sonnet-4-5",
 			accountMapping: nil,
-			expected:       "claude-sonnet-4-5",
+			expected:       "",
 		},
 		{
-			name:           "默认映射透传 - claude-opus-4-8",
+			name:           "默认映射不支持 - claude-opus-4-8 返回空",
 			requestedModel: "claude-opus-4-8",
 			accountMapping: nil,
-			expected:       "claude-opus-4-8",
+			expected:       "",
 		},
 		{
-			name:           "默认映射透传 - claude-opus-4-7",
+			name:           "默认映射不支持 - claude-opus-4-7 返回空",
 			requestedModel: "claude-opus-4-7",
 			accountMapping: nil,
-			expected:       "claude-opus-4-7",
+			expected:       "",
 		},
 		{
 			name:           "默认映射透传 - claude-opus-4-6-thinking",
@@ -107,10 +119,10 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			expected:       "claude-opus-4-6-thinking",
 		},
 		{
-			name:           "默认映射透传 - claude-sonnet-4-5-thinking",
+			name:           "默认映射不支持 - claude-sonnet-4-5-thinking 返回空",
 			requestedModel: "claude-sonnet-4-5-thinking",
 			accountMapping: nil,
-			expected:       "claude-sonnet-4-5-thinking",
+			expected:       "",
 		},
 		{
 			name:           "默认映射透传 - gemini-2.5-flash",
@@ -119,10 +131,10 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			expected:       "gemini-2.5-flash",
 		},
 		{
-			name:           "默认映射透传 - gemini-2.5-pro",
+			name:           "默认映射不支持 - gemini-2.5-pro",
 			requestedModel: "gemini-2.5-pro",
 			accountMapping: nil,
-			expected:       "gemini-2.5-pro",
+			expected:       "",
 		},
 		{
 			name:           "默认映射透传 - gemini-3-flash",
@@ -159,6 +171,12 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 		{
 			name:           "未知模型 - gemini-future-model 返回空",
 			requestedModel: "gemini-future-model",
+			accountMapping: nil,
+			expected:       "",
+		},
+		{
+			name:           "缺价模型 - tab_flash_lite_preview 默认映射不支持",
+			requestedModel: "tab_flash_lite_preview",
 			accountMapping: nil,
 			expected:       "",
 		},
@@ -218,6 +236,7 @@ func TestAntigravityGatewayService_IsModelSupported(t *testing.T) {
 		expected bool
 	}{
 		// 直接支持
+		{"直接支持 - claude-fable-5", "claude-fable-5", true},
 		{"直接支持 - claude-sonnet-4-5", "claude-sonnet-4-5", true},
 		{"直接支持 - gemini-3-flash", "gemini-3-flash", true},
 
@@ -282,7 +301,7 @@ func TestMapAntigravityModel_WildcardTargetEqualsRequest(t *testing.T) {
 			expected:       "gemini-2.5-flash",
 		},
 		{
-			name:           "customtools alias falls back to normalized preview mapping",
+			name:           "customtools alias resolves through explicit normalized mapping",
 			modelMapping:   map[string]any{"gemini-3.1-pro-preview": "gemini-3.1-pro-high"},
 			requestedModel: "gemini-3.1-pro-preview-customtools",
 			expected:       "gemini-3.1-pro-high",
@@ -300,5 +319,22 @@ func TestMapAntigravityModel_WildcardTargetEqualsRequest(t *testing.T) {
 			got := mapAntigravityModel(account, tt.requestedModel)
 			require.Equal(t, tt.expected, got, "mapAntigravityModel(%q) = %q, want %q", tt.requestedModel, got, tt.expected)
 		})
+	}
+}
+
+// 2026-06 实测新增 gemini wire id 在默认映射下应解析（claude 仍保留、由其它用例覆盖；
+// gpt-oss 仍在默认映射但已从 antigravity 服务面移除，不在此断言）。
+func TestAntigravityGatewayService_GetMappedModel_EmpiricalGeminiWireIDs(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+	cases := map[string]string{
+		"gemini-3.5-flash-low":       "gemini-3.5-flash-low",
+		"gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low",
+		"gemini-3-flash-agent":       "gemini-3-flash-agent",
+		"gemini-pro-agent":           "gemini-pro-agent",
+		"gemini-3.5-flash":           "gemini-3.5-flash-low", // 友好别名 → Medium 档
+	}
+	for requested, expected := range cases {
+		account := &Account{Platform: PlatformAntigravity}
+		require.Equal(t, expected, svc.getMappedModel(account, requested), "model: %s", requested)
 	}
 }

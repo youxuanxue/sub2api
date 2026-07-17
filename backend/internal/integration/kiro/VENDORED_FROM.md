@@ -26,7 +26,7 @@ This package depends **only on the Go standard library + `github.com/google/uuid
 | TokenKey file | Kiro-Go source | Contents |
 | --- | --- | --- |
 | `translator.go` | `proxy/translator.go` | Claude ↔ Kiro and OpenAI ↔ Kiro request/response translation, model mapping, prompt filtering |
-| `client.go` | `proxy/kiro.go` | HTTP client, 3 endpoint fallback, `CallKiroAPI`, `parseEventStream`, AWS EventStream decode, tool-use handling |
+| `client.go` | `proxy/kiro.go` | HTTP client, official runtime + transitional q fallback, `CallKiroAPI`, `parseEventStream`, AWS EventStream decode, tool-use handling |
 | `headers.go` | `proxy/kiro_headers.go` | aws-sdk-js style User-Agent / `x-amz-user-agent` builder |
 | `rest.go` | `proxy/kiro_api.go` | REST calls: usage limits, user info, model list, profile ARN resolution, `RefreshAccountInfo` |
 | `refresh.go` | `auth/oidc.go` | `RefreshToken`: social + OIDC token refresh |
@@ -51,8 +51,8 @@ mechanical, scoped edits below. Translation/transport logic is unchanged.
    - `config.PromptFilterRule` → local `PromptFilterRule`.
    - `config.GetProxyURL` → `GetProxyURL()` returns `""` (TokenKey handles egress
      proxying; later PR wires this).
-   - `config.GetEndpointFallback` → `true` (preserves upstream fallback).
-   - `config.GetPreferredEndpoint` → `"auto"` (preserves upstream ordering).
+   - `config.GetEndpointFallback` → `true` (tries only the official runtime and transitional q chain).
+   - `config.GetPreferredEndpoint` → `"auto"` (current runtime first, transitional q second).
    - `config.GetKiroClientConfig` → local `GetKiroClientConfig()` with defaults
      copied from upstream (`KiroVersion "0.11.107"`, `NodeVersion "22.22.0"`,
      `SystemVersion` OS-derived).

@@ -11,13 +11,13 @@ OUT_DIR="${TOKENKEY_CC_CAPTURE_OUT_DIR:-$REPO_ROOT/.tls_list}"
 MITM_PORT="${TOKENKEY_CC_CAPTURE_MITM_PORT:-11803}"
 GOST_PORT="${CC0_GOST_HTTP_PORT:-11800}"
 
-# Repeat counts per family (total requests = sum).
+# Claude invocations per family. One invocation may emit multiple HTTP records.
 HAIKU_N="${TOKENKEY_CC_CAPTURE_HAIKU_N:-3}"
 SONNET_N="${TOKENKEY_CC_CAPTURE_SONNET_N:-3}"
 OPUS_N="${TOKENKEY_CC_CAPTURE_OPUS_N:-2}"
 
 HAIKU_MODEL="${TOKENKEY_CC_CAPTURE_MODEL:-claude-haiku-4-5-20251001}"
-SONNET_MODEL="${TOKENKEY_CC_CAPTURE_SONNET_MODEL:-claude-sonnet-4-20250514}"
+SONNET_MODEL="${TOKENKEY_CC_CAPTURE_SONNET_MODEL:-claude-sonnet-4-6}"
 OPUS_MODEL="${TOKENKEY_CC_CAPTURE_OPUS_MODEL:-claude-opus-4-5-20251101}"
 
 [[ -f "${HOME}/.config/cc0/env" ]] && # shellcheck disable=SC1091
@@ -28,6 +28,15 @@ require_cmd mitmdump
 require_cmd python3
 require_cmd jq
 [[ -x "$HTTP_INVOKE" ]] || { echo "error: missing $HTTP_INVOKE (need #427 http_capture_invoke.sh)" >&2; exit 1; }
+
+CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
+CONFIG_DIR="${CC0_USER_OVERLAY:-$HOME/.cache/cc0/claude-user-overlay}"
+if ! config_info="$(python3 "$PY" classify-config --config-dir "$CONFIG_DIR" --claude-bin "$CLAUDE_BIN")"; then
+  echo "error: capture auth route is unknown; refusing to compare cohorts" >&2
+  exit 3
+fi
+HTTP_COHORT="$(printf '%s' "$config_info" | jq -r '.auth_route')"
+echo "http_auth_route=$HTTP_COHORT"
 
 _cc0_port_open() {
   python3 - "$1" "$2" <<'PY'
@@ -112,13 +121,13 @@ for line in open(path, encoding="utf-8"):
 print("=== HTTP capture consistency ===")
 for v, betas in sorted(by_variant.items()):
     uniq = list(dict.fromkeys(betas))
-    print(f"{v}: {len(betas)} requests, {len(uniq)} unique beta header(s)")
+    print(f"{v}: {len(betas)} HTTP records, {len(uniq)} unique beta header(s)")
     for i, b in enumerate(betas, 1):
         print(f"  [{i}] {b}")
     if len(uniq) == 1:
-        print(f"  OK all {v} requests identical")
+        print(f"  OK all {v} HTTP records identical")
     else:
-        print(f"  WARN {v} beta headers differ across requests")
+        print(f"  WARN {v} beta headers differ across HTTP records")
 PY
 
 # Pick last TLS bundle or run quick TLS - use latest tls-observed if exists
@@ -137,7 +146,8 @@ python3 "$PY" bundle-from-artifacts \
   --http-log "$http_log" \
   --cc-version "${cc_ver:-unknown}" \
   --out "$bundle" \
-  --collector "https://tls.sub2api.org:8090"
+  --collector "https://tls.sub2api.org:8090" \
+  --http-cohort "$HTTP_COHORT"
 
 echo "bundle=$bundle"
 python3 "$PY" diff --bundle "$bundle"

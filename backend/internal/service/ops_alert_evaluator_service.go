@@ -35,6 +35,7 @@ type OpsAlertEvaluatorService struct {
 	opsService   *OpsService
 	opsRepo      OpsRepository
 	emailService *EmailService
+	proxyRepo    ProxyRepository
 
 	redisClient *redis.Client
 	cfg         *config.Config
@@ -85,11 +86,13 @@ func NewOpsAlertEvaluatorService(
 	emailService *EmailService,
 	redisClient *redis.Client,
 	cfg *config.Config,
+	proxyRepo ProxyRepository,
 ) *OpsAlertEvaluatorService {
 	return &OpsAlertEvaluatorService{
 		opsService:   opsService,
 		opsRepo:      opsRepo,
 		emailService: emailService,
+		proxyRepo:    proxyRepo,
 		redisClient:  redisClient,
 		cfg:          cfg,
 		instanceID:   uuid.NewString(),
@@ -233,6 +236,12 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 			continue
 		}
 		rulesEnabled++
+		if !s.shouldEvaluateAlertRuleOnNode(rule) {
+			if s.resolveActiveSkippedRule(ctx, rule, now) {
+				eventsResolved++
+			}
+			continue
+		}
 
 		scopePlatform, scopeGroupID, scopeRegion := parseOpsAlertRuleScope(rule.Filters)
 
@@ -243,7 +252,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 		windowStart := safeEnd.Add(-time.Duration(windowMinutes) * time.Minute)
 		windowEnd := safeEnd
 
-		metricValue, ok := s.computeRuleMetric(ctx, rule, systemMetrics, windowStart, windowEnd, scopePlatform, scopeGroupID)
+		metricValue, ok := s.computeRuleMetric(ctx, rule, systemMetrics, windowStart, windowEnd, scopePlatform, scopeGroupID, runtimeCfg.RateRuleMinSamples)
 		if !ok {
 			s.resetRuleState(rule.ID, now)
 			continue
@@ -288,6 +297,34 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				}
 			}
 
+			dimensions := buildOpsAlertDimensions(scopePlatform, scopeGroupID)
+			// TK: attach a first-screen breakdown so the notification card is
+			// self-diagnosing without an SSH/dashboard drill. Best-effort — never
+			// blocks firing.
+			if extra := s.computeUserVisibleFailureDimensions(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID); len(extra) > 0 {
+				if dimensions == nil {
+					dimensions = map[string]any{}
+				}
+				for k, v := range extra {
+					if strings.TrimSpace(v) != "" {
+						dimensions[k] = v
+					}
+				}
+			} else if cause, users, models := s.computeTopCause(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID); cause != "" || users != "" || models != "" {
+				if dimensions == nil {
+					dimensions = map[string]any{}
+				}
+				if cause != "" {
+					dimensions["top_cause"] = cause
+				}
+				if users != "" {
+					dimensions["top_cause_users"] = users
+				}
+				if models != "" {
+					dimensions["top_cause_models"] = models
+				}
+			}
+
 			firedEvent := &OpsAlertEvent{
 				RuleID:         rule.ID,
 				Severity:       strings.TrimSpace(rule.Severity),
@@ -296,7 +333,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				Description:    buildOpsAlertDescription(rule, metricValue, windowMinutes, scopePlatform, scopeGroupID),
 				MetricValue:    float64Ptr(metricValue),
 				ThresholdValue: float64Ptr(rule.Threshold),
-				Dimensions:     buildOpsAlertDimensions(scopePlatform, scopeGroupID),
+				Dimensions:     dimensions,
 				FiredAt:        now,
 				CreatedAt:      now,
 			}
@@ -327,12 +364,57 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] resolve event failed (event=%d): %v", activeEvent.ID, err)
 			} else {
 				eventsResolved++
+				resolvedEvent := *activeEvent
+				resolvedEvent.Status = OpsAlertStatusResolved
+				resolvedEvent.ResolvedAt = &resolvedAt
+				if s.maybeSendAlertFeishuRecovery(ctx, runtimeCfg, rule, &resolvedEvent, metricValue) {
+					feishuSent++
+				}
 			}
 		}
 	}
 
 	result := truncateString(fmt.Sprintf("rules=%d enabled=%d evaluated=%d created=%d resolved=%d emails_sent=%d feishu_sent=%d", rulesTotal, rulesEnabled, rulesEvaluated, eventsCreated, eventsResolved, emailsSent, feishuSent), 2048)
 	s.recordHeartbeatSuccess(runAt, time.Since(startedAt), result)
+}
+
+func (s *OpsAlertEvaluatorService) shouldEvaluateAlertRuleOnNode(rule *OpsAlertRule) bool {
+	if s == nil || rule == nil {
+		return true
+	}
+	return !s.isEdgeNode() || !isProdOnlyAlertRule(rule)
+}
+
+func isProdOnlyAlertRule(rule *OpsAlertRule) bool {
+	if rule == nil {
+		return false
+	}
+	switch strings.TrimSpace(rule.MetricType) {
+	case OpsAlertMetricUserVisibleFailureCount, OpsAlertMetricClientVisibleFailureCount:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *OpsAlertEvaluatorService) resolveActiveSkippedRule(ctx context.Context, rule *OpsAlertRule, now time.Time) bool {
+	if s == nil || s.opsRepo == nil || rule == nil || rule.ID <= 0 {
+		return false
+	}
+	activeEvent, err := s.opsRepo.GetActiveAlertEvent(ctx, rule.ID)
+	if err != nil {
+		logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] get skipped active event failed (rule=%d): %v", rule.ID, err)
+		return false
+	}
+	if activeEvent == nil {
+		return false
+	}
+	resolvedAt := now.UTC()
+	if err := s.opsRepo.UpdateAlertEventStatus(ctx, activeEvent.ID, OpsAlertStatusResolved, &resolvedAt); err != nil {
+		logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] resolve skipped active event failed (event=%d rule=%d): %v", activeEvent.ID, rule.ID, err)
+		return false
+	}
+	return true
 }
 
 func (s *OpsAlertEvaluatorService) pruneRuleStates(rules []*OpsAlertRule) {
@@ -461,9 +543,19 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 	end time.Time,
 	platform string,
 	groupID *int64,
+	rateRuleMinSamples int,
 ) (float64, bool) {
 	if rule == nil {
 		return 0, false
+	}
+	// Sample floor for ratio metrics: a window with fewer than this many
+	// SLA-counted requests is too sparse to yield a trustworthy rate, so the
+	// rule is skipped (ok=false) instead of firing on a misleading 100% (false
+	// P0 on low-traffic edges, 2026-06-06 us2/us5). Always at least 1 so the
+	// >0 denominator guard still holds when the floor is unset.
+	rateSampleFloor := int64(rateRuleMinSamples)
+	if rateSampleFloor < 1 {
+		rateSampleFloor = 1
 	}
 	switch strings.TrimSpace(rule.MetricType) {
 	case "cpu_usage_percent":
@@ -529,6 +621,18 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 		}
 		return float64(countAccountsByCondition(availability.Accounts, func(acc *AccountAvailability) bool {
 			return acc.HasError && acc.TempUnschedulableUntil == nil
+		})), true
+	case "account_temp_unscheduled_count":
+		if s == nil || s.opsService == nil {
+			return 0, false
+		}
+		availability, err := s.opsService.GetAccountAvailability(ctx, platform, groupID)
+		if err != nil || availability == nil {
+			return 0, false
+		}
+		now := time.Now().UTC()
+		return float64(countAccountsByCondition(availability.Accounts, func(acc *AccountAvailability) bool {
+			return acc.TempUnschedulableUntil != nil && now.Before(*acc.TempUnschedulableUntil)
 		})), true
 	case "group_rate_limit_ratio":
 		if groupID == nil || *groupID <= 0 {
@@ -596,6 +700,84 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 			return 0, false
 		}
 		return float64(val), true
+	case "proxy_expired_count":
+		if s == nil || s.proxyRepo == nil {
+			return 0, false
+		}
+		n, err := s.proxyRepo.CountExpired(ctx)
+		if err != nil {
+			return 0, false
+		}
+		return float64(n), true
+	case "proxy_expiring_soon_count":
+		if s == nil || s.proxyRepo == nil {
+			return 0, false
+		}
+		n, err := s.proxyRepo.CountExpiringSoon(ctx, time.Now())
+		if err != nil {
+			return 0, false
+		}
+		return float64(n), true
+	case OpsAlertMetricRoutingCapacityRejectionCount:
+		// Count of routing/scheduling-phase capacity rejections over the rule
+		// window — the client-visible "no available accounts" empty-pool fast-fail
+		// (429, #575) plus relayed cc-<edge> downstream-capacity rejections,
+		// isolated by error_phase='routing' (set EXCLUSIVELY for these; see
+		// CountRoutingCapacityRejections). Routing-phase platform faults now count in
+		// SLA/error_rate, but this dedicated count still isolates empty-pool storms
+		// for the P0 rule. Queried directly (not via GetDashboardOverview) so it
+		// stays off the dashboard hot path. NO rateSampleFloor: a count is
+		// self-flooring (low traffic → low count → no breach), and flooring it
+		// would wrongly suppress a real storm on an otherwise low-success window.
+		if s == nil || s.opsRepo == nil {
+			return 0, false
+		}
+		n, err := s.opsRepo.CountRoutingCapacityRejections(ctx, &OpsDashboardFilter{
+			StartTime: start,
+			EndTime:   end,
+			Platform:  platform,
+			GroupID:   groupID,
+		})
+		if err != nil {
+			return 0, false
+		}
+		return float64(n), true
+	case OpsAlertMetricUserVisibleFailureCount, OpsAlertMetricClientVisibleFailureCount:
+		// Count of terminal, attributable user-visible failures over the rule
+		// window. This is the experience-first guardrail: P0 for provider/platform
+		// owned failures, P1 for client-owned input/usage failures that still need
+		// ops/customer follow-up. Like routing_capacity_rejection_count, this is a
+		// count metric, so the rate sample floor intentionally does not apply.
+		if s == nil || s.opsRepo == nil {
+			return 0, false
+		}
+		n, err := s.opsRepo.CountUserVisibleFailures(ctx, &OpsDashboardFilter{
+			StartTime: start,
+			EndTime:   end,
+			Platform:  platform,
+			GroupID:   groupID,
+		}, userVisibleFailureOwnerScopeForMetric(strings.TrimSpace(rule.MetricType)))
+		if err != nil {
+			return 0, false
+		}
+		return float64(n), true
+	case "pool_load_rate":
+		// 池级并发负载率（在途+排队/席位），"账号池容量触顶"前瞻信号。
+		// 值 = scope 内最饱和调度池的负载率%；newapi 自动按 channel_type 拆子池
+		// （细则见 ops_pool_load_rate_tk.go）。无 scope = 全网最饱和池。
+		if s == nil || s.opsService == nil {
+			return 0, false
+		}
+		pools, err := s.opsService.ComputePoolLoadRates(ctx)
+		if err != nil {
+			return 0, false
+		}
+		rate, found := maxPoolLoadRate(pools, platform, groupID)
+		if !found {
+			// scope 内无合格池（全无界/全单账号）：已评估，不触发。
+			return 0, true
+		}
+		return rate, true
 	}
 
 	overview, err := s.opsRepo.GetDashboardOverview(ctx, &OpsDashboardFilter{
@@ -614,17 +796,17 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 
 	switch strings.TrimSpace(rule.MetricType) {
 	case "success_rate":
-		if overview.RequestCountSLA <= 0 {
+		if overview.RequestCountTotal < rateSampleFloor {
 			return 0, false
 		}
 		return overview.SLA * 100, true
 	case "error_rate":
-		if overview.RequestCountSLA <= 0 {
+		if overview.RequestCountTotal < rateSampleFloor {
 			return 0, false
 		}
 		return overview.ErrorRate * 100, true
 	case "upstream_error_rate":
-		if overview.RequestCountSLA <= 0 {
+		if overview.RequestCountTotal < rateSampleFloor {
 			return 0, false
 		}
 		return overview.UpstreamErrorRate * 100, true

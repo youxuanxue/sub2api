@@ -32,10 +32,12 @@ const (
 	oauthPendingBrowserCookieName = "oauth_pending_browser_session"
 	oauthPendingSessionCookiePath = "/api/v1/auth/oauth"
 	oauthPendingSessionCookieName = "oauth_pending_session"
+	oauthPromoCodeCookieName      = "oauth_promo_code"
 	oauthPendingCookieMaxAgeSec   = 10 * 60
 	oauthPendingChoiceStep        = "choose_account_action_required"
 
 	oauthCompletionResponseKey = "completion_response"
+	oauthPromoCodeStateKey     = "promo_code"
 )
 
 var pendingOAuthCreateAccountPreCommitHook func(context.Context, *dbent.PendingAuthSession) error
@@ -161,6 +163,53 @@ func readOAuthPendingSessionCookie(c *gin.Context) (string, error) {
 	return readCookieDecoded(c, oauthPendingSessionCookieName)
 }
 
+func captureOAuthPromoCode(c *gin.Context, secure bool) {
+	promoCode := strings.TrimSpace(c.Query("promo_code"))
+	if promoCode == "" {
+		clearOAuthPromoCodeCookie(c, secure)
+		return
+	}
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     oauthPromoCodeCookieName,
+		Value:    encodeCookieValue(promoCode),
+		Path:     oauthPendingBrowserCookiePath,
+		MaxAge:   oauthPendingCookieMaxAgeSec,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func clearOAuthPromoCodeCookie(c *gin.Context, secure bool) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     oauthPromoCodeCookieName,
+		Value:    "",
+		Path:     oauthPendingBrowserCookiePath,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func readOAuthPromoCode(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	promoCode, err := readCookieDecoded(c, oauthPromoCodeCookieName)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(promoCode)
+}
+
+func pendingOAuthPromoCode(session *dbent.PendingAuthSession) string {
+	if session == nil {
+		return ""
+	}
+	return pendingSessionStringValue(session.LocalFlowState, oauthPromoCodeStateKey)
+}
+
 func redirectToFrontendCallback(c *gin.Context, frontendCallback string) {
 	u, err := url.Parse(frontendCallback)
 	if err != nil {
@@ -183,6 +232,13 @@ func (h *AuthHandler) createOAuthPendingSession(c *gin.Context, payload oauthPen
 		return err
 	}
 
+	localFlowState := map[string]any{
+		oauthCompletionResponseKey: payload.CompletionResponse,
+	}
+	if promoCode := readOAuthPromoCode(c); promoCode != "" {
+		localFlowState[oauthPromoCodeStateKey] = promoCode
+	}
+
 	session, err := svc.CreatePendingSession(c.Request.Context(), service.CreatePendingAuthSessionInput{
 		Intent:                 strings.TrimSpace(payload.Intent),
 		Identity:               payload.Identity,
@@ -191,9 +247,7 @@ func (h *AuthHandler) createOAuthPendingSession(c *gin.Context, payload oauthPen
 		RedirectTo:             strings.TrimSpace(payload.RedirectTo),
 		BrowserSessionKey:      strings.TrimSpace(payload.BrowserSessionKey),
 		UpstreamIdentityClaims: payload.UpstreamIdentityClaims,
-		LocalFlowState: map[string]any{
-			oauthCompletionResponseKey: payload.CompletionResponse,
-		},
+		LocalFlowState:         localFlowState,
 	})
 	if err != nil {
 		slog.Error("pending auth session create failed",
@@ -506,7 +560,7 @@ func (h *AuthHandler) CreatePendingOAuthAccount(c *gin.Context) {
 func (h *AuthHandler) SendPendingOAuthVerifyCode(c *gin.Context) {
 	var req sendPendingOAuthVerifyCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -1563,7 +1617,7 @@ func writeOAuthTokenPairResponse(c *gin.Context, tokenPair *service.TokenPair) {
 func (h *AuthHandler) bindPendingOAuthLogin(c *gin.Context, provider string) {
 	var req bindPendingOAuthLoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -1649,7 +1703,7 @@ func respondPendingOAuthBindingApplyError(c *gin.Context, err error) {
 func (h *AuthHandler) createPendingOAuthAccount(c *gin.Context, provider string) {
 	var req createPendingOAuthAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -1820,6 +1874,7 @@ func (h *AuthHandler) createPendingOAuthAccount(c *gin.Context, provider string)
 		return
 	}
 
+	h.authService.ApplyOAuthSignupPromoCode(c.Request.Context(), user.ID, pendingOAuthPromoCode(session))
 	h.authService.RecordSuccessfulLogin(c.Request.Context(), user.ID)
 	// createPendingOAuthAccount = 注册新账户，需要把钉钉昵称同步到 users.username 作为初始值
 	h.maybeSyncDingTalkAfterRegistration(c.Request.Context(), session, user.ID)
@@ -1837,7 +1892,7 @@ func (h *AuthHandler) ExchangePendingOAuthCompletion(c *gin.Context) {
 	}
 	adoptionDecision, err := bindOptionalOAuthAdoptionDecision(c)
 	if err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 

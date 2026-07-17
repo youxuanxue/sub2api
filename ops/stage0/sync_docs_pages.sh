@@ -21,7 +21,7 @@
 #   INSTANCE_ID=i-0abc... ops/stage0/sync_docs_pages.sh i-0abc... docs/public/USER_GUIDE_CLAUDE_CODE.md
 #
 # IMPORTANT: only docs/public/* files may be synced. Passing any other path
-# (docs/approved/, docs/ops/, docs/spec-delta-*, etc.) is rejected with an error.
+# (docs/approved/, docs/ops/, docs/spec-delta/*, etc.) is rejected with an error.
 #
 # The target slug is derived by stripping the docs/public/ prefix and .md suffix, then
 # lowercasing and replacing underscores with hyphens:
@@ -59,7 +59,7 @@ if [[ ${#FILES[@]} -eq 0 ]]; then
 fi
 
 # Safety gate: only docs/public/* may be synced to the public pages endpoint.
-# Internal docs (docs/approved/, docs/ops/, docs/spec-delta-*, etc.) must never
+# Internal docs (docs/approved/, docs/ops/, docs/spec-delta/*, etc.) must never
 # be synced — reject anything outside docs/public/ with a hard error.
 for f in "${FILES[@]}"; do
   case "$f" in

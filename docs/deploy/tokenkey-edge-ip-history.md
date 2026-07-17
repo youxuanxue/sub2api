@@ -3,7 +3,7 @@
 Permanent list of **excluded** edge egress IPs (EC2 EIP and Lightsail Static IP). Do not bind these addresses to any edge again.
 
 - **Source of truth:** [`deploy/aws/stage0/edge-polluted-ips.json`](../../deploy/aws/stage0/edge-polluted-ips.json)
-- **Enforcement:** [`deploy/aws/stage0/allocate-clean-egress-eip.py`](../../deploy/aws/stage0/allocate-clean-egress-eip.py) (EC2 `rotate_egress_ip` path); [`deploy/aws/stage0/record-polluted-ip.py`](../../deploy/aws/stage0/record-polluted-ip.py) + [`ops/lightsail/rotate-static-ip.sh`](../../ops/lightsail/rotate-static-ip.sh) (Lightsail Static IP rotation)
+- **Enforcement:** [`deploy/aws/stage0/record-polluted-ip.py`](../../deploy/aws/stage0/record-polluted-ip.py) + [`ops/lightsail/rotate-static-ip.sh`](../../ops/lightsail/rotate-static-ip.sh) (Lightsail Static IP rotation). The EC2 `rotate_egress_ip` path (`allocate-clean-egress-eip.py`) was removed 2026-06-07 when edges went Lightsail-only; legacy EC2 EIP rows are retained below as history.
 - **Regenerate table:** `scripts/edge-ip-status.sh --markdown` (paste polluted block below if it drifted)
 
 Active edge EIP rotation runbook: [`.cursor/skills/tokenkey-stage0-edge-ip-rotation/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-ip-rotation/SKILL.md).
@@ -19,4 +19,8 @@ Active edge EIP rotation runbook: [`.cursor/skills/tokenkey-stage0-edge-ip-rotat
 | `18.135.59.111` | eu-west-2 | Lightsail edge-uk1 tokenkey-edge-uk1-ls-ip superseded 2026-05-26; released after matrix correction to 13.134.80.182 |
 | `100.48.129.133` | us-east-1 | Lightsail edge-us2 StaticIp-2 upstream API risk-block (2026-05-29) |
 | `52.47.52.132` | eu-west-3 | EC2 fra1 EIP released 2026-06-01 on EC2 decommission (fra1 goes Lightsail-only; not upstream pollution; exclude from re-allocation) |
+| `16.147.170.3` | us-west-2 | EC2 us1 EIP released 2026-06-07 on edge retirement (accounts migrated to us6 Lightsail; cc/codex fingerprint egress migrated to 52.15.35.197; not upstream pollution; exclude from re-allocation) |
+| `3.128.102.134` | us-east-2 | Lightsail edge-us3 Static-oh-1 upstream API risk-block (2026-06-16); swapped to vless-oh-fresh-1 / 18.220.195.44; old Static-oh-1 detached, exclude from re-allocation |
+| `44.224.133.40` | us-west-2 | Lightsail edge-us5 StaticIp-or-2 upstream API risk-block (2026-06-16); swapped to vless-or-fresh-1 / 32.185.163.163; old StaticIp-or-2 detached, exclude from re-allocation |
+| `13.134.80.182` | eu-west-2 | Lightsail edge-uk1 tokenkey-edge-uk1-ls-ip upstream API risk-block (2026-06-16); swapped to vless-uk-fresh-1 / 18.175.27.120; old static IP released, exclude from re-allocation |
 <!-- END edge-ip-status:polluted -->

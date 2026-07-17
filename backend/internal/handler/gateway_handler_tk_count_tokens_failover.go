@@ -57,14 +57,16 @@ func (h *GatewayHandler) forwardCountTokensWithFailover(
 		)
 		if err != nil {
 			// 选号落空。若此前已发生过 failover 错误，按最后一次上游错误回客户端，
-			// 保留真实状态码（429/529/...）；否则按容量不可用回 503。
+			// 保留真实状态码（429/529/...）；否则空池快速失败 429（#575 语义），
+			// 其余调度错误（DB 故障等）保持 503。
 			if fs.LastFailoverErr != nil {
 				h.gatewayService.WriteCountTokensFailoverError(c, fs.LastFailoverErr)
 				return
 			}
 			reqLog.Warn("gateway.count_tokens_select_account_failed", zap.Error(err))
 			markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-			h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable")
+			tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, parsedReq.Model)
+			h.errorResponse(c, tkStatus, tkType, tkMsg)
 			return
 		}
 		setOpsSelectedAccount(c, account.ID, account.Platform)

@@ -14,7 +14,6 @@ type kiroBlockKind int
 
 const (
 	kiroBlockNone kiroBlockKind = iota
-	kiroBlockThinking
 	kiroBlockText
 	kiroBlockToolUse
 )
@@ -29,11 +28,19 @@ type kiroSSEEncoder struct {
 	model   string
 	msgID   string
 
+	// inputTokens is the locally-estimated prompt token count (Kiro upstream
+	// reports none). It is computable from the request up-front, so the caller
+	// sets it before streaming starts and writeMessageStart emits it in
+	// message_start.usage.input_tokens. Without this the streamed SSE carried
+	// input_tokens=0, and the prod relay (which bills off the parsed SSE usage)
+	// recorded every streamed Kiro request at input=0 → systematic under-billing.
+	inputTokens int
+
 	started     bool          // message_start has been emitted
 	openBlock   kiroBlockKind // currently open content block
 	blockIndex  int           // index of the currently open / next block
 	stopReason  string        // accumulated stop reason ("end_turn" / "tool_use")
-	emittedText bool          // any text/thinking/tool block emitted
+	emittedText bool          // any text/tool block emitted
 }
 
 func (e *kiroSSEEncoder) writeEvent(eventType string, payload any) {
@@ -64,7 +71,7 @@ func (e *kiroSSEEncoder) writeMessageStart() {
 			"stop_reason":   nil,
 			"stop_sequence": nil,
 			"usage": map[string]any{
-				"input_tokens":  0,
+				"input_tokens":  e.inputTokens,
 				"output_tokens": 0,
 			},
 		},
@@ -85,8 +92,6 @@ func (e *kiroSSEEncoder) ensureBlock(kind kiroBlockKind) {
 
 	var cb map[string]any
 	switch kind {
-	case kiroBlockThinking:
-		cb = map[string]any{"type": "thinking", "thinking": "", "signature": ""}
 	case kiroBlockText:
 		cb = map[string]any{"type": "text", "text": ""}
 	default:
@@ -110,18 +115,6 @@ func (e *kiroSSEEncoder) writeTextDelta(text string) {
 		"type":  "content_block_delta",
 		"index": e.blockIndex,
 		"delta": map[string]any{"type": "text_delta", "text": text},
-	})
-}
-
-func (e *kiroSSEEncoder) writeThinkingDelta(text string) {
-	if text == "" {
-		return
-	}
-	e.ensureBlock(kiroBlockThinking)
-	e.writeEvent("content_block_delta", map[string]any{
-		"type":  "content_block_delta",
-		"index": e.blockIndex,
-		"delta": map[string]any{"type": "thinking_delta", "thinking": text},
 	})
 }
 

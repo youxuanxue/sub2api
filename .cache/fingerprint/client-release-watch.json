@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-07-16T02:53:43Z",
+  "git_sha": "29e700d0d54954d8f8dd02c29b543843c0da5ca2",
+  "platforms": {
+    "claude-code": {
+      "pinned": "2.1.211",
+      "upstream_latest": "2.1.211",
+      "status": "aligned",
+      "actionable": true,
+      "status_note": "",
+      "upstream_sources": {
+        "GitHub anthropics/claude-code": {
+          "version": "2.1.211",
+          "published_at": "2026-07-15T23:02:35Z",
+          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.211",
+          "raw_tag": "v2.1.211"
+        },
+        "npm @anthropic-ai/claude-code": {
+          "version": "2.1.211",
+          "published_at": "",
+          "url": "https://www.npmjs.com/package/@anthropic-ai/claude-code",
+          "raw_tag": "2.1.211"
+        }
+      }
+    },
+    "cc-stainless": {
+      "pinned": "0.94.0",
+      "upstream_latest": "0.111.0",
+      "status": "drift",
+      "actionable": false,
+      "status_note": "npm SDK semver is advisory; Claude Code on-wire X-Stainless-Package-Version remains capture ground truth.",
+      "upstream_sources": {
+        "npm @anthropic-ai/sdk": {
+          "version": "0.111.0",
+          "published_at": "",
+          "url": "https://www.npmjs.com/package/@anthropic-ai/sdk",
+          "raw_tag": "0.111.0"
+        }
+      }
+    },
+    "codex": {
+      "pinned": "0.144.4",
+      "upstream_latest": "0.144.4",
+      "status": "aligned",
+      "actionable": true,
+      "status_note": "",
+      "upstream_sources": {
+        "npm @openai/codex": {
+          "version": "0.144.4",
+          "published_at": "",
+          "url": "https://www.npmjs.com/package/@openai/codex",
+          "raw_tag": "0.144.4"
+        },
+        "GitHub openai/codex": {
+          "version": "0.144.4",
+          "published_at": "2026-07-14T05:08:11Z",
+          "url": "https://github.com/openai/codex/releases/tag/rust-v0.144.4",
+          "raw_tag": "rust-v0.144.4"
+        }
+      }
+    },
+    "codex-vscode": {
+      "pinned": "0.144.4",
+      "upstream_latest": "0.144.4",
+      "status": "aligned",
+      "actionable": true,
+      "status_note": "",
+      "upstream_sources": {
+        "npm @openai/codex": {
+          "version": "0.144.4",
+          "published_at": "",
+          "url": "https://www.npmjs.com/package/@openai/codex",
+          "raw_tag": "0.144.4"
+        },
+        "GitHub openai/codex": {
+          "version": "0.144.4",
+          "published_at": "2026-07-14T05:08:11Z",
+          "url": "https://github.com/openai/codex/releases/tag/rust-v0.144.4",
+          "raw_tag": "rust-v0.144.4"
+        }
+      }
+    },
+    "gemini-cli": {
+      "pinned": "0.50.0",
+      "upstream_latest": "0.50.0",
+      "status": "aligned",
+      "actionable": true,
+      "status_note": "",
+      "upstream_sources": {
+        "npm @google/gemini-cli": {
+          "version": "0.50.0",
+          "published_at": "",
+          "url": "https://www.npmjs.com/package/@google/gemini-cli",
+          "raw_tag": "0.50.0"
+        }
+      }
+    },
+    "grok-cli": {
+      "pinned": "0.2.101",
+      "upstream_latest": "0.2.101",
+      "status": "aligned",
+      "actionable": true,
+      "status_note": "",
+      "upstream_sources": {
+        "npm @xai-official/grok": {
+          "version": "0.2.101",
+          "published_at": "",
+          "url": "https://www.npmjs.com/package/@xai-official/grok",
+          "raw_tag": "0.2.101"
+        }
+      }
+    },
+    "antigravity": {
+      "pinned": "2.3.0",
+      "upstream_latest": "2.3.0",
+      "status": "aligned",
+      "actionable": true,
+      "status_note": "",
+      "upstream_sources": {
+        "Homebrew cask antigravity": {
+          "version": "2.3.0",
+          "published_at": "",
+          "url": "https://storage.googleapis.com/antigravity-public/antigravity-hub/2.3.0-5214728084127744/darwin-arm/Antigravity.dmg",
+          "raw_tag": "2.3.0,5214728084127744"
+        }
+      }
+    },
+    "kiro": {
+      "pinned": "0.12.333",
+      "upstream_latest": "0.12.333",
+      "status": "aligned",
+      "actionable": true,
+      "status_note": "",
+      "upstream_sources": {
+        "Homebrew cask kiro": {
+          "version": "0.12.333",
+          "published_at": "",
+          "url": "https://prod.download.desktop.kiro.dev/releases/stable/darwin-arm64/signed/0.12.333/kiro-ide-0.12.333-stable-darwin-arm64.dmg",
+          "raw_tag": "0.12.333"
+        }
+      }
+    },
+    "kiro-cli": {
+      "pinned": "2.12.3",
+      "upstream_latest": "2.12.3",
+      "status": "aligned",
+      "actionable": true,
+      "status_note": "",
+      "upstream_sources": {
+        "Homebrew cask kiro-cli": {
+          "version": "2.12.3",
+          "published_at": "",
+          "url": "https://desktop-release.q.us-east-1.amazonaws.com/2.12.3/Kiro%20CLI.dmg",
+          "raw_tag": "2.12.3"
+        }
+      }
+    }
+  }
+}

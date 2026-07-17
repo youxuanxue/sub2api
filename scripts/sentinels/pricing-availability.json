@@ -4,48 +4,267 @@
   "sentinels": [
     {
       "path": "backend/internal/handler/gateway_handler.go",
-      "must_contain": ["TkRecordFailureFromErr", "tkFilterModelIDs", "tkAntigravityDefaultModels", "TkEvalBodyGuard(", "TkEnrichForbiddenMessage("],
-      "rationale": "gateway_handler.go has TK injection points across multiple flows: (1) failure taps at the Anthropic /v1/messages + Gemini /v1/messages error paths (TkRecordFailureFromErr), (2) the priced-and-available filter on the model-list whitelist path (tkFilterModelIDs), (3) the shape-preserving antigravity model filter (tkAntigravityDefaultModels), (4) the pre-flight body-size guard on Messages + CountTokens entries (TkEvalBodyGuard) that fail-fast oversize requests before forward — see edge:us1 production data where opus-4-7 upstream rejects body >= ~940 KB with raw 403; and (5) the actionable-message enrichment for upstream 403 in handleFailoverExhausted + handleFailoverExhaustedSimple (TkEnrichForbiddenMessage). An upstream merge touching the forward-failed error handlers, the Models/AntigravityModels methods, or the entry hooks could silently drop any of these. If TkRecordFailureFromErr is lost, model_not_found failures from Anthropic and Gemini platforms stop being classified; if TkEvalBodyGuard is lost, claude-cli clients lose the pre-flight rejection and again hit upstream 403; if TkEnrichForbiddenMessage is lost, the 403 response collapses back to 'Upstream access forbidden, please contact administrator' without body-size hint."
+      "must_contain": [
+        "TkRecordFailureFromErr",
+        "tkFilterModelIDs",
+        "tkAntigravityDefaultModels",
+        "tkGeminiDefaultModelsList",
+        "TkEvalBodyGuard(",
+        "TkEnrichForbiddenMessage("
+      ],
+      "rationale": "gateway_handler.go has TK injection points across multiple flows: (1) failure taps at the Anthropic /v1/messages + Gemini /v1/messages error paths (TkRecordFailureFromErr), (2) the priced-and-available filter on the model-list whitelist path (tkFilterModelIDs), (3) the shape-preserving antigravity model filter (tkAntigravityDefaultModels), (4) the gemini /v1/models fallback re-point to the unified servable source (tkGeminiDefaultModelsList) so the list converges with /pricing instead of returning the raw geminicli.DefaultModels (which still carried advertised_dead gemini-2.0-flash) — an upstream merge could silently revert this one-line branch back to the raw list and un-converge gemini /v1/models, (5) the pre-flight body-size guard on Messages + CountTokens entries (TkEvalBodyGuard) that fail-fast oversize requests before forward — see edge:us1 production data where opus-4-7 upstream rejects body >= ~940 KB with raw 403; and (6) the actionable-message enrichment for upstream 403 in handleFailoverExhausted + handleFailoverExhaustedSimple (TkEnrichForbiddenMessage). An upstream merge touching the forward-failed error handlers, the Models/AntigravityModels methods, or the entry hooks could silently drop any of these. If TkRecordFailureFromErr is lost, model_not_found failures from Anthropic and Gemini platforms stop being classified; if TkEvalBodyGuard is lost, claude-cli clients lose the pre-flight rejection and again hit upstream 403; if TkEnrichForbiddenMessage is lost, the 403 response collapses back to 'Upstream access forbidden, please contact administrator' without body-size hint."
     },
     {
       "path": "backend/internal/handler/gateway_handler_chat_completions.go",
-      "must_contain": ["TkRecordFailureFromErr"],
+      "must_contain": [
+        "TkRecordFailureFromErr"
+      ],
       "rationale": "The OpenAI chat completions forward-failure path (line ~247) records upstream 404/model_not_found errors. Without this tap, model_not_found failures from OpenAI-compat and newapi platform accounts are never classified, and those models stay 'untested' or 'stale' in the availability table instead of flipping to 'unreachable'. The test TestTkRecordFailureFromErr_ExtractsAndClassifies verifies the logic works but does NOT verify the tap call-site still exists in this handler. This PR also touches the OpenAI-compat sticky-session preparation hook in this upstream-shaped file; keeping this entry in the diff records that the availability tap was explicitly re-checked while routing code moved into the TK companion helper."
     },
     {
       "path": "backend/internal/handler/gateway_handler_responses.go",
-      "must_contain": ["TkRecordFailureFromErr", "TkEvalBodyGuard("],
+      "must_contain": [
+        "TkRecordFailureFromErr",
+        "TkEvalBodyGuard("
+      ],
       "rationale": "The Responses API forward-failure path records upstream errors for the /v1/responses endpoint. Without this tap, model failures on the Responses pathway are invisible to the availability system. Same regression risk as chat_completions: upstream could refactor the error path and silently drop the TK line. This entry also locks the TkEvalBodyGuard pre-flight hook so upstream churn on the /v1/responses entry cannot quietly remove body-size protection for OpenAI compat clients."
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler.go",
-      "must_contain": ["TkRecordFailureFromErr", "tkGeminiFallbackModelsList", "TkEvalBodyGuard(", "TkEnrichForbiddenMessage("],
+      "must_contain": [
+        "TkRecordFailureFromErr",
+        "tkGeminiFallbackModelsList",
+        "TkEvalBodyGuard(",
+        "TkEnrichForbiddenMessage("
+      ],
       "rationale": "gemini_v1beta_handler.go has multiple TK injection points: (1) the failure tap on the /v1beta forward path that detects Google's 'Requested entity was not found' responses (TkRecordFailureFromErr), (2) the filtered Gemini fallback model list for the two static-fallback response paths (tkGeminiFallbackModelsList), (3) the pre-flight body-size guard before SelectAccount (TkEvalBodyGuard) — same data-driven motivation as anthropic opus-4-7 oversize rejection, and (4) the actionable-message enrichment for upstream 403 in mapGeminiUpstreamError's caller (TkEnrichForbiddenMessage). The Gemini handler is large and frequently touched by upstream; each TK injection is a 1-line addition easy to lose in merge conflict resolution."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
-      "must_contain": ["tkPricingAvailability", "RecordOutcome", "TkEnrichForbiddenMessage("],
+      "must_contain": [
+        "tkPricingAvailability"
+      ],
       "rationale": "gateway_service.go carries the success-path availability tap inside recordUsageCore (the 100%-hit path for all platform forwards) plus the TK 403 error-message enrichment in handleErrorResponse. Three sentinels: tkPricingAvailability (field declaration), RecordOutcome (success tap), and TkEnrichForbiddenMessage (403 client-message enrichment, replaces the default 'Upstream access forbidden, please contact administrator' with body-size hint). An upstream merge restructuring recordUsageCore or handleErrorResponse could silently remove any of these, collapsing the availability signal or regressing the 403 UX to the unhelpful default."
     },
     {
+      "path": "backend/internal/service/gateway_usage_billing.go",
+      "must_contain": [
+        "s.tkPricingAvailability.RecordOutcome(ctx, AvailabilityOutcome{"
+      ],
+      "rationale": "Success-path availability tap split from gateway_service.go into gateway_usage_billing.go."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_upstream_error_msg.go",
+      "must_contain": [
+        "func TkEnrichForbiddenMessage("
+      ],
+      "rationale": "403 client-message enrichment owner split from gateway_service.go."
+    },
+    {
       "path": "backend/internal/handler/gateway_handler_tk_forward_error.go",
-      "must_contain": ["TkRecordFailureFromErr", "UpstreamFailoverError"],
+      "must_contain": [
+        "TkRecordFailureFromErr",
+        "UpstreamFailoverError"
+      ],
       "rationale": "This TK companion file is the single implementation of TkRecordFailureFromErr — the helper that extracts upstream HTTP status from UpstreamFailoverError and forwards it to the availability classifier. If this file is lost (e.g. an upstream merge that removes all untracked files), all 5 tap call sites compile against a missing function and the build fails. The file also contains the UpstreamFailoverError unwrap logic that makes model_not_found classification work correctly (R-004 fix from review-20260506)."
     },
     {
       "path": "backend/internal/handler/pricing_catalog_handler_tk.go",
-      "must_contain": ["service.FilterPublicCatalogToServable("],
+      "must_contain": [
+        "service.FilterPublicCatalogToServable("
+      ],
       "rationale": "The public /pricing endpoint prunes retired/unservable claude + gpt rows so customers only see models TokenKey can actually serve (empirical 2026-06-05 probe). The filter is PRESENTATION-ONLY — applied in GetPublicCatalog after BuildPublicCatalog, deliberately NOT in the shared parse (which also backs IsModelPriced billing/gateway filtering). An upstream merge that rewrites GetPublicCatalog could silently drop the call and restore the full unservable list (customers again pick claude-3-*/gpt-4o and hit 400/404). Pins the call site."
     },
     {
       "path": "backend/internal/service/pricing_catalog_supported_models_tk.go",
-      "must_contain": ["func isPublicCatalogModelSupported(", "func FilterPublicCatalogToServable(", "func supportedCatalogModelIDsForPlatform(", "supportedAnthropicCatalogModels", "supportedOpenAICatalogModels"],
-      "rationale": "Single source for the empirically-servable claude + gpt sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. Other vendors (gemini, deepseek, …) intentionally pass through — only the claude + gpt families are curated."
+      "must_contain": [
+        "func isPublicCatalogModelSupported(",
+        "func FilterPublicCatalogToServable(",
+        "isNewAPILongTailCatalogVendor(",
+        "func supportedCatalogModelIDsForPlatform(",
+        "supportedAnthropicCatalogModels",
+        "supportedOpenAICatalogModels",
+        "supportedGeminiCatalogModels",
+        "supportedAntigravityCatalogModels",
+        "supportedGrokCatalogModels",
+        "isTkCuratedNewAPICatalogRowDisplayed",
+        "servable-allowlist:begin anthropic",
+        "servable-allowlist:begin openai",
+        "servable-allowlist:begin gemini",
+        "servable-allowlist:begin antigravity",
+        "servable-allowlist:begin grok"
+      ],
+      "rationale": "Single source for the empirically-servable native catalog sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. The antigravity allowlist (supportedAntigravityCatalogModels: live Gemini set plus #1265 live Claude subset, with gpt-oss/dead/unpriced keys excluded from persisted account mappings) is hand-maintained from empirical probes; losing it silently reverts antigravity to passthrough or hides now-supported Claude IDs. The grok allowlist (supportedGrokCatalogModels: priced grok-imagine media + official-priced grok chat ids that returned 200 on the native grok edge probe) is likewise hand-maintained; losing it silently empties a grok group's 分组目录 again (2026-06-20 incident). Fifth-platform newapi long-tail display is delegated to tk_served_models_manifest_tk.go via isTkCuratedNewAPICatalogRowDisplayed; unknown vendors stay hidden until a universal mapping exists."
+    },
+    {
+      "path": "backend/internal/service/tk_served_models_manifest_tk.go",
+      "must_contain": [
+        "//go:embed tk_served_models.json",
+        "func isTkCuratedNewAPIModelListed(",
+        "func isTkCuratedNewAPIModelDisplayed(",
+        "func tkServedModelsManifestDisplayPresetIDsByChannelType(",
+        "func isTkCuratedNewAPICatalogRowDisplayed(",
+        "func isNewAPILongTailCatalogVendor("
+      ],
+      "rationale": "Runtime embed of tk_served_models.json — gates runtime newapi intent to manifest-listed models and public /pricing + Group Catalog display rows to manifest display=true only. Without it, priced overlay residue (deepseek-v3-2-251201), withdrawn SKUs (e.g. glm-4-7-251222 VolcEngine duplicate — GLM served via DashScope as glm-4.7), or entitlement-blocked GLM rows reappear on storefront/menu surfaces and mislead users into 400/429 requests while still looking priced."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_candidates_tk.go",
+      "must_contain": [
+        "func tkServableCandidateIDs(",
+        "func tkPruneStructurallyGoneIDs(",
+        "supportedCatalogModelIDsForPlatform(platform)",
+        "tkAvailabilityStructurallyGone(st)"
+      ],
+      "rationale": "R-003 single self-healing candidate source, shared by the admin model-whitelist selector (admin_service.GetGroupModelsListCandidates) and the per-user menu fallback (me_pricing). tkServableCandidateIDs draws anthropic/openai/gemini from the empirical allowlist and prunes structurally-gone models (model_not_found -> unreachable) via live model_availability (tkPruneStructurallyGoneIDs / tkAvailabilityStructurallyGone); antigravity/newapi keep canonical defaults. If an upstream merge or refactor drops this file, BOTH surfaces silently revert to the canonical defaults (claude.DefaultModels etc.) that still list retired / access-gated models like claude-fable-5 — exactly the hand-maintenance toil R-003 removed. Pins the function and its self-healing primitives."
+    },
+    {
+      "path": "backend/internal/service/admin_group.go",
+      "must_contain": [
+        "tkServableCandidateIDs(ctx, platform, s.availability)"
+      ],
+      "rationale": "GetGroupModelsListCandidates must call the self-healing tkServableCandidateIDs, NOT the canonical defaultModelsListCandidateIDs. The admin model-whitelist selector and GroupsView consume this endpoint; an upstream merge that reverts the call to the canonical defaults re-advertises retired / access-gated models (the R-003 regression) and renders the frontend self-heal inert. Pins the injection call site in the (upstream-shaped) admin service."
     },
     {
       "path": "backend/internal/service/pricing_catalog_tk_test.go",
-      "must_contain": ["TestPublicCatalog_FiltersUnservableClaudeAndGpt", "TestIsPublicCatalogModelSupported"],
-      "rationale": "Regression coverage for the public-catalog support filter: asserts retired/unservable claude+gpt rows are pruned, servable ones kept, and non-curated vendors pass through. Pinned so an upstream merge that rewrites the catalog test file cannot silently drop the filter's regression guard. (This file also matches the *_tk_*.go hotspot via its _tk_test.go suffix, so the registry-update gate requires it to be tracked in a sentinel registry; pricing-availability is its correct domain.)"
+      "must_contain": [
+        "TestPublicCatalog_FiltersUnservableClaudeAndGpt",
+        "TestIsPublicCatalogModelSupported",
+        "TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay",
+        "withdrawn VolcEngine GLM SKU pruned from storefront",
+        "TestSupportedCatalogModelIDsForPlatform"
+      ],
+      "rationale": "Regression coverage for the public-catalog support filter: asserts retired/unservable claude+gpt rows are pruned, servable ones kept, curated newapi display=false rows are hidden, and unknown/unmapped vendors stay hidden until a universal mapping exists. TestSupportedCatalogModelIDsForPlatform (table-driven, covering anthropic/openai/antigravity/grok) and TestIsPublicCatalogModelSupported assert supportedCatalogModelIDsForPlatform / isPublicCatalogModelSupported against the live supported*CatalogModels maps by reference (any-key-from-map + explicit not-in-map probes) rather than duplicating each map's literal model list — so an SSOT allowlist refresh never requires a matching test edit, while an upstream merge that drops the filter functions or the test file itself still trips this sentinel. Pinned so an upstream merge that rewrites the catalog test file cannot silently drop the filter's regression guard. (This file also matches the *_tk_*.go hotspot via its _tk_test.go suffix, so the registry-update gate requires it to be tracked in a sentinel registry; pricing-availability is its correct domain.)"
+    },
+    {
+      "path": "backend/internal/service/pricing_tk_base_tax_test.go",
+      "must_contain": [
+        "TestPricingService_GetModelPricing_AppliesBaseTaxOnLookup",
+        "tkCNYPerMTokToUSDPerToken(8)",
+        "manifest-listed GLM uses BigModel overlay"
+      ],
+      "rationale": "Pins billing/catalog base-tax lookup regression for CN-origin providers, including the GLM authoritative-overlay path: GetModelPricing must apply zhipu 1.06 tax on the BigModel-sourced overlay rate even when litellm mirror carries a different non-zero glm-5.2 row."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_tk.go",
+      "must_contain": [
+        "func applyCatalogOverlayPricing",
+        "tkOverlayOverridesLitellmSource",
+        "applyCatalogOverlayPricing(resp)",
+        "func (s *PricingCatalogService) InvalidateCache"
+      ],
+      "rationale": "Display-side TK pricing-overlay merge. BuildPublicCatalog reads the trimmed litellm price file (model_pricing.json) and, unlike the billing path (GetModelPricing → applyTKPricingOverlay), did NOT apply the overlay — so every model priced ONLY in tk_pricing_overlay.json (the VolcEngine fifth-platform doubao-* batch, plus deepseek-v4-pro; GLM chat is DashScope-first as glm-4.7, not VolcEngine glm-4-7-251222) showed empty/missing prices in the public /pricing catalog AND Your-Menu (me_pricing_catalog reads BuildPublicCatalog as metaByID), even though billing was correct. applyCatalogOverlayPricing fill-merges the overlay's token-priced models into the catalog so display matches billing, with absent-or-zero semantics: a real non-zero file price wins, an all-zero placeholder row gets its displayed price replaced (same predicate family as billing's tkIsEffectivelyUnpriced). Channel pricing stays a strictly higher tier upstream; the merge is gated behind a non-degraded catalog (len(resp.Data)>0) to preserve the AC-005 degraded→empty contract. An upstream merge refactoring BuildPublicCatalog could silently drop the applyCatalogOverlayPricing(resp) call, regressing every overlay-only model back to an empty price row."
+    },
+    {
+      "path": "backend/internal/service/billing_service.go",
+      "must_contain": [
+        "tkIsEffectivelyUnpriced",
+        "litellmPricing.Intervals",
+        "litellmPricing.ThinkingOutputCostPerToken",
+        "pricing.ThinkingOutputPricePerToken",
+        "tkIsFlatPerImageModel(model)",
+        "normalizeOpenAIBillingModel"
+      ],
+      "rationale": "BillingService.GetModelPricing carries a 1-line TK hook: a litellm entry whose every cost field is zero (litellm's 'cost unknown' placeholder — e.g. deepseek-v3-2-251201 under volcengine) is treated as pricing-missing instead of a successful $0 lookup, falling through to fallback / ErrModelPricingUnavailable so the existing zero-cost record + Feishu pricing-missing funnel fires. Without this hook, zero-placeholder models silently bill $0 with no alert (683 prod requests leaked through 2026-06-10 before it existed). An upstream merge restructuring GetModelPricing could drop the `&& !tkIsEffectivelyUnpriced(...)` guard without any compile error. The predicate itself lives in pricing_service_tk_overlay.go (shared with the overlay absent-or-zero fill). SECOND hook on the same constructor: GetModelPricing MUST copy `Intervals: litellmPricing.Intervals` onto ModelPricing so overlay interval (tiered) pricing is carried into billing (consumed downstream via ResolvedPricing.Intervals -> GetIntervalPricing); dropping the copy silently flattens every overlay-tiered model to its base-tier price with no compile error. THIRD + FOURTH hooks (Qwen3 dense thinking-mode pricing): GetModelPricing MUST copy `ThinkingOutputPricePerToken: litellmPricing.ThinkingOutputCostPerToken`, and computeTokenBreakdown MUST keep the `pricing.ThinkingOutputPricePerToken` selection that bills output at the thinking rate when enable_thinking is active. Alibaba DashScope qwen3-8b/14b/32b are one model id with two output rates (非思考/思考) switched by enable_thinking, which DEFAULTS to true — so dropping either hook in an upstream merge silently reverts the DEFAULT traffic from the thinking rate (¥5/M for 8b) to the non-thinking rate (¥2/M), under-billing with no compile error. The non-thinking base price + the thinking rate value live in tk_pricing_overlay.json (guarded by scripts/checks/pricing-overlay.py THINKING_ANCHORS); these two needles guard the code path that consumes them. FIFTH hook (Imagen flat pricing): getDefaultImagePrice MUST keep the `tkIsFlatPerImageModel(model)` early-return that bills Imagen at its FLAT official per-image price, BEFORE the 2K→×1.5 / 4K→×2 size-tier multiplier. Imagen requests carry ratio codes (no size) → default 2K → were silently marked up ×1.5 (an upstream-owned multiplier, real only for genuine pixel-size tiers like Seedream). An upstream merge restructuring getDefaultImagePrice could drop this guard with no compile error, silently re-introducing a 50% overcharge on every Imagen image. The predicate lives in billing_service_tk_flat_image.go (separately pinned); this needle guards the call site."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_flat_image.go",
+      "must_contain": [
+        "func tkIsFlatPerImageModel",
+        "\"imagen-\""
+      ],
+      "rationale": "tkIsFlatPerImageModel is the imagen-scoped flat-billing predicate consumed by getDefaultImagePrice (billing_service.go, separately pinned): Imagen (Vertex) is priced by Google as a flat $/image per quality variant with NO 1K/2K/4K generation tier, so it must escape the 2K→×1.5 / 4K→×2 size-tier multiplier that is real only for genuine pixel-size models (Seedream). The `imagen-` prefix is the load-bearing scope — narrowing it (e.g. an upstream refactor that drops the predicate or changes the prefix) silently re-applies the ×1.5 markup to Imagen, the exact overcharge this exemption removed. Settlement AND the pre-flight HOLD both route through getDefaultImagePrice, so this one predicate keeps them consistent; the FE mirror is studioMediaPresentations.tk.ts flatPricePerImage (guarded by frontend-tk sentinels / studioMediaPresentations spec)."
+    },
+    {
+      "path": "backend/internal/service/openai_model_alias.go",
+      "must_contain": [
+        "func normalizeOpenAIBillingModel",
+        "gpt-5.6-chat-latest",
+        "return \"gpt-5.6-sol\""
+      ],
+      "rationale": "GPT-5.6 billing tier normalization is intentionally split from codex wire normalization (normalizeKnownOpenAICodexModel / normalizeCodexModel): upstream wire ids such as gpt-5.6-chat-latest must stay intact for OAuth transform while billing collapses chat-latest to the Sol tier key. Merging tier collapse back into normalizeKnownOpenAICodexModel silently breaks TestNormalizeCodexModel_Gpt53 and mis-bills chat-latest at the gpt-5.4 family floor. Pinning normalizeOpenAIBillingModel and the Sol collapse makes an upstream merge refactor fail CI instead of regressing wire vs billing separation."
+    },
+    {
+      "path": "scripts/checks/pricing-overlay.py",
+      "must_contain": [
+        "failure_billing",
+        "grok-4.3",
+        "grok-build-0.1"
+      ],
+      "rationale": "The failure_billing declaration check is the human-judgment anchor of the video pricing workflow: TokenKey refunds users in full on terminal-failed video tasks, which is only loss-free when the provider does not charge for failures — whoever prices a video model must verify and declare that. Dropping this block from the check silently removes the forced verification while overlay entries keep parsing fine. The grok-4.3 / grok-build-0.1 anchors keep xAI's two current chat price roots pinned in the same overlay gate, so a future edit cannot re-create the served-zero-cost grok chat hole while leaving media anchors intact."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_media_unpriced_guard_contract_test.go",
+      "must_contain": [
+        "TestMediaUnpricedGuard_ParityWithVideoBilling",
+        "TestMediaUnpricedGuard_EmptyModelDefaultIsPriced"
+      ],
+      "rationale": "Overwrite-protection gates for the media unpriced-reject guard: lock guard<->video-billing parity (billing semantics change must update the guard in the same change) and the empty-model fail-open premise (the OAuth default image model must stay priced in the shipped chain). Deleting these tests re-opens the silent-drift channels they close."
+    },
+    {
+      "path": "scripts/checks/catalog-serving-drift.py",
+      "must_contain": [
+        "tk_served_models.json",
+        "servable-allowlist:begin",
+        "served-via-admin-ui",
+        "#812-class gap",
+        "def _selftest("
+      ],
+      "rationale": "The served-models manifest drift guard — asserts backend/internal/service/tk_served_models.json (the THIN intent layer: 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no') AGREES with the mechanisms it sits above: (A1) tk_pricing_overlay.json non-zero price, (A2) display intent (native display=true => present in the Go servable-allowlist maps parsed between the `servable-allowlist:begin/end <platform>` markers; newapi display is owned by this manifest), and (A3) the tk_*.sql model_mapping migrations (served_on account => quoted model_id co-occurs with `id = <account>`). A3 is the #812-catching direction: a model priced + advertised-as-intended but never wired onto the serving account's model_mapping yields an empty pool => 429/503. The `served-via-admin-ui` literal is the reviewable A3 opt-out for mappings applied out-of-band of any migration (needed for deepseek-v4-pro/flash on account 39, whose model_mapping predates the tk_*.sql era). Pinning the script + its load-bearing literals stops a silent drop on upstream merge (the guard would otherwise just stop running with no compile error) and forces any rename of the splice markers / opt-out token to update this anchor in the same change. Wired into scripts/preflight.sh ('sub2api: catalog serving drift') and .github/workflows/upstream-merge-pr-shape.yml (Check 14) — preflight/CI parity."
+    },
+    {
+      "path": "backend/internal/service/tk_served_models.json",
+      "must_contain": [
+        "\"entries\"",
+        "\"price_source\"",
+        "\"served_on\"",
+        "\"display\""
+      ],
+      "rationale": "The served-models MANIFEST itself — the single declarative source of intent consumed by scripts/checks/catalog-serving-drift.py (now), the tokenkey-onboard-model skill (now), and a future newapi reconciler (//go:embed of this file, co-located with tk_pricing_overlay.json so the same Go package can embed both). Pinning the schema keys (entries / price_source / served_on / display) stops an upstream merge or refactor from silently truncating the manifest to an empty/legacy shape that would make the drift guard vacuously pass while the intent->migration->price agreement it encodes is lost. GLM chat models follow DashScope-first policy (glm-4.7 on the configured Qwen channel_type=17 pool; live account membership is runtime DB/admin config); VolcEngine glm-4-7-251222 was withdrawn 2026-07-06. Co-located with the overlay so the same preflight parses both and the same package will embed both."
+    },
+    {
+      "path": "backend/internal/service/pricing_service_tk_overlay.go",
+      "must_contain": [
+        "func parseTKOverlayBytes",
+        "func tkOverlayOverridesLitellmSource",
+        "func applyTKPricingOverlay",
+        "func rebuildTKOverlayUnion",
+        "tkOverlayMu",
+        "tkOverlayEffective"
+      ],
+      "rationale": "The overlay loader was converted from a sync.Once compile-only singleton into a re-runnable, RWMutex-guarded union (embedded ∪ runtime-settings, runtime wins) so a model can be priced WITHOUT a release (the runtime hot-push path). parseTKOverlayBytes is the shared pure parser for both the embedded floor and the runtime settings blob; rebuildTKOverlayUnion atomically swaps the effective map and is the ONLY place that can blank it (it never does — a corrupt runtime blob keeps the embedded floor, the never-serve-$0 invariant). An upstream merge or refactor that reverts this back to a sync.Once singleton (or drops the mutex) would silently re-freeze pricing to compile-time and reintroduce the per-model release dependency this whole change removes. Pinning these symbols makes that revert fail CI instead of going unnoticed."
+    },
+    {
+      "path": "backend/internal/service/pricing_service_tk_overlay_runtime.go",
+      "must_contain": [
+        "func (s *PricingService) reloadTKOverlayRuntime",
+        "func (s *PricingService) SubscribeOverlayRuntime",
+        "func (s *PricingService) SetOverlayRuntimeDeps",
+        "SettingKeyTKPricingOverlayRuntime"
+      ],
+      "rationale": "Runtime hot-push wiring for the TK pricing overlay: reloadTKOverlayRuntime validates the SettingKeyTKPricingOverlayRuntime blob before swapping (corrupt → keep current, never $0), rebuilds the merged billing price map, and busts the public-catalog mtime cache; SubscribeOverlayRuntime gives immediate cross-replica reload on the settings_updated pub/sub; SetOverlayRuntimeDeps is the nil-safe post-construction injection wired by ProvideTKPricingOverlayRuntime. ops/pricing/manage-overlay-runtime.py sync-runtime UPSERTs that settings key on prod + PUBLISHes the channel. If an upstream merge drops these, the gateway silently falls back to the embedded floor and every hot-push becomes a no-op (a model would appear priced in git/ops but never go live without a release) — the exact regression this change exists to prevent. Pinning makes the drop fail CI."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler.go",
+      "must_contain": [
+        "tkGeminiAdminModelsForMapping(c.Request.Context(), mapping)",
+        "func tkGeminiAdminModelsForMapping(",
+        "service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)",
+        "func tkAdminModelOptions[",
+        "[]dto.AccountModelOption",
+        "tkClaudeAdminModelsForIDs(sortedModelMappingKeys(mapping))"
+      ],
+      "rationale": "Admin GET /admin/accounts/:id/models for Gemini must intersect credentials.model_mapping with the unified servable catalog (ServableClientFacingIDs), not return the raw mapping keys or re-inject the full Gemini default list for OAuth accounts. Every platform then projects package-specific metadata through tkAdminModelOptions into the same []dto.AccountModelOption HTTP contract; an upstream merge must not restore mixed OpenAI/Claude/Gemini/Grok response structs. Pins both the Gemini servability call and the cross-platform DTO projection."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler_available_models_test.go",
+      "must_contain": [
+        "TestAccountHandlerGetAvailableModels_GeminiOAuthMappingUsesServableIntersection",
+        "unservable mapped preview must not appear",
+        "TestAccountHandlerGetAvailableModels_AllPlatformsUseMinimalOptionDTO",
+        "response must expose only id and display_name"
+      ],
+      "rationale": "Regression guards for Gemini mapping ∩ servable behavior and the exact two-field response contract across every first-class account platform. Upstream merges that rewrite the handler/tests must fail if they re-advertise an unservable Gemini id or leak platform-specific model fields."
     }
   ]
 }

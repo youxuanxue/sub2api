@@ -161,7 +161,7 @@ func (h *AuthHandler) isBackendModeEnabled(ctx context.Context) bool {
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -193,7 +193,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 func (h *AuthHandler) SendVerifyCode(c *gin.Context) {
 	var req SendVerifyCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -220,7 +220,7 @@ func (h *AuthHandler) SendVerifyCode(c *gin.Context) {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -278,7 +278,7 @@ type Login2FARequest struct {
 func (h *AuthHandler) Login2FA(c *gin.Context) {
 	var req Login2FARequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -420,6 +420,12 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	type UserResponse struct {
 		userProfileResponse
 		RunMode string `json:"run_mode"`
+		// TrajExportPlatforms is the server-driven allowlist of platforms whose
+		// conversation records the traj projector can reconstruct. The frontend
+		// export chip renders only for a key whose group platform is in this list
+		// (single source: engine.TrajProjectablePlatforms via the service layer),
+		// so the UI carries no hardcoded platform list of its own.
+		TrajExportPlatforms []string `json:"traj_export_platforms"`
 	}
 
 	runMode := config.RunModeStandard
@@ -430,6 +436,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	response.Success(c, UserResponse{
 		userProfileResponse: userProfileResponseFromService(user, identities),
 		RunMode:             runMode,
+		TrajExportPlatforms: service.TrajProjectablePlatforms(),
 	})
 }
 
@@ -460,7 +467,7 @@ func (h *AuthHandler) ValidatePromoCode(c *gin.Context) {
 
 	var req ValidatePromoCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -527,7 +534,7 @@ func (h *AuthHandler) ValidateInvitationCode(c *gin.Context) {
 
 	var req ValidateInvitationCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -579,7 +586,7 @@ type ForgotPasswordResponse struct {
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	var req ForgotPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -625,7 +632,7 @@ type ResetPasswordResponse struct {
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req ResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 
@@ -660,7 +667,7 @@ type RefreshTokenResponse struct {
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var req RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.InvalidRequest(c)
 		return
 	}
 

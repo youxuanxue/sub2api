@@ -37,6 +37,9 @@ func (m *sessionWindowMockRepo) UpdateSessionWindow(_ context.Context, id int64,
 	m.sessionWindowCalls = append(m.sessionWindowCalls, swCall{ID: id, Start: start, End: end, Status: status})
 	return nil
 }
+func (m *sessionWindowMockRepo) UpdateSessionWindowEnd(_ context.Context, _ int64, _ time.Time) error {
+	return nil
+}
 func (m *sessionWindowMockRepo) UpdateExtra(_ context.Context, id int64, updates map[string]any) error {
 	m.updateExtraCalls = append(m.updateExtraCalls, ueCall{ID: id, Updates: updates})
 	return nil
@@ -84,10 +87,16 @@ func (m *sessionWindowMockRepo) List(context.Context, pagination.PaginationParam
 func (m *sessionWindowMockRepo) ListWithFilters(context.Context, pagination.PaginationParams, string, string, string, string, int64, string) ([]Account, *pagination.PaginationResult, error) {
 	panic("unexpected")
 }
+func (m *sessionWindowMockRepo) ListAllWithFilters(context.Context, string, string, string, string, int64, string) ([]Account, error) {
+	panic("unexpected")
+}
 func (m *sessionWindowMockRepo) ListByGroup(context.Context, int64) ([]Account, error) {
 	panic("unexpected")
 }
 func (m *sessionWindowMockRepo) ListActive(context.Context) ([]Account, error) {
+	panic("unexpected")
+}
+func (m *sessionWindowMockRepo) ListOAuthRefreshCandidates(context.Context) ([]Account, error) {
 	panic("unexpected")
 }
 func (m *sessionWindowMockRepo) ListByPlatform(context.Context, string) ([]Account, error) {
@@ -160,6 +169,15 @@ func (m *sessionWindowMockRepo) SumConcurrencyAnthropicByGroup(context.Context, 
 	panic("unexpected")
 }
 func (m *sessionWindowMockRepo) SumConcurrencyByPlatform(context.Context, string) (int64, error) {
+	panic("unexpected")
+}
+func (m *sessionWindowMockRepo) SumConcurrencyByPlatformAndGroupID(context.Context, string, int64) (int64, error) {
+	panic("unexpected")
+}
+func (m *sessionWindowMockRepo) RevertProxyFallback(context.Context, int64) error {
+	panic("unexpected")
+}
+func (m *sessionWindowMockRepo) ListShadowsByParent(context.Context, int64) ([]*Account, error) {
 	panic("unexpected")
 }
 
@@ -328,6 +346,21 @@ func TestUpdateSessionWindow_ClearsUtilizationOnWindowReset(t *testing.T) {
 		t.Errorf("expected utilization cleared to nil, got %v", clearCall.Updates["session_window_utilization"])
 	}
 
+	// The 5h roll MUST NOT touch the independent 7d window family — clearing it on
+	// every 5h reset is what made 7d / 7d-S blank ~4-5x/day in the admin UI.
+	if _, ok := clearCall.Updates["passive_usage_7d_utilization"]; ok {
+		t.Errorf("5h roll must not clear passive_usage_7d_utilization")
+	}
+	if _, ok := clearCall.Updates["passive_usage_7d_reset"]; ok {
+		t.Errorf("5h roll must not clear passive_usage_7d_reset")
+	}
+	if _, ok := clearCall.Updates["passive_usage_7d_sonnet_utilization"]; ok {
+		t.Errorf("5h roll must not clear passive_usage_7d_sonnet_utilization")
+	}
+	if len(clearCall.Updates) != 1 {
+		t.Errorf("expected clear call to touch only session_window_utilization, got %v", clearCall.Updates)
+	}
+
 	// Second call: store new utilization
 	storeCall := repo.updateExtraCalls[1]
 	if val, ok := storeCall.Updates["session_window_utilization"].(float64); !ok || val != 0.15 {
@@ -361,6 +394,63 @@ func TestUpdateSessionWindow_NoClearUtilizationOnCorrection(t *testing.T) {
 
 	if val, ok := repo.updateExtraCalls[0].Updates["session_window_utilization"].(float64); !ok || val != 0.30 {
 		t.Errorf("expected utilization 0.30, got %v", repo.updateExtraCalls[0].Updates["session_window_utilization"])
+	}
+}
+
+func TestUpdateSessionWindow_SamplesFable7dOiHeaders(t *testing.T) {
+	// 被动采样应收集 7d_oi（Fable 专属 7d 窗口）的 utilization 和 reset。
+	existingEnd := time.Now().Add(3 * time.Hour)
+	resetOIUnix := time.Now().Add(80 * time.Hour).Unix()
+
+	repo := &sessionWindowMockRepo{}
+	svc := newRateLimitServiceForTest(repo)
+
+	account := &Account{ID: 90, SessionWindowEnd: &existingEnd} // needInitWindow=false
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-5h-status", "allowed")
+	headers.Set("anthropic-ratelimit-unified-7d_oi-utilization", "0.87")
+	headers.Set("anthropic-ratelimit-unified-7d_oi-reset", fmt.Sprintf("%d", resetOIUnix))
+
+	svc.UpdateSessionWindow(context.Background(), account, headers)
+
+	if len(repo.updateExtraCalls) != 1 {
+		t.Fatalf("expected 1 UpdateExtra call, got %d", len(repo.updateExtraCalls))
+	}
+	updates := repo.updateExtraCalls[0].Updates
+	if val, ok := updates["passive_usage_7d_oi_utilization"].(float64); !ok || val != 0.87 {
+		t.Errorf("expected passive_usage_7d_oi_utilization=0.87, got %v", updates["passive_usage_7d_oi_utilization"])
+	}
+	if val, ok := updates["passive_usage_7d_oi_reset"].(int64); !ok || val != resetOIUnix {
+		t.Errorf("expected passive_usage_7d_oi_reset=%d, got %v", resetOIUnix, updates["passive_usage_7d_oi_reset"])
+	}
+}
+
+func TestUpdateSessionWindow_DoesNotClearFable7dOiOnWindowReset(t *testing.T) {
+	// 5h 窗口重置只清 5h utilization；7d_oi 是独立的 Fable 7d 窗口，
+	// 不能被每天多次发生的 5h roll 清掉。
+	resetUnix := time.Now().Add(3 * time.Hour).Unix()
+
+	repo := &sessionWindowMockRepo{}
+	svc := newRateLimitServiceForTest(repo)
+
+	account := &Account{ID: 91} // no existing window → needInitWindow=true
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-5h-status", "allowed")
+	headers.Set("anthropic-ratelimit-unified-5h-reset", fmt.Sprintf("%d", resetUnix))
+
+	svc.UpdateSessionWindow(context.Background(), account, headers)
+
+	if len(repo.updateExtraCalls) != 1 {
+		t.Fatalf("expected 1 UpdateExtra (clear) call, got %d", len(repo.updateExtraCalls))
+	}
+	clearUpdates := repo.updateExtraCalls[0].Updates
+	if clearUpdates["session_window_utilization"] != nil {
+		t.Errorf("expected session_window_utilization cleared to nil, got %v", clearUpdates["session_window_utilization"])
+	}
+	for _, key := range []string{"passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset"} {
+		if val, present := clearUpdates[key]; present {
+			t.Errorf("5h roll must not clear %s, got val=%v", key, val)
+		}
 	}
 }
 

@@ -1,0 +1,297 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  tokenkey (sub2api fork) Stage 0 standalone S3 stack — does NOT modify the live
+  prod instance stack: each bucket policy grants the existing app InstanceRole
+  directly (same-account resource-based grant), so no update-stack on
+  tokenkey-prod-stage0. Holds three buckets, all direct-role-ARN pattern:
+  (1) pg_dump ledger backups (tokenkey-pgdump.sh hourly; RetentionDays);
+  (2) QA trajectory exports (qa_capture.export_storage; QaExportsRetentionDays;
+  see docs/qa-export-s3-and-auto-archive.md);
+  (3) generated-media offload (media_storage): OPT-IN image offload only (set
+  MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=true), plus re-presign of legacy
+  already-offloaded video records. By default NEITHER image nor video rehosts
+  fresh results — they pass through inline (the gateway is not a media CDN).
+  media/ prefix, MediaRetentionDays (default 1). No versioning (keys are unique).
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: tokenkey
+  Environment:
+    Type: String
+    Default: prod
+  RetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 365
+    Description: Days to keep each pg_dump copy before lifecycle expiry.
+  QaExportsRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 365
+    Description: >
+      Days to keep each QA trajectory export ZIP (traj-exports/ prefix) before
+      lifecycle expiry. Separate from RetentionDays so QA-export and pg_dump
+      retention can be tuned independently.
+  MediaRetentionDays:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 365
+    Description: >
+      Days to keep each generated-media object (media/ prefix) before lifecycle
+      expiry. Images and legacy already-offloaded video previews are throwaway
+      media, so 1 day (the lifecycle floor) is the default.
+  AppInstanceRoleArn:
+    Type: String
+    Description: >
+      Exact IAM role ARN of the app instance role allowed to write backups, e.g.
+      arn:aws:iam::<acct>:role/tokenkey-prod-stage0-InstanceRole-XXXX (get it from
+      `aws cloudformation describe-stack-resources --stack-name tokenkey-prod-stage0
+      --query "StackResources[?LogicalResourceId=='InstanceRole'].PhysicalResourceId"`).
+      Must be the ROLE ARN named DIRECTLY as the bucket-policy Principal: an
+      account-root principal (arn:...:root) is only a delegation and would still
+      require an identity-based policy, which we deliberately avoid (no prod
+      instance-stack update). Naming the role ARN directly makes the bucket policy
+      alone sufficient (same-account resource-based grant).
+
+Resources:
+  PgdumpBackupBucket:
+    Type: AWS::S3::Bucket
+    # Retain on stack delete so backups are not lost by an accidental teardown.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-pgdump-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Suspended
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-pgdump-copies
+            Status: Enabled
+            ExpirationInDays: !Ref RetentionDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  PgdumpBackupBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PgdumpBackupBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Enforce TLS for all access.
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt PgdumpBackupBucket.Arn
+              - !Sub '${PgdumpBackupBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          # Grant the app instance role write (and read-for-restore) on the
+          # prod/pgdump/* prefix. The role ARN is named DIRECTLY as Principal —
+          # same-account resource-based grant is then sufficient on its own, so we
+          # never touch the prod instance stack. (An account-root principal is only
+          # a delegation and would ALSO require an identity policy — verified the
+          # hard way: it AccessDenied'd s3:PutObject on first activation.)
+          - Sid: AllowAppInstanceRolePutGet
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+            Resource: !Sub '${PgdumpBackupBucket.Arn}/${Environment}/pgdump/*'
+          - Sid: AllowAppInstanceRoleList
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action: 's3:ListBucket'
+            Resource: !GetAtt PgdumpBackupBucket.Arn
+
+  QaExportsBucket:
+    Type: AWS::S3::Bucket
+    # Retain on stack delete so finished export ZIPs are not lost by an accidental teardown.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-qa-exports-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Suspended
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-traj-exports
+            Status: Enabled
+            Prefix: traj-exports/
+            ExpirationInDays: !Ref QaExportsRetentionDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  QaExportsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref QaExportsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Enforce TLS for all access.
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt QaExportsBucket.Arn
+              - !Sub '${QaExportsBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          # Same direct-role-ARN principal pattern as the pgdump grant above — a
+          # same-account resource-based grant is sufficient on its own, so the prod
+          # instance stack is never touched. The app writes export ZIPs (PutObject),
+          # signs presigned download URLs + reads them server-side (GetObject), and
+          # prunes terminal/expired exports (DeleteObject). This bucket is
+          # single-purpose (QA exports only), so object actions are granted
+          # bucket-wide rather than pinned to the env-overridable
+          # QA_CAPTURE_EXPORT_STORAGE_PREFIX (default traj-exports/).
+          - Sid: AllowAppInstanceRolePutGetDelete
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+              - 's3:DeleteObject'
+            Resource: !Sub '${QaExportsBucket.Arn}/*'
+          - Sid: AllowAppInstanceRoleListQaExports
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action: 's3:ListBucket'
+            Resource: !GetAtt QaExportsBucket.Arn
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    # Retain on stack delete for consistency with the sibling buckets; media is
+    # throwaway (1-day lifecycle) so this only ever leaves a near-empty bucket.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-media-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Suspended
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-generated-media
+            Status: Enabled
+            Prefix: media/
+            ExpirationInDays: !Ref MediaRetentionDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  MediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Enforce TLS for all access.
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt MediaBucket.Arn
+              - !Sub '${MediaBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          # Same direct-role-ARN principal pattern as above — same-account
+          # resource-based grant, so the prod instance stack is never touched. The
+          # app writes generated image media (PutObject) and signs/serves
+          # presigned GET URLs (GetObject). Legacy video objects may still be
+          # re-presigned. NO DeleteObject: the media/ lifecycle rule reaps
+          # objects, so the role never needs delete (least privilege).
+          - Sid: AllowAppInstanceRolePutGetMedia
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+            Resource: !Sub '${MediaBucket.Arn}/media/*'
+
+  # NOTE — the .env SECRETS off-box (SSM SecureString, a DIFFERENT blast radius than this
+  # dump bucket so the decryption keys are not co-located with the ciphertext) needs an
+  # IDENTITY grant (ssm:PutParameter), because SSM Parameters have no resource policy — a
+  # bucket-style same-account either/or grant is impossible. That grant therefore canNOT
+  # live in this standalone stack without an iam:CreatePolicy capability no available
+  # principal has. Its DURABLE home is the prod InstanceRole in stage0-single-ec2.yaml
+  # (ssm:PutParameter on .../stage0/env-secrets-backup), applied on the next prod CFN
+  # update; until then it is mirrored as a manual inline policy (EnvSecretsBackup) added
+  # on the role via the IAM console. See ops/stage0/backup-env-secrets-via-ssm.sh +
+  # RUNBOOK §4.4. The EnvSecretsSsmParam output below documents the param name to wire.
+
+Outputs:
+  BucketName:
+    Description: pg_dump backup bucket name.
+    Value: !Ref PgdumpBackupBucket
+  PgdumpS3Uri:
+    Description: Set this as TOKENKEY_PGDUMP_S3_URI in /var/lib/tokenkey/.env on the app host.
+    Value: !Sub 's3://${PgdumpBackupBucket}/${Environment}/pgdump'
+  QaExportsBucketName:
+    Description: >
+      QA trajectory export bucket. Matches the QA_CAPTURE_EXPORT_STORAGE_BUCKET default
+      self-healed by ops/stage0/deploy_via_ssm.sh on the prod host.
+    Value: !Ref QaExportsBucket
+  QaExportsS3Uri:
+    Description: >
+      s3:// base for QA exports; objects land under QA_CAPTURE_EXPORT_STORAGE_PREFIX
+      (default traj-exports/), which the expire-traj-exports lifecycle rule reaps.
+    Value: !Sub 's3://${QaExportsBucket}'
+  EnvSecretsSsmParam:
+    Description: Set this as TOKENKEY_ENV_SECRETS_SSM in /var/lib/tokenkey/.env; SecureString holding the off-box .env secrets.
+    Value: !Sub '/${ProjectName}/${Environment}/stage0/env-secrets-backup'
+  MediaBucketName:
+    Description: >
+      Generated-media bucket. Set MEDIA_STORAGE_DRIVER=s3 + MEDIA_STORAGE_BUCKET=<this>
+      + MEDIA_STORAGE_REGION=<region> in the app env to enable legacy video re-presign;
+      add MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=true to additionally opt back into image
+      S3 offload (off by default = images pass through inline). Credentials come from the
+      instance role — leave MEDIA_STORAGE_ACCESS_KEY_ID unset.
+    Value: !Ref MediaBucket
+  MediaS3Uri:
+    Description: s3:// base for generated media; objects land under media/ (reaped by expire-generated-media).
+    Value: !Sub 's3://${MediaBucket}'

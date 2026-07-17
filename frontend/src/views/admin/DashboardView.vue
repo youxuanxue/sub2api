@@ -1,5 +1,4 @@
 <template>
-  <AppLayout>
     <div class="space-y-6">
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
@@ -216,11 +215,10 @@
           </div>
         </div>
 
-        <!-- Row 3: Prompt Cache Hit Rate (sticky-routing observability) -->
-        <!-- See docs/approved/sticky-routing.md §6 (success metric). -->
-        <div class="card p-4">
-          <div class="flex items-start gap-3">
-            <div class="rounded-lg bg-cyan-100 p-2 dark:bg-cyan-900/30">
+        <!-- Row 3: observable prompt-cache performance by group -->
+        <div class="card p-4" data-testid="prompt-cache-card">
+          <div class="flex flex-col gap-4 lg:flex-row lg:items-start">
+            <div class="self-start rounded-lg bg-cyan-100 p-2 dark:bg-cyan-900/30">
               <Icon
                 name="bolt"
                 size="md"
@@ -228,50 +226,135 @@
                 :stroke-width="2"
               />
             </div>
-            <div class="flex-1">
-              <div class="flex items-baseline justify-between">
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.promptCacheHitRate') }}
+            <div class="min-w-0 flex-1 lg:grid lg:grid-cols-[minmax(12rem,0.7fr)_minmax(24rem,1.3fr)] lg:gap-8">
+              <div>
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                    {{ t('admin.dashboard.promptCacheObservableHitRate') }}
+                  </p>
+                  <p class="text-[11px] text-gray-400 dark:text-gray-500">
+                    {{ t('admin.dashboard.promptCacheSelectedWindow') }}
+                  </p>
+                </div>
+                <p
+                  v-if="promptCacheOverview.rate !== null"
+                  class="mt-2 text-2xl font-bold text-cyan-600 dark:text-cyan-400"
+                  data-testid="prompt-cache-rate"
+                >
+                  {{ formatPercent(promptCacheOverview.rate) }}
                 </p>
-                <p class="text-[11px] text-gray-400 dark:text-gray-500">
+                <p
+                  v-else-if="promptCacheOverview.hasUnavailableTelemetry"
+                  class="mt-2 text-lg font-semibold text-gray-700 dark:text-gray-200"
+                  data-testid="prompt-cache-status"
+                >
+                  {{ t('admin.dashboard.promptCacheUnavailable') }}
+                </p>
+                <p v-else class="mt-2 text-2xl font-bold text-gray-400">—</p>
+                <p
+                  v-if="promptCacheOverview.rate !== null && promptCacheOverview.hasUnavailableTelemetry"
+                  class="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400"
+                  data-testid="prompt-cache-overall-status"
+                >
+                  {{ t('admin.dashboard.promptCachePartiallyObservable') }}
+                </p>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   {{ t('admin.dashboard.promptCacheHitRateHint') }}
                 </p>
               </div>
-              <div class="mt-2 grid grid-cols-2 gap-4">
-                <!-- Today -->
-                <div>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.dashboard.promptCacheToday') }}
-                  </p>
-                  <p class="text-2xl font-bold text-cyan-600 dark:text-cyan-400">
-                    {{ formatPercent(promptCacheHitRateToday) }}
-                  </p>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.dashboard.cacheReadTokens') }}:
-                    {{ formatTokens(stats.today_cache_read_tokens) }}
-                    ·
-                    {{ t('admin.dashboard.cacheCreateTokens') }}:
-                    {{ formatTokens(stats.today_cache_creation_tokens) }}
-                  </p>
-                </div>
-                <!-- Total -->
-                <div>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.dashboard.promptCacheTotal') }}
-                  </p>
-                  <p class="text-2xl font-bold text-gray-900 dark:text-white">
-                    {{ formatPercent(promptCacheHitRateTotal) }}
-                  </p>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('admin.dashboard.cacheReadTokens') }}:
-                    {{ formatTokens(stats.total_cache_read_tokens) }}
-                    ·
-                    {{ t('admin.dashboard.cacheCreateTokens') }}:
-                    {{ formatTokens(stats.total_cache_creation_tokens) }}
-                  </p>
-                </div>
+
+              <div v-if="promptCacheOverview.groups.length" class="mt-4 min-w-0 lg:mt-0">
+                <button
+                  v-for="row in promptCacheOverview.groups"
+                  :key="row.group.group_id"
+                  type="button"
+                  class="grid w-full grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 border-b border-gray-100 px-2 py-2 text-left last:border-b-0 hover:bg-gray-50 dark:border-dark-700 dark:hover:bg-dark-800/50"
+                  data-testid="prompt-cache-group-row"
+                  :data-group-id="row.group.group_id"
+                  @click="goToGroupUsage(row.group.group_id)"
+                >
+                  <span class="min-w-0 truncate text-sm font-medium text-gray-900 dark:text-white">
+                    {{ row.group.group_name || t('admin.dashboard.noGroup') }}
+                  </span>
+                  <span class="whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.dashboard.cacheReadTokens') }} {{ formatTokens(row.cacheReadTokens) }}
+                  </span>
+                  <span
+                    v-if="row.rate !== null"
+                    class="min-w-14 whitespace-nowrap text-right text-sm font-semibold text-gray-900 dark:text-white"
+                    data-testid="prompt-cache-rate"
+                  >
+                    {{ formatPercent(row.rate) }}
+                  </span>
+                  <span
+                    v-else
+                    class="whitespace-nowrap text-xs font-medium text-gray-500 dark:text-gray-400"
+                    data-testid="prompt-cache-status"
+                  >
+                    {{ t('admin.dashboard.promptCacheUnavailable') }}
+                  </span>
+                  <Icon name="chevronRight" size="xs" class="text-gray-400" />
+                  <span
+                    v-if="row.partiallyObservable"
+                    class="col-start-2 col-span-3 text-right text-[11px] text-amber-600 dark:text-amber-400"
+                    data-testid="prompt-cache-status"
+                  >
+                    {{ t('admin.dashboard.promptCachePartiallyObservable') }}
+                  </span>
+                </button>
+              </div>
+              <div v-else class="mt-4 text-sm text-gray-500 dark:text-gray-400 lg:mt-0">
+                {{ t('admin.dashboard.promptCacheNoTraffic') }}
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="card p-4">
+          <div class="mb-3 flex items-center justify-between">
+            <h2 class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.dashboard.quickActions') }}
+            </h2>
+          </div>
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <button
+              v-if="canUseBatchImage"
+              type="button"
+              class="group flex items-center gap-3 rounded-lg bg-gray-50 p-3 text-left transition-colors hover:bg-sky-50 dark:bg-dark-800/50 dark:hover:bg-sky-900/20"
+              @click="router.push('/batch-image')"
+            >
+              <span class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400">
+                <Icon name="sparkles" size="md" :stroke-width="2" />
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('admin.dashboard.batchImage') }}
+                </span>
+                <span class="block text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.dashboard.batchImageDesc') }}
+                </span>
+              </span>
+              <Icon name="chevronRight" size="sm" class="text-gray-400 group-hover:text-sky-500" />
+            </button>
+            <button
+              type="button"
+              class="group flex items-center gap-3 rounded-lg bg-gray-50 p-3 text-left transition-colors hover:bg-emerald-50 dark:bg-dark-800/50 dark:hover:bg-emerald-900/20"
+              @click="router.push('/admin/groups')"
+            >
+              <span class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                <Icon name="grid" size="md" :stroke-width="2" />
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('admin.dashboard.groupPricing') }}
+                </span>
+                <span class="block text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.dashboard.groupPricingDesc') }}
+                </span>
+              </span>
+              <Icon name="chevronRight" size="sm" class="text-gray-400 group-hover:text-emerald-500" />
+            </button>
           </div>
         </div>
 
@@ -290,7 +373,7 @@
                   @change="onDateRangeChange"
                 />
               </div>
-              <button @click="loadDashboardStats" :disabled="chartsLoading" class="btn btn-secondary">
+              <button @click="loadDashboardStats" :disabled="dashboardChartsLoading" class="btn btn-secondary">
                 {{ t('common.refresh') }}
               </button>
               <div class="ml-auto flex items-center gap-2">
@@ -317,7 +400,7 @@
               :ranking-total-actual-cost="rankingTotalActualCost"
               :ranking-total-requests="rankingTotalRequests"
               :ranking-total-tokens="rankingTotalTokens"
-              :loading="chartsLoading"
+              :loading="modelStatsLoading"
               :ranking-loading="rankingLoading"
               :ranking-error="rankingError"
               :start-date="startDate"
@@ -336,7 +419,47 @@
               <div v-if="userTrendLoading" class="flex h-full items-center justify-center">
                 <LoadingSpinner size="md" />
               </div>
-              <Line v-else-if="userTrendChartData" :data="userTrendChartData" :options="lineOptions" />
+              <div v-else-if="userTrendChartData" class="flex h-full flex-col">
+                <div
+                  v-if="userTrendLegendItems.length > 0"
+                  class="mb-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 px-2"
+                  data-test="recent-usage-legend"
+                >
+                  <button
+                    v-for="item in userTrendLegendItems"
+                    :key="item.userId"
+                    type="button"
+                    class="inline-flex h-7 max-w-full items-center gap-1.5 rounded px-1.5 text-xs font-medium transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 dark:hover:bg-dark-700"
+                    :class="
+                      isUserTrendHidden(item.userId)
+                        ? 'text-gray-400 dark:text-gray-500'
+                        : 'text-gray-600 dark:text-gray-300'
+                    "
+                    :aria-pressed="!isUserTrendHidden(item.userId)"
+                    :title="item.name"
+                    @click="toggleUserTrendDataset(item.userId)"
+                  >
+                    <span
+                      class="h-3 w-3 flex-shrink-0 rounded-full border-2"
+                      :style="{
+                        borderColor: item.color,
+                        backgroundColor: isUserTrendHidden(item.userId)
+                          ? 'transparent'
+                          : `${item.color}26`,
+                      }"
+                    ></span>
+                    <span
+                      class="max-w-[12rem] truncate"
+                      :class="{ 'line-through': isUserTrendHidden(item.userId) }"
+                    >
+                      {{ item.name }}
+                    </span>
+                  </button>
+                </div>
+                <div class="min-h-0 flex-1">
+                  <Line :data="userTrendChartData" :options="lineOptions" />
+                </div>
+              </div>
               <div
                 v-else
                 class="flex h-full items-center justify-center text-sm text-gray-500 dark:text-gray-400"
@@ -348,8 +471,7 @@
         </div>
       </template>
     </div>
-  </AppLayout>
-</template>
+  </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
@@ -363,16 +485,18 @@ import type {
   DashboardStats,
   TrendDataPoint,
   ModelStat,
+  GroupStat,
   UserUsageTrendPoint,
   UserSpendingRankingItem
 } from '@/types'
-import AppLayout from '@/components/layout/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Icon from '@/components/icons/Icon.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Select from '@/components/common/Select.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
+import { dashboardWindowParams, rollingWindowTs } from '@/utils/dashboardWindow.tk'
+import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
 
 import {
   Chart as ChartJS,
@@ -399,23 +523,29 @@ ChartJS.register(
 
 const appStore = useAppStore()
 const router = useRouter()
+const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
 const stats = ref<DashboardStats | null>(null)
 const loading = ref(false)
 const chartsLoading = ref(false)
+const modelStatsLoading = ref(false)
 const userTrendLoading = ref(false)
 const rankingLoading = ref(false)
 const rankingError = ref(false)
+const dashboardChartsLoading = computed(() => chartsLoading.value || modelStatsLoading.value)
 
 // Chart data
 const trendData = ref<TrendDataPoint[]>([])
 const modelStats = ref<ModelStat[]>([])
+const groupStats = ref<GroupStat[]>([])
+const loadedDashboardRollingWindow = ref<{ start_ts: number; end_ts: number } | null>(null)
 const userTrend = ref<UserUsageTrendPoint[]>([])
 const rankingItems = ref<UserSpendingRankingItem[]>([])
 const rankingTotalActualCost = ref(0)
 const rankingTotalRequests = ref(0)
 const rankingTotalTokens = ref(0)
+let statsLoadSeq = 0
 let chartLoadSeq = 0
-let usersTrendLoadSeq = 0
+let userTrendLoadSeq = 0
 let rankingLoadSeq = 0
 const rankingLimit = 12
 
@@ -438,6 +568,10 @@ const granularity = ref<'day' | 'hour'>('hour')
 const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start)
 const endDate = ref(defaultRange.end)
+// TK: tracks the active DateRangePicker preset so rolling presets can be sent
+// as an absolute (timezone-independent) epoch-ms window. Defaults to
+// 'last24Hours' to match the default range above. See utils/dashboardWindow.tk.ts.
+const activePreset = ref<string | null>('last24Hours')
 
 // Granularity options for Select component
 const granularityOptions = computed(() => [
@@ -456,6 +590,23 @@ const chartColors = computed(() => ({
   grid: isDarkMode.value ? '#374151' : '#e5e7eb'
 }))
 
+const userTrendColors = [
+  '#3b82f6',
+  '#10b981',
+  '#f59e0b',
+  '#ef4444',
+  '#8b5cf6',
+  '#ec4899',
+  '#14b8a6',
+  '#f97316',
+  '#6366f1',
+  '#84cc16',
+  '#06b6d4',
+  '#a855f7'
+]
+
+const hiddenUserTrendIds = ref<Set<number>>(new Set())
+
 // Line chart options (for user trend chart)
 const lineOptions = computed(() => ({
   responsive: true,
@@ -466,16 +617,7 @@ const lineOptions = computed(() => ({
   },
   plugins: {
     legend: {
-      position: 'top' as const,
-      labels: {
-        color: chartColors.value.text,
-        usePointStyle: true,
-        pointStyle: 'circle',
-        padding: 15,
-        font: {
-          size: 11
-        }
-      }
+      display: false
     },
     tooltip: {
       itemSort: (a: any, b: any) => {
@@ -517,10 +659,7 @@ const lineOptions = computed(() => ({
   }
 }))
 
-// User trend chart data
-const userTrendChartData = computed(() => {
-  if (!userTrend.value?.length) return null
-
+const userTrendSeries = computed(() => {
   const getDisplayName = (point: UserUsageTrendPoint): string => {
     const username = point.username?.trim()
     if (username) {
@@ -549,32 +688,52 @@ const userTrendChartData = computed(() => {
   })
 
   const sortedDates = Array.from(allDates).sort()
-  const colors = [
-    '#3b82f6',
-    '#10b981',
-    '#f59e0b',
-    '#ef4444',
-    '#8b5cf6',
-    '#ec4899',
-    '#14b8a6',
-    '#f97316',
-    '#6366f1',
-    '#84cc16',
-    '#06b6d4',
-    '#a855f7'
-  ]
 
-  const datasets = Array.from(userGroups.values()).map((group, idx) => ({
-    label: group.name,
-    data: sortedDates.map((date) => group.data.get(date) || 0),
-    borderColor: colors[idx % colors.length],
-    backgroundColor: `${colors[idx % colors.length]}20`,
-    fill: false,
-    tension: 0.3
+  const series = Array.from(userGroups.entries()).map(([userId, group], idx) => ({
+    userId,
+    name: group.name,
+    color: userTrendColors[idx % userTrendColors.length],
+    data: sortedDates.map((date) => group.data.get(date) || 0)
   }))
 
   return {
     labels: sortedDates,
+    series
+  }
+})
+
+const userTrendLegendItems = computed(() => userTrendSeries.value.series)
+
+const isUserTrendHidden = (userId: number): boolean => hiddenUserTrendIds.value.has(userId)
+
+const toggleUserTrendDataset = (userId: number) => {
+  const next = new Set(hiddenUserTrendIds.value)
+  if (next.has(userId)) {
+    next.delete(userId)
+  } else {
+    next.add(userId)
+  }
+  hiddenUserTrendIds.value = next
+}
+
+// User trend chart data
+const userTrendChartData = computed(() => {
+  const { labels, series } = userTrendSeries.value
+  if (!series.length) return null
+
+  const datasets = series.map((group) => ({
+    userId: group.userId,
+    label: group.name,
+    data: group.data,
+    borderColor: group.color,
+    backgroundColor: `${group.color}20`,
+    fill: false,
+    hidden: isUserTrendHidden(group.userId),
+    tension: 0.3
+  }))
+
+  return {
+    labels,
     datasets
   }
 })
@@ -592,19 +751,25 @@ const formatTokens = (value: number | undefined): string => {
   return value.toLocaleString()
 }
 
-const formatNumber = (value: number): string => {
-  return value.toLocaleString()
+const toFiniteNumber = (value: unknown): number => {
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) ? numberValue : 0
 }
 
-const formatCost = (value: number): string => {
-  if (value >= 1000) {
-    return (value / 1000).toFixed(2) + 'K'
-  } else if (value >= 1) {
-    return value.toFixed(2)
-  } else if (value >= 0.01) {
-    return value.toFixed(3)
+const formatNumber = (value: number | null | undefined): string => {
+  return toFiniteNumber(value).toLocaleString()
+}
+
+const formatCost = (value: number | null | undefined): string => {
+  const safeValue = toFiniteNumber(value)
+  if (safeValue >= 1000) {
+    return (safeValue / 1000).toFixed(2) + 'K'
+  } else if (safeValue >= 1) {
+    return safeValue.toFixed(2)
+  } else if (safeValue >= 0.01) {
+    return safeValue.toFixed(3)
   }
-  return value.toFixed(4)
+  return safeValue.toFixed(4)
 }
 
 const formatDuration = (ms: number): string => {
@@ -614,51 +779,64 @@ const formatDuration = (ms: number): string => {
   return `${Math.round(ms)}ms`
 }
 
-// Prompt cache hit-rate (sticky-routing observability).
-// Definition: cache_read / (cache_read + input + cache_create).
-// Returns null when the denominator is 0 so the UI can render a "—" placeholder.
-const computeHitRate = (
-  cacheRead: number | undefined,
-  input: number | undefined,
-  cacheCreate: number | undefined
-): number | null => {
-  const r = cacheRead ?? 0
-  const i = input ?? 0
-  const c = cacheCreate ?? 0
-  const denom = r + i + c
-  if (denom <= 0) return null
-  return r / denom
-}
+const promptCacheOverview = computed(() => {
+  const rows = groupStats.value.map((group) => {
+    const inputTokens = Math.max(0, toFiniteNumber(group.input_tokens))
+    const unavailableInputTokens = Math.min(
+      inputTokens,
+      Math.max(0, toFiniteNumber(group.cache_telemetry_unavailable_input_tokens))
+    )
+    const cacheCreationTokens = Math.max(0, toFiniteNumber(group.cache_creation_tokens))
+    const cacheReadTokens = Math.max(0, toFiniteNumber(group.cache_read_tokens))
+    const observableDenominator = inputTokens - unavailableInputTokens + cacheCreationTokens + cacheReadTokens
+    return {
+      group,
+      cacheReadTokens,
+      unavailableInputTokens,
+      observableDenominator,
+      impactTokens: inputTokens + cacheCreationTokens + cacheReadTokens,
+      rate: observableDenominator > 0 ? cacheReadTokens / observableDenominator : null,
+      partiallyObservable: unavailableInputTokens > 0 && observableDenominator > 0
+    }
+  })
 
-const promptCacheHitRateToday = computed(() =>
-  computeHitRate(
-    stats.value?.today_cache_read_tokens,
-    stats.value?.today_input_tokens,
-    stats.value?.today_cache_creation_tokens
-  )
-)
-
-const promptCacheHitRateTotal = computed(() =>
-  computeHitRate(
-    stats.value?.total_cache_read_tokens,
-    stats.value?.total_input_tokens,
-    stats.value?.total_cache_creation_tokens
-  )
-)
+  const observableDenominator = rows.reduce((sum, row) => sum + row.observableDenominator, 0)
+  const cacheReadTokens = rows.reduce((sum, row) => sum + row.cacheReadTokens, 0)
+  return {
+    rate: observableDenominator > 0 ? cacheReadTokens / observableDenominator : null,
+    hasUnavailableTelemetry: rows.some((row) => row.unavailableInputTokens > 0),
+    groups: rows
+      .filter((row) => row.impactTokens > 0)
+      .sort((a, b) => b.impactTokens - a.impactTokens || a.group.group_id - b.group.group_id)
+      .slice(0, 5)
+  }
+})
 
 const formatPercent = (rate: number | null): string => {
   if (rate === null) return '—'
   return `${(rate * 100).toFixed(1)}%`
 }
 
+const usageDrilldownQuery = (filter: { user_id?: string; group_id?: string }) => ({
+  ...filter,
+  start_date: startDate.value,
+  end_date: endDate.value,
+  // Usage consumes absolute rolling instants, not Dashboard's server-TZ range token.
+  // Reuse the window that produced the visible snapshot so the drilldown is exact.
+  ...(loadedDashboardRollingWindow.value ?? rollingWindowTs(activePreset.value) ?? {})
+})
+
 const goToUserUsage = (item: UserSpendingRankingItem) => {
   void router.push({
     path: '/admin/usage',
-    query: {
-      user_id: String(item.user_id),
-      start_date: startDate.value,
-      end_date: endDate.value
-    }
+    query: usageDrilldownQuery({ user_id: String(item.user_id) })
+  })
+}
+
+const goToGroupUsage = (groupId: number) => {
+  void router.push({
+    path: '/admin/usage',
+    query: usageDrilldownQuery({ group_id: String(groupId) })
   })
 }
 
@@ -668,6 +846,8 @@ const onDateRangeChange = (range: {
   endDate: string
   preset: string | null
 }) => {
+  // TK: remember the preset so rolling windows go out as absolute epoch-ms.
+  activePreset.value = range.preset
   // Auto-select granularity based on date range
   const start = new Date(range.startDate)
   const end = new Date(range.endDate)
@@ -683,62 +863,62 @@ const onDateRangeChange = (range: {
   loadChartData()
 }
 
-// Load data
-const loadDashboardSnapshot = async (includeStats: boolean) => {
-  const currentSeq = ++chartLoadSeq
-  if (includeStats && !stats.value) {
-    loading.value = true
-  }
+// Load data — single SnapshotV2 call with all facets
+const loadAllDashboardData = async () => {
+  const currentStatsSeq = ++statsLoadSeq
+  const currentChartSeq = ++chartLoadSeq
+  const currentUserTrendSeq = ++userTrendLoadSeq
+  if (!stats.value) loading.value = true
   chartsLoading.value = true
+  modelStatsLoading.value = true
+  userTrendLoading.value = true
+  const rollingWindow = rollingWindowTs(activePreset.value)
   try {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
       end_date: endDate.value,
+      ...(rollingWindow ?? dashboardWindowParams(activePreset.value)),
       granularity: granularity.value,
-      include_stats: includeStats,
+      include_stats: true,
       include_trend: true,
       include_model_stats: true,
-      include_group_stats: false,
-      include_users_trend: false
+      include_group_stats: true,
+      include_users_trend: true,
+      users_trend_limit: 12
     })
-    if (currentSeq !== chartLoadSeq) return
-    if (includeStats && response.stats) {
+    if (currentStatsSeq === statsLoadSeq && response.stats) {
       stats.value = response.stats
     }
-    trendData.value = response.trend || []
-    modelStats.value = response.models || []
+    if (currentChartSeq === chartLoadSeq) {
+      trendData.value = response.trend || []
+      modelStats.value = response.models || []
+      groupStats.value = response.groups || []
+      loadedDashboardRollingWindow.value = rollingWindow
+    }
+    if (currentUserTrendSeq === userTrendLoadSeq) {
+      userTrend.value = response.users_trend || []
+    }
   } catch (error) {
-    if (currentSeq !== chartLoadSeq) return
-    appStore.showError(t('admin.dashboard.failedToLoad'))
+    if (currentStatsSeq === statsLoadSeq) {
+      appStore.showError(t('admin.dashboard.failedToLoad'))
+    }
+    if (currentChartSeq === chartLoadSeq) {
+      trendData.value = []
+      modelStats.value = []
+      groupStats.value = []
+      loadedDashboardRollingWindow.value = null
+    }
+    if (currentUserTrendSeq === userTrendLoadSeq) {
+      userTrend.value = []
+    }
     console.error('Error loading dashboard snapshot:', error)
   } finally {
-    if (currentSeq === chartLoadSeq) {
-      loading.value = false
+    if (currentStatsSeq === statsLoadSeq) loading.value = false
+    if (currentChartSeq === chartLoadSeq) {
       chartsLoading.value = false
+      modelStatsLoading.value = false
     }
-  }
-}
-
-const loadUsersTrend = async () => {
-  const currentSeq = ++usersTrendLoadSeq
-  userTrendLoading.value = true
-  try {
-    const response = await adminAPI.dashboard.getUserUsageTrend({
-      start_date: startDate.value,
-      end_date: endDate.value,
-      granularity: granularity.value,
-      limit: 12
-    })
-    if (currentSeq !== usersTrendLoadSeq) return
-    userTrend.value = response.trend || []
-  } catch (error) {
-    if (currentSeq !== usersTrendLoadSeq) return
-    console.error('Error loading users trend:', error)
-    userTrend.value = []
-  } finally {
-    if (currentSeq === usersTrendLoadSeq) {
-      userTrendLoading.value = false
-    }
+    if (currentUserTrendSeq === userTrendLoadSeq) userTrendLoading.value = false
   }
 }
 
@@ -750,6 +930,7 @@ const loadUserSpendingRanking = async () => {
     const response = await adminAPI.dashboard.getUserSpendingRanking({
       start_date: startDate.value,
       end_date: endDate.value,
+      ...(dashboardWindowParams(activePreset.value)),
       limit: rankingLimit
     })
     if (currentSeq !== rankingLoadSeq) return
@@ -774,22 +955,24 @@ const loadUserSpendingRanking = async () => {
 
 const loadDashboardStats = async () => {
   await Promise.all([
-    loadDashboardSnapshot(true),
-    loadUsersTrend(),
+    loadAllDashboardData(),
     loadUserSpendingRanking()
   ])
 }
 
 const loadChartData = async () => {
   await Promise.all([
-    loadDashboardSnapshot(false),
-    loadUsersTrend(),
+    loadAllDashboardData(),
     loadUserSpendingRanking()
   ])
 }
 
 onMounted(() => {
-  loadDashboardStats()
+  void refreshBatchImageAccess()
+  void Promise.all([
+    loadAllDashboardData(),
+    loadUserSpendingRanking()
+  ])
 })
 </script>
 

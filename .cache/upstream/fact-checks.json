@@ -166,15 +166,19 @@
     {
       "upstream": "Wei-Shaw/sub2api#2486",
       "severity": "high",
-      "summary": "Unknown gemini-* models (including gemini-pro-agent) fall back to gemini-3.1-pro pricing instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction).",
+      "summary": "Unknown gemini-* models (including gemini-pro-agent) fall back to a non-nil pro/flash family floor instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction). Production also carries an explicit tk_pricing_overlay entry for gemini-pro-agent.",
       "fixed_by": [
         "backend/internal/service/billing_service.go",
-        "backend/internal/service/billing_service_test.go"
+        "backend/internal/service/billing_service_test.go",
+        "backend/internal/service/pricing_service_tk_overlay_test.go",
+        "backend/internal/service/tk_pricing_overlay.json"
       ],
       "fixed_if_all_present": [
         "backend/internal/service/billing_service.go:Wei-Shaw/sub2api#2486",
         "backend/internal/service/billing_service.go:if strings.Contains(modelLower, \"gemini\")",
-        "backend/internal/service/billing_service_test.go:gemini-pro-agent falls back to 3.1-pro"
+        "backend/internal/service/billing_service_test.go:gemini-pro-agent falls back to pro family floor",
+        "backend/internal/service/pricing_service_tk_overlay_test.go:TestTKPricingOverlay_FillsGeminiProAgent",
+        "backend/internal/service/tk_pricing_overlay.json:\"gemini-pro-agent\""
       ]
     },
     {
@@ -566,6 +570,85 @@
         "backend/internal/service/openai_gateway_service.go:result.Used5hPercent = s.SecondaryUsedPercent",
         "backend/internal/service/openai_gateway_service.go:Do NOT reintroduce a 100-raw inversion",
         "backend/internal/service/openai_gateway_service_codex_snapshot_test.go:TestNormalize_ProdLayoutUsedPercentPassthrough"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2245",
+      "severity": "high",
+      "summary": "OpenAI Responses streaming: when the upstream SSE stream ends without a terminal event (Anthropic message_stop), the /responses conversion finalizes the turn as a spec-valid response.incomplete (status=incomplete, incomplete_details.reason=interrupted) instead of a fake response.completed. The streaming terminal event type is now derived from response.status, so strict Responses clients (Codex CLI / OpenAI SDK) receive a correct terminal event and a truncated turn is not reported (to client or billing) as a clean success.",
+      "fixed_by": [
+        "backend/internal/pkg/apicompat/anthropic_to_responses_response.go",
+        "backend/internal/pkg/apicompat/anthropic_to_responses_truncation_test.go",
+        "backend/internal/service/gateway_forward_as_responses.go",
+        "backend/internal/service/gateway_forward_as_responses_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/pkg/apicompat/anthropic_to_responses_response.go:responsesTerminalEventTypeForStatus",
+        "backend/internal/pkg/apicompat/anthropic_to_responses_response.go:responsesIncompleteReasonInterrupted",
+        "backend/internal/pkg/apicompat/anthropic_to_responses_truncation_test.go:TestFinalizeAnthropicResponsesStream_TruncationEmitsIncomplete",
+        "backend/internal/service/gateway_forward_as_responses_test.go:TestHandleResponsesStreamingResponse_TruncatedUpstreamEmitsIncomplete"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2232",
+      "severity": "high",
+      "summary": "OpenAI OAuth /v1/images/edits (gpt-image-2) bridges multipart/JSON edit requests to the ChatGPT Responses image_generation tool with action=edit (source image + optional mask as data URLs), instead of failing on unsupported native /images/edits passthrough.",
+      "fixed_by": [
+        "backend/internal/service/openai_images_responses.go",
+        "backend/internal/service/openai_images.go",
+        "backend/internal/service/openai_images_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_images_responses.go:Wei-Shaw/sub2api#2232",
+        "backend/internal/service/openai_images_responses.go:action = \"edit\"",
+        "backend/internal/service/openai_images.go:forwardOpenAIImagesOAuth",
+        "backend/internal/service/openai_images_test.go:TestOpenAIGatewayServiceForwardImages_OAuthEditsMultipartUsesResponsesAPI"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2413",
+      "severity": "high",
+      "summary": "OpenAI OAuth 403 with HTML body (OpenAI access-denied page on gpt-image-2 / image paths, not just CF/Arkose keywords) skips the 403 counter and temp_unschedulable cooldown via openAIIsHTMLBody; complements #1824 keyword matching so healthy OAuth accounts are not evicted from the pool.",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service_tk_openai_html_403.go",
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_tk_openai_html_403_test.go",
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/ratelimit_service_tk_openai_html_403.go:Wei-Shaw/sub2api#2413",
+        "backend/internal/service/ratelimit_service_tk_openai_html_403.go:func openAIIsHTMLBody",
+        "backend/internal/service/ratelimit_service.go:openai_403_html_body_skip_cooldown",
+        "backend/internal/service/ratelimit_service_tk_openai_html_403_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403OpenAIAccessDeniedHTMLSkipsCooldown"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3285",
+      "severity": "high",
+      "summary": "Anthropic/Kiro API-key passthrough strips client timeout headers (x-stainless-timeout and related) by default so long non-stream requests no longer hit the ~125s upstream cancel boundary; opt in via anthropic_passthrough_allow_timeout_headers.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout.go",
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout.go:Wei-Shaw/sub2api#3285",
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout.go:func isAnthropicPassthroughTimeoutHeader",
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout_test.go:TestBuildUpstreamRequestAnthropicAPIKeyPassthrough_StripsTimeoutHeadersByDefault"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3158",
+      "severity": "high",
+      "summary": "WS v2 passthrough mode applies Codex image_generation bridge mutations on response.create frames before forwarding upstream, matching the regular WS ingress path.",
+      "fixed_by": [
+        "backend/internal/service/openai_ws_v2_passthrough_codex_image_tk.go",
+        "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+        "backend/internal/service/openai_ws_forwarder_ingress_session_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_ws_v2_passthrough_codex_image_tk.go:Wei-Shaw/sub2api#3158",
+        "backend/internal/service/openai_ws_v2_passthrough_codex_image_tk.go:func (s *OpenAIGatewayService) applyCodexImageBridgeToWSResponseCreate",
+        "backend/internal/service/openai_ws_forwarder_ingress_session_test.go:TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughModeInjectsCodexImageBridge"
       ]
     }
   ]

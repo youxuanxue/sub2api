@@ -1,0 +1,122 @@
+name: Stage0 Warm Image
+
+# Pre-pulls a released image tag onto the prod Stage0 host BEFORE a deploy, so
+# that deploy-stage0.yml's in-band `docker compose pull` collapses to a ~3s
+# manifest no-op instead of paying the full cold pull (~150s measured on the
+# prod t4g.small, 2026-06-13) on its critical path.
+#
+# Read-only: it runs ops/stage0/warm_pull_via_ssm.sh, which only `docker pull`s
+# the new tag — it never edits .env, restarts, drains, or swaps the running
+# container. Safe to dispatch at any time against live prod.
+#
+# Driven by the tokenkey-stage0-release-rollout skill: dispatched (and its prod
+# Environment approval auto-approved via gh, since the warm is read-only) right
+# before the prod deploy so the layers are on disk by deploy time. Mirrors
+# deploy-stage0.yml's prod resolve path (CFN InstanceId + the shared
+# validate-deploy-tag / verify_ghcr_manifest gates) so the two never diverge.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Released image tag without leading v (e.g. 1.8.0). Must already exist on GHCR."
+        required: true
+        type: string
+      simple_release_override:
+        description: "Pass-through to the GHCR multi-arch manifest gate. Default false; matches deploy-stage0.yml."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+# Warm is idempotent and read-only, but serialize per host so two concurrent
+# warms don't fight over the docker pull lock. Separate group from the deploy
+# lock so a warm never blocks (or is blocked by) an in-flight deploy.
+concurrency:
+  group: warm-image-stage0-prod
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    # Bound to a cold image pull on a slow link; far below the 6h default so a
+    # hung describe-stacks / SSM poll can't hold the concurrency lock for hours.
+    timeout-minutes: 15
+    # Same prod Environment binding as deploy-stage0.yml: required for the
+    # OIDC sub claim (IAM trust in cicd-oidc.yaml). The rollout skill
+    # auto-approves the pending deployment via gh because the warm is read-only.
+    environment: prod
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      INPUT_TAG: ${{ inputs.tag }}
+      INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Validate tag + resolve stack name
+        id: stack
+        run: |
+          set -euo pipefail
+          # Tag-format gate: single source of truth shared with the deploy
+          # workflows (prevents regex/message drift).
+          bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set; configure per docs/approved/deploy-stage0-workflow.md §5"
+            exit 1
+          fi
+          NAME="${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Verify GHCR multi-arch manifest
+        # Shared gate with deploy-stage0.yml: never warm a tag the deploy would
+        # refuse (e.g. a single-arch manifest that crashes on the arm64 host).
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve target instance
+        id: instance
+        env:
+          STACK_NAME: ${{ steps.stack.outputs.name }}
+        run: |
+          set -euo pipefail
+          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
+            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
+            exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          echo "warming ${INPUT_TAG} on instance=$ID (env=prod stack=$STACK_NAME)"
+
+      - name: Warm image via SSM Run-Command
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: bash ops/stage0/warm_pull_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "warm-image env=prod"
+
+      - name: Job summary
+        if: always()
+        env:
+          STACK_NAME: ${{ steps.stack.outputs.name }}
+        run: |
+          {
+            echo "### Stage0 Warm Image"
+            echo "- tag: \`$INPUT_TAG\`"
+            echo "- stack: \`$STACK_NAME\`"
+            echo "- effect: image layers pre-pulled on the prod host (read-only; no deploy)"
+            echo "- next: run Stage0 Deploy for the same tag — its in-band pull is now a no-op"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -84,12 +84,12 @@ func TestGatewayService_ForwardCountTokens_400DoesNotTripUpstreamErrorBreaker(t 
 	require.Equal(t, 0, repo.tempCalls, "count_tokens 400 must not mark account temp_unschedulable")
 }
 
-// TestGatewayService_ForwardCountTokens_Wrapped404ReturnsNotFound 验证 #656 主路径短路：
+// TestGatewayService_ForwardCountTokens_Wrapped404ReturnsLocalEstimate 验证 #656 主路径短路：
 // 中转站不支持 count_tokens 端点、把 Spring NoResourceFoundException 包装进非标准的
-// HTTP 400 返回时，ForwardCountTokens 应在熔断/failover **之前**短路，返回 HTTP 404
-// （not_found_error）让 Claude Code 回退到本地 token 估算，且既不熔断也不罚下账号。
+// HTTP 400 返回时，ForwardCountTokens 应在熔断/failover **之前**短路，返回本地估算，
+// 且既不熔断也不罚下账号。
 // 这条覆盖的是 #656 的主路径接线（谓词本身由 TestIsCountTokensUnsupported404 覆盖）。
-func TestGatewayService_ForwardCountTokens_Wrapped404ReturnsNotFound(t *testing.T) {
+func TestGatewayService_ForwardCountTokens_Wrapped404ReturnsLocalEstimate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -135,9 +135,9 @@ func TestGatewayService_ForwardCountTokens_Wrapped404ReturnsNotFound(t *testing.
 	}
 
 	err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
-	require.NoError(t, err, "wrapped-404 应短路并返回 nil（已写 404 响应），不作为错误冒泡")
-	require.Equal(t, http.StatusNotFound, rec.Code, "应短路返回 HTTP 404 让客户端本地估算")
-	require.Contains(t, rec.Body.String(), "not_found_error")
+	require.NoError(t, err, "wrapped-404 应短路并返回 nil（已写估算响应），不作为错误冒泡")
+	require.Equal(t, http.StatusOK, rec.Code, "应短路返回本地估算")
+	require.Greater(t, int(gjson.GetBytes(rec.Body.Bytes(), "input_tokens").Int()), 0)
 	require.Empty(t, counter.incrementIDs, "端点不支持不应熔断账号（短路在熔断之前）")
 	require.Equal(t, 0, repo.tempCalls, "端点不支持不应 temp_unschedulable 账号")
 }
@@ -145,11 +145,12 @@ func TestGatewayService_ForwardCountTokens_Wrapped404ReturnsNotFound(t *testing.
 // TestGatewayService_ForwardCountTokens_CapacityErrorsFailoverNoBreaker
 // 契约更新（count_tokens failover 修复，见 gateway_handler_tk_count_tokens_failover.go）：
 // count_tokens 是请求前预检端点，其 429/529 容量类错误现在
-//   (a) **不再**计入 anthropic_upstream_error breaker（不熔断主力账号——一次预检的
-//       529 把主力账号 temp_unschedulable/overload 10 分钟会拖垮整组；现场 edge us1
-//       acct1 因单次 count_tokens 529 被罚下、acct4 空闲）；
-//   (b) 返回 *UpstreamFailoverError 且**不写客户端响应**，交由 handler 的 failover
-//       loop 换号 / 池内轮换。
+//
+//	(a) **不再**计入 anthropic_upstream_error breaker（不熔断主力账号——一次预检的
+//	    529 把主力账号 temp_unschedulable/overload 10 分钟会拖垮整组；现场 edge us1
+//	    acct1 因单次 count_tokens 529 被罚下、acct4 空闲）；
+//	(b) 返回 *UpstreamFailoverError 且**不写客户端响应**，交由 handler 的 failover
+//	    loop 换号 / 池内轮换。
 //
 // 这反转了旧测试 “429StillTripsUpstreamErrorBreaker” 的契约：轮换交给 failover，
 // 状态写入交给真正的 /v1/messages 路径。
