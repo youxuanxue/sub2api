@@ -42,15 +42,19 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 64
+          # Trailer-scoped gates compare origin/main..HEAD. Long-lived PRs can
+          # share commits with main below a shallow boundary; a partial clone
+          # then misclassifies those old commits as PR-only and gates unrelated
+          # fixes. Full history keeps the commit range truthful.
+          fetch-depth: 0
           submodules: recursive
       # Preflight runs `go test` for QA evidence dataset validation; backend/go.mod
       # replaces new-api with ../../new-api — same sibling checkout as test/lint jobs.
       - uses: ./.github/actions/cache-and-checkout-new-api
       - name: Fetch base ref for diff gates
-        # fetch-depth alone does not guarantee origin/main on PR checkouts; preflight
+        # Checkout depth alone does not guarantee origin/main on PR checkouts; preflight
         # deleted-file / merge-base gates need origin/main...HEAD.
-        run: git fetch --no-tags origin "${GITHUB_BASE_REF:-main}:refs/remotes/origin/${GITHUB_BASE_REF:-main}" --depth=64
+        run: git fetch --no-tags origin "${GITHUB_BASE_REF:-main}:refs/remotes/origin/${GITHUB_BASE_REF:-main}"
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
