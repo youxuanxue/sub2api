@@ -37,6 +37,9 @@
    `/<project>/<environment>/stage0/rds-master-password`，禁止跨环境复用 prod 默认值。
 8. RDS-backed app 启动前会在 retained volume 写 `.rds-cutover-started`。此后 bootstrap
    只要无法可靠读取 overlay 就停止，不把 SSM timeout/AccessDenied/误删解释成本机模式。
+9. cutover 原语自己必须确认 app 健康、客户端镜像可用且 `in_flight=0`，不能把 SOP 中的
+   drain 当作人工前置假设。RDS 启动前失败时会 force-recreate 本机 app 解除 drain；
+   只有恢复后的 app 重新健康，才允许删除 overlay 并声明安全撤回。
 
 ## 2. 目标拓扑
 

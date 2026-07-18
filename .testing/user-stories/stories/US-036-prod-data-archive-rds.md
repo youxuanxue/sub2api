@@ -29,6 +29,7 @@
 7. **AC-007（生成物）**：Given compose/bootstrap/wrapper 变化，When 运行生成门禁，Then CFN 与 Lightsail 生成物按解码内容校验且 UserData 不超平台上限。
 8. **AC-008（重建 fail-closed）**：Given RDS-backed app 已尝试启动，When replacement bootstrap 读不到 overlay 或 SSM 暂时失败，Then retained-volume marker 阻止 app 回到旧本机 PostgreSQL；只有从未切换的主机遇到明确 ParameterNotFound 才保持本机模式。
 9. **AC-009（消费者就绪）**：Given prod-capable 运维脚本仍直连 `tokenkey-postgres`，When 已审批 cutover 进入执行前检查，Then readiness gate 列出阻塞消费者并拒绝切换。
+10. **AC-010（停写证明）**：Given cutover 即将改变数据库 endpoint，When tokenkey 不健康、客户端镜像不可用或 `in_flight` 未归零，Then 在尝试 RDS-backed app 前失败，并 force-recreate 本机 app 解除 drain 后才声明安全撤回。
 
 ## Assertions
 

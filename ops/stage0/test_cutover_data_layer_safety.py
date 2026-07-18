@@ -160,6 +160,9 @@ esac
                 params_text = (temp / "output/ssm-params.json").read_text()
                 self.assertIn(".rds-cutover-started", params_text)
                 self.assertIn("tokenkey-data-layer-env", params_text)
+                self.assertNotIn("docker pull postgres:18-alpine || true", params_text)
+                self.assertIn("INFLIGHT_DRAINED", params_text)
+                self.assertIn("--force-recreate tokenkey", params_text)
             return proc, log_text
 
 
