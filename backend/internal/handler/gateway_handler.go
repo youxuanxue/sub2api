@@ -1715,6 +1715,15 @@ func (h *GatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarte
 	if c == nil || c.Writer == nil {
 		return false
 	}
+	// A canceled inbound request means the caller has already gone away. Writing a
+	// generic 502 here only corrupts access/ops semantics; there is no client left
+	// to receive it. Keep the established 499 classification used by failover and
+	// concurrency cancellation paths.
+	if isClientClosedRequest(c, nil) {
+		service.MarkOpsClientClosedRequest(c)
+		failoverClientGone(c)
+		return false
+	}
 	if service.IsResponseCommitted(c) {
 		return false
 	}

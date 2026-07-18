@@ -497,6 +497,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
+			// The outbound request inherits the caller context on non-streaming
+			// requests. If that caller disconnected, let the handler terminate the
+			// request as 499; writing a 502 here mislabels client cancellation as an
+			// upstream failure and there is no downstream client left to receive it.
+			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+				return nil, err
+			}
 			c.JSON(http.StatusBadGateway, gin.H{
 				"type": "error",
 				"error": gin.H{

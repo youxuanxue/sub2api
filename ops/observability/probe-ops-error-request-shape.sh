@@ -110,10 +110,16 @@ WITH base AS (
     AND ('${ERROR_MESSAGE_LIKE_SQL}' = '' OR l.error_message ILIKE '%' || '${ERROR_MESSAGE_LIKE_SQL}' || '%')
 )
 SELECT row_to_json(t) FROM (
-  SELECT left(error_message, 160) AS error_message, COUNT(*) AS rows
+  SELECT
+    error_phase,
+    error_owner,
+    upstream_status_code,
+    left(error_message, 160) AS error_message,
+    left(upstream_error_message, 160) AS upstream_error_message,
+    COUNT(*) AS rows
   FROM base
-  GROUP BY 1
-  ORDER BY rows DESC, error_message
+  GROUP BY 1,2,3,4,5
+  ORDER BY rows DESC, error_owner, error_message
 ) t;
 " 2>&1
 
@@ -144,7 +150,26 @@ SELECT row_to_json(t) FROM (
     group_id,
     request_path,
     COALESCE(requested_model, model) AS model,
-    left(error_message, 120) AS error_message
+    error_phase,
+    error_type,
+    error_owner,
+    error_source,
+    upstream_status_code,
+    network_error_type,
+    duration_ms,
+    left(error_message, 120) AS error_message,
+    left(upstream_error_message, 160) AS upstream_error_message,
+    COALESCE(jsonb_array_length(upstream_errors), 0) AS upstream_event_count,
+    (
+      SELECT string_agg(
+        concat_ws(':', ordinality::text, COALESCE(ev->>'kind',''),
+                  COALESCE(NULLIF(ev->>'upstream_status_code',''),'0'),
+                  left(COALESCE(ev->>'message',''), 80)),
+        ' | ' ORDER BY ordinality
+      )
+      FROM jsonb_array_elements(COALESCE(upstream_errors, '[]'::jsonb))
+           WITH ORDINALITY AS event(ev, ordinality)
+    ) AS upstream_event_summary
   FROM base
   ORDER BY created_at DESC
   LIMIT ${LIMIT}

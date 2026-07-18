@@ -120,3 +120,52 @@ func TestClassifyOpsUpstream5xxWithStatusStaysProviderNotCancel(t *testing.T) {
 	require.Equal(t, "upstream", phase)
 	require.Equal(t, "provider", errorOwner)
 }
+
+func TestClassifyOpsUpstreamPrior5xxThenTerminalClientCancelOwnedByClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{
+		{Kind: "failover", UpstreamStatusCode: http.StatusBadGateway, Message: "edge unavailable"},
+		{Kind: "request_error", UpstreamStatusCode: 0, Message: "context canceled"},
+	})
+
+	phase, errorOwner, errorSource := classifyOpsErrorLog(
+		c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
+
+	require.Equal(t, "request", phase)
+	require.Equal(t, "client", errorOwner)
+	require.Equal(t, "client_request", errorSource)
+}
+
+func TestClassifyOpsUpstreamTerminal5xxAfterCancelStaysProvider(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{
+		{Kind: "request_error", UpstreamStatusCode: 0, Message: "context canceled"},
+		{Kind: "failover", UpstreamStatusCode: http.StatusBadGateway, Message: "edge unavailable"},
+	})
+
+	phase, errorOwner, _ := classifyOpsErrorLog(
+		c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
+
+	require.Equal(t, "upstream", phase)
+	require.Equal(t, "provider", errorOwner)
+}
+
+func TestClassifyOpsFinal499AfterPrior5xxOwnedByClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{
+		{Kind: "failover", UpstreamStatusCode: http.StatusBadGateway, Message: "edge unavailable"},
+	})
+
+	phase, errorOwner, errorSource := classifyOpsErrorLog(
+		c, "api_error", "", "", statusClientClosedRequest)
+
+	require.Equal(t, "request", phase)
+	require.Equal(t, "client", errorOwner)
+	require.Equal(t, "client_request", errorSource)
+}

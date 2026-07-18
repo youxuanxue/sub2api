@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -36,10 +37,13 @@ func tkUpstreamClientCanceled(c *gin.Context) bool {
 	if c == nil {
 		return false
 	}
-	// A definitive upstream HTTP status means we DID get an upstream verdict; that
-	// path is owned by status-based classification (provider health or
-	// tkUpstreamClientInducedRejection), never here.
-	if tkOpsUpstreamStatusCode(c) != 0 {
+	// A definitive FINAL upstream HTTP status means we got an upstream verdict.
+	// Do not scan backward to any older positive-status failover event here: a
+	// request can receive 502s from earlier accounts and then be canceled by the
+	// caller during the last attempt. In that sequence the terminal status-0
+	// request_error is the final outcome, while the older 502 events remain useful
+	// attempt-level provider evidence in upstream_errors.
+	if tkOpsTerminalUpstreamStatusCode(c) != 0 {
 		return false
 	}
 	// Primary signal: the inbound request context was canceled by the caller
@@ -69,4 +73,31 @@ func tkUpstreamClientCanceled(c *gin.Context) bool {
 	}
 	return strings.Contains(combined, "context canceled") ||
 		strings.Contains(combined, "context cancelled")
+}
+
+func tkOpsTerminalUpstreamStatusCode(c *gin.Context) int {
+	if c == nil {
+		return 0
+	}
+	if v, ok := c.Get(service.OpsUpstreamStatusCodeKey); ok {
+		switch status := v.(type) {
+		case int:
+			if status > 0 {
+				return status
+			}
+		case int64:
+			if status > 0 {
+				return int(status)
+			}
+		}
+	}
+	if v, ok := c.Get(service.OpsUpstreamErrorsKey); ok {
+		if events, ok := v.([]*service.OpsUpstreamErrorEvent); ok && len(events) > 0 {
+			last := events[len(events)-1]
+			if last != nil && last.UpstreamStatusCode > 0 {
+				return last.UpstreamStatusCode
+			}
+		}
+	}
+	return 0
 }
