@@ -32,6 +32,11 @@
    回放和逐表对账完成后，才允许把写流量迁回。
 6. 本地 PostgreSQL 数据卷在切换后至少保留 14 天，但它只是取证/重放来源，不代表
    可以忽略 RDS 新写入直接回滚。
+7. cutover 会把 Project/Environment 与目标 EC2 tags 绑定；非生产 rehearsal 标签不能
+   指向 prod 实例。RDS 密码固定来自同环境的
+   `/<project>/<environment>/stage0/rds-master-password`，禁止跨环境复用 prod 默认值。
+8. RDS-backed app 启动前会在 retained volume 写 `.rds-cutover-started`。此后 bootstrap
+   只要无法可靠读取 overlay 就停止，不把 SSM timeout/AccessDenied/误删解释成本机模式。
 
 ## 2. 目标拓扑
 
@@ -130,6 +135,8 @@ PR 合并本身不得创建 RDS 或改生产 overlay。平台包含：
 
 存量 wrapper 安装是幂等平台动作，但对 prod 执行仍必须放到已批准变更窗口。任何 ops
 脚本若仍硬编码 `docker exec tokenkey-postgres`，必须先改走 wrapper；外部模式没有该容器。
+`ops/stage0/check_data_layer_cutover_readiness.py` 会在 prod cutover 前机械扫描部署后配置与
+观测脚本；清单未归零时，即使设计 frontmatter 已批准也拒绝切换。
 
 ## 7. 阶段 4：RDS 非生产演练
 

@@ -52,6 +52,11 @@ class DataLayerTemplateTest(unittest.TestCase):
         self.assertTrue(props["EnablePerformanceInsights"])
         self.assertEqual(props["PerformanceInsightsRetentionPeriod"], 7)
         self.assertEqual(props["BackupRetentionPeriod"], "PgBackupRetentionDays")
+        self.assertEqual(
+            props["MasterUserPassword"],
+            "{{resolve:ssm-secure:/${ProjectName}/${Environment}/stage0/rds-master-password}}",
+        )
+        self.assertNotIn("PgMasterPasswordSsmName", self.template["Parameters"])
 
     def test_connection_alarm_covers_blue_green_overlap_budget(self) -> None:
         params = self.template["Parameters"]

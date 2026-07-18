@@ -15,6 +15,7 @@ REPO_ROOT="$(cd "${HERE}/../../.." && pwd)"
 COMPOSE_SRC="${HERE}/docker-compose.yml"
 COMPOSE_EXT_SRC="${HERE}/docker-compose.external-db.yml"
 WRAPPERS_SRC="${HERE}/tokenkey-data-wrappers.sh"
+DATA_LAYER_ENV_SRC="${HERE}/tokenkey-data-layer-env.sh"
 CADDY_SRC="${HERE}/Caddyfile"
 QA_CLEANUP_SRC="${HERE}/tokenkey-qa-stale-cleanup.sh"
 PGDUMP_SRC="${HERE}/tokenkey-pgdump.sh"
@@ -33,7 +34,7 @@ if [[ "${1:-}" == "--check" ]]; then
 fi
 
 required=(
-  "${COMPOSE_SRC}" "${COMPOSE_EXT_SRC}" "${WRAPPERS_SRC}" "${CADDY_SRC}"
+  "${COMPOSE_SRC}" "${COMPOSE_EXT_SRC}" "${WRAPPERS_SRC}" "${DATA_LAYER_ENV_SRC}" "${CADDY_SRC}"
   "${QA_CLEANUP_SRC}" "${PGDUMP_SRC}" "${PRUNE_SRC}" "${BOOTSTRAP_SRC}" "${LAUNCHER_SRC}"
   "${CFN_FILE}"
 )
@@ -75,6 +76,7 @@ split_b64_for_ssm() {
 COMPOSE_GZB64="$(encode_gzb64 "${COMPOSE_SRC}")"
 COMPOSE_EXT_GZB64="$(encode_gzb64 "${COMPOSE_EXT_SRC}")"
 WRAPPERS_GZB64="$(encode_gzb64 "${WRAPPERS_SRC}")"
+DATA_LAYER_ENV_GZB64="$(encode_gzb64 "${DATA_LAYER_ENV_SRC}")"
 CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
 QA_CLEANUP_B64="$(encode_b64 "${QA_CLEANUP_SRC}")"
 # pgdump is gzip+base64 like compose/caddy/bootstrap (not raw base64 like the other
@@ -101,6 +103,7 @@ check_ssm_len() {
 check_ssm_len compose "${COMPOSE_GZB64}"
 check_ssm_len compose_ext "${COMPOSE_EXT_GZB64}"
 check_ssm_len data_wrappers "${WRAPPERS_GZB64}"
+check_ssm_len data_layer_env "${DATA_LAYER_ENV_GZB64}"
 check_ssm_len caddy "${CADDY_GZB64}"
 check_ssm_len qa "${QA_CLEANUP_B64}"
 check_ssm_len pgdump "${PGDUMP_GZB64}"
@@ -131,6 +134,7 @@ refresh_template() {
   local new_compose="${indent}Value: '${COMPOSE_GZB64}'"
   local new_compose_ext="${indent}Value: '${COMPOSE_EXT_GZB64}'"
   local new_wrappers="${indent}Value: '${WRAPPERS_GZB64}'"
+  local new_data_layer_env="${indent}Value: '${DATA_LAYER_ENV_GZB64}'"
   local new_caddy="${indent}Value: '${caddy_blob}'"
   local new_qa="${indent}Value: '${QA_CLEANUP_B64}'"
   local new_pgdump="${indent}Value: '${PGDUMP_GZB64}'"
@@ -145,6 +149,7 @@ refresh_template() {
   awk -v new_compose_ssm="${new_compose}" \
       -v new_compose_ext_ssm="${new_compose_ext}" \
       -v new_wrappers_ssm="${new_wrappers}" \
+      -v new_data_layer_env_ssm="${new_data_layer_env}" \
       -v new_caddy_ssm="${new_caddy}" \
       -v new_qa_ssm="${new_qa}" \
       -v new_pgdump_ssm="${new_pgdump}" \
@@ -160,6 +165,8 @@ refresh_template() {
     />>> COMPOSE_EXT_GZB64_SSM END/ { skip = 0; print; next }
     />>> DATA_WRAPPERS_B64_PARAM START/ { print; print new_wrappers_ssm; skip = 1; next }
     />>> DATA_WRAPPERS_B64_PARAM END/ { skip = 0; print; next }
+    />>> DATA_LAYER_ENV_HELPER_B64_PARAM START/ { print; print new_data_layer_env_ssm; skip = 1; next }
+    />>> DATA_LAYER_ENV_HELPER_B64_PARAM END/ { skip = 0; print; next }
     />>> CADDY_GZB64_SSM START/ { print; print new_caddy_ssm; skip = 1; next }
     />>> CADDY_GZB64_SSM END/ { skip = 0; print; next }
     />>> QA_CLEANUP_B64_PARAM START/ { print; print new_qa_ssm; skip = 1; next }
@@ -213,6 +220,7 @@ if [[ "${mode}" == "check" ]]; then
   committed_value COMPOSE_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${COMPOSE_SRC}" || report compose
   committed_value COMPOSE_EXT_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${COMPOSE_EXT_SRC}" || report compose-external-db
   committed_value DATA_WRAPPERS_B64_PARAM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${WRAPPERS_SRC}" || report data-wrappers
+  committed_value DATA_LAYER_ENV_HELPER_B64_PARAM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${DATA_LAYER_ENV_SRC}" || report data-layer-env-helper
   committed_value CADDY_GZB64_SSM   | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${CADDY_SRC}"   || report caddy
   { committed_value BOOTSTRAP_GZB64_SSM_PART1; committed_value BOOTSTRAP_GZB64_SSM_PART2; committed_value BOOTSTRAP_GZB64_SSM_PART3; } \
     | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${BOOTSTRAP_SRC}" || report bootstrap
@@ -240,6 +248,7 @@ echo "stage0 CFN refreshed."
 echo "  compose gzip+base64 (SSM): ${#COMPOSE_GZB64} chars"
 echo "  compose external-db gzip+base64 (SSM): ${#COMPOSE_EXT_GZB64} chars"
 echo "  data wrappers gzip+base64 (SSM): ${#WRAPPERS_GZB64} chars"
+echo "  data-layer env helper gzip+base64 (SSM): ${#DATA_LAYER_ENV_GZB64} chars"
 echo "  caddy gzip+base64 (SSM): ${#CADDY_GZB64} chars"
 echo "  qa cleanup base64 (SSM): ${#QA_CLEANUP_B64} chars"
 echo "  pgdump gzip+base64 (SSM): ${#PGDUMP_GZB64} chars"

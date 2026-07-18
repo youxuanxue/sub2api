@@ -2283,6 +2283,13 @@ else
     else
         echo "  ok: stage0 RDS cutover blocks pending prod activation and stale-local rollback"
     fi
+    if ! python3 ./deploy/aws/stage0/test_data_layer_env.py >/dev/null 2>&1; then
+        echo "  FAIL: stage0 data-layer overlay fail-closed state machine"
+        echo "        — run: python3 deploy/aws/stage0/test_data_layer_env.py"
+        errors=$((errors + 1))
+    else
+        echo "  ok: stage0 data-layer overlay distinguishes missing state from SSM failure and stale-local risk"
+    fi
     if ! python3 ./deploy/aws/stage0/test_data_layer_template.py >/dev/null 2>&1; then
         echo "  FAIL: stage0 RDS template capacity/safety contract"
         echo "        — run: python3 deploy/aws/stage0/test_data_layer_template.py"

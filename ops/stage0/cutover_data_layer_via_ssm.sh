@@ -62,6 +62,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
 COMPOSE_SRC="${REPO_ROOT}/deploy/aws/stage0/docker-compose.yml"
 COMPOSE_EXT_SRC="${REPO_ROOT}/deploy/aws/stage0/docker-compose.external-db.yml"
+DATA_LAYER_ENV_SRC="${REPO_ROOT}/deploy/aws/stage0/tokenkey-data-layer-env.sh"
+READINESS_CHECK="${REPO_ROOT}/ops/stage0/check_data_layer_cutover_readiness.py"
 APPROVAL_DOC="${REPO_ROOT}/docs/approved/design-prod-data-archive-rds.md"
 
 case "${ACTION}" in
@@ -87,6 +89,7 @@ if [[ "${ENVIRONMENT}" == "prod" ]]; then
     echo "cutover_data_layer_via_ssm: production blocked; approve ${APPROVAL_DOC} and complete rehearsal gates first (status=${approval_status:-missing}, approved_by=${approved_by:-missing})" >&2
     exit 1
   fi
+  python3 "${READINESS_CHECK}"
 fi
 
 : "${TK_DATA_PG_HOST:?TK_DATA_PG_HOST (RDS endpoint) is required for apply}"
@@ -98,6 +101,22 @@ aws_cli() {
     aws "$@"
   fi
 }
+
+if ! [[ "${INSTANCE_ID}" =~ ^i-[A-Za-z0-9-]+$ ]]; then
+  echo "cutover_data_layer_via_ssm: target must be an EC2 instance id (got ${INSTANCE_ID})" >&2
+  exit 1
+fi
+target_tag() {
+  aws_cli ec2 describe-tags \
+    --filters "Name=resource-id,Values=${INSTANCE_ID}" "Name=key,Values=$1" \
+    --query 'Tags[0].Value' --output text
+}
+TARGET_PROJECT="$(target_tag Project)"
+TARGET_ENVIRONMENT="$(target_tag Environment)"
+if [[ "${TARGET_PROJECT}" != "${PROJECT_NAME}" || "${TARGET_ENVIRONMENT}" != "${ENVIRONMENT}" ]]; then
+  echo "cutover_data_layer_via_ssm: caller scope ${PROJECT_NAME}/${ENVIRONMENT} does not match target ${INSTANCE_ID} tags ${TARGET_PROJECT}/${TARGET_ENVIRONMENT}" >&2
+  exit 1
+fi
 
 mkdir -p "${OUTPUT_DIR}"
 params_file="${OUTPUT_DIR}/ssm-params.json"
@@ -117,9 +136,9 @@ trap cleanup_local_artifacts EXIT
 
 # --- build the host command set ------------------------------------------
   PG_PORT="${TK_DATA_PG_PORT:-5432}"
-  PG_PASSWORD_SSM="${TK_DATA_PG_PASSWORD_SSM:-/tokenkey/prod/stage0/rds-master-password}"
+  PG_PASSWORD_SSM="${TK_DATA_PG_PASSWORD_SSM:-${STAGE0_PREFIX}/rds-master-password}"
   PG_CLIENT_IMAGE="${TK_DATA_PG_CLIENT_IMAGE:-postgres:18-alpine}"
-  for f in "${COMPOSE_SRC}" "${COMPOSE_EXT_SRC}"; do
+  for f in "${COMPOSE_SRC}" "${COMPOSE_EXT_SRC}" "${DATA_LAYER_ENV_SRC}"; do
     [[ -f "${f}" ]] || { echo "cutover_data_layer_via_ssm: missing ${f}" >&2; exit 1; }
   done
 
@@ -139,24 +158,7 @@ COMPOSE_PROFILES=localredis
 COMPOSE_FILE=docker-compose.yml:docker-compose.external-db.yml
 EOF
 )"
-  # The overlay is consumed three ways, each with its own metachar hazard, so a
-  # narrow "reject '|' and '&'" check is not enough:
-  #   1. bootstrap/cutover apply it with `sed "s|^KEY=.*|KEY=VALUE|"` — '|'
-  #      (delimiter), '&' (replacement = whole match) and '\' corrupt it;
-  #   2. the data wrappers `. /var/lib/tokenkey/.env` (POSIX source) — any shell
-  #      metachar (space, $, `, ;, <, >, (), quotes, #, *, ?) breaks it;
-  #   3. compose `${VAR:?}` interpolation re-expands a literal '$'.
-  # Every legitimate value here is an endpoint / port / sslmode / image tag /
-  # compose path, and the SOP generates the RDS password with `openssl rand -hex`
-  # (hex only), so a conservative allowlist covers all valid inputs and refuses
-  # anything that would pass validation yet break a downstream consumer.
-  while IFS= read -r line; do
-    [[ -z "${line}" ]] && continue
-    if ! [[ "${line}" =~ ^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_.:/-]*$ ]]; then
-      echo "::error::overlay line invalid — need KEY=VALUE with VALUE in [A-Za-z0-9_.:/-] (RDS password must be hex, e.g. openssl rand -hex 24): ${line%%=*}=…" >&2
-      exit 1
-    fi
-  done <<< "${OVERLAY_CONTENT}"
+  printf '%s\n' "${OVERLAY_CONTENT}" | bash "${DATA_LAYER_ENV_SRC}" validate
 
   echo "writing data-layer overlay to ${OVERLAY_PARAM} (SecureString)"
   overlay_request_file="$(mktemp)"
@@ -188,9 +190,11 @@ EOF
 
   COMPOSE_B64="$(base64 < "${COMPOSE_SRC}" | tr -d '\n')"
   COMPOSE_EXT_B64="$(base64 < "${COMPOSE_EXT_SRC}" | tr -d '\n')"
+  DATA_LAYER_ENV_B64="$(base64 < "${DATA_LAYER_ENV_SRC}" | tr -d '\n')"
 
   jq -n --arg compose_b64 "${COMPOSE_B64}" \
         --arg compose_ext_b64 "${COMPOSE_EXT_B64}" \
+        --arg data_layer_env_b64 "${DATA_LAYER_ENV_B64}" \
         --arg overlay_param "${OVERLAY_PARAM}" \
         --arg pg_client_image "${PG_CLIENT_IMAGE}" '{
     commands: [
@@ -209,11 +213,13 @@ EOF
       "echo \"=== deliver compose + external-db override (bootstrap only writes them at first boot) ===\"",
       ("printf '\''%s'\'' \"" + $compose_b64 + "\" | base64 -d | sudo tee docker-compose.yml >/dev/null"),
       ("printf '\''%s'\'' \"" + $compose_ext_b64 + "\" | base64 -d | sudo tee docker-compose.external-db.yml >/dev/null"),
+      ("printf '\''%s'\'' \"" + $data_layer_env_b64 + "\" | base64 -d | sudo tee /tmp/tokenkey-data-layer-env >/dev/null"),
+      "sudo chmod 0700 /tmp/tokenkey-data-layer-env",
       "echo \"=== fetch overlay from SSM and apply onto .env (same artifact bootstrap reads at next boot) ===\"",
       "IMDS_TOKEN=$(curl -fsS -X PUT http://169.254.169.254/latest/api/token -H \"X-aws-ec2-metadata-token-ttl-seconds: 300\")",
       "REGION=$(curl -fsS -H \"X-aws-ec2-metadata-token: $IMDS_TOKEN\" http://169.254.169.254/latest/meta-data/placement/region)",
-      ("OVERLAY=$(sudo aws ssm get-parameter --name " + $overlay_param + " --region \"$REGION\" --with-decryption --query Parameter.Value --output text)"),
-      "while IFS= read -r line; do case \"$line\" in \"\"|\\#*) continue ;; esac; key=\"${line%%=*}\"; if sudo grep -q \"^${key}=\" .env; then sudo sed -i \"s|^${key}=.*|${line}|\" .env; else printf \"%s\\n\" \"$line\" | sudo tee -a .env >/dev/null; fi; done <<< \"$OVERLAY\"",
+      ("sudo /tmp/tokenkey-data-layer-env fetch-apply " + $overlay_param + " \"$REGION\" .env /var/lib/tokenkey/.rds-cutover-started"),
+      "sudo rm -f /tmp/tokenkey-data-layer-env",
       "sudo grep -q \"^COMPOSE_FILE=\" .env || { echo \"::error::overlay did not land in .env\"; exit 1; }",
       ("sudo docker pull " + $pg_client_image + " || true"),
       "echo \"=== best-effort drain (SOP has already drained; this is belt-and-suspenders) ===\"",
@@ -221,6 +227,8 @@ EOF
       "if [ \"$HEALTH\" = healthy ]; then sudo docker kill -s USR1 tokenkey || true; for i in $(seq 1 18); do IN=$(sudo docker exec tokenkey wget -q -T 3 -O- http://localhost:8080/health/inflight 2>/dev/null || echo \"\"); echo \"inflight: $IN\"; echo \"$IN\" | grep -q \"\\\"in_flight\\\":0\" && break; sleep 5; done; else echo \"skip drain (health=$HEALTH)\"; fi",
       "echo \"=== force-recreate tokenkey against RDS (explicit -f for determinism) ===\"",
       "CUTOVER_PHASE=rds-start-attempted",
+      "sudo touch /var/lib/tokenkey/.rds-cutover-started",
+      "sudo chmod 0600 /var/lib/tokenkey/.rds-cutover-started",
       "sudo docker compose -f docker-compose.yml -f docker-compose.external-db.yml --env-file .env up -d --no-deps --force-recreate tokenkey",
       "for i in $(seq 1 18); do H=$(sudo docker inspect tokenkey --format \"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\" 2>/dev/null || echo none); echo \"tokenkey health: $H\"; [ \"$H\" = healthy ] && break; [ $i -eq 18 ] && { echo \"::error::tokenkey not healthy after recreate\"; exit 1; }; sleep 5; done",
       "echo \"=== stop local postgres (container only; data volume kept for evidence/delta replay) ===\"",

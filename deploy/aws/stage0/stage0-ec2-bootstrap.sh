@@ -180,15 +180,12 @@ COMPOSE_PARAM="${STAGE0_PREFIX}/docker-compose.gzip.b64"
 COMPOSE_EXT_PARAM="${STAGE0_PREFIX}/docker-compose-external-db.gzip.b64"
 CADDY_PARAM="${STAGE0_PREFIX}/caddyfile.template.gzip.b64"
 COMPOSE_B64="$(aws ssm get-parameter --name "${COMPOSE_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
+COMPOSE_EXT_B64="$(aws ssm get-parameter --name "${COMPOSE_EXT_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 CADDY_B64="$(aws ssm get-parameter --name "${CADDY_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 printf '%s' "${COMPOSE_B64}" | base64 -d | gunzip > docker-compose.yml
-# 外部数据层 override（账本出机后经 .env 的 COMPOSE_FILE 激活；本机模式下仅落盘备用）。
-# 参数缺失时容忍跳过（edge 栈可能没有该参数；prod 由 build-cfn 保证存在）。
-if COMPOSE_EXT_B64="$(aws ssm get-parameter --name "${COMPOSE_EXT_PARAM}" --region "${REGION}" --query Parameter.Value --output text 2>/dev/null)"; then
-  printf '%s' "${COMPOSE_EXT_B64}" | base64 -d | gunzip > docker-compose.external-db.yml
-else
-  echo "no ${COMPOSE_EXT_PARAM}; skipping external-db override download"
-fi
+# 外部数据层 override 始终随本模板落盘；是否激活只由 overlay 的
+# COMPOSE_FILE/COMPOSE_PROFILES 决定。参数读取失败必须阻断 bootstrap。
+printf '%s' "${COMPOSE_EXT_B64}" | base64 -d | gunzip > docker-compose.external-db.yml
 printf '%s' "${CADDY_B64}" | base64 -d | gunzip > caddy/Caddyfile.template
 API_DOMAIN="${API_DOMAIN}" ACME_EMAIL="${ACME_EMAIL}" \
   envsubst '$API_DOMAIN $ACME_EMAIL' \
@@ -292,28 +289,22 @@ chmod 0600 /var/lib/tokenkey/.env
 # COMPOSE_PROFILES、COMPOSE_FILE、POSTGRES_PASSWORD 等）。每次实例首启在
 # .env 默认值之上叠加，保证 reboot/replace 永不静默回退本机模式（split-brain
 # 防护——CFN 参数双真相是 ImageTag 退版事故的同构，禁止改回 CFN 参数承载）。
-# 参数不存在 = 本机数据层模式（与历史行为逐字节一致）。
-# 写入约束：overlay 的 VALUE 不得包含 '|'（下面 sed 的定界符）。
+# 参数不存在只对从未切过 RDS 的主机表示本机模式；任意其他 SSM 错误，或
+# retained volume 已有 RDS marker 后参数消失，都必须 fail closed。
 DATA_LAYER_PARAM="${STAGE0_PREFIX}/data-layer-env"
-if OVERLAY="$(aws ssm get-parameter --name "${DATA_LAYER_PARAM}" --region "${REGION}" --with-decryption --query Parameter.Value --output text 2>/dev/null)"; then
-  while IFS= read -r line; do
-    case "${line}" in ''|'#'*) continue ;; esac
-    key="${line%%=*}"
-    if grep -q "^${key}=" /var/lib/tokenkey/.env; then
-      sed -i "s|^${key}=.*|${line}|" /var/lib/tokenkey/.env
-    else
-      printf '%s\n' "${line}" >> /var/lib/tokenkey/.env
-    fi
-  done <<< "${OVERLAY}"
-  echo "Applied data-layer overlay from ${DATA_LAYER_PARAM}"
-  # 外部 PG 模式（COMPOSE_PROFILES 无 localpg）：预拉 psql 客户端镜像，
-  # 否则新机首次用 tokenkey-psql/tokenkey-pg_dump 要现场拉取。
-  if ! grep -q '^COMPOSE_PROFILES=.*localpg' /var/lib/tokenkey/.env; then
-    PG_CLIENT_IMAGE="$(grep -m1 '^TOKENKEY_PG_CLIENT_IMAGE=' /var/lib/tokenkey/.env | cut -d= -f2- || true)"
-    docker pull "${PG_CLIENT_IMAGE:-postgres:18-alpine}" || true
-  fi
-else
-  echo "No data-layer overlay at ${DATA_LAYER_PARAM}; local data-layer mode"
+DATA_LAYER_MARKER=/var/lib/tokenkey/.rds-cutover-started
+DATA_LAYER_HELPER_PARAM="${STAGE0_PREFIX}/data-layer-env-helper.gzip.b64"
+RAW="$(aws ssm get-parameter --name "${DATA_LAYER_HELPER_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
+printf '%s' "${RAW}" | base64 -d | gunzip > /usr/local/bin/tokenkey-data-layer-env
+chmod 0755 /usr/local/bin/tokenkey-data-layer-env
+/usr/local/bin/tokenkey-data-layer-env fetch-apply \
+  "${DATA_LAYER_PARAM}" "${REGION}" /var/lib/tokenkey/.env "${DATA_LAYER_MARKER}" mark-external
+
+# 外部 PG 模式（COMPOSE_PROFILES 无 localpg）：在 systemd 启动 app 前留下
+# retained-volume marker，并确保 psql/pg_dump 客户端镜像已经可用。
+if ! grep -q '^COMPOSE_PROFILES=.*localpg' /var/lib/tokenkey/.env; then
+  PG_CLIENT_IMAGE="$(grep -m1 '^TOKENKEY_PG_CLIENT_IMAGE=' /var/lib/tokenkey/.env | cut -d= -f2- || true)"
+  docker pull "${PG_CLIENT_IMAGE:-postgres:18-alpine}"
 fi
 
 # --- 5. GHCR private-image login ----------------------------------------
@@ -334,13 +325,10 @@ chmod +x /usr/local/bin/tokenkey-pgdump.sh
 # 单一源 deploy/aws/stage0/tokenkey-data-wrappers.sh，build-cfn 嵌入；
 # 存量舰队由 ops/stage0/install_data_wrappers_via_ssm.sh fan-out 同一文件。
 WRAPPERS_PARAM_NAME="${STAGE0_PREFIX}/data-wrappers.gzip.b64"
-if RAW="$(aws ssm get-parameter --name "${WRAPPERS_PARAM_NAME}" --region "${REGION}" --query Parameter.Value --output text 2>/dev/null)"; then
-  printf '%s' "${RAW}" | base64 -d | gunzip > /tmp/tokenkey-data-wrappers.sh
-  bash /tmp/tokenkey-data-wrappers.sh
-  rm -f /tmp/tokenkey-data-wrappers.sh
-else
-  echo "no ${WRAPPERS_PARAM_NAME}; skipping data wrappers install"
-fi
+RAW="$(aws ssm get-parameter --name "${WRAPPERS_PARAM_NAME}" --region "${REGION}" --query Parameter.Value --output text)"
+printf '%s' "${RAW}" | base64 -d | gunzip > /tmp/tokenkey-data-wrappers.sh
+bash /tmp/tokenkey-data-wrappers.sh
+rm -f /tmp/tokenkey-data-wrappers.sh
 
 install -m 0755 /dev/stdin /usr/local/bin/tokenkey-disk-metrics.sh <<'DISKEOF'
 #!/bin/bash

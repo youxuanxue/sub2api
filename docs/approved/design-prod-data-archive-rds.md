@@ -108,6 +108,8 @@ Reserved DB Instance；迁移前不锁长期承诺。
   短时重叠的 2x50 连接池并保留 20 个运维/后台余量。
 - 备份：PITR 14 天；珍贵类 pgdump 继续每小时进 S3，形成不同机制的第二恢复路径。
 - 网络：私有子网，`PubliclyAccessible=false`，安全组只允许 app SG 访问 5432。
+- 凭据：RDS master password 与运行 overlay 都按 Project/Environment 派生 SSM 路径；
+  rehearsal/test 不得因静态默认值读取或复制 prod SecureString。
 - 可观测性：PostgreSQL logs、7 天 Performance Insights；`FreeableMemory < 1 GiB`
   持续 15 分钟告警，配合 CPU、连接、FreeStorageSpace、Read/WriteLatency 判断换型。
 - 生命周期：独立 CFN 栈，`DeletionProtection` + `Retain`，避免 app 换机带走数据库。
@@ -198,6 +200,8 @@ sequence、大对象、失败重放和 WAL 堆积。dump/restore 保留为恢复
 “一键切回旧本地库”只在 **RDS 尚未接收任何新写入** 时成立。一旦开放写入，旧库已经
 落后，直接切回会丢用户、计费和用量数据。此后默认是前向修复；若确需回本地，必须先
 有经演练的反向增量回放和逐表对账，不接受“允许丢一点”的普通 rollback。
+cutover 在首次尝试启动 RDS-backed app 前写 retained-volume marker；marker 存在时，
+bootstrap 遇到 overlay 缺失、超时或权限错误都必须停止，禁止猜测成本机模式。
 
 ## Redis AOF 与日志轮转：不单独停服
 

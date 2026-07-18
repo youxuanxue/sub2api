@@ -78,14 +78,6 @@ Parameters:
       Maximum DatabaseConnections alarm threshold. 120 covers two briefly
       overlapping blue/green app pools at max_open=50 plus 20 maintenance/job
       connections. Zero remains available to disable the alarm during rehearsal.
-  PgMasterPasswordSsmName:
-    Type: String
-    Default: /tokenkey/prod/stage0/rds-master-password
-    Description: >-
-      SecureString holding the master user password. Create BEFORE deploying
-      this stack (aws ssm put-parameter --type SecureString). The same value
-      must later appear as POSTGRES_PASSWORD in the data-layer-env overlay.
-      Dynamic reference keeps the secret out of template/parameter history.
   AlarmSnsTopicArn:
     Type: String
     Default: ''
@@ -136,7 +128,9 @@ Resources:
       DBInstanceClass: !Ref PgInstanceClass
       DBName: tokenkey
       MasterUsername: tokenkey
-      MasterUserPassword: !Sub '{{resolve:ssm-secure:${PgMasterPasswordSsmName}}}'
+      # Environment-scoped by construction: rehearsal/test stacks must never
+      # inherit the prod master credential through a static parameter default.
+      MasterUserPassword: !Sub '{{resolve:ssm-secure:/${ProjectName}/${Environment}/stage0/rds-master-password}}'
       AllocatedStorage: !Ref PgAllocatedStorage
       MaxAllocatedStorage: !Ref PgMaxAllocatedStorage
       StorageType: gp3
