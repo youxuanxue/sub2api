@@ -125,9 +125,13 @@ func TestClassifyOpsUpstreamPrior5xxThenTerminalClientCancelOwnedByClient(t *tes
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
+	// setOpsUpstreamError intentionally retains positive status values, so a
+	// terminal status-0 event must take precedence over this stale failover key.
+	c.Set(service.OpsUpstreamStatusCodeKey, http.StatusBadGateway)
 	c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{
 		{Kind: "failover", UpstreamStatusCode: http.StatusBadGateway, Message: "edge unavailable"},
 		{Kind: "request_error", UpstreamStatusCode: 0, Message: "context canceled"},
+		nil,
 	})
 
 	phase, errorOwner, errorSource := classifyOpsErrorLog(

@@ -159,7 +159,9 @@ SELECT row_to_json(t) FROM (
     duration_ms,
     left(error_message, 120) AS error_message,
     left(upstream_error_message, 160) AS upstream_error_message,
-    COALESCE(jsonb_array_length(upstream_errors), 0) AS upstream_event_count,
+    CASE WHEN jsonb_typeof(upstream_errors) = 'array'
+         THEN jsonb_array_length(upstream_errors)
+         ELSE 0 END AS upstream_event_count,
     (
       SELECT string_agg(
         concat_ws(':', ordinality::text, COALESCE(ev->>'kind',''),
@@ -167,7 +169,11 @@ SELECT row_to_json(t) FROM (
                   left(COALESCE(ev->>'message',''), 80)),
         ' | ' ORDER BY ordinality
       )
-      FROM jsonb_array_elements(COALESCE(upstream_errors, '[]'::jsonb))
+      FROM jsonb_array_elements(
+             CASE WHEN jsonb_typeof(upstream_errors) = 'array'
+                  THEN upstream_errors
+                  ELSE '[]'::jsonb END
+           )
            WITH ORDINALITY AS event(ev, ordinality)
     ) AS upstream_event_summary
   FROM base

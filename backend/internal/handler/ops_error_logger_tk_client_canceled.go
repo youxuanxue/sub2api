@@ -79,6 +79,20 @@ func tkOpsTerminalUpstreamStatusCode(c *gin.Context) int {
 	if c == nil {
 		return 0
 	}
+	// When an event chain exists, its last real event is the terminal outcome.
+	// Status 0 is meaningful here: it records a transport failure such as caller
+	// cancellation and must override a stale positive single-field status left by
+	// an earlier failover attempt.
+	if v, ok := c.Get(service.OpsUpstreamErrorsKey); ok {
+		if events, ok := v.([]*service.OpsUpstreamErrorEvent); ok {
+			for i := len(events) - 1; i >= 0; i-- {
+				if events[i] != nil {
+					return events[i].UpstreamStatusCode
+				}
+			}
+		}
+	}
+	// Legacy paths may only populate the single-field status.
 	if v, ok := c.Get(service.OpsUpstreamStatusCodeKey); ok {
 		switch status := v.(type) {
 		case int:
@@ -88,14 +102,6 @@ func tkOpsTerminalUpstreamStatusCode(c *gin.Context) int {
 		case int64:
 			if status > 0 {
 				return int(status)
-			}
-		}
-	}
-	if v, ok := c.Get(service.OpsUpstreamErrorsKey); ok {
-		if events, ok := v.([]*service.OpsUpstreamErrorEvent); ok && len(events) > 0 {
-			last := events[len(events)-1]
-			if last != nil && last.UpstreamStatusCode > 0 {
-				return last.UpstreamStatusCode
 			}
 		}
 	}
