@@ -34,23 +34,22 @@ Parameters:
       --query 'DBEngineVersions[*].EngineVersion'
   PgInstanceClass:
     Type: String
-    Default: db.t4g.medium
+    Default: db.t4g.large
     Description: >-
-      Initial candidate only. Current prod database is about 23.7 GiB
-      (2026-07-17 read-only measurement), so the old db.t4g.small assumption is
-      no longer accepted without a restore/load rehearsal. Final class must be
-      recorded in the approved design before production cutover.
+      Recommended candidate. Prod PostgreSQL uses about 2.9 GiB excluding page
+      cache and reached about 6.3 GiB cgroup memory (2026-07-18 read-only
+      measurement); db.t4g.medium has only 4 GiB. Final class still requires the
+      approved restore/load rehearsal before production cutover.
   PgAllocatedStorage:
     Type: Number
-    Default: 100
+    Default: 50
     Description: >-
-      Initial gp3 GiB. Current prod database is about 23.7 GiB and usage_logs
-      grew about 3.6 GiB in the latest 30-day estimate (2026-07-17). RDS storage
-      cannot shrink in place, so archive/retention must control growth rather
-      than treating autoscaling as cleanup.
+      Initial gp3 GiB. Current prod database is about 23.7 GiB, so 50 GiB leaves
+      about half the volume for restore headroom and the approved hot windows.
+      RDS storage cannot shrink in place; do not prepay for an idle 100 GiB.
   PgMaxAllocatedStorage:
     Type: Number
-    Default: 500
+    Default: 200
     Description: >-
       Storage autoscaling ceiling (GiB), used as a fuse rather than a retention
       policy. The archive loop and hot-data windows in the approved design must
@@ -73,12 +72,12 @@ Parameters:
       archive of usage/ops/QA rows excluded from that dump.
   PgConnectionAlarmThreshold:
     Type: Number
-    Default: 0
+    Default: 120
     MinValue: 0
     Description: >-
-      Maximum DatabaseConnections alarm threshold. Zero disables this alarm.
-      Set it after rehearsal from the selected class's actual max_connections
-      and the app pool budget; do not inherit the old db.t4g.small value.
+      Maximum DatabaseConnections alarm threshold. 120 covers two briefly
+      overlapping blue/green app pools at max_open=50 plus 20 maintenance/job
+      connections. Zero remains available to disable the alarm during rehearsal.
   PgMasterPasswordSsmName:
     Type: String
     Default: /tokenkey/prod/stage0/rds-master-password
@@ -204,14 +203,14 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub '${ProjectName}-${Environment}-rds-freeable-memory'
-      AlarmDescription: RDS freeable memory < 512 MiB — investigate pressure and resize before latency degrades.
+      AlarmDescription: RDS freeable memory < 1 GiB — investigate pressure and resize before latency degrades.
       Namespace: AWS/RDS
       MetricName: FreeableMemory
       Statistic: Average
       Period: 300
       EvaluationPeriods: 3
       DatapointsToAlarm: 3
-      Threshold: 536870912
+      Threshold: 1073741824
       ComparisonOperator: LessThanThreshold
       TreatMissingData: breaching
       Dimensions:

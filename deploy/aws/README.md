@@ -207,13 +207,18 @@ IP 被上游污染需轮换 Static IP：[`.cursor/skills/tokenkey-stage0-edge-li
 
 prod 当前仍运行本机 PostgreSQL/Redis；RDS 与归档已进入设计/非生产演练，**尚未批准
 生产切换**。目标 PostgreSQL 运行在独立 CFN 栈 **`tokenkey-data-stage0`**
-（`deploy/aws/cloudformation/stage0-data.yaml`：候选 `db.t4g.medium`、gp3 100 GiB、
-PITR 14 天、Single-AZ 起步、Retain + DeletionProtection）。最终 class/Multi-AZ/迁移方式
+（`deploy/aws/cloudformation/stage0-data.yaml`：推荐 `db.t4g.large`、gp3 50 GiB、
+200 GiB autoscaling ceiling、PITR 14 天、Single-AZ 起步、Retain + DeletionProtection）。
+按当前 us-east-1 On-Demand 约 $99.92/月；最终 class/Multi-AZ/迁移方式
 以 `docs/approved/design-prod-data-archive-rds.md` 审批为准。Redis 留在 prod 机
 （MiB 级可重建缓存/计数器；出机触发器=上第二 app 副本前）。要点：
 
 - **归档、备份、RDS 是三件事**：现有每小时 S3 pgdump 是核心数据灾难备份，明确排除
   usage/ops/QA 表行；历史归档必须另走“导出、校验、水位、再删除”的 S3 闭环。
+- **QA 已有 S3 手动导出，不等于 auto archive 已启用**：现有 Standard 7 天对象用于用户
+  下载；推荐 auto archive 也沿用 7 天 TTL，必须先证明每日 job 和恢复闭环。
+- **不为 Redis AOF/日志轮转单独停服**：RDS 低停机迁移期间 Redis 保持原容器；AOF 与
+  logging driver 等下一次自然 recreate 时收敛。
 - **pending 期间生产 cutover 机械禁用**：只允许完善代码和非生产演练；设计批准不等于
   自动批准生产创建/切流，生产窗口仍需单独审批。
 
@@ -232,8 +237,8 @@ PITR 14 天、Single-AZ 起步、Retain + DeletionProtection）。最终 class/M
 - 完整迁移/回退边界/恢复 SOP：`docs/deploy/aws-data-layer-migration.md`；
   RDS 模式的灾难恢复语义：`RUNBOOK-disaster-recovery.md` §0.x。
 - live Redis 当前仍是 `appendonly=no`，PostgreSQL/Redis 日志仍是无界旧配置；仓库目标
-  是 Redis AOF everysec + `json-file 100m x 5`。应用它们需要维护窗口 recreate，
-  不能用普通 restart 冒充已生效。窗口取舍见迁移 SOP §4。
+  是 Redis AOF everysec + `json-file 100m x 5`。普通 restart 不会应用这些创建参数，
+  但当前收益不值得单独停服；只在下一次本来就需要 recreate/换机时机会式收敛，见 SOP §4。
 
 ## 升级 / 发版（生产 Stage0）
 

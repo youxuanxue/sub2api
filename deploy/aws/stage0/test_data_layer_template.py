@@ -36,9 +36,9 @@ class DataLayerTemplateTest(unittest.TestCase):
     def test_initial_capacity_matches_current_prod_baseline(self) -> None:
         params = self.template["Parameters"]
         self.assertEqual(params["PgEngineVersion"]["Default"], "18.1")
-        self.assertEqual(params["PgInstanceClass"]["Default"], "db.t4g.medium")
-        self.assertEqual(params["PgAllocatedStorage"]["Default"], 100)
-        self.assertEqual(params["PgMaxAllocatedStorage"]["Default"], 500)
+        self.assertEqual(params["PgInstanceClass"]["Default"], "db.t4g.large")
+        self.assertEqual(params["PgAllocatedStorage"]["Default"], 50)
+        self.assertEqual(params["PgMaxAllocatedStorage"]["Default"], 200)
         self.assertEqual(params["PgBackupRetentionDays"]["Default"], 14)
 
     def test_database_is_private_retained_and_observable(self) -> None:
@@ -53,14 +53,18 @@ class DataLayerTemplateTest(unittest.TestCase):
         self.assertEqual(props["PerformanceInsightsRetentionPeriod"], 7)
         self.assertEqual(props["BackupRetentionPeriod"], "PgBackupRetentionDays")
 
-    def test_connection_alarm_is_disabled_until_rehearsal_sizes_it(self) -> None:
+    def test_connection_alarm_covers_blue_green_overlap_budget(self) -> None:
         params = self.template["Parameters"]
         alarm = self.template["Resources"]["PgConnectionsAlarm"]
-        self.assertEqual(params["PgConnectionAlarmThreshold"]["Default"], 0)
+        self.assertEqual(params["PgConnectionAlarmThreshold"]["Default"], 120)
         self.assertEqual(alarm["Condition"], "PgConnectionAlarmEnabled")
         self.assertEqual(
             alarm["Properties"]["Threshold"], "PgConnectionAlarmThreshold"
         )
+
+    def test_memory_alarm_matches_recommended_large_class(self) -> None:
+        alarm = self.template["Resources"]["PgFreeableMemoryAlarm"]
+        self.assertEqual(alarm["Properties"]["Threshold"], 1024 * 1024 * 1024)
 
 
 if __name__ == "__main__":

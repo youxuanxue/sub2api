@@ -39,7 +39,7 @@ SOP：`docs/deploy/aws-data-layer-migration.md`）之后：
 | 故障 | RDS 模式下的恢复 | 替代了原文的什么 |
 |---|---|---|
 | **PG 数据损坏 / 误删数据** | RDS PITR（14 天窗口）：`aws rds restore-db-instance-to-point-in-time` 到新实例，逐表对账后让 app 前向指向新 endpoint | §4 从 DLM 快照恢复 PG 的部分（RPO ≤24h）——DLM 快照仍覆盖卷上其余数据（Caddy/.env.secret/Redis/pgdump） |
-| **RDS 实例故障** | 单 AZ：AWS 自动恢复（10–30 min 停机，已声明接受）；升 `MultiAZ=true`（在线参数）后 <60s 自动切换 | 无对应——本机模式下 PG 与实例同生死 |
+| **RDS 实例故障** | 推荐候选 Single-AZ：AWS 自动恢复期间服务不可用；该风险仍待设计审批。上第二 app 时同步升 `MultiAZ=true` | 无对应——本机模式下 PG 与实例同生死 |
 | **app 实例坏 / 替换（§3）** | 照 §3 执行，**账本零风险**（在 RDS 上）；新机 bootstrap 从 SSM overlay `/tokenkey/prod/stage0/data-layer-env` 自动渲染外部模式（单一真相，防 split-brain） | §3 中「数据零丢失依赖卷 Retain」对 PG 的部分 |
 | **整 AZ 不可用** | app 照 §3/§4 在别的 AZ 重建；RDS 单 AZ 实例若恰在故障 AZ → PITR 恢复到健康 AZ | §4 |
 
