@@ -196,6 +196,11 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
+			// Match the canonical Anthropic path: caller cancellation is finalized
+			// by the handler as 499, with no body written to the closed connection.
+			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+				return nil, err
+			}
 			c.JSON(http.StatusBadGateway, gin.H{
 				"type": "error",
 				"error": gin.H{

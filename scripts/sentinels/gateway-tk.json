@@ -3083,21 +3083,69 @@
       "path": "backend/internal/handler/ops_error_logger_tk_client_canceled.go",
       "must_contain": [
         "func tkUpstreamClientCanceled(c *gin.Context) bool",
-        "if tkOpsUpstreamStatusCode(c) != 0 {",
+        "if tkOpsTerminalUpstreamStatusCode(c) != 0 {",
+        "func tkOpsTerminalUpstreamStatusCode(c *gin.Context) int",
+        "for i := len(events) - 1; i >= 0; i-- {",
+        "return events[i].UpstreamStatusCode",
         "errors.Is(reqErr, context.Canceled)",
         "deadline exceeded",
         "context canceled"
       ],
-      "rationale": "Issue #625 (prod + us2/us3/uk1 quad P0 2026-06-06T07:00-07:16Z, false page): one client issuing non-streaming claude-opus-4-6 with a timeout shorter than opus latency cancelled mid-flight; the outbound request failed with `context canceled` and NO upstream HTTP status, so classifyOpsErrorLog relabelled it phase=upstream / error_owner=provider and it counted toward upstream_error_rate. Because prod relays the same request to edges via cc-* stub accounts, one cancel propagated down the chain and prod + every relayed edge each recorded a 502 -> simultaneous false P0 across the fleet. This predicate owns a client/caller disconnect to the client (phase=request) so it drops out of upstream_error_rate, mirroring tkUpstreamClientInducedRejection. The status gate (only status 0) keeps real upstream 5xx provider-owned; the deadline-exceeded/timeout exclusion keeps server-side timeouts provider-owned (genuine slowness evidence). Dropping the deadline exclusion would silently hide real upstream timeouts; dropping the predicate restores the quad-P0 false page."
+      "rationale": "Issue #625 (prod + us2/us3/uk1 quad P0 2026-06-06T07:00-07:16Z, false page): one client issuing non-streaming claude-opus-4-6 with a timeout shorter than opus latency cancelled mid-flight; the outbound request failed with `context canceled` and NO upstream HTTP status, so classifyOpsErrorLog relabelled it phase=upstream / error_owner=provider and it counted toward upstream_error_rate. Because prod relays the same request to edges via cc-* stub accounts, one cancel propagated down the chain and prod + every relayed edge each recorded a 502 -> simultaneous false P0 across the fleet. This predicate owns a client/caller disconnect to the client (phase=request) so it drops out of upstream_error_rate, mirroring tkUpstreamClientInducedRejection. The terminal-status gate keeps a real final upstream 5xx provider-owned but deliberately does not let an older failover 5xx override a later status-0 request_error=context canceled; attempt-level 5xx evidence remains in upstream_errors while the final caller outcome is client-owned. The deadline-exceeded/timeout exclusion keeps server-side timeouts provider-owned (genuine slowness evidence). Dropping the deadline exclusion would silently hide real upstream timeouts; scanning backward to any historical positive status restores the false provider classification after failover."
     },
     {
       "path": "backend/internal/handler/ops_error_logger_tk_client_canceled_test.go",
       "must_contain": [
         "TestClassifyOpsUpstreamClientCanceledOwnedByClient",
         "TestClassifyOpsUpstreamDeadlineExceededStaysProvider",
-        "TestClassifyOpsUpstream5xxWithStatusStaysProviderNotCancel"
+        "TestClassifyOpsUpstream5xxWithStatusStaysProviderNotCancel",
+        "TestClassifyOpsUpstreamPrior5xxThenTerminalClientCancelOwnedByClient",
+        "TestClassifyOpsUpstreamTerminal5xxAfterCancelStaysProvider",
+        "TestClassifyOpsFinal499AfterPrior5xxOwnedByClient"
       ],
-      "rationale": "Focused regressions proving the issue #625 boundary: (1) a status-0 `context canceled` transport error (and an inbound Request.Context() cancel with no cancel signature in the message) classify as error_owner=client so they drop out of upstream_error_rate; (2) status-0 `context deadline exceeded` and `i/o timeout` stay error_owner=provider so genuine upstream slowness keeps counting; (3) a real upstream 5xx WITH a status code stays provider via the status gate. Dropping these lets an upstream merge silently revert the quad-P0 fix through the classifier."
+      "rationale": "Focused regressions proving the issue #625 boundary: a status-0 `context canceled` transport error is client-owned; deadline/timeout remains provider-owned; a real final upstream 5xx remains provider-owned; an older failover 5xx followed by terminal cancel is client-owned; the reverse ordering remains provider-owned; and a final 499 remains client-owned even with earlier upstream events. Dropping these lets an upstream merge silently revert the quad-P0 fix or reintroduce failover-history pollution."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "func (h *GatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarted bool) bool",
+        "if isClientClosedRequest(c, nil) {",
+        "service.MarkOpsClientClosedRequest(c)",
+        "failoverClientGone(c)"
+      ],
+      "rationale": "Client-cancel terminal response wiring: a Forward error after the inbound request context is canceled must bypass the generic 502 fallback, mark ops client-closed state, and finalize an uncommitted response as 499 without writing a body. This handler call site is shared by native Anthropic, Gemini, Responses, and compatibility surfaces; an upstream merge can delete the short-circuit while service tests still prove only that transport cancellation was propagated."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_error_fallback_test.go",
+      "must_contain": [
+        "TestGatewayEnsureForwardErrorResponse_ClientCanceledWrites499WithoutBody"
+      ],
+      "rationale": "Focused handler regression proving canceled inbound requests terminate as 499, write no response body, and carry the ops client-closed marker instead of falling through to the generic upstream 502 response."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward.go",
+      "must_contain": [
+        "if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {",
+        "return nil, err"
+      ],
+      "rationale": "Canonical Anthropic transport wiring must propagate context cancellation to the handler before writing the generic 502 JSON body. The handler owns final 499 classification; retaining this branch prevents client disconnects from becoming provider-owned upstream errors."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_passthrough.go",
+      "must_contain": [
+        "if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {",
+        "return nil, err"
+      ],
+      "rationale": "Anthropic API-key and OAuth passthrough return before the canonical Forward loop, so their shared transport-error branch must independently propagate caller cancellation without writing 502. Omitting this anchor makes client-cancel semantics depend on account passthrough configuration."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_client_cancel_test.go",
+      "must_contain": [
+        "TestGatewayServiceForward_ClientCanceledTransportDoesNotWrite502",
+        "api-key passthrough",
+        "require.False(t, c.Writer.Written()"
+      ],
+      "rationale": "Focused service regression covers both canonical and API-key passthrough Anthropic transport paths: context.Canceled must be returned intact, no 502/body may be written, and sanitized attempt evidence remains available for ops classification."
     },
     {
       "path": "backend/internal/handler/ops_error_logger_tk_downstream_capacity.go",

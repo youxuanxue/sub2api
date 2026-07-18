@@ -1,20 +1,30 @@
 #!/usr/bin/env bash
 # probe-sla-breakdown.sh — Read-only SLA dashboard-equivalent breakdown (24h default).
+# WINDOW_MINUTES, when set, overrides WINDOW_HOURS for release-boundary queries.
 set -u
 PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
 WINDOW_HOURS="${WINDOW_HOURS:-24}"
+WINDOW_MINUTES="${WINDOW_MINUTES:-}"
 case "$WINDOW_HOURS" in
   ''|*[!0-9]*) echo "[probe-sla-breakdown] ERROR: WINDOW_HOURS not positive int: '$WINDOW_HOURS'" >&2; exit 2 ;;
 esac
+if [ -n "$WINDOW_MINUTES" ]; then
+  case "$WINDOW_MINUTES" in
+    *[!0-9]*) echo "[probe-sla-breakdown] ERROR: WINDOW_MINUTES not positive int: '$WINDOW_MINUTES'" >&2; exit 2 ;;
+  esac
+  WINDOW_INTERVAL="${WINDOW_MINUTES} minute"
+else
+  WINDOW_INTERVAL="${WINDOW_HOURS} hour"
+fi
 
 echo "=== meta ==="
-printf 'window=%s hour\n' "$WINDOW_HOURS"
+printf 'window=%s\n' "$WINDOW_INTERVAL"
 
 echo
 echo "=== sla_overview ==="
 $PSQL -c "
 WITH bounds AS (
-  SELECT now() - interval '${WINDOW_HOURS} hour' AS since, now() AS until
+  SELECT now() - interval '${WINDOW_INTERVAL}' AS since, now() AS until
 ), success AS (
   SELECT COUNT(*)::bigint AS success_count
   FROM usage_logs ul, bounds b
@@ -46,7 +56,7 @@ echo
 echo "=== by_status_sla_scope ==="
 $PSQL -c "
 WITH bounds AS (
-  SELECT now() - interval '${WINDOW_HOURS} hour' AS since, now() AS until
+  SELECT now() - interval '${WINDOW_INTERVAL}' AS since, now() AS until
 )
 SELECT row_to_json(t) FROM (
   SELECT
@@ -68,7 +78,7 @@ echo
 echo "=== by_phase_owner_sla ==="
 $PSQL -c "
 WITH bounds AS (
-  SELECT now() - interval '${WINDOW_HOURS} hour' AS since, now() AS until
+  SELECT now() - interval '${WINDOW_INTERVAL}' AS since, now() AS until
 )
 SELECT row_to_json(t) FROM (
   SELECT
@@ -91,7 +101,7 @@ echo
 echo "=== top_error_messages_sla ==="
 $PSQL -c "
 WITH bounds AS (
-  SELECT now() - interval '${WINDOW_HOURS} hour' AS since, now() AS until
+  SELECT now() - interval '${WINDOW_INTERVAL}' AS since, now() AS until
 )
 SELECT row_to_json(t) FROM (
   SELECT
@@ -115,7 +125,7 @@ echo
 echo "=== client_faults_by_status ==="
 $PSQL -c "
 WITH bounds AS (
-  SELECT now() - interval '${WINDOW_HOURS} hour' AS since, now() AS until
+  SELECT now() - interval '${WINDOW_INTERVAL}' AS since, now() AS until
 )
 SELECT row_to_json(t) FROM (
   SELECT

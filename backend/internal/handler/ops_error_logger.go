@@ -1427,7 +1427,10 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	if clientRequestRejected && !upstreamError && !routingCapacityLimited {
 		phase = "request"
 	}
-	if (clientClosedRequest || status == statusClientClosedRequest) && !upstreamError && !routingCapacityLimited {
+	// A final 499 is definitive caller cancellation even when earlier attempts
+	// recorded provider errors. Keep those attempts in upstream_errors, but do not
+	// let them turn the final client-closed outcome back into an SLA fault.
+	if (status == statusClientClosedRequest || (clientClosedRequest && !upstreamError)) && !routingCapacityLimited {
 		phase = "request"
 	}
 	if routingCapacityLimited {
