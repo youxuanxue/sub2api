@@ -124,6 +124,72 @@ Reserved DB Instance；迁移前不锁长期承诺。
 可用，却会让约 $100/月翻到约 $200/月。扩成第二 app 前必须同步把 RDS 升 Multi-AZ，
 届时这笔成本才对应完整的可用性收益。审批人仍需明确接受当前阶段的 DB 维护/AZ 停机。
 
+## RDS 与独立 EC2 自管 PostgreSQL 对比
+
+RDS 不是唯一可行方案。另一条路线是在独立 EC2 上自管 PostgreSQL，把数据库与 app
+主机解耦，但继续由团队负责操作系统、数据库、备份和恢复。两者都能复用本 PR 的外部
+PostgreSQL compose/overlay/wrapper seam，也都可用 DMS full load + CDC 搬迁；当前
+`stage0-data.yaml`、密码路径和 cutover 命名仍是 **RDS 候选实现**，选择 EC2 后必须先补
+独立受审的 EC2 数据栈与恢复自动化，不能直接把现有 RDS 脚本当成已支持。
+
+### 同口径候选与直接费用
+
+独立 EC2 候选按当前负载取 `t4g.large`、50 GiB gp3、单 AZ、EBS encryption/Retain，
+与 RDS `db.t4g.large` 的 8 GiB / 2 vCPU 和 50 GiB gp3 对齐。2026-07-19 AWS Price List：
+
+| 方案 | 计算/月 | 50 GiB gp3/月 | 私网运维入口 | 基础月费 | 未包含 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 独立 EC2 裸资源 | $49.06 | $4.00 | $0 | **$53.06** | 私网 egress/SSM、EBS snapshot、WAL/PITR、监控日志、人工运维 |
+| 独立 EC2 + 3 个 interface endpoints | $49.06 | $4.00 | 约 $21.90 | **约 $74.96** | endpoint 流量、snapshot/WAL、额外监控、人工运维 |
+| 独立 EC2 + NAT Gateway | $49.06 | $4.00 | $32.85 | **约 $85.91** | NAT 流量、snapshot/WAL、额外监控、人工运维 |
+| RDS Single-AZ | $94.17 | $5.75 | 已包含托管控制面 | **$99.92** | 少量日志、跨 AZ 流量、超过免费分配的 backup storage |
+
+计算按 730 小时/月：EC2 `t4g.large` $0.0672/小时，RDS `db.t4g.large` PostgreSQL
+Single-AZ $0.129/小时；EC2/RDS gp3 分别为 $0.08/$0.115 每 GB-月。当前 VPC 私有子网
+没有 NAT，自管 EC2 若不分配公网地址，就必须增加可运维的私网出口。表中的 endpoints
+按 3 个 interface endpoint、单 AZ、$0.01/小时估算；NAT 为 $0.045/小时，均未计流量。
+给数据库节点分配公网 IPv4 虽可减少私网出口费用，但扩大了网络暴露面，违背本设计的
+private SG-only 基线，因此不列为生产候选。
+
+EC2 snapshot 标准存储为 $0.05/GB-月，按变更块增量计费；RDS 超过免费分配的 backup
+storage 为 $0.095/GB-月。现有珍贵类 S3 pgdump 两个方案都继续保留，因此不作为差价。
+裸资源口径下 EC2 每月少约 **$46.86**；补齐当前网络下的私网可运维入口后，直接差价
+缩小到约 **$14-$25/月**，尚未计入自管 PITR、补丁、演练和故障值守的人力成本。
+
+### 多维度判断
+
+| 维度 | RDS Single-AZ | 独立 EC2 单实例 | 当前判断 |
+| --- | --- | --- | --- |
+| 开发成本 | 当前 PR 已有 CFN、告警、overlay 和 cutover 骨架；还需 DMS/恢复演练 | 需新增 EC2/EBS/IAM/私网运维栈、PG 安装加固、WAL 归档、恢复、升级、fencing 和替换演练 | RDS 明显更低；EC2 不是“换个 endpoint” |
+| 扩展性 | 实例换型、存储自动扩容、只读副本和 Multi-AZ 有托管路径 | EBS 可扩但需自管文件系统/阈值；换型通常停机；副本、选主、连接切换全部自建 | RDS 更适合继续增长 |
+| 日常运维 | AWS 管宿主机、备份/PITR、minor patch、基础监控与故障替换 | 团队管 OS/内核、PG 参数、vacuum、磁盘、补丁、证书、备份、恢复和故障替换 | RDS 用月费换确定性运维杠杆 |
+| 可用性/恢复 | Single-AZ 仍会停机，但有托管 host replacement、14 天 PITR；可在线升 Multi-AZ | 单 EC2/EBS 同样是单 AZ；实例或文件系统故障恢复依赖自建 AMI/bootstrap、snapshot/WAL 和演练 | 同为单 AZ时 RDS 恢复面更完整 |
+| 性能/可调优 | gp3 baseline 满足实测；受 RDS 参数组、扩展和 `rds_superuser` 限制 | 可完全控制 OS、filesystem、PG 参数与扩展，性能诊断自由度最高 | 有明确底层调优需求时 EC2 占优；当前没有该需求 |
+| 安全边界 | 无 SSH/OS 面，私网 SG-only，静态加密/备份能力托管 | 必须自行收口 SSH/SSM、补丁、磁盘加密、secret、审计和防误删 | RDS 攻击面和维护面更小 |
+| 迁移与回退 | DMS/dump 均成熟；RDS 写入后仍需前向修复或增量回放 | 搬迁方法相同；可获得完整 superuser，但旧库回退的数据一致性问题完全相同 | 基本持平，EC2 不会让 stale-local rollback 变安全 |
+| 可移植性 | 有 AWS 参数组/监控/备份语义，迁出需适配 | 标准 PostgreSQL + Linux，迁往其他 VM/云更直接 | EC2 更开放，但当前系统本就深度使用 AWS |
+| 费用 | 约 $99.92/月，运维能力随服务购买 | 裸资源约 $53.06/月；私网可运维约 $74.96-$85.91/月，再加备份/人工 | 只看账单 EC2 更低；看全成本差距显著缩小 |
+
+### 推荐与选择条件
+
+当前仍推荐 **RDS `db.t4g.large` Single-AZ**。原因不是 RDS 功能更多，而是它用约
+$14-$47/月的直接差价，替代了一整套本应机械化的 OS/PG patch、WAL/PITR、故障替换、
+恢复验证和 24x7 值守责任。数据库承载用户、余额、订单和计费去重真值，当前团队没有
+需要 root/完整 superuser 或特殊扩展的证据，也没有一套现成的自管 PostgreSQL 平台可以
+摊薄开发成本；为省这部分月费重新造一套可靠数据库运维面，不符合确定性自动化原则。
+
+独立 EC2 可以作为**预算优先备选**，但必须同时满足以下硬条件后才能反转推荐：
+
+1. 全口径月费（私网运维、snapshot/WAL、日志监控）相比 RDS 仍有业务上显著的节省；
+2. 先实现并自动验证 base backup + WAL 连续归档或等价 PITR，不以当前排除历史表的
+   珍贵类 pgdump 冒充完整恢复能力；
+3. 完成实例丢失、EBS 故障、补丁升级、存储扩容和从零恢复演练，并达到审批后的 RPO/RTO；
+4. 用 IaC/SSM/告警/runbook 固化 OS 与 PostgreSQL 运维，不依赖某个人记住手工命令；
+5. 明确接受单实例无自动故障转移，或另行评审双节点复制/选主后的成本与复杂度。
+
+本次审批必须在 **RDS 托管** 与 **独立 EC2 自管** 中明确选择。未选择时只允许继续
+比较和非生产实验，不执行任何生产数据栈创建或 cutover。
+
 ## S3 推荐配置与成本
 
 现有 `tokenkey-prod-qa-exports-*` 是用户下载交付桶：Block Public Access、SSE-S3、
@@ -234,11 +300,13 @@ logging driver；这不等于值得为“配置一致”主动停服。
 
 ## 审批门
 
+- [ ] 在 RDS 托管与独立 EC2 自管 PostgreSQL 中明确选择；若选 EC2，先批准完整的
+  WAL/PITR、私网运维、补丁、监控、替换和恢复设计，当前 RDS 模板不得直接上线。
 - [ ] 审批推荐保留值：usage 热 90 天/冷 365 天、raw ops 热 30 天不冷存、QA 热 2 天、manual/auto S3 均 7 天。
-- [ ] 审批 RDS 推荐值：`db.t4g.large`、Single-AZ、50 GiB gp3、200 GiB ceiling、14 天 PITR、连接告警 120，预算约 $99.92/月。
-- [ ] 明确接受 app 单 EC2 阶段的 Single-AZ 停机风险；上第二 app 时同步升 RDS Multi-AZ。
+- [ ] 若选择 RDS，审批推荐值：`db.t4g.large`、Single-AZ、50 GiB gp3、200 GiB ceiling、14 天 PITR、连接告警 120，预算约 $99.92/月。
+- [ ] 若选择 RDS，明确接受 app 单 EC2 阶段的 Single-AZ 停机风险；上第二 app 时同步升 RDS Multi-AZ。
 - [ ] 审批低停机目标：logical 前置 restart <60 秒，DMS CDC 稳定后最终 drain <=5 分钟。
-- [ ] 审批“不为 Redis AOF/日志轮转单独停服，RDS 迁移期间 Redis 不动”。
+- [ ] 审批“不为 Redis AOF/日志轮转单独停服，数据库迁移期间 Redis 不动”。
 - [ ] 归档闭环完成非生产验证，证明失败时不删热数据。
 - [ ] 切换、故障注入、PITR 和“开放写入后禁止旧库回滚”均已演练。
 - [ ] 单独批准生产创建与切换窗口；批准 PR 设计不等于批准立即执行生产切换。
