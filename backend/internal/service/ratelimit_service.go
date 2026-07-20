@@ -1224,6 +1224,20 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 	if tkIsKiroMirrorStub(account) && tkIsKiroEndpointQuotaExhausted(upstreamMsg, responseBody) {
 		return s.tkHandleKiroEndpointQuotaExhausted(ctx, account, upstreamMsg)
 	}
+	// TK (prod incident 2026-07-20): Kiro edges wrap their exhausted upstream
+	// request path in a stable TokenKey 502 "Upstream service temporarily
+	// unavailable" envelope. The prod Kiro account is only a relay stub, so
+	// advancing its Anthropic 3/3 health fuse duplicates the edge failure and
+	// can cool the entire Kiro mirror pool. Fail over and retain bounded
+	// saturation preference, but leave relay health untouched. Raw infra 502s
+	// do not match the parsed message and continue through the fuse below.
+	if tkSkipDownstreamKiroServiceUnavailablePenalty(account, statusCode, upstreamMsg, responseBody) {
+		slog.Info("anthropic_downstream_kiro_service_unavailable_skip_penalty",
+			"account_id", account.ID,
+			"status_code", statusCode)
+		s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "kiro_service_unavailable")
+		return true
+	}
 	// TK (prod incident 2026-05-31): a 503 whose body is the downstream gateway's
 	// own "no available accounts" pool-exhaustion signal is a transient capacity
 	// blip on the *forwarded-to* pool (e.g. a thin edge bursting on parallel haiku
