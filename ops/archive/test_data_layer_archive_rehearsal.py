@@ -11,6 +11,7 @@ import sqlite3
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 _DIR = pathlib.Path(__file__).resolve().parent
 _TOOL = _DIR / "data_layer_archive_rehearsal.py"
@@ -381,6 +382,31 @@ class DataLayerArchiveRehearsalTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(rehearsal.RehearsalError, "batch identity"):
             rehearsal.verify_batch(batch)
+
+        manifest_path.write_text("[]\n", encoding="utf-8")
+        with self.assertRaisesRegex(rehearsal.RehearsalError, "JSON object"):
+            rehearsal.verify_batch(batch)
+
+    def test_us037_restore_rejects_manifest_changed_after_verify(self) -> None:
+        sealed = self._seal()
+        batch = pathlib.Path(sealed["batch_dir"])
+        manifest_path = batch / "manifest.json"
+        real_verify = rehearsal.verify_batch
+
+        def verify_then_replace(value: pathlib.Path) -> dict:
+            receipt = real_verify(value)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["concurrent_change"] = True
+            manifest_path.write_text(
+                json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            return receipt
+
+        with mock.patch.object(rehearsal, "verify_batch", side_effect=verify_then_replace):
+            with self.assertRaisesRegex(rehearsal.RehearsalError, "changed after"):
+                rehearsal.restore_random(batch, self.target, seed=3)
+        self.assertFalse(self.target.exists())
 
     def test_us037_symlinks_are_rejected_and_timezone_order_is_canonical(self) -> None:
         source_link = self.root / "source-link.sqlite"

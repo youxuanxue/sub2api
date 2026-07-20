@@ -317,12 +317,17 @@ def _batch_id(
 def _atomic_json(path: pathlib.Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     body = (_canonical_json(payload) + "\n").encode("utf-8")
-    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
-        temporary = pathlib.Path(handle.name)
-        handle.write(body)
-        handle.flush()
-        os.fsync(handle.fileno())
-    temporary.replace(path)
+    temporary: pathlib.Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
+            temporary = pathlib.Path(handle.name)
+            handle.write(body)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def seal_batch(
@@ -478,6 +483,8 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         manifest = json.loads(manifest_bytes)
     except json.JSONDecodeError as exc:
         raise RehearsalError("manifest is not valid JSON") from exc
+    if not isinstance(manifest, dict):
+        raise RehearsalError("manifest must be a JSON object")
     if manifest.get("schema_version") != SCHEMA_VERSION:
         raise RehearsalError("unsupported manifest schema_version")
     if manifest.get("mode") != "nonprod_archive_rehearsal":
@@ -572,9 +579,12 @@ def restore_random(
     *,
     seed: int,
 ) -> dict[str, Any]:
-    verify_batch(batch)
+    verification = verify_batch(batch)
     batch_dir = pathlib.Path(batch).expanduser().resolve()
-    manifest = json.loads((batch_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest_bytes = (batch_dir / "manifest.json").read_bytes()
+    if _sha256(manifest_bytes) != verification["manifest_sha256"]:
+        raise RehearsalError("manifest changed after verification")
+    manifest = json.loads(manifest_bytes)
     entry = random.Random(seed).choice(manifest["artifacts"])
     records, raw = _parse_artifact(batch_dir, entry)
     target_path = _local_path(target, must_exist=False)

@@ -45,6 +45,7 @@
 - `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_cli_rejects_prod_and_network_inputs`
 - `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_output_paths_cannot_overwrite_source_restore_or_batch`
 - `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_manifest_identity_tampering_is_rejected`
+- `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_restore_rejects_manifest_changed_after_verify`
 - `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_symlinks_are_rejected_and_timezone_order_is_canonical`
 - `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_cli_runs_full_local_rehearsal`
 - `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_tool_has_no_runtime_or_prod_consumer`
