@@ -933,6 +933,34 @@
       "rationale": "Focused regression anchor for upstream #1311 extended scope (Anthropic-backed Chat Completions path) proving the buffered JSON body does not inherit the upstream SSE Content-Type."
     },
     {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": [
+        "if account.IsKiro() {",
+        "forwardAsChatCompletionsViaKiro(",
+        "!account.IsKiro()"
+      ],
+      "rationale": "Kiro OAuth accounts on /v1/chat/completions must not fall through to buildUpstreamRequest + Anthropic HTTP after CC→Anthropic conversion — that path 401s because Kiro credentials are not Anthropic API keys. The early branch routes through kiroGateway.Forward and reuses the Anthropic SSE→Chat Completions bridge; skipping OAuth mimicry for Kiro is anchored via !account.IsKiro(). Dropping the hook compiles cleanly but leaves every edge Kiro CC request failing with upstream_rejected 401 while /v1/messages on the same account succeeds."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_kiro.go",
+      "must_contain": [
+        "func (s *GatewayService) forwardAsChatCompletionsViaKiro(",
+        "s.kiroGateway.Forward(",
+        "newBridgeCaptureWriter",
+        "handleCCBufferedFromAnthropic",
+        "handleCCStreamingFromAnthropic"
+      ],
+      "rationale": "Kiro /v1/chat/completions bridge: capture Anthropic SSE from kiroGateway.Forward via bridgeCaptureWriter, restore the client writer, then feed handleCCBufferedFromAnthropic / handleCCStreamingFromAnthropic so OpenAI-compat clients receive chat.completion shape. Without this companion the IsKiro() call site in gateway_forward_as_chat_completions.go has nowhere to delegate and the CC path regresses to Anthropic HTTP."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions_test.go",
+      "must_contain": [
+        "TestForwardAsChatCompletions_KiroAccountBridgesViaKiroGateway",
+        "generateAssistantResponse"
+      ],
+      "rationale": "Regression: ForwardAsChatCompletions on a Kiro account must hit the Kiro EventStream upstream (generateAssistantResponse) and return a chat.completion body, not anthropic.com /v1/messages."
+    },
+    {
       "path": "backend/internal/service/openai_images_responses.go",
       "must_contain": [
         "Wei-Shaw/sub2api#1311",
