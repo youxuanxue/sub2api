@@ -510,6 +510,19 @@ func TestClassifyKiroForwardError_EventStreamInputTooLongDoesNotFailover(t *test
 	require.NotErrorAs(t, err, &failoverErr)
 }
 
+func TestClassifyKiroForwardError_EventStreamProviderExceptionWinsOverInputTooLongText(t *testing.T) {
+	err := classifyKiroForwardError(
+		fmt.Errorf(`kiro event stream error: InternalServerException: {"message":"upstream failed while checking whether input exceeds the context window"}`),
+		"claude-sonnet-4-6",
+	)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+
+	var invalidRequestErr *KiroInvalidRequestError
+	require.NotErrorAs(t, err, &invalidRequestErr)
+}
+
 func TestKiroGatewayService_Forward_NonStreaming_InvalidModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

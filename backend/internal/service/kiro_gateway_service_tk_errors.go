@@ -216,8 +216,7 @@ func parseKiroEventStreamError(msg string) (int, []byte, bool) {
 	case strings.Contains(lower, "validationexception"),
 		strings.Contains(lower, "invalidrequestexception"),
 		strings.Contains(lower, "invalidmodelexception"),
-		strings.Contains(lower, "modelnotfound"),
-		isKiroInputTooLongError(lower):
+		strings.Contains(lower, "modelnotfound"):
 		status = http.StatusBadRequest
 	case strings.Contains(lower, "resourcenotfoundexception"):
 		status = http.StatusNotFound
@@ -227,6 +226,8 @@ func parseKiroEventStreamError(msg string) (int, []byte, bool) {
 		strings.Contains(lower, "serviceunavailableexception"),
 		strings.Contains(lower, "dependencyfailedexception"):
 		status = http.StatusBadGateway
+	case isKiroInputTooLongError(lower):
+		status = http.StatusBadRequest
 	default:
 		// Unknown exception names are still upstream failures. 502 preserves
 		// failover without pretending the provider returned a client 4xx.

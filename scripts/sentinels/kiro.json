@@ -211,6 +211,7 @@
         "TestKiroGatewayService_Forward_EventStreamThrottlingTriggersFailover",
         "TestKiroGatewayService_Forward_EmptyEventStreamExceptionPreservesFailoverClass",
         "TestClassifyKiroForwardError_EventStreamInputTooLongDoesNotFailover",
+        "TestClassifyKiroForwardError_EventStreamProviderExceptionWinsOverInputTooLongText",
         "committed stream must not be retried",
         "discard me",
         "recovered"
