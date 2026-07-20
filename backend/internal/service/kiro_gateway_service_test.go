@@ -237,6 +237,15 @@ func TestKiroGatewayService_Forward_EmptyResponseTriggersFailover(t *testing.T) 
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	rawEvents, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := rawEvents.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, "response_error", events[0].Kind)
+	require.Equal(t, "empty_response", events[0].Reason)
+	require.Equal(t, "kiro upstream returned an empty response", events[0].Message)
+	require.Equal(t, int64(99), events[0].AccountID)
 }
 
 func TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput(t *testing.T) {
@@ -371,6 +380,14 @@ func TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailove
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.Empty(t, rec.Body.String(), "no SSE bytes may be written before failover")
+	rawEvents, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := rawEvents.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, "response_error", events[0].Kind)
+	require.Equal(t, "unexpected_eof", events[0].Reason)
+	require.Equal(t, "unexpected EOF", events[0].Message)
 }
 
 // kiroStatusUpstream returns a canned non-200 response with a fixed body,
@@ -621,19 +638,44 @@ func TestClassifyKiroForwardError(t *testing.T) {
 }
 
 func TestClassifyKiroForwardError_TransportFailureTriggersFailover(t *testing.T) {
-	err := classifyKiroForwardError(fmt.Errorf("dial tcp 10.0.0.1:443: connect: connection refused"), "claude-sonnet-4")
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	account := newKiroAccountForTest()
+	err := classifyAndRecordKiroForwardError(
+		c,
+		account,
+		fmt.Errorf("GET https://q.us-east-1.amazonaws.com/generate?access_token=secret: dial tcp 10.0.0.1:443: connect: connection refused"),
+		"claude-sonnet-4",
+	)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.JSONEq(t, `{"error":{"type":"upstream_error","message":"Upstream request failed"}}`, string(failoverErr.ResponseBody))
+
+	rawEvents, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := rawEvents.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, "request_error", events[0].Kind)
+	require.Equal(t, "connection_refused", events[0].Reason)
+	require.Contains(t, events[0].Message, "dial tcp 10.0.0.1:443: connect: connection refused")
+	require.Contains(t, events[0].Message, "access_token=***")
+	require.NotContains(t, events[0].Message, "access_token=secret")
+	require.Equal(t, PlatformKiro, events[0].Platform)
+	require.Equal(t, account.ID, events[0].AccountID)
 }
 
 func TestClassifyKiroForwardError_ContextCanceledDoesNotTriggerFailover(t *testing.T) {
-	err := classifyKiroForwardError(context.Canceled, "claude-sonnet-4")
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	err := classifyAndRecordKiroForwardError(c, newKiroAccountForTest(), context.Canceled, "claude-sonnet-4")
 	var failoverErr *UpstreamFailoverError
 	require.Error(t, err)
 	require.NotErrorAs(t, err, &failoverErr)
 	require.ErrorIs(t, err, context.Canceled)
+	_, recorded := c.Get(OpsUpstreamErrorsKey)
+	require.False(t, recorded, "client cancellation must not be recorded as a Kiro upstream failure")
 }
 
 func TestGatewayService_Forward_Kiro401TriggersRateLimitRefresh(t *testing.T) {

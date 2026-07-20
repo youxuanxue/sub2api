@@ -108,6 +108,25 @@ func tkIsKiroMirrorStub(account *Account) bool {
 	return strings.EqualFold(strings.TrimSpace(account.GetCredential("mirror_platform")), string(PlatformKiro))
 }
 
+const tkDownstreamKiroServiceUnavailableMessage = "upstream service temporarily unavailable"
+
+// tkSkipDownstreamKiroServiceUnavailablePenalty identifies the stable TokenKey
+// 502 envelope emitted by an edge after its Kiro request path failed upstream.
+// The prod account is only a relay stub; cooling it repeats the downstream
+// failure at the prod layer and can remove every otherwise healthy Kiro route.
+// Keep raw proxy/infra 502s eligible for the stub-health fuse by requiring the
+// parsed application message to match exactly.
+func tkSkipDownstreamKiroServiceUnavailablePenalty(account *Account, statusCode int, upstreamMsg string, responseBody []byte) bool {
+	if statusCode != http.StatusBadGateway || !tkIsKiroMirrorStub(account) {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(upstreamMsg), tkDownstreamKiroServiceUnavailableMessage) {
+		return true
+	}
+	bodyMsg := extractUpstreamErrorMessage(responseBody)
+	return strings.EqualFold(strings.TrimSpace(bodyMsg), tkDownstreamKiroServiceUnavailableMessage)
+}
+
 // tkSkipDownstreamKiroOAuthAuthRejectPenalty identifies a Kiro edge OAuth auth
 // rejection that crossed the prod mirror boundary as an Anthropic api-key error.
 // The prod stub is only a relay; it has no Kiro OAuth token to refresh. The edge
