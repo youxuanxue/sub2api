@@ -19,12 +19,12 @@
 
 ## Acceptance Criteria
 
-1. **AC-001（只读水位）**：Given 本地 SQLite 含 usage/ops/QA 冷热记录，When 以 90/30/2 天保留期 dry-run，Then 只报告严格早于 cutoff 的记录，源文件 checksum 不变。
+1. **AC-001（只读水位）**：Given 本地 SQLite 含 usage/ops/QA 冷热记录，When 以 90/30/2 天保留期 dry-run，Then 只报告严格早于 cutoff 的记录，源文件 checksum 不变，带微秒的时间在 seal/restore 后精度不变。
 2. **AC-002（可验证封口）**：Given 存在冷记录，When seal，Then 生成确定性 batch、canonical gzip JSONL 和包含行数/范围/双 checksum 的 manifest；重复 seal 复用同一批次。
 3. **AC-003（损坏拒绝）**：Given artifact 被篡改或 manifest 不一致，When verify/restore，Then 在创建恢复库或提交数据前 fail closed。
 4. **AC-004（随机恢复）**：Given 已验证批次，When 使用显式 seed 随机选取一个 artifact 恢复，Then 恢复行数和 logical checksum 与 manifest 一致。
 5. **AC-005（幂等与冲突）**：Given 同批次重复恢复，When 目标内容一致，Then 不新增行；When 同键异值，Then checksum 失败并回滚。
-6. **AC-006（无生产能力）**：Given CLI，When 提供 prod environment、网络 DSN 或 delete 命令，Then 参数解析/安全守卫拒绝；工具没有 runtime/prod consumer。
+6. **AC-006（无生产能力）**：Given CLI，When 提供 prod environment、网络 DSN、源文件 symlink/hard link 恢复目标或 delete 命令，Then 参数解析/安全守卫拒绝；工具没有 runtime/prod consumer。
 7. **AC-007（阶段隔离）**：Given 本 PR 合并，When 检查 workflow/deploy/prod 工件，Then 没有生产接线、PostgreSQL/S3/AWS 调用或数据删除授权。
 
 ## Assertions

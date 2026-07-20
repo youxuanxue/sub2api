@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import pathlib
 import sqlite3
 import subprocess
@@ -172,6 +173,14 @@ class DataLayerArchiveRehearsalTest(unittest.TestCase):
             rehearsal.RehearsalError, "must not be the sealed batch source"
         ):
             rehearsal.restore_random(sealed["batch_dir"], self.source, seed=11)
+        self.assertEqual(_file_sha(self.source), source_before)
+
+        source_hardlink = self.root / "source-hardlink.sqlite"
+        os.link(self.source, source_hardlink)
+        with self.assertRaisesRegex(
+            rehearsal.RehearsalError, "must not reference the sealed source file"
+        ):
+            rehearsal.restore_random(sealed["batch_dir"], source_hardlink, seed=11)
         self.assertEqual(_file_sha(self.source), source_before)
 
         first = rehearsal.restore_random(sealed["batch_dir"], self.target, seed=11)
@@ -424,8 +433,14 @@ class DataLayerArchiveRehearsalTest(unittest.TestCase):
         _create_source(
             offset_source,
             [
+                ("usage", "exact", "2025-12-31T22:30:00Z", {"order": 0}),
                 ("usage", "later", "2025-12-31T23:00:00Z", {"order": 2}),
-                ("usage", "earlier", "2026-01-01T00:30:00+02:00", {"order": 1}),
+                (
+                    "usage",
+                    "earlier",
+                    "2026-01-01T00:30:00.123456+02:00",
+                    {"order": 1},
+                ),
             ],
         )
         sealed = rehearsal.seal_batch(
@@ -437,7 +452,32 @@ class DataLayerArchiveRehearsalTest(unittest.TestCase):
         )
         batch = pathlib.Path(sealed["batch_dir"])
         records, _ = rehearsal._parse_artifact(batch, sealed["artifacts"][0])
-        self.assertEqual([record["record_id"] for record in records], ["earlier", "later"])
+        self.assertEqual(
+            [record["record_id"] for record in records], ["exact", "earlier", "later"]
+        )
+        self.assertEqual(records[1]["created_at"], "2025-12-31T22:30:00.123456Z")
+
+        offset_target = self.root / "offset-restore.sqlite"
+        rehearsal.restore_random(batch, offset_target, seed=1)
+        connection = sqlite3.connect(offset_target)
+        try:
+            restored_timestamps = [
+                row[0]
+                for row in connection.execute(
+                    "SELECT created_at FROM archive_rehearsal_restored "
+                    "ORDER BY created_at, record_id"
+                ).fetchall()
+            ]
+        finally:
+            connection.close()
+        self.assertEqual(
+            restored_timestamps,
+            [
+                "2025-12-31T22:30:00.000000Z",
+                "2025-12-31T22:30:00.123456Z",
+                "2025-12-31T23:00:00.000000Z",
+            ],
+        )
 
     def test_us037_cli_runs_full_local_rehearsal(self) -> None:
         commands = [

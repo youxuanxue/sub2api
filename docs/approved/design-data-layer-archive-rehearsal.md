@@ -28,13 +28,15 @@ payload_json)`；dataset 只接受 `usage/ops/qa`，主键为 dataset + record_i
 payload 必须是 finite JSON。
 
 - 数据集固定为 `usage`、`ops`、`qa`；默认热层分别为 90、30、2 天；
-- 水位使用带时区的 `as_of`，仅选择严格早于 cutoff 的记录；
+- 水位使用带时区的 `as_of`，仅选择严格早于 cutoff 的记录；UTC 标准化固定输出六位微秒，
+  既不丢失精度，也保证 JSONL 与 SQLite 字符串排序等价于时间顺序；
 - JSONL 逐行 canonicalize，按 `created_at, record_id` 排序；
 - manifest 记录行数、时间范围、logical/artifact 字节数与双 SHA-256；
 - 批次 ID 从水位、保留期、数据集行数和 logical checksum 派生；
 - 相同输入重复封口复用同一已验证批次，内容不同则拒绝覆盖；
 - manifest 永远写入 `source_mutated: false` 与 `deletion_authorized: false`。
-- 报告/receipt 不得覆盖源库、恢复库或 sealed batch，恢复目标不得指回源库路径。
+- 报告/receipt 不得覆盖源库、恢复库或 sealed batch；源路径指纹与文件 device/inode
+  纳入批次身份，恢复目标不得通过原路径、symlink 或 hard link 指回源文件。
 
 ## 状态机
 

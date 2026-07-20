@@ -60,13 +60,12 @@ def _utc(value: str) -> dt.datetime:
         raise RehearsalError(f"invalid timestamp {value!r}") from exc
     if parsed.tzinfo is None:
         raise RehearsalError(f"timestamp must include a timezone: {value!r}")
-    return parsed.astimezone(dt.timezone.utc).replace(microsecond=0)
+    return parsed.astimezone(dt.timezone.utc)
 
 
 def _timestamp(value: dt.datetime) -> str:
-    return value.astimezone(dt.timezone.utc).replace(microsecond=0).isoformat().replace(
-        "+00:00", "Z"
-    )
+    value = value.astimezone(dt.timezone.utc)
+    return value.isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _positive_days(name: str, value: int) -> int:
@@ -208,6 +207,7 @@ def _dry_run_report(
     normalized_as_of: str,
     retention_days: dict[str, int],
     source_path_sha256: str,
+    source_file_identity: dict[str, int],
 ) -> dict[str, Any]:
     base = _utc(normalized_as_of)
     datasets = []
@@ -231,6 +231,7 @@ def _dry_run_report(
         "as_of": normalized_as_of,
         "source_kind": "local_sqlite_read_only",
         "source_path_sha256": source_path_sha256,
+        "source_file_identity": source_file_identity,
         "source_rows": source_rows,
         "candidate_rows": sum(item["candidate_rows"] for item in datasets),
         "candidate_logical_bytes": sum(
@@ -252,6 +253,7 @@ def dry_run(
     if environment not in ENVIRONMENTS:
         raise RehearsalError(f"environment must be one of {ENVIRONMENTS}")
     source_path = _local_path(source, must_exist=True)
+    source_stat = source_path.stat()
     normalized_as_of = _timestamp(_utc(as_of))
     normalized_retention = retention_policy(
         retention_days["usage"], retention_days["ops"], retention_days["qa"]
@@ -266,6 +268,7 @@ def dry_run(
         normalized_as_of=normalized_as_of,
         retention_days=normalized_retention,
         source_path_sha256=_sha256(str(source_path).encode("utf-8")),
+        source_file_identity={"device": source_stat.st_dev, "inode": source_stat.st_ino},
     )
 
 
@@ -291,6 +294,7 @@ def _batch_id(
     environment: str,
     sealed_at: str,
     source_path_sha256: str,
+    source_file_identity: dict[str, int],
     retention_days: dict[str, int],
     artifacts: list[dict[str, Any]],
 ) -> str:
@@ -299,6 +303,7 @@ def _batch_id(
         "environment": environment,
         "as_of": sealed_at,
         "source_path_sha256": source_path_sha256,
+        "source_file_identity": source_file_identity,
         "retention_days": retention_days,
         "artifacts": [
             {
@@ -341,6 +346,7 @@ def seal_batch(
     if environment not in ENVIRONMENTS:
         raise RehearsalError(f"environment must be one of {ENVIRONMENTS}")
     source_path = _local_path(source, must_exist=True)
+    source_stat = source_path.stat()
     normalized_as_of = _timestamp(_utc(as_of))
     normalized_retention = retention_policy(
         retention_days["usage"], retention_days["ops"], retention_days["qa"]
@@ -355,6 +361,7 @@ def seal_batch(
         normalized_as_of=normalized_as_of,
         retention_days=normalized_retention,
         source_path_sha256=_sha256(str(source_path).encode("utf-8")),
+        source_file_identity={"device": source_stat.st_dev, "inode": source_stat.st_ino},
     )
     if report["candidate_rows"] == 0:
         raise RehearsalError("cannot seal an empty rehearsal batch")
@@ -371,6 +378,7 @@ def seal_batch(
         environment=environment,
         sealed_at=report["as_of"],
         source_path_sha256=report["source_path_sha256"],
+        source_file_identity=report["source_file_identity"],
         retention_days=normalized_retention,
         artifacts=artifacts,
     )
@@ -382,6 +390,7 @@ def seal_batch(
         "sealed_at": report["as_of"],
         "source_kind": "local_sqlite_read_only",
         "source_path_sha256": report["source_path_sha256"],
+        "source_file_identity": report["source_file_identity"],
         "retention_days": normalized_retention,
         "source_rows": report["source_rows"],
         "total_rows": sum(entry["row_count"] for entry in artifacts),
@@ -509,6 +518,16 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         or any(character not in "0123456789abcdef" for character in source_path_sha256)
     ):
         raise RehearsalError("manifest source_path_sha256 is invalid")
+    source_file_identity = manifest.get("source_file_identity")
+    if (
+        not isinstance(source_file_identity, dict)
+        or set(source_file_identity) != {"device", "inode"}
+        or any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in source_file_identity.values()
+        )
+    ):
+        raise RehearsalError("manifest source_file_identity is invalid")
     policy = manifest.get("retention_days")
     if not isinstance(policy, dict):
         raise RehearsalError("manifest retention_days is invalid")
@@ -554,6 +573,7 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             environment=manifest["environment"],
             sealed_at=sealed_at,
             source_path_sha256=source_path_sha256,
+            source_file_identity=source_file_identity,
             retention_days=normalized_policy,
             artifacts=artifacts,
         )
@@ -592,6 +612,13 @@ def restore_random(
         raise RehearsalError("restore target must be outside the sealed batch")
     if _sha256(str(target_path).encode("utf-8")) == manifest["source_path_sha256"]:
         raise RehearsalError("restore target must not be the sealed batch source")
+    if target_path.exists():
+        target_stat = target_path.stat()
+        if {
+            "device": target_stat.st_dev,
+            "inode": target_stat.st_ino,
+        } == manifest["source_file_identity"]:
+            raise RehearsalError("restore target must not reference the sealed source file")
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
     connection = sqlite3.connect(target_path)

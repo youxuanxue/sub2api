@@ -19,7 +19,7 @@ CREATE TABLE archive_rehearsal_records (
 
 `dataset` is `usage`, `ops`, or `qa`; `created_at` is timezone-aware ISO 8601;
 `payload_json` is valid finite JSON. The tool opens this database with SQLite
-`mode=ro` and `query_only`.
+`mode=ro` and `query_only`. UTC normalization preserves source microseconds.
 
 ## Rehearsal
 
@@ -42,5 +42,7 @@ python3 ops/archive/data_layer_archive_rehearsal.py restore-random \
 
 The defaults retain usage for 90 days, ops for 30 days, and QA for 2 days.
 Every manifest keeps `deletion_authorized=false`; there is no deletion command.
+The sealed source path and file identity prevent restore targets from pointing
+back to the source through another path or hard link.
 Production snapshot, export canary, object storage, and deletion require separate
 approval and are intentionally absent here.
