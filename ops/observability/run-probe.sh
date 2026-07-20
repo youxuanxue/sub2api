@@ -33,6 +33,9 @@
 #                        deploy/aws/stage0/resolve-edge-target.py + CloudFormation
 #                        (planned edges; EC2-matrix shaped only).
 #
+#   --timeout-seconds    30..2592000; passed to SSM and also used as the local
+#                        polling budget. Polling never resubmits the command.
+#
 # Env passthrough:
 #   --env FOO=bar appears as `FOO=bar` in the remote shell *before* the script
 #   line; multiple --env are concatenated with spaces.
@@ -53,10 +56,13 @@
 # The wrapper deliberately does NOT retry on transient SSM errors — retry is a
 # decision the caller (skill author or human operator) should make. Silent
 # retries hide pollution like "probe instance went offline" or "rate limited".
+# Polling the original CommandId is not a retry. InvocationDoesNotExist is
+# tolerated while the newly-created invocation becomes visible, but no command
+# is ever re-submitted.
 set -euo pipefail
 
 usage() {
-  sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 TARGET=""
@@ -84,6 +90,16 @@ done
 if [ -z "$TARGET" ] || [ -z "$SCRIPT_PATH" ]; then
   echo "[run-probe] ERROR: --target and --script are required" >&2
   usage >&2
+  exit 1
+fi
+
+if [[ ! "$TIMEOUT_SECONDS" =~ ^[0-9]+$ ]]; then
+  echo "[run-probe] ERROR: --timeout-seconds must be an integer from 30 to 2592000" >&2
+  exit 1
+fi
+TIMEOUT_SECONDS=$((10#$TIMEOUT_SECONDS))
+if [ "$TIMEOUT_SECONDS" -lt 30 ] || [ "$TIMEOUT_SECONDS" -gt 2592000 ]; then
+  echo "[run-probe] ERROR: --timeout-seconds must be an integer from 30 to 2592000" >&2
   exit 1
 fi
 
@@ -250,29 +266,75 @@ CMD_ID=$(aws ssm send-command \
 }
 echo "[run-probe] command_id=$CMD_ID" >&2
 
-# Wait without --no-cli-pager flag dependencies; AWS waiter handles polling.
-aws ssm wait command-executed \
-  --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-  >/dev/null 2>&1 || true  # preflight-allow: swallow
+# The AWS waiter has a fixed ~100s budget (5s x 20 checks), independent of the
+# caller's --timeout-seconds. Poll here so every caller gets the timeout it
+# requested while continuing to observe the same CommandId.
+DEADLINE=$((START + TIMEOUT_SECONDS))
+INVOCATION_JSON=""
+INVOCATION_ERROR_FILE=$(mktemp)
+trap 'rm -f "$INVOCATION_ERROR_FILE"' EXIT
+POLL_TIMED_OUT=0
+while :; do
+  if INVOCATION_JSON=$(aws ssm get-command-invocation \
+      --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+      --output json 2>"$INVOCATION_ERROR_FILE"); then
+    STATUS=$(printf '%s' "$INVOCATION_JSON" | python3 -c \
+      'import json, sys; print(json.load(sys.stdin).get("Status", ""))')
+    case "$STATUS" in
+      Success|Cancelled|TimedOut|Failed) break ;;
+      Pending|InProgress|Delayed|Cancelling) ;;
+      *)
+        echo "[run-probe] ERROR: unexpected SSM status: ${STATUS:-<empty>}" >&2
+        exit 2
+        ;;
+    esac
+  else
+    INVOCATION_ERROR=$(cat "$INVOCATION_ERROR_FILE")
+    if [[ "$INVOCATION_ERROR" == *"InvocationDoesNotExist"* ]]; then
+      STATUS="Pending"
+      INVOCATION_JSON=""
+    else
+      echo "[run-probe] ERROR: ssm get-command-invocation failed" >&2
+      printf '%s\n' "$INVOCATION_ERROR" >&2
+      exit 2
+    fi
+  fi
 
-STATUS=$(aws ssm get-command-invocation \
-  --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-  --query 'Status' --output text)
+  NOW=$(date +%s)
+  REMAINING=$((DEADLINE - NOW))
+  if [ "$REMAINING" -le 0 ]; then
+    POLL_TIMED_OUT=1
+    break
+  fi
+  if [ "$REMAINING" -lt 5 ]; then
+    sleep "$REMAINING"
+  else
+    sleep 5
+  fi
+done
+
 END=$(date +%s)
 DURATION=$((END - START))
 echo "[run-probe] status=$STATUS duration=${DURATION}s" >&2
 
-STDOUT=$(aws ssm get-command-invocation \
-  --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-  --query 'StandardOutputContent' --output text)
-
-STDERR=$(aws ssm get-command-invocation \
-  --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-  --query 'StandardErrorContent' --output text)
+STDOUT=""
+STDERR=""
+if [ -n "$INVOCATION_JSON" ]; then
+  STDOUT=$(printf '%s' "$INVOCATION_JSON" | python3 -c \
+    'import json, sys; sys.stdout.write(json.load(sys.stdin).get("StandardOutputContent") or "")')
+  STDERR=$(printf '%s' "$INVOCATION_JSON" | python3 -c \
+    'import json, sys; sys.stdout.write(json.load(sys.stdin).get("StandardErrorContent") or "")')
+fi
 
 # Stream stderr through with a tag so it's distinguishable from wrapper messages
 if [ -n "$STDERR" ] && [ "$STDERR" != "None" ]; then
   printf '%s\n' "$STDERR" | sed 's/^/[remote-stderr] /' >&2
+fi
+
+if [ "$POLL_TIMED_OUT" = "1" ]; then
+  echo "[run-probe] ERROR: polling timed out status=$STATUS command_id=$CMD_ID" >&2
+  printf '%s\n' "$STDOUT"
+  exit 3
 fi
 
 if [ "$STATUS" != "Success" ]; then
