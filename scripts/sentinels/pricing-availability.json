@@ -137,13 +137,25 @@
       "rationale": "Regression coverage for the public-catalog support filter: asserts retired/unservable claude+gpt rows are pruned, servable ones kept, curated newapi display=false rows are hidden, and unknown/unmapped vendors stay hidden until a universal mapping exists. TestSupportedCatalogModelIDsForPlatform (table-driven, covering anthropic/openai/antigravity/grok) and TestIsPublicCatalogModelSupported assert supportedCatalogModelIDsForPlatform / isPublicCatalogModelSupported against the live supported*CatalogModels maps by reference (any-key-from-map + explicit not-in-map probes) rather than duplicating each map's literal model list — so an SSOT allowlist refresh never requires a matching test edit, while an upstream merge that drops the filter functions or the test file itself still trips this sentinel. Pinned so an upstream merge that rewrites the catalog test file cannot silently drop the filter's regression guard. (This file also matches the *_tk_*.go hotspot via its _tk_test.go suffix, so the registry-update gate requires it to be tracked in a sentinel registry; pricing-availability is its correct domain.)"
     },
     {
+      "path": "backend/internal/service/pricing_tk_base_tax.go",
+      "must_contain": [
+        "var tkOfficialListBaseTaxRules",
+        "{provider: \"moonshot\", modelPrefixes: []string{\"kimi-\", \"kimi/\", \"moonshot-\"}}",
+        "for _, rule := range tkOfficialListBaseTaxRules",
+        "tkLitellmProviderHasBaseTax(tkInferBaseTaxProvider(model))"
+      ],
+      "rationale": "Single owner for the 1.06 official-list base-tax provider eligibility and bare-model fallback classification. Overlay/litellm billing and public /pricing classify by provider/vendor through tkLitellmProviderHasBaseTax; hardcoded fallback classifies a bare requested model through tkInferBaseTaxProvider and then the same eligibility helper. Both helpers must derive from tkOfficialListBaseTaxRules so adding a CN provider such as Moonshot cannot update display tax while silently leaving fallback billing untaxed (or vice versa). Channel DB pricing remains outside this mechanism and is never re-taxed."
+    },
+    {
       "path": "backend/internal/service/pricing_tk_base_tax_test.go",
       "must_contain": [
         "TestPricingService_GetModelPricing_AppliesBaseTaxOnLookup",
+        "TestBillingFallback_MoonshotModelNamesApplyBaseTax",
+        "moonshot-tax-test",
         "tkCNYPerMTokToUSDPerToken(8)",
         "manifest-listed GLM uses BigModel overlay"
       ],
-      "rationale": "Pins billing/catalog base-tax lookup regression for CN-origin providers, including the GLM authoritative-overlay path: GetModelPricing must apply zhipu 1.06 tax on the BigModel-sourced overlay rate even when litellm mirror carries a different non-zero glm-5.2 row."
+      "rationale": "Pins billing/catalog base-tax lookup regression for CN-origin providers, including the GLM authoritative-overlay path and Moonshot's provider plus bare-model fallback paths. GetModelPricing must apply the shared 1.06 rule without mutating cached pre-tax overlay data, and fallback billing must classify kimi-/moonshot- names through the same registry."
     },
     {
       "path": "backend/internal/service/pricing_catalog_tk.go",
@@ -207,10 +219,11 @@
         "tk_served_models.json",
         "servable-allowlist:begin",
         "served-via-admin-ui",
+        "served-via-modelops-activation",
         "#812-class gap",
         "def _selftest("
       ],
-      "rationale": "The served-models manifest drift guard — asserts backend/internal/service/tk_served_models.json (the THIN intent layer: 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no') AGREES with the mechanisms it sits above: (A1) tk_pricing_overlay.json non-zero price, (A2) display intent (native display=true => present in the Go servable-allowlist maps parsed between the `servable-allowlist:begin/end <platform>` markers; newapi display is owned by this manifest), and (A3) the tk_*.sql model_mapping migrations (served_on account => quoted model_id co-occurs with `id = <account>`). A3 is the #812-catching direction: a model priced + advertised-as-intended but never wired onto the serving account's model_mapping yields an empty pool => 429/503. The `served-via-admin-ui` literal is the reviewable A3 opt-out for mappings applied out-of-band of any migration (needed for deepseek-v4-pro/flash on account 39, whose model_mapping predates the tk_*.sql era). Pinning the script + its load-bearing literals stops a silent drop on upstream merge (the guard would otherwise just stop running with no compile error) and forces any rename of the splice markers / opt-out token to update this anchor in the same change. Wired into scripts/preflight.sh ('sub2api: catalog serving drift') and .github/workflows/upstream-merge-pr-shape.yml (Check 14) — preflight/CI parity."
+      "rationale": "The served-models manifest drift guard asserts repository agreement for the thin intent layer: (A1) non-zero pricing, (A2) native allowlist or manifest-owned newapi display, and (A3) an explicit mapping write path. Legacy rows may be evidenced by a quoted model id plus account guard in tk_*.sql or by the served-via-admin-ui seed-state marker; every new floor must declare served-via-modelops-activation and then complete the approved evidence-backed prod activation before release. A3 catches the #812 priced/displayed-but-empty-pool failure without forcing generic deploy to mutate live accounts. Pinning both legacy and activation markers, the selftest, and the allowlist parser prevents an upstream merge from silently dropping either safety path. Wired into preflight and the upstream conflict gate."
     },
     {
       "path": "backend/internal/service/tk_served_models.json",
@@ -218,9 +231,10 @@
         "\"entries\"",
         "\"price_source\"",
         "\"served_on\"",
-        "\"display\""
+        "\"display\"",
+        "served-via-modelops-activation"
       ],
-      "rationale": "The served-models MANIFEST itself — the single declarative source of intent consumed by scripts/checks/catalog-serving-drift.py (now), the tokenkey-onboard-model skill (now), and a future newapi reconciler (//go:embed of this file, co-located with tk_pricing_overlay.json so the same Go package can embed both). Pinning the schema keys (entries / price_source / served_on / display) stops an upstream merge or refactor from silently truncating the manifest to an empty/legacy shape that would make the drift guard vacuously pass while the intent->migration->price agreement it encodes is lost. GLM chat models follow DashScope-first policy (glm-4.7 on the configured Qwen channel_type=17 pool; live account membership is runtime DB/admin config); VolcEngine glm-4-7-251222 was withdrawn 2026-07-06. Co-located with the overlay so the same preflight parses both and the same package will embed both."
+      "rationale": "The served-models MANIFEST is the single declarative intent source consumed by the drift guard, onboarding skill, display projections, and generated account-mapping bundle. Pinning the schema keys plus the modelops activation declaration prevents an upstream merge from truncating the manifest or reverting new mapping floors to generic-deploy migrations while leaving compile/tests superficially green. Co-located with the overlay so the same preflight parses price and serving intent."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay.go",

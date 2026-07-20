@@ -323,8 +323,8 @@ glm-4.7  glm-4.6  glm-4.5  glm-4.5-air
 ## 6. 维护与刷新
 
 - **可服务 allowlist 刷新**：`/tokenkey-servable-model-refresh`（`ops/pricing/refresh-servable-allowlist.py`）——经 prod SSM 逐模型真实请求，只留 200，splice 回 Go servable map。探测元组当前为 anthropic/openai/gemini；antigravity/grok 手维护。
-- **上架单个模型（served+priced）**：`/tokenkey-onboard-model`——probe → `tk_served_models.json` 清单 → `tk_NNN` model_mapping 迁移 + overlay fill-only 价（**官方源、禁臆造**）→ apply-live（scheduler_outbox 热更 + overlay sync-runtime）→ livefire 200 → 两档计费核对。
-- **漂移门禁**：`scripts/checks/catalog-serving-drift.py`（manifest↔migration↔overlay 三方一致，priced-but-not-mapped 硬失败）经 `scripts/preflight.sh` 调用。
+- **上架单个模型（served+priced）**：`/tokenkey-onboard-model`——probe → `tk_served_models.json` 清单 + overlay fill-only 价（**官方源、禁臆造**）→ 生成 checksummed bundle → `modelops activate` 以独立 probe/pricing evidence 写入 prod mapping → release/livefire 200 → 两档计费核对；generic deploy/rollback 不写 live mapping。
+- **漂移门禁**：`scripts/checks/catalog-serving-drift.py`（manifest↔mapping path↔overlay 一致，未声明 activation/legacy mapping 的 priced-but-not-mapped 条目硬失败）经 `scripts/preflight.sh` 调用。
 - **不可服务台账机器源**：`ops/pricing/servable-reprobe-ledger.json`（watchlist / skiplist / deadlist）由 `refresh-servable-allowlist.py selftest` 和 preflight 校验，避免 transient 记录过期或误进永久 skip。
 
 ---

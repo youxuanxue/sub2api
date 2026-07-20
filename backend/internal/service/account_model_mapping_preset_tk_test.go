@@ -26,11 +26,12 @@ func TestAccountModelMappingPresetIDs_NewAPIVertexMatchesGeminiServable(t *testi
 	require.ElementsMatch(t, supportedCatalogModelIDsForPlatform(PlatformGemini), ids)
 }
 
-func TestAccountModelMappingPresetIDs_NewAPIOtherChannelEmpty(t *testing.T) {
+func TestAccountModelMappingPresetIDs_NewAPIMoonshotUsesManifest(t *testing.T) {
 	t.Parallel()
-	// Moonshot (25) is not in tk_served_models manifest — no TK-verified preset.
-	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, 25, nil)
-	require.Empty(t, ids)
+	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeMoonshot, nil)
+	require.ElementsMatch(t, tkServedModelsManifestPresetIDsByChannelType(newapiconstant.ChannelTypeMoonshot), ids)
+	require.ElementsMatch(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeMoonshot), ids,
+		"all empirically verified Moonshot account models are displayable")
 }
 
 func TestAccountModelMappingPresetIDs_NewAPIDeepSeekUsesManifest(t *testing.T) {

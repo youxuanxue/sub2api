@@ -184,11 +184,11 @@ func isTkCuratedNewAPICatalogRowDisplayed(vendor, modelID string) bool {
 
 // isNewAPILongTailCatalogVendor reports whether a catalog row's vendor string
 // belongs to the fifth-platform newapi curated long-tail (qwen/deepseek/GLM/
-// VolcEngine Ark), as opposed to the four native platforms + grok which carry
+// Moonshot/VolcEngine Ark), as opposed to the four native platforms + grok which carry
 // their own servable allowlists.
 func isNewAPILongTailCatalogVendor(vendor string) bool {
 	switch vendor {
-	case "newapi", "volcengine", "deepseek", "dashscope", "alibaba", "zhipu", "bigmodel", "zai":
+	case "newapi", "volcengine", "deepseek", "dashscope", "alibaba", "zhipu", "bigmodel", "zai", "moonshot", "kimi":
 		return true
 	default:
 		return false
