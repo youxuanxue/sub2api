@@ -281,9 +281,11 @@
       "must_contain": [
         "k == \"_config\"",
         "config-shadow",
-        "compute_overlay_drift"
+        "compute_overlay_drift",
+        "config_errors = runtime_config_errors(doc)",
+        "runtime official_list_base_tax drops embedded providers"
       ],
-      "rationale": "Runtime drift and sync must treat executable _config as owned state while continuing to ignore _meta provenance. Otherwise tax changes could be filtered out of pending/shadow checks even though model price hot-pushes remain visible."
+      "rationale": "Runtime drift and sync must treat executable _config as owned state while continuing to ignore _meta provenance. Before any prod UPSERT, a custom --overlay-path must reuse the executable policy validator and retain every embedded provider; otherwise the tool can report byte-level sync success while all replicas reject the snapshot and keep last-known-good."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay_runtime.go",
