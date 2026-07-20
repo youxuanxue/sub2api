@@ -33,20 +33,17 @@ python3 ops/observability/edge_capacity_report.py collect \
   --output docs/ops/edge-capacity-report-20260720-c1.md
 ```
 
-脚本通过 `deploy/aws/stage0/resolve-edge-target.py --list-deployable` 解析目标，经 `ops/observability/run-probe.sh` 上传 `probe-edge-capacity.sh` 和分析器。若 AWS waiter 先于远端查询结束，脚本只轮询原 command id，不重复提交查询。
+本地 `edge_capacity_report.py` 负责 SSM 编排、同类型聚合和 Markdown；远端 `edge_capacity_probe.py` 只负责只读 SQL、错误归属与持续区间重建。目标由 `resolve-edge-target.py --list-deployable` 解析，`run-probe.sh` 在等待预算内只轮询原 command id，不重复提交。
 
 只重绘已有 JSON 时使用：
 
 ```bash
 python3 ops/observability/edge_capacity_report.py render \
-  --input us3=.cache/edge-capacity-report-raw/us3.json \
-  --input us4=.cache/edge-capacity-report-raw/us4.json \
-  --input us5=.cache/edge-capacity-report-raw/us5.json \
-  --input us6=.cache/edge-capacity-report-raw/us6.json \
+  --raw-dir .cache/edge-capacity-report-raw \
   --output docs/ops/edge-capacity-report-20260720-c1.md
 ```
 
-`.cache/edge-capacity-report-raw/` 只用于本地审计与离线重绘，保持在 git ignore 中，不提交账号快照和原始日志聚合结果。
+`render` 会按 deployable Edge SSOT 自动加载并校验完整集合，Edge 增减时不会静默沿用旧列表。`.cache/edge-capacity-report-raw/` 只用于本地审计与离线重绘，保持在 git ignore 中，不提交账号快照和原始日志聚合结果。
 
 ## 固定口径
 
@@ -56,9 +53,11 @@ python3 ops/observability/edge_capacity_report.py render \
 - `Repeated`：至少三个独立最大连续区间达到门槛；一段长区间只算一次。
 - `Cross-day`：Repeated 的区间开始日期覆盖至少两个 UTC 日期。
 - `Pristine`：无最终对客失败，也无归属于该账号的 recovered upstream/account-auth 事件。
-- 错误先通过稳定 request id 关联最终 access；关联后仍无法归属账号的池级错误单列，不摊给账号。
-- 同类型建议：按 `(platform, channel_type)` 分组；样本不少于三个时，取至少三个独立账号且跨至少两个 Edge 证明的最高 F pristine Cross-day 值。两个样本取共同证明值，一个样本只标暂定。
-- 公开报告只输出 `Edge + account_id`，不得写入账号名、邮箱或 raw JSON；完整账号快照只留在被 git ignore 的本地缓存。
+- 错误先通过稳定 request id 关联最终 access；关联后仍无法归属账号的池级错误不摊给账号。
+- collect 固定一个共同绝对 `snapshot_at`；各 Edge 的实际 access 起点必须覆盖整个窗口，请求窗口、无错窗口、持续门槛和落稳时间必须完全一致，否则拒绝合并。
+- 同类型建议：按 `(platform, channel_type)` 分组；样本不少于三个时，取至少三个独立账号且跨至少两个 Edge 证明的最高 F pristine Cross-day 值。两个样本必须分属两个 Edge 并取共同证明值，一个样本只标暂定。
+- 当前 cap 只是本地调度快照，不作为同类型上游能力上限；建议值只由实际 F pristine Cross-day 证据决定。
+- probe 不采集账号名、邮箱、credentials 或模型明细；报告和 raw JSON 都只用 `Edge + account_id` 标识账号。
 
 ## 完成检查
 
@@ -73,4 +72,4 @@ git diff --check
 
 4. 若要提交 PR，按项目规则运行 `./scripts/preflight.sh`，PR body 使用中文并从实际 commit 集合生成。
 
-报告是生成物。算法或文案需要调整时，先改 `ops/observability/edge_capacity_report.py` 和行为测试，再重新 collect/render。
+报告是生成物。SQL/区间口径改 `edge_capacity_probe.py`，聚合/文案改 `edge_capacity_report.py`；两者都必须先补行为测试，再重新 collect/render。

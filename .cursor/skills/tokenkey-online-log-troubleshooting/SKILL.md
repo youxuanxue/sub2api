@@ -129,7 +129,7 @@ docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -F $'\t' -c "SE
 
 ## 2) SSM 执行方式（机械化）
 
-所有远端命令通过 `ops/observability/run-probe.sh` 投递。包装了 base64 投递 + `aws ssm send-command` + waiter + `get-command-invocation` 取 stdout 的标准流程；instance 解析按 target 分流——edge 委托 `ops/stage0/edge_ssm_execution.py`（Lightsail tag-SSM → `mi-*`），prod 走 CloudFormation `describe-stacks`。
+所有远端命令通过 `ops/observability/run-probe.sh` 投递。包装了 base64 投递 + `aws ssm send-command` + 对同一 CommandId 持续 `get-command-invocation` 取 stdout 的标准流程；instance 解析按 target 分流——edge 委托 `ops/stage0/edge_ssm_execution.py`（Lightsail tag-SSM → `mi-*`），prod 走 CloudFormation `describe-stacks`。
 
 ```bash
 # 调用 probe-caps.sh（caps + 不可调度证据 + Redis 快照 + 最近 2h ops_error_logs）
