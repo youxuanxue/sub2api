@@ -1,7 +1,9 @@
 # Data-layer archive rehearsal
 
-This directory is the approved local/non-production rehearsal surface. It does
-not connect to PostgreSQL, S3, AWS, Docker, or production workflows.
+This directory is the approved local/non-production rehearsal surface. The
+SQLite path is the deterministic baseline; `snapshot-postgres` is restricted to
+a localhost Docker PostgreSQL carrying the rehearsal sentinel. Nothing here
+connects to production, S3, AWS, schedules, or deployment workflows.
 
 ## Source contract
 
@@ -46,3 +48,30 @@ The sealed source path and file identity prevent restore targets from pointing
 back to the source through another path or hard link.
 Production snapshot, export canary, object storage, and deletion require separate
 approval and are intentionally absent here.
+
+## PostgreSQL phase 3
+
+The end-to-end command is deliberately narrow:
+
+```bash
+PGPASSWORD="$LOCAL_REHEARSAL_PASSWORD" \
+python3 ops/archive/data_layer_archive_rehearsal.py snapshot-postgres \
+  --source-dsn postgresql://tokenkey@127.0.0.1:5433/tokenkey_archive_rehearsal \
+  --target-dsn postgresql://tokenkey@127.0.0.1:5433/tokenkey_archive_restore_20260720 \
+  --archive-root /tmp/tokenkey-archive-rehearsal \
+  --environment nonprod --as-of 2026-07-20T00:00:00Z --seed 20260720
+```
+
+The source is accepted only when all of these hold:
+
+- URI host is `localhost`, `127.0.0.1`, or `::1`;
+- database is exactly `tokenkey_archive_rehearsal`;
+- `archive_rehearsal_sentinel` contains the label `tokenkey_archive_rehearsal`;
+- only `usage_logs`, `ops_system_logs`, `ops_error_logs`, and `qa_records` are queried.
+
+The target must be a separate database whose name starts with
+`tokenkey_archive_restore_`. The command runs `dry-run -> seal -> verify ->
+restore-random`, uses read-only source transactions with lock/statement
+timeouts and a row cap, and reports elapsed time, source/candidate rows,
+logical/artifact bytes, compression ratio, and restore verification. It never
+deletes source or target data.

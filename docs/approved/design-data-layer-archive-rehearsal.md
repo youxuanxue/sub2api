@@ -1,7 +1,7 @@
 ---
 title: Data-layer 非生产归档恢复演练
 status: approved
-approved_by: "xuejiao (phase 2 approval, 2026-07-20)"
+approved_by: "xuejiao (phase 2 + phase 3 approval, 2026-07-20)"
 approved_at: 2026-07-20
 authors: [agent]
 created: 2026-07-20
@@ -11,13 +11,30 @@ created: 2026-07-20
 
 ## 决策
 
-第二阶段只实现本地与非生产归档演练，证明冷数据能够被确定性筛选、封口、校验并恢复。
-本阶段不连接 PostgreSQL 或对象存储网络端点，不接入 workflow/schedule/runtime，不执行
-任何生产命令，也不提供删除能力。
+SQLite 是确定性基线，第三阶段接入隔离的非生产 PostgreSQL；两者都证明冷数据能够被确定性
+筛选、封口、校验并恢复，第三阶段额外记录真实查询耗时、数据量、压缩率和独立 PostgreSQL
+恢复校验结果。本设计不接入对象存储、workflow/schedule/runtime，不执行任何生产命令，也不
+提供删除能力。
 
-演练源和恢复目标均为本地 SQLite 文件。源库必须以 read-only URI 和 `query_only` 打开，
-既能验证真实数据库筛选/恢复行为，又从能力边界上排除生产 PostgreSQL。未来的 PostgreSQL
-导出适配器、S3、生产 canary 和删除分别进入新的审批阶段，不能由本阶段 merge 自动激活。
+SQLite 源和恢复目标必须以 read-only URI / `query_only` 打开。PostgreSQL 源只允许 localhost
+Docker 数据库和专用 sentinel；生产 PostgreSQL、S3、生产 canary 和删除分别进入新的审批阶段，
+不能由本阶段 merge 自动激活。
+
+### Phase 3 PostgreSQL 边界
+
+- CLI 入口为 `snapshot-postgres`，只接受 `postgresql://` localhost DSN；源数据库必须精确为
+  `tokenkey_archive_rehearsal`，并存在 `archive_rehearsal_sentinel(label='tokenkey_archive_rehearsal')`。
+  远程主机、生产数据库名、libpq 非 URI 和缺 sentinel 均 fail closed。
+- 只读事务按白名单读取 `usage_logs`、`ops_system_logs`、`ops_error_logs`、`qa_records` 的
+  `created_at` 冷数据；设置 2 秒锁等待、显式 statement timeout 和最大导出行数。
+- 工件仍使用 canonical JSONL + gzip + manifest + SHA-256；manifest 标记
+  `source_mutated=false`、`deletion_authorized=false`，并记录 logical/artifact bytes、压缩率和
+  PostgreSQL 查询指标。ops 表记录 ID 以表名前缀隔离，避免跨表冲突。
+- 恢复目标 DSN 必须是同一 localhost Docker PostgreSQL 上以 `tokenkey_archive_restore_` 开头的
+  独立数据库。仅创建 `archive_rehearsal_restored` 并幂等插入；冲突在写入前拒绝，恢复后重新读取
+  并校验行数和 logical SHA-256。
+- 全链路固定为 `dry-run -> seal -> verify -> restore-random`；没有 purge/delete、生产地址、S3、
+  定时任务或自动部署入口。
 
 ## 工件契约
 
@@ -41,18 +58,19 @@ payload 必须是 finite JSON。
 ## 状态机
 
 ```text
-local/nonprod source --read-only--> dry-run 水位报告
+local SQLite / nonprod PostgreSQL --read-only--> dry-run 水位报告
   -> candidate=0: 拒绝封口
   -> candidate>0: 原子写临时目录 -> manifest + artifacts -> verify
        -> 校验失败: 拒绝发布批次
        -> 校验通过: sealed batch
-            -> seeded random artifact -> local restore DB -> row/checksum verify
+            -> seeded random artifact -> independent local/PG restore DB -> row/checksum verify
                  -> 冲突/损坏: rollback + fail closed
                  -> 一致: restore receipt；重复恢复为幂等复用
 ```
 
-CLI 只允许 `dry-run`、`seal`、`verify`、`restore-random`。不存在 purge/delete 子命令，
-也不存在 prod environment 选项、网络 DSN、AWS、Docker、`psql` 或数据库 DDL/DML 删除入口。
+SQLite CLI 只允许 `dry-run`、`seal`、`verify`、`restore-random`；PostgreSQL 只增加
+`snapshot-postgres` 全链路入口。不存在 purge/delete 子命令、生产地址、AWS、对象存储、定时任务
+或自动部署入口。
 
 ## 恢复验收
 
@@ -61,7 +79,8 @@ CLI 只允许 `dry-run`、`seal`、`verify`、`restore-random`。不存在 purge
 - 恢复表以 batch/dataset/record 唯一键幂等写入，重复运行不新增行；
 - 目标已有同键异值时，checksum 校验失败并回滚本次写入；
 - dry-run 和封口前后源 SQLite 文件内容 checksum 保持不变；
-- 测试使用临时本地数据库，不依赖手工服务或外部网络。
+- PostgreSQL 演练源只执行 read-only transaction，恢复目标是独立临时数据库；测试使用真实
+  `postgres:18-alpine` 容器（无容器运行时则跳过集成层），不依赖生产服务或外部网络。
 
 ## 后续独立审批
 

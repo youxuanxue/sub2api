@@ -8,9 +8,11 @@ import importlib.util
 import json
 import os
 import pathlib
+import shutil
 import sqlite3
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -547,6 +549,318 @@ class DataLayerArchiveRehearsalTest(unittest.TestCase):
                 if _TOOL.name in body:
                     references.append(str(path.relative_to(_REPO)))
         self.assertEqual(references, [], msg=f"rehearsal unexpectedly activated by {references}")
+
+    def test_us037_postgres_dsn_and_table_guards_are_nonprod_only(self) -> None:
+        with self.assertRaisesRegex(rehearsal.RehearsalError, "localhost Docker"):
+            rehearsal._postgres_dsn_info(
+                "postgresql://postgres:secret@prod.example/tokenkey_archive_rehearsal",
+                target=False,
+            )
+        with self.assertRaisesRegex(rehearsal.RehearsalError, "source database"):
+            rehearsal._postgres_dsn_info(
+                "postgresql://postgres:secret@127.0.0.1/tokenkey",
+                target=False,
+            )
+        with self.assertRaisesRegex(rehearsal.RehearsalError, "restore database"):
+            rehearsal._postgres_dsn_info(
+                "postgresql://postgres:secret@127.0.0.1/tokenkey_archive_rehearsal",
+                target=True,
+            )
+        with self.assertRaisesRegex(rehearsal.RehearsalError, "unsupported"):
+            rehearsal._postgres_record_query("users", cutoff=self.as_of, limit=1)
+        remote_cli = subprocess.run(
+            [
+                "python3",
+                str(_TOOL),
+                "snapshot-postgres",
+                "--source-dsn",
+                "postgresql://postgres:secret@prod.example/tokenkey_archive_rehearsal",
+                "--target-dsn",
+                "postgresql://postgres:secret@127.0.0.1/tokenkey_archive_restore_cli",
+                "--archive-root",
+                str(self.archive_root),
+                "--as-of",
+                self.as_of,
+                "--seed",
+                "1",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(remote_cli.returncode, 2)
+        self.assertIn("localhost Docker", remote_cli.stderr)
+        prod_cli = subprocess.run(
+            [
+                "python3",
+                str(_TOOL),
+                "snapshot-postgres",
+                "--environment",
+                "prod",
+                "--source-dsn",
+                "postgresql://postgres:secret@127.0.0.1/tokenkey_archive_rehearsal",
+                "--target-dsn",
+                "postgresql://postgres:secret@127.0.0.1/tokenkey_archive_restore_cli",
+                "--archive-root",
+                str(self.archive_root),
+                "--as-of",
+                self.as_of,
+                "--seed",
+                "1",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(prod_cli.returncode, 2)
+        self.assertIn("invalid choice", prod_cli.stderr)
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with mock.patch.object(
+            rehearsal.subprocess, "run", return_value=completed
+        ) as run_psql:
+            rehearsal._run_psql(
+                "postgresql://postgres:secret@127.0.0.1/tokenkey_archive_rehearsal",
+                "SELECT 1",
+                timeout_seconds=1,
+                read_only=True,
+            )
+        command = run_psql.call_args.args[0]
+        self.assertNotIn("secret", " ".join(command))
+        self.assertEqual(run_psql.call_args.kwargs["env"]["PGPASSWORD"], "secret")
+
+
+def _have_postgres_integration() -> bool:
+    return bool(shutil.which("docker") and shutil.which("psql"))
+
+
+@unittest.skipUnless(
+    _have_postgres_integration(),
+    "needs docker and psql for the real PostgreSQL rehearsal integration test",
+)
+class PostgresArchiveRehearsalIntegrationTest(unittest.TestCase):
+    """Exercise the phase-3 contract against a throwaway real PostgreSQL."""
+
+    _container: str | None = None
+    _port: str = ""
+    _source_dsn: str = ""
+    _admin_dsn: str = ""
+    _target_dsn: str = ""
+
+    @classmethod
+    def _psql(cls, dsn: str, sql: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                "psql",
+                dsn,
+                "-X",
+                "-q",
+                "-t",
+                "-A",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-c",
+                sql,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._container = f"tk-archive-rehearsal-{os.getpid()}"
+        image = os.environ.get("TOKENKEY_ARCHIVE_POSTGRES_IMAGE", "postgres:18-alpine")
+        try:
+            subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "-d",
+                    "--rm",
+                    "--name",
+                    cls._container,
+                    "-p",
+                    "127.0.0.1::5432",
+                    "-e",
+                    "POSTGRES_PASSWORD=test",
+                    "-e",
+                    "POSTGRES_DB=tokenkey_archive_rehearsal",
+                    image,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            deadline = time.time() + 60
+            while time.time() < deadline:
+                port = subprocess.run(
+                    ["docker", "port", cls._container, "5432/tcp"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                if ":" in port:
+                    cls._port = port.rsplit(":", 1)[-1]
+                ready = subprocess.run(
+                    [
+                        "docker",
+                        "exec",
+                        cls._container,
+                        "pg_isready",
+                        "-U",
+                        "postgres",
+                        "-d",
+                        rehearsal.POSTGRES_REHEARSAL_DATABASE,
+                    ],
+                    check=False,
+                    capture_output=True,
+                ).returncode == 0
+                if cls._port and ready:
+                    break
+                time.sleep(1)
+            if not cls._port:
+                raise RuntimeError("postgres port was not published")
+            base = f"postgresql://postgres:test@127.0.0.1:{cls._port}"
+            cls._source_dsn = f"{base}/{rehearsal.POSTGRES_REHEARSAL_DATABASE}"
+            cls._admin_dsn = f"{base}/postgres"
+            target_db = f"{rehearsal.POSTGRES_RESTORE_PREFIX}integration"
+            create_db = cls._psql(cls._admin_dsn, f"CREATE DATABASE {target_db}")
+            if create_db.returncode != 0:
+                raise RuntimeError(create_db.stderr)
+            cls._target_dsn = f"{base}/{target_db}"
+            schema = """
+            CREATE TABLE archive_rehearsal_sentinel (label text primary key);
+            INSERT INTO archive_rehearsal_sentinel VALUES ('tokenkey_archive_rehearsal');
+            CREATE TABLE usage_logs (id bigint, created_at timestamptz, model text, input_tokens integer);
+            CREATE TABLE ops_system_logs (id bigint, created_at timestamptz, level text, message text);
+            CREATE TABLE ops_error_logs (id bigint, created_at timestamptz, error_type text, error_message text);
+            CREATE TABLE qa_records (id bigint, created_at timestamptz, request_id text, status_code integer);
+            INSERT INTO usage_logs VALUES
+              (1,'2026-04-01T00:00:00Z','model-a',10),(2,'2026-07-01T00:00:00Z','model-b',20);
+            INSERT INTO ops_system_logs VALUES (1,'2026-06-01T00:00:00Z','WARN','old');
+            INSERT INTO ops_error_logs VALUES (1,'2026-06-02T00:00:00Z','upstream','old');
+            INSERT INTO qa_records VALUES (1,'2026-07-16T00:00:00Z','req-old',500);
+            """
+            seeded = cls._psql(cls._source_dsn, schema)
+            if seeded.returncode != 0:
+                raise RuntimeError(seeded.stderr)
+        except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+            cls.tearDownClass()
+            raise unittest.SkipTest(f"postgres backend unavailable: {exc}")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._container:
+            subprocess.run(["docker", "stop", cls._container], capture_output=True)
+            cls._container = None
+
+    def test_postgres_source_guards_fail_closed(self) -> None:
+        with self.assertRaisesRegex(rehearsal.RehearsalError, "exceed max_rows"):
+            rehearsal.postgres_dry_run(
+                self._source_dsn,
+                as_of="2026-07-20T00:00:00Z",
+                retention_days=dict(rehearsal.DEFAULT_RETENTION_DAYS),
+                timeout_seconds=10,
+                max_rows=1,
+            )
+        with self.assertRaisesRegex(rehearsal.RehearsalError, "read-only"):
+            rehearsal._run_psql(
+                self._source_dsn,
+                "INSERT INTO usage_logs VALUES "
+                "(99,'2026-01-01T00:00:00Z','must-not-write',1)",
+                timeout_seconds=10,
+                read_only=True,
+            )
+        with self.assertRaisesRegex(rehearsal.RehearsalError, "timed out|query failed"):
+            rehearsal._run_psql(
+                self._source_dsn,
+                "SELECT pg_sleep(2)",
+                timeout_seconds=1,
+                read_only=True,
+            )
+        changed = self._psql(
+            self._source_dsn,
+            "UPDATE archive_rehearsal_sentinel SET label = 'wrong-label'",
+        )
+        self.assertEqual(changed.returncode, 0, changed.stderr)
+        try:
+            with self.assertRaisesRegex(rehearsal.RehearsalError, "sentinel label"):
+                rehearsal.postgres_dry_run(
+                    self._source_dsn,
+                    as_of="2026-07-20T00:00:00Z",
+                    retention_days=dict(rehearsal.DEFAULT_RETENTION_DAYS),
+                    timeout_seconds=10,
+                    max_rows=100,
+                )
+        finally:
+            restored = self._psql(
+                self._source_dsn,
+                "UPDATE archive_rehearsal_sentinel "
+                "SET label = 'tokenkey_archive_rehearsal'",
+            )
+            self.assertEqual(restored.returncode, 0, restored.stderr)
+
+    def test_snapshot_postgres_runs_all_phases_and_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            archive_root = pathlib.Path(temporary) / "archives"
+            cli = subprocess.run(
+                [
+                    "python3",
+                    str(_TOOL),
+                    "snapshot-postgres",
+                    "--source-dsn",
+                    self._source_dsn,
+                    "--target-dsn",
+                    self._target_dsn,
+                    "--archive-root",
+                    str(archive_root),
+                    "--environment",
+                    "nonprod",
+                    "--as-of",
+                    "2026-07-20T00:00:00Z",
+                    "--seed",
+                    "7",
+                    "--timeout-seconds",
+                    "10",
+                    "--max-rows",
+                    "100",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(cli.returncode, 0, cli.stderr)
+            first = json.loads(cli.stdout)
+            self.assertEqual(first["dry_run"]["candidate_rows"], 4)
+            self.assertTrue(first["verify"]["verified"])
+            self.assertTrue(first["restore"]["verified"])
+            self.assertGreater(first["metrics"]["logical_bytes"], 0)
+            self.assertGreater(first["metrics"]["artifact_bytes"], 0)
+            self.assertIsNotNone(first["metrics"]["compression_ratio"])
+            self.assertNotIn("postgres:test", json.dumps(first, sort_keys=True))
+
+            second = rehearsal.snapshot_postgres(
+                self._source_dsn,
+                self._target_dsn,
+                archive_root,
+                as_of="2026-07-20T00:00:00Z",
+                seed=7,
+                retention_days=dict(rehearsal.DEFAULT_RETENTION_DAYS),
+                timeout_seconds=10,
+                max_rows=100,
+            )
+            self.assertTrue(second["seal"]["idempotent_reuse"])
+            self.assertTrue(second["restore"]["idempotent_reuse"])
+            self.assertEqual(second["restore"]["inserted_rows"], 0)
+            source_counts = self._psql(
+                self._source_dsn,
+                "SELECT (SELECT count(*) FROM usage_logs) + "
+                "(SELECT count(*) FROM ops_system_logs) + "
+                "(SELECT count(*) FROM ops_error_logs) + "
+                "(SELECT count(*) FROM qa_records)",
+            )
+            self.assertEqual(source_counts.returncode, 0, source_counts.stderr)
+            self.assertEqual(source_counts.stdout.strip(), "5")
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@
 - Trace:
   - 设计锚点：`docs/approved/design-data-layer-archive-rehearsal.md`
   - 前序容量设计：`docs/approved/design-capacity-first-data-layer-safety.md`
-  - 演练工具：`ops/archive/data_layer_archive_rehearsal.py`
+  - 演练工具：`ops/archive/data_layer_archive_rehearsal.py`（SQLite 基线 + `snapshot-postgres`）
 - Risk Focus:
   - 逻辑错误：水位边界或保留期算错，把热数据纳入归档。
   - 行为回归：重复封口/恢复产生不同批次或重复数据，无法安全重试。
@@ -25,12 +25,13 @@
 4. **AC-004（随机恢复）**：Given 已验证批次，When 使用显式 seed 随机选取一个 artifact 恢复，Then 恢复行数和 logical checksum 与 manifest 一致。
 5. **AC-005（幂等与冲突）**：Given 同批次重复恢复，When 目标内容一致，Then 不新增行；When 同键异值，Then checksum 失败并回滚。
 6. **AC-006（无生产能力）**：Given CLI，When 提供 prod environment、网络 DSN、源文件 symlink/hard link 恢复目标或 delete 命令，Then 参数解析/安全守卫拒绝；工具没有 runtime/prod consumer。
-7. **AC-007（阶段隔离）**：Given 本 PR 合并，When 检查 workflow/deploy/prod 工件，Then 没有生产接线、PostgreSQL/S3/AWS 调用或数据删除授权。
+7. **AC-007（阶段隔离）**：Given 本 PR 合并，When 检查 workflow/deploy/prod 工件，Then 没有生产接线、S3/AWS 调用、定时任务、自动部署或数据删除授权；PostgreSQL 仅允许带 sentinel 的 localhost 非生产库。
+8. **AC-008（PostgreSQL 真实演练）**：Given 隔离的 `tokenkey_archive_rehearsal` PostgreSQL 和独立 `tokenkey_archive_restore_*` 目标库，When 运行 `snapshot-postgres`，Then 按 dry-run → seal → verify → restore-random 完成，记录查询耗时、行数、logical/artifact 字节、压缩率，且源库行数和内容不变。
 
 ## Assertions
 
-- 本 Story 没有 UI 工件，不要求 Playwright e2e；CLI 全链路用临时真实 SQLite 验证。
-- SQLite 是本阶段刻意的能力边界，不是生产归档数据库选型。
+- 本 Story 没有 UI 工件，不要求 Playwright e2e；CLI 基线用临时 SQLite，Phase 3 用真实 PostgreSQL 容器验证。
+- SQLite 是确定性基线；PostgreSQL 阶段刻意限制在带 sentinel 的非生产 Docker 数据库，不代表生产归档授权。
 - dry-run 字节数是 logical JSONL 体积，不冒充 PostgreSQL `df` 物理回收量。
 - merge 只批准非生产演练工件，不批准 prod probe、扩盘、导出、canary 或删除。
 
@@ -49,6 +50,8 @@
 - `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_symlinks_are_rejected_and_timezone_order_is_canonical`
 - `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_cli_runs_full_local_rehearsal`
 - `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_tool_has_no_runtime_or_prod_consumer`
+- `ops/archive/test_data_layer_archive_rehearsal.py`::`PostgresArchiveRehearsalIntegrationTest.test_postgres_source_guards_fail_closed`
+- `ops/archive/test_data_layer_archive_rehearsal.py`::`PostgresArchiveRehearsalIntegrationTest.test_snapshot_postgres_runs_all_phases_and_is_idempotent`
 
 运行命令：
 
@@ -58,7 +61,7 @@ python3 ops/archive/test_data_layer_archive_rehearsal.py
 
 ## Evidence
 
-- 自动化测试使用临时 SQLite 源库、封口目录和恢复库，运行后自动清理。
+- 自动化测试使用临时 SQLite 源库、封口目录和恢复库；PostgreSQL 集成测试使用临时容器和独立目标库，运行后自动清理。
 
 ## Status
 
