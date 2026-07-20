@@ -1,7 +1,7 @@
 ---
 name: tokenkey-onboard-model
 description: >-
-  TokenKey served+priced model onboarding workflow for curated newapi mapping accounts. Use when adding/pricing Qwen or DeepSeek long-tail models, serving a model via accounts 39/60, or debugging priced-but-empty-pool 429/503 drift.
+  TokenKey served+priced model onboarding workflow for curated newapi mapping accounts. Use when adding or pricing Qwen, DeepSeek, Moonshot/Kimi, GLM, or VolcEngine long-tail models, serving via manifest-owned newapi accounts, or debugging priced-but-empty-pool 429/503 drift.
 ---
 
 # TokenKey：上架一个模型（served + priced，确定性流水线）
@@ -27,12 +27,13 @@ priced-but-hidden 等），并在测试里标明边界含义。
 
 ## 范围（严格，越界=类别错误）
 
-**只**覆盖 TK 策展、经账号 `model_mapping` 白名单服务的 **newapi 第五平台长尾**，当前两个专用单账号组：
+**只**覆盖 TK 策展、经账号 `model_mapping` 白名单服务的 **newapi 第五平台长尾**，包括这些专用账号/池：
 
 | 账号 | 名称 | platform | channel_type | group | 上游 |
 | --- | --- | --- | --- | --- | --- |
 | 60 | Qwen | newapi | 17（Ali/DashScope） | 18 | `dashscope.aliyuncs.com`（裸 host，Ali 适配器自接 `/compatible-mode/v1`） |
 | 39 | ds-官 | newapi | 43（DeepSeek） | 11 | `api.deepseek.com` |
+| 83 | kimi | newapi | 25（Moonshot） | 19 | `api.moonshot.cn`（国内站 key；价格取国内官方 RMB 表） |
 
 **不含**：litellm 全目录；四个原生平台（anthropic / openai / gemini / antigravity，各有 Go allowlist map，
 走 `tokenkey-servable-model-refresh`）；grok（原生第七平台 #791，platform=grok，经平台路由 + ch48 API-key
@@ -63,6 +64,8 @@ priced-but-hidden 等），并在测试里标明边界含义。
   prod 账号走大陆 endpoint故**不**建模国际价。思考/非思考双档：开源 dense Qwen3（8b/14b/32b）
   `enable_thinking` 默认 true，输出默认按思考档计费，overlay 要带 `thinking_output_cost_per_token`
   （pricing-overlay.py 有 THINKING_ANCHORS 硬门禁）。
+- Moonshot 国内账号用 `platform.kimi.com/docs/pricing/*` 的 RMB 列表价 ÷ 6.7；禁止拿国际站 USD 表给
+  `api.moonshot.cn` 账号定价。`moonshot-v1-auto` 当前经人审固定按 V1 128K 档计费，不自动按输入长度降档。
 
 在 `tokenkey-onboard-model` 流程 §1 之前，若不确定缺口类型，先走 skill
 `tokenkey-modelops-planner` 出只读 plan。
@@ -90,6 +93,21 @@ bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-ser
 > 必须随 `--with ops/pricing/probe_reserved_resources.sh` 上传。**此族属本 skill 的 column-3 配套**，
 > 与 manifest/guard 解耦——guard 不依赖
 > probe 跑过，只校验仓库内三方一致。
+
+Moonshot/Kimi 先用账号保存路径相同的鉴权 `GET /v1/models` 取得候选，再对每个候选走账号隔离探测；
+只有 `verdict=servable` 且 `usage_match.account_id` 命中目标账号才进入 manifest：
+
+```bash
+bash ops/observability/run-probe.sh --target prod \
+  --script ops/stage0/probe_account_model.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --env ACCOUNT_ID=83 --env MODEL=<model_id> --env ENDPOINT=chat \
+  --env MAX_TOKENS=1 --timeout-seconds 180
+```
+
+Moonshot 国内站与国际站 key/价格相互独立；账号 `base_url=api.moonshot.cn` 时，overlay 必须取
+`platform.kimi.com/docs/pricing/*` 国内 RMB 表并按 TokenKey `CNY/USD=6.7` 换算。overlay 保存税前价，
+billing 与公开 `/pricing` 通过 `litellm_provider=moonshot` 统一叠加 `tkOfficialListBaseTaxMultiplier=1.06`。
 
 ### 2) 写 manifest 条目（单一意图源，**先于**投影）
 

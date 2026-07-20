@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "floor_sha256": "50c5d59e2149f644d204a9398eb8945f19f5a317c6e8384ddf318826e9462f32",
+  "floor_sha256": "77e74e0ba8194f0a80b76ec71831fb4a434db14c3e9a23779d7b6d73435b34f6",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -138,6 +138,20 @@
         "qwen3.7-max-2026-06-08": "qwen3.7-max-2026-06-08",
         "qwen3.7-max-preview": "qwen3.7-max-preview",
         "qwen3.7-plus": "qwen3.7-plus"
+      },
+      "25": {
+        "kimi-k2.5": "kimi-k2.5",
+        "kimi-k2.6": "kimi-k2.6",
+        "kimi-k2.7-code": "kimi-k2.7-code",
+        "kimi-k2.7-code-highspeed": "kimi-k2.7-code-highspeed",
+        "kimi-k3": "kimi-k3",
+        "moonshot-v1-128k": "moonshot-v1-128k",
+        "moonshot-v1-128k-vision-preview": "moonshot-v1-128k-vision-preview",
+        "moonshot-v1-32k": "moonshot-v1-32k",
+        "moonshot-v1-32k-vision-preview": "moonshot-v1-32k-vision-preview",
+        "moonshot-v1-8k": "moonshot-v1-8k",
+        "moonshot-v1-8k-vision-preview": "moonshot-v1-8k-vision-preview",
+        "moonshot-v1-auto": "moonshot-v1-auto"
       },
       "41": {
         "gemini-2.5-flash": "gemini-2.5-flash",

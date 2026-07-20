@@ -42,6 +42,38 @@ func TestTKPricingOverlay_FillsDeepseekV4(t *testing.T) {
 	require.InDelta(t, 3.625e-9, pro.CacheReadInputTokenCost, 1e-15)
 }
 
+func TestTKPricingOverlay_FillsMoonshotChinaModels(t *testing.T) {
+	svc := &PricingService{}
+	data, err := svc.parsePricingData([]byte(`{
+		"gpt-5.4": {"input_cost_per_token": 0.0000025, "output_cost_per_token": 0.000015, "litellm_provider": "openai", "mode": "chat"}
+	}`))
+	require.NoError(t, err)
+
+	for _, modelID := range tkServedModelsManifestPresetIDsByChannelType(25) {
+		pricing := data[modelID]
+		require.NotNil(t, pricing, "overlay must price manifest-owned Moonshot model %s", modelID)
+		require.False(t, tkIsEffectivelyUnpriced(pricing), "Moonshot model %s must never resolve to a zero price", modelID)
+		require.Equal(t, "moonshot", pricing.LiteLLMProvider, modelID)
+	}
+
+	auto := data["moonshot-v1-auto"]
+	v128 := data["moonshot-v1-128k"]
+	require.NotNil(t, auto)
+	require.NotNil(t, v128)
+	require.InDelta(t, v128.InputCostPerToken, auto.InputCostPerToken, 1e-15,
+		"operator decision: moonshot-v1-auto is fixed to the 128K input tier")
+	require.InDelta(t, v128.OutputCostPerToken, auto.OutputCostPerToken, 1e-15,
+		"operator decision: moonshot-v1-auto is fixed to the 128K output tier")
+	require.Empty(t, auto.Intervals, "moonshot-v1-auto must remain fixed-price, not input-tiered")
+
+	billing := NewBillingService(&config.Config{}, &PricingService{pricingData: data})
+	k3, err := billing.GetModelPricing("kimi-k3")
+	require.NoError(t, err)
+	require.InDelta(t, data["kimi-k3"].InputCostPerToken*tkOfficialListBaseTaxMultiplier, k3.InputPricePerToken, 1e-15)
+	require.InDelta(t, data["kimi-k3"].OutputCostPerToken*tkOfficialListBaseTaxMultiplier, k3.OutputPricePerToken, 1e-15)
+	require.InDelta(t, data["kimi-k3"].CacheReadInputTokenCost*tkOfficialListBaseTaxMultiplier, k3.CacheReadPricePerToken, 1e-15)
+}
+
 // TestTKPricingOverlay_FillOnlySourceWins verifies the overlay never overwrites
 // an entry the loaded source already carries: the day the mirror catalogues
 // deepseek-v4-flash natively, the source value must win (self-deprecating).

@@ -9,31 +9,50 @@ import "strings"
 // charge. Channel (DB) pricing sits above this layer and is never re-taxed.
 const tkOfficialListBaseTaxMultiplier = 1.06
 
+type tkOfficialListBaseTaxRule struct {
+	provider      string
+	modelPrefixes []string
+	modelContains []string
+}
+
+// tkOfficialListBaseTaxRules is the single owner for both provider/vendor tax
+// eligibility and bare-model fallback classification. Keep row order stable so
+// overlapping future model matchers resolve deterministically.
+var tkOfficialListBaseTaxRules = []tkOfficialListBaseTaxRule{
+	{provider: "deepseek", modelContains: []string{"deepseek"}},
+	{provider: "dashscope", modelPrefixes: []string{"qwen"}},
+	{provider: "moonshot", modelPrefixes: []string{"kimi-", "kimi/", "moonshot-"}},
+	{provider: "volcengine", modelPrefixes: []string{"doubao", "seedream", "seedance"}},
+	{provider: "zhipu", modelPrefixes: []string{"glm"}},
+}
+
 func tkLitellmProviderHasBaseTax(provider string) bool {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "deepseek", "dashscope", "volcengine", "zhipu":
-		return true
-	default:
-		return false
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	for _, rule := range tkOfficialListBaseTaxRules {
+		if provider == rule.provider {
+			return true
+		}
 	}
+	return false
 }
 
 // tkInferBaseTaxProvider maps a bare model id to a provider when only the model
 // name is known (billing fallbackPrices path — those entries carry no vendor).
 func tkInferBaseTaxProvider(model string) string {
 	m := strings.ToLower(strings.TrimSpace(model))
-	switch {
-	case strings.HasPrefix(m, "deepseek"), strings.Contains(m, "deepseek"):
-		return "deepseek"
-	case strings.HasPrefix(m, "doubao"), strings.HasPrefix(m, "seedream"), strings.HasPrefix(m, "seedance"):
-		return "volcengine"
-	case strings.HasPrefix(m, "qwen"):
-		return "dashscope"
-	case strings.HasPrefix(m, "glm"):
-		return "zhipu"
-	default:
-		return ""
+	for _, rule := range tkOfficialListBaseTaxRules {
+		for _, prefix := range rule.modelPrefixes {
+			if strings.HasPrefix(m, prefix) {
+				return rule.provider
+			}
+		}
+		for _, fragment := range rule.modelContains {
+			if strings.Contains(m, fragment) {
+				return rule.provider
+			}
+		}
 	}
+	return ""
 }
 
 func tkApplyBaseTaxMultiplier(v float64) float64 {
