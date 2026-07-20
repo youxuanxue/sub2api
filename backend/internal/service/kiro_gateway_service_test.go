@@ -496,6 +496,20 @@ func TestClassifyKiroForwardError_EventStreamValidationDoesNotFailover(t *testin
 	require.NotErrorAs(t, err, &failoverErr)
 }
 
+func TestClassifyKiroForwardError_EventStreamInputTooLongDoesNotFailover(t *testing.T) {
+	err := classifyKiroForwardError(
+		fmt.Errorf(`kiro event stream error: CONTENT_LENGTH_EXCEEDS_THRESHOLD: {"message":"Your input exceeds the context window of this model. Please adjust your input and try again."}`),
+		"claude-sonnet-4-6",
+	)
+	var invalidRequestErr *KiroInvalidRequestError
+	require.ErrorAs(t, err, &invalidRequestErr)
+	require.Equal(t, http.StatusBadRequest, invalidRequestErr.StatusCode)
+	require.Contains(t, invalidRequestErr.ClientMessage(), "input exceeds the context window")
+
+	var failoverErr *UpstreamFailoverError
+	require.NotErrorAs(t, err, &failoverErr)
+}
+
 func TestKiroGatewayService_Forward_NonStreaming_InvalidModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -550,6 +564,15 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	require.ErrorAs(t, validation, &invalidRequestErr)
 	require.Equal(t, "invalid tool schema", invalidRequestErr.ClientMessage())
 	require.NotErrorAs(t, other, &invalidModelErr)
+
+	inputTooLong := classifyKiroForwardError(
+		fmt.Errorf("HTTP 400 from CodeWhisperer: {\"reason\":\"CONTENT_LENGTH_EXCEEDS_THRESHOLD\",\"message\":\"Input is too long.\"}"),
+		"claude-sonnet-4-6",
+	)
+	require.ErrorAs(t, inputTooLong, &invalidRequestErr)
+	require.Equal(t, http.StatusBadRequest, invalidRequestErr.StatusCode)
+	require.Equal(t, "Input is too long.", invalidRequestErr.ClientMessage())
+	require.NotErrorAs(t, inputTooLong, &failoverErr)
 
 	// 500 with the marker substring → still not classified as invalid-model.
 	notFourHundred := classifyKiroForwardError(
