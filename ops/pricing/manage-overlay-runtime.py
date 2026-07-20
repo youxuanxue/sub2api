@@ -64,8 +64,8 @@ def fail(msg: str) -> NoReturn:
 # --- pure drift logic (selftest-covered, no I/O) ------------------------------
 
 def overlay_entries(doc: dict) -> dict:
-    """Drop provenance keys ("_meta"/"_doc"/...) — only real model entries."""
-    return {k: v for k, v in doc.items() if not k.startswith("_")}
+    """Return runtime-owned model rows plus executable config; drop provenance."""
+    return {k: v for k, v in doc.items() if not k.startswith("_") or k == "_config"}
 
 
 def _canon(entry) -> str:
@@ -250,20 +250,30 @@ def cmd_sync_runtime(args) -> int:
 def cmd_selftest(_args) -> int:
     repo = {
         "_meta": {"note": "provenance"},
+        "_config": {"official_list_base_tax": {"multiplier": 1.06, "rules": [
+            {"provider": "dashscope", "model_prefixes": ["qwen"]},
+        ]}},
         "qwen3-8b": {"input_cost_per_token": 1.0, "litellm_provider": "dashscope"},
         "qwen3-32b": {"input_cost_per_token": 2.0, "litellm_provider": "dashscope"},
         "qwen3-235b-a22b": {"input_cost_per_token": 3.0, "litellm_provider": "dashscope"},
     }
     cases = [
-        ("clean", repo, {"qwen3-8b": repo["qwen3-8b"], "qwen3-32b": repo["qwen3-32b"],
+        ("clean", repo, {"_config": repo["_config"], "qwen3-8b": repo["qwen3-8b"], "qwen3-32b": repo["qwen3-32b"],
                          "qwen3-235b-a22b": repo["qwen3-235b-a22b"]},
          {"pending": [], "shadow": [], "orphan": []}),
         ("pending", repo, {"qwen3-8b": repo["qwen3-8b"]},
-         {"pending": ["qwen3-235b-a22b", "qwen3-32b"], "shadow": [], "orphan": []}),
+         {"pending": ["_config", "qwen3-235b-a22b", "qwen3-32b"], "shadow": [], "orphan": []}),
         ("shadow", repo,
-         {"qwen3-8b": {"input_cost_per_token": 9.9, "litellm_provider": "dashscope"},
+         {"_config": repo["_config"],
+          "qwen3-8b": {"input_cost_per_token": 9.9, "litellm_provider": "dashscope"},
           "qwen3-32b": repo["qwen3-32b"], "qwen3-235b-a22b": repo["qwen3-235b-a22b"]},
          {"pending": [], "shadow": ["qwen3-8b"], "orphan": []}),
+        ("config-shadow", repo,
+         {**{k: v for k, v in overlay_entries(repo).items()},
+          "_config": {"official_list_base_tax": {"multiplier": 1.07, "rules": [
+              {"provider": "dashscope", "model_prefixes": ["qwen"]},
+          ]}}},
+         {"pending": [], "shadow": ["_config"], "orphan": []}),
         ("orphan", repo,
          {**{k: v for k, v in overlay_entries(repo).items()},
           "ghost-model": {"input_cost_per_token": 1.0}},

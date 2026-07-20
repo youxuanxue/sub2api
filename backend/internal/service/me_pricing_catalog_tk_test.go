@@ -752,9 +752,9 @@ func TestBuildForUser_ChannelGLM52UsesCatalogOfficialPrice(t *testing.T) {
 			mkPublicCatalogModel(
 				"glm-5.2",
 				"zhipu",
-				tkCNYPerMTokToUSDPerToken(8)*tkOfficialListBaseTaxMultiplier*1000,
-				tkCNYPerMTokToUSDPerToken(28)*tkOfficialListBaseTaxMultiplier*1000,
-				tkCNYPerMTokToUSDPerToken(2)*tkOfficialListBaseTaxMultiplier*1000,
+				tkCNYPerMTokToUSDPerToken(8)*tkOfficialListBaseTaxMultiplier()*1000,
+				tkCNYPerMTokToUSDPerToken(28)*tkOfficialListBaseTaxMultiplier()*1000,
+				tkCNYPerMTokToUSDPerToken(2)*tkOfficialListBaseTaxMultiplier()*1000,
 			),
 		},
 	}
@@ -773,9 +773,9 @@ func TestBuildForUser_ChannelGLM52UsesCatalogOfficialPrice(t *testing.T) {
 	require.NotNil(t, row.YourPrice.InputPer1K)
 	require.NotNil(t, row.YourPrice.OutputPer1K)
 	require.NotNil(t, row.YourPrice.CacheReadPer1K)
-	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(8)*tkOfficialListBaseTaxMultiplier*1000, *row.YourPrice.InputPer1K, 1e-12)
-	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(28)*tkOfficialListBaseTaxMultiplier*1000, *row.YourPrice.OutputPer1K, 1e-12)
-	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(2)*tkOfficialListBaseTaxMultiplier*1000, *row.YourPrice.CacheReadPer1K, 1e-12)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(8)*tkOfficialListBaseTaxMultiplier()*1000, *row.YourPrice.InputPer1K, 1e-12)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(28)*tkOfficialListBaseTaxMultiplier()*1000, *row.YourPrice.OutputPer1K, 1e-12)
+	assert.InDelta(t, tkCNYPerMTokToUSDPerToken(2)*tkOfficialListBaseTaxMultiplier()*1000, *row.YourPrice.CacheReadPer1K, 1e-12)
 }
 
 // TestBuildForUser_AuthorizedGroups_CrossGroup pins the "授权分组" column: each

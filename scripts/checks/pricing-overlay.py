@@ -25,6 +25,8 @@ a soft rule that bit us once becomes a mechanical gate). It asserts:
        image_generation -> output_cost_per_image
        video_generation -> output_cost_per_second
        chat             -> input_cost_per_token AND output_cost_per_token
+  4. `_config.official_list_base_tax` is a valid executable policy: one bounded
+     multiplier, unique normalized providers, and non-duplicated fallback matchers.
 
 Usage: python3 scripts/checks/pricing-overlay.py [--quiet]
 Exit 0 ok, 1 violation, 2 missing dep / file / unparseable.
@@ -34,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import pathlib
 import sys
 
@@ -64,6 +67,72 @@ ANCHORS = {
 THINKING_ANCHORS = ("qwen3-8b", "qwen3-14b", "qwen3-32b")
 
 
+def validate_official_list_base_tax(data: dict) -> list[str]:
+    errors: list[str] = []
+    config = data.get("_config")
+    if not isinstance(config, dict):
+        return ["_config must be an object"]
+    unknown_config = sorted(set(config) - {"official_list_base_tax"})
+    if unknown_config:
+        errors.append(f"_config has unknown fields: {unknown_config}")
+    policy = config.get("official_list_base_tax")
+    if not isinstance(policy, dict):
+        return errors + ["_config.official_list_base_tax must be an object"]
+    unknown_policy = sorted(set(policy) - {"multiplier", "rules"})
+    if unknown_policy:
+        errors.append(f"official_list_base_tax has unknown fields: {unknown_policy}")
+    multiplier = policy.get("multiplier")
+    if (not isinstance(multiplier, (int, float)) or isinstance(multiplier, bool)
+            or not math.isfinite(multiplier) or multiplier < 1 or multiplier > 2):
+        errors.append(f"official_list_base_tax.multiplier must be within [1,2], got {multiplier!r}")
+    rules = policy.get("rules")
+    if not isinstance(rules, list) or not rules:
+        return errors + ["official_list_base_tax.rules must be a non-empty array"]
+
+    providers: set[str] = set()
+    matchers: dict[tuple[str, str], str] = {}
+    allowed_rule_fields = {"provider", "model_prefixes", "model_contains"}
+    for idx, rule in enumerate(rules):
+        label = f"official_list_base_tax.rules[{idx}]"
+        if not isinstance(rule, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        unknown = sorted(set(rule) - allowed_rule_fields)
+        if unknown:
+            errors.append(f"{label} has unknown fields: {unknown}")
+        provider = rule.get("provider")
+        if not isinstance(provider, str) or not provider or provider != provider.strip().lower():
+            errors.append(f"{label}.provider must be normalized lowercase")
+            continue
+        if provider in providers:
+            errors.append(f"official_list_base_tax provider {provider!r} is duplicated")
+        providers.add(provider)
+        prefixes = rule.get("model_prefixes", [])
+        contains = rule.get("model_contains", [])
+        if not prefixes and not contains:
+            errors.append(f"official_list_base_tax provider {provider!r} requires a fallback matcher")
+        for kind, values in (("prefix", prefixes), ("contains", contains)):
+            if not isinstance(values, list):
+                errors.append(f"{label}.model_{kind} values must be an array")
+                continue
+            seen: set[str] = set()
+            for value in values:
+                if not isinstance(value, str) or not value or value != value.strip().lower():
+                    errors.append(f"{label} has invalid {kind} matcher {value!r}")
+                    continue
+                if value in seen:
+                    errors.append(f"{label} duplicates {kind} matcher {value!r}")
+                seen.add(value)
+                key = (kind, value)
+                if key in matchers:
+                    errors.append(
+                        f"official_list_base_tax {kind} matcher {value!r} belongs to both "
+                        f"{matchers[key]!r} and {provider!r}"
+                    )
+                matchers[key] = provider
+    return errors
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--quiet", action="store_true", help="suppress success output")
@@ -87,7 +156,7 @@ def main() -> int:
     # Entries are bare model -> pricing dict; keys starting with "_" (e.g. _meta) are
     # provenance, not pricing.
     entries = {k: v for k, v in data.items() if not k.startswith("_")}
-    errors: list[str] = []
+    errors: list[str] = validate_official_list_base_tax(data)
 
     if not entries:
         errors.append("overlay has zero pricing entries")
