@@ -63,8 +63,10 @@ Redis 目前只有 MiB 级，继续留本机。上第二个 app 副本前，或 
 
 生产演练前必须明确：
 
-- PostgreSQL 目标选择 RDS 托管还是独立 EC2 自管；比较与选择条件唯一归属审批文档，
-  选择 EC2 时必须先补齐 WAL/PITR、私网运维、补丁、监控、替换和恢复工件；
+- PostgreSQL 目标选择 RDS、Aurora PostgreSQL、独立 EC2 或国内云 PG/分布式 PG；比较与
+  选择条件唯一归属审批文档。当前代码只实现 RDS；选择其他在线服务时必须先补齐对应
+  IaC、网络/身份、兼容性、WAL/PITR、监控、替换和恢复工件；Databricks/数仓只作为归档
+  分析侧，不得直接替换在线事务库；
 - usage、ops、QA 各自在热库留多久，S3 冷存多久；
 - 最长可接受停写时间；
 - Single-AZ 的维护/AZ 故障停机是否可接受，否则直接 Multi-AZ；
@@ -148,14 +150,18 @@ PR 合并本身不得创建 RDS 或改生产 overlay。平台包含：
 ### 7.1 先锁定托管模式
 
 完整对比见 `docs/approved/design-prod-data-archive-rds.md` 的“RDS 与独立 EC2 自管
-PostgreSQL 对比”。当前代码只实现 RDS 候选，不能把独立 EC2 当成参数切换：
+PostgreSQL 对比”和“其他数据库服务候选”。当前代码只实现 RDS 候选，不能把其他服务
+当成参数切换：
 
 - 选择 RDS：继续使用 `stage0-data.yaml`，验证 PITR、reboot/failover、参数组和告警；
-- 选择独立 EC2：先新增受审的数据节点 CFN/bootstrap、WAL/PITR、patch、监控和 replacement
-  工件，再进入同量级恢复与切换演练；当前 RDS 密码路径和模板不得直接复用为假支持。
+- 选择 Aurora/国内云 PG/分布式 PG：先新增受审的数据节点 IaC、网络/身份、兼容性回归、
+  WAL/PITR、patch、监控和 replacement 工件，再进入同量级恢复与切换演练；当前 RDS 密码
+  路径和模板不得直接复用为假支持；
+- 选择 Databricks/数仓：先把它定位为 S3/OSS 归档的分析消费者，不能承载在线用户、余额、
+  订单或计费事务，也不能绕过在线库的恢复副本要求。
 
-两条路径都必须保持 private SG-only、独立生命周期、同一 external PostgreSQL overlay，
-也都不能绕过归档、对账、zero-inflight drain 和 RDS/EC2 新写入后的 stale-local 禁区。
+所有在线候选都必须保持 private 网络、独立生命周期、同一 external PostgreSQL overlay，
+也都不能绕过归档、对账、zero-inflight drain 和目标库新写入后的 stale-local 禁区。
 
 ### 7.2 创建 RDS 候选环境
 

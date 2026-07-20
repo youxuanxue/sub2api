@@ -190,6 +190,63 @@ $14-$47/月的直接差价，替代了一整套本应机械化的 OS/PG patch、
 本次审批必须在 **RDS 托管** 与 **独立 EC2 自管** 中明确选择。未选择时只允许继续
 比较和非生产实验，不执行任何生产数据栈创建或 cutover。
 
+## 其他数据库服务候选
+
+RDS/独立 EC2 之外还有两类选择，但不能把“数据库服务”当成同一种产品比较：
+
+1. **在线 OLTP 候选**：Aurora PostgreSQL、阿里云 ApsaraDB RDS for PostgreSQL、阿里云
+   PolarDB for PostgreSQL、腾讯云 TencentDB for PostgreSQL、华为云 RDS for PostgreSQL，
+   以及华为 GaussDB 等。这些服务才有资格与 RDS/EC2 竞争主库位置，但兼容性、扩展、
+   备份语义、跨地域网络和价格必须用本系统的真实 schema/extension/事务 workload 验证。
+2. **归档/分析候选**：Databricks Lakehouse/SQL Warehouse、阿里云 MaxCompute 或
+   AnalyticDB、腾讯云 DLC/EMR、华为云 DLI 等。它们适合消费 S3/OSS 上的 usage/ops
+   历史数据做报表、聚合和长期分析，不是用户、余额、订单、计费去重这类在线事务主库。
+   不应为了“上 Databricks”把 OLTP 改写成分析 SQL，也不应对在线库和湖仓做未经设计的
+   双写。
+
+### 在线 OLTP 候选矩阵
+
+| 候选 | 开发与迁移 | 扩展/运维 | 费用口径 | 适用判断 |
+| --- | --- | --- | --- | --- |
+| AWS RDS PostgreSQL | 当前 PR 已有模板、overlay、cutover 和告警；PostgreSQL 兼容性最好 | 托管 patch、PITR、Multi-AZ；参数/超级用户/扩展有边界 | 计算、存储、备份、IO、监控按 AWS 账单；当前基线约 $99.92/月 | **当前推荐**，改动最少、风险最低 |
+| AWS Aurora PostgreSQL | PostgreSQL 迁移路径成熟；需验证 extension、参数和连接行为 | 存储自动扩展、读副本和故障切换更强；架构和故障语义比 RDS 复杂 | 实例、IO 请求、存储、备份、跨 AZ 流量通常高于 RDS；不能只比实例小时价 | 需要更高可用/读扩展且能接受更高全口径成本时再评估 |
+| 阿里云 ApsaraDB RDS PostgreSQL | 标准 PostgreSQL 路径；需重做 VPC、RAM、监控、备份和 DMS/迁移链 | 托管主备、备份和扩容；跨云运维与 AWS app 网络增加复杂度 | 实例、存储、备份、专线/跨境流量、包年折扣差异大，必须按目标地域询价 | 只有部署地域/合规要求指向阿里云时才有意义 |
+| 阿里云 PolarDB PostgreSQL | 兼容层和扩展边界需做真实回归；不能假定等同 RDS PostgreSQL | 分布式存储、读扩展较强；故障/连接/版本语义需专项演练 | 计算、节点、存储、IO/备份和网络项多，通常不宜与单个 RDS 实例直接比 | 有明确读扩展或云内平台标准时评估，不作为当前默认 |
+| 腾讯云 TencentDB PostgreSQL | 标准 PG 迁移可行；需补建网、账号、备份和观测契约 | 托管高可用/备份；跨云链路和现有 AWS IaC 需要额外维护 | 以目标地域、可用区、存储、备份和流量报价为准 | 国内地域/采购约束明确时作为替代候选 |
+| 华为云 RDS PostgreSQL | 标准 PG 路径；需重写 IAM、网络和运维自动化 | 托管备份/主备；与 AWS app 跨云部署会放大延迟和故障面 | 计算、存储、备份、带宽/专线和折扣需按地域询价 | 有华为云落地或合规约束时评估 |
+| 华为 GaussDB 等分布式 PG 兼容产品 | 不能把“兼容 PostgreSQL”当作零改造；需验证 SQL、锁、extension、驱动和迁移工具 | 水平扩展和高可用更强，但调度、版本和故障语义更复杂 | 节点/存储/副本/网络项多，必须用 workload 压测和全口径报价 | 只有明确需要分布式扩展且接受重做适配时考虑 |
+
+国内服务的共同前置条件是：应用当前在 AWS 私网，迁到国内云会新增跨云网络、DNS/TLS、
+数据出境/合规、监控与值班边界；若数据库仍在国内云而 app 留 AWS，延迟和跨云链路故障
+必须进入 RPO/RTO 演练。不能用厂商宣传的“PostgreSQL 兼容”替代真实 schema、事务、
+锁、sequence、JSONB、扩展、pg_dump/恢复和 DMS/CDC 验证。价格也不能写成脱离地域的单一
+数字：统一按 `730h + 50 GiB + 备份/PITR + 监控 + 私网出口/跨云流量 + 运维人力` 询价，
+再与 `$99.92/月` 的 RDS 基线和 EC2 全口径约 `$74.96-$85.91/月` 对比。
+
+### Databricks 等分析服务的正确位置
+
+Databricks SQL Warehouse、MaxCompute、AnalyticDB、DLC/EMR、DLI 的优势是列式分析、批量
+聚合、湖仓治理和弹性计算；它们的成本也更接近按扫描/计算/存储使用，而不是固定一个
+OLTP 实例月费。它们不能直接提供本系统要求的 PostgreSQL 事务、行级锁、低延迟单行读写、
+现有 driver/extension 兼容和计费去重语义，因此不列入在线主库竞选。
+
+若未来需要长期 usage/ops 分析，建议采用单向链路：
+
+```text
+RDS/EC2 PostgreSQL -> 校验后的 S3/OSS archive -> Delta/Parquet/Lakehouse -> BI/报表
+```
+
+这条链路与在线主库解耦，允许按查询量启停分析计算；原始归档仍保留 manifest/checksum，
+不能让分析平台成为唯一恢复副本。分析服务的接入应另开低风险/常规风险需求，单独定义
+数据脱敏、延迟、分区、生命周期、查询预算和访问权限，不阻塞本次 RDS cutover。
+
+### 扩展后的审批门
+
+本次仍只实现 RDS 候选。若改选 Aurora、国内云 PostgreSQL 或分布式 PG，必须先补对应
+IaC、网络/身份、备份恢复、监控告警、迁移工具和兼容性回归工件；若引入 Databricks 或
+其他分析服务，必须先完成 S3/OSS 归档链路和数据脱敏设计。未完成这些工件时，不得把
+供应商名称写入生产 overlay，也不得创建生产数据栈。
+
 ## S3 推荐配置与成本
 
 现有 `tokenkey-prod-qa-exports-*` 是用户下载交付桶：Block Public Access、SSE-S3、

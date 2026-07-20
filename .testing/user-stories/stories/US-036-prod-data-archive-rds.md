@@ -30,7 +30,8 @@
 8. **AC-008（重建 fail-closed）**：Given RDS-backed app 已尝试启动，When replacement bootstrap 读不到 overlay 或 SSM 暂时失败，Then retained-volume marker 阻止 app 回到旧本机 PostgreSQL；只有从未切换的主机遇到明确 ParameterNotFound 才保持本机模式。
 9. **AC-009（消费者就绪）**：Given prod-capable 运维脚本仍直连 `tokenkey-postgres`，When 已审批 cutover 进入执行前检查，Then readiness gate 列出阻塞消费者并拒绝切换。
 10. **AC-010（停写证明）**：Given cutover 即将改变数据库 endpoint，When tokenkey 不健康、客户端镜像不可用或 `in_flight` 未归零，Then 在尝试 RDS-backed app 前失败，并 force-recreate 本机 app 解除 drain 后才声明安全撤回。
-11. **AC-011（托管模式决策）**：Given RDS 与独立 EC2 都能承载外部 PostgreSQL，When 进入生产数据栈审批，Then 设计必须按开发成本、扩展性、运维、可靠性、性能、安全、迁移、可移植性和全口径月费完成比较并明确选择；未选择或 EC2 的 WAL/PITR/恢复工件未完成时不得创建生产数据栈。
+11. **AC-011（在线数据库决策）**：Given RDS、Aurora、独立 EC2、国内云 PostgreSQL/分布式 PostgreSQL 都可能承载外部 PostgreSQL，When 进入生产数据栈审批，Then 设计必须按开发成本、扩展性、运维、可靠性、性能、安全、迁移、可移植性和全口径月费完成比较并明确选择；未选择或候选的 IaC/兼容性/WAL/PITR/恢复工件未完成时不得创建生产数据栈。
+12. **AC-012（分析服务边界）**：Given Databricks 或国内数仓/湖仓服务可消费归档数据，When 评估长期 usage/ops 分析，Then 只能作为 S3/OSS 归档的分析消费者，不能替代在线 PostgreSQL 事务、计费去重或恢复副本；接入前必须有脱敏、权限、延迟、生命周期和查询预算设计。
 
 ## Assertions
 
@@ -42,6 +43,7 @@
 - Redis/AOF 和日志轮转不单独制造停服，也不与 RDS 最终切换绑定为同窗必做项。
 - 本 Story 只验收惰性平台和安全门；生产归档写入、RDS 创建与切流仍需设计批准和独立窗口。
 - 当前实现只覆盖 RDS 候选；独立 EC2 是需单独完成 IaC、WAL/PITR 与恢复门禁的预算备选，不以文档中的比较冒充已实现支持。
+- 当前实现只覆盖 RDS 候选；Aurora、国内云 PG/分布式 PG 和 Databricks/数仓均是未实现的评估方向，不以文档中的比较冒充已实现支持。
 
 ## Linked Tests
 
