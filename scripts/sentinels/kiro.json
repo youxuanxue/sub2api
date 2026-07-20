@@ -221,10 +221,10 @@
         "BillingTier:   kiroproto.KiroEstimatedBillingTier",
         "callErr != nil && !enc.started",
         "textBuf == \"\" && thinkingBuf == \"\" && len(toolUses) == 0",
-        "classifyKiroForwardError",
+        "classifyAndRecordKiroForwardError",
         "publishKiroInternalThinkingSideChannel"
       ],
-      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream. It estimates token usage locally (EstimateInputTokens/EstimateOutputTokens) and stamps ForwardResult.BillingTier=\"kiro-estimated\", because the Kiro upstream reports credits only — without these calls both forward paths return Usage{0,0} and kiro bills as 100% free. The context-aware call and ResetForRetry callbacks are load-bearing: non-streaming retries clear all partial buffers, while streaming retries are rejected after enc.started to prevent duplicated client output. The `callErr != nil && !enc.started` guard + classifyKiroForwardError keep pre-content failures visible instead of returning an empty 200 stream. An upstream merge that drops any of these guards silently regresses reliability, billing, or response integrity."
+      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream. It estimates token usage locally (EstimateInputTokens/EstimateOutputTokens) and stamps ForwardResult.BillingTier=\"kiro-estimated\", because the Kiro upstream reports credits only — without these calls both forward paths return Usage{0,0} and kiro bills as 100% free. The context-aware call and ResetForRetry callbacks are load-bearing: non-streaming retries clear all partial buffers, while streaming retries are rejected after enc.started to prevent duplicated client output. The `callErr != nil && !enc.started` guard + classifyAndRecordKiroForwardError keep pre-content failures visible instead of returning an empty 200 stream and retain the sanitized original transport/read cause in ops upstream_errors. An upstream merge that drops any of these guards silently regresses reliability, billing, response integrity, or incident diagnosability."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_test.go",
@@ -237,11 +237,14 @@
         "TestKiroGatewayService_Forward_EmptyEventStreamExceptionPreservesFailoverClass",
         "TestClassifyKiroForwardError_EventStreamInputTooLongDoesNotFailover",
         "TestClassifyKiroForwardError_EventStreamProviderExceptionWinsOverInputTooLongText",
+        "TestClassifyKiroForwardError_TransportFailureTriggersFailover",
+        "access_token=***",
+        "client cancellation must not be recorded as a Kiro upstream failure",
         "committed stream must not be retried",
         "discard me",
         "recovered"
       ],
-      "rationale": "Service-layer regression evidence for both sides of the truncated-response contract: non-streaming partial state is fully discarded before fallback, while a stream that already committed output emits an SSE error and never calls another upstream endpoint. It also pins Kiro's content-length validation as a client-owned non-failover error so context overflow cannot regress to provider 502 churn."
+      "rationale": "Service-layer regression evidence for both sides of the truncated-response contract: non-streaming partial state is fully discarded before fallback, while a stream that already committed output emits an SSE error and never calls another upstream endpoint. It also pins Kiro's content-length validation as a client-owned non-failover error so context overflow cannot regress to provider 502 churn. The transport regression preserves the sanitized original cause and stable classification for ops while proving query secrets are redacted and client cancellation is not misreported as an upstream failure."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder.go",
@@ -353,6 +356,9 @@
         "type KiroInvalidRequestError",
         "type KiroEndpointQuotaExhaustedError",
         "func classifyKiroForwardError",
+        "func classifyAndRecordKiroForwardError",
+        "func classifyKiroOpaqueFailure",
+        "func recordKiroForwardError",
         "func parseKiroEventStreamError",
         "func isKiroInputTooLongError",
         "func isKiroTransportError",
@@ -360,7 +366,7 @@
         "quota exhausted on",
         "INVALID_MODEL_ID"
       ],
-      "rationale": "TK-only typed error + classifier for Kiro request rejections, including INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyKiroForwardError is called from both forwardStreaming and forwardNonStreaming; the handler maps typed invalid model/request errors to client-owned 400 responses without cross-account failover. Losing this file makes Kiro validation errors fall back to the generic forward-error path (opaque 502 / unwanted failover / polluted SLA)."
+      "rationale": "TK-only typed error + classifier for Kiro request rejections, including INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; it preserves a sanitized, categorized transport/read/empty-response cause in ops upstream_errors while the client still receives the generic 502 envelope. The handler maps typed invalid model/request errors to client-owned 400 responses without cross-account failover. Losing this file makes Kiro validation errors fall back to the generic forward-error path or restores opaque 502s with no recoverable root cause."
     },
     {
       "path": "backend/internal/service/wire.go",

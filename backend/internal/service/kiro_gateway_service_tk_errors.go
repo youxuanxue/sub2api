@@ -109,38 +109,33 @@ func isKiroEndpointQuotaExhaustedError(msg string) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(msg)), "quota exhausted on")
 }
 
-func classifyKiroForwardError(err error, model string) error {
-	classified, _ := classifyKiroForwardErrorWithObservation(err, model)
-	return classified
-}
-
 type kiroForwardErrorObservation struct {
 	Kind   string
 	Reason string
 }
 
 func classifyAndRecordKiroForwardError(c *gin.Context, account *Account, err error, model string) error {
-	classified, observation := classifyKiroForwardErrorWithObservation(err, model)
+	observation, classified := classifyKiroForwardError(err, model)
 	if observation != nil {
 		recordKiroForwardError(c, account, err, *observation)
 	}
 	return classified
 }
 
-func classifyKiroForwardErrorWithObservation(err error, model string) (error, *kiroForwardErrorObservation) {
+func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObservation, error) {
 	if err == nil {
 		return nil, nil
 	}
 	msg := err.Error()
 	if isKiroEndpointQuotaExhaustedError(msg) {
-		return &KiroEndpointQuotaExhaustedError{Body: msg}, nil
+		return nil, &KiroEndpointQuotaExhaustedError{Body: msg}
 	}
 	if isKiroInvalidModelError(msg) {
-		return &KiroInvalidModelError{
+		return nil, &KiroInvalidModelError{
 			StatusCode: 400,
 			Model:      model,
 			Body:       msg,
-		}, nil
+		}
 	}
 	if statusCode, body, ok := parseKiroHTTPError(msg); ok {
 		if statusCode == http.StatusBadRequest && isKiroValidationErrorBody(body) && !isKiroProfileArnError(msg) {
@@ -148,44 +143,44 @@ func classifyKiroForwardErrorWithObservation(err error, model string) (error, *k
 			if message == "" {
 				message = "Kiro rejected the request"
 			}
-			return &KiroInvalidRequestError{StatusCode: statusCode, Message: message, Body: msg}, nil
+			return nil, &KiroInvalidRequestError{StatusCode: statusCode, Message: message, Body: msg}
 		}
-		return &UpstreamFailoverError{
+		return nil, &UpstreamFailoverError{
 			StatusCode:   statusCode,
 			ResponseBody: body,
-		}, nil
+		}
 	}
 	if statusCode, body, ok := parseKiroEventStreamError(msg); ok {
 		if statusCode == http.StatusBadRequest && strings.Contains(strings.ToUpper(msg), "INVALID_MODEL_ID") {
-			return &KiroInvalidModelError{
+			return nil, &KiroInvalidModelError{
 				StatusCode: statusCode,
 				Model:      model,
 				Body:       msg,
-			}, nil
+			}
 		}
 		if statusCode == http.StatusBadRequest && !isKiroProfileArnError(msg) {
 			message := strings.TrimSpace(extractUpstreamErrorMessage(body))
 			if message == "" {
 				message = "Kiro rejected the request"
 			}
-			return &KiroInvalidRequestError{StatusCode: statusCode, Message: message, Body: msg}, nil
+			return nil, &KiroInvalidRequestError{StatusCode: statusCode, Message: message, Body: msg}
 		}
-		return &UpstreamFailoverError{
+		return nil, &UpstreamFailoverError{
 			StatusCode:   statusCode,
 			ResponseBody: body,
-		}, nil
+		}
 	}
 	// A transport failure means this Kiro account/egress could not reach the
 	// upstream at all. Return the same failover shape as other gateway
 	// transports so the handler can try another account instead of immediately
 	// exposing a client-side "connection refused" error.
 	if observation, ok := classifyKiroOpaqueFailure(err); ok {
-		return &UpstreamFailoverError{
+		return &observation, &UpstreamFailoverError{
 			StatusCode:   http.StatusBadGateway,
 			ResponseBody: append([]byte(nil), kiroTransportFailoverBody...),
-		}, &observation
+		}
 	}
-	return fmt.Errorf("kiro upstream call failed: %w", err), nil
+	return nil, fmt.Errorf("kiro upstream call failed: %w", err)
 }
 
 func classifyKiroOpaqueFailure(err error) (kiroForwardErrorObservation, bool) {
