@@ -9,7 +9,8 @@
 
 - Trace:
   - 设计锚点：`docs/approved/design-capacity-first-data-layer-safety.md`
-  - 容量探针：`ops/observability/probe-data-layer-capacity.sh`
+  - 容量探针：`ops/observability/probe-data-layer-capacity-prototype.sh`
+  - 容量判定：`ops/observability/data_layer_capacity_verdict_prototype.py`
   - 离线投影：`ops/observability/data_layer_capacity_projection.py`
   - 扩盘计划：`ops/stage0/reconcile-cfn-datavolume-no-replace.sh`
 - Risk Focus:
@@ -22,11 +23,12 @@
 
 1. **AC-001（有界只读）**：Given 容量探针可能运行在 prod，When 查询 PostgreSQL，Then session 强制只读、锁等待不超过 100ms、近 30 天扫描不超过 2s，总行数不用全表 `COUNT(*)`，分区表大小按叶分区汇总。
 2. **AC-002（负向 fail-closed）**：Given PGSTATS 缺失、近 30 天扫描超时或 catalog 行数估算缺失，When 计算容量 verdict，Then 返回 `unknown`，不得返回 green/approaching/trigger。
-3. **AC-003（显式投影）**：Given 脱敏 snapshot，When 计算 100 GiB + 90 天热层 scenario，Then ops 回收上下界和残余月增长必须显式输入，输出同时给出两端结果和 DELETE 不等于 `df` 回收的警告。
+3. **AC-003（显式投影）**：Given 脱敏 snapshot，When 计算 100 GiB + 90 天热层 scenario，Then ops 回收上下界和残余月增长必须显式输入，回收上界不得超过 snapshot 中 ops 关系总大小，输出同时给出两端结果和 DELETE 不等于 `df` 回收的警告。
 4. **AC-004（grow-only）**：Given live stack 的 DataVolume size，When 离线生成参数计划，Then 目标小于当前值、超出模板范围、参数缺失或重复时均拒绝。
 5. **AC-005（prod plan 审批）**：Given 默认 prod stack，When 未提供与 stack 完全一致的 `--confirm-prod-plan`，Then 在任何 AWS 调用前拒绝。
 6. **AC-006（no-replace）**：Given CloudFormation change set，When guard 校验，Then 只接受 `DataVolume` 的 `Modify/Replacement=False/Scope=Properties/Property=Size`；`Instance`、`EIPAssoc`、其它属性或 replacement 全部拒绝。
 7. **AC-007（无执行面）**：Given 本阶段扩盘工具，When 审查 shell contract，Then 不存在 `execute-change-set`、部署、容器重启、文件系统 resize 或数据删除路径。
+8. **AC-008（未激活）**：Given 本 PR 仍是 pending prototype，When 合并到 main，Then 现有 prod daily diagnostics 继续使用原 probe/verdict，prototype 文件不得被 workflow 或运行时入口引用。
 
 ## Assertions
 
@@ -39,12 +41,14 @@
 ## Linked Tests
 
 - `ops/observability/test_data_layer_capacity_safety.py`::`DataLayerCapacitySafetyTest.test_growth_timeout_is_unknown_not_green`
+- `ops/observability/test_data_layer_capacity_safety.py`::`DataLayerCapacitySafetyTest.test_prototype_is_not_wired_to_prod_workflows`
 - `ops/observability/test_data_layer_capacity_safety.py`::`DataLayerCapacitySafetyTest.test_projection_requires_explicit_reclaim_and_residual_growth`
 - `ops/observability/test_data_layer_capacity_safety.py`::`DataLayerCapacitySafetyTest.test_probe_is_read_only_and_scan_bounded`
 - `ops/stage0/test_cfn_datavolume_no_replace.py`::`CfnDataVolumeNoReplaceTest.test_parameter_plan_grows_without_rewriting_unrelated_values`
 - `ops/stage0/test_cfn_datavolume_no_replace.py`::`CfnDataVolumeNoReplaceTest.test_parameter_plan_rejects_shrink`
 - `ops/stage0/test_cfn_datavolume_no_replace.py`::`CfnDataVolumeNoReplaceTest.test_prod_plan_requires_exact_confirmation_before_aws`
 - `ops/stage0/test_cfn_datavolume_no_replace.py`::`CfnDataVolumeNoReplaceTest.test_guard_rejects_instance_replacement`
+- `ops/stage0/test_cfn_datavolume_no_replace.py`::`CfnDataVolumeNoReplaceTest.test_plan_success_uses_fake_aws_and_cleans_preview_artifacts`
 
 运行命令：
 

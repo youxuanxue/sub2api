@@ -19,6 +19,10 @@ approved_by: pending
 3. 只创建并验证 no-execute change set 的 DataVolume plan 工具。
 
 归档 worker、S3 bucket、生产保留期、在线文件系统扩容和数据删除不在本原型实现范围。
+容量探针 `ops/observability/probe-data-layer-capacity-prototype.sh` 与判定器
+`ops/observability/data_layer_capacity_verdict_prototype.py` 不接入现有 workflow、schedule
+或运行时入口；把它们替换进 prod daily diagnostics 属于下一次独立生产审批，不随本 PR
+merge 自动激活。
 
 ## 零影响边界
 
@@ -47,7 +51,7 @@ approved_by: pending
 
 输出必须同时给出低/高回收两种 scenario，并保留警告：普通 PostgreSQL `DELETE` 只证明
 页可复用，不证明宿主机 `df` 已回收。任何 growth probe 超时、卷缩小或参数不完整都
-fail closed。
+fail closed；ops 回收上界不得超过 snapshot 观测到的 ops 关系总大小。
 
 ## DataVolume plan 状态机
 
@@ -85,6 +89,7 @@ usage 当前不是自动分区表，不在 prod 做 `VACUUM FULL` 或直接 rewr
 ## 验收门
 
 - [ ] 探针正向返回字段化 snapshot，超时/缺统计负向返回 `unknown`。
+- [ ] 现有 prod probe/verdict 与 daily diagnostics 接线保持不变，prototype 无运行时 consumer。
 - [ ] 离线投影对 50→100 GiB 和低/高回收 scenario 的计算由测试覆盖。
 - [ ] DataVolume 参数计划拒绝缩盘、缺 size 和错误 prod 确认串。
 - [ ] change-set guard 只接受恰好一条 `DataVolume/Modify/Replacement=False/Properties/Size`。

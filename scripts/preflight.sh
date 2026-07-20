@@ -1414,7 +1414,7 @@ elif ! python3 ./ops/stage0/test_cfn_datavolume_no_replace.py >/dev/null 2>&1; t
     echo "        — run: python3 ops/stage0/test_cfn_datavolume_no_replace.py"
     errors=$((errors + 1))
 else
-    echo "  ok: bounded read-only probe + explicit offline projection + grow-only CFN plan"
+    echo "  ok: dormant bounded probe + explicit offline projection + grow-only CFN plan"
 fi
 
 # ---- sub2api: runtime resource config verdict selftest ---------------------

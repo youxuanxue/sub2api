@@ -205,8 +205,8 @@ aws cloudformation describe-change-set --region "${REGION}" \
 if [[ "${KEEP_CHANGE_SET}" = 1 ]]; then
   echo "validated_change_set=${CHANGE_SET_NAME}"
   echo "stable_ami_ssm_parameter=${STABLE_AMI_PARAM}"
-  echo "note: keep this SSM parameter permanently if the retained change set is executed"
-  echo "next: human review, then manually apply the validated change set named ${CHANGE_SET_NAME}"
+  echo "note: retained preview artifacts are not execution approval"
+  echo "next: obtain separate production execution approval; do not execute under this plan"
 else
   echo "ok: validated preview only; change set will be deleted"
 fi

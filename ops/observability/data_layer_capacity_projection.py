@@ -98,6 +98,8 @@ def project_capacity(
         "usage_logs_bytes",
         "usage_logs_rows",
         "usage_logs_rows_30d",
+        "ops_system_logs_bytes",
+        "ops_error_logs_bytes",
     )
     missing = [name for name in required if name not in stats or stats[name] is None]
     if missing:
@@ -114,10 +116,19 @@ def project_capacity(
     rows_30d = _finite_nonnegative(
         "usage_logs_rows_30d", float(stats["usage_logs_rows_30d"])
     )
+    observed_ops_gib = (
+        _finite_nonnegative("ops_system_logs_bytes", float(stats["ops_system_logs_bytes"]))
+        + _finite_nonnegative("ops_error_logs_bytes", float(stats["ops_error_logs_bytes"]))
+    ) / GIB
     if current_used_gib > current_total_gib:
         raise ValueError("df_used_bytes cannot exceed df_total_bytes")
     if target_volume_gib < current_total_gib:
         raise ValueError("target volume cannot be smaller than the current volume")
+    if high > observed_ops_gib:
+        raise ValueError(
+            "ops_reclaim_gib_high cannot exceed observed ops relation size "
+            f"({observed_ops_gib:.3f} GiB)"
+        )
 
     monthly_usage_growth_gib = rows_30d * (current_usage_gib / usage_rows)
     usage_steady_gib = monthly_usage_growth_gib * usage_hot_days / 30.0
@@ -151,6 +162,7 @@ def project_capacity(
             "used_pct": round(current_used_gib / current_total_gib * 100.0, 1),
             "usage_logs_gib": round(current_usage_gib, 3),
             "monthly_usage_growth_gib": round(monthly_usage_growth_gib, 3),
+            "observed_ops_relation_gib": round(observed_ops_gib, 3),
         },
         "assumptions": {
             "target_volume_gib": target_volume_gib,
@@ -177,6 +189,8 @@ def _selftest() -> int:
         "usage_logs_bytes": 5.4 * GIB,
         "usage_logs_rows": 9_000_000,
         "usage_logs_rows_30d": 6_000_000,
+        "ops_system_logs_bytes": 7 * GIB,
+        "ops_error_logs_bytes": 5 * GIB,
         "catalog_probe_ok": True,
         "growth_probe_ok": True,
         "df_total_bytes": 50 * GIB,

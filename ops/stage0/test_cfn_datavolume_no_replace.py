@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 _SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
@@ -354,6 +356,100 @@ class CfnDataVolumeNoReplaceTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 2)
         self.assertIn("--size GIB", proc.stderr)
 
+    def test_plan_success_uses_fake_aws_and_cleans_preview_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = pathlib.Path(tmp)
+            bin_path = tmp_path / "bin"
+            bin_path.mkdir()
+            log_path = tmp_path / "aws.jsonl"
+            aws_stub = bin_path / "aws"
+            aws_stub.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env python3
+                    import json
+                    import os
+                    import sys
+
+                    args = sys.argv[1:]
+                    with open(os.environ["AWS_STUB_LOG"], "a", encoding="utf-8") as out:
+                        out.write(json.dumps(args) + "\\n")
+
+                    service, operation = args[0:2]
+                    if service == "cloudformation" and operation == "describe-stacks":
+                        if "--query" in args:
+                            print("ami-0123456789abcdef0")
+                        else:
+                            print(json.dumps({"Stacks": [{"Parameters": [
+                                {"ParameterKey": "DataVolumeSizeGiB", "ParameterValue": "50"},
+                                {"ParameterKey": "AmazonLinux2023Arm64Ami", "ParameterValue": "/aws/service/ami", "ResolvedValue": "ami-0123456789abcdef0"},
+                                {"ParameterKey": "ImageTag", "ParameterValue": "stable"}
+                            ]}]}))
+                    elif service == "ssm" and operation == "get-parameter":
+                        raise SystemExit(1)
+                    elif service == "cloudformation" and operation == "describe-change-set":
+                        if "--query" in args:
+                            query = args[args.index("--query") + 1]
+                            if query == "Status":
+                                print("CREATE_COMPLETE")
+                            elif query == "StatusReason":
+                                print("None")
+                            else:
+                                print("DataVolume Modify False Properties")
+                        else:
+                            print(json.dumps({"Changes": [{"ResourceChange": {
+                                "Action": "Modify",
+                                "LogicalResourceId": "DataVolume",
+                                "ResourceType": "AWS::EC2::Volume",
+                                "Replacement": "False",
+                                "Scope": ["Properties"],
+                                "Details": [{"Target": {
+                                    "Attribute": "Properties",
+                                    "Name": "Size",
+                                    "RequiresRecreation": "Never"
+                                }}]
+                            }}]}))
+                    """
+                ),
+                encoding="utf-8",
+            )
+            aws_stub.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_path}:{env['PATH']}"
+            env["AWS_STUB_LOG"] = str(log_path)
+            proc = subprocess.run(
+                [
+                    "bash",
+                    str(_SHELL),
+                    "--stack",
+                    "tokenkey-rehearsal-stage0",
+                    "--region",
+                    "us-east-1",
+                    "--size",
+                    "100",
+                    "--change-set-name",
+                    "test-capacity-plan",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            calls = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+
+        rendered = [" ".join(call) for call in calls]
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertIn("validated preview only", proc.stdout)
+        self.assertTrue(any(call.startswith("ssm put-parameter ") for call in rendered))
+        self.assertTrue(
+            any(call.startswith("cloudformation create-change-set ") for call in rendered)
+        )
+        self.assertTrue(
+            any(call.startswith("cloudformation delete-change-set ") for call in rendered)
+        )
+        self.assertTrue(any(call.startswith("ssm delete-parameter ") for call in rendered))
+        self.assertFalse(any("execute-change-set" in call for call in rendered))
+
     def test_shell_script_has_no_execute_path(self) -> None:
         body = _SHELL.read_text(encoding="utf-8")
         self.assertNotIn("aws cloudformation execute-change-set", body)
@@ -385,6 +481,7 @@ class CfnDataVolumeNoReplaceTest(unittest.TestCase):
             '! ( "${KEEP_CHANGE_SET}" = 1 && "${CHANGE_SET_VALIDATED}" = 1 )',
             body,
         )
+        self.assertIn("obtain separate production execution approval", body)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""data_layer_capacity_verdict.py — turn the read-only capacity probe output into a
+"""data_layer_capacity_verdict_prototype.py - evaluate the dormant bounded probe output.
 deterministic verdict (green | approaching | trigger) for the data-layer / RDS-extraction
 decision (#587 Trigger B).
 
 This is the *logic* half of the capacity check; the *transport* half is the read-only
-bash probe `probe-data-layer-capacity.sh` (delivered to the host via run-probe.sh).
+bash prototype `probe-data-layer-capacity-prototype.sh`. Neither file is wired
+to a workflow; activation requires a separate production approval.
 Keeping the verdict here (pure Python, no AWS) makes it unit-testable with fixtures
 (`--selftest`) and registerable in preflight, mirroring the determinism contract in
 dev-rules-convention.mdc §"skill / command 确定性基线".
@@ -17,7 +18,8 @@ current total disk % (which is polluted by OS / docker images / ops logs):
     usage_logs_pct_of_volume = usage_logs_bytes / df_total_bytes * 100
 
 Input (stdin): the probe's tagged JSON lines:
-    PGSTATS {"usage_logs_bytes":..., "usage_logs_rows":..., "usage_logs_rows_30d":..., ...}
+    PGSTATS {"catalog_probe_ok":true, "usage_logs_bytes":..., "usage_logs_rows":..., ...}
+    PGGROWTH {"growth_probe_ok":true, "usage_logs_rows_30d":..., ...}
     DFSTATS {"df_total_bytes":..., "df_avail_bytes":..., ...}
 
 Output (stdout): one JSON object with the computed metrics + "verdict".
@@ -41,11 +43,87 @@ def _load_thresholds(path: pathlib.Path) -> dict:
 
 def compute_verdict(stats: dict, thresholds: dict) -> dict:
     """Pure function: probe stats + thresholds -> verdict payload. No I/O."""
-    usage_logs_bytes = float(stats.get("usage_logs_bytes") or 0)
-    usage_logs_rows = float(stats.get("usage_logs_rows") or 0)
-    rows_30d = float(stats.get("usage_logs_rows_30d") or 0)
-    df_total = float(stats.get("df_total_bytes") or 0)
-    df_avail = float(stats.get("df_avail_bytes") or 0)
+    if stats.get("catalog_probe_ok") is not True:
+        return {
+            "verdict": "unknown",
+            "usage_logs_gib": None,
+            "monthly_growth_gib": None,
+            "months_to_volume_full": None,
+            "usage_logs_pct_of_volume": None,
+            "df_avail_gib": None,
+            "summary": "catalog capacity probe missing or failed - capacity verdict inconclusive",
+        }
+
+    if stats.get("growth_probe_ok") is not True:
+        return {
+            "verdict": "unknown",
+            "usage_logs_gib": None,
+            "monthly_growth_gib": None,
+            "months_to_volume_full": None,
+            "usage_logs_pct_of_volume": None,
+            "df_avail_gib": None,
+            "summary": "bounded recent-growth probe missing or failed - capacity verdict inconclusive",
+        }
+
+    required = (
+        "usage_logs_bytes",
+        "usage_logs_rows",
+        "usage_logs_rows_30d",
+        "df_total_bytes",
+        "df_avail_bytes",
+    )
+    missing = [name for name in required if name not in stats or stats[name] is None]
+    if missing:
+        return {
+            "verdict": "unknown",
+            "usage_logs_gib": None,
+            "monthly_growth_gib": None,
+            "months_to_volume_full": None,
+            "usage_logs_pct_of_volume": None,
+            "df_avail_gib": None,
+            "summary": f"probe snapshot missing {', '.join(missing)} - capacity verdict inconclusive",
+        }
+
+    try:
+        usage_logs_bytes = float(stats["usage_logs_bytes"])
+        usage_logs_rows = float(stats["usage_logs_rows"])
+        rows_30d = float(stats["usage_logs_rows_30d"])
+        df_total = float(stats["df_total_bytes"])
+        df_avail = float(stats["df_avail_bytes"])
+    except (TypeError, ValueError):
+        return {
+            "verdict": "unknown",
+            "usage_logs_gib": None,
+            "monthly_growth_gib": None,
+            "months_to_volume_full": None,
+            "usage_logs_pct_of_volume": None,
+            "df_avail_gib": None,
+            "summary": "probe snapshot contains non-numeric capacity data - capacity verdict inconclusive",
+        }
+    values = (usage_logs_bytes, usage_logs_rows, rows_30d, df_total, df_avail)
+    if not all(math.isfinite(value) and value >= 0 for value in values) or df_avail > df_total:
+        return {
+            "verdict": "unknown",
+            "usage_logs_gib": None,
+            "monthly_growth_gib": None,
+            "months_to_volume_full": None,
+            "usage_logs_pct_of_volume": None,
+            "df_avail_gib": None,
+            "summary": "probe snapshot contains invalid capacity data - capacity verdict inconclusive",
+        }
+
+    if usage_logs_bytes > 0 and usage_logs_rows <= 0:
+        return {
+            "verdict": "unknown",
+            "usage_logs_gib": round(usage_logs_bytes / 1024**3, 3),
+            "monthly_growth_gib": None,
+            "months_to_volume_full": None,
+            "usage_logs_pct_of_volume": (
+                round(usage_logs_bytes / df_total * 100.0, 1) if df_total > 0 else None
+            ),
+            "df_avail_gib": round(df_avail / 1024**3, 2) if df_total > 0 else None,
+            "summary": "usage_logs cardinality estimate unavailable — capacity verdict inconclusive",
+        }
 
     avg_row = usage_logs_bytes / usage_logs_rows if usage_logs_rows > 0 else 0.0
     monthly_growth = rows_30d * avg_row  # ~bytes added to usage_logs per 30 days
@@ -93,11 +171,11 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
 
 
 def _parse_probe_stdin(text: str) -> dict:
-    """Merge the probe's tagged JSON lines (PGSTATS {...} / DFSTATS {...})."""
+    """Merge the probe's tagged JSON lines into one field-addressable snapshot."""
     stats: dict = {}
     for line in text.splitlines():
         line = line.strip()
-        for tag in ("PGSTATS", "DFSTATS"):
+        for tag in ("PGSTATS", "PGGROWTH", "DFSTATS"):
             if line.startswith(tag):
                 payload = line[len(tag):].strip()
                 try:
@@ -113,50 +191,73 @@ _FIXTURES = [
         "green_low_growth",
         # 1.2GiB ledger on a 30GiB volume, modest 30d growth, lots of runway
         {"usage_logs_bytes": 1.2 * 1024**3, "usage_logs_rows": 2_000_000,
-         "usage_logs_rows_30d": 200_000, "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 18 * 1024**3},
+         "usage_logs_rows_30d": 200_000, "catalog_probe_ok": True, "growth_probe_ok": True,
+         "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 18 * 1024**3},
         "green",
     ),
     (
         "approaching_runway",
         # growth eats free space in ~5 months (<=6 warn, >3 trigger)
         {"usage_logs_bytes": 4 * 1024**3, "usage_logs_rows": 8_000_000,
-         "usage_logs_rows_30d": 1_000_000, "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 2.5 * 1024**3},
+         "usage_logs_rows_30d": 1_000_000, "catalog_probe_ok": True, "growth_probe_ok": True,
+         "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 2.5 * 1024**3},
         "approaching",
     ),
     (
         "trigger_runway",
         # ~2 months of runway (<=3 trigger)
         {"usage_logs_bytes": 5 * 1024**3, "usage_logs_rows": 8_000_000,
-         "usage_logs_rows_30d": 2_000_000, "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 2 * 1024**3},
+         "usage_logs_rows_30d": 2_000_000, "catalog_probe_ok": True, "growth_probe_ok": True,
+         "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 2 * 1024**3},
         "trigger",
     ),
     (
         "trigger_absolute_pct",
         # usage_logs alone >= 40% of volume, even with zero growth
         {"usage_logs_bytes": 13 * 1024**3, "usage_logs_rows": 20_000_000,
-         "usage_logs_rows_30d": 0, "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 15 * 1024**3},
+         "usage_logs_rows_30d": 0, "catalog_probe_ok": True, "growth_probe_ok": True,
+         "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 15 * 1024**3},
         "trigger",
     ),
     (
         "green_zero_growth_small",
         # brand-new / low-traffic edge: no 30d rows, tiny ledger -> infinite runway
         {"usage_logs_bytes": 50 * 1024**2, "usage_logs_rows": 1000,
-         "usage_logs_rows_30d": 0, "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 25 * 1024**3},
+         "usage_logs_rows_30d": 0, "catalog_probe_ok": True, "growth_probe_ok": True,
+         "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 25 * 1024**3},
         "green",
     ),
     (
         "unknown_missing_df",
         # probe failed to read df (no DFSTATS) + nonzero growth: must NOT false-trigger
         {"usage_logs_bytes": 5 * 1024**3, "usage_logs_rows": 8_000_000,
-         "usage_logs_rows_30d": 2_000_000, "df_total_bytes": 0, "df_avail_bytes": 0},
+         "usage_logs_rows_30d": 2_000_000, "catalog_probe_ok": True, "growth_probe_ok": True,
+         "df_total_bytes": 0, "df_avail_bytes": 0},
         "unknown",
     ),
     (
         "trigger_disk_genuinely_full",
         # df present (df_total>0) but df_avail==0 => genuinely full => trigger is correct
         {"usage_logs_bytes": 5 * 1024**3, "usage_logs_rows": 8_000_000,
-         "usage_logs_rows_30d": 2_000_000, "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 0},
+         "usage_logs_rows_30d": 2_000_000, "catalog_probe_ok": True, "growth_probe_ok": True,
+         "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 0},
         "trigger",
+    ),
+    (
+        "unknown_bounded_growth_timeout",
+        {"usage_logs_bytes": 5 * 1024**3, "usage_logs_rows": 8_000_000,
+         "catalog_probe_ok": True,
+         "growth_probe_ok": False, "df_total_bytes": 30 * 1024**3,
+         "df_avail_bytes": 10 * 1024**3},
+        "unknown",
+    ),
+    (
+        "unknown_missing_cardinality_estimate",
+        {"usage_logs_bytes": 5 * 1024**3, "usage_logs_rows": 0,
+         "catalog_probe_ok": True, "growth_probe_ok": True,
+         "usage_logs_rows_30d": 2_000_000, "df_total_bytes": 30 * 1024**3,
+         "df_avail_bytes": 10 * 1024**3},
+        "unknown",
     ),
 ]
 
