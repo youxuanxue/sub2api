@@ -1,7 +1,9 @@
 ---
 title: Capacity-first 数据层安全原型
-status: pending
-approved_by: pending
+status: approved
+approved_by: "xuejiao (design approval, 2026-07-20)"
+approved_at: 2026-07-20
+related_prs: [1385]
 ---
 
 # Capacity-first 数据层安全原型
