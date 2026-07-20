@@ -1399,6 +1399,24 @@ else
     echo "  ok: data-layer capacity verdict green/approaching/trigger fixtures pass"
 fi
 
+# ---- sub2api: capacity-first safety contracts ------------------------------
+echo ""
+echo "=== sub2api: capacity-first safety contracts ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for capacity-first safety tests)"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/test_data_layer_capacity_safety.py >/dev/null 2>&1; then
+    echo "  FAIL: capacity probe/projection safety contracts"
+    echo "        — run: python3 ops/observability/test_data_layer_capacity_safety.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/stage0/test_cfn_datavolume_no_replace.py >/dev/null 2>&1; then
+    echo "  FAIL: DataVolume no-replace planning contracts"
+    echo "        — run: python3 ops/stage0/test_cfn_datavolume_no_replace.py"
+    errors=$((errors + 1))
+else
+    echo "  ok: bounded read-only probe + explicit offline projection + grow-only CFN plan"
+fi
+
 # ---- sub2api: runtime resource config verdict selftest ---------------------
 echo ""
 echo "=== sub2api: runtime resource config verdict selftest ==="

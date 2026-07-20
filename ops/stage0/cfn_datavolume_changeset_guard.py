@@ -31,7 +31,9 @@ def validate_change_set(doc: dict[str, Any]) -> tuple[bool, list[str], list[dict
     changes = doc.get("Changes") or []
 
     if not changes:
-        return True, [], []
+        return False, ["change set contains no resource changes"], []
+    if len(changes) != 1:
+        violations.append(f"expected exactly one resource change, got {len(changes)}")
 
     for change in changes:
         rc = _resource_change(change)
@@ -39,6 +41,7 @@ def validate_change_set(doc: dict[str, Any]) -> tuple[bool, list[str], list[dict
         resource_type = rc.get("ResourceType")
         action = rc.get("Action")
         replacement = str(rc.get("Replacement", ""))
+        scope = rc.get("Scope") or []
 
         details = rc.get("Details") or []
         property_names: set[str] = set()
@@ -56,6 +59,7 @@ def validate_change_set(doc: dict[str, Any]) -> tuple[bool, list[str], list[dict
                 "resource_type": resource_type,
                 "action": action,
                 "replacement": replacement,
+                "scope": sorted(str(value) for value in scope),
                 "properties": sorted(property_names),
                 "requires_recreation": sorted(requires_recreation),
             }
@@ -73,14 +77,20 @@ def validate_change_set(doc: dict[str, Any]) -> tuple[bool, list[str], list[dict
             violations.append(f"{logical_id}: expected action {ALLOWED_ACTION}, got {action}")
         if replacement != "False":
             violations.append(f"{logical_id}: expected Replacement=False, got {replacement}")
+        if scope != ["Properties"]:
+            violations.append(f"{logical_id}: expected Scope=['Properties'], got {scope}")
 
         unknown = property_names - ALLOWED_PROPERTY_NAMES
         if unknown:
             violations.append(f"{logical_id}: unexpected property changes {sorted(unknown)}")
         if not property_names:
             violations.append(f"{logical_id}: no property-level details found")
-        if "Always" in requires_recreation:
-            violations.append(f"{logical_id}: property requires recreation")
+        unexpected_recreation = requires_recreation - {"Never"}
+        if unexpected_recreation:
+            violations.append(
+                f"{logical_id}: unexpected RequiresRecreation values "
+                f"{sorted(unexpected_recreation)}"
+            )
 
     return not violations, violations, summaries
 
@@ -94,6 +104,7 @@ def run_selftest() -> int:
                     "LogicalResourceId": "DataVolume",
                     "ResourceType": "AWS::EC2::Volume",
                     "Replacement": "False",
+                    "Scope": ["Properties"],
                     "Details": [
                         {
                             "Target": {
@@ -160,7 +171,7 @@ def run_selftest() -> int:
         ("good", good, True),
         ("blocked instance", bad_instance, False),
         ("volume replacement", bad_volume_replace, False),
-        ("empty", {"Changes": []}, True),
+        ("empty", {"Changes": []}, False),
     ]
     failed = 0
     for name, doc, want in cases:

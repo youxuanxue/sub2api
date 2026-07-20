@@ -18,17 +18,18 @@ usage: ops/stage0/reconcile-cfn-datavolume-no-replace.sh [options]
 Options:
   --stack NAME              default: tokenkey-prod-stage0
   --region REGION           default: us-east-1
-  --size GIB                desired DataVolumeSizeGiB, default: 50
+  --size GIB                desired DataVolumeSizeGiB (required; 20..500, grow-only)
   --change-set-name NAME    default: datavolume-no-replace-<pid>-<epoch>
   --keep-change-set         leave the validated no-execute change set in CFN
+  --confirm-prod-plan NAME  required only for prod; must equal the stack name
   -h, --help
 
 Safety:
-  This script is intentionally plan-only. It only plans DataVolumeSizeGiB=50
-  with the previous live template. IOPS/throughput CFN ownership still needs a
-  separate maintenance-window plan because current live UserData references the
-  DataVolume logical id and CloudFormation marks Instance/EIPAssoc conditional
-  changes when those template fields are added.
+  This script is intentionally plan-only and has no execute-change-set path.
+  Prod planning still writes a temporary SSM parameter and a no-execute change
+  set, so it is refused unless --confirm-prod-plan exactly matches the prod
+  stack. IOPS/throughput CFN ownership still needs a separate maintenance-window
+  plan because current live UserData references the DataVolume logical id.
 USAGE
 }
 
@@ -36,9 +37,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 STACK="tokenkey-prod-stage0"
 REGION="us-east-1"
-SIZE="50"
+SIZE=""
 CHANGE_SET_NAME="datavolume-no-replace-$$-$(date +%s)"
 KEEP_CHANGE_SET=0
+CONFIRM_PROD_PLAN=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,23 +49,37 @@ while [[ $# -gt 0 ]]; do
     --size) SIZE="${2:-}"; shift 2 ;;
     --change-set-name) CHANGE_SET_NAME="${2:-}"; shift 2 ;;
     --keep-change-set) KEEP_CHANGE_SET=1; shift ;;
+    --confirm-prod-plan) CONFIRM_PROD_PLAN="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
   esac
 done
 
-[[ -n "${STACK}" && -n "${REGION}" ]] || { usage; exit 2; }
-[[ "${SIZE}" =~ ^[0-9]+$ ]] || {
-  echo "::error::size must be a positive integer" >&2
+[[ -n "${STACK}" && -n "${REGION}" && -n "${SIZE}" ]] || { usage; exit 2; }
+[[ "${SIZE}" =~ ^[1-9][0-9]*$ ]] || {
+  echo "::error::size must be an integer between 20 and 500 GiB" >&2
   exit 2
 }
+SIZE="$((10#${SIZE}))"
+(( SIZE >= 20 && SIZE <= 500 )) || {
+  echo "::error::size must be an integer between 20 and 500 GiB" >&2
+  exit 2
+}
+if [[ "${STACK}" == "tokenkey-prod-stage0" && "${CONFIRM_PROD_PLAN}" != "${STACK}" ]]; then
+  echo "::error::prod plan refused; pass --confirm-prod-plan ${STACK} after explicit approval" >&2
+  exit 2
+fi
+if [[ -n "${CONFIRM_PROD_PLAN}" && "${CONFIRM_PROD_PLAN}" != "${STACK}" ]]; then
+  echo "::error::--confirm-prod-plan must exactly equal --stack" >&2
+  exit 2
+fi
 
 TMP_DIR="$(mktemp -d)"
 PARAMS_FILE="${TMP_DIR}/parameters.json"
 STACK_JSON="${TMP_DIR}/stack.json"
 CHANGESET_JSON="${TMP_DIR}/changeset.json"
 STABLE_AMI_PARAM=""
-STABLE_AMI_PARAM_PREEXISTED=0
+STABLE_AMI_PARAM_CREATED=0
 CHANGE_SET_CREATED=0
 CHANGE_SET_VALIDATED=0
 
@@ -78,7 +94,7 @@ cleanup() {
       cleanup_failed=1
     fi
   fi
-  if [[ -n "${STABLE_AMI_PARAM}" && ! ( "${KEEP_CHANGE_SET}" = 1 && "${CHANGE_SET_VALIDATED}" = 1 ) && "${STABLE_AMI_PARAM_PREEXISTED}" = 0 ]]; then
+  if [[ "${STABLE_AMI_PARAM_CREATED}" = 1 && ! ( "${KEEP_CHANGE_SET}" = 1 && "${CHANGE_SET_VALIDATED}" = 1 ) ]]; then
     if ! aws ssm delete-parameter --region "${REGION}" --name "${STABLE_AMI_PARAM}" >/dev/null 2>"${TMP_DIR}/delete-parameter.err"; then
       echo "::error::failed to delete preview SSM parameter ${STABLE_AMI_PARAM}" >&2
       cat "${TMP_DIR}/delete-parameter.err" >&2
@@ -96,7 +112,6 @@ trap cleanup EXIT
 echo "[datavolume] describing stack ${STACK} (${REGION})" >&2
 aws cloudformation describe-stacks --region "${REGION}" --stack-name "${STACK}" --output json >"${STACK_JSON}"
 
-echo "[datavolume] creating temporary stable AMI SSM parameter" >&2
 CURRENT_AMI_ID="$(aws cloudformation describe-stacks --region "${REGION}" --stack-name "${STACK}" \
   --query 'Stacks[0].Parameters[?ParameterKey==`AmazonLinux2023Arm64Ami`].ResolvedValue | [0]' \
   --output text)"
@@ -105,39 +120,25 @@ if [[ -z "${CURRENT_AMI_ID}" || "${CURRENT_AMI_ID}" == "None" ]]; then
   exit 2
 fi
 STACK_PATH_COMPONENT="$(printf '%s' "${STACK}" | tr -c 'A-Za-z0-9_.-' '-')"
-STABLE_AMI_PARAM="/tokenkey/${STACK_PATH_COMPONENT}/cfn-datavolume-no-replace/current-ami"
+CHANGE_SET_PATH_COMPONENT="$(printf '%s' "${CHANGE_SET_NAME}" | tr -c 'A-Za-z0-9_.-' '-')"
+STABLE_AMI_PARAM="/tokenkey/${STACK_PATH_COMPONENT}/cfn-datavolume-no-replace/${CHANGE_SET_PATH_COMPONENT}/ami"
 if aws ssm get-parameter --region "${REGION}" --name "${STABLE_AMI_PARAM}" >/dev/null 2>&1; then
-  STABLE_AMI_PARAM_PREEXISTED=1
+  echo "::error::preview SSM parameter already exists; choose a different --change-set-name" >&2
+  exit 2
 fi
+
+python3 "${SCRIPT_DIR}/cfn_datavolume_parameter_plan.py" \
+  --stack-json "${STACK_JSON}" \
+  --out "${PARAMS_FILE}" \
+  --size "${SIZE}" \
+  --stable-ami-param "${STABLE_AMI_PARAM}"
+
+echo "[datavolume] creating unique temporary stable AMI SSM parameter" >&2
 aws ssm put-parameter --region "${REGION}" \
   --name "${STABLE_AMI_PARAM}" \
   --type String \
-  --overwrite \
   --value "${CURRENT_AMI_ID}" >/dev/null
-
-python3 - "${STACK_JSON}" "${PARAMS_FILE}" "${SIZE}" "${STABLE_AMI_PARAM}" <<'PY'
-import json
-import sys
-
-stack_file, params_file, size, stable_ami_param = sys.argv[1:5]
-with open(stack_file, encoding="utf-8") as f:
-    stack = json.load(f)["Stacks"][0]
-
-desired = {
-    "DataVolumeSizeGiB": size,
-    "AmazonLinux2023Arm64Ami": stable_ami_param,
-}
-params = []
-for p in stack.get("Parameters", []):
-    key = p["ParameterKey"]
-    if key in desired:
-        params.append({"ParameterKey": key, "ParameterValue": desired[key]})
-    else:
-        params.append({"ParameterKey": key, "UsePreviousValue": True})
-with open(params_file, "w", encoding="utf-8") as f:
-    json.dump(params, f, indent=2)
-    f.write("\n")
-PY
+STABLE_AMI_PARAM_CREATED=1
 
 echo "[datavolume] creating no-execute change set ${CHANGE_SET_NAME}" >&2
 if ! aws cloudformation create-change-set --region "${REGION}" \
@@ -154,8 +155,10 @@ fi
 CHANGE_SET_CREATED=1
 
 WAIT_RC=0
-if ! aws cloudformation wait change-set-create-complete --region "${REGION}" \
+if aws cloudformation wait change-set-create-complete --region "${REGION}" \
   --stack-name "${STACK}" --change-set-name "${CHANGE_SET_NAME}" >/dev/null 2>"${TMP_DIR}/wait.err"; then
+  :
+else
   WAIT_RC=$?
 fi
 
