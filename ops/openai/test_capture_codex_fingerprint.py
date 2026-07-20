@@ -17,8 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import capture_codex_fingerprint as eng  # noqa: E402
 
-UA_TMPL = "codex-tui/{v} (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; {v})"
-
 
 _PATHS = {
     "version_source": eng.SETTING_GO,
@@ -28,9 +26,9 @@ _PATHS = {
 }
 
 
-def _pin(key, kind, version, raw, consistent=True, found=True):
+def _pin(key, kind, version, raw, derived=True, found=True):
     return eng.Pin(key=key, path=_PATHS[key], kind=kind, raw=raw,
-                   version=version, consistent_internal=consistent, found=found)
+                   version=version, derivation_complete=derived, found=found)
 
 
 def _baseline(versions):
@@ -60,32 +58,6 @@ class ParseVersionTests(unittest.TestCase):
         self.assertEqual(eng.parse_codex_version(""), "")
 
 
-class ExtractUaVersionTests(unittest.TestCase):
-    def test_extracts_version_not_os_or_terminal(self):
-        # OS 26.3.1 and iTerm 3.6.11 must NOT be mistaken for the codex version.
-        v, ok = eng.extract_ua_version(UA_TMPL.format(v="0.142.2"))
-        self.assertEqual(v, "0.142.2")
-        self.assertTrue(ok)
-
-    def test_detects_internal_prefix_suffix_disagreement(self):
-        ua = "codex-tui/0.142.2 (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.142.0)"
-        v, ok = eng.extract_ua_version(ua)
-        self.assertEqual(v, "0.142.2")  # prefix wins as the reported version
-        self.assertFalse(ok)            # but flagged inconsistent
-
-    def test_unparseable_ua(self):
-        self.assertEqual(eng.extract_ua_version("Mozilla/5.0"), ("", False))
-
-
-class BumpUaLiteralTests(unittest.TestCase):
-    def test_swaps_only_version_keeps_os_and_terminal(self):
-        out = eng.bump_ua_literal(UA_TMPL.format(v="0.142.2"), "0.143.0")
-        self.assertEqual(out, UA_TMPL.format(v="0.143.0"))
-        # OS / terminal segment preserved verbatim.
-        self.assertIn("Mac OS 26.3.1; arm64", out)
-        self.assertIn("iTerm.app/3.6.11", out)
-
-
 class DiffTests(unittest.TestCase):
     def test_all_match_when_installed_equals_pins(self):
         rows = eng.diff_pins(_aligned("0.142.2"), "0.142.2")
@@ -102,9 +74,9 @@ class DiffTests(unittest.TestCase):
         self.assertFalse(eng.has_drift(rows))
         self.assertTrue(all(r.status == "info" for r in rows))
 
-    def test_internal_ua_disagreement_is_drift_even_when_installed_matches(self):
+    def test_incomplete_derivation_is_drift_even_when_installed_matches(self):
         bl = _aligned("0.142.2")
-        bl.pins[0].consistent_internal = False  # ua_default half-edited
+        bl.pins[1].derivation_complete = False
         rows = eng.diff_pins(bl, "0.142.2")
         self.assertTrue(eng.has_drift(rows))
 
@@ -120,15 +92,31 @@ class ConsistencyTests(unittest.TestCase):
         rows = eng.consistency_rows(bl)
         self.assertTrue(any(r.status == "mismatch" for r in rows))
 
+    def test_same_value_literal_alias_still_breaks_derivation_contract(self):
+        pin = eng._alias_pin(
+            "gateway_version",
+            eng.SETTING_GO,
+            "codexCLIVersion",
+            'const codexCLIVersion = "0.142.2"',
+            "0.142.2",
+        )
+        self.assertTrue(pin.found)
+        self.assertFalse(pin.derivation_complete)
+
+        bl = _aligned("0.142.2")
+        bl.pins[2] = pin
+        rows = eng.consistency_rows(bl)
+        self.assertEqual(rows[2].status, "mismatch")
+
     def test_consistency_ignores_installed_cli(self):
-        # The consistency gate must pass even on an old pinned version, as long as
-        # all five agree — it must never break CI on a fresh upstream codex release.
+        # The consistency gate only validates owner/alias derivation, so an old
+        # owner must never break CI merely because upstream released a new Codex.
         rows = eng.consistency_rows(_aligned("0.1.0"))
         self.assertTrue(all(r.status == "match" for r in rows))
 
 
 class EmitEditsTests(unittest.TestCase):
-    def test_emits_one_edit_per_lagging_pin(self):
+    def test_emits_only_version_owner_edit(self):
         bl = _aligned("0.142.2")
         edits = eng.emit_edits(bl, "0.143.0")
         self.assertEqual(edits, [{
@@ -191,6 +179,7 @@ class LiveRepoTests(unittest.TestCase):
         self.assertEqual(len(bl.pins), 4)
         for p in bl.pins:
             self.assertTrue(p.found, f"{p.key} not found via regex in {p.rel}")
+            self.assertTrue(p.derivation_complete, f"{p.key} no longer derives from the owner")
             self.assertRegex(p.version, r"^\d+\.\d+\.\d+")
         # ...mutually consistent (this is exactly what the preflight gate asserts)...
         self.assertNotEqual(bl.consensus(), "", "live codex version pins disagree")

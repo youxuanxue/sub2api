@@ -73,10 +73,11 @@
       "path": "backend/internal/integration/kiro/headers_test.go",
       "must_contain": [
         "TestHeaderValuesUseCanonicalKiroIdentity",
+        "TestRequestPathsUseCanonicalKiroHeaders",
         "tkkiro.BuildUserAgent",
         "tkkiro.BuildAmzUserAgent"
       ],
-      "rationale": "Focused regression evidence that the actual vendored request path stays byte-identical to the canonical Kiro builders for both defaults and the runtime IDE-version override."
+      "rationale": "Focused regression evidence that both the builders and the actual streaming/runtime request paths stay byte-identical to the canonical Kiro identity for defaults and the runtime IDE-version override."
     },
     {
       "path": "backend/internal/service/admin_account.go",
@@ -130,6 +131,8 @@
         "func parseEventStream",
         "extractEventStreamHeaderValue",
         "HTTPDoer",
+        "buildStreamingHeaderValues(account, host)",
+        "applyKiroBaseHeaders(req, account, headerValues)",
         "runtime.us-east-1.kiro.dev",
         "q.us-east-1.amazonaws.com"
       ],
@@ -161,7 +164,9 @@
         "\"/getUsageLimits\"",
         "func ensureProfileArn",
         "func reresolveProfileArnAfterStale",
-        "func kiroRestFetch"
+        "func kiroRestFetch",
+        "buildRuntimeHeaderValues(account, host)",
+        "applyKiroBaseHeaders(req, account, headerValues)"
       ],
       "rationale": "Control-plane calls route through management.us-east-1.kiro.dev first with a codewhisperer.* fallback. Usage is not a host-only swap: the current management protocol requires /Get-Usage-Limits while legacy retains /getUsageLimits. When both fail, the primary management HTTP verdict remains authoritative so a legacy Invalid-token response cannot mask a real management quota verdict. A missing profileArn still triggers shared stale-profile recovery."
     },

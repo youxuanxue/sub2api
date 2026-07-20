@@ -2,8 +2,10 @@
 """Deterministic Codex (OpenAI platform) client-fingerprint alignment for TokenKey.
 
 Ground truth = the locally-installed Codex CLI (``codex --version`` + the native
-binary's strings). Alignment target = the TK Go constants + i18n placeholders
-that forge / fall back to the Codex client fingerprint on the OpenAI OAuth path.
+binary's strings). Alignment target = ``DefaultOpenAICodexVersion``, the sole
+editable TK Go version owner for the forged / fallback Codex fingerprint on the
+OpenAI OAuth path. The UA, gateway version, and probe version are derived aliases;
+admin-UI placeholders are examples, not fingerprint pins.
 
 Unlike the cc / kiro / antigravity engines this needs NO mitmproxy / pcap: the
 Codex CLI ships its fingerprint locally, so the on-wire identity is read straight
@@ -19,14 +21,14 @@ the rest of the literal verbatim when emitting a bump.
 
 Subcommands:
   check-env          Verify the Codex CLI is installed + locate its native binary.
-  show-baseline      Print the TK version pins + the installed codex version.
-  diff               Human drift report (installed codex vs each TK pin).
+  show-baseline      Print the TK version owner/aliases + installed codex version.
+  diff               Human drift report (installed codex vs owner/aliases).
   check              diff + exit 1 on any version drift, 2 on env error.
-  check-consistency  Exit 1 when the 5 TK pins disagree AMONG THEMSELVES
-                     (catches a half-finished bump). Does NOT need codex
+  check-consistency  Exit 1 when aliases stop deriving from the version owner.
+                     Does NOT need codex
                      installed, never compares to a moving upstream version —
                      this is the preflight-safe gate.
-  emit-edits         Print the exact file -> old->new bumps (mechanizes the PR).
+  emit-edits         Print the exact owner bump (mechanizes the PR).
 
 stdlib-only.
 """
@@ -58,22 +60,18 @@ EXPECTED_ORIGINATOR = "codex_cli_rs"
 EXPECTED_BETA = "responses=experimental"
 
 _VER = r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?"
-# Anchored so the OS version (26.3.1) and terminal version (3.6.11) inside the UA
-# are never mistaken for the codex version.
-_UA_PREFIX_RE = re.compile(r"codex-tui/(" + _VER + r")")
-_UA_SUFFIX_RE = re.compile(r"codex-tui;\s*(" + _VER + r")")
 
 
 @dataclass
 class Pin:
-    """One place the codex version is pinned in the repo."""
+    """The editable Codex version owner or one of its derived aliases."""
 
     key: str
     path: Path
-    kind: str  # "bare" (value IS the version) | "ua" (version embedded) | "alias" (derives from source)
-    raw: str = ""  # the full literal as found (UA string, or bare version)
+    kind: str  # "bare" (editable owner) | "alias" (must derive from owner)
+    raw: str = ""  # the owner literal or alias expression as found
     version: str = ""  # the extracted codex version
-    consistent_internal: bool = True  # UA prefix/suffix versions agree
+    derivation_complete: bool = True
     found: bool = True
 
     @property
@@ -105,7 +103,7 @@ class Baseline:
         return [p.version for p in self.pins if p.found and p.version]
 
     def consensus(self) -> str:
-        """The version shared by all found pins, or '' if they disagree / none."""
+        """The version shared by the owner and aliases, or '' on disagreement."""
         vs = self.versions
         if vs and len(set(vs)) == 1:
             return vs[0]
@@ -119,28 +117,6 @@ def parse_codex_version(version_output: str) -> str:
     """Extract the semver from ``codex --version`` output (``codex-cli 0.142.2``)."""
     m = re.search(r"(" + _VER + r")", version_output or "")
     return m.group(1) if m else ""
-
-
-def extract_ua_version(ua: str) -> tuple[str, bool]:
-    """Return (version, internally_consistent) for a ``codex-tui/...`` UA literal.
-
-    internally_consistent is False when the ``codex-tui/<v>`` prefix and the
-    trailing ``(codex-tui; <v>)`` suffix disagree (a half-done hand-edit).
-    """
-    pm = _UA_PREFIX_RE.search(ua or "")
-    sm = _UA_SUFFIX_RE.search(ua or "")
-    if not pm:
-        return "", False
-    version = pm.group(1)
-    consistent = bool(sm) and sm.group(1) == version
-    return version, consistent
-
-
-def bump_ua_literal(ua: str, new_version: str) -> str:
-    """Swap ONLY the codex version tokens in a UA literal, keeping OS/terminal."""
-    out = _UA_PREFIX_RE.sub("codex-tui/" + new_version, ua)
-    out = _UA_SUFFIX_RE.sub("codex-tui; " + new_version, out)
-    return out
 
 
 def _read(path: Path) -> str:
@@ -158,9 +134,23 @@ def _find1(text: str, pattern: str) -> str:
 def _alias_pin(key: str, path: Path, symbol: str, text: str, source_version: str) -> Pin:
     literal = _find1(text, rf'{symbol}\s*=\s*"([^"]+)"')
     if literal:
-        return Pin(key, path, "bare", raw=literal, version=literal, found=True)
+        return Pin(
+            key,
+            path,
+            "alias",
+            raw=literal,
+            version=literal,
+            derivation_complete=False,
+        )
     if re.search(rf"{symbol}\s*=\s*DefaultOpenAICodexVersion\b", text):
-        return Pin(key, path, "alias", raw="DefaultOpenAICodexVersion", version=source_version, found=bool(source_version))
+        return Pin(
+            key,
+            path,
+            "alias",
+            raw="DefaultOpenAICodexVersion",
+            version=source_version,
+            found=bool(source_version),
+        )
     return Pin(key, path, "alias", found=False)
 
 
@@ -183,7 +173,7 @@ def load_baseline() -> Baseline:
         raw=ua_expr,
         version=source_version if ua_uses_source else "",
         found=bool(ua_expr),
-        consistent_internal=ua_uses_source,
+        derivation_complete=ua_uses_source,
     ))
 
     service_txt = "\n".join((setting_txt, _read(GATEWAY_GO), _read(USAGE_GO)))
@@ -262,7 +252,7 @@ def diff_pins(bl: Baseline, installed: str) -> list[Row]:
             rows.append(Row(p.key, "", installed, "missing", critical=True,
                             note=f"could not read pin in {p.rel}"))
             continue
-        if not p.consistent_internal:
+        if not p.derivation_complete:
             rows.append(Row(p.key, p.version, installed, "mismatch", critical=True,
                             note="version derivation is incomplete (half-done edit)"))
             continue
@@ -287,7 +277,7 @@ def consistency_rows(bl: Baseline) -> list[Row]:
             rows.append(Row(p.key, "", consensus, "missing", critical=True,
                             note=f"could not read pin in {p.rel}"))
             continue
-        if not p.consistent_internal:
+        if not p.derivation_complete:
             rows.append(Row(p.key, p.version, consensus, "mismatch", critical=True,
                             note="version derivation is incomplete"))
             continue
@@ -299,14 +289,11 @@ def consistency_rows(bl: Baseline) -> list[Row]:
 def emit_edits(bl: Baseline, new_version: str) -> list[dict]:
     edits = []
     for p in bl.pins:
-        if not p.found or p.version == new_version and p.consistent_internal:
+        if not p.found or p.version == new_version and p.derivation_complete:
             continue
         if p.kind == "alias":
             continue
-        if p.kind == "bare":
-            edits.append({"file": p.rel, "old": p.raw, "new": new_version})
-        else:
-            edits.append({"file": p.rel, "old": p.raw, "new": bump_ua_literal(p.raw, new_version)})
+        edits.append({"file": p.rel, "old": p.raw, "new": new_version})
     return edits
 
 
@@ -373,13 +360,13 @@ def cmd_show_baseline(_args) -> int:
     bl = load_baseline()
     installed = installed_codex_version()
     print(f"installed codex version: {installed or '(not installed)'}")
-    print("TK version pins:")
+    print("TK version owner and derived aliases:")
     width = max((len(p.key) for p in bl.pins), default=0)
     for p in bl.pins:
         v = p.version or "(not found)"
-        extra = "" if p.consistent_internal else "  [UA prefix/suffix disagree]"
+        extra = "" if p.derivation_complete else "  [derivation incomplete]"
         print(f"  {p.key.ljust(width)}  {v}  <- {p.rel}{extra}")
-    print(f"internal consensus: {bl.consensus() or '(pins disagree)'}")
+    print(f"derivation consensus: {bl.consensus() or '(owner/aliases disagree)'}")
     _print_non_version(bl, None)
     return 0
 
@@ -420,14 +407,16 @@ def cmd_check_consistency(_args) -> int:
     rows = consistency_rows(bl)
     drift = any(r.status != "match" for r in rows)
     if drift:
-        print("Codex version pins are NOT mutually consistent:", file=sys.stderr)
+        print("Codex version owner/aliases are NOT consistent:", file=sys.stderr)
         _print_rows(rows, sys.stderr)
-        consensus = bl.consensus()
-        print("\nThe service Codex pins must derive from DefaultOpenAICodexVersion. "
-              "Re-run a full bump (ops/openai/capture-codex-fingerprint.sh emit-edits) "
-              "so the version source, UA default, gateway version, and probe version agree.", file=sys.stderr)
+        print(
+            "\nRestore the UA default, gateway version, and probe version aliases "
+            "to derive from DefaultOpenAICodexVersion. Use emit-edits only to bump "
+            "the version owner after this derivation gate passes.",
+            file=sys.stderr,
+        )
         return 1
-    print(f"codex version pins consistent: all = {bl.consensus()}")
+    print(f"codex version derivation consistent: source = {bl.consensus()}")
     return 0
 
 
@@ -442,9 +431,9 @@ def cmd_emit_edits(args) -> int:
         print(json.dumps({"version": target, "edits": edits}, indent=2))
         return 0
     if not edits:
-        print(f"all pins already at {target} — nothing to edit")
+        print(f"codex version owner already at {target} — nothing to edit")
         return 0
-    print(f"edits to align all codex pins -> {target}:")
+    print(f"edits to align the codex version contract -> {target}:")
     for e in edits:
         print(f"  {e['file']}")
         print(f"    - {e['old']}")
