@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-20T00:04:17Z",
-  "git_sha": "f0fb333491c878aba77155ac873ffd4da803be12",
+  "updated_at": "2026-07-20T08:08:19Z",
+  "git_sha": "71f8ff830ac2d345de3b62a33a8847db024df51a",
   "platforms": {
     "claude-code": {
-      "pinned": "2.1.211",
+      "pinned": "2.1.215",
       "upstream_latest": "2.1.215",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -40,9 +40,9 @@
       }
     },
     "codex": {
-      "pinned": "0.144.4",
+      "pinned": "0.144.6",
       "upstream_latest": "0.144.6",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -61,9 +61,9 @@
       }
     },
     "codex-vscode": {
-      "pinned": "0.144.4",
+      "pinned": "0.144.6",
       "upstream_latest": "0.144.6",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -82,9 +82,9 @@
       }
     },
     "gemini-cli": {
-      "pinned": "0.50.0",
+      "pinned": "0.51.0",
       "upstream_latest": "0.51.0",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -97,9 +97,9 @@
       }
     },
     "grok-cli": {
-      "pinned": "0.2.101",
+      "pinned": "0.2.106",
       "upstream_latest": "0.2.106",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -112,9 +112,9 @@
       }
     },
     "antigravity": {
-      "pinned": "2.3.0",
+      "pinned": "2.3.1",
       "upstream_latest": "2.3.1",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -127,9 +127,9 @@
       }
     },
     "kiro": {
-      "pinned": "0.12.333",
+      "pinned": "1.0.165",
       "upstream_latest": "1.0.165",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
@@ -142,9 +142,9 @@
       }
     },
     "kiro-cli": {
-      "pinned": "2.12.3",
+      "pinned": "2.13.0",
       "upstream_latest": "2.13.0",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
