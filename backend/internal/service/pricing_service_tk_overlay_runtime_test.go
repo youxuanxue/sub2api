@@ -282,15 +282,14 @@ func TestCatalogInvalidateCache_PicksUpHotOverlay(t *testing.T) {
 // guard against accidental JSON shape drift in the embedded overlay used as floor.
 func TestEmbeddedOverlayParsesAsFloor(t *testing.T) {
 	resetOverlayUnion(t)
-	m, err := parseTKOverlayBytes(tkPricingOverlayRaw)
+	doc, err := parseTKOverlayDocument(tkPricingOverlayRaw)
 	if err != nil {
 		t.Fatalf("embedded overlay must parse: %v", err)
 	}
+	m := doc.Models
 	if len(m) == 0 {
 		t.Fatal("embedded overlay parsed to zero entries")
 	}
-	doc, err := parseTKOverlayDocument(tkPricingOverlayRaw)
-	require.NoError(t, err)
 	require.NotNil(t, doc.BaseTax)
 	require.NoError(t, doc.BaseTax.validate())
 	// _meta / provenance keys are skipped.

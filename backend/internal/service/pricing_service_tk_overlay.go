@@ -180,16 +180,6 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 	return doc, nil
 }
 
-// parseTKOverlayBytes retains the map-only helper used by focused tests and
-// callers that do not need executable policy.
-func parseTKOverlayBytes(data []byte) (map[string]*LiteLLMModelPricing, error) {
-	doc, err := parseTKOverlayDocument(data)
-	if err != nil {
-		return nil, err
-	}
-	return doc.Models, nil
-}
-
 func validateRuntimeBaseTaxCoverage(embedded, runtime tkOfficialListBaseTaxPolicy) error {
 	runtimeProviders := make(map[string]struct{}, len(runtime.Rules))
 	for _, rule := range runtime.Rules {

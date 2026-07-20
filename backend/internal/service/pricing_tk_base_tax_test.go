@@ -73,14 +73,14 @@ func TestTkInferBaseTaxProvider(t *testing.T) {
 	for _, rule := range policy.Rules {
 		for _, prefix := range rule.ModelPrefixes {
 			model := prefix + "ssot-probe"
-			assert.Equal(t, rule.Provider, tkInferBaseTaxProvider(model), model)
+			assert.Equal(t, rule.Provider, policy.inferProvider(model), model)
 		}
 		for _, fragment := range rule.ModelContains {
 			model := "ssot-" + fragment + "-probe"
-			assert.Equal(t, rule.Provider, tkInferBaseTaxProvider(model), model)
+			assert.Equal(t, rule.Provider, policy.inferProvider(model), model)
 		}
 	}
-	assert.Empty(t, tkInferBaseTaxProvider("openai/gpt-5.4"))
+	assert.Empty(t, policy.inferProvider("openai/gpt-5.4"))
 }
 
 func sampleModelForTaxRule(t *testing.T, rule tkOfficialListBaseTaxRule) string {

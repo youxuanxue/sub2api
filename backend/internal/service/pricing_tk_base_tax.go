@@ -114,10 +114,6 @@ func (p tkOfficialListBaseTaxPolicy) inferProvider(model string) string {
 	return ""
 }
 
-func tkInferBaseTaxProvider(model string) string {
-	return loadTkOfficialListBaseTaxPolicy().inferProvider(model)
-}
-
 func tkApplyBaseTaxMultiplier(v, multiplier float64) float64 {
 	if v <= 0 {
 		return v

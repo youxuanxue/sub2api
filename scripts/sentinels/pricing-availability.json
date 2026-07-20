@@ -264,7 +264,6 @@
     {
       "path": "backend/internal/service/pricing_service_tk_overlay.go",
       "must_contain": [
-        "func parseTKOverlayBytes",
         "func parseTKOverlayDocument",
         "func buildTKPricingOverlaySnapshot",
         "func validateRuntimeBaseTaxCoverage",
