@@ -1,6 +1,6 @@
 {
   "name": "tk_canonical_kiro_ide",
-  "description": "TokenKey canonical Kiro IDE (AWS CodeWhisperer) TLS profile. Captured by passive pcap from a real Kiro IDE ClientHello (the AWS endpoint is hard-coded and cannot be redirected to a collector). Distinct from tk_canonical_cc_oauth: Kiro bundles Node 22.22.0 (OpenSSL), not cc's Node 24.x, so the JA3 differs. observed.user_agent is a compile-time snapshot; the live wire UA is driven by kiro.ResolveClientIdentity (env KIRO_IDE_USER_AGENT_VERSION over constants).",
+  "description": "TokenKey canonical Kiro IDE (AWS CodeWhisperer) TLS profile. Captured by passive pcap from a real Kiro IDE ClientHello (the AWS endpoint is hard-coded and cannot be redirected to a collector). Only observed.* is pcap evidence. expected_http is a deterministic repository-constant snapshot, not an HTTP capture; the live wire UA uses the same kiro.ResolveClientIdentity and builders.",
   "enable_grease": false,
   "cipher_suites": [
     4865,
@@ -68,11 +68,16 @@
   "observed": {
     "ja3_raw": "771,4865-4866-4867-49199-49195-49200-49196-49191-52393-52392-49161-49171-49162-49172-156-157-47-53,0-23-65281-10-11-35-13-51-45-43-21,29-23-24,0",
     "ja3_hash": "51bddd625044f75a235ba857ac8b0145",
+    "server_name": "runtime.us-east-1.kiro.dev",
+    "source": "passive-pcap"
+  },
+  "expected_http": {
+    "kiro_ide_version": "1.0.165",
+    "streaming_sdk_version": "1.0.34",
     "node_version": "22.22.0",
     "system_version": "darwin#24.0.0",
     "user_agent": "aws-sdk-js/1.0.34 ua/2.1 os/darwin#24.0.0 lang/js md/nodejs#22.22.0 api/codewhispererstreaming#1.0.34 m/E KiroIDE-1.0.165",
     "x_amz_user_agent": "aws-sdk-js/1.0.34 KiroIDE-1.0.165",
-    "server_name": "runtime.us-east-1.kiro.dev",
-    "source": "passive-pcap"
+    "source": "repo-constants"
   }
 }

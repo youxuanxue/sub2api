@@ -59,12 +59,24 @@
       "rationale": "TK-side canonical KiroIDE client identity + User-Agent builder used for fingerprint mimicry. If dropped, kiro egress loses its KiroIDE-<ver> UA and is trivially distinguishable from the real client. DefaultKiroAccountPriority is the creation-time default for native Kiro accounts when callers omit priority."
     },
     {
-      "path": "backend/internal/integration/kiro/shim.go",
+      "path": "backend/internal/integration/kiro/headers.go",
       "must_contain": [
-        "tkkiro.DefaultKiroIDEVersion",
-        "tkkiro.UserAgentVersionEnv"
+        "tkkiro.ResolveClientIdentity",
+        "tkkiro.BuildUserAgent",
+        "tkkiro.BuildAmzUserAgent",
+        "tkkiro.StreamingSDKVersion",
+        "tkkiro.RuntimeSDKVersion"
       ],
-      "rationale": "The vendored Kiro protocol path must derive its default and runtime override key from the TK-owned fingerprint owner. Losing either reference recreates duplicate version literals that can drift across the two User-Agent builders during the next client release."
+      "rationale": "The vendored Kiro protocol path must render both streaming and runtime headers through the TK-owned identity and User-Agent builders. Losing these references recreates duplicate IDE/SDK/OS/Node literals or formatting that can drift during the next client release."
+    },
+    {
+      "path": "backend/internal/integration/kiro/headers_test.go",
+      "must_contain": [
+        "TestHeaderValuesUseCanonicalKiroIdentity",
+        "tkkiro.BuildUserAgent",
+        "tkkiro.BuildAmzUserAgent"
+      ],
+      "rationale": "Focused regression evidence that the actual vendored request path stays byte-identical to the canonical Kiro builders for both defaults and the runtime IDE-version override."
     },
     {
       "path": "backend/internal/service/admin_account.go",

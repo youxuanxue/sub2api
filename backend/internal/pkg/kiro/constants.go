@@ -29,8 +29,7 @@ const UserAgentVersionEnv = "KIRO_IDE_USER_AGENT_VERSION"
 const DefaultKiroAccountPriority = 10
 
 // SDK version strings carried in the aws-sdk-js style User-Agent. These mirror
-// the values the real Kiro IDE emits; bump together with KiroIDEVersion when a
-// new Kiro client ships and the fingerprint is re-aligned.
+// the last on-wire evidence and must not be inferred from the IDE package version.
 const (
 	StreamingSDKVersion = "1.0.34"
 	RuntimeSDKVersion   = "1.0.0"

@@ -18,8 +18,10 @@ handlers, the account pool, admin endpoints, response stores, and anything that
 touched the upstream config DB / file store were intentionally left behind —
 TokenKey owns scheduling, persistence, and request routing.
 
-This package depends **only on the Go standard library + `github.com/google/uuid`**
-(already a TokenKey dependency). No new module was added to `go.mod`.
+Its only external dependencies are the Go standard library and
+`github.com/google/uuid` (already a TokenKey dependency). `headers.go` also uses
+TokenKey's internal `internal/pkg/kiro` fingerprint owner. No new module was added
+to `go.mod`.
 
 ## File mapping (TK file ← Kiro-Go file)
 
@@ -53,11 +55,10 @@ mechanical, scoped edits below. Translation/transport logic is unchanged.
      proxying; later PR wires this).
    - `config.GetEndpointFallback` → `true` (tries only the official runtime and transitional q chain).
    - `config.GetPreferredEndpoint` → `"auto"` (current runtime first, transitional q second).
-   - `config.GetKiroClientConfig` → local `GetKiroClientConfig()` with defaults
-     copied from upstream (`KiroVersion "0.11.107"`, `NodeVersion "22.22.0"`,
-     `SystemVersion` OS-derived).
-   - `config.GetFilterClaudeCode/StripBoundaries/EnvNoise` → `false` (prompt
-     filtering disabled in vendored default; later PR wires to TK settings).
+   - `config.GetKiroClientConfig` is not mirrored in `shim.go`; the header path is
+     the deliberate TokenKey adapter described below.
+   - `config.GetFilterClaudeCode` → `true`; `StripBoundaries/EnvNoise` → `false`
+     (preserve Claude Code identity while leaving the other filters disabled).
    - `config.GetPromptFilterRules` → `nil`.
    - `logger.Debugf/Infof/Warnf/Errorf` → local `logDebugf/logInfof/logWarnf/logErrorf`
      (thin `log/slog` wrappers).
@@ -65,7 +66,14 @@ mechanical, scoped edits below. Translation/transport logic is unchanged.
    - `auth.GetAuthClientForProxy` → local `GetAuthClientForProxy` (30s-timeout
      client, reuses `buildKiroTransport`).
 
-3. **DB side effects removed.** The vendored package never writes a database.
+3. **Canonical fingerprint adapter** (`headers.go`). Instead of copying upstream
+   config defaults and User-Agent formatting, the actual request path calls
+   `internal/pkg/kiro.ResolveClientIdentity`, `BuildUserAgent`, and
+   `BuildAmzUserAgent`. IDE/SDK/OS/Node values, the env override, and rendering
+   therefore have one TokenKey owner. `headers_test.go` locks both streaming and
+   runtime output to that owner.
+
+4. **DB side effects removed.** The vendored package never writes a database.
    - `config.UpdateAccountProfileArn(...)` calls in `ResolveProfileArn` deleted —
      the resolved ARN is set only on the in-memory `account.ProfileArn` and
      returned. TokenKey persists it.
@@ -75,7 +83,7 @@ mechanical, scoped edits below. Translation/transport logic is unchanged.
      TokenKey layer inspects the error and decides whether to disable/ban the ent
      account. Function signature `(*AccountInfo, error)` is preserved.
 
-4. **`HTTPDoer` decoupling point added** (`client.go`). New
+5. **`HTTPDoer` decoupling point added** (`client.go`). New
    `type HTTPDoer interface { Do(*http.Request) (*http.Response, error) }` and
    `CallKiroAPIWithDoer(doer HTTPDoer, ...)`. `CallKiroAPI` now delegates to it
    with `nil` (built-in per-proxy client, identical behavior). This lets a later
@@ -101,9 +109,10 @@ To refresh from a newer upstream commit:
    - `proxy/kiro_api.go`     → `rest.go`
    - `auth/oidc.go`          → `refresh.go`
 3. Re-apply the change log above (package rename, config/logger/auth → shim,
-   remove DB side effects, keep the `HTTPDoer` seam). `shim.go` and the tests are
-   TK-authored — do not overwrite them; only update `shim.go` defaults if the
-   upstream `config` package defaults (e.g. `KiroVersion`) changed.
+   canonical `internal/pkg/kiro` header adapter, removed DB side effects, and the
+   `HTTPDoer` seam). `shim.go` and the tests are TK-authored — do not overwrite
+   them. Do not restore upstream `GetKiroClientConfig` literals; refresh canonical
+   identity fields only through `internal/pkg/kiro` after the required evidence.
 4. Update the pinned commit SHA + date at the top of this file.
 5. Verify:
    ```bash

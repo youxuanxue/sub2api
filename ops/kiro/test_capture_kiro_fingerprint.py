@@ -74,6 +74,24 @@ class UserAgentTests(unittest.TestCase):
         self.assertTrue(ua.startswith("aws-sdk-js/"))
         self.assertIn("api/codewhispererstreaming#", ua)
 
+    def test_committed_expected_http_matches_live_constants(self):
+        profile = eng.load_committed_profile()
+        self.assertIsNotNone(profile)
+        self.assertIsNone(eng.validate_profile_provenance(profile))
+
+        consts = eng.load_kiro_constants()
+        expected_http = profile["expected_http"]
+        expected = {
+            "kiro_ide_version": consts["kiro_ide_version"],
+            "streaming_sdk_version": consts["streaming_sdk_version"],
+            "node_version": consts["node_version"],
+            "system_version": consts["system_version"],
+            "user_agent": eng.expected_user_agent(consts),
+            "x_amz_user_agent": eng.expected_amz_user_agent(consts),
+            "source": "repo-constants",
+        }
+        self.assertEqual(expected_http, expected)
+
 
 class TsharkParseTests(unittest.TestCase):
     def test_parses_hex_and_decimal_aggregated_cells(self):
@@ -123,16 +141,52 @@ class ProfileAndDiffTests(unittest.TestCase):
         }
 
     def test_build_profile_strips_grease_and_records_flag(self):
-        prof = eng.build_canonical_profile(self._fields(), {"source": "test"})
+        expected_http = {
+            "kiro_ide_version": "0.11.107",
+            "streaming_sdk_version": "1.0.34",
+            "node_version": "22.22.0",
+            "system_version": "darwin#24.0.0",
+            "user_agent": "synthetic-ua",
+            "x_amz_user_agent": "synthetic-amz-ua",
+        }
+        prof = eng.build_canonical_profile(self._fields(), expected_http, "passive-pcap:test")
         self.assertEqual(prof["name"], eng.KIRO_PROFILE_NAME)
         self.assertTrue(prof["enable_grease"])  # GREASE was present in capture
         self.assertNotIn(GREASE_CIPHER, prof["cipher_suites"])
         self.assertNotIn(GREASE_EXT, prof["extensions"])
         self.assertEqual(prof["cipher_suites"], [4865, 4866, 4867])
         self.assertIn("ja3_hash", prof["observed"])
+        self.assertEqual(prof["observed"]["source"], "passive-pcap:test")
+        self.assertNotIn("user_agent", prof["observed"])
+        self.assertEqual(prof["expected_http"]["user_agent"], "synthetic-ua")
+        self.assertEqual(prof["expected_http"]["source"], "repo-constants")
+        self.assertIsNone(eng.validate_profile_provenance(prof))
+
+    def test_rejects_legacy_mixed_profile_provenance(self):
+        legacy = {
+            "observed": {
+                "ja3_raw": "771,,,,",
+                "ja3_hash": "a" * 32,
+                "server_name": "runtime.us-east-1.kiro.dev",
+                "user_agent": "constant-derived-but-mislabeled",
+                "source": "passive-pcap",
+            },
+            "expected_http": {
+                "kiro_ide_version": "1.0.165",
+                "streaming_sdk_version": "1.0.34",
+                "node_version": "22.22.0",
+                "system_version": "darwin#24.0.0",
+                "user_agent": "expected-ua",
+                "x_amz_user_agent": "expected-amz-ua",
+                "source": "repo-constants",
+            },
+        }
+        error = eng.validate_profile_provenance(legacy)
+        self.assertIsNotNone(error)
+        self.assertIn("non-pcap HTTP fields", error)
 
     def test_diff_first_capture_is_non_actionable(self):
-        prof = eng.build_canonical_profile(self._fields(), {"source": "test"})
+        prof = eng.build_canonical_profile(self._fields(), {}, "passive-pcap:test")
         bundle = {"tls": {"ja3_hash": prof["observed"]["ja3_hash"]}}
         rows = eng.diff_bundle(bundle, committed=None)
         ja3_row = next(r for r in rows if r.field == "tls.ja3_hash")
