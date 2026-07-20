@@ -1092,6 +1092,22 @@ const resetAutoRefreshCache = () => {
 
 const isFirstLoad = ref(true)
 
+const loadAccountDependencies = async () => {
+  try {
+    const [p, g, gAll] = await Promise.all([
+      adminAPI.proxies.getAll(),
+      adminAPI.groups.getAll(),
+      // Inactive-inclusive set for chip resolution only (disabled-group bindings).
+      adminAPI.groups.getAllIncludingInactive()
+    ])
+    proxies.value = p
+    groups.value = g
+    groupsForChips.value = gAll
+  } catch (error) {
+    console.error('Failed to load proxies/groups:', error)
+  }
+}
+
 const load = async () => {
   const requestParams = params as any
   syncAccountListDerivedParams()
@@ -1106,6 +1122,10 @@ const load = async () => {
   isFirstLoad.value = false
   await baseLoad()
   refreshAccountRowMetrics()
+}
+
+const refreshAccountPage = async () => {
+  await Promise.all([load(), loadAccountDependencies()])
 }
 
 const reload = async () => {
@@ -1293,7 +1313,8 @@ const refreshAccountsIncrementally = async () => {
 }
 
 const handleManualRefresh = async () => {
-  await load()
+  lastFetchedAt = Date.now()
+  await refreshAccountPage()
   await refreshEdges({ force: true })
   // load() already starts the batch passive-usage refresh for Anthropic/OpenAI/Kiro
   // rows (override path). Bump the token so the residual self-fetch platforms
@@ -2128,22 +2149,12 @@ const handleClickOutside = (event: MouseEvent) => {
 
 let lastFetchedAt = 0
 const STALE_THRESHOLD_MS = 30_000
+let hasCompletedInitialMount = false
 
 onMounted(async () => {
-  load()
-  try {
-    const [p, g, gAll] = await Promise.all([
-      adminAPI.proxies.getAll(),
-      adminAPI.groups.getAll(),
-      // Inactive-inclusive set for chip resolution only (disabled-group bindings).
-      adminAPI.groups.getAllIncludingInactive()
-    ])
-    proxies.value = p
-    groups.value = g
-    groupsForChips.value = gAll
-  } catch (error) {
-    console.error('Failed to load proxies/groups:', error)
-  }
+  lastFetchedAt = Date.now()
+  await refreshAccountPage()
+  hasCompletedInitialMount = true
   window.addEventListener('scroll', handleScroll, true)
   document.addEventListener('click', handleClickOutside)
 
@@ -2153,14 +2164,16 @@ onMounted(async () => {
   } else {
     pauseAutoRefresh()
   }
-  lastFetchedAt = Date.now()
 })
 
 onActivated(() => {
   if (autoRefreshEnabled.value) resumeAutoRefresh()
+  if (!hasCompletedInitialMount) return
+
+  void loadAccountDependencies()
   if (Date.now() - lastFetchedAt > STALE_THRESHOLD_MS) {
-    load()
     lastFetchedAt = Date.now()
+    void load()
   }
 })
 

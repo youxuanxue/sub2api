@@ -185,6 +185,68 @@ describe('admin AccountsView bulk edit scope', () => {
     expect(wrapper.get('[data-test="bulk-edit-modal"]').attributes('data-target-mode')).toBe('filtered')
   })
 
+  it('reloads account group choices during a manual refresh', async () => {
+    getAllGroups
+      .mockResolvedValueOnce([{ id: 19, name: 'china', platform: 'newapi' }])
+      .mockResolvedValueOnce([
+        { id: 19, name: 'china', platform: 'newapi' },
+        { id: 285, name: 'Kimi', platform: 'newapi' }
+      ])
+    getAllIncludingInactive
+      .mockResolvedValueOnce([{ id: 19, name: 'china', platform: 'newapi' }])
+      .mockResolvedValueOnce([
+        { id: 19, name: 'china', platform: 'newapi' },
+        { id: 285, name: 'Kimi', platform: 'newapi' }
+      ])
+
+    const wrapper = mount(AccountsView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          AccountTableActions: AccountTableActionsStub,
+          AccountTableFilters: { template: '<div></div>' },
+          AccountBulkActionsBar: AccountBulkActionsBarStub,
+          AccountActionMenu: true,
+          ImportDataModal: true,
+          ReAuthAccountModal: true,
+          AccountTestModal: true,
+          AccountStatsModal: true,
+          ScheduledTestsPanel: true,
+          SyncFromCrsModal: true,
+          TempUnschedStatusModal: true,
+          ErrorPassthroughRulesModal: true,
+          TLSFingerprintProfilesModal: true,
+          CreateAccountModal: true,
+          EditAccountModal: true,
+          BulkEditAccountModal: BulkEditAccountModalStub,
+          PlatformTypeBadge: true,
+          AccountCapacityCell: true,
+          AccountStatusIndicator: true,
+          AccountTodayStatsCell: true,
+          AccountGroupsCell: true,
+          AccountUsageCell: true,
+          Icon: true
+        }
+      }
+    })
+
+    await flushPromises()
+    expect(getAllGroups).toHaveBeenCalledTimes(1)
+    expect(getAllIncludingInactive).toHaveBeenCalledTimes(1)
+
+    await wrapper.get('[data-test="refresh-accounts"]').trigger('click')
+    await flushPromises()
+
+    expect(getAllGroups).toHaveBeenCalledTimes(2)
+    expect(getAllIncludingInactive).toHaveBeenCalledTimes(2)
+  })
+
   it('uses the compact account operation columns by default', async () => {
     listAccounts.mockResolvedValue({
       items: [
