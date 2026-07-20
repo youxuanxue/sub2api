@@ -38,8 +38,9 @@ const (
 
 // Compile-time defaults for the KiroIDE client identity. These are overridable at
 // runtime (env / setting) in PR6; the constants are the canonical baseline.
-// These mirror the shipping Kiro package identity. The vendored integration
-// layer derives its default from this owner so both User-Agent paths stay in sync.
+// The IDE/CLI versions track their signed shipping packages. System and Node
+// defaults remain tied to the last on-wire baseline. The vendored integration
+// layer derives its IDE default from this owner so both User-Agent paths stay in sync.
 const (
 	DefaultKiroIDEVersion = "1.0.165"
 	// DefaultKiroCLIVersion tracks Homebrew cask kiro-cli (distinct semver from Kiro IDE).

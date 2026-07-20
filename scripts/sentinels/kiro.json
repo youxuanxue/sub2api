@@ -59,6 +59,14 @@
       "rationale": "TK-side canonical KiroIDE client identity + User-Agent builder used for fingerprint mimicry. If dropped, kiro egress loses its KiroIDE-<ver> UA and is trivially distinguishable from the real client. DefaultKiroAccountPriority is the creation-time default for native Kiro accounts when callers omit priority."
     },
     {
+      "path": "backend/internal/integration/kiro/shim.go",
+      "must_contain": [
+        "tkkiro.DefaultKiroIDEVersion",
+        "tkkiro.UserAgentVersionEnv"
+      ],
+      "rationale": "The vendored Kiro protocol path must derive its default and runtime override key from the TK-owned fingerprint owner. Losing either reference recreates duplicate version literals that can drift across the two User-Agent builders during the next client release."
+    },
+    {
       "path": "backend/internal/service/admin_account.go",
       "must_contain": [
         "func normalizeAccountPriority",
