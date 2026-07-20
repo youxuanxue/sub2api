@@ -27,6 +27,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	tkkiro "github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
 )
 
 // ==================== Credential / metadata carriers ====================
@@ -116,26 +118,13 @@ type kiroClientConfig struct {
 	NodeVersion   string
 }
 
-// kiroDefaultClientVersion is the canonical KiroIDE version baked into the
-// User-Agent. Keep in lockstep with internal/pkg/kiro.DefaultKiroIDEVersion
-// (that package is the TK-side authority + sentinel/test-guarded source).
-const kiroDefaultClientVersion = "0.12.333"
-
-// kiroUserAgentVersionEnv lets operators bump the on-wire KiroIDE version
-// without a code change / image rebuild when the upstream Kiro client ships a
-// new release (TK reliability/anti-fragility knob, mirrors the Claude Code
-// canonical UA version override). Set it in the Stage0 deploy env.
-const kiroUserAgentVersionEnv = "KIRO_IDE_USER_AGENT_VERSION"
-
 // GetKiroClientConfig returns the client version triple used to build the
-// aws-sdk-js style User-Agent. KiroVersion defaults to kiroDefaultClientVersion
-// but is overridable at runtime via the KIRO_IDE_USER_AGENT_VERSION env var so
-// the fingerprint can track upstream Kiro client releases without a redeploy of
-// new code. NodeVersion mirrors the upstream default; SystemVersion is
-// OS-derived.
+// aws-sdk-js style User-Agent. KiroVersion defaults to the TK-owned canonical
+// value but remains overridable at runtime. NodeVersion mirrors the upstream
+// default; SystemVersion is OS-derived.
 func GetKiroClientConfig() kiroClientConfig {
-	kiroVersion := kiroDefaultClientVersion
-	if v := strings.TrimSpace(os.Getenv(kiroUserAgentVersionEnv)); v != "" {
+	kiroVersion := tkkiro.DefaultKiroIDEVersion
+	if v := strings.TrimSpace(os.Getenv(tkkiro.UserAgentVersionEnv)); v != "" {
 		kiroVersion = v
 	}
 	return kiroClientConfig{

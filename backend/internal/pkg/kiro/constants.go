@@ -38,14 +38,12 @@ const (
 
 // Compile-time defaults for the KiroIDE client identity. These are overridable at
 // runtime (env / setting) in PR6; the constants are the canonical baseline.
-// These mirror the real KiroIDE client identity observed via the vendored
-// Kiro-Go GetKiroClientConfig defaults; keep in lockstep with
-// internal/integration/kiro so the on-wire fingerprint stays consistent
-// regardless of which layer builds the User-Agent.
+// These mirror the shipping Kiro package identity. The vendored integration
+// layer derives its default from this owner so both User-Agent paths stay in sync.
 const (
-	DefaultKiroIDEVersion = "0.12.333"
+	DefaultKiroIDEVersion = "1.0.165"
 	// DefaultKiroCLIVersion tracks Homebrew cask kiro-cli (distinct semver from Kiro IDE).
-	DefaultKiroCLIVersion = "2.12.3"
+	DefaultKiroCLIVersion = "2.13.0"
 	DefaultSystemVersion  = "darwin#24.0.0"
 	DefaultNodeVersion    = "22.22.0"
 )

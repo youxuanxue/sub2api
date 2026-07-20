@@ -70,8 +70,8 @@
     "ja3_hash": "51bddd625044f75a235ba857ac8b0145",
     "node_version": "22.22.0",
     "system_version": "darwin#24.0.0",
-    "user_agent": "aws-sdk-js/1.0.34 ua/2.1 os/darwin#24.0.0 lang/js md/nodejs#22.22.0 api/codewhispererstreaming#1.0.34 m/E KiroIDE-0.12.333",
-    "x_amz_user_agent": "aws-sdk-js/1.0.34 KiroIDE-0.12.333",
+    "user_agent": "aws-sdk-js/1.0.34 ua/2.1 os/darwin#24.0.0 lang/js md/nodejs#22.22.0 api/codewhispererstreaming#1.0.34 m/E KiroIDE-1.0.165",
+    "x_amz_user_agent": "aws-sdk-js/1.0.34 KiroIDE-1.0.165",
     "server_name": "runtime.us-east-1.kiro.dev",
     "source": "passive-pcap"
   }
