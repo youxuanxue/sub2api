@@ -935,7 +935,7 @@
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
       "must_contain": [
-        "account.IsKiro()",
+        "if account.IsKiro() {",
         "forwardAsChatCompletionsViaKiro(",
         "!account.IsKiro()"
       ],
