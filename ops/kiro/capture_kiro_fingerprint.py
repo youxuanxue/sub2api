@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 REPO_ROOT = Path(__file__).resolve().parents[2]
 KIRO_CONSTANTS_GO = REPO_ROOT / "backend/internal/pkg/kiro/constants.go"
 KIRO_TLS_PROFILE_JSON = REPO_ROOT / "deploy/aws/stage0/tk_canonical_kiro_ide.json"
@@ -154,11 +154,16 @@ def compute_ja3(
     return ja3_raw, ja3_md5
 
 
-def build_canonical_profile(fields: dict[str, Any], observed: dict[str, Any]) -> dict[str, Any]:
+def build_canonical_profile(
+    fields: dict[str, Any],
+    expected_http: dict[str, Any],
+    tls_source: str,
+) -> dict[str, Any]:
     """Assemble an upstream-shaped TLS profile (same schema as
     tk_canonical_cc_oauth.json) from parsed ClientHello fields. GREASE is stripped
     from the stored lists; enable_grease records whether GREASE was observed so the
-    utls dialer can re-add it faithfully."""
+    utls dialer can re-add it faithfully. HTTP fields are rendered from repository
+    constants and kept separate so passive pcap is never claimed as HTTP evidence."""
     ciphers = fields.get("ciphers", [])
     extensions = fields.get("extensions", [])
     curves = fields.get("curves", [])
@@ -168,22 +173,21 @@ def build_canonical_profile(fields: dict[str, Any], observed: dict[str, Any]) ->
     grease_seen = any(v in GREASE_VALUES for v in ciphers + extensions + curves)
     ja3_raw, ja3_hash = compute_ja3(version, ciphers, extensions, curves, point_formats)
 
-    merged_observed = {
+    observed = {
         "ja3_raw": ja3_raw,
         "ja3_hash": ja3_hash,
-        **observed,
+        "server_name": fields.get("server_name", ""),
+        "source": tls_source,
     }
     return {
         "name": KIRO_PROFILE_NAME,
         "description": (
             "TokenKey canonical Kiro IDE (AWS CodeWhisperer) TLS profile. Captured "
             "by passive pcap from a real Kiro IDE ClientHello (the AWS endpoint is "
-            "hard-coded and cannot be redirected to a collector). Distinct from "
-            "tk_canonical_cc_oauth: Kiro bundles Node "
-            f"{merged_observed.get('node_version', '?')} (OpenSSL), not cc's Node "
-            "24.x, so the JA3 differs. observed.user_agent is a compile-time "
-            "snapshot; the live wire UA is driven by kiro.ResolveClientIdentity "
-            "(env KIRO_IDE_USER_AGENT_VERSION over constants)."
+            "hard-coded and cannot be redirected to a collector). Only observed.* "
+            "is pcap evidence. expected_http is a deterministic repository-constant "
+            "snapshot, not an HTTP capture; the live wire UA uses the same "
+            "kiro.ResolveClientIdentity and builders."
         ),
         "enable_grease": grease_seen,
         "cipher_suites": _strip_grease(ciphers),
@@ -195,8 +199,55 @@ def build_canonical_profile(fields: dict[str, Any], observed: dict[str, Any]) ->
         "key_share_groups": _strip_grease(fields.get("key_share_groups", [])),
         "psk_modes": fields.get("psk_modes", []),
         "extensions": _strip_grease(extensions),
-        "observed": merged_observed,
+        "observed": observed,
+        "expected_http": {
+            **expected_http,
+            "source": "repo-constants",
+        },
     }
+
+
+def validate_profile_provenance(profile: dict[str, Any]) -> str | None:
+    """Reject legacy profiles that label repository-derived HTTP fields as pcap
+    observations. Historical bundles remain valid for TLS diff/check, but must be
+    rebuilt with the current tool before emit-profile can write the baseline."""
+    observed = profile.get("observed")
+    expected_http = profile.get("expected_http")
+    if not isinstance(observed, dict):
+        return "observed must be an object"
+    if not isinstance(expected_http, dict):
+        return "expected_http is missing"
+
+    missing_observed = sorted({"ja3_raw", "ja3_hash", "server_name", "source"} - observed.keys())
+    if missing_observed:
+        return f"observed is missing fields: {', '.join(missing_observed)}"
+    missing_expected = sorted(
+        {
+            "kiro_ide_version",
+            "streaming_sdk_version",
+            "node_version",
+            "system_version",
+            "user_agent",
+            "x_amz_user_agent",
+            "source",
+        }
+        - expected_http.keys()
+    )
+    if missing_expected:
+        return f"expected_http is missing fields: {', '.join(missing_expected)}"
+
+    leaked = sorted(
+        field
+        for field in ("node_version", "system_version", "user_agent", "x_amz_user_agent")
+        if field in observed
+    )
+    if leaked:
+        return f"observed contains non-pcap HTTP fields: {', '.join(leaked)}"
+    if not str(observed.get("source", "")).startswith("passive-pcap"):
+        return "observed.source must identify passive-pcap evidence"
+    if expected_http.get("source") != "repo-constants":
+        return "expected_http.source must be repo-constants"
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -315,15 +366,15 @@ def cmd_bundle_from_pcap(args: argparse.Namespace) -> int:
     fields = parse_tshark_tsv(tsv_text)
 
     consts = load_kiro_constants()
-    observed: dict[str, Any] = {
+    expected_http: dict[str, Any] = {
+        "kiro_ide_version": consts["kiro_ide_version"],
+        "streaming_sdk_version": consts["streaming_sdk_version"],
         "node_version": consts["node_version"],
         "system_version": consts["system_version"],
         "user_agent": expected_user_agent(consts),
         "x_amz_user_agent": expected_amz_user_agent(consts),
-        "server_name": fields.get("server_name", ""),
-        "source": args.source or "passive-pcap",
     }
-    profile = build_canonical_profile(fields, observed)
+    profile = build_canonical_profile(fields, expected_http, args.source or "passive-pcap")
 
     bundle = {
         "schema_version": SCHEMA_VERSION,
@@ -407,6 +458,14 @@ def cmd_emit_profile(args: argparse.Namespace) -> int:
     profile = bundle.get("tls", {}).get("profile")
     if not profile:
         print("emit-profile: bundle has no tls.profile", file=sys.stderr)
+        return 1
+    provenance_error = validate_profile_provenance(profile)
+    if provenance_error:
+        print(
+            "emit-profile: unsafe legacy provenance: "
+            f"{provenance_error}; rebuild the bundle with current bundle-from-pcap",
+            file=sys.stderr,
+        )
         return 1
     out = Path(args.out or KIRO_TLS_PROFILE_JSON)
     out.parent.mkdir(parents=True, exist_ok=True)

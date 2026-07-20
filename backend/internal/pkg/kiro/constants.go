@@ -29,8 +29,7 @@ const UserAgentVersionEnv = "KIRO_IDE_USER_AGENT_VERSION"
 const DefaultKiroAccountPriority = 10
 
 // SDK version strings carried in the aws-sdk-js style User-Agent. These mirror
-// the values the real Kiro IDE emits; bump together with KiroIDEVersion when a
-// new Kiro client ships and the fingerprint is re-aligned.
+// the last on-wire evidence and must not be inferred from the IDE package version.
 const (
 	StreamingSDKVersion = "1.0.34"
 	RuntimeSDKVersion   = "1.0.0"
@@ -38,14 +37,13 @@ const (
 
 // Compile-time defaults for the KiroIDE client identity. These are overridable at
 // runtime (env / setting) in PR6; the constants are the canonical baseline.
-// These mirror the real KiroIDE client identity observed via the vendored
-// Kiro-Go GetKiroClientConfig defaults; keep in lockstep with
-// internal/integration/kiro so the on-wire fingerprint stays consistent
-// regardless of which layer builds the User-Agent.
+// The IDE/CLI versions track their signed shipping packages. System and Node
+// defaults remain tied to the last on-wire baseline. The vendored integration
+// layer derives its IDE default from this owner so both User-Agent paths stay in sync.
 const (
-	DefaultKiroIDEVersion = "0.12.333"
+	DefaultKiroIDEVersion = "1.0.165"
 	// DefaultKiroCLIVersion tracks Homebrew cask kiro-cli (distinct semver from Kiro IDE).
-	DefaultKiroCLIVersion = "2.12.3"
+	DefaultKiroCLIVersion = "2.13.0"
 	DefaultSystemVersion  = "darwin#24.0.0"
 	DefaultNodeVersion    = "22.22.0"
 )

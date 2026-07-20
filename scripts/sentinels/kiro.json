@@ -59,6 +59,27 @@
       "rationale": "TK-side canonical KiroIDE client identity + User-Agent builder used for fingerprint mimicry. If dropped, kiro egress loses its KiroIDE-<ver> UA and is trivially distinguishable from the real client. DefaultKiroAccountPriority is the creation-time default for native Kiro accounts when callers omit priority."
     },
     {
+      "path": "backend/internal/integration/kiro/headers.go",
+      "must_contain": [
+        "tkkiro.ResolveClientIdentity",
+        "tkkiro.BuildUserAgent",
+        "tkkiro.BuildAmzUserAgent",
+        "tkkiro.StreamingSDKVersion",
+        "tkkiro.RuntimeSDKVersion"
+      ],
+      "rationale": "The vendored Kiro protocol path must render both streaming and runtime headers through the TK-owned identity and User-Agent builders. Losing these references recreates duplicate IDE/SDK/OS/Node literals or formatting that can drift during the next client release."
+    },
+    {
+      "path": "backend/internal/integration/kiro/headers_test.go",
+      "must_contain": [
+        "TestHeaderValuesUseCanonicalKiroIdentity",
+        "TestRequestPathsUseCanonicalKiroHeaders",
+        "tkkiro.BuildUserAgent",
+        "tkkiro.BuildAmzUserAgent"
+      ],
+      "rationale": "Focused regression evidence that both the builders and the actual streaming/runtime request paths stay byte-identical to the canonical Kiro identity for defaults and the runtime IDE-version override."
+    },
+    {
       "path": "backend/internal/service/admin_account.go",
       "must_contain": [
         "func normalizeAccountPriority",
@@ -110,6 +131,8 @@
         "func parseEventStream",
         "extractEventStreamHeaderValue",
         "HTTPDoer",
+        "buildStreamingHeaderValues(account, host)",
+        "applyKiroBaseHeaders(req, account, headerValues)",
         "runtime.us-east-1.kiro.dev",
         "q.us-east-1.amazonaws.com"
       ],
@@ -141,7 +164,9 @@
         "\"/getUsageLimits\"",
         "func ensureProfileArn",
         "func reresolveProfileArnAfterStale",
-        "func kiroRestFetch"
+        "func kiroRestFetch",
+        "buildRuntimeHeaderValues(account, host)",
+        "applyKiroBaseHeaders(req, account, headerValues)"
       ],
       "rationale": "Control-plane calls route through management.us-east-1.kiro.dev first with a codewhisperer.* fallback. Usage is not a host-only swap: the current management protocol requires /Get-Usage-Limits while legacy retains /getUsageLimits. When both fail, the primary management HTTP verdict remains authoritative so a legacy Invalid-token response cannot mask a real management quota verdict. A missing profileArn still triggers shared stale-profile recovery."
     },

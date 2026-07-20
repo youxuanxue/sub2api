@@ -47,5 +47,5 @@ const (
 	SessionTTL = 30 * time.Minute
 
 	// GeminiCLIUserAgent mimics Gemini CLI to maximize compatibility with internal endpoints.
-	GeminiCLIUserAgent = "GeminiCLI/0.50.0/gemini-2.0-flash (darwin; arm64)"
+	GeminiCLIUserAgent = "GeminiCLI/0.51.0/gemini-2.0-flash (darwin; arm64)"
 )

@@ -176,7 +176,8 @@ if [[ "$overall" -eq 1 ]]; then
   echo "  *-mimicry-baselines.json / tk_canonical_cc_oauth.json; kiro drift re-runs"
   echo "  ops/kiro emit-profile -> tk_canonical_kiro_ide.json; antigravity drift bumps"
   echo "  DefaultUserAgentVersion in internal/pkg/antigravity/oauth.go (+ oauth_test.go);"
-  echo "  codex drift runs ops/openai emit-edits to bump the 5 codex version pins."
+  echo "  codex drift runs ops/openai emit-edits to bump DefaultOpenAICodexVersion;"
+  echo "  its UA, gateway-version, and probe-version aliases remain derived."
 elif [[ "$overall" -eq 2 ]]; then
   echo "→ an engine ERRORED (rc=2): capture/env failure, NOT fingerprint drift."
   echo "  Common causes: cc0 stack down; kiro got no traffic (sudo + a real Kiro"

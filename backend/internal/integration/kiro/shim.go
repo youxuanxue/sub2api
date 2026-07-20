@@ -2,18 +2,17 @@ package kiro
 
 // shim.go provides the local replacements for the external Kiro-Go packages
 // (config / logger / auth) that this vendored protocol layer originally depended
-// on. TokenKey does not embed those packages, so every cross-package symbol the
-// vendored files reference is defined here against stdlib + google/uuid only.
+// on. TokenKey does not embed those packages, so their data, settings, logging,
+// and auth symbols are defined here. Fingerprint headers deliberately delegate
+// to the TokenKey-owned internal/pkg/kiro identity builders in headers.go.
 //
 // Design intent:
 //   - Account / AccountInfo / PromptFilterRule are pure data carriers. The
 //     TokenKey integration layer (a later PR) is responsible for filling Account
 //     from an ent account row and consuming the returned AccountInfo. This vendor
 //     package never reads or writes a database.
-//   - The config.GetXxx() configuration knobs become package-level functions with
-//     conservative defaults (no proxy, endpoint fallback on, prompt filtering off)
-//     so the protocol layer compiles and runs standalone. A later PR can wire them
-//     to TokenKey settings.
+//   - The remaining config.GetXxx() configuration knobs become package-level
+//     functions with TokenKey defaults so the protocol layer compiles standalone.
 //   - logger.* becomes thin log/slog wrappers.
 //   - auth.RefreshToken / GetAuthClientForProxy live in-package (refresh.go +
 //     GetAuthClientForProxy below).
@@ -22,9 +21,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"runtime"
-	"strings"
 	"sync"
 	"time"
 )
@@ -107,54 +103,6 @@ func GetEndpointFallback() bool { return true }
 // GetPreferredEndpoint returns the preferred endpoint selector. "auto" keeps the
 // supported ordering (current Kiro runtime, then transitional legacy q).
 func GetPreferredEndpoint() string { return "auto" }
-
-// kiroClientConfig mirrors the upstream config.KiroClientConfig shape used by
-// the aws-sdk-js style User-Agent builder in headers.go.
-type kiroClientConfig struct {
-	KiroVersion   string
-	SystemVersion string
-	NodeVersion   string
-}
-
-// kiroDefaultClientVersion is the canonical KiroIDE version baked into the
-// User-Agent. Keep in lockstep with internal/pkg/kiro.DefaultKiroIDEVersion
-// (that package is the TK-side authority + sentinel/test-guarded source).
-const kiroDefaultClientVersion = "0.12.333"
-
-// kiroUserAgentVersionEnv lets operators bump the on-wire KiroIDE version
-// without a code change / image rebuild when the upstream Kiro client ships a
-// new release (TK reliability/anti-fragility knob, mirrors the Claude Code
-// canonical UA version override). Set it in the Stage0 deploy env.
-const kiroUserAgentVersionEnv = "KIRO_IDE_USER_AGENT_VERSION"
-
-// GetKiroClientConfig returns the client version triple used to build the
-// aws-sdk-js style User-Agent. KiroVersion defaults to kiroDefaultClientVersion
-// but is overridable at runtime via the KIRO_IDE_USER_AGENT_VERSION env var so
-// the fingerprint can track upstream Kiro client releases without a redeploy of
-// new code. NodeVersion mirrors the upstream default; SystemVersion is
-// OS-derived.
-func GetKiroClientConfig() kiroClientConfig {
-	kiroVersion := kiroDefaultClientVersion
-	if v := strings.TrimSpace(os.Getenv(kiroUserAgentVersionEnv)); v != "" {
-		kiroVersion = v
-	}
-	return kiroClientConfig{
-		KiroVersion:   kiroVersion,
-		SystemVersion: defaultSystemVersion(),
-		NodeVersion:   "22.22.0",
-	}
-}
-
-func defaultSystemVersion() string {
-	switch runtime.GOOS {
-	case "windows":
-		return "win32#10.0.22631"
-	case "darwin":
-		return "darwin#24.6.0"
-	default:
-		return "linux#6.6.87"
-	}
-}
 
 // Prompt filtering: Claude Code system prompts are preserved (Anthropic OAuth parity)
 // with env/boundary noise stripped. Other filters stay off until wired to settings.

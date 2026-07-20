@@ -20,10 +20,10 @@ usage() {
   cat <<'EOF'
 Usage:
   capture-codex-fingerprint.sh check env          # codex CLI present + binary locatable
-  capture-codex-fingerprint.sh show-baseline      # TK pins + installed codex version
-  capture-codex-fingerprint.sh diff               # installed vs each TK pin (human)
+  capture-codex-fingerprint.sh show-baseline      # TK owner/aliases + installed codex version
+  capture-codex-fingerprint.sh diff               # installed vs owner/aliases (human)
   capture-codex-fingerprint.sh check              # diff + exit 1 on drift / 2 on env error
-  capture-codex-fingerprint.sh check-consistency  # 5 TK pins agree among themselves (no CLI needed)
+  capture-codex-fingerprint.sh check-consistency  # version owner/aliases agree (no CLI needed)
   capture-codex-fingerprint.sh emit-edits [--version X.Y.Z] [--json]
 
 Exit codes: 0 = aligned, 1 = drift / inconsistency, 2 = usage/env error.

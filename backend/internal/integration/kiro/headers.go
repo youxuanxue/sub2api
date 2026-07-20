@@ -1,13 +1,9 @@
 package kiro
 
 import (
-	"fmt"
 	"net/http"
-)
 
-const (
-	kiroStreamingSDKVersion = "1.0.34"
-	kiroRuntimeSDKVersion   = "1.0.0"
+	tkkiro "github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
 )
 
 type kiroHeaderValues struct {
@@ -17,39 +13,23 @@ type kiroHeaderValues struct {
 }
 
 func buildStreamingHeaderValues(account *Account, host string) kiroHeaderValues {
-	return buildKiroHeaderValues(account, host, "codewhispererstreaming", kiroStreamingSDKVersion, "m/E")
+	return buildKiroHeaderValues(account, host, "codewhispererstreaming", tkkiro.StreamingSDKVersion, "m/E")
 }
 
 func buildRuntimeHeaderValues(account *Account, host string) kiroHeaderValues {
-	return buildKiroHeaderValues(account, host, "codewhispererruntime", kiroRuntimeSDKVersion, "m/N,E")
+	return buildKiroHeaderValues(account, host, "codewhispererruntime", tkkiro.RuntimeSDKVersion, "m/N,E")
 }
 
 func buildKiroHeaderValues(account *Account, host, apiName, sdkVersion, mode string) kiroHeaderValues {
-	clientCfg := GetKiroClientConfig()
+	identity := tkkiro.ResolveClientIdentity()
 	machineID := ""
 	if account != nil {
 		machineID = account.MachineId
 	}
 
-	userAgent := fmt.Sprintf(
-		"aws-sdk-js/%s ua/2.1 os/%s lang/js md/nodejs#%s api/%s#%s %s KiroIDE-%s",
-		sdkVersion,
-		clientCfg.SystemVersion,
-		clientCfg.NodeVersion,
-		apiName,
-		sdkVersion,
-		mode,
-		clientCfg.KiroVersion,
-	)
-	amzUserAgent := fmt.Sprintf("aws-sdk-js/%s KiroIDE-%s", sdkVersion, clientCfg.KiroVersion)
-	if machineID != "" {
-		userAgent += "-" + machineID
-		amzUserAgent += "-" + machineID
-	}
-
 	return kiroHeaderValues{
-		UserAgent:    userAgent,
-		AmzUserAgent: amzUserAgent,
+		UserAgent:    tkkiro.BuildUserAgent(identity, apiName, sdkVersion, mode, machineID),
+		AmzUserAgent: tkkiro.BuildAmzUserAgent(identity, sdkVersion, machineID),
 		Host:         host,
 	}
 }
