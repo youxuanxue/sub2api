@@ -1,12 +1,12 @@
 {
-  "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two existing mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST, set by tk_NNN_*_model_mapping*.sql migrations and admin-UI edits), and (2) tk_pricing_overlay.json + the runtime litellm mirror (the PRICE). It is NOT a replacement for either — its projections must AGREE with them, and scripts/checks/catalog-serving-drift.py asserts that agreement (drift guard). SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail — the qwen/deepseek chat families on their dedicated newapi pools, Moonshot/Kimi chat on channel_type 25, GLM chat models served through the configured Qwen/China newapi pool (channel_type 17; live account membership is runtime DB/config, not manifest prose), plus the volcengine account 7 Ark family (channel_type 45: doubao chat, seedream image, seedance video) that is explicitly mapped and priced. NOT the litellm catalog, NOT the four native-platform first-class catalogs (anthropic/openai/gemini/antigravity — those have Go servable-allowlist maps in pricing_catalog_supported_models_tk.go), NOT grok (native seventh platform served by platform routing + ch48, not by this manifest's newapi model_mapping intent). Consumers: drift guard (now), tokenkey-onboard-model skill (now), public /pricing + Group Catalog presentation filter (tk_served_models_manifest_tk.go), account model_mapping reconciler (//go:embed of THIS file). Co-located with tk_pricing_overlay.json so the same Go package can embed both and the same preflight can parse both.",
+  "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST; new floors are written only by evidence-backed modelops activation, while legacy rows may come from migrations/admin seed state), and (2) tk_pricing_overlay.json + the runtime litellm mirror (the PRICE). Generic deploy/rollback never writes live mappings. scripts/checks/catalog-serving-drift.py asserts repository agreement; modelops activate proves and writes live agreement before release. SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail — qwen/deepseek, Moonshot/Kimi channel_type 25, GLM through the configured China newapi pool, and VolcEngine Ark chat/image/video. NOT the litellm catalog, native-platform allowlists, or grok. Consumers: drift guard, tokenkey-onboard-model skill, public /pricing + Group Catalog filters, and the account model_mapping bundle/reconciler. Co-located with tk_pricing_overlay.json so the same Go package embeds both and preflight parses both.",
   "_schema": {
     "version": 1,
     "entry_key": "<platform>/<model_id>",
     "fields": {
       "platform": "account/group platform string; for this manifest always 'newapi' (the fifth platform). MUST equal the served account's accounts.platform.",
       "model_id": "the client-facing model id that must appear as a KEY in the served account's credentials.model_mapping whitelist (identity-mapped: key==value for these accounts).",
-      "served_on": "string list of accounts.id (as strings) whose credentials.model_mapping MUST advertise model_id. This is a static drift-guard/evidence anchor, not the complete live serving pool; account membership can expand or shrink in runtime DB/admin config. The guard scans tk_*_model_mapping*.sql for model_id under each listed account.",
+      "served_on": "string list of accounts.id (as strings) whose credentials.model_mapping MUST advertise model_id. This is a static drift-guard/evidence anchor, not the complete live serving pool; account membership can expand or shrink in runtime DB/admin config. New floors declare served-via-modelops-activation in notes; legacy rows may be evidenced by a migration or served-via-admin-ui marker.",
       "channel_type": "the newapi channel_type of the serving account (17=Ali/DashScope, 25=Moonshot, 43=DeepSeek, 45=VolcEngine; 26=ZhipuV4 only if a future direct GLM pool is re-provisioned). Documents the upstream adaptor; not asserted against DB (admin-UI editable) but recorded for the reconciler.",
       "price_source": "one of 'overlay' (priced in tk_pricing_overlay.json), 'mirror' (priced by the runtime litellm/Wei-Shaw mirror under the bare key — overlay deliberately absent because the mirror already carries a non-zero price), 'channel' (priced via channel_model_pricing DB rows). The guard resolves price differently per source.",
       "price_key": "the key under which the price resolves in the named source (overlay JSON key, or mirror/litellm key, or channel pricing model id). Usually == model_id.",
@@ -73,7 +73,7 @@
       "price_source": "overlay",
       "price_key": "kimi-k2.5",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). Mapped by tk_065. Official China price in overlay. Upstream /v1/models listed and direct chat plus prod gateway account probe returned 200 on 2026-07-20."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat plus prod gateway account probe returned 200 on 2026-07-20."
     },
     "newapi/kimi-k2.6": {
       "platform": "newapi",
@@ -85,7 +85,7 @@
       "price_source": "overlay",
       "price_key": "kimi-k2.6",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). Mapped by tk_065. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20."
     },
     "newapi/kimi-k2.7-code": {
       "platform": "newapi",
@@ -97,7 +97,7 @@
       "price_source": "overlay",
       "price_key": "kimi-k2.7-code",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). Mapped by tk_065. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20."
     },
     "newapi/kimi-k2.7-code-highspeed": {
       "platform": "newapi",
@@ -109,7 +109,7 @@
       "price_source": "overlay",
       "price_key": "kimi-k2.7-code-highspeed",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). Mapped by tk_065. Official China high-speed price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China high-speed price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20."
     },
     "newapi/kimi-k3": {
       "platform": "newapi",
@@ -121,7 +121,7 @@
       "price_source": "overlay",
       "price_key": "kimi-k3",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). Mapped by tk_065. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20."
     },
     "newapi/moonshot-v1-8k": {
       "platform": "newapi",
@@ -133,7 +133,7 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-8k",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). Mapped by tk_065. Official China 8K price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China 8K price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
     },
     "newapi/moonshot-v1-8k-vision-preview": {
       "platform": "newapi",
@@ -145,7 +145,7 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-8k-vision-preview",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). Mapped by tk_065. Official China 8K vision price in overlay. Upstream /v1/models listed and direct text chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China 8K vision price in overlay. Upstream /v1/models listed and direct text chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
     },
     "newapi/moonshot-v1-32k": {
       "platform": "newapi",
@@ -157,7 +157,7 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-32k",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). Mapped by tk_065. Official China 32K price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China 32K price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
     },
     "newapi/moonshot-v1-32k-vision-preview": {
       "platform": "newapi",
@@ -169,7 +169,7 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-32k-vision-preview",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). Mapped by tk_065. Official China 32K vision price in overlay. Upstream /v1/models listed and direct text chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China 32K vision price in overlay. Upstream /v1/models listed and direct text chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
     },
     "newapi/moonshot-v1-128k": {
       "platform": "newapi",
@@ -181,7 +181,7 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-128k",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). Mapped by tk_065. Official China 128K price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China 128K price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
     },
     "newapi/moonshot-v1-128k-vision-preview": {
       "platform": "newapi",
@@ -193,7 +193,7 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-128k-vision-preview",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). Mapped by tk_065. Official China 128K vision price in overlay. Upstream /v1/models listed and direct text chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China 128K vision price in overlay. Upstream /v1/models listed and direct text chat returned 200 on 2026-07-20; official docs announce Moonshot V1 retirement on 2026-08-31."
     },
     "newapi/moonshot-v1-auto": {
       "platform": "newapi",
@@ -205,7 +205,7 @@
       "price_source": "overlay",
       "price_key": "moonshot-v1-auto",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). Mapped by tk_065. Fixed at the official Moonshot V1 128K price by operator decision because auto may select the highest tier; upstream /v1/models listed and direct chat returned 200 on 2026-07-20 (the minimal probe selected moonshot-v1-8k). Official docs announce Moonshot V1 retirement on 2026-08-31."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Fixed at the official Moonshot V1 128K price by operator decision because auto may select the highest tier; upstream /v1/models listed and direct chat returned 200 on 2026-07-20 (the minimal probe selected moonshot-v1-8k). Official docs announce Moonshot V1 retirement on 2026-08-31."
     },
     "newapi/qwen3.7-max": {
       "platform": "newapi",

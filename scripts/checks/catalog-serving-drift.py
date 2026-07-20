@@ -7,7 +7,8 @@ whitelist, at price π, display=yes/no") that sits ABOVE three already-existing
 mechanisms and must AGREE with each:
 
   (1) per-account credentials.model_mapping — the runtime servable WHITELIST, written
-      by tk_NNN_*.sql migrations (and admin-UI edits). The DECLARED-served signal.
+      by the explicit modelops activation path (legacy rows may come from migrations
+      or admin-UI seed state). The DECLARED-served signal.
   (2) tk_pricing_overlay.json + the runtime litellm mirror — the PRICE.
   (3) display intent — newapi uses this manifest's `display` bit directly; native
       platforms still use the Go servable-allowlist maps in
@@ -23,12 +24,13 @@ but never actually wired onto the serving account's model_mapping => empty pool 
                   channel => notes documents the channel source).            HARD-FAIL
   A2 DISPLAY      native display==true => model_id present in the platform's Go
                   allowlist map. newapi display is owned by this manifest.     HARD
-  A3 SERVED_ON    every served_on account => some tk_*.sql model_mapping migration maps
-                  model_id onto that account (quoted id co-occurring with `id = <A>`).
+  A3 SERVED_ON    every served_on account => a legacy tk_*.sql migration maps the model,
+                  or notes explicitly declare `served-via-modelops-activation`. The
+                  latter is the approved path for new bundle floors and must complete
+                  before release; generic deploy never writes live account mappings.
                   This is the #812-catching direction.                        HARD-FAIL
-                  Escape hatch: an entry whose notes contain the literal
-                  `served-via-admin-ui` is downgraded to WARN (model_mapping applied
-                  out-of-band of any migration — a reviewable, greppable opt-out).
+                  Legacy escape hatch: `served-via-admin-ui` is downgraded to WARN for
+                  mapping state that predates the activation contract.
   A4 ENUMERATION  (advisory WARN) every dashscope/deepseek chat overlay key SHOULD be a
                   manifest entry (catch a priced+served-but-forgotten model).
 
@@ -69,8 +71,9 @@ ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity")
 # A4 advisory: overlay vendors whose chat models are the manifest's curated long-tail.
 ENUMERATION_PROVIDERS = {"dashscope", "deepseek", "moonshot", "volcengine", "zhipu", "bigmodel", "zai"}
 
-# Recognized literal escape hatch in an entry's notes (A3 migration-scan opt-out).
+# Recognized literal declarations in an entry's notes (A3 migration-scan alternatives).
 ADMIN_UI_OPT_OUT = "served-via-admin-ui"
+MODELOPS_ACTIVATION = "served-via-modelops-activation"
 
 REQUIRED_FIELDS = {
     "platform": str,
@@ -250,16 +253,20 @@ def evaluate(
                     f"servable-allowlist map in pricing_catalog_supported_models_tk.go"
                 )
 
-        # ---- A3 served_on => migration -----------------------------------------
+        # ---- A3 served_on => legacy migration or explicit activation -----------
         admin_ui = ADMIN_UI_OPT_OUT in notes
+        modelops_activation = MODELOPS_ACTIVATION in notes
         for account in entry["served_on"]:
             if migration_maps_model(migration_files, account, model_id):
+                continue
+            if modelops_activation:
                 continue
             msg = (
                 f"{key}: served_on lists account {account} but NO tk_*.sql migration maps "
                 f'"{model_id}" onto it (`id = {account}` + quoted id). #812-class gap: the '
-                f"runtime pool is empty for this model => 429/503. Land a tk_NNN_*_model_mapping "
-                f"migration advertising it on account {account}, or remove this row."
+                f"runtime pool is empty for this model until an explicit mapping write => 429/503. "
+                f"For a new bundle floor, declare {MODELOPS_ACTIVATION!r} in notes and complete "
+                f"modelops activate before release; otherwise remove this row."
             )
             if admin_ui:
                 warnings.append(
@@ -339,6 +346,11 @@ def _selftest() -> int:
             "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
             "display": False, "notes": "applied out-of-band served-via-admin-ui",
         },
+        "newapi/activation-chat": {
+            "platform": "newapi", "model_id": "activation-chat", "served_on": ["60"],
+            "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+            "display": False, "notes": "pre-release served-via-modelops-activation",
+        },
     }
     errs, warns = run(pass_entries)
     # forgotten-chat triggers the A4 advisory warning only (not an error).
@@ -416,6 +428,15 @@ def _selftest() -> int:
         failures.append("A3: admin-ui opt-out still hard-failed")
     if not any("#812-class gap" in w for w in warns):
         failures.append("A3: admin-ui opt-out did not downgrade to WARN")
+    errs, warns = run({"newapi/activation": {
+        "platform": "newapi", "model_id": "unmapped", "served_on": ["60"],
+        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+        "display": False, "notes": "served-via-modelops-activation",
+    }})
+    if any("#812-class gap" in e for e in errs):
+        failures.append("A3: modelops activation declaration still hard-failed")
+    if any("#812-class gap" in w for w in warns):
+        failures.append(f"A3: modelops activation declaration produced mapping warnings: {warns}")
 
     # --- A3 prefix-quote: "good-chat" must NOT match "good-chat-preview" --------
     pmig = {"tk_902.sql": 'WHERE id = 60 ... "good-chat-preview": "good-chat-preview"'}
@@ -488,7 +509,7 @@ def main() -> int:
 
     if not quiet:
         n = len([k for k in manifest.get("entries", {}) if not k.startswith("_")])
-        print(f"  ok: {n} served-models manifest entries agree with price/display/migration",
+        print(f"  ok: {n} served-models manifest entries agree with price/display/mapping declaration",
               flush=True)
     return 0
 
