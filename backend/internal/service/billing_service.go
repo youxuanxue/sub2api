@@ -196,33 +196,6 @@ func NewBillingService(cfg *config.Config, pricingService *PricingService) *Bill
 	return s
 }
 
-func tkGLMPricing(inputCNY, outputCNY, cacheReadCNY float64, intervals ...PricingInterval) *ModelPricing {
-	return &ModelPricing{
-		InputPricePerToken:     tkCNYPerMTokToUSDPerToken(inputCNY),
-		OutputPricePerToken:    tkCNYPerMTokToUSDPerToken(outputCNY),
-		CacheReadPricePerToken: tkCNYPerMTokToUSDPerToken(cacheReadCNY),
-		Intervals:              intervals,
-		SupportsCacheBreakdown: false,
-	}
-}
-
-func tkGLMInterval(min int, max *int, inputCNY, outputCNY, cacheReadCNY float64) PricingInterval {
-	input := tkCNYPerMTokToUSDPerToken(inputCNY)
-	output := tkCNYPerMTokToUSDPerToken(outputCNY)
-	cacheRead := tkCNYPerMTokToUSDPerToken(cacheReadCNY)
-	return PricingInterval{
-		MinTokens:      min,
-		MaxTokens:      max,
-		InputPrice:     &input,
-		OutputPrice:    &output,
-		CacheReadPrice: &cacheRead,
-	}
-}
-
-func tkIntPtr(v int) *int {
-	return &v
-}
-
 // initFallbackPricing 初始化硬编码回退价格（当动态价格不可用时使用）
 // 价格单位：USD per token（与LiteLLM格式一致）
 func (s *BillingService) initFallbackPricing() {
@@ -404,68 +377,12 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown:         false,
 	}
 
-	// ============================================================
-	// 国产 LLM 兜底定价（数据源：各家官方定价页，必要时按 CNY/USD=6.7 换算）
-	// 顺序：DeepSeek → 智谱 GLM → 月之暗面 Kimi → MiniMax
-	// 覆盖逻辑见同文件 getFallbackPricing()
-	// ============================================================
+	// DeepSeek V4 and paid GLM official prices live only in
+	// tk_pricing_overlay.json. getFallbackPricing retains compatibility matching,
+	// but resolves those aliases to the live overlay instead of a numeric Go copy.
 
-	// ---- DeepSeek V4 系列 ----
-	// Source: https://api-docs.deepseek.com/quick_start/pricing
-	// （deepseek-chat / deepseek-reasoner 为 deepseek-v4-flash 的兼容别名，2026/07/24 弃用）
-	s.fallbackPrices["deepseek-v4-pro"] = &ModelPricing{
-		InputPricePerToken:     4.35e-7,  // $0.435 per MTok (cache miss)
-		OutputPricePerToken:    8.7e-7,   // $0.87 per MTok
-		CacheReadPricePerToken: 3.625e-9, // $0.003625 per MTok (cache hit)
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["deepseek-v4-flash"] = &ModelPricing{
-		InputPricePerToken:     1.4e-7, // $0.14 per MTok (cache miss)
-		OutputPricePerToken:    2.8e-7, // $0.28 per MTok
-		CacheReadPricePerToken: 2.8e-9, // $0.0028 per MTok (cache hit)
-		SupportsCacheBreakdown: false,
-	}
-
-	// ---- 智谱 GLM（BigModel）----
-	// Source: https://bigmodel.cn/pricing (人民币/百万 tokens，统一 CNY/USD=6.7).
-	// 这里存税前官方价；GetModelPricing 末尾通过 tkApplyOfficialListBaseTaxForModel
-	// 对 glm/zhipu 默认叠加 1.06。CacheReadPricePerToken 即"缓存命中"价格，
-	// CacheCreationPricePerToken 留空（官方页缓存存储为限时免费）。
-	s.fallbackPrices["glm-5.2"] = tkGLMPricing(8, 28, 2)
-	s.fallbackPrices["glm-5.1"] = tkGLMPricing(6, 24, 1.3,
-		tkGLMInterval(0, tkIntPtr(32000), 6, 24, 1.3),
-		tkGLMInterval(32000, nil, 8, 28, 2),
-	)
-	s.fallbackPrices["glm-5"] = tkGLMPricing(4, 18, 1,
-		tkGLMInterval(0, tkIntPtr(32000), 4, 18, 1),
-		tkGLMInterval(32000, nil, 6, 22, 1.5),
-	)
-	s.fallbackPrices["glm-5-turbo"] = tkGLMPricing(5, 22, 1.2,
-		tkGLMInterval(0, tkIntPtr(32000), 5, 22, 1.2),
-		tkGLMInterval(32000, nil, 7, 26, 1.8),
-	)
-	// GLM-4.7/4.5-Air have output-length subtiers in the 0-32K input bracket.
-	// Runtime intervals only tier by input tokens, so use the higher reachable
-	// output>0.2K row for that bracket to avoid under-billing.
-	s.fallbackPrices["glm-4.7"] = tkGLMPricing(3, 14, 0.6,
-		tkGLMInterval(0, tkIntPtr(32000), 3, 14, 0.6),
-		tkGLMInterval(32000, nil, 4, 16, 0.8),
-	)
-	s.fallbackPrices["glm-4.7-flashx"] = tkGLMPricing(0.5, 3, 0.1)
-	// BigModel's current pricing page no longer lists separate GLM-4.6/4.5 text
-	// rows; keep legacy requests priced to the current GLM-4.7 paid ladder.
-	s.fallbackPrices["glm-4.6"] = tkGLMPricing(3, 14, 0.6,
-		tkGLMInterval(0, tkIntPtr(32000), 3, 14, 0.6),
-		tkGLMInterval(32000, nil, 4, 16, 0.8),
-	)
-	s.fallbackPrices["glm-4.5"] = tkGLMPricing(3, 14, 0.6,
-		tkGLMInterval(0, tkIntPtr(32000), 3, 14, 0.6),
-		tkGLMInterval(32000, nil, 4, 16, 0.8),
-	)
-	s.fallbackPrices["glm-4.5-air"] = tkGLMPricing(0.8, 6, 0.16,
-		tkGLMInterval(0, tkIntPtr(32000), 0.8, 6, 0.16),
-		tkGLMInterval(32000, nil, 1.2, 8, 0.24),
-	)
+	// BigModel's free GLM rows intentionally remain compatibility-only fallbacks;
+	// they are not public catalog entries and therefore do not belong in overlay.
 	// GLM-4.5-Flash / GLM-4.7-Flash 在 BigModel 当前页为 free，
 	// 保留 zero-cost entry 防止未知 alias 误计费。
 	s.fallbackPrices["glm-4.5-flash"] = &ModelPricing{
@@ -480,29 +397,9 @@ func (s *BillingService) initFallbackPricing() {
 	}
 
 	// ---- 月之暗面 Kimi（K 系列）----
-	// Source: https://platform.moonshot.cn/docs/pricing/overview (元/百万 tokens 口径)
-	//       交叉验证：https://www.tmtpost.com/7961404.html (USD 口径)
-	// Moonshot V1 (¥2/¥5/¥10 多 tier) 公开页未直接标注 USD 价，本分支不覆盖，避免误计价。
-	// K2-0905 / K2-0711 官方页面未保留定价，不覆盖。
-	s.fallbackPrices["kimi-k2.6"] = &ModelPricing{
-		InputPricePerToken:     0.95e-6, // $0.95 per MTok (cache miss)
-		OutputPricePerToken:    4e-6,    // $4.00 per MTok
-		CacheReadPricePerToken: 0.15e-6, // $0.15 per MTok (cache hit, ¥1.10)
-		SupportsCacheBreakdown: false,
-	}
-	// kimi-for-coding 走 Kimi Coding endpoint，按当前 K2.6 coding 档位兜底计费。
-	s.fallbackPrices["kimi-for-coding"] = &ModelPricing{
-		InputPricePerToken:     0.95e-6,
-		OutputPricePerToken:    4e-6,
-		CacheReadPricePerToken: 0.15e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["kimi-k2.5"] = &ModelPricing{
-		InputPricePerToken:     0.60e-6, // $0.60 per MTok
-		OutputPricePerToken:    3e-6,    // $3.00 per MTok
-		CacheReadPricePerToken: 0.098e-6,
-		SupportsCacheBreakdown: false,
-	}
+	// K2.5/K2.6 official prices live only in tk_pricing_overlay.json. The exact
+	// degraded path and compatible aliases below resolve those live overlay rows,
+	// so a pricing hot-push cannot drift from a second Go numeric table.
 	// TK: ¥→USD 统一用 TokenKey 口径 CNY/USD=6.7（与 tk_pricing_overlay.json 一致），
 	// 不沿用上游的 ÷7.14。
 	s.fallbackPrices["kimi-k2-thinking"] = &ModelPricing{
@@ -658,13 +555,13 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	// DeepSeek V4 系列：仅匹配已知 V4 Pro/Flash 与官方兼容别名
 	// （deepseek-chat / deepseek-reasoner → V4 Flash），未知 deepseek-* 型号不回退，避免误计价。
 	if strings.Contains(modelLower, "deepseek-v4-flash") {
-		return s.fallbackPrices["deepseek-v4-flash"]
+		return tkOverlayModelPricing("deepseek-v4-flash")
 	}
 	if strings.Contains(modelLower, "deepseek-v4-pro") {
-		return s.fallbackPrices["deepseek-v4-pro"]
+		return tkOverlayModelPricing("deepseek-v4-pro")
 	}
 	if strings.Contains(modelLower, "deepseek-chat") || strings.Contains(modelLower, "deepseek-reasoner") {
-		return s.fallbackPrices["deepseek-v4-flash"]
+		return tkOverlayModelPricing("deepseek-v4-flash")
 	}
 
 	// ---- 国产 LLM 兜底匹配 ----
@@ -674,33 +571,33 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	// 智谱 GLM：定价源只用 BigModel 官方 pricing 页；可服务路径仍是 Qwen/DashScope 池。
 	// 匹配顺序：先判别最高 tier，再依次降级。
 	if canonical := normalizeGLMVolcengineDatedModelID(modelLower); canonical != "" {
-		if pricing := s.fallbackPrices[canonical]; pricing != nil {
+		if pricing := tkOverlayModelPricing(canonical); pricing != nil {
 			return pricing
 		}
 	}
 	if strings.Contains(modelLower, "glm-5.2") {
-		return s.fallbackPrices["glm-5.2"]
+		return tkOverlayModelPricing("glm-5.2")
 	}
 	if strings.Contains(modelLower, "glm-5.1") {
-		return s.fallbackPrices["glm-5.1"]
+		return tkOverlayModelPricing("glm-5.1")
 	}
 	if strings.Contains(modelLower, "glm-5-turbo") || strings.Contains(modelLower, "glm-5turbo") {
-		return s.fallbackPrices["glm-5-turbo"]
+		return tkOverlayModelPricing("glm-5-turbo")
 	}
 	if strings.Contains(modelLower, "glm-5") {
-		return s.fallbackPrices["glm-5"]
+		return tkOverlayModelPricing("glm-5")
 	}
 	if strings.Contains(modelLower, "glm-4.7-flashx") {
-		return s.fallbackPrices["glm-4.7-flashx"]
+		return tkOverlayModelPricing("glm-4.7-flashx")
 	}
 	if strings.Contains(modelLower, "glm-4.7-flash") {
 		return s.fallbackPrices["glm-4.7-flash"]
 	}
 	if strings.Contains(modelLower, "glm-4.7") {
-		return s.fallbackPrices["glm-4.7"]
+		return tkOverlayModelPricing("glm-4.7")
 	}
 	if strings.Contains(modelLower, "glm-4.6") {
-		return s.fallbackPrices["glm-4.6"]
+		return tkOverlayModelPricing("glm-4.6")
 	}
 	if strings.Contains(modelLower, "glm-4.5-flash") {
 		return s.fallbackPrices["glm-4.5-flash"]
@@ -710,22 +607,22 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		return nil
 	}
 	if strings.Contains(modelLower, "glm-4.5-air") || strings.Contains(modelLower, "glm-4.5air") {
-		return s.fallbackPrices["glm-4.5-air"]
+		return tkOverlayModelPricing("glm-4.5-air")
 	}
 	if strings.Contains(modelLower, "glm-4.5") {
-		return s.fallbackPrices["glm-4.5"]
+		return tkOverlayModelPricing("glm-4.5")
 	}
 
 	// 月之暗面 Kimi（kimi-k2.6 / kimi-for-coding / kimi-k2.5 / kimi-k2-thinking / kimi-k2）
 	// K2-0905 / K2-0711 官方未保留定价，不进入 fallback。
 	if strings.Contains(modelLower, "kimi-for-coding") {
-		return s.fallbackPrices["kimi-for-coding"]
+		return tkOverlayModelPricing("kimi-k2.6")
 	}
 	if strings.Contains(modelLower, "kimi-k2.6") || strings.Contains(modelLower, "kimi-k2-6") {
-		return s.fallbackPrices["kimi-k2.6"]
+		return tkOverlayModelPricing("kimi-k2.6")
 	}
 	if strings.Contains(modelLower, "kimi-k2.5") || strings.Contains(modelLower, "kimi-k2-5") {
-		return s.fallbackPrices["kimi-k2.5"]
+		return tkOverlayModelPricing("kimi-k2.5")
 	}
 	if strings.Contains(modelLower, "kimi-k2-thinking") || strings.Contains(modelLower, "kimi-k2-thinking-") {
 		return s.fallbackPrices["kimi-k2-thinking"]
@@ -817,6 +714,37 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	return nil
 }
 
+func tkModelPricingFromLiteLLM(p *LiteLLMModelPricing) *ModelPricing {
+	if p == nil || p.TokenPricingAbsent || tkIsEffectivelyUnpriced(p) {
+		return nil
+	}
+	price5m := p.CacheCreationInputTokenCost
+	price1h := p.CacheCreationInputTokenCostAbove1hr
+	return &ModelPricing{
+		InputPricePerToken:                 p.InputCostPerToken,
+		InputPricePerTokenPriority:         p.InputCostPerTokenPriority,
+		OutputPricePerToken:                p.OutputCostPerToken,
+		OutputPricePerTokenPriority:        p.OutputCostPerTokenPriority,
+		ThinkingOutputPricePerToken:        p.ThinkingOutputCostPerToken,
+		CacheCreationPricePerToken:         p.CacheCreationInputTokenCost,
+		CacheCreationPricePerTokenPriority: p.CacheCreationInputTokenCostPriority,
+		CacheReadPricePerToken:             p.CacheReadInputTokenCost,
+		CacheReadPricePerTokenPriority:     p.CacheReadInputTokenCostPriority,
+		CacheCreation5mPrice:               price5m,
+		CacheCreation1hPrice:               price1h,
+		SupportsCacheBreakdown:             price1h > 0 && price1h > price5m,
+		LongContextInputThreshold:          p.LongContextInputTokenThreshold,
+		LongContextInputMultiplier:         p.LongContextInputCostMultiplier,
+		LongContextOutputMultiplier:        p.LongContextOutputCostMultiplier,
+		ImageOutputPricePerToken:           p.OutputCostPerImageToken,
+		Intervals:                          p.Intervals,
+	}
+}
+
+func tkOverlayModelPricing(model string) *ModelPricing {
+	return tkModelPricingFromLiteLLM(loadTKPricingOverlay()[strings.ToLower(strings.TrimSpace(model))])
+}
+
 // IsServedViaFamilyFloor reports whether `model` bills via a Go FAMILY-FLOOR fallback rather than a
 // real price (litellm mirror / overlay). True = the real price source has no (effective) entry for
 // the model BUT getFallbackPricing supplies a family floor — i.e. the request is being served at an
@@ -854,34 +782,12 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 			litellmPricing = nil
 		}
 		if litellmPricing != nil && !tkIsEffectivelyUnpriced(litellmPricing) {
-			// 启用 5m/1h 分类计费的条件：
-			// 1. 存在 1h 价格
-			// 2. 1h 价格 > 5m 价格（防止 LiteLLM 数据错误导致少收费）
-			price5m := litellmPricing.CacheCreationInputTokenCost
-			price1h := litellmPricing.CacheCreationInputTokenCostAbove1hr
-			enableBreakdown := price1h > 0 && price1h > price5m
-			return s.applyModelSpecificPricingPolicy(model, &ModelPricing{
-				InputPricePerToken:             litellmPricing.InputCostPerToken,
-				InputPricePerTokenPriority:     litellmPricing.InputCostPerTokenPriority,
-				OutputPricePerToken:            litellmPricing.OutputCostPerToken,
-				OutputPricePerTokenPriority:    litellmPricing.OutputCostPerTokenPriority,
-				ThinkingOutputPricePerToken:    litellmPricing.ThinkingOutputCostPerToken,
-				CacheCreationPricePerToken:     litellmPricing.CacheCreationInputTokenCost,
-				CacheReadPricePerToken:         litellmPricing.CacheReadInputTokenCost,
-				CacheReadPricePerTokenPriority: litellmPricing.CacheReadInputTokenCostPriority,
-				CacheCreation5mPrice:           price5m,
-				CacheCreation1hPrice:           price1h,
-				SupportsCacheBreakdown:         enableBreakdown,
-				LongContextInputThreshold:      litellmPricing.LongContextInputTokenThreshold,
-				LongContextInputMultiplier:     litellmPricing.LongContextInputCostMultiplier,
-				LongContextOutputMultiplier:    litellmPricing.LongContextOutputCostMultiplier,
-				ImageOutputPricePerToken:       litellmPricing.OutputCostPerImageToken,
-				Intervals:                      litellmPricing.Intervals,
-			}), nil
+			return s.applyModelSpecificPricingPolicy(model, tkModelPricingFromLiteLLM(litellmPricing)), nil
 		}
 	}
 
-	// 2. 使用硬编码回退价格
+	// 2. 使用兼容别名 / 家族回退价格。已在 overlay 定价的兼容分支只
+	// 保存 alias → price_key 关系，不在 Go 中重复价格数值。
 	fallback := s.getFallbackPricing(model)
 	if fallback != nil {
 		// 按模型名去重:每个模型每进程最多打一条 warn,避免热路径每请求刷屏（issue #3394）。

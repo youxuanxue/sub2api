@@ -722,7 +722,7 @@
       "price_source": "overlay",
       "price_key": "glm-5.2",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time)."
     },
     "newapi/glm-5.1": {
       "platform": "newapi",
@@ -735,7 +735,7 @@
       "price_source": "overlay",
       "price_key": "glm-5.1",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time)."
     },
     "newapi/glm-5": {
       "platform": "newapi",
@@ -748,7 +748,7 @@
       "price_source": "overlay",
       "price_key": "glm-5",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time)."
     },
     "newapi/glm-4.7": {
       "platform": "newapi",
@@ -761,7 +761,7 @@
       "price_source": "overlay",
       "price_key": "glm-4.7",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time)."
     },
     "newapi/glm-4.6": {
       "platform": "newapi",
@@ -774,7 +774,7 @@
       "price_source": "overlay",
       "price_key": "glm-4.6",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; current page does not list a separate GLM-4.6 text row, so legacy traffic is priced to the current GLM-4.7 paid ladder; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; current page does not list a separate GLM-4.6 text row, so legacy traffic is priced to the current GLM-4.7 paid ladder; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time)."
     },
     "newapi/glm-4.5": {
       "platform": "newapi",
@@ -787,7 +787,7 @@
       "price_source": "overlay",
       "price_key": "glm-4.5",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; current page does not list a separate GLM-4.5 text row, so legacy traffic is priced to the current GLM-4.7 paid ladder; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time). Excludes free glm-4.5-flash so no zero-price model becomes visible."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; current page does not list a separate GLM-4.5 text row, so legacy traffic is priced to the current GLM-4.7 paid ladder; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time). Excludes free glm-4.5-flash so no zero-price model becomes visible."
     },
     "newapi/glm-4.5-air": {
       "platform": "newapi",
@@ -800,7 +800,7 @@
       "price_source": "overlay",
       "price_key": "glm-4.5-air",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, zhipu base-tax 1.06 applies at resolution/catalog time)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time)."
     }
   }
 }

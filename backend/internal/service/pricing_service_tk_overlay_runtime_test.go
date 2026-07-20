@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/stretchr/testify/require"
 )
 
 // embeddedQwen8bInput is the embedded floor price for qwen3-8b — the assertion
@@ -19,6 +20,7 @@ const embeddedQwen8bInput = 7.462686567164179e-08
 func resetOverlayUnion(t *testing.T) {
 	t.Helper()
 	rebuildTKOverlayUnion(nil) // embedded-only floor
+	t.Cleanup(func() { rebuildTKOverlayUnion(nil) })
 }
 
 func TestRebuildTKOverlayUnion_RuntimeWins(t *testing.T) {
@@ -57,6 +59,18 @@ func TestRebuildTKOverlayUnion_CorruptRuntimeKeepsEmbeddedFloor(t *testing.T) {
 	}
 }
 
+func TestRebuildTKOverlayUnion_CorruptFirstLoadEstablishesEmbeddedFloor(t *testing.T) {
+	tkOverlayMu.Lock()
+	tkOverlayEffective = nil
+	tkOverlayMu.Unlock()
+	t.Cleanup(func() { rebuildTKOverlayUnion(nil) })
+
+	rebuildTKOverlayUnion([]byte("{ this is not valid json"))
+	eff := loadTKPricingOverlay()
+	require.NotNil(t, eff["qwen3-8b"])
+	require.InDelta(t, embeddedQwen8bInput, eff["qwen3-8b"].InputCostPerToken, 1e-18)
+}
+
 func TestRebuildTKOverlayUnion_EmptyFallsBackToEmbedded(t *testing.T) {
 	resetOverlayUnion(t)
 	rebuildTKOverlayUnion([]byte(`{"qwen3-8b":{"input_cost_per_token":5e-06,"litellm_provider":"dashscope"}}`))
@@ -67,6 +81,51 @@ func TestRebuildTKOverlayUnion_EmptyFallsBackToEmbedded(t *testing.T) {
 	if loadTKPricingOverlay()["qwen3-8b"].InputCostPerToken != embeddedQwen8bInput {
 		t.Fatal("empty runtime must fall back to embedded floor")
 	}
+}
+
+func runtimeTaxPolicyBlob(t *testing.T, multiplier float64, dropFirstProvider bool) string {
+	t.Helper()
+	policy := loadTkOfficialListBaseTaxPolicy()
+	policy.Multiplier = multiplier
+	if dropFirstProvider {
+		require.NotEmpty(t, policy.Rules)
+		policy.Rules = policy.Rules[1:]
+	}
+	payload, err := json.Marshal(map[string]any{
+		"_config": map[string]any{"official_list_base_tax": policy},
+	})
+	require.NoError(t, err)
+	return string(payload)
+}
+
+func TestRebuildTKOverlayUnion_RuntimeTaxPolicyWinsAndModelOnlyInheritsFloor(t *testing.T) {
+	resetOverlayUnion(t)
+	embeddedMultiplier := tkOfficialListBaseTaxMultiplier()
+	runtime := runtimeTaxPolicyBlob(t, 1.07, false)
+	rebuildTKOverlayUnion([]byte(runtime))
+	require.InDelta(t, 1.07, tkOfficialListBaseTaxMultiplier(), 1e-12)
+	for _, rule := range loadTkOfficialListBaseTaxPolicy().Rules {
+		litellm := tkPresentLiteLLMModelPricing(&LiteLLMModelPricing{
+			LiteLLMProvider:    rule.Provider,
+			InputCostPerToken:  1,
+			OutputCostPerToken: 2,
+		})
+		require.InDelta(t, 1.07, litellm.InputCostPerToken, 1e-12, rule.Provider)
+
+		catalog := PublicCatalogPricing{InputPer1KTokens: 1, OutputPer1KTokens: 2}
+		tkApplyBaseTaxToPublicCatalogPricing(rule.Provider, &catalog)
+		require.InDelta(t, 1.07, catalog.InputPer1KTokens, 1e-12, rule.Provider)
+
+		fallback := tkApplyOfficialListBaseTaxForModel(
+			sampleModelForTaxRule(t, rule),
+			&ModelPricing{InputPricePerToken: 1, OutputPricePerToken: 2},
+		)
+		require.InDelta(t, 1.07, fallback.InputPricePerToken, 1e-12, rule.Provider)
+	}
+
+	// A model-only runtime blob inherits the embedded policy rather than clearing it.
+	rebuildTKOverlayUnion([]byte(`{"qwen3-8b":{"input_cost_per_token":5e-06,"litellm_provider":"dashscope"}}`))
+	require.InDelta(t, embeddedMultiplier, tkOfficialListBaseTaxMultiplier(), 1e-12)
 }
 
 func newTestPricingService() *PricingService {
@@ -114,6 +173,33 @@ func TestReloadTKOverlayRuntime_CorruptKeepsCurrent(t *testing.T) {
 	}
 }
 
+func TestReloadTKOverlayRuntime_RejectsTaxPolicyThatDropsEmbeddedProvider(t *testing.T) {
+	resetOverlayUnion(t)
+	s := newTestPricingService()
+	blob := runtimeTaxPolicyBlob(t, 1.07, true)
+	s.SetOverlayRuntimeDeps(func(context.Context) (string, bool) { return blob, true }, nil)
+
+	changed, err := s.reloadTKOverlayRuntime(context.Background())
+	require.Error(t, err)
+	require.False(t, changed)
+	require.InDelta(t, 1.06, tkOfficialListBaseTaxMultiplier(), 1e-12)
+}
+
+func TestParseTKOverlayDocument_RejectsInvalidTaxPolicy(t *testing.T) {
+	tests := map[string]string{
+		"unknown config field":    `{"_config":{"unexpected":{}}}`,
+		"out of range multiplier": `{"_config":{"official_list_base_tax":{"multiplier":0.99,"rules":[{"provider":"dashscope","model_prefixes":["qwen"]}]}}}`,
+		"unknown rule field":      `{"_config":{"official_list_base_tax":{"multiplier":1.06,"rules":[{"provider":"dashscope","model_prefixes":["qwen"],"unexpected":true}]}}}`,
+		"missing matcher":         `{"_config":{"official_list_base_tax":{"multiplier":1.06,"rules":[{"provider":"dashscope"}]}}}`,
+	}
+	for name, blob := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseTKOverlayDocument([]byte(blob))
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestReloadTKOverlayRuntime_EmptyGetterIsEmbeddedFloor(t *testing.T) {
 	resetOverlayUnion(t)
 	s := newTestPricingService()
@@ -141,6 +227,7 @@ func TestConcurrentOverlayReadDuringSwap(t *testing.T) {
 					return
 				default:
 					_ = loadTKPricingOverlay()["qwen3-8b"]
+					_ = tkOfficialListBaseTaxMultiplier()
 				}
 			}
 		}()
@@ -195,13 +282,16 @@ func TestCatalogInvalidateCache_PicksUpHotOverlay(t *testing.T) {
 // guard against accidental JSON shape drift in the embedded overlay used as floor.
 func TestEmbeddedOverlayParsesAsFloor(t *testing.T) {
 	resetOverlayUnion(t)
-	m, err := parseTKOverlayBytes(tkPricingOverlayRaw)
+	doc, err := parseTKOverlayDocument(tkPricingOverlayRaw)
 	if err != nil {
 		t.Fatalf("embedded overlay must parse: %v", err)
 	}
+	m := doc.Models
 	if len(m) == 0 {
 		t.Fatal("embedded overlay parsed to zero entries")
 	}
+	require.NotNil(t, doc.BaseTax)
+	require.NoError(t, doc.BaseTax.validate())
 	// _meta / provenance keys are skipped.
 	var raw map[string]json.RawMessage
 	_ = json.Unmarshal(tkPricingOverlayRaw, &raw)
