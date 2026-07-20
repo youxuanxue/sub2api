@@ -38,3 +38,4 @@
 | US-033 | 用户自助导出 qa_records（issue #59 双 Gap：HTTP endpoint + synth_* 字段） | InTest | `.testing/user-stories/stories/US-033-qa-self-export-and-synth-fields.md` |
 | US-034 | OpenAI-compat `/v1/messages` 大输入自动压缩（账号优先、分组兜底） | InTest | `.testing/user-stories/stories/US-034-messages-compaction-policy.md` |
 | US-035 | Model surface bundle activation 与 generic deploy 解耦 | InTest | `.testing/user-stories/stories/US-035-model-surface-bundle-activation.md` |
+| US-036 | Capacity-first 数据层安全原型 | InTest | `.testing/user-stories/stories/US-036-capacity-first-data-layer-safety.md` |

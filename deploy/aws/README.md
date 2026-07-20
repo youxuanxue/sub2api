@@ -233,36 +233,32 @@ Rollback is a normal redeploy of the previous known-good image tag through `depl
 
 prod 可能出现一种受控 drift：repo 模板已经把 `DataVolumeSizeGiB=50`、`DataVolumeIops=6000`、`DataVolumeThroughput=250` 固化，但 live stack 参数仍停在旧值。不要用普通 `aws cloudformation deploy` 一把梭收敛整个模板，因为同一 change set 可能顺手牵出 `Instance` / `EIPAssoc` 替换，导致 EIP 重绑、bootstrap 回退到陈旧 `ImageTag` 等副作用。
 
-当前可无替换收敛的窄路径只覆盖 `DataVolumeSizeGiB=50`：
+当前可无替换收敛的窄路径只覆盖显式给出的 `DataVolumeSizeGiB`，且只允许扩容：
 
 ```bash
-# 1) 只预览并机械校验。默认会删除 change set，不改任何资源。
-bash ops/stage0/reconcile-cfn-datavolume-no-replace.sh
+# 非 prod：只预览并机械校验。默认删除 change set，不执行资源变更。
+bash ops/stage0/reconcile-cfn-datavolume-no-replace.sh \
+  --stack tokenkey-rehearsal-stage0 --region us-east-1 --size 100
 
-# 2) 若需要把已校验的 change set 留给人工复核：
-bash ops/stage0/reconcile-cfn-datavolume-no-replace.sh --keep-change-set
+# prod 预览本身也会创建临时 SSM 参数和 no-execute change set，必须先取得当次批准，
+# 再提供与 stack 完全一致的确认串；这仍然不会 execute change set。
+bash ops/stage0/reconcile-cfn-datavolume-no-replace.sh \
+  --size 100 --confirm-prod-plan tokenkey-prod-stage0 --keep-change-set
 ```
 
-脚本不会套用整份 repo 模板；它复用 live template，只把 `DataVolumeSizeGiB` 参数传成 50，其余 live 参数全部 `UsePreviousValue`。同时它会创建/更新一个稳定 SSM 参数，值为当前栈已解析的 AMI ID，并把 `AmazonLinux2023Arm64Ami` 指向这个稳定参数，避免原来的 `latest` alias 在创建 change set 时重新解析成新 AMI、误牵出实例替换。脚本会强制验证 CloudFormation change set 只包含：
+脚本不会套用整份 repo 模板；它复用 live template，只把 `DataVolumeSizeGiB` 参数传成显式目标值，其余 live 参数全部 `UsePreviousValue`。纯离线 parameter planner 会先拒绝缩盘。随后脚本为这一个 change set 创建唯一稳定 SSM 参数，值为当前栈已解析的 AMI ID，并把 `AmazonLinux2023Arm64Ami` 指向该参数，避免原来的 `latest` alias 重新解析成新 AMI、误牵出实例替换。脚本会强制验证 CloudFormation change set 只包含：
 
 ```text
-DataVolume  Modify  AWS::EC2::Volume  Replacement=False  Scope=Size
+DataVolume  Modify  AWS::EC2::Volume  Replacement=False  Scope=Properties  Property=Size
 ```
 
-只要出现 `Instance`、`EIPAssoc`、其它资源，或 `DataVolume Replacement=True`，脚本直接失败。执行不在默认脚本路径里；`--keep-change-set` 会留下已校验的 no-execute change set 和对应的稳定 AMI SSM 参数，等待人工复核后再用 AWS CLI 执行：
-
-```bash
-bash ops/stage0/reconcile-cfn-datavolume-no-replace.sh --keep-change-set
-# 人工复核输出的 validated_change_set 后，再 execute-change-set。
-# 若执行成功，保留输出的 stable_ami_ssm_parameter；它会成为 live stack 参数值。
-# 若放弃执行，删除 change set；stable_ami_ssm_parameter 可一起删除。
-```
+只要出现 `Instance`、`EIPAssoc`、其它资源，或 `DataVolume Replacement=True`，脚本直接失败。脚本源码不存在 execute 路径；`--keep-change-set` 只留下已校验的 no-execute change set 和唯一稳定 AMI SSM 参数。执行、在线文件系统扩容和前后健康验证属于新的生产审批窗口，不因 plan 通过自动获得授权。
 
 `DataVolumeIops=6000` / `DataVolumeThroughput=250` 的 CFN 所有权收敛不在这条无替换路径里。实测把这两个参数补进 live template 后，CloudFormation 会因为 `Instance.UserData` 里引用 `${DataVolume}` 而把 `Instance` / `EIPAssoc` 标进同一个 change set（`Replacement=Conditional`），所以必须留到维护窗口或 blue/green instance 轮换方案里处理。`ImageTag` 仍是 bootstrap-only drift；任何牵出 `Instance` 的 change set 都进入维护窗口。
 
 > **数据持久化（persistent data volume hardening / issue #8 已修，2026-04-20）**：
 > `stage0-single-ec2.yaml` 现在创建独立的 `AWS::EC2::Volume`（资源名 `DataVolume`，参数
-> `DataVolumeSizeGiB`，默认 30 GiB），带 `DeletionPolicy: Retain` + `UpdateReplacePolicy: Retain`，
+> `DataVolumeSizeGiB`，默认 50 GiB），带 `DeletionPolicy: Retain` + `UpdateReplacePolicy: Retain`，
 > 通过 `AWS::EC2::VolumeAttachment` 挂到 `/dev/sdf`，`UserData` 检测 `/dev/nvme1n1` 等候选块设备、
 > 用 `UUID=<volume-uuid>` 写 `/etc/fstab` 后挂载到 `/var/lib/tokenkey/`（避免 label 重名误挂载）。所有应用数据
 > （`postgres/`、`redis/`、`caddy/data`、`app/`、`pgdump/`、`.env.secret`）都在这个独立卷上。

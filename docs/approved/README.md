@@ -51,3 +51,9 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 | [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
 | [`upstream-merge-2026-07-02.md`](upstream-merge-2026-07-02.md) | Upstream merge anchor |
 | [`user-cold-start.md`](user-cold-start.md) | New-user cold start |
+
+## Pending baselines
+
+| File | Topic |
+| --- | --- |
+| [`design-capacity-first-data-layer-safety.md`](design-capacity-first-data-layer-safety.md) | Capacity-first 本地/非生产安全原型；不授权 prod 操作 |
