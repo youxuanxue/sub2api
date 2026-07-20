@@ -183,7 +183,16 @@ func isKiroProfileArnError(msg string) bool {
 func isKiroValidationErrorBody(body []byte) bool {
 	lower := strings.ToLower(string(body))
 	return strings.Contains(lower, "validationexception") ||
-		strings.Contains(lower, "invalidrequestexception")
+		strings.Contains(lower, "invalidrequestexception") ||
+		isKiroInputTooLongError(lower)
+}
+
+func isKiroInputTooLongError(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "content_length_exceeds_threshold") ||
+		strings.Contains(lower, "input is too long") ||
+		strings.Contains(lower, "input exceeds the context window") ||
+		strings.Contains(lower, "input exceeds the context length")
 }
 
 // parseKiroEventStreamError maps AWS EventStream exception frames to the same
@@ -217,6 +226,8 @@ func parseKiroEventStreamError(msg string) (int, []byte, bool) {
 		strings.Contains(lower, "serviceunavailableexception"),
 		strings.Contains(lower, "dependencyfailedexception"):
 		status = http.StatusBadGateway
+	case isKiroInputTooLongError(lower):
+		status = http.StatusBadRequest
 	default:
 		// Unknown exception names are still upstream failures. 502 preserves
 		// failover without pretending the provider returned a client 4xx.
