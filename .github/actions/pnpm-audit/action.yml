@@ -7,6 +7,8 @@ runs:
     - name: Set up pnpm audit runner
       uses: pnpm/action-setup@v6
       with:
+        # Keep setup-node's pnpm 9 cache path alive through post-job cleanup.
+        dest: ~/setup-pnpm-audit
         # pnpm 9/10 still call npm's retired quick-audit endpoint (HTTP 410).
         # Keep project install/lockfile operations on pnpm 9; only audit uses 11.
         version: 11.7.0
