@@ -55,6 +55,11 @@ _ssm_spec = importlib.util.spec_from_file_location(
 _SSM = importlib.util.module_from_spec(_ssm_spec)
 _ssm_spec.loader.exec_module(_SSM)
 
+_gate_spec = importlib.util.spec_from_file_location(
+    "tk_pricing_overlay_gate", OVERLAY_GATE)
+_OVERLAY_GATE = importlib.util.module_from_spec(_gate_spec)
+_gate_spec.loader.exec_module(_OVERLAY_GATE)
+
 
 def fail(msg: str) -> NoReturn:
     print(f"ERROR: {msg}", file=sys.stderr)
@@ -64,8 +69,8 @@ def fail(msg: str) -> NoReturn:
 # --- pure drift logic (selftest-covered, no I/O) ------------------------------
 
 def overlay_entries(doc: dict) -> dict:
-    """Drop provenance keys ("_meta"/"_doc"/...) — only real model entries."""
-    return {k: v for k, v in doc.items() if not k.startswith("_")}
+    """Return runtime-owned model rows plus executable config; drop provenance."""
+    return {k: v for k, v in doc.items() if not k.startswith("_") or k == "_config"}
 
 
 def _canon(entry) -> str:
@@ -141,6 +146,27 @@ def load_repo_overlay(path: Path = OVERLAY_PATH) -> dict:
         fail(f"cannot read repo overlay {path}: {e}")
 
 
+def runtime_config_errors(doc: dict, embedded: dict | None = None) -> list[str]:
+    """Validate executable config when present; legacy rollback docs may omit it."""
+    if "_config" not in doc:
+        return []
+    errors = _OVERLAY_GATE.validate_official_list_base_tax(doc)
+    if errors:
+        return errors
+    if embedded is None:
+        embedded = load_repo_overlay()
+    embedded_policy = embedded["_config"]["official_list_base_tax"]
+    runtime_policy = doc["_config"]["official_list_base_tax"]
+    embedded_providers = {rule["provider"] for rule in embedded_policy["rules"]}
+    runtime_providers = {rule["provider"] for rule in runtime_policy["rules"]}
+    missing = sorted(embedded_providers - runtime_providers)
+    if missing:
+        errors.append(
+            "runtime official_list_base_tax drops embedded providers: " + ", ".join(missing)
+        )
+    return errors
+
+
 # --- subcommands --------------------------------------------------------------
 
 def cmd_check(_args) -> int:
@@ -180,6 +206,9 @@ def cmd_sync_runtime(args) -> int:
     doc = json.loads(overlay_bytes)
     if not overlay_entries(doc):
         fail("repo overlay has no model entries; refusing to push")
+    config_errors = runtime_config_errors(doc)
+    if config_errors:
+        fail("runtime overlay executable config is invalid: " + "; ".join(config_errors))
 
     if args.dry_run:
         print(f"DRY-RUN: would UPSERT settings[{SETTING_KEY}] on prod "
@@ -250,20 +279,30 @@ def cmd_sync_runtime(args) -> int:
 def cmd_selftest(_args) -> int:
     repo = {
         "_meta": {"note": "provenance"},
+        "_config": {"official_list_base_tax": {"multiplier": 1.06, "rules": [
+            {"provider": "dashscope", "model_prefixes": ["qwen"]},
+        ]}},
         "qwen3-8b": {"input_cost_per_token": 1.0, "litellm_provider": "dashscope"},
         "qwen3-32b": {"input_cost_per_token": 2.0, "litellm_provider": "dashscope"},
         "qwen3-235b-a22b": {"input_cost_per_token": 3.0, "litellm_provider": "dashscope"},
     }
     cases = [
-        ("clean", repo, {"qwen3-8b": repo["qwen3-8b"], "qwen3-32b": repo["qwen3-32b"],
+        ("clean", repo, {"_config": repo["_config"], "qwen3-8b": repo["qwen3-8b"], "qwen3-32b": repo["qwen3-32b"],
                          "qwen3-235b-a22b": repo["qwen3-235b-a22b"]},
          {"pending": [], "shadow": [], "orphan": []}),
         ("pending", repo, {"qwen3-8b": repo["qwen3-8b"]},
-         {"pending": ["qwen3-235b-a22b", "qwen3-32b"], "shadow": [], "orphan": []}),
+         {"pending": ["_config", "qwen3-235b-a22b", "qwen3-32b"], "shadow": [], "orphan": []}),
         ("shadow", repo,
-         {"qwen3-8b": {"input_cost_per_token": 9.9, "litellm_provider": "dashscope"},
+         {"_config": repo["_config"],
+          "qwen3-8b": {"input_cost_per_token": 9.9, "litellm_provider": "dashscope"},
           "qwen3-32b": repo["qwen3-32b"], "qwen3-235b-a22b": repo["qwen3-235b-a22b"]},
          {"pending": [], "shadow": ["qwen3-8b"], "orphan": []}),
+        ("config-shadow", repo,
+         {**{k: v for k, v in overlay_entries(repo).items()},
+          "_config": {"official_list_base_tax": {"multiplier": 1.07, "rules": [
+              {"provider": "dashscope", "model_prefixes": ["qwen"]},
+          ]}}},
+         {"pending": [], "shadow": ["_config"], "orphan": []}),
         ("orphan", repo,
          {**{k: v for k, v in overlay_entries(repo).items()},
           "ghost-model": {"input_cost_per_token": 1.0}},
@@ -292,6 +331,24 @@ def cmd_selftest(_args) -> int:
     except AssertionError:
         ok = False
         print("  FAIL decode-runtime-value gzip read-back round-trip")
+    try:
+        legacy = {"qwen3-8b": repo["qwen3-8b"]}
+        assert runtime_config_errors(legacy, repo) == []
+        invalid = {**legacy, "_config": {"official_list_base_tax": {
+            "multiplier": 0.99,
+            "rules": [{"provider": "dashscope", "model_prefixes": ["qwen"]}],
+        }}}
+        assert runtime_config_errors(invalid, repo)
+        dropped = json.loads(json.dumps(repo))
+        dropped["_config"]["official_list_base_tax"]["rules"] = [
+            {"provider": "moonshot", "model_prefixes": ["kimi-"]},
+        ]
+        assert "drops embedded providers" in runtime_config_errors(dropped, repo)[0]
+        assert runtime_config_errors(repo, repo) == []
+        print("  PASS optional executable config validation")
+    except AssertionError:
+        ok = False
+        print("  FAIL optional executable config validation")
     print("selftest ok" if ok else "selftest FAILED")
     return 0 if ok else 1
 

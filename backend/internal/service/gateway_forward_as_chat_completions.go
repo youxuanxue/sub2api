@@ -77,6 +77,11 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		if normalized != originalModel {
 			mappedModel = normalized
 		}
+	} else if mappedModel == originalModel && account.IsKiro() {
+		normalized := claude.NormalizeModelID(originalModel)
+		if normalized != originalModel {
+			mappedModel = normalized
+		}
 	}
 	anthropicReq.Model = mappedModel
 
@@ -110,7 +115,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	// 否则会被 Anthropic 判为第三方应用并扣 extra usage。
 	// 见 applyClaudeCodeOAuthMimicryToBody 的 godoc。
 	isClaudeCode := false
-	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode
+	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCode && !account.IsKiro()
 
 	if shouldMimicClaudeCode {
 		anthropicBody = s.applyClaudeCodeOAuthMimicryToBody(ctx, c, account, anthropicBody, anthropicReq.System, mappedModel)
@@ -124,6 +129,13 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	// aspect_ratio) from the raw CC body onto the relayed Anthropic body; the antigravity
 	// Gemini transform consumes it downstream. No-op for non-image / ratio-less requests.
 	anthropicBody = tkInjectGeminiImageAspectRatio(body, anthropicBody)
+
+	if account.IsKiro() {
+		return s.forwardAsChatCompletionsViaKiro(
+			ctx, c, account, body, originalModel, mappedModel, anthropicBody,
+			clientStream, includeUsage, startTime,
+		)
+	}
 
 	// 8. Get access token
 	token, tokenType, err := s.GetAccessToken(ctx, account)

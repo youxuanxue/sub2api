@@ -74,6 +74,9 @@ func (s *PricingService) reloadTKOverlayRuntime(ctx context.Context) (bool, erro
 	if s == nil {
 		return false, nil
 	}
+	// Establish the embedded floor before consulting runtime state. A corrupt
+	// setting on the process's first reload must not leave the global snapshot nil.
+	loadTKPricingOverlaySnapshot()
 	s.overlayMu.Lock()
 	getter := s.overlayRuntimeGetter
 	prevHash := s.overlayRuntimeHash
@@ -97,7 +100,7 @@ func (s *PricingService) reloadTKOverlayRuntime(ctx context.Context) (bool, erro
 
 	// Validate before swapping: a corrupt blob must not disturb the live map.
 	if blob != "" {
-		if _, err := parseTKOverlayBytes([]byte(blob)); err != nil {
+		if _, err := buildTKPricingOverlaySnapshot([]byte(blob)); err != nil {
 			// Keep prevHash so a later corrected blob still triggers a reload.
 			return false, err
 		}

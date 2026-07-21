@@ -237,6 +237,15 @@ func TestKiroGatewayService_Forward_EmptyResponseTriggersFailover(t *testing.T) 
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	rawEvents, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := rawEvents.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, "response_error", events[0].Kind)
+	require.Equal(t, "empty_response", events[0].Reason)
+	require.Equal(t, "kiro upstream returned an empty response", events[0].Message)
+	require.Equal(t, int64(99), events[0].AccountID)
 }
 
 func TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput(t *testing.T) {
@@ -371,6 +380,14 @@ func TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailove
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.Empty(t, rec.Body.String(), "no SSE bytes may be written before failover")
+	rawEvents, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := rawEvents.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, "response_error", events[0].Kind)
+	require.Equal(t, "unexpected_eof", events[0].Reason)
+	require.Equal(t, "unexpected EOF", events[0].Message)
 }
 
 // kiroStatusUpstream returns a canned non-200 response with a fixed body,
@@ -483,7 +500,7 @@ func TestKiroGatewayService_Forward_EmptyEventStreamExceptionPreservesFailoverCl
 }
 
 func TestClassifyKiroForwardError_EventStreamValidationDoesNotFailover(t *testing.T) {
-	err := classifyKiroForwardError(
+	_, err := classifyKiroForwardError(
 		fmt.Errorf(`kiro event stream error: ValidationException: {"message":"invalid tool schema"}`),
 		"claude-sonnet-4",
 	)
@@ -497,7 +514,7 @@ func TestClassifyKiroForwardError_EventStreamValidationDoesNotFailover(t *testin
 }
 
 func TestClassifyKiroForwardError_EventStreamInputTooLongDoesNotFailover(t *testing.T) {
-	err := classifyKiroForwardError(
+	_, err := classifyKiroForwardError(
 		fmt.Errorf(`kiro event stream error: CONTENT_LENGTH_EXCEEDS_THRESHOLD: {"message":"Your input exceeds the context window of this model. Please adjust your input and try again."}`),
 		"claude-sonnet-4-6",
 	)
@@ -511,7 +528,7 @@ func TestClassifyKiroForwardError_EventStreamInputTooLongDoesNotFailover(t *test
 }
 
 func TestClassifyKiroForwardError_EventStreamProviderExceptionWinsOverInputTooLongText(t *testing.T) {
-	err := classifyKiroForwardError(
+	_, err := classifyKiroForwardError(
 		fmt.Errorf(`kiro event stream error: InternalServerException: {"message":"upstream failed while checking whether input exceeds the context window"}`),
 		"claude-sonnet-4-6",
 	)
@@ -551,7 +568,7 @@ func TestKiroGatewayService_Forward_NonStreaming_InvalidModel(t *testing.T) {
 
 func TestClassifyKiroForwardError(t *testing.T) {
 	// 400 + INVALID_MODEL_ID → typed error.
-	err := classifyKiroForwardError(
+	_, err := classifyKiroForwardError(
 		fmt.Errorf("HTTP 400 from CodeWhisperer: {\"reason\":\"INVALID_MODEL_ID\"}"),
 		"claude-haiku-4.5",
 	)
@@ -560,7 +577,7 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	require.Equal(t, "claude-haiku-4.5", invalidModelErr.Model)
 
 	// 400 without the INVALID_MODEL_ID marker → failover error, NOT typed invalid-model.
-	other := classifyKiroForwardError(
+	_, other := classifyKiroForwardError(
 		fmt.Errorf("HTTP 400 from CodeWhisperer: {\"reason\":\"THROTTLED\"}"),
 		"claude-haiku-4.5",
 	)
@@ -569,7 +586,7 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	require.ErrorAs(t, other, &failoverErr)
 	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
 
-	validation := classifyKiroForwardError(
+	_, validation := classifyKiroForwardError(
 		fmt.Errorf("HTTP 400 from CodeWhisperer: {\"__type\":\"ValidationException\",\"message\":\"invalid tool schema\"}"),
 		"claude-sonnet-4",
 	)
@@ -578,7 +595,7 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	require.Equal(t, "invalid tool schema", invalidRequestErr.ClientMessage())
 	require.NotErrorAs(t, other, &invalidModelErr)
 
-	inputTooLong := classifyKiroForwardError(
+	_, inputTooLong := classifyKiroForwardError(
 		fmt.Errorf("HTTP 400 from CodeWhisperer: {\"reason\":\"CONTENT_LENGTH_EXCEEDS_THRESHOLD\",\"message\":\"Input is too long.\"}"),
 		"claude-sonnet-4-6",
 	)
@@ -588,7 +605,7 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	require.NotErrorAs(t, inputTooLong, &failoverErr)
 
 	// 500 with the marker substring → still not classified as invalid-model.
-	notFourHundred := classifyKiroForwardError(
+	_, notFourHundred := classifyKiroForwardError(
 		fmt.Errorf("HTTP 500 from CodeWhisperer: INVALID_MODEL_ID"),
 		"claude-haiku-4.5",
 	)
@@ -596,7 +613,7 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	require.ErrorAs(t, notFourHundred, &failoverErr)
 	require.Equal(t, http.StatusInternalServerError, failoverErr.StatusCode)
 
-	unauthorized := classifyKiroForwardError(
+	_, unauthorized := classifyKiroForwardError(
 		fmt.Errorf("HTTP 401 from CodeWhisperer: Invalid bearer token"),
 		"claude-sonnet-4",
 	)
@@ -604,7 +621,7 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, failoverErr.StatusCode)
 	require.Equal(t, "Invalid bearer token", string(failoverErr.ResponseBody))
 
-	wrappedUnauthorized := classifyKiroForwardError(
+	_, wrappedUnauthorized := classifyKiroForwardError(
 		fmt.Errorf("resolve profileArn: HTTP 401 from management: Invalid bearer token"),
 		"claude-sonnet-4",
 	)
@@ -612,28 +629,54 @@ func TestClassifyKiroForwardError(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, failoverErr.StatusCode)
 
 	// nil passes through.
-	require.NoError(t, classifyKiroForwardError(nil, "m"))
+	_, nilErr := classifyKiroForwardError(nil, "m")
+	require.NoError(t, nilErr)
 
-	quota := classifyKiroForwardError(fmt.Errorf("quota exhausted on AmazonQ"), "claude-sonnet-4-5")
+	_, quota := classifyKiroForwardError(fmt.Errorf("quota exhausted on AmazonQ"), "claude-sonnet-4-5")
 	var quotaErr *KiroEndpointQuotaExhaustedError
 	require.ErrorAs(t, quota, &quotaErr)
 	require.Equal(t, tkKiroEndpointQuotaExhaustedClient, quotaErr.ClientMessage())
 }
 
 func TestClassifyKiroForwardError_TransportFailureTriggersFailover(t *testing.T) {
-	err := classifyKiroForwardError(fmt.Errorf("dial tcp 10.0.0.1:443: connect: connection refused"), "claude-sonnet-4")
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	account := newKiroAccountForTest()
+	err := classifyAndRecordKiroForwardError(
+		c,
+		account,
+		fmt.Errorf("GET https://q.us-east-1.amazonaws.com/generate?access_token=secret: dial tcp 10.0.0.1:443: connect: connection refused"),
+		"claude-sonnet-4",
+	)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.JSONEq(t, `{"error":{"type":"upstream_error","message":"Upstream request failed"}}`, string(failoverErr.ResponseBody))
+
+	rawEvents, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := rawEvents.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, "request_error", events[0].Kind)
+	require.Equal(t, "connection_refused", events[0].Reason)
+	require.Contains(t, events[0].Message, "dial tcp 10.0.0.1:443: connect: connection refused")
+	require.Contains(t, events[0].Message, "access_token=***")
+	require.NotContains(t, events[0].Message, "access_token=secret")
+	require.Equal(t, PlatformKiro, events[0].Platform)
+	require.Equal(t, account.ID, events[0].AccountID)
 }
 
 func TestClassifyKiroForwardError_ContextCanceledDoesNotTriggerFailover(t *testing.T) {
-	err := classifyKiroForwardError(context.Canceled, "claude-sonnet-4")
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	err := classifyAndRecordKiroForwardError(c, newKiroAccountForTest(), context.Canceled, "claude-sonnet-4")
 	var failoverErr *UpstreamFailoverError
 	require.Error(t, err)
 	require.NotErrorAs(t, err, &failoverErr)
 	require.ErrorIs(t, err, context.Canceled)
+	_, recorded := c.Get(OpsUpstreamErrorsKey)
+	require.False(t, recorded, "client cancellation must not be recorded as a Kiro upstream failure")
 }
 
 func TestGatewayService_Forward_Kiro401TriggersRateLimitRefresh(t *testing.T) {

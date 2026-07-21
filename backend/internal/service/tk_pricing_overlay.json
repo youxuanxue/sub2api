@@ -1,8 +1,49 @@
 {
   "_meta": {
-    "note": "TK-owned pricing overlay for models the runtime price source lacks. Merged into PricingService AFTER any source load (Wei-Shaw remote OR disk fallback); an entry below applies when the source key is ABSENT or the source entry is EFFECTIVELY UNPRICED (every cost field 0.0 — litellm's 'unknown', not 'free'; see tkIsEffectivelyUnpriced). Entries store pre-tax official list prices; billing and public /pricing apply tkOfficialListBaseTaxMultiplier (1.06) at resolution time for deepseek, dashscope, moonshot, volcengine, and zhipu so display matches charge. Channel (DB) pricing overrides sit above this layer and are never re-taxed. The Wei-Shaw runtime mirror is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; litellm itself also lags new provider models (deepseek-v4-*) or carries them as zero placeholders (deepseek-v3-2-251201), which then bill $0. Media price = vertex_ai provider (TK media flow routes through Vertex ch41); falls back to gemini only when no vertex variant exists. Text price = provider official list price. Self-deprecating: the day the source carries a real (non-zero) price under the bare key, the source value wins and the entry below is ignored. The overlay cannot CORRECT wrong NON-ZERO source prices (deepseek-chat/reasoner still carry the pre-V4 rate in the mirror) — use channel pricing (DB) for that. Video entries MUST declare failure_billing (currently only 'success_only' is legal): TokenKey refunds the user in full when a video task ends failed, which is only loss-free if the provider does not charge for failed tasks — the person pricing a new video model verifies that on the official page and declares it here; scripts/checks/pricing-overlay.py enforces the field, and any other value must first change the refund design.",
+    "note": "TK-owned pricing overlay for models the runtime price source lacks. Merged into PricingService AFTER any source load (Wei-Shaw remote OR disk fallback); an entry below applies when the source key is ABSENT or the source entry is EFFECTIVELY UNPRICED (every cost field 0.0 — litellm's 'unknown', not 'free'; see tkIsEffectivelyUnpriced). Entries store pre-tax official list prices; billing and public /pricing apply the executable _config.official_list_base_tax policy at resolution time (provider, fallback matchers, and multiplier are data-owned) so display matches charge. Channel (DB) pricing overrides sit above this layer and are never re-taxed. The Wei-Shaw runtime mirror is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; litellm itself also lags new provider models (deepseek-v4-*) or carries them as zero placeholders (deepseek-v3-2-251201), which then bill $0. Media price = vertex_ai provider (TK media flow routes through Vertex ch41); falls back to gemini only when no vertex variant exists. Text price = provider official list price. Self-deprecating: the day the source carries a real (non-zero) price under the bare key, the source value wins and the entry below is ignored. The overlay cannot CORRECT wrong NON-ZERO source prices (deepseek-chat/reasoner still carry the pre-V4 rate in the mirror) — use channel pricing (DB) for that. Video entries MUST declare failure_billing (currently only 'success_only' is legal): TokenKey refunds the user in full when a video task ends failed, which is only loss-free if the provider does not charge for failed tasks — the person pricing a new video model verifies that on the official page and declares it here; scripts/checks/pricing-overlay.py enforces the field, and any other value must first change the refund design.",
     "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); Moonshot/Kimi account 83: official China model pages under https://platform.kimi.com/docs/pricing/, captured 2026-07-20, CNY/USD=6.7; moonshot-v1-auto intentionally uses the fixed 128K V1 rate because the alias may select the highest tier; volcengine doubao-*/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=6.7); GLM text rows: PRICING SOURCE ONLY = BigModel official pricing page https://bigmodel.cn/pricing, captured 2026-07-09, CNY/USD=6.7; SERVING for manifest-listed GLM remains the configured Alibaba DashScope/Qwen pool (channel_type=17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct; qwen3.7-max* / qwen3.7-plus / qwen3.6-flash / qwen3-coder-plus / qwen-max / qwen-plus: Alibaba DashScope China-mainland (Beijing) RMB list ÷ 6.7, docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source; the qwen3.7-* / qwen3.6-flash / qwen3-coder-plus values were corrected 2026-06-13 from a prior USD-list basis ≈÷7.27 to the table's canonical CNY/USD=6.7); qwen2.5-coder-32b/7b: retired & absent from current Alibaba list — proxy-filled from lineage successors qwen3-coder-plus / qwen3-coder-flash, Beijing RMB list ÷ 6.7, docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source); seedream/seedance media: VolcEngine Ark official model-pricing page (https://www.volcengine.com/docs/82379/1099320), captured 2026-06-12/2026-07-02, CNY/USD=6.7 — per-image flat price; per-second video price derived at each model's max supported tier (1080p@24fps; 2.0-fast 720p), online standard rate, derivation formula in per-entry source; only IDs present in the live configured Ark account and priced from official sources are served — seedream-4.5/5.0 need separate 2K activation probes/pricing before serving, seedance-1.0-lite and wan2.1 returned unsupported on 2026-07-02; video failure_billing evidence: seedance entries carry the verified official Ark wording (success-only, captured 2026-06-12); veo entries are metric-inferred (billed per generated output second) with the official Google sentence still pending capture",
     "regen": "manual curation; no auto-sync (entries are few + slow-moving). If they proliferate, add provider-aware sync."
+  },
+  "_config": {
+    "official_list_base_tax": {
+      "multiplier": 1.06,
+      "rules": [
+        {
+          "provider": "deepseek",
+          "model_contains": [
+            "deepseek"
+          ]
+        },
+        {
+          "provider": "dashscope",
+          "model_prefixes": [
+            "qwen"
+          ]
+        },
+        {
+          "provider": "moonshot",
+          "model_prefixes": [
+            "kimi-",
+            "kimi/",
+            "moonshot-"
+          ]
+        },
+        {
+          "provider": "volcengine",
+          "model_prefixes": [
+            "doubao",
+            "seedream",
+            "seedance"
+          ]
+        },
+        {
+          "provider": "zhipu",
+          "model_prefixes": [
+            "glm"
+          ]
+        }
+      ]
+    }
   },
   "grok-imagine-image": {
     "litellm_provider": "xai",
@@ -1340,7 +1381,7 @@
         "cache_read_input_token_cost": 2.9850746268656716e-07
       }
     ],
-    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-5.1 input tiers 0-32K ¥6/Mtok, 32K+ ¥8/Mtok; output ¥24/¥28; cache-hit ¥1.3/¥2. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Whole-request input-tier via overlay intervals. Cache storage is listed as limited-time free."
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-5.1 input tiers 0-32K ¥6/Mtok, 32K+ ¥8/Mtok; output ¥24/¥28; cache-hit ¥1.3/¥2. CNY/USD=6.7; pre-tax overlay, overlay official_list_base_tax policy applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Whole-request input-tier via overlay intervals. Cache storage is listed as limited-time free."
   },
   "glm-5": {
     "litellm_provider": "zhipu",
@@ -1364,7 +1405,7 @@
         "cache_read_input_token_cost": 2.2388059701492537e-07
       }
     ],
-    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-5 input tiers 0-32K ¥4/Mtok, 32K+ ¥6/Mtok; output ¥18/¥22; cache-hit ¥1/¥1.5. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Whole-request input-tier via overlay intervals. Cache storage is listed as limited-time free."
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-5 input tiers 0-32K ¥4/Mtok, 32K+ ¥6/Mtok; output ¥18/¥22; cache-hit ¥1/¥1.5. CNY/USD=6.7; pre-tax overlay, overlay official_list_base_tax policy applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Whole-request input-tier via overlay intervals. Cache storage is listed as limited-time free."
   },
   "glm-5-turbo": {
     "litellm_provider": "zhipu",
@@ -1388,7 +1429,7 @@
         "cache_read_input_token_cost": 2.6865671641791046e-07
       }
     ],
-    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-5-Turbo input tiers 0-32K ¥5/Mtok, 32K+ ¥7/Mtok; output ¥22/¥26; cache-hit ¥1.2/¥1.8. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Whole-request input-tier via overlay intervals. Cache storage is listed as limited-time free. Pricing source only; no current manifest serving path after GLM direct account/group removal. If served later, serving must be separately mapped through the DashScope/Qwen path unless explicitly approved otherwise."
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-5-Turbo input tiers 0-32K ¥5/Mtok, 32K+ ¥7/Mtok; output ¥22/¥26; cache-hit ¥1.2/¥1.8. CNY/USD=6.7; pre-tax overlay, overlay official_list_base_tax policy applies at resolution/catalog time. Whole-request input-tier via overlay intervals. Cache storage is listed as limited-time free. Pricing source only; no current manifest serving path after GLM direct account/group removal. If served later, serving must be separately mapped through the DashScope/Qwen path unless explicitly approved otherwise."
   },
   "glm-4.7": {
     "litellm_provider": "zhipu",
@@ -1412,7 +1453,7 @@
         "cache_read_input_token_cost": 1.1940298507462686e-07
       }
     ],
-    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-4.7 has a short-output 0-32K row (¥2/M input, ¥8/M output, ¥0.4/M cache-hit) and a 0-32K output>0.2K row (¥3/M input, ¥14/M output, ¥0.6/M cache-hit). TK tiers only by input length, so the 0-32K tier uses the higher reachable output>0.2K row to avoid under-billing; 32K+ uses ¥4/M input, ¥16/M output, ¥0.8/M cache-hit. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Cache storage is listed as limited-time free."
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-4.7 has a short-output 0-32K row (¥2/M input, ¥8/M output, ¥0.4/M cache-hit) and a 0-32K output>0.2K row (¥3/M input, ¥14/M output, ¥0.6/M cache-hit). TK tiers only by input length, so the 0-32K tier uses the higher reachable output>0.2K row to avoid under-billing; 32K+ uses ¥4/M input, ¥16/M output, ¥0.8/M cache-hit. CNY/USD=6.7; pre-tax overlay, overlay official_list_base_tax policy applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Cache storage is listed as limited-time free."
   },
   "glm-4.7-flashx": {
     "litellm_provider": "zhipu",
@@ -1444,7 +1485,7 @@
         "cache_read_input_token_cost": 1.1940298507462686e-07
       }
     ],
-    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09 no longer lists a separate GLM-4.6 text row. Priced to the current GLM-4.7 paid ladder so legacy glm-4.6 traffic does not retain the old USD-source rate or bill below the current GLM public paid tier. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct."
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09 no longer lists a separate GLM-4.6 text row. Priced to the current GLM-4.7 paid ladder so legacy glm-4.6 traffic does not retain the old USD-source rate or bill below the current GLM public paid tier. CNY/USD=6.7; pre-tax overlay, overlay official_list_base_tax policy applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct."
   },
   "glm-4.5": {
     "litellm_provider": "zhipu",
@@ -1468,7 +1509,7 @@
         "cache_read_input_token_cost": 1.1940298507462686e-07
       }
     ],
-    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09 no longer lists a separate GLM-4.5 text row. Priced to the current GLM-4.7 paid ladder so legacy glm-4.5 traffic does not retain the old USD-source rate or bill below the current GLM public paid tier. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct."
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09 no longer lists a separate GLM-4.5 text row. Priced to the current GLM-4.7 paid ladder so legacy glm-4.5 traffic does not retain the old USD-source rate or bill below the current GLM public paid tier. CNY/USD=6.7; pre-tax overlay, overlay official_list_base_tax policy applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct."
   },
   "glm-4.5-air": {
     "litellm_provider": "zhipu",
@@ -1492,7 +1533,7 @@
         "cache_read_input_token_cost": 3.582089552238805e-08
       }
     ],
-    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-4.5-Air has a short-output 0-32K row (¥0.8/M input, ¥2/M output, ¥0.16/M cache-hit) and a 0-32K output>0.2K row (¥0.8/M input, ¥6/M output, ¥0.16/M cache-hit). TK tiers only by input length, so the 0-32K tier uses the higher reachable output>0.2K row to avoid under-billing; 32K+ uses ¥1.2/M input, ¥8/M output, ¥0.24/M cache-hit. CNY/USD=6.7; pre-tax overlay, zhipu base-tax 1.06 applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Cache storage is listed as limited-time free."
+    "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-07-09: GLM-4.5-Air has a short-output 0-32K row (¥0.8/M input, ¥2/M output, ¥0.16/M cache-hit) and a 0-32K output>0.2K row (¥0.8/M input, ¥6/M output, ¥0.16/M cache-hit). TK tiers only by input length, so the 0-32K tier uses the higher reachable output>0.2K row to avoid under-billing; 32K+ uses ¥1.2/M input, ¥8/M output, ¥0.24/M cache-hit. CNY/USD=6.7; pre-tax overlay, overlay official_list_base_tax policy applies at resolution/catalog time. Pricing source only: serving remains the configured Alibaba DashScope/Qwen pool (ch17; account membership is runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Cache storage is listed as limited-time free."
   },
   "gpt-5.6-sol": {
     "litellm_provider": "openai",

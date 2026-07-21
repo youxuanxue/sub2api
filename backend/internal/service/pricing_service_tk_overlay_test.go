@@ -69,9 +69,42 @@ func TestTKPricingOverlay_FillsMoonshotChinaModels(t *testing.T) {
 	billing := NewBillingService(&config.Config{}, &PricingService{pricingData: data})
 	k3, err := billing.GetModelPricing("kimi-k3")
 	require.NoError(t, err)
-	require.InDelta(t, data["kimi-k3"].InputCostPerToken*tkOfficialListBaseTaxMultiplier, k3.InputPricePerToken, 1e-15)
-	require.InDelta(t, data["kimi-k3"].OutputCostPerToken*tkOfficialListBaseTaxMultiplier, k3.OutputPricePerToken, 1e-15)
-	require.InDelta(t, data["kimi-k3"].CacheReadInputTokenCost*tkOfficialListBaseTaxMultiplier, k3.CacheReadPricePerToken, 1e-15)
+	require.InDelta(t, data["kimi-k3"].InputCostPerToken*tkOfficialListBaseTaxMultiplier(), k3.InputPricePerToken, 1e-15)
+	require.InDelta(t, data["kimi-k3"].OutputCostPerToken*tkOfficialListBaseTaxMultiplier(), k3.OutputPricePerToken, 1e-15)
+	require.InDelta(t, data["kimi-k3"].CacheReadInputTokenCost*tkOfficialListBaseTaxMultiplier(), k3.CacheReadPricePerToken, 1e-15)
+}
+
+func TestBillingOverlayBackedFallbackUsesPricingSSOT(t *testing.T) {
+	billing := NewBillingService(&config.Config{}, nil)
+	pricing, err := billing.GetModelPricing("kimi-k2.6")
+	require.NoError(t, err)
+	require.InDelta(t,
+		tkCNYPerMTokToUSDPerToken(6.5)*tkOfficialListBaseTaxMultiplier(),
+		pricing.InputPricePerToken,
+		1e-15,
+	)
+	require.InDelta(t,
+		tkCNYPerMTokToUSDPerToken(27)*tkOfficialListBaseTaxMultiplier(),
+		pricing.OutputPricePerToken,
+		1e-15,
+	)
+	require.InDelta(t,
+		tkCNYPerMTokToUSDPerToken(1.1)*tkOfficialListBaseTaxMultiplier(),
+		pricing.CacheReadPricePerToken,
+		1e-15,
+	)
+}
+
+func TestBillingOverlayMediaOnlyPricingRemainsTokenAbsent(t *testing.T) {
+	svc := &PricingService{}
+	data, err := svc.parsePricingData([]byte(`{
+		"gpt-5.4": {"input_cost_per_token": 0.0000025, "output_cost_per_token": 0.000015, "litellm_provider": "openai", "mode": "chat"}
+	}`))
+	require.NoError(t, err)
+	billing := NewBillingService(&config.Config{}, &PricingService{pricingData: data})
+	pricing, err := billing.GetModelPricing("grok-imagine-image")
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+	require.Nil(t, pricing)
 }
 
 // TestTKPricingOverlay_FillOnlySourceWins verifies the overlay never overwrites

@@ -1,0 +1,4 @@
+interface:
+  display_name: "TokenKey Edge Capacity Report"
+  short_description: "Refresh evidence-based edge concurrency baselines"
+  default_prompt: "Use $tokenkey-edge-capacity-report to refresh the read-only C1 edge account capacity report from retained logs."

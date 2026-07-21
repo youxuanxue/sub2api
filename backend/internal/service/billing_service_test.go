@@ -34,7 +34,7 @@ func newTestBillingService() *BillingService {
 }
 
 func glmCNYPerMTokWithTax(cny float64) float64 {
-	return tkCNYPerMTokToUSDPerToken(cny) * tkOfficialListBaseTaxMultiplier
+	return tkCNYPerMTokToUSDPerToken(cny) * tkOfficialListBaseTaxMultiplier()
 }
 
 func glmCNYPerMTokPreTax(cny float64) float64 {
@@ -149,14 +149,15 @@ func TestGetModelPricing_FallbackWarnLoggedOncePerModel(t *testing.T) {
 	svc := newTestBillingService()
 	buf := captureStdLog(t)
 
-	// glm-5.2 不在 LiteLLM,经 strings.Contains 命中 glm-5 兜底价 → 触发 fallback warn。
+	// 使用没有精确定价的 Claude 变体，确保它走家族 floor 并触发 fallback warn。
+	const model = "claude-unknown-warning-a"
 	for i := 0; i < 5; i++ {
-		pricing, err := svc.GetModelPricing("glm-5.2")
+		pricing, err := svc.GetModelPricing(model)
 		require.NoError(t, err)
 		require.NotNil(t, pricing)
 	}
 
-	got := strings.Count(buf.String(), "Using fallback pricing for model: glm-5.2")
+	got := strings.Count(buf.String(), "Using fallback pricing for model: "+model)
 	require.Equal(t, 1, got, "同一模型的 fallback warn 应只打一条,实际日志:\n%s", buf.String())
 }
 
@@ -166,18 +167,19 @@ func TestGetModelPricing_FallbackWarnPerModelNotGlobal(t *testing.T) {
 	buf := captureStdLog(t)
 
 	for i := 0; i < 3; i++ {
-		_, _ = svc.GetModelPricing("glm-5.2")
-		_, _ = svc.GetModelPricing("GLM-5.2") // 与上一行同模型(ToLower 后),去重后不再打
-		_, _ = svc.GetModelPricing("glm-4.6")
+		_, _ = svc.GetModelPricing("claude-unknown-warning-a")
+		_, _ = svc.GetModelPricing("CLAUDE-UNKNOWN-WARNING-A") // ToLower 后视为同一条目
+		_, _ = svc.GetModelPricing("claude-unknown-warning-b")
 	}
 
 	out := buf.String()
-	require.Equal(t, 1, strings.Count(out, "model: glm-5.2"), out)
-	require.Equal(t, 1, strings.Count(out, "model: glm-4.6"), out)
-	require.Equal(t, 0, strings.Count(out, "model: GLM-5.2"), out) // 大写经 ToLower 归一,不应单独成行
+	require.Equal(t, 1, strings.Count(out, "model: claude-unknown-warning-a"), out)
+	require.Equal(t, 1, strings.Count(out, "model: claude-unknown-warning-b"), out)
+	require.Equal(t, 0, strings.Count(out, "model: CLAUDE-UNKNOWN-WARNING-A"), out)
 }
 
-// 回归:glm-5.2 命中独立兜底价(先于 glm-5 前缀匹配),防止 family 顺序回归。
+// 回归：即使 PricingService 不可用，glm-5.2 仍从 overlay 精确价恢复，
+// 不会落到更宽的 glm-5 兼容分支。
 func TestGetModelPricing_GLM52UsesBigModelPriceWithBaseTax(t *testing.T) {
 	svc := newTestBillingService()
 
@@ -645,23 +647,23 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "kimi k2.6 flagship",
 			model:             "kimi-k2.6",
-			expectedInput:     0.95e-6,
-			expectedOutput:    floatPtr(4e-6),
-			expectedCacheRead: floatPtr(0.15e-6),
+			expectedInput:     tkCNYPerMTokToUSDPerToken(6.5),
+			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(27)),
+			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(1.1)),
 		},
 		{
 			name:              "kimi for coding explicit alias",
 			model:             "kimi-for-coding",
-			expectedInput:     0.95e-6,
-			expectedOutput:    floatPtr(4e-6),
-			expectedCacheRead: floatPtr(0.15e-6),
+			expectedInput:     tkCNYPerMTokToUSDPerToken(6.5),
+			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(27)),
+			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(1.1)),
 		},
 		{
 			name:              "kimi k2.5",
 			model:             "kimi-k2.5",
-			expectedInput:     0.60e-6,
-			expectedOutput:    floatPtr(3e-6),
-			expectedCacheRead: floatPtr(0.098e-6),
+			expectedInput:     tkCNYPerMTokToUSDPerToken(4),
+			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(21)),
+			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(0.7)),
 		},
 		{
 			name:              "kimi k2-thinking",
@@ -681,9 +683,9 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "kimi k2.6 vs k2 ordering",
 			model:             "kimi-k2.6",
-			expectedInput:     0.95e-6, // = k2.6 不是 k2 的人民币换算价
-			expectedOutput:    floatPtr(4e-6),
-			expectedCacheRead: floatPtr(0.15e-6),
+			expectedInput:     tkCNYPerMTokToUSDPerToken(6.5), // = k2.6 不是 k2 的旧 ¥4 档
+			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(27)),
+			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(1.1)),
 		},
 		{
 			name:              "kimi k2 thinking hyphenated variant",
@@ -802,8 +804,8 @@ func TestGetModelPricing_DoubaoEmbeddingVisionImageInputRate(t *testing.T) {
 		pricing, err := svc.GetModelPricing(model)
 		require.NoError(t, err, "model %s should resolve fallback pricing", model)
 		require.NotNil(t, pricing)
-		require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.7)*tkOfficialListBaseTaxMultiplier, pricing.InputPricePerToken, 1e-12, "text input rate for %s", model)
-		require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.8)*tkOfficialListBaseTaxMultiplier, pricing.ImageInputPricePerToken, 1e-12, "image input rate for %s", model)
+		require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.7)*tkOfficialListBaseTaxMultiplier(), pricing.InputPricePerToken, 1e-12, "text input rate for %s", model)
+		require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.8)*tkOfficialListBaseTaxMultiplier(), pricing.ImageInputPricePerToken, 1e-12, "image input rate for %s", model)
 		require.Zero(t, pricing.OutputPricePerToken, "embedding has no output cost for %s", model)
 	}
 }
@@ -817,8 +819,8 @@ func TestCalculateCost_DoubaoEmbeddingVisionDifferentialInput(t *testing.T) {
 	mixed := UsageTokens{InputTokens: 1340, ImageInputTokens: 28}
 	cost, err := svc.CalculateCost("doubao-embedding-vision", mixed, 1.0)
 	require.NoError(t, err)
-	textRate := tkCNYPerMTokToUSDPerToken(0.7) * tkOfficialListBaseTaxMultiplier
-	imageRate := tkCNYPerMTokToUSDPerToken(1.8) * tkOfficialListBaseTaxMultiplier
+	textRate := tkCNYPerMTokToUSDPerToken(0.7) * tkOfficialListBaseTaxMultiplier()
+	imageRate := tkCNYPerMTokToUSDPerToken(1.8) * tkOfficialListBaseTaxMultiplier()
 	wantMixed := float64(1312)*textRate + float64(28)*imageRate
 	require.InDelta(t, wantMixed, cost.InputCost, 1e-15)
 	require.InDelta(t, wantMixed, cost.TotalCost, 1e-15)

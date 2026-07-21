@@ -64,6 +64,26 @@ func TestTkSkipDownstreamKiroOAuthAuthRejectPenalty(t *testing.T) {
 	require.False(t, tkSkipDownstreamKiroOAuthAuthRejectPenalty(openaiMirror, http.StatusForbidden, "Invalid bearer token", nil))
 }
 
+func TestTkSkipDownstreamKiroServiceUnavailablePenalty(t *testing.T) {
+	stub := &Account{
+		ID:       66,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"mirror_platform": "kiro",
+		},
+	}
+	body := []byte(`{"error":{"message":"Upstream service temporarily unavailable","type":"upstream_error"}}`)
+
+	require.True(t, tkSkipDownstreamKiroServiceUnavailablePenalty(stub, http.StatusBadGateway, "", body))
+	require.True(t, tkSkipDownstreamKiroServiceUnavailablePenalty(stub, http.StatusBadGateway, "UPSTREAM SERVICE TEMPORARILY UNAVAILABLE", nil))
+	require.False(t, tkSkipDownstreamKiroServiceUnavailablePenalty(stub, http.StatusServiceUnavailable, "Upstream service temporarily unavailable", nil))
+	require.False(t, tkSkipDownstreamKiroServiceUnavailablePenalty(stub, http.StatusBadGateway, "", []byte(`<html>502 Bad Gateway</html>`)))
+
+	plainAnthropic := &Account{ID: 67, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+	require.False(t, tkSkipDownstreamKiroServiceUnavailablePenalty(plainAnthropic, http.StatusBadGateway, "", body))
+}
+
 // prod incident 2026-05-31: a downstream edge stub returning 503 "no available
 // accounts" (a transient edge pool-capacity blip) must fail the request over to
 // the next stub WITHOUT advancing the per-account cooldown counter or cooling the
@@ -242,6 +262,50 @@ func TestRateLimitService_HandleUpstreamError_KiroMirrorGeneric403_FailoverOnly(
 	require.Equal(t, 0, repo.tempCalls, "403 must not enter the stub-health 3/3 fuse")
 	require.Empty(t, counter.incrementIDs)
 	require.Equal(t, []int64{66}, sat.incrementIDs, "transient relay blip feeds bounded de-prioritization")
+}
+
+func TestRateLimitService_HandleUpstreamError_KiroMirrorServiceUnavailable_DoesNotCoolRelay(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	ladder := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1, 2, 3, 4}}
+	sat := &fakeSaturationCounterRL{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicUpstreamErrorCounterCache(ladder)
+	service.SetAnthropicSaturationCounter(sat)
+	account := &Account{
+		ID:       69,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"mirror_platform": "kiro",
+			"pool_mode":       true,
+		},
+	}
+	body := []byte(`{"error":{"message":"Upstream service temporarily unavailable","type":"upstream_error"}}`)
+
+	for i := 0; i < 4; i++ {
+		require.True(t, service.HandleUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, body))
+	}
+
+	require.Equal(t, 0, repo.tempCalls, "downstream Kiro 502 must not temp-unschedule the prod relay")
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Empty(t, ladder.incrementIDs, "downstream Kiro 502 must not advance the Anthropic 3/3 fuse")
+	require.Equal(t, []int64{69, 69, 69, 69}, sat.incrementIDs, "failed Kiro edge still receives bounded de-prioritization")
+}
+
+func TestRateLimitService_HandleUpstreamError_PlainAnthropicServiceUnavailable_StillCounts(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	ladder := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1, 2, 3}, tierCounts: []int64{1}}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicUpstreamErrorCounterCache(ladder)
+	account := &Account{ID: 67, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+	body := []byte(`{"error":{"message":"Upstream service temporarily unavailable","type":"upstream_error"}}`)
+
+	require.False(t, service.HandleUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, body))
+	require.False(t, service.HandleUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, body))
+	require.True(t, service.HandleUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, body))
+
+	require.Equal(t, 1, repo.tempCalls, "real Anthropic 502 keeps the relay-health fuse")
+	require.Equal(t, []int64{67, 67, 67}, ladder.incrementIDs)
 }
 
 func TestRateLimitService_HandleUpstreamError_PlainAnthropicAPIKey401_StillSetsError(t *testing.T) {

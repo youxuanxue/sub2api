@@ -108,7 +108,8 @@ bash ops/observability/run-probe.sh --target prod \
 
 Moonshot 国内站与国际站 key/价格相互独立；账号 `base_url=api.moonshot.cn` 时，overlay 必须取
 `platform.kimi.com/docs/pricing/*` 国内 RMB 表并按 TokenKey `CNY/USD=6.7` 换算。overlay 保存税前价，
-billing 与公开 `/pricing` 通过 `litellm_provider=moonshot` 统一叠加 `tkOfficialListBaseTaxMultiplier=1.06`。
+billing、公开 `/pricing` 与 fallback 通过 overlay `_config.official_list_base_tax` 的 `moonshot` rule 统一叠加
+配置中的 multiplier；provider、matcher、multiplier 都不得在 Go 或测试里维护第二份清单。
 
 ### 2) 写 manifest 条目（单一意图源，**先于**投影）
 

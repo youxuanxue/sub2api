@@ -115,7 +115,7 @@ func (s *KiroGatewayService) Forward(
 		}
 		return result, err
 	}
-	result, err := s.forwardNonStreaming(ctx, c, doer, kiroAcct, payload, &req, requestID, model, startTime)
+	result, err := s.forwardNonStreaming(ctx, c, account, doer, kiroAcct, payload, &req, requestID, model, startTime)
 	if err == nil {
 		PersistKiroProfileArnIfChanged(ctx, s.accountRepo, account, kiroAcct)
 	}
@@ -127,6 +127,7 @@ func (s *KiroGatewayService) Forward(
 func (s *KiroGatewayService) forwardNonStreaming(
 	ctx context.Context,
 	c *gin.Context,
+	account *Account,
 	doer kiroproto.HTTPDoer,
 	kiroAcct *kiroproto.Account,
 	payload *kiroproto.KiroPayload,
@@ -176,17 +177,17 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	}
 
 	if err := kiroproto.CallKiroAPIWithDoerContext(ctx, doer, kiroAcct, payload, callback); err != nil {
-		return nil, classifyKiroForwardError(err, model)
+		return nil, classifyAndRecordKiroForwardError(c, account, err, model)
 	}
 	if callbackErr != nil {
-		return nil, classifyKiroForwardError(callbackErr, model)
+		return nil, classifyAndRecordKiroForwardError(c, account, callbackErr, model)
 	}
 	if visible, inlineThinking := redactor.Flush(); visible != "" || inlineThinking != "" {
 		textBuf += visible
 		thinkingBuf += inlineThinking
 	}
 	if textBuf == "" && thinkingBuf == "" && len(toolUses) == 0 {
-		return nil, classifyKiroForwardError(errKiroEmptyResponse, model)
+		return nil, classifyAndRecordKiroForwardError(c, account, errKiroEmptyResponse, model)
 	}
 
 	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
@@ -345,7 +346,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	// classifyKiroForwardError maps a recognized HTTP 400 INVALID_MODEL_ID into
 	// a typed *KiroInvalidModelError so the handler can return a clean 400.
 	if callErr != nil && !enc.started {
-		return nil, classifyKiroForwardError(callErr, model)
+		return nil, classifyAndRecordKiroForwardError(c, account, callErr, model)
 	}
 	if callErr != nil {
 		msg := "upstream stream disconnected: " + sanitizeStreamError(callErr)
@@ -354,7 +355,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		return nil, fmt.Errorf("kiro stream read error: %w", callErr)
 	}
 	if callbackErr != nil && !enc.started {
-		return nil, classifyKiroForwardError(callbackErr, model)
+		return nil, classifyAndRecordKiroForwardError(c, account, callbackErr, model)
 	}
 	if callbackErr != nil {
 		msg := "upstream stream disconnected: " + sanitizeStreamError(callbackErr)
@@ -363,7 +364,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		return nil, fmt.Errorf("kiro stream callback error: %w", callbackErr)
 	}
 	if !enc.started && textBuf == "" && thinkingBuf == "" && len(toolUses) == 0 {
-		return nil, classifyKiroForwardError(errKiroEmptyResponse, model)
+		return nil, classifyAndRecordKiroForwardError(c, account, errKiroEmptyResponse, model)
 	}
 
 	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).

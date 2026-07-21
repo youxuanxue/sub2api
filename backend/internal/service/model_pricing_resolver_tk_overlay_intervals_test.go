@@ -81,7 +81,7 @@ func TestOverlayIntervalPricing_CoderPlusWholeRequestTier(t *testing.T) {
 	require.Len(t, resolved.Intervals, 4, "overlay intervals must populate ResolvedPricing.Intervals when no channel")
 	require.Equal(t, PricingSourceLiteLLM, resolved.Source)
 
-	tax := tkOfficialListBaseTaxMultiplier
+	tax := tkOfficialListBaseTaxMultiplier()
 	withTax := func(cny float64) float64 {
 		return tax * tkCNYPerMTokToUSDPerToken(cny)
 	}
@@ -114,7 +114,7 @@ func TestOverlayIntervalPricing_PlusFlashTwoTier(t *testing.T) {
 
 	plus := r.Resolve(context.Background(), PricingInput{Model: "qwen3.7-plus"})
 	require.Len(t, plus.Intervals, 2)
-	tax := tkOfficialListBaseTaxMultiplier
+	tax := tkOfficialListBaseTaxMultiplier()
 	withTax := func(cny float64) float64 {
 		return tax * tkCNYPerMTokToUSDPerToken(cny)
 	}
@@ -134,7 +134,7 @@ func TestOverlayIntervalPricing_GLMUsesBigModelTiersAndBaseTax(t *testing.T) {
 	require.NotNil(t, resolved.BasePricing)
 	require.Len(t, resolved.Intervals, 2)
 
-	tax := tkOfficialListBaseTaxMultiplier
+	tax := tkOfficialListBaseTaxMultiplier()
 	withTax := func(cny float64) float64 {
 		return tax * tkCNYPerMTokToUSDPerToken(cny)
 	}
@@ -153,7 +153,7 @@ func TestOverlayIntervals_FlatModelUnaffected(t *testing.T) {
 	resolved := r.Resolve(context.Background(), PricingInput{Model: "qwen3.7-max"})
 	require.Empty(t, resolved.Intervals, "flat overlay model must not gain intervals")
 	require.NotNil(t, resolved.BasePricing)
-	tax := tkOfficialListBaseTaxMultiplier
+	tax := tkOfficialListBaseTaxMultiplier()
 	withTax := func(cny float64) float64 {
 		return tax * tkCNYPerMTokToUSDPerToken(cny)
 	}

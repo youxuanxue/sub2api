@@ -38,8 +38,10 @@ package service
 // provider-aware sync.
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -49,30 +51,56 @@ import (
 //go:embed tk_pricing_overlay.json
 var tkPricingOverlayRaw []byte
 
-// tkOverlayEffective is the live overlay map = embedded ∪ runtime-settings
-// (runtime wins on key conflict), rebuilt by rebuildTKOverlayUnion. The embedded
-// JSON is the FLOOR (offline self-consistent); the runtime settings blob
-// (SettingKeyTKPricingOverlayRuntime) is the hot override that lets a model be
-// priced without a release. Guarded by tkOverlayMu so the hot swap is safe under
-// concurrent loadTKPricingOverlay reads. See pricing_service_tk_overlay_runtime.go.
+type tkPricingOverlayExecutableConfig struct {
+	OfficialListBaseTax *tkOfficialListBaseTaxPolicy `json:"official_list_base_tax"`
+}
+
+type tkPricingOverlaySnapshot struct {
+	Models  map[string]*LiteLLMModelPricing
+	BaseTax tkOfficialListBaseTaxPolicy
+}
+
+type tkPricingOverlayDocument struct {
+	Models  map[string]*LiteLLMModelPricing
+	BaseTax *tkOfficialListBaseTaxPolicy
+}
+
+// tkOverlayEffective is the live immutable snapshot = embedded ∪ runtime-settings
+// (runtime wins on model conflicts and may replace executable policy). Model prices
+// and tax policy swap under one lock so billing, /pricing, and fallback classification
+// never read policy from a different runtime generation.
 var (
 	tkOverlayMu        sync.RWMutex
-	tkOverlayEffective map[string]*LiteLLMModelPricing
+	tkOverlayEffective *tkPricingOverlaySnapshot
 )
 
-// parseTKOverlayBytes parses an overlay JSON object (the embedded file OR the
-// runtime settings blob — identical shape) into the pricing map. It deliberately
-// does NOT call parsePricingData (that would recurse, since applyTKPricingOverlay
-// is invoked from inside parsePricingData) — it parses the small fixed file
-// directly. Keys starting with "_" (e.g. "_meta") are provenance, not pricing,
-// and are skipped. Returns an error only when the top-level JSON is unparseable
-// (a single malformed entry is skipped, not fatal).
-func parseTKOverlayBytes(data []byte) (map[string]*LiteLLMModelPricing, error) {
+// parseTKOverlayDocument parses an overlay JSON object (the embedded file OR the
+// runtime settings blob) into model prices plus optional executable configuration.
+// Runtime blobs may omit _config and inherit the embedded policy; when present,
+// _config is strict and invalid policy rejects the whole runtime swap.
+func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
-	out := make(map[string]*LiteLLMModelPricing, len(raw))
+	doc := &tkPricingOverlayDocument{Models: make(map[string]*LiteLLMModelPricing, len(raw))}
+	if rawConfig, ok := raw["_config"]; ok {
+		var config tkPricingOverlayExecutableConfig
+		decoder := json.NewDecoder(bytes.NewReader(rawConfig))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&config); err != nil {
+			return nil, fmt.Errorf("parse overlay _config: %w", err)
+		}
+		if config.OfficialListBaseTax == nil {
+			return nil, fmt.Errorf("overlay _config.official_list_base_tax is required")
+		}
+		if err := config.OfficialListBaseTax.validate(); err != nil {
+			return nil, err
+		}
+		policy := *config.OfficialListBaseTax
+		doc.BaseTax = &policy
+	}
+
 	for name, rawEntry := range raw {
 		if strings.HasPrefix(name, "_") {
 			continue
@@ -85,6 +113,8 @@ func parseTKOverlayBytes(data []byte) (map[string]*LiteLLMModelPricing, error) {
 			LiteLLMProvider:       e.LiteLLMProvider,
 			Mode:                  e.Mode,
 			SupportsPromptCaching: e.SupportsPromptCaching,
+			SupportsServiceTier:   e.SupportsServiceTier,
+			TokenPricingAbsent:    e.InputCostPerToken == nil && e.OutputCostPerToken == nil,
 		}
 		if e.OutputCostPerImage != nil {
 			p.OutputCostPerImage = *e.OutputCostPerImage
@@ -98,8 +128,14 @@ func parseTKOverlayBytes(data []byte) (map[string]*LiteLLMModelPricing, error) {
 		if e.InputCostPerToken != nil {
 			p.InputCostPerToken = *e.InputCostPerToken
 		}
+		if e.InputCostPerTokenPriority != nil {
+			p.InputCostPerTokenPriority = *e.InputCostPerTokenPriority
+		}
 		if e.OutputCostPerToken != nil {
 			p.OutputCostPerToken = *e.OutputCostPerToken
+		}
+		if e.OutputCostPerTokenPriority != nil {
+			p.OutputCostPerTokenPriority = *e.OutputCostPerTokenPriority
 		}
 		if e.ThinkingOutputCostPerToken != nil {
 			p.ThinkingOutputCostPerToken = *e.ThinkingOutputCostPerToken
@@ -107,11 +143,26 @@ func parseTKOverlayBytes(data []byte) (map[string]*LiteLLMModelPricing, error) {
 		if e.CacheCreationInputTokenCost != nil {
 			p.CacheCreationInputTokenCost = *e.CacheCreationInputTokenCost
 		}
+		if e.CacheCreationInputTokenCostPriority != nil {
+			p.CacheCreationInputTokenCostPriority = *e.CacheCreationInputTokenCostPriority
+		}
 		if e.CacheCreationInputTokenCostAbove1hr != nil {
 			p.CacheCreationInputTokenCostAbove1hr = *e.CacheCreationInputTokenCostAbove1hr
 		}
 		if e.CacheReadInputTokenCost != nil {
 			p.CacheReadInputTokenCost = *e.CacheReadInputTokenCost
+		}
+		if e.CacheReadInputTokenCostPriority != nil {
+			p.CacheReadInputTokenCostPriority = *e.CacheReadInputTokenCostPriority
+		}
+		if e.LongContextInputTokenThreshold != nil {
+			p.LongContextInputTokenThreshold = *e.LongContextInputTokenThreshold
+		}
+		if e.LongContextInputCostMultiplier != nil {
+			p.LongContextInputCostMultiplier = *e.LongContextInputCostMultiplier
+		}
+		if e.LongContextOutputCostMultiplier != nil {
+			p.LongContextOutputCostMultiplier = *e.LongContextOutputCostMultiplier
 		}
 		// TK: input-token interval (tiered) pricing. LiteLLMRawEntry has no
 		// "intervals" field (it is TK-overlay-only), so parse the raw entry a
@@ -124,9 +175,52 @@ func parseTKOverlayBytes(data []byte) (map[string]*LiteLLMModelPricing, error) {
 		if err := json.Unmarshal(rawEntry, &ext); err == nil && len(ext.Intervals) > 0 {
 			p.Intervals = tkBuildOverlayIntervals(ext.Intervals)
 		}
-		out[name] = p
+		doc.Models[name] = p
 	}
-	return out, nil
+	return doc, nil
+}
+
+func validateRuntimeBaseTaxCoverage(embedded, runtime tkOfficialListBaseTaxPolicy) error {
+	runtimeProviders := make(map[string]struct{}, len(runtime.Rules))
+	for _, rule := range runtime.Rules {
+		runtimeProviders[rule.Provider] = struct{}{}
+	}
+	var missing []string
+	for _, rule := range embedded.Rules {
+		if _, ok := runtimeProviders[rule.Provider]; !ok {
+			missing = append(missing, rule.Provider)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("runtime official_list_base_tax drops embedded providers: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func buildTKPricingOverlaySnapshot(runtimeBytes []byte) (*tkPricingOverlaySnapshot, error) {
+	base, err := parseTKOverlayDocument(tkPricingOverlayRaw)
+	if err != nil {
+		return nil, fmt.Errorf("parse embedded TK overlay: %w", err)
+	}
+	if base.BaseTax == nil {
+		return nil, fmt.Errorf("embedded TK overlay missing _config.official_list_base_tax")
+	}
+	if len(runtimeBytes) > 0 {
+		runtime, err := parseTKOverlayDocument(runtimeBytes)
+		if err != nil {
+			return nil, fmt.Errorf("parse runtime TK overlay: %w", err)
+		}
+		for k, v := range runtime.Models {
+			base.Models[k] = v
+		}
+		if runtime.BaseTax != nil {
+			if err := validateRuntimeBaseTaxCoverage(*base.BaseTax, *runtime.BaseTax); err != nil {
+				return nil, err
+			}
+			base.BaseTax = runtime.BaseTax
+		}
+	}
+	return &tkPricingOverlaySnapshot{Models: base.Models, BaseTax: *base.BaseTax}, nil
 }
 
 // rebuildTKOverlayUnion recomputes the effective overlay = embedded ∪ runtime
@@ -136,44 +230,57 @@ func parseTKOverlayBytes(data []byte) (map[string]*LiteLLMModelPricing, error) {
 //   - The embedded JSON is parsed fresh each call as the FLOOR. If the embedded
 //     itself fails to parse (should be impossible — it is gated by
 //     pricing-overlay.py), the previous effective map is KEPT, not blanked.
-//   - A nil / empty / UNPARSEABLE runtimeBytes yields embedded-only; a corrupt
-//     runtime blob can never drop the effective map below the embedded floor.
+//   - A nil / empty runtimeBytes yields embedded-only. An invalid runtime keeps
+//     the previous snapshot; on first load it still establishes the embedded
+//     floor, so a corrupt setting can never leave the effective map empty.
 func rebuildTKOverlayUnion(runtimeBytes []byte) {
-	base, err := parseTKOverlayBytes(tkPricingOverlayRaw)
+	snapshot, err := buildTKPricingOverlaySnapshot(runtimeBytes)
 	if err != nil {
-		// Embedded must always parse; if it somehow does not, keep whatever the
-		// effective map already held rather than blanking prices.
-		logger.LegacyPrintf("service.pricing", "[Pricing] embedded TK overlay parse failed (keeping current effective map): %v", err)
-		return
-	}
-	if len(runtimeBytes) > 0 {
-		if rt, err := parseTKOverlayBytes(runtimeBytes); err != nil {
-			logger.LegacyPrintf("service.pricing", "[Pricing] runtime TK overlay parse failed (using embedded floor only): %v", err)
-		} else {
-			for k, v := range rt {
-				base[k] = v // runtime wins on conflict
+		tkOverlayMu.RLock()
+		hasCurrent := tkOverlayEffective != nil
+		tkOverlayMu.RUnlock()
+		if !hasCurrent {
+			floor, floorErr := buildTKPricingOverlaySnapshot(nil)
+			if floorErr == nil {
+				tkOverlayMu.Lock()
+				if tkOverlayEffective == nil {
+					tkOverlayEffective = floor
+				}
+				tkOverlayMu.Unlock()
 			}
 		}
+		// Invalid runtime keeps the previous immutable snapshot. If this is the
+		// first load, the embedded-only build above establishes the pricing floor.
+		logger.LegacyPrintf("service.pricing", "[Pricing] TK overlay snapshot build failed (keeping current effective map): %v", err)
+		return
 	}
 	tkOverlayMu.Lock()
-	tkOverlayEffective = base
+	tkOverlayEffective = snapshot
 	tkOverlayMu.Unlock()
+}
+
+func loadTKPricingOverlaySnapshot() *tkPricingOverlaySnapshot {
+	tkOverlayMu.RLock()
+	snapshot := tkOverlayEffective
+	tkOverlayMu.RUnlock()
+	if snapshot != nil {
+		return snapshot
+	}
+	rebuildTKOverlayUnion(nil)
+	tkOverlayMu.RLock()
+	defer tkOverlayMu.RUnlock()
+	return tkOverlayEffective
 }
 
 // loadTKPricingOverlay returns the live effective overlay (embedded ∪ runtime).
 // First call before any explicit rebuild lazily builds the embedded-only floor,
 // so a process that never loads a runtime blob behaves exactly as before.
 func loadTKPricingOverlay() map[string]*LiteLLMModelPricing {
-	tkOverlayMu.RLock()
-	m := tkOverlayEffective
-	tkOverlayMu.RUnlock()
-	if m != nil {
-		return m
+	snapshot := loadTKPricingOverlaySnapshot()
+	if snapshot == nil {
+		return nil
 	}
-	rebuildTKOverlayUnion(nil)
-	tkOverlayMu.RLock()
-	defer tkOverlayMu.RUnlock()
-	return tkOverlayEffective
+	return snapshot.Models
 }
 
 // tkOverlayOverridesLitellmSource reports whether a TK overlay row is the
