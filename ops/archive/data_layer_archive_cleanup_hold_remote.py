@@ -293,6 +293,19 @@ def _hold_status(state: dict[str, Any], *, hold_started_at: str | None) -> dict[
     }
 
 
+def _verified_hold_status(
+    state: dict[str, Any], *, hold_started_at: str
+) -> dict[str, Any]:
+    status = _hold_status(state, hold_started_at=hold_started_at)
+    if not status["hold_active"]:
+        raise HoldError("cleanup hold is not active")
+    if status["no_cleanup_after_hold"] is not True:
+        raise HoldError("cleanup ran after the archive hold started")
+    if not _runtime_disabled_since(hold_started_at):
+        raise HoldError("cleanup runtime disable is not currently proven")
+    return status
+
+
 def plan() -> dict[str, Any]:
     return {
         "mode": "prod_archive_cleanup_hold_plan",
@@ -337,14 +350,7 @@ def apply_hold(confirmation: str) -> dict[str, Any]:
 
 
 def verify_hold(hold_started_at: str) -> dict[str, Any]:
-    status = _hold_status(_read_state(), hold_started_at=hold_started_at)
-    if not status["hold_active"]:
-        raise HoldError("cleanup hold is not active")
-    if status["no_cleanup_after_hold"] is not True:
-        raise HoldError("cleanup ran after the archive hold started")
-    runtime_disabled_proven = _runtime_disabled_since(hold_started_at)
-    if not runtime_disabled_proven:
-        raise HoldError("cleanup runtime disable is not currently proven")
+    status = _verified_hold_status(_read_state(), hold_started_at=hold_started_at)
     return {
         "mode": "prod_archive_cleanup_hold_verify",
         "environment": "prod",
@@ -356,17 +362,21 @@ def verify_hold(hold_started_at: str) -> dict[str, Any]:
     }
 
 
-def release_hold(confirmation: str, *, previous_cleanup_enabled: bool) -> dict[str, Any]:
+def release_hold(
+    confirmation: str,
+    *,
+    previous_cleanup_enabled: bool,
+    hold_started_at: str,
+) -> dict[str, Any]:
     if confirmation != RELEASE_CONFIRMATION:
         raise HoldError("cleanup release confirmation token is invalid")
     before = _read_state()
-    if before["api_cleanup_enabled"] is not False:
-        raise HoldError("cleanup release requires an active hold")
+    status = _verified_hold_status(before, hold_started_at=hold_started_at)
     if not previous_cleanup_enabled:
         return {
             "mode": "prod_archive_cleanup_hold_release",
             "environment": "prod",
-            **_hold_status(before, hold_started_at=None),
+            **status,
             "restored_cleanup_enabled": False,
             "reload_proven": True,
             "settings_mutated": False,
@@ -406,6 +416,7 @@ def build_parser() -> argparse.ArgumentParser:
     release_parser.add_argument(
         "--previous-cleanup-enabled", choices=("true", "false"), required=True
     )
+    release_parser.add_argument("--hold-started-at", required=True)
     return parser
 
 
@@ -422,6 +433,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             payload = release_hold(
                 args.confirm,
                 previous_cleanup_enabled=args.previous_cleanup_enabled == "true",
+                hold_started_at=args.hold_started_at,
             )
         else:  # pragma: no cover
             raise HoldError(f"unsupported command: {args.command}")

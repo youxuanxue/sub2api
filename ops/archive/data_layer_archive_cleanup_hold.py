@@ -164,6 +164,8 @@ def release(receipt_path: str | os.PathLike[str], confirmation: str) -> dict[str
             confirmation,
             "--previous-cleanup-enabled",
             str(previous).lower(),
+            "--hold-started-at",
+            receipt["hold_started_at"],
         ],
     )
     if payload["instance_id"] != receipt["instance_id"]:

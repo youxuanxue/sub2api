@@ -100,7 +100,9 @@ python3 ops/archive/data_layer_archive_cleanup_hold.py verify \
 
 `release` is a separate production change and requires
 `tokenkey-prod-archive-cleanup-release-v1`. It restores only the enabled state
-captured by the receipt while preserving all current unrelated settings.
+captured by the receipt while preserving all current unrelated settings. Before
+restoring, it revalidates that the same receipt's hold is still active and that
+no cleanup has run since that hold began.
 
 The offline plan validates the fixed 30-day waterline and hard limits without
 calling AWS, Docker, PostgreSQL, or S3:

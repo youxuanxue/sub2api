@@ -135,15 +135,60 @@ class CleanupHoldRemoteTest(unittest.TestCase):
 
     def test_us039_release_restores_only_the_previous_enabled_state(self) -> None:
         before = _state(False)
-        with mock.patch.object(remote, "_read_state", return_value=before), mock.patch.object(
-            remote, "_admin_request"
-        ) as admin_request:
+        with mock.patch.object(
+            remote, "_read_state", return_value=before
+        ), mock.patch.object(
+            remote, "_runtime_disabled_since", return_value=True
+        ), mock.patch.object(remote, "_admin_request") as admin_request:
             result = remote.release_hold(
-                remote.RELEASE_CONFIRMATION, previous_cleanup_enabled=False
+                remote.RELEASE_CONFIRMATION,
+                previous_cleanup_enabled=False,
+                hold_started_at=_STARTED_AT,
             )
         admin_request.assert_not_called()
         self.assertFalse(result["restored_cleanup_enabled"])
         self.assertFalse(result["settings_mutated"])
+
+        put_bodies: list[dict[str, object]] = []
+
+        def admin_request(
+            method: str, _key: str, body: dict[str, object] | None = None
+        ) -> dict[str, object]:
+            self.assertEqual(method, "PUT")
+            assert body is not None
+            put_bodies.append(copy.deepcopy(body))
+            return body
+
+        with mock.patch.object(
+            remote, "_read_state", side_effect=[before, _state(True)]
+        ), mock.patch.object(
+            remote, "_runtime_disabled_since", return_value=True
+        ), mock.patch.object(
+            remote, "_admin_request", side_effect=admin_request
+        ), mock.patch.object(remote, "_reload_proof", return_value=True):
+            result = remote.release_hold(
+                remote.RELEASE_CONFIRMATION,
+                previous_cleanup_enabled=True,
+                hold_started_at=_STARTED_AT,
+            )
+        expected = _settings(False)
+        expected["data_retention"]["cleanup_enabled"] = True
+        self.assertEqual(put_bodies, [expected])
+        self.assertTrue(result["restored_cleanup_enabled"])
+        self.assertTrue(result["reload_proven"])
+
+    def test_us039_release_rejects_a_stale_hold_receipt(self) -> None:
+        stale = _state(False, last_run_at="2026-07-21T14:30:01Z")
+        with mock.patch.object(
+            remote, "_read_state", return_value=stale
+        ), mock.patch.object(remote, "_admin_request") as admin_request:
+            with self.assertRaisesRegex(remote.HoldError, "cleanup ran after"):
+                remote.release_hold(
+                    remote.RELEASE_CONFIRMATION,
+                    previous_cleanup_enabled=True,
+                    hold_started_at=_STARTED_AT,
+                )
+        admin_request.assert_not_called()
 
 
 class CleanupHoldControlTest(unittest.TestCase):
@@ -192,6 +237,43 @@ class CleanupHoldControlTest(unittest.TestCase):
             path.write_text(json.dumps(receipt), encoding="utf-8")
             with self.assertRaisesRegex(control.HoldControlError, "different"):
                 control.verify_receipt_for_instance(path, "i-fffffffffffffffff")
+
+    def test_us039_release_passes_the_receipt_hold_identity(self) -> None:
+        receipt = {
+            "mode": "prod_archive_cleanup_hold",
+            "environment": "prod",
+            "instance_id": _INSTANCE_ID,
+            "hold_active": True,
+            "reload_proven": True,
+            "hold_started_at": _STARTED_AT,
+            "previous_cleanup_enabled": True,
+            "deletion_authorized": False,
+        }
+        released = {
+            "mode": "prod_archive_cleanup_hold_release",
+            "instance_id": _INSTANCE_ID,
+            "deletion_authorized": False,
+        }
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(
+            control, "_run_remote", return_value=released
+        ) as run_remote:
+            path = pathlib.Path(temp) / "hold.json"
+            path.write_text(json.dumps(receipt), encoding="utf-8")
+            control.release(path, control.RELEASE_CONFIRMATION)
+        self.assertEqual(
+            run_remote.call_args.args,
+            (
+                "release",
+                [
+                    "--confirm",
+                    control.RELEASE_CONFIRMATION,
+                    "--previous-cleanup-enabled",
+                    "true",
+                    "--hold-started-at",
+                    _STARTED_AT,
+                ],
+            ),
+        )
 
     def test_us039_run_remote_fixes_prod_target_and_companion(self) -> None:
         payload = {
