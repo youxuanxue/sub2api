@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -121,12 +122,15 @@ func tkBridgeArrearsDetail(apiErr *newapitypes.NewAPIError) string {
 	if apiErr == nil {
 		return ""
 	}
-	body := tkBridgeUpstreamErrorBody(apiErr)
-	code := strings.TrimSpace(gjson.GetBytes(body, "error.code").String())
-	if code == "" {
-		code = strings.TrimSpace(gjson.GetBytes(body, "error.type").String())
+	oai, ok := tkBridgeUpstreamOpenAIError(apiErr)
+	if !ok {
+		return ""
 	}
-	msg := strings.TrimSpace(gjson.GetBytes(body, "error.message").String())
+	code := strings.TrimSpace(fmt.Sprint(oai.Code))
+	if code == "" || code == "<nil>" {
+		code = strings.TrimSpace(oai.Type)
+	}
+	msg := strings.TrimSpace(oai.Message)
 	if code == "" && msg == "" {
 		return ""
 	}

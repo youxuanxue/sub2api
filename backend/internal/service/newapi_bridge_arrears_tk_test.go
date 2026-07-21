@@ -227,5 +227,9 @@ func TestTkBridgeArrearsDetail_CarriesCodeAndMessage(t *testing.T) {
 	detail := tkBridgeArrearsDetail(arrearsBridgeError(400, dashscopeArrearsMessage, "Arrearage", "Arrearage"))
 	require.Contains(t, detail, "Arrearage")
 	require.Contains(t, detail, "upstream code=Arrearage")
+	require.Contains(t, detail, "https://help.aliyun.com/zh/model-studio/error-code#overdue-payment",
+		"Feishu detail must keep the upstream help URL verbatim (MaskSensitiveInfo+lark_md would corrupt it)")
+	require.NotContains(t, detail, "https://***.com")
+	require.NotContains(t, detail, "https://.com")
 	require.Empty(t, tkBridgeArrearsDetail(nil))
 }

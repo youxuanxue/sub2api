@@ -99,6 +99,18 @@ func tkBridgeUpstreamErrorBody(apiErr *newapitypes.NewAPIError) []byte {
 	return body
 }
 
+// tkBridgeUpstreamOpenAIError returns the raw upstream OpenAI-style envelope
+// stored on RelayError before ToOpenAIError() applies MaskSensitiveInfo. Alert
+// detail lines must use this: masking turns help.aliyun.com URLs into
+// https://***.com/***/***/***, which Feishu lark_md then renders as https://.com///.
+func tkBridgeUpstreamOpenAIError(apiErr *newapitypes.NewAPIError) (newapitypes.OpenAIError, bool) {
+	if apiErr == nil {
+		return newapitypes.OpenAIError{}, false
+	}
+	oai, ok := apiErr.RelayError.(newapitypes.OpenAIError)
+	return oai, ok
+}
+
 // tkWrapBridgeRelayErrorWithPenalty is the OpenAIGatewayService dispatch-site
 // chokepoint: apply the account penalty for real upstream bridge errors, then
 // record + wrap exactly like tkWrapBridgeRelayError. Use at every dispatch site
