@@ -25,7 +25,7 @@ stable probe conclusions, evidence pointers, and the next probe focus.
 |---|---|
 | Baseline date | 2026-07-21 |
 | Target | prod (`https://api.tokenkey.dev`) |
-| Runtime code anchor | `v1.8.109` release (`backend/cmd/server/VERSION`); last live deploy `v1.8.108`. The 2026-07-05 focused Anthropic closeout also includes the live config remediation that set edge default Anthropic group `id=1` to `claude_code_only=false` on `us3/us4/us5/us6`. |
+| Runtime code anchor | `v1.8.110` release (`backend/cmd/server/VERSION`); last live deploy `v1.8.109`. The 2026-07-05 focused Anthropic closeout also includes the live config remediation that set edge default Anthropic group `id=1` to `claude_code_only=false` on `us3/us4/us5/us6`. |
 | Paid media probes | approved and rerun post-`v1.8.80` / #1207 for Imagen, Veo, and Grok media SSOT display gate plus direct-vs-universal parity; latest full displayed+priced paid media gate on 2026-07-05 returned `DISPLAY_KEEP=19 DISPLAY_BLOCK=0 REPROBE_REQUIRED=0 FAIL=0`. |
 | Direct route-gate command | `bash ops/observability/endpoint-compat-audit.sh --direct-route-gate` |
 | Universal matrix command | `bash ops/observability/endpoint-compat-audit.sh --universal-matrix --with-extras --skip-paid` |
