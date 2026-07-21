@@ -947,15 +947,19 @@
         "func (s *GatewayService) forwardAsChatCompletionsViaKiro(",
         "s.kiroGateway.Forward(",
         "newBridgeCaptureWriter",
-        "handleCCBufferedFromAnthropic",
+        "tkCCPreservesKiroUpstreamStream",
+        "handleCCBufferedFromAnthropicJSON",
+        "handleCCBufferedFromAnthropic(upstreamResp",
         "handleCCStreamingFromAnthropic"
       ],
-      "rationale": "Kiro /v1/chat/completions bridge: capture Anthropic SSE from kiroGateway.Forward via bridgeCaptureWriter, restore the client writer, then feed handleCCBufferedFromAnthropic / handleCCStreamingFromAnthropic so OpenAI-compat clients receive chat.completion shape. Without this companion the IsKiro() call site in gateway_forward_as_chat_completions.go has nowhere to delegate and the CC path regresses to Anthropic HTTP."
+      "rationale": "Kiro /v1/chat/completions bridge: capture Anthropic response from kiroGateway.Forward via bridgeCaptureWriter, restore the client writer, then feed handleCCBufferedFromAnthropicJSON (stream=false), handleCCBufferedFromAnthropic (legacy SSE), or handleCCStreamingFromAnthropic so OpenAI-compat clients receive chat.completion shape. Non-streaming CC must not force Kiro SSE — prod mirror stubs relay stream=false to edge /v1/messages."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions_test.go",
       "must_contain": [
         "TestForwardAsChatCompletions_KiroAccountBridgesViaKiroGateway",
+        "TestForwardAsChatCompletions_KiroMirrorStub_NonStreamingPreservesUpstreamStream",
+        "TestTkCCPreservesKiroUpstreamStream",
         "generateAssistantResponse"
       ],
       "rationale": "Regression: ForwardAsChatCompletions on a Kiro account must hit the Kiro EventStream upstream (generateAssistantResponse) and return a chat.completion body, not anthropic.com /v1/messages."
