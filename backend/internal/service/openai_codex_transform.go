@@ -550,6 +550,9 @@ func stringifyCodexContentText(value any) string {
 
 func normalizeCodexModel(model string) string {
 	model = strings.TrimSpace(model)
+	if bare, stripped := applyOpenAICompatContextWindowModelAlias(model); stripped {
+		model = bare
+	}
 	if model == "" {
 		return "gpt-5.4"
 	}

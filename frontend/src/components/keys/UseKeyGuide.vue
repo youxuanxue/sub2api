@@ -245,6 +245,7 @@ import {
   useTkUseKey,
   capabilityLabel,
   anthropicEnvModel,
+  claudeCodeEnvModel,
   flavorOfModel,
   type UseKeyFlavor,
   type UseKeyServableModel,
@@ -336,6 +337,12 @@ const baseRoot = computed(() =>
 
 // The single-model "flavor" the current client tab speaks. opencode is a
 // multi-model catalog (no single pick), so it has no flavor.
+const isOpenAIMessagesDispatchClaudeTab = computed(() =>
+  activeClientTab.value === 'claude'
+  && props.allowMessagesDispatch === true
+  && (props.platform === PLATFORM_OPENAI || props.platform === PLATFORM_NEWAPI || props.platform === PLATFORM_GROK),
+)
+
 const activeFlavor = computed<UseKeyFlavor | null>(() => {
   const tab = activeClientTab.value
   if (selectedClientEntry.value?.guideMode === 'qwen') {
@@ -343,7 +350,10 @@ const activeFlavor = computed<UseKeyFlavor | null>(() => {
   }
   if (selectedClientEntry.value?.guideMode === 'openai-fields') return 'openai'
   if (tab === 'opencode') return null
-  if (tab === 'claude') return 'anthropic'
+  if (tab === 'claude') {
+    if (isOpenAIMessagesDispatchClaudeTab.value) return 'openai'
+    return 'anthropic'
+  }
   if (tab === 'gemini') return 'gemini'
   if (tab === 'codex' || tab === 'codex-ws') return 'openai'
   if (tab === 'curl' || tab === 'python') {
@@ -855,7 +865,7 @@ const currentFiles = computed((): FileConfig[] => {
   switch (platformForFiles()) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
-        return generateAnthropicFiles(baseUrl, apiKey, model)
+        return generateAnthropicFiles(baseUrl, apiKey, model, isOpenAIMessagesDispatchClaudeTab.value)
       }
       if (activeClientTab.value === 'codex-ws') {
         return generateOpenAIWsFiles(baseUrl, apiKey, model)
@@ -867,7 +877,7 @@ const currentFiles = computed((): FileConfig[] => {
       // in their tabs). claude tab only appears when the group enables messages
       // dispatch. grok (xAI) is OpenAI-compatible, so it shares the openai files.
       if (activeClientTab.value === 'claude') {
-        return generateAnthropicFiles(baseUrl, apiKey, model)
+        return generateAnthropicFiles(baseUrl, apiKey, model, isOpenAIMessagesDispatchClaudeTab.value)
       }
       return generateOpenAIFiles(baseUrl, apiKey, model)
     case 'gemini':
@@ -882,10 +892,17 @@ const currentFiles = computed((): FileConfig[] => {
   }
 })
 
-function generateAnthropicFiles(baseUrl: string, apiKey: string, model: string): FileConfig[] {
-  // Picker-injected model, with the 1M-window [1m] alias re-applied for opus.
-  const envModel = anthropicEnvModel(model)
-  // Recommended defaults (TokenKey + Claude Code; see code.claude.com env docs):
+function generateAnthropicFiles(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  openaiMessagesDispatch = false,
+): FileConfig[] {
+  const envModel = claudeCodeEnvModel(model, { openaiMessagesDispatch })
+  // Picker-injected model, with the 1M-window [1m] alias re-applied:
+  //   - Anthropic direct: claude-opus-4-8 → claude-opus-4-8[1m]
+  //   - OpenAI messages dispatch: gpt-5.5 → gpt-5.5[1m]
+  // Gateway strips the suffix before upstream forward while CC keeps the 1M client window.
   //   - model claude-opus-4-8[1m] + DISABLE_ADAPTIVE_THINKING + fixed MAX_THINKING_TOKENS: 稳定思考预算
   //     NOTE: the model id MUST be a real, empirically-servable Anthropic id
   //     (see backend supportedAnthropicCatalogModels, regenerated from a live

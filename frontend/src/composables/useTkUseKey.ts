@@ -109,6 +109,26 @@ export function anthropicEnvModel(id: string): string {
   return id
 }
 
+/**
+ * Claude Code on OpenAI-compat messages dispatch uses the same trailing [1m]
+ * alias for 1M-window GPT picks (gpt-5.5 → gpt-5.5[1m]). The gateway strips
+ * the suffix before Codex forward (openai_compat_context_window_alias_tk.go).
+ */
+export function openaiCompatContextWindowEnvModel(id: string): string {
+  if (/\[1m\]$/i.test(id)) return id
+  const bare = id.replace(/-(low|medium|high|xhigh)$/i, '')
+  if (/^gpt-5\.(?:4|5)$/i.test(bare)) return `${bare}[1m]`
+  return id
+}
+
+export function claudeCodeEnvModel(
+  id: string,
+  opts: { openaiMessagesDispatch?: boolean } = {},
+): string {
+  if (opts.openaiMessagesDispatch) return openaiCompatContextWindowEnvModel(id)
+  return anthropicEnvModel(id)
+}
+
 interface UseTkUseKeyArgs {
   apiKeyId: Ref<number | null | undefined>
   apiKey: Ref<string>
