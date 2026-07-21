@@ -52,8 +52,8 @@ import (
 var tkPricingOverlayRaw []byte
 
 type tkPricingOverlayExecutableConfig struct {
-	OfficialListBaseTax  *tkOfficialListBaseTaxPolicy  `json:"official_list_base_tax"`
-	DeepSeekPeakValley   *tkDeepSeekPeakValleyPolicy   `json:"deepseek_peak_valley"`
+	OfficialListBaseTax *tkOfficialListBaseTaxPolicy `json:"official_list_base_tax"`
+	DeepSeekPeakValley  *tkDeepSeekPeakValleyPolicy  `json:"deepseek_peak_valley"`
 }
 
 type tkPricingOverlaySnapshot struct {
