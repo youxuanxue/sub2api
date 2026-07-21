@@ -136,6 +136,31 @@ class ProdArchiveCanaryTest(unittest.TestCase):
         self.assertNotEqual(delete.returncode, 0)
         self.assertIn("invalid choice", delete.stderr)
 
+        restore = subprocess.run(
+            [
+                sys.executable,
+                str(_DIR / "data_layer_archive_prod_canary.py"),
+                "restore-committed",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(restore.returncode, 0)
+        self.assertIn("invalid choice", restore.stderr)
+
+    def test_us038_stage0_output_is_bounded_while_command_runs(self) -> None:
+        with self.assertRaisesRegex(canary.CanaryError, "output exceeds 1024 bytes"):
+            canary._bounded_command_output(
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; sys.stdout.buffer.write(b'x' * 2048)",
+                ],
+                timeout_seconds=5,
+                output_limit=1024,
+            )
+
     def test_us038_seal_rejects_hot_or_oversized_rows(self) -> None:
         as_of = "2026-07-21T03:00:00Z"
         hot_created_at = rehearsal._timestamp(
@@ -185,6 +210,24 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                         rows=[_cold_row(as_of)],
                         read_only="off",
                     ),
+                )
+
+        too_many = []
+        for record_id in ("1", "2"):
+            row = _cold_row(as_of)
+            row["record_id"] = record_id
+            row["payload"] = {**row["payload"], "id": int(record_id)}
+            too_many.append(row)
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(canary.CanaryError, "rows exceed max_rows=1"):
+                canary.seal_prod_canary_batch(
+                    temp,
+                    table="ops_system_logs",
+                    as_of=as_of,
+                    instance_id=_INSTANCE_ID,
+                    staging_s3_base_uri=_STAGING_BASE,
+                    query_runner=_fake_query_runner(as_of=as_of, rows=too_many),
+                    max_rows=1,
                 )
 
         def invalid_proof(
@@ -468,6 +511,10 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                 timeout_seconds=30,
             )
         self.assertEqual(actual_receipt, receipt)
+        send_parameters = json.loads(
+            ssm_calls[0][ssm_calls[0].index("--parameters") + 1]
+        )
+        self.assertEqual(send_parameters["executionTimeout"], ["30"])
         self.assertTrue(
             all(
                 args[args.index("--instance-id") + 1] == _INSTANCE_ID
@@ -475,6 +522,33 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                 else args[args.index("--instance-ids") + 1] == _INSTANCE_ID
                 for args in ssm_calls
             )
+        )
+
+        with mock.patch.object(
+            canary,
+            "_aws_json",
+            return_value={"Command": {"CommandId": "command-timeout"}},
+        ), mock.patch.object(
+            canary.time, "monotonic", side_effect=[0.0, 31.0]
+        ), mock.patch.object(canary, "_command_output", return_value="") as cancel:
+            with self.assertRaisesRegex(canary.CanaryError, "was cancelled"):
+                canary._run_ssm(
+                    _INSTANCE_ID,
+                    "printf done",
+                    timeout_seconds=30,
+                )
+        cancel.assert_called_once_with(
+            [
+                "aws",
+                "ssm",
+                "cancel-command",
+                "--region",
+                canary.PROD_REGION,
+                "--command-id",
+                "command-timeout",
+                "--instance-ids",
+                _INSTANCE_ID,
+            ]
         )
 
     def test_us038_run_preserves_complete_mode(self) -> None:

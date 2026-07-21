@@ -15,6 +15,7 @@ import datetime as dt
 import json
 import os
 import pathlib
+import selectors
 import shlex
 import shutil
 import subprocess
@@ -159,6 +160,69 @@ def _stage0_record_query(table: str, *, cutoff: str, limit: int) -> str:
     )
 
 
+def _bounded_command_output(
+    command: list[str], *, timeout_seconds: int, output_limit: int
+) -> tuple[bytes, bytes, int]:
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise CanaryError(f"command unavailable: {command[0]}") from exc
+    if process.stdout is None or process.stderr is None:  # pragma: no cover
+        process.kill()
+        process.wait()
+        raise CanaryError("bounded command pipes are unavailable")
+
+    deadline = time.monotonic() + timeout_seconds
+    stdout = bytearray()
+    stderr = bytearray()
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+    selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+    try:
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise CanaryError("production canary PostgreSQL statement timed out")
+            events = selector.select(timeout=remaining)
+            if not events:
+                continue
+            for key, _ in events:
+                chunk = os.read(key.fileobj.fileno(), 64 * 1024)
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                if key.data == "stdout":
+                    stdout.extend(chunk)
+                    if len(stdout) > output_limit:
+                        raise CanaryError(
+                            f"production canary query output exceeds {output_limit} bytes"
+                        )
+                elif len(stderr) < 4096:
+                    stderr.extend(chunk[: 4096 - len(stderr)])
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise CanaryError("production canary PostgreSQL statement timed out")
+        try:
+            returncode = process.wait(timeout=remaining)
+        except subprocess.TimeoutExpired as exc:
+            raise CanaryError(
+                "production canary PostgreSQL statement timed out"
+            ) from exc
+    finally:
+        selector.close()
+        process.stdout.close()
+        process.stderr.close()
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+    return bytes(stdout), bytes(stderr), returncode
+
+
 def _run_stage0_psql(sql: str, timeout_seconds: int, output_limit: int) -> list[str]:
     if shutil.which("docker") is None:
         raise CanaryError("docker is required on the Stage0 production host")
@@ -196,29 +260,12 @@ def _run_stage0_psql(sql: str, timeout_seconds: int, output_limit: int) -> list[
         "-c",
         wrapped,
     ]
-    with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-        try:
-            completed = subprocess.run(
-                command,
-                stdin=subprocess.DEVNULL,
-                stdout=stdout,
-                stderr=stderr,
-                timeout=timeout_seconds + 5,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise CanaryError("production canary PostgreSQL statement timed out") from exc
-        stdout.seek(0, os.SEEK_END)
-        output_bytes = stdout.tell()
-        if output_bytes > output_limit:
-            raise CanaryError(
-                f"production canary query output exceeds {output_limit} bytes"
-            )
-        stdout.seek(0)
-        stderr.seek(0)
-        raw_stdout = stdout.read()
-        raw_stderr = stderr.read(4096)
-    if completed.returncode != 0:
+    raw_stdout, raw_stderr, returncode = _bounded_command_output(
+        command,
+        timeout_seconds=timeout_seconds + 5,
+        output_limit=output_limit,
+    )
+    if returncode != 0:
         detail = raw_stderr.decode("utf-8", errors="replace").strip()
         raise CanaryError(f"production canary PostgreSQL query failed: {detail[:400]}")
     try:
@@ -757,7 +804,12 @@ def _run_ssm(instance_id: str, remote_script: str, *, timeout_seconds: int) -> d
         f"printf %s {shlex.quote(script_b64)} | base64 -d > \"$SCRIPT\"\n"
         'bash "$SCRIPT"'
     )
-    params = json.dumps({"commands": ["set -u -o pipefail", remote]})
+    params = json.dumps(
+        {
+            "commands": ["set -u -o pipefail", remote],
+            "executionTimeout": [str(timeout_seconds)],
+        }
+    )
     send = _aws_json(
         [
             "ssm",
@@ -806,7 +858,30 @@ def _run_ssm(instance_id: str, remote_script: str, *, timeout_seconds: int) -> d
             if candidate.get("Status") in TERMINAL_SSM_STATUSES:
                 break
         time.sleep(5)
-    if invocation is None or invocation.get("Status") != "Success":
+    if invocation is None or invocation.get("Status") not in TERMINAL_SSM_STATUSES:
+        try:
+            _command_output(
+                [
+                    "aws",
+                    "ssm",
+                    "cancel-command",
+                    "--region",
+                    PROD_REGION,
+                    "--command-id",
+                    command_id,
+                    "--instance-ids",
+                    instance_id,
+                ]
+            )
+        except CanaryError as exc:
+            raise CanaryError(
+                "production canary SSM exceeded its controller deadline and "
+                f"cancellation failed: {exc}"
+            ) from exc
+        raise CanaryError(
+            "production canary SSM exceeded its controller deadline and was cancelled"
+        )
+    if invocation.get("Status") != "Success":
         status = invocation.get("Status") if invocation else "TimedOut"
         detail = (invocation or {}).get("StandardErrorContent", "")
         raise CanaryError(f"production canary SSM failed: {status} {detail[:400]}")
@@ -858,7 +933,7 @@ def _download_committed_batch(
     evidence_root: str | os.PathLike[str],
     *,
     command_runner: CommandRunner = _command_output,
-    expected_manifest_sha256: str | None = None,
+    expected_manifest_sha256: str,
 ) -> pathlib.Path:
     _, key = _s3_location(s3_prefix)
     if not key.endswith(f"/{batch_id}") or not batch_id.startswith("prod-canary-"):
@@ -869,10 +944,7 @@ def _download_committed_batch(
 
     def verify_downloaded(path: pathlib.Path) -> None:
         verification = rehearsal.verify_batch(path)
-        if (
-            expected_manifest_sha256 is not None
-            and verification["manifest_sha256"] != expected_manifest_sha256
-        ):
+        if verification["manifest_sha256"] != expected_manifest_sha256:
             raise CanaryError("downloaded canary manifest checksum mismatch")
         manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
         if (
@@ -955,7 +1027,7 @@ def restore_committed_batch(
     target_dsn: str,
     seed: int,
     timeout_seconds: int,
-    expected_manifest_sha256: str | None = None,
+    expected_manifest_sha256: str,
 ) -> dict[str, Any]:
     rehearsal._postgres_dsn_info(target_dsn, target=True)
     batch_dir = _download_committed_batch(
@@ -1070,17 +1142,6 @@ def build_parser() -> argparse.ArgumentParser:
     host.add_argument("--staging-s3-base-uri", required=True)
     host.add_argument("--confirm", required=True)
 
-    restore = commands.add_parser(
-        "restore-committed", help="download and independently restore a committed canary"
-    )
-    restore.add_argument("--s3-prefix", required=True)
-    restore.add_argument("--batch-id", required=True)
-    restore.add_argument("--evidence-root", required=True)
-    restore.add_argument("--target-dsn", required=True)
-    restore.add_argument("--seed", type=int, required=True)
-    restore.add_argument(
-        "--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS
-    )
     return parser
 
 
@@ -1110,15 +1171,6 @@ def main(argv: Iterable[str] | None = None) -> int:
                 timeout_seconds=args.timeout_seconds,
                 max_rows=args.max_rows,
                 max_logical_bytes=args.max_logical_bytes,
-            )
-        elif args.command == "restore-committed":
-            payload = restore_committed_batch(
-                s3_prefix=args.s3_prefix,
-                batch_id=args.batch_id,
-                evidence_root=args.evidence_root,
-                target_dsn=args.target_dsn,
-                seed=args.seed,
-                timeout_seconds=args.timeout_seconds,
             )
         else:  # pragma: no cover - argparse owns the command space.
             parser.error(f"unknown command {args.command}")
