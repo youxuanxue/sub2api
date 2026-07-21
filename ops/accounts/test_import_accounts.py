@@ -50,6 +50,15 @@ class ImportAccountsTest(unittest.TestCase):
         doc = {"import_profile": "grok_sso", "sso_tokens": ["t1"]}
         self.assertEqual(MOD.detect_route(doc), "grok_sso")
 
+    def test_detect_edge_oauth_relay(self) -> None:
+        doc = {
+            "import_profile": "edge_oauth_relay",
+            "edge_id": "us6",
+            "pool_platform": "antigravity",
+            "edge_oauth": {"platform": "antigravity", "type": "oauth", "name": "x"},
+        }
+        self.assertEqual(MOD.detect_route(doc), "edge_oauth_relay")
+
     def test_validate_newapi_requires_channel_type(self) -> None:
         doc = {
             "name": "n",
@@ -106,11 +115,21 @@ class ImportAccountsTest(unittest.TestCase):
             route = MOD.detect_route(doc)
             self.assertIn(
                 route,
-                {"create_account", "antigravity_oauth", "codex_session", "grok_sso", "batch_bundle", "list"},
+                {
+                    "create_account",
+                    "antigravity_oauth",
+                    "codex_session",
+                    "grok_sso",
+                    "batch_bundle",
+                    "list",
+                    "edge_oauth_relay",
+                },
                 msg=f"{path.name} -> {route}",
             )
             if route == "create_account":
                 MOD.validate_create_account(doc, path_hint=path.name)
+            elif route == "edge_oauth_relay":
+                MOD.validate_edge_oauth_relay(doc, path_hint=path.name)
             elif route == "batch_bundle":
                 for index, item in enumerate(doc.get("accounts") or [], start=1):
                     item_route = MOD.detect_route(item)

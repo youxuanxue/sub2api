@@ -7,11 +7,15 @@ grok) plus platform-specific import shortcuts (Codex session, Antigravity OAuth
 export, Grok SSO batch).
 
 Environment:
-  TOKENKEY_BASE_URL         default https://api.tokenkey.dev
-  TOKENKEY_ADMIN_API_KEY    required (admin-... from Admin UI settings)
+  TOKENKEY_BASE_URL / TOKENKEY_PROD_BASE_URL   prod API (default https://api.tokenkey.dev)
+  TOKENKEY_EDGE_BASE_URL                      edge API (edge_oauth_relay)
+  TOKENKEY_ADMIN_API_KEY                      fallback admin key
+  TOKENKEY_PROD_ADMIN_API_KEY                 prod admin key (edge_oauth_relay)
+  TOKENKEY_EDGE_ADMIN_API_KEY                 edge admin key (edge_oauth_relay)
 
 Examples:
-  ./import-accounts.sh validate examples/antigravity-oauth-export.json
+  ./import-accounts.sh validate examples/edge-oauth-relay-antigravity-us6.json
+  ./import-accounts.sh import examples/edge-oauth-relay-antigravity-us6.json --dry-run
   ./import-accounts.sh import examples/newapi-deepseek-apikey.json --dry-run
   ./import-accounts.sh import path/to/dir/ --yes
   ./import-accounts.sh list-channel-types
@@ -29,6 +33,13 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from edge_relay import (
+    ensure_edge_relay_api_key,
+    list_deployable_edges,
+    plan_edge_oauth_relay,
+    validate_edge_oauth_relay,
+)
 
 SCHEDULING_PLATFORMS = (
     "anthropic",
@@ -48,6 +59,10 @@ ACCOUNT_TYPES = (
     "service_account",
 )
 BASE_URL_DEFAULT = os.environ.get("TOKENKEY_BASE_URL", "https://api.tokenkey.dev").rstrip("/")
+PROD_BASE_URL_DEFAULT = os.environ.get(
+    "TOKENKEY_PROD_BASE_URL",
+    os.environ.get("TOKENKEY_BASE_URL", "https://api.tokenkey.dev"),
+).rstrip("/")
 SCRIPT_DIR = Path(__file__).resolve().parent
 EXAMPLES_DIR = SCRIPT_DIR / "examples"
 ANTIGRAVITY_IMPORT_PATH = "/admin/accounts/import/antigravity-oauth"
@@ -72,17 +87,27 @@ def die(msg: str, code: int = 1) -> None:
     raise SystemExit(code)
 
 
-def admin_api_key() -> str:
-    key = os.environ.get("TOKENKEY_ADMIN_API_KEY", "").strip()
+def admin_api_key(env_name: str = "TOKENKEY_ADMIN_API_KEY") -> str:
+    key = os.environ.get(env_name, "").strip()
+    if not key and env_name != "TOKENKEY_ADMIN_API_KEY":
+        key = os.environ.get("TOKENKEY_ADMIN_API_KEY", "").strip()
     if not key:
         die(
-            "TOKENKEY_ADMIN_API_KEY 未设置。"
+            f"{env_name} 未设置。"
             "请在 Admin 后台 系统设置 → 安全与认证 → 管理员 API Key 创建/复制密钥，"
-            "导出为环境变量 TOKENKEY_ADMIN_API_KEY=<admin-...>"
+            f"导出为环境变量 {env_name}=<admin-...>"
         )
     if not key.startswith("admin-"):
         log("warning: Admin API Key 通常以 admin- 开头，请确认密钥来源正确")
     return key
+
+
+def prod_admin_api_key() -> str:
+    return admin_api_key("TOKENKEY_PROD_ADMIN_API_KEY")
+
+
+def edge_admin_api_key() -> str:
+    return admin_api_key("TOKENKEY_EDGE_ADMIN_API_KEY")
 
 
 def http_json(
@@ -170,7 +195,7 @@ def detect_route(doc: Any) -> str:
     if not isinstance(doc, dict):
         die(f"不支持的 JSON 根类型: {type(doc).__name__}")
     profile = str(doc.get("import_profile") or "").strip()
-    if profile in {"antigravity_oauth", "codex_session", "grok_sso"}:
+    if profile in {"antigravity_oauth", "codex_session", "grok_sso", "edge_oauth_relay"}:
         return profile
     if doc.get("sso_tokens") or doc.get("sso_token"):
         return "grok_sso"
@@ -184,7 +209,7 @@ def detect_route(doc: Any) -> str:
         return "create_account"
     die(
         "无法识别导入格式。请使用 examples/ 下的规范 JSON，"
-        "或显式设置 import_profile（antigravity_oauth / codex_session / grok_sso）。"
+        "或显式设置 import_profile（antigravity_oauth / codex_session / grok_sso / edge_oauth_relay）。"
     )
 
 
@@ -539,6 +564,142 @@ def dispatch_import(
     die(f"未实现的路由: {route}")
 
 
+def resolve_edge_base_url(doc: dict[str, Any], fallback: str) -> str:
+    explicit = str(doc.get("edge_base_url") or os.environ.get("TOKENKEY_EDGE_BASE_URL") or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    edge_id = str(doc.get("edge_id") or "").strip()
+    if edge_id:
+        from edge_relay import edge_base_url as _edge_base_url
+
+        return _edge_base_url(edge_id)
+    if fallback and fallback != PROD_BASE_URL_DEFAULT:
+        return fallback.rstrip("/")
+    die("edge_oauth_relay 需要 edge_id、edge_base_url 或 TOKENKEY_EDGE_BASE_URL")
+
+
+def dispatch_edge_oauth_relay(
+    doc: dict[str, Any],
+    *,
+    prod_base_url: str,
+    edge_base_url: str,
+    prod_api_key: str,
+    edge_api_key: str,
+    dry_run: bool,
+    source: str,
+) -> dict[str, Any]:
+    validate_edge_oauth_relay(doc, path_hint=source)
+
+    def list_prod_accounts() -> list[dict[str, Any]]:
+        from edge_relay import list_admin_accounts as _list_admin_accounts
+
+        return _list_admin_accounts(
+            http_json,
+            unwrap_data,
+            base_url=prod_base_url,
+            api_key=prod_api_key,
+        )
+
+    plan = plan_edge_oauth_relay(doc, list_prod_accounts=list_prod_accounts)
+    edge_spec = plan["edge_oauth"]
+    edge_route = detect_route(edge_spec)
+    log(
+        f"{source}: edge_oauth_relay edge={plan['edge_id']} pool={plan['pool_platform']} "
+        f"edge_route={edge_route} prod={plan['prod_action']}"
+    )
+
+    out: dict[str, Any] = {
+        "import_profile": "edge_oauth_relay",
+        "edge_id": plan["edge_id"],
+        "pool_platform": plan["pool_platform"],
+        "prod_action": plan["prod_action"],
+        "prod_reason": plan["prod_reason"],
+    }
+    if plan.get("prod_existing"):
+        out["prod_existing"] = {
+            "id": plan["prod_existing"].get("id"),
+            "name": plan["prod_existing"].get("name"),
+        }
+
+    if dry_run:
+        out["edge"] = {
+            "base_url": edge_base_url,
+            "route": edge_route,
+            "payload_preview": dispatch_import(
+                edge_base_url,
+                edge_api_key,
+                edge_route,
+                edge_spec,
+                dry_run=True,
+                source=f"{source}:edge",
+            ),
+        }
+        if plan["prod_create"]:
+            edge_key, issue_meta = ensure_edge_relay_api_key(
+                doc,
+                http_json=http_json,
+                unwrap_data=unwrap_data,
+                http_json_or_die=http_json_or_die,
+                edge_base_url=edge_base_url,
+                edge_admin_api_key=edge_api_key,
+                dry_run=True,
+            )
+            prod_payload = dict(plan["prod_create"])
+            prod_payload.setdefault("credentials", {})
+            prod_payload["credentials"]["api_key"] = edge_key
+            out["prod"] = {
+                "base_url": prod_base_url,
+                "payload": prod_payload,
+                "edge_api_key_issue": issue_meta,
+            }
+        return out
+
+    edge_result = dispatch_import(
+        edge_base_url,
+        edge_api_key,
+        edge_route,
+        edge_spec,
+        dry_run=False,
+        source=f"{source}:edge",
+    )
+    out["edge"] = edge_result
+
+    if plan["prod_action"] == "skip":
+        log(f"{source}: 跳过 prod 中继 — {plan['prod_reason']}")
+        return out
+
+    edge_key, issue_meta = ensure_edge_relay_api_key(
+        doc,
+        http_json=http_json,
+        unwrap_data=unwrap_data,
+        http_json_or_die=http_json_or_die,
+        edge_base_url=edge_base_url,
+        edge_admin_api_key=edge_api_key,
+        dry_run=False,
+    )
+    out["edge_api_key_issue"] = issue_meta
+
+    prod_payload = dict(plan["prod_create"] or {})
+    prod_payload.setdefault("credentials", {})
+    prod_payload["credentials"]["api_key"] = edge_key
+    validate_create_account(prod_payload, path_hint=f"{source}:prod_relay")
+    prod_result = unwrap_data(
+        http_json_or_die(
+            prod_base_url,
+            "/admin/accounts",
+            method="POST",
+            payload=prod_payload,
+            api_key=prod_api_key,
+            idempotency_key=idempotency_key_for(
+                f"prod-relay-{plan['edge_id']}-{plan['pool_platform']}",
+                prod_payload,
+            ),
+        )
+    )
+    out["prod"] = prod_result
+    return out
+
+
 def process_document(
     base_url: str,
     api_key: str,
@@ -546,9 +707,51 @@ def process_document(
     *,
     dry_run: bool,
     source: str,
+    prod_base_url: str | None = None,
+    edge_base_url_override: str | None = None,
+    prod_api_key: str | None = None,
+    edge_api_key: str | None = None,
 ) -> list[Any]:
+    if isinstance(doc, list):
+        results: list[Any] = []
+        for index, item in enumerate(doc, start=1):
+            if not isinstance(item, dict):
+                die(f"{source}[{index}] 必须是对象")
+            results.extend(
+                process_document(
+                    base_url,
+                    api_key,
+                    item,
+                    dry_run=dry_run,
+                    source=f"{source}[{index}]",
+                    prod_base_url=prod_base_url,
+                    edge_base_url_override=edge_base_url_override,
+                    prod_api_key=prod_api_key,
+                    edge_api_key=edge_api_key,
+                )
+            )
+        return results
+
+    if not isinstance(doc, dict):
+        die(f"{source}: 必须是 JSON 对象")
+
     route = detect_route(doc)
     results: list[Any] = []
+
+    if route == "edge_oauth_relay":
+        prod_url = (prod_base_url or base_url).rstrip("/")
+        edge_url = resolve_edge_base_url(doc, edge_base_url_override or base_url)
+        return [
+            dispatch_edge_oauth_relay(
+                doc,
+                prod_base_url=prod_url,
+                edge_base_url=edge_url,
+                prod_api_key=prod_api_key or api_key,
+                edge_api_key=edge_api_key or api_key,
+                dry_run=dry_run,
+                source=source,
+            )
+        ]
 
     if route == "list":
         for index, item in enumerate(doc, start=1):
@@ -671,23 +874,39 @@ def cmd_validate(args: argparse.Namespace) -> int:
                     )
         elif route == "create_account":
             validate_create_account(doc, path_hint=str(path))
+        elif route == "edge_oauth_relay":
+            validate_edge_oauth_relay(doc, path_hint=str(path))
+            edge_spec = doc.get("edge_oauth")
+            if isinstance(edge_spec, dict):
+                inner_route = detect_route(edge_spec)
+                log(f"  edge_oauth -> {inner_route}")
+                if inner_route == "create_account":
+                    validate_create_account(edge_spec, path_hint=f"{path}.edge_oauth")
     print(json.dumps({"validated": len(paths)}, ensure_ascii=False))
     return 0
 
 
 def cmd_import(args: argparse.Namespace) -> int:
-    api_key = "" if args.dry_run else admin_api_key()
-    base_url = args.base_url.rstrip("/")
+    prod_base = args.prod_base_url.rstrip("/")
+    edge_base = args.edge_base_url.rstrip("/") if args.edge_base_url else ""
+    prod_key = "" if args.dry_run else prod_admin_api_key()
+    edge_key = "" if args.dry_run else edge_admin_api_key()
+    # Single-host imports still accept TOKENKEY_BASE_URL / TOKENKEY_ADMIN_API_KEY.
+    fallback_key = "" if args.dry_run else admin_api_key()
     paths = collect_input_paths(args.paths)
     all_results: list[dict[str, Any]] = []
     for path in paths:
         doc = load_json_file(path)
         results = process_document(
-            base_url,
-            api_key,
+            prod_base,
+            fallback_key,
             doc,
             dry_run=args.dry_run,
             source=str(path),
+            prod_base_url=prod_base,
+            edge_base_url_override=edge_base or None,
+            prod_api_key=prod_key or fallback_key,
+            edge_api_key=edge_key or fallback_key,
         )
         all_results.append({"file": str(path), "results": results})
     print(json.dumps(all_results, ensure_ascii=False, indent=2))
@@ -741,11 +960,18 @@ def cmd_list_channel_types(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_list_edges(_: argparse.Namespace) -> int:
+    print(json.dumps(list_deployable_edges(), ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_selftest(_: argparse.Namespace) -> int:
     import unittest
 
     loader = unittest.TestLoader()
-    suite = loader.discover(str(SCRIPT_DIR), pattern="test_import_accounts.py")
+    suite = unittest.TestSuite()
+    for pattern in ("test_import_accounts.py", "test_edge_relay.py"):
+        suite.addTests(loader.discover(str(SCRIPT_DIR), pattern=pattern))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
 
@@ -755,7 +981,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--base-url",
         default=BASE_URL_DEFAULT,
-        help=f"TokenKey API base URL (default: {BASE_URL_DEFAULT})",
+        help=f"TokenKey prod API base URL (default: {PROD_BASE_URL_DEFAULT})",
+    )
+    parser.add_argument(
+        "--prod-base-url",
+        default=os.environ.get("TOKENKEY_PROD_BASE_URL", BASE_URL_DEFAULT),
+        help="Prod API base URL for edge_oauth_relay (default: TOKENKEY_PROD_BASE_URL or --base-url)",
+    )
+    parser.add_argument(
+        "--edge-base-url",
+        default=os.environ.get("TOKENKEY_EDGE_BASE_URL", ""),
+        help="Edge API base URL override for edge_oauth_relay",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -782,6 +1018,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_channels = sub.add_parser("list-channel-types", help="Fetch live newapi channel types")
     p_channels.set_defaults(func=cmd_list_channel_types)
+
+    p_edges = sub.add_parser("list-edges", help="List deployable edge nodes from fleet JSON")
+    p_edges.set_defaults(func=cmd_list_edges)
 
     p_self = sub.add_parser("selftest", help="Run offline unit tests")
     p_self.set_defaults(func=cmd_selftest)
