@@ -1122,11 +1122,13 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
 				wroteFallback := h.ensureAnthropicErrorResponse(c, streamStarted)
-				reqLog.Warn("openai_messages.forward_failed",
+				forwardFailedFields := append(
+					service.OpenAICompatMessagesOpsLogFields(c),
 					zap.Int64("account_id", account.ID),
 					zap.Bool("fallback_error_response_written", wroteFallback),
 					zap.Error(err),
 				)
+				reqLog.Warn("openai_messages.forward_failed", forwardFailedFields...)
 				return
 			}
 		}
