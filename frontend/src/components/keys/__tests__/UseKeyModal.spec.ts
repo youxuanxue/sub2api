@@ -204,7 +204,7 @@ describe('UseKeyModal — preserved snippet correctness', () => {
     const joined = wrapper.findAll('pre code').map((c) => c.text()).join('\n')
     expect(joined).toContain('CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING')
     expect(joined).toContain('31999')
-    expect(joined).toContain('claude-opus-4-8[1m]')
+    expect(joined).toContain('gpt-5.5[1m]')
     const activeBlocks = wrapper.findAll('pre code').map((c) => c.text())
       .filter((s) => /^\s*export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1\s*$/m.test(s))
     expect(activeBlocks).toHaveLength(0)

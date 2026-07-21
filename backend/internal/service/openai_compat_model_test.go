@@ -77,6 +77,8 @@ func TestNormalizeOpenAICompatRequestedModel(t *testing.T) {
 	}{
 		{name: "gpt reasoning alias strips xhigh", input: "gpt-5.4-xhigh", want: "gpt-5.4"},
 		{name: "gpt reasoning alias strips none", input: "gpt-5.4-none", want: "gpt-5.4"},
+		{name: "gpt context alias strips 1m", input: "gpt-5.5[1m]", want: "gpt-5.5"},
+		{name: "gpt reasoning and context alias", input: "gpt-5.5-xhigh[1m]", want: "gpt-5.5"},
 		{name: "codex max model stays intact", input: "gpt-5.1-codex-max", want: "gpt-5.1-codex-max"},
 		{name: "non openai model unchanged", input: "claude-opus-4-6", want: "claude-opus-4-6"},
 	}
@@ -120,6 +122,15 @@ func TestApplyOpenAICompatModelNormalization(t *testing.T) {
 		applyOpenAICompatModelNormalization(req)
 
 		require.Equal(t, "claude-opus-4-6", req.Model)
+		require.Nil(t, req.OutputConfig)
+	})
+
+	t.Run("openai context alias strips before upstream mapping", func(t *testing.T) {
+		req := &apicompat.AnthropicRequest{Model: "gpt-5.5[1m]"}
+
+		applyOpenAICompatModelNormalization(req)
+
+		require.Equal(t, "gpt-5.5", req.Model)
 		require.Nil(t, req.OutputConfig)
 	})
 }
