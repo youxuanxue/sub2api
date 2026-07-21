@@ -30,10 +30,12 @@ func TestParseAntigravityOAuthImportEntriesSupportsExportJSON(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 
+	entryObj, ok := entries[0].Value.(map[string]any)
+	require.True(t, ok)
 	item, err := normalizeAntigravityImportObject(context.Background(), nil, AntigravityOAuthImportRequest{}, &antigravityImportAccount{
 		Credentials: map[string]any{},
 		Extra:       map[string]any{},
-	}, entries[0].Value.(map[string]any), 1, time.Now().UTC())
+	}, entryObj, 1, time.Now().UTC())
 	require.NoError(t, err)
 	require.Equal(t, "access-token-1", item.Credentials["access_token"])
 	require.Equal(t, "refresh-token-1", item.Credentials["refresh_token"])
