@@ -84,12 +84,16 @@ type incidentClass struct {
 	advice      string // 运营建议动作
 }
 
+// tkUpstreamStandingDisableRecoveryAdvice is shared by bridge upstream standing
+// failures (402 balance, DashScope Arrearage 400, etc.) after SetError disable.
+const tkUpstreamStandingDisableRecoveryAdvice = "账号已永久停调度;充值/余额或凭证恢复后须运营在 Admin 手动清除 error 并重测后再恢复调度"
+
 // classifyIncident 把底层 reason 字符串映射成 (形态, 去重类, 中文文案, 建议)。
 // reason 精确匹配优先（覆盖全部已知挂钩点）;未知 reason 时用显式 kind + until 兜底。
 func classifyIncident(reason string, until time.Time, kind AccountIncidentKind) incidentClass {
 	switch strings.TrimSpace(strings.ToLower(reason)) {
 	case "auth_error":
-		return incidentClass{true, IncidentKindPermanentDisable, "auth", "账号永久失效（认证失败）", "立即重新 OAuth 授权该账号"}
+		return incidentClass{true, IncidentKindPermanentDisable, "auth", "账号永久失效（认证失败）", "检查上游认证/余额/凭证;" + tkUpstreamStandingDisableRecoveryAdvice}
 	case "custom_error_code":
 		return incidentClass{true, IncidentKindPermanentDisable, "custom_code", "账号被自定义错误码罚下", "检查命中的自定义错误码规则与上游响应"}
 	case "stream_timeout_error":
@@ -106,14 +110,11 @@ func classifyIncident(reason string, until time.Time, kind AccountIncidentKind) 
 		return incidentClass{true, IncidentKindTemporaryCooldown, "temp", "临时不可调度", "观察是否自愈"}
 	case "newapi_arrears":
 		// TK (prod 2026-06-12, account 60 "Qwen" / DashScope arrears): an upstream
-		// account-standing / 欠费 failure that arrives as a 400 ("Arrearage"). The
-		// account is COOLED (not hard-disabled) so a recharge auto-recovers, but
-		// the ALERT must be IMMEDIATE + actionable — arrears is persistent until a
-		// human recharges, so it must NOT fold into the #730 default-OFF temporary
-		// digest. Route it through the permanent (immediate P0 card) path with the
-		// 1h per-account dedupe so a persistently-arrears account fires at most
-		// once per window instead of one card per request.
-		return incidentClass{true, IncidentKindPermanentDisable, "newapi_arrears", "上游账号欠费", "DashScope 等上游账号欠费(Arrearage),需在对应控制台(如阿里云百炼)充值/还款;账号已临时摘出轮换,充值后冷却到期自动恢复"}
+		// account-standing / 欠费 failure that arrives as a 400 ("Arrearage"). Same
+		// penalty shape as bridge 402 (SetError disable) — recharge does NOT auto-
+		// recover scheduling. The ALERT must be IMMEDIATE + actionable; route through
+		// the permanent (immediate P0 card) path with the 1h per-account dedupe.
+		return incidentClass{true, IncidentKindPermanentDisable, "newapi_arrears", "上游账号欠费", "DashScope 等上游账号欠费(Arrearage),需在对应控制台(如阿里云百炼)充值/还款;" + tkUpstreamStandingDisableRecoveryAdvice}
 	case "kiro_quota_limit":
 		// TK (prod 2026-06-25, edge-us4 account 9): Kiro OAuth subscription quota
 		// exhaustion is HTTP 402 + "You have reached the limit." — not an auth
