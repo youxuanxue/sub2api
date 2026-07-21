@@ -194,10 +194,12 @@ class ProdArchiveCanaryTest(unittest.TestCase):
         stack_output.assert_not_called()
 
     def test_us039_remote_bundle_imports_and_host_export_rechecks_hold(self) -> None:
+        first_archive = canary._remote_bundle_archive()
+        self.assertEqual(first_archive, canary._remote_bundle_archive())
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)
             with canary.tarfile.open(
-                fileobj=canary.io.BytesIO(canary._remote_bundle_archive()), mode="r:gz"
+                fileobj=canary.io.BytesIO(first_archive), mode="r:gz"
             ) as archive:
                 archive.extractall(root, filter="data")
             imported = subprocess.run(
@@ -223,6 +225,10 @@ class ProdArchiveCanaryTest(unittest.TestCase):
         )
         self.assertIn("data_layer_archive_cleanup_hold_remote.py", command)
         self.assertIn("--hold-started-at", command)
+        parsed = subprocess.run(
+            ["bash", "-n"], input=command, capture_output=True, text=True, check=False
+        )
+        self.assertEqual(parsed.returncode, 0, parsed.stderr)
         self.assertLessEqual(
             len(canary._ssm_parameters(command, 300).encode("utf-8")),
             canary.SSM_PARAMETERS_MAX_BYTES,
