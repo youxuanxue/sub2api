@@ -1410,12 +1410,16 @@ elif ! python3 ./ops/observability/test_data_layer_capacity_safety.py >/dev/null
     echo "  FAIL: capacity probe/projection safety contracts"
     echo "        — run: python3 ops/observability/test_data_layer_capacity_safety.py"
     errors=$((errors + 1))
+elif ! python3 ./ops/observability/test_data_layer_retention_inventory.py >/dev/null 2>&1; then
+    echo "  FAIL: read-only retention inventory safety contracts"
+    echo "        — run: python3 ops/observability/test_data_layer_retention_inventory.py"
+    errors=$((errors + 1))
 elif ! python3 ./ops/stage0/test_cfn_datavolume_no_replace.py >/dev/null 2>&1; then
     echo "  FAIL: DataVolume no-replace planning contracts"
     echo "        — run: python3 ops/stage0/test_cfn_datavolume_no_replace.py"
     errors=$((errors + 1))
 else
-    echo "  ok: dormant bounded probe + explicit offline projection + grow-only CFN plan"
+    echo "  ok: bounded probes + explicit offline projection + grow-only CFN plan"
 fi
 
 # ---- sub2api: nonprod archive/restore rehearsal ----------------------------
