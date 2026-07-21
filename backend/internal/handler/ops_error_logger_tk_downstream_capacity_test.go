@@ -21,7 +21,7 @@ import (
 // upstream_error_rate useless for telling a dead edge from a healthy one.
 //
 // These tests pin the corrected classification: a relayed downstream-capacity
-// verdict ("no available accounts" / "all available accounts exhausted") is owned as
+// verdict ("no available accounts" / gateway failover-terminal) is owned as
 // routing (phase=routing, error_owner=platform) so it stays out of
 // upstream_error_rate while still counting in SLA numerator; genuine provider 429
 // (rate_limit_error) and raw 5xx
@@ -55,7 +55,16 @@ func TestClassifyOpsDownstreamCapacityOwnedAsRouting(t *testing.T) {
 			errMsg: "Upstream request failed",
 		},
 		{
-			name: "downstream failover exhausted 503",
+			name: "downstream failover stopped 503",
+			event: &service.OpsUpstreamErrorEvent{
+				UpstreamStatusCode:   503,
+				Kind:                 "http_error",
+				UpstreamResponseBody: `{"error":{"message":"Upstream request could not be completed","type":"api_error"}}`,
+			},
+			errMsg: "Upstream request could not be completed",
+		},
+		{
+			name: "legacy downstream failover message 503",
 			event: &service.OpsUpstreamErrorEvent{
 				UpstreamStatusCode:   503,
 				Kind:                 "http_error",
@@ -147,6 +156,7 @@ func TestTkUpstreamDownstreamCapacityPredicate(t *testing.T) {
 	}
 
 	require.True(t, tkUpstreamDownstreamCapacity(mk(429, "No available accounts", "")))
+	require.True(t, tkUpstreamDownstreamCapacity(mk(503, `{"error":{"message":"Upstream request could not be completed"}}`, "")))
 	require.True(t, tkUpstreamDownstreamCapacity(mk(503, "all available accounts exhausted", "")))
 	require.True(t, tkUpstreamDownstreamCapacity(mk(502, "", "No available accounts: no available accounts")))
 	// status 0 (pure transport) is owned by tkUpstreamClientCanceled, not here.

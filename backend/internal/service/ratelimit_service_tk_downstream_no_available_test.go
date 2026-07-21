@@ -159,8 +159,8 @@ func TestRateLimitService_DownstreamNoAvailable_FeedsSaturationButNotLadder(t *t
 	for i := 0; i < 3; i++ {
 		require.True(t, service.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, noAvail))
 	}
-	// 502 failover-exhausted (sibling capacity signal).
-	exhausted := []byte(`{"type":"error","error":{"type":"server_error","message":"all available accounts exhausted"}}`)
+	// 502 failover-terminal (sibling downstream signal).
+	exhausted := []byte(`{"type":"error","error":{"type":"server_error","message":"Upstream request could not be completed"}}`)
 	for i := 0; i < 2; i++ {
 		require.True(t, service.HandleUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, exhausted))
 	}

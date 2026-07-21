@@ -19,7 +19,7 @@ import (
 // capacity / failover envelopes relayed back to a prod cc-<edge> stub:
 //
 //   - "No available accounts: no available accounts"      (empty-pool fast-fail, 429) → tkSkipDownstreamNoAvailableAccountsPenalty
-//   - "all available accounts exhausted"                  (failover-exhausted, 502)   → tkSkipDownstreamFailoverExhaustedPenalty
+//   - TokenKey failover-terminal envelope                  (normally 502)              → tkSkipDownstreamFailoverExhaustedPenalty
 //   - "Upstream rate limit exceeded, please retry later"  (rate-limit failover-       → NEITHER needle matched → fell through and
 //                                                          exhausted, 429)               advanced the per-account anthropic_upstream_error
 //                                                                                        3/3 ladder, cooling a HEALTHY mirror stub

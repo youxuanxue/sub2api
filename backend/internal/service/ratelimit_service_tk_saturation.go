@@ -11,7 +11,7 @@ import (
 // "stub" accounts (cc-us2 / cc-uk1 / …) that forward to the matching Edge
 // gateway, where a SINGLE OAuth account is common (SPOF). When that edge's one
 // account is upstream-rate-limited (~47-min window), the edge returns TokenKey's
-// own "No available accounts" 429 (or "all available accounts exhausted" 502).
+// own "No available accounts" 429 (or its failover-terminal envelope).
 // tkSkipDownstreamNoAvailableAccountsPenalty / ...FailoverExhaustedPenalty
 // correctly SKIP penalty + fail over (so users see no failures) but DELIBERATELY
 // keep the stub fully schedulable — counting these toward the 3/3 ladder once
@@ -33,7 +33,7 @@ func (s *RateLimitService) SetAnthropicSaturationCounter(cache AnthropicSaturati
 // recordAnthropicStubSaturation increments the per-stub saturation counter for a
 // downstream-capacity hit. Called only from the two skip-penalty branches in
 // HandleUpstreamError (anthropic stub received our own "no available accounts" /
-// "all available accounts exhausted" envelope). Best-effort: Redis errors are
+// failover-terminal envelope). Best-effort: Redis errors are
 // logged and swallowed — selection must never fail because the preference
 // counter is unavailable. Logs at threshold crossing only (low-volume), so ops
 // can see a stub entering the de-prioritized state.
