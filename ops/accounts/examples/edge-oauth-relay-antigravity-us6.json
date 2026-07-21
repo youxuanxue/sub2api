@@ -1,0 +1,29 @@
+{
+  "import_profile": "edge_oauth_relay",
+  "edge_id": "us6",
+  "pool_platform": "antigravity",
+  "skip_prod_relay_if_exists": true,
+  "update_existing": true,
+  "edge_oauth": {
+    "name": "ag-us6-oauth-example",
+    "group_ids": [1],
+    "concurrency": 1,
+    "priority": 50,
+    "fill_project_id": true,
+    "type": "antigravity",
+    "access_token": "REPLACE_ME",
+    "refresh_token": "REPLACE_ME",
+    "project_id": "REPLACE_ME",
+    "email": "user@example.com",
+    "expired": "2099-07-21T03:08:39Z"
+  },
+  "prod_relay": {
+    "name": "ag-us6",
+    "group_ids": [1],
+    "edge_api_key_user_id": 1,
+    "edge_api_key_group_id": 1,
+    "concurrency": 8,
+    "priority": 50,
+    "pool_mode_retry_count": 3
+  }
+}

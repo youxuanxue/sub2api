@@ -83,6 +83,10 @@ const (
 	OpsClientPolicyDeniedReasonLocalFeatureGate       = "local_feature_gate"
 	OpsClientPolicyDeniedReasonLocalPolicyDenied      = "local_policy_denied"
 
+	// OpsClientContentFilteredKey marks a final content-filter outcome as
+	// client-owned even when an earlier account attempt left upstream evidence.
+	OpsClientContentFilteredKey = "ops_client_content_filtered"
+
 	// OpsClientClosedRequestKey marks local failures caused by the caller closing
 	// the inbound request context before gateway auth/body handling completed.
 	OpsClientClosedRequestKey = "ops_client_closed_request"
@@ -150,6 +154,25 @@ func HasOpsClientPolicyDenied(c *gin.Context) bool {
 		return false
 	}
 	v, ok := c.Get(OpsClientPolicyDeniedKey)
+	if !ok {
+		return false
+	}
+	marked, _ := v.(bool)
+	return marked
+}
+
+func MarkOpsClientContentFiltered(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(OpsClientContentFilteredKey, true)
+}
+
+func HasOpsClientContentFiltered(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	v, ok := c.Get(OpsClientContentFilteredKey)
 	if !ok {
 		return false
 	}

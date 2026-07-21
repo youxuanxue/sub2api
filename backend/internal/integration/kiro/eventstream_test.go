@@ -75,3 +75,21 @@ func TestParseEventStream_AssistantResponse(t *testing.T) {
 		t.Fatalf("expected non-thinking text for assistantResponseEvent, got isThinking=true")
 	}
 }
+
+func TestParseEventStream_MetadataStopReason(t *testing.T) {
+	frame := buildEventStreamMessage("metadataEvent", []byte(`{"stopReason":"CONTENT_FILTERED"}`))
+
+	var got string
+	cb := &KiroStreamCallback{
+		OnStopReason: func(stopReason string) {
+			got = stopReason
+		},
+	}
+
+	if err := parseEventStream(bytes.NewReader(frame), cb); err != nil {
+		t.Fatalf("parseEventStream returned error: %v", err)
+	}
+	if got != "CONTENT_FILTERED" {
+		t.Fatalf("expected stop reason %q, got %q", "CONTENT_FILTERED", got)
+	}
+}

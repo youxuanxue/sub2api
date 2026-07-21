@@ -40,6 +40,7 @@ func tkOpenAICompatDownstreamCapacityReason(statusCode int, upstreamMsg string, 
 	case tkSkipDownstreamNoAvailableAccountsPenalty(statusCode, upstreamMsg, responseBody):
 		return "no_available_accounts"
 	case tkSkipDownstreamFailoverExhaustedPenalty(statusCode, upstreamMsg, responseBody):
+		// Historical metrics key; keep it stable across the client-message change.
 		return "all_available_accounts_exhausted"
 	case tkIsDownstreamRateLimitEnvelope(statusCode, upstreamMsg, responseBody):
 		return "upstream_rate_limit_exhausted"

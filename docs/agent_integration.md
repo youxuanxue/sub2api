@@ -285,6 +285,7 @@ Do not hand-edit this file; run `python3 scripts/export_agent_contract.py`.
 - `GET /admin/users/:id` from `backend/internal/server/routes/admin.go`
 - `PUT /admin/users/:id` from `backend/internal/server/routes/admin.go`
 - `GET /admin/users/:id/api-keys` from `backend/internal/server/routes/admin.go`
+- `POST /admin/users/:id/api-keys` from `backend/internal/server/routes/admin.go`
 - `GET /admin/users/:id/attributes` from `backend/internal/server/routes/admin.go`
 - `PUT /admin/users/:id/attributes` from `backend/internal/server/routes/admin.go`
 - `POST /admin/users/:id/balance` from `backend/internal/server/routes/admin.go`

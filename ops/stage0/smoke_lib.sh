@@ -130,11 +130,11 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
         ;;
       *)
         case "${err_msg}" in
-          # Pool exhaustion is a runtime resource state, not a control-plane
-          # regression. Two distinct gateway phrasings reach here:
+          # A gateway capacity/failover terminal is a runtime state, not a
+          # control-plane response-shape regression. These phrasings reach here:
           #   "no available accounts"        — empty/throttled pool on the
           #                                    directly-bound group.
-          #   "All available accounts exhausted" — the CC-only fallback path
+          #   "Upstream request could not be completed" — the CC-only fallback path
           #                                    (PR #740): a claude_code_only key
           #                                    routes /v1/chat|/v1/responses to
           #                                    its fallback_group_id, and that
@@ -146,10 +146,12 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
           #                                    turned an unchanged pool state into
           #                                    a hard smoke failure. /v1/messages
           #                                    stays the canonical signal for this key.
-          *"no available accounts"*|*"available accounts exhausted"*)
-            echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} with a pool-exhaustion message ('no available accounts' / 'All available accounts exhausted') — pool exhausted, not a control-plane regression." >&2
+          # The old "All available accounts exhausted" wording remains accepted
+          # while prod and edge gateways can run different release versions.
+          *"no available accounts"*|*"Upstream request could not be completed"*|*"available accounts exhausted"*)
+            echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} with a gateway capacity/failover message — runtime state, not a control-plane regression." >&2
             jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
-            echo "tk_post_deploy_smoke: ${label} section soft-skipped (pool exhausted)"
+            echo "tk_post_deploy_smoke: ${label} section soft-skipped (gateway runtime state)"
             return 1
             ;;
           *"No platform in your plan can serve"*|*universal_no_entitled*)

@@ -192,7 +192,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				if fs.LastFailoverErr != nil {
 					h.handleCCFailoverExhausted(c, fs.LastFailoverErr, streamStarted)
 				} else {
-					h.chatCompletionsErrorResponse(c, http.StatusBadGateway, "server_error", "All available accounts exhausted")
+					h.chatCompletionsErrorResponse(c, http.StatusBadGateway, "server_error",
+						service.GatewayFailoverClientMessage(http.StatusBadGateway))
 				}
 				return
 			}
@@ -367,5 +368,5 @@ func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *serv
 		return
 	}
 	h.chatCompletionsErrorResponse(c, statusCode, "server_error",
-		service.TkEnrichClaudeIncidentMessage("All available accounts exhausted", statusCode))
+		service.GatewayFailoverClientMessage(statusCode))
 }

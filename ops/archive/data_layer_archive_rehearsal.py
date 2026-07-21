@@ -1083,6 +1083,10 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             "max_logical_bytes",
             "max_rows",
             "query_elapsed_ms",
+            "selection_order",
+            "sample_first_key",
+            "sample_last_key",
+            "more_cold_rows_after_sample",
             "server_clock",
             "statement_timeout_seconds",
             "table",
@@ -1091,6 +1095,10 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             raise RehearsalError("production canary bounds are invalid")
         if canary.get("table") != source_file_identity.get("table"):
             raise RehearsalError("production canary table does not match source identity")
+        if canary.get("selection_order") != ["created_at", "id"]:
+            raise RehearsalError("production canary selection order is invalid")
+        if not isinstance(canary.get("more_cold_rows_after_sample"), bool):
+            raise RehearsalError("production canary continuation state is invalid")
         try:
             canary_cutoff = _utc(canary["cutoff_exclusive"])
             server_clock = _utc(canary["server_clock"])
@@ -1157,6 +1165,8 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         records, raw = _parse_artifact(batch_dir, entry)
         if mode == PROD_CANARY_MODE:
             assert canary_cutoff is not None
+            if not records:
+                raise RehearsalError("production canary artifact is empty")
             table_prefix = f"{source_file_identity['table']}:"
             if any(
                 _utc(record["created_at"]) >= canary_cutoff
@@ -1176,6 +1186,18 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             raise RehearsalError("production canary row count exceeds its manifest bound")
         if total_bytes > canary["max_logical_bytes"]:
             raise RehearsalError("production canary byte count exceeds its manifest bound")
+        expected_first_key = {
+            "created_at": records[0]["created_at"],
+            "record_id": records[0]["record_id"],
+        }
+        expected_last_key = {
+            "created_at": records[-1]["created_at"],
+            "record_id": records[-1]["record_id"],
+        }
+        if canary.get("sample_first_key") != expected_first_key:
+            raise RehearsalError("production canary first sample key mismatch")
+        if canary.get("sample_last_key") != expected_last_key:
+            raise RehearsalError("production canary last sample key mismatch")
     source_rows = manifest.get("source_rows")
     if (
         not isinstance(source_rows, int)

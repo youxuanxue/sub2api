@@ -71,7 +71,7 @@ def _cold_row(as_of: str, *, payload_size: int = 0) -> dict[str, object]:
 
 
 class ProdArchiveCanaryTest(unittest.TestCase):
-    def test_us038_plan_is_offline_and_bounded(self) -> None:
+    def test_us039_plan_is_offline_and_bounded(self) -> None:
         with mock.patch.object(
             canary,
             "_command_output",
@@ -100,7 +100,7 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                 max_logical_bytes=1,
             )
 
-    def test_us038_run_guards_fail_before_aws(self) -> None:
+    def test_us039_run_guards_fail_before_aws(self) -> None:
         result = subprocess.run(
             [
                 sys.executable,
@@ -116,6 +116,8 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                 "postgresql://postgres@127.0.0.1/tokenkey_archive_restore_test",
                 "--seed",
                 "7",
+                "--cleanup-hold-receipt",
+                "/tmp/nonexistent-cleanup-hold.json",
                 "--confirm",
                 "wrong",
             ],
@@ -149,7 +151,7 @@ class ProdArchiveCanaryTest(unittest.TestCase):
         self.assertNotEqual(restore.returncode, 0)
         self.assertIn("invalid choice", restore.stderr)
 
-    def test_us038_stage0_output_is_bounded_while_command_runs(self) -> None:
+    def test_us039_stage0_output_is_bounded_while_command_runs(self) -> None:
         with self.assertRaisesRegex(canary.CanaryError, "output exceeds 1024 bytes"):
             canary._bounded_command_output(
                 [
@@ -161,7 +163,36 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                 output_limit=1024,
             )
 
-    def test_us038_seal_rejects_hot_or_oversized_rows(self) -> None:
+    def test_us039_run_refuses_without_active_cleanup_hold(self) -> None:
+        args = argparse.Namespace(
+            confirm=canary.PROD_CONFIRMATION,
+            table="ops_system_logs",
+            as_of="2026-07-21T03:00:00Z",
+            timeout_seconds=20,
+            max_rows=1_000,
+            max_logical_bytes=16 * 1024 * 1024,
+            restore_target_dsn=(
+                "postgresql://postgres@127.0.0.1/tokenkey_archive_restore_test"
+            ),
+            ssm_timeout_seconds=300,
+            evidence_root="/tmp/tokenkey-prod-canary-test-evidence",
+            cleanup_hold_receipt="/tmp/missing-cleanup-hold.json",
+            seed=7,
+        )
+        with mock.patch.object(
+            canary, "_prod_instance", return_value=_INSTANCE_ID
+        ), mock.patch.object(
+            canary.cleanup_hold,
+            "verify_receipt_for_instance",
+            side_effect=canary.cleanup_hold.HoldControlError("cleanup hold is not active"),
+        ), mock.patch.object(canary, "_stack_output") as stack_output:
+            with self.assertRaisesRegex(
+                canary.cleanup_hold.HoldControlError, "not active"
+            ):
+                canary.run_canary(args)
+        stack_output.assert_not_called()
+
+    def test_us039_seal_rejects_hot_or_oversized_rows(self) -> None:
         as_of = "2026-07-21T03:00:00Z"
         hot_created_at = rehearsal._timestamp(
             rehearsal._utc(as_of) - dt.timedelta(days=1)
@@ -219,16 +250,26 @@ class ProdArchiveCanaryTest(unittest.TestCase):
             row["payload"] = {**row["payload"], "id": int(record_id)}
             too_many.append(row)
         with tempfile.TemporaryDirectory() as temp:
-            with self.assertRaisesRegex(canary.CanaryError, "rows exceed max_rows=1"):
-                canary.seal_prod_canary_batch(
-                    temp,
-                    table="ops_system_logs",
-                    as_of=as_of,
-                    instance_id=_INSTANCE_ID,
-                    staging_s3_base_uri=_STAGING_BASE,
-                    query_runner=_fake_query_runner(as_of=as_of, rows=too_many),
-                    max_rows=1,
+            sealed = canary.seal_prod_canary_batch(
+                temp,
+                table="ops_system_logs",
+                as_of=as_of,
+                instance_id=_INSTANCE_ID,
+                staging_s3_base_uri=_STAGING_BASE,
+                query_runner=_fake_query_runner(as_of=as_of, rows=too_many),
+                max_rows=1,
+            )
+            manifest = json.loads(
+                (pathlib.Path(sealed["batch_dir"]) / "manifest.json").read_text(
+                    encoding="utf-8"
                 )
+            )
+            self.assertEqual(manifest["source_rows"], 1)
+            self.assertTrue(manifest["canary"]["more_cold_rows_after_sample"])
+            self.assertEqual(
+                manifest["canary"]["sample_first_key"],
+                manifest["canary"]["sample_last_key"],
+            )
 
         def invalid_proof(
             _sql: str, _timeout_seconds: int, _output_limit: int
@@ -304,7 +345,7 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                     query_runner=skewed_clock,
                 )
 
-    def test_us038_s3_manifest_is_uploaded_last_and_encrypted(self) -> None:
+    def test_us039_s3_manifest_is_uploaded_last_and_encrypted(self) -> None:
         as_of = "2026-07-21T03:00:00Z"
         with tempfile.TemporaryDirectory() as temp:
             sealed = canary.seal_prod_canary_batch(
@@ -368,7 +409,7 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                     sealed["batch_dir"], command_runner=unencrypted
                 )
 
-    def test_us038_manifest_rejects_wrong_source_database(self) -> None:
+    def test_us039_manifest_rejects_wrong_source_database(self) -> None:
         as_of = "2026-07-21T03:00:00Z"
         with tempfile.TemporaryDirectory() as temp:
             sealed = canary.seal_prod_canary_batch(
@@ -394,7 +435,7 @@ class ProdArchiveCanaryTest(unittest.TestCase):
             with self.assertRaisesRegex(rehearsal.RehearsalError, "cold waterline"):
                 rehearsal.verify_batch(sealed["batch_dir"])
 
-    def test_us038_control_plane_resolves_prod_tags_and_validates_receipt(
+    def test_us039_control_plane_resolves_prod_tags_and_validates_receipt(
         self,
     ) -> None:
         calls: list[list[str]] = []
@@ -551,7 +592,7 @@ class ProdArchiveCanaryTest(unittest.TestCase):
             ]
         )
 
-    def test_us038_run_preserves_complete_mode(self) -> None:
+    def test_us039_run_preserves_complete_mode(self) -> None:
         batch_id = "prod-canary-20260721T030000000000Z-0123456789abcdef"
         receipt = {
             "mode": "prod_archive_export_canary_upload",
@@ -589,6 +630,7 @@ class ProdArchiveCanaryTest(unittest.TestCase):
             ),
             ssm_timeout_seconds=300,
             evidence_root="/tmp/tokenkey-prod-canary-test-evidence",
+            cleanup_hold_receipt="/tmp/tokenkey-prod-canary-hold.json",
             seed=7,
         )
         with mock.patch.object(
@@ -600,6 +642,18 @@ class ProdArchiveCanaryTest(unittest.TestCase):
         ), mock.patch.object(
             canary, "_remote_host_command", return_value="true"
         ), mock.patch.object(
+            canary.cleanup_hold,
+            "verify_receipt_for_instance",
+            return_value={"hold_started_at": "2026-07-21T02:30:00Z"},
+        ), mock.patch.object(
+            canary.cleanup_hold,
+            "verify",
+            return_value={
+                "instance_id": _INSTANCE_ID,
+                "server_clock": "2026-07-21T03:00:00Z",
+                "no_cleanup_after_hold": True,
+            },
+        ), mock.patch.object(
             canary, "_run_ssm", return_value=receipt
         ), mock.patch.object(
             canary, "restore_committed_batch", return_value=restored
@@ -608,6 +662,7 @@ class ProdArchiveCanaryTest(unittest.TestCase):
 
         self.assertEqual(result["mode"], "prod_archive_export_canary_complete")
         self.assertTrue(result["production_export_executed"])
+        self.assertTrue(result["cleanup_hold"]["no_cleanup_after_hold"])
         restore.assert_called_once_with(
             s3_prefix=receipt["s3_prefix"],
             batch_id=batch_id,
@@ -618,7 +673,7 @@ class ProdArchiveCanaryTest(unittest.TestCase):
             expected_manifest_sha256=receipt["manifest_sha256"],
         )
 
-    def test_us038_committed_download_binds_manifest_checksum(self) -> None:
+    def test_us039_committed_download_binds_manifest_checksum(self) -> None:
         as_of = "2026-07-21T03:00:00Z"
         temporary_directory = tempfile.TemporaryDirectory
         with temporary_directory() as source_root, temporary_directory() as evidence_root:
@@ -785,7 +840,7 @@ class ProdArchiveCanaryPostgresIntegrationTest(unittest.TestCase):
             subprocess.run(["docker", "stop", cls._container], capture_output=True)
             cls._container = None
 
-    def test_us038_prod_canary_restores_without_mutating_source(self) -> None:
+    def test_us039_prod_canary_restores_without_mutating_source(self) -> None:
         before = self._psql(
             self._source_dsn,
             "SELECT json_agg(row_to_json(t) ORDER BY id)::text FROM ops_system_logs t",

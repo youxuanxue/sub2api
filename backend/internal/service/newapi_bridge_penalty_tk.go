@@ -50,7 +50,7 @@ func tkHandleBridgeUpstreamPenalty(ctx context.Context, rls *RateLimitService, a
 	// account-standing / arrears 400 ("Arrearage") is an ACCOUNT-level failure
 	// disguised as a client 400. It must be caught BEFORE the status allowlist
 	// below (which deliberately excludes 400 to avoid the #617 client-400
-	// pool-drain). This narrow exception cools the account + fires an immediate
+	// pool-drain). This narrow exception disables the account + fires an immediate
 	// P0 Feishu card. See newapi_bridge_arrears_tk.go.
 	if tkHandleBridgeArrearsPenalty(ctx, rls, account, apiErr) {
 		return
@@ -99,28 +99,39 @@ func tkBridgeUpstreamErrorBody(apiErr *newapitypes.NewAPIError) []byte {
 	return body
 }
 
+// tkBridgeUpstreamOpenAIError returns the raw upstream OpenAI-style envelope
+// stored on RelayError before ToOpenAIError() applies MaskSensitiveInfo. Alert
+// detail lines must use this: masking turns help.aliyun.com URLs into
+// https://***.com/***/***/***, which Feishu lark_md then renders as https://.com///.
+func tkBridgeUpstreamOpenAIError(apiErr *newapitypes.NewAPIError) (newapitypes.OpenAIError, bool) {
+	if apiErr == nil {
+		return newapitypes.OpenAIError{}, false
+	}
+	oai, ok := apiErr.RelayError.(newapitypes.OpenAIError)
+	return oai, ok
+}
+
 // tkWrapBridgeRelayErrorWithPenalty is the OpenAIGatewayService dispatch-site
 // chokepoint: apply the account penalty for real upstream bridge errors, then
-// record + wrap exactly like tkWrapBridgeRelayError. Use at every dispatch site
-// that wraps a REAL bridge upstream error and has the selected account in hand
+// return UpstreamFailoverError for account-level faults (401/402/429 + arrears)
+// or NewAPIRelayError for client/outage errors. Use at every dispatch site that
+// wraps a REAL bridge upstream error and has the selected account in hand
 // (NOT for synthetic missing-credential / unsupported-channel errors, and NOT
 // for the account-agnostic video fetch path).
-func (s *OpenAIGatewayService) tkWrapBridgeRelayErrorWithPenalty(ctx context.Context, c *gin.Context, account *Account, apiErr *newapitypes.NewAPIError) *NewAPIRelayError {
+func (s *OpenAIGatewayService) tkWrapBridgeRelayErrorWithPenalty(ctx context.Context, c *gin.Context, account *Account, apiErr *newapitypes.NewAPIError) error {
 	var rls *RateLimitService
 	if s != nil {
 		rls = s.rateLimitService
 	}
-	tkHandleBridgeUpstreamPenalty(ctx, rls, account, apiErr)
-	return tkWrapBridgeRelayError(c, apiErr)
+	return bridgeWrapRelayErrorAfterPenalty(ctx, rls, c, account, apiErr)
 }
 
 // tkWrapBridgeRelayErrorWithPenalty is the GatewayService sibling (the Anthropic
 // gateway's chat-completions/responses bridge boundary in gateway_bridge_dispatch.go).
-func (s *GatewayService) tkWrapBridgeRelayErrorWithPenalty(ctx context.Context, c *gin.Context, account *Account, apiErr *newapitypes.NewAPIError) *NewAPIRelayError {
+func (s *GatewayService) tkWrapBridgeRelayErrorWithPenalty(ctx context.Context, c *gin.Context, account *Account, apiErr *newapitypes.NewAPIError) error {
 	var rls *RateLimitService
 	if s != nil {
 		rls = s.rateLimitService
 	}
-	tkHandleBridgeUpstreamPenalty(ctx, rls, account, apiErr)
-	return tkWrapBridgeRelayError(c, apiErr)
+	return bridgeWrapRelayErrorAfterPenalty(ctx, rls, c, account, apiErr)
 }

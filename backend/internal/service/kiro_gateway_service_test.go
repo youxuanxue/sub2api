@@ -248,6 +248,80 @@ func TestKiroGatewayService_Forward_EmptyResponseTriggersFailover(t *testing.T) 
 	require.Equal(t, int64(99), events[0].AccountID)
 }
 
+func kiroContentFilteredEventStream() []byte {
+	var stream []byte
+	stream = append(stream, buildKiroEventStreamMessage("metadataEvent", []byte(`{"stopReason":"CONTENT_FILTERED"}`))...)
+	stream = append(stream, buildKiroEventStreamMessage("contextUsageEvent", []byte(`{"contextUsagePercentage":0.01}`))...)
+	stream = append(stream, buildKiroEventStreamMessage("meteringEvent", []byte(`{"usage":1}`))...)
+	return stream
+}
+
+func newKiroParsedRequestForTest(stream bool) *ParsedRequest {
+	body, _ := json.Marshal(map[string]any{
+		"model":      "claude-sonnet-4-5",
+		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
+		"max_tokens": 16,
+		"stream":     stream,
+	})
+	return &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4-5", Stream: stream}
+}
+
+func requireKiroContentFilteredError(t *testing.T, c *gin.Context, rec *httptest.ResponseRecorder, result *ForwardResult, err error) {
+	t.Helper()
+	require.Nil(t, result)
+	var contentFilteredErr *KiroContentFilteredError
+	require.ErrorAs(t, err, &contentFilteredErr)
+	var failoverErr *UpstreamFailoverError
+	require.NotErrorAs(t, err, &failoverErr)
+	require.Empty(t, rec.Body.String())
+
+	_, recorded := c.Get(OpsUpstreamErrorsKey)
+	require.False(t, recorded, "client-owned content filtering must not create an upstream error event")
+	_, recorded = c.Get(OpsUpstreamStatusCodeKey)
+	require.False(t, recorded, "client-owned content filtering must not set upstream status context")
+	_, recorded = c.Get(OpsUpstreamErrorMessageKey)
+	require.False(t, recorded, "client-owned content filtering must not set upstream error context")
+	require.True(t, HasOpsClientContentFiltered(c))
+}
+
+func TestKiroGatewayService_Forward_NonStreaming_ContentFilteredIsNotFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	svc := NewKiroGatewayService(&kiroFakeUpstream{body: kiroContentFilteredEventStream()}, nil, nil)
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), newKiroParsedRequestForTest(false), time.Now())
+	requireKiroContentFilteredError(t, c, rec, result, err)
+}
+
+func TestKiroGatewayService_Forward_Streaming_ContentFilteredIsNotFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	svc := NewKiroGatewayService(&kiroFakeUpstream{body: kiroContentFilteredEventStream()}, nil, nil)
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), newKiroParsedRequestForTest(true), time.Now())
+	requireKiroContentFilteredError(t, c, rec, result, err)
+}
+
+func TestKiroGatewayService_Forward_ContentFilteredWithAssistantTextRemainsSuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	stream := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"I cannot help with that request."}`))
+	stream = append(stream, kiroContentFilteredEventStream()...)
+	svc := NewKiroGatewayService(&kiroFakeUpstream{body: stream}, nil, nil)
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), newKiroParsedRequestForTest(false), time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "I cannot help with that request.")
+	_, recorded := c.Get(OpsUpstreamErrorsKey)
+	require.False(t, recorded)
+	require.False(t, HasOpsClientContentFiltered(c))
+}
+
 func TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

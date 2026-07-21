@@ -1,0 +1,14 @@
+{
+  "name": "anthropic-bedrock-example",
+  "platform": "anthropic",
+  "type": "bedrock",
+  "credentials": {
+    "auth_mode": "sigv4",
+    "access_key_id": "REPLACE_ME",
+    "secret_access_key": "REPLACE_ME",
+    "region": "us-east-1"
+  },
+  "group_ids": [],
+  "concurrency": 3,
+  "priority": 50
+}

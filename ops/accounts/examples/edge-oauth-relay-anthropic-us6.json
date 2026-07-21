@@ -1,0 +1,31 @@
+{
+  "import_profile": "edge_oauth_relay",
+  "edge_id": "us6",
+  "pool_platform": "anthropic",
+  "skip_prod_relay_if_exists": true,
+  "update_existing": true,
+  "edge_oauth": {
+    "name": "edge-or-example",
+    "platform": "anthropic",
+    "type": "oauth",
+    "group_ids": [1],
+    "concurrency": 1,
+    "priority": 50,
+    "credentials": {
+      "access_token": "REPLACE_ME",
+      "refresh_token": "REPLACE_ME",
+      "expires_at": "2099-01-01T00:00:00Z"
+    },
+    "extra": {
+      "enable_tls_fingerprint": true
+    }
+  },
+  "prod_relay": {
+    "name": "cc-us6",
+    "group_ids": [1],
+    "edge_api_key_user_id": 1,
+    "edge_api_key_group_id": 1,
+    "concurrency": 16,
+    "pool_mode_retry_count": 3
+  }
+}

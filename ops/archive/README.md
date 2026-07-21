@@ -80,6 +80,27 @@ deletes source or target data.
 
 ## Production export-only canary
 
+Production archive work first requires an explicit cleanup hold. The controller
+reads the current advanced settings through the admin API and cross-checks the
+database heartbeat. `apply` preserves the complete settings document and changes
+only `data_retention.cleanup_enabled`; it then proves the runtime cron reload and
+writes a receipt. It does not export or delete data.
+
+```bash
+python3 ops/archive/data_layer_archive_cleanup_hold.py plan
+
+python3 ops/archive/data_layer_archive_cleanup_hold.py apply \
+  --receipt /path/to/cleanup-hold.json \
+  --confirm tokenkey-prod-archive-cleanup-hold-v1
+
+python3 ops/archive/data_layer_archive_cleanup_hold.py verify \
+  --receipt /path/to/cleanup-hold.json
+```
+
+`release` is a separate production change and requires
+`tokenkey-prod-archive-cleanup-release-v1`. It restores only the enabled state
+captured by the receipt while preserving all current unrelated settings.
+
 The offline plan validates the fixed 30-day waterline and hard limits without
 calling AWS, Docker, PostgreSQL, or S3:
 
@@ -97,6 +118,12 @@ only `tokenkey-prod-stage0` in `us-east-1`, verifies
 manifest under `prod/pgdump/archive-canary/`, verifies S3 encryption and
 checksums, then restores into an independent localhost database named
 `tokenkey_archive_restore_*`.
+
+The source query selects one deterministic page ordered by `(created_at, id)`.
+It seals at most `max_rows`, records the first/last key and whether another cold
+row exists, and does not refuse merely because the table has a larger cold
+backlog. `run` requires `--cleanup-hold-receipt` and re-verifies the current
+setting plus cleanup heartbeat immediately before the export.
 
 The existing `tokenkey-stage0-backups` pgdump bucket expires this prefix with
 the same short retention used for pgdump copies (seven days under the approved

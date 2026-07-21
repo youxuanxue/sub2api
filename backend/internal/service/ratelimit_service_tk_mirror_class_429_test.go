@@ -145,7 +145,7 @@ func TestMirrorClass429_NonAuthoritative429Branch_WritesCooldown(t *testing.T) {
 	account := &Account{ID: 54, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
 
 	// Header-less 429 whose body is NOT a TK capacity needle ("no available
-	// accounts" / "all available accounts exhausted") — the cc-us7 relayed
+	// accounts" / the TokenKey failover-terminal envelope) — the cc-us7 relayed
 	// "Upstream rate limit exceeded" envelope.
 	body := []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"Upstream rate limit exceeded, please retry later"}}`)
 	for i := 0; i < 5; i++ {
@@ -174,7 +174,7 @@ func TestMirrorClass429_FailoverExhaustedBody429_WritesCooldown(t *testing.T) {
 	account := &Account{ID: 54, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
 
 	// 429 whose body is TokenKey's own failover-exhausted capacity phrase.
-	body := []byte(`{"type":"error","error":{"type":"server_error","message":"all available accounts exhausted"}}`)
+	body := []byte(`{"type":"error","error":{"type":"server_error","message":"Upstream request could not be completed"}}`)
 	for i := 0; i < 5; i++ {
 		require.True(t, svc.HandleUpstreamError(context.Background(), account,
 			http.StatusTooManyRequests, http.Header{}, body, "claude-sonnet-4-5"))
@@ -197,7 +197,7 @@ func TestMirrorClass429_Genuine502_LegacyPath_NoMirrorClassCooldown(t *testing.T
 	svc, _ := newMirrorClass429Service(repo)
 	account := &Account{ID: 54, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
 
-	body := []byte(`{"type":"error","error":{"type":"server_error","message":"all available accounts exhausted"}}`)
+	body := []byte(`{"type":"error","error":{"type":"server_error","message":"Upstream request could not be completed"}}`)
 	for i := 0; i < 5; i++ {
 		// 502 → default: → legacy handleAnthropicUpstreamError (no requestedModel).
 		require.True(t, svc.HandleUpstreamError(context.Background(), account,

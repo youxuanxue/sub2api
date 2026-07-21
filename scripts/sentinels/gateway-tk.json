@@ -408,25 +408,46 @@
       "rationale": "Mechanical proof that the stub-health fuse allowlist stays narrow: predicate unit tests plus regressions that extra-usage / no-SetRateLimited 429 must not feed the 3/3 counter while authoritative 429 still does."
     },
     {
+      "path": "backend/internal/service/gateway_failover_message_tk.go",
+      "must_contain": [
+        "gatewayFailoverClientMessage       = \"Upstream request could not be completed\"",
+        "legacyGatewayFailoverClientMessage = \"All available accounts exhausted\"",
+        "func GatewayFailoverClientMessage(upstreamStatusCode int) string",
+        "func IsGatewayFailoverMessage(upstreamMsg string, responseBody []byte) bool",
+        "TkEnrichClaudeIncidentMessage(gatewayFailoverClientMessage, upstreamStatusCode)",
+        "extractUpstreamErrorMessage(responseBody)"
+      ],
+      "rationale": "SSOT for the Chat Completions and Responses failover-terminal client message. Failover may stop because the switch budget was reached or because an error is request-owned/non-retryable, so the response must not claim every available account was attempted. The exact matcher accepts the truthful current message plus the legacy wording during rolling prod/edge upgrades, including only the controlled Claude incident suffix; broad substring matching would misclassify provider errors as TokenKey fleet capacity."
+    },
+    {
+      "path": "backend/internal/service/gateway_failover_message_tk_test.go",
+      "must_contain": [
+        "TestGatewayFailoverClientMessageDoesNotClaimEveryAccountWasAttempted",
+        "TestIsGatewayFailoverMessageSupportsRollingVersionCompatibility",
+        "TestIsGatewayFailoverMessageAcceptsControlledIncidentSuffix",
+        "TestIsGatewayFailoverMessageRejectsSubstringAndProviderErrors"
+      ],
+      "rationale": "Behavioral proof for the truthful failover message and its narrow mixed-version classifier: current and legacy TokenKey envelopes match, controlled incident enrichment matches, provider text and broad substring collisions do not."
+    },
+    {
       "path": "backend/internal/service/ratelimit_service_tk_downstream_no_available.go",
       "must_contain": [
         "func tkIsDownstreamNoAvailableAccounts(upstreamMsg string, responseBody []byte) bool",
         "func tkSkipDownstreamNoAvailableAccountsPenalty(statusCode int, upstreamMsg string, responseBody []byte) bool",
-        "func tkIsDownstreamAllAccountsExhausted(upstreamMsg string, responseBody []byte) bool",
         "func tkSkipDownstreamFailoverExhaustedPenalty(statusCode int, upstreamMsg string, responseBody []byte) bool",
+        "IsGatewayFailoverMessage(upstreamMsg, responseBody)",
         "func tkIsKiroMirrorStub(account *Account) bool",
         "func tkSkipDownstreamKiroServiceUnavailablePenalty(account *Account, statusCode int, upstreamMsg string, responseBody []byte) bool",
         "func tkSkipDownstreamKiroOAuthAuthRejectPenalty(account *Account, statusCode int, upstreamMsg string, responseBody []byte) bool",
         "statusCode != http.StatusUnauthorized && statusCode != http.StatusForbidden",
         "if statusCode == http.StatusForbidden {",
-        "all available accounts exhausted",
         "ErrNoAvailableAccounts.Error()",
         "mirror_platform",
         "upstream service temporarily unavailable",
         "invalid bearer token",
         "upstream request failed"
       ],
-      "rationale": "Downstream capacity-signal skips for prod→edge mirror stubs. 'no available accounts' (429/503, empty downstream pool) and 'all available accounts exhausted' (G2 narrow, 429/5xx, downstream failover loop ran dry) are both TokenKey-generated downstream-capacity strings the real provider APIs never emit; a healthy forwarding stub must fail over without advancing the 3/3 ladder. Both skips match ONLY these TokenKey phrases, so raw edge-infra 5xx and genuine provider errors still count and keep the PR #333 route-away cooldown. G5 Kiro mirror OAuth auth rejection: a prod Anthropic API-key mirror stub whose credentials.mirror_platform=kiro may receive the edge Kiro OAuth account's 401/403 invalid-bearer wrapper, but prod has no OAuth identity to refresh and must not SetError or ladder-cool the relay stub after edge self-heals. G6 Kiro service-unavailable applies the same ownership boundary to the exact TokenKey 502 envelope emitted after an edge Kiro transport/read failure: prod must fail over and de-prioritize the stub without duplicating the edge failure into the prod 3/3 fuse. Raw proxy HTML 502s, plain Anthropic accounts, and other mirror platforms remain eligible for their existing health handling. Dropping either Kiro helper silently restores stale prod stub errors or whole-pool mirror cooldown from downstream-owned failures."
+      "rationale": "Downstream capacity-signal skips for prod→edge mirror stubs. 'no available accounts' (429/503, empty downstream pool) and the service-owned failover-terminal envelope (G2 narrow, 429/5xx) are TokenKey-generated downstream signals; a healthy forwarding stub must fail over without advancing the 3/3 ladder. The failover classifier accepts the truthful current message and legacy wording exactly for mixed-version rollout, so raw edge-infra 5xx and genuine provider errors still count and keep the PR #333 route-away cooldown. G5 Kiro mirror OAuth auth rejection: a prod Anthropic API-key mirror stub whose credentials.mirror_platform=kiro may receive the edge Kiro OAuth account's 401/403 invalid-bearer wrapper, but prod has no OAuth identity to refresh and must not SetError or ladder-cool the relay stub after edge self-heals. G6 Kiro service-unavailable applies the same ownership boundary to the exact TokenKey 502 envelope emitted after an edge Kiro transport/read failure: prod must fail over and de-prioritize the stub without duplicating the edge failure into the prod 3/3 fuse. Raw proxy HTML 502s, plain Anthropic accounts, and other mirror platforms remain eligible for their existing health handling. Dropping either Kiro helper silently restores stale prod stub errors or whole-pool mirror cooldown from downstream-owned failures."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
@@ -469,10 +490,11 @@
     {
       "path": "backend/internal/service/ratelimit_service_tk_downstream_exhausted_test.go",
       "must_contain": [
+        "TestTkSkipDownstreamFailoverExhaustedPenalty",
         "TestRateLimitService_HandleUpstreamError_DownstreamFailoverExhausted_DoesNotPenalizeStub",
         "TestRateLimitService_HandleUpstreamError_RawInfra502_StillCountsAndRoutesAway"
       ],
-      "rationale": "Focused regressions proving G2 (narrow): the 'all available accounts exhausted' downstream envelope is skipped, while a raw infra 502 with no TokenKey capacity phrase STILL counts and routes away (PR #333 preserved). The pair is the load-bearing boundary — dropping the first re-arms the amplifier, dropping the second would let a future broad refactor silently weaken route-away."
+      "rationale": "Focused regressions proving G2 (narrow): current and legacy TokenKey failover-terminal envelopes are skipped, while a raw infra 502 with no TokenKey message still counts and routes away (PR #333 preserved). This is the load-bearing boundary between downstream-owned failover and genuine relay/provider failure."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go",
@@ -2704,6 +2726,35 @@
       "rationale": "Pure, fork-only Claude Code context-window model-alias stripper (claude-code #60913 / #50803 / #53031 / #55504 / #34143), kept in a *_tk_*.go companion out of upstream-owned gateway_service.go (rule §5). tkStripContextWindowModelAlias removes a trailing bracketed alias such as '[1m]' that cc serializes verbatim into the API model field on resume/continue/compact — Anthropic answers 404 not_found_error and the client silently falls back to the bare 200K model (paid 1M context lost, no error surfaced). The trailing-anchored regexp keeps a legitimate id (never contains brackets) a byte-for-byte no-op; the context-1m beta header flows through separately so the bare id still activates the 1M window. Anchor the pure function + the regexp guard so an upstream refactor that consolidates model normalization cannot delete this surface and silently re-expose the 404 + 200K downgrade. Exhaustively covered by gateway_anthropic_context_window_alias_tk_test.go."
     },
     {
+      "path": "backend/internal/service/openai_compat_context_window_alias_tk.go",
+      "must_contain": [
+        "func applyOpenAICompatContextWindowModelAlias(model string) (string, bool) {",
+        "return tkStripContextWindowModelAlias(model)"
+      ],
+      "rationale": "OpenAI-compat companion to gateway_anthropic_context_window_alias_tk.go: Claude Code serializes gpt-5.5[1m] on messages-dispatch / Codex paths; without stripping, upstream rejects or caps to ~200K while CC shows a paid 1M window. Pure wrapper around tkStripContextWindowModelAlias so the OpenAI seam stays merge-safe in *_tk_*.go."
+    },
+    {
+      "path": "backend/internal/service/openai_compat_model.go",
+      "must_contain": [
+        "applyOpenAICompatContextWindowModelAlias(trimmed)"
+      ],
+      "rationale": "NormalizeOpenAICompatRequestedModel / applyOpenAICompatModelNormalization must strip Claude Code [1m] aliases before reasoning-suffix normalization and upstream forward on the /v1/messages OpenAI-compat bridge."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_dispatch.go",
+      "must_contain": [
+        "applyOpenAICompatContextWindowModelAlias(model)"
+      ],
+      "rationale": "Messages-dispatch mapped models (gpt-5.5 family defaults and exact overrides) must strip inbound [1m] aliases so scheduling, billing, and Codex forward see bare servable ids."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_transform.go",
+      "must_contain": [
+        "applyOpenAICompatContextWindowModelAlias(model)"
+      ],
+      "rationale": "normalizeCodexModel is the last-mile Codex id normalizer; dropping the [1m] strip re-exposes context-window 502s when CC resumes with gpt-5.5[1m]."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_service_tk_codex_usage_snapshot.go",
       "must_contain": [
         "result.Used5hPercent = s.PrimaryUsedPercent",
@@ -3193,9 +3244,9 @@
         "func tkUpstreamDownstreamCapacity(c *gin.Context) bool",
         "if status != 429 && status < 500 {",
         "isOpsNoAvailableAccountMessage(combined)",
-        "opsDownstreamFailoverExhaustedPhrase"
+        "service.IsGatewayFailoverMessage(msg, []byte(body))"
       ],
-      "rationale": "Mirror-edge metric pollution (2026-06-06 yace load test): prod relays to Edge stacks via cc-<edge> apikey mirror accounts; an empty edge pool returns 429/503 with a TokenKey 'No available accounts' body (tkNoAvailableAccounts, PR #575). Because that 429 carries a definitive upstream status, tkUpstreamClientCanceled (status-0 gate) deliberately skips it and classifyOpsErrorLog counted it as phase=upstream/provider — so a dead single-account edge (us3: served_200=0, no_available_429=33748) and a healthy 3-account edge (us5: 2251x200, 77x429) both read ~1300 upstream-429 on prod, making the provider-health metric unable to tell a dead edge from a healthy one. This predicate detects a relayed TokenKey downstream-capacity verdict (status 429 or >=500 AND body text 'no available accounts' / 'all available accounts exhausted') so classifyOpsErrorLog can fold it into routingCapacityLimited and own it as routing (out of upstream_error_rate), exactly like a LOCAL empty pool and mirroring the cooldown-ladder skip in ratelimit_service_tk_downstream_no_available.go. Boundary (anthropic_amplifier_exemption_boundary): the status gate keeps status-0 transport errors with tkUpstreamClientCanceled, and ONLY the TokenKey-generated phrases match — a real Anthropic 429 (rate_limit_error) or raw 5xx carries no such phrase and stays provider-owned. Dropping the predicate (or broadening it past the TK phrases) re-arms the mirror-edge false P0 / blinds provider health."
+      "rationale": "Mirror-edge metric pollution (2026-06-06 yace load test): prod relays to Edge stacks via cc-<edge> apikey mirror accounts; an empty edge pool returns 429/503 with a TokenKey 'No available accounts' body. This predicate detects a relayed TokenKey downstream verdict (status 429 or >=500 AND either the no-available signal or the service-owned current/legacy failover-terminal envelope) so classifyOpsErrorLog owns it as routing instead of provider health. Boundary: status 0 stays client-cancel owned, and the failover matcher is exact; real provider 429s and raw 5xx remain provider-owned."
     },
     {
       "path": "backend/internal/handler/ops_error_logger_tk_downstream_capacity_test.go",
@@ -3204,7 +3255,7 @@
         "TestClassifyOpsGenuineUpstreamStaysProviderDespiteCapacityHelper",
         "TestTkUpstreamDownstreamCapacityPredicate"
       ],
-      "rationale": "Focused regressions proving the mirror-edge boundary: (1) a relayed edge 'no available accounts' 429 (with and without a trailing client-cancel) and an 'all available accounts exhausted' 503 classify as phase=routing / error_owner=platform / businessLimited (out of upstream_error_rate); (2) a genuine provider 429 (rate_limit_error) and a raw 5xx with no TokenKey phrase stay phase=upstream / error_owner=provider so they keep counting; (3) the predicate status gate (status 0 owned by client-cancel) and phrase boundary hold. Dropping these lets an upstream merge silently revert the mirror-edge upstream-429 exclusion through the classifier."
+      "rationale": "Focused regressions proving the mirror-edge boundary: relayed no-available plus current and legacy failover-terminal envelopes classify as routing/platform, while genuine provider 429s and raw 5xx stay upstream/provider. The predicate status gate keeps status 0 client-cancel owned."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_header_wait_keepalive.go",
@@ -3545,16 +3596,28 @@
     {
       "path": "backend/internal/handler/gateway_handler_chat_completions.go",
       "must_contain": [
-        "h.tkResolveCCOnlyFallback(c, apiKey, reqLog, writeForbidden, writeBillingError)"
+        "h.tkResolveCCOnlyFallback(c, apiKey, reqLog, writeForbidden, writeBillingError)",
+        "service.GatewayFailoverClientMessage(http.StatusBadGateway)",
+        "service.GatewayFailoverClientMessage(statusCode)"
       ],
-      "rationale": "Thin injection point for CC-only fallback routing in the upstream-shaped /v1/chat/completions handler. The bare CC-only 403 was replaced by a call into the TK companion (gateway_handler_tk_cc_only_fallback.go) that, on a valid fallback_group_id, re-binds apiKey to the fallback group and continues the request. An upstream merge that copies the old bare-403 shape back over this hook silently reverts the fallback feature."
+      "rationale": "Thin injection points for CC-only fallback routing and the shared truthful failover-terminal message in /v1/chat/completions. An upstream merge must not restore the bare CC-only 403 or the misleading claim that every available account was attempted."
     },
     {
       "path": "backend/internal/handler/gateway_handler_responses.go",
       "must_contain": [
-        "h.tkResolveCCOnlyFallback(c, apiKey, reqLog, writeForbidden, writeBillingError)"
+        "h.tkResolveCCOnlyFallback(c, apiKey, reqLog, writeForbidden, writeBillingError)",
+        "service.GatewayFailoverClientMessage(http.StatusBadGateway)",
+        "service.GatewayFailoverClientMessage(statusCode)"
       ],
-      "rationale": "Thin injection point for CC-only fallback routing in the upstream-shaped /v1/responses handler. Mirrors the /v1/chat/completions hook: the bare CC-only 403 delegates to the TK companion so a valid fallback_group_id routes non-CC traffic to the fallback group instead of rejecting it. Anchors the hook against an upstream merge silently restoring the bare 403."
+      "rationale": "Thin injection points for CC-only fallback routing and the shared truthful failover-terminal message in /v1/responses. This mirrors Chat Completions and prevents either API surface from drifting back to the misleading all-accounts claim."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_failover_message_test.go",
+      "must_contain": [
+        "TestHandleCCFailoverExhaustedUsesTruthfulClientMessage",
+        "TestHandleResponsesFailoverExhaustedUsesTruthfulClientMessage"
+      ],
+      "rationale": "Focused behavioral regressions proving both OpenAI-compatible API shapes return the shared neutral message and never claim all accounts were exhausted."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_media_unpriced_guard.go",
@@ -5123,6 +5186,44 @@
         "partitioned parent index %s remains invalid"
       ],
       "rationale": "Prod ops_system_logs is a 12 GB partitioned parent. The companion must build child indexes concurrently, create the metadata-only parent, attach all children, and refuse to record an invalid parent; replacing it with a recursive blocking CREATE INDEX can stall production writes."
+    },
+    {
+      "path": "backend/internal/service/api_key_service_tk_admin_create.go",
+      "must_contain": [
+        "func (s *APIKeyService) CreateAsAdmin(",
+        "infraerrors.BadRequest(\"GROUP_NOT_ACTIVE\""
+      ],
+      "rationale": "Admin-only API key issuance for ops relay provisioning (POST /admin/users/:id/api-keys). Bypasses end-user group permission checks while still validating user/group existence. Dropping this companion silently removes the edge→prod relay key automation path while the route/handler may still compile against stale wiring."
+    },
+    {
+      "path": "backend/internal/service/api_key_service_tk_admin_create_test.go",
+      "must_contain": [
+        "TestAPIKeyService_CreateAsAdmin_BypassesUserGroupPermission",
+        "TestAPIKeyService_CreateAsAdmin_GroupNotActive"
+      ],
+      "rationale": "Regression guard for CreateAsAdmin: admin bypass of user group bind checks and inactive-group rejection."
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_contain": [
+        "adminAPIKeyHandler := admin.NewAdminAPIKeyHandler(adminService, apiKeyService)"
+      ],
+      "rationale": "Wire DI for AdminAPIKeyHandler now requires APIKeyService (CreateAsAdmin). Upstream wire regen can revert to the single-arg constructor and break admin relay key issuance at compile time or silently drop the dependency."
+    },
+    {
+      "path": "backend/internal/server/routes/admin.go",
+      "must_contain": [
+        "users.POST(\"/:id/api-keys\", h.Admin.APIKey.CreateForUser)"
+      ],
+      "rationale": "Route registration for admin user API key issuance used by ops/accounts edge_oauth_relay automation. A silent upstream merge dropping this line unregisters the endpoint while handlers remain compiled-but-unreachable."
+    },
+    {
+      "path": "backend/internal/handler/admin/apikey_handler.go",
+      "must_contain": [
+        "func (h *AdminAPIKeyHandler) CreateForUser(",
+        "admin.users.api_keys.create"
+      ],
+      "rationale": "Admin handler for POST /admin/users/:id/api-keys. Pins the CreateForUser entry point and idempotency scope for ops relay key provisioning."
     }
   ]
 }

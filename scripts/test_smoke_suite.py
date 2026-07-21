@@ -132,6 +132,20 @@ class SoftDegradeOrExitTest(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("MARKER=softskip", out)
 
+    def test_full_403_failover_terminal_soft_skips(self) -> None:
+        rc, out = self._run(
+            "full", "403", {"error": {"message": "Upstream request could not be completed"}},
+        )
+        self.assertEqual(rc, 0, out)
+        self.assertIn("MARKER=softskip", out)
+
+    def test_full_403_legacy_failover_terminal_soft_skips(self) -> None:
+        rc, out = self._run(
+            "full", "403", {"error": {"message": "All available accounts exhausted"}},
+        )
+        self.assertEqual(rc, 0, out)
+        self.assertIn("MARKER=softskip", out)
+
     def test_full_200_continues(self) -> None:
         rc, out = self._run("full", "200", {"ok": True})
         self.assertEqual(rc, 0, out)

@@ -245,6 +245,10 @@ func ResponsesEventToAnthropicEvents(
 		return resToAnthHandleFuncArgsDone(evt, state)
 	case "response.output_item.done":
 		return resToAnthHandleOutputItemDone(evt, state)
+	case "response.reasoning_summary_part.added":
+		return resToAnthEnsureReasoningBlockOpen(state, evt.OutputIndex)
+	case "response.reasoning_summary_part.done":
+		return resToAnthHandleBlockDone(state)
 	case "response.reasoning_summary_text.delta",
 		// 原始推理文本增量，与 reasoning summary 一样映射为 thinking。
 		"response.reasoning_text.delta":
@@ -401,8 +405,9 @@ func resToAnthHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 		return events
 
 	case "reasoning":
-		// Open the thinking block only after a non-empty summary delta arrives.
-		return nil
+		// Open thinking immediately so /v1/messages clients (claude-cli) receive
+		// content_block_start during long upstream reasoning before the first delta.
+		return resToAnthEnsureReasoningBlockOpen(state, evt.OutputIndex)
 
 	case "message":
 		return nil
@@ -540,34 +545,40 @@ func resToAnthHandleFuncArgsDone(evt *ResponsesStreamEvent, state *ResponsesEven
 	return events
 }
 
+func resToAnthEnsureReasoningBlockOpen(state *ResponsesEventToAnthropicState, outputIndex int) []AnthropicStreamEvent {
+	if _, ok := state.OutputIndexToBlockIdx[outputIndex]; ok {
+		return nil
+	}
+
+	var events []AnthropicStreamEvent
+	events = append(events, closeCurrentBlock(state)...)
+
+	blockIdx := state.ContentBlockIndex
+	state.OutputIndexToBlockIdx[outputIndex] = blockIdx
+	state.ContentBlockOpen = true
+	state.CurrentBlockType = "thinking"
+	state.EmittedAnyContentBlock = true
+
+	events = append(events, AnthropicStreamEvent{
+		Type:  "content_block_start",
+		Index: &blockIdx,
+		ContentBlock: &AnthropicContentBlock{
+			Type:     "thinking",
+			Thinking: "",
+		},
+	})
+	return events
+}
+
 func resToAnthHandleReasoningDelta(evt *ResponsesStreamEvent, state *ResponsesEventToAnthropicState) []AnthropicStreamEvent {
 	if evt.Delta == "" {
 		return nil
 	}
 
 	var events []AnthropicStreamEvent
+	events = append(events, resToAnthEnsureReasoningBlockOpen(state, evt.OutputIndex)...)
 
-	// Avoid emitting empty thinking blocks when upstream has no summary text.
-	blockIdx, ok := state.OutputIndexToBlockIdx[evt.OutputIndex]
-	if !ok {
-		events = append(events, closeCurrentBlock(state)...)
-
-		blockIdx = state.ContentBlockIndex
-		state.OutputIndexToBlockIdx[evt.OutputIndex] = blockIdx
-		state.ContentBlockOpen = true
-		state.CurrentBlockType = "thinking"
-		state.EmittedAnyContentBlock = true
-
-		events = append(events, AnthropicStreamEvent{
-			Type:  "content_block_start",
-			Index: &blockIdx,
-			ContentBlock: &AnthropicContentBlock{
-				Type:     "thinking",
-				Thinking: "",
-			},
-		})
-	}
-
+	blockIdx := state.OutputIndexToBlockIdx[evt.OutputIndex]
 	events = append(events, AnthropicStreamEvent{
 		Type:  "content_block_delta",
 		Index: &blockIdx,

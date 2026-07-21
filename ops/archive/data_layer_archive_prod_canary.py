@@ -26,6 +26,7 @@ from collections.abc import Callable, Iterable
 from typing import Any
 from urllib.parse import urlparse
 
+import data_layer_archive_cleanup_hold as cleanup_hold
 import data_layer_archive_rehearsal as rehearsal
 
 
@@ -138,6 +139,7 @@ def build_plan(
         "source_mutated": False,
         "deletion_authorized": False,
         "execution_authorized": False,
+        "cleanup_hold_required": True,
         "required_confirmation": PROD_CONFIRMATION,
         **request,
     }
@@ -332,10 +334,8 @@ def _collect_prod_candidates(
         request["timeout_seconds"],
         output_limit,
     )
-    if len(lines) > request["max_rows"]:
-        raise CanaryError(
-            f"production canary rows exceed max_rows={request['max_rows']}"
-        )
+    more_cold_rows_after_sample = len(lines) > request["max_rows"]
+    lines = lines[: request["max_rows"]]
     if not lines:
         raise CanaryError("production canary found no cold rows")
 
@@ -388,6 +388,15 @@ def _collect_prod_candidates(
         "query_elapsed_ms": round((time.monotonic() - started) * 1000, 3),
         "candidate_rows": len(records),
         "candidate_logical_bytes": logical_bytes,
+        "sample_first_key": {
+            "created_at": records[0]["created_at"],
+            "record_id": records[0]["record_id"],
+        },
+        "sample_last_key": {
+            "created_at": records[-1]["created_at"],
+            "record_id": records[-1]["record_id"],
+        },
+        "more_cold_rows_after_sample": more_cold_rows_after_sample,
     }
 
 
@@ -485,6 +494,10 @@ def seal_prod_canary_batch(
             "max_rows": max_rows,
             "max_logical_bytes": max_logical_bytes,
             "query_elapsed_ms": metrics["query_elapsed_ms"],
+            "selection_order": ["created_at", "id"],
+            "sample_first_key": metrics["sample_first_key"],
+            "sample_last_key": metrics["sample_last_key"],
+            "more_cold_rows_after_sample": metrics["more_cold_rows_after_sample"],
         },
         "source_mutated": False,
         "deletion_authorized": False,
@@ -1066,6 +1079,12 @@ def run_canary(args: argparse.Namespace) -> dict[str, Any]:
     )
     rehearsal._postgres_dsn_info(args.restore_target_dsn, target=True)
     instance_id = _prod_instance()
+    hold_receipt = cleanup_hold.verify_receipt_for_instance(
+        args.cleanup_hold_receipt, instance_id
+    )
+    hold_verification = cleanup_hold.verify(args.cleanup_hold_receipt)
+    if hold_verification.get("instance_id") != instance_id:
+        raise CanaryError("cleanup hold verification reached a different instance")
     bucket = _stack_output(BACKUP_STACK, BACKUP_BUCKET_OUTPUT)
     retention_days = _stack_parameter(BACKUP_STACK, "RetentionDays")
     if retention_days != str(BACKUP_RETENTION_DAYS):
@@ -1104,6 +1123,11 @@ def run_canary(args: argparse.Namespace) -> dict[str, Any]:
         "environment": "prod",
         "instance_id": instance_id,
         "upload": upload,
+        "cleanup_hold": {
+            "hold_started_at": hold_receipt["hold_started_at"],
+            "verified_at": hold_verification["server_clock"],
+            "no_cleanup_after_hold": hold_verification["no_cleanup_after_hold"],
+        },
         "production_export_executed": True,
         "source_mutated": False,
         "deletion_authorized": False,
@@ -1133,6 +1157,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--evidence-root", required=True)
     run.add_argument("--restore-target-dsn", required=True)
     run.add_argument("--seed", type=int, required=True)
+    run.add_argument("--cleanup-hold-receipt", required=True)
     run.add_argument("--ssm-timeout-seconds", type=int, default=300)
     run.add_argument("--confirm", required=True)
 
@@ -1175,7 +1200,12 @@ def main(argv: Iterable[str] | None = None) -> int:
         else:  # pragma: no cover - argparse owns the command space.
             parser.error(f"unknown command {args.command}")
         print(rehearsal._canonical_json(payload))
-    except (CanaryError, OSError, rehearsal.RehearsalError) as exc:
+    except (
+        CanaryError,
+        OSError,
+        rehearsal.RehearsalError,
+        cleanup_hold.HoldControlError,
+    ) as exc:
         print(f"production archive canary refused: {exc}", file=sys.stderr)
         return 2
     return 0

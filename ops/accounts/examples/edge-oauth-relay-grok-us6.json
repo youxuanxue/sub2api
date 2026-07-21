@@ -1,0 +1,27 @@
+{
+  "import_profile": "edge_oauth_relay",
+  "edge_id": "us6",
+  "pool_platform": "grok",
+  "skip_prod_relay_if_exists": true,
+  "update_existing": true,
+  "edge_oauth": {
+    "name": "grok-us6-oauth-example",
+    "platform": "grok",
+    "type": "oauth",
+    "group_ids": [1],
+    "concurrency": 1,
+    "priority": 50,
+    "credentials": {
+      "refresh_token": "REPLACE_ME"
+    }
+  },
+  "prod_relay": {
+    "name": "grok-us6",
+    "group_ids": [1],
+    "edge_api_key_user_id": 1,
+    "edge_api_key_group_id": 1,
+    "concurrency": 8,
+    "priority": 50,
+    "pool_mode_retry_count": 3
+  }
+}
