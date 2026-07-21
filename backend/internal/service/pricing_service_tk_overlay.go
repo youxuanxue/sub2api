@@ -53,16 +53,19 @@ var tkPricingOverlayRaw []byte
 
 type tkPricingOverlayExecutableConfig struct {
 	OfficialListBaseTax *tkOfficialListBaseTaxPolicy `json:"official_list_base_tax"`
+	DeepSeekPeakValley  *tkDeepSeekPeakValleyPolicy  `json:"deepseek_peak_valley"`
 }
 
 type tkPricingOverlaySnapshot struct {
-	Models  map[string]*LiteLLMModelPricing
-	BaseTax tkOfficialListBaseTaxPolicy
+	Models             map[string]*LiteLLMModelPricing
+	BaseTax            tkOfficialListBaseTaxPolicy
+	DeepSeekPeakValley *tkDeepSeekPeakValleyPolicy
 }
 
 type tkPricingOverlayDocument struct {
-	Models  map[string]*LiteLLMModelPricing
-	BaseTax *tkOfficialListBaseTaxPolicy
+	Models             map[string]*LiteLLMModelPricing
+	BaseTax            *tkOfficialListBaseTaxPolicy
+	DeepSeekPeakValley *tkDeepSeekPeakValleyPolicy
 }
 
 // tkOverlayEffective is the live immutable snapshot = embedded ∪ runtime-settings
@@ -99,6 +102,13 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 		}
 		policy := *config.OfficialListBaseTax
 		doc.BaseTax = &policy
+		if config.DeepSeekPeakValley != nil {
+			if err := config.DeepSeekPeakValley.validate(); err != nil {
+				return nil, fmt.Errorf("overlay _config.deepseek_peak_valley: %w", err)
+			}
+			peakPolicy := *config.DeepSeekPeakValley
+			doc.DeepSeekPeakValley = &peakPolicy
+		}
 	}
 
 	for name, rawEntry := range raw {
@@ -219,8 +229,16 @@ func buildTKPricingOverlaySnapshot(runtimeBytes []byte) (*tkPricingOverlaySnapsh
 			}
 			base.BaseTax = runtime.BaseTax
 		}
+		if runtime.DeepSeekPeakValley != nil {
+			base.DeepSeekPeakValley = runtime.DeepSeekPeakValley
+		}
 	}
-	return &tkPricingOverlaySnapshot{Models: base.Models, BaseTax: *base.BaseTax}, nil
+	snapshot := &tkPricingOverlaySnapshot{Models: base.Models, BaseTax: *base.BaseTax}
+	if base.DeepSeekPeakValley != nil {
+		policy := *base.DeepSeekPeakValley
+		snapshot.DeepSeekPeakValley = &policy
+	}
+	return snapshot, nil
 }
 
 // rebuildTKOverlayUnion recomputes the effective overlay = embedded ∪ runtime

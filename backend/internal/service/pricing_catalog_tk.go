@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -109,6 +110,22 @@ type PublicCatalogPricing struct {
 	// their first-tier price only — the ladder lived only in the compiled-in
 	// tk_pricing_overlay.json. Omitted for flat-priced models.
 	Tiers []PublicCatalogTier `json:"tiers,omitempty"`
+	// PeakValley, when present, documents provider time-of-day peak pricing on top
+	// of the flat fields above (currently DeepSeek direct API). Billing applies
+	// PeakMultiplier during the listed windows in Timezone; flat prices are
+	// off-peak (谷时).
+	PeakValley *PublicCatalogPeakValley `json:"peak_valley,omitempty"`
+}
+
+// PublicCatalogPeakValley surfaces off-peak vs peak list prices for models with
+// upstream time-of-day multipliers. Peak* fields are flat × PeakMultiplier.
+type PublicCatalogPeakValley struct {
+	Timezone          string   `json:"timezone"`
+	Windows           []string `json:"windows"`
+	PeakMultiplier    float64  `json:"peak_multiplier"`
+	InputPer1KTokens  float64  `json:"input_per_1k_tokens"`
+	OutputPer1KTokens float64  `json:"output_per_1k_tokens"`
+	CacheReadPer1K    float64  `json:"cache_read_per_1k,omitempty"`
 }
 
 // PublicCatalogTier is one input-token bracket of a tiered (阶梯) price. MinTokens
@@ -242,6 +259,7 @@ func (s *PricingCatalogService) BuildPublicCatalog(ctx context.Context) *PublicC
 		applyCatalogOverlayPricing(resp)
 		attachCatalogOverlayTiers(resp)
 		applyCatalogOfficialListBaseTax(resp)
+		attachCatalogDeepSeekPeakValley(resp)
 	}
 
 	s.mu.Lock()
@@ -465,6 +483,44 @@ func applyCatalogOfficialListBaseTax(resp *PublicCatalogResponse) {
 	}
 	for i := range resp.Data {
 		tkApplyBaseTaxToPublicCatalogPricing(resp.Data[i].Vendor, &resp.Data[i].Pricing)
+	}
+}
+
+func attachCatalogDeepSeekPeakValley(resp *PublicCatalogResponse) {
+	policy := loadTkDeepSeekPeakValleyPolicy()
+	if resp == nil || policy == nil || policy.PeakMultiplier <= 1 {
+		return
+	}
+	windows := make([]string, 0, len(policy.Windows))
+	for _, w := range policy.Windows {
+		if w.Start != "" && w.End != "" {
+			windows = append(windows, w.Start+"-"+w.End)
+		}
+	}
+	tz := strings.TrimSpace(policy.Timezone)
+	if tz == "" {
+		tz = "Asia/Shanghai"
+	}
+	for i := range resp.Data {
+		modelID := resp.Data[i].ModelID
+		if !tkDeepSeekPeakValleyApplies(modelID, PricingSourceLiteLLM) {
+			continue
+		}
+		p := &resp.Data[i].Pricing
+		if p.InputPer1KTokens == 0 && p.OutputPer1KTokens == 0 {
+			continue
+		}
+		peak := PublicCatalogPeakValley{
+			Timezone:          tz,
+			Windows:           windows,
+			PeakMultiplier:    policy.PeakMultiplier,
+			InputPer1KTokens:  p.InputPer1KTokens * policy.PeakMultiplier,
+			OutputPer1KTokens: p.OutputPer1KTokens * policy.PeakMultiplier,
+		}
+		if p.CacheReadPer1K > 0 {
+			peak.CacheReadPer1K = p.CacheReadPer1K * policy.PeakMultiplier
+		}
+		p.PeakValley = &peak
 	}
 }
 

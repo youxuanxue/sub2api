@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
 // APIKeyRateLimitCacheData holds rate limit usage data cached in Redis.
@@ -858,6 +859,9 @@ type CostInput struct {
 	Resolver                  *ModelPricingResolver // 定价解析器
 	Resolved                  *ResolvedPricing      // 可选：预解析的定价结果（避免重复 Resolve 调用）
 	LongContextBillingEnabled *bool
+	// BillingAt is the wall-clock instant used for provider time-of-day pricing
+	// (DeepSeek peak-valley). Zero → timezone.Now() at billing time.
+	BillingAt time.Time
 }
 
 // CalculateCostUnified 统一计费入口，支持三种计费模式。
@@ -919,7 +923,12 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 		return nil, fmt.Errorf("no pricing available for model: %s: %w", input.Model, ErrModelPricingUnavailable)
 	}
 
+	at := input.BillingAt
+	if at.IsZero() {
+		at = timezone.Now()
+	}
 	pricing = s.applyModelSpecificPricingPolicy(input.Model, pricing)
+	pricing = tkApplyDeepSeekPeakValleyPricing(input.Model, pricing, at, resolved.Source)
 
 	// 长上下文定价仅在无区间定价时应用（区间定价已包含上下文分层）
 	applyLongCtx := len(resolved.Intervals) == 0
@@ -1132,6 +1141,13 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 	if err != nil {
 		return nil, err
 	}
+
+	source := PricingSourceLiteLLM
+	if channelPricing != nil {
+		source = PricingSourceChannel
+	}
+	pricing = s.applyModelSpecificPricingPolicy(model, pricing)
+	pricing = tkApplyDeepSeekPeakValleyPricing(model, pricing, timezone.Now(), source)
 
 	// 旧路径始终检查长上下文定价（无区间定价概念）。该路径不携带 enable_thinking
 	// （仅 CalculateCostUnified/CostInput 链路透传思考模式），故按非思考计费。

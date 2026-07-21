@@ -31,6 +31,17 @@ export interface PublicPricing {
    *  GLM-4.7). The flat input/output fields carry the first (lowest) tier; this
    *  array carries the full ladder. Absent for flat-priced models. Per 1k tokens. */
   tiers?: PublicPricingTier[]
+  /** DeepSeek upstream peak-valley: flat fields are off-peak; peak_* are ×multiplier. */
+  peak_valley?: PublicPricingPeakValley
+}
+
+export interface PublicPricingPeakValley {
+  timezone: string
+  windows: string[]
+  peak_multiplier: number
+  input_per_1k_tokens: number
+  output_per_1k_tokens: number
+  cache_read_per_1k?: number
 }
 
 /** One input-token bracket of a tiered (阶梯) price. `min_tokens` inclusive,
