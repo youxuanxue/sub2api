@@ -9,7 +9,11 @@ const (
 )
 
 func normalizeOpenAIMessagesDispatchMappedModel(model string) string {
-	model = NormalizeOpenAICompatRequestedModel(strings.TrimSpace(model))
+	model = strings.TrimSpace(model)
+	if bare, stripped := applyOpenAICompatContextWindowModelAlias(model); stripped {
+		model = bare
+	}
+	model = NormalizeOpenAICompatRequestedModel(model)
 	return strings.TrimSpace(model)
 }
 

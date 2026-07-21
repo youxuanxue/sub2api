@@ -869,9 +869,10 @@
     {
       "path": "frontend/src/components/keys/UseKeyGuide.vue",
       "must_contain": [
-        "claude-opus-4-8[1m]"
+        "claude-opus-4-8[1m]",
+        "gpt-5.5[1m]"
       ],
-      "rationale": "The 'Use API Key' guide recommends ANTHROPIC_MODEL for Claude Code. The base id MUST be an empirically-servable Anthropic model (backend supportedAnthropicCatalogModels, regenerated from a live prod probe — PR #608), NOT a bare alias. The gateway strips the trailing [1m] context-window suffix (gateway_anthropic_context_window_alias_tk.go), so a bare 'opus[1m]' collapses to 'opus' and is rejected as a non-servable model name → 400 invalid_request (PR #617), while the user silently never gets 1M context. Pinning the servable id catches a regression back to the bare alias on upstream merge or careless edit. Advance this needle (and the guide's export/settings strings) together when the servable opus generation moves past claude-opus-4-8. Canonical surface moved from UseKeyModal.vue to UseKeyGuide.vue (quickstart SSOT)."
+      "rationale": "The 'Use API Key' guide recommends ANTHROPIC_MODEL for Claude Code. Anthropic direct groups use claude-opus-4-8[1m]; OpenAI messages-dispatch groups use gpt-5.5[1m]. The gateway strips trailing [1m] on both paths (gateway_anthropic_context_window_alias_tk.go + openai_compat_context_window_alias_tk.go) while CC keeps the 1M client window. Pin both needles so upstream merge cannot silently revert to bare ids and re-expose 200K / 502 regressions."
     },
     {
       "path": "frontend/src/components/keys/UseKeyGuide.vue",
@@ -1108,7 +1109,8 @@
         "export function useTkUseKey(",
         "getMePricingCatalog({ apiKeyId: id })",
         "function runTest(",
-        "export function anthropicEnvModel("
+        "export function anthropicEnvModel(",
+        "export function openaiCompatContextWindowEnvModel("
       ],
       "rationale": "PR #788: brain of the redesigned 'Use API Key' modal. The model picker draws ONLY the key's live servable menu via getMePricingCatalog (no hand-typed/retired/bare ids), runTest fires a canonical-correct gateway request routed per platform/flavor (/v1/messages · /v1/chat/completions · :generateContent), and anthropicEnvModel re-applies the [1m] 1M-window alias for opus. TK-only module with no upstream counterpart — an upstream merge that deletes/replaces it would silently revert the modal to hardcoded model hints and drop the live test, re-opening the ~950/wk wrong-model and ~2808/wk invalid-key error classes this redesign was built (from prod ops_error_logs) to kill. Anchors the servable-menu data source + the per-platform test routing entrypoint + the [1m] helper."
     },

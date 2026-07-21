@@ -11,6 +11,9 @@ func NormalizeOpenAICompatRequestedModel(model string) string {
 	if trimmed == "" {
 		return ""
 	}
+	if bare, stripped := applyOpenAICompatContextWindowModelAlias(trimmed); stripped {
+		trimmed = bare
+	}
 
 	normalized, _, ok := splitOpenAICompatReasoningModel(trimmed)
 	if !ok || normalized == "" {
@@ -27,6 +30,10 @@ func applyOpenAICompatModelNormalization(req *apicompat.AnthropicRequest) {
 	originalModel := strings.TrimSpace(req.Model)
 	if originalModel == "" {
 		return
+	}
+	if bare, stripped := applyOpenAICompatContextWindowModelAlias(originalModel); stripped {
+		originalModel = bare
+		req.Model = bare
 	}
 
 	normalizedModel, derivedEffort, hasReasoningSuffix := splitOpenAICompatReasoningModel(originalModel)

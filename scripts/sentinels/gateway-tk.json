@@ -2726,6 +2726,35 @@
       "rationale": "Pure, fork-only Claude Code context-window model-alias stripper (claude-code #60913 / #50803 / #53031 / #55504 / #34143), kept in a *_tk_*.go companion out of upstream-owned gateway_service.go (rule §5). tkStripContextWindowModelAlias removes a trailing bracketed alias such as '[1m]' that cc serializes verbatim into the API model field on resume/continue/compact — Anthropic answers 404 not_found_error and the client silently falls back to the bare 200K model (paid 1M context lost, no error surfaced). The trailing-anchored regexp keeps a legitimate id (never contains brackets) a byte-for-byte no-op; the context-1m beta header flows through separately so the bare id still activates the 1M window. Anchor the pure function + the regexp guard so an upstream refactor that consolidates model normalization cannot delete this surface and silently re-expose the 404 + 200K downgrade. Exhaustively covered by gateway_anthropic_context_window_alias_tk_test.go."
     },
     {
+      "path": "backend/internal/service/openai_compat_context_window_alias_tk.go",
+      "must_contain": [
+        "func applyOpenAICompatContextWindowModelAlias(model string) (string, bool) {",
+        "return tkStripContextWindowModelAlias(model)"
+      ],
+      "rationale": "OpenAI-compat companion to gateway_anthropic_context_window_alias_tk.go: Claude Code serializes gpt-5.5[1m] on messages-dispatch / Codex paths; without stripping, upstream rejects or caps to ~200K while CC shows a paid 1M window. Pure wrapper around tkStripContextWindowModelAlias so the OpenAI seam stays merge-safe in *_tk_*.go."
+    },
+    {
+      "path": "backend/internal/service/openai_compat_model.go",
+      "must_contain": [
+        "applyOpenAICompatContextWindowModelAlias(trimmed)"
+      ],
+      "rationale": "NormalizeOpenAICompatRequestedModel / applyOpenAICompatModelNormalization must strip Claude Code [1m] aliases before reasoning-suffix normalization and upstream forward on the /v1/messages OpenAI-compat bridge."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_dispatch.go",
+      "must_contain": [
+        "applyOpenAICompatContextWindowModelAlias(model)"
+      ],
+      "rationale": "Messages-dispatch mapped models (gpt-5.5 family defaults and exact overrides) must strip inbound [1m] aliases so scheduling, billing, and Codex forward see bare servable ids."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_transform.go",
+      "must_contain": [
+        "applyOpenAICompatContextWindowModelAlias(model)"
+      ],
+      "rationale": "normalizeCodexModel is the last-mile Codex id normalizer; dropping the [1m] strip re-exposes context-window 502s when CC resumes with gpt-5.5[1m]."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_service_tk_codex_usage_snapshot.go",
       "must_contain": [
         "result.Used5hPercent = s.PrimaryUsedPercent",

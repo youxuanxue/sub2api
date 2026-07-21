@@ -14,7 +14,7 @@ vi.mock('@/api/pricing', () => ({
   getPublicPricing: (...args: unknown[]) => getPublicPricingMock(...args),
 }))
 
-import { useTkUseKey } from '@/composables/useTkUseKey'
+import { useTkUseKey, anthropicEnvModel, openaiCompatContextWindowEnvModel, claudeCodeEnvModel } from '@/composables/useTkUseKey'
 
 function createUseKey(apiKeyId = ref<number | null>(42)) {
   return useTkUseKey({
@@ -31,6 +31,26 @@ afterEach(() => {
   vi.unstubAllGlobals()
   getMePricingCatalogMock.mockReset()
   getPublicPricingMock.mockReset()
+})
+
+describe('claudeCodeEnvModel helpers', () => {
+  it('applies [1m] for opus-class Anthropic ids', () => {
+    expect(anthropicEnvModel('claude-opus-4-8')).toBe('claude-opus-4-8[1m]')
+    expect(anthropicEnvModel('claude-opus-4-8[1m]')).toBe('claude-opus-4-8[1m]')
+    expect(anthropicEnvModel('claude-sonnet-4-6')).toBe('claude-sonnet-4-6')
+  })
+
+  it('applies [1m] for 1M OpenAI-compat dispatch ids', () => {
+    expect(openaiCompatContextWindowEnvModel('gpt-5.5')).toBe('gpt-5.5[1m]')
+    expect(openaiCompatContextWindowEnvModel('gpt-5.4')).toBe('gpt-5.4[1m]')
+    expect(openaiCompatContextWindowEnvModel('gpt-5.5[1m]')).toBe('gpt-5.5[1m]')
+    expect(openaiCompatContextWindowEnvModel('gpt-5.4-mini')).toBe('gpt-5.4-mini')
+  })
+
+  it('routes messages-dispatch Claude Code picks through the OpenAI helper', () => {
+    expect(claudeCodeEnvModel('gpt-5.5', { openaiMessagesDispatch: true })).toBe('gpt-5.5[1m]')
+    expect(claudeCodeEnvModel('claude-opus-4-8', { openaiMessagesDispatch: false })).toBe('claude-opus-4-8[1m]')
+  })
 })
 
 describe('useTkUseKey model loading', () => {
