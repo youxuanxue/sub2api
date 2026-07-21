@@ -43,10 +43,12 @@ class QAErrorEvidenceProbeTest(unittest.TestCase):
                 *to_regclass*) echo t ;;
                 *distinct_error_request_hashes*) echo '{"distinct_error_request_hashes":2,"hashes_with_success":0}' ;;
                 *distinct_request_hashes*) echo '{"error_requests":3,"qa_records":3,"distinct_request_hashes":2}' ;;
-                *COALESCE\(q.capture_status*) echo '{"capture_status":"captured","rows":3}' ;;
-                *"SELECT DISTINCT q.request_id, q.blob_uri"*)
-                  printf 'r1\tfile:///app/data/qa_blobs/r1.zst\n'
-                  printf 'r2\tfile:///app/data/qa_blobs/r2.zst\n'
+                *LATERAL*COALESCE\(capture_status*) echo '{"capture_status":"captured","rows":3}' ;;
+                *COALESCE\(q.capture_status*) echo '{"capture_status":"stale-query","rows":99}' ;;
+                *request_blob_uri*response_blob_uri*stream_blob_uri*"SELECT DISTINCT refs.request_id, refs.blob_uri"*)
+                  printf 'r1\tfile:///app/data/qa_blobs/r1-request.zst\n'
+                  printf 'r1\tfile:///app/data/qa_blobs/r1-response.zst\n'
+                  printf 'r2\thttps://s3.example/r2.zst\n'
                   ;;
               esac
               exit 0
@@ -66,7 +68,7 @@ class QAErrorEvidenceProbeTest(unittest.TestCase):
         self.assertIn('"hashes_with_success":0', proc.stdout)
         self.assertIn('"capture_status":"captured"', proc.stdout)
         self.assertIn(
-            '{"local_refs":2,"local_present":1,"local_missing":1,"remote_refs":0}',
+            '{"local_refs":2,"local_present":1,"local_missing":1,"remote_refs":1}',
             proc.stdout,
         )
         self.assertNotIn("qa_blobs/r1", proc.stdout)

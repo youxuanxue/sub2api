@@ -52,11 +52,14 @@ WITH errors AS (
     AND ('${REQUEST_PATH_SQL}' = '' OR request_path = '${REQUEST_PATH_SQL}')
     AND ('${USER_AGENT_LIKE_SQL}' = '' OR user_agent ILIKE '%' || '${USER_AGENT_LIKE_SQL}' || '%')
 ), joined AS (
-  SELECT e.request_id, q.id AS qa_id, q.blob_uri, q.capture_status,
+  SELECT e.request_id, q.id AS qa_id, q.blob_uri,
+         q.request_blob_uri, q.response_blob_uri, q.stream_blob_uri,
+         q.capture_status,
          q.retention_until, q.created_at, q.request_sha256
   FROM errors e
   LEFT JOIN LATERAL (
-    SELECT id, blob_uri, capture_status, retention_until, created_at, request_sha256
+    SELECT id, blob_uri, request_blob_uri, response_blob_uri, stream_blob_uri,
+           capture_status, retention_until, created_at, request_sha256
     FROM qa_records q
     WHERE q.request_id = e.request_id
     ORDER BY q.created_at DESC
@@ -67,7 +70,10 @@ SELECT row_to_json(t) FROM (
   SELECT
     COUNT(*) AS error_requests,
     COUNT(qa_id) AS qa_records,
-    COUNT(*) FILTER (WHERE blob_uri IS NOT NULL AND blob_uri <> '') AS qa_blob_refs,
+    COUNT(*) FILTER (WHERE NULLIF(blob_uri, '') IS NOT NULL
+                          OR NULLIF(request_blob_uri, '') IS NOT NULL
+                          OR NULLIF(response_blob_uri, '') IS NOT NULL
+                          OR NULLIF(stream_blob_uri, '') IS NOT NULL) AS qa_blob_refs,
     COUNT(*) FILTER (WHERE request_sha256 <> '') AS request_hashes,
     COUNT(DISTINCT NULLIF(request_sha256, '')) AS distinct_request_hashes,
     COALESCE((
@@ -97,11 +103,20 @@ WITH errors AS (
     AND ('${MODEL_SQL}' = '' OR requested_model = '${MODEL_SQL}' OR model = '${MODEL_SQL}')
     AND ('${REQUEST_PATH_SQL}' = '' OR request_path = '${REQUEST_PATH_SQL}')
     AND ('${USER_AGENT_LIKE_SQL}' = '' OR user_agent ILIKE '%' || '${USER_AGENT_LIKE_SQL}' || '%')
+), latest AS (
+  SELECT e.request_id, q.capture_status
+  FROM errors e
+  LEFT JOIN LATERAL (
+    SELECT capture_status
+    FROM qa_records q
+    WHERE q.request_id = e.request_id
+    ORDER BY q.created_at DESC
+    LIMIT 1
+  ) q ON true
 )
 SELECT row_to_json(t) FROM (
-  SELECT COALESCE(q.capture_status, 'missing') AS capture_status, COUNT(*) AS rows
-  FROM errors e
-  LEFT JOIN qa_records q ON q.request_id = e.request_id
+  SELECT COALESCE(capture_status, 'missing') AS capture_status, COUNT(*) AS rows
+  FROM latest
   GROUP BY 1
   ORDER BY rows DESC, capture_status
 ) t;
@@ -161,11 +176,30 @@ WITH errors AS (
     AND ('${MODEL_SQL}' = '' OR requested_model = '${MODEL_SQL}' OR model = '${MODEL_SQL}')
     AND ('${REQUEST_PATH_SQL}' = '' OR request_path = '${REQUEST_PATH_SQL}')
     AND ('${USER_AGENT_LIKE_SQL}' = '' OR user_agent ILIKE '%' || '${USER_AGENT_LIKE_SQL}' || '%')
+), latest AS (
+  SELECT e.request_id, q.blob_uri, q.request_blob_uri,
+         q.response_blob_uri, q.stream_blob_uri
+  FROM errors e
+  JOIN LATERAL (
+    SELECT blob_uri, request_blob_uri, response_blob_uri, stream_blob_uri
+    FROM qa_records q
+    WHERE q.request_id = e.request_id
+    ORDER BY q.created_at DESC
+    LIMIT 1
+  ) q ON true
+), refs AS (
+  SELECT latest.request_id, ref.blob_uri
+  FROM latest
+  CROSS JOIN LATERAL (VALUES
+    (latest.blob_uri),
+    (latest.request_blob_uri),
+    (latest.response_blob_uri),
+    (latest.stream_blob_uri)
+  ) AS ref(blob_uri)
+  WHERE NULLIF(ref.blob_uri, '') IS NOT NULL
 )
-SELECT DISTINCT q.request_id, q.blob_uri
-FROM errors e
-JOIN qa_records q ON q.request_id = e.request_id
-WHERE q.blob_uri IS NOT NULL AND q.blob_uri <> '';
+SELECT DISTINCT refs.request_id, refs.blob_uri
+FROM refs;
 " > "$TMP_ROWS"
 
 local_refs=0
