@@ -5,7 +5,7 @@ approved_by: "user (implementation directive after root-cause review, 2026-07-21
 approved_at: 2026-07-21
 authors: [agent]
 created: 2026-07-21
-related_prs: [1398]
+related_prs: [1398, 1407]
 related_commits: []
 ---
 
@@ -55,9 +55,10 @@ must not infer this outcome from mutable error text.
   shape changes.
 - The change intentionally alters public error status and body only for the
   previously misclassified Kiro content-filter terminal outcome.
-- Ops records the final 400 as `phase=request`, `error_owner=client`, and
-  `error_source=client_request`. It does not populate upstream error events or
-  upstream status context for this client-owned outcome.
+- Ops records the final 400 as P3 with `phase=request`, `error_owner=client`,
+  and `error_source=client_request`, even if an earlier account attempt left
+  upstream failover evidence. The content-filter outcome itself does not
+  populate upstream error events or upstream status context.
 
 ## Verification
 
@@ -70,4 +71,6 @@ must not infer this outcome from mutable error text.
   without retrying or penalizing the account.
 - Messages, Chat Completions, and Responses error envelopes all classify as a
   client request error rather than a provider/platform fault.
+- A prior failed account attempt does not override the final client ownership;
+  its upstream evidence remains available for diagnosis.
 - Ordinary empty EventStreams retain the existing 502 failover behavior.

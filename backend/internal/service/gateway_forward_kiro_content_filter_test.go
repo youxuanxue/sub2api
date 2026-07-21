@@ -41,6 +41,7 @@ func TestForwardAsChatCompletions_KiroContentFilteredReturns400(t *testing.T) {
 	require.Equal(t, "content_filter_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
 	require.Equal(t, KiroContentFilteredClientMessage(), gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
 	require.Equal(t, KiroContentFilteredOutcome, rec.Header().Get(KiroOutcomeHeader))
+	require.True(t, HasOpsClientContentFiltered(c))
 }
 
 func newKiroMirrorStubForContentFilterTest() *Account {
@@ -88,6 +89,7 @@ func TestForwardAsChatCompletions_KiroMirrorContentFilteredReturns400WithoutFail
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Equal(t, "content_filter_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
 	require.Equal(t, KiroContentFilteredClientMessage(), gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	require.True(t, HasOpsClientContentFiltered(c))
 }
 
 func TestForwardAsResponses_KiroMirrorContentFilteredReturns400WithoutFailover(t *testing.T) {
@@ -109,4 +111,5 @@ func TestForwardAsResponses_KiroMirrorContentFilteredReturns400WithoutFailover(t
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Equal(t, "content_filter", gjson.GetBytes(rec.Body.Bytes(), "error.code").String())
 	require.Equal(t, KiroContentFilteredClientMessage(), gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	require.True(t, HasOpsClientContentFiltered(c))
 }

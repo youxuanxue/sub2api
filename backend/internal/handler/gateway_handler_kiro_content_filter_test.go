@@ -27,6 +27,7 @@ func TestGatewayHandler_HandleKiroContentFilteredError(t *testing.T) {
 	require.Equal(t, "error", gjson.GetBytes(rec.Body.Bytes(), "type").String())
 	require.Equal(t, "invalid_request_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
 	require.Equal(t, service.KiroContentFilteredClientMessage(), gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	require.True(t, service.HasOpsClientContentFiltered(c))
 }
 
 func TestGatewayHandler_HandleKiroContentFilteredError_IgnoresOtherErrors(t *testing.T) {

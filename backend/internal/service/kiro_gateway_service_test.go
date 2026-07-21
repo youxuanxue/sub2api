@@ -281,6 +281,7 @@ func requireKiroContentFilteredError(t *testing.T, c *gin.Context, rec *httptest
 	require.False(t, recorded, "client-owned content filtering must not set upstream status context")
 	_, recorded = c.Get(OpsUpstreamErrorMessageKey)
 	require.False(t, recorded, "client-owned content filtering must not set upstream error context")
+	require.True(t, HasOpsClientContentFiltered(c))
 }
 
 func TestKiroGatewayService_Forward_NonStreaming_ContentFilteredIsNotFailover(t *testing.T) {
@@ -318,6 +319,7 @@ func TestKiroGatewayService_Forward_ContentFilteredWithAssistantTextRemainsSucce
 	require.Contains(t, rec.Body.String(), "I cannot help with that request.")
 	_, recorded := c.Get(OpsUpstreamErrorsKey)
 	require.False(t, recorded)
+	require.False(t, HasOpsClientContentFiltered(c))
 }
 
 func TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput(t *testing.T) {

@@ -142,6 +142,10 @@ type kiroForwardErrorObservation struct {
 
 func classifyAndRecordKiroForwardError(c *gin.Context, account *Account, err error, model string) error {
 	observation, classified := classifyKiroForwardError(err, model)
+	var contentFilteredErr *KiroContentFilteredError
+	if errors.As(classified, &contentFilteredErr) {
+		MarkOpsClientContentFiltered(c)
+	}
 	if observation != nil {
 		recordKiroForwardError(c, account, err, *observation)
 	}

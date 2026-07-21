@@ -190,6 +190,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	if resp.StatusCode >= 400 {
 		if IsKiroContentFilteredRelayResponse(account, resp.Header) {
 			_ = resp.Body.Close()
+			MarkOpsClientContentFiltered(c)
 			writeGatewayCCError(c, http.StatusBadRequest, "content_filter_error", KiroContentFilteredClientMessage())
 			return nil, &KiroContentFilteredError{}
 		}

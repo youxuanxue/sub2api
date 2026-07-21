@@ -70,6 +70,7 @@ func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 	if err != nil {
 		var contentFilteredErr *KiroContentFilteredError
 		if errors.As(err, &contentFilteredErr) {
+			MarkOpsClientContentFiltered(c)
 			c.Header(KiroOutcomeHeader, KiroContentFilteredOutcome)
 			writeGatewayCCError(c, http.StatusBadRequest, "content_filter_error", KiroContentFilteredClientMessage())
 			return nil, contentFilteredErr

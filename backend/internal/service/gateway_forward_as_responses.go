@@ -164,6 +164,7 @@ func (s *GatewayService) ForwardAsResponses(
 	if resp.StatusCode >= 400 {
 		if IsKiroContentFilteredRelayResponse(account, resp.Header) {
 			_ = resp.Body.Close()
+			MarkOpsClientContentFiltered(c)
 			writeResponsesError(c, http.StatusBadRequest, "content_filter", KiroContentFilteredClientMessage())
 			return nil, &KiroContentFilteredError{}
 		}

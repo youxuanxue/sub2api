@@ -358,6 +358,7 @@
       "must_contain": [
         "account.IsKiro()",
         "handleKiroContentFilteredError",
+        "service.MarkOpsClientContentFiltered(c)",
         "service.KiroInvalidModelError",
         "service.KiroInvalidRequestError",
         "service.KiroEndpointQuotaExhaustedError",
@@ -369,6 +370,7 @@
       "path": "backend/internal/handler/gateway_handler_kiro_content_filter_test.go",
       "must_contain": [
         "TestGatewayHandler_HandleKiroContentFilteredError",
+        "service.HasOpsClientContentFiltered(c)",
         "invalid_request_error",
         "KiroOutcomeHeader"
       ],
@@ -386,6 +388,7 @@
         "type KiroEndpointQuotaExhaustedError",
         "func classifyKiroForwardError",
         "func classifyAndRecordKiroForwardError",
+        "MarkOpsClientContentFiltered(c)",
         "func classifyKiroOpaqueFailure",
         "func recordKiroForwardError",
         "func parseKiroEventStreamError",
@@ -402,6 +405,7 @@
       "must_contain": [
         "KiroContentFilteredError",
         "content_filter_error",
+        "MarkOpsClientContentFiltered(c)",
         "KiroOutcomeHeader"
       ],
       "rationale": "Native Kiro Chat Completions mapping must turn the typed content-policy outcome into a committed HTTP 400 content_filter_error before rate-limit handling."
@@ -410,6 +414,7 @@
       "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
       "must_contain": [
         "IsKiroContentFilteredRelayResponse(account, resp.Header)",
+        "MarkOpsClientContentFiltered(c)",
         "content_filter_error"
       ],
       "rationale": "Prod Kiro mirror Chat Completions mapping consumes the trusted edge outcome before generic failover/account-penalty logic."
@@ -418,6 +423,7 @@
       "path": "backend/internal/service/gateway_forward_as_responses.go",
       "must_contain": [
         "IsKiroContentFilteredRelayResponse(account, resp.Header)",
+        "MarkOpsClientContentFiltered(c)",
         "KiroContentFilteredClientMessage()"
       ],
       "rationale": "Prod Kiro mirror Responses mapping consumes the trusted edge outcome before generic failover/account-penalty logic and writes the Responses content_filter code."
@@ -427,32 +433,46 @@
       "must_contain": [
         "TestForwardAsChatCompletions_KiroContentFilteredReturns400",
         "TestForwardAsChatCompletions_KiroMirrorContentFilteredReturns400WithoutFailover",
-        "TestForwardAsResponses_KiroMirrorContentFilteredReturns400WithoutFailover"
+        "TestForwardAsResponses_KiroMirrorContentFilteredReturns400WithoutFailover",
+        "HasOpsClientContentFiltered(c)"
       ],
       "rationale": "Wire-contract evidence for native and mirrored Kiro content filtering across Chat Completions and Responses, including no UpstreamFailoverError and a single mirror attempt."
     },
     {
       "path": "backend/internal/handler/ops_error_logger.go",
       "must_contain": [
-        "\"content_filter_error\""
+        "\"content_filter_error\"",
+        "service.HasOpsClientContentFiltered(c)"
       ],
-      "rationale": "Chat Completions content_filter_error must remain a recognized request-phase type so Kiro filtering is owned by the client, never provider/platform."
+      "rationale": "All content-filter envelopes must remain request-phase/P3 client errors. The structured final-outcome marker takes precedence over stale upstream evidence from an earlier account attempt, so Kiro filtering never becomes a provider/platform SLA fault."
+    },
+    {
+      "path": "backend/internal/service/ops_upstream_context.go",
+      "must_contain": [
+        "OpsClientContentFilteredKey",
+        "func MarkOpsClientContentFiltered",
+        "func HasOpsClientContentFiltered"
+      ],
+      "rationale": "Cross-layer structured marker for the final client-owned content-filter outcome. Losing it lets prior failover context override the final request/client attribution."
     },
     {
       "path": "backend/internal/handler/ops_error_logger_tk_client_validation.go",
       "must_contain": [
         "\"content_filter\""
       ],
-      "rationale": "Responses uses error.code=content_filter without an error.type; this code anchor keeps the flattened api_error classified as request/client."
+      "rationale": "Responses uses error.code=content_filter without an error.type; this code anchor normalizes it to content_filter_error so classification and P3 severity match the other client-owned surfaces."
     },
     {
       "path": "backend/internal/handler/ops_error_logger_tk_kiro_content_filter_test.go",
       "must_contain": [
         "TestClassifyOpsKiroContentFilterOwnedByClient",
+        "TestClassifyOpsKiroContentFilterAfterPriorFailoverStillOwnedByClient",
+        "TestNormalizeOpsContentFilterCodeDoesNotOverrideExplicitErrorType",
+        "service.MarkOpsClientContentFiltered(c)",
         "require.Equal(t, \"client\", owner)",
         "require.False(t, hasOpsUpstreamErrorContext(c))"
       ],
-      "rationale": "End-to-end ops attribution evidence for the Messages, Chat Completions, and Responses content-filter envelopes: request/client ownership with no upstream error context."
+      "rationale": "End-to-end ops attribution evidence for Messages, Chat Completions, and Responses: request/client ownership on a clean path and after prior failover evidence."
     },
     {
       "path": "backend/internal/service/wire.go",
