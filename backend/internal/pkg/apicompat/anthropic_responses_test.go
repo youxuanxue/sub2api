@@ -854,25 +854,20 @@ func TestStreamingReasoning(t *testing.T) {
 		OutputIndex: 0,
 		Item:        &ResponsesOutput{Type: "reasoning"},
 	}, state)
-	// TK: resToAnthHandleOutputItemAdded for reasoning returns nil (delays
-	// content_block_start until the first non-empty summary delta arrives).
-	// Upstream emits an eager content_block_start with empty thinking content;
-	// see Wei-Shaw/sub2api commit e9a25e7b. TK keeps the deferred-open behavior
-	// to avoid forcing consumers to handle an immediate-empty thinking block.
-	require.Len(t, events, 0)
+	require.Len(t, events, 1)
+	assert.Equal(t, "content_block_start", events[0].Type)
+	assert.Equal(t, "thinking", events[0].ContentBlock.Type)
+	assert.Equal(t, "", events[0].ContentBlock.Thinking)
 
 	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type:        "response.reasoning_summary_text.delta",
 		OutputIndex: 0,
 		Delta:       "Let me think...",
 	}, state)
-	require.Len(t, events, 2)
-	assert.Equal(t, "content_block_start", events[0].Type)
-	assert.Equal(t, "thinking", events[0].ContentBlock.Type)
-	assert.Equal(t, "", events[0].ContentBlock.Thinking)
-	assert.Equal(t, "content_block_delta", events[1].Type)
-	assert.Equal(t, "thinking_delta", events[1].Delta.Type)
-	assert.Equal(t, "Let me think...", events[1].Delta.Thinking)
+	require.Len(t, events, 1)
+	assert.Equal(t, "content_block_delta", events[0].Type)
+	assert.Equal(t, "thinking_delta", events[0].Delta.Type)
+	assert.Equal(t, "Let me think...", events[0].Delta.Thinking)
 
 	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type:        "response.reasoning_summary_text.delta",
@@ -904,12 +899,15 @@ func TestStreamingReasoning_NoSummaryText(t *testing.T) {
 		OutputIndex: 0,
 		Item:        &ResponsesOutput{Type: "reasoning"},
 	}, state)
-	require.Len(t, events, 0)
+	require.Len(t, events, 1)
+	assert.Equal(t, "content_block_start", events[0].Type)
+	assert.Equal(t, "thinking", events[0].ContentBlock.Type)
 
 	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type: "response.reasoning_summary_text.done",
 	}, state)
-	require.Len(t, events, 0)
+	require.Len(t, events, 1)
+	assert.Equal(t, "content_block_stop", events[0].Type)
 
 	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type:        "response.output_item.done",
@@ -926,7 +924,7 @@ func TestStreamingReasoning_NoSummaryText(t *testing.T) {
 	require.Len(t, events, 2)
 	assert.Equal(t, "content_block_start", events[0].Type)
 	assert.Equal(t, "text", events[0].ContentBlock.Type)
-	assert.Equal(t, 0, *events[0].Index)
+	assert.Equal(t, 1, *events[0].Index)
 	assert.Equal(t, "content_block_delta", events[1].Type)
 }
 
@@ -938,20 +936,79 @@ func TestStreamingReasoning_EmptyDeltasOnly(t *testing.T) {
 		Response: &ResponsesResponse{ID: "resp_empty_deltas", Model: "gpt-5.2"},
 	}, state)
 
-	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type:        "response.output_item.added",
 		OutputIndex: 0,
 		Item:        &ResponsesOutput{Type: "reasoning"},
 	}, state)
+	require.Len(t, events, 1)
+	assert.Equal(t, "content_block_start", events[0].Type)
+	assert.True(t, state.ContentBlockOpen)
+	assert.True(t, state.EmittedAnyContentBlock)
 
-	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type:        "response.reasoning_summary_text.delta",
 		OutputIndex: 0,
 		Delta:       "",
 	}, state)
 	require.Len(t, events, 0)
-	assert.False(t, state.ContentBlockOpen)
-	assert.False(t, state.EmittedAnyContentBlock)
+	assert.True(t, state.ContentBlockOpen)
+}
+
+func TestStreamingReasoning_SummaryPartOpensBeforeDelta(t *testing.T) {
+	state := NewResponsesEventToAnthropicState()
+
+	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:     "response.created",
+		Response: &ResponsesResponse{ID: "resp_part_first", Model: "gpt-5.6"},
+	}, state)
+
+	// Upstream may emit structure frames only during a long reasoning phase.
+	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.output_item.added",
+		OutputIndex: 0,
+		Item:        &ResponsesOutput{Type: "reasoning", ID: "rs_1", Status: "in_progress"},
+	}, state)
+	require.Len(t, events, 1)
+	assert.Equal(t, "content_block_start", events[0].Type)
+
+	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:         "response.reasoning_summary_part.added",
+		OutputIndex:  0,
+		SummaryIndex: 0,
+		ItemID:       "rs_1",
+		Part:         &ResponsesContentPart{Type: "summary_text"},
+	}, state)
+	require.Len(t, events, 0, "thinking block already open from output_item.added")
+
+	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.reasoning_summary_text.delta",
+		OutputIndex: 0,
+		Delta:       "First visible token",
+	}, state)
+	require.Len(t, events, 1)
+	assert.Equal(t, "content_block_delta", events[0].Type)
+	assert.Equal(t, "First visible token", events[0].Delta.Thinking)
+}
+
+func TestStreamingReasoning_SummaryPartAddedOpensBlock(t *testing.T) {
+	state := NewResponsesEventToAnthropicState()
+
+	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:     "response.created",
+		Response: &ResponsesResponse{ID: "resp_part_only", Model: "gpt-5.6"},
+	}, state)
+
+	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:         "response.reasoning_summary_part.added",
+		OutputIndex:  0,
+		SummaryIndex: 0,
+		ItemID:       "rs_2",
+		Part:         &ResponsesContentPart{Type: "summary_text"},
+	}, state)
+	require.Len(t, events, 1)
+	assert.Equal(t, "content_block_start", events[0].Type)
+	assert.Equal(t, "thinking", events[0].ContentBlock.Type)
 }
 
 func TestStreamingIncomplete(t *testing.T) {
