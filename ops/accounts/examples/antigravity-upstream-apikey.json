@@ -1,0 +1,12 @@
+{
+  "name": "antigravity-upstream-example",
+  "platform": "antigravity",
+  "type": "upstream",
+  "credentials": {
+    "api_key": "REPLACE_ME",
+    "base_url": "https://upstream.example.com"
+  },
+  "group_ids": [],
+  "concurrency": 3,
+  "priority": 50
+}

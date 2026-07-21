@@ -18,6 +18,8 @@ import type {
   AdminDataImportResult,
   CodexSessionImportRequest,
   CodexSessionImportResult,
+  AntigravityOAuthImportRequest,
+  AntigravityOAuthImportResult,
   OpenAICodexPATCreateRequest,
   CheckMixedChannelRequest,
   CheckMixedChannelResponse
@@ -682,6 +684,19 @@ export async function importCodexSession(payload: CodexSessionImportRequest): Pr
   return data
 }
 
+export async function importAntigravityOAuth(
+  payload: AntigravityOAuthImportRequest
+): Promise<AntigravityOAuthImportResult> {
+  const { data } = await apiClient.post<AntigravityOAuthImportResult>(
+    '/admin/accounts/import/antigravity-oauth',
+    payload,
+    {
+      timeout: 120000
+    }
+  )
+  return data
+}
+
 export async function createOpenAICodexPAT(payload: OpenAICodexPATCreateRequest): Promise<Account> {
   const { data } = await apiClient.post<Account>('/admin/openai/create-from-codex-pat', payload)
   return data
@@ -938,6 +953,7 @@ export const accountsAPI = {
   exportData,
   importData,
   importCodexSession,
+  importAntigravityOAuth,
   createOpenAICodexPAT,
   getAntigravityDefaultModelMapping,
   getModelMappingPresets,

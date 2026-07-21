@@ -1,0 +1,13 @@
+{
+  "name": "anthropic-oauth-example",
+  "platform": "anthropic",
+  "type": "oauth",
+  "credentials": {
+    "access_token": "REPLACE_ME",
+    "refresh_token": "REPLACE_ME",
+    "expires_at": "2099-01-01T00:00:00Z"
+  },
+  "group_ids": [],
+  "concurrency": 3,
+  "priority": 50
+}

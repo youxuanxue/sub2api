@@ -1,0 +1,22 @@
+{
+  "name": "batch-example",
+  "group_ids": [],
+  "accounts": [
+    {
+      "name": "batch-openai",
+      "platform": "openai",
+      "type": "apikey",
+      "credentials": { "api_key": "REPLACE_ME" }
+    },
+    {
+      "name": "batch-newapi",
+      "platform": "newapi",
+      "type": "apikey",
+      "channel_type": 14,
+      "credentials": {
+        "api_key": "REPLACE_ME",
+        "base_url": "https://upstream.example.com"
+      }
+    }
+  ]
+}

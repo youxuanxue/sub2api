@@ -1,0 +1,15 @@
+{
+  "name": "kiro-oauth-example",
+  "platform": "kiro",
+  "type": "oauth",
+  "credentials": {
+    "tos_acknowledged": true,
+    "auth_method": "social",
+    "access_token": "REPLACE_ME",
+    "refresh_token": "REPLACE_ME",
+    "region": "us-east-1"
+  },
+  "group_ids": [],
+  "concurrency": 3,
+  "priority": 50
+}

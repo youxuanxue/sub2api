@@ -1,0 +1,8 @@
+{
+  "import_profile": "codex_session",
+  "name": "openai-codex-example",
+  "update_existing": true,
+  "accessToken": "REPLACE_ME",
+  "refresh_token": "REPLACE_ME",
+  "email": "user@example.com"
+}
