@@ -124,8 +124,8 @@ SELECT row_to_json(t) FROM (
 " 2>&1
 
   echo
-  echo "=== fallback_samples ==="
-  $PSQL -c "
+echo "=== fallback_samples ==="
+$PSQL -c "
 WITH base AS (
   SELECT l.*
   FROM ops_error_logs l
@@ -149,6 +149,11 @@ SELECT row_to_json(t) FROM (
     account_id,
     group_id,
     request_path,
+    stream,
+    left(COALESCE(user_agent,''), 120) AS user_agent,
+    inbound_endpoint,
+    upstream_endpoint,
+    request_type,
     COALESCE(requested_model, model) AS model,
     error_phase,
     error_type,
@@ -165,6 +170,7 @@ SELECT row_to_json(t) FROM (
     (
       SELECT string_agg(
         concat_ws(':', ordinality::text, COALESCE(ev->>'kind',''),
+                  COALESCE(ev->>'reason',''),
                   COALESCE(NULLIF(ev->>'upstream_status_code',''),'0'),
                   left(COALESCE(ev->>'message',''), 80)),
         ' | ' ORDER BY ordinality
@@ -179,6 +185,43 @@ SELECT row_to_json(t) FROM (
   FROM base
   ORDER BY created_at DESC
   LIMIT ${LIMIT}
+) t;
+" 2>&1
+
+  echo
+  echo "=== fallback_upstream_request_body_presence ==="
+  $PSQL -c "
+WITH base AS (
+  SELECT l.*
+  FROM ops_error_logs l
+  WHERE l.created_at >= now() - interval '${WINDOW_MINUTES} minutes'
+    AND l.status_code = ${STATUS_CODE}
+    AND ('${USER_ID}' = '' OR l.user_id = NULLIF('${USER_ID}','')::bigint)
+    AND ('${API_KEY_ID}' = '' OR l.api_key_id = NULLIF('${API_KEY_ID}','')::bigint)
+    AND ('${ACCOUNT_ID}' = '' OR l.account_id = NULLIF('${ACCOUNT_ID}','')::bigint)
+    AND ('${MODEL_SQL}' = '' OR l.requested_model = '${MODEL_SQL}' OR l.model = '${MODEL_SQL}')
+    AND ('${REQUEST_PATH_SQL}' = '' OR l.request_path = '${REQUEST_PATH_SQL}')
+    AND ('${ERROR_MESSAGE_LIKE_SQL}' = '' OR l.error_message ILIKE '%' || '${ERROR_MESSAGE_LIKE_SQL}' || '%')
+), events AS (
+  SELECT e.value AS ev
+  FROM base l
+  CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(l.upstream_errors) = 'array'
+         THEN l.upstream_errors
+         ELSE '[]'::jsonb END
+  ) AS e(value)
+), bodies AS (
+  SELECT COALESCE(ev->>'upstream_request_body','') AS body
+  FROM events
+)
+SELECT row_to_json(t) FROM (
+  SELECT
+    COUNT(*) AS upstream_events,
+    COUNT(*) FILTER (WHERE body <> '') AS events_with_request_body,
+    COUNT(*) FILTER (WHERE left(ltrim(body), 1) = '{') AS object_like_bodies,
+    MIN(octet_length(body)) FILTER (WHERE body <> '') AS min_body_bytes,
+    MAX(octet_length(body)) FILTER (WHERE body <> '') AS max_body_bytes
+  FROM bodies
 ) t;
 " 2>&1
   exit 0

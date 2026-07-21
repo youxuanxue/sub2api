@@ -221,10 +221,12 @@
         "BillingTier:   kiroproto.KiroEstimatedBillingTier",
         "callErr != nil && !enc.started",
         "textBuf == \"\" && thinkingBuf == \"\" && len(toolUses) == 0",
+        "metered = metered || credits > 0",
+        "&KiroSilentRefusalError{}",
         "classifyAndRecordKiroForwardError",
         "publishKiroInternalThinkingSideChannel"
       ],
-      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream. It estimates token usage locally (EstimateInputTokens/EstimateOutputTokens) and stamps ForwardResult.BillingTier=\"kiro-estimated\", because the Kiro upstream reports credits only — without these calls both forward paths return Usage{0,0} and kiro bills as 100% free. The context-aware call and ResetForRetry callbacks are load-bearing: non-streaming retries clear all partial buffers, while streaming retries are rejected after enc.started to prevent duplicated client output. The `callErr != nil && !enc.started` guard + classifyAndRecordKiroForwardError keep pre-content failures visible instead of returning an empty 200 stream and retain the sanitized original transport/read cause in ops upstream_errors. An upstream merge that drops any of these guards silently regresses reliability, billing, response integrity, or incident diagnosability."
+      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream. It estimates token usage locally (EstimateInputTokens/EstimateOutputTokens) and stamps ForwardResult.BillingTier=\"kiro-estimated\", because the Kiro upstream reports credits only — without these calls both forward paths return Usage{0,0} and kiro bills as 100% free. The context-aware call and ResetForRetry callbacks are load-bearing: non-streaming retries clear all partial buffers, while streaming retries are rejected after enc.started to prevent duplicated client output. The `callErr != nil && !enc.started` guard + classifyAndRecordKiroForwardError keep pre-content failures visible instead of returning an empty 200 stream. Positive metering with no text/thinking/tool output is classified as a request-owned KiroSilentRefusalError so the same payload is not amplified across the mirror pool. An upstream merge that drops any of these guards silently regresses reliability, billing, response integrity, or incident diagnosability."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_test.go",
@@ -232,6 +234,8 @@
         "TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput",
         "TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError",
         "TestKiroGatewayService_Forward_EmptyResponseTriggersFailover",
+        "TestKiroGatewayService_Forward_NonStreamingMeteringWithoutOutputIsTerminal",
+        "TestKiroGatewayService_Forward_StreamingMeteringWithoutOutputIsTerminal",
         "TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailover",
         "TestKiroGatewayService_Forward_EventStreamThrottlingTriggersFailover",
         "TestKiroGatewayService_Forward_EmptyEventStreamExceptionPreservesFailoverClass",
@@ -244,7 +248,7 @@
         "discard me",
         "recovered"
       ],
-      "rationale": "Service-layer regression evidence for both sides of the truncated-response contract: non-streaming partial state is fully discarded before fallback, while a stream that already committed output emits an SSE error and never calls another upstream endpoint. It also pins Kiro's content-length validation as a client-owned non-failover error so context overflow cannot regress to provider 502 churn. The transport regression preserves the sanitized original cause and stable classification for ops while proving query secrets are redacted and client cancellation is not misreported as an upstream failure."
+      "rationale": "Service-layer regression evidence for both sides of the truncated-response contract: non-streaming partial state is fully discarded before fallback, while a stream that already committed output emits an SSE error and never calls another upstream endpoint. It also pins metered empty output as a terminal silent refusal in both response modes and Kiro's content-length validation as a client-owned non-failover error. The transport regression preserves the sanitized original cause and stable classification for ops while proving query secrets are redacted and client cancellation is not misreported as an upstream failure."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder.go",
@@ -342,16 +346,47 @@
       "path": "backend/internal/handler/gateway_handler.go",
       "must_contain": [
         "account.IsKiro()",
+        "h.handleKiroSilentRefusalMessages(c, err, streamStarted)",
         "service.KiroInvalidModelError",
         "service.KiroInvalidRequestError",
         "service.KiroEndpointQuotaExhaustedError",
         "service.KiroEndpointQuotaExhaustedRetryAfterSeconds()"
       ],
-      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior. The KiroEndpointQuotaExhaustedError branch returns 429+Retry-After:10 instead of a generic 502 when all Kiro upstream endpoints hit quota exhaustion."
+      "rationale": "The RPM-increment gate admits kiro accounts via `|| account.IsKiro()`. The silent-refusal branch terminates a request-owned metered-empty outcome before the generic account failover loop. The KiroInvalidModelError branch returns a clean 400 invalid_request_error, and the KiroEndpointQuotaExhaustedError branch returns 429+Retry-After:10. Losing these anchors restores account churn, incorrect RPM accounting, or opaque client errors."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_chat_completions.go",
+      "must_contain": [
+        "h.handleKiroSilentRefusalChatCompletions(c, err)"
+      ],
+      "rationale": "The Chat Completions failover loop must terminate typed Kiro silent refusals before treating them as account health failures. Dropping this injection restores cross-account amplification for content-specific metered-empty outcomes."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_kiro_silent_refusal.go",
+      "must_contain": [
+        "func (h *GatewayHandler) handleKiroSilentRefusalMessages",
+        "func (h *GatewayHandler) handleKiroSilentRefusalChatCompletions",
+        "service.KiroOutcomeHeader",
+        "service.KiroSilentRefusalClientMessage()"
+      ],
+      "rationale": "TK-only handler companion for the Kiro silent-refusal contract. It propagates the bounded edge-to-prod outcome marker while preserving the existing generic 502 envelopes for Messages and Chat Completions."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_kiro_silent_refusal_test.go",
+      "must_contain": [
+        "TestHandleKiroSilentRefusalMessagesPreservesGeneric502Contract",
+        "TestHandleKiroSilentRefusalChatCompletionsPreservesGeneric502Contract",
+        "TestHandleKiroSilentRefusalIgnoresUnrelatedErrors"
+      ],
+      "rationale": "Regression evidence that typed Kiro silent refusals preserve both external 502 response shapes and do not intercept unrelated errors."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_tk_errors.go",
       "must_contain": [
+        "type KiroSilentRefusalError",
+        "KiroOutcomeHeader",
+        "KiroSilentRefusalOutcome",
+        "func kiroSilentRefusalFromRelay",
         "type KiroInvalidModelError",
         "type KiroInvalidRequestError",
         "type KiroEndpointQuotaExhaustedError",
@@ -366,7 +401,30 @@
         "quota exhausted on",
         "INVALID_MODEL_ID"
       ],
-      "rationale": "TK-only typed error + classifier for Kiro request rejections, including INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; it preserves a sanitized, categorized transport/read/empty-response cause in ops upstream_errors while the client still receives the generic 502 envelope. The handler maps typed invalid model/request errors to client-owned 400 responses without cross-account failover. Losing this file makes Kiro validation errors fall back to the generic forward-error path or restores opaque 502s with no recoverable root cause."
+      "rationale": "TK-only typed errors and classifiers for Kiro request rejections, including silent refusal, INVALID_MODEL_ID, and CONTENT_LENGTH_EXCEEDS_THRESHOLD. The relay marker carries a metered-empty outcome from edge to prod without changing the generic response body, while ops records a stable kind/reason. Losing this file restores opaque 502s, cross-account amplification, or incorrect failover of client-owned validation failures."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward.go",
+      "must_contain": [
+        "kiroSilentRefusalFromRelay(c, account, resp.Header, resp.StatusCode)"
+      ],
+      "rationale": "The Anthropic Messages mirror path must recognize the Kiro edge outcome marker before generic same-account retries and failover handling. This injection is the prod-side stop point for request-owned silent refusals."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": [
+        "kiroSilentRefusalFromRelay(c, account, resp.Header, resp.StatusCode)"
+      ],
+      "rationale": "The Chat Completions mirror path must recognize the Kiro edge outcome marker before generic account failover and cooldown logic. Dropping this injection restores the observed multi-account amplification."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_silent_refusal_relay_test.go",
+      "must_contain": [
+        "TestGatewayService_Forward_KiroMirrorSilentRefusalStopsBeforeRetry",
+        "TestGatewayService_ForwardAsChatCompletions_KiroMirrorSilentRefusalStopsFailover",
+        "metering_without_output"
+      ],
+      "rationale": "Cross-hop regression evidence that a Kiro edge silent-refusal marker becomes a terminal typed error on prod for both Messages and Chat Completions, before same-account retry or mirror failover."
     },
     {
       "path": "backend/internal/service/wire.go",

@@ -198,6 +198,9 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+		if terminalErr, terminal := kiroSilentRefusalFromRelay(c, account, resp.Header, resp.StatusCode); terminal {
+			return nil, terminalErr
+		}
 
 		if s.shouldFailoverUpstreamError(resp.StatusCode) {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{

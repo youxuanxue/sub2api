@@ -139,6 +139,9 @@ WITH bounds AS (
 SELECT row_to_json(t) FROM (
   SELECT
     COALESCE(ev->>'kind','')                  AS kind,
+    COALESCE(ev->>'reason','')                AS reason,
+    left(regexp_replace(COALESCE(ev->>'message',''), E'[\\n\\r]+', ' ', 'g'), 160)
+                                                AS message,
     COALESCE(ev->>'platform','')              AS platform,
     COALESCE(ev->>'account_id','')            AS account_id,
     COALESCE(ev->>'account_name','')          AS account_name,
@@ -148,7 +151,7 @@ SELECT row_to_json(t) FROM (
     to_char(MIN(created_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS first_at_utc,
     to_char(MAX(created_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS last_at_utc
   FROM events
-  GROUP BY kind, platform, account_id, account_name, upstream_status, final_status
+  GROUP BY kind, reason, message, platform, account_id, account_name, upstream_status, final_status
   ORDER BY n DESC, kind, final_status
   LIMIT ${TOP_KIND_LIMIT}
 ) t;

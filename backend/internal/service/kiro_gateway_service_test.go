@@ -248,6 +248,65 @@ func TestKiroGatewayService_Forward_EmptyResponseTriggersFailover(t *testing.T) 
 	require.Equal(t, int64(99), events[0].AccountID)
 }
 
+func TestKiroGatewayService_Forward_NonStreamingMeteringWithoutOutputIsTerminal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	frame := buildKiroEventStreamMessage("meteringEvent", []byte(`{"usage":0.25}`))
+	svc := NewKiroGatewayService(&kiroFakeUpstream{body: frame}, nil, nil)
+	body, _ := json.Marshal(map[string]any{
+		"model":    "claude-sonnet-4-5",
+		"messages": []map[string]any{{"role": "user", "content": "policy-sensitive request"}},
+		"stream":   false,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4-5", Stream: false}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+
+	require.Error(t, err)
+	require.Nil(t, result)
+	var silentRefusalErr *KiroSilentRefusalError
+	require.ErrorAs(t, err, &silentRefusalErr)
+	var failoverErr *UpstreamFailoverError
+	require.NotErrorAs(t, err, &failoverErr)
+	require.Empty(t, rec.Body.String())
+	events := opsUpstreamErrorsForTest(c)
+	require.Len(t, events, 1)
+	require.Equal(t, "silent_refusal", events[0].Kind)
+	require.Equal(t, "metering_without_output", events[0].Reason)
+	require.Equal(t, int64(99), events[0].AccountID)
+}
+
+func TestKiroGatewayService_Forward_StreamingMeteringWithoutOutputIsTerminal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	frame := buildKiroEventStreamMessage("meteringEvent", []byte(`{"usage":0.25}`))
+	svc := NewKiroGatewayService(&kiroFakeUpstream{body: frame}, nil, nil)
+	body, _ := json.Marshal(map[string]any{
+		"model":    "claude-sonnet-4-5",
+		"messages": []map[string]any{{"role": "user", "content": "policy-sensitive request"}},
+		"stream":   true,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4-5", Stream: true}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+
+	require.Error(t, err)
+	require.Nil(t, result)
+	var silentRefusalErr *KiroSilentRefusalError
+	require.ErrorAs(t, err, &silentRefusalErr)
+	var failoverErr *UpstreamFailoverError
+	require.NotErrorAs(t, err, &failoverErr)
+	require.Empty(t, rec.Body.String(), "terminal refusal must not commit a successful SSE stream")
+	events := opsUpstreamErrorsForTest(c)
+	require.Len(t, events, 1)
+	require.Equal(t, "silent_refusal", events[0].Kind)
+	require.Equal(t, "metering_without_output", events[0].Reason)
+}
+
 func TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

@@ -18,6 +18,32 @@ var kiroTransportFailoverBody = []byte(`{"error":{"type":"upstream_error","messa
 
 var errKiroEmptyResponse = errors.New("kiro upstream returned an empty response")
 
+const (
+	KiroOutcomeHeader              = "X-TokenKey-Kiro-Outcome"
+	KiroSilentRefusalOutcome       = "silent_refusal"
+	kiroSilentRefusalReason        = "metering_without_output"
+	kiroSilentRefusalClientMessage = "Upstream service temporarily unavailable"
+)
+
+// KiroSilentRefusalError marks a request-owned Kiro outcome: the upstream
+// accepted and metered the request but emitted no assistant content. Retrying
+// another account cannot change that request, so handlers must terminate the
+// failover loop while preserving the existing generic 502 client contract.
+type KiroSilentRefusalError struct{}
+
+func (e *KiroSilentRefusalError) Error() string {
+	return "kiro upstream metered the request without assistant output"
+}
+
+func KiroSilentRefusalClientMessage() string {
+	return kiroSilentRefusalClientMessage
+}
+
+func IsKiroSilentRefusalRelayResponse(account *Account, header http.Header) bool {
+	return account != nil && account.IsKiroMirrorStub() &&
+		strings.EqualFold(strings.TrimSpace(header.Get(KiroOutcomeHeader)), KiroSilentRefusalOutcome)
+}
+
 // KiroInvalidModelError is a typed, status-carrying error raised when the Kiro
 // (sixth platform) upstream rejects a request with HTTP 400 INVALID_MODEL_ID —
 // i.e. the requested model is not one the Kiro/CodeWhisperer backend serves.
@@ -110,8 +136,9 @@ func isKiroEndpointQuotaExhaustedError(msg string) bool {
 }
 
 type kiroForwardErrorObservation struct {
-	Kind   string
-	Reason string
+	Kind               string
+	Reason             string
+	UpstreamStatusCode int
 }
 
 func classifyAndRecordKiroForwardError(c *gin.Context, account *Account, err error, model string) error {
@@ -125,6 +152,10 @@ func classifyAndRecordKiroForwardError(c *gin.Context, account *Account, err err
 func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObservation, error) {
 	if err == nil {
 		return nil, nil
+	}
+	var silentRefusalErr *KiroSilentRefusalError
+	if errors.As(err, &silentRefusalErr) {
+		return &kiroForwardErrorObservation{Kind: "silent_refusal", Reason: kiroSilentRefusalReason}, silentRefusalErr
 	}
 	msg := err.Error()
 	if isKiroEndpointQuotaExhaustedError(msg) {
@@ -236,20 +267,35 @@ func recordKiroForwardError(c *gin.Context, account *Account, err error, observa
 		return
 	}
 	safeErr := truncateString(sanitizeUpstreamErrorMessage(err.Error()), 2048)
-	setOpsUpstreamError(c, 0, safeErr, "")
+	setOpsUpstreamError(c, observation.UpstreamStatusCode, safeErr, "")
 	event := OpsUpstreamErrorEvent{
 		Platform:           PlatformKiro,
-		UpstreamStatusCode: 0,
+		UpstreamStatusCode: observation.UpstreamStatusCode,
 		Kind:               observation.Kind,
 		Reason:             observation.Reason,
 		Message:            safeErr,
 	}
 	if account != nil {
-		event.Platform = account.Platform
+		if !account.IsKiroMirrorStub() {
+			event.Platform = account.Platform
+		}
 		event.AccountID = account.ID
 		event.AccountName = account.Name
 	}
 	appendOpsUpstreamError(c, event)
+}
+
+func kiroSilentRefusalFromRelay(c *gin.Context, account *Account, header http.Header, statusCode int) (error, bool) {
+	if !IsKiroSilentRefusalRelayResponse(account, header) {
+		return nil, false
+	}
+	err := &KiroSilentRefusalError{}
+	recordKiroForwardError(c, account, err, kiroForwardErrorObservation{
+		Kind:               "silent_refusal",
+		Reason:             kiroSilentRefusalReason,
+		UpstreamStatusCode: statusCode,
+	})
+	return err, true
 }
 
 func isKiroProfileArnError(msg string) bool {

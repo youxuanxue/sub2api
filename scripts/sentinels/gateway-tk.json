@@ -937,9 +937,11 @@
       "must_contain": [
         "if account.IsKiro() {",
         "forwardAsChatCompletionsViaKiro(",
+        "kiroSilentRefusalFromRelay(c, account, resp.Header, resp.StatusCode)",
+        "isAnthropicMessagesJSONResponse(resp)",
         "!account.IsKiro()"
       ],
-      "rationale": "Kiro OAuth accounts on /v1/chat/completions must not fall through to buildUpstreamRequest + Anthropic HTTP after CC→Anthropic conversion — that path 401s because Kiro credentials are not Anthropic API keys. The early branch routes through kiroGateway.Forward and reuses the Anthropic SSE→Chat Completions bridge; skipping OAuth mimicry for Kiro is anchored via !account.IsKiro(). Dropping the hook compiles cleanly but leaves every edge Kiro CC request failing with upstream_rejected 401 while /v1/messages on the same account succeeds."
+      "rationale": "Kiro OAuth accounts on /v1/chat/completions must route through kiroGateway.Forward instead of Anthropic HTTP. Kiro mirror stubs must recognize silent-refusal relay markers before failover, while non-streaming JSON responses use the Anthropic JSON converter. Dropping these hooks either restores 401s, cross-account amplification, or invalid response parsing."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_kiro.go",

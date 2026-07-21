@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pathlib
 import subprocess
+import tempfile
 import unittest
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "ops-error-triage.sh"
@@ -42,6 +43,33 @@ class OpsErrorTriageTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 2)
         self.assertIn("WINDOW_HOURS not positive int", proc.stderr)
+
+    def test_upstream_event_query_keeps_reason_and_bounded_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_docker = pathlib.Path(tmp) / "docker"
+            fake_docker.write_text(
+                "#!/bin/sh\n"
+                "case \"$*\" in\n"
+                "  *\"ev->>'reason'\"*\"ev->>'message'\"*)\n"
+                "    printf '%s\\n' '{\"kind\":\"response_error\",\"reason\":\"empty_response\",\"message\":\"kiro upstream returned an empty response\"}' ;;\n"
+                "  *) printf '%s\\n' '{}' ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            fake_docker.chmod(0o755)
+            proc = subprocess.run(
+                ["/bin/bash", str(_SCRIPT)],
+                env={"PATH": f"{tmp}:/usr/bin:/bin", "WINDOW_MINUTES": "5"},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        upstream_section = proc.stdout.split("=== upstream_events ===", 1)[1]
+        upstream_section = upstream_section.split("=== by_minute_429 ===", 1)[0]
+        self.assertIn('"reason":"empty_response"', upstream_section)
+        self.assertIn('"message":"kiro upstream returned an empty response"', upstream_section)
 
 
 if __name__ == "__main__":
