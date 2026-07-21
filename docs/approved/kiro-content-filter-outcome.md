@@ -23,7 +23,8 @@ not consume Kiro's authoritative terminal outcome.
 ## Approved Behavior
 
 When Kiro reports `CONTENT_FILTERED` and no assistant text, reasoning, or tool
-output was produced, the request is a non-retryable upstream policy rejection:
+output was produced, the request is a non-retryable, client-owned content-filter
+rejection:
 
 | Client API | HTTP status | Error type/code |
 | --- | --- | --- |
@@ -54,8 +55,9 @@ must not infer this outcome from mutable error text.
   shape changes.
 - The change intentionally alters public error status and body only for the
   previously misclassified Kiro content-filter terminal outcome.
-- Ops evidence records `policy_error/content_filtered` with upstream status
-  200, matching the actual Kiro transport response.
+- Ops records the final 400 as `phase=request`, `error_owner=client`, and
+  `error_source=client_request`. It does not populate upstream error events or
+  upstream status context for this client-owned outcome.
 
 ## Verification
 
@@ -66,4 +68,6 @@ must not infer this outcome from mutable error text.
 - Native Chat Completions maps the typed error to 400.
 - Kiro mirror Chat Completions and Responses map the trusted header to 400
   without retrying or penalizing the account.
+- Messages, Chat Completions, and Responses error envelopes all classify as a
+  client request error rather than a provider/platform fault.
 - Ordinary empty EventStreams retain the existing 502 failover behavior.

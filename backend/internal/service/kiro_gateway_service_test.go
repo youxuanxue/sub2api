@@ -275,14 +275,12 @@ func requireKiroContentFilteredError(t *testing.T, c *gin.Context, rec *httptest
 	require.NotErrorAs(t, err, &failoverErr)
 	require.Empty(t, rec.Body.String())
 
-	rawEvents, ok := c.Get(OpsUpstreamErrorsKey)
-	require.True(t, ok)
-	events, ok := rawEvents.([]*OpsUpstreamErrorEvent)
-	require.True(t, ok)
-	require.Len(t, events, 1)
-	require.Equal(t, http.StatusOK, events[0].UpstreamStatusCode)
-	require.Equal(t, "policy_error", events[0].Kind)
-	require.Equal(t, KiroContentFilteredOutcome, events[0].Reason)
+	_, recorded := c.Get(OpsUpstreamErrorsKey)
+	require.False(t, recorded, "client-owned content filtering must not create an upstream error event")
+	_, recorded = c.Get(OpsUpstreamStatusCodeKey)
+	require.False(t, recorded, "client-owned content filtering must not set upstream status context")
+	_, recorded = c.Get(OpsUpstreamErrorMessageKey)
+	require.False(t, recorded, "client-owned content filtering must not set upstream error context")
 }
 
 func TestKiroGatewayService_Forward_NonStreaming_ContentFilteredIsNotFailover(t *testing.T) {

@@ -30,7 +30,7 @@ const (
 type KiroContentFilteredError struct{}
 
 func (*KiroContentFilteredError) Error() string {
-	return "kiro upstream content filtered the request"
+	return "kiro content filter rejected the request"
 }
 
 func KiroContentFilteredClientMessage() string {
@@ -136,9 +136,8 @@ func isKiroEndpointQuotaExhaustedError(msg string) bool {
 }
 
 type kiroForwardErrorObservation struct {
-	UpstreamStatusCode int
-	Kind               string
-	Reason             string
+	Kind   string
+	Reason string
 }
 
 func classifyAndRecordKiroForwardError(c *gin.Context, account *Account, err error, model string) error {
@@ -155,11 +154,7 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 	}
 	var contentFilteredErr *KiroContentFilteredError
 	if errors.As(err, &contentFilteredErr) {
-		return &kiroForwardErrorObservation{
-			UpstreamStatusCode: http.StatusOK,
-			Kind:               "policy_error",
-			Reason:             KiroContentFilteredOutcome,
-		}, contentFilteredErr
+		return nil, contentFilteredErr
 	}
 	msg := err.Error()
 	if isKiroEndpointQuotaExhaustedError(msg) {
@@ -271,10 +266,10 @@ func recordKiroForwardError(c *gin.Context, account *Account, err error, observa
 		return
 	}
 	safeErr := truncateString(sanitizeUpstreamErrorMessage(err.Error()), 2048)
-	setOpsUpstreamError(c, observation.UpstreamStatusCode, safeErr, "")
+	setOpsUpstreamError(c, 0, safeErr, "")
 	event := OpsUpstreamErrorEvent{
 		Platform:           PlatformKiro,
-		UpstreamStatusCode: observation.UpstreamStatusCode,
+		UpstreamStatusCode: 0,
 		Kind:               observation.Kind,
 		Reason:             observation.Reason,
 		Message:            safeErr,

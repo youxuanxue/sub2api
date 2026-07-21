@@ -395,7 +395,7 @@
         "quota exhausted on",
         "INVALID_MODEL_ID"
       ],
-      "rationale": "TK-only typed errors + classifier for Kiro request rejections, including CONTENT_FILTERED, INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; it records CONTENT_FILTERED as policy_error/content_filtered with the real upstream HTTP 200 and preserves sanitized transport/read/empty-response causes while clients receive stable protocol envelopes. The handler maps request-owned outcomes to 400 without cross-account failover. Losing this file makes Kiro policy/validation outcomes fall back to generic forwarding errors or restores opaque 502s with no recoverable root cause."
+      "rationale": "TK-only typed errors + classifier for Kiro request rejections, including CONTENT_FILTERED, INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; CONTENT_FILTERED returns a typed client-owned error without creating upstream error context, while real transport/read/empty-response causes retain sanitized upstream evidence. The handler maps request-owned outcomes to 400 without cross-account failover. Losing this file makes Kiro policy/validation outcomes fall back to generic forwarding errors or restores opaque 502s with no recoverable root cause."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_kiro.go",
@@ -430,6 +430,29 @@
         "TestForwardAsResponses_KiroMirrorContentFilteredReturns400WithoutFailover"
       ],
       "rationale": "Wire-contract evidence for native and mirrored Kiro content filtering across Chat Completions and Responses, including no UpstreamFailoverError and a single mirror attempt."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger.go",
+      "must_contain": [
+        "\"content_filter_error\""
+      ],
+      "rationale": "Chat Completions content_filter_error must remain a recognized request-phase type so Kiro filtering is owned by the client, never provider/platform."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_client_validation.go",
+      "must_contain": [
+        "\"content_filter\""
+      ],
+      "rationale": "Responses uses error.code=content_filter without an error.type; this code anchor keeps the flattened api_error classified as request/client."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_kiro_content_filter_test.go",
+      "must_contain": [
+        "TestClassifyOpsKiroContentFilterOwnedByClient",
+        "require.Equal(t, \"client\", owner)",
+        "require.False(t, hasOpsUpstreamErrorContext(c))"
+      ],
+      "rationale": "End-to-end ops attribution evidence for the Messages, Chat Completions, and Responses content-filter envelopes: request/client ownership with no upstream error context."
     },
     {
       "path": "backend/internal/service/wire.go",
