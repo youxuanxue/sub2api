@@ -127,6 +127,8 @@
         "func CallKiroAPIWithDoerContext",
         "func callKiroAPIOnce",
         "ResetForRetry func() bool",
+        "OnStopReason",
+        "case \"metadataEvent\":",
         "stale profileArn",
         "func parseEventStream",
         "extractEventStreamHeaderValue",
@@ -136,7 +138,15 @@
         "runtime.us-east-1.kiro.dev",
         "q.us-east-1.amazonaws.com"
       ],
-      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
+      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason and the metadataEvent dispatch preserve Kiro's authoritative terminal outcome; losing them turns CONTENT_FILTERED back into an opaque empty-response 502. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
+    },
+    {
+      "path": "backend/internal/integration/kiro/eventstream_test.go",
+      "must_contain": [
+        "TestParseEventStream_MetadataStopReason",
+        "CONTENT_FILTERED"
+      ],
+      "rationale": "Protocol-level evidence that metadataEvent.stopReason survives EventStream decoding. Without this callback the service cannot distinguish an upstream content-policy terminal outcome from a broken empty response."
     },
     {
       "path": "backend/internal/integration/kiro/client_endpoints_test.go",
@@ -221,6 +231,8 @@
         "BillingTier:   kiroproto.KiroEstimatedBillingTier",
         "callErr != nil && !enc.started",
         "textBuf == \"\" && thinkingBuf == \"\" && len(toolUses) == 0",
+        "KiroContentFilteredError",
+        "CONTENT_FILTERED",
         "classifyAndRecordKiroForwardError",
         "publishKiroInternalThinkingSideChannel"
       ],
@@ -232,6 +244,9 @@
         "TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput",
         "TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError",
         "TestKiroGatewayService_Forward_EmptyResponseTriggersFailover",
+        "TestKiroGatewayService_Forward_NonStreaming_ContentFilteredIsNotFailover",
+        "TestKiroGatewayService_Forward_Streaming_ContentFilteredIsNotFailover",
+        "TestKiroGatewayService_Forward_ContentFilteredWithAssistantTextRemainsSuccess",
         "TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailover",
         "TestKiroGatewayService_Forward_EventStreamThrottlingTriggersFailover",
         "TestKiroGatewayService_Forward_EmptyEventStreamExceptionPreservesFailoverClass",
@@ -342,16 +357,30 @@
       "path": "backend/internal/handler/gateway_handler.go",
       "must_contain": [
         "account.IsKiro()",
+        "handleKiroContentFilteredError",
         "service.KiroInvalidModelError",
         "service.KiroInvalidRequestError",
         "service.KiroEndpointQuotaExhaustedError",
         "service.KiroEndpointQuotaExhaustedRetryAfterSeconds()"
       ],
-      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior. The KiroEndpointQuotaExhaustedError branch returns 429+Retry-After:10 instead of a generic 502 when all Kiro upstream endpoints hit quota exhaustion."
+      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. handleKiroContentFilteredError maps Kiro's policy terminal outcome to 400 invalid_request_error and emits the trusted mirror outcome header without failover. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior. The KiroEndpointQuotaExhaustedError branch returns 429+Retry-After:10 instead of a generic 502 when all Kiro upstream endpoints hit quota exhaustion."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_kiro_content_filter_test.go",
+      "must_contain": [
+        "TestGatewayHandler_HandleKiroContentFilteredError",
+        "invalid_request_error",
+        "KiroOutcomeHeader"
+      ],
+      "rationale": "Messages API wire-contract evidence for the Kiro content-filter outcome: HTTP 400 Anthropic error envelope plus the internal mirror header."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_tk_errors.go",
       "must_contain": [
+        "type KiroContentFilteredError",
+        "KiroOutcomeHeader",
+        "KiroContentFilteredOutcome",
+        "func IsKiroContentFilteredRelayResponse",
         "type KiroInvalidModelError",
         "type KiroInvalidRequestError",
         "type KiroEndpointQuotaExhaustedError",
@@ -366,7 +395,41 @@
         "quota exhausted on",
         "INVALID_MODEL_ID"
       ],
-      "rationale": "TK-only typed error + classifier for Kiro request rejections, including INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; it preserves a sanitized, categorized transport/read/empty-response cause in ops upstream_errors while the client still receives the generic 502 envelope. The handler maps typed invalid model/request errors to client-owned 400 responses without cross-account failover. Losing this file makes Kiro validation errors fall back to the generic forward-error path or restores opaque 502s with no recoverable root cause."
+      "rationale": "TK-only typed errors + classifier for Kiro request rejections, including CONTENT_FILTERED, INVALID_MODEL_ID and CONTENT_LENGTH_EXCEEDS_THRESHOLD. classifyAndRecordKiroForwardError is called from both forwardStreaming and forwardNonStreaming; it records CONTENT_FILTERED as policy_error/content_filtered with the real upstream HTTP 200 and preserves sanitized transport/read/empty-response causes while clients receive stable protocol envelopes. The handler maps request-owned outcomes to 400 without cross-account failover. Losing this file makes Kiro policy/validation outcomes fall back to generic forwarding errors or restores opaque 502s with no recoverable root cause."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_kiro.go",
+      "must_contain": [
+        "KiroContentFilteredError",
+        "content_filter_error",
+        "KiroOutcomeHeader"
+      ],
+      "rationale": "Native Kiro Chat Completions mapping must turn the typed content-policy outcome into a committed HTTP 400 content_filter_error before rate-limit handling."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": [
+        "IsKiroContentFilteredRelayResponse(account, resp.Header)",
+        "content_filter_error"
+      ],
+      "rationale": "Prod Kiro mirror Chat Completions mapping consumes the trusted edge outcome before generic failover/account-penalty logic."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_responses.go",
+      "must_contain": [
+        "IsKiroContentFilteredRelayResponse(account, resp.Header)",
+        "KiroContentFilteredClientMessage()"
+      ],
+      "rationale": "Prod Kiro mirror Responses mapping consumes the trusted edge outcome before generic failover/account-penalty logic and writes the Responses content_filter code."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_kiro_content_filter_test.go",
+      "must_contain": [
+        "TestForwardAsChatCompletions_KiroContentFilteredReturns400",
+        "TestForwardAsChatCompletions_KiroMirrorContentFilteredReturns400WithoutFailover",
+        "TestForwardAsResponses_KiroMirrorContentFilteredReturns400WithoutFailover"
+      ],
+      "rationale": "Wire-contract evidence for native and mirrored Kiro content filtering across Chat Completions and Responses, including no UpstreamFailoverError and a single mirror attempt."
     },
     {
       "path": "backend/internal/service/wire.go",

@@ -162,6 +162,11 @@ func (s *GatewayService) ForwardAsResponses(
 
 	// 12. Handle error response with failover
 	if resp.StatusCode >= 400 {
+		if IsKiroContentFilteredRelayResponse(account, resp.Header) {
+			_ = resp.Body.Close()
+			writeResponsesError(c, http.StatusBadRequest, "content_filter", KiroContentFilteredClientMessage())
+			return nil, &KiroContentFilteredError{}
+		}
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))

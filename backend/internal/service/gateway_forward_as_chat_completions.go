@@ -188,6 +188,11 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 12. Handle error response with failover
 	if resp.StatusCode >= 400 {
+		if IsKiroContentFilteredRelayResponse(account, resp.Header) {
+			_ = resp.Body.Close()
+			writeGatewayCCError(c, http.StatusBadRequest, "content_filter_error", KiroContentFilteredClientMessage())
+			return nil, &KiroContentFilteredError{}
+		}
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))

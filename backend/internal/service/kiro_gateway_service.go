@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -140,6 +141,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		thinkingBuf string
 		toolUses    []kiroproto.KiroToolUse
 		callbackErr error
+		stopReason  string
 		redactor    kiroproto.InlineThinkingRedactor
 	)
 
@@ -158,6 +160,9 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		OnToolUse: func(tu kiroproto.KiroToolUse) {
 			toolUses = append(toolUses, tu)
 		},
+		OnStopReason: func(reason string) {
+			stopReason = reason
+		},
 		// Kiro upstream reports no token usage; OnComplete(in,out) is always (0,0).
 		// We estimate token usage locally below instead of trusting these values.
 		OnCredits: func(credits float64) {
@@ -171,6 +176,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 			thinkingBuf = ""
 			toolUses = nil
 			callbackErr = nil
+			stopReason = ""
 			redactor = kiroproto.InlineThinkingRedactor{}
 			return true
 		},
@@ -187,6 +193,9 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		thinkingBuf += inlineThinking
 	}
 	if textBuf == "" && thinkingBuf == "" && len(toolUses) == 0 {
+		if strings.EqualFold(stopReason, "CONTENT_FILTERED") {
+			return nil, classifyAndRecordKiroForwardError(c, account, &KiroContentFilteredError{}, model)
+		}
 		return nil, classifyAndRecordKiroForwardError(c, account, errKiroEmptyResponse, model)
 	}
 
@@ -264,6 +273,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		thinkingBuf string
 		toolUses    []kiroproto.KiroToolUse
 		callbackErr error
+		stopReason  string
 		firstTokMs  *int
 		redactor    kiroproto.InlineThinkingRedactor
 	)
@@ -306,6 +316,11 @@ func (s *KiroGatewayService) forwardStreaming(
 			toolUses = append(toolUses, tu)
 			enc.writeToolUse(tu)
 		},
+		OnStopReason: func(reason string) {
+			mu.Lock()
+			defer mu.Unlock()
+			stopReason = reason
+		},
 		// Kiro upstream reports no token usage; OnComplete(in,out) is always (0,0).
 		// We estimate token usage locally below instead of trusting these values.
 		OnCredits: func(credits float64) {
@@ -326,6 +341,7 @@ func (s *KiroGatewayService) forwardStreaming(
 			thinkingBuf = ""
 			toolUses = nil
 			callbackErr = nil
+			stopReason = ""
 			firstTokMs = nil
 			redactor = kiroproto.InlineThinkingRedactor{}
 			return true
@@ -363,13 +379,6 @@ func (s *KiroGatewayService) forwardStreaming(
 		writeKiroStreamError(c, flusher, "stream_read_error", msg)
 		return nil, fmt.Errorf("kiro stream callback error: %w", callbackErr)
 	}
-	if !enc.started && textBuf == "" && thinkingBuf == "" && len(toolUses) == 0 {
-		return nil, classifyAndRecordKiroForwardError(c, account, errKiroEmptyResponse, model)
-	}
-
-	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
-	// inputTokens was already computed for the encoder (message_start.usage); reuse
-	// it for the ForwardResult so the two never drift.
 	if visible, inlineThinking := redactor.Flush(); visible != "" || inlineThinking != "" {
 		if inlineThinking != "" {
 			thinkingBuf += inlineThinking
@@ -379,6 +388,16 @@ func (s *KiroGatewayService) forwardStreaming(
 			enc.writeTextDelta(visible)
 		}
 	}
+	if !enc.started && textBuf == "" && thinkingBuf == "" && len(toolUses) == 0 {
+		if strings.EqualFold(stopReason, "CONTENT_FILTERED") {
+			return nil, classifyAndRecordKiroForwardError(c, account, &KiroContentFilteredError{}, model)
+		}
+		return nil, classifyAndRecordKiroForwardError(c, account, errKiroEmptyResponse, model)
+	}
+
+	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
+	// inputTokens was already computed for the encoder (message_start.usage); reuse
+	// it for the ForwardResult so the two never drift.
 	inputTokens := enc.inputTokens
 	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, toolUses)
 

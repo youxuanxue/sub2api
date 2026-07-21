@@ -18,6 +18,32 @@ var kiroTransportFailoverBody = []byte(`{"error":{"type":"upstream_error","messa
 
 var errKiroEmptyResponse = errors.New("kiro upstream returned an empty response")
 
+const (
+	KiroOutcomeHeader             = "X-TokenKey-Kiro-Outcome"
+	KiroContentFilteredOutcome    = "content_filtered"
+	kiroContentFilteredClientText = "Request was blocked by upstream content filtering"
+)
+
+// KiroContentFilteredError represents Kiro's successful HTTP transport with a
+// policy terminal outcome and no assistant output. Retrying another account
+// cannot change the request-level policy decision.
+type KiroContentFilteredError struct{}
+
+func (*KiroContentFilteredError) Error() string {
+	return "kiro upstream content filtered the request"
+}
+
+func KiroContentFilteredClientMessage() string {
+	return kiroContentFilteredClientText
+}
+
+// IsKiroContentFilteredRelayResponse accepts the internal relay outcome only
+// from an account configured as a Kiro mirror stub.
+func IsKiroContentFilteredRelayResponse(account *Account, header http.Header) bool {
+	return account != nil && account.IsKiroMirrorStub() &&
+		strings.EqualFold(strings.TrimSpace(header.Get(KiroOutcomeHeader)), KiroContentFilteredOutcome)
+}
+
 // KiroInvalidModelError is a typed, status-carrying error raised when the Kiro
 // (sixth platform) upstream rejects a request with HTTP 400 INVALID_MODEL_ID —
 // i.e. the requested model is not one the Kiro/CodeWhisperer backend serves.
@@ -110,8 +136,9 @@ func isKiroEndpointQuotaExhaustedError(msg string) bool {
 }
 
 type kiroForwardErrorObservation struct {
-	Kind   string
-	Reason string
+	UpstreamStatusCode int
+	Kind               string
+	Reason             string
 }
 
 func classifyAndRecordKiroForwardError(c *gin.Context, account *Account, err error, model string) error {
@@ -125,6 +152,14 @@ func classifyAndRecordKiroForwardError(c *gin.Context, account *Account, err err
 func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObservation, error) {
 	if err == nil {
 		return nil, nil
+	}
+	var contentFilteredErr *KiroContentFilteredError
+	if errors.As(err, &contentFilteredErr) {
+		return &kiroForwardErrorObservation{
+			UpstreamStatusCode: http.StatusOK,
+			Kind:               "policy_error",
+			Reason:             KiroContentFilteredOutcome,
+		}, contentFilteredErr
 	}
 	msg := err.Error()
 	if isKiroEndpointQuotaExhaustedError(msg) {
@@ -236,10 +271,10 @@ func recordKiroForwardError(c *gin.Context, account *Account, err error, observa
 		return
 	}
 	safeErr := truncateString(sanitizeUpstreamErrorMessage(err.Error()), 2048)
-	setOpsUpstreamError(c, 0, safeErr, "")
+	setOpsUpstreamError(c, observation.UpstreamStatusCode, safeErr, "")
 	event := OpsUpstreamErrorEvent{
 		Platform:           PlatformKiro,
-		UpstreamStatusCode: 0,
+		UpstreamStatusCode: observation.UpstreamStatusCode,
 		Kind:               observation.Kind,
 		Reason:             observation.Reason,
 		Message:            safeErr,

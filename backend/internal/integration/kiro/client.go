@@ -235,6 +235,7 @@ type InferenceConfig struct {
 type KiroStreamCallback struct {
 	OnText         func(text string, isThinking bool)
 	OnToolUse      func(toolUse KiroToolUse)
+	OnStopReason   func(stopReason string)
 	OnComplete     func(inputTokens, outputTokens int)
 	OnError        func(err error)
 	OnCredits      func(credits float64)
@@ -549,6 +550,10 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 			}
 		case "toolUseEvent":
 			currentToolUse = handleToolUseEvent(event, currentToolUse, callback)
+		case "metadataEvent":
+			if stopReason, ok := event["stopReason"].(string); ok && stopReason != "" && callback.OnStopReason != nil {
+				callback.OnStopReason(stopReason)
+			}
 		case "meteringEvent":
 			if usage, ok := event["usage"].(float64); ok {
 				totalCredits += usage

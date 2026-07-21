@@ -800,6 +800,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					return
 				}
 
+				if h.handleKiroContentFilteredError(c, err) {
+					return
+				}
+
 				// Kiro upstream rejected the model (HTTP 400 INVALID_MODEL_ID):
 				// return 400 immediately with a clear message, no failover (every
 				// Kiro account rejects the same unknown model identically).
@@ -1812,6 +1816,16 @@ func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, mess
 			"message": message,
 		},
 	})
+}
+
+func (h *GatewayHandler) handleKiroContentFilteredError(c *gin.Context, err error) bool {
+	var contentFilteredErr *service.KiroContentFilteredError
+	if !errors.As(err, &contentFilteredErr) {
+		return false
+	}
+	c.Header(service.KiroOutcomeHeader, service.KiroContentFilteredOutcome)
+	h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", service.KiroContentFilteredClientMessage())
+	return true
 }
 
 // CountTokens handles token counting endpoint
