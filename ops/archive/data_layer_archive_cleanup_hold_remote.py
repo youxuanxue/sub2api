@@ -308,6 +308,8 @@ def apply_hold(confirmation: str) -> dict[str, Any]:
     if confirmation != HOLD_CONFIRMATION:
         raise HoldError("cleanup hold confirmation token is invalid")
     before = _read_state()
+    if before["api_cleanup_enabled"] is not True:
+        raise HoldError("cleanup hold is already active; verify the existing receipt")
     started_at = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
     updated = copy.deepcopy(before["_settings"])
     updated["data_retention"]["cleanup_enabled"] = False

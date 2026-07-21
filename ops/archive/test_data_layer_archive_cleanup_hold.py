@@ -105,6 +105,14 @@ class CleanupHoldRemoteTest(unittest.TestCase):
             with self.assertRaisesRegex(remote.HoldError, "runtime disable was not proven"):
                 remote.apply_hold(remote.HOLD_CONFIRMATION)
 
+    def test_us039_apply_refuses_to_replace_an_active_hold_receipt(self) -> None:
+        with mock.patch.object(
+            remote, "_read_state", return_value=_state(False)
+        ), mock.patch.object(remote, "_admin_request") as admin_request:
+            with self.assertRaisesRegex(remote.HoldError, "already active"):
+                remote.apply_hold(remote.HOLD_CONFIRMATION)
+        admin_request.assert_not_called()
+
     def test_us039_verify_rejects_cleanup_after_hold(self) -> None:
         state = _state(False, last_run_at="2026-07-21T14:30:01Z")
         with mock.patch.object(remote, "_read_state", return_value=state):

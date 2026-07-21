@@ -42,6 +42,8 @@ PROD_CANARY_DATABASE = "tokenkey"
 PROD_CANARY_STACK = "tokenkey-prod-stage0"
 PROD_CANARY_CONTAINER = "tokenkey-postgres"
 PROD_CANARY_TABLES = ("ops_system_logs", "ops_error_logs")
+POSTGRES_BIGINT_MAX = 2**63 - 1
+POSTGRES_BIGINT_WIDTH = len(str(POSTGRES_BIGINT_MAX))
 POSTGRES_TABLES = ("usage_logs", "ops_system_logs", "ops_error_logs", "qa_records")
 POSTGRES_DATASETS = {
     "usage_logs": "usage",
@@ -66,6 +68,38 @@ def _positive_limit(name: str, value: int) -> int:
 def _sql_literal(value: str) -> str:
     """Quote a value for the fixed, locally generated psql statements."""
     return "'" + value.replace("'", "''") + "'"
+
+
+def _prod_canary_record_id(table: str, raw_id: str) -> str:
+    if table not in PROD_CANARY_TABLES:
+        raise RehearsalError(f"unsupported production canary table {table!r}")
+    if (
+        not isinstance(raw_id, str)
+        or not raw_id
+        or any(character not in "0123456789" for character in raw_id)
+    ):
+        raise RehearsalError("production canary source id is not a bigint")
+    source_id = int(raw_id)
+    if source_id <= 0 or source_id > POSTGRES_BIGINT_MAX or str(source_id) != raw_id:
+        raise RehearsalError("production canary source id is not canonical")
+    return f"{table}:{source_id:0{POSTGRES_BIGINT_WIDTH}d}"
+
+
+def _prod_canary_source_key(record: dict[str, Any], table: str) -> dict[str, Any]:
+    prefix = f"{table}:"
+    record_id = record.get("record_id")
+    if not isinstance(record_id, str) or not record_id.startswith(prefix):
+        raise RehearsalError("production canary record id has the wrong table prefix")
+    encoded = record_id[len(prefix) :]
+    if (
+        len(encoded) != POSTGRES_BIGINT_WIDTH
+        or any(character not in "0123456789" for character in encoded)
+    ):
+        raise RehearsalError("production canary record id is not order preserving")
+    source_id = int(encoded)
+    if _prod_canary_record_id(table, str(source_id)) != record_id:
+        raise RehearsalError("production canary record id is not canonical")
+    return {"created_at": record["created_at"], "id": source_id}
 
 
 def _postgres_dsn_info(dsn: str, *, target: bool) -> dict[str, Any]:
@@ -1167,13 +1201,20 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             assert canary_cutoff is not None
             if not records:
                 raise RehearsalError("production canary artifact is empty")
-            table_prefix = f"{source_file_identity['table']}:"
-            if any(
-                _utc(record["created_at"]) >= canary_cutoff
-                or not record["record_id"].startswith(table_prefix)
-                for record in records
-            ):
+            table = source_file_identity["table"]
+            try:
+                source_keys = [_prod_canary_source_key(record, table) for record in records]
+            except RehearsalError as exc:
+                raise RehearsalError(
+                    "production canary artifact contains a foreign source id"
+                ) from exc
+            if any(_utc(record["created_at"]) >= canary_cutoff for record in records):
                 raise RehearsalError("production canary artifact contains hot or foreign rows")
+            ordered_keys = sorted(
+                source_keys, key=lambda item: (item["created_at"], item["id"])
+            )
+            if source_keys != ordered_keys:
+                raise RehearsalError("production canary source keys are not ordered")
         total_rows += len(records)
         total_bytes += len(raw)
     if total_rows != manifest.get("total_rows"):
@@ -1186,14 +1227,12 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             raise RehearsalError("production canary row count exceeds its manifest bound")
         if total_bytes > canary["max_logical_bytes"]:
             raise RehearsalError("production canary byte count exceeds its manifest bound")
-        expected_first_key = {
-            "created_at": records[0]["created_at"],
-            "record_id": records[0]["record_id"],
-        }
-        expected_last_key = {
-            "created_at": records[-1]["created_at"],
-            "record_id": records[-1]["record_id"],
-        }
+        expected_first_key = _prod_canary_source_key(
+            records[0], source_file_identity["table"]
+        )
+        expected_last_key = _prod_canary_source_key(
+            records[-1], source_file_identity["table"]
+        )
         if canary.get("sample_first_key") != expected_first_key:
             raise RehearsalError("production canary first sample key mismatch")
         if canary.get("sample_last_key") != expected_last_key:

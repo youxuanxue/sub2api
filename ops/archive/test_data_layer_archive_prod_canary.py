@@ -26,6 +26,7 @@ import data_layer_archive_rehearsal as rehearsal  # noqa: E402
 
 _INSTANCE_ID = "i-0123456789abcdef0"
 _STAGING_BASE = "s3://test-backups/prod/pgdump/archive-canary"
+_HOLD_STARTED_AT = "2026-07-21T02:30:00.000000Z"
 
 
 def _timestamp(value: dt.datetime) -> str:
@@ -192,6 +193,99 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                 canary.run_canary(args)
         stack_output.assert_not_called()
 
+    def test_us039_remote_bundle_imports_and_host_export_rechecks_hold(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            with canary.tarfile.open(
+                fileobj=canary.io.BytesIO(canary._remote_bundle_archive()), mode="r:gz"
+            ) as archive:
+                archive.extractall(root, filter="data")
+            imported = subprocess.run(
+                [sys.executable, "-c", "import data_layer_archive_prod_canary"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(imported.returncode, 0, imported.stderr)
+
+        command = canary._remote_host_command(
+            table="ops_system_logs",
+            as_of="2026-07-21T03:00:00Z",
+            instance_id=_INSTANCE_ID,
+            staging_s3_base_uri=_STAGING_BASE,
+            bundle_s3_uri=f"{_STAGING_BASE}/control/{'a' * 64}.tar.gz",
+            bundle_sha256="a" * 64,
+            hold_started_at=_HOLD_STARTED_AT,
+            timeout_seconds=20,
+            max_rows=1_000,
+            max_logical_bytes=16 * 1024 * 1024,
+        )
+        self.assertIn("data_layer_archive_cleanup_hold_remote.py", command)
+        self.assertIn("--hold-started-at", command)
+        self.assertLessEqual(
+            len(canary._ssm_parameters(command, 300).encode("utf-8")),
+            canary.SSM_PARAMETERS_MAX_BYTES,
+        )
+        with self.assertRaisesRegex(canary.CanaryError, "payload bound"):
+            canary._ssm_parameters("x" * canary.SSM_PARAMETERS_MAX_BYTES, 300)
+
+        hold = {
+            "server_clock": "2026-07-21T03:00:00.000000Z",
+            "hold_active": True,
+            "no_cleanup_after_hold": True,
+            "runtime_disabled_proven": True,
+        }
+        sealed = {
+            "batch_dir": "/tmp/prod-canary-batch",
+            "canary": {"table": "ops_system_logs"},
+            "metrics": {"candidate_rows": 1},
+        }
+        uploaded = {
+            "mode": "prod_archive_export_canary_upload",
+            "deletion_authorized": False,
+        }
+        with mock.patch.object(
+            canary.cleanup_hold_remote, "verify_hold", return_value=hold
+        ) as verify_hold, mock.patch.object(
+            canary, "seal_prod_canary_batch", return_value=sealed
+        ) as seal, mock.patch.object(
+            canary, "upload_committed_batch", return_value=uploaded
+        ):
+            result = canary.host_export(
+                table="ops_system_logs",
+                as_of="2026-07-21T03:00:00Z",
+                instance_id=_INSTANCE_ID,
+                staging_s3_base_uri=_STAGING_BASE,
+                hold_started_at=_HOLD_STARTED_AT,
+                confirmation=canary.PROD_CONFIRMATION,
+                timeout_seconds=20,
+                max_rows=1_000,
+                max_logical_bytes=16 * 1024 * 1024,
+            )
+        verify_hold.assert_called_once_with(_HOLD_STARTED_AT)
+        seal.assert_called_once()
+        self.assertTrue(result["cleanup_hold"]["runtime_disabled_proven"])
+
+        with mock.patch.object(
+            canary.cleanup_hold_remote,
+            "verify_hold",
+            side_effect=canary.cleanup_hold_remote.HoldError("cleanup hold is not active"),
+        ), mock.patch.object(canary, "seal_prod_canary_batch") as seal:
+            with self.assertRaisesRegex(canary.cleanup_hold_remote.HoldError, "not active"):
+                canary.host_export(
+                    table="ops_system_logs",
+                    as_of="2026-07-21T03:00:00Z",
+                    instance_id=_INSTANCE_ID,
+                    staging_s3_base_uri=_STAGING_BASE,
+                    hold_started_at=_HOLD_STARTED_AT,
+                    confirmation=canary.PROD_CONFIRMATION,
+                    timeout_seconds=20,
+                    max_rows=1_000,
+                    max_logical_bytes=16 * 1024 * 1024,
+                )
+        seal.assert_not_called()
+
     def test_us039_seal_rejects_hot_or_oversized_rows(self) -> None:
         as_of = "2026-07-21T03:00:00Z"
         hot_created_at = rehearsal._timestamp(
@@ -270,6 +364,29 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                 manifest["canary"]["sample_first_key"],
                 manifest["canary"]["sample_last_key"],
             )
+
+        same_time_rows = []
+        for record_id in ("2", "10"):
+            row = _cold_row(as_of)
+            row["record_id"] = record_id
+            row["payload"] = {**row["payload"], "id": int(record_id)}
+            same_time_rows.append(row)
+        with tempfile.TemporaryDirectory() as temp:
+            sealed = canary.seal_prod_canary_batch(
+                temp,
+                table="ops_system_logs",
+                as_of=as_of,
+                instance_id=_INSTANCE_ID,
+                staging_s3_base_uri=_STAGING_BASE,
+                query_runner=_fake_query_runner(as_of=as_of, rows=same_time_rows),
+            )
+            manifest = json.loads(
+                (pathlib.Path(sealed["batch_dir"]) / "manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+        self.assertEqual(manifest["canary"]["sample_first_key"]["id"], 2)
+        self.assertEqual(manifest["canary"]["sample_last_key"]["id"], 10)
 
         def invalid_proof(
             _sql: str, _timeout_seconds: int, _output_limit: int
@@ -409,6 +526,12 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                     sealed["batch_dir"], command_runner=unencrypted
                 )
 
+            control_bundle = canary.stage_remote_bundle(
+                _STAGING_BASE, command_runner=fake_command
+            )
+            self.assertIn(f"{_STAGING_BASE}/control/", control_bundle["uri"])
+            self.assertEqual(control_bundle["server_side_encryption"], "AES256")
+
     def test_us039_manifest_rejects_wrong_source_database(self) -> None:
         as_of = "2026-07-21T03:00:00Z"
         with tempfile.TemporaryDirectory() as temp:
@@ -521,15 +644,27 @@ class ProdArchiveCanaryTest(unittest.TestCase):
             "manifest_uploaded_last": True,
             "source_mutated": False,
             "deletion_authorized": False,
+            "cleanup_hold": {
+                "hold_started_at": _HOLD_STARTED_AT,
+                "verified_at": "2026-07-21T03:00:00.000000Z",
+                "hold_active": True,
+                "no_cleanup_after_hold": True,
+                "runtime_disabled_proven": True,
+            },
         }
         self.assertIs(
-            canary._validated_remote_receipt(receipt, staging_base=_STAGING_BASE),
+            canary._validated_remote_receipt(
+                receipt,
+                staging_base=_STAGING_BASE,
+                expected_hold_started_at=_HOLD_STARTED_AT,
+            ),
             receipt,
         )
         with self.assertRaisesRegex(canary.CanaryError, "commit validation"):
             canary._validated_remote_receipt(
                 {**receipt, "s3_prefix": f"s3://wrong/{batch_id}"},
                 staging_base=_STAGING_BASE,
+                expected_hold_started_at=_HOLD_STARTED_AT,
             )
 
         ssm_calls: list[list[str]] = []
@@ -609,6 +744,13 @@ class ProdArchiveCanaryTest(unittest.TestCase):
             "manifest_uploaded_last": True,
             "source_mutated": False,
             "deletion_authorized": False,
+            "cleanup_hold": {
+                "hold_started_at": _HOLD_STARTED_AT,
+                "verified_at": "2026-07-21T03:00:00.000000Z",
+                "hold_active": True,
+                "no_cleanup_after_hold": True,
+                "runtime_disabled_proven": True,
+            },
         }
         restored = {
             "mode": "prod_archive_export_canary_restore",
@@ -640,11 +782,19 @@ class ProdArchiveCanaryTest(unittest.TestCase):
         ), mock.patch.object(
             canary, "_stack_parameter", return_value="7"
         ), mock.patch.object(
+            canary,
+            "stage_remote_bundle",
+            return_value={
+                "uri": f"{_STAGING_BASE}/control/{'a' * 64}.tar.gz",
+                "sha256": "a" * 64,
+                "deletion_authorized": False,
+            },
+        ), mock.patch.object(
             canary, "_remote_host_command", return_value="true"
         ), mock.patch.object(
             canary.cleanup_hold,
             "verify_receipt_for_instance",
-            return_value={"hold_started_at": "2026-07-21T02:30:00Z"},
+            return_value={"hold_started_at": _HOLD_STARTED_AT},
         ), mock.patch.object(
             canary.cleanup_hold,
             "verify",

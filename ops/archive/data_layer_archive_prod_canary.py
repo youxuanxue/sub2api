@@ -12,6 +12,8 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime as dt
+import gzip
+import io
 import json
 import os
 import pathlib
@@ -20,6 +22,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 from collections.abc import Callable, Iterable
@@ -27,6 +30,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import data_layer_archive_cleanup_hold as cleanup_hold
+import data_layer_archive_cleanup_hold_remote as cleanup_hold_remote
 import data_layer_archive_rehearsal as rehearsal
 
 
@@ -38,6 +42,7 @@ BACKUP_RETENTION_DAYS = 7
 PROD_CONFIRMATION = "tokenkey-prod-archive-export-only-v1"
 S3_KEY_BASE = "prod/pgdump/archive-canary"
 AWS_COMMAND_TIMEOUT_SECONDS = 300
+SSM_PARAMETERS_MAX_BYTES = 20 * 1024
 OPS_RETENTION_DAYS = 30
 LOCK_TIMEOUT_MS = 100
 DEFAULT_TIMEOUT_SECONDS = 20
@@ -355,7 +360,9 @@ def _collect_prod_candidates(
             record = rehearsal._record_from_row(
                 (
                     "ops",
-                    f"{request['table']}:{value.get('record_id')}",
+                    rehearsal._prod_canary_record_id(
+                        request["table"], value["record_id"]
+                    ),
                     value.get("created_at"),
                     rehearsal._canonical_json(value.get("payload")),
                 )
@@ -388,14 +395,12 @@ def _collect_prod_candidates(
         "query_elapsed_ms": round((time.monotonic() - started) * 1000, 3),
         "candidate_rows": len(records),
         "candidate_logical_bytes": logical_bytes,
-        "sample_first_key": {
-            "created_at": records[0]["created_at"],
-            "record_id": records[0]["record_id"],
-        },
-        "sample_last_key": {
-            "created_at": records[-1]["created_at"],
-            "record_id": records[-1]["record_id"],
-        },
+        "sample_first_key": rehearsal._prod_canary_source_key(
+            records[0], request["table"]
+        ),
+        "sample_last_key": rehearsal._prod_canary_source_key(
+            records[-1], request["table"]
+        ),
         "more_cold_rows_after_sample": more_cold_rows_after_sample,
     }
 
@@ -636,6 +641,7 @@ def host_export(
     as_of: str,
     instance_id: str,
     staging_s3_base_uri: str,
+    hold_started_at: str,
     confirmation: str,
     timeout_seconds: int,
     max_rows: int,
@@ -643,6 +649,7 @@ def host_export(
 ) -> dict[str, Any]:
     if confirmation != PROD_CONFIRMATION:
         raise CanaryError("production export refused: confirmation token is invalid")
+    hold_verification = cleanup_hold_remote.verify_hold(hold_started_at)
     with tempfile.TemporaryDirectory(prefix="tokenkey-prod-archive-canary-") as temp:
         sealed = seal_prod_canary_batch(
             pathlib.Path(temp) / "batches",
@@ -659,6 +666,15 @@ def host_export(
             **uploaded,
             "canary": sealed["canary"],
             "metrics": sealed["metrics"],
+            "cleanup_hold": {
+                "hold_started_at": hold_started_at,
+                "verified_at": hold_verification["server_clock"],
+                "hold_active": hold_verification["hold_active"],
+                "no_cleanup_after_hold": hold_verification["no_cleanup_after_hold"],
+                "runtime_disabled_proven": hold_verification[
+                    "runtime_disabled_proven"
+                ],
+            },
         }
 
 
@@ -754,20 +770,95 @@ def _prod_instance() -> str:
     return instance_id
 
 
+def _remote_bundle_sources() -> dict[str, bytes]:
+    return {
+        "data_layer_archive_prod_canary.py": pathlib.Path(__file__).read_bytes(),
+        "data_layer_archive_rehearsal.py": pathlib.Path(rehearsal.__file__).read_bytes(),
+        "data_layer_archive_cleanup_hold.py": pathlib.Path(cleanup_hold.__file__).read_bytes(),
+        "data_layer_archive_cleanup_hold_remote.py": pathlib.Path(
+            cleanup_hold_remote.__file__
+        ).read_bytes(),
+    }
+
+
+def _remote_bundle_archive() -> bytes:
+    tar_buffer = io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w") as archive:
+        for name, source in sorted(_remote_bundle_sources().items()):
+            info = tarfile.TarInfo(name)
+            info.size = len(source)
+            info.mode = 0o600
+            info.mtime = 0
+            archive.addfile(info, io.BytesIO(source))
+    return gzip.compress(tar_buffer.getvalue(), compresslevel=9, mtime=0)
+
+
+def stage_remote_bundle(
+    staging_s3_base_uri: str,
+    *,
+    command_runner: CommandRunner = _command_output,
+) -> dict[str, Any]:
+    staging_base = _validated_staging_base(staging_s3_base_uri)
+    archive = _remote_bundle_archive()
+    checksum = rehearsal._sha256(archive)
+    uri = f"{staging_base}/control/{checksum}.tar.gz"
+    with tempfile.TemporaryDirectory(prefix="tokenkey-prod-canary-control-") as temp:
+        path = pathlib.Path(temp) / "control.tar.gz"
+        path.write_bytes(archive)
+        command_runner(
+            [
+                "aws",
+                "s3",
+                "cp",
+                "--region",
+                PROD_REGION,
+                "--only-show-errors",
+                "--sse",
+                "AES256",
+                "--metadata",
+                f"sha256={checksum}",
+                str(path),
+                uri,
+            ]
+        )
+        verified = _head_s3_object(
+            uri,
+            expected_bytes=len(archive),
+            expected_sha256=checksum,
+            command_runner=command_runner,
+        )
+    return {
+        "mode": "prod_archive_export_canary_control_bundle",
+        **verified,
+        "deletion_authorized": False,
+    }
+
+
 def _remote_host_command(
     *,
     table: str,
     as_of: str,
     instance_id: str,
     staging_s3_base_uri: str,
+    bundle_s3_uri: str,
+    bundle_sha256: str,
+    hold_started_at: str,
     timeout_seconds: int,
     max_rows: int,
     max_logical_bytes: int,
 ) -> str:
-    canary_source = pathlib.Path(__file__).read_bytes()
-    rehearsal_source = pathlib.Path(rehearsal.__file__).read_bytes()
-    canary_b64 = base64.b64encode(canary_source).decode("ascii")
-    rehearsal_b64 = base64.b64encode(rehearsal_source).decode("ascii")
+    bundle_bucket, bundle_key = _s3_location(bundle_s3_uri)
+    staging_bucket, staging_key = _s3_location(staging_s3_base_uri)
+    if bundle_bucket != staging_bucket or not bundle_key.startswith(
+        f"{staging_key}/control/"
+    ):
+        raise CanaryError("remote control bundle is outside the approved staging prefix")
+    if (
+        len(bundle_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in bundle_sha256)
+        or not bundle_key.endswith(f"/{bundle_sha256}.tar.gz")
+    ):
+        raise CanaryError("remote control bundle checksum binding is invalid")
     args = [
         "python3",
         "$WORK/data_layer_archive_prod_canary.py",
@@ -780,6 +871,8 @@ def _remote_host_command(
         instance_id,
         "--staging-s3-base-uri",
         staging_s3_base_uri,
+        "--hold-started-at",
+        hold_started_at,
         "--timeout-seconds",
         str(timeout_seconds),
         "--max-rows",
@@ -792,23 +885,29 @@ def _remote_host_command(
     rendered_args = " ".join(
         item if item.startswith("$WORK/") else shlex.quote(item) for item in args
     )
-    return "\n".join(
-        [
-            "set -euo pipefail",
-            'WORK="$(mktemp -d /tmp/tokenkey-prod-archive-canary.XXXXXX)"',
-            "cleanup() {",
-            '  rm -f "$WORK/data_layer_archive_prod_canary.py" "$WORK/data_layer_archive_rehearsal.py"',
-            '  rmdir "$WORK" 2>/dev/null || true',  # preflight-allow: swallow
-            "}",
-            "trap cleanup EXIT",
-            f"printf %s {shlex.quote(canary_b64)} | base64 -d > \"$WORK/data_layer_archive_prod_canary.py\"",
-            f"printf %s {shlex.quote(rehearsal_b64)} | base64 -d > \"$WORK/data_layer_archive_rehearsal.py\"",
-            f'PYTHONPATH="$WORK" {rendered_args}',
-        ]
-    )
+    names = sorted(_remote_bundle_sources())
+    cleanup_paths = " ".join(f'"$WORK/{name}"' for name in names)
+    lines = [
+        "set -euo pipefail",
+        'WORK="$(mktemp -d /tmp/tokenkey-prod-archive-canary.XXXXXX)"',
+        'ARCHIVE="$WORK/control.tar.gz"',
+        "cleanup() {",
+        f'  rm -f "$ARCHIVE" {cleanup_paths}',
+        '  rmdir "$WORK" 2>/dev/null || true',  # preflight-allow: swallow
+        "}",
+        "trap cleanup EXIT",
+        f"aws s3 cp --region {PROD_REGION} --only-show-errors "
+        f"{shlex.quote(bundle_s3_uri)} \"$ARCHIVE\"",
+        'ACTUAL_SHA256="$(sha256sum "$ARCHIVE" | awk \'{print $1}\')"',
+        f'test "$ACTUAL_SHA256" = {shlex.quote(bundle_sha256)}',
+        'tar -xzf "$ARCHIVE" -C "$WORK"',
+        'rm -f "$ARCHIVE"',
+    ]
+    lines.append(f'PYTHONPATH="$WORK" {rendered_args}')
+    return "\n".join(lines)
 
 
-def _run_ssm(instance_id: str, remote_script: str, *, timeout_seconds: int) -> dict[str, Any]:
+def _ssm_parameters(remote_script: str, timeout_seconds: int) -> str:
     script_b64 = base64.b64encode(remote_script.encode("utf-8")).decode("ascii")
     remote = (
         'SCRIPT="$(mktemp /tmp/tokenkey-prod-canary-run.XXXXXX)"\n'
@@ -823,6 +922,13 @@ def _run_ssm(instance_id: str, remote_script: str, *, timeout_seconds: int) -> d
             "executionTimeout": [str(timeout_seconds)],
         }
     )
+    if len(params.encode("utf-8")) > SSM_PARAMETERS_MAX_BYTES:
+        raise CanaryError("production canary SSM parameters exceed the safe payload bound")
+    return params
+
+
+def _run_ssm(instance_id: str, remote_script: str, *, timeout_seconds: int) -> dict[str, Any]:
+    params = _ssm_parameters(remote_script, timeout_seconds)
     send = _aws_json(
         [
             "ssm",
@@ -912,7 +1018,7 @@ def _run_ssm(instance_id: str, remote_script: str, *, timeout_seconds: int) -> d
 
 
 def _validated_remote_receipt(
-    receipt: dict[str, Any], *, staging_base: str
+    receipt: dict[str, Any], *, staging_base: str, expected_hold_started_at: str
 ) -> dict[str, Any]:
     batch_id = receipt.get("batch_id")
     if not isinstance(batch_id, str) or not batch_id.startswith("prod-canary-"):
@@ -920,6 +1026,7 @@ def _validated_remote_receipt(
     expected_prefix = f"{staging_base}/{batch_id}"
     manifest_sha256 = receipt.get("manifest_sha256")
     objects = receipt.get("objects")
+    hold = receipt.get("cleanup_hold")
     if (
         receipt.get("mode") != "prod_archive_export_canary_upload"
         or receipt.get("s3_prefix") != expected_prefix
@@ -935,6 +1042,12 @@ def _validated_remote_receipt(
         or objects[-1].get("uri") != f"{expected_prefix}/manifest.json"
         or objects[-1].get("sha256") != manifest_sha256
         or objects[-1].get("server_side_encryption") not in {"AES256", "aws:kms"}
+        or not isinstance(hold, dict)
+        or hold.get("hold_started_at") != expected_hold_started_at
+        or hold.get("hold_active") is not True
+        or hold.get("no_cleanup_after_hold") is not True
+        or hold.get("runtime_disabled_proven") is not True
+        or not isinstance(hold.get("verified_at"), str)
     ):
         raise CanaryError("production canary SSM receipt failed commit validation")
     return receipt
@@ -1092,11 +1205,15 @@ def run_canary(args: argparse.Namespace) -> dict[str, Any]:
             "production canary staging requires the approved 7-day retention"
         )
     staging_base = _validated_staging_base(f"s3://{bucket}/{S3_KEY_BASE}")
+    remote_bundle = stage_remote_bundle(staging_base)
     remote_script = _remote_host_command(
         table=request["table"],
         as_of=request["as_of"],
         instance_id=instance_id,
         staging_s3_base_uri=staging_base,
+        bundle_s3_uri=remote_bundle["uri"],
+        bundle_sha256=remote_bundle["sha256"],
+        hold_started_at=hold_receipt["hold_started_at"],
         timeout_seconds=request["timeout_seconds"],
         max_rows=request["max_rows"],
         max_logical_bytes=request["max_logical_bytes"],
@@ -1106,7 +1223,11 @@ def run_canary(args: argparse.Namespace) -> dict[str, Any]:
         remote_script,
         timeout_seconds=args.ssm_timeout_seconds,
     )
-    upload = _validated_remote_receipt(upload, staging_base=staging_base)
+    upload = _validated_remote_receipt(
+        upload,
+        staging_base=staging_base,
+        expected_hold_started_at=hold_receipt["hold_started_at"],
+    )
     restored = restore_committed_batch(
         s3_prefix=upload["s3_prefix"],
         batch_id=upload["batch_id"],
@@ -1122,10 +1243,12 @@ def run_canary(args: argparse.Namespace) -> dict[str, Any]:
         "mode": "prod_archive_export_canary_complete",
         "environment": "prod",
         "instance_id": instance_id,
+        "remote_bundle": remote_bundle,
         "upload": upload,
         "cleanup_hold": {
             "hold_started_at": hold_receipt["hold_started_at"],
-            "verified_at": hold_verification["server_clock"],
+            "controller_verified_at": hold_verification["server_clock"],
+            "host_verified_at": upload["cleanup_hold"]["verified_at"],
             "no_cleanup_after_hold": hold_verification["no_cleanup_after_hold"],
         },
         "production_export_executed": True,
@@ -1165,6 +1288,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_limits(host)
     host.add_argument("--instance-id", required=True)
     host.add_argument("--staging-s3-base-uri", required=True)
+    host.add_argument("--hold-started-at", required=True)
     host.add_argument("--confirm", required=True)
 
     return parser
@@ -1192,6 +1316,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                 as_of=args.as_of,
                 instance_id=args.instance_id,
                 staging_s3_base_uri=args.staging_s3_base_uri,
+                hold_started_at=args.hold_started_at,
                 confirmation=args.confirm,
                 timeout_seconds=args.timeout_seconds,
                 max_rows=args.max_rows,
@@ -1205,6 +1330,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         OSError,
         rehearsal.RehearsalError,
         cleanup_hold.HoldControlError,
+        cleanup_hold_remote.HoldError,
     ) as exc:
         print(f"production archive canary refused: {exc}", file=sys.stderr)
         return 2

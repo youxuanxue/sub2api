@@ -84,7 +84,8 @@ Production archive work first requires an explicit cleanup hold. The controller
 reads the current advanced settings through the admin API and cross-checks the
 database heartbeat. `apply` preserves the complete settings document and changes
 only `data_retention.cleanup_enabled`; it then proves the runtime cron reload and
-writes a receipt. It does not export or delete data.
+writes a receipt. Repeating `apply` while a hold is already active is refused so
+the receipt cannot lose the original enabled state. It does not export or delete data.
 
 ```bash
 python3 ops/archive/data_layer_archive_cleanup_hold.py plan
@@ -119,11 +120,18 @@ manifest under `prod/pgdump/archive-canary/`, verifies S3 encryption and
 checksums, then restores into an independent localhost database named
 `tokenkey_archive_restore_*`.
 
+The controller ships its deterministic Python bundle through an encrypted,
+checksum-bound object under `prod/pgdump/archive-canary/control/`; SSM carries
+only the bounded loader command. The source host verifies that bundle and the
+live cleanup hold before opening the read-only source query.
+
 The source query selects one deterministic page ordered by `(created_at, id)`.
 It seals at most `max_rows`, records the first/last key and whether another cold
 row exists, and does not refuse merely because the table has a larger cold
 backlog. `run` requires `--cleanup-hold-receipt` and re-verifies the current
-setting plus cleanup heartbeat immediately before the export.
+setting plus cleanup heartbeat on both the controller path and the source host
+immediately before the export. Bigint source IDs use an order-preserving encoding
+inside the artifact while manifest cursor keys retain the numeric `id`.
 
 The existing `tokenkey-stage0-backups` pgdump bucket expires this prefix with
 the same short retention used for pgdump copies (seven days under the approved
