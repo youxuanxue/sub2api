@@ -14,6 +14,7 @@ WORKFLOWS = (
 )
 ACTION_REF = "uses: ./.github/actions/pnpm-audit"
 ACTION_ANCHORS = (
+    "dest: ~/setup-pnpm-audit",
     "version: 11.7.0",
     "--registry=https://registry.npmjs.org/",
     '("advisories", "vulnerabilities", "metadata")',
