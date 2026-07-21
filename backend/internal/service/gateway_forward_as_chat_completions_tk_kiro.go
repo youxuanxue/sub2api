@@ -68,6 +68,13 @@ func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 	fwdResult, err := s.kiroGateway.Forward(ctx, c, account, kiroParsed, startTime)
 	c.Writer = origWriter
 	if err != nil {
+		var contentFilteredErr *KiroContentFilteredError
+		if errors.As(err, &contentFilteredErr) {
+			MarkOpsClientContentFiltered(c)
+			c.Header(KiroOutcomeHeader, KiroContentFilteredOutcome)
+			writeGatewayCCError(c, http.StatusBadRequest, "content_filter_error", KiroContentFilteredClientMessage())
+			return nil, contentFilteredErr
+		}
 		if s.rateLimitService != nil {
 			var failoverErr *UpstreamFailoverError
 			if errors.As(err, &failoverErr) {

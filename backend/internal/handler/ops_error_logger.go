@@ -1323,6 +1323,7 @@ func guessPlatformFromPath(path string) string {
 func isKnownOpsErrorType(t string) bool {
 	switch t {
 	case "invalid_request_error",
+		"content_filter_error",
 		"authentication_error",
 		"rate_limit_error",
 		"billing_error",
@@ -1338,6 +1339,11 @@ func isKnownOpsErrorType(t string) bool {
 }
 
 func normalizeOpsErrorType(errType string, code string) string {
+	trimmedType := strings.TrimSpace(errType)
+	if (trimmedType == "" || strings.EqualFold(trimmedType, "api_error")) &&
+		strings.EqualFold(strings.TrimSpace(code), "content_filter") {
+		return "content_filter_error"
+	}
 	if errType != "" && isKnownOpsErrorType(errType) {
 		return errType
 	}
@@ -1372,7 +1378,7 @@ func classifyOpsPhase(errType, message, code string) string {
 			return "request"
 		}
 		return "upstream"
-	case "invalid_request_error":
+	case "invalid_request_error", "content_filter_error":
 		return "request"
 	case "upstream_error", "overloaded_error":
 		return "upstream"
@@ -1388,7 +1394,7 @@ func classifyOpsPhase(errType, message, code string) string {
 
 func classifyOpsSeverity(errType string, status int) string {
 	switch errType {
-	case "invalid_request_error", "authentication_error", "billing_error", "subscription_error":
+	case "invalid_request_error", "content_filter_error", "authentication_error", "billing_error", "subscription_error":
 		return "P3"
 	}
 	if status >= 500 {
@@ -1409,6 +1415,7 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	routingCapacityLimited := isOpsRoutingCapacityLimited(c) || (upstreamError && tkUpstreamDownstreamCapacity(c))
 	accountAuthFailure := hasOpsAccountAuthFailure(c)
 	clientPolicyDenied := service.HasOpsClientPolicyDenied(c)
+	clientContentFiltered := service.HasOpsClientContentFiltered(c)
 	clientClosedRequest := service.HasOpsClientClosedRequest(c)
 	clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c, errType)
 	clientCanceledUpstream := upstreamError && tkUpstreamClientCanceled(c)
@@ -1435,6 +1442,12 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	}
 	if routingCapacityLimited {
 		phase = "routing"
+	}
+	// The final structured content-filter outcome is authoritative. Earlier
+	// failed account attempts remain available as evidence, but must not turn
+	// the final client-owned rejection into a provider/platform SLA fault.
+	if clientContentFiltered {
+		phase = "request"
 	}
 	msg := strings.ToLower(message)
 	if !upstreamError {

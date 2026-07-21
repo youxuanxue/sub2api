@@ -18,6 +18,32 @@ var kiroTransportFailoverBody = []byte(`{"error":{"type":"upstream_error","messa
 
 var errKiroEmptyResponse = errors.New("kiro upstream returned an empty response")
 
+const (
+	KiroOutcomeHeader             = "X-TokenKey-Kiro-Outcome"
+	KiroContentFilteredOutcome    = "content_filtered"
+	kiroContentFilteredClientText = "Request was blocked by upstream content filtering"
+)
+
+// KiroContentFilteredError represents Kiro's successful HTTP transport with a
+// policy terminal outcome and no assistant output. Retrying another account
+// cannot change the request-level policy decision.
+type KiroContentFilteredError struct{}
+
+func (*KiroContentFilteredError) Error() string {
+	return "kiro content filter rejected the request"
+}
+
+func KiroContentFilteredClientMessage() string {
+	return kiroContentFilteredClientText
+}
+
+// IsKiroContentFilteredRelayResponse accepts the internal relay outcome only
+// from an account configured as a Kiro mirror stub.
+func IsKiroContentFilteredRelayResponse(account *Account, header http.Header) bool {
+	return account != nil && account.IsKiroMirrorStub() &&
+		strings.EqualFold(strings.TrimSpace(header.Get(KiroOutcomeHeader)), KiroContentFilteredOutcome)
+}
+
 // KiroInvalidModelError is a typed, status-carrying error raised when the Kiro
 // (sixth platform) upstream rejects a request with HTTP 400 INVALID_MODEL_ID —
 // i.e. the requested model is not one the Kiro/CodeWhisperer backend serves.
@@ -116,6 +142,10 @@ type kiroForwardErrorObservation struct {
 
 func classifyAndRecordKiroForwardError(c *gin.Context, account *Account, err error, model string) error {
 	observation, classified := classifyKiroForwardError(err, model)
+	var contentFilteredErr *KiroContentFilteredError
+	if errors.As(classified, &contentFilteredErr) {
+		MarkOpsClientContentFiltered(c)
+	}
 	if observation != nil {
 		recordKiroForwardError(c, account, err, *observation)
 	}
@@ -125,6 +155,10 @@ func classifyAndRecordKiroForwardError(c *gin.Context, account *Account, err err
 func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObservation, error) {
 	if err == nil {
 		return nil, nil
+	}
+	var contentFilteredErr *KiroContentFilteredError
+	if errors.As(err, &contentFilteredErr) {
+		return nil, contentFilteredErr
 	}
 	msg := err.Error()
 	if isKiroEndpointQuotaExhaustedError(msg) {

@@ -48,6 +48,7 @@ func tkOpsFinalClientValidationAPIError(errType, message, code string, status in
 func tkOpsClientValidationCode(code string) bool {
 	switch code {
 	case "bad_request",
+		"content_filter",
 		"invalid_request",
 		"invalid_request_error",
 		"invalid_parameter",

@@ -40,3 +40,4 @@
 | US-035 | Model surface bundle activation 与 generic deploy 解耦 | InTest | `.testing/user-stories/stories/US-035-model-surface-bundle-activation.md` |
 | US-036 | Capacity-first 数据层安全原型 | InTest | `.testing/user-stories/stories/US-036-capacity-first-data-layer-safety.md` |
 | US-037 | Data-layer 非生产归档恢复演练 | InTest | `.testing/user-stories/stories/US-037-data-layer-archive-rehearsal.md` |
+| US-038 | Kiro CONTENT_FILTERED 返回客户端错误且不触发 failover | InTest | `.testing/user-stories/stories/US-038-kiro-content-filter-client-error.md` |
