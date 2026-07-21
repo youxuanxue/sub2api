@@ -13,9 +13,18 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+// tkCCPreservesKiroUpstreamStream reports whether /v1/chat/completions should
+// forward the client's stream preference to Kiro upstream instead of forcing SSE.
+func tkCCPreservesKiroUpstreamStream(account *Account, clientStream bool) bool {
+	if clientStream || account == nil {
+		return clientStream
+	}
+	return account.IsKiro() || account.IsKiroMirrorStub()
+}
+
 // forwardAsChatCompletionsViaKiro routes CC→Anthropic converted bodies through
 // the Kiro gateway (EventStream upstream) instead of the Anthropic HTTP API,
-// then converts the captured Anthropic SSE back to Chat Completions for the client.
+// then converts the captured Anthropic response back to Chat Completions.
 func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 	ctx context.Context,
 	c *gin.Context,
@@ -31,15 +40,21 @@ func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 		return nil, fmt.Errorf("kiro gateway service not configured")
 	}
 
-	anthropicBody, err := sjson.SetBytes(anthropicBody, "stream", true)
+	upstreamStream := clientStream
+	var err error
+	if upstreamStream {
+		anthropicBody, err = sjson.SetBytes(anthropicBody, "stream", true)
+	} else {
+		anthropicBody, err = sjson.SetBytes(anthropicBody, "stream", false)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("force anthropic stream for kiro bridge: %w", err)
+		return nil, fmt.Errorf("set anthropic stream for kiro bridge: %w", err)
 	}
 
 	kiroParsed := &ParsedRequest{
 		Body:   NewRequestBodyRef(anthropicBody),
 		Model:  mappedModel,
-		Stream: true,
+		Stream: upstreamStream,
 	}
 	if kiroParsed.Model == "" {
 		kiroParsed.Model = originalModel
@@ -77,6 +92,8 @@ func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 	var result *ForwardResult
 	if clientStream {
 		result, err = s.handleCCStreamingFromAnthropic(upstreamResp, c, originalModel, mappedModel, reasoningEffort, startTime, includeUsage)
+	} else if isAnthropicMessagesJSONResponse(upstreamResp) {
+		result, err = s.handleCCBufferedFromAnthropicJSON(upstreamResp, c, originalModel, mappedModel, reasoningEffort, startTime)
 	} else {
 		result, err = s.handleCCBufferedFromAnthropic(upstreamResp, c, originalModel, mappedModel, reasoningEffort, startTime)
 	}

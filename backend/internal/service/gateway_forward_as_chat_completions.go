@@ -58,9 +58,17 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
 	}
 
-	// 3. Force upstream streaming
-	anthropicReq.Stream = true
-	reqStream := true
+	// 3. Upstream streaming shape. Native Anthropic upstreams are forced to SSE
+	// even for non-streaming CC clients so handleCCBufferedFromAnthropic can
+	// assemble the response. Kiro (native + prod mirror stubs relaying to edge)
+	// must preserve stream=false — forced SSE on multi-turn agent payloads was
+	// timing out (~32s) with upstream 502 before any content arrived.
+	reqStream := clientStream
+	anthropicReq.Stream = clientStream
+	if !tkCCPreservesKiroUpstreamStream(account, clientStream) {
+		anthropicReq.Stream = true
+		reqStream = true
+	}
 
 	// 4. Model mapping
 	mappedModel := originalModel
@@ -227,6 +235,8 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	var handleErr error
 	if clientStream {
 		result, handleErr = s.handleCCStreamingFromAnthropic(resp, c, originalModel, mappedModel, reasoningEffort, startTime, includeUsage)
+	} else if isAnthropicMessagesJSONResponse(resp) {
+		result, handleErr = s.handleCCBufferedFromAnthropicJSON(resp, c, originalModel, mappedModel, reasoningEffort, startTime)
 	} else {
 		result, handleErr = s.handleCCBufferedFromAnthropic(resp, c, originalModel, mappedModel, reasoningEffort, startTime)
 	}
@@ -351,7 +361,66 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		}
 	}
 
-	// Chain: Anthropic → Responses → Chat Completions
+	return s.emitChatCompletionsFromAnthropicResponse(
+		c, resp, finalResp, originalModel, mappedModel, reasoningEffort, requestID, usage, startTime,
+	)
+}
+
+func isAnthropicMessagesJSONResponse(resp *http.Response) bool {
+	if resp == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "application/json")
+}
+
+// handleCCBufferedFromAnthropicJSON converts a non-streaming Anthropic Messages
+// JSON body (e.g. Kiro forwardNonStreaming or edge /v1/messages stream=false)
+// into Chat Completions for the downstream client.
+func (s *GatewayService) handleCCBufferedFromAnthropicJSON(
+	resp *http.Response,
+	c *gin.Context,
+	originalModel string,
+	mappedModel string,
+	reasoningEffort *string,
+	startTime time.Time,
+) (*ForwardResult, error) {
+	requestID := resp.Header.Get("x-request-id")
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream response read failed")
+		return nil, fmt.Errorf("read anthropic json response: %w", err)
+	}
+
+	var finalResp apicompat.AnthropicResponse
+	if err := json.Unmarshal(body, &finalResp); err != nil {
+		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream returned invalid JSON")
+		return nil, fmt.Errorf("parse anthropic json response: %w", err)
+	}
+	if requestID == "" {
+		requestID = finalResp.ID
+	}
+
+	usage := ClaudeUsage{
+		InputTokens:              finalResp.Usage.InputTokens,
+		OutputTokens:             finalResp.Usage.OutputTokens,
+		CacheCreationInputTokens: finalResp.Usage.CacheCreationInputTokens,
+		CacheReadInputTokens:     finalResp.Usage.CacheReadInputTokens,
+	}
+	return s.emitChatCompletionsFromAnthropicResponse(
+		c, resp, &finalResp, originalModel, mappedModel, reasoningEffort, requestID, usage, startTime,
+	)
+}
+
+func (s *GatewayService) emitChatCompletionsFromAnthropicResponse(
+	c *gin.Context,
+	resp *http.Response,
+	finalResp *apicompat.AnthropicResponse,
+	originalModel, mappedModel string,
+	reasoningEffort *string,
+	requestID string,
+	usage ClaudeUsage,
+	startTime time.Time,
+) (*ForwardResult, error) {
 	responsesResp := apicompat.AnthropicToResponsesResponse(finalResp)
 	ccResp := apicompat.ResponsesToChatCompletions(responsesResp, originalModel)
 
@@ -364,8 +433,6 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	// 无法覆盖已存在的 SSE 头。这里显式 Set 强制改回 JSON，避免下游中间层
 	// （如 new-api）按 Content-Type 误判为流式。Wei-Shaw/sub2api#1311
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-	// Marshal then bytes-replace so tool name mapping is reversed at byte level
-	// (parity with Parrot non-stream flow that marshals → restore → emit).
 	if respBytes, err := json.Marshal(ccResp); err == nil {
 		respBytes = reverseToolNamesIfPresent(c, respBytes)
 		c.Data(http.StatusOK, "application/json; charset=utf-8", respBytes)
