@@ -402,6 +402,14 @@
                             >{{ t('pricing.tieredBadge', { n: row.tiers.length }) }}</span
                           >
                         </div>
+                        <div v-if="row.peakValley" class="mt-0.5">
+                          <span
+                            class="inline-flex cursor-help items-center rounded bg-sky-50 px-1 py-px text-[10px] font-medium text-sky-700 dark:bg-sky-500/10 dark:text-sky-300"
+                            :title="peakValleyTooltip(row)"
+                            data-tk="pricing-peak-valley-badge"
+                            >{{ t('pricing.peakValleyBadge', { mult: row.peakValley.peakMultiplier }) }}</span
+                          >
+                        </div>
                       </template>
                       <template v-else>—</template>
                     </td>
@@ -614,6 +622,14 @@ interface NormalizedRow {
   perSecond?: number | null
   /** Input-token interval (阶梯) ladder, normalized from either catalog source. */
   tiers?: NormalizedTier[]
+  peakValley?: {
+    timezone: string
+    windows: string[]
+    peakMultiplier: number
+    inputPer1K: number
+    outputPer1K: number
+    cacheReadPer1K?: number
+  }
   /** Accessible groups that can serve this model — "授权分组" column when logged in. */
   authorizedGroups?: MePricingModelGroup[]
 }
@@ -789,6 +805,16 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
         inputPer1K: tt.input_per_1k_tokens ?? null,
         outputPer1K: tt.output_per_1k_tokens ?? null
       })),
+      peakValley: m.pricing.peak_valley
+        ? {
+            timezone: m.pricing.peak_valley.timezone,
+            windows: m.pricing.peak_valley.windows,
+            peakMultiplier: m.pricing.peak_valley.peak_multiplier,
+            inputPer1K: m.pricing.peak_valley.input_per_1k_tokens,
+            outputPer1K: m.pricing.peak_valley.output_per_1k_tokens,
+            cacheReadPer1K: m.pricing.peak_valley.cache_read_per_1k
+          }
+        : undefined,
       authorizedGroups: authorizedGroupsByModel.value[m.model_id] ?? []
     }))
   }
@@ -964,6 +990,18 @@ function tierTooltip(row: NormalizedRow): string {
       return `${range}: ${t('pricing.columns.input')} ${inp} / ${t('pricing.columns.output')} ${out} ${unit}`
     })
     .join('\n')
+}
+
+function peakValleyTooltip(row: NormalizedRow): string {
+  const pv = row.peakValley
+  if (!pv) return ''
+  return t('pricing.peakValleyTooltip', {
+    windows: pv.windows.join(', '),
+    tz: pv.timezone,
+    peakIn: formatPrice(pv.inputPer1K),
+    peakOut: formatPrice(pv.outputPer1K),
+    mult: pv.peakMultiplier
+  })
 }
 
 function formatBillingMode(mode: string): string {

@@ -72,7 +72,7 @@ def validate_official_list_base_tax(data: dict) -> list[str]:
     config = data.get("_config")
     if not isinstance(config, dict):
         return ["_config must be an object"]
-    unknown_config = sorted(set(config) - {"official_list_base_tax"})
+    unknown_config = sorted(set(config) - {"official_list_base_tax", "deepseek_peak_valley"})
     if unknown_config:
         errors.append(f"_config has unknown fields: {unknown_config}")
     policy = config.get("official_list_base_tax")
@@ -133,6 +133,67 @@ def validate_official_list_base_tax(data: dict) -> list[str]:
     return errors
 
 
+def _valid_hhmm(value: object) -> bool:
+    if not isinstance(value, str) or len(value) != 5 or value[2] != ":":
+        return False
+    try:
+        hour = int(value[:2])
+        minute = int(value[3:])
+    except ValueError:
+        return False
+    return 0 <= hour <= 23 and 0 <= minute <= 59
+
+
+def validate_deepseek_peak_valley(data: dict) -> list[str]:
+    errors: list[str] = []
+    config = data.get("_config")
+    if not isinstance(config, dict):
+        return errors
+    policy = config.get("deepseek_peak_valley")
+    if policy is None:
+        return errors
+    if not isinstance(policy, dict):
+        return errors + ["_config.deepseek_peak_valley must be an object"]
+    unknown = sorted(set(policy) - {"timezone", "peak_multiplier", "windows", "model_contains"})
+    if unknown:
+        errors.append(f"deepseek_peak_valley has unknown fields: {unknown}")
+    multiplier = policy.get("peak_multiplier")
+    if (not isinstance(multiplier, (int, float)) or isinstance(multiplier, bool)
+            or not math.isfinite(multiplier) or multiplier < 1 or multiplier > 4):
+        errors.append(f"deepseek_peak_valley.peak_multiplier must be within [1,4], got {multiplier!r}")
+    windows = policy.get("windows")
+    if not isinstance(windows, list) or not windows:
+        return errors + ["deepseek_peak_valley.windows must be a non-empty array"]
+    for idx, window in enumerate(windows):
+        label = f"deepseek_peak_valley.windows[{idx}]"
+        if not isinstance(window, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        start = window.get("start")
+        end = window.get("end")
+        if not _valid_hhmm(start):
+            errors.append(f"{label}.start must be HH:MM, got {start!r}")
+            continue
+        if not _valid_hhmm(end):
+            errors.append(f"{label}.end must be HH:MM, got {end!r}")
+            continue
+        sh, sm = int(start[:2]), int(start[3:])
+        eh, em = int(end[:2]), int(end[3:])
+        if sh * 60 + sm >= eh * 60 + em:
+            errors.append(f"{label} requires end > start")
+    contains = policy.get("model_contains")
+    if not isinstance(contains, list) or not contains:
+        errors.append("deepseek_peak_valley.model_contains must be a non-empty array")
+    elif contains:
+        for idx, value in enumerate(contains):
+            if not isinstance(value, str) or not value or value != value.strip().lower():
+                errors.append(f"deepseek_peak_valley.model_contains[{idx}] must be normalized lowercase")
+    tz = policy.get("timezone", "")
+    if tz != "" and not isinstance(tz, str):
+        errors.append("deepseek_peak_valley.timezone must be a string when present")
+    return errors
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--quiet", action="store_true", help="suppress success output")
@@ -157,6 +218,7 @@ def main() -> int:
     # provenance, not pricing.
     entries = {k: v for k, v in data.items() if not k.startswith("_")}
     errors: list[str] = validate_official_list_base_tax(data)
+    errors.extend(validate_deepseek_peak_valley(data))
 
     if not entries:
         errors.append("overlay has zero pricing entries")

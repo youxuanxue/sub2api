@@ -35,6 +35,8 @@ const en: LocaleOverlay = {
       "empty": "Public catalog is empty — nothing to export"
     },
     "tieredBadge": "Tiered ×{n}",
+    "peakValleyBadge": "Peak ×{mult}",
+    "peakValleyTooltip": "Off-peak (flat) price shown. Peak {windows} ({tz}): input {peakIn}/1K, output {peakOut}/1K (×{mult}).",
     "footer": {
       "total": "{count} models listed",
       "filtered": "Showing {shown} of {total} models"
@@ -923,6 +925,8 @@ const zh: LocaleOverlay = {
       "empty": "对外价目录为空，无可导出内容"
     },
     "tieredBadge": "阶梯 ×{n}",
+    "peakValleyBadge": "高峰 ×{mult}",
+    "peakValleyTooltip": "表格为谷时价。高峰 {windows}（{tz}）：输入 {peakIn}/1K，输出 {peakOut}/1K（×{mult}）。",
     "footer": {
       "total": "共 {count} 个模型",
       "filtered": "显示 {shown} / {total} 个模型"

@@ -43,6 +43,17 @@
           ]
         }
       ]
+    },
+    "deepseek_peak_valley": {
+      "timezone": "Asia/Shanghai",
+      "peak_multiplier": 2,
+      "windows": [
+        {"start": "09:00", "end": "12:00"},
+        {"start": "14:00", "end": "18:00"}
+      ],
+      "model_contains": [
+        "deepseek"
+      ]
     }
   },
   "grok-imagine-image": {
@@ -260,7 +271,7 @@
     "output_cost_per_token": 2.8e-07,
     "cache_read_input_token_cost": 2.8e-09,
     "supports_prompt_caching": true,
-    "source": "https://api-docs.deepseek.com/quick_start/pricing (2026-06-04: in $0.14/M cache-miss, $0.0028/M cache-hit, out $0.28/M)"
+    "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing (2026-07-21: off-peak 谷时 ¥1/M in, ¥0.02/M cache-hit, ¥2/M out; peak ×2 per deepseek_peak_valley windows)"
   },
   "deepseek-v4-pro": {
     "litellm_provider": "deepseek",
@@ -269,7 +280,7 @@
     "output_cost_per_token": 8.7e-07,
     "cache_read_input_token_cost": 3.625e-09,
     "supports_prompt_caching": true,
-    "source": "https://api-docs.deepseek.com/quick_start/pricing (2026-06-04: in $0.435/M cache-miss, $0.003625/M cache-hit, out $0.87/M)"
+    "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing (2026-07-21: off-peak 谷时 ¥3/M in, ¥0.025/M cache-hit, ¥6/M out; peak ×2 per deepseek_peak_valley windows)"
   },
   "imagen-3.0-capability-001": {
     "litellm_provider": "vertex_ai",
