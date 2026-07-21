@@ -725,6 +725,9 @@ func TestAPIContracts(t *testing.T) {
 					"google_oauth_frontend_redirect_url": "/auth/oauth/callback",
 					"totp_enabled": false,
 					"totp_encryption_key_configured": false,
+					"session_binding_enabled": false,
+					"step_up_enabled": false,
+					"audit_log_retention_days": 180,
 					"login_agreement_enabled": false,
 					"login_agreement_mode": "modal",
 					"login_agreement_updated_at": "2026-03-31",
@@ -1045,6 +1048,9 @@ func TestAPIContracts(t *testing.T) {
 					"invitation_code_enabled": false,
 					"totp_enabled": false,
 					"totp_encryption_key_configured": false,
+					"session_binding_enabled": false,
+					"step_up_enabled": false,
+					"audit_log_retention_days": 180,
 					"smtp_host": "",
 					"smtp_port": 587,
 					"smtp_username": "",
@@ -1572,6 +1578,10 @@ func (r *stubUserRepo) UpdateConcurrency(ctx context.Context, id int64, amount i
 
 func (r *stubUserRepo) BatchAddConcurrency(ctx context.Context, userIDs []int64, amount int) (int, error) {
 	return 0, errors.New("not implemented")
+}
+
+func (r *stubUserRepo) BatchUpdateLimits(context.Context, []int64, *int, *int) (int, error) {
+	return 0, nil
 }
 
 func (r *stubUserRepo) BatchSetConcurrency(ctx context.Context, userIDs []int64, value int) (int, error) {

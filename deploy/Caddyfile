@@ -1,6 +1,16 @@
+{
+	servers {
+		max_header_size 64KB
+		timeouts {
+			read_header 10s
+			idle 2m
+		}
+	}
+}
+
 # 修改为你的域名
 api.sub2api.com {
-        # =========================================================================
+	# =========================================================================
 	# 静态资源长期缓存（高优先级，放在最前面）
 	# 带 hash 的文件可以永久缓存，浏览器和 CDN 都会缓存
 	# =========================================================================
@@ -16,6 +26,9 @@ api.sub2api.com {
 		-Expires
 	}
 
+	# This baseline assumes clients connect directly to Caddy. When Caddy is
+	# behind a CDN, configure explicit trusted proxy CIDRs and {client_ip} as
+	# documented in EDGE_SECURITY.md; {remote_host} would otherwise be the CDN.
 	# =========================================================================
 	# TLS 安全配置
 	# =========================================================================

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,22 +15,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newGatewayRoutesTestRouter(platform string) *gin.Engine {
+// HEAD: single-string signature kept for TK callers that pass a literal platform.
+// upstream: variadic + WithConfig helper added. Keep both: the variadic version is
+// the new default, and the existing TK call sites continue to compile because a
+// single string satisfies ...string.
+func newGatewayRoutesTestRouter(platform ...string) *gin.Engine {
+	return newGatewayRoutesTestRouterWithConfig(&config.Config{}, platform...)
+}
+
+func newGatewayRoutesTestRouterWithConfig(cfg *config.Config, platform ...string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	groupID := int64(1)
+
+	groupPlatform := service.PlatformOpenAI
+	if len(platform) > 0 && platform[0] != "" {
+		groupPlatform = platform[0]
+	}
 
 	RegisterGatewayRoutes(
 		router,
 		&handler.Handlers{
 			Gateway:       &handler.GatewayHandler{},
 			OpenAIGateway: &handler.OpenAIGatewayHandler{},
+			AsyncImage:    handler.NewAsyncImageHandler(nil, nil),
 		},
 		servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
+			groupID := int64(1)
 			c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
 				ID:      1,
 				GroupID: &groupID,
-				Group:   &service.Group{ID: groupID, Platform: platform},
+				Group:   &service.Group{ID: groupID, Platform: groupPlatform},
 			})
 			c.Set(string(servermiddleware.ContextKeyUser), servermiddleware.AuthSubject{UserID: 1})
 			c.Next()
@@ -38,7 +53,7 @@ func newGatewayRoutesTestRouter(platform string) *gin.Engine {
 		nil,
 		nil,
 		nil,
-		&config.Config{},
+		cfg,
 	)
 
 	return router
@@ -87,6 +102,36 @@ func TestGatewayRoutesNewAPICompatPathsAreRegistered(t *testing.T) {
 	}
 }
 
+func TestGatewayRoutesOpenAIAlphaSearchPathsAreRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter()
+	registered := make(map[string]bool)
+	for _, route := range router.Routes() {
+		if route.Method == http.MethodPost {
+			registered[route.Path] = true
+		}
+	}
+
+	for _, path := range []string{
+		"/v1/alpha/search",
+		"/alpha/search",
+		"/backend-api/codex/alpha/search",
+	} {
+		require.True(t, registered[path], "POST %s should be registered", path)
+	}
+}
+
+func TestGatewayRoutesAlphaSearchRejectsNonOpenAIGroup(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformGrok)
+	req := httptest.NewRequest(http.MethodPost, "/v1/alpha/search", strings.NewReader(`{"model":"gpt-5.6-sol"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "only available for OpenAI groups")
+}
+
 func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
 
@@ -125,6 +170,25 @@ func TestGatewayRoutesImagePresignPathsAreRegistered(t *testing.T) {
 	}
 }
 
+func TestGatewayRoutesAsyncImagesPathsAreRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter()
+	registered := make(map[string]bool)
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+
+	for _, route := range []string{
+		"POST /v1/images/generations/async",
+		"POST /v1/images/edits/async",
+		"GET /v1/images/tasks/:task_id",
+		"POST /images/generations/async",
+		"POST /images/edits/async",
+		"GET /images/tasks/:task_id",
+	} {
+		require.True(t, registered[route], "%s should be registered", route)
+	}
+}
+
 func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformGrok)
 
@@ -152,6 +216,8 @@ func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	for _, path := range []string{
 		"/v1/videos/request-123",
 		"/videos/request-123",
+		"/v1/videos/request-123/content",
+		"/videos/request-123/content",
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()
@@ -162,9 +228,14 @@ func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	}
 }
 
+// TestGatewayRoutesOpenAIVideosGenerationsUseAsyncBridge verifies that OpenAI-group
+// video routes stay routed (TK async video bridge) AND that non-OpenAI-non-Grok
+// routes correctly reject at the platform gate with the expected error body.
+// Merges HEAD's simpler assertion set with upstream's fuller tc table.
 func TestGatewayRoutesOpenAIVideosGenerationsUseAsyncBridge(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
 
+	// TK: these two routes must stay routed to the TK async video bridge.
 	for _, path := range []string{
 		"/v1/videos/generations",
 		"/videos/generations",
@@ -175,6 +246,39 @@ func TestGatewayRoutesOpenAIVideosGenerationsUseAsyncBridge(t *testing.T) {
 
 		router.ServeHTTP(w, req)
 		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should stay routed to TK async video bridge", path)
+	}
+}
+
+// TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate is the upstream test
+// (renamed from TestGatewayRoutesOpenAIVideosGenerationsUseAsyncBridge in
+// upstream): asserts that OpenAI-group video routes return "not supported" for
+// all the non-newapi, non-grok video paths.
+func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodPost, "/v1/videos/generations", `{"model":"grok-imagine-video-1.5","prompt":"waves"}`},
+		{http.MethodPost, "/videos/generations", `{"model":"grok-imagine-video-1.5","prompt":"waves"}`},
+		{http.MethodPost, "/v1/videos/edits", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
+		{http.MethodPost, "/videos/edits", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
+		{http.MethodPost, "/v1/videos/extensions", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
+		{http.MethodPost, "/videos/extensions", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
+		{http.MethodGet, "/v1/videos/request-123", ""},
+		{http.MethodGet, "/videos/request-123", ""},
+		{http.MethodGet, "/v1/videos/request-123/content", ""},
+		{http.MethodGet, "/videos/request-123/content", ""},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code, "method=%s path=%s", tc.method, tc.path)
+		require.Contains(t, w.Body.String(), "Videos API is not supported for this platform")
 	}
 }
 
@@ -238,14 +342,22 @@ func TestGatewayRoutesGrokAllowsMessages(t *testing.T) {
 func TestGatewayRoutesGrokAllowsCountTokensAndResponses(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformGrok)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{"model":"grok","messages":[{"role":"user","content":"hi"}]}`))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
+	countTokensRouter := newGatewayRoutesTestRouterWithConfig(&config.Config{
+		Gateway: config.GatewayConfig{MaxBodySize: 1024 * 1024},
+	}, service.PlatformGrok)
+	for _, path := range []string{"/v1/messages/count_tokens", "/messages/count_tokens"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"grok","messages":[{"role":"user","content":"hi"}]}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
 
-	router.ServeHTTP(w, req)
-	require.NotEqual(t, http.StatusNotFound, w.Code)
-	require.NotContains(t, w.Body.String(), "Token counting is not supported for this platform")
-	require.NotContains(t, w.Body.String(), "does not allow /v1/messages dispatch")
+		countTokensRouter.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code, "path=%s", path)
+		var response struct {
+			InputTokens int `json:"input_tokens"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response), "path=%s", path)
+		require.Positive(t, response.InputTokens, "path=%s", path)
+	}
 
 	for _, path := range []string{
 		"/v1/responses",

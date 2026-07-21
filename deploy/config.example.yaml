@@ -35,6 +35,15 @@ server:
   # 留空 = 自动信任 loopback + 私网网段（Caddy/nginx/Docker 反代后真实客户端 IP 才正确）；
   # 填具体 CIDR 可覆盖；填 ["none"]（或 off/disabled）则完全关闭代理信任。
   trusted_proxies: []
+  # Maximum time to receive complete request headers. Does not limit response streams.
+  # 完整读取请求头的最大时间；不限制响应流持续时间。
+  read_header_timeout: 10
+  # Request header limit in bytes (64 KiB); also bounds the HTTP/2 header list.
+  # 请求头上限（字节，默认 64 KiB）；同时约束 HTTP/2 header list。
+  max_header_bytes: 65536
+  # Keep-alive idle timeout in seconds.
+  # Keep-Alive 空闲连接超时（秒）。
+  idle_timeout: 120
   # Global max request body size in bytes (default: 256MB)
   # 全局最大请求体大小（字节，默认 256MB）
   # Applies to all requests, especially important for h2c first request memory protection

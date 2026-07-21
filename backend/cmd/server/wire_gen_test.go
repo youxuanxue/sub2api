@@ -62,6 +62,10 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		&service.OpsCleanupService{},
 		&service.OpsScheduledReportService{},
 		opsSystemLogSinkSvc,
+		nil, // opsService
+		nil, // opsIngressRejectAggregator
+		nil, // apiKeyService
+		nil, // authCacheInvalidationWorker
 		schedulerSnapshotSvc,
 		schedulerRateLimitReaperSvc,
 		nil, // anthropicConfigReconciler
@@ -102,6 +106,10 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		handler.TKGatewayHandlerModelListReady{},    // TK: forces SetModelListFilter wiring
 		service.TKUniversalModelsProviderReady{},    // TK: forces universal-key models-provider wiring
 		service.TKGroupUnsupportedModelCacheReady{}, // TK: forces group unsupported negative cache wiring
+		nil, // quotaFlusher
+		nil, // upstreamBillingProbe
+		nil, // auditLog
+		nil, // promptAudit
 	)
 
 	require.NotPanics(t, func() {

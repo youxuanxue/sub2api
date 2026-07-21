@@ -18,6 +18,7 @@ func RegisterPaymentRoutes(
 	adminPaymentHandler *admin.PaymentHandler,
 	jwtAuth middleware.JWTAuthMiddleware,
 	adminAuth middleware.AdminAuthMiddleware,
+	auditLog middleware.AuditLogMiddleware,
 	settingService *service.SettingService,
 ) {
 	// --- User-facing payment endpoints (authenticated) ---
@@ -67,6 +68,8 @@ func RegisterPaymentRoutes(
 	// --- Admin payment endpoints (admin auth) ---
 	adminGroup := v1.Group("/admin/payment")
 	adminGroup.Use(gin.HandlerFunc(adminAuth))
+	// 审计中间件挂在认证之后：所有管理面变更类操作 + 敏感读取入审计日志
+	adminGroup.Use(gin.HandlerFunc(auditLog))
 	// TK: setting-gated, default off — see middleware/admin_compliance_tk_gate.go.
 	adminGroup.Use(middleware.TkAdminComplianceGuardIfEnabled(settingService))
 	{

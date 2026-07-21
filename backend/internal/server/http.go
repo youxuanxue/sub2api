@@ -34,6 +34,8 @@ func ProvideRouter(
 	adminAuth middleware2.AdminAuthMiddleware,
 	apiKeyAuth middleware2.APIKeyAuthMiddleware,
 	eitherAuth middleware2.EitherAuthMiddleware,
+	auditLog middleware2.AuditLogMiddleware,
+	stepUpAuth middleware2.StepUpAuthMiddleware,
 	apiKeyService *service.APIKeyService,
 	userService *service.UserService,
 	subscriptionService *service.SubscriptionService,
@@ -99,7 +101,26 @@ func ProvideRouter(
 		service.SetWebSearchManager(websearch.NewManager(configs, redisClient))
 	})
 
-	return SetupRouter(r, handlers, jwtAuth, adminAuth, apiKeyAuth, eitherAuth, apiKeyService, userService, subscriptionService, opsService, settingService, cfg, redisClient)
+	return SetupRouter(r, handlers, jwtAuth, adminAuth, apiKeyAuth, eitherAuth, auditLog, stepUpAuth, apiKeyService, userService, subscriptionService, opsService, settingService, cfg, redisClient)
+}
+
+func configureTrustedProxies(r *gin.Engine, cfg config.ServerConfig) {
+	if cfg.TrustedProxiesConfigured {
+		if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+			log.Printf("Failed to set trusted proxies: %v", err)
+			_ = r.SetTrustedProxies(nil)
+		}
+		if len(cfg.TrustedProxies) == 0 && cfg.Mode == "release" {
+			log.Printf("Warning: server.trusted_proxies is explicitly empty; forwarded client IP trust is disabled")
+		}
+	} else {
+		if err := r.SetTrustedProxies(nil); err != nil {
+			log.Printf("Failed to disable trusted proxies: %v", err)
+		}
+		if cfg.Mode == "release" {
+			log.Printf("Warning: server.trusted_proxies is not configured; disabling the forwarded-IP compatibility switch will use direct peer addresses only")
+		}
+	}
 }
 
 // ProvideHTTPServer 提供 HTTP 服务器

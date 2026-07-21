@@ -108,6 +108,8 @@ import { useAppStore } from '@/stores/app'
 import { hasPeakRate as groupHasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
 import { PLATFORM_ANTIGRAVITY } from '@/constants/gatewayPlatforms'
 import { STATUS_ACTIVE } from '@/constants/channel'
+import { planValiditySuffix } from './validity'
+import { currencySymbol } from '@/components/payment/currency'
 import {
   platformAccentBarClass,
   platformBadgeLightClass,
@@ -150,6 +152,7 @@ const rateDisplay = computed(() => {
 })
 
 const appStore = useAppStore()
+const planCurrencySymbol = computed(() => currencySymbol(props.plan.currency || 'USD'))
 
 const hasPeakRate = computed(() => groupHasPeakRate(props.plan))
 
@@ -170,10 +173,5 @@ const modelScopeLabels = computed(() => {
   return scopes.map(s => MODEL_SCOPE_LABELS[s] || s)
 })
 
-const validitySuffix = computed(() => {
-  const u = props.plan.validity_unit || 'day'
-  if (u === 'month') return t('payment.perMonth')
-  if (u === 'year') return t('payment.perYear')
-  return `${props.plan.validity_days}${t('payment.days')}`
-})
+const validitySuffix = computed(() => planValiditySuffix(props.plan, t))
 </script>

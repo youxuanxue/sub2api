@@ -82,23 +82,9 @@ const (
 	opsErrorLogMinQueueSize       = 256
 	opsErrorLogMaxQueueSize       = 8192
 	opsErrorLogBatchSize          = 32
+	opsErrorLogMaxQueueBytes      = 32 * 1024 * 1024
+	opsErrorLogMaxUserAgentBytes  = 512
 )
-
-// looksLikeSystemKey 粗筛"形似本系统 key"的输入:长度 16-128 且仅含 [a-zA-Z0-9_-]。
-// 不用前缀匹配(APIKeyPrefix 可配置)。用于反查审计表前挡掉随机扫描的乱码输入。
-func looksLikeSystemKey(key string) bool {
-	if len(key) < 16 || len(key) > 128 {
-		return false
-	}
-	for _, c := range key {
-		allowed := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '_' || c == '-'
-		if !allowed {
-			return false
-		}
-	}
-	return true
-}
 
 // keyPrefix 返回脱敏前缀(前 n 个字符);不足 n 则原样返回。
 func keyPrefix(key string, n int) string {
@@ -108,43 +94,26 @@ func keyPrefix(key string, n int) string {
 	return key[:n]
 }
 
-// extractAttemptedKey 按认证中间件同样的顺序从请求头提取提交的 key 明文。
-// 与 api_key_auth.go:43-59 一致:Authorization 仅取 Bearer scheme,非 Bearer 则忽略并继续 x-api-key → x-goog-api-key。
-func extractAttemptedKey(c *gin.Context) string {
-	if h := c.GetHeader("Authorization"); h != "" {
-		parts := strings.SplitN(h, " ", 2)
-		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-			return strings.TrimSpace(parts[1])
-		}
-		// 非 Bearer:与中间件一致,忽略 Authorization,继续尝试其它 header(不在此 return)。
-	}
-	if k := c.GetHeader("x-api-key"); k != "" {
-		return strings.TrimSpace(k)
-	}
-	if k := c.GetHeader("x-goog-api-key"); k != "" {
-		return strings.TrimSpace(k)
-	}
-	return ""
-}
-
 type opsErrorLogJob struct {
-	ops   *service.OpsService
-	entry *service.OpsInsertErrorLogInput
+	ops         *service.OpsService
+	entry       *service.OpsInsertErrorLogInput
+	queuedBytes int64
 }
 
 var (
 	opsErrorLogOnce  sync.Once
 	opsErrorLogQueue chan opsErrorLogJob
 
-	opsErrorLogStopOnce  sync.Once
-	opsErrorLogWorkersWg sync.WaitGroup
-	opsErrorLogMu        sync.RWMutex
-	opsErrorLogStopping  bool
-	opsErrorLogQueueLen  atomic.Int64
-	opsErrorLogEnqueued  atomic.Int64
-	opsErrorLogDropped   atomic.Int64
-	opsErrorLogProcessed atomic.Int64
-	opsErrorLogSanitized atomic.Int64
+	opsErrorLogStopOnce   sync.Once
+	opsErrorLogWorkersWg  sync.WaitGroup
+	opsErrorLogMu         sync.RWMutex
+	opsErrorLogStopping   bool
+	opsErrorLogQueueLen   atomic.Int64
+	opsErrorLogQueueBytes atomic.Int64
+	opsErrorLogEnqueued   atomic.Int64
+	opsErrorLogDropped    atomic.Int64
+	opsErrorLogProcessed  atomic.Int64
+	opsErrorLogSanitized  atomic.Int64
 
 	opsErrorLogLastDropLogAt atomic.Int64
 
@@ -164,6 +133,7 @@ func startOpsErrorLogWorkers() {
 	workerCount, queueSize := opsErrorLogConfig()
 	opsErrorLogQueue = make(chan opsErrorLogJob, queueSize)
 	opsErrorLogQueueLen.Store(0)
+	opsErrorLogQueueBytes.Store(0)
 
 	opsErrorLogWorkersWg.Add(workerCount)
 	for i := 0; i < workerCount; i++ {
@@ -175,6 +145,7 @@ func startOpsErrorLogWorkers() {
 					return
 				}
 				opsErrorLogQueueLen.Add(-1)
+				opsErrorLogQueueBytes.Add(-job.queuedBytes)
 				batch := make([]opsErrorLogJob, 0, opsErrorLogBatchSize)
 				batch = append(batch, job)
 
@@ -194,6 +165,7 @@ func startOpsErrorLogWorkers() {
 							return
 						}
 						opsErrorLogQueueLen.Add(-1)
+						opsErrorLogQueueBytes.Add(-nextJob.queuedBytes)
 						batch = append(batch, nextJob)
 					case <-timer.C:
 						break batchLoop
@@ -249,6 +221,20 @@ func enqueueOpsErrorLog(ops *service.OpsService, entry *service.OpsInsertErrorLo
 	if ops == nil || entry == nil {
 		return
 	}
+	entry.UserAgent = normalizeOpsPersistentUserAgent(entry.UserAgent)
+	if entry.ErrorBody != "" {
+		originalBody := entry.ErrorBody
+		body, truncated := service.SanitizeOpsErrorBodyForQueue(originalBody)
+		entry.ErrorBody = body
+		if truncated || body != originalBody {
+			opsErrorLogSanitized.Add(1)
+		}
+	}
+	if err := service.SanitizeOpsUpstreamErrorsForQueue(entry); err != nil {
+		opsErrorLogDropped.Add(1)
+		maybeLogOpsErrorLogDrop()
+		return
+	}
 	select {
 	case <-opsErrorLogShutdownCh:
 		return
@@ -269,20 +255,32 @@ func enqueueOpsErrorLog(ops *service.OpsService, entry *service.OpsInsertErrorLo
 		opsErrorLogMu.RUnlock()
 		return
 	}
+	queuedBytes := estimateOpsErrorLogJobBytes(entry)
+	if !reserveOpsErrorLogQueueBytes(queuedBytes) {
+		opsErrorLogDropped.Add(1)
+		maybeLogOpsErrorLogDrop()
+		return
+	}
 
 	select {
-	case opsErrorLogQueue <- opsErrorLogJob{ops: ops, entry: entry}:
-		opsErrorLogQueueLen.Add(1)
+	case opsErrorLogQueue <- opsErrorLogJob{ops: ops, entry: entry, queuedBytes: queuedBytes}:
 		opsErrorLogEnqueued.Add(1)
 		opsErrorLogMu.RUnlock()
 	default:
 		opsErrorLogMu.RUnlock()
+		opsErrorLogQueueLen.Add(-1)
+		opsErrorLogQueueBytes.Add(-queuedBytes)
+		// Queue is full; drop to avoid blocking request handling.
 		opsErrorLogDropped.Add(1)
 		maybeLogOpsErrorLogDrop()
 		ctx, cancel := context.WithTimeout(context.Background(), opsErrorLogTimeout)
 		_ = ops.PrepareErrorFallback(ctx, entry, "ops_error_log_queue_full")
 		cancel()
 	}
+}
+
+func normalizeOpsPersistentUserAgent(value string) string {
+	return truncateString(strings.TrimSpace(strings.ToValidUTF8(value, "")), opsErrorLogMaxUserAgentBytes)
 }
 
 func StopOpsErrorLogWorkers() bool {
@@ -307,6 +305,7 @@ func stopOpsErrorLogWorkers() bool {
 
 	if ch == nil {
 		opsErrorLogQueueLen.Store(0)
+		opsErrorLogQueueBytes.Store(0)
 		return true
 	}
 
@@ -319,6 +318,7 @@ func stopOpsErrorLogWorkers() bool {
 	select {
 	case <-done:
 		opsErrorLogQueueLen.Store(0)
+		opsErrorLogQueueBytes.Store(0)
 		return true
 	case <-time.After(opsErrorLogDrainTimeout):
 		return false
@@ -327,6 +327,14 @@ func stopOpsErrorLogWorkers() bool {
 
 func OpsErrorLogQueueLength() int64 {
 	return opsErrorLogQueueLen.Load()
+}
+
+func OpsErrorLogQueueBytes() int64 {
+	return opsErrorLogQueueBytes.Load()
+}
+
+func OpsErrorLogQueueBytesCapacity() int64 {
+	return opsErrorLogMaxQueueBytes
 }
 
 func OpsErrorLogQueueCapacity() int {
@@ -369,17 +377,60 @@ func maybeLogOpsErrorLogDrop() {
 	}
 
 	queued := opsErrorLogQueueLen.Load()
+	queuedBytes := opsErrorLogQueueBytes.Load()
 	queueCap := OpsErrorLogQueueCapacity()
 
 	log.Printf(
-		"[OpsErrorLogger] queue is full; dropping logs (queued=%d cap=%d enqueued_total=%d dropped_total=%d processed_total=%d sanitized_total=%d)",
+		"[OpsErrorLogger] queue is full; dropping logs (queued=%d cap=%d queued_bytes=%d bytes_cap=%d enqueued_total=%d dropped_total=%d processed_total=%d sanitized_total=%d)",
 		queued,
 		queueCap,
+		queuedBytes,
+		opsErrorLogMaxQueueBytes,
 		opsErrorLogEnqueued.Load(),
 		opsErrorLogDropped.Load(),
 		opsErrorLogProcessed.Load(),
 		opsErrorLogSanitized.Load(),
 	)
+}
+
+func reserveOpsErrorLogQueueBytes(size int64) bool {
+	if size < 1 {
+		size = 1
+	}
+	for {
+		current := opsErrorLogQueueBytes.Load()
+		if current > opsErrorLogMaxQueueBytes-size {
+			return false
+		}
+		if opsErrorLogQueueBytes.CompareAndSwap(current, current+size) {
+			opsErrorLogQueueLen.Add(1)
+			return true
+		}
+	}
+}
+
+func estimateOpsErrorLogJobBytes(entry *service.OpsInsertErrorLogInput) int64 {
+	if entry == nil {
+		return 1
+	}
+	const fixedOverhead = 512
+	size := fixedOverhead + len(entry.RequestID) + len(entry.ClientRequestID) +
+		len(entry.Platform) + len(entry.Model) + len(entry.RequestPath) +
+		len(entry.InboundEndpoint) + len(entry.UpstreamEndpoint) +
+		len(entry.RequestedModel) + len(entry.UpstreamModel) + len(entry.UserAgent) +
+		len(entry.ErrorPhase) + len(entry.ErrorType) + len(entry.Severity) +
+		len(entry.ErrorMessage) + len(entry.ErrorBody) + len(entry.ErrorSource) +
+		len(entry.ErrorOwner) + len(entry.APIKeyPrefix)
+	if entry.UpstreamErrorMessage != nil {
+		size += len(*entry.UpstreamErrorMessage)
+	}
+	if entry.UpstreamErrorDetail != nil {
+		size += len(*entry.UpstreamErrorDetail)
+	}
+	if entry.UpstreamErrorsJSON != nil {
+		size += len(*entry.UpstreamErrorsJSON)
+	}
+	return int64(size)
 }
 
 func opsErrorLogConfig() (workerCount int, queueSize int) {
@@ -525,9 +576,12 @@ type opsCaptureWriter struct {
 	gin.ResponseWriter
 	limit int
 	buf   bytes.Buffer
+	ctx   *gin.Context
 }
 
-const opsCaptureWriterLimit = 64 * 1024
+const opsCaptureWriterLimit = service.OpsErrorLogQueueBodyMaxBytes
+
+const opsCaptureWriterPoolMaxRetainedCapacity = service.OpsErrorLogQueueBodyMaxBytes
 
 var opsCaptureWriterPool = sync.Pool{
 	New: func() any {
@@ -551,9 +605,17 @@ func releaseOpsCaptureWriter(w *opsCaptureWriter) {
 		return
 	}
 	w.ResponseWriter = nil
+	w.ctx = nil
 	w.limit = opsCaptureWriterLimit
+	if !shouldPoolOpsCaptureWriter(w) {
+		return
+	}
 	w.buf.Reset()
 	opsCaptureWriterPool.Put(w)
+}
+
+func shouldPoolOpsCaptureWriter(w *opsCaptureWriter) bool {
+	return w != nil && w.buf.Cap() <= opsCaptureWriterPoolMaxRetainedCapacity
 }
 
 func (w *opsCaptureWriter) Status() int {
@@ -629,7 +691,7 @@ func (w *opsCaptureWriter) Write(b []byte) (int, error) {
 	if w.ResponseWriter == nil {
 		return 0, nil
 	}
-	if w.Status() >= 400 && w.limit > 0 && w.buf.Len() < w.limit {
+	if w.shouldCapture() && w.Status() >= 400 && w.limit > 0 && w.buf.Len() < w.limit {
 		remaining := w.limit - w.buf.Len()
 		if len(b) > remaining {
 			_, _ = w.buf.Write(b[:remaining])
@@ -644,7 +706,7 @@ func (w *opsCaptureWriter) WriteString(s string) (int, error) {
 	if w.ResponseWriter == nil {
 		return 0, nil
 	}
-	if w.Status() >= 400 && w.limit > 0 && w.buf.Len() < w.limit {
+	if w.shouldCapture() && w.Status() >= 400 && w.limit > 0 && w.buf.Len() < w.limit {
 		remaining := w.limit - w.buf.Len()
 		if len(s) > remaining {
 			_, _ = w.buf.WriteString(s[:remaining])
@@ -675,6 +737,14 @@ func opsUpstreamEventsForRecoveredLogging(events []*service.OpsUpstreamErrorEven
 	return out
 }
 
+func (w *opsCaptureWriter) shouldCapture() bool {
+	if w.ctx == nil {
+		return true
+	}
+	_, rejected := middleware2.GetIngressRejectReason(w.ctx)
+	return !rejected
+}
+
 // OpsErrorLoggerMiddleware records error responses (status >= 400) into ops_error_logs.
 //
 // Notes:
@@ -684,6 +754,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		originalWriter := c.Writer
 		w := acquireOpsCaptureWriter(originalWriter)
+		w.ctx = c
 		defer func() {
 			// Restore the original writer before returning so outer middlewares
 			// don't observe a pooled wrapper that has been released.
@@ -694,6 +765,10 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		}()
 		c.Writer = w
 		c.Next()
+
+		if _, rejected := middleware2.GetIngressRejectReason(c); rejected {
+			return
+		}
 
 		if ops == nil {
 			return
@@ -1058,7 +1133,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			IsCountTokens: isCountTokensRequest(c),
 
 			ErrorMessage: parsed.Message,
-			// Keep the full captured error body (capture is already capped at 64KB) so the
+			// Keep the captured error body (already capped at the queue-safe limit) so the
 			// service layer can sanitize JSON before truncating for storage.
 			ErrorBody:   string(body),
 			ErrorSource: errorSource,
@@ -1126,7 +1201,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 		if apiKey != nil {
 			entry.APIKeyID = &apiKey.ID
-			// 有效(未删除)key 报错时快照前缀,key 之后被删也保留;与 INVALID_API_KEY 的 attempted_key_prefix 互斥。
+			// 有效 key 报错时快照前缀，key 之后被删也保留。
 			entry.APIKeyPrefix = keyPrefix(apiKey.Key, 8)
 			if apiKey.User != nil {
 				entry.UserID = &apiKey.User.ID
@@ -1146,24 +1221,151 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			entry.ClientIP = &clientIP
 		}
 
-		// 已删除 key 归因:仅 INVALID_API_KEY 才尝试。响应已写出,此处不阻塞客户端。
-		if parsed.Code == opsCodeInvalidAPIKey {
-			if attemptedKey := extractAttemptedKey(c); attemptedKey != "" {
-				entry.AttemptedKeyPrefix = keyPrefix(attemptedKey, 8)
-				if looksLikeSystemKey(attemptedKey) {
-					if res, lookupErr := ops.LookupDeletedKeyAudit(c.Request.Context(), attemptedKey); lookupErr != nil {
-						log.Printf("[OpsErrorLogger] LookupDeletedKeyAudit failed: %v", lookupErr)
-					} else if res != nil {
-						owner := res.UserID
-						entry.DeletedKeyOwnerUserID = &owner
-						entry.DeletedKeyName = res.KeyName
-					}
-				}
-			}
-		}
-
 		enqueueOpsErrorLog(ops, entry)
 	}
+}
+
+// logOpsStreamError 记录一次挂在已固化 HTTP 200 SSE 流上的就地错误。
+// 由于 wire 状态码停留在 200，常规的 status>=400 捕获路径永远不会触发；
+// handleStreamingAwareError 通过 service.MarkOpsStreamError 标记这类错误，
+// 此函数据此补记一条错误日志，让并发限流/流内失败在错误看板里可见。
+//
+// 仅在 status<400 且不存在上游错误上下文时调用：上游透传错误已由中间件的
+// upstream-context 分支落库，无需在此重复记录。
+func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) {
+	streamErr, ok := service.GetOpsStreamError(c)
+	if !ok {
+		return
+	}
+
+	// 命中 skip_monitoring=true 透传规则的请求跳过落库，与其它分支一致。
+	if v, ok := c.Get(service.OpsSkipPassthroughKey); ok {
+		if skip, _ := v.(bool); skip {
+			return
+		}
+	}
+
+	// 复用与 status>=400 分支相同的设置过滤（context canceled / 无可用账号等）。
+	if shouldSkipOpsErrorLog(c.Request.Context(), ops, streamErr.Message, streamErr.Message, c.Request.URL.Path) {
+		return
+	}
+
+	// 分级用「本应返回的状态码」(如并发限流 429)，wire 状态码缺省时回退。
+	classifyStatus := streamErr.IntendedStatus
+	if classifyStatus <= 0 {
+		classifyStatus = wireStatus
+	}
+	normalizedType := normalizeOpsErrorType(streamErr.ErrType, streamErr.Code)
+	phase, errorOwner, errorSource := classifyOpsErrorLog(c, normalizedType, streamErr.Message, streamErr.Code, classifyStatus)
+	recordedStatus := wireStatus
+	if streamErr.CountTowardsSLA && streamErr.IntendedStatus >= 400 {
+		recordedStatus = streamErr.IntendedStatus
+	}
+	errorBody := ""
+	if streamErr.Code != "" {
+		if payload, err := json.Marshal(gin.H{"error": gin.H{
+			"type": normalizedType, "code": streamErr.Code, "message": streamErr.Message,
+		}}); err == nil {
+			errorBody = string(payload)
+		}
+	}
+
+	apiKey := getOpsAPIKey(c)
+	clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
+
+	model, _ := c.Get(opsModelKey)
+	var modelName string
+	if s, ok := model.(string); ok {
+		modelName = s
+	}
+	accountIDV, _ := c.Get(opsAccountIDKey)
+	var accountID *int64
+	if v, ok := accountIDV.(int64); ok && v > 0 {
+		accountID = &v
+	}
+
+	fallbackPlatform := guessPlatformFromPath(c.Request.URL.Path)
+	platform := resolveOpsPlatform(apiKey, fallbackPlatform)
+
+	requestID := c.Writer.Header().Get("X-Request-Id")
+	if requestID == "" {
+		requestID = c.Writer.Header().Get("x-request-id")
+	}
+
+	entry := &service.OpsInsertErrorLogInput{
+		RequestID:       requestID,
+		ClientRequestID: clientRequestID,
+
+		AccountID: accountID,
+		Platform:  platform,
+		Model:     modelName,
+		RequestPath: func() string {
+			if c.Request != nil && c.Request.URL != nil {
+				return c.Request.URL.Path
+			}
+			return ""
+		}(),
+		// 就地 SSE 错误只出现在流式请求上。
+		Stream:           true,
+		InboundEndpoint:  GetInboundEndpoint(c),
+		UpstreamEndpoint: GetUpstreamEndpoint(c, platform),
+		RequestedModel:   modelName,
+		UpstreamModel: func() string {
+			if v, ok := c.Get(opsUpstreamModelKey); ok {
+				if s, ok := v.(string); ok {
+					return strings.TrimSpace(s)
+				}
+			}
+			return ""
+		}(),
+		RequestType: func() *int16 {
+			if v, ok := c.Get(opsRequestTypeKey); ok {
+				switch t := v.(type) {
+				case int16:
+					return &t
+				case int:
+					v16 := int16(t)
+					return &v16
+				}
+			}
+			return nil
+		}(),
+		UserAgent: c.GetHeader("User-Agent"),
+
+		ErrorPhase:    phase,
+		ErrorType:     normalizedType,
+		Severity:      classifyOpsSeverity(normalizedType, classifyStatus),
+		StatusCode:    recordedStatus,
+		IsCountTokens: isCountTokensRequest(c),
+
+		ErrorMessage: streamErr.Message,
+		ErrorBody:    errorBody,
+		ErrorSource:  errorSource,
+		ErrorOwner:   errorOwner,
+
+		CreatedAt: time.Now(),
+	}
+	applyOpsLatencyFieldsFromContext(c, entry)
+
+	if apiKey != nil {
+		entry.APIKeyID = &apiKey.ID
+		entry.APIKeyPrefix = keyPrefix(apiKey.Key, 8)
+		if apiKey.User != nil {
+			entry.UserID = &apiKey.User.ID
+		}
+		if apiKey.GroupID != nil {
+			entry.GroupID = apiKey.GroupID
+		}
+		if apiKey.Group != nil && apiKey.Group.Platform != "" {
+			entry.Platform = apiKey.Group.Platform
+		}
+	}
+
+	if clientIP := strings.TrimSpace(ip.GetClientIP(c)); clientIP != "" {
+		entry.ClientIP = &clientIP
+	}
+
+	enqueueOpsErrorLog(ops, entry)
 }
 
 // isCountTokensRequest checks if the request is a count_tokens request
@@ -1692,11 +1894,8 @@ func shouldSkipOpsErrorLog(ctx context.Context, ops *service.OpsService, message
 	}
 
 	// Get advanced settings to check filter configuration
-	settings, err := ops.GetOpsAdvancedSettings(ctx)
-	if err != nil || settings == nil {
-		// If we can't get settings, don't skip (fail open)
-		return false
-	}
+	_ = ctx
+	settings := ops.OpsAdvancedSettingsSnapshot()
 
 	msgLower := strings.ToLower(message)
 	bodyLower := strings.ToLower(body)

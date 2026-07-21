@@ -226,11 +226,4 @@ func (m *opsRepoMock) GetLatestDailyBucketDate(ctx context.Context) (time.Time, 
 	return time.Time{}, false, nil
 }
 
-func (m *opsRepoMock) LookupDeletedKeyAudit(ctx context.Context, key string) (*DeletedKeyAuditResult, error) {
-	if m.LookupDeletedKeyAuditFn != nil {
-		return m.LookupDeletedKeyAuditFn(ctx, key)
-	}
-	return nil, nil
-}
-
 var _ OpsRepository = (*opsRepoMock)(nil)

@@ -134,6 +134,7 @@ type LiteLLMModelPricing struct {
 	OutputCostPerImage                  float64 `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
 	OutputCostPerImageToken             float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
 	OutputCostPerSecond                 float64 `json:"output_cost_per_second"`      // 视频生成模型每秒价格（veo 等）
+	InputCostPerImageToken              float64 `json:"input_cost_per_image_token"`  // 图片输入 token 价格（如 gpt-image-2 图片编辑）
 
 	// Intervals 输入-token 区间分档定价（TK overlay 专用，见 tk_pricing_overlay.json
 	// 的 "intervals"）。仅 TK overlay 条目填充；litellm 源无此概念。空 = 扁平定价。
@@ -175,6 +176,7 @@ type LiteLLMRawEntry struct {
 	OutputCostPerImage                  *float64 `json:"output_cost_per_image"`
 	OutputCostPerImageToken             *float64 `json:"output_cost_per_image_token"`
 	OutputCostPerSecond                 *float64 `json:"output_cost_per_second"`
+	InputCostPerImageToken              *float64 `json:"input_cost_per_image_token"`
 }
 
 // PricingService 动态价格服务
@@ -474,7 +476,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		// 导致下游按裸名匹配时根本找不到（命中错误兜底价）。
 		if entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil &&
 			entry.OutputCostPerImage == nil && entry.OutputCostPerImageToken == nil &&
-			entry.OutputCostPerSecond == nil {
+			entry.OutputCostPerSecond == nil && entry.InputCostPerImageToken == nil {
 			continue
 		}
 
@@ -533,6 +535,9 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 		if entry.OutputCostPerSecond != nil {
 			pricing.OutputCostPerSecond = *entry.OutputCostPerSecond
+		}
+		if entry.InputCostPerImageToken != nil {
+			pricing.InputCostPerImageToken = *entry.InputCostPerImageToken
 		}
 
 		result[modelName] = pricing

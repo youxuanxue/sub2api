@@ -145,6 +145,19 @@ func sanitizeMiddlewareInternalErrorDetail(err error) string {
 	return s
 }
 
+// abortWithOpenAIQuotaError writes the OpenAI-compatible insufficient quota response.
+func abortWithOpenAIQuotaError(c *gin.Context, statusCode int, message string) {
+	c.JSON(statusCode, gin.H{
+		"error": gin.H{
+			"message": message,
+			"type":    "insufficient_quota",
+			"param":   nil,
+			"code":    "insufficient_quota",
+		},
+	})
+	c.Abort()
+}
+
 // ──────────────────────────────────────────────────────────
 // RequireGroupAssignment — 未分组 Key 拦截中间件
 // ──────────────────────────────────────────────────────────
@@ -179,7 +192,7 @@ func RequireGroupAssignment(settingService *service.SettingService, writeError G
 		if !ok || apiKey.GroupID != nil || apiKey.IsUniversal() {
 			// 全能 Key（universal）授权由请求级解析按权限跨度裁决：可解析端点已在认证内
 			// 替换为后端组（GroupID != nil 自然放行）；元数据端点未替换（GroupID == nil）也放行，
-			// 由 handler 回落默认。两种情况都不应被“未分组拦截”挡住。
+			// 由 handler 回落默认。两种情况都不应被"未分组拦截"挡住。
 			c.Next()
 			return
 		}
@@ -189,6 +202,8 @@ func RequireGroupAssignment(settingService *service.SettingService, writeError G
 			return
 		}
 		service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonAPIKeyGroupUnassigned)
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned)
+		MarkIngressRejected(c, IngressRejectGroupUnassigned)
 		writeError(c, http.StatusForbidden, "API Key is not assigned to any group and cannot be used. Please contact the administrator to assign it to a group.")
 		c.Abort()
 	}

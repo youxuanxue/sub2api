@@ -63,6 +63,7 @@ const CountTokensBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInter
 // HaikuBetaHeader Haiku 模型 OAuth 回退 anthropic-beta（structured-outputs 变体）。
 // 历史观察：2026-06 / cc 2.1.160 实测 haiku 存在服务端 A/B 灰度，structured-outputs
 // 为多数态，故选它；分布详见 docs/spec-delta/cc-2.1.160.md。
+// OAuth mimic 路径统一使用 FullClaudeCodeMimicryBetas / FullClaudeCodeHaikuMimicryBetas。
 const HaikuBetaHeader = BetaOAuth + "," + BetaInterleavedThinking + "," + BetaThinkingTokenCount + "," +
 	BetaContextManagement + "," + BetaPromptCachingScope + "," + BetaAdvisorTool + "," +
 	BetaStructuredOutputs + "," + BetaCacheDiagnosis
@@ -95,6 +96,7 @@ func JoinBetaHeader(betas []string) string {
 // 使用建议：
 //   - OAuth 账号 + 非 haiku：追加这整份列表，再按需保留 client 带来的 beta。
 //   - OAuth 账号 + haiku：使用 FullClaudeCodeHaikuMimicryBetas（无 effort / advanced-tool-use）。
+//   - OAuth 真实客户端透传：保留客户端 beta；未提供时使用模型对应默认值。
 //   - API-key 账号：不要使用本函数，参见 APIKeyBetaHeader。
 //   - 不默认加入 redact-thinking，避免上游抹除 thinking 内容；客户端显式传入时由合并逻辑保留。
 func FullClaudeCodeMimicryBetas() []string {
