@@ -676,11 +676,17 @@ def _prod_instance() -> str:
         ]
     )
     try:
-        instance = payload["Reservations"][0]["Instances"][0]
+        reservations = payload["Reservations"]
+        if len(reservations) != 1 or len(reservations[0]["Instances"]) != 1:
+            raise ValueError("describe-instances must return exactly one instance")
+        instance = reservations[0]["Instances"][0]
+        resolved_instance_id = instance["InstanceId"]
         tags = {item["Key"]: item["Value"] for item in instance["Tags"]}
         state = instance["State"]["Name"]
-    except (KeyError, IndexError, TypeError) as exc:
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
         raise CanaryError("prod instance metadata is incomplete") from exc
+    if resolved_instance_id != instance_id:
+        raise CanaryError("prod instance metadata does not match the stack output")
     if tags.get("Project") != "tokenkey" or tags.get("Environment") != "prod":
         raise CanaryError("prod instance tags do not match Project=tokenkey/Environment=prod")
     if state != "running":
@@ -732,7 +738,7 @@ def _remote_host_command(
             'WORK="$(mktemp -d /tmp/tokenkey-prod-archive-canary.XXXXXX)"',
             "cleanup() {",
             '  rm -f "$WORK/data_layer_archive_prod_canary.py" "$WORK/data_layer_archive_rehearsal.py"',
-            '  rmdir "$WORK" 2>/dev/null || true',
+            '  rmdir "$WORK" 2>/dev/null || true',  # preflight-allow: swallow
             "}",
             "trap cleanup EXIT",
             f"printf %s {shlex.quote(canary_b64)} | base64 -d > \"$WORK/data_layer_archive_prod_canary.py\"",
@@ -839,6 +845,8 @@ def _validated_remote_receipt(
         or not objects
         or not isinstance(objects[-1], dict)
         or objects[-1].get("uri") != f"{expected_prefix}/manifest.json"
+        or objects[-1].get("sha256") != manifest_sha256
+        or objects[-1].get("server_side_encryption") not in {"AES256", "aws:kms"}
     ):
         raise CanaryError("production canary SSM receipt failed commit validation")
     return receipt
@@ -850,6 +858,7 @@ def _download_committed_batch(
     evidence_root: str | os.PathLike[str],
     *,
     command_runner: CommandRunner = _command_output,
+    expected_manifest_sha256: str | None = None,
 ) -> pathlib.Path:
     _, key = _s3_location(s3_prefix)
     if not key.endswith(f"/{batch_id}") or not batch_id.startswith("prod-canary-"):
@@ -859,7 +868,12 @@ def _download_committed_batch(
     batch_dir = root / batch_id
 
     def verify_downloaded(path: pathlib.Path) -> None:
-        rehearsal.verify_batch(path)
+        verification = rehearsal.verify_batch(path)
+        if (
+            expected_manifest_sha256 is not None
+            and verification["manifest_sha256"] != expected_manifest_sha256
+        ):
+            raise CanaryError("downloaded canary manifest checksum mismatch")
         manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
         if (
             not isinstance(manifest, dict)
@@ -941,9 +955,15 @@ def restore_committed_batch(
     target_dsn: str,
     seed: int,
     timeout_seconds: int,
+    expected_manifest_sha256: str | None = None,
 ) -> dict[str, Any]:
     rehearsal._postgres_dsn_info(target_dsn, target=True)
-    batch_dir = _download_committed_batch(s3_prefix, batch_id, evidence_root)
+    batch_dir = _download_committed_batch(
+        s3_prefix,
+        batch_id,
+        evidence_root,
+        expected_manifest_sha256=expected_manifest_sha256,
+    )
     verification = rehearsal.verify_batch(batch_dir)
     restored = rehearsal.restore_postgres_random(
         batch_dir,
@@ -1003,6 +1023,7 @@ def run_canary(args: argparse.Namespace) -> dict[str, Any]:
         target_dsn=args.restore_target_dsn,
         seed=args.seed,
         timeout_seconds=args.timeout_seconds,
+        expected_manifest_sha256=upload["manifest_sha256"],
     )
     return {
         **restored,

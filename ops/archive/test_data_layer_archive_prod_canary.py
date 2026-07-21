@@ -374,6 +374,7 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                         {
                             "Instances": [
                                 {
+                                    "InstanceId": _INSTANCE_ID,
                                     "State": {"Name": "running"},
                                     "Tags": [
                                         {"Key": "Project", "Value": "tokenkey"},
@@ -405,6 +406,7 @@ class ProdArchiveCanaryTest(unittest.TestCase):
                     {
                         "Instances": [
                             {
+                                "InstanceId": _INSTANCE_ID,
                                 "State": {"Name": "running"},
                                 "Tags": [
                                     {"Key": "Project", "Value": "tokenkey"},
@@ -425,7 +427,13 @@ class ProdArchiveCanaryTest(unittest.TestCase):
             "batch_id": batch_id,
             "s3_prefix": f"{_STAGING_BASE}/{batch_id}",
             "manifest_sha256": "a" * 64,
-            "objects": [{"uri": f"{_STAGING_BASE}/{batch_id}/manifest.json"}],
+            "objects": [
+                {
+                    "uri": f"{_STAGING_BASE}/{batch_id}/manifest.json",
+                    "sha256": "a" * 64,
+                    "server_side_encryption": "AES256",
+                }
+            ],
             "manifest_uploaded_last": True,
             "source_mutated": False,
             "deletion_authorized": False,
@@ -476,7 +484,13 @@ class ProdArchiveCanaryTest(unittest.TestCase):
             "batch_id": batch_id,
             "s3_prefix": f"{_STAGING_BASE}/{batch_id}",
             "manifest_sha256": "a" * 64,
-            "objects": [{"uri": f"{_STAGING_BASE}/{batch_id}/manifest.json"}],
+            "objects": [
+                {
+                    "uri": f"{_STAGING_BASE}/{batch_id}/manifest.json",
+                    "sha256": "a" * 64,
+                    "server_side_encryption": "AES256",
+                }
+            ],
             "manifest_uploaded_last": True,
             "source_mutated": False,
             "deletion_authorized": False,
@@ -527,7 +541,57 @@ class ProdArchiveCanaryTest(unittest.TestCase):
             target_dsn=args.restore_target_dsn,
             seed=args.seed,
             timeout_seconds=args.timeout_seconds,
+            expected_manifest_sha256=receipt["manifest_sha256"],
         )
+
+    def test_us038_committed_download_binds_manifest_checksum(self) -> None:
+        as_of = "2026-07-21T03:00:00Z"
+        temporary_directory = tempfile.TemporaryDirectory
+        with temporary_directory() as source_root, temporary_directory() as evidence_root:
+            sealed = canary.seal_prod_canary_batch(
+                source_root,
+                table="ops_system_logs",
+                as_of=as_of,
+                instance_id=_INSTANCE_ID,
+                staging_s3_base_uri=_STAGING_BASE,
+                query_runner=_fake_query_runner(
+                    as_of=as_of,
+                    rows=[_cold_row(as_of)],
+                ),
+            )
+            batch_dir = pathlib.Path(sealed["batch_dir"])
+            batch_id = sealed["batch_id"]
+            s3_prefix = sealed["staging_s3_prefix"]
+            manifest_bytes = (batch_dir / "manifest.json").read_bytes()
+            manifest_sha256 = rehearsal._sha256(manifest_bytes)
+            objects = {
+                f"{s3_prefix}/{path.name}": path.read_bytes()
+                for path in batch_dir.iterdir()
+            }
+
+            def download(args: list[str]) -> str:
+                pathlib.Path(args[-1]).write_bytes(objects[args[-2]])
+                return ""
+
+            downloaded = canary._download_committed_batch(
+                s3_prefix,
+                batch_id,
+                evidence_root,
+                command_runner=download,
+                expected_manifest_sha256=manifest_sha256,
+            )
+            self.assertTrue(rehearsal.verify_batch(downloaded)["verified"])
+
+        with tempfile.TemporaryDirectory() as evidence_root:
+            with self.assertRaisesRegex(canary.CanaryError, "checksum mismatch"):
+                canary._download_committed_batch(
+                    s3_prefix,
+                    batch_id,
+                    evidence_root,
+                    command_runner=download,
+                    expected_manifest_sha256="b" * 64,
+                )
+            self.assertFalse((pathlib.Path(evidence_root) / batch_id).exists())
 
 
 def _have_postgres_integration() -> bool:

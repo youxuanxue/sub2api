@@ -627,7 +627,7 @@ def _batch_id(
     environment: str,
     sealed_at: str,
     source_path_sha256: str,
-    source_file_identity: dict[str, int],
+    source_file_identity: dict[str, Any],
     retention_days: dict[str, int],
     artifacts: list[dict[str, Any]],
     prefix: str = "rehearsal",
