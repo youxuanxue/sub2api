@@ -1,0 +1,11 @@
+{
+  "import_profile": "grok_sso",
+  "name": "grok-sso-batch-example",
+  "sso_tokens": [
+    "REPLACE_ME_SSO_TOKEN_1",
+    "REPLACE_ME_SSO_TOKEN_2"
+  ],
+  "group_ids": [],
+  "concurrency": 3,
+  "priority": 50
+}

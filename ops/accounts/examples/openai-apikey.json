@@ -1,0 +1,11 @@
+{
+  "name": "openai-apikey-example",
+  "platform": "openai",
+  "type": "apikey",
+  "credentials": {
+    "api_key": "REPLACE_ME"
+  },
+  "group_ids": [],
+  "concurrency": 3,
+  "priority": 50
+}

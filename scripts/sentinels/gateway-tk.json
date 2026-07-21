@@ -5186,6 +5186,44 @@
         "partitioned parent index %s remains invalid"
       ],
       "rationale": "Prod ops_system_logs is a 12 GB partitioned parent. The companion must build child indexes concurrently, create the metadata-only parent, attach all children, and refuse to record an invalid parent; replacing it with a recursive blocking CREATE INDEX can stall production writes."
+    },
+    {
+      "path": "backend/internal/service/api_key_service_tk_admin_create.go",
+      "must_contain": [
+        "func (s *APIKeyService) CreateAsAdmin(",
+        "infraerrors.BadRequest(\"GROUP_NOT_ACTIVE\""
+      ],
+      "rationale": "Admin-only API key issuance for ops relay provisioning (POST /admin/users/:id/api-keys). Bypasses end-user group permission checks while still validating user/group existence. Dropping this companion silently removes the edge→prod relay key automation path while the route/handler may still compile against stale wiring."
+    },
+    {
+      "path": "backend/internal/service/api_key_service_tk_admin_create_test.go",
+      "must_contain": [
+        "TestAPIKeyService_CreateAsAdmin_BypassesUserGroupPermission",
+        "TestAPIKeyService_CreateAsAdmin_GroupNotActive"
+      ],
+      "rationale": "Regression guard for CreateAsAdmin: admin bypass of user group bind checks and inactive-group rejection."
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_contain": [
+        "adminAPIKeyHandler := admin.NewAdminAPIKeyHandler(adminService, apiKeyService)"
+      ],
+      "rationale": "Wire DI for AdminAPIKeyHandler now requires APIKeyService (CreateAsAdmin). Upstream wire regen can revert to the single-arg constructor and break admin relay key issuance at compile time or silently drop the dependency."
+    },
+    {
+      "path": "backend/internal/server/routes/admin.go",
+      "must_contain": [
+        "users.POST(\"/:id/api-keys\", h.Admin.APIKey.CreateForUser)"
+      ],
+      "rationale": "Route registration for admin user API key issuance used by ops/accounts edge_oauth_relay automation. A silent upstream merge dropping this line unregisters the endpoint while handlers remain compiled-but-unreachable."
+    },
+    {
+      "path": "backend/internal/handler/admin/apikey_handler.go",
+      "must_contain": [
+        "func (h *AdminAPIKeyHandler) CreateForUser(",
+        "admin.users.api_keys.create"
+      ],
+      "rationale": "Admin handler for POST /admin/users/:id/api-keys. Pins the CreateForUser entry point and idempotency scope for ops relay key provisioning."
     }
   ]
 }

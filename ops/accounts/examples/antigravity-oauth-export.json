@@ -1,0 +1,14 @@
+{
+  "import_profile": "antigravity_oauth",
+  "name": "antigravity-oauth-example",
+  "update_existing": true,
+  "fill_project_id": true,
+  "type": "antigravity",
+  "access_token": "REPLACE_ME",
+  "refresh_token": "REPLACE_ME",
+  "expires_in": 3599,
+  "timestamp": 1784599720635,
+  "expired": "2099-07-21T03:08:39Z",
+  "email": "user@example.com",
+  "project_id": "REPLACE_ME"
+}

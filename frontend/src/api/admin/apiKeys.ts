@@ -26,8 +26,29 @@ export async function updateApiKeyGroup(id: number, groupId: number | null): Pro
   return data
 }
 
+export interface CreateUserApiKeyRequest {
+  name: string
+  group_id?: number | null
+  routing_mode?: 'direct' | 'universal'
+  custom_key?: string
+  quota?: number
+  expires_in_days?: number
+  rate_limit_5h?: number
+  rate_limit_1d?: number
+  rate_limit_7d?: number
+}
+
+/**
+ * Issue a new API key for a user (admin-only).
+ */
+export async function createUserApiKey(userId: number, payload: CreateUserApiKeyRequest): Promise<ApiKey> {
+  const { data } = await apiClient.post<ApiKey>(`/admin/users/${userId}/api-keys`, payload)
+  return data
+}
+
 export const apiKeysAPI = {
-  updateApiKeyGroup
+  updateApiKeyGroup,
+  createUserApiKey
 }
 
 export default apiKeysAPI

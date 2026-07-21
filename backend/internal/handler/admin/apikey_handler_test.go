@@ -16,11 +16,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func setupAPIKeyHandler(adminSvc service.AdminService) *gin.Engine {
+func setupAPIKeyHandler(adminSvc service.AdminService, creators ...adminUserAPIKeyCreator) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	h := NewAdminAPIKeyHandler(adminSvc)
+	var creator adminUserAPIKeyCreator
+	if len(creators) > 0 {
+		creator = creators[0]
+	}
+	h := NewAdminAPIKeyHandler(adminSvc, nil)
+	if creator != nil {
+		h.apiKeyCreator = creator
+	}
 	router.PUT("/api/v1/admin/api-keys/:id", h.UpdateGroup)
+	router.POST("/api/v1/admin/users/:id/api-keys", h.CreateForUser)
 	return router
 }
 
@@ -244,5 +252,76 @@ type failingUpdateGroupService struct {
 }
 
 func (f *failingUpdateGroupService) AdminUpdateAPIKeyGroupID(_ context.Context, _ int64, _ *int64) (*service.AdminUpdateAPIKeyGroupIDResult, error) {
+	return nil, f.err
+}
+
+type apiKeyCreatorStub struct {
+	key *service.APIKey
+	err error
+}
+
+func (s *apiKeyCreatorStub) CreateAsAdmin(_ context.Context, userID int64, req service.CreateAPIKeyRequest) (*service.APIKey, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.key != nil {
+		clone := *s.key
+		return &clone, nil
+	}
+	return &service.APIKey{
+		ID:     42,
+		UserID: userID,
+		Key:    "tk_test_relay_key",
+		Name:   req.Name,
+		Status: service.StatusActive,
+	}, nil
+}
+
+func TestAdminAPIKeyHandler_CreateForUser_InvalidUserID(t *testing.T) {
+	router := setupAPIKeyHandler(newStubAdminService(), &apiKeyCreatorStub{})
+	body := `{"name":"relay-us6","group_id":1,"routing_mode":"direct"}`
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/abc/api-keys", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "Invalid user ID")
+}
+
+func TestAdminAPIKeyHandler_CreateForUser_Success(t *testing.T) {
+	router := setupAPIKeyHandler(newStubAdminService(), &apiKeyCreatorStub{})
+	body := `{"name":"relay-us6","group_id":1,"routing_mode":"direct"}`
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/1/api-keys", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "tk_test_relay_key")
+	require.Contains(t, rec.Body.String(), "relay-us6")
+}
+
+func TestAdminAPIKeyHandler_CreateForUser_UserNotFound(t *testing.T) {
+	svc := &failingGetUserService{stubAdminService: newStubAdminService(), err: service.ErrUserNotFound}
+	router := setupAPIKeyHandler(svc, &apiKeyCreatorStub{})
+	body := `{"name":"relay-us6"}`
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/404/api-keys", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+type failingGetUserService struct {
+	*stubAdminService
+	err error
+}
+
+func (f *failingGetUserService) GetUser(_ context.Context, _ int64) (*service.User, error) {
 	return nil, f.err
 }

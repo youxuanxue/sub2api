@@ -1275,6 +1275,30 @@ export interface CodexSessionImportResult {
   errors?: CodexSessionImportMessage[]
 }
 
+export interface AntigravityOAuthImportRequest {
+  content?: string
+  contents?: string[]
+  name?: string
+  notes?: string | null
+  group_ids?: number[]
+  proxy_id?: number | null
+  concurrency?: number
+  priority?: number
+  rate_multiplier?: number
+  load_factor?: number
+  expires_at?: number | null
+  auto_pause_on_expired?: boolean
+  extra?: Record<string, unknown>
+  update_existing?: boolean
+  skip_default_group_bind?: boolean
+  confirm_mixed_channel_risk?: boolean
+  fill_project_id?: boolean
+}
+
+export type AntigravityOAuthImportMessage = CodexSessionImportMessage
+export type AntigravityOAuthImportItem = CodexSessionImportItem
+export type AntigravityOAuthImportResult = CodexSessionImportResult
+
 export type OpenAICompactMode = 'auto' | 'force_on' | 'force_off'
 export type OpenAIResponsesMode = 'auto' | 'force_responses' | 'force_chat_completions'
 export type OpenAIEndpointCapability = 'chat_completions' | 'embeddings'
