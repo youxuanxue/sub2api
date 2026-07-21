@@ -1,9 +1,11 @@
 # Data-layer archive rehearsal
 
-This directory is the approved local/non-production rehearsal surface. The
-SQLite path is the deterministic baseline; `snapshot-postgres` is restricted to
-a localhost Docker PostgreSQL carrying the rehearsal sentinel. Nothing here
-connects to production, S3, AWS, schedules, or deployment workflows.
+This directory contains two deliberately separate archive surfaces. The
+rehearsal CLI is local/non-production only: its SQLite path is the deterministic
+baseline and `snapshot-postgres` accepts only a localhost Docker PostgreSQL with
+the rehearsal sentinel. The production canary CLI is an explicit, export-only
+operator command described below; it has no delete, schedule, workflow, or
+deployment integration.
 
 ## Source contract
 
@@ -46,8 +48,8 @@ The defaults retain usage for 90 days, ops for 30 days, and QA for 2 days.
 Every manifest keeps `deletion_authorized=false`; there is no deletion command.
 The sealed source path and file identity prevent restore targets from pointing
 back to the source through another path or hard link.
-Production snapshot, export canary, object storage, and deletion require separate
-approval and are intentionally absent here.
+Production access is not available through the rehearsal CLI. The separate
+production canary below does not loosen any of these source restrictions.
 
 ## PostgreSQL phase 3
 
@@ -75,3 +77,30 @@ restore-random`, uses read-only source transactions with lock/statement
 timeouts and a row cap, and reports elapsed time, source/candidate rows,
 logical/artifact bytes, compression ratio, and restore verification. It never
 deletes source or target data.
+
+## Production export-only canary
+
+The offline plan validates the fixed 30-day waterline and hard limits without
+calling AWS, Docker, PostgreSQL, or S3:
+
+```bash
+python3 ops/archive/data_layer_archive_prod_canary.py plan \
+  --table ops_system_logs \
+  --as-of 2026-07-21T03:00:00Z
+```
+
+The `run` command is a separately approved production operation. It resolves
+only `tokenkey-prod-stage0` in `us-east-1`, verifies
+`Project=tokenkey`/`Environment=prod`, exports through SSM from the local
+`tokenkey-postgres` container in a read-only transaction, and accepts only
+`ops_system_logs` or `ops_error_logs`. It uploads the artifact before the
+manifest under `prod/pgdump/archive-canary/`, verifies S3 encryption and
+checksums, then restores into an independent localhost database named
+`tokenkey_archive_restore_*`.
+
+The existing `tokenkey-stage0-backups` pgdump bucket expires this prefix with
+the same short retention used for pgdump copies (seven days under the approved
+stack configuration). This is canary staging, not long-term archive storage and
+never evidence that production rows may be deleted. Merge does not authorize a
+run: every execution still requires explicit approval plus the exact
+confirmation string `tokenkey-prod-archive-export-only-v1`.

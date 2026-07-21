@@ -1432,8 +1432,12 @@ elif ! python3 ./ops/archive/test_data_layer_archive_rehearsal.py >/dev/null 2>&
     echo "  FAIL: nonprod archive/restore rehearsal contracts"
     echo "        — run: python3 ops/archive/test_data_layer_archive_rehearsal.py"
     errors=$((errors + 1))
+elif ! python3 ./ops/archive/test_data_layer_archive_prod_canary.py >/dev/null 2>&1; then
+    echo "  FAIL: production export-only archive canary contracts"
+    echo "        — run: python3 ops/archive/test_data_layer_archive_prod_canary.py"
+    errors=$((errors + 1))
 else
-    echo "  ok: read-only waterline + manifest checksums + idempotent random restore"
+    echo "  ok: nonprod rehearsal + bounded production export-only canary"
 fi
 
 # ---- sub2api: runtime resource config verdict selftest ---------------------

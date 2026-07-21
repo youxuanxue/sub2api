@@ -36,6 +36,12 @@ POSTGRES_REHEARSAL_DATABASE = "tokenkey_archive_rehearsal"
 POSTGRES_RESTORE_PREFIX = "tokenkey_archive_restore_"
 POSTGRES_SENTINEL_TABLE = "archive_rehearsal_sentinel"
 POSTGRES_SENTINEL_LABEL = "tokenkey_archive_rehearsal"
+PROD_CANARY_MODE = "prod_archive_export_canary"
+PROD_CANARY_SOURCE_KIND = "stage0_prod_docker_postgres_read_only"
+PROD_CANARY_DATABASE = "tokenkey"
+PROD_CANARY_STACK = "tokenkey-prod-stage0"
+PROD_CANARY_CONTAINER = "tokenkey-postgres"
+PROD_CANARY_TABLES = ("ops_system_logs", "ops_error_logs")
 POSTGRES_TABLES = ("usage_logs", "ops_system_logs", "ops_error_logs", "qa_records")
 POSTGRES_DATASETS = {
     "usage_logs": "usage",
@@ -155,9 +161,8 @@ def _run_psql(
                 "pager=off",
                 "-v",
                 "ON_ERROR_STOP=1",
-                "-c",
-                wrapped,
             ],
+            input=wrapped,
             capture_output=True,
             text=True,
             env=environment,
@@ -482,7 +487,7 @@ def _dry_run_report(
     normalized_as_of: str,
     retention_days: dict[str, int],
     source_path_sha256: str,
-    source_file_identity: dict[str, int],
+    source_file_identity: dict[str, Any],
 ) -> dict[str, Any]:
     base = _utc(normalized_as_of)
     datasets = []
@@ -625,6 +630,7 @@ def _batch_id(
     source_file_identity: dict[str, int],
     retention_days: dict[str, int],
     artifacts: list[dict[str, Any]],
+    prefix: str = "rehearsal",
 ) -> str:
     identity = {
         "schema_version": SCHEMA_VERSION,
@@ -644,7 +650,7 @@ def _batch_id(
     }
     digest = _sha256(_canonical_json(identity).encode("utf-8"))[:12]
     stamp = sealed_at.replace("-", "").replace(":", "")
-    return f"rehearsal-{stamp}-{digest}"
+    return f"{prefix}-{stamp}-{digest}"
 
 
 def _atomic_json(path: pathlib.Path, payload: dict[str, Any]) -> None:
@@ -954,14 +960,23 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         raise RehearsalError("manifest must be a JSON object")
     if manifest.get("schema_version") != SCHEMA_VERSION:
         raise RehearsalError("unsupported manifest schema_version")
-    if manifest.get("mode") != "nonprod_archive_rehearsal":
-        raise RehearsalError("manifest is not a non-production rehearsal")
-    if manifest.get("environment") not in ENVIRONMENTS:
-        raise RehearsalError("manifest environment is not local/nonprod")
+    mode = manifest.get("mode")
     source_kind = manifest.get("source_kind")
-    if source_kind not in {"local_sqlite_read_only", POSTGRES_SOURCE_KIND}:
+    if mode == "nonprod_archive_rehearsal":
+        if manifest.get("environment") not in ENVIRONMENTS:
+            raise RehearsalError("manifest environment is not local/nonprod")
+        if source_kind not in {"local_sqlite_read_only", POSTGRES_SOURCE_KIND}:
+            raise RehearsalError(
+                "manifest source is not an approved read-only rehearsal snapshot"
+            )
+    elif mode == PROD_CANARY_MODE:
+        if manifest.get("environment") != "prod":
+            raise RehearsalError("production canary manifest environment must be prod")
+        if source_kind != PROD_CANARY_SOURCE_KIND:
+            raise RehearsalError("production canary source kind is invalid")
+    else:
         raise RehearsalError(
-            "manifest source is not an approved read-only rehearsal snapshot"
+            "manifest is not an approved archive rehearsal or production canary"
         )
     if manifest.get("source_mutated") is not False:
         raise RehearsalError("manifest must state that the source was not mutated")
@@ -974,6 +989,7 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         raise RehearsalError("manifest sealed_at is not canonical UTC")
     source_path_sha256 = manifest.get("source_path_sha256")
     source_dsn_sha256 = manifest.get("source_dsn_sha256")
+    source_identity_sha256 = manifest.get("source_identity_sha256")
     source_file_identity = manifest.get("source_file_identity")
     if source_kind == "local_sqlite_read_only":
         if (
@@ -991,7 +1007,7 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             )
         ):
             raise RehearsalError("manifest source_file_identity is invalid")
-    else:
+    elif source_kind == POSTGRES_SOURCE_KIND:
         if (
             not isinstance(source_dsn_sha256, str)
             or len(source_dsn_sha256) != 64
@@ -1007,6 +1023,46 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             or source_file_identity.get("dsn_sha256") != source_dsn_sha256
         ):
             raise RehearsalError("manifest PostgreSQL source identity is invalid")
+    else:
+        expected_identity_keys = {
+            "container",
+            "database",
+            "instance_id",
+            "stack",
+            "table",
+        }
+        if (
+            not isinstance(source_identity_sha256, str)
+            or len(source_identity_sha256) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in source_identity_sha256
+            )
+        ):
+            raise RehearsalError("production canary source identity checksum is invalid")
+        if (
+            not isinstance(source_file_identity, dict)
+            or set(source_file_identity) != expected_identity_keys
+            or manifest.get("source_database") != PROD_CANARY_DATABASE
+            or source_file_identity.get("container") != PROD_CANARY_CONTAINER
+            or source_file_identity.get("database") != PROD_CANARY_DATABASE
+            or source_file_identity.get("stack") != PROD_CANARY_STACK
+            or source_file_identity.get("table") not in PROD_CANARY_TABLES
+        ):
+            raise RehearsalError("production canary source identity is invalid")
+        instance_id = source_file_identity.get("instance_id")
+        if (
+            not isinstance(instance_id, str)
+            or not instance_id.startswith("i-")
+            or len(instance_id) != 19
+            or any(character not in "0123456789abcdef" for character in instance_id[2:])
+        ):
+            raise RehearsalError("production canary instance identity is invalid")
+        expected_identity_sha256 = _sha256(
+            _canonical_json(source_file_identity).encode("utf-8")
+        )
+        if source_identity_sha256 != expected_identity_sha256:
+            raise RehearsalError("production canary source identity checksum mismatch")
     policy = manifest.get("retention_days")
     if not isinstance(policy, dict):
         raise RehearsalError("manifest retention_days is invalid")
@@ -1016,6 +1072,69 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         raise RehearsalError("manifest retention_days is invalid") from exc
     if policy != normalized_policy:
         raise RehearsalError("manifest retention_days is not canonical")
+    if mode == PROD_CANARY_MODE and normalized_policy != DEFAULT_RETENTION_DAYS:
+        raise RehearsalError("production canary retention policy is not approved")
+    canary = manifest.get("canary")
+    canary_cutoff: dt.datetime | None = None
+    if mode == PROD_CANARY_MODE:
+        expected_canary_keys = {
+            "cutoff_exclusive",
+            "lock_timeout_ms",
+            "max_logical_bytes",
+            "max_rows",
+            "query_elapsed_ms",
+            "server_clock",
+            "statement_timeout_seconds",
+            "table",
+        }
+        if not isinstance(canary, dict) or set(canary) != expected_canary_keys:
+            raise RehearsalError("production canary bounds are invalid")
+        if canary.get("table") != source_file_identity.get("table"):
+            raise RehearsalError("production canary table does not match source identity")
+        try:
+            canary_cutoff = _utc(canary["cutoff_exclusive"])
+            server_clock = _utc(canary["server_clock"])
+        except (KeyError, TypeError, AttributeError) as exc:
+            raise RehearsalError("production canary timestamps are invalid") from exc
+        if _timestamp(canary_cutoff) != canary["cutoff_exclusive"]:
+            raise RehearsalError("production canary cutoff is not canonical UTC")
+        if _timestamp(server_clock) != canary["server_clock"]:
+            raise RehearsalError("production canary server clock is not canonical UTC")
+        if _utc(sealed_at) != server_clock:
+            raise RehearsalError("production canary seal time must use the server clock")
+        expected_cutoff = server_clock - dt.timedelta(days=DEFAULT_RETENTION_DAYS["ops"])
+        if canary_cutoff != expected_cutoff:
+            raise RehearsalError("production canary cutoff is not the approved cold waterline")
+        integer_bounds = {
+            "lock_timeout_ms": (100, 100),
+            "max_logical_bytes": (1, 64 * 1024 * 1024),
+            "max_rows": (1, 10_000),
+            "statement_timeout_seconds": (1, 30),
+        }
+        for key, (minimum, maximum) in integer_bounds.items():
+            value = canary.get(key)
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not minimum <= value <= maximum
+            ):
+                raise RehearsalError(f"production canary {key} is out of bounds")
+        elapsed = canary.get("query_elapsed_ms")
+        if (
+            not isinstance(elapsed, (int, float))
+            or isinstance(elapsed, bool)
+            or elapsed < 0
+        ):
+            raise RehearsalError("production canary query_elapsed_ms is invalid")
+        staging_prefix = manifest.get("staging_s3_prefix")
+        if (
+            not isinstance(staging_prefix, str)
+            or not staging_prefix.startswith("s3://")
+            or "/prod/pgdump/archive-canary/" not in staging_prefix
+            or not staging_prefix.endswith(f"/{manifest.get('batch_id')}")
+            or ".." in staging_prefix
+        ):
+            raise RehearsalError("production canary S3 staging prefix is invalid")
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list) or not artifacts:
         raise RehearsalError("manifest must contain at least one artifact")
@@ -1024,6 +1143,8 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
     ]
     if artifact_datasets != [dataset for dataset in DATASETS if dataset in artifact_datasets]:
         raise RehearsalError("manifest artifacts are not in canonical dataset order")
+    if mode == PROD_CANARY_MODE and artifact_datasets != ["ops"]:
+        raise RehearsalError("production canary must contain exactly one ops artifact")
     total_rows = 0
     total_bytes = 0
     datasets: set[str] = set()
@@ -1034,12 +1155,27 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             raise RehearsalError(f"duplicate artifact dataset {entry['dataset']}")
         datasets.add(entry["dataset"])
         records, raw = _parse_artifact(batch_dir, entry)
+        if mode == PROD_CANARY_MODE:
+            assert canary_cutoff is not None
+            table_prefix = f"{source_file_identity['table']}:"
+            if any(
+                _utc(record["created_at"]) >= canary_cutoff
+                or not record["record_id"].startswith(table_prefix)
+                for record in records
+            ):
+                raise RehearsalError("production canary artifact contains hot or foreign rows")
         total_rows += len(records)
         total_bytes += len(raw)
     if total_rows != manifest.get("total_rows"):
         raise RehearsalError("manifest total_rows mismatch")
     if total_bytes != manifest.get("total_logical_bytes"):
         raise RehearsalError("manifest total_logical_bytes mismatch")
+    if mode == PROD_CANARY_MODE:
+        assert isinstance(canary, dict)
+        if total_rows > canary["max_rows"]:
+            raise RehearsalError("production canary row count exceeds its manifest bound")
+        if total_bytes > canary["max_logical_bytes"]:
+            raise RehearsalError("production canary byte count exceeds its manifest bound")
     source_rows = manifest.get("source_rows")
     if (
         not isinstance(source_rows, int)
@@ -1054,11 +1190,16 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             source_path_sha256=(
                 source_path_sha256
                 if source_kind == "local_sqlite_read_only"
-                else source_dsn_sha256
+                else (
+                    source_dsn_sha256
+                    if source_kind == POSTGRES_SOURCE_KIND
+                    else source_identity_sha256
+                )
             ),
             source_file_identity=source_file_identity,
             retention_days=normalized_policy,
             artifacts=artifacts,
+            prefix="prod-canary" if mode == PROD_CANARY_MODE else "rehearsal",
         )
     except (KeyError, TypeError) as exc:
         raise RehearsalError("manifest artifact identity fields are invalid") from exc
@@ -1066,7 +1207,11 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         raise RehearsalError("manifest batch identity does not match its contents")
     return {
         "schema_version": SCHEMA_VERSION,
-        "mode": "nonprod_archive_verify",
+        "mode": (
+            "prod_archive_export_verify"
+            if mode == PROD_CANARY_MODE
+            else "nonprod_archive_verify"
+        ),
         "batch_id": manifest.get("batch_id"),
         "source_kind": source_kind,
         "verified": True,
@@ -1212,7 +1357,10 @@ def restore_postgres_random(
 ) -> dict[str, Any]:
     started = time.monotonic()
     verification = verify_batch(batch)
-    if verification.get("source_kind") != POSTGRES_SOURCE_KIND:
+    if verification.get("source_kind") not in {
+        POSTGRES_SOURCE_KIND,
+        PROD_CANARY_SOURCE_KIND,
+    }:
         raise RehearsalError("restore-postgres-random requires a PostgreSQL batch")
     batch_dir = pathlib.Path(batch).expanduser().resolve()
     manifest_bytes = (batch_dir / "manifest.json").read_bytes()
@@ -1301,7 +1449,11 @@ def restore_postgres_random(
     }
     return {
         "schema_version": SCHEMA_VERSION,
-        "mode": "nonprod_postgres_random_restore",
+        "mode": (
+            "prod_archive_export_canary_postgres_restore"
+            if verification.get("source_kind") == PROD_CANARY_SOURCE_KIND
+            else "nonprod_postgres_random_restore"
+        ),
         "batch_id": manifest["batch_id"],
         "target_database": target_info["database"],
         "seed": seed,
