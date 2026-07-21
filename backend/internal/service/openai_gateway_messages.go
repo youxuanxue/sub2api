@@ -99,6 +99,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			compatReplayTrimmedByPolicy = compatReplayTrimmed
 		}
 	}
+	SetOpenAICompatMessagesOpsContext(c, OpenAICompatMessagesOpsSnapshot{
+		PreviousResponseIDAttached: previousResponseID != "",
+		MessagesCompactionApplied:  compatReplayTrimmedByPolicy,
+		EstimatedInputTokens:       estimateAnthropicRequestInputTokens(&anthropicReq),
+	})
 
 	// 3. Convert Anthropic → Responses after compatibility-only replay guard.
 	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)

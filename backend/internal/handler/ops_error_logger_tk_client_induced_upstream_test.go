@@ -54,6 +54,21 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		require.Equal(t, "client_request", errorSource)
 	})
 
+	t.Run("openai context window exceeded surfaced as upstream_error 502 owned by client", func(t *testing.T) {
+		// Prod P0 2026-07-21: gpt-5.5 /v1/messages buffered_response_failed with
+		// upstream_status=502 and the canonical context-window message. Gateway skips
+		// failover; ops must classify client-owned so upstream_error_rate is not flooded.
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		contextWindowMsg := "Your input exceeds the context window of this model. Please adjust your input and try again."
+		service.SetOpsUpstreamError(c, http.StatusBadGateway, contextWindowMsg, "")
+
+		phase, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", contextWindowMsg, "", http.StatusBadGateway)
+
+		require.Equal(t, "request", phase)
+		require.Equal(t, "client", errorOwner)
+	})
+
 	t.Run("openai /v1/responses unsupported-model surfaced as wrapped upstream_error (msg-only signal)", func(t *testing.T) {
 		// On /v1/responses the surfaced envelope type is upstream_error and the
 		// final status is 502; the only client-induced signal is the upstream
