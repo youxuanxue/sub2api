@@ -88,11 +88,10 @@ func TestTkIsBridgeUpstreamArrears_NonArrearsNeverMatch(t *testing.T) {
 	}
 }
 
-// Part A: an arrears 400 must COOL the account (SetTempUnschedulable, NOT
-// SetError/hard-disable) and route the incident with reason "newapi_arrears" to
-// the notifier so it fails over / surfaces "no available accounts" instead of a
-// pass-through 400.
-func TestTkHandleBridgeArrearsPenalty_CoolsAccountAndAlerts(t *testing.T) {
+// Part A: an arrears 400 must DISABLE the account (SetError, same as bridge 402)
+// and route the incident with reason "newapi_arrears" to the notifier so it fails
+// over / surfaces "no available accounts" instead of a pass-through 400.
+func TestTkHandleBridgeArrearsPenalty_DisablesAccountAndAlerts(t *testing.T) {
 	svc, repo, blocker, incidents := newBridgePenaltyTestService()
 	account := newQwenArrearsAccount()
 
@@ -100,14 +99,14 @@ func TestTkHandleBridgeArrearsPenalty_CoolsAccountAndAlerts(t *testing.T) {
 		account, arrearsBridgeError(400, dashscopeArrearsMessage, "Arrearage", "Arrearage"))
 
 	require.True(t, handled, "arrears must be handled (not passed through)")
-	require.Equal(t, 1, repo.tempCalls, "arrears must COOL via SetTempUnschedulable")
-	require.Zero(t, repo.setErrorCalls, "arrears must NOT hard-disable (recharge auto-recovers)")
-	require.Contains(t, repo.lastTempReason, tkBridgeArrearsIncidentReason)
+	require.Equal(t, 1, repo.setErrorCalls, "arrears must DISABLE via SetError (same as 402)")
+	require.Zero(t, repo.tempCalls, "arrears must NOT temp-cool (recharge requires manual recovery)")
 
 	require.Equal(t, []string{tkBridgeArrearsIncidentReason}, blocker.reasons)
 	require.Equal(t, []string{tkBridgeArrearsIncidentReason}, incidents.reasons)
 	require.Len(t, incidents.details, 1)
-	require.Contains(t, incidents.details[0], "Arrearage", "Feishu detail must carry the upstream verdict")
+	require.Contains(t, incidents.details[0], "Account arrears (400)",
+		"Feishu detail must carry the upstream verdict")
 }
 
 // Part A NEGATIVE: a genuine client 400 must NOT be handled by the arrears path
@@ -127,7 +126,7 @@ func TestTkHandleBridgeArrearsPenalty_ClientBadRequestNotHandled(t *testing.T) {
 }
 
 // Part A integration: the bridge penalty entrypoint must route an arrears 400
-// through the arrears path (cool + alert) even though 400 is excluded from the
+// through the arrears path (disable + alert) even though 400 is excluded from the
 // generic tkBridgePenaltyStatusEligible allowlist — i.e. the arrears exception
 // runs BEFORE the allowlist skip.
 func TestTkHandleBridgeUpstreamPenalty_ArrearsExceptionBeforeAllowlist(t *testing.T) {
@@ -140,7 +139,7 @@ func TestTkHandleBridgeUpstreamPenalty_ArrearsExceptionBeforeAllowlist(t *testin
 	tkHandleBridgeUpstreamPenalty(context.Background(), svc, account,
 		arrearsBridgeError(400, dashscopeArrearsMessage, "Arrearage", "Arrearage"))
 
-	require.Equal(t, 1, repo.tempCalls, "arrears 400 must cool via the exception path")
+	require.Equal(t, 1, repo.setErrorCalls, "arrears 400 must disable via the exception path")
 	require.Equal(t, []string{tkBridgeArrearsIncidentReason}, incidents.reasons)
 }
 
@@ -170,7 +169,7 @@ func TestTkHandleBridgeArrearsPenalty_SurvivesCanceledContext(t *testing.T) {
 		arrearsBridgeError(400, dashscopeArrearsMessage, "Arrearage", "Arrearage"))
 
 	require.True(t, handled)
-	require.Equal(t, 1, repo.tempCalls)
+	require.Equal(t, 1, repo.setErrorCalls)
 }
 
 // nil safety: best-effort glue on the error path must never panic.
@@ -186,15 +185,13 @@ func TestTkHandleBridgeArrearsPenalty_NilSafety(t *testing.T) {
 // (IncidentKindPermanentDisable), NOT the #730 default-OFF temporary digest, and
 // carry the actionable recharge advice + the "上游账号欠费" label.
 func TestClassifyIncident_NewAPIArrearsIsImmediateNotDigest(t *testing.T) {
-	// until is non-zero (the account is cooled, not permanently disabled), but
-	// the reason exact-match forces the immediate kind regardless of until — the
-	// alert must not self-heal-silently like a temporary cooldown.
-	cls := classifyIncident(tkBridgeArrearsIncidentReason, time.Now().Add(5*time.Minute), IncidentKindUnknown)
+	cls := classifyIncident(tkBridgeArrearsIncidentReason, time.Time{}, IncidentKindUnknown)
 	require.True(t, cls.alert)
 	require.Equal(t, IncidentKindPermanentDisable, cls.kind,
 		"arrears must use the immediate P0 path, NOT the temporary digest")
 	require.Equal(t, "上游账号欠费", cls.kindZh)
 	require.Contains(t, cls.advice, "充值")
+	require.Contains(t, cls.advice, "手动清除 error")
 }
 
 // Part B: the immediate (permanent) path is per-account deduped to once-per-hour
@@ -204,7 +201,7 @@ func TestClassifyIncident_NewAPIArrearsIsImmediateNotDigest(t *testing.T) {
 func TestHandlePermanent_NewAPIArrearsDedupedPerAccountWindow(t *testing.T) {
 	notifier := newTKAccountIncidentNotifier(nil, "prod")
 	account := newQwenArrearsAccount()
-	cls := classifyIncident(tkBridgeArrearsIncidentReason, time.Now().Add(5*time.Minute), IncidentKindUnknown)
+	cls := classifyIncident(tkBridgeArrearsIncidentReason, time.Time{}, IncidentKindUnknown)
 
 	base := time.Now()
 	notifier.now = func() time.Time { return base }
@@ -227,5 +224,9 @@ func TestTkBridgeArrearsDetail_CarriesCodeAndMessage(t *testing.T) {
 	detail := tkBridgeArrearsDetail(arrearsBridgeError(400, dashscopeArrearsMessage, "Arrearage", "Arrearage"))
 	require.Contains(t, detail, "Arrearage")
 	require.Contains(t, detail, "upstream code=Arrearage")
+	require.Contains(t, detail, "https://help.aliyun.com/zh/model-studio/error-code#overdue-payment",
+		"Feishu detail must keep the upstream help URL verbatim (MaskSensitiveInfo+lark_md would corrupt it)")
+	require.NotContains(t, detail, "https://***.com")
+	require.NotContains(t, detail, "https://.com")
 	require.Empty(t, tkBridgeArrearsDetail(nil))
 }

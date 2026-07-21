@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -23,7 +24,7 @@ import (
 //
 // TokenKey classifies a bridge 400 as CLIENT-induced (see
 // tkBridgePenaltyStatusEligible — 400 is excluded from the penalty allowlist
-// precisely so a malformed caller request can never cool a shared account, the
+// precisely so a malformed caller request can never disable a shared account, the
 // #617 lesson). That is correct for validation / bad-param / oversized-body
 // 400s, but an arrears 400 is an ACCOUNT-standing failure that is persistent
 // until a human recharges the upstream console. Left as a pass-through 400 the
@@ -37,11 +38,10 @@ import (
 //   - Part A (penalty): the arrears signal is matched conservatively (upstream
 //     provider error code/type == "Arrearage" case-insensitive, OR message
 //     containing "account is in good standing" / "overdue" / "arrear"). On a
-//     match the account is COOLED (SetTempUnschedulable, a few minutes) — not
-//     hard-disabled — so a recharge lets it auto-recover after the cooldown
-//     expires and the account is re-probed. Cooling (not pass-through) takes the
-//     dead account out of rotation, enabling failover or a clean "no available
-//     accounts" response instead of a wall of identical 400s.
+//     match the account is DISABLED (SetError, same as bridge 402 balance) so
+//     recharge alone does not auto-recover — ops must clear error + re-test in
+//     Admin. Disabling takes the dead account out of rotation, enabling failover
+//     or a clean "no available accounts" response instead of a wall of 400s.
 //   - Part B (alert): the same path routes the incident through the IMMEDIATE
 //     P0 Feishu card (classifyIncident "newapi_arrears" → IncidentKindPermanent
 //     Disable), NOT the self-healing temporary-cooldown digest that #730 made
@@ -50,16 +50,8 @@ import (
 //     window inside handlePermanent) keeps a persistently-arrears account from
 //     spamming one card per request.
 //
-// Narrowness is the whole point: a false positive cools + alerts on a healthy
+// Narrowness is the whole point: a false positive disables + alerts on a healthy
 // account, so the matcher must NEVER fire on a generic / legitimate client 400.
-
-// tkBridgeArrearsCooldownDuration is the account-level cooldown applied on an
-// upstream arrears 400. A few minutes: long enough to take the dead account out
-// of rotation and stop the identical-400 wall, short enough that a fresh
-// recharge auto-recovers on the next re-probe without admin intervention. The
-// immediate Feishu card is what actually prompts the human recharge; the
-// cooldown is just the stop-the-bleeding rotation removal.
-const tkBridgeArrearsCooldownDuration = 5 * time.Minute
 
 // tkBridgeArrearsIncidentReason is the stable reason string classifyIncident
 // maps to the immediate "上游账号欠费" P0 card (NOT the temporary digest).
@@ -121,12 +113,15 @@ func tkBridgeArrearsDetail(apiErr *newapitypes.NewAPIError) string {
 	if apiErr == nil {
 		return ""
 	}
-	body := tkBridgeUpstreamErrorBody(apiErr)
-	code := strings.TrimSpace(gjson.GetBytes(body, "error.code").String())
-	if code == "" {
-		code = strings.TrimSpace(gjson.GetBytes(body, "error.type").String())
+	oai, ok := tkBridgeUpstreamOpenAIError(apiErr)
+	if !ok {
+		return ""
 	}
-	msg := strings.TrimSpace(gjson.GetBytes(body, "error.message").String())
+	code := strings.TrimSpace(fmt.Sprint(oai.Code))
+	if code == "" || code == "<nil>" {
+		code = strings.TrimSpace(oai.Type)
+	}
+	msg := strings.TrimSpace(oai.Message)
 	if code == "" && msg == "" {
 		return ""
 	}
@@ -152,32 +147,28 @@ func tkHandleBridgeArrearsPenalty(ctx context.Context, rls *RateLimitService, ac
 	if !tkIsBridgeUpstreamArrears(apiErr) {
 		return false
 	}
-	until := time.Now().Add(tkBridgeArrearsCooldownDuration)
 	detail := tkBridgeArrearsDetail(apiErr)
+	errorMsg := "Account arrears (400): insufficient balance or billing issue"
+	if detail != "" {
+		errorMsg = "Account arrears (400): " + detail
+	}
 
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()
 
-	// Account-level cooldown (rotation removal), NOT hard-disable: a recharge
-	// auto-recovers after expiry + re-probe.
-	reasonMsg := "Upstream account arrears (" + tkBridgeArrearsIncidentReason + ")"
-	if detail != "" {
-		reasonMsg = reasonMsg + ": " + detail
-	}
-	if err := rls.accountRepo.SetTempUnschedulable(stateCtx, account.ID, until, reasonMsg); err != nil {
-		slog.Warn("newapi_bridge_arrears_set_temp_unschedulable_failed",
+	// Same penalty shape as bridge 402: permanent disable until ops clears error.
+	rls.notifyAccountSchedulingBlocked(account, time.Time{}, tkBridgeArrearsIncidentReason, errorMsg)
+	if err := rls.accountRepo.SetError(stateCtx, account.ID, errorMsg); err != nil {
+		slog.Warn("newapi_bridge_arrears_set_error_failed",
 			"account_id", account.ID, "error", err)
+		return true
 	}
-	// Funnel: runtime-block + immediate P0 Feishu card (classifyIncident maps
-	// "newapi_arrears" → IncidentKindPermanentDisable) + pool-exhaustion check.
-	rls.notifyAccountSchedulingBlocked(account, until, tkBridgeArrearsIncidentReason, detail)
-
-	slog.Warn("newapi_bridge_upstream_arrears_penalty",
+	slog.Warn("account_disabled_newapi_arrears",
 		"account_id", account.ID,
 		"platform", account.Platform,
 		"channel_type", account.ChannelType,
 		"status_code", apiErr.StatusCode,
-		"cooldown_until", until.Format(time.RFC3339),
+		"error", errorMsg,
 	)
 	return true
 }
