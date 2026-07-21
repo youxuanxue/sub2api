@@ -38,6 +38,16 @@ func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool
 	if tkOpsHasUpstreamEventKind(c, service.OpsUpstreamKindClientToolContextCorrupt) {
 		return true
 	}
+	// Prod P0 2026-07-21 (upstream_error_rate=25%): user 6 hammered gpt-5.5 on
+	// /v1/messages with prompts over the model window. OpenAI answers with
+	// upstream_error + "Your input exceeds the context window…"; the gateway maps
+	// that to final 502 and skips failover (isOpenAIContextWindowError), but
+	// classifyOpsErrorLog still owned it to provider because tkUpstreamClientInducedRejection
+	// only treated 400/422/404/413 as caller-fault. Reuse the SAME predicate as
+	// the gateway so context-window rejections drop out of upstream_error_rate.
+	if body, msg := tkOpsUpstreamErrorText(c); service.IsOpenAIContextWindowError(msg, []byte(body)) {
+		return true
+	}
 	status := tkOpsUpstreamStatusCode(c)
 	// 413 request_too_large is always caller-fault: the body cleared TokenKey's
 	// local body-limit middleware (handler.request_body_limit) but exceeded the

@@ -164,6 +164,13 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 	return match(string(upstreamBody))
 }
 
+// IsOpenAIContextWindowError reports whether upstream text indicates the caller
+// exceeded the model context window. Shared by the OpenAI gateway (failover /
+// passthrough) and ops error classification so upstream_error_rate cannot drift.
+func IsOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
+	return isOpenAIContextWindowError(upstreamMsg, upstreamBody)
+}
+
 func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 	match := func(text string) bool {
 		lower := strings.ToLower(strings.TrimSpace(text))
