@@ -11,23 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTkIsDownstreamAllAccountsExhausted(t *testing.T) {
-	// Downstream gateway failover-exhausted envelope (server_error, HTTP 502).
-	require.True(t, tkIsDownstreamAllAccountsExhausted("", []byte(`{"error":{"type":"server_error","message":"All available accounts exhausted"}}`)))
-	// Already-parsed message, case-insensitive.
-	require.True(t, tkIsDownstreamAllAccountsExhausted("ALL AVAILABLE ACCOUNTS EXHAUSTED", nil))
-	// Raw infra 5xx and genuine provider errors must NOT match (route-away preserved).
-	require.False(t, tkIsDownstreamAllAccountsExhausted("", []byte(`<html><body>502 Bad Gateway</body></html>`)))
-	require.False(t, tkIsDownstreamAllAccountsExhausted("", []byte(`{"error":{"type":"rate_limit_error","message":"slow down"}}`)))
-	require.False(t, tkIsDownstreamAllAccountsExhausted("", []byte(`{}`)))
-}
-
 func TestTkSkipDownstreamFailoverExhaustedPenalty(t *testing.T) {
-	body := []byte(`{"error":{"type":"server_error","message":"All available accounts exhausted"}}`)
+	body := []byte(`{"error":{"type":"server_error","message":"Upstream request could not be completed"}}`)
+	legacyBody := []byte(`{"error":{"type":"server_error","message":"All available accounts exhausted"}}`)
 	// The envelope is written as 502; also accept 429 / other 5xx defensively.
 	require.True(t, tkSkipDownstreamFailoverExhaustedPenalty(http.StatusBadGateway, "", body))
 	require.True(t, tkSkipDownstreamFailoverExhaustedPenalty(http.StatusTooManyRequests, "", body))
 	require.True(t, tkSkipDownstreamFailoverExhaustedPenalty(http.StatusGatewayTimeout, "", body))
+	// Rolling-version compatibility: a legacy edge may still emit the old text.
+	require.True(t, tkSkipDownstreamFailoverExhaustedPenalty(http.StatusBadGateway, "", legacyBody))
 	// Non-server status → not in scope.
 	require.False(t, tkSkipDownstreamFailoverExhaustedPenalty(http.StatusBadRequest, "", body))
 	// Raw infra 5xx with no capacity phrase → NOT skipped (keeps route-away count).
@@ -36,8 +28,8 @@ func TestTkSkipDownstreamFailoverExhaustedPenalty(t *testing.T) {
 	require.False(t, tkSkipDownstreamFailoverExhaustedPenalty(http.StatusTooManyRequests, "", []byte(`{"error":{"type":"rate_limit_error"}}`)))
 }
 
-// G2 (narrow): a forwarded "all available accounts exhausted" 502 reaching an
-// Anthropic mirror stub is a downstream-pool capacity blip, not stub health.
+// G2 (narrow): a forwarded TokenKey failover-terminal 502 reaching an Anthropic
+// mirror stub is a downstream-owned failure, not forwarding-stub health.
 // Repeated hits must fail over without advancing the 3/3 ladder.
 func TestRateLimitService_HandleUpstreamError_DownstreamFailoverExhausted_DoesNotPenalizeStub(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
@@ -46,7 +38,7 @@ func TestRateLimitService_HandleUpstreamError_DownstreamFailoverExhausted_DoesNo
 	service.SetAnthropicUpstreamErrorCounterCache(counter)
 	stub := &Account{ID: 5252, Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Credentials: map[string]any{"pool_mode": true}}
 
-	body := []byte(`{"error":{"type":"server_error","message":"All available accounts exhausted"}}`)
+	body := []byte(`{"error":{"type":"server_error","message":"Upstream request could not be completed"}}`)
 	for i := 0; i < 5; i++ {
 		require.True(t, service.HandleUpstreamError(context.Background(), stub, http.StatusBadGateway, http.Header{}, body),
 			"iteration %d: downstream failover-exhausted must fail over to the next stub", i)

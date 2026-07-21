@@ -216,7 +216,8 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				if fs.LastFailoverErr != nil {
 					h.handleResponsesFailoverExhausted(c, fs.LastFailoverErr, streamStarted)
 				} else {
-					h.responsesErrorResponse(c, http.StatusBadGateway, "server_error", "All available accounts exhausted")
+					h.responsesErrorResponse(c, http.StatusBadGateway, "server_error",
+						service.GatewayFailoverClientMessage(http.StatusBadGateway))
 				}
 				return
 			}
@@ -392,5 +393,5 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		return
 	}
 	h.responsesErrorResponse(c, statusCode, "server_error",
-		service.TkEnrichClaudeIncidentMessage("All available accounts exhausted", statusCode))
+		service.GatewayFailoverClientMessage(statusCode))
 }

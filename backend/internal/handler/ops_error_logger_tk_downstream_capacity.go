@@ -4,19 +4,15 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-)
 
-// opsDownstreamFailoverExhaustedPhrase is the TokenKey-generated envelope emitted
-// when a downstream failover loop runs dry. It mirrors the service-layer constant
-// in ratelimit_service_tk_downstream_no_available.go (kept as a local copy so the
-// handler layer does not import a service internal); matched case-insensitively.
-const opsDownstreamFailoverExhaustedPhrase = "all available accounts exhausted"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+)
 
 // tkUpstreamDownstreamCapacity reports whether the captured upstream verdict is a
 // TokenKey *downstream-capacity* signal rather than provider health: an upstream
 // (typically a TokenKey edge reached via a cc-<edge> apikey mirror account) answered
 // 429/503/5xx with a body whose text is one of TokenKey's own pool-empty envelopes
-// ("no available accounts" / "all available accounts exhausted").
+// ("no available accounts" / the gateway failover-terminal message).
 //
 // WHY (mirror-edge metric pollution, 2026-06-06 yace load test): prod relays to the
 // edge via apikey mirror accounts (credentials.base_url=api-<edge>.tokenkey.dev);
@@ -54,8 +50,8 @@ func tkUpstreamDownstreamCapacity(c *gin.Context) bool {
 	if combined == "" {
 		return false
 	}
-	// isOpsNoAvailableAccountMessage already lowercases; the second check is the
-	// failover-exhausted envelope. Both are TokenKey-generated, never provider text.
+	// isOpsNoAvailableAccountMessage already lowercases; the second check uses the
+	// service-owned exact matcher for current and rolling-version failover envelopes.
 	return isOpsNoAvailableAccountMessage(combined) ||
-		strings.Contains(combined, opsDownstreamFailoverExhaustedPhrase)
+		service.IsGatewayFailoverMessage(msg, []byte(body))
 }
