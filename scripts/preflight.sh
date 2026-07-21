@@ -1410,12 +1410,30 @@ elif ! python3 ./ops/observability/test_data_layer_capacity_safety.py >/dev/null
     echo "  FAIL: capacity probe/projection safety contracts"
     echo "        — run: python3 ops/observability/test_data_layer_capacity_safety.py"
     errors=$((errors + 1))
+elif ! python3 ./ops/observability/test_data_layer_retention_inventory.py >/dev/null 2>&1; then
+    echo "  FAIL: read-only retention inventory safety contracts"
+    echo "        — run: python3 ops/observability/test_data_layer_retention_inventory.py"
+    errors=$((errors + 1))
 elif ! python3 ./ops/stage0/test_cfn_datavolume_no_replace.py >/dev/null 2>&1; then
     echo "  FAIL: DataVolume no-replace planning contracts"
     echo "        — run: python3 ops/stage0/test_cfn_datavolume_no_replace.py"
     errors=$((errors + 1))
 else
-    echo "  ok: dormant bounded probe + explicit offline projection + grow-only CFN plan"
+    echo "  ok: bounded probes + explicit offline projection + grow-only CFN plan"
+fi
+
+# ---- sub2api: nonprod archive/restore rehearsal ----------------------------
+echo ""
+echo "=== sub2api: nonprod archive/restore rehearsal ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for archive rehearsal tests)"
+    errors=$((errors + 1))
+elif ! python3 ./ops/archive/test_data_layer_archive_rehearsal.py >/dev/null 2>&1; then
+    echo "  FAIL: nonprod archive/restore rehearsal contracts"
+    echo "        — run: python3 ops/archive/test_data_layer_archive_rehearsal.py"
+    errors=$((errors + 1))
+else
+    echo "  ok: read-only waterline + manifest checksums + idempotent random restore"
 fi
 
 # ---- sub2api: runtime resource config verdict selftest ---------------------
