@@ -184,3 +184,43 @@ python3 ops/archive/data_layer_archive_prod_export.py run-batch \
 Repeat `run-batch` until the ledger reports `more_cold_rows_remaining=false`.
 Each batch still requires the exact confirmation string
 `tokenkey-prod-archive-export-batch-v1` and an active cleanup hold.
+
+## Long-term archive bucket and promote
+
+Staging (`archive-export/` in the pgdump bucket) expires in **seven days**. Promote
+copies committed export batches into the dedicated archive bucket (**90d Standard →
+400d total retention**). Design baseline:
+`docs/approved/design-prod-archive-bucket.md` (pending approval).
+
+Deploy the archive stack once (same `AppInstanceRoleArn` pattern as backups):
+
+```bash
+aws cloudformation deploy \
+  --region us-east-1 \
+  --stack-name tokenkey-stage0-archive \
+  --template-file deploy/aws/cloudformation/stage0-archive.yaml \
+  --parameter-overrides AppInstanceRoleArn=<prod InstanceRole ARN>
+```
+
+Promote one batch after export:
+
+```bash
+python3 ops/archive/data_layer_archive_promote_batch.py plan \
+  --batch-id prod-export-20260722T112823.174855Z-8a928e2ea2c9
+
+python3 ops/archive/data_layer_archive_promote_batch.py promote \
+  --batch-id prod-export-20260722T112823.174855Z-8a928e2ea2c9 \
+  --confirm tokenkey-prod-archive-promote-batch-v1
+```
+
+Promote every batch listed in an export ledger (idempotent):
+
+```bash
+python3 ops/archive/data_layer_archive_promote_batch.py promote-ledger \
+  --export-ledger .testing/user-stories/attachments/US-040-ops-system-logs-export-ledger.json \
+  --promote-ledger .testing/user-stories/attachments/US-040-ops-system-logs-promote-ledger.json \
+  --confirm tokenkey-prod-archive-promote-batch-v1
+```
+
+Legacy partition drop remains blocked until export ledger complete **and** every
+batch has a promote receipt in the promote ledger.

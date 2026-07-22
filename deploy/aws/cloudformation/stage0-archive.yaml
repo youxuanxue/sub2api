@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  tokenkey Stage 0 long-term ops archive bucket — standalone stack (does not
+  modify the live prod instance stack). Holds promoted export batches under
+  prod/ops-archive/{batch_id}/ with Standard storage then Glacier transition.
+  Staging remains on tokenkey-stage0-backups (7-day pgdump lifecycle).
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: tokenkey
+  Environment:
+    Type: String
+    Default: prod
+  ArchiveStandardDays:
+    Type: Number
+    Default: 90
+    MinValue: 1
+    MaxValue: 365
+    Description: Days to keep promoted batches in S3 Standard before Glacier transition.
+  ArchiveGlacierTransitionDay:
+    Type: Number
+    Default: 91
+    MinValue: 2
+    MaxValue: 365
+    Description: Day count when objects transition to Glacier Flexible Retrieval.
+  ArchiveExpireDays:
+    Type: Number
+    Default: 400
+    MinValue: 91
+    MaxValue: 3650
+    Description: Days after upload when archive objects expire permanently.
+  AppInstanceRoleArn:
+    Type: String
+    Description: >
+      IAM role ARN allowed to read/write prod/ops-archive/* (same direct-principal
+      pattern as stage0-backups.yaml).
+
+Resources:
+  OpsArchiveBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-archive-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Suspended
+      LifecycleConfiguration:
+        Rules:
+          - Id: tier-and-expire-ops-archive
+            Status: Enabled
+            Prefix: !Sub '${Environment}/ops-archive/'
+            Transitions:
+              - TransitionInDays: !Ref ArchiveGlacierTransitionDay
+                StorageClass: GLACIER
+            ExpirationInDays: !Ref ArchiveExpireDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+  OpsArchiveBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref OpsArchiveBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt OpsArchiveBucket.Arn
+              - !Sub '${OpsArchiveBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          - Sid: AllowAppInstanceRolePutGetArchive
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+            Resource: !Sub '${OpsArchiveBucket.Arn}/${Environment}/ops-archive/*'
+          - Sid: AllowAppInstanceRoleListArchive
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action: 's3:ListBucket'
+            Resource: !GetAtt OpsArchiveBucket.Arn
+            Condition:
+              StringLike:
+                's3:prefix':
+                  - !Sub '${Environment}/ops-archive/*'
+
+Outputs:
+  BucketName:
+    Description: Long-term ops archive bucket name.
+    Value: !Ref OpsArchiveBucket
+  ArchiveS3Uri:
+    Description: Canonical base URI for promoted export batches.
+    Value: !Sub 's3://${OpsArchiveBucket}/${Environment}/ops-archive'
+  ArchiveStandardDays:
+    Description: Standard storage window before Glacier transition (contract).
+    Value: !Ref ArchiveStandardDays
+  ArchiveExpireDays:
+    Description: Total retention before lifecycle expiry (contract).
+    Value: !Ref ArchiveExpireDays

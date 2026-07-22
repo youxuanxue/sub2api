@@ -1440,12 +1440,16 @@ elif ! python3 ./ops/archive/test_data_layer_archive_prod_export.py >/dev/null 2
     echo "  FAIL: production legacy cold batch export contracts"
     echo "        — run: python3 ops/archive/test_data_layer_archive_prod_export.py"
     errors=$((errors + 1))
+elif ! python3 ./ops/archive/test_data_layer_archive_promote_batch.py >/dev/null 2>&1; then
+    echo "  FAIL: production archive promote contracts"
+    echo "        — run: python3 ops/archive/test_data_layer_archive_promote_batch.py"
+    errors=$((errors + 1))
 elif ! python3 ./ops/archive/test_data_layer_archive_cleanup_hold.py >/dev/null 2>&1; then
     echo "  FAIL: production archive cleanup hold contracts"
     echo "        — run: python3 ops/archive/test_data_layer_archive_cleanup_hold.py"
     errors=$((errors + 1))
 else
-    echo "  ok: nonprod rehearsal + cleanup hold + bounded production export-only canary + legacy cold batch export"
+    echo "  ok: nonprod rehearsal + cleanup hold + export canary + legacy export + archive promote"
 fi
 
 # ---- sub2api: runtime resource config verdict selftest ---------------------

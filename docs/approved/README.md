@@ -36,6 +36,7 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 | [`cc-only-disable-prep-decisions.md`](cc-only-disable-prep-decisions.md) | cc-only disable prep |
 | [`channel-pricing-refund-gate-and-runtime-pricing.md`](channel-pricing-refund-gate-and-runtime-pricing.md) | Runtime pricing and refund gate |
 | [`design-data-layer-prod-export-canary.md`](design-data-layer-prod-export-canary.md) | 生产只读、export-only、无删除归档 canary |
+| [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 archive 桶 + promote（pending） |
 | [`disable-cancel-storm-detector.md`](disable-cancel-storm-detector.md) | Cancel-storm detector retirement |
 | [`glm-direct-zhipuv4-onboarding.md`](glm-direct-zhipuv4-onboarding.md) | GLM direct onboarding |
 | [`grok-relay-first-class-platform.md`](grok-relay-first-class-platform.md) | Grok relay platform |
