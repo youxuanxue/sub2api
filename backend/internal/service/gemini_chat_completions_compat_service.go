@@ -83,10 +83,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 	}
 
-	mappedModel := req.Model
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mappedModel = account.GetMappedModel(req.Model)
-	}
+	mappedModel, requestModel := resolveGeminiForwardModels(account, req.Model)
 
 	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
 	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
@@ -120,6 +117,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	buildReq, requestIDHeader := s.buildGeminiChatCompletionsUpstreamRequestFunc(
 		account,
 		mappedModel,
+		requestModel,
 		geminiReq,
 		clientStream,
 		useUpstreamStream,
@@ -303,6 +301,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestFunc(
 	account *Account,
 	mappedModel string,
+	requestModel string,
 	geminiReq []byte,
 	clientStream bool,
 	useUpstreamStream bool,
@@ -325,7 +324,7 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 			if clientStream {
 				action = "streamGenerateContent"
 			}
-			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), mappedModel, action)
+			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), requestModel, action)
 			if clientStream {
 				fullURL += "?alt=sse"
 			}

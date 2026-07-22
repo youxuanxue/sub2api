@@ -617,10 +617,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			req.Model = mapped
 		}
 	}
-	mappedModel := req.Model
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mappedModel = account.GetMappedModel(req.Model)
-	}
+	mappedModel, requestModel := resolveGeminiForwardModels(account, req.Model)
 	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
 	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
 	// No-op unless account.Platform is in the enabled set (gemini ships first).
@@ -673,7 +670,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			if req.Stream {
 				action = "streamGenerateContent"
 			}
-			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), mappedModel, action)
+			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), requestModel, action)
 			if req.Stream {
 				fullURL += "?alt=sse"
 			}
@@ -1182,10 +1179,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	// `thoughtSignature` to avoid frequent INVALID_ARGUMENT 400s.
 	body = ensureGeminiFunctionCallThoughtSignatures(body)
 
-	mappedModel := originalModel
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mappedModel = account.GetMappedModel(originalModel)
-	}
+	mappedModel, requestModel := resolveGeminiForwardModels(account, originalModel)
 	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject unpriced
 	// models with a 404 BEFORE forward / stream start (SSE pre-flight). Native Gemini ingress
 	// (generateContent/streamGenerateContent) → Gemini 404 envelope. countTokens is EXEMPT
@@ -1231,7 +1225,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				return nil, "", err
 			}
 
-			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), mappedModel, upstreamAction)
+			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), requestModel, upstreamAction)
 			if useUpstreamStream {
 				fullURL += "?alt=sse"
 			}

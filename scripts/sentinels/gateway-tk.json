@@ -113,6 +113,52 @@
       "rationale": "Code Assist 429 fallback-model protection depends on upstream-file hooks plus precise reset-delay extraction. Forwarding must store resolved upstream Gemini model in context, upstream 429 handling must delegate to the TK companion before account-level SetRateLimited, and ParseGeminiRateLimitResetTime must keep structured RetryInfo retryDelay parsing. Dropping any of these reintroduces whole-account long cooldown when upstream already provides a short retry window. The handleGeminiUpstreamError fallback branch must route all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist) through tier cooldown — only API Key accounts may fall through to PST-midnight reset (see upstream #641). Also locks the TkEnrichForbiddenMessage hook in writeGeminiMappedError's case-403 branch so the 403 client message keeps body-size context instead of regressing to the unhelpful default."
     },
     {
+      "path": "backend/internal/service/gemini_relay_model_tk.go",
+      "must_contain": [
+        "func resolveGeminiForwardModels(account *Account, requestedModel string) (mappedModel, requestModel string)",
+        "account.Platform == PlatformAntigravity",
+        "strings.TrimSpace(account.GetCredential(\"base_url\")) != \"\"",
+        "requestModel = requestedModel"
+      ],
+      "rationale": "Antigravity API-key accounts with a base URL are prod-to-edge relays. The relay hop must keep the public model key so the edge can apply its own canonical mapping; sending the prod-mapped wire target makes edge scheduling reject hidden targets such as gemini-3.6-flash-tiered before upstream. This companion owns that distinction while preserving mappedModel for provider attribution and every non-relay account."
+    },
+    {
+      "path": "backend/internal/service/gemini_relay_model_tk_test.go",
+      "must_contain": [
+        "TestResolveGeminiForwardModels_AntigravityRelayPreservesPublicModelForHop",
+        "TestResolveGeminiForwardModels_NonRelayUsesMappedModelForHop",
+        "TestGeminiCompat_AntigravityRelayUsesPublicModelAcrossIngresses"
+      ],
+      "rationale": "Regression coverage pins both sides of the relay boundary and the actual URL emitted by messages, native Gemini, Chat Completions, and Responses ingress. It also asserts that result attribution keeps the final tiered wire model while the current relay URL remains public."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "mappedModel, requestModel := resolveGeminiForwardModels(account, req.Model)",
+        "mappedModel, requestModel := resolveGeminiForwardModels(account, originalModel)",
+        "strings.TrimRight(normalizedBaseURL, \"/\"), requestModel, action",
+        "strings.TrimRight(normalizedBaseURL, \"/\"), requestModel, upstreamAction"
+      ],
+      "rationale": "Load-bearing wiring for the Antigravity relay-model owner on Anthropic messages and native Gemini ingress. Both API-key URL builders must use requestModel, while OAuth/Vertex request bodies and ForwardResult keep mappedModel. Dropping either call site silently restores edge rejection on one ingress."
+    },
+    {
+      "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
+      "must_contain": [
+        "mappedModel, requestModel := resolveGeminiForwardModels(account, req.Model)",
+        "mappedModel string,\n\trequestModel string,",
+        "strings.TrimRight(normalizedBaseURL, \"/\"), requestModel, action"
+      ],
+      "rationale": "Load-bearing wiring for OpenAI Chat Completions over the Gemini-native Antigravity relay. The shared upstream-request builder must receive both model identities and use only requestModel for the API-key URL, otherwise the hidden wire target is rejected by edge scheduling."
+    },
+    {
+      "path": "backend/internal/service/gemini_responses_compat_service.go",
+      "must_contain": [
+        "mappedModel, requestModel := resolveGeminiForwardModels(account, req.Model)",
+        "mappedModel,\n\t\trequestModel,"
+      ],
+      "rationale": "Load-bearing wiring for OpenAI Responses over the Gemini-native Antigravity relay. Responses shares the Chat Completions request builder and must pass its public relay-hop model separately from the final mapped provider model."
+    },
+    {
       "path": "backend/internal/service/gemini_messages_compat_service_tk_model_rate_limit.go",
       "must_contain": [
         "withGeminiCodeAssistMappedModel",
