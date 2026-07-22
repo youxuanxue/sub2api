@@ -120,6 +120,9 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low", // app "Gemini 3.5 Flash (Low)"
 	"gemini-3-flash-agent":       "gemini-3-flash-agent",       // app "Gemini 3.5 Flash (High)"
 	"gemini-3.5-flash":           "gemini-3.5-flash-low",       // 友好别名 → Medium 档
+	// Gemini 3.6 Flash public id routes to the tiered wire id returned by
+	// Antigravity on us3/us4 (2026-07-22 live account probes).
+	"gemini-3.6-flash": "gemini-3.6-flash-tiered",
 	// Gemini 3.1 Pro (High) 实测 wire id（gemini-3.1-pro-high 上游已废弃 → gemini-pro-agent）
 	"gemini-pro-agent": "gemini-pro-agent",
 }

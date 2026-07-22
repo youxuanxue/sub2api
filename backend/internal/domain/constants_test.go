@@ -104,6 +104,20 @@ func TestDefaultAntigravityModelMapping_ContainsEmpiricalGeminiWireIDs(t *testin
 	}
 }
 
+func TestDefaultAntigravityModelMapping_Gemini36TieredBoundary(t *testing.T) {
+	t.Parallel()
+
+	if got := DefaultAntigravityModelMapping["gemini-3.6-flash"]; got != "gemini-3.6-flash-tiered" {
+		t.Fatalf("gemini-3.6-flash must map to the live tiered wire id, got %q", got)
+	}
+	if _, ok := DefaultAntigravityModelMapping["gemini-3.5-flash-lite"]; ok {
+		t.Fatal("Vertex-only gemini-3.5-flash-lite must not enter the Antigravity mapping")
+	}
+	if _, ok := DefaultAntigravityModelMapping["gemini-3.6-flash-tiered"]; ok {
+		t.Fatal("tiered Antigravity wire target must remain hidden as a client-facing mapping key")
+	}
+}
+
 func TestDefaultAntigravityModelMapping_Gemini31ProAliases(t *testing.T) {
 	t.Parallel()
 

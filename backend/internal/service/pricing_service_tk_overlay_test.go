@@ -186,6 +186,38 @@ func TestTKPricingOverlay_FillsGeminiProAgent(t *testing.T) {
 	require.InDelta(t, 2e-7, proAgent.CacheReadInputTokenCost, 1e-15)
 }
 
+func TestTKPricingOverlay_FillsGemini35LiteAnd36FlashAtOfficialRates(t *testing.T) {
+	svc := &PricingService{}
+	data, err := svc.parsePricingData([]byte(`{
+		"gemini-2.5-flash": {
+			"input_cost_per_token": 0.0000003,
+			"output_cost_per_token": 0.0000025,
+			"litellm_provider": "vertex_ai-language-models",
+			"mode": "chat"
+		}
+	}`))
+	require.NoError(t, err)
+
+	cases := map[string]struct {
+		input  float64
+		output float64
+		cache  float64
+	}{
+		"gemini-3.5-flash-lite": {input: 3e-7, output: 2.5e-6, cache: 3e-8},
+		"gemini-3.6-flash":      {input: 1.5e-6, output: 7.5e-6, cache: 1.5e-7},
+	}
+	for modelID, want := range cases {
+		pricing := data[modelID]
+		require.NotNil(t, pricing, "overlay must inject %s", modelID)
+		require.Equal(t, "vertex_ai-language-models", pricing.LiteLLMProvider, modelID)
+		require.Equal(t, "chat", pricing.Mode, modelID)
+		require.InDelta(t, want.input, pricing.InputCostPerToken, 1e-15, modelID)
+		require.InDelta(t, want.output, pricing.OutputCostPerToken, 1e-15, modelID)
+		require.InDelta(t, want.cache, pricing.CacheReadInputTokenCost, 1e-15, modelID)
+		require.True(t, pricing.SupportsPromptCaching, modelID)
+	}
+}
+
 // TestTKPricingOverlay_ZeroPlaceholderIsReplaced verifies the absent-or-zero fill:
 // a source entry whose every cost field is 0.0 (litellm's "cost unknown" shape)
 // must NOT shadow a curated overlay price for a manifest-listed model.

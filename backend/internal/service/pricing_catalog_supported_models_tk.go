@@ -144,13 +144,17 @@ var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
 }
 
 // supportedGeminiCatalogModels — gemini/Vertex IDs confirmed servable through
-// the google group (us6, account 3 Vertex), 2026-06-09 probe. While EMPTY the
-// catalog/menu gates fall through to passthrough/canonical (no regression).
+// the prod Vertex pool. Gemini 3.5 Flash Lite and 3.6 Flash were confirmed on
+// accounts 47/57/58/59/74 via direct global generateContent on 2026-07-22.
+// While EMPTY the catalog/menu gates fall through to passthrough/canonical (no
+// regression).
 var supportedGeminiCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin gemini
 	"gemini-2.5-flash":              {},
 	"gemini-2.5-flash-lite":         {},
 	"gemini-2.5-pro":                {},
+	"gemini-3.5-flash-lite":         {},
+	"gemini-3.6-flash":              {},
 	"imagen-4.0-fast-generate-001":  {},
 	"imagen-4.0-generate-001":       {},
 	"imagen-4.0-ultra-generate-001": {},
@@ -160,8 +164,11 @@ var supportedGeminiCatalogModels = map[string]struct{}{
 
 // supportedAntigravityCatalogModels — antigravity wire/client ids confirmed
 // servable (Gemini 2026-06 probes + PR #1265 Antigravity Claude live subset).
-// Hand-maintained (see header). While EMPTY the catalog/menu gates fall through
-// to passthrough/canonical (no regression).
+// Gemini 3.6 Flash was confirmed on us3 account 3 and us4 account 5 through the
+// gemini-3.6-flash-tiered wire id on 2026-07-22; Gemini 3.5 Flash Lite remained
+// upstream-unsupported and is intentionally Vertex-only. Hand-maintained (see
+// header). While EMPTY the catalog/menu gates fall through to
+// passthrough/canonical (no regression).
 var supportedAntigravityCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin antigravity
 	"claude-opus-4-6":                {},
@@ -180,6 +187,7 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	"gemini-3.5-flash":               {},
 	"gemini-3.5-flash-extra-low":     {},
 	"gemini-3.5-flash-low":           {},
+	"gemini-3.6-flash":               {},
 	"gemini-pro-agent":               {},
 	// servable-allowlist:end antigravity
 }
