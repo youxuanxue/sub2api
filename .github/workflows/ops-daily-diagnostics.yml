@@ -2,8 +2,9 @@ name: Ops Daily Diagnostics
 
 # Canonical production and Edge diagnostics entry point.
 # Read-only diagnostics may reach prod/Edge through GHA → AWS STS (OIDC) → SSM.
-# Issue creation is isolated from AWS credentials; this workflow never deploys,
-# rolls back, edits secrets, writes code, pushes branches, or creates PRs.
+# Issue creation and repair dispatch are isolated from AWS credentials. This
+# workflow never deploys, rolls back, edits secrets, writes code, pushes
+# branches, or creates PRs; eligible repair work runs in ops-repair-draft.yml.
 
 on:
   schedule:
@@ -17,6 +18,7 @@ on:
         type: choice
         options:
           - diagnostics
+          - daily_error_report
           - error_clustering
           - log_dump
       target_selector:
@@ -24,7 +26,7 @@ on:
         required: false
         default: all
       since_hours:
-        description: Error clustering lookback window in hours
+        description: Daily error ledger and legacy clustering lookback window in hours
         required: false
         default: "24"
       diagnostics_log_since:
@@ -32,7 +34,15 @@ on:
         required: false
         default: "24h"
       diagnostics_include_error_clustering:
-        description: Include error clustering in diagnostics (false = lightweight runtime/health only)
+        description: Include legacy qa_records hash clustering in addition to the canonical daily error ledger
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      diagnostics_dispatch_repair_draft:
+        description: Dispatch one high-confidence code-owned candidate to the isolated Draft PR workflow
         required: false
         default: "true"
         type: choice
@@ -117,7 +127,7 @@ jobs:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       SINCE_HOURS: ${{ inputs.since_hours || '24' }}
       DIAGNOSTICS_LOG_SINCE: ${{ inputs.diagnostics_log_since || '24h' }}
-      INCLUDE_ERROR_CLUSTERING: ${{ inputs.diagnostics_include_error_clustering || 'true' }}
+      INCLUDE_ERROR_CLUSTERING: ${{ inputs.operation == 'daily_error_report' && 'false' || inputs.diagnostics_include_error_clustering || 'true' }}
       TARGET_ID: ${{ matrix.target_id }}
       TARGET_KIND: ${{ matrix.target_kind }}
       TARGET_PLATFORM: ${{ matrix.platform }}
@@ -318,17 +328,20 @@ jobs:
           commands = [
               "set -euo pipefail",
               "echo ===DOCKER_PS===",
-              "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps || true",
+              "sudo docker ps --format 'table {{.Names}}\\t{{.Image}}\\t{{.Status}}' || true",
+              "APP_CONTAINER=''",
+              "if [ -r /var/lib/tokenkey/active-color ]; then color=$(tr -d '[:space:]' < /var/lib/tokenkey/active-color 2>/dev/null || true); case \"$color\" in blue|green) candidate=tokenkey-$color; if sudo docker inspect \"$candidate\" >/dev/null 2>&1; then APP_CONTAINER=$candidate; fi ;; esac; fi",
+              "if [ -z \"$APP_CONTAINER\" ]; then for candidate in tokenkey tokenkey-blue tokenkey-green; do if sudo docker inspect \"$candidate\" >/dev/null 2>&1; then APP_CONTAINER=$candidate; break; fi; done; fi",
+              "echo app_container=${APP_CONTAINER:-unavailable}",
               "echo ===CONTAINER_HEALTH===",
-              "sudo docker inspect tokenkey --format 'tokenkey_status={{.State.Status}} tokenkey_health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null || true",
+              "if [ -n \"$APP_CONTAINER\" ]; then sudo docker inspect \"$APP_CONTAINER\" --format 'tokenkey_status={{.State.Status}} tokenkey_health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'; fi",
               "sudo docker inspect tokenkey-postgres --format 'postgres_status={{.State.Status}}' 2>/dev/null || true",
               "sudo docker inspect tokenkey-redis --format 'redis_status={{.State.Status}}' 2>/dev/null || true",
               "echo ===INTERNAL_HEALTH===",
-              "if sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T tokenkey wget -qO- http://localhost:8080/health/live; then echo; echo internal_health_status=ok; else rc=$?; echo internal_health_status=failed exit=$rc; fi",
+              "if [ -z \"$APP_CONTAINER\" ]; then echo internal_health_status=failed exit=127; elif sudo docker exec \"$APP_CONTAINER\" wget -qO- http://localhost:8080/health/live; then echo; echo internal_health_status=ok; else rc=$?; echo internal_health_status=failed exit=$rc; fi",
               "echo ===END_INTERNAL_HEALTH===",
-              "SIG_OUT=/tmp/prod-ops-runtime-signals",
-              "sudo rm -rf \"$SIG_OUT\" && sudo mkdir -p \"$SIG_OUT\" && sudo chmod 0777 \"$SIG_OUT\"",
-              "sudo docker logs tokenkey --since " + quoted_since + " > \"$SIG_OUT/tokenkey.log\" 2>&1 || true",
+              "SIG_OUT=$(mktemp -d /tmp/prod-ops-runtime-signals.XXXXXX)",
+              "if [ -n \"$APP_CONTAINER\" ]; then sudo docker logs \"$APP_CONTAINER\" --since " + quoted_since + " > \"$SIG_OUT/tokenkey.log\" 2>&1 || true; else : > \"$SIG_OUT/tokenkey.log\"; fi",
               "sudo docker logs tokenkey-caddy --since " + quoted_since + " > \"$SIG_OUT/caddy.log\" 2>&1 || true",
               "count_fixed_file() { local file=\"$1\" pattern=\"$2\"; awk -v p=\"$pattern\" 'index($0,p)>0{c++} END{print c+0}' \"$file\"; }",
               "count_both_file() { local file=\"$1\" p1=\"$2\" p2=\"$3\"; awk -v p1=\"$p1\" -v p2=\"$p2\" 'index($0,p1)>0 && index($0,p2)>0{c++} END{print c+0}' \"$file\"; }",
@@ -342,7 +355,7 @@ jobs:
               "echo ===END_LOG_SIGNAL_COUNTS===",
               "echo ===RECENT_ERRORS===",
               "grep -Ei 'panic|fatal|error|traceback|failed|timeout|refused|denied| 5[0-9][0-9] | 429 ' \"$SIG_OUT/tokenkey.log\" | tail -60 || true",
-              "sudo rm -rf \"$SIG_OUT\" || true",
+              "sudo rm -rf \"$SIG_OUT\" || true",  # preflight-allow: exact mktemp directory
           ]
           print(json.dumps({"commands": commands}))
           PY
@@ -555,6 +568,49 @@ jobs:
                 add_finding "error_clustering_send" "manual_ops" "error" "Could not start error clustering for $TARGET_ID" "SSM SendCommand failed for error clustering on $INSTANCE_ID." "error-clustering-send|$TARGET_ID"
               fi
             fi
+
+            # Canonical daily error ledger: final failures and recovered events
+            # come from usage_logs + ops_error_logs; access-log-only failures are
+            # kept as low-confidence capture gaps. The probe is read-only and
+            # returns sanitized structured fields only.
+            if printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$' && [ "$SINCE_HOURS" -ge 1 ] && [ "$SINCE_HOURS" -le 168 ]; then
+              PROBE_TARGET=prod
+              if [ "$TARGET_KIND" = "edge" ]; then
+                PROBE_TARGET="edge:$EDGE_ID"
+              fi
+              if bash ops/observability/run-probe.sh \
+                --target "$PROBE_TARGET" \
+                --script ops/observability/probe-daily-error-ledger.sh \
+                --env "WINDOW_HOURS=$SINCE_HOURS" \
+                --timeout-seconds 240 \
+                > "$OUT/daily-error-probe.txt" 2>> "$STDERR"; then
+                if python3 ops/observability/daily_error_report.py build \
+                  --probe "$OUT/daily-error-probe.txt" \
+                  --target-id "$TARGET_ID" \
+                  --output-json "$OUT/daily-error-report.json" \
+                  --output-markdown "$OUT/daily-error-report.md"; then
+                  DAILY_STATUS="$(jq -r '.status' "$OUT/daily-error-report.json")"
+                  DAILY_SUMMARY="$(jq -r '.summary' "$OUT/daily-error-report.json")"
+                  case "$DAILY_STATUS" in
+                    issue_candidate)
+                      add_finding "daily_error_report" "issue_candidate" "error" "Daily error anomalies detected for $TARGET_ID" "$DAILY_SUMMARY" "daily-errors|$TARGET_ID"
+                      ;;
+                    skip)
+                      add_finding "daily_error_report" "skip" "info" "Daily error report skipped for $TARGET_ID" "$DAILY_SUMMARY" "daily-errors|$TARGET_ID|skip"
+                      ;;
+                    *)
+                      add_finding "daily_error_report" "ok" "info" "Daily error report is clean for $TARGET_ID" "$DAILY_SUMMARY" "daily-errors|$TARGET_ID|ok"
+                      ;;
+                  esac
+                else
+                  add_finding "daily_error_report" "manual_ops" "error" "Daily error report parsing failed for $TARGET_ID" "The sanitized probe output could not be reduced into daily-error-report.json." "daily-errors|$TARGET_ID|parse-failed"
+                fi
+              else
+                add_finding "daily_error_report" "manual_ops" "error" "Daily error probe failed for $TARGET_ID" "The read-only usage/ops/access probe did not complete." "daily-errors|$TARGET_ID|probe-failed"
+              fi
+            else
+              add_finding "daily_error_report" "manual_ops" "error" "Invalid daily error window" "since_hours must be between 1 and 168, got: $SINCE_HOURS" "daily-errors|invalid-window"
+            fi
           fi
 
       - name: Finalize target report
@@ -623,11 +679,15 @@ jobs:
     outputs:
       needs_issue: ${{ steps.aggregate.outputs.needs_issue }}
       issue_count: ${{ steps.aggregate.outputs.issue_count }}
+      repair_count: ${{ steps.aggregate.outputs.repair_count }}
+      top_repair_signature: ${{ steps.aggregate.outputs.top_repair_signature }}
     env:
       EXCLUDED_TARGETS: ${{ needs.discover-targets.outputs.excluded || '[]' }}
       DISCOVER_TARGETS_RESULT: ${{ needs.discover-targets.result }}
       DIAGNOSE_TARGETS_RESULT: ${{ needs.diagnose-targets.result }}
     steps:
+      - uses: actions/checkout@v6
+
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
@@ -696,7 +756,20 @@ jobs:
               fh.write(f"needs_issue={'true' if issue_findings else 'false'}\n")
               fh.write(f"issue_count={len(issue_findings)}\n")
           PY
+          python3 ops/observability/daily_error_report.py aggregate \
+            --root target-artifacts \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --output-json daily-error-report.json \
+            --output-markdown daily-error-report.md
+          REPAIR_COUNT="$(jq '.repair_candidates | length' daily-error-report.json)"
+          TOP_REPAIR_SIGNATURE="$(jq -r '.repair_candidates[0].signature // ""' daily-error-report.json)"
+          {
+            echo "repair_count=$REPAIR_COUNT"
+            echo "top_repair_signature=$TOP_REPAIR_SIGNATURE"
+          } >> "$GITHUB_OUTPUT"
           cat ops-report.md >> "$GITHUB_STEP_SUMMARY"
+          cat daily-error-report.md >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -704,6 +777,8 @@ jobs:
           path: |
             ops-report.json
             ops-report.md
+            daily-error-report.json
+            daily-error-report.md
 
   claude-issue-diagnosis:
     needs: aggregate-report
@@ -755,6 +830,11 @@ jobs:
           printf '\n\n## ops-report.json\n\n```json\n' >> /tmp/claude-issue-prompt.txt
           cat ops-report.json >> /tmp/claude-issue-prompt.txt
           printf '\n```\n' >> /tmp/claude-issue-prompt.txt
+          printf '\n\n## daily-error-report.md\n\n' >> /tmp/claude-issue-prompt.txt
+          cat daily-error-report.md >> /tmp/claude-issue-prompt.txt
+          printf '\n\n## daily-error-report.json\n\n```json\n' >> /tmp/claude-issue-prompt.txt
+          cat daily-error-report.json >> /tmp/claude-issue-prompt.txt
+          printf '\n```\n' >> /tmp/claude-issue-prompt.txt
 
       - name: Run Claude read-only diagnosis
         if: steps.claude_token.outputs.present == 'true'
@@ -776,10 +856,13 @@ jobs:
 
       - name: Extract Claude diagnosis
         if: steps.claude_token.outputs.present == 'true'
+        env:
+          CLAUDE_EXIT_CODE: ${{ steps.claude_run.outputs.exit_code }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json
+          import os
           import pathlib
 
           stream = pathlib.Path('claude-issue-diagnosis.jsonl')
@@ -792,16 +875,13 @@ jobs:
                       continue
                   if isinstance(item.get('result'), str):
                       texts.append(item['result'])
-                  message = item.get('message')
-                  if isinstance(message, dict):
-                      for block in message.get('content') or []:
-                          if isinstance(block, dict) and block.get('type') == 'text':
-                              texts.append(block.get('text') or '')
           body = '\n\n'.join(text for text in texts if text.strip()).strip()
-          if not body:
-              body = 'Claude diagnosis did not produce parseable final text; use deterministic issue bodies.'
+          exit_code = os.environ.get('CLAUDE_EXIT_CODE') or 'unknown'
+          status = 'ok' if exit_code == '0' and body else 'failed'
+          if status != 'ok':
+              body = f'Claude diagnosis unavailable (exit_code={exit_code}); deterministic findings remain authoritative.'
           pathlib.Path('issue-diagnosis.md').write_text('# Claude Issue Diagnosis\n\n' + body + '\n', encoding='utf-8')
-          pathlib.Path('issue-diagnosis.json').write_text(json.dumps({'status':'ok' if body else 'empty', 'markdown': body}, indent=2) + '\n', encoding='utf-8')
+          pathlib.Path('issue-diagnosis.json').write_text(json.dumps({'status':status, 'exit_code':exit_code, 'markdown': body}, indent=2) + '\n', encoding='utf-8')
           PY
 
       - uses: actions/upload-artifact@v4
@@ -849,8 +929,13 @@ jobs:
           import subprocess
 
           report = json.loads(pathlib.Path('ops-report.json').read_text(encoding='utf-8'))
+          diagnosis_json = pathlib.Path('claude-diagnosis/issue-diagnosis.json')
           diagnosis_path = pathlib.Path('claude-diagnosis/issue-diagnosis.md')
-          diagnosis = diagnosis_path.read_text(encoding='utf-8') if diagnosis_path.exists() else ''
+          diagnosis = ''
+          if diagnosis_json.exists() and diagnosis_path.exists():
+              diagnosis_meta = json.loads(diagnosis_json.read_text(encoding='utf-8'))
+              if diagnosis_meta.get('status') == 'ok':
+                  diagnosis = diagnosis_path.read_text(encoding='utf-8')
           findings = report.get('issue_candidates') or []
           if not findings:
               print('No issue-worthy findings.')
@@ -923,6 +1008,33 @@ jobs:
                   sh(['gh', 'issue', 'create', '--title', title, '--body-file', str(body_file), '--label', ','.join(labels)])
                   print(f'created issue for {ops_label}')
           PY
+
+  queue-repair-draft:
+    needs: aggregate-report
+    if: >-
+      needs.aggregate-report.result == 'success' &&
+      needs.aggregate-report.outputs.repair_count != '0' &&
+      (github.event_name == 'schedule' || inputs.diagnostics_dispatch_repair_draft == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Dispatch highest-priority eligible repair candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_RUN_ID: ${{ github.run_id }}
+          CANDIDATE_SIGNATURE: ${{ needs.aggregate-report.outputs.top_repair_signature }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$CANDIDATE_SIGNATURE" | grep -Eq '^daily-error\|[0-9a-f]{16}$'; then
+            echo "::error::invalid repair candidate signature: $CANDIDATE_SIGNATURE"
+            exit 1
+          fi
+          gh workflow run ops-repair-draft.yml \
+            --ref main \
+            -f "report_run_id=$REPORT_RUN_ID" \
+            -f "candidate_signature=$CANDIDATE_SIGNATURE"
 
   log-dump:
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'log_dump'

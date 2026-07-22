@@ -1,0 +1,266 @@
+name: Ops Repair Draft
+
+# Repository-only remediation agent. It consumes a sanitized artifact from a
+# successful main-branch Ops Daily Diagnostics run and never receives AWS OIDC
+# permission or production credentials. The only terminal action is a Draft PR.
+on:
+  workflow_dispatch:
+    inputs:
+      report_run_id:
+        description: Successful Ops Daily Diagnostics run id on main
+        required: true
+        type: string
+      candidate_signature:
+        description: High-confidence daily-error candidate signature
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: ops-repair-draft-${{ inputs.candidate_signature }}
+  cancel-in-progress: false
+
+jobs:
+  repair-draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Validate inputs and required secret
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          REPORT_RUN_ID: ${{ inputs.report_run_id }}
+          CANDIDATE_SIGNATURE: ${{ inputs.candidate_signature }}
+        run: |
+          set -euo pipefail
+          [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ] || { echo "::error::ANTHROPIC_AUTH_TOKEN is required"; exit 1; }
+          printf '%s' "$REPORT_RUN_ID" | grep -Eq '^[1-9][0-9]*$' || { echo "::error::invalid report_run_id"; exit 1; }
+          printf '%s' "$CANDIDATE_SIGNATURE" | grep -Eq '^daily-error\|[0-9a-f]{16}$' || { echo "::error::invalid candidate_signature"; exit 1; }
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Download and verify trusted daily report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_RUN_ID: ${{ inputs.report_run_id }}
+        run: |
+          set -euo pipefail
+          RUN_JSON="$(gh run view "$REPORT_RUN_ID" --json workflowName,headBranch,event,conclusion,createdAt,url)"
+          [ "$(jq -r '.workflowName' <<<"$RUN_JSON")" = "Ops Daily Diagnostics" ] || { echo "::error::source run is not Ops Daily Diagnostics"; exit 1; }
+          [ "$(jq -r '.headBranch' <<<"$RUN_JSON")" = "main" ] || { echo "::error::source run is not from main"; exit 1; }
+          [ "$(jq -r '.conclusion' <<<"$RUN_JSON")" = "success" ] || { echo "::error::source run did not succeed"; exit 1; }
+          jq -e '.event == "schedule" or .event == "workflow_dispatch"' <<<"$RUN_JSON" >/dev/null || { echo "::error::source run event is not trusted"; exit 1; }
+          CUTOFF="$(date -u -d '48 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
+          [ "$(jq -r '.createdAt' <<<"$RUN_JSON")" ">" "$CUTOFF" ] || { echo "::error::source report is older than 48 hours"; exit 1; }
+          mkdir -p /tmp/ops-repair/report
+          gh run download "$REPORT_RUN_ID" \
+            --name "prod-ops-report-$REPORT_RUN_ID" \
+            --dir /tmp/ops-repair/report
+          test -s /tmp/ops-repair/report/daily-error-report.json
+
+      - name: Select candidate and enforce cooldown
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SIGNATURE: ${{ inputs.candidate_signature }}
+        run: |
+          set -euo pipefail
+          python3 ops/observability/daily_error_report.py select \
+            --report /tmp/ops-repair/report/daily-error-report.json \
+            --signature "$CANDIDATE_SIGNATURE" \
+            --output /tmp/ops-repair/candidate.json
+          CUTOFF="$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+          RECENT="$(gh pr list --state all --limit 100 --json body,createdAt \
+            | jq --arg sig "$CANDIDATE_SIGNATURE" --arg cutoff "$CUTOFF" '[.[] | select(.createdAt > $cutoff and (.body // "" | contains($sig)))] | length')"
+          if [ "$RECENT" -gt 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::7-day Draft PR cooldown is active for $CANDIDATE_SIGNATURE"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: ./.github/actions/cache-and-checkout-new-api
+        if: steps.candidate.outputs.skip == 'false'
+
+      - name: Set up Go
+        if: steps.candidate.outputs.skip == 'false'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Setup pnpm
+        if: steps.candidate.outputs.skip == 'false'
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        if: steps.candidate.outputs.skip == 'false'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        if: steps.candidate.outputs.skip == 'false'
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build repair prompt
+        if: steps.candidate.outputs.skip == 'false'
+        env:
+          REPORT_RUN_ID: ${{ inputs.report_run_id }}
+          CANDIDATE_SIGNATURE: ${{ inputs.candidate_signature }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/ops-repair-prompt.txt <<'EOF'
+          You are the repository-only TokenKey ops repair agent.
+
+          Follow CLAUDE.md and all project rules. The selected candidate below
+          came from a sanitized, deterministic production report. Production is
+          not available to you and you must not attempt to access it.
+
+          Required outcome:
+          - First locate the code owner and add a focused regression test.
+          - Run that test against the unmodified implementation and record its
+            nonzero exit code. If it cannot reproduce the candidate, make no
+            repository changes and write /tmp/ops-repair-result.json with
+            {"status":"no_change","reason":"..."}.
+          - If reproduced, implement the smallest safe fix and rerun the same
+            test successfully.
+          - Do not modify .github, .cursor, deploy, ops, scripts, dev-rules,
+            docs/approved, migrations, generated ent code, CLAUDE.md, or AGENTS.md.
+          - Do not commit, push, create/modify issues or PRs, merge, deploy, or
+            invoke GitHub/AWS APIs. The workflow owns those actions.
+          - Keep the total diff at or below 200 changed lines.
+          - Write /tmp/ops-repair-result.json with status=fixed,
+            candidate_signature, reproduction_command, before_exit_code,
+            after_exit_code, and summary.
+          - Write /tmp/pr-body.md in Chinese with sections 摘要, 风险, 验证,
+            提交. Include the exact candidate signature and explicitly state
+            that this is a Draft requiring human review.
+          - If backend changes have no matching frontend change, include an
+            honest `Web impact: none` justification in /tmp/pr-body.md.
+          EOF
+          {
+            echo
+            echo "Report run: $REPORT_RUN_ID"
+            echo "Candidate signature: $CANDIDATE_SIGNATURE"
+            echo
+            echo '## Sanitized candidate JSON'
+            cat /tmp/ops-repair/candidate.json
+          } >> /tmp/ops-repair-prompt.txt
+
+      - name: Run repository-only repair agent
+        if: steps.candidate.outputs.skip == 'false'
+        uses: ./.github/actions/run-headless-agent
+        with:
+          prompt_file: /tmp/ops-repair-prompt.txt
+          model: "opus[1m]"
+          max_budget_usd: "8.00"
+          allowed_tools: "Bash Read Write Edit Grep Glob"
+          auth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          output_file: /tmp/ops-repair-agent.jsonl
+
+      - name: Evaluate agent outcome
+        if: steps.candidate.outputs.skip == 'false'
+        id: outcome
+        run: |
+          set -euo pipefail
+          test -s /tmp/ops-repair-result.json || { echo "::error::agent did not write its result contract"; exit 1; }
+          STATUS="$(jq -r '.status // ""' /tmp/ops-repair-result.json)"
+          if [ -z "$(git status --porcelain)" ]; then
+            [ "$STATUS" = "no_change" ] || { echo "::error::agent reported $STATUS without a diff"; exit 1; }
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::candidate was not reproducible; no Draft PR created"
+          else
+            [ "$STATUS" = "fixed" ] || { echo "::error::agent changed files but reported $STATUS"; exit 1; }
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Guard repair contract and rerun reproduction
+        if: steps.candidate.outputs.skip == 'false' && steps.outcome.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u > /tmp/ops-repair/changed-files.txt
+          git add -N --all
+          LINES="$(git diff --numstat | awk '{add+=$1; del+=$2} END {print add+del}')"
+          [ "${LINES:-0}" -le 200 ] || { echo "::error::repair diff is too large: $LINES lines"; exit 1; }
+          python3 ops/observability/ops_repair_contract.py validate \
+            --candidate /tmp/ops-repair/candidate.json \
+            --result /tmp/ops-repair-result.json \
+            --changed-files /tmp/ops-repair/changed-files.txt \
+            --pr-body /tmp/pr-body.md
+          python3 ops/observability/ops_repair_contract.py run-reproduction \
+            --result /tmp/ops-repair-result.json \
+            --repo-root "$GITHUB_WORKSPACE"
+
+      - name: Commit Draft repair locally
+        if: steps.candidate.outputs.skip == 'false' && steps.outcome.outputs.skip == 'false'
+        env:
+          CANDIDATE_SIGNATURE: ${{ inputs.candidate_signature }}
+          REPORT_RUN_ID: ${{ inputs.report_run_id }}
+        run: |
+          set -euo pipefail
+          SIG_SHORT="${CANDIDATE_SIGNATURE#daily-error|}"
+          BRANCH="fix/ops-repair-${SIG_SHORT}-${REPORT_RUN_ID}"
+          git config user.name "tk-ops-repair[bot]"
+          git config user.email "ops-repair@tokenkey.dev"
+          git checkout -b "$BRANCH"
+          git add -A
+          COMMIT_ARGS=(
+            -m "fix(ops): draft repair for ${SIG_SHORT}"
+            -m "approval: docs/approved/ops-unified-contract.md"
+            -m "Automated Draft; human review required before merge."
+          )
+          if grep -Eq '^(backend/)' /tmp/ops-repair/changed-files.txt && ! grep -Eq '^(frontend/)' /tmp/ops-repair/changed-files.txt; then
+            COMMIT_ARGS+=(-m "Web impact: none")
+          fi
+          git commit "${COMMIT_ARGS[@]}"
+          HEAD_SHORT="$(git rev-parse --short HEAD)"
+          HEAD_SUBJECT="$(git log -1 --pretty=%s)"
+          {
+            echo
+            echo "- ${HEAD_SHORT} ${HEAD_SUBJECT}"
+            echo "- 最新提交：${HEAD_SHORT}"
+          } >> /tmp/pr-body.md
+
+      - name: Run preflight
+        if: steps.candidate.outputs.skip == 'false' && steps.outcome.outputs.skip == 'false'
+        run: ./scripts/preflight.sh
+
+      - name: Push and open Draft PR
+        if: steps.candidate.outputs.skip == 'false' && steps.outcome.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SIGNATURE: ${{ inputs.candidate_signature }}
+        run: |
+          set -euo pipefail
+          BRANCH="$(git branch --show-current)"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "$BRANCH"
+          TITLE="$(jq -r '"[ops-repair] " + .error_type + " (" + .target_id + ")"' /tmp/ops-repair/candidate.json)"
+          gh pr create --draft --base main --head "$BRANCH" --title "$TITLE" --body-file /tmp/pr-body.md
+
+      - name: Upload repair evidence
+        if: always() && steps.candidate.outputs.skip == 'false'
+        uses: actions/upload-artifact@v6
+        with:
+          name: ops-repair-evidence-${{ github.run_id }}
+          path: |
+            /tmp/ops-repair/candidate.json
+            /tmp/ops-repair-result.json
+            /tmp/ops-repair-agent.jsonl
+            /tmp/pr-body.md
+          if-no-files-found: ignore

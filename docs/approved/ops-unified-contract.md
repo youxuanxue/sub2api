@@ -3,6 +3,7 @@ title: Ops Unified Contract (QA + ErrorToIssue/PR)
 status: approved
 approved_by: youxuanxue
 approved_at: 2026-04-21
+updated_at: 2026-07-22
 created: 2026-04-21
 owners: [tk-platform]
 related_prs: ["#13", "#30"]
@@ -47,14 +48,29 @@ Required outcomes:
 
 - `Prod Ops` runs daily diagnostics for prod plus every deployable Edge target from `deploy/aws/stage0/edge-targets.json`.
 - Runtime findings are normalized into `ops-report.{json,md}` and can create/update GitHub issue signals.
+- A sanitized `daily-error-report.{json,md}` combines SLA-equivalent totals from
+  `usage_logs` and `ops_error_logs`, separates final failures from recovered
+  upstream attempts, and classifies new/regressed/persistent/access-only clusters.
 - Optional Claude diagnosis may read the aggregate report and repository files to improve issue quality; it must not write files, run shell commands, access AWS, create branches, or create PRs.
 
 Hard guardrails:
 
-- Issue only: no automatic PR creation from `Prod Ops`.
+- The AWS-enabled diagnostics jobs remain read-only and cannot write repository
+  contents or create PRs. They may dispatch `ops-repair-draft.yml` with one
+  deterministic high-confidence candidate from the sanitized report.
+- `ops-repair-draft.yml` has repository write permissions but no AWS OIDC or
+  production credentials. It may only create a Draft PR; it cannot merge,
+  deploy, roll back, or change production configuration.
+- Automatic repair is limited to repeated, platform-owned final 5xx clusters
+  that are not classified as capacity, quota, rate-limit, auth, billing, or
+  provider failures. All other findings remain Issue/manual-ops signals.
+- Before a Draft PR is opened, the repair agent must add a regression test,
+  record a nonzero reproduction result before the fix and a zero result after
+  it, rerun that command, pass `./scripts/preflight.sh`, and satisfy protected
+  path and diff-size guards. A non-reproducible candidate produces no branch.
 - Signature cooldown / dedupe labels (`ops-sig:*`, plus `cluster-sig:*` for error clusters) avoid duplicate churn.
 - AWS diagnostics jobs have `id-token: write` but no repo write permissions.
-- Issue/Claude jobs have no AWS OIDC permission.
+- Issue/Claude/repair-dispatch/repair jobs have no AWS OIDC permission.
 - Missing optional secret / missing required table => clean skip or deterministic fallback, not a brittle cron failure.
 
 Transport (since 2026-05-13):
@@ -90,3 +106,5 @@ Branch is aligned when:
 - Existing online/upstream capabilities remain available.
 - QA workflows degrade safely when `qa_records` is absent.
 - Prod/Edge diagnostics can flow to issue signals with AWS/issue permissions separated.
+- A high-confidence code-owned report can flow to an isolated Draft PR with
+  reproduction evidence, while provider/config/capacity findings cannot.

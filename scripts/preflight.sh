@@ -2334,13 +2334,13 @@ echo ""
 echo "=== sub2api: headless-agent composite sharing ==="
 # The headless `claude -p` scaffold (CLI install + origin/main redactor staging +
 # canonical thinking-env + claude->redact->tee) lives in ONE composite action so
-# the four agent workflows can't re-grow divergent copies (they had already
+# the agent workflows can't re-grow divergent copies (they had already
 # drifted: ops-daily-diagnostics ran MAX_THINKING_TOKENS=16000 + omitted
 # set -o pipefail). Fail closed if any agent workflow re-inlines `claude -p` or
 # stops using the action, or if the composite loses its single-source
 # thinking-env / pipefail / fail-closed redactor.
 _hac_action=".github/actions/run-headless-agent/action.yml"
-_hac_files=".github/workflows/pr-repair-agent.yml .github/workflows/upstream-issue-watchdog.yml .github/workflows/upstream-merge-agent-daily.yml .github/workflows/ops-daily-diagnostics.yml"
+_hac_files=".github/workflows/pr-repair-agent.yml .github/workflows/upstream-issue-watchdog.yml .github/workflows/upstream-merge-agent-daily.yml .github/workflows/ops-daily-diagnostics.yml .github/workflows/ops-repair-draft.yml"
 _hac_ok=1
 if [ ! -f "$_hac_action" ]; then
     echo "  FAIL: $_hac_action missing (the shared headless-agent scaffold)"
