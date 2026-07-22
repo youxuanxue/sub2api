@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestNewAPIBridgeChannelInput_WiresForwardingCredentials pins the contract
@@ -128,6 +130,23 @@ func TestNewAPIBridgeChannelInput_VertexServiceAccount(t *testing.T) {
 	if in.APIKey != saJSON {
 		t.Fatalf("APIKey must carry the service-account JSON, got %q", in.APIKey)
 	}
+}
+
+func TestNewAPIBridgeChannelInputForBody_VertexUsesMappedModelLocation(t *testing.T) {
+	saJSON := `{"type":"service_account","project_id":"tk-proj","client_email":"x@tk-proj.iam.gserviceaccount.com","private_key":"-----BEGIN PRIVATE KEY-----\nAAA\n-----END PRIVATE KEY-----\n"}`
+	account := &Account{
+		ID:          9,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeServiceAccount,
+		ChannelType: 41,
+		Credentials: map[string]any{
+			"service_account_json": saJSON,
+			"location":             "us-central1",
+		},
+	}
+
+	in := newAPIBridgeChannelInputForBody(account, 1, "google", []byte(`{"model":"gemini-3.6-flash"}`))
+	require.Equal(t, vertexGlobalLocation, in.VertexLocation)
 }
 
 // TestNewAPIBridgeChannelInput_NonVertexUntouched ensures a non-vertex account (ch24,

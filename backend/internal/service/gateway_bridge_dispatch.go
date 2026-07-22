@@ -96,7 +96,7 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	body = rewriteNewAPIBridgeBodyModel(account, body, "")
 	auth := bridgeAuthFromGin(c)
-	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
+	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
@@ -148,7 +148,7 @@ func (s *GatewayService) ForwardAsResponsesDispatched(
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	body = rewriteNewAPIBridgeBodyModel(account, body, "")
 	auth := bridgeAuthFromGin(c)
-	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
+	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}

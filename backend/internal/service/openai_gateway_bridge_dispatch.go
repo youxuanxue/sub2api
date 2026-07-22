@@ -45,7 +45,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	body = rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)
 	body = applyNewAPIQwenNonStreamingShape(gjson.GetBytes(body, "model").String(), body)
 	auth := bridgeAuthFromGin(c)
-	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
+	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
@@ -93,7 +93,7 @@ func dispatchNewAPIAccountTestChatCompletions(
 ) error {
 	recordBridgeDispatch()
 	body = rewriteNewAPIBridgeBodyModel(account, body, "")
-	in := newAPIBridgeChannelInput(account, 0, "")
+	in := newAPIBridgeChannelInputForBody(account, 0, "", body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
@@ -120,7 +120,7 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	body = rewriteNewAPIBridgeBodyModel(account, body, "")
 	auth := bridgeAuthFromGin(c)
-	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
+	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
@@ -193,7 +193,7 @@ func (s *OpenAIGatewayService) ForwardAsEmbeddingsDispatched(
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	body = rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)
 	auth := bridgeAuthFromGin(c)
-	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
+	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
@@ -245,7 +245,7 @@ func (s *OpenAIGatewayService) ForwardAsImageGenerationsDispatched(
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	body = rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)
 	auth := bridgeAuthFromGin(c)
-	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
+	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}

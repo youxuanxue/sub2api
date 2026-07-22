@@ -24,6 +24,7 @@ import (
 
 const (
 	vertexDefaultLocation         = "us-central1"
+	vertexGlobalLocation          = "global"
 	vertexDefaultTokenURL         = "https://oauth2.googleapis.com/token"
 	vertexCloudPlatformScope      = "https://www.googleapis.com/auth/cloud-platform"
 	vertexServiceAccountCacheSkew = 5 * time.Minute
@@ -83,6 +84,9 @@ func (a *Account) VertexLocation(model string) string {
 			}
 		}
 	}
+	if vertexModelUsesGlobalLocation(model) {
+		return vertexGlobalLocation
+	}
 	if v := strings.TrimSpace(a.GetCredential("location")); v != "" {
 		return v
 	}
@@ -90,6 +94,16 @@ func (a *Account) VertexLocation(model string) string {
 		return v
 	}
 	return vertexDefaultLocation
+}
+
+func vertexModelUsesGlobalLocation(model string) bool {
+	model = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(model), "models/"))
+	switch model {
+	case "gemini-3.5-flash-lite", "gemini-3.6-flash":
+		return true
+	default:
+		return false
+	}
 }
 
 // VertexServiceAccountJSON returns the raw service-account JSON string, whether the

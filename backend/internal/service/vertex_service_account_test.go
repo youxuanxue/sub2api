@@ -30,6 +30,25 @@ func TestBuildVertexGeminiURLUsesGlobalEndpointHost(t *testing.T) {
 	require.Equal(t, "https://aiplatform.googleapis.com/v1/projects/my-project/locations/global/publishers/google/models/gemini-3-flash-preview:streamGenerateContent?alt=sse", got)
 }
 
+func TestVertexLocationUsesGlobalForGlobalOnlyGeminiModels(t *testing.T) {
+	account := &Account{Credentials: map[string]any{"location": "us-central1"}}
+
+	require.Equal(t, vertexGlobalLocation, account.VertexLocation("gemini-3.5-flash-lite"))
+	require.Equal(t, vertexGlobalLocation, account.VertexLocation("models/gemini-3.6-flash"))
+	require.Equal(t, "us-central1", account.VertexLocation("gemini-2.5-flash"))
+}
+
+func TestVertexLocationExplicitModelOverrideWins(t *testing.T) {
+	account := &Account{Credentials: map[string]any{
+		"location": "us-central1",
+		"vertex_model_locations": map[string]any{
+			"gemini-3.6-flash": "europe-west4",
+		},
+	}}
+
+	require.Equal(t, "europe-west4", account.VertexLocation("gemini-3.6-flash"))
+}
+
 func TestBuildVertexAnthropicURL(t *testing.T) {
 	got, err := buildVertexAnthropicURL("my-project", "us-east5", "claude-sonnet-4-5@20250929", false)
 	require.NoError(t, err)

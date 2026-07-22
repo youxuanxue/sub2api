@@ -9,6 +9,7 @@ import (
 	newapitypes "github.com/QuantumNous/new-api/types"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
+	"github.com/tidwall/gjson"
 )
 
 // NewAPIRelayError wraps a New API adaptor error for handler-level JSON rendering.
@@ -60,6 +61,14 @@ func openAIUsageFromNewAPIDTO(u *dto.Usage) OpenAIUsage {
 }
 
 func newAPIBridgeChannelInput(account *Account, userID int64, groupLabel string) bridge.ChannelContextInput {
+	return newAPIBridgeChannelInputForModel(account, userID, groupLabel, "")
+}
+
+func newAPIBridgeChannelInputForBody(account *Account, userID int64, groupLabel string, body []byte) bridge.ChannelContextInput {
+	return newAPIBridgeChannelInputForModel(account, userID, groupLabel, gjson.GetBytes(body, "model").String())
+}
+
+func newAPIBridgeChannelInputForModel(account *Account, userID int64, groupLabel, model string) bridge.ChannelContextInput {
 	var mappingJSON string
 	if m := account.GetModelMapping(); len(m) > 0 {
 		if b, err := json.Marshal(m); err == nil {
@@ -95,7 +104,7 @@ func newAPIBridgeChannelInput(account *Account, userID int64, groupLabel string)
 		if saJSON := account.VertexServiceAccountJSON(); saJSON != "" {
 			apiKey = saJSON
 			vertexKeyType = string(dto.VertexKeyTypeJSON)
-			vertexLocation = account.VertexLocation("")
+			vertexLocation = account.VertexLocation(model)
 		}
 	}
 

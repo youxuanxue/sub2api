@@ -63,7 +63,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 	// 4. Prepare bridge channel input
 	chatBody = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, chatBody, upstreamModel)
 	auth := bridgeAuthFromGin(c)
-	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
+	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, chatBody)
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
