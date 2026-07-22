@@ -4,12 +4,31 @@ package service
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type geminiAccountTestUpstream struct {
+	request  *http.Request
+	response *http.Response
+}
+
+func (u *geminiAccountTestUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	u.request = req
+	return u.response, nil
+}
+
+func (u *geminiAccountTestUpstream) DoWithTLS(req *http.Request, proxyURL string, accountID int64, concurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	return u.Do(req, proxyURL, accountID, concurrency)
+}
 
 func TestCreateGeminiTestPayload_ImageModel(t *testing.T) {
 	t.Parallel()
@@ -56,4 +75,67 @@ func TestProcessGeminiStream_EmitsImageEvent(t *testing.T) {
 	require.Contains(t, body, "\"type\":\"image\"")
 	require.Contains(t, body, "\"image_url\":\"data:image/png;base64,QUJD\"")
 	require.Contains(t, body, "\"mime_type\":\"image/png\"")
+}
+
+func TestGeminiAccountConnection_UsesPublicModelOnlyForAntigravityRelayHop(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	const (
+		publicModel = "gemini-3.6-flash"
+		wireModel   = "gemini-3.6-flash-tiered"
+	)
+	tests := []struct {
+		name     string
+		platform string
+		wantPath string
+	}{
+		{
+			name:     "Antigravity Edge relay",
+			platform: PlatformAntigravity,
+			wantPath: "/antigravity/v1beta/models/" + publicModel + ":streamGenerateContent",
+		},
+		{
+			name:     "direct Gemini API key",
+			platform: PlatformGemini,
+			wantPath: "/v1beta/models/" + wireModel + ":streamGenerateContent",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := &geminiAccountTestUpstream{
+				response: &http.Response{
+					StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader(
+						"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}]}\n\n",
+					)),
+				},
+			}
+			svc := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{}}
+			account := &Account{
+				ID:          61,
+				Platform:    tt.platform,
+				Type:        AccountTypeAPIKey,
+				Concurrency: 1,
+				Credentials: map[string]any{
+					"api_key":  "test-key",
+					"base_url": "https://edge.example.com",
+					"model_mapping": map[string]any{
+						publicModel: wireModel,
+					},
+				},
+			}
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/61/test", nil)
+
+			require.NoError(t, svc.testGeminiAccountConnection(ctx, account, publicModel, "hi"))
+			require.NotNil(t, upstream.request)
+			require.Equal(t, tt.wantPath, upstream.request.URL.Path)
+			require.Equal(t, "sse", upstream.request.URL.Query().Get("alt"))
+			require.NotContains(t, recorder.Body.String(), "\"model\":\""+wireModel+"\"")
+			require.Contains(t, recorder.Body.String(), "\"model\":\""+publicModel+"\"")
+			require.Contains(t, recorder.Body.String(), "\"text\":\"ok\"")
+		})
+	}
 }

@@ -1085,21 +1085,15 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
 
-	// Determine the model to use
-	testModelID := modelID
-	if testModelID == "" {
-		testModelID = geminicli.DefaultTestModel
+	requestedModelID := modelID
+	if requestedModelID == "" {
+		requestedModelID = geminicli.DefaultTestModel
 	}
 
-	// For static upstream credentials with model mapping, map the model
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mapping := account.GetModelMapping()
-		if len(mapping) > 0 {
-			if mappedModel, exists := mapping[testModelID]; exists {
-				testModelID = mappedModel
-			}
-		}
-	}
+	// Keep the client-facing ID across a prod -> Edge Antigravity relay hop.
+	// The Edge owns the final public-to-wire mapping; direct static upstream
+	// accounts still receive the mapped provider ID.
+	mappedModelID, requestModelID := resolveGeminiForwardModels(account, requestedModelID)
 
 	// Set SSE headers
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
@@ -1109,7 +1103,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 	c.Writer.Flush()
 
 	// Create test payload (Gemini format)
-	payload := createGeminiTestPayload(testModelID, prompt)
+	payload := createGeminiTestPayload(mappedModelID, prompt)
 
 	// Build request based on account type
 	var req *http.Request
@@ -1117,11 +1111,11 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 
 	switch account.Type {
 	case AccountTypeAPIKey:
-		req, err = s.buildGeminiAPIKeyRequest(ctx, account, testModelID, payload)
+		req, err = s.buildGeminiAPIKeyRequest(ctx, account, requestModelID, payload)
 	case AccountTypeOAuth:
-		req, err = s.buildGeminiOAuthRequest(ctx, account, testModelID, payload)
+		req, err = s.buildGeminiOAuthRequest(ctx, account, requestModelID, payload)
 	case AccountTypeServiceAccount:
-		req, err = s.buildGeminiServiceAccountRequest(ctx, account, testModelID, payload)
+		req, err = s.buildGeminiServiceAccountRequest(ctx, account, requestModelID, payload)
 	default:
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Unsupported account type: %s", account.Type))
 	}
@@ -1131,7 +1125,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 	}
 
 	// Send test_start event
-	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: requestedModelID})
 
 	// Get proxy and execute request
 	proxyURL := ""
@@ -1196,13 +1190,19 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 		return s.sendErrorAndEnd(c, err.Error())
 	}
 
-	// 发送响应内容
-	if result.Text != "" {
-		s.sendEvent(c, TestEvent{Type: "content", Text: result.Text})
-	}
-
-	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	s.completeAntigravityAccountTest(c, result.Text)
 	return nil
+}
+
+const antigravityEmptyTextStatus = "Connected successfully; upstream returned no text content."
+
+func (s *AccountTestService) completeAntigravityAccountTest(c *gin.Context, text string) {
+	if strings.TrimSpace(text) == "" {
+		s.sendEvent(c, TestEvent{Type: "status", Text: antigravityEmptyTextStatus})
+	} else {
+		s.sendEvent(c, TestEvent{Type: "content", Text: text})
+	}
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 }
 
 // buildGeminiAPIKeyRequest builds request for Gemini API Key accounts
@@ -1212,10 +1212,7 @@ func (s *AccountTestService) buildGeminiAPIKeyRequest(ctx context.Context, accou
 		return nil, fmt.Errorf("no API key available")
 	}
 
-	baseURL := account.GetCredential("base_url")
-	if baseURL == "" {
-		baseURL = geminicli.AIStudioBaseURL
-	}
+	baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
 	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
 	if err != nil {
 		return nil, err
