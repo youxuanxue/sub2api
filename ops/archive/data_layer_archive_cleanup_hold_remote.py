@@ -323,14 +323,15 @@ def apply_hold(confirmation: str) -> dict[str, Any]:
     before = _read_state()
     if before["api_cleanup_enabled"] is not True:
         raise HoldError("cleanup hold is already active; verify the existing receipt")
-    started_at = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    reload_since = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
     updated = copy.deepcopy(before["_settings"])
     updated["data_retention"]["cleanup_enabled"] = False
     response = _admin_request("PUT", before["_admin_key"], updated)
     if response["data_retention"]["cleanup_enabled"] is not False:
         raise HoldError("admin API did not disable cleanup")
     after = _read_state()
-    reload_proven = _reload_proof(started_at, enabled=False)
+    started_at = str(after["server_clock"])
+    reload_proven = _reload_proof(reload_since, enabled=False)
     status = _hold_status(after, hold_started_at=started_at)
     if not status["hold_active"] or not reload_proven:
         raise HoldError("cleanup hold is persisted but runtime disable was not proven")
