@@ -1212,10 +1212,7 @@ func (s *AccountTestService) buildGeminiAPIKeyRequest(ctx context.Context, accou
 		return nil, fmt.Errorf("no API key available")
 	}
 
-	baseURL := account.GetCredential("base_url")
-	if baseURL == "" {
-		baseURL = geminicli.AIStudioBaseURL
-	}
+	baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
 	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
 	if err != nil {
 		return nil, err

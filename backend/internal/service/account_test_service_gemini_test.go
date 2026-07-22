@@ -85,12 +85,20 @@ func TestGeminiAccountConnection_UsesPublicModelOnlyForAntigravityRelayHop(t *te
 		wireModel   = "gemini-3.6-flash-tiered"
 	)
 	tests := []struct {
-		name         string
-		platform     string
-		wantURLModel string
+		name     string
+		platform string
+		wantPath string
 	}{
-		{name: "Antigravity Edge relay", platform: PlatformAntigravity, wantURLModel: publicModel},
-		{name: "direct Gemini API key", platform: PlatformGemini, wantURLModel: wireModel},
+		{
+			name:     "Antigravity Edge relay",
+			platform: PlatformAntigravity,
+			wantPath: "/antigravity/v1beta/models/" + publicModel + ":streamGenerateContent",
+		},
+		{
+			name:     "direct Gemini API key",
+			platform: PlatformGemini,
+			wantPath: "/v1beta/models/" + wireModel + ":streamGenerateContent",
+		},
 	}
 
 	for _, tt := range tests {
@@ -123,7 +131,8 @@ func TestGeminiAccountConnection_UsesPublicModelOnlyForAntigravityRelayHop(t *te
 
 			require.NoError(t, svc.testGeminiAccountConnection(ctx, account, publicModel, "hi"))
 			require.NotNil(t, upstream.request)
-			require.Contains(t, upstream.request.URL.Path, "/models/"+tt.wantURLModel+":streamGenerateContent")
+			require.Equal(t, tt.wantPath, upstream.request.URL.Path)
+			require.Equal(t, "sse", upstream.request.URL.Query().Get("alt"))
 			require.NotContains(t, recorder.Body.String(), "\"model\":\""+wireModel+"\"")
 			require.Contains(t, recorder.Body.String(), "\"model\":\""+publicModel+"\"")
 			require.Contains(t, recorder.Body.String(), "\"text\":\"ok\"")
