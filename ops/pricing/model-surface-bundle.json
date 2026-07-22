@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "floor_sha256": "77e74e0ba8194f0a80b76ec71831fb4a434db14c3e9a23779d7b6d73435b34f6",
+  "floor_sha256": "6db6e06eaa3bb8016cf6d98ce1776680e72d8ace3fc1682e1b73ddb14c02f434",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -33,6 +33,7 @@
         "gemini-3.5-flash": "gemini-3.5-flash-low",
         "gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low",
         "gemini-3.5-flash-low": "gemini-3.5-flash-low",
+        "gemini-3.6-flash": "gemini-3.6-flash-tiered",
         "gemini-pro-agent": "gemini-pro-agent"
       },
       "bedrock": {
@@ -59,6 +60,8 @@
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
         "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+        "gemini-3.6-flash": "gemini-3.6-flash",
         "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
         "imagen-4.0-generate-001": "imagen-4.0-generate-001",
         "imagen-4.0-ultra-generate-001": "imagen-4.0-ultra-generate-001",
@@ -157,6 +160,8 @@
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
         "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+        "gemini-3.6-flash": "gemini-3.6-flash",
         "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
         "imagen-4.0-generate-001": "imagen-4.0-generate-001",
         "imagen-4.0-ultra-generate-001": "imagen-4.0-ultra-generate-001",
