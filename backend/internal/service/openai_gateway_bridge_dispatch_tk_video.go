@@ -70,7 +70,7 @@ func (s *OpenAIGatewayService) ForwardAsVideoSubmitDispatched(
 	}
 	recordBridgeDispatch()
 	auth := bridgeAuthFromGin(c)
-	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
+	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
