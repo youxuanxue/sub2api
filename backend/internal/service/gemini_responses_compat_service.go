@@ -74,10 +74,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 		return nil, s.writeResponsesCompatError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 	}
 
-	mappedModel := req.Model
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mappedModel = account.GetMappedModel(req.Model)
-	}
+	mappedModel, requestModel := resolveGeminiForwardModels(account, req.Model)
 
 	// OpenAI /v1/responses ingress must keep OpenAI envelope on pricing-gate errors.
 	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {
@@ -103,6 +100,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 	buildReq, requestIDHeader := s.buildGeminiChatCompletionsUpstreamRequestFunc(
 		account,
 		mappedModel,
+		requestModel,
 		geminiReq,
 		clientStream,
 		useUpstreamStream,
