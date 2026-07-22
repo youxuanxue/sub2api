@@ -132,6 +132,32 @@
       "rationale": "Regression coverage pins both sides of the relay boundary and the actual URL emitted by messages, native Gemini, Chat Completions, and Responses ingress. It also asserts that result attribution keeps the final tiered wire model while the current relay URL remains public."
     },
     {
+      "path": "backend/internal/service/account_test_service.go",
+      "must_contain": [
+        "mappedModelID, requestModelID := resolveGeminiForwardModels(account, requestedModelID)",
+        "s.buildGeminiAPIKeyRequest(ctx, account, requestModelID, payload)",
+        "s.sendEvent(c, TestEvent{Type: \"test_start\", Model: requestedModelID})",
+        "s.completeAntigravityAccountTest(c, result.Text)",
+        "TestEvent{Type: \"status\", Text: antigravityEmptyTextStatus}"
+      ],
+      "rationale": "Admin account tests share the same public-model relay boundary as production Gemini ingress. The prod-to-Edge request URL must use requestModelID while the operator-visible test_start event keeps requestedModelID; otherwise selecting gemini-3.6-flash is rewritten to the hidden gemini-3.6-flash-tiered target and rejected by the Edge Anthropic namespace. Successful Antigravity OAuth probes with no extracted text must also emit a visible status instead of completing with a blank response."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_gemini_test.go",
+      "must_contain": [
+        "TestGeminiAccountConnection_UsesPublicModelOnlyForAntigravityRelayHop"
+      ],
+      "rationale": "Regression coverage proves the admin account-test URL keeps the public Gemini ID only for Antigravity Edge relays while direct Gemini API-key accounts still receive the mapped provider wire ID."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_antigravity_test.go",
+      "must_contain": [
+        "TestBuildGeminiTestRequest_LeavesBudgetForVisibleText",
+        "TestCompleteAntigravityAccountTest_ReportsSuccessfulEmptyResponse"
+      ],
+      "rationale": "Regression coverage keeps the Antigravity Gemini connection probe large enough for thinking-capable models to emit visible text and requires an explicit status event if a successful upstream response still contains no text."
+    },
+    {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
         "mappedModel, requestModel := resolveGeminiForwardModels(account, req.Model)",

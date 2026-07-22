@@ -4,8 +4,12 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,4 +34,41 @@ func TestMapAntigravityModel_LiveAccountAllowsOnlyLiveClaudeSubset(t *testing.T)
 func TestAntigravityDefaultTestModelID_IsGeminiWire(t *testing.T) {
 	require.True(t, len(AntigravityDefaultTestModelID) > len("gemini-"))
 	require.Contains(t, AntigravityDefaultTestModelID, "gemini-")
+}
+
+func TestBuildGeminiTestRequest_LeavesBudgetForVisibleText(t *testing.T) {
+	payload, err := (&AntigravityGatewayService{}).buildGeminiTestRequest("project-1", "gemini-3.6-flash-tiered")
+	require.NoError(t, err)
+
+	var wrapped struct {
+		Request struct {
+			Contents []struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"contents"`
+			GenerationConfig struct {
+				MaxOutputTokens int `json:"maxOutputTokens"`
+			} `json:"generationConfig"`
+		} `json:"request"`
+	}
+	require.NoError(t, json.Unmarshal(payload, &wrapped))
+	require.Equal(t, defaultGeminiTextTestPrompt, wrapped.Request.Contents[0].Parts[0].Text)
+	require.Equal(t, antigravityConnectionTestMaxOutputTokens, wrapped.Request.GenerationConfig.MaxOutputTokens)
+	require.Greater(t, wrapped.Request.GenerationConfig.MaxOutputTokens, 1)
+}
+
+func TestCompleteAntigravityAccountTest_ReportsSuccessfulEmptyResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/5/test", nil)
+
+	(&AccountTestService{}).completeAntigravityAccountTest(ctx, "")
+
+	body := recorder.Body.String()
+	require.Contains(t, body, `"type":"status"`)
+	require.Contains(t, body, antigravityEmptyTextStatus)
+	require.Contains(t, body, `"type":"test_complete"`)
+	require.NotContains(t, body, `"type":"content"`)
 }
