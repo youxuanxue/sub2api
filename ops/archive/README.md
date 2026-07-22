@@ -141,3 +141,46 @@ stack configuration). This is canary staging, not long-term archive storage and
 never evidence that production rows may be deleted. Merge does not authorize a
 run: every execution still requires explicit approval plus the exact
 confirmation string `tokenkey-prod-archive-export-only-v1`.
+
+## Production legacy cold batch export
+
+After the canary proves the export-only path, legacy cold rows can be exported in
+deterministic `(created_at, id)` pages without waiting for the partition-drop
+calendar. Scope is strictly:
+
+- `created_at < min(now - 30d, 2026-07-01T00:00:00Z)` (legacy attach bound)
+- read-only source query with cursor continuation
+- export-only: no delete, no partition drop
+
+Staging uses a separate prefix `prod/pgdump/archive-export/` in the same
+short-retention backup bucket (seven days). A local ledger records
+`cursor_after` and `more_cold_rows_remaining` between batches.
+
+Offline plan:
+
+```bash
+python3 ops/archive/data_layer_archive_prod_export.py plan \
+  --table ops_system_logs
+```
+
+Initialize a continuation ledger once per table:
+
+```bash
+python3 ops/archive/data_layer_archive_prod_export.py init-ledger \
+  --ledger .testing/user-stories/attachments/US-040-ops-system-logs-export-ledger.json \
+  --table ops_system_logs
+```
+
+Export one batch (requires active cleanup hold receipt):
+
+```bash
+python3 ops/archive/data_layer_archive_prod_export.py run-batch \
+  --ledger .testing/user-stories/attachments/US-040-ops-system-logs-export-ledger.json \
+  --evidence-root /tmp/tokenkey-prod-export-evidence \
+  --cleanup-hold-receipt .testing/user-stories/attachments/US-039-prod-cleanup-hold-20260721.json \
+  --confirm tokenkey-prod-archive-export-batch-v1
+```
+
+Repeat `run-batch` until the ledger reports `more_cold_rows_remaining=false`.
+Each batch still requires the exact confirmation string
+`tokenkey-prod-archive-export-batch-v1` and an active cleanup hold.

@@ -37,6 +37,9 @@ POSTGRES_RESTORE_PREFIX = "tokenkey_archive_restore_"
 POSTGRES_SENTINEL_TABLE = "archive_rehearsal_sentinel"
 POSTGRES_SENTINEL_LABEL = "tokenkey_archive_rehearsal"
 PROD_CANARY_MODE = "prod_archive_export_canary"
+PROD_EXPORT_MODE = "prod_archive_export_batch"
+PROD_EXPORT_SCOPE_LEGACY_COLD = "legacy_cold"
+PROD_LEGACY_UPPER_EXCLUSIVE = "2026-07-01T00:00:00.000000Z"
 PROD_CANARY_SOURCE_KIND = "stage0_prod_docker_postgres_read_only"
 PROD_CANARY_DATABASE = "tokenkey"
 PROD_CANARY_STACK = "tokenkey-prod-stage0"
@@ -1003,14 +1006,16 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             raise RehearsalError(
                 "manifest source is not an approved read-only rehearsal snapshot"
             )
-    elif mode == PROD_CANARY_MODE:
+    elif mode in (PROD_CANARY_MODE, PROD_EXPORT_MODE):
         if manifest.get("environment") != "prod":
-            raise RehearsalError("production canary manifest environment must be prod")
+            raise RehearsalError(
+                "production archive manifest environment must be prod"
+            )
         if source_kind != PROD_CANARY_SOURCE_KIND:
-            raise RehearsalError("production canary source kind is invalid")
+            raise RehearsalError("production archive source kind is invalid")
     else:
         raise RehearsalError(
-            "manifest is not an approved archive rehearsal or production canary"
+            "manifest is not an approved archive rehearsal or production export"
         )
     if manifest.get("source_mutated") is not False:
         raise RehearsalError("manifest must state that the source was not mutated")
@@ -1106,12 +1111,12 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         raise RehearsalError("manifest retention_days is invalid") from exc
     if policy != normalized_policy:
         raise RehearsalError("manifest retention_days is not canonical")
-    if mode == PROD_CANARY_MODE and normalized_policy != DEFAULT_RETENTION_DAYS:
-        raise RehearsalError("production canary retention policy is not approved")
-    canary = manifest.get("canary")
-    canary_cutoff: dt.datetime | None = None
+    if mode in (PROD_CANARY_MODE, PROD_EXPORT_MODE) and normalized_policy != DEFAULT_RETENTION_DAYS:
+        raise RehearsalError("production archive retention policy is not approved")
+    bounds = manifest.get("canary" if mode == PROD_CANARY_MODE else "export")
+    bounds_cutoff: dt.datetime | None = None
     if mode == PROD_CANARY_MODE:
-        expected_canary_keys = {
+        expected_bounds_keys = {
             "cutoff_exclusive",
             "lock_timeout_ms",
             "max_logical_bytes",
@@ -1125,58 +1130,121 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             "statement_timeout_seconds",
             "table",
         }
-        if not isinstance(canary, dict) or set(canary) != expected_canary_keys:
-            raise RehearsalError("production canary bounds are invalid")
-        if canary.get("table") != source_file_identity.get("table"):
-            raise RehearsalError("production canary table does not match source identity")
-        if canary.get("selection_order") != ["created_at", "id"]:
-            raise RehearsalError("production canary selection order is invalid")
-        if not isinstance(canary.get("more_cold_rows_after_sample"), bool):
-            raise RehearsalError("production canary continuation state is invalid")
-        try:
-            canary_cutoff = _utc(canary["cutoff_exclusive"])
-            server_clock = _utc(canary["server_clock"])
-        except (KeyError, TypeError, AttributeError) as exc:
-            raise RehearsalError("production canary timestamps are invalid") from exc
-        if _timestamp(canary_cutoff) != canary["cutoff_exclusive"]:
-            raise RehearsalError("production canary cutoff is not canonical UTC")
-        if _timestamp(server_clock) != canary["server_clock"]:
-            raise RehearsalError("production canary server clock is not canonical UTC")
-        if _utc(sealed_at) != server_clock:
-            raise RehearsalError("production canary seal time must use the server clock")
-        expected_cutoff = server_clock - dt.timedelta(days=DEFAULT_RETENTION_DAYS["ops"])
-        if canary_cutoff != expected_cutoff:
-            raise RehearsalError("production canary cutoff is not the approved cold waterline")
         integer_bounds = {
             "lock_timeout_ms": (100, 100),
             "max_logical_bytes": (1, 64 * 1024 * 1024),
             "max_rows": (1, 10_000),
             "statement_timeout_seconds": (1, 30),
         }
+        staging_marker = "/prod/pgdump/archive-canary/"
+        continuation_key = "more_cold_rows_after_sample"
+        first_key_name = "sample_first_key"
+        last_key_name = "sample_last_key"
+    elif mode == PROD_EXPORT_MODE:
+        expected_bounds_keys = {
+            "cursor_after",
+            "cursor_before",
+            "cutoff_exclusive",
+            "export_scope",
+            "first_key",
+            "last_key",
+            "legacy_upper_exclusive",
+            "lock_timeout_ms",
+            "max_logical_bytes",
+            "max_rows",
+            "more_cold_rows_remaining",
+            "query_elapsed_ms",
+            "selection_order",
+            "server_clock",
+            "statement_timeout_seconds",
+            "table",
+        }
+        integer_bounds = {
+            "lock_timeout_ms": (100, 100),
+            "max_logical_bytes": (1, 512 * 1024 * 1024),
+            "max_rows": (1, 200_000),
+            "statement_timeout_seconds": (1, 300),
+        }
+        staging_marker = "/prod/pgdump/archive-export/"
+        continuation_key = "more_cold_rows_remaining"
+        first_key_name = "first_key"
+        last_key_name = "last_key"
+    else:
+        expected_bounds_keys = set()
+        integer_bounds = {}
+        staging_marker = ""
+        continuation_key = ""
+        first_key_name = ""
+        last_key_name = ""
+    if mode in (PROD_CANARY_MODE, PROD_EXPORT_MODE):
+        if not isinstance(bounds, dict) or set(bounds) != expected_bounds_keys:
+            raise RehearsalError("production archive bounds are invalid")
+        if bounds.get("table") != source_file_identity.get("table"):
+            raise RehearsalError("production archive table does not match source identity")
+        if bounds.get("selection_order") != ["created_at", "id"]:
+            raise RehearsalError("production archive selection order is invalid")
+        if not isinstance(bounds.get(continuation_key), bool):
+            raise RehearsalError("production archive continuation state is invalid")
+        try:
+            bounds_cutoff = _utc(bounds["cutoff_exclusive"])
+            server_clock = _utc(bounds["server_clock"])
+        except (KeyError, TypeError, AttributeError) as exc:
+            raise RehearsalError("production archive timestamps are invalid") from exc
+        if _timestamp(bounds_cutoff) != bounds["cutoff_exclusive"]:
+            raise RehearsalError("production archive cutoff is not canonical UTC")
+        if _timestamp(server_clock) != bounds["server_clock"]:
+            raise RehearsalError("production archive server clock is not canonical UTC")
+        if _utc(sealed_at) != server_clock:
+            raise RehearsalError("production archive seal time must use the server clock")
+        expected_cutoff = server_clock - dt.timedelta(days=DEFAULT_RETENTION_DAYS["ops"])
+        if bounds_cutoff != expected_cutoff:
+            raise RehearsalError("production archive cutoff is not the approved cold waterline")
+        if mode == PROD_EXPORT_MODE:
+            if bounds.get("export_scope") != PROD_EXPORT_SCOPE_LEGACY_COLD:
+                raise RehearsalError("production export scope is invalid")
+            legacy_upper = bounds.get("legacy_upper_exclusive")
+            if (
+                not isinstance(legacy_upper, str)
+                or _timestamp(_utc(legacy_upper)) != legacy_upper
+                or legacy_upper != PROD_LEGACY_UPPER_EXCLUSIVE
+            ):
+                raise RehearsalError("production export legacy upper bound is invalid")
+            cursor_before = bounds.get("cursor_before")
+            if cursor_before is not None and (
+                not isinstance(cursor_before, dict)
+                or set(cursor_before) != {"created_at", "id"}
+            ):
+                raise RehearsalError("production export cursor_before is invalid")
+            cursor_after = bounds.get("cursor_after")
+            if not isinstance(cursor_after, dict) or set(cursor_after) != {
+                "created_at",
+                "id",
+            }:
+                raise RehearsalError("production export cursor_after is invalid")
         for key, (minimum, maximum) in integer_bounds.items():
-            value = canary.get(key)
+            value = bounds.get(key)
             if (
                 not isinstance(value, int)
                 or isinstance(value, bool)
                 or not minimum <= value <= maximum
             ):
-                raise RehearsalError(f"production canary {key} is out of bounds")
-        elapsed = canary.get("query_elapsed_ms")
+                raise RehearsalError(f"production archive {key} is out of bounds")
+        elapsed = bounds.get("query_elapsed_ms")
         if (
             not isinstance(elapsed, (int, float))
             or isinstance(elapsed, bool)
             or elapsed < 0
         ):
-            raise RehearsalError("production canary query_elapsed_ms is invalid")
+            raise RehearsalError("production archive query_elapsed_ms is invalid")
         staging_prefix = manifest.get("staging_s3_prefix")
         if (
             not isinstance(staging_prefix, str)
             or not staging_prefix.startswith("s3://")
-            or "/prod/pgdump/archive-canary/" not in staging_prefix
+            or staging_marker not in staging_prefix
             or not staging_prefix.endswith(f"/{manifest.get('batch_id')}")
             or ".." in staging_prefix
         ):
-            raise RehearsalError("production canary S3 staging prefix is invalid")
+            raise RehearsalError("production archive S3 staging prefix is invalid")
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list) or not artifacts:
         raise RehearsalError("manifest must contain at least one artifact")
@@ -1185,8 +1253,8 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
     ]
     if artifact_datasets != [dataset for dataset in DATASETS if dataset in artifact_datasets]:
         raise RehearsalError("manifest artifacts are not in canonical dataset order")
-    if mode == PROD_CANARY_MODE and artifact_datasets != ["ops"]:
-        raise RehearsalError("production canary must contain exactly one ops artifact")
+    if mode in (PROD_CANARY_MODE, PROD_EXPORT_MODE) and artifact_datasets != ["ops"]:
+        raise RehearsalError("production archive must contain exactly one ops artifact")
     total_rows = 0
     total_bytes = 0
     datasets: set[str] = set()
@@ -1197,46 +1265,52 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             raise RehearsalError(f"duplicate artifact dataset {entry['dataset']}")
         datasets.add(entry["dataset"])
         records, raw = _parse_artifact(batch_dir, entry)
-        if mode == PROD_CANARY_MODE:
-            assert canary_cutoff is not None
+        if mode in (PROD_CANARY_MODE, PROD_EXPORT_MODE):
+            assert bounds_cutoff is not None
             if not records:
-                raise RehearsalError("production canary artifact is empty")
+                raise RehearsalError("production archive artifact is empty")
             table = source_file_identity["table"]
             try:
                 source_keys = [_prod_canary_source_key(record, table) for record in records]
             except RehearsalError as exc:
                 raise RehearsalError(
-                    "production canary artifact contains a foreign source id"
+                    "production archive artifact contains a foreign source id"
                 ) from exc
-            if any(_utc(record["created_at"]) >= canary_cutoff for record in records):
-                raise RehearsalError("production canary artifact contains hot or foreign rows")
+            if any(_utc(record["created_at"]) >= bounds_cutoff for record in records):
+                raise RehearsalError("production archive artifact contains hot or foreign rows")
+            if mode == PROD_EXPORT_MODE:
+                legacy_upper = _utc(bounds["legacy_upper_exclusive"])
+                if any(_utc(record["created_at"]) >= legacy_upper for record in records):
+                    raise RehearsalError(
+                        "production export artifact contains rows outside legacy scope"
+                    )
             ordered_keys = sorted(
                 source_keys, key=lambda item: (item["created_at"], item["id"])
             )
             if source_keys != ordered_keys:
-                raise RehearsalError("production canary source keys are not ordered")
+                raise RehearsalError("production archive source keys are not ordered")
         total_rows += len(records)
         total_bytes += len(raw)
     if total_rows != manifest.get("total_rows"):
         raise RehearsalError("manifest total_rows mismatch")
     if total_bytes != manifest.get("total_logical_bytes"):
         raise RehearsalError("manifest total_logical_bytes mismatch")
-    if mode == PROD_CANARY_MODE:
-        assert isinstance(canary, dict)
-        if total_rows > canary["max_rows"]:
-            raise RehearsalError("production canary row count exceeds its manifest bound")
-        if total_bytes > canary["max_logical_bytes"]:
-            raise RehearsalError("production canary byte count exceeds its manifest bound")
+    if mode in (PROD_CANARY_MODE, PROD_EXPORT_MODE):
+        assert isinstance(bounds, dict)
+        if total_rows > bounds["max_rows"]:
+            raise RehearsalError("production archive row count exceeds its manifest bound")
+        if total_bytes > bounds["max_logical_bytes"]:
+            raise RehearsalError("production archive byte count exceeds its manifest bound")
         expected_first_key = _prod_canary_source_key(
             records[0], source_file_identity["table"]
         )
         expected_last_key = _prod_canary_source_key(
             records[-1], source_file_identity["table"]
         )
-        if canary.get("sample_first_key") != expected_first_key:
-            raise RehearsalError("production canary first sample key mismatch")
-        if canary.get("sample_last_key") != expected_last_key:
-            raise RehearsalError("production canary last sample key mismatch")
+        if bounds.get(first_key_name) != expected_first_key:
+            raise RehearsalError("production archive first key mismatch")
+        if bounds.get(last_key_name) != expected_last_key:
+            raise RehearsalError("production archive last key mismatch")
     source_rows = manifest.get("source_rows")
     if (
         not isinstance(source_rows, int)
@@ -1260,7 +1334,13 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             source_file_identity=source_file_identity,
             retention_days=normalized_policy,
             artifacts=artifacts,
-            prefix="prod-canary" if mode == PROD_CANARY_MODE else "rehearsal",
+            prefix=(
+                "prod-canary"
+                if mode == PROD_CANARY_MODE
+                else "prod-export"
+                if mode == PROD_EXPORT_MODE
+                else "rehearsal"
+            ),
         )
     except (KeyError, TypeError) as exc:
         raise RehearsalError("manifest artifact identity fields are invalid") from exc
@@ -1271,6 +1351,8 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         "mode": (
             "prod_archive_export_verify"
             if mode == PROD_CANARY_MODE
+            else "prod_archive_export_batch_verify"
+            if mode == PROD_EXPORT_MODE
             else "nonprod_archive_verify"
         ),
         "batch_id": manifest.get("batch_id"),

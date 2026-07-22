@@ -150,9 +150,45 @@ def build_plan(
     }
 
 
-def _stage0_record_query(table: str, *, cutoff: str, limit: int) -> str:
+def _validated_source_key(key: dict[str, Any], *, table: str) -> dict[str, Any]:
+    if not isinstance(key, dict) or set(key) != {"created_at", "id"}:
+        raise CanaryError("production source key is invalid")
+    created_at = _canonical_timestamp(str(key["created_at"]))
+    source_id = key["id"]
+    if isinstance(source_id, bool) or not isinstance(source_id, int):
+        raise CanaryError("production source key id is invalid")
+    if source_id <= 0 or source_id > rehearsal.POSTGRES_BIGINT_MAX:
+        raise CanaryError("production source key id is out of range")
+    record_id = rehearsal._prod_canary_record_id(table, str(source_id))
+    return {"created_at": created_at, "id": source_id, "record_id": record_id}
+
+
+def _cursor_predicate(cursor_after: dict[str, Any] | None, *, table: str) -> str:
+    if cursor_after is None:
+        return ""
+    key = _validated_source_key(cursor_after, table=table)
+    return (
+        " AND (created_at, id) > ("
+        f"{rehearsal._sql_literal(key['created_at'])}::timestamptz, "
+        f"{key['id']}::bigint)"
+    )
+
+
+def _stage0_record_query(
+    table: str,
+    *,
+    cutoff: str,
+    limit: int,
+    cursor_after: dict[str, Any] | None = None,
+    upper_exclusive: str | None = None,
+) -> str:
     if table not in rehearsal.PROD_CANARY_TABLES:
         raise CanaryError(f"unsupported production canary table {table!r}")
+    upper_clause = ""
+    if upper_exclusive is not None:
+        upper_clause = (
+            f" AND created_at < {rehearsal._sql_literal(upper_exclusive)}::timestamptz"
+        )
     return (
         "SELECT json_build_object("
         "'dataset', 'ops', "
@@ -162,7 +198,8 @@ def _stage0_record_query(table: str, *, cutoff: str, limit: int) -> str:
         "'payload', to_jsonb(row_data)"
         ")::text "
         f"FROM (SELECT * FROM {table} "
-        f"WHERE created_at < {rehearsal._sql_literal(cutoff)}::timestamptz "
+        f"WHERE created_at < {rehearsal._sql_literal(cutoff)}::timestamptz"
+        f"{upper_clause}{_cursor_predicate(cursor_after, table=table)} "
         f"ORDER BY created_at, id LIMIT {limit}) AS row_data"
     )
 
@@ -286,6 +323,8 @@ def _collect_prod_candidates(
     query_runner: QueryRunner,
     *,
     request: dict[str, Any],
+    cursor_after: dict[str, Any] | None = None,
+    upper_exclusive: str | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     started = time.monotonic()
     probe_sql = (
@@ -314,14 +353,18 @@ def _collect_prod_candidates(
         raise CanaryError("production canary connected to the wrong database")
     if proof.get("read_only") != "on":
         raise CanaryError("production canary source session is not read-only")
-    skew = abs(
-        (
-            rehearsal._utc(request["as_of"])
-            - rehearsal._utc(server_clock)
-        ).total_seconds()
-    )
-    if skew > MAX_CLOCK_SKEW_SECONDS:
-        raise CanaryError("production canary as_of is stale relative to database clock")
+    as_of = request.get("as_of")
+    if as_of is None:
+        as_of = server_clock
+    else:
+        skew = abs(
+            (
+                rehearsal._utc(as_of)
+                - rehearsal._utc(server_clock)
+            ).total_seconds()
+        )
+        if skew > MAX_CLOCK_SKEW_SECONDS:
+            raise CanaryError("production canary as_of is stale relative to database clock")
     cutoff_exclusive = rehearsal._timestamp(
         rehearsal._utc(server_clock) - dt.timedelta(days=OPS_RETENTION_DAYS)
     )
@@ -335,6 +378,8 @@ def _collect_prod_candidates(
             request["table"],
             cutoff=cutoff_exclusive,
             limit=request["max_rows"] + 1,
+            cursor_after=cursor_after,
+            upper_exclusive=upper_exclusive,
         ),
         request["timeout_seconds"],
         output_limit,
@@ -389,19 +434,20 @@ def _collect_prod_candidates(
         )
     candidates = {dataset: [] for dataset in rehearsal.DATASETS}
     candidates["ops"] = records
+    first_key = rehearsal._prod_canary_source_key(records[0], request["table"])
+    last_key = rehearsal._prod_canary_source_key(records[-1], request["table"])
     return candidates, {
         "server_clock": server_clock,
         "cutoff_exclusive": cutoff_exclusive,
         "query_elapsed_ms": round((time.monotonic() - started) * 1000, 3),
         "candidate_rows": len(records),
         "candidate_logical_bytes": logical_bytes,
-        "sample_first_key": rehearsal._prod_canary_source_key(
-            records[0], request["table"]
-        ),
-        "sample_last_key": rehearsal._prod_canary_source_key(
-            records[-1], request["table"]
-        ),
+        "sample_first_key": first_key,
+        "sample_last_key": last_key,
         "more_cold_rows_after_sample": more_cold_rows_after_sample,
+        "cursor_before": cursor_after,
+        "cursor_after": last_key,
+        "upper_exclusive": upper_exclusive,
     }
 
 
@@ -585,7 +631,7 @@ def upload_committed_batch(
 ) -> dict[str, Any]:
     verification = rehearsal.verify_batch(batch)
     if verification.get("source_kind") != rehearsal.PROD_CANARY_SOURCE_KIND:
-        raise CanaryError("only production canary batches may be uploaded")
+        raise CanaryError("only production archive batches may be uploaded")
     batch_dir = pathlib.Path(batch).expanduser().resolve()
     manifest_path = batch_dir / "manifest.json"
     manifest_bytes = manifest_path.read_bytes()
@@ -1062,8 +1108,10 @@ def _download_committed_batch(
     expected_manifest_sha256: str,
 ) -> pathlib.Path:
     _, key = _s3_location(s3_prefix)
-    if not key.endswith(f"/{batch_id}") or not batch_id.startswith("prod-canary-"):
-        raise CanaryError("S3 prefix and production canary batch id do not match")
+    if not key.endswith(f"/{batch_id}") or not (
+        batch_id.startswith("prod-canary-") or batch_id.startswith("prod-export-")
+    ):
+        raise CanaryError("S3 prefix and production archive batch id do not match")
     root = rehearsal._local_path(evidence_root, must_exist=False)
     root.mkdir(parents=True, exist_ok=True)
     batch_dir = root / batch_id
