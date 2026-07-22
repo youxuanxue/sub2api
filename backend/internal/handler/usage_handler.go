@@ -664,6 +664,10 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 
 	validAPIKeyIDs, err := h.apiKeyService.VerifyOwnership(c.Request.Context(), subject.UserID, req.APIKeyIDs)
 	if err != nil {
+		if middleware2.IsClientClosedRequestError(c, err) {
+			middleware2.AbortClientClosedRequest(c, err)
+			return
+		}
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -682,6 +686,10 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 
 	stats, err := h.usageService.GetBatchAPIKeyUsageStats(c.Request.Context(), validAPIKeyIDs, startTime, endTime)
 	if err != nil {
+		if middleware2.IsClientClosedRequestError(c, err) {
+			middleware2.AbortClientClosedRequest(c, err)
+			return
+		}
 		response.ErrorFrom(c, err)
 		return
 	}

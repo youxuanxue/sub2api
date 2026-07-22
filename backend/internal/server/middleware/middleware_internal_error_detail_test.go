@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -67,6 +68,21 @@ func TestAbortClientClosedRequest_SetsOpsMarkerAndDetail(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "context canceled", v)
 	require.Contains(t, rec.Body.String(), "CLIENT_CLOSED_REQUEST")
+}
+
+func TestIsClientClosedRequestError_PostgresCancellation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/usage/dashboard/api-keys-usage", nil)
+
+	require.True(t, IsClientClosedRequestError(c, errors.New("pq: canceling statement due to user request")))
+	require.False(t, IsClientClosedRequestError(c, errors.New("pq: canceling statement due to statement timeout")))
+
+	deadlineCtx, cancel := context.WithDeadline(context.Background(), time.Unix(1, 0))
+	defer cancel()
+	c.Request = c.Request.WithContext(deadlineCtx)
+	require.False(t, IsClientClosedRequestError(c, errors.New("pq: canceling statement due to user request")),
+		"server-side deadlines must remain platform errors")
 }
 
 func TestAPIKeyAuth_500_SetsOpsInternalErrorDetail(t *testing.T) {

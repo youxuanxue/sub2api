@@ -15,6 +15,8 @@ import (
 
 const middlewareInternalErrorDetailMaxLen = 1024
 
+const postgresCanceledByCallerMessage = "canceling statement due to user request"
+
 // StatusClientClosedRequest mirrors nginx's 499: the caller disconnected before
 // the gateway could finish local auth/body handling. net/http has no constant.
 const StatusClientClosedRequest = 499
@@ -114,13 +116,25 @@ func AbortClientClosedRequest(c *gin.Context, internalErr error) {
 }
 
 func IsClientClosedRequestError(c *gin.Context, err error) bool {
+	// A server-side deadline is not caller-owned even when the database driver
+	// reports a cancellation while unwinding the query.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
 	if errors.Is(err, context.Canceled) {
 		return true
 	}
-	if c == nil || c.Request == nil {
-		return false
+	if c != nil && c.Request != nil {
+		switch requestErr := c.Request.Context().Err(); {
+		case errors.Is(requestErr, context.DeadlineExceeded):
+			return false
+		case errors.Is(requestErr, context.Canceled):
+			return true
+		}
 	}
-	return errors.Is(c.Request.Context().Err(), context.Canceled)
+	// lib/pq returns a PostgreSQL 57014 error instead of wrapping
+	// context.Canceled after database/sql sends the cancellation request.
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), postgresCanceledByCallerMessage)
 }
 
 // sanitizeMiddlewareInternalErrorDetail trims and length-caps an internal error
