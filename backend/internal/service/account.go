@@ -1483,12 +1483,6 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	if a.IsGrok() {
 		switch capability {
 		case OpenAIEndpointCapabilityChatCompletions:
-			if a.Type == AccountTypeOAuth {
-				eligible, reason := a.GrokMediaGenerationEligibility()
-				if !eligible && reason == "billing_forbidden" {
-					return false
-				}
-			}
 			return true
 		case OpenAIEndpointCapabilityGrokMediaGeneration:
 			eligible, reason := a.GrokMediaGenerationEligibility()

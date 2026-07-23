@@ -144,30 +144,3 @@ func TestTkInputHasNonEmptyCredential(t *testing.T) {
 		t.Fatal("non-string refresh_token must count as not provided")
 	}
 }
-
-func TestGrokOAuthOfficialAPIFallbackAllowed(t *testing.T) {
-	unobserved := &Account{Platform: PlatformGrok, Type: AccountTypeOAuth}
-	if !grokOAuthOfficialAPIFallbackAllowed(unobserved) {
-		t.Fatal("unobserved oauth account should preserve upstream fallback behavior")
-	}
-	heavy := &Account{
-		Platform: PlatformGrok,
-		Type:     AccountTypeOAuth,
-		Extra: map[string]any{
-			grokBillingExtraKey: &xai.BillingSummary{Plan: "SuperGrok Heavy", StatusCode: 200},
-		},
-	}
-	if !grokOAuthOfficialAPIFallbackAllowed(heavy) {
-		t.Fatal("SuperGrok Heavy should allow official API fallback")
-	}
-	standard := &Account{
-		Platform: PlatformGrok,
-		Type:     AccountTypeOAuth,
-		Extra: map[string]any{
-			grokBillingExtraKey: &xai.BillingSummary{Plan: "SuperGrok", StatusCode: 200},
-		},
-	}
-	if grokOAuthOfficialAPIFallbackAllowed(standard) {
-		t.Fatal("standard SuperGrok must not retry entitlement-gated api.x.ai")
-	}
-}

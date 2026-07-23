@@ -91,7 +91,9 @@ func tkGrokEntitlement403Haystack(body []byte) string {
 }
 
 // tkGrokEntitlement403ClientMessage is the client-facing message for a grok
-// entitlement-403, actionable without leaking which account.
+// entitlement-403, actionable without leaking which account. This explains xAI's
+// api.x.ai OAuth gate; it is not a TokenKey product tier restriction — standard
+// SuperGrok may still work on the CLI subscription proxy upstream uses by default.
 func tkGrokEntitlement403ClientMessage(upstreamMsg string) string {
 	base := "The Grok (xAI) subscription backing this request is not entitled to API access " +
 		"(xAI gates the OAuth API surface to SuperGrok Heavy). Confirm the account is on SuperGrok Heavy."
@@ -102,46 +104,10 @@ func tkGrokEntitlement403ClientMessage(upstreamMsg string) string {
 	return base + " Upstream detail: " + upstreamMsg
 }
 
-// grokOAuthOfficialAPIFallbackAllowed reports whether the shared transport may
-// retry a CLI-proxy 403 against api.x.ai. Upstream always allows this for
-// unobserved accounts (trial compatibility). TokenKey suppresses it when
-// billing observations prove the account is not SuperGrok Heavy, because the
-// official OAuth API surface will always return the entitlement 403 the
-// operator is seeing on prod account 79 / grok-build-0.1.
-func grokOAuthOfficialAPIFallbackAllowed(account *Account) bool {
-	if account == nil || !account.IsGrokOAuth() {
-		return true
-	}
-	billing, err := grokBillingSnapshotFromExtra(account.Extra)
-	if err != nil || billing == nil {
-		return true
-	}
-	if billing.StatusCode == 403 || billing.WeeklyStatusCode == 403 || billing.MonthlyStatusCode == 403 {
-		return false
-	}
-	switch strings.TrimSpace(billing.Plan) {
-	case "SuperGrok Heavy":
-		return true
-	case "SuperGrok":
-		return false
-	}
-	if isKnownGrokFreeAccount(account) {
-		return false
-	}
-	return true
-}
-
-func grokUpstreamRequestContext(ctx context.Context, account *Account) context.Context {
-	if account == nil || !account.IsGrokOAuth() {
-		return ctx
-	}
-	return WithGrokOfficialAPIFallbackAllowed(ctx, grokOAuthOfficialAPIFallbackAllowed(account))
-}
-
 func (s *OpenAIGatewayService) tkQuarantineGrokEntitlement403Account(ctx context.Context, account *Account) {
 	if s == nil || account == nil || !account.IsGrok() {
 		return
 	}
 	s.tempUnscheduleGrok(ctx, account, tkGrokEntitlement403QuarantineCooldown,
-		"grok entitlement denied (SuperGrok Heavy required)")
+		"grok access or entitlement denied")
 }

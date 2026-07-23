@@ -1060,7 +1060,7 @@ func buildGrokResponsesRequest(ctx context.Context, c *gin.Context, account *Acc
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(grokUpstreamRequestContext(ctx, account), http.MethodPost, targetURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

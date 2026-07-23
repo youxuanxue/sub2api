@@ -334,7 +334,6 @@
       "path": "backend/internal/service/grok_test.go",
       "must_contain": [
         "TestTkIsGrokEntitlement403",
-        "TestGrokOAuthOfficialAPIFallbackAllowed",
         "TestGrokTokenRefresher_CanRefreshNeedsRefresh"
       ],
       "rationale": "Load-bearing QA evidence for the Heavy-403 entitlement classifier (the pool-kill-amplifier guard) and the refresher gating/expiry-window logic. Losing it removes the regression guard around grok's two most failure-prone pure-logic surfaces."

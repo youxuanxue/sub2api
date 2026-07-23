@@ -19,13 +19,3 @@ func TestWithHTTPUpstreamProfile_OpenAI(t *testing.T) {
 		t.Fatalf("expected profile %q, got %q", HTTPUpstreamProfileOpenAI, profile)
 	}
 }
-
-func TestGrokOfficialAPIFallbackAllowedContext(t *testing.T) {
-	if !GrokOfficialAPIFallbackAllowedFromContext(context.Background()) {
-		t.Fatal("missing context value should default to allowed")
-	}
-	ctx := WithGrokOfficialAPIFallbackAllowed(context.Background(), false)
-	if GrokOfficialAPIFallbackAllowedFromContext(ctx) {
-		t.Fatal("explicit false must disable fallback")
-	}
-}
