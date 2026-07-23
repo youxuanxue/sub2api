@@ -105,6 +105,23 @@ class ReleaseBumpAndTagTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 2, f"stdout:{proc.stdout}\nstderr:{proc.stderr}")
         self.assertIn("refusing to guess bump path", proc.stderr)
 
+    def test_docs_ops_baseline_not_gitignored(self) -> None:
+        """release bump must stage endpoint-compat baseline without git add -f."""
+        repo_root = pathlib.Path(__file__).resolve().parent.parent
+        baseline = repo_root / "docs/ops/endpoint-compat-baseline.md"
+        self.assertTrue(baseline.is_file(), f"missing {baseline}")
+        proc = subprocess.run(
+            ["git", "check-ignore", "-q", str(baseline.relative_to(repo_root))],
+            cwd=repo_root,
+            env=_clean_env(),
+            capture_output=True,
+        )
+        self.assertNotEqual(
+            proc.returncode,
+            0,
+            "docs/ops/endpoint-compat-baseline.md must not match docs/* gitignore",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

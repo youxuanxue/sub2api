@@ -195,6 +195,10 @@ docs/*
 !docs/ASYNC_IMAGE_TASKS.md
 !docs/legal/
 !docs/legal/*.md
+# Release bump syncs docs/ops/endpoint-compat-baseline.md (release-bump-and-tag.sh);
+# must remain stageable despite upstream-shaped docs/* ignore above.
+!docs/ops/
+!docs/ops/**
 .serena/
 .codex/
 frontend/coverage/

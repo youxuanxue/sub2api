@@ -144,7 +144,9 @@ if [ "$ACTION" = "bump-and-tag" ]; then
   python3 "$WT_DIR/scripts/sync_endpoint_compat_baseline_anchor.py" \
     --version "$NEXT_VERSION" \
     --previous-deploy-tag "$CURRENT_TAG"
-  git -C "$WT_DIR" add backend/cmd/server/VERSION docs/ops/endpoint-compat-baseline.md
+  git -C "$WT_DIR" add backend/cmd/server/VERSION
+  # baseline lives under docs/ops/; force-add stays safe if docs/* ignore drifts again.
+  git -C "$WT_DIR" add -f docs/ops/endpoint-compat-baseline.md
   if ! python3 "$WT_DIR/scripts/check_endpoint_compat_baseline_freshness.py" >/dev/null; then
     echo "[release-bump-and-tag] ERROR: endpoint-compat baseline freshness check failed after sync" >&2
     python3 "$WT_DIR/scripts/check_endpoint_compat_baseline_freshness.py" >&2 || true
