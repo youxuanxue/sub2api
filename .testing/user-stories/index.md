@@ -41,4 +41,5 @@
 | US-036 | Capacity-first 数据层安全原型 | InTest | `.testing/user-stories/stories/US-036-capacity-first-data-layer-safety.md` |
 | US-037 | Data-layer 非生产归档恢复演练 | InTest | `.testing/user-stories/stories/US-037-data-layer-archive-rehearsal.md` |
 | US-038 | Kiro CONTENT_FILTERED 返回客户端错误且不触发 failover | InTest | `.testing/user-stories/stories/US-038-kiro-content-filter-client-error.md` |
-| US-039 | Data-layer 生产只读导出 canary | InTest | `.testing/user-stories/stories/US-039-data-layer-prod-export-canary.md` |
+| US-039 | Data-layer 生产只读导出 canary | Done   | `.testing/user-stories/stories/US-039-data-layer-prod-export-canary.md` |
+| US-040 | Legacy 冷数据分批 export 与长期 archive promote | Done   | `.testing/user-stories/stories/US-040-ops-legacy-export-promote.md` |

@@ -192,7 +192,9 @@ copies committed export batches into the dedicated archive bucket (**90d Standar
 400d total retention**). Design baseline:
 `docs/approved/design-prod-archive-bucket.md` (approved).
 
-Deploy the archive stack once (same `AppInstanceRoleArn` pattern as backups):
+Deploy the archive stack once (same `AppInstanceRoleArn` pattern as backups).
+Lifecycle 仅暴露 `ArchiveGlacierTransitionDay`（默认 91 → 前 90 天 Standard）与
+`ArchiveExpireDays`（默认 400）；勿单独再配「Standard 天数」参数。
 
 ```bash
 aws cloudformation deploy \

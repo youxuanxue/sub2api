@@ -69,8 +69,9 @@ promote-ledger
 
 - 模板：`deploy/aws/cloudformation/stage0-archive.yaml`
 - 栈名：`tokenkey-stage0-archive`
-- 参数：`AppInstanceRoleArn`（与 backups 栈相同模式）、`ArchiveStandardDays=90`、
-  `ArchiveGlacierTransitionDay=91`、`ArchiveExpireDays=400`
+- 参数：`AppInstanceRoleArn`（与 backups 栈相同模式）、
+  `ArchiveGlacierTransitionDay=91`（第 91 天转 Glacier，即前 90 天 Standard）、
+  `ArchiveExpireDays=400`
 - 桶名：`tokenkey-prod-archive-${AccountId}`
 - 输出：`BucketName`、`ArchiveS3Uri`（`s3://.../prod/ops-archive`）
 

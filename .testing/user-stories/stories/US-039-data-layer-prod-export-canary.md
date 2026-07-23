@@ -61,4 +61,4 @@ python3 ops/archive/test_data_layer_archive_cleanup_hold.py
 
 ## Status
 
-- [x] InTest — Phase 4 代码与本地测试；生产执行、长期 archive bucket 和删除仍需独立审批。
+- [x] Done — prod canary 已执行；legacy 分批 export 与 promote 见 US-040；分区 drop 仍须单独审批。
