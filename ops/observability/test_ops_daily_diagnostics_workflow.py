@@ -56,9 +56,10 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertLess(internal_start, internal_end)
         self.assertLess(internal_end, log_start)
         self.assertTrue(
-            internal_probe.startswith("if sudo docker compose "),
+            internal_probe.startswith('if [ -z "$APP_CONTAINER" ]'),
             msg=internal_probe,
         )
+        self.assertIn('sudo docker exec "$APP_CONTAINER"', internal_probe)
         self.assertIn("internal_health_status=failed exit=$rc", internal_probe)
         self.assertIn("then echo; echo internal_health_status=ok", internal_probe)
 
@@ -102,6 +103,40 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             "Runtime SSM SendCommand failed; suppressing downstream error_clustering SSM checks",
             text,
         )
+
+    def test_runtime_diagnostics_resolve_active_blue_green_container(self) -> None:
+        commands = extract_runtime_params_commands()
+        init = commands.index("APP_CONTAINER=''")
+        active = next(i for i, command in enumerate(commands) if "/var/lib/tokenkey/active-color" in command)
+        health = next(i for i, command in enumerate(commands) if 'docker exec "$APP_CONTAINER"' in command)
+        logs = next(i for i, command in enumerate(commands) if 'docker logs "$APP_CONTAINER"' in command)
+        self.assertLess(init, active)
+        self.assertLess(active, health)
+        self.assertLess(health, logs)
+        self.assertFalse(any("docker logs tokenkey --since" in command for command in commands))
+
+    def test_daily_error_report_is_aggregated_and_dispatches_only_isolated_repair(self) -> None:
+        text = workflow_text()
+        self.assertIn("probe-daily-error-ledger.sh", text)
+        self.assertIn("daily_error_report.py build", text)
+        self.assertIn("daily_error_report.py aggregate", text)
+        self.assertIn("top_repair_signature", text)
+        self.assertIn("gh workflow run ops-repair-draft.yml", text)
+
+        queue_start = text.index("  queue-repair-draft:")
+        queue_end = text.index("\n  log-dump:", queue_start)
+        queue = text[queue_start:queue_end]
+        self.assertIn("actions: write", queue)
+        self.assertIn("contents: read", queue)
+        self.assertNotIn("id-token: write", queue)
+        self.assertNotIn("aws ", queue)
+
+    def test_failed_claude_run_cannot_publish_partial_thoughts_as_diagnosis(self) -> None:
+        text = workflow_text()
+        self.assertIn("CLAUDE_EXIT_CODE", text)
+        self.assertIn("status = 'ok' if exit_code == '0' and body else 'failed'", text)
+        self.assertNotIn("message.get('content')", text)
+        self.assertIn("if diagnosis_meta.get('status') == 'ok':", text)
 
 
 if __name__ == "__main__":
