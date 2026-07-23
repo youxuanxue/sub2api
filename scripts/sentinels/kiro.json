@@ -54,7 +54,8 @@
         "StreamingUserAgent",
         "BuildUserAgent",
         "DefaultKiroIDEVersion",
-        "DefaultKiroAccountPriority"
+        "DefaultKiroAccountPriority",
+        "1.0.203"
       ],
       "rationale": "TK-side canonical KiroIDE client identity + User-Agent builder used for fingerprint mimicry. If dropped, kiro egress loses its KiroIDE-<ver> UA and is trivially distinguishable from the real client. DefaultKiroAccountPriority is the creation-time default for native Kiro accounts when callers omit priority."
     },
