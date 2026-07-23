@@ -56,3 +56,26 @@ func WithHTTPUpstreamRedirectsDisabled(ctx context.Context) context.Context {
 func HTTPUpstreamRedirectsDisabled(ctx context.Context) bool {
 	return ctx != nil && ctx.Value(httpUpstreamDisableRedirectsContextKey{}) == true
 }
+
+type grokOfficialAPIFallbackContextKey struct{}
+
+// WithGrokOfficialAPIFallbackAllowed controls whether grok CLI-proxy 403s may
+// retry against api.x.ai inside the shared transport. Default (missing value)
+// preserves upstream behavior and allows the fallback.
+func WithGrokOfficialAPIFallbackAllowed(ctx context.Context, allowed bool) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, grokOfficialAPIFallbackContextKey{}, allowed)
+}
+
+func GrokOfficialAPIFallbackAllowedFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return true
+	}
+	allowed, ok := ctx.Value(grokOfficialAPIFallbackContextKey{}).(bool)
+	if !ok {
+		return true
+	}
+	return allowed
+}

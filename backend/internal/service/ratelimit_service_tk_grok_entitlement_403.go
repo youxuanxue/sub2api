@@ -1,7 +1,9 @@
 package service
 
 import (
+	"context"
 	"strings"
+	"time"
 
 	"github.com/tidwall/gjson"
 )
@@ -19,9 +21,9 @@ import (
 // empty-pool 429, and the generic 403→502 mask would hide the real cause from the
 // operator. So a grok entitlement-403 must:
 //  1. NOT trigger account failover (shouldFailoverOpenAIUpstreamResponse=false),
-//  2. NOT cool/disable the account (every forwarding path must classify or
-//     guard it before invoking account-error side effects),
-//  3. surface a clean, actionable client error (NOT a masked 502).
+//  2. NOT failover to sibling accounts (they share the same xAI gate),
+//  3. quarantine the offending account so schedulers stop re-selecting it,
+//  4. surface a clean, actionable client error (NOT a masked 502).
 //
 // Kept in a TK-only companion file so future upstream merges of
 // ratelimit_service.go / openai_gateway_service.go do not collide on this branch.
@@ -31,6 +33,11 @@ const (
 	tkGrokEntitlement403Subscription = "grok subscription"
 	tkGrokEntitlement403Resources    = "run out of available resources"
 	tkGrokEntitlement403Heavy        = "supergrok heavy"
+
+	// tkGrokEntitlement403QuarantineCooldown stops a dead/downgraded account from
+	// being re-selected on every request (ops noise) without failing over to
+	// siblings that would hit the same gate.
+	tkGrokEntitlement403QuarantineCooldown = 24 * time.Hour
 )
 
 // tkIsGrokEntitlement403 reports whether a 403 upstream response is the xAI
@@ -93,4 +100,48 @@ func tkGrokEntitlement403ClientMessage(upstreamMsg string) string {
 		return base
 	}
 	return base + " Upstream detail: " + upstreamMsg
+}
+
+// grokOAuthOfficialAPIFallbackAllowed reports whether the shared transport may
+// retry a CLI-proxy 403 against api.x.ai. Upstream always allows this for
+// unobserved accounts (trial compatibility). TokenKey suppresses it when
+// billing observations prove the account is not SuperGrok Heavy, because the
+// official OAuth API surface will always return the entitlement 403 the
+// operator is seeing on prod account 79 / grok-build-0.1.
+func grokOAuthOfficialAPIFallbackAllowed(account *Account) bool {
+	if account == nil || !account.IsGrokOAuth() {
+		return true
+	}
+	billing, err := grokBillingSnapshotFromExtra(account.Extra)
+	if err != nil || billing == nil {
+		return true
+	}
+	if billing.StatusCode == 403 || billing.WeeklyStatusCode == 403 || billing.MonthlyStatusCode == 403 {
+		return false
+	}
+	switch strings.TrimSpace(billing.Plan) {
+	case "SuperGrok Heavy":
+		return true
+	case "SuperGrok":
+		return false
+	}
+	if isKnownGrokFreeAccount(account) {
+		return false
+	}
+	return true
+}
+
+func grokUpstreamRequestContext(ctx context.Context, account *Account) context.Context {
+	if account == nil || !account.IsGrokOAuth() {
+		return ctx
+	}
+	return WithGrokOfficialAPIFallbackAllowed(ctx, grokOAuthOfficialAPIFallbackAllowed(account))
+}
+
+func (s *OpenAIGatewayService) tkQuarantineGrokEntitlement403Account(ctx context.Context, account *Account) {
+	if s == nil || account == nil || !account.IsGrok() {
+		return
+	}
+	s.tempUnscheduleGrok(ctx, account, tkGrokEntitlement403QuarantineCooldown,
+		"grok entitlement denied (SuperGrok Heavy required)")
 }

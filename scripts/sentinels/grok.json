@@ -334,6 +334,7 @@
       "path": "backend/internal/service/grok_test.go",
       "must_contain": [
         "TestTkIsGrokEntitlement403",
+        "TestGrokOAuthOfficialAPIFallbackAllowed",
         "TestGrokTokenRefresher_CanRefreshNeedsRefresh"
       ],
       "rationale": "Load-bearing QA evidence for the Heavy-403 entitlement classifier (the pool-kill-amplifier guard) and the refresher gating/expiry-window logic. Losing it removes the regression guard around grok's two most failure-prone pure-logic surfaces."
@@ -341,9 +342,9 @@
     {
       "path": "backend/internal/service/openai_gateway_grok_chat_bridge_test.go",
       "must_contain": [
-        "TestForwardGrokChatEntitlement403DoesNotFailoverOrCoolAccount"
+        "TestForwardGrokChatEntitlement403QuarantinesAccountWithoutFailover"
       ],
-      "rationale": "Full Chat Completions regression coverage for both Grok upstream routes: the Responses bridge and raw /v1/chat/completions. It proves a real xAI entitlement envelope returns permission_error 403 without failover, durable cooldown, or runtime scheduling block."
+      "rationale": "Full Chat Completions regression coverage for both Grok upstream routes: the Responses bridge and raw /v1/chat/completions. It proves a real xAI entitlement envelope returns permission_error 403 without failover while quarantining the offending account so schedulers stop re-selecting it."
     },
     {
       "path": "backend/internal/handler/admin/group_handler.go",

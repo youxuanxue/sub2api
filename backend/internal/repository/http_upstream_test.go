@@ -348,6 +348,33 @@ func TestGrokAccessDeniedFallbackRecognizesChatEndpointPermissionDenied(t *testi
 	require.Equal(t, []string{grokCLIProxyHost, grokOfficialAPIHost}, hosts)
 }
 
+func TestGrokAccessDeniedFallbackSkippedWhenContextDisallows(t *testing.T) {
+	var hosts []string
+	transport := &grokAccessDeniedFallbackTransport{
+		base: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			hosts = append(hosts, req.URL.Hostname())
+			return &http.Response{
+				StatusCode: http.StatusForbidden,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`{"error":"Access denied"}`)),
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	req, err := http.NewRequest(http.MethodPost, "https://cli-chat-proxy.grok.com/v1/responses", strings.NewReader(`{"model":"grok-build-0.1"}`))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer oauth-token")
+	req.Header.Set("X-XAI-Token-Auth", "xai-grok-cli")
+	req = req.WithContext(service.WithGrokOfficialAPIFallbackAllowed(req.Context(), false))
+
+	resp, err := transport.RoundTrip(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, []string{grokCLIProxyHost}, hosts)
+}
+
 func TestIsGrokCLICompatibilityAccessDenied(t *testing.T) {
 	tests := []struct {
 		name string

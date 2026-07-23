@@ -324,6 +324,9 @@ func (t *grokAccessDeniedFallbackTransport) RoundTrip(req *http.Request) (*http.
 	if err != nil || !isGrokCLIAccessDeniedFallbackCandidate(req, resp) {
 		return resp, err
 	}
+	if req != nil && req.Context() != nil && !service.GrokOfficialAPIFallbackAllowedFromContext(req.Context()) {
+		return resp, nil
+	}
 
 	body, ok := bufferSmallResponseBody(resp, grokFallbackBodyLimit)
 	if !ok || !isGrokCLICompatibilityAccessDenied(body) {

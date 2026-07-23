@@ -5,6 +5,7 @@ package service
 import (
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,4 +50,21 @@ func TestGrokAccount_PassesOpenAICompatCapabilityGate(t *testing.T) {
 		"grok oauth account supports basic image capability")
 	require.True(t, grok.SupportsOpenAIImageCapability(OpenAIImagesCapabilityNative),
 		"grok oauth account supports native image capability")
+}
+
+func TestGrokOAuthChatCapabilityRejectsBillingForbidden(t *testing.T) {
+	forbidden := &Account{
+		ID:       79,
+		Platform: PlatformGrok,
+		Type:     AccountTypeOAuth,
+		Status:   StatusActive,
+		Extra: map[string]any{
+			grokBillingExtraKey: &xai.BillingSummary{
+				StatusCode:        403,
+				WeeklyStatusCode:  403,
+				MonthlyStatusCode: 403,
+			},
+		},
+	}
+	require.False(t, forbidden.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions))
 }

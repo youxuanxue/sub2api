@@ -63,7 +63,7 @@ func buildGrokResponsesRequestForAccount(ctx context.Context, c *gin.Context, ac
 	if strings.TrimSpace(targetURL) == "" {
 		return nil, fmt.Errorf("grok responses target URL is empty")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(grokUpstreamRequestContext(ctx, account), http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
