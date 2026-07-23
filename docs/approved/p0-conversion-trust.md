@@ -5,7 +5,8 @@ approved_by: pending
 authors: [codex]
 created: 2026-07-23
 source_goal: docs/task-breakdown-p0-conversion-trust-goals.md
-source_report: tokenkey-competitor-research/tokenkey-competitor-analysis-2026-07-22.md
+source_report_name: tokenkey-competitor-analysis-2026-07-22.md
+source_report_scope: private_external_research_not_committed
 source_report_sha256: 2d30d0172ee432dcf37df77d84c4507aff99a9a980f959fd882bbc1d22824607
 related_stories: [US-041, US-042, US-043, US-044, US-045, US-046]
 ---
@@ -20,6 +21,10 @@ This document is a **pending design**, not production authorization.
 - Production credential revocation, rotation, browser-history cleanup, paid probes, and
   `registration_enabled` changes each retain their own explicit approval gate.
 - `approved_by: pending` must not be changed by an agent.
+- The authenticated competitor report is a private external research artifact and is
+  intentionally excluded from this repository and PR. Its SHA-256 pins the exact reviewed
+  input; this approval baseline is self-contained and publishes none of that report's
+  credentials, authenticated screenshots, or private evidence.
 - If approved, this document supersedes only the email-trial fail-open behavior and
   marketing-count guidance in `docs/approved/user-cold-start.md`. Existing shipped
   behavior remains the baseline until replacement code is separately reviewed and deployed.
@@ -133,9 +138,13 @@ Each Edge gets a handoff-only control client:
 - its only authority is `handoff:mint`; it cannot read accounts, relay model traffic, mutate
   accounts, or exchange a code.
 
-Prod signs a canonical mint request over method, path, body hash, timestamp, request nonce, and
-key ID. Edge enforces a narrow clock skew and uses Redis `SET NX` with TTL for request-nonce
-replay protection. A retry uses a new request nonce and mints a new code.
+Prod first authorizes the authenticated administrator for Edge handoff. The canonical mint body
+includes a stable non-secret `initiator_admin_id` and `prod_request_id` in addition to the
+audience, source origin, window nonce, PKCE challenge, and attempt ID. Prod signs method, path,
+body hash, timestamp, request nonce, and key ID. Edge enforces a narrow clock skew and uses Redis
+`SET NX` with TTL for request-nonce replay protection. A retry uses a new request nonce and mints
+a new code. The initiator fields are audit attribution only: they never select the Edge-local
+subject or grant authority beyond the control client's fixed mapping.
 
 ### 5.2 Child-owned PKCE flow
 
@@ -183,6 +192,7 @@ Edge stores only a hash of a random authorization code in shared Redis. The valu
 - child/window nonce;
 - PKCE S256 challenge;
 - Edge-local admin subject;
+- prod initiator admin ID and prod request ID;
 - mint attempt ID;
 - issued time and an at-most-60-second TTL.
 
@@ -192,8 +202,9 @@ audience/source/window binding and verifier, and deletes only after all checks p
 Wrong-verifier and wrong-binding attempts do not consume the valid code; successful concurrent
 exchanges have exactly one winner.
 
-The resulting refresh family is tagged `edge_handoff` plus a non-secret attempt ID for future
-targeted revocation. Neither prod backend nor prod SPA ever receives the session pair.
+The resulting refresh family and Edge audit event are tagged `edge_handoff` plus the non-secret
+attempt ID, prod initiator admin ID, and prod request ID for attribution and future targeted
+revocation. Neither prod backend nor prod SPA ever receives the session pair.
 
 ### 5.4 Retry, shutdown, and rollback
 
@@ -402,13 +413,16 @@ between service and handler:
 projection cache stores the complete final response, never a separately calculated count.
 The response adds:
 
-```jsonc
+```json
 {
   "object": "list",
-  "data": [/* exact projected model rows */],
+  "data": [
+    {"model_id": "example-model-a"},
+    {"model_id": "example-model-b"}
+  ],
   "catalog_state": "ready",
   "summary": {
-    "sellable_model_count": MODEL_COUNT_FROM_DATA,
+    "sellable_model_count": 2,
     "definition": "served_priced_displayed",
     "catalog_updated_at": "2026-07-23T00:00:00Z"
   },
@@ -416,7 +430,9 @@ The response adds:
 }
 ```
 
-`MODEL_COUNT_FROM_DATA` denotes a runtime-derived integer, never a source constant. Home,
+The example abbreviates the existing model-row fields. Normatively,
+`sellable_model_count == count(distinct normalized data[*].model_id)` for the same response; the
+value is a runtime-derived integer, never a source constant. Home,
 `/models`, and `/pricing` render only `summary.sellable_model_count` from a successful
 `catalog_state=ready` response. The catalog source must surface degraded status instead of
 silently turning source failure into an authoritative empty projection. Failure or degraded
@@ -438,6 +454,13 @@ reviewable artifact such as the planned path:
 
 `backend/resources/public-compatibility/v1/current.json` *(planned)*
 
+The publisher writes canonical JSON bytes plus a detached
+`backend/resources/public-compatibility/v1/current.json.sha256` digest *(planned)*. The build
+gate recomputes SHA-256 and rejects any mismatch before embedding both immutable resources.
+Runtime validation recomputes the digest before schema, runtime, freshness, and catalog checks.
+The digest is content identity and reproducibility evidence, not a digital signature or a claim
+that bypasses repository review.
+
 Each row contains only:
 
 - client ID and tested client version;
@@ -458,8 +481,11 @@ Edge IDs, raw log paths, or probe-resource names.
 | `limited` | The combination works only with listed user-facing constraints and workaround. |
 | `unknown` | No public compatibility claim. Hidden from positive counts but available as an honest empty state. |
 
-Expired `verified` rows downgrade at read time to `compatible` or `unknown`; a release/version
-mismatch never remains green. Paid media never becomes verified from a non-paid gate.
+When a `verified`, `compatible`, or `limited` row expires under its evidence-kind freshness
+policy, its public verdict becomes `unknown`. A current `compatible` row requires its own valid
+contract/component evidence; it is never inferred from expired live evidence. A row-level
+runtime/client version mismatch also becomes `unknown`. Paid media never becomes verified from
+a non-paid gate.
 
 Allowed limitation codes describe user impact and action only:
 
@@ -478,9 +504,17 @@ pool, entitlement, routing, and topology causes are not public codes.
 ### 9.3 API and UI
 
 `GET /api/v1/public/compatibility` serves the validated embedded snapshot with `ETag` and
-`Cache-Control`. Invalid schema, stale runtime anchor, missing catalog model, or signature/hash
-failure returns `503 compatibility_evidence_unavailable`; it never serves the previous artifact
-as current.
+`Cache-Control`. Invalid schema, an invalid or missing snapshot-level runtime contract anchor,
+an unavailable/degraded current catalog projection, or detached content-digest failure returns
+`503 compatibility_evidence_unavailable`; it never serves the previous artifact as current.
+Rows whose models are no longer in a valid current catalog are excluded from the final public
+representation; ordinary catalog membership drift is not an artifact-wide `503`.
+
+Because freshness downgrades and catalog membership can change without changing the embedded
+bytes, the response `ETag` is derived from the canonical **final public representation** after
+those transformations, including its runtime and catalog anchors—not from the artifact digest
+alone. `Cache-Control` freshness cannot extend past the next row-expiry transition. A client can
+therefore never retain a stale green row through a `304 Not Modified`.
 
 The public matrix supports client, protocol, transport, model, and verdict filters and always
 shows last verification time. Gaps are rendered as “not yet verified,” not “unsupported.”

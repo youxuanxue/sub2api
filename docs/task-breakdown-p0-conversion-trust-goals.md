@@ -5,7 +5,8 @@ authors: [codex]
 created: 2026-07-23
 planning_branch: docs/p0-conversion-trust-plan
 source: tokenkey-competitor-analysis-2026-07-22
-source_report: tokenkey-competitor-research/tokenkey-competitor-analysis-2026-07-22.md
+source_report_name: tokenkey-competitor-analysis-2026-07-22.md
+source_report_scope: private_external_research_not_committed
 source_report_sha256: 2d30d0172ee432dcf37df77d84c4507aff99a9a980f959fd882bbc1d22824607
 ---
 
@@ -21,7 +22,9 @@ source_report_sha256: 2d30d0172ee432dcf37df77d84c4507aff99a9a980f959fd882bbc1d22
 因此，Goal 按**用户结果与独立发布/回滚边界**拆分，不按前端、后端、运维等技术层拆分。
 每个 Goal 只有一个 owner、一个主结果和一组可运行的完成证据。
 
-本文件与上述 hash 锁定的竞品报告是重新启动 P0 的唯一输入。此前生成的
+本文件与上述 hash 锁定的竞品报告是重新启动 P0 的唯一输入。该报告包含登录后竞品证据，
+属于私有外部研究工件，特意不进入仓库或 PR；SHA-256 只用于锁定审阅版本，本文件不得复制其
+凭据、登录后截图或私有证据。此前生成的
 `docs/approved/p0-conversion-trust.md` 与 US-039～US-043 的旧草稿内容已退出事实源；后续不得从
 其内容复制设计结论。`P0-G0` 应从用户承诺、当前代码和实时只读证据重新推导最小设计与 Story。
 新建 Story 使用当时 main 的下一可用 ID；即使 ID 与被清理的未提交旧草稿重合，内容也必须重新推导。
@@ -194,12 +197,15 @@ flowchart LR
 - access/refresh token 永不离开 Edge 同源 exchange 响应。
 - URL、history、Referer、日志、APM、截图和可保留 trace 不含 code、verifier 或 token。
 - prod 后端与 prod SPA 都拿不到 verifier；prod 只持有 challenge 和短时 code。
+- 签名 mint、code record、refresh family 和 Edge audit event 都绑定稳定的非秘密 prod
+  发起管理员 ID、prod request ID 与 attempt ID；这些字段只用于归因，不决定 Edge 权限。
 - 错 verifier、错来源、错 audience、过期和重放均 fail closed；错误尝试不能抢先消费合法 code。
 - popup blocked 或 capability 不足时提供手动登录，不恢复旧路径。
 
 ### Done 证据
 
 - Go/Redis 集成测试证明 TTL、绑定校验和并发单消费。
+- prod 与 Edge 的审计证据能用 request/attempt ID 关联到同一发起管理员，且无用户 PII 或秘密。
 - 真实双 origin Playwright 从 prod UI 到 Edge accounts 成功，并验证地址栏、history、
   Referer、console 和允许保留工件无秘密。
 - 所有 deployable Edge capability 通过后才允许 prod switch。
