@@ -1,14 +1,13 @@
 package admin
 
 import (
-	"context"
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -168,16 +167,7 @@ func (h *OpsHandler) GetAccountAvailability(c *gin.Context) {
 }
 
 func isOpsRealtimeRequestCanceled(c *gin.Context, err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, context.Canceled) {
-		return true
-	}
-	if c != nil && c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled) {
-		return true
-	}
-	return strings.Contains(err.Error(), "canceling statement due to user request")
+	return middleware2.IsClientClosedRequestError(c, err)
 }
 
 func parseOpsRealtimeWindow(v string) (time.Duration, string, bool) {
