@@ -19,8 +19,8 @@ import (
 // empty-pool 429, and the generic 403→502 mask would hide the real cause from the
 // operator. So a grok entitlement-403 must:
 //  1. NOT trigger account failover (shouldFailoverOpenAIUpstreamResponse=false),
-//  2. NOT cool/disable the account (no failover ⇒ HandleUpstreamError is not
-//     reached on the native chat/image path),
+//  2. NOT cool/disable the account (every forwarding path must classify or
+//     guard it before invoking account-error side effects),
 //  3. surface a clean, actionable client error (NOT a masked 502).
 //
 // Kept in a TK-only companion file so future upstream merges of

@@ -68,7 +68,9 @@
     {
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": [
-        "if account.Platform == PlatformGrok {"
+        "if account.Platform == PlatformGrok {",
+        "grokTokenProvider.GetAccessToken(ctx, account)",
+        "account.GetCredential(\"api_key\")"
       ],
       "rationale": "The grok credential arms of getRequestCredential: OAuth returns the xAI Bearer through GrokTokenProvider, while API-key relay stubs use their configured api_key. This file no longer owns upstream error classification; the Heavy-403 guards are pinned to their current owner files below."
     },
