@@ -2355,7 +2355,7 @@ echo "=== sub2api: headless-agent composite sharing ==="
 # drifted: ops-daily-diagnostics ran MAX_THINKING_TOKENS=16000 + omitted
 # set -o pipefail). Fail closed if any agent workflow re-inlines `claude -p` or
 # stops using the action, or if the composite loses its single-source
-# thinking-env / pipefail / fail-closed redactor.
+# thinking-env / pipeline status capture / fail-closed redactor.
 _hac_action=".github/actions/run-headless-agent/action.yml"
 _hac_runner="scripts/agent/run-headless-claude.sh"
 _hac_files=".github/workflows/pr-repair-agent.yml .github/workflows/upstream-issue-watchdog.yml .github/workflows/upstream-merge-agent-daily.yml .github/workflows/ops-daily-diagnostics.yml .github/workflows/ops-repair-draft.yml"
@@ -2384,6 +2384,15 @@ if [ ! -f "$_hac_runner" ]; then
 else
     grep -q 'set -uo pipefail' "$_hac_runner" || {
         echo "  FAIL: $_hac_runner lost pipefail (claude exit code would be masked by tee)"
+        errors=$((errors + 1)); _hac_ok=0; }
+    grep -q 'pipeline_status=("${PIPESTATUS\[@\]}")' "$_hac_runner" || {
+        echo "  FAIL: $_hac_runner must capture every pipeline exit code immediately"
+        errors=$((errors + 1)); _hac_ok=0; }
+    grep -q 'headless agent redactor exited' "$_hac_runner" || {
+        echo "  FAIL: $_hac_runner must fail closed when the redactor exits non-zero"
+        errors=$((errors + 1)); _hac_ok=0; }
+    grep -q 'headless agent output writer exited' "$_hac_runner" || {
+        echo "  FAIL: $_hac_runner must surface tee/output failures"
         errors=$((errors + 1)); _hac_ok=0; }
     grep -q '< "$PROMPT_FILE"' "$_hac_runner" || {
         echo "  FAIL: $_hac_runner must stream PROMPT_FILE over stdin"

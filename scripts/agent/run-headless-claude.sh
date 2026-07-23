@@ -32,12 +32,24 @@ claude -p \
   2>&1 \
   | python3 "$RUNNER_TEMP/redact-agent-stream.py" \
   | tee "$OUTPUT_FILE"
-code=${PIPESTATUS[0]}
+pipeline_status=("${PIPESTATUS[@]}")
 set -e
 
-echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-echo "agent exited with code $code"
-if [ "${FAIL_ON_ERROR:-true}" = "true" ] && [ "$code" -ne 0 ]; then
-  echo "::error::headless agent exited $code"
-  exit "$code"
+claude_code=${pipeline_status[0]}
+redactor_code=${pipeline_status[1]}
+tee_code=${pipeline_status[2]}
+echo "exit_code=$claude_code" >> "$GITHUB_OUTPUT"
+echo "agent exited with code $claude_code"
+
+if [ "$redactor_code" -ne 0 ]; then
+  echo "::error::headless agent redactor exited $redactor_code"
+  exit "$redactor_code"
+fi
+if [ "$tee_code" -ne 0 ]; then
+  echo "::error::headless agent output writer exited $tee_code"
+  exit "$tee_code"
+fi
+if [ "${FAIL_ON_ERROR:-true}" = "true" ] && [ "$claude_code" -ne 0 ]; then
+  echo "::error::headless agent exited $claude_code"
+  exit "$claude_code"
 fi

@@ -119,6 +119,77 @@ exit "${CLAUDE_STUB_EXIT:-0}"
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertEqual(github_output.read_text(encoding="utf-8"), "exit_code=7\n")
 
+    def test_redactor_failure_is_fail_closed_when_claude_succeeds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_raw:
+            tmp = pathlib.Path(tmp_raw)
+            bin_dir = tmp / "bin"
+            bin_dir.mkdir()
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("test", encoding="utf-8")
+            (tmp / "redact-agent-stream.py").write_text(
+                "raise SystemExit(9)\n",
+                encoding="utf-8",
+            )
+            claude = bin_dir / "claude"
+            claude.write_text(
+                "#!/usr/bin/env bash\ncat >/dev/null\nexit 0\n",
+                encoding="utf-8",
+            )
+            claude.chmod(0o755)
+            github_output = tmp / "github-output"
+            env = {
+                "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                "PROMPT_FILE": str(prompt),
+                "ANTHROPIC_MODEL": "test-model",
+                "MAX_BUDGET_USD": "1.00",
+                "ALLOWED_TOOLS": "Read",
+                "OUTPUT_FILE": str(tmp / "agent.jsonl"),
+                "RUNNER_TEMP": str(tmp),
+                "GITHUB_OUTPUT": str(github_output),
+                "FAIL_ON_ERROR": "false",
+            }
+            proc = subprocess.run(
+                ["bash", str(RUNNER)], cwd=ROOT, env=env, capture_output=True, text=True, check=False
+            )
+
+            self.assertEqual(proc.returncode, 9, proc.stderr)
+            self.assertIn("headless agent redactor exited 9", proc.stdout)
+            self.assertEqual(github_output.read_text(encoding="utf-8"), "exit_code=0\n")
+
+    def test_output_failure_is_not_masked_when_claude_succeeds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_raw:
+            tmp = pathlib.Path(tmp_raw)
+            bin_dir = tmp / "bin"
+            bin_dir.mkdir()
+            prompt = tmp / "prompt.txt"
+            prompt.write_text("test", encoding="utf-8")
+            shutil.copyfile(REDACTOR, tmp / "redact-agent-stream.py")
+            claude = bin_dir / "claude"
+            claude.write_text(
+                "#!/usr/bin/env bash\ncat >/dev/null\nexit 0\n",
+                encoding="utf-8",
+            )
+            claude.chmod(0o755)
+            github_output = tmp / "github-output"
+            env = {
+                "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                "PROMPT_FILE": str(prompt),
+                "ANTHROPIC_MODEL": "test-model",
+                "MAX_BUDGET_USD": "1.00",
+                "ALLOWED_TOOLS": "Read",
+                "OUTPUT_FILE": str(tmp),
+                "RUNNER_TEMP": str(tmp),
+                "GITHUB_OUTPUT": str(github_output),
+                "FAIL_ON_ERROR": "false",
+            }
+            proc = subprocess.run(
+                ["bash", str(RUNNER)], cwd=ROOT, env=env, capture_output=True, text=True, check=False
+            )
+
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("headless agent output writer exited", proc.stdout)
+            self.assertEqual(github_output.read_text(encoding="utf-8"), "exit_code=0\n")
+
 
 if __name__ == "__main__":
     unittest.main()
