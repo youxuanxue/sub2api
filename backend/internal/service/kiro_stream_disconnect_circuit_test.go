@@ -23,7 +23,6 @@ func TestKiroStreamDisconnectCircuitThresholdWindowCooldownAndSuccessReset(t *te
 
 	tripped, _ := circuit.recordFailure(1, base)
 	require.False(t, tripped)
-	require.False(t, circuit.isBlocked(1, base))
 	require.True(t, circuit.recordSuccess(1))
 
 	tripped, _ = circuit.recordFailure(1, base.Add(10*time.Second))
@@ -31,8 +30,11 @@ func TestKiroStreamDisconnectCircuitThresholdWindowCooldownAndSuccessReset(t *te
 	tripped, until := circuit.recordFailure(1, base.Add(20*time.Second))
 	require.True(t, tripped)
 	require.Equal(t, base.Add(20*time.Second+10*time.Minute), until)
-	require.True(t, circuit.isBlocked(1, until.Add(-time.Nanosecond)))
-	require.False(t, circuit.isBlocked(1, until), "cooldown expiry must re-admit the account")
+	tripped, blockedUntil := circuit.recordFailure(1, until.Add(-time.Nanosecond))
+	require.False(t, tripped, "failures during cooldown must not retrigger persistence")
+	require.Equal(t, until, blockedUntil)
+	tripped, _ = circuit.recordFailure(1, until)
+	require.False(t, tripped, "cooldown expiry must restart the failure window")
 
 	tripped, _ = circuit.recordFailure(2, base)
 	require.False(t, tripped)

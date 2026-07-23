@@ -118,23 +118,6 @@ func (c *kiroStreamDisconnectCircuit) recordSuccess(accountID int64) bool {
 	return true
 }
 
-func (c *kiroStreamDisconnectCircuit) isBlocked(accountID int64, now time.Time) bool {
-	if c == nil || accountID <= 0 {
-		return false
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	entry, ok := c.entries[accountID]
-	if !ok || entry.blockedUntil.IsZero() {
-		return false
-	}
-	if !now.Before(entry.blockedUntil) {
-		delete(c.entries, accountID)
-		return false
-	}
-	return true
-}
-
 func (c *kiroStreamDisconnectCircuit) ensureCapacityLocked(now time.Time) {
 	if len(c.entries) < c.settings.maxEntries {
 		return
