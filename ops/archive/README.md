@@ -190,7 +190,7 @@ Each batch still requires the exact confirmation string
 Staging (`archive-export/` in the pgdump bucket) expires in **seven days**. Promote
 copies committed export batches into the dedicated archive bucket (**90d Standard →
 400d total retention**). Design baseline:
-`docs/approved/design-prod-archive-bucket.md` (pending approval).
+`docs/approved/design-prod-archive-bucket.md` (approved).
 
 Deploy the archive stack once (same `AppInstanceRoleArn` pattern as backups):
 

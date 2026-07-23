@@ -1,9 +1,11 @@
 ---
 title: 生产 ops 长期 archive bucket 与 promote
-status: pending
-approved_by: pending
+status: approved
+approved_by: "xuejiao (archive bucket approval, 2026-07-23)"
+approved_at: 2026-07-23
 authors: [agent]
 created: 2026-07-22
+related_prs: [1401]
 ---
 
 # 生产 ops 长期 archive bucket 与 promote
