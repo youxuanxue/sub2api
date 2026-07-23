@@ -72,12 +72,12 @@
     "source": "passive-pcap"
   },
   "expected_http": {
-    "kiro_ide_version": "1.0.165",
+    "kiro_ide_version": "1.0.203",
     "streaming_sdk_version": "1.0.34",
     "node_version": "22.22.0",
     "system_version": "darwin#24.0.0",
-    "user_agent": "aws-sdk-js/1.0.34 ua/2.1 os/darwin#24.0.0 lang/js md/nodejs#22.22.0 api/codewhispererstreaming#1.0.34 m/E KiroIDE-1.0.165",
-    "x_amz_user_agent": "aws-sdk-js/1.0.34 KiroIDE-1.0.165",
+    "user_agent": "aws-sdk-js/1.0.34 ua/2.1 os/darwin#24.0.0 lang/js md/nodejs#22.22.0 api/codewhispererstreaming#1.0.34 m/E KiroIDE-1.0.203",
+    "x_amz_user_agent": "aws-sdk-js/1.0.34 KiroIDE-1.0.203",
     "source": "repo-constants"
   }
 }
