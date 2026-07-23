@@ -68,6 +68,10 @@ Hard guardrails:
   record a nonzero reproduction result before the fix and a zero result after
   it, rerun that command, pass `./scripts/preflight.sh`, and satisfy protected
   path and diff-size guards. A non-reproducible candidate produces no branch.
+- The repair prompt receives only a fixed allowlisted brief; raw model and
+  endpoint values never enter the write-capable agent. Test execution goes
+  through the repository-owned command validator, and protected paths plus diff
+  size are revalidated after the reproduction command returns.
 - Signature cooldown / dedupe labels (`ops-sig:*`, plus `cluster-sig:*` for error clusters) avoid duplicate churn.
 - AWS diagnostics jobs have `id-token: write` but no repo write permissions.
 - Issue/Claude/repair-dispatch/repair jobs have no AWS OIDC permission.

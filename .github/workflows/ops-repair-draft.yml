@@ -75,7 +75,11 @@ jobs:
           python3 ops/observability/daily_error_report.py select \
             --report /tmp/ops-repair/report/daily-error-report.json \
             --signature "$CANDIDATE_SIGNATURE" \
+            --output /tmp/ops-repair/candidate-source.json
+          python3 ops/observability/ops_repair_contract.py prompt-candidate \
+            --candidate /tmp/ops-repair/candidate-source.json \
             --output /tmp/ops-repair/candidate.json
+          rm -f /tmp/ops-repair/candidate-source.json
           CUTOFF="$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)"
           RECENT="$(gh pr list --state all --limit 100 --json body,createdAt \
             | jq --arg sig "$CANDIDATE_SIGNATURE" --arg cutoff "$CUTOFF" '[.[] | select(.createdAt > $cutoff and (.body // "" | contains($sig)))] | length')"
@@ -133,8 +137,11 @@ jobs:
 
           Required outcome:
           - First locate the code owner and add a focused regression test.
-          - Run that test against the unmodified implementation and record its
-            nonzero exit code. If it cannot reproduce the candidate, make no
+          - Run tests only through the repository-owned wrapper.
+            Backend example: `python3 ops/observability/ops_repair_contract.py run-command --command 'cd backend && go test ./internal/handler -run ^TestName$'`.
+            Use either one focused backend Go package or one frontend Vitest file.
+          - Run the focused test against the unmodified implementation and record
+            its nonzero exit code. If it cannot reproduce the candidate, make no
             repository changes and write /tmp/ops-repair-result.json with
             {"status":"no_change","reason":"..."}.
           - If reproduced, implement the smallest safe fix and rerun the same
@@ -146,7 +153,8 @@ jobs:
           - Keep the total diff at or below 200 changed lines.
           - Write /tmp/ops-repair-result.json with status=fixed,
             candidate_signature, reproduction_command, before_exit_code,
-            after_exit_code, and summary.
+            after_exit_code, and summary. reproduction_command is the inner
+            `cd backend/frontend && ...` command, not the wrapper invocation.
           - Write /tmp/pr-body.md in Chinese with sections 摘要, 风险, 验证,
             提交. Include the exact candidate signature and explicitly state
             that this is a Draft requiring human review.
@@ -158,7 +166,7 @@ jobs:
             echo "Report run: $REPORT_RUN_ID"
             echo "Candidate signature: $CANDIDATE_SIGNATURE"
             echo
-            echo '## Sanitized candidate JSON'
+            echo '## Allowlisted candidate brief'
             cat /tmp/ops-repair/candidate.json
           } >> /tmp/ops-repair-prompt.txt
 
@@ -169,7 +177,7 @@ jobs:
           prompt_file: /tmp/ops-repair-prompt.txt
           model: "opus[1m]"
           max_budget_usd: "8.00"
-          allowed_tools: "Bash Read Write Edit Grep Glob"
+          allowed_tools: "Bash(python3 ops/observability/ops_repair_contract.py run-command *) Read Write Edit Grep Glob"
           auth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           output_file: /tmp/ops-repair-agent.jsonl
 
@@ -205,6 +213,15 @@ jobs:
           python3 ops/observability/ops_repair_contract.py run-reproduction \
             --result /tmp/ops-repair-result.json \
             --repo-root "$GITHUB_WORKSPACE"
+          { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u > /tmp/ops-repair/changed-files.txt
+          LINES="$(git diff --numstat | awk '{add+=$1; del+=$2} END {print add+del}')"
+          [ "${LINES:-0}" -le 200 ] || { echo "::error::repair diff grew after reproduction: $LINES lines"; exit 1; }
+          python3 ops/observability/ops_repair_contract.py validate \
+            --candidate /tmp/ops-repair/candidate.json \
+            --result /tmp/ops-repair-result.json \
+            --changed-files /tmp/ops-repair/changed-files.txt \
+            --pr-body /tmp/pr-body.md
+          git diff --check
 
       - name: Commit Draft repair locally
         if: steps.candidate.outputs.skip == 'false' && steps.outcome.outputs.skip == 'false'

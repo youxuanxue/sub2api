@@ -82,8 +82,12 @@ def cluster_key(item: dict[str, Any], source: str = "ops_error_logs") -> dict[st
     }
 
 
-def signature_for(key: dict[str, Any]) -> str:
-    canonical = json.dumps(key, sort_keys=True, separators=(",", ":"))
+def signature_for(key: dict[str, Any], target_id: str) -> str:
+    canonical = json.dumps(
+        {"target_id": clean_text(target_id, 80), **key},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     return "daily-error|" + hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
@@ -97,7 +101,7 @@ def classify_state(current: int, previous: int, active_days: int) -> str:
     return "ongoing"
 
 
-def classify_cluster(item: dict[str, Any], max_count_5m: int) -> dict[str, Any]:
+def classify_cluster(item: dict[str, Any], max_count_5m: int, target_id: str) -> dict[str, Any]:
     key = cluster_key(item)
     current = as_int(item.get("current_count"))
     previous = as_int(item.get("previous_count"))
@@ -106,7 +110,7 @@ def classify_cluster(item: dict[str, Any], max_count_5m: int) -> dict[str, Any]:
     status = key["status_code"]
     owner = key["owner"]
     excluded = bool(REPAIR_EXCLUDED.search(f"{key['phase']} {key['error_type']}"))
-    code_owned = owner == "platform" and status >= 500 and status != 499 and not excluded
+    code_owned = owner == "platform" and key["phase"] == "internal" and status >= 500 and not excluded
     confidence = "high" if code_owned and current >= 5 and state in {"new", "regressed", "persistent"} else (
         "medium" if owner in {"platform", "provider"} and current >= 3 else "low"
     )
@@ -129,7 +133,7 @@ def classify_cluster(item: dict[str, Any], max_count_5m: int) -> dict[str, Any]:
     )
     return {
         **key,
-        "signature": signature_for(key),
+        "signature": signature_for(key, target_id),
         "state": state,
         "severity": severity,
         "current_count": current,
@@ -154,7 +158,7 @@ def classify_cluster(item: dict[str, Any], max_count_5m: int) -> dict[str, Any]:
     }
 
 
-def classify_access_cluster(item: dict[str, Any]) -> dict[str, Any] | None:
+def classify_access_cluster(item: dict[str, Any], target_id: str) -> dict[str, Any] | None:
     current = as_int(item.get("current_count"))
     status = as_int(item.get("status_code"))
     if current <= 0 or status < 400:
@@ -163,7 +167,7 @@ def classify_access_cluster(item: dict[str, Any]) -> dict[str, Any] | None:
     anomaly = status >= 500 and current >= 3
     return {
         **key,
-        "signature": signature_for(key),
+        "signature": signature_for(key, target_id),
         "state": "observed",
         "severity": "warning",
         "current_count": current,
@@ -188,6 +192,7 @@ def build_report(probe_text: str, target_id: str) -> dict[str, Any]:
     sections = parse_probe(probe_text)
     meta = dict(sections["meta"][0])
     meta["target_id"] = clean_text(target_id, 80)
+    target_id = meta["target_id"]
     if sections.get("skip"):
         reason = clean_text(sections["skip"][0].get("reason"), 200)
         return {
@@ -206,16 +211,16 @@ def build_report(probe_text: str, target_id: str) -> dict[str, Any]:
     totals = dict((sections.get("totals") or [{}])[0])
     burst_by_signature: dict[str, int] = {}
     for burst in sections.get("bursts", []):
-        sig = signature_for(cluster_key(burst))
+        sig = signature_for(cluster_key(burst), target_id)
         burst_by_signature[sig] = max(burst_by_signature.get(sig, 0), as_int(burst.get("max_count_5m")))
 
     clusters = []
     for raw in sections.get("clusters", []):
-        sig = signature_for(cluster_key(raw))
+        sig = signature_for(cluster_key(raw), target_id)
         peak = max(as_int(raw.get("max_count_5m")), burst_by_signature.get(sig, 0))
-        clusters.append(classify_cluster(raw, peak))
+        clusters.append(classify_cluster(raw, peak, target_id))
     for raw in sections.get("access_clusters", []):
-        classified = classify_access_cluster(raw)
+        classified = classify_access_cluster(raw, target_id)
         if classified:
             clusters.append(classified)
     clusters.sort(key=lambda row: (-as_int(row["priority"]), row["signature"]))
@@ -368,8 +373,12 @@ def select_candidate(report: dict[str, Any], signature: str) -> dict[str, Any]:
     candidate = matches[0]
     if not candidate.get("repair_eligible") or candidate.get("confidence") != "high":
         raise ReportError("candidate is not high-confidence and repair-eligible")
-    if candidate.get("owner") != "platform" or as_int(candidate.get("status_code")) < 500:
-        raise ReportError("candidate is not a platform-owned final 5xx")
+    if (
+        candidate.get("owner") != "platform"
+        or candidate.get("phase") != "internal"
+        or as_int(candidate.get("status_code")) < 500
+    ):
+        raise ReportError("candidate is not an internal platform-owned final 5xx")
     return candidate
 
 

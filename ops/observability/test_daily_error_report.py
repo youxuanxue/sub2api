@@ -133,6 +133,17 @@ class DailyErrorReportTest(unittest.TestCase):
         self.assertFalse(platform["code_owned"])
         self.assertFalse(platform["repair_eligible"])
 
+    def test_routing_capacity_503_is_never_repair_eligible(self) -> None:
+        text = probe_fixture().replace('"status_code": 500', '"status_code": 503')
+        text = text.replace('"phase": "internal"', '"phase": "routing"')
+        text = text.replace("dashboard_query_failed", "api_error")
+        report = build_report(text, "prod")
+        platform = next(row for row in report["clusters"] if row["owner"] == "platform")
+        self.assertEqual(platform["phase"], "routing")
+        self.assertFalse(platform["code_owned"])
+        self.assertFalse(platform["repair_eligible"])
+        self.assertEqual(report["repair_candidates"], [])
+
     def test_select_candidate_fails_closed(self) -> None:
         report = build_report(probe_fixture(), "prod")
         signature = report["repair_candidates"][0]["signature"]
@@ -204,6 +215,25 @@ esac
             markdown = aggregate_markdown(report)
             self.assertIn("| prod | issue_candidate | 120 | 15 | 5 | 8 |", markdown)
             self.assertIn("dashboard_query_failed", markdown)
+
+    def test_same_cluster_on_two_targets_has_unique_selectable_signatures(self) -> None:
+        prod = build_report(probe_fixture(), "prod")
+        edge = build_report(probe_fixture(), "edge-us5-ls")
+        prod_signature = prod["repair_candidates"][0]["signature"]
+        edge_signature = edge["repair_candidates"][0]["signature"]
+        self.assertNotEqual(prod_signature, edge_signature)
+
+        with tempfile.TemporaryDirectory() as tmp_raw:
+            root = pathlib.Path(tmp_raw)
+            paths = []
+            for name, report in (("prod", prod), ("edge", edge)):
+                path = root / name / "daily-error-report.json"
+                path.parent.mkdir()
+                path.write_text(json.dumps(report), encoding="utf-8")
+                paths.append(path)
+            aggregate = aggregate_reports(paths, "123", "https://example.test/runs/123")
+            self.assertEqual(select_candidate(aggregate, prod_signature)["target_id"], "prod")
+            self.assertEqual(select_candidate(aggregate, edge_signature)["target_id"], "edge-us5-ls")
 
 
 if __name__ == "__main__":

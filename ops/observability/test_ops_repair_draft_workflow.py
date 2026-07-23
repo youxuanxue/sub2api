@@ -42,11 +42,40 @@ class OpsRepairDraftWorkflowTest(unittest.TestCase):
         self.assertIn("persist-credentials: false", self.text)
         self.assertIn("ops_repair_contract.py", self.text)
         self.assertIn("ops_repair_contract.py run-reproduction", self.text)
+        self.assertIn("ops_repair_contract.py run-command *", self.text)
+        self.assertNotIn('allowed_tools: "Bash Read', self.text)
         self.assertNotIn("bash -lc", self.text)
         self.assertIn('BRANCH="fix/ops-repair-', self.text)
         self.assertIn("./scripts/preflight.sh", self.text)
         self.assertIn("gh pr create --draft", self.text)
         self.assertNotIn("gh pr merge", self.text)
+
+    def test_agent_receives_only_allowlisted_candidate_brief(self) -> None:
+        prompt_start = self.text.index("- name: Build repair prompt")
+        agent_start = self.text.index("- name: Run repository-only repair agent", prompt_start)
+        prompt = self.text[prompt_start:agent_start]
+        self.assertIn("Allowlisted candidate brief", prompt)
+        self.assertIn("cat /tmp/ops-repair/candidate.json", prompt)
+        self.assertIn("prompt-candidate", self.text)
+        candidate_step_start = self.text.index("- name: Select candidate and enforce cooldown")
+        candidate_step_end = self.text.index("- uses: ./.github/actions/cache-and-checkout-new-api", candidate_step_start)
+        candidate_step = self.text[candidate_step_start:candidate_step_end]
+        self.assertIn("candidate-source.json", candidate_step)
+        self.assertIn("rm -f /tmp/ops-repair/candidate-source.json", candidate_step)
+
+    def test_final_diff_is_revalidated_after_reproduction(self) -> None:
+        guard_start = self.text.index("- name: Guard repair contract")
+        guard_end = self.text.index("- name: Commit Draft repair locally", guard_start)
+        guard = self.text[guard_start:guard_end]
+        reproduction = guard.index("ops_repair_contract.py run-reproduction")
+        first_validate = guard.index("ops_repair_contract.py validate")
+        second_validate = guard.index("ops_repair_contract.py validate", first_validate + 1)
+        final_snapshot = guard.index("git diff --name-only", reproduction)
+        self.assertLess(first_validate, reproduction)
+        self.assertLess(reproduction, final_snapshot)
+        self.assertLess(final_snapshot, second_validate)
+        self.assertIn("repair diff grew after reproduction", guard)
+        self.assertIn("git diff --check", guard)
 
     def test_non_reproducible_candidate_creates_no_branch(self) -> None:
         self.assertIn('"status":"no_change"', self.text)
