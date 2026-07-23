@@ -195,6 +195,9 @@ func (s *OpenAIGatewayService) shouldFailoverGrokUpstreamError(statusCode int, r
 	if isGrokContentPolicyRejection(statusCode, responseBody) {
 		return false
 	}
+	if tkIsGrokEntitlement403(statusCode, responseBody) {
+		return false
+	}
 	return s.shouldFailoverUpstreamError(statusCode)
 }
 

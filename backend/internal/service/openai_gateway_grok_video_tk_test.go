@@ -3,12 +3,16 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResolveGrokVideoCredential(t *testing.T) {
@@ -292,4 +296,20 @@ func TestBuildGrokVideoSubmitResponse(t *testing.T) {
 	if got.CreatedAt <= 0 {
 		t.Fatalf("created_at = %d, want a positive unix timestamp", got.CreatedAt)
 	}
+}
+
+func TestGrokVideoUpstreamErrorEntitlement403QuarantinesAccount(t *testing.T) {
+	repo := &grokQuotaAccountRepo{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	account := &Account{ID: 8801, Platform: PlatformGrok, Type: AccountTypeOAuth}
+	before := time.Now()
+	body := []byte(`{"code":"forbidden","error":"You have either run out of available resources or do not have an active Grok subscription."}`)
+
+	err := svc.grokVideoUpstreamError(context.Background(), account, http.StatusForbidden, body)
+	require.Error(t, err)
+	require.Equal(t, 1, repo.tempUnschedCalls)
+	require.Equal(t, "grok access or entitlement denied", repo.lastTempUnschedReason)
+	require.Greater(t, repo.lastTempUnschedUntil, before.Add(23*time.Hour))
+	require.Less(t, repo.lastTempUnschedUntil, before.Add(25*time.Hour))
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }

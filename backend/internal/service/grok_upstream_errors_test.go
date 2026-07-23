@@ -242,21 +242,26 @@ func TestGrokContentPolicySSEErrorDoesNotMutateOrFailover(t *testing.T) {
 	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
-func TestHandleGrokAccountUpstreamErrorEntitlement403KeepsDefaultCooldown(t *testing.T) {
+func TestShouldFailoverGrokUpstreamErrorEntitlement403Terminal(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	body := []byte(`{"code":"forbidden","error":"You have either run out of available resources or do not have an active Grok subscription."}`)
+	require.False(t, svc.shouldFailoverGrokUpstreamError(http.StatusForbidden, body))
+}
+
+func TestHandleGrokAccountUpstreamErrorEntitlement403QuarantinesAccount(t *testing.T) {
 	repo := &grokQuotaAccountRepo{}
 	svc := &OpenAIGatewayService{accountRepo: repo}
 	account := &Account{ID: 4716, Platform: PlatformGrok, Type: AccountTypeOAuth}
 	before := time.Now()
+	body := []byte(`{"code":"forbidden","error":"You have either run out of available resources or do not have an active Grok subscription."}`)
 
-	svc.handleGrokAccountUpstreamError(
-		context.Background(), account, http.StatusForbidden, nil,
-		[]byte(`{"error":{"message":"subscription required"}}`),
-	)
+	svc.handleGrokAccountUpstreamError(context.Background(), account, http.StatusForbidden, nil, body)
 
 	require.Equal(t, 1, repo.tempUnschedCalls)
 	require.Equal(t, "grok access or entitlement denied", repo.lastTempUnschedReason)
-	require.Greater(t, repo.lastTempUnschedUntil, before.Add(29*time.Minute))
-	require.Less(t, repo.lastTempUnschedUntil, before.Add(31*time.Minute))
+	require.Greater(t, repo.lastTempUnschedUntil, before.Add(23*time.Hour))
+	require.Less(t, repo.lastTempUnschedUntil, before.Add(25*time.Hour))
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
 func TestHandleGrokAccountUpstreamError403UsesConfiguredRule(t *testing.T) {

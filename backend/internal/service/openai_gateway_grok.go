@@ -1362,6 +1362,9 @@ func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Contex
 		if s.applyGrokForbiddenPolicy(ctx, account, responseBody) {
 			return
 		}
+		if s.tkHandleGrokEntitlement403AccountSideEffect(ctx, account, statusCode, responseBody) {
+			return
+		}
 		s.tempUnscheduleGrok(ctx, account, 30*time.Minute, "grok access or entitlement denied")
 	case http.StatusTooManyRequests:
 		if s.tkHandleGrok429UpstreamError(ctx, account, headers, responseBody, requestedModel...) {
