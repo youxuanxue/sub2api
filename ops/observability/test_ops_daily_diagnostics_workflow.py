@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ops-daily-diagnostics.yml"
 REPAIR_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ops-repair-draft.yml"
+ISSUE_LIFECYCLE_NOW = dt.datetime(2026, 7, 23, 9, 0, tzinfo=dt.timezone.utc)
 
 
 def workflow_text() -> str:
@@ -47,6 +51,72 @@ def extract_log_signal_classifier() -> str:
     start = text.index(marker)
     end = text.index("\n          PY", start)
     return textwrap.dedent(text[start:end])
+
+
+def extract_issue_lifecycle_script() -> str:
+    marker = "          # Lifecycle policy owner: ops/observability/prod_ops_issue_decision.py\n"
+    text = workflow_text()
+    start = text.rindex("          import hashlib", 0, text.index(marker))
+    end = text.index("\n          PY", start)
+    return textwrap.dedent(text[start:end])
+
+
+def run_issue_lifecycle(
+    *,
+    issue_candidates: list[dict],
+    gh_issues: list[dict],
+) -> tuple[list[list[str]], str]:
+    script = extract_issue_lifecycle_script()
+    finding = {
+        "target_id": "prod",
+        "kind": "openai_previous_response_fallback",
+        "signature": "log-signal|prod|openai-previous-response-fallback",
+        "title": "OpenAI previous response fallback",
+        "status": "issue_candidate",
+        "severity": "high",
+        "summary": "fallback count exceeded threshold",
+    }
+    candidates = issue_candidates or [finding]
+    calls: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        calls.append(list(args))
+        if args[:3] == ["gh", "issue", "list"]:
+            return subprocess.CompletedProcess(args, 0, stdout=json.dumps(gh_issues))
+        if args[:3] == ["gh", "issue", "comment"]:
+            return subprocess.CompletedProcess(args, 0, stdout="")
+        if args[:3] == ["gh", "issue", "create"]:
+            return subprocess.CompletedProcess(args, 0, stdout="https://github.com/example/issues/99")
+        if args[:2] == ["gh", "label"]:
+            return subprocess.CompletedProcess(args, 0, stdout="")
+        raise AssertionError(f"unexpected subprocess.run: {args!r}")
+
+    with tempfile.TemporaryDirectory() as tmp_raw:
+        root = Path(tmp_raw)
+        root.joinpath("ops-report.json").write_text(
+            json.dumps({"run_url": "https://example/run", "run_id": "123", "issue_candidates": candidates}),
+            encoding="utf-8",
+        )
+        root.joinpath("daily-error-report.json").write_text("{}", encoding="utf-8")
+        old_cwd = Path.cwd()
+        stdout = io.StringIO()
+        from ops.observability.prod_ops_issue_decision import decide_issue_action as real_decide_issue_action
+
+        def fixed_decide_issue_action(issues: list[dict]) -> dict:
+            return real_decide_issue_action(issues, now=ISSUE_LIFECYCLE_NOW)
+
+        try:
+            os.chdir(root)
+            with mock.patch("subprocess.run", fake_run):
+                with mock.patch(
+                    "ops.observability.prod_ops_issue_decision.decide_issue_action",
+                    fixed_decide_issue_action,
+                ):
+                    with contextlib.redirect_stdout(stdout):
+                        exec(compile(script, str(WORKFLOW), "exec"), {})
+        finally:
+            os.chdir(old_cwd)
+    return calls, stdout.getvalue()
 
 
 class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
@@ -124,14 +194,45 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             self.assertEqual(statuses["openai_previous_response_fallback"], "issue_candidate")
             self.assertEqual(list(statuses.values()).count("issue_candidate"), 1)
 
-    def test_issue_lifecycle_updates_open_and_cools_down_closed_signatures(self) -> None:
-        text = workflow_text()
-        self.assertIn("from ops.observability.prod_ops_issue_decision import decide_issue_action", text)
-        self.assertIn("'--state', 'all'", text)
-        self.assertIn("'number,state,closedAt,createdAt'", text)
-        self.assertIn("decision['action'] == 'update'", text)
-        self.assertIn("decision['action'] == 'suppress'", text)
-        self.assertIn("remains in the 7-day cooldown", text)
+    def test_issue_lifecycle_comments_on_open_signature(self) -> None:
+        calls, output = run_issue_lifecycle(
+            issue_candidates=[],
+            gh_issues=[{"number": 42, "state": "OPEN", "closedAt": None, "createdAt": "2026-07-20T08:00:00Z"}],
+        )
+        self.assertTrue(any(call[:4] == ["gh", "issue", "list", "--label"] for call in calls))
+        self.assertEqual(
+            [call for call in calls if call[:3] == ["gh", "issue", "comment"]],
+            [["gh", "issue", "comment", "42", "--body-file", "issue-1.md"]],
+        )
+        self.assertNotIn(["gh", "issue", "create"], [call[:3] for call in calls])
+        self.assertIn("updated issue #42 for ops-sig:", output)
+
+    def test_issue_lifecycle_suppresses_recently_closed_signature(self) -> None:
+        calls, output = run_issue_lifecycle(
+            issue_candidates=[],
+            gh_issues=[{"number": 43, "state": "CLOSED", "closedAt": "2026-07-23T08:15:33Z", "createdAt": "2026-07-20T08:00:00Z"}],
+        )
+        self.assertFalse(any(call[:3] == ["gh", "issue", "comment"] for call in calls))
+        self.assertFalse(any(call[:3] == ["gh", "issue", "create"] for call in calls))
+        self.assertIn("suppressed ops-sig:", output)
+        self.assertIn("remains in the 7-day cooldown", output)
+
+    def test_issue_lifecycle_creates_when_closed_signature_expired(self) -> None:
+        calls, output = run_issue_lifecycle(
+            issue_candidates=[],
+            gh_issues=[{"number": 44, "state": "CLOSED", "closedAt": "2026-07-01T08:00:00Z", "createdAt": "2026-06-28T08:00:00Z"}],
+        )
+        self.assertTrue(any(call[:3] == ["gh", "issue", "create"] for call in calls))
+        self.assertNotIn(["gh", "issue", "comment"], [call[:3] for call in calls])
+        self.assertIn("created issue for ops-sig:", output)
+
+    def test_issue_lifecycle_fail_closed_when_closed_at_unknown(self) -> None:
+        calls, output = run_issue_lifecycle(
+            issue_candidates=[],
+            gh_issues=[{"number": 45, "state": "CLOSED", "closedAt": "invalid", "createdAt": "2026-07-20T08:00:00Z"}],
+        )
+        self.assertFalse(any(call[:3] == ["gh", "issue", "create"] for call in calls))
+        self.assertIn("unknown closedAt; fail-closed suppress", output)
 
     def test_missing_target_reports_skipped_when_diagnose_cancelled(self) -> None:
         text = workflow_text()

@@ -892,10 +892,16 @@ jobs:
                   sh(['gh', 'issue', 'comment', number, '--body-file', str(body_file)])
                   print(f'updated issue #{number} for {ops_label}')
               elif decision['action'] == 'suppress':
-                  print(
-                      f"suppressed {ops_label}: issue #{decision['number']} was closed at "
-                      f"{decision['closed_at']} and remains in the 7-day cooldown"
-                  )
+                  if decision.get('closed_at') == 'unknown':
+                      print(
+                          f"suppressed {ops_label}: issue #{decision['number']} is closed with "
+                          f"unknown closedAt; fail-closed suppress until timestamp is available"
+                      )
+                  else:
+                      print(
+                          f"suppressed {ops_label}: issue #{decision['number']} was closed at "
+                          f"{decision['closed_at']} and remains in the 7-day cooldown"
+                      )
               else:
                   sh(['gh', 'issue', 'create', '--title', title, '--body-file', str(body_file), '--label', ','.join(labels)])
                   print(f'created issue for {ops_label}')
