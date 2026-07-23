@@ -6,7 +6,7 @@ approved_at: 2026-04-21
 updated_at: 2026-07-23
 created: 2026-04-21
 owners: [tk-platform]
-related_prs: ["#13", "#30", "#1433"]
+related_prs: ["#13", "#30", "#1433", "#1444"]
 scope: "QA capture + ErrorToIssue/PR"
 ---
 
