@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -32,6 +33,43 @@ type KiroGatewayService struct {
 	httpUpstream        HTTPUpstream
 	tlsFPProfileService *TLSFingerprintProfileService
 	accountRepo         AccountRepository
+}
+
+// KiroPostOutputStreamDisconnectError marks an incomplete upstream stream after
+// response content has already been sent. The current request cannot be replayed
+// safely; the handler uses this marker to exclude the account once on the
+// session's next request.
+type KiroPostOutputStreamDisconnectError struct {
+	Err error
+}
+
+func (e *KiroPostOutputStreamDisconnectError) Error() string {
+	if e == nil || e.Err == nil {
+		return "Kiro stream disconnected after output"
+	}
+	return "Kiro stream disconnected after output: " + e.Err.Error()
+}
+
+func (e *KiroPostOutputStreamDisconnectError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// IsKiroPostOutputStreamDisconnect reports whether replaying the current
+// response would risk duplicating text or tool calls.
+func IsKiroPostOutputStreamDisconnect(err error) bool {
+	var target *KiroPostOutputStreamDisconnectError
+	return errors.As(err, &target)
+}
+
+func classifyKiroPostOutputStreamError(kind string, err error) error {
+	wrapped := fmt.Errorf("kiro stream %s error: %w", kind, err)
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return &KiroPostOutputStreamDisconnectError{Err: wrapped}
+	}
+	return wrapped
 }
 
 // NewKiroGatewayService constructs a KiroGatewayService.
@@ -368,7 +406,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		msg := "upstream stream disconnected: " + sanitizeStreamError(callErr)
 		recordKiroStreamError(c, account, msg)
 		writeKiroStreamError(c, flusher, "stream_read_error", msg)
-		return nil, fmt.Errorf("kiro stream read error: %w", callErr)
+		return nil, classifyKiroPostOutputStreamError("read", callErr)
 	}
 	if callbackErr != nil && !enc.started {
 		return nil, classifyAndRecordKiroForwardError(c, account, callbackErr, model)
@@ -377,7 +415,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		msg := "upstream stream disconnected: " + sanitizeStreamError(callbackErr)
 		recordKiroStreamError(c, account, msg)
 		writeKiroStreamError(c, flusher, "stream_read_error", msg)
-		return nil, fmt.Errorf("kiro stream callback error: %w", callbackErr)
+		return nil, classifyKiroPostOutputStreamError("callback", callbackErr)
 	}
 	if visible, inlineThinking := redactor.Flush(); visible != "" || inlineThinking != "" {
 		if inlineThinking != "" {
@@ -424,6 +462,7 @@ func (s *KiroGatewayService) forwardStreaming(
 
 func recordKiroStreamError(c *gin.Context, account *Account, message string) {
 	setOpsUpstreamError(c, 0, message, "")
+	MarkOpsStreamError(c, "upstream_error", message, http.StatusBadGateway)
 	event := OpsUpstreamErrorEvent{
 		Platform:           PlatformKiro,
 		UpstreamStatusCode: 0,

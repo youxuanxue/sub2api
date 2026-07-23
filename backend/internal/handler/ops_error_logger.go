@@ -783,6 +783,13 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 		status := c.Writer.Status()
 		if status < 400 {
+			// A stream can fail after HTTP 200 and partial SSE output are committed.
+			// Persist the explicit in-band failure instead of mislabeling it as a
+			// recovered upstream retry merely because the wire status cannot change.
+			if _, ok := service.GetOpsStreamError(c); ok {
+				logOpsStreamError(c, ops, status)
+				return
+			}
 			// Even when the client request succeeds, we still want to persist upstream error attempts
 			// (retries/failover) so ops can observe upstream instability that gets "covered" by retries.
 			var events []*service.OpsUpstreamErrorEvent

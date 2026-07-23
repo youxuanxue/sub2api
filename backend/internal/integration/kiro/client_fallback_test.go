@@ -1,12 +1,43 @@
 package kiro
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 )
+
+func terminalEventStreamForTest(stopReason string) []byte {
+	const (
+		headerName = ":event-type"
+		eventType  = "metadataEvent"
+	)
+	payload := []byte(`{"stopReason":"` + stopReason + `"}`)
+	var headers bytes.Buffer
+	_ = headers.WriteByte(byte(len(headerName)))
+	_, _ = headers.WriteString(headerName)
+	_ = headers.WriteByte(7)
+	var valueLen [2]byte
+	binary.BigEndian.PutUint16(valueLen[:], uint16(len(eventType)))
+	_, _ = headers.Write(valueLen[:])
+	_, _ = headers.WriteString(eventType)
+
+	var frame bytes.Buffer
+	var u32 [4]byte
+	totalLen := 12 + headers.Len() + len(payload) + 4
+	binary.BigEndian.PutUint32(u32[:], uint32(totalLen))
+	_, _ = frame.Write(u32[:])
+	binary.BigEndian.PutUint32(u32[:], uint32(headers.Len()))
+	_, _ = frame.Write(u32[:])
+	_, _ = frame.Write([]byte{0, 0, 0, 0})
+	_, _ = frame.Write(headers.Bytes())
+	_, _ = frame.Write(payload)
+	_, _ = frame.Write([]byte{0, 0, 0, 0})
+	return frame.Bytes()
+}
 
 // recordingDoer returns 403 for the runtime.kiro.dev gateway and 200 (empty event
 // stream) for any legacy amazonaws host, recording every host it is asked to hit.
@@ -23,7 +54,7 @@ func (d *recordingDoer) Do(req *http.Request) (*http.Response, error) {
 	}
 	return &http.Response{
 		StatusCode: 200,
-		Body:       io.NopCloser(strings.NewReader("")),
+		Body:       io.NopCloser(bytes.NewReader(terminalEventStreamForTest("END_TURN"))),
 		Header:     http.Header{},
 	}, nil
 }
@@ -38,13 +69,15 @@ type requestMarkerContextKey struct{}
 func (d *readFailureThenSuccessDoer) Do(req *http.Request) (*http.Response, error) {
 	d.calls++
 	d.seenContextValue = req.Context().Value(requestMarkerContextKey{})
-	body := ""
+	body := []byte(nil)
 	if d.calls == 1 {
-		body = "\x00\x00\x00\x14"
+		body = []byte{0, 0, 0, 20}
+	} else {
+		body = terminalEventStreamForTest("END_TURN")
 	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(strings.NewReader(body)),
+		Body:       io.NopCloser(bytes.NewReader(body)),
 		Header:     http.Header{},
 	}, nil
 }

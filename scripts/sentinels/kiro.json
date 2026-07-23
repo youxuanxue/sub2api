@@ -132,6 +132,8 @@
         "case \"metadataEvent\":",
         "stale profileArn",
         "func parseEventStream",
+        "ErrIncompleteEventStream",
+        "sawTerminalStop",
         "extractEventStreamHeaderValue",
         "HTTPDoer",
         "buildStreamingHeaderValues(account, host)",
@@ -145,6 +147,8 @@
       "path": "backend/internal/integration/kiro/eventstream_test.go",
       "must_contain": [
         "TestParseEventStream_MetadataStopReason",
+        "TestParseEventStream_FrameAlignedEOFWithoutStopReasonFails",
+        "TestParseEventStream_TerminalStopIgnoresTruncatedTrailingFrame",
         "CONTENT_FILTERED"
       ],
       "rationale": "Protocol-level evidence that metadataEvent.stopReason survives EventStream decoding. Without this callback the service cannot distinguish an upstream content-policy terminal outcome from a broken empty response."
@@ -233,6 +237,9 @@
         "callErr != nil && !enc.started",
         "textBuf == \"\" && thinkingBuf == \"\" && len(toolUses) == 0",
         "KiroContentFilteredError",
+        "KiroPostOutputStreamDisconnectError",
+        "classifyKiroPostOutputStreamError",
+        "recordKiroStreamError",
         "CONTENT_FILTERED",
         "classifyAndRecordKiroForwardError",
         "publishKiroInternalThinkingSideChannel"
@@ -244,6 +251,8 @@
       "must_contain": [
         "TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartialOutput",
         "TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError",
+        "TestKiroGatewayService_Forward_Streaming_FrameAlignedEOFWithoutStopReasonSendsSSEError",
+        "TestClassifyKiroPostOutputStreamError_OnlyMarksIncompleteEOF",
         "TestKiroGatewayService_Forward_EmptyResponseTriggersFailover",
         "TestKiroGatewayService_Forward_NonStreaming_ContentFilteredIsNotFailover",
         "TestKiroGatewayService_Forward_Streaming_ContentFilteredIsNotFailover",
@@ -363,7 +372,10 @@
         "service.KiroInvalidModelError",
         "service.KiroInvalidRequestError",
         "service.KiroEndpointQuotaExhaustedError",
-        "service.KiroEndpointQuotaExhaustedRetryAfterSeconds()"
+        "service.KiroEndpointQuotaExhaustedRetryAfterSeconds()",
+        "ConsumeKiroSessionRecovery",
+        "RememberKiroSessionRecovery",
+        "IsKiroPostOutputStreamDisconnect"
       ],
       "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. handleKiroContentFilteredError maps Kiro's policy terminal outcome to 400 invalid_request_error and emits the trusted mirror outcome header without failover. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior. The KiroEndpointQuotaExhaustedError branch returns 429+Retry-After:10 instead of a generic 502 when all Kiro upstream endpoints hit quota exhaustion."
     },
@@ -376,6 +388,50 @@
         "KiroOutcomeHeader"
       ],
       "rationale": "Messages API wire-contract evidence for the Kiro content-filter outcome: HTTP 400 Anthropic error envelope plus the internal mirror header."
+    },
+    {
+      "path": "backend/internal/service/kiro_session_recovery.go",
+      "must_contain": [
+        "type KiroSessionRecoveryStore interface",
+        "func (s *GatewayService) RememberKiroSessionRecovery",
+        "func (s *GatewayService) ConsumeKiroSessionRecovery",
+        "stickySessionTTL"
+      ],
+      "rationale": "Owner for the one-shot interrupted-session recovery contract. A post-output incomplete Kiro stream records the failed account for the same session; the next Kiro continuation atomically consumes that exclusion. The TTL is stale-state garbage collection, not an account cooldown."
+    },
+    {
+      "path": "backend/internal/service/kiro_session_recovery_test.go",
+      "must_contain": [
+        "TestGatewayService_KiroSessionRecoveryIsOneShotAndSessionScoped",
+        "TestGatewayService_KiroSessionRecoveryNoopsWithoutSessionIdentity"
+      ],
+      "rationale": "Focused owner-level evidence that recovery is session-scoped, consumed once, and absent without a stable session identity."
+    },
+    {
+      "path": "backend/internal/repository/gateway_cache.go",
+      "must_contain": [
+        "func (c *gatewayCache) SetKiroSessionRecoveryExclusion",
+        "TxPipelined",
+        "func (c *gatewayCache) ConsumeKiroSessionRecoveryExclusion",
+        "GetDel"
+      ],
+      "rationale": "Redis implementation must atomically set the one-shot exclusion and delete the stale sticky binding, then GETDEL the marker so only one continuation applies it."
+    },
+    {
+      "path": "backend/internal/repository/gateway_cache_kiro_recovery_test.go",
+      "must_contain": [
+        "TestGatewayCache_KiroSessionRecoveryClearsStickyAndConsumesOnce"
+      ],
+      "rationale": "Repository regression evidence for sticky deletion, bounded marker TTL, and one-shot Redis consumption."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_kiro_recovery_test.go",
+      "must_contain": [
+        "TestGatewayHandlerMessages_KiroDisconnectMakesContinuationSelectAnotherAccount",
+        "TestGatewayHandlerMessages_NonKiroRequestDoesNotConsumeKiroRecovery",
+        "continuation must not call the failed account"
+      ],
+      "rationale": "Handler-level regression evidence for the complete recovery journey: a committed Kiro stream ends without stopReason, the marker clears sticky state, Continue selects another account, and non-Kiro traffic cannot spend the Kiro-only one-shot marker."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_tk_errors.go",
