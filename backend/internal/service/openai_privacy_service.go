@@ -156,19 +156,10 @@ func fetchChatGPTAccountsCheck(ctx context.Context, clientFactory PrivacyClientF
 	return accounts
 }
 
-// fetchChatGPTAccountInfo calls ChatGPT backend-api to get account info (plan_type, etc.).
-// Used as fallback when id_token doesn't contain these fields (e.g., Mobile RT).
-// orgID is used to match the correct account when multiple accounts exist (e.g., personal + team).
-// Returns nil on any failure (best-effort, non-blocking).
-func fetchChatGPTAccountInfo(ctx context.Context, clientFactory PrivacyClientFactory, accessToken, proxyURL, orgID string) *ChatGPTAccountInfo {
-	accounts := fetchChatGPTAccountsCheck(ctx, clientFactory, accessToken, proxyURL)
+func parseChatGPTAccountInfo(accounts map[string]any, orgID string) *ChatGPTAccountInfo {
 	if accounts == nil {
 		return nil
 	}
-	return parseChatGPTAccountInfo(accounts, orgID)
-}
-
-func parseChatGPTAccountInfo(accounts map[string]any, orgID string) *ChatGPTAccountInfo {
 	info := &ChatGPTAccountInfo{}
 	now := time.Now()
 

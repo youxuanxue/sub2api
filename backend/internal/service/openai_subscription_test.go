@@ -77,9 +77,9 @@ func TestFetchChatGPTAccountInfo_SkipsExpiredWorkspaceCandidate(t *testing.T) {
 	chatGPTAccountsCheckURL = server.URL + "/backend-api/accounts/check/v4-2023-04-27"
 	t.Cleanup(func() { chatGPTAccountsCheckURL = oldURL })
 
-	got := fetchChatGPTAccountInfo(context.Background(), func(proxyURL string) (*req.Client, error) {
+	got := parseChatGPTAccountInfo(fetchChatGPTAccountsCheck(context.Background(), func(proxyURL string) (*req.Client, error) {
 		return req.C().SetTimeout(5 * time.Second), nil
-	}, "access-token", "", "org-expired-workspace")
+	}, "access-token", ""), "org-expired-workspace")
 
 	require.NotNil(t, got)
 	require.Equal(t, "free", got.PlanType)
@@ -114,9 +114,9 @@ func TestFetchChatGPTAccountInfo_SkipsDeactivatedWorkspaceCandidate(t *testing.T
 	chatGPTAccountsCheckURL = server.URL + "/backend-api/accounts/check/v4-2023-04-27"
 	t.Cleanup(func() { chatGPTAccountsCheckURL = oldURL })
 
-	got := fetchChatGPTAccountInfo(context.Background(), func(proxyURL string) (*req.Client, error) {
+	got := parseChatGPTAccountInfo(fetchChatGPTAccountsCheck(context.Background(), func(proxyURL string) (*req.Client, error) {
 		return req.C().SetTimeout(5 * time.Second), nil
-	}, "access-token", "", "org-deactivated-workspace")
+	}, "access-token", ""), "org-deactivated-workspace")
 
 	require.NotNil(t, got)
 	require.Equal(t, "pro", got.PlanType)
@@ -160,9 +160,9 @@ func TestFetchChatGPTAccountInfo_OrgMatchWithoutExpiryScansOtherAccounts(t *test
 	chatGPTAccountsCheckURL = server.URL + "/backend-api/accounts/check/v4-2023-04-27"
 	t.Cleanup(func() { chatGPTAccountsCheckURL = oldURL })
 
-	got := fetchChatGPTAccountInfo(context.Background(), func(proxyURL string) (*req.Client, error) {
+	got := parseChatGPTAccountInfo(fetchChatGPTAccountsCheck(context.Background(), func(proxyURL string) (*req.Client, error) {
 		return req.C().SetTimeout(5 * time.Second), nil
-	}, "access-token", "", "org-pro-no-expiry")
+	}, "access-token", ""), "org-pro-no-expiry")
 
 	require.NotNil(t, got)
 	require.Equal(t, "pro", got.PlanType)
