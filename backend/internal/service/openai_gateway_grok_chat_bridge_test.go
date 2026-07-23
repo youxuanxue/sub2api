@@ -352,6 +352,75 @@ func TestForwardGrokRawChat429PreservesRetryAfter(t *testing.T) {
 	require.Equal(t, xai.DefaultCLIBaseURL+"/chat/completions", upstream.lastReq.URL.String())
 }
 
+func TestForwardGrokChatEntitlement403DoesNotFailoverOrCoolAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name         string
+		body         []byte
+		wantUpstream string
+	}{
+		{
+			name:         "responses bridge",
+			body:         []byte(`{"model":"grok","messages":[{"role":"user","content":"hi"}],"stream":false}`),
+			wantUpstream: xai.DefaultCLIBaseURL + "/responses",
+		},
+		{
+			name:         "raw chat completions",
+			body:         []byte(`{"model":"grok","messages":[{"role":"user","content":"hi"}],"stream":false,"stop":"done"}`),
+			wantUpstream: xai.DefaultCLIBaseURL + "/chat/completions",
+		},
+	}
+
+	for index, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, grokChatRawEndpoint, bytes.NewReader(tt.body))
+			c.Set("api_key", &APIKey{ID: int64(7561 + index)})
+
+			account := grokChatBridgeTestAccount(int64(756 + index))
+			repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
+				accountsByID: map[int64]*Account{account.ID: account},
+			}}
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusForbidden,
+				Header: http.Header{
+					"Content-Type":   []string{"application/json"},
+					"Xai-Request-Id": []string{"xai-entitlement-403"},
+				},
+				Body: io.NopCloser(strings.NewReader(
+					`{"code":"forbidden","error":"You have either run out of available resources or do not have an active Grok subscription."}`,
+				)),
+			}}
+			svc := &OpenAIGatewayService{
+				httpUpstream:      upstream,
+				grokTokenProvider: NewGrokTokenProvider(repo, nil),
+				accountRepo:       repo,
+			}
+
+			result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, tt.body, "", "")
+
+			require.Error(t, err)
+			require.Nil(t, result)
+			var failoverErr *UpstreamFailoverError
+			require.False(t, errors.As(err, &failoverErr), "entitlement 403 must be terminal for this request")
+			require.Equal(t, tt.wantUpstream, upstream.lastReq.URL.String())
+			require.Equal(t, http.StatusForbidden, recorder.Code)
+			require.Equal(t, "permission_error", gjson.Get(recorder.Body.String(), "error.type").String())
+			require.Contains(t, gjson.Get(recorder.Body.String(), "error.message").String(), "SuperGrok Heavy")
+			require.Zero(t, repo.tempUnschedCalls)
+			require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+
+			events := openAICompatOpsEvents(t, c)
+			require.Len(t, events, 1)
+			require.Equal(t, "http_error", events[0].Kind)
+			require.Equal(t, http.StatusForbidden, events[0].UpstreamStatusCode)
+			require.Equal(t, "xai-entitlement-403", events[0].UpstreamRequestID)
+		})
+	}
+}
+
 func TestForwardGrokRawChatErrorRecordsActualEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

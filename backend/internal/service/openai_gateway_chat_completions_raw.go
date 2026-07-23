@@ -185,6 +185,9 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
 		if account.Platform == PlatformGrok {
+			if tkIsGrokEntitlement403(resp.StatusCode, respBody) {
+				return s.handleChatCompletionsErrorResponse(resp, c, account, billingModel)
+			}
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,

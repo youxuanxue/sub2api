@@ -73,11 +73,9 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		return nil, err
 	}
 
-	// Grok（第七平台）：xAI/edge relay 走标准 OpenAI /v1/chat/completions，绝不经
-	// CC→Responses→Codex 转换（那条路写死 chatgpt.com/codex + chatgpt 专属头）。
-	// Grok OAuth 与 Grok API-key relay 都在 codex transform 之前分流到 raw 直转。
-	// 入口分流：APIKey 账号 + 强制或已探测确认上游不支持 Responses，走 CC 直转。
-	// 自动模式下标记缺失（未探测）按"现状即证据"原则继续走下方原 Responses 转换路径。
+	// Grok（第七平台）在 Codex transform 前进入专用 bridge：兼容且可缓存的
+	// grok-4.5 请求走 xAI /responses，其余请求走原生 /v1/chat/completions。
+	// 两条路径都不经过写死 chatgpt.com/codex 与 ChatGPT 专属头的 Codex 转换。
 	if account.IsGrok() {
 		return s.forwardGrokChatCompletionsViaResponses(ctx, c, account, body, promptCacheKey, defaultMappedModel)
 	}

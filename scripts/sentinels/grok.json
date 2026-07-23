@@ -68,9 +68,26 @@
     {
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": [
-        "if account.Platform == PlatformGrok {"
+        "if account.Platform == PlatformGrok {",
+        "grokTokenProvider.GetAccessToken(ctx, account)",
+        "account.GetCredential(\"api_key\")"
       ],
-      "rationale": "The grok OAuth arm of GetAccessToken (returns the xAI OAuth Bearer instead of routing through the IsOpenAI-gated ChatGPT/Codex token provider) AND the wiring of the Heavy-403 honesty guard into shouldFailoverOpenAIUpstreamResponse (no failover) and the error mapper (clean client 403, not a masked 502). Losing the IsGrokOAuth() branch makes grok OAuth unable to fetch a token; using broad IsGrok() here would steal first-class grok API-key relay stubs from the api_key branch. Losing the tkIsGrokEntitlement403 wiring re-arms the pool-wide 403 failover amplifier and re-masks the entitlement error as 502."
+      "rationale": "The grok credential arms of getRequestCredential: OAuth returns the xAI Bearer through GrokTokenProvider, while API-key relay stubs use their configured api_key. This file no longer owns upstream error classification; the Heavy-403 guards are pinned to their current owner files below."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_upstream_errors.go",
+      "must_contain": [
+        "if tkIsGrokEntitlement403(statusCode, upstreamBody) {",
+        "tkGrokEntitlement403ClientMessage(upstreamMsg)"
+      ],
+      "rationale": "The shared OpenAI-compatible failover classifier must keep Grok entitlement 403 terminal, and both native/compat error handlers must surface the clean permission_error without invoking account error side effects. Losing either anchor re-arms pool-wide failover or account cooling."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_cc_pipeline.go",
+      "must_contain": [
+        "if !s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {\n\t\treturn nil\n\t}\n\tif account != nil && account.Platform == PlatformGrok {"
+      ],
+      "rationale": "The shared Chat Completions HTTP pipeline must decide failover and return before applying Grok account side effects. The contiguous anchor deliberately pins that ordering so a terminal entitlement 403 can never reach the account cooldown handler."
     },
     {
       "path": "backend/internal/service/openai_gateway_request_body.go",
@@ -102,17 +119,26 @@
     {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
       "must_contain": [
-        "account.IsGrok()"
+        "return s.forwardGrokChatCompletionsViaResponses(ctx, c, account, body, promptCacheKey, defaultMappedModel)"
       ],
-      "rationale": "The chat dispatch seam: grok+OAuth is routed to the RAW CC forwarder (plain Bearer + api.x.ai base_url) BEFORE the CC→Responses→Codex transform, which is hardwired to chatgpt.com. Losing this arm sends grok through the Codex path and every grok chat request fails."
+      "rationale": "The Chat Completions dispatch seam routes Grok into its dedicated bridge before the Codex transform. The bridge selects native /v1/responses for compatible cacheable requests and raw /v1/chat/completions otherwise; losing this exact call sends Grok through the ChatGPT/Codex path."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
       "must_contain": [
         "account.IsGrokOAuth()",
-        "validateUpstreamBaseURLForAccount(account, baseURL)"
+        "validateUpstreamBaseURLForAccount(account, baseURL)",
+        "tkIsGrokEntitlement403(resp.StatusCode, respBody)"
       ],
-      "rationale": "The raw CC forwarder resolves the grok OAuth Bearer + api.x.ai base_url here; first-class grok API-key relay stubs intentionally use GetOpenAIApiKey/GetOpenAIBaseURL and the edge base_url. Losing this arm makes grok OAuth forward with an empty credential / wrong base URL; broadening it back to IsGrok() breaks grok API-key relay stubs."
+      "rationale": "The raw CC forwarder resolves the grok OAuth Bearer + api.x.ai base_url here; first-class grok API-key relay stubs intentionally use GetOpenAIApiKey/GetOpenAIBaseURL and the edge base_url. It must intercept entitlement 403 before recording failover or applying the 30-minute Grok cooldown."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok_chat_bridge.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) forwardGrokChatCompletionsViaResponses(",
+        "tkIsGrokEntitlement403(resp.StatusCode, respBody)"
+      ],
+      "rationale": "Cacheable Chat Completions requests use the Grok Responses bridge rather than the raw CC forwarder. This path needs the same terminal entitlement-403 guard before failover logging and account cooldown side effects."
     },
     {
       "path": "backend/internal/service/openai_gateway_v1_forward.go",
@@ -307,6 +333,13 @@
         "TestGrokTokenRefresher_CanRefreshNeedsRefresh"
       ],
       "rationale": "Load-bearing QA evidence for the Heavy-403 entitlement classifier (the pool-kill-amplifier guard) and the refresher gating/expiry-window logic. Losing it removes the regression guard around grok's two most failure-prone pure-logic surfaces."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok_chat_bridge_test.go",
+      "must_contain": [
+        "TestForwardGrokChatEntitlement403DoesNotFailoverOrCoolAccount"
+      ],
+      "rationale": "Full Chat Completions regression coverage for both Grok upstream routes: the Responses bridge and raw /v1/chat/completions. It proves a real xAI entitlement envelope returns permission_error 403 without failover, durable cooldown, or runtime scheduling block."
     },
     {
       "path": "backend/internal/handler/admin/group_handler.go",
