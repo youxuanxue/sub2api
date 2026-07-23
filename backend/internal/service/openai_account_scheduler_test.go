@@ -1041,7 +1041,7 @@ func TestOpenAIGatewayService_OpenAIAccountSchedulerMetrics_DisabledNoOp(t *test
 
 	svc := &OpenAIGatewayService{}
 	ttft := 120
-	svc.ReportOpenAIAccountScheduleResult(10, true, &ttft)
+	svc.ReportOpenAIAccountScheduleResult(10, "", true, &ttft)
 	svc.RecordOpenAIAccountSwitch()
 
 	snapshot := svc.SnapshotOpenAIAccountSchedulerMetrics()
@@ -2594,7 +2594,7 @@ func TestOpenAIGatewayService_OpenAIAccountSchedulerMetrics(t *testing.T) {
 	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session_hash_metrics", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
-	svc.ReportOpenAIAccountScheduleResult(account.ID, true, intPtrForTest(120))
+	svc.ReportOpenAIAccountScheduleResult(account.ID, "", true, intPtrForTest(120))
 	svc.RecordOpenAIAccountSwitch()
 
 	snapshot := svc.SnapshotOpenAIAccountSchedulerMetrics()
@@ -2931,7 +2931,7 @@ func TestOpenAIGatewayService_SchedulerWrappersAndDefaults(t *testing.T) {
 
 	svc := &OpenAIGatewayService{}
 	ttft := 120
-	svc.ReportOpenAIAccountScheduleResult(10, true, &ttft)
+	svc.ReportOpenAIAccountScheduleResult(10, "", true, &ttft)
 	svc.RecordOpenAIAccountSwitch()
 	snapshot := svc.SnapshotOpenAIAccountSchedulerMetrics()
 	require.Equal(t, OpenAIAccountSchedulerMetricsSnapshot{}, snapshot)

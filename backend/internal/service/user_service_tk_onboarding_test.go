@@ -62,6 +62,9 @@ func (s *onboardingUserRepoStub) BatchAddConcurrency(context.Context, []int64, i
 func (s *onboardingUserRepoStub) BatchSetConcurrency(context.Context, []int64, int) (int, error) {
 	panic("unexpected BatchSetConcurrency")
 }
+func (s *onboardingUserRepoStub) BatchUpdateLimits(context.Context, []int64, *int, *int) (int, error) {
+	panic("unexpected BatchUpdateLimits")
+}
 func (s *onboardingUserRepoStub) ExistsByEmail(context.Context, string) (bool, error) {
 	panic("unexpected ExistsByEmail")
 }

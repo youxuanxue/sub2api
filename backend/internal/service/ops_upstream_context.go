@@ -83,6 +83,14 @@ const (
 	OpsClientPolicyDeniedReasonLocalFeatureGate       = "local_feature_gate"
 	OpsClientPolicyDeniedReasonLocalPolicyDenied      = "local_policy_denied"
 
+	OpsClientBusinessLimitedKey                          = "ops_client_business_limited"
+	OpsClientBusinessLimitedReasonKey                    = "ops_client_business_limited_reason"
+	OpsClientBusinessLimitedReasonIPRestriction          = "api_key_ip_restriction"
+	OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable = "api_key_group_unavailable"
+	OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned  = "api_key_group_unassigned"
+	OpsClientBusinessLimitedReasonLocalFeatureGate       = "local_feature_gate"
+	OpsClientBusinessLimitedReasonLocalPolicyDenied      = "local_policy_denied"
+
 	// OpsClientContentFilteredKey marks a final content-filter outcome as
 	// client-owned even when an earlier account attempt left upstream evidence.
 	OpsClientContentFilteredKey = "ops_client_content_filtered"
@@ -161,6 +169,28 @@ func HasOpsClientPolicyDenied(c *gin.Context) bool {
 	return marked
 }
 
+func MarkOpsClientBusinessLimited(c *gin.Context, reason string) {
+	if c == nil {
+		return
+	}
+	c.Set(OpsClientBusinessLimitedKey, true)
+	if reason = strings.TrimSpace(reason); reason != "" {
+		c.Set(OpsClientBusinessLimitedReasonKey, reason)
+	}
+}
+
+func HasOpsClientBusinessLimited(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	v, ok := c.Get(OpsClientBusinessLimitedKey)
+	if !ok {
+		return false
+	}
+	marked, _ := v.(bool)
+	return marked
+}
+
 func MarkOpsClientContentFiltered(c *gin.Context) {
 	if c == nil {
 		return
@@ -208,26 +238,50 @@ func HasOpsClientClosedRequest(c *gin.Context) bool {
 type OpsStreamError struct {
 	// ErrType 是写入 SSE 帧的对客错误类型（如 rate_limit_error / upstream_error / api_error）。
 	ErrType string
+	// Code 是写入 SSE 帧的对客错误码（Anthropic/OpenAI 兼容路径）。
+	Code string
 	// Message 是写入 SSE 帧的对客错误消息。
 	Message string
 	// IntendedStatus 是流若未固化本应返回的 HTTP 状态码（如并发限流的 429）。
 	// 仅用于错误分级(severity/classification)；实际 wire 状态码仍为 200。
 	IntendedStatus int
+	// CountTowardsSLA 为 true 时计入 ops 错误率/SLA。
+	CountTowardsSLA bool
 }
 
-// MarkOpsStreamError 记录一次就地 SSE 错误，供 ops 日志采集。
-// 采用「首个标记生效」策略：同一请求若先后补发多帧（如上游透传错误后又追加通用兜底帧），
-// 保留最先记录的根因错误，而不是被后续的 "Upstream request failed" 覆盖。
-func MarkOpsStreamError(c *gin.Context, errType, message string, intendedStatus int) {
+// MarkOpsStreamFailure records an in-band stream error that represents a failed
+// request and therefore must count towards Ops error rate/SLA despite HTTP 200
+// already being committed on the wire.
+func MarkOpsStreamFailure(c *gin.Context, errType, code, message string, intendedStatus int) {
+	markOpsStreamError(c, OpsStreamError{
+		ErrType:         errType,
+		Code:            code,
+		Message:         message,
+		IntendedStatus:  intendedStatus,
+		CountTowardsSLA: true,
+	})
+}
+
+func markOpsStreamError(c *gin.Context, streamErr OpsStreamError) {
 	if c == nil {
 		return
 	}
 	if _, exists := c.Get(OpsStreamErrorKey); exists {
 		return
 	}
-	c.Set(OpsStreamErrorKey, OpsStreamError{
-		ErrType:        strings.TrimSpace(errType),
-		Message:        strings.TrimSpace(message),
+	streamErr.ErrType = strings.TrimSpace(streamErr.ErrType)
+	streamErr.Code = strings.TrimSpace(streamErr.Code)
+	streamErr.Message = strings.TrimSpace(streamErr.Message)
+	c.Set(OpsStreamErrorKey, streamErr)
+}
+
+// MarkOpsStreamError 记录一次就地 SSE 错误，供 ops 日志采集。
+// 采用「首个标记生效」策略：同一请求若先后补发多帧（如上游透传错误后又追加通用兜底帧），
+// 保留最先记录的根因错误，而不是被后续的 "Upstream request failed" 覆盖。
+func MarkOpsStreamError(c *gin.Context, errType, message string, intendedStatus int) {
+	markOpsStreamError(c, OpsStreamError{
+		ErrType:        errType,
+		Message:        message,
 		IntendedStatus: intendedStatus,
 	})
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 )
 
 // BuildInfo contains build information
@@ -524,6 +525,14 @@ func ProvideOpsSystemLogSink(opsRepo OpsRepository) *OpsSystemLogSink {
 	return sink
 }
 
+// ProvideAuditLogService 创建操作审计日志服务并启动异步写入与保留期清理协程。
+// 停止逻辑挂在 cmd/server 的 provideCleanup。
+func ProvideAuditLogService(repo AuditLogRepository, settingService *SettingService) *AuditLogService {
+	svc := NewAuditLogService(repo, settingService)
+	svc.Start()
+	return svc
+}
+
 func buildIdempotencyConfig(cfg *config.Config) IdempotencyConfig {
 	idempotencyCfg := DefaultIdempotencyConfig()
 	if cfg != nil {
@@ -607,11 +616,90 @@ func ProvideOpsScheduledReportService(
 	return svc
 }
 
+// ProvideOpsService constructs OpsService and wires the SettingService-backed quota
+// auto-pause cache sink. Mirrors the SetCleanupReloader pattern: OpsService doesn't
+// hold a *SettingService reference, but wire injects a tiny callback so writes to
+// ops_advanced_settings immediately propagate into the scheduler hot-path cache.
+func ProvideOpsService(
+	opsRepo OpsRepository,
+	settingRepo SettingRepository,
+	cfg *config.Config,
+	accountRepo AccountRepository,
+	userRepo UserRepository,
+	concurrencyService *ConcurrencyService,
+	gatewayService *GatewayService,
+	openAIGatewayService *OpenAIGatewayService,
+	geminiCompatService *GeminiMessagesCompatService,
+	antigravityGatewayService *AntigravityGatewayService,
+	systemLogSink *OpsSystemLogSink,
+	settingService *SettingService,
+	authCacheInvalidationWorker *AuthCacheInvalidationWorker,
+	apiKeyService *APIKeyService,
+) *OpsService {
+	svc := NewOpsService(
+		opsRepo,
+		settingRepo,
+		cfg,
+		accountRepo,
+		userRepo,
+		concurrencyService,
+		gatewayService,
+		openAIGatewayService,
+		geminiCompatService,
+		antigravityGatewayService,
+		systemLogSink,
+	)
+	if settingService != nil {
+		svc.SetOpenAIQuotaAutoPauseSettingsSink(settingService.SetOpenAIQuotaAutoPauseSettings)
+		settingService.WarmOpenAIQuotaAutoPauseSettings(context.Background())
+	}
+	svc.authCacheInvalidationWorker = authCacheInvalidationWorker
+	svc.apiKeyService = apiKeyService
+	svc.StartRuntimeSettingsRefresh(context.Background())
+	return svc
+}
+
+// ProvideOpsIngressRejectAggregator starts the bounded security aggregation
+// runtime and attaches it to OpsService, which is the middleware recorder.
+func ProvideOpsIngressRejectAggregator(opsRepo OpsRepository, opsService *OpsService) *OpsIngressRejectAggregator {
+	repo, ok := opsRepo.(OpsIngressRejectRepository)
+	if !ok {
+		return nil
+	}
+	aggregator := NewOpsIngressRejectAggregator(repo)
+	aggregator.Start()
+	opsService.SetIngressRejectAggregator(aggregator)
+	return aggregator
+}
+
 // ProvideAPIKeyAuthCacheInvalidator 提供 API Key 认证缓存失效能力
 func ProvideAPIKeyAuthCacheInvalidator(apiKeyService *APIKeyService) APIKeyAuthCacheInvalidator {
 	// Start Pub/Sub subscriber for L1 cache invalidation across instances
 	apiKeyService.StartAuthCacheInvalidationSubscriber(context.Background())
 	return apiKeyService
+}
+
+// ProvideImageStorageSettingService 构造异步生图对象存储的后台设置服务。
+//
+// config.yaml 里的 image_storage 作为回落：后台从未保存过设置时沿用它，
+// 使升级前已通过配置文件开启该功能的部署不被打断。
+func ProvideImageStorageSettingService(
+	settingRepo SettingRepository,
+	encryptor SecretEncryptor,
+	backup *BackupService,
+	factory ImageStorageFactory,
+	cfg *config.Config,
+) *ImageStorageSettingService {
+	if cfg.ImageStorage.Enabled && !cfg.ImageStorage.Active() {
+		logger.L().Warn("image_storage.enabled is true in config but object storage is not fully configured; configure it in the admin UI or complete the config file",
+			zap.Strings("missing_keys", cfg.ImageStorage.MissingCredentialKeys()))
+	}
+	return NewImageStorageSettingService(settingRepo, encryptor, backup, factory, cfg.ImageStorage)
+}
+
+// ProvideImageTaskService 构造异步图片任务服务。
+func ProvideImageTaskService(store ImageTaskStore, settings *ImageStorageSettingService) *ImageTaskService {
+	return NewImageTaskServiceWithResolver(store, settings.Resolver(), defaultImageTaskTTL, defaultImageTaskExecutionTimeout)
 }
 
 // ProvideBackupService creates and starts BackupService
@@ -632,8 +720,8 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 	svc := NewSettingService(settingRepo, cfg)
 	svc.SetDefaultSubscriptionGroupReader(groupRepo)
 	svc.SetProxyRepository(proxyRepo)
-	if err := svc.LoadAPIKeyACLTrustForwardedIPSetting(context.Background()); err != nil {
-		logger.LegacyPrintf("service.setting", "Warning: load api key acl forwarded ip setting failed: %v", err)
+	if err := svc.LoadForwardedClientIPSettings(context.Background()); err != nil {
+		logger.LegacyPrintf("service.setting", "Warning: load forwarded client ip settings failed: %v", err)
 	}
 	// TK: fan out SystemSettings writes (e.g. HTTP UA version) across replicas via
 	// Redis pub/sub so a change is reflected within seconds, not the 60s cache TTL.
@@ -691,7 +779,9 @@ var ProviderSet = wire.NewSet(
 	NewUserService,
 	ProvideAPIKeyService,
 	ProvideAPIKeyAuthCacheInvalidator,
+	ProvideAuthCacheInvalidationWorker,
 	NewGroupService,
+	NewCompositeRouteResolver,
 	NewAccountService,
 	NewProxyService,
 	NewRedeemService,
@@ -709,6 +799,8 @@ var ProviderSet = wire.NewSet(
 	NewGatewayService,
 	NewKiroGatewayService,
 	NewOpenAIGatewayService,
+	ProvideImageStorageSettingService,
+	ProvideImageTaskService,
 	ProvideBatchImageModelPricingResolver,
 	NewBatchImagePublicService,
 	NewBatchImageDownloadService,
@@ -736,11 +828,14 @@ var ProviderSet = wire.NewSet(
 	ProvideRateLimitService,
 	ProvideAccountUsageService,
 	ProvideAccountTestService,
+	ProvideUpstreamBillingProbeService,
 	ProvideSettingService,
 	NewDataManagementService,
 	ProvideBackupService,
 	ProvideOpsSystemLogSink,
 	NewOpsService,
+	ProvideOpsIngressRejectAggregator,
+	ProvideAuditLogService,
 	ProvideOpsMetricsCollector,
 	ProvideOpsAggregationService,
 	ProvideOpsAlertEvaluatorService,
@@ -851,7 +946,15 @@ var ProviderSet = wire.NewSet(
 	// post-construction. Returns the instance so provideCleanup
 	// (cmd/server/wire.go) can Stop() the ticker at shutdown.
 	ProvideTKPricingMissingNotifier,
+	ProvideUserPlatformQuotaUsageFlusher,
 )
+
+// ProvideUserPlatformQuotaUsageFlusher 创建并启动 UserPlatformQuotaUsageFlusher。
+func ProvideUserPlatformQuotaUsageFlusher(cfg *config.Config, cache BillingCache, quotaRepo UserPlatformQuotaRepository, tw *TimingWheelService) *UserPlatformQuotaUsageFlusher {
+	svc := NewUserPlatformQuotaUsageFlusher(cfg, cache, quotaRepo, tw)
+	svc.Start()
+	return svc
+}
 
 // ProvidePaymentConfigService wraps NewPaymentConfigService to accept the named
 // payment.EncryptionKey type instead of raw []byte, avoiding Wire ambiguity.

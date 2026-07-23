@@ -24,6 +24,7 @@ const (
 	EndpointResponsesCompact  = apipath.ResponsesCompact
 	EndpointImagesGenerations = apipath.ImagesGenerations
 	EndpointImagesEdits       = apipath.ImagesEdits
+	EndpointImageTasks        = "/v1/images/tasks"
 	EndpointVideosGenerations = apipath.VideosGenerations
 	EndpointVideosEdits       = "/v1/videos/edits"
 	EndpointVideosExtensions  = "/v1/videos/extensions"
@@ -93,6 +94,8 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointImagesGenerations
 	case strings.Contains(path, EndpointImagesEdits) || strings.Contains(path, "/images/edits"):
 		return EndpointImagesEdits
+	case strings.Contains(path, EndpointImageTasks) || strings.Contains(path, "/images/tasks/"):
+		return EndpointImageTasks
 	case strings.Contains(path, EndpointVideosGenerations) || strings.Contains(path, "/videos/generations"):
 		return EndpointVideosGenerations
 	case strings.Contains(path, EndpointVideosEdits) || strings.Contains(path, "/videos/edits"):

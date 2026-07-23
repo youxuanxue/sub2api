@@ -9,7 +9,7 @@ import (
 )
 
 func (h *OpenAIGatewayHandler) rejectDeprecatedOpenAICompatModel(c *gin.Context, apiKey *service.APIKey, model string, anthropicShape bool) bool {
-	if openAICompatibleRequestPlatform(apiKey) != service.PlatformOpenAI {
+	if openAICompatibleRequestPlatform(c.Request.Context(), apiKey) != service.PlatformOpenAI {
 		return false
 	}
 	model = strings.TrimSpace(model)

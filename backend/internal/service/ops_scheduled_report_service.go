@@ -347,6 +347,10 @@ func (s *OpsScheduledReportService) runReport(ctx context.Context, report *opsSc
 		}
 		attempts++
 		if s.emailService.notificationEmailService != nil {
+			variables := templateVariables
+			if isOpsSummaryReport(report) {
+				variables = opsSummaryReportEmailVariables(report, now, nil, "")
+			}
 			if err := s.emailService.notificationEmailService.Send(ctx, NotificationEmailSendInput{
 				Event:          NotificationEmailEventOpsScheduledReport,
 				RecipientEmail: addr,
@@ -354,7 +358,7 @@ func (s *OpsScheduledReportService) runReport(ctx context.Context, report *opsSc
 				SourceType:     "ops_scheduled_report",
 				SourceID:       opsScheduledReportDeliverySourceID(report),
 				ReminderKey:    now.UTC().Format("2006-01-02T15:04"),
-				Variables:      templateVariables,
+				Variables:      variables,
 				RawHTMLVariables: map[string]string{
 					"report_html": content,
 				},
@@ -410,6 +414,132 @@ func opsScheduledReportEmailVariables(report *opsScheduledReport, now time.Time)
 		"report_start_time": start.Format(time.RFC3339),
 		"report_end_time":   end.Format(time.RFC3339),
 	}
+}
+
+func opsScheduledReportLocalizedEmailVariables(report *opsScheduledReport, now time.Time, locale string) map[string]string {
+	variables := opsScheduledReportEmailVariables(report, now)
+	variables["report_html"] = ""
+	variables["report_detail_display"] = "block"
+	for _, placeholder := range notificationEmailOpsSummaryPlaceholders {
+		variables[placeholder] = "-"
+	}
+	variables["report_summary_display"] = "none"
+	if name := opsScheduledReportLocalizedName(report, locale); name != "" {
+		variables["report_name"] = name
+	}
+	return variables
+}
+
+func opsScheduledReportLocalizedName(report *opsScheduledReport, locale string) string {
+	if report == nil {
+		return "Ops report"
+	}
+	chinese := strings.HasPrefix(strings.ToLower(strings.TrimSpace(locale)), "zh")
+	switch strings.TrimSpace(report.ReportType) {
+	case "daily_summary":
+		if chinese {
+			return "日报"
+		}
+		return "Daily summary"
+	case "weekly_summary":
+		if chinese {
+			return "周报"
+		}
+		return "Weekly summary"
+	case "error_digest":
+		if chinese {
+			return "错误摘要"
+		}
+		return "Error digest"
+	case "account_health":
+		if chinese {
+			return "账号健康"
+		}
+		return "Account health"
+	default:
+		return strings.TrimSpace(report.Name)
+	}
+}
+
+func isOpsSummaryReport(report *opsScheduledReport) bool {
+	if report == nil {
+		return false
+	}
+	switch strings.TrimSpace(report.ReportType) {
+	case "daily_summary", "weekly_summary":
+		return true
+	default:
+		return false
+	}
+}
+
+func opsSummaryReportEmailVariables(report *opsScheduledReport, now time.Time, overview *OpsDashboardOverview, locale string) map[string]string {
+	variables := opsScheduledReportLocalizedEmailVariables(report, now, locale)
+	variables["report_detail_display"] = "none"
+	if overview == nil {
+		for _, placeholder := range notificationEmailOpsSummaryPlaceholders {
+			if placeholder == "report_summary_display" {
+				continue
+			}
+			variables[placeholder] = "-"
+		}
+		variables["report_summary_display"] = "block"
+		return variables
+	}
+	variables["report_summary_display"] = "block"
+
+	variables["report_total_requests"] = formatOpsReportInteger(overview.RequestCountTotal)
+	variables["report_success_count"] = formatOpsReportInteger(overview.SuccessCount)
+	variables["report_sla_error_count"] = formatOpsReportInteger(overview.ErrorCountSLA)
+	variables["report_business_limited_count"] = formatOpsReportInteger(overview.BusinessLimitedCount)
+	variables["report_sla"] = fmt.Sprintf("%.2f%%", overview.SLA*100)
+	variables["report_error_rate"] = fmt.Sprintf("%.2f%%", overview.ErrorRate*100)
+	variables["report_upstream_error_rate"] = fmt.Sprintf("%.2f%%", overview.UpstreamErrorRate*100)
+	variables["report_upstream_error_count_excl_429_529"] = formatOpsReportInteger(overview.UpstreamErrorCountExcl429529)
+	variables["report_upstream_429_count"] = formatOpsReportInteger(overview.Upstream429Count)
+	variables["report_upstream_529_count"] = formatOpsReportInteger(overview.Upstream529Count)
+	variables["report_latency_p50"] = formatOpsReportMilliseconds(overview.Duration.P50)
+	variables["report_latency_p99"] = formatOpsReportMilliseconds(overview.Duration.P99)
+	variables["report_ttft_p50"] = formatOpsReportMilliseconds(overview.TTFT.P50)
+	variables["report_ttft_p99"] = formatOpsReportMilliseconds(overview.TTFT.P99)
+	variables["report_tokens"] = formatOpsReportInteger(overview.TokenConsumed)
+	variables["report_qps_current"] = fmt.Sprintf("%.1f", overview.QPS.Current)
+	variables["report_qps_peak"] = fmt.Sprintf("%.1f", overview.QPS.Peak)
+	variables["report_qps_avg"] = fmt.Sprintf("%.1f", overview.QPS.Avg)
+	variables["report_tps_current"] = fmt.Sprintf("%.1f", overview.TPS.Current)
+	variables["report_tps_peak"] = fmt.Sprintf("%.1f", overview.TPS.Peak)
+	variables["report_tps_avg"] = fmt.Sprintf("%.1f", overview.TPS.Avg)
+	return variables
+}
+
+func formatOpsReportInteger(value int64) string {
+	raw := strconv.FormatInt(value, 10)
+	start := 0
+	if strings.HasPrefix(raw, "-") {
+		start = 1
+	}
+	if len(raw)-start <= 3 {
+		return raw
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(raw) + (len(raw)-start-1)/3)
+	_, _ = builder.WriteString(raw[:start])
+	digitLen := len(raw) - start
+	for offset := 0; offset < digitLen; offset++ {
+		if offset > 0 && (digitLen-offset)%3 == 0 {
+			_ = builder.WriteByte(',')
+		}
+		_ = builder.WriteByte(raw[start+offset])
+	}
+	return builder.String()
+}
+
+func formatOpsReportMilliseconds(value *int) string {
+	if value == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%s ms", formatOpsReportInteger(int64(*value)))
 }
 
 func (s *OpsScheduledReportService) generateReportHTML(ctx context.Context, report *opsScheduledReport, now time.Time) (string, error) {

@@ -95,11 +95,15 @@ const filteredGroups = computed(() => {
     // antigravity 账户启用混合调度后，可选择 anthropic/gemini 分组
     if (props.platform === PLATFORM_ANTIGRAVITY && props.mixedScheduling) {
       result = result.filter(
-        (g) => g.platform === PLATFORM_ANTIGRAVITY || g.platform === PLATFORM_ANTHROPIC || g.platform === PLATFORM_GEMINI
+        (g) =>
+          g.platform === PLATFORM_ANTIGRAVITY ||
+          g.platform === PLATFORM_ANTHROPIC ||
+          g.platform === PLATFORM_GEMINI ||
+          g.platform === 'composite'
       )
     } else {
-      // 默认：只能选择同 platform 的分组
-      result = result.filter((g) => g.platform === props.platform)
+      // 默认：只能选择同 platform 的分组；composite 分组可接收任意具体平台账号
+      result = result.filter((g) => g.platform === props.platform || g.platform === 'composite')
     }
   }
   if (isSearchable.value && searchText.value) {

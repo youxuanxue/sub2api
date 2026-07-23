@@ -170,6 +170,15 @@ func runMainServer() {
 		log.Fatalf("Failed to initialize application: %v", err)
 	}
 	defer app.Cleanup()
+	if app.PromptAudit != nil {
+		if err := app.PromptAudit.Start(context.Background()); err != nil {
+			// Startup continues so unrelated APIs stay up. Fail-closed (unavailable)
+			// applies only when a persisted blocking policy was observed; without
+			// blocking intent, Prompt Audit stays ModeOff so the gateway remains
+			// usable and administrators can still disable the feature (#4560).
+			log.Printf("Prompt Audit started in degraded state: %v", err)
+		}
+	}
 
 	pollCtx, pollCancel := context.WithCancel(context.Background())
 	defer pollCancel()
@@ -223,6 +232,7 @@ func runMainServer() {
 		// 注意：这里改成非 Fatal，避免在已经接收到的请求还没全部退出时被 cancel
 		// 误判为「致命」。docker stop 会有自己的 stop_grace_period 兜底。
 		log.Printf("Server shutdown returned: %v (in_flight=%d)", err, middleware.InFlightCount())
+		log.Printf("Server forced to shutdown: %v", err)
 	}
 
 	log.Println("Server exited")

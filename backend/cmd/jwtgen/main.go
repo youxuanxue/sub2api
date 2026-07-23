@@ -48,7 +48,7 @@ func main() {
 		log.Fatalf("failed to resolve admin user: %v", err)
 	}
 
-	token, err := authService.GenerateToken(user)
+	token, err := authService.GenerateToken(context.Background(), user)
 	if err != nil {
 		log.Fatalf("failed to generate token: %v", err)
 	}

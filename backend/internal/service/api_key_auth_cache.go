@@ -1,6 +1,10 @@
 package service
 
-import "time"
+import (
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
+)
 
 // APIKeyAuthSnapshot API Key 认证缓存快照（仅包含认证所需字段）
 type APIKeyAuthSnapshot struct {
@@ -109,6 +113,11 @@ type APIKeyAuthGroupSnapshot struct {
 	// OpenAI /v1/messages 自动压缩策略（nil = 未配置）。
 	MessagesCompactionEnabled              *bool `json:"messages_compaction_enabled,omitempty"`
 	MessagesCompactionInputTokensThreshold *int  `json:"messages_compaction_input_tokens_threshold,omitempty"`
+
+	// MaxReasoningEffort OpenAI/Codex 请求的推理强度上限，空字符串表示不限制。
+	MaxReasoningEffort string `json:"max_reasoning_effort,omitempty"`
+	// ReasoningEffortMappings rewrites explicit effort values before the ceiling.
+	ReasoningEffortMappings []domain.ReasoningEffortMapping `json:"reasoning_effort_mappings"`
 
 	// 高峰时段倍率：PeakRateEnabled 为 true 且请求时刻处于 [PeakStart, PeakEnd) 时，
 	// token 计费倍率额外乘以 PeakRateMultiplier（详见 Group.PeakMultiplierAt）。

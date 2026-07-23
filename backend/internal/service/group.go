@@ -12,6 +12,7 @@ import (
 
 type OpenAIMessagesDispatchModelConfig = domain.OpenAIMessagesDispatchModelConfig
 type GroupModelsListConfig = domain.GroupModelsListConfig
+type ReasoningEffortMapping = domain.ReasoningEffortMapping
 
 type Group struct {
 	ID             int64
@@ -28,6 +29,9 @@ type Group struct {
 	IsExclusive        bool
 	Status             string
 	Hydrated           bool // indicates the group was loaded from a trusted repository source
+	// DuplicateOperationID is internal persistence metadata used only to recover
+	// an already committed one-click copy. It must never be mapped to API DTOs.
+	DuplicateOperationID string
 
 	SubscriptionType    string
 	DailyLimitUSD       *float64
@@ -84,16 +88,22 @@ type Group struct {
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
 	ModelsListConfig            GroupModelsListConfig
 
-	// Upstream prompt-cache sticky routing strategy: "auto" | "passthrough" | "off".
-	// Default empty / "auto" — see docs/approved/sticky-routing.md §3.1.
+	// Sticky routing strategy for upstream prompt cache hits (TK).
 	StickyRoutingMode string
+
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制）。
 	// 一旦设置即接管该分组用户的限流（覆盖用户级 rpm_limit），可被 user-group rpm_override 进一步覆盖。
 	RPMLimit int
 
-	// OpenAI /v1/messages 兼容路径自动压缩策略（nil = 未配置，不触发）。
+	// OpenAI /v1/messages 自动压缩策略（TK；nil = 未配置）。
 	MessagesCompactionEnabled              *bool
 	MessagesCompactionInputTokensThreshold *int
+
+	// MaxReasoningEffort limits the effective OpenAI/Codex reasoning effort.
+	// Empty means unlimited; supported values are minimal/low/medium/high/xhigh/max.
+	MaxReasoningEffort string
+	// ReasoningEffortMappings rewrites explicit request values before applying the ceiling.
+	ReasoningEffortMappings []ReasoningEffortMapping
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

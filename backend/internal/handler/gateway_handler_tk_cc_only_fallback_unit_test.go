@@ -71,6 +71,7 @@ func newCCOnlyFallbackHandler(t *testing.T, fallbackGroup *service.Group) (*Gate
 		nil,
 		&fakeGroupRepo{group: fallbackGroup},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil,
 	)
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)

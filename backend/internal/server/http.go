@@ -34,11 +34,14 @@ func ProvideRouter(
 	adminAuth middleware2.AdminAuthMiddleware,
 	apiKeyAuth middleware2.APIKeyAuthMiddleware,
 	eitherAuth middleware2.EitherAuthMiddleware,
+	auditLog middleware2.AuditLogMiddleware,
+	stepUpAuth middleware2.StepUpAuthMiddleware,
 	apiKeyService *service.APIKeyService,
 	userService *service.UserService,
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
 	settingService *service.SettingService,
+	compositeResolver *service.CompositeRouteResolver,
 	redisClient *redis.Client,
 ) *gin.Engine {
 	if cfg.Server.Mode == "release" {
@@ -62,6 +65,7 @@ func ProvideRouter(
 			log.Printf("Warning: server.trusted_proxies opt-out is set in release mode; client IP trust chain is disabled")
 		}
 	}
+	configureTrustedProxies(r, cfg.Server)
 
 	// Wire up websearch Manager builder so it initializes on startup and rebuilds on config save.
 	settingService.SetWebSearchManagerBuilder(context.Background(), func(cfg *service.WebSearchEmulationConfig, proxyURLs map[int64]string) {
@@ -99,15 +103,35 @@ func ProvideRouter(
 		service.SetWebSearchManager(websearch.NewManager(configs, redisClient))
 	})
 
-	return SetupRouter(r, handlers, jwtAuth, adminAuth, apiKeyAuth, eitherAuth, apiKeyService, userService, subscriptionService, opsService, settingService, cfg, redisClient)
+	return SetupRouter(r, handlers, jwtAuth, adminAuth, apiKeyAuth, eitherAuth, auditLog, stepUpAuth, apiKeyService, userService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
+}
+
+func configureTrustedProxies(r *gin.Engine, cfg config.ServerConfig) {
+	if cfg.TrustedProxiesConfigured {
+		if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+			log.Printf("Failed to set trusted proxies: %v", err)
+			_ = r.SetTrustedProxies(nil)
+		}
+		if len(cfg.TrustedProxies) == 0 && cfg.Mode == "release" {
+			log.Printf("Warning: server.trusted_proxies is explicitly empty; forwarded client IP trust is disabled")
+		}
+	} else {
+		if err := r.SetTrustedProxies(nil); err != nil {
+			log.Printf("Failed to disable trusted proxies: %v", err)
+		}
+		if cfg.Mode == "release" {
+			log.Printf("Warning: server.trusted_proxies is not configured; disabling the forwarded-IP compatibility switch will use direct peer addresses only")
+		}
+	}
 }
 
 // ProvideHTTPServer 提供 HTTP 服务器
 func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
 	httpHandler := http.Handler(router)
 	server := &http.Server{
-		Addr:    cfg.Server.Address(),
-		Handler: httpHandler,
+		Addr:           cfg.Server.Address(),
+		Handler:        httpHandler,
+		MaxHeaderBytes: cfg.Server.MaxHeaderBytes,
 		// ReadHeaderTimeout: 读取请求头的超时时间，防止慢速请求头攻击
 		ReadHeaderTimeout: time.Duration(cfg.Server.ReadHeaderTimeout) * time.Second,
 		// IdleTimeout: 空闲连接超时时间，释放不活跃的连接资源

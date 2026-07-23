@@ -64,7 +64,7 @@ func TestClassifyOpsFinalClientValidationAPIErrorOwnedByClient(t *testing.T) {
 				code = parsed.Code
 			}
 
-			phase, errorOwner, errorSource := classifyOpsErrorLog(c, errType, message, code, http.StatusBadRequest)
+			phase, _, errorOwner, errorSource := classifyOpsErrorLog(c, errType, message, code, http.StatusBadRequest)
 
 			require.Equal(t, "api_error", errType)
 			require.Equal(t, "request", phase)
@@ -104,7 +104,7 @@ func TestClassifyOpsFinalClientValidationAPIErrorDoesNotOvermatch(t *testing.T) 
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
 
-			phase, errorOwner, errorSource := classifyOpsErrorLog(c, "api_error", tt.message, "", tt.status)
+			phase, _, errorOwner, errorSource := classifyOpsErrorLog(c, "api_error", tt.message, "", tt.status)
 
 			require.Equal(t, "internal", phase)
 			require.Equal(t, "platform", errorOwner)
@@ -119,7 +119,7 @@ func TestClassifyOpsRoutingCapacityWinsOverFinalClientValidationAPIError(t *test
 	c, _ := gin.CreateTestContext(rec)
 	markOpsRoutingCapacityLimited(c)
 
-	phase, errorOwner, errorSource := classifyOpsErrorLog(c, "api_error",
+	phase, _, errorOwner, errorSource := classifyOpsErrorLog(c, "api_error",
 		"`temperature` and `top_p` cannot both be specified for this model. Please use only one.",
 		"", http.StatusBadRequest)
 

@@ -56,6 +56,16 @@ export const adminRoutes: RouteRecordRaw[] = [
         }
       },
       {
+        path: 'audit-logs',
+        name: 'AdminAuditLogs',
+        component: () => import('@/views/admin/AuditLogView.vue'),
+        meta: {
+          title: 'Audit Logs',
+          titleKey: 'admin.audit.title',
+          descriptionKey: 'admin.audit.description'
+        }
+      },
+      {
         path: 'users',
         name: 'AdminUsers',
         component: () => import('@/views/admin/UsersView.vue'),
@@ -184,6 +194,17 @@ export const adminRoutes: RouteRecordRaw[] = [
           title: 'Risk Control',
           titleKey: 'admin.riskControl.title',
           descriptionKey: 'admin.riskControl.description',
+          requiresRiskControl: true
+        }
+      },
+      {
+        path: 'prompt-audit',
+        name: 'AdminPromptAudit',
+        component: () => import('@/features/prompt-audit/PromptAuditView.vue'),
+        meta: {
+          title: 'Prompt Audit',
+          titleKey: 'admin.promptAudit.title',
+          descriptionKey: 'admin.promptAudit.description',
           requiresRiskControl: true
         }
       },

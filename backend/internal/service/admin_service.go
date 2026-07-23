@@ -20,6 +20,7 @@ type AdminService interface {
 	DeleteUser(ctx context.Context, id int64) error
 	UpdateUserBalance(ctx context.Context, userID int64, balance float64, operation string, notes string) (*User, error)
 	BatchUpdateConcurrency(ctx context.Context, userIDs []int64, value int, mode string) (int, error)
+	BatchUpdateLimits(ctx context.Context, userIDs []int64, concurrency, rpmLimit *int) (int, error)
 	GetUserAPIKeys(ctx context.Context, userID int64, page, pageSize int, sortBy, sortOrder string) ([]APIKey, int64, error)
 	GetUserUsageStats(ctx context.Context, userID int64, period string) (any, error)
 	GetUserRPMStatus(ctx context.Context, userID int64) (*UserRPMStatus, error)
@@ -39,8 +40,15 @@ type AdminService interface {
 	GetGroup(ctx context.Context, id int64) (*Group, error)
 	GetGroupModelsListCandidates(ctx context.Context, id int64, platform string) ([]string, error)
 	CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error)
+	DuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*Group, error)
+	RecoverDuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*Group, error)
 	UpdateGroup(ctx context.Context, id int64, input *UpdateGroupInput) (*Group, error)
 	DeleteGroup(ctx context.Context, id int64) error
+	ListCompositeRoutes(ctx context.Context, groupID int64) ([]CompositeModelRoute, error)
+	CreateCompositeRoute(ctx context.Context, groupID int64, input CompositeRouteInput) (*CompositeModelRoute, error)
+	UpdateCompositeRoute(ctx context.Context, groupID, routeID int64, input CompositeRouteInput) (*CompositeModelRoute, error)
+	DeleteCompositeRoute(ctx context.Context, groupID, routeID int64) error
+	PreviewCompositeRoute(ctx context.Context, groupID int64, input CompositeRoutePreviewRequest) (*CompositeRouteDecision, error)
 	GetGroupAPIKeys(ctx context.Context, groupID int64, page, pageSize int) ([]APIKey, int64, error)
 	GetGroupRateMultipliers(ctx context.Context, groupID int64) ([]UserGroupRateEntry, error)
 	ClearGroupRateMultipliers(ctx context.Context, groupID int64) error
@@ -252,6 +260,8 @@ type CreateGroupInput struct {
 	RPMLimit                               int
 	MessagesCompactionEnabled              *bool
 	MessagesCompactionInputTokensThreshold *int
+	MaxReasoningEffort                     string
+	ReasoningEffortMappings                []ReasoningEffortMapping
 	// 从指定分组复制账号（创建分组后在同一事务内绑定）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -311,6 +321,8 @@ type UpdateGroupInput struct {
 	RPMLimit                               *int
 	MessagesCompactionEnabled              *bool
 	MessagesCompactionInputTokensThreshold *int
+	MaxReasoningEffort                     *string
+	ReasoningEffortMappings                *[]ReasoningEffortMapping
 	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -337,6 +349,7 @@ type CreateAccountInput struct {
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
 	// This should only be set when the caller has explicitly confirmed the risk.
 	SkipMixedChannelCheck bool
+	ProbeEnabled          *bool
 }
 
 // ShadowOptions is the input for CreateShadow.
@@ -387,6 +400,7 @@ type BulkUpdateAccountsInput struct {
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
 	// This should only be set when the caller has explicitly confirmed the risk.
 	SkipMixedChannelCheck bool
+	ProbeEnabled          *bool
 }
 
 type BulkUpdateAccountFilters struct {
@@ -595,6 +609,7 @@ var ErrRPMStatusUnavailable = infraerrors.New(http.StatusNotImplemented, "RPM_ST
 type adminServiceImpl struct {
 	userRepo             UserRepository
 	groupRepo            GroupRepository
+	groupDuplicateRepo   GroupDuplicateRepository
 	accountRepo          AccountRepository
 	accountDuplicateRepo AccountDuplicateRepository
 	proxyRepo            ProxyRepository
@@ -614,6 +629,8 @@ type adminServiceImpl struct {
 	runtimeBlocker       AccountRuntimeBlocker
 	availability         *PricingAvailabilityService
 	affiliateService     adminRechargeAffiliateAccruer
+	compositeRouteRepo   CompositeModelRouteRepository
+	compositeResolver    *CompositeRouteResolver
 }
 
 type adminRechargeAffiliateAccruer interface {
@@ -627,7 +644,7 @@ type userGroupRateBatchReader interface {
 // NewAdminService creates a new AdminService
 func NewAdminService(
 	userRepo UserRepository,
-	groupRepo GroupRepository,
+	groupRepo AdminGroupRepository,
 	accountRepo AdminAccountRepository,
 	proxyRepo ProxyRepository,
 	apiKeyRepo APIKeyRepository,
@@ -646,10 +663,13 @@ func NewAdminService(
 	runtimeBlocker AccountRuntimeBlocker,
 	availability *PricingAvailabilityService,
 	affiliateService *AffiliateService,
+	compositeRouteRepo CompositeModelRouteRepository,
+	compositeResolver *CompositeRouteResolver,
 ) AdminService {
 	return &adminServiceImpl{
 		userRepo:             userRepo,
 		groupRepo:            groupRepo,
+		groupDuplicateRepo:   groupRepo,
 		accountRepo:          accountRepo,
 		accountDuplicateRepo: accountRepo,
 		proxyRepo:            proxyRepo,
@@ -669,5 +689,7 @@ func NewAdminService(
 		runtimeBlocker:       runtimeBlocker,
 		availability:         availability,
 		affiliateService:     affiliateService,
+		compositeRouteRepo:   compositeRouteRepo,
+		compositeResolver:    compositeResolver,
 	}
 }

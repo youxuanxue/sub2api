@@ -1,7 +1,7 @@
 import type { AccountPlatform } from '@/types'
 
 /** Ordered account/group platforms, including the independent fifth platform `newapi`. */
-export const GATEWAY_PLATFORMS = ['anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok'] as const satisfies readonly AccountPlatform[]
+export const GATEWAY_PLATFORMS = ['anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok', 'composite'] as const satisfies readonly AccountPlatform[]
 
 /**
  * Platforms that support per-user quota limits (daily/weekly/monthly).
@@ -63,6 +63,7 @@ export const CREATE_ACCOUNT_PLATFORM_SEGMENT_ACTIVE: Record<AccountPlatform, str
   newapi: 'bg-white text-cyan-600 shadow-sm dark:bg-dark-600 dark:text-cyan-400',
   kiro: 'bg-white text-indigo-600 shadow-sm dark:bg-dark-600 dark:text-indigo-400',
   grok: 'bg-white text-slate-700 shadow-sm dark:bg-dark-600 dark:text-slate-300',
+  composite: 'bg-white text-cyan-700 shadow-sm dark:bg-dark-600 dark:text-cyan-300',
 }
 
 export const CREATE_ACCOUNT_PLATFORM_SEGMENT_BASE =

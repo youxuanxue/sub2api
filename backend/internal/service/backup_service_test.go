@@ -211,6 +211,7 @@ func newTestBackupService(repo *mockSettingRepo, dumper DBDumper, store *mockObj
 			User:   "test",
 			DBName: "testdb",
 		},
+		Totp: config.TotpConfig{EncryptionKeyConfigured: true},
 	}
 	factory := func(_ context.Context, _ *BackupS3Config) (BackupObjectStore, error) {
 		return store, nil

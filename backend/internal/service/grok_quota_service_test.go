@@ -246,8 +246,8 @@ func TestGrokQuotaServiceProbeUsageStoresHeaders(t *testing.T) {
 	require.Equal(t, "Bearer access-token", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, grokCLIVersion, upstream.lastReq.Header.Get("X-Grok-Client-Version"))
 	require.Equal(t, "grok-4.5", gjson.GetBytes(upstream.lastBody, "model").String())
-	require.Contains(t, string(upstream.lastBody), `"max_output_tokens":1`)
-	require.Contains(t, string(upstream.lastBody), `"store":false`)
+	require.Equal(t, grokQuotaProbeInput, gjson.GetBytes(upstream.lastBody, "input").String())
+	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 	require.NotNil(t, repo.updates[42][grokQuotaSnapshotExtraKey])
 }
 
@@ -478,7 +478,8 @@ func TestGrokQuotaServiceQueryQuotaFreeFallsBackToGrok45(t *testing.T) {
 		responseCalls++
 		require.Equal(t, http.MethodPost, req.Method)
 		require.Equal(t, "grok-4.5", gjson.GetBytes(bodies[i], "model").String())
-		require.EqualValues(t, 1, gjson.GetBytes(bodies[i], "max_output_tokens").Int())
+		require.Equal(t, grokQuotaProbeInput, gjson.GetBytes(bodies[i], "input").String())
+		require.True(t, gjson.GetBytes(bodies[i], "stream").Bool())
 	}
 	require.Equal(t, 1, responseCalls)
 }

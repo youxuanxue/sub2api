@@ -9,7 +9,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
-func TestGetOpsAdvancedSettings_DefaultHidesOpenAITokenStats(t *testing.T) {
+func TestGetOpsAdvancedSettings_DefaultSnapshotHidesOpenAITokenStats(t *testing.T) {
 	repo := newRuntimeSettingRepoStub()
 	svc := &OpsService{settingRepo: repo}
 
@@ -23,8 +23,8 @@ func TestGetOpsAdvancedSettings_DefaultHidesOpenAITokenStats(t *testing.T) {
 	if !cfg.DisplayAlertEvents {
 		t.Fatalf("DisplayAlertEvents = false, want true by default")
 	}
-	if repo.setCalls != 1 {
-		t.Fatalf("expected defaults to be persisted once, got %d", repo.setCalls)
+	if repo.getValueCalls != 0 || repo.getMultipleCalls != 0 {
+		t.Fatalf("hot-path snapshot read touched repository: get=%d get_multiple=%d", repo.getValueCalls, repo.getMultipleCalls)
 	}
 }
 

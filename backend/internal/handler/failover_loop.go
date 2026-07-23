@@ -109,7 +109,7 @@ func (s *FailoverState) HandleFailoverError(
 	// 详见排查记录：account_id=1 (cc-am-or-ec2-5-1-b) 上 10 次 403 全部 ResponseBody 空。
 	if failoverErr.StatusCode == http.StatusForbidden && !looksLikeStructuredErrorJSON(failoverErr.ResponseBody) {
 		s.LastFailoverErr = failoverErr
-		if needForceCacheBilling(s.hasBoundSession, failoverErr) {
+		if needForceCacheBilling(s.hasBoundSession, failoverErr, false) {
 			s.ForceCacheBilling = true
 		}
 		logger.FromContext(ctx).Warn("gateway.failover_forbidden_fail_fast",
@@ -122,29 +122,29 @@ func (s *FailoverState) HandleFailoverError(
 		return FailoverExhausted
 	}
 
+	// 同账号重试不算切换账号，粘性会话仅在实际切换时强制缓存计费。
+	sameAccountRetry := failoverErr.RetryableOnSameAccount && s.SameAccountRetryCount[accountID] < sameAccountRetryLimit
+	if needForceCacheBilling(s.hasBoundSession, failoverErr, sameAccountRetry) {
+		s.ForceCacheBilling = true
+	}
+
 	// 同账号重试：对 RetryableOnSameAccount 的临时性错误，先在同一账号上重试
 	if failoverErr.RetryableOnSameAccount && s.SameAccountRetryCount[accountID] < sameAccountRetryLimit {
-		if !sleepWithContext(ctx, sameAccountRetryDelay) {
-			return FailoverCanceled
-		}
-		s.LastFailoverErr = failoverErr
-		if needForceCacheBilling(s.hasBoundSession, failoverErr) {
-			s.ForceCacheBilling = true
-		}
-		s.SameAccountRetryCount[accountID]++
 		logger.FromContext(ctx).Warn("gateway.failover_same_account_retry",
 			zap.Int64("account_id", accountID),
 			zap.Int("upstream_status", failoverErr.StatusCode),
-			zap.Int("same_account_retry_count", s.SameAccountRetryCount[accountID]),
+			zap.Int("same_account_retry_count", s.SameAccountRetryCount[accountID]+1),
 			zap.Int("same_account_retry_max", sameAccountRetryLimit),
 		)
+		if !sleepWithContext(ctx, sameAccountRetryDelay) {
+			return FailoverCanceled
+		}
+		s.SameAccountRetryCount[accountID]++
+		s.LastFailoverErr = failoverErr
 		return FailoverContinue
 	}
 
 	s.LastFailoverErr = failoverErr
-	if needForceCacheBilling(s.hasBoundSession, failoverErr) {
-		s.ForceCacheBilling = true
-	}
 
 	// 同账号重试用尽，执行临时封禁
 	if failoverErr.RetryableOnSameAccount {
@@ -218,9 +218,9 @@ func (s *FailoverState) HandleSelectionExhausted(ctx context.Context, thinPoolEx
 }
 
 // needForceCacheBilling 判断 failover 时是否需要强制缓存计费。
-// 粘性会话切换账号、或上游明确标记时，将 input_tokens 转为 cache_read 计费。
-func needForceCacheBilling(hasBoundSession bool, failoverErr *service.UpstreamFailoverError) bool {
-	return hasBoundSession || (failoverErr != nil && failoverErr.ForceCacheBilling)
+// 粘性会话实际切换账号、或上游明确标记时，将 input_tokens 转为 cache_read 计费。
+func needForceCacheBilling(hasBoundSession bool, failoverErr *service.UpstreamFailoverError, sameAccountRetry bool) bool {
+	return (hasBoundSession && !sameAccountRetry) || (failoverErr != nil && failoverErr.ForceCacheBilling)
 }
 
 // failoverClientGone 判断下游客户端是否已断开（请求 context 已取消）。

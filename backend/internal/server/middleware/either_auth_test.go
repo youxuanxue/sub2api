@@ -42,7 +42,7 @@ func newEitherAuthTestEnv(
 	userRepo := &stubJWTUserRepo{users: users}
 	authSvc := service.NewAuthService(nil, userRepo, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil, nil)
 	userSvc := service.NewUserService(userRepo, nil, nil, nil)
-	jwtMW := NewJWTAuthMiddleware(authSvc, userSvc)
+	jwtMW := NewJWTAuthMiddleware(authSvc, userSvc, nil, nil)
 
 	apiKeyRepo := &stubApiKeyRepo{
 		getByKey: func(_ context.Context, key string) (*service.APIKey, error) {
@@ -107,7 +107,7 @@ func TestUS063_EitherAuth_AcceptsValidJWT(t *testing.T) {
 		map[string]*service.APIKey{},
 	)
 
-	token, err := authSvc.GenerateToken(user)
+	token, err := authSvc.GenerateToken(context.Background(), user)
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()

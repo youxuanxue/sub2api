@@ -39,7 +39,7 @@ func TestSendMockInterceptResponse_MaxTokensOneHaiku(t *testing.T) {
 	rec := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(rec)
 
-	sendMockInterceptResponse(ctx, "claude-haiku-4-5", InterceptTypeMaxTokensOneHaiku)
+	sendMockInterceptResponse(ctx, "claude-haiku-4-5", InterceptTypeMaxTokensOneHaiku, nil)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 

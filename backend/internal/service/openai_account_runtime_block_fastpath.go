@@ -81,7 +81,34 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if shouldDisable {
 		s.BlockAccountScheduling(account, time.Time{}, "upstream_disable")
 	}
+	if !shouldDisable && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey && shouldCooldownOpenAITransientUpstreamError(statusCode, responseBody) {
+		model := ""
+		if len(requestedModel) > 0 {
+			model = requestedModel[0]
+		}
+		decision := s.recordOpenAIAccountModelTransientFailure(account, model, time.Now())
+		if decision.FailureStreak > 0 {
+			slog.Warn("openai_model_transient_state",
+				"account_id", account.ID,
+				"model", openAIAccountModelTransientModel(model),
+				"failure_streak", decision.FailureStreak,
+				"cooldown_ms", decision.Cooldown.Milliseconds(),
+				"block_scope", "account_model",
+			)
+		}
+	}
 	return shouldDisable
+}
+
+func shouldCooldownOpenAITransientUpstreamError(statusCode int, responseBody []byte) bool {
+	switch statusCode {
+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, 520, 521, 522, 523, 524:
+		return true
+	case http.StatusBadRequest:
+		return isOpenAITransientProcessingError(statusCode, "", responseBody)
+	default:
+		return false
+	}
 }
 
 func (s *OpenAIGatewayService) handleOpenAICompatRelayDownstreamCapacityError(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel string) bool {
@@ -281,4 +308,66 @@ func (s *OpenAIGatewayService) ShouldStopOpenAIOAuth429Failover(account *Account
 		return false
 	}
 	return s.isOpenAIOAuth429Storm()
+}
+
+func (s *OpenAIGatewayService) getOpenAIAccountModelTransientState() *openAIAccountModelTransientState {
+	if s == nil {
+		return nil
+	}
+	s.openaiModelTransientOnce.Do(func() {
+		if s.openaiModelTransient == nil {
+			s.openaiModelTransient = newOpenAIAccountModelTransientState(openAIModelTransientDefaultMax)
+		}
+	})
+	return s.openaiModelTransient
+}
+
+func canonicalOpenAIAccountSchedulingModel(account *Account, requestedModel string) string {
+	model := strings.TrimSpace(requestedModel)
+	if account == nil || model == "" {
+		return model
+	}
+	if mapped := strings.TrimSpace(account.GetMappedModel(model)); mapped != "" {
+		return mapped
+	}
+	return model
+}
+
+func openAIAccountModelTransientModel(canonicalModel string) string {
+	return normalizeOpenAIAccountModelTransientModel(canonicalModel)
+}
+
+func (s *OpenAIGatewayService) recordOpenAIAccountModelTransientFailure(account *Account, canonicalModel string, now time.Time) openAIAccountModelTransientDecision {
+	if s == nil || account == nil {
+		return openAIAccountModelTransientDecision{}
+	}
+	state := s.getOpenAIAccountModelTransientState()
+	if state == nil {
+		return openAIAccountModelTransientDecision{}
+	}
+	return state.recordFailure(account.ID, openAIAccountModelTransientModel(canonicalModel), now)
+}
+
+func (s *OpenAIGatewayService) clearOpenAIAccountModelTransientState(accountID int64, model string) {
+	state := s.getOpenAIAccountModelTransientState()
+	if state == nil {
+		return
+	}
+	state.recordSuccess(accountID, model)
+}
+
+func (s *OpenAIGatewayService) isOpenAIAccountModelRuntimeBlocked(account *Account, requestedModel string) bool {
+	if s == nil || account == nil {
+		return false
+	}
+	state := s.getOpenAIAccountModelTransientState()
+	if state == nil {
+		return false
+	}
+	canonicalModel := canonicalOpenAIAccountSchedulingModel(account, requestedModel)
+	return state.isBlocked(account.ID, openAIAccountModelTransientModel(canonicalModel), time.Now())
+}
+
+func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string) bool {
+	return s != nil && (s.isOpenAIAccountRuntimeBlocked(account) || s.isOpenAIAccountModelRuntimeBlocked(account, requestedModel))
 }

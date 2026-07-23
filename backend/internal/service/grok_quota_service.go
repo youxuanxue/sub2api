@@ -20,7 +20,7 @@ import (
 
 const (
 	grokQuotaUpstreamTimeout = 20 * time.Second
-	grokQuotaProbeInput      = "."
+	grokQuotaProbeInput      = "hi"
 	grokQuotaDefaultModel    = grokDefaultResponsesModel
 	grokBillingExtraKey      = "grok_billing_snapshot"
 )
@@ -152,7 +152,7 @@ func (s *GrokQuotaService) probeUsage(ctx context.Context, accountID int64) (*Gr
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
 	if account.IsGrokOAuth() {
 		applyGrokCLIHeaders(req.Header)
 	}
@@ -211,6 +211,21 @@ func (s *GrokQuotaService) probeUsage(ctx context.Context, accountID int64) (*Gr
 		)
 	}
 	return result, nil
+}
+
+// ProbeMediaEligibility refreshes billing state and evaluates the persisted
+// account snapshot used by media scheduling.
+func (s *GrokQuotaService) ProbeMediaEligibility(ctx context.Context, accountID int64) (bool, string, error) {
+	_, probeErr := s.ProbeBilling(ctx, accountID)
+	account, err := s.loadGrokOAuthAccount(ctx, accountID)
+	if err != nil {
+		return false, "billing_probe_failed", err
+	}
+	eligible, reason := account.GrokMediaGenerationEligibility()
+	if reason == "billing_unobserved" && probeErr != nil {
+		return false, reason, probeErr
+	}
+	return eligible, reason, nil
 }
 
 // ProbeBilling only calls the xAI billing endpoints. Account usage refreshes
@@ -462,10 +477,9 @@ func buildGrokQuotaProbeBody(model string) ([]byte, error) {
 		model = grokQuotaDefaultModel
 	}
 	return json.Marshal(map[string]any{
-		"model":             model,
-		"input":             grokQuotaProbeInput,
-		"max_output_tokens": 1,
-		"store":             false,
+		"model":  model,
+		"input":  grokQuotaProbeInput,
+		"stream": true,
 	})
 }
 

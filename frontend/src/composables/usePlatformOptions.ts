@@ -10,6 +10,7 @@ export const PLATFORM_LABELS: Record<AccountPlatform, string> = {
   newapi: 'Extension Engine',
   kiro: 'Kiro',
   grok: 'Grok',
+  composite: 'Composite',
 }
 
 export function getPlatformLabel(platform: string | null | undefined): string {
