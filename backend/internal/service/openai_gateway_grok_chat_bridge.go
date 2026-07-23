@@ -336,6 +336,9 @@ func (s *OpenAIGatewayService) forwardGrokChatCompletionsViaResponses(
 		if upstreamMsg == "" {
 			upstreamMsg = fmt.Sprintf("xAI upstream returned status %d", resp.StatusCode)
 		}
+		if tkIsGrokEntitlement403(resp.StatusCode, respBody) {
+			return s.handleChatCompletionsErrorResponse(resp, c, account, billingModel)
+		}
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform:           account.Platform,
 			AccountID:          account.ID,
