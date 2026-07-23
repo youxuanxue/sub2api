@@ -54,6 +54,9 @@ Required outcomes:
 - Daily classification is deterministic. Account-capacity and provider-health
   anomalies remain visible in the report but stay on the existing Feishu alert
   path; they do not create or update GitHub Issues.
+- Legacy `qa_records` hash clustering is report-only evidence. It cannot create
+  an Issue independently because it does not carry the owner/phase semantics
+  required for deterministic triage.
 
 Hard guardrails:
 
