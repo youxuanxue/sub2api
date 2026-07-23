@@ -59,3 +59,4 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 | File | Topic |
 | --- | --- |
 | [`design-capacity-first-data-layer-safety.md`](design-capacity-first-data-layer-safety.md) | Capacity-first 本地/非生产安全原型；不授权 prod 操作 |
+| [`p0-conversion-trust.md`](p0-conversion-trust.md) | P0 转化与信任；等待人工批准，不授权生产写操作或注册开启 |

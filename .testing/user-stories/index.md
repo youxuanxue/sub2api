@@ -43,3 +43,9 @@
 | US-038 | Kiro CONTENT_FILTERED 返回客户端错误且不触发 failover | InTest | `.testing/user-stories/stories/US-038-kiro-content-filter-client-error.md` |
 | US-039 | Data-layer 生产只读导出 canary | Done   | `.testing/user-stories/stories/US-039-data-layer-prod-export-canary.md` |
 | US-040 | Legacy 冷数据分批 export 与长期 archive promote | Done   | `.testing/user-stories/stories/US-040-ops-legacy-export-promote.md` |
+| US-041 | Edge handoff 历史凭据暴露面精确处置 | Ready | `.testing/user-stories/stories/US-041-edge-handoff-historical-containment.md` |
+| US-042 | Edge 管理 handoff 使用独立凭据与 child-owned PKCE 单次码 | Ready | `.testing/user-stories/stories/US-042-edge-handoff-one-time-code.md` |
+| US-043 | Effective Registration Offer 与原子 email-trial activation bundle | Ready | `.testing/user-stories/stories/US-043-atomic-email-trial-registration.md` |
+| US-044 | 当前可售模型数量来自 public catalog 最终投影 | Ready | `.testing/user-stories/stories/US-044-sellable-model-count-ssot.md` |
+| US-045 | 公开客户端 × 协议 × 传输 × 模型兼容证据 | Ready | `.testing/user-stories/stories/US-045-public-compatibility-evidence.md` |
+| US-046 | 首页、模型页和登录页可达的公开文档内容 SSOT | Ready | `.testing/user-stories/stories/US-046-public-docs-content-ssot.md` |
