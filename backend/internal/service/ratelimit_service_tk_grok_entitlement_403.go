@@ -111,3 +111,20 @@ func (s *OpenAIGatewayService) tkQuarantineGrokEntitlement403Account(ctx context
 	s.tempUnscheduleGrok(ctx, account, tkGrokEntitlement403QuarantineCooldown,
 		"grok access or entitlement denied")
 }
+
+// tkHandleGrokEntitlement403AccountSideEffect quarantines the account when xAI
+// returns the Heavy-only OAuth entitlement gate. Callers keep owning the client
+// response shape; this is the single scheduling side-effect seam for every grok
+// surface (chat, responses, media, video).
+func (s *OpenAIGatewayService) tkHandleGrokEntitlement403AccountSideEffect(
+	ctx context.Context,
+	account *Account,
+	statusCode int,
+	body []byte,
+) bool {
+	if !tkIsGrokEntitlement403(statusCode, body) {
+		return false
+	}
+	s.tkQuarantineGrokEntitlement403Account(ctx, account)
+	return true
+}

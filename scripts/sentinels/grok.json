@@ -106,9 +106,18 @@
       "path": "backend/internal/service/ratelimit_service_tk_grok_entitlement_403.go",
       "must_contain": [
         "func tkIsGrokEntitlement403",
-        "func tkGrokEntitlement403ClientMessage"
+        "func tkGrokEntitlement403ClientMessage",
+        "func (s *OpenAIGatewayService) tkHandleGrokEntitlement403AccountSideEffect"
       ],
-      "rationale": "The xAI Heavy-only entitlement-403 classifier + clean client message. Without it a grok 403 (standard/expired/downgraded Heavy) fails over pool-wide and is masked into a 502 — the single xAI policy change that would silently kill a thin grok pool (the marquee sharp edge)."
+      "rationale": "The xAI Heavy-only entitlement-403 classifier + clean client message + canonical quarantine side-effect seam. Without it a grok 403 (standard/expired/downgraded Heavy) fails over pool-wide and is masked into a 502 — the single xAI policy change that would silently kill a thin grok pool (the marquee sharp edge)."
+    },
+    {
+      "path": "backend/internal/service/grok_upstream_errors.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) shouldFailoverGrokUpstreamError",
+        "tkIsGrokEntitlement403(statusCode, responseBody)"
+      ],
+      "rationale": "Grok failover must treat xAI OAuth entitlement 403 as terminal on every surface (responses/media/cc failover), not only chat pre-checks. Losing this line re-poisons the grok pool on /v1/responses entitlement failures."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_downstream.go",
@@ -132,17 +141,19 @@
       "must_contain": [
         "account.IsGrokOAuth()",
         "validateUpstreamBaseURLForAccount(account, baseURL)",
-        "tkIsGrokEntitlement403(resp.StatusCode, respBody)"
+        "shouldFailoverGrokUpstreamError(resp.StatusCode, respBody)",
+        "handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)"
       ],
-      "rationale": "The raw CC forwarder resolves the grok OAuth Bearer + api.x.ai base_url here; first-class grok API-key relay stubs intentionally use GetOpenAIApiKey/GetOpenAIBaseURL and the edge base_url. It must intercept entitlement 403 before recording failover or applying the 30-minute Grok cooldown."
+      "rationale": "The raw CC forwarder resolves the grok OAuth Bearer + api.x.ai base_url here; first-class grok API-key relay stubs intentionally use GetOpenAIApiKey/GetOpenAIBaseURL and the edge base_url. Entitlement 403 must route through the canonical grok account side-effect seam before any pool failover."
     },
     {
       "path": "backend/internal/service/openai_gateway_grok_chat_bridge.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) forwardGrokChatCompletionsViaResponses(",
-        "tkIsGrokEntitlement403(resp.StatusCode, respBody)"
+        "shouldFailoverGrokUpstreamError(resp.StatusCode, respBody)",
+        "handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)"
       ],
-      "rationale": "Cacheable Chat Completions requests use the Grok Responses bridge rather than the raw CC forwarder. This path needs the same terminal entitlement-403 guard before failover logging and account cooldown side effects."
+      "rationale": "Cacheable Chat Completions requests use the Grok Responses bridge rather than the raw CC forwarder. Entitlement 403 must use the canonical account side-effect seam and terminal failover guard before pool failover logging."
     },
     {
       "path": "backend/internal/service/openai_gateway_v1_forward.go",
@@ -419,7 +430,8 @@
       "must_contain": [
         "TestResolveGrokVideoCredential",
         "TestNormalizeGrokVideoStatus",
-        "TestBuildGrokVideoSubmitResponse"
+        "TestBuildGrokVideoSubmitResponse",
+        "TestGrokVideoUpstreamErrorEntitlement403QuarantinesAccount"
       ],
       "rationale": "Load-bearing QA evidence for the grok-native video arm: resolveGrokVideoCredential pins OAuth vs prod→edge relay api_key (revert to access_token-only silently re-breaks prod grok-us4 video submit), the xAI status-enum -> videoTerminalOutcome mapping (drift would skip terminal-success retention or terminal-failure refund), and the submit acknowledgement shape (must carry TK's public task id, not the upstream request_id)."
     },
@@ -506,7 +518,8 @@
         "TestForwardGrokResponsesAPIKeyRelayUsesEdgeResponsesURL",
         "TestResolveGrokResponsesUpstreamAPIKeyRelayUsesEdgeOpenAIResponses",
         "TestForwardAsAnthropic_GrokAPIKeyRelayUsesEdgeChatCompletionsURL",
-        "TestHandleGrokAccountUpstreamError_DownstreamCapacitySkipsRelayCooldown"
+        "TestHandleGrokAccountUpstreamError_DownstreamCapacitySkipsRelayCooldown",
+        "TestForwardGrokResponsesEntitlement403QuarantinesWithoutFailover"
       ],
       "rationale": "Load-bearing QA for grok apikey relay and Anthropic-shaped /v1/messages prod->edge path: native-catalog SKUs must forward to edge /v1/chat/completions with Bearer api_key (SSOT provision path), and TokenKey downstream capacity envelopes must not runtime-block/temp-unschedule relay stubs. Revert to OAuth-only, responses-first routing, or treating relay capacity as xAI account health passes other tests but breaks prod grok clients."
     },

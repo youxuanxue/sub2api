@@ -386,7 +386,6 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 	logOpenAIInstructionsRequiredDebug(ctx, c, account, resp.StatusCode, upstreamMsg, requestBody, body)
 	if account != nil && account.IsGrok() && tkIsGrokEntitlement403(resp.StatusCode, body) {
-		s.tkQuarantineGrokEntitlement403Account(c.Request.Context(), account)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform:           account.Platform,
 			AccountID:          account.ID,
@@ -675,7 +674,6 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 	}
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 	if account != nil && account.IsGrok() && tkIsGrokEntitlement403(resp.StatusCode, body) {
-		s.tkQuarantineGrokEntitlement403Account(c.Request.Context(), account)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 			Platform:           account.Platform,
 			AccountID:          account.ID,

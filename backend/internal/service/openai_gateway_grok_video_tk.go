@@ -163,7 +163,7 @@ func (s *OpenAIGatewayService) grokNativeVideoSubmit(
 		return nil, herr
 	}
 	if status >= 400 {
-		return nil, s.grokVideoUpstreamError(status, respBody)
+		return nil, s.grokVideoUpstreamError(ctx, account, status, respBody)
 	}
 	upstreamTaskID := gjson.GetBytes(respBody, "request_id").String()
 	if upstreamTaskID == "" {
@@ -231,7 +231,7 @@ func (s *OpenAIGatewayService) grokNativeVideoFetch(
 		return nil, herr
 	}
 	if status >= 400 {
-		return nil, s.grokVideoUpstreamError(status, respBody)
+		return nil, s.grokVideoUpstreamError(ctx, account, status, respBody)
 	}
 
 	xaiStatus := gjson.GetBytes(respBody, "status").String()
@@ -343,9 +343,15 @@ func buildGrokVideoFetchURL(base, upstreamTaskID string) string {
 // grokVideoUpstreamError maps an xAI video error response to a client error.
 // A Heavy-only entitlement 403 is surfaced as a clean honesty-403 (skip-retry,
 // no penalty), identical to the grok chat posture; other statuses pass through.
-func (s *OpenAIGatewayService) grokVideoUpstreamError(status int, body []byte) error {
+func (s *OpenAIGatewayService) grokVideoUpstreamError(
+	ctx context.Context,
+	account *Account,
+	status int,
+	body []byte,
+) error {
 	msg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(body)))
 	if tkIsGrokEntitlement403(status, body) {
+		s.tkHandleGrokEntitlement403AccountSideEffect(ctx, account, status, body)
 		return &NewAPIRelayError{Err: newapitypes.NewErrorWithStatusCode(
 			errors.New(tkGrokEntitlement403ClientMessage(msg)),
 			newapitypes.ErrorCodeInvalidRequest,
