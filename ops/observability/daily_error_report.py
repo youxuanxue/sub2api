@@ -390,6 +390,49 @@ def aggregate_markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def issue_analysis_markdown(report: dict[str, Any], target_id: str, limit: int = 10) -> str:
+    """Render the highest-priority deterministic classifications for one target."""
+
+    def cell(value: Any, text_limit: int = 120) -> str:
+        return clean_text(value, text_limit).replace("|", "\\|").replace("`", "'")
+
+    target = clean_text(target_id, 80)
+    candidates = [
+        item
+        for item in (report.get("issue_candidates") or [])
+        if clean_text(item.get("target_id"), 80) == target
+    ]
+    candidates.sort(key=lambda row: (-as_int(row.get("priority")), clean_text(row.get("signature"), 120)))
+    if not candidates:
+        return ""
+
+    shown = candidates[: max(limit, 0)]
+    lines = [
+        "| Priority | State | Owner / phase | HTTP | Type | Platform / model | Endpoint | Current / previous | Confidence |",
+        "| ---: | --- | --- | ---: | --- | --- | --- | ---: | --- |",
+    ]
+    for item in shown:
+        lines.append(
+            "| {priority} | {state} | {owner} / {phase} | {status} | {error_type} | {platform} / {model} | {endpoint} | {current} / {previous} | {confidence} |".format(
+                priority=as_int(item.get("priority")),
+                state=cell(item.get("state"), 32),
+                owner=cell(item.get("owner"), 32),
+                phase=cell(item.get("phase"), 48),
+                status=as_int(item.get("status_code")),
+                error_type=cell(item.get("error_type"), 96),
+                platform=cell(item.get("platform"), 64),
+                model=cell(item.get("model")),
+                endpoint=cell(item.get("endpoint")),
+                current=as_int(item.get("current_count")),
+                previous=as_int(item.get("previous_count")),
+                confidence=cell(item.get("confidence"), 16),
+            )
+        )
+    if len(candidates) > len(shown):
+        lines += ["", f"Showing the top {len(shown)} of {len(candidates)} classifications by priority."]
+    return "\n".join(lines)
+
+
 def select_candidate(report: dict[str, Any], signature: str) -> dict[str, Any]:
     matches = [item for item in report.get("repair_candidates") or [] if item.get("signature") == signature]
     if len(matches) != 1:

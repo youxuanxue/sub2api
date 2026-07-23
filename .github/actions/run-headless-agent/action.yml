@@ -2,13 +2,13 @@ name: Run headless Claude agent
 description: >-
   Single source of truth for the headless `claude -p` scaffold shared by the
   TokenKey agent workflows (pr-repair-agent, upstream-issue-watchdog,
-  upstream-merge-agent-daily, ops-daily-diagnostics). Installs the Claude Code
+  upstream-merge-agent-daily, ops-repair-draft). Installs the Claude Code
   CLI, stages the secret redactor from origin/main (fail-closed), and runs the
   agent with the canonical thinking-env, streaming the transcript through the
   redactor to an output file. Callers keep their own prompt construction, git /
   PR / issue logic, and artifact upload. Previously each workflow hand-copied
-  this block and the values had already drifted (ops-daily-diagnostics ran
-  MAX_THINKING_TOKENS=16000 and omitted set -o pipefail + autocompact).
+  this block and the values had already drifted before this action became the
+  shared owner.
 
 inputs:
   prompt_file:

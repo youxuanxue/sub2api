@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ops-daily-diagnostics.yml"
+REPAIR_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ops-repair-draft.yml"
 
 
 def workflow_text() -> str:
@@ -131,12 +132,18 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertNotIn("id-token: write", queue)
         self.assertNotIn("aws ", queue)
 
-    def test_failed_claude_run_cannot_publish_partial_thoughts_as_diagnosis(self) -> None:
+    def test_daily_triage_is_deterministic_and_agent_budget_is_repair_only(self) -> None:
         text = workflow_text()
-        self.assertIn("CLAUDE_EXIT_CODE", text)
-        self.assertIn("status = 'ok' if exit_code == '0' and body else 'failed'", text)
-        self.assertNotIn("message.get('content')", text)
-        self.assertIn("if diagnosis_meta.get('status') == 'ok':", text)
+        self.assertNotIn("run-headless-agent", text)
+        self.assertNotIn("ANTHROPIC_AUTH_TOKEN", text)
+        self.assertNotIn("max_budget_usd:", text)
+        self.assertIn("issue_analysis_markdown", text)
+        self.assertIn("## Deterministic error analysis", text)
+        self.assertIn("needs.aggregate-report.outputs.needs_issue == 'true'", text)
+
+        repair = REPAIR_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("uses: ./.github/actions/run-headless-agent", repair)
+        self.assertIn('max_budget_usd: "8.00"', repair)
 
 
 if __name__ == "__main__":
