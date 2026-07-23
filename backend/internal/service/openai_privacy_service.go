@@ -113,11 +113,8 @@ var (
 	chatGPTSubscriptionsURL = "https://chatgpt.com/backend-api/subscriptions"
 )
 
-// fetchChatGPTAccountInfo calls ChatGPT backend-api to get account info (plan_type, etc.).
-// Used as fallback when id_token doesn't contain these fields (e.g., Mobile RT).
-// orgID is used to match the correct account when multiple accounts exist (e.g., personal + team).
-// Returns nil on any failure (best-effort, non-blocking).
-func fetchChatGPTAccountInfo(ctx context.Context, clientFactory PrivacyClientFactory, accessToken, proxyURL, orgID string) *ChatGPTAccountInfo {
+// fetchChatGPTAccountsCheck loads the accounts/check payload (best-effort).
+func fetchChatGPTAccountsCheck(ctx context.Context, clientFactory PrivacyClientFactory, accessToken, proxyURL string) map[string]any {
 	if accessToken == "" || clientFactory == nil {
 		return nil
 	}
@@ -151,19 +148,35 @@ func fetchChatGPTAccountInfo(ctx context.Context, clientFactory PrivacyClientFac
 		return nil
 	}
 
-	info := &ChatGPTAccountInfo{}
-
 	accounts, ok := result["accounts"].(map[string]any)
 	if !ok {
 		slog.Debug("chatgpt_account_check_no_accounts", "body", truncate(resp.String(), 300))
 		return nil
 	}
+	return accounts
+}
+
+// fetchChatGPTAccountInfo calls ChatGPT backend-api to get account info (plan_type, etc.).
+// Used as fallback when id_token doesn't contain these fields (e.g., Mobile RT).
+// orgID is used to match the correct account when multiple accounts exist (e.g., personal + team).
+// Returns nil on any failure (best-effort, non-blocking).
+func fetchChatGPTAccountInfo(ctx context.Context, clientFactory PrivacyClientFactory, accessToken, proxyURL, orgID string) *ChatGPTAccountInfo {
+	accounts := fetchChatGPTAccountsCheck(ctx, clientFactory, accessToken, proxyURL)
+	if accounts == nil {
+		return nil
+	}
+	return parseChatGPTAccountInfo(accounts, orgID)
+}
+
+func parseChatGPTAccountInfo(accounts map[string]any, orgID string) *ChatGPTAccountInfo {
+	info := &ChatGPTAccountInfo{}
+	now := time.Now()
 
 	// 优先匹配 orgID 对应的账号（access_token JWT 中的 poid）
 	if orgID != "" {
 		if acctRaw, ok := accounts[orgID]; ok {
 			if acct, ok := acctRaw.(map[string]any); ok {
-				if isUsableChatGPTAccountCandidate(acct, time.Now()) {
+				if isUsableChatGPTAccountCandidate(acct, now) {
 					fillAccountInfo(info, acct)
 				}
 			}
@@ -182,7 +195,7 @@ func fetchChatGPTAccountInfo(ctx context.Context, clientFactory PrivacyClientFac
 			if !ok {
 				continue
 			}
-			if !isUsableChatGPTAccountCandidate(acct, time.Now()) {
+			if !isUsableChatGPTAccountCandidate(acct, now) {
 				continue
 			}
 			planType := extractPlanType(acct)
@@ -213,13 +226,146 @@ func fetchChatGPTAccountInfo(ctx context.Context, clientFactory PrivacyClientFac
 		}
 	}
 
+	// orgID 命中时 plan_type 可能已有值但 entitlement.expires_at 为空（Plus/Pro 常见）。
+	// 此时上面的遍历会被跳过，仍需扫描其它 workspace 的 entitlement 或留给 subscriptions 回退。
+	if info.SubscriptionExpiresAt == "" {
+		info.SubscriptionExpiresAt = findBestSubscriptionExpiresAtFromAccounts(accounts, now)
+	}
+
 	if info.PlanType == "" {
-		slog.Debug("chatgpt_account_check_no_plan_type", "body", truncate(resp.String(), 300))
+		slog.Debug("chatgpt_account_check_no_plan_type", "org_id", orgID)
 		return nil
 	}
 
 	slog.Info("chatgpt_account_check_success", "plan_type", info.PlanType, "subscription_expires_at", info.SubscriptionExpiresAt, "org_id", orgID)
 	return info
+}
+
+func findBestSubscriptionExpiresAtFromAccounts(accounts map[string]any, now time.Time) string {
+	type candidate struct {
+		expiresAt string
+		paid      bool
+		defaulted bool
+	}
+	var best candidate
+	for _, acctRaw := range accounts {
+		acct, ok := acctRaw.(map[string]any)
+		if !ok || !isUsableChatGPTAccountCandidate(acct, now) {
+			continue
+		}
+		expiresAt := strings.TrimSpace(extractEntitlementExpiresAt(acct))
+		if expiresAt == "" {
+			continue
+		}
+		if _, err := time.Parse(time.RFC3339, expiresAt); err != nil {
+			continue
+		}
+		planType := extractPlanType(acct)
+		isPaid := planType != "" && !strings.EqualFold(planType, "free") && !strings.EqualFold(planType, "basic")
+		isDefault := false
+		if account, ok := acct["account"].(map[string]any); ok {
+			isDefault, _ = account["is_default"].(bool)
+		}
+		cur := candidate{expiresAt: expiresAt, paid: isPaid, defaulted: isDefault}
+		if best.expiresAt == "" ||
+			(cur.defaulted && !best.defaulted) ||
+			(cur.defaulted == best.defaulted && cur.paid && !best.paid) {
+			best = cur
+		}
+	}
+	return best.expiresAt
+}
+
+func collectChatGPTSubscriptionAccountIDCandidates(
+	chatGPTAccountID, organizationID, orgID string,
+	accounts map[string]any,
+) []string {
+	seen := make(map[string]struct{})
+	add := func(ids []string, id string) []string {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return ids
+		}
+		if _, ok := seen[id]; ok {
+			return ids
+		}
+		seen[id] = struct{}{}
+		return append(ids, id)
+	}
+
+	candidates := make([]string, 0, 4)
+	for _, id := range []string{chatGPTAccountID, organizationID, orgID} {
+		candidates = add(candidates, id)
+	}
+
+	if accounts != nil {
+		type keyed struct {
+			id        string
+			paid      bool
+			defaulted bool
+		}
+		var keyedAccounts []keyed
+		for accountID, acctRaw := range accounts {
+			acct, ok := acctRaw.(map[string]any)
+			if !ok || !isUsableChatGPTAccountCandidate(acct, time.Now()) {
+				continue
+			}
+			planType := extractPlanType(acct)
+			isPaid := planType != "" && !strings.EqualFold(planType, "free") && !strings.EqualFold(planType, "basic")
+			isDefault := false
+			if account, ok := acct["account"].(map[string]any); ok {
+				isDefault, _ = account["is_default"].(bool)
+			}
+			keyedAccounts = append(keyedAccounts, keyed{id: accountID, paid: isPaid, defaulted: isDefault})
+		}
+		for _, preferPaid := range []bool{true, false} {
+			for _, preferDefault := range []bool{true, false} {
+				for _, item := range keyedAccounts {
+					if preferPaid && !item.paid {
+						continue
+					}
+					if preferDefault && !item.defaulted {
+						continue
+					}
+					candidates = add(candidates, item.id)
+				}
+			}
+		}
+	}
+	return candidates
+}
+
+func fetchChatGPTSubscriptionExpiresAtWithCandidates(
+	ctx context.Context,
+	clientFactory PrivacyClientFactory,
+	accessToken, proxyURL string,
+	accountIDs []string,
+) string {
+	for _, accountID := range accountIDs {
+		if expiresAt := fetchChatGPTSubscriptionExpiresAt(ctx, clientFactory, accessToken, proxyURL, accountID); expiresAt != "" {
+			return expiresAt
+		}
+	}
+	return ""
+}
+
+// fetchOpenAISubscriptionExpiresAt resolves subscription expiry for a stored OpenAI OAuth account.
+func fetchOpenAISubscriptionExpiresAt(
+	ctx context.Context,
+	clientFactory PrivacyClientFactory,
+	accessToken, proxyURL, chatGPTAccountID, organizationID, orgID string,
+) string {
+	if accessToken == "" || clientFactory == nil {
+		return ""
+	}
+
+	accounts := fetchChatGPTAccountsCheck(ctx, clientFactory, accessToken, proxyURL)
+	if info := parseChatGPTAccountInfo(accounts, orgID); info != nil && info.SubscriptionExpiresAt != "" {
+		return info.SubscriptionExpiresAt
+	}
+
+	candidates := collectChatGPTSubscriptionAccountIDCandidates(chatGPTAccountID, organizationID, orgID, accounts)
+	return fetchChatGPTSubscriptionExpiresAtWithCandidates(ctx, clientFactory, accessToken, proxyURL, candidates)
 }
 
 // fetchChatGPTSubscriptionExpiresAt reads the lightweight subscription endpoint used by

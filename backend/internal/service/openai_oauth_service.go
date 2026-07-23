@@ -269,24 +269,38 @@ func (s *OpenAIOAuthService) enrichTokenInfo(ctx context.Context, tokenInfo *Ope
 			orgID = atClaims.OpenAIAuth.POID
 		}
 	}
-	if info := fetchChatGPTAccountInfo(ctx, s.privacyClientFactory, tokenInfo.AccessToken, proxyURL, orgID); info != nil {
-		// chatgpt_plan_type from the ID token is the canonical personal-plan value.
-		// accounts/check is a multi-account/workspace endpoint; inactive team or
-		// business workspaces can otherwise overwrite Pro/Free with internal
-		// workspace billing plan names such as self_serve_business_usage_based.
-		if shouldApplyChatGPTAccountInfoPlanType(tokenInfo.PlanType, info.PlanType) {
-			tokenInfo.PlanType = info.PlanType
+	if accounts := fetchChatGPTAccountsCheck(ctx, s.privacyClientFactory, tokenInfo.AccessToken, proxyURL); accounts != nil {
+		if info := parseChatGPTAccountInfo(accounts, orgID); info != nil {
+			// chatgpt_plan_type from the ID token is the canonical personal-plan value.
+			// accounts/check is a multi-account/workspace endpoint; inactive team or
+			// business workspaces can otherwise overwrite Pro/Free with internal
+			// workspace billing plan names such as self_serve_business_usage_based.
+			if shouldApplyChatGPTAccountInfoPlanType(tokenInfo.PlanType, info.PlanType) {
+				tokenInfo.PlanType = info.PlanType
+			}
+			if info.SubscriptionExpiresAt != "" {
+				tokenInfo.SubscriptionExpiresAt = info.SubscriptionExpiresAt
+			}
+			if tokenInfo.Email == "" && info.Email != "" {
+				tokenInfo.Email = info.Email
+			}
 		}
-		if info.SubscriptionExpiresAt != "" {
-			tokenInfo.SubscriptionExpiresAt = info.SubscriptionExpiresAt
-		}
-		if tokenInfo.Email == "" && info.Email != "" {
-			tokenInfo.Email = info.Email
-		}
-	}
-	if strings.TrimSpace(tokenInfo.SubscriptionExpiresAt) == "" {
-		if expiresAt := fetchChatGPTSubscriptionExpiresAt(ctx, s.privacyClientFactory, tokenInfo.AccessToken, proxyURL, resolveChatGPTSubscriptionAccountID(tokenInfo, orgID)); expiresAt != "" {
-			tokenInfo.SubscriptionExpiresAt = expiresAt
+		if strings.TrimSpace(tokenInfo.SubscriptionExpiresAt) == "" {
+			candidates := collectChatGPTSubscriptionAccountIDCandidates(
+				tokenInfo.ChatGPTAccountID,
+				tokenInfo.OrganizationID,
+				orgID,
+				accounts,
+			)
+			if expiresAt := fetchChatGPTSubscriptionExpiresAtWithCandidates(
+				ctx,
+				s.privacyClientFactory,
+				tokenInfo.AccessToken,
+				proxyURL,
+				candidates,
+			); expiresAt != "" {
+				tokenInfo.SubscriptionExpiresAt = expiresAt
+			}
 		}
 	}
 
@@ -296,19 +310,6 @@ func (s *OpenAIOAuthService) enrichTokenInfo(ctx context.Context, tokenInfo *Ope
 
 func shouldApplyChatGPTAccountInfoPlanType(current, candidate string) bool {
 	return strings.TrimSpace(candidate) != "" && strings.TrimSpace(current) == ""
-}
-
-func resolveChatGPTSubscriptionAccountID(tokenInfo *OpenAITokenInfo, orgID string) string {
-	for _, candidate := range []string{
-		tokenInfo.ChatGPTAccountID,
-		tokenInfo.OrganizationID,
-		orgID,
-	} {
-		if trimmed := strings.TrimSpace(candidate); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }
 
 // RefreshAccountToken refreshes token for an OpenAI OAuth account
