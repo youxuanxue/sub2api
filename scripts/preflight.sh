@@ -2348,14 +2348,16 @@ fi
 
 echo ""
 echo "=== sub2api: headless-agent composite sharing ==="
-# The headless `claude -p` scaffold (CLI install + origin/main redactor staging +
-# canonical thinking-env + claude->redact->tee) lives in ONE composite action so
-# the agent workflows can't re-grow divergent copies (they had already
+# The headless `claude -p` scaffold is owned by ONE composite action plus its
+# file-backed runner (CLI install + origin/main redactor staging + canonical
+# thinking-env + claude->redact->tee), so agent workflows can't re-grow
+# divergent copies (they had already
 # drifted: ops-daily-diagnostics ran MAX_THINKING_TOKENS=16000 + omitted
 # set -o pipefail). Fail closed if any agent workflow re-inlines `claude -p` or
 # stops using the action, or if the composite loses its single-source
 # thinking-env / pipefail / fail-closed redactor.
 _hac_action=".github/actions/run-headless-agent/action.yml"
+_hac_runner="scripts/agent/run-headless-claude.sh"
 _hac_files=".github/workflows/pr-repair-agent.yml .github/workflows/upstream-issue-watchdog.yml .github/workflows/upstream-merge-agent-daily.yml .github/workflows/ops-daily-diagnostics.yml .github/workflows/ops-repair-draft.yml"
 _hac_ok=1
 if [ ! -f "$_hac_action" ]; then
@@ -2365,14 +2367,29 @@ else
     grep -q 'MAX_THINKING_TOKENS: "31999"' "$_hac_action" || {
         echo "  FAIL: $_hac_action lost the canonical MAX_THINKING_TOKENS=31999 single source"
         errors=$((errors + 1)); _hac_ok=0; }
-    grep -q 'set -o pipefail' "$_hac_action" || {
-        echo "  FAIL: $_hac_action lost set -o pipefail (claude exit code would be masked by tee)"
-        errors=$((errors + 1)); _hac_ok=0; }
     grep -q 'refusing to run the agent unredacted' "$_hac_action" || {
         echo "  FAIL: $_hac_action redactor lost its fail-closed refusal"
         errors=$((errors + 1)); _hac_ok=0; }
+    grep -q 'bash scripts/agent/run-headless-claude.sh' "$_hac_action" || {
+        echo "  FAIL: $_hac_action must delegate execution to the file-backed runner"
+        errors=$((errors + 1)); _hac_ok=0; }
     if grep -q 'for line in sys.stdin' "$_hac_action"; then
         echo "  FAIL: $_hac_action redactor reintroduced a passthrough fallback (must stay fail-closed)"
+        errors=$((errors + 1)); _hac_ok=0
+    fi
+fi
+if [ ! -f "$_hac_runner" ]; then
+    echo "  FAIL: $_hac_runner missing (the file-backed headless-agent runner)"
+    errors=$((errors + 1)); _hac_ok=0
+else
+    grep -q 'set -uo pipefail' "$_hac_runner" || {
+        echo "  FAIL: $_hac_runner lost pipefail (claude exit code would be masked by tee)"
+        errors=$((errors + 1)); _hac_ok=0; }
+    grep -q '< "$PROMPT_FILE"' "$_hac_runner" || {
+        echo "  FAIL: $_hac_runner must stream PROMPT_FILE over stdin"
+        errors=$((errors + 1)); _hac_ok=0; }
+    if grep -q '\$(cat .*PROMPT_FILE' "$_hac_runner"; then
+        echo "  FAIL: $_hac_runner passed PROMPT_FILE through argv (large prompts exceed MAX_ARG_STRLEN)"
         errors=$((errors + 1)); _hac_ok=0
     fi
 fi
@@ -2387,7 +2404,7 @@ for _f in $_hac_files; do
     fi
 done
 [ "$_hac_ok" = 1 ] && echo "  ok: agent workflows share the run-headless-agent composite (single-source scaffold)"
-unset _hac_action _hac_files _hac_ok _f
+unset _hac_action _hac_runner _hac_files _hac_ok _f
 
 echo ""
 echo "=== sub2api: skip-ci marker (local commits) ==="

@@ -158,9 +158,25 @@ def classify_cluster(item: dict[str, Any], max_count_5m: int, target_id: str) ->
     }
 
 
-def classify_access_cluster(item: dict[str, Any], target_id: str) -> dict[str, Any] | None:
-    current = as_int(item.get("current_count"))
+def access_coverage_key(item: dict[str, Any]) -> tuple[int, str, str]:
+    def dimension(value: Any) -> str:
+        text = clean_text(value).lower()
+        return "unknown" if text in {"unknown", "(unknown)"} else text
+
+    return (
+        as_int(item.get("status_code")),
+        dimension(item.get("model")),
+        dimension(item.get("endpoint")),
+    )
+
+
+def classify_access_cluster(
+    item: dict[str, Any], target_id: str, captured_count: int = 0
+) -> dict[str, Any] | None:
+    observed = as_int(item.get("current_count"))
     status = as_int(item.get("status_code"))
+    captured = min(max(captured_count, 0), observed)
+    current = observed - captured
     if current <= 0 or status < 400:
         return None
     key = cluster_key(item, source="access_log")
@@ -170,11 +186,13 @@ def classify_access_cluster(item: dict[str, Any], target_id: str) -> dict[str, A
         "signature": signature_for(key, target_id),
         "state": "observed",
         "severity": "warning",
+        "observed_count": observed,
+        "captured_count": captured,
         "current_count": current,
         "previous_count": 0,
         "baseline_7d_count": 0,
         "active_days_7d": 0,
-        "max_count_5m": as_int(item.get("max_count_1m")),
+        "max_count_5m": min(as_int(item.get("max_count_1m")), current),
         "first_seen_7d": None,
         "last_seen": None,
         "account_ids": [],
@@ -215,12 +233,18 @@ def build_report(probe_text: str, target_id: str) -> dict[str, Any]:
         burst_by_signature[sig] = max(burst_by_signature.get(sig, 0), as_int(burst.get("max_count_5m")))
 
     clusters = []
+    captured_by_surface: dict[tuple[int, str, str], int] = defaultdict(int)
     for raw in sections.get("clusters", []):
         sig = signature_for(cluster_key(raw), target_id)
         peak = max(as_int(raw.get("max_count_5m")), burst_by_signature.get(sig, 0))
-        clusters.append(classify_cluster(raw, peak, target_id))
+        classified = classify_cluster(raw, peak, target_id)
+        clusters.append(classified)
+        captured_by_surface[access_coverage_key(classified)] += as_int(classified.get("current_count"))
     for raw in sections.get("access_clusters", []):
-        classified = classify_access_cluster(raw, target_id)
+        surface = access_coverage_key(raw)
+        covered = min(captured_by_surface.get(surface, 0), as_int(raw.get("current_count")))
+        captured_by_surface[surface] -= covered
+        classified = classify_access_cluster(raw, target_id, covered)
         if classified:
             clusters.append(classified)
     clusters.sort(key=lambda row: (-as_int(row["priority"]), row["signature"]))
