@@ -135,7 +135,10 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
     def test_daily_triage_is_deterministic_and_agent_budget_is_repair_only(self) -> None:
         text = workflow_text()
         self.assertNotIn("run-headless-agent", text)
+        self.assertNotIn("setup-claude-code", text)
+        self.assertNotRegex(text, r"\bclaude\s+(?:-p|--print)\b")
         self.assertNotIn("ANTHROPIC_AUTH_TOKEN", text)
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", text)
         self.assertNotIn("max_budget_usd:", text)
         self.assertIn("issue_analysis_markdown", text)
         self.assertIn("## Deterministic error analysis", text)

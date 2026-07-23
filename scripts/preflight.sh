@@ -2415,7 +2415,7 @@ done
 if [ ! -f "$_hac_daily" ]; then
     echo "  FAIL: $_hac_daily missing (the deterministic daily triage workflow)"
     errors=$((errors + 1)); _hac_ok=0
-elif grep -Eq 'run-headless-agent|ANTHROPIC_AUTH_TOKEN|max_budget_usd:' "$_hac_daily"; then
+elif grep -Eq 'run-headless-agent|setup-claude-code|(^|[^[:alnum:]_-])claude[[:space:]]+(-p|--print)([[:space:]]|$)|ANTHROPIC_AUTH_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|max_budget_usd:' "$_hac_daily"; then
     echo "  FAIL: $_hac_daily must keep daily triage deterministic and reserve AI budget for repair"
     errors=$((errors + 1)); _hac_ok=0
 fi
