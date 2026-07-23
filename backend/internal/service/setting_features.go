@@ -900,6 +900,52 @@ func (s *SettingService) GetDefaultPlatformQuotas(ctx context.Context) (map[stri
 	return out, nil // 补齐全部允许 platform key，保持与旧实现一致的下游契约
 }
 
+// defaultAuditLogRetentionDays 审计日志默认保留天数。
+const defaultAuditLogRetentionDays = 180
+
+// GetAuditLogRetentionDays 审计日志保留天数（<=0 表示永久保留，仅支持手动清空）。
+func (s *SettingService) GetAuditLogRetentionDays(ctx context.Context) int {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyAuditLogRetentionDays)
+	if err != nil {
+		return defaultAuditLogRetentionDays
+	}
+	return parseAuditLogRetentionDays(value)
+}
+
+// parseAuditLogRetentionDays 解析保留天数配置，空/非法值回退默认值。
+func parseAuditLogRetentionDays(value string) int {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return defaultAuditLogRetentionDays
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return defaultAuditLogRetentionDays
+	}
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
+// IsSessionBindingEnabled 检查会话 IP/UA 绑定是否启用（默认关闭）。
+func (s *SettingService) IsSessionBindingEnabled(ctx context.Context) bool {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeySessionBindingEnabled)
+	if err != nil {
+		return false
+	}
+	return value == "true"
+}
+
+// IsStepUpEnabled 检查敏感操作 step-up 2FA 门控是否启用（默认关闭）。
+func (s *SettingService) IsStepUpEnabled(ctx context.Context) bool {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyStepUpEnabled)
+	if err != nil {
+		return false
+	}
+	return value == "true"
+}
+
 // GetAuthSourcePlatformQuotas 读取指定 auth source 的 platform quota 覆盖（仅返回有配置的平台，override 语义）。
 func (s *SettingService) GetAuthSourcePlatformQuotas(ctx context.Context, source string) map[string]*DefaultPlatformQuotaSetting {
 	out := map[string]*DefaultPlatformQuotaSetting{}

@@ -652,7 +652,7 @@ func convertBufferedChatCompletionsToAnthropicJSON(
 		ID:   fmt.Sprintf("msg_bridge_%d", time.Now().UnixNano()),
 		Type: "message", Role: "assistant",
 		Content: content, Model: originalModel,
-		StopReason: stopReason,
+		StopReason: apicompat.AnthropicStopReasonPtr(stopReason),
 		Usage: apicompat.AnthropicUsage{
 			InputTokens:          usage.InputTokens,
 			OutputTokens:         usage.OutputTokens,

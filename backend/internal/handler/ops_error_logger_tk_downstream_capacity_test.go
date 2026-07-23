@@ -80,7 +80,7 @@ func TestClassifyOpsDownstreamCapacityOwnedAsRouting(t *testing.T) {
 			c, _ := gin.CreateTestContext(rec)
 			c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{tc.event})
 
-			phase, errorOwner, _ := classifyOpsErrorLog(
+			phase, _, errorOwner, _ := classifyOpsErrorLog(
 				c, "api_error", tc.errMsg, "", http.StatusTooManyRequests)
 
 			require.Equal(t, "routing", phase, "downstream-capacity verdict must be routing, not upstream")
@@ -131,7 +131,7 @@ func TestClassifyOpsGenuineUpstreamStaysProviderDespiteCapacityHelper(t *testing
 			c, _ := gin.CreateTestContext(rec)
 			c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{tc.event})
 
-			phase, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", tc.errMsg, "", tc.status)
+			phase, _, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", tc.errMsg, "", tc.status)
 
 			require.Equal(t, "upstream", phase, "genuine provider error must stay upstream")
 			require.Equal(t, "provider", errorOwner, "must keep counting toward upstream_error_rate")

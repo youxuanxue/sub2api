@@ -5,7 +5,7 @@
     {
       "path": "backend/internal/domain/constants.go",
       "must_contain": [
-        "PlatformGrok = \"grok\""
+        "PlatformGrok      = \"grok\""
       ],
       "rationale": "Identity constant for the seventh platform string `grok`. Removing it collapses every grok invariant (pool membership, account predicate, refresher gate)."
     },
@@ -85,7 +85,11 @@
     {
       "path": "backend/internal/service/openai_gateway_cc_pipeline.go",
       "must_contain": [
-        "if !s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {\n\t\treturn nil\n\t}\n\tif account != nil && account.Platform == PlatformGrok {"
+        "shouldFailover := s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody)",
+        "if account != nil && account.Platform == PlatformGrok {",
+        "shouldFailover = s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody)",
+        "if !shouldFailover {",
+        "return nil"
       ],
       "rationale": "The shared Chat Completions HTTP pipeline must decide failover and return before applying Grok account side effects. The contiguous anchor deliberately pins that ordering so a terminal entitlement 403 can never reach the account cooldown handler."
     },
@@ -460,20 +464,26 @@
       "rationale": "The xAI-shaped video submit alias POST /videos/generations (plural videos + /generations), registered in BOTH the /v1 group and the no-prefix scope. This is the path grok's native arm POSTs to ({base}/videos/generations); the gateway's canonical video routes are /video/generations (singular) + /videos (no suffix), which do NOT match it. Without this alias the prod->edge grok video relay 404s at submit: a prod grok mirror account forwards to api-<edge>.tokenkey.dev/v1/videos/generations and the edge gateway has no such route (grok chat/image relay works only because /chat/completions and /images/generations already coincide with gateway routes). Losing this alias silently re-breaks the relay while direct-to-xAI still works, so no other test would catch it."
     },
     {
-      "path": "backend/internal/service/grok_media.go",
+      "path": "backend/internal/service/grok_upstream_url.go",
       "must_contain": [
-        "func (e GrokMediaEndpoint) upstreamURL(",
-        "buildOpenAIV1SegmentURL(baseURL, \"images/generations\")",
-        "buildOpenAIV1SegmentURL(baseURL, \"videos/generations\")",
-        "s.validateUpstreamBaseURLForAccount(account, account.GetGrokBaseURL())"
+        "func buildGrokMediaURL(account *Account, cfg *config.Config, endpoint GrokMediaEndpoint, requestID string) (string, error) {",
+        "GrokMediaEndpointImagesGenerations",
+        "GrokMediaEndpointVideosGenerations",
+        "grokBaseURLValidator(account, cfg)"
       ],
       "rationale": "Grok image/video OpenAI-compatible media forwarding must build /v1/images and /v1/videos URLs from the already validated account base_url. xAI's URL builder rejects TokenKey edge hosts, which made prod→edge Grok relay stubs fail locally before reaching edge. Losing the account-aware validation or reverting to xAI-only URL construction silently reopens the direct/universal Grok media 502."
     },
     {
       "path": "backend/internal/service/openai_gateway_grok.go",
       "must_contain": [
-        "func (s *OpenAIGatewayService) forwardGrokResponses",
-        "resolveGrokResponsesUpstream",
+        "func (s *OpenAIGatewayService) forwardGrokResponses"
+      ],
+      "rationale": "Grok /v1/responses forwarding entry point must stay in the primary grok gateway file; relay/OAuth URL resolution lives in openai_gateway_grok_request_tk.go."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok_request_tk.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) resolveGrokResponsesUpstream(account *Account) (string, error) {",
         "grokResponsesAuthToken",
         "validateUpstreamBaseURLForAccount(account, baseURL)",
         "buildOpenAIResponsesURL"

@@ -179,14 +179,14 @@ func TestSchedulerCacheUpdateLastUsedOnlyTouchesMetaKey(t *testing.T) {
 	require.True(t, snapshot[0].LastUsedAt.Equal(t1),
 		"meta 键的 LastUsedAt 应被刷新为最新值，供 LRU tiebreak 使用")
 
-	// 完整账号键仍可 hydrate 出完整凭据；其 LastUsedAt 保持旧值是被接受的
-	// 契约——它不参与 LRU，会在下次快照重建/账号变更时刷新。
+	// GetAccount 会从 sched:acc:last_used:<id> 侧键 overlay 最新 LastUsedAt，
+	// 因此完整账号键 blob 虽不重写，hydrate 后仍应看到 t1。
 	full, err := cache.GetAccount(ctx, account.ID)
 	require.NoError(t, err)
 	require.NotNil(t, full)
 	require.Equal(t, "secret-access-token", full.GetCredential("access_token"))
 	require.Equal(t, strings.Repeat("x", 8192), full.GetCredential("huge_blob"))
 	require.NotNil(t, full.LastUsedAt)
-	require.True(t, full.LastUsedAt.Equal(t0),
-		"完整账号键的 LastUsedAt 在 UpdateLastUsed 后保持旧值（不重写即不刷新，契约如此）")
+	require.True(t, full.LastUsedAt.Equal(t1),
+		"GetAccount 应 overlay 侧键 last_used，返回 UpdateLastUsed 后的 t1")
 }

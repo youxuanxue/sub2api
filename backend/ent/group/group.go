@@ -41,6 +41,8 @@ const (
 	FieldIsExclusive = "is_exclusive"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
+	// FieldDuplicateOperationID holds the string denoting the duplicate_operation_id field in the database.
+	FieldDuplicateOperationID = "duplicate_operation_id"
 	// FieldPlatform holds the string denoting the platform field in the database.
 	FieldPlatform = "platform"
 	// FieldSubscriptionType holds the string denoting the subscription_type field in the database.
@@ -119,6 +121,10 @@ const (
 	FieldMessagesCompactionEnabled = "messages_compaction_enabled"
 	// FieldMessagesCompactionInputTokensThreshold holds the string denoting the messages_compaction_input_tokens_threshold field in the database.
 	FieldMessagesCompactionInputTokensThreshold = "messages_compaction_input_tokens_threshold"
+	// FieldMaxReasoningEffort holds the string denoting the max_reasoning_effort field in the database.
+	FieldMaxReasoningEffort = "max_reasoning_effort"
+	// FieldReasoningEffortMappings holds the string denoting the reasoning_effort_mappings field in the database.
+	FieldReasoningEffortMappings = "reasoning_effort_mappings"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
 	EdgeAPIKeys = "api_keys"
 	// EdgeRedeemCodes holds the string denoting the redeem_codes edge name in mutations.
@@ -206,6 +212,7 @@ var Columns = []string{
 	FieldPeakRateMultiplier,
 	FieldIsExclusive,
 	FieldStatus,
+	FieldDuplicateOperationID,
 	FieldPlatform,
 	FieldSubscriptionType,
 	FieldDailyLimitUsd,
@@ -245,6 +252,8 @@ var Columns = []string{
 	FieldRpmLimit,
 	FieldMessagesCompactionEnabled,
 	FieldMessagesCompactionInputTokensThreshold,
+	FieldMaxReasoningEffort,
+	FieldReasoningEffortMappings,
 }
 
 var (
@@ -302,6 +311,8 @@ var (
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	StatusValidator func(string) error
+	// DuplicateOperationIDValidator is a validator for the "duplicate_operation_id" field. It is called by the builders before save.
+	DuplicateOperationIDValidator func(string) error
 	// DefaultPlatform holds the default value on creation for the "platform" field.
 	DefaultPlatform string
 	// PlatformValidator is a validator for the "platform" field. It is called by the builders before save.
@@ -354,6 +365,12 @@ var (
 	DefaultModelsListConfig domain.GroupModelsListConfig
 	// DefaultRpmLimit holds the default value on creation for the "rpm_limit" field.
 	DefaultRpmLimit int
+	// DefaultMaxReasoningEffort holds the default value on creation for the "max_reasoning_effort" field.
+	DefaultMaxReasoningEffort string
+	// MaxReasoningEffortValidator is a validator for the "max_reasoning_effort" field. It is called by the builders before save.
+	MaxReasoningEffortValidator func(string) error
+	// DefaultReasoningEffortMappings holds the default value on creation for the "reasoning_effort_mappings" field.
+	DefaultReasoningEffortMappings []domain.ReasoningEffortMapping
 )
 
 // StickyRoutingMode defines the type for the "sticky_routing_mode" enum field.
@@ -449,6 +466,11 @@ func ByIsExclusive(opts ...sql.OrderTermOption) OrderOption {
 // ByStatus orders the results by the status field.
 func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
+}
+
+// ByDuplicateOperationID orders the results by the duplicate_operation_id field.
+func ByDuplicateOperationID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDuplicateOperationID, opts...).ToFunc()
 }
 
 // ByPlatform orders the results by the platform field.
@@ -624,6 +646,11 @@ func ByMessagesCompactionEnabled(opts ...sql.OrderTermOption) OrderOption {
 // ByMessagesCompactionInputTokensThreshold orders the results by the messages_compaction_input_tokens_threshold field.
 func ByMessagesCompactionInputTokensThreshold(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMessagesCompactionInputTokensThreshold, opts...).ToFunc()
+}
+
+// ByMaxReasoningEffort orders the results by the max_reasoning_effort field.
+func ByMaxReasoningEffort(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMaxReasoningEffort, opts...).ToFunc()
 }
 
 // ByAPIKeysCount orders the results by api_keys count.

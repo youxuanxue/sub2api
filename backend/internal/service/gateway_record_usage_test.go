@@ -43,6 +43,7 @@ func newGatewayRecordUsageServiceForTest(usageRepo UsageLogRepository, userRepo 
 		nil,
 		nil,
 		nil,
+		nil, // compositeResolver
 		nil,
 		nil, // userPlatformQuotaRepo
 		nil, // kiroGateway

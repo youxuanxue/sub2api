@@ -517,14 +517,18 @@ func TestAPIKeyService_InvalidateAuthCacheByKey(t *testing.T) {
 }
 
 func TestAPIKeyService_GetByKey_CachesNegativeOnRepoMiss(t *testing.T) {
+	var repoCalls atomic.Int32
 	cache := &authCacheStub{}
 	repo := &authRepoStub{
 		getByKeyForAuth: func(ctx context.Context, key string) (*APIKey, error) {
+			repoCalls.Add(1)
 			return nil, ErrAPIKeyNotFound
 		},
 	}
 	cfg := &config.Config{
 		APIKeyAuth: config.APIKeyAuthCacheConfig{
+			L1Size:             100,
+			L1TTLSeconds:       60,
 			L2TTLSeconds:       60,
 			NegativeTTLSeconds: 30,
 		},
@@ -536,7 +540,11 @@ func TestAPIKeyService_GetByKey_CachesNegativeOnRepoMiss(t *testing.T) {
 
 	_, err := svc.GetByKey(context.Background(), "missing")
 	require.ErrorIs(t, err, ErrAPIKeyNotFound)
-	require.Len(t, cache.setAuthKeys, 1)
+	require.Empty(t, cache.setAuthKeys, "attacker-controlled misses must not be written to Redis")
+	svc.authNegativeCacheL1.Wait()
+	_, err = svc.GetByKey(context.Background(), "missing")
+	require.ErrorIs(t, err, ErrAPIKeyNotFound)
+	require.Equal(t, int32(1), repoCalls.Load())
 }
 
 func TestAPIKeyService_GetByKey_SingleflightCollapses(t *testing.T) {

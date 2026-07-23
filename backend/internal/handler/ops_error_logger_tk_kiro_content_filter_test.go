@@ -48,7 +48,7 @@ func TestClassifyOpsKiroContentFilterOwnedByClient(t *testing.T) {
 			parsed := parseOpsErrorResponse(tt.body)
 			errType := normalizeOpsErrorType(parsed.ErrorType, parsed.Code)
 
-			phase, owner, source := classifyOpsErrorLog(c, errType, parsed.Message, parsed.Code, http.StatusBadRequest)
+			phase, _, owner, source := classifyOpsErrorLog(c, errType, parsed.Message, parsed.Code, http.StatusBadRequest)
 
 			require.False(t, hasOpsUpstreamErrorContext(c))
 			require.Equal(t, tt.normalized, errType)
@@ -76,7 +76,7 @@ func TestClassifyOpsKiroContentFilterAfterPriorFailoverStillOwnedByClient(t *tes
 			parsed := parseOpsErrorResponse(tt.body)
 			errType := normalizeOpsErrorType(parsed.ErrorType, parsed.Code)
 
-			phase, owner, source := classifyOpsErrorLog(c, errType, parsed.Message, parsed.Code, http.StatusBadRequest)
+			phase, _, owner, source := classifyOpsErrorLog(c, errType, parsed.Message, parsed.Code, http.StatusBadRequest)
 
 			require.True(t, hasOpsUpstreamErrorContext(c), "prior failover evidence must remain available")
 			require.Equal(t, tt.normalized, errType)

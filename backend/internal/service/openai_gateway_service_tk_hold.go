@@ -78,6 +78,18 @@ func (s *OpenAIGatewayService) tkHoldRateMultiplier(ctx context.Context, user *U
 	return multiplier
 }
 
+// ResolveUserGroupRateMultiplier resolves the same cached multiplier used by OpenAI usage billing.
+func (s *OpenAIGatewayService) ResolveUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
+	if s == nil {
+		return groupDefaultMultiplier
+	}
+	resolver := s.userGroupRateResolver
+	if resolver == nil {
+		resolver = newUserGroupRateResolver(nil, nil, resolveUserGroupRateCacheTTL(s.cfg), nil, "service.openai_gateway")
+	}
+	return resolver.Resolve(ctx, userID, groupID, groupDefaultMultiplier)
+}
+
 // tkHoldGatingDisabled reports whether hold gating is off for this deployment:
 // simple mode records usage but never bills, so a reservation would only pin
 // user money until the reconciler refunds it.

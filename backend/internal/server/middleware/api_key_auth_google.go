@@ -3,6 +3,7 @@ package middleware
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -25,20 +26,51 @@ func APIKeyAuthGoogle(apiKeyService *service.APIKeyService, cfg *config.Config) 
 func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) gin.HandlerFunc {
 	universalResolver := apiKeyService.UniversalResolver()
 	return func(c *gin.Context) {
+		if rejectInvalidAuthAbuse(c, apiKeyService) {
+			abortWithGoogleError(c, 429, "Too many invalid authentication attempts; retry later")
+			return
+		}
+		if apiKeyHeadersTooLarge(c) {
+			recordInvalidAuthFailure(c, apiKeyService)
+			MarkIngressRejected(c, IngressRejectInvalidAPIKey)
+			abortWithGoogleError(c, http.StatusUnauthorized, "Invalid API key")
+			return
+		}
 		if v := strings.TrimSpace(c.Query("api_key")); v != "" {
+			recordInvalidAuthFailure(c, apiKeyService)
+			MarkIngressRejected(c, IngressRejectQueryAPIKeyDeprecated)
 			abortWithGoogleError(c, 400, "Query parameter api_key is deprecated. Use Authorization header or key instead.")
 			return
 		}
 		apiKeyString := extractAPIKeyForGoogle(c)
 		if apiKeyString == "" {
+			recordInvalidAuthFailure(c, apiKeyService)
+			if hasAPIKeyCredentialInput(c) {
+				MarkIngressRejected(c, IngressRejectInvalidAPIKey)
+			} else {
+				MarkIngressRejected(c, IngressRejectAPIKeyRequired)
+			}
 			abortWithGoogleError(c, 401, "API key is required")
+			return
+		}
+		if len(apiKeyString) > service.MaxAPIKeyCredentialBytes {
+			recordInvalidAuthFailure(c, apiKeyService)
+			MarkIngressRejected(c, IngressRejectInvalidAPIKey)
+			abortWithGoogleError(c, http.StatusUnauthorized, "Invalid API key")
 			return
 		}
 
 		apiKey, err := apiKeyService.GetByKey(c.Request.Context(), apiKeyString)
 		if err != nil {
 			if errors.Is(err, service.ErrAPIKeyNotFound) {
+				recordInvalidAuthFailure(c, apiKeyService)
+				MarkIngressRejected(c, IngressRejectInvalidAPIKey)
 				abortWithGoogleError(c, 401, "Invalid API key")
+				return
+			}
+			if errors.Is(err, service.ErrAPIKeyAuthOverloaded) {
+				MarkIngressRejected(c, IngressRejectAPIKeyAuthOverloaded)
+				abortWithGoogleError(c, http.StatusServiceUnavailable, "API key authentication is temporarily unavailable")
 				return
 			}
 			if IsClientClosedRequestError(c, err) {
@@ -94,14 +126,22 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			return
 		}
 
-		if _, message, ok := validateAPIKeyGroupAvailable(apiKey); !ok {
+		if code, message, ok := validateAPIKeyGroupAvailable(apiKey); !ok {
 			service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonAPIKeyGroupUnavailable)
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
+			if code == "GROUP_DELETED" {
+				MarkIngressRejected(c, IngressRejectGroupDeleted)
+			} else {
+				MarkIngressRejected(c, IngressRejectGroupDisabled)
+			}
 			abortWithGoogleError(c, 403, message)
 			return
 		}
 		// 专属分组授权校验：用户对该专属分组的授权被撤销后应拒绝（与主中间件一致，防止越权）。
 		if !validateAPIKeyGroupAllowed(apiKey) {
 			service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonAPIKeyGroupUnavailable)
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
+			MarkIngressRejected(c, IngressRejectGroupNotAllowed)
 			abortWithGoogleError(c, 403, "API Key 所属专属分组不再允许当前用户使用")
 			return
 		}

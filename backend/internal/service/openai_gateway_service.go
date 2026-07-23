@@ -136,32 +136,50 @@ type OpenAIForwardResult struct {
 	ServiceTier *string
 	// ReasoningEffort is extracted from request body (reasoning.effort) or derived from model suffix.
 	// Stored for usage records display; nil means not provided / not applicable.
-	ReasoningEffort      *string
-	EnableThinking       bool
-	StopReason           string
-	IncompleteReason     string
-	ContentTextLen       int
-	CompactCandidate     bool
-	Stream               bool
-	OpenAIWSMode         bool
-	ResponseHeaders      http.Header
-	Duration             time.Duration
-	FirstTokenMs         *int
-	ClientDisconnect     bool
-	ImageCount           int
-	ImageSize            string
-	ImageInputSize       string
-	ImageOutputSize      string
-	ImageOutputSizes     []string
-	ImageSizeSource      string
-	ImageSizeBreakdown   map[string]int
-	VideoCount           int
-	VideoResolution      string
-	VideoDurationSeconds int
-	WebSearchCalls       int
+	ReasoningEffort  *string
+	EnableThinking   bool
+	StopReason       string
+	IncompleteReason string
+	ContentTextLen   int
+	CompactCandidate bool
+	Stream           bool
+	OpenAIWSMode     bool
+	// UpstreamTerminalEvent is the normalized terminal event observed on an
+	// upstream Responses WebSocket turn. Empty preserves legacy/non-WS success.
+	UpstreamTerminalEvent string
+	ResponseHeaders       http.Header
+	Duration              time.Duration
+	FirstTokenMs          *int
+	ClientDisconnect      bool
+	ImageCount            int
+	ImageSize             string
+	ImageInputSize        string
+	ImageOutputSize       string
+	ImageOutputSizes      []string
+	ImageSizeSource       string
+	ImageSizeBreakdown    map[string]int
+	VideoCount            int
+	VideoResolution       string
+	VideoDurationSeconds  int
+	WebSearchCalls        int
 
 	wsReplayInput       []json.RawMessage
 	wsReplayInputExists bool
+}
+
+// SucceededForScheduling reports whether this result is an upstream success
+// that may clear model-scoped transient state. The zero value remains a success
+// for existing non-WS callers.
+func (r *OpenAIForwardResult) SucceededForScheduling() bool {
+	if r == nil || !r.OpenAIWSMode || r.UpstreamTerminalEvent == "" {
+		return true
+	}
+	switch r.UpstreamTerminalEvent {
+	case "response.completed", "response.done":
+		return true
+	default:
+		return false
+	}
 }
 
 // SetActualOpenAIUpstreamEndpoint records the endpoint selected by the current
@@ -255,6 +273,7 @@ type OpenAIGatewayService struct {
 	openaiWSPoolOnce              sync.Once
 	openaiWSStateStoreOnce        sync.Once
 	openaiSchedulerOnce           sync.Once
+	openaiProxyStreamCircuitOnce  sync.Once
 	openaiWSPassthroughDialerOnce sync.Once
 	agentIdentityTaskMu           sync.Mutex
 	openaiWSPool                  *openAIWSConnPool
@@ -262,6 +281,7 @@ type OpenAIGatewayService struct {
 	openaiScheduler               OpenAIAccountScheduler
 	openaiWSPassthroughDialer     openAIWSClientDialer
 	openaiAccountStats            *openAIAccountRuntimeStats
+	openaiProxyStreamCircuit      *openAIProxyStreamCircuit
 
 	openaiWSFallbackUntil               sync.Map // key: int64(accountID), value: time.Time
 	openaiAccountRuntimeBlockUntil      sync.Map // key: int64(accountID), value: time.Time
@@ -271,6 +291,8 @@ type OpenAIGatewayService struct {
 	grokCredentialMutationLocks         sync.Map // key: int64(accountID), value: *sync.Mutex
 	openaiOAuth429WindowStartUnixNano   atomic.Int64
 	openaiOAuth429WindowCount           atomic.Int64
+	openaiModelTransientOnce            sync.Once
+	openaiModelTransient                *openAIAccountModelTransientState
 	openaiWSRetryMetrics                openAIWSRetryMetrics
 	responseHeaderFilter                *responseheaders.CompiledHeaderFilter
 	codexSnapshotThrottle               *accountWriteThrottle
@@ -342,6 +364,7 @@ func NewOpenAIGatewayService(
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
 		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
 		codexSnapshotThrottle: newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
+		openaiModelTransient:  newOpenAIAccountModelTransientState(openAIModelTransientDefaultMax),
 	}
 	if rateLimitService != nil {
 		rateLimitService.SetAccountRuntimeBlocker(svc)

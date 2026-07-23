@@ -2904,6 +2904,39 @@ const upstreamCodexPlanGatedModelReason = "upstream_400_codex_plan_gated_model"
 const tempUnschedBodyMaxBytes = 64 << 10
 const tempUnschedMessageMaxBytes = 2048
 
+type tempUnschedulableRuleMatch struct {
+	rule           TempUnschedulableRule
+	ruleIndex      int
+	matchedKeyword string
+}
+
+func matchTempUnschedulableRules(account *Account, statusCode int, responseBody []byte) []tempUnschedulableRuleMatch {
+	if account == nil || !account.IsTempUnschedulableEnabled() || statusCode <= 0 || len(responseBody) == 0 {
+		return nil
+	}
+	rules := account.GetTempUnschedulableRules()
+	if len(rules) == 0 {
+		return nil
+	}
+	body := responseBody
+	if len(body) > tempUnschedBodyMaxBytes {
+		body = body[:tempUnschedBodyMaxBytes]
+	}
+	bodyLower := strings.ToLower(string(body))
+	matches := make([]tempUnschedulableRuleMatch, 0, 1)
+	for idx, rule := range rules {
+		if rule.ErrorCode != statusCode || len(rule.Keywords) == 0 {
+			continue
+		}
+		matchedKeyword := matchTempUnschedKeyword(bodyLower, rule.Keywords)
+		if matchedKeyword == "" {
+			continue
+		}
+		matches = append(matches, tempUnschedulableRuleMatch{rule: rule, ruleIndex: idx, matchedKeyword: matchedKeyword})
+	}
+	return matches
+}
+
 // HandleUpstreamModelNotFound marks the requested model as temporarily
 // unavailable on the account when the upstream deterministically reports it
 // cannot serve that model: a 404 model-not-found, or the Codex 400 rejecting a

@@ -127,7 +127,7 @@ func TestClassifyOpenAICompatibleNoAccountError_GrokUsesGrokPlatform(t *testing.
 		},
 	}
 
-	cls := classifyNoAccountErrorFromGin(c, fd, apiKey, "grok-4.5", "grok-4.5", openAICompatibleRequestPlatform(apiKey))
+	cls := classifyNoAccountErrorFromGin(c, fd, apiKey, "grok-4.5", "grok-4.5", openAICompatibleRequestPlatform(context.Background(), apiKey))
 
 	require.Equal(t, http.StatusNotFound, cls.Status)
 	require.Equal(t, "model_not_found", cls.ErrType)
@@ -152,6 +152,20 @@ func TestClassifyNoAccountError_HasModelSupport_KeepsRoutingMessageGenerationToC
 	require.Equal(t, http.StatusServiceUnavailable, cls.Status, "model exists somewhere — caller stays on 503")
 	require.Equal(t, "api_error", cls.ErrType)
 	require.False(t, cls.ModelNotFound)
+}
+
+func TestClassifyNoAccountError_ModelSupportedOnlyByRateLimitedAccount_Returns503(t *testing.T) {
+	c := newTestGinContextWithRequest()
+	// The diagnoser's configured-state lookup still sees the model-supporting
+	// account even though normal scheduling has excluded it during cooldown.
+	fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}}
+	apiKey := &service.APIKey{GroupID: ptrInt64(7)}
+
+	cls := classifyNoAccountErrorFromGin(c, fd, apiKey, "claude-opus-4-8", "claude-opus-4-8", service.PlatformAnthropic)
+
+	require.Equal(t, http.StatusServiceUnavailable, cls.Status)
+	require.Equal(t, "api_error", cls.ErrType)
+	require.False(t, cls.ModelNotFound, "temporary account cooldown must remain retryable")
 }
 
 func TestClassifyNoAccountError_NoAccountsInPool_Stays503(t *testing.T) {

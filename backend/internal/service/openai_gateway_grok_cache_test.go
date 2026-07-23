@@ -11,6 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
 func newGrokCacheTestContext(apiKeyID int64) *gin.Context {
@@ -252,7 +254,7 @@ func TestApplyGrokCacheIdentityRequiresPatchedFunctionTools(t *testing.T) {
 		{name: "missing tools", patchedBody: `{"model":"grok-4.5"}`},
 		{name: "empty tools", patchedBody: `{"model":"grok-4.5","tools":[]}`},
 		{name: "native tools only", patchedBody: `{"model":"grok-4.5","tools":[{"type":"web_search"}]}`},
-		{name: "unexpected patched tool", patchedBody: `{"model":"grok-4.5","tools":[{"type":"function","name":"lookup"},{"type":"mcp","name":"server"}]}`},
+		{name: "unexpected patched tool", patchedBody: `{"model":"grok-4.5","tools":[{"type":"function","name":"lookup"},{"type":"namespace","name":"server"}]}`},
 	}
 
 	for _, tt := range tests {
@@ -315,7 +317,7 @@ func TestGrokFreeMessagesFunctionToolCacheRouteRequiresKnownFreeTier(t *testing.
 				a := healthyGrokOAuthGatewayTestAccount(9112, "access-token")
 				a.Extra = map[string]any{grokQuotaSnapshotExtraKey: map[string]any{
 					"headers_observed": true,
-					"tokens":           map[string]any{"limit": grokFreeRolling24hTokenLimit},
+					"tokens":           map[string]any{"limit": xai.GrokFreeRolling24hTokenLimit},
 				}}
 				return a
 			}(),
@@ -337,7 +339,7 @@ func TestGrokFreeMessagesFunctionToolCacheRouteRequiresKnownFreeTier(t *testing.
 					grokBillingExtraKey: map[string]any{"plan": "SuperGrok", "status_code": http.StatusOK},
 					grokQuotaSnapshotExtraKey: map[string]any{
 						"headers_observed": true,
-						"tokens":           map[string]any{"limit": grokFreeRolling24hTokenLimit},
+						"tokens":           map[string]any{"limit": xai.GrokFreeRolling24hTokenLimit},
 					},
 				}
 				return a

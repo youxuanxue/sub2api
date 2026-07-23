@@ -27,11 +27,20 @@ type gatewayModelsResponseForTest struct {
 }
 
 type gatewayModelItemForTest struct {
-	ID        string `json:"id"`
-	Object    string `json:"object"`
-	Created   int64  `json:"created"`
-	OwnedBy   string `json:"owned_by"`
-	CreatedAt string `json:"created_at"`
+	ID                      string                                `json:"id"`
+	Object                  string                                `json:"object"`
+	Created                 int64                                 `json:"created"`
+	OwnedBy                 string                                `json:"owned_by"`
+	CreatedAt               string                                `json:"created_at"`
+	SupportsReasoningEffort bool                                  `json:"supportsReasoningEffort"`
+	ReasoningEffort         string                                `json:"reasoningEffort"`
+	ReasoningEfforts        []gatewayReasoningEffortOptionForTest `json:"reasoningEfforts"`
+}
+
+type gatewayReasoningEffortOptionForTest struct {
+	Value   string `json:"value"`
+	Label   string `json:"label"`
+	Default bool   `json:"default"`
 }
 
 func (s *gatewayModelsAccountRepoStub) ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]service.Account, error) {
@@ -54,9 +63,7 @@ func newGatewayModelsHandlerForTest(repo service.AccountRepository) *GatewayHand
 	return &GatewayHandler{
 		gatewayService: service.NewGatewayService(
 			repo,
-			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-			nil,
+			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		),
 	}
 }
@@ -165,6 +172,14 @@ func TestGatewayModels_UniversalKeyListsEntitledGroupUnion(t *testing.T) {
 	), ids, "universal list must be exactly the entitled OpenAI+Gemini SSOT union and must not scan the global schedulable pool")
 }
 
+func TestDefaultModelIDsForCompositeIncludesAntigravityDefaults(t *testing.T) {
+	antigravityIDs := defaultModelIDsForPlatform(service.PlatformAntigravity)
+	require.NotEmpty(t, antigravityIDs)
+
+	compositeIDs := defaultModelIDsForPlatform(service.PlatformComposite)
+	require.Contains(t, compositeIDs, antigravityIDs[0])
+}
+
 func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -197,6 +212,55 @@ func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
 		service.ServableClientFacingIDs(context.Background(), service.PlatformGemini, nil, nil),
 		modelIDsForTest(got.Data),
 		"Gemini group fallback must mirror the Gemini servable SSOT")
+}
+
+func TestGatewayModels_Grok45AdvertisesReasoningEffortForGrokBuild(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(4409)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{
+						ID:       1,
+						Platform: service.PlatformGrok,
+						Credentials: map[string]any{
+							"model_mapping": map[string]any{"grok-4.5": "grok-4.5"},
+						},
+					},
+				},
+			},
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformGrok},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	var model *gatewayModelItemForTest
+	for i := range got.Data {
+		if got.Data[i].ID == "grok-4.5" {
+			model = &got.Data[i]
+			break
+		}
+	}
+	require.NotNil(t, model, "grok-4.5 must be present in grok native catalog union")
+	require.True(t, model.SupportsReasoningEffort)
+	require.Equal(t, "high", model.ReasoningEffort)
+	require.Equal(t, []gatewayReasoningEffortOptionForTest{
+		{Value: "low", Label: "Low"},
+		{Value: "medium", Label: "Medium"},
+		{Value: "high", Label: "High", Default: true},
+	}, model.ReasoningEfforts)
 }
 
 func TestGatewayModels_GeminiGroupFiltersMappedModelsByPlatform(t *testing.T) {
@@ -334,6 +398,106 @@ func TestGatewayModels_CustomModelsListFiltersAndOrdersMappedModels(t *testing.T
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Equal(t, []string{openAIModels[1], openAIModels[0]}, modelIDsForTest(got.Data))
+}
+
+func TestGatewayModels_CompositeCustomModelsListFiltersAcrossConcretePlatforms(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(33)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{
+						ID:       1,
+						Platform: service.PlatformOpenAI,
+						Credentials: map[string]any{
+							"model_mapping": map[string]any{
+								"gpt-5.4": "gpt-5.4",
+								"gpt-5.5": "gpt-5.5",
+							},
+						},
+					},
+					{
+						ID:       2,
+						Platform: service.PlatformGemini,
+						Credentials: map[string]any{
+							"model_mapping": map[string]any{
+								"gemini-2.5-flash": "gemini-2.5-flash",
+							},
+						},
+					},
+					{
+						ID:       3,
+						Platform: service.PlatformAntigravity,
+						Credentials: map[string]any{
+							"model_mapping": map[string]any{
+								"ag-custom-model": "ag-custom-model",
+							},
+						},
+					},
+				},
+			},
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{
+			ID:       groupID,
+			Platform: service.PlatformComposite,
+			ModelsListConfig: service.GroupModelsListConfig{
+				Enabled: true,
+				Models:  []string{"gemini-2.5-flash", "missing-model", "ag-custom-model", "gpt-5.5"},
+			},
+		},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, []string{"gemini-2.5-flash", "ag-custom-model", "gpt-5.5"}, modelIDsForTest(got.Data))
+}
+
+func TestGatewayModels_CompositeUnmappedAccountsFallbackToLinkedPlatformsOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(34)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{ID: 1, Platform: service.PlatformOpenAI},
+					{ID: 2, Platform: service.PlatformGrok},
+				},
+			},
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformComposite},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+
+	ids := modelIDsForTest(got.Data)
+	require.Contains(t, ids, "gpt-5.5")
+	require.Contains(t, ids, "grok-4.3")
+	require.NotContains(t, ids, "claude-sonnet-4-6")
+	require.NotContains(t, ids, "gemini-2.5-flash")
 }
 
 func TestGatewayModels_CustomModelsListKeepsConcreteModelAllowedByWildcardMapping(t *testing.T) {

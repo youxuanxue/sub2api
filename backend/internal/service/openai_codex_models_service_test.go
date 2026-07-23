@@ -693,7 +693,8 @@ func TestFetchCodexModelsManifestAPIKeyCacheBoundsEntriesAndBodySize(t *testing.
 		calls.Add(1)
 		body := `{"models":[]}`
 		if strings.Contains(req.URL.Host, "large") {
-			body = strings.Repeat("x", (1<<20)+1)
+			// Valid manifest envelope over cache body limit; oversized entries must not be cached.
+			body = `{"models":[{"slug":"` + strings.Repeat("a", (1<<20)+1) + `"}]}`
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK,

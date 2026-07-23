@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -107,6 +108,14 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		return
 	}
 	reqLog = reqLog.With(zap.String("model", reqModel))
+
+	if moderationBody := videoSubmitModerationBody(body); len(moderationBody) > 0 {
+		decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, reqModel, moderationBody)
+		if decision != nil && !decision.AllowNextStage {
+			h.openAISecurityAuditError(c, decision)
+			return
+		}
+	}
 
 	setOpsRequestModelAndBody(c, reqModel, false, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(false, false)))
@@ -543,4 +552,16 @@ func videoSubmitHasVideoInput(body []byte) bool {
 		}
 	}
 	return false
+}
+
+func videoSubmitModerationBody(body []byte) []byte {
+	prompt := strings.TrimSpace(gjson.GetBytes(body, "prompt").String())
+	if prompt == "" {
+		return nil
+	}
+	out, err := json.Marshal(map[string]string{"prompt": prompt})
+	if err != nil {
+		return nil
+	}
+	return out
 }

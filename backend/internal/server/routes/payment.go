@@ -18,6 +18,7 @@ func RegisterPaymentRoutes(
 	adminPaymentHandler *admin.PaymentHandler,
 	jwtAuth middleware.JWTAuthMiddleware,
 	adminAuth middleware.AdminAuthMiddleware,
+	auditLog middleware.AuditLogMiddleware,
 	settingService *service.SettingService,
 ) {
 	// --- User-facing payment endpoints (authenticated) ---
@@ -69,6 +70,8 @@ func RegisterPaymentRoutes(
 	adminGroup.Use(gin.HandlerFunc(adminAuth))
 	// TK: setting-gated, default off — see middleware/admin_compliance_tk_gate.go.
 	adminGroup.Use(middleware.TkAdminComplianceGuardIfEnabled(settingService))
+	adminGroup.Use(gin.HandlerFunc(auditLog))
+	adminGroup.Use(middleware.AdminComplianceGuard(settingService))
 	{
 		// Dashboard
 		adminGroup.GET("/dashboard", adminPaymentHandler.GetDashboard)

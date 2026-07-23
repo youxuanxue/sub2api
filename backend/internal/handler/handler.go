@@ -3,6 +3,7 @@ package handler
 import (
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	qaobs "github.com/Wei-Shaw/sub2api/internal/observability/qa"
+	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 )
 
 // AdminHandlers contains all admin-related HTTP handlers
@@ -36,6 +37,7 @@ type AdminHandlers struct {
 	ChannelMonitor         *admin.ChannelMonitorHandler
 	ChannelMonitorTemplate *admin.ChannelMonitorRequestTemplateHandler
 	ContentModeration      *admin.ContentModerationHandler
+	PromptAudit            *securityaudit.PromptAdminHandler
 	Payment                *admin.PaymentHandler
 	Affiliate              *admin.AffiliateHandler
 	Compliance             *admin.ComplianceHandler
@@ -49,6 +51,7 @@ type AdminHandlers struct {
 	EdgeAccountOps *admin.EdgeAccountOpsHandler
 	// TK: Invite-to-Trial batch provisioning + 试用方案 presets — see user_handler_tk_provision.go.
 	TrialProvision *admin.TrialProvisionHandler
+	AuditLog       *admin.AuditLogHandler
 }
 
 // Handlers contains all HTTP handlers
@@ -88,6 +91,7 @@ type Handlers struct {
 	// for inline edge-account management — see edge_tk_account_ops_handler.go.
 	EdgeAccountOps *EdgeAccountOpsHandler
 	BatchImage     *BatchImageHandler
+	AsyncImage     *AsyncImageHandler
 }
 
 // BuildInfo contains build-time information

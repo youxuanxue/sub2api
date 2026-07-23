@@ -140,7 +140,6 @@ func TestOpenAIHandleErrorResponse_ClientInduced4xxPassesThrough(t *testing.T) {
 	}{
 		{"400 invalid_request", http.StatusBadRequest, "invalid_request_error"},
 		{"404 not_found", http.StatusNotFound, "not_found_error"},
-		{"413 request_too_large", http.StatusRequestEntityTooLarge, "invalid_request_error"},
 		{"422 unprocessable", http.StatusUnprocessableEntity, "invalid_request_error"},
 	}
 	for _, tc := range cases {

@@ -133,6 +133,8 @@ type UsageLog struct {
 
 	InputTokens         int
 	OutputTokens        int
+	ImageInputTokens    int
+	ImageInputCost      float64
 	CacheCreationTokens int
 	CacheReadTokens     int
 

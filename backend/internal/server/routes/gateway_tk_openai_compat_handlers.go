@@ -29,11 +29,16 @@ func tkOpenAICompatMessagesPOST(h *handler.Handlers) gin.HandlerFunc {
 
 func tkOpenAICompatCountTokensPOST(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if isOpenAICompatPlatform(getGroupPlatform(c)) {
-			h.OpenAIGateway.CountTokens(c)
-			return
+		switch getGroupPlatform(c) {
+		case service.PlatformGrok:
+			h.OpenAIGateway.GrokCountTokens(c)
+		default:
+			if isOpenAICompatPlatform(getGroupPlatform(c)) {
+				h.OpenAIGateway.CountTokens(c)
+				return
+			}
+			h.Gateway.CountTokens(c)
 		}
-		h.Gateway.CountTokens(c)
 	}
 }
 
@@ -55,7 +60,8 @@ func tkOpenAICompatResponsesWebSocketGET(h *handler.Handlers) gin.HandlerFunc {
 
 func tkOpenAICompatChatCompletionsPOST(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if isOpenAICompatPlatform(getGroupPlatform(c)) {
+		platform := getGroupPlatform(c)
+		if isOpenAICompatPlatform(platform) || platform == service.PlatformGrok || platform == service.PlatformComposite {
 			h.OpenAIGateway.ChatCompletions(c)
 			return
 		}
@@ -161,45 +167,98 @@ func tkOpenAICompatImageEditsHandler(h *handler.Handlers) gin.HandlerFunc {
 // directly above.
 func tkOpenAICompatVideoSubmitHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformGrok && isGrokNativeVideoGenerationRoute(c) {
+		platform := getGroupPlatform(c)
+		if platform == service.PlatformGrok && isGrokNativeVideoGenerationRoute(c) {
 			h.OpenAIGateway.GrokVideoGeneration(c)
 			return
 		}
-		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"type":    "invalid_request_error",
-					"message": "The video generation API is only available for OpenAI-compatible platform groups",
-				},
-			})
+		if platform == service.PlatformOpenAI || platform == service.PlatformNewAPI {
+			h.OpenAIGateway.VideoSubmit(c)
 			return
 		}
-		h.OpenAIGateway.VideoSubmit(c)
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"type":    "not_found_error",
+				"message": "Videos API is not supported for this platform",
+			},
+		})
 	}
 }
 
-// tkOpenAICompatVideoFetchHandler routes GET /video/generations/:task_id and
-// GET /videos/:task_id for OpenAI-compat platform groups. The platform check
-// is on the caller's API key group, NOT on the task's originating platform —
-// since `openai` and `newapi` are both OpenAI-compatible, a key that switches
-// between them within the compat class can still poll. Cross-class polling
-// (e.g. anthropic key polling a newapi task) returns 404 here.
 func tkOpenAICompatVideoFetchHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformGrok && isGrokNativeVideoStatusRoute(c) {
+		platform := getGroupPlatform(c)
+		if (platform == service.PlatformGrok || platform == service.PlatformComposite) && isGrokNativeVideoStatusRoute(c) {
 			h.OpenAIGateway.GrokVideoStatus(c)
 			return
 		}
-		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"type":    "invalid_request_error",
-					"message": "The video generation API is only available for OpenAI-compatible platform groups",
-				},
-			})
+		if platform == service.PlatformNewAPI {
+			h.OpenAIGateway.VideoFetch(c)
 			return
 		}
-		h.OpenAIGateway.VideoFetch(c)
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"type":    "not_found_error",
+				"message": "Videos API is not supported for this platform",
+			},
+		})
+	}
+}
+
+// tkOpenAICompatGrokVideoEditHandler routes POST /videos/edits for Grok groups only.
+func tkOpenAICompatGrokVideoEditHandler(h *handler.Handlers) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		platform := getGroupPlatform(c)
+		if platform == service.PlatformGrok || platform == service.PlatformComposite {
+			h.OpenAIGateway.GrokVideoEdit(c)
+			return
+		}
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"type":    "not_found_error",
+				"message": "Videos API is not supported for this platform",
+			},
+		})
+	}
+}
+
+// tkOpenAICompatGrokVideoExtensionHandler routes POST /videos/extensions for Grok groups only.
+func tkOpenAICompatGrokVideoExtensionHandler(h *handler.Handlers) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		platform := getGroupPlatform(c)
+		if platform == service.PlatformGrok || platform == service.PlatformComposite {
+			h.OpenAIGateway.GrokVideoExtension(c)
+			return
+		}
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"type":    "not_found_error",
+				"message": "Videos API is not supported for this platform",
+			},
+		})
+	}
+}
+
+// tkOpenAICompatVideoContentHandler routes GET /videos/:task_id/content for Grok
+// native video downloads. Composite groups follow the same path because video
+// content requests do not carry a model for composite resolution.
+func tkOpenAICompatVideoContentHandler(h *handler.Handlers) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformGrok || getGroupPlatform(c) == service.PlatformComposite {
+			h.OpenAIGateway.GrokVideoContent(c)
+			return
+		}
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": gin.H{
+				"type":    "not_found_error",
+				"message": "Videos API is not supported for this platform",
+			},
+		})
 	}
 }
 
@@ -223,6 +282,7 @@ func registerTKOpenAICompatVideoRoutes(group *gin.RouterGroup, h *handler.Handle
 	group.GET("/video/generations/:task_id", fetch)
 	group.POST("/videos", submit)
 	group.GET("/videos/:task_id", fetch)
+	group.GET("/videos/:task_id/content", tkOpenAICompatVideoContentHandler(h))
 	// `/videos/generations` is xAI's exact video-submit path shape (grok's
 	// native arm POSTs `{base}/videos/generations`). Registering it makes the
 	// gateway accept that shape too, which is REQUIRED for the prod→edge grok
@@ -233,8 +293,8 @@ func registerTKOpenAICompatVideoRoutes(group *gin.RouterGroup, h *handler.Handle
 	// routes; the video path did not). Same submit handler; GET fetch already
 	// matches `/videos/:task_id`, so no fetch alias is needed.
 	group.POST("/videos/generations", submit)
-	group.POST("/videos/edits", h.OpenAIGateway.GrokVideoEdit)
-	group.POST("/videos/extensions", h.OpenAIGateway.GrokVideoExtension)
+	group.POST("/videos/edits", tkOpenAICompatGrokVideoEditHandler(h))
+	group.POST("/videos/extensions", tkOpenAICompatGrokVideoExtensionHandler(h))
 }
 
 // registerTKOpenAICompatVideoRoutesNoPrefix mirrors the above for the
@@ -254,9 +314,10 @@ func registerTKOpenAICompatVideoRoutesNoPrefix(r *gin.Engine, h *handler.Handler
 	r.GET("/video/generations/:task_id", chain(fetch)...)
 	r.POST("/videos", chain(submit)...)
 	r.GET("/videos/:task_id", chain(fetch)...)
+	r.GET("/videos/:task_id/content", chain(tkOpenAICompatVideoContentHandler(h))...)
 	// xAI-shaped submit alias — see registerTKOpenAICompatVideoRoutes (required
 	// for the prod→edge grok video relay).
 	r.POST("/videos/generations", chain(submit)...)
-	r.POST("/videos/edits", chain(h.OpenAIGateway.GrokVideoEdit)...)
-	r.POST("/videos/extensions", chain(h.OpenAIGateway.GrokVideoExtension)...)
+	r.POST("/videos/edits", chain(tkOpenAICompatGrokVideoEditHandler(h))...)
+	r.POST("/videos/extensions", chain(tkOpenAICompatGrokVideoExtensionHandler(h))...)
 }

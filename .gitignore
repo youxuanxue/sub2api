@@ -188,6 +188,13 @@ deploy/docker-compose.override.yml
 vite.config.js
 # TK: upstream ignores docs/* (keeps only payment/legal docs); TokenKey tracks
 # docs/ as planning + approved-design source of truth, so that rule is not adopted.
+docs/*
+!docs/PAYMENT.md
+!docs/PAYMENT_CN.md
+!docs/ADMIN_PAYMENT_INTEGRATION_API.md
+!docs/ASYNC_IMAGE_TASKS.md
+!docs/legal/
+!docs/legal/*.md
 .serena/
 .codex/
 frontend/coverage/

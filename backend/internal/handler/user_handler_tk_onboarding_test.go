@@ -144,6 +144,9 @@ func (r *onboardingFakeUserRepo) ListUserAuthIdentities(context.Context, int64) 
 func (r *onboardingFakeUserRepo) UnbindUserAuthProvider(context.Context, int64, string) error {
 	panic("unexpected UnbindUserAuthProvider")
 }
+func (r *onboardingFakeUserRepo) BatchUpdateLimits(context.Context, []int64, *int, *int) (int, error) {
+	panic("unexpected BatchUpdateLimits")
+}
 
 // newOnboardingTestRouter wires the REAL UserHandler.MarkOnboardingTourSeen
 // behind a tiny middleware that injects an AuthSubject (mirroring production

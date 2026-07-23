@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -410,4 +412,64 @@ func normalizeGrokVideoStatus(xaiStatus string) string {
 	default:
 		return xaiStatus // queued / processing / expired → non-terminal (see above)
 	}
+}
+
+func normalizeGrokVideoSubmitBody(body []byte) ([]byte, error) {
+	if !gjson.ValidBytes(body) {
+		return body, nil
+	}
+	out := body
+	if !gjson.GetBytes(out, "duration").Exists() {
+		if seconds, ok := grokVideoDurationFromBody(out); ok {
+			next, err := sjson.SetBytes(out, "duration", seconds)
+			if err != nil {
+				return nil, fmt.Errorf("rewrite grok video duration: %w", err)
+			}
+			out = next
+		}
+	}
+	for _, field := range []string{"seconds", "duration_seconds"} {
+		if !gjson.GetBytes(out, field).Exists() {
+			continue
+		}
+		next, err := sjson.DeleteBytes(out, field)
+		if err != nil {
+			return nil, fmt.Errorf("drop grok video %s: %w", field, err)
+		}
+		out = next
+	}
+	return out, nil
+}
+
+func grokVideoDurationFromBody(body []byte) (int64, bool) {
+	for _, field := range []string{"seconds", "duration_seconds"} {
+		value := gjson.GetBytes(body, field)
+		if seconds, ok := grokVideoDurationValue(value); ok {
+			return seconds, true
+		}
+	}
+	return 0, false
+}
+
+func grokVideoDurationValue(value gjson.Result) (int64, bool) {
+	if !value.Exists() {
+		return 0, false
+	}
+	var seconds float64
+	switch value.Type {
+	case gjson.Number:
+		seconds = value.Float()
+	case gjson.String:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(value.String()), 64)
+		if err != nil {
+			return 0, false
+		}
+		seconds = parsed
+	default:
+		return 0, false
+	}
+	if seconds <= 0 {
+		return 0, false
+	}
+	return int64(math.Ceil(seconds)), true
 }

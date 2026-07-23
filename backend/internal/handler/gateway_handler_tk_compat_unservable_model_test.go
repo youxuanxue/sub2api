@@ -145,7 +145,7 @@ func TestCompatHandlersUnservableModelOpsClassification(t *testing.T) {
 		status = w.Code
 		parsed := parseOpsErrorResponse(w.Body.Bytes())
 		normalizedType := normalizeOpsErrorType(parsed.ErrorType, parsed.Code)
-		phase, owner, source = classifyOpsErrorLog(c, normalizedType, parsed.Message, parsed.Code, status)
+		phase, _, owner, source = classifyOpsErrorLog(c, normalizedType, parsed.Message, parsed.Code, status)
 		return
 	}
 

@@ -43,7 +43,7 @@ func TestClassifyOpsUpstreamClientCanceledOwnedByClient(t *testing.T) {
 			Message:            `Post "https://api.anthropic.com/v1/messages?beta=true": context canceled`,
 		}})
 
-		phase, errorOwner, errorSource := classifyOpsErrorLog(
+		phase, _, errorOwner, errorSource := classifyOpsErrorLog(
 			c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
 
 		require.Equal(t, "request", phase)
@@ -66,7 +66,7 @@ func TestClassifyOpsUpstreamClientCanceledOwnedByClient(t *testing.T) {
 			Message:            "Upstream request failed",
 		}})
 
-		phase, errorOwner, _ := classifyOpsErrorLog(
+		phase, _, errorOwner, _ := classifyOpsErrorLog(
 			c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
 
 		require.Equal(t, "request", phase)
@@ -97,7 +97,7 @@ func TestClassifyOpsUpstreamDeadlineExceededStaysProvider(t *testing.T) {
 				Message:            tc.message,
 			}})
 
-			phase, errorOwner, _ := classifyOpsErrorLog(
+			phase, _, errorOwner, _ := classifyOpsErrorLog(
 				c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
 
 			require.Equal(t, "upstream", phase, "server-side timeout is genuine upstream evidence")
@@ -114,7 +114,7 @@ func TestClassifyOpsUpstream5xxWithStatusStaysProviderNotCancel(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 	service.SetOpsUpstreamError(c, http.StatusInternalServerError, "internal server error", "")
 
-	phase, errorOwner, _ := classifyOpsErrorLog(
+	phase, _, errorOwner, _ := classifyOpsErrorLog(
 		c, "upstream_error", "Upstream service temporarily unavailable", "", http.StatusBadGateway)
 
 	require.Equal(t, "upstream", phase)
@@ -134,7 +134,7 @@ func TestClassifyOpsUpstreamPrior5xxThenTerminalClientCancelOwnedByClient(t *tes
 		nil,
 	})
 
-	phase, errorOwner, errorSource := classifyOpsErrorLog(
+	phase, _, errorOwner, errorSource := classifyOpsErrorLog(
 		c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
 
 	require.Equal(t, "request", phase)
@@ -151,7 +151,7 @@ func TestClassifyOpsUpstreamTerminal5xxAfterCancelStaysProvider(t *testing.T) {
 		{Kind: "failover", UpstreamStatusCode: http.StatusBadGateway, Message: "edge unavailable"},
 	})
 
-	phase, errorOwner, _ := classifyOpsErrorLog(
+	phase, _, errorOwner, _ := classifyOpsErrorLog(
 		c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
 
 	require.Equal(t, "upstream", phase)
@@ -166,7 +166,7 @@ func TestClassifyOpsFinal499AfterPrior5xxOwnedByClient(t *testing.T) {
 		{Kind: "failover", UpstreamStatusCode: http.StatusBadGateway, Message: "edge unavailable"},
 	})
 
-	phase, errorOwner, errorSource := classifyOpsErrorLog(
+	phase, _, errorOwner, errorSource := classifyOpsErrorLog(
 		c, "api_error", "", "", statusClientClosedRequest)
 
 	require.Equal(t, "request", phase)

@@ -7,18 +7,14 @@ const {
   listAccounts,
   listWithEtag,
   getBatchTodayStats,
-  getBatchPassiveUsage,
   getAllProxies,
-  getAllGroups,
-  getAllIncludingInactive
+  getAllGroups
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
-  getBatchPassiveUsage: vi.fn(),
   getAllProxies: vi.fn(),
-  getAllGroups: vi.fn(),
-  getAllIncludingInactive: vi.fn()
+  getAllGroups: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -27,7 +23,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
-      getBatchPassiveUsage,
+      getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
@@ -37,8 +33,7 @@ vi.mock('@/api/admin', () => ({
       getAll: getAllProxies
     },
     groups: {
-      getAll: getAllGroups,
-      getAllIncludingInactive
+      getAll: getAllGroups
     }
   }
 }))
@@ -74,6 +69,9 @@ const DataTableStub = {
     <div data-test="data-table">
       <template v-for="column in columns" :key="column.key">
         <div v-if="column.key === 'usage'" data-test="usage-header">
+          <slot :name="'header-' + column.key" :column="column" />
+        </div>
+        <div v-if="column.key === 'upstream_billing_rate'" data-test="upstream-billing-header">
           <slot :name="'header-' + column.key" :column="column" />
         </div>
       </template>
@@ -134,10 +132,8 @@ describe('admin AccountsView usage windows hint', () => {
     listAccounts.mockReset()
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
-    getBatchPassiveUsage.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
-    getAllIncludingInactive.mockReset()
 
     listAccounts.mockResolvedValue({
       items: [],
@@ -152,10 +148,8 @@ describe('admin AccountsView usage windows hint', () => {
       data: null
     })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
-    getBatchPassiveUsage.mockResolvedValue({ usage: {} })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
-    getAllIncludingInactive.mockResolvedValue([])
   })
 
   it('renders an explanatory tooltip next to the usage windows column header', async () => {
@@ -172,35 +166,17 @@ describe('admin AccountsView usage windows hint', () => {
     expect(hint.text()).toBe('admin.accounts.usageWindowsHint')
   })
 
-  it('does not wait for today stats before loading batch usage metrics', async () => {
-    let resolveTodayStats!: (value: { stats: Record<string, unknown> }) => void
-    getBatchTodayStats.mockReturnValue(new Promise(resolve => {
-      resolveTodayStats = resolve
-    }))
-    listAccounts.mockResolvedValue({
-      items: [{
-        id: 42,
-        name: 'anthropic-oauth',
-        platform: 'anthropic',
-        type: 'oauth',
-        status: 'active',
-        schedulable: true,
-        created_at: '2026-03-07T10:00:00Z',
-        updated_at: '2026-03-07T10:00:00Z'
-      }],
-      total: 1,
-      page: 1,
-      page_size: 20,
-      pages: 1
-    })
-
-    mountView()
+  it('renders the upstream billing trust warning next to the declared-rate column', async () => {
+    const wrapper = mountView()
     await flushPromises()
 
-    expect(getBatchTodayStats).toHaveBeenCalledWith([42])
-    expect(getBatchPassiveUsage).toHaveBeenCalledWith([42])
-
-    resolveTodayStats({ stats: {} })
-    await flushPromises()
+    const header = wrapper.find('[data-test="upstream-billing-header"]')
+    expect(header.exists()).toBe(true)
+    expect(header.text()).toContain('admin.accounts.columns.upstreamBillingRate')
+    expect(wrapper.findAll('[data-test="usage-windows-hint"]').some(node =>
+      node.text() === 'admin.accounts.upstreamBilling.trustWarning'
+    )).toBe(true)
+    const columns = wrapper.getComponent(DataTableStub).props('columns') as Array<{ key: string; sortable: boolean }>
+    expect(columns.find(column => column.key === 'upstream_billing_rate')?.sortable).toBe(true)
   })
 })

@@ -324,13 +324,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	var upstreamReq *http.Request
+	var grokTargetURL string
 	if account.Platform == PlatformGrok {
-		targetURL, targetErr := s.resolveGrokResponsesUpstream(account)
+		var targetErr error
+		grokTargetURL, targetErr = s.resolveGrokResponsesUpstream(account)
 		if targetErr != nil {
 			releaseUpstreamCtx()
 			return nil, targetErr
 		}
-		upstreamReq, err = buildGrokResponsesRequestForAccount(upstreamCtx, c, account, targetURL, responsesBody, token, grokCacheIdentity)
+		upstreamReq, err = buildGrokResponsesRequestForAccount(upstreamCtx, c, account, grokTargetURL, responsesBody, token, grokCacheIdentity)
 	} else {
 		upstreamReq, err = s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, isStream, promptCacheKey, false)
 	}
@@ -373,9 +375,50 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
-	if err != nil {
-		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+	var resp *http.Response
+	for attempt := 0; ; attempt++ {
+		if attempt > 0 {
+			if account.Platform != PlatformGrok {
+				break
+			}
+			upstreamCtxRetry, releaseRetry := detachUpstreamContext(ctx)
+			upstreamReq, err = buildGrokResponsesRequestForAccount(upstreamCtxRetry, c, account, grokTargetURL, responsesBody, token, grokCacheIdentity)
+			releaseRetry()
+			if err != nil {
+				return nil, fmt.Errorf("build grok retry request: %w", err)
+			}
+		}
+		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		if err != nil {
+			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+		}
+		if account.Platform != PlatformGrok || attempt > 0 || resp.StatusCode != http.StatusBadRequest {
+			break
+		}
+		respBody := s.readUpstreamErrorBody(resp)
+		if resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		shouldStrip := isGrokInvalidEncryptedContentResponse(resp.StatusCode, respBody) ||
+			requestHasGrokEncryptedReasoning(responsesBody)
+		if !shouldStrip {
+			resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			break
+		}
+		retryBody, changed, trimErr := trimGrokInvalidEncryptedContentRetryBody(responsesBody)
+		if trimErr != nil {
+			return nil, fmt.Errorf("prepare Grok invalid encrypted_content retry: %w", trimErr)
+		}
+		if !changed {
+			resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			break
+		}
+		responsesBody = retryBody
+		logger.L().Info("openai messages: retrying after stripping invalid Grok encrypted_content",
+			zap.Int64("account_id", account.ID),
+			zap.Bool("cache_identity_present", strings.TrimSpace(grokCacheIdentity) != ""),
+			zap.String("upstream_error_preview", truncateOpenAIWSLogValue(string(respBody), 240)),
+		)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -427,6 +470,16 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			}
 			logger.L().Info("openai messages: previous_response_id unavailable, retrying without continuation", logFields...)
 			return s.ForwardAsAnthropic(ctx, c, account, body, promptCacheKey, defaultMappedModel)
+		}
+		if account.Platform == PlatformGrok &&
+			isGrokInvalidEncryptedContentResponse(resp.StatusCode, respBody) &&
+			!grokEncryptedContentStripRetried(ctx) {
+			if strippedBody, ok := stripAnthropicThinkingSignatures(body); ok {
+				logger.L().Info("openai messages: stripping thinking signatures for Grok failover retry",
+					zap.Int64("account_id", account.ID),
+				)
+				return s.ForwardAsAnthropic(markGrokEncryptedContentStripRetried(ctx), c, account, strippedBody, promptCacheKey, defaultMappedModel)
+			}
 		}
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
@@ -662,6 +715,10 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	if finalResponse.IncompleteDetails != nil {
 		incompleteReason = finalResponse.IncompleteDetails.Reason
 	}
+	stopReason := ""
+	if anthropicResp.StopReason != nil {
+		stopReason = *anthropicResp.StopReason
+	}
 
 	return &OpenAIForwardResult{
 		RequestID:        requestID,
@@ -672,7 +729,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		UpstreamModel:    upstreamModel,
 		Stream:           false,
 		Duration:         time.Since(startTime),
-		StopReason:       anthropicResp.StopReason,
+		StopReason:       stopReason,
 		IncompleteReason: incompleteReason,
 		ContentTextLen:   anthropicResponseContentTextLen(anthropicResp),
 	}, nil

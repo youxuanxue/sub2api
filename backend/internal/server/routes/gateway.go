@@ -1,12 +1,24 @@
 package routes
 
 import (
+	"bytes"
+	"errors"
+	"io"
+	"mime"
+	"mime/multipart"
+	"net/http"
+	"strconv"
+	"strings"
+
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // RegisterGatewayRoutes 注册 API 网关路由（Claude/OpenAI/Gemini 兼容）
@@ -18,9 +30,11 @@ func RegisterGatewayRoutes(
 	subscriptionService *service.SubscriptionService,
 	opsService *service.OpsService,
 	settingService *service.SettingService,
+	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 ) {
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
+	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
 	clientRequestID := middleware.ClientRequestID()
 	trajectoryID := middleware.TrajectoryID()
 	opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
@@ -29,11 +43,35 @@ func RegisterGatewayRoutes(
 	if h != nil && h.QACapture != nil {
 		qaCapture = h.QACapture.Middleware()
 	}
+	compositeTarget := compositeTargetPlatformMiddleware(compositeResolver)
+	compositeGeminiTarget := compositeGeminiTargetPlatformMiddleware(compositeResolver)
 
 	// 未分组 Key 拦截中间件（按协议格式区分错误响应）
 	requireGroupAnthropic := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
 	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)
 
+	isOpenAIGatewayPlatform := func(c *gin.Context) bool {
+		return getGroupPlatform(c) == service.PlatformOpenAI
+	}
+	countTokensHandler := func(c *gin.Context) {
+		switch getGroupPlatform(c) {
+		case service.PlatformGrok:
+			h.OpenAIGateway.GrokCountTokens(c)
+		default:
+			if isOpenAICompatPlatform(getGroupPlatform(c)) {
+				h.OpenAIGateway.CountTokens(c)
+				return
+			}
+			h.Gateway.CountTokens(c)
+		}
+	}
+	modelsHandler := func(c *gin.Context) {
+		if isOpenAIGatewayPlatform(c) && c.Query("client_version") != "" {
+			h.OpenAIGateway.CodexModels(c)
+			return
+		}
+		h.Gateway.Models(c)
+	}
 	// API网关（Claude API兼容）
 	gateway := r.Group("/v1")
 	gateway.Use(bodyLimit)
@@ -43,14 +81,19 @@ func RegisterGatewayRoutes(
 	gateway.Use(opsErrorLogger)
 	gateway.Use(endpointNorm)
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
+	gateway.GET("/sub2api/billing", h.Gateway.KeyBillingInfo)
+	gateway.Use(compositeTarget)
 	gateway.Use(requireGroupAnthropic)
 	{
 		// /v1/messages: auto-route based on group platform
 		gateway.POST("/messages", tkOpenAICompatMessagesPOST(h))
-		// /v1/messages/count_tokens: OpenAI uses Anthropic-compat bridge; other
-		// OpenAI-compatible platforms keep the prior unsupported response.
-		gateway.POST("/messages/count_tokens", tkOpenAICompatCountTokensPOST(h))
-		gateway.GET("/models", h.Gateway.Models)
+		// /v1/messages/count_tokens: OpenAI bridges upstream, Grok estimates
+		// locally, and Anthropic-compatible platforms retain their existing path.
+		gateway.POST("/messages/count_tokens", countTokensHandler)
+		// Codex CLI / Codex app refresh their model picker from the provider's
+		// /models endpoint with a client_version query and expect the ChatGPT
+		// Codex manifest format; other clients keep the OpenAI-style list.
+		gateway.GET("/models", modelsHandler)
 		gateway.GET("/usage", h.Gateway.Usage)
 		// OpenAI Responses API: auto-route based on group platform
 		gateway.POST("/responses", tkOpenAICompatResponsesPOST(h))
@@ -65,16 +108,22 @@ func RegisterGatewayRoutes(
 		// (the Studio reload path). Utility endpoint — no group-platform routing.
 		gateway.POST("/images/presign", h.OpenAIGateway.ImagesPresign)
 		registerTKOpenAICompatVideoRoutes(gateway, h)
-		gateway.POST("/images/batches", h.BatchImage.Submit)
-		gateway.GET("/images/batches", h.BatchImage.List)
-		gateway.GET("/images/batches/models", h.BatchImage.Models)
-		gateway.GET("/images/batches/:id", h.BatchImage.Get)
-		gateway.GET("/images/batches/:id/items", h.BatchImage.Items)
-		gateway.GET("/images/batches/:id/items/:custom_id/content", h.BatchImage.ItemContent)
-		gateway.GET("/images/batches/:id/download", h.BatchImage.Download)
-		gateway.POST("/images/batches/:id/cancel", h.BatchImage.Cancel)
-		gateway.DELETE("/images/batches/:id", h.BatchImage.DeleteRecord)
-		gateway.DELETE("/images/batches/:id/outputs", h.BatchImage.DeleteOutputs)
+		gateway.POST("/alpha/search", textBodyLimit, h.OpenAIGateway.AlphaSearch)
+		gateway.POST("/images/generations/async", h.AsyncImage.Submit)
+		gateway.POST("/images/edits/async", h.AsyncImage.Submit)
+		gateway.GET("/images/tasks/:task_id", h.AsyncImage.Get)
+		if h.BatchImage != nil {
+			gateway.POST("/images/batches", h.BatchImage.Submit)
+			gateway.GET("/images/batches", h.BatchImage.List)
+			gateway.GET("/images/batches/models", h.BatchImage.Models)
+			gateway.GET("/images/batches/:id", h.BatchImage.Get)
+			gateway.GET("/images/batches/:id/items", h.BatchImage.Items)
+			gateway.GET("/images/batches/:id/items/:custom_id/content", h.BatchImage.ItemContent)
+			gateway.GET("/images/batches/:id/download", h.BatchImage.Download)
+			gateway.POST("/images/batches/:id/cancel", h.BatchImage.Cancel)
+			gateway.DELETE("/images/batches/:id", h.BatchImage.DeleteRecord)
+			gateway.DELETE("/images/batches/:id/outputs", h.BatchImage.DeleteOutputs)
+		}
 	}
 
 	// Gemini 原生 API 兼容层（Gemini SDK/CLI 直连）
@@ -86,6 +135,7 @@ func RegisterGatewayRoutes(
 	gemini.Use(opsErrorLogger)
 	gemini.Use(endpointNorm)
 	gemini.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
+	gemini.Use(compositeGeminiTarget)
 	gemini.Use(requireGroupGoogle)
 	{
 		gemini.GET("/models", h.Gateway.GeminiV1BetaListModels)
@@ -105,18 +155,24 @@ func RegisterGatewayRoutes(
 	r.POST("/embeddings", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatEmbeddingsHandler(h))
 	r.POST("/images/generations", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatImageGenerationsHandler(h))
 	r.POST("/images/edits", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatImageEditsHandler(h))
-	r.GET("/models", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.Models)
+	r.GET("/models", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, modelsHandler)
 	// TK: presigned-URL re-mint for offloaded images (Studio reload), no-prefix alias.
 	r.POST("/images/presign", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.OpenAIGateway.ImagesPresign)
 	registerTKOpenAICompatVideoRoutesNoPrefix(r, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
+	r.POST("/alpha/search", textBodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.OpenAIGateway.AlphaSearch)
+	r.POST("/messages/count_tokens", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatCountTokensPOST(h))
 	codexDirect := r.Group("/backend-api/codex")
 	codexDirect.Use(bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
 	{
 		codexDirect.GET("/models", h.OpenAIGateway.CodexModels)
 		codexDirect.POST("/responses", responsesHandler)
 		codexDirect.POST("/responses/*subpath", responsesHandler)
+		codexDirect.POST("/alpha/search", textBodyLimit, h.OpenAIGateway.AlphaSearch)
 		codexDirect.GET("/responses", tkOpenAICompatResponsesWebSocketGET(h))
 	}
+	r.POST("/images/generations/async", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.AsyncImage.Submit)
+	r.POST("/images/edits/async", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.AsyncImage.Submit)
+	r.GET("/images/tasks/:task_id", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.AsyncImage.Get)
 
 	// Antigravity 模型列表
 	r.GET("/antigravity/models", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.AntigravityModels)
@@ -163,5 +219,168 @@ func getGroupPlatform(c *gin.Context) string {
 	if !ok || apiKey.Group == nil {
 		return ""
 	}
+	if apiKey.Group.Platform == service.PlatformComposite {
+		if platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok {
+			return platform
+		}
+	}
 	return apiKey.Group.Platform
+}
+
+func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver) gin.HandlerFunc {
+	if resolver == nil {
+		resolver = service.NewCompositeRouteResolver(nil)
+	}
+	return func(c *gin.Context) {
+		apiKey, ok := middleware.GetAPIKeyFromContext(c)
+		if !ok || apiKey == nil || apiKey.Group == nil || apiKey.Group.Platform != service.PlatformComposite {
+			c.Next()
+			return
+		}
+		if c.Request == nil || c.Request.Method == http.MethodGet {
+			c.Next()
+			return
+		}
+
+		body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+		if err != nil {
+			status := http.StatusBadRequest
+			message := "Failed to read request body"
+			var maxErr *http.MaxBytesError
+			if errors.As(err, &maxErr) {
+				status = http.StatusRequestEntityTooLarge
+				message = "Request body is too large"
+			}
+			c.JSON(status, gin.H{"error": gin.H{"type": "invalid_request_error", "message": message}})
+			c.Abort()
+			return
+		}
+
+		model := compositeRequestModelFromBody(c.GetHeader("Content-Type"), body)
+		if model != "" {
+			decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, compositeRouteEndpointForPath(c.Request.URL.Path))
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "server_error", "message": "Failed to resolve composite model route"}})
+				c.Abort()
+				return
+			}
+			if decision.Matched {
+				c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), decision))
+				if upstreamModel := strings.TrimSpace(decision.UpstreamModel); upstreamModel != "" && upstreamModel != model && gjson.ValidBytes(body) {
+					if rewritten, rewriteErr := sjson.SetBytes(body, "model", upstreamModel); rewriteErr == nil {
+						body = rewritten
+					}
+				}
+			}
+		}
+		resetRequestBody(c, body)
+		c.Next()
+	}
+}
+
+func compositeRequestModelFromBody(contentType string, body []byte) string {
+	if model := strings.TrimSpace(gjson.GetBytes(body, "model").String()); model != "" {
+		return model
+	}
+	return compositeMultipartModelFromBody(contentType, body)
+}
+
+func compositeMultipartModelFromBody(contentType string, body []byte) string {
+	mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(contentType))
+	if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") {
+		return ""
+	}
+	boundary := strings.TrimSpace(params["boundary"])
+	if boundary == "" {
+		return ""
+	}
+	reader := multipart.NewReader(bytes.NewReader(body), boundary)
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			return ""
+		}
+		if err != nil {
+			return ""
+		}
+		if part.FormName() != "model" || part.FileName() != "" {
+			continue
+		}
+		data, err := io.ReadAll(part)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(data))
+	}
+}
+
+func compositeGeminiTargetPlatformMiddleware(resolver *service.CompositeRouteResolver) gin.HandlerFunc {
+	if resolver == nil {
+		resolver = service.NewCompositeRouteResolver(nil)
+	}
+	return func(c *gin.Context) {
+		apiKey, ok := middleware.GetAPIKeyFromContext(c)
+		if ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
+			model := compositeGeminiModelFromParams(c)
+			if model != "" {
+				decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, service.CompositeRouteEndpointGemini)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "server_error", "message": "Failed to resolve composite model route"}})
+					c.Abort()
+					return
+				}
+				if decision.Matched {
+					c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), decision))
+				}
+			}
+			if _, resolved := service.ResolvedTargetPlatformFromContext(c.Request.Context()); !resolved {
+				c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), service.PlatformGemini))
+			}
+		}
+		c.Next()
+	}
+}
+
+func compositeGeminiModelFromParams(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	if model := strings.TrimSpace(c.Param("model")); model != "" {
+		return model
+	}
+	modelAction := strings.TrimPrefix(strings.TrimSpace(c.Param("modelAction")), "/")
+	if modelAction == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(modelAction, ":"); idx >= 0 {
+		return strings.TrimSpace(modelAction[:idx])
+	}
+	return modelAction
+}
+
+func resetRequestBody(c *gin.Context, body []byte) {
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	c.Request.ContentLength = int64(len(body))
+	c.Request.Header.Set("Content-Length", strconv.Itoa(len(body)))
+}
+
+func compositeRouteEndpointForPath(path string) string {
+	switch {
+	case strings.Contains(path, "/messages/count_tokens"):
+		return service.CompositeRouteEndpointCountTokens
+	case strings.Contains(path, "/messages"):
+		return service.CompositeRouteEndpointMessages
+	case strings.Contains(path, "/responses"):
+		return service.CompositeRouteEndpointResponses
+	case strings.Contains(path, "/chat/completions"):
+		return service.CompositeRouteEndpointChatCompletions
+	case strings.Contains(path, "/embeddings"):
+		return service.CompositeRouteEndpointEmbeddings
+	case strings.Contains(path, "/images/"):
+		return service.CompositeRouteEndpointImages
+	case strings.Contains(path, "/v1beta/"):
+		return service.CompositeRouteEndpointGemini
+	default:
+		return service.CompositeRouteEndpointAny
+	}
 }
