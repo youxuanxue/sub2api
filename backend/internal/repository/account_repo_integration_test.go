@@ -1455,7 +1455,7 @@ func (s *AccountRepoSuite) TestGrokOAuthConditionalMutation_DetachesBoundedSnaps
 	repo := newAccountRepositoryWithSQL(s.client, &cancelAfterAtomicMutationSQLExecutor{
 		sqlExecutor: s.repo.sql,
 		cancel:      cancel,
-	}, cacheRecorder, nil, nil)
+	}, cacheRecorder, nil)
 
 	applied, err := repo.SetGrokOAuthErrorIfCredentialsUnchanged(
 		ctx,

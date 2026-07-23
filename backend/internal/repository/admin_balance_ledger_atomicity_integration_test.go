@@ -48,6 +48,7 @@ func newAdminServiceForBalanceLedgerTests(t *testing.T) (service.AdminService, s
 		client,
 		nil, nil, nil, nil, nil, nil, // settings/subscription/privacy/runtime/availability helpers
 		nil, // affiliate service
+		nil, nil, // composite route repo/resolver
 	)
 	return adminSvc, userRepo
 }
