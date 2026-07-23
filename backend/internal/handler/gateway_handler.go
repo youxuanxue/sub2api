@@ -305,7 +305,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 判断是否真的绑定了粘性会话：有 sessionKey 且已经绑定到某个账号
 	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
 	var recoveryExcludedAccountID int64
-	if sessionKey != "" {
+	if platform == service.PlatformKiro && sessionKey != "" {
 		var recoveryErr error
 		recoveryExcludedAccountID, recoveryErr = h.gatewayService.ConsumeKiroSessionRecovery(c.Request.Context(), apiKey.GroupID, sessionKey)
 		if recoveryErr != nil {
@@ -330,9 +330,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	if platform == service.PlatformGemini {
 		fs := NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
-		if recoveryExcludedAccountID > 0 {
-			fs.FailedAccountIDs[recoveryExcludedAccountID] = struct{}{}
-		}
 
 		// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
 		// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
