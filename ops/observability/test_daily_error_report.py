@@ -126,6 +126,46 @@ class DailyErrorReportTest(unittest.TestCase):
         self.assertTrue(access["anomaly"])
         self.assertEqual(access["confidence"], "low")
 
+    def test_access_cluster_fully_covered_by_ops_error_is_not_duplicated(self) -> None:
+        matching_access = json.dumps({
+            "status": "ok",
+            "status_code": 502,
+            "endpoint": "/v1/responses",
+            "model": "gpt-5",
+            "current_count": 12,
+            "max_count_1m": 6,
+        })
+        report = build_report(probe_fixture() + matching_access + "\n", "prod")
+
+        matches = [
+            row for row in report["clusters"]
+            if row["status_code"] == 502
+            and row["model"] == "gpt-5"
+            and row["endpoint"] == "/v1/responses"
+        ]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["source"], "ops_error_logs")
+
+    def test_access_cluster_reports_only_uncaptured_residual(self) -> None:
+        matching_access = json.dumps({
+            "status": "ok",
+            "status_code": 502,
+            "endpoint": "/v1/responses",
+            "model": "gpt-5",
+            "current_count": 15,
+            "max_count_1m": 6,
+        })
+        report = build_report(probe_fixture() + matching_access + "\n", "prod")
+
+        access = next(
+            row for row in report["clusters"]
+            if row["source"] == "access_log" and row["endpoint"] == "/v1/responses"
+        )
+        self.assertEqual(access["observed_count"], 15)
+        self.assertEqual(access["captured_count"], 12)
+        self.assertEqual(access["current_count"], 3)
+        self.assertEqual(access["max_count_5m"], 3)
+
     def test_operational_platform_error_is_not_repair_eligible(self) -> None:
         text = probe_fixture().replace("dashboard_query_failed", "no_available_accounts")
         report = build_report(text, "prod")
