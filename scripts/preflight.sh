@@ -1432,8 +1432,24 @@ elif ! python3 ./ops/archive/test_data_layer_archive_rehearsal.py >/dev/null 2>&
     echo "  FAIL: nonprod archive/restore rehearsal contracts"
     echo "        — run: python3 ops/archive/test_data_layer_archive_rehearsal.py"
     errors=$((errors + 1))
+elif ! python3 ./ops/archive/test_data_layer_archive_prod_canary.py >/dev/null 2>&1; then
+    echo "  FAIL: production export-only archive canary contracts"
+    echo "        — run: python3 ops/archive/test_data_layer_archive_prod_canary.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/archive/test_data_layer_archive_prod_export.py >/dev/null 2>&1; then
+    echo "  FAIL: production legacy cold batch export contracts"
+    echo "        — run: python3 ops/archive/test_data_layer_archive_prod_export.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/archive/test_data_layer_archive_promote_batch.py >/dev/null 2>&1; then
+    echo "  FAIL: production archive promote contracts"
+    echo "        — run: python3 ops/archive/test_data_layer_archive_promote_batch.py"
+    errors=$((errors + 1))
+elif ! python3 ./ops/archive/test_data_layer_archive_cleanup_hold.py >/dev/null 2>&1; then
+    echo "  FAIL: production archive cleanup hold contracts"
+    echo "        — run: python3 ops/archive/test_data_layer_archive_cleanup_hold.py"
+    errors=$((errors + 1))
 else
-    echo "  ok: read-only waterline + manifest checksums + idempotent random restore"
+    echo "  ok: nonprod rehearsal + cleanup hold + export canary + legacy export + archive promote"
 fi
 
 # ---- sub2api: runtime resource config verdict selftest ---------------------

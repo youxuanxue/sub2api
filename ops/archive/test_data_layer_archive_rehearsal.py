@@ -626,6 +626,8 @@ class DataLayerArchiveRehearsalTest(unittest.TestCase):
             )
         command = run_psql.call_args.args[0]
         self.assertNotIn("secret", " ".join(command))
+        self.assertNotIn("SELECT 1", command)
+        self.assertIn("SELECT 1", run_psql.call_args.kwargs["input"])
         self.assertEqual(run_psql.call_args.kwargs["env"]["PGPASSWORD"], "secret")
 
 
