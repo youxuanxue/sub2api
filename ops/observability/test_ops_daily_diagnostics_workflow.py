@@ -6,6 +6,8 @@ import contextlib
 import io
 import json
 import os
+import sys
+import tempfile
 import textwrap
 import unittest
 from pathlib import Path
@@ -37,6 +39,14 @@ def extract_runtime_params_commands() -> list[str]:
             os.environ.pop("DIAGNOSTICS_LOG_SINCE", None)
         else:
             os.environ["DIAGNOSTICS_LOG_SINCE"] = old_since
+
+
+def extract_log_signal_classifier() -> str:
+    marker = "          import json\n          import pathlib\n          import sys\n\n          counts_path"
+    text = workflow_text()
+    start = text.index(marker)
+    end = text.index("\n          PY", start)
+    return textwrap.dedent(text[start:end])
 
 
 class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
@@ -83,6 +93,33 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("caddy_access_error >= 10", text)
         self.assertNotIn('"kind": "caddy_incomplete_response"', text)
 
+    def test_feishu_owned_log_signals_do_not_become_issue_candidates(self) -> None:
+        script = extract_log_signal_classifier()
+        with tempfile.TemporaryDirectory() as tmp_raw:
+            root = Path(tmp_raw)
+            counts_path = root / "counts.json"
+            findings_path = root / "findings.jsonl"
+            counts_path.write_text(
+                json.dumps({
+                    "gemini_drive_scope_403": 10,
+                    "openai_previous_response_fallback": 50,
+                    "rate_limit_429_no_reset": 1,
+                }),
+                encoding="utf-8",
+            )
+            old_argv = sys.argv
+            sys.argv = ["log-signal-classifier", str(counts_path), str(findings_path), "prod", "24h"]
+            try:
+                exec(compile(script, str(WORKFLOW), "exec"), {})
+            finally:
+                sys.argv = old_argv
+
+            findings = [json.loads(line) for line in findings_path.read_text(encoding="utf-8").splitlines()]
+            statuses = {finding["kind"]: finding["status"] for finding in findings}
+            self.assertEqual(statuses["gemini_drive_scope_403"], "warning")
+            self.assertEqual(statuses["rate_limit_429_no_reset"], "warning")
+            self.assertEqual(statuses["openai_previous_response_fallback"], "issue_candidate")
+
     def test_missing_target_reports_skipped_when_diagnose_cancelled(self) -> None:
         text = workflow_text()
         self.assertIn("DISCOVER_TARGETS_RESULT", text)
@@ -121,6 +158,13 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("probe-daily-error-ledger.sh", text)
         self.assertIn("daily_error_report.py build", text)
         self.assertIn("daily_error_report.py aggregate", text)
+        self.assertIn("alert_covered)", text)
+        self.assertIn("Daily error anomalies are covered by Feishu", text)
+        self.assertIn(
+            'add_finding "error_cluster" "warning" "warning" "Persistent legacy error cluster',
+            text,
+        )
+        self.assertNotIn('add_finding "error_cluster" "issue_candidate"', text)
         self.assertIn("top_repair_signature", text)
         self.assertIn("gh workflow run ops-repair-draft.yml", text)
 
