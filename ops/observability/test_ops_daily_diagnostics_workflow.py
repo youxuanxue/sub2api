@@ -121,6 +121,8 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("probe-daily-error-ledger.sh", text)
         self.assertIn("daily_error_report.py build", text)
         self.assertIn("daily_error_report.py aggregate", text)
+        self.assertIn("alert_covered)", text)
+        self.assertIn("Daily error anomalies are covered by Feishu", text)
         self.assertIn("top_repair_signature", text)
         self.assertIn("gh workflow run ops-repair-draft.yml", text)
 

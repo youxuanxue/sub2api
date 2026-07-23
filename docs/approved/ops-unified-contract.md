@@ -3,7 +3,7 @@ title: Ops Unified Contract (QA + ErrorToIssue/PR)
 status: approved
 approved_by: youxuanxue
 approved_at: 2026-04-21
-updated_at: 2026-07-22
+updated_at: 2026-07-23
 created: 2026-04-21
 owners: [tk-platform]
 related_prs: ["#13", "#30"]
@@ -51,7 +51,9 @@ Required outcomes:
 - A sanitized `daily-error-report.{json,md}` combines SLA-equivalent totals from
   `usage_logs` and `ops_error_logs`, separates final failures from recovered
   upstream attempts, and classifies new/regressed/persistent/access-only clusters.
-- Optional Claude diagnosis may read the aggregate report and repository files to improve issue quality; it must not write files, run shell commands, access AWS, create branches, or create PRs.
+- Daily classification is deterministic. Account-capacity and provider-health
+  anomalies remain visible in the report but stay on the existing Feishu alert
+  path; they do not create or update GitHub Issues.
 
 Hard guardrails:
 
@@ -61,9 +63,13 @@ Hard guardrails:
 - `ops-repair-draft.yml` has repository write permissions but no AWS OIDC or
   production credentials. It may only create a Draft PR; it cannot merge,
   deploy, roll back, or change production configuration.
+- GitHub Issue candidates are limited to actionable anomalies not already owned
+  by Feishu. Provider-owned failures, 429s, account-auth failures, and routing
+  502/503 capacity signals remain report/Feishu evidence only.
 - Automatic repair is limited to repeated, platform-owned final 5xx clusters
   that are not classified as capacity, quota, rate-limit, auth, billing, or
-  provider failures. All other findings remain Issue/manual-ops signals.
+  provider failures. Probe/parsing failures and other manual-ops findings remain
+  GitHub Issue signals.
 - Before a Draft PR is opened, the repair agent must add a regression test,
   record a nonzero reproduction result before the fix and a zero result after
   it, rerun that command, pass `./scripts/preflight.sh`, and satisfy protected
@@ -74,7 +80,7 @@ Hard guardrails:
   size are revalidated after the reproduction command returns.
 - Signature cooldown / dedupe labels (`ops-sig:*`, plus `cluster-sig:*` for error clusters) avoid duplicate churn.
 - AWS diagnostics jobs have `id-token: write` but no repo write permissions.
-- Issue/Claude/repair-dispatch/repair jobs have no AWS OIDC permission.
+- Issue/repair-dispatch/repair jobs have no AWS OIDC permission.
 - Missing optional secret / missing required table => clean skip or deterministic fallback, not a brittle cron failure.
 
 Transport (since 2026-05-13):
@@ -109,6 +115,8 @@ Branch is aligned when:
 
 - Existing online/upstream capabilities remain available.
 - QA workflows degrade safely when `qa_records` is absent.
-- Prod/Edge diagnostics can flow to issue signals with AWS/issue permissions separated.
+- Prod/Edge diagnostics route each anomaly to one owner: Feishu for account or
+  provider capacity, GitHub Issue for actionable anomalies not covered by
+  Feishu, or the isolated Draft PR path for high-confidence code-owned failures.
 - A high-confidence code-owned report can flow to an isolated Draft PR with
   reproduction evidence, while provider/config/capacity findings cannot.

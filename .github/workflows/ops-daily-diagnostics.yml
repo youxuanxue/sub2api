@@ -596,6 +596,9 @@ jobs:
                     issue_candidate)
                       add_finding "daily_error_report" "issue_candidate" "error" "Daily error anomalies detected for $TARGET_ID" "$DAILY_SUMMARY" "daily-errors|$TARGET_ID"
                       ;;
+                    alert_covered)
+                      add_finding "daily_error_report" "ok" "info" "Daily error anomalies are covered by Feishu for $TARGET_ID" "$DAILY_SUMMARY" "daily-errors|$TARGET_ID|feishu"
+                      ;;
                     skip)
                       add_finding "daily_error_report" "skip" "info" "Daily error report skipped for $TARGET_ID" "$DAILY_SUMMARY" "daily-errors|$TARGET_ID|skip"
                       ;;

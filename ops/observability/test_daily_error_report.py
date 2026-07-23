@@ -119,13 +119,69 @@ class DailyErrorReportTest(unittest.TestCase):
         provider = next(row for row in report["clusters"] if row["owner"] == "provider")
         self.assertEqual(provider["state"], "regressed")
         self.assertTrue(provider["anomaly"])
+        self.assertTrue(provider["feishu_alert_covered"])
+        self.assertFalse(provider["github_issue_eligible"])
+        self.assertNotIn(provider, report["issue_candidates"])
         self.assertFalse(provider["repair_eligible"])
 
         client = next(row for row in report["clusters"] if row["owner"] == "client")
         self.assertFalse(client["anomaly"])
         access = next(row for row in report["clusters"] if row["source"] == "access_log")
         self.assertTrue(access["anomaly"])
+        self.assertTrue(access["github_issue_eligible"])
         self.assertEqual(access["confidence"], "low")
+
+    def test_capacity_and_provider_anomalies_stay_in_report_without_github_issues(self) -> None:
+        rows = [
+            "=== meta ===",
+            json.dumps({"status": "ok", "window_hours": 24, "runtime_image": "sub2api:1.2.3"}),
+            "=== totals ===",
+            json.dumps({"current_request_total": 100, "current_error_sla": 20}),
+            "=== clusters ===",
+            json.dumps({
+                "status_code": 502,
+                "owner": "provider",
+                "phase": "upstream",
+                "error_type": "upstream_error",
+                "platform": "grok",
+                "model": "grok-build-0.1",
+                "endpoint": "/v1/chat/completions",
+                "current_count": 8,
+                "previous_count": 0,
+            }),
+            json.dumps({
+                "status_code": 429,
+                "owner": "platform",
+                "phase": "routing",
+                "error_type": "api_error",
+                "platform": "grok",
+                "model": "grok-build-0.1",
+                "endpoint": "/v1/chat/completions",
+                "current_count": 9,
+                "previous_count": 1,
+            }),
+            json.dumps({
+                "status_code": 503,
+                "owner": "provider",
+                "phase": "account_auth",
+                "error_type": "upstream_error",
+                "platform": "grok",
+                "model": "grok-build-0.1",
+                "endpoint": "/v1/chat/completions",
+                "current_count": 6,
+                "previous_count": 1,
+            }),
+        ]
+
+        report = build_report("\n".join(rows) + "\n", "prod")
+
+        self.assertEqual(report["status"], "alert_covered")
+        self.assertEqual(report["anomaly_count"], 3)
+        self.assertEqual(report["feishu_covered_count"], 3)
+        self.assertEqual(report["issue_candidates"], [])
+        self.assertEqual(report["repair_candidates"], [])
+        self.assertTrue(all(row["triage_channel"] == "feishu" for row in report["clusters"]))
+        self.assertIn("github_issues=0", report["summary"])
 
     def test_access_cluster_fully_covered_by_ops_error_is_not_duplicated(self) -> None:
         matching_access = json.dumps({
@@ -254,7 +310,7 @@ esac
             path.write_text(json.dumps(build_report(probe_fixture(), "prod")), encoding="utf-8")
             report = aggregate_reports([path], "123", "https://example.test/runs/123")
             markdown = aggregate_markdown(report)
-            self.assertIn("| prod | issue_candidate | 120 | 15 | 5 | 8 |", markdown)
+            self.assertIn("| prod | issue_candidate | 120 | 15 | 5 | 8 | 3 | 1 | 2 | 1 |", markdown)
             self.assertIn("dashboard_query_failed", markdown)
 
     def test_issue_analysis_is_target_scoped_and_actionable(self) -> None:
