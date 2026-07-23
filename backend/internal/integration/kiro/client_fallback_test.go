@@ -17,25 +17,25 @@ func terminalEventStreamForTest(stopReason string) []byte {
 	)
 	payload := []byte(`{"stopReason":"` + stopReason + `"}`)
 	var headers bytes.Buffer
-	headers.WriteByte(byte(len(headerName)))
-	headers.WriteString(headerName)
-	headers.WriteByte(7)
+	_ = headers.WriteByte(byte(len(headerName)))
+	_, _ = headers.WriteString(headerName)
+	_ = headers.WriteByte(7)
 	var valueLen [2]byte
 	binary.BigEndian.PutUint16(valueLen[:], uint16(len(eventType)))
-	headers.Write(valueLen[:])
-	headers.WriteString(eventType)
+	_, _ = headers.Write(valueLen[:])
+	_, _ = headers.WriteString(eventType)
 
 	var frame bytes.Buffer
 	var u32 [4]byte
 	totalLen := 12 + headers.Len() + len(payload) + 4
 	binary.BigEndian.PutUint32(u32[:], uint32(totalLen))
-	frame.Write(u32[:])
+	_, _ = frame.Write(u32[:])
 	binary.BigEndian.PutUint32(u32[:], uint32(headers.Len()))
-	frame.Write(u32[:])
-	frame.Write([]byte{0, 0, 0, 0})
-	frame.Write(headers.Bytes())
-	frame.Write(payload)
-	frame.Write([]byte{0, 0, 0, 0})
+	_, _ = frame.Write(u32[:])
+	_, _ = frame.Write([]byte{0, 0, 0, 0})
+	_, _ = frame.Write(headers.Bytes())
+	_, _ = frame.Write(payload)
+	_, _ = frame.Write([]byte{0, 0, 0, 0})
 	return frame.Bytes()
 }
 

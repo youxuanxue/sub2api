@@ -19,7 +19,8 @@ func TestGatewayCache_KiroSessionRecoveryClearsStickyAndConsumesOnce(t *testing.
 
 	ctx := context.Background()
 	cache := NewGatewayCache(rdb)
-	store := cache.(service.KiroSessionRecoveryStore)
+	store, ok := cache.(service.KiroSessionRecoveryStore)
+	require.True(t, ok)
 	groupID := int64(7)
 	const sessionHash = "session-a"
 
