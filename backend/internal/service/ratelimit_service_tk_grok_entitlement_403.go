@@ -1,7 +1,9 @@
 package service
 
 import (
+	"context"
 	"strings"
+	"time"
 
 	"github.com/tidwall/gjson"
 )
@@ -19,9 +21,9 @@ import (
 // empty-pool 429, and the generic 403→502 mask would hide the real cause from the
 // operator. So a grok entitlement-403 must:
 //  1. NOT trigger account failover (shouldFailoverOpenAIUpstreamResponse=false),
-//  2. NOT cool/disable the account (every forwarding path must classify or
-//     guard it before invoking account-error side effects),
-//  3. surface a clean, actionable client error (NOT a masked 502).
+//  2. NOT failover to sibling accounts (they share the same xAI gate),
+//  3. quarantine the offending account so schedulers stop re-selecting it,
+//  4. surface a clean, actionable client error (NOT a masked 502).
 //
 // Kept in a TK-only companion file so future upstream merges of
 // ratelimit_service.go / openai_gateway_service.go do not collide on this branch.
@@ -31,6 +33,11 @@ const (
 	tkGrokEntitlement403Subscription = "grok subscription"
 	tkGrokEntitlement403Resources    = "run out of available resources"
 	tkGrokEntitlement403Heavy        = "supergrok heavy"
+
+	// tkGrokEntitlement403QuarantineCooldown stops a dead/downgraded account from
+	// being re-selected on every request (ops noise) without failing over to
+	// siblings that would hit the same gate.
+	tkGrokEntitlement403QuarantineCooldown = 24 * time.Hour
 )
 
 // tkIsGrokEntitlement403 reports whether a 403 upstream response is the xAI
@@ -84,7 +91,9 @@ func tkGrokEntitlement403Haystack(body []byte) string {
 }
 
 // tkGrokEntitlement403ClientMessage is the client-facing message for a grok
-// entitlement-403, actionable without leaking which account.
+// entitlement-403, actionable without leaking which account. This explains xAI's
+// api.x.ai OAuth gate; it is not a TokenKey product tier restriction — standard
+// SuperGrok may still work on the CLI subscription proxy upstream uses by default.
 func tkGrokEntitlement403ClientMessage(upstreamMsg string) string {
 	base := "The Grok (xAI) subscription backing this request is not entitled to API access " +
 		"(xAI gates the OAuth API surface to SuperGrok Heavy). Confirm the account is on SuperGrok Heavy."
@@ -93,4 +102,12 @@ func tkGrokEntitlement403ClientMessage(upstreamMsg string) string {
 		return base
 	}
 	return base + " Upstream detail: " + upstreamMsg
+}
+
+func (s *OpenAIGatewayService) tkQuarantineGrokEntitlement403Account(ctx context.Context, account *Account) {
+	if s == nil || account == nil || !account.IsGrok() {
+		return
+	}
+	s.tempUnscheduleGrok(ctx, account, tkGrokEntitlement403QuarantineCooldown,
+		"grok access or entitlement denied")
 }

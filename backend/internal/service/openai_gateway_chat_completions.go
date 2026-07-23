@@ -75,9 +75,20 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 
 	// Grok（第七平台）在 Codex transform 前进入专用 bridge：兼容且可缓存的
 	// grok-4.5 请求走 xAI /responses，其余请求走原生 /v1/chat/completions。
-	// 两条路径都不经过写死 chatgpt.com/codex 与 ChatGPT 专属头的 Codex 转换。
-	if account.IsGrok() {
-		return s.forwardGrokChatCompletionsViaResponses(ctx, c, account, body, promptCacheKey, defaultMappedModel)
+	// 与 upstream 一致，仅 grok OAuth 且 bridge-eligible 时才尝试 /responses；
+	// grok apikey relay 与非 eligible OAuth 形状直接走 raw CC。
+	if account.Platform == PlatformGrok {
+		if account.IsGrokOAuth() {
+			eligible, bridgeReason := grokChatResponsesBridgeEligibility(body)
+			if eligible {
+				return s.forwardGrokChatCompletionsViaResponses(ctx, c, account, body, promptCacheKey, defaultMappedModel)
+			}
+			logger.L().Debug("grok chat_completions: using raw fallback",
+				zap.Int64("account_id", account.ID),
+				zap.String("reason", bridgeReason),
+			)
+		}
+		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)

@@ -352,7 +352,7 @@ func TestForwardGrokRawChat429PreservesRetryAfter(t *testing.T) {
 	require.Equal(t, xai.DefaultCLIBaseURL+"/chat/completions", upstream.lastReq.URL.String())
 }
 
-func TestForwardGrokChatEntitlement403DoesNotFailoverOrCoolAccount(t *testing.T) {
+func TestForwardGrokChatEntitlement403QuarantinesAccountWithoutFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -409,8 +409,8 @@ func TestForwardGrokChatEntitlement403DoesNotFailoverOrCoolAccount(t *testing.T)
 			require.Equal(t, http.StatusForbidden, recorder.Code)
 			require.Equal(t, "permission_error", gjson.Get(recorder.Body.String(), "error.type").String())
 			require.Contains(t, gjson.Get(recorder.Body.String(), "error.message").String(), "SuperGrok Heavy")
-			require.Zero(t, repo.tempUnschedCalls)
-			require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+			require.Equal(t, 1, repo.tempUnschedCalls)
+			require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
 
 			events := openAICompatOpsEvents(t, c)
 			require.Len(t, events, 1)
