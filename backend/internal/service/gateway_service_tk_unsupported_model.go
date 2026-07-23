@@ -74,22 +74,25 @@ func tkSelectionFailedDueToUnsupportedModel(stats selectionFailureStats) bool {
 		stats.Eligible == 0
 }
 
-// tkWrapSelectionFailure is the single exit point for the two terminal
-// "selected == nil" branches in SelectAccountWithLoadAwareness. It returns:
+// tkWrapSelectionFailure classifies terminal account-selection failures. It returns:
 //   - ErrNoAvailableAccounts as-is when no model was requested;
+//   - an Anthropic namespace error only when the resolved scheduling platform is
+//     Anthropic; Gemini/Antigravity model names must not be judged as claude-* names;
 //   - ErrUnsupportedModel (with the model name + stats) when the failure is
 //     purely an unsupported model name (caller fault → handler maps to HTTP 400);
 //   - otherwise the original ErrNoAvailableAccounts wrapped with the model + stats
 //     (transient capacity → 429), preserving prior behavior.
-func tkWrapSelectionFailure(requestedModel string, stats selectionFailureStats) error {
+func tkWrapSelectionFailure(platform, requestedModel string, stats selectionFailureStats) error {
 	if requestedModel == "" {
 		return ErrNoAvailableAccounts
 	}
 	if err := tkDeprecatedAnthropicSelectionFailure(requestedModel); err != nil {
 		return err
 	}
-	if err := tkAnthropicCrossVendorSelectionFailure(requestedModel); err != nil {
-		return err
+	if platform == PlatformAnthropic {
+		if err := tkAnthropicCrossVendorSelectionFailure(requestedModel); err != nil {
+			return err
+		}
 	}
 	if tkSelectionFailedDueToUnsupportedModel(stats) {
 		return fmt.Errorf("%w: %s (%s)", ErrUnsupportedModel, requestedModel, summarizeSelectionFailureStats(stats))

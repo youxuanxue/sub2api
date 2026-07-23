@@ -3142,7 +3142,7 @@
     {
       "path": "backend/internal/service/gateway_scheduling.go",
       "must_contain": [
-        "tkWrapSelectionFailure(requestedModel, stats)"
+        "tkWrapSelectionFailure(platform, requestedModel, stats)"
       ],
       "rationale": "Unsupported-model classification (prod 2026-06-06, user_id=16 sent the bare name 'opus'): both terminal 'selected == nil' branches in SelectAccountWithLoadAwareness route through tkWrapSelectionFailure, which returns service.ErrUnsupportedModel (handler -> HTTP 400 invalid_request_error) when selection failed PURELY because no account serves the requested model name (model_unsupported>0, model_rate_limited==0, unschedulable==0), and the original ErrNoAvailableAccounts (429) otherwise. An upstream merge that rewrites these return points back to the bare 'return nil, ErrNoAvailableAccounts' / fmt.Errorf shape silently reverts the fix: unsupported model names again surface as a misleading rate_limit_error/429 (the new gateway_service_tk_unsupported_model.go would still compile, just unused). This sentinel pins the call sites."
     },
@@ -3161,7 +3161,7 @@
     {
       "path": "backend/internal/service/gateway_scheduling.go",
       "must_contain": [
-        "return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkWrapSelectionFailure(requestedModel, stats))"
+        "return nil, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkWrapSelectionFailure(platform, requestedModel, stats))"
       ],
       "rationale": "Load-batch SelectAccountWithLoadAwareness empty-pool returns (zero schedulable accounts, Layer-2 no candidates, Layer-3 session-quota exhausted) must route through tkWrapSelectionFailure so retired Anthropic model IDs become ErrDeprecatedAnthropicModel instead of bare ErrNoAvailableAccounts → routing 429, and through tkGroupUnsupportedModelRecordErr so pure unsupported-model failures populate the per-group negative cache. PR #1255 fixed tkWrapSelectionFailure only; this sentinel pins the load-batch exit sites and their TokenKey cache side effect (#1257)."
     },
@@ -3208,9 +3208,10 @@
       "must_contain": [
         "tkDeprecatedAnthropicSelectionFailure(requestedModel)",
         "tkAnthropicCrossVendorSelectionFailure(requestedModel)",
+        "platform == PlatformAnthropic",
         "func TkIsAnthropicCrossVendorModelName"
       ],
-      "rationale": "tkWrapSelectionFailure must short-circuit retired Anthropic model names to ErrDeprecatedAnthropicModel and non-claude-* cross-vendor dirty names to ErrUnsupportedModel before empty-pool classification; otherwise mixed model_unsupported + unschedulable stats or load-batch bare ErrNoAvailableAccounts surface routing 429 for client-fault model names (prod 2026-07-07 user16 key121 model=gpt)."
+      "rationale": "tkWrapSelectionFailure must short-circuit retired Anthropic model names to ErrDeprecatedAnthropicModel and, only when the resolved scheduling platform is anthropic, non-claude-* cross-vendor dirty names to ErrUnsupportedModel before empty-pool classification. The platform guard prevents an empty Gemini/Antigravity pool from misclassifying gemini-* as an Anthropic namespace error and populating the group unsupported-model negative cache; the Anthropic branch still prevents mixed model_unsupported + unschedulable stats or load-batch bare ErrNoAvailableAccounts from surfacing routing 429 for client-fault model names (prod 2026-07-07 user16 key121 model=gpt)."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",

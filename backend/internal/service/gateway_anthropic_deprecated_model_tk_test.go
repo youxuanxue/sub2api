@@ -133,7 +133,7 @@ func TestTkWrapSelectionFailure_DeprecatedModelBeatsRouting429(t *testing.T) {
 		ModelUnsupported: 4,
 		Unschedulable:    1,
 	}
-	err := tkWrapSelectionFailure("claude-3-5-sonnet-20241022", stats)
+	err := tkWrapSelectionFailure(PlatformAnthropic, "claude-3-5-sonnet-20241022", stats)
 	require.ErrorIs(t, err, ErrDeprecatedAnthropicModel)
 	require.False(t, errors.Is(err, ErrNoAvailableAccounts))
 	require.False(t, errors.Is(err, ErrUnsupportedModel))

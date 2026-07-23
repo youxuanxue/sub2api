@@ -3,6 +3,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -61,7 +62,7 @@ func TestTkSelectionFailedDueToUnsupportedModel(t *testing.T) {
 
 func TestTkWrapSelectionFailure(t *testing.T) {
 	t.Run("empty model returns bare ErrNoAvailableAccounts", func(t *testing.T) {
-		err := tkWrapSelectionFailure("", selectionFailureStats{Total: 3, ModelUnsupported: 3})
+		err := tkWrapSelectionFailure(PlatformAnthropic, "", selectionFailureStats{Total: 3, ModelUnsupported: 3})
 		if !errors.Is(err, ErrNoAvailableAccounts) {
 			t.Fatalf("want ErrNoAvailableAccounts, got %v", err)
 		}
@@ -71,7 +72,7 @@ func TestTkWrapSelectionFailure(t *testing.T) {
 	})
 
 	t.Run("pure unsupported model returns ErrUnsupportedModel with model name", func(t *testing.T) {
-		err := tkWrapSelectionFailure("opus", selectionFailureStats{Total: 5, ModelUnsupported: 5})
+		err := tkWrapSelectionFailure(PlatformAnthropic, "opus", selectionFailureStats{Total: 5, ModelUnsupported: 5})
 		if !errors.Is(err, ErrUnsupportedModel) {
 			t.Fatalf("want ErrUnsupportedModel, got %v", err)
 		}
@@ -89,7 +90,7 @@ func TestTkWrapSelectionFailure(t *testing.T) {
 	})
 
 	t.Run("capacity failure returns ErrNoAvailableAccounts (not unsupported)", func(t *testing.T) {
-		err := tkWrapSelectionFailure("claude-opus-4-8", selectionFailureStats{Total: 5, ModelUnsupported: 4, ModelRateLimited: 1})
+		err := tkWrapSelectionFailure(PlatformAnthropic, "claude-opus-4-8", selectionFailureStats{Total: 5, ModelUnsupported: 4, ModelRateLimited: 1})
 		if !errors.Is(err, ErrNoAvailableAccounts) {
 			t.Fatalf("want ErrNoAvailableAccounts, got %v", err)
 		}
@@ -104,7 +105,7 @@ func TestTkWrapSelectionFailure(t *testing.T) {
 			ModelUnsupported: 4,
 			Unschedulable:    1,
 		}
-		err := tkWrapSelectionFailure("gpt", stats)
+		err := tkWrapSelectionFailure(PlatformAnthropic, "gpt", stats)
 		if !errors.Is(err, ErrUnsupportedModel) {
 			t.Fatalf("want ErrUnsupportedModel for cross-vendor name, got %v", err)
 		}
@@ -112,6 +113,62 @@ func TestTkWrapSelectionFailure(t *testing.T) {
 			t.Fatalf("cross-vendor must not fall through to empty pool: %v", err)
 		}
 	})
+
+	t.Run("antigravity empty pool stays capacity-owned and does not populate unsupported cache", func(t *testing.T) {
+		err := tkWrapSelectionFailure(PlatformAntigravity, "gemini-3-flash", selectionFailureStats{})
+		if !errors.Is(err, ErrNoAvailableAccounts) {
+			t.Fatalf("want ErrNoAvailableAccounts for an empty Antigravity pool, got %v", err)
+		}
+		if errors.Is(err, ErrUnsupportedModel) {
+			t.Fatalf("Antigravity model must not be checked against the Anthropic namespace: %v", err)
+		}
+
+		cache := newTkGroupUnsupportedModelNegativeCache()
+		groupID := int64(17)
+		_ = tkGroupUnsupportedModelRecordErr(cache, &groupID, "gemini-3-flash", err)
+		if cache.get(groupID, "gemini-3-flash") {
+			t.Fatal("capacity failure must not populate the unsupported-model negative cache")
+		}
+	})
+}
+
+func TestSelectAccountWithLoadAwareness_AntigravityEmptyPoolStaysCapacityOwned(t *testing.T) {
+	groupID := int64(85)
+	unsupportedCache := newTkGroupUnsupportedModelNegativeCache()
+	cfg := testConfig()
+	cfg.Gateway.Scheduling.LoadBatchEnabled = true
+
+	svc := &GatewayService{
+		accountRepo: &mockAccountRepoForPlatform{},
+		groupRepo: &mockGroupRepoForGateway{
+			groups: map[int64]*Group{
+				groupID: {
+					ID:       groupID,
+					Platform: PlatformAntigravity,
+					Status:   StatusActive,
+					Hydrated: true,
+				},
+			},
+		},
+		cache:                   &mockGatewayCacheForPlatform{},
+		cfg:                     cfg,
+		concurrencyService:      NewConcurrencyService(&mockConcurrencyCache{}),
+		tkGroupUnsupportedCache: unsupportedCache,
+	}
+
+	result, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gemini-3-flash", nil, "", 0)
+	if result != nil {
+		t.Fatalf("expected no selection, got %+v", result)
+	}
+	if !errors.Is(err, ErrNoAvailableAccounts) {
+		t.Fatalf("want ErrNoAvailableAccounts, got %v", err)
+	}
+	if errors.Is(err, ErrUnsupportedModel) {
+		t.Fatalf("Antigravity empty pool must remain capacity-owned: %v", err)
+	}
+	if unsupportedCache.get(groupID, "gemini-3-flash") {
+		t.Fatal("capacity failure must not populate the unsupported-model negative cache")
+	}
 }
 
 func TestTkIsAnthropicCrossVendorModelName(t *testing.T) {
