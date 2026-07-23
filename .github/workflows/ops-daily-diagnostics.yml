@@ -4,7 +4,8 @@ name: Ops Daily Diagnostics
 # Read-only diagnostics may reach prod/Edge through GHA → AWS STS (OIDC) → SSM.
 # Issue creation and repair dispatch are isolated from AWS credentials. This
 # workflow never deploys, rolls back, edits secrets, writes code, pushes
-# branches, or creates PRs; eligible repair work runs in ops-repair-draft.yml.
+# branches, or creates PRs. Daily classification is deterministic; eligible
+# repair work is the only AI-funded path and runs in ops-repair-draft.yml.
 
 on:
   schedule:
@@ -780,124 +781,9 @@ jobs:
             daily-error-report.json
             daily-error-report.md
 
-  claude-issue-diagnosis:
-    needs: aggregate-report
-    if: needs.aggregate-report.outputs.needs_issue == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: prod-ops-report-${{ github.run_id }}
-          path: .
-
-      - name: Check Claude token
-        id: claude_token
-        env:
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-        run: |
-          if [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            cat > issue-diagnosis.md <<'EOF'
-          # Claude Issue Diagnosis
-
-          skipped: ANTHROPIC_AUTH_TOKEN is not configured; using deterministic issue bodies.
-          EOF
-            jq -n '{status:"skipped", reason:"ANTHROPIC_AUTH_TOKEN missing", findings:[]}' > issue-diagnosis.json
-            : > claude-issue-diagnosis.jsonl
-          fi
-
-      - name: Build read-only diagnosis prompt
-        if: steps.claude_token.outputs.present == 'true'
-        run: |
-          cat > /tmp/claude-issue-prompt.txt <<'EOF'
-          你是 TokenKey Prod Ops 只读诊断助手。基于下面的 Prod Ops 结构化报告和当前仓库文件，生成更准确的 GitHub issue 诊断建议。
-
-          硬约束：
-          - 只做诊断和归因，不修改文件，不创建 PR，不运行命令，不访问 AWS，不 dispatch workflow。
-          - 不要求历史兼容；只基于当前已合并机制和当前仓库事实。
-          - 对每个 issue-worthy finding 输出：root_cause_hypothesis、evidence、suggested_owner_action、confidence、issue_title、issue_body。
-          - 如果证据不足，明确写 confidence=low 和需要人工确认的点。
-          - 输出 Markdown，便于直接放进 GitHub Issue。
-          EOF
-          printf '\n## ops-report.md\n\n' >> /tmp/claude-issue-prompt.txt
-          cat ops-report.md >> /tmp/claude-issue-prompt.txt
-          printf '\n\n## ops-report.json\n\n```json\n' >> /tmp/claude-issue-prompt.txt
-          cat ops-report.json >> /tmp/claude-issue-prompt.txt
-          printf '\n```\n' >> /tmp/claude-issue-prompt.txt
-          printf '\n\n## daily-error-report.md\n\n' >> /tmp/claude-issue-prompt.txt
-          cat daily-error-report.md >> /tmp/claude-issue-prompt.txt
-          printf '\n\n## daily-error-report.json\n\n```json\n' >> /tmp/claude-issue-prompt.txt
-          cat daily-error-report.json >> /tmp/claude-issue-prompt.txt
-          printf '\n```\n' >> /tmp/claude-issue-prompt.txt
-
-      - name: Run Claude read-only diagnosis
-        if: steps.claude_token.outputs.present == 'true'
-        id: claude_run
-        # continue-on-error stays: a failed diagnosis falls back to deterministic
-        # issue bodies. Via the shared action this now also gains set -o pipefail
-        # (previously omitted here, so a claude failure was masked by tee's exit
-        # code) and the canonical thinking-env (was MAX_THINKING_TOKENS=16000;
-        # the $1 budget still caps cost) + the origin/main fail-closed redactor.
-        continue-on-error: true
-        uses: ./.github/actions/run-headless-agent
-        with:
-          prompt_file: /tmp/claude-issue-prompt.txt
-          model: "opus[1m]"
-          max_budget_usd: "1.00"
-          allowed_tools: "Read Grep Glob"
-          auth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          output_file: claude-issue-diagnosis.jsonl
-
-      - name: Extract Claude diagnosis
-        if: steps.claude_token.outputs.present == 'true'
-        env:
-          CLAUDE_EXIT_CODE: ${{ steps.claude_run.outputs.exit_code }}
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          import pathlib
-
-          stream = pathlib.Path('claude-issue-diagnosis.jsonl')
-          texts = []
-          if stream.exists():
-              for line in stream.read_text(encoding='utf-8', errors='replace').splitlines():
-                  try:
-                      item = json.loads(line)
-                  except json.JSONDecodeError:
-                      continue
-                  if isinstance(item.get('result'), str):
-                      texts.append(item['result'])
-          body = '\n\n'.join(text for text in texts if text.strip()).strip()
-          exit_code = os.environ.get('CLAUDE_EXIT_CODE') or 'unknown'
-          status = 'ok' if exit_code == '0' and body else 'failed'
-          if status != 'ok':
-              body = f'Claude diagnosis unavailable (exit_code={exit_code}); deterministic findings remain authoritative.'
-          pathlib.Path('issue-diagnosis.md').write_text('# Claude Issue Diagnosis\n\n' + body + '\n', encoding='utf-8')
-          pathlib.Path('issue-diagnosis.json').write_text(json.dumps({'status':status, 'exit_code':exit_code, 'markdown': body}, indent=2) + '\n', encoding='utf-8')
-          PY
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: prod-ops-claude-diagnosis-${{ github.run_id }}
-          path: |
-            issue-diagnosis.json
-            issue-diagnosis.md
-            claude-issue-diagnosis.jsonl
-
   decision-and-issue:
-    needs:
-      - aggregate-report
-      - claude-issue-diagnosis
-    if: always() && needs.aggregate-report.result == 'success'
+    needs: aggregate-report
+    if: needs.aggregate-report.result == 'success' && needs.aggregate-report.outputs.needs_issue == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -909,12 +795,6 @@ jobs:
         with:
           name: prod-ops-report-${{ github.run_id }}
           path: .
-
-      - uses: actions/download-artifact@v4
-        if: needs.claude-issue-diagnosis.result == 'success'
-        with:
-          name: prod-ops-claude-diagnosis-${{ github.run_id }}
-          path: claude-diagnosis
 
       - name: Open or update issues
         env:
@@ -928,14 +808,10 @@ jobs:
           import re
           import subprocess
 
+          from ops.observability.daily_error_report import issue_analysis_markdown
+
           report = json.loads(pathlib.Path('ops-report.json').read_text(encoding='utf-8'))
-          diagnosis_json = pathlib.Path('claude-diagnosis/issue-diagnosis.json')
-          diagnosis_path = pathlib.Path('claude-diagnosis/issue-diagnosis.md')
-          diagnosis = ''
-          if diagnosis_json.exists() and diagnosis_path.exists():
-              diagnosis_meta = json.loads(diagnosis_json.read_text(encoding='utf-8'))
-              if diagnosis_meta.get('status') == 'ok':
-                  diagnosis = diagnosis_path.read_text(encoding='utf-8')
+          daily_report = json.loads(pathlib.Path('daily-error-report.json').read_text(encoding='utf-8'))
           findings = report.get('issue_candidates') or []
           if not findings:
               print('No issue-worthy findings.')
@@ -994,8 +870,9 @@ jobs:
                   '',
                   f"See artifact `prod-ops-report-{report.get('run_id')}` for `ops-report.json` and per-target reports.",
               ]
-              if diagnosis:
-                  body_lines += ['', '## Claude read-only diagnosis', '', diagnosis]
+              analysis = issue_analysis_markdown(daily_report, target_id) if kind == 'daily_error_report' else ''
+              if analysis:
+                  body_lines += ['', '## Deterministic error analysis', '', analysis]
               body = '\n'.join(body_lines) + '\n'
               body_file = pathlib.Path(f'issue-{index}.md')
               body_file.write_text(body, encoding='utf-8')

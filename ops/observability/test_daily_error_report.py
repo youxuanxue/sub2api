@@ -21,6 +21,7 @@ build_report = MODULE.build_report
 select_candidate = MODULE.select_candidate
 aggregate_reports = MODULE.aggregate_reports
 aggregate_markdown = MODULE.aggregate_markdown
+issue_analysis_markdown = MODULE.issue_analysis_markdown
 
 
 def probe_fixture() -> str:
@@ -255,6 +256,29 @@ esac
             markdown = aggregate_markdown(report)
             self.assertIn("| prod | issue_candidate | 120 | 15 | 5 | 8 |", markdown)
             self.assertIn("dashboard_query_failed", markdown)
+
+    def test_issue_analysis_is_target_scoped_and_actionable(self) -> None:
+        prod = build_report(probe_fixture(), "prod")
+        edge = build_report(probe_fixture(), "edge-us5-ls")
+        edge["issue_candidates"][0]["error_type"] = "edge_only_failure"
+        aggregate = aggregate_reports([], "123", "https://example.test/runs/123")
+        aggregate["issue_candidates"] = [
+            {**item, "target_id": "prod"} for item in prod["issue_candidates"]
+        ] + [
+            {**item, "target_id": "edge-us5-ls"} for item in edge["issue_candidates"]
+        ]
+
+        markdown = issue_analysis_markdown(aggregate, "prod")
+
+        self.assertIn("| Priority | State | Owner / phase |", markdown)
+        self.assertIn("platform / internal", markdown)
+        self.assertIn("dashboard_query_failed", markdown)
+        self.assertIn("7 / 0", markdown)
+        self.assertNotIn("edge_only_failure", markdown)
+
+    def test_issue_analysis_is_empty_for_unmatched_target(self) -> None:
+        report = aggregate_reports([], "123", "https://example.test/runs/123")
+        self.assertEqual(issue_analysis_markdown(report, "prod"), "")
 
     def test_same_cluster_on_two_targets_has_unique_selectable_signatures(self) -> None:
         prod = build_report(probe_fixture(), "prod")
