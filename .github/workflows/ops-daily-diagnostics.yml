@@ -405,18 +405,18 @@ jobs:
 
           findings = []
           rules = [
-              ("gemini_drive_scope_403", 10, "error", "Gemini OAuth Drive API scope missing on {target_id}", "Gemini OAuth Drive API scope 403 appeared {count} times in tokenkey logs over {window}.", "log-signal|{target_id}|gemini-drive-scope-403"),
-              ("openai_previous_response_fallback", 50, "warning", "OpenAI-compatible previous_response fallback is frequent on {target_id}", "previous_response_id fallback appeared {count} times in tokenkey logs over {window}.", "log-signal|{target_id}|openai-previous-response-fallback"),
-              ("rate_limit_429_no_reset", 1, "warning", "429 cooldown skipped because reset time is missing on {target_id}", "rate_limit_429_no_reset_time_skipped appeared {count} times in tokenkey logs over {window}.", "log-signal|{target_id}|rate-limit-429-no-reset"),
+              ("gemini_drive_scope_403", 10, "warning", "error", "Gemini OAuth Drive API scope missing on {target_id}", "Gemini OAuth Drive API scope 403 appeared {count} times in tokenkey logs over {window}.", "log-signal|{target_id}|gemini-drive-scope-403"),
+              ("openai_previous_response_fallback", 50, "issue_candidate", "warning", "OpenAI-compatible previous_response fallback is frequent on {target_id}", "previous_response_id fallback appeared {count} times in tokenkey logs over {window}.", "log-signal|{target_id}|openai-previous-response-fallback"),
+              ("rate_limit_429_no_reset", 1, "warning", "warning", "429 cooldown skipped because reset time is missing on {target_id}", "rate_limit_429_no_reset_time_skipped appeared {count} times in tokenkey logs over {window}.", "log-signal|{target_id}|rate-limit-429-no-reset"),
           ]
-          for kind, threshold, severity, title_template, summary_template, signature_template in rules:
+          for kind, threshold, status, severity, title_template, summary_template, signature_template in rules:
               count = as_int(kind)
               if count < threshold:
                   continue
               findings.append({
                   "target_id": target_id,
                   "kind": kind,
-                  "status": "issue_candidate",
+                  "status": status,
                   "severity": severity,
                   "title": title_template.format(target_id=target_id),
                   "summary": summary_template.format(count=count, window=window),
@@ -558,7 +558,7 @@ jobs:
                         add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "$SUMMARY" "error-clustering|$TARGET_ID|skip"
                       elif [ "${PERSISTENT:-0}" -gt 0 ]; then
                         SIG="$(jq -r '.persistent_clusters[0].signature // .clusters[0].signature // "no-sig"' "$OUT/error-report.json")"
-                        add_finding "error_cluster" "issue_candidate" "error" "Persistent error cluster detected for $TARGET_ID" "$SUMMARY" "error-cluster|$TARGET_ID|$SIG"
+                        add_finding "error_cluster" "warning" "warning" "Persistent legacy error cluster detected for $TARGET_ID" "$SUMMARY" "error-cluster|$TARGET_ID|$SIG"
                       else
                         add_finding "error_clustering" "ok" "info" "No persistent error cluster for $TARGET_ID" "$SUMMARY" "error-clustering|$TARGET_ID|ok"
                       fi
