@@ -88,7 +88,7 @@ const antigravityUserAgentVersionDBTimeout = 5 * time.Second
 // DefaultOpenAICodexVersion is the single source for the forged Codex client
 // version: UA, gateway version header, and usage probe header must all derive
 // from it.
-const DefaultOpenAICodexVersion = "0.144.6"
+const DefaultOpenAICodexVersion = "0.145.0"
 
 // DefaultOpenAICodexUserAgent OpenAI Codex 默认 User-Agent。
 const DefaultOpenAICodexUserAgent = "codex_cli_rs/" + DefaultOpenAICodexVersion + " (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex_cli_rs; " + DefaultOpenAICodexVersion + ")"

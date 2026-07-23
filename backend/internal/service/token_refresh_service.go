@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 )
 
@@ -1200,6 +1201,8 @@ func (s *TokenRefreshService) postRefreshActions(ctx context.Context, account *A
 	s.postRefreshStateSync(ctx, account)
 	// OpenAI OAuth: 刷新成功后，检查是否已设置 privacy_mode，未设置则尝试关闭训练数据共享
 	s.ensureOpenAIPrivacy(ctx, account)
+	// OpenAI OAuth: 付费账号缺失 subscription_expires_at 时补抓（不依赖 token 是否刚刷新字段）
+	s.ensureOpenAISubscriptionExpiry(ctx, account)
 	// Antigravity OAuth: 刷新成功后，检查是否已设置 privacy_mode，未设置则调用 setUserSettings
 	s.ensureAntigravityPrivacy(ctx, account)
 }
@@ -1477,6 +1480,83 @@ func (s *TokenRefreshService) ensureOpenAIPrivacy(ctx context.Context, account *
 			"privacy_mode", mode,
 		)
 	}
+}
+
+func isOpenAIPaidPlanType(planType string) bool {
+	switch strings.ToLower(strings.TrimSpace(planType)) {
+	case "", "free", "basic":
+		return false
+	default:
+		return true
+	}
+}
+
+// ensureOpenAISubscriptionExpiry backfills credentials.subscription_expires_at for paid
+// OpenAI OAuth accounts when enrichment missed it (e.g. orgID matched a workspace
+// without entitlement.expires_at, or the subscriptions fallback used a wrong account_id).
+func (s *TokenRefreshService) ensureOpenAISubscriptionExpiry(ctx context.Context, account *Account) {
+	if account == nil || account.IsCredentialShadow() {
+		return
+	}
+	if account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth || account.IsOpenAIPersonalAccessToken() {
+		return
+	}
+	if s.privacyClientFactory == nil || s.accountRepo == nil {
+		return
+	}
+	if !isOpenAIPaidPlanType(account.GetCredential("plan_type")) {
+		return
+	}
+	if strings.TrimSpace(account.GetCredential("subscription_expires_at")) != "" {
+		return
+	}
+
+	token := account.GetCredential("access_token")
+	if token == "" {
+		return
+	}
+
+	var proxyURL string
+	if account.ProxyID != nil && s.proxyRepo != nil {
+		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
+			proxyURL = p.URL()
+		}
+	}
+
+	orgID := account.GetCredential("organization_id")
+	if orgID == "" {
+		if atClaims, err := openai.DecodeIDToken(token); err == nil && atClaims.OpenAIAuth != nil {
+			orgID = atClaims.OpenAIAuth.POID
+		}
+	}
+
+	expiresAt := fetchOpenAISubscriptionExpiresAt(
+		ctx,
+		s.privacyClientFactory,
+		token,
+		proxyURL,
+		account.GetCredential("chatgpt_account_id"),
+		account.GetCredential("organization_id"),
+		orgID,
+	)
+	if expiresAt == "" {
+		return
+	}
+
+	merged := MergeCredentials(account.Credentials, map[string]any{
+		"subscription_expires_at": expiresAt,
+	})
+	if err := persistAccountCredentials(ctx, s.accountRepo, account, merged); err != nil {
+		slog.Warn("token_refresh.update_subscription_expires_at_failed",
+			"account_id", account.ID,
+			"error", err,
+		)
+		return
+	}
+	slog.Info("token_refresh.subscription_expires_at_set",
+		"account_id", account.ID,
+		"subscription_expires_at", expiresAt,
+	)
 }
 
 // ensureAntigravityPrivacy 后台刷新中检查 Antigravity OAuth 账号隐私状态。

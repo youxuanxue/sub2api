@@ -2,17 +2,17 @@ name: Run headless Claude agent
 description: >-
   Single source of truth for the headless `claude -p` scaffold shared by the
   TokenKey agent workflows (pr-repair-agent, upstream-issue-watchdog,
-  upstream-merge-agent-daily, ops-daily-diagnostics). Installs the Claude Code
+  upstream-merge-agent-daily, ops-repair-draft). Installs the Claude Code
   CLI, stages the secret redactor from origin/main (fail-closed), and runs the
   agent with the canonical thinking-env, streaming the transcript through the
   redactor to an output file. Callers keep their own prompt construction, git /
   PR / issue logic, and artifact upload. Previously each workflow hand-copied
-  this block and the values had already drifted (ops-daily-diagnostics ran
-  MAX_THINKING_TOKENS=16000 and omitted set -o pipefail + autocompact).
+  this block and the values had already drifted before this action became the
+  shared owner.
 
 inputs:
   prompt_file:
-    description: Path to the file holding the agent prompt (read via cat).
+    description: Path to the file streamed to the agent over stdin.
     required: true
   model:
     description: ANTHROPIC_MODEL / --model (e.g. "opus[1m]", "claude-sonnet-4-6"). No default — callers state it explicitly (CLAUDE.md §4).
@@ -102,31 +102,7 @@ runs:
         OUTPUT_FILE: ${{ inputs.output_file }}
         FAIL_ON_ERROR: ${{ inputs.fail_on_error }}
       run: |
-        # claude CLI has no --output flag — pipe stdout. `set -o pipefail`
-        # propagates claude's exit code through the redactor pipeline.
-        # --allowedTools is REQUIRED in headless mode (without it `claude -p`
-        # defaults to interactive permission mode and rejects every tool call).
-        # --output-format stream-json --verbose lands the full transcript (tool
-        # calls / results / cost / errors) as JSONL. The redactor still scrubs
-        # token patterns inside JSON strings line-by-line.
-        # --exclude-dynamic-system-prompt-sections stabilizes the system-prompt
-        # prefix for ephemeral prompt-cache hits across runs.
-        set -o pipefail
-        set +e  # preflight-allow: swallow — deliberate exit-code capture; PIPESTATUS read below, then set -e restored
-        claude -p "$(cat "${PROMPT_FILE}")" \
-          --model "${ANTHROPIC_MODEL}" \
-          --max-budget-usd "${MAX_BUDGET_USD}" \
-          --allowedTools "${ALLOWED_TOOLS}" \
-          --output-format stream-json --verbose \
-          --exclude-dynamic-system-prompt-sections \
-          2>&1 \
-          | python3 "${RUNNER_TEMP}/redact-agent-stream.py" \
-          | tee "${OUTPUT_FILE}"
-        code=${PIPESTATUS[0]}
-        set -e
-        echo "exit_code=${code}" >> "$GITHUB_OUTPUT"
-        echo "agent exited with code ${code}"
-        if [ "${FAIL_ON_ERROR}" = "true" ] && [ "${code}" -ne 0 ]; then
-          echo "::error::headless agent exited ${code}"
-          exit "${code}"
-        fi
+        # The runner streams PROMPT_FILE through stdin so reports larger than
+        # Linux MAX_ARG_STRLEN never become one oversized argv entry. It owns
+        # the claude -> redactor -> tee pipe and exports Claude's true exit code.
+        bash scripts/agent/run-headless-claude.sh

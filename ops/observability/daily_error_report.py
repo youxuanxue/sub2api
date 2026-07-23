@@ -17,6 +17,10 @@ REPAIR_EXCLUDED = re.compile(
     r"(?:rate.?limit|quota|capacity|no.?available|empty.?pool|cooldown|cancel|auth|permission|billing)",
     re.IGNORECASE,
 )
+FEISHU_ALERT_COVERED = re.compile(
+    r"(?:rate.?limit|quota|capacity|no.?available|empty.?pool|cooldown|auth|permission|billing)",
+    re.IGNORECASE,
+)
 
 
 class ReportError(ValueError):
@@ -33,6 +37,21 @@ def as_int(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def feishu_covers_anomaly(item: dict[str, Any]) -> bool:
+    """Return whether the existing account/provider alert path owns this anomaly."""
+    owner = clean_text(item.get("owner"), 32).lower()
+    phase = clean_text(item.get("phase"), 48).lower()
+    status = as_int(item.get("status_code"))
+    searchable = f"{phase} {clean_text(item.get('error_type'), 96)}"
+    return (
+        owner == "provider"
+        or status == 429
+        or phase in {"account_auth", "auth"}
+        or (phase == "routing" and status in {502, 503})
+        or bool(FEISHU_ALERT_COVERED.search(searchable))
+    )
 
 
 def parse_probe(text: str) -> dict[str, list[dict[str, Any]]]:
@@ -123,6 +142,8 @@ def classify_cluster(item: dict[str, Any], max_count_5m: int, target_id: str) ->
             or (state == "persistent" and current >= 10)
             or (status >= 500 and current >= 3)
         )
+    feishu_alert_covered = anomaly and feishu_covers_anomaly(key)
+    github_issue_eligible = anomaly and not feishu_alert_covered
     severity = "error" if owner == "platform" and status >= 500 else "warning"
     priority = (
         (100 if repair_eligible else 0)
@@ -146,6 +167,9 @@ def classify_cluster(item: dict[str, Any], max_count_5m: int, target_id: str) ->
         "account_ids": [as_int(v) for v in (item.get("account_ids") or [])][:5],
         "group_ids": [as_int(v) for v in (item.get("group_ids") or [])][:5],
         "anomaly": anomaly,
+        "feishu_alert_covered": feishu_alert_covered,
+        "github_issue_eligible": github_issue_eligible,
+        "triage_channel": "feishu" if feishu_alert_covered else "github_issue" if github_issue_eligible else "report_only",
         "code_owned": code_owned,
         "confidence": confidence,
         "repair_eligible": repair_eligible,
@@ -158,9 +182,25 @@ def classify_cluster(item: dict[str, Any], max_count_5m: int, target_id: str) ->
     }
 
 
-def classify_access_cluster(item: dict[str, Any], target_id: str) -> dict[str, Any] | None:
-    current = as_int(item.get("current_count"))
+def access_coverage_key(item: dict[str, Any]) -> tuple[int, str, str]:
+    def dimension(value: Any) -> str:
+        text = clean_text(value).lower()
+        return "unknown" if text in {"unknown", "(unknown)"} else text
+
+    return (
+        as_int(item.get("status_code")),
+        dimension(item.get("model")),
+        dimension(item.get("endpoint")),
+    )
+
+
+def classify_access_cluster(
+    item: dict[str, Any], target_id: str, captured_count: int = 0
+) -> dict[str, Any] | None:
+    observed = as_int(item.get("current_count"))
     status = as_int(item.get("status_code"))
+    captured = min(max(captured_count, 0), observed)
+    current = observed - captured
     if current <= 0 or status < 400:
         return None
     key = cluster_key(item, source="access_log")
@@ -170,16 +210,21 @@ def classify_access_cluster(item: dict[str, Any], target_id: str) -> dict[str, A
         "signature": signature_for(key, target_id),
         "state": "observed",
         "severity": "warning",
+        "observed_count": observed,
+        "captured_count": captured,
         "current_count": current,
         "previous_count": 0,
         "baseline_7d_count": 0,
         "active_days_7d": 0,
-        "max_count_5m": as_int(item.get("max_count_1m")),
+        "max_count_5m": min(as_int(item.get("max_count_1m")), current),
         "first_seen_7d": None,
         "last_seen": None,
         "account_ids": [],
         "group_ids": [],
         "anomaly": anomaly,
+        "feishu_alert_covered": False,
+        "github_issue_eligible": anomaly,
+        "triage_channel": "github_issue" if anomaly else "report_only",
         "code_owned": False,
         "confidence": "low",
         "repair_eligible": False,
@@ -204,6 +249,8 @@ def build_report(probe_text: str, target_id: str) -> dict[str, Any]:
             "totals": {},
             "clusters": [],
             "recovered_upstream": [],
+            "anomaly_count": 0,
+            "feishu_covered_count": 0,
             "issue_candidates": [],
             "repair_candidates": [],
         }
@@ -215,41 +262,53 @@ def build_report(probe_text: str, target_id: str) -> dict[str, Any]:
         burst_by_signature[sig] = max(burst_by_signature.get(sig, 0), as_int(burst.get("max_count_5m")))
 
     clusters = []
+    captured_by_surface: dict[tuple[int, str, str], int] = defaultdict(int)
     for raw in sections.get("clusters", []):
         sig = signature_for(cluster_key(raw), target_id)
         peak = max(as_int(raw.get("max_count_5m")), burst_by_signature.get(sig, 0))
-        clusters.append(classify_cluster(raw, peak, target_id))
+        classified = classify_cluster(raw, peak, target_id)
+        clusters.append(classified)
+        captured_by_surface[access_coverage_key(classified)] += as_int(classified.get("current_count"))
     for raw in sections.get("access_clusters", []):
-        classified = classify_access_cluster(raw, target_id)
+        surface = access_coverage_key(raw)
+        covered = min(captured_by_surface.get(surface, 0), as_int(raw.get("current_count")))
+        captured_by_surface[surface] -= covered
+        classified = classify_access_cluster(raw, target_id, covered)
         if classified:
             clusters.append(classified)
     clusters.sort(key=lambda row: (-as_int(row["priority"]), row["signature"]))
 
-    issues = [row for row in clusters if row["anomaly"]]
+    anomalies = [row for row in clusters if row["anomaly"]]
+    feishu_covered = [row for row in anomalies if row["feishu_alert_covered"]]
+    issues = [row for row in anomalies if row["github_issue_eligible"]]
     repairs = [row for row in clusters if row["repair_eligible"]]
     current_total = as_int(totals.get("current_request_total"))
     current_sla = as_int(totals.get("current_error_sla"))
     summary = (
         f"{as_int(meta.get('window_hours'))}h: requests={current_total}, "
-        f"sla_errors={current_sla}, anomalies={len(issues)}, repair_candidates={len(repairs)}"
+        f"sla_errors={current_sla}, anomalies={len(anomalies)}, feishu_covered={len(feishu_covered)}, "
+        f"github_issues={len(issues)}, repair_candidates={len(repairs)}"
     )
+    status = "issue_candidate" if issues else "alert_covered" if anomalies else "ok"
     return {
         "schema_version": 1,
         "target_id": meta["target_id"],
-        "status": "issue_candidate" if issues else "ok",
+        "status": status,
         "meta": meta,
         "summary": summary,
         "totals": totals,
         "clusters": clusters,
         "recovered_upstream": sections.get("recovered", []),
+        "anomaly_count": len(anomalies),
+        "feishu_covered_count": len(feishu_covered),
         "issue_candidates": issues,
         "repair_candidates": repairs,
     }
 
 
 def markdown_report(report: dict[str, Any]) -> str:
-    def cell(value: Any) -> str:
-        return clean_text(value, 120).replace("|", "\\|")
+    def cell(value: Any, text_limit: int = 120) -> str:
+        return clean_text(value, text_limit).replace("|", "\\|")
 
     lines = [
         "# Daily Error Report",
@@ -277,16 +336,17 @@ def markdown_report(report: dict[str, Any]) -> str:
         "",
         "## Error Clusters",
         "",
-        "| State | Owner | Status | Platform | Model | Endpoint | Current | Previous | Peak | Repair |",
-        "| --- | --- | ---: | --- | --- | --- | ---: | ---: | ---: | --- |",
+        "| State | Owner | Status | Platform | Model | Endpoint | Current | Previous | Peak | Triage | Repair |",
+        "| --- | --- | ---: | --- | --- | --- | ---: | ---: | ---: | --- | --- |",
     ]
     for row in (report.get("clusters") or [])[:30]:
         lines.append(
-            "| {state} | {owner} | {status} | {platform} | {model} | {endpoint} | {current} | {previous} | {peak} | {repair} |".format(
+            "| {state} | {owner} | {status} | {platform} | {model} | {endpoint} | {current} | {previous} | {peak} | {triage} | {repair} |".format(
                 state=cell(row.get("state")), owner=cell(row.get("owner")), status=as_int(row.get("status_code")),
                 platform=cell(row.get("platform")), model=cell(row.get("model")), endpoint=cell(row.get("endpoint")),
                 current=as_int(row.get("current_count")), previous=as_int(row.get("previous_count")),
-                peak=as_int(row.get("max_count_5m")), repair="yes" if row.get("repair_eligible") else "no",
+                peak=as_int(row.get("max_count_5m")), triage=cell(row.get("triage_channel"), 32),
+                repair="yes" if row.get("repair_eligible") else "no",
             )
         )
     lines.append("")
@@ -297,8 +357,12 @@ def aggregate_reports(paths: list[pathlib.Path], run_id: str, run_url: str) -> d
     reports = [json.loads(path.read_text(encoding="utf-8")) for path in sorted(paths)]
     issues = []
     repairs = []
+    anomaly_count = 0
+    feishu_covered_count = 0
     for report in reports:
         target_id = clean_text(report.get("target_id"), 80)
+        anomaly_count += sum(1 for item in report.get("clusters") or [] if item.get("anomaly"))
+        feishu_covered_count += sum(1 for item in report.get("clusters") or [] if item.get("feishu_alert_covered"))
         for item in report.get("issue_candidates") or []:
             issues.append({**item, "target_id": target_id})
         for item in report.get("repair_candidates") or []:
@@ -310,8 +374,13 @@ def aggregate_reports(paths: list[pathlib.Path], run_id: str, run_url: str) -> d
         "run_id": clean_text(run_id, 40),
         "run_url": clean_text(run_url, 240),
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
-        "summary": f"targets={len(reports)}, anomalies={len(issues)}, repair_candidates={len(repairs)}",
+        "summary": (
+            f"targets={len(reports)}, anomalies={anomaly_count}, feishu_covered={feishu_covered_count}, "
+            f"github_issues={len(issues)}, repair_candidates={len(repairs)}"
+        ),
         "reports": reports,
+        "anomaly_count": anomaly_count,
+        "feishu_covered_count": feishu_covered_count,
         "issue_candidates": issues,
         "repair_candidates": repairs,
     }
@@ -326,26 +395,28 @@ def aggregate_markdown(report: dict[str, Any]) -> str:
         "",
         "## Targets",
         "",
-        "| Target | Status | Requests | SLA errors | Client faults | Recovered | Anomalies | Repair |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Target | Status | Requests | SLA errors | Client faults | Recovered | Anomalies | Feishu | GitHub Issues | Repair |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for target in report.get("reports") or []:
         totals = target.get("totals") or {}
         lines.append(
-            "| {target} | {status} | {requests} | {sla} | {client} | {recovered} | {issues} | {repairs} |".format(
+            "| {target} | {status} | {requests} | {sla} | {client} | {recovered} | {anomalies} | {feishu} | {issues} | {repairs} |".format(
                 target=clean_text(target.get("target_id"), 80).replace("|", "\\|"),
                 status=clean_text(target.get("status"), 32),
                 requests=as_int(totals.get("current_request_total")),
                 sla=as_int(totals.get("current_error_sla")),
                 client=as_int(totals.get("current_client_faults")),
                 recovered=as_int(totals.get("current_recovered_requests")),
+                anomalies=sum(1 for item in target.get("clusters") or [] if item.get("anomaly")),
+                feishu=sum(1 for item in target.get("clusters") or [] if item.get("feishu_alert_covered")),
                 issues=len(target.get("issue_candidates") or []),
                 repairs=len(target.get("repair_candidates") or []),
             )
         )
     lines += [
         "",
-        "## Actionable Anomalies",
+        "## GitHub Issue Candidates",
         "",
         "| Target | State | Owner | Status | Type | Model | Endpoint | Count | Repair |",
         "| --- | --- | --- | ---: | --- | --- | --- | ---: | --- |",
@@ -364,6 +435,49 @@ def aggregate_markdown(report: dict[str, Any]) -> str:
         )
     lines.append("")
     return "\n".join(lines) + "\n"
+
+
+def issue_analysis_markdown(report: dict[str, Any], target_id: str, limit: int = 10) -> str:
+    """Render the highest-priority deterministic classifications for one target."""
+
+    def cell(value: Any, text_limit: int = 120) -> str:
+        return clean_text(value, text_limit).replace("|", "\\|").replace("`", "'")
+
+    target = clean_text(target_id, 80)
+    candidates = [
+        item
+        for item in (report.get("issue_candidates") or [])
+        if clean_text(item.get("target_id"), 80) == target
+    ]
+    candidates.sort(key=lambda row: (-as_int(row.get("priority")), clean_text(row.get("signature"), 120)))
+    if not candidates:
+        return ""
+
+    shown = candidates[: max(limit, 0)]
+    lines = [
+        "| Priority | State | Owner / phase | HTTP | Type | Platform / model | Endpoint | Current / previous | Confidence |",
+        "| ---: | --- | --- | ---: | --- | --- | --- | ---: | --- |",
+    ]
+    for item in shown:
+        lines.append(
+            "| {priority} | {state} | {owner} / {phase} | {status} | {error_type} | {platform} / {model} | {endpoint} | {current} / {previous} | {confidence} |".format(
+                priority=as_int(item.get("priority")),
+                state=cell(item.get("state"), 32),
+                owner=cell(item.get("owner"), 32),
+                phase=cell(item.get("phase"), 48),
+                status=as_int(item.get("status_code")),
+                error_type=cell(item.get("error_type"), 96),
+                platform=cell(item.get("platform"), 64),
+                model=cell(item.get("model")),
+                endpoint=cell(item.get("endpoint")),
+                current=as_int(item.get("current_count")),
+                previous=as_int(item.get("previous_count")),
+                confidence=cell(item.get("confidence"), 16),
+            )
+        )
+    if len(candidates) > len(shown):
+        lines += ["", f"Showing the top {len(shown)} of {len(candidates)} classifications by priority."]
+    return "\n".join(lines)
 
 
 def select_candidate(report: dict[str, Any], signature: str) -> dict[str, Any]:
@@ -409,13 +523,15 @@ def main() -> int:
     try:
         if args.command == "build":
             report = build_report(args.probe.read_text(encoding="utf-8", errors="replace"), args.target_id)
+            markdown = markdown_report(report)
+            args.output_markdown.write_text(markdown, encoding="utf-8")
             write_json(args.output_json, report)
-            args.output_markdown.write_text(markdown_report(report), encoding="utf-8")
         elif args.command == "aggregate":
             paths = list(args.root.glob("**/daily-error-report.json"))
             report = aggregate_reports(paths, args.run_id, args.run_url)
+            markdown = aggregate_markdown(report)
+            args.output_markdown.write_text(markdown, encoding="utf-8")
             write_json(args.output_json, report)
-            args.output_markdown.write_text(aggregate_markdown(report), encoding="utf-8")
         else:
             report = json.loads(args.report.read_text(encoding="utf-8"))
             write_json(args.output, select_candidate(report, args.signature))

@@ -863,9 +863,10 @@ GitHub Actions 不再用长期 AWS 凭证，**OIDC 临时换 STS** → `ssm:Send
 - 默认 operation：`diagnostics`，覆盖 prod + `deploy/aws/lightsail/edge-targets-lightsail.json` 里 `deployable=true` 的 Lightsail Edge（edges 均为 Lightsail；`deploy/aws/stage0/edge-targets.json` 已清空为 stub）。
 - 手动 target selector：`all`、`prod`、`edge:*`、`edge:<id>`；`deployable=false` 的 Edge 只进入 excluded summary。
 - 输出：每个目标上传 `prod-ops-target-<target>-<run_id>` artifact，汇总上传 `prod-ops-report-<run_id>`。
-- Issue 决策：`issue_candidate` / `manual_ops` findings 会创建或更新 GitHub Issue，使用 `ops-sig:*`、`target:*`、`finding:*` label 去重；error cluster 继续附带 `cluster-sig:*`。
-- 可选 Claude 诊断：`ANTHROPIC_AUTH_TOKEN` 存在时，workflow 可运行只读 Claude diagnosis 改善 issue 内容；该 job 无 AWS OIDC、无 repo 写权限，只允许 `Read/Grep/Glob`。
-- Graceful degradation：缺 `AWS_OIDC_ROLE_ARN` / 缺 `qa_records` / 缺 Claude token → skip 或 deterministic fallback，不让 cron 因非核心缺口脆断。
+- Issue 决策：账号容量与 provider health 异常保留在日报并由现有飞书链路告警，不创建 GitHub Issue；Caddy error-level access 粗计数仅作 report-only 证据，由 canonical daily ledger 负责可行动错误分类；其余 `issue_candidate` / `manual_ops` findings 才创建或更新 Issue，并使用 `ops-sig:*`、`target:*`、`finding:*` label 去重。开放签名追加评论，最近 7 天内已关闭的签名处于冷却期，不重新建单。
+- 确定性分类：日报按 target 展示 anomaly、Feishu 覆盖、GitHub Issue 候选和 repair 候选；GitHub Issue 仅附带未被飞书覆盖的 priority、state、owner/phase、HTTP、类型、平台/模型、endpoint、current/previous 与 confidence。daily workflow 不运行 AI。
+- 修复预算隔离：只有高置信、代码归属明确的候选才 dispatch 到 `ops-repair-draft.yml`，由独立 workflow 使用 AI 形成 Draft PR 等待人工 review。
+- Graceful degradation：缺 `AWS_OIDC_ROLE_ARN` / 缺 `qa_records` → skip 或 deterministic fallback，不让 cron 因非核心缺口脆断。
 - 验证手动跑：`gh workflow run ops-daily-diagnostics.yml -f operation=diagnostics -f target_selector=prod -f since_hours=24 -R youxuanxue/sub2api`
 
 ### Cloud Agent 拉取 Prod Ops 报告

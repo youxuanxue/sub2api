@@ -21,6 +21,7 @@ build_report = MODULE.build_report
 select_candidate = MODULE.select_candidate
 aggregate_reports = MODULE.aggregate_reports
 aggregate_markdown = MODULE.aggregate_markdown
+issue_analysis_markdown = MODULE.issue_analysis_markdown
 
 
 def probe_fixture() -> str:
@@ -118,13 +119,109 @@ class DailyErrorReportTest(unittest.TestCase):
         provider = next(row for row in report["clusters"] if row["owner"] == "provider")
         self.assertEqual(provider["state"], "regressed")
         self.assertTrue(provider["anomaly"])
+        self.assertTrue(provider["feishu_alert_covered"])
+        self.assertFalse(provider["github_issue_eligible"])
+        self.assertNotIn(provider, report["issue_candidates"])
         self.assertFalse(provider["repair_eligible"])
 
         client = next(row for row in report["clusters"] if row["owner"] == "client")
         self.assertFalse(client["anomaly"])
         access = next(row for row in report["clusters"] if row["source"] == "access_log")
         self.assertTrue(access["anomaly"])
+        self.assertTrue(access["github_issue_eligible"])
         self.assertEqual(access["confidence"], "low")
+
+    def test_capacity_and_provider_anomalies_stay_in_report_without_github_issues(self) -> None:
+        rows = [
+            "=== meta ===",
+            json.dumps({"status": "ok", "window_hours": 24, "runtime_image": "sub2api:1.2.3"}),
+            "=== totals ===",
+            json.dumps({"current_request_total": 100, "current_error_sla": 20}),
+            "=== clusters ===",
+            json.dumps({
+                "status_code": 502,
+                "owner": "provider",
+                "phase": "upstream",
+                "error_type": "upstream_error",
+                "platform": "grok",
+                "model": "grok-build-0.1",
+                "endpoint": "/v1/chat/completions",
+                "current_count": 8,
+                "previous_count": 0,
+            }),
+            json.dumps({
+                "status_code": 429,
+                "owner": "platform",
+                "phase": "routing",
+                "error_type": "api_error",
+                "platform": "grok",
+                "model": "grok-build-0.1",
+                "endpoint": "/v1/chat/completions",
+                "current_count": 9,
+                "previous_count": 1,
+            }),
+            json.dumps({
+                "status_code": 503,
+                "owner": "provider",
+                "phase": "account_auth",
+                "error_type": "upstream_error",
+                "platform": "grok",
+                "model": "grok-build-0.1",
+                "endpoint": "/v1/chat/completions",
+                "current_count": 6,
+                "previous_count": 1,
+            }),
+        ]
+
+        report = build_report("\n".join(rows) + "\n", "prod")
+
+        self.assertEqual(report["status"], "alert_covered")
+        self.assertEqual(report["anomaly_count"], 3)
+        self.assertEqual(report["feishu_covered_count"], 3)
+        self.assertEqual(report["issue_candidates"], [])
+        self.assertEqual(report["repair_candidates"], [])
+        self.assertTrue(all(row["triage_channel"] == "feishu" for row in report["clusters"]))
+        self.assertIn("github_issues=0", report["summary"])
+
+    def test_access_cluster_fully_covered_by_ops_error_is_not_duplicated(self) -> None:
+        matching_access = json.dumps({
+            "status": "ok",
+            "status_code": 502,
+            "endpoint": "/v1/responses",
+            "model": "gpt-5",
+            "current_count": 12,
+            "max_count_1m": 6,
+        })
+        report = build_report(probe_fixture() + matching_access + "\n", "prod")
+
+        matches = [
+            row for row in report["clusters"]
+            if row["status_code"] == 502
+            and row["model"] == "gpt-5"
+            and row["endpoint"] == "/v1/responses"
+        ]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["source"], "ops_error_logs")
+
+    def test_access_cluster_reports_only_uncaptured_residual(self) -> None:
+        matching_access = json.dumps({
+            "status": "ok",
+            "status_code": 502,
+            "endpoint": "/v1/responses",
+            "model": "gpt-5",
+            "current_count": 15,
+            "max_count_1m": 6,
+        })
+        report = build_report(probe_fixture() + matching_access + "\n", "prod")
+
+        access = next(
+            row for row in report["clusters"]
+            if row["source"] == "access_log" and row["endpoint"] == "/v1/responses"
+        )
+        self.assertEqual(access["observed_count"], 15)
+        self.assertEqual(access["captured_count"], 12)
+        self.assertEqual(access["current_count"], 3)
+        self.assertEqual(access["max_count_5m"], 3)
 
     def test_operational_platform_error_is_not_repair_eligible(self) -> None:
         text = probe_fixture().replace("dashboard_query_failed", "no_available_accounts")
@@ -158,6 +255,68 @@ class DailyErrorReportTest(unittest.TestCase):
         serialized = json.dumps(report)
         self.assertNotIn("\\nprevious", serialized)
         self.assertNotIn("\\tinstructions", serialized)
+
+    def test_build_cli_renders_target_markdown_before_publishing_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_raw:
+            root = pathlib.Path(tmp_raw)
+            probe = root / "probe.txt"
+            report_json = root / "daily-error-report.json"
+            report_markdown = root / "daily-error-report.md"
+            probe.write_text(probe_fixture(), encoding="utf-8")
+
+            proc = subprocess.run(
+                [
+                    str(REPORTER),
+                    "build",
+                    "--probe",
+                    str(probe),
+                    "--target-id",
+                    "prod",
+                    "--output-json",
+                    str(report_json),
+                    "--output-markdown",
+                    str(report_markdown),
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            report = json.loads(report_json.read_text(encoding="utf-8"))
+            markdown = report_markdown.read_text(encoding="utf-8")
+            self.assertEqual(report["status"], "issue_candidate")
+            self.assertIn("| Triage | Repair |", markdown)
+            self.assertIn("| github_issue |", markdown)
+            self.assertIn("| feishu |", markdown)
+
+    def test_build_cli_does_not_publish_json_when_markdown_write_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_raw:
+            root = pathlib.Path(tmp_raw)
+            probe = root / "probe.txt"
+            report_json = root / "daily-error-report.json"
+            missing_markdown = root / "missing" / "daily-error-report.md"
+            probe.write_text(probe_fixture(), encoding="utf-8")
+
+            proc = subprocess.run(
+                [
+                    str(REPORTER),
+                    "build",
+                    "--probe",
+                    str(probe),
+                    "--target-id",
+                    "prod",
+                    "--output-json",
+                    str(report_json),
+                    "--output-markdown",
+                    str(missing_markdown),
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+            self.assertIn("[daily-error-report] ERROR:", proc.stderr)
+            self.assertFalse(report_json.exists())
 
     def test_probe_resolves_active_blue_green_container_and_access_errors(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_raw:
@@ -213,8 +372,31 @@ esac
             path.write_text(json.dumps(build_report(probe_fixture(), "prod")), encoding="utf-8")
             report = aggregate_reports([path], "123", "https://example.test/runs/123")
             markdown = aggregate_markdown(report)
-            self.assertIn("| prod | issue_candidate | 120 | 15 | 5 | 8 |", markdown)
+            self.assertIn("| prod | issue_candidate | 120 | 15 | 5 | 8 | 3 | 1 | 2 | 1 |", markdown)
             self.assertIn("dashboard_query_failed", markdown)
+
+    def test_issue_analysis_is_target_scoped_and_actionable(self) -> None:
+        prod = build_report(probe_fixture(), "prod")
+        edge = build_report(probe_fixture(), "edge-us5-ls")
+        edge["issue_candidates"][0]["error_type"] = "edge_only_failure"
+        aggregate = aggregate_reports([], "123", "https://example.test/runs/123")
+        aggregate["issue_candidates"] = [
+            {**item, "target_id": "prod"} for item in prod["issue_candidates"]
+        ] + [
+            {**item, "target_id": "edge-us5-ls"} for item in edge["issue_candidates"]
+        ]
+
+        markdown = issue_analysis_markdown(aggregate, "prod")
+
+        self.assertIn("| Priority | State | Owner / phase |", markdown)
+        self.assertIn("platform / internal", markdown)
+        self.assertIn("dashboard_query_failed", markdown)
+        self.assertIn("7 / 0", markdown)
+        self.assertNotIn("edge_only_failure", markdown)
+
+    def test_issue_analysis_is_empty_for_unmatched_target(self) -> None:
+        report = aggregate_reports([], "123", "https://example.test/runs/123")
+        self.assertEqual(issue_analysis_markdown(report, "prod"), "")
 
     def test_same_cluster_on_two_targets_has_unique_selectable_signatures(self) -> None:
         prod = build_report(probe_fixture(), "prod")
