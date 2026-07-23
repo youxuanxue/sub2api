@@ -576,6 +576,14 @@ def classify(code: int, body_text: str, ok: bool) -> tuple[str, str]:
             return "SKIP", "not authorized for platform/group"
         if re.search(r"does not have access to responses api|accessdenied", haystack):
             return "SKIP", "model/protocol not provisioned"
+        # Grok OAuth entitlement 403 (tkIsGrokEntitlement403): subscription tier lacks API
+        # access — gateway behavior is correct; smoke key account may not be SuperGrok Heavy.
+        if re.search(
+            r"permission_error|supergrok heavy|grok subscription|run out of available resources|"
+            r"not entitled to api access",
+            haystack,
+        ):
+            return "SKIP", "not authorized for platform/group (grok entitlement)"
         return "FAIL", "unexpected 403"
     if code == 429:
         if re.search(r"no available accounts|available accounts exhausted", haystack):
@@ -842,6 +850,16 @@ def cmd_selftest(_args) -> int:
     assert classify(429, '{"error":"No available accounts"}', False)[0] == "SKIP"
     assert classify(403, '{"error":"universal_no_entitled_group"}', False)[0] == "SKIP"
     assert classify(403, '{"error":{"message":"does not have access to responses api"}}', False)[0] == "SKIP"
+    assert classify(
+        403,
+        '{"error":{"type":"permission_error","message":"SuperGrok Heavy required"}}',
+        False,
+    )[0] == "SKIP"
+    assert classify(
+        403,
+        '{"error":{"message":"The Grok (xAI) subscription backing this request is not entitled to API access"}}',
+        False,
+    )[0] == "SKIP"
     assert classify(400, '{"error":{"message":"Upstream rejected the request"}}', False)[0] == "SKIP"
     assert classify(400, '{"error":{"message":"This model only support stream mode"}}', False)[0] == "SKIP"
     assert shape_ok("chat", 200, {}, "data: {\"choices\":[]}\n\ndata: [DONE]\n")
