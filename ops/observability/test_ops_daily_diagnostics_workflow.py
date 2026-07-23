@@ -104,6 +104,8 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
                     "gemini_drive_scope_403": 10,
                     "openai_previous_response_fallback": 50,
                     "rate_limit_429_no_reset": 1,
+                    "caddy_incomplete_response": 100,
+                    "caddy_access_error": 100,
                 }),
                 encoding="utf-8",
             )
@@ -118,7 +120,18 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             statuses = {finding["kind"]: finding["status"] for finding in findings}
             self.assertEqual(statuses["gemini_drive_scope_403"], "warning")
             self.assertEqual(statuses["rate_limit_429_no_reset"], "warning")
+            self.assertEqual(statuses["caddy_access_error"], "warning")
             self.assertEqual(statuses["openai_previous_response_fallback"], "issue_candidate")
+            self.assertEqual(list(statuses.values()).count("issue_candidate"), 1)
+
+    def test_issue_lifecycle_updates_open_and_cools_down_closed_signatures(self) -> None:
+        text = workflow_text()
+        self.assertIn("from ops.observability.prod_ops_issue_decision import decide_issue_action", text)
+        self.assertIn("'--state', 'all'", text)
+        self.assertIn("'number,state,closedAt,createdAt'", text)
+        self.assertIn("decision['action'] == 'update'", text)
+        self.assertIn("decision['action'] == 'suppress'", text)
+        self.assertIn("remains in the 7-day cooldown", text)
 
     def test_missing_target_reports_skipped_when_diagnose_cancelled(self) -> None:
         text = workflow_text()

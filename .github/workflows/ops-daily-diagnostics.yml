@@ -439,10 +439,10 @@ jobs:
               findings.append({
                   "target_id": target_id,
                   "kind": "caddy_access_error",
-                  "status": "issue_candidate",
+                  "status": "warning",
                   "severity": "warning",
                   "title": f"Caddy error-level access entries on {target_id}",
-                  "summary": f"Caddy logged {caddy_access_error} error-level access entries over {window} (incomplete aborts={caddy_incomplete}, tracked separately).",
+                  "summary": f"Caddy logged {caddy_access_error} error-level access entries over {window} (incomplete aborts={caddy_incomplete}, tracked separately); the canonical daily ledger owns actionable error classification.",
                   "signature": f"log-signal|{target_id}|caddy-access-error",
               })
 
@@ -811,7 +811,9 @@ jobs:
           import re
           import subprocess
 
+          # Lifecycle policy owner: ops/observability/prod_ops_issue_decision.py
           from ops.observability.daily_error_report import issue_analysis_markdown
+          from ops.observability.prod_ops_issue_decision import decide_issue_action
 
           report = json.loads(pathlib.Path('ops-report.json').read_text(encoding='utf-8'))
           daily_report = json.loads(pathlib.Path('daily-error-report.json').read_text(encoding='utf-8'))
@@ -880,10 +882,20 @@ jobs:
               body_file = pathlib.Path(f'issue-{index}.md')
               body_file.write_text(body, encoding='utf-8')
 
-              existing = sh(['gh', 'issue', 'list', '--label', ops_label, '--state', 'open', '--json', 'number', '--limit', '1', '--jq', '.[0].number // empty']).stdout.strip()
-              if existing:
-                  sh(['gh', 'issue', 'comment', existing, '--body-file', str(body_file)])
-                  print(f'updated issue #{existing} for {ops_label}')
+              existing = json.loads(sh([
+                  'gh', 'issue', 'list', '--label', ops_label, '--state', 'all',
+                  '--json', 'number,state,closedAt,createdAt', '--limit', '100',
+              ]).stdout or '[]')
+              decision = decide_issue_action(existing)
+              if decision['action'] == 'update':
+                  number = str(decision['number'])
+                  sh(['gh', 'issue', 'comment', number, '--body-file', str(body_file)])
+                  print(f'updated issue #{number} for {ops_label}')
+              elif decision['action'] == 'suppress':
+                  print(
+                      f"suppressed {ops_label}: issue #{decision['number']} was closed at "
+                      f"{decision['closed_at']} and remains in the 7-day cooldown"
+                  )
               else:
                   sh(['gh', 'issue', 'create', '--title', title, '--body-file', str(body_file), '--label', ','.join(labels)])
                   print(f'created issue for {ops_label}')

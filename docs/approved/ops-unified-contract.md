@@ -57,6 +57,9 @@ Required outcomes:
 - Legacy `qa_records` hash clustering is report-only evidence. It cannot create
   an Issue independently because it does not carry the owner/phase semantics
   required for deterministic triage.
+- Coarse Caddy error-level access counts are report-only evidence. The canonical
+  daily ledger owns actionable final-error classification so the same traffic
+  cannot create a second Issue through an ownership-free log counter.
 
 Hard guardrails:
 
@@ -81,7 +84,7 @@ Hard guardrails:
   endpoint values never enter the write-capable agent. Test execution goes
   through the repository-owned command validator, and protected paths plus diff
   size are revalidated after the reproduction command returns.
-- Signature cooldown / dedupe labels (`ops-sig:*`, plus `cluster-sig:*` for error clusters) avoid duplicate churn.
+- Signature cooldown / dedupe labels (`ops-sig:*`, plus `cluster-sig:*` for error clusters) avoid duplicate churn. Open signatures are updated; a signature closed within the previous 7 days suppresses recreation.
 - AWS diagnostics jobs have `id-token: write` but no repo write permissions.
 - Issue/repair-dispatch/repair jobs have no AWS OIDC permission.
 - Missing optional secret / missing required table => clean skip or deterministic fallback, not a brittle cron failure.

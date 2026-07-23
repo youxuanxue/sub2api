@@ -256,6 +256,68 @@ class DailyErrorReportTest(unittest.TestCase):
         self.assertNotIn("\\nprevious", serialized)
         self.assertNotIn("\\tinstructions", serialized)
 
+    def test_build_cli_renders_target_markdown_before_publishing_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_raw:
+            root = pathlib.Path(tmp_raw)
+            probe = root / "probe.txt"
+            report_json = root / "daily-error-report.json"
+            report_markdown = root / "daily-error-report.md"
+            probe.write_text(probe_fixture(), encoding="utf-8")
+
+            proc = subprocess.run(
+                [
+                    str(REPORTER),
+                    "build",
+                    "--probe",
+                    str(probe),
+                    "--target-id",
+                    "prod",
+                    "--output-json",
+                    str(report_json),
+                    "--output-markdown",
+                    str(report_markdown),
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            report = json.loads(report_json.read_text(encoding="utf-8"))
+            markdown = report_markdown.read_text(encoding="utf-8")
+            self.assertEqual(report["status"], "issue_candidate")
+            self.assertIn("| Triage | Repair |", markdown)
+            self.assertIn("| github_issue |", markdown)
+            self.assertIn("| feishu |", markdown)
+
+    def test_build_cli_does_not_publish_json_when_markdown_write_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_raw:
+            root = pathlib.Path(tmp_raw)
+            probe = root / "probe.txt"
+            report_json = root / "daily-error-report.json"
+            missing_markdown = root / "missing" / "daily-error-report.md"
+            probe.write_text(probe_fixture(), encoding="utf-8")
+
+            proc = subprocess.run(
+                [
+                    str(REPORTER),
+                    "build",
+                    "--probe",
+                    str(probe),
+                    "--target-id",
+                    "prod",
+                    "--output-json",
+                    str(report_json),
+                    "--output-markdown",
+                    str(missing_markdown),
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+            self.assertIn("[daily-error-report] ERROR:", proc.stderr)
+            self.assertFalse(report_json.exists())
+
     def test_probe_resolves_active_blue_green_container_and_access_errors(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_raw:
             tmp = pathlib.Path(tmp_raw)

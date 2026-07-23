@@ -307,8 +307,8 @@ def build_report(probe_text: str, target_id: str) -> dict[str, Any]:
 
 
 def markdown_report(report: dict[str, Any]) -> str:
-    def cell(value: Any) -> str:
-        return clean_text(value, 120).replace("|", "\\|")
+    def cell(value: Any, text_limit: int = 120) -> str:
+        return clean_text(value, text_limit).replace("|", "\\|")
 
     lines = [
         "# Daily Error Report",
@@ -523,13 +523,15 @@ def main() -> int:
     try:
         if args.command == "build":
             report = build_report(args.probe.read_text(encoding="utf-8", errors="replace"), args.target_id)
+            markdown = markdown_report(report)
+            args.output_markdown.write_text(markdown, encoding="utf-8")
             write_json(args.output_json, report)
-            args.output_markdown.write_text(markdown_report(report), encoding="utf-8")
         elif args.command == "aggregate":
             paths = list(args.root.glob("**/daily-error-report.json"))
             report = aggregate_reports(paths, args.run_id, args.run_url)
+            markdown = aggregate_markdown(report)
+            args.output_markdown.write_text(markdown, encoding="utf-8")
             write_json(args.output_json, report)
-            args.output_markdown.write_text(aggregate_markdown(report), encoding="utf-8")
         else:
             report = json.loads(args.report.read_text(encoding="utf-8"))
             write_json(args.output, select_candidate(report, args.signature))
