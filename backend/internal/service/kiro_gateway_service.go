@@ -32,6 +32,8 @@ type KiroGatewayService struct {
 	httpUpstream        HTTPUpstream
 	tlsFPProfileService *TLSFingerprintProfileService
 	accountRepo         AccountRepository
+	streamCircuitOnce   sync.Once
+	streamCircuit       *kiroStreamDisconnectCircuit
 }
 
 // NewKiroGatewayService constructs a KiroGatewayService.
@@ -366,6 +368,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	}
 	if callErr != nil {
 		msg := "upstream stream disconnected: " + sanitizeStreamError(callErr)
+		s.recordKiroStreamDisconnect(ctx, account, callErr, model, requestID)
 		recordKiroStreamError(c, account, msg)
 		writeKiroStreamError(c, flusher, "stream_read_error", msg)
 		return nil, fmt.Errorf("kiro stream read error: %w", callErr)
@@ -375,6 +378,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	}
 	if callbackErr != nil {
 		msg := "upstream stream disconnected: " + sanitizeStreamError(callbackErr)
+		s.recordKiroStreamDisconnect(ctx, account, callbackErr, model, requestID)
 		recordKiroStreamError(c, account, msg)
 		writeKiroStreamError(c, flusher, "stream_read_error", msg)
 		return nil, fmt.Errorf("kiro stream callback error: %w", callbackErr)
@@ -409,6 +413,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	enc.writeMessageStop()
 	publishKiroInternalThinkingSideChannel(c, w, nil, thinkingBuf)
 	flusher.Flush()
+	s.clearKiroStreamDisconnect(account)
 
 	return &ForwardResult{
 		RequestID:     requestID,
@@ -424,6 +429,7 @@ func (s *KiroGatewayService) forwardStreaming(
 
 func recordKiroStreamError(c *gin.Context, account *Account, message string) {
 	setOpsUpstreamError(c, 0, message, "")
+	MarkOpsStreamError(c, "upstream_error", message, http.StatusBadGateway)
 	event := OpsUpstreamErrorEvent{
 		Platform:           PlatformKiro,
 		UpstreamStatusCode: 0,

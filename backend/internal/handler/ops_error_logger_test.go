@@ -460,6 +460,34 @@ func TestLogOpsStreamError_UpstreamFailureCountsTowardsSLA(t *testing.T) {
 	require.Contains(t, job.entry.ErrorBody, service.OpenAIUpstreamHTTP2StreamErrorCode)
 }
 
+func TestOpsErrorLoggerMiddleware_RecordsMarked200StreamAsFailure(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 4)
+	gin.SetMode(gin.TestMode)
+
+	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	r := gin.New()
+	r.POST("/v1/messages", OpsErrorLoggerMiddleware(ops), func(c *gin.Context) {
+		service.SetOpsUpstreamError(c, 0, "upstream stream disconnected: unexpected EOF", "")
+		service.MarkOpsStreamError(c, "upstream_error", "upstream stream disconnected: unexpected EOF", http.StatusBadGateway)
+		c.Status(http.StatusOK)
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	r.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, int64(1), OpsErrorLogEnqueuedTotal())
+	job := <-opsErrorLogQueue
+	require.NotNil(t, job.entry)
+	require.Equal(t, http.StatusOK, job.entry.StatusCode)
+	require.Equal(t, "upstream_error", job.entry.ErrorType)
+	require.Equal(t, "upstream", job.entry.ErrorPhase)
+	require.Equal(t, "provider", job.entry.ErrorOwner)
+	require.Equal(t, "upstream stream disconnected: unexpected EOF", job.entry.ErrorMessage)
+	require.NotContains(t, job.entry.ErrorMessage, "Recovered")
+}
+
 // 未标记流内错误时 logOpsStreamError 必须是 no-op（不误记正常的 200 流）。
 func TestLogOpsStreamError_NoopWhenNotMarked(t *testing.T) {
 	setupOpsErrorLogTestQueue(t, 4)

@@ -131,6 +131,22 @@ type kiroSequenceUpstream struct {
 	calls  int
 }
 
+type kiroTempUnschedCall struct {
+	accountID int64
+	until     time.Time
+	reason    string
+}
+
+type kiroStreamCooldownRepo struct {
+	AccountRepository
+	calls []kiroTempUnschedCall
+}
+
+func (r *kiroStreamCooldownRepo) SetTempUnschedulable(_ context.Context, accountID int64, until time.Time, reason string) error {
+	r.calls = append(r.calls, kiroTempUnschedCall{accountID: accountID, until: until, reason: reason})
+	return nil
+}
+
 func (u *kiroSequenceUpstream) Do(*http.Request, string, int64, int) (*http.Response, error) {
 	return nil, fmt.Errorf("unexpected Do call")
 }
@@ -431,6 +447,53 @@ func TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError(t 
 	require.Equal(t, PlatformKiro, events[0].Platform)
 	require.Equal(t, int64(99), events[0].AccountID)
 	require.Contains(t, events[0].Message, "unexpected EOF")
+	streamErr, ok := GetOpsStreamError(c)
+	require.True(t, ok)
+	require.Equal(t, "upstream_error", streamErr.ErrType)
+	require.Equal(t, http.StatusBadGateway, streamErr.IntendedStatus)
+	require.Contains(t, streamErr.Message, "unexpected EOF")
+}
+
+func TestKiroGatewayService_Forward_Streaming_RepeatedDisconnectQuarantinesAndSuccessResets(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	partial := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"partial answer"}`))
+	truncated := append(append([]byte(nil), partial...), []byte{0, 0, 0, 20}...)
+	complete := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"complete answer"}`))
+	upstream := &kiroSequenceUpstream{bodies: [][]byte{truncated, complete, truncated, truncated}}
+	repo := &kiroStreamCooldownRepo{}
+	svc := NewKiroGatewayService(upstream, nil, repo)
+	svc.streamCircuit = newKiroStreamDisconnectCircuit(kiroStreamDisconnectCircuitSettings{
+		failureThreshold: 2,
+		failureWindow:    time.Minute,
+		cooldown:         10 * time.Minute,
+		maxEntries:       16,
+	})
+	body, _ := json.Marshal(map[string]any{
+		"model":    "claude-opus-4-8",
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		"stream":   true,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-4-8", Stream: true}
+	account := newKiroAccountForTest()
+
+	forward := func() error {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		_, err := svc.Forward(context.Background(), c, account, parsed, time.Now())
+		return err
+	}
+
+	require.ErrorIs(t, forward(), io.ErrUnexpectedEOF)
+	require.Empty(t, repo.calls, "one transient disconnect must not quarantine the account")
+	require.NoError(t, forward(), "a complete terminal stream must clear the failure observation")
+	require.ErrorIs(t, forward(), io.ErrUnexpectedEOF)
+	require.Empty(t, repo.calls, "the post-success disconnect must restart at count one")
+	require.ErrorIs(t, forward(), io.ErrUnexpectedEOF)
+	require.Len(t, repo.calls, 1)
+	require.Equal(t, account.ID, repo.calls[0].accountID)
+	require.WithinDuration(t, time.Now().Add(10*time.Minute), repo.calls[0].until, 5*time.Second)
+	require.Contains(t, repo.calls[0].reason, `"matched_keyword":"kiro_stream_disconnect"`)
+	require.Equal(t, 4, upstream.calls, "post-output failures must never replay the current stream")
 }
 
 func TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailover(t *testing.T) {
@@ -439,7 +502,14 @@ func TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailove
 	c, _ := gin.CreateTestContext(rec)
 
 	upstream := &kiroSequenceUpstream{bodies: [][]byte{{0, 0, 0, 20}}}
-	svc := NewKiroGatewayService(upstream, nil, nil)
+	repo := &kiroStreamCooldownRepo{}
+	svc := NewKiroGatewayService(upstream, nil, repo)
+	svc.streamCircuit = newKiroStreamDisconnectCircuit(kiroStreamDisconnectCircuitSettings{
+		failureThreshold: 1,
+		failureWindow:    time.Minute,
+		cooldown:         10 * time.Minute,
+		maxEntries:       16,
+	})
 	body, _ := json.Marshal(map[string]any{
 		"model":    "claude-sonnet-4",
 		"messages": []map[string]any{{"role": "user", "content": "hi"}},
@@ -462,6 +532,7 @@ func TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailove
 	require.Equal(t, "response_error", events[0].Kind)
 	require.Equal(t, "unexpected_eof", events[0].Reason)
 	require.Equal(t, "unexpected EOF", events[0].Message)
+	require.Empty(t, repo.calls, "pre-output EOF must stay on the existing safe failover path")
 }
 
 // kiroStatusUpstream returns a canned non-200 response with a fixed body,
