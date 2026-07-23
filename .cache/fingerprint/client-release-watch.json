@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-23T03:37:42Z",
+  "updated_at": "2026-07-23T05:19:20Z",
   "git_sha": "",
   "platforms": {
     "claude-code": {
@@ -142,9 +142,9 @@
       }
     },
     "kiro-cli": {
-      "pinned": "2.13.0",
+      "pinned": "2.14.0",
       "upstream_latest": "2.14.0",
-      "status": "drift",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {

@@ -43,7 +43,7 @@ const (
 const (
 	DefaultKiroIDEVersion = "1.0.165"
 	// DefaultKiroCLIVersion tracks Homebrew cask kiro-cli (distinct semver from Kiro IDE).
-	DefaultKiroCLIVersion = "2.13.0"
+	DefaultKiroCLIVersion = "2.14.0"
 	DefaultSystemVersion  = "darwin#24.0.0"
 	DefaultNodeVersion    = "22.22.0"
 )
