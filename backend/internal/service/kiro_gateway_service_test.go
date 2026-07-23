@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -131,22 +132,6 @@ type kiroSequenceUpstream struct {
 	calls  int
 }
 
-type kiroTempUnschedCall struct {
-	accountID int64
-	until     time.Time
-	reason    string
-}
-
-type kiroStreamCooldownRepo struct {
-	AccountRepository
-	calls []kiroTempUnschedCall
-}
-
-func (r *kiroStreamCooldownRepo) SetTempUnschedulable(_ context.Context, accountID int64, until time.Time, reason string) error {
-	r.calls = append(r.calls, kiroTempUnschedCall{accountID: accountID, until: until, reason: reason})
-	return nil
-}
-
 func (u *kiroSequenceUpstream) Do(*http.Request, string, int64, int) (*http.Response, error) {
 	return nil, fmt.Errorf("unexpected Do call")
 }
@@ -193,6 +178,16 @@ func newKiroAccountForTest() *Account {
 	}
 }
 
+func appendKiroTerminalStop(stream []byte, reason string) []byte {
+	return append(stream, buildKiroEventStreamMessage("metadataEvent", []byte(fmt.Sprintf(`{"stopReason":%q}`, reason)))...)
+}
+
+func TestClassifyKiroPostOutputStreamError_OnlyMarksIncompleteEOF(t *testing.T) {
+	require.True(t, IsKiroPostOutputStreamDisconnect(classifyKiroPostOutputStreamError("read", io.ErrUnexpectedEOF)))
+	require.False(t, IsKiroPostOutputStreamDisconnect(classifyKiroPostOutputStreamError("read", context.Canceled)))
+	require.False(t, IsKiroPostOutputStreamDisconnect(classifyKiroPostOutputStreamError("callback", errors.New("provider exception"))))
+}
+
 func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -200,6 +195,7 @@ func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 
 	frame := buildKiroEventStreamMessage("assistantResponseEvent",
 		[]byte(`{"content":"hello world","inputTokens":12,"outputTokens":5}`))
+	frame = appendKiroTerminalStop(frame, "END_TURN")
 	upstream := &kiroFakeUpstream{body: frame}
 
 	svc := NewKiroGatewayService(upstream, nil, nil)
@@ -259,8 +255,8 @@ func TestKiroGatewayService_Forward_EmptyResponseTriggersFailover(t *testing.T) 
 	require.True(t, ok)
 	require.Len(t, events, 1)
 	require.Equal(t, "response_error", events[0].Kind)
-	require.Equal(t, "empty_response", events[0].Reason)
-	require.Equal(t, "kiro upstream returned an empty response", events[0].Message)
+	require.Equal(t, "unexpected_eof", events[0].Reason)
+	require.Contains(t, events[0].Message, "before terminal stop reason")
 	require.Equal(t, int64(99), events[0].AccountID)
 }
 
@@ -346,6 +342,7 @@ func TestKiroGatewayService_Forward_NonStreaming_ReadFailureRetriesWithoutPartia
 	partial := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"discard me"}`))
 	partial = append(partial, []byte{0, 0, 0, 20}...)
 	recovered := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"recovered"}`))
+	recovered = appendKiroTerminalStop(recovered, "END_TURN")
 	upstream := &kiroSequenceUpstream{bodies: [][]byte{partial, recovered}}
 	svc := NewKiroGatewayService(upstream, nil, nil)
 	body, _ := json.Marshal(map[string]any{
@@ -371,6 +368,7 @@ func TestKiroGatewayService_Forward_Streaming(t *testing.T) {
 
 	frame := buildKiroEventStreamMessage("assistantResponseEvent",
 		[]byte(`{"content":"hi there","inputTokens":8,"outputTokens":3}`))
+	frame = appendKiroTerminalStop(frame, "END_TURN")
 	upstream := &kiroFakeUpstream{body: frame}
 
 	svc := NewKiroGatewayService(upstream, nil, nil)
@@ -426,6 +424,7 @@ func TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError(t 
 	require.Error(t, err)
 	require.Nil(t, result)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.True(t, IsKiroPostOutputStreamDisconnect(err))
 	require.Equal(t, 1, upstream.calls, "committed stream must not be retried")
 	require.True(t, IsResponseCommitted(c))
 
@@ -454,46 +453,26 @@ func TestKiroGatewayService_Forward_Streaming_MidStreamReadErrorSendsSSEError(t 
 	require.Contains(t, streamErr.Message, "unexpected EOF")
 }
 
-func TestKiroGatewayService_Forward_Streaming_RepeatedDisconnectQuarantinesAndSuccessResets(t *testing.T) {
+func TestKiroGatewayService_Forward_Streaming_FrameAlignedEOFWithoutStopReasonSendsSSEError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	partial := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"partial answer"}`))
-	truncated := append(append([]byte(nil), partial...), []byte{0, 0, 0, 20}...)
-	complete := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"complete answer"}`))
-	upstream := &kiroSequenceUpstream{bodies: [][]byte{truncated, complete, truncated, truncated}}
-	repo := &kiroStreamCooldownRepo{}
-	svc := NewKiroGatewayService(upstream, nil, repo)
-	svc.streamCircuit = newKiroStreamDisconnectCircuit(kiroStreamDisconnectCircuitSettings{
-		failureThreshold: 2,
-		failureWindow:    time.Minute,
-		cooldown:         10 * time.Minute,
-		maxEntries:       16,
-	})
+	upstream := &kiroSequenceUpstream{bodies: [][]byte{partial}}
+	svc := NewKiroGatewayService(upstream, nil, nil)
 	body, _ := json.Marshal(map[string]any{
 		"model":    "claude-opus-4-8",
 		"messages": []map[string]any{{"role": "user", "content": "hi"}},
 		"stream":   true,
 	})
 	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-4-8", Stream: true}
-	account := newKiroAccountForTest()
-
-	forward := func() error {
-		rec := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(rec)
-		_, err := svc.Forward(context.Background(), c, account, parsed, time.Now())
-		return err
-	}
-
-	require.ErrorIs(t, forward(), io.ErrUnexpectedEOF)
-	require.Empty(t, repo.calls, "one transient disconnect must not quarantine the account")
-	require.NoError(t, forward(), "a complete terminal stream must clear the failure observation")
-	require.ErrorIs(t, forward(), io.ErrUnexpectedEOF)
-	require.Empty(t, repo.calls, "the post-success disconnect must restart at count one")
-	require.ErrorIs(t, forward(), io.ErrUnexpectedEOF)
-	require.Len(t, repo.calls, 1)
-	require.Equal(t, account.ID, repo.calls[0].accountID)
-	require.WithinDuration(t, time.Now().Add(10*time.Minute), repo.calls[0].until, 5*time.Second)
-	require.Contains(t, repo.calls[0].reason, `"matched_keyword":"kiro_stream_disconnect"`)
-	require.Equal(t, 4, upstream.calls, "post-output failures must never replay the current stream")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.Nil(t, result)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.True(t, IsKiroPostOutputStreamDisconnect(err))
+	require.Equal(t, 1, upstream.calls, "post-output failures must never replay the current stream")
+	require.Contains(t, rec.Body.String(), "event: error")
+	require.NotContains(t, rec.Body.String(), "event: message_stop")
 }
 
 func TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailover(t *testing.T) {
@@ -502,14 +481,7 @@ func TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailove
 	c, _ := gin.CreateTestContext(rec)
 
 	upstream := &kiroSequenceUpstream{bodies: [][]byte{{0, 0, 0, 20}}}
-	repo := &kiroStreamCooldownRepo{}
-	svc := NewKiroGatewayService(upstream, nil, repo)
-	svc.streamCircuit = newKiroStreamDisconnectCircuit(kiroStreamDisconnectCircuitSettings{
-		failureThreshold: 1,
-		failureWindow:    time.Minute,
-		cooldown:         10 * time.Minute,
-		maxEntries:       16,
-	})
+	svc := NewKiroGatewayService(upstream, nil, nil)
 	body, _ := json.Marshal(map[string]any{
 		"model":    "claude-sonnet-4",
 		"messages": []map[string]any{{"role": "user", "content": "hi"}},
@@ -532,7 +504,7 @@ func TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailove
 	require.Equal(t, "response_error", events[0].Kind)
 	require.Equal(t, "unexpected_eof", events[0].Reason)
 	require.Equal(t, "unexpected EOF", events[0].Message)
-	require.Empty(t, repo.calls, "pre-output EOF must stay on the existing safe failover path")
+	require.False(t, IsKiroPostOutputStreamDisconnect(err), "pre-output EOF must stay on the existing safe failover path")
 }
 
 // kiroStatusUpstream returns a canned non-200 response with a fixed body,

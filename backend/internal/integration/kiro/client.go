@@ -467,6 +467,11 @@ func callKiroAPIOnce(ctx context.Context, doer HTTPDoer, account *Account, paylo
 
 // ==================== Event Stream Parsing ====================
 
+// ErrIncompleteEventStream means the transport ended on a frame boundary but
+// Kiro never sent a metadataEvent with stopReason. A clean io.EOF alone is not
+// proof that the assistant turn completed.
+var ErrIncompleteEventStream = fmt.Errorf("Kiro event stream ended before terminal stop reason: %w", io.ErrUnexpectedEOF)
+
 // parseEventStream decodes an AWS binary Event Stream response body.
 func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 	if callback == nil {
@@ -479,15 +484,19 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 	var currentToolUse *toolUseState
 	var lastAssistantContent string
 	var lastReasoningContent string
+	var sawTerminalStop bool
 
 	for {
 		// Prelude: 12 bytes (total_len + headers_len + crc)
 		prelude := make([]byte, 12)
 		_, err := io.ReadFull(body, prelude)
-		if err == io.EOF {
-			break
-		}
 		if err != nil {
+			if sawTerminalStop {
+				break
+			}
+			if err == io.EOF {
+				return ErrIncompleteEventStream
+			}
 			return err
 		}
 
@@ -503,6 +512,9 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 		msgBuf := make([]byte, remaining)
 		_, err = io.ReadFull(body, msgBuf)
 		if err != nil {
+			if sawTerminalStop {
+				break
+			}
 			return err
 		}
 
@@ -551,8 +563,11 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 		case "toolUseEvent":
 			currentToolUse = handleToolUseEvent(event, currentToolUse, callback)
 		case "metadataEvent":
-			if stopReason, ok := event["stopReason"].(string); ok && stopReason != "" && callback.OnStopReason != nil {
-				callback.OnStopReason(stopReason)
+			if stopReason, ok := event["stopReason"].(string); ok && stopReason != "" {
+				sawTerminalStop = true
+				if callback.OnStopReason != nil {
+					callback.OnStopReason(stopReason)
+				}
 			}
 		case "meteringEvent":
 			if usage, ok := event["usage"].(float64); ok {

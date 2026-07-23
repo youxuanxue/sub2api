@@ -21,6 +21,7 @@ func TestAccountTestService_KiroOAuthUsesKiroGateway(t *testing.T) {
 
 	frame := buildKiroEventStreamMessage("assistantResponseEvent",
 		[]byte(`{"content":"hello from kiro","inputTokens":6,"outputTokens":3}`))
+	frame = appendKiroTerminalStop(frame, "END_TURN")
 	upstream := &kiroFakeUpstream{body: frame}
 	account := *newKiroAccountForTest()
 	account.ID = 901

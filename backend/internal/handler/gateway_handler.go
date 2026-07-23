@@ -304,6 +304,20 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 	// 判断是否真的绑定了粘性会话：有 sessionKey 且已经绑定到某个账号
 	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
+	var recoveryExcludedAccountID int64
+	if sessionKey != "" {
+		var recoveryErr error
+		recoveryExcludedAccountID, recoveryErr = h.gatewayService.ConsumeKiroSessionRecovery(c.Request.Context(), apiKey.GroupID, sessionKey)
+		if recoveryErr != nil {
+			reqLog.Warn("gateway.kiro_session_recovery_consume_failed", zap.Error(recoveryErr))
+			recoveryExcludedAccountID = 0
+		}
+		if recoveryExcludedAccountID > 0 {
+			reqLog.Warn("gateway.kiro_session_recovery_excluding_account",
+				zap.Int64("account_id", recoveryExcludedAccountID),
+			)
+		}
+	}
 
 	if platform == service.PlatformAnthropic {
 		if h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog) {
@@ -316,6 +330,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	if platform == service.PlatformGemini {
 		fs := NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
+		if recoveryExcludedAccountID > 0 {
+			fs.FailedAccountIDs[recoveryExcludedAccountID] = struct{}{}
+		}
 
 		// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
 		// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
@@ -601,6 +618,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	for {
 		fs := NewFailoverState(h.maxAccountSwitches, hasBoundSession)
+		if recoveryExcludedAccountID > 0 {
+			fs.FailedAccountIDs[recoveryExcludedAccountID] = struct{}{}
+			recoveryExcludedAccountID = 0
+		}
 		retryWithFallback := false
 
 		for {
@@ -822,6 +843,21 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				accountReleaseFunc()
 			}
 			if err != nil {
+				if service.IsKiroPostOutputStreamDisconnect(err) && sessionKey != "" {
+					recoveryCtx, cancelRecovery := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 2*time.Second)
+					recoveryErr := h.gatewayService.RememberKiroSessionRecovery(recoveryCtx, currentAPIKey.GroupID, sessionKey, account.ID)
+					cancelRecovery()
+					if recoveryErr != nil {
+						reqLog.Warn("gateway.kiro_session_recovery_record_failed",
+							zap.Int64("account_id", account.ID),
+							zap.Error(recoveryErr),
+						)
+					} else {
+						reqLog.Warn("gateway.kiro_session_recovery_recorded",
+							zap.Int64("account_id", account.ID),
+						)
+					}
+				}
 				// Beta policy block: return 400 immediately, no failover
 				var betaBlockedErr *service.BetaBlockedError
 				if errors.As(err, &betaBlockedErr) {

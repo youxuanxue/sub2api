@@ -44,6 +44,7 @@ func TestKiroGatewayService_Forward_Streaming_WithReasoningEvent(t *testing.T) {
 	textFrame := buildKiroEventStreamMessage("assistantResponseEvent",
 		[]byte(`{"content":"final answer"}`))
 	body := append(reasoningFrame, textFrame...)
+	body = appendKiroTerminalStop(body, "END_TURN")
 	upstream := &kiroFakeUpstream{body: body}
 
 	svc := NewKiroGatewayService(upstream, nil, nil)
@@ -81,6 +82,7 @@ func TestKiroGatewayService_Forward_Streaming_OmitsSplitInlineThinkingTags(t *te
 		body = append(body, buildKiroEventStreamMessage("assistantResponseEvent",
 			[]byte(`{"content":`+strconv.Quote(content)+`}`))...)
 	}
+	body = appendKiroTerminalStop(body, "END_TURN")
 	upstream := &kiroFakeUpstream{body: body}
 
 	svc := NewKiroGatewayService(upstream, nil, nil)
@@ -119,6 +121,7 @@ func TestKiroGatewayService_Forward_Streaming_MirrorHopEmitsInternalThinkingSide
 		body = append(body, buildKiroEventStreamMessage("assistantResponseEvent",
 			[]byte(`{"content":`+strconv.Quote(content)+`}`))...)
 	}
+	body = appendKiroTerminalStop(body, "END_TURN")
 	upstream := &kiroFakeUpstream{body: body}
 
 	svc := NewKiroGatewayService(upstream, nil, nil)

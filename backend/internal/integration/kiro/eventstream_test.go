@@ -5,6 +5,7 @@ package kiro
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"testing"
 )
 
@@ -54,6 +55,7 @@ func buildEventStreamMessage(eventType string, payload []byte) []byte {
 // content.
 func TestParseEventStream_AssistantResponse(t *testing.T) {
 	frame := buildEventStreamMessage("assistantResponseEvent", []byte(`{"content":"hi"}`))
+	frame = append(frame, buildEventStreamMessage("metadataEvent", []byte(`{"stopReason":"END_TURN"}`))...)
 
 	var gotText string
 	var gotThinking bool
@@ -73,6 +75,25 @@ func TestParseEventStream_AssistantResponse(t *testing.T) {
 	}
 	if gotThinking {
 		t.Fatalf("expected non-thinking text for assistantResponseEvent, got isThinking=true")
+	}
+}
+
+func TestParseEventStream_FrameAlignedEOFWithoutStopReasonFails(t *testing.T) {
+	frame := buildEventStreamMessage("assistantResponseEvent", []byte(`{"content":"partial"}`))
+
+	err := parseEventStream(bytes.NewReader(frame), &KiroStreamCallback{})
+	if !errors.Is(err, ErrIncompleteEventStream) {
+		t.Fatalf("expected ErrIncompleteEventStream, got %v", err)
+	}
+}
+
+func TestParseEventStream_TerminalStopIgnoresTruncatedTrailingFrame(t *testing.T) {
+	stream := buildEventStreamMessage("assistantResponseEvent", []byte(`{"content":"complete"}`))
+	stream = append(stream, buildEventStreamMessage("metadataEvent", []byte(`{"stopReason":"END_TURN"}`))...)
+	stream = append(stream, []byte{0, 0, 0, 20}...)
+
+	if err := parseEventStream(bytes.NewReader(stream), &KiroStreamCallback{}); err != nil {
+		t.Fatalf("terminal stream must remain successful after a truncated trailing frame: %v", err)
 	}
 }
 

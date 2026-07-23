@@ -204,6 +204,7 @@ func (u *kiroCCUpstreamRecorder) DoWithTLS(req *http.Request, _ string, _ int64,
 	u.lastReq = req
 	frame := buildKiroEventStreamMessage("assistantResponseEvent",
 		[]byte(`{"content":"KIRO-CC-OK","inputTokens":4,"outputTokens":5}`))
+	frame = appendKiroTerminalStop(frame, "END_TURN")
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),

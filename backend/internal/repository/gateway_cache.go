@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 )
 
 const stickySessionPrefix = "sticky_session:"
+const kiroSessionRecoveryPrefix = "kiro_session_recovery:"
 
 type gatewayCache struct {
 	rdb *redis.Client
@@ -23,6 +25,10 @@ func NewGatewayCache(rdb *redis.Client) service.GatewayCache {
 // 格式: sticky_session:{groupID}:{sessionHash}
 func buildSessionKey(groupID int64, sessionHash string) string {
 	return fmt.Sprintf("%s%d:%s", stickySessionPrefix, groupID, sessionHash)
+}
+
+func buildKiroSessionRecoveryKey(groupID int64, sessionHash string) string {
+	return fmt.Sprintf("%s%d:%s", kiroSessionRecoveryPrefix, groupID, sessionHash)
 }
 
 func (c *gatewayCache) GetSessionAccountID(ctx context.Context, groupID int64, sessionHash string) (int64, error) {
@@ -51,6 +57,28 @@ func (c *gatewayCache) DeleteSessionAccountID(ctx context.Context, groupID int64
 	key := buildSessionKey(groupID, sessionHash)
 	return c.rdb.Del(ctx, key).Err()
 }
+
+// SetKiroSessionRecoveryExclusion records the failed account and clears the
+// sticky binding in one Redis transaction. Other sessions remain unaffected.
+func (c *gatewayCache) SetKiroSessionRecoveryExclusion(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {
+	_, err := c.rdb.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		pipe.Set(ctx, buildKiroSessionRecoveryKey(groupID, sessionHash), accountID, ttl)
+		pipe.Del(ctx, buildSessionKey(groupID, sessionHash))
+		return nil
+	})
+	return err
+}
+
+// ConsumeKiroSessionRecoveryExclusion atomically reads and removes the marker.
+func (c *gatewayCache) ConsumeKiroSessionRecoveryExclusion(ctx context.Context, groupID int64, sessionHash string) (int64, error) {
+	accountID, err := c.rdb.GetDel(ctx, buildKiroSessionRecoveryKey(groupID, sessionHash)).Int64()
+	if errors.Is(err, redis.Nil) {
+		return 0, nil
+	}
+	return accountID, err
+}
+
+var _ service.KiroSessionRecoveryStore = (*gatewayCache)(nil)
 
 // Compile-time assertion: gatewayCache must implement CyberSessionBlockStore.
 var _ service.CyberSessionBlockStore = (*gatewayCache)(nil)
