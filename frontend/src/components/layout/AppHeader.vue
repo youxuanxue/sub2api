@@ -26,15 +26,15 @@
         <!-- Announcement Bell -->
         <AnnouncementBell v-if="user" />
 
-        <!-- Pricing Link (TK cold-start, US-028) -->
+        <!-- Models & Pricing hub (TK cold-start) -->
         <router-link
           v-if="pricingCatalogPublic"
-          to="/pricing"
+          to="/models"
           class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
           data-tk="cold-start-header-pricing-link"
         >
           <Icon name="creditCard" size="sm" />
-          <span class="hidden sm:inline">{{ t('pricing.title') }}</span>
+          <span class="hidden sm:inline">{{ t('models.title') }}</span>
         </router-link>
 
         <!-- Docs Link -->

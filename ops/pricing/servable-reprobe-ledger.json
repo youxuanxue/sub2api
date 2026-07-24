@@ -6,7 +6,7 @@
       "platform": "antigravity",
       "model": "gemini-2.5-pro",
       "reason": "2026-06-23 prod /antigravity/v1beta generateContent returned 000 timeout/inconclusive; streamGenerateContent single-model retry also returned 000. Keep watchlisted because the same antigravity path served baseline models.",
-      "last_probe": "2026-06-23",
+      "last_probe": "2026-07-24",
       "freshness_days": 30,
       "auto_probe": false,
       "owner": "native-antigravity"
@@ -15,7 +15,7 @@
       "platform": "antigravity",
       "model": "claude-sonnet-4-5",
       "reason": "2026-06-23 prod /antigravity/v1/messages returned 429 not_allowlisted for this specific legacy model. Antigravity Claude support was later reopened only for the live #1265 subset; keep this model out until reprobed.",
-      "last_probe": "2026-06-23",
+      "last_probe": "2026-07-24",
       "freshness_days": 30,
       "auto_probe": false,
       "owner": "native-antigravity"
@@ -24,7 +24,7 @@
       "platform": "openai",
       "model": "gpt-5.1-codex",
       "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
-      "last_probe": "2026-06-23",
+      "last_probe": "2026-07-24",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_responses"
@@ -33,7 +33,7 @@
       "platform": "openai",
       "model": "gpt-5.1-codex-max",
       "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
-      "last_probe": "2026-06-23",
+      "last_probe": "2026-07-24",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_responses"
@@ -42,7 +42,7 @@
       "platform": "openai",
       "model": "gpt-5.1-codex-mini",
       "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
-      "last_probe": "2026-06-23",
+      "last_probe": "2026-07-24",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_responses"
@@ -51,7 +51,7 @@
       "platform": "openai",
       "model": "gpt-5.2-codex",
       "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
-      "last_probe": "2026-06-23",
+      "last_probe": "2026-07-24",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_responses"
@@ -203,7 +203,7 @@
       "platform": "newapi",
       "model": "qwq-32b",
       "reason": "2026-06-23 prod Qwen-group thinking and nonthinking probes returned 429 not_allowlisted; no schedulable account currently maps this id.",
-      "last_probe": "2026-06-23",
+      "last_probe": "2026-07-24",
       "freshness_days": 30,
       "auto_probe": false,
       "owner": "tokenkey-onboard-model"
@@ -220,7 +220,7 @@
       "platform": "newapi",
       "model": "deepseek-v4-none/max",
       "reason": "2026-06-23 prod deepseek-group probes for deepseek-v4-none and deepseek-v4-max returned 429 not_allowlisted; registered DeepSeek ids deepseek-v4-pro/flash and deepseek-chat/reasoner returned 200.",
-      "last_probe": "2026-06-23",
+      "last_probe": "2026-07-24",
       "freshness_days": 30,
       "auto_probe": false,
       "owner": "tokenkey-onboard-model"

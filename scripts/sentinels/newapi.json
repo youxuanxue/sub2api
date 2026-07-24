@@ -264,10 +264,12 @@
       "path": "frontend/src/components/common/ModelIcon.vue",
       "must_contain": [
         "model: unknown",
+        "resolveCatalogVendorIconKey",
+        "props.vendor",
         "modelText.value.toLowerCase()",
         "fallbackText"
       ],
-      "rationale": "ModelIcon was one of the observed crash sites (`model.toLowerCase is not a function`). It must tolerate object-shaped model values and derive icon matching from a normalized string, because upstream/shared UI changes can reintroduce direct string assumptions while TypeScript still compiles at call sites."
+      "rationale": "ModelIcon was one of the observed crash sites (`model.toLowerCase is not a function`). It must tolerate object-shaped model values and derive icon matching from a normalized string, because upstream/shared UI changes can reintroduce direct string assumptions while TypeScript still compiles at call sites. Catalog hub also passes explicit vendor slugs (vertex_ai-*, OpenAI, …) via resolveCatalogVendorIconKey before model-id inference so provider logos stay stable when model ids do not embed vendor tokens."
     },
     {
       "path": "frontend/src/composables/useModelWhitelist.ts",

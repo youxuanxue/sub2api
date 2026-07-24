@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import PricingView from '../PricingView.vue'
+import CatalogHubView from '../CatalogHubView.vue'
 import type { PublicCatalogResponse } from '@/api/pricing'
 import type { MePricingCatalogResponse } from '@/api/me-pricing'
 
@@ -13,7 +14,10 @@ const { getPublicPricing, getMePricingCatalog, authState, exportPricingCsv, show
     exportPricingCsv: vi.fn(),
     showSuccess: vi.fn(),
     showError: vi.fn(),
-    routeState: { query: {} as Record<string, string | string[] | undefined> },
+    routeState: {
+      path: '/models',
+      query: { view: 'pricing' } as Record<string, string | string[] | undefined>,
+    },
     routerPush: vi.fn(),
   }))
 
@@ -65,7 +69,11 @@ vi.mock('vue-i18n', async () => {
     'pricing.nav.console': 'Console',
     'pricing.nav.consoleTitleGuest': '',
     'pricing.nav.consoleTitleAuthed': '',
-    'pricing.title': 'Model Pricing',
+    'models.title': 'Model Marketplace',
+    'models.subtitle': 'Browse and compare AI models',
+    'catalog.viewBrowse': 'Browse',
+    'catalog.viewPricing': 'Pricing table',
+    'catalog.viewSwitcherAria': 'Catalog view',
     'pricing.subtitle': '',
     'pricing.description': 'Prices are per 1,000 tokens, in USD. Cache columns apply only when billed separately.',
     'pricing.columns.model': 'Model',
@@ -145,6 +153,7 @@ function mountPricingView() {
   return mount(PricingView, {
     global: {
       stubs: {
+        AppLayout: { template: '<div data-test="app-layout"><slot /></div>' },
         RouterLink: { template: '<a><slot /></a>' },
         LocaleSwitcher: true,
         Icon: true,
@@ -312,9 +321,33 @@ describe('PricingView', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-tk="pricing-page-header"]').exists()).toBe(true)
-    expect(wrapper.find('[data-tk="pricing-description-inline"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Prices are per 1,000 tokens, in USD.')
-    expect(wrapper.find('h1').classes().join(' ')).not.toContain('text-3xl')
+    expect(wrapper.find('[data-tk="pricing-panel"]').exists()).toBe(true)
+    expect(wrapper.find('h1').exists()).toBe(false)
+  })
+
+  it('uses AppLayout and in-page toolbar when authenticated', async () => {
+    authState.isAuthenticated = true
+    routeState.query = { view: 'pricing' }
+    getPublicPricing.mockResolvedValue(publicCatalog([publicModel('gpt-4o-mini')]))
+
+    const wrapper = mount(CatalogHubView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div data-test="app-layout"><slot /></div>' },
+          RouterLink: { props: ['to'], template: '<a><slot /></a>' },
+          LocaleSwitcher: true,
+          Icon: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="app-layout"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tk="catalog-hub-authed"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tk="catalog-hub-authed-toolbar"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tk="pricing-authed-toolbar"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tk="pricing-page-header"]').exists()).toBe(false)
+    expect(wrapper.find('h1').exists()).toBe(false)
   })
 
   it('uses wider layout wrapper (full catalog width)', async () => {
@@ -334,8 +367,18 @@ describe('PricingView', () => {
       ],
     }
     getPublicPricing.mockResolvedValue(catalog)
+    routeState.query = { view: 'pricing' }
 
-    const wrapper = mountPricingView()
+    const wrapper = mount(CatalogHubView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div data-test="app-layout"><slot /></div>' },
+          RouterLink: { props: ['to'], template: '<a><slot /></a>' },
+          LocaleSwitcher: true,
+          Icon: true,
+        },
+      },
+    })
     await flushPromises()
 
     expect(wrapper.html()).toContain('max-w-[90rem]')

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
-import ModelMarketplaceView from '../ModelMarketplaceView.vue'
+import CatalogHubView from '../CatalogHubView.vue'
 import type { PublicCatalogModel, PublicCatalogResponse } from '@/api/pricing'
 
 const { getPublicPricing, authState } = vi.hoisted(() => ({
@@ -17,11 +17,18 @@ vi.mock('@/stores/auth', () => ({
   useAuthStore: () => authState,
 }))
 
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ path: '/models', query: {} }),
+}))
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   const modelsEn: Record<string, string> = {
     'models.title': 'Model Marketplace',
-    'models.subtitle': 'Browse models',
+    'models.subtitle': 'Browse and compare AI models',
+    'catalog.viewBrowse': 'Browse',
+    'catalog.viewPricing': 'Pricing table',
+    'catalog.viewSwitcherAria': 'Catalog view',
     'models.filterAll': 'All',
     'models.filterText': 'Text',
     'models.filterImage': 'Image',
@@ -73,16 +80,17 @@ function model(
 }
 
 function mountMarketplace() {
-  return mount(ModelMarketplaceView, {
+  return mount(CatalogHubView, {
     global: {
       stubs: {
+        AppLayout: { template: '<div data-test="app-layout"><slot /></div>' },
         RouterLink: { props: ['to'], template: '<a><slot /></a>' },
       },
     },
   })
 }
 
-describe('ModelMarketplaceView', () => {
+describe('CatalogHubView', () => {
   beforeEach(() => {
     getPublicPricing.mockReset()
     authState.isAuthenticated = false
@@ -214,7 +222,7 @@ describe('ModelMarketplaceView', () => {
 
     const vertexButtons = wrapper
       .findAll('button')
-      .filter((button) => button.text().trim() === 'vertex_ai (3)')
+      .filter((button) => button.text().includes('Vertex AI') && button.text().includes('(3)'))
     expect(vertexButtons).toHaveLength(2)
     expect(wrapper.findAll('button').some((button) => button.text().includes('vertex_ai-language-models'))).toBe(false)
 
@@ -236,5 +244,40 @@ describe('ModelMarketplaceView', () => {
 
     expect(wrapper.text()).toContain('No models match your filters.')
     expect(wrapper.text()).not.toContain('gpt-4o-mini')
+  })
+
+  it('uses the authenticated app shell instead of the guest landing chrome', async () => {
+    authState.isAuthenticated = true
+    getPublicPricing.mockResolvedValue(catalog([model('gpt-4o-mini', 'OpenAI')]))
+
+    const wrapper = mountMarketplace()
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="app-layout"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tk="catalog-hub-authed"]').exists()).toBe(true)
+    expect(wrapper.find('h1').exists()).toBe(false)
+    expect(wrapper.find('[data-tk="catalog-view-switcher"]').exists()).toBe(true)
+  })
+
+  it('renders provider logos in sidebar and model cards', async () => {
+    getPublicPricing.mockResolvedValue(
+      catalog([
+        model('gpt-4o-mini', 'OpenAI'),
+        model('claude-sonnet-4', 'anthropic'),
+      ])
+    )
+
+    const wrapper = mountMarketplace()
+    await flushPromises()
+
+    const sidebarOpenAI = wrapper.find('[data-tk="models-marketplace-vendor-OpenAI"]')
+    expect(sidebarOpenAI.exists()).toBe(true)
+    expect(sidebarOpenAI.find('svg.model-icon').exists()).toBe(true)
+    expect(sidebarOpenAI.text()).toContain('OpenAI')
+
+    const card = wrapper.find('[data-tk="models-marketplace-card-gpt-4o-mini"]')
+    expect(card.exists()).toBe(true)
+    expect(card.find('svg.model-icon').exists()).toBe(true)
+    expect(card.text()).toContain('OpenAI')
   })
 })

@@ -9,7 +9,7 @@
         <p>{{ t('studio.video.modelEmpty') }}</p>
         <p v-if="anyKeyServesVideo" class="mt-2 font-medium text-amber-800 dark:text-amber-200">{{ t('studio.video.modelEmptySwitchKey') }}</p>
         <p v-else class="mt-2 text-xs text-gray-400 dark:text-dark-500">{{ t('studio.video.modelEmptyAllKeys') }}</p>
-        <router-link class="mt-2 block font-medium text-primary-600 underline dark:text-primary-400" to="/pricing">
+        <router-link class="mt-2 block font-medium text-primary-600 underline dark:text-primary-400" to="/models?view=pricing">
           {{ t('studio.viewPricing') }}
         </router-link>
       </div>

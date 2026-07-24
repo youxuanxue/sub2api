@@ -366,6 +366,11 @@ const en: LocaleOverlay = {
       "prompt_caching": "Prompt caching"
     }
   },
+  "catalog": {
+    "viewBrowse": "Browse",
+    "viewPricing": "Pricing table",
+    "viewSwitcherAria": "Catalog view"
+  },
   "nav": {
     "quickstart": "Tool Integrations",
     "edgeAccounts": "Edge Accounts",
@@ -1255,6 +1260,11 @@ const zh: LocaleOverlay = {
       "json": "JSON 模式",
       "prompt_caching": "提示缓存"
     }
+  },
+  "catalog": {
+    "viewBrowse": "浏览",
+    "viewPricing": "价格表",
+    "viewSwitcherAria": "目录视图切换"
   },
   "nav": {
     "quickstart": "工具接入",

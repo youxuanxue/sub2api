@@ -18,11 +18,17 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { resolveCatalogVendorIconKey } from '@/utils/catalogVendorIcon.tk'
 
+// Sentinel anchor: model: unknown — tolerate object-shaped catalog entries.
 const props = withDefaults(defineProps<{
-  model: unknown
+  model?: unknown
+  /** Catalog vendor slug (takes precedence over model-id inference). */
+  vendor?: string
   size?: string
 }>(), {
+  model: undefined,
+  vendor: undefined,
   size: '18px'
 })
 
@@ -169,7 +175,13 @@ const modelText = computed(() => {
 const fallbackText = computed(() => (modelText.value.charAt(0) || '?').toUpperCase())
 
 const iconKey = computed(() => {
+  if (props.vendor) {
+    const fromVendor = resolveCatalogVendorIconKey(props.vendor)
+    if (fromVendor) return fromVendor
+  }
+
   const modelLower = modelText.value.toLowerCase()
+  if (!modelLower) return null
 
   // OpenAI models
   if (modelLower.startsWith('gpt') || modelLower.startsWith('o1') ||

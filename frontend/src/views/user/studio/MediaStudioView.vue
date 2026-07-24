@@ -1,19 +1,6 @@
 <template>
   <AppLayout>
     <div class="mx-auto flex max-w-6xl flex-col gap-5 px-4 py-6 lg:px-6">
-      <header class="flex flex-wrap items-end justify-between gap-3">
-        <div class="space-y-1">
-          <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">{{ t('studio.title') }}</h1>
-          <p class="text-sm text-gray-600 dark:text-dark-300">{{ t('studio.subtitle') }}</p>
-        </div>
-        <div class="flex items-center gap-2 text-sm">
-          <span class="text-gray-500 dark:text-dark-400">{{ t('studio.balance') }}</span>
-          <span class="rounded-lg bg-primary-50 px-3 py-1.5 font-semibold text-primary-700 dark:bg-primary-950/50 dark:text-primary-300">
-            {{ formatUsd(balance) }}
-          </span>
-        </div>
-      </header>
-
       <!-- No key: gate to /keys (login itself is enforced by the router guard). -->
       <div
         v-if="loadError"
@@ -170,7 +157,6 @@ import { keysAPI } from '@/api/keys'
 import { gatewayListModels, resolveGatewayBaseUrl } from '@/api/playground'
 import { getMePricingCatalog } from '@/api/me-pricing'
 import { getPublicPricing } from '@/api/pricing'
-import { formatUsd } from '@/utils/mediaCostEstimate.tk'
 import {
   entitledModelIds,
   isUniversalKey,

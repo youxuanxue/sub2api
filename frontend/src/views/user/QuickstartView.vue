@@ -1,15 +1,6 @@
 <template>
   <AppLayout>
     <div class="mx-auto max-w-6xl space-y-6 py-4">
-      <header>
-        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
-          {{ t('quickstart.title') }}
-        </h1>
-        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          {{ t('quickstart.subtitle') }}
-        </p>
-      </header>
-
       <section class="border-y border-gray-200 py-5 dark:border-dark-700">
         <div v-if="keysLoading" class="flex items-center justify-center py-6">
           <LoadingSpinner />
@@ -198,7 +189,7 @@
 
       <div class="flex flex-wrap items-center justify-center gap-4 pb-6">
         <router-link to="/keys" class="btn btn-secondary text-sm">{{ t('quickstart.manageKeys') }}</router-link>
-        <router-link to="/pricing" class="btn btn-secondary text-sm">{{ t('quickstart.viewPricing') }}</router-link>
+        <router-link to="/models?view=pricing" class="btn btn-secondary text-sm">{{ t('quickstart.viewPricing') }}</router-link>
         <router-link to="/studio" class="btn btn-primary text-sm">{{ t('quickstart.tryStudio') }}</router-link>
       </div>
     </div>

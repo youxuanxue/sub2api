@@ -7,7 +7,7 @@
       </div>
       <div v-else-if="models.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400">
         {{ t('studio.image.modelEmpty') }}
-        <router-link class="mt-1 block font-medium text-primary-600 underline dark:text-primary-400" to="/pricing">
+        <router-link class="mt-1 block font-medium text-primary-600 underline dark:text-primary-400" to="/models?view=pricing">
           {{ t('studio.viewPricing') }}
         </router-link>
       </div>
