@@ -4856,6 +4856,7 @@
       "must_contain": [
         "openAICompatBufferedMissingTerminalResult",
         "openAICompatBufferedFailedResponseResult",
+        "openAIStreamFailedClientResponse",
         "acc.HasContent()",
         "openAIStreamFailedEventShouldFailover",
         "newOpenAIStreamFailoverError"
@@ -5298,6 +5299,35 @@
         "admin.users.api_keys.create"
       ],
       "rationale": "Admin handler for POST /admin/users/:id/api-keys. Pins the CreateForUser entry point and idempotency scope for ops relay key provisioning."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "func openAIStreamFailedClientResponse(",
+        "must not surface as 502"
+      ],
+      "rationale": "PR #1461: semantic HTTP status/type mapping for response.failed on compat paths when no admin passthrough rule matches. Caller-fault rejections (context window, invalid_request, auth, rate limit) must not surface as 502 upstream_error — Claude Code and Codex CLI treat 502 as transient and retry unrecoverable prompt-size failures into a storm."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "openAIStreamFailedClientResponse(payloadBytes, message, \"upstream_error\")"
+      ],
+      "rationale": "PR #1461 wiring: /v1/chat/completions streaming response.failed must use openAIStreamFailedClientResponse so context-window and other caller-fault errors return 400 invalid_request_error instead of 502 upstream_error when no passthrough rule matches."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages.go",
+      "must_contain": [
+        "openAIStreamFailedClientResponse(payloadBytes, message, \"api_error\")"
+      ],
+      "rationale": "PR #1461 wiring: /v1/messages (Anthropic compat) streaming response.failed must use openAIStreamFailedClientResponse so context-window failures return 400 instead of 502 — the prod incident path for gpt-5.6-sol Claude Code sessions."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_response_failed_passthrough_test.go",
+      "must_contain": [
+        "TestForwardAsChatCompletions_ResponseFailed_NoRule_ContextWindowReturns400"
+      ],
+      "rationale": "PR #1461 regression: without an admin passthrough rule, context_length_exceeded response.failed on buffered chat/completions must return HTTP 400 invalid_request_error, not 502."
     }
   ]
 }

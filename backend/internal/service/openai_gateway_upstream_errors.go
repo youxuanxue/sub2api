@@ -585,6 +585,8 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 	}
 	if isOpenAIContextWindowError(upstreamMsg, body) && upstreamMsg != "" {
 		errMsg = upstreamMsg
+		statusCode = http.StatusBadRequest
+		errType = "invalid_request_error"
 	}
 
 	c.JSON(statusCode, gin.H{

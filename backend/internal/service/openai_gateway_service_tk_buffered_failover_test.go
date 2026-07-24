@@ -192,7 +192,7 @@ func TestForwardAsAnthropic_BufferedContextWindowResponseFailedReturnsErrorWitho
 	var failoverErr *UpstreamFailoverError
 	require.False(t, errors.As(err, &failoverErr))
 	require.True(t, c.Writer.Written())
-	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Contains(t, rec.Body.String(), "input exceeds the context window")
 }
 
