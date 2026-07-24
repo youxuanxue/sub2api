@@ -19,7 +19,7 @@ test.describe('PR #1459 UI acceptance', () => {
     await expect(page.locator('section.border-y')).toHaveCount(0)
   })
 
-  test('models browse: switcher shares toolbar row with search (authed)', async ({ page, baseURL }) => {
+  test('models browse: switcher shares toolbar row with search (authed)', async ({ page }) => {
     await login(page)
     await page.goto('/models')
     await expect(page.locator('[data-tk="catalog-hub-authed"]')).toBeVisible({ timeout: 20_000 })
