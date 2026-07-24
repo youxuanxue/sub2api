@@ -295,4 +295,17 @@ describe('MediaStudioView bootstrap', () => {
     expect(wrapper.find('[data-testid="bakeoff-stub-key"]').text()).toBe('sk-image')
     expect(getMePricingCatalog).toHaveBeenCalledWith({ apiKeyId: 2 })
   })
+
+  it('does not duplicate the route title inside page content', async () => {
+    listKeys.mockResolvedValue({
+      items: [{ id: 1, name: 'trial', key: 'sk-test', group: { id: 10, name: 'default' } }],
+    })
+
+    const wrapper = mount(MediaStudioView, {
+      global: { plugins: [i18n], stubs: { 'router-link': true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('h1').exists()).toBe(false)
+  })
 })

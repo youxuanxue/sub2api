@@ -163,14 +163,14 @@
       "rationale": "Single source of truth for public pricing-catalog modality and price presentation across /models, /pricing, and Studio catalog consumers. Losing this owner can compile green if pages reintroduce local billing_mode branches, then silently split text/image/video membership or price precision between catalog surfaces."
     },
     {
-      "path": "frontend/src/views/ModelMarketplaceView.vue",
+      "path": "frontend/src/views/ModelMarketplaceCatalog.vue",
       "must_contain": [
         "from '@/utils/pricingCatalogPresentation.tk'",
         "formatCatalogMediaPrice",
         "pricingCatalogModality",
         "marketplaceVendor"
       ],
-      "rationale": "The /models injection point for shared catalog modality/price presentation plus provider-family normalization. Anchors prevent an upstream rewrite from restoring token-only Free labels for priced media or splitting Vertex modality-specific provider aliases back into separate vendors."
+      "rationale": "The /models browse panel injection point for shared catalog modality/price presentation plus provider-family normalization (CatalogHubView shell + ModelMarketplaceCatalog panel after catalog-hub refactor). Anchors prevent an upstream rewrite from restoring token-only Free labels for priced media or splitting Vertex modality-specific provider aliases back into separate vendors."
     },
     {
       "path": "frontend/src/utils/studioMediaCatalog.tk.ts",

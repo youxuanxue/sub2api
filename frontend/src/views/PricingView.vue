@@ -1,90 +1,47 @@
 <template>
   <div
-    class="relative flex flex-col bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
-    :class="
-      pricingCatalogScrollMode
-        ? 'h-[100dvh] max-h-[100dvh] overflow-hidden'
-        : 'min-h-screen'
-    "
+    class="catalog-panel-enter flex min-h-0 w-full flex-1 flex-col"
+    :class="pricingBodyClass"
+    data-tk="pricing-panel"
   >
-    <main
-      class="relative z-10 flex min-h-0 flex-1 flex-col px-4 pt-3 sm:px-6 sm:pt-4"
-      :class="pricingCatalogScrollMode ? 'overflow-hidden pb-4' : 'pb-16'"
+    <div
+      class="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200/80 pb-3 dark:border-dark-800"
+      :data-tk="isAuthenticated ? 'pricing-authed-toolbar' : 'pricing-page-header'"
     >
-      <!-- Compact chrome: nav + title + actions in one band (table body scrolls below) -->
-      <div
-        class="mx-auto w-full max-w-[90rem] shrink-0 border-b border-gray-200/80 pb-2 dark:border-dark-800"
-        data-tk="pricing-page-header"
+      <p
+        v-if="!loading && !errorMessage && rowTotal > 0"
+        class="min-w-0 flex-1 truncate text-[11px] tabular-nums text-gray-500 dark:text-dark-400 sm:text-xs"
+        data-tk="pricing-active-catalog"
       >
-        <div class="flex flex-wrap items-start gap-x-3 gap-y-2 py-1.5 lg:flex-nowrap lg:items-center">
-          <div class="flex min-w-0 flex-wrap items-center gap-2.5 sm:gap-3">
-            <nav class="flex shrink-0 items-center gap-1.5" :aria-label="t('pricing.nav.aria')">
-              <router-link to="/home" :class="NAV_LINK_COMPACT_CLASS">
-                <Icon name="home" size="sm" :class="NAV_ICON_CLASS" />
-                <span class="hidden sm:inline">{{ t('pricing.nav.home') }}</span>
-              </router-link>
-              <router-link
-                :to="consolePath"
-                :class="NAV_LINK_COMPACT_CLASS"
-                :title="consoleLinkTitle"
-              >
-                <Icon name="grid" size="sm" :class="NAV_ICON_CLASS" />
-                <span class="hidden sm:inline">{{ t('pricing.nav.console') }}</span>
-              </router-link>
-            </nav>
-            <span
-              class="hidden h-4 w-px shrink-0 bg-gray-200 dark:bg-dark-700 sm:block"
-              aria-hidden="true"
-            />
-            <div class="min-w-0 shrink-0">
-              <h1
-                class="truncate text-base font-semibold tracking-tight text-gray-900 dark:text-white sm:text-lg"
-              >
-                {{ heroTitle }}
-              </h1>
-            </div>
-          </div>
-          <p
-            class="order-last min-w-0 basis-full text-left text-[11px] leading-snug text-gray-500 dark:text-dark-400 sm:order-none sm:flex-1 sm:basis-auto sm:text-xs"
-            data-tk="pricing-description-inline"
-          >
-            {{ heroDescription }}
-          </p>
-          <div class="ml-auto flex shrink-0 items-center gap-2 sm:ml-0">
-            <router-link
-              v-if="bonusCtaVisible"
-              to="/register"
-              class="hidden rounded-lg bg-primary-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 sm:inline-flex"
-            >
-              {{ t('pricing.ctaBonus', { amount: signupBonusFormatted }) }}
-            </router-link>
-            <button
-              v-if="canExportPricing && !loading && !errorMessage && rowTotal > 0"
-              type="button"
-              :disabled="exporting"
-              class="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-100 dark:hover:bg-dark-700 sm:text-xs"
-              data-tk="pricing-export-csv"
-              @click="onExportPricing"
-            >
-              <Icon name="download" size="sm" :stroke-width="2" />
-              <span class="hidden sm:inline">{{ t('pricing.export.button') }}</span>
-            </button>
-            <LocaleSwitcher />
-          </div>
-        </div>
-        <p
-          v-if="!loading && !errorMessage && rowTotal > 0"
-          class="truncate text-[11px] tabular-nums text-gray-500 dark:text-dark-400"
-          data-tk="pricing-active-catalog"
+        {{ activeCatalogLabel }}
+        <span v-if="formattedUpdatedAt" class="text-gray-400 dark:text-dark-500">
+          · {{ t('pricing.updatedAt', { time: formattedUpdatedAt }) }}
+        </span>
+      </p>
+      <div class="flex shrink-0 flex-wrap items-center gap-2">
+        <router-link
+          v-if="bonusCtaVisible"
+          to="/register"
+          class="hidden rounded-lg bg-primary-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 sm:inline-flex"
         >
-          {{ activeCatalogLabel }}
-          <span v-if="formattedUpdatedAt" class="text-gray-400 dark:text-dark-500">
-            · {{ t('pricing.updatedAt', { time: formattedUpdatedAt }) }}
-          </span>
-        </p>
+          {{ t('pricing.ctaBonus', { amount: signupBonusFormatted }) }}
+        </router-link>
+        <button
+          v-if="canExportPricing && !loading && !errorMessage && rowTotal > 0"
+          type="button"
+          :disabled="exporting"
+          class="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-100 dark:hover:bg-dark-700 sm:text-xs"
+          data-tk="pricing-export-csv"
+          @click="onExportPricing"
+        >
+          <Icon name="download" size="sm" :stroke-width="2" />
+          <span class="hidden sm:inline">{{ t('pricing.export.button') }}</span>
+        </button>
+        <LocaleSwitcher v-if="!isAuthenticated" />
       </div>
+    </div>
 
-      <div class="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col">
+    <div class="flex min-h-0 w-full flex-1 flex-col">
         <!-- Unified catalog filters: key, group/public scope, search. -->
         <div
           v-if="!loading && !errorMessage"
@@ -539,8 +496,7 @@
             </div>
           </div>
         </div>
-      </div>
-    </main>
+    </div>
   </div>
 </template>
 
@@ -655,22 +611,7 @@ const bonusCtaVisible = computed(() => {
   return amt > 0 && !authStore.isAuthenticated
 })
 
-/** Shared nav pill styles — single source to reduce churn vs upstream-style pages. */
-const NAV_LINK_COMPACT_CLASS =
-  'group inline-flex items-center gap-1 rounded-lg border border-gray-200/80 bg-white/90 px-2 py-1 text-xs font-medium text-gray-700 shadow-sm backdrop-blur transition-colors hover:border-primary-200 hover:bg-primary-50/80 hover:text-primary-800 dark:border-dark-700 dark:bg-dark-900/70 dark:text-dark-200 dark:hover:border-primary-700/60 dark:hover:bg-primary-950/40 dark:hover:text-primary-200'
-const NAV_ICON_CLASS =
-  'text-gray-500 transition-colors group-hover:text-primary-600 dark:text-dark-400 dark:group-hover:text-primary-300'
-
-const consolePath = computed(() => {
-  if (!authStore.isAuthenticated) {
-    return { path: '/login', query: { redirect: '/dashboard' } }
-  }
-  return authStore.isAdmin ? '/admin/dashboard' : '/dashboard'
-})
-
-const consoleLinkTitle = computed(() =>
-  authStore.isAuthenticated ? t('pricing.nav.consoleTitleAuthed') : t('pricing.nav.consoleTitleGuest')
-)
+const isAuthenticated = computed(() => authStore.isAuthenticated)
 
 // ============================== view-state ==============================
 
@@ -767,10 +708,20 @@ const onExportPricing = async (): Promise<void> => {
   }
 }
 
-// ============================== hero copy ==============================
+// ============================== layout ==============================
 
-const heroTitle = computed(() => t('pricing.title'))
-const heroDescription = computed(() => t('pricing.description'))
+const pricingCatalogScrollMode = computed(() => {
+  if (loading.value || errorMessage.value) return false
+  return rowTotal.value > 0
+})
+
+const pricingBodyClass = computed(() =>
+  isAuthenticated.value && pricingCatalogScrollMode.value
+    ? 'min-h-0 max-h-[calc(100dvh-12rem)] overflow-hidden'
+    : !isAuthenticated.value && pricingCatalogScrollMode.value
+      ? 'min-h-0 flex-1 overflow-hidden'
+      : '',
+)
 
 const inputColumnTitle = computed(() =>
   viewMode.value === 'my' ? t('pricing.my.columns.input') : t('pricing.columns.input')
@@ -1007,13 +958,6 @@ function peakValleyTooltip(row: NormalizedRow): string {
 function formatBillingMode(mode: string): string {
   return t(`pricing.my.billingMode.${mode}`, mode)
 }
-
-// ============================== layout ==============================
-
-const pricingCatalogScrollMode = computed(() => {
-  if (loading.value || errorMessage.value) return false
-  return rowTotal.value > 0
-})
 
 // ============================== loaders ==============================
 

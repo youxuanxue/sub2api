@@ -171,22 +171,22 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/models',
     name: 'ModelMarketplace',
-    component: () => import('@/views/ModelMarketplaceView.vue'),
+    component: () => import('@/views/CatalogHubView.vue'),
     meta: {
       requiresAuth: false,
       title: 'Model Marketplace',
-      titleKey: 'models.title'
+      titleKey: 'models.title',
+      descriptionKey: 'models.subtitle'
     }
   },
   {
     path: '/pricing',
     name: 'Pricing',
-    component: () => import('@/views/PricingView.vue'),
-    meta: {
-      requiresAuth: false,
-      title: 'Pricing',
-      titleKey: 'pricing.title'
-    }
+    redirect: (to) => ({
+      path: '/models',
+      query: { ...to.query, view: 'pricing' },
+      hash: to.hash,
+    }),
   },
   {
     path: '/legal/:documentId',
@@ -241,7 +241,8 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: false,
       title: 'Tool Integrations',
-      titleKey: 'quickstart.title'
+      titleKey: 'quickstart.title',
+      descriptionKey: 'quickstart.subtitle'
     }
   },
   {

@@ -134,6 +134,25 @@ async function installQuickstartFixture(page: Page): Promise<void> {
   }))
 }
 
+/** Extends the quickstart fixture with the minimum console chrome + studio bootstrap mocks. */
+async function installConsoleChromeFixture(page: Page): Promise<void> {
+  await installQuickstartFixture(page)
+  const ok = (data: unknown) => ({ code: 0, message: 'ok', data })
+  await page.route('**/api/v1/settings/public', (route) => route.fulfill({
+    json: ok({
+      api_base_url: route.request().url().replace(/\/api\/v1\/settings\/public.*$/, ''),
+      pricing_catalog_public: true,
+      custom_menu_items: [],
+      custom_endpoints: [],
+    }),
+  }))
+  await page.route('**/api/v1/subscriptions/active', (route) => route.fulfill({ json: ok([]) }))
+  await page.route('**/api/v1/announcements**', (route) => route.fulfill({ json: ok([]) }))
+  await page.route('**/v1/models', (route) => route.fulfill({
+    json: { object: 'list', data: [{ id: 'gpt-5.5' }] },
+  }))
+}
+
 async function publicCatalogCounts(baseURL: string): Promise<{ all: number; image: number; video: number }> {
   const res = await fetch(`${baseURL}/api/v1/public/pricing`)
   if (!res.ok) return { all: 0, image: 0, video: 0 }
@@ -172,6 +191,14 @@ test.describe('catalog UX — models / pricing / quickstart', () => {
     }
   })
 
+  test('legacy /pricing URL redirects to models pricing view', async ({ page }) => {
+    await installConsoleChromeFixture(page)
+    await page.goto('/pricing?model=gpt-4o-mini')
+    await page.waitForLoadState('networkidle')
+    await expect(page).toHaveURL(/\/models\?.*view=pricing/)
+    await expect(page).toHaveURL(/model=gpt-4o-mini/)
+  })
+
   test('pricing authorized-groups quick start lands on quickstart with model prefilled', async ({ page, baseURL }) => {
     const counts = await publicCatalogCounts(baseURL!)
     test.skip(counts.all === 0, 'public catalog empty in this environment')
@@ -186,7 +213,7 @@ test.describe('catalog UX — models / pricing / quickstart', () => {
     test.skip(!sample?.model_id, 'no sample model in catalog')
 
     const modelId = sample.model_id
-    await page.goto(`/pricing?model=${encodeURIComponent(modelId)}`)
+    await page.goto(`/models?view=pricing&model=${encodeURIComponent(modelId)}`)
     await expect(page.locator('#pricing-model-search')).toHaveValue(modelId, { timeout: 20_000 })
 
     const quickstart = page.locator('[data-tk="pricing-quickstart-for-model"]').first()
@@ -220,6 +247,31 @@ test.describe('catalog UX — models / pricing / quickstart', () => {
     await expect(modelSelect).toHaveValue('gpt-5.5')
     await expect(page.locator('[data-tk="quickstart-config-preview-0"]')).not.toContainText('gpt-query-only')
     await expect.poll(() => new URL(page.url()).searchParams.get('model')).toBe('gpt-5.5')
+  })
+
+  test('authenticated app pages expose one header title and no in-content h1 duplicates', async ({ page }) => {
+    await installConsoleChromeFixture(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+
+    for (const path of ['/quickstart', '/studio', '/models', '/models?view=pricing']) {
+      await page.goto(path)
+      await page.waitForLoadState('networkidle')
+      await expect(page.locator('header.glass h1')).toHaveCount(1)
+      await expect(page.locator('main h1')).toHaveCount(0)
+    }
+  })
+
+  test('models page uses app shell when logged in', async ({ page }) => {
+    await installConsoleChromeFixture(page)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/models')
+    await page.waitForLoadState('networkidle')
+
+    await expect(page.locator('aside.sidebar')).toBeVisible()
+    await expect(page.locator('[data-tk="catalog-hub-authed"]')).toBeVisible()
+    await expect(page.locator('header.glass h1')).toHaveCount(1)
+    await expect(page.locator('main h1')).toHaveCount(0)
+    await expect(page.locator('[data-tk="models-marketplace-grid"]')).toBeVisible({ timeout: 20_000 })
   })
 
   test('quickstart tool-first picker drives client config across desktop and mobile', async ({ page }) => {

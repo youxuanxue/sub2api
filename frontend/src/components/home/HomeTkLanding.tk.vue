@@ -42,17 +42,6 @@
           <!-- Language Switcher -->
           <LocaleSwitcher />
 
-          <!-- Pricing Link (TK: docs/approved/user-cold-start.md §2 v1) -->
-          <router-link
-            v-if="pricingCatalogPublic"
-            to="/pricing"
-            class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
-            :title="t('pricing.title')"
-            data-tk="cold-start-pricing-link"
-          >
-            <Icon name="creditCard" size="md" />
-          </router-link>
-
           <!-- Doc Link -->
           <a
             v-if="docUrl"
@@ -149,14 +138,21 @@
               </span>
             </div>
 
-            <!-- CTA Button -->
-            <div>
+            <!-- CTA Buttons -->
+            <div class="flex flex-wrap items-center justify-center gap-3 lg:justify-start">
               <router-link
                 :to="isAuthenticated ? '/quickstart' : '/register?redirect=/quickstart'"
                 class="btn btn-primary px-8 py-3 text-base shadow-lg shadow-primary-500/30"
               >
                 {{ isAuthenticated ? t('quickstart.title') : t('home.getStarted') }}
                 <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
+              </router-link>
+              <router-link
+                to="/models"
+                class="btn btn-secondary px-6 py-3 text-base"
+                data-tk="cold-start-models-hub-hero"
+              >
+                {{ t('models.title') }}
               </router-link>
             </div>
           </div>
@@ -261,37 +257,57 @@
             :class="homeProviderCardClass(card.badge)"
           >
             <div
-              class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br"
+              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br"
               :class="card.gradient"
             >
               <span class="text-xs font-bold text-white">{{ card.glyph }}</span>
             </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{
-              t(card.labelKey)
-            }}</span>
-            <span
-              v-if="card.badge !== 'compatible'"
-              class="rounded px-1.5 py-0.5 text-[10px] font-medium"
-              :class="homeProviderBadgeClass(card.badge)"
-              >{{ t(homeProviderBadgeKey(card.badge)) }}</span
-            >
-            <span
-              v-for="mod in card.modalities || []"
-              :key="mod"
-              class="rounded px-1.5 py-0.5 text-[10px] font-medium"
-              :class="homeProviderModalityClass(mod)"
-              >{{ homeProviderModalityLabel(mod) }}</span
-            >
+            <div class="flex min-w-0 flex-col gap-1">
+              <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{
+                  t(card.labelKey)
+                }}</span>
+                <span
+                  v-if="card.taglineKey"
+                  class="text-xs font-semibold tracking-wide text-primary-600 dark:text-primary-400"
+                >
+                  {{ t(card.taglineKey) }}
+                </span>
+                <span
+                  v-if="card.badge !== 'compatible'"
+                  class="rounded px-1.5 py-0.5 text-[10px] font-medium"
+                  :class="homeProviderBadgeClass(card.badge)"
+                  >{{ t(homeProviderBadgeKey(card.badge)) }}</span
+                >
+                <span
+                  v-for="mod in card.modalities || []"
+                  :key="mod"
+                  class="rounded px-1.5 py-0.5 text-[10px] font-medium"
+                  :class="homeProviderModalityClass(mod)"
+                  >{{ homeProviderModalityLabel(mod) }}</span
+                >
+              </div>
+              <div v-if="card.protocolTagKeys?.length" class="flex flex-wrap gap-1">
+                <span
+                  v-for="tagKey in card.protocolTagKeys"
+                  :key="tagKey"
+                  class="rounded border border-primary-200/80 bg-primary-50/80 px-1.5 py-0.5 font-mono text-[10px] font-medium text-primary-700 dark:border-primary-800/60 dark:bg-primary-950/40 dark:text-primary-300"
+                >
+                  {{ t(tagKey) }}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <!-- Browse All Models CTA -->
+        <!-- Model marketplace CTA (below providers) -->
         <div class="mb-16 text-center">
           <router-link
             to="/models"
             class="inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-5 py-2.5 text-sm font-medium text-primary-700 transition-all hover:bg-primary-100 hover:shadow-md dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300 dark:hover:bg-primary-900/50"
+            data-tk="cold-start-models-hub-link"
           >
-            {{ t('models.browseAll') }}
+            {{ t('models.title') }}
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
             </svg>
@@ -591,13 +607,6 @@ const appStore = useAppStore()
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'TokenKey')
 const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '')
 const docUrl = computed(() => appStore.cachedPublicSettings?.doc_url || appStore.docUrl || '')
-// TK cold-start (US-028): public pricing entry visibility. Defaults to true so a
-// brand-new install without the row in DB still surfaces the link; flips off
-// only when an admin explicitly disables `pricing_catalog_public`.
-const pricingCatalogPublic = computed(() => {
-  const v = appStore.cachedPublicSettings?.pricing_catalog_public
-  return v === undefined ? true : v
-})
 
 // Theme
 const isDark = ref(document.documentElement.classList.contains('dark'))

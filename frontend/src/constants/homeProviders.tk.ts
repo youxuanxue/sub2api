@@ -25,6 +25,10 @@ export interface HomeProviderCard {
   gradient: string
   /** badge semantics → drives card chrome + badge text */
   badge: HomeProviderBadge
+  /** optional second line (e.g. protocol-matrix tagline on the compat card) */
+  taglineKey?: string
+  /** protocol surface pills shown on the compat card */
+  protocolTagKeys?: string[]
   /** additional modalities beyond text (image gen, video gen) */
   modalities?: HomeProviderModality[]
 }
@@ -35,14 +39,26 @@ export const HOME_PROVIDER_CARDS: HomeProviderCard[] = [
   { id: 'gemini', labelKey: 'home.providers.gemini', glyph: 'G', gradient: 'from-blue-500 to-blue-600', badge: 'supported', modalities: ['image', 'video'] },
   { id: 'kiro', labelKey: 'home.providers.kiro', glyph: 'K', gradient: 'from-indigo-500 to-indigo-600', badge: 'supported' },
   { id: 'qwen', labelKey: 'home.providers.qwen', glyph: 'Q', gradient: 'from-violet-500 to-purple-600', badge: 'supported', modalities: ['image'] },
-  // 泛化卡: 不点名具体上游, 只表达「可接入」, 样式弱于实测卡。
-  { id: 'compat', labelKey: 'home.providers.compatTitle', glyph: '+', gradient: 'from-gray-500 to-gray-600', badge: 'compatible' },
+  // 协议矩阵卡: 100+ 模型 + 客户端常见 API 形态，措辞准确、不夸大 OpenAI-compat 数量。
+  {
+    id: 'compat',
+    labelKey: 'home.providers.compatTitle',
+    taglineKey: 'home.providers.compatTagline',
+    protocolTagKeys: [
+      'home.providers.compatProtocolMessages',
+      'home.providers.compatProtocolChat',
+      'home.providers.compatProtocolResponses',
+    ],
+    glyph: '⎔',
+    gradient: 'from-primary-500 to-teal-600',
+    badge: 'compatible',
+  },
 ]
 
-/** 卡片外壳: supported 用 primary ring 高亮; compatible 用灰/半透明。 */
+/** 卡片外壳: supported 用 primary ring 高亮; compatible（协议矩阵）同样用 primary 强调差异化。 */
 export function homeProviderCardClass(badge: HomeProviderBadge): string {
   return badge === 'compatible'
-    ? 'border-gray-200/60 bg-white/60 dark:border-dark-700/60 dark:bg-dark-800/60'
+    ? 'border-primary-200/80 bg-white/70 ring-1 ring-primary-500/15 dark:border-primary-900/50 dark:bg-dark-800/70'
     : 'border-primary-200 bg-white/60 ring-1 ring-primary-500/20 dark:border-primary-800 dark:bg-dark-800/60'
 }
 

@@ -98,7 +98,11 @@ const en: HomeLocaleOverlay = {
       gemini: 'Gemini',
       kiro: 'Kiro',
       qwen: 'Alibaba Cloud Qwen',
-      compatTitle: '200+ OpenAI-Compatible Models',
+      compatTitle: '100+ Models',
+      compatTagline: 'Full protocol matrix',
+      compatProtocolMessages: 'Messages',
+      compatProtocolChat: 'Chat',
+      compatProtocolResponses: 'Responses',
     },
     freeTrial: {
       badge: '🎁 Free Trial: 1M Tokens',
@@ -129,7 +133,7 @@ const en: HomeLocaleOverlay = {
         },
         models: {
           q: 'Which AI models are supported?',
-          a: 'Claude, GPT, Gemini, Alibaba Cloud Qwen, plus 200+ OpenAI-compatible models. Text, image, and video generation.',
+          a: 'Claude, GPT, Gemini, Qwen, plus 100+ curated models on a full protocol matrix—Anthropic Messages, OpenAI Chat Completions, Responses, and more. Text, image, and video.',
         },
         billing: {
           q: 'How does billing work?',
@@ -235,7 +239,11 @@ const zh: HomeLocaleOverlay = {
       gemini: 'Gemini',
       kiro: 'Kiro',
       qwen: '通义千问',
-      compatTitle: '200+ OpenAI 兼容模型',
+      compatTitle: '100+ 模型',
+      compatTagline: '全协议矩阵',
+      compatProtocolMessages: 'Messages',
+      compatProtocolChat: 'Chat',
+      compatProtocolResponses: 'Responses',
     },
     freeTrial: {
       badge: '🎁 免费试用：100 万 Tokens',
@@ -266,7 +274,7 @@ const zh: HomeLocaleOverlay = {
         },
         models: {
           q: '支持哪些 AI 模型？',
-          a: 'Claude、GPT、Gemini、通义千问（阿里云百炼），以及 200+ OpenAI 兼容模型。支持文本、图像、视频生成。',
+          a: 'Claude、GPT、Gemini、通义千问等一级平台，外加 100+ 精选模型；覆盖 Anthropic Messages、OpenAI Chat Completions、Responses 等全协议矩阵，文本 / 图像 / 视频一体接入。',
         },
         billing: {
           q: '计费方式是怎样的？',
