@@ -30,20 +30,13 @@
       </div>
     </template>
 
-    <div
-      v-if="isAuthenticated"
-      class="mb-4 flex shrink-0 flex-wrap items-center gap-3 border-b border-gray-200/80 pb-3 dark:border-dark-800"
-      data-tk="catalog-hub-authed-toolbar"
-    >
-      <CatalogViewSwitcher />
-    </div>
-
     <div class="catalog-hub-panel flex min-h-0 flex-1 flex-col">
       <KeepAlive>
         <ModelMarketplaceCatalog
           v-if="!isPricingView"
           key="browse"
           :show-bottom-cta="!isAuthenticated"
+          :show-view-switcher="isAuthenticated"
         />
         <PricingView v-else key="pricing" />
       </KeepAlive>

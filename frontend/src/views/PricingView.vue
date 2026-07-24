@@ -5,9 +5,10 @@
     data-tk="pricing-panel"
   >
     <div
-      class="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200/80 pb-3 dark:border-dark-800"
+      class="mb-3 flex flex-wrap items-center gap-3"
       :data-tk="isAuthenticated ? 'pricing-authed-toolbar' : 'pricing-page-header'"
     >
+      <CatalogViewSwitcher v-if="isAuthenticated" class="shrink-0" />
       <p
         v-if="!loading && !errorMessage && rowTotal > 0"
         class="min-w-0 flex-1 truncate text-[11px] tabular-nums text-gray-500 dark:text-dark-400 sm:text-xs"
@@ -67,7 +68,7 @@
                 >
                   <option :value="0">{{ t('pricing.filters.keyPlaceholder') }}</option>
                   <option
-                    v-for="k in myCatalog?.my_keys ?? []"
+                    v-for="k in selectableMyKeys"
                     :key="k.id"
                     :value="k.id"
                   >
@@ -526,6 +527,7 @@ import {
 } from '@/api/me-pricing'
 import Icon from '@/components/icons/Icon.vue'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
+import CatalogViewSwitcher from '@/components/catalog/CatalogViewSwitcher.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { formatCurrency } from '@/utils/format'
@@ -539,7 +541,7 @@ import {
   type PricingCatalogModality
 } from '@/utils/pricingCatalogPresentation.tk'
 import { exportPricingCsv } from '@/composables/useTkPricingExport'
-
+import { filterUserSelectableApiKeys } from '@/utils/reservedProbeKey.tk'
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
@@ -646,6 +648,11 @@ const publicCatalog = ref<PublicCatalogResponse | null>(null)
 
 // My catalog state.
 const myCatalog = ref<MePricingCatalogResponse | null>(null)
+const selectableMyKeys = computed(() =>
+  filterUserSelectableApiKeys(
+    (myCatalog.value?.my_keys ?? []).map((k) => ({ ...k, status: 'active' as const })),
+  ),
+)
 const selectedKeyId = ref<number>(0)
 const selectedGroupId = ref<number>(0)
 
@@ -823,7 +830,7 @@ const hasFilterActive = hasClientFilterActive
 
 const emptyTitle = computed(() => {
   if (viewMode.value === 'my' && myCatalog.value) {
-    return myCatalog.value.my_keys.length === 0 && myCatalog.value.accessible_groups.length === 0
+    return selectableMyKeys.value.length === 0 && myCatalog.value.accessible_groups.length === 0
       ? t('pricing.my.empty.noAccess.title')
       : t('pricing.my.empty.noModels.title')
   }
@@ -832,7 +839,7 @@ const emptyTitle = computed(() => {
 
 const emptyHint = computed(() => {
   if (viewMode.value === 'my' && myCatalog.value) {
-    return myCatalog.value.my_keys.length === 0 && myCatalog.value.accessible_groups.length === 0
+    return selectableMyKeys.value.length === 0 && myCatalog.value.accessible_groups.length === 0
       ? t('pricing.my.empty.noAccess.hint')
       : t('pricing.my.empty.noModels.hint')
   }
@@ -888,7 +895,7 @@ const activeCatalogLabel = computed(() => {
   if (viewMode.value === 'public') return t('pricing.filters.activePublic')
   const group = myCatalog.value?.target_group?.name
   if (!group) return t('pricing.my.title')
-  const key = myCatalog.value?.my_keys.find((k) => k.id === displayKeyId.value)
+  const key = selectableMyKeys.value.find((k) => k.id === displayKeyId.value)
   return key
     ? t('pricing.filters.activeKeyGroup', { key: key.name, group })
     : t('pricing.filters.activeGroup', { group })
@@ -904,7 +911,7 @@ const exploreBanner = computed<ExploreBanner | null>(() => {
   if (viewMode.value !== 'my' || !myCatalog.value) return null
   const tg = myCatalog.value.target_group
   if (!tg?.id) return null
-  const currentKeysInTarget = myCatalog.value.my_keys.some((k) => k.group_id === tg.id)
+  const currentKeysInTarget = selectableMyKeys.value.some((k) => k.group_id === tg.id)
   if (currentKeysInTarget) return null
   // User is viewing a group they don't hold a key in → upgrade-CTA banner.
   return {
@@ -1011,10 +1018,10 @@ async function loadInitialCatalog(): Promise<void> {
 const displayKeyId = computed<number>(() => {
   if (viewMode.value === 'public' || selectedGroupId.value > 0) return 0
   if (selectedKeyId.value > 0) return selectedKeyId.value
-  if (!myCatalog.value || myCatalog.value.my_keys.length === 0) return 0
+  if (!myCatalog.value || selectableMyKeys.value.length === 0) return 0
   const tgID = myCatalog.value.target_group.id
-  const match = myCatalog.value.my_keys.find((k) => k.group_id === tgID)
-  return match?.id ?? myCatalog.value.my_keys[0].id
+  const match = selectableMyKeys.value.find((k) => k.group_id === tgID)
+  return match?.id ?? selectableMyKeys.value[0].id
 })
 
 function onPickKey(e: Event): void {

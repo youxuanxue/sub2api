@@ -117,4 +117,9 @@ describe('QuickstartView page chrome', () => {
     const wrapper = await mountView()
     expect(wrapper.find('h1').exists()).toBe(false)
   })
+
+  it('does not render a decorative top border on the key picker section', async () => {
+    const wrapper = await mountView()
+    expect(wrapper.find('section.border-y').exists()).toBe(false)
+  })
 })

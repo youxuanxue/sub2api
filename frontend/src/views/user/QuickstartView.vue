@@ -1,7 +1,7 @@
 <template>
   <AppLayout>
-    <div class="mx-auto max-w-6xl space-y-6 py-4">
-      <section class="border-y border-gray-200 py-5 dark:border-dark-700">
+    <div class="mx-auto max-w-6xl space-y-6">
+      <section>
         <div v-if="keysLoading" class="flex items-center justify-center py-6">
           <LoadingSpinner />
         </div>
@@ -203,6 +203,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import * as keysAPI from '@/api/keys'
 import type { ApiKey } from '@/types'
+import { filterUserSelectableApiKeys } from '@/utils/reservedProbeKey.tk'
 import { isUniversalKey } from '@/utils/studioUniversalKey.tk'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -461,8 +462,8 @@ async function loadKeys() {
   keysLoading.value = true
   keysError.value = ''
   try {
-    const result = await keysAPI.list(1, 100)
-    keys.value = result.items ?? []
+    const result = await keysAPI.list(1, 100, { status: 'active' })
+    keys.value = filterUserSelectableApiKeys(result.items ?? [])
     if (!keys.value.length) {
       const created = await keysAPI.create(
         'Quick Start',
