@@ -1,5 +1,5 @@
 <template>
-  <component :is="isPopup ? 'div' : AppLayout" :class="isPopup ? 'min-h-screen bg-gray-50 dark:bg-dark-900' : ''">
+  <component :is="isPopup ? 'div' : 'template'" :class="isPopup ? 'min-h-screen bg-gray-50 dark:bg-dark-900' : undefined">
     <div class="mx-auto max-w-lg space-y-6 py-8" :class="isPopup ? 'px-4' : ''">
       <div v-if="loading" class="flex items-center justify-center py-20">
         <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent"></div>
@@ -105,7 +105,6 @@ import { formatPaymentAmount, normalizePaymentCurrency } from '@/components/paym
 import { PAYMENT_RECOVERY_STORAGE_KEY, readPaymentRecoverySnapshot } from '@/components/payment/paymentFlow'
 import type { PaymentOrder } from '@/types/payment'
 import type { Stripe, StripeElements } from '@stripe/stripe-js'
-import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 
 const i18n = useI18n()
@@ -114,7 +113,7 @@ const route = useRoute()
 const router = useRouter()
 const paymentStore = usePaymentStore()
 
-// 弹窗模式：指定支付宝或微信方式时跳过 AppLayout
+// 弹窗模式：指定支付宝或微信方式时使用独立全屏容器（UserShellView 已提供常规布局）
 const isPopup = computed(() => !!route.query.method)
 
 const loading = ref(true)

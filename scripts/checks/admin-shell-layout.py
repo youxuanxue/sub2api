@@ -15,8 +15,8 @@ This check fails on either, turning the recurring "strip <AppLayout> from new ad
 views" merge chore into a mechanical gate instead of a thing to remember.
 
 Scope: frontend/src/views/admin/**/*.vue. AdminShellView.vue is the ONE allowed
-owner of AppLayout. Non-admin user views (frontend/src/views/user/**) legitimately
-keep their own AppLayout and are out of scope.
+owner of AppLayout for admin pages. User console pages use UserShellView instead
+(guarded by scripts/checks/user-shell-layout.py).
 """
 
 from __future__ import annotations

@@ -246,14 +246,14 @@ describe('CatalogHubView', () => {
     expect(wrapper.text()).not.toContain('gpt-4o-mini')
   })
 
-  it('uses the authenticated app shell instead of the guest landing chrome', async () => {
+  it('uses authenticated catalog shell content without guest landing chrome', async () => {
     authState.isAuthenticated = true
     getPublicPricing.mockResolvedValue(catalog([model('gpt-4o-mini', 'OpenAI')]))
 
     const wrapper = mountMarketplace()
     await flushPromises()
 
-    expect(wrapper.find('[data-test="app-layout"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="app-layout"]').exists()).toBe(false)
     expect(wrapper.find('[data-tk="catalog-hub-authed"]').exists()).toBe(true)
     expect(wrapper.find('h1').exists()).toBe(false)
     expect(wrapper.find('[data-tk="catalog-view-switcher"]').exists()).toBe(true)

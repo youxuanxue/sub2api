@@ -11,21 +11,6 @@ import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, 
 import { getSetupStatus } from '@/api/setup'
 import { isNetworkError } from '@/api/client.tk'
 
-/**
- * User-side views to keep alive across navigations.
- * Names must match the defineOptions({ name }) in each view component.
- * Admin views are cached separately inside AdminShellView.
- * Payment result/callback pages are intentionally excluded — they must
- * always fetch fresh state.
- */
-const cachedUserViews = [
-  'UserDashboardView',
-  'UserUsageView',
-  'UserKeysView',
-  'UserProfileView',
-  'UserStudioView',
-  'KeyUsageView',
-]
 import { updateFavicon } from '@/utils/branding'
 
 const router = useRouter()
@@ -156,11 +141,7 @@ onMounted(async () => {
 
 <template>
   <NavigationProgress />
-  <RouterView v-slot="{ Component }">
-    <KeepAlive :include="cachedUserViews">
-      <component :is="Component" />
-    </KeepAlive>
-  </RouterView>
+  <RouterView />
   <Toast />
   <AnnouncementPopup />
   <AdminComplianceDialog />

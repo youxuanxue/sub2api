@@ -78,14 +78,15 @@ describe('CatalogHubShell', () => {
     authState.isAuthenticated = false
   })
 
-  it('uses AppLayout when authenticated', () => {
+  it('renders authenticated content without AppLayout (UserShellView owns chrome)', () => {
     authState.isAuthenticated = true
     const wrapper = mount(CatalogHubShell, {
       props: { authedDataTk: 'catalog-authed' },
       slots: { default: '<p data-test="body">content</p>' },
     })
-    expect(wrapper.find('[data-test="app-layout"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="app-layout"]').exists()).toBe(false)
     expect(wrapper.find('[data-tk="catalog-authed"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="body"]').exists()).toBe(true)
   })
 
   it('renders guest chrome slot when logged out', () => {

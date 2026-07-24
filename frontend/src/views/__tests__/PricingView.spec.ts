@@ -325,7 +325,7 @@ describe('PricingView', () => {
     expect(wrapper.find('h1').exists()).toBe(false)
   })
 
-  it('uses AppLayout and in-page toolbar when authenticated', async () => {
+  it('renders authenticated catalog content without AppLayout (UserShellView owns chrome)', async () => {
     authState.isAuthenticated = true
     routeState.query = { view: 'pricing' }
     getPublicPricing.mockResolvedValue(publicCatalog([publicModel('gpt-4o-mini')]))
@@ -342,7 +342,7 @@ describe('PricingView', () => {
     })
     await flushPromises()
 
-    expect(wrapper.find('[data-test="app-layout"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="app-layout"]').exists()).toBe(false)
     expect(wrapper.find('[data-tk="catalog-hub-authed"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="catalog-hub-authed-toolbar"]').exists()).toBe(false)
     expect(wrapper.find('[data-tk="catalog-view-switcher"]').exists()).toBe(true)

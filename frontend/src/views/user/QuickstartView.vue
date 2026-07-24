@@ -1,5 +1,4 @@
 <template>
-  <AppLayout>
     <div class="mx-auto max-w-6xl space-y-6">
       <section>
         <div v-if="keysLoading" class="flex items-center justify-center py-6">
@@ -193,7 +192,6 @@
         <router-link to="/studio" class="btn btn-primary text-sm">{{ t('quickstart.tryStudio') }}</router-link>
       </div>
     </div>
-  </AppLayout>
 </template>
 
 <script setup lang="ts">
@@ -205,7 +203,6 @@ import * as keysAPI from '@/api/keys'
 import type { ApiKey } from '@/types'
 import { filterUserSelectableApiKeys } from '@/utils/reservedProbeKey.tk'
 import { isUniversalKey } from '@/utils/studioUniversalKey.tk'
-import AppLayout from '@/components/layout/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import Icon from '@/components/icons/Icon.vue'

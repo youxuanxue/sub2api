@@ -84,10 +84,27 @@
     {
       "path": "frontend/src/router/index.ts",
       "must_contain": [
-        "redirect: { path: '/studio', query: { mode: 'chat' } }",
+        "...userRoutes",
         "...adminRoutes"
       ],
-      "rationale": "Two router invariants. (1) The retired /playground route 301-redirects to the Studio Chat modality (playground was folded in as the fourth Studio tab). This redirect is the only thing keeping old /playground bookmarks/links from 404-ing; a router-table rewrite could silently drop it. (2) The admin route subtree is isolated in router/admin.tk.ts and spread in via `...adminRoutes` to keep index.ts close to upstream shape; an upstream merge that rewrites the route table could drop the spread, silently removing the entire admin area. Anchor both so neither guarantee regresses unnoticed."
+      "rationale": "TK route subtrees are isolated in router/user.tk.ts and router/admin.tk.ts and spread into index.ts via `...userRoutes` / `...adminRoutes` to keep index.ts close to upstream shape. An upstream merge that rewrites the route table could drop either spread, silently removing the entire user console or admin area. Anchor both spreads so neither guarantee regresses unnoticed."
+    },
+    {
+      "path": "frontend/src/router/user.tk.ts",
+      "must_contain": [
+        "export const userRoutes: RouteRecordRaw[]",
+        "@/views/user/UserShellView.vue",
+        "redirect: { path: '/studio', query: { mode: 'chat' } }"
+      ],
+      "rationale": "TK-isolated user route subtree (mirrors admin.tk.ts / PR #935). The `userRoutes` export is the contract index.ts spreads; the UserShellView import is the persistent-shell nesting that user-shell-layout.py depends on. The /playground redirect keeps old bookmarks from 404-ing after playground folded into Studio Chat. Anchor all three so a refactor or merge that flattens the shell, breaks the export, or drops the redirect is caught at preflight time rather than in prod."
+    },
+    {
+      "path": "frontend/src/views/user/UserShellView.vue",
+      "must_contain": [
+        "<AppLayout v-if=\"useChrome\">",
+        "cachedUserViews"
+      ],
+      "rationale": "Persistent user shell owns AppLayout once for authenticated /admin-style console routes; KeepAlive wraps page content only so AppSidebar stays mounted and sidebar scroll is preserved across /keys ↔ /studio navigation. An upstream merge that rewrites this file or moves KeepAlive back to App.vue could silently reintroduce sidebar scroll-to-top on cached routes."
     },
     {
       "path": "frontend/src/router/admin.tk.ts",
@@ -1594,10 +1611,13 @@
     {
       "path": "frontend/src/App.vue",
       "must_contain": [
+        "<RouterView />"
+      ],
+      "must_not_contain": [
         "cachedUserViews",
         "<KeepAlive :include=\"cachedUserViews\">"
       ],
-      "rationale": "TK wraps the RouterView in a KeepAlive with an explicit include list (cachedUserViews) so user-facing views (Dashboard, Usage, Keys, Profile, Studio, KeyUsage) preserve component state across navigation instead of re-mounting. Upstream App.vue has no KeepAlive; an upstream merge that replaces the template block drops the wrapper silently, causing every navigation to remount and lose in-progress form/filter state on all cached views."
+      "rationale": "User console KeepAlive moved to UserShellView (page body only) so AppLayout/AppSidebar stay mounted; App.vue stays a thin root shell with a bare RouterView. must_not_contain blocks an upstream merge from re-hoisting KeepAlive here, which would cache whole pages including sidebar and regress sidebar scroll on /keys ↔ /studio."
     },
     {
       "path": "frontend/src/types/index.ts",

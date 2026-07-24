@@ -1,5 +1,4 @@
 <template>
-  <AppLayout>
     <div class="mx-auto flex max-w-6xl flex-col gap-5 px-4 py-6 lg:px-6">
       <!-- No key: gate to /keys (login itself is enforced by the router guard). -->
       <div
@@ -139,7 +138,6 @@
         @modality-change="onBakeoffModalityChange"
       />
     </div>
-  </AppLayout>
 </template>
 
 <script setup lang="ts">
@@ -148,7 +146,6 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 defineOptions({ name: 'UserStudioView' })
-import AppLayout from '@/components/layout/AppLayout.vue'
 import ChatStudio from '@/views/user/studio/ChatStudio.vue'
 import ImageStudio from '@/views/user/studio/ImageStudio.vue'
 import VideoStudio from '@/views/user/studio/VideoStudio.vue'
