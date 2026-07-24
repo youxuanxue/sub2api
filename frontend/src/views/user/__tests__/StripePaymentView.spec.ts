@@ -87,7 +87,7 @@ function mountView() {
   return shallowMount(StripePaymentView, {
     global: {
       stubs: {
-        AppLayout: { template: '<div><slot /></div>' },
+        AppLayout: { template: '<div data-testid="app-layout"><slot /></div>' },
         Icon: true,
       },
     },
@@ -116,6 +116,12 @@ describe('StripePaymentView', () => {
     stripeInstance.confirmAlipayPayment.mockReset()
     stripeInstance.confirmWechatPayPayment.mockReset()
     window.localStorage.clear()
+  })
+
+  it('非弹窗 /payment/stripe 路由在 UserShell 外，仍渲染 AppLayout', () => {
+    routeState.query = { order_id: '42', client_secret: 'pi_secret_42' }
+    const wrapper = mountView()
+    expect(wrapper.find('[data-testid="app-layout"]').exists()).toBe(true)
   })
 
   it('本地恢复快照缺失时使用订单接口返回的 Stripe 币种展示金额', async () => {

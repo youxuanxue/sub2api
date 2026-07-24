@@ -8,7 +8,8 @@ modes this catches:
   1. A user view ships wrapped in its own <AppLayout> → doubled layout / sidebar remount.
   2. UserShellView stops rendering AppLayout for authenticated chrome.
 
-Scope: frontend/src/views/user/**/*.vue except UserShellView.vue.
+Scope: frontend/src/views/user/**/*.vue except UserShellView.vue and shell-external
+views that router/index.ts mounts outside UserShell (they must keep their own AppLayout).
 """
 
 from __future__ import annotations
@@ -21,6 +22,13 @@ from pathlib import Path
 
 SHELL_REL = "frontend/src/views/user/UserShellView.vue"
 USER_VIEWS_REL = "frontend/src/views/user"
+# Routed from router/index.ts outside UserShellView — must own AppLayout when chrome is needed.
+SHELL_EXTERNAL_APPLAYOUT_OK = frozenset(
+    {
+        "frontend/src/views/user/StripePaymentView.vue",
+        "frontend/src/views/user/AirwallexPaymentView.vue",
+    }
+)
 
 APPLAYOUT_RE = re.compile(r"<AppLayout(?=[\s/>])")
 
@@ -42,9 +50,11 @@ def scan(repo_root: Path) -> list[str]:
     for vue in sorted(user_views.rglob("*.vue")):
         if vue.resolve() == shell.resolve():
             continue
+        rel = vue.relative_to(repo_root).as_posix()
+        if rel in SHELL_EXTERNAL_APPLAYOUT_OK:
+            continue
         text = vue.read_text(encoding="utf-8", errors="replace")
         if APPLAYOUT_RE.search(text):
-            rel = vue.relative_to(repo_root)
             errors.append(
                 f"{rel}: user views must NOT wrap <AppLayout> (layout comes from "
                 f"UserShellView). Strip the wrapper and register the route under "
@@ -70,6 +80,11 @@ def _selftest() -> int:
             failures.append("view wrapping AppLayout should fail")
         bad.unlink()
 
+        exempt = root / "frontend/src/views/user/StripePaymentView.vue"
+        exempt.write_text("<template>\n  <AppLayout><div/></AppLayout>\n</template>\n")
+        if scan(root):
+            failures.append("shell-external AppLayout owner should be exempt")
+
         shell.write_text("<template>\n  <div/>\n</template>\n")
         if not scan(root):
             failures.append("shell without AppLayout should fail")
@@ -78,7 +93,7 @@ def _selftest() -> int:
         print(f"SELFTEST FAIL: {f}", file=sys.stderr)
     if failures:
         return 1
-    print("ok: user-shell-layout selftest (3/3 cases passed)")
+    print("ok: user-shell-layout selftest (4/4 cases passed)")
     return 0
 
 
