@@ -1576,6 +1576,95 @@ func TestApplyCodexOAuthTransform_JsonObjectKeepsJsonInstructionInInput(t *testi
 	require.Equal(t, "user", user["role"])
 }
 
+func TestEnsureCodexJsonObjectInputHint_InjectsWhenMissing(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.4-mini",
+		"input": []any{
+			map[string]any{
+				"role":    "user",
+				"content": "symbol data without the keyword",
+			},
+		},
+		"text": map[string]any{
+			"format": map[string]any{
+				"type": "json_object",
+			},
+		},
+	}
+
+	require.True(t, ensureCodexJsonObjectInputHint(reqBody))
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	require.Len(t, input, 2)
+	developer, ok := input[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "developer", developer["role"])
+	require.Contains(t, developer["content"], "JSON")
+}
+
+func TestEnsureCodexJsonObjectInputHint_NoOpWhenPresent(t *testing.T) {
+	reqBody := map[string]any{
+		"input": []any{
+			map[string]any{
+				"role":    "user",
+				"content": "please return json payload",
+			},
+		},
+		"text": map[string]any{
+			"format": map[string]any{
+				"type": "json_object",
+			},
+		},
+	}
+
+	require.False(t, ensureCodexJsonObjectInputHint(reqBody))
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	require.Len(t, input, 1)
+}
+
+func TestEnsureCodexJsonObjectInputHint_NoOpWithoutJsonObjectFormat(t *testing.T) {
+	reqBody := map[string]any{
+		"input": []any{
+			map[string]any{
+				"role":    "user",
+				"content": "plain text",
+			},
+		},
+	}
+
+	require.False(t, ensureCodexJsonObjectInputHint(reqBody))
+}
+
+func TestApplyCodexOAuthTransform_JsonObjectInjectsHintWhenMissing(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.4-mini",
+		"input": []any{
+			map[string]any{
+				"role":    "user",
+				"content": "symbol data without the keyword",
+			},
+		},
+		"text": map[string]any{
+			"format": map[string]any{
+				"type": "json_object",
+			},
+		},
+	}
+
+	result := applyCodexOAuthTransform(reqBody, false, false)
+
+	require.True(t, result.Modified)
+	require.True(t, codexInputContainsJSONWord(reqBody))
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	require.Len(t, input, 2)
+	developer, ok := input[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "developer", developer["role"])
+	require.Contains(t, developer["content"], "JSON")
+}
+
 func TestIsInstructionsEmpty(t *testing.T) {
 	tests := []struct {
 		name     string
