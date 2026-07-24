@@ -113,6 +113,7 @@ const (
 	codexImageGenerationBridgeText   = codexImageGenerationBridgeMarker + "\nWhen the user asks for raster image generation or editing, use the OpenAI Responses native `image_generation` tool attached to this request. The local Codex client may not expose an `image_gen` namespace, but that does not mean image generation is unavailable. Do not ask the user to switch to CLI fallback solely because `image_gen` is absent.\n</sub2api-codex-image-generation>"
 	codexSparkImageUnsupportedMarker = "<sub2api-codex-spark-image-unsupported>"
 	codexSparkImageUnsupportedText   = codexSparkImageUnsupportedMarker + "\nThe current model is gpt-5.3-codex-spark, which does not support image generation, image editing, image input, the `image_generation` tool, or Codex `image_gen`/`$imagegen` workflows. If the user asks for image generation or image editing, clearly explain this model limitation and ask them to switch to a non-Spark Codex model such as gpt-5.3-codex or gpt-5.4. Do not claim that the local environment merely lacks image_gen tooling, and do not suggest CLI fallback as the primary fix while the model remains Spark.\n</sub2api-codex-spark-image-unsupported>"
+	codexJsonObjectInputHint         = "Respond with valid JSON."
 )
 
 var openAIChatGPTInternalUnsupportedFields = []string{
@@ -292,6 +293,10 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 		} else {
 			reqBody["input"] = []any{}
 		}
+		result.Modified = true
+	}
+
+	if ensureCodexJsonObjectInputHint(reqBody) {
 		result.Modified = true
 	}
 
@@ -1191,6 +1196,82 @@ func extractSystemMessagesFromInput(reqBody map[string]any) bool {
 	} else {
 		reqBody["instructions"] = extracted
 	}
+	return true
+}
+
+func isCodexJsonObjectResponseFormat(reqBody map[string]any) bool {
+	if text, ok := reqBody["text"].(map[string]any); ok {
+		if format, ok := text["format"].(map[string]any); ok {
+			if formatType, _ := format["type"].(string); strings.EqualFold(strings.TrimSpace(formatType), "json_object") {
+				return true
+			}
+		}
+	}
+	if responseFormat, ok := reqBody["response_format"].(map[string]any); ok {
+		if formatType, _ := responseFormat["type"].(string); strings.EqualFold(strings.TrimSpace(formatType), "json_object") {
+			return true
+		}
+	}
+	return false
+}
+
+func codexInputContainsJSONWord(reqBody map[string]any) bool {
+	switch input := reqBody["input"].(type) {
+	case string:
+		return strings.Contains(strings.ToLower(input), "json")
+	case []any:
+		for _, item := range input {
+			if codexInputItemContainsJSONWord(item) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func codexInputItemContainsJSONWord(item any) bool {
+	m, ok := item.(map[string]any)
+	if !ok {
+		return false
+	}
+	if text, ok := m["text"].(string); ok && strings.Contains(strings.ToLower(text), "json") {
+		return true
+	}
+	if text := extractTextFromContent(m["content"]); strings.Contains(strings.ToLower(text), "json") {
+		return true
+	}
+	if summary, ok := m["summary"].([]any); ok {
+		for _, part := range summary {
+			partMap, ok := part.(map[string]any)
+			if !ok {
+				continue
+			}
+			if text, ok := partMap["text"].(string); ok && strings.Contains(strings.ToLower(text), "json") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ensureCodexJsonObjectInputHint prepends a minimal developer hint when a
+// Responses json_object request does not already mention JSON in input.
+// Upstream rejects instructions-only JSON guidance with HTTP 400.
+func ensureCodexJsonObjectInputHint(reqBody map[string]any) bool {
+	if len(reqBody) == 0 || !isCodexJsonObjectResponseFormat(reqBody) || codexInputContainsJSONWord(reqBody) {
+		return false
+	}
+
+	input, ok := reqBody["input"].([]any)
+	if !ok {
+		input = []any{}
+	}
+	reqBody["input"] = append([]any{
+		map[string]any{
+			"role":    "developer",
+			"content": codexJsonObjectInputHint,
+		},
+	}, input...)
 	return true
 }
 
