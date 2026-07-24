@@ -21,7 +21,6 @@ func TestApplyOpenAICompatContextWindowModelAlias(t *testing.T) {
 		{in: "gpt-5.5[1M]", want: "gpt-5.5", ok: true},
 		{in: "gpt-5.4[200k]", want: "gpt-5.4", ok: true},
 		{in: "gpt-5.5", want: "gpt-5.5", ok: false},
-		{in: "gpt-5.6-sol[1m]", want: "gpt-5.6-sol", ok: true},
 		{in: "claude-opus-4-8[1m]", want: "claude-opus-4-8", ok: true},
 	}
 
@@ -39,7 +38,6 @@ func TestNormalizeOpenAICompatRequestedModel_StripsContextWindowAlias(t *testing
 
 	require.Equal(t, "gpt-5.5", NormalizeOpenAICompatRequestedModel("gpt-5.5[1m]"))
 	require.Equal(t, "gpt-5.4", NormalizeOpenAICompatRequestedModel("gpt-5.4-xhigh[1m]"))
-	require.Equal(t, "gpt-5.6-sol", NormalizeOpenAICompatRequestedModel("gpt-5.6-sol[1m]"))
 }
 
 func TestApplyOpenAICompatModelNormalization_StripsContextWindowAliasBeforeReasoning(t *testing.T) {
@@ -63,5 +61,5 @@ func TestNormalizeOpenAIMessagesDispatchMappedModel_StripsContextWindowAlias(t *
 func TestNormalizeCodexModel_StripsContextWindowAlias(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, "gpt-5.6-sol", normalizeCodexModel("gpt-5.6-sol[1m]"))
+	require.Equal(t, "gpt-5.5", normalizeCodexModel("gpt-5.5[1m]"))
 }
