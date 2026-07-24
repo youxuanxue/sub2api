@@ -4894,8 +4894,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
   const finalPayload = withAccountEmail(payload, accountEmail.value)
   submitting.value = true
   try {
-    await adminAPI.accounts.create(withAntigravityConfirmFlag(finalPayload))
-    const account = await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
+    const account = await adminAPI.accounts.create(withAntigravityConfirmFlag(finalPayload))
     if (
       payload.platform === 'openai' &&
       payload.type === 'apikey' &&
