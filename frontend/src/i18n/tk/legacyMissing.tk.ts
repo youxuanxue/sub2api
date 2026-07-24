@@ -367,8 +367,6 @@ const en: LocaleOverlay = {
     }
   },
   "catalog": {
-    "hubTitle": "Models & Pricing",
-    "hubSubtitle": "Browse models by capability or open the full pricing table",
     "viewBrowse": "Browse",
     "viewPricing": "Pricing table",
     "viewSwitcherAria": "Catalog view"
@@ -1264,8 +1262,6 @@ const zh: LocaleOverlay = {
     }
   },
   "catalog": {
-    "hubTitle": "模型与定价",
-    "hubSubtitle": "按能力浏览模型，或查看完整价格表",
     "viewBrowse": "浏览",
     "viewPricing": "价格表",
     "viewSwitcherAria": "目录视图切换"

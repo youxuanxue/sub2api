@@ -26,8 +26,6 @@ vi.mock('vue-i18n', async () => {
   const modelsEn: Record<string, string> = {
     'models.title': 'Model Marketplace',
     'models.subtitle': 'Browse and compare AI models',
-    'catalog.hubTitle': 'Models & Pricing',
-    'catalog.hubSubtitle': 'Browse models by capability or open the full pricing table',
     'catalog.viewBrowse': 'Browse',
     'catalog.viewPricing': 'Pricing table',
     'catalog.viewSwitcherAria': 'Catalog view',
