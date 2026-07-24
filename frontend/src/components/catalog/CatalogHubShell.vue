@@ -1,11 +1,6 @@
 <template>
-  <AppLayout v-if="isAuthenticated">
-    <div :class="contentClass" :data-tk="authedDataTk">
-      <slot />
-    </div>
-  </AppLayout>
   <div
-    v-else
+    v-if="!isAuthenticated"
     class="relative flex min-h-screen flex-col bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
     :class="guestRootClass"
   >
@@ -16,12 +11,14 @@
       </div>
     </main>
   </div>
+  <div v-else :class="contentClass" :data-tk="authedDataTk">
+    <slot />
+  </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import AppLayout from '@/components/layout/AppLayout.vue'
 
 withDefaults(
   defineProps<{

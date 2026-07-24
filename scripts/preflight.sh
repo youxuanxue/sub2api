@@ -1286,6 +1286,21 @@ else
     echo "  ok: admin views rely on AdminShellView persistent shell (no per-view <AppLayout>)"
 fi
 
+# ---- sub2api: user persistent-shell layout invariant -------------------------
+echo ""
+echo "=== sub2api: user persistent-shell layout ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to run user-shell-layout check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/user-shell-layout.py --selftest >/dev/null; then
+    echo "  FAIL: user-shell-layout selftest failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/user-shell-layout.py; then
+    errors=$((errors + 1))
+else
+    echo "  ok: user views rely on UserShellView persistent shell (no per-view <AppLayout>)"
+fi
+
 # ---- sub2api: post-deploy smoke script (syntax only; no live HTTP) ----------
 echo ""
 echo "=== sub2api: post-deploy smoke script syntax ==="

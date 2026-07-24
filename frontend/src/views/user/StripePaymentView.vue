@@ -114,7 +114,7 @@ const route = useRoute()
 const router = useRouter()
 const paymentStore = usePaymentStore()
 
-// 弹窗模式：指定支付宝或微信方式时跳过 AppLayout
+// 弹窗模式：指定支付宝或微信方式时跳过 AppLayout；/payment/stripe 在 UserShell 外，非弹窗仍自带布局
 const isPopup = computed(() => !!route.query.method)
 
 const loading = ref(true)

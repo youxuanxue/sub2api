@@ -64,7 +64,7 @@ function mountView() {
   return shallowMount(AirwallexPaymentView, {
     global: {
       stubs: {
-        AppLayout: { template: '<div><slot /></div>' },
+        AppLayout: { template: '<div data-testid="app-layout"><slot /></div>' },
         Icon: true,
       },
     },
@@ -82,6 +82,11 @@ describe('AirwallexPaymentView', () => {
     })
     redirectToCheckout.mockReset()
     window.localStorage.clear()
+  })
+
+  it('在 UserShell 外仍通过 AppLayout 提供控制台 chrome', () => {
+    const wrapper = mountView()
+    expect(wrapper.find('[data-testid="app-layout"]').exists()).toBe(true)
   })
 
   it('从本地恢复快照读取支付参数，避免在 URL 中暴露 client_secret', async () => {
