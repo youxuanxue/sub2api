@@ -344,7 +344,8 @@ describe('PricingView', () => {
 
     expect(wrapper.find('[data-test="app-layout"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="catalog-hub-authed"]').exists()).toBe(true)
-    expect(wrapper.find('[data-tk="catalog-hub-authed-toolbar"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tk="catalog-hub-authed-toolbar"]').exists()).toBe(false)
+    expect(wrapper.find('[data-tk="catalog-view-switcher"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="pricing-authed-toolbar"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="pricing-page-header"]').exists()).toBe(false)
     expect(wrapper.find('h1').exists()).toBe(false)

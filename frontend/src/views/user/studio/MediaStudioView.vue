@@ -177,6 +177,7 @@ import {
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import type { ApiKey } from '@/types'
+import { filterUserSelectableApiKeys } from '@/utils/reservedProbeKey.tk'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -444,7 +445,7 @@ async function bootstrap(): Promise<void> {
   gatewayBase.value = resolveGatewayBaseUrl(appStore.apiBaseUrl || appStore.cachedPublicSettings?.api_base_url)
   try {
     const page = await keysAPI.list(1, 50, { status: 'active' })
-    keys.value = (page.items || []).filter((k) => !!k.key)
+    keys.value = filterUserSelectableApiKeys((page.items || []).filter((k) => !!k.key))
     const trial = keys.value.find((k) => k.name?.toLowerCase() === 'trial')
     const seed = (trial || keys.value[0])?.id ?? null
     if (seed == null) {

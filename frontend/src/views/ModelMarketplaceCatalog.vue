@@ -1,9 +1,10 @@
 <template>
   <div class="space-y-6">
-    <!-- Search + Filter Bar -->
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <!-- Search -->
-      <div class="relative flex-1 sm:max-w-sm">
+    <!-- View switcher + search + category filters on one row (authed console). -->
+    <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
+      <CatalogViewSwitcher v-if="showViewSwitcher" class="shrink-0" />
+
+      <div class="relative min-w-0 flex-1 lg:max-w-md">
         <svg
           class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
           fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
@@ -18,8 +19,7 @@
         />
       </div>
 
-      <!-- Category Filter Pills -->
-      <div class="flex flex-wrap gap-2">
+      <div class="flex shrink-0 flex-wrap gap-2 lg:ml-auto">
         <button
           v-for="filter in categoryFilters"
           :key="filter.key"
@@ -128,7 +128,7 @@
             v-for="model in filteredModels"
             :key="model.model_id"
             :data-tk="`models-marketplace-card-${model.model_id}`"
-            :to="{ path: '/models', query: { view: 'pricing', model: model.model_id } }"
+            :to="catalogBrowseModelCardRoute(model.model_id, { isAuthenticated: isAuthenticated })"
             class="group rounded-xl border border-gray-200/60 bg-white p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary-300 hover:shadow-lg hover:shadow-primary-500/10 dark:border-dark-700/60 dark:bg-dark-800 dark:hover:border-primary-700"
           >
             <!-- Model Name + Vendor -->
@@ -228,14 +228,18 @@ import {
   formatCatalogVendorLabel,
   normalizeCatalogVendorSlug,
 } from '@/utils/catalogVendorIcon.tk'
+import { catalogBrowseModelCardRoute } from '@/utils/catalogBrowseModelCardRoute.tk'
 import ModelIcon from '@/components/common/ModelIcon.vue'
+import CatalogViewSwitcher from '@/components/catalog/CatalogViewSwitcher.vue'
 
 withDefaults(
   defineProps<{
     /** Guest landing keeps the signup CTA; authed console users already have quickstart in nav. */
     showBottomCta?: boolean
+    /** Logged-in /models hub: browse/pricing tabs share the search toolbar row. */
+    showViewSwitcher?: boolean
   }>(),
-  { showBottomCta: true },
+  { showBottomCta: true, showViewSwitcher: false },
 )
 
 const { t, te } = useI18n()

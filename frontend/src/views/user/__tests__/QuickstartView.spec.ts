@@ -154,6 +154,24 @@ describe('QuickstartView', () => {
     expect((wrapper.get('select').element as HTMLSelectElement).value).toBe('42')
   })
 
+  it('hides reserved __tk_probe_* keys from the picker', async () => {
+    listKeys.mockResolvedValue({
+      items: [
+        { ...universalKey(), id: 7, name: '__tk_probe_openai_key' },
+        universalKey(),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+      pages: 1,
+    })
+    const wrapper = await mountView()
+    const options = wrapper.get('select').findAll('option')
+    expect(options).toHaveLength(1)
+    expect(options[0].text()).toContain('Test')
+    expect(listKeys).toHaveBeenCalledWith(1, 100, { status: 'active' })
+  })
+
   it('syncs selected key to router query when user changes selection', async () => {
     listKeys.mockResolvedValue({
       items: [universalKey(), { ...universalKey(), id: 99, name: 'Other' }],

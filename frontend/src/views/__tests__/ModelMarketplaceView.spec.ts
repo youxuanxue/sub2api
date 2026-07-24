@@ -84,7 +84,7 @@ function mountMarketplace() {
     global: {
       stubs: {
         AppLayout: { template: '<div data-test="app-layout"><slot /></div>' },
-        RouterLink: { props: ['to'], template: '<a><slot /></a>' },
+        RouterLink: { props: ['to'], template: '<a :data-to="JSON.stringify(to)"><slot /></a>' },
       },
     },
   })
@@ -279,5 +279,31 @@ describe('CatalogHubView', () => {
     expect(card.exists()).toBe(true)
     expect(card.find('svg.model-icon').exists()).toBe(true)
     expect(card.text()).toContain('OpenAI')
+  })
+
+  it('links browse cards to pricing for guests', async () => {
+    authState.isAuthenticated = false
+    getPublicPricing.mockResolvedValue(catalog([model('gpt-4o-mini', 'OpenAI')]))
+
+    const wrapper = mountMarketplace()
+    await flushPromises()
+
+    const card = wrapper.get('[data-tk="models-marketplace-card-gpt-4o-mini"]')
+    expect(card.attributes('data-to')).toBe(
+      JSON.stringify({ path: '/models', query: { view: 'pricing', model: 'gpt-4o-mini' } }),
+    )
+  })
+
+  it('links browse cards to quickstart for authenticated users', async () => {
+    authState.isAuthenticated = true
+    getPublicPricing.mockResolvedValue(catalog([model('gemini-2.5-flash', 'Google')]))
+
+    const wrapper = mountMarketplace()
+    await flushPromises()
+
+    const card = wrapper.get('[data-tk="models-marketplace-card-gemini-2.5-flash"]')
+    expect(card.attributes('data-to')).toBe(
+      JSON.stringify({ path: '/quickstart', query: { model: 'gemini-2.5-flash' } }),
+    )
   })
 })
