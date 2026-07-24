@@ -128,7 +128,7 @@
             v-for="model in filteredModels"
             :key="model.model_id"
             :data-tk="`models-marketplace-card-${model.model_id}`"
-            :to="{ path: '/models', query: { view: 'pricing', model: model.model_id } }"
+            :to="catalogBrowseModelCardRoute(model.model_id, { isAuthenticated: isAuthenticated })"
             class="group rounded-xl border border-gray-200/60 bg-white p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary-300 hover:shadow-lg hover:shadow-primary-500/10 dark:border-dark-700/60 dark:bg-dark-800 dark:hover:border-primary-700"
           >
             <!-- Model Name + Vendor -->
@@ -228,6 +228,7 @@ import {
   formatCatalogVendorLabel,
   normalizeCatalogVendorSlug,
 } from '@/utils/catalogVendorIcon.tk'
+import { catalogBrowseModelCardRoute } from '@/utils/catalogBrowseModelCardRoute.tk'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import CatalogViewSwitcher from '@/components/catalog/CatalogViewSwitcher.vue'
 
