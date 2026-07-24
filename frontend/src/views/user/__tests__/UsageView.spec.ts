@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent, h } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import UsageView from '../UsageView.vue'
@@ -96,6 +97,23 @@ vi.mock('vue-i18n', async () => {
 const simpleStub = { template: '<div><slot /></div>' }
 const chartStub = { template: '<div />' }
 
+function propCaptureStub(
+  testId: string,
+  sink: Record<string, Record<string, unknown>>,
+  propNames: string[],
+) {
+  return defineComponent({
+    name: `Capture${testId}`,
+    props: propNames,
+    setup(props) {
+      sink[testId] = Object.fromEntries(
+        propNames.map((name) => [name, (props as Record<string, unknown>)[name]]),
+      )
+      return () => h('div', { 'data-testid': testId })
+    },
+  })
+}
+
 const usageLog = {
   id: 1,
   request_id: 'req-user-export',
@@ -127,7 +145,10 @@ const usageLog = {
   stream: false,
 }
 
-function mountUsageView() {
+function mountUsageView(options?: {
+  billingSurfaceProps?: Record<string, Record<string, unknown>>
+}) {
+  const billingSurfaceProps = options?.billingSurfaceProps ?? {}
   return mount(UsageView, {
     global: {
       stubs: {
@@ -136,12 +157,24 @@ function mountUsageView() {
         Select: true,
         DateRangePicker: true,
         Icon: true,
-        UsageStatsCards: chartStub,
         UsageTable: chartStub,
-        ModelDistributionChart: chartStub,
-        GroupDistributionChart: chartStub,
-        EndpointDistributionChart: chartStub,
         TokenUsageTrend: chartStub,
+        UsageStatsCards: propCaptureStub('usage-stats-cards', billingSurfaceProps, [
+          'stats',
+          'showAccountCost',
+          'showStandardCost',
+        ]),
+        ModelDistributionChart: propCaptureStub('model-distribution-chart', billingSurfaceProps, [
+          'showAccountCost',
+          'showStandardCost',
+        ]),
+        GroupDistributionChart: propCaptureStub('group-distribution-chart', billingSurfaceProps, [
+          'showAccountCost',
+          'showStandardCost',
+        ]),
+        EndpointDistributionChart: propCaptureStub('endpoint-distribution-chart', billingSurfaceProps, [
+          'showStandardCost',
+        ]),
       },
     },
   })
@@ -206,6 +239,29 @@ describe('user UsageView', () => {
     }))
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
+  })
+
+  it('passes showStandardCost=false to usage summary and distribution charts', async () => {
+    const billingSurfaceProps: Record<string, Record<string, unknown>> = {}
+    mountUsageView({ billingSurfaceProps })
+    await flushPromises()
+
+    expect(billingSurfaceProps['usage-stats-cards']).toEqual({
+      stats: expect.any(Object),
+      showAccountCost: false,
+      showStandardCost: false,
+    })
+    expect(billingSurfaceProps['model-distribution-chart']).toEqual({
+      showAccountCost: false,
+      showStandardCost: false,
+    })
+    expect(billingSurfaceProps['group-distribution-chart']).toEqual({
+      showAccountCost: false,
+      showStandardCost: false,
+    })
+    expect(billingSurfaceProps['endpoint-distribution-chart']).toEqual({
+      showStandardCost: false,
+    })
   })
 
   it('exports csv with current filters and without admin-only fields', async () => {

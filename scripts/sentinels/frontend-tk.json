@@ -1090,13 +1090,14 @@
       "must_contain": [
         "'Billed Cost',",
         "(log.actual_cost ?? 0).toFixed(8)",
-        ":show-account-billing=\"false\""
+        ":show-account-billing=\"false\"",
+        ":show-standard-cost=\"false\""
       ],
       "must_not_contain": [
         "'Rate Multiplier',",
         "'Original Cost',"
       ],
-      "rationale": "PR #718 + upstream merge 2026-07: the user usage CSV exports Billed Cost only and the user page disables account billing details in the shared UsageTable. Upstream merges of this large upstream-shaped view tend to restore raw multiplier/original-cost columns."
+      "rationale": "PR #718 + upstream merge 2026-07: the user usage CSV exports Billed Cost only and the user page disables account billing details in the shared UsageTable. PR #1463 extends the same actual-only billing policy to summary cards and model/group/endpoint distribution charts via showStandardCost=false wiring on UsageStatsCards and the three distribution chart components. Upstream merges of this large upstream-shaped view tend to restore raw multiplier/original-cost columns or the standard-cost distribution columns."
     },
     {
       "path": "frontend/src/utils/billingMode.ts",
