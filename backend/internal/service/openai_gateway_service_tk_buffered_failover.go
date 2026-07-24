@@ -87,15 +87,7 @@ func (s *OpenAIGatewayService) openAICompatBufferedFailedResponseResult(
 		return nil, fmt.Errorf("upstream response failed (passthrough rule matched): %s", message)
 	}
 
-	statusCode := openAIStreamFailedEventSemanticStatus(payload, clientMsg)
-	if isOpenAIContextWindowError(clientMsg, payload) {
-		// Preserve the existing no-rule contract for context-window failures.
-		statusCode = http.StatusBadGateway
-	}
-	errType := "upstream_error"
-	if statusCode == http.StatusBadRequest {
-		errType = "invalid_request_error"
-	}
+	statusCode, errType := openAIStreamFailedClientResponse(payload, clientMsg, "upstream_error")
 	if route == openAICompatBufferedRouteMessages {
 		s.recordOpenAIMessagesStreamUpstreamError(c, account, requestID, "buffered_response_failed", clientMsg)
 		writeAnthropicError(c, statusCode, errType, clientMsg)

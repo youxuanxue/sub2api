@@ -783,6 +783,34 @@ func openAIStreamDataStartsClientOutput(data, eventType string) bool {
 	return !openAIStreamEventIsPreamble(eventType)
 }
 
+// openAIStreamFailedClientResponse maps response.failed to the downstream HTTP
+// status/type when no admin passthrough rule matches. Caller-fault rejections
+// (context window, invalid_request, …) must not surface as 502 — Claude Code
+// and Codex CLI treat 502 as transient and retry, turning an unrecoverable
+// prompt-size failure into a retry storm.
+func openAIStreamFailedClientResponse(payload []byte, message string, default5xxErrType string) (statusCode int, errType string) {
+	statusCode = openAIStreamFailedEventSemanticStatus(payload, message)
+	switch statusCode {
+	case http.StatusBadRequest:
+		errType = "invalid_request_error"
+	case http.StatusUnauthorized:
+		errType = "authentication_error"
+	case http.StatusForbidden:
+		errType = "permission_error"
+	case http.StatusTooManyRequests:
+		errType = "rate_limit_error"
+	case http.StatusServiceUnavailable:
+		errType = "api_error"
+	default:
+		if statusCode >= 500 {
+			errType = default5xxErrType
+		} else {
+			errType = "api_error"
+		}
+	}
+	return statusCode, errType
+}
+
 func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 	if isOpenAIContextWindowError(message, payload) {
 		return http.StatusBadRequest
