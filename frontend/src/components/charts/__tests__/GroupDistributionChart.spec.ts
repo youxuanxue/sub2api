@@ -11,6 +11,7 @@ const messages: Record<string, string> = {
   'admin.dashboard.tokens': 'Tokens',
   'admin.dashboard.actual': 'Actual',
   'admin.dashboard.accountCost': 'Account Cost',
+  'usage.cost': 'Cost',
   'admin.dashboard.standard': 'Standard',
   'admin.dashboard.metricTokens': 'By Tokens',
   'admin.dashboard.metricActualCost': 'By Actual Cost',
@@ -131,5 +132,25 @@ describe('GroupDistributionChart', () => {
     expect(wrapper.text()).not.toContain('Account Cost')
     expect(wrapper.findAll('thead th')).toHaveLength(5)
     expect(wrapper.findAll('tbody tr')[0].findAll('td')).toHaveLength(5)
+  })
+
+  it('can hide standard cost for user usage stats', () => {
+    const wrapper = mount(GroupDistributionChart, {
+      props: {
+        groupStats,
+        showAccountCost: false,
+        showStandardCost: false,
+      },
+      global: {
+        stubs: {
+          LoadingSpinner: true,
+        },
+      },
+    })
+
+    expect(wrapper.text()).not.toContain('Standard')
+    expect(wrapper.text()).toContain('Cost')
+    expect(wrapper.findAll('thead th')).toHaveLength(4)
+    expect(wrapper.findAll('tbody tr')[0].findAll('td')).toHaveLength(4)
   })
 })

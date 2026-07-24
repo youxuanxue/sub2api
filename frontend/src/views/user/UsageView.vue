@@ -1,6 +1,6 @@
 <template>
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" :show-account-cost="false" :strike-standard-cost="true" />
+      <UsageStatsCards :stats="usageStats" :show-account-cost="false" :show-standard-cost="false" />
 
       <div class="space-y-4">
         <div class="card p-4">
@@ -31,6 +31,7 @@
             :show-metric-toggle="true"
             :enable-breakdown="false"
             :show-account-cost="false"
+            :show-standard-cost="false"
             :start-date="startDate"
             :end-date="endDate"
           />
@@ -41,6 +42,7 @@
             :show-metric-toggle="true"
             :enable-breakdown="false"
             :show-account-cost="false"
+            :show-standard-cost="false"
             :start-date="startDate"
             :end-date="endDate"
           />
@@ -57,6 +59,7 @@
             :show-source-toggle="false"
             :show-metric-toggle="true"
             :enable-breakdown="false"
+            :show-standard-cost="false"
             :title="t('usage.endpointDistribution')"
             :start-date="startDate"
             :end-date="endDate"
