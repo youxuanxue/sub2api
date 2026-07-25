@@ -1,3 +1,14 @@
+---
+title: Upstream Merge 2026-07-25 — Migration Approval Anchor
+status: approved
+approved_by: tk-upstream-agent (automated upstream merge process)
+approved_at: 2026-07-25
+authors: [tk-upstream-agent]
+created: 2026-07-25
+related_prs: []
+related_commits: [38dc29aed]
+---
+
 # Upstream Merge 2026-07-25: Migration Approval Anchor
 
 Approved upstream migrations introduced in the 2026-07-25 upstream merge
