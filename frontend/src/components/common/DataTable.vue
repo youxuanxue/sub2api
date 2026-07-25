@@ -32,22 +32,50 @@
     </template>
 
     <template v-else>
+      <div v-if="selectable" class="flex items-center justify-end gap-2 px-1">
+        <label class="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
+          <input
+            type="checkbox"
+            class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+            :checked="allVisibleSelected"
+            :indeterminate="someVisibleSelected"
+            data-test="select-all-mobile"
+            @change="toggleAllVisible(($event.target as HTMLInputElement).checked)"
+          />
+          <span>{{ t('common.selectAll') }}</span>
+        </label>
+      </div>
       <template v-for="(row, index) in sortedData" :key="resolveRowKey(row, index)">
         <div
           class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900"
-          :class="{ 'cursor-pointer': clickableRows }"
+          :class="{
+            'cursor-pointer': clickableRows,
+            'border-primary-300 bg-primary-50/40 dark:border-primary-700 dark:bg-primary-900/10': selectable && isRowSelected(row, index)
+          }"
           @click="clickableRows && emit('rowClick', row)"
         >
           <div class="space-y-3">
+            <div v-if="selectable" class="flex justify-end">
+              <input
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+                :checked="isRowSelected(row, index)"
+                :aria-label="getRowSelectionLabel(row, index)"
+                data-test="select-row"
+                @click.stop
+                @change="toggleRowSelection(row, index, ($event.target as HTMLInputElement).checked)"
+              />
+            </div>
             <div
               v-for="column in dataColumns"
               :key="column.key"
-              class="flex items-start justify-between gap-4"
+              :data-field="column.key"
+              class="flex min-w-0 items-start justify-between gap-4"
             >
               <span class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">
                 {{ column.label }}
               </span>
-              <div class="text-right text-sm text-gray-900 dark:text-gray-100">
+              <div class="min-w-0 max-w-full text-right text-sm text-gray-900 dark:text-gray-100">
                 <slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]" :expanded="actionsExpanded">
                   {{ column.formatter ? column.formatter(row[column.key], row) : row[column.key] }}
                 </slot>
@@ -56,11 +84,11 @@
             <div v-if="hasActionsColumn" class="border-t border-gray-200 pt-3 dark:border-dark-700" @click.stop>
               <slot name="cell-actions" :row="row" :value="row['actions']" :expanded="actionsExpanded"></slot>
             </div>
-          </div>
           <!-- TK: mobile parity for the default-expanded detail (edge panel). Not
                virtualized here, so a simple conditional render after the card. -->
           <div v-if="isRowExpanded(row, index)" class="mt-2">
             <slot name="row-detail" :row="row"></slot>
+          </div>
           </div>
         </div>
       </template>

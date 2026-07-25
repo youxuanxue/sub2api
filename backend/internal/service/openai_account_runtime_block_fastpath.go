@@ -45,11 +45,20 @@ func isOpenAIAccount(account *Account) bool {
 	return account != nil && (account.Platform == PlatformOpenAI || account.Platform == PlatformGrok)
 }
 
-func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) bool {
+// handleOpenAIAccountUpstreamError expects canonicalModel to be the model used
+// for scheduling after applying account mapping exactly once.
+func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, canonicalModel ...string) bool {
+	if account != nil && account.Platform == PlatformGrok && isGrokContentPolicyRejection(statusCode, responseBody) {
+		return false
+	}
+	// Any non-2xx upstream HTTP response means the model request was actually sent.
+	if s != nil {
+		scheduleOllamaCloudUsageActivity(s.deferredService, account)
+	}
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()
 
-	if s.handleOpenAICompatRelayDownstreamCapacityError(stateCtx, account, statusCode, responseBody, tkFirstRequestedModel(requestedModel)) {
+	if s.handleOpenAICompatRelayDownstreamCapacityError(stateCtx, account, statusCode, responseBody, tkFirstRequestedModel(canonicalModel)) {
 		return true
 	}
 
@@ -66,25 +75,30 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 
 	if s == nil || account == nil || s.rateLimitService == nil {
 		if statusCode == http.StatusTooManyRequests {
-			s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody, requestedModel...)
+			s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody, canonicalModel...)
 		}
 		return false
 	}
-	if len(requestedModel) > 0 && s.rateLimitService.HandleUpstreamModelNotFound(stateCtx, account, requestedModel[0], statusCode, responseBody) {
+	if len(canonicalModel) > 0 && s.rateLimitService.HandleUpstreamModelNotFound(stateCtx, account, canonicalModel[0], statusCode, responseBody) {
 		return true
 	}
-	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody, requestedModel...)
+	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody, canonicalModel...)
 	if statusCode == http.StatusTooManyRequests {
-		s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody, requestedModel...)
+		s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody, canonicalModel...)
 		return false
 	}
 	if shouldDisable {
 		s.BlockAccountScheduling(account, time.Time{}, "upstream_disable")
 	}
-	if !shouldDisable && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey && shouldCooldownOpenAITransientUpstreamError(statusCode, responseBody) {
+	// Pool-mode retryable upstream errors are already bounded by the request-local
+	// same-account retry budget. Recording the generic account+model transient
+	// cooldown here would block the next approved retry before that budget is used.
+	poolModeRetryable := account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)
+	if !shouldDisable && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey &&
+		shouldCooldownOpenAITransientUpstreamError(statusCode, responseBody) && !poolModeRetryable {
 		model := ""
-		if len(requestedModel) > 0 {
-			model = requestedModel[0]
+		if len(canonicalModel) > 0 {
+			model = canonicalModel[0]
 		}
 		decision := s.recordOpenAIAccountModelTransientFailure(account, model, time.Now())
 		if decision.FailureStreak > 0 {
