@@ -376,6 +376,7 @@ function applyRecommendedKey(client = selectedClient.value, preserveManual = key
 function selectClient(id: string): void {
   selectedClientId.value = id
   keyManuallySelected.value = false
+  connectionTestState.value = { status: 'idle' }
   applyRecommendedKey(TK_QUICKSTART_CLIENTS.find((client) => client.id === id) ?? null)
 }
 
