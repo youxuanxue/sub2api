@@ -15,7 +15,7 @@ type tablePartition struct {
 	oid    uint32
 }
 
-func createPartitionedIndexConcurrently(ctx context.Context, db *sql.DB, policy nonTransactionalIndexPolicy) error {
+func createPartitionedIndexConcurrently(ctx context.Context, db migrationDB, policy nonTransactionalIndexPolicy) error {
 	valid, err := qualifiedIndexIsValid(ctx, db, "public", policy.indexName)
 	if err != nil {
 		return err
@@ -93,7 +93,7 @@ func createPartitionedIndexConcurrently(ctx context.Context, db *sql.DB, policy 
 	return nil
 }
 
-func listTablePartitions(ctx context.Context, db *sql.DB, table string) ([]tablePartition, error) {
+func listTablePartitions(ctx context.Context, db migrationDB, table string) ([]tablePartition, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT child_ns.nspname, child.relname, child.oid
 		FROM pg_inherits inheritance
@@ -125,17 +125,17 @@ func listTablePartitions(ctx context.Context, db *sql.DB, table string) ([]table
 	return partitions, nil
 }
 
-func qualifiedIndexIsInvalid(ctx context.Context, db *sql.DB, schema, index string) (bool, error) {
+func qualifiedIndexIsInvalid(ctx context.Context, db migrationDB, schema, index string) (bool, error) {
 	valid, exists, err := qualifiedIndexState(ctx, db, schema, index)
 	return exists && !valid, err
 }
 
-func qualifiedIndexIsValid(ctx context.Context, db *sql.DB, schema, index string) (bool, error) {
+func qualifiedIndexIsValid(ctx context.Context, db migrationDB, schema, index string) (bool, error) {
 	valid, exists, err := qualifiedIndexState(ctx, db, schema, index)
 	return exists && valid, err
 }
 
-func qualifiedIndexState(ctx context.Context, db *sql.DB, schema, index string) (valid, exists bool, err error) {
+func qualifiedIndexState(ctx context.Context, db migrationDB, schema, index string) (valid, exists bool, err error) {
 	err = db.QueryRowContext(ctx, `
 		SELECT i.indisvalid
 		FROM pg_index i
@@ -151,7 +151,7 @@ func qualifiedIndexState(ctx context.Context, db *sql.DB, schema, index string) 
 	return valid, true, nil
 }
 
-func partitionIndexIsAttached(ctx context.Context, db *sql.DB, parentIndex, childIndex string) (bool, error) {
+func partitionIndexIsAttached(ctx context.Context, db migrationDB, parentIndex, childIndex string) (bool, error) {
 	var attached bool
 	err := db.QueryRowContext(ctx, `
 		SELECT EXISTS (
