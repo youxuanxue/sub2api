@@ -1003,6 +1003,22 @@
       "rationale": "Chinese counterparts of the en.ts Studio chat anchors above; moves in lockstep so neither language silently regresses."
     },
     {
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
+      "must_contain": [
+        "\"connectionWaiting\": \"Waiting for first request\"",
+        "\"sendTest\": \"Send test request\""
+      ],
+      "rationale": "Quickstart P0 connection-health copy (waiting state + primary test CTA label). Upstream i18n merges can drop TK quickstart keys while compiling green; these needles keep the tool-first health bar user-facing strings present."
+    },
+    {
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
+      "must_contain": [
+        "\"connectionWaiting\": \"等待首次请求\"",
+        "\"sendTest\": \"发送测试请求\""
+      ],
+      "rationale": "Chinese counterparts of the Quickstart connection-health anchors above; both languages must move together."
+    },
+    {
       "path": "frontend/src/constants/playgroundMedia.tk.ts",
       "must_contain": [
         "modalityForModel",
@@ -1140,11 +1156,14 @@
         "function onTest(",
         "tkIsCCOnly",
         "selectedClient?: string | null",
+        "hideInlineTest?: boolean",
+        "testStateChange: [state: TestState]",
+        "defineExpose({",
         "generateQwenCodeFiles",
         "generateCompatibleClientFields",
         "data-tk=\"quickstart-environment-picker\""
       ],
-      "rationale": "Shared configuration owner for the key modal and tool-first Quickstart: live servable model picker/test, CC-only handling, controlled client selection, Qwen env-file credential split, compatible-client fields, and contextual OS selection. An upstream overwrite can compile while silently removing one of these paths, so the behavior owner and its Quickstart extensions are pinned together."
+      "rationale": "Shared configuration owner for the key modal and tool-first Quickstart: live servable model picker/test, CC-only handling, controlled client selection, externalized test CTA via hideInlineTest + testStateChange for QuickstartConnectionHealth, Qwen env-file credential split, compatible-client fields, and contextual OS selection. An upstream overwrite can compile while silently removing one of these paths, so the behavior owner and its Quickstart extensions are pinned together."
     },
     {
       "path": "frontend/src/components/keys/UseKeyModal.vue",
@@ -1158,15 +1177,18 @@
       "path": "frontend/src/views/user/QuickstartView.vue",
       "must_contain": [
         "UseKeyGuide",
+        "QuickstartConnectionHealth",
         "parseKeyIdFromQuery",
         "QuickstartClientPicker",
         "data-tk=\"quickstart-config-workspace\"",
+        "data-tk=\"quickstart-advanced-options\"",
+        "recommendKeyForClient",
         ":selected-client=\"selectedClient.guideId\"",
         "data-tk=\"quickstart-transport-picker\"",
         "data-tk=\"quickstart-protocol-picker\"",
         "keyId: String(keyId)"
       ],
-      "rationale": "TokenKey /quickstart is the canonical tool-first connection flow: all supported clients are visible before configuration, Qwen protocol and Codex transport are secondary controls, and key/client state is deep-linked without exposing the key. Upstream QuickstartView is a separate static snippet page; a merge could silently restore that old flow while compiling green."
+      "rationale": "TokenKey /quickstart is the canonical tool-first connection flow: tool picker first, auto key match, collapsible advanced key options, connection health CTA, Qwen protocol and Codex transport as secondary controls, and key/client state deep-linked without exposing the key. Upstream QuickstartView is a separate static snippet page; a merge could silently restore that old flow while compiling green."
     },
     {
       "path": "frontend/src/views/user/KeysView.vue",
