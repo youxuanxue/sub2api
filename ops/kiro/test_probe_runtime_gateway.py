@@ -6,10 +6,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -47,6 +49,31 @@ class TokenLoadTests(unittest.TestCase):
             with self.assertRaises(probe.ProbeEnvError):
                 probe.load_local_token(path)
 
+    def test_load_local_token_accepts_tokenkey_snake_case_credentials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "credentials.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "access_token": "edge-access-token",
+                        "refresh_token": "edge-refresh-token",
+                        "profile_arn": "arn:aws:codewhisperer:us-east-1:123:profile/test",
+                        "auth_method": "social",
+                        "region": "us-east-1",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            got = probe.load_local_token(path)
+
+        self.assertEqual(got["access_token"], "edge-access-token")
+        self.assertEqual(got["refresh_token"], "edge-refresh-token")
+        self.assertEqual(
+            got["profile_arn"],
+            "arn:aws:codewhisperer:us-east-1:123:profile/test",
+        )
+        self.assertEqual(got["auth_method"], "social")
+
 
 class HeaderTests(unittest.TestCase):
     def test_ide_headers_include_bearer_and_target(self):
@@ -74,6 +101,17 @@ class HeaderTests(unittest.TestCase):
         self.assertIn("aws-sdk-js/", headers["User-Agent"])
         self.assertIn("x-amz-user-agent", headers)
         self.assertEqual(headers["x-amzn-codewhisperer-optout"], "true")
+
+    def test_headers_can_load_constants_from_remote_probe_path(self):
+        constants = Path(__file__).resolve().parents[2] / "backend/internal/pkg/kiro/constants.go"
+        with mock.patch.dict(os.environ, {"KIRO_CONSTANTS_GO": str(constants)}):
+            headers = probe.build_headers(
+                style="tokenkey",
+                host="runtime.us-east-1.kiro.dev",
+                bearer_token="tok",
+                content_type="application/json",
+            )
+        self.assertIn("KiroIDE-", headers["User-Agent"])
 
 
 class ProbeSpecTests(unittest.TestCase):

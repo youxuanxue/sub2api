@@ -57,7 +57,7 @@ func TestTkDeriveDottedVersionAliases_Fixture(t *testing.T) {
 func TestTkDeriveBareModelAliases_RealTablePin(t *testing.T) {
 	aliases := tkDeriveBareModelAliases(supportedAnthropicCatalogModels)
 	for family, want := range map[string]string{
-		"opus": "claude-opus-4-8", "sonnet": "claude-sonnet-5",
+		"opus": "claude-opus-5", "sonnet": "claude-sonnet-5",
 		"haiku": "claude-haiku-4-5", "fable": "claude-fable-5",
 	} {
 		if got := aliases[family]; got != want {
@@ -130,14 +130,14 @@ func TestTkApplyBareModelAlias_SurgicalBodyRewrite(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	newBody, resolved := TkApplyBareModelAlias(PlatformAnthropic, parsed)
-	if resolved != "claude-opus-4-8" { // real-table pin
-		t.Fatalf("resolved = %q, want claude-opus-4-8", resolved)
+	if resolved != "claude-opus-5" { // real-table pin
+		t.Fatalf("resolved = %q, want claude-opus-5", resolved)
 	}
-	want := []byte(`{"model":"claude-opus-4-8","max_tokens":1,"metadata":{"x":"é"}}`)
+	want := []byte(`{"model":"claude-opus-5","max_tokens":1,"metadata":{"x":"é"}}`)
 	if !bytes.Equal(newBody, want) {
 		t.Fatalf("surgical rewrite:\n got=%s\nwant=%s", newBody, want)
 	}
-	if parsed.Model != "claude-opus-4-8" || !bytes.Equal(parsed.Body.Bytes(), want) {
+	if parsed.Model != "claude-opus-5" || !bytes.Equal(parsed.Body.Bytes(), want) {
 		t.Fatalf("parsed not refreshed: model=%q body=%s", parsed.Model, parsed.Body.Bytes())
 	}
 }

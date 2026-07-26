@@ -177,6 +177,13 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	}
 
 	// overlay-only models surface with their overlay price (per-token ×1000 = per-1K).
+	opus5, ok := byID["claude-opus-5"]
+	require.True(t, ok, "officially priced Claude Opus 5 must surface from the overlay")
+	assert.InDelta(t, 0.005, opus5.Pricing.InputPer1KTokens, 1e-12)
+	assert.InDelta(t, 0.025, opus5.Pricing.OutputPer1KTokens, 1e-12)
+	assert.InDelta(t, 0.0005, opus5.Pricing.CacheReadPer1K, 1e-12)
+	assert.InDelta(t, 0.00625, opus5.Pricing.CacheWritePer1K, 1e-12)
+
 	pro, ok := byID["deepseek-v4-pro"]
 	require.True(t, ok, "overlay-only deepseek-v4-pro must surface in catalog")
 	assert.InDelta(t, 0.000435*tkOfficialListBaseTaxMultiplier(), pro.Pricing.InputPer1KTokens, 1e-9, "deepseek-v4-pro input = overlay official × base tax")
@@ -215,6 +222,7 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	require.Contains(t, filteredByID, "veo-3.1-generate-001", "paid-gate-proven Veo must remain in public pricing")
 	require.Contains(t, filteredByID, "grok-imagine-image", "paid-gate-proven Grok image must remain in public pricing")
 	require.Contains(t, filteredByID, "grok-imagine-video", "paid-gate-proven Grok video must remain in public pricing")
+	require.Contains(t, filteredByID, "claude-opus-5", "Kiro-proven Opus 5 must remain in public pricing")
 
 	// fill-only: a model present in BOTH source and overlay keeps the SOURCE price.
 	flash, ok := byID["deepseek-v4-flash"]

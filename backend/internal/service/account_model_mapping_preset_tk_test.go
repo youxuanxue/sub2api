@@ -87,6 +87,15 @@ func TestAccountModelMappingPresetIDs_ClaudeAliasMatchesAnthropic(t *testing.T) 
 	)
 }
 
+func TestClaudeOpus5ServingOwners(t *testing.T) {
+	t.Parallel()
+
+	require.Contains(t, supportedCatalogModelIDsForPlatform(PlatformAnthropic), "claude-opus-5")
+	require.Contains(t, kiroAdminTestModelIDsForPresetTest(), "claude-opus-5")
+	require.NotContains(t, supportedCatalogModelIDsForPlatform(PlatformAntigravity), "claude-opus-5")
+	require.True(t, kiroMirrorStubSupportsModel("claude-opus-5"))
+}
+
 func kiroAdminTestModelIDsForPresetTest() []string {
 	models := KiroAdminTestModels()
 	ids := make([]string, 0, len(models))

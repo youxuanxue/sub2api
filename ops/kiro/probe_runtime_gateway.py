@@ -37,7 +37,8 @@ from urllib.request import ProxyHandler, Request, build_opener, HTTPSHandler
 
 from capture_kiro_fingerprint import expected_amz_user_agent, expected_user_agent, load_kiro_constants
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+_MODULE_PARENTS = Path(__file__).resolve().parents
+REPO_ROOT = _MODULE_PARENTS[2] if len(_MODULE_PARENTS) > 2 else Path.cwd()
 DEFAULT_TOKEN_CACHE = Path.home() / ".aws" / "sso" / "cache" / "kiro-auth-token.json"
 
 RUNTIME_ENDPOINT = "https://runtime.us-east-1.kiro.dev"
@@ -125,15 +126,18 @@ def load_local_token(path: Path = DEFAULT_TOKEN_CACHE) -> dict[str, Any]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ProbeEnvError(f"Invalid JSON in {path}: {exc}") from exc
-    token = str(payload.get("accessToken") or "").strip()
+    # Local Kiro caches use camelCase while TokenKey account credentials use
+    # snake_case. Accept both so edge probes can reuse this request builder
+    # without translating or exposing credentials in shell arguments.
+    token = str(payload.get("accessToken") or payload.get("access_token") or "").strip()
     if not token:
         raise ProbeEnvError(f"{path} has no accessToken — sign in to Kiro IDE first.")
     return {
         "access_token": token,
-        "refresh_token": str(payload.get("refreshToken") or "").strip(),
+        "refresh_token": str(payload.get("refreshToken") or payload.get("refresh_token") or "").strip(),
         "region": str(payload.get("region") or "us-east-1").strip() or "us-east-1",
-        "profile_arn": str(payload.get("profileArn") or "").strip(),
-        "auth_method": str(payload.get("authMethod") or "").strip(),
+        "profile_arn": str(payload.get("profileArn") or payload.get("profile_arn") or "").strip(),
+        "auth_method": str(payload.get("authMethod") or payload.get("auth_method") or "").strip(),
         "token_path": str(path),
     }
 
@@ -141,6 +145,13 @@ def load_local_token(path: Path = DEFAULT_TOKEN_CACHE) -> dict[str, Any]:
 def build_ide_user_agent(kiro_ide_version: str, machine_id: str = "probe") -> str:
     machine_id = machine_id.strip() or "probe"
     return f"KiroIDE {kiro_ide_version} {machine_id}"
+
+
+def load_runtime_kiro_constants() -> dict[str, str]:
+    constants_path = os.environ.get("KIRO_CONSTANTS_GO", "").strip()
+    if constants_path:
+        return load_kiro_constants(Path(constants_path))
+    return load_kiro_constants()
 
 
 def build_headers(
@@ -159,10 +170,10 @@ def build_headers(
         "Host": host,
     }
     if style == "ide":
-        consts = load_kiro_constants()
+        consts = load_runtime_kiro_constants()
         headers["User-Agent"] = build_ide_user_agent(consts["kiro_ide_version"], machine_id)
     elif style == "tokenkey":
-        consts = load_kiro_constants()
+        consts = load_runtime_kiro_constants()
         headers["User-Agent"] = expected_user_agent(consts)
         headers["x-amz-user-agent"] = expected_amz_user_agent(consts)
         headers["x-amzn-codewhisperer-optout"] = "true"

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "floor_sha256": "6db6e06eaa3bb8016cf6d98ce1776680e72d8ace3fc1682e1b73ddb14c02f434",
+  "floor_sha256": "b1d93e38c4fdc3249dc3c8ce1c78d5e2f162be0fc56b2d36522f9d2cdc92e1d4",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -11,6 +11,7 @@
         "claude-opus-4-6": "claude-opus-4-6",
         "claude-opus-4-7": "claude-opus-4-7",
         "claude-opus-4-8": "claude-opus-4-8",
+        "claude-opus-5": "claude-opus-5",
         "claude-sonnet-4-5": "claude-sonnet-4-5",
         "claude-sonnet-4-6": "claude-sonnet-4-6",
         "claude-sonnet-5": "claude-sonnet-5"
@@ -95,6 +96,7 @@
         "claude-opus-4-6": "claude-opus-4-6",
         "claude-opus-4-7": "claude-opus-4-7",
         "claude-opus-4-8": "claude-opus-4-8",
+        "claude-opus-5": "claude-opus-5",
         "claude-sonnet-4-5": "claude-sonnet-4-5",
         "claude-sonnet-4-6": "claude-sonnet-4-6",
         "claude-sonnet-5": "claude-sonnet-5"
