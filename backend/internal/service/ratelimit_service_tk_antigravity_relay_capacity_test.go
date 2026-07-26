@@ -180,6 +180,27 @@ func TestAntigravityRelayCapacity_SaturationThresholdIsPerExactModel(t *testing.
 	require.Equal(t, int64(1), counter.counts["claude-sonnet-4-6"])
 }
 
+func TestAntigravityRelayCapacity_UnresolvedFinalModelDoesNotGuessCooldownScope(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &fakeAntigravitySaturationCounter{}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc.SetAntigravitySaturationCounter(counter)
+
+	require.True(t, svc.handleAntigravityRelayCapacity(
+		context.Background(),
+		antigravityEdgeRelayStub(85),
+		http.StatusServiceUnavailable,
+		antigravityRelayEmptyPoolBody(),
+		"unmapped-model",
+	))
+
+	require.Empty(t, counter.modelKeys)
+	require.Empty(t, repo.modelRateLimitCalls)
+	require.Zero(t, repo.setRateLimitedCalls)
+	require.Zero(t, repo.tempCalls)
+	require.Zero(t, repo.setErrorCalls)
+}
+
 func TestAntigravityRelayCapacity_UsesPostDispatchAndThinkingFinalModel(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &fakeAntigravitySaturationCounter{}

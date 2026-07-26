@@ -90,6 +90,9 @@ func (s *RateLimitService) handleAntigravityRelayCapacity(
 	}
 	modelKey := strings.TrimSpace(resolveFinalAntigravityModelKey(ctx, account, requestedModel))
 	if modelKey == "" {
+		// Group dispatch can expose a public model that the selected relay's local
+		// mapping does not resolve. Keep the narrow client/failover classification,
+		// but do not guess a cooldown key or fall back to an account-wide penalty.
 		return true
 	}
 	count := s.recordAntigravityRelaySaturation(ctx, account.ID, modelKey, statusCode)
