@@ -4744,6 +4744,26 @@ const editVideoFinalPricePreview = computed(() =>
   buildVideoFinalPricePreview(editForm),
 );
 
+const DEFAULT_WEB_SEARCH_PRICE_PER_CALL = 0.01;
+
+const buildWebSearchFinalPricePreview = (form: {
+  web_search_price_per_call: number | string | null;
+  rate_multiplier: number | string | null;
+}) => {
+  const basePrice =
+    parsePreviewPrice(form.web_search_price_per_call) ??
+    DEFAULT_WEB_SEARCH_PRICE_PER_CALL;
+  const multiplier = normalizePreviewNumber(form.rate_multiplier, 1);
+  return formatImagePricePreview(basePrice * multiplier);
+};
+
+const createWebSearchFinalPricePreview = computed(() =>
+  buildWebSearchFinalPricePreview(createForm),
+);
+const editWebSearchFinalPricePreview = computed(() =>
+  buildWebSearchFinalPricePreview(editForm),
+);
+
 const resetDisabledBatchImagePricing = (
   form: Pick<
     ImagePricingFormState,

@@ -72,54 +72,6 @@ export const claudeModels = [
   'claude-fable-5'
 ]
 
-// Google Gemini
-const geminiModels = [
-  // Keep in sync with backend curated Gemini lists.
-  // This list is intentionally conservative (models commonly available across OAuth/API key).
-  'gemini-3.1-flash-image',
-  'gemini-2.5-flash-image',
-  'gemini-2.0-flash',
-  'gemini-2.5-flash',
-  'gemini-2.5-pro',
-  'gemini-3.5-flash',
-  'gemini-3-flash-preview',
-  'gemini-3-pro-preview'
-]
-
-// Antigravity 官方支持的模型（精确匹配）
-// 基于官方 API 返回的模型列表，只支持 Claude 4.5+ 和 Gemini 2.5+
-const antigravityModels = [
-  // Claude 4.5+ 系列
-  'claude-fable-5',
-  'claude-opus-4-6',
-  'claude-opus-4-6-thinking',
-  'claude-opus-4-7',
-  'claude-opus-4-8',
-  'claude-opus-4-5-thinking',
-  'claude-sonnet-4-6',
-  'claude-sonnet-4-5',
-  'claude-sonnet-4-5-thinking',
-  // Gemini 2.5 系列
-  'gemini-3.1-flash-image',
-  'gemini-2.5-flash-image',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-flash-thinking',
-  'gemini-2.5-pro',
-  // Gemini 3 系列
-  'gemini-3-flash',
-  'gemini-3-pro-high',
-  'gemini-3-pro-low',
-  // Gemini 3.1 系列
-  'gemini-3.1-pro',
-  'gemini-3.1-pro-high',
-  'gemini-3.1-pro-low',
-  'gemini-3-pro-image',
-  // 其他
-  'gpt-oss-120b-medium',
-  'tab_flash_lite_preview'
-]
-
 // 智谱 GLM
 const zhipuModels = [
   'glm-4', 'glm-4v', 'glm-4-plus', 'glm-4-0520',

@@ -17,13 +17,24 @@ import (
 
 type nonJSONTempUnschedAccountRepo struct {
 	AccountRepository
-	tempUnschedCalls int
-	tempReason       string
+	tempUnschedCalls      int
+	tempReason            string
+	modelRateLimitCalls   int
+	lastModelRateLimitKey string
 }
 
 func (r *nonJSONTempUnschedAccountRepo) SetTempUnschedulable(_ context.Context, _ int64, _ time.Time, reason string) error {
 	r.tempUnschedCalls++
 	r.tempReason = reason
+	return nil
+}
+
+func (r *nonJSONTempUnschedAccountRepo) SetModelRateLimit(_ context.Context, _ int64, scope string, _ time.Time, reason ...string) error {
+	r.modelRateLimitCalls++
+	r.lastModelRateLimitKey = scope
+	if len(reason) > 0 {
+		r.tempReason = reason[0]
+	}
 	return nil
 }
 
@@ -171,7 +182,9 @@ func TestHandleNonStreamingResponse_NonJSON2xxMatchesTempUnschedulableRule(t *te
 	require.True(t, errors.As(err, &failoverErr))
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.Equal(t, body, failoverErr.ResponseBody)
-	require.Equal(t, 1, repo.tempUnschedCalls)
+	require.Zero(t, repo.tempUnschedCalls)
+	require.Equal(t, 1, repo.modelRateLimitCalls)
+	require.Equal(t, "claude-sonnet-4-6", repo.lastModelRateLimitKey)
 	require.Contains(t, repo.tempReason, `"status_code":502`)
 	require.Contains(t, repo.tempReason, `"matched_keyword":"upstream request failed"`)
 }

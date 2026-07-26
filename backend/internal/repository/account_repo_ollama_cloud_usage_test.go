@@ -46,7 +46,7 @@ func TestUpdateOllamaCloudUsageSnapshotRowsAffectedZeroIsIdentityConflict(t *tes
 		WithArgs(sqlmock.AnyArg(), "key", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectRollback()
-	repo := newAccountRepositoryWithSQL(client, nil, nil)
+	repo := newAccountRepositoryWithSQL(client, nil, nil, nil)
 
 	err := repo.UpdateOllamaCloudUsageSnapshot(context.Background(), ollamaCloudUsageRepositoryAccount(), &service.OllamaCloudUsageSnapshot{
 		Status:        service.OllamaCloudUsageStatusOK,
@@ -92,7 +92,7 @@ func TestOllamaCloudUsageManagedWriteRejectsChangedProxyIdentity(t *testing.T) {
 		ID: proxyID, Protocol: "http", Host: "old.example", Port: 3128,
 		Username: "user", Password: "pass", Status: service.StatusActive,
 	}
-	repo := newAccountRepositoryWithSQL(client, nil, nil)
+	repo := newAccountRepositoryWithSQL(client, nil, nil, nil)
 
 	err := repo.SaveOllamaCloudUsageSession(context.Background(), account, "cipher:wos-session=replacement", true)
 
@@ -111,7 +111,7 @@ func TestSaveAndDeleteOllamaCloudUsageSessionKeepCiphertextOutOfSQL(t *testing.T
 	t.Cleanup(func() { _ = db.Close() })
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
 	t.Cleanup(func() { _ = client.Close() })
-	repo := newAccountRepositoryWithSQL(client, db, nil)
+	repo := newAccountRepositoryWithSQL(client, db, nil, nil)
 	account := ollamaCloudUsageRepositoryAccount()
 	const replacement = "cipher:wos-session=browser-cookie-secret"
 
@@ -165,7 +165,7 @@ func TestListOllamaCloudUsageGroupAccountsUsesOneStrictBatchQuery(t *testing.T) 
 	mock.ExpectQuery("SELECT id").
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
-	repo := newAccountRepositoryWithSQL(nil, captureQuerySQL{db: db, captured: &capturedSQL}, nil)
+	repo := newAccountRepositoryWithSQL(nil, captureQuerySQL{db: db, captured: &capturedSQL}, nil, nil)
 	first := ollamaCloudUsageRepositoryAccount()
 	second := ollamaCloudUsageRepositoryAccount()
 	second.ID = 18
@@ -196,7 +196,7 @@ func TestListDueOllamaCloudUsageAccountsFiltersOrdersAndLimits(t *testing.T) {
 	mock.ExpectQuery("WITH eligible AS").
 		WithArgs(now.UTC(), debounce.Seconds(), maxWait.Seconds(), 20, service.OllamaCloudUsageMinFetchInterval.Seconds()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "group_last_used_at"}))
-	repo := newAccountRepositoryWithSQL(nil, captureQuerySQL{db: db, captured: &capturedSQL}, nil)
+	repo := newAccountRepositoryWithSQL(nil, captureQuerySQL{db: db, captured: &capturedSQL}, nil, nil)
 
 	accounts, err := repo.ListDueOllamaCloudUsageAccounts(context.Background(), now, debounce, maxWait, 20)
 
@@ -238,7 +238,7 @@ func TestListDueOllamaCloudUsageAccountsFiltersOrdersAndLimits(t *testing.T) {
 
 func TestBulkUpdateOllamaIdentityCleanupIsValueConditional(t *testing.T) {
 	exec := &recordingSQLExecutor{result: rowsAffectedResult(1)}
-	repo := newAccountRepositoryWithSQL(nil, exec, nil)
+	repo := newAccountRepositoryWithSQL(nil, exec, nil, nil)
 
 	_, err := repo.BulkUpdate(context.Background(), []int64{17}, service.AccountBulkUpdate{
 		Credentials: map[string]any{"base_url": "https://www.ollama.com:443/v1"},
@@ -267,7 +267,7 @@ func TestUpdateCredentialsIdentityChangeClearsAllOllamaManagedExtra(t *testing.T
 		WithArgs(service.SchedulerOutboxEventAccountChanged, int64(17), nil, nil, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
-	repo := newAccountRepositoryWithSQL(client, nil, nil)
+	repo := newAccountRepositoryWithSQL(client, nil, nil, nil)
 
 	err := repo.UpdateCredentials(context.Background(), 17, map[string]any{
 		"api_key": "new-key", "base_url": "https://ollama.com",
@@ -286,7 +286,7 @@ func TestDisableOllamaCloudUsageAutoRefreshUsesGroupIdentityCAS(t *testing.T) {
 		WithArgs(`{"ollama_cloud_usage_auto_refresh":false,"ollama_cloud_usage_session":"cipher:wos-session=secret"}`, "key", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	repo := newAccountRepositoryWithSQL(client, nil, nil)
+	repo := newAccountRepositoryWithSQL(client, nil, nil, nil)
 
 	err := repo.DisableOllamaCloudUsageAutoRefresh(context.Background(), account)
 
@@ -306,7 +306,7 @@ func TestUpdateCredentialsCleanupBranchRequiresChangedCredentials(t *testing.T) 
 		WithArgs(service.SchedulerOutboxEventAccountChanged, int64(17), nil, nil, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
-	repo := newAccountRepositoryWithSQL(client, nil, nil)
+	repo := newAccountRepositoryWithSQL(client, nil, nil, nil)
 
 	err := repo.UpdateCredentials(context.Background(), 17, map[string]any{
 		"api_key": "same-key", "base_url": "https://relay.example.com/v1",

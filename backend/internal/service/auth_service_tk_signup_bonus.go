@@ -70,10 +70,10 @@ func (s *AuthService) tkApplyColdStartPostCreate(ctx context.Context, userID int
 // transaction and the caller still owns the commit.
 func (s *AuthService) createUserWithSignupLedger(ctx context.Context, user *User) error {
 	if user == nil || user.Balance <= 0 {
-		return s.userRepo.Create(ctx, user)
+		return s.userRepo.CreateWithEmailAliasGuard(ctx, user)
 	}
 	if s.entClient == nil {
-		if err := s.userRepo.Create(ctx, user); err != nil {
+		if err := s.userRepo.CreateWithEmailAliasGuard(ctx, user); err != nil {
 			return err
 		}
 		bestEffortBalanceGrantLedger(ctx, s.redeemRepo, user.ID, user.Balance, BalanceGrantNoteSignup, "service.auth")
@@ -81,7 +81,7 @@ func (s *AuthService) createUserWithSignupLedger(ctx context.Context, user *User
 	}
 
 	if tx := dbent.TxFromContext(ctx); tx != nil {
-		if err := s.userRepo.Create(ctx, user); err != nil {
+		if err := s.userRepo.CreateWithEmailAliasGuard(ctx, user); err != nil {
 			return err
 		}
 		return writeBalanceGrantLedger(ctx, tx.Client(), user.ID, user.Balance, BalanceGrantNoteSignup)
@@ -94,7 +94,7 @@ func (s *AuthService) createUserWithSignupLedger(ctx context.Context, user *User
 	defer func() { _ = tx.Rollback() }()
 
 	txCtx := dbent.NewTxContext(ctx, tx)
-	if err := s.userRepo.Create(txCtx, user); err != nil {
+	if err := s.userRepo.CreateWithEmailAliasGuard(txCtx, user); err != nil {
 		return err
 	}
 	if err := writeBalanceGrantLedger(txCtx, tx.Client(), user.ID, user.Balance, BalanceGrantNoteSignup); err != nil {

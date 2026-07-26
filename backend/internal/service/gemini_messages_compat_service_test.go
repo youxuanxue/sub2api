@@ -1002,7 +1002,7 @@ func TestConvertGeminiToClaudeMessage_EmbedsInlineImageMarkdown(t *testing.T) {
 		},
 	}
 
-	claudeMap, _ := convertGeminiToClaudeMessage(geminiResp, "gemini-3.1-flash-image", nil)
+	claudeMap, _ := convertGeminiToClaudeMessage(geminiResp, "gemini-3.1-flash-image", nil, true)
 	content, ok := claudeMap["content"].([]any)
 	require.True(t, ok)
 	require.Len(t, content, 1)

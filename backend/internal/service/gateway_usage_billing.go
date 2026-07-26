@@ -949,6 +949,11 @@ func (s *GatewayService) calculateTokenCost(
 		cost, err = s.billingService.CalculateCost(billingModel, tokens, multiplier)
 	}
 	if err != nil {
+		// TK: surface pricing-missing as structured zero-cost logs instead of silent ActualCost:0.
+		logTokenCostPricingMissing(billingModel, apiKey, result, err)
+		if isUsagePricingUnavailableError(err) {
+			return &CostBreakdown{BillingMode: string(BillingModeToken)}
+		}
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
 		return &CostBreakdown{ActualCost: 0}
 	}
@@ -984,6 +989,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		RequestedModel:        requestedModel,
 		UpstreamModel:         optionalNonEqualStringPtr(result.UpstreamModel, result.Model),
 		ReasoningEffort:       result.ReasoningEffort,
+		BillingTier:           optionalTrimmedStringPtr(result.BillingTier),
 		InboundEndpoint:       optionalTrimmedStringPtr(input.InboundEndpoint),
 		UpstreamEndpoint:      optionalTrimmedStringPtr(input.UpstreamEndpoint),
 		InputTokens:           result.Usage.InputTokens,
