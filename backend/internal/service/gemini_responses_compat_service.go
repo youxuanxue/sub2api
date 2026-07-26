@@ -137,7 +137,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 			return nil, s.writeResponsesCompatError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries: "+safeErr)
 		}
 
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, originalModel); matched {
+		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, req.Model); matched {
 			resp = rebuilt
 			break
 		} else {
@@ -194,10 +194,6 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 	if requestID == "" {
 		requestID = resp.Header.Get("x-goog-request-id")
 	}
-	if requestID != "" {
-		c.Header("x-request-id", requestID)
-	}
-
 	reasoningEffort := ExtractResponsesReasoningEffortFromBody(originalResponsesBody)
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, originalResponsesBody, mappedModel)
 
@@ -225,6 +221,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 		return nil, s.writeGeminiResponsesMappedError(c, account, resp.StatusCode, requestID, evBody)
 	}
 
+	if requestID != "" {
+		c.Header("x-request-id", requestID)
+	}
 	var usage *ClaudeUsage
 	var firstTokenMs *int
 	if clientStream {

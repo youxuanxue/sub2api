@@ -155,6 +155,13 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	if parsedReq == nil {
 		parsedReq = &service.ParsedRequest{Model: reqModel, Stream: reqStream, Body: bodyRef}
 	}
+	reasoningEffort := service.ExtractChatCompletionsReasoningEffortFromBody(body)
+	if service.OpenAIReasoningEnablesThinking(reasoningEffort, body) {
+		parsedReq.ThinkingEnabled = true
+	}
+	c.Request = c.Request.WithContext(service.WithThinkingEnabled(
+		c.Request.Context(), parsedReq.ThinkingEnabled, h.metadataBridgeEnabled(),
+	))
 	TkPrepareParsedRequestSessionInputs(c, apiKey, parsedReq)
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
 	groupPlatform := effectiveAPIKeyPlatform(c, apiKey)

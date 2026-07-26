@@ -93,7 +93,7 @@ func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 		upstreamResp.StatusCode = http.StatusOK
 	}
 
-	reasoningEffort := extractCCReasoningEffortFromBody(ccBody)
+	reasoningEffort := ExtractChatCompletionsReasoningEffortFromBody(ccBody)
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, ccBody, mappedModel)
 
 	var result *ForwardResult

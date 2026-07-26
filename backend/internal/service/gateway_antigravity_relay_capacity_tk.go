@@ -10,7 +10,7 @@ const (
 	NoAvailableAccountsRetryAfterSeconds  = "5"
 	AntigravityRelayCapacityClientMessage = "No available accounts"
 
-	antigravityRelayCapacityReason GatewayFailureReason = "antigravity_relay_no_available_accounts"
+	AntigravityRelayCapacityReason GatewayFailureReason = "antigravity_relay_no_available_accounts"
 )
 
 func tkIsAntigravityEdgeRelayStub(account *Account) bool {
@@ -50,7 +50,7 @@ func tkAntigravityRelayCapacityFailoverError(
 		ResponseBody:      responseBody,
 		ResponseHeaders:   responseHeaders,
 		Scope:             GatewayFailureScopeAccount,
-		Reason:            antigravityRelayCapacityReason,
+		Reason:            AntigravityRelayCapacityReason,
 		NextAccountAction: NextAccountRetry,
 		ClientStatusCode:  http.StatusTooManyRequests,
 		ClientMessage:     AntigravityRelayCapacityClientMessage,

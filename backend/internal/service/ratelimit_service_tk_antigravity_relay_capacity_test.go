@@ -48,6 +48,7 @@ func antigravityEdgeRelayStub(id int64) *Account {
 			"pool_mode": true,
 			"model_mapping": map[string]any{
 				"gemini-3-flash":    "gemini-3-flash-tiered",
+				"claude-sonnet-4-5": "claude-sonnet-4-5",
 				"claude-sonnet-4-6": "claude-sonnet-4-6",
 			},
 		},
@@ -122,6 +123,25 @@ func TestGeminiErrorPolicyInLoop_AntigravityRelayCapacityStopsSameAccountRetry(t
 	require.Equal(t, antigravityRelayEmptyPoolBody(), body)
 }
 
+func TestGeminiErrorPolicyInLoop_PostDispatchModelUsesAccountMapping(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &fakeAntigravitySaturationCounter{}
+	rateLimitSvc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	rateLimitSvc.SetAntigravitySaturationCounter(counter)
+	svc := &GeminiMessagesCompatService{rateLimitService: rateLimitSvc}
+	resp := &http.Response{
+		StatusCode: http.StatusServiceUnavailable,
+		Header:     http.Header{},
+		Body:       io.NopCloser(bytes.NewReader(antigravityRelayEmptyPoolBody())),
+	}
+
+	matched, _ := svc.checkErrorPolicyInLoop(
+		context.Background(), antigravityEdgeRelayStub(85), resp, "gemini-3-flash")
+
+	require.True(t, matched)
+	require.Equal(t, []string{"gemini-3-flash-tiered"}, counter.modelKeys)
+}
+
 func TestGeminiErrorPolicyInLoop_ArbitraryProvider503DoesNotCountAsCapacity(t *testing.T) {
 	counter := &fakeAntigravitySaturationCounter{}
 	rateLimitSvc := NewRateLimitService(&rateLimitAccountRepoStub{}, nil, &config.Config{}, nil, nil)
@@ -158,6 +178,21 @@ func TestAntigravityRelayCapacity_SaturationThresholdIsPerExactModel(t *testing.
 	require.Empty(t, repo.modelRateLimitCalls)
 	require.Equal(t, int64(2), counter.counts["gemini-3-flash-tiered"])
 	require.Equal(t, int64(1), counter.counts["claude-sonnet-4-6"])
+}
+
+func TestAntigravityRelayCapacity_UsesPostDispatchAndThinkingFinalModel(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &fakeAntigravitySaturationCounter{}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc.SetAntigravitySaturationCounter(counter)
+	account := antigravityEdgeRelayStub(85)
+	ctx := WithThinkingEnabled(context.Background(), true, false)
+
+	require.True(t, svc.handleAntigravityRelayCapacity(
+		ctx, account, http.StatusServiceUnavailable, antigravityRelayEmptyPoolBody(), "claude-sonnet-4-5"))
+
+	require.Equal(t, []string{"claude-sonnet-4-5-thinking"}, counter.modelKeys)
+	require.Empty(t, repo.modelRateLimitCalls)
 }
 
 func TestAntigravityRelayCapacity_ThresholdWritesExactModelOnly(t *testing.T) {

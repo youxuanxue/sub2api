@@ -905,7 +905,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, originalModel); matched {
+		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, req.Model); matched {
 			resp = rebuilt
 			break
 		} else {

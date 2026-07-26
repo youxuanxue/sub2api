@@ -1834,6 +1834,21 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 		return
 	}
 
+	if failoverErr.ClientStatusCode > 0 {
+		// 记录原始上游状态码，以便 ops 错误日志捕获真实的上游错误。
+		upstreamMsg := service.ExtractUpstreamErrorMessage(responseBody)
+		service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
+		if retryAfter := failoverErr.ResponseHeaders.Get("Retry-After"); retryAfter != "" {
+			c.Header("Retry-After", retryAfter)
+		}
+		message := failoverErr.ClientMessage
+		if message == "" {
+			message = service.GatewayFailoverClientMessage(failoverErr.ClientStatusCode)
+		}
+		h.handleStreamingAwareError(c, failoverErr.ClientStatusCode, "api_error", message, streamStarted)
+		return
+	}
+
 	// 先检查透传规则
 	if h.errorPassthroughService != nil && len(responseBody) > 0 {
 		if rule := h.errorPassthroughService.MatchRule(platform, statusCode, responseBody); rule != nil {

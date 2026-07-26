@@ -1478,6 +1478,28 @@ func TestOpenAIBodyHasThinkingEnabled(t *testing.T) {
 	}
 }
 
+func TestOpenAIReasoningEnablesThinking(t *testing.T) {
+	tests := []struct {
+		name   string
+		effort *string
+		body   string
+		want   bool
+	}{
+		{name: "missing", body: `{"model":"claude-sonnet-4-5"}`, want: false},
+		{name: "low configures effort only", effort: strPtr("low"), want: false},
+		{name: "medium", effort: strPtr("medium"), want: true},
+		{name: "high", effort: strPtr("high"), want: true},
+		{name: "xhigh", effort: strPtr("xhigh"), want: true},
+		{name: "native thinking enabled", body: `{"thinking":{"type":"enabled"}}`, want: true},
+		{name: "native thinking disabled", body: `{"thinking":{"type":"disabled"}}`, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, OpenAIReasoningEnablesThinking(tt.effort, []byte(tt.body)))
+		})
+	}
+}
+
 func TestApplyThinkingEnabledFallback(t *testing.T) {
 	tests := []struct {
 		name        string
