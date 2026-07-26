@@ -43,8 +43,11 @@ type RateLimitService struct {
 	// TK: OpenAI edge-mirror stub downstream-capacity counter (optional). See
 	// ratelimit_service_tk_openai_saturation.go.
 	openaiSaturationCounter OpenAISaturationCounterCache
-	usageCacheMu            sync.RWMutex
-	usageCache              map[int64]*geminiUsageCacheEntry
+	// TK: Antigravity edge-relay empty-pool counter. It feeds only bounded,
+	// exact-model cooldowns; never account-wide scheduler state.
+	antigravitySaturationCounter AntigravitySaturationCounterCache
+	usageCacheMu                 sync.RWMutex
+	usageCache                   map[int64]*geminiUsageCacheEntry
 }
 
 type AccountRuntimeBlocker interface {

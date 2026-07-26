@@ -190,12 +190,22 @@ func (s *GatewayService) ForwardAsResponses(
 				Message:            upstreamMsg,
 			})
 			if s.rateLimitService != nil {
-				s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
+				if !s.rateLimitService.handleAntigravityRelayCapacity(
+					ctx,
+					account,
+					resp.StatusCode,
+					respBody,
+					originalModel,
+				) {
+					s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
+				}
 			}
-			return nil, &UpstreamFailoverError{
-				StatusCode:   resp.StatusCode,
-				ResponseBody: respBody,
-			}
+			return nil, newUpstreamFailoverErrorWithTKCapacity(
+				account,
+				resp.StatusCode,
+				resp.Header,
+				respBody,
+			)
 		}
 
 		// Non-failover error: return Responses-formatted error to client

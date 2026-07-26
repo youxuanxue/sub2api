@@ -193,6 +193,20 @@ func ProvideTKOpenAISaturation(
 	return TKOpenAISaturationReady{}
 }
 
+// TKAntigravitySaturationReady forces the write-side relay saturation counter
+// to be attached to RateLimitService at startup.
+type TKAntigravitySaturationReady struct{}
+
+func ProvideTKAntigravitySaturation(
+	rl *RateLimitService,
+	cache AntigravitySaturationCounterCache,
+) TKAntigravitySaturationReady {
+	if rl != nil {
+		rl.SetAntigravitySaturationCounter(cache)
+	}
+	return TKAntigravitySaturationReady{}
+}
+
 // ProvideTKAccountIncidentNotifier builds the account-incident Feishu notifier,
 // starts its background digest ticker, and wires it onto RateLimitService
 // post-construction. It returns the concrete instance (not a sentinel) so

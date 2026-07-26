@@ -158,6 +158,9 @@ func provideCleanup(
 	// TokenKey: forces wire to evaluate ProvideTKOpenAISaturation so the OpenAI
 	// edge-mirror saturation counter is wired at startup.
 	_ service.TKOpenAISaturationReady,
+	// TokenKey: forces wire to evaluate ProvideTKAntigravitySaturation so
+	// sustained relay empty-pool responses create exact-model cooldowns.
+	_ service.TKAntigravitySaturationReady,
 	// TokenKey: forces wire to evaluate ProvideTKGatewayHandlerModelList so
 	// GatewayHandler.SetModelListFilter is called at startup. See R-003 /
 	// Goal 2 of docs/approved/pricing-availability-source-of-truth.md.
