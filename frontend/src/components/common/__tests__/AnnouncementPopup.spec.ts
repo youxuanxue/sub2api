@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -62,10 +62,13 @@ describe('AnnouncementPopup', () => {
     }
 
     const wrapper = mount(AnnouncementPopup)
+    await flushPromises()
     await wrapper.vm.$nextTick()
 
     const content = document.body.querySelector('.markdown-body')
-    expect(content?.querySelector('h2')?.textContent).toBe('Markdown heading')
+    await vi.waitFor(() => {
+      expect(content?.querySelector('h2')?.textContent).toBe('Markdown heading')
+    })
     expect(content?.querySelector('h3')?.textContent).toBe('HTML heading')
     expect(content?.querySelector('li')?.textContent).toBe('HTML list item')
     expect(content?.querySelector('table td')?.textContent).toBe('OK')
@@ -90,9 +93,13 @@ describe('AnnouncementPopup', () => {
         preview: true,
       },
     })
+    await flushPromises()
+    await wrapper.vm.$nextTick()
 
     expect(document.body.textContent).toContain('Preview announcement')
-    expect(document.body.querySelector('.markdown-body h2')?.textContent).toBe('Preview heading')
+    await vi.waitFor(() => {
+      expect(document.body.querySelector('.markdown-body h2')?.textContent).toBe('Preview heading')
+    })
     expect(document.body.querySelector('.markdown-body script')).toBeNull()
     expect(document.body.textContent).toContain('common.close')
 

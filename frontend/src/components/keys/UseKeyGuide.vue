@@ -95,7 +95,7 @@
           </div>
 
           <!-- Live test (single-model tabs only) -->
-          <div v-if="activeFlavor" class="flex items-center gap-3 flex-wrap pt-1">
+          <div v-if="activeFlavor && !hideInlineTest" class="flex items-center gap-3 flex-wrap pt-1">
             <button
               @click="onTest"
               :disabled="tkTestState.status === 'running'"
@@ -249,6 +249,7 @@ import {
   flavorOfModel,
   type UseKeyFlavor,
   type UseKeyServableModel,
+  type TestState,
 } from '@/composables/useTkUseKey'
 import type { GroupPlatform, KeyRoutingMode } from '@/types'
 import { TK_QUICKSTART_CLIENTS } from '@/constants/clientIntegrations.tk'
@@ -286,6 +287,8 @@ interface Props {
   selectedTransport?: 'http' | 'websocket' | null
   /** Key modals keep legacy tabs; /quickstart owns client selection outside. */
   showClientTabs?: boolean
+  /** /quickstart surfaces the test CTA in QuickstartConnectionHealth instead. */
+  hideInlineTest?: boolean
 }
 
 interface TabConfig {
@@ -303,9 +306,11 @@ interface FileConfig {
 
 const props = withDefaults(defineProps<Props>(), {
   showClientTabs: true,
+  hideInlineTest: false,
 })
 const emit = defineEmits<{
   modelChange: [model: string]
+  testStateChange: [state: TestState]
 }>()
 const showClientTabs = computed(() => props.showClientTabs)
 
@@ -438,6 +443,9 @@ function onPickModel(e: Event): void {
 // Template-facing refs (top-level so they auto-unwrap in the template).
 const tkModelsLoading = tk.modelsLoading
 const tkTestState = tk.testState
+watch(tkTestState, (state) => {
+  emit('testStateChange', { ...state })
+}, { deep: true, immediate: true })
 const tkIsCCOnly = tk.isClaudeCodeOnly
 
 const maskedKey = computed(() => {
@@ -463,6 +471,11 @@ function onTest(): void {
     void tk.runTest(activeFlavor.value, { requireToolCall: isDifyClient.value })
   }
 }
+
+defineExpose({
+  runTest: onTest,
+  testState: tkTestState,
+})
 
 function formatCtx(n?: number): string {
   if (!n) return ''

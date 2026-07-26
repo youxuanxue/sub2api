@@ -225,7 +225,10 @@ type AccountSchedulerGroupScore struct {
 const accountListGroupUngroupedQueryValue = "ungrouped"
 
 func (h *AccountHandler) accountResponseFromService(account *service.Account) *dto.Account {
-	out := dto.AccountFromService(account)
+	return h.enrichAccountResponse(dto.AccountFromService(account))
+}
+
+func (h *AccountHandler) enrichAccountResponse(out *dto.Account) *dto.Account {
 	if h != nil && h.ollamaCloudUsage != nil && out != nil {
 		h.ollamaCloudUsage.EnrichState(out.OllamaCloudUsage)
 	}
@@ -631,6 +634,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		if lite {
 			accountDTO = dto.AccountFromServiceShallow(acc)
 		}
+		accountDTO = h.enrichAccountResponse(accountDTO)
 		item := AccountWithConcurrency{
 			Account:            accountDTO,
 			CurrentConcurrency: concurrencyCounts[acc.ID],
@@ -2540,9 +2544,15 @@ func tkOpenAIAdminModelsForIDs(ids []string) []dto.AccountModelOption {
 }
 
 func tkOpenAIAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
-	return tkOpenAIAdminModelsForIDs(
-		service.ServableClientFacingIDs(ctx, service.PlatformOpenAI, nil, nil),
-	)
+	ids := service.ServableClientFacingIDs(ctx, service.PlatformOpenAI, nil, nil)
+	defaultModelID := openai.DefaultModels[0].ID
+	sort.SliceStable(ids, func(i, j int) bool {
+		if ids[i] == defaultModelID || ids[j] == defaultModelID {
+			return ids[i] == defaultModelID && ids[j] != defaultModelID
+		}
+		return ids[i] < ids[j]
+	})
+	return tkOpenAIAdminModelsForIDs(ids)
 }
 
 func tkGrokAdminModelsForIDs(ids []string) []dto.AccountModelOption {

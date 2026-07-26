@@ -56,7 +56,12 @@ vi.mock('@/components/keys/UseKeyGuide.vue', () => ({
       'selectedProtocol',
       'selectedTransport',
       'showClientTabs',
+      'hideInlineTest',
     ],
+    emits: ['modelChange', 'testStateChange'],
+    methods: {
+      runTest() {},
+    },
     template:
       '<div data-test="use-key-guide">{{ routingMode }}|{{ platform ?? "" }}|{{ initialModel ?? "" }}|{{ selectedClient ?? "" }}|{{ selectedProtocol ?? "" }}|{{ selectedTransport ?? "" }}</div>',
   },
@@ -124,11 +129,35 @@ describe('QuickstartView', () => {
     })
   })
 
+  it('shows the client picker before the config workspace', async () => {
+    const wrapper = await mountView()
+    const picker = wrapper.get('[data-tk="quickstart-client-picker"]')
+    const workspace = wrapper.get('[data-tk="quickstart-config-workspace"]')
+    expect(picker.element.compareDocumentPosition(workspace.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('embeds UseKeyGuide for universal keys without a fixed group platform', async () => {
     const wrapper = await mountView()
     const guide = wrapper.get('[data-test="use-key-guide"]')
     expect(guide.text()).toBe('universal|||claude|anthropic|http')
     expect(wrapper.text()).not.toContain('keys.useKeyModal.noGroupTitle')
+  })
+
+  it('auto-selects a compatible key when switching to Codex CLI', async () => {
+    listKeys.mockResolvedValue({
+      items: [
+        { ...universalKey(), id: 5, name: 'Direct', routing_mode: 'direct', group_id: 1, group: { id: 1, name: 'claude', platform: 'anthropic' } },
+        universalKey(),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+      pages: 2,
+    })
+    const wrapper = await mountView()
+    await wrapper.get('[data-tk="quickstart-client-codex-cli"]').trigger('click')
+    await nextTick()
+    expect((wrapper.get('[data-tk="quickstart-key-select"]').element as HTMLSelectElement).value).toBe('42')
   })
 
   it('prefers universal key and passes model query to UseKeyGuide', async () => {
@@ -141,17 +170,20 @@ describe('QuickstartView', () => {
       total: 2,
       page: 1,
       page_size: 100,
-      pages: 1,
+      pages: 2,
     })
     const wrapper = await mountView()
-    expect((wrapper.get('select').element as HTMLSelectElement).value).toBe('42')
+    expect((wrapper.get('[data-tk="quickstart-key-select"]').element as HTMLSelectElement).value).toBe('42')
     expect(wrapper.get('[data-test="use-key-guide"]').text()).toContain('claude-haiku-4-5')
   })
 
-  it('selects key from ?keyId= query on load', async () => {
+  it('selects key from ?keyId= query on load and treats it as manual', async () => {
     routeQuery.value = { keyId: '42' }
     const wrapper = await mountView()
-    expect((wrapper.get('select').element as HTMLSelectElement).value).toBe('42')
+    expect((wrapper.get('[data-tk="quickstart-key-select"]').element as HTMLSelectElement).value).toBe('42')
+    await wrapper.get('[data-tk="quickstart-client-codex-cli"]').trigger('click')
+    await nextTick()
+    expect((wrapper.get('[data-tk="quickstart-key-select"]').element as HTMLSelectElement).value).toBe('42')
   })
 
   it('hides reserved __tk_probe_* keys from the picker', async () => {
@@ -163,10 +195,10 @@ describe('QuickstartView', () => {
       total: 2,
       page: 1,
       page_size: 100,
-      pages: 1,
+      pages: 2,
     })
     const wrapper = await mountView()
-    const options = wrapper.get('select').findAll('option')
+    const options = wrapper.get('[data-tk="quickstart-key-select"]').findAll('option')
     expect(options).toHaveLength(1)
     expect(options[0].text()).toContain('Test')
     expect(listKeys).toHaveBeenCalledWith(1, 100, { status: 'active' })
@@ -181,14 +213,14 @@ describe('QuickstartView', () => {
       pages: 2,
     })
     const wrapper = await mountView()
-    await wrapper.get('select').setValue('99')
+    await wrapper.get('[data-tk="quickstart-key-select"]').setValue('99')
     await nextTick()
     expect(replaceMock).toHaveBeenCalledWith(
       expect.objectContaining({ query: expect.objectContaining({ keyId: '99' }) }),
     )
   })
 
-  it('shows every existing and newly supported client before the config workspace', async () => {
+  it('shows every existing and newly supported client in the picker', async () => {
     const wrapper = await mountView()
     const expected = [
       'claude-code', 'codex-cli', 'qwen-code', 'gemini-cli', 'opencode', 'cline', 'roo-code',
@@ -197,9 +229,13 @@ describe('QuickstartView', () => {
     for (const id of expected) {
       expect(wrapper.find(`[data-tk="quickstart-client-${id}"]`).exists()).toBe(true)
     }
-    const picker = wrapper.get('[data-tk="quickstart-client-picker"]')
-    const workspace = wrapper.get('[data-tk="quickstart-config-workspace"]')
-    expect(picker.element.compareDocumentPosition(workspace.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('renders connection health and collapsible advanced key options', async () => {
+    const wrapper = await mountView()
+    expect(wrapper.find('[data-tk="quickstart-connection-health"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tk="quickstart-advanced-options"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tk="quickstart-send-test"]').exists()).toBe(true)
   })
 
   it('selects Qwen Code at the tool layer and keeps protocol as a secondary control', async () => {
@@ -213,7 +249,7 @@ describe('QuickstartView', () => {
     expect(wrapper.get('[data-test="use-key-guide"]').text()).toContain('|qwen-code|anthropic|')
   })
 
-  it('keeps incompatible clients visible and disabled for a direct Anthropic key', async () => {
+  it('keeps incompatible clients visible and disabled when no key supports them', async () => {
     listKeys.mockResolvedValue({
       items: [{
         ...universalKey(),

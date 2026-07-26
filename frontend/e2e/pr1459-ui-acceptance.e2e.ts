@@ -15,7 +15,7 @@ test.describe('PR #1459 UI acceptance', () => {
   test('quickstart: no decorative top border on key section', async ({ page }) => {
     await login(page)
     await page.goto('/quickstart')
-    await expect(page.locator('[data-tk="quickstart-key-select"]')).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator('[data-tk="quickstart-client-picker"]')).toBeVisible({ timeout: 30_000 })
     await expect(page.locator('section.border-y')).toHaveCount(0)
   })
 
@@ -81,6 +81,7 @@ test.describe('PR #1459 UI acceptance', () => {
   test('quickstart key picker hides __tk_probe_* names when present', async ({ page }) => {
     await login(page)
     await page.goto('/quickstart')
+    await page.locator('[data-tk="quickstart-advanced-options"] summary').click()
     const select = page.locator('[data-tk="quickstart-key-select"]')
     await expect(select).toBeVisible({ timeout: 30_000 })
 

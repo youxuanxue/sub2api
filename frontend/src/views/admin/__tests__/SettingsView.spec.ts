@@ -180,8 +180,15 @@ vi.mock("vue-i18n", async () => {
     "admin.settings.paymentVisibleMethods.sourceRequiredError": "{title} 已启用，请先选择支付来源。",
     "admin.settings.payment.configGuide": "查看支付配置说明",
     "admin.settings.payment.findProvider": "查看支持的支付方式",
+    "admin.settings.upstreamBillingProbe.title": "上游倍率自动探测",
+    "admin.settings.upstreamBillingProbe.saved": "上游倍率自动探测设置已保存",
     "admin.settings.openaiExperimentalScheduler.title": "OpenAI 实验调度策略",
     "admin.settings.openaiExperimentalScheduler.description": "默认关闭。开启后仅影响本网关在 OpenAI 账号间的实验性调度选择逻辑，不代表上游 OpenAI 官方能力。",
+    "admin.settings.openaiExperimentalScheduler.lowRatePriorityTitle": "低倍率优先",
+    "admin.settings.openaiExperimentalScheduler.lowRatePriorityDescription": "开启后优先选择计费倍率较低的账号；倍率相同时，再比较账号优先级和当前负载等。启用实验调度策略后，此开关不生效。",
+    "admin.settings.openaiExperimentalScheduler.oauthRateTitle": "OAuth 调度参考倍率",
+    "admin.settings.openaiExperimentalScheduler.oauthRatePriorityDescription": "同一分组同时包含 API Key 和 OAuth 账号时，OAuth 账号按此倍率与已探测的 API Key 计费倍率一起排序。",
+    "admin.settings.openaiExperimentalScheduler.oauthRateWeightedDescription": "同一分组同时包含 API Key 和 OAuth 账号时，计算“计费倍率”得分时，OAuth 账号按此倍率参与计算。",
     "admin.settings.openaiExperimentalScheduler.stickyWeightedTitle": "粘性加权",
     "admin.settings.openaiExperimentalScheduler.stickyWeightedDescription": "开启后 previous_response_id 和 session_hash 粘性进入高级调度打分；关闭时仍按旧逻辑硬命中粘性账号。",
     "admin.settings.openaiExperimentalScheduler.subscriptionPriorityTitle": "订阅优先",
@@ -518,6 +525,16 @@ async function openPaymentTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
+async function openGatewayTab(wrapper: ReturnType<typeof mountView>) {
+  const gatewayTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.gateway"));
+
+  expect(gatewayTabButton).toBeDefined();
+  await gatewayTabButton?.trigger("click");
+  await flushPromises();
+}
+
 async function openSecurityTab(wrapper: ReturnType<typeof mountView>) {
   const securityTabButton = wrapper
     .findAll("button")
@@ -680,6 +697,29 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(payload).not.toHaveProperty("payment_visible_method_wxpay_source");
     expect(payload).not.toHaveProperty("payment_visible_method_alipay_enabled");
     expect(payload).not.toHaveProperty("payment_visible_method_wxpay_enabled");
+  });
+
+  it("loads and submits the mobile Alipay precreate deep-link setting", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      payment_alipay_mobile_precreate_deep_link: false,
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openPaymentTab(wrapper);
+    await wrapper
+      .get('[data-testid="payment-alipay-mobile-precreate-deep-link"]')
+      .setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_alipay_mobile_precreate_deep_link: true,
+      }),
+    );
   });
 
   it("submits the admin recharge affiliate rebate setting", async () => {
