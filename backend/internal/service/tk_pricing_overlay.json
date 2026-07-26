@@ -1715,7 +1715,8 @@
     "supports_vision": true,
     "supports_pdf_input": true,
     "supports_reasoning": true,
-    "source": "Anthropic official Claude Opus page (https://www.anthropic.com/claude/opus), captured 2026-07-26: input $5/M tokens, output $25/M tokens. Cache write/read and context metadata cross-checked against LiteLLM model_prices_and_context_window.json on 2026-07-26."
+    "supports_response_schema": true,
+    "source": "Anthropic official Claude Opus and API pricing pages (https://www.anthropic.com/claude/opus; https://claude.com/pricing#api), captured 2026-07-26: input $5/M, output $25/M, cache write $6.25/M, cache read $0.50/M, 1M context. Output/capability metadata follows the current Anthropic Opus 4.8 LiteLLM entry pending an upstream Opus 5 entry."
   },
   "claude-sonnet-4-6": {
     "litellm_provider": "antigravity",

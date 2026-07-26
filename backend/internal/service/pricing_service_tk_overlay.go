@@ -120,11 +120,20 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 			continue
 		}
 		p := &LiteLLMModelPricing{
-			LiteLLMProvider:       e.LiteLLMProvider,
-			Mode:                  e.Mode,
-			SupportsPromptCaching: e.SupportsPromptCaching,
-			SupportsServiceTier:   e.SupportsServiceTier,
-			TokenPricingAbsent:    e.InputCostPerToken == nil && e.OutputCostPerToken == nil,
+			LiteLLMProvider:         e.LiteLLMProvider,
+			Mode:                    e.Mode,
+			SupportsPromptCaching:   e.SupportsPromptCaching,
+			SupportsServiceTier:     e.SupportsServiceTier,
+			MaxInputTokens:          e.MaxInputTokens,
+			MaxOutputTokens:         e.MaxOutputTokens,
+			SupportsVision:          e.SupportsVision,
+			SupportsToolChoice:      e.SupportsToolChoice,
+			SupportsFunctionCalling: e.SupportsFunctionCalling,
+			SupportsReasoning:       e.SupportsReasoning,
+			SupportsResponseSchema:  e.SupportsResponseSchema,
+			SupportsPDFInput:        e.SupportsPDFInput,
+			SupportsWebSearch:       e.SupportsWebSearch,
+			TokenPricingAbsent:      e.InputCostPerToken == nil && e.OutputCostPerToken == nil,
 		}
 		if e.OutputCostPerImage != nil {
 			p.OutputCostPerImage = *e.OutputCostPerImage

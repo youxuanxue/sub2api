@@ -112,6 +112,21 @@ func KiroAdminTestModels() []claude.Model {
 	}
 }
 
+// supportedKiroCatalogModels is the set projection of KiroAdminTestModels.
+// KiroAdminTestModels remains the owner; routing, account mapping, and the
+// Claude public-catalog projection consume this derived set instead of keeping
+// parallel Kiro model lists.
+var supportedKiroCatalogModels = func() map[string]struct{} {
+	models := KiroAdminTestModels()
+	out := make(map[string]struct{}, len(models))
+	for _, model := range models {
+		if id := strings.TrimSpace(model.ID); id != "" {
+			out[id] = struct{}{}
+		}
+	}
+	return out
+}()
+
 // kiroMirrorStubSupportsModel constrains prod Anthropic API-key mirror stubs
 // that forward to the Kiro platform. They intentionally have empty
 // credentials.model_mapping so older menu code could still show a useful
@@ -132,10 +147,8 @@ func kiroMirrorStubSupportsModel(requestedModel string) bool {
 		claude.DenormalizeModelID(requestedModel),
 	}
 	for _, candidate := range candidates {
-		for _, m := range KiroAdminTestModels() {
-			if candidate == m.ID {
-				return true
-			}
+		if _, ok := supportedKiroCatalogModels[candidate]; ok {
+			return true
 		}
 	}
 	return false

@@ -183,6 +183,10 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	assert.InDelta(t, 0.025, opus5.Pricing.OutputPer1KTokens, 1e-12)
 	assert.InDelta(t, 0.0005, opus5.Pricing.CacheReadPer1K, 1e-12)
 	assert.InDelta(t, 0.00625, opus5.Pricing.CacheWritePer1K, 1e-12)
+	assert.Equal(t, 1_000_000, opus5.ContextWindow)
+	assert.Equal(t, 128_000, opus5.MaxOutputTokens)
+	assert.Equal(t, "anthropic", opus5.Vendor)
+	assert.ElementsMatch(t, []string{"vision", "tool_use", "prompt_caching", "reasoning", "response_schema", "pdf_input"}, opus5.Capabilities)
 
 	pro, ok := byID["deepseek-v4-pro"]
 	require.True(t, ok, "overlay-only deepseek-v4-pro must surface in catalog")

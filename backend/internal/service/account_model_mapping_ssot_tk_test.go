@@ -106,6 +106,8 @@ func TestAccountModelMappingFloorForOps_ExportsPolicyMetadata(t *testing.T) {
 		domain.AntigravityUnpricedModelMappingKeys()...,
 	)
 	require.ElementsMatch(t, wantForbiddenKeys, doc.ForbiddenModelMappingKeys[PlatformAntigravity])
+	require.ElementsMatch(t, kiroExclusiveModelIDs(), doc.ForbiddenModelMappingKeys[PlatformAnthropic])
+	require.Contains(t, doc.ForbiddenModelMappingKeys[PlatformAnthropic], "claude-opus-5")
 	require.Contains(t, doc.ForbiddenModelMappingPrefixes[PlatformAntigravity], "gpt-oss-")
 }
 

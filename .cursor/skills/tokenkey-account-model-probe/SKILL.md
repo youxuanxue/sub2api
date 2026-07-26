@@ -75,6 +75,25 @@ bash ops/observability/run-probe.sh \
   --env 'TARGET_MODELS=<candidate_model> <candidate_alias>'
 ```
 
+For an Anthropic OAuth/setup-token account, the same wrapper can call the
+canonical admin account-test service directly, bypassing the gateway pricing
+floor while retaining the account's proxy and TLS fingerprint. Account-test
+success may update the account's normal recovery state:
+
+```bash
+bash ops/observability/run-probe.sh \
+  --target edge:<edge_id> \
+  --script ops/stage0/probe_account_upstream_models.sh \
+  --env ACCOUNT_ID=<account_id> \
+  --env BASE_URL=https://api-<edge_id>.tokenkey.dev/api/v1 \
+  --env MODEL=<candidate_model>
+```
+
+The JSON result includes database-derived `account_platform` and effective
+`account_scope` (for example an Anthropic transport stub with
+`mirror_platform=kiro` reports `account_platform=anthropic`,
+`account_scope=kiro`) for model-activation evidence.
+
 Useful options:
 
 - `ENDPOINT=messages|chat|responses` chooses `/v1/messages`, `/v1/chat/completions`, or `/v1/responses`.

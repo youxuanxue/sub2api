@@ -9,10 +9,9 @@ package service
 // require an Ent schema migration (visible_in_catalog on Group).
 //
 // Why a separate service rather than reusing PricingService directly?
-//   - PricingService.LiteLLMModelPricing intentionally drops fields like
-//     max_input_tokens / supports_vision because billing only needs prices.
-//     Expanding that struct to carry catalog-only metadata would couple billing
-//     to an unrelated concern.
+//   - The file-source parser remains independent from billing. The small curated
+//     overlay carries its catalog metadata in the same immutable snapshot as its
+//     price so overlay-only rows cannot diverge between billing and display.
 //   - Catalog has its own caching cadence (mtime-based) and its own DTO shape;
 //     keeping it isolated minimizes upstream merge conflicts (rule §5).
 //
@@ -141,9 +140,8 @@ type PublicCatalogTier struct {
 }
 
 // catalogRichEntry mirrors the litellm-shape JSON fields needed for the public
-// catalog. Fields beyond what PricingService's billing flow uses (max_*,
-// supports_*, deprecation_date) are kept here so we don't pollute the billing
-// data structures.
+// catalog's file-source parser. Overlay-only rows project the same metadata from
+// LiteLLMModelPricing so their price and display facts share one snapshot.
 type catalogRichEntry struct {
 	InputCostPerToken           *float64 `json:"input_cost_per_token"`
 	OutputCostPerToken          *float64 `json:"output_cost_per_token"`
@@ -160,6 +158,7 @@ type catalogRichEntry struct {
 	SupportsToolChoice          bool     `json:"supports_tool_choice"`
 	SupportsFunctionCalling     bool     `json:"supports_function_calling"`
 	SupportsPromptCaching       bool     `json:"supports_prompt_caching"`
+	SupportsReasoning           bool     `json:"supports_reasoning"`
 	SupportsResponseSchema      bool     `json:"supports_response_schema"`
 	SupportsPDFInput            bool     `json:"supports_pdf_input"`
 	SupportsWebSearch           bool     `json:"supports_web_search"`
@@ -409,7 +408,16 @@ func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 			CacheCreationInputTokenCost: &cacheWrite,
 			LiteLLMProvider:             p.LiteLLMProvider,
 			Mode:                        p.Mode,
+			MaxInputTokens:              p.MaxInputTokens,
+			MaxOutputTokens:             p.MaxOutputTokens,
+			SupportsVision:              p.SupportsVision,
+			SupportsToolChoice:          p.SupportsToolChoice,
+			SupportsFunctionCalling:     p.SupportsFunctionCalling,
 			SupportsPromptCaching:       p.SupportsPromptCaching,
+			SupportsReasoning:           p.SupportsReasoning,
+			SupportsResponseSchema:      p.SupportsResponseSchema,
+			SupportsPDFInput:            p.SupportsPDFInput,
+			SupportsWebSearch:           p.SupportsWebSearch,
 		}
 		// Thinking-mode output price (qwen3 dense): surface it so the public
 		// catalog can show both 非思考/思考 output rates for the one model id.
@@ -593,6 +601,9 @@ func catalogCapabilities(e *catalogRichEntry) []string {
 	}
 	if e.SupportsPromptCaching {
 		caps = append(caps, "prompt_caching")
+	}
+	if e.SupportsReasoning {
+		caps = append(caps, "reasoning")
 	}
 	if e.SupportsResponseSchema {
 		caps = append(caps, "response_schema")

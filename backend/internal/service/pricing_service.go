@@ -131,9 +131,20 @@ type LiteLLMModelPricing struct {
 	LiteLLMProvider                     string  `json:"litellm_provider"`
 	Mode                                string  `json:"mode"`
 	SupportsPromptCaching               bool    `json:"supports_prompt_caching"`
-	OutputCostPerImage                  float64 `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
-	OutputCostPerImageToken             float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
-	OutputCostPerSecond                 float64 `json:"output_cost_per_second"`      // 视频生成模型每秒价格（veo 等）
+	// Overlay-only catalog metadata travels with the same immutable overlay
+	// snapshot as pricing so billing and display cannot parse different facts.
+	MaxInputTokens          int     `json:"max_input_tokens"`
+	MaxOutputTokens         int     `json:"max_output_tokens"`
+	SupportsVision          bool    `json:"supports_vision"`
+	SupportsToolChoice      bool    `json:"supports_tool_choice"`
+	SupportsFunctionCalling bool    `json:"supports_function_calling"`
+	SupportsReasoning       bool    `json:"supports_reasoning"`
+	SupportsResponseSchema  bool    `json:"supports_response_schema"`
+	SupportsPDFInput        bool    `json:"supports_pdf_input"`
+	SupportsWebSearch       bool    `json:"supports_web_search"`
+	OutputCostPerImage      float64 `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
+	OutputCostPerImageToken float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
+	OutputCostPerSecond     float64 `json:"output_cost_per_second"`      // 视频生成模型每秒价格（veo 等）
 
 	// Intervals 输入-token 区间分档定价（TK overlay 专用，见 tk_pricing_overlay.json
 	// 的 "intervals"）。仅 TK overlay 条目填充；litellm 源无此概念。空 = 扁平定价。
@@ -172,6 +183,15 @@ type LiteLLMRawEntry struct {
 	LiteLLMProvider                     string   `json:"litellm_provider"`
 	Mode                                string   `json:"mode"`
 	SupportsPromptCaching               bool     `json:"supports_prompt_caching"`
+	MaxInputTokens                      int      `json:"max_input_tokens"`
+	MaxOutputTokens                     int      `json:"max_output_tokens"`
+	SupportsVision                      bool     `json:"supports_vision"`
+	SupportsToolChoice                  bool     `json:"supports_tool_choice"`
+	SupportsFunctionCalling             bool     `json:"supports_function_calling"`
+	SupportsReasoning                   bool     `json:"supports_reasoning"`
+	SupportsResponseSchema              bool     `json:"supports_response_schema"`
+	SupportsPDFInput                    bool     `json:"supports_pdf_input"`
+	SupportsWebSearch                   bool     `json:"supports_web_search"`
 	OutputCostPerImage                  *float64 `json:"output_cost_per_image"`
 	OutputCostPerImageToken             *float64 `json:"output_cost_per_image_token"`
 	OutputCostPerSecond                 *float64 `json:"output_cost_per_second"`

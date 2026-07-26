@@ -69,7 +69,7 @@ Probe and pricing evidence are separate JSON objects with this common envelope:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "kind": "model_activation_probe",
   "current_floor_sha256": "<current bundle floor_sha256>",
   "target_floor_sha256": "<target bundle floor_sha256>",
@@ -80,8 +80,10 @@ Probe and pricing evidence are separate JSON objects with this common envelope:
       "model_id": "gpt-example",
       "target": "gpt-example-upstream",
       "verdict": "servable",
-      "source": "probe_account_model.sh",
-      "account_id": "7"
+      "source": "probe_account_upstream_models.sh",
+      "account_id": "7",
+      "account_platform": "openai",
+      "account_scope": "openai"
     }
   ]
 }
@@ -91,8 +93,12 @@ Pricing evidence uses `kind=model_activation_pricing`, `verdict=priced`, and the
 same `scope/model_id/target/source` identity (without `account_id`). Both files
 must bind the exact current and target digests, cover every added/retargeted
 mapping, and be no older than 24 hours. The probe result must come from a real
-account path; its `source` must differ from the pricing source. Repository tests
-and bundle membership are not probe evidence.
+account path; `account_scope` must exactly match the bundle mapping scope and
+must be a valid projection of `account_platform` (including explicit Anthropic
+transport scopes such as `kiro`, and exact `newapi_channel_type:*` scopes). The
+account probe derives both fields from the target database; its `source` must
+differ from the pricing source. Repository tests and bundle membership are not
+probe evidence.
 
 Without `--confirm`, activation validates evidence, renders the prod apply plan,
 and runs the prod release gate read-only. With

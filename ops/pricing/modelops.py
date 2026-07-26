@@ -64,7 +64,7 @@ _bundle_spec = importlib.util.spec_from_file_location(
 _BUNDLE = importlib.util.module_from_spec(_bundle_spec)
 _bundle_spec.loader.exec_module(_BUNDLE)
 
-ACTIVATION_EVIDENCE_SCHEMA_VERSION = 1
+ACTIVATION_EVIDENCE_SCHEMA_VERSION = 2
 ACTIVATION_EVIDENCE_MAX_AGE = dt.timedelta(hours=24)
 ACTIVATION_CONFIRM = "yes-activate-model-surface"
 
@@ -832,6 +832,18 @@ class ActivationError(RuntimeError):
     pass
 
 
+def _account_platform_allows_scope(account_platform: str, account_scope: str) -> bool:
+    if account_platform == account_scope:
+        return True
+    if account_platform == "anthropic":
+        return account_scope in {"kiro", "bedrock"}
+    if account_platform == "openai":
+        return account_scope == "openai_ainzy_relay"
+    if account_platform == "newapi":
+        return account_scope.startswith("newapi_channel_type:")
+    return False
+
+
 def _parse_evidence_time(raw: Any, label: str) -> dt.datetime:
     if not isinstance(raw, str) or not raw.strip():
         raise ActivationError(f"{label}: observed_at must be an RFC3339 UTC timestamp")
@@ -964,6 +976,26 @@ def _load_activation_evidence(
             account_id = row.get("account_id")
             if not isinstance(account_id, str) or not account_id.strip():
                 raise ActivationError(f"{row_label}: probe evidence requires account_id")
+            account_platform = row.get("account_platform")
+            if not isinstance(account_platform, str) or not account_platform.strip():
+                raise ActivationError(f"{row_label}: probe evidence requires account_platform")
+            account_platform = account_platform.strip().lower()
+            account_scope = row.get("account_scope")
+            if not isinstance(account_scope, str) or not account_scope.strip():
+                raise ActivationError(f"{row_label}: probe evidence requires account_scope")
+            account_scope = account_scope.strip().lower()
+            if account_scope != values["scope"]:
+                raise ActivationError(
+                    f"{row_label}: account_scope {account_scope!r} must match "
+                    f"mapping scope {values['scope']!r}"
+                )
+            if not _account_platform_allows_scope(account_platform, account_scope):
+                raise ActivationError(
+                    f"{row_label}: account_platform {account_platform!r} cannot provide "
+                    f"account_scope {account_scope!r}"
+                )
+            values["account_platform"] = account_platform
+            values["account_scope"] = account_scope
         key = (values["scope"], values["model_id"], values["target"])
         if key in index:
             raise ActivationError(f"{row_label}: duplicate evidence for {key}")

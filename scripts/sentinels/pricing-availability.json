@@ -281,11 +281,12 @@
         "func tkOverlayOverridesLitellmSource",
         "func applyTKPricingOverlay",
         "func rebuildTKOverlayUnion",
-        "TokenPricingAbsent:    e.InputCostPerToken == nil && e.OutputCostPerToken == nil",
+        "TokenPricingAbsent:      e.InputCostPerToken == nil && e.OutputCostPerToken == nil",
+        "SupportsReasoning:       e.SupportsReasoning",
         "tkOverlayMu",
         "tkOverlayEffective"
       ],
-      "rationale": "The overlay loader builds one immutable snapshot containing model prices plus executable tax policy. Runtime model rows merge over the embedded floor; runtime policy may add providers or change rates/matchers but must retain every embedded provider. Validation precedes the snapshot swap, so corrupt/partial config keeps last-known-good, while a corrupt first load still establishes the embedded floor. TokenPricingAbsent preserves the fail-closed token-billing boundary when media-only overlay rows are merged into PricingService."
+      "rationale": "The overlay loader builds one immutable snapshot containing model prices, catalog metadata, and executable tax policy. Runtime model rows merge over the embedded floor; runtime policy may add providers or change rates/matchers but must retain every embedded provider. Validation precedes the snapshot swap, so corrupt/partial config keeps last-known-good, while a corrupt first load still establishes the embedded floor. TokenPricingAbsent preserves the fail-closed token-billing boundary when media-only overlay rows are merged into PricingService; SupportsReasoning anchors the capability projection used by the public catalog."
     },
     {
       "path": "ops/pricing/manage-overlay-runtime.py",

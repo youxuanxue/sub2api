@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "floor_sha256": "b1d93e38c4fdc3249dc3c8ce1c78d5e2f162be0fc56b2d36522f9d2cdc92e1d4",
+  "floor_sha256": "93e8e062fb14d0270966837f0385af9d95b223c1d2aba967846fbf4ee754ada6",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -11,7 +11,6 @@
         "claude-opus-4-6": "claude-opus-4-6",
         "claude-opus-4-7": "claude-opus-4-7",
         "claude-opus-4-8": "claude-opus-4-8",
-        "claude-opus-5": "claude-opus-5",
         "claude-sonnet-4-5": "claude-sonnet-4-5",
         "claude-sonnet-4-6": "claude-sonnet-4-6",
         "claude-sonnet-5": "claude-sonnet-5"
@@ -210,6 +209,9 @@
       "gemini_image"
     ],
     "forbidden_model_mapping_keys": {
+      "anthropic": [
+        "claude-opus-5"
+      ],
       "antigravity": [
         "gemini-2.5-flash-image-preview",
         "gemini-3-flash-preview",

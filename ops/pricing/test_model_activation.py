@@ -80,6 +80,8 @@ class ModelActivationTest(unittest.TestCase):
         target_sha256: str | None = None,
         probe_source: str = "probe_account_model.sh",
         pricing_source: str = "prod-pricing-snapshot",
+        account_platform: str = "openai",
+        account_scope: str = "openai",
     ) -> None:
         common = {
             "schema_version": MODEL_OPS.ACTIVATION_EVIDENCE_SCHEMA_VERSION,
@@ -100,6 +102,8 @@ class ModelActivationTest(unittest.TestCase):
                 "verdict": "servable",
                 "source": probe_source,
                 "account_id": "test-account",
+                "account_platform": account_platform,
+                "account_scope": account_scope,
             }],
         }), encoding="utf-8")
         self.pricing_path.write_text(json.dumps({
@@ -141,12 +145,28 @@ class ModelActivationTest(unittest.TestCase):
                 "kwargs": {"probe_source": "same-source", "pricing_source": "same-source"},
                 "message": "independent sources",
             },
+            {
+                "name": "wrong-account-platform",
+                "kwargs": {"account_platform": "kiro"},
+                "message": "account_platform .* cannot provide account_scope 'openai'",
+            },
+            {
+                "name": "wrong-account-scope",
+                "kwargs": {"account_scope": "kiro"},
+                "message": "account_scope .* must match mapping scope 'openai'",
+            },
         ]
         for case in cases:
             with self.subTest(case["name"]):
                 self.write_evidence(**case["kwargs"])
                 with self.assertRaisesRegex(MODEL_OPS.ActivationError, case["message"]):
                     self.build_context()
+
+    def test_us035_account_platform_scope_relationships(self) -> None:
+        self.assertTrue(MODEL_OPS._account_platform_allows_scope("kiro", "kiro"))
+        self.assertTrue(MODEL_OPS._account_platform_allows_scope("anthropic", "kiro"))
+        self.assertTrue(MODEL_OPS._account_platform_allows_scope("newapi", "newapi_channel_type:17"))
+        self.assertFalse(MODEL_OPS._account_platform_allows_scope("kiro", "anthropic"))
 
     def test_us035_runtime_shadow_is_rejected(self) -> None:
         with self.assertRaisesRegex(MODEL_OPS.ActivationError, "shadowed"):

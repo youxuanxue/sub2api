@@ -1390,6 +1390,9 @@ def cmd_selftest(_args) -> int:
             raise AssertionError("empty mapping accepted")
     floor = {
         "platforms": {
+            "anthropic": {
+                "claude-opus-4-8": "claude-opus-4-8",
+            },
             "openai": {
                 "gpt-5.6": "gpt-5.6",
                 "gpt-5.6-luna": "gpt-5.6-luna",
@@ -1410,11 +1413,15 @@ def cmd_selftest(_args) -> int:
             "kiro": {
                 "claude-sonnet-4-5": "claude-sonnet-4-5",
                 "claude-sonnet-5": "claude-sonnet-5",
+                "claude-opus-5": "claude-opus-5",
             },
         },
         "newapi_channel_types": {},
         "antigravity_group_scopes": ["claude", "gemini_text", "gemini_image"],
-        "forbidden_model_mapping_keys": {"antigravity": ["test-forbidden-exact"]},
+        "forbidden_model_mapping_keys": {
+            "anthropic": ["claude-opus-5"],
+            "antigravity": ["test-forbidden-exact"],
+        },
         "forbidden_model_mapping_prefixes": {"antigravity": ["test-forbidden-prefix-"]},
     }
     openai_plan = _account_plan(
@@ -1431,6 +1438,23 @@ def cmd_selftest(_args) -> int:
         floor,
     )
     assert openai_plan and openai_plan["diff"]["missing_keys"] == ["gpt-5.6-sol"]
+    native_anthropic_plan = _account_plan({
+        "platform": "anthropic",
+        "type": "oauth",
+        "model_mapping": {
+            "claude-opus-4-8": "claude-opus-4-8",
+            "claude-opus-5": "claude-opus-5",
+        },
+    }, floor)
+    assert native_anthropic_plan
+    assert native_anthropic_plan["diff"]["forbidden_keys"] == ["claude-opus-5"]
+    assert _account_plan({
+        "name": "kiro-us3",
+        "platform": "anthropic",
+        "type": "apikey",
+        "mirror_platform": "kiro",
+        "model_mapping": dict(floor["platforms"]["kiro"]),
+    }, floor) is None
     assert _account_plan({
         "platform": "openai",
         "type": "oauth",

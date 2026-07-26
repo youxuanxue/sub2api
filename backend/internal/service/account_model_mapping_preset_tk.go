@@ -138,13 +138,8 @@ func normalizeAccountModelMappingPresetPlatform(platform string) string {
 }
 
 func kiroModelMappingPresetIDs() []string {
-	models := KiroAdminTestModels()
-	ids := make([]string, 0, len(models))
-	for _, m := range models {
-		id := strings.TrimSpace(m.ID)
-		if id == "" {
-			continue
-		}
+	ids := make([]string, 0, len(supportedKiroCatalogModels))
+	for id := range supportedKiroCatalogModels {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)

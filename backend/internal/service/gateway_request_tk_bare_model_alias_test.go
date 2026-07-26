@@ -55,7 +55,7 @@ func TestTkDeriveDottedVersionAliases_Fixture(t *testing.T) {
 // is the deliberate human-confirmation gate for "the meaning of bare `opus`
 // just changed" (by design, not brittleness).
 func TestTkDeriveBareModelAliases_RealTablePin(t *testing.T) {
-	aliases := tkDeriveBareModelAliases(supportedAnthropicCatalogModels)
+	aliases := tkDeriveBareModelAliases(supportedClaudeCatalogModels)
 	for family, want := range map[string]string{
 		"opus": "claude-opus-5", "sonnet": "claude-sonnet-5",
 		"haiku": "claude-haiku-4-5", "fable": "claude-fable-5",
