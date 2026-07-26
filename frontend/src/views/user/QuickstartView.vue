@@ -10,70 +10,37 @@
           <router-link to="/keys" class="btn btn-primary text-sm">{{ t('quickstart.createKey') }}</router-link>
         </div>
         <div v-else class="space-y-6">
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div class="flex-1">
-              <label for="quickstart-key" class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                {{ t('quickstart.selectKey') }}
-              </label>
-              <select
-                id="quickstart-key"
-                v-model="selectedKeyId"
-                data-tk="quickstart-key-select"
-                class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-900 dark:text-gray-100"
-              >
-                <option v-for="k in keys" :key="k.id" :value="k.id">
-                  {{ k.name }} ({{ maskKey(k.key) }})
-                </option>
-              </select>
-            </div>
-            <div v-if="selectedKey" class="sm:pb-0.5">
-              <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('keys.group') }}</span>
-              <div class="mt-1">
-                <span
-                  v-if="selectedKey.routing_mode === 'universal'"
-                  class="inline-flex items-center gap-1 rounded-md bg-primary-50 px-2 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
-                >
-                  {{ t('keys.universalBadge') }}
-                </span>
-                <GroupBadge
-                  v-else-if="selectedKey.group"
-                  :name="selectedKey.group.name"
-                  :platform="selectedKey.group.platform"
-                  :subscription-type="selectedKey.group.subscription_type"
-                  :rate-multiplier="selectedKey.group.rate_multiplier"
-                  hide-rate-value
-                />
-                <span v-else class="text-sm text-amber-600 dark:text-amber-400">{{ t('keys.noGroup') }}</span>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="selectedKey">
-            <QuickstartClientPicker
-              :heading="t('quickstart.chooseClient')"
-              :groups="clientGroups"
-              :selected-id="selectedClientId"
-              @select="selectClient"
-            />
-          </div>
+          <QuickstartClientPicker
+            :heading="t('quickstart.chooseClient')"
+            :groups="clientGroups"
+            :selected-id="selectedClientId"
+            @select="selectClient"
+          />
 
           <div
-            v-if="selectedKey && selectedClient"
+            v-if="selectedClient"
             data-tk="quickstart-config-workspace"
-            class="border-t border-gray-200 pt-6 dark:border-dark-700"
+            class="space-y-6 border-t border-gray-200 pt-6 dark:border-dark-700"
           >
-            <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <QuickstartConnectionHealth
+              :test-state="connectionTestState"
+              :setup-blocked="Boolean(selectedClientDisabledReason)"
+              :setup-blocked-reason="selectedClientDisabledReason || undefined"
+              @run-test="runConnectionTest"
+              @change-key="openAdvancedKeyOptions"
+            />
+
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
                   <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
                     {{ selectedClient.name }}
                   </h2>
                   <span
-                    :class="selectedSupportMeta.badgeClass"
-                    class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium"
+                    v-if="selectedClient.supportTier === 'verified'"
+                    class="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-300"
                   >
-                    <Icon :name="selectedSupportMeta.icon" size="xs" />
-                    {{ t(selectedSupportMeta.labelKey) }}
+                    {{ t('quickstart.supportVerified') }}
                   </span>
                 </div>
                 <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -104,8 +71,65 @@
               </div>
             </div>
 
-            <template v-if="!selectedClientDisabledReason">
-              <div v-if="selectedClient.id === 'qwen-code'" class="mb-4 flex flex-wrap items-center gap-3">
+            <details
+              ref="advancedOptionsRef"
+              data-tk="quickstart-advanced-options"
+              class="rounded-lg border border-gray-200 bg-gray-50/70 dark:border-dark-600 dark:bg-dark-800/40"
+              :open="advancedOptionsOpen"
+            >
+              <summary
+                class="cursor-pointer select-none px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-200"
+                @click.prevent="advancedOptionsOpen = !advancedOptionsOpen"
+              >
+                {{ t('quickstart.advancedOptions') }}
+              </summary>
+              <div class="space-y-4 border-t border-gray-200 px-4 py-4 dark:border-dark-600">
+                <p v-if="!keyManuallySelected && selectedKey" class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('quickstart.keyAutoSelected') }}
+                </p>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <div class="flex-1">
+                    <label for="quickstart-key" class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t('quickstart.selectKey') }}
+                    </label>
+                    <select
+                      id="quickstart-key"
+                      v-model="selectedKeyId"
+                      data-tk="quickstart-key-select"
+                      class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-900 dark:text-gray-100"
+                      @change="onKeyManuallySelected"
+                    >
+                      <option v-for="k in keys" :key="k.id" :value="k.id">
+                        {{ k.name }} ({{ maskKey(k.key) }})
+                      </option>
+                    </select>
+                  </div>
+                  <div v-if="selectedKey" class="sm:pb-0.5">
+                    <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('keys.group') }}</span>
+                    <div class="mt-1">
+                      <span
+                        v-if="selectedKey.routing_mode === 'universal'"
+                        class="inline-flex items-center gap-1 rounded-md bg-primary-50 px-2 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+                      >
+                        {{ t('keys.universalBadge') }}
+                      </span>
+                      <GroupBadge
+                        v-else-if="selectedKey.group"
+                        :name="selectedKey.group.name"
+                        :platform="selectedKey.group.platform"
+                        :subscription-type="selectedKey.group.subscription_type"
+                        :rate-multiplier="selectedKey.group.rate_multiplier"
+                        hide-rate-value
+                      />
+                      <span v-else class="text-sm text-amber-600 dark:text-amber-400">{{ t('keys.noGroup') }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <template v-if="selectedKey && !selectedClientDisabledReason">
+              <div v-if="selectedClient.id === 'qwen-code'" class="flex flex-wrap items-center gap-3">
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('quickstart.protocol') }}</span>
                 <div
                   data-tk="quickstart-protocol-picker"
@@ -126,14 +150,14 @@
                       protocol.disabled ? 'cursor-not-allowed opacity-45' : '',
                     ]"
                     class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-                    @click="!protocol.disabled && (selectedProtocol = protocol.id)"
+                    @click="!protocol.disabled && onProtocolSelected(protocol.id)"
                   >
                     {{ protocol.label }}
                   </button>
                 </div>
               </div>
 
-              <div v-if="selectedClient.id === 'codex-cli'" class="mb-4 flex flex-wrap items-center gap-3">
+              <div v-if="selectedClient.id === 'codex-cli'" class="flex flex-wrap items-center gap-3">
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('quickstart.transport') }}</span>
                 <div
                   data-tk="quickstart-transport-picker"
@@ -154,7 +178,7 @@
                       transport.disabled ? 'cursor-not-allowed opacity-45' : '',
                     ]"
                     class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-                    @click="!transport.disabled && (selectedTransport = transport.id)"
+                    @click="!transport.disabled && onTransportSelected(transport.id)"
                   >
                     {{ transport.label }}
                   </button>
@@ -162,6 +186,7 @@
               </div>
 
               <UseKeyGuide
+                ref="useKeyGuideRef"
                 :api-key="selectedKey.key"
                 :api-key-id="selectedKey.id"
                 :base-url="baseUrl"
@@ -179,7 +204,9 @@
                 :selected-protocol="selectedProtocol"
                 :selected-transport="selectedTransport"
                 :show-client-tabs="false"
+                hide-inline-test
                 @model-change="selectedModel = $event"
+                @test-state-change="connectionTestState = $event"
               />
             </template>
           </div>
@@ -203,26 +230,25 @@ import * as keysAPI from '@/api/keys'
 import type { ApiKey } from '@/types'
 import { filterUserSelectableApiKeys } from '@/utils/reservedProbeKey.tk'
 import { isUniversalKey } from '@/utils/studioUniversalKey.tk'
+import {
+  keyProtocolsForApiKey,
+  quickstartKeyDisabledReason,
+  recommendKeyForClient,
+} from '@/utils/quickstartKeyMatch.tk'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import QuickstartClientPicker, { type QuickstartClientGroup } from '@/components/keys/QuickstartClientPicker.vue'
+import QuickstartConnectionHealth from '@/components/keys/QuickstartConnectionHealth.vue'
 import UseKeyGuide from '@/components/keys/UseKeyGuide.vue'
+import type { TestState } from '@/composables/useTkUseKey'
 import {
   resolveTkClientIntegrationUrl,
-  TK_CLIENT_SUPPORT_META,
   TK_QUICKSTART_CLIENTS,
   type TkClientCatalogEntry,
 } from '@/constants/clientIntegrations.tk'
 import { flavorOfModel } from '@/composables/useTkUseKey'
-import {
-  PLATFORM_ANTHROPIC,
-  PLATFORM_ANTIGRAVITY,
-  PLATFORM_GEMINI,
-  PLATFORM_GROK,
-  PLATFORM_NEWAPI,
-  PLATFORM_OPENAI,
-} from '@/constants/gatewayPlatforms'
+import { PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -237,12 +263,23 @@ const selectedClientId = ref('')
 const selectedProtocol = ref<'anthropic' | 'openai'>('anthropic')
 const selectedTransport = ref<'http' | 'websocket'>('http')
 const selectedModel = ref('')
+const keyManuallySelected = ref(false)
+const advancedOptionsOpen = ref(false)
+const advancedOptionsRef = ref<HTMLDetailsElement | null>(null)
+const useKeyGuideRef = ref<InstanceType<typeof UseKeyGuide> | null>(null)
+const connectionTestState = ref<TestState>({ status: 'idle' })
 
 const selectedOptionClass = 'bg-primary-600 text-white shadow-sm'
 const idleOptionClass = 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700'
 
+const keyMatchOptions = computed(() => ({
+  protocol: selectedProtocol.value,
+  transport: selectedTransport.value,
+}))
+
 const qwenProtocols = computed(() => {
-  const available = keyProtocols()
+  const key = selectedKey.value
+  const available = key ? keyProtocolsForApiKey(key) : []
   return [
     {
       id: 'anthropic' as const,
@@ -279,48 +316,26 @@ const selectedClientDescription = computed(() =>
   selectedClient.value ? t(`quickstart.clientDescriptions.${selectedClient.value.guideId}`) : '',
 )
 
-const selectedSupportMeta = computed(() =>
-  TK_CLIENT_SUPPORT_META[selectedClient.value?.supportTier ?? 'compatible'],
-)
-
 function maskKey(key: string) {
   if (key.length <= 14) return key
   return `${key.slice(0, 6)}${'•'.repeat(8)}${key.slice(-4)}`
 }
 
-function keyProtocols(): Array<'anthropic' | 'openai' | 'gemini'> {
-  const key = selectedKey.value
-  if (!key) return []
-  if (key.routing_mode === 'universal') return ['anthropic', 'openai', 'gemini']
-  const platform = key.group?.platform
-  if (platform === PLATFORM_ANTHROPIC) return ['anthropic']
-  if (platform === PLATFORM_OPENAI || platform === PLATFORM_NEWAPI || platform === PLATFORM_GROK) {
-    const protocols: Array<'anthropic' | 'openai'> = ['openai']
-    if (key.group?.allow_messages_dispatch) protocols.push('anthropic')
-    return protocols
-  }
-  if (platform === PLATFORM_GEMINI) return ['gemini']
-  if (platform === PLATFORM_ANTIGRAVITY) {
-    const scopes = key.group?.supported_model_scopes ?? []
-    return !scopes.length || scopes.includes('claude') ? ['anthropic', 'gemini'] : ['gemini']
-  }
-  return []
+function clientListDisabledReason(client: TkClientCatalogEntry): string {
+  if (!keys.value.length) return t('quickstart.unavailableNoGroup')
+  const compatible = keys.value.some((key) => !quickstartKeyDisabledReason(key, client, {}, t))
+  if (compatible) return ''
+  const sample = recommendKeyForClient(keys.value, client) ?? keys.value[0]
+  return quickstartKeyDisabledReason(sample, client, {}, t)
 }
 
 function disabledReasonFor(client: TkClientCatalogEntry, selectedVariant = false): string {
-  if (!selectedKey.value?.group && selectedKey.value?.routing_mode !== 'universal') {
-    return t('quickstart.unavailableNoGroup')
-  }
-  if (selectedKey.value?.group?.claude_code_only && client.id !== 'claude-code') {
-    return t('quickstart.unavailableClaudeCodeOnly')
-  }
-  const available = keyProtocols()
-  const required = selectedVariant && client.id === 'qwen-code'
-    ? [selectedProtocol.value]
-    : client.protocols
-  return required.some((protocol) => available.includes(protocol))
-    ? ''
-    : t('quickstart.unavailableProtocol')
+  const key = selectedKey.value
+  if (!key) return t('quickstart.unavailableNoGroup')
+  const options = selectedVariant && client.id === 'qwen-code'
+    ? { protocol: selectedProtocol.value, transport: selectedTransport.value }
+    : keyMatchOptions.value
+  return quickstartKeyDisabledReason(key, client, options, t)
 }
 
 const clientGroups = computed<QuickstartClientGroup[]>(() => {
@@ -335,7 +350,7 @@ const clientGroups = computed<QuickstartClientGroup[]>(() => {
       .filter((client) => client.category === category.id)
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((client) => {
-        const reason = disabledReasonFor(client)
+        const reason = clientListDisabledReason(client)
         return {
           id: client.id,
           name: client.name,
@@ -352,8 +367,40 @@ const selectedClientDisabledReason = computed(() =>
   selectedClient.value ? disabledReasonFor(selectedClient.value, true) : '',
 )
 
+function applyRecommendedKey(client = selectedClient.value, preserveManual = keyManuallySelected.value): void {
+  if (!client || preserveManual) return
+  const recommended = recommendKeyForClient(keys.value, client, keyMatchOptions.value)
+  if (recommended) selectedKeyId.value = recommended.id
+}
+
 function selectClient(id: string): void {
   selectedClientId.value = id
+  keyManuallySelected.value = false
+  connectionTestState.value = { status: 'idle' }
+  applyRecommendedKey(TK_QUICKSTART_CLIENTS.find((client) => client.id === id) ?? null)
+}
+
+function onKeyManuallySelected(): void {
+  keyManuallySelected.value = true
+}
+
+function onProtocolSelected(protocol: 'anthropic' | 'openai'): void {
+  selectedProtocol.value = protocol
+  if (!keyManuallySelected.value) applyRecommendedKey()
+}
+
+function onTransportSelected(transport: 'http' | 'websocket'): void {
+  selectedTransport.value = transport
+  if (!keyManuallySelected.value) applyRecommendedKey()
+}
+
+function openAdvancedKeyOptions(): void {
+  advancedOptionsOpen.value = true
+  advancedOptionsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+}
+
+function runConnectionTest(): void {
+  useKeyGuideRef.value?.runTest()
 }
 
 function openSelectedClient(): void {
@@ -395,18 +442,6 @@ function parseStringQuery(name: string): string | null {
 
 const initialModelFromQuery = computed(() => parseModelFromQuery())
 
-function pickDefaultKeyId(items: ApiKey[]): number | null {
-  if (!items.length) return null
-  const fromQuery = parseKeyIdFromQuery()
-  if (fromQuery != null && items.some((k) => k.id === fromQuery)) return fromQuery
-  if (parseModelFromQuery()) {
-    const universal = items.find(isUniversalKey)
-    if (universal) return universal.id
-  }
-  const trial = items.find((k) => k.name?.toLowerCase() === 'trial')
-  return (trial || items[0])?.id ?? null
-}
-
 function pickDefaultClientId(): string {
   const requested = parseStringQuery('client')
   if (requested && TK_QUICKSTART_CLIENTS.some((client) => client.id === requested)) return requested
@@ -419,10 +454,24 @@ function pickDefaultClientId(): string {
     return 'codex-cli'
   }
 
-  const platform = selectedKey.value?.group?.platform
-  if (platform === PLATFORM_GEMINI || platform === PLATFORM_ANTIGRAVITY) return 'gemini-cli'
-  if (platform === PLATFORM_OPENAI || platform === PLATFORM_NEWAPI || platform === PLATFORM_GROK) return 'codex-cli'
   return 'claude-code'
+}
+
+function pickDefaultKeyId(client: TkClientCatalogEntry, items: ApiKey[]): number | null {
+  if (!items.length) return null
+  const fromQuery = parseKeyIdFromQuery()
+  if (fromQuery != null && items.some((k) => k.id === fromQuery)) {
+    keyManuallySelected.value = true
+    return fromQuery
+  }
+  const recommended = recommendKeyForClient(items, client, keyMatchOptions.value)
+  if (recommended) return recommended.id
+  if (parseModelFromQuery()) {
+    const universal = items.find(isUniversalKey)
+    if (universal) return universal.id
+  }
+  const trial = items.find((k) => k.name?.toLowerCase() === 'trial')
+  return (trial || items[0])?.id ?? null
 }
 
 function codexWebSocketAvailable(): boolean {
@@ -430,7 +479,9 @@ function codexWebSocketAvailable(): boolean {
 }
 
 watch(selectedKey, () => {
-  const protocols = keyProtocols()
+  const key = selectedKey.value
+  if (!key) return
+  const protocols = keyProtocolsForApiKey(key)
   if (!protocols.includes(selectedProtocol.value)) {
     selectedProtocol.value = protocols.includes('anthropic') ? 'anthropic' : 'openai'
   }
@@ -475,18 +526,25 @@ async function loadKeys() {
       )
       keys.value = [created]
     }
-    const fromQuery = parseKeyIdFromQuery()
-    const match = fromQuery != null ? keys.value.find((k) => k.id === fromQuery) : undefined
-    selectedKeyId.value = match?.id ?? pickDefaultKeyId(keys.value)
+
     selectedClientId.value = pickDefaultClientId()
     selectedProtocol.value = parseStringQuery('protocol') === 'openai' ? 'openai' : 'anthropic'
     selectedTransport.value = parseStringQuery('transport') === 'websocket' ? 'websocket' : 'http'
     selectedModel.value = parseModelFromQuery() ?? ''
-    const protocols = keyProtocols()
-    if (!protocols.includes(selectedProtocol.value)) {
-      selectedProtocol.value = protocols.includes('anthropic') ? 'anthropic' : 'openai'
+
+    const client = TK_QUICKSTART_CLIENTS.find((entry) => entry.id === selectedClientId.value)
+    if (client) {
+      selectedKeyId.value = pickDefaultKeyId(client, keys.value)
     }
-    if (!codexWebSocketAvailable()) selectedTransport.value = 'http'
+
+    const key = selectedKey.value
+    if (key) {
+      const protocols = keyProtocolsForApiKey(key)
+      if (!protocols.includes(selectedProtocol.value)) {
+        selectedProtocol.value = protocols.includes('anthropic') ? 'anthropic' : 'openai'
+      }
+      if (!codexWebSocketAvailable()) selectedTransport.value = 'http'
+    }
   } catch (e: unknown) {
     keysError.value = e instanceof Error ? e.message : String(e)
   } finally {

@@ -4,26 +4,38 @@
       <h2 class="text-sm font-semibold text-gray-900 dark:text-white">
         {{ heading }}
       </h2>
+    </div>
 
-      <div
-        data-tk="quickstart-support-legend"
-        class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400"
-      >
+    <details
+      data-tk="quickstart-support-legend"
+      class="group rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-400"
+    >
+      <summary class="cursor-pointer select-none font-medium text-gray-600 dark:text-gray-300">
+        {{ t('quickstart.legendToggle') }}
+      </summary>
+      <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1">
         <span
           v-for="tier in supportTierOrder"
           :key="tier"
           class="inline-flex items-center gap-1"
         >
+          <span
+            v-if="tier === 'verified'"
+            class="inline-flex items-center rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-300"
+          >
+            {{ supportMeta[tier].label }}
+          </span>
           <Icon
+            v-else
             :name="supportMeta[tier].icon"
             size="xs"
             aria-hidden="true"
             :class="supportMeta[tier].className"
           />
-          {{ supportMeta[tier].label }}
+          <span>{{ supportMeta[tier].detail }}</span>
         </span>
       </div>
-    </div>
+    </details>
 
     <p
       v-if="hasUnavailableClients"
@@ -71,13 +83,12 @@
             >
               <Icon :name="client.icon" size="sm" aria-hidden="true" class="shrink-0" />
               <span class="min-w-0 flex-1 whitespace-nowrap">{{ client.name }}</span>
-              <Icon
-                :name="supportMeta[client.supportTier].icon"
-                size="xs"
-                aria-hidden="true"
-                :class="['shrink-0', supportMeta[client.supportTier].className]"
-              />
-              <span class="sr-only">{{ supportMeta[client.supportTier].label }}</span>
+              <span
+                v-if="client.supportTier === 'verified'"
+                class="inline-flex shrink-0 items-center rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-300"
+              >
+                {{ supportMeta.verified.label }}
+              </span>
             </button>
 
             <span
@@ -148,21 +159,23 @@ const emit = defineEmits<{
 type PickerSupportMeta = Record<QuickstartClientSupportTier, {
   icon: QuickstartClientIconName
   label: string
+  detail: string
   className: string
 }>
+
+const supportTierOrder: QuickstartClientSupportTier[] = ['verified', 'import', 'compatible']
 
 const supportMeta = computed<PickerSupportMeta>(() =>
   supportTierOrder.reduce<PickerSupportMeta>((result, tier) => {
     result[tier] = {
       icon: TK_CLIENT_SUPPORT_META[tier].icon,
       label: t(TK_CLIENT_SUPPORT_META[tier].labelKey),
+      detail: t(TK_CLIENT_SUPPORT_META[tier].detailKey),
       className: TK_CLIENT_SUPPORT_META[tier].legendClass,
     }
     return result
   }, {} as PickerSupportMeta),
 )
-
-const supportTierOrder: QuickstartClientSupportTier[] = ['verified', 'import', 'compatible']
 
 const hasUnavailableClients = computed(() =>
   props.groups.some((group) => group.clients.some((client) => client.disabled)),
@@ -178,7 +191,10 @@ function selectedUnavailableInGroup(group: QuickstartClientGroup): QuickstartCli
 
 function clientTitle(client: QuickstartClientOption): string {
   if (client.disabled) return client.disabledReason || t('quickstart.unavailableProtocol')
-  return `${client.name} - ${supportMeta.value[client.supportTier].label}`
+  if (client.supportTier === 'verified') {
+    return `${client.name} - ${supportMeta.value.verified.label}`
+  }
+  return `${client.name} - ${supportMeta.value[client.supportTier].detail}`
 }
 
 function reasonId(groupId: string, clientId: string): string {
