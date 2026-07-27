@@ -1,8 +1,12 @@
 # tokenkey · AWS Stage 0 · Caddyfile
 # -----------------------------------------------------------------------------
-# Cloud-Init 会用 envsubst 把 ${API_DOMAIN}/${ACME_EMAIL} 替换为实际值。
+# Cloud-Init 会用 envsubst 把 ${API_DOMAIN}/${ACME_EMAIL}/${SITE_DOMAIN} 替换为
+# 实际值；SITE_DOMAIN 为空时 render-prod-caddyfile.sh 会删掉 apex 块。
 # Caddy 通过 TLS-ALPN-01（443 上）自动申请并续签 Let's Encrypt 证书。
 # 不用 HTTP-01：公网 80 已在 AWS 安全组层关闭，证书签发/续签不依赖 80。
+#
+# 阶段一（canonical 迁移）：SITE_DOMAIN（如 tokenkey.dev）仅 301 → API_DOMAIN，
+# 用户入口仍在 api.*；阶段二再把 apex 切为主 serving 域。
 # -----------------------------------------------------------------------------
 
 {
@@ -10,6 +14,20 @@
 	# 取消下一行注释可改用 staging（联调时避免触发 LE 速率限制）
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 }
+
+# BEGIN_APEX_VHOST
+${SITE_DOMAIN} {
+	tls {
+		protocols tls1.2 tls1.3
+		issuer acme {
+			email ${ACME_EMAIL}
+			disable_http_challenge
+		}
+	}
+
+	redir https://${API_DOMAIN}{uri} permanent
+}
+# END_APEX_VHOST
 
 ${API_DOMAIN} {
 	encode zstd gzip

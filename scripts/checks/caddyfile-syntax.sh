@@ -103,7 +103,12 @@ for rel in "${FILES[@]}"; do
   # share a basename, and a collision here would let one render overwrite the
   # other before its (now concurrent) adapt reads it.
   rendered="$WORK_DIR/.caddy-$(echo "$rel" | tr '/' '_').rendered"
-  render_template "$src" "$rendered"
+  if [ "$rel" = "deploy/aws/stage0/Caddyfile" ]; then
+    API_DOMAIN="api.example.com" ACME_EMAIL="ops@example.com" \
+      bash "$REPO_ROOT/deploy/aws/stage0/render-prod-caddyfile.sh" "$src" "$rendered"
+  else
+    render_template "$src" "$rendered"
+  fi
 
   adapt_with_caddy "$rendered" &
   _adapt_pids+=($!)
