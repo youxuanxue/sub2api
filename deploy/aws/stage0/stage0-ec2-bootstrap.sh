@@ -193,14 +193,32 @@ render_prod_caddyfile() {
   if [[ -z "${site_domain}" && "${API_DOMAIN}" == api.* ]]; then
     site_domain="${API_DOMAIN#api.}"
   fi
+  if [[ "${site_domain}" == "${API_DOMAIN}" ]]; then
+    site_domain=""
+  fi
   local tmp
   tmp="$(mktemp)"
   export API_DOMAIN ACME_EMAIL SITE_DOMAIN="${site_domain}"
   envsubst '$API_DOMAIN $ACME_EMAIL $SITE_DOMAIN' < "${template}" > "${tmp}"
   if [[ -z "${site_domain}" ]]; then
-    sed '/^# BEGIN_APEX_VHOST$/,/^# END_APEX_VHOST$/d' "${tmp}" > "${output}"
+    sed '/^# BEGIN_APEX_VHOST$/,/^# END_APEX_VHOST$/d' "${tmp}" \
+      | sed '/^# BEGIN_API_MACHINE_SPLIT$/,/^# END_API_MACHINE_SPLIT$/d' \
+      | sed \
+        -e '/^# BEGIN_APEX_VHOST$/d' \
+        -e '/^# END_APEX_VHOST$/d' \
+        -e '/^# BEGIN_API_FULL_PROXY$/d' \
+        -e '/^# END_API_FULL_PROXY$/d' \
+        -e '/^# BEGIN_API_MACHINE_SPLIT$/d' \
+        -e '/^# END_API_MACHINE_SPLIT$/d' > "${output}"
   else
-    sed '/^# BEGIN_APEX_VHOST$/d; /^# END_APEX_VHOST$/d' "${tmp}" > "${output}"
+    sed '/^# BEGIN_API_FULL_PROXY$/,/^# END_API_FULL_PROXY$/d' "${tmp}" \
+      | sed \
+        -e '/^# BEGIN_APEX_VHOST$/d' \
+        -e '/^# END_APEX_VHOST$/d' \
+        -e '/^# BEGIN_API_FULL_PROXY$/d' \
+        -e '/^# END_API_FULL_PROXY$/d' \
+        -e '/^# BEGIN_API_MACHINE_SPLIT$/d' \
+        -e '/^# END_API_MACHINE_SPLIT$/d' > "${output}"
   fi
   rm -f "${tmp}"
 }
@@ -269,7 +287,7 @@ set -a; . "${SECRET_FILE}"; set +a
 cat > /var/lib/tokenkey/.env <<ENVEOF
 API_DOMAIN=${API_DOMAIN}
 SITE_DOMAIN=${SITE_DOMAIN}
-SERVER_FRONTEND_URL=https://${API_DOMAIN}
+SERVER_FRONTEND_URL=https://${SITE_DOMAIN:-${API_DOMAIN}}
 ACME_EMAIL=${ACME_EMAIL}
 TZ=${TZ_VALUE}
 SERVER_MODE=release

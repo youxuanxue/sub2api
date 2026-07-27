@@ -94,6 +94,10 @@ fi
 # base64 the canonical repo Caddyfile; tr -d '\n' keeps it a single token so it
 # embeds cleanly in the SSM command array.
 CADDY_B64="$(base64 < "${CADDY_SRC}" | tr -d '\n')"
+RENDER_SCRIPT_B64=""
+if [[ "${KIND}" == prod ]]; then
+  RENDER_SCRIPT_B64="$(base64 < "${REPO_ROOT}/deploy/aws/stage0/render-prod-caddyfile.sh" | tr -d '\n')"
+fi
 
 ssm_region_args=()
 if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
@@ -105,7 +109,7 @@ params_file="${OUTPUT_DIR}/ssm-params.json"
 stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
 
-jq -n --arg b64 "${CADDY_B64}" --arg kind "${KIND}" '{
+jq -n --arg b64 "${CADDY_B64}" --arg render_b64 "${RENDER_SCRIPT_B64}" --arg kind "${KIND}" '{
   commands: [
     "set -euo pipefail",
     ("KIND=" + $kind),
@@ -129,18 +133,17 @@ jq -n --arg b64 "${CADDY_B64}" --arg kind "${KIND}" '{
     "if [ \"$KIND\" = edge ] && [ -z \"$MAIN_GATEWAY_ALLOWED_CIDR\" ]; then echo \"::error::could not read remote_ip allowlist from live edge Caddyfile $LIVE\"; exit 1; fi",
     "echo \"render vars: API_DOMAIN=$API_DOMAIN SITE_DOMAIN=${SITE_DOMAIN:-<derived>} ACME_EMAIL=${ACME_EMAIL:-} MAIN_GATEWAY_ALLOWED_CIDR=${MAIN_GATEWAY_ALLOWED_CIDR:-<none>}\"",
     ("printf '\''%s'\'' \"" + $b64 + "\" | base64 -d | sudo tee \"$CADDY_DIR/Caddyfile.template\" >/dev/null"),
-    "render_prod_caddyfile() {",
-    "  local template=\"$1\" output=\"$2\" site_domain=\"${SITE_DOMAIN:-}\" tmp",
-    "  if [ -z \"$site_domain\" ]; then case \"$API_DOMAIN\" in api.*) site_domain=\"$(echo \"$API_DOMAIN\" | cut -d. -f2-)\";; esac; fi",
+    "if [ \"$KIND\" = prod ]; then",
+    ("  printf '\''%s'\'' \"" + $render_b64 + "\" | base64 -d > /tmp/render-prod-caddyfile.sh"),
+    "  chmod +x /tmp/render-prod-caddyfile.sh",
+    "  site_domain=\"${SITE_DOMAIN:-}\"",
+    "  if [ -z \"$site_domain\" ] && case \"$API_DOMAIN\" in api.*) true;; *) false;; esac; then site_domain=\"${API_DOMAIN#api.}\"; fi",
     "  if [ \"$site_domain\" = \"$API_DOMAIN\" ]; then site_domain=; fi",
-    "  tmp=\"$(mktemp)\"",
-    "  export API_DOMAIN ACME_EMAIL SITE_DOMAIN=\"$site_domain\"",
-    "  envsubst '\''$API_DOMAIN $ACME_EMAIL $SITE_DOMAIN'\'' < \"$template\" > \"$tmp\"",
-    "  if [ -z \"$site_domain\" ]; then sed \"/^# BEGIN_APEX_VHOST$/,/^# END_APEX_VHOST$/d\" \"$tmp\" > \"$output\";",
-    "  else sed \"/^# BEGIN_APEX_VHOST$/d; /^# END_APEX_VHOST$/d\" \"$tmp\" > \"$output\"; fi",
-    "  rm -f \"$tmp\"",
-    "}",
-    "render_prod_caddyfile \"$CADDY_DIR/Caddyfile.template\" \"$CADDY_DIR/Caddyfile.new\"",
+    "  export SITE_DOMAIN=\"$site_domain\"",
+    "  bash /tmp/render-prod-caddyfile.sh \"$CADDY_DIR/Caddyfile.template\" \"$CADDY_DIR/Caddyfile.new\"",
+    "else",
+    "  envsubst '\''$API_DOMAIN $ACME_EMAIL $MAIN_GATEWAY_ALLOWED_CIDR'\'' < \"$CADDY_DIR/Caddyfile.template\" > \"$CADDY_DIR/Caddyfile.new\"",
+    "fi",
     "if [ \"$KIND\" = prod ] && [ -r /var/lib/tokenkey/active-color ]; then ACTIVE_COLOR=\"$(sed -n '\''1p'\'' /var/lib/tokenkey/active-color | tr -d '\''[:space:]'\'')\"; case \"$ACTIVE_COLOR\" in blue|green) UPSTREAM=\"tokenkey-$ACTIVE_COLOR:8080\"; sudo awk -v upstream=\"$UPSTREAM\" '\''/^[[:space:]]*reverse_proxy[[:space:]]+/ && $0 ~ /\\{[[:space:]]*$/ { count += 1; if (count == 1) { match($0, /[^[:space:]]/); indent = RSTART > 1 ? substr($0, 1, RSTART - 1) : \"\"; print indent \"reverse_proxy \" upstream \" {\" } else { print }; next } { print } END { if (count != 1) exit 7 }'\'' \"$CADDY_DIR/Caddyfile.new\" | sudo tee \"$CADDY_DIR/Caddyfile.rewritten\" >/dev/null; sudo mv \"$CADDY_DIR/Caddyfile.rewritten\" \"$CADDY_DIR/Caddyfile.new\"; echo \"prod blue/green active upstream preserved: $UPSTREAM\" ;; *) echo \"::error::invalid active-color for prod blue/green Caddy sync: ${ACTIVE_COLOR:-<empty>}\"; exit 1 ;; esac; fi",
     "echo === validate rendered config in throwaway caddy container ===",
     "sudo docker run --rm -v \"$CADDY_DIR/Caddyfile.new\":/tmp/Caddyfile:ro caddy:2-alpine caddy validate --config /tmp/Caddyfile --adapter caddyfile",
