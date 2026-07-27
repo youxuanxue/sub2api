@@ -57,7 +57,56 @@ bash ops/stage0/sync_caddyfile_via_ssm.sh prod <instance-id>
 EDGE_ID=<edge> bash ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-id>
 ```
 
-脚本复刻开机渲染：`API_DOMAIN`/`ACME_EMAIL` 取自主机 `.env`；edge 的 `MAIN_GATEWAY_ALLOWED_CIDR`（不在 `.env`）从当前 Caddyfile 的 `remote_ip` 行反读以原样保留 allowlist。prod 主机如果已迁移到 blue/green，会在渲染 canonical Caddyfile 后保留当前 `active-color` 对应的 `tokenkey-blue|green:8080` upstream，避免热同步把流量指回 legacy `tokenkey:8080`。先在一次性 caddy 容器里 `caddy validate`，通过才**就地**写回（`cat > Caddyfile` 保 inode，避免 bind-mount 单文件换 inode 后容器看不到），再 `caddy reload`；任一步失败自动回滚到备份并 reload。
+脚本复刻开机渲染：`API_DOMAIN`/`ACME_EMAIL`/`SITE_DOMAIN` 取自主机 `.env`（`SITE_DOMAIN` 未设且 `API_DOMAIN` 为 `api.*` 时自动推导 apex，如 `api.tokenkey.dev` → `tokenkey.dev`）；edge 的 `MAIN_GATEWAY_ALLOWED_CIDR`（不在 `.env`）从当前 Caddyfile 的 `remote_ip` 行反读以原样保留 allowlist。prod 主机如果已迁移到 blue/green，会在渲染 canonical Caddyfile 后保留当前 `active-color` 对应的 `tokenkey-blue|green:8080` upstream，避免热同步把流量指回 legacy `tokenkey:8080`。先在一次性 caddy 容器里 `caddy validate`，通过才**就地**写回（`cat > Caddyfile` 保 inode，避免 bind-mount 单文件换 inode 后容器看不到），再 `caddy reload`；任一步失败自动回滚到 backup 并 reload。
+
+### Apex 域名阶段一（tokenkey.dev → api.tokenkey.dev）
+
+**目标**：占住 apex HTTPS 证书，浏览器访问 `https://tokenkey.dev` 永久 301 到 `https://api.tokenkey.dev`；不改应用 settings、OAuth、支付回调。
+
+**前提**：`ApiDomain=api.tokenkey.dev`（prod 默认）。Caddy 模板会在 `SITE_DOMAIN=tokenkey.dev` 时签 apex 证书并只做 redirect。
+
+#### 1. DNS（Porkbun）
+
+prod EIP 与 `api.tokenkey.dev` 相同（`describe-stacks` → `PublicIP`）：
+
+```text
+tokenkey.dev      A    <prod-eip>
+tokenkey.dev      AAAA <prod-eip-v6>   # 若有 IPv6
+```
+
+等 TTL 生效：`dig +short tokenkey.dev` 与 `dig +short api.tokenkey.dev` 同 IP。
+
+#### 2. 仓库改动落地 prod
+
+```bash
+# 本地：刷新 CFN 内嵌 Caddyfile/bootstrap blob（改模板后必跑）
+bash deploy/aws/stage0/build-cfn.sh
+git add deploy/aws/cloudformation/stage0-single-ec2.yaml
+
+# 推代码后发版 prod（或仅热同步 Caddy，不重建实例）：
+bash ops/stage0/sync_caddyfile_via_ssm.sh prod <prod-instance-id>
+```
+
+`sync_caddyfile_via_ssm.sh` 只刷新 Caddyfile，**不**更新 SSM Parameter Store 里的 blob；下次实例重建仍依赖 `build-cfn.sh` + CFN stack update 推进 Parameter。
+
+#### 3. 验收
+
+```bash
+# apex：301 到 api 域，且 Location 保留 path
+curl -sSI https://tokenkey.dev/ | grep -E '^(HTTP|location):'
+curl -sSI https://tokenkey.dev/login | grep -E '^(HTTP|location):'
+# 期望：HTTP/2 301 或 HTTP/1.1 301；location: https://api.tokenkey.dev/...
+
+# 主入口不变
+curl -fsS https://api.tokenkey.dev/health && echo OK
+
+# LE 证书（可选）
+echo | openssl s_client -connect tokenkey.dev:443 -servername tokenkey.dev 2>/dev/null | openssl x509 -noout -subject -dates
+```
+
+**本阶段刻意不改**：Admin Settings 里的 `frontend_url` / `api_base_url`、OAuth IdP 回调、支付 `notify_url`、smoke 默认 `PROD_BASE_URL`——仍指向 `api.tokenkey.dev`。阶段二再切 canonical。
+
+**关闭 apex redirect**（非 prod 或自定义域）：在主机 `.env` 设 `SITE_DOMAIN=`（空）且 `API_DOMAIN` 不以 `api.` 开头，或显式 `SITE_DOMAIN=` 覆盖推导，重跑 `sync_caddyfile_via_ssm.sh prod ...`。
 
 ### 把 #811 的 swap + 内存压力告警落到「已经在跑」的 prod（不重建实例）
 

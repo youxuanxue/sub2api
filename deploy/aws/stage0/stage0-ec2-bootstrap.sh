@@ -16,6 +16,10 @@ set -euxo pipefail
 
 API_DOMAIN="${TK_API_DOMAIN}"
 ACME_EMAIL="${TK_ACME_EMAIL}"
+SITE_DOMAIN="${TK_SITE_DOMAIN:-}"
+if [[ -z "${SITE_DOMAIN}" && "${API_DOMAIN}" == api.* ]]; then
+  SITE_DOMAIN="${API_DOMAIN#api.}"
+fi
 ADMIN_EMAIL="${TK_ADMIN_EMAIL:-}"
 [ -z "${ADMIN_EMAIL}" ] && ADMIN_EMAIL="admin@${API_DOMAIN}"
 TZ_VALUE="${TK_TZ:-UTC}"
@@ -182,9 +186,25 @@ COMPOSE_B64="$(aws ssm get-parameter --name "${COMPOSE_PARAM}" --region "${REGIO
 CADDY_B64="$(aws ssm get-parameter --name "${CADDY_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 printf '%s' "${COMPOSE_B64}" | base64 -d | gunzip > docker-compose.yml
 printf '%s' "${CADDY_B64}" | base64 -d | gunzip > caddy/Caddyfile.template
-API_DOMAIN="${API_DOMAIN}" ACME_EMAIL="${ACME_EMAIL}" \
-  envsubst '$API_DOMAIN $ACME_EMAIL' \
-  < caddy/Caddyfile.template > caddy/Caddyfile
+
+render_prod_caddyfile() {
+  local template="$1" output="$2"
+  local site_domain="${SITE_DOMAIN:-}"
+  if [[ -z "${site_domain}" && "${API_DOMAIN}" == api.* ]]; then
+    site_domain="${API_DOMAIN#api.}"
+  fi
+  local tmp
+  tmp="$(mktemp)"
+  export API_DOMAIN ACME_EMAIL SITE_DOMAIN="${site_domain}"
+  envsubst '$API_DOMAIN $ACME_EMAIL $SITE_DOMAIN' < "${template}" > "${tmp}"
+  if [[ -z "${site_domain}" ]]; then
+    sed '/^# BEGIN_APEX_VHOST$/,/^# END_APEX_VHOST$/d' "${tmp}" > "${output}"
+  else
+    sed '/^# BEGIN_APEX_VHOST$/d; /^# END_APEX_VHOST$/d' "${tmp}" > "${output}"
+  fi
+  rm -f "${tmp}"
+}
+render_prod_caddyfile caddy/Caddyfile.template caddy/Caddyfile
 
 install -d -m 0755 /etc/tokenkey
 printf 'TOKENKEY_QA_STALE_RETENTION_DAYS=%s\n' "${TK_QA_STALE_RETENTION_DAYS}" > /etc/tokenkey/qa-stale-retention.env
@@ -248,6 +268,7 @@ set -a; . "${SECRET_FILE}"; set +a
 
 cat > /var/lib/tokenkey/.env <<ENVEOF
 API_DOMAIN=${API_DOMAIN}
+SITE_DOMAIN=${SITE_DOMAIN}
 SERVER_FRONTEND_URL=https://${API_DOMAIN}
 ACME_EMAIL=${ACME_EMAIL}
 TZ=${TZ_VALUE}
