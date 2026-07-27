@@ -15,16 +15,14 @@
           class="inline-flex items-center gap-1"
         >
           <span v-if="index > 0" aria-hidden="true" class="text-gray-300 dark:text-dark-500">·</span>
-          <span
-            class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide"
-            :class="[
-              supportMeta[tier].badgeClass,
-              tier === 'verified' ? 'uppercase' : '',
-            ]"
-          >
-            {{ supportMeta[tier].label }}
-          </span>
-          <span>{{ supportMeta[tier].detail }}</span>
+          <Icon
+            :name="supportMeta[tier].icon"
+            size="xs"
+            aria-hidden="true"
+            :class="supportMeta[tier].iconClass"
+          />
+          <span>{{ supportMeta[tier].label }}</span>
+          <span class="text-gray-400 dark:text-gray-500">— {{ supportMeta[tier].detail }}</span>
         </span>
       </div>
     </div>
@@ -74,15 +72,19 @@
               @click="selectClient(client)"
             >
               <Icon :name="client.icon" size="sm" aria-hidden="true" class="shrink-0" />
-              <span class="min-w-0 flex-1 whitespace-nowrap">{{ client.name }}</span>
+              <span class="min-w-0 flex-1 truncate">{{ client.name }}</span>
               <span
-                class="inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide"
-                :class="[
-                  supportMeta[client.supportTier].badgeClass,
-                  client.supportTier === 'verified' ? 'uppercase' : '',
-                ]"
+                data-tk="quickstart-tier-badge"
+                class="inline-flex shrink-0 items-center justify-center rounded-md p-1"
+                :class="supportMeta[client.supportTier].badgeClass"
+                :aria-label="`${supportMeta[client.supportTier].label}: ${supportMeta[client.supportTier].detail}`"
+                :title="`${supportMeta[client.supportTier].label}: ${supportMeta[client.supportTier].detail}`"
               >
-                {{ supportMeta[client.supportTier].label }}
+                <Icon
+                  :name="supportMeta[client.supportTier].icon"
+                  size="xs"
+                  aria-hidden="true"
+                />
               </span>
             </button>
 
@@ -152,8 +154,10 @@ const emit = defineEmits<{
 }>()
 
 type PickerSupportMeta = Record<QuickstartClientSupportTier, {
+  icon: QuickstartClientIconName
   label: string
   detail: string
+  iconClass: string
   badgeClass: string
 }>
 
@@ -162,8 +166,10 @@ const supportTierOrder: QuickstartClientSupportTier[] = ['verified', 'import', '
 const supportMeta = computed<PickerSupportMeta>(() =>
   supportTierOrder.reduce<PickerSupportMeta>((result, tier) => {
     result[tier] = {
+      icon: TK_CLIENT_SUPPORT_META[tier].icon,
       label: t(TK_CLIENT_SUPPORT_META[tier].labelKey),
       detail: t(TK_CLIENT_SUPPORT_META[tier].detailKey),
+      iconClass: TK_CLIENT_SUPPORT_META[tier].legendClass,
       badgeClass: TK_CLIENT_SUPPORT_META[tier].badgeClass,
     }
     return result
