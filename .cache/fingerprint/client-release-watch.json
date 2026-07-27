@@ -1,41 +1,41 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-23T05:19:20Z",
+  "updated_at": "2026-07-27T04:56:44Z",
   "git_sha": "",
   "platforms": {
     "claude-code": {
-      "pinned": "2.1.218",
-      "upstream_latest": "2.1.218",
+      "pinned": "2.1.220",
+      "upstream_latest": "2.1.220",
       "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "GitHub anthropics/claude-code": {
-          "version": "2.1.218",
-          "published_at": "2026-07-22T21:24:56Z",
-          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.218",
-          "raw_tag": "v2.1.218"
+          "version": "2.1.220",
+          "published_at": "2026-07-25T01:35:55Z",
+          "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.220",
+          "raw_tag": "v2.1.220"
         },
         "npm @anthropic-ai/claude-code": {
-          "version": "2.1.218",
+          "version": "2.1.220",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@anthropic-ai/claude-code",
-          "raw_tag": "2.1.218"
+          "raw_tag": "2.1.220"
         }
       }
     },
     "cc-stainless": {
       "pinned": "0.94.0",
-      "upstream_latest": "0.113.0",
+      "upstream_latest": "0.115.0",
       "status": "drift",
       "actionable": false,
       "status_note": "npm SDK semver is advisory; Claude Code on-wire X-Stainless-Package-Version remains capture ground truth.",
       "upstream_sources": {
         "npm @anthropic-ai/sdk": {
-          "version": "0.113.0",
+          "version": "0.115.0",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@anthropic-ai/sdk",
-          "raw_tag": "0.113.0"
+          "raw_tag": "0.115.0"
         }
       }
     },
@@ -97,62 +97,62 @@
       }
     },
     "grok-cli": {
-      "pinned": "0.2.108",
-      "upstream_latest": "0.2.111",
+      "pinned": "0.2.111",
+      "upstream_latest": "0.2.112",
       "status": "drift",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "npm @xai-official/grok": {
-          "version": "0.2.111",
+          "version": "0.2.112",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@xai-official/grok",
-          "raw_tag": "0.2.111"
+          "raw_tag": "0.2.112"
         }
       }
     },
     "antigravity": {
-      "pinned": "2.3.1",
-      "upstream_latest": "2.3.1",
+      "pinned": "2.4.2",
+      "upstream_latest": "2.4.2",
       "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "Homebrew cask antigravity": {
-          "version": "2.3.1",
+          "version": "2.4.2",
           "published_at": "",
-          "url": "https://storage.googleapis.com/antigravity-public/antigravity-hub/2.3.1-5358163105546240/darwin-arm/Antigravity.dmg",
-          "raw_tag": "2.3.1,5358163105546240"
+          "url": "https://storage.googleapis.com/antigravity-public/antigravity-hub/2.4.2-6711062033203200/darwin-arm/Antigravity.dmg",
+          "raw_tag": "2.4.2,6711062033203200"
         }
       }
     },
     "kiro": {
-      "pinned": "1.0.165",
-      "upstream_latest": "1.0.203",
-      "status": "drift",
+      "pinned": "1.0.228",
+      "upstream_latest": "1.0.228",
+      "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "Homebrew cask kiro": {
-          "version": "1.0.203",
+          "version": "1.0.228",
           "published_at": "",
-          "url": "https://prod.download.desktop.kiro.dev/releases/stable/darwin-arm64/signed/1.0.203/kiro-ide-1.0.203-stable-darwin-arm64.dmg",
-          "raw_tag": "1.0.203"
+          "url": "https://prod.download.desktop.kiro.dev/releases/stable/darwin-arm64/signed/1.0.228/kiro-ide-1.0.228-stable-darwin-arm64.dmg",
+          "raw_tag": "1.0.228"
         }
       }
     },
     "kiro-cli": {
-      "pinned": "2.14.0",
-      "upstream_latest": "2.14.0",
+      "pinned": "2.14.2",
+      "upstream_latest": "2.14.2",
       "status": "aligned",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "Homebrew cask kiro-cli": {
-          "version": "2.14.0",
+          "version": "2.14.2",
           "published_at": "",
-          "url": "https://desktop-release.q.us-east-1.amazonaws.com/2.14.0/Kiro%20CLI.dmg",
-          "raw_tag": "2.14.0"
+          "url": "https://desktop-release.q.us-east-1.amazonaws.com/2.14.2/Kiro%20CLI.dmg",
+          "raw_tag": "2.14.2"
         }
       }
     }
