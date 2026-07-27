@@ -497,3 +497,55 @@ describe('UseKeyModal — universal keys', () => {
     expect(wrapper.find('[data-tk="use-key-model-select"]').exists()).toBe(true)
   })
 })
+
+describe('UseKeyGuide — model picker persistence', () => {
+  it('keeps a manually picked model when the URL deep-link prop catches up', async () => {
+    getMePricingCatalog.mockResolvedValue({
+      models: [
+        { model_id: 'claude-fable-5', capabilities: [] },
+        { model_id: 'claude-sonnet-4-6', capabilities: [] },
+      ],
+    })
+
+    const wrapper = mountQuickstartGuide({
+      selectedClient: 'claude-code',
+      platform: 'anthropic',
+      routingMode: 'direct',
+      initialModel: null,
+    })
+    await flushPromises()
+
+    const select = wrapper.get('[data-tk="use-key-model-select"]')
+    expect((select.element as HTMLSelectElement).value).toBe('claude-fable-5')
+
+    await select.setValue('claude-sonnet-4-6')
+    await flushPromises()
+    expect((select.element as HTMLSelectElement).value).toBe('claude-sonnet-4-6')
+
+    await wrapper.setProps({ initialModel: 'claude-sonnet-4-6' })
+    await flushPromises()
+    expect((select.element as HTMLSelectElement).value).toBe('claude-sonnet-4-6')
+    expect(wrapper.emitted('modelChange')?.at(-1)).toEqual(['claude-sonnet-4-6'])
+  })
+
+  it('restores a deep-linked anthropic model after the live catalog loads', async () => {
+    getMePricingCatalog.mockResolvedValue({
+      models: [
+        { model_id: 'claude-fable-5', capabilities: [] },
+        { model_id: 'claude-sonnet-4-6', capabilities: [] },
+      ],
+    })
+
+    const wrapper = mountQuickstartGuide({
+      selectedClient: 'claude-code',
+      platform: 'anthropic',
+      routingMode: 'direct',
+      initialModel: 'claude-sonnet-4-6',
+    })
+    await flushPromises()
+
+    const select = wrapper.get('[data-tk="use-key-model-select"]')
+    expect((select.element as HTMLSelectElement).value).toBe('claude-sonnet-4-6')
+    expect(wrapper.emitted('modelChange')?.at(-1)).toEqual(['claude-sonnet-4-6'])
+  })
+})

@@ -1,49 +1,91 @@
 <template>
   <div
     data-tk="quickstart-connection-health"
-    class="rounded-lg border px-4 py-3"
-    :class="panelClass"
+    :class="rootClass"
   >
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div class="flex min-w-0 items-start gap-2.5">
-        <span
-          class="mt-0.5 inline-flex h-2.5 w-2.5 shrink-0 rounded-full"
-          :class="dotClass"
-          aria-hidden="true"
-        />
-        <div class="min-w-0">
-          <p class="text-sm font-medium" :class="titleClass">
+    <template v-if="layout === 'inline'">
+      <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
+        <div class="flex shrink-0 flex-wrap gap-2">
+          <button
+            v-if="showTestButton"
+            type="button"
+            data-tk="quickstart-send-test"
+            class="btn btn-primary inline-flex items-center gap-1.5 text-sm"
+            :disabled="testDisabled"
+            @click="emit('runTest')"
+          >
+            <Icon v-if="testState?.status === 'running'" name="refresh" size="sm" class="animate-spin" />
+            <span>{{ testButtonLabel }}</span>
+          </button>
+          <button
+            v-if="showChangeKey"
+            type="button"
+            data-tk="quickstart-change-key"
+            class="btn btn-secondary text-sm"
+            @click="emit('changeKey')"
+          >
+            {{ t('quickstart.changeKey') }}
+          </button>
+        </div>
+
+        <div class="ml-auto flex min-w-0 items-center gap-2">
+          <span
+            class="inline-flex h-2 w-2 shrink-0 rounded-full"
+            :class="dotClass"
+            aria-hidden="true"
+          />
+          <p class="truncate text-sm font-medium" :class="titleClass">
             {{ statusTitle }}
-          </p>
-          <p v-if="statusDetail" class="mt-0.5 text-xs" :class="detailClass">
-            {{ statusDetail }}
+            <span v-if="statusDetail" class="font-normal" :class="detailClass">
+              · {{ statusDetail }}
+            </span>
           </p>
         </div>
       </div>
+    </template>
 
-      <div class="flex shrink-0 flex-wrap gap-2">
-        <button
-          v-if="showTestButton"
-          type="button"
-          data-tk="quickstart-send-test"
-          class="btn btn-primary inline-flex items-center gap-1.5 text-sm"
-          :disabled="testDisabled"
-          @click="emit('runTest')"
-        >
-          <Icon v-if="testState?.status === 'running'" name="refresh" size="sm" class="animate-spin" />
-          <span>{{ testButtonLabel }}</span>
-        </button>
-        <button
-          v-if="showChangeKey"
-          type="button"
-          data-tk="quickstart-change-key"
-          class="btn btn-secondary text-sm"
-          @click="emit('changeKey')"
-        >
-          {{ t('quickstart.changeKey') }}
-        </button>
+    <template v-else>
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex min-w-0 items-start gap-2.5">
+          <span
+            class="mt-0.5 inline-flex h-2.5 w-2.5 shrink-0 rounded-full"
+            :class="dotClass"
+            aria-hidden="true"
+          />
+          <div class="min-w-0">
+            <p class="text-sm font-medium" :class="titleClass">
+              {{ statusTitle }}
+            </p>
+            <p v-if="statusDetail" class="mt-0.5 text-xs" :class="detailClass">
+              {{ statusDetail }}
+            </p>
+          </div>
+        </div>
+
+        <div class="flex shrink-0 flex-wrap gap-2">
+          <button
+            v-if="showTestButton"
+            type="button"
+            data-tk="quickstart-send-test"
+            class="btn btn-primary inline-flex items-center gap-1.5 text-sm"
+            :disabled="testDisabled"
+            @click="emit('runTest')"
+          >
+            <Icon v-if="testState?.status === 'running'" name="refresh" size="sm" class="animate-spin" />
+            <span>{{ testButtonLabel }}</span>
+          </button>
+          <button
+            v-if="showChangeKey"
+            type="button"
+            data-tk="quickstart-change-key"
+            class="btn btn-secondary text-sm"
+            @click="emit('changeKey')"
+          >
+            {{ t('quickstart.changeKey') }}
+          </button>
+        </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -53,11 +95,15 @@ import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import type { TestState } from '@/composables/useTkUseKey'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   testState: TestState | null
   setupBlocked?: boolean
   setupBlockedReason?: string
-}>()
+  /** inline: same row as transport/protocol picker; banner: standalone panel */
+  layout?: 'inline' | 'banner'
+}>(), {
+  layout: 'banner',
+})
 
 const emit = defineEmits<{
   runTest: []
@@ -105,19 +151,23 @@ const statusDetail = computed(() => {
   return ''
 })
 
-const panelClass = computed(() => {
+const rootClass = computed(() => {
+  if (props.layout === 'inline') {
+    return 'min-w-0 flex-1'
+  }
+  const panel = 'rounded-lg border px-4 py-3'
   if (props.setupBlocked) {
-    return 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20'
+    return `${panel} border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20`
   }
   switch (effectiveStatus.value) {
     case 'ok':
-      return 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/20'
+      return `${panel} border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/20`
     case 'error':
-      return 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20'
+      return `${panel} border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20`
     case 'running':
-      return 'border-primary-200 bg-primary-50 dark:border-primary-800 dark:bg-primary-900/20'
+      return `${panel} border-primary-200 bg-primary-50 dark:border-primary-800 dark:bg-primary-900/20`
     default:
-      return 'border-gray-200 bg-gray-50 dark:border-dark-600 dark:bg-dark-800/50'
+      return `${panel} border-gray-200 bg-gray-50 dark:border-dark-600 dark:bg-dark-800/50`
   }
 })
 

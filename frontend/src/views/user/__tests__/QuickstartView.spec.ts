@@ -231,8 +231,9 @@ describe('QuickstartView', () => {
     }
   })
 
-  it('renders connection health and collapsible advanced key options', async () => {
+  it('renders connection health inline with transport/protocol and collapsible advanced key options', async () => {
     const wrapper = await mountView()
+    expect(wrapper.find('[data-tk="quickstart-connection-row"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="quickstart-connection-health"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="quickstart-advanced-options"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="quickstart-send-test"]').exists()).toBe(true)
@@ -294,6 +295,15 @@ describe('QuickstartView', () => {
     for (const id of ['qwen-code', 'opencode', 'curl', 'python']) {
       expect(wrapper.get(`[data-tk="quickstart-client-${id}"]`).attributes('data-unavailable')).toBe('true')
     }
+  })
+
+  it('shows a support-tier badge on every client card, not only verified ones', async () => {
+    const wrapper = await mountView()
+    expect(wrapper.get('[data-tk="quickstart-client-claude-code"]').text()).toContain('quickstart.supportVerified')
+    expect(wrapper.get('[data-tk="quickstart-client-qwen-code"]').text()).toContain('quickstart.supportCompatible')
+    await wrapper.get('[data-tk="quickstart-client-qwen-code"]').trigger('click')
+    await nextTick()
+    expect(wrapper.text()).toContain('quickstart.supportCompatible')
   })
 
   it('writes the selected model back to the URL without exposing the API key', async () => {

@@ -22,14 +22,6 @@
             data-tk="quickstart-config-workspace"
             class="space-y-6 border-t border-gray-200 pt-6 dark:border-dark-700"
           >
-            <QuickstartConnectionHealth
-              :test-state="connectionTestState"
-              :setup-blocked="Boolean(selectedClientDisabledReason)"
-              :setup-blocked-reason="selectedClientDisabledReason || undefined"
-              @run-test="runConnectionTest"
-              @change-key="openAdvancedKeyOptions"
-            />
-
             <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
@@ -37,10 +29,14 @@
                     {{ selectedClient.name }}
                   </h2>
                   <span
-                    v-if="selectedClient.supportTier === 'verified'"
-                    class="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-300"
+                    v-if="selectedClientSupportBadge"
+                    class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold tracking-wide"
+                    :class="[
+                      selectedClientSupportBadge.badgeClass,
+                      selectedClientSupportBadge.tier === 'verified' ? 'uppercase' : '',
+                    ]"
                   >
-                    {{ t('quickstart.supportVerified') }}
+                    {{ selectedClientSupportBadge.label }}
                   </span>
                 </div>
                 <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -128,61 +124,82 @@
               </div>
             </details>
 
-            <template v-if="selectedKey && !selectedClientDisabledReason">
-              <div v-if="selectedClient.id === 'qwen-code'" class="flex flex-wrap items-center gap-3">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('quickstart.protocol') }}</span>
-                <div
-                  data-tk="quickstart-protocol-picker"
-                  role="group"
-                  :aria-label="t('quickstart.protocol')"
-                  class="inline-flex rounded-lg border border-gray-200 p-1 dark:border-dark-600"
-                >
-                  <button
-                    v-for="protocol in qwenProtocols"
-                    :key="protocol.id"
-                    type="button"
-                    :data-tk="`quickstart-protocol-${protocol.id}`"
-                    :aria-pressed="selectedProtocol === protocol.id"
-                    :disabled="protocol.disabled"
-                    :title="protocol.disabled ? t('quickstart.unavailableProtocol') : undefined"
-                    :class="[
-                      selectedProtocol === protocol.id ? selectedOptionClass : idleOptionClass,
-                      protocol.disabled ? 'cursor-not-allowed opacity-45' : '',
-                    ]"
-                    class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-                    @click="!protocol.disabled && onProtocolSelected(protocol.id)"
-                  >
-                    {{ protocol.label }}
-                  </button>
-                </div>
-              </div>
+            <QuickstartConnectionHealth
+              v-if="selectedClientDisabledReason"
+              layout="banner"
+              :test-state="connectionTestState"
+              setup-blocked
+              :setup-blocked-reason="selectedClientDisabledReason || undefined"
+              @change-key="openAdvancedKeyOptions"
+            />
 
-              <div v-if="selectedClient.id === 'codex-cli'" class="flex flex-wrap items-center gap-3">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('quickstart.transport') }}</span>
-                <div
-                  data-tk="quickstart-transport-picker"
-                  role="group"
-                  :aria-label="t('quickstart.transport')"
-                  class="inline-flex rounded-lg border border-gray-200 p-1 dark:border-dark-600"
-                >
-                  <button
-                    v-for="transport in codexTransports"
-                    :key="transport.id"
-                    type="button"
-                    :data-tk="`quickstart-transport-${transport.id}`"
-                    :aria-pressed="selectedTransport === transport.id"
-                    :disabled="transport.disabled"
-                    :title="transport.disabled ? t('quickstart.websocketUnavailable') : undefined"
-                    :class="[
-                      selectedTransport === transport.id ? selectedOptionClass : idleOptionClass,
-                      transport.disabled ? 'cursor-not-allowed opacity-45' : '',
-                    ]"
-                    class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-                    @click="!transport.disabled && onTransportSelected(transport.id)"
+            <template v-if="selectedKey && !selectedClientDisabledReason">
+              <div
+                data-tk="quickstart-connection-row"
+                class="flex w-full flex-wrap items-center gap-x-3 gap-y-2"
+              >
+                <div v-if="selectedClient.id === 'qwen-code'" class="flex flex-wrap items-center gap-3">
+                  <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('quickstart.protocol') }}</span>
+                  <div
+                    data-tk="quickstart-protocol-picker"
+                    role="group"
+                    :aria-label="t('quickstart.protocol')"
+                    class="inline-flex rounded-lg border border-gray-200 p-1 dark:border-dark-600"
                   >
-                    {{ transport.label }}
-                  </button>
+                    <button
+                      v-for="protocol in qwenProtocols"
+                      :key="protocol.id"
+                      type="button"
+                      :data-tk="`quickstart-protocol-${protocol.id}`"
+                      :aria-pressed="selectedProtocol === protocol.id"
+                      :disabled="protocol.disabled"
+                      :title="protocol.disabled ? t('quickstart.unavailableProtocol') : undefined"
+                      :class="[
+                        selectedProtocol === protocol.id ? selectedOptionClass : idleOptionClass,
+                        protocol.disabled ? 'cursor-not-allowed opacity-45' : '',
+                      ]"
+                      class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                      @click="!protocol.disabled && onProtocolSelected(protocol.id)"
+                    >
+                      {{ protocol.label }}
+                    </button>
+                  </div>
                 </div>
+
+                <div v-if="selectedClient.id === 'codex-cli'" class="flex flex-wrap items-center gap-3">
+                  <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('quickstart.transport') }}</span>
+                  <div
+                    data-tk="quickstart-transport-picker"
+                    role="group"
+                    :aria-label="t('quickstart.transport')"
+                    class="inline-flex rounded-lg border border-gray-200 p-1 dark:border-dark-600"
+                  >
+                    <button
+                      v-for="transport in codexTransports"
+                      :key="transport.id"
+                      type="button"
+                      :data-tk="`quickstart-transport-${transport.id}`"
+                      :aria-pressed="selectedTransport === transport.id"
+                      :disabled="transport.disabled"
+                      :title="transport.disabled ? t('quickstart.websocketUnavailable') : undefined"
+                      :class="[
+                        selectedTransport === transport.id ? selectedOptionClass : idleOptionClass,
+                        transport.disabled ? 'cursor-not-allowed opacity-45' : '',
+                      ]"
+                      class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                      @click="!transport.disabled && onTransportSelected(transport.id)"
+                    >
+                      {{ transport.label }}
+                    </button>
+                  </div>
+                </div>
+
+                <QuickstartConnectionHealth
+                  layout="inline"
+                  :test-state="connectionTestState"
+                  @run-test="runConnectionTest"
+                  @change-key="openAdvancedKeyOptions"
+                />
               </div>
 
               <UseKeyGuide
@@ -245,6 +262,7 @@ import type { TestState } from '@/composables/useTkUseKey'
 import {
   resolveTkClientIntegrationUrl,
   TK_QUICKSTART_CLIENTS,
+  TK_CLIENT_SUPPORT_META,
   type TkClientCatalogEntry,
 } from '@/constants/clientIntegrations.tk'
 import { flavorOfModel } from '@/composables/useTkUseKey'
@@ -315,6 +333,17 @@ const selectedClient = computed(() =>
 const selectedClientDescription = computed(() =>
   selectedClient.value ? t(`quickstart.clientDescriptions.${selectedClient.value.guideId}`) : '',
 )
+
+const selectedClientSupportBadge = computed(() => {
+  const client = selectedClient.value
+  if (!client) return null
+  const meta = TK_CLIENT_SUPPORT_META[client.supportTier]
+  return {
+    tier: client.supportTier,
+    label: t(meta.labelKey),
+    badgeClass: meta.badgeClass,
+  }
+})
 
 function maskKey(key: string) {
   if (key.length <= 14) return key

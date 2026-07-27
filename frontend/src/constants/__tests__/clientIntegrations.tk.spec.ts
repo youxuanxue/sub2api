@@ -116,6 +116,16 @@ describe('resolveTkClientIntegrationUrl', () => {
 })
 
 describe('TokenKey client catalog', () => {
+  it('keeps every client docsUrl on https and off known-unstable hosts', () => {
+    for (const client of TK_CLIENT_CATALOG) {
+      expect(client.docsUrl, client.id).toMatch(/^https:\/\//)
+      // developers.openai.com/codex/* often 403 outside US egress (Vercel WAF).
+      expect(client.docsUrl, client.id).not.toMatch(/developers\.openai\.com\/codex/)
+      // qwenlm.github.io paths drift; prefer official GitHub repo.
+      expect(client.docsUrl, client.id).not.toMatch(/qwenlm\.github\.io/)
+    }
+  })
+
   it('has unique ids and one owner for Quickstart and Studio integrations', () => {
     expect(new Set(TK_CLIENT_CATALOG.map((client) => client.id)).size).toBe(TK_CLIENT_CATALOG.length)
     expect(TK_CLIENT_INTEGRATIONS.every((integration) =>

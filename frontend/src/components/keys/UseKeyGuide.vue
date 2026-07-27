@@ -400,30 +400,52 @@ const tk = useTkUseKey({
   baseRoot,
 })
 
-// (Re)load the live servable model menu whenever the key changes.
+// Reload the live servable model menu only when the key changes. Deep-link
+// model query updates must not re-fetch — loadModels() clears picks and the
+// temporary fallback to the first catalog entry was overwriting URL state.
 watch(
-  () => [props.apiKeyId, props.initialModel] as const,
-  async ([id, initialModel]) => {
+  () => props.apiKeyId,
+  async (id) => {
     if (id == null) return
     keyRevealed.value = false
     tk.testState.value = { status: 'idle' }
     await tk.loadModels()
-    const flavor = tk.applyInitialModel(initialModel)
-    if (!props.selectedClient) {
-      if (flavor === 'anthropic') activeClientTab.value = 'claude'
-      else if (flavor === 'gemini') activeClientTab.value = 'gemini'
-      else if (flavor === 'openai') activeClientTab.value = 'codex'
-    }
+    applyInitialModelSelection(props.initialModel)
   },
   { immediate: true },
 )
 
+watch(
+  () => props.initialModel,
+  (initialModel) => {
+    if (props.apiKeyId == null || tk.modelsLoading.value || !tk.modelsLoaded.value) return
+    applyInitialModelSelection(initialModel)
+  },
+)
+
+function applyInitialModelSelection(initialModel: string | null | undefined): void {
+  const flavor = tk.applyInitialModel(initialModel)
+  if (!props.selectedClient) {
+    if (flavor === 'anthropic') activeClientTab.value = 'claude'
+    else if (flavor === 'gemini') activeClientTab.value = 'gemini'
+    else if (flavor === 'openai') activeClientTab.value = 'codex'
+  }
+}
+
+// Template-facing refs (top-level so they auto-unwrap in the template).
+const tkModelsLoading = tk.modelsLoading
+const tkTestState = tk.testState
+watch(tkTestState, (state) => {
+  emit('testStateChange', { ...state })
+}, { deep: true, immediate: true })
+const tkIsCCOnly = tk.isClaudeCodeOnly
+
 // Models offered in the picker for the current flavor.
 const pickerModels = computed(() => (activeFlavor.value ? tk.modelsForFlavor(activeFlavor.value) : []))
 const selectedModel = computed(() => (activeFlavor.value ? tk.effectiveModel(activeFlavor.value) : ''))
-watch(selectedModel, (model) => {
-  if (model) emit('modelChange', model)
-}, { immediate: true })
+watch([selectedModel, tkModelsLoading], ([model, loading]) => {
+  if (model && !loading) emit('modelChange', model)
+})
 const showModelsCatalogEmpty = computed(() =>
   activeFlavor.value ? tk.shouldWarnModelsEmpty(activeFlavor.value) : false,
 )
@@ -437,16 +459,11 @@ const testErrorMessage = computed(() => tkTestState.value.reason === 'missing_to
 )
 function onPickModel(e: Event): void {
   const id = (e.target as HTMLSelectElement).value
-  if (activeFlavor.value) tk.setModel(activeFlavor.value, id)
+  if (activeFlavor.value) {
+    tk.setModel(activeFlavor.value, id)
+    emit('modelChange', id)
+  }
 }
-
-// Template-facing refs (top-level so they auto-unwrap in the template).
-const tkModelsLoading = tk.modelsLoading
-const tkTestState = tk.testState
-watch(tkTestState, (state) => {
-  emit('testStateChange', { ...state })
-}, { deep: true, immediate: true })
-const tkIsCCOnly = tk.isClaudeCodeOnly
 
 const maskedKey = computed(() => {
   const k = props.apiKey || ''
