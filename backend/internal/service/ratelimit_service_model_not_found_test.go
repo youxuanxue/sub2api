@@ -87,7 +87,7 @@ func TestRateLimitService_HandleUpstreamError_ModelNotFoundWriteFailureDoesNotTe
 	require.Len(t, repo.modelRateLimitCalls, 1)
 }
 
-func TestRateLimitService_HandleUpstreamError_Bare404KeepsTempUnschedulablePath(t *testing.T) {
+func TestRateLimitService_HandleUpstreamError_Bare404UsesModelScopedTempUnschedulableWhenModelKnown(t *testing.T) {
 	repo := &modelNotFoundAccountRepoStub{}
 	svc := &RateLimitService{accountRepo: repo}
 	account := openAIModelNotFoundTempAccount()
@@ -102,8 +102,12 @@ func TestRateLimitService_HandleUpstreamError_Bare404KeepsTempUnschedulablePath(
 	)
 
 	require.True(t, handled)
-	require.Equal(t, 1, repo.tempCalls)
-	require.Empty(t, repo.modelRateLimitCalls)
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, account.ID, call.accountID)
+	require.Equal(t, "gpt-5.4", call.scope)
+	require.WithinDuration(t, time.Now().Add(10*time.Minute), call.resetAt, 5*time.Second)
 }
 
 // TK (prod P0 2026-06-06, edge us5): the same model-not-found path on an

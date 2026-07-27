@@ -109,6 +109,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		service.TKGroupUnsupportedModelCacheReady{}, // TK: forces group unsupported negative cache wiring
 		nil, // quotaFlusher
 		nil, // upstreamBillingProbe
+		nil, // ollamaCloudUsage
 		nil, // auditLog
 		nil, // promptAudit
 	)
