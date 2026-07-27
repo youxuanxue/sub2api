@@ -164,13 +164,10 @@ export async function getCurrentUser() {
 export async function logout(): Promise<void> {
   const refreshToken = getRefreshToken()
 
-  // Try to revoke the refresh token on the server
-  if (refreshToken) {
-    try {
-      await apiClient.post('/auth/logout', { refresh_token: refreshToken })
-    } catch {
-      // Ignore errors - we still want to clear local state
-    }
+  try {
+    await apiClient.post('/auth/logout', refreshToken ? { refresh_token: refreshToken } : {})
+  } catch {
+    // Ignore errors - we still want to clear local state
   }
 
   clearAuthToken()
@@ -294,18 +291,19 @@ export async function prepareOAuthBindAccessTokenCookie(): Promise<void> {
  */
 export async function refreshToken(): Promise<RefreshTokenResponse> {
   const currentRefreshToken = getRefreshToken()
-  if (!currentRefreshToken) {
-    throw new Error('No refresh token available')
+  const payload = currentRefreshToken ? { refresh_token: currentRefreshToken } : {}
+
+  const { data } = await apiClient.post<RefreshTokenResponse>('/auth/refresh', payload)
+
+  if (data.access_token) {
+    setAuthToken(data.access_token)
   }
-
-  const { data } = await apiClient.post<RefreshTokenResponse>('/auth/refresh', {
-    refresh_token: currentRefreshToken
-  })
-
-  // Update tokens in localStorage
-  setAuthToken(data.access_token)
-  setRefreshToken(data.refresh_token)
-  setTokenExpiresAt(data.expires_in)
+  if (data.refresh_token) {
+    setRefreshToken(data.refresh_token)
+  }
+  if (data.expires_in) {
+    setTokenExpiresAt(data.expires_in)
+  }
 
   return data
 }

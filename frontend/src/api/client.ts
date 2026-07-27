@@ -156,8 +156,8 @@ apiClient.interceptors.response.use(
         const isAuthEndpoint =
           url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh')
 
-        // If we have a refresh token and this is not an auth endpoint, try to refresh
-        if (refreshToken && !isAuthEndpoint) {
+        // Try refresh for protected endpoints; body token preferred, HttpOnly cookie fallback.
+        if (!isAuthEndpoint) {
           if (isRefreshing) {
             // Wait for the ongoing refresh to complete
             return new Promise((resolve, reject) => {
@@ -190,10 +190,10 @@ apiClient.interceptors.response.use(
             // Call refresh endpoint directly to avoid circular dependency
             const refreshResponse = await axios.post(
               `${getAPIBaseURL()}/auth/refresh`,
-              { refresh_token: refreshToken },
+              refreshToken ? { refresh_token: refreshToken } : {},
               // 显式设置超时：裸 axios 默认无限等待，若刷新请求挂起会导致 isRefreshing
               // 永远为 true，所有排队的 401 重试请求永久卡死，页面 loading 无法恢复。
-              { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
+              { headers: { 'Content-Type': 'application/json' }, timeout: 30000, withCredentials: true }
             )
 
             const refreshData = refreshResponse.data as ApiResponse<{

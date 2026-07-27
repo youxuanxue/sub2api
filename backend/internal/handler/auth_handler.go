@@ -119,6 +119,7 @@ func (h *AuthHandler) respondWithTokenPair(c *gin.Context, user *service.User) {
 		})
 		return
 	}
+	h.setTkRefreshSessionCookie(c, tokenPair.RefreshToken)
 	response.Success(c, AuthResponse{
 		AccessToken:  tokenPair.AccessToken,
 		RefreshToken: tokenPair.RefreshToken,
@@ -651,7 +652,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 
 // RefreshTokenRequest 刷新Token请求
 type RefreshTokenRequest struct {
-	RefreshToken string `json:"refresh_token" binding:"required"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 // RefreshTokenResponse 刷新Token响应
@@ -666,17 +667,22 @@ type RefreshTokenResponse struct {
 // POST /api/v1/auth/refresh
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var req RefreshTokenRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// 允许空 body：浏览器可用 HttpOnly tk_refresh cookie 续期。
+	_ = c.ShouldBindJSON(&req)
+
+	refreshToken, err := h.resolveRefreshTokenForRequest(c, req.RefreshToken)
+	if err != nil || strings.TrimSpace(refreshToken) == "" {
 		response.InvalidRequest(c)
 		return
 	}
 
-	result, err := h.authService.RefreshTokenPair(c.Request.Context(), req.RefreshToken)
+	result, err := h.authService.RefreshTokenPair(c.Request.Context(), refreshToken)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
+	h.setTkRefreshSessionCookie(c, result.RefreshToken)
 	response.Success(c, RefreshTokenResponse{
 		AccessToken:  result.AccessToken,
 		RefreshToken: result.RefreshToken,
@@ -702,13 +708,14 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	// 允许空请求体（向后兼容）
 	_ = c.ShouldBindJSON(&req)
 
-	// 如果提供了Refresh Token，撤销它
-	if req.RefreshToken != "" {
-		if err := h.authService.RevokeRefreshToken(c.Request.Context(), req.RefreshToken); err != nil {
-			slog.Debug("failed to revoke refresh token", "error", err)
+	refreshToken, err := h.resolveRefreshTokenForRequest(c, req.RefreshToken)
+	if err == nil && strings.TrimSpace(refreshToken) != "" {
+		if revokeErr := h.authService.RevokeRefreshToken(c.Request.Context(), refreshToken); revokeErr != nil {
+			slog.Debug("failed to revoke refresh token", "error", revokeErr)
 			// 不影响登出流程
 		}
 	}
+	h.clearTkRefreshSessionCookie(c)
 	h.consumePendingOAuthSessionOnLogout(c)
 	clearOAuthLogoutCookies(c)
 
@@ -736,6 +743,8 @@ func (h *AuthHandler) RevokeAllSessions(c *gin.Context) {
 		response.InternalError(c, "Failed to revoke sessions")
 		return
 	}
+
+	h.clearTkRefreshSessionCookie(c)
 
 	response.Success(c, RevokeAllSessionsResponse{
 		Message: "All sessions have been revoked. Please log in again.",
