@@ -452,12 +452,12 @@ onMounted(() => {
               {{ t("admin.settings.payment.enabledHint") }}
             </p>
           </div>
-          <Toggle v-model="form.payment_enabled" />
+          <Toggle v-model="form.payment_enabled" data-testid="payment-enabled-toggle" />
         </div>
         <template v-if="form.payment_enabled">
           <!-- Row 1: Product name -->
-          <div class="grid grid-cols-3 gap-3">
-            <div>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div class="min-w-0 max-w-full">
               <label class="input-label">{{
                 t("admin.settings.payment.productNamePrefix")
               }}</label
@@ -677,11 +677,11 @@ onMounted(() => {
                 class="w-40"
               />
             </div>
-            <div>
+            <div class="min-w-0 max-w-full">
               <label class="input-label">{{
                 t("admin.settings.payment.cancelRateLimit")
               }}</label>
-              <div class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   :class="[
@@ -796,6 +796,27 @@ onMounted(() => {
                 </button>
                 <span class="text-sm text-gray-500 dark:text-gray-400">{{
                   t("admin.settings.payment.alipayForceQRCodeHint")
+                }}</span>
+              </div>
+            </div>
+            <div>
+              <label class="input-label">{{
+                t("admin.settings.payment.alipayMobilePrecreateDeepLink")
+              }}</label>
+              <div class="flex items-center gap-2">
+                <Toggle
+                  v-model="form.payment_alipay_mobile_precreate_deep_link"
+                  :aria-label="
+                    t(
+                      'admin.settings.payment.alipayMobilePrecreateDeepLink',
+                    )
+                  "
+                  data-testid="payment-alipay-mobile-precreate-deep-link"
+                />
+                <span class="text-sm text-gray-500 dark:text-gray-400">{{
+                  t(
+                    "admin.settings.payment.alipayMobilePrecreateDeepLinkHint",
+                  )
                 }}</span>
               </div>
             </div>

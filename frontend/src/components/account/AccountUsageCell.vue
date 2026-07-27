@@ -17,6 +17,7 @@ import AntigravityUsageCell from './usage-cells/AntigravityUsageCell.vue'
 import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
 import GrokUsageCell from './usage-cells/GrokUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
+import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
 import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_GROK, PLATFORM_KIRO, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
@@ -24,6 +25,10 @@ const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCel
 
 const activeCell = computed(() => {
   const { account } = props
+
+  if (account.ollama_cloud_usage?.eligible) {
+    return OllamaCloudUsageCell
+  }
 
   if (!showUsageWindowsForAccount(account)) {
     return PlainUsageCell

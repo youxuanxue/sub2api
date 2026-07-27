@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -1106,7 +1107,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
 			}
 			collectedBytes, _ := json.Marshal(collected)
-			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, originalModel, collectedBytes)
+			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, originalModel, collectedBytes, false)
 			c.JSON(http.StatusOK, claudeResp)
 			usage = usageObj2
 			if usageObj != nil && (usageObj.InputTokens > 0 || usageObj.OutputTokens > 0) {
@@ -2017,7 +2018,7 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 	if len(internalThinkingBlocks) > 0 {
 		c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
 	}
-	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody)
+	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody, false)
 	c.JSON(http.StatusOK, claudeResp)
 
 	return usage, nil
@@ -2769,7 +2770,7 @@ func unwrapGeminiResponse(raw []byte) ([]byte, error) {
 	return raw, nil
 }
 
-func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel string, rawData []byte) (map[string]any, *ClaudeUsage) {
+func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel string, rawData []byte, includeInlineData bool) (map[string]any, *ClaudeUsage) {
 	usage := extractGeminiUsage(rawData)
 	if usage == nil {
 		usage = &ClaudeUsage{}
@@ -2795,18 +2796,13 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 								"text": text,
 							})
 						}
-						if inline, ok := pm["inlineData"].(map[string]any); ok {
-							if markdown := geminiInlineDataToImageMarkdown(inline); markdown != "" {
+						if inlineData, ok := pm["inlineData"].(map[string]any); includeInlineData && ok {
+							mimeType, _ := inlineData["mimeType"].(string)
+							data, _ := inlineData["data"].(string)
+							if isGeminiInlineImageMIMEType(mimeType) && isValidBase64(data) {
 								contentBlocks = append(contentBlocks, map[string]any{
 									"type": "text",
-									"text": markdown,
-								})
-							}
-						} else if inline, ok := pm["inline_data"].(map[string]any); ok {
-							if markdown := geminiInlineDataToImageMarkdown(inline); markdown != "" {
-								contentBlocks = append(contentBlocks, map[string]any{
-									"type": "text",
-									"text": markdown,
+									"text": fmt.Sprintf("![image](data:%s;base64,%s)", mimeType, data),
 								})
 							}
 						}
@@ -2852,29 +2848,21 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 	return resp, usage
 }
 
-// geminiInlineDataToImageMarkdown mirrors antigravity/new-api: gemini-native image
-// models return inline bytes in candidates[].content.parts[].inlineData; chat
-// completions clients (ImageStudio extractChatImageItems) expect markdown in
-// choices[].message.content.
-func geminiInlineDataToImageMarkdown(inline map[string]any) string {
-	if inline == nil {
-		return ""
+func isGeminiInlineImageMIMEType(mimeType string) bool {
+	switch mimeType {
+	case "image/gif", "image/jpeg", "image/png", "image/webp":
+		return true
+	default:
+		return false
 	}
-	data, _ := inline["data"].(string)
+}
+
+func isValidBase64(data string) bool {
 	if data == "" {
-		return ""
+		return false
 	}
-	mime, _ := inline["mimeType"].(string)
-	if mime == "" {
-		mime, _ = inline["mime_type"].(string)
-	}
-	if mime == "" {
-		mime = "image/png"
-	}
-	if !strings.HasPrefix(strings.ToLower(mime), "image/") {
-		return ""
-	}
-	return fmt.Sprintf("![image](data:%s;base64,%s)", mime, data)
+	_, err := base64.StdEncoding.DecodeString(data)
+	return err == nil
 }
 
 func extractGeminiUsage(data []byte) *ClaudeUsage {

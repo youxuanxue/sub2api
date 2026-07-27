@@ -1392,7 +1392,7 @@
     {
       "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
       "must_contain": [
-        "shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody, requestedModel...)",
+        "shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody, canonicalModel...)",
         "tkShouldOpenAICodex429BeModelScoped(account, headers, responseBody, reqModel)",
         "s.BlockAccountScheduling(account, time.Time{}, \"upstream_disable\")",
         "openAIOAuth429StormThreshold"
@@ -1851,11 +1851,11 @@
       "rationale": "TK#2013: enforceCacheControlLimit must count a non-standard top-level cache_control toward the 4-block limit (else Anthropic 400 'Found 5')."
     },
     {
-      "path": "backend/internal/service/gateway_service_tk_billing_cost.go",
+      "path": "backend/internal/service/gateway_usage_billing.go",
       "must_contain": [
         "logTokenCostPricingMissing(billingModel, apiKey, result, err)"
       ],
-      "rationale": "TK#1833/#1544: calculateTokenCost (extracted to billing_cost companion) must surface pricing-missing as an observable structured log instead of a silent ActualCost:0 revenue leak."
+      "rationale": "TK#1833/#1544: calculateTokenCost in upstream gateway_usage_billing.go must surface pricing-missing as an observable structured log instead of a silent ActualCost:0 revenue leak."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_billing_pricing_missing.go",
@@ -5058,11 +5058,9 @@
       "path": "backend/internal/service/gateway_service_tk_billing_cost.go",
       "must_contain": [
         "func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64",
-        "func (s *GatewayService) calculateRecordUsageCost(",
-        "func (s *GatewayService) buildRecordUsageLog(",
-        "func (s *GatewayService) resolveChannelPricing(ctx context.Context, billingModel string, apiKey *APIKey) *ResolvedPricing"
+        "func (s *GatewayService) ResolveUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64"
       ],
-      "rationale": "TK billing cost calculation companion: channel pricing resolution, token/image cost calculation, and usage-log construction for GatewayService.RecordUsage. Extracted from gateway_service.go to reduce upstream merge surface. recordUsageCore calls calculateRecordUsageCost + buildRecordUsageLog; dropping the companion breaks compilation."
+      "rationale": "TK user/group rate multiplier companion for RecordUsage billing. Shared billing helpers moved upstream to gateway_usage_billing.go; this file keeps only TokenKey-specific multiplier resolution."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_scheduling_gates.go",

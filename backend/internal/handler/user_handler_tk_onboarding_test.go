@@ -62,6 +62,9 @@ func (r *onboardingFakeUserRepo) MarkOnboardingTourSeen(_ context.Context, userI
 func (r *onboardingFakeUserRepo) Create(context.Context, *service.User) error {
 	panic("unexpected Create")
 }
+func (r *onboardingFakeUserRepo) CreateWithEmailAliasGuard(context.Context, *service.User) error {
+	panic("unexpected CreateWithEmailAliasGuard")
+}
 func (r *onboardingFakeUserRepo) GetByID(context.Context, int64) (*service.User, error) {
 	panic("unexpected GetByID")
 }
@@ -101,6 +104,9 @@ func (r *onboardingFakeUserRepo) BatchSetConcurrency(context.Context, []int64, i
 }
 func (r *onboardingFakeUserRepo) ExistsByEmail(context.Context, string) (bool, error) {
 	panic("unexpected ExistsByEmail")
+}
+func (r *onboardingFakeUserRepo) ExistsByEmailAlias(context.Context, string) (bool, error) {
+	panic("unexpected ExistsByEmailAlias")
 }
 func (r *onboardingFakeUserRepo) RemoveGroupFromAllowedGroups(context.Context, int64) (int64, error) {
 	panic("unexpected RemoveGroupFromAllowedGroups")
