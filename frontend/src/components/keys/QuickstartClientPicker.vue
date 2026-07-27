@@ -1,41 +1,31 @@
 <template>
   <div data-tk="quickstart-client-picker" class="space-y-3">
-    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+    <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
       <h2 class="text-sm font-semibold text-gray-900 dark:text-white">
         {{ heading }}
       </h2>
-    </div>
 
-    <details
-      data-tk="quickstart-support-legend"
-      class="group rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-400"
-    >
-      <summary class="cursor-pointer select-none font-medium text-gray-600 dark:text-gray-300">
-        {{ t('quickstart.legendToggle') }}
-      </summary>
-      <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+      <div
+        data-tk="quickstart-support-legend"
+        class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400"
+      >
         <span
-          v-for="tier in supportTierOrder"
+          v-for="(tier, index) in supportTierOrder"
           :key="tier"
           class="inline-flex items-center gap-1"
         >
-          <span
-            v-if="tier === 'verified'"
-            class="inline-flex items-center rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-300"
-          >
-            {{ supportMeta[tier].label }}
-          </span>
+          <span v-if="index > 0" aria-hidden="true" class="text-gray-300 dark:text-dark-500">·</span>
           <Icon
-            v-else
             :name="supportMeta[tier].icon"
             size="xs"
             aria-hidden="true"
-            :class="supportMeta[tier].className"
+            :class="supportMeta[tier].iconClass"
           />
-          <span>{{ supportMeta[tier].detail }}</span>
+          <span>{{ supportMeta[tier].label }}</span>
+          <span class="text-gray-400 dark:text-gray-500">— {{ supportMeta[tier].detail }}</span>
         </span>
       </div>
-    </details>
+    </div>
 
     <p
       v-if="hasUnavailableClients"
@@ -82,12 +72,19 @@
               @click="selectClient(client)"
             >
               <Icon :name="client.icon" size="sm" aria-hidden="true" class="shrink-0" />
-              <span class="min-w-0 flex-1 whitespace-nowrap">{{ client.name }}</span>
+              <span class="min-w-0 flex-1 truncate">{{ client.name }}</span>
               <span
-                v-if="client.supportTier === 'verified'"
-                class="inline-flex shrink-0 items-center rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-300"
+                data-tk="quickstart-tier-badge"
+                class="inline-flex shrink-0 items-center justify-center rounded-md p-1"
+                :class="supportMeta[client.supportTier].badgeClass"
+                :aria-label="`${supportMeta[client.supportTier].label}: ${supportMeta[client.supportTier].detail}`"
+                :title="`${supportMeta[client.supportTier].label}: ${supportMeta[client.supportTier].detail}`"
               >
-                {{ supportMeta.verified.label }}
+                <Icon
+                  :name="supportMeta[client.supportTier].icon"
+                  size="xs"
+                  aria-hidden="true"
+                />
               </span>
             </button>
 
@@ -160,7 +157,8 @@ type PickerSupportMeta = Record<QuickstartClientSupportTier, {
   icon: QuickstartClientIconName
   label: string
   detail: string
-  className: string
+  iconClass: string
+  badgeClass: string
 }>
 
 const supportTierOrder: QuickstartClientSupportTier[] = ['verified', 'import', 'compatible']
@@ -171,7 +169,8 @@ const supportMeta = computed<PickerSupportMeta>(() =>
       icon: TK_CLIENT_SUPPORT_META[tier].icon,
       label: t(TK_CLIENT_SUPPORT_META[tier].labelKey),
       detail: t(TK_CLIENT_SUPPORT_META[tier].detailKey),
-      className: TK_CLIENT_SUPPORT_META[tier].legendClass,
+      iconClass: TK_CLIENT_SUPPORT_META[tier].legendClass,
+      badgeClass: TK_CLIENT_SUPPORT_META[tier].badgeClass,
     }
     return result
   }, {} as PickerSupportMeta),
@@ -191,10 +190,8 @@ function selectedUnavailableInGroup(group: QuickstartClientGroup): QuickstartCli
 
 function clientTitle(client: QuickstartClientOption): string {
   if (client.disabled) return client.disabledReason || t('quickstart.unavailableProtocol')
-  if (client.supportTier === 'verified') {
-    return `${client.name} - ${supportMeta.value.verified.label}`
-  }
-  return `${client.name} - ${supportMeta.value[client.supportTier].detail}`
+  const meta = supportMeta.value[client.supportTier]
+  return `${client.name} - ${meta.label}: ${meta.detail}`
 }
 
 function reasonId(groupId: string, clientId: string): string {

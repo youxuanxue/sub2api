@@ -116,7 +116,8 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     supportTier: 'verified',
     action: 'copy-config',
     protocols: ['openai'],
-    docsUrl: 'https://developers.openai.com/codex/cli',
+    // Official OpenAI repo; developers.openai.com/codex/* is often 403/timeouts behind Vercel WAF.
+    docsUrl: 'https://github.com/openai/codex',
     surfaces: ['quickstart'],
     secretTransport: 'config',
     guideMode: 'native',
@@ -132,7 +133,7 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     supportTier: 'compatible',
     action: 'copy-config',
     protocols: ['anthropic', 'openai'],
-    docsUrl: 'https://qwenlm.github.io/qwen-code-docs/en/users/configuration/model-providers',
+    docsUrl: 'https://github.com/QwenLM/qwen-code',
     surfaces: ['quickstart'],
     secretTransport: 'env-file',
     guideMode: 'qwen',
