@@ -115,7 +115,7 @@ export const useAuthStore = defineStore('auth', () => {
    * Call this on app startup to restore session
    * Also starts auto-refresh and immediately fetches latest user data
    */
-  function checkAuth(): void {
+  async function checkAuth(): Promise<void> {
     const savedToken = localStorage.getItem(AUTH_TOKEN_KEY)
     const savedUser = localStorage.getItem(AUTH_USER_KEY)
     const savedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
@@ -150,6 +150,38 @@ export const useAuthStore = defineStore('auth', () => {
         console.error('Failed to parse saved user data:', error)
         clearAuth({ preservePendingAuthSession: true })
       }
+      return
+    }
+
+    if (!isBrowserOffline()) {
+      await bootstrapSessionFromCookie()
+    }
+  }
+
+  async function bootstrapSessionFromCookie(): Promise<void> {
+    try {
+      const response = await authAPI.refreshToken()
+      token.value = response.access_token
+      refreshTokenValue.value = response.refresh_token
+      localStorage.setItem(AUTH_TOKEN_KEY, response.access_token)
+      localStorage.setItem(REFRESH_TOKEN_KEY, response.refresh_token)
+
+      const meResponse = await authAPI.getCurrentUser()
+      const me = meResponse.data
+      if (me.run_mode) {
+        runMode.value = me.run_mode
+      }
+      const { run_mode: _run_mode, ...userData } = me
+      user.value = userData
+      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData))
+      clearPendingAuthSession()
+
+      startAutoRefresh()
+      if (response.expires_in) {
+        scheduleTokenRefresh(response.expires_in)
+      }
+    } catch {
+      // No cross-subdomain session cookie; user stays logged out.
     }
   }
 

@@ -307,7 +307,7 @@ router.beforeEach(async (to, _from, next) => {
 
   // Restore auth state from localStorage on first navigation (page refresh)
   if (!authInitialized) {
-    authStore.checkAuth()
+    await authStore.checkAuth()
     authInitialized = true
   }
 
