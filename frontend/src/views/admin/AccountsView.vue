@@ -1715,8 +1715,8 @@ const allColumns = computed(() => {
   if (!authStore.isSimpleMode) {
     c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false, class: wrap('max-w-[8rem]') })
   }
+  c.push({ key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false, class: wrap('max-w-[15rem]') })
   c.push(
-    { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false, class: wrap('max-w-[15rem]') },
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false, class: wrap('max-w-[7rem]') },
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true, class: nowrap },
     { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false, class: wrap('max-w-[9rem]') },

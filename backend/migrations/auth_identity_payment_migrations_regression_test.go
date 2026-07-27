@@ -264,3 +264,51 @@ func TestMigration173AllowsCyberBlockedUsageRequestType(t *testing.T) {
 	require.Contains(t, sql, "ADD CONSTRAINT usage_logs_request_type_check")
 	require.Contains(t, sql, "CHECK (request_type IN (0, 1, 2, 3, 4)) NOT VALID")
 }
+
+func TestMigration188ValidatesLiveRequestTypeWithoutHoldingTheReplacementLock(t *testing.T) {
+	entries, err := FS.ReadDir(".")
+	require.NoError(t, err)
+
+	replaceIndex := -1
+	validateIndex := -1
+	groupIndex := -1
+	for i, entry := range entries {
+		switch entry.Name() {
+		case "188a_allow_live_usage_request_type_not_valid.sql":
+			replaceIndex = i
+		case "188b_validate_live_usage_request_type.sql":
+			validateIndex = i
+		case "189_add_group_allow_live.sql":
+			groupIndex = i
+		}
+	}
+	require.NotEqual(t, -1, replaceIndex)
+	require.NotEqual(t, -1, validateIndex)
+	require.NotEqual(t, -1, groupIndex)
+	require.Less(t, replaceIndex, validateIndex)
+	require.Less(t, validateIndex, groupIndex)
+
+	upstreamContent, err := FS.ReadFile("188_allow_live_usage_request_type.sql")
+	require.NoError(t, err)
+	upstreamSQL := string(upstreamContent)
+	require.Contains(t, upstreamSQL, "188a_allow_live_usage_request_type_not_valid.sql")
+	require.Contains(t, upstreamSQL, "188b_validate_live_usage_request_type.sql")
+	require.Contains(t, upstreamSQL, "SELECT 1")
+	require.NotContains(t, upstreamSQL, "ALTER TABLE")
+
+	replaceContent, err := FS.ReadFile("188a_allow_live_usage_request_type_not_valid.sql")
+	require.NoError(t, err)
+	replaceSQL := string(replaceContent)
+	require.Contains(t, replaceSQL, "SET LOCAL lock_timeout = '5s'")
+	require.Contains(t, replaceSQL, "DROP CONSTRAINT IF EXISTS usage_logs_request_type_check")
+	require.Contains(t, replaceSQL, "CHECK (request_type >= 0 AND request_type <= 5) NOT VALID")
+	require.NotContains(t, replaceSQL, "VALIDATE CONSTRAINT")
+
+	validateContent, err := FS.ReadFile("188b_validate_live_usage_request_type.sql")
+	require.NoError(t, err)
+	validateSQL := string(validateContent)
+	require.Contains(t, validateSQL, "SET LOCAL lock_timeout = '5s'")
+	require.Contains(t, validateSQL, "VALIDATE CONSTRAINT usage_logs_request_type_check")
+	require.NotContains(t, validateSQL, "DROP CONSTRAINT")
+	require.NotContains(t, validateSQL, "ADD CONSTRAINT")
+}

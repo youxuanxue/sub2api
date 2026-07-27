@@ -525,7 +525,10 @@ func TestOpenAIGatewayService_OAuthPassthrough_NamespaceRequestAndStreamResponse
 			{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"spawn_agent","description":"spawn","parameters":{"type":"object"}}]}
 		],
 		"tool_choice":{"type":"function","name":"spawn_agent","namespace":"collaboration"},
-		"input":[{"type":"function_call","call_id":"call_old","name":"spawn_agent","namespace":"collaboration","arguments":"{}"}]
+		"input":[
+			{"type":"function_call","call_id":"call_old","name":"spawn_agent","namespace":"collaboration","arguments":"{}"},
+			{"type":"message","role":"user","namespace":"residual","content":[{"type":"input_text","text":"keep","namespace":"nested"}]}
+		]
 	}`)
 
 	upstreamSSE := strings.Join([]string{
@@ -563,6 +566,9 @@ func TestOpenAIGatewayService_OAuthPassthrough_NamespaceRequestAndStreamResponse
 	require.False(t, gjson.GetBytes(upstream.lastBody, "tool_choice.namespace").Exists())
 	require.Equal(t, "collaboration__spawn_agent", gjson.GetBytes(upstream.lastBody, "input.0.name").String())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "input.0.namespace").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "input.1.namespace").Exists())
+	require.Equal(t, "nested", gjson.GetBytes(upstream.lastBody, "input.1.content.0.namespace").String())
+	require.Len(t, upstream.bodies, 1)
 
 	downstream := rec.Body.String()
 	require.NotContains(t, downstream, "collaboration__spawn_agent")
@@ -1540,13 +1546,23 @@ func TestOpenAIGatewayService_OpenAIPassthrough_RetryableStatusesTriggerFailover
 // the trigger as successful and HandleUpstreamError reports shouldDisable=true.
 type passthroughTempUnschedRepo struct {
 	stubOpenAIAccountRepo
-	tempUnschedCalls   []time.Time
-	tempUnschedReasons []string
+	tempUnschedCalls      []time.Time
+	tempUnschedReasons    []string
+	modelRateLimitScopes  []string
+	modelRateLimitReasons []string
 }
 
 func (r *passthroughTempUnschedRepo) SetTempUnschedulable(_ context.Context, _ int64, until time.Time, reason string) error {
 	r.tempUnschedCalls = append(r.tempUnschedCalls, until)
 	r.tempUnschedReasons = append(r.tempUnschedReasons, reason)
+	return nil
+}
+
+func (r *passthroughTempUnschedRepo) SetModelRateLimit(_ context.Context, _ int64, scope string, _ time.Time, reason ...string) error {
+	r.modelRateLimitScopes = append(r.modelRateLimitScopes, scope)
+	if len(reason) > 0 {
+		r.modelRateLimitReasons = append(r.modelRateLimitReasons, reason[0])
+	}
 	return nil
 }
 
@@ -1631,16 +1647,17 @@ func TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover(
 	require.False(t, c.Writer.Written(),
 		"passthrough must NOT write the upstream error to the client when the account was disabled — failover loop owns the response")
 
-	require.Len(t, repo.tempUnschedCalls, 1,
-		"the temp-unsched rule must still take its side effect on the account repository")
+	require.Len(t, repo.modelRateLimitScopes, 1,
+		"known-model temp-unsched rule matches must persist under the model key")
+	require.Equal(t, "gpt-5.2", repo.modelRateLimitScopes[0])
 	// Reason must carry the matched rule context (status code + matched keyword)
 	// so ops can later attribute the disable back to the right rule. This pins
 	// that #1318's regression is not just "shouldDisable propagated" but also
 	// "the matched-rule reason was actually persisted" — a previous half-applied
 	// state where the reason was empty would silently make admin troubleshooting
 	// useless.
-	require.Len(t, repo.tempUnschedReasons, 1)
-	persistedReason := repo.tempUnschedReasons[0]
+	require.Len(t, repo.modelRateLimitReasons, 1)
+	persistedReason := repo.modelRateLimitReasons[0]
 	require.Contains(t, persistedReason, "deactivated",
 		"persisted temp-unsched reason must contain the matched keyword so admin/ops can attribute the disable")
 	require.Contains(t, persistedReason, "402",

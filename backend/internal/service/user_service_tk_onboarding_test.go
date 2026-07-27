@@ -27,6 +27,9 @@ func (s *onboardingUserRepoStub) MarkOnboardingTourSeen(_ context.Context, userI
 // --- panic-on-call defaults for the rest of the interface ---
 
 func (s *onboardingUserRepoStub) Create(context.Context, *User) error { panic("unexpected Create") }
+func (s *onboardingUserRepoStub) CreateWithEmailAliasGuard(context.Context, *User) error {
+	panic("unexpected CreateWithEmailAliasGuard")
+}
 func (s *onboardingUserRepoStub) GetByID(context.Context, int64) (*User, error) {
 	panic("unexpected GetByID")
 }
@@ -67,6 +70,9 @@ func (s *onboardingUserRepoStub) BatchUpdateLimits(context.Context, []int64, *in
 }
 func (s *onboardingUserRepoStub) ExistsByEmail(context.Context, string) (bool, error) {
 	panic("unexpected ExistsByEmail")
+}
+func (s *onboardingUserRepoStub) ExistsByEmailAlias(context.Context, string) (bool, error) {
+	panic("unexpected ExistsByEmailAlias")
 }
 func (s *onboardingUserRepoStub) RemoveGroupFromAllowedGroups(context.Context, int64) (int64, error) {
 	panic("unexpected RemoveGroupFromAllowedGroups")

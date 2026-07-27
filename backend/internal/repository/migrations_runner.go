@@ -64,6 +64,19 @@ const latestAPIKeyIPIndexMigration = "174_add_usage_logs_api_key_latest_ip_index
 const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
 const opsSystemLogsHostIndexMigration = "175a_add_ops_system_logs_host_index_notx.sql"
 const opsSystemLogsHostIndex = "idx_ops_system_logs_host_created_at"
+const usersEmailAliasDedupIndexMigration = "190_add_users_email_alias_dedup_index_notx.sql"
+const usersEmailAliasDedupIndex = "idx_users_email_dot_stripped"
+
+// migrationDB is the session-scoped database surface used by the migration
+// runner. Both *sql.DB and *sql.Conn satisfy it, but production migrations use a
+// pinned *sql.Conn so session advisory locks are acquired and released by the
+// same PostgreSQL backend.
+type migrationDB interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+}
 
 type nonTransactionalIndexPolicy struct {
 	indexName              string
@@ -83,6 +96,9 @@ var nonTransactionalIndexPolicies = map[string]nonTransactionalIndexPolicy{
 	},
 	latestAPIKeyIPIndexMigration: {
 		indexName: latestAPIKeyIPIndex,
+	},
+	usersEmailAliasDedupIndexMigration: {
+		indexName: usersEmailAliasDedupIndex,
 	},
 	opsSystemLogsHostIndexMigration: {
 		indexName:            opsSystemLogsHostIndex,
@@ -166,6 +182,16 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 	if db == nil {
 		return errors.New("nil sql db")
 	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration session: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	return applyMigrationsSession(ctx, conn, fsys)
+}
+
+func applyMigrationsSession(ctx context.Context, db migrationDB, fsys fs.FS) error {
 
 	// 获取分布式锁，确保多实例部署时只有一个实例执行迁移。
 	// 这是 PostgreSQL 特有的 Advisory Lock 机制。
@@ -296,7 +322,7 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 	return nil
 }
 
-func shouldRecordMigrationWithoutExecution(ctx context.Context, db *sql.DB, name string) (bool, error) {
+func shouldRecordMigrationWithoutExecution(ctx context.Context, db migrationDB, name string) (bool, error) {
 	if name != opsMonthlyPartitionsMigration {
 		return false, nil
 	}
@@ -312,7 +338,7 @@ func shouldRecordMigrationWithoutExecution(ctx context.Context, db *sql.DB, name
 	return true, nil
 }
 
-func applyNonTransactionalMigration(ctx context.Context, db *sql.DB, name, content string) error {
+func applyNonTransactionalMigration(ctx context.Context, db migrationDB, name, content string) error {
 	policy, hasPolicy := nonTransactionalIndexPolicies[name]
 	if hasPolicy && policy.partitionedTable != "" {
 		partitioned, err := pgpartition.IsPartitioned(ctx, db, policy.partitionedTable)
@@ -351,7 +377,7 @@ func applyNonTransactionalMigration(ctx context.Context, db *sql.DB, name, conte
 	return nil
 }
 
-func prepareNonTransactionalMigration(ctx context.Context, db *sql.DB, name string) error {
+func prepareNonTransactionalMigration(ctx context.Context, db migrationDB, name string) error {
 	if name == paymentOrdersOutTradeNoUniqueMigration {
 		return preparePaymentOrdersOutTradeNoUniqueMigration(ctx, db)
 	}
@@ -362,7 +388,7 @@ func prepareNonTransactionalMigration(ctx context.Context, db *sql.DB, name stri
 	return dropInvalidIndexIfPresent(ctx, db, policy.indexName)
 }
 
-func preparePaymentOrdersOutTradeNoUniqueMigration(ctx context.Context, db *sql.DB) error {
+func preparePaymentOrdersOutTradeNoUniqueMigration(ctx context.Context, db migrationDB) error {
 	duplicates, err := findDuplicatePaymentOrderOutTradeNos(ctx, db)
 	if err != nil {
 		return fmt.Errorf("precheck duplicate out_trade_no: %w", err)
@@ -378,7 +404,7 @@ func preparePaymentOrdersOutTradeNoUniqueMigration(ctx context.Context, db *sql.
 	return dropInvalidIndexIfPresent(ctx, db, paymentOrdersOutTradeNoUniqueIndex)
 }
 
-func dropInvalidIndexIfPresent(ctx context.Context, db *sql.DB, indexName string) error {
+func dropInvalidIndexIfPresent(ctx context.Context, db migrationDB, indexName string) error {
 	invalid, err := indexIsInvalid(ctx, db, indexName)
 	if err != nil {
 		return fmt.Errorf("check invalid index %s: %w", indexName, err)
@@ -393,7 +419,7 @@ func dropInvalidIndexIfPresent(ctx context.Context, db *sql.DB, indexName string
 	return nil
 }
 
-func findDuplicatePaymentOrderOutTradeNos(ctx context.Context, db *sql.DB) ([]string, error) {
+func findDuplicatePaymentOrderOutTradeNos(ctx context.Context, db migrationDB) ([]string, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT out_trade_no, COUNT(*) AS duplicate_count
 		FROM payment_orders
@@ -425,7 +451,7 @@ func findDuplicatePaymentOrderOutTradeNos(ctx context.Context, db *sql.DB) ([]st
 	return duplicates, nil
 }
 
-func indexIsInvalid(ctx context.Context, db *sql.DB, indexName string) (bool, error) {
+func indexIsInvalid(ctx context.Context, db migrationDB, indexName string) (bool, error) {
 	var invalid bool
 	err := db.QueryRowContext(ctx, `
 		SELECT EXISTS (
@@ -441,7 +467,7 @@ func indexIsInvalid(ctx context.Context, db *sql.DB, indexName string) (bool, er
 	return invalid, err
 }
 
-func ensureAtlasBaselineAligned(ctx context.Context, db *sql.DB, fsys fs.FS) error {
+func ensureAtlasBaselineAligned(ctx context.Context, db migrationDB, fsys fs.FS) error {
 	hasLegacy, err := tableExists(ctx, db, "schema_migrations")
 	if err != nil {
 		return fmt.Errorf("check schema_migrations: %w", err)
@@ -482,7 +508,7 @@ func ensureAtlasBaselineAligned(ctx context.Context, db *sql.DB, fsys fs.FS) err
 	return nil
 }
 
-func tableExists(ctx context.Context, db *sql.DB, tableName string) (bool, error) {
+func tableExists(ctx context.Context, db migrationDB, tableName string) (bool, error) {
 	var exists bool
 	err := db.QueryRowContext(ctx, `
 		SELECT EXISTS (
@@ -613,7 +639,7 @@ func stripSQLLineComment(s string) string {
 // pgAdvisoryLock 获取 PostgreSQL Advisory Lock。
 // Advisory Lock 是一种轻量级的锁机制，不与任何特定的数据库对象关联。
 // 它非常适合用于应用层面的分布式锁场景，如迁移序列化。
-func pgAdvisoryLock(ctx context.Context, db *sql.DB) error {
+func pgAdvisoryLock(ctx context.Context, db migrationDB) error {
 	ticker := time.NewTicker(migrationsLockRetryInterval)
 	defer ticker.Stop()
 
@@ -635,7 +661,7 @@ func pgAdvisoryLock(ctx context.Context, db *sql.DB) error {
 
 // pgAdvisoryUnlock 释放 PostgreSQL Advisory Lock。
 // 必须在获取锁后确保释放，否则会阻塞其他实例的迁移操作。
-func pgAdvisoryUnlock(ctx context.Context, db *sql.DB) error {
+func pgAdvisoryUnlock(ctx context.Context, db migrationDB) error {
 	_, err := db.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", migrationsAdvisoryLockID)
 	if err != nil {
 		return fmt.Errorf("release migrations lock: %w", err)

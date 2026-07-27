@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "floor_sha256": "6db6e06eaa3bb8016cf6d98ce1776680e72d8ace3fc1682e1b73ddb14c02f434",
+  "floor_sha256": "32057be17122a6c17ff552f0a79669bde519e230a1990ceea300649def77ab43",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -48,6 +48,7 @@
         "claude-opus-4-6-thinking": "us.anthropic.claude-opus-4-6-v1",
         "claude-opus-4-7": "us.anthropic.claude-opus-4-7-v1",
         "claude-opus-4-8": "us.anthropic.claude-opus-4-8-v1",
+        "claude-opus-5": "us.anthropic.claude-opus-5-v1",
         "claude-sonnet-4-20250514": "us.anthropic.claude-sonnet-4-20250514-v1:0",
         "claude-sonnet-4-5": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
         "claude-sonnet-4-5-20250929": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",

@@ -431,6 +431,12 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		}
 	}
 
+	maxReasoningEffort := NormalizeMaxReasoningEffort(input.MaxReasoningEffort)
+	var reasoningEffortMappings []ReasoningEffortMapping
+	if input.ReasoningEffortMappings != nil {
+		reasoningEffortMappings = input.ReasoningEffortMappings
+	}
+
 	group := &Group{
 		Name:                                   input.Name,
 		Description:                            input.Description,
@@ -468,6 +474,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		MCPXMLInject:                           mcpXMLInject,
 		SupportedModelScopes:                   input.SupportedModelScopes,
 		AllowMessagesDispatch:                  input.AllowMessagesDispatch,
+		AllowLive:                              input.AllowLive,
 		RequireOAuthOnly:                       input.RequireOAuthOnly,
 		RequirePrivacySet:                      input.RequirePrivacySet,
 		DefaultMappedModel:                     input.DefaultMappedModel,
@@ -477,8 +484,14 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		RPMLimit:                               input.RPMLimit,
 		MessagesCompactionEnabled:              input.MessagesCompactionEnabled,
 		MessagesCompactionInputTokensThreshold: input.MessagesCompactionInputTokensThreshold,
+		MaxReasoningEffort:                     maxReasoningEffort,
+		ReasoningEffortMappings:                reasoningEffortMappings,
 	}
 	sanitizeGroupMessagesDispatchFields(group)
+	if group.Platform != PlatformOpenAI {
+		group.AllowLive = false
+	}
+	sanitizeGroupReasoningEffortPolicy(group)
 	if err := s.groupRepo.Create(ctx, group); err != nil {
 		return nil, err
 	}
@@ -775,6 +788,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.AllowMessagesDispatch != nil {
 		group.AllowMessagesDispatch = *input.AllowMessagesDispatch
 	}
+	if input.AllowLive != nil {
+		group.AllowLive = *input.AllowLive
+	}
 	if input.RequireOAuthOnly != nil {
 		group.RequireOAuthOnly = *input.RequireOAuthOnly
 	}
@@ -803,6 +819,10 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		group.MessagesCompactionInputTokensThreshold = input.MessagesCompactionInputTokensThreshold
 	}
 	sanitizeGroupMessagesDispatchFields(group)
+	if group.Platform != PlatformOpenAI {
+		group.AllowLive = false
+	}
+	sanitizeGroupReasoningEffortPolicy(group)
 
 	if err := s.groupRepo.Update(ctx, group); err != nil {
 		return nil, err
