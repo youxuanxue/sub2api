@@ -11,7 +11,7 @@ import (
 // tkNoAvailableAccountsRetryAfterSeconds is the Retry-After hint (seconds) sent
 // with the empty-pool fast-fail. Short enough that a transient pool gap recovers
 // quickly; long enough that clients back off instead of immediately retrying.
-const tkNoAvailableAccountsRetryAfterSeconds = "5"
+const tkNoAvailableAccountsRetryAfterSeconds = service.NoAvailableAccountsRetryAfterSeconds
 
 // tkNoAvailableAccounts is the gateway response status when a scheduling pool has
 // no schedulable account ("No available accounts"). It deliberately returns 429

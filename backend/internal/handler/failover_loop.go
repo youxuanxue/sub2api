@@ -187,6 +187,9 @@ func (s *FailoverState) HandleFailoverError(
 //     唯一账号，而不是把空池暴露成合成的 429。两者都受 MaxSwitches 约束
 //     （HandleFailoverError 每轮递增 SwitchCount），耗尽后调用方 surface LastFailoverErr。
 //
+// TokenKey 内部 Antigravity relay 的结构化 empty-pool 响应不走这条排除重置：
+// 它是确定的下游容量信号，重试同一 relay 只会在一个客户端请求内重复计数并延迟 429。
+//
 // 返回 FailoverContinue 时，调用方应设置 SingleAccountRetry context 并 continue。
 // 返回 FailoverExhausted 时，调用方应返回错误响应。
 // 返回 FailoverCanceled 时，调用方应直接 return。
@@ -194,8 +197,10 @@ func (s *FailoverState) HandleSelectionExhausted(ctx context.Context, thinPoolEx
 	if ctx != nil && ctx.Err() != nil {
 		return FailoverCanceled
 	}
-	retryable := thinPoolExcluded ||
-		(s.LastFailoverErr != nil && s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable)
+	classifiedCapacity := s.LastFailoverErr != nil &&
+		s.LastFailoverErr.Reason == service.AntigravityRelayCapacityReason
+	retryable := !classifiedCapacity && (thinPoolExcluded ||
+		(s.LastFailoverErr != nil && s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable))
 	if retryable && s.SwitchCount <= s.MaxSwitches {
 		logger.FromContext(ctx).Warn("gateway.failover_single_account_backoff",
 			zap.Bool("thin_pool_excluded", thinPoolExcluded),

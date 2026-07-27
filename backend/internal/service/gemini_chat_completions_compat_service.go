@@ -154,7 +154,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 			return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries: "+safeErr)
 		}
 
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
+		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, req.Model); matched {
 			resp = rebuilt
 			break
 		} else {
@@ -211,18 +211,16 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	if requestID == "" {
 		requestID = resp.Header.Get("x-goog-request-id")
 	}
-	if requestID != "" {
-		c.Header("x-request-id", requestID)
-	}
-
-	reasoningEffort := extractCCReasoningEffortFromBody(originalChatBody)
+	reasoningEffort := ExtractChatCompletionsReasoningEffortFromBody(originalChatBody)
 	// 国产模型默认 effort 补充（本路径上游是 Gemini，不会命中 passback-required）。
 	// 保持与 OpenAI 网关路径调用模式一致，便于未来上游变异时语义一致。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, originalChatBody, mappedModel)
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
-		s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		if !tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
+			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		}
 		evBody := unwrapIfNeeded(account.Type == AccountTypeOAuth, respBody)
 
 		if s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
@@ -236,12 +234,15 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
-			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: evBody}
+			return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, evBody)
 		}
 
 		return nil, s.writeGeminiChatCompletionsMappedError(c, account, resp.StatusCode, requestID, evBody)
 	}
 
+	if requestID != "" {
+		c.Header("x-request-id", requestID)
+	}
 	var usage *ClaudeUsage
 	var firstTokenMs *int
 	if clientStream {

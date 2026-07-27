@@ -18,6 +18,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func geminiCompatAntigravityRelayStub(id int64) *Account {
+	return &Account{
+		ID:          id,
+		Platform:    PlatformAntigravity,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"api_key":   "relay-key",
+			"base_url":  "https://api-us6.tokenkey.dev",
+			"pool_mode": true,
+		},
+	}
+}
+
+func geminiCompatEmptyPoolBody() string {
+	return `{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`
+}
+
+type geminiCompatSaturationCounter struct {
+	modelKeys []string
+}
+
+func (c *geminiCompatSaturationCounter) IncrementSaturation(
+	_ context.Context,
+	_ int64,
+	modelKey string,
+	_ int,
+) (int64, error) {
+	c.modelKeys = append(c.modelKeys, modelKey)
+	return 1, nil
+}
+
+func geminiCompatResponse(statusCode int, requestID, body string) *http.Response {
+	header := http.Header{"Content-Type": []string{"application/json"}}
+	if requestID != "" {
+		header.Set("x-request-id", requestID)
+	}
+	return &http.Response{
+		StatusCode: statusCode,
+		Header:     header,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
 type geminiCompatHTTPUpstreamStub struct {
 	response *http.Response
 	err      error
@@ -40,6 +85,56 @@ func (s *geminiCompatHTTPUpstreamStub) Do(req *http.Request, proxyURL string, ac
 
 func (s *geminiCompatHTTPUpstreamStub) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
 	return s.Do(req, proxyURL, accountID, accountConcurrency)
+}
+
+func TestGeminiForwardAsChatCompletions_FailedAttemptRequestIDDoesNotLeak(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"gemini-3-flash","messages":[{"role":"user","content":"hi"}]}`)
+	account := geminiCompatAntigravityRelayStub(85)
+	account.Credentials["api_key"] = "relay-key"
+
+	for _, tt := range []struct {
+		name      string
+		successID string
+		wantID    string
+	}{
+		{name: "successful attempt replaces failed id", successID: "healthy-id", wantID: "healthy-id"},
+		{name: "successful attempt without id leaves header empty"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+			failedSvc := &GeminiMessagesCompatService{
+				httpUpstream: &geminiCompatHTTPUpstreamStub{response: geminiCompatResponse(
+					http.StatusServiceUnavailable,
+					"failed-relay-id",
+					geminiCompatEmptyPoolBody(),
+				)},
+				cfg: &config.Config{},
+			}
+			failedResult, err := failedSvc.ForwardAsChatCompletions(context.Background(), c, account, body)
+			require.Nil(t, failedResult)
+			var failoverErr *UpstreamFailoverError
+			require.ErrorAs(t, err, &failoverErr)
+			require.Empty(t, c.Writer.Header().Get("x-request-id"))
+
+			healthySvc := &GeminiMessagesCompatService{
+				httpUpstream: &geminiCompatHTTPUpstreamStub{response: geminiCompatResponse(
+					http.StatusOK,
+					tt.successID,
+					`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1}}`,
+				)},
+				cfg: &config.Config{},
+			}
+			result, err := healthySvc.ForwardAsChatCompletions(context.Background(), c, account, body)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, tt.wantID, c.Writer.Header().Get("x-request-id"))
+			require.NotEqual(t, "failed-relay-id", c.Writer.Header().Get("x-request-id"))
+		})
+	}
 }
 
 func TestGeminiForwardAsChatCompletions_OAuthRoutesToGeminiAndReturnsChatFormat(t *testing.T) {
@@ -396,6 +491,47 @@ func TestGeminiHandleNativeNonStreamingResponse_DebugDisabledDoesNotEmitHeaderLo
 	require.NoError(t, err)
 	require.NotNil(t, usage)
 	require.False(t, logSink.ContainsMessage("[GeminiAPI]"), "debug 关闭时不应输出 Gemini 响应头日志")
+}
+
+func TestGeminiMessagesCompatServiceForward_GroupDispatchCapacityUsesFinalMappedModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Set(TKGeminiDispatchGroupContextKey, &Group{
+		Platform: PlatformGemini,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			SonnetMappedModel: "gemini-3-flash",
+		},
+	})
+
+	counter := &geminiCompatSaturationCounter{}
+	rateLimitSvc := NewRateLimitService(nil, nil, &config.Config{}, nil, nil)
+	rateLimitSvc.SetAntigravitySaturationCounter(counter)
+	httpStub := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusServiceUnavailable,
+		Header:     http.Header{"x-request-id": []string{"relay-capacity"}},
+		Body:       io.NopCloser(strings.NewReader(geminiCompatEmptyPoolBody())),
+	}}
+	svc := &GeminiMessagesCompatService{
+		httpUpstream:     httpStub,
+		rateLimitService: rateLimitSvc,
+		cfg:              &config.Config{},
+	}
+	account := geminiCompatAntigravityRelayStub(85)
+	account.Credentials["model_mapping"] = map[string]any{
+		"gemini-3-flash": "gemini-3-flash-tiered",
+	}
+	body := []byte(`{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`)
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusTooManyRequests, failoverErr.ClientStatusCode)
+	require.Equal(t, []string{"gemini-3-flash-tiered"}, counter.modelKeys)
+	require.Equal(t, 1, httpStub.calls, "classified capacity must stop same-relay retries")
+	require.Contains(t, httpStub.lastReq.URL.String(), "/models/gemini-3-flash:")
 }
 
 func TestGeminiMessagesCompatServiceForward_PreservesRequestedModelAndMappedUpstreamModel(t *testing.T) {

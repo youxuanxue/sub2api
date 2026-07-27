@@ -1389,6 +1389,15 @@ func OpenAIBodyHasThinkingEnabled(body []byte) bool {
 	return thinkingType == "enabled" || thinkingType == "adaptive"
 }
 
+// OpenAIReasoningEnablesThinking mirrors the OpenAI compatibility conversion:
+// low effort configures output effort without enabling an Anthropic thinking block.
+func OpenAIReasoningEnablesThinking(effort *string, body []byte) bool {
+	if effort != nil {
+		return *effort != "low"
+	}
+	return OpenAIBodyHasThinkingEnabled(body)
+}
+
 // ApplyThinkingEnabledFallback 补丁已解析出的 effort，仅在 effort 为 nil 且
 // 检测到 body 里 thinking 启用 + mappedModel 属于国产 passback-required 上游时，
 // 返回 DefaultEffortForThinkingEnabled 的默认值（"high"）。不覆盖已解析出的值。

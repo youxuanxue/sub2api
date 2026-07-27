@@ -831,6 +831,24 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		require.Less(t, elapsed, 5*time.Second)
 	})
 
+	t.Run("classified relay capacity不重置失败列表", func(t *testing.T) {
+		fs := NewFailoverState(3, false)
+		fs.LastFailoverErr = &service.UpstreamFailoverError{
+			StatusCode: http.StatusServiceUnavailable,
+			Reason:     service.AntigravityRelayCapacityReason,
+		}
+		fs.FailedAccountIDs[85] = struct{}{}
+		fs.SwitchCount = 1
+
+		start := time.Now()
+		action := fs.HandleSelectionExhausted(context.Background(), true)
+		elapsed := time.Since(start)
+
+		require.Equal(t, FailoverExhausted, action)
+		require.Contains(t, fs.FailedAccountIDs, int64(85))
+		require.Less(t, elapsed, 100*time.Millisecond, "确定的 relay 空池不应退避后重试同一账号")
+	})
+
 	t.Run("503但SwitchCount已超过MaxSwitches_返回Exhausted", func(t *testing.T) {
 		fs := NewFailoverState(2, false)
 		fs.LastFailoverErr = newTestFailoverErr(503, false, false)

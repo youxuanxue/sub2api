@@ -4,11 +4,51 @@ package handler
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestHandleGeminiFailoverExhaustedUsesCapacityClientMetadata(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+
+	(&GatewayHandler{}).handleGeminiFailoverExhausted(c, &service.UpstreamFailoverError{
+		StatusCode:       http.StatusServiceUnavailable,
+		ClientStatusCode: http.StatusTooManyRequests,
+		ClientMessage:    service.AntigravityRelayCapacityClientMessage,
+		ResponseHeaders: http.Header{
+			"Retry-After": []string{service.NoAvailableAccountsRetryAfterSeconds},
+		},
+	})
+
+	require.Equal(t, http.StatusTooManyRequests, recorder.Code)
+	require.Equal(t, service.NoAvailableAccountsRetryAfterSeconds, recorder.Header().Get("Retry-After"))
+	require.JSONEq(t, `{
+		"error": {
+			"code": 429,
+			"message": "No available accounts",
+			"status": "RESOURCE_EXHAUSTED"
+		}
+	}`, recorder.Body.String())
+}
+
+func TestHandleGeminiFailoverExhaustedPreservesUnclassifiedProvider503Mapping(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+
+	(&GatewayHandler{}).handleGeminiFailoverExhausted(c, &service.UpstreamFailoverError{
+		StatusCode: http.StatusServiceUnavailable,
+	})
+
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	require.Empty(t, recorder.Header().Get("Retry-After"))
+}
 
 // TestGeminiV1BetaHandler_PlatformRoutingInvariant 文档化并验证 Handler 层的平台路由逻辑不变量
 // 该测试确保 gemini 和 antigravity 平台的路由逻辑符合预期

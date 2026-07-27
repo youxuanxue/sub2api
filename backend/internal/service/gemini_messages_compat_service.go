@@ -906,7 +906,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
+		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, req.Model); matched {
 			resp = rebuilt
 			break
 		} else {
@@ -974,8 +974,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
-		// 统一错误策略：自定义错误码 + 临时不可调度
-		if s.rateLimitService != nil {
+		// 统一错误策略：自定义错误码 + 临时不可调度。内部 Antigravity
+		// relay 空池已在重试循环内分类并计数，不能再落入 pool_mode skipped。
+		if s.rateLimitService != nil &&
+			!tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
 			switch s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody) {
 			case ErrorPolicySkipped:
 				upstreamReqID := resp.Header.Get(requestIDHeader)
@@ -1009,12 +1011,14 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 					Message:            upstreamMsg,
 					Detail:             upstreamDetail,
 				})
-				return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody}
+				return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, respBody)
 			}
 		}
 
 		// ErrorPolicyNone → 原有逻辑
-		s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		if !tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
+			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		}
 		// 精确匹配服务端配置类 400 错误，触发 failover + 临时封禁
 		if resp.StatusCode == http.StatusBadRequest {
 			msg400 := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
@@ -1071,7 +1075,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				Message:            upstreamMsg,
 				Detail:             upstreamDetail,
 			})
-			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody}
+			return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, respBody)
 		}
 		upstreamReqID := resp.Header.Get(requestIDHeader)
 		if upstreamReqID == "" {
@@ -1388,7 +1392,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
+		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, originalModel); matched {
 			resp = rebuilt
 			break
 		} else {
@@ -1495,8 +1499,10 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			}, nil
 		}
 
-		// 统一错误策略：自定义错误码 + 临时不可调度
-		if s.rateLimitService != nil {
+		// 统一错误策略：自定义错误码 + 临时不可调度。内部 Antigravity
+		// relay 空池已在重试循环内分类并计数，不能再落入 pool_mode skipped。
+		if s.rateLimitService != nil &&
+			!tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
 			switch s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody) {
 			case ErrorPolicySkipped:
 				respBody = unwrapIfNeeded(isOAuth, respBody)
@@ -1530,12 +1536,14 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 					Message:            upstreamMsg,
 					Detail:             upstreamDetail,
 				})
-				return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody}
+				return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, respBody)
 			}
 		}
 
 		// ErrorPolicyNone → 原有逻辑
-		s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		if !tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
+			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		}
 		// 精确匹配服务端配置类 400 错误，触发 failover + 临时封禁
 		if resp.StatusCode == http.StatusBadRequest {
 			msg400 := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
@@ -1586,7 +1594,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				Message:            upstreamMsg,
 				Detail:             upstreamDetail,
 			})
-			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: evBody}
+			return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, evBody)
 		}
 
 		respBody = unwrapIfNeeded(isOAuth, respBody)
@@ -1686,9 +1694,12 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 // 返回 true 表示策略已匹配（调用者应 break），resp 已重建可直接使用。
 // 返回 false 表示 ErrorPolicyNone，resp 已重建，调用者继续走重试逻辑。
 func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
-	ctx context.Context, account *Account, resp *http.Response,
+	ctx context.Context,
+	account *Account,
+	resp *http.Response,
+	requestedModel string,
 ) (matched bool, rebuilt *http.Response) {
-	if resp.StatusCode < 400 || s.rateLimitService == nil {
+	if resp.StatusCode < 400 {
 		return false, resp
 	}
 	body := s.readUpstreamErrorBody(resp)
@@ -1697,6 +1708,22 @@ func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
 		StatusCode: resp.StatusCode,
 		Header:     resp.Header.Clone(),
 		Body:       io.NopCloser(bytes.NewReader(body)),
+	}
+	if strings.TrimSpace(requestedModel) != "" &&
+		tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, body) {
+		if s.rateLimitService != nil {
+			s.rateLimitService.handleAntigravityRelayCapacity(
+				ctx,
+				account,
+				resp.StatusCode,
+				body,
+				requestedModel,
+			)
+		}
+		return true, rebuilt
+	}
+	if s.rateLimitService == nil {
+		return false, rebuilt
 	}
 	policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, body)
 	return policy != ErrorPolicyNone, rebuilt

@@ -24,25 +24,25 @@ func TestExtractCCReasoningEffortFromBody(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nested reasoning.effort", func(t *testing.T) {
-		got := extractCCReasoningEffortFromBody([]byte(`{"reasoning":{"effort":"HIGH"}}`))
+		got := ExtractChatCompletionsReasoningEffortFromBody([]byte(`{"reasoning":{"effort":"HIGH"}}`))
 		require.NotNil(t, got)
 		require.Equal(t, "high", *got)
 	})
 
 	t.Run("flat reasoning_effort", func(t *testing.T) {
-		got := extractCCReasoningEffortFromBody([]byte(`{"reasoning_effort":"x-high"}`))
+		got := ExtractChatCompletionsReasoningEffortFromBody([]byte(`{"reasoning_effort":"x-high"}`))
 		require.NotNil(t, got)
 		require.Equal(t, "xhigh", *got)
 	})
 
 	t.Run("DeepSeek max", func(t *testing.T) {
-		got := extractCCReasoningEffortFromBody([]byte(`{"reasoning_effort":"Max"}`))
+		got := ExtractChatCompletionsReasoningEffortFromBody([]byte(`{"reasoning_effort":"Max"}`))
 		require.NotNil(t, got)
 		require.Equal(t, "xhigh", *got)
 	})
 
 	t.Run("missing effort", func(t *testing.T) {
-		require.Nil(t, extractCCReasoningEffortFromBody([]byte(`{"model":"gpt-5"}`)))
+		require.Nil(t, ExtractChatCompletionsReasoningEffortFromBody([]byte(`{"model":"gpt-5"}`)))
 	})
 }
 

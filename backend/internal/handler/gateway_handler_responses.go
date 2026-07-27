@@ -175,6 +175,14 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	if parsedReq == nil {
 		parsedReq = &service.ParsedRequest{Model: reqModel, Stream: reqStream, Body: bodyRef}
 	}
+	reasoningEffort := service.ExtractResponsesReasoningEffortFromBody(body)
+	if service.OpenAIReasoningEnablesThinking(reasoningEffort, body) {
+		parsedReq.ThinkingEnabled = true
+	}
+	requestCtx = service.WithThinkingEnabled(
+		requestCtx, parsedReq.ThinkingEnabled, h.metadataBridgeEnabled(),
+	)
+	c.Request = c.Request.WithContext(requestCtx)
 	TkPrepareParsedRequestSessionInputs(c, apiKey, parsedReq)
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
 	groupPlatform := ""
@@ -208,15 +216,6 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)
 				h.responsesErrorResponse(c, tkStatus, tkType, tkMsg)
-				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, effectiveAPIKeyPlatform(c, apiKey))
-				if !cls.ModelNotFound {
-					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				}
-				message := cls.Message
-				if !cls.ModelNotFound {
-					message = "No available accounts: " + err.Error()
-				}
-				h.responsesErrorResponse(c, cls.Status, cls.ErrType, message)
 				return
 			}
 			action := fs.HandleSelectionExhausted(requestCtx, errors.Is(err, service.ErrThinPoolAllExcluded))
@@ -408,6 +407,12 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage())
 		return
 	}
-	h.responsesErrorResponse(c, statusCode, "server_error",
-		service.GatewayFailoverClientMessage(statusCode))
+	message := service.GatewayFailoverClientMessage(statusCode)
+	if lastErr != nil && lastErr.ClientStatusCode > 0 {
+		statusCode = lastErr.ClientStatusCode
+		if lastErr.ClientMessage != "" {
+			message = lastErr.ClientMessage
+		}
+	}
+	h.responsesErrorResponse(c, statusCode, "server_error", message)
 }

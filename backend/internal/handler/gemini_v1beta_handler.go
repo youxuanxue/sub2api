@@ -62,7 +62,8 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 			return
 		}
 		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-		googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
+		status, _, message := tkSelectFailureStatusMessage(c, err, "")
+		googleError(c, status, message)
 		return
 	}
 
@@ -119,7 +120,8 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 			return
 		}
 		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-		googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
+		status, _, message := tkSelectFailureStatusMessage(c, err, modelName)
+		googleError(c, status, message)
 		return
 	}
 
@@ -416,7 +418,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
 				markOpsRoutingCapacityLimited(c)
-				googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts")
+				googleError(c, tkNoAvailableAccounts(c), "No available accounts")
 				return
 			}
 			accountWaitCounted := false
@@ -618,6 +620,16 @@ func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverE
 
 	statusCode := failoverErr.StatusCode
 	responseBody := failoverErr.ResponseBody
+	if failoverErr.ClientStatusCode > 0 {
+		copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)
+		message := failoverErr.ClientMessage
+		if message == "" {
+			message = service.GatewayFailoverClientMessage(statusCode)
+		}
+		service.SetOpsUpstreamError(c, statusCode, service.ExtractUpstreamErrorMessage(responseBody), "")
+		googleError(c, failoverErr.ClientStatusCode, message)
+		return
+	}
 
 	// 先检查透传规则
 	if h.errorPassthroughService != nil && len(responseBody) > 0 {

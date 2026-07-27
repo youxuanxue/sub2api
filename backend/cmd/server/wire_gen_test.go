@@ -89,20 +89,21 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		openAIOAuthSvc,
 		geminiOAuthSvc,
 		antigravityOAuthSvc,
-		nil, // grokOAuth
-		nil, // openAIGateway
-		nil, // scheduledTestRunner
-		nil, // backupSvc
-		nil, // paymentOrderExpiry
-		nil, // channelMonitorRunner
-		nil, // accountIncidentNotifier
-		nil, // pricingMissingNotifier
+		nil,                                   // grokOAuth
+		nil,                                   // openAIGateway
+		nil,                                   // scheduledTestRunner
+		nil,                                   // backupSvc
+		nil,                                   // paymentOrderExpiry
+		nil,                                   // channelMonitorRunner
+		nil,                                   // accountIncidentNotifier
+		nil,                                   // pricingMissingNotifier
 		service.TKAuthServiceColdStartReady{}, // TK: forces SetTrialKeyIssuer wiring
 		service.TKGatewayPricingAvailabilityReady{}, // TK: forces SetPricingAvailabilityService wiring
 		service.TKPricingOverlayRuntimeReady{},      // TK: forces runtime overlay (settings hot-push) wiring
 		service.TKGatewayAnthropicSigPreemptReady{}, // TK: forces SetAnthropicSigPreemptCache wiring
 		service.TKAnthropicSaturationReady{},        // TK: forces SetAnthropicSaturationCounter wiring
 		service.TKOpenAISaturationReady{},           // TK: forces SetOpenAISaturationCounter wiring
+		service.TKAntigravitySaturationReady{},      // TK: forces SetAntigravitySaturationCounter wiring
 		handler.TKGatewayHandlerModelListReady{},    // TK: forces SetModelListFilter wiring
 		service.TKUniversalModelsProviderReady{},    // TK: forces universal-key models-provider wiring
 		service.TKGroupUnsupportedModelCacheReady{}, // TK: forces group unsupported negative cache wiring

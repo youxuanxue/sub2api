@@ -137,7 +137,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 			return nil, s.writeResponsesCompatError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries: "+safeErr)
 		}
 
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
+		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, req.Model); matched {
 			resp = rebuilt
 			break
 		} else {
@@ -194,16 +194,14 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 	if requestID == "" {
 		requestID = resp.Header.Get("x-goog-request-id")
 	}
-	if requestID != "" {
-		c.Header("x-request-id", requestID)
-	}
-
 	reasoningEffort := ExtractResponsesReasoningEffortFromBody(originalResponsesBody)
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, originalResponsesBody, mappedModel)
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
-		s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		if !tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
+			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		}
 		evBody := unwrapIfNeeded(account.Type == AccountTypeOAuth, respBody)
 
 		if s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
@@ -217,12 +215,15 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
-			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: evBody}
+			return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, evBody)
 		}
 
 		return nil, s.writeGeminiResponsesMappedError(c, account, resp.StatusCode, requestID, evBody)
 	}
 
+	if requestID != "" {
+		c.Header("x-request-id", requestID)
+	}
 	var usage *ClaudeUsage
 	var firstTokenMs *int
 	if clientStream {

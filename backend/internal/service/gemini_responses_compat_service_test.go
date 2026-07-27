@@ -16,6 +16,56 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGeminiForwardAsResponses_FailedAttemptRequestIDDoesNotLeak(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"gemini-3-flash","input":"hi"}`)
+	account := geminiCompatAntigravityRelayStub(85)
+	account.Credentials["api_key"] = "relay-key"
+
+	for _, tt := range []struct {
+		name      string
+		successID string
+		wantID    string
+	}{
+		{name: "successful attempt replaces failed id", successID: "healthy-id", wantID: "healthy-id"},
+		{name: "successful attempt without id leaves header empty"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+			failedSvc := &GeminiMessagesCompatService{
+				httpUpstream: &geminiCompatHTTPUpstreamStub{response: geminiCompatResponse(
+					http.StatusServiceUnavailable,
+					"failed-relay-id",
+					geminiCompatEmptyPoolBody(),
+				)},
+				cfg: &config.Config{},
+			}
+			failedResult, err := failedSvc.ForwardAsResponses(context.Background(), c, account, body)
+			require.Nil(t, failedResult)
+			var failoverErr *UpstreamFailoverError
+			require.ErrorAs(t, err, &failoverErr)
+			require.Empty(t, c.Writer.Header().Get("x-request-id"))
+
+			healthySvc := &GeminiMessagesCompatService{
+				httpUpstream: &geminiCompatHTTPUpstreamStub{response: geminiCompatResponse(
+					http.StatusOK,
+					tt.successID,
+					`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1}}`,
+				)},
+				cfg: &config.Config{},
+			}
+			result, err := healthySvc.ForwardAsResponses(context.Background(), c, account, body)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, tt.wantID, c.Writer.Header().Get("x-request-id"))
+			require.NotEqual(t, "failed-relay-id", c.Writer.Header().Get("x-request-id"))
+		})
+	}
+}
+
 func TestGeminiForwardAsResponses_GeminiNonStreamReturnsResponsesJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

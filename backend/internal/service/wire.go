@@ -937,6 +937,7 @@ var ProviderSet = wire.NewSet(
 	// forces evaluation.
 	ProvideTKAnthropicSaturation,
 	ProvideTKOpenAISaturation,
+	ProvideTKAntigravitySaturation,
 	// TokenKey: account-incident → Feishu notifier. Builds the notifier, starts
 	// its digest ticker, and wires it onto RateLimitService post-construction.
 	// Returns the instance so provideCleanup (cmd/server/wire.go) can Stop() the

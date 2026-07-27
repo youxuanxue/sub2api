@@ -155,6 +155,13 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	if parsedReq == nil {
 		parsedReq = &service.ParsedRequest{Model: reqModel, Stream: reqStream, Body: bodyRef}
 	}
+	reasoningEffort := service.ExtractChatCompletionsReasoningEffortFromBody(body)
+	if service.OpenAIReasoningEnablesThinking(reasoningEffort, body) {
+		parsedReq.ThinkingEnabled = true
+	}
+	c.Request = c.Request.WithContext(service.WithThinkingEnabled(
+		c.Request.Context(), parsedReq.ThinkingEnabled, h.metadataBridgeEnabled(),
+	))
 	TkPrepareParsedRequestSessionInputs(c, apiKey, parsedReq)
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
 	groupPlatform := effectiveAPIKeyPlatform(c, apiKey)
@@ -375,6 +382,12 @@ func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *serv
 		h.chatCompletionsErrorResponse(c, http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage())
 		return
 	}
-	h.chatCompletionsErrorResponse(c, statusCode, "server_error",
-		service.GatewayFailoverClientMessage(statusCode))
+	message := service.GatewayFailoverClientMessage(statusCode)
+	if lastErr != nil && lastErr.ClientStatusCode > 0 {
+		statusCode = lastErr.ClientStatusCode
+		if lastErr.ClientMessage != "" {
+			message = lastErr.ClientMessage
+		}
+	}
+	h.chatCompletionsErrorResponse(c, statusCode, "server_error", message)
 }

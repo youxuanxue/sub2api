@@ -1,16 +1,36 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type staticErrorPassthroughRepo struct {
+	rules []*model.ErrorPassthroughRule
+}
+
+func (r *staticErrorPassthroughRepo) List(context.Context) ([]*model.ErrorPassthroughRule, error) {
+	return r.rules, nil
+}
+func (r *staticErrorPassthroughRepo) GetByID(context.Context, int64) (*model.ErrorPassthroughRule, error) {
+	return nil, nil
+}
+func (r *staticErrorPassthroughRepo) Create(context.Context, *model.ErrorPassthroughRule) (*model.ErrorPassthroughRule, error) {
+	return nil, nil
+}
+func (r *staticErrorPassthroughRepo) Update(context.Context, *model.ErrorPassthroughRule) (*model.ErrorPassthroughRule, error) {
+	return nil, nil
+}
+func (r *staticErrorPassthroughRepo) Delete(context.Context, int64) error { return nil }
 
 // partialMessageStartSSE 模拟 handleStreamingResponse 已写入的首批 SSE 事件。
 const partialMessageStartSSE = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_01\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-4-5\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n" +
@@ -66,6 +86,42 @@ func TestStreamWrittenGuard_MessagesPath_AbortFailoverOnSSEContentWritten(t *tes
 	lastIdx := strings.LastIndex(body, "event: message_start")
 	assert.Equal(t, firstIdx, lastIdx,
 		"响应体中 'event: message_start' 必须只出现一次，不得因 failover 拼接导致两次")
+}
+
+func TestHandleFailoverExhausted_ClassifiedRelayCapacityUsesClientContract(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	responseCode := http.StatusBadGateway
+	customMessage := "passthrough override"
+	passthrough := service.NewErrorPassthroughService(
+		&staticErrorPassthroughRepo{rules: []*model.ErrorPassthroughRule{{
+			Enabled:         true,
+			Priority:        1,
+			ErrorCodes:      []int{http.StatusServiceUnavailable},
+			Keywords:        []string{"No available accounts"},
+			MatchMode:       model.MatchModeAll,
+			Platforms:       []string{service.PlatformAntigravity},
+			ResponseCode:    &responseCode,
+			CustomMessage:   &customMessage,
+			PassthroughCode: false,
+			PassthroughBody: false,
+		}}}, nil)
+	h := &GatewayHandler{errorPassthroughService: passthrough}
+	h.handleFailoverExhausted(c, &service.UpstreamFailoverError{
+		StatusCode:       http.StatusServiceUnavailable,
+		ResponseBody:     []byte(`{"type":"error","error":{"message":"No available accounts"}}`),
+		ResponseHeaders:  http.Header{"Retry-After": []string{"5"}},
+		ClientStatusCode: http.StatusTooManyRequests,
+		ClientMessage:    service.AntigravityRelayCapacityClientMessage,
+	}, service.PlatformAntigravity, false)
+
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.Equal(t, "5", w.Header().Get("Retry-After"))
+	require.Contains(t, w.Body.String(), service.AntigravityRelayCapacityClientMessage)
+	require.NotContains(t, w.Body.String(), "passthrough override")
 }
 
 // TestStreamWrittenGuard_GeminiPath_AbortFailoverOnSSEContentWritten 与上述测试相同，

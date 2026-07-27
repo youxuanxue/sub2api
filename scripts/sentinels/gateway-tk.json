@@ -5326,6 +5326,145 @@
         "TestForwardAsChatCompletions_ResponseFailed_NoRule_ContextWindowReturns400"
       ],
       "rationale": "PR #1461 regression: without an admin passthrough rule, context_length_exceeded response.failed on buffered chat/completions must return HTTP 400 invalid_request_error, not 502."
+    },
+    {
+      "path": "backend/internal/service/gateway_antigravity_relay_capacity_tk.go",
+      "must_contain": [
+        "func tkIsAntigravityRelayCapacityResponse(",
+        "isEdgeMirrorStub(account, edgeIDPattern)",
+        "resolveFinalAntigravityModelKey(ctx, account, requestedModel)",
+        "ClientStatusCode:  http.StatusTooManyRequests",
+        "ResponseHeaders:   responseHeaders"
+      ],
+      "rationale": "Narrow owner for cross-edge Antigravity capacity semantics. Only internal Antigravity API-key relays carrying TokenKey's no-available-accounts envelope may become client 429; raw upstream status/body and safe Retry-After remain available for diagnostics. Losing or broadening these anchors either restores terminal 503s or misclassifies arbitrary provider faults."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_antigravity_relay_capacity.go",
+      "must_contain": [
+        "saturationCount < edgeMirrorStubSaturationThreshold",
+        "s.accountRepo.SetModelRateLimit(",
+        "edgeMirrorStubSaturationWindowSeconds"
+      ],
+      "rationale": "Bounded route-away owner for internal Antigravity relay saturation. Three hits in the fixed 90-second window cool only the resolved final model; this module must not regress to account-wide penalties or a family-wide Antigravity key."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "s.checkErrorPolicyInLoop(ctx, account, resp, req.Model)",
+        "tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, body)",
+        "s.rateLimitService.handleAntigravityRelayCapacity("
+      ],
+      "rationale": "Load-bearing Gemini compatibility hook: classify internal relay empty-pool responses inside the same-account retry loop, count the post-dispatch model once, and break to normal account failover before pool_mode can swallow the signal."
+    },
+    {
+      "path": "backend/internal/handler/failover_loop.go",
+      "must_contain": [
+        "s.LastFailoverErr.Reason == service.AntigravityRelayCapacityReason",
+        "retryable := !classifiedCapacity"
+      ],
+      "rationale": "A classified internal relay empty-pool response must preserve request-local exclusions at terminal selection exhaustion; clearing them retries the same relay and can manufacture the three-hit cooldown inside one client request."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "failoverErr.ClientStatusCode > 0",
+        "failoverErr.ResponseHeaders.Get(\"Retry-After\")",
+        "failoverErr.ClientMessage"
+      ],
+      "rationale": "Native Messages terminal failover must honor the same structured capacity 429 and safe Retry-After contract as the OpenAI and Gemini ingress surfaces."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_chat_completions.go",
+      "must_contain": [
+        "lastErr.ClientStatusCode > 0",
+        "statusCode = lastErr.ClientStatusCode",
+        "message = lastErr.ClientMessage"
+      ],
+      "rationale": "Chat Completions terminal failover must honor structured client metadata for narrow capacity responses while preserving existing raw-status behavior for unclassified provider faults."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_responses.go",
+      "must_contain": [
+        "lastErr.ClientStatusCode > 0",
+        "statusCode = lastErr.ClientStatusCode",
+        "message = lastErr.ClientMessage"
+      ],
+      "rationale": "Responses terminal failover must honor structured client metadata for narrow capacity responses while preserving existing raw-status behavior for unclassified provider faults."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler.go",
+      "must_contain": [
+        "failoverErr.ClientStatusCode > 0",
+        "copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)",
+        "googleError(c, failoverErr.ClientStatusCode, message)"
+      ],
+      "rationale": "Native Gemini terminal failover must emit the Google 429 envelope and safe Retry-After for classified relay capacity before generic provider-status mapping."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_antigravity_relay_capacity_test.go",
+      "must_contain": [
+        "TestAntigravityRelayCapacityClassifier_IsNarrow",
+        "TestGeminiErrorPolicyInLoop_AntigravityRelayCapacityStopsSameAccountRetry",
+        "TestGeminiErrorPolicyInLoop_PostDispatchModelUsesAccountMapping",
+        "TestAntigravityRelayCapacity_SaturationThresholdIsPerExactModel",
+        "TestAntigravityRelayCapacity_UsesPostDispatchAndThinkingFinalModel",
+        "TestAntigravityRelayCapacity_ThresholdWritesExactModelOnly"
+      ],
+      "rationale": "Focused regression coverage pins the narrow response classifier, early Gemini retry-loop exit, post-dispatch/thinking final-model resolution, and exact cooldown without account-wide writes."
+    },
+    {
+      "path": "backend/internal/handler/failover_loop_test.go",
+      "must_contain": [
+        "classified relay capacity不重置失败列表"
+      ],
+      "rationale": "Focused failover regression pins one-attempt-per-relay behavior for recognized downstream empty-pool capacity."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_stream_failover_test.go",
+      "must_contain": [
+        "TestHandleFailoverExhausted_ClassifiedRelayCapacityUsesClientContract",
+        "passthrough override"
+      ],
+      "rationale": "Native Messages regression pins classified terminal 429 plus Retry-After behavior and proves generic passthrough rules cannot override that structured client contract."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service_test.go",
+      "must_contain": [
+        "TestGeminiMessagesCompatServiceForward_GroupDispatchCapacityUsesFinalMappedModel",
+        "TestGeminiForwardAsChatCompletions_FailedAttemptRequestIDDoesNotLeak"
+      ],
+      "rationale": "Production-shape regressions pin Claude-to-Gemini group dispatch plus account mapping for the exact capacity key, and prevent recovered Chat Completions failover from exposing an intermediate relay request ID."
+    },
+    {
+      "path": "backend/internal/service/gemini_responses_compat_service_test.go",
+      "must_contain": [
+        "TestGeminiForwardAsResponses_FailedAttemptRequestIDDoesNotLeak"
+      ],
+      "rationale": "Recovered Responses failover must expose only the healthy attempt request ID, or no ID when the healthy attempt has none."
+    },
+    {
+      "path": "backend/internal/service/gateway_request.go",
+      "must_contain": [
+        "func OpenAIReasoningEnablesThinking(",
+        "return *effort != \"low\""
+      ],
+      "rationale": "Pre-scheduling Antigravity model selection must mirror the OpenAI-to-Anthropic converter: low configures output effort without selecting the -thinking model, while medium and above select it."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_failover_message_test.go",
+      "must_contain": [
+        "TestFailoverExhaustedUsesCapacityClientMetadata",
+        "TestFailoverExhaustedPreservesUnclassifiedProvider503"
+      ],
+      "rationale": "Both OpenAI-compatible terminal surfaces must return classified capacity as 429 with Retry-After while leaving unrelated provider 503 behavior unchanged."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler_test.go",
+      "must_contain": [
+        "TestHandleGeminiFailoverExhaustedUsesCapacityClientMetadata",
+        "TestHandleGeminiFailoverExhaustedPreservesUnclassifiedProvider503Mapping"
+      ],
+      "rationale": "Native Gemini regressions pin the classified Google 429 envelope and the unchanged generic mapping for arbitrary provider 503 responses."
     }
   ]
 }

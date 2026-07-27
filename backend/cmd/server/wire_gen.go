@@ -366,12 +366,14 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	tkAnthropicSaturationReady := service.ProvideTKAnthropicSaturation(gatewayService, rateLimitService, anthropicSaturationCounterCache)
 	openAISaturationCounterCache := repository.NewOpenAISaturationCounterCache(redisClient)
 	tkOpenAISaturationReady := service.ProvideTKOpenAISaturation(openAIGatewayService, rateLimitService, openAISaturationCounterCache)
+	antigravitySaturationCounterCache := repository.NewAntigravitySaturationCounterCache(redisClient)
+	tkAntigravitySaturationReady := service.ProvideTKAntigravitySaturation(rateLimitService, antigravitySaturationCounterCache)
 	modelListFilter := service.NewModelListFilter(pricingCatalogService, pricingAvailabilityService)
 	tkGatewayHandlerModelListReady := handler.ProvideTKGatewayHandlerModelList(gatewayHandler, modelListFilter)
 	tkUniversalModelsProviderReady := service.ProvideTKUniversalModelsProvider(apiKeyService, gatewayService)
 	tkGroupUnsupportedModelCacheReady := service.ProvideTKGroupUnsupportedModelCache(gatewayService, openAIGatewayService, channelService)
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, schedulerRateLimitReaper, anthropicConfigReconciler, upstreamBalanceSentinel, tokenRefreshService, accountExpiryService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, holdReconcilerService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, tkAccountIncidentNotifier, tkPricingMissingNotifier, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkPricingOverlayRuntimeReady, tkGatewayAnthropicSigPreemptReady, tkAnthropicSaturationReady, tkOpenAISaturationReady, tkGatewayHandlerModelListReady, tkUniversalModelsProviderReady, tkGroupUnsupportedModelCacheReady, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, auditLogService, promptService)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, schedulerRateLimitReaper, anthropicConfigReconciler, upstreamBalanceSentinel, tokenRefreshService, accountExpiryService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, holdReconcilerService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, tkAccountIncidentNotifier, tkPricingMissingNotifier, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkPricingOverlayRuntimeReady, tkGatewayAnthropicSigPreemptReady, tkAnthropicSaturationReady, tkOpenAISaturationReady, tkAntigravitySaturationReady, tkGatewayHandlerModelListReady, tkUniversalModelsProviderReady, tkGroupUnsupportedModelCacheReady, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, auditLogService, promptService)
 	application := &Application{
 		Server:      httpServer,
 		PromptAudit: promptService,
@@ -460,6 +462,8 @@ func provideCleanup(
 	_ service.TKAnthropicSaturationReady,
 
 	_ service.TKOpenAISaturationReady,
+
+	_ service.TKAntigravitySaturationReady,
 
 	_ handler.TKGatewayHandlerModelListReady,
 
