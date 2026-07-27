@@ -229,7 +229,8 @@ python3 ops/pricing/modelops.py activate \
 ```
 
 它只为 current→target 新增/retarget 的 required mappings 接受独立 evidence；两份 evidence
-必须绑定 current/target floor digest、24 小时内生成，probe 每行还必须有真实 `account_id`。
+必须绑定 current/target floor digest、24 小时内生成；probe 每行还必须有真实 `account_id`，
+以及由目标账号元数据派生的 `account_platform` / `account_scope`，后者须精确匹配 bundle scope。
 probe/pricing 的 `source` 必须不同；prod 存在
 `tk_account_model_mapping_runtime` 也会在写前 fail closed，避免 runtime scope shadow evidence
 覆盖的 immutable bundle（先 fold-in 或 clear-runtime）。首次 gate 解析出的 prod instance 会固定给

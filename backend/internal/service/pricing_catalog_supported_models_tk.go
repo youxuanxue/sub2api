@@ -6,9 +6,11 @@ import (
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 )
 
-// TokenKey: the empirically-servable claude + gpt model sets, shared by the
-// public /pricing catalog (isPublicCatalogModelSupported) and the per-user
-// "Your Menu" unrestricted-account fallback (supportedCatalogModelIDsForPlatform).
+// TokenKey: the empirically-servable native-platform model sets. Native account
+// mapping and unrestricted-account menu fallbacks consume these platform-local
+// sets through supportedCatalogModelIDsForPlatform. The public Claude catalog
+// additionally projects Kiro-served IDs onto its anthropic vendor surface via
+// supportedClaudeCatalogModels because Kiro mirror stubs live in Claude groups.
 //
 // Problem: both surfaces used to advertise models that TokenKey cannot
 // actually serve — the public catalog rendered the whole litellm mirror (22
@@ -111,6 +113,21 @@ var supportedAnthropicCatalogModels = map[string]struct{}{
 	"claude-sonnet-5":   {},
 	// servable-allowlist:end anthropic
 }
+
+// supportedClaudeCatalogModels is the public Claude surface: native Anthropic
+// models plus models served by Kiro edge accounts through anthropic kiro-us*
+// mirror stubs in prod Claude groups. It is derived from the two serving owners;
+// vendor remains anthropic because the public catalog has no Kiro vendor split.
+var supportedClaudeCatalogModels = func() map[string]struct{} {
+	out := make(map[string]struct{}, len(supportedAnthropicCatalogModels)+len(supportedKiroCatalogModels))
+	for id := range supportedAnthropicCatalogModels {
+		out[id] = struct{}{}
+	}
+	for id := range supportedKiroCatalogModels {
+		out[id] = struct{}{}
+	}
+	return out
+}()
 
 // supportedOpenAICatalogModels — gpt IDs confirmed servable.
 //
@@ -248,7 +265,7 @@ func isPublicCatalogModelSupported(vendor, modelID string) bool {
 	}
 	switch inferPlatformFromVendor(vendor) {
 	case PlatformAnthropic:
-		_, ok := supportedAnthropicCatalogModels[modelID]
+		_, ok := supportedClaudeCatalogModels[modelID]
 		return ok
 	case PlatformOpenAI:
 		_, ok := supportedOpenAICatalogModels[modelID]
@@ -352,7 +369,7 @@ func presentationVendorForServable(modelID, vendor string) string {
 // fallback so that surface advertises the same servable set as the public
 // catalog. The returned slice is freshly built each call (callers may sort).
 //
-// anthropic/openai/gemini/antigravity/grok have curated sets. Antigravity
+// anthropic/openai/gemini/antigravity/kiro/grok have curated sets. Antigravity
 // account-mapped menus still use credentials.model_mapping, but the gateway
 // /antigravity/models and admin selector both consume the curated set through
 // tkServableCandidateIDs/servableIDs, so a probed-but-unpriced id cannot leak
@@ -384,6 +401,8 @@ func supportedCatalogModelIDsForPlatform(platform string) []string {
 			return nil
 		}
 		src = supportedGrokCatalogModels
+	case PlatformKiro:
+		src = supportedKiroCatalogModels
 	default:
 		return nil
 	}

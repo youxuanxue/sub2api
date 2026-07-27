@@ -36,7 +36,10 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 2
-REPO_ROOT = Path(__file__).resolve().parents[2]
+_MODULE_PARENTS = Path(__file__).resolve().parents
+# run-probe uploads helpers directly under /tmp, where parents[2] does not
+# exist. Constants/profile callers can inject their explicit paths there.
+REPO_ROOT = _MODULE_PARENTS[2] if len(_MODULE_PARENTS) > 2 else Path.cwd()
 KIRO_CONSTANTS_GO = REPO_ROOT / "backend/internal/pkg/kiro/constants.go"
 KIRO_TLS_PROFILE_JSON = REPO_ROOT / "deploy/aws/stage0/tk_canonical_kiro_ide.json"
 KIRO_PROFILE_NAME = "tk_canonical_kiro_ide"

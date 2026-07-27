@@ -50,8 +50,9 @@ const KiroDefaultTestModel = "claude-sonnet-4-5"
 // IDs for admin account tests and mapping presets. Dated Anthropic snapshot IDs
 // (e.g. claude-haiku-4-5-20251001) are normalized by the Kiro translator before
 // upstream; this list intentionally exposes the short undated IDs operators should
-// pick in the admin UI. Live probe source: ops/stage0/probe_kiro_claude_models.sh
-// (edge us6 account 2 + prod mirror 66, 2026-07-02).
+// pick in the admin UI. Live probe sources: ops/stage0/probe_kiro_claude_models.sh
+// and the direct runtime probe ops/stage0/probe_kiro_upstream_models.sh. Opus 5
+// returned HTTP 200 on independent us3/us4/us5/us6 OAuth accounts on 2026-07-26.
 func KiroAdminTestModels() []claude.Model {
 	return []claude.Model{
 		{
@@ -102,8 +103,29 @@ func KiroAdminTestModels() []claude.Model {
 			DisplayName: "Claude Opus 4.8",
 			CreatedAt:   "",
 		},
+		{
+			ID:          "claude-opus-5",
+			Type:        "model",
+			DisplayName: "Claude Opus 5",
+			CreatedAt:   "",
+		},
 	}
 }
+
+// supportedKiroCatalogModels is the set projection of KiroAdminTestModels.
+// KiroAdminTestModels remains the owner; routing, account mapping, and the
+// Claude public-catalog projection consume this derived set instead of keeping
+// parallel Kiro model lists.
+var supportedKiroCatalogModels = func() map[string]struct{} {
+	models := KiroAdminTestModels()
+	out := make(map[string]struct{}, len(models))
+	for _, model := range models {
+		if id := strings.TrimSpace(model.ID); id != "" {
+			out[id] = struct{}{}
+		}
+	}
+	return out
+}()
 
 // kiroMirrorStubSupportsModel constrains prod Anthropic API-key mirror stubs
 // that forward to the Kiro platform. They intentionally have empty
@@ -125,10 +147,8 @@ func kiroMirrorStubSupportsModel(requestedModel string) bool {
 		claude.DenormalizeModelID(requestedModel),
 	}
 	for _, candidate := range candidates {
-		for _, m := range KiroAdminTestModels() {
-			if candidate == m.ID {
-				return true
-			}
+		if _, ok := supportedKiroCatalogModels[candidate]; ok {
+			return true
 		}
 	}
 	return false

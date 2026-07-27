@@ -13,8 +13,8 @@ import (
 // (client) error, not a provider rate limit or a transient capacity gap.
 //
 // Prod incident 2026-06-06 (user_id=16): a client sent the bare model name
-// "opus" (instead of the full "claude-opus-4-8"). No account's model_mapping
-// allowlist matched "opus" and there is no opus→claude-opus-4-8 alias
+// "opus" (instead of the full "claude-opus-5"). No account's model_mapping
+// allowlist matched "opus" and there is no opus→claude-opus-5 alias
 // normalization (claude.NormalizeModelID only covers three short names), so the
 // scheduler filtered every candidate as model_unsupported and returned
 // ErrNoAvailableAccounts. On the prod→edge relay topology that surfaced to the

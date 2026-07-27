@@ -161,6 +161,23 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	// Healthy source: one base model + deepseek-v4-flash at a deliberately absurd
 	// price so the fill-only assertion can prove the source wins over the overlay.
 	const fixture = `{
+	  "claude-opus-5": {
+	    "input_cost_per_token": 0.000005,
+	    "output_cost_per_token": 0.000025,
+	    "cache_creation_input_token_cost": 0.00000625,
+	    "cache_read_input_token_cost": 0.0000005,
+	    "litellm_provider": "anthropic",
+	    "mode": "chat",
+	    "max_input_tokens": 1000000,
+	    "max_output_tokens": 128000,
+	    "supports_prompt_caching": true,
+	    "supports_function_calling": true,
+	    "supports_tool_choice": true,
+	    "supports_vision": true,
+	    "supports_pdf_input": true,
+	    "supports_reasoning": true,
+	    "supports_response_schema": true
+	  },
 	  "gpt-5.4": {"input_cost_per_token":0.0000005,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
 	  "deepseek-v4-flash": {"input_cost_per_token":0.999,"output_cost_per_token":0.999,"litellm_provider":"deepseek"}
 	}`
@@ -176,7 +193,19 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 		byID[m.ModelID] = m
 	}
 
-	// overlay-only models surface with their overlay price (per-token ×1000 = per-1K).
+	// Canonical Opus 5 source metadata and price surface under the unified
+	// anthropic vendor; Kiro is a serving owner, not a public vendor.
+	opus5, ok := byID["claude-opus-5"]
+	require.True(t, ok, "officially priced Claude Opus 5 must surface from the canonical source")
+	assert.InDelta(t, 0.005, opus5.Pricing.InputPer1KTokens, 1e-12)
+	assert.InDelta(t, 0.025, opus5.Pricing.OutputPer1KTokens, 1e-12)
+	assert.InDelta(t, 0.0005, opus5.Pricing.CacheReadPer1K, 1e-12)
+	assert.InDelta(t, 0.00625, opus5.Pricing.CacheWritePer1K, 1e-12)
+	assert.Equal(t, 1_000_000, opus5.ContextWindow)
+	assert.Equal(t, 128_000, opus5.MaxOutputTokens)
+	assert.Equal(t, "anthropic", opus5.Vendor)
+	assert.ElementsMatch(t, []string{"vision", "tool_use", "prompt_caching", "reasoning", "response_schema", "pdf_input"}, opus5.Capabilities)
+
 	pro, ok := byID["deepseek-v4-pro"]
 	require.True(t, ok, "overlay-only deepseek-v4-pro must surface in catalog")
 	assert.InDelta(t, 0.000435*tkOfficialListBaseTaxMultiplier(), pro.Pricing.InputPer1KTokens, 1e-9, "deepseek-v4-pro input = overlay official × base tax")
@@ -215,6 +244,7 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	require.Contains(t, filteredByID, "veo-3.1-generate-001", "paid-gate-proven Veo must remain in public pricing")
 	require.Contains(t, filteredByID, "grok-imagine-image", "paid-gate-proven Grok image must remain in public pricing")
 	require.Contains(t, filteredByID, "grok-imagine-video", "paid-gate-proven Grok video must remain in public pricing")
+	require.Contains(t, filteredByID, "claude-opus-5", "Kiro-proven Opus 5 must remain in public pricing")
 
 	// fill-only: a model present in BOTH source and overlay keeps the SOURCE price.
 	flash, ok := byID["deepseek-v4-flash"]

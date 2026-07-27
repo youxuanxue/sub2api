@@ -16,7 +16,8 @@ import (
 // Prod incident 2026-06-10 (user_id=16): clients send the bare family word and
 // die with the #617 unsupported-model 400. Friendlier contract: a bare family
 // name means "the best model of that family you can serve". Truth source is
-// supportedAnthropicCatalogModels (pricing_catalog_supported_models_tk.go);
+// supportedClaudeCatalogModels (pricing_catalog_supported_models_tk.go), the
+// derived union of native Anthropic and Kiro-backed Claude models;
 // families are DERIVED from the table, never hand-listed — a servable refresh
 // (new opus 4.9 row, new `claude-zenith-6` family) changes the answer with
 // ZERO code edits. Trigger is strictly LEXICAL-EXACT (after lower+trim and the
@@ -115,7 +116,7 @@ var (
 
 func tkBareModelAliasMap() map[string]string {
 	tkBareModelAliasOnce.Do(func() {
-		tkBareModelAliases = tkDeriveAnthropicModelAliases(supportedAnthropicCatalogModels)
+		tkBareModelAliases = tkDeriveAnthropicModelAliases(supportedClaudeCatalogModels)
 	})
 	return tkBareModelAliases
 }

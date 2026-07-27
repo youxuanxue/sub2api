@@ -172,6 +172,10 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 		NewAPIChannelTypes: make(map[string]map[string]string),
 		AntigravityScopes:  append([]string(nil), canonicalAntigravityModelScopes...),
 		ForbiddenModelMappingKeys: map[string][]string{
+			// Kiro-backed Claude models remain public under the anthropic vendor,
+			// but native Anthropic accounts must not inherit Kiro-only capability.
+			// Kiro mirror stubs resolve to PlatformKiro before this policy applies.
+			PlatformAnthropic: kiroExclusiveModelIDs(),
 			PlatformAntigravity: append(
 				domain.AntigravityStructuralDeadModelMappingKeys(),
 				domain.AntigravityUnpricedModelMappingKeys()...,
@@ -228,6 +232,17 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 		}
 	}
 	return out, nil
+}
+
+func kiroExclusiveModelIDs() []string {
+	out := make([]string, 0)
+	for id := range supportedKiroCatalogModels {
+		if _, native := supportedAnthropicCatalogModels[id]; !native {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ModelSurfaceBundleForOps exports one checksummed artifact from the Go owner.
