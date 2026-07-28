@@ -1,10 +1,10 @@
 ---
 title: Apex 域名阶段二 — tokenkey.dev 人类入口 / api.* 机器入口
-status: pending
-approved_by: pending
+status: approved
+approved_by: feng (对话审批 2026-07-28)
 authors: [agent]
 created: 2026-07-27
-related_prs: []
+related_prs: ["1477"]
 depends_on:
   - deploy/aws/README.md § Apex 域名阶段一（PR #1476，阶段一已落地）
 ---
@@ -40,7 +40,9 @@ api.tokenkey.dev {
     path /v1/*
     path /v1beta/*
     path /api/v1/auth/oauth/*/callback
+    path /api/v1/auth/oauth/*/*/callback
     path /api/v1/payment/webhook/*
+    path /api/event_logging/batch
     path /backend-api/codex/*
     path /antigravity/*
     path /responses*
@@ -197,8 +199,8 @@ CI / 运维：`post_deploy_smoke.sh`、`PROD_BASE_URL=https://api.tokenkey.dev` 
 
 merge 本设计前请确认：
 
-- [ ] Caddy allowlist 覆盖所有现网 gateway + webhook 路径
-- [ ] Rollout 顺序接受（Caddy → Settings → 人工 OAuth/支付 spot check）
-- [ ] 接受「公共文档里 api.* 作机器入口示例」暂不批量修改
-- [ ] Settings 拍板接受：`api_base_url` 显式 `https://api.tokenkey.dev`（不留空）；SPA 仍走相对 `/api/v1`
-- [ ] 实现 PR 绑定本文件 anchor（`docs/approved/design-apex-domain-phase2.md`）
+- [x] Caddy allowlist 覆盖所有现网 gateway + webhook 路径（含 `oauth/*/*/callback`、Claude Code `/api/event_logging/batch`）
+- [x] Rollout 顺序接受（Caddy → Settings → 人工 OAuth/支付 spot check）
+- [x] 接受「公共文档里 api.* 作机器入口示例」暂不批量修改
+- [x] Settings 拍板接受：`api_base_url` 显式 `https://api.tokenkey.dev`（不留空）；SPA 仍走相对 `/api/v1`
+- [x] 实现 PR 绑定本文件 anchor（`docs/approved/design-apex-domain-phase2.md`）→ PR #1477

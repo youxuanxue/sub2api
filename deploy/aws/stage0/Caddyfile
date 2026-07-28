@@ -116,7 +116,9 @@ ${API_DOMAIN} {
 		path /v1/*
 		path /v1beta/*
 		path /api/v1/auth/oauth/*/callback
+		path /api/v1/auth/oauth/*/*/callback
 		path /api/v1/payment/webhook/*
+		path /api/event_logging/batch
 		# Gateway root aliases (backend/internal/server/routes/gateway.go)
 		path /backend-api/codex/*
 		path /antigravity/*

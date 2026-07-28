@@ -49,6 +49,8 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertIn("path /backend-api/codex/*", rendered)
         self.assertIn("path /antigravity/*", rendered)
         self.assertIn("path /api/v1/payment/webhook/*", rendered)
+        self.assertIn("path /api/v1/auth/oauth/*/*/callback", rendered)
+        self.assertIn("path /api/event_logging/batch", rendered)
         self.assertIn("redir https://tokenkey.dev{uri} permanent", rendered)
         self.assertNotIn("BEGIN_APEX_VHOST", rendered)
         self.assertNotIn("BEGIN_API_FULL_PROXY", rendered)
