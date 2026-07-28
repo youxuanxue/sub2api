@@ -64,6 +64,12 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
+	if h.settingService != nil {
+		if normalized, _, changed, err := h.settingService.NormalizeOpenRouterProviderChatBody(c.Request.Context(), apiKey.ID, subject.UserID, body); err == nil && changed {
+			body = normalized
+		}
+	}
+
 	// Extract model and stream
 	modelResult := gjson.GetBytes(body, "model")
 	if !modelResult.Exists() || modelResult.Type != gjson.String || modelResult.String() == "" {

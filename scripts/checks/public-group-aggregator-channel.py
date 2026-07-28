@@ -5,6 +5,8 @@ OpenRouter provider loop prevention relies on keeping new-api aggregator
 channel types (OpenRouter/Coze/Submodel) off public (is_exclusive=false) groups.
 Runtime enforcement lives in openrouter_provider_tk_policy.go; this check verifies
 the policy wiring and documents the forbidden channel types mechanically.
+Ops catalog export: ops/pricing/export-openrouter-provider-models.py (see
+ops/pricing/openrouter-provider-onboarding.md).
 
 Exit codes:
   0 — policy anchors present
@@ -28,6 +30,22 @@ REQUIRED_POLICY_MARKERS = (
     "ChannelTypeSubmodel",
     "scheme C",
 )
+
+REQUIRED_OR_PROVIDER_MARKERS = {
+    REPO_ROOT / "backend/internal/service/openrouter_provider_tk_model.go": (
+        "NormalizeOpenRouterProviderChatBody",
+        "InternalModelID",
+    ),
+    REPO_ROOT / "backend/internal/service/openrouter_provider_tk_schema.go": (
+        "OpenRouterProviderPricingOverride",
+        "openRouterProviderDefaultSamplingParameters",
+        "openRouterProviderDefaultQuantization",
+    ),
+    REPO_ROOT / "ops/pricing/openrouter-provider-onboarding.md": (
+        "monitor_api_key_ids",
+        "invoicing_contact_email",
+    ),
+}
 
 REQUIRED_ROUTE_MARKERS = (
     'Group("/openrouter/v1")',
@@ -57,6 +75,18 @@ def main() -> int:
 
     if not CONFIG_EXAMPLE.is_file():
         return _fail(f"missing config example: {CONFIG_EXAMPLE}")
+    example_text = CONFIG_EXAMPLE.read_text(encoding="utf-8")
+    for marker in ("monitor_api_key_ids", "privacy_policy_url", "status_page_url"):
+        if marker not in example_text:
+            return _fail(f"config example missing marker {marker!r}")
+
+    for path, markers in REQUIRED_OR_PROVIDER_MARKERS.items():
+        if not path.is_file():
+            return _fail(f"missing openrouter provider owner: {path}")
+        text = path.read_text(encoding="utf-8")
+        for marker in markers:
+            if marker not in text:
+                return _fail(f"{path.name} missing marker {marker!r}")
 
     return 0
 

@@ -11,31 +11,53 @@ import (
 // Auth uses the normal API key middleware; access is limited to keys allowed by
 // tk_openrouter_provider_config (OR service user/key + dedicated groups).
 func (h *GatewayHandler) OpenRouterProviderModels(c *gin.Context) {
-	if h == nil || h.gatewayService == nil || h.settingService == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "openrouter provider catalog unavailable", "code": 503}})
+	if h.serveOpenRouterProviderModels(c) {
 		return
+	}
+	c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "openrouter provider catalog unavailable", "code": 503}})
+}
+
+func (h *GatewayHandler) serveOpenRouterProviderModels(c *gin.Context) bool {
+	if h == nil || h.gatewayService == nil || h.settingService == nil {
+		return false
 	}
 
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok || apiKey == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "missing api key", "code": 401}})
-		return
+		return true
 	}
 
 	cfg, err := h.settingService.GetOpenRouterProviderConfig(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "load openrouter provider config", "code": 500}})
-		return
+		return true
 	}
-	if !cfg.AllowsAPIKey(apiKey.ID, apiKey.UserID) {
+	if !cfg.CanAccessCatalog(apiKey.ID, apiKey.UserID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"message": "api key not authorized for openrouter provider catalog", "code": 403}})
-		return
+		return true
 	}
 
 	catalog, err := h.gatewayService.BuildOpenRouterProviderCatalog(c.Request.Context(), cfg)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": err.Error(), "code": 400}})
-		return
+		return true
 	}
 	c.JSON(http.StatusOK, catalog)
+	return true
+}
+
+func (h *GatewayHandler) tryServeOpenRouterProviderModels(c *gin.Context) bool {
+	if h == nil || h.settingService == nil {
+		return false
+	}
+	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil {
+		return false
+	}
+	cfg, err := h.settingService.GetOpenRouterProviderConfig(c.Request.Context())
+	if err != nil || !cfg.CanAccessCatalog(apiKey.ID, apiKey.UserID) {
+		return false
+	}
+	return h.serveOpenRouterProviderModels(c)
 }

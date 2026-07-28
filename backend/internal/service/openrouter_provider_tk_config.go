@@ -18,15 +18,29 @@ type OpenRouterProviderConfig struct {
 	GroupIDs          []int64 `json:"group_ids"`
 	BillingUserID     int64   `json:"billing_user_id"`
 	AllowedAPIKeyIDs  []int64 `json:"allowed_api_key_ids"`
+	MonitorAPIKeyIDs  []int64 `json:"monitor_api_key_ids"`
 	DefaultContextLen int     `json:"default_context_length"`
 	CapacityTPM       *int64  `json:"capacity_tpm"`
+	ModelCapacityTPM  map[string]int64 `json:"model_capacity_tpm"`
+	DatacenterCountryCodes []string `json:"datacenter_country_codes"`
+
+	// P2 onboarding URLs surfaced to ops / provider application forms.
+	PrivacyPolicyURL    string `json:"privacy_policy_url"`
+	TermsOfServiceURL   string `json:"terms_of_service_url"`
+	StatusPageURL       string `json:"status_page_url"`
+	InvoicingContactEmail string `json:"invoicing_contact_email"`
+	ProviderDisplayName string `json:"provider_display_name"`
 }
 
 func DefaultOpenRouterProviderConfig() OpenRouterProviderConfig {
 	return OpenRouterProviderConfig{
-		ModelIDPrefix:     "tokenkey/",
-		Slug:              "tokenkey",
-		DefaultContextLen: 200000,
+		ModelIDPrefix:          "tokenkey/",
+		Slug:                   "tokenkey",
+		DefaultContextLen:      200000,
+		DatacenterCountryCodes: []string{"US"},
+		PrivacyPolicyURL:       "https://tokenkey.dev/privacy",
+		TermsOfServiceURL:      "https://tokenkey.dev/terms",
+		ProviderDisplayName:    "TokenKey",
 	}
 }
 
@@ -48,10 +62,34 @@ func ParseOpenRouterProviderConfig(raw string) (OpenRouterProviderConfig, error)
 	if cfg.DefaultContextLen <= 0 {
 		cfg.DefaultContextLen = DefaultOpenRouterProviderConfig().DefaultContextLen
 	}
+	if len(cfg.DatacenterCountryCodes) == 0 {
+		cfg.DatacenterCountryCodes = DefaultOpenRouterProviderConfig().DatacenterCountryCodes
+	}
+	if strings.TrimSpace(cfg.PrivacyPolicyURL) == "" {
+		cfg.PrivacyPolicyURL = DefaultOpenRouterProviderConfig().PrivacyPolicyURL
+	}
+	if strings.TrimSpace(cfg.TermsOfServiceURL) == "" {
+		cfg.TermsOfServiceURL = DefaultOpenRouterProviderConfig().TermsOfServiceURL
+	}
+	if strings.TrimSpace(cfg.ProviderDisplayName) == "" {
+		cfg.ProviderDisplayName = DefaultOpenRouterProviderConfig().ProviderDisplayName
+	}
 	return cfg, nil
 }
 
-func (c OpenRouterProviderConfig) AllowsAPIKey(apiKeyID, userID int64) bool {
+func (c OpenRouterProviderConfig) AllowsMonitorAPIKey(apiKeyID int64) bool {
+	if !c.Enabled || apiKeyID <= 0 {
+		return false
+	}
+	for _, id := range c.MonitorAPIKeyIDs {
+		if id == apiKeyID {
+			return true
+		}
+	}
+	return false
+}
+
+func (c OpenRouterProviderConfig) AllowsInferenceAPIKey(apiKeyID, userID int64) bool {
 	if !c.Enabled {
 		return false
 	}
@@ -67,6 +105,15 @@ func (c OpenRouterProviderConfig) AllowsAPIKey(apiKeyID, userID int64) bool {
 		return true
 	}
 	return false
+}
+
+func (c OpenRouterProviderConfig) CanAccessCatalog(apiKeyID, userID int64) bool {
+	return c.AllowsMonitorAPIKey(apiKeyID) || c.AllowsInferenceAPIKey(apiKeyID, userID)
+}
+
+// AllowsAPIKey keeps the previous name for catalog/inference allow checks used in tests.
+func (c OpenRouterProviderConfig) AllowsAPIKey(apiKeyID, userID int64) bool {
+	return c.CanAccessCatalog(apiKeyID, userID)
 }
 
 func (c OpenRouterProviderConfig) PublicModelID(model string) string {
@@ -85,4 +132,36 @@ func (c OpenRouterProviderConfig) PublicModelID(model string) string {
 		return prefix + strings.TrimPrefix(model, "/")
 	}
 	return prefix + model
+}
+
+func (c OpenRouterProviderConfig) InternalModelID(publicID string) (string, bool) {
+	publicID = strings.TrimSpace(publicID)
+	prefix := strings.TrimSpace(c.ModelIDPrefix)
+	if prefix == "" {
+		prefix = "tokenkey/"
+	}
+	if !strings.HasPrefix(publicID, prefix) {
+		return "", false
+	}
+	internal := strings.TrimSpace(strings.TrimPrefix(publicID, prefix))
+	if internal == "" {
+		return "", false
+	}
+	return internal, true
+}
+
+func (c OpenRouterProviderConfig) CatalogBaseURL(apiBase string) string {
+	base := strings.TrimRight(strings.TrimSpace(apiBase), "/")
+	if base == "" {
+		base = "https://api.tokenkey.dev"
+	}
+	return base + "/openrouter/v1/models"
+}
+
+func (c OpenRouterProviderConfig) InferenceBaseURL(apiBase string) string {
+	base := strings.TrimRight(strings.TrimSpace(apiBase), "/")
+	if base == "" {
+		base = "https://api.tokenkey.dev"
+	}
+	return base + "/v1/chat/completions"
 }

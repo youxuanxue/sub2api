@@ -2,9 +2,19 @@
   "enabled": true,
   "slug": "tokenkey",
   "model_id_prefix": "tokenkey/",
+  "provider_display_name": "TokenKey",
   "group_ids": [101, 102],
   "billing_user_id": 9001,
   "allowed_api_key_ids": [88001],
+  "monitor_api_key_ids": [88002],
   "default_context_length": 200000,
-  "capacity_tpm": 500000
+  "capacity_tpm": 500000,
+  "model_capacity_tpm": {
+    "deepseek-v4-pro": 250000
+  },
+  "datacenter_country_codes": ["US", "SG"],
+  "privacy_policy_url": "https://tokenkey.dev/privacy",
+  "terms_of_service_url": "https://tokenkey.dev/terms",
+  "status_page_url": "https://status.tokenkey.dev",
+  "invoicing_contact_email": "billing@tokenkey.dev"
 }

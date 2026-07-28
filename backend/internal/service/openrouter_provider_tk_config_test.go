@@ -13,6 +13,19 @@ func TestParseOpenRouterProviderConfig_Defaults(t *testing.T) {
 	if cfg.Slug != "tokenkey" {
 		t.Fatalf("slug = %q", cfg.Slug)
 	}
+	if cfg.PrivacyPolicyURL == "" || cfg.TermsOfServiceURL == "" {
+		t.Fatalf("legal urls missing: privacy=%q terms=%q", cfg.PrivacyPolicyURL, cfg.TermsOfServiceURL)
+	}
+}
+
+func TestOpenRouterProviderConfig_CatalogAndInferenceURLs(t *testing.T) {
+	cfg := DefaultOpenRouterProviderConfig()
+	if got := cfg.CatalogBaseURL("https://api.tokenkey.dev"); got != "https://api.tokenkey.dev/openrouter/v1/models" {
+		t.Fatalf("catalog url=%q", got)
+	}
+	if got := cfg.InferenceBaseURL("https://api.tokenkey.dev"); got != "https://api.tokenkey.dev/v1/chat/completions" {
+		t.Fatalf("inference url=%q", got)
+	}
 }
 
 func TestOpenRouterProviderConfig_AllowsAPIKey(t *testing.T) {
