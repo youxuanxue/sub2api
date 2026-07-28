@@ -22,6 +22,9 @@ site_domain="${SITE_DOMAIN:-}"
 if [[ -z "${site_domain}" && "${API_DOMAIN}" == api.* ]]; then
   site_domain="${API_DOMAIN#api.}"
 fi
+if [[ "${site_domain}" == "${API_DOMAIN}" ]]; then
+  site_domain=""
+fi
 
 tmp="$(mktemp)"
 trap 'rm -f "${tmp}"' EXIT
@@ -30,8 +33,21 @@ export API_DOMAIN ACME_EMAIL
 export SITE_DOMAIN="${site_domain}"
 envsubst '$API_DOMAIN $ACME_EMAIL $SITE_DOMAIN' < "${template}" > "${tmp}"
 
+strip_render_markers() {
+  sed \
+    -e '/^# BEGIN_APEX_VHOST$/d' \
+    -e '/^# END_APEX_VHOST$/d' \
+    -e '/^# BEGIN_API_FULL_PROXY$/d' \
+    -e '/^# END_API_FULL_PROXY$/d' \
+    -e '/^# BEGIN_API_MACHINE_SPLIT$/d' \
+    -e '/^# END_API_MACHINE_SPLIT$/d'
+}
+
 if [[ -z "${site_domain}" ]]; then
-  sed '/^# BEGIN_APEX_VHOST$/,/^# END_APEX_VHOST$/d' "${tmp}" > "${output}"
+  sed '/^# BEGIN_APEX_VHOST$/,/^# END_APEX_VHOST$/d' "${tmp}" \
+    | sed '/^# BEGIN_API_MACHINE_SPLIT$/,/^# END_API_MACHINE_SPLIT$/d' \
+    | strip_render_markers > "${output}"
 else
-  sed '/^# BEGIN_APEX_VHOST$/d; /^# END_APEX_VHOST$/d' "${tmp}" > "${output}"
+  sed '/^# BEGIN_API_FULL_PROXY$/,/^# END_API_FULL_PROXY$/d' "${tmp}" \
+    | strip_render_markers > "${output}"
 fi

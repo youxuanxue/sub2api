@@ -5,9 +5,11 @@
     {
       "path": "frontend/index.html",
       "must_contain": [
-        "<title>TokenKey"
+        "<title>TokenKey",
+        "href=\"https://tokenkey.dev/\"",
+        "content=\"https://tokenkey.dev\""
       ],
-      "rationale": "Default embedded SPA browser tab title before JS runs; regressing to Sub2API breaks the single-product narrative for every fresh load."
+      "rationale": "Default embedded SPA browser tab title before JS runs; regressing to Sub2API breaks the single-product narrative for every fresh load. Canonical/og:url must stay on the human apex host after apex-domain phase 2."
     },
     {
       "path": "frontend/src/router/title.ts",

@@ -104,9 +104,55 @@ curl -fsS https://api.tokenkey.dev/health && echo OK
 echo | openssl s_client -connect tokenkey.dev:443 -servername tokenkey.dev 2>/dev/null | openssl x509 -noout -subject -dates
 ```
 
-**本阶段刻意不改**：Admin Settings 里的 `frontend_url` / `api_base_url`、OAuth IdP 回调、支付 `notify_url`、smoke 默认 `PROD_BASE_URL`——仍指向 `api.tokenkey.dev`。阶段二再切 canonical。
+**本阶段刻意不改**：Admin Settings 里的 `frontend_url` / `api_base_url`、OAuth IdP 回调、支付 `notify_url`、smoke 默认 `PROD_BASE_URL`——仍指向 `api.tokenkey.dev`。阶段二见下方与 [`docs/approved/design-apex-domain-phase2.md`](../../docs/approved/design-apex-domain-phase2.md)。
 
 **关闭 apex redirect**（非 prod 或自定义域）：在主机 `.env` 设 `SITE_DOMAIN=`（空）且 `API_DOMAIN` 不以 `api.` 开头，或显式 `SITE_DOMAIN=` 覆盖推导，重跑 `sync_caddyfile_via_ssm.sh prod ...`。
+
+### Apex 域名阶段二（tokenkey.dev 人类入口 / api.* 机器入口）
+
+**目标**：`https://tokenkey.dev` 主 serving（SPA + Admin）；`https://api.tokenkey.dev` 仅 gateway（`/v1/*`、`/v1beta/*`、`/backend-api/codex/*`、`/antigravity/*`、OpenAI 根路径别名、`/health`、OAuth callback、payment webhook），其余人类路径 301 回 apex。完整 allowlist 见 `deploy/aws/stage0/Caddyfile` `@machine` 块。
+
+**审批基线**：[`docs/approved/design-apex-domain-phase2.md`](../../docs/approved/design-apex-domain-phase2.md)
+
+#### 1. 代码落地 prod（Caddy 热同步，不必等发版）
+
+```bash
+bash deploy/aws/stage0/build-cfn.sh   # 刷新 CFN blob（实例重建路径）
+git add deploy/aws/cloudformation/stage0-single-ec2.yaml
+
+AWS_REGION=us-east-1 bash ops/stage0/sync_caddyfile_via_ssm.sh prod <prod-instance-id>
+```
+
+#### 2. 验收 Caddy（通过后再改 Settings）
+
+```bash
+curl -sSI https://tokenkey.dev/login | grep -E '^(HTTP|location):'
+# 期望：200/302，不是 301 到 api.*
+
+curl -sSI https://api.tokenkey.dev/login | grep -i location:
+# 期望：location: https://tokenkey.dev/login
+
+curl -fsS https://api.tokenkey.dev/health && echo OK
+
+# 机器路径不应被 301（401/403/404 均可，只要不是 location: tokenkey.dev）
+curl -sSI https://api.tokenkey.dev/antigravity/v1/models | grep -Ei '^(HTTP|location):'
+curl -sSI https://api.tokenkey.dev/backend-api/codex/models | grep -Ei '^(HTTP|location):'
+```
+
+#### 3. Admin Settings（prod DB，Caddy 验收后）
+
+```text
+frontend_url = https://tokenkey.dev
+api_base_url = https://api.tokenkey.dev   # 显式填写，供 Quickstart/Keys 复制；SPA 仍走相对 /api/v1
+```
+
+OAuth / 支付 webhook URL **保持** `api.tokenkey.dev`（与 Caddy `@machine` allowlist 一致）。
+
+#### 4. 发版（`frontend/index.html` canonical / og 随镜像）
+
+正常 Stage0 发版即可；index.html meta 变更需新镜像才在用户侧生效。
+
+**回滚**：`sync_caddyfile` 从 backup 恢复阶段一 Caddyfile；Settings 改回；DNS 不动。
 
 ### 把 #811 的 swap + 内存压力告警落到「已经在跑」的 prod（不重建实例）
 

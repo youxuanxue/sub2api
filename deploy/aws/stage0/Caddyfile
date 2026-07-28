@@ -5,8 +5,9 @@
 # Caddy 通过 TLS-ALPN-01（443 上）自动申请并续签 Let's Encrypt 证书。
 # 不用 HTTP-01：公网 80 已在 AWS 安全组层关闭，证书签发/续签不依赖 80。
 #
-# 阶段一（canonical 迁移）：SITE_DOMAIN（如 tokenkey.dev）仅 301 → API_DOMAIN，
-# 用户入口仍在 api.*；阶段二再把 apex 切为主 serving 域。
+# 阶段二（canonical）：SITE_DOMAIN（如 tokenkey.dev）主 serving；API_DOMAIN 仅
+# gateway / health / 服务端 webhook（@machine allowlist），其余 301 → SITE_DOMAIN。
+# 无 SITE_DOMAIN 时（localhost / edge）API 块走全量 reverse_proxy。
 # -----------------------------------------------------------------------------
 
 {
@@ -15,8 +16,7 @@
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 }
 
-# BEGIN_APEX_VHOST
-${SITE_DOMAIN} {
+(tokenkey_tls) {
 	tls {
 		protocols tls1.2 tls1.3
 		issuer acme {
@@ -24,12 +24,9 @@ ${SITE_DOMAIN} {
 			disable_http_challenge
 		}
 	}
-
-	redir https://${API_DOMAIN}{uri} permanent
 }
-# END_APEX_VHOST
 
-${API_DOMAIN} {
+(tokenkey_encode_static) {
 	encode zstd gzip
 
 	@static {
@@ -38,16 +35,9 @@ ${API_DOMAIN} {
 		path /favicon.ico
 	}
 	header @static ?Cache-Control "public, max-age=31536000, immutable"
+}
 
-	tls {
-		protocols tls1.2 tls1.3
-		# 只用 TLS-ALPN-01（走 443），关掉 HTTP-01，从而无需公网 80。
-		issuer acme {
-			email ${ACME_EMAIL}
-			disable_http_challenge
-		}
-	}
-
+(tokenkey_reverse_proxy) {
 	reverse_proxy tokenkey:8080 {
 		flush_interval -1
 		# Active health 走 /health（drain-aware）：SIGUSR1 → /health=503 →
@@ -89,7 +79,9 @@ ${API_DOMAIN} {
 			compression off
 		}
 	}
+}
 
+(tokenkey_limits_log) {
 	request_body {
 		max_size 100MB
 	}
@@ -99,4 +91,54 @@ ${API_DOMAIN} {
 		format json
 		level INFO
 	}
+}
+
+# BEGIN_APEX_VHOST
+${SITE_DOMAIN} {
+	import tokenkey_tls
+	import tokenkey_encode_static
+	import tokenkey_reverse_proxy
+	import tokenkey_limits_log
+}
+# END_APEX_VHOST
+
+${API_DOMAIN} {
+	import tokenkey_tls
+	import tokenkey_encode_static
+
+# BEGIN_API_FULL_PROXY
+	import tokenkey_reverse_proxy
+# END_API_FULL_PROXY
+
+# BEGIN_API_MACHINE_SPLIT
+	@machine {
+		path /health*
+		path /v1/*
+		path /v1beta/*
+		path /api/v1/auth/oauth/*/callback
+		path /api/v1/auth/oauth/*/*/callback
+		path /api/v1/payment/webhook/*
+		path /api/event_logging/batch
+		# Gateway root aliases (backend/internal/server/routes/gateway.go)
+		path /backend-api/codex/*
+		path /antigravity/*
+		path /responses*
+		path /chat/completions*
+		path /embeddings*
+		path /models
+		path /images/*
+		path /messages/count_tokens
+		path /alpha/search
+		path /videos*
+		path /video/*
+	}
+	handle @machine {
+		import tokenkey_reverse_proxy
+	}
+	handle {
+		redir https://${SITE_DOMAIN}{uri} permanent
+	}
+# END_API_MACHINE_SPLIT
+
+	import tokenkey_limits_log
 }

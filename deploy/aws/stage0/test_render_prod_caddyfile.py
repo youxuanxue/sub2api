@@ -39,22 +39,43 @@ def _render(*, api_domain: str, site_domain: str = "", acme_email: str = "ops@ex
 
 
 class RenderProdCaddyfileTest(unittest.TestCase):
-    def test_api_domain_derives_apex_redirect(self) -> None:
+    def test_api_domain_derives_apex_serving_and_api_machine_split(self) -> None:
         rendered = _render(api_domain="api.tokenkey.dev")
         self.assertIn("tokenkey.dev {", rendered)
-        self.assertIn("redir https://api.tokenkey.dev{uri} permanent", rendered)
+        self.assertIn("import tokenkey_reverse_proxy", rendered)
+        self.assertNotIn("redir https://api.tokenkey.dev{uri} permanent", rendered)
+        self.assertIn("@machine {", rendered)
+        self.assertIn("path /v1/*", rendered)
+        self.assertIn("path /backend-api/codex/*", rendered)
+        self.assertIn("path /antigravity/*", rendered)
+        self.assertIn("path /api/v1/payment/webhook/*", rendered)
+        self.assertIn("path /api/v1/auth/oauth/*/*/callback", rendered)
+        self.assertIn("path /api/event_logging/batch", rendered)
+        self.assertIn("redir https://tokenkey.dev{uri} permanent", rendered)
         self.assertNotIn("BEGIN_APEX_VHOST", rendered)
+        self.assertNotIn("BEGIN_API_FULL_PROXY", rendered)
 
-    def test_localhost_skips_apex_block(self) -> None:
+    def test_localhost_skips_apex_and_uses_full_api_proxy(self) -> None:
         rendered = _render(api_domain="localhost")
         self.assertIn("localhost {", rendered)
+        self.assertIn("import tokenkey_reverse_proxy", rendered)
+        self.assertNotIn("tokenkey.dev {", rendered)
+        self.assertNotIn("@machine {", rendered)
         self.assertNotIn("redir https://", rendered)
         self.assertNotIn("BEGIN_APEX_VHOST", rendered)
+
+    def test_edge_api_domain_skips_apex_split(self) -> None:
+        rendered = _render(api_domain="api-us4.tokenkey.dev")
+        self.assertIn("api-us4.tokenkey.dev {", rendered)
+        self.assertNotRegex(rendered, r"(?m)^us4\\.tokenkey\\.dev \\{")
+        self.assertNotIn("@machine {", rendered)
+        self.assertIn("import tokenkey_reverse_proxy", rendered)
 
     def test_explicit_site_domain_override(self) -> None:
         rendered = _render(api_domain="api.custom.example", site_domain="custom.example")
         self.assertIn("custom.example {", rendered)
-        self.assertIn("redir https://api.custom.example{uri} permanent", rendered)
+        self.assertIn("redir https://custom.example{uri} permanent", rendered)
+        self.assertIn("api.custom.example {", rendered)
 
 
 if __name__ == "__main__":

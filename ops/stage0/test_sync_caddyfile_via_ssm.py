@@ -73,7 +73,8 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         self.assertIn("/var/lib/tokenkey/active-color", joined)
         self.assertIn("tokenkey-$ACTIVE_COLOR:8080", joined)
         self.assertIn("Caddyfile.rewritten", joined)
-        self.assertIn("render_prod_caddyfile", joined)
+        self.assertIn("render-prod-caddyfile.sh", joined)
+        self.assertIn("envsubst '$API_DOMAIN $ACME_EMAIL $MAIN_GATEWAY_ALLOWED_CIDR'", joined)
 
 
 if __name__ == "__main__":
