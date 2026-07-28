@@ -1085,6 +1085,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 // Returns models based on account configurations (model_mapping whitelist)
 // Falls back to default models if no whitelist is configured
 func (h *GatewayHandler) Models(c *gin.Context) {
+	if h.tryServeOpenRouterProviderModels(c) {
+		return
+	}
+
 	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
 
 	var groupID *int64

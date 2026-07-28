@@ -19,8 +19,8 @@ import (
 const maxAPIKeyAuthorizationHeaderBytes = service.MaxAPIKeyCredentialBytes + 128
 
 // NewAPIKeyAuthMiddleware 创建 API Key 认证中间件
-func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) APIKeyAuthMiddleware {
-	return APIKeyAuthMiddleware(apiKeyAuthWithSubscription(apiKeyService, subscriptionService, cfg))
+func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, settingService *service.SettingService, cfg *config.Config) APIKeyAuthMiddleware {
+	return APIKeyAuthMiddleware(apiKeyAuthWithSubscription(apiKeyService, subscriptionService, settingService, cfg))
 }
 
 func skipsBillingEnforcement(method, path string) bool {
@@ -48,7 +48,7 @@ func skipsBillingEnforcement(method, path string) bool {
 //   - 计费执行（Billing Enforcement）：过期/配额/订阅/余额检查 —— skipBilling 时整块跳过
 //
 // /v1/usage 端点只需鉴权，不需要计费执行（允许过期/配额耗尽的 Key 查询自身用量）。
-func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) gin.HandlerFunc {
+func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, settingService *service.SettingService, cfg *config.Config) gin.HandlerFunc {
 	// 全能 Key 解析器：用 APIKeyService 持有的共享单实例(单一跨度缓存,且随授权变更失效)。
 	universalResolver := apiKeyService.UniversalResolver()
 	return func(c *gin.Context) {
@@ -180,6 +180,10 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
 			return
 		}
+
+		// OpenRouter seller inference keys use tokenkey/<model> public ids; rewrite
+		// before universal routing peeks model and before handler servable checks.
+		MaybeRewriteOpenRouterProviderChatBody(c, apiKey, settingService)
 
 		// 全能 Key（routing_mode=universal）：在分组/订阅/余额校验之前，把请求按入口端点 +
 		// 模型解析到一个后端组并就地替换为“绑定该组的普通 key”。这样下面所有现成的分组可用性 /

@@ -63,10 +63,14 @@ func TestUniversalShapeForRequest(t *testing.T) {
 		{"/v1/responses", http.MethodGet, ShapeSkip}, // websocket
 		{"/v1/embeddings", http.MethodPost, ShapeOpenAIEmbeddings},
 		{"/v1/images/generations", http.MethodPost, ShapeOpenAIImages},
+		{"/openrouter/v1/images", http.MethodPost, ShapeOpenAIImages},
+		{"/openrouter/v1/images", http.MethodGet, ShapeSkip},
 		{"/v1/images/edits", http.MethodPost, ShapeOpenAIImagesEdit},
 		{"/v1/video/generations", http.MethodPost, ShapeOpenAIVideo},
 		{"/v1/video/generations/:task_id", http.MethodGet, ShapeOpenAIVideo},
 		{"/videos", http.MethodPost, ShapeOpenAIVideo},
+		{"/openrouter/v1/videos", http.MethodPost, ShapeOpenAIVideo},
+		{"/openrouter/v1/videos/:id", http.MethodGet, ShapeOpenAIVideo},
 		{"/v1beta/models/*modelAction", http.MethodPost, ShapeGemini},
 		{"/v1beta/models", http.MethodGet, ShapeSkip},
 		{"/v1beta/models/:model", http.MethodGet, ShapeSkip},
@@ -184,6 +188,8 @@ func TestUniversalModelPlatformHint(t *testing.T) {
 		"gemini-3.1-flash-image": PlatformAntigravity,
 		"doubao-seedream-4":      PlatformNewAPI,
 		"deepseek-chat":          PlatformNewAPI,
+		"tokenkey/claude-sonnet-4-6": PlatformAnthropic,
+		"tokenkey/gpt-5.4":           PlatformOpenAI,
 		"some-unknown-model-xyz": "",
 		"":                       "",
 	}

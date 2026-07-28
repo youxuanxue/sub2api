@@ -128,6 +128,22 @@ func RegisterGatewayRoutes(
 		}
 	}
 
+	// OpenRouter provider catalog (seller surface). Inference still uses /v1/chat/completions.
+	openrouterProvider := r.Group("/openrouter/v1")
+	openrouterProvider.Use(bodyLimit)
+	openrouterProvider.Use(clientRequestID)
+	openrouterProvider.Use(trajectoryID)
+	openrouterProvider.Use(qaCapture)
+	openrouterProvider.Use(opsErrorLogger)
+	openrouterProvider.Use(endpointNorm)
+	openrouterProvider.Use(gin.HandlerFunc(apiKeyAuth))
+	{
+		openrouterProvider.GET("/models", h.Gateway.OpenRouterProviderModels)
+		openrouterProvider.POST("/images", h.OpenRouterProviderImages)
+		openrouterProvider.POST("/videos", h.OpenRouterProviderVideoSubmit)
+		openrouterProvider.GET("/videos/:id", h.OpenRouterProviderVideoFetch)
+	}
+
 	// Gemini 原生 API 兼容层（Gemini SDK/CLI 直连）
 	gemini := r.Group("/v1beta")
 	gemini.Use(bodyLimit)
@@ -136,7 +152,7 @@ func RegisterGatewayRoutes(
 	gemini.Use(qaCapture)
 	gemini.Use(opsErrorLogger)
 	gemini.Use(endpointNorm)
-	gemini.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
+	gemini.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, settingService, cfg))
 	gemini.Use(compositeGeminiTarget)
 	gemini.Use(requireGroupGoogle)
 	{
@@ -207,7 +223,7 @@ func RegisterGatewayRoutes(
 	antigravityV1Beta.Use(opsErrorLogger)
 	antigravityV1Beta.Use(endpointNorm)
 	antigravityV1Beta.Use(middleware.ForcePlatform(service.PlatformAntigravity))
-	antigravityV1Beta.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
+	antigravityV1Beta.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, settingService, cfg))
 	antigravityV1Beta.Use(requireGroupGoogle)
 	{
 		antigravityV1Beta.GET("/models", h.Gateway.GeminiV1BetaListModels)

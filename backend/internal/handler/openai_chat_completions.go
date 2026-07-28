@@ -66,6 +66,12 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
+	if h.gatewayService != nil {
+		if normalized, err := h.gatewayService.NormalizeOpenRouterProviderChatBody(c.Request.Context(), apiKey.ID, subject.UserID, body); err == nil {
+			body = normalized
+		}
+	}
+
 	modelResult := gjson.GetBytes(body, "model")
 	if !modelResult.Exists() || modelResult.Type != gjson.String || modelResult.String() == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")

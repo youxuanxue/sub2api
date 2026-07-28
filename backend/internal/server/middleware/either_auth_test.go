@@ -55,7 +55,7 @@ func newEitherAuthTestEnv(
 		},
 	}
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, userRepo, nil, nil, nil, nil, cfg)
-	apiKeyMW := NewAPIKeyAuthMiddleware(apiKeySvc, nil, cfg)
+	apiKeyMW := NewAPIKeyAuthMiddleware(apiKeySvc, nil, nil, cfg)
 
 	mw := NewEitherAuthMiddleware(jwtMW, apiKeyMW)
 

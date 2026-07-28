@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -768,6 +769,23 @@ func (s *sparkShadowValidatingGroupRepoStub) ExistsByIDs(_ context.Context, ids 
 		out[id] = s.existing[id]
 	}
 	return out, nil
+}
+
+func (s *sparkShadowValidatingGroupRepoStub) GetByID(_ context.Context, id int64) (*Group, error) {
+	if !s.existing[id] {
+		return nil, fmt.Errorf("group %d not found", id)
+	}
+	return &Group{
+		ID:             id,
+		Name:           fmt.Sprintf("group-%d", id),
+		IsExclusive:    false,
+		RateMultiplier: 1,
+		Status:         StatusActive,
+	}, nil
+}
+
+func (s *sparkShadowValidatingGroupRepoStub) ListByGroup(_ context.Context, _ int64) ([]Account, error) {
+	return nil, nil
 }
 
 // TestCreateShadow_DefaultsNameFromParent 验证外审 E/P2:空 name 不应 500,

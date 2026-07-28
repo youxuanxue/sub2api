@@ -53,6 +53,11 @@ func UniversalShapeForRequest(fullPath, method string) UniversalShape {
 		return ShapeOpenAIEmbeddings
 	case strings.Contains(p, "/images/edits"):
 		return ShapeOpenAIImagesEdit
+	case strings.Contains(p, "/openrouter/v1/images"):
+		if isPost {
+			return ShapeOpenAIImages
+		}
+		return ShapeSkip
 	case strings.Contains(p, "/images/generations"):
 		return ShapeOpenAIImages
 	case strings.Contains(p, "/video/generations"), strings.Contains(p, "/videos"):
@@ -181,6 +186,7 @@ func universalModelPlatformHint(model string) string {
 	if m == "" {
 		return ""
 	}
+	m = strings.TrimPrefix(m, "tokenkey/")
 	switch {
 	case strings.HasPrefix(m, "claude"):
 		return PlatformAnthropic
