@@ -2189,6 +2189,17 @@ else
     echo "  ok: no edge_id is deployable=true on both EC2 and Lightsail"
 fi
 
+echo ""
+echo "=== sub2api: public group aggregator channel (OpenRouter provider scheme C) ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for public group aggregator channel check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/public-group-aggregator-channel.py; then
+    errors=$((errors + 1))
+else
+    echo "  ok: public-group aggregator policy anchors present"
+fi
+
 # ---- sub2api: ops SQL generator coverage ------------------------------------
 # Gate B (static half). Every SQL-generating symbol in an ops module must be
 # enumerated in that module's iter_self_check_sql() (so the real-Postgres

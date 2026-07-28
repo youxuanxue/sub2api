@@ -128,6 +128,19 @@ func RegisterGatewayRoutes(
 		}
 	}
 
+	// OpenRouter provider catalog (seller surface). Inference still uses /v1/chat/completions.
+	openrouterProvider := r.Group("/openrouter/v1")
+	openrouterProvider.Use(bodyLimit)
+	openrouterProvider.Use(clientRequestID)
+	openrouterProvider.Use(trajectoryID)
+	openrouterProvider.Use(qaCapture)
+	openrouterProvider.Use(opsErrorLogger)
+	openrouterProvider.Use(endpointNorm)
+	openrouterProvider.Use(gin.HandlerFunc(apiKeyAuth))
+	{
+		openrouterProvider.GET("/models", h.Gateway.OpenRouterProviderModels)
+	}
+
 	// Gemini 原生 API 兼容层（Gemini SDK/CLI 直连）
 	gemini := r.Group("/v1beta")
 	gemini.Use(bodyLimit)

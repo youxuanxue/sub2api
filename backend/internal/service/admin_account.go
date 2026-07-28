@@ -554,6 +554,11 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 			return nil, err
 		}
 	}
+	if len(groupIDs) > 0 {
+		if err := s.checkPublicGroupAggregatorChannelPolicy(ctx, 0, input.Name, input.Platform, input.ChannelType, input.Credentials, groupIDs); err != nil {
+			return nil, err
+		}
+	}
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
@@ -892,6 +897,15 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 
 	// 绑定分组
+	effectiveGroupIDs := account.GroupIDs
+	if input.GroupIDs != nil {
+		effectiveGroupIDs = *input.GroupIDs
+	}
+	if len(effectiveGroupIDs) > 0 {
+		if err := s.checkPublicGroupAggregatorChannelPolicy(ctx, account.ID, account.Name, account.Platform, account.ChannelType, account.Credentials, effectiveGroupIDs); err != nil {
+			return nil, err
+		}
+	}
 	if input.GroupIDs != nil {
 		if err := s.accountRepo.BindGroups(ctx, account.ID, *input.GroupIDs); err != nil {
 			return nil, err
@@ -965,11 +979,12 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 
 	needMixedChannelCheck := input.GroupIDs != nil && !input.SkipMixedChannelCheck
+	needPublicGroupAggregatorCheck := input.GroupIDs != nil
 	_, hasLongContextBillingUpdate := input.Extra[openAILongContextBillingEnabledKey]
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || input.ProbeEnabled != nil {
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || needPublicGroupAggregatorCheck || hasLongContextBillingUpdate || input.ProbeEnabled != nil {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -1030,10 +1045,12 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 预加载账号平台信息（混合渠道检查需要）。
 	platformByID := map[int64]string{}
-	if needMixedChannelCheck {
+	accountByID := map[int64]*Account{}
+	if needMixedChannelCheck || needPublicGroupAggregatorCheck {
 		for _, account := range cachedTargets {
 			if account != nil {
 				platformByID[account.ID] = account.Platform
+				accountByID[account.ID] = account
 			}
 		}
 	}
@@ -1046,6 +1063,17 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 				continue
 			}
 			if err := s.checkMixedChannelRisk(ctx, accountID, platform, *input.GroupIDs); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if needPublicGroupAggregatorCheck {
+		for _, accountID := range input.AccountIDs {
+			account := accountByID[accountID]
+			if account == nil {
+				continue
+			}
+			if err := s.checkPublicGroupAggregatorChannelPolicy(ctx, account.ID, account.Name, account.Platform, account.ChannelType, account.Credentials, *input.GroupIDs); err != nil {
 				return nil, err
 			}
 		}
