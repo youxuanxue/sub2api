@@ -27,10 +27,6 @@ import (
 // ("gpt-5.2") is itself a key, so the gate fires correctly regardless of
 // whether the call site has the raw or the canonicalized model in hand.
 //
-// codex-auto-review is not a version-retired id — it is an internal review
-// capability that was never meant to be directly selectable by clients. It
-// gets the same 400 treatment but a different message (empty replacement).
-//
 // gpt-5.2*'s suggested replacement is gpt-5.5 (NOT gpt-5.5-pro): as of this
 // gate's introduction, gpt-5.5-pro has not yet been live-probed back into
 // supportedOpenAICatalogModels (SSOT audit directive #7, phase 5). Recommending
@@ -55,9 +51,8 @@ var ErrDeprecatedOpenAIModel = errors.New("deprecated openai model")
 // replacement — this id is an internal capability, not a product tier";
 // TkBuildDeprecatedOpenAIModelMessage renders that case with different text.
 var tkDeprecatedOpenAIModels = map[string]string{
-	"gpt-5.2":           tkDeprecatedOpenAIReplacementGPT55,
-	"gpt-5.2-pro":       tkDeprecatedOpenAIReplacementGPT55,
-	"codex-auto-review": "",
+	"gpt-5.2":     tkDeprecatedOpenAIReplacementGPT55,
+	"gpt-5.2-pro": tkDeprecatedOpenAIReplacementGPT55,
 }
 
 // tkIsDeprecatedOpenAIModel reports whether the model ID is on the retired/
@@ -119,8 +114,7 @@ func tkDeprecatedOpenAISelectionFailure(requestedModel string) error {
 }
 
 // TkBuildDeprecatedOpenAIModelMessage assembles the friendly migration message.
-// replacement=="" renders the "internal capability, not directly selectable"
-// text (codex-auto-review); otherwise it renders the standard retirement text.
+// replacement=="" renders the internal-capability text; otherwise retirement text.
 func TkBuildDeprecatedOpenAIModelMessage(requestedModel, replacement string) string {
 	if replacement == "" {
 		return "Model '" + requestedModel + "' is an internal capability and is not directly selectable." +

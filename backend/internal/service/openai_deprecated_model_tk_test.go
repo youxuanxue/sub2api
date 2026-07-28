@@ -73,8 +73,8 @@ func TestTkBuildDeprecatedOpenAIModelMessage(t *testing.T) {
 	require.True(t, strings.Contains(msg, "retired") || strings.Contains(msg, "deprecated"),
 		"message should explain why the model is rejected")
 
-	msg = TkBuildDeprecatedOpenAIModelMessage("codex-auto-review", "")
-	require.Contains(t, msg, "codex-auto-review")
+	msg = TkBuildDeprecatedOpenAIModelMessage("internal-capability-probe", "")
+	require.Contains(t, msg, "internal-capability-probe")
 	require.Contains(t, msg, "not directly selectable")
 }
 
@@ -82,9 +82,6 @@ func TestTkDeprecatedOpenAISelectionFailure(t *testing.T) {
 	err := tkDeprecatedOpenAISelectionFailure("gpt-5.2")
 	require.ErrorIs(t, err, ErrDeprecatedOpenAIModel)
 	require.NotContains(t, strings.ToLower(err.Error()), "no available accounts")
-
-	err = tkDeprecatedOpenAISelectionFailure("codex-auto-review")
-	require.ErrorIs(t, err, ErrDeprecatedOpenAIModel)
 
 	err = tkDeprecatedOpenAISelectionFailure("gpt-5-codex")
 	require.NoError(t, err)
@@ -109,10 +106,9 @@ func TestNoAvailableOpenAISelectionError_DeprecatedModelBeatsEmptyPool(t *testin
 	// The two direct call sites in openai_account_scheduler.go (len(accounts)==0
 	// fast paths) route through this shared helper, so the deprecated gate must
 	// live here too, not just in openAICompatNoCandidateError.
-	err := noAvailableOpenAISelectionError("codex-auto-review", false, PlatformOpenAI)
-	require.ErrorIs(t, err, ErrDeprecatedOpenAIModel)
-
-	err = noAvailableOpenAISelectionError("gpt-5.5", false, PlatformOpenAI)
+	err := noAvailableOpenAISelectionError("gpt-5.5", false, PlatformOpenAI)
 	require.False(t, errors.Is(err, ErrDeprecatedOpenAIModel))
+
+	err = noAvailableOpenAISelectionError("codex-auto-review", false, PlatformOpenAI)
 	require.False(t, errors.Is(err, ErrDeprecatedOpenAIModel))
 }

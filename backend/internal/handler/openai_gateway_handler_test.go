@@ -457,17 +457,29 @@ func TestShouldLogOpenAIForwardFailureAsWarn(t *testing.T) {
 func TestRejectDeprecatedOpenAICompatModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	t.Run("openai_shape", func(t *testing.T) {
+	t.Run("codex_auto_review_not_blocked", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
 		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 		h := &OpenAIGatewayHandler{}
 		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
 
-		require.True(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "codex-auto-review", false))
+		require.False(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "codex-auto-review", false))
+		require.Empty(t, rec.Body.String())
+		require.False(t, hasOpsClientRequestRejected(c))
+	})
+
+	t.Run("retired_gpt_5_2_openai_shape", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		h := &OpenAIGatewayHandler{}
+		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
+
+		require.True(t, h.rejectDeprecatedOpenAICompatModel(c, apiKey, "gpt-5.2", false))
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 		require.Equal(t, service.TkDeprecatedOpenAIErrorType, gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-		require.Contains(t, gjson.GetBytes(rec.Body.Bytes(), "error.message").String(), "not directly selectable")
+		require.Contains(t, gjson.GetBytes(rec.Body.Bytes(), "error.message").String(), "gpt-5.5")
 		require.True(t, hasOpsClientRequestRejected(c))
 	})
 

@@ -36,13 +36,10 @@ import (
 //     gpt-5.4-high, codex-mini-latest, and gpt-5-chat-latest remain priced for
 //     billing but hidden from /pricing and /models; clients may still request
 //     them and are routed through CanonicalizeOpenAICompatRoutingModel to a
-//     served floor id. Retired / never-selectable ids such as gpt-5.2 and
-//     codex-auto-review take the deprecated-model 400 path instead; non-display
-//     aliases such as gpt-5.3-codex route to their canonical supported target.
-//     codex-auto-review is deliberately EXCLUDED from both sets even though it
-//     returns a live 200: it is an internal ChatGPT-Codex capability, not a
-//     directly-selectable model, so it is routed through the hard-rejection gate
-//     (openai_deprecated_model_tk.go) instead of being advertised or scheduled.
+//     served floor id. Retired ids such as gpt-5.2 take the deprecated-model 400
+//     path instead; non-display aliases such as gpt-5.3-codex route to their
+//     canonical supported target. codex-auto-review is empirically servable on
+//     prod ChatGPT OAuth accounts (2026-07-28 upstream probe) and is allowlisted.
 //
 //   - gemini/Vertex (2026-06-09 live probe of the us6 google group, account 3
 //     catch-all, hit the app internally to bypass the edge Caddy): kept the IDs
@@ -130,13 +127,9 @@ var supportedClaudeCatalogModels = func() map[string]struct{} {
 }()
 
 // supportedOpenAICatalogModels — gpt IDs confirmed servable.
-//
-// codex-auto-review deliberately excluded: it is an internal, non-selectable
-// capability, not a client-facing chat model (2026-07 SSOT audit directive
-// #5). It is hard-rejected via tkDeprecatedOpenAIModels
-// (openai_deprecated_model_tk.go) rather than advertised here.
 var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable-allowlist:begin openai
+	"codex-auto-review":   {},
 	"gpt-5.3-codex-spark": {},
 	"gpt-5.4":             {},
 	"gpt-5.4-mini":        {},
