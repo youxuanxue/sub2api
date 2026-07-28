@@ -233,7 +233,7 @@ if command -v python3 >/dev/null 2>&1; then
     _bg_spawn redactor_test bash ./scripts/agent/redact-stream_test.sh
     _bg_spawn smoke_unittest python3 -m unittest scripts.test_smoke_suite \
         scripts.test_edge_smoke_phase_contract scripts.test_smoke_env \
-        scripts.test_load_smoke_github_env -q
+        scripts.test_smoke_lib scripts.test_load_smoke_github_env -q
 fi
 _bg_spawn ssm_parse bash ./scripts/checks/check-stage0-ssm-host-parse.sh
 

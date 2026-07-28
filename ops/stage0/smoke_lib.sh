@@ -52,6 +52,31 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
     printf '%s' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/2.1.220 (external, cli)}"
   }
 
+  # smoke_human_base_url GATEWAY_BASE
+  # Human-facing / public SPA paths (settings/public, /assets/*) follow apex
+  # after Caddy apex-domain phase 2. Gateway machine paths (/v1/*, /health) stay
+  # on TOKENKEY_BASE_URL (typically api.*). Explicit override:
+  #   TOKENKEY_SITE_BASE_URL / TK_SMOKE_SITE_BASE_URL / PROD_SITE_BASE_URL
+  smoke_human_base_url() {
+    local gateway_base="${1:-}"
+    gateway_base="${gateway_base%/}"
+    local explicit="${TOKENKEY_SITE_BASE_URL:-${TK_SMOKE_SITE_BASE_URL:-${PROD_SITE_BASE_URL:-}}}"
+    explicit="${explicit%/}"
+    if [[ -n "${explicit}" ]]; then
+      printf '%s' "${explicit}"
+      return 0
+    fi
+    if [[ "${gateway_base}" =~ ^https://api\.(.+)$ ]]; then
+      printf 'https://%s' "${BASH_REMATCH[1]}"
+      return 0
+    fi
+    if [[ "${gateway_base}" =~ ^http://api\.(.+)$ ]]; then
+      printf 'http://%s' "${BASH_REMATCH[1]}"
+      return 0
+    fi
+    printf '%s' "${gateway_base}"
+  }
+
   # smoke_model_list RAW DEFAULT
   # Prints a newline-delimited model list. RAW may be comma or whitespace
   # separated so GitHub Environment vars can stay compact.

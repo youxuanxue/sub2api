@@ -16,8 +16,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=smoke_lib.sh
+source "${SCRIPT_DIR}/smoke_lib.sh"
 BASE="${TOKENKEY_BASE_URL:-${TK_GATEWAY_URL:-}}"
 BASE="${BASE%/}"
+HUMAN_BASE="$(smoke_human_base_url "${BASE}")"
 
 if [[ -z "${BASE}" ]]; then
   echo "tk_gateway_smoke: set TOKENKEY_BASE_URL (or TK_GATEWAY_URL)." >&2
@@ -37,7 +40,7 @@ fi
 command -v curl >/dev/null 2>&1 || { echo "tk_gateway_smoke: curl not on PATH" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "tk_gateway_smoke: jq not on PATH" >&2; exit 1; }
 
-PUB="${BASE}/api/v1/settings/public"
+PUB="${HUMAN_BASE}/api/v1/settings/public"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 

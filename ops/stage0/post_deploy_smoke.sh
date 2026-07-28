@@ -54,6 +54,7 @@ source "${SCRIPT_DIR}/smoke_env.sh"
 
 BASE="${TOKENKEY_BASE_URL:-${TK_GATEWAY_URL:-}}"
 BASE="${BASE%/}"
+HUMAN_BASE="$(smoke_human_base_url "${BASE}")"
 
 API_KEY="${TK_SMOKE_API_KEY:-}"
 
@@ -72,10 +73,10 @@ command -v jq >/dev/null 2>&1 || { echo "tk_post_deploy_smoke: jq not on PATH" >
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
-echo "tk_post_deploy_smoke: base_url=${BASE} suite=${GATEWAY_SMOKE_SUITE} key=configured"
+echo "tk_post_deploy_smoke: gateway_base_url=${BASE} human_base_url=${HUMAN_BASE} suite=${GATEWAY_SMOKE_SUITE} key=configured"
 
-# --- 1) Public settings (cold path) ---
-pub_http=$(curl -sS -o "$tmpdir/pub.json" -w "%{http_code}" "${BASE}/api/v1/settings/public")
+# --- 1) Public settings (cold path; human-facing → apex after phase 2) ---
+pub_http=$(curl -sS -o "$tmpdir/pub.json" -w "%{http_code}" "${HUMAN_BASE}/api/v1/settings/public")
 echo "tk_post_deploy_smoke: GET .../api/v1/settings/public -> HTTP ${pub_http}"
 if [[ "${pub_http}" != "200" ]]; then
   echo "tk_post_deploy_smoke: public settings failed" >&2
@@ -100,7 +101,7 @@ if smoke_suite_runs frontend && [[ "${TK_SMOKE_SKIP_FRONTEND:-}" != "1" ]]; then
   repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   check_script="${repo_root}/scripts/checks/frontend-release-assets.py"
   if [[ -f "${check_script}" ]]; then
-    python3 "${check_script}" --url "${BASE}"
+    python3 "${check_script}" --url "${HUMAN_BASE}"
   else
     echo "tk_post_deploy_smoke: missing ${check_script}" >&2
     exit 1
@@ -109,7 +110,7 @@ if smoke_suite_runs frontend && [[ "${TK_SMOKE_SKIP_FRONTEND:-}" != "1" ]]; then
   missing_asset_headers="$tmpdir/missing-asset.headers"
   missing_asset_body="$tmpdir/missing-asset.body"
   missing_asset_http=$(curl -sS -o "$missing_asset_body" -D "$missing_asset_headers" -w "%{http_code}" \
-    "${BASE}/assets/TokenKeyMissingAsset-smoke.js")
+    "${HUMAN_BASE}/assets/TokenKeyMissingAsset-smoke.js")
   echo "tk_post_deploy_smoke: GET .../assets/TokenKeyMissingAsset-smoke.js -> HTTP ${missing_asset_http}"
   if [[ "${missing_asset_http}" != "404" ]]; then
     echo "tk_post_deploy_smoke: missing static asset should return HTTP 404" >&2
