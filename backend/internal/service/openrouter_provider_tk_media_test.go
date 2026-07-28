@@ -83,11 +83,11 @@ func TestTranslateOpenAIVideoFetchToOpenRouter(t *testing.T) {
 
 func TestMapOpenAIVideoStatusToOpenRouter(t *testing.T) {
 	cases := map[string]string{
-		"queued":       "pending",
-		"in_progress":  "in_progress",
-		"completed":    "completed",
-		"failure":      "failed",
-		"cancelled":    "cancelled",
+		"queued":      "pending",
+		"in_progress": "in_progress",
+		"completed":   "completed",
+		"failure":     "failed",
+		"cancelled":   "cancelled",
 	}
 	for in, want := range cases {
 		if got := mapOpenAIVideoStatusToOpenRouter(in); got != want {

@@ -12,24 +12,24 @@ const SettingKeyTKOpenRouterProviderConfig = "tk_openrouter_provider_config"
 // OR dedicated groups do not need is_exclusive=true; loop prevention uses scheme C
 // (no aggregator channels on public groups) plus explicit group_ids here.
 type OpenRouterProviderConfig struct {
-	Enabled           bool    `json:"enabled"`
-	ModelIDPrefix     string  `json:"model_id_prefix"`
-	Slug              string  `json:"slug"`
-	GroupIDs          []int64 `json:"group_ids"`
-	BillingUserID     int64   `json:"billing_user_id"`
-	AllowedAPIKeyIDs  []int64 `json:"allowed_api_key_ids"`
-	MonitorAPIKeyIDs  []int64 `json:"monitor_api_key_ids"`
-	DefaultContextLen int     `json:"default_context_length"`
-	CapacityTPM       *int64  `json:"capacity_tpm"`
-	ModelCapacityTPM  map[string]int64 `json:"model_capacity_tpm"`
-	DatacenterCountryCodes []string `json:"datacenter_country_codes"`
+	Enabled                bool             `json:"enabled"`
+	ModelIDPrefix          string           `json:"model_id_prefix"`
+	Slug                   string           `json:"slug"`
+	GroupIDs               []int64          `json:"group_ids"`
+	BillingUserID          int64            `json:"billing_user_id"`
+	AllowedAPIKeyIDs       []int64          `json:"allowed_api_key_ids"`
+	MonitorAPIKeyIDs       []int64          `json:"monitor_api_key_ids"`
+	DefaultContextLen      int              `json:"default_context_length"`
+	CapacityTPM            *int64           `json:"capacity_tpm"`
+	ModelCapacityTPM       map[string]int64 `json:"model_capacity_tpm"`
+	DatacenterCountryCodes []string         `json:"datacenter_country_codes"`
 
 	// P2 onboarding URLs surfaced to ops / provider application forms.
-	PrivacyPolicyURL    string `json:"privacy_policy_url"`
-	TermsOfServiceURL   string `json:"terms_of_service_url"`
-	StatusPageURL       string `json:"status_page_url"`
+	PrivacyPolicyURL      string `json:"privacy_policy_url"`
+	TermsOfServiceURL     string `json:"terms_of_service_url"`
+	StatusPageURL         string `json:"status_page_url"`
 	InvoicingContactEmail string `json:"invoicing_contact_email"`
-	ProviderDisplayName string `json:"provider_display_name"`
+	ProviderDisplayName   string `json:"provider_display_name"`
 }
 
 func DefaultOpenRouterProviderConfig() OpenRouterProviderConfig {
