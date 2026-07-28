@@ -777,7 +777,13 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, openAIModels, modelIDsForTest(got.Data))
+	fallback := service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil)
+	expected := filterModelsByCustomList(nil, fallback, requestedModels)
+	require.Equal(t, expected, modelIDsForTest(got.Data))
+	require.Contains(t, expected, "codex-auto-review", "explicitly listed servable id must survive custom-list filtering")
+	for _, junk := range []string{"gpt-image-2", "legacy-gpt-2024", "gpt-not-a-real-id-zzz"} {
+		require.NotContains(t, expected, junk)
+	}
 }
 
 func TestGatewayModels_OpenAICustomModelsListKeepsOpenAIResponseShapeForDefaultFallback(t *testing.T) {
