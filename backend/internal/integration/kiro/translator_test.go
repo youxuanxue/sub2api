@@ -63,6 +63,7 @@ func TestKiroToClaudeResponse_Basic(t *testing.T) {
 		7,          // inputTokens
 		3,          // outputTokens
 		"claude-sonnet-4.5",
+		"end_turn",
 	)
 	if resp == nil {
 		t.Fatal("KiroToClaudeResponse returned nil")

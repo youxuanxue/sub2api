@@ -66,7 +66,7 @@ func TestInlineThinkingRedactor_FlushRedactsTrailingTagFragment(t *testing.T) {
 
 func TestKiroToClaudeResponse_OmitsUnsignedThinking(t *testing.T) {
 	resp := KiroToClaudeResponse(
-		"answer", "secret reasoning", false, nil, 10, 5, "claude-sonnet-4-6",
+		"answer", "secret reasoning", false, nil, 10, 5, "claude-sonnet-4-6", "end_turn",
 	)
 	require.Len(t, resp.Content, 1)
 	require.Equal(t, "text", resp.Content[0].Type)
@@ -75,7 +75,7 @@ func TestKiroToClaudeResponse_OmitsUnsignedThinking(t *testing.T) {
 
 func TestKiroToClaudeResponse_NoThinkingOmitsRedactedBlock(t *testing.T) {
 	resp := KiroToClaudeResponse(
-		"answer only", "", false, nil, 10, 5, "claude-opus-4-8",
+		"answer only", "", false, nil, 10, 5, "claude-opus-4-8", "end_turn",
 	)
 	require.Len(t, resp.Content, 1)
 	require.Equal(t, "text", resp.Content[0].Type)

@@ -188,6 +188,38 @@ func TestClassifyKiroPostOutputStreamError_OnlyMarksIncompleteEOF(t *testing.T) 
 	require.False(t, IsKiroPostOutputStreamDisconnect(classifyKiroPostOutputStreamError("callback", errors.New("provider exception"))))
 }
 
+func TestMapKiroStopReason_PreservesTerminalOutcome(t *testing.T) {
+	tests := []struct {
+		name       string
+		raw        string
+		hasToolUse bool
+		want       string
+		wantErr    bool
+	}{
+		{name: "end turn", raw: "END_TURN", want: "end_turn"},
+		{name: "end turn with tool", raw: "END_TURN", hasToolUse: true, want: "tool_use"},
+		{name: "tool use", raw: "TOOL_USE", want: "tool_use"},
+		{name: "max tokens", raw: "MAX_TOKENS", want: "max_tokens"},
+		{name: "stop sequence", raw: "STOP_SEQUENCE", want: "stop_sequence"},
+		{name: "filtered refusal text", raw: "CONTENT_FILTERED", want: "end_turn"},
+		{name: "unknown fails closed", raw: "MODEL_LIMIT", wantErr: true},
+		{name: "missing fails closed", raw: "", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := mapKiroStopReason(tt.raw, tt.hasToolUse)
+			if tt.wantErr {
+				require.ErrorIs(t, err, errKiroUnsupportedStopReason)
+				require.Empty(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -228,6 +260,74 @@ func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, "message", resp["type"])
 	require.Equal(t, result.RequestID, resp["id"])
+	require.Equal(t, "end_turn", resp["stop_reason"])
+}
+
+func TestKiroGatewayService_Forward_NonStreaming_PreservesMaxTokensStopReason(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	frame := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"partial answer"}`))
+	frame = appendKiroTerminalStop(frame, "MAX_TOKENS")
+	svc := NewKiroGatewayService(&kiroFakeUpstream{body: frame}, nil, nil)
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), newKiroParsedRequestForTest(false), time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, "max_tokens", resp["stop_reason"])
+}
+
+func TestKiroGatewayService_Forward_Streaming_PreservesMaxTokensStopReason(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	frame := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"partial answer"}`))
+	frame = appendKiroTerminalStop(frame, "MAX_TOKENS")
+	svc := NewKiroGatewayService(&kiroFakeUpstream{body: frame}, nil, nil)
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), newKiroParsedRequestForTest(true), time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Contains(t, rec.Body.String(), `"stop_reason":"max_tokens"`)
+	require.NotContains(t, rec.Body.String(), `"stop_reason":"end_turn"`)
+	require.Contains(t, rec.Body.String(), "event: message_stop")
+}
+
+func TestKiroGatewayService_Forward_Streaming_UnknownStopReasonFailsClosed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	frame := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"partial answer"}`))
+	frame = appendKiroTerminalStop(frame, "MODEL_LIMIT")
+	svc := NewKiroGatewayService(&kiroFakeUpstream{body: frame}, nil, nil)
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), newKiroParsedRequestForTest(true), time.Now())
+	require.ErrorIs(t, err, errKiroUnsupportedStopReason)
+	require.Nil(t, result)
+	require.Contains(t, rec.Body.String(), "event: error")
+	require.Contains(t, rec.Body.String(), `"type":"unsupported_stop_reason"`)
+	require.NotContains(t, rec.Body.String(), "event: message_delta")
+	require.NotContains(t, rec.Body.String(), "event: message_stop")
+}
+
+func TestKiroGatewayService_Forward_NonStreaming_UnknownStopReasonFailsOver(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	frame := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"partial answer"}`))
+	frame = appendKiroTerminalStop(frame, "MODEL_LIMIT")
+	svc := NewKiroGatewayService(&kiroFakeUpstream{body: frame}, nil, nil)
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), newKiroParsedRequestForTest(false), time.Now())
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.Empty(t, rec.Body.String())
 }
 
 func TestKiroGatewayService_Forward_EmptyResponseTriggersFailover(t *testing.T) {

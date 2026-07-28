@@ -108,9 +108,27 @@
       "path": "backend/internal/integration/kiro/translator.go",
       "must_contain": [
         "func ClaudeToKiro",
-        "func KiroToClaudeResponse"
+        "func KiroToClaudeResponse",
+        "EnsureClaudeCodeCompletionGuard"
       ],
-      "rationale": "Anthropic <-> Kiro request/response translation. Without it the /v1/messages -> CodeWhisperer bridge cannot build a payload or decode the reply."
+      "rationale": "Anthropic <-> Kiro request/response translation. Without it the /v1/messages -> CodeWhisperer bridge cannot build a payload or decode the reply. EnsureClaudeCodeCompletionGuard keeps recognized Claude Code sessions working until implementation and verification are complete without duplicating policy text in this vendored-shaped layer."
+    },
+    {
+      "path": "backend/internal/pkg/claude/claude_code_completion_guard.go",
+      "must_contain": [
+        "ClaudeCodeCompletionGuardMarker",
+        "ClaudeCodeCompletionGuardText",
+        "func EnsureClaudeCodeCompletionGuard"
+      ],
+      "rationale": "Shared SSOT for Claude Code completion continuity across OpenAI-compatible Messages and Kiro. Losing or duplicating this owner lets a backend present unfinished work as a completed turn or makes the two bridge paths drift."
+    },
+    {
+      "path": "backend/internal/pkg/claude/claude_code_completion_guard_test.go",
+      "must_contain": [
+        "TestEnsureClaudeCodeCompletionGuard_AppendsExactlyOnce",
+        "If any item remains in_progress or pending, continue using tools"
+      ],
+      "rationale": "Behavioral evidence that completion continuity is present and idempotent while preserving the legacy marker used by existing bridge detection."
     },
     {
       "path": "backend/internal/integration/kiro/estimate.go",
@@ -241,10 +259,13 @@
         "classifyKiroPostOutputStreamError",
         "recordKiroStreamError",
         "CONTENT_FILTERED",
+        "mapKiroStopReason",
+        "gateway.kiro_stop_reason",
+        "unsupported_stop_reason",
         "classifyAndRecordKiroForwardError",
         "publishKiroInternalThinkingSideChannel"
       ],
-      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream. It estimates token usage locally (EstimateInputTokens/EstimateOutputTokens) and stamps ForwardResult.BillingTier=\"kiro-estimated\", because the Kiro upstream reports credits only — without these calls both forward paths return Usage{0,0} and kiro bills as 100% free. The context-aware call and ResetForRetry callbacks are load-bearing: non-streaming retries clear all partial buffers, while streaming retries are rejected after enc.started to prevent duplicated client output. The `callErr != nil && !enc.started` guard + classifyAndRecordKiroForwardError keep pre-content failures visible instead of returning an empty 200 stream and retain the sanitized original transport/read cause in ops upstream_errors. An upstream merge that drops any of these guards silently regresses reliability, billing, response integrity, or incident diagnosability."
+      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream. It estimates token usage locally (EstimateInputTokens/EstimateOutputTokens) and stamps ForwardResult.BillingTier=\"kiro-estimated\", because the Kiro upstream reports credits only — without these calls both forward paths return Usage{0,0} and kiro bills as 100% free. The context-aware call and ResetForRetry callbacks are load-bearing: non-streaming retries clear all partial buffers, while streaming retries are rejected after enc.started to prevent duplicated client output. The stop-reason mapper and structured marker preserve Kiro's authoritative terminal outcome; unknown values fail closed instead of forging end_turn. The `callErr != nil && !enc.started` guard + classifyAndRecordKiroForwardError keep pre-content failures visible instead of returning an empty 200 stream and retain the sanitized original transport/read cause in ops upstream_errors. An upstream merge that drops any of these guards silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_test.go",
@@ -257,6 +278,11 @@
         "TestKiroGatewayService_Forward_NonStreaming_ContentFilteredIsNotFailover",
         "TestKiroGatewayService_Forward_Streaming_ContentFilteredIsNotFailover",
         "TestKiroGatewayService_Forward_ContentFilteredWithAssistantTextRemainsSuccess",
+        "TestMapKiroStopReason_PreservesTerminalOutcome",
+        "TestKiroGatewayService_Forward_NonStreaming_PreservesMaxTokensStopReason",
+        "TestKiroGatewayService_Forward_Streaming_PreservesMaxTokensStopReason",
+        "TestKiroGatewayService_Forward_Streaming_UnknownStopReasonFailsClosed",
+        "TestKiroGatewayService_Forward_NonStreaming_UnknownStopReasonFailsOver",
         "TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailover",
         "TestKiroGatewayService_Forward_EventStreamThrottlingTriggersFailover",
         "TestKiroGatewayService_Forward_EmptyEventStreamExceptionPreservesFailoverClass",
@@ -277,9 +303,10 @@
         "kiroSSEEncoder",
         "message_start",
         "content_block_delta",
-        "func (e *kiroSSEEncoder) ensureBlock"
+        "func (e *kiroSSEEncoder) ensureBlock",
+        "writeMessageDelta(outputTokens int, stopReason string)"
       ],
-      "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse). ensureBlock (and writeToolUse) lazily call writeMessageStart on first content; writeMessageStart is idempotent (`if e.started { return }`). This laziness is what keeps enc.started false on a pre-content upstream 400 so the gateway service can surface the error instead of a clean empty 200 stream."
+      "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse). The explicit stopReason argument prevents the encoder from inventing end_turn when upstream actually stopped for a token limit or an unsupported outcome. ensureBlock (and writeToolUse) lazily call writeMessageStart on first content; writeMessageStart is idempotent (`if e.started { return }`). This laziness is what keeps enc.started false on a pre-content upstream 400 so the gateway service can surface the error instead of a clean empty 200 stream."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder_tk_thinking_redact_test.go",

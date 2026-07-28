@@ -39,7 +39,6 @@ type kiroSSEEncoder struct {
 	started     bool          // message_start has been emitted
 	openBlock   kiroBlockKind // currently open content block
 	blockIndex  int           // index of the currently open / next block
-	stopReason  string        // accumulated stop reason ("end_turn" / "tool_use")
 	emittedText bool          // any text/tool block emitted
 }
 
@@ -59,7 +58,6 @@ func (e *kiroSSEEncoder) writeMessageStart() {
 		return
 	}
 	e.started = true
-	e.stopReason = "end_turn"
 	e.writeEvent("message_start", map[string]any{
 		"type": "message_start",
 		"message": map[string]any{
@@ -124,7 +122,6 @@ func (e *kiroSSEEncoder) writeTextDelta(text string) {
 func (e *kiroSSEEncoder) writeToolUse(tu kiroproto.KiroToolUse) {
 	e.writeMessageStart()
 	e.closeOpenBlock()
-	e.stopReason = "tool_use"
 
 	e.writeEvent("content_block_start", map[string]any{
 		"type":  "content_block_start",
@@ -167,15 +164,11 @@ func (e *kiroSSEEncoder) closeOpenBlock() {
 	e.blockIndex++
 }
 
-func (e *kiroSSEEncoder) writeMessageDelta(outputTokens int) {
-	stop := e.stopReason
-	if stop == "" {
-		stop = "end_turn"
-	}
+func (e *kiroSSEEncoder) writeMessageDelta(outputTokens int, stopReason string) {
 	e.writeEvent("message_delta", map[string]any{
 		"type": "message_delta",
 		"delta": map[string]any{
-			"stop_reason":   stop,
+			"stop_reason":   stopReason,
 			"stop_sequence": nil,
 		},
 		"usage": map[string]any{"output_tokens": outputTokens},
