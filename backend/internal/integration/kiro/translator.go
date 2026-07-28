@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	claudepkg "github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/google/uuid"
 )
 
@@ -363,6 +364,9 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 func buildClaudeSystemPrompt(system interface{}, thinking bool) string {
 	rawSystemPrompt := extractSystemPrompt(system)
 	systemPrompt := applyPromptFilters(rawSystemPrompt)
+	if isClaudeCodeSystemPrompt(rawSystemPrompt) {
+		systemPrompt = claudepkg.EnsureClaudeCodeCompletionGuard(systemPrompt)
+	}
 	if systemPrompt == "" {
 		systemPrompt = kiroClaudeIdentityOverride
 	} else {
@@ -955,7 +959,7 @@ func shortenToolName(name string) string {
 
 // ==================== Kiro -> Claude 转换 ====================
 
-func KiroToClaudeResponse(content, _ string, includeEmptyThinkingBlock bool, toolUses []KiroToolUse, inputTokens, outputTokens int, model string) *ClaudeResponse {
+func KiroToClaudeResponse(content, _ string, includeEmptyThinkingBlock bool, toolUses []KiroToolUse, inputTokens, outputTokens int, model, stopReason string) *ClaudeResponse {
 	blocks := make([]ClaudeContentBlock, 0)
 	if includeEmptyThinkingBlock {
 		blocks = append(blocks, ClaudeContentBlock{Type: "thinking", Thinking: ""})
@@ -975,11 +979,6 @@ func KiroToClaudeResponse(content, _ string, includeEmptyThinkingBlock bool, too
 			Name:  tu.Name,
 			Input: tu.Input,
 		})
-	}
-
-	stopReason := "end_turn"
-	if len(toolUses) > 0 {
-		stopReason = "tool_use"
 	}
 
 	return &ClaudeResponse{

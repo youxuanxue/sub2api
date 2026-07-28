@@ -72,6 +72,47 @@ func classifyKiroPostOutputStreamError(kind string, err error) error {
 	return wrapped
 }
 
+// mapKiroStopReason preserves Kiro's authoritative terminal outcome on the
+// Anthropic Messages wire. Unknown values fail closed instead of being forged
+// into end_turn, which would make Claude Code report an incomplete task as
+// successfully completed.
+func mapKiroStopReason(raw string, hasToolUse bool) (string, error) {
+	normalized := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(raw), "-", "_"))
+	switch normalized {
+	case "END_TURN":
+		if hasToolUse {
+			return "tool_use", nil
+		}
+		return "end_turn", nil
+	case "TOOL_USE":
+		return "tool_use", nil
+	case "MAX_TOKENS":
+		return "max_tokens", nil
+	case "STOP_SEQUENCE":
+		return "stop_sequence", nil
+	case "CONTENT_FILTERED":
+		// Empty filtered responses are rejected before this mapper. If Kiro
+		// returned visible refusal text, retain the historical success behavior.
+		return "end_turn", nil
+	default:
+		return "", fmt.Errorf("%w: %q", errKiroUnsupportedStopReason, truncateString(raw, 64))
+	}
+}
+
+func logKiroStopReason(account *Account, model, raw, mapped string, stream bool) {
+	accountID := int64(0)
+	if account != nil {
+		accountID = account.ID
+	}
+	slog.Info("gateway.kiro_stop_reason",
+		slog.Int64("account_id", accountID),
+		slog.String("model", model),
+		slog.String("raw_stop_reason", truncateString(raw, 64)),
+		slog.String("anthropic_stop_reason", mapped),
+		slog.Bool("stream", stream),
+	)
+}
+
 // NewKiroGatewayService constructs a KiroGatewayService.
 func NewKiroGatewayService(
 	httpUpstream HTTPUpstream,
@@ -240,9 +281,14 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
 	inputTokens := kiroproto.EstimateInputTokens(req)
 	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, toolUses)
+	mappedStopReason, err := mapKiroStopReason(stopReason, len(toolUses) > 0)
+	if err != nil {
+		return nil, classifyAndRecordKiroForwardError(c, account, err, model)
+	}
+	logKiroStopReason(account, model, stopReason, mappedStopReason, false)
 
 	resp := kiroproto.KiroToClaudeResponse(
-		textBuf, thinkingBuf, false, toolUses, inputTokens, outputToks, model,
+		textBuf, thinkingBuf, false, toolUses, inputTokens, outputToks, model, mappedStopReason,
 	)
 	resp.ID = requestID
 
@@ -438,12 +484,20 @@ func (s *KiroGatewayService) forwardStreaming(
 	// it for the ForwardResult so the two never drift.
 	inputTokens := enc.inputTokens
 	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, toolUses)
+	mappedStopReason, err := mapKiroStopReason(stopReason, len(toolUses) > 0)
+	if err != nil {
+		msg := sanitizeStreamError(err)
+		recordKiroStreamError(c, account, msg)
+		writeKiroStreamError(c, flusher, "unsupported_stop_reason", msg)
+		return nil, fmt.Errorf("kiro stream stop reason error: %w", err)
+	}
+	logKiroStopReason(account, model, stopReason, mappedStopReason, true)
 
 	// Upstream succeeded but produced no content (enc.started still false):
 	// emit message_start lazily here so the closing events form a valid stream.
 	enc.writeMessageStart()
 	enc.closeOpenBlock()
-	enc.writeMessageDelta(outputToks)
+	enc.writeMessageDelta(outputToks, mappedStopReason)
 	enc.writeMessageStop()
 	publishKiroInternalThinkingSideChannel(c, w, nil, thinkingBuf)
 	flusher.Flush()
