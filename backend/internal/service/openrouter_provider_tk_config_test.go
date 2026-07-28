@@ -20,11 +20,18 @@ func TestParseOpenRouterProviderConfig_Defaults(t *testing.T) {
 
 func TestOpenRouterProviderConfig_CatalogAndInferenceURLs(t *testing.T) {
 	cfg := DefaultOpenRouterProviderConfig()
-	if got := cfg.CatalogBaseURL("https://api.tokenkey.dev"); got != "https://api.tokenkey.dev/openrouter/v1/models" {
+	base := "https://api.tokenkey.dev"
+	if got := cfg.CatalogBaseURL(base); got != base+"/openrouter/v1/models" {
 		t.Fatalf("catalog url=%q", got)
 	}
-	if got := cfg.InferenceBaseURL("https://api.tokenkey.dev"); got != "https://api.tokenkey.dev/v1/chat/completions" {
+	if got := cfg.InferenceBaseURL(base); got != base+"/v1/chat/completions" {
 		t.Fatalf("inference url=%q", got)
+	}
+	if got := cfg.ImagesBaseURL(base); got != base+"/openrouter/v1/images" {
+		t.Fatalf("images url=%q", got)
+	}
+	if got := cfg.VideosBaseURL(base); got != base+"/openrouter/v1/videos" {
+		t.Fatalf("videos url=%q", got)
 	}
 }
 

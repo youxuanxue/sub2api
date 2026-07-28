@@ -5465,6 +5465,79 @@
         "TestHandleGeminiFailoverExhaustedPreservesUnclassifiedProvider503Mapping"
       ],
       "rationale": "Native Gemini regressions pin the classified Google 429 envelope and the unchanged generic mapping for arbitrary provider 503 responses."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_openrouter_provider.go",
+      "must_contain": [
+        "OpenRouterProviderModels",
+        "BuildOpenRouterProviderCatalog",
+        "GetOpenRouterProviderConfig"
+      ],
+      "rationale": "OpenRouter seller catalog surface: GET /openrouter/v1/models must stay wired to tk_openrouter_provider_config + BuildOpenRouterProviderCatalog. Upstream merges can drop this companion while the route still compiles via a stub handler."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway.go",
+      "must_contain": [
+        "Group(\"/openrouter/v1\")",
+        "OpenRouterProviderModels",
+        "OpenRouterProviderImages",
+        "OpenRouterProviderVideoSubmit",
+        "OpenRouterProviderVideoFetch"
+      ],
+      "rationale": "Route registration for OpenRouter provider catalog + image/video inference surfaces; without this group the onboarding endpoints 404 even when config is present."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_openrouter_provider_media.go",
+      "must_contain": [
+        "OpenRouterProviderImages",
+        "OpenRouterProviderVideoSubmit",
+        "OpenRouterProviderVideoFetch",
+        "TranslateOpenRouterImageRequestToOpenAI",
+        "BuildOpenRouterVideoSubmitResponse"
+      ],
+      "rationale": "OpenRouter seller image/video inference adapters: OR JSON ↔ internal OpenAI-compat handlers with OR response shapes (b64_json images, 202 video submit + poll)."
+    },
+    {
+      "path": "backend/internal/service/openrouter_provider_tk_media.go",
+      "must_contain": [
+        "TranslateOpenRouterImageRequestToOpenAI",
+        "TranslateOpenAIImageResponseToOpenRouter",
+        "TranslateOpenRouterVideoRequestToOpenAI",
+        "TranslateOpenAIVideoFetchToOpenRouter"
+      ],
+      "rationale": "Pure translation layer for OpenRouter provider image/video protocol compliance; handlers must not re-encode this mapping inline."
+    },
+    {
+      "path": "backend/internal/service/openrouter_provider_tk_policy.go",
+      "must_contain": [
+        "checkPublicGroupAggregatorChannelPolicy",
+        "PublicGroupForbiddenAggregatorChannelTypes",
+        "scheme C"
+      ],
+      "rationale": "Scheme C loop prevention: public groups must reject OpenRouter/Coze/Submodel aggregator upstream accounts. Dropping this policy re-opens universal-key routing into OpenRouter relay loops."
+    },
+    {
+      "path": "backend/internal/service/admin_account.go",
+      "must_contain": [
+        "checkPublicGroupAggregatorChannelPolicy"
+      ],
+      "rationale": "Admin account create/update must invoke scheme C policy at the write boundary; the helper alone does not block bad group bindings."
+    },
+    {
+      "path": "backend/internal/service/openrouter_provider_tk_model.go",
+      "must_contain": [
+        "NormalizeOpenRouterProviderChatBody",
+        "InternalModelID"
+      ],
+      "rationale": "OpenRouter inference path must rewrite tokenkey/* public model ids back to internal catalog ids before gateway scheduling."
+    },
+    {
+      "path": "backend/internal/service/openrouter_provider_tk_catalog.go",
+      "must_contain": [
+        "BuildOpenRouterProviderCatalog",
+        "openRouterProviderBuildPricing"
+      ],
+      "rationale": "Catalog builder is the seller onboarding contract owner; pricing/features/schema drift here breaks OpenRouter provider application compliance."
     }
   ]
 }

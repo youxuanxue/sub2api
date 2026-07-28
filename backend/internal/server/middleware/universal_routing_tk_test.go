@@ -178,7 +178,7 @@ func TestAuthMiddleware_UniversalKeySwapsBackingGroupEndToEnd(t *testing.T) {
 	subscriptionService := service.NewSubscriptionService(groupRepo, subRepo, nil, nil, cfg)
 
 	router := gin.New()
-	router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, cfg)))
+	router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, nil, cfg)))
 	var seenGroupID int64
 	router.POST("/v1/chat/completions", func(c *gin.Context) {
 		if k, ok := GetAPIKeyFromContext(c); ok && k.GroupID != nil {
@@ -231,7 +231,7 @@ func TestGoogleAuthMiddleware_UniversalGeminiShapeSwapsToAntigravityGroup(t *tes
 	subscriptionService := service.NewSubscriptionService(groupRepo, subRepo, nil, nil, cfg)
 
 	router := gin.New()
-	router.Use(APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
+	router.Use(APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, nil, cfg))
 	var seenPlatform string
 	var seenGroupID int64
 	router.POST("/v1beta/models/*modelAction", func(c *gin.Context) {

@@ -19,6 +19,7 @@ import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 POLICY_GO = REPO_ROOT / "backend/internal/service/openrouter_provider_tk_policy.go"
+ADMIN_ACCOUNT_GO = REPO_ROOT / "backend/internal/service/admin_account.go"
 ROUTE_GO = REPO_ROOT / "backend/internal/server/routes/gateway.go"
 CONFIG_EXAMPLE = REPO_ROOT / "ops/pricing/examples/openrouter-provider-config.example.json"
 
@@ -50,6 +51,10 @@ REQUIRED_OR_PROVIDER_MARKERS = {
 REQUIRED_ROUTE_MARKERS = (
     'Group("/openrouter/v1")',
     "OpenRouterProviderModels",
+)
+
+REQUIRED_ADMIN_ACCOUNT_MARKERS = (
+    "checkPublicGroupAggregatorChannelPolicy",
 )
 
 
@@ -87,6 +92,13 @@ def main() -> int:
         for marker in markers:
             if marker not in text:
                 return _fail(f"{path.name} missing marker {marker!r}")
+
+    if not ADMIN_ACCOUNT_GO.is_file():
+        return _fail(f"missing admin account owner: {ADMIN_ACCOUNT_GO}")
+    admin_text = ADMIN_ACCOUNT_GO.read_text(encoding="utf-8")
+    for marker in REQUIRED_ADMIN_ACCOUNT_MARKERS:
+        if marker not in admin_text:
+            return _fail(f"admin_account.go missing policy call site {marker!r}")
 
     return 0
 

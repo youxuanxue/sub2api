@@ -14,12 +14,13 @@ import (
 type OpenRouterProviderModel struct {
 	ID                          string                             `json:"id"`
 	Name                        string                             `json:"name"`
+	Description                 string                             `json:"description,omitempty"`
 	Created                     int64                              `json:"created"`
 	InputModalities             []string                           `json:"input_modalities"`
 	OutputModalities            []string                           `json:"output_modalities"`
 	Quantization                string                             `json:"quantization"`
 	ContextLength               int                                `json:"context_length"`
-	MaxOutputLength             int                                `json:"max_output_length,omitempty"`
+	MaxOutputLength             int                                `json:"max_output_length"`
 	Pricing                     OpenRouterProviderModelPricing     `json:"pricing"`
 	SupportedSamplingParameters []string                           `json:"supported_sampling_parameters"`
 	SupportedFeatures           []string                           `json:"supported_features,omitempty"`
@@ -191,13 +192,14 @@ func (s *GatewayService) BuildOpenRouterProviderCatalog(
 		item := OpenRouterProviderModel{
 			ID:                          publicID,
 			Name:                        openRouterProviderDisplayName(cfg, publicID, metaPtr),
+			Description:                 openRouterProviderDescription(cfg, publicID, metaPtr),
 			Created:                     created,
 			InputModalities:             openRouterProviderInputModalities(metaPtr),
 			OutputModalities:            openRouterProviderOutputModalities(metaPtr),
 			Quantization:                openRouterProviderDefaultQuantization,
 			ContextLength:               openRouterProviderContextLength(cfg, metaPtr),
 			MaxOutputLength:             openRouterProviderMaxOutputLength(cfg, metaPtr),
-			Pricing:                     openRouterProviderBuildPricing(group, promptUSD, completionUSD, cacheReadUSD, baseMult),
+			Pricing:                     openRouterProviderBuildPricing(group, metaPtr, promptUSD, completionUSD, cacheReadUSD, baseMult),
 			SupportedSamplingParameters: append([]string(nil), openRouterProviderDefaultSamplingParameters...),
 			SupportedFeatures:           openRouterProviderSupportedFeatures(metaPtr),
 			IsReady:                     true,

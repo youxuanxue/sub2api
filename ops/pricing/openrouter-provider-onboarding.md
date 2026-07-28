@@ -8,13 +8,22 @@ Ops checklist for [OpenRouter provider application](https://openrouter.ai/provid
 | --- | --- |
 | Models catalog | `https://api.tokenkey.dev/openrouter/v1/models` |
 | Alias models catalog | `https://api.tokenkey.dev/v1/models` (same payload for allowlisted OR/monitor keys) |
-| Inference | `https://api.tokenkey.dev/v1/chat/completions` |
+| Chat inference | `https://api.tokenkey.dev/v1/chat/completions` |
+| Image inference | `https://api.tokenkey.dev/openrouter/v1/images` |
+| Video inference | `https://api.tokenkey.dev/openrouter/v1/videos` (submit + poll `/openrouter/v1/videos/{id}`) |
 
 Catalog auth: Bearer token using either `allowed_api_key_ids` (inference + catalog) or `monitor_api_key_ids` (catalog read-only).
 
 ## Settings JSON
 
 Write `tk_openrouter_provider_config` from `ops/pricing/examples/openrouter-provider-config.example.json`.
+
+Prod bootstrap (creates group/keys/config; prints ids only, never key secrets):
+
+```bash
+python3 ops/pricing/manage-openrouter-provider-config.py snapshot
+python3 ops/pricing/manage-openrouter-provider-config.py update-config  # upsert 6 group_ids + existing keys
+```
 
 Required fields:
 
@@ -41,4 +50,8 @@ go test -tags=unit ./backend/internal/handler -run OpenRouterProvider
 
 ## Inference model id contract
 
-OpenRouter calls `POST /v1/chat/completions` with the same `id` returned by `/openrouter/v1/models` (for example `tokenkey/deepseek-v4-pro`). TokenKey rewrites that public id back to the internal scheduling id before routing.
+OpenRouter calls inference with the same `id` returned by `/openrouter/v1/models` (for example `tokenkey/deepseek-v4-pro`). TokenKey rewrites that public id back to the internal scheduling id before routing.
+
+- Chat: `POST /v1/chat/completions`
+- Image (`output_modalities` includes `image`): `POST /openrouter/v1/images` — OR schema in/out (`data[].b64_json`)
+- Video (`output_modalities` includes `video`): `POST /openrouter/v1/videos` → `202` with `{id,polling_url,status}`; poll `GET /openrouter/v1/videos/{id}`

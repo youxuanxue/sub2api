@@ -165,3 +165,19 @@ func (c OpenRouterProviderConfig) InferenceBaseURL(apiBase string) string {
 	}
 	return base + "/v1/chat/completions"
 }
+
+func (c OpenRouterProviderConfig) ImagesBaseURL(apiBase string) string {
+	base := strings.TrimRight(strings.TrimSpace(apiBase), "/")
+	if base == "" {
+		base = "https://api.tokenkey.dev"
+	}
+	return base + "/openrouter/v1/images"
+}
+
+func (c OpenRouterProviderConfig) VideosBaseURL(apiBase string) string {
+	base := strings.TrimRight(strings.TrimSpace(apiBase), "/")
+	if base == "" {
+		base = "https://api.tokenkey.dev"
+	}
+	return base + "/openrouter/v1/videos"
+}
