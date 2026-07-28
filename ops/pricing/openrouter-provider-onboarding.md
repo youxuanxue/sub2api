@@ -18,6 +18,13 @@ Catalog auth: Bearer token using either `allowed_api_key_ids` (inference + catal
 
 Write `tk_openrouter_provider_config` from `ops/pricing/examples/openrouter-provider-config.example.json`.
 
+That example tracks **prod IDs and URLs** (user 32, six supply `group_ids`, inference/monitor key ids). It never stores raw API key strings — only numeric ids. Re-sync after bootstrap or group/key changes:
+
+```bash
+python3 ops/pricing/manage-openrouter-provider-config.py snapshot
+# compare group_ids / allowed_api_key_ids / monitor_api_key_ids, then edit example if drifted
+```
+
 Prod bootstrap (creates group/keys/config; prints ids only, never key secrets):
 
 ```bash
