@@ -40,6 +40,7 @@ func samplePricingMissingEvent() PricingMissingEvent {
 		GroupID:        3,
 		GroupName:      "vertex-pool",
 		APIKeyID:       42,
+		UserID:         16,
 		Tokens:         1500,
 	}
 }
@@ -55,6 +56,7 @@ func TestPricingMissingNotifier_FirstSeenSendsOnce_ThenAggregates(t *testing.T) 
 	body := doer.lastBody()
 	require.Contains(t, body, "doubao-seedream-9", "first-seen card must name the model")
 	require.Contains(t, body, "newapi", "first-seen card must name the platform")
+	require.Contains(t, body, "**user**：#16", "first-seen card must name the user")
 	require.Contains(t, body, "已照常服务", "card must state service was NOT refused")
 	require.Contains(t, body, "apply-pricing-hotfix.py", "card must point at the hot-update runbook")
 

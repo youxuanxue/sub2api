@@ -427,7 +427,14 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	}
 	if result != nil && result.ImageCount > 0 {
 		// 渠道定价为 token 计费时走 token 路径，否则走图片计费
-		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
+		resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
+		useTokenPath := resolved != nil && resolved.Mode == BillingModeToken
+		// TK: imagen-* overlay rows are image-only; channel token mode must not
+		// force token settlement (would bill $0).
+		if useTokenPath && s.resolver != nil && s.resolver.tkResolveOverlayMediaPerRequest(billingModel) != nil {
+			useTokenPath = false
+		}
+		if !useTokenPath {
 			return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), nil
 		}
 	}

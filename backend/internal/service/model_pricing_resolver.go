@@ -87,6 +87,22 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	// 1. 获取基础定价
 	basePricing, source := r.resolveBasePricing(input.Model)
 
+	// TK: image-only overlay rows (imagen-*, TokenPricingAbsent) fail-closed in
+	// GetModelPricing but must still bill when settlement hits the token path
+	// (ImageCount not propagated). Resolve them as per-image/per-request here.
+	if basePricing == nil {
+		if media := r.tkResolveOverlayMediaPerRequest(input.Model); media != nil {
+			if chPricing != nil {
+				media.Source = PricingSourceChannel
+				media.channelPricing = chPricing
+				if chPricing.BillingMode == BillingModePerRequest || chPricing.BillingMode == BillingModeImage {
+					r.applyRequestTierOverrides(chPricing, media)
+				}
+			}
+			return media
+		}
+	}
+
 	resolved := &ResolvedPricing{
 		Mode:                   BillingModeToken,
 		BasePricing:            basePricing,
