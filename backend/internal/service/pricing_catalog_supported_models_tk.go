@@ -150,14 +150,13 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 
 // supportedOpenAIAinzyRelayCatalogModels — gpt IDs kept in the compiled
 // model_mapping floor for prod account 76 (api.ainzy.net/v1). Mirrors the
-// operator-applied 2026-07-09 runtime mapping so deploys do not re-narrow the
-// account back to a stale floor. codex-auto-review excluded — see
-// supportedOpenAICatalogModels.
+// operator-applied runtime mapping so deploys do not re-narrow the account
+// back to a stale floor. gpt-5.3-codex-spark excluded: 2026-07-28 prod probe
+// showed api.ainzy.net returns 404 for spark; OAuth/edge accounts serve it.
 var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
-	"gpt-5.3-codex-spark": {},
-	"gpt-5.4":             {},
-	"gpt-5.4-mini":        {},
-	"gpt-5.5":             {},
+	"gpt-5.4":      {},
+	"gpt-5.4-mini": {},
+	"gpt-5.5":      {},
 }
 
 // supportedGeminiCatalogModels — gemini/Vertex IDs confirmed servable through
