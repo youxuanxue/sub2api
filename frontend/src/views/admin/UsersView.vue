@@ -767,9 +767,6 @@
     <UserCreateModal v-if="lazyMount('create', showCreateModal)" :show="showCreateModal" @close="showCreateModal = false" @success="loadUsers" />
     <InviteTrialModal v-if="lazyMount('invite', showInviteTrialModal)" :show="showInviteTrialModal" :seed="inviteSeed" @close="showInviteTrialModal = false" @success="loadUsers" />
     <UserEditModal v-if="lazyMount('edit', showEditModal)" :show="showEditModal" :user="editingUser" @close="closeEditModal" @success="loadUsers" />
-    <ConfirmDialog :show="showDeleteDialog" :title="t('admin.users.deleteUser')" :message="t('admin.users.deleteConfirm', { email: deletingUser?.email })" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
-    <UserCreateModal :show="showCreateModal" @close="showCreateModal = false" @success="loadUsers" />
-    <UserEditModal :show="showEditModal" :user="editingUser" @close="closeEditModal" @success="loadUsers" />
     <BulkEditUserModal
       :show="showBulkEditModal"
       :selected-ids="selectedIds"
