@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # probe-release-control-plane.sh — read-only post-release control-plane health.
 #
-# Checks prod /health + /api/v1/settings/public and each deployable Edge /health.
+# Checks prod /health (api.* gateway) + /api/v1/settings/public (apex human
+# surface after phase 2) and each deployable Edge /health.
 # This mechanizes the tokenkey-stage0-release-rollout follow-up control-plane
 # step so operators do not hand-roll jq/curl loops during a release.
 #
@@ -10,6 +11,8 @@
 #   - a final SUMMARY JSON object with ok/total/failures.
 #
 # Env:
+#   PROD_BASE_URL=https://api.tokenkey.dev  gateway /health (machine path)
+#   PROD_SITE_BASE_URL optional; defaults from PROD_BASE_URL (api.* → apex)
 #   EDGE_IDS=us3,us4 limits edges; EDGE_IDS=none checks prod only.
 #
 # Usage:
@@ -32,7 +35,11 @@ fi
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+# shellcheck source=../stage0/smoke_lib.sh
+source "${REPO_ROOT}/ops/stage0/smoke_lib.sh"
+
 PROD_BASE_URL="${PROD_BASE_URL:-https://api.tokenkey.dev}"
+PROD_SITE_BASE_URL="$(smoke_human_base_url "${PROD_BASE_URL}")"
 CURL_TIMEOUT_SECONDS="${CURL_TIMEOUT_SECONDS:-10}"
 INCLUDE_SETTINGS_PUBLIC="${INCLUDE_SETTINGS_PUBLIC:-1}"
 EDGE_IDS="${EDGE_IDS:-}"
@@ -49,7 +56,7 @@ fi
 declare -a PROBES=()
 PROBES+=("prod health ${PROD_BASE_URL%/}/health")
 if [ "$INCLUDE_SETTINGS_PUBLIC" = "1" ]; then
-  PROBES+=("prod settings_public ${PROD_BASE_URL%/}/api/v1/settings/public")
+  PROBES+=("prod settings_public ${PROD_SITE_BASE_URL%/}/api/v1/settings/public")
 fi
 
 if [ "$EDGE_IDS" = "none" ]; then

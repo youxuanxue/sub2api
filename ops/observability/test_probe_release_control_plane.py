@@ -102,6 +102,52 @@ class ProbeReleaseControlPlaneTest(unittest.TestCase):
             self.assertIn("https://prod.example.test/api/v1/settings/public", urls)
             self.assertIn("https://api-us9.example.test/health", urls)
 
+    def test_prod_settings_public_uses_apex_when_gateway_is_api_subdomain(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = pathlib.Path(td)
+            fakebin = tmp / "bin"
+            fakebin.mkdir()
+            (fakebin / "curl").write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    out=""
+                    while [ "$#" -gt 0 ]; do
+                      case "$1" in
+                        -o) out="$2"; shift 2 ;;
+                        -w) shift 2 ;;
+                        --max-time) shift 2 ;;
+                        -sS) shift ;;
+                        *) url="$1"; shift ;;
+                      esac
+                    done
+                    [ -n "$out" ] && printf '{"status":"ok"}' > "$out"
+                    printf '200 0.123'
+                    """
+                ),
+            )
+            (fakebin / "curl").chmod(0o755)
+            env = {
+                **os.environ,
+                "PATH": f"{fakebin}:{os.environ.get('PATH', '')}",
+                "EDGE_IDS": "none",
+                "PROD_BASE_URL": "https://api.prod.example.test",
+            }
+            proc = subprocess.run(
+                ["bash", str(_SCRIPT)],
+                cwd=_REPO,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+            rows = [json.loads(line) for line in proc.stdout.splitlines() if line.startswith("{")]
+            urls = {row.get("url") for row in rows if "url" in row}
+            self.assertIn("https://api.prod.example.test/health", urls)
+            self.assertIn("https://prod.example.test/api/v1/settings/public", urls)
+            self.assertNotIn("https://api.prod.example.test/api/v1/settings/public", urls)
+
     def test_failure_exits_nonzero_and_summarizes(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tmp = pathlib.Path(td)

@@ -13,11 +13,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SMOKE_LIB = REPO_ROOT / "ops" / "stage0" / "smoke_lib.sh"
 
 
-def _run_helper(fn: str, models_file: Path, model: str) -> subprocess.CompletedProcess[str]:
+def _run_bash(source: str) -> subprocess.CompletedProcess[str]:
     script = f"""
 set -euo pipefail
 source "{SMOKE_LIB}"
-{fn} "{models_file}" "{model}"
+{source}
 """
     return subprocess.run(
         ["bash", "-c", script],
@@ -25,6 +25,41 @@ source "{SMOKE_LIB}"
         capture_output=True,
         check=False,
     )
+
+
+def _run_helper(fn: str, models_file: Path, model: str) -> subprocess.CompletedProcess[str]:
+    return _run_bash(f'{fn} "{models_file}" "{model}"')
+
+
+class SmokeLibHumanBaseURLTest(unittest.TestCase):
+    def test_derives_apex_from_api_subdomain(self) -> None:
+        proc = _run_bash('smoke_human_base_url "https://api.tokenkey.dev"')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "https://tokenkey.dev")
+
+    def test_keeps_localhost_single_host(self) -> None:
+        proc = _run_bash('smoke_human_base_url "http://127.0.0.1:8088"')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "http://127.0.0.1:8088")
+
+    def test_respects_explicit_site_override(self) -> None:
+        proc = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f"""
+set -euo pipefail
+source "{SMOKE_LIB}"
+export TOKENKEY_SITE_BASE_URL=https://custom.example.test
+smoke_human_base_url "https://api.tokenkey.dev"
+""",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "https://custom.example.test")
 
 
 class SmokeLibAnthropicModelListTest(unittest.TestCase):

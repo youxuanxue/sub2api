@@ -152,6 +152,8 @@ OAuth / 支付 webhook URL **保持** `api.tokenkey.dev`（与 Caddy `@machine` 
 
 正常 Stage0 发版即可；index.html meta 变更需新镜像才在用户侧生效。
 
+**deploy-stage0 smoke（阶段二）**：`TOKENKEY_BASE_URL` 仍为 `https://api.tokenkey.dev`（`/v1/*`、`/health`）；`/api/v1/settings/public` 与前端 `/assets/*` 由 `ops/stage0/smoke_lib.sh` 自动打 apex（`https://tokenkey.dev`）。`ops/observability/probe-release-control-plane.sh` 同理：`PROD_BASE_URL` 管 health，`settings/public` 走推导 apex。
+
 **回滚**：`sync_caddyfile` 从 backup 恢复阶段一 Caddyfile；Settings 改回；DNS 不动。
 
 ### 把 #811 的 swap + 内存压力告警落到「已经在跑」的 prod（不重建实例）
@@ -663,7 +665,7 @@ python3 scripts/stage0/check_smoke_config.py
 
 #### deploy-stage0 发版后网关烟测（强制）
 
-Workflow 在 `/health` 之后会执行 `ops/stage0/post_deploy_smoke.sh`（`GATEWAY_SMOKE_SUITE=full`）。必须在 **`prod`** Environment 配置上表 **`TK_SMOKE_API_KEY` secret**；未配置则 deploy **失败**。Secret 必须在 **`api.tokenkey.dev`（prod 栈）** 下有效。
+Workflow 在 `/health` 之后会执行 `ops/stage0/post_deploy_smoke.sh`（`GATEWAY_SMOKE_SUITE=full`）。必须在 **`prod`** Environment 配置上表 **`TK_SMOKE_API_KEY` secret**；未配置则 deploy **失败**。Secret 必须在 **`api.tokenkey.dev`（prod 栈）** 下有效。人类/公开面探针（`settings/public`、前端 assets）在 apex 阶段二后自动走 `https://tokenkey.dev`；gateway 探针仍用 `TOKENKEY_BASE_URL`（`api.*`）。
 
 本地复现（与 CI 同一套 `TK_SMOKE_*` 名字；**GitHub secret 值无法经 gh/API 读取**，须在本机 export 同名变量）：
 
