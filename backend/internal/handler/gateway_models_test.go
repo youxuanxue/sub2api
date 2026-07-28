@@ -764,10 +764,8 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 			Platform: service.PlatformOpenAI,
 			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: true,
-				// codex-auto-review is an internal capability, not directly
-				// selectable (2026-07 SSOT audit #5) — it must be filtered out
-				// here just like the other non-servable ids, even though the
-				// admin explicitly listed it.
+				// codex-auto-review is empirically servable; when listed explicitly it
+				// stays in the custom list like other SSOT ids (non-servable junk still drops).
 				Models: requestedModels,
 			},
 		},

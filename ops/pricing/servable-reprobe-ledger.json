@@ -467,11 +467,6 @@
       "reason": "2026-07-10 SSOT audit directive #2: legacy GPT-5.2 Pro is intentionally hard-rejected via openai_deprecated_model_tk.go; do not advertise or auto-probe as a selectable model."
     },
     {
-      "platform": "openai",
-      "model": "codex-auto-review",
-      "reason": "2026-07-10 SSOT audit directive #5: internal ChatGPT-Codex review capability, never directly selectable; hard-rejected via openai_deprecated_model_tk.go even if a probe can produce 200."
-    },
-    {
       "platform": "grok",
       "model": "grok-imagine-image-pro",
       "reason": "Retired upstream on 2026-05-15; replaced by grok-imagine-image-quality."

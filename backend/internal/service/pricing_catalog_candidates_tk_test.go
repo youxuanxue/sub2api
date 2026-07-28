@@ -47,7 +47,7 @@ func TestServableClientFacingIDs_InvariantAndAdvertisedDead(t *testing.T) {
 	}
 	anyAllowID := firstStringForTest(t, allow)
 	require.True(t, allowSet[anyAllowID], "precondition: sampled OpenAI SSOT id must be allowlisted")
-	require.False(t, allowSet["codex-auto-review"], "codex-auto-review is an internal capability, never client-selectable (deprecated-model gate)")
+	require.True(t, allowSet["codex-auto-review"], "codex-auto-review is empirically servable and allowlisted")
 	require.False(t, allowSet["gpt-5-pro"], "SSOT delta gate 403 model must not remain allowlisted")
 	// Price EVERYTHING (allowlist + dead ids) so the ONLY thing that can keep a
 	// dead id out is the candidate (allowlist) gate, not the price gate.
@@ -64,7 +64,7 @@ func TestServableClientFacingIDs_InvariantAndAdvertisedDead(t *testing.T) {
 	for _, d := range dead {
 		require.False(t, gotSet[d], "advertised_dead %s must not reach the /v1/models fallback", d)
 	}
-	require.False(t, gotSet["codex-auto-review"], "codex-auto-review is an internal capability, never client-selectable (deprecated-model gate)")
+	require.True(t, gotSet["codex-auto-review"], "codex-auto-review must be visible when priced and allowlisted")
 }
 
 // TestServableClientFacingIDs_DropsVisibleButUnpriced pins the other half of the

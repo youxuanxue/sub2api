@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "floor_sha256": "903b2cf3ae800027b8807881e907debc8f909eaea9c84bd448f57d2fe25edffc",
+  "floor_sha256": "6c6827d2bf40f24102650200fedbdf8564d2058bb4127b232e82d8a7c7e7cfea",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -102,6 +102,7 @@
         "claude-sonnet-5": "claude-sonnet-5"
       },
       "openai": {
+        "codex-auto-review": "codex-auto-review",
         "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
         "gpt-5.4": "gpt-5.4",
         "gpt-5.4-mini": "gpt-5.4-mini",
