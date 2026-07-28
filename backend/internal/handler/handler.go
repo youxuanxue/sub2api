@@ -69,6 +69,7 @@ type Handlers struct {
 	OpenAIGateway    *OpenAIGatewayHandler
 	Setting          *SettingHandler
 	Totp             *TotpHandler
+	Passkey          *PasskeyHandler
 	Payment          *PaymentHandler
 	PaymentWebhook   *PaymentWebhookHandler
 	AvailableChannel *AvailableChannelHandler
@@ -89,9 +90,10 @@ type Handlers struct {
 	// TK: edge least-privilege account WRITE ops (clear-rate-limit / reset-quota /
 	// temp-unschedulable / schedulable / usage) the prod /accounts page proxies to
 	// for inline edge-account management — see edge_tk_account_ops_handler.go.
-	EdgeAccountOps *EdgeAccountOpsHandler
-	BatchImage     *BatchImageHandler
-	AsyncImage     *AsyncImageHandler
+	EdgeAccountOps   *EdgeAccountOpsHandler
+	ModelPlaza       *ModelPlazaHandler
+	BatchImage       *BatchImageHandler
+	AsyncImage       *AsyncImageHandler
 }
 
 // BuildInfo contains build-time information

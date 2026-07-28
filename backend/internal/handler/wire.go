@@ -326,6 +326,7 @@ func ProvideHandlers(
 	openaiGatewayHandler *OpenAIGatewayHandler,
 	settingHandler *SettingHandler,
 	totpHandler *TotpHandler,
+	passkeyHandler *PasskeyHandler,
 	paymentHandler *PaymentHandler,
 	paymentWebhookHandler *PaymentWebhookHandler,
 	availableChannelHandler *AvailableChannelHandler,
@@ -337,6 +338,7 @@ func ProvideHandlers(
 	edgeAccountsHandler *EdgeAccountsHandler,
 	edgeAdminSessionHandler *EdgeAdminSessionHandler,
 	edgeAccountOpsHandler *EdgeAccountOpsHandler,
+	modelPlazaHandler *ModelPlazaHandler,
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
 	_ *service.IdempotencyCoordinator,
@@ -356,6 +358,7 @@ func ProvideHandlers(
 		OpenAIGateway:    openaiGatewayHandler,
 		Setting:          settingHandler,
 		Totp:             totpHandler,
+		Passkey:          passkeyHandler,
 		Payment:          paymentHandler,
 		PaymentWebhook:   paymentWebhookHandler,
 		AvailableChannel: availableChannelHandler,
@@ -367,6 +370,7 @@ func ProvideHandlers(
 		EdgeAccounts:     edgeAccountsHandler,
 		EdgeAdminSession: edgeAdminSessionHandler,
 		EdgeAccountOps:   edgeAccountOpsHandler,
+		ModelPlaza:       modelPlazaHandler,
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
 	}
@@ -386,6 +390,7 @@ var ProviderSet = wire.NewSet(
 	ProvideGatewayHandler,
 	ProvideOpenAIGatewayHandler,
 	NewTotpHandler,
+	NewPasskeyHandler,
 	ProvideSettingHandler,
 	NewPaymentHandler,
 	NewPaymentWebhookHandler,
@@ -404,8 +409,9 @@ var ProviderSet = wire.NewSet(
 	ProvideEdgeAdminSessionHandler,
 	// TK: edge least-privilege account WRITE ops the prod /accounts page proxies to — see edge_tk_account_ops_handler.go.
 	ProvideEdgeAccountOpsHandler,
-	ProvideBatchImageHandler,
+	NewModelPlazaHandler,
 	NewAsyncImageHandler,
+	ProvideBatchImageHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,
