@@ -86,6 +86,7 @@ func tkNotifyServedAtFallback(
 	}
 	if apiKey != nil {
 		ev.APIKeyID = apiKey.ID
+		ev.UserID = apiKey.UserID
 		if apiKey.Group != nil {
 			ev.GroupID = apiKey.Group.ID
 			ev.GroupName = apiKey.Group.Name
@@ -159,6 +160,7 @@ func (s *GatewayService) tkNotifyServedZeroCost(
 	}
 	if apiKey != nil {
 		ev.APIKeyID = apiKey.ID
+		ev.UserID = apiKey.UserID
 		if apiKey.Group != nil {
 			ev.GroupID = apiKey.Group.ID
 			ev.GroupName = apiKey.Group.Name

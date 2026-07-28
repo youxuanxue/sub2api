@@ -66,6 +66,7 @@ type PricingMissingEvent struct {
 	GroupID        int64
 	GroupName      string
 	APIKeyID       int64
+	UserID         int64 // api key 所属用户（运维定位）
 	Tokens         int64 // 本次未计费计费单元估算（token 总量或图片张数）
 }
 
@@ -379,7 +380,11 @@ func buildPricingMissingFirstSeenText(site string, ev PricingMissingEvent, platf
 	if ev.GroupID > 0 {
 		group = pricingMissingGroupLabel(ev.GroupID, ev.GroupName)
 	}
-	return fmt.Sprintf("**节点**：%s\n**原因**：%s\n**平台**：%s\n**计费模型**：%s\n**请求模型**：%s\n**上游模型**：%s\n**组**：%s\n**api_key**：#%d\n**本次计费单元**：%d\n**时间**：%s\n\n%s（24h 内同模型不再即时提醒，后续进周期摘要）。\n\n%s\n%s",
+	user := "-"
+	if ev.UserID > 0 {
+		user = fmt.Sprintf("#%d", ev.UserID)
+	}
+	return fmt.Sprintf("**节点**：%s\n**原因**：%s\n**平台**：%s\n**计费模型**：%s\n**请求模型**：%s\n**上游模型**：%s\n**组**：%s\n**user**：%s\n**api_key**：#%d\n**本次计费单元**：%d\n**时间**：%s\n\n%s（24h 内同模型不再即时提醒，后续进周期摘要）。\n\n%s\n%s",
 		escapeFeishuText(site),
 		escapeFeishuText(pricingMissingReasonLabel(ev.Reason)),
 		escapeFeishuText(platform),
@@ -387,6 +392,7 @@ func buildPricingMissingFirstSeenText(site string, ev PricingMissingEvent, platf
 		escapeFeishuText(requested),
 		escapeFeishuText(upstream),
 		escapeFeishuText(group),
+		escapeFeishuText(user),
 		ev.APIKeyID,
 		ev.Tokens,
 		escapeFeishuText(formatAlertTime(now)),

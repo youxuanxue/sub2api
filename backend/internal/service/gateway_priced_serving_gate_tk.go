@@ -253,6 +253,7 @@ func tkLogAndNotifyPricedServingGateRejection(
 	}
 	if apiKey != nil {
 		ev.APIKeyID = apiKey.ID
+		ev.UserID = apiKey.UserID
 	}
 	if group != nil {
 		ev.GroupID = group.ID
