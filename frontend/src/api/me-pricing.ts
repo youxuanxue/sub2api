@@ -37,14 +37,35 @@ export interface MePricingPrice {
   per_image?: number
   /** USD per second of generated video (video billing_mode), scaled by the user's rate. */
   per_second?: number
-  /** Input-token interval (阶梯) ladder, copied verbatim from the public catalog
+  /** Higher output price charged in thinking mode for the same model id, copied
+   *  from the public catalog. Present only when the model has a thinking-mode
+   *  premium; `output_per_1k` stays the non-thinking rate. */
+  thinking_output_per_1k?: number
+  /** Context-length interval (阶梯) ladder, copied verbatim from the public catalog
    *  (single source of truth — me-pricing is the official list price). The flat
    *  input/output fields carry the first tier. Absent for flat-priced models. */
   tiers?: MePricingTier[]
+  /** Time-of-day (峰谷) pricing, copied verbatim from the public catalog. The flat
+   *  fields above are the off-peak (谷时) price; these are the peak side. */
+  peak_valley?: MePricingPeakValley
 }
 
-/** One input-token bracket of a tiered (阶梯) price. `min_tokens` inclusive,
- *  `max_tokens` exclusive; `max_tokens` absent = open-ended top tier. Per 1k tokens. */
+/** Peak-window list price for models with an upstream time-of-day multiplier.
+ *  Mirrors PublicPricingPeakValley — see api/pricing.ts. */
+export interface MePricingPeakValley {
+  timezone: string
+  windows: string[]
+  peak_multiplier: number
+  /** Peak-side prices. Always present (backend marshals these without omitempty). */
+  input_per_1k: number
+  output_per_1k: number
+  cache_read_per_1k?: number
+}
+
+/** One context-length bracket of a tiered (阶梯) price. Matching is left-open,
+ *  right-closed `(min_tokens, max_tokens]` — see FindMatchingInterval in
+ *  backend/internal/service/channel.go. `max_tokens` absent = open-ended top
+ *  tier. Per 1k tokens. */
 export interface MePricingTier {
   min_tokens: number
   max_tokens?: number

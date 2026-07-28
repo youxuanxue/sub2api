@@ -244,11 +244,55 @@ type MePricingPrice struct {
 	// same one the public /pricing endpoint serves. The flat Input/OutputPer1K
 	// fields carry the first (lowest) tier. Per 1k tokens, USD.
 	Tiers []MePricingTier `json:"tiers,omitempty"`
+	// PeakValley, when present, is the time-of-day (峰谷) price variant, copied
+	// verbatim from the public catalog (same single-source rationale as Tiers).
+	// The flat fields above are the OFF-PEAK (谷时) price; PeakValley carries the
+	// peak side. Without this the authenticated group catalog disclosed LESS than
+	// the public one — a logged-in user saw only the off-peak price with no hint
+	// that a ×N window exists.
+	PeakValley *MePricingPeakValley `json:"peak_valley,omitempty"`
+	// ThinkingOutputPer1K mirrors PublicCatalogPricing.ThinkingOutputPer1KTokens:
+	// the higher output price charged in thinking mode for the same model id.
+	// Carried for the same disclosure-parity reason as PeakValley.
+	ThinkingOutputPer1K *float64 `json:"thinking_output_per_1k,omitempty"`
+}
+
+// MePricingPeakValley mirrors PublicCatalogPeakValley (the single source) in the
+// me-pricing DTO's naming. Prices are the PEAK side, per 1k tokens, USD.
+type MePricingPeakValley struct {
+	Timezone       string   `json:"timezone"`
+	Windows        []string `json:"windows"`
+	PeakMultiplier float64  `json:"peak_multiplier"`
+	InputPer1K     float64  `json:"input_per_1k"`
+	OutputPer1K    float64  `json:"output_per_1k"`
+	CacheReadPer1K float64  `json:"cache_read_per_1k,omitempty"`
+}
+
+// mePricingPeakValleyFromCatalog copies the catalog's peak/valley block into the
+// me-pricing DTO verbatim (no rate scaling — me-pricing is the official list
+// price). Returns nil when the model has no peak pricing so the field stays omitted.
+func mePricingPeakValleyFromCatalog(pv *PublicCatalogPeakValley) *MePricingPeakValley {
+	if pv == nil {
+		return nil
+	}
+	out := MePricingPeakValley{
+		Timezone:       pv.Timezone,
+		PeakMultiplier: pv.PeakMultiplier,
+		InputPer1K:     pv.InputPer1KTokens,
+		OutputPer1K:    pv.OutputPer1KTokens,
+		CacheReadPer1K: pv.CacheReadPer1K,
+	}
+	if len(pv.Windows) > 0 {
+		out.Windows = append([]string{}, pv.Windows...)
+	}
+	return &out
 }
 
 // MePricingTier mirrors PublicCatalogTier (the single source) in the me-pricing
-// DTO's per-1k naming. MinTokens inclusive, MaxTokens exclusive (nil = open-ended
-// top tier). Pointer prices keep the "nil = no data" convention of MePricingPrice.
+// DTO's per-1k naming. The bracket is left-open, right-closed — (MinTokens,
+// MaxTokens] — matching FindMatchingInterval in channel.go, which is the billing
+// behaviour; MaxTokens == nil is the open-ended top tier. Pointer prices keep the
+// "nil = no data" convention of MePricingPrice.
 type MePricingTier struct {
 	MinTokens      int      `json:"min_tokens"`
 	MaxTokens      *int     `json:"max_tokens,omitempty"`
@@ -594,6 +638,11 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 			// Single source of truth: the阶梯 ladder is the public catalog's,
 			// copied verbatim (me-pricing is the official list price, rate 1.0).
 			m.YourPrice.Tiers = mePricingTiersFromCatalog(meta.Pricing.Tiers)
+			m.YourPrice.PeakValley = mePricingPeakValleyFromCatalog(meta.Pricing.PeakValley)
+			if meta.Pricing.ThinkingOutputPer1KTokens > 0 {
+				tho := meta.Pricing.ThinkingOutputPer1KTokens
+				m.YourPrice.ThinkingOutputPer1K = &tho
+			}
 		}
 		if m.Capabilities == nil {
 			m.Capabilities = []string{}

@@ -8,6 +8,42 @@ const catalog = (data: PublicCatalogResponse['data']): PublicCatalogResponse => 
   updated_at: '2026-06-26T00:00:00Z'
 })
 
+/**
+ * Split one CSV record into cells, honouring RFC-4180 quoting so a quoted cell
+ * containing commas (the tiers ladder, the peak-window list) counts as one cell.
+ * Needed to assert column alignment — a naive split(',') would report a shifted
+ * row as correct.
+ */
+function parseCsvRow(row: string): string[] {
+  const cells: string[] = []
+  let cell = ''
+  let quoted = false
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i]
+    if (quoted) {
+      if (ch === '"') {
+        if (row[i + 1] === '"') {
+          cell += '"'
+          i++
+        } else {
+          quoted = false
+        }
+      } else {
+        cell += ch
+      }
+    } else if (ch === '"') {
+      quoted = true
+    } else if (ch === ',') {
+      cells.push(cell)
+      cell = ''
+    } else {
+      cell += ch
+    }
+  }
+  cells.push(cell)
+  return cells
+}
+
 describe('useTkPricingExport.buildPricingCsv', () => {
   it('emits header + one row per model, prices converted to per-1M', () => {
     const csv = buildPricingCsv(
@@ -50,8 +86,126 @@ describe('useTkPricingExport.buildPricingCsv', () => {
         }
       ])
     )
-    // the ladder is one cell, segments joined by ' | ' (no comma → no quoting)
-    expect(csv).toContain('0-128k: in 0.1194 / out 0.2985 | 128k-∞: in 0.7164 / out 7.1642')
+    // the ladder is one cell, segments joined by ' | '. Brackets are written
+    // (min, max] to match FindMatchingInterval's left-open/right-closed billing.
+    expect(csv).toContain('(0, 128k]: in 0.1194 / out 0.2985 | (128k, ∞): in 0.7164 / out 7.1642')
+  })
+
+  it('carries each tier\'s cache-read price into the ladder cell', () => {
+    const csv = buildPricingCsv(
+      catalog([
+        {
+          model_id: 'glm-4.7',
+          vendor: 'zhipu',
+          pricing: {
+            currency: 'USD',
+            input_per_1k_tokens: 0.0004478,
+            output_per_1k_tokens: 0.0020896,
+            tiers: [
+              {
+                min_tokens: 0,
+                max_tokens: 32000,
+                input_per_1k_tokens: 0.0004478,
+                output_per_1k_tokens: 0.0020896,
+                cache_read_per_1k: 0.0000896
+              },
+              {
+                min_tokens: 32000,
+                input_per_1k_tokens: 0.000597,
+                output_per_1k_tokens: 0.0023881,
+                cache_read_per_1k: 0.0001194
+              }
+            ]
+          },
+          capabilities: []
+        }
+      ])
+    )
+    expect(csv).toContain('(0, 32k]: in 0.4478 / out 2.0896 / cache 0.0896')
+    expect(csv).toContain('(32k, ∞): in 0.597 / out 2.3881 / cache 0.1194')
+  })
+
+  it('emits the peak/valley columns (flat fields stay the off-peak price)', () => {
+    const csv = buildPricingCsv(
+      catalog([
+        {
+          model_id: 'deepseek-v4-pro',
+          vendor: 'deepseek',
+          pricing: {
+            currency: 'USD',
+            input_per_1k_tokens: 0.000435,
+            output_per_1k_tokens: 0.00087,
+            peak_valley: {
+              timezone: 'Asia/Shanghai',
+              windows: ['09:00-12:00', '14:00-18:00'],
+              peak_multiplier: 2,
+              input_per_1k_tokens: 0.00087,
+              output_per_1k_tokens: 0.00174
+            }
+          },
+          capabilities: []
+        }
+      ])
+    )
+    const [header, row] = csv.split('\r\n')
+    const cells = header.split(',')
+    // windows share a cell, separated by ';' so the cell stays one CSV column
+    expect(row).toContain('09:00-12:00; 14:00-18:00')
+    expect(row).toContain('Asia/Shanghai')
+    // peak = flat × multiplier: 0.435/1M off-peak → 0.87/1M peak
+    const values = parseCsvRow(row)
+    expect(values[cells.indexOf('input_per_1M')]).toBe('0.435')
+    expect(values[cells.indexOf('peak_input_per_1M')]).toBe('0.87')
+    expect(values[cells.indexOf('peak_output_per_1M')]).toBe('1.74')
+    expect(values[cells.indexOf('peak_multiplier')]).toBe('2')
+  })
+
+  it('keeps every row aligned with the header (no shifted columns)', () => {
+    const csv = buildPricingCsv(
+      catalog([
+        // flat, tiered and peak-priced rows must all emit the same cell count —
+        // a value added to the header without a matching cell silently shifts
+        // every later column in the sheet.
+        { model_id: 'flat', vendor: 'openai', pricing: { currency: 'USD', input_per_1k_tokens: 0.001, output_per_1k_tokens: 0.002 }, capabilities: [] },
+        {
+          model_id: 'tiered',
+          vendor: 'volcengine',
+          pricing: {
+            currency: 'USD',
+            input_per_1k_tokens: 0.0004,
+            output_per_1k_tokens: 0.002,
+            tiers: [
+              { min_tokens: 0, max_tokens: 32000, input_per_1k_tokens: 0.0004, output_per_1k_tokens: 0.002 },
+              { min_tokens: 32000, input_per_1k_tokens: 0.0007, output_per_1k_tokens: 0.0035 }
+            ]
+          },
+          capabilities: []
+        },
+        {
+          model_id: 'peak',
+          vendor: 'deepseek',
+          pricing: {
+            currency: 'USD',
+            input_per_1k_tokens: 0.0004,
+            output_per_1k_tokens: 0.0008,
+            peak_valley: {
+              timezone: 'Asia/Shanghai',
+              windows: ['09:00-12:00'],
+              peak_multiplier: 2,
+              input_per_1k_tokens: 0.0008,
+              output_per_1k_tokens: 0.0016,
+              cache_read_per_1k: 0.00001
+            }
+          },
+          capabilities: ['vision']
+        }
+      ])
+    )
+    const rows = csv.split('\r\n')
+    const expected = rows[0].split(',').length
+    for (const row of rows.slice(1)) {
+      expect(parseCsvRow(row)).toHaveLength(expected)
+    }
   })
 
   it('sorts by (vendor, model_id) and leaves flat models with an empty tiers cell', () => {
