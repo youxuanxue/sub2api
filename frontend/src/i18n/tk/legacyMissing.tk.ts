@@ -34,14 +34,19 @@ const en: LocaleOverlay = {
       "success": "Pricing exported",
       "empty": "Public catalog is empty — nothing to export"
     },
+    // Key names must match the calls in utils/pricingVariants.tk.ts exactly —
+    // vue-i18n silently echoes a missing key, so a rename on either side ships as
+    // literal "pricing.variant.tierUpTo" text in the price column.
+    // Bracket labels read as (min, max], the billing behaviour of
+    // FindMatchingInterval (backend/internal/service/channel.go).
     "variant": {
-      "tieredNote": "Tiered by context (input + cache)",
-      "peakNote": "Peak {windows} ({tz}) ×{mult}",
-      "offPeakLabel": "Off-peak",
-      "peakLabel": "Peak",
-      "upTo": "≤{max}",
-      "between": "{min}–{max}",
-      "over": ">{min}"
+      "tierUpTo": "≤{bound}",
+      "tierAbove": ">{bound}",
+      "tierRange": "{lo}–{hi}",
+      "tieredCaption": "Price varies by context length (input + cache tokens)",
+      "offPeak": "Off-peak",
+      "peak": "Peak",
+      "peakCaption": "Peak {windows} ({tz}) bills at {mult}× the off-peak price"
     },
     "footer": {
       "total": "{count} models listed",
@@ -950,14 +955,16 @@ const zh: LocaleOverlay = {
       "success": "定价已导出",
       "empty": "对外价目录为空，无可导出内容"
     },
+    // 键名必须与 utils/pricingVariants.tk.ts 的调用完全一致（见 en 注释）。
+    // 区间口径为左开右闭 (min, max]，与 FindMatchingInterval 的计费行为一致。
     "variant": {
-      "tieredNote": "按上下文分档（输入+缓存）",
-      "peakNote": "高峰 {windows}（{tz}）×{mult}",
-      "offPeakLabel": "谷时",
-      "peakLabel": "高峰",
-      "upTo": "≤{max}",
-      "between": "{min}–{max}",
-      "over": ">{min}"
+      "tierUpTo": "≤{bound}",
+      "tierAbove": ">{bound}",
+      "tierRange": "{lo}–{hi}",
+      "tieredCaption": "按上下文长度分档计价（输入 + 缓存 token 合计）",
+      "offPeak": "谷时",
+      "peak": "高峰",
+      "peakCaption": "高峰 {windows}（{tz}）按谷时价 ×{mult} 计费"
     },
     "footer": {
       "total": "共 {count} 个模型",
