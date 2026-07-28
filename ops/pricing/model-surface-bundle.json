@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "floor_sha256": "ea117224b8d0cecf825b918da5f1b54280f132e689d796dbb29e326b91a3c1ef",
+  "floor_sha256": "903b2cf3ae800027b8807881e907debc8f909eaea9c84bd448f57d2fe25edffc",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -112,7 +112,6 @@
         "gpt-5.6-terra": "gpt-5.6-terra"
       },
       "openai_ainzy_relay": {
-        "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
         "gpt-5.4": "gpt-5.4",
         "gpt-5.4-mini": "gpt-5.4-mini",
         "gpt-5.5": "gpt-5.5"
