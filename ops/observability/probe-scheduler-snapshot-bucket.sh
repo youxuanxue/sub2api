@@ -133,8 +133,9 @@ fi
 
 echo
 echo "=== scheduler_outbox watermark + recent events touching group/account ==="
-$PSQL -c "SELECT 'watermark=' || COALESCE((SELECT MAX(id)::text FROM scheduler_outbox WHERE id <= (SELECT COALESCE(NULLIF(current_setting('tk.redis_outbox_watermark', true), ''), '0')::bigint)), 'unknown');" 2>/dev/null || true
-$RC GET sched:outbox:watermark 2>/dev/null | awk '{print "redis_watermark=" $0}'
+echo -n "redis_watermark="
+$RC GET sched:outbox:watermark 2>/dev/null || echo "unknown"
+$PSQL -c "SELECT row_to_json(t) FROM (SELECT MAX(id) AS max_outbox_id, COUNT(*) AS pending_count FROM scheduler_outbox) t;" 2>&1
 
 $PSQL -c "
 SELECT row_to_json(t) FROM (

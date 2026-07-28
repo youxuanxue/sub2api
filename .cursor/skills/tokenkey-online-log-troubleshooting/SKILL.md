@@ -42,6 +42,7 @@ description: >-
 | final error 与 QA evidence 覆盖率（request_id 关联、retention、blob ref/本地存在性；不输出正文或 URI） | 机械 | `ops/observability/probe-qa-error-evidence.sh`（经 run-probe 投递；先判断是否有可深挖证据，再决定是否需要隐私受控的正文检查） |
 | `SUB2API_DEBUG_GATEWAY_BODY` 日志拉回本机（SSM gzip → S3 presigned PUT → 本地 gunzip） | 机械 | `ops/observability/fetch-gateway-debug-log.sh --target prod\|edge:<id>`（**本地** orchestrator，不走 run-probe） |
 | anthropic capacity / cap 与 schedulable 证据 | 机械 | `ops/observability/probe-caps.sh`（已有，通过 run-probe.sh 投递）/ `ops/anthropic/manage-anthropic-config.py snapshot` |
+| Scheduler snapshot 桶 vs DB 对齐（`ListSchedulableAccounts` mixed/single 路径：Redis `sched:*` zcard、DB 可调度池、outbox 尾；排查 total=0 时区分本地空池 vs edge relay 下游空池） | 机械 | `ops/observability/probe-scheduler-snapshot-bucket.sh`（经 run-probe 投递；`GROUP_ID` 必填、`PLATFORM` 默认 gemini、`MODE` 可选 mixed/single/forced） |
 | 镜像 edge 死活/容量判定（fleet 横扫：served_200:no_available_429 + 可调度账号数 → verdict） | 机械 | `ops/observability/scan-edge-health.sh`（本地 fan-out 全 deployable edge）/ 单边远端 `probe-edge-health.sh` + 纯函数 `edge_health_verdict.py`（`--selftest` 已进 preflight） |
 | 时间窗规范（UTC ↔ Asia/Shanghai 双写） | 判断 | prompt（含报告口径，无机械抓手） |
 | 解读规则：final_status vs upstream events、镜像账号链式失败、prod upstream-429 不反映 edge 死活 | 判断 | prompt（架构判断，§0 列出 9 个 trap 已固化） |
