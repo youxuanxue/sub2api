@@ -27,6 +27,15 @@ func (r *bulkEventAccountRepo) GetByIDs(context.Context, []int64) ([]*Account, e
 	return append([]*Account(nil), r.accounts...), nil
 }
 
+func (r *bulkEventAccountRepo) GetByID(_ context.Context, id int64) (*Account, error) {
+	for _, account := range r.accounts {
+		if account != nil && account.ID == id {
+			return account, nil
+		}
+	}
+	return nil, ErrAccountNotFound
+}
+
 type bulkEventSnapshotCache struct {
 	*batchSnapshotCache
 
@@ -208,4 +217,28 @@ func TestSchedulerBulkAccountEventUnknownPlatformFallsBackToAllPlatforms(t *test
 	require.NoError(t, err)
 	platforms := schedulerSnapshotPlatforms()
 	require.ElementsMatch(t, schedulerBucketsForTest([]int64{41, 42}, platforms[:]...), cache.capturedBuckets())
+}
+
+func TestSchedulerOutboxBatchAllowsMixedRebuildAfterEarlierGeminiAccountEvent(t *testing.T) {
+	const groupID int64 = 21
+	cache := newBulkEventSnapshotCache()
+	repo := newBulkEventAccountRepo(
+		&Account{ID: 100, Platform: PlatformGemini, GroupIDs: []int64{groupID}},
+		&Account{ID: 85, Platform: PlatformAntigravity, GroupIDs: []int64{groupID}, Extra: map[string]any{"mixed_scheduling": true}},
+	)
+	svc := newBulkEventTestService(cache, repo)
+	seen := make(map[batchSeenKey]struct{})
+
+	require.NoError(t, svc.handleAccountEvent(context.Background(), ptrInt64(100), nil, seen))
+	require.NoError(t, svc.handleAccountEvent(context.Background(), ptrInt64(85), nil, seen))
+
+	mixed := SchedulerBucket{GroupID: groupID, Platform: PlatformGemini, Mode: SchedulerModeMixed}
+	captured := cache.capturedBuckets()
+	count := 0
+	for _, bucket := range captured {
+		if bucket == mixed {
+			count++
+		}
+	}
+	require.GreaterOrEqual(t, count, 2, "antigravity mixed_scheduling change must rebuild gemini mixed even after earlier gemini event in same batch")
 }

@@ -33,11 +33,14 @@ const (
 	outboxMaxIDErrorLogSampleInterval     = time.Minute
 )
 
-// batchSeenKey tracks completed per-platform rebuilds and group lifecycle work
-// within one pollOutbox call.
+// batchSeenKey tracks completed rebuilds and group lifecycle work within one
+// pollOutbox call. mixedOnly separates gemini/anthropic mixed buckets from
+// single/forced so a later antigravity mixed_scheduling change can still refresh
+// the mixed snapshot even when single/forced were rebuilt earlier in the batch.
 type batchSeenKey struct {
 	groupID   int64
 	platform  string
+	mixedOnly bool
 	lifecycle bool
 }
 
@@ -576,6 +579,7 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 			addPlatformGroups(PlatformAntigravity, accountGroupIDs)
 			addPlatformGroups(PlatformAnthropic, accountGroupIDs)
 			addPlatformGroups(PlatformGemini, accountGroupIDs)
+			invalidateMixedBucketSeen(seen, accountGroupIDs)
 		default:
 			return s.rebuildByGroupIDs(ctx, rebuildGroupIDs, "account_bulk_change", seen)
 		}
@@ -586,6 +590,9 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 		preloadGroupIDs = s.normalizeGroupIDs(preloadGroupIDs)
 		for platform := range platformGroupSets {
 			addPlatformGroups(platform, preloadGroupIDs)
+		}
+		if _, ok := platformGroupSets[PlatformAntigravity]; ok {
+			invalidateMixedBucketSeen(seen, preloadGroupIDs)
 		}
 	}
 
@@ -764,6 +771,9 @@ func markGroupLifecycleSeen(seen map[batchSeenKey]struct{}, groupID int64) {
 	seen[batchSeenKey{groupID: groupID, lifecycle: true}] = struct{}{}
 	for _, platform := range schedulerSnapshotPlatforms() {
 		seen[batchSeenKey{groupID: groupID, platform: platform}] = struct{}{}
+		if platform == PlatformAnthropic || platform == PlatformGemini {
+			seen[batchSeenKey{groupID: groupID, platform: platform, mixedOnly: true}] = struct{}{}
+		}
 	}
 }
 
@@ -776,12 +786,30 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 		return nil
 	}
 
+	if account.Platform == PlatformAntigravity {
+		invalidateMixedBucketSeen(seen, groupIDs)
+	}
+
 	buckets := s.bucketsForPlatform(account.Platform, groupIDs, seen)
 	if account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled() {
 		buckets = append(buckets, s.bucketsForPlatform(PlatformAnthropic, groupIDs, seen)...)
 		buckets = append(buckets, s.bucketsForPlatform(PlatformGemini, groupIDs, seen)...)
 	}
 	return s.rebuildBuckets(ctx, buckets, reason)
+}
+
+func invalidateMixedBucketSeen(seen map[batchSeenKey]struct{}, groupIDs []int64) {
+	if seen == nil {
+		return
+	}
+	for _, groupID := range groupIDs {
+		if groupID <= 0 {
+			continue
+		}
+		for _, platform := range []string{PlatformAnthropic, PlatformGemini} {
+			delete(seen, batchSeenKey{groupID: groupID, platform: platform, mixedOnly: true})
+		}
+	}
 }
 
 func schedulerSnapshotPlatforms() []string {
@@ -828,21 +856,30 @@ func (s *SchedulerSnapshotService) bucketsForPlatform(platform string, groupIDs 
 	}
 	buckets := make([]SchedulerBucket, 0, len(groupIDs)*3)
 	for _, gid := range groupIDs {
-		// Within a single poll batch, skip (groupID, platform) pairs that were
-		// already rebuilt. The first rebuild loads fresh DB data for all accounts
-		// in the group, so subsequent rebuilds for the same group+platform within
-		// the same batch are redundant.
+		singleForcedKey := batchSeenKey{groupID: gid, platform: platform}
+		mixedKey := batchSeenKey{groupID: gid, platform: platform, mixedOnly: true}
+		singleForcedDone := false
+		mixedDone := false
 		if seen != nil {
-			key := batchSeenKey{groupID: gid, platform: platform}
-			if _, exists := seen[key]; exists {
-				continue
-			}
-			seen[key] = struct{}{}
+			_, singleForcedDone = seen[singleForcedKey]
+			_, mixedDone = seen[mixedKey]
 		}
-		buckets = append(buckets, SchedulerBucket{GroupID: gid, Platform: platform, Mode: SchedulerModeSingle})
-		buckets = append(buckets, SchedulerBucket{GroupID: gid, Platform: platform, Mode: SchedulerModeForced})
-		if platform == PlatformAnthropic || platform == PlatformGemini {
+		supportsMixed := platform == PlatformAnthropic || platform == PlatformGemini
+		if singleForcedDone && (!supportsMixed || mixedDone) {
+			continue
+		}
+		if !singleForcedDone {
+			buckets = append(buckets, SchedulerBucket{GroupID: gid, Platform: platform, Mode: SchedulerModeSingle})
+			buckets = append(buckets, SchedulerBucket{GroupID: gid, Platform: platform, Mode: SchedulerModeForced})
+			if seen != nil {
+				seen[singleForcedKey] = struct{}{}
+			}
+		}
+		if supportsMixed && !mixedDone {
 			buckets = append(buckets, SchedulerBucket{GroupID: gid, Platform: platform, Mode: SchedulerModeMixed})
+			if seen != nil {
+				seen[mixedKey] = struct{}{}
+			}
 		}
 	}
 	return buckets

@@ -353,6 +353,10 @@ func requireLifecycleSeen(t *testing.T, seen map[batchSeenKey]struct{}, groupID 
 	for _, platform := range schedulerSnapshotPlatforms() {
 		_, ok = seen[batchSeenKey{groupID: groupID, platform: platform}]
 		require.True(t, ok)
+		if platform == PlatformAnthropic || platform == PlatformGemini {
+			_, ok = seen[batchSeenKey{groupID: groupID, platform: platform, mixedOnly: true}]
+			require.True(t, ok)
+		}
 	}
 }
 
@@ -363,6 +367,10 @@ func requireLifecycleNotSeen(t *testing.T, seen map[batchSeenKey]struct{}, group
 	for _, platform := range schedulerSnapshotPlatforms() {
 		_, ok = seen[batchSeenKey{groupID: groupID, platform: platform}]
 		require.False(t, ok)
+		if platform == PlatformAnthropic || platform == PlatformGemini {
+			_, ok = seen[batchSeenKey{groupID: groupID, platform: platform, mixedOnly: true}]
+			require.False(t, ok)
+		}
 	}
 }
 
