@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -58,18 +57,4 @@ func MaybeRewriteOpenRouterProviderChatBody(c *gin.Context, apiKey *service.APIK
 	rebuilt = append(rebuilt, normalized...)
 	c.Request.Body = io.NopCloser(bytes.NewReader(rebuilt))
 	c.Request.ContentLength = int64(len(rebuilt))
-}
-
-// openRouterProviderPlatformModel strips the configured public prefix for cheap
-// platform hints when middleware rewrite has not run yet.
-func openRouterProviderPlatformModel(model string) string {
-	model = strings.TrimSpace(model)
-	if model == "" {
-		return ""
-	}
-	const defaultPrefix = "tokenkey/"
-	if strings.HasPrefix(model, defaultPrefix) {
-		return strings.TrimSpace(strings.TrimPrefix(model, defaultPrefix))
-	}
-	return model
 }

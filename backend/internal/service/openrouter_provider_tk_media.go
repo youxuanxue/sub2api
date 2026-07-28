@@ -117,9 +117,7 @@ func parseDataURI(uri string) (mediaType, payload string, ok bool) {
 		return "", "", false
 	}
 	meta, data := rest[:comma], rest[comma+1:]
-	if strings.HasSuffix(meta, ";base64") {
-		meta = strings.TrimSuffix(meta, ";base64")
-	}
+	meta = strings.TrimSuffix(meta, ";base64")
 	return meta, data, data != ""
 }
 
@@ -240,9 +238,9 @@ func BuildOpenRouterVideoSubmitResponse(taskID, apiBase string) ([]byte, error) 
 	}
 	pollingURL := OpenRouterProviderVideoPollURL(apiBase, taskID)
 	out := map[string]string{
-		"id":           taskID,
-		"polling_url":  pollingURL,
-		"status":       "pending",
+		"id":          taskID,
+		"polling_url": pollingURL,
+		"status":      "pending",
 	}
 	return json.Marshal(out)
 }
@@ -271,9 +269,9 @@ func TranslateOpenAIVideoFetchToOpenRouter(taskID string, body []byte, apiBase s
 	}
 	status := mapOpenAIVideoStatusToOpenRouter(gjson.GetBytes(body, "status").String())
 	out := map[string]any{
-		"id":           taskID,
-		"polling_url":  OpenRouterProviderVideoPollURL(apiBase, taskID),
-		"status":       status,
+		"id":          taskID,
+		"polling_url": OpenRouterProviderVideoPollURL(apiBase, taskID),
+		"status":      status,
 	}
 	if errMsg := openRouterVideoErrorMessage(body); errMsg != "" {
 		out["error"] = errMsg

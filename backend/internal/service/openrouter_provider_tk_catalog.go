@@ -12,30 +12,30 @@ import (
 // OpenRouterProviderModel is the subset of OpenRouter provider /v1/models schema
 // TokenKey emits for onboarding and monitoring.
 type OpenRouterProviderModel struct {
-	ID                          string                             `json:"id"`
-	Name                        string                             `json:"name"`
-	Description                 string                             `json:"description,omitempty"`
-	Created                     int64                              `json:"created"`
-	InputModalities             []string                           `json:"input_modalities"`
-	OutputModalities            []string                           `json:"output_modalities"`
-	Quantization                string                             `json:"quantization"`
-	ContextLength               int                                `json:"context_length"`
-	MaxOutputLength             int                                `json:"max_output_length"`
-	Pricing                     OpenRouterProviderModelPricing     `json:"pricing"`
-	SupportedSamplingParameters []string                           `json:"supported_sampling_parameters"`
-	SupportedFeatures           []string                           `json:"supported_features,omitempty"`
-	IsReady                     bool                               `json:"is_ready"`
-	CapacityTPM                 *int64                             `json:"capacity_tpm,omitempty"`
-	OpenRouter                  map[string]string                  `json:"openrouter,omitempty"`
-	Datacenters                 []OpenRouterProviderDatacenter     `json:"datacenters,omitempty"`
+	ID                          string                         `json:"id"`
+	Name                        string                         `json:"name"`
+	Description                 string                         `json:"description,omitempty"`
+	Created                     int64                          `json:"created"`
+	InputModalities             []string                       `json:"input_modalities"`
+	OutputModalities            []string                       `json:"output_modalities"`
+	Quantization                string                         `json:"quantization"`
+	ContextLength               int                            `json:"context_length"`
+	MaxOutputLength             int                            `json:"max_output_length"`
+	Pricing                     OpenRouterProviderModelPricing `json:"pricing"`
+	SupportedSamplingParameters []string                       `json:"supported_sampling_parameters"`
+	SupportedFeatures           []string                       `json:"supported_features,omitempty"`
+	IsReady                     bool                           `json:"is_ready"`
+	CapacityTPM                 *int64                         `json:"capacity_tpm,omitempty"`
+	OpenRouter                  map[string]string              `json:"openrouter,omitempty"`
+	Datacenters                 []OpenRouterProviderDatacenter `json:"datacenters,omitempty"`
 }
 
 type OpenRouterProviderModelPricing struct {
-	Prompt         string                            `json:"prompt"`
-	Completion     string                            `json:"completion"`
-	Image          string                            `json:"image"`
-	Request        string                            `json:"request"`
-	InputCacheRead string                            `json:"input_cache_read"`
+	Prompt         string                              `json:"prompt"`
+	Completion     string                              `json:"completion"`
+	Image          string                              `json:"image"`
+	Request        string                              `json:"request"`
+	InputCacheRead string                              `json:"input_cache_read"`
 	Overrides      []OpenRouterProviderPricingOverride `json:"overrides,omitempty"`
 }
 

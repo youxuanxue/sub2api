@@ -186,9 +186,7 @@ func universalModelPlatformHint(model string) string {
 	if m == "" {
 		return ""
 	}
-	if strings.HasPrefix(m, "tokenkey/") {
-		m = strings.TrimPrefix(m, "tokenkey/")
-	}
+	m = strings.TrimPrefix(m, "tokenkey/")
 	switch {
 	case strings.HasPrefix(m, "claude"):
 		return PlatformAnthropic
