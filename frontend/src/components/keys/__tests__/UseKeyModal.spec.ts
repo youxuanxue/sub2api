@@ -364,7 +364,7 @@ describe('UseKeyGuide — tool-first Quickstart contracts', () => {
       id: 'gpt-5.5',
       name: 'gpt-5.5',
       vendor: 'TokenKey',
-      apiKey: 'sk-test',
+      apiKey: '${TK_FULLTEST_KEY}',
       url: 'https://example.com/v1/chat/completions',
       maxInputTokens: 200000,
       maxOutputTokens: 16384,
@@ -373,7 +373,7 @@ describe('UseKeyGuide — tool-first Quickstart contracts', () => {
       supportsReasoning: true,
     })
     expect(config.availableModels).toEqual(['gpt-5.5'])
-    expect(wrapper.text()).toContain('quickstart.codebuddyModelsHint')
+    expect(wrapper.text()).toContain('quickstart.workbuddyModelsHint')
     expect(wrapper.text()).toContain('quickstart.codebuddyModelsConfigNote')
     expect(wrapper.text()).toContain('quickstart.testToolCall')
   })

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CODEBUDDY_MODELS_JSON_ENV_VAR,
   codebuddyModelsJsonPath,
   generateCodebuddyModelsJson,
   generateWorkbuddyModelsJson,
@@ -25,8 +26,8 @@ function decodeParam(url: string, name = 'data'): Record<string, any> {
 }
 
 describe('generateCodebuddyModelsJson', () => {
-  it('emits OpenAI chat/completions URL, verbatim sk- key, and tool calling enabled', () => {
-    const parsed = JSON.parse(generateCodebuddyModelsJson(API_KEY, BASE_URL, 'gpt-5.5', {
+  it('emits OpenAI chat/completions URL, env-var apiKey ref, and tool calling enabled', () => {
+    const parsed = JSON.parse(generateCodebuddyModelsJson(BASE_URL, 'gpt-5.5', {
       contextWindow: 200000,
       maxOutputTokens: 8192,
       supportsImages: true,
@@ -38,7 +39,7 @@ describe('generateCodebuddyModelsJson', () => {
       id: 'gpt-5.5',
       name: 'gpt-5.5',
       vendor: 'TokenKey',
-      apiKey: API_KEY,
+      apiKey: `\${${CODEBUDDY_MODELS_JSON_ENV_VAR}}`,
       url: `${BASE_URL}/v1/chat/completions`,
       maxInputTokens: 200000,
       maxOutputTokens: 8192,
@@ -49,20 +50,20 @@ describe('generateCodebuddyModelsJson', () => {
   })
 
   it('strips trailing /v1 from base URL before building chat/completions path', () => {
-    const parsed = JSON.parse(generateCodebuddyModelsJson(API_KEY, `${BASE_URL}/v1`, 'gpt-5.5')) as {
+    const parsed = JSON.parse(generateCodebuddyModelsJson(`${BASE_URL}/v1`, 'gpt-5.5')) as {
       models: Array<{ url: string }>
     }
     expect(parsed.models[0].url).toBe(`${BASE_URL}/v1/chat/completions`)
   })
 
   it('aliases generateWorkbuddyModelsJson to the shared generator', () => {
-    expect(generateWorkbuddyModelsJson(API_KEY, BASE_URL, 'gpt-5.5'))
-      .toBe(generateCodebuddyModelsJson(API_KEY, BASE_URL, 'gpt-5.5'))
+    expect(generateWorkbuddyModelsJson(BASE_URL, 'gpt-5.5'))
+      .toBe(generateCodebuddyModelsJson(BASE_URL, 'gpt-5.5'))
   })
 
-  it('maps client ids to the correct models.json paths', () => {
+  it('uses canonical models.json path for both clients (WorkBuddy symlinks)', () => {
     expect(codebuddyModelsJsonPath('codebuddy')).toBe('~/.codebuddy/models.json')
-    expect(codebuddyModelsJsonPath('workbuddy')).toBe('~/.workbuddy/models.json')
+    expect(codebuddyModelsJsonPath('workbuddy')).toBe('~/.codebuddy/models.json')
   })
 })
 

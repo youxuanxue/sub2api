@@ -458,9 +458,16 @@ export interface WorkbuddyModelMeta {
   supportsReasoning?: boolean
 }
 
+/** Env var referenced in generated models.json apiKey (CodeBuddy / WorkBuddy SSOT). */
+export const CODEBUDDY_MODELS_JSON_ENV_VAR = 'TK_FULLTEST_KEY'
+
+/** Single models.json source — WorkBuddy reads ~/.workbuddy/models.json via symlink. */
+export const CODEBUDDY_MODELS_JSON_CANONICAL_PATH = '~/.codebuddy/models.json'
+
+export const WORKBUDDY_MODELS_JSON_SYMLINK_PATH = '~/.workbuddy/models.json'
+
 /** WorkBuddy / CodeBuddy models.json entry — OpenAI /chat/completions only. */
 export function generateCodebuddyModelsJson(
-  apiKey: string,
   baseRoot: string,
   model: string,
   meta: WorkbuddyModelMeta = {},
@@ -471,7 +478,7 @@ export function generateCodebuddyModelsJson(
       id: model,
       name: model,
       vendor: 'TokenKey',
-      apiKey,
+      apiKey: `\${${CODEBUDDY_MODELS_JSON_ENV_VAR}}`,
       url: `${root}/v1/chat/completions`,
       ...(meta.contextWindow ? { maxInputTokens: meta.contextWindow } : {}),
       ...(meta.maxOutputTokens ? { maxOutputTokens: meta.maxOutputTokens } : {}),
@@ -487,8 +494,8 @@ export function generateCodebuddyModelsJson(
 /** @deprecated Use generateCodebuddyModelsJson — same payload shape for WorkBuddy and CodeBuddy. */
 export const generateWorkbuddyModelsJson = generateCodebuddyModelsJson
 
-export function codebuddyModelsJsonPath(clientId: 'codebuddy' | 'workbuddy'): string {
-  return clientId === 'workbuddy' ? '~/.workbuddy/models.json' : '~/.codebuddy/models.json'
+export function codebuddyModelsJsonPath(_clientId: 'codebuddy' | 'workbuddy'): string {
+  return CODEBUDDY_MODELS_JSON_CANONICAL_PATH
 }
 
 /**

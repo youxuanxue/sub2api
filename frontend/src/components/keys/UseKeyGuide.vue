@@ -857,13 +857,15 @@ const currentFiles = computed((): FileConfig[] => {
     const meta = currentModelMeta.value
     return [{
       path: codebuddyModelsJsonPath(clientId),
-      content: generateCodebuddyModelsJson(apiKey, baseRoot, model, {
+      content: generateCodebuddyModelsJson(baseRoot, model, {
         contextWindow: meta?.contextWindow,
         maxOutputTokens: meta?.maxOutput,
         supportsImages: meta?.capabilities?.includes('vision') ?? false,
         supportsReasoning: meta?.capabilities?.includes('reasoning') ?? false,
       }),
-      hint: t('quickstart.codebuddyModelsHint'),
+      hint: clientId === 'workbuddy'
+        ? t('quickstart.workbuddyModelsHint')
+        : t('quickstart.codebuddyModelsHint'),
     }]
   }
 

@@ -903,9 +903,9 @@ const en: LocaleOverlay = {
     "limit7d": "7-day limit",
     "unlimited": "Unlimited",
     "difyLimitHint": "Treat these as upstream ceilings when setting Dify workspace and app budgets; use lower per-app limits for multi-team deployments.",
-    "workbuddyModelsHint": "Save to ~/.workbuddy/models.json (or ~/.codebuddy/models.json for CodeBuddy). WorkBuddy hot-reloads within ~1s.",
+    "workbuddyModelsHint": "Save to ~/.codebuddy/models.json (SSOT), then symlink: ln -sf ~/.codebuddy/models.json ~/.workbuddy/models.json. Export TK_FULLTEST_KEY=sk-...; apiKey uses ${TK_FULLTEST_KEY}. Hot-reloads within ~1s.",
     "workbuddyConfigNote": "WorkBuddy reads OpenAI /v1/chat/completions only. Agent mode requires supportsToolCall — the generated config keeps it enabled.",
-    "codebuddyModelsHint": "Save to the path shown (CodeBuddy: ~/.codebuddy/models.json; WorkBuddy: ~/.workbuddy/models.json). Hot-reloads within ~1s.",
+    "codebuddyModelsHint": "Save to ~/.codebuddy/models.json. Export TK_FULLTEST_KEY=sk-...; apiKey uses ${TK_FULLTEST_KEY}. Hot-reloads within ~1s.",
     "codebuddyModelsConfigNote": "CodeBuddy and WorkBuddy read OpenAI /v1/chat/completions only. Agent mode requires supportsToolCall — the generated config keeps it enabled.",
     "clientDescriptions": {
       "claude": "Anthropic's terminal coding agent.",
@@ -1827,9 +1827,9 @@ const zh: LocaleOverlay = {
     "limit7d": "7 日限额",
     "unlimited": "不限额",
     "difyLimitHint": "配置 Dify 工作区与应用预算时，将这些值视为上游硬上限；多团队部署应设置更低的单应用限额。",
-    "workbuddyModelsHint": "保存到 ~/.workbuddy/models.json（CodeBuddy 用 ~/.codebuddy/models.json）。WorkBuddy 约 1 秒内热加载。",
+    "workbuddyModelsHint": "保存到 ~/.codebuddy/models.json（SSOT），再软链：ln -sf ~/.codebuddy/models.json ~/.workbuddy/models.json。export TK_FULLTEST_KEY=sk-...；apiKey 使用 ${TK_FULLTEST_KEY}。约 1 秒内热加载。",
     "workbuddyConfigNote": "WorkBuddy 仅走 OpenAI /v1/chat/completions。Agent 模式依赖工具调用，生成配置已默认开启 supportsToolCall。",
-    "codebuddyModelsHint": "保存到上方所示路径（CodeBuddy：~/.codebuddy/models.json；WorkBuddy：~/.workbuddy/models.json），约 1 秒内热加载。",
+    "codebuddyModelsHint": "保存到 ~/.codebuddy/models.json。export TK_FULLTEST_KEY=sk-...；apiKey 使用 ${TK_FULLTEST_KEY}。约 1 秒内热加载。",
     "codebuddyModelsConfigNote": "CodeBuddy 与 WorkBuddy 仅走 OpenAI /v1/chat/completions。Agent 模式依赖工具调用，生成配置已默认开启 supportsToolCall。",
     "clientDescriptions": {
       "claude": "Anthropic 官方终端编码 Agent。",
