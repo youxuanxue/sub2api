@@ -22,6 +22,7 @@
  */
 
 import { computed, ref, type Ref } from 'vue'
+import { resolveBrowserGatewayFetchBaseUrl } from '@/api/playground'
 import { getMePricingCatalog, type MePricingModel } from '@/api/me-pricing'
 import { getPublicPricing } from '@/api/pricing'
 import type { GroupPlatform, KeyRoutingMode } from '@/types'
@@ -248,7 +249,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
    */
   async function runTest(flavor: UseKeyFlavor, options: RunTestOptions = {}): Promise<void> {
     cancelTest()
-    const root = stripTrailingSlashes(args.baseRoot.value)
+    const root = stripTrailingSlashes(resolveBrowserGatewayFetchBaseUrl(args.baseRoot.value))
     const key = args.apiKey.value
     const model = effectiveModel(flavor)
     const ctrl = new AbortController()

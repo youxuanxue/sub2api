@@ -5,6 +5,7 @@ import {
   gatewayVideoSubmit,
   gatewayGeminiImageViaChat,
   gatewayImageToPrompt,
+  resolveBrowserGatewayFetchBaseUrl,
 } from '@/api/playground'
 
 // Capture the JSON body each builder sends so we can assert the wire shape:
@@ -24,9 +25,58 @@ function mockFetchCapturing(): () => Record<string, unknown> {
   return () => body
 }
 
+/** Gateway URL assertions use arbitrary hosts; disable browser same-origin rewrite. */
+function stubNonBrowserGatewayEnv(): void {
+  vi.stubGlobal('window', undefined)
+}
+
+describe('resolveBrowserGatewayFetchBaseUrl', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('returns the configured base when it matches the page origin', () => {
+    vi.stubGlobal('window', { location: { origin: 'https://tokenkey.dev', href: 'https://tokenkey.dev/quickstart' } })
+    expect(resolveBrowserGatewayFetchBaseUrl('https://tokenkey.dev/')).toBe('https://tokenkey.dev')
+  })
+
+  it('falls back to same-origin when the configured gateway host is cross-origin', () => {
+    vi.stubGlobal('window', { location: { origin: 'https://tokenkey.dev', href: 'https://tokenkey.dev/quickstart' } })
+    expect(resolveBrowserGatewayFetchBaseUrl('https://api.tokenkey.dev')).toBe('https://tokenkey.dev')
+  })
+
+  it('returns the configured base outside the browser', () => {
+    const originalWindow = globalThis.window
+    vi.stubGlobal('window', undefined)
+    expect(resolveBrowserGatewayFetchBaseUrl('https://api.tokenkey.dev')).toBe('https://api.tokenkey.dev')
+    vi.stubGlobal('window', originalWindow)
+  })
+})
+
+describe('gatewayListModels browser fetch base', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('uses same-origin base when the display gateway host is cross-origin', async () => {
+    vi.stubGlobal('window', { location: { origin: 'https://tokenkey.dev', href: 'https://tokenkey.dev/studio' } })
+    let sentUrl = ''
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        sentUrl = url
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      })
+    )
+    const { gatewayListModels } = await import('@/api/playground')
+    await gatewayListModels('sk-test', 'https://api.tokenkey.dev')
+    expect(sentUrl).toBe('https://tokenkey.dev/v1/models')
+  })
+})
+
 describe('gatewayImageGenerations payload', () => {
   let getBody: () => Record<string, unknown>
   beforeEach(() => {
+    stubNonBrowserGatewayEnv()
     getBody = mockFetchCapturing()
   })
   afterEach(() => vi.unstubAllGlobals())
@@ -72,6 +122,9 @@ describe('gatewayImageGenerations payload', () => {
 })
 
 describe('gatewayImagePresign', () => {
+  beforeEach(() => {
+    stubNonBrowserGatewayEnv()
+  })
   afterEach(() => vi.unstubAllGlobals())
 
   it('POSTs the key and returns the re-minted url', async () => {
@@ -108,6 +161,7 @@ describe('gatewayImagePresign', () => {
 describe('gatewayVideoSubmit payload', () => {
   let getBody: () => Record<string, unknown>
   beforeEach(() => {
+    stubNonBrowserGatewayEnv()
     getBody = mockFetchCapturing()
   })
   afterEach(() => vi.unstubAllGlobals())
@@ -144,6 +198,7 @@ describe('gatewayVideoSubmit payload', () => {
 describe('gatewayGeminiImageViaChat payload (image-to-image)', () => {
   let getBody: () => Record<string, unknown>
   beforeEach(() => {
+    stubNonBrowserGatewayEnv()
     getBody = mockFetchCapturing()
   })
   afterEach(() => vi.unstubAllGlobals())
@@ -172,6 +227,9 @@ describe('gatewayGeminiImageViaChat payload (image-to-image)', () => {
 })
 
 describe('gatewayImageToPrompt', () => {
+  beforeEach(() => {
+    stubNonBrowserGatewayEnv()
+  })
   afterEach(() => vi.unstubAllGlobals())
 
   it('sends the image as multimodal content and returns the assistant text', async () => {

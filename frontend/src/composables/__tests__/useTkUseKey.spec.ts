@@ -127,6 +127,7 @@ describe('useTkUseKey model loading', () => {
 
 describe('useTkUseKey tool-call probe', () => {
   it('forces a side-effect-free function and verifies the returned tool call', async () => {
+    vi.stubGlobal('window', { location: { origin: 'https://api.tokenkey.test', href: 'https://api.tokenkey.test/' } })
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{
         message: {
@@ -152,6 +153,21 @@ describe('useTkUseKey tool-call probe', () => {
       function: { name: 'tokenkey_quickstart_probe' },
     })
     expect(tk.testState.value).toMatchObject({ status: 'ok', httpStatus: 200, toolCall: true })
+  })
+
+  it('uses same-origin fetch base when the display gateway host is cross-origin', async () => {
+    vi.stubGlobal('window', { location: { origin: 'https://tokenkey.dev', href: 'https://tokenkey.dev/quickstart' } })
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'pong' } }],
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const tk = createUseKey()
+    await tk.runTest('openai')
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [url] = fetchMock.mock.calls[0] as [string]
+    expect(url).toBe('https://tokenkey.dev/v1/chat/completions')
   })
 
   it('does not treat a plain 200 response as a successful tool-call verification', async () => {

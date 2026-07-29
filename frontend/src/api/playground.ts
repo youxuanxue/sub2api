@@ -77,12 +77,44 @@ export function resolveGatewayBaseUrl(apiBaseFromSettings: string | undefined): 
   return ''
 }
 
+/**
+ * Gateway base for browser `fetch()` probes (Quickstart live test, Studio gateway calls).
+ *
+ * Copy-paste snippets keep the public gateway host (e.g. api.tokenkey.dev), but
+ * the web UI runs on the apex host (tokenkey.dev) which reverse-proxies /v1/*.
+ * Cross-origin fetch to the API host fails CORS preflight when allowed_origins
+ * is unset, surfacing as "Failed to fetch" even though curl/clients work.
+ */
+export function resolveBrowserGatewayFetchBaseUrl(displayGatewayBaseUrl: string): string {
+  const display = stripTrailingSlashes(displayGatewayBaseUrl.trim())
+  if (typeof window === 'undefined') {
+    return display
+  }
+  if (!display) {
+    return stripTrailingSlashes(window.location.origin)
+  }
+  try {
+    const configured = new URL(display)
+    if (configured.origin === window.location.origin) {
+      return display
+    }
+  } catch {
+    return display
+  }
+  return stripTrailingSlashes(window.location.origin)
+}
+
+/** Display gateway base → browser-safe fetch root (same-origin when CORS would block). */
+function browserGatewayFetchRoot(displayGatewayBaseUrl: string): string {
+  return stripTrailingSlashes(resolveBrowserGatewayFetchBaseUrl(displayGatewayBaseUrl))
+}
+
 export async function gatewayListModels(
   apiKey: string,
   gatewayBaseUrl: string,
   signal?: AbortSignal
 ): Promise<GatewayModelsResponse> {
-  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/models`
+  const url = `${browserGatewayFetchRoot(gatewayBaseUrl)}/v1/models`
   const res = await fetch(url, {
     method: 'GET',
     headers: {
@@ -176,7 +208,7 @@ export async function gatewayChatCompletion(
   body: ChatCompletionRequest,
   signal?: AbortSignal
 ): Promise<unknown> {
-  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/chat/completions`
+  const url = `${browserGatewayFetchRoot(gatewayBaseUrl)}/v1/chat/completions`
   return gatewayRequestJSON(
     apiKey,
     url,
@@ -214,7 +246,7 @@ export async function gatewayImageGenerations(
   signal?: AbortSignal,
   trace?: GatewayRequestTrace
 ): Promise<unknown> {
-  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/images/generations`
+  const url = `${browserGatewayFetchRoot(gatewayBaseUrl)}/v1/images/generations`
   const payload: Record<string, unknown> = { model: body.model, prompt: body.prompt }
   if (body.size) payload.size = body.size
   if (body.n && body.n > 0) payload.n = body.n
@@ -239,7 +271,7 @@ export async function gatewayImagePresign(
   key: string,
   signal?: AbortSignal
 ): Promise<string> {
-  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/images/presign`
+  const url = `${browserGatewayFetchRoot(gatewayBaseUrl)}/v1/images/presign`
   const resp = (await gatewayRequestJSON(
     apiKey,
     url,
@@ -306,7 +338,7 @@ export async function gatewayGeminiImageViaChat(
   signal?: AbortSignal,
   trace?: GatewayRequestTrace
 ): Promise<unknown> {
-  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/chat/completions`
+  const url = `${browserGatewayFetchRoot(gatewayBaseUrl)}/v1/chat/completions`
   const payload: Record<string, unknown> = {
     model: body.model,
     messages: [userMessage(body.prompt, body.inputImage)],
@@ -344,7 +376,7 @@ export async function gatewayImageToPrompt(
   body: ImageToPromptRequest,
   signal?: AbortSignal
 ): Promise<string> {
-  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/chat/completions`
+  const url = `${browserGatewayFetchRoot(gatewayBaseUrl)}/v1/chat/completions`
   const instruction =
     body.instruction ||
     'Describe this image as a concise, vivid text-to-image generation prompt. Output only the prompt, no preamble.'
@@ -408,7 +440,7 @@ export async function gatewayVideoSubmit(
   body: VideoGenerationRequest,
   signal?: AbortSignal
 ): Promise<unknown> {
-  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/video/generations`
+  const url = `${browserGatewayFetchRoot(gatewayBaseUrl)}/v1/video/generations`
   const payload: Record<string, unknown> = { model: body.model, prompt: body.prompt }
   if (body.duration) payload.duration = body.duration
   if (body.aspectRatio) payload.aspect_ratio = body.aspectRatio
@@ -435,7 +467,7 @@ export async function gatewayVideoFetch(
   taskId: string,
   signal?: AbortSignal
 ): Promise<unknown> {
-  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/video/generations/${encodeURIComponent(taskId)}`
+  const url = `${browserGatewayFetchRoot(gatewayBaseUrl)}/v1/video/generations/${encodeURIComponent(taskId)}`
   // 180s, not 30s: the terminal SUCCESS body is a 10–20 MB inline base64 clip
   // (see PLAYGROUND_VIDEO_FETCH_TIMEOUT_MS) — a short timeout aborts mid-download
   // and the poll then mis-reports the (actually generated) video as failed.
