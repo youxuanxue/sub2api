@@ -569,18 +569,18 @@ func (s *OpenAIGatewayService) blockGrokCredentialRuntime(account *Account, unti
 	mu := s.openAIAccountRuntimeBlockLock(account.ID)
 	mu.Lock()
 	before, hadBefore := s.openaiAccountRuntimeBlockUntil.Load(account.ID)
+	beforeEntry, hadBeforeEntry := loadOpenAIAccountRuntimeBlockEntry(before)
 	installedGeneration, changed := s.blockAccountSchedulingLocked(account, until, reason)
 	installed, installedOK := s.openaiAccountRuntimeBlockUntil.Load(account.ID)
-	installedUntil, isTime := installed.(time.Time)
+	installedEntry, installedValid := loadOpenAIAccountRuntimeBlockEntry(installed)
 	mu.Unlock()
-	if !changed || !installedOK || !isTime {
+	if !changed || !installedOK || !installedValid {
 		return func() {}
 	}
-	if hadBefore {
-		if beforeUntil, ok := before.(time.Time); ok && beforeUntil.Equal(installedUntil) {
-			return func() {}
-		}
+	if hadBefore && hadBeforeEntry && beforeEntry.Until.Equal(installedEntry.Until) {
+		return func() {}
 	}
+	installedUntil := installedEntry.Until
 	return func() {
 		mu.Lock()
 		defer mu.Unlock()
@@ -589,8 +589,8 @@ func (s *OpenAIGatewayService) blockGrokCredentialRuntime(account *Account, unti
 			return
 		}
 		current, ok := s.openaiAccountRuntimeBlockUntil.Load(account.ID)
-		currentUntil, isTime := current.(time.Time)
-		if !ok || !isTime || !currentUntil.Equal(installedUntil) {
+		currentEntry, currentValid := loadOpenAIAccountRuntimeBlockEntry(current)
+		if !ok || !currentValid || !currentEntry.Until.Equal(installedUntil) {
 			return
 		}
 		if hadBefore {

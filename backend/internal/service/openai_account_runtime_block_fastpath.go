@@ -10,13 +10,13 @@ import (
 )
 
 const (
-	openAIAccountStateUpdateTimeout        = 5 * time.Second
-	openAIOAuth429FallbackCooldown         = 5 * time.Second
-	openAIStopSchedulingBridgeCooldown     = 2 * time.Minute
-	openAIOAuth429StormWindow              = 10 * time.Second
-	openAIOAuth429StormThreshold           = 20
-	openAIOAuth429StormMaxAccountSwitches  = 1
-	openAIRuntimeBlockRateLimitDriftGrace  = 30 * time.Minute
+	openAIAccountStateUpdateTimeout       = 5 * time.Second
+	openAIOAuth429FallbackCooldown        = 5 * time.Second
+	openAIStopSchedulingBridgeCooldown    = 2 * time.Minute
+	openAIOAuth429StormWindow             = 10 * time.Second
+	openAIOAuth429StormThreshold          = 20
+	openAIOAuth429StormMaxAccountSwitches = 1
+	openAIRuntimeBlockRateLimitDriftGrace = 30 * time.Minute
 )
 
 type openAIAccountRuntimeBlockEntry struct {
