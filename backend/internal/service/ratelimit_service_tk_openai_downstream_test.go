@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -83,7 +84,8 @@ func (f *fakeOpenAISaturationCounterRL) GetSaturationBatch(_ context.Context, _ 
 
 func TestRateLimitService_HandleUpstreamError_OpenAIDownstreamNoAvailable_SkipsAndIncrements(t *testing.T) {
 	sat := &fakeOpenAISaturationCounterRL{}
-	svc := &RateLimitService{}
+	repo := &rateLimitAccountRepoStub{}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	svc.SetOpenAISaturationCounter(sat)
 	account := openAIEdgeStub(63)
 	body := []byte(`{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`)
@@ -91,4 +93,23 @@ func TestRateLimitService_HandleUpstreamError_OpenAIDownstreamNoAvailable_SkipsA
 	shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body)
 	require.True(t, shouldDisable)
 	require.Equal(t, []int64{63}, sat.incrementIDs)
+	require.Empty(t, repo.modelRateLimitCalls, "mirror stub downstream-empty must not write model_rate_limits")
+}
+
+func TestRateLimitService_HandleUpstreamError_OpenAIMirrorSustainedEmptyPool_NoModelCooldown(t *testing.T) {
+	sat := &fakeOpenAISaturationCounterRL{}
+	repo := &rateLimitAccountRepoStub{}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc.SetOpenAISaturationCounter(sat)
+	account := openAIEdgeStub(68)
+	body := []byte(`{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`)
+
+	for i := 0; i < 4; i++ {
+		require.True(t, svc.HandleUpstreamError(context.Background(), account,
+			http.StatusTooManyRequests, http.Header{}, body, codexSparkModel))
+	}
+	require.Equal(t, []int64{68, 68, 68, 68}, sat.incrementIDs)
+	require.Empty(t, repo.modelRateLimitCalls)
+	require.Zero(t, repo.setRateLimitedCalls)
+	require.Empty(t, repo.tempCalls)
 }

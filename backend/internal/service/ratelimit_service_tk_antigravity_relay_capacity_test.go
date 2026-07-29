@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -216,7 +215,7 @@ func TestAntigravityRelayCapacity_UsesPostDispatchAndThinkingFinalModel(t *testi
 	require.Empty(t, repo.modelRateLimitCalls)
 }
 
-func TestAntigravityRelayCapacity_ThresholdWritesExactModelOnly(t *testing.T) {
+func TestAntigravityRelayCapacity_SustainedEmptyPool_NoModelCooldown(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &fakeAntigravitySaturationCounter{}
 	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -224,32 +223,13 @@ func TestAntigravityRelayCapacity_ThresholdWritesExactModelOnly(t *testing.T) {
 	account := antigravityEdgeRelayStub(85)
 	body := antigravityRelayEmptyPoolBody()
 
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 4; i++ {
 		require.True(t, svc.handleAntigravityRelayCapacity(
 			context.Background(), account, http.StatusServiceUnavailable, body, "gemini-3-flash"))
 	}
-	require.Empty(t, repo.modelRateLimitCalls)
-
-	require.True(t, svc.handleAntigravityRelayCapacity(
-		context.Background(), account, http.StatusServiceUnavailable, body, "gemini-3-flash"))
-	require.Len(t, repo.modelRateLimitCalls, 1)
-	call := repo.modelRateLimitCalls[0]
-	require.Equal(t, int64(85), call.accountID)
-	require.Equal(t, "gemini-3-flash-tiered", call.scope)
-	require.Equal(t, tkAntigravityRelayDownstreamEmptyReason, call.reason)
-	require.WithinDuration(t, time.Now().Add(90*time.Second), call.resetAt, 3*time.Second)
+	require.Equal(t, int64(4), counter.counts["gemini-3-flash-tiered"])
+	require.Empty(t, repo.modelRateLimitCalls, "relay stub downstream-empty must not write model_rate_limits")
 	require.Zero(t, repo.setRateLimitedCalls)
 	require.Zero(t, repo.tempCalls)
 	require.Zero(t, repo.setErrorCalls)
-
-	cooled := antigravityEdgeRelayStub(85)
-	cooled.Extra = map[string]any{
-		modelRateLimitsKey: map[string]any{
-			call.scope: map[string]any{
-				"rate_limit_reset_at": call.resetAt.Format(time.RFC3339),
-			},
-		},
-	}
-	require.False(t, cooled.IsSchedulableForModelWithContext(context.Background(), "gemini-3-flash"))
-	require.True(t, cooled.IsSchedulableForModelWithContext(context.Background(), "claude-sonnet-4-6"))
 }

@@ -1856,9 +1856,7 @@ func TestHandleGrokAccountUpstreamError_DownstreamCapacitySkipsRelayCooldown(t *
 	require.Equal(t, 0, repo.tempCalls, "downstream capacity must not temp-unschedule a prod grok relay stub")
 	require.Equal(t, 0, repo.setRateLimitedCalls, "downstream capacity must not whole-account rate-limit a prod grok relay stub")
 	require.Equal(t, []int64{80, 80, 80}, sat.incrementIDs)
-	require.Len(t, repo.modelRateLimitCalls, 1)
-	require.Equal(t, "grok-build-0.1", repo.modelRateLimitCalls[0].scope)
-	require.Equal(t, tkOpenAIMirrorDownstreamEmptyReason, repo.modelRateLimitCalls[0].reason)
+	require.Empty(t, repo.modelRateLimitCalls, "downstream capacity must not write model_rate_limits on prod mirror stub")
 }
 
 func TestHandleGrokAccountUpstreamErrorDoesNotShortenExistingPause(t *testing.T) {

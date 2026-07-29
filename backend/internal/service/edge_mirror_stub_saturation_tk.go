@@ -7,7 +7,7 @@ package service
 //
 //   - increment on downstream-capacity skip path only (never handle429 / ladder)
 //   - at threshold: clear sticky + scheduler preference penalty
-//   - at threshold: mirror model/class-scoped cooldown write (see mirror *_429.go)
+//   - prod mirror/relay stubs never write model_rate_limits — edge OAuth owns quota truth
 //   - self-clearing via window TTL (~90s after last hit)
 //
 // Intentionally NEVER on this path: SetTempUnschedulable, whole-account
@@ -18,8 +18,7 @@ const (
 	edgeMirrorStubSaturationWindowSeconds = 90
 
 	// edgeMirrorStubSaturationThreshold: transient blips (1–2 hits) stay on the
-	// stub; sustained downstream-empty (≥3 in 90s) triggers preference + mirror
-	// model/class write. Shared by Anthropic and OpenAI.
+	// stub; sustained downstream-empty (≥3 in 90s) triggers preference only.
 	edgeMirrorStubSaturationThreshold int64 = 3
 
 	// anthropicSaturationPriorityPenalty is added to effectivePriority in the
@@ -36,5 +35,4 @@ const (
 	anthropicSaturationThreshold               = edgeMirrorStubSaturationThreshold
 	anthropicEdgeMirrorStubSaturationThreshold = edgeMirrorStubSaturationThreshold
 	openAIEdgeMirrorStubSaturationThreshold    = edgeMirrorStubSaturationThreshold
-	tkAnthropicMirrorClassCooldownSeconds      = edgeMirrorStubSaturationWindowSeconds
 )

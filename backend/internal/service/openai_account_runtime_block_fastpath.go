@@ -58,7 +58,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()
 
-	if s.handleOpenAICompatRelayDownstreamCapacityError(stateCtx, account, statusCode, responseBody, tkFirstRequestedModel(canonicalModel)) {
+	if s.handleOpenAICompatRelayDownstreamCapacityError(stateCtx, account, statusCode, responseBody) {
 		return true
 	}
 
@@ -134,7 +134,7 @@ func shouldCooldownOpenAITransientUpstreamError(statusCode int, responseBody []b
 	}
 }
 
-func (s *OpenAIGatewayService) handleOpenAICompatRelayDownstreamCapacityError(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel string) bool {
+func (s *OpenAIGatewayService) handleOpenAICompatRelayDownstreamCapacityError(ctx context.Context, account *Account, statusCode int, responseBody []byte) bool {
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(responseBody))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 	if !tkSkipOpenAIDownstreamCapacityPenalty(account, statusCode, upstreamMsg, responseBody) {
@@ -147,8 +147,7 @@ func (s *OpenAIGatewayService) handleOpenAICompatRelayDownstreamCapacityError(ct
 		"status_code", statusCode,
 		"reason", reason)
 	if s != nil && s.rateLimitService != nil {
-		satCount := s.rateLimitService.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)
-		s.rateLimitService.tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(ctx, account, satCount, requestedModel)
+		s.rateLimitService.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)
 	}
 	return true
 }

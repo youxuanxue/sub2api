@@ -311,7 +311,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
-	if s.handleOpenAICompatDownstreamCapacityPenalty(ctx, account, statusCode, responseBody, tkFirstRequestedModel(requestedModel)) {
+	if s.handleOpenAICompatDownstreamCapacityPenalty(ctx, account, statusCode, responseBody) {
 		return true
 	}
 
@@ -613,16 +613,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			slog.Info("anthropic_downstream_no_available_accounts_skip_penalty",
 				"account_id", account.ID,
 				"status_code", statusCode)
-			// TK: feed the bounded saturation de-prioritization preference (not a
-			// cooldown; ladder/cooldown stay untouched). See
-			// ratelimit_service_tk_saturation.go.
-			satCount := s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "no_available_accounts")
-			// TK: when this edge's header-less empty-pool 429 is SUSTAINED, write a
-			// class-scoped cooldown on this MIRROR account so prod fails sonnet (the
-			// in-flight class) over to sonnet-healthy sibling mirrors and clears the
-			// stale sticky binding — opus/haiku stay schedulable. See
-			// ratelimit_service_tk_mirror_class_429.go.
-			s.tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))
+			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "no_available_accounts")
 			return true
 		}
 		// TK (G2, narrow): the sibling downstream capacity signal — a forwarded
@@ -633,13 +624,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			slog.Info("anthropic_downstream_failover_exhausted_skip_penalty",
 				"account_id", account.ID,
 				"status_code", statusCode)
-			// TK: feed the bounded saturation de-prioritization preference.
-			satCount := s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "all_available_accounts_exhausted")
-			// TK: sustained 429 failover-exhausted envelope → class-scoped mirror
-			// cooldown + failover (see ratelimit_service_tk_mirror_class_429.go).
-			// (A genuine HTTP 502 exhausted body routes through the default→legacy
-			// path, which is intentionally not wired — it lacks requestedModel.)
-			s.tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))
+			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "all_available_accounts_exhausted")
 			return true
 		}
 		// TK: a 429 with NO authoritative anthropic-ratelimit-* headers is not a
@@ -653,16 +638,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		// ratelimit_service_tk_nonauthoritative_429.go.
 		if account.Platform == PlatformAnthropic && tkIsAnthropicNonAuthoritative429(headers, responseBody) {
 			tkLogAnthropicNonAuthoritative429Skip(account, statusCode)
-			// TK: feed the bounded saturation de-prioritization preference, same as the
-			// two sibling capacity-envelope skips above — a header-less envelope means
-			// the forwarded-to edge is transiently dry, so bias scheduling away from it
-			// (no cooldown; ladder untouched). See ratelimit_service_tk_saturation.go.
-			satCount := s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "non_authoritative_429")
-			// TK: this is the cc-us7 header-less envelope from the ground-truth
-			// incident — when sustained, class-scope-cool this MIRROR account so the
-			// in-flight class fails over to sonnet-healthy siblings (opus/haiku stay
-			// schedulable). See ratelimit_service_tk_mirror_class_429.go.
-			s.tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty(ctx, account, satCount, tkFirstRequestedModel(requestedModel))
+			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "non_authoritative_429")
 			return true
 		}
 		// handle429 returns true when SetRateLimited landed on an upstream-

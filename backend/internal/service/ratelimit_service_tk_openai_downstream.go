@@ -79,7 +79,7 @@ func tkOpenAICompatRetryableOnSameAccount(account *Account, statusCode int, upst
 	return includeTransient && isOpenAITransientProcessingError(statusCode, upstreamMsg, responseBody)
 }
 
-func (s *RateLimitService) handleOpenAICompatDownstreamCapacityPenalty(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel string) bool {
+func (s *RateLimitService) handleOpenAICompatDownstreamCapacityPenalty(ctx context.Context, account *Account, statusCode int, responseBody []byte) bool {
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(responseBody))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 	if !tkSkipOpenAIDownstreamCapacityPenalty(account, statusCode, upstreamMsg, responseBody) {
@@ -92,8 +92,7 @@ func (s *RateLimitService) handleOpenAICompatDownstreamCapacityPenalty(ctx conte
 		"status_code", statusCode,
 		"reason", reason)
 	if s != nil {
-		satCount := s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)
-		s.tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(ctx, account, satCount, requestedModel)
+		s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)
 	}
 	return true
 }

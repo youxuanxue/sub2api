@@ -167,6 +167,7 @@ func TestRateLimitService_DownstreamNoAvailable_FeedsSaturationButNotLadder(t *t
 
 	require.Equal(t, []int64{4044, 4044, 4044, 4044, 4044}, sat.incrementIDs,
 		"every downstream-capacity hit must feed the saturation preference counter")
+	require.Empty(t, repo.modelRateLimitCalls, "mirror stub downstream-empty must not write model_rate_limits")
 	require.Empty(t, ladder.incrementIDs, "saturation feature must NOT advance the 3/3 ladder")
 	require.Equal(t, 0, repo.tempCalls, "saturation feature must NOT write temp_unschedulable")
 	require.Equal(t, 0, repo.setRateLimitedCalls, "saturation feature must NOT write SetRateLimited")
@@ -181,6 +182,57 @@ func TestRateLimitService_DownstreamNoAvailable_NilSaturationCounterIsInert(t *t
 	account := &Account{ID: 4045, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
 	noAvail := []byte(`{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`)
 	require.True(t, service.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, noAvail))
+	require.Equal(t, 0, repo.tempCalls)
+}
+
+func TestRateLimitService_AnthropicMirrorSustainedEmptyPool_NoClassCooldown(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	sat := &fakeSaturationCounterRL{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicSaturationCounter(sat)
+	account := &Account{ID: 54, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+	body := []byte(`{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`)
+
+	for i := 0; i < 4; i++ {
+		require.True(t, service.HandleUpstreamError(context.Background(), account,
+			http.StatusTooManyRequests, http.Header{}, body, "claude-sonnet-4-5"))
+	}
+	require.Equal(t, []int64{54, 54, 54, 54}, sat.incrementIDs)
+	require.Empty(t, repo.modelRateLimitCalls)
+	require.Zero(t, repo.setRateLimitedCalls)
+	require.Empty(t, repo.tempCalls)
+}
+
+func TestRateLimitService_AnthropicMirrorNonAuthoritative429_NoClassCooldown(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	sat := &fakeSaturationCounterRL{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicSaturationCounter(sat)
+	account := &Account{ID: 54, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+	body := []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"Upstream rate limit exceeded, please retry later"}}`)
+
+	for i := 0; i < 4; i++ {
+		require.True(t, service.HandleUpstreamError(context.Background(), account,
+			http.StatusTooManyRequests, http.Header{}, body, "claude-sonnet-4-5"))
+	}
+	require.Equal(t, []int64{54, 54, 54, 54}, sat.incrementIDs)
+	require.Empty(t, repo.modelRateLimitCalls)
+}
+
+func TestRateLimitService_AnthropicMirrorGenuine502_LegacyPath_NoClassCooldown(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	sat := &fakeSaturationCounterRL{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicSaturationCounter(sat)
+	account := &Account{ID: 54, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+	body := []byte(`{"type":"error","error":{"type":"server_error","message":"Upstream request could not be completed"}}`)
+
+	for i := 0; i < 5; i++ {
+		require.True(t, service.HandleUpstreamError(context.Background(), account,
+			http.StatusBadGateway, http.Header{}, body, "claude-sonnet-4-5"))
+	}
+	require.Empty(t, repo.modelRateLimitCalls)
+	require.Equal(t, 0, repo.setRateLimitedCalls)
 	require.Equal(t, 0, repo.tempCalls)
 }
 

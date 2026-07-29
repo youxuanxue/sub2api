@@ -38,10 +38,8 @@ func (s *RateLimitService) SetAnthropicSaturationCounter(cache AnthropicSaturati
 // counter is unavailable. Logs at threshold crossing only (low-volume), so ops
 // can see a stub entering the de-prioritized state.
 //
-// Returns the new in-window count so callers can gate a sustained-only side
-// effect (e.g. the prod mirror per-class cooldown) on the SAME threshold
-// without a second Redis read. Returns 0 when the counter is unwired or Redis
-// errored — callers MUST treat 0 as "cannot confirm sustained" (do NOT cool).
+// Returns the new in-window count (best-effort). Returns 0 when the counter is
+// unwired or Redis errored.
 func (s *RateLimitService) recordAnthropicStubSaturation(ctx context.Context, accountID int64, statusCode int, reason string) int64 {
 	if s == nil || s.anthropicSaturationCounter == nil {
 		return 0
