@@ -35,12 +35,34 @@ WHERE id = 284
 UPDATE groups
 SET messages_dispatch_model_config = '{
         "opus_mapped_model": "kimi-k3",
-        "sonnet_mapped_model": "kimi-k2.5",
+        "sonnet_mapped_model": "kimi-k2.6",
         "haiku_mapped_model": "kimi-k2.5"
     }'::jsonb,
     updated_at = NOW()
 WHERE id = 285
   AND name = 'Kimi'
+  AND platform = 'newapi';
+
+UPDATE groups
+SET messages_dispatch_model_config = '{
+        "opus_mapped_model": "qwen3.7-max",
+        "sonnet_mapped_model": "qwen3.7-plus",
+        "haiku_mapped_model": "qwen3.6-flash"
+    }'::jsonb,
+    updated_at = NOW()
+WHERE id = 18
+  AND name = 'Qwen'
+  AND platform = 'newapi';
+
+UPDATE groups
+SET messages_dispatch_model_config = '{
+        "opus_mapped_model": "doubao-seed-2-0-pro-260215",
+        "sonnet_mapped_model": "doubao-seed-2-0-code-preview-260215",
+        "haiku_mapped_model": "doubao-seed-2-0-mini-260428"
+    }'::jsonb,
+    updated_at = NOW()
+WHERE id = 5
+  AND name = 'volcengine'
   AND platform = 'newapi';
 
 UPDATE groups
@@ -55,17 +77,15 @@ WHERE id = 22
   AND platform = 'openai';
 
 UPDATE groups
-SET messages_dispatch_model_config = jsonb_set(
-        messages_dispatch_model_config,
-        '{haiku_mapped_model}',
-        '"doubao-seed-1-6-flash-250615"'::jsonb,
-        true
-    ),
+SET messages_dispatch_model_config = '{
+        "opus_mapped_model": "deepseek-v4-pro",
+        "sonnet_mapped_model": "deepseek-v4-flash",
+        "haiku_mapped_model": "deepseek-v4-flash"
+    }'::jsonb,
     updated_at = NOW()
-WHERE id = 5
-  AND name = 'volcengine'
-  AND platform = 'newapi'
-  AND COALESCE(messages_dispatch_model_config->>'haiku_mapped_model', '') = 'glm-4-7-251222';
+WHERE id = 11
+  AND name = 'deepseek'
+  AND platform = 'newapi';
 
 UPDATE groups
 SET messages_dispatch_model_config = '{
@@ -88,3 +108,15 @@ SET messages_dispatch_model_config = jsonb_set(
 WHERE platform = 'grok'
   AND allow_messages_dispatch = true
   AND COALESCE(messages_dispatch_model_config->>'opus_mapped_model', '') IN ('grok-4.3', '');
+
+UPDATE groups
+SET messages_dispatch_model_config = jsonb_set(
+        messages_dispatch_model_config,
+        '{sonnet_mapped_model}',
+        '"grok-4.3"'::jsonb,
+        true
+    ),
+    updated_at = NOW()
+WHERE platform = 'grok'
+  AND allow_messages_dispatch = true
+  AND COALESCE(messages_dispatch_model_config->>'sonnet_mapped_model', '') = 'grok-code-fast-1';

@@ -7,7 +7,7 @@
     },
     "grok": {
       "opus_mapped_model": "grok-4.5",
-      "sonnet_mapped_model": "grok-code-fast-1",
+      "sonnet_mapped_model": "grok-4.3",
       "haiku_mapped_model": "grok-code-fast-1"
     },
     "gemini": {
@@ -39,7 +39,7 @@
     },
     "Kimi": {
       "opus_mapped_model": "kimi-k3",
-      "sonnet_mapped_model": "kimi-k2.5",
+      "sonnet_mapped_model": "kimi-k2.6",
       "haiku_mapped_model": "kimi-k2.5"
     },
     "deepseek": {
@@ -49,13 +49,13 @@
     },
     "Qwen": {
       "opus_mapped_model": "qwen3.7-max",
-      "sonnet_mapped_model": "qwen3.7-max",
-      "haiku_mapped_model": "qwen3.7-max"
+      "sonnet_mapped_model": "qwen3.7-plus",
+      "haiku_mapped_model": "qwen3.6-flash"
     },
     "volcengine": {
       "opus_mapped_model": "doubao-seed-2-0-pro-260215",
       "sonnet_mapped_model": "doubao-seed-2-0-code-preview-260215",
-      "haiku_mapped_model": "doubao-seed-1-6-flash-250615"
+      "haiku_mapped_model": "doubao-seed-2-0-mini-260428"
     },
     "china": {
       "opus_mapped_model": "glm-5.2",
