@@ -358,10 +358,12 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 
 	if selected == nil {
 		return nil, openAICompatNoCandidateError(requestedModel, platform, compactBlocked, accounts, excludedIDs, &openAICompatNoCandidateEval{
-			ctx:            ctx,
-			svc:            s,
-			groupID:        groupID,
-			requireCompact: requireCompact,
+			ctx:                ctx,
+			svc:                s,
+			groupID:            groupID,
+			platform:           platform,
+			requireCompact:     requireCompact,
+			requiredCapability: requiredCapability,
 		})
 	}
 
@@ -616,10 +618,12 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	if len(accounts) == 0 {
 		evidence := s.listOpenAICompatSchedulableAccountEvidence(ctx, groupID, platform)
 		return nil, openAICompatNoCandidateError(requestedModel, platform, false, evidence, excludedIDs, &openAICompatNoCandidateEval{
-			ctx:            ctx,
-			svc:            s,
-			groupID:        groupID,
-			requireCompact: requireCompact,
+			ctx:                ctx,
+			svc:                s,
+			groupID:            groupID,
+			platform:           platform,
+			requireCompact:     requireCompact,
+			requiredCapability: requiredCapability,
 		})
 	}
 
@@ -724,10 +728,12 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 	if len(candidates) == 0 {
 		return nil, openAICompatNoCandidateError(requestedModel, platform, false, accounts, excludedIDs, &openAICompatNoCandidateEval{
-			ctx:            ctx,
-			svc:            s,
-			groupID:        groupID,
-			requireCompact: requireCompact,
+			ctx:                ctx,
+			svc:                s,
+			groupID:            groupID,
+			platform:           platform,
+			requireCompact:     requireCompact,
+			requiredCapability: requiredCapability,
 		})
 	}
 	rateOrder := openAILegacyUpstreamRateOrder{}
@@ -920,10 +926,12 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		return nil, ErrNoAvailableCompactAccounts
 	}
 	return nil, openAICompatNoCandidateError(requestedModel, platform, false, accounts, excludedIDs, &openAICompatNoCandidateEval{
-		ctx:            ctx,
-		svc:            s,
-		groupID:        groupID,
-		requireCompact: requireCompact,
+		ctx:                ctx,
+		svc:                s,
+		groupID:            groupID,
+		platform:           platform,
+		requireCompact:     requireCompact,
+		requiredCapability: requiredCapability,
 	})
 }
 

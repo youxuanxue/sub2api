@@ -1878,9 +1878,9 @@ func TestHandleGrokAccountUpstreamErrorDoesNotShortenExistingPause(t *testing.T)
 	require.Zero(t, repo.tempUnschedCalls)
 	value, ok := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
 	require.True(t, ok)
-	runtimeUntil, ok := value.(time.Time)
+	entry, ok := loadOpenAIAccountRuntimeBlockEntry(value)
 	require.True(t, ok)
-	require.WithinDuration(t, existingUntil, runtimeUntil, time.Second)
+	require.WithinDuration(t, existingUntil, entry.Until, time.Second)
 }
 
 func TestUpdateGrokUsageSnapshotExhaustedSuccessBypassesThrottleAndSetsRateLimited(t *testing.T) {

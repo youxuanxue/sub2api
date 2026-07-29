@@ -1412,10 +1412,12 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		// the requested model name, surface ErrUnsupportedModel (→ HTTP 400) instead
 		// of an empty-pool 429. See openAICompatNoCandidateError (TK companion).
 		return nil, 0, 0, 0, s.service.tkGroupUnsupportedModelRecordErr(req.GroupID, req.RequestedModel, openAICompatNoCandidateError(req.RequestedModel, req.GroupPlatform, false, accounts, req.ExcludedIDs, &openAICompatNoCandidateEval{
-			ctx:            ctx,
-			svc:            s.service,
-			groupID:        req.GroupID,
-			requireCompact: req.RequireCompact,
+			ctx:                ctx,
+			svc:                s.service,
+			groupID:            req.GroupID,
+			platform:           req.GroupPlatform,
+			requireCompact:     req.RequireCompact,
+			requiredCapability: req.RequiredCapability,
 		}))
 	}
 
