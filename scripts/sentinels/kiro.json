@@ -292,13 +292,14 @@
         "payload.ClaudeCodeCompletionProtocol",
         "kiroproto.ConsumeClaudeCodeCompletionSignal",
         "kiroproto.PrepareClaudeCodeCompletionContinuation",
+        "completionSignalTextDelta",
         "gateway.kiro_stop_reason",
         "gateway.kiro_completion_protocol",
         "unsupported_stop_reason",
         "classifyAndRecordKiroForwardError",
         "publishKiroInternalThinkingSideChannel"
       ],
-      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. Hidden continuation usage is billed and both stop/completion actions are observable. The pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
+      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. completionSignalTextDelta prevents a private completion message from repeating a complete text block already visible in the same or an earlier hidden turn while preserving genuinely complementary final text. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. Hidden continuation usage is billed and both stop/completion actions are observable. The pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_test.go",
@@ -319,6 +320,9 @@
         "TestUS041_KiroGatewayService_ClaudeCodeEndTurnContinuesUntilExplicitCompletion",
         "TestUS041_KiroGatewayService_EmptyCompletionSignalDoesNotFinish",
         "TestUS041_KiroGatewayService_EmptyCompletionMessageWithAssistantTextDoesNotFinish",
+        "TestUS041_KiroGatewayService_CompletionSignalMessageIsPreservedAfterText",
+        "TestUS041_KiroGatewayService_CompletionSignalDoesNotRepeatVisibleFinalText",
+        "TestUS041_KiroGatewayService_ContinuationCompletionDoesNotRepeatPriorFinalText",
         "TestUS041_KiroGatewayService_NonClaudeCodeCompletionNamedToolIsPreserved",
         "TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolUseReturnsImmediately",
         "TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolWinsOverCompletionSignal",

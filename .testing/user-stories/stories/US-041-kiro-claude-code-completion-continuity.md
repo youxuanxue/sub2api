@@ -19,7 +19,7 @@
 
 ## Acceptance Criteria
 
-1. **AC-001（显式完成协议）**：Given Claude Code system prompt，When 构建 Kiro payload，Then completion guard 与 transport-private completion tool 各只出现一次；有效 `complete/blocked` 信号被消费并转换为最终文本与 `end_turn`。
+1. **AC-001（显式完成协议）**：Given Claude Code system prompt，When 构建 Kiro payload，Then completion guard 与 transport-private completion tool 各只出现一次；有效 `complete/blocked` 信号被消费并转换为最终文本与 `end_turn`；私有 completion message 已作为完整文本块出现在同一请求可见输出中时不得重复追加。
 2. **AC-002（未完成续跑）**：Given Kiro 返回文本与 `END_TURN` 但无有效完成信号，When 流式或非流式 gateway 处理，Then 在同一客户端请求内继续 Kiro turn，直到收到完成信号或达到确定性上限。
 3. **AC-003（范围与工具守卫）**：Given 普通 API 请求声明同名工具，When Kiro 调用该工具，Then 工具不得被吞；Given Claude Code 调用普通工具或同时产生普通工具与完成信号，Then 普通工具立即以 `tool_use` 返回并优先于完成信号。
 4. **AC-004（截断语义）**：Given Kiro 返回 `MAX_TOKENS` 或 `MODEL_CONTEXT_WINDOW_EXCEEDED`，When gateway 转换，Then保留对应 Anthropic stop reason，即使同一响应含私有完成信号也不得覆盖。
@@ -33,6 +33,7 @@
 - `mapKiroStopReason` 对已知值显式映射，对空值和未知值返回 typed error。
 - JSON 与 SSE wire 分别保留 `max_tokens`；未知流式终止态不包含 `message_stop`。
 - 私有工具只在 `ClaudeCodeCompletionProtocol` 为真时被消费；空消息、普通工具或非完成 stop reason 不能提前结束。
+- 流式与非流式输出在同轮及隐藏续跑跨轮均不得重复已经可见的完整 completion message；真正互补的进度文本与最终答复继续同时保留。
 - sentinel 锚定共享 owner、私有协议 owner、有界续跑、范围门禁、stop metadata、结构化日志与核心回归测试。
 
 ## Linked Tests
@@ -46,6 +47,9 @@
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_ClaudeCodeEndTurnContinuesUntilExplicitCompletion`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_EmptyCompletionSignalDoesNotFinish`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_EmptyCompletionMessageWithAssistantTextDoesNotFinish`
+- `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_CompletionSignalMessageIsPreservedAfterText`
+- `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_CompletionSignalDoesNotRepeatVisibleFinalText`
+- `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_ContinuationCompletionDoesNotRepeatPriorFinalText`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_NonClaudeCodeCompletionNamedToolIsPreserved`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolUseReturnsImmediately`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolWinsOverCompletionSignal`
