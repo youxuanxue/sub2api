@@ -156,6 +156,10 @@ func TestUniversalCandidatePlatforms(t *testing.T) {
 	if !contains(imageGrok, PlatformGrok) {
 		t.Errorf("grok image should include grok platform: %v", imageGrok)
 	}
+	imageGeminiNative := universalCandidatePlatforms(ShapeOpenAIImages, "", false, "gemini-2.5-flash-image")
+	if !contains(imageGeminiNative, PlatformAntigravity) {
+		t.Errorf("gemini-native image should include antigravity: %v", imageGeminiNative)
+	}
 	imageEdit := universalCandidatePlatforms(ShapeOpenAIImagesEdit, "", false, "")
 	if !contains(imageEdit, PlatformOpenAI) || !contains(imageEdit, PlatformGrok) {
 		t.Errorf("image edits should include openai and grok platforms: %v", imageEdit)
