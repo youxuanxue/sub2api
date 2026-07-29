@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  codebuddyModelsJsonPath,
+  generateCodebuddyModelsJson,
+  generateWorkbuddyModelsJson,
   resolveTkClientIntegrationUrl,
   TK_CLIENT_CATALOG,
   TK_CLIENT_INTEGRATIONS,
@@ -20,6 +23,48 @@ function decodeParam(url: string, name = 'data'): Record<string, any> {
   if (!data) throw new Error('missing data param')
   return JSON.parse(atob(data)) as Record<string, any>
 }
+
+describe('generateCodebuddyModelsJson', () => {
+  it('emits OpenAI chat/completions URL, verbatim sk- key, and tool calling enabled', () => {
+    const parsed = JSON.parse(generateCodebuddyModelsJson(API_KEY, BASE_URL, 'gpt-5.5', {
+      contextWindow: 200000,
+      maxOutputTokens: 8192,
+      supportsImages: true,
+      supportsReasoning: true,
+    })) as Record<string, unknown>
+
+    expect(parsed.availableModels).toEqual(['gpt-5.5'])
+    expect(parsed.models).toEqual([{
+      id: 'gpt-5.5',
+      name: 'gpt-5.5',
+      vendor: 'TokenKey',
+      apiKey: API_KEY,
+      url: `${BASE_URL}/v1/chat/completions`,
+      maxInputTokens: 200000,
+      maxOutputTokens: 8192,
+      supportsToolCall: true,
+      supportsImages: true,
+      supportsReasoning: true,
+    }])
+  })
+
+  it('strips trailing /v1 from base URL before building chat/completions path', () => {
+    const parsed = JSON.parse(generateCodebuddyModelsJson(API_KEY, `${BASE_URL}/v1`, 'gpt-5.5')) as {
+      models: Array<{ url: string }>
+    }
+    expect(parsed.models[0].url).toBe(`${BASE_URL}/v1/chat/completions`)
+  })
+
+  it('aliases generateWorkbuddyModelsJson to the shared generator', () => {
+    expect(generateWorkbuddyModelsJson(API_KEY, BASE_URL, 'gpt-5.5'))
+      .toBe(generateCodebuddyModelsJson(API_KEY, BASE_URL, 'gpt-5.5'))
+  })
+
+  it('maps client ids to the correct models.json paths', () => {
+    expect(codebuddyModelsJsonPath('codebuddy')).toBe('~/.codebuddy/models.json')
+    expect(codebuddyModelsJsonPath('workbuddy')).toBe('~/.workbuddy/models.json')
+  })
+})
 
 describe('resolveTkClientIntegrationUrl', () => {
   it('encodes Cherry Studio payload as base64 JSON with the key verbatim (no double sk- prefix)', () => {
@@ -139,6 +184,7 @@ describe('TokenKey client catalog', () => {
       'cherry-studio',
       'claude-code',
       'cline',
+      'codebuddy',
       'codex-cli',
       'curl',
       'dify',
@@ -148,6 +194,7 @@ describe('TokenKey client catalog', () => {
       'python',
       'qwen-code',
       'roo-code',
+      'workbuddy',
     ])
   })
 

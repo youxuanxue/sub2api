@@ -107,7 +107,9 @@
                   ? t('keys.useKeyModal.testing')
                   : isDifyClient
                     ? t('quickstart.testToolCall')
-                    : t('keys.useKeyModal.testKey') }}
+                    : isWorkbuddyClient || isCodebuddyClient
+                      ? t('quickstart.testToolCall')
+                      : t('keys.useKeyModal.testKey') }}
               </span>
             </button>
             <span v-if="tkTestState.status === 'ok'" class="inline-flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400">
@@ -252,7 +254,7 @@ import {
   type TestState,
 } from '@/composables/useTkUseKey'
 import type { GroupPlatform, KeyRoutingMode } from '@/types'
-import { TK_QUICKSTART_CLIENTS } from '@/constants/clientIntegrations.tk'
+import { TK_QUICKSTART_CLIENTS, codebuddyModelsJsonPath, generateCodebuddyModelsJson } from '@/constants/clientIntegrations.tk'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_GROK, PLATFORM_NEWAPI, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 interface Props {
@@ -354,6 +356,7 @@ const activeFlavor = computed<UseKeyFlavor | null>(() => {
     return props.selectedProtocol === 'openai' ? 'openai' : 'anthropic'
   }
   if (selectedClientEntry.value?.guideMode === 'openai-fields') return 'openai'
+  if (selectedClientEntry.value?.guideMode === 'codebuddy-models') return 'openai'
   if (tab === 'opencode') return null
   if (tab === 'claude') {
     if (isOpenAIMessagesDispatchClaudeTab.value) return 'openai'
@@ -453,6 +456,9 @@ const currentModelMeta = computed(() =>
   pickerModels.value.find((m) => m.id === selectedModel.value),
 )
 const isDifyClient = computed(() => activeClientTab.value === 'dify')
+const isWorkbuddyClient = computed(() => selectedClientEntry.value?.id === 'workbuddy')
+const isCodebuddyClient = computed(() => selectedClientEntry.value?.id === 'codebuddy')
+const requiresToolCallTest = computed(() => isDifyClient.value || isWorkbuddyClient.value || isCodebuddyClient.value)
 const testErrorMessage = computed(() => tkTestState.value.reason === 'missing_tool_call'
   ? t('quickstart.toolCallMissing')
   : tkTestState.value.message,
@@ -485,7 +491,7 @@ function isCollapsible(file: FileConfig): boolean {
 
 function onTest(): void {
   if (activeFlavor.value) {
-    void tk.runTest(activeFlavor.value, { requireToolCall: isDifyClient.value })
+    void tk.runTest(activeFlavor.value, { requireToolCall: requiresToolCallTest.value })
   }
 }
 
@@ -628,7 +634,9 @@ function platformForFiles(): GroupPlatform | null {
       return props.selectedProtocol === 'openai' ? PLATFORM_OPENAI : PLATFORM_ANTHROPIC
     }
     if (tab === 'codex' || tab === 'codex-ws' || selectedClientEntry.value?.guideMode === 'raw'
-      || selectedClientEntry.value?.guideMode === 'openai-fields' || tab === 'opencode') {
+      || selectedClientEntry.value?.guideMode === 'openai-fields'
+      || selectedClientEntry.value?.guideMode === 'codebuddy-models'
+      || tab === 'opencode') {
       return PLATFORM_OPENAI
     }
     return PLATFORM_ANTHROPIC
@@ -760,6 +768,9 @@ const platformDescription = computed(() => {
 })
 
 const platformNote = computed(() => {
+  if (selectedClientEntry.value?.guideMode === 'codebuddy-models') {
+    return t('quickstart.codebuddyModelsConfigNote')
+  }
   if (selectedClientEntry.value) {
     return t('quickstart.clientConfigNote')
   }
@@ -839,6 +850,21 @@ const currentFiles = computed((): FileConfig[] => {
       props.selectedProtocol === 'openai' ? 'openai' : 'anthropic',
       activeTab.value,
     )
+  }
+
+  if (selectedClientEntry.value?.guideMode === 'codebuddy-models') {
+    const clientId = selectedClientEntry.value.id === 'workbuddy' ? 'workbuddy' : 'codebuddy'
+    const meta = currentModelMeta.value
+    return [{
+      path: codebuddyModelsJsonPath(clientId),
+      content: generateCodebuddyModelsJson(apiKey, baseRoot, model, {
+        contextWindow: meta?.contextWindow,
+        maxOutputTokens: meta?.maxOutput,
+        supportsImages: meta?.capabilities?.includes('vision') ?? false,
+        supportsReasoning: meta?.capabilities?.includes('reasoning') ?? false,
+      }),
+      hint: t('quickstart.codebuddyModelsHint'),
+    }]
   }
 
   if (selectedClientEntry.value?.guideMode === 'openai-fields') {
