@@ -25,8 +25,9 @@ WITH upd AS (
             }'::jsonb
         ),
         updated_at = NOW()
-    FROM groups g
-    WHERE a.group_id = g.id
+    FROM account_groups ag
+    JOIN groups g ON g.id = ag.group_id
+    WHERE a.id = ag.account_id
       AND g.id = 16
       AND g.name = 'Google-Vertex'
       AND g.platform = 'newapi'
