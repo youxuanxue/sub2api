@@ -731,23 +731,6 @@ func buildLocalWindowUsageFromStats(now time.Time, fiveHourStats, sevenDayStats 
 	return usage
 }
 
-func applySyntheticWindowStats(info *UsageInfo, extra map[string]any) {
-	if info == nil || info.FiveHour == nil || len(extra) == 0 {
-		return
-	}
-	raw, ok := extra["synthetic_window_stats"].(map[string]any)
-	if !ok {
-		return
-	}
-	info.FiveHour.WindowStats = &WindowStats{
-		Requests:     int64(parseExtraInt(raw["requests"])),
-		Tokens:       int64(parseExtraInt(raw["tokens"])),
-		Cost:         parseExtraFloat64(raw["cost"]),
-		StandardCost: parseExtraFloat64(raw["standard_cost"]),
-		UserCost:     parseExtraFloat64(raw["user_cost"]),
-	}
-}
-
 // buildPassiveUsageWindow 从 Extra 中的被动采样数据（utilization 为 0-1 小数、reset 为 Unix 秒）
 // 构建用量窗口，无数据时返回 nil。
 func buildPassiveUsageWindow(extra map[string]any, utilKey, resetKey string) *UsageProgress {
