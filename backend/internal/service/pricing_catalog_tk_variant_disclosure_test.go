@@ -28,18 +28,22 @@ func TestOverlayHasNoTieredAndPeakValleyModel(t *testing.T) {
 		t.Fatal("overlay is empty — the embedded tk_pricing_overlay.json should always load")
 	}
 
-	var tiered, peak int
+	var tiered, peak, thinking int
 	for modelID, pricing := range overlay {
 		if pricing == nil {
 			continue
 		}
 		hasTiers := len(pricing.Intervals) > 1
 		hasPeak := tkDeepSeekPeakValleyApplies(modelID, PricingSourceLiteLLM)
+		hasThinking := pricing.ThinkingOutputCostPerToken > 0
 		if hasTiers {
 			tiered++
 		}
 		if hasPeak {
 			peak++
+		}
+		if hasThinking {
+			thinking++
 		}
 		if hasTiers && hasPeak {
 			t.Errorf("model %q has BOTH an interval ladder (%d brackets) and peak-valley pricing; "+
@@ -47,15 +51,32 @@ func TestOverlayHasNoTieredAndPeakValleyModel(t *testing.T) {
 				"dimension. Extend frontend/src/utils/pricingVariants.tk.ts before adding such a model.",
 				modelID, len(pricing.Intervals))
 		}
+		// Thinking premium is rendered as a sub-line of the FLAT output price
+		// (PricingView.vue: the `v-if="row.thinkingOutputPer1K"` block lives inside
+		// the flat `v-else-if` branch, which a variant row never reaches). So a
+		// model that is variant-priced AND carries a thinking premium would show
+		// its per-bracket prices while silently dropping the thinking rate — the
+		// same class of under-statement this whole change set exists to remove.
+		// No such model exists today; fail here rather than in production.
+		if hasThinking && (hasTiers || hasPeak) {
+			t.Errorf("model %q has a thinking-output premium AND variant pricing "+
+				"(tiered=%v peak=%v); the thinking price renders only in the flat branch and "+
+				"would be dropped. Render thinking inside the variant branch of "+
+				"frontend/src/utils/pricingVariants.tk.ts + PricingView.vue before adding such a model.",
+				modelID, hasTiers, hasPeak)
+		}
 	}
 
-	// Guard the guard: if neither variant exists any more, this test passes
-	// vacuously and stops protecting anything.
+	// Guard the guard: if a dimension no longer exists in the overlay, the
+	// corresponding assertion above passes vacuously and protects nothing.
 	if tiered == 0 {
 		t.Error("no tiered model found in the overlay — the 阶梯 disclosure path is now untested")
 	}
 	if peak == 0 {
 		t.Error("no peak-valley model found in the overlay — the 峰谷 disclosure path is now untested")
+	}
+	if thinking == 0 {
+		t.Error("no thinking-premium model found in the overlay — the thinking-vs-variant guard is now vacuous")
 	}
 }
 

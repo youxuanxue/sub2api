@@ -625,8 +625,17 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 	s.fillAccountFallback(ctx, targetGroup, effectiveRate, bestByModel, metaByID)
 
 	// Stage 3: LiteLLM metadata join — applied uniformly to all rows.
+	//
+	// Resolves through lookupMePricingCatalogModel (NOT a raw metaByID index) so a
+	// vendor-prefixed row id — "deepseek/deepseek-v4-pro" from a newapi channel, or
+	// an account whitelisting "anthropic/claude-3-5-sonnet" (PR #326) — reaches the
+	// catalog's bare model_id row. Stages 1 and 2 already price those rows via the
+	// same alias-aware helper; indexing raw here made stage 3 the odd one out, so a
+	// prefixed model got its flat prices but silently lost the 阶梯 ladder, the 峰谷
+	// block and the thinking premium — i.e. exactly the variant disclosure this
+	// change exists to guarantee, dropped for the ids most likely to carry it.
 	for _, m := range bestByModel {
-		if meta, ok := metaByID[m.ModelID]; ok {
+		if meta, ok := lookupMePricingCatalogModel(m.ModelID, metaByID); ok {
 			m.ContextWindow = meta.ContextWindow
 			m.MaxOutputTokens = meta.MaxOutputTokens
 			if len(meta.Capabilities) > 0 {
