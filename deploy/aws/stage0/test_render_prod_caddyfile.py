@@ -46,6 +46,7 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertNotIn("redir https://api.tokenkey.dev{uri} permanent", rendered)
         self.assertIn("@machine {", rendered)
         self.assertIn("path /v1/*", rendered)
+        self.assertIn("path /openrouter/*", rendered)
         self.assertIn("path /backend-api/codex/*", rendered)
         self.assertIn("path /antigravity/*", rendered)
         self.assertIn("path /api/v1/payment/webhook/*", rendered)

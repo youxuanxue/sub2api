@@ -114,6 +114,7 @@ ${API_DOMAIN} {
 	@machine {
 		path /health*
 		path /v1/*
+		path /openrouter/*
 		path /v1beta/*
 		path /api/v1/auth/oauth/*/callback
 		path /api/v1/auth/oauth/*/*/callback

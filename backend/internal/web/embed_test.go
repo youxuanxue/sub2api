@@ -734,6 +734,17 @@ func TestEmbeddedFrontendBypassesBareVideoAPIRoutes(t *testing.T) {
 	}
 }
 
+func TestEmbeddedFrontendBypassesOpenRouterProviderRoutes(t *testing.T) {
+	for _, path := range []string{
+		"/openrouter/v1/models",
+		"/openrouter/v1/images",
+		"/openrouter/v1/videos",
+		"/openrouter/v1/videos/task-123",
+	} {
+		require.True(t, shouldBypassEmbeddedFrontend(path), "path=%s", path)
+	}
+}
+
 func TestNewFrontendServer(t *testing.T) {
 	t.Run("creates_server_successfully", func(t *testing.T) {
 		provider := &mockSettingsProvider{
