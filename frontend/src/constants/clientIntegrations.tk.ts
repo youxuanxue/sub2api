@@ -30,7 +30,7 @@ export interface TkClientIntegration {
 export type TkClientCategory = 'coding' | 'apps' | 'build'
 export type TkClientSupportTier = 'verified' | 'import' | 'compatible'
 export type TkClientAction = 'copy-config' | 'app-deeplink' | 'copy-fields'
-export type TkClientGuideMode = 'native' | 'qwen' | 'openai-fields' | 'raw'
+export type TkClientGuideMode = 'native' | 'qwen' | 'openai-fields' | 'codebuddy-models' | 'raw'
 
 export const TK_CLIENT_SUPPORT_META: Record<TkClientSupportTier, {
   icon: 'checkCircle' | 'download' | 'link'
@@ -204,6 +204,22 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     usesEnvironmentPicker: false
   },
   {
+    id: 'codebuddy',
+    name: 'CodeBuddy',
+    category: 'coding',
+    sortOrder: 75,
+    icon: 'terminal',
+    guideId: 'codebuddy',
+    supportTier: 'compatible',
+    action: 'copy-config',
+    protocols: ['openai'],
+    docsUrl: 'https://www.codebuddy.ai/docs/cli/models',
+    surfaces: ['quickstart'],
+    secretTransport: 'config',
+    guideMode: 'codebuddy-models',
+    usesEnvironmentPicker: false
+  },
+  {
     id: 'cherry-studio',
     name: 'Cherry Studio',
     category: 'apps',
@@ -255,6 +271,22 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     kind: 'app',
     secretTransport: 'local-scheme',
     guideMode: 'openai-fields',
+    usesEnvironmentPicker: false
+  },
+  {
+    id: 'workbuddy',
+    name: 'WorkBuddy',
+    category: 'apps',
+    sortOrder: 40,
+    icon: 'chatBubble',
+    guideId: 'workbuddy',
+    supportTier: 'compatible',
+    action: 'copy-config',
+    protocols: ['openai'],
+    docsUrl: 'https://www.workbuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model',
+    surfaces: ['quickstart'],
+    secretTransport: 'config',
+    guideMode: 'codebuddy-models',
     usesEnvironmentPicker: false
   },
   {
@@ -417,6 +449,53 @@ export interface ResolveTkIntegrationParams {
   baseUrl: string
   /** selected model id, required by clients whose import contract carries a model list */
   model?: string
+}
+
+export interface WorkbuddyModelMeta {
+  contextWindow?: number
+  maxOutputTokens?: number
+  supportsImages?: boolean
+  supportsReasoning?: boolean
+}
+
+/** Env var referenced in generated models.json apiKey (CodeBuddy / WorkBuddy SSOT). */
+export const CODEBUDDY_MODELS_JSON_ENV_VAR = 'TK_FULLTEST_KEY'
+
+/** Single models.json source — WorkBuddy reads ~/.workbuddy/models.json via symlink. */
+export const CODEBUDDY_MODELS_JSON_CANONICAL_PATH = '~/.codebuddy/models.json'
+
+export const WORKBUDDY_MODELS_JSON_SYMLINK_PATH = '~/.workbuddy/models.json'
+
+/** WorkBuddy / CodeBuddy models.json entry — OpenAI /chat/completions only. */
+export function generateCodebuddyModelsJson(
+  baseRoot: string,
+  model: string,
+  meta: WorkbuddyModelMeta = {},
+): string {
+  const root = baseRoot.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
+  const payload = {
+    models: [{
+      id: model,
+      name: model,
+      vendor: 'TokenKey',
+      apiKey: `\${${CODEBUDDY_MODELS_JSON_ENV_VAR}}`,
+      url: `${root}/v1/chat/completions`,
+      ...(meta.contextWindow ? { maxInputTokens: meta.contextWindow } : {}),
+      ...(meta.maxOutputTokens ? { maxOutputTokens: meta.maxOutputTokens } : {}),
+      supportsToolCall: true,
+      supportsImages: meta.supportsImages ?? false,
+      supportsReasoning: meta.supportsReasoning ?? false,
+    }],
+    availableModels: [model],
+  }
+  return JSON.stringify(payload, null, 2)
+}
+
+/** @deprecated Use generateCodebuddyModelsJson — same payload shape for WorkBuddy and CodeBuddy. */
+export const generateWorkbuddyModelsJson = generateCodebuddyModelsJson
+
+export function codebuddyModelsJsonPath(_clientId: 'codebuddy' | 'workbuddy'): string {
+  return CODEBUDDY_MODELS_JSON_CANONICAL_PATH
 }
 
 /**

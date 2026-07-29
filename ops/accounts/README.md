@@ -145,6 +145,38 @@ cd ops/accounts
 
 ---
 
+## CodeBuddy / WorkBuddy models.json 同步
+
+本机 CodeBuddy CLI 与 WorkBuddy 桌面版共用一份 `models.json`（SSOT + 软链）：
+
+| 路径 | 角色 |
+|------|------|
+| `~/.codebuddy/models.json` | **唯一真源**（canonical） |
+| `~/.workbuddy/models.json` | 软链 → `~/.codebuddy/models.json` |
+
+模型清单来自 **TokenKey universal Gateway Key** 的实时 `GET /v1/models`（默认 `TK_FULLTEST_KEY`），自动排除纯图像/视频模型，并从 `/api/v1/public/pricing` 补 context/capabilities。`apiKey` 写 `${TK_FULLTEST_KEY}`，不写明文 sk。
+
+```bash
+cd ops/accounts
+
+# 写入 SSOT + 更新 WorkBuddy 软链
+export TK_FULLTEST_KEY='sk-...'
+./sync-codebuddy-models-json.sh
+
+# 只预览 JSON，不写文件
+./sync-codebuddy-models-json.sh --dry-run | head
+
+# 校验本机 ~/.codebuddy/models.json 是否与线上一致
+./sync-codebuddy-models-json.sh --check
+
+# 自测
+python3 test_sync_codebuddy_models_json.py
+```
+
+可选环境变量：`TK_FULLTEST_BASE_URL`（默认 `https://api.tokenkey.dev`）。
+
+---
+
 ## 配置密钥
 
 ### 单端导入（情形 D）

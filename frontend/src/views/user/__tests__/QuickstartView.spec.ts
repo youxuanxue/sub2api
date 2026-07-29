@@ -223,8 +223,8 @@ describe('QuickstartView', () => {
   it('shows every existing and newly supported client in the picker', async () => {
     const wrapper = await mountView()
     const expected = [
-      'claude-code', 'codex-cli', 'qwen-code', 'gemini-cli', 'opencode', 'cline', 'roo-code',
-      'cherry-studio', 'lobe-chat', 'chatbox', 'dify', 'curl', 'python',
+      'claude-code', 'codex-cli', 'qwen-code', 'gemini-cli', 'opencode', 'cline', 'roo-code', 'codebuddy',
+      'cherry-studio', 'lobe-chat', 'chatbox', 'workbuddy', 'dify', 'curl', 'python',
     ]
     for (const id of expected) {
       expect(wrapper.find(`[data-tk="quickstart-client-${id}"]`).exists()).toBe(true)

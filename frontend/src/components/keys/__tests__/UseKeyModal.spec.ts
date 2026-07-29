@@ -341,6 +341,56 @@ describe('UseKeyGuide — tool-first Quickstart contracts', () => {
     expect(wrapper.text()).toContain('quickstart.testToolCall')
     expect(wrapper.text()).toContain('quickstart.difyLimitHint')
   })
+
+  it('renders WorkBuddy models.json with chat/completions URL and tool calling enabled', async () => {
+    getMePricingCatalog.mockResolvedValue({
+      models: [
+        {
+          model_id: 'gpt-5.5',
+          capabilities: ['tools', 'reasoning'],
+          context_window: 200000,
+          max_output_tokens: 16384,
+        },
+      ],
+    })
+    const wrapper = mountQuickstartGuide({
+      selectedClient: 'workbuddy',
+      platform: 'openai',
+      routingMode: 'direct',
+    })
+    await flushPromises()
+    const config = JSON.parse(wrapper.find('pre code').text())
+    expect(config.models[0]).toEqual({
+      id: 'gpt-5.5',
+      name: 'gpt-5.5',
+      vendor: 'TokenKey',
+      apiKey: '${TK_FULLTEST_KEY}',
+      url: 'https://example.com/v1/chat/completions',
+      maxInputTokens: 200000,
+      maxOutputTokens: 16384,
+      supportsToolCall: true,
+      supportsImages: false,
+      supportsReasoning: true,
+    })
+    expect(config.availableModels).toEqual(['gpt-5.5'])
+    expect(wrapper.text()).toContain('quickstart.workbuddyModelsHint')
+    expect(wrapper.text()).toContain('quickstart.codebuddyModelsConfigNote')
+    expect(wrapper.text()).toContain('quickstart.testToolCall')
+  })
+
+  it('renders CodeBuddy models.json at ~/.codebuddy/models.json', async () => {
+    getMePricingCatalog.mockResolvedValue({
+      models: [{ model_id: 'gpt-5.5', capabilities: ['tools'] }],
+    })
+    const wrapper = mountQuickstartGuide({
+      selectedClient: 'codebuddy',
+      platform: 'openai',
+      routingMode: 'direct',
+    })
+    await flushPromises()
+    expect(wrapper.find('pre code').text()).toContain('"url": "https://example.com/v1/chat/completions"')
+    expect(wrapper.text()).toContain('~/.codebuddy/models.json')
+  })
 })
 
 describe('UseKeyModal — redesign (picker / test / CC-only / raw tabs)', () => {
