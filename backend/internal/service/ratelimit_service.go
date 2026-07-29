@@ -311,7 +311,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
-	if s.handleOpenAICompatDownstreamCapacityPenalty(ctx, account, statusCode, responseBody, tkFirstRequestedModel(requestedModel)) {
+	if s.handleOpenAICompatDownstreamCapacityPenalty(ctx, account, statusCode, responseBody) {
 		return true
 	}
 

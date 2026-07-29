@@ -28,7 +28,7 @@ func (s *OpenAIGatewayService) tkHandleGrok429UpstreamError(ctx context.Context,
 	}
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()
-	if s.handleOpenAICompatRelayDownstreamCapacityError(stateCtx, account, http.StatusTooManyRequests, responseBody, tkFirstRequestedModel(requestedModel)) {
+	if s.handleOpenAICompatRelayDownstreamCapacityError(stateCtx, account, http.StatusTooManyRequests, responseBody) {
 		return true
 	}
 

@@ -3865,7 +3865,7 @@
         "openAISaturationScorePenalty",
         "IsOpenAISaturatedStubDeprioritizeEnabled"
       ],
-      "rationale": "Read side of OpenAI edge-mirror stub saturated de-prioritization: at threshold 3 fold score penalty + sticky clear + mirror per-model cooldown (ratelimit_service_tk_openai_mirror_model.go). No temp_unschedulable or per-failover runtime block on downstream-empty path."
+      "rationale": "Read side of OpenAI edge-mirror stub saturated de-prioritization: at threshold 3 fold score penalty + sticky clear. Prod mirror stub does not write model_rate_limits — edge OAuth owns quota truth. No temp_unschedulable or per-failover runtime block on downstream-empty path."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_sticky_saturation.go",
@@ -3899,20 +3899,10 @@
       "path": "backend/internal/service/ratelimit_service_tk_openai_downstream.go",
       "must_contain": [
         "func (s *RateLimitService) handleOpenAICompatDownstreamCapacityPenalty(",
-        "satCount := s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)",
-        "s.tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(ctx, account, satCount, requestedModel)",
+        "s.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)",
         "openai_compat_downstream_capacity_skip_penalty"
       ],
-      "rationale": "Thin injection of OpenAI-compatible saturation counter increments at the downstream-capacity skip branch (429 no-available / failover-exhausted / TokenKey downstream rate-limit envelope on openai-us* and grok edge mirror stubs). Sits AFTER the skip decision so cooldown/ladder stay untouched; only feeds de-prioritization preference and optional model-scoped cooldown. Upstream merge rewriting the skip helper would silently drop the feed."
-    },
-    {
-      "path": "backend/internal/service/ratelimit_service_tk_openai_mirror_model.go",
-      "must_contain": [
-        "func (s *RateLimitService) tkTryOpenAIMirrorModelCooldownOnDownstreamEmpty(",
-        "429_openai_mirror_downstream_empty",
-        "SetModelRateLimit"
-      ],
-      "rationale": "OpenAI edge-mirror stub per-model downstream-empty write (spark / gpt-5.4 sibling safety): sustained empty-pool on openai-us* infers model scope from in-flight requested model and writes model_rate_limits only — mirrors Anthropic tkTryAnthropicMirrorClassCooldownOnDownstreamEmpty. Never temp_unschedulable or whole-account SetRateLimited on this path."
+      "rationale": "Thin injection of OpenAI-compatible saturation counter increments at the downstream-capacity skip branch (429 no-available / failover-exhausted / TokenKey downstream rate-limit envelope on openai-us* and grok edge mirror stubs). Sits AFTER the skip decision so cooldown/ladder stay untouched; only feeds de-prioritization preference (no prod-side model_rate_limits — edge OAuth owns model quota). Upstream merge rewriting the skip helper would silently drop the feed."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_downstream.go",
