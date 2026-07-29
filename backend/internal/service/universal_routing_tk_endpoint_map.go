@@ -137,6 +137,15 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 		if universalModelPlatformHint(model) == PlatformGrok {
 			out = append(out, PlatformGrok)
 		}
+		// Gemini-native image models (gemini-*-image) ride antigravity generateContent,
+		// same as chat completions — without antigravity in candidates, universal keys
+		// on /openrouter/v1/images or /v1/images/generations get universal_no_entitled_group.
+		if antigravity.IsImageModel(model) {
+			out = append(out, PlatformAntigravity)
+		}
+		if universalModelPlatformHint(model) == PlatformGemini {
+			out = append(out, PlatformGemini)
+		}
 		return out
 	case ShapeOpenAIImagesEdit:
 		return []string{PlatformOpenAI, PlatformGrok}
