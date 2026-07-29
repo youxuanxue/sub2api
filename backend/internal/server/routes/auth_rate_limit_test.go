@@ -33,6 +33,7 @@ func newAuthRoutesTestRouter(redisClient *redis.Client) *gin.Engine {
 		}),
 		redisClient,
 		nil, // settingService: nil 触发 BackendModeAuthGuard 的 fail-open 分支（仅速率限流测试）
+		nil,
 	)
 
 	return router

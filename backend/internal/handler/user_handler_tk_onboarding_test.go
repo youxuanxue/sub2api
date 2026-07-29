@@ -77,8 +77,14 @@ func (r *onboardingFakeUserRepo) GetByEmail(context.Context, string) (*service.U
 func (r *onboardingFakeUserRepo) GetFirstAdmin(context.Context) (*service.User, error) {
 	panic("unexpected GetFirstAdmin")
 }
-func (r *onboardingFakeUserRepo) Update(context.Context, *service.User) error {
+func (r *onboardingFakeUserRepo) Update(context.Context, *service.User, service.UserUpdateFields) error {
 	panic("unexpected Update")
+}
+func (r *onboardingFakeUserRepo) AdjustBalance(context.Context, int64, float64) (service.BalanceChange, error) {
+	panic("unexpected AdjustBalance")
+}
+func (r *onboardingFakeUserRepo) SetBalance(context.Context, int64, float64) (service.BalanceChange, error) {
+	panic("unexpected SetBalance")
 }
 func (r *onboardingFakeUserRepo) Delete(context.Context, int64) error { panic("unexpected Delete") }
 func (r *onboardingFakeUserRepo) List(context.Context, pagination.PaginationParams) ([]service.User, *pagination.PaginationResult, error) {

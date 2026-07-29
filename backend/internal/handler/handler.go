@@ -69,9 +69,11 @@ type Handlers struct {
 	OpenAIGateway    *OpenAIGatewayHandler
 	Setting          *SettingHandler
 	Totp             *TotpHandler
+	Passkey          *PasskeyHandler
 	Payment          *PaymentHandler
 	PaymentWebhook   *PaymentWebhookHandler
 	AvailableChannel *AvailableChannelHandler
+	ModelPlaza       *ModelPlazaHandler
 	QACapture        *qaobs.Service
 	// TK: public model + pricing catalog (US-028 / docs/approved/user-cold-start.md §2 v1).
 	PricingCatalog *PricingCatalogHandler
@@ -90,8 +92,8 @@ type Handlers struct {
 	// temp-unschedulable / schedulable / usage) the prod /accounts page proxies to
 	// for inline edge-account management — see edge_tk_account_ops_handler.go.
 	EdgeAccountOps *EdgeAccountOpsHandler
-	BatchImage     *BatchImageHandler
 	AsyncImage     *AsyncImageHandler
+	BatchImage     *BatchImageHandler
 }
 
 // BuildInfo contains build-time information

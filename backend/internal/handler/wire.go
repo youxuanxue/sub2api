@@ -326,9 +326,11 @@ func ProvideHandlers(
 	openaiGatewayHandler *OpenAIGatewayHandler,
 	settingHandler *SettingHandler,
 	totpHandler *TotpHandler,
+	passkeyHandler *PasskeyHandler,
 	paymentHandler *PaymentHandler,
 	paymentWebhookHandler *PaymentWebhookHandler,
 	availableChannelHandler *AvailableChannelHandler,
+	modelPlazaHandler *ModelPlazaHandler,
 	qaService *qaobs.Service,
 	pricingCatalogHandler *PricingCatalogHandler,
 	mePricingCatalogHandler *MePricingCatalogHandler,
@@ -356,9 +358,11 @@ func ProvideHandlers(
 		OpenAIGateway:    openaiGatewayHandler,
 		Setting:          settingHandler,
 		Totp:             totpHandler,
+		Passkey:          passkeyHandler,
 		Payment:          paymentHandler,
 		PaymentWebhook:   paymentWebhookHandler,
 		AvailableChannel: availableChannelHandler,
+		ModelPlaza:       modelPlazaHandler,
 		QACapture:        qaService,
 		PricingCatalog:   pricingCatalogHandler,
 		MePricingCatalog: mePricingCatalogHandler,
@@ -386,10 +390,13 @@ var ProviderSet = wire.NewSet(
 	ProvideGatewayHandler,
 	ProvideOpenAIGatewayHandler,
 	NewTotpHandler,
+	NewPasskeyHandler,
 	ProvideSettingHandler,
 	NewPaymentHandler,
 	NewPaymentWebhookHandler,
 	NewAvailableChannelHandler,
+	NewModelPlazaHandler,
+	NewAsyncImageHandler,
 	// TK: pricing-availability observability — see docs/approved/pricing-availability-source-of-truth.md
 	ProvideTKPricingCatalogHandler,
 	// TK: per-user pricing catalog ("Your Menu") — see me_pricing_catalog_handler_tk.go
@@ -405,7 +412,6 @@ var ProviderSet = wire.NewSet(
 	// TK: edge least-privilege account WRITE ops the prod /accounts page proxies to — see edge_tk_account_ops_handler.go.
 	ProvideEdgeAccountOpsHandler,
 	ProvideBatchImageHandler,
-	NewAsyncImageHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,

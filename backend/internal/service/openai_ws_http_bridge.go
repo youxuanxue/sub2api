@@ -190,15 +190,22 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	var upstreamReq *http.Request
 	if account.Platform == PlatformGrok {
 		upstreamModel := resolveGrokWSUpstreamModel(account, body, originalModel)
+		grokIntentSourceBody := body
 		body, err = patchGrokResponsesBody(body, upstreamModel)
 		if err != nil {
 			releaseUpstreamCtx()
 			return nil, err
 		}
-		body, err = applyGrokResponsesCacheIdentity(body, body, grokCacheIdentity, account.IsGrokOAuth())
+		grokMixedCacheIntentBody := append([]byte(nil), body...)
+		body, err = applyGrokResponsesCacheIdentity(body, grokIntentSourceBody, grokCacheIdentity, account.IsGrokOAuth())
 		if err != nil {
 			releaseUpstreamCtx()
-			return nil, fmt.Errorf("apply grok websocket cache identity: %w", err)
+			return nil, fmt.Errorf("apply grok prompt cache identity: %w", err)
+		}
+		body, err = applyGrokFreeRequestToolCacheRoute(c, body, grokMixedCacheIntentBody, account, grokCacheIdentity)
+		if err != nil {
+			releaseUpstreamCtx()
+			return nil, fmt.Errorf("apply grok Free function-tool cache route: %w", err)
 		}
 		targetURL, targetErr := s.resolveGrokResponsesUpstream(account)
 		if targetErr != nil {
@@ -269,7 +276,10 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	needModelReplace := false
 	var mappedModelBytes []byte
 	if originalModel != "" {
-		mappedModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
+		mappedModel = strings.TrimSpace(gjson.GetBytes(body, "model").String())
+		if mappedModel == "" {
+			mappedModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
+		}
 		needModelReplace = mappedModel != "" && mappedModel != originalModel
 		if needModelReplace {
 			mappedModelBytes = []byte(mappedModel)
@@ -429,18 +439,26 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	return resultWithUsage(), errors.New("upstream http bridge stream ended before terminal event")
 }
 
-func resolveGrokWSCacheIdentity(c *gin.Context, account *Account, payload []byte, originalModel string) (string, error) {
-	body, err := prepareOpenAIWSHTTPBridgeBody(payload)
+func resolveGrokWSCacheIdentity(c *gin.Context, account *Account, seedPayload, currentPayload []byte, originalModel string) (string, error) {
+	body, err := prepareOpenAIWSHTTPBridgeBody(seedPayload)
 	if err != nil {
 		return "", err
 	}
-	upstreamModel := resolveGrokWSUpstreamModel(account, body, originalModel)
+	upstreamModel := resolveGrokWSUpstreamModel(account, currentPayload, originalModel)
+	body, err = patchGrokResponsesBody(body, upstreamModel)
+	if err != nil {
+		return "", err
+	}
 	return resolveGrokCacheIdentity(c, body, "", upstreamModel), nil
 }
 
 func resolveGrokWSUpstreamModel(account *Account, body []byte, originalModel string) string {
 	upstreamModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
-	if account != nil && originalModel != "" {
+	originalModel = strings.TrimSpace(originalModel)
+	// Shared ingress has already applied channel and account mappings when the
+	// body model differs from the client-facing model. Only resolve from the
+	// original model when the body still carries that original value.
+	if account != nil && originalModel != "" && (upstreamModel == "" || upstreamModel == originalModel) {
 		if mappedModel := normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel)); mappedModel != "" {
 			upstreamModel = mappedModel
 		}

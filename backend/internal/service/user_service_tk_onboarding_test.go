@@ -42,7 +42,15 @@ func (s *onboardingUserRepoStub) GetByEmail(context.Context, string) (*User, err
 func (s *onboardingUserRepoStub) GetFirstAdmin(context.Context) (*User, error) {
 	panic("unexpected GetFirstAdmin")
 }
-func (s *onboardingUserRepoStub) Update(context.Context, *User) error { panic("unexpected Update") }
+func (s *onboardingUserRepoStub) Update(context.Context, *User, UserUpdateFields) error {
+	panic("unexpected Update")
+}
+func (s *onboardingUserRepoStub) AdjustBalance(context.Context, int64, float64) (BalanceChange, error) {
+	panic("unexpected AdjustBalance")
+}
+func (s *onboardingUserRepoStub) SetBalance(context.Context, int64, float64) (BalanceChange, error) {
+	panic("unexpected SetBalance")
+}
 func (s *onboardingUserRepoStub) Delete(context.Context, int64) error { panic("unexpected Delete") }
 func (s *onboardingUserRepoStub) List(context.Context, pagination.PaginationParams) ([]User, *pagination.PaginationResult, error) {
 	panic("unexpected List")
