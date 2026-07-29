@@ -45,6 +45,7 @@
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestMapKiroStopReason_PreservesTerminalOutcome`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_ClaudeCodeEndTurnContinuesUntilExplicitCompletion`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_EmptyCompletionSignalDoesNotFinish`
+- `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_EmptyCompletionMessageWithAssistantTextDoesNotFinish`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_NonClaudeCodeCompletionNamedToolIsPreserved`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolUseReturnsImmediately`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolWinsOverCompletionSignal`

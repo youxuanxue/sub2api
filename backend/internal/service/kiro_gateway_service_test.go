@@ -515,6 +515,37 @@ func TestUS041_KiroGatewayService_EmptyCompletionSignalDoesNotFinish(t *testing.
 	}
 }
 
+func TestUS041_KiroGatewayService_EmptyCompletionMessageWithAssistantTextDoesNotFinish(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			body := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"partial progress only"}`))
+			body = append(body, kiroToolUseEvent("toolu_completion", "sub2apiClaudeCodeCompletion", map[string]any{
+				"status": "complete", "message": "",
+			})...)
+			body = appendKiroTerminalStop(body, "TOOL_USE")
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				body,
+				kiroCompletionSignalStream("complete", "Implemented and verified the fix."),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 2, upstream.calls, "assistant text must not substitute for an empty private completion message")
+			out := rec.Body.String()
+			require.Contains(t, out, "partial progress only")
+			require.Contains(t, out, "Implemented and verified the fix.")
+			require.Contains(t, out, `"stop_reason":"end_turn"`)
+		})
+	}
+}
+
 func TestUS041_KiroGatewayService_ClaudeCodeCompletionLoopIsBounded(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {

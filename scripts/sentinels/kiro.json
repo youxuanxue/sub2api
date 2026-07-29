@@ -318,6 +318,7 @@
         "TestKiroGatewayService_Forward_NonStreaming_UnknownStopReasonFailsOver",
         "TestUS041_KiroGatewayService_ClaudeCodeEndTurnContinuesUntilExplicitCompletion",
         "TestUS041_KiroGatewayService_EmptyCompletionSignalDoesNotFinish",
+        "TestUS041_KiroGatewayService_EmptyCompletionMessageWithAssistantTextDoesNotFinish",
         "TestUS041_KiroGatewayService_NonClaudeCodeCompletionNamedToolIsPreserved",
         "TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolUseReturnsImmediately",
         "TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolWinsOverCompletionSignal",

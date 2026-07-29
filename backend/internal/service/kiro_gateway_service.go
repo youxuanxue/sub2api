@@ -137,14 +137,13 @@ func isKiroPolicyStopReason(raw string) bool {
 
 func isAcceptedClaudeCodeCompletion(
 	rawStopReason string,
-	assistantText string,
 	clientToolUses []kiroproto.KiroToolUse,
 	signal *kiroproto.ClaudeCodeCompletionSignal,
 ) bool {
 	return signal != nil &&
 		len(clientToolUses) == 0 &&
 		acceptsClaudeCodeCompletionSignal(rawStopReason) &&
-		(strings.TrimSpace(assistantText) != "" || signal.Message != "")
+		signal.Message != ""
 }
 
 func shouldContinueClaudeCodeCompletion(
@@ -385,7 +384,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		if payload.ClaudeCodeCompletionProtocol {
 			visibleToolUses, completionSignal = kiroproto.ConsumeClaudeCodeCompletionSignal(turnToolUses)
 		}
-		completionAccepted := isAcceptedClaudeCodeCompletion(stopReason, turnText, visibleToolUses, completionSignal)
+		completionAccepted := isAcceptedClaudeCodeCompletion(stopReason, visibleToolUses, completionSignal)
 		if completionAccepted {
 			turnText = completionSignalText(turnText, completionSignal)
 		}
@@ -630,7 +629,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		if payload.ClaudeCodeCompletionProtocol {
 			visibleToolUses, completionSignal = kiroproto.ConsumeClaudeCodeCompletionSignal(turnToolUses)
 		}
-		completionAccepted := isAcceptedClaudeCodeCompletion(stopReason, turnText, visibleToolUses, completionSignal)
+		completionAccepted := isAcceptedClaudeCodeCompletion(stopReason, visibleToolUses, completionSignal)
 		if completionAccepted {
 			completionText := completionSignalText(turnText, completionSignal)
 			if completionText != turnText {
