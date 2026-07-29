@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -159,29 +161,51 @@ func shouldContinueClaudeCodeCompletion(
 		acceptsClaudeCodeCompletionSignal(rawStopReason)
 }
 
-func completionSignalText(text string, signal *kiroproto.ClaudeCodeCompletionSignal) string {
+func completionSignalTextDelta(visibleText string, signal *kiroproto.ClaudeCodeCompletionSignal) string {
 	if signal == nil || strings.TrimSpace(signal.Message) == "" {
-		return text
-	}
-	message := strings.TrimSpace(signal.Message)
-	if strings.TrimSpace(text) == "" {
-		return message
-	}
-	if strings.TrimSpace(text) == message {
-		return text
-	}
-	return text + "\n\n" + message
-}
-
-func completionSignalTextDelta(text string, signal *kiroproto.ClaudeCodeCompletionSignal) string {
-	merged := completionSignalText(text, signal)
-	if merged == text {
 		return ""
 	}
-	if strings.HasPrefix(merged, text) {
-		return merged[len(text):]
+	message := strings.TrimSpace(signal.Message)
+	visibleText = strings.TrimSpace(visibleText)
+	if visibleText == "" {
+		return message
 	}
-	return merged
+	if containsCompletionTextBlock(visibleText, message) {
+		return ""
+	}
+	return "\n\n" + message
+}
+
+// containsCompletionTextBlock reports whether the private completion message
+// is already present as a complete whitespace- or punctuation-delimited block
+// in client-visible text. Boundary checks avoid treating short messages such as
+// "OK" as present merely because they occur inside another word.
+func containsCompletionTextBlock(text, block string) bool {
+	for offset := 0; offset <= len(text)-len(block); {
+		relative := strings.Index(text[offset:], block)
+		if relative < 0 {
+			return false
+		}
+		start := offset + relative
+		end := start + len(block)
+		beforeBoundary := start == 0 || isCompletionTextBoundaryBefore(text, start)
+		afterBoundary := end == len(text) || isCompletionTextBoundaryAfter(text, end)
+		if beforeBoundary && afterBoundary {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+func isCompletionTextBoundaryBefore(text string, index int) bool {
+	r, _ := utf8.DecodeLastRuneInString(text[:index])
+	return unicode.IsSpace(r) || unicode.IsPunct(r)
+}
+
+func isCompletionTextBoundaryAfter(text string, index int) bool {
+	r, _ := utf8.DecodeRuneInString(text[index:])
+	return unicode.IsSpace(r) || unicode.IsPunct(r)
 }
 
 func logKiroCompletionProtocol(account *Account, model string, turn int, action, status string) {
@@ -386,7 +410,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		}
 		completionAccepted := isAcceptedClaudeCodeCompletion(stopReason, visibleToolUses, completionSignal)
 		if completionAccepted {
-			turnText = completionSignalText(turnText, completionSignal)
+			turnText += completionSignalTextDelta(textBuf+turnText, completionSignal)
 		}
 		if turnText == "" && turnThinking == "" && len(turnToolUses) == 0 && textBuf == "" && thinkingBuf == "" {
 			if isKiroPolicyStopReason(stopReason) {
@@ -631,15 +655,12 @@ func (s *KiroGatewayService) forwardStreaming(
 		}
 		completionAccepted := isAcceptedClaudeCodeCompletion(stopReason, visibleToolUses, completionSignal)
 		if completionAccepted {
-			completionText := completionSignalText(turnText, completionSignal)
-			if completionText != turnText {
-				completionDelta := completionSignalTextDelta(turnText, completionSignal)
-				turnText = completionText
-				if completionDelta != "" {
-					markFirstToken()
-					enc.writeTextDelta(completionDelta)
-					callOutputCommitted = true
-				}
+			completionDelta := completionSignalTextDelta(textBuf+turnText, completionSignal)
+			if completionDelta != "" {
+				turnText += completionDelta
+				markFirstToken()
+				enc.writeTextDelta(completionDelta)
+				callOutputCommitted = true
 			}
 		}
 		if turnText == "" && turnThinking == "" && len(turnToolUses) == 0 && textBuf == "" && thinkingBuf == "" {
