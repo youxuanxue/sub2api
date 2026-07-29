@@ -19,6 +19,7 @@ var kiroTransportFailoverBody = []byte(`{"error":{"type":"upstream_error","messa
 var (
 	errKiroEmptyResponse         = errors.New("kiro upstream returned an empty response")
 	errKiroUnsupportedStopReason = errors.New("kiro upstream returned an unsupported stop reason")
+	errKiroCompletionExhausted   = errors.New("kiro Claude Code completion protocol exhausted without a valid signal")
 )
 
 const (
@@ -226,6 +227,8 @@ func classifyKiroOpaqueFailure(err error) (kiroForwardErrorObservation, bool) {
 		return kiroForwardErrorObservation{Kind: "response_error", Reason: "empty_response"}, true
 	case errors.Is(err, errKiroUnsupportedStopReason):
 		return kiroForwardErrorObservation{Kind: "response_error", Reason: "unsupported_stop_reason"}, true
+	case errors.Is(err, errKiroCompletionExhausted):
+		return kiroForwardErrorObservation{Kind: "response_error", Reason: "completion_exhausted"}, true
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		return kiroForwardErrorObservation{Kind: "response_error", Reason: "unexpected_eof"}, true
 	case errors.Is(err, io.EOF):

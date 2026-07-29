@@ -161,10 +161,28 @@ func shouldContinueClaudeCodeCompletion(
 }
 
 func completionSignalText(text string, signal *kiroproto.ClaudeCodeCompletionSignal) string {
-	if strings.TrimSpace(text) != "" || signal == nil {
+	if signal == nil || strings.TrimSpace(signal.Message) == "" {
 		return text
 	}
-	return signal.Message
+	message := strings.TrimSpace(signal.Message)
+	if strings.TrimSpace(text) == "" {
+		return message
+	}
+	if strings.TrimSpace(text) == message {
+		return text
+	}
+	return text + "\n\n" + message
+}
+
+func completionSignalTextDelta(text string, signal *kiroproto.ClaudeCodeCompletionSignal) string {
+	merged := completionSignalText(text, signal)
+	if merged == text {
+		return ""
+	}
+	if strings.HasPrefix(merged, text) {
+		return merged[len(text):]
+	}
+	return merged
 }
 
 func logKiroCompletionProtocol(account *Account, model string, turn int, action, status string) {
@@ -390,10 +408,8 @@ func (s *KiroGatewayService) forwardNonStreaming(
 				continue
 			}
 			logKiroCompletionProtocol(account, model, turn, "exhausted", "missing_signal")
-			if normalizeKiroStopReason(stopReason) == "TOOL_USE" {
-				err := fmt.Errorf("%w: invalid Claude Code completion signal", errKiroUnsupportedStopReason)
-				return nil, classifyAndRecordKiroForwardError(c, account, err, model)
-			}
+			err := fmt.Errorf("%w after %d turns", errKiroCompletionExhausted, maxClaudeCodeCompletionTurns)
+			return nil, classifyAndRecordKiroForwardError(c, account, err, model)
 		}
 
 		clientToolUses = visibleToolUses
@@ -618,10 +634,11 @@ func (s *KiroGatewayService) forwardStreaming(
 		if completionAccepted {
 			completionText := completionSignalText(turnText, completionSignal)
 			if completionText != turnText {
+				completionDelta := completionSignalTextDelta(turnText, completionSignal)
 				turnText = completionText
-				if turnText != "" {
+				if completionDelta != "" {
 					markFirstToken()
-					enc.writeTextDelta(turnText)
+					enc.writeTextDelta(completionDelta)
 					callOutputCommitted = true
 				}
 			}
@@ -648,14 +665,12 @@ func (s *KiroGatewayService) forwardStreaming(
 				continue
 			}
 			logKiroCompletionProtocol(account, model, turn, "exhausted", "missing_signal")
-			if normalizeKiroStopReason(stopReason) == "TOOL_USE" {
-				err := fmt.Errorf("%w: invalid Claude Code completion signal", errKiroUnsupportedStopReason)
-				msg := sanitizeStreamError(err)
-				recordKiroStreamError(c, account, msg)
-				writeKiroStreamError(c, flusher, "unsupported_stop_reason", msg)
-				mu.Unlock()
-				return nil, fmt.Errorf("kiro stream stop reason error: %w", err)
-			}
+			err := fmt.Errorf("%w after %d turns", errKiroCompletionExhausted, maxClaudeCodeCompletionTurns)
+			msg := sanitizeStreamError(err)
+			recordKiroStreamError(c, account, msg)
+			writeKiroStreamError(c, flusher, "completion_exhausted", msg)
+			mu.Unlock()
+			return nil, fmt.Errorf("kiro stream completion error: %w", err)
 		}
 
 		clientToolUses = visibleToolUses
