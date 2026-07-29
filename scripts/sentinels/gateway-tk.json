@@ -5043,11 +5043,13 @@
       "must_contain": [
         "type OpenAICodexUsageSnapshot struct",
         "func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits",
+        "func isCodexBengalfoxActiveLimit(headers http.Header) bool",
+        "codexBengalfoxActiveLimit",
         "func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot",
         "func (s *OpenAIGatewayService) UpdateCodexUsageSnapshotFromHeaders(ctx context.Context, accountID int64, headers http.Header)",
         "func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) (bool, openAIQuotaAutoPauseDecision)"
       ],
-      "rationale": "TK Codex usage snapshot companion: Codex rate-limit header parsing, 5h/7d window normalization, quota auto-pause logic, and snapshot persistence with write throttle. Extracted from openai_gateway_service.go to reduce upstream merge surface. ParseCodexRateLimitHeaders is called from ratelimit_service; UpdateCodexUsageSnapshotFromHeaders from the /responses handler; shouldAutoPauseOpenAIAccountByQuota from the account scheduler; dropping the companion breaks compilation across multiple packages."
+      "rationale": "TK Codex usage snapshot companion: Codex rate-limit header parsing, 5h/7d window normalization, quota auto-pause logic, and snapshot persistence with write throttle. ParseCodexRateLimitHeaders must ignore x-codex-active-limit=codex_bengalfox spark 429 headers (prod GPT-pro3/pro4 2026-07-29) so spark sub-limit exhaustion routes to model-scoped cooldown instead of whole-account SetRateLimited and codex_7d pollution. Extracted from openai_gateway_service.go to reduce upstream merge surface."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_image_input_sanitize.go",

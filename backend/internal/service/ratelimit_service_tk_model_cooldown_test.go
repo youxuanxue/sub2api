@@ -377,6 +377,23 @@ func codexGeneralWindowHeaders(used5h, used7d int) http.Header {
 	return h
 }
 
+// codexSparkBengalfox429Headers mirrors prod GPT-pro3/pro4 spark 429 captures
+// (2026-07-29): x-codex-active-limit=codex_bengalfox with generic primary=100%
+// /10080min that must NOT be treated as account-wide 7d exhaustion.
+func codexSparkBengalfox429Headers() http.Header {
+	h := http.Header{}
+	h.Set("x-codex-active-limit", "codex_bengalfox")
+	h.Set("x-codex-plan-type", "pro")
+	h.Set("x-codex-primary-used-percent", "100")
+	h.Set("x-codex-secondary-used-percent", "0")
+	h.Set("x-codex-primary-window-minutes", "10080")
+	h.Set("x-codex-secondary-window-minutes", "0")
+	h.Set("x-codex-primary-reset-after-seconds", "527898")
+	h.Set("x-codex-bengalfox-primary-used-percent", "100")
+	h.Set("x-codex-bengalfox-limit-name", "GPT-5.3-Codex-Spark")
+	return h
+}
+
 const codexSparkModel = "gpt-5.3-codex-spark"
 
 // usage_limit_reached body carrying the (spark sub-window) reset.
@@ -439,13 +456,34 @@ func TestCodexSpark429_GeneralWindowNearCapNotExhausted_ModelScoped(t *testing.T
 	require.Equal(t, 0, repo.setRateLimitedCalls)
 }
 
+func TestCodexSpark429_BengalfoxActiveLimit_ModelScopedDespitePrimary100(t *testing.T) {
+	// Prod regression (GPT-pro3/pro4, 2026-07-29): spark 429 carries
+	// x-codex-active-limit=codex_bengalfox while generic primary=100%/10080min.
+	// That must model-scope spark, not whole-account cool gpt-5.5 capacity.
+	repo := &rateLimitAccountRepoStub{}
+	svc := newG4RateLimitService(repo)
+	account := newOpenAICodexAccount(1073, AccountTypeOAuth)
+
+	svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		codexSparkBengalfox429Headers(),
+		codexUsageLimitBody,
+		codexSparkModel,
+	)
+
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, codexSparkModel, repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, 0, repo.setRateLimitedCalls)
+	require.Zero(t, repo.updateExtraCalls,
+		"bengalfox 429 headers must not persist account-wide codex_7d=100%")
+}
+
 func TestCodexSpark429_GeneralWindowExhausted_WholeAccountViaPath1(t *testing.T) {
-	// When a general window actually reads >=100% AND carries its reset, path 1
-	// (calculateOpenAI429ResetTime) cools the WHOLE account before the model-scope
-	// helper is reached — this is the only fact-based account-wide signal. Also
-	// the header-semantics self-protection: if the x-codex-* headers ever
-	// reflected the spark window at 100% instead of the account-wide one, this
-	// same path catches it. No model-scoped write.
+	// When a general window actually reads >=100% AND carries its reset (without
+	// x-codex-active-limit=codex_bengalfox), path 1 cools the WHOLE account
+	// before the model-scope helper is reached.
 	repo := &rateLimitAccountRepoStub{}
 	svc := newG4RateLimitService(repo)
 	account := newOpenAICodexAccount(1003, AccountTypeOAuth)
@@ -581,4 +619,8 @@ func TestTkShouldOpenAICodex429BeModelScoped(t *testing.T) {
 	exhausted := codexGeneralWindowHeaders(100, 1)
 	exhausted.Set("x-codex-primary-reset-after-seconds", "7620")
 	require.False(t, tkShouldOpenAICodex429BeModelScoped(account, exhausted, body, codexSparkModel))
+
+	require.True(t, tkShouldOpenAICodex429BeModelScoped(
+		account, codexSparkBengalfox429Headers(), body, codexSparkModel),
+		"bengalfox active-limit spark 429 must model-scope despite primary=100%")
 }
