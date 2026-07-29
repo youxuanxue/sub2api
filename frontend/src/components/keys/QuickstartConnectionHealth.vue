@@ -94,6 +94,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import type { TestState } from '@/composables/useTkUseKey'
+import { formatProbeLatencyDetail } from '@/composables/useTkUseKey'
 
 const props = withDefaults(defineProps<{
   testState: TestState | null
@@ -134,14 +135,7 @@ const statusTitle = computed(() => {
 const statusDetail = computed(() => {
   if (props.setupBlocked) return props.setupBlockedReason ?? ''
   if (effectiveStatus.value === 'ok' && props.testState) {
-    const parts = [
-      props.testState.httpStatus ? String(props.testState.httpStatus) : '',
-      props.testState.latencyMs != null ? `${props.testState.latencyMs}ms` : '',
-    ].filter(Boolean)
-    if (props.testState.toolCall) parts.push(t('quickstart.toolCallOk'))
-    else if (props.testState.keyOnly) parts.push(t('keys.useKeyModal.testKeyValid'))
-    else if (parts.length) parts.push(t('keys.useKeyModal.testModelOk'))
-    return parts.join(' · ')
+    return formatProbeLatencyDetail(props.testState, t)
   }
   if (effectiveStatus.value === 'error') {
     if (props.testState?.reason === 'missing_tool_call') return t('quickstart.toolCallMissing')

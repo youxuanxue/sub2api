@@ -22,7 +22,7 @@
  */
 
 import { computed, ref, type Ref } from 'vue'
-import { resolveBrowserGatewayFetchBaseUrl } from '@/api/playground'
+import { resolveBrowserGatewayFetchBaseUrl, gatewayWarmupConnection } from '@/api/playground'
 import { getMePricingCatalog, type MePricingModel } from '@/api/me-pricing'
 import { getPublicPricing } from '@/api/pricing'
 import type { GroupPlatform, KeyRoutingMode } from '@/types'
@@ -48,7 +48,12 @@ export type TestStatus = 'idle' | 'running' | 'ok' | 'error'
 export interface TestState {
   status: TestStatus
   httpStatus?: number
+  /** End-to-end wall time for the full probe sequence. */
   latencyMs?: number
+  /** GET /v1/models — key validity and routing. */
+  authLatencyMs?: number
+  /** Model protocol probe (chat/messages/generateContent); omitted for key-only checks. */
+  modelLatencyMs?: number
   /** verbatim upstream/gateway message on failure (the actionable signal) */
   message?: string
   reason?: 'missing_tool_call'
@@ -60,6 +65,30 @@ export interface TestState {
 
 export interface RunTestOptions {
   requireToolCall?: boolean
+}
+
+/** Build human-readable latency fragments for Quickstart / Use Key test banners. */
+export function formatProbeLatencyDetail(
+  state: TestState,
+  t: (key: string, params?: Record<string, unknown>) => string,
+): string {
+  const parts: string[] = []
+  if (state.httpStatus) parts.push(String(state.httpStatus))
+  if (state.authLatencyMs != null) {
+    parts.push(t('quickstart.probeAuthMs', { ms: state.authLatencyMs }))
+  }
+  if (state.modelLatencyMs != null) {
+    parts.push(t('quickstart.probeModelMs', { ms: state.modelLatencyMs }))
+  }
+  if (state.latencyMs != null && state.modelLatencyMs != null) {
+    parts.push(t('quickstart.probeTotalMs', { ms: state.latencyMs }))
+  } else if (state.latencyMs != null && state.authLatencyMs == null) {
+    parts.push(`${state.latencyMs}ms`)
+  }
+  if (state.toolCall) parts.push(t('quickstart.toolCallOk'))
+  else if (state.keyOnly) parts.push(t('keys.useKeyModal.testKeyValid'))
+  else if (state.modelLatencyMs != null || state.keyOnly) parts.push(t('keys.useKeyModal.testModelOk'))
+  return parts.filter(Boolean).join(' · ')
 }
 
 /** Per-flavor fallback when the live catalog is still loading or empty. Kept in
@@ -89,6 +118,45 @@ export function capabilityLabel(cap: string): string {
 
 function stripTrailingSlashes(u: string): string {
   return u.replace(/\/+$/, '')
+}
+
+function perfNow(): number {
+  return typeof performance !== 'undefined' ? performance.now() : 0
+}
+
+function elapsedMs(since: number): number {
+  return Math.max(0, Math.round(perfNow() - since))
+}
+
+interface GatewayAuthProbeResult {
+  ok: boolean
+  httpStatus: number
+  latencyMs: number
+  message?: string
+}
+
+async function probeGatewayAuth(
+  root: string,
+  key: string,
+  signal: AbortSignal,
+): Promise<GatewayAuthProbeResult> {
+  const t0 = perfNow()
+  const res = await fetch(`${root}/v1/models`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+    signal,
+  })
+  const latencyMs = elapsedMs(t0)
+  if (res.ok) {
+    return { ok: true, httpStatus: res.status, latencyMs }
+  }
+  const text = await res.text().catch(() => '')
+  return {
+    ok: false,
+    httpStatus: res.status,
+    latencyMs,
+    message: extractMessage(text) || `HTTP ${res.status}`,
+  }
 }
 
 /** Classify a model id into a flavor by its wire-name shape. */
@@ -246,6 +314,9 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
    * a CC-only anthropic group can't be exercised from a browser (the gateway
    * requires a claude-cli User-Agent, which fetch is forbidden from setting),
    * so we fall back to a key-validity probe (GET /v1/models) and say so.
+   *
+   * Non key-only probes run auth (GET /v1/models) then a minimal model call so
+   * Quickstart can show auth vs model latency separately.
    */
   async function runTest(flavor: UseKeyFlavor, options: RunTestOptions = {}): Promise<void> {
     cancelTest()
@@ -256,85 +327,110 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     testController = ctrl
     const timer = setTimeout(() => ctrl.abort(), 15_000)
     testState.value = { status: 'running' }
-    const t0 = (typeof performance !== 'undefined' ? performance.now() : 0)
+    const totalT0 = perfNow()
 
     const keyOnly = isClaudeCodeOnly.value
-    let url: string
-    let init: RequestInit
-
-    if (keyOnly) {
-      url = `${root}/v1/models`
-      init = { method: 'GET', headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' }, signal: ctrl.signal }
-    } else if (flavor === PLATFORM_ANTHROPIC) {
-      const isAntigravity = args.platform.value === PLATFORM_ANTIGRAVITY
-      url = `${root}${isAntigravity ? '/antigravity' : ''}/v1/messages`
-      init = {
-        method: 'POST',
-        headers: {
-          'x-api-key': key,
-          Authorization: `Bearer ${key}`,
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'ping' }] }),
-        signal: ctrl.signal,
-      }
-    } else if (flavor === PLATFORM_GEMINI) {
-      const isAntigravity = args.platform.value === PLATFORM_ANTIGRAVITY
-      const gBase = `${root}${isAntigravity ? '/antigravity' : ''}/v1beta`
-      url = `${gBase}/models/${encodeURIComponent(model)}:generateContent`
-      init = {
-        method: 'POST',
-        headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'ping' }] }] }),
-        signal: ctrl.signal,
-      }
-    } else {
-      url = `${root}/v1/chat/completions`
-      const toolName = 'tokenkey_quickstart_probe'
-      const body: Record<string, unknown> = {
-        model,
-        max_tokens: 16,
-        messages: [{
-          role: 'user',
-          content: options.requireToolCall ? `Call ${toolName} with value "ok".` : 'ping',
-        }],
-        stream: false,
-      }
-      if (options.requireToolCall) {
-        body.tools = [{
-          type: 'function',
-          function: {
-            name: toolName,
-            description: 'Return a fixed probe value without side effects.',
-            parameters: {
-              type: 'object',
-              properties: { value: { type: 'string' } },
-              required: ['value'],
-              additionalProperties: false,
-            },
-          },
-        }]
-        body.tool_choice = { type: 'function', function: { name: toolName } }
-      }
-      init = {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(body),
-        signal: ctrl.signal,
-      }
-    }
 
     try {
+      const auth = await probeGatewayAuth(root, key, ctrl.signal)
+      if (!auth.ok) {
+        testState.value = {
+          status: 'error',
+          httpStatus: auth.httpStatus,
+          authLatencyMs: auth.latencyMs,
+          latencyMs: auth.latencyMs,
+          message: auth.message,
+        }
+        return
+      }
+
+      if (keyOnly) {
+        testState.value = {
+          status: 'ok',
+          httpStatus: auth.httpStatus,
+          authLatencyMs: auth.latencyMs,
+          latencyMs: auth.latencyMs,
+          keyOnly: true,
+        }
+        return
+      }
+
+      let url: string
+      let init: RequestInit
+
+      if (flavor === PLATFORM_ANTHROPIC) {
+        const isAntigravity = args.platform.value === PLATFORM_ANTIGRAVITY
+        url = `${root}${isAntigravity ? '/antigravity' : ''}/v1/messages`
+        init = {
+          method: 'POST',
+          headers: {
+            'x-api-key': key,
+            Authorization: `Bearer ${key}`,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'ping' }] }),
+          signal: ctrl.signal,
+        }
+      } else if (flavor === PLATFORM_GEMINI) {
+        const isAntigravity = args.platform.value === PLATFORM_ANTIGRAVITY
+        const gBase = `${root}${isAntigravity ? '/antigravity' : ''}/v1beta`
+        url = `${gBase}/models/${encodeURIComponent(model)}:generateContent`
+        init = {
+          method: 'POST',
+          headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'ping' }] }] }),
+          signal: ctrl.signal,
+        }
+      } else {
+        url = `${root}/v1/chat/completions`
+        const toolName = 'tokenkey_quickstart_probe'
+        const body: Record<string, unknown> = {
+          model,
+          max_tokens: 16,
+          messages: [{
+            role: 'user',
+            content: options.requireToolCall ? `Call ${toolName} with value "ok".` : 'ping',
+          }],
+          stream: false,
+        }
+        if (options.requireToolCall) {
+          body.tools = [{
+            type: 'function',
+            function: {
+              name: toolName,
+              description: 'Return a fixed probe value without side effects.',
+              parameters: {
+                type: 'object',
+                properties: { value: { type: 'string' } },
+                required: ['value'],
+                additionalProperties: false,
+              },
+            },
+          }]
+          body.tool_choice = { type: 'function', function: { name: toolName } }
+        }
+        init = {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        }
+      }
+
+      const modelT0 = perfNow()
       const res = await fetch(url, init)
-      const latencyMs = Math.max(0, Math.round((typeof performance !== 'undefined' ? performance.now() : 0) - t0))
+      const modelLatencyMs = elapsedMs(modelT0)
+      const latencyMs = elapsedMs(totalT0)
       const text = await res.text().catch(() => '')
       if (res.ok) {
         if (options.requireToolCall && !hasToolCall(text, 'tokenkey_quickstart_probe')) {
           testState.value = {
             status: 'error',
             httpStatus: res.status,
+            authLatencyMs: auth.latencyMs,
+            modelLatencyMs,
             latencyMs,
             reason: 'missing_tool_call',
           }
@@ -342,13 +438,22 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
           testState.value = {
             status: 'ok',
             httpStatus: res.status,
+            authLatencyMs: auth.latencyMs,
+            modelLatencyMs,
             latencyMs,
-            keyOnly,
+            keyOnly: false,
             toolCall: options.requireToolCall,
           }
         }
       } else {
-        testState.value = { status: 'error', httpStatus: res.status, latencyMs, message: extractMessage(text) || `HTTP ${res.status}` }
+        testState.value = {
+          status: 'error',
+          httpStatus: res.status,
+          authLatencyMs: auth.latencyMs,
+          modelLatencyMs,
+          latencyMs,
+          message: extractMessage(text) || `HTTP ${res.status}`,
+        }
       }
     } catch (e) {
       if (ctrl.signal.aborted) {
@@ -359,6 +464,17 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     } finally {
       clearTimeout(timer)
       if (testController === ctrl) testController = null
+    }
+  }
+
+  async function warmupGateway(): Promise<void> {
+    const key = args.apiKey.value.trim()
+    if (!key) return
+    const root = stripTrailingSlashes(resolveBrowserGatewayFetchBaseUrl(args.baseRoot.value))
+    try {
+      await gatewayWarmupConnection(key, root)
+    } catch {
+      /* connection warmup is best-effort */
     }
   }
 
@@ -375,6 +491,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     applyInitialModel,
     shouldWarnModelsEmpty,
     runTest,
+    warmupGateway,
   }
 }
 

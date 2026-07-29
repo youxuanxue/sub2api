@@ -115,7 +115,11 @@ run_mode: "standard"
 cors:
   # Allowed origins list. Leave empty to disable cross-origin requests.
   # 允许的来源列表。留空则禁用跨域请求。
-  allowed_origins: []
+  # Apex SPA (tokenkey.dev) calling api.* gateway directly needs the apex origin here.
+  # 浏览器 Quickstart / Studio 从 apex 直连 api 主机时，必须把 apex 加入此列表。
+  allowed_origins:
+    - "https://tokenkey.dev"
+    - "http://localhost:5173"
   # Allow credentials (cookies/authorization headers). Cannot be used with "*".
   # 允许携带凭证（cookies/授权头）。不能与 "*" 通配符同时使用。
   allow_credentials: true

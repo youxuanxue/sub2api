@@ -114,11 +114,7 @@
             </button>
             <span v-if="tkTestState.status === 'ok'" class="inline-flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400">
               <Icon name="checkCircle" size="sm" />
-              {{ tkTestState.httpStatus }} · {{ tkTestState.latencyMs }}ms · {{ tkTestState.toolCall
-                ? t('quickstart.toolCallOk')
-                : tkTestState.keyOnly
-                  ? t('keys.useKeyModal.testKeyValid')
-                  : t('keys.useKeyModal.testModelOk') }}
+              {{ probeLatencyDetail }}
             </span>
             <span v-else-if="tkTestState.status === 'error'" class="inline-flex items-start gap-1.5 text-sm text-red-600 dark:text-red-400">
               <Icon name="exclamationCircle" size="sm" class="flex-shrink-0 mt-0.5" />
@@ -249,6 +245,7 @@ import {
   anthropicEnvModel,
   claudeCodeEnvModel,
   flavorOfModel,
+  formatProbeLatencyDetail,
   type UseKeyFlavor,
   type UseKeyServableModel,
   type TestState,
@@ -463,6 +460,9 @@ const testErrorMessage = computed(() => tkTestState.value.reason === 'missing_to
   ? t('quickstart.toolCallMissing')
   : tkTestState.value.message,
 )
+const probeLatencyDetail = computed(() =>
+  tkTestState.value.status === 'ok' ? formatProbeLatencyDetail(tkTestState.value, t) : '',
+)
 function onPickModel(e: Event): void {
   const id = (e.target as HTMLSelectElement).value
   if (activeFlavor.value) {
@@ -497,6 +497,7 @@ function onTest(): void {
 
 defineExpose({
   runTest: onTest,
+  warmupGateway: tk.warmupGateway,
   testState: tkTestState,
 })
 

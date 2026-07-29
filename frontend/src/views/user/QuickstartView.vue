@@ -266,6 +266,7 @@ import {
   type TkClientCatalogEntry,
 } from '@/constants/clientIntegrations.tk'
 import { flavorOfModel } from '@/composables/useTkUseKey'
+import { gatewayWarmupConnection } from '@/api/playground'
 import { PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 const { t } = useI18n()
@@ -515,6 +516,11 @@ watch(selectedKey, () => {
     selectedProtocol.value = protocols.includes('anthropic') ? 'anthropic' : 'openai'
   }
   if (!codexWebSocketAvailable()) selectedTransport.value = 'http'
+})
+
+watch([selectedKey, baseUrl], ([key, url]) => {
+  if (!key?.key || !url) return
+  void gatewayWarmupConnection(key.key, url)
 })
 
 watch([selectedKeyId, selectedClientId, selectedProtocol, selectedTransport, selectedModel], ([keyId, clientId]) => {
