@@ -110,6 +110,29 @@ class ScanPlatformTest(unittest.TestCase):
         self.assertTrue(row["issue_suppressed"])
         self.assertIn("wire", row["status_note"])
 
+    def test_grok_cli_drift_is_advisory(self) -> None:
+        spec = next(p for p in crw.PLATFORM_SPECS if p.id == "grok-cli")
+        offline = {
+            "grok-cli": {
+                "npm @xai-official/grok": {
+                    "version": "9.9.9",
+                    "url": "https://example.com/grok",
+                    "raw_tag": "9.9.9",
+                    "published_at": "",
+                },
+            }
+        }
+        with mock.patch.dict(crw.PIN_READERS, {"grok-cli": lambda: "0.2.111"}):
+            result = crw.scan_platform(spec, offline_upstream=offline)
+        report = crw.build_report([result])
+        self.assertTrue(result.drift)
+        self.assertEqual(result.status, "drift")
+        self.assertFalse(result.actionable)
+        self.assertEqual(report["summary"]["drift_count"], 0)
+        row = report["platforms"][0]
+        self.assertTrue(row["issue_suppressed"])
+        self.assertIn("installable", row["status_note"])
+
 
 class SkillPlanTest(unittest.TestCase):
     def test_plan_lists_skill_for_drift(self) -> None:
@@ -294,7 +317,7 @@ class MainIntegrationTest(unittest.TestCase):
             self.assertTrue(report_json.is_file())
             self.assertTrue(state.is_file())
             data = json.loads(report_json.read_text(encoding="utf-8"))
-            self.assertEqual(data["summary"]["drift_count"], 7)
+            self.assertEqual(data["summary"]["drift_count"], 6)
             self.assertEqual(data["summary"]["platform_count"], 9)
 
             plan_report = tmp_path / "plan-report.json"
