@@ -5575,7 +5575,8 @@
       "path": "backend/internal/service/openrouter_provider_tk_catalog.go",
       "must_contain": [
         "BuildOpenRouterProviderCatalog",
-        "openRouterProviderBuildPricing"
+        "openRouterProviderModelHasListedPrice",
+        "openRouterProviderCatalogCandidates"
       ],
       "rationale": "Catalog builder is the seller onboarding contract owner; pricing/features/schema drift here breaks OpenRouter provider application compliance."
     }

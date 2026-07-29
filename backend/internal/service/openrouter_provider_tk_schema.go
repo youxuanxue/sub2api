@@ -146,6 +146,32 @@ func openRouterProviderCacheReadUSDPerToken(meta *PublicCatalogModel) float64 {
 	return meta.Pricing.CacheReadPer1K / 1000
 }
 
+// openRouterProviderModelHasListedPrice reports whether a candidate model should appear
+// on GET /openrouter/v1/models. Token-priced models and media-priced models (per-image
+// or per-second) both qualify; unpriced rows are omitted from the OR seller catalog.
+func openRouterProviderModelHasListedPrice(meta *PublicCatalogModel, promptUSD, completionUSD float64) bool {
+	if promptUSD > 0 || completionUSD > 0 {
+		return true
+	}
+	return openRouterProviderMediaUnitUSD(meta) > 0
+}
+
+func openRouterProviderMediaUnitUSD(meta *PublicCatalogModel) float64 {
+	if meta == nil {
+		return 0
+	}
+	switch meta.Pricing.BillingMode {
+	case "image":
+		return meta.Pricing.OutputCostPerImage
+	case "video":
+		return meta.Pricing.OutputCostPerSecond
+	}
+	if meta.Pricing.OutputCostPerImage > 0 {
+		return meta.Pricing.OutputCostPerImage
+	}
+	return meta.Pricing.OutputCostPerSecond
+}
+
 func openRouterProviderBaseMultiplier(group *Group, userMultiplier float64) float64 {
 	mult := 1.0
 	if group != nil && group.RateMultiplier > 0 {

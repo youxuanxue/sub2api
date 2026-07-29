@@ -50,10 +50,13 @@ Required fields:
 ## Validation
 
 ```bash
+python3 ops/pricing/probe-openrouter-provider-chain.py --via-ssm --full-catalog
 TK_OR_PROVIDER_KEY=sk-or-monitor python3 ops/pricing/export-openrouter-provider-models.py
 go test -tags=unit ./backend/internal/service -run OpenRouter
 go test -tags=unit ./backend/internal/handler -run OpenRouterProvider
 ```
+
+Catalog must include token-priced chat models plus media-priced rows (`pricing.image` for Imagen/Seedream, `pricing.request` for Veo) with matching `output_modalities`.
 
 ## Inference model id contract
 
