@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-07-27T04:56:44Z",
-  "git_sha": "",
+  "updated_at": "2026-07-29T00:04:16Z",
+  "git_sha": "01932c337bcae5e7ce6b9af0abcf1975b237d382",
   "platforms": {
     "claude-code": {
       "pinned": "2.1.220",
@@ -83,16 +83,16 @@
     },
     "gemini-cli": {
       "pinned": "0.52.0",
-      "upstream_latest": "0.52.0",
-      "status": "aligned",
+      "upstream_latest": "0.53.0",
+      "status": "drift",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "npm @google/gemini-cli": {
-          "version": "0.52.0",
+          "version": "0.53.0",
           "published_at": "",
           "url": "https://www.npmjs.com/package/@google/gemini-cli",
-          "raw_tag": "0.52.0"
+          "raw_tag": "0.53.0"
         }
       }
     },
@@ -128,31 +128,31 @@
     },
     "kiro": {
       "pinned": "1.0.228",
-      "upstream_latest": "1.0.228",
-      "status": "aligned",
+      "upstream_latest": "1.0.242",
+      "status": "drift",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "Homebrew cask kiro": {
-          "version": "1.0.228",
+          "version": "1.0.242",
           "published_at": "",
-          "url": "https://prod.download.desktop.kiro.dev/releases/stable/darwin-arm64/signed/1.0.228/kiro-ide-1.0.228-stable-darwin-arm64.dmg",
-          "raw_tag": "1.0.228"
+          "url": "https://prod.download.desktop.kiro.dev/releases/stable/darwin-arm64/signed/1.0.242/kiro-ide-1.0.242-stable-darwin-arm64.dmg",
+          "raw_tag": "1.0.242"
         }
       }
     },
     "kiro-cli": {
       "pinned": "2.14.2",
-      "upstream_latest": "2.14.2",
-      "status": "aligned",
+      "upstream_latest": "2.15.1",
+      "status": "drift",
       "actionable": true,
       "status_note": "",
       "upstream_sources": {
         "Homebrew cask kiro-cli": {
-          "version": "2.14.2",
+          "version": "2.15.1",
           "published_at": "",
-          "url": "https://desktop-release.q.us-east-1.amazonaws.com/2.14.2/Kiro%20CLI.dmg",
-          "raw_tag": "2.14.2"
+          "url": "https://desktop-release.q.us-east-1.amazonaws.com/2.15.1/Kiro%20CLI.dmg",
+          "raw_tag": "2.15.1"
         }
       }
     }
