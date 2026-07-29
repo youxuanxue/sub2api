@@ -88,3 +88,68 @@ func TestMaybeRewriteOpenRouterProviderChatBody_MonitorKeyNoRewrite(t *testing.T
 		t.Fatalf("monitor key must not rewrite model id, got %s", string(gotBody))
 	}
 }
+
+func TestMaybeRejectOpenRouterProviderMonitorInference_BlocksChat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfgJSON, _ := json.Marshal(service.OpenRouterProviderConfig{
+		Enabled:          true,
+		ModelIDPrefix:    "tokenkey/",
+		MonitorAPIKeyIDs: []int64{370},
+		AllowedAPIKeyIDs: []int64{369},
+		BillingUserID:    32,
+	})
+	settingSvc := service.NewSettingService(&orProviderSettingRepoStub{value: string(cfgJSON)}, nil)
+
+	apiKey := &service.APIKey{ID: 370, UserID: 32, User: &service.User{ID: 32}}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", io.NopCloser(bytes.NewReader([]byte(`{"model":"tokenkey/x","messages":[]}`))))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	if !MaybeRejectOpenRouterProviderMonitorInference(c, apiKey, settingSvc) {
+		t.Fatal("expected monitor-only key to be rejected for chat inference")
+	}
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "openrouter provider inference") {
+		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
+func TestMaybeRejectOpenRouterProviderMonitorInference_AllowsCatalogPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfgJSON, _ := json.Marshal(service.OpenRouterProviderConfig{
+		Enabled:          true,
+		MonitorAPIKeyIDs: []int64{370},
+		AllowedAPIKeyIDs: []int64{369},
+	})
+	settingSvc := service.NewSettingService(&orProviderSettingRepoStub{value: string(cfgJSON)}, nil)
+	apiKey := &service.APIKey{ID: 370, UserID: 32, User: &service.User{ID: 32}}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/openrouter/v1/models", nil)
+
+	if MaybeRejectOpenRouterProviderMonitorInference(c, apiKey, settingSvc) {
+		t.Fatalf("catalog GET must not be rejected: %s", w.Body.String())
+	}
+}
+
+func TestMaybeRejectOpenRouterProviderMonitorInference_InferenceKeyPasses(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfgJSON, _ := json.Marshal(service.OpenRouterProviderConfig{
+		Enabled:          true,
+		MonitorAPIKeyIDs: []int64{370},
+		AllowedAPIKeyIDs: []int64{369},
+		BillingUserID:    32,
+	})
+	settingSvc := service.NewSettingService(&orProviderSettingRepoStub{value: string(cfgJSON)}, nil)
+	apiKey := &service.APIKey{ID: 369, UserID: 32, User: &service.User{ID: 32}}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", io.NopCloser(bytes.NewReader([]byte(`{"model":"tokenkey/x","messages":[]}`))))
+
+	if MaybeRejectOpenRouterProviderMonitorInference(c, apiKey, settingSvc) {
+		t.Fatalf("inference key must not be rejected: %s", w.Body.String())
+	}
+}
