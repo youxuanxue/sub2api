@@ -53,10 +53,9 @@ func newAdminServiceForBalanceLedgerTests(t *testing.T) (service.AdminService, s
 	return adminSvc, userRepo
 }
 
-// TestAdminService_UpdateUserBalance_KeepsBalanceWhenLedgerFails verifies admin
-// balance adjustments commit even when the best-effort redeem_codes journal write
-// fails; the operator recharge must not be lost because of journal side effects.
-func TestAdminService_UpdateUserBalance_KeepsBalanceWhenLedgerFails(t *testing.T) {
+// TestAdminService_UpdateUserBalance_RollsBackOnLedgerFailure verifies admin
+// balance adjustments roll back when the redeem_codes journal insert fails.
+func TestAdminService_UpdateUserBalance_RollsBackOnLedgerFailure(t *testing.T) {
 	installLedgerFailTrigger(t)
 
 	ctx := context.Background()
@@ -69,13 +68,12 @@ func TestAdminService_UpdateUserBalance_KeepsBalanceWhenLedgerFails(t *testing.T
 		_, _ = integrationDB.Exec(`DELETE FROM users WHERE id = $1`, user.ID)
 	})
 
-	updated, err := adminSvc.UpdateUserBalance(ctx, user.ID, 50, "add", integrationLedgerFailNote)
-	require.NoError(t, err, "ledger failure must not roll back the balance adjustment")
-	require.InDelta(t, 150.0, updated.Balance, 0.0001)
+	_, err := adminSvc.UpdateUserBalance(ctx, user.ID, 50, "add", integrationLedgerFailNote)
+	require.Error(t, err, "ledger failure must roll back the balance adjustment")
 
 	got, err := userRepo.GetByID(ctx, user.ID)
 	require.NoError(t, err)
-	require.InDelta(t, 150.0, got.Balance, 0.0001, "balance must persist when journal insert fails")
+	require.InDelta(t, 100.0, got.Balance, 0.0001, "balance must stay unchanged when journal insert fails")
 
 	var redeemCount int
 	require.NoError(t, integrationDB.QueryRowContext(ctx,

@@ -239,6 +239,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 	tkMergeDefaultAnthropicNormalizeSettings(defaults)
 	tkMergeDefaultTokenKeyBridgeSettings(defaults)
 	tkMergeDefaultBrandGatewaySettings(defaults)
+	tkMergeDefaultPanelRateLimitSettings(defaults)
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
 }
