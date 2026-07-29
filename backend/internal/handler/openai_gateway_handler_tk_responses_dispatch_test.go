@@ -14,6 +14,10 @@ import (
 // name must be rewritten to the group's configured gpt model before forwarding,
 // so the Codex/ChatGPT backend does not reject the raw claude name with a 400.
 func Test_tkApplyResponsesDispatchModelMapping(t *testing.T) {
+	openaiDefaults, ok := service.TkMessagesDispatchPlatformDefaults(service.PlatformOpenAI)
+	if !ok {
+		t.Fatal("openai platform_defaults missing from tk_messages_dispatch_family_registry.json")
+	}
 	replace := func(body []byte, newModel string) []byte {
 		return service.ReplaceModelInBody(body, newModel)
 	}
@@ -44,7 +48,7 @@ func Test_tkApplyResponsesDispatchModelMapping(t *testing.T) {
 			name:      "claude opus uses default mapping when group config empty",
 			apiKey:    keyWith(service.OpenAIMessagesDispatchModelConfig{}),
 			body:      bodyWithModel("claude-opus-4-7"),
-			wantModel: "gpt-5.6-sol", // defaultOpenAIMessagesDispatchOpusMappedModel
+			wantModel: openaiDefaults.OpusMappedModel,
 		},
 		{
 			name:      "claude sonnet honours configured sonnet mapping",
@@ -90,6 +94,10 @@ func Test_tkApplyResponsesDispatchModelMapping(t *testing.T) {
 // dispatch-mapped gpt model for claude family names (parity with /v1/messages) and
 // leaves non-claude names / nil apiKey unchanged.
 func Test_tkResolveResponsesSelectionModel(t *testing.T) {
+	openaiDefaults, ok := service.TkMessagesDispatchPlatformDefaults(service.PlatformOpenAI)
+	if !ok {
+		t.Fatal("openai platform_defaults missing from tk_messages_dispatch_family_registry.json")
+	}
 	keyWith := func(cfg service.OpenAIMessagesDispatchModelConfig) *service.APIKey {
 		return &service.APIKey{Group: &service.Group{ID: 2, Platform: service.PlatformOpenAI, MessagesDispatchModelConfig: cfg}}
 	}
@@ -101,7 +109,7 @@ func Test_tkResolveResponsesSelectionModel(t *testing.T) {
 		want      string
 	}{
 		{"claude opus routes on configured gpt", keyWith(service.OpenAIMessagesDispatchModelConfig{OpusMappedModel: "gpt-5.5"}), "claude-opus-4-7", "gpt-5.5"},
-		{"claude opus routes on default gpt when unset", keyWith(service.OpenAIMessagesDispatchModelConfig{}), "claude-opus-4-7", "gpt-5.6-sol"},
+		{"claude opus routes on default gpt when unset", keyWith(service.OpenAIMessagesDispatchModelConfig{}), "claude-opus-4-7", openaiDefaults.OpusMappedModel},
 		{"non-claude model routes unchanged", keyWith(service.OpenAIMessagesDispatchModelConfig{OpusMappedModel: "gpt-5.5"}), "gpt-5.5", "gpt-5.5"},
 		{"nil apiKey routes unchanged", nil, "claude-opus-4-7", "claude-opus-4-7"},
 	}

@@ -1,27 +1,36 @@
 import { describe, expect, it } from "vitest";
 
+import { messagesDispatchTierDefaultsForGroup } from "@/constants/messagesDispatchFamilyRegistry.tk";
 import {
   createDefaultMessagesDispatchFormState,
-  GROK_MESSAGES_DISPATCH_DEFAULTS,
   messagesDispatchConfigToFormState,
   messagesDispatchDefaultsForPlatform,
   messagesDispatchFormStateToConfig,
   resetMessagesDispatchFormState,
 } from "../groupsMessagesDispatch";
 
+function dispatchFormShell(
+  tierDefaults: Pick<
+    ReturnType<typeof messagesDispatchDefaultsForPlatform>,
+    "opus_mapped_model" | "sonnet_mapped_model" | "haiku_mapped_model"
+  >,
+) {
+  return {
+    allow_messages_dispatch: false,
+    ...tierDefaults,
+    exact_model_mappings: [],
+    messages_compaction_enabled: false,
+    messages_compaction_input_tokens_threshold: null,
+  };
+}
+
 describe("groupsMessagesDispatch", () => {
   it("hydrates gemini vendor defaults from registry for Google-Vertex", () => {
-    expect(
-      messagesDispatchConfigToFormState({}, "newapi", "Google-Vertex"),
-    ).toEqual({
-      allow_messages_dispatch: false,
-      opus_mapped_model: "gemini-2.5-pro",
-      sonnet_mapped_model: "gemini-3.6-flash",
-      haiku_mapped_model: "gemini-3.5-flash-lite",
-      exact_model_mappings: [],
-      messages_compaction_enabled: false,
-      messages_compaction_input_tokens_threshold: null,
-    });
+    const vertexDefaults = messagesDispatchTierDefaultsForGroup("Google-Vertex", "newapi");
+    expect(vertexDefaults).not.toBeNull();
+    expect(messagesDispatchConfigToFormState({}, "newapi", "Google-Vertex")).toEqual(
+      dispatchFormShell(vertexDefaults!),
+    );
   });
 
   it("returns empty defaults for unknown newapi groups", () => {
@@ -33,27 +42,19 @@ describe("groupsMessagesDispatch", () => {
   });
 
   it("returns empty defaults when platform and group are unknown", () => {
-    expect(createDefaultMessagesDispatchFormState()).toEqual({
-      allow_messages_dispatch: false,
-      opus_mapped_model: "",
-      sonnet_mapped_model: "",
-      haiku_mapped_model: "",
-      exact_model_mappings: [],
-      messages_compaction_enabled: false,
-      messages_compaction_input_tokens_threshold: null,
-    });
+    expect(createDefaultMessagesDispatchFormState()).toEqual(
+      dispatchFormShell({
+        opus_mapped_model: "",
+        sonnet_mapped_model: "",
+        haiku_mapped_model: "",
+      }),
+    );
   });
 
   it("returns openai defaults when platform is openai", () => {
-    expect(createDefaultMessagesDispatchFormState("openai")).toEqual({
-      allow_messages_dispatch: false,
-      opus_mapped_model: "gpt-5.6-sol",
-      sonnet_mapped_model: "gpt-5.6-terra",
-      haiku_mapped_model: "gpt-5.6-luna",
-      exact_model_mappings: [],
-      messages_compaction_enabled: false,
-      messages_compaction_input_tokens_threshold: null,
-    });
+    expect(createDefaultMessagesDispatchFormState("openai")).toEqual(
+      dispatchFormShell(messagesDispatchDefaultsForPlatform("openai")),
+    );
   });
 
   it("sanitizes exact model mapping rows when converting to config", () => {
@@ -111,26 +112,17 @@ describe("groupsMessagesDispatch", () => {
   });
 
   it("returns grok defaults when platform is grok", () => {
-    expect(createDefaultMessagesDispatchFormState("grok")).toEqual({
-      allow_messages_dispatch: false,
-      ...GROK_MESSAGES_DISPATCH_DEFAULTS,
-      exact_model_mappings: [],
-      messages_compaction_enabled: false,
-      messages_compaction_input_tokens_threshold: null,
-    });
-    expect(messagesDispatchDefaultsForPlatform("grok")).toEqual(
-      GROK_MESSAGES_DISPATCH_DEFAULTS,
+    const grokDefaults = messagesDispatchDefaultsForPlatform("grok");
+    expect(createDefaultMessagesDispatchFormState("grok")).toEqual(
+      dispatchFormShell(grokDefaults),
     );
+    expect(messagesDispatchDefaultsForPlatform("grok")).toEqual(grokDefaults);
   });
 
   it("hydrates grok form defaults from empty api config", () => {
-    expect(messagesDispatchConfigToFormState({}, "grok")).toEqual({
-      allow_messages_dispatch: false,
-      ...GROK_MESSAGES_DISPATCH_DEFAULTS,
-      exact_model_mappings: [],
-      messages_compaction_enabled: false,
-      messages_compaction_input_tokens_threshold: null,
-    });
+    expect(messagesDispatchConfigToFormState({}, "grok")).toEqual(
+      dispatchFormShell(messagesDispatchDefaultsForPlatform("grok")),
+    );
   });
 
   it("resets mutable form state to empty defaults without platform context", () => {
@@ -146,15 +138,13 @@ describe("groupsMessagesDispatch", () => {
 
     resetMessagesDispatchFormState(state);
 
-    expect(state).toEqual({
-      allow_messages_dispatch: false,
-      opus_mapped_model: "",
-      sonnet_mapped_model: "",
-      haiku_mapped_model: "",
-      exact_model_mappings: [],
-      messages_compaction_enabled: false,
-      messages_compaction_input_tokens_threshold: null,
-    });
+    expect(state).toEqual(
+      dispatchFormShell({
+        opus_mapped_model: "",
+        sonnet_mapped_model: "",
+        haiku_mapped_model: "",
+      }),
+    );
   });
 
   it("resets mutable form state to openai defaults", () => {
@@ -170,15 +160,9 @@ describe("groupsMessagesDispatch", () => {
 
     resetMessagesDispatchFormState(state, "openai");
 
-    expect(state).toEqual({
-      allow_messages_dispatch: false,
-      opus_mapped_model: "gpt-5.6-sol",
-      sonnet_mapped_model: "gpt-5.6-terra",
-      haiku_mapped_model: "gpt-5.6-luna",
-      exact_model_mappings: [],
-      messages_compaction_enabled: false,
-      messages_compaction_input_tokens_threshold: null,
-    });
+    expect(state).toEqual(
+      dispatchFormShell(messagesDispatchDefaultsForPlatform("openai")),
+    );
   });
 
   it("resets mutable form state to grok defaults", () => {
@@ -194,12 +178,8 @@ describe("groupsMessagesDispatch", () => {
 
     resetMessagesDispatchFormState(state, "grok");
 
-    expect(state).toEqual({
-      allow_messages_dispatch: false,
-      ...GROK_MESSAGES_DISPATCH_DEFAULTS,
-      exact_model_mappings: [],
-      messages_compaction_enabled: false,
-      messages_compaction_input_tokens_threshold: null,
-    });
+    expect(state).toEqual(
+      dispatchFormShell(messagesDispatchDefaultsForPlatform("grok")),
+    );
   });
 });

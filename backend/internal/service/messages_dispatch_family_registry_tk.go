@@ -169,3 +169,47 @@ func validateGroupMessagesDispatchModelConfig(group *Group) error {
 	}
 	return nil
 }
+
+func tkMessagesDispatchTierDefaultsToConfig(tiers tkMessagesDispatchTierDefaults) OpenAIMessagesDispatchModelConfig {
+	return OpenAIMessagesDispatchModelConfig{
+		OpusMappedModel:   strings.TrimSpace(tiers.OpusMappedModel),
+		SonnetMappedModel: strings.TrimSpace(tiers.SonnetMappedModel),
+		HaikuMappedModel:  strings.TrimSpace(tiers.HaikuMappedModel),
+	}
+}
+
+// TkMessagesDispatchGroupDefaults returns SSOT tier defaults for a registered group name.
+func TkMessagesDispatchGroupDefaults(groupName string) (OpenAIMessagesDispatchModelConfig, bool) {
+	doc := loadTkMessagesDispatchFamilyRegistry()
+	tiers, ok := doc.GroupDefaults[strings.TrimSpace(groupName)]
+	if !ok {
+		return OpenAIMessagesDispatchModelConfig{}, false
+	}
+	return tkMessagesDispatchTierDefaultsToConfig(tiers), true
+}
+
+// TkMessagesDispatchPlatformDefaults returns SSOT tier defaults for a registry platform key.
+func TkMessagesDispatchPlatformDefaults(platform string) (OpenAIMessagesDispatchModelConfig, bool) {
+	doc := loadTkMessagesDispatchFamilyRegistry()
+	tiers, ok := doc.PlatformDefaults[strings.TrimSpace(platform)]
+	if !ok {
+		return OpenAIMessagesDispatchModelConfig{}, false
+	}
+	return tkMessagesDispatchTierDefaultsToConfig(tiers), true
+}
+
+// TkMessagesDispatchCrossFamilySample returns a model from another family for negative validation tests.
+func TkMessagesDispatchCrossFamilySample(targetFamily string) string {
+	doc := loadTkMessagesDispatchFamilyRegistry()
+	switch strings.TrimSpace(targetFamily) {
+	case "gemini", "glm", "kimi", "deepseek", "qwen", "doubao", "grok":
+		if tiers, ok := doc.PlatformDefaults[PlatformOpenAI]; ok {
+			return strings.TrimSpace(tiers.OpusMappedModel)
+		}
+	case "gpt":
+		if tiers, ok := doc.PlatformDefaults[PlatformGrok]; ok {
+			return strings.TrimSpace(tiers.OpusMappedModel)
+		}
+	}
+	return ""
+}

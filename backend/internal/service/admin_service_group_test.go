@@ -932,6 +932,11 @@ func TestAdminService_UpdateGroup_ClearsMessagesDispatchFieldsWhenPlatformChange
 }
 
 func TestAdminService_UpdateGroup_RejectsGPTMappingOnRegisteredGeminiGroup(t *testing.T) {
+	vertex, ok := TkMessagesDispatchGroupDefaults("Google-Vertex")
+	require.True(t, ok)
+	wrongOpus := TkMessagesDispatchCrossFamilySample("gemini")
+	require.NotEmpty(t, wrongOpus)
+
 	existingGroup := &Group{
 		ID:                    16,
 		Name:                  "Google-Vertex",
@@ -944,9 +949,9 @@ func TestAdminService_UpdateGroup_RejectsGPTMappingOnRegisteredGeminiGroup(t *te
 
 	_, err := svc.UpdateGroup(context.Background(), 16, &UpdateGroupInput{
 		MessagesDispatchModelConfig: &OpenAIMessagesDispatchModelConfig{
-			OpusMappedModel:   "gpt-5.6-sol",
-			SonnetMappedModel: "gemini-2.5-flash",
-			HaikuMappedModel:  "gemini-2.5-flash-lite",
+			OpusMappedModel:   wrongOpus,
+			SonnetMappedModel: vertex.SonnetMappedModel,
+			HaikuMappedModel:  vertex.HaikuMappedModel,
 		},
 	})
 	require.Error(t, err)
