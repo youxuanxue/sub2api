@@ -95,7 +95,6 @@ func (s *RateLimitService) handleAntigravityRelayCapacity(
 		// but do not guess a cooldown key or fall back to an account-wide penalty.
 		return true
 	}
-	count := s.recordAntigravityRelaySaturation(ctx, account.ID, modelKey, statusCode)
-	s.tkTryAntigravityRelayModelCooldown(ctx, account, count, requestedModel, modelKey)
+	s.recordAntigravityRelaySaturation(ctx, account.ID, modelKey, statusCode)
 	return true
 }
