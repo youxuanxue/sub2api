@@ -1184,6 +1184,7 @@
         "export function useTkUseKey(",
         "getMePricingCatalog({ apiKeyId: id })",
         "function runTest(",
+        "resolveBrowserGatewayFetchBaseUrl",
         "export function anthropicEnvModel(",
         "export function openaiCompatContextWindowEnvModel("
       ],
