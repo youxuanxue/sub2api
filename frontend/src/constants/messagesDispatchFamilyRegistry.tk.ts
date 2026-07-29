@@ -33,6 +33,9 @@ export function messagesDispatchTierDefaultsForGroup(
   if (normalizedPlatform === "openai" && familyRegistry.platform_defaults.openai) {
     return { ...familyRegistry.platform_defaults.openai };
   }
+  if (normalizedPlatform === "gemini" && familyRegistry.platform_defaults.gemini) {
+    return { ...familyRegistry.platform_defaults.gemini };
+  }
   return null;
 }
 

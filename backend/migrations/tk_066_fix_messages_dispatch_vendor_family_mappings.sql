@@ -5,7 +5,7 @@
 -- read tk_messages_dispatch_family_registry.json; this migration aligns prod
 -- rows with that registry.
 --
--- Idempotent: each UPDATE is guarded by (id, name, platform).
+-- Idempotent: each UPDATE is guarded by (id, name, platform) or platform/name.
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '10min';
@@ -13,8 +13,8 @@ SET LOCAL statement_timeout = '10min';
 UPDATE groups
 SET messages_dispatch_model_config = '{
         "opus_mapped_model": "gemini-2.5-pro",
-        "sonnet_mapped_model": "gemini-2.5-flash",
-        "haiku_mapped_model": "gemini-2.5-flash-lite"
+        "sonnet_mapped_model": "gemini-3.6-flash",
+        "haiku_mapped_model": "gemini-3.5-flash-lite"
     }'::jsonb,
     updated_at = NOW()
 WHERE id = 16
@@ -34,7 +34,7 @@ WHERE id = 284
 
 UPDATE groups
 SET messages_dispatch_model_config = '{
-        "opus_mapped_model": "kimi-k2.6",
+        "opus_mapped_model": "kimi-k3",
         "sonnet_mapped_model": "kimi-k2.5",
         "haiku_mapped_model": "kimi-k2.5"
     }'::jsonb,
@@ -66,3 +66,25 @@ WHERE id = 5
   AND name = 'volcengine'
   AND platform = 'newapi'
   AND COALESCE(messages_dispatch_model_config->>'haiku_mapped_model', '') = 'glm-4-7-251222';
+
+UPDATE groups
+SET messages_dispatch_model_config = '{
+        "opus_mapped_model": "glm-5.2",
+        "sonnet_mapped_model": "glm-4.7",
+        "haiku_mapped_model": "glm-4.5-air"
+    }'::jsonb,
+    updated_at = NOW()
+WHERE name = 'china'
+  AND platform = 'newapi';
+
+UPDATE groups
+SET messages_dispatch_model_config = jsonb_set(
+        messages_dispatch_model_config,
+        '{opus_mapped_model}',
+        '"grok-4.5"'::jsonb,
+        true
+    ),
+    updated_at = NOW()
+WHERE platform = 'grok'
+  AND allow_messages_dispatch = true
+  AND COALESCE(messages_dispatch_model_config->>'opus_mapped_model', '') IN ('grok-4.3', '');

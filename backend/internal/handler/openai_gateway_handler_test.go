@@ -686,11 +686,18 @@ func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 		require.Equal(t, "gpt-5.6-sol", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-fable-5"))
 	})
 
-	t.Run("uses_family_default_when_no_override", func(t *testing.T) {
+	t.Run("uses_openai_family_default_when_platform_openai", func(t *testing.T) {
+		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
+		require.Equal(t, "gpt-5.6-sol", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-opus-4-6"))
+		require.Equal(t, "gpt-5.6-terra", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
+		require.Equal(t, "gpt-5.6-luna", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-haiku-4-5-20251001"))
+	})
+
+	t.Run("returns_empty_when_platform_unknown_and_no_registry", func(t *testing.T) {
 		apiKey := &service.APIKey{Group: &service.Group{}}
-		require.Equal(t, "gpt-5.5", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-opus-4-6"))
-		require.Equal(t, "gpt-5.3-codex-spark", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
-		require.Equal(t, "gpt-5.4-mini", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-haiku-4-5-20251001"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-opus-4-6"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-haiku-4-5-20251001"))
 	})
 
 	t.Run("returns_empty_for_non_claude_or_missing_group", func(t *testing.T) {
@@ -724,11 +731,12 @@ func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 	t.Run("does_not_fall_back_to_group_default_mapped_model", func(t *testing.T) {
 		apiKey := &service.APIKey{
 			Group: &service.Group{
+				Platform:           service.PlatformOpenAI,
 				DefaultMappedModel: "gpt-5.4",
 			},
 		}
 		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "gpt-5.4"))
-		require.Equal(t, "gpt-5.3-codex-spark", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
+		require.Equal(t, "gpt-5.6-terra", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
 	})
 }
 

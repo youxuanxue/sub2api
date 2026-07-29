@@ -6,9 +6,14 @@
       "haiku_mapped_model": "gpt-5.6-luna"
     },
     "grok": {
-      "opus_mapped_model": "grok-4.3",
+      "opus_mapped_model": "grok-4.5",
       "sonnet_mapped_model": "grok-code-fast-1",
       "haiku_mapped_model": "grok-code-fast-1"
+    },
+    "gemini": {
+      "opus_mapped_model": "gemini-2.5-pro",
+      "sonnet_mapped_model": "gemini-3.6-flash",
+      "haiku_mapped_model": "gemini-3.5-flash-lite"
     }
   },
   "group_defaults": {
@@ -24,8 +29,8 @@
     },
     "Google-Vertex": {
       "opus_mapped_model": "gemini-2.5-pro",
-      "sonnet_mapped_model": "gemini-2.5-flash",
-      "haiku_mapped_model": "gemini-2.5-flash-lite"
+      "sonnet_mapped_model": "gemini-3.6-flash",
+      "haiku_mapped_model": "gemini-3.5-flash-lite"
     },
     "glm": {
       "opus_mapped_model": "glm-5.2",
@@ -33,7 +38,7 @@
       "haiku_mapped_model": "glm-4.5-air"
     },
     "Kimi": {
-      "opus_mapped_model": "kimi-k2.6",
+      "opus_mapped_model": "kimi-k3",
       "sonnet_mapped_model": "kimi-k2.5",
       "haiku_mapped_model": "kimi-k2.5"
     },
@@ -53,9 +58,9 @@
       "haiku_mapped_model": "doubao-seed-1-6-flash-250615"
     },
     "china": {
-      "opus_mapped_model": "deepseek-v4-pro",
-      "sonnet_mapped_model": "deepseek-v4-pro",
-      "haiku_mapped_model": "deepseek-v4-flash"
+      "opus_mapped_model": "glm-5.2",
+      "sonnet_mapped_model": "glm-4.7",
+      "haiku_mapped_model": "glm-4.5-air"
     }
   },
   "group_families": {
@@ -67,7 +72,7 @@
     "deepseek": "deepseek",
     "Qwen": "qwen",
     "volcengine": "doubao",
-    "china": "deepseek"
+    "china": "glm"
   },
   "family_prefixes": {
     "gpt": ["gpt-", "codex-"],

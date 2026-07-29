@@ -24,7 +24,7 @@ export const OPENAI_MESSAGES_DISPATCH_DEFAULTS = {
 } as const;
 
 export const GROK_MESSAGES_DISPATCH_DEFAULTS = {
-  opus_mapped_model: "grok-4.3",
+  opus_mapped_model: "grok-4.5",
   sonnet_mapped_model: "grok-code-fast-1",
   haiku_mapped_model: "grok-code-fast-1",
 } as const;

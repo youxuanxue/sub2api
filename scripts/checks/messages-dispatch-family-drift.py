@@ -26,6 +26,7 @@ REGISTRY = REPO_ROOT / "backend/internal/service/tk_messages_dispatch_family_reg
 GO_DISPATCH = REPO_ROOT / "backend/internal/service/openai_messages_dispatch.go"
 GO_GROK = REPO_ROOT / "backend/internal/service/openai_messages_dispatch_tk_grok.go"
 FE_DISPATCH = REPO_ROOT / "frontend/src/views/admin/groupsMessagesDispatch.ts"
+FE_REGISTRY = REPO_ROOT / "frontend/src/constants/messagesDispatchFamilyRegistry.tk.ts"
 
 
 def _load_registry() -> dict:
@@ -77,6 +78,20 @@ def check_registry_internal(doc: dict) -> list[str]:
                     f"group_defaults[{group_name!r}].{field}={model!r} "
                     f"does not match family {family!r} prefixes {prefixes.get(family)}"
                 )
+    return errors
+
+
+def check_fe_registry_import() -> list[str]:
+    errors: list[str] = []
+    if not FE_REGISTRY.is_file():
+        errors.append(f"missing frontend registry consumer {FE_REGISTRY}")
+        return errors
+    text = FE_REGISTRY.read_text(encoding="utf-8")
+    want = 'backend/internal/service/tk_messages_dispatch_family_registry.json'
+    if want not in text:
+        errors.append(
+            f"{FE_REGISTRY.name} must import SSOT {want!r} (found no matching import path)"
+        )
     return errors
 
 
@@ -147,6 +162,7 @@ def run_selftest() -> None:
     doc = _load_registry()
     assert check_registry_internal(doc) == []
     assert check_go_fe_platform_defaults(doc) == []
+    assert check_fe_registry_import() == []
     bad = dict(doc)
     bad["group_defaults"] = dict(doc["group_defaults"])
     bad["group_defaults"]["glm"] = {
@@ -169,7 +185,11 @@ def main() -> int:
         return 2
 
     doc = _load_registry()
-    errors = check_registry_internal(doc) + check_go_fe_platform_defaults(doc)
+    errors = (
+        check_registry_internal(doc)
+        + check_go_fe_platform_defaults(doc)
+        + check_fe_registry_import()
+    )
     if errors:
         if not quiet:
             print("messages-dispatch-family drift:")

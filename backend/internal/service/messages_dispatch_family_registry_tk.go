@@ -32,7 +32,7 @@ var (
 func loadTkMessagesDispatchFamilyRegistry() tkMessagesDispatchFamilyRegistry {
 	tkMessagesDispatchFamilyRegistryOnce.Do(func() {
 		if err := json.Unmarshal(tkMessagesDispatchFamilyRegistryRaw, &tkMessagesDispatchFamilyRegistryDoc); err != nil {
-			tkMessagesDispatchFamilyRegistryDoc = tkMessagesDispatchFamilyRegistry{}
+			panic(fmt.Sprintf("tk_messages_dispatch_family_registry.json: %v", err))
 		}
 	})
 	return tkMessagesDispatchFamilyRegistryDoc
@@ -55,13 +55,17 @@ func tkMessagesDispatchTierDefaultsForGroup(groupName, platform, family string) 
 		}
 	}
 
-	if platform == PlatformGrok {
+	switch platform {
+	case PlatformGrok:
 		if tiers, ok := doc.PlatformDefaults[PlatformGrok]; ok {
 			return tkMessagesDispatchTierField(tiers, family)
 		}
-	}
-	if platform == PlatformOpenAI {
+	case PlatformOpenAI:
 		if tiers, ok := doc.PlatformDefaults[PlatformOpenAI]; ok {
+			return tkMessagesDispatchTierField(tiers, family)
+		}
+	case PlatformGemini:
+		if tiers, ok := doc.PlatformDefaults[PlatformGemini]; ok {
 			return tkMessagesDispatchTierField(tiers, family)
 		}
 	}
@@ -116,12 +120,14 @@ func validateGroupMessagesDispatchModelConfig(group *Group) error {
 	groupName := strings.TrimSpace(group.Name)
 	family, registered := tkMessagesDispatchFamilyForGroup(groupName)
 	if !registered {
-		if group.Platform == PlatformOpenAI || group.Platform == PlatformGrok {
-			family = group.Platform
-			if group.Platform == PlatformOpenAI {
-				family = "gpt"
-			}
-		} else {
+		switch group.Platform {
+		case PlatformOpenAI:
+			family = "gpt"
+		case PlatformGrok:
+			family = PlatformGrok
+		case PlatformGemini:
+			family = "gemini"
+		default:
 			return fmt.Errorf(
 				"group %q (platform=%s) has allow_messages_dispatch but no entry in tk_messages_dispatch_family_registry.json — add group_defaults/group_families before enabling dispatch",
 				groupName, group.Platform,

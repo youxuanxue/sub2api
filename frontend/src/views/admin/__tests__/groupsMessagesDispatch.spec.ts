@@ -16,8 +16,8 @@ describe("groupsMessagesDispatch", () => {
     ).toEqual({
       allow_messages_dispatch: false,
       opus_mapped_model: "gemini-2.5-pro",
-      sonnet_mapped_model: "gemini-2.5-flash",
-      haiku_mapped_model: "gemini-2.5-flash-lite",
+      sonnet_mapped_model: "gemini-3.6-flash",
+      haiku_mapped_model: "gemini-3.5-flash-lite",
       exact_model_mappings: [],
       messages_compaction_enabled: false,
       messages_compaction_input_tokens_threshold: null,

@@ -1,7 +1,7 @@
 package service
 
 const (
-	defaultGrokMessagesDispatchOpusMappedModel   = "grok-4.3"
+	defaultGrokMessagesDispatchOpusMappedModel   = "grok-4.5"
 	defaultGrokMessagesDispatchSonnetMappedModel = "grok-code-fast-1"
 	defaultGrokMessagesDispatchHaikuMappedModel  = "grok-code-fast-1"
 )

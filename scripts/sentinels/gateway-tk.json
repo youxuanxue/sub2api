@@ -2875,7 +2875,7 @@
         "defaultOpenAIMessagesDispatchOpusMappedModel   = \"gpt-5.6-sol\"",
         "defaultMessagesDispatchMappedModelForPlatform"
       ],
-      "rationale": "Code-default opus family mapping must stay gpt-5.6-sol (TK Codex OAuth tier defaults for Claude Code messages-dispatch). ResolveMessagesDispatchModel must delegate platform-specific fallbacks to defaultMessagesDispatchMappedModelForPlatform (openai_messages_dispatch_tk_grok.go) so grok groups map claude tiers to grok-4.3 / grok-code-fast-1 instead of GPT defaults. Frontend mirror: frontend/src/views/admin/groupsMessagesDispatch.ts."
+      "rationale": "Code-default opus family mapping must stay gpt-5.6-sol (TK Codex OAuth tier defaults for Claude Code messages-dispatch). ResolveMessagesDispatchModel must delegate platform-specific fallbacks to defaultMessagesDispatchMappedModelForPlatform (openai_messages_dispatch_tk_grok.go) so grok groups map claude tiers to grok-4.5 / grok-code-fast-1 instead of GPT defaults. Frontend mirror: frontend/src/views/admin/groupsMessagesDispatch.ts."
     },
     {
       "path": "backend/internal/service/openai_gateway_forward.go",
