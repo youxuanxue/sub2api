@@ -3,14 +3,154 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
 const openRouterProviderDefaultVideoQuoteSeconds = 8
+
+// OpenRouterImageRoute selects the downstream handler family for OR seller POST /v1/images.
+type OpenRouterImageRoute string
+
+const (
+	OpenRouterImageRouteAntigravityChat OpenRouterImageRoute = "antigravity_chat"
+	OpenRouterImageRouteGrok            OpenRouterImageRoute = "grok"
+	OpenRouterImageRouteOpenAICompat    OpenRouterImageRoute = "openai_compat"
+)
+
+var openRouterChatCompletionDataURIRe = regexp.MustCompile(`data:([^;)\s]+);base64,([A-Za-z0-9+/=]+)`)
+
+// OpenRouterProviderImageRoute picks the backend pipeline after universal routing has
+// bound the inference key to a concrete group platform.
+func OpenRouterProviderImageRoute(platform, model string) OpenRouterImageRoute {
+	platform = strings.TrimSpace(platform)
+	model = strings.TrimSpace(model)
+	switch {
+	case platform == PlatformAntigravity && antigravity.IsImageModel(model):
+		return OpenRouterImageRouteAntigravityChat
+	case platform == PlatformGrok && isGrokImageGenerationModel(model):
+		return OpenRouterImageRouteGrok
+	default:
+		return OpenRouterImageRouteOpenAICompat
+	}
+}
+
+// TranslateOpenRouterImageToChatCompletions maps OR POST /v1/images to OpenAI chat
+// completions for antigravity-native gemini-*-image models (generateContent path).
+func TranslateOpenRouterImageToChatCompletions(body []byte) ([]byte, error) {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return nil, fmt.Errorf("invalid openrouter image request body")
+	}
+	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	if model == "" {
+		return nil, fmt.Errorf("model is required")
+	}
+	prompt := strings.TrimSpace(gjson.GetBytes(body, "prompt").String())
+	if prompt == "" {
+		return nil, fmt.Errorf("prompt is required")
+	}
+	out := map[string]any{
+		"model": model,
+		"messages": []map[string]any{
+			{"role": "user", "content": prompt},
+		},
+		"stream": false,
+	}
+	if aspectRatio := strings.TrimSpace(gjson.GetBytes(body, "aspect_ratio").String()); aspectRatio != "" {
+		out["extra_body"] = map[string]any{
+			"google": map[string]any{
+				"image_config": map[string]any{
+					"aspect_ratio": aspectRatio,
+				},
+			},
+		}
+	}
+	return json.Marshal(out)
+}
+
+// TranslateChatCompletionsImageResponseToOpenRouter extracts inline images from a
+// chat-completions JSON payload and maps them to OR ImageGenerationResponse.
+func TranslateChatCompletionsImageResponseToOpenRouter(body []byte) ([]byte, error) {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return body, nil
+	}
+	if gjson.GetBytes(body, "error").Exists() {
+		return body, nil
+	}
+	items := extractOpenRouterImagesFromChatCompletions(body)
+	if len(items) == 0 {
+		return nil, fmt.Errorf("chat completion response missing image data")
+	}
+	out := map[string]any{
+		"created": time.Now().Unix(),
+		"data":    items,
+	}
+	if usage := gjson.GetBytes(body, "usage"); usage.Exists() {
+		out["usage"] = json.RawMessage(usage.Raw)
+	}
+	return json.Marshal(out)
+}
+
+func extractOpenRouterImagesFromChatCompletions(body []byte) []map[string]string {
+	content := gjson.GetBytes(body, "choices.0.message.content")
+	if !content.Exists() {
+		return nil
+	}
+	switch content.Type {
+	case gjson.String:
+		return extractOpenRouterImagesFromChatContentString(content.String())
+	case gjson.JSON:
+		if content.IsArray() {
+			return extractOpenRouterImagesFromChatContentParts(content)
+		}
+	}
+	return nil
+}
+
+func extractOpenRouterImagesFromChatContentString(content string) []map[string]string {
+	matches := openRouterChatCompletionDataURIRe.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	items := make([]map[string]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) < 3 {
+			continue
+		}
+		items = append(items, map[string]string{
+			"b64_json":   match[2],
+			"media_type": strings.TrimSpace(match[1]),
+		})
+	}
+	return items
+}
+
+func extractOpenRouterImagesFromChatContentParts(content gjson.Result) []map[string]string {
+	items := make([]map[string]string, 0)
+	content.ForEach(func(_, part gjson.Result) bool {
+		partType := strings.TrimSpace(part.Get("type").String())
+		switch partType {
+		case "image_url":
+			url := strings.TrimSpace(part.Get("image_url.url").String())
+			if mt, payload, ok := parseDataURI(url); ok && payload != "" {
+				entry := map[string]string{"b64_json": payload}
+				if mt != "" {
+					entry["media_type"] = mt
+				}
+				items = append(items, entry)
+			}
+		case "text":
+			items = append(items, extractOpenRouterImagesFromChatContentString(part.Get("text").String())...)
+		}
+		return true
+	})
+	return items
+}
 
 // TranslateOpenRouterImageRequestToOpenAI maps OpenRouter POST /v1/images JSON to
 // TokenKey's OpenAI-compatible POST /v1/images/generations body.
