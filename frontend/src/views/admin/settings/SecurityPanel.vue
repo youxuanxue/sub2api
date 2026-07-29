@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, watch, onMounted, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { useSettingsState } from "@/composables/useSettingsState";
 import { useClipboard } from "@/composables/useClipboard";
@@ -430,9 +430,57 @@ watch(
   },
 );
 
+// ── Panel API rate limit ──
+const panelRateLimitLoading = ref(true);
+const panelRateLimitSaving = ref(false);
+const panelRateLimitForm = reactive({
+  enabled: true,
+  user_rpm: 240,
+  heavy_rpm: 60,
+  exempt_admin: true,
+  public_ip_rpm: 300,
+});
+
+async function loadPanelRateLimitSettings() {
+  panelRateLimitLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getPanelRateLimitSettings();
+    Object.assign(panelRateLimitForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    panelRateLimitLoading.value = false;
+  }
+}
+
+async function savePanelRateLimitSettings() {
+  panelRateLimitSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updatePanelRateLimitSettings({
+      enabled: panelRateLimitForm.enabled,
+      user_rpm: panelRateLimitForm.user_rpm,
+      heavy_rpm: panelRateLimitForm.heavy_rpm,
+      exempt_admin: panelRateLimitForm.exempt_admin,
+      public_ip_rpm: panelRateLimitForm.public_ip_rpm,
+    });
+    Object.assign(panelRateLimitForm, updated);
+    appStore.showSuccess(t("admin.settings.panelRateLimit.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.panelRateLimit.saveFailed"),
+      ),
+    );
+  } finally {
+    panelRateLimitSaving.value = false;
+  }
+}
+
 // ── Lifecycle ──
 onMounted(() => {
   loadAdminApiKey();
+  loadPanelRateLimitSettings();
 });
 </script>
 
@@ -794,6 +842,224 @@ onMounted(() => {
             :disabled="!form.totp_encryption_key_configured"
           />
         </div>
+
+        <!-- Passkey sign-in -->
+        <div
+          class="border-t border-gray-100 pt-4 dark:border-dark-700"
+          data-testid="passkey-settings"
+        >
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <label class="font-medium text-gray-900 dark:text-white">{{
+                t("admin.settings.security.passkey")
+              }}</label>
+              <p class="text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.security.passkeyHint") }}
+              </p>
+            </div>
+            <Toggle
+              v-model="form.passkey_enabled"
+              data-testid="passkey-toggle"
+              :disabled="!form.passkey_configured"
+            />
+          </div>
+          <div
+            class="mt-3 rounded-lg border px-3 py-2 text-sm"
+            :class="
+              form.passkey_configured
+                ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'
+                : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300'
+            "
+            data-testid="passkey-config-status"
+          >
+            <p class="font-medium">
+              {{
+                form.passkey_configured
+                  ? t("admin.settings.security.passkeyConfigured")
+                  : t("admin.settings.security.passkeyNotConfigured")
+              }}
+            </p>
+            <p class="mt-1 break-all">
+              {{ t("admin.settings.security.passkeyRPID") }}:
+              {{
+                form.passkey_rp_id ||
+                t("admin.settings.security.passkeyValueNotConfigured")
+              }}
+            </p>
+            <p class="mt-1 break-all">
+              {{ t("admin.settings.security.passkeyOrigins") }}:
+              {{
+                form.passkey_rp_origins.length > 0
+                  ? form.passkey_rp_origins.join(", ")
+                  : t("admin.settings.security.passkeyValueNotConfigured")
+              }}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel API Rate Limit Settings -->
+    <div class="card">
+      <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+        <div class="flex items-center gap-2">
+          <Icon name="shield" size="md" class="text-primary-500" />
+          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+            {{ t("admin.settings.panelRateLimit.title") }}
+          </h2>
+        </div>
+        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {{ t("admin.settings.panelRateLimit.description") }}
+        </p>
+      </div>
+      <div class="space-y-5 p-6">
+        <div
+          v-if="panelRateLimitLoading"
+          class="flex items-center gap-2 text-gray-500"
+        >
+          <div
+            class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+          ></div>
+          {{ t("common.loading") }}
+        </div>
+
+        <template v-else>
+          <div
+            class="rounded-lg border border-sky-200 bg-sky-50 p-4 dark:border-sky-800 dark:bg-sky-900/20"
+          >
+            <div class="flex items-start">
+              <Icon
+                name="infoCircle"
+                size="md"
+                class="mt-0.5 flex-shrink-0 text-sky-500"
+              />
+              <p class="ml-3 text-sm text-sky-700 dark:text-sky-300">
+                {{ t("admin.settings.panelRateLimit.proxySafeNote") }}
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between">
+            <div>
+              <label class="font-medium text-gray-900 dark:text-white">{{
+                t("admin.settings.panelRateLimit.enabled")
+              }}</label>
+              <p class="text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.panelRateLimit.enabledHint") }}
+              </p>
+            </div>
+            <Toggle v-model="panelRateLimitForm.enabled" />
+          </div>
+
+          <div
+            v-if="panelRateLimitForm.enabled"
+            class="space-y-5 border-t border-gray-100 pt-4 dark:border-dark-700"
+          >
+            <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+              <div>
+                <label
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{ t("admin.settings.panelRateLimit.userRpm") }}
+                </label>
+                <div class="flex items-center gap-2">
+                  <input
+                    v-model.number="panelRateLimitForm.user_rpm"
+                    data-testid="panel-rate-limit-user-rpm"
+                    type="number"
+                    min="0"
+                    max="100000"
+                    class="input w-32"
+                  />
+                  <span class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.panelRateLimit.perMinute") }}
+                  </span>
+                </div>
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.panelRateLimit.userRpmHint") }}
+                </p>
+              </div>
+
+              <div>
+                <label
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{ t("admin.settings.panelRateLimit.heavyRpm") }}
+                </label>
+                <div class="flex items-center gap-2">
+                  <input
+                    v-model.number="panelRateLimitForm.heavy_rpm"
+                    type="number"
+                    min="0"
+                    max="100000"
+                    class="input w-32"
+                  />
+                  <span class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.panelRateLimit.perMinute") }}
+                  </span>
+                </div>
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.panelRateLimit.heavyRpmHint") }}
+                </p>
+              </div>
+
+              <div>
+                <label
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{ t("admin.settings.panelRateLimit.publicIpRpm") }}
+                </label>
+                <div class="flex items-center gap-2">
+                  <input
+                    v-model.number="panelRateLimitForm.public_ip_rpm"
+                    type="number"
+                    min="0"
+                    max="100000"
+                    class="input w-32"
+                  />
+                  <span class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.panelRateLimit.perMinute") }}
+                  </span>
+                </div>
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.panelRateLimit.publicIpRpmHint") }}
+                </p>
+              </div>
+            </div>
+
+            <div
+              class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
+            >
+              <div>
+                <label class="font-medium text-gray-900 dark:text-white">{{
+                  t("admin.settings.panelRateLimit.exemptAdmin")
+                }}</label>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.panelRateLimit.exemptAdminHint") }}
+                </p>
+              </div>
+              <Toggle v-model="panelRateLimitForm.exempt_admin" />
+            </div>
+          </div>
+
+          <div
+            class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+          >
+            <button
+              type="button"
+              data-testid="panel-rate-limit-save"
+              @click="savePanelRateLimitSettings"
+              :disabled="panelRateLimitSaving"
+              class="btn btn-primary btn-sm"
+            >
+              {{
+                panelRateLimitSaving
+                  ? t("common.saving")
+                  : t("common.save")
+              }}
+            </button>
+          </div>
+        </template>
       </div>
     </div>
 

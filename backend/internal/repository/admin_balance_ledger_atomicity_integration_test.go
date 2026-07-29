@@ -53,10 +53,10 @@ func newAdminServiceForBalanceLedgerTests(t *testing.T) (service.AdminService, s
 	return adminSvc, userRepo
 }
 
-// TestAdminService_UpdateUserBalance_RollsBackOnLedgerFailure verifies Tier1:
-// when the redeem_codes journal insert fails inside persistBalanceAdjustment's
-// ent transaction, users.balance must not commit the adjustment.
-func TestAdminService_UpdateUserBalance_RollsBackOnLedgerFailure(t *testing.T) {
+// TestAdminService_UpdateUserBalance_KeepsBalanceWhenLedgerFails verifies admin
+// balance adjustments commit even when the best-effort redeem_codes journal write
+// fails; the operator recharge must not be lost because of journal side effects.
+func TestAdminService_UpdateUserBalance_KeepsBalanceWhenLedgerFails(t *testing.T) {
 	installLedgerFailTrigger(t)
 
 	ctx := context.Background()
@@ -69,17 +69,18 @@ func TestAdminService_UpdateUserBalance_RollsBackOnLedgerFailure(t *testing.T) {
 		_, _ = integrationDB.Exec(`DELETE FROM users WHERE id = $1`, user.ID)
 	})
 
-	_, err := adminSvc.UpdateUserBalance(ctx, user.ID, 50, "add", integrationLedgerFailNote)
-	require.Error(t, err, "ledger failure must surface to caller")
+	updated, err := adminSvc.UpdateUserBalance(ctx, user.ID, 50, "add", integrationLedgerFailNote)
+	require.NoError(t, err, "ledger failure must not roll back the balance adjustment")
+	require.InDelta(t, 150.0, updated.Balance, 0.0001)
 
 	got, err := userRepo.GetByID(ctx, user.ID)
 	require.NoError(t, err)
-	require.InDelta(t, 100.0, got.Balance, 0.0001, "balance must roll back when journal insert fails")
+	require.InDelta(t, 150.0, got.Balance, 0.0001, "balance must persist when journal insert fails")
 
 	var redeemCount int
 	require.NoError(t, integrationDB.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM redeem_codes WHERE used_by = $1`, user.ID).Scan(&redeemCount))
-	require.Zero(t, redeemCount, "no journal row must escape a rolled-back adjustment")
+	require.Zero(t, redeemCount, "failed journal insert must not leave a redeem_codes row")
 }
 
 func TestAdminService_UpdateUserBalance_CommitsBalanceAndLedgerAtomically(t *testing.T) {
