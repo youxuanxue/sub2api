@@ -56,10 +56,12 @@ func openAICompatErrorPlatformLabel(groupPlatform string) string {
 // When nil, collectOpenAICompatSelectionFailureStats falls back to account-level
 // model_mapping only (legacy unit tests).
 type openAICompatNoCandidateEval struct {
-	ctx            context.Context
-	svc            *OpenAIGatewayService
-	groupID        *int64
-	requireCompact bool
+	ctx                context.Context
+	svc                *OpenAIGatewayService
+	groupID            *int64
+	platform           string
+	requireCompact     bool
+	requiredCapability OpenAIEndpointCapability
 }
 
 // tkOpenAICompatChannelPricingRestrictionError reports that the requested model is
@@ -83,8 +85,10 @@ func openAICompatNoCandidateError(requestedModel, groupPlatform string, compactB
 			stats = eval.svc.collectOpenAICompatSelectionFailureStatsForRequest(
 				eval.ctx,
 				eval.groupID,
+				eval.platform,
 				requestedModel,
 				eval.requireCompact,
+				eval.requiredCapability,
 				accounts,
 				excludedIDs,
 			)
@@ -97,6 +101,9 @@ func openAICompatNoCandidateError(requestedModel, groupPlatform string, compactB
 				err = eval.svc.tkGroupUnsupportedModelRecordErr(eval.groupID, requestedModel, err)
 			}
 			return err
+		}
+		if eval != nil && eval.svc != nil && eval.ctx != nil {
+			eval.svc.logOpenAICompatSelectionFailure(eval.ctx, eval, requestedModel, stats)
 		}
 	}
 	if groupPlatform != "" && groupPlatform != PlatformOpenAI {
@@ -120,41 +127,6 @@ func collectOpenAICompatSelectionFailureStats(accounts []Account, requestedModel
 			}
 		}
 		if requestedModel != "" && !acc.IsModelSupported(requestedModel) {
-			stats.ModelUnsupported++
-			stats.SampleMappingIDs = appendSelectionFailureSampleID(stats.SampleMappingIDs, acc.ID)
-			continue
-		}
-		stats.Unschedulable++
-	}
-	return stats
-}
-
-// collectOpenAICompatSelectionFailureStatsForRequest mirrors the scheduler's
-// model-servability axis: account model_mapping AND per-account upstream channel
-// restrictions (BillingModelSourceUpstream). Prod 2026-07: a Qwen-group direct
-// key hammering gpt-5.4-mini produced routing/platform 429s because passthrough
-// accounts reported IsModelSupported=true while channel upstream pricing excluded
-// the upstream model — those accounts must count as model_unsupported (client
-// fault), not unschedulable capacity.
-func (s *OpenAIGatewayService) collectOpenAICompatSelectionFailureStatsForRequest(
-	ctx context.Context,
-	groupID *int64,
-	requestedModel string,
-	requireCompact bool,
-	accounts []Account,
-	excludedIDs map[int64]struct{},
-) selectionFailureStats {
-	stats := selectionFailureStats{Total: len(accounts)}
-	needsUpstreamCheck := s != nil && s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
-	for i := range accounts {
-		acc := &accounts[i]
-		if excludedIDs != nil {
-			if _, excluded := excludedIDs[acc.ID]; excluded {
-				stats.Unschedulable++
-				continue
-			}
-		}
-		if requestedModel != "" && s.isOpenAICompatModelUnservableForRequest(ctx, groupID, acc, requestedModel, requireCompact, needsUpstreamCheck) {
 			stats.ModelUnsupported++
 			stats.SampleMappingIDs = appendSelectionFailureSampleID(stats.SampleMappingIDs, acc.ID)
 			continue

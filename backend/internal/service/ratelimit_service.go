@@ -251,7 +251,9 @@ func (s *RateLimitService) notifyAccountSchedulingBlocked(account *Account, unti
 	if s == nil || s.runtimeBlocker == nil || account == nil {
 		return
 	}
-	s.runtimeBlocker.BlockAccountScheduling(account, until, reason)
+	if isWholeAccountRuntimeBlockReason(reason) {
+		s.runtimeBlocker.BlockAccountScheduling(account, until, reason)
+	}
 	// TK: 同一汇聚点上报账号失效事件给飞书（kind 由 reason 在 classifyIncident 内精确派生）。
 	s.notifyAccountIncident(account, until, reason, IncidentKindUnknown, detail...)
 	// TK: 池级检查——若这是该平台最后一个可调度账号,即时发全池不可调度 P0。

@@ -1,6 +1,21 @@
 package service
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+// isWholeAccountRuntimeBlockReason reports whether a notifyAccountSchedulingBlocked
+// reason should also write the in-memory whole-account runtime blocker. Model-scoped
+// cooldown reasons only persist model_rate_limits and incident telemetry.
+func isWholeAccountRuntimeBlockReason(reason string) bool {
+	switch strings.TrimSpace(reason) {
+	case "429_codex_metered", "429_model_class", "429_mirror_class_downstream_empty", tkOpenAIMirrorDownstreamEmptyReason:
+		return false
+	default:
+		return true
+	}
+}
 
 // TK: 账号失效事件 → 飞书告警的挂钩 glue。核心实现在 account_incident_notifier_tk.go。
 //

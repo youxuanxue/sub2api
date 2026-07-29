@@ -1,0 +1,134 @@
+package service
+
+import (
+	"context"
+	"log/slog"
+	"strings"
+)
+
+type openAICompatSelectionFailureDiagnosis struct {
+	Category string
+	Detail   string
+}
+
+func (s *OpenAIGatewayService) collectOpenAICompatSelectionFailureStatsForRequest(
+	ctx context.Context,
+	groupID *int64,
+	platform string,
+	requestedModel string,
+	requireCompact bool,
+	requiredCapability OpenAIEndpointCapability,
+	accounts []Account,
+	excludedIDs map[int64]struct{},
+) selectionFailureStats {
+	stats := selectionFailureStats{Total: len(accounts)}
+	needsUpstreamCheck := s != nil && s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
+	for i := range accounts {
+		acc := &accounts[i]
+		diagnosis := s.diagnoseOpenAICompatSelectionFailure(
+			ctx,
+			groupID,
+			platform,
+			acc,
+			requestedModel,
+			requireCompact,
+			requiredCapability,
+			excludedIDs,
+			needsUpstreamCheck,
+		)
+		switch diagnosis.Category {
+		case "excluded":
+			stats.Excluded++
+		case "runtime_blocked":
+			stats.RuntimeBlocked++
+			stats.SampleRuntimeBlockedIDs = appendSelectionFailureSampleID(stats.SampleRuntimeBlockedIDs, acc.ID)
+		case "model_unsupported":
+			stats.ModelUnsupported++
+			stats.SampleMappingIDs = appendSelectionFailureSampleID(stats.SampleMappingIDs, acc.ID)
+		case "model_rate_limited":
+			stats.ModelRateLimited++
+			remaining := acc.GetRateLimitRemainingTimeWithContext(ctx, requestedModel).Truncate(0)
+			stats.SampleRateLimitIDs = appendSelectionFailureRateSample(stats.SampleRateLimitIDs, acc.ID, remaining)
+		case "unschedulable":
+			stats.Unschedulable++
+		default:
+			stats.Eligible++
+		}
+	}
+	return stats
+}
+
+func (s *OpenAIGatewayService) diagnoseOpenAICompatSelectionFailure(
+	ctx context.Context,
+	groupID *int64,
+	platform string,
+	acc *Account,
+	requestedModel string,
+	requireCompact bool,
+	requiredCapability OpenAIEndpointCapability,
+	excludedIDs map[int64]struct{},
+	needsUpstreamCheck bool,
+) openAICompatSelectionFailureDiagnosis {
+	if acc == nil {
+		return openAICompatSelectionFailureDiagnosis{Category: "unschedulable", Detail: "account_nil"}
+	}
+	if excludedIDs != nil {
+		if _, excluded := excludedIDs[acc.ID]; excluded {
+			return openAICompatSelectionFailureDiagnosis{Category: "excluded"}
+		}
+	}
+	platform = normalizeOpenAICompatiblePlatform(platform)
+	if requestedModel != "" && s.isOpenAICompatModelUnservableForRequest(ctx, groupID, acc, requestedModel, requireCompact, needsUpstreamCheck) {
+		return openAICompatSelectionFailureDiagnosis{
+			Category: "model_unsupported",
+			Detail:   "model_or_channel",
+		}
+	}
+	if !isOpenAICompatibleAccountEligibleForRequest(ctx, acc, platform, requestedModel, requireCompact, requiredCapability) {
+		if requestedModel != "" && !acc.IsSchedulableForModelWithContext(ctx, requestedModel) {
+			remaining := acc.GetRateLimitRemainingTimeWithContext(ctx, requestedModel)
+			if remaining > 0 {
+				return openAICompatSelectionFailureDiagnosis{
+					Category: "model_rate_limited",
+					Detail:   remaining.String(),
+				}
+			}
+		}
+		return openAICompatSelectionFailureDiagnosis{Category: "unschedulable", Detail: "eligibility"}
+	}
+	if s.isOpenAIAccountRuntimeBlocked(acc) {
+		return openAICompatSelectionFailureDiagnosis{Category: "runtime_blocked", Detail: "whole_account"}
+	}
+	return openAICompatSelectionFailureDiagnosis{Category: "eligible"}
+}
+
+func (s *OpenAIGatewayService) logOpenAICompatSelectionFailure(
+	ctx context.Context,
+	eval *openAICompatNoCandidateEval,
+	requestedModel string,
+	stats selectionFailureStats,
+) {
+	if s == nil || eval == nil {
+		return
+	}
+	platform := strings.TrimSpace(eval.platform)
+	if platform == "" {
+		platform = PlatformOpenAI
+	}
+	slog.Warn("openai_account_selection_failed",
+		"group_id", derefGroupID(eval.groupID),
+		"model", requestedModel,
+		"platform", platform,
+		"total", stats.Total,
+		"eligible", stats.Eligible,
+		"excluded", stats.Excluded,
+		"unschedulable", stats.Unschedulable,
+		"runtime_blocked", stats.RuntimeBlocked,
+		"model_unsupported", stats.ModelUnsupported,
+		"model_rate_limited", stats.ModelRateLimited,
+		"sample_runtime_blocked", stats.SampleRuntimeBlockedIDs,
+		"sample_model_unsupported", stats.SampleMappingIDs,
+		"sample_model_rate_limited", stats.SampleRateLimitIDs,
+	)
+	_ = ctx
+}

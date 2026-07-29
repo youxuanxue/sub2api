@@ -144,8 +144,10 @@ func TestCollectOpenAICompatSelectionFailureStatsForRequest_UpstreamChannelRestr
 	stats := svc.collectOpenAICompatSelectionFailureStatsForRequest(
 		ctx,
 		&groupID,
+		PlatformNewAPI,
 		"gpt-5.4-mini",
 		false,
+		OpenAIEndpointCapabilityChatCompletions,
 		[]Account{*newAPIAccount(18011, 7)},
 		nil,
 	)
