@@ -5527,20 +5527,25 @@
         "OpenRouterProviderImages",
         "OpenRouterProviderVideoSubmit",
         "OpenRouterProviderVideoFetch",
+        "OpenRouterProviderImageRoute",
+        "openRouterProviderGroupPlatform",
         "TranslateOpenRouterImageRequestToOpenAI",
         "BuildOpenRouterVideoSubmitResponse"
       ],
-      "rationale": "OpenRouter seller image/video inference adapters: OR JSON ↔ internal OpenAI-compat handlers with OR response shapes (b64_json images, 202 video submit + poll)."
+      "rationale": "OpenRouter seller image/video inference adapters: OR JSON ↔ internal handlers with platform dispatch (antigravity chat for gemini-*-image, grok/openai-compat otherwise) and OR response shapes (b64_json images, 202 video submit + poll)."
     },
     {
       "path": "backend/internal/service/openrouter_provider_tk_media.go",
       "must_contain": [
+        "OpenRouterProviderImageRoute",
+        "TranslateOpenRouterImageToChatCompletions",
+        "TranslateChatCompletionsImageResponseToOpenRouter",
         "TranslateOpenRouterImageRequestToOpenAI",
         "TranslateOpenAIImageResponseToOpenRouter",
         "TranslateOpenRouterVideoRequestToOpenAI",
         "TranslateOpenAIVideoFetchToOpenRouter"
       ],
-      "rationale": "Pure translation layer for OpenRouter provider image/video protocol compliance; handlers must not re-encode this mapping inline."
+      "rationale": "Pure translation layer for OpenRouter provider image/video protocol compliance; gemini-native image maps OR /v1/images ↔ antigravity chat generateContent, other models stay on OpenAI-compat paths."
     },
     {
       "path": "backend/internal/service/openrouter_provider_tk_policy.go",

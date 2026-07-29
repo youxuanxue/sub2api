@@ -145,9 +145,7 @@ func extractOpenRouterImagesFromChatContentParts(content gjson.Result) []map[str
 				items = append(items, entry)
 			}
 		case "text":
-			for _, item := range extractOpenRouterImagesFromChatContentString(part.Get("text").String()) {
-				items = append(items, item)
-			}
+			items = append(items, extractOpenRouterImagesFromChatContentString(part.Get("text").String())...)
 		}
 		return true
 	})

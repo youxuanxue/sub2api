@@ -104,7 +104,7 @@ func (h *Handlers) OpenRouterProviderImages(c *gin.Context) {
 	route := service.OpenRouterProviderImageRoute(openRouterProviderGroupPlatform(c), model)
 
 	var (
-		forwardBody []byte
+		forwardBody       []byte
 		translateResponse func([]byte) ([]byte, error)
 		dispatch          func(*gin.Context)
 	)
