@@ -2216,8 +2216,15 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 	// OpenAI 透传模式：仅替换认证；显式 passthrough 账号只应认领 OpenAI
 	// namespace，避免在 universal routing 中抢走 Gemini/Claude 等外部平台模型。
 	if account.Platform == PlatformOpenAI && account.IsOpenAIPassthroughEnabled() {
-		if len(account.GetModelMapping()) > 0 {
-			return account.IsModelSupported(requestedModel)
+		mapping := account.GetModelMapping()
+		if len(mapping) > 0 {
+			// 调度路径必须按 mapping 白名单判定，不能走 IsModelSupported 的透传短路
+			//（issue #4936 仅覆盖直接调用 IsModelSupported 的残留白名单场景）。
+			if mappingSupportsRequestedModel(mapping, requestedModel) {
+				return true
+			}
+			normalized := normalizeRequestedModelForLookup(account.Platform, requestedModel)
+			return normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized)
 		}
 		return tkIsForwardableOpenAIModelName(requestedModel)
 	}

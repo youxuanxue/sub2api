@@ -52,6 +52,12 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		PasswordResetEnabled:             settings.PasswordResetEnabled,
 		InvitationCodeEnabled:            settings.InvitationCodeEnabled,
 		TotpEnabled:                      settings.TotpEnabled,
+		PasskeyEnabled:                   settings.PasskeyEnabled,
+		LoginAgreementEnabled:            settings.LoginAgreementEnabled,
+		LoginAgreementMode:               settings.LoginAgreementMode,
+		LoginAgreementUpdatedAt:          settings.LoginAgreementUpdatedAt,
+		LoginAgreementRevision:           settings.LoginAgreementRevision,
+		LoginAgreementDocuments:          publicLoginAgreementDocumentsToDTO(settings.LoginAgreementDocuments),
 		TurnstileEnabled:                 settings.TurnstileEnabled,
 		TurnstileSiteKey:                 settings.TurnstileSiteKey,
 		SiteName:                         settings.SiteName,
@@ -94,6 +100,9 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
 
+		ModelPlazaEnabled:     settings.ModelPlazaEnabled,
+		ModelPlazaRequireAuth: settings.ModelPlazaRequireAuth,
+
 		AffiliateEnabled: settings.AffiliateEnabled,
 
 		RiskControlEnabled: settings.RiskControlEnabled,
@@ -121,4 +130,16 @@ func (h *SettingHandler) UnsubscribeNotificationEmail(c *gin.Context) {
 	}
 	body := "<!doctype html><html><head><meta charset=\"utf-8\"><title>Unsubscribed</title></head><body style=\"font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;padding:32px;\"><h1>Unsubscribed</h1><p>You have unsubscribed <strong>" + html.EscapeString(result.Email) + "</strong> from <strong>" + html.EscapeString(result.Event) + "</strong> emails.</p></body></html>"
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(body))
+}
+
+func publicLoginAgreementDocumentsToDTO(items []service.LoginAgreementDocument) []dto.LoginAgreementDocument {
+	result := make([]dto.LoginAgreementDocument, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.LoginAgreementDocument{
+			ID:        item.ID,
+			Title:     item.Title,
+			ContentMD: item.ContentMD,
+		})
+	}
+	return result
 }

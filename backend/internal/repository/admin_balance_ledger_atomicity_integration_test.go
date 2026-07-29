@@ -53,9 +53,8 @@ func newAdminServiceForBalanceLedgerTests(t *testing.T) (service.AdminService, s
 	return adminSvc, userRepo
 }
 
-// TestAdminService_UpdateUserBalance_RollsBackOnLedgerFailure verifies Tier1:
-// when the redeem_codes journal insert fails inside persistBalanceAdjustment's
-// ent transaction, users.balance must not commit the adjustment.
+// TestAdminService_UpdateUserBalance_RollsBackOnLedgerFailure verifies admin
+// balance adjustments roll back when the redeem_codes journal insert fails.
 func TestAdminService_UpdateUserBalance_RollsBackOnLedgerFailure(t *testing.T) {
 	installLedgerFailTrigger(t)
 
@@ -70,16 +69,16 @@ func TestAdminService_UpdateUserBalance_RollsBackOnLedgerFailure(t *testing.T) {
 	})
 
 	_, err := adminSvc.UpdateUserBalance(ctx, user.ID, 50, "add", integrationLedgerFailNote)
-	require.Error(t, err, "ledger failure must surface to caller")
+	require.Error(t, err, "ledger failure must roll back the balance adjustment")
 
 	got, err := userRepo.GetByID(ctx, user.ID)
 	require.NoError(t, err)
-	require.InDelta(t, 100.0, got.Balance, 0.0001, "balance must roll back when journal insert fails")
+	require.InDelta(t, 100.0, got.Balance, 0.0001, "balance must stay unchanged when journal insert fails")
 
 	var redeemCount int
 	require.NoError(t, integrationDB.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM redeem_codes WHERE used_by = $1`, user.ID).Scan(&redeemCount))
-	require.Zero(t, redeemCount, "no journal row must escape a rolled-back adjustment")
+	require.Zero(t, redeemCount, "failed journal insert must not leave a redeem_codes row")
 }
 
 func TestAdminService_UpdateUserBalance_CommitsBalanceAndLedgerAtomically(t *testing.T) {

@@ -917,16 +917,22 @@ func TestGatewayService_AnthropicOAuth_ForwardPreservesBillingHeaderSystemBlock(
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name string
-		body string
+		name                       string
+		body                       string
+		wantModel                  string
+		wantOriginalSystem         string
+		wantOriginalSystemCacheTTL string
+		wantMetadataUserID         string
 	}{
 		{
 			name: "system array",
 			body: `{"model":"claude-3-5-sonnet-latest","system":[{"type":"text","text":"x-anthropic-billing-header keep"}],"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`,
 		},
 		{
-			name: "system string",
-			body: `{"model":"claude-3-5-sonnet-latest","system":"x-anthropic-billing-header keep","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`,
+			name:               "sonnet system string",
+			body:               `{"model":"claude-3-5-sonnet-latest","system":"x-anthropic-billing-header keep","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`,
+			wantModel:          "claude-3-5-sonnet-latest",
+			wantOriginalSystem: "x-anthropic-billing-header keep",
 		},
 	}
 
@@ -1004,6 +1010,19 @@ func TestGatewayService_AnthropicOAuth_ForwardPreservesBillingHeaderSystemBlock(
 			firstMsg := messages.Array()[0]
 			require.Equal(t, "user", firstMsg.Get("role").String())
 			require.Contains(t, firstMsg.Get("content.0.text").String(), "x-anthropic-billing-header keep")
+
+			require.Contains(t, firstMsg.Get("content.0.text").String(), tt.wantOriginalSystem)
+			if tt.wantOriginalSystemCacheTTL != "" {
+				require.Equal(t, "ephemeral", firstMsg.Get("content.0.cache_control.type").String())
+				require.Equal(t, tt.wantOriginalSystemCacheTTL, firstMsg.Get("content.0.cache_control.ttl").String())
+			} else {
+				require.False(t, firstMsg.Get("content.0.cache_control").Exists())
+			}
+
+			if tt.wantMetadataUserID != "" {
+				require.Equal(t, tt.wantMetadataUserID, gjson.GetBytes(upstream.lastBody, "metadata.user_id").String())
+				require.True(t, gjson.GetBytes(upstream.lastBody, "context_management").Exists())
+			}
 		})
 	}
 }

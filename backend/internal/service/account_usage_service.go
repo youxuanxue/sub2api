@@ -411,6 +411,13 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 		return nil, fmt.Errorf("get account failed: nil account")
 	}
 
+	// Dedicated UI load-test accounts must remain fully interactive without ever
+	// contacting Anthropic with synthetic credentials. Reuse the same persisted
+	// passive snapshot that the account table loads on mount.
+	if account.IsSyntheticUITest() && account.IsAnthropicOAuthOrSetupToken() {
+		return s.GetPassiveUsage(ctx, account.ID)
+	}
+
 	var (
 		usage *UsageInfo
 		err   error
