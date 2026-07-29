@@ -35,6 +35,12 @@ type KiroGatewayService struct {
 	accountRepo         AccountRepository
 }
 
+// maxClaudeCodeCompletionTurns bounds the number of Kiro model calls inside a
+// single Claude Code HTTP request. The private completion protocol normally
+// terminates on the first call; the remaining calls recover text-only model
+// stops without creating an unbounded agent loop.
+const maxClaudeCodeCompletionTurns = 3
+
 // KiroPostOutputStreamDisconnectError marks an incomplete upstream stream after
 // response content has already been sent. The current request cannot be replayed
 // safely; the handler uses this marker to exclude the account once on the
@@ -77,7 +83,7 @@ func classifyKiroPostOutputStreamError(kind string, err error) error {
 // into end_turn, which would make Claude Code report an incomplete task as
 // successfully completed.
 func mapKiroStopReason(raw string, hasToolUse bool) (string, error) {
-	normalized := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(raw), "-", "_"))
+	normalized := normalizeKiroStopReason(raw)
 	switch normalized {
 	case "END_TURN":
 		if hasToolUse {
@@ -89,14 +95,90 @@ func mapKiroStopReason(raw string, hasToolUse bool) (string, error) {
 	case "MAX_TOKENS":
 		return "max_tokens", nil
 	case "STOP_SEQUENCE":
-		return "stop_sequence", nil
-	case "CONTENT_FILTERED":
-		// Empty filtered responses are rejected before this mapper. If Kiro
-		// returned visible refusal text, retain the historical success behavior.
-		return "end_turn", nil
+		// Kiro exposes no matched sequence in metadataEvent.stopDetails. An
+		// Anthropic stop_sequence response without that value is malformed, so
+		// fail closed instead of emitting stop_sequence:null.
+		return "", fmt.Errorf("%w: STOP_SEQUENCE without matched sequence", errKiroUnsupportedStopReason)
+	case "MODEL_CONTEXT_WINDOW_EXCEEDED":
+		return "model_context_window_exceeded", nil
+	case "CONTENT_FILTERED", "GUARDRAIL_INTERVENED":
+		// Empty filtered responses are rejected before this mapper. Visible
+		// refusal text uses Anthropic's refusal terminal outcome rather than
+		// masquerading as a successful end_turn.
+		return "refusal", nil
+	case "MALFORMED_MODEL_OUTPUT", "MALFORMED_TOOL_USE":
+		return "", fmt.Errorf("%w: %s", errKiroUnsupportedStopReason, normalized)
 	default:
 		return "", fmt.Errorf("%w: %q", errKiroUnsupportedStopReason, truncateString(raw, 64))
 	}
+}
+
+func normalizeKiroStopReason(raw string) string {
+	return strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(raw), "-", "_"))
+}
+
+func acceptsClaudeCodeCompletionSignal(raw string) bool {
+	switch normalizeKiroStopReason(raw) {
+	case "END_TURN", "TOOL_USE":
+		return true
+	default:
+		return false
+	}
+}
+
+func isKiroPolicyStopReason(raw string) bool {
+	switch normalizeKiroStopReason(raw) {
+	case "CONTENT_FILTERED", "GUARDRAIL_INTERVENED":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAcceptedClaudeCodeCompletion(
+	rawStopReason string,
+	assistantText string,
+	clientToolUses []kiroproto.KiroToolUse,
+	signal *kiroproto.ClaudeCodeCompletionSignal,
+) bool {
+	return signal != nil &&
+		len(clientToolUses) == 0 &&
+		acceptsClaudeCodeCompletionSignal(rawStopReason) &&
+		(strings.TrimSpace(assistantText) != "" || signal.Message != "")
+}
+
+func shouldContinueClaudeCodeCompletion(
+	payload *kiroproto.KiroPayload,
+	rawStopReason string,
+	clientToolUses []kiroproto.KiroToolUse,
+	completionAccepted bool,
+) bool {
+	return payload != nil &&
+		payload.ClaudeCodeCompletionProtocol &&
+		len(clientToolUses) == 0 &&
+		!completionAccepted &&
+		acceptsClaudeCodeCompletionSignal(rawStopReason)
+}
+
+func completionSignalText(text string, signal *kiroproto.ClaudeCodeCompletionSignal) string {
+	if strings.TrimSpace(text) != "" || signal == nil {
+		return text
+	}
+	return signal.Message
+}
+
+func logKiroCompletionProtocol(account *Account, model string, turn int, action, status string) {
+	accountID := int64(0)
+	if account != nil {
+		accountID = account.ID
+	}
+	slog.Info("gateway.kiro_completion_protocol",
+		slog.Int64("account_id", accountID),
+		slog.String("model", model),
+		slog.Int("turn", turn),
+		slog.String("action", action),
+		slog.String("status", status),
+	)
 }
 
 func logKiroStopReason(account *Account, model, raw, mapped string, stream bool) {
@@ -216,79 +298,125 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	startTime time.Time,
 ) (*ForwardResult, error) {
 	var (
-		textBuf     string
-		thinkingBuf string
-		toolUses    []kiroproto.KiroToolUse
-		callbackErr error
-		stopReason  string
-		redactor    kiroproto.InlineThinkingRedactor
+		textBuf          string
+		thinkingBuf      string
+		clientToolUses   []kiroproto.KiroToolUse
+		billingToolUses  []kiroproto.KiroToolUse
+		mappedStopReason string
 	)
-
-	callback := &kiroproto.KiroStreamCallback{
-		OnText: func(text string, isThinking bool) {
-			if isThinking {
-				thinkingBuf += text
-			} else {
-				visible, inlineThinking := redactor.Push(text)
-				if inlineThinking != "" {
-					thinkingBuf += inlineThinking
-				}
-				textBuf += visible
-			}
-		},
-		OnToolUse: func(tu kiroproto.KiroToolUse) {
-			toolUses = append(toolUses, tu)
-		},
-		OnStopReason: func(reason string) {
-			stopReason = reason
-		},
-		// Kiro upstream reports no token usage; OnComplete(in,out) is always (0,0).
-		// We estimate token usage locally below instead of trusting these values.
-		OnCredits: func(credits float64) {
-			logKiroCredits(kiroAcct, model, credits)
-		},
-		OnError: func(err error) {
-			callbackErr = err
-		},
-		ResetForRetry: func() bool {
-			textBuf = ""
-			thinkingBuf = ""
-			toolUses = nil
-			callbackErr = nil
-			stopReason = ""
-			redactor = kiroproto.InlineThinkingRedactor{}
-			return true
-		},
-	}
-
-	if err := kiroproto.CallKiroAPIWithDoerContext(ctx, doer, kiroAcct, payload, callback); err != nil {
-		return nil, classifyAndRecordKiroForwardError(c, account, err, model)
-	}
-	if callbackErr != nil {
-		return nil, classifyAndRecordKiroForwardError(c, account, callbackErr, model)
-	}
-	if visible, inlineThinking := redactor.Flush(); visible != "" || inlineThinking != "" {
-		textBuf += visible
-		thinkingBuf += inlineThinking
-	}
-	if textBuf == "" && thinkingBuf == "" && len(toolUses) == 0 {
-		if strings.EqualFold(stopReason, "CONTENT_FILTERED") {
-			return nil, classifyAndRecordKiroForwardError(c, account, &KiroContentFilteredError{}, model)
-		}
-		return nil, classifyAndRecordKiroForwardError(c, account, errKiroEmptyResponse, model)
-	}
-
-	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
 	inputTokens := kiroproto.EstimateInputTokens(req)
-	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, toolUses)
-	mappedStopReason, err := mapKiroStopReason(stopReason, len(toolUses) > 0)
-	if err != nil {
-		return nil, classifyAndRecordKiroForwardError(c, account, err, model)
+
+	for turn := 1; turn <= maxClaudeCodeCompletionTurns; turn++ {
+		var (
+			turnText     string
+			turnThinking string
+			turnToolUses []kiroproto.KiroToolUse
+			callbackErr  error
+			stopReason   string
+			redactor     kiroproto.InlineThinkingRedactor
+		)
+
+		callback := &kiroproto.KiroStreamCallback{
+			OnText: func(text string, isThinking bool) {
+				if isThinking {
+					turnThinking += text
+					return
+				}
+				visible, inlineThinking := redactor.Push(text)
+				turnText += visible
+				turnThinking += inlineThinking
+			},
+			OnToolUse: func(toolUse kiroproto.KiroToolUse) {
+				turnToolUses = append(turnToolUses, toolUse)
+			},
+			OnStopReason: func(reason string) {
+				stopReason = reason
+			},
+			// Kiro upstream reports no token usage; OnComplete(in,out) is always (0,0).
+			// We estimate token usage locally below instead of trusting these values.
+			OnCredits: func(credits float64) {
+				logKiroCredits(kiroAcct, model, credits)
+			},
+			OnError: func(err error) {
+				callbackErr = err
+			},
+			ResetForRetry: func() bool {
+				turnText = ""
+				turnThinking = ""
+				turnToolUses = nil
+				callbackErr = nil
+				stopReason = ""
+				redactor = kiroproto.InlineThinkingRedactor{}
+				return true
+			},
+		}
+
+		if err := kiroproto.CallKiroAPIWithDoerContext(ctx, doer, kiroAcct, payload, callback); err != nil {
+			return nil, classifyAndRecordKiroForwardError(c, account, err, model)
+		}
+		if callbackErr != nil {
+			return nil, classifyAndRecordKiroForwardError(c, account, callbackErr, model)
+		}
+		if visible, inlineThinking := redactor.Flush(); visible != "" || inlineThinking != "" {
+			turnText += visible
+			turnThinking += inlineThinking
+		}
+
+		visibleToolUses := turnToolUses
+		var completionSignal *kiroproto.ClaudeCodeCompletionSignal
+		if payload.ClaudeCodeCompletionProtocol {
+			visibleToolUses, completionSignal = kiroproto.ConsumeClaudeCodeCompletionSignal(turnToolUses)
+		}
+		completionAccepted := isAcceptedClaudeCodeCompletion(stopReason, turnText, visibleToolUses, completionSignal)
+		if completionAccepted {
+			turnText = completionSignalText(turnText, completionSignal)
+		}
+		if turnText == "" && turnThinking == "" && len(turnToolUses) == 0 && textBuf == "" && thinkingBuf == "" {
+			if isKiroPolicyStopReason(stopReason) {
+				return nil, classifyAndRecordKiroForwardError(c, account, &KiroContentFilteredError{}, model)
+			}
+			return nil, classifyAndRecordKiroForwardError(c, account, errKiroEmptyResponse, model)
+		}
+
+		textBuf += turnText
+		thinkingBuf += turnThinking
+		billingToolUses = append(billingToolUses, turnToolUses...)
+
+		if shouldContinueClaudeCodeCompletion(payload, stopReason, visibleToolUses, completionAccepted) {
+			if turn < maxClaudeCodeCompletionTurns {
+				logKiroCompletionProtocol(account, model, turn, "continue", "missing_signal")
+				kiroproto.PrepareClaudeCodeCompletionContinuation(payload, turnText)
+				inputTokens += kiroproto.EstimatePayloadInputTokens(payload)
+				continue
+			}
+			logKiroCompletionProtocol(account, model, turn, "exhausted", "missing_signal")
+			if normalizeKiroStopReason(stopReason) == "TOOL_USE" {
+				err := fmt.Errorf("%w: invalid Claude Code completion signal", errKiroUnsupportedStopReason)
+				return nil, classifyAndRecordKiroForwardError(c, account, err, model)
+			}
+		}
+
+		clientToolUses = visibleToolUses
+		if completionAccepted {
+			mappedStopReason = "end_turn"
+			logKiroCompletionProtocol(account, model, turn, "finish", completionSignal.Status)
+		} else {
+			var err error
+			mappedStopReason, err = mapKiroStopReason(stopReason, len(clientToolUses) > 0)
+			if err != nil {
+				return nil, classifyAndRecordKiroForwardError(c, account, err, model)
+			}
+		}
+		logKiroStopReason(account, model, stopReason, mappedStopReason, false)
+		break
 	}
-	logKiroStopReason(account, model, stopReason, mappedStopReason, false)
+
+	// Estimate output across every hidden completion turn, including the private
+	// completion tool call that is intentionally absent from the client response.
+	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, billingToolUses)
 
 	resp := kiroproto.KiroToClaudeResponse(
-		textBuf, thinkingBuf, false, toolUses, inputTokens, outputToks, model, mappedStopReason,
+		textBuf, thinkingBuf, false, clientToolUses, inputTokens, outputToks, model, mappedStopReason,
 	)
 	resp.ID = requestID
 
@@ -352,14 +480,13 @@ func (s *KiroGatewayService) forwardStreaming(
 	}
 
 	var (
-		mu          sync.Mutex
-		textBuf     string
-		thinkingBuf string
-		toolUses    []kiroproto.KiroToolUse
-		callbackErr error
-		stopReason  string
-		firstTokMs  *int
-		redactor    kiroproto.InlineThinkingRedactor
+		mu               sync.Mutex
+		textBuf          string
+		thinkingBuf      string
+		clientToolUses   []kiroproto.KiroToolUse
+		billingToolUses  []kiroproto.KiroToolUse
+		mappedStopReason string
+		firstTokMs       *int
 	)
 
 	markFirstToken := func() {
@@ -369,129 +496,189 @@ func (s *KiroGatewayService) forwardStreaming(
 		}
 	}
 
-	// message_start is emitted lazily on first content (see kiroSSEEncoder
-	// ensureBlock / writeToolUse). Emitting it eagerly here would set
-	// enc.started=true before the upstream call, defeating the post-call
-	// `!enc.started` guard and turning an upstream 400 (e.g. INVALID_MODEL_ID)
-	// into a clean empty 200 stream that the handler never sees as an error.
-
-	callback := &kiroproto.KiroStreamCallback{
-		OnText: func(text string, isThinking bool) {
-			mu.Lock()
-			defer mu.Unlock()
-			markFirstToken()
-			if isThinking {
-				thinkingBuf += text
-			} else {
-				visible, inlineThinking := redactor.Push(text)
-				if inlineThinking != "" {
-					thinkingBuf += inlineThinking
-				}
-				if visible != "" {
-					textBuf += visible
-					enc.writeTextDelta(visible)
-				}
-			}
-		},
-		OnToolUse: func(tu kiroproto.KiroToolUse) {
-			mu.Lock()
-			defer mu.Unlock()
-			markFirstToken()
-			toolUses = append(toolUses, tu)
-			enc.writeToolUse(tu)
-		},
-		OnStopReason: func(reason string) {
-			mu.Lock()
-			defer mu.Unlock()
-			stopReason = reason
-		},
-		// Kiro upstream reports no token usage; OnComplete(in,out) is always (0,0).
-		// We estimate token usage locally below instead of trusting these values.
-		OnCredits: func(credits float64) {
-			logKiroCredits(kiroAcct, model, credits)
-		},
-		OnError: func(err error) {
-			mu.Lock()
-			defer mu.Unlock()
-			callbackErr = err
-		},
-		ResetForRetry: func() bool {
-			mu.Lock()
-			defer mu.Unlock()
-			if enc.started {
-				return false
-			}
-			textBuf = ""
-			thinkingBuf = ""
-			toolUses = nil
-			callbackErr = nil
-			stopReason = ""
-			firstTokMs = nil
-			redactor = kiroproto.InlineThinkingRedactor{}
-			return true
-		},
-	}
-
-	callErr := kiroproto.CallKiroAPIWithDoerContext(ctx, doer, kiroAcct, payload, callback)
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	// If the upstream failed before producing any content, surface the error so
-	// the handler can decide on failover instead of emitting a half-finished
-	// SSE stream. Once content has begun, SSE has no resume/failover point; send
-	// a protocol-level error event instead of forging message_delta/message_stop,
-	// otherwise clients such as Claude Code treat an incomplete Kiro stream as a
-	// successful assistant turn.
-	// classifyKiroForwardError maps a recognized HTTP 400 INVALID_MODEL_ID into
-	// a typed *KiroInvalidModelError so the handler can return a clean 400.
-	if callErr != nil && !enc.started {
-		return nil, classifyAndRecordKiroForwardError(c, account, callErr, model)
-	}
-	if callErr != nil {
-		msg := "upstream stream disconnected: " + sanitizeStreamError(callErr)
-		recordKiroStreamError(c, account, msg)
-		writeKiroStreamError(c, flusher, "stream_read_error", msg)
-		return nil, classifyKiroPostOutputStreamError("read", callErr)
-	}
-	if callbackErr != nil && !enc.started {
-		return nil, classifyAndRecordKiroForwardError(c, account, callbackErr, model)
-	}
-	if callbackErr != nil {
-		msg := "upstream stream disconnected: " + sanitizeStreamError(callbackErr)
-		recordKiroStreamError(c, account, msg)
-		writeKiroStreamError(c, flusher, "stream_read_error", msg)
-		return nil, classifyKiroPostOutputStreamError("callback", callbackErr)
-	}
-	if visible, inlineThinking := redactor.Flush(); visible != "" || inlineThinking != "" {
-		if inlineThinking != "" {
-			thinkingBuf += inlineThinking
-		}
-		if visible != "" {
-			textBuf += visible
-			enc.writeTextDelta(visible)
-		}
-	}
-	if !enc.started && textBuf == "" && thinkingBuf == "" && len(toolUses) == 0 {
-		if strings.EqualFold(stopReason, "CONTENT_FILTERED") {
-			return nil, classifyAndRecordKiroForwardError(c, account, &KiroContentFilteredError{}, model)
-		}
-		return nil, classifyAndRecordKiroForwardError(c, account, errKiroEmptyResponse, model)
-	}
-
-	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
-	// inputTokens was already computed for the encoder (message_start.usage); reuse
-	// it for the ForwardResult so the two never drift.
+	// message_start is emitted lazily on first client-visible content (see
+	// kiroSSEEncoder ensureBlock / writeToolUse). The transport-private
+	// completion tool is never committed to the Anthropic stream.
 	inputTokens := enc.inputTokens
-	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, toolUses)
-	mappedStopReason, err := mapKiroStopReason(stopReason, len(toolUses) > 0)
-	if err != nil {
-		msg := sanitizeStreamError(err)
-		recordKiroStreamError(c, account, msg)
-		writeKiroStreamError(c, flusher, "unsupported_stop_reason", msg)
-		return nil, fmt.Errorf("kiro stream stop reason error: %w", err)
+	for turn := 1; turn <= maxClaudeCodeCompletionTurns; turn++ {
+		firstTokBeforeTurn := firstTokMs
+		var (
+			turnText            string
+			turnThinking        string
+			turnToolUses        []kiroproto.KiroToolUse
+			callbackErr         error
+			stopReason          string
+			redactor            kiroproto.InlineThinkingRedactor
+			callOutputCommitted bool
+		)
+
+		callback := &kiroproto.KiroStreamCallback{
+			OnText: func(text string, isThinking bool) {
+				mu.Lock()
+				defer mu.Unlock()
+				markFirstToken()
+				if isThinking {
+					turnThinking += text
+					return
+				}
+				visible, inlineThinking := redactor.Push(text)
+				turnThinking += inlineThinking
+				if visible != "" {
+					turnText += visible
+					enc.writeTextDelta(visible)
+					callOutputCommitted = true
+				}
+			},
+			OnToolUse: func(toolUse kiroproto.KiroToolUse) {
+				mu.Lock()
+				defer mu.Unlock()
+				turnToolUses = append(turnToolUses, toolUse)
+				if payload.ClaudeCodeCompletionProtocol && kiroproto.IsClaudeCodeCompletionToolUse(toolUse) {
+					return
+				}
+				markFirstToken()
+				enc.writeToolUse(toolUse)
+				callOutputCommitted = true
+			},
+			OnStopReason: func(reason string) {
+				mu.Lock()
+				defer mu.Unlock()
+				stopReason = reason
+			},
+			// Kiro upstream reports no token usage; OnComplete(in,out) is always (0,0).
+			// We estimate token usage locally below instead of trusting these values.
+			OnCredits: func(credits float64) {
+				logKiroCredits(kiroAcct, model, credits)
+			},
+			OnError: func(err error) {
+				mu.Lock()
+				defer mu.Unlock()
+				callbackErr = err
+			},
+			ResetForRetry: func() bool {
+				mu.Lock()
+				defer mu.Unlock()
+				if callOutputCommitted {
+					return false
+				}
+				turnText = ""
+				turnThinking = ""
+				turnToolUses = nil
+				callbackErr = nil
+				stopReason = ""
+				redactor = kiroproto.InlineThinkingRedactor{}
+				firstTokMs = firstTokBeforeTurn
+				return true
+			},
+		}
+
+		callErr := kiroproto.CallKiroAPIWithDoerContext(ctx, doer, kiroAcct, payload, callback)
+
+		mu.Lock()
+		// If the upstream failed before producing any client-visible content,
+		// surface the error for account failover. Once any prior/current turn was
+		// committed, SSE has no replay point and must end with an error event.
+		if callErr != nil && !enc.started {
+			mu.Unlock()
+			return nil, classifyAndRecordKiroForwardError(c, account, callErr, model)
+		}
+		if callErr != nil {
+			msg := "upstream stream disconnected: " + sanitizeStreamError(callErr)
+			recordKiroStreamError(c, account, msg)
+			writeKiroStreamError(c, flusher, "stream_read_error", msg)
+			mu.Unlock()
+			return nil, classifyKiroPostOutputStreamError("read", callErr)
+		}
+		if callbackErr != nil && !enc.started {
+			mu.Unlock()
+			return nil, classifyAndRecordKiroForwardError(c, account, callbackErr, model)
+		}
+		if callbackErr != nil {
+			msg := "upstream stream disconnected: " + sanitizeStreamError(callbackErr)
+			recordKiroStreamError(c, account, msg)
+			writeKiroStreamError(c, flusher, "stream_read_error", msg)
+			mu.Unlock()
+			return nil, classifyKiroPostOutputStreamError("callback", callbackErr)
+		}
+		if visible, inlineThinking := redactor.Flush(); visible != "" || inlineThinking != "" {
+			turnThinking += inlineThinking
+			if visible != "" {
+				turnText += visible
+				enc.writeTextDelta(visible)
+				callOutputCommitted = true
+			}
+		}
+
+		visibleToolUses := turnToolUses
+		var completionSignal *kiroproto.ClaudeCodeCompletionSignal
+		if payload.ClaudeCodeCompletionProtocol {
+			visibleToolUses, completionSignal = kiroproto.ConsumeClaudeCodeCompletionSignal(turnToolUses)
+		}
+		completionAccepted := isAcceptedClaudeCodeCompletion(stopReason, turnText, visibleToolUses, completionSignal)
+		if completionAccepted {
+			completionText := completionSignalText(turnText, completionSignal)
+			if completionText != turnText {
+				turnText = completionText
+				if turnText != "" {
+					markFirstToken()
+					enc.writeTextDelta(turnText)
+					callOutputCommitted = true
+				}
+			}
+		}
+		if turnText == "" && turnThinking == "" && len(turnToolUses) == 0 && textBuf == "" && thinkingBuf == "" {
+			if isKiroPolicyStopReason(stopReason) {
+				mu.Unlock()
+				return nil, classifyAndRecordKiroForwardError(c, account, &KiroContentFilteredError{}, model)
+			}
+			mu.Unlock()
+			return nil, classifyAndRecordKiroForwardError(c, account, errKiroEmptyResponse, model)
+		}
+
+		textBuf += turnText
+		thinkingBuf += turnThinking
+		billingToolUses = append(billingToolUses, turnToolUses...)
+
+		if shouldContinueClaudeCodeCompletion(payload, stopReason, visibleToolUses, completionAccepted) {
+			if turn < maxClaudeCodeCompletionTurns {
+				logKiroCompletionProtocol(account, model, turn, "continue", "missing_signal")
+				kiroproto.PrepareClaudeCodeCompletionContinuation(payload, turnText)
+				inputTokens += kiroproto.EstimatePayloadInputTokens(payload)
+				mu.Unlock()
+				continue
+			}
+			logKiroCompletionProtocol(account, model, turn, "exhausted", "missing_signal")
+			if normalizeKiroStopReason(stopReason) == "TOOL_USE" {
+				err := fmt.Errorf("%w: invalid Claude Code completion signal", errKiroUnsupportedStopReason)
+				msg := sanitizeStreamError(err)
+				recordKiroStreamError(c, account, msg)
+				writeKiroStreamError(c, flusher, "unsupported_stop_reason", msg)
+				mu.Unlock()
+				return nil, fmt.Errorf("kiro stream stop reason error: %w", err)
+			}
+		}
+
+		clientToolUses = visibleToolUses
+		if completionAccepted {
+			mappedStopReason = "end_turn"
+			logKiroCompletionProtocol(account, model, turn, "finish", completionSignal.Status)
+		} else {
+			var err error
+			mappedStopReason, err = mapKiroStopReason(stopReason, len(clientToolUses) > 0)
+			if err != nil {
+				msg := sanitizeStreamError(err)
+				recordKiroStreamError(c, account, msg)
+				writeKiroStreamError(c, flusher, "unsupported_stop_reason", msg)
+				mu.Unlock()
+				return nil, fmt.Errorf("kiro stream stop reason error: %w", err)
+			}
+		}
+		logKiroStopReason(account, model, stopReason, mappedStopReason, true)
+		mu.Unlock()
+		break
 	}
-	logKiroStopReason(account, model, stopReason, mappedStopReason, true)
+
+	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, billingToolUses)
 
 	// Upstream succeeded but produced no content (enc.started still false):
 	// emit message_start lazily here so the closing events form a valid stream.

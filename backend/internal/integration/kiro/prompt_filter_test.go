@@ -97,6 +97,7 @@ func TestUS041_ClaudeToKiro_CompletionGuardAppearsOnceInSystemPriming(t *testing
 			}, false)
 
 			require.NotNil(t, payload)
+			require.True(t, payload.ClaudeCodeCompletionProtocol)
 			require.NotEmpty(t, payload.ConversationState.History)
 			require.NotNil(t, payload.ConversationState.History[0].UserInputMessage)
 			require.Contains(t, payload.ConversationState.History[0].UserInputMessage.Content, claudepkg.ClaudeCodeCompletionGuardMarker)
@@ -109,6 +110,33 @@ func TestUS041_ClaudeToKiro_CompletionGuardAppearsOnceInSystemPriming(t *testing
 			}
 			wireText.WriteString(payload.ConversationState.CurrentMessage.UserInputMessage.Content)
 			require.Equal(t, 1, strings.Count(wireText.String(), claudepkg.ClaudeCodeCompletionGuardMarker))
+
+			ctx := payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext
+			require.NotNil(t, ctx)
+			completionTools := 0
+			for _, tool := range ctx.Tools {
+				if tool.ToolSpecification.Name == claudepkg.ClaudeCodeCompletionToolName {
+					completionTools++
+				}
+			}
+			require.Equal(t, 1, completionTools)
 		})
+	}
+}
+
+func TestClaudeToKiro_NonClaudeCodeDoesNotEnableCompletionProtocol(t *testing.T) {
+	payload := ClaudeToKiro(&ClaudeRequest{
+		Model:    "claude-sonnet-4-5",
+		System:   "You are a concise support assistant.",
+		Messages: []ClaudeMessage{{Role: "user", Content: "hello"}},
+	}, false)
+
+	require.False(t, payload.ClaudeCodeCompletionProtocol)
+	ctx := payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext
+	if ctx == nil {
+		return
+	}
+	for _, tool := range ctx.Tools {
+		require.NotEqual(t, claudepkg.ClaudeCodeCompletionToolName, tool.ToolSpecification.Name)
 	}
 }

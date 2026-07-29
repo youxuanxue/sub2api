@@ -163,6 +163,11 @@ type KiroPayload struct {
 	// in tool_use responses so the client can match them to its tool registry.
 	// Not serialized to the Kiro API request body.
 	ToolNameMap map[string]string `json:"-"`
+
+	// ClaudeCodeCompletionProtocol marks payloads whose system prompt was
+	// positively identified as Claude Code and whose tool list contains the
+	// transport-private completion signal. It is service-side state only.
+	ClaudeCodeCompletionProtocol bool `json:"-"`
 }
 
 type KiroUserInputMessage struct {
@@ -236,6 +241,7 @@ type KiroStreamCallback struct {
 	OnText         func(text string, isThinking bool)
 	OnToolUse      func(toolUse KiroToolUse)
 	OnStopReason   func(stopReason string)
+	OnStopMetadata func(metadata KiroStopMetadata)
 	OnComplete     func(inputTokens, outputTokens int)
 	OnError        func(err error)
 	OnCredits      func(credits float64)
@@ -244,6 +250,23 @@ type KiroStreamCallback struct {
 	// Returning true permits retrying the next endpoint; false preserves the
 	// error, which is required once streaming output has been committed.
 	ResetForRetry func() bool
+}
+
+// KiroStopMetadata preserves the terminal metadataEvent payload that carries
+// model-level refusal details in current Kiro clients.
+type KiroStopMetadata struct {
+	StopReason  string           `json:"stopReason"`
+	StopDetails *KiroStopDetails `json:"stopDetails,omitempty"`
+}
+
+type KiroStopDetails struct {
+	Refusal *KiroRefusalDetails `json:"refusal,omitempty"`
+}
+
+type KiroRefusalDetails struct {
+	Category         string `json:"category,omitempty"`
+	Explanation      string `json:"explanation,omitempty"`
+	RecommendedModel string `json:"recommendedModel,omitempty"`
 }
 
 // ==================== API Call ====================
@@ -565,6 +588,18 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 		case "metadataEvent":
 			if stopReason, ok := event["stopReason"].(string); ok && stopReason != "" {
 				sawTerminalStop = true
+				if callback.OnStopMetadata != nil {
+					metadata := KiroStopMetadata{StopReason: stopReason}
+					if rawDetails, exists := event["stopDetails"]; exists && rawDetails != nil {
+						if encoded, err := json.Marshal(rawDetails); err == nil {
+							var details KiroStopDetails
+							if json.Unmarshal(encoded, &details) == nil {
+								metadata.StopDetails = &details
+							}
+						}
+					}
+					callback.OnStopMetadata(metadata)
+				}
 				if callback.OnStopReason != nil {
 					callback.OnStopReason(stopReason)
 				}

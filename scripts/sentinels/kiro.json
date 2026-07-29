@@ -109,15 +109,38 @@
       "must_contain": [
         "func ClaudeToKiro",
         "func KiroToClaudeResponse",
-        "EnsureClaudeCodeCompletionGuard"
+        "EnsureClaudeCodeCompletionGuard",
+        "addClaudeCodeCompletionTool",
+        "payload.ClaudeCodeCompletionProtocol = completionProtocol"
       ],
-      "rationale": "Anthropic <-> Kiro request/response translation. Without it the /v1/messages -> CodeWhisperer bridge cannot build a payload or decode the reply. EnsureClaudeCodeCompletionGuard keeps recognized Claude Code sessions working until implementation and verification are complete without duplicating policy text in this vendored-shaped layer."
+      "rationale": "Anthropic <-> Kiro request/response translation. Without it the /v1/messages -> CodeWhisperer bridge cannot build a payload or decode the reply. EnsureClaudeCodeCompletionGuard keeps recognized Claude Code sessions working until implementation and verification are complete without duplicating policy text in this vendored-shaped layer. The completion protocol flag is enabled only when the private tool was actually added, which prevents a client-owned same-name tool from being shadowed or swallowed."
+    },
+    {
+      "path": "backend/internal/integration/kiro/claude_code_completion.go",
+      "must_contain": [
+        "func addClaudeCodeCompletionTool",
+        "func ConsumeClaudeCodeCompletionSignal",
+        "func PrepareClaudeCodeCompletionContinuation",
+        "ClaudeCodeCompletionProtocol",
+        "minLength"
+      ],
+      "rationale": "Single owner for Kiro's transport-private Claude Code completion handshake. It defines the non-empty completion schema, strips only valid private signals, and creates the bounded continuation payload while preserving the normal tool catalog. Losing this owner returns completion judgment to lossy stop-reason guessing or leaks private tool calls to Claude Code."
+    },
+    {
+      "path": "backend/internal/integration/kiro/claude_code_completion_test.go",
+      "must_contain": [
+        "TestConsumeClaudeCodeCompletionSignal_StripsOnlyPrivateTool",
+        "TestPrepareClaudeCodeCompletionContinuation_PreservesToolsAndMovesTurnToHistory",
+        "minLength"
+      ],
+      "rationale": "Focused regression evidence for private-signal parsing, non-empty completion messages, ordinary-tool preservation, and continuation history/tool-catalog integrity."
     },
     {
       "path": "backend/internal/pkg/claude/claude_code_completion_guard.go",
       "must_contain": [
         "ClaudeCodeCompletionGuardMarker",
         "ClaudeCodeCompletionGuardText",
+        "ClaudeCodeCompletionToolName",
         "func EnsureClaudeCodeCompletionGuard"
       ],
       "rationale": "Shared SSOT for Claude Code completion continuity across OpenAI-compatible Messages and Kiro. Losing or duplicating this owner lets a backend present unfinished work as a completed turn or makes the two bridge paths drift."
@@ -134,6 +157,7 @@
       "path": "backend/internal/integration/kiro/estimate.go",
       "must_contain": [
         "func EstimateInputTokens",
+        "func EstimatePayloadInputTokens",
         "func EstimateOutputTokens",
         "KiroEstimatedBillingTier"
       ],
@@ -147,6 +171,9 @@
         "func callKiroAPIOnce",
         "ResetForRetry func() bool",
         "OnStopReason",
+        "OnStopMetadata",
+        "KiroStopMetadata",
+        "KiroRefusalDetails",
         "case \"metadataEvent\":",
         "stale profileArn",
         "func parseEventStream",
@@ -159,7 +186,7 @@
         "runtime.us-east-1.kiro.dev",
         "q.us-east-1.amazonaws.com"
       ],
-      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason and the metadataEvent dispatch preserve Kiro's authoritative terminal outcome; losing them turns CONTENT_FILTERED back into an opaque empty-response 502. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
+      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
     },
     {
       "path": "backend/internal/integration/kiro/eventstream_test.go",
@@ -167,6 +194,7 @@
         "TestParseEventStream_MetadataStopReason",
         "TestParseEventStream_FrameAlignedEOFWithoutStopReasonFails",
         "TestParseEventStream_TerminalStopIgnoresTruncatedTrailingFrame",
+        "KiroStopMetadata",
         "CONTENT_FILTERED"
       ],
       "rationale": "Protocol-level evidence that metadataEvent.stopReason survives EventStream decoding. Without this callback the service cannot distinguish an upstream content-policy terminal outcome from a broken empty response."
@@ -253,19 +281,24 @@
         "kiroproto.EstimateOutputTokens",
         "BillingTier:   kiroproto.KiroEstimatedBillingTier",
         "callErr != nil && !enc.started",
-        "textBuf == \"\" && thinkingBuf == \"\" && len(toolUses) == 0",
+        "turnText == \"\" && turnThinking == \"\" && len(turnToolUses) == 0",
         "KiroContentFilteredError",
         "KiroPostOutputStreamDisconnectError",
         "classifyKiroPostOutputStreamError",
         "recordKiroStreamError",
         "CONTENT_FILTERED",
         "mapKiroStopReason",
+        "maxClaudeCodeCompletionTurns",
+        "payload.ClaudeCodeCompletionProtocol",
+        "kiroproto.ConsumeClaudeCodeCompletionSignal",
+        "kiroproto.PrepareClaudeCodeCompletionContinuation",
         "gateway.kiro_stop_reason",
+        "gateway.kiro_completion_protocol",
         "unsupported_stop_reason",
         "classifyAndRecordKiroForwardError",
         "publishKiroInternalThinkingSideChannel"
       ],
-      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream. It estimates token usage locally (EstimateInputTokens/EstimateOutputTokens) and stamps ForwardResult.BillingTier=\"kiro-estimated\", because the Kiro upstream reports credits only — without these calls both forward paths return Usage{0,0} and kiro bills as 100% free. The context-aware call and ResetForRetry callbacks are load-bearing: non-streaming retries clear all partial buffers, while streaming retries are rejected after enc.started to prevent duplicated client output. The stop-reason mapper and structured marker preserve Kiro's authoritative terminal outcome; unknown values fail closed instead of forging end_turn. The `callErr != nil && !enc.started` guard + classifyAndRecordKiroForwardError keep pre-content failures visible instead of returning an empty 200 stream and retain the sanitized original transport/read cause in ops upstream_errors. An upstream merge that drops any of these guards silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
+      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. Hidden continuation usage is billed and both stop/completion actions are observable. The pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_test.go",
@@ -283,6 +316,14 @@
         "TestKiroGatewayService_Forward_Streaming_PreservesMaxTokensStopReason",
         "TestKiroGatewayService_Forward_Streaming_UnknownStopReasonFailsClosed",
         "TestKiroGatewayService_Forward_NonStreaming_UnknownStopReasonFailsOver",
+        "TestUS041_KiroGatewayService_ClaudeCodeEndTurnContinuesUntilExplicitCompletion",
+        "TestUS041_KiroGatewayService_EmptyCompletionSignalDoesNotFinish",
+        "TestUS041_KiroGatewayService_NonClaudeCodeCompletionNamedToolIsPreserved",
+        "TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolUseReturnsImmediately",
+        "TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolWinsOverCompletionSignal",
+        "TestUS041_KiroGatewayService_MaxTokensOverridesCompletionSignal",
+        "TestUS041_KiroGatewayService_ClaudeCodeCompletionLoopIsBounded",
+        "TestKiroGatewayService_Forward_GuardrailIntervenedIsNotFailover",
         "TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailover",
         "TestKiroGatewayService_Forward_EventStreamThrottlingTriggersFailover",
         "TestKiroGatewayService_Forward_EmptyEventStreamExceptionPreservesFailoverClass",
