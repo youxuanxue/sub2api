@@ -17,6 +17,8 @@ func TestEnsureClaudeCodeCompletionGuard_AppendsExactlyOnce(t *testing.T) {
 
 	require.Contains(t, guarded, "requested implementation and verification are complete")
 	require.Contains(t, guarded, "If any item remains in_progress or pending, continue using tools")
+	require.Contains(t, guarded, ClaudeCodeCompletionToolName)
+	require.Contains(t, guarded, "the only valid way to finish a text-only response")
 	require.Equal(t, 1, strings.Count(guarded, ClaudeCodeCompletionGuardMarker))
 	require.Equal(t, guarded, guardedAgain)
 }

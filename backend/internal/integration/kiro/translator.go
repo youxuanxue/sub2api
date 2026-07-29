@@ -216,6 +216,7 @@ const kiroClaudeIdentityOverride = `Kiro mirror identity override:
 func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 	modelID := MapModel(req.Model)
 	origin := "AI_EDITOR"
+	isClaudeCode := isClaudeCodeSystemPrompt(extractSystemPrompt(req.System))
 
 	// 提取系统提示
 	systemPrompt := buildClaudeSystemPrompt(req.System, thinking)
@@ -316,10 +317,15 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 
 	// 转换工具
 	kiroTools, toolNameMap := convertClaudeTools(req.Tools)
+	completionProtocol := false
+	if isClaudeCode {
+		kiroTools, completionProtocol = addClaudeCodeCompletionTool(kiroTools)
+	}
 
 	// 构建 payload
 	payload := &KiroPayload{}
 	payload.ToolNameMap = toolNameMap
+	payload.ClaudeCodeCompletionProtocol = completionProtocol
 	payload.ConversationState.ChatTriggerType = "MANUAL"
 	payload.ConversationState.AgentTaskType = "vibe"
 	payload.ConversationState.AgentContinuationId = uuid.New().String()
