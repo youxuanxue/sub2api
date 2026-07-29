@@ -430,6 +430,11 @@ PLATFORM_SPECS: list[PlatformSpec] = [
                 package="@xai-official/grok",
             ),
         ],
+        actionable=False,
+        status_note=(
+            "npm registry /latest may publish ahead of installable tarballs; "
+            "DefaultGrokCLIVersion tracks locally installable semver via capture."
+        ),
     ),
     PlatformSpec(
         id="antigravity",

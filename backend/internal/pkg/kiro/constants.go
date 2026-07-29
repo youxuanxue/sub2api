@@ -41,9 +41,9 @@ const (
 // defaults remain tied to the last on-wire baseline. The vendored integration
 // layer derives its IDE default from this owner so both User-Agent paths stay in sync.
 const (
-	DefaultKiroIDEVersion = "1.0.228"
+	DefaultKiroIDEVersion = "1.0.242"
 	// DefaultKiroCLIVersion tracks Homebrew cask kiro-cli (distinct semver from Kiro IDE).
-	DefaultKiroCLIVersion = "2.14.2"
+	DefaultKiroCLIVersion = "2.15.1"
 	DefaultSystemVersion  = "darwin#24.0.0"
 	DefaultNodeVersion    = "22.22.0"
 )
