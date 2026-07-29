@@ -488,6 +488,9 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ReasoningEffortMappings:                reasoningEffortMappings,
 	}
 	sanitizeGroupMessagesDispatchFields(group)
+	if err := validateGroupMessagesDispatchModelConfig(group); err != nil {
+		return nil, err
+	}
 	if group.Platform != PlatformOpenAI {
 		group.AllowLive = false
 	}
@@ -819,6 +822,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		group.MessagesCompactionInputTokensThreshold = input.MessagesCompactionInputTokensThreshold
 	}
 	sanitizeGroupMessagesDispatchFields(group)
+	if err := validateGroupMessagesDispatchModelConfig(group); err != nil {
+		return nil, err
+	}
 	if group.Platform != PlatformOpenAI {
 		group.AllowLive = false
 	}

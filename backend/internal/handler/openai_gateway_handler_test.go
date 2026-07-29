@@ -671,26 +671,37 @@ func TestOpenAIEnsureResponsesDependencies(t *testing.T) {
 
 func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 	t.Run("exact_claude_model_override_wins", func(t *testing.T) {
+		openaiDefaults, ok := service.TkMessagesDispatchPlatformDefaults(service.PlatformOpenAI)
+		require.True(t, ok)
 		apiKey := &service.APIKey{
 			Group: &service.Group{
 				MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{
 					SonnetMappedModel: "gpt-5.2",
 					ExactModelMappings: map[string]string{
 						"claude-sonnet-4-5-20250929": "gpt-5.4-mini-high",
-						"claude-fable-5":             "gpt-5.6-sol",
+						"claude-fable-5":             openaiDefaults.OpusMappedModel,
 					},
 				},
 			},
 		}
 		require.Equal(t, "gpt-5.4-mini", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
-		require.Equal(t, "gpt-5.6-sol", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-fable-5"))
+		require.Equal(t, openaiDefaults.OpusMappedModel, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-fable-5"))
 	})
 
-	t.Run("uses_family_default_when_no_override", func(t *testing.T) {
+	t.Run("uses_openai_family_default_when_platform_openai", func(t *testing.T) {
+		openaiDefaults, ok := service.TkMessagesDispatchPlatformDefaults(service.PlatformOpenAI)
+		require.True(t, ok)
+		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
+		require.Equal(t, openaiDefaults.OpusMappedModel, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-opus-4-6"))
+		require.Equal(t, openaiDefaults.SonnetMappedModel, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
+		require.Equal(t, openaiDefaults.HaikuMappedModel, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-haiku-4-5-20251001"))
+	})
+
+	t.Run("returns_empty_when_platform_unknown_and_no_registry", func(t *testing.T) {
 		apiKey := &service.APIKey{Group: &service.Group{}}
-		require.Equal(t, "gpt-5.5", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-opus-4-6"))
-		require.Equal(t, "gpt-5.3-codex-spark", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
-		require.Equal(t, "gpt-5.4-mini", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-haiku-4-5-20251001"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-opus-4-6"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
+		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-haiku-4-5-20251001"))
 	})
 
 	t.Run("returns_empty_for_non_claude_or_missing_group", func(t *testing.T) {
@@ -700,12 +711,14 @@ func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 	})
 
 	t.Run("grok_group_maps_claude_cli_model_to_grok_default", func(t *testing.T) {
+		grokDefaults, ok := service.TkMessagesDispatchPlatformDefaults(service.PlatformGrok)
+		require.True(t, ok)
 		apiKey := &service.APIKey{
 			Group: &service.Group{
 				Platform: service.PlatformGrok,
 			},
 		}
-		require.Equal(t, "grok-code-fast-1", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5"))
+		require.Equal(t, grokDefaults.SonnetMappedModel, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5"))
 		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "grok"))
 	})
 
@@ -722,13 +735,16 @@ func TestResolveOpenAIMessagesDispatchMappedModel(t *testing.T) {
 	})
 
 	t.Run("does_not_fall_back_to_group_default_mapped_model", func(t *testing.T) {
+		openaiDefaults, ok := service.TkMessagesDispatchPlatformDefaults(service.PlatformOpenAI)
+		require.True(t, ok)
 		apiKey := &service.APIKey{
 			Group: &service.Group{
+				Platform:           service.PlatformOpenAI,
 				DefaultMappedModel: "gpt-5.4",
 			},
 		}
 		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(apiKey, "gpt-5.4"))
-		require.Equal(t, "gpt-5.3-codex-spark", resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
+		require.Equal(t, openaiDefaults.SonnetMappedModel, resolveOpenAIMessagesDispatchMappedModel(apiKey, "claude-sonnet-4-5-20250929"))
 	})
 }
 

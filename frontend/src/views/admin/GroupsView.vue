@@ -5518,7 +5518,7 @@ const closeCreateModal = () => {
   createForm.claude_code_only = false;
   createForm.fallback_group_id = null;
   createForm.fallback_group_id_on_invalid_request = null;
-  resetMessagesDispatchFormState(createForm);
+  resetMessagesDispatchFormState(createForm, createForm.platform, createForm.name);
   createForm.allow_live = false;
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
@@ -5735,6 +5735,7 @@ const handleEdit = async (group: AdminGroup) => {
   const messagesDispatchFormState = messagesDispatchConfigToFormState(
     group.messages_dispatch_model_config,
     group.platform,
+    group.name,
   );
   editForm.allow_messages_dispatch =
     group.allow_messages_dispatch ||
@@ -5800,7 +5801,7 @@ const closeEditModal = () => {
   editForm.video_price_720p = null;
   editForm.video_price_1080p = null;
   editForm.web_search_price_per_call = null;
-  resetMessagesDispatchFormState(editForm);
+  resetMessagesDispatchFormState(editForm, editForm.platform, editForm.name);
   editForm.allow_live = false;
   resetModelsListState(editModelsListState);
 };
@@ -6222,7 +6223,7 @@ watch(
       createForm.fallback_group_id_on_invalid_request = null;
     }
     if (!hasMessagesDispatchConfig(newVal)) {
-      resetMessagesDispatchFormState(createForm);
+      resetMessagesDispatchFormState(createForm, newVal, createForm.name);
       createForm.allow_live = false;
     }
     createForm.max_reasoning_effort = normalizeReasoningEffortForPlatform(
@@ -6265,7 +6266,7 @@ watch(
       editForm.fallback_group_id_on_invalid_request = null;
     }
     if (!hasMessagesDispatchConfig(newVal)) {
-      resetMessagesDispatchFormState(editForm);
+      resetMessagesDispatchFormState(editForm, newVal, editForm.name);
       editForm.allow_live = false;
     }
     editForm.max_reasoning_effort = normalizeReasoningEffortForPlatform(

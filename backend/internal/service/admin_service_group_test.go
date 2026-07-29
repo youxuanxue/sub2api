@@ -931,6 +931,33 @@ func TestAdminService_UpdateGroup_ClearsMessagesDispatchFieldsWhenPlatformChange
 	require.Equal(t, OpenAIMessagesDispatchModelConfig{}, repo.updated.MessagesDispatchModelConfig)
 }
 
+func TestAdminService_UpdateGroup_RejectsGPTMappingOnRegisteredGeminiGroup(t *testing.T) {
+	vertex, ok := TkMessagesDispatchGroupDefaults("Google-Vertex")
+	require.True(t, ok)
+	wrongOpus := TkMessagesDispatchCrossFamilySample("gemini")
+	require.NotEmpty(t, wrongOpus)
+
+	existingGroup := &Group{
+		ID:                    16,
+		Name:                  "Google-Vertex",
+		Platform:              PlatformNewAPI,
+		Status:                StatusActive,
+		AllowMessagesDispatch: true,
+	}
+	repo := &groupRepoStubForAdmin{getByID: existingGroup}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	_, err := svc.UpdateGroup(context.Background(), 16, &UpdateGroupInput{
+		MessagesDispatchModelConfig: &OpenAIMessagesDispatchModelConfig{
+			OpusMappedModel:   wrongOpus,
+			SonnetMappedModel: vertex.SonnetMappedModel,
+			HaikuMappedModel:  vertex.HaikuMappedModel,
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "opus_mapped_model")
+}
+
 func TestAdminService_ListGroups_WithSearch(t *testing.T) {
 	// 测试：
 	// 1. search 参数正常传递到 repository 层
