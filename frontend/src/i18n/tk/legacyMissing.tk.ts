@@ -34,9 +34,20 @@ const en: LocaleOverlay = {
       "success": "Pricing exported",
       "empty": "Public catalog is empty — nothing to export"
     },
-    "tieredBadge": "Tiered ×{n}",
-    "peakValleyBadge": "Peak ×{mult}",
-    "peakValleyTooltip": "Off-peak (flat) price shown. Peak {windows} ({tz}): input {peakIn}/1K, output {peakOut}/1K (×{mult}).",
+    // Key names must match the calls in utils/pricingVariants.tk.ts exactly —
+    // vue-i18n silently echoes a missing key, so a rename on either side ships as
+    // literal "pricing.variant.tierUpTo" text in the price column.
+    // Bracket labels read as (min, max], the billing behaviour of
+    // FindMatchingInterval (backend/internal/service/channel.go).
+    "variant": {
+      "tierUpTo": "≤{bound}",
+      "tierAbove": ">{bound}",
+      "tierRange": "{lo}–{hi}",
+      "tieredCaption": "Price varies by context length (input + cache tokens)",
+      "offPeak": "Off-peak",
+      "peak": "Peak",
+      "peakCaption": "Peak {windows} ({tz}) bills at {mult}× the off-peak price"
+    },
     "footer": {
       "total": "{count} models listed",
       "filtered": "Showing {shown} of {total} models"
@@ -944,9 +955,17 @@ const zh: LocaleOverlay = {
       "success": "定价已导出",
       "empty": "对外价目录为空，无可导出内容"
     },
-    "tieredBadge": "阶梯 ×{n}",
-    "peakValleyBadge": "高峰 ×{mult}",
-    "peakValleyTooltip": "表格为谷时价。高峰 {windows}（{tz}）：输入 {peakIn}/1K，输出 {peakOut}/1K（×{mult}）。",
+    // 键名必须与 utils/pricingVariants.tk.ts 的调用完全一致（见 en 注释）。
+    // 区间口径为左开右闭 (min, max]，与 FindMatchingInterval 的计费行为一致。
+    "variant": {
+      "tierUpTo": "≤{bound}",
+      "tierAbove": ">{bound}",
+      "tierRange": "{lo}–{hi}",
+      "tieredCaption": "按上下文长度分档计价（输入 + 缓存 token 合计）",
+      "offPeak": "谷时",
+      "peak": "高峰",
+      "peakCaption": "高峰 {windows}（{tz}）按谷时价 ×{mult} 计费"
+    },
     "footer": {
       "total": "共 {count} 个模型",
       "filtered": "显示 {shown} / {total} 个模型"

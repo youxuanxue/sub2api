@@ -328,13 +328,22 @@
                       >
                         {{ formatBillingMode(row.billingMode) }}
                       </span>
+                      <!-- Why the price varies. Prose, so it lives here and never
+                           in a price column, where it would break line alignment. -->
+                      <p
+                        v-if="variantOf(row).caption"
+                        class="mt-0.5 font-sans text-[10px] font-normal leading-snug text-gray-500 dark:text-dark-400"
+                        :data-tk="`pricing-variant-caption-${variantOf(row).kind}`"
+                      >
+                        {{ variantOf(row).caption }}
+                      </p>
                     </td>
                     <td
                       class="min-w-[7rem] px-3 py-3 align-top text-sm leading-snug text-gray-600 break-words dark:text-dark-300"
                     >
                       {{ row.vendor || '—' }}
                     </td>
-                    <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-white">
+                    <td class="whitespace-nowrap px-3 py-3 align-top text-right text-sm tabular-nums text-gray-900 dark:text-white">
                       <template v-if="row.billingMode === 'image' && row.perImage != null">
                         {{ formatPrice(row.perImage) }}
                         <span class="ml-0.5 text-xs text-gray-400">{{ t('pricing.perImage') }}</span>
@@ -347,36 +356,47 @@
                         {{ formatPrice(row.perRequest) }}
                         <span class="ml-0.5 text-xs text-gray-400">{{ t('pricing.perRequest') }}</span>
                       </template>
+                      <!-- Variant models (阶梯/峰谷) list every price, one line per
+                           bracket/window. The label appears only in this column;
+                           the output and cache columns render the same lines in the
+                           same order, so they align row-wise by construction. -->
+                      <template v-else-if="variantOf(row).kind !== 'flat'">
+                        <div
+                          v-for="line in variantOf(row).lines"
+                          :key="line.label"
+                          class="flex items-baseline justify-end gap-1.5 leading-relaxed"
+                          data-tk="pricing-variant-line"
+                        >
+                          <span class="text-[10px] font-medium text-gray-500 dark:text-dark-400">{{ line.label }}</span>
+                          <span>{{ line.inputPer1K != null ? formatPrice(line.inputPer1K) : '—' }}</span>
+                        </div>
+                        <span class="text-xs text-gray-400">{{ t('pricing.perThousandTokens') }}</span>
+                      </template>
                       <template v-else-if="row.inputPer1K != null">
                         {{ formatPrice(row.inputPer1K) }}
                         <span class="ml-0.5 text-xs text-gray-400">{{
                           t('pricing.perThousandTokens')
                         }}</span>
-                        <div v-if="row.tiers && row.tiers.length" class="mt-0.5">
-                          <span
-                            class="inline-flex cursor-help items-center rounded bg-amber-50 px-1 py-px text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
-                            :title="tierTooltip(row)"
-                            data-tk="pricing-tier-badge"
-                            >{{ t('pricing.tieredBadge', { n: row.tiers.length }) }}</span
-                          >
-                        </div>
-                        <div v-if="row.peakValley" class="mt-0.5">
-                          <span
-                            class="inline-flex cursor-help items-center rounded bg-sky-50 px-1 py-px text-[10px] font-medium text-sky-700 dark:bg-sky-500/10 dark:text-sky-300"
-                            :title="peakValleyTooltip(row)"
-                            data-tk="pricing-peak-valley-badge"
-                            >{{ t('pricing.peakValleyBadge', { mult: row.peakValley.peakMultiplier }) }}</span
-                          >
-                        </div>
                       </template>
                       <template v-else>—</template>
                     </td>
-                    <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-white">
+                    <td class="whitespace-nowrap px-3 py-3 align-top text-right text-sm tabular-nums text-gray-900 dark:text-white">
                       <!-- Media (image/video) and per_request bill on a single unit; the output column is the worked example for video, "—" otherwise. -->
                       <template v-if="row.billingMode === 'video' && row.perSecond != null">
                         <span class="text-xs text-gray-500 dark:text-dark-400">{{ t('pricing.videoClipExample', { five: formatPrice(row.perSecond * 5), ten: formatPrice(row.perSecond * 10) }) }}</span>
                       </template>
                       <template v-else-if="row.billingMode === 'image' || row.billingMode === 'per_request'">—</template>
+                      <!-- Same lines, same order as the input column (see there). -->
+                      <template v-else-if="variantOf(row).kind !== 'flat'">
+                        <div
+                          v-for="line in variantOf(row).lines"
+                          :key="line.label"
+                          class="leading-relaxed"
+                        >
+                          {{ line.outputPer1K != null ? formatPrice(line.outputPer1K) : '—' }}
+                        </div>
+                        <span class="text-xs text-gray-400">{{ t('pricing.perThousandTokens') }}</span>
+                      </template>
                       <template v-else-if="row.outputPer1K != null">
                         {{ formatPrice(row.outputPer1K) }}
                         <span class="ml-0.5 text-xs text-gray-400">{{
@@ -391,17 +411,30 @@
                     </td>
                     <td
                       v-if="hasCacheColumns"
-                      class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-700 dark:text-dark-200"
+                      class="whitespace-nowrap px-3 py-3 align-top text-right text-sm tabular-nums text-gray-700 dark:text-dark-200"
                     >
-                      {{ row.cacheReadPer1K != null ? formatPrice(row.cacheReadPer1K) : '—' }}
+                      <!-- Per-tier cache-read price; the backend publishes one per
+                           bracket, so a tiered row must not show only the first. -->
+                      <template v-if="variantOf(row).kind !== 'flat'">
+                        <div
+                          v-for="line in variantOf(row).lines"
+                          :key="line.label"
+                          class="leading-relaxed"
+                        >
+                          {{ line.cacheReadPer1K != null ? formatPrice(line.cacheReadPer1K) : '—' }}
+                        </div>
+                      </template>
+                      <template v-else>
+                        {{ row.cacheReadPer1K != null ? formatPrice(row.cacheReadPer1K) : '—' }}
+                      </template>
                     </td>
                     <td
                       v-if="hasCacheColumns"
-                      class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-700 dark:text-dark-200"
+                      class="whitespace-nowrap px-3 py-3 align-top text-right text-sm tabular-nums text-gray-700 dark:text-dark-200"
                     >
                       {{ row.cacheWritePer1K != null ? formatPrice(row.cacheWritePer1K) : '—' }}
                     </td>
-                    <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-600 dark:text-dark-300">
+                    <td class="whitespace-nowrap px-3 py-3 align-top text-right text-sm tabular-nums text-gray-600 dark:text-dark-300">
                       <template v-if="row.contextWindow && row.contextWindow > 0">
                         {{ formatNumber(row.contextWindow) }}
                       </template>
@@ -409,7 +442,7 @@
                     </td>
                     <td
                       v-if="hasMaxOutputColumn"
-                      class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-600 dark:text-dark-300"
+                      class="whitespace-nowrap px-3 py-3 align-top text-right text-sm tabular-nums text-gray-600 dark:text-dark-300"
                     >
                       <template v-if="row.maxOutputTokens && row.maxOutputTokens > 0">
                         {{ formatNumber(row.maxOutputTokens) }}
@@ -540,6 +573,13 @@ import {
   pricingCatalogModality,
   type PricingCatalogModality
 } from '@/utils/pricingCatalogPresentation.tk'
+import {
+  FLAT_PRICING_VARIANT,
+  resolvePricingVariant,
+  type PricingVariantPeakValley,
+  type PricingVariantTier,
+  type PricingVariantView
+} from '@/utils/pricingVariants.tk'
 import { exportPricingCsv } from '@/composables/useTkPricingExport'
 import { filterUserSelectableApiKeys } from '@/utils/reservedProbeKey.tk'
 const { t } = useI18n()
@@ -578,27 +618,21 @@ interface NormalizedRow {
   perRequest?: number | null
   perImage?: number | null
   perSecond?: number | null
-  /** Input-token interval (阶梯) ladder, normalized from either catalog source. */
+  /** Context-length interval (阶梯) ladder, normalized from either catalog source. */
   tiers?: NormalizedTier[]
-  peakValley?: {
-    timezone: string
-    windows: string[]
-    peakMultiplier: number
-    inputPer1K: number
-    outputPer1K: number
-    cacheReadPer1K?: number
-  }
+  /** Time-of-day (峰谷) pricing; prices here are the PEAK side. */
+  peakValley?: PricingVariantPeakValley | null
   /** Accessible groups that can serve this model — "授权分组" column when logged in. */
   authorizedGroups?: MePricingModelGroup[]
 }
 
-/** Normalized阶梯 bracket shared by public + my views (per-1k). */
-interface NormalizedTier {
-  minTokens: number
-  maxTokens: number | null
-  inputPer1K: number | null
-  outputPer1K: number | null
-}
+/**
+ * Normalized阶梯 bracket shared by public + my views (per-1k).
+ *
+ * Aliased to the shared variant type so the ladder rendered here and the one
+ * rendered on the /models cards cannot drift (pricingVariants.tk.ts is the owner).
+ */
+type NormalizedTier = PricingVariantTier
 
 const signupBonusFormatted = computed(() =>
   formatCurrency(appStore.cachedPublicSettings?.signup_bonus_balance_usd ?? 0, 'USD')
@@ -761,7 +795,8 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
         minTokens: tt.min_tokens,
         maxTokens: tt.max_tokens ?? null,
         inputPer1K: tt.input_per_1k_tokens ?? null,
-        outputPer1K: tt.output_per_1k_tokens ?? null
+        outputPer1K: tt.output_per_1k_tokens ?? null,
+        cacheReadPer1K: tt.cache_read_per_1k ?? null
       })),
       peakValley: m.pricing.peak_valley
         ? {
@@ -770,7 +805,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
             peakMultiplier: m.pricing.peak_valley.peak_multiplier,
             inputPer1K: m.pricing.peak_valley.input_per_1k_tokens,
             outputPer1K: m.pricing.peak_valley.output_per_1k_tokens,
-            cacheReadPer1K: m.pricing.peak_valley.cache_read_per_1k
+            cacheReadPer1K: m.pricing.peak_valley.cache_read_per_1k ?? null
           }
         : undefined,
       authorizedGroups: authorizedGroupsByModel.value[m.model_id] ?? []
@@ -783,7 +818,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
     vendor: m.vendor ?? '',
     inputPer1K: m.your_price.input_per_1k ?? null,
     outputPer1K: m.your_price.output_per_1k ?? null,
-    thinkingOutputPer1K: null,
+    thinkingOutputPer1K: m.your_price.thinking_output_per_1k ?? null,
     cacheReadPer1K: m.your_price.cache_read_per_1k ?? null,
     cacheWritePer1K: m.your_price.cache_write_per_1k ?? null,
     contextWindow: m.context_window ?? 0,
@@ -797,8 +832,21 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
       minTokens: tt.min_tokens,
       maxTokens: tt.max_tokens ?? null,
       inputPer1K: tt.input_per_1k ?? null,
-      outputPer1K: tt.output_per_1k ?? null
+      outputPer1K: tt.output_per_1k ?? null,
+      cacheReadPer1K: tt.cache_read_per_1k ?? null
     })),
+    // 峰谷价对登录用户同样要可见：此前只有游客视图带该字段，
+    // 等于登录后信息更少（方向反了）。后端 me-pricing 现原样复制公共目录。
+    peakValley: m.your_price.peak_valley
+      ? {
+          timezone: m.your_price.peak_valley.timezone,
+          windows: m.your_price.peak_valley.windows,
+          peakMultiplier: m.your_price.peak_valley.peak_multiplier,
+          inputPer1K: m.your_price.peak_valley.input_per_1k,
+          outputPer1K: m.your_price.peak_valley.output_per_1k,
+          cacheReadPer1K: m.your_price.peak_valley.cache_read_per_1k ?? null
+        }
+      : null,
     authorizedGroups: m.authorized_groups ?? []
   }))
 })
@@ -929,37 +977,41 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value)
 }
 
-/** "0" / "32000"→"32k" / null→"∞" — compact token-bound label for the阶梯 tooltip. */
-function tierTokenLabel(n: number | null): string {
-  if (n === null) return '∞'
-  if (n === 0) return '0'
-  return n % 1000 === 0 ? `${n / 1000}k` : String(n)
-}
+/**
+ * Price-variant lines per row, from the shared owner module. Tiered and
+ * peak/valley models list every price inline (one visual line per entry, aligned
+ * across the input/output/cache columns) instead of showing the first tier — or
+ * the off-peak price — as if it were the whole price.
+ *
+ * Resolved once per row into a map rather than called from the template: the
+ * price, output and cache cells all read the same lines, and a template helper
+ * would rebuild them on every cell of every render.
+ */
+const variantByModel = computed(() => {
+  const map = new Map<string, PricingVariantView>()
+  for (const row of normalizedRows.value) {
+    map.set(
+      row.model_id,
+      resolvePricingVariant(
+        {
+          flat: {
+            inputPer1K: row.inputPer1K,
+            outputPer1K: row.outputPer1K,
+            cacheReadPer1K: row.cacheReadPer1K
+          },
+          tiers: row.tiers,
+          peakValley: row.peakValley
+        },
+        t
+      )
+    )
+  }
+  return map
+})
 
-/** Multi-line ladder for the row's tier badge `title` (per-1k, both views). */
-function tierTooltip(row: NormalizedRow): string {
-  if (!row.tiers || row.tiers.length === 0) return ''
-  const unit = t('pricing.perThousandTokens')
-  return row.tiers
-    .map((tier) => {
-      const range = `${tierTokenLabel(tier.minTokens)}–${tierTokenLabel(tier.maxTokens)}`
-      const inp = tier.inputPer1K != null ? formatPrice(tier.inputPer1K) : '—'
-      const out = tier.outputPer1K != null ? formatPrice(tier.outputPer1K) : '—'
-      return `${range}: ${t('pricing.columns.input')} ${inp} / ${t('pricing.columns.output')} ${out} ${unit}`
-    })
-    .join('\n')
-}
-
-function peakValleyTooltip(row: NormalizedRow): string {
-  const pv = row.peakValley
-  if (!pv) return ''
-  return t('pricing.peakValleyTooltip', {
-    windows: pv.windows.join(', '),
-    tz: pv.timezone,
-    peakIn: formatPrice(pv.inputPer1K),
-    peakOut: formatPrice(pv.outputPer1K),
-    mult: pv.peakMultiplier
-  })
+/** Variant lines for a row; `flat` (no extra lines) when the price is a single number. */
+function variantOf(row: NormalizedRow): PricingVariantView {
+  return variantByModel.value.get(row.model_id) ?? FLAT_PRICING_VARIANT
 }
 
 function formatBillingMode(mode: string): string {

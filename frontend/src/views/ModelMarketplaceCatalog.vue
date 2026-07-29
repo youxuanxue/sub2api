@@ -158,7 +158,7 @@
             </div>
 
             <!-- Pricing -->
-            <div v-if="model.pricing" class="flex items-center gap-4 border-t border-gray-100 pt-3 dark:border-dark-700">
+            <div v-if="model.pricing" class="flex items-start gap-4 border-t border-gray-100 pt-3 dark:border-dark-700">
               <template v-if="modelListingCategory(model) === 'image'">
                 <div class="min-w-0 flex-1">
                   <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
@@ -177,22 +177,59 @@
                   </p>
                 </div>
               </template>
+              <!--
+                Text models. A tiered (阶梯) or peak/valley (峰谷) model lists every
+                price as its own labelled line — same lines, same order as the
+                /pricing table (both read pricingVariants.tk.ts). Showing only the
+                first tier / the off-peak price here would contradict that table.
+              -->
               <template v-else>
-                <div class="flex-1">
+                <div class="min-w-0 flex-1">
                   <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.inputPrice') }}</span>
-                  <p class="text-sm font-semibold text-gray-900 dark:text-white">
+                  <template v-if="variantOf(model).lines.length">
+                    <p
+                      v-for="line in variantOf(model).lines"
+                      :key="line.label"
+                      class="flex items-baseline justify-between gap-2 text-sm font-semibold text-gray-900 dark:text-white"
+                    >
+                      <span class="text-[10px] font-normal text-gray-400 dark:text-dark-500">{{ line.label }}</span>
+                      <span>{{ line.inputPer1K != null ? formatCatalogPrice(line.inputPer1K) : '—' }}</span>
+                    </p>
+                  </template>
+                  <p v-else class="text-sm font-semibold text-gray-900 dark:text-white">
                     {{ formatCatalogPrice(model.pricing.input_per_1k_tokens) }}
                   </p>
                 </div>
-                <div class="flex-1">
+                <div class="min-w-0 flex-1">
                   <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
-                  <p class="text-sm font-semibold text-gray-900 dark:text-white">
+                  <template v-if="variantOf(model).lines.length">
+                    <p
+                      v-for="line in variantOf(model).lines"
+                      :key="line.label"
+                      class="text-right text-sm font-semibold text-gray-900 dark:text-white"
+                    >
+                      {{ line.outputPer1K != null ? formatCatalogPrice(line.outputPer1K) : '—' }}
+                    </p>
+                  </template>
+                  <p v-else class="text-sm font-semibold text-gray-900 dark:text-white">
                     {{ formatCatalogPrice(model.pricing.output_per_1k_tokens) }}
                   </p>
                 </div>
-                <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('models.pricePerK') }}</span>
+                <span class="shrink-0 text-[10px] text-gray-400 dark:text-dark-500">{{ t('models.pricePerK') }}</span>
               </template>
             </div>
+
+            <!--
+              Why the price varies (分档依据 / 高峰窗口). Prose, so it sits below the
+              aligned price lines rather than inside a price column.
+            -->
+            <p
+              v-if="variantOf(model).caption"
+              class="mt-2 text-[10px] leading-snug text-gray-400 dark:text-dark-500"
+              :data-tk="`models-marketplace-variant-caption-${model.model_id}`"
+            >
+              {{ variantOf(model).caption }}
+            </p>
           </router-link>
         </div>
       </div>
@@ -229,6 +266,11 @@ import {
   normalizeCatalogVendorSlug,
 } from '@/utils/catalogVendorIcon.tk'
 import { catalogBrowseModelCardRoute } from '@/utils/catalogBrowseModelCardRoute.tk'
+import {
+  FLAT_PRICING_VARIANT,
+  resolvePricingVariant,
+  type PricingVariantView,
+} from '@/utils/pricingVariants.tk'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import CatalogViewSwitcher from '@/components/catalog/CatalogViewSwitcher.vue'
 
@@ -262,6 +304,58 @@ const categoryFilters = computed(() => [
 
 function modelListingCategory(m: PublicCatalogModel): PricingCatalogModality {
   return pricingCatalogModality(m.pricing?.billing_mode)
+}
+
+/**
+ * Price-variant lines per card, from the shared owner module — the same lines,
+ * in the same order, as the /pricing table renders. A card that showed only the
+ * first tier (or the off-peak price) would contradict the table it links to.
+ *
+ * Precomputed into a map because each card reads it from several places in the
+ * template; resolving inline would rebuild the lines on every one.
+ */
+const variantByModel = computed(() => {
+  const map = new Map<string, PricingVariantView>()
+  for (const m of models.value) {
+    const p = m.pricing
+    if (!p) continue
+    map.set(
+      m.model_id,
+      resolvePricingVariant(
+        {
+          flat: {
+            inputPer1K: p.input_per_1k_tokens ?? null,
+            outputPer1K: p.output_per_1k_tokens ?? null,
+            cacheReadPer1K: p.cache_read_per_1k ?? null,
+          },
+          tiers: p.tiers?.map((tt) => ({
+            minTokens: tt.min_tokens,
+            maxTokens: tt.max_tokens ?? null,
+            inputPer1K: tt.input_per_1k_tokens ?? null,
+            outputPer1K: tt.output_per_1k_tokens ?? null,
+            cacheReadPer1K: tt.cache_read_per_1k ?? null,
+          })),
+          peakValley: p.peak_valley
+            ? {
+                timezone: p.peak_valley.timezone,
+                windows: p.peak_valley.windows,
+                peakMultiplier: p.peak_valley.peak_multiplier,
+                inputPer1K: p.peak_valley.input_per_1k_tokens,
+                outputPer1K: p.peak_valley.output_per_1k_tokens,
+                cacheReadPer1K: p.peak_valley.cache_read_per_1k ?? null,
+              }
+            : null,
+        },
+        t
+      )
+    )
+  }
+  return map
+})
+
+/** Variant lines for a card; `flat` (no extra lines) when the price is one number. */
+function variantOf(m: PublicCatalogModel): PricingVariantView {
+  return variantByModel.value.get(m.model_id) ?? FLAT_PRICING_VARIANT
 }
 
 /** LiteLLM uses modality-specific Vertex provider names; the marketplace groups by provider. */

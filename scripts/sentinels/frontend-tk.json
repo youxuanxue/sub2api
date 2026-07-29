@@ -1708,6 +1708,69 @@
         "m.display_name || m.id"
       ],
       "rationale": "The scheduled-test model selector consumes only the shared account model option fields. It must not grow a dependency on platform-specific model response shapes."
+    },
+    {
+      "path": "frontend/src/utils/pricingVariants.tk.ts",
+      "must_contain": [
+        "export function resolvePricingVariant",
+        "export function formatTierLabel",
+        "export function formatTokenBound",
+        "pricing.variant.tieredCaption",
+        "pricing.variant.peakCaption",
+        "kind: 'peak_valley'"
+      ],
+      "rationale": "Single owner for rendering price variants — models whose unit price is not one flat number (阶梯 context-length ladders, DeepSeek 峰谷 time-of-day windows). /pricing and the /models cards both resolve their price lines here, so the two surfaces cannot disagree about what a model costs. Losing this owner compiles green the moment either page reintroduces a local 'show pricing.input_per_1k_tokens' branch, and that regression is invisible: the page still renders a plausible price — just the FIRST tier or the off-peak one, as if it were the whole price. That was the original bug (doubao-seed-2-0-pro's top tier is 3x the first, qwen-plus's top output tier 24x). The i18n key anchors are load-bearing too: vue-i18n silently echoes a missing key, so a rename on either side ships literal 'pricing.variant.tierUpTo' text into the price column."
+    },
+    {
+      "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
+      "must_contain": [
+        "\"tierUpTo\"",
+        "\"tierAbove\"",
+        "\"tierRange\"",
+        "\"tieredCaption\"",
+        "\"offPeak\"",
+        "\"peakCaption\""
+      ],
+      "rationale": "The pricing.variant.* messages consumed by pricingVariants.tk.ts. These key NAMES are the contract: vue-i18n falls back to echoing an unresolved key instead of failing, so a rename here (or there) does not break the build, does not break a unit test that injects a fake t, and ships raw 'pricing.variant.tierUpTo' strings where a price label belongs. That exact drift already happened once — the overlay kept badge-era names (upTo / between / tieredNote / offPeakLabel) after the resolver moved on. frontend/src/i18n/__tests__/pricingVariantLocales.spec.ts is the behavioural half of this guard; these anchors keep an upstream merge from reverting the block wholesale."
+    },
+    {
+      "path": "frontend/src/api/me-pricing.ts",
+      "must_contain": [
+        "peak_valley?: MePricingPeakValley",
+        "export interface MePricingPeakValley",
+        "tiers?: MePricingTier[]",
+        "thinking_output_per_1k?: number"
+      ],
+      "rationale": "The authenticated group catalog (me-pricing) must disclose price variants at parity with the public catalog. Before these fields it disclosed LESS: peak_valley reached only the guest view, so signing in REMOVED the hint that a xN peak window exists — the disclosure gradient pointed the wrong way. Losing any of these optional fields is silent: the DTO still parses, PricingView still renders, and logged-in users just quietly stop seeing the peak / tiered / thinking-mode prices they are actually billed at."
+    },
+    {
+      "path": "frontend/src/views/PricingView.vue",
+      "must_contain": [
+        "from '@/utils/pricingVariants.tk'",
+        "resolvePricingVariant",
+        "variantOf(row).kind !== 'flat'",
+        "data-tk=\"pricing-variant-line\""
+      ],
+      "rationale": "The /pricing table must render one visual line per tier/window across the input, output and cache columns, sourced from the shared variant owner. Alignment between those columns is guaranteed only by all three iterating the SAME ordered list; a merge that reverts one column to a single flat number leaves the other two multi-line and silently mis-pairs labels with prices."
+    },
+    {
+      "path": "frontend/src/views/ModelMarketplaceCatalog.vue",
+      "must_contain": [
+        "from '@/utils/pricingVariants.tk'",
+        "resolvePricingVariant",
+        "variantOf(model).lines.length"
+      ],
+      "rationale": "The /models cards read price lines from the same owner as the /pricing table they link to. A card that falls back to the flat first-tier price contradicts the table one click away — the worst failure mode here, because the two numbers disagree while both look authoritative."
+    },
+    {
+      "path": "frontend/src/composables/useTkPricingExport.ts",
+      "must_contain": [
+        "from '@/utils/pricingVariants.tk'",
+        "export function formatTiers",
+        "'peak_multiplier'",
+        "'peak_input_per_1M'"
+      ],
+      "rationale": "The admin pricing CSV is what sales quotes from, so it must not disagree with /pricing. Bracket bounds come from formatTokenBound in the shared owner (a label change lands in the sheet and the UI together) and each bracket carries its own cache-read price — omitting it implied the flat first-tier cache price applied at every context length."
     }
   ]
 }

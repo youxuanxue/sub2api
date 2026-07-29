@@ -863,6 +863,58 @@ func TestBuildForUser_AccountWhitelist_VendorPrefix(t *testing.T) {
 	assert.InDelta(t, 0.003, *resp.Models[0].YourPrice.InputPer1K, 1e-9)
 }
 
+// TestBuildForUser_VendorPrefix_CarriesPriceVariants pins the stage-3 catalog
+// join to the SAME alias-aware lookup that stages 1-2 use.
+//
+// Flat prices resolve through lookupMePricingCatalogModel (vendor-prefix
+// tolerant), but the stage-3 metadata join indexed metaByID directly. For a
+// vendor-prefixed row ("anthropic/claude-3-5-sonnet" — the shape PR #326 added
+// the alias lookup for) the two disagreed: flat prices landed while tiers /
+// peak_valley / thinking_output silently did not. That is the worst possible
+// disclosure — a peak-priced model showing only its off-peak number with no hint
+// a xN window exists, which is exactly what the variant work set out to fix.
+//
+// Extends the same fixture as TestBuildForUser_AccountWhitelist_VendorPrefix
+// (which only asserted the flat price) rather than adding a parallel one.
+func TestBuildForUser_VendorPrefix_CarriesPriceVariants(t *testing.T) {
+	gAnthropic := mkGroupForMe(40, "claude", "anthropic", 1.0)
+	k1 := mkKeyForMe(1, 7, "claude-key", ptrI(40))
+	acct := mkAccountWithWhitelist(11, "anthropic-key", "anthropic", 0,
+		[]string{"anthropic/claude-3-5-sonnet"})
+
+	meta := mkPublicCatalogModel("claude-3-5-sonnet", "Anthropic", 0.003, 0.015, 0)
+	maxTok := 32000
+	meta.Pricing.Tiers = []PublicCatalogTier{
+		{MinTokens: 0, MaxTokens: &maxTok, InputPer1KTokens: 0.003, OutputPer1KTokens: 0.015},
+		{MinTokens: 32000, InputPer1KTokens: 0.006, OutputPer1KTokens: 0.030},
+	}
+	meta.Pricing.PeakValley = &PublicCatalogPeakValley{
+		Timezone: "Asia/Shanghai", Windows: []string{"08:30-24:00"},
+		PeakMultiplier: 2, InputPer1KTokens: 0.006, OutputPer1KTokens: 0.030,
+	}
+	meta.Pricing.ThinkingOutputPer1KTokens = 0.045
+
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gAnthropic}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: &PublicCatalogResponse{Data: []PublicCatalogModel{meta}}},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, 1)
+	row := resp.Models[0]
+	require.Equal(t, "anthropic/claude-3-5-sonnet", row.ModelID)
+
+	require.Len(t, row.YourPrice.Tiers, 2,
+		"vendor-prefixed row must carry the full ladder, not just the flat first tier")
+	require.NotNil(t, row.YourPrice.PeakValley,
+		"vendor-prefixed row must carry peak/valley pricing; without it the page shows the off-peak price as if it were the only price")
+	assert.InDelta(t, 2, row.YourPrice.PeakValley.PeakMultiplier, 1e-9)
+	require.NotNil(t, row.YourPrice.ThinkingOutputPer1K)
+	assert.InDelta(t, 0.045, *row.YourPrice.ThinkingOutputPer1K, 1e-9)
+}
+
 // TestBuildForUser_AccountWhitelist_CrossPlatformGuard confirms an
 // openai-platform account does not leak into an anthropic-platform group
 // even when both share a group binding edge.

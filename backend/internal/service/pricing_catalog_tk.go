@@ -127,8 +127,16 @@ type PublicCatalogPeakValley struct {
 	CacheReadPer1K    float64  `json:"cache_read_per_1k,omitempty"`
 }
 
-// PublicCatalogTier is one input-token bracket of a tiered (阶梯) price. MinTokens
-// is inclusive, MaxTokens exclusive; MaxTokens == nil is the open-ended top tier.
+// PublicCatalogTier is one context-length bracket of a tiered (阶梯) price.
+//
+// The bracket is left-open, right-closed — (MinTokens, MaxTokens] — matching
+// FindMatchingInterval in channel.go, which is the billing behaviour clients must
+// describe: a request of exactly MaxTokens bills in THIS bracket, not the next.
+// MaxTokens == nil is the open-ended top tier.
+//
+// The bracket is matched against the whole request context (input + cache-write +
+// cache-read tokens; see calculateTokenCost), not input tokens alone.
+//
 // Prices are USD per 1k tokens (overlay intervals are stored per-token → ×1000 to
 // match the rest of the catalog).
 type PublicCatalogTier struct {

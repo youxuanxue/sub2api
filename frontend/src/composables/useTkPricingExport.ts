@@ -3,14 +3,27 @@
  *
  * Builds a sales-friendly CSV from the public catalog (在售目录 / 对外价) the page
  * already fetched — no extra backend call. Prices are emitted per 1,000,000 tokens
- * (the sales口径) and the input-token interval (阶梯) ladder is rendered into a
- * single readable `tiers` column so a tiered model stays one row.
+ * (the sales口径).
+ *
+ * A model whose price is not one flat number stays ONE row: the context-length
+ * (阶梯) ladder collapses into the readable `tiers` column, and time-of-day (峰谷)
+ * pricing into the `peak_*` columns. The flat `input_per_1M` / `output_per_1M`
+ * cells are the first tier / the off-peak price respectively — same convention as
+ * the catalog API, so the sheet cannot disagree with the /pricing table. Bracket
+ * bounds come from the shared owner (pricingVariants.tk.ts) so a label change
+ * lands in the UI and the sheet together.
  *
  * This composable owns the CSV + download logic; PricingView.vue stays template +
  * a single admin-gated button (TokenKey upstream-isolation pattern, CLAUDE.md §5).
  */
 
-import type { PublicCatalogModel, PublicCatalogResponse, PublicPricingTier } from '@/api/pricing'
+import type {
+  PublicCatalogModel,
+  PublicCatalogResponse,
+  PublicPricingPeakValley,
+  PublicPricingTier
+} from '@/api/pricing'
+import { formatTokenBound } from '@/utils/pricingVariants.tk'
 
 const CSV_COLUMNS = [
   'model_id',
@@ -25,6 +38,12 @@ const CSV_COLUMNS = [
   'price_per_image_USD',
   'price_per_second_USD',
   'tiers',
+  'peak_windows',
+  'peak_timezone',
+  'peak_multiplier',
+  'peak_input_per_1M',
+  'peak_output_per_1M',
+  'peak_cache_read_per_1M',
   'context_window',
   'max_output_tokens',
   'capabilities'
@@ -42,14 +61,25 @@ function unitUsd(v: number | undefined | null): string {
   return String(Number(v.toFixed(6)))
 }
 
-/** "32000" → "32k", "256000" → "256k", 0 → "0", non-round → raw. nil = "∞". */
+/**
+ * "32000" → "32k", 0 → "0", non-round → raw. undefined = "∞" (open-ended top
+ * bracket). Bounds come from the shared variant module so a bracket reads the
+ * same in the sheet as on the page.
+ */
 function tokenBound(n: number | undefined): string {
   if (n === undefined) return '∞'
   if (n === 0) return '0'
-  return n % 1000 === 0 ? `${n / 1000}k` : String(n)
+  return formatTokenBound(n)
 }
 
-/** Render the阶梯 ladder into one readable cell (prices per 1M USD). */
+/**
+ * Render the阶梯 ladder into one readable cell (prices per 1M USD).
+ *
+ * Brackets are left-open, right-closed — `(lo, hi]` — matching billing
+ * (FindMatchingInterval, backend/internal/service/channel.go). Includes each
+ * bracket's cache-read price: it varies per bracket too, and omitting it left the
+ * sheet implying the flat first-tier cache price applied at every length.
+ */
 export function formatTiers(tiers: PublicPricingTier[] | undefined): string {
   if (!tiers || tiers.length === 0) return ''
   return tiers
@@ -58,9 +88,20 @@ export function formatTiers(tiers: PublicPricingTier[] | undefined): string {
       const hi = tokenBound(t.max_tokens)
       const inp = per1M(t.input_per_1k_tokens)
       const out = per1M(t.output_per_1k_tokens)
-      return `${lo}-${hi}: in ${inp} / out ${out}`
+      const cache = per1M(t.cache_read_per_1k)
+      // Right-closed on a finite bound, open at ∞ — "(128k, ∞]" would claim an
+      // inclusive infinity.
+      const bracket = t.max_tokens === undefined ? `(${lo}, ${hi})` : `(${lo}, ${hi}]`
+      const base = `${bracket}: in ${inp} / out ${out}`
+      return cache ? `${base} / cache ${cache}` : base
     })
     .join(' | ')
+}
+
+/** Peak windows as one cell, e.g. "09:00-12:00; 14:00-18:00". */
+function formatPeakWindows(pv: PublicPricingPeakValley | undefined): string {
+  if (!pv || !pv.windows || pv.windows.length === 0) return ''
+  return pv.windows.filter(Boolean).join('; ')
 }
 
 /** RFC-4180 escaping: quote when the cell holds a comma, quote, or newline. */
@@ -86,6 +127,12 @@ function rowFor(m: PublicCatalogModel): string[] {
     unitUsd(p.output_cost_per_image),
     unitUsd(p.output_cost_per_second),
     formatTiers(p.tiers),
+    formatPeakWindows(p.peak_valley),
+    p.peak_valley?.timezone ?? '',
+    p.peak_valley?.peak_multiplier ? String(p.peak_valley.peak_multiplier) : '',
+    per1M(p.peak_valley?.input_per_1k_tokens),
+    per1M(p.peak_valley?.output_per_1k_tokens),
+    per1M(p.peak_valley?.cache_read_per_1k),
     m.context_window ? String(m.context_window) : '',
     m.max_output_tokens ? String(m.max_output_tokens) : '',
     (m.capabilities ?? []).join(';')
