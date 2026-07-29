@@ -44,7 +44,7 @@ func Test_tkApplyResponsesDispatchModelMapping(t *testing.T) {
 			name:      "claude opus uses default mapping when group config empty",
 			apiKey:    keyWith(service.OpenAIMessagesDispatchModelConfig{}),
 			body:      bodyWithModel("claude-opus-4-7"),
-			wantModel: "gpt-5.5", // defaultOpenAIMessagesDispatchOpusMappedModel
+			wantModel: "gpt-5.6-sol", // defaultOpenAIMessagesDispatchOpusMappedModel
 		},
 		{
 			name:      "claude sonnet honours configured sonnet mapping",
@@ -101,7 +101,7 @@ func Test_tkResolveResponsesSelectionModel(t *testing.T) {
 		want      string
 	}{
 		{"claude opus routes on configured gpt", keyWith(service.OpenAIMessagesDispatchModelConfig{OpusMappedModel: "gpt-5.5"}), "claude-opus-4-7", "gpt-5.5"},
-		{"claude opus routes on default gpt when unset", keyWith(service.OpenAIMessagesDispatchModelConfig{}), "claude-opus-4-7", "gpt-5.5"},
+		{"claude opus routes on default gpt when unset", keyWith(service.OpenAIMessagesDispatchModelConfig{}), "claude-opus-4-7", "gpt-5.6-sol"},
 		{"non-claude model routes unchanged", keyWith(service.OpenAIMessagesDispatchModelConfig{OpusMappedModel: "gpt-5.5"}), "gpt-5.5", "gpt-5.5"},
 		{"nil apiKey routes unchanged", nil, "claude-opus-4-7", "claude-opus-4-7"},
 	}

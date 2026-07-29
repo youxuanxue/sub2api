@@ -3,9 +3,9 @@ package service
 import "strings"
 
 const (
-	defaultOpenAIMessagesDispatchOpusMappedModel   = "gpt-5.5"
-	defaultOpenAIMessagesDispatchSonnetMappedModel = "gpt-5.3-codex-spark"
-	defaultOpenAIMessagesDispatchHaikuMappedModel  = "gpt-5.4-mini"
+	defaultOpenAIMessagesDispatchOpusMappedModel   = "gpt-5.6-sol"
+	defaultOpenAIMessagesDispatchSonnetMappedModel = "gpt-5.6-terra"
+	defaultOpenAIMessagesDispatchHaikuMappedModel  = "gpt-5.6-luna"
 )
 
 func normalizeOpenAIMessagesDispatchMappedModel(model string) string {
@@ -87,10 +87,13 @@ func (g *Group) ResolveMessagesDispatchModel(requestedModel string) string {
 		if configured != "" {
 			return configured
 		}
-		if g.Platform != "" {
+		if mapped := tkMessagesDispatchTierDefaultsForGroup(g.Name, g.Platform, family); mapped != "" {
+			return mapped
+		}
+		if g.Platform == PlatformOpenAI || g.Platform == PlatformGrok {
 			return defaultMessagesDispatchMappedModelForPlatform(g.Platform, family)
 		}
-		return defaultMessagesDispatchMappedModelForPlatform(PlatformOpenAI, family)
+		return ""
 	default:
 		return ""
 	}

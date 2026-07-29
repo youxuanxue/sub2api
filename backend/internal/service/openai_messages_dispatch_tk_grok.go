@@ -7,7 +7,8 @@ const (
 )
 
 func defaultMessagesDispatchMappedModelForPlatform(platform string, family string) string {
-	if platform == PlatformGrok {
+	switch platform {
+	case PlatformGrok:
 		switch family {
 		case "opus":
 			return defaultGrokMessagesDispatchOpusMappedModel
@@ -16,16 +17,15 @@ func defaultMessagesDispatchMappedModelForPlatform(platform string, family strin
 		case "haiku":
 			return defaultGrokMessagesDispatchHaikuMappedModel
 		}
-		return ""
+	case PlatformOpenAI:
+		switch family {
+		case "opus":
+			return defaultOpenAIMessagesDispatchOpusMappedModel
+		case "sonnet":
+			return defaultOpenAIMessagesDispatchSonnetMappedModel
+		case "haiku":
+			return defaultOpenAIMessagesDispatchHaikuMappedModel
+		}
 	}
-	switch family {
-	case "opus":
-		return defaultOpenAIMessagesDispatchOpusMappedModel
-	case "sonnet":
-		return defaultOpenAIMessagesDispatchSonnetMappedModel
-	case "haiku":
-		return defaultOpenAIMessagesDispatchHaikuMappedModel
-	default:
-		return ""
-	}
+	return ""
 }

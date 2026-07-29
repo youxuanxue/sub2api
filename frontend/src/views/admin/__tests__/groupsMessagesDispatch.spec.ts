@@ -10,12 +10,46 @@ import {
 } from "../groupsMessagesDispatch";
 
 describe("groupsMessagesDispatch", () => {
-  it("returns the expected default form state", () => {
+  it("hydrates gemini vendor defaults from registry for Google-Vertex", () => {
+    expect(
+      messagesDispatchConfigToFormState({}, "newapi", "Google-Vertex"),
+    ).toEqual({
+      allow_messages_dispatch: false,
+      opus_mapped_model: "gemini-2.5-pro",
+      sonnet_mapped_model: "gemini-2.5-flash",
+      haiku_mapped_model: "gemini-2.5-flash-lite",
+      exact_model_mappings: [],
+      messages_compaction_enabled: false,
+      messages_compaction_input_tokens_threshold: null,
+    });
+  });
+
+  it("returns empty defaults for unknown newapi groups", () => {
+    expect(messagesDispatchDefaultsForPlatform("newapi", "brand-new-vendor")).toEqual({
+      opus_mapped_model: "",
+      sonnet_mapped_model: "",
+      haiku_mapped_model: "",
+    });
+  });
+
+  it("returns empty defaults when platform and group are unknown", () => {
     expect(createDefaultMessagesDispatchFormState()).toEqual({
       allow_messages_dispatch: false,
-      opus_mapped_model: "gpt-5.5",
-      sonnet_mapped_model: "gpt-5.3-codex-spark",
-      haiku_mapped_model: "gpt-5.4-mini",
+      opus_mapped_model: "",
+      sonnet_mapped_model: "",
+      haiku_mapped_model: "",
+      exact_model_mappings: [],
+      messages_compaction_enabled: false,
+      messages_compaction_input_tokens_threshold: null,
+    });
+  });
+
+  it("returns openai defaults when platform is openai", () => {
+    expect(createDefaultMessagesDispatchFormState("openai")).toEqual({
+      allow_messages_dispatch: false,
+      opus_mapped_model: "gpt-5.6-sol",
+      sonnet_mapped_model: "gpt-5.6-terra",
+      haiku_mapped_model: "gpt-5.6-luna",
       exact_model_mappings: [],
       messages_compaction_enabled: false,
       messages_compaction_input_tokens_threshold: null,
@@ -99,7 +133,7 @@ describe("groupsMessagesDispatch", () => {
     });
   });
 
-  it("resets mutable form state to openai defaults", () => {
+  it("resets mutable form state to empty defaults without platform context", () => {
     const state = {
       allow_messages_dispatch: true,
       opus_mapped_model: "gpt-5.2",
@@ -114,9 +148,33 @@ describe("groupsMessagesDispatch", () => {
 
     expect(state).toEqual({
       allow_messages_dispatch: false,
-      opus_mapped_model: "gpt-5.5",
-      sonnet_mapped_model: "gpt-5.3-codex-spark",
-      haiku_mapped_model: "gpt-5.4-mini",
+      opus_mapped_model: "",
+      sonnet_mapped_model: "",
+      haiku_mapped_model: "",
+      exact_model_mappings: [],
+      messages_compaction_enabled: false,
+      messages_compaction_input_tokens_threshold: null,
+    });
+  });
+
+  it("resets mutable form state to openai defaults", () => {
+    const state = {
+      allow_messages_dispatch: true,
+      opus_mapped_model: "gpt-5.2",
+      sonnet_mapped_model: "gpt-5.4",
+      haiku_mapped_model: "gpt-5.1",
+      exact_model_mappings: [
+        { claude_model: "claude-opus-4-6", target_model: "gpt-5.4" },
+      ],
+    };
+
+    resetMessagesDispatchFormState(state, "openai");
+
+    expect(state).toEqual({
+      allow_messages_dispatch: false,
+      opus_mapped_model: "gpt-5.6-sol",
+      sonnet_mapped_model: "gpt-5.6-terra",
+      haiku_mapped_model: "gpt-5.6-luna",
       exact_model_mappings: [],
       messages_compaction_enabled: false,
       messages_compaction_input_tokens_threshold: null,
