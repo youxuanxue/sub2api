@@ -5,6 +5,7 @@ import {
   gatewayVideoSubmit,
   gatewayGeminiImageViaChat,
   gatewayImageToPrompt,
+  resolveBrowserGatewayFetchBaseUrl,
 } from '@/api/playground'
 
 // Capture the JSON body each builder sends so we can assert the wire shape:
@@ -23,6 +24,27 @@ function mockFetchCapturing(): () => Record<string, unknown> {
   )
   return () => body
 }
+
+describe('resolveBrowserGatewayFetchBaseUrl', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('returns the configured base when it matches the page origin', () => {
+    vi.stubGlobal('window', { location: { origin: 'https://tokenkey.dev', href: 'https://tokenkey.dev/quickstart' } })
+    expect(resolveBrowserGatewayFetchBaseUrl('https://tokenkey.dev/')).toBe('https://tokenkey.dev')
+  })
+
+  it('falls back to same-origin when the configured gateway host is cross-origin', () => {
+    vi.stubGlobal('window', { location: { origin: 'https://tokenkey.dev', href: 'https://tokenkey.dev/quickstart' } })
+    expect(resolveBrowserGatewayFetchBaseUrl('https://api.tokenkey.dev')).toBe('https://tokenkey.dev')
+  })
+
+  it('returns the configured base outside the browser', () => {
+    const originalWindow = globalThis.window
+    vi.stubGlobal('window', undefined)
+    expect(resolveBrowserGatewayFetchBaseUrl('https://api.tokenkey.dev')).toBe('https://api.tokenkey.dev')
+    vi.stubGlobal('window', originalWindow)
+  })
+})
 
 describe('gatewayImageGenerations payload', () => {
   let getBody: () => Record<string, unknown>

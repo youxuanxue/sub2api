@@ -77,6 +77,33 @@ export function resolveGatewayBaseUrl(apiBaseFromSettings: string | undefined): 
   return ''
 }
 
+/**
+ * Gateway base for browser `fetch()` probes (Quickstart live test, Studio).
+ *
+ * Copy-paste snippets keep the public gateway host (e.g. api.tokenkey.dev), but
+ * the web UI runs on the apex host (tokenkey.dev) which reverse-proxies /v1/*.
+ * Cross-origin fetch to the API host fails CORS preflight when allowed_origins
+ * is unset, surfacing as "Failed to fetch" even though curl/clients work.
+ */
+export function resolveBrowserGatewayFetchBaseUrl(displayGatewayBaseUrl: string): string {
+  const display = stripTrailingSlashes(displayGatewayBaseUrl.trim())
+  if (typeof window === 'undefined') {
+    return display
+  }
+  if (!display) {
+    return stripTrailingSlashes(window.location.origin)
+  }
+  try {
+    const configured = new URL(display)
+    if (configured.origin === window.location.origin) {
+      return display
+    }
+  } catch {
+    return display
+  }
+  return stripTrailingSlashes(window.location.origin)
+}
+
 export async function gatewayListModels(
   apiKey: string,
   gatewayBaseUrl: string,
