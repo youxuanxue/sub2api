@@ -117,6 +117,45 @@ func TestOpenRouterProviderInputModalities_VisionAddsImage(t *testing.T) {
 	}
 }
 
+func TestOpenRouterProviderModelHasListedPrice_TokenPriced(t *testing.T) {
+	if !openRouterProviderModelHasListedPrice(nil, 0.000002, 0) {
+		t.Fatal("token prompt price should qualify")
+	}
+}
+
+func TestOpenRouterProviderModelHasListedPrice_ImagePriced(t *testing.T) {
+	meta := &PublicCatalogModel{
+		Pricing: PublicCatalogPricing{
+			BillingMode:        "image",
+			OutputCostPerImage: 0.04,
+		},
+	}
+	if !openRouterProviderModelHasListedPrice(meta, 0, 0) {
+		t.Fatal("per-image price should qualify")
+	}
+}
+
+func TestOpenRouterProviderModelHasListedPrice_VideoPriced(t *testing.T) {
+	meta := &PublicCatalogModel{
+		Pricing: PublicCatalogPricing{
+			BillingMode:         "video",
+			OutputCostPerSecond: 0.6,
+		},
+	}
+	if !openRouterProviderModelHasListedPrice(meta, 0, 0) {
+		t.Fatal("per-second video price should qualify")
+	}
+}
+
+func TestOpenRouterProviderModelHasListedPrice_UnpricedSkipped(t *testing.T) {
+	if openRouterProviderModelHasListedPrice(nil, 0, 0) {
+		t.Fatal("unpriced model must not qualify")
+	}
+	if openRouterProviderModelHasListedPrice(&PublicCatalogModel{}, 0, 0) {
+		t.Fatal("empty meta must not qualify")
+	}
+}
+
 func mustParseDate(t *testing.T, value string) time.Time {
 	t.Helper()
 	parsed, err := time.Parse("2006-01-02", value)

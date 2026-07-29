@@ -163,7 +163,10 @@ func (s *GatewayService) BuildOpenRouterProviderCatalog(
 		promptUSD := 0.0
 		completionUSD := 0.0
 		cacheReadUSD := 0.0
+		var metaPtr *PublicCatalogModel
 		if meta, ok := catalogIndex[entry.sourceID]; ok {
+			metaCopy := meta
+			metaPtr = &metaCopy
 			promptUSD = meta.Pricing.InputPer1KTokens / 1000
 			completionUSD = meta.Pricing.OutputPer1KTokens / 1000
 			cacheReadUSD = openRouterProviderCacheReadUSDPerToken(&meta)
@@ -174,14 +177,8 @@ func (s *GatewayService) BuildOpenRouterProviderCatalog(
 				completionUSD = pricing.OutputPricePerToken
 			}
 		}
-		if promptUSD <= 0 && completionUSD <= 0 {
+		if !openRouterProviderModelHasListedPrice(metaPtr, promptUSD, completionUSD) {
 			continue
-		}
-
-		var metaPtr *PublicCatalogModel
-		if meta, ok := catalogIndex[entry.sourceID]; ok {
-			metaCopy := meta
-			metaPtr = &metaCopy
 		}
 
 		slug := publicID
