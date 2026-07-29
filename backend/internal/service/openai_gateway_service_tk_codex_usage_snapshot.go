@@ -396,8 +396,29 @@ func (s *OpenAIGatewayService) withOpenAIQuotaAutoPauseContext(ctx context.Conte
 	return withOpenAIQuotaAutoPauseSettings(ctx, s.settingService.GetOpenAIQuotaAutoPauseSettings(ctx))
 }
 
+const (
+	codexActiveLimitHeader    = "x-codex-active-limit"
+	codexBengalfoxActiveLimit = "codex_bengalfox"
+)
+
+// isCodexBengalfoxActiveLimit reports when upstream marks the active quota as the
+// Spark (codex_bengalfox) metered sub-limit. On those 429s the generic
+// x-codex-primary-* headers mirror the spark window (often primary=100%,
+// window=10080) — NOT the account-wide codex window that /wham/usage reports.
+// ParseCodexRateLimitHeaders and calculateOpenAI429ResetTime must ignore them so
+// spark exhaustion routes to model-scoped cooldown instead of whole-account.
+func isCodexBengalfoxActiveLimit(headers http.Header) bool {
+	if headers == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(headers.Get(codexActiveLimitHeader)), codexBengalfoxActiveLimit)
+}
+
 // Exported for use in ratelimit_service when handling OpenAI 429 responses.
 func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
+	if isCodexBengalfoxActiveLimit(headers) {
+		return nil
+	}
 	snapshot := &OpenAICodexUsageSnapshot{}
 	hasData := false
 

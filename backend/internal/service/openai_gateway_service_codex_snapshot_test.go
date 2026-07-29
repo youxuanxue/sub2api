@@ -1,9 +1,23 @@
 package service
 
 import (
+	"net/http"
 	"testing"
 	"time"
 )
+
+func TestParseCodexRateLimitHeaders_IgnoresBengalfoxActiveLimit(t *testing.T) {
+	h := http.Header{}
+	h.Set("x-codex-active-limit", "codex_bengalfox")
+	h.Set("x-codex-primary-used-percent", "100")
+	h.Set("x-codex-primary-window-minutes", "10080")
+	if got := ParseCodexRateLimitHeaders(h); got != nil {
+		t.Fatalf("expected nil snapshot for codex_bengalfox active limit, got %+v", got)
+	}
+	if got := calculateOpenAI429ResetTime(h); got != nil {
+		t.Fatalf("expected nil reset for codex_bengalfox active limit, got %v", *got)
+	}
+}
 
 func TestCodexSnapshotBaseTime(t *testing.T) {
 	fallback := time.Date(2026, 2, 20, 9, 0, 0, 0, time.UTC)
