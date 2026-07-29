@@ -381,6 +381,23 @@ func TestResolve_GeminiNativeImageChatPicksAntigravity(t *testing.T) {
 	}
 }
 
+// OpenRouter seller POST /openrouter/v1/images uses the same antigravity pool as chat.
+func TestResolve_GeminiNativeImageOpenRouterImagesPicksAntigravity(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(2, PlatformOpenAI, 5, false),
+		grp(21, PlatformAntigravity, 10, false),
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetAvailableModelsProvider(servedProvider(map[int64][]string{
+		21: {"gemini-2.5-flash-image", "gemini-3.1-flash-image"},
+	}))
+	g, err := r.Resolve(ctx, universalKey(32), ShapeOpenAIImages, "gemini-2.5-flash-image", "")
+	if err != nil || g == nil || g.ID != 21 {
+		t.Fatalf("gemini-native image on /openrouter/v1/images 应落 antigravity gid=21, got=%v err=%v", g, err)
+	}
+}
+
 // imagen 走 newapi google-vertex 组(显式声明),不落 openai 组。
 func TestResolve_ImagenPicksVertexNewapiGroup(t *testing.T) {
 	ctx := context.Background()

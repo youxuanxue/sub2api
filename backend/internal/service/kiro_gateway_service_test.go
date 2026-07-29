@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,15 +129,20 @@ type kiroFakeUpstream struct {
 }
 
 type kiroSequenceUpstream struct {
-	bodies [][]byte
-	calls  int
+	bodies   [][]byte
+	calls    int
+	requests [][]byte
 }
 
 func (u *kiroSequenceUpstream) Do(*http.Request, string, int64, int) (*http.Response, error) {
 	return nil, fmt.Errorf("unexpected Do call")
 }
 
-func (u *kiroSequenceUpstream) DoWithTLS(_ *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+func (u *kiroSequenceUpstream) DoWithTLS(req *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	if req != nil && req.Body != nil {
+		body, _ := io.ReadAll(req.Body)
+		u.requests = append(u.requests, body)
+	}
 	index := u.calls
 	u.calls++
 	if index >= len(u.bodies) {
@@ -200,8 +206,12 @@ func TestMapKiroStopReason_PreservesTerminalOutcome(t *testing.T) {
 		{name: "end turn with tool", raw: "END_TURN", hasToolUse: true, want: "tool_use"},
 		{name: "tool use", raw: "TOOL_USE", want: "tool_use"},
 		{name: "max tokens", raw: "MAX_TOKENS", want: "max_tokens"},
-		{name: "stop sequence", raw: "STOP_SEQUENCE", want: "stop_sequence"},
-		{name: "filtered refusal text", raw: "CONTENT_FILTERED", want: "end_turn"},
+		{name: "context window", raw: "MODEL_CONTEXT_WINDOW_EXCEEDED", want: "model_context_window_exceeded"},
+		{name: "stop sequence without matched value fails closed", raw: "STOP_SEQUENCE", wantErr: true},
+		{name: "filtered refusal text", raw: "CONTENT_FILTERED", want: "refusal"},
+		{name: "guardrail refusal text", raw: "GUARDRAIL_INTERVENED", want: "refusal"},
+		{name: "malformed model output fails closed", raw: "MALFORMED_MODEL_OUTPUT", wantErr: true},
+		{name: "malformed tool use fails closed", raw: "MALFORMED_TOOL_USE", wantErr: true},
 		{name: "unknown fails closed", raw: "MODEL_LIMIT", wantErr: true},
 		{name: "missing fails closed", raw: "", wantErr: true},
 	}
@@ -378,6 +388,324 @@ func newKiroParsedRequestForTest(stream bool) *ParsedRequest {
 	return &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4-5", Stream: stream}
 }
 
+func newClaudeCodeKiroParsedRequestForTest(stream bool) *ParsedRequest {
+	body, _ := json.Marshal(map[string]any{
+		"model": "claude-sonnet-4-5",
+		"system": strings.Join([]string{
+			"You are Claude Code, Anthropic's official CLI for Claude.",
+			"You are an interactive agent that helps users with software engineering tasks.",
+			"# doing tasks",
+			"# using your tools",
+		}, "\n"),
+		"messages":   []map[string]any{{"role": "user", "content": "implement and verify the change"}},
+		"max_tokens": 1024,
+		"stream":     stream,
+	})
+	return &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4-5", Stream: stream}
+}
+
+func newKiroToolRequestForTest(stream, claudeCode bool, toolNames ...string) *ParsedRequest {
+	system := "You are a general API assistant."
+	if claudeCode {
+		system = strings.Join([]string{
+			"You are Claude Code, Anthropic's official CLI for Claude.",
+			"You are an interactive agent that helps users with software engineering tasks.",
+			"# doing tasks",
+			"# using your tools",
+		}, "\n")
+	}
+	tools := make([]map[string]any, 0, len(toolNames))
+	for _, name := range toolNames {
+		tools = append(tools, map[string]any{
+			"name":         name,
+			"description":  "test tool",
+			"input_schema": map[string]any{"type": "object"},
+		})
+	}
+	body, _ := json.Marshal(map[string]any{
+		"model":      "claude-sonnet-4-5",
+		"system":     system,
+		"messages":   []map[string]any{{"role": "user", "content": "use the requested tool"}},
+		"max_tokens": 1024,
+		"stream":     stream,
+		"tools":      tools,
+	})
+	return &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4-5", Stream: stream}
+}
+
+func kiroTextStopStream(text, reason string) []byte {
+	stream := buildKiroEventStreamMessage("assistantResponseEvent", []byte(fmt.Sprintf(`{"content":%q}`, text)))
+	return appendKiroTerminalStop(stream, reason)
+}
+
+func kiroCompletionSignalStream(status, message string) []byte {
+	return kiroToolUseStream("toolu_completion", "sub2apiClaudeCodeCompletion", map[string]any{
+		"status":  status,
+		"message": message,
+	})
+}
+
+func kiroToolUseStream(id, name string, input map[string]any) []byte {
+	stream := kiroToolUseEvent(id, name, input)
+	return appendKiroTerminalStop(stream, "TOOL_USE")
+}
+
+func kiroToolUseEvent(id, name string, input map[string]any) []byte {
+	payload, _ := json.Marshal(map[string]any{
+		"toolUseId": id,
+		"name":      name,
+		"input":     input,
+		"stop":      true,
+	})
+	return buildKiroEventStreamMessage("toolUseEvent", payload)
+}
+
+func TestUS041_KiroGatewayService_ClaudeCodeEndTurnContinuesUntilExplicitCompletion(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroTextStopStream("I found the relevant code. ", "END_TURN"),
+				kiroCompletionSignalStream("complete", "Implemented and verified the fix."),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 2, upstream.calls, "unfinished END_TURN must be continued inside the same client request")
+			require.Len(t, upstream.requests, 2)
+			require.Contains(t, string(upstream.requests[1]), "preceding assistant response ended without the required transport completion signal")
+			require.Contains(t, string(upstream.requests[1]), "I found the relevant code.")
+
+			out := rec.Body.String()
+			require.Contains(t, out, "I found the relevant code.")
+			require.Contains(t, out, "Implemented and verified the fix.")
+			require.Contains(t, out, `"stop_reason":"end_turn"`)
+			require.NotContains(t, out, "sub2apiClaudeCodeCompletion", "private completion tool must not leak to Claude Code")
+		})
+	}
+}
+
+func TestUS041_KiroGatewayService_EmptyCompletionSignalDoesNotFinish(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroCompletionSignalStream("complete", " "),
+				kiroCompletionSignalStream("complete", "Implemented and verified the fix."),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 2, upstream.calls, "an empty private signal must not become an empty successful response")
+			out := rec.Body.String()
+			require.Contains(t, out, "Implemented and verified the fix.")
+			require.Contains(t, out, `"stop_reason":"end_turn"`)
+		})
+	}
+}
+
+func TestUS041_KiroGatewayService_EmptyCompletionMessageWithAssistantTextDoesNotFinish(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			body := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"partial progress only"}`))
+			body = append(body, kiroToolUseEvent("toolu_completion", "sub2apiClaudeCodeCompletion", map[string]any{
+				"status": "complete", "message": "",
+			})...)
+			body = appendKiroTerminalStop(body, "TOOL_USE")
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				body,
+				kiroCompletionSignalStream("complete", "Implemented and verified the fix."),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 2, upstream.calls, "assistant text must not substitute for an empty private completion message")
+			out := rec.Body.String()
+			require.Contains(t, out, "partial progress only")
+			require.Contains(t, out, "Implemented and verified the fix.")
+			require.Contains(t, out, `"stop_reason":"end_turn"`)
+		})
+	}
+}
+
+func TestUS041_KiroGatewayService_ClaudeCodeCompletionLoopIsBounded(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroTextStopStream("still only a progress update\n", "END_TURN"),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.Error(t, err)
+			require.Nil(t, result)
+			require.Equal(t, maxClaudeCodeCompletionTurns, upstream.calls)
+			if stream {
+				require.Contains(t, rec.Body.String(), `"type":"completion_exhausted"`)
+				require.Contains(t, rec.Body.String(), "event: error")
+				require.NotContains(t, rec.Body.String(), "event: message_stop")
+				return
+			}
+			require.Empty(t, rec.Body.String())
+			var failoverErr *UpstreamFailoverError
+			require.ErrorAs(t, err, &failoverErr)
+			require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+		})
+	}
+}
+
+func TestUS041_KiroGatewayService_CompletionSignalMessageIsPreservedAfterText(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			body := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"progress before final signal"}`))
+			body = append(body, kiroToolUseEvent("toolu_completion", "sub2apiClaudeCodeCompletion", map[string]any{
+				"status": "complete", "message": "complete final answer",
+			})...)
+			body = appendKiroTerminalStop(body, "TOOL_USE")
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{body}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			out := rec.Body.String()
+			require.Contains(t, out, "progress before final signal")
+			require.Contains(t, out, "complete final answer")
+			require.Equal(t, 1, strings.Count(out, "progress before final signal"))
+			require.NotContains(t, out, "sub2apiClaudeCodeCompletion")
+		})
+	}
+}
+
+func TestUS041_KiroGatewayService_NonClaudeCodeCompletionNamedToolIsPreserved(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroCompletionSignalStream("complete", "client-owned tool result"),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newKiroToolRequestForTest(stream, false, "sub2apiClaudeCodeCompletion"), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 1, upstream.calls)
+			out := rec.Body.String()
+			require.Contains(t, out, `"name":"sub2apiClaudeCodeCompletion"`)
+			require.Contains(t, out, `"stop_reason":"tool_use"`)
+		})
+	}
+}
+
+func TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolUseReturnsImmediately(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroToolUseStream("toolu_read", "Read", map[string]any{"file_path": "a.go"}),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newKiroToolRequestForTest(stream, true, "Read"), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 1, upstream.calls, "ordinary Claude Code tools must return control to the client")
+			out := rec.Body.String()
+			require.Contains(t, out, `"name":"Read"`)
+			require.Contains(t, out, `"stop_reason":"tool_use"`)
+		})
+	}
+}
+
+func TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolWinsOverCompletionSignal(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			mixed := kiroToolUseEvent("toolu_completion", "sub2apiClaudeCodeCompletion", map[string]any{
+				"status": "complete", "message": "premature completion",
+			})
+			mixed = append(mixed, kiroToolUseEvent("toolu_read", "Read", map[string]any{"file_path": "a.go"})...)
+			mixed = appendKiroTerminalStop(mixed, "TOOL_USE")
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{mixed}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newKiroToolRequestForTest(stream, true, "Read"), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 1, upstream.calls)
+			out := rec.Body.String()
+			require.Contains(t, out, `"name":"Read"`)
+			require.NotContains(t, out, "premature completion")
+			require.NotContains(t, out, `"name":"sub2apiClaudeCodeCompletion"`)
+			require.Contains(t, out, `"stop_reason":"tool_use"`)
+		})
+	}
+}
+
+func TestUS041_KiroGatewayService_MaxTokensOverridesCompletionSignal(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			body := kiroToolUseEvent("toolu_completion", "sub2apiClaudeCodeCompletion", map[string]any{
+				"status": "complete", "message": "not authoritative for max tokens",
+			})
+			body = appendKiroTerminalStop(body, "MAX_TOKENS")
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{body}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 1, upstream.calls)
+			out := rec.Body.String()
+			require.NotContains(t, out, "not authoritative for max tokens")
+			require.Contains(t, out, `"stop_reason":"max_tokens"`)
+		})
+	}
+}
+
 func requireKiroContentFilteredError(t *testing.T, c *gin.Context, rec *httptest.ResponseRecorder, result *ForwardResult, err error) {
 	t.Helper()
 	require.Nil(t, result)
@@ -416,6 +744,23 @@ func TestKiroGatewayService_Forward_Streaming_ContentFilteredIsNotFailover(t *te
 	requireKiroContentFilteredError(t, c, rec, result, err)
 }
 
+func TestKiroGatewayService_Forward_GuardrailIntervenedIsNotFailover(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			body := appendKiroTerminalStop(nil, "GUARDRAIL_INTERVENED")
+			svc := NewKiroGatewayService(&kiroFakeUpstream{body: body}, nil, nil)
+
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newKiroParsedRequestForTest(stream), time.Now())
+
+			requireKiroContentFilteredError(t, c, rec, result, err)
+		})
+	}
+}
+
 func TestKiroGatewayService_Forward_ContentFilteredWithAssistantTextRemainsSuccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -429,6 +774,7 @@ func TestKiroGatewayService_Forward_ContentFilteredWithAssistantTextRemainsSucce
 	require.NotNil(t, result)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), "I cannot help with that request.")
+	require.Contains(t, rec.Body.String(), `"stop_reason":"refusal"`)
 	_, recorded := c.Get(OpsUpstreamErrorsKey)
 	require.False(t, recorded)
 	require.False(t, HasOpsClientContentFiltered(c))

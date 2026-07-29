@@ -108,6 +108,65 @@ func EstimateInputTokens(req *ClaudeRequest) int {
 	return total
 }
 
+// EstimatePayloadInputTokens estimates a translated Kiro payload. It is used
+// for hidden completion-continuation calls, whose extra prompt cost is absent
+// from the original Claude request and must not be silently left unbilled.
+func EstimatePayloadInputTokens(payload *KiroPayload) int {
+	if payload == nil {
+		return 0
+	}
+	parts := make([]string, 0, len(payload.ConversationState.History)*2+2)
+	appendUser := func(message *KiroUserInputMessage) {
+		if message == nil {
+			return
+		}
+		if message.Content != "" {
+			parts = append(parts, message.Content)
+		}
+		if message.UserInputMessageContext != nil {
+			for _, result := range message.UserInputMessageContext.ToolResults {
+				for _, content := range result.Content {
+					if content.Text != "" {
+						parts = append(parts, content.Text)
+					}
+				}
+			}
+		}
+	}
+	for i := range payload.ConversationState.History {
+		message := payload.ConversationState.History[i]
+		appendUser(message.UserInputMessage)
+		if message.AssistantResponseMessage == nil {
+			continue
+		}
+		if message.AssistantResponseMessage.Content != "" {
+			parts = append(parts, message.AssistantResponseMessage.Content)
+		}
+		for _, toolUse := range message.AssistantResponseMessage.ToolUses {
+			parts = append(parts, toolUse.Name, toolUse.ToolUseID)
+			if js := marshalJSONForEstimate(toolUse.Input); js != "" {
+				parts = append(parts, js)
+			}
+		}
+	}
+	current := &payload.ConversationState.CurrentMessage.UserInputMessage
+	appendUser(current)
+
+	total := countTokens(strings.Join(parts, "\n"))
+	if current.UserInputMessageContext != nil {
+		toolParts := make([]string, 0, len(current.UserInputMessageContext.Tools)*3)
+		for _, tool := range current.UserInputMessageContext.Tools {
+			spec := tool.ToolSpecification
+			toolParts = append(toolParts, spec.Name, spec.Description)
+			if js := marshalJSONForEstimate(spec.InputSchema.JSON); js != "" {
+				toolParts = append(toolParts, js)
+			}
+		}
+		total += countTokens(strings.Join(toolParts, "\n"))
+	}
+	return total
+}
+
 // appendMessageContentForEstimate flattens one message's content into parts for
 // estimation. It handles the string form and the []ContentBlock form, pulling
 // text, tool_result text, and tool_use Input JSON; image blocks are skipped.

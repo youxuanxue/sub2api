@@ -98,12 +98,16 @@ func TestParseEventStream_TerminalStopIgnoresTruncatedTrailingFrame(t *testing.T
 }
 
 func TestParseEventStream_MetadataStopReason(t *testing.T) {
-	frame := buildEventStreamMessage("metadataEvent", []byte(`{"stopReason":"CONTENT_FILTERED"}`))
+	frame := buildEventStreamMessage("metadataEvent", []byte(`{"stopReason":"CONTENT_FILTERED","stopDetails":{"refusal":{"category":"policy","explanation":"not allowed","recommendedModel":"claude-sonnet-4.5"}}}`))
 
 	var got string
+	var gotMetadata KiroStopMetadata
 	cb := &KiroStreamCallback{
 		OnStopReason: func(stopReason string) {
 			got = stopReason
+		},
+		OnStopMetadata: func(metadata KiroStopMetadata) {
+			gotMetadata = metadata
 		},
 	}
 
@@ -112,5 +116,11 @@ func TestParseEventStream_MetadataStopReason(t *testing.T) {
 	}
 	if got != "CONTENT_FILTERED" {
 		t.Fatalf("expected stop reason %q, got %q", "CONTENT_FILTERED", got)
+	}
+	if gotMetadata.StopDetails == nil || gotMetadata.StopDetails.Refusal == nil {
+		t.Fatalf("expected refusal stop details, got %#v", gotMetadata)
+	}
+	if gotMetadata.StopDetails.Refusal.Category != "policy" {
+		t.Fatalf("expected refusal category %q, got %q", "policy", gotMetadata.StopDetails.Refusal.Category)
 	}
 }
