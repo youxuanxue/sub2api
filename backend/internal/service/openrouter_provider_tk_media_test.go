@@ -6,6 +6,80 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestOpenRouterProviderImageRoute(t *testing.T) {
+	if got := OpenRouterProviderImageRoute(PlatformAntigravity, "gemini-2.5-flash-image"); got != OpenRouterImageRouteAntigravityChat {
+		t.Fatalf("antigravity gemini image=%q", got)
+	}
+	if got := OpenRouterProviderImageRoute(PlatformGrok, "grok-imagine-image"); got != OpenRouterImageRouteGrok {
+		t.Fatalf("grok image=%q", got)
+	}
+	if got := OpenRouterProviderImageRoute(PlatformNewAPI, "imagen-4.0-fast-generate-001"); got != OpenRouterImageRouteOpenAICompat {
+		t.Fatalf("imagen=%q", got)
+	}
+	if got := OpenRouterProviderImageRoute(PlatformAntigravity, "gemini-2.5-flash"); got != OpenRouterImageRouteOpenAICompat {
+		t.Fatalf("antigravity text=%q", got)
+	}
+}
+
+func TestTranslateOpenRouterImageToChatCompletions(t *testing.T) {
+	body := []byte(`{"model":"gemini-2.5-flash-image","prompt":"a cat","aspect_ratio":"16:9"}`)
+	out, err := TranslateOpenRouterImageToChatCompletions(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gjson.GetBytes(out, "model").String() != "gemini-2.5-flash-image" {
+		t.Fatalf("model=%q", gjson.GetBytes(out, "model").String())
+	}
+	if gjson.GetBytes(out, "messages.0.content").String() != "a cat" {
+		t.Fatalf("prompt=%q", gjson.GetBytes(out, "messages.0.content").String())
+	}
+	if gjson.GetBytes(out, "extra_body.google.image_config.aspect_ratio").String() != "16:9" {
+		t.Fatalf("aspect_ratio=%q", gjson.GetBytes(out, "extra_body.google.image_config.aspect_ratio").String())
+	}
+	if gjson.GetBytes(out, "stream").Bool() {
+		t.Fatal("stream must be false")
+	}
+}
+
+func TestTranslateOpenRouterImageToChatCompletions_RequiresPrompt(t *testing.T) {
+	_, err := TranslateOpenRouterImageToChatCompletions([]byte(`{"model":"gemini-2.5-flash-image"}`))
+	if err == nil {
+		t.Fatal("expected prompt required error")
+	}
+}
+
+func TestTranslateChatCompletionsImageResponseToOpenRouter(t *testing.T) {
+	body := []byte(`{"choices":[{"message":{"content":"rendered:\n![image](data:image/png;base64,aGVsbG8=)"}}],"usage":{"total_tokens":12}}`)
+	out, err := TranslateChatCompletionsImageResponseToOpenRouter(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gjson.GetBytes(out, "data.0.b64_json").String() != "aGVsbG8=" {
+		t.Fatalf("b64=%q", gjson.GetBytes(out, "data.0.b64_json").String())
+	}
+	if gjson.GetBytes(out, "data.0.media_type").String() != "image/png" {
+		t.Fatalf("media_type=%q", gjson.GetBytes(out, "data.0.media_type").String())
+	}
+}
+
+func TestTranslateChatCompletionsImageResponseToOpenRouter_ImageURLPart(t *testing.T) {
+	body := []byte(`{"choices":[{"message":{"content":[{"type":"image_url","image_url":{"url":"data:image/webp;base64,d2VicA=="}}]}}]}`)
+	out, err := TranslateChatCompletionsImageResponseToOpenRouter(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gjson.GetBytes(out, "data.0.b64_json").String() != "d2VicA==" {
+		t.Fatalf("b64=%q", gjson.GetBytes(out, "data.0.b64_json").String())
+	}
+}
+
+func TestTranslateChatCompletionsImageResponseToOpenRouter_MissingImage(t *testing.T) {
+	_, err := TranslateChatCompletionsImageResponseToOpenRouter([]byte(`{"choices":[{"message":{"content":"text only"}}]}`))
+	if err == nil {
+		t.Fatal("expected missing image error")
+	}
+}
+
 func TestTranslateOpenRouterImageRequestToOpenAI_ForcesB64JSON(t *testing.T) {
 	body := []byte(`{"model":"tokenkey/imagen-4","prompt":"a cat","resolution":"2K","aspect_ratio":"16:9","n":2}`)
 	out, err := TranslateOpenRouterImageRequestToOpenAI(body)

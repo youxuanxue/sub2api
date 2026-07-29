@@ -99,17 +99,39 @@ func (h *Handlers) OpenRouterProviderImages(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "read request body", "code": 400}})
 		return
 	}
-	translated, err := service.TranslateOpenRouterImageRequestToOpenAI(body)
+
+	model := strings.TrimSpace(gjsonGetString(body, "model"))
+	route := service.OpenRouterProviderImageRoute(openRouterProviderGroupPlatform(c), model)
+
+	var (
+		forwardBody []byte
+		translateResponse func([]byte) ([]byte, error)
+		dispatch          func(*gin.Context)
+	)
+	switch route {
+	case service.OpenRouterImageRouteAntigravityChat:
+		forwardBody, err = service.TranslateOpenRouterImageToChatCompletions(body)
+		translateResponse = service.TranslateChatCompletionsImageResponseToOpenRouter
+		dispatch = h.Gateway.ChatCompletions
+	case service.OpenRouterImageRouteGrok:
+		forwardBody, err = service.TranslateOpenRouterImageRequestToOpenAI(body)
+		translateResponse = service.TranslateOpenAIImageResponseToOpenRouter
+		dispatch = h.OpenAIGateway.GrokImages
+	default:
+		forwardBody, err = service.TranslateOpenRouterImageRequestToOpenAI(body)
+		translateResponse = service.TranslateOpenAIImageResponseToOpenRouter
+		dispatch = h.OpenAIGateway.ImageGenerations
+	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": err.Error(), "code": 400}})
 		return
 	}
-	c.Request.Body = io.NopCloser(bytes.NewReader(translated))
-	c.Request.ContentLength = int64(len(translated))
+	c.Request.Body = io.NopCloser(bytes.NewReader(forwardBody))
+	c.Request.ContentLength = int64(len(forwardBody))
 
 	capture := &openRouterProviderResponseCapture{ResponseWriter: c.Writer}
 	c.Writer = capture
-	h.OpenAIGateway.ImageGenerations(c)
+	dispatch(c)
 	c.Writer = capture.ResponseWriter
 
 	status := capture.capturedStatus()
@@ -117,12 +139,20 @@ func (h *Handlers) OpenRouterProviderImages(c *gin.Context) {
 		writeCapturedResponse(c, capture)
 		return
 	}
-	orBody, err := service.TranslateOpenAIImageResponseToOpenRouter(capture.body.Bytes())
+	orBody, err := translateResponse(capture.body.Bytes())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "translate image response", "code": 500}})
 		return
 	}
 	c.Data(status, "application/json", orBody)
+}
+
+func openRouterProviderGroupPlatform(c *gin.Context) string {
+	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil || apiKey.Group == nil {
+		return ""
+	}
+	return strings.TrimSpace(apiKey.Group.Platform)
 }
 
 // OpenRouterProviderVideoSubmit serves POST /openrouter/v1/videos for OpenRouter provider inference.
