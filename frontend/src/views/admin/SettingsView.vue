@@ -52,6 +52,8 @@
           <GatewayPanel ref="gatewayPanelRef" />
         </div>
 
+
+
         <div v-show="activeTab === 'users'" class="space-y-6">
           <UsersPanel />
         </div>
@@ -67,6 +69,8 @@
         <div v-show="activeTab === 'features'" class="space-y-6">
           <FeaturesPanel />
         </div>
+
+
 
         <div v-show="activeTab === 'payment'" class="space-y-6">
           <PaymentPanel />
@@ -150,6 +154,7 @@ import { useAdminSettingsStore } from "@/stores/adminSettings";
 import {
   normalizeRegistrationEmailSuffixDomains,
 } from "@/utils/registrationEmailPolicy";
+import { normalizeForwardedClientIpHeaders } from "@/utils/forwardedClientIpHeaders";
 import {
   provideSettingsState,
   type SettingsTab,
@@ -252,8 +257,10 @@ const tablePageSizeOptionsInput = ref("10, 20, 50, 100");
 
 const subscriptionGroups = ref<AdminGroup[]>([]);
 
+
 // GatewayPanel template ref (for exposed state in save/load)
 const gatewayPanelRef = ref<InstanceType<typeof GatewayPanel> | null>(null);
+
 
 const tablePageSizeMin = 5;
 const tablePageSizeMax = 1000;
@@ -348,7 +355,9 @@ function findDuplicateDefaultSubscription(
   });
 }
 
+
 // ── Auth Source Defaults ──
+
 
 const authSourceDefaults = reactive<AuthSourceDefaultsState>(
   buildAuthSourceDefaultsState({}),
@@ -463,6 +472,13 @@ const form = reactive<SettingsForm>({
   password_reset_enabled: false,
   totp_enabled: false,
   totp_encryption_key_configured: false,
+  passkey_enabled: false,
+  passkey_configured: false,
+  passkey_rp_id: "",
+  passkey_rp_origins: [] as string[],
+  session_binding_enabled: false,
+  step_up_enabled: false,
+  audit_log_retention_days: 180,
   login_agreement_enabled: false,
   login_agreement_mode: "modal",
   login_agreement_updated_at: "",
@@ -531,6 +547,7 @@ const form = reactive<SettingsForm>({
   turnstile_secret_key: "",
   turnstile_secret_key_configured: false,
   api_key_acl_trust_forwarded_ip: false,
+  forwarded_client_ip_headers: [] as string[],
   linuxdo_connect_enabled: false,
   linuxdo_connect_client_id: "",
   linuxdo_connect_client_secret: "",
@@ -671,6 +688,9 @@ const form = reactive<SettingsForm>({
   channel_monitor_enabled: true,
   channel_monitor_default_interval_seconds: 60,
   available_channels_enabled: false,
+  model_plaza_enabled: false,
+  model_plaza_require_auth: false,
+  model_plaza_description: "",
   affiliate_enabled: false,
   allow_user_view_error_requests: false,
 });
@@ -736,6 +756,9 @@ async function loadSettings() {
     form.backend_mode_enabled = settings.backend_mode_enabled;
     form.default_subscriptions = normalizeDefaultSubscriptionSettings(
       settings.default_subscriptions,
+    );
+    form.forwarded_client_ip_headers = normalizeForwardedClientIpHeaders(
+      settings.forwarded_client_ip_headers,
     );
     registrationEmailSuffixWhitelistTags.value =
       normalizeRegistrationEmailSuffixDomains(
@@ -926,6 +949,9 @@ async function saveSettings() {
     form.login_agreement_mode =
       form.login_agreement_mode === "checkbox" ? "checkbox" : "modal";
     form.login_agreement_documents = normalizedLoginAgreementDocuments;
+    form.forwarded_client_ip_headers = normalizeForwardedClientIpHeaders(
+      form.forwarded_client_ip_headers,
+    );
 
     const normalizedDefaultSubscriptions = normalizeDefaultSubscriptionSettings(
       form.default_subscriptions,
@@ -1012,6 +1038,20 @@ async function saveSettings() {
       invitation_code_enabled: form.invitation_code_enabled,
       password_reset_enabled: form.password_reset_enabled,
       totp_enabled: form.totp_enabled,
+
+      passkey_enabled: form.passkey_enabled,
+      session_binding_enabled: form.session_binding_enabled,
+      step_up_enabled: form.step_up_enabled,
+      // 清空数字框时 v-model.number 会得到空串，后端 int 字段解析空串会 400 拒绝整次保存；
+      // 空/非法值回退默认 180（与后端 parseAuditLogRetentionDays("") 语义一致，0 仍表示永久保留）。
+      audit_log_retention_days: Number.isFinite(form.audit_log_retention_days)
+        ? form.audit_log_retention_days
+        : 180,
+      login_agreement_enabled: form.login_agreement_enabled,
+      login_agreement_mode: form.login_agreement_mode,
+      login_agreement_updated_at: form.login_agreement_updated_at,
+      login_agreement_documents: form.login_agreement_documents,
+
       default_balance: form.default_balance,
       affiliate_rebate_rate: Math.min(
         100,
@@ -1049,6 +1089,7 @@ async function saveSettings() {
       turnstile_site_key: form.turnstile_site_key,
       turnstile_secret_key: form.turnstile_secret_key || undefined,
       api_key_acl_trust_forwarded_ip: form.api_key_acl_trust_forwarded_ip,
+      forwarded_client_ip_headers: form.forwarded_client_ip_headers,
       linuxdo_connect_enabled: form.linuxdo_connect_enabled,
       linuxdo_connect_client_id: form.linuxdo_connect_client_id,
       linuxdo_connect_client_secret:
@@ -1264,6 +1305,13 @@ async function saveSettings() {
       channel_monitor_default_interval_seconds:
         Number(form.channel_monitor_default_interval_seconds) || 60,
       available_channels_enabled: form.available_channels_enabled,
+
+      // Model Plaza feature switches + description
+      model_plaza_enabled: form.model_plaza_enabled,
+      model_plaza_require_auth: form.model_plaza_require_auth,
+      model_plaza_description: form.model_plaza_description,
+      // Affiliate (邀请返利) feature switch
+
       affiliate_enabled: form.affiliate_enabled,
       allow_user_view_error_requests: form.allow_user_view_error_requests,
     };
@@ -1310,6 +1358,9 @@ async function saveSettings() {
     }
     Object.assign(authSourceDefaults, buildAuthSourceDefaultsState(updated));
     form.default_platform_quotas = normalizePlatformQuotasMap(updated.default_platform_quotas);
+    form.forwarded_client_ip_headers = normalizeForwardedClientIpHeaders(
+      updated.forwarded_client_ip_headers,
+    );
     registrationEmailSuffixWhitelistTags.value =
       normalizeRegistrationEmailSuffixDomains(
         updated.registration_email_suffix_whitelist,
@@ -1380,11 +1431,15 @@ async function saveSettings() {
     saving.value = false;
   }
 }
+
 // ── Lifecycle ──
+
 
 onMounted(() => {
   loadSettings();
   loadSubscriptionGroups();
+
+
 });
 </script>
 

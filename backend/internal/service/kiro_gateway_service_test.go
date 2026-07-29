@@ -603,6 +603,62 @@ func TestUS041_KiroGatewayService_CompletionSignalMessageIsPreservedAfterText(t 
 	}
 }
 
+func TestUS041_KiroGatewayService_CompletionSignalDoesNotRepeatVisibleFinalText(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			body := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"Workspace is clean。PR #1501 is ready.\nChecks passed."}`))
+			body = append(body, kiroToolUseEvent("toolu_completion", "sub2apiClaudeCodeCompletion", map[string]any{
+				"status": "complete", "message": "PR #1501 is ready.\nChecks passed.",
+			})...)
+			body = appendKiroTerminalStop(body, "TOOL_USE")
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{body}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 1, upstream.calls)
+			out := rec.Body.String()
+			require.Equal(t, 1, strings.Count(out, "PR #1501 is ready."))
+			require.Equal(t, 1, strings.Count(out, "Checks passed."))
+			require.Contains(t, out, "Workspace is clean。")
+			require.Contains(t, out, `"stop_reason":"end_turn"`)
+			require.NotContains(t, out, "sub2apiClaudeCodeCompletion")
+		})
+	}
+}
+
+func TestUS041_KiroGatewayService_ContinuationCompletionDoesNotRepeatPriorFinalText(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroTextStopStream("Workspace is clean。PR #1501 is ready.\nChecks passed.", "END_TURN"),
+				kiroCompletionSignalStream("complete", "PR #1501 is ready.\nChecks passed."),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 2, upstream.calls)
+			out := rec.Body.String()
+			require.Equal(t, 1, strings.Count(out, "PR #1501 is ready."))
+			require.Equal(t, 1, strings.Count(out, "Checks passed."))
+			require.Contains(t, out, "Workspace is clean。")
+			require.Contains(t, out, `"stop_reason":"end_turn"`)
+			require.NotContains(t, out, "sub2apiClaudeCodeCompletion")
+		})
+	}
+}
+
 func TestUS041_KiroGatewayService_NonClaudeCodeCompletionNamedToolIsPreserved(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {

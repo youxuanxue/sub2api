@@ -59,6 +59,13 @@ export type SettingsForm = {
   password_reset_enabled: boolean;
   totp_enabled: boolean;
   totp_encryption_key_configured: boolean;
+  passkey_enabled: boolean;
+  passkey_configured: boolean;
+  passkey_rp_id: string;
+  passkey_rp_origins: string[];
+  session_binding_enabled: boolean;
+  step_up_enabled: boolean;
+  audit_log_retention_days: number;
   login_agreement_enabled: boolean;
   login_agreement_mode: string;
   login_agreement_updated_at: string;
@@ -127,6 +134,7 @@ export type SettingsForm = {
   turnstile_secret_key: string;
   turnstile_secret_key_configured: boolean;
   api_key_acl_trust_forwarded_ip: boolean;
+  forwarded_client_ip_headers: string[];
   linuxdo_connect_enabled: boolean;
   linuxdo_connect_client_id: string;
   linuxdo_connect_client_secret: string;
@@ -267,6 +275,9 @@ export type SettingsForm = {
   channel_monitor_enabled: boolean;
   channel_monitor_default_interval_seconds: number;
   available_channels_enabled: boolean;
+  model_plaza_enabled: boolean;
+  model_plaza_require_auth: boolean;
+  model_plaza_description: string;
   affiliate_enabled: boolean;
   allow_user_view_error_requests: boolean;
 };

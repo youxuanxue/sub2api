@@ -987,7 +987,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		RequestID:             requestID,
 		Model:                 result.Model,
 		RequestedModel:        requestedModel,
-		UpstreamModel:         optionalNonEqualStringPtr(result.UpstreamModel, result.Model),
+		UpstreamModel:         optionalTrimmedStringPtr(result.UpstreamModel),
 		ReasoningEffort:       result.ReasoningEffort,
 		BillingTier:           optionalTrimmedStringPtr(result.BillingTier),
 		InboundEndpoint:       optionalTrimmedStringPtr(input.InboundEndpoint),

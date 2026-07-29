@@ -10,22 +10,6 @@
 
 # 修改为你的域名
 api.sub2api.com {
-        # =========================================================================
-	# 静态资源长期缓存（高优先级，放在最前面）
-	# 带 hash 的文件可以永久缓存，浏览器和 CDN 都会缓存
-	# =========================================================================
-	@static {
-		path /assets/*
-		path /logo.png
-		path /favicon.ico
-	}
-	header @static {
-		?Cache-Control "public, max-age=31536000, immutable"
-		# 移除可能干扰缓存的头
-		-Pragma
-		-Expires
-	}
-
 	# This baseline assumes clients connect directly to Caddy. When Caddy is
 	# behind a CDN, configure explicit trusted proxy CIDRs and {client_ip} as
 	# documented in EDGE_SECURITY.md; {remote_host} would otherwise be the CDN.
@@ -44,7 +28,6 @@ api.sub2api.com {
 	# 反向代理配置
 	# =========================================================================
 	reverse_proxy localhost:8080 {
-		flush_interval -1
 		# 健康检查
 		health_uri /health
 		health_interval 30s
@@ -84,7 +67,14 @@ api.sub2api.com {
 		gzip 6
 		minimum_length 256
 		match {
-			header Content-Type text/*
+			# 不使用 text/*，否则 text/event-stream 会被压缩并缓冲到流结束
+			header Content-Type text/css*
+			header Content-Type text/csv*
+			header Content-Type text/html*
+			header Content-Type text/javascript*
+			header Content-Type text/markdown*
+			header Content-Type text/plain*
+			header Content-Type text/xml*
 			header Content-Type application/json*
 			header Content-Type application/javascript*
 			header Content-Type application/xml*

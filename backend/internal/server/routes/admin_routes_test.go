@@ -32,6 +32,7 @@ func newAdminRoutesTestRouter() *gin.Engine {
 		servermiddleware.AuditLogMiddleware(func(c *gin.Context) { c.Next() }),
 		servermiddleware.StepUpAuthMiddleware(func(c *gin.Context) { c.Next() }),
 		nil,
+		nil,
 	)
 
 	return router

@@ -218,7 +218,7 @@ func TestGatewayHandlerMessages_KiroDisconnectMakesContinuationSelectAnotherAcco
 	require.True(t, ok)
 	require.Equal(t, replacement.ID, selected)
 	require.Equal(t, http.StatusOK, continueRec.Code)
-	require.Contains(t, continueRec.Body.String(), "msg_mock_warmup")
+	require.Contains(t, continueRec.Body.String(), "New Conversation")
 	require.Equal(t, 2, cache.consumeCall, "the continuation atomically consumes the newly recorded marker")
 	require.Zero(t, cache.recovery[gatewayHandlerKiroRecoveryKey(group.ID, sessionID)])
 	require.Equal(t, []int64{failed.ID}, upstream.accountIDs, "continuation must not call the failed account")

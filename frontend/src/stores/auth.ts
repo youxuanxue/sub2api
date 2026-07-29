@@ -5,7 +5,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
-import { authAPI, isTotp2FARequired, type LoginResponse } from '@/api'
+import { authAPI, isTotp2FARequired, passkeyAPI, type LoginResponse } from '@/api'
 import { isBrowserOffline, isNetworkError } from '@/api/client.tk'
 import { useVisibilityAwarePoller } from '@/composables/useVisibilityAwarePoller'
 import type { User, LoginRequest, RegisterRequest, AuthResponse } from '@/types'
@@ -351,6 +351,17 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function loginWithPasskey(): Promise<User> {
+    try {
+      const response = await passkeyAPI.login()
+      setAuthFromResponse(response)
+      return user.value!
+    } catch (error) {
+      clearAuth({ preservePendingAuthSession: pendingAuthSession.value !== null })
+      throw error
+    }
+  }
+
   /**
    * Set auth state from an AuthResponse
    * Internal helper function
@@ -563,6 +574,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     // Actions
     login,
+    loginWithPasskey,
     login2FA,
     register,
     setToken,
