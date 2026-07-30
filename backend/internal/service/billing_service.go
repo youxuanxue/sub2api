@@ -1659,10 +1659,6 @@ func (s *BillingService) getDefaultVideoPrice(model string, resolution string) f
 	return 0
 }
 
-func getDefaultGrokImagineVideoPrice(model string, resolution string) (float64, bool) {
-	return tkOverlayVideoUnitPriceUSD(model, resolution, nil)
-}
-
 func getDefaultGrokImagineImagePrice(model string, imageSize string) (float64, bool) {
 	model = strings.ToLower(strings.TrimSpace(model))
 	switch model {

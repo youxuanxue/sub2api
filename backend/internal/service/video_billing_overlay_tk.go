@@ -50,18 +50,6 @@ func tkIsTieredVideoModel(model string) bool {
 	return tkOverlayRawVideoEntry(model) != nil
 }
 
-func tkIsSeedanceVideoModel(model string) bool {
-	p := tkOverlayRawVideoEntry(model)
-	return p != nil && strings.ToLower(strings.TrimSpace(p.LiteLLMProvider)) == "volcengine" &&
-		strings.Contains(strings.ToLower(tkOverlayVideoModelKey(model)), "seedance")
-}
-
-func tkIsVeoVideoModel(model string) bool {
-	p := tkOverlayRawVideoEntry(model)
-	return p != nil && strings.ToLower(strings.TrimSpace(p.LiteLLMProvider)) == "vertex_ai" &&
-		strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "veo-")
-}
-
 func tkIsGrokImagineVideoModel(model string) bool {
 	m := strings.ToLower(strings.TrimSpace(model))
 	return strings.HasPrefix(m, "grok-imagine-video") && tkOverlayRawVideoEntry(model) != nil
