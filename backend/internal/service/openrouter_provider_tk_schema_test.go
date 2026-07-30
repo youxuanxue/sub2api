@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -153,6 +154,40 @@ func TestOpenRouterProviderModelHasListedPrice_UnpricedSkipped(t *testing.T) {
 	}
 	if openRouterProviderModelHasListedPrice(&PublicCatalogModel{}, 0, 0) {
 		t.Fatal("empty meta must not qualify")
+	}
+}
+
+func TestOpenRouterProviderCatalogExcluded_KnownIDs(t *testing.T) {
+	for _, id := range []string{"claude-fable-5", "claude-opus-4-1", "gemini-3.1-pro"} {
+		if !openRouterProviderCatalogExcluded(id) {
+			t.Fatalf("expected excluded: %q", id)
+		}
+	}
+	if openRouterProviderCatalogExcluded("claude-sonnet-4-6") {
+		t.Fatal("claude-sonnet-4-6 must not be excluded")
+	}
+}
+
+func TestOpenRouterProviderEnrichCatalogItem_StreamOnlyMetadata(t *testing.T) {
+	item := OpenRouterProviderModel{
+		ID:          "tokenkey/glm-4.5",
+		Description: "glm via TokenKey",
+		OpenRouter:  map[string]string{"slug": "tokenkey/glm-4.5"},
+	}
+	openRouterProviderEnrichCatalogItem(&item, "glm-4.5")
+	if item.OpenRouter["stream_required"] != "true" {
+		t.Fatalf("openrouter=%+v", item.OpenRouter)
+	}
+	if !strings.Contains(item.Description, "stream=true") {
+		t.Fatalf("description=%q", item.Description)
+	}
+}
+
+func TestOpenRouterProviderEnrichCatalogItem_NonStreamUnchanged(t *testing.T) {
+	item := OpenRouterProviderModel{Description: "plain"}
+	openRouterProviderEnrichCatalogItem(&item, "qwen-max")
+	if item.OpenRouter != nil {
+		t.Fatalf("openrouter=%+v", item.OpenRouter)
 	}
 }
 

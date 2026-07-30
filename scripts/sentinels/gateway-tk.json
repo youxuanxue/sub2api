@@ -5576,6 +5576,7 @@
       "must_contain": [
         "BuildOpenRouterProviderCatalog",
         "openRouterProviderModelHasListedPrice",
+        "openRouterProviderCatalogExcluded",
         "openRouterProviderCatalogCandidates"
       ],
       "rationale": "Catalog builder is the seller onboarding contract owner; pricing/features/schema drift here breaks OpenRouter provider application compliance."
