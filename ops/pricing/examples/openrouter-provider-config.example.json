@@ -12,6 +12,15 @@
   "model_capacity_tpm": {
     "deepseek-v4-pro": 250000
   },
+  "catalog_excluded_model_ids": [
+    "claude-fable-5",
+    "claude-opus-4-1",
+    "gemini-3.1-pro"
+  ],
+  "stream_only_model_ids": [
+    "glm-4.5",
+    "glm-4.5-air"
+  ],
   "datacenter_country_codes": ["US", "SG"],
   "privacy_policy_url": "https://tokenkey.dev/privacy",
   "terms_of_service_url": "https://tokenkey.dev/terms",

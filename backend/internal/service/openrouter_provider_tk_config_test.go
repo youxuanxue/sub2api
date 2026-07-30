@@ -1,6 +1,46 @@
 package service
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+const openRouterProviderExampleConfigRel = "ops/pricing/examples/openrouter-provider-config.example.json"
+
+// orConfigBoundaryNotListed is a fixed negative sample — not copied from the example owner list.
+const orConfigBoundaryNotListed = "__tk_or_config_boundary_not_listed__"
+
+func mustOpenRouterProviderExampleConfigJSON(t *testing.T) string {
+	t.Helper()
+	for _, p := range openRouterProviderExampleConfigPaths() {
+		raw, err := os.ReadFile(p)
+		if err == nil {
+			return string(raw)
+		}
+	}
+	t.Fatalf("read %s from repo (tried %v)", openRouterProviderExampleConfigRel, openRouterProviderExampleConfigPaths())
+	return ""
+}
+
+func mustParseOpenRouterProviderExampleConfig(t *testing.T) OpenRouterProviderConfig {
+	t.Helper()
+	cfg, err := ParseOpenRouterProviderConfig(mustOpenRouterProviderExampleConfigJSON(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func openRouterProviderExampleConfigPaths() []string {
+	return []string{
+		filepath.Join("../../../", openRouterProviderExampleConfigRel),
+		filepath.Join("../../..", openRouterProviderExampleConfigRel),
+		filepath.Join("..", openRouterProviderExampleConfigRel),
+		openRouterProviderExampleConfigRel,
+	}
+}
 
 func TestParseOpenRouterProviderConfig_Defaults(t *testing.T) {
 	cfg, err := ParseOpenRouterProviderConfig("")
@@ -15,6 +55,98 @@ func TestParseOpenRouterProviderConfig_Defaults(t *testing.T) {
 	}
 	if cfg.PrivacyPolicyURL == "" || cfg.TermsOfServiceURL == "" {
 		t.Fatalf("legal urls missing: privacy=%q terms=%q", cfg.PrivacyPolicyURL, cfg.TermsOfServiceURL)
+	}
+	if len(cfg.CatalogExcludedModelIDs) != 0 || len(cfg.StreamOnlyModelIDs) != 0 {
+		t.Fatalf("empty config must not inject catalog lists: exclude=%v stream=%v",
+			cfg.CatalogExcludedModelIDs, cfg.StreamOnlyModelIDs)
+	}
+}
+
+func TestParseOpenRouterProviderConfig_ExampleSSOTCatalogLists(t *testing.T) {
+	cfg := mustParseOpenRouterProviderExampleConfig(t)
+	if len(cfg.CatalogExcludedModelIDs) == 0 {
+		t.Fatal("example config must define catalog_excluded_model_ids")
+	}
+	if len(cfg.StreamOnlyModelIDs) == 0 {
+		t.Fatal("example config must define stream_only_model_ids")
+	}
+	for _, id := range cfg.CatalogExcludedModelIDs {
+		if !cfg.CatalogExcluded(id) {
+			t.Fatalf("example exclude id not active: %q", id)
+		}
+	}
+	for _, id := range cfg.StreamOnlyModelIDs {
+		if !cfg.StreamOnly(id) {
+			t.Fatalf("example stream-only id not active: %q", id)
+		}
+	}
+	if cfg.CatalogExcluded(orConfigBoundaryNotListed) {
+		t.Fatal("boundary id must not be excluded")
+	}
+	if cfg.StreamOnly(orConfigBoundaryNotListed) {
+		t.Fatal("boundary id must not be stream-only")
+	}
+}
+
+func TestParseOpenRouterProviderConfig_ExplicitEmptyExcludeList(t *testing.T) {
+	raw := `{"catalog_excluded_model_ids":[],"stream_only_model_ids":[]}`
+	cfg, err := ParseOpenRouterProviderConfig(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.CatalogExcludedModelIDs) != 0 {
+		t.Fatalf("explicit empty exclude: %v", cfg.CatalogExcludedModelIDs)
+	}
+	if len(cfg.StreamOnlyModelIDs) != 0 {
+		t.Fatalf("explicit empty stream-only: %v", cfg.StreamOnlyModelIDs)
+	}
+}
+
+func TestOpenRouterProviderConfig_CatalogExcludedAndStreamOnly(t *testing.T) {
+	cfg := mustParseOpenRouterProviderExampleConfig(t)
+	if len(cfg.CatalogExcludedModelIDs) == 0 || len(cfg.StreamOnlyModelIDs) == 0 {
+		t.Fatal("example config lists required")
+	}
+	if !cfg.CatalogExcluded(cfg.CatalogExcludedModelIDs[0]) {
+		t.Fatalf("first example exclude id inactive: %q", cfg.CatalogExcludedModelIDs[0])
+	}
+	if cfg.CatalogExcluded(orConfigBoundaryNotListed) {
+		t.Fatal("boundary id must not be excluded")
+	}
+	if !cfg.StreamOnly(cfg.StreamOnlyModelIDs[0]) {
+		t.Fatalf("first example stream-only id inactive: %q", cfg.StreamOnlyModelIDs[0])
+	}
+	if cfg.StreamOnly(orConfigBoundaryNotListed) {
+		t.Fatal("boundary id must not be stream-only")
+	}
+}
+
+func TestOpenRouterProviderEnrichCatalogItem_StreamOnlyMetadata(t *testing.T) {
+	cfg := mustParseOpenRouterProviderExampleConfig(t)
+	if len(cfg.StreamOnlyModelIDs) == 0 {
+		t.Fatal("example stream_only_model_ids required")
+	}
+	sourceID := cfg.StreamOnlyModelIDs[0]
+	item := OpenRouterProviderModel{
+		ID:          cfg.PublicModelID(sourceID),
+		Description: "stream-only via TokenKey",
+		OpenRouter:  map[string]string{"slug": cfg.PublicModelID(sourceID)},
+	}
+	openRouterProviderEnrichCatalogItem(&item, cfg, sourceID)
+	if item.OpenRouter["stream_required"] != "true" {
+		t.Fatalf("openrouter=%+v", item.OpenRouter)
+	}
+	if !strings.Contains(item.Description, "stream=true") {
+		t.Fatalf("description=%q", item.Description)
+	}
+}
+
+func TestOpenRouterProviderEnrichCatalogItem_NonStreamUnchanged(t *testing.T) {
+	cfg := mustParseOpenRouterProviderExampleConfig(t)
+	item := OpenRouterProviderModel{Description: "plain"}
+	openRouterProviderEnrichCatalogItem(&item, cfg, orConfigBoundaryNotListed)
+	if item.OpenRouter != nil {
+		t.Fatalf("openrouter=%+v", item.OpenRouter)
 	}
 }
 

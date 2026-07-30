@@ -129,6 +129,9 @@ func (s *GatewayService) BuildOpenRouterProviderCatalog(
 			return nil, fmt.Errorf("group %d not found", groupID)
 		}
 		for _, modelID := range s.openRouterProviderCatalogCandidates(ctx, group) {
+			if cfg.CatalogExcluded(modelID) {
+				continue
+			}
 			publicID := cfg.PublicModelID(modelID)
 			if _, ok := seen[publicID]; ok {
 				continue
@@ -206,6 +209,7 @@ func (s *GatewayService) BuildOpenRouterProviderCatalog(
 			},
 			Datacenters: openRouterProviderDatacenters(cfg),
 		}
+		openRouterProviderEnrichCatalogItem(&item, cfg, entry.sourceID)
 		out = append(out, item)
 	}
 

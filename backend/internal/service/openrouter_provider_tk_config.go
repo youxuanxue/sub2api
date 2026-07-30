@@ -23,6 +23,11 @@ type OpenRouterProviderConfig struct {
 	CapacityTPM            *int64           `json:"capacity_tpm"`
 	ModelCapacityTPM       map[string]int64 `json:"model_capacity_tpm"`
 	DatacenterCountryCodes []string         `json:"datacenter_country_codes"`
+	// CatalogExcludedModelIDs omits internal model ids from GET /openrouter/v1/models.
+	// Owner: tk_openrouter_provider_config JSON (see ops/pricing/examples/openrouter-provider-config.example.json).
+	CatalogExcludedModelIDs []string `json:"catalog_excluded_model_ids,omitempty"`
+	// StreamOnlyModelIDs marks chat models that require stream=true on /v1/chat/completions.
+	StreamOnlyModelIDs []string `json:"stream_only_model_ids,omitempty"`
 
 	// P2 onboarding URLs surfaced to ops / provider application forms.
 	PrivacyPolicyURL      string `json:"privacy_policy_url"`
@@ -74,7 +79,69 @@ func ParseOpenRouterProviderConfig(raw string) (OpenRouterProviderConfig, error)
 	if strings.TrimSpace(cfg.ProviderDisplayName) == "" {
 		cfg.ProviderDisplayName = DefaultOpenRouterProviderConfig().ProviderDisplayName
 	}
+	cfg.CatalogExcludedModelIDs = normalizeOpenRouterProviderModelIDs(cfg.CatalogExcludedModelIDs)
+	cfg.StreamOnlyModelIDs = normalizeOpenRouterProviderModelIDs(cfg.StreamOnlyModelIDs)
 	return cfg, nil
+}
+
+func normalizeOpenRouterProviderModelIDs(ids []string) []string {
+	if len(ids) == 0 {
+		return ids
+	}
+	out := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func (c OpenRouterProviderConfig) CatalogExcluded(sourceID string) bool {
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return false
+	}
+	for _, id := range c.CatalogExcludedModelIDs {
+		if strings.TrimSpace(id) == sourceID {
+			return true
+		}
+	}
+	return false
+}
+
+func (c OpenRouterProviderConfig) StreamOnly(sourceID string) bool {
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return false
+	}
+	for _, id := range c.StreamOnlyModelIDs {
+		if strings.TrimSpace(id) == sourceID {
+			return true
+		}
+	}
+	return false
+}
+
+func openRouterProviderEnrichCatalogItem(item *OpenRouterProviderModel, cfg OpenRouterProviderConfig, sourceID string) {
+	if item == nil || !cfg.StreamOnly(sourceID) {
+		return
+	}
+	if item.OpenRouter == nil {
+		item.OpenRouter = map[string]string{}
+	}
+	item.OpenRouter["stream_required"] = "true"
+	const suffix = " Chat completions require stream=true."
+	if !strings.Contains(item.Description, "stream=true") {
+		item.Description += suffix
+	}
 }
 
 func (c OpenRouterProviderConfig) AllowsMonitorAPIKey(apiKeyID int64) bool {
