@@ -225,6 +225,12 @@ print(json.dumps({
     )
 
 
+_EXAMPLE_LIST_FIELDS = (
+    "catalog_excluded_model_ids",
+    "stream_only_model_ids",
+)
+
+
 def _load_default_config() -> dict:
     example = REPO_ROOT / "ops/pricing/examples/openrouter-provider-config.example.json"
     cfg = json.loads(example.read_text(encoding="utf-8"))
@@ -233,6 +239,17 @@ def _load_default_config() -> dict:
     cfg.pop("allowed_api_key_ids", None)
     cfg.pop("monitor_api_key_ids", None)
     return cfg
+
+
+def _merge_missing_list_fields(cfg: dict[str, Any], example: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Backfill list SSOT fields from example when live settings omit or null them."""
+    if example is None:
+        example = _load_default_config()
+    merged = dict(cfg)
+    for key in _EXAMPLE_LIST_FIELDS:
+        if key not in merged or merged[key] is None:
+            merged[key] = list(example.get(key) or [])
+    return merged
 
 
 def _resolve_group_id(instance_id: str, group_id: int | None, create_group: bool) -> int:
@@ -384,7 +401,7 @@ def cmd_update_config(args) -> int:
     cfg_sql = f"SELECT value FROM settings WHERE key = {_sql_literal(SETTING_KEY)} LIMIT 1;"
     existing_raw = _decode_settings_value(_run_psql_query(inst, cfg_sql, "or-provider update: config"))
     if existing_raw:
-        cfg = json.loads(existing_raw)
+        cfg = _merge_missing_list_fields(json.loads(existing_raw))
     else:
         cfg = _load_default_config()
 
