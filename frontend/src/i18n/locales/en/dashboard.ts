@@ -204,10 +204,15 @@ export default {
     ccsClientSelect: {
       title: 'Select Client',
       description: 'Please select the client type to import to CC-Switch:',
+      universalDescription: 'Universal keys work across platforms — pick which CC Switch app should receive this provider:',
       claudeCode: 'Claude Code',
       claudeCodeDesc: 'Import as Claude Code configuration',
+      codexCli: 'Codex CLI',
+      codexCliDesc: 'Import as Codex CLI configuration',
       geminiCli: 'Gemini CLI',
       geminiCliDesc: 'Import as Gemini CLI configuration',
+      openCode: 'OpenCode',
+      openCodeDesc: 'Import as OpenCode configuration',
     },
     // Quota and expiration
     quotaLimit: 'Quota Limit',

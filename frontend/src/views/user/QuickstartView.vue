@@ -45,6 +45,17 @@
               </div>
               <div class="flex shrink-0 flex-wrap gap-2">
                 <button
+                  v-if="showCcSwitchImport"
+                  type="button"
+                  data-tk="quickstart-ccs-import"
+                  class="btn btn-primary inline-flex items-center gap-1.5 text-sm"
+                  :disabled="Boolean(selectedClientDisabledReason)"
+                  @click="importSelectedClientToCcSwitch"
+                >
+                  <Icon name="download" size="sm" />
+                  {{ t('quickstart.importToCcSwitch') }}
+                </button>
+                <button
                   v-if="selectedClient.action === 'app-deeplink' && selectedClient.template"
                   type="button"
                   data-tk="quickstart-client-import"
@@ -268,11 +279,13 @@ import {
 import { flavorOfModel } from '@/composables/useTkUseKey'
 import { gatewayWarmupConnection } from '@/api/playground'
 import { PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
+import { useCcSwitchImport } from '@/composables/useCcSwitchImport'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const { importToCcSwitch } = useCcSwitchImport()
 
 const keys = ref<ApiKey[]>([])
 const keysLoading = ref(true)
@@ -346,6 +359,19 @@ const selectedClientSupportBadge = computed(() => {
   }
 })
 
+const showCcSwitchImport = computed(() => {
+  const client = selectedClient.value
+  if (!client?.ccsApp) return false
+  if (appStore.cachedPublicSettings?.hide_ccs_import_button) return false
+  return client.action === 'ccs-import'
+})
+
+const selectedClientDisabledReason = computed(() => {
+  const client = selectedClient.value
+  if (!client) return ''
+  return disabledReasonFor(client, true)
+})
+
 function maskKey(key: string) {
   if (key.length <= 14) return key
   return `${key.slice(0, 6)}${'•'.repeat(8)}${key.slice(-4)}`
@@ -392,10 +418,6 @@ const clientGroups = computed<QuickstartClientGroup[]>(() => {
       }),
   }))
 })
-
-const selectedClientDisabledReason = computed(() =>
-  selectedClient.value ? disabledReasonFor(selectedClient.value, true) : '',
-)
 
 function applyRecommendedKey(client = selectedClient.value, preserveManual = keyManuallySelected.value): void {
   if (!client || preserveManual) return
@@ -445,6 +467,19 @@ function openSelectedClient(): void {
   })
   const target = window.open(url, '_blank', 'noopener,noreferrer')
   if (target) target.opener = null
+}
+
+function importSelectedClientToCcSwitch(): void {
+  const client = selectedClient.value
+  const key = selectedKey.value
+  if (!client?.ccsApp || !key) return
+  const providerName = (appStore.cachedPublicSettings?.site_name || 'TokenKey').trim() || 'TokenKey'
+  importToCcSwitch({
+    key,
+    ccsApp: client.ccsApp,
+    baseUrl: baseUrl.value,
+    providerName,
+  })
 }
 
 function parseKeyIdFromQuery(): number | null {
