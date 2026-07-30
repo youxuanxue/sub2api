@@ -24,8 +24,10 @@ export interface PublicPricing {
   billing_mode?: string
   /** USD per generated image (image billing_mode). */
   output_cost_per_image?: number
-  /** USD per second of generated video (video billing_mode). */
+  /** USD per second of generated video (video billing_mode). Minimum tier when video_price_tiers is set. */
   output_cost_per_second?: number
+  /** Official resolution×audio (and Grok image-input) ladder for video models. */
+  video_price_tiers?: PublicPricingVideoTier[]
   /** Input-token interval (阶梯) pricing for models whose unit price varies by
    *  request input length (VolcEngine doubao-seed-*, DeepSeek, Qwen-plus/coder,
    *  GLM-4.7). The flat input/output fields carry the first (lowest) tier; this
@@ -42,6 +44,15 @@ export interface PublicPricingPeakValley {
   input_per_1k_tokens: number
   output_per_1k_tokens: number
   cache_read_per_1k?: number
+}
+
+/** One video resolution (and optional silent / image-input) price bracket. USD/s. */
+export interface PublicPricingVideoTier {
+  resolution: string
+  per_second: number
+  per_second_silent?: number
+  input_image_surcharge_per_second?: number
+  default_for_model?: boolean
 }
 
 /** One input-token bracket of a tiered (阶梯) price. `min_tokens` inclusive,

@@ -169,8 +169,8 @@ func (h *OpenAIGatewayHandler) tkApplyImageHold(c *gin.Context, apiKey *service.
 
 // tkApplyVideoHold reserves a pre-flight hold for an async video submit
 // (seconds = the same request-derived duration the submit path bills).
-func (h *OpenAIGatewayHandler) tkApplyVideoHold(c *gin.Context, apiKey *service.APIKey, reqModel string, seconds int64) (hold *tkHoldHandle, reject bool) {
+func (h *OpenAIGatewayHandler) tkApplyVideoHold(c *gin.Context, apiKey *service.APIKey, reqModel string, seconds int64, billing service.VideoSubmitBillingParams) (hold *tkHoldHandle, reject bool) {
 	return h.tkApplyHold(c, apiKey, "", func(requestID string) (bool, bool) {
-		return h.gatewayService.TkReserveVideoHold(c.Request.Context(), requestID, reqModel, apiKey.User, apiKey, seconds)
+		return h.gatewayService.TkReserveVideoHold(c.Request.Context(), requestID, reqModel, apiKey.User, apiKey, seconds, billing.Resolution, billing.Options())
 	})
 }

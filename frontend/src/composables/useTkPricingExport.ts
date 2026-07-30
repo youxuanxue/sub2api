@@ -23,6 +23,10 @@ import type {
   PublicPricingPeakValley,
   PublicPricingTier
 } from '@/api/pricing'
+import {
+  catalogTokenPricePer1M,
+  formatCatalogUsdNumeric
+} from '@/utils/pricingCatalogPresentation.tk'
 import { formatTokenBound } from '@/utils/pricingVariants.tk'
 
 const CSV_COLUMNS = [
@@ -49,16 +53,16 @@ const CSV_COLUMNS = [
   'capabilities'
 ] as const
 
-/** per-1k → per-1M, rounded to kill float noise; '' for missing/zero. */
+/** per-1k → per-1M; same precision as catalog UI (formatCatalogUsd). */
 function per1M(per1k: number | undefined | null): string {
   if (per1k === undefined || per1k === null || per1k === 0) return ''
-  return String(Number((per1k * 1000).toFixed(4)))
+  return formatCatalogUsdNumeric(catalogTokenPricePer1M(per1k))
 }
 
-/** USD per unit (image/second), rounded; '' for missing/zero. */
+/** USD per unit (image/second); same precision as catalog UI. */
 function unitUsd(v: number | undefined | null): string {
   if (v === undefined || v === null || v === 0) return ''
-  return String(Number(v.toFixed(6)))
+  return formatCatalogUsdNumeric(v)
 }
 
 /**

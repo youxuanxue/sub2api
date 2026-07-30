@@ -106,8 +106,8 @@ describe('estimateVideoCost (mirror of CalculateVideoCost)', () => {
     expect(estimateVideoCost({ perSecond: 0.4, seconds: 8 })).toBeCloseTo(3.2, 10)
   })
 
-  it('Seedance 5s ≈ $0.544', () => {
-    expect(estimateVideoCost({ perSecond: 0.10880597014925374, seconds: 5 })).toBeCloseTo(0.5440298, 6)
+  it('scales linearly by seconds (pure arithmetic; perSecond is caller-supplied)', () => {
+    expect(estimateVideoCost({ perSecond: 0.12, seconds: 5 })).toBeCloseTo(0.6, 10)
   })
 
   it('applies rate multiplier', () => {

@@ -65,6 +65,21 @@ ANCHORS = {
 # would make the DEFAULT request bill the cheaper non-thinking rate — a silent
 # under-bill. These anchors fail the check if the field goes missing.
 THINKING_ANCHORS = ("qwen3-8b", "qwen3-14b", "qwen3-32b")
+VIDEO_RESOLUTIONS = {"480p", "720p", "1080p", "4k"}
+VIDEO_SOURCE_CONTRACT = "video_price_tiers is the billing ssot"
+STALE_VIDEO_SOURCE_PHRASES = (
+    "tk bills a single",
+    "tk's flat",
+    "single per-second price",
+    "priced at the model's max tier",
+    "max-output convention",
+    "retained (not lowered)",
+    "same max-tier convention",
+)
+
+
+def _finite_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def validate_official_list_base_tax(data: dict) -> list[str]:
@@ -236,6 +251,65 @@ def main() -> int:
             price = pricing.get(field)
             if not isinstance(price, (int, float)) or price <= 0:
                 errors.append(f"{model}: mode={mode} requires {field} > 0, got {price!r}")
+        if mode == "video_generation":
+            tiers = pricing.get("video_price_tiers")
+            if isinstance(tiers, list) and tiers:
+                seen_resolutions: set[str] = set()
+                defaults: list[str] = []
+                for idx, tier in enumerate(tiers):
+                    label = f"{model}.video_price_tiers[{idx}]"
+                    if not isinstance(tier, dict):
+                        errors.append(f"{label} must be an object")
+                        continue
+                    res = tier.get("resolution")
+                    if not isinstance(res, str) or res not in VIDEO_RESOLUTIONS:
+                        errors.append(f"{label}.resolution must be one of {sorted(VIDEO_RESOLUTIONS)}")
+                    elif res in seen_resolutions:
+                        errors.append(f"{model}: duplicate video resolution {res!r}")
+                    else:
+                        seen_resolutions.add(res)
+                    if tier.get("default_for_model") is True and isinstance(res, str):
+                        defaults.append(res)
+                    rate = tier.get("output_cost_per_second")
+                    if not _finite_number(rate) or rate <= 0:
+                        errors.append(f"{label}.output_cost_per_second must be > 0, got {rate!r}")
+                    silent = tier.get("output_cost_per_second_silent")
+                    if silent is not None and (not _finite_number(silent) or silent <= 0):
+                        errors.append(f"{label}.output_cost_per_second_silent must be > 0 when present")
+                    surcharge = tier.get("input_image_surcharge_per_second")
+                    if surcharge is not None and (not _finite_number(surcharge) or surcharge < 0):
+                        errors.append(f"{label}.input_image_surcharge_per_second must be >= 0 when present")
+                if len(defaults) != 1:
+                    errors.append(f"{model}: video_price_tiers must declare exactly one default_for_model")
+                declared_default = pricing.get("default_video_resolution")
+                if declared_default is not None and defaults and declared_default != defaults[0]:
+                    errors.append(
+                        f"{model}: default_video_resolution {declared_default!r} does not match "
+                        f"default_for_model {defaults[0]!r}"
+                    )
+                flat = pricing.get("output_cost_per_second")
+                tier_mins: list[float] = []
+                for tier in tiers:
+                    if isinstance(tier, dict):
+                        r = tier.get("output_cost_per_second")
+                        if _finite_number(r) and r > 0:
+                            tier_mins.append(r)
+                        s = tier.get("output_cost_per_second_silent")
+                        if _finite_number(s) and s > 0:
+                            tier_mins.append(s)
+                if tier_mins and _finite_number(flat):
+                    if abs(flat - min(tier_mins)) > 1e-12:
+                        errors.append(
+                            f"{model}: output_cost_per_second {flat} must equal min video tier "
+                            f"{min(tier_mins)} (catalog compatibility floor)"
+                        )
+                source = pricing.get("source")
+                source_lower = source.lower() if isinstance(source, str) else ""
+                if VIDEO_SOURCE_CONTRACT not in source_lower:
+                    errors.append(f"{model}: tiered-video source must state the billing SSOT contract")
+                for phrase in STALE_VIDEO_SOURCE_PHRASES:
+                    if phrase in source_lower:
+                        errors.append(f"{model}: tiered-video source contains stale flat-billing phrase {phrase!r}")
         # TK thinking-mode output price (e.g. qwen3-8b/14b/32b): an optional field
         # that, when present, must be a real positive price — a $0 thinking rate
         # would silently under-bill thinking traffic, which for these models is the

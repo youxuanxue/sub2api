@@ -89,12 +89,13 @@ func (s *BillingService) EstimateImageHold(model, sizeTier string, n int, groupC
 	return bd.ActualCost
 }
 
-// EstimateVideoHold returns an upper bound on an async video submit:
-// CalculateVideoCost over the requested duration (the same seconds actual bills,
-// so this is exact). Callers pass the request-clamped seconds (handlers clamp
-// to [1,60]).
-func (s *BillingService) EstimateVideoHold(model string, seconds int64, rateMultiplier float64) float64 {
-	bd := s.CalculateVideoCost(model, VideoBillingResolution720P, 1, int(seconds), nil, rateMultiplier)
+// EstimateVideoHold returns the same per-request amount used by video settlement.
+func (s *BillingService) EstimateVideoHold(model string, seconds int64, rateMultiplier float64, resolution string, groupConfig *VideoPriceConfig, opts *VideoBillingOptions) float64 {
+	if seconds <= 0 {
+		seconds = int64(VideoBillingDefaultDurationSeconds)
+	}
+	resolution = NormalizeVideoBillingResolutionForModel(model, resolution)
+	bd := s.CalculateVideoCost(model, resolution, 1, int(seconds), groupConfig, rateMultiplier, opts)
 	if bd == nil {
 		return 0
 	}

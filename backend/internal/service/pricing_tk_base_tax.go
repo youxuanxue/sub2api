@@ -182,6 +182,9 @@ func tkApplyBaseTaxToLiteLLMModelPricingClone(p *LiteLLMModelPricing) *LiteLLMMo
 	if len(c.Intervals) > 0 {
 		c.Intervals = tkApplyBaseTaxToPricingIntervals(c.Intervals, multiplier)
 	}
+	if len(c.VideoPriceTiers) > 0 {
+		c.VideoPriceTiers = tkApplyBaseTaxToVideoTiers(c.VideoPriceTiers, multiplier)
+	}
 	return &c
 }
 

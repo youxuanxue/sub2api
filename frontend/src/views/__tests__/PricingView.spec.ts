@@ -75,14 +75,14 @@ vi.mock('vue-i18n', async () => {
     'catalog.viewPricing': 'Pricing table',
     'catalog.viewSwitcherAria': 'Catalog view',
     'pricing.subtitle': '',
-    'pricing.description': 'Prices are per 1,000 tokens, in USD. Cache columns apply only when billed separately.',
+    'pricing.description': 'Prices are per 1,000,000 tokens, in USD. Cache columns apply only when billed separately.',
     'pricing.columns.model': 'Model',
     'pricing.columns.vendor': 'Vendor',
     'pricing.columns.input': 'Input',
     'pricing.columns.output': 'Output',
     'pricing.columns.contextWindow': 'Context window',
     'pricing.columns.capabilities': 'Capabilities',
-    'pricing.perThousandTokens': '/ 1K tokens',
+    'pricing.perMillionTokens': '/ 1M tokens',
     'pricing.updatedAt': 'Last updated {time}',
     'pricing.search.placeholder': '',
     'pricing.search.modeLabel': '',
@@ -130,6 +130,15 @@ vi.mock('vue-i18n', async () => {
     'pricing.my.authorizedGroups.groupHint': '{group} can serve this model',
     'pricing.my.authorizedGroups.exclusive': 'exclusive',
     'pricing.my.authorizedGroups.quickstart': 'Quick start',
+    'pricing.perSecond': '/ second',
+    'pricing.perImage': '/ image',
+    'pricing.videoClipExample': '5s {five} · 10s {ten}',
+    'pricing.variant.tierRange': '{lo}–{hi}',
+    'pricing.video.withAudio': 'with audio',
+    'pricing.video.withoutAudio': 'silent',
+    'pricing.video.textToVideo': 'text-to-video',
+    'pricing.video.withInputImage': 'image-to-video',
+    'pricing.video.tieredCaption': 'Price varies by resolution and generation options',
   }
   return {
     ...actual,
@@ -143,6 +152,10 @@ vi.mock('vue-i18n', async () => {
         base = base.replace(/\{multiplier\}/g, String(params?.multiplier ?? ''))
         base = base.replace(/\{group\}/g, String(params?.group ?? ''))
         base = base.replace(/\{key\}/g, String(params?.key ?? ''))
+        base = base.replace(/\{lo\}/g, String(params?.lo ?? ''))
+        base = base.replace(/\{hi\}/g, String(params?.hi ?? ''))
+        base = base.replace(/\{five\}/g, String(params?.five ?? ''))
+        base = base.replace(/\{ten\}/g, String(params?.ten ?? ''))
         return base
       },
     }),
@@ -253,6 +266,36 @@ describe('PricingView', () => {
     authState.isAuthenticated = false
     authState.isAdmin = false
     routeState.query = {}
+  })
+
+  it('shows video tier range and per-bracket lines from catalog SSOT', async () => {
+    getPublicPricing.mockResolvedValue(
+      publicCatalog([
+        {
+          model_id: 'veo-3.1-generate-preview',
+          vendor: 'Google',
+          pricing: {
+            currency: 'USD',
+            billing_mode: 'video',
+            input_per_1k_tokens: 0,
+            output_per_1k_tokens: 0,
+            output_cost_per_second: 0.2,
+            video_price_tiers: [
+              { resolution: '720p', per_second: 0.4, per_second_silent: 0.2, default_for_model: true },
+              { resolution: '1080p', per_second: 0.6, per_second_silent: 0.4 },
+            ],
+          },
+          capabilities: ['video_generation'],
+        },
+      ]),
+    )
+
+    const wrapper = mountPricingView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('$0.2–$0.6')
+    expect(wrapper.text()).toContain('720p · with audio')
+    expect(wrapper.text()).toContain('Price varies by resolution and generation options')
   })
 
   it('prefills exact model search from ?model= deep link', async () => {
@@ -398,8 +441,8 @@ describe('PricingView', () => {
     expect(wrapper.find('[data-tk="pricing-filter-key"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="pricing-filter-group"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('Viewing default · Pro')
-    // Catalog price rendered from your_price (now the official price) — 0.0045 → "$0.0045"
-    expect(wrapper.text()).toContain('$0.0045')
+    // Catalog price rendered from your_price (now the official price) — 0.0045/1K → $4.5/1M
+    expect(wrapper.text()).toContain('$4.5')
     // TK: pricing 页与倍率脱钩——不再展示倍率提示。
     expect(wrapper.text()).not.toContain('Multiplier')
   })

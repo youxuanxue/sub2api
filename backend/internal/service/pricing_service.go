@@ -152,6 +152,13 @@ type LiteLLMModelPricing struct {
 	// model_pricing_resolver_tk_overlay_intervals.go。
 	Intervals []PricingInterval `json:"-"`
 
+	// VideoPriceTiers 视频 resolution×audio 阶梯（TK overlay 专用，见
+	// tk_pricing_overlay.json "video_price_tiers"）。Pre-tax USD/s；base tax at read.
+	VideoPriceTiers []PricingVideoTier `json:"-"`
+
+	// DefaultVideoResolution 客户端未指定 resolution 时的默认档位（overlay SSOT）。
+	DefaultVideoResolution string `json:"-"`
+
 	// TokenPricingAbsent 表示源数据中 input/output token 价格均缺失（仅有图片价）。
 	// 此类条目只可用于图片计费，token 计费必须回退到 fallback 或 fail-closed，
 	// 否则 token 流量会被按 $0 计费。零值（false）表示条目具备 token 价格。

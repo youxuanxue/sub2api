@@ -60,8 +60,10 @@ func TestDispatchVideoSubmit_VolcEngine_OK(t *testing.T) {
 	defer srv.Close()
 
 	body := mustJSON(t, map[string]any{
-		"model":  "doubao-seedance-1-0-pro-250528",
-		"prompt": "a cat playing piano",
+		"model":         "doubao-seedance-1-0-pro-250528",
+		"prompt":        "a cat playing piano",
+		"resolution":    "720p",
+		"generateAudio": false,
 	})
 
 	w := httptest.NewRecorder()
@@ -99,6 +101,12 @@ func TestDispatchVideoSubmit_VolcEngine_OK(t *testing.T) {
 	}
 	if !bytes.Contains(upstream.lastSubmitBody, []byte("a cat playing piano")) {
 		t.Fatalf("upstream did not see the prompt; body=%q", upstream.lastSubmitBody)
+	}
+	if !bytes.Contains(upstream.lastSubmitBody, []byte(`"resolution":"720p"`)) {
+		t.Fatalf("upstream did not see the billed resolution; body=%q", upstream.lastSubmitBody)
+	}
+	if !bytes.Contains(upstream.lastSubmitBody, []byte(`"generate_audio":false`)) {
+		t.Fatalf("upstream did not see the billed audio mode; body=%q", upstream.lastSubmitBody)
 	}
 	// The new-api task adaptor's DoResponse writes the OpenAI-Video JSON
 	// to the gin writer with relayInfo.PublicTaskID stamped as the id.
@@ -179,6 +187,76 @@ func TestDispatchVideoSubmit_MissingModel(t *testing.T) {
 	in := ChannelContextInput{ChannelType: newapiconstant.ChannelTypeVolcEngine, BaseURL: "http://nowhere", APIKey: "k"}
 	if _, err := DispatchVideoSubmit(context.Background(), c, in, "vt_x", body); err == nil {
 		t.Fatal("expected error for missing model, got nil")
+	}
+}
+
+func TestNormalizeVideoSubmitBodyForTaskAdaptor_RejectsMalformedTierFields(t *testing.T) {
+	for name, body := range map[string][]byte{
+		"resolution":     []byte(`{"model":"x","resolution":720}`),
+		"generate audio": []byte(`{"model":"x","generateAudio":"false"}`),
+		"metadata":       []byte(`{"model":"x","resolution":"720p","metadata":[]}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := normalizeVideoSubmitBodyForTaskAdaptor(body); err == nil {
+				t.Fatal("expected malformed tier field to be rejected")
+			}
+		})
+	}
+}
+
+func TestNormalizeVideoSubmitBodyForTaskAdaptor_TopLevelTiersOverrideMetadata(t *testing.T) {
+	body := []byte(`{
+		"model":"x",
+		"resolution":"1080p",
+		"generateAudio":false,
+		"metadata":{"resolution":"720p","generateAudio":true,"preserved":"yes"}
+	}`)
+	normalized, err := normalizeVideoSubmitBodyForTaskAdaptor(body)
+	if err != nil {
+		t.Fatalf("normalize video body: %v", err)
+	}
+	var decoded struct {
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal(normalized, &decoded); err != nil {
+		t.Fatalf("decode normalized video body: %v", err)
+	}
+	if got := decoded.Metadata["resolution"]; got != "1080p" {
+		t.Fatalf("normalized resolution = %v, want 1080p", got)
+	}
+	for _, key := range []string{"generateAudio", "generate_audio"} {
+		if got, ok := decoded.Metadata[key].(bool); !ok || got {
+			t.Fatalf("normalized %s = %#v, want false", key, decoded.Metadata[key])
+		}
+	}
+	if got := decoded.Metadata["preserved"]; got != "yes" {
+		t.Fatalf("unrelated metadata was not preserved: %#v", decoded.Metadata)
+	}
+}
+
+func TestNormalizeVideoSubmitBodyForTaskAdaptor_NormalizesSizeAndMetadataAudio(t *testing.T) {
+	body := []byte(`{
+		"model":"veo-3.1-generate-001",
+		"size":"1920x1080",
+		"metadata":{"generateAudio":false}
+	}`)
+	normalized, err := normalizeVideoSubmitBodyForTaskAdaptor(body)
+	if err != nil {
+		t.Fatalf("normalize video body: %v", err)
+	}
+	var decoded struct {
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal(normalized, &decoded); err != nil {
+		t.Fatalf("decode normalized video body: %v", err)
+	}
+	if got := decoded.Metadata["resolution"]; got != "1080p" {
+		t.Fatalf("normalized size resolution = %v, want 1080p", got)
+	}
+	for _, key := range []string{"generateAudio", "generate_audio"} {
+		if got, ok := decoded.Metadata[key].(bool); !ok || got {
+			t.Fatalf("normalized %s = %#v, want false", key, decoded.Metadata[key])
+		}
 	}
 }
 

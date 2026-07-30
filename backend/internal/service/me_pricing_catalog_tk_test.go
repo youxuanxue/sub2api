@@ -268,6 +268,47 @@ func TestMePricingCatalog_TiersFromPublicCatalog(t *testing.T) {
 	assert.Nil(t, tiers[1].CacheReadPer1K)
 }
 
+func TestMePricingCatalog_VideoTiersFromPublicCatalog(t *testing.T) {
+	g := mkGroupForMe(10, "Pro", "vertex_ai", 1.0)
+	k1 := mkKeyForMe(1, 7, "default", ptrI(10))
+	silent := 0.2
+	catalogModel := PublicCatalogModel{
+		ModelID:      "veo-3.1-generate-preview",
+		Vendor:       "Google",
+		Capabilities: []string{"video_generation"},
+		Pricing: PublicCatalogPricing{
+			Currency:            "USD",
+			BillingMode:         "video",
+			OutputCostPerSecond: 0.2,
+			VideoPriceTiers: []PublicCatalogVideoTier{
+				{Resolution: "720p", PerSecond: 0.4, PerSecondSilent: &silent, DefaultForModel: true},
+				{Resolution: "1080p", PerSecond: 0.6},
+			},
+		},
+	}
+
+	svc := newService(
+		&fakeKeyAccess{groups: []Group{g}, keys: []APIKey{k1}},
+		&fakeChannelLister{channels: []AvailableChannel{
+			mkChannelWithModel(100, "ch1",
+				[]AvailableGroupRef{{ID: 10, Name: "Pro", Platform: "vertex_ai", RateMultiplier: 1.0}},
+				[]SupportedModel{mkSupportedModel("veo-3.1-generate-preview", "vertex_ai", mkPricing(0, 0, 0))},
+			),
+		}},
+		&fakeCatalogProvider{resp: &PublicCatalogResponse{Object: "list", Data: []PublicCatalogModel{catalogModel}}},
+	)
+
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, 1)
+	videoTiers := resp.Models[0].YourPrice.VideoPriceTiers
+	require.Len(t, videoTiers, 2, "video ladder copied verbatim from public catalog")
+	assert.Equal(t, "720p", videoTiers[0].Resolution)
+	assert.InDelta(t, 0.4, videoTiers[0].PerSecond, 1e-12)
+	require.NotNil(t, videoTiers[0].PerSecondSilent)
+	assert.InDelta(t, 0.2, *videoTiers[0].PerSecondSilent, 1e-12)
+}
+
 // TK: 价格一律官方基价（倍率 1.0），TargetGroup 的 RateMultiplier 字段仍反映
 // 真实生效倍率（1.5），但不再作用于 YourPrice。
 func TestMePricingCatalog_DefaultToFirstKeyGroup_OfficialPrice(t *testing.T) {

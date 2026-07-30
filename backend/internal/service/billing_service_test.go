@@ -1008,7 +1008,7 @@ func TestCalculateVideoCostUsesSeparateConfig(t *testing.T) {
 	imagePrice := 0.4
 	videoPrice := 0.08
 	imageCost := svc.CalculateImageCost("grok-imagine-video", "2K", 1, &ImagePriceConfig{Price2K: &imagePrice}, 1.0)
-	videoCost := svc.CalculateVideoCost("grok-imagine-video", "480p", 1, 10, &VideoPriceConfig{Price480P: &videoPrice}, 0.5)
+	videoCost := svc.CalculateVideoCost("grok-imagine-video", "480p", 1, 10, &VideoPriceConfig{Price480P: &videoPrice}, 0.5, nil)
 
 	require.InDelta(t, 0.4, imageCost.TotalCost, 1e-10)
 	require.InDelta(t, 0.8, videoCost.TotalCost, 1e-10)
@@ -1018,17 +1018,19 @@ func TestCalculateVideoCostUsesSeparateConfig(t *testing.T) {
 
 func TestCalculateVideoCostBillsPerSecond(t *testing.T) {
 	svc := newTestBillingService()
+	unit, ok := tkOverlayVideoUnitPriceUSD("grok-imagine-video", VideoBillingResolution720P, nil)
+	require.True(t, ok, "overlay SSOT must define grok-imagine-video 720p")
 
-	oneSecond := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 1, nil, 1.0)
-	fifteenSeconds := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 15, nil, 1.0)
+	oneSecond := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 1, nil, 1.0, nil)
+	fifteenSeconds := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 15, nil, 1.0, nil)
 	// duration <=0 时按上游默认 8 秒计费，超出上限按 15 秒收敛。
-	defaultDuration := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 0, nil, 1.0)
-	clampedDuration := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 999, nil, 1.0)
+	defaultDuration := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 0, nil, 1.0, nil)
+	clampedDuration := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 999, nil, 1.0, nil)
 
-	require.InDelta(t, 0.07, oneSecond.TotalCost, 1e-10)
-	require.InDelta(t, 0.07*15, fifteenSeconds.TotalCost, 1e-10)
-	require.InDelta(t, 0.07*8, defaultDuration.TotalCost, 1e-10)
-	require.InDelta(t, 0.07*15, clampedDuration.TotalCost, 1e-10)
+	require.InDelta(t, unit, oneSecond.TotalCost, 1e-10)
+	require.InDelta(t, unit*15, fifteenSeconds.TotalCost, 1e-10)
+	require.InDelta(t, unit*8, defaultDuration.TotalCost, 1e-10)
+	require.InDelta(t, unit*15, clampedDuration.TotalCost, 1e-10)
 }
 
 func TestCalculateGrokImagineImageCostUsesDefaultRateCard(t *testing.T) {
@@ -1045,21 +1047,28 @@ func TestCalculateGrokImagineImageCostUsesDefaultRateCard(t *testing.T) {
 	require.InDelta(t, 0.07, quality2K.TotalCost, 1e-10)
 }
 
-func TestCalculateGrokImagineVideoCostUsesDefaultRateCard(t *testing.T) {
+func TestCalculateGrokImagineVideoCostUsesOverlayTierCard(t *testing.T) {
 	svc := newTestBillingService()
 
-	// 默认价目为 xAI 官方每秒价格，按 1 秒时长验证每秒单价。
-	standard480P := svc.CalculateVideoCost("grok-imagine-video", "480p", 1, 1, nil, 1.0)
-	standard720P := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 1, nil, 1.0)
-	video15_480P := svc.CalculateVideoCost("grok-imagine-video-1.5", "480p", 1, 1, nil, 1.0)
-	video15_720P := svc.CalculateVideoCost("grok-imagine-video-1.5", "720p", 1, 1, nil, 1.0)
-	video15_1080P := svc.CalculateVideoCost("grok-imagine-video-1.5", "1080p", 1, 1, nil, 1.0)
-
-	require.InDelta(t, 0.05, standard480P.TotalCost, 1e-10)
-	require.InDelta(t, 0.07, standard720P.TotalCost, 1e-10)
-	require.InDelta(t, 0.08, video15_480P.TotalCost, 1e-10)
-	require.InDelta(t, 0.14, video15_720P.TotalCost, 1e-10)
-	require.InDelta(t, 0.25, video15_1080P.TotalCost, 1e-10)
+	cases := []struct {
+		model      string
+		resolution string
+	}{
+		{"grok-imagine-video", "480p"},
+		{"grok-imagine-video", "720p"},
+		{"grok-imagine-video-1.5", "480p"},
+		{"grok-imagine-video-1.5", "720p"},
+		{"grok-imagine-video-1.5", "1080p"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.model+"@"+tc.resolution, func(t *testing.T) {
+			want, ok := tkOverlayVideoUnitPriceUSD(tc.model, tc.resolution, nil)
+			require.True(t, ok)
+			got := svc.CalculateVideoCost(tc.model, tc.resolution, 1, 1, nil, 1.0, nil)
+			require.InDelta(t, want, got.TotalCost, 1e-10)
+		})
+	}
 }
 
 func TestIsModelSupported(t *testing.T) {

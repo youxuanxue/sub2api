@@ -256,6 +256,13 @@
                       {{ t('pricing.columns.vendor') }}
                     </th>
                     <th
+                      v-if="hasTierColumn"
+                      scope="col"
+                      class="sticky top-0 z-40 min-w-[5rem] bg-gray-50 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
+                    >
+                      {{ t('pricing.columns.tier') }}
+                    </th>
+                    <th
                       scope="col"
                       class="sticky top-0 z-40 bg-gray-50 px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
                     >
@@ -337,16 +344,62 @@
                       >
                         {{ variantOf(row).caption }}
                       </p>
+                      <p
+                        v-else-if="row.billingMode === 'video' && videoVariantOf(row).kind === 'tiered'"
+                        class="mt-0.5 font-sans text-[10px] font-normal leading-snug text-gray-500 dark:text-dark-400"
+                        data-tk="pricing-variant-caption-video-tiered"
+                      >
+                        {{ t('pricing.video.tieredCaption') }}
+                      </p>
                     </td>
                     <td
                       class="min-w-[7rem] px-3 py-3 align-top text-sm leading-snug text-gray-600 break-words dark:text-dark-300"
                     >
                       {{ row.vendor || '—' }}
                     </td>
+                    <td
+                      v-if="hasTierColumn"
+                      class="min-w-[5rem] whitespace-nowrap px-3 py-3 align-top text-left text-[10px] font-medium tabular-nums text-gray-500 dark:text-dark-400"
+                      data-tk="pricing-tier-column"
+                    >
+                      <template v-if="row.billingMode === 'video' && videoVariantOf(row).lines.length">
+                        <div
+                          v-for="line in videoVariantOf(row).lines"
+                          :key="line.label"
+                          class="leading-relaxed"
+                        >
+                          {{ line.label }}
+                        </div>
+                      </template>
+                      <template v-else-if="variantOf(row).kind !== 'flat'">
+                        <div
+                          v-for="line in variantOf(row).lines"
+                          :key="line.label"
+                          class="leading-relaxed"
+                        >
+                          {{ line.label }}
+                        </div>
+                      </template>
+                      <template v-else>—</template>
+                    </td>
                     <td class="whitespace-nowrap px-3 py-3 align-top text-right text-sm tabular-nums text-gray-900 dark:text-white">
                       <template v-if="row.billingMode === 'image' && row.perImage != null">
                         {{ formatPrice(row.perImage) }}
                         <span class="ml-0.5 text-xs text-gray-400">{{ t('pricing.perImage') }}</span>
+                      </template>
+                      <template v-else-if="row.billingMode === 'video' && videoVariantOf(row).lines.length">
+                        <p class="font-medium">
+                          {{ videoHeadlineOf(row) }}
+                          <span class="ml-0.5 text-xs font-normal text-gray-400">{{ t('pricing.perSecond') }}</span>
+                        </p>
+                        <div
+                          v-for="line in videoVariantOf(row).lines"
+                          :key="line.label"
+                          class="leading-relaxed"
+                          data-tk="pricing-video-tier-line"
+                        >
+                          {{ formatPrice(line.perSecond) }}
+                        </div>
                       </template>
                       <template v-else-if="row.billingMode === 'video' && row.perSecond != null">
                         {{ formatPrice(row.perSecond) }}
@@ -364,25 +417,38 @@
                         <div
                           v-for="line in variantOf(row).lines"
                           :key="line.label"
-                          class="flex items-baseline justify-end gap-1.5 leading-relaxed"
+                          class="leading-relaxed"
                           data-tk="pricing-variant-line"
                         >
-                          <span class="text-[10px] font-medium text-gray-500 dark:text-dark-400">{{ line.label }}</span>
-                          <span>{{ line.inputPer1K != null ? formatPrice(line.inputPer1K) : '—' }}</span>
+                          {{ line.inputPer1K != null ? formatCatalogTokenPrice(line.inputPer1K) : '—' }}
                         </div>
-                        <span class="text-xs text-gray-400">{{ t('pricing.perThousandTokens') }}</span>
+                        <span class="text-xs text-gray-400">{{ t('pricing.perMillionTokens') }}</span>
                       </template>
                       <template v-else-if="row.inputPer1K != null">
-                        {{ formatPrice(row.inputPer1K) }}
+                        {{ formatCatalogTokenPrice(row.inputPer1K) }}
                         <span class="ml-0.5 text-xs text-gray-400">{{
-                          t('pricing.perThousandTokens')
+                          t('pricing.perMillionTokens')
                         }}</span>
                       </template>
                       <template v-else>—</template>
                     </td>
                     <td class="whitespace-nowrap px-3 py-3 align-top text-right text-sm tabular-nums text-gray-900 dark:text-white">
                       <!-- Media (image/video) and per_request bill on a single unit; the output column is the worked example for video, "—" otherwise. -->
-                      <template v-if="row.billingMode === 'video' && row.perSecond != null">
+                      <template v-if="row.billingMode === 'video' && videoVariantOf(row).lines.length">
+                        <div
+                          v-for="line in videoVariantOf(row).lines"
+                          :key="line.label"
+                          class="leading-relaxed"
+                        >
+                          <span class="text-xs text-gray-500 dark:text-dark-400">{{
+                            t('pricing.videoClipExample', {
+                              five: formatPrice(line.perSecond * 5),
+                              ten: formatPrice(line.perSecond * 10),
+                            })
+                          }}</span>
+                        </div>
+                      </template>
+                      <template v-else-if="row.billingMode === 'video' && row.perSecond != null">
                         <span class="text-xs text-gray-500 dark:text-dark-400">{{ t('pricing.videoClipExample', { five: formatPrice(row.perSecond * 5), ten: formatPrice(row.perSecond * 10) }) }}</span>
                       </template>
                       <template v-else-if="row.billingMode === 'image' || row.billingMode === 'per_request'">—</template>
@@ -393,18 +459,18 @@
                           :key="line.label"
                           class="leading-relaxed"
                         >
-                          {{ line.outputPer1K != null ? formatPrice(line.outputPer1K) : '—' }}
+                          {{ line.outputPer1K != null ? formatCatalogTokenPrice(line.outputPer1K) : '—' }}
                         </div>
-                        <span class="text-xs text-gray-400">{{ t('pricing.perThousandTokens') }}</span>
+                        <span class="text-xs text-gray-400">{{ t('pricing.perMillionTokens') }}</span>
                       </template>
                       <template v-else-if="row.outputPer1K != null">
-                        {{ formatPrice(row.outputPer1K) }}
+                        {{ formatCatalogTokenPrice(row.outputPer1K) }}
                         <span class="ml-0.5 text-xs text-gray-400">{{
-                          t('pricing.perThousandTokens')
+                          t('pricing.perMillionTokens')
                         }}</span>
                         <div v-if="row.thinkingOutputPer1K" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
-                          {{ t('pricing.thinkingOutput') }} {{ formatPrice(row.thinkingOutputPer1K) }}
-                          <span class="text-gray-400">{{ t('pricing.perThousandTokens') }}</span>
+                          {{ t('pricing.thinkingOutput') }} {{ formatCatalogTokenPrice(row.thinkingOutputPer1K) }}
+                          <span class="text-gray-400">{{ t('pricing.perMillionTokens') }}</span>
                         </div>
                       </template>
                       <template v-else>—</template>
@@ -421,18 +487,18 @@
                           :key="line.label"
                           class="leading-relaxed"
                         >
-                          {{ line.cacheReadPer1K != null ? formatPrice(line.cacheReadPer1K) : '—' }}
+                          {{ line.cacheReadPer1K != null ? formatCatalogTokenPrice(line.cacheReadPer1K) : '—' }}
                         </div>
                       </template>
                       <template v-else>
-                        {{ row.cacheReadPer1K != null ? formatPrice(row.cacheReadPer1K) : '—' }}
+                        {{ row.cacheReadPer1K != null ? formatCatalogTokenPrice(row.cacheReadPer1K) : '—' }}
                       </template>
                     </td>
                     <td
                       v-if="hasCacheColumns"
                       class="whitespace-nowrap px-3 py-3 align-top text-right text-sm tabular-nums text-gray-700 dark:text-dark-200"
                     >
-                      {{ row.cacheWritePer1K != null ? formatPrice(row.cacheWritePer1K) : '—' }}
+                      {{ row.cacheWritePer1K != null ? formatCatalogTokenPrice(row.cacheWritePer1K) : '—' }}
                     </td>
                     <td class="whitespace-nowrap px-3 py-3 align-top text-right text-sm tabular-nums text-gray-600 dark:text-dark-300">
                       <template v-if="row.contextWindow && row.contextWindow > 0">
@@ -551,7 +617,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { getPublicPricing, type PublicCatalogResponse } from '@/api/pricing'
+import { getPublicPricing, type PublicCatalogResponse, type PublicPricingVideoTier } from '@/api/pricing'
 import {
   getMePricingCatalog,
   type MePricingCatalogResponse,
@@ -570,6 +636,7 @@ import {
 } from '@/utils/pricingCatalogSearch'
 import {
   formatCatalogPrice as formatPrice,
+  formatCatalogTokenPrice,
   pricingCatalogModality,
   type PricingCatalogModality
 } from '@/utils/pricingCatalogPresentation.tk'
@@ -580,6 +647,11 @@ import {
   type PricingVariantTier,
   type PricingVariantView
 } from '@/utils/pricingVariants.tk'
+import {
+  formatCatalogVideoHeadline,
+  resolveVideoPricingVariant,
+  type VideoPricingVariantView,
+} from '@/utils/videoPricingVariants.tk'
 import { exportPricingCsv } from '@/composables/useTkPricingExport'
 import { filterUserSelectableApiKeys } from '@/utils/reservedProbeKey.tk'
 const { t } = useI18n()
@@ -618,6 +690,8 @@ interface NormalizedRow {
   perRequest?: number | null
   perImage?: number | null
   perSecond?: number | null
+  /** Official video ladder from the public / me catalog (SSOT: videoPricingVariants.tk.ts). */
+  videoPriceTiers?: PublicPricingVideoTier[]
   /** Context-length interval (阶梯) ladder, normalized from either catalog source. */
   tiers?: NormalizedTier[]
   /** Time-of-day (峰谷) pricing; prices here are the PEAK side. */
@@ -791,6 +865,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
       perRequest: null,
       perImage: m.pricing.output_cost_per_image ?? null,
       perSecond: m.pricing.output_cost_per_second ?? null,
+      videoPriceTiers: m.pricing.video_price_tiers,
       tiers: m.pricing.tiers?.map((tt) => ({
         minTokens: tt.min_tokens,
         maxTokens: tt.max_tokens ?? null,
@@ -828,6 +903,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
     perRequest: m.your_price.per_request ?? null,
     perImage: m.your_price.per_image ?? null,
     perSecond: m.your_price.per_second ?? null,
+    videoPriceTiers: m.your_price.video_price_tiers,
     tiers: m.your_price.tiers?.map((tt) => ({
       minTokens: tt.min_tokens,
       maxTokens: tt.max_tokens ?? null,
@@ -866,6 +942,13 @@ const hasCacheColumns = computed(() =>
 
 const hasMaxOutputColumn = computed(() =>
   normalizedRows.value.some((r) => r.maxOutputTokens > 0)
+)
+
+const hasTierColumn = computed(() =>
+  normalizedRows.value.some((r) => {
+    if (r.billingMode === 'video') return videoVariantOf(r).lines.length > 0
+    return variantOf(r).kind !== 'flat'
+  })
 )
 
 const rowTotal = computed(() => normalizedRows.value.length)
@@ -1012,6 +1095,29 @@ const variantByModel = computed(() => {
 /** Variant lines for a row; `flat` (no extra lines) when the price is a single number. */
 function variantOf(row: NormalizedRow): PricingVariantView {
   return variantByModel.value.get(row.model_id) ?? FLAT_PRICING_VARIANT
+}
+
+function videoPricingInput(row: NormalizedRow) {
+  return {
+    output_cost_per_second: row.perSecond ?? undefined,
+    video_price_tiers: row.videoPriceTiers,
+  }
+}
+
+const videoVariantByModel = computed(() => {
+  const map = new Map<string, VideoPricingVariantView>()
+  for (const row of normalizedRows.value) {
+    map.set(row.model_id, resolveVideoPricingVariant(videoPricingInput(row), t))
+  }
+  return map
+})
+
+function videoVariantOf(row: NormalizedRow): VideoPricingVariantView {
+  return videoVariantByModel.value.get(row.model_id) ?? resolveVideoPricingVariant(videoPricingInput(row), t)
+}
+
+function videoHeadlineOf(row: NormalizedRow): string {
+  return formatCatalogVideoHeadline(videoVariantOf(row), t)
 }
 
 function formatBillingMode(mode: string): string {

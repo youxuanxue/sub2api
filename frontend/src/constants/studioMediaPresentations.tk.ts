@@ -11,6 +11,7 @@
  */
 
 import { modalityForModel } from '@/constants/playgroundMedia.tk'
+import type { VideoPriceTier } from '@/utils/mediaCostEstimate.tk'
 import type { CatalogBillingIndex } from '@/utils/studioMediaCatalog.tk'
 
 export type StudioModality = 'image' | 'video'
@@ -549,8 +550,10 @@ function buildMediaPresentationForCatalogRow(
 export interface MediaPrice {
   /** USD per image at the 1K base tier (image models). */
   perImage?: number
-  /** USD per second (video models). */
+  /** USD per second (video models). Minimum tier when videoTiers is set. */
   perSecond?: number
+  /** Official resolution×audio ladder (from public /pricing). */
+  videoTiers?: readonly VideoPriceTier[]
   /** From catalog billing_mode — membership SSOT for Studio. */
   billingMode?: StudioModality
   /** Raw vendor slug from the catalog row (e.g. xai, vertex_ai). */
@@ -565,6 +568,7 @@ export interface ResolvedMediaModel {
   /** Live price for this model (from the catalog), per modality. */
   baseImagePrice?: number
   perSecond?: number
+  videoTiers?: readonly VideoPriceTier[]
 }
 
 /**
@@ -596,7 +600,7 @@ export function resolveAvailableModels(
     seenCanonical.add(canonicalId)
 
     const resolvedPresentation = buildMediaPresentationForCatalogRow(servedId, modality, presentation, price.vendor)
-    out.push({ presentation: resolvedPresentation, servedId, baseImagePrice, perSecond })
+    out.push({ presentation: resolvedPresentation, servedId, baseImagePrice, perSecond, videoTiers: price.videoTiers })
   }
 
   out.sort((a, b) => (a.baseImagePrice ?? a.perSecond ?? 0) - (b.baseImagePrice ?? b.perSecond ?? 0))

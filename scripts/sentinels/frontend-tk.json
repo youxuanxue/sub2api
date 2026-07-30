@@ -168,7 +168,8 @@
       "path": "frontend/src/utils/mediaCostEstimate.tk.ts",
       "must_contain": [
         "export function estimateImageCost",
-        "export function estimateVideoCost"
+        "export function estimateVideoCost",
+        "export function resolveVideoPerSecond"
       ],
       "rationale": "Single source of truth for the client-side media cost MIRROR (price on the Generate button + cost panel + pricing estimator). Must stay aligned with backend CalculateImageCost / CalculateVideoCost; deleting it silently drops the pre-generation price the whole 'price on the button' UX depends on."
     },
@@ -176,6 +177,7 @@
       "path": "frontend/src/utils/pricingCatalogPresentation.tk.ts",
       "must_contain": [
         "export function pricingCatalogModality",
+        "export function formatCatalogUsdNumeric",
         "export function formatCatalogPrice",
         "export function formatCatalogMediaPrice"
       ],
@@ -195,7 +197,9 @@
       "path": "frontend/src/utils/studioMediaCatalog.tk.ts",
       "must_contain": [
         "from '@/utils/pricingCatalogPresentation.tk'",
-        "pricingCatalogModality"
+        "pricingCatalogModality",
+        "m.your_price?.video_price_tiers",
+        "mapVideoPriceTiers"
       ],
       "rationale": "Studio catalog membership must consume the same billing_mode classifier as /models and /pricing. A local classifier here would recreate a second modality owner and allow Studio availability to drift from the public catalog tabs."
     },
@@ -1293,6 +1297,8 @@
         "useStudioVideoCardActions",
         "useStudioVideoSubmitOptions",
         "data-testid=\"studio-video-generate-audio\"",
+        "data-testid=\"studio-video-resolution\"",
+        "modelCardPerSecond",
         "mountStudioVideoLibrary",
         "StudioVideoPreviewChecking",
         "StudioVideoDownloadCard",
@@ -1780,9 +1786,10 @@
       "must_contain": [
         "from '@/utils/pricingVariants.tk'",
         "resolvePricingVariant",
-        "variantOf(model).lines.length"
+        "tokenGridLines",
+        "CatalogTieredPriceGrid"
       ],
-      "rationale": "The /models cards read price lines from the same owner as the /pricing table they link to. A card that falls back to the flat first-tier price contradicts the table one click away — the worst failure mode here, because the two numbers disagree while both look authoritative."
+      "rationale": "The /models cards read price lines from the same owner as the /pricing table they link to. tokenGridLines maps every variant line (or a single flat row) into CatalogTieredPriceGrid so tier labels and input/output columns stay aligned; reverting to inline flat first-tier display contradicts the table one click away."
     },
     {
       "path": "frontend/src/composables/useTkPricingExport.ts",

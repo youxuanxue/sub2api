@@ -99,6 +99,10 @@ type PublicCatalogPricing struct {
 	BillingMode         string  `json:"billing_mode,omitempty"`
 	OutputCostPerImage  float64 `json:"output_cost_per_image,omitempty"`
 	OutputCostPerSecond float64 `json:"output_cost_per_second,omitempty"`
+	// VideoPriceTiers surfaces official resolution×audio (and Grok image-input) ladders.
+	// OutputCostPerSecond carries the minimum tier for legacy clients; tier-aware UIs
+	// should render the full ladder. Omitted for flat-priced legacy rows.
+	VideoPriceTiers []PublicCatalogVideoTier `json:"video_price_tiers,omitempty"`
 	// Tiers, when non-empty, is the input-token interval (阶梯) pricing for models
 	// whose unit price varies by request input length (overlay `intervals` —
 	// VolcEngine doubao-seed-*, DeepSeek, Qwen-plus/coder, GLM-4.7 tiered SKUs).
@@ -266,6 +270,7 @@ func (s *PricingCatalogService) BuildPublicCatalog(ctx context.Context) *PublicC
 		applyCatalogOverlayPricing(resp)
 		attachCatalogOverlayTiers(resp)
 		applyCatalogOfficialListBaseTax(resp)
+		attachCatalogVideoPriceTiers(resp)
 		attachCatalogDeepSeekPeakValley(resp)
 	}
 

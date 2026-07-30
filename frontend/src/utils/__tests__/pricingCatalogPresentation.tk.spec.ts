@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  catalogTokenPricePer1M,
   formatCatalogMediaPrice,
   formatCatalogPrice,
+  formatCatalogTokenPrice,
+  formatCatalogUsd,
+  formatCatalogUsdNumeric,
   pricingCatalogModality,
 } from '../pricingCatalogPresentation.tk'
 
@@ -13,18 +17,36 @@ describe('pricingCatalogPresentation', () => {
     expect(pricingCatalogModality(undefined)).toBe('text')
   })
 
-  it('formats catalog prices with shared precision', () => {
-    expect(formatCatalogPrice(0)).toBe('$0')
-    expect(formatCatalogPrice(0.00125)).toBe('$0.001250')
-    expect(formatCatalogPrice(0.03480597014925373)).toBe('$0.0348')
-    expect(formatCatalogPrice(1.25)).toBe('$1.25')
-    expect(formatCatalogPrice(Number.NaN)).toBe('—')
+  it('formats numeric export amounts without a currency prefix', () => {
+    expect(formatCatalogUsdNumeric(0)).toBe('')
+    expect(formatCatalogUsdNumeric(0.1194)).toBe('0.119')
+    expect(formatCatalogUsdNumeric(0.4478)).toBe('0.448')
+    expect(formatCatalogUsdNumeric(0.006296)).toBe('0.006296')
+  })
+
+  it('retains six fractional digits for sub-cent catalog prices', () => {
+    expect(formatCatalogUsd(0)).toBe('$0')
+    expect(formatCatalogUsd(0.006674)).toBe('$0.006674')
+    expect(formatCatalogUsd(0.03480597014925373)).toBe('$0.035')
+    expect(formatCatalogUsd(0.6)).toBe('$0.6')
+    expect(formatCatalogUsd(1.25)).toBe('$1.25')
+    expect(formatCatalogUsd(Number.NaN)).toBe('—')
+    expect(formatCatalogPrice(0.1264)).toBe('$0.126')
+    expect(formatCatalogMediaPrice(0.6)).toBe('$0.6')
+  })
+
+  it('converts stored per-1K token prices to per-1M display', () => {
+    expect(catalogTokenPricePer1M(0.000297)).toBeCloseTo(0.297, 6)
+    expect(formatCatalogTokenPrice(0.000297)).toBe('$0.297')
+    expect(formatCatalogTokenPrice(0.0001194)).toBe('$0.119')
+    expect(formatCatalogTokenPrice(0.001844)).toBe('$1.844')
+    expect(formatCatalogTokenPrice(0)).toBe('$0')
+    expect(formatCatalogTokenPrice(Number.NaN)).toBe('—')
   })
 
   it('does not present missing or non-positive media prices as free', () => {
     expect(formatCatalogMediaPrice()).toBe('—')
     expect(formatCatalogMediaPrice(0)).toBe('—')
     expect(formatCatalogMediaPrice(-1)).toBe('—')
-    expect(formatCatalogMediaPrice(0.6)).toBe('$0.6000')
   })
 })

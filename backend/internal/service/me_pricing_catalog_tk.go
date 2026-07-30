@@ -244,6 +244,10 @@ type MePricingPrice struct {
 	// same one the public /pricing endpoint serves. The flat Input/OutputPer1K
 	// fields carry the first (lowest) tier. Per 1k tokens, USD.
 	Tiers []MePricingTier `json:"tiers,omitempty"`
+	// VideoPriceTiers, when non-empty, is the resolution×audio (and Grok image-input)
+	// ladder for video models. Copied verbatim from the public catalog (same
+	// single-source rationale as Tiers) — official list price, no rate scaling.
+	VideoPriceTiers []MePricingVideoTier `json:"video_price_tiers,omitempty"`
 	// PeakValley, when present, is the time-of-day (峰谷) price variant, copied
 	// verbatim from the public catalog (same single-source rationale as Tiers).
 	// The flat fields above are the OFF-PEAK (谷时) price; PeakValley carries the
@@ -299,6 +303,28 @@ type MePricingTier struct {
 	InputPer1K     *float64 `json:"input_per_1k,omitempty"`
 	OutputPer1K    *float64 `json:"output_per_1k,omitempty"`
 	CacheReadPer1K *float64 `json:"cache_read_per_1k,omitempty"`
+}
+
+// MePricingVideoTier mirrors PublicCatalogVideoTier (the single source) in the
+// me-pricing DTO's naming. USD per second; copied verbatim from the public catalog.
+type MePricingVideoTier struct {
+	Resolution                   string   `json:"resolution"`
+	PerSecond                    float64  `json:"per_second"`
+	PerSecondSilent              *float64 `json:"per_second_silent,omitempty"`
+	InputImageSurchargePerSecond *float64 `json:"input_image_surcharge_per_second,omitempty"`
+	DefaultForModel              bool     `json:"default_for_model,omitempty"`
+}
+
+// mePricingVideoTiersFromCatalog copies the public catalog video ladder verbatim.
+func mePricingVideoTiersFromCatalog(tiers []PublicCatalogVideoTier) []MePricingVideoTier {
+	if len(tiers) == 0 {
+		return nil
+	}
+	out := make([]MePricingVideoTier, 0, len(tiers))
+	for i := range tiers {
+		out = append(out, MePricingVideoTier(tiers[i]))
+	}
+	return out
 }
 
 // mePricingTiersFromCatalog converts the public catalog's tier ladder into the
@@ -647,6 +673,7 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 			// Single source of truth: the阶梯 ladder is the public catalog's,
 			// copied verbatim (me-pricing is the official list price, rate 1.0).
 			m.YourPrice.Tiers = mePricingTiersFromCatalog(meta.Pricing.Tiers)
+			m.YourPrice.VideoPriceTiers = mePricingVideoTiersFromCatalog(meta.Pricing.VideoPriceTiers)
 			m.YourPrice.PeakValley = mePricingPeakValleyFromCatalog(meta.Pricing.PeakValley)
 			if meta.Pricing.ThinkingOutputPer1KTokens > 0 {
 				tho := meta.Pricing.ThinkingOutputPer1KTokens

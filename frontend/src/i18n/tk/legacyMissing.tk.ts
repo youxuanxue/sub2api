@@ -8,8 +8,8 @@ type LocaleOverlay = Record<string, unknown>
 const en: LocaleOverlay = {
   "pricing": {
     "title": "Model Pricing",
-    "subtitle": "Pay-as-you-go · USD per 1K tokens",
-    "description": "Prices are per 1,000 tokens, in USD. Cache Read / Write columns apply only to models that bill cached tokens separately. Capabilities reflect upstream-declared features (vision, tools, …).",
+    "subtitle": "Pay-as-you-go · USD per 1M tokens",
+    "description": "Prices are per 1,000,000 tokens, in USD. Cache Read / Write columns apply only to models that bill cached tokens separately. Capabilities reflect upstream-declared features (vision, tools, …).",
     "nav": {
       "aria": "Leave pricing page",
       "home": "Home",
@@ -20,6 +20,7 @@ const en: LocaleOverlay = {
     "columns": {
       "model": "Model",
       "vendor": "Vendor",
+      "tier": "Tier",
       "input": "Input",
       "output": "Output",
       "cacheRead": "Cache Read",
@@ -48,11 +49,19 @@ const en: LocaleOverlay = {
       "peak": "Peak",
       "peakCaption": "Peak {windows} ({tz}) bills at {mult}× the off-peak price"
     },
+    "video": {
+      "withAudio": "with audio",
+      "withoutAudio": "silent",
+      "textToVideo": "text-to-video",
+      "withInputImage": "image-to-video",
+      "tieredCaption": "Price varies by resolution and generation options"
+    },
     "footer": {
       "total": "{count} models listed",
       "filtered": "Showing {shown} of {total} models"
     },
     "perThousandTokens": "/ 1K tokens",
+    "perMillionTokens": "/ 1M tokens",
     "thinkingOutput": "Thinking",
     "contextTokens": "{count} tokens",
     "updatedAt": "Last updated {time}",
@@ -99,7 +108,7 @@ const en: LocaleOverlay = {
       "tabPublic": "All groups",
       "title": "Group Model Catalog",
       "subtitle": "Models available to the group of your selected API key, at official pricing",
-      "description": "Shows the models available to the selected group and their official pricing, per 1,000 tokens. Switch keys to see another group, or compare other accessible groups.",
+      "description": "Shows the models available to the selected group and their official pricing, per 1,000,000 tokens. Switch keys to see another group, or compare other accessible groups.",
       "pickerKey": "Current key:",
       "pickerCompare": "Compare group:",
       "compareDefault": "Keep current",
@@ -300,6 +309,7 @@ const en: LocaleOverlay = {
       "inlineCopyHint": "Inline clips cannot be shared as a browser link — download started automatically.",
       "generateAudio": "Generate audio",
       "generateAudioHint": "Include sound in the generated clip (when the model supports it).",
+      "resolution": "Output resolution",
       "retentionHint": "Download now · short local preview; upstream links expire",
       "previewBuffering": "Buffering video…",
       "checkingPreview": "Checking whether in-page preview is available…",
@@ -358,6 +368,7 @@ const en: LocaleOverlay = {
     "filterVideo": "Video",
     "searchPlaceholder": "Search models...",
     "pricePerK": "/ 1K tokens",
+    "pricePerM": "/ 1M tokens",
     "viewPricing": "View Pricing Details",
     "noModels": "No models match your filters.",
     "browseAll": "Browse All Models",
@@ -939,8 +950,8 @@ const en: LocaleOverlay = {
 const zh: LocaleOverlay = {
   "pricing": {
     "title": "模型价格",
-    "subtitle": "按调用量计费 · USD / 1K tokens",
-    "description": "价格以美元 (USD) 计价，单位为每 1,000 tokens。Cache Read / Write 仅对单独计费缓存的模型生效；能力标签来自上游声明（视觉、工具调用等）。",
+    "subtitle": "按调用量计费 · USD / 1M tokens",
+    "description": "价格以美元 (USD) 计价，单位为每 1,000,000 tokens。Cache Read / Write 仅对单独计费缓存的模型生效；能力标签来自上游声明（视觉、工具调用等）。",
     "nav": {
       "aria": "离开价格页",
       "home": "首页",
@@ -951,6 +962,7 @@ const zh: LocaleOverlay = {
     "columns": {
       "model": "模型",
       "vendor": "厂商",
+      "tier": "分档",
       "input": "输入",
       "output": "输出",
       "cacheRead": "缓存读取",
@@ -976,11 +988,19 @@ const zh: LocaleOverlay = {
       "peak": "高峰",
       "peakCaption": "高峰 {windows}（{tz}）按谷时价 ×{mult} 计费"
     },
+    "video": {
+      "withAudio": "有声",
+      "withoutAudio": "无声",
+      "textToVideo": "文生视频",
+      "withInputImage": "图生视频",
+      "tieredCaption": "按分辨率与生成选项分档计价"
+    },
     "footer": {
       "total": "共 {count} 个模型",
       "filtered": "显示 {shown} / {total} 个模型"
     },
     "perThousandTokens": "/ 1K tokens",
+    "perMillionTokens": "/ 1M tokens",
     "thinkingOutput": "思考",
     "contextTokens": "{count} tokens",
     "updatedAt": "更新于 {time}",
@@ -1027,7 +1047,7 @@ const zh: LocaleOverlay = {
       "tabPublic": "所有分组",
       "title": "分组模型目录",
       "subtitle": "当前 API Key 所属分组可调用的模型与官方定价",
-      "description": "展示所选分组可调用的模型及其官方定价，单位为每 1,000 tokens。切换 API Key 查看不同 group，或对比其他可用 group。",
+      "description": "展示所选分组可调用的模型及其官方定价，单位为每 1,000,000 tokens。切换 API Key 查看不同 group，或对比其他可用 group。",
       "pickerKey": "当前 Key：",
       "pickerCompare": "对比其他 group：",
       "compareDefault": "保持当前",
@@ -1228,6 +1248,7 @@ const zh: LocaleOverlay = {
       "inlineCopyHint": "内联视频不能复制成浏览器链接，已自动开始下载。",
       "generateAudio": "生成音频",
       "generateAudioHint": "为成片附带声音（模型支持时生效）。",
+      "resolution": "输出分辨率",
       "retentionHint": "请立即下载保存 · 本机可短期预览，上游链接会过期",
       "previewBuffering": "正在缓冲视频…",
       "checkingPreview": "正在检查能否在页面内预览…",
@@ -1286,6 +1307,7 @@ const zh: LocaleOverlay = {
     "filterVideo": "视频",
     "searchPlaceholder": "搜索模型...",
     "pricePerK": "/ 1K tokens",
+    "pricePerM": "/ 1M tokens",
     "viewPricing": "查看定价详情",
     "noModels": "没有匹配的模型。",
     "browseAll": "浏览全部模型",

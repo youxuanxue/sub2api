@@ -1,3 +1,9 @@
+import {
+  TK_GROK_IMAGE_ADMIN_PLACEHOLDERS,
+  TK_GROK_VIDEO_ADMIN_DESCRIPTION,
+  TK_GROK_VIDEO_ADMIN_PLACEHOLDERS,
+} from "@/constants/tkVideoOverlayPlaceholders.tk";
+
 export const imagePricingPlatforms = new Set([
   "antigravity",
   "gemini",
@@ -17,6 +23,12 @@ export const imagePricingI18nKey = (_platform: string, key: string): string =>
 export const videoPricingI18nKey = (key: string): string =>
   `admin.groups.videoPricing.${key}`;
 
+/** Admin Grok video pricing blurb — rates from tk_pricing_overlay.json via export script. */
+export const grokVideoPricingDescription = (locale: string): string =>
+  locale.startsWith("zh")
+    ? TK_GROK_VIDEO_ADMIN_DESCRIPTION.zh
+    : TK_GROK_VIDEO_ADMIN_DESCRIPTION.en;
+
 type ImagePricingTierKey = "image_price_1k" | "image_price_2k" | "image_price_4k";
 type VideoPricingTierKey =
   | "video_price_480p"
@@ -33,22 +45,21 @@ const defaultImagePricePlaceholders: Record<
     image_price_4k: "0.268",
   },
   grok: {
-    image_price_1k: "0.02",
-    image_price_2k: "0.02",
-    image_price_4k: "0.02",
+    image_price_1k: TK_GROK_IMAGE_ADMIN_PLACEHOLDERS.image_price_1k,
+    image_price_2k: TK_GROK_IMAGE_ADMIN_PLACEHOLDERS.image_price_2k,
+    image_price_4k: TK_GROK_IMAGE_ADMIN_PLACEHOLDERS.image_price_4k,
   },
 };
 
-// 视频价为每秒单价（USD/s）。480p/720p 取 grok-imagine-video（文生视频实际走该模型）的
-// 官方每秒价；1080p 仅 grok-imagine-video-1.5 图生视频支持，取 1.5 的每秒价。
+// Video placeholders: 480p/720p from grok-imagine-video; 1080p from video-1.5 (overlay SSOT).
 const defaultVideoPricePlaceholders: Record<
   string,
   Record<VideoPricingTierKey, string>
 > = {
   grok: {
-    video_price_480p: "0.05",
-    video_price_720p: "0.07",
-    video_price_1080p: "0.25",
+    video_price_480p: TK_GROK_VIDEO_ADMIN_PLACEHOLDERS.video_price_480p,
+    video_price_720p: TK_GROK_VIDEO_ADMIN_PLACEHOLDERS.video_price_720p,
+    video_price_1080p: TK_GROK_VIDEO_ADMIN_PLACEHOLDERS.video_price_1080p,
   },
 };
 

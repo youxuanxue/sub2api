@@ -3,7 +3,9 @@
 package service
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
@@ -92,10 +94,136 @@ func TestEstimateImageHold_CoversFewerDeliveredImages(t *testing.T) {
 
 func TestEstimateVideoHold_MatchesBilledDuration(t *testing.T) {
 	s := NewBillingService(&config.Config{}, nil)
-	hold := s.EstimateVideoHold("some-video-model", 8, 1.0)
-	actual := s.CalculateVideoCost("some-video-model", VideoBillingResolution720P, 1, 8, nil, 1.0).ActualCost
+	hold := s.EstimateVideoHold("some-video-model", 8, 1.0, "", nil, nil)
+	actual := s.CalculateVideoCost("some-video-model", VideoBillingResolution720P, 1, 8, nil, 1.0, nil).ActualCost
 	if hold < actual {
 		t.Errorf("video hold must be ≥ billed cost for the same duration: hold=%.6f actual=%.6f", hold, actual)
+	}
+}
+
+func TestEstimateVideoHold_UsesGroupTierOverride(t *testing.T) {
+	s := NewBillingService(&config.Config{}, nil)
+	price1080P := 0.9
+	groupConfig := &VideoPriceConfig{Price1080P: &price1080P}
+	hold := s.EstimateVideoHold("veo-3.1-generate-001", 2, 1.5, VideoBillingResolution1080P, groupConfig, nil)
+	want := price1080P * 2 * 1.5
+	if hold != want {
+		t.Errorf("video hold must use the settlement group tier override: hold=%.6f want=%.6f", hold, want)
+	}
+}
+
+type videoHoldRepoStub struct {
+	UsageBillingRepository
+	command *HoldCommand
+}
+
+func (s *videoHoldRepoStub) ReserveBalanceHold(_ context.Context, command *HoldCommand) (bool, error) {
+	s.command = command
+	return true, nil
+}
+
+func (s *videoHoldRepoStub) ReleaseBalanceHold(context.Context, string) (bool, error) {
+	return true, nil
+}
+
+func (s *videoHoldRepoStub) ReleaseExpiredBalanceHolds(context.Context, time.Time, int) (int, error) {
+	return 0, nil
+}
+
+func TestTkReserveVideoHold_UsesIndependentVideoMultiplier(t *testing.T) {
+	price1080P := 0.9
+	ctx := context.Background()
+	repo := &videoHoldRepoStub{}
+	s := &OpenAIGatewayService{
+		billingService:   NewBillingService(&config.Config{}, nil),
+		usageBillingRepo: repo,
+	}
+	apiKey := &APIKey{
+		ID: 2,
+		Group: &Group{
+			VideoPrice1080P:      &price1080P,
+			VideoRateIndependent: true,
+			VideoRateMultiplier:  0.4,
+		},
+	}
+
+	held, reject := s.TkReserveVideoHold(
+		ctx, "video-independent-rate", "veo-3.1-generate-001",
+		&User{ID: 1}, apiKey, 2, VideoBillingResolution1080P, nil,
+	)
+
+	if !held || reject {
+		t.Fatalf("expected hold to be reserved: held=%v reject=%v", held, reject)
+	}
+	if repo.command == nil {
+		t.Fatal("expected hold command")
+	}
+	want := price1080P * 2 * 0.4
+	if repo.command.Amount != want {
+		t.Errorf("video hold must use independent video multiplier: amount=%.6f want=%.6f", repo.command.Amount, want)
+	}
+	settled := s.calculateOpenAIVideoCost(ctx, "veo-3.1-generate-001", apiKey, &OpenAIForwardResult{
+		VideoCount:           1,
+		VideoDurationSeconds: 2,
+		VideoResolution:      VideoBillingResolution1080P,
+	}, resolveVideoRateMultiplier(apiKey, 1))
+	if settled == nil || repo.command.Amount != settled.ActualCost {
+		t.Errorf("video hold must equal settlement: hold=%.6f settled=%v", repo.command.Amount, settled)
+	}
+}
+
+func TestTkReserveVideoHold_UsesChannelResolutionTier(t *testing.T) {
+	const (
+		groupID = int64(100)
+		model   = "veo-3.1-generate-001"
+	)
+	defaultPrice := 0.2
+	price1080P := 0.7
+	ctx := context.Background()
+	cache := newEmptyChannelCache()
+	cache.pricingByGroupModel[channelModelKey{groupID: groupID, model: model}] = &ChannelModelPricing{
+		BillingMode:     BillingModePerRequest,
+		PerRequestPrice: &defaultPrice,
+		Intervals: []PricingInterval{{
+			TierLabel:       VideoBillingResolution1080P,
+			PerRequestPrice: &price1080P,
+		}},
+	}
+	cache.channelByGroupID[groupID] = &Channel{ID: groupID, Status: StatusActive}
+	cache.groupPlatform[groupID] = ""
+	cache.loadedAt = time.Now()
+	channelService := &ChannelService{}
+	channelService.cache.Store(cache)
+	billingService := NewBillingService(&config.Config{}, nil)
+	repo := &videoHoldRepoStub{}
+	s := &OpenAIGatewayService{
+		billingService:   billingService,
+		usageBillingRepo: repo,
+		resolver:         NewModelPricingResolver(channelService, billingService),
+	}
+	apiKey := &APIKey{ID: 2, GroupID: i64p(groupID), Group: &Group{ID: groupID}}
+
+	held, reject := s.TkReserveVideoHold(
+		ctx, "video-channel-tier", model,
+		&User{ID: 1}, apiKey, 8, VideoBillingResolution1080P, nil,
+	)
+
+	if !held || reject {
+		t.Fatalf("expected hold to be reserved: held=%v reject=%v", held, reject)
+	}
+	if repo.command == nil {
+		t.Fatal("expected hold command")
+	}
+	if repo.command.Amount != price1080P {
+		t.Errorf("video hold must use channel per-request tier without duration scaling: amount=%.6f want=%.6f", repo.command.Amount, price1080P)
+	}
+	settled := s.calculateOpenAIVideoCost(ctx, model, apiKey, &OpenAIForwardResult{
+		VideoCount:           1,
+		VideoDurationSeconds: 8,
+		VideoResolution:      VideoBillingResolution1080P,
+	}, 1)
+	if settled == nil || repo.command.Amount != settled.ActualCost {
+		t.Errorf("video hold must equal settlement: hold=%.6f settled=%v", repo.command.Amount, settled)
 	}
 }
 
