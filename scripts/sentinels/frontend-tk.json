@@ -1780,9 +1780,10 @@
       "must_contain": [
         "from '@/utils/pricingVariants.tk'",
         "resolvePricingVariant",
-        "variantOf(model).lines.length"
+        "tokenGridLines",
+        "CatalogTieredPriceGrid"
       ],
-      "rationale": "The /models cards read price lines from the same owner as the /pricing table they link to. A card that falls back to the flat first-tier price contradicts the table one click away — the worst failure mode here, because the two numbers disagree while both look authoritative."
+      "rationale": "The /models cards read price lines from the same owner as the /pricing table they link to. tokenGridLines maps every variant line (or a single flat row) into CatalogTieredPriceGrid so tier labels and input/output columns stay aligned; reverting to inline flat first-tier display contradicts the table one click away."
     },
     {
       "path": "frontend/src/composables/useTkPricingExport.ts",

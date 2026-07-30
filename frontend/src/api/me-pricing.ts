@@ -45,6 +45,8 @@ export interface MePricingPrice {
    *  (single source of truth — me-pricing is the official list price). The flat
    *  input/output fields carry the first tier. Absent for flat-priced models. */
   tiers?: MePricingTier[]
+  /** Video resolution×audio ladder, copied verbatim from the public catalog. */
+  video_price_tiers?: MePricingVideoTier[]
   /** Time-of-day (峰谷) pricing, copied verbatim from the public catalog. The flat
    *  fields above are the off-peak (谷时) price; these are the peak side. */
   peak_valley?: MePricingPeakValley
@@ -72,6 +74,15 @@ export interface MePricingTier {
   input_per_1k?: number
   output_per_1k?: number
   cache_read_per_1k?: number
+}
+
+/** One video resolution (and optional silent / image-input) bracket. USD/s. */
+export interface MePricingVideoTier {
+  resolution: string
+  per_second: number
+  per_second_silent?: number
+  input_image_surcharge_per_second?: number
+  default_for_model?: boolean
 }
 
 /** One accessible group that can serve a given model — the "授权分组" column.

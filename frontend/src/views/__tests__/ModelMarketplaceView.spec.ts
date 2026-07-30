@@ -38,7 +38,7 @@ vi.mock('vue-i18n', async () => {
     'models.providers': 'Providers',
     'models.inputPrice': 'Input',
     'models.outputPrice': 'Output',
-    'models.pricePerK': '/ 1K tokens',
+    'models.pricePerM': '/ 1M tokens',
     'models.viewPricing': 'View Pricing Details',
     'models.capabilities.image_generation': 'Image generation',
     'models.capabilities.video_generation': 'Video generation',
@@ -198,11 +198,12 @@ describe('CatalogHubView', () => {
     const wrapper = mountMarketplace()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('$0.0348 / image')
-    expect(wrapper.text()).toContain('$0.1266 / second')
+    expect(wrapper.text()).toContain('$0.035 / image')
+    expect(wrapper.text()).toContain('$0.127')
+    expect(wrapper.text()).toContain('/ second')
     expect(wrapper.text()).toContain('— / image')
     expect(wrapper.text()).not.toContain('Free')
-    expect(wrapper.text()).not.toContain('/ 1K tokens')
+    expect(wrapper.text()).not.toContain('/ 1M tokens')
   })
 
   it('shows video tier range and per-bracket lines when video_price_tiers is present', async () => {
@@ -227,7 +228,7 @@ describe('CatalogHubView', () => {
     const wrapper = mountMarketplace()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('$0.2000–$0.6000')
+    expect(wrapper.text()).toContain('$0.2–$0.6')
     expect(wrapper.text()).toContain('720p · with audio')
     expect(wrapper.text()).toContain('720p · silent')
     expect(wrapper.text()).toContain('/ second')

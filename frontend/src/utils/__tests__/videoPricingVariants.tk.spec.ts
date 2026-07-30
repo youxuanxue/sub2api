@@ -28,7 +28,7 @@ describe('videoPricingVariants', () => {
     expect(view.kind).toBe('flat')
     expect(view.lines).toHaveLength(0)
     expect(view.minPerSecond).toBe(0.5)
-    expect(formatCatalogVideoHeadline(view, t)).toBe('$0.5000')
+    expect(formatCatalogVideoHeadline(view, t)).toBe('$0.5')
   })
 
   it('builds range headline and per-tier lines for resolution×audio ladders', () => {
@@ -45,7 +45,7 @@ describe('videoPricingVariants', () => {
     expect(view.kind).toBe('tiered')
     expect(view.minPerSecond).toBe(0.2)
     expect(view.maxPerSecond).toBe(0.6)
-    expect(formatCatalogVideoHeadline(view, t)).toBe('$0.2000–$0.6000')
+    expect(formatCatalogVideoHeadline(view, t)).toBe('$0.2–$0.6')
     expect(view.lines.map((l) => l.label)).toEqual([
       '720p · with audio',
       '720p · silent',

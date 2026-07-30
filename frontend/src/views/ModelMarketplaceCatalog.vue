@@ -158,9 +158,9 @@
             </div>
 
             <!-- Pricing -->
-            <div v-if="model.pricing" class="flex items-start gap-4 border-t border-gray-100 pt-3 dark:border-dark-700">
+            <div v-if="model.pricing" class="border-t border-gray-100 pt-3 dark:border-dark-700">
               <template v-if="modelListingCategory(model) === 'image'">
-                <div class="min-w-0 flex-1">
+                <div class="min-w-0">
                   <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
                   <p class="flex flex-wrap items-baseline gap-1 text-sm font-semibold text-gray-900 dark:text-white">
                     {{ formatCatalogMediaPrice(model.pricing.output_cost_per_image) }}
@@ -169,67 +169,35 @@
                 </div>
               </template>
               <template v-else-if="modelListingCategory(model) === 'video'">
-                <div class="min-w-0 flex-1">
-                  <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
+                <div class="min-w-0">
                   <template v-if="videoVariantOf(model).lines.length">
-                    <p class="flex flex-wrap items-baseline gap-1 text-sm font-semibold text-gray-900 dark:text-white">
+                    <p v-if="videoHeadlineOf(model)" class="mb-1 text-sm font-semibold text-gray-900 dark:text-white">
                       {{ videoHeadlineOf(model) }}
-                      <span class="text-[10px] font-normal text-gray-400 dark:text-dark-500">{{ t('pricing.perSecond') }}</span>
                     </p>
-                    <p
-                      v-for="line in videoVariantOf(model).lines"
-                      :key="line.label"
-                      class="flex items-baseline justify-between gap-2 text-sm font-semibold text-gray-900 dark:text-white"
-                    >
-                      <span class="text-[10px] font-normal text-gray-400 dark:text-dark-500">{{ line.label }}</span>
-                      <span>{{ formatCatalogMediaPrice(line.perSecond) }}</span>
-                    </p>
+                    <CatalogTieredPriceGrid
+                      mode="single"
+                      :lines="videoGridLines(model)"
+                      :price-label="t('models.outputPrice')"
+                      :unit-label="t('pricing.perSecond')"
+                    />
                   </template>
-                  <p v-else class="flex flex-wrap items-baseline gap-1 text-sm font-semibold text-gray-900 dark:text-white">
-                    {{ formatCatalogMediaPrice(model.pricing.output_cost_per_second) }}
-                    <span class="text-[10px] font-normal text-gray-400 dark:text-dark-500">{{ t('pricing.perSecond') }}</span>
-                  </p>
+                  <CatalogTieredPriceGrid
+                    v-else
+                    mode="single"
+                    :lines="[{ label: '', priceText: formatCatalogMediaPrice(model.pricing.output_cost_per_second) }]"
+                    :price-label="t('models.outputPrice')"
+                    :unit-label="t('pricing.perSecond')"
+                  />
                 </div>
               </template>
-              <!--
-                Text models. A tiered (阶梯) or peak/valley (峰谷) model lists every
-                price as its own labelled line — same lines, same order as the
-                /pricing table (both read pricingVariants.tk.ts). Showing only the
-                first tier / the off-peak price here would contradict that table.
-              -->
+              <!-- Text token models: one grid for flat and tiered (分档列按需出现). -->
               <template v-else>
-                <div class="min-w-0 flex-1">
-                  <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.inputPrice') }}</span>
-                  <template v-if="variantOf(model).lines.length">
-                    <p
-                      v-for="line in variantOf(model).lines"
-                      :key="line.label"
-                      class="flex items-baseline justify-between gap-2 text-sm font-semibold text-gray-900 dark:text-white"
-                    >
-                      <span class="text-[10px] font-normal text-gray-400 dark:text-dark-500">{{ line.label }}</span>
-                      <span>{{ line.inputPer1K != null ? formatCatalogPrice(line.inputPer1K) : '—' }}</span>
-                    </p>
-                  </template>
-                  <p v-else class="text-sm font-semibold text-gray-900 dark:text-white">
-                    {{ formatCatalogPrice(model.pricing.input_per_1k_tokens) }}
-                  </p>
-                </div>
-                <div class="min-w-0 flex-1">
-                  <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
-                  <template v-if="variantOf(model).lines.length">
-                    <p
-                      v-for="line in variantOf(model).lines"
-                      :key="line.label"
-                      class="text-right text-sm font-semibold text-gray-900 dark:text-white"
-                    >
-                      {{ line.outputPer1K != null ? formatCatalogPrice(line.outputPer1K) : '—' }}
-                    </p>
-                  </template>
-                  <p v-else class="text-sm font-semibold text-gray-900 dark:text-white">
-                    {{ formatCatalogPrice(model.pricing.output_per_1k_tokens) }}
-                  </p>
-                </div>
-                <span class="shrink-0 text-[10px] text-gray-400 dark:text-dark-500">{{ t('models.pricePerK') }}</span>
+                <CatalogTieredPriceGrid
+                  :lines="tokenGridLines(model)"
+                  :input-label="t('models.inputPrice')"
+                  :output-label="t('models.outputPrice')"
+                  :unit-label="t('models.pricePerM')"
+                />
               </template>
             </div>
 
@@ -271,7 +239,7 @@ import { useAuthStore } from '@/stores/auth'
 import { getPublicPricing, type PublicCatalogModel } from '@/api/pricing'
 import {
   formatCatalogMediaPrice,
-  formatCatalogPrice,
+  formatCatalogTokenPrice,
   pricingCatalogModality,
   type PricingCatalogModality,
 } from '@/utils/pricingCatalogPresentation.tk'
@@ -292,6 +260,8 @@ import {
 } from '@/utils/videoPricingVariants.tk'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import CatalogViewSwitcher from '@/components/catalog/CatalogViewSwitcher.vue'
+import CatalogTieredPriceGrid from '@/components/catalog/CatalogTieredPriceGrid.tk.vue'
+import type { CatalogTieredPriceLine } from '@/components/catalog/CatalogTieredPriceGrid.tk.vue'
 
 withDefaults(
   defineProps<{
@@ -351,6 +321,33 @@ function videoVariantOf(m: PublicCatalogModel): VideoPricingVariantView {
 
 function videoHeadlineOf(m: PublicCatalogModel): string {
   return formatCatalogVideoHeadline(videoVariantOf(m), t)
+}
+
+function tokenGridLines(m: PublicCatalogModel): CatalogTieredPriceLine[] {
+  const variant = variantOf(m)
+  if (variant.lines.length > 0) {
+    return variant.lines.map((line) => ({
+      label: line.label,
+      inputText: line.inputPer1K != null ? formatCatalogTokenPrice(line.inputPer1K) : null,
+      outputText: line.outputPer1K != null ? formatCatalogTokenPrice(line.outputPer1K) : null,
+    }))
+  }
+  const p = m.pricing
+  if (!p) return []
+  return [
+    {
+      label: '',
+      inputText: formatCatalogTokenPrice(p.input_per_1k_tokens),
+      outputText: formatCatalogTokenPrice(p.output_per_1k_tokens),
+    },
+  ]
+}
+
+function videoGridLines(m: PublicCatalogModel): CatalogTieredPriceLine[] {
+  return videoVariantOf(m).lines.map((line) => ({
+    label: line.label,
+    priceText: formatCatalogMediaPrice(line.perSecond),
+  }))
 }
 
 const variantByModel = computed(() => {

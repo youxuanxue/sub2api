@@ -1,6 +1,7 @@
 /**
  * TokenKey: single source of truth for rendering **video price tiers** in catalog
- * surfaces (model marketplace cards, and any future consumer that must not drift).
+ * surfaces (model marketplace cards, /models?view=pricing table, and any future
+ * consumer that must not drift).
  *
  * When `video_price_tiers` is present, headline shows the min–max USD/s range and
  * each billable bracket gets its own labelled line — same idea as token tiered
