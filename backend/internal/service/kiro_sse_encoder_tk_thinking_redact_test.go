@@ -25,7 +25,7 @@ func TestKiroSSEEncoder_OpusStyleTextOnly_NoRedactedBlock(t *testing.T) {
 	}
 
 	enc.writeTextDelta("I am Claude.")
-	enc.writeMessageDelta(4, "end_turn")
+	enc.writeMessageDelta(0, 4, "end_turn")
 	enc.writeMessageStop()
 
 	out := rec.Body.String()

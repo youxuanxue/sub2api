@@ -211,7 +211,7 @@ func continuationTextDelta(visibleText, continuationText string) string {
 	if len(kept) == 0 {
 		return ""
 	}
-	return strings.Join(kept, "\n\n")
+	return separateVisibleTextDelta(visibleText, strings.Join(kept, "\n\n"))
 }
 
 // containsVisibleCompletionBlock also tolerates markdown/list decoration
@@ -222,8 +222,57 @@ func containsVisibleCompletionBlock(text, block string) bool {
 	if containsCompletionTextBlock(text, block) {
 		return true
 	}
-	stripped := strings.TrimLeft(block, "*#-• \t")
-	return stripped != block && strings.TrimSpace(stripped) != "" && containsCompletionTextBlock(text, stripped)
+	stripped, ok := stripCompletionMarkdownPrefix(block)
+	return ok && containsCompletionTextBlock(text, stripped)
+}
+
+func stripCompletionMarkdownPrefix(block string) (string, bool) {
+	trimmed := strings.TrimLeftFunc(block, isHorizontalSpace)
+	if trimmed == "" {
+		return "", false
+	}
+
+	if trimmed[0] == '#' {
+		index := 0
+		for index < len(trimmed) && trimmed[index] == '#' {
+			index++
+		}
+		if index < len(trimmed) {
+			next, _ := utf8.DecodeRuneInString(trimmed[index:])
+			if isHorizontalSpace(next) {
+				stripped := strings.TrimLeftFunc(trimmed[index:], isHorizontalSpace)
+				return stripped, stripped != ""
+			}
+		}
+	}
+
+	marker, size := utf8.DecodeRuneInString(trimmed)
+	if marker != '*' && marker != '-' && marker != '•' {
+		return "", false
+	}
+	rest := trimmed[size:]
+	next, _ := utf8.DecodeRuneInString(rest)
+	if !isHorizontalSpace(next) {
+		return "", false
+	}
+	stripped := strings.TrimLeftFunc(rest, isHorizontalSpace)
+	return stripped, stripped != ""
+}
+
+func isHorizontalSpace(r rune) bool {
+	return r == ' ' || r == '\t'
+}
+
+func separateVisibleTextDelta(visibleText, delta string) string {
+	if delta == "" || strings.TrimSpace(visibleText) == "" {
+		return delta
+	}
+	before, _ := utf8.DecodeLastRuneInString(visibleText)
+	after, _ := utf8.DecodeRuneInString(delta)
+	if unicode.IsSpace(before) || unicode.IsSpace(after) {
+		return delta
+	}
+	return "\n\n" + delta
 }
 
 // containsCompletionTextBlock reports whether the private completion message
@@ -476,9 +525,6 @@ func (s *KiroGatewayService) forwardNonStreaming(
 
 		textBuf += visibleTurnText
 		billingTextBuf += turnText
-		if completionAccepted {
-			billingTextBuf += strings.TrimSpace(completionSignal.Message)
-		}
 		thinkingBuf += turnThinking
 		billingToolUses = append(billingToolUses, turnToolUses...)
 
@@ -609,7 +655,24 @@ func (s *KiroGatewayService) forwardStreaming(
 			stopReason          string
 			redactor            kiroproto.InlineThinkingRedactor
 			callOutputCommitted bool
+			bufferedTextOffset  int
+			visibleTurnText     string
 		)
+		flushContinuationText := func() {
+			if turn == 1 || bufferedTextOffset >= len(turnText) {
+				return
+			}
+			pendingText := turnText[bufferedTextOffset:]
+			bufferedTextOffset = len(turnText)
+			delta := continuationTextDelta(textBuf+visibleTurnText, pendingText)
+			if delta == "" {
+				return
+			}
+			visibleTurnText += delta
+			markFirstToken()
+			enc.writeTextDelta(delta)
+			callOutputCommitted = true
+		}
 
 		callback := &kiroproto.KiroStreamCallback{
 			OnText: func(text string, isThinking bool) {
@@ -640,6 +703,7 @@ func (s *KiroGatewayService) forwardStreaming(
 				if payload.ClaudeCodeCompletionProtocol && kiroproto.IsClaudeCodeCompletionToolUse(toolUse) {
 					return
 				}
+				flushContinuationText()
 				markFirstToken()
 				enc.writeToolUse(toolUse)
 				callOutputCommitted = true
@@ -672,6 +736,8 @@ func (s *KiroGatewayService) forwardStreaming(
 				stopReason = ""
 				redactor = kiroproto.InlineThinkingRedactor{}
 				firstTokMs = firstTokBeforeTurn
+				bufferedTextOffset = 0
+				visibleTurnText = ""
 				return true
 			},
 		}
@@ -721,14 +787,10 @@ func (s *KiroGatewayService) forwardStreaming(
 			visibleToolUses, completionSignal = kiroproto.ConsumeClaudeCodeCompletionSignal(turnToolUses)
 		}
 		completionAccepted := isAcceptedClaudeCodeCompletion(stopReason, visibleToolUses, completionSignal)
-		visibleTurnText := turnText
-		if turn > 1 {
-			visibleTurnText = continuationTextDelta(textBuf, turnText)
-			if visibleTurnText != "" {
-				markFirstToken()
-				enc.writeTextDelta(visibleTurnText)
-				callOutputCommitted = true
-			}
+		if turn == 1 {
+			visibleTurnText = turnText
+		} else {
+			flushContinuationText()
 		}
 		if completionAccepted {
 			completionDelta := completionSignalTextDelta(textBuf+visibleTurnText, completionSignal)
@@ -750,9 +812,6 @@ func (s *KiroGatewayService) forwardStreaming(
 
 		textBuf += visibleTurnText
 		billingTextBuf += turnText
-		if completionAccepted {
-			billingTextBuf += strings.TrimSpace(completionSignal.Message)
-		}
 		thinkingBuf += turnThinking
 		billingToolUses = append(billingToolUses, turnToolUses...)
 
@@ -799,7 +858,10 @@ func (s *KiroGatewayService) forwardStreaming(
 	// emit message_start lazily here so the closing events form a valid stream.
 	enc.writeMessageStart()
 	enc.closeOpenBlock()
-	enc.writeMessageDelta(outputToks, mappedStopReason)
+	// Repeat the final input total because hidden completion continuations add
+	// prompt tokens after message_start. Relay consumers merge this terminal
+	// usage into the same accumulator used for billing.
+	enc.writeMessageDelta(inputTokens, outputToks, mappedStopReason)
 	enc.writeMessageStop()
 	publishKiroInternalThinkingSideChannel(c, w, nil, thinkingBuf)
 	flusher.Flush()

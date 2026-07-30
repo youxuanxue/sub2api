@@ -295,6 +295,8 @@
         "kiroproto.PrepareClaudeCodeCompletionContinuation",
         "completionSignalTextDelta",
         "continuationTextDelta",
+        "stripCompletionMarkdownPrefix",
+        "flushContinuationText",
         "billingTextBuf",
         "gateway.kiro_stop_reason",
         "gateway.kiro_completion_protocol",
@@ -302,7 +304,7 @@
         "classifyAndRecordKiroForwardError",
         "publishKiroInternalThinkingSideChannel"
       ],
-      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. completionSignalTextDelta prevents a private completion message from repeating a complete text block already visible in the same or an earlier hidden turn, while continuationTextDelta buffers and removes ordinary assistant text repeated by later hidden turns. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. billingTextBuf keeps hidden continuation output billable even when its duplicate presentation is suppressed. Both stop/completion actions remain observable, and the visible-text-aware pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
+      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. completionSignalTextDelta prevents a private completion message from repeating a complete text block already visible in the same or an earlier hidden turn, while continuationTextDelta buffers and removes ordinary assistant text repeated by later hidden turns. stripCompletionMarkdownPrefix accepts only explicit marker-plus-space decoration so semantic prefixes such as negative signs survive. flushContinuationText preserves text-before-tool ordering in SSE. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. billingTextBuf keeps hidden continuation output billable even when its duplicate presentation is suppressed, while private completion input is counted exactly once through billingToolUses. Both stop/completion actions remain observable, and the visible-text-aware pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_test.go",
@@ -328,6 +330,11 @@
         "TestUS041_KiroGatewayService_ContinuationCompletionDoesNotRepeatPriorFinalText",
         "TestUS041_KiroGatewayService_ContinuationTextDoesNotRepeatAcrossTurns",
         "TestContinuationTextDeltaKeepsOnlyNewRecapText",
+        "TestContinuationTextDeltaKeepsParagraphBoundary",
+        "TestCompletionSignalTextDeltaPreservesNegativeNumber",
+        "TestUS041_KiroGatewayService_ContinuationToolPreservesTextBeforeTool",
+        "TestUS041_KiroGatewayService_CompletionBillingCountsPrivateToolOnce",
+        "TestUS041_KiroGatewayService_ContinuationStreamingReportsFinalInputUsage",
         "TestUS041_KiroGatewayService_NonClaudeCodeCompletionNamedToolIsPreserved",
         "TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolUseReturnsImmediately",
         "TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolWinsOverCompletionSignal",
@@ -355,9 +362,9 @@
         "message_start",
         "content_block_delta",
         "func (e *kiroSSEEncoder) ensureBlock",
-        "writeMessageDelta(outputTokens int, stopReason string)"
+        "writeMessageDelta(inputTokens, outputTokens int, stopReason string)"
       ],
-      "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse). The explicit stopReason argument prevents the encoder from inventing end_turn when upstream actually stopped for a token limit or an unsupported outcome. ensureBlock (and writeToolUse) lazily call writeMessageStart on first content; writeMessageStart is idempotent (`if e.started { return }`). This laziness is what keeps enc.started false on a pre-content upstream 400 so the gateway service can surface the error instead of a clean empty 200 stream."
+      "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse). writeMessageDelta carries the final input total as well as output tokens because hidden completion turns occur after message_start and relay billing merges terminal usage. The explicit stopReason argument prevents the encoder from inventing end_turn when upstream actually stopped for a token limit or an unsupported outcome. ensureBlock (and writeToolUse) lazily call writeMessageStart on first content; writeMessageStart is idempotent (`if e.started { return }`). This laziness is what keeps enc.started false on a pre-content upstream 400 so the gateway service can surface the error instead of a clean empty 200 stream."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder_tk_thinking_redact_test.go",

@@ -43,3 +43,16 @@ func TestKiroSSEEncoder_MessageStartZeroInputTokens(t *testing.T) {
 		t.Fatalf("unset inputTokens should render 0, got: %s", buf.String())
 	}
 }
+
+func TestKiroSSEEncoder_MessageDeltaCarriesFinalInputTokens(t *testing.T) {
+	var buf bytes.Buffer
+	enc := &kiroSSEEncoder{w: &buf, model: "claude-sonnet-4-6", msgID: "msg_z", inputTokens: 100}
+
+	enc.writeMessageStart()
+	enc.writeMessageDelta(250, 42, "end_turn")
+
+	out := buf.String()
+	if !strings.Contains(out, `"usage":{"input_tokens":250,"output_tokens":42}`) {
+		t.Fatalf("message_delta must carry final input and output usage, got: %s", out)
+	}
+}
