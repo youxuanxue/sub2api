@@ -88,7 +88,7 @@ describe('useTkPricingExport.buildPricingCsv', () => {
     )
     // the ladder is one cell, segments joined by ' | '. Brackets are written
     // (min, max] to match FindMatchingInterval's left-open/right-closed billing.
-    expect(csv).toContain('(0, 128k]: in 0.1194 / out 0.2985 | (128k, ∞): in 0.7164 / out 7.1642')
+    expect(csv).toContain('(0, 128k]: in 0.119 / out 0.298 | (128k, ∞): in 0.716 / out 7.164')
   })
 
   it('carries each tier\'s cache-read price into the ladder cell', () => {
@@ -121,8 +121,8 @@ describe('useTkPricingExport.buildPricingCsv', () => {
         }
       ])
     )
-    expect(csv).toContain('(0, 32k]: in 0.4478 / out 2.0896 / cache 0.0896')
-    expect(csv).toContain('(32k, ∞): in 0.597 / out 2.3881 / cache 0.1194')
+    expect(csv).toContain('(0, 32k]: in 0.448 / out 2.09 / cache 0.09')
+    expect(csv).toContain('(32k, ∞): in 0.597 / out 2.388 / cache 0.119')
   })
 
   it('emits the peak/valley columns (flat fields stay the off-peak price)', () => {

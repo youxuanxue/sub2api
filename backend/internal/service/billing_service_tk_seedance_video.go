@@ -13,12 +13,12 @@ import (
 // at presentation/billing time via tkApplyVolcengineVideoListTax.
 
 const (
-	seedanceVideoFPS           = 24
-	seedanceCNYPerUSD          = 6.7
-	seedanceTokensPerSecond480 = 50220.0 / 5  // official 480p 16:9 5s example (doubao-seedance-2.0)
-	seedanceTokensPerSecond720 = 21600.0      // 1280×720×24/1024
+	seedanceVideoFPS            = 24
+	seedanceCNYPerUSD           = 6.7
+	seedanceTokensPerSecond480  = 50220.0 / 5 // official 480p 16:9 5s example (doubao-seedance-2.0)
+	seedanceTokensPerSecond720  = 21600.0     // 1280×720×24/1024
 	seedanceTokensPerSecond1080 = 48600.0     // 1920×1080×24/1024
-	seedanceTokensPerSecond4K  = 194400.0     // 3840×2160×24/1024
+	seedanceTokensPerSecond4K   = 194400.0    // 3840×2160×24/1024
 )
 
 type seedanceVideoTierRate struct {
@@ -70,7 +70,7 @@ func seedanceVideoModelSpecs() map[string]seedanceVideoModelSpec {
 			},
 			DefaultResolution: VideoBillingResolution1080P,
 		},
-	"seedance-1-0-pro-250528": {
+		"seedance-1-0-pro-250528": {
 			Tiers: []seedanceVideoTierRate{
 				{VideoBillingResolution480P, seedanceTokensPerSecond480, 15},
 				{VideoBillingResolution720P, seedanceTokensPerSecond720, 15},
@@ -86,8 +86,8 @@ func seedanceVideoModelSpecs() map[string]seedanceVideoModelSpec {
 			DefaultResolution: VideoBillingResolution720P,
 		},
 		"doubao-seedance-1-5-pro-251215": {
-			Tiers:             []seedanceVideoTierRate{t480_15, t720_15, t1080_15},
-			DefaultResolution: VideoBillingResolution1080P,
+			Tiers:                []seedanceVideoTierRate{t480_15, t720_15, t1080_15},
+			DefaultResolution:    VideoBillingResolution1080P,
 			SupportsAudioPricing: true,
 			CNYWithAudio:         16,
 			CNYSilent:            8,
@@ -200,10 +200,10 @@ func tkSeedanceVideoHoldUnitPriceUSD(model string) float64 {
 
 // SeedanceVideoCatalogTier is one resolution (+ optional silent) price row for public catalog.
 type SeedanceVideoCatalogTier struct {
-	Resolution           string
-	PerSecond            float64
-	PerSecondSilent      float64 // >0 only when audio pricing applies
-	DefaultForModel      bool
+	Resolution      string
+	PerSecond       float64
+	PerSecondSilent float64 // >0 only when audio pricing applies
+	DefaultForModel bool
 }
 
 func tkSeedanceVideoCatalogTiers(model string) []SeedanceVideoCatalogTier {

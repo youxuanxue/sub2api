@@ -5,6 +5,7 @@ import {
   formatCatalogPrice,
   formatCatalogTokenPrice,
   formatCatalogUsd,
+  formatCatalogUsdNumeric,
   pricingCatalogModality,
 } from '../pricingCatalogPresentation.tk'
 
@@ -14,6 +15,12 @@ describe('pricingCatalogPresentation', () => {
     expect(pricingCatalogModality('video')).toBe('video')
     expect(pricingCatalogModality('token')).toBe('text')
     expect(pricingCatalogModality(undefined)).toBe('text')
+  })
+
+  it('formats numeric export amounts without a currency prefix', () => {
+    expect(formatCatalogUsdNumeric(0)).toBe('')
+    expect(formatCatalogUsdNumeric(0.1194)).toBe('0.119')
+    expect(formatCatalogUsdNumeric(0.4478)).toBe('0.448')
   })
 
   it('formats all catalog USD amounts with at most 3 fractional digits', () => {

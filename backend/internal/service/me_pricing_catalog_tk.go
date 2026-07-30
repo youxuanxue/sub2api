@@ -322,14 +322,7 @@ func mePricingVideoTiersFromCatalog(tiers []PublicCatalogVideoTier) []MePricingV
 	}
 	out := make([]MePricingVideoTier, 0, len(tiers))
 	for i := range tiers {
-		t := tiers[i]
-		out = append(out, MePricingVideoTier{
-			Resolution:                   t.Resolution,
-			PerSecond:                    t.PerSecond,
-			PerSecondSilent:              t.PerSecondSilent,
-			InputImageSurchargePerSecond: t.InputImageSurchargePerSecond,
-			DefaultForModel:              t.DefaultForModel,
-		})
+		out = append(out, MePricingVideoTier(tiers[i]))
 	}
 	return out
 }

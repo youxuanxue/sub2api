@@ -20,10 +20,15 @@ export function catalogTokenPricePer1M(per1k: number): number {
  * At most three fractional digits; trailing zeros trimmed. Billing/Studio keeps
  * its own precision — catalog is for comparison, not invoicing.
  */
+export function formatCatalogUsdNumeric(value: number): string {
+  if (!Number.isFinite(value) || value === 0) return ''
+  return value.toFixed(3).replace(/\.?0+$/, '')
+}
+
 export function formatCatalogUsd(value: number): string {
   if (!Number.isFinite(value)) return '—'
   if (value === 0) return '$0'
-  const s = value.toFixed(3).replace(/\.?0+$/, '')
+  const s = formatCatalogUsdNumeric(value)
   return `$${s}`
 }
 
