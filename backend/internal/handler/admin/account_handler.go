@@ -2432,9 +2432,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	if account.Platform == service.PlatformNewAPI {
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			if agentPlanIDs := service.NewAPIAvailableModelPresetIDs(account); len(agentPlanIDs) > 0 {
-				sort.Strings(agentPlanIDs)
-				response.Success(c, tkAdminModelOptionsForIDs(agentPlanIDs))
+			if tkRespondNewAPIAgentPlanAvailableModelsWhenMappingEmpty(c, account) {
 				return
 			}
 			ids, err := h.adminService.GetAccountModelMappingPresetIDs(

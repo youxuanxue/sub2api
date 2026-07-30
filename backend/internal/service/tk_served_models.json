@@ -829,8 +829,8 @@
       "channel_type": 45,
       "price_source": "overlay",
       "price_key": "doubao-seed-2.0-mini",
-      "display": true,
-      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay proxies doubao-seed-2-0-mini-260428. /api/plan/v3 responses probe 200 on 2026-07-30."
+      "display": false,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay proxies doubao-seed-2-0-mini-260428. /api/plan/v3 responses probe 200 on 2026-07-30. display=false until TokenKey gateway /responses routing is verified end-to-end (Agent Plan probe 200 on /api/plan/v3/responses only, 2026-07-30)."
     },
     "newapi/doubao-seed-2.0-lite": {
       "platform": "newapi",
@@ -841,8 +841,8 @@
       "channel_type": 45,
       "price_source": "overlay",
       "price_key": "doubao-seed-2.0-lite",
-      "display": true,
-      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay proxies doubao-seed-2-0-lite-260428. /api/plan/v3 responses probe 200 on 2026-07-30."
+      "display": false,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay proxies doubao-seed-2-0-lite-260428. /api/plan/v3 responses probe 200 on 2026-07-30. display=false until TokenKey gateway /responses routing is verified end-to-end (Agent Plan probe 200 on /api/plan/v3/responses only, 2026-07-30)."
     },
     "newapi/doubao-seed-evolving": {
       "platform": "newapi",
@@ -853,8 +853,8 @@
       "channel_type": 45,
       "price_source": "overlay",
       "price_key": "doubao-seed-evolving",
-      "display": true,
-      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay from VolcEngine Agent Plan bundle list (¥6/M in, ¥30/M out at ≤32K, CNY/USD=6.7). /api/plan/v3 responses probe 200 on 2026-07-30."
+      "display": false,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay from VolcEngine Agent Plan bundle list (¥6/M in, ¥30/M out at ≤32K, CNY/USD=6.7). /api/plan/v3 responses probe 200 on 2026-07-30. display=false until TokenKey gateway /responses routing is verified end-to-end (Agent Plan probe 200 on /api/plan/v3/responses only, 2026-07-30)."
     },
     "newapi/doubao-seed-2.0-code": {
       "platform": "newapi",
@@ -865,8 +865,8 @@
       "channel_type": 45,
       "price_source": "overlay",
       "price_key": "doubao-seed-2.0-code",
-      "display": true,
-      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay proxies doubao-seed-2-0-code-preview-260215. /api/plan/v3 responses probe 200 on 2026-07-30."
+      "display": false,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay proxies doubao-seed-2-0-code-preview-260215. /api/plan/v3 responses probe 200 on 2026-07-30. display=false until TokenKey gateway /responses routing is verified end-to-end (Agent Plan probe 200 on /api/plan/v3/responses only, 2026-07-30)."
     },
     "newapi/doubao-seed-2.0-pro": {
       "platform": "newapi",
@@ -877,8 +877,8 @@
       "channel_type": 45,
       "price_source": "overlay",
       "price_key": "doubao-seed-2.0-pro",
-      "display": true,
-      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay proxies doubao-seed-2-0-pro-260215. /api/plan/v3 responses probe 200 on 2026-07-30."
+      "display": false,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay proxies doubao-seed-2-0-pro-260215. /api/plan/v3 responses probe 200 on 2026-07-30. display=false until TokenKey gateway /responses routing is verified end-to-end (Agent Plan probe 200 on /api/plan/v3/responses only, 2026-07-30)."
     },
     "newapi/minimax-m2.7": {
       "platform": "newapi",
@@ -889,8 +889,8 @@
       "channel_type": 45,
       "price_source": "overlay",
       "price_key": "minimax-m2.7",
-      "display": true,
-      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay from MiniMax official list ($0.30/$1.20 per M tokens). /api/plan/v3 responses probe 200 on 2026-07-30."
+      "display": false,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay from MiniMax official list ($0.30/$1.20 per M tokens). /api/plan/v3 responses probe 200 on 2026-07-30. display=false until TokenKey gateway /responses routing is verified end-to-end (Agent Plan probe 200 on /api/plan/v3/responses only, 2026-07-30)."
     },
     "newapi/minimax-m3": {
       "platform": "newapi",
@@ -901,8 +901,8 @@
       "channel_type": 45,
       "price_source": "overlay",
       "price_key": "minimax-m3",
-      "display": true,
-      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay from MiniMax official list ($0.30/$1.20 per M tokens). /api/plan/v3 responses probe 200 on 2026-07-30."
+      "display": false,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay from MiniMax official list ($0.30/$1.20 per M tokens). /api/plan/v3 responses probe 200 on 2026-07-30. display=false until TokenKey gateway /responses routing is verified end-to-end (Agent Plan probe 200 on /api/plan/v3/responses only, 2026-07-30)."
     }
   }
 }

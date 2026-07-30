@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "floor_sha256": "c41e46db176c3ffab5a316c6c407fb02d167561dd1fa39fbb232be58fad07cc4",
+  "floor_sha256": "0a1846f0efa17cc1ac3df249e77e4024b2045887383cf6b60433efcfd20195f5",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -193,13 +193,8 @@
         "doubao-seed-2-0-mini-260215": "doubao-seed-2-0-mini-260215",
         "doubao-seed-2-0-mini-260428": "doubao-seed-2-0-mini-260428",
         "doubao-seed-2-0-pro-260215": "doubao-seed-2-0-pro-260215",
-        "doubao-seed-2.0-code": "doubao-seed-2.0-code",
-        "doubao-seed-2.0-lite": "doubao-seed-2.0-lite",
-        "doubao-seed-2.0-mini": "doubao-seed-2.0-mini",
-        "doubao-seed-2.0-pro": "doubao-seed-2.0-pro",
         "doubao-seed-character-251128": "doubao-seed-character-251128",
         "doubao-seed-code-preview-251028": "doubao-seed-code-preview-251028",
-        "doubao-seed-evolving": "doubao-seed-evolving",
         "doubao-seedance-1-0-pro-250528": "doubao-seedance-1-0-pro-250528",
         "doubao-seedance-1-0-pro-fast-251015": "doubao-seedance-1-0-pro-fast-251015",
         "doubao-seedance-1-5-pro-251215": "doubao-seedance-1-5-pro-251215",
@@ -207,9 +202,7 @@
         "doubao-seedance-2-0-fast-260128": "doubao-seedance-2-0-fast-260128",
         "doubao-seedream-4-0-250828": "doubao-seedream-4-0-250828",
         "doubao-seedream-4-5-251128": "doubao-seedream-4-5-251128",
-        "doubao-seedream-5-0-260128": "doubao-seedream-5-0-260128",
-        "minimax-m2.7": "minimax-m2.7",
-        "minimax-m3": "minimax-m3"
+        "doubao-seedream-5-0-260128": "doubao-seedream-5-0-260128"
       }
     },
     "antigravity_group_scopes": [

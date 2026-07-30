@@ -543,6 +543,37 @@
         "TestVideoSubmitHasVideoInput_ParityWithNewAPIMetadataDecoding"
       ],
       "rationale": "Upstream-merge overwrite-protection gates for the video refund + video-input price guard: lock TK's terminal-status classification to the pinned new-api model.TaskStatus* constants and the input guard to TaskSubmitReq's accepted metadata carrier shapes (incl. metadata-as-JSON-string). Deleting these tests re-opens the silent-drift channel they exist to close — a .new-api-ref bump could rename statuses (refunds stop firing) or add carrier shapes (guard bypassed) with zero compile errors."
+    },
+    {
+      "path": "backend/internal/integration/newapi/volcengine_agent_plan.go",
+      "must_contain": [
+        "VolcEngineAgentPlanBaseKey",
+        "IsVolcEngineAgentPlanBaseURL"
+      ],
+      "rationale": "Agent Plan base-url detection for VolcEngine ch45 accounts using /api/plan/v3 instead of pay-as-you-go /api/v3. Without it admin probes and preset selection fall back to wrong upstream paths (404 InvalidEndpointOrModel)."
+    },
+    {
+      "path": "backend/internal/integration/newapi/ark_channel_base_url.go",
+      "must_contain": [
+        "VolcEngineAgentPlanBaseKey",
+        "/api/plan/v3"
+      ],
+      "rationale": "Canonicalizes Agent Plan /api/plan/* credential shapes to the doubao-agent-plan magic key consumed by new-api ChannelSpecialBases."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_tk_newapi_volcagentplan.go",
+      "must_contain": [
+        "NewAPIAvailableModelPresetIDs",
+        "tkServedModelsManifestPresetIDsForAccount"
+      ],
+      "rationale": "Agent Plan admin preset + default probe model derive from manifest served_on, not hardcoded lists or ch45 channel-wide presets that mix pay-as-you-go account 7."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler_tk_volcagentplan.go",
+      "must_contain": [
+        "tkRespondNewAPIAgentPlanAvailableModelsWhenMappingEmpty"
+      ],
+      "rationale": "Admin GetAvailableModels empty-mapping path for Agent Plan accounts; keeps upstream account_handler.go to a one-line call site."
     }
   ]
 }
