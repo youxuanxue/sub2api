@@ -38,9 +38,14 @@ describe('resolveBrowserGatewayFetchBaseUrl', () => {
     expect(resolveBrowserGatewayFetchBaseUrl('https://tokenkey.dev/')).toBe('https://tokenkey.dev')
   })
 
-  it('falls back to same-origin when the configured gateway host is cross-origin', () => {
+  it('returns the configured cross-origin gateway host for browser fetch', () => {
     vi.stubGlobal('window', { location: { origin: 'https://tokenkey.dev', href: 'https://tokenkey.dev/quickstart' } })
-    expect(resolveBrowserGatewayFetchBaseUrl('https://api.tokenkey.dev')).toBe('https://tokenkey.dev')
+    expect(resolveBrowserGatewayFetchBaseUrl('https://api.tokenkey.dev')).toBe('https://api.tokenkey.dev')
+  })
+
+  it('falls back to same-origin when the display gateway base is empty', () => {
+    vi.stubGlobal('window', { location: { origin: 'https://tokenkey.dev', href: 'https://tokenkey.dev/quickstart' } })
+    expect(resolveBrowserGatewayFetchBaseUrl('')).toBe('https://tokenkey.dev')
   })
 
   it('returns the configured base outside the browser', () => {
@@ -54,7 +59,7 @@ describe('resolveBrowserGatewayFetchBaseUrl', () => {
 describe('gatewayListModels browser fetch base', () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it('uses same-origin base when the display gateway host is cross-origin', async () => {
+  it('uses the configured gateway host for cross-origin browser fetch', async () => {
     vi.stubGlobal('window', { location: { origin: 'https://tokenkey.dev', href: 'https://tokenkey.dev/studio' } })
     let sentUrl = ''
     vi.stubGlobal(
@@ -69,7 +74,7 @@ describe('gatewayListModels browser fetch base', () => {
     )
     const { gatewayListModels } = await import('@/api/playground')
     await gatewayListModels('sk-test', 'https://api.tokenkey.dev')
-    expect(sentUrl).toBe('https://tokenkey.dev/v1/models')
+    expect(sentUrl).toBe('https://api.tokenkey.dev/v1/models')
   })
 })
 

@@ -14,7 +14,7 @@ vi.mock('@/api/pricing', () => ({
   getPublicPricing: (...args: unknown[]) => getPublicPricingMock(...args),
 }))
 
-import { useTkUseKey, anthropicEnvModel, openaiCompatContextWindowEnvModel, claudeCodeEnvModel } from '@/composables/useTkUseKey'
+import { useTkUseKey, anthropicEnvModel, openaiCompatContextWindowEnvModel, claudeCodeEnvModel, formatProbeLatencyDetail } from '@/composables/useTkUseKey'
 
 function createUseKey(apiKeyId = ref<number | null>(42)) {
   return useTkUseKey({
@@ -125,26 +125,55 @@ describe('useTkUseKey model loading', () => {
   })
 })
 
+describe('formatProbeLatencyDetail', () => {
+  const t = (key: string, params?: Record<string, unknown>) => {
+    if (key === 'quickstart.probeAuthMs') return `Auth ${params?.ms}ms`
+    if (key === 'quickstart.probeModelMs') return `Model ${params?.ms}ms`
+    if (key === 'quickstart.probeTotalMs') return `${params?.ms}ms total`
+    if (key === 'keys.useKeyModal.testModelOk') return 'Model OK'
+    if (key === 'keys.useKeyModal.testKeyValid') return 'Key valid'
+    return key
+  }
+
+  it('shows auth and model latencies separately', () => {
+    const detail = formatProbeLatencyDetail({
+      status: 'ok',
+      httpStatus: 200,
+      authLatencyMs: 180,
+      modelLatencyMs: 2400,
+      latencyMs: 2580,
+    }, t)
+    expect(detail).toContain('Auth 180ms')
+    expect(detail).toContain('Model 2400ms')
+    expect(detail).toContain('2580ms total')
+    expect(detail).toContain('Model OK')
+  })
+})
+
 describe('useTkUseKey tool-call probe', () => {
   it('forces a side-effect-free function and verifies the returned tool call', async () => {
     vi.stubGlobal('window', { location: { origin: 'https://api.tokenkey.test', href: 'https://api.tokenkey.test/' } })
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      choices: [{
-        message: {
-          tool_calls: [{
-            type: 'function',
-            function: { name: 'tokenkey_quickstart_probe', arguments: '{"value":"ok"}' },
-          }],
-        },
-      }],
-    }), { status: 200 }))
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{
+          message: {
+            tool_calls: [{
+              type: 'function',
+              function: { name: 'tokenkey_quickstart_probe', arguments: '{"value":"ok"}' },
+            }],
+          },
+        }],
+      }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     const tk = createUseKey()
     await tk.runTest('openai', { requireToolCall: true })
 
-    expect(fetchMock).toHaveBeenCalledOnce()
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const [authUrl] = fetchMock.mock.calls[0] as [string]
+    expect(authUrl).toBe('https://api.tokenkey.test/v1/models')
+    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit]
     expect(url).toBe('https://api.tokenkey.test/v1/chat/completions')
     const body = JSON.parse(String(init.body))
     expect(body.tools[0].function.name).toBe('tokenkey_quickstart_probe')
@@ -152,28 +181,46 @@ describe('useTkUseKey tool-call probe', () => {
       type: 'function',
       function: { name: 'tokenkey_quickstart_probe' },
     })
-    expect(tk.testState.value).toMatchObject({ status: 'ok', httpStatus: 200, toolCall: true })
+    expect(tk.testState.value).toMatchObject({
+      status: 'ok',
+      httpStatus: 200,
+      toolCall: true,
+      authLatencyMs: expect.any(Number),
+      modelLatencyMs: expect.any(Number),
+      latencyMs: expect.any(Number),
+    })
   })
 
-  it('uses same-origin fetch base when the display gateway host is cross-origin', async () => {
+  it('uses the configured gateway host for cross-origin browser fetch', async () => {
     vi.stubGlobal('window', { location: { origin: 'https://tokenkey.dev', href: 'https://tokenkey.dev/quickstart' } })
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      choices: [{ message: { content: 'pong' } }],
-    }), { status: 200 }))
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: 'pong' } }],
+      }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     const tk = createUseKey()
     await tk.runTest('openai')
 
-    expect(fetchMock).toHaveBeenCalledOnce()
-    const [url] = fetchMock.mock.calls[0] as [string]
-    expect(url).toBe('https://tokenkey.dev/v1/chat/completions')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const [authUrl] = fetchMock.mock.calls[0] as [string]
+    expect(authUrl).toBe('https://api.tokenkey.test/v1/models')
+    const [url] = fetchMock.mock.calls[1] as [string]
+    expect(url).toBe('https://api.tokenkey.test/v1/chat/completions')
+    expect(tk.testState.value).toMatchObject({
+      status: 'ok',
+      authLatencyMs: expect.any(Number),
+      modelLatencyMs: expect.any(Number),
+    })
   })
 
   it('does not treat a plain 200 response as a successful tool-call verification', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      choices: [{ message: { content: 'ok' } }],
-    }), { status: 200 })))
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: 'ok' } }],
+      }), { status: 200 })))
 
     const tk = createUseKey()
     await tk.runTest('openai', { requireToolCall: true })
@@ -182,6 +229,8 @@ describe('useTkUseKey tool-call probe', () => {
       status: 'error',
       httpStatus: 200,
       reason: 'missing_tool_call',
+      authLatencyMs: expect.any(Number),
+      modelLatencyMs: expect.any(Number),
     })
   })
 })

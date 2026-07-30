@@ -80,31 +80,36 @@ export function resolveGatewayBaseUrl(apiBaseFromSettings: string | undefined): 
 /**
  * Gateway base for browser `fetch()` probes (Quickstart live test, Studio gateway calls).
  *
- * Copy-paste snippets keep the public gateway host (e.g. api.tokenkey.dev), but
- * the web UI runs on the apex host (tokenkey.dev) which reverse-proxies /v1/*.
- * Cross-origin fetch to the API host fails CORS preflight when allowed_origins
- * is unset, surfacing as "Failed to fetch" even though curl/clients work.
+ * Uses the configured public gateway host (e.g. api.tokenkey.dev) even when the SPA
+ * is served from the apex host (tokenkey.dev). Requires `cors.allowed_origins` on
+ * the API stack to include the SPA origin — see deploy/config.example.yaml.
  */
 export function resolveBrowserGatewayFetchBaseUrl(displayGatewayBaseUrl: string): string {
   const display = stripTrailingSlashes(displayGatewayBaseUrl.trim())
-  if (typeof window === 'undefined') {
+  if (display) {
     return display
   }
-  if (!display) {
+  if (typeof window !== 'undefined') {
     return stripTrailingSlashes(window.location.origin)
   }
-  try {
-    const configured = new URL(display)
-    if (configured.origin === window.location.origin) {
-      return display
-    }
-  } catch {
-    return display
-  }
-  return stripTrailingSlashes(window.location.origin)
+  return ''
 }
 
-/** Display gateway base → browser-safe fetch root (same-origin when CORS would block). */
+/** Best-effort TLS/TCP warmup; failures are ignored. */
+export async function gatewayWarmupConnection(
+  apiKey: string,
+  gatewayBaseUrl: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const url = `${browserGatewayFetchRoot(gatewayBaseUrl)}/v1/models`
+  await fetch(url, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+    signal,
+  })
+}
+
+/** Display gateway base → browser fetch root via resolveBrowserGatewayFetchBaseUrl. */
 function browserGatewayFetchRoot(displayGatewayBaseUrl: string): string {
   return stripTrailingSlashes(resolveBrowserGatewayFetchBaseUrl(displayGatewayBaseUrl))
 }
