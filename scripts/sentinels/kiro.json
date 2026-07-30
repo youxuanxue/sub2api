@@ -122,9 +122,10 @@
         "func ConsumeClaudeCodeCompletionSignal",
         "func PrepareClaudeCodeCompletionContinuation",
         "ClaudeCodeCompletionProtocol",
+        "Do not repeat or restate text",
         "minLength"
       ],
-      "rationale": "Single owner for Kiro's transport-private Claude Code completion handshake. It defines the non-empty completion schema, strips only valid private signals, and creates the bounded continuation payload while preserving the normal tool catalog. Losing this owner returns completion judgment to lossy stop-reason guessing or leaks private tool calls to Claude Code."
+      "rationale": "Single owner for Kiro's transport-private Claude Code completion handshake. It defines the non-empty completion schema, strips only valid private signals, and creates the bounded continuation payload while preserving the normal tool catalog and explicitly forbidding restatement of prior assistant text. Losing this owner returns completion judgment to lossy stop-reason guessing, leaks private tool calls to Claude Code, or invites repeated final replies during hidden continuation."
     },
     {
       "path": "backend/internal/integration/kiro/claude_code_completion_test.go",
@@ -281,7 +282,7 @@
         "kiroproto.EstimateOutputTokens",
         "BillingTier:   kiroproto.KiroEstimatedBillingTier",
         "callErr != nil && !enc.started",
-        "turnText == \"\" && turnThinking == \"\" && len(turnToolUses) == 0",
+        "visibleTurnText == \"\" && turnThinking == \"\" && len(turnToolUses) == 0",
         "KiroContentFilteredError",
         "KiroPostOutputStreamDisconnectError",
         "classifyKiroPostOutputStreamError",
@@ -293,13 +294,15 @@
         "kiroproto.ConsumeClaudeCodeCompletionSignal",
         "kiroproto.PrepareClaudeCodeCompletionContinuation",
         "completionSignalTextDelta",
+        "continuationTextDelta",
+        "billingTextBuf",
         "gateway.kiro_stop_reason",
         "gateway.kiro_completion_protocol",
         "unsupported_stop_reason",
         "classifyAndRecordKiroForwardError",
         "publishKiroInternalThinkingSideChannel"
       ],
-      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. completionSignalTextDelta prevents a private completion message from repeating a complete text block already visible in the same or an earlier hidden turn while preserving genuinely complementary final text. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. Hidden continuation usage is billed and both stop/completion actions are observable. The pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
+      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. completionSignalTextDelta prevents a private completion message from repeating a complete text block already visible in the same or an earlier hidden turn, while continuationTextDelta buffers and removes ordinary assistant text repeated by later hidden turns. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. billingTextBuf keeps hidden continuation output billable even when its duplicate presentation is suppressed. Both stop/completion actions remain observable, and the visible-text-aware pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_test.go",
@@ -323,6 +326,8 @@
         "TestUS041_KiroGatewayService_CompletionSignalMessageIsPreservedAfterText",
         "TestUS041_KiroGatewayService_CompletionSignalDoesNotRepeatVisibleFinalText",
         "TestUS041_KiroGatewayService_ContinuationCompletionDoesNotRepeatPriorFinalText",
+        "TestUS041_KiroGatewayService_ContinuationTextDoesNotRepeatAcrossTurns",
+        "TestContinuationTextDeltaKeepsOnlyNewRecapText",
         "TestUS041_KiroGatewayService_NonClaudeCodeCompletionNamedToolIsPreserved",
         "TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolUseReturnsImmediately",
         "TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolWinsOverCompletionSignal",

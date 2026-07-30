@@ -659,6 +659,37 @@ func TestUS041_KiroGatewayService_ContinuationCompletionDoesNotRepeatPriorFinalT
 	}
 }
 
+func TestUS041_KiroGatewayService_ContinuationTextDoesNotRepeatAcrossTurns(t *testing.T) {
+	const summary = "清理完成，全程可回滚。\n\n## 做了什么\n\nmain 从 062c77b81 fast-forward 到 57f04ad4d。"
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroTextStopStream(summary, "END_TURN"),
+				kiroTextStopStream(summary, "END_TURN"),
+				kiroCompletionSignalStream("complete", summary),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 3, upstream.calls)
+			require.Equal(t, 1, strings.Count(rec.Body.String(), "清理完成"))
+			require.Equal(t, 1, strings.Count(rec.Body.String(), "57f04ad4d"))
+		})
+	}
+}
+
+func TestContinuationTextDeltaKeepsOnlyNewRecapText(t *testing.T) {
+	visible := "清理完成，全程可回滚。\n\n## 做了什么\n\nmain 从 062c77b81 fast-forward 到 57f04ad4d。"
+	continuation := "recap: 已完成仓库清理。\n\n清理完成，全程可回滚。\n\n## 做了什么\n\nmain 从 062c77b81 fast-forward 到 57f04ad4d。"
+	require.Equal(t, "recap: 已完成仓库清理。", continuationTextDelta(visible, continuation))
+}
+
 func TestUS041_KiroGatewayService_NonClaudeCodeCompletionNamedToolIsPreserved(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
