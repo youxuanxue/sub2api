@@ -109,7 +109,7 @@ export async function gatewayWarmupConnection(
   })
 }
 
-/** Display gateway base → browser-safe fetch root (same-origin when CORS would block). */
+/** Display gateway base → browser fetch root via resolveBrowserGatewayFetchBaseUrl. */
 function browserGatewayFetchRoot(displayGatewayBaseUrl: string): string {
   return stripTrailingSlashes(resolveBrowserGatewayFetchBaseUrl(displayGatewayBaseUrl))
 }

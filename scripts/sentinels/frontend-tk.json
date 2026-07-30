@@ -1094,9 +1094,11 @@
         "gatewayVideoFetch",
         "/v1/video/generations/",
         "X-TokenKey-Studio-Source",
-        "gatewayTraceHeaders"
+        "gatewayTraceHeaders",
+        "resolveBrowserGatewayFetchBaseUrl",
+        "gatewayWarmupConnection"
       ],
-      "rationale": "Gateway media calls for the playground (images sync POST with 180s timeout, video submit + per-task fetch). Paths must stay the TK gateway aliases registered in routes/gateway_tk_openai_compat_handlers.go. gatewayTraceHeaders forwards X-TokenKey-Studio-* on Studio image/video submits so backend audit.openai_image_request can correlate BakeOff/ImageStudio runs."
+      "rationale": "Gateway media calls for the playground (images sync POST with 180s timeout, video submit + per-task fetch). Paths must stay the TK gateway aliases registered in routes/gateway_tk_openai_compat_handlers.go. gatewayTraceHeaders forwards X-TokenKey-Studio-* on Studio image/video submits so backend audit.openai_image_request can correlate BakeOff/ImageStudio runs. resolveBrowserGatewayFetchBaseUrl + gatewayWarmupConnection pin Quickstart/Studio browser probes to the configured api host (not apex same-origin fallback) and the best-effort TLS warmup used before live tests."
     },
     {
       "path": "frontend/src/components/user/dashboard/UserDashboardCharts.vue",
@@ -1185,10 +1187,13 @@
         "getMePricingCatalog({ apiKeyId: id })",
         "function runTest(",
         "resolveBrowserGatewayFetchBaseUrl",
+        "gatewayWarmupConnection",
+        "export function formatProbeLatencyDetail(",
+        "authLatencyMs",
         "export function anthropicEnvModel(",
         "export function openaiCompatContextWindowEnvModel("
       ],
-      "rationale": "PR #788: brain of the redesigned 'Use API Key' modal. The model picker draws ONLY the key's live servable menu via getMePricingCatalog (no hand-typed/retired/bare ids), runTest fires a canonical-correct gateway request routed per platform/flavor (/v1/messages · /v1/chat/completions · :generateContent), and anthropicEnvModel re-applies the [1m] 1M-window alias for opus. TK-only module with no upstream counterpart — an upstream merge that deletes/replaces it would silently revert the modal to hardcoded model hints and drop the live test, re-opening the ~950/wk wrong-model and ~2808/wk invalid-key error classes this redesign was built (from prod ops_error_logs) to kill. Anchors the servable-menu data source + the per-platform test routing entrypoint + the [1m] helper."
+      "rationale": "PR #788: brain of the redesigned 'Use API Key' modal. The model picker draws ONLY the key's live servable menu via getMePricingCatalog (no hand-typed/retired/bare ids), runTest fires a canonical-correct gateway request routed per platform/flavor (/v1/messages · /v1/chat/completions · :generateContent), and anthropicEnvModel re-applies the [1m] 1M-window alias for opus. PR #1509 extends runTest with a two-phase auth (GET /v1/models) + model probe and formatProbeLatencyDetail for split auth/model/total latency display. TK-only module with no upstream counterpart — an upstream merge that deletes/replaces it would silently revert the modal to hardcoded model hints and drop the live test, re-opening the ~950/wk wrong-model and ~2808/wk invalid-key error classes this redesign was built (from prod ops_error_logs) to kill. Anchors the servable-menu data source + the per-platform test routing entrypoint + the [1m] helper + dual-metric probe."
     },
     {
       "path": "frontend/src/components/keys/UseKeyGuide.vue",
@@ -1201,11 +1206,22 @@
         "hideInlineTest?: boolean",
         "testStateChange: [state: TestState]",
         "defineExpose({",
+        "formatProbeLatencyDetail",
+        "warmupGateway: tk.warmupGateway",
         "generateQwenCodeFiles",
         "generateCompatibleClientFields",
         "data-tk=\"quickstart-environment-picker\""
       ],
-      "rationale": "Shared configuration owner for the key modal and tool-first Quickstart: live servable model picker/test, CC-only handling, controlled client selection, externalized test CTA via hideInlineTest + testStateChange for QuickstartConnectionHealth, Qwen env-file credential split, compatible-client fields, and contextual OS selection. An upstream overwrite can compile while silently removing one of these paths, so the behavior owner and its Quickstart extensions are pinned together."
+      "rationale": "Shared configuration owner for the key modal and tool-first Quickstart: live servable model picker/test, CC-only handling, controlled client selection, externalized test CTA via hideInlineTest + testStateChange for QuickstartConnectionHealth, Qwen env-file credential split, compatible-client fields, and contextual OS selection. formatProbeLatencyDetail + warmupGateway expose split auth/model latency and connection warmup to QuickstartConnectionHealth. An upstream overwrite can compile while silently removing one of these paths, so the behavior owner and its Quickstart extensions are pinned together."
+    },
+    {
+      "path": "frontend/src/components/keys/QuickstartConnectionHealth.vue",
+      "must_contain": [
+        "formatProbeLatencyDetail",
+        "data-tk=\"quickstart-connection-health\"",
+        "data-tk=\"quickstart-send-test\""
+      ],
+      "rationale": "Quickstart connection-health banner: surfaces split auth/model/total probe latency via formatProbeLatencyDetail (PR #1509). Upstream has no counterpart; a merge restoring inline httpStatus/latencyMs formatting would drop the dual-metric UX while compiling green."
     },
     {
       "path": "frontend/src/components/keys/UseKeyModal.vue",
