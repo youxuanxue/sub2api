@@ -171,7 +171,21 @@
               <template v-else-if="modelListingCategory(model) === 'video'">
                 <div class="min-w-0 flex-1">
                   <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
-                  <p class="flex flex-wrap items-baseline gap-1 text-sm font-semibold text-gray-900 dark:text-white">
+                  <template v-if="videoVariantOf(model).lines.length">
+                    <p class="flex flex-wrap items-baseline gap-1 text-sm font-semibold text-gray-900 dark:text-white">
+                      {{ videoHeadlineOf(model) }}
+                      <span class="text-[10px] font-normal text-gray-400 dark:text-dark-500">{{ t('pricing.perSecond') }}</span>
+                    </p>
+                    <p
+                      v-for="line in videoVariantOf(model).lines"
+                      :key="line.label"
+                      class="flex items-baseline justify-between gap-2 text-sm font-semibold text-gray-900 dark:text-white"
+                    >
+                      <span class="text-[10px] font-normal text-gray-400 dark:text-dark-500">{{ line.label }}</span>
+                      <span>{{ formatCatalogMediaPrice(line.perSecond) }}</span>
+                    </p>
+                  </template>
+                  <p v-else class="flex flex-wrap items-baseline gap-1 text-sm font-semibold text-gray-900 dark:text-white">
                     {{ formatCatalogMediaPrice(model.pricing.output_cost_per_second) }}
                     <span class="text-[10px] font-normal text-gray-400 dark:text-dark-500">{{ t('pricing.perSecond') }}</span>
                   </p>
@@ -271,6 +285,11 @@ import {
   resolvePricingVariant,
   type PricingVariantView,
 } from '@/utils/pricingVariants.tk'
+import {
+  formatCatalogVideoHeadline,
+  resolveVideoPricingVariant,
+  type VideoPricingVariantView,
+} from '@/utils/videoPricingVariants.tk'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import CatalogViewSwitcher from '@/components/catalog/CatalogViewSwitcher.vue'
 
@@ -314,6 +333,26 @@ function modelListingCategory(m: PublicCatalogModel): PricingCatalogModality {
  * Precomputed into a map because each card reads it from several places in the
  * template; resolving inline would rebuild the lines on every one.
  */
+const videoVariantByModel = computed(() => {
+  const map = new Map<string, VideoPricingVariantView>()
+  for (const m of models.value) {
+    if (modelListingCategory(m) !== 'video' || !m.pricing) {
+      map.set(m.model_id, resolveVideoPricingVariant(undefined, t))
+      continue
+    }
+    map.set(m.model_id, resolveVideoPricingVariant(m.pricing, t))
+  }
+  return map
+})
+
+function videoVariantOf(m: PublicCatalogModel): VideoPricingVariantView {
+  return videoVariantByModel.value.get(m.model_id) ?? resolveVideoPricingVariant(m.pricing, t)
+}
+
+function videoHeadlineOf(m: PublicCatalogModel): string {
+  return formatCatalogVideoHeadline(videoVariantOf(m), t)
+}
+
 const variantByModel = computed(() => {
   const map = new Map<string, PricingVariantView>()
   for (const m of models.value) {

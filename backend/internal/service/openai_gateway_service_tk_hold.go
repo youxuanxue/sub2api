@@ -205,12 +205,12 @@ func (s *OpenAIGatewayService) tkEstimateImageHoldAmount(ctx context.Context, mo
 // TkReserveVideoHold reserves the exact cost the video submit path will bill:
 // CalculateVideoCost over the same request-derived seconds, same multiplier.
 // Same fail-open posture as TkReserveTokenHold.
-func (s *OpenAIGatewayService) TkReserveVideoHold(ctx context.Context, requestID, model string, user *User, apiKey *APIKey, seconds int64) (held bool, reject bool) {
+func (s *OpenAIGatewayService) TkReserveVideoHold(ctx context.Context, requestID, model string, user *User, apiKey *APIKey, seconds int64, resolution string, opts *VideoBillingOptions) (held bool, reject bool) {
 	if s == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
 		return false, false
 	}
 	multiplier := s.tkHoldRateMultiplier(ctx, user, apiKey)
-	amount := s.billingService.EstimateVideoHold(model, seconds, multiplier)
+	amount := s.billingService.EstimateVideoHold(model, seconds, multiplier, resolution, opts)
 	held, reject, err := tkReserveBalanceHold(ctx, s.usageBillingRepo, requestID, user.ID, apiKey.ID, amount)
 	if err != nil {
 		logger.L().Error("openai_gateway.hold_reserve_failed",

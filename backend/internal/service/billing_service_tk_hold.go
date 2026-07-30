@@ -89,16 +89,34 @@ func (s *BillingService) EstimateImageHold(model, sizeTier string, n int, groupC
 	return bd.ActualCost
 }
 
-// EstimateVideoHold returns an upper bound on an async video submit:
-// CalculateVideoCost over the requested duration (the same seconds actual bills,
-// so this is exact). Callers pass the request-clamped seconds (handlers clamp
-// to [1,60]).
-func (s *BillingService) EstimateVideoHold(model string, seconds int64, rateMultiplier float64) float64 {
-	bd := s.CalculateVideoCost(model, VideoBillingResolution720P, 1, int(seconds), nil, rateMultiplier)
-	if bd == nil {
-		return 0
+// EstimateVideoHold returns an upper bound on an async video submit.
+// When resolution is known, tiered models hold the exact official rate; otherwise max tier.
+func (s *BillingService) EstimateVideoHold(model string, seconds int64, rateMultiplier float64, resolution string, opts *VideoBillingOptions) float64 {
+	if seconds <= 0 {
+		seconds = int64(VideoBillingDefaultDurationSeconds)
 	}
-	return bd.ActualCost
+	if tkIsTieredVideoModel(model) && strings.TrimSpace(resolution) != "" {
+		bd := s.CalculateVideoCost(model, resolution, 1, int(seconds), nil, rateMultiplier, opts)
+		if bd != nil {
+			return bd.ActualCost
+		}
+	}
+	perSecond := tkVideoHoldUnitPriceUSD(model)
+	if perSecond <= 0 {
+		res := resolution
+		if strings.TrimSpace(res) == "" {
+			res = tkVideoDefaultResolution(model)
+		}
+		bd := s.CalculateVideoCost(model, res, 1, int(seconds), nil, rateMultiplier, opts)
+		if bd == nil {
+			return 0
+		}
+		return bd.ActualCost
+	}
+	if rateMultiplier < 0 {
+		rateMultiplier = 0
+	}
+	return perSecond * float64(seconds) * rateMultiplier
 }
 
 // maxFloat returns the largest of the given values (0 for an empty list).

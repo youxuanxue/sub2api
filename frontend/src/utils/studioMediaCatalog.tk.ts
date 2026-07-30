@@ -3,9 +3,10 @@
  * catalogs (billing_mode image | video). Presentation metadata stays in
  * studioMediaPresentations.tk.ts — this module must NOT invent model inventories.
  */
+import type { PublicCatalogModel, PublicPricingVideoTier } from '@/api/pricing'
 import type { MePricingModel } from '@/api/me-pricing'
-import type { PublicCatalogModel } from '@/api/pricing'
 import type { MediaPrice, MediaPriceMap, StudioModality } from '@/constants/studioMediaPresentations.tk'
+import type { VideoPriceTier } from '@/utils/mediaCostEstimate.tk'
 import { pricingCatalogModality } from '@/utils/pricingCatalogPresentation.tk'
 
 export type CatalogBillingIndex = ReadonlyMap<string, StudioModality>
@@ -37,7 +38,13 @@ export function priceMapFromPublicCatalog(
   const map = new Map<string, MediaPrice>()
   for (const m of publicModels) {
     if (!entitled.has(m.model_id)) continue
-    const entry = mediaPriceFromCatalogRow(m.pricing?.billing_mode, m.pricing?.output_cost_per_image, m.pricing?.output_cost_per_second, m.vendor)
+    const entry = mediaPriceFromCatalogRow(
+      m.pricing?.billing_mode,
+      m.pricing?.output_cost_per_image,
+      m.pricing?.output_cost_per_second,
+      m.vendor,
+      m.pricing?.video_price_tiers
+    )
     if (entry) map.set(m.model_id, entry)
   }
   return map
@@ -61,17 +68,31 @@ function mediaPriceFromCatalogRow(
   billingModeRaw: string | undefined,
   perImage: number | undefined | null,
   perSecond: number | undefined | null,
-  vendor: string | undefined
+  vendor: string | undefined,
+  videoTiersRaw?: readonly PublicPricingVideoTier[]
 ): MediaPrice | undefined {
   const billingMode = pricingCatalogModality(billingModeRaw)
   if (billingMode === 'text') return undefined
   const hasImage = perImage != null && perImage > 0
   const hasVideo = perSecond != null && perSecond > 0
-  if ((billingMode === 'image' && !hasImage) || (billingMode === 'video' && !hasVideo)) return undefined
+  if ((billingMode === 'image' && !hasImage) || (billingMode === 'video' && !hasVideo && !videoTiersRaw?.length)) return undefined
+  const videoTiers = mapVideoPriceTiers(videoTiersRaw)
   return {
     perImage: billingMode === 'image' && hasImage ? perImage : undefined,
     perSecond: billingMode === 'video' && hasVideo ? perSecond : undefined,
+    videoTiers: billingMode === 'video' ? videoTiers : undefined,
     billingMode,
     vendor,
   }
+}
+
+function mapVideoPriceTiers(raw?: readonly PublicPricingVideoTier[]): VideoPriceTier[] | undefined {
+  if (!raw?.length) return undefined
+  return raw.map((t) => ({
+    resolution: t.resolution,
+    perSecond: t.per_second,
+    perSecondSilent: t.per_second_silent,
+    inputImageSurchargePerSecond: t.input_image_surcharge_per_second,
+    defaultForModel: t.default_for_model,
+  }))
 }

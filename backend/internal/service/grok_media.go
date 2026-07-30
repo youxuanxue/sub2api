@@ -453,6 +453,7 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		VideoCount:           usage.VideoCount,
 		VideoResolution:      usage.VideoResolution,
 		VideoDurationSeconds: usage.VideoDurationSeconds,
+		VideoHasInputImage:   requestInfo.HasInputImage(),
 	}, nil
 }
 

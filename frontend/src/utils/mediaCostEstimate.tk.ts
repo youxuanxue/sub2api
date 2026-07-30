@@ -115,18 +115,48 @@ export function estimateImageHoldCost(input: Omit<ImageCostInput, 'size'>): numb
 }
 
 export interface VideoCostInput {
-  /** output_cost_per_second (USD). */
+  /** output_cost_per_second (USD) — used when videoTiers is absent. */
   perSecond: number
+  /** Official ladder from catalog; when set, overrides perSecond. */
+  videoTiers?: readonly VideoPriceTier[]
+  resolution?: string
+  generateAudio?: boolean
+  hasInputImage?: boolean
   /** requested duration in seconds; ≤0 treated as 1. */
   seconds: number
   /** effective group × override rate; defaults to 1 (list price). */
   rateMultiplier?: number
 }
 
+export interface VideoPriceTier {
+  resolution: string
+  perSecond: number
+  perSecondSilent?: number
+  inputImageSurchargePerSecond?: number
+  defaultForModel?: boolean
+}
+
+/** Resolve USD/s from official video tiers (mirrors backend tkVideoUnitPriceUSD). */
+export function resolveVideoPerSecond(input: Pick<VideoCostInput, 'perSecond' | 'videoTiers' | 'resolution' | 'generateAudio' | 'hasInputImage'>): number {
+  const tiers = input.videoTiers
+  if (!tiers?.length) return input.perSecond > 0 ? input.perSecond : 0
+  const res = (input.resolution || tiers.find((t) => t.defaultForModel)?.resolution || tiers[0]?.resolution || '480p').toLowerCase()
+  const tier = tiers.find((t) => t.resolution.toLowerCase() === res) ?? tiers.find((t) => t.defaultForModel) ?? tiers[0]
+  if (!tier) return input.perSecond > 0 ? input.perSecond : 0
+  let rate = tier.perSecond
+  if (input.generateAudio === false && tier.perSecondSilent != null && tier.perSecondSilent > 0) {
+    rate = tier.perSecondSilent
+  }
+  if (input.hasInputImage && tier.inputImageSurchargePerSecond != null && tier.inputImageSurchargePerSecond > 0) {
+    rate += tier.inputImageSurchargePerSecond
+  }
+  return rate
+}
+
 /** estimateVideoCost mirrors CalculateVideoCost (USD). */
 export function estimateVideoCost(input: VideoCostInput): number {
   const s = input.seconds > 0 ? input.seconds : 1
-  const perSecond = input.perSecond > 0 ? input.perSecond : 0
+  const perSecond = resolveVideoPerSecond(input)
   return perSecond * s * clampRate(input.rateMultiplier ?? 1)
 }
 

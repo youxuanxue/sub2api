@@ -130,7 +130,8 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	// cost (same request-derived seconds the billing path uses); refund
 	// ownership is handed to the usage-record task at submit time. Balance
 	// users only.
-	hold, holdReject := h.tkApplyVideoHold(c, apiKey, reqModel, videoRequestedSeconds(body))
+	videoBilling := service.VideoSubmitBillingParamsFromBody(body)
+	hold, holdReject := h.tkApplyVideoHold(c, apiKey, reqModel, videoRequestedSeconds(body), videoBilling)
 	if holdReject {
 		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
 		return
@@ -283,6 +284,10 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 				Stream:               false,
 				Duration:             outcome.Duration,
 				VideoDurationSeconds: int(videoSeconds),
+				VideoResolution:      videoBilling.Resolution,
+				VideoGenerateAudio:   videoBilling.GenerateAudio,
+				VideoHasInputImage:   videoBilling.HasInputImage,
+				VideoCount:           1,
 			},
 			APIKey:           apiKey,
 			User:             apiKey.User,

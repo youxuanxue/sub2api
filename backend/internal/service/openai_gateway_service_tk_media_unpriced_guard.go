@@ -35,6 +35,9 @@ func (s *BillingService) TkVideoModelUnpriced(model string) bool {
 	if s == nil || s.pricingService == nil {
 		return false
 	}
+	if min, ok := tkVideoMinUnitPriceUSD(model); ok && min > 0 {
+		return false
+	}
 	pricing := s.pricingService.GetModelPricing(model)
 	return pricing == nil || pricing.OutputCostPerSecond <= 0
 }

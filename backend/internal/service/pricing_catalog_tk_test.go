@@ -225,7 +225,8 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	veo, ok := byID["veo-3.1-generate-001"]
 	require.True(t, ok, "Veo overlay media row must surface in catalog")
 	assert.Equal(t, "video", veo.Pricing.BillingMode)
-	assert.InDelta(t, 0.6, veo.Pricing.OutputCostPerSecond, 1e-12)
+	assert.NotEmpty(t, veo.Pricing.VideoPriceTiers)
+	assert.InDelta(t, 0.20, veo.Pricing.OutputCostPerSecond, 1e-12, "catalog floor = cheapest official tier (720p silent)")
 	grokImage, ok := byID["grok-imagine-image"]
 	require.True(t, ok, "Grok image overlay media row must surface in catalog")
 	assert.Equal(t, "image", grokImage.Pricing.BillingMode)
@@ -233,7 +234,8 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	grokVideo, ok := byID["grok-imagine-video"]
 	require.True(t, ok, "Grok video overlay media row must surface in catalog")
 	assert.Equal(t, "video", grokVideo.Pricing.BillingMode)
-	assert.InDelta(t, 0.08, grokVideo.Pricing.OutputCostPerSecond, 1e-12)
+	assert.NotEmpty(t, grokVideo.Pricing.VideoPriceTiers)
+	assert.InDelta(t, 0.05, grokVideo.Pricing.OutputCostPerSecond, 1e-12, "catalog floor = 480p official tier")
 
 	filtered := FilterPublicCatalogToServable(resp)
 	require.NotNil(t, filtered)

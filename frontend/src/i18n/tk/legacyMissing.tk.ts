@@ -48,6 +48,13 @@ const en: LocaleOverlay = {
       "peak": "Peak",
       "peakCaption": "Peak {windows} ({tz}) bills at {mult}× the off-peak price"
     },
+    "video": {
+      "withAudio": "with audio",
+      "withoutAudio": "silent",
+      "textToVideo": "text-to-video",
+      "withInputImage": "image-to-video",
+      "tieredCaption": "Price varies by resolution and generation options"
+    },
     "footer": {
       "total": "{count} models listed",
       "filtered": "Showing {shown} of {total} models"
@@ -300,6 +307,7 @@ const en: LocaleOverlay = {
       "inlineCopyHint": "Inline clips cannot be shared as a browser link — download started automatically.",
       "generateAudio": "Generate audio",
       "generateAudioHint": "Include sound in the generated clip (when the model supports it).",
+      "resolution": "Output resolution",
       "retentionHint": "Download now · short local preview; upstream links expire",
       "previewBuffering": "Buffering video…",
       "checkingPreview": "Checking whether in-page preview is available…",
@@ -976,6 +984,13 @@ const zh: LocaleOverlay = {
       "peak": "高峰",
       "peakCaption": "高峰 {windows}（{tz}）按谷时价 ×{mult} 计费"
     },
+    "video": {
+      "withAudio": "有声",
+      "withoutAudio": "无声",
+      "textToVideo": "文生视频",
+      "withInputImage": "图生视频",
+      "tieredCaption": "按分辨率与生成选项分档计价"
+    },
     "footer": {
       "total": "共 {count} 个模型",
       "filtered": "显示 {shown} / {total} 个模型"
@@ -1228,6 +1243,7 @@ const zh: LocaleOverlay = {
       "inlineCopyHint": "内联视频不能复制成浏览器链接，已自动开始下载。",
       "generateAudio": "生成音频",
       "generateAudioHint": "为成片附带声音（模型支持时生效）。",
+      "resolution": "输出分辨率",
       "retentionHint": "请立即下载保存 · 本机可短期预览，上游链接会过期",
       "previewBuffering": "正在缓冲视频…",
       "checkingPreview": "正在检查能否在页面内预览…",

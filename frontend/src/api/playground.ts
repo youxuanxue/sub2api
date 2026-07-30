@@ -435,6 +435,8 @@ export interface VideoGenerationRequest {
   seed?: number
   negativePrompt?: string
   image?: string
+  /** When set, forwarded to billing (resolution×audio tier alignment). */
+  resolution?: string
   /** When set, forwarded in metadata (Veo: generateAudio; Seedance: generate_audio). */
   generateAudio?: boolean
 }
@@ -449,6 +451,7 @@ export async function gatewayVideoSubmit(
   const payload: Record<string, unknown> = { model: body.model, prompt: body.prompt }
   if (body.duration) payload.duration = body.duration
   if (body.aspectRatio) payload.aspect_ratio = body.aspectRatio
+  if (body.resolution) payload.resolution = body.resolution
   if (body.image) payload.image = body.image
   const metadata: Record<string, unknown> = {}
   if (typeof body.seed === 'number') metadata.seed = body.seed

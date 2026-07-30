@@ -44,6 +44,11 @@ vi.mock('vue-i18n', async () => {
     'models.capabilities.video_generation': 'Video generation',
     'pricing.perImage': '/ image',
     'pricing.perSecond': '/ second',
+    'pricing.variant.tierRange': '{lo}–{hi}',
+    'pricing.video.withAudio': 'with audio',
+    'pricing.video.withoutAudio': 'silent',
+    'pricing.video.textToVideo': 'text-to-video',
+    'pricing.video.withInputImage': 'image-to-video',
     'pricing.nav.home': 'Home',
     'nav.quickstart': 'Quick Start',
     'auth.createAccount': 'Create account',
@@ -51,7 +56,15 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => modelsEn[key] ?? key,
+      t: (key: string, params?: Record<string, unknown>) => {
+        let out = modelsEn[key] ?? key
+        if (params) {
+          for (const [k, v] of Object.entries(params)) {
+            out = out.replace(`{${k}}`, String(v))
+          }
+        }
+        return out
+      },
       te: (key: string) => key in modelsEn,
     }),
   }
@@ -190,6 +203,34 @@ describe('CatalogHubView', () => {
     expect(wrapper.text()).toContain('— / image')
     expect(wrapper.text()).not.toContain('Free')
     expect(wrapper.text()).not.toContain('/ 1K tokens')
+  })
+
+  it('shows video tier range and per-bracket lines when video_price_tiers is present', async () => {
+    getPublicPricing.mockResolvedValue(
+      catalog([
+        model('veo-3.1-generate-preview', 'Google', {
+          pricing: {
+            currency: 'USD',
+            billing_mode: 'video',
+            input_per_1k_tokens: 0,
+            output_per_1k_tokens: 0,
+            output_cost_per_second: 0.2,
+            video_price_tiers: [
+              { resolution: '720p', per_second: 0.4, per_second_silent: 0.2, default_for_model: true },
+              { resolution: '1080p', per_second: 0.6, per_second_silent: 0.4 },
+            ],
+          },
+        }),
+      ])
+    )
+
+    const wrapper = mountMarketplace()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('$0.2000–$0.6000')
+    expect(wrapper.text()).toContain('720p · with audio')
+    expect(wrapper.text()).toContain('720p · silent')
+    expect(wrapper.text()).toContain('/ second')
   })
 
   it('groups all Vertex provider variants under vertex_ai', async () => {

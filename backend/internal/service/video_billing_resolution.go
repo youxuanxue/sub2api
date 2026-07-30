@@ -6,6 +6,7 @@ const (
 	VideoBillingResolution480P  = "480p"
 	VideoBillingResolution720P  = "720p"
 	VideoBillingResolution1080P = "1080p"
+	VideoBillingResolution4K    = "4k"
 )
 
 // xAI 视频生成按秒计费，duration 请求参数允许 1-15 秒；未指定时上游默认生成 8 秒。
@@ -33,13 +34,26 @@ func NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds int) int {
 
 func NormalizeVideoBillingResolutionOrDefault(resolution string) string {
 	switch strings.ToLower(strings.TrimSpace(resolution)) {
+	case "", "auto":
+		return VideoBillingResolution480P
 	case "480", "480p", "sd":
 		return VideoBillingResolution480P
 	case "720", "720p", "hd":
 		return VideoBillingResolution720P
 	case "1080", "1080p", "full_hd", "full-hd", "fhd":
 		return VideoBillingResolution1080P
+	case "4k", "2160p", "uhd":
+		return VideoBillingResolution4K
 	default:
 		return VideoBillingResolution480P
 	}
+}
+
+// NormalizeVideoBillingResolutionForModel applies model-specific defaults when resolution is empty
+// and clamps unsupported tiers to the model default (official alignment).
+func NormalizeVideoBillingResolutionForModel(model, resolution string) string {
+	if strings.TrimSpace(resolution) == "" {
+		return tkVideoDefaultResolution(model)
+	}
+	return tkVideoNormalizeResolution(model, resolution)
 }

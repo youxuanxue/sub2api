@@ -71,6 +71,22 @@
             </button>
           </div>
         </div>
+        <div v-if="resolutionOptions.length > 1" class="mt-3">
+          <div class="mb-1.5 text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('studio.video.resolution') }}</div>
+          <div class="flex flex-wrap gap-2 text-sm" data-testid="studio-video-resolution">
+            <button
+              v-for="r in resolutionOptions"
+              :key="r"
+              type="button"
+              class="rounded-lg border px-3 py-1.5 font-medium uppercase transition disabled:cursor-not-allowed disabled:opacity-50"
+              :class="resolution === r ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
+              :disabled="sending"
+              @click="resolution = r"
+            >
+              {{ r }}
+            </button>
+          </div>
+        </div>
         <div class="mt-3">
           <div class="mb-1.5 text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('studio.video.aspect') }}</div>
           <div class="flex flex-wrap gap-2 text-sm">
@@ -370,7 +386,7 @@ import {
   type StudioParam,
   type MediaPriceMap,
 } from '@/constants/studioMediaPresentations.tk'
-import { estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
+import { estimateVideoCost, formatUsd, resolveVideoPerSecond } from '@/utils/mediaCostEstimate.tk'
 import { videoTaskCardPresentation, videoTaskPlaybackAvailable, videoTaskCopyLinkAvailable } from '@/utils/studioMedia.tk'
 import { tagStudioVideoPlayback } from '@/utils/studioPlaybackStorage.tk'
 import StudioLocalSaveBanner from '@/views/user/studio/components/StudioLocalSaveBanner.vue'
@@ -421,6 +437,12 @@ const supports = (p: StudioParam): boolean => !!selected.value?.presentation.sup
 // The selected model's accepted durations (chips); default lands on the MAX.
 const durations = computed<number[]>(() => selected.value?.presentation.videoDurations ?? [VIDEO_DURATION_DEFAULT])
 const duration = ref<number>(VIDEO_DURATION_DEFAULT)
+const resolutionOptions = computed(() => {
+  const tiers = selected.value?.videoTiers
+  if (!tiers?.length) return [] as string[]
+  return tiers.map((t) => t.resolution)
+})
+const resolution = ref<string>('')
 const aspectId = ref<string>('') // '' = auto (no aspect_ratio sent — proven zero-extra-field path)
 const prompt = ref('')
 const userEditedPrompt = ref(false)
@@ -443,8 +465,22 @@ const estimate = computed(() => {
   if (!selected.value) return 0
   return estimateVideoCost({
     perSecond: selected.value.perSecond || 0,
+    videoTiers: selected.value.videoTiers,
+    resolution: resolution.value || undefined,
+    generateAudio: supports('generateAudio') ? generateAudio.value : undefined,
+    hasInputImage: supports('firstFrameImage') && !!firstFrameImage.value.trim(),
     seconds: duration.value,
     rateMultiplier: props.rateMultiplier,
+  })
+})
+const resolvedPerSecond = computed(() => {
+  if (!selected.value) return 0
+  return resolveVideoPerSecond({
+    perSecond: selected.value.perSecond || 0,
+    videoTiers: selected.value.videoTiers,
+    resolution: resolution.value || undefined,
+    generateAudio: supports('generateAudio') ? generateAudio.value : undefined,
+    hasInputImage: supports('firstFrameImage') && !!firstFrameImage.value.trim(),
   })
 })
 const canAfford = computed(() => estimate.value <= props.balance)
@@ -453,7 +489,7 @@ const canGenerate = computed(
 )
 const formula = computed(() => {
   if (!selected.value) return ''
-  return t('studio.video.formula', { rate: formatUsd(selected.value.perSecond || 0), seconds: duration.value })
+  return t('studio.video.formula', { rate: formatUsd(resolvedPerSecond.value), seconds: duration.value })
 })
 
 const playbackDeps = {
@@ -505,6 +541,15 @@ watch(
     // the estimate/quote is never for an out-of-range (guaranteed-fail) duration.
     if (!durations.value.includes(duration.value)) {
       duration.value = videoDurationDefault(selected.value?.presentation.videoDurations)
+    }
+    const tiers = selected.value?.videoTiers
+    if (tiers?.length) {
+      const def = tiers.find((t) => t.defaultForModel)?.resolution ?? tiers[0]?.resolution ?? ''
+      if (!tiers.some((t) => t.resolution === resolution.value)) {
+        resolution.value = def
+      }
+    } else {
+      resolution.value = ''
     }
   },
   { immediate: true }
@@ -613,6 +658,7 @@ async function generate(): Promise<void> {
       ...(supports('firstFrameImage') && firstFrameImage.value.trim()
         ? { image: firstFrameImage.value.trim() }
         : {}),
+      ...(resolution.value ? { resolution: resolution.value } : {}),
       ...(supports('generateAudio') ? { generateAudio: generateAudio.value } : {}),
     })
     const taskId = extractVideoTaskId(raw)
