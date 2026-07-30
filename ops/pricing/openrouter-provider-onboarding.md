@@ -37,8 +37,8 @@ Required fields:
 - `group_ids`: OR supply groups (scheme C — no ct20/49/53 on public groups)
 - `billing_user_id` + `allowed_api_key_ids`: OR production inference key
 - `monitor_api_key_ids`: OR monitor key for `/v1/models` polling
-- `catalog_excluded_model_ids`: internal model ids omitted from seller catalog (hot-updatable; omit key to use code defaults)
-- `stream_only_model_ids`: chat models requiring `stream=true` (hot-updatable; omit key to use code defaults)
+- `catalog_excluded_model_ids`: internal model ids omitted from seller catalog (SSOT: example JSON + live settings)
+- `stream_only_model_ids`: chat models requiring `stream=true` (SSOT: example JSON + live settings)
 
 ## P2 compliance fields
 
@@ -59,7 +59,7 @@ go test -tags=unit ./backend/internal/service -run OpenRouter
 go test -tags=unit ./backend/internal/handler -run OpenRouterProvider
 ```
 
-Catalog excludes unstable OR supply rows via `catalog_excluded_model_ids` in `tk_openrouter_provider_config` (defaults in code + example JSON). GLM stream-only models use `stream_only_model_ids`; emitted catalog rows get `openrouter.stream_required=true`. Update prod settings + `PUBLISH settings_updated` — no redeploy required.
+Catalog exclude / stream-only lists live only in `tk_openrouter_provider_config` (template: `ops/pricing/examples/openrouter-provider-config.example.json`). Runtime reads settings on each catalog build; update JSON + `PUBLISH settings_updated` — no redeploy.
 
 To patch prod exclude/stream lists without touching group ids:
 
