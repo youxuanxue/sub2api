@@ -37,6 +37,8 @@ Required fields:
 - `group_ids`: OR supply groups (scheme C — no ct20/49/53 on public groups)
 - `billing_user_id` + `allowed_api_key_ids`: OR production inference key
 - `monitor_api_key_ids`: OR monitor key for `/v1/models` polling
+- `catalog_excluded_model_ids`: internal model ids omitted from seller catalog (hot-updatable; omit key to use code defaults)
+- `stream_only_model_ids`: chat models requiring `stream=true` (hot-updatable; omit key to use code defaults)
 
 ## P2 compliance fields
 
@@ -57,7 +59,14 @@ go test -tags=unit ./backend/internal/service -run OpenRouter
 go test -tags=unit ./backend/internal/handler -run OpenRouterProvider
 ```
 
-Catalog excludes unstable OR supply rows (`claude-fable-5`, `claude-opus-4-1`, `gemini-3.1-pro`) until routing/capacity is fixed. GLM stream-only models (`glm-4.5`, `glm-4.5-air`) expose `openrouter.stream_required=true` and a description note; serial smoke uses `stream=true` for those chat rows.
+Catalog excludes unstable OR supply rows via `catalog_excluded_model_ids` in `tk_openrouter_provider_config` (defaults in code + example JSON). GLM stream-only models use `stream_only_model_ids`; emitted catalog rows get `openrouter.stream_required=true`. Update prod settings + `PUBLISH settings_updated` — no redeploy required.
+
+To patch prod exclude/stream lists without touching group ids:
+
+```bash
+python3 ops/pricing/manage-openrouter-provider-config.py snapshot  # read live config
+# edit catalog_excluded_model_ids / stream_only_model_ids in settings JSON, then upsert via admin or update-config
+```
 
 Catalog must include token-priced chat models plus media-priced rows (`pricing.image` for Imagen/Seedream, `pricing.request` for Veo) with matching `output_modalities`.
 

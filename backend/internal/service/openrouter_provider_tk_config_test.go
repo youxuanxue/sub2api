@@ -1,6 +1,9 @@
 package service
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseOpenRouterProviderConfig_Defaults(t *testing.T) {
 	cfg, err := ParseOpenRouterProviderConfig("")
@@ -15,6 +18,64 @@ func TestParseOpenRouterProviderConfig_Defaults(t *testing.T) {
 	}
 	if cfg.PrivacyPolicyURL == "" || cfg.TermsOfServiceURL == "" {
 		t.Fatalf("legal urls missing: privacy=%q terms=%q", cfg.PrivacyPolicyURL, cfg.TermsOfServiceURL)
+	}
+	if !cfg.CatalogExcluded("claude-fable-5") || !cfg.CatalogExcluded("gemini-3.1-pro") {
+		t.Fatalf("default catalog excludes missing: %v", cfg.CatalogExcludedModelIDs)
+	}
+	if !cfg.StreamOnly("glm-4.5") || !cfg.StreamOnly("glm-4.5-air") {
+		t.Fatalf("default stream-only missing: %v", cfg.StreamOnlyModelIDs)
+	}
+}
+
+func TestParseOpenRouterProviderConfig_ExplicitEmptyExcludeList(t *testing.T) {
+	raw := `{"catalog_excluded_model_ids":[],"stream_only_model_ids":[]}`
+	cfg, err := ParseOpenRouterProviderConfig(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.CatalogExcludedModelIDs) != 0 || cfg.CatalogExcluded("claude-fable-5") {
+		t.Fatalf("explicit empty exclude must clear defaults: %v", cfg.CatalogExcludedModelIDs)
+	}
+	if len(cfg.StreamOnlyModelIDs) != 0 || cfg.StreamOnly("glm-4.5") {
+		t.Fatalf("explicit empty stream-only must clear defaults: %v", cfg.StreamOnlyModelIDs)
+	}
+}
+
+func TestOpenRouterProviderConfig_CatalogExcludedAndStreamOnly(t *testing.T) {
+	cfg := OpenRouterProviderConfig{
+		CatalogExcludedModelIDs: []string{"claude-fable-5", "gemini-3.1-pro"},
+		StreamOnlyModelIDs:      []string{"glm-4.5"},
+	}
+	if !cfg.CatalogExcluded("claude-fable-5") || cfg.CatalogExcluded("claude-sonnet-4-6") {
+		t.Fatal("catalog exclude mismatch")
+	}
+	if !cfg.StreamOnly("glm-4.5") || cfg.StreamOnly("qwen-max") {
+		t.Fatal("stream-only mismatch")
+	}
+}
+
+func TestOpenRouterProviderEnrichCatalogItem_StreamOnlyMetadata(t *testing.T) {
+	cfg := DefaultOpenRouterProviderConfig()
+	item := OpenRouterProviderModel{
+		ID:          "tokenkey/glm-4.5",
+		Description: "glm via TokenKey",
+		OpenRouter:  map[string]string{"slug": "tokenkey/glm-4.5"},
+	}
+	openRouterProviderEnrichCatalogItem(&item, cfg, "glm-4.5")
+	if item.OpenRouter["stream_required"] != "true" {
+		t.Fatalf("openrouter=%+v", item.OpenRouter)
+	}
+	if !strings.Contains(item.Description, "stream=true") {
+		t.Fatalf("description=%q", item.Description)
+	}
+}
+
+func TestOpenRouterProviderEnrichCatalogItem_NonStreamUnchanged(t *testing.T) {
+	cfg := DefaultOpenRouterProviderConfig()
+	item := OpenRouterProviderModel{Description: "plain"}
+	openRouterProviderEnrichCatalogItem(&item, cfg, "qwen-max")
+	if item.OpenRouter != nil {
+		t.Fatalf("openrouter=%+v", item.OpenRouter)
 	}
 }
 

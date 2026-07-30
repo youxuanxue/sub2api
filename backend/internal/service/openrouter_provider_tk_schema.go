@@ -11,52 +11,6 @@ const (
 	openRouterProviderDefaultQuantization = "fp16"
 )
 
-// openRouterProviderCatalogExcludedSourceIDs lists internal model ids omitted from
-// GET /openrouter/v1/models until supply/routing is stable for OR seller traffic.
-var openRouterProviderCatalogExcludedSourceIDs = map[string]struct{}{
-	"claude-fable-5":  {},
-	"claude-opus-4-1": {},
-	"gemini-3.1-pro":  {},
-}
-
-// openRouterProviderStreamOnlySourceIDs lists chat models that reject non-stream requests.
-var openRouterProviderStreamOnlySourceIDs = map[string]struct{}{
-	"glm-4.5":     {},
-	"glm-4.5-air": {},
-}
-
-func openRouterProviderCatalogExcluded(sourceID string) bool {
-	sourceID = strings.TrimSpace(sourceID)
-	if sourceID == "" {
-		return false
-	}
-	_, ok := openRouterProviderCatalogExcludedSourceIDs[sourceID]
-	return ok
-}
-
-func openRouterProviderStreamOnlySourceID(sourceID string) bool {
-	sourceID = strings.TrimSpace(sourceID)
-	if sourceID == "" {
-		return false
-	}
-	_, ok := openRouterProviderStreamOnlySourceIDs[sourceID]
-	return ok
-}
-
-func openRouterProviderEnrichCatalogItem(item *OpenRouterProviderModel, sourceID string) {
-	if item == nil || !openRouterProviderStreamOnlySourceID(sourceID) {
-		return
-	}
-	if item.OpenRouter == nil {
-		item.OpenRouter = map[string]string{}
-	}
-	item.OpenRouter["stream_required"] = "true"
-	const suffix = " Chat completions require stream=true."
-	if !strings.Contains(item.Description, "stream=true") {
-		item.Description += suffix
-	}
-}
-
 var openRouterProviderDefaultSamplingParameters = []string{
 	"temperature",
 	"top_p",
