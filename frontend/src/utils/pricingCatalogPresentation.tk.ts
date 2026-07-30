@@ -17,12 +17,13 @@ export function catalogTokenPricePer1M(per1k: number): number {
 
 /**
  * Single catalog USD display rule (marketplace + pricing table + export labels).
- * At most three fractional digits; trailing zeros trimmed. Billing/Studio keeps
- * its own precision — catalog is for comparison, not invoicing.
+ * At most three fractional digits for ordinary amounts; sub-cent prices keep six
+ * so catalog and CSV do not materially understate low media tiers.
  */
 export function formatCatalogUsdNumeric(value: number): string {
   if (!Number.isFinite(value) || value === 0) return ''
-  return value.toFixed(3).replace(/\.?0+$/, '')
+  const digits = Math.abs(value) < 0.01 ? 6 : 3
+  return value.toFixed(digits).replace(/\.?0+$/, '')
 }
 
 export function formatCatalogUsd(value: number): string {

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"math"
 	"strings"
 )
@@ -213,15 +214,37 @@ func tkApplyBaseTaxToVideoTiers(tiers []PricingVideoTier, multiplier float64) []
 	return out
 }
 
-func tkBuildOverlayVideoTiers(raw []tkOverlayRawVideoTier) []PricingVideoTier {
+func tkValidateAndBuildOverlayVideoTiers(raw []tkOverlayRawVideoTier, defaultResolution string, flatPerSecond float64) ([]PricingVideoTier, string, error) {
+	if len(raw) == 0 {
+		return nil, "", fmt.Errorf("video_price_tiers must be a non-empty array")
+	}
 	out := make([]PricingVideoTier, 0, len(raw))
-	for _, r := range raw {
-		tier := PricingVideoTier{
-			Resolution:      NormalizeVideoBillingResolutionOrDefault(r.Resolution),
-			DefaultForModel: r.DefaultForModel,
+	seen := make(map[string]struct{}, len(raw))
+	defaultCount := 0
+	declaredDefault := ""
+	minRate := math.MaxFloat64
+	for i, r := range raw {
+		resolution, ok := canonicalOverlayVideoResolution(r.Resolution)
+		if !ok {
+			return nil, "", fmt.Errorf("video_price_tiers[%d].resolution %q is not canonical", i, r.Resolution)
 		}
-		if r.OutputCostPerSecond != nil {
-			tier.PerSecond = *r.OutputCostPerSecond
+		if _, duplicate := seen[resolution]; duplicate {
+			return nil, "", fmt.Errorf("video_price_tiers duplicates resolution %q", resolution)
+		}
+		seen[resolution] = struct{}{}
+		if r.OutputCostPerSecond == nil || !finitePositive(*r.OutputCostPerSecond) {
+			return nil, "", fmt.Errorf("video_price_tiers[%d].output_cost_per_second must be finite and > 0", i)
+		}
+		if r.OutputCostPerSecondSilent != nil && !finitePositive(*r.OutputCostPerSecondSilent) {
+			return nil, "", fmt.Errorf("video_price_tiers[%d].output_cost_per_second_silent must be finite and > 0", i)
+		}
+		if r.InputImageSurchargePerSecond != nil && (!finiteNonNegative(*r.InputImageSurchargePerSecond)) {
+			return nil, "", fmt.Errorf("video_price_tiers[%d].input_image_surcharge_per_second must be finite and >= 0", i)
+		}
+		tier := PricingVideoTier{
+			Resolution:      resolution,
+			PerSecond:       *r.OutputCostPerSecond,
+			DefaultForModel: r.DefaultForModel,
 		}
 		if r.OutputCostPerSecondSilent != nil {
 			tier.PerSecondSilent = *r.OutputCostPerSecondSilent
@@ -229,10 +252,47 @@ func tkBuildOverlayVideoTiers(raw []tkOverlayRawVideoTier) []PricingVideoTier {
 		if r.InputImageSurchargePerSecond != nil {
 			tier.InputImageSurchargePerSecond = *r.InputImageSurchargePerSecond
 		}
-		if tier.PerSecond <= 0 {
-			continue
+		if tier.DefaultForModel {
+			defaultCount++
+			declaredDefault = resolution
+		}
+		minRate = math.Min(minRate, tier.PerSecond)
+		if tier.PerSecondSilent > 0 {
+			minRate = math.Min(minRate, tier.PerSecondSilent)
 		}
 		out = append(out, tier)
 	}
-	return out
+	if defaultCount != 1 {
+		return nil, "", fmt.Errorf("video_price_tiers must declare exactly one default_for_model, got %d", defaultCount)
+	}
+	if strings.TrimSpace(defaultResolution) != "" {
+		canonicalDefault, ok := canonicalOverlayVideoResolution(defaultResolution)
+		if !ok {
+			return nil, "", fmt.Errorf("default_video_resolution %q is not canonical", defaultResolution)
+		}
+		if canonicalDefault != declaredDefault {
+			return nil, "", fmt.Errorf("default_video_resolution %q does not match default_for_model %q", canonicalDefault, declaredDefault)
+		}
+	}
+	if !finitePositive(flatPerSecond) || math.Abs(flatPerSecond-minRate) > 1e-12 {
+		return nil, "", fmt.Errorf("output_cost_per_second must equal minimum video tier %.15g, got %.15g", minRate, flatPerSecond)
+	}
+	return out, declaredDefault, nil
+}
+
+func canonicalOverlayVideoResolution(value string) (string, bool) {
+	switch value {
+	case VideoBillingResolution480P, VideoBillingResolution720P, VideoBillingResolution1080P, VideoBillingResolution4K:
+		return value, true
+	default:
+		return "", false
+	}
+}
+
+func finitePositive(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value > 0
+}
+
+func finiteNonNegative(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0
 }

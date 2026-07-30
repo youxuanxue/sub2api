@@ -34,7 +34,7 @@
               <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-800 dark:text-dark-300">{{ t(r.presentation.qualityBadgeKey) }}</span>
             </div>
             <div class="mt-1 flex items-center justify-between gap-2">
-              <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(r.perSecond || 0) }}{{ t('studio.video.perSecondUnit') }}</span>
+              <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(modelCardPerSecond(r)) }}{{ t('studio.video.perSecondUnit') }}</span>
               <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.presentation.vendorLabel }) }}</span>
             </div>
             <div class="mt-0.5 truncate font-mono text-[10px] text-gray-400 dark:text-dark-500" :title="r.servedId">{{ r.servedId }}</div>
@@ -385,6 +385,7 @@ import {
   defaultModelId,
   type StudioParam,
   type MediaPriceMap,
+  type ResolvedMediaModel,
 } from '@/constants/studioMediaPresentations.tk'
 import { estimateVideoCost, formatUsd, resolveVideoPerSecond } from '@/utils/mediaCostEstimate.tk'
 import { videoTaskCardPresentation, videoTaskPlaybackAvailable, videoTaskCopyLinkAvailable } from '@/utils/studioMedia.tk'
@@ -449,6 +450,13 @@ const userEditedPrompt = ref(false)
 const sending = ref(false)
 const errorMessage = ref('')
 const errorCode = ref<StudioErrorCode | ''>('')
+
+function modelCardPerSecond(model: ResolvedMediaModel): number {
+  return resolveVideoPerSecond({
+    perSecond: model.perSecond || 0,
+    videoTiers: model.videoTiers,
+  })
+}
 
 // Notification-permission state (NOT a per-task event), so a deliberate "notify me"
 // click can confirm itself on the card without a global banner that goes stale

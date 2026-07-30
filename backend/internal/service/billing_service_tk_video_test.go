@@ -69,6 +69,34 @@ func TestVideoSubmitBillingParamsFromBody(t *testing.T) {
 	require.True(t, p.HasInputImage)
 }
 
+func TestVideoSubmitBillingParamsFromBody_DoesNotCoerceMalformedAudio(t *testing.T) {
+	for _, body := range [][]byte{
+		[]byte(`{"generateAudio":"false"}`),
+		[]byte(`{"metadata":{"generate_audio":{"value":false}}}`),
+		[]byte(`{"metadata":"{\"generateAudio\":\"false\"}"}`),
+	} {
+		p := VideoSubmitBillingParamsFromBody(body)
+		require.Nil(t, p.GenerateAudio, string(body))
+	}
+}
+
+func TestVideoSubmitBillingParamsFromBody_TopLevelAudioWinsOverMetadata(t *testing.T) {
+	p := VideoSubmitBillingParamsFromBody([]byte(`{
+		"generateAudio": false,
+		"metadata": {"generateAudio": true}
+	}`))
+	require.NotNil(t, p.GenerateAudio)
+	require.False(t, *p.GenerateAudio)
+}
+
+func TestVideoSubmitBillingParamsFromBody_NormalizesTaskSizeForBilling(t *testing.T) {
+	p := VideoSubmitBillingParamsFromBody([]byte(`{
+		"model": "veo-3.1-generate-001",
+		"size": "1920x1080"
+	}`))
+	require.Equal(t, VideoBillingResolution1080P, NormalizeVideoBillingResolutionOrDefault(p.Resolution))
+}
+
 func TestTkVideoModelUnpriced_Grok15HasTierPrice(t *testing.T) {
 	svc := newTestBillingService()
 	require.False(t, svc.TkVideoModelUnpriced("grok-imagine-video-1.5"))

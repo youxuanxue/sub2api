@@ -21,11 +21,12 @@ describe('pricingCatalogPresentation', () => {
     expect(formatCatalogUsdNumeric(0)).toBe('')
     expect(formatCatalogUsdNumeric(0.1194)).toBe('0.119')
     expect(formatCatalogUsdNumeric(0.4478)).toBe('0.448')
+    expect(formatCatalogUsdNumeric(0.006296)).toBe('0.006296')
   })
 
-  it('formats all catalog USD amounts with at most 3 fractional digits', () => {
+  it('retains six fractional digits for sub-cent catalog prices', () => {
     expect(formatCatalogUsd(0)).toBe('$0')
-    expect(formatCatalogUsd(0.006674)).toBe('$0.007')
+    expect(formatCatalogUsd(0.006674)).toBe('$0.006674')
     expect(formatCatalogUsd(0.03480597014925373)).toBe('$0.035')
     expect(formatCatalogUsd(0.6)).toBe('$0.6')
     expect(formatCatalogUsd(1.25)).toBe('$1.25')

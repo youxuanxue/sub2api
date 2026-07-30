@@ -57,7 +57,8 @@ export function priceMapFromMeCatalog(models: readonly MePricingModel[]): MediaP
       m.billing_mode,
       m.your_price?.per_image,
       m.your_price?.per_second,
-      m.vendor
+      m.vendor,
+      m.your_price?.video_price_tiers
     )
     if (entry) map.set(m.model_id, entry)
   }

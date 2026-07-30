@@ -71,6 +71,42 @@ describe('studioMediaCatalog', () => {
     })
   })
 
+  it('priceMapFromMeCatalog carries authenticated video tiers into Studio', () => {
+    const map = priceMapFromMeCatalog([
+      {
+        model_id: 'doubao-seedance-2-0-260128',
+        vendor: 'volcengine',
+        billing_mode: 'video',
+        your_price: {
+          currency: 'USD',
+          per_second: 0.06895880597014925,
+          video_price_tiers: [
+            { resolution: '480p', per_second: 0.06895880597014925 },
+            { resolution: '1080p', per_second: 0.3699402985074627, default_for_model: true },
+          ],
+        },
+        capabilities: [],
+      },
+    ] as never)
+
+    expect(map.get('doubao-seedance-2-0-260128')?.videoTiers).toEqual([
+      {
+        resolution: '480p',
+        perSecond: 0.06895880597014925,
+        perSecondSilent: undefined,
+        inputImageSurchargePerSecond: undefined,
+        defaultForModel: undefined,
+      },
+      {
+        resolution: '1080p',
+        perSecond: 0.3699402985074627,
+        perSecondSilent: undefined,
+        inputImageSurchargePerSecond: undefined,
+        defaultForModel: true,
+      },
+    ])
+  })
+
   it('priceMapFromMeCatalog ignores per-unit rows without media billing_mode', () => {
     const map = priceMapFromMeCatalog([
       {

@@ -281,12 +281,21 @@
         "func tkOverlayOverridesLitellmSource",
         "func applyTKPricingOverlay",
         "func rebuildTKOverlayUnion",
+        "tkValidateAndBuildOverlayVideoTiers",
         "TokenPricingAbsent:      e.InputCostPerToken == nil && e.OutputCostPerToken == nil",
         "SupportsReasoning:       e.SupportsReasoning",
         "tkOverlayMu",
         "tkOverlayEffective"
       ],
-      "rationale": "The overlay loader builds one immutable snapshot containing model prices, catalog metadata, and executable tax policy. Runtime model rows merge over the embedded floor; runtime policy may add providers or change rates/matchers but must retain every embedded provider. Validation precedes the snapshot swap, so corrupt/partial config keeps last-known-good, while a corrupt first load still establishes the embedded floor. TokenPricingAbsent preserves the fail-closed token-billing boundary when media-only overlay rows are merged into PricingService; SupportsReasoning anchors the capability projection used by the public catalog."
+      "rationale": "The overlay loader builds one immutable snapshot containing model prices, catalog metadata, and executable tax policy. Runtime model rows merge over the embedded floor; runtime policy may add providers or change rates/matchers but must retain every embedded provider. tkValidateAndBuildOverlayVideoTiers rejects malformed billing ladders before swap instead of normalizing corrupt rows into a live price. TokenPricingAbsent preserves the fail-closed token-billing boundary when media-only overlay rows are merged into PricingService; SupportsReasoning anchors the capability projection used by the public catalog."
+    },
+    {
+      "path": "backend/internal/service/pricing_service_tk_overlay_runtime_test.go",
+      "must_contain": [
+        "TestParseTKOverlayDocument_RejectsMalformedVideoTiers",
+        "TestParseTKOverlayDocument_DerivesVideoDefaultFromTierOwner"
+      ],
+      "rationale": "Focused runtime-overlay regression evidence: malformed video ladders must be rejected before a hot swap, while an omitted compatibility default is deterministically derived from the tier row marked default_for_model."
     },
     {
       "path": "ops/pricing/manage-overlay-runtime.py",

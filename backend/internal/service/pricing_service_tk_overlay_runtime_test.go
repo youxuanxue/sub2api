@@ -200,6 +200,42 @@ func TestParseTKOverlayDocument_RejectsInvalidTaxPolicy(t *testing.T) {
 	}
 }
 
+func TestParseTKOverlayDocument_RejectsMalformedVideoTiers(t *testing.T) {
+	validTier := `{"resolution":"720p","output_cost_per_second":0.1,"default_for_model":true}`
+	tests := map[string]string{
+		"empty tiers":              `{"video":{"mode":"video_generation","output_cost_per_second":0.1,"video_price_tiers":[]}}`,
+		"unknown resolution":       `{"video":{"mode":"video_generation","output_cost_per_second":0.1,"video_price_tiers":[{"resolution":"banana","output_cost_per_second":0.1,"default_for_model":true}]}}`,
+		"noncanonical resolution":  `{"video":{"mode":"video_generation","output_cost_per_second":0.1,"video_price_tiers":[{"resolution":"720P","output_cost_per_second":0.1,"default_for_model":true}]}}`,
+		"duplicate resolution":     `{"video":{"mode":"video_generation","output_cost_per_second":0.1,"video_price_tiers":[` + validTier + `,` + validTier + `]}}`,
+		"missing rate":             `{"video":{"mode":"video_generation","output_cost_per_second":0.1,"video_price_tiers":[{"resolution":"720p","default_for_model":true}]}}`,
+		"missing default":          `{"video":{"mode":"video_generation","output_cost_per_second":0.1,"video_price_tiers":[{"resolution":"720p","output_cost_per_second":0.1}]}}`,
+		"multiple defaults":        `{"video":{"mode":"video_generation","output_cost_per_second":0.1,"video_price_tiers":[` + validTier + `,{"resolution":"1080p","output_cost_per_second":0.2,"default_for_model":true}]}}`,
+		"mismatched default field": `{"video":{"mode":"video_generation","output_cost_per_second":0.1,"default_video_resolution":"1080p","video_price_tiers":[` + validTier + `]}}`,
+		"flat not minimum":         `{"video":{"mode":"video_generation","output_cost_per_second":0.2,"video_price_tiers":[` + validTier + `]}}`,
+	}
+	for name, blob := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseTKOverlayDocument([]byte(blob))
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestParseTKOverlayDocument_DerivesVideoDefaultFromTierOwner(t *testing.T) {
+	doc, err := parseTKOverlayDocument([]byte(`{
+		"video": {
+			"mode": "video_generation",
+			"output_cost_per_second": 0.1,
+			"video_price_tiers": [
+				{"resolution":"720p","output_cost_per_second":0.1},
+				{"resolution":"1080p","output_cost_per_second":0.2,"default_for_model":true}
+			]
+		}
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, "1080p", doc.Models["video"].DefaultVideoResolution)
+}
+
 func TestReloadTKOverlayRuntime_EmptyGetterIsEmbeddedFloor(t *testing.T) {
 	resetOverlayUnion(t)
 	s := newTestPricingService()

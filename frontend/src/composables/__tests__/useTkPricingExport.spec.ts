@@ -67,6 +67,28 @@ describe('useTkPricingExport.buildPricingCsv', () => {
     expect(row).toContain('vision;tool_use')
   })
 
+  it('retains sub-cent media precision in CSV exports', () => {
+    const csv = buildPricingCsv(
+      catalog([
+        {
+          model_id: 'low-cost-video',
+          vendor: 'test',
+          pricing: {
+            currency: 'USD',
+            input_per_1k_tokens: 0,
+            output_per_1k_tokens: 0,
+            billing_mode: 'video',
+            output_cost_per_second: 0.006296,
+          },
+          capabilities: [],
+        },
+      ])
+    )
+    const [header, row] = csv.split('\r\n')
+    const columns = header.split(',')
+    expect(parseCsvRow(row)[columns.indexOf('price_per_second_USD')]).toBe('0.006296')
+  })
+
   it('renders the 阶梯 ladder into a single readable tiers cell (quoted, per-1M)', () => {
     const csv = buildPricingCsv(
       catalog([

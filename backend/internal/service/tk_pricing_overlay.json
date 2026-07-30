@@ -78,7 +78,7 @@
     "litellm_provider": "xai",
     "mode": "video_generation",
     "output_cost_per_second": 0.05,
-    "source": "xAI official video pricing (docs.x.ai/developers/models/grok-imagine-video, captured 2026-06-19): output $0.05/s base (480p text-to-video), 720p output $0.07/s, +$0.01/s when image is used as input. TK bills a single flat per-OUTPUT-second rate (no resolution/input granularity), set to the MAX reachable tier 720p+image-input = $0.07+$0.01 = $0.08/s so cheaper combos over- not under-charge (same MAX-tier convention as veo/doubao). Cross-checked live 2026-06-19 against api.x.ai/v1/videos via a grok OAuth Heavy account: a 5s text-to-video reported usage.cost_in_usd_ticks=2500000000 = $0.25 ($0.05/s), confirming 1 tick = 1e-10 USD (grok-imagine-image 2e8 ticks = its known $0.02). video_url (continuation) input is rejected at submit (unpriced under per-output-second); only first-frame image_url input is allowed. failure_billing=success_only: xAI bills generated output seconds, and TokenKey's terminal-failure refund reverses the submit-time charge.",
+    "source": "xAI official video pricing (docs.x.ai/developers/models/grok-imagine-video, captured 2026-06-19): output $0.05/s base (480p text-to-video), 720p output $0.07/s, +$0.01/s when image is used as input. Cross-checked live 2026-06-19 against api.x.ai/v1/videos via a grok OAuth Heavy account: a 5s text-to-video reported usage.cost_in_usd_ticks=2500000000 = $0.25 ($0.05/s), confirming 1 tick = 1e-10 USD (grok-imagine-image 2e8 ticks = its known $0.02). video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. video_url (continuation) input is rejected at submit; only first-frame image_url input is allowed. failure_billing=success_only: xAI bills generated output seconds, and TokenKey's terminal-failure refund reverses the submit-time charge.",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -99,7 +99,7 @@
     "litellm_provider": "xai",
     "mode": "video_generation",
     "output_cost_per_second": 0.08,
-    "source": "xAI official video pricing (docs.x.ai/developers/models/grok-imagine-video, captured 2026-07-30): grok-imagine-video-1.5 tiered output $0.08/s (480p), $0.14/s (720p), $0.25/s (1080p). Tier ladder is the billing SSOT (video_price_tiers); flat output_cost_per_second is the catalog floor (min tier). failure_billing=success_only.",
+    "source": "xAI official video pricing (docs.x.ai/developers/models/grok-imagine-video, captured 2026-07-30): grok-imagine-video-1.5 tiered output $0.08/s (480p), $0.14/s (720p), $0.25/s (1080p). video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. failure_billing=success_only.",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -371,7 +371,7 @@
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.5,
-    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 2 video = $0.50/second (720p). TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 2 video = $0.50/second (720p). video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -386,7 +386,7 @@
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.1,
-    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3 Fast MAX tier = $0.12/second (1080p + audio); no 4k tier. TK's flat $0.15 already exceeds the official max across all reachable resolution/audio combos — retained (not lowered) to avoid reducing existing revenue. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3 Fast = $0.10/second at 720p and $0.12/second at 1080p; no 4k tier. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -405,7 +405,7 @@
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.2,
-    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3 MAX tier = $0.40/second (720p/1080p + audio); no 4k tier. TK's flat $0.40 matches the official max — covers all reachable resolution/audio combos. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3 is $0.40/second with audio and $0.20/second silent at 720p/1080p; no 4k tier. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -426,7 +426,7 @@
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.1,
-    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 Fast MAX tier = $0.30/second (4k + audio); lower tiers 720p $0.10, 1080p $0.12, video-only 4k $0.25. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 Fast tiers are 720p $0.10/second, 1080p $0.12/second, 4k $0.30/second with audio and $0.25/second silent. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -450,7 +450,7 @@
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.1,
-    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 Fast MAX tier = $0.30/second (4k + audio); lower tiers 720p $0.10, 1080p $0.12, video-only 4k $0.25. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 Fast preview tiers are 720p $0.10/second, 1080p $0.12/second, 4k $0.30/second with audio and $0.25/second silent. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -474,7 +474,7 @@
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.2,
-    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 MAX tier = $0.60/second (4k + audio); lower tiers 720p/1080p + audio $0.40, video-only 4k $0.40, video-only 720p/1080p $0.20. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 tiers are 720p/1080p $0.40/second with audio and $0.20/second silent; 4k is $0.60/second with audio and $0.40/second silent. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -500,7 +500,7 @@
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.2,
-    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 MAX tier = $0.60/second (4k + audio); lower tiers 720p/1080p + audio $0.40, video-only 4k $0.40, video-only 720p/1080p $0.20. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 preview tiers are 720p/1080p $0.40/second with audio and $0.20/second silent; 4k is $0.60/second with audio and $0.40/second silent. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -526,7 +526,7 @@
     "litellm_provider": "gemini",
     "mode": "video_generation",
     "output_cost_per_second": 0.03,
-    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 Lite MAX tier = $0.08/second (1080p + audio); lower tiers 720p + audio $0.05, video-only 720p $0.03 / 1080p $0.05; no 4k tier. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 Lite tiers are 720p $0.05/second with audio and $0.03/second silent; 1080p $0.08/second with audio and $0.05/second silent; no 4k tier. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -571,7 +571,7 @@
     "litellm_provider": "volcengine",
     "mode": "video_generation",
     "output_cost_per_second": 0.022486567164179103,
-    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-1.0-pro online = 15 CNY/M tokens; video tokens = duration*W*H*fps/1024. Priced at the model's MAX tier 1080p(1920x1080)@24fps so lower-resolution requests over- not under-charge: 1920*1080*24/1024 = 48600 tokens/s -> 48600*15/1e6 = 0.729 CNY/s ÷ 6.7 = 0.1088060 USD/s (matches official 1080p 5s example ~3.645 CNY). 720p actual cost is 4/9 of this. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-1.0-pro online = 15 CNY/M tokens; video tokens = duration*W*H*fps/1024. The 1080p derivation is 48600 tokens/s * 15 CNY/M = 0.729 CNY/s ÷ 6.7 = 0.1088060 USD/s; 720p is 4/9 of that. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -594,7 +594,7 @@
     "litellm_provider": "volcengine",
     "mode": "video_generation",
     "output_cost_per_second": 0.022486567164179103,
-    "source": "No-prefix alias of doubao-seedance-1-0-pro-250528 (new-api volcengine ModelList carries both; billing key = requested_model). Same derivation: 1080p@24fps max tier, 48600 tokens/s * 15 CNY/M = 0.729 CNY/s ÷ 6.7. Captured 2026-06-12. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "source": "No-prefix alias of doubao-seedance-1-0-pro-250528 (new-api volcengine ModelList carries both; billing key = requested_model). Same derivation: 1080p@24fps is 48600 tokens/s * 15 CNY/M = 0.729 CNY/s ÷ 6.7. Captured 2026-06-12. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -617,7 +617,7 @@
     "litellm_provider": "volcengine",
     "mode": "video_generation",
     "output_cost_per_second": 0.006296238805970149,
-    "source": "VolcEngine Ark official model list/pricing page https://www.volcengine.com/docs/82379/1099320, verified 2026-07-02: doubao-seedance-1.0-pro-fast online = 4.2 CNY/M tokens; video tokens = duration*W*H*fps/1024. Priced at 1080p(1920x1080)@24fps to match the 1.0 Pro max-output convention: 1920*1080*24/1024 = 48600 tokens/s -> 48600*4.2/1e6 = 0.20412 CNY/s ÷ 6.7 = 0.0304657 USD/s. Direct Ark /api/v3/contents/generations/tasks probe returned 200 servable on 2026-07-02. failure_billing evidence follows the same official Seedance video wording captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "source": "VolcEngine Ark official model list/pricing page https://www.volcengine.com/docs/82379/1099320, verified 2026-07-02: doubao-seedance-1.0-pro-fast online = 4.2 CNY/M tokens; video tokens = duration*W*H*fps/1024. The default 720p derivation is 21600 tokens/s * 4.2 CNY/M ÷ 6.7 = 0.0135403 USD/s. Direct Ark /api/v3/contents/generations/tasks probe returned 200 servable on 2026-07-02. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. failure_billing evidence follows the same official Seedance video wording captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -636,7 +636,7 @@
     "litellm_provider": "volcengine",
     "mode": "video_generation",
     "output_cost_per_second": 0.011992835820895524,
-    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-1.5-pro, MAX tier = 1080p WITH audio (16 CNY/M tokens). Official example table 1080p 16:9 5s with-audio = 3.89 CNY -> 0.778 CNY/s ÷ 6.7 = 0.1161194 USD/s; token-formula cross-check 48600*16/1e6 = 0.7776 CNY/s (<0.1% off). Silent 1080p is half; 480p/720p cheaper — single per-second price never under-charges those. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-1.5-pro uses 16 CNY/M tokens with audio and 8 CNY/M silent. Official example table 1080p 16:9 5s with audio = 3.89 CNY; token-formula cross-check is 48600*16/1e6 = 0.7776 CNY/s. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -662,7 +662,7 @@
     "litellm_provider": "volcengine",
     "mode": "video_generation",
     "output_cost_per_second": 0.06895880597014925,
-    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-2.0, MAX output tier 1080p, input-without-video (text/image-to-video, 51 CNY/M tokens). Official example 1080p 5s = 12.39 CNY -> 2.478 CNY/s ÷ 6.7 = 0.3698507 USD/s; cross-check 48600*51/1e6 = 2.4786 CNY/s. CAVEAT: video-input continuation bills (input+output) duration upstream and can exceed this single per-second rate up to ~2.4x — restrict or re-price before enabling video input on TK. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-2.0 input-without-video uses 46 CNY/M tokens at 480p/720p, 51 CNY/M at 1080p, and 26 CNY/M at 4k. Official example 1080p 5s = 12.39 CNY; cross-check 48600*51/1e6 = 2.4786 CNY/s. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. Video-input continuation remains rejected because it bills input+output duration. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {
@@ -689,7 +689,7 @@
     "litellm_provider": "volcengine",
     "mode": "video_generation",
     "output_cost_per_second": 0.055466865671641795,
-    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-2.0-fast, MAX supported output is 720p (no 1080p), input-without-video (37 CNY/M tokens). Official example 720p 5s = 4.00 CNY -> 0.8 CNY/s ÷ 6.7 = 0.1194030 USD/s; cross-check 1280*720*24/1024 = 21600 tokens/s * 37/1e6 = 0.7992 CNY/s. Same video-input caveat as seedance-2.0. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-2.0-fast supports 480p/720p input-without-video at 37 CNY/M tokens. Official example 720p 5s = 4.00 CNY; cross-check 21600 tokens/s * 37/1e6 = 0.7992 CNY/s. video_price_tiers is the billing SSOT; output_cost_per_second is its minimum-tier catalog compatibility floor. Video-input continuation remains rejected. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
     "failure_billing": "success_only",
     "video_price_tiers": [
       {

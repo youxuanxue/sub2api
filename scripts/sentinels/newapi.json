@@ -117,10 +117,27 @@
         "DispatchVideoSubmit",
         "DispatchVideoFetch",
         "IsVideoSupportedChannelType",
+        "normalizeVideoSubmitBodyForTaskAdaptor",
         "videoFetchResponseMaxBytes",
         "errVideoFetchResponseTooLarge"
       ],
-      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. Without these symbols the gateway routes silently 5xx because no other code drives task adaptors. videoFetchResponseMaxBytes / errVideoFetchResponseTooLarge are the pressure guard for upstreams that return inline video bytes: TokenKey may deliver one bounded response to the client, never accept unbounded media into memory."
+      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. normalizeVideoSubmitBodyForTaskAdaptor maps the public resolution/audio fields into pinned new-api TaskSubmitReq metadata so the upstream-generated tier cannot diverge from TokenKey billing. videoFetchResponseMaxBytes / errVideoFetchResponseTooLarge are the pressure guard for upstreams that return inline video bytes: TokenKey may deliver one bounded response to the client, never accept unbounded media into memory."
+    },
+    {
+      "path": "backend/internal/integration/newapi/video_task_resolution.go",
+      "must_contain": [
+        "NormalizeVideoTaskResolution",
+        "geminitask.SizeToVeoResolution"
+      ],
+      "rationale": "Shared request-dimension normalizer for tiered video billing and the pinned task adaptors. TaskSubmitReq.size (for example 1920x1080) must resolve to the same canonical resolution before both charging and upstream request construction; separate converters can silently underbill a generated tier."
+    },
+    {
+      "path": "backend/internal/relay/bridge/video_relay_test.go",
+      "must_contain": [
+        "TestNormalizeVideoSubmitBodyForTaskAdaptor_TopLevelTiersOverrideMetadata",
+        "TestNormalizeVideoSubmitBodyForTaskAdaptor_NormalizesSizeAndMetadataAudio"
+      ],
+      "rationale": "Focused bridge regressions prove that public resolution/size/audio dimensions become the exact adaptor metadata values used upstream, including conflict precedence and metadata-only audio aliases."
     },
     {
       "path": "backend/internal/service/video_task_registry.go",
@@ -387,7 +404,8 @@
       "path": "backend/internal/service/pricing_service_tk_overlay.go",
       "must_contain": [
         "p.CacheCreationInputTokenCostAbove1hr = *e.CacheCreationInputTokenCostAbove1hr",
-        "tkBuildOverlayIntervals(ext.Intervals)"
+        "tkBuildOverlayIntervals(ext.Intervals)",
+        "tkValidateAndBuildOverlayVideoTiers"
       ],
       "rationale": "The overlay loader manually copies LiteLLMRawEntry fields into LiteLLMModelPricing; a missing copy is invisible at compile time and silently zeroes that price for every overlay-only model. This exact field was dropped once in prod: claude-fable-5 (absent from the trimmed runtime source, priced only by the overlay) billed all 1h cache-creation tokens at the 5m rate ($12.50/MTok instead of the official $20/MTok) because billing_service.go's breakdown predicate price1h>price5m saw price1h=0. Pinning the copy line keeps the 1h cache-write tier alive for any overlay entry carrying cache_creation_input_token_cost_above_1hr. SAME silent-drop class for tiered pricing: the loader MUST parse the overlay 'intervals' array via tkBuildOverlayIntervals(ext.Intervals) (a second raw-entry unmarshal, because the upstream LiteLLMRawEntry has no intervals field); dropping it silently flattens every overlay-tiered model (qwen plus/flash/coder, doubao-*/glm-4.7/deepseek-v3.2) to its base tier with no compile error."
     },

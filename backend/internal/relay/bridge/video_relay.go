@@ -21,6 +21,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/gin-gonic/gin"
 )
 
@@ -108,6 +109,11 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 	if strings.TrimSpace(publicTaskID) == "" {
 		return nil, types.NewError(errors.New("public task id is required"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
+	normalizedBody, err := normalizeVideoSubmitBodyForTaskAdaptor(body)
+	if err != nil {
+		return nil, types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+	body = normalizedBody
 	ensureNewAPIDeps()
 	if err := installBodyStorage(c, body); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
@@ -209,6 +215,157 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 		APIKey:         in.APIKey,
 		Duration:       dur,
 	}, nil
+}
+
+// normalizeVideoSubmitBodyForTaskAdaptor aligns TokenKey's public video fields
+// with the pinned new-api TaskSubmitReq, whose provider-specific options live in
+// metadata. Billing reads the same top-level values before dispatch, so this
+// translation is required to keep the charged tier and generated tier identical.
+func normalizeVideoSubmitBodyForTaskAdaptor(body []byte) ([]byte, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse video submit body: %w", err)
+	}
+
+	resolution, hasResolution, err := rawJSONStringAliases(raw, "resolution", "size")
+	if err != nil {
+		return nil, err
+	}
+	generateAudio, hasGenerateAudio, err := rawJSONBoolAliases(raw, "generateAudio", "generate_audio")
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := decodeTaskMetadata(raw["metadata"])
+	if err != nil {
+		if !hasResolution && !hasGenerateAudio {
+			return body, nil
+		}
+		return nil, err
+	}
+	metadataResolution, hasMetadataResolution, err := metadataJSONStringAliases(metadata, "resolution", "size")
+	if err != nil {
+		return nil, err
+	}
+	metadataGenerateAudio, hasMetadataGenerateAudio, err := metadataJSONBoolAliases(metadata, "generateAudio", "generate_audio")
+	if err != nil {
+		return nil, err
+	}
+	if !hasResolution {
+		resolution = metadataResolution
+		hasResolution = hasMetadataResolution
+	}
+	if !hasGenerateAudio {
+		generateAudio = metadataGenerateAudio
+		hasGenerateAudio = hasMetadataGenerateAudio
+	}
+	if !hasResolution && !hasGenerateAudio {
+		return body, nil
+	}
+	if hasResolution {
+		normalizedResolution, ok := newapiintegration.NormalizeVideoTaskResolution(resolution)
+		if !ok {
+			return nil, fmt.Errorf("video resolution %q is unsupported", resolution)
+		}
+		metadata["resolution"] = normalizedResolution
+	}
+	if hasGenerateAudio {
+		// Veo uses camelCase; Seedance uses snake_case.
+		metadata["generateAudio"] = generateAudio
+		metadata["generate_audio"] = generateAudio
+	}
+	metadataRaw, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("encode video metadata: %w", err)
+	}
+	raw["metadata"] = metadataRaw
+	normalized, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("encode video submit body: %w", err)
+	}
+	return normalized, nil
+}
+
+func rawJSONStringAliases(raw map[string]json.RawMessage, keys ...string) (string, bool, error) {
+	for _, key := range keys {
+		value, ok := raw[key]
+		if !ok {
+			continue
+		}
+		var decoded string
+		if err := json.Unmarshal(value, &decoded); err != nil {
+			return "", false, fmt.Errorf("video %s must be a string", key)
+		}
+		decoded = strings.TrimSpace(decoded)
+		if decoded == "" {
+			return "", false, fmt.Errorf("video %s must not be empty", key)
+		}
+		return decoded, true, nil
+	}
+	return "", false, nil
+}
+
+func rawJSONBoolAliases(raw map[string]json.RawMessage, keys ...string) (bool, bool, error) {
+	for _, key := range keys {
+		value, ok := raw[key]
+		if !ok {
+			continue
+		}
+		var decoded bool
+		if err := json.Unmarshal(value, &decoded); err != nil {
+			return false, false, fmt.Errorf("video %s must be a boolean", key)
+		}
+		return decoded, true, nil
+	}
+	return false, false, nil
+}
+
+func metadataJSONStringAliases(metadata map[string]any, keys ...string) (string, bool, error) {
+	for _, key := range keys {
+		value, ok := metadata[key]
+		if !ok {
+			continue
+		}
+		decoded, ok := value.(string)
+		if !ok || strings.TrimSpace(decoded) == "" {
+			return "", false, fmt.Errorf("video metadata.%s must be a non-empty string", key)
+		}
+		return strings.TrimSpace(decoded), true, nil
+	}
+	return "", false, nil
+}
+
+func metadataJSONBoolAliases(metadata map[string]any, keys ...string) (bool, bool, error) {
+	for _, key := range keys {
+		value, ok := metadata[key]
+		if !ok {
+			continue
+		}
+		decoded, ok := value.(bool)
+		if !ok {
+			return false, false, fmt.Errorf("video metadata.%s must be a boolean", key)
+		}
+		return decoded, true, nil
+	}
+	return false, false, nil
+}
+
+func decodeTaskMetadata(raw json.RawMessage) (map[string]any, error) {
+	metadata := make(map[string]any)
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return metadata, nil
+	}
+	if raw[0] == '"' {
+		var encoded string
+		if err := json.Unmarshal(raw, &encoded); err != nil {
+			return nil, fmt.Errorf("video metadata must be an object or JSON object string")
+		}
+		raw = []byte(encoded)
+	}
+	if err := json.Unmarshal(raw, &metadata); err != nil {
+		return nil, fmt.Errorf("video metadata must be an object or JSON object string")
+	}
+	return metadata, nil
 }
 
 // DispatchVideoFetch resolves a single video task status by calling the

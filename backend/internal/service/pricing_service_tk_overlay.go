@@ -198,9 +198,22 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 			VideoPriceTiers        []tkOverlayRawVideoTier `json:"video_price_tiers"`
 			DefaultVideoResolution string                  `json:"default_video_resolution"`
 		}
-		if err := json.Unmarshal(rawEntry, &videoExt); err == nil && len(videoExt.VideoPriceTiers) > 0 {
-			p.VideoPriceTiers = tkBuildOverlayVideoTiers(videoExt.VideoPriceTiers)
-			p.DefaultVideoResolution = NormalizeVideoBillingResolutionOrDefault(videoExt.DefaultVideoResolution)
+		if err := json.Unmarshal(rawEntry, &videoExt); err != nil {
+			return nil, fmt.Errorf("parse overlay model %s video tiers: %w", name, err)
+		}
+		if videoExt.VideoPriceTiers != nil {
+			tiers, defaultResolution, err := tkValidateAndBuildOverlayVideoTiers(
+				videoExt.VideoPriceTiers,
+				videoExt.DefaultVideoResolution,
+				p.OutputCostPerSecond,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("overlay model %s video tiers: %w", name, err)
+			}
+			p.VideoPriceTiers = tiers
+			p.DefaultVideoResolution = defaultResolution
+		} else if strings.TrimSpace(videoExt.DefaultVideoResolution) != "" {
+			return nil, fmt.Errorf("overlay model %s has default_video_resolution without video_price_tiers", name)
 		}
 		doc.Models[name] = p
 	}

@@ -2533,13 +2533,25 @@
       "path": "backend/internal/handler/openai_gateway_tk_video.go",
       "must_contain": [
         "videoRequestedSeconds",
+        "VideoSubmitBillingParamsFromBody",
         "VideoDurationSeconds",
+        "VideoResolution:      videoBilling.Resolution",
+        "VideoGenerateAudio:   videoBilling.GenerateAudio",
+        "VideoHasInputImage:   videoBilling.HasInputImage",
         "RefundVideoUsageOnFailure",
         "videoSubmitHasVideoInput",
         "videoTerminalOutcome",
         "TkVideoModelUnpriced"
       ],
-      "rationale": "Per-second video (veo) billing: VideoSubmit records usage with the requested duration (default 8s via videoRequestedSeconds) so the cost path bills duration x per-second rate. Without this anchor veo silently bills $0 (no tokens, no per-second branch). RefundVideoUsageOnFailure anchors the terminal-failed refund trigger (user paid at submit for a video that never materialized); videoSubmitHasVideoInput anchors the video-INPUT reject guard (upstream bills input+output duration for video-in, so the per-output-second price would under-charge 1.6-2.4x — lifting the guard requires re-pricing in the same PR)."
+      "rationale": "Per-second video billing: VideoSubmitBillingParamsFromBody resolves resolution/audio/image-input once and the explicit ForwardResult assignments carry those exact dimensions into settlement; dropping any one silently flattens tier billing even when submit still succeeds. videoRequestedSeconds anchors duration, RefundVideoUsageOnFailure anchors terminal-failed refund, and videoSubmitHasVideoInput anchors the unpriced video-input reject guard."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_video_test.go",
+      "must_contain": [
+        "TestVideoSubmitBillingParamsFromBody_TopLevelAudioWinsOverMetadata",
+        "TestVideoSubmitBillingParamsFromBody_NormalizesTaskSizeForBilling"
+      ],
+      "rationale": "Focused settlement regressions lock the same request precedence and TaskSubmitReq size conversion used by the bridge, preventing the held/recorded tier from diverging from the generated tier."
     },
     {
       "path": "backend/internal/handler/openai_gateway_tk_video.go",

@@ -46,16 +46,16 @@ func VideoSubmitBillingParamsFromBody(body []byte) VideoSubmitBillingParams {
 			}
 		}
 		for _, key := range []string{"generateAudio", "generate_audio"} {
-			if parsed.Get(key).Exists() {
-				v := parsed.Get(key).Bool()
+			if v, ok := strictGJSONBool(parsed.Get(key)); ok {
 				out.GenerateAudio = &v
 				break
 			}
 		}
 	}
-	for _, path := range []string{"metadata.generateAudio", "metadata.generate_audio", "generateAudio", "generate_audio"} {
-		if gjson.GetBytes(body, path).Exists() {
-			v := gjson.GetBytes(body, path).Bool()
+	// Public top-level fields win over compatibility metadata, matching the
+	// bridge normalization that copies them into the adaptor request.
+	for _, path := range []string{"generateAudio", "generate_audio", "metadata.generateAudio", "metadata.generate_audio"} {
+		if v, ok := strictGJSONBool(gjson.GetBytes(body, path)); ok {
 			out.GenerateAudio = &v
 			break
 		}
@@ -83,4 +83,15 @@ func VideoSubmitBillingParamsFromBody(body []byte) VideoSubmitBillingParams {
 		}
 	}
 	return out
+}
+
+func strictGJSONBool(value gjson.Result) (bool, bool) {
+	switch value.Type {
+	case gjson.True:
+		return true, true
+	case gjson.False:
+		return false, true
+	default:
+		return false, false
+	}
 }

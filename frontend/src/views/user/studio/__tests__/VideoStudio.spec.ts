@@ -233,4 +233,32 @@ describe('VideoStudio model catalog loading', () => {
     expect(w.find('[data-testid="studio-video-model-loading"]').exists()).toBe(true)
     expect(w.find('[data-testid="studio-video-model-empty"]').exists()).toBe(false)
   })
+
+  it('shows the default video tier on the model card and exposes its resolutions', () => {
+    const modelId = 'doubao-seedance-2-0-260128'
+    const w = mount(VideoStudio as never, {
+      props: {
+        ...baseProps,
+        availableIds: new Set([modelId]),
+        priceMap: new Map([
+          [
+            modelId,
+            {
+              billingMode: 'video',
+              perSecond: 0.06895880597014925,
+              videoTiers: [
+                { resolution: '480p', perSecond: 0.06895880597014925 },
+                { resolution: '1080p', perSecond: 0.3699402985074627, defaultForModel: true },
+              ],
+            },
+          ],
+        ]),
+      },
+      global: { plugins: [i18n], stubs: { 'router-link': true, teleport: true } },
+    })
+
+    expect(w.get('[data-testid="studio-video-model"]').text()).toContain('$0.3699')
+    expect(w.get('[data-testid="studio-video-resolution"]').text()).toContain('480p')
+    expect(w.get('[data-testid="studio-video-resolution"]').text()).toContain('1080p')
+  })
 })
