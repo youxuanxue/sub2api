@@ -236,6 +236,42 @@ def main() -> int:
             price = pricing.get(field)
             if not isinstance(price, (int, float)) or price <= 0:
                 errors.append(f"{model}: mode={mode} requires {field} > 0, got {price!r}")
+        if mode == "video_generation":
+            tiers = pricing.get("video_price_tiers")
+            if isinstance(tiers, list) and tiers:
+                for idx, tier in enumerate(tiers):
+                    label = f"{model}.video_price_tiers[{idx}]"
+                    if not isinstance(tier, dict):
+                        errors.append(f"{label} must be an object")
+                        continue
+                    res = tier.get("resolution")
+                    if not isinstance(res, str) or not res:
+                        errors.append(f"{label}.resolution must be a non-empty string")
+                    rate = tier.get("output_cost_per_second")
+                    if not isinstance(rate, (int, float)) or rate <= 0:
+                        errors.append(f"{label}.output_cost_per_second must be > 0, got {rate!r}")
+                    silent = tier.get("output_cost_per_second_silent")
+                    if silent is not None and (not isinstance(silent, (int, float)) or silent <= 0):
+                        errors.append(f"{label}.output_cost_per_second_silent must be > 0 when present")
+                    surcharge = tier.get("input_image_surcharge_per_second")
+                    if surcharge is not None and (not isinstance(surcharge, (int, float)) or surcharge < 0):
+                        errors.append(f"{label}.input_image_surcharge_per_second must be >= 0 when present")
+                flat = pricing.get("output_cost_per_second")
+                tier_mins: list[float] = []
+                for tier in tiers:
+                    if isinstance(tier, dict):
+                        r = tier.get("output_cost_per_second")
+                        if isinstance(r, (int, float)) and r > 0:
+                            tier_mins.append(r)
+                        s = tier.get("output_cost_per_second_silent")
+                        if isinstance(s, (int, float)) and s > 0:
+                            tier_mins.append(s)
+                if tier_mins and isinstance(flat, (int, float)):
+                    if flat > min(tier_mins) + 1e-12:
+                        errors.append(
+                            f"{model}: output_cost_per_second {flat} exceeds min video tier "
+                            f"{min(tier_mins)} (catalog floor must be min tier)"
+                        )
         # TK thinking-mode output price (e.g. qwen3-8b/14b/32b): an optional field
         # that, when present, must be a real positive price — a $0 thinking rate
         # would silently under-bill thinking traffic, which for these models is the

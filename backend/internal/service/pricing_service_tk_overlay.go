@@ -194,6 +194,14 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 		if err := json.Unmarshal(rawEntry, &ext); err == nil && len(ext.Intervals) > 0 {
 			p.Intervals = tkBuildOverlayIntervals(ext.Intervals)
 		}
+		var videoExt struct {
+			VideoPriceTiers        []tkOverlayRawVideoTier `json:"video_price_tiers"`
+			DefaultVideoResolution string                  `json:"default_video_resolution"`
+		}
+		if err := json.Unmarshal(rawEntry, &videoExt); err == nil && len(videoExt.VideoPriceTiers) > 0 {
+			p.VideoPriceTiers = tkBuildOverlayVideoTiers(videoExt.VideoPriceTiers)
+			p.DefaultVideoResolution = NormalizeVideoBillingResolutionOrDefault(videoExt.DefaultVideoResolution)
+		}
 		doc.Models[name] = p
 	}
 	return doc, nil
@@ -361,6 +369,9 @@ func tkIsEffectivelyUnpriced(p *LiteLLMModelPricing) bool {
 	if len(p.Intervals) > 0 {
 		return false
 	}
+	if len(p.VideoPriceTiers) > 0 {
+		return false
+	}
 	return p.InputCostPerToken == 0 &&
 		p.InputCostPerTokenPriority == 0 &&
 		p.OutputCostPerToken == 0 &&
@@ -386,6 +397,15 @@ type tkOverlayRawInterval struct {
 	OutputCostPerToken          *float64 `json:"output_cost_per_token"`
 	CacheReadInputTokenCost     *float64 `json:"cache_read_input_token_cost"`
 	CacheCreationInputTokenCost *float64 `json:"cache_creation_input_token_cost"`
+}
+
+// tkOverlayRawVideoTier is the JSON shape of one video_price_tiers[] row in overlay.
+type tkOverlayRawVideoTier struct {
+	Resolution                   string   `json:"resolution"`
+	OutputCostPerSecond          *float64 `json:"output_cost_per_second"`
+	OutputCostPerSecondSilent    *float64 `json:"output_cost_per_second_silent"`
+	InputImageSurchargePerSecond *float64 `json:"input_image_surcharge_per_second"`
+	DefaultForModel              bool     `json:"default_for_model"`
 }
 
 // tkBuildOverlayIntervals converts the parsed overlay intervals into the shared

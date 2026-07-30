@@ -8,48 +8,49 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTkSeedanceVideoUnitPriceUSD_OfficialTiers(t *testing.T) {
-	// doubao-seedance-2.0 @ 1080p: 48600 * 51 / 1e6 = 2.4786 CNY/s ÷ 6.7 × 1.06
-	p1080, ok := tkSeedanceVideoUnitPriceUSD("doubao-seedance-2-0-260128", VideoBillingResolution1080P, true)
-	require.True(t, ok)
-	require.InDelta(t, 0.3920, p1080, 0.001)
+func overlayVideoUSD(t *testing.T, model, resolution string, opts *VideoBillingOptions) float64 {
+	t.Helper()
+	p, ok := tkOverlayVideoUnitPriceUSD(model, resolution, opts)
+	require.True(t, ok, "overlay must define %s @ %s", model, resolution)
+	return p
+}
 
-	p480, ok := tkSeedanceVideoUnitPriceUSD("doubao-seedance-2-0-260128", VideoBillingResolution480P, true)
-	require.True(t, ok)
+func TestTkOverlayVideoUnitPriceUSD_SeedanceTierOrdering(t *testing.T) {
+	model := "doubao-seedance-2-0-260128"
+	p480 := overlayVideoUSD(t, model, VideoBillingResolution480P, nil)
+	p1080 := overlayVideoUSD(t, model, VideoBillingResolution1080P, nil)
+	p4k := overlayVideoUSD(t, model, VideoBillingResolution4K, nil)
 	require.Less(t, p480, p1080)
-
-	p4k, ok := tkSeedanceVideoUnitPriceUSD("doubao-seedance-2-0-260128", VideoBillingResolution4K, true)
-	require.True(t, ok)
-	require.Greater(t, p4k, p1080)
+	require.Less(t, p1080, p4k)
 }
 
-func TestTkSeedanceVideoUnitPriceUSD_15ProSilentHalfPrice(t *testing.T) {
-	withAudio, ok := tkSeedanceVideoUnitPriceUSD("doubao-seedance-1-5-pro-251215", VideoBillingResolution1080P, true)
-	require.True(t, ok)
-	silent, ok := tkSeedanceVideoUnitPriceUSD("doubao-seedance-1-5-pro-251215", VideoBillingResolution1080P, false)
-	require.True(t, ok)
-	require.InDelta(t, withAudio/2, silent, 1e-6)
-}
-
-func TestTkVeoVideoUnitPriceUSD_OfficialAudioMatrix(t *testing.T) {
-	withAudio, ok := tkVeoVideoUnitPriceUSD("veo-3.1-generate-001", VideoBillingResolution720P, nil)
-	require.True(t, ok)
-	require.InDelta(t, 0.40, withAudio, 1e-9)
-
+func TestTkOverlayVideoUnitPriceUSD_Seedance15ProSilentHalfPrice(t *testing.T) {
+	model := "doubao-seedance-1-5-pro-251215"
+	withAudio := overlayVideoUSD(t, model, VideoBillingResolution1080P, nil)
 	silent := false
-	silentPrice, ok := tkVeoVideoUnitPriceUSD("veo-3.1-generate-001", VideoBillingResolution720P, &VideoBillingOptions{GenerateAudio: &silent})
-	require.True(t, ok)
-	require.InDelta(t, 0.20, silentPrice, 1e-9)
+	silentPrice := overlayVideoUSD(t, model, VideoBillingResolution1080P, &VideoBillingOptions{GenerateAudio: &silent})
+	require.InDelta(t, withAudio/2, silentPrice, 1e-6)
 }
 
-func TestTkGrokImagineVideoUnitPriceUSD_ImageInputSurcharge(t *testing.T) {
-	text, ok := tkGrokImagineVideoUnitPriceUSD("grok-imagine-video", VideoBillingResolution720P, nil)
-	require.True(t, ok)
-	require.InDelta(t, 0.07, text, 1e-9)
+func TestTkOverlayVideoUnitPriceUSD_VeoAudioMatrix(t *testing.T) {
+	model := "veo-3.1-generate-001"
+	withAudio := overlayVideoUSD(t, model, VideoBillingResolution720P, nil)
+	silent := false
+	silentPrice := overlayVideoUSD(t, model, VideoBillingResolution720P, &VideoBillingOptions{GenerateAudio: &silent})
+	require.Greater(t, withAudio, silentPrice)
+	require.InDelta(t, withAudio/2, silentPrice, 1e-9)
+}
 
-	image, ok := tkGrokImagineVideoUnitPriceUSD("grok-imagine-video", VideoBillingResolution720P, &VideoBillingOptions{HasInputImage: true})
-	require.True(t, ok)
-	require.InDelta(t, 0.08, image, 1e-9)
+func TestTkOverlayVideoUnitPriceUSD_GrokImageInputSurcharge(t *testing.T) {
+	model := "grok-imagine-video"
+	text := overlayVideoUSD(t, model, VideoBillingResolution720P, nil)
+	image := overlayVideoUSD(t, model, VideoBillingResolution720P, &VideoBillingOptions{HasInputImage: true})
+	require.Greater(t, image, text)
+	raw := tkOverlayRawVideoEntry(model)
+	require.NotNil(t, raw)
+	tier := tkOverlayVideoTierForResolution(tkPresentLiteLLMModelPricing(raw), VideoBillingResolution720P)
+	require.NotNil(t, tier)
+	require.InDelta(t, tier.InputImageSurchargePerSecond, image-text, 1e-9)
 }
 
 func TestCalculateVideoCost_Seedance480pCheaperThan1080p(t *testing.T) {
@@ -71,4 +72,17 @@ func TestVideoSubmitBillingParamsFromBody(t *testing.T) {
 func TestTkVideoModelUnpriced_Grok15HasTierPrice(t *testing.T) {
 	svc := newTestBillingService()
 	require.False(t, svc.TkVideoModelUnpriced("grok-imagine-video-1.5"))
+}
+
+func TestTKPricingOverlay_VideoTierModelsPresent(t *testing.T) {
+	for _, model := range []string{
+		"doubao-seedance-2-0-260128",
+		"veo-3.1-generate-001",
+		"grok-imagine-video",
+		"grok-imagine-video-1.5",
+	} {
+		raw := tkOverlayRawVideoEntry(model)
+		require.NotNil(t, raw, model)
+		require.NotEmpty(t, raw.VideoPriceTiers, model)
+	}
 }

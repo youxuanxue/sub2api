@@ -30,53 +30,5 @@ func attachCatalogVideoPriceTiers(resp *PublicCatalogResponse) {
 }
 
 func buildPublicCatalogVideoTiers(modelID string) []PublicCatalogVideoTier {
-	if seedance := tkSeedanceVideoCatalogTiers(modelID); len(seedance) > 0 {
-		out := make([]PublicCatalogVideoTier, 0, len(seedance))
-		for _, row := range seedance {
-			tier := PublicCatalogVideoTier{
-				Resolution:      row.Resolution,
-				PerSecond:       row.PerSecond,
-				DefaultForModel: row.DefaultForModel,
-			}
-			if row.PerSecondSilent > 0 {
-				s := row.PerSecondSilent
-				tier.PerSecondSilent = &s
-			}
-			out = append(out, tier)
-		}
-		return out
-	}
-	if veo := tkVeoVideoCatalogTiers(modelID); len(veo) > 0 {
-		out := make([]PublicCatalogVideoTier, 0, len(veo))
-		for _, row := range veo {
-			tier := PublicCatalogVideoTier{
-				Resolution:      row.Resolution,
-				PerSecond:       row.PerSecond,
-				DefaultForModel: row.DefaultForModel,
-			}
-			if row.PerSecondSilent > 0 {
-				s := row.PerSecondSilent
-				tier.PerSecondSilent = &s
-			}
-			out = append(out, tier)
-		}
-		return out
-	}
-	if grok := tkGrokImagineVideoCatalogTiers(modelID); len(grok) > 0 {
-		out := make([]PublicCatalogVideoTier, 0, len(grok))
-		for _, row := range grok {
-			tier := PublicCatalogVideoTier{
-				Resolution:      row.Resolution,
-				PerSecond:       row.PerSecond,
-				DefaultForModel: row.DefaultForModel,
-			}
-			if row.InputImageSurchargePerSecond > 0 {
-				s := row.InputImageSurchargePerSecond
-				tier.InputImageSurchargePerSecond = &s
-			}
-			out = append(out, tier)
-		}
-		return out
-	}
-	return nil
+	return tkOverlayVideoCatalogTiers(modelID)
 }

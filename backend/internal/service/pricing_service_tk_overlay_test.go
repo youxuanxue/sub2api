@@ -1,12 +1,28 @@
 package service
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
+
+func minOverlayVideoFlatPreTax(entry *LiteLLMModelPricing) float64 {
+	min := math.MaxFloat64
+	for _, tier := range entry.VideoPriceTiers {
+		for _, rate := range []float64{tier.PerSecond, tier.PerSecondSilent} {
+			if rate > 0 && rate < min {
+				min = rate
+			}
+		}
+	}
+	if min == math.MaxFloat64 {
+		return 0
+	}
+	return min
+}
 
 // TestTKPricingOverlay_FillsDeepseekV4 verifies the overlay supplies pricing for
 // text models the trimmed runtime source lacks (deepseek-v4-*), so they no longer
@@ -317,7 +333,8 @@ func TestTKPricingOverlay_MediaEntriesStillPresent(t *testing.T) {
 
 	veo := data["veo-3.0-generate-001"]
 	require.NotNil(t, veo, "media overlay entry veo-3.0-generate-001 must survive the rename")
-	require.InDelta(t, 0.4, veo.OutputCostPerSecond, 1e-12)
+	require.NotEmpty(t, veo.VideoPriceTiers)
+	require.InDelta(t, minOverlayVideoFlatPreTax(veo), veo.OutputCostPerSecond, 1e-12)
 }
 
 // TestTKPricingOverlay_SeedMediaEntries guards the VolcEngine seedream (per-image)
@@ -340,17 +357,18 @@ func TestTKPricingOverlay_SeedMediaEntries(t *testing.T) {
 		require.NotNil(t, entry, "overlay must carry %s", model)
 		require.InDelta(t, wantPerImage, entry.OutputCostPerImage, 1e-12, model)
 	}
-	for model, wantPerSecond := range map[string]float64{
-		"doubao-seedance-1-0-pro-250528":      0.10880597014925374,
-		"seedance-1-0-pro-250528":             0.10880597014925374,
-		"doubao-seedance-1-0-pro-fast-251015": 0.030465671641791044,
-		"doubao-seedance-1-5-pro-251215":      0.11611940298507463,
-		"doubao-seedance-2-0-260128":          0.36985074626865673,
-		"doubao-seedance-2-0-fast-260128":     0.11940298507462686,
+	for _, model := range []string{
+		"doubao-seedance-1-0-pro-250528",
+		"seedance-1-0-pro-250528",
+		"doubao-seedance-1-0-pro-fast-251015",
+		"doubao-seedance-1-5-pro-251215",
+		"doubao-seedance-2-0-260128",
+		"doubao-seedance-2-0-fast-260128",
 	} {
 		entry := data[model]
 		require.NotNil(t, entry, "overlay must carry %s", model)
-		require.InDelta(t, wantPerSecond, entry.OutputCostPerSecond, 1e-12, model)
+		require.NotEmpty(t, entry.VideoPriceTiers, model)
+		require.InDelta(t, minOverlayVideoFlatPreTax(entry), entry.OutputCostPerSecond, 1e-12, model)
 	}
 }
 

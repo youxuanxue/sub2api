@@ -1444,12 +1444,7 @@ const (
 	defaultGrokImagineImageQualityPrice1K = 0.05
 	defaultGrokImagineImageQualityPrice2K = 0.07
 
-	// 视频默认价为 xAI 官方**每秒**输出价格（USD/s），总价 = 每秒价 × 时长（秒）。
-	defaultGrokImagineVideoPrice480P    = 0.05
-	defaultGrokImagineVideoPrice720P    = 0.07
-	defaultGrokImagineVideo15Price480P  = 0.08
-	defaultGrokImagineVideo15Price720P  = 0.14
-	defaultGrokImagineVideo15Price1080P = 0.25
+	// Grok video tier prices live in tk_pricing_overlay.json (video_price_tiers).
 
 	// Codex alpha/search 网页搜索单次默认价：OpenAI 官方 web search 定价 $10/1000 次。
 	defaultWebSearchPricePerCall = 0.01
@@ -1652,7 +1647,7 @@ func (s *BillingService) getDefaultImagePrice(model string, imageSize string) fl
 }
 
 func (s *BillingService) getDefaultVideoPrice(model string, resolution string) float64 {
-	if price, ok := getDefaultGrokImagineVideoPrice(model, resolution); ok {
+	if price, ok := tkOverlayVideoUnitPriceUSD(model, resolution, nil); ok {
 		return price
 	}
 
@@ -1662,6 +1657,10 @@ func (s *BillingService) getDefaultVideoPrice(model string, resolution string) f
 		}
 	}
 	return 0
+}
+
+func getDefaultGrokImagineVideoPrice(model string, resolution string) (float64, bool) {
+	return tkOverlayVideoUnitPriceUSD(model, resolution, nil)
 }
 
 func getDefaultGrokImagineImagePrice(model string, imageSize string) (float64, bool) {
@@ -1692,33 +1691,5 @@ func getGrokImagineImageTierPrice(imageSize string, price1K float64, price2K flo
 		return price2K
 	default:
 		return price2K
-	}
-}
-
-func getDefaultGrokImagineVideoPrice(model string, resolution string) (float64, bool) {
-	model = strings.ToLower(strings.TrimSpace(model))
-	switch {
-	case strings.HasPrefix(model, "grok-imagine-video-1.5"):
-		switch NormalizeVideoBillingResolutionOrDefault(resolution) {
-		case VideoBillingResolution480P:
-			return defaultGrokImagineVideo15Price480P, true
-		case VideoBillingResolution720P:
-			return defaultGrokImagineVideo15Price720P, true
-		case VideoBillingResolution1080P:
-			return defaultGrokImagineVideo15Price1080P, true
-		default:
-			return defaultGrokImagineVideo15Price480P, true
-		}
-	case strings.HasPrefix(model, "grok-imagine-video"):
-		switch NormalizeVideoBillingResolutionOrDefault(resolution) {
-		case VideoBillingResolution480P:
-			return defaultGrokImagineVideoPrice480P, true
-		case VideoBillingResolution720P, VideoBillingResolution1080P:
-			return defaultGrokImagineVideoPrice720P, true
-		default:
-			return defaultGrokImagineVideoPrice480P, true
-		}
-	default:
-		return 0, false
 	}
 }
