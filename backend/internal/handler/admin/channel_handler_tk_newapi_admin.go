@@ -174,7 +174,8 @@ type fetchUpstreamModelsRequest struct {
 	BaseURL     string `json:"base_url" binding:"max=2048"`
 	ChannelType int    `json:"channel_type" binding:"required"`
 	APIKey      string `json:"api_key" binding:"max=65536"`
-	// AccountID optional: when api_key is empty, load api_key from this admin account (edit-account fetch without retyping key).
+	// AccountID optional: load missing api_key/base_url from this admin account
+	// (edit-account fetch without retyping credentials).
 	AccountID int64 `json:"account_id"`
 }
 
@@ -219,15 +220,8 @@ func (h *TKChannelAdminHandler) FetchUpstreamModels(c *gin.Context) {
 		return
 	}
 	base := strings.TrimSpace(req.BaseURL)
-	if base != "" {
-		u, err := url.Parse(base)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			response.ErrorFrom(c, infraerrors.BadRequest("INVALID_BASE_URL", "base_url must be a valid http(s) URL"))
-			return
-		}
-	}
 	apiKey := strings.TrimSpace(req.APIKey)
-	if apiKey == "" && req.AccountID > 0 {
+	if req.AccountID > 0 && (apiKey == "" || base == "") {
 		if h.adminService == nil {
 			response.Error(c, http.StatusInternalServerError, "admin service unavailable")
 			return
@@ -245,11 +239,23 @@ func (h *TKChannelAdminHandler) FetchUpstreamModels(c *gin.Context) {
 			response.ErrorFrom(c, infraerrors.BadRequest("CHANNEL_TYPE_MISMATCH", "account channel_type does not match request"))
 			return
 		}
-		apiKey = strings.TrimSpace(acc.GetCredential("api_key"))
+		if apiKey == "" {
+			apiKey = strings.TrimSpace(acc.GetCredential("api_key"))
+		}
+		if base == "" {
+			base = strings.TrimSpace(acc.GetBaseURL())
+		}
 	}
 	if apiKey == "" {
 		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", "api_key is required (or provide account_id to use stored credentials)"))
 		return
+	}
+	if base != "" && !newapifusion.IsVolcEngineAgentPlanBaseURL(req.ChannelType, base) {
+		u, err := url.Parse(base)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			response.ErrorFrom(c, infraerrors.BadRequest("INVALID_BASE_URL", "base_url must be a valid http(s) URL"))
+			return
+		}
 	}
 
 	rawModels, err := newapifusion.FetchUpstreamModelList(c.Request.Context(), base, req.ChannelType, apiKey)

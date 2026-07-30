@@ -136,7 +136,7 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 
 // openAIChatCompletionsTargetURL 解析账号的（非 Grok）Chat Completions 上游端点。
 func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) (string, error) {
-	baseURL := account.GetOpenAIBaseURL()
+	baseURL := nativeOpenAIBaseURLForAccount(account)
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
 	}
@@ -148,9 +148,9 @@ func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) 
 }
 
 // resolveCCFallbackTarget 解析两条 CC 回退路径共用的账号凭证与上游端点
-// （回退路径仅面向 APIKey 账号，凭证恒为 openai api_key）。
+// （回退路径仅面向 APIKey 账号，凭证从账号的 api_key 字段读取）。
 func (s *OpenAIGatewayService) resolveCCFallbackTarget(account *Account) (apiKey string, targetURL string, err error) {
-	apiKey = account.GetOpenAIApiKey()
+	apiKey = nativeOpenAIApiKeyForAccount(account)
 	if apiKey == "" {
 		return "", "", fmt.Errorf("account %d missing api_key", account.ID)
 	}

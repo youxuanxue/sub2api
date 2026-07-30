@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"sort"
+	"strconv"
 	"strings"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
 
 // AccountModelMappingPresetIDs returns TokenKey's empirically verified model IDs
@@ -78,6 +80,42 @@ func NewAPIModelDisplayIDsForChannelType(channelType int) []string {
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+func isNewAPIVolcEngineAgentPlanAccount(account *Account) bool {
+	return account != nil &&
+		account.Platform == PlatformNewAPI &&
+		account.ChannelType == newapiconstant.ChannelTypeVolcEngine &&
+		newapiintegration.IsVolcEngineAgentPlanBaseURL(account.ChannelType, account.GetBaseURL())
+}
+
+// NewAPIModelMappingPresetIDsForAccount preserves account-specific serving
+// intent for channel types shared by multiple VolcEngine products.
+func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
+	if account == nil {
+		return nil
+	}
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		ids := tkServedModelsManifestPresetIDsForAccount(strconv.FormatInt(account.ID, 10))
+		sort.Strings(ids)
+		return ids
+	}
+	return AccountModelMappingPresetIDs(context.Background(), account.Platform, account.ChannelType, nil)
+}
+
+// NewAPIModelDisplayIDsForAccount is the user-facing projection of the same
+// account-specific manifest intent. Hidden rows remain available to admin
+// provisioning through NewAPIModelMappingPresetIDsForAccount.
+func NewAPIModelDisplayIDsForAccount(account *Account) []string {
+	if account == nil {
+		return nil
+	}
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		ids := tkServedModelsManifestDisplayPresetIDsForAccount(strconv.FormatInt(account.ID, 10))
+		sort.Strings(ids)
+		return ids
+	}
+	return NewAPIModelDisplayIDsForChannelType(account.ChannelType)
 }
 
 // NewAPIManifestPresetChannelTypes returns channel_type values with TK-verified

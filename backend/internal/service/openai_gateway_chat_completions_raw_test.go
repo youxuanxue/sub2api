@@ -67,6 +67,7 @@ func TestBuildOpenAIResponsesURL_ProbeURL(t *testing.T) {
 		{"already /responses", "https://api.openai.com/v1/responses", "https://api.openai.com/v1/responses"},
 		{"third-party bare domain", "https://api.deepseek.com", "https://api.deepseek.com/v1/responses"},
 		{"third-party versioned path", "https://open.bigmodel.cn/api/paas/v4", "https://open.bigmodel.cn/api/paas/v4/responses"},
+		{"volcengine Agent Plan root", "https://ark.cn-beijing.volces.com/api/plan/v3", "https://ark.cn-beijing.volces.com/api/plan/v3/responses"},
 		{"only domain, no scheme", "api.gptgod.online", "api.gptgod.online/v1/responses"},
 	}
 

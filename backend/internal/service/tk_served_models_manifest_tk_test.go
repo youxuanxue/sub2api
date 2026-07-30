@@ -16,9 +16,10 @@ import (
 var tkServedModelsOwnerRawForTest []byte
 
 type tkServedModelsOwnerEntryForTest struct {
-	ModelID     string `json:"model_id"`
-	ChannelType int    `json:"channel_type"`
-	Display     bool   `json:"display"`
+	ModelID     string   `json:"model_id"`
+	ChannelType int      `json:"channel_type"`
+	Display     bool     `json:"display"`
+	ServedOn    []string `json:"served_on"`
 }
 
 type tkServedModelsOwnerProjectionForTest struct {
@@ -26,6 +27,8 @@ type tkServedModelsOwnerProjectionForTest struct {
 	displayIDs          map[string]struct{}
 	IDsByChannel        map[int][]string
 	displayIDsByChannel map[int][]string
+	IDsByAccount        map[string][]string
+	displayIDsByAccount map[string][]string
 	channelTypes        []int
 }
 
@@ -37,6 +40,8 @@ func TestTkServedModelsManifestProjectionsMatchRawOwner(t *testing.T) {
 	requireServedManifestProjectionEqualForTest(t, "display IDs", want.displayIDs, tkServedModelsManifestDisplayIDs)
 	requireServedManifestProjectionEqualForTest(t, "IDs by channel", want.IDsByChannel, tkServedModelsManifestIDsByChannelType)
 	requireServedManifestProjectionEqualForTest(t, "display IDs by channel", want.displayIDsByChannel, tkServedModelsManifestDisplayIDsByChannelType)
+	requireServedManifestProjectionEqualForTest(t, "IDs by account", want.IDsByAccount, tkServedModelsManifestIDsByAccount)
+	requireServedManifestProjectionEqualForTest(t, "display IDs by account", want.displayIDsByAccount, tkServedModelsManifestDisplayIDsByAccount)
 	requireServedManifestProjectionEqualForTest(t, "channel types", want.channelTypes, NewAPIManifestPresetChannelTypes())
 
 	for modelID := range want.listedIDs {
@@ -110,6 +115,8 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 		displayIDs:          make(map[string]struct{}, len(doc.Entries)),
 		IDsByChannel:        make(map[int][]string),
 		displayIDsByChannel: make(map[int][]string),
+		IDsByAccount:        make(map[string][]string),
+		displayIDsByAccount: make(map[string][]string),
 	}
 	for key, entry := range doc.Entries {
 		if entry.ModelID == "" {
@@ -122,9 +129,20 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 			t.Fatalf("raw owner declares model_id %q more than once", entry.ModelID)
 		}
 		out.listedIDs[entry.ModelID] = struct{}{}
-		out.IDsByChannel[entry.ChannelType] = append(out.IDsByChannel[entry.ChannelType], entry.ModelID)
 		if entry.Display {
 			out.displayIDs[entry.ModelID] = struct{}{}
+		}
+		for _, accountID := range entry.ServedOn {
+			out.IDsByAccount[accountID] = append(out.IDsByAccount[accountID], entry.ModelID)
+			if entry.Display {
+				out.displayIDsByAccount[accountID] = append(out.displayIDsByAccount[accountID], entry.ModelID)
+			}
+		}
+		if manifestEntryIsAgentPlanOnlyForTest(entry) {
+			continue
+		}
+		out.IDsByChannel[entry.ChannelType] = append(out.IDsByChannel[entry.ChannelType], entry.ModelID)
+		if entry.Display {
 			out.displayIDsByChannel[entry.ChannelType] = append(out.displayIDsByChannel[entry.ChannelType], entry.ModelID)
 		}
 	}
@@ -137,8 +155,28 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 		sort.Strings(ids)
 		out.displayIDsByChannel[channelType] = ids
 	}
+	for accountID, ids := range out.IDsByAccount {
+		sort.Strings(ids)
+		out.IDsByAccount[accountID] = ids
+	}
+	for accountID, ids := range out.displayIDsByAccount {
+		sort.Strings(ids)
+		out.displayIDsByAccount[accountID] = ids
+	}
 	sort.Ints(out.channelTypes)
 	return out
+}
+
+func manifestEntryIsAgentPlanOnlyForTest(entry tkServedModelsOwnerEntryForTest) bool {
+	if entry.ChannelType != 45 || len(entry.ServedOn) == 0 {
+		return false
+	}
+	for _, accountID := range entry.ServedOn {
+		if accountID != "88" {
+			return false
+		}
+	}
+	return true
 }
 
 func requireServedManifestProjectionEqualForTest(t *testing.T, name string, want, got any) {

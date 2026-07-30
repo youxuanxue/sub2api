@@ -890,6 +890,182 @@
     ],
     "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
   },
+  "doubao-seed-2.0-pro": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 4.776119402985075e-07,
+    "output_cost_per_token": 2.3880597014925373e-06,
+    "cache_read_input_token_cost": 9.55223880597015e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 4.776119402985075e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 9.55223880597015e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 7.164179104477612e-07,
+        "output_cost_per_token": 3.582089552238806e-06,
+        "cache_read_input_token_cost": 1.4328358208955223e-07
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 1.4328358208955224e-06,
+        "output_cost_per_token": 7.164179104477612e-06,
+        "cache_read_input_token_cost": 2.8656716417910447e-07
+      }
+    ],
+    "source": "Agent Plan dot-notation alias of doubao-seed-2-0-pro-260215. Same VolcEngine Ark official 在线推理(常规) tiers (CNY/USD=6.7). Account 88 uses /api/plan/v3."
+  },
+  "doubao-seed-2.0-code": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 4.776119402985075e-07,
+    "output_cost_per_token": 2.3880597014925373e-06,
+    "cache_read_input_token_cost": 9.55223880597015e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 4.776119402985075e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 9.55223880597015e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 7.164179104477612e-07,
+        "output_cost_per_token": 3.582089552238806e-06,
+        "cache_read_input_token_cost": 1.4328358208955223e-07
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 1.4328358208955224e-06,
+        "output_cost_per_token": 7.164179104477612e-06,
+        "cache_read_input_token_cost": 2.8656716417910447e-07
+      }
+    ],
+    "source": "Agent Plan dot-notation alias of doubao-seed-2-0-code-preview-260215. Same VolcEngine Ark official tiers (CNY/USD=6.7). Account 88 uses /api/plan/v3."
+  },
+  "doubao-seed-2.0-lite": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 8.955223880597015e-08,
+    "output_cost_per_token": 5.373134328358209e-07,
+    "cache_read_input_token_cost": 1.791044776119403e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 8.955223880597015e-08,
+        "output_cost_per_token": 5.373134328358209e-07,
+        "cache_read_input_token_cost": 1.791044776119403e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 1.3432835820895523e-07,
+        "output_cost_per_token": 8.059701492537314e-07,
+        "cache_read_input_token_cost": 2.6865671641791042e-08
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 2.6865671641791046e-07,
+        "output_cost_per_token": 1.6119402985074628e-06,
+        "cache_read_input_token_cost": 5.3731343283582085e-08
+      }
+    ],
+    "source": "Agent Plan dot-notation alias of doubao-seed-2-0-lite-260428. Same VolcEngine Ark official tiers (CNY/USD=6.7). Account 88 uses /api/plan/v3."
+  },
+  "doubao-seed-2.0-mini": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 2.985074626865672e-08,
+    "output_cost_per_token": 2.9850746268656716e-07,
+    "cache_read_input_token_cost": 5.970149253731343e-09,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 2.985074626865672e-08,
+        "output_cost_per_token": 2.9850746268656716e-07,
+        "cache_read_input_token_cost": 5.970149253731343e-09
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 5.970149253731344e-08,
+        "output_cost_per_token": 5.970149253731343e-07,
+        "cache_read_input_token_cost": 1.1940298507462687e-08
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 1.1940298507462688e-07,
+        "output_cost_per_token": 1.1940298507462686e-06,
+        "cache_read_input_token_cost": 2.3880597014925373e-08
+      }
+    ],
+    "source": "Agent Plan dot-notation alias of doubao-seed-2-0-mini-260428. Same VolcEngine Ark official tiers (CNY/USD=6.7). Account 88 uses /api/plan/v3."
+  },
+  "doubao-seed-evolving": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 8.955223880597016e-07,
+    "output_cost_per_token": 4.477611940298507e-06,
+    "source": "VolcEngine Agent Plan bundle list for doubao-seed-evolving (¥6/M input, ¥30/M output at ≤32K tier, CNY/USD=6.7). Account 88 /api/plan/v3 responses probe 200 on 2026-07-30."
+  },
+  "minimax-m2.7": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 3e-07,
+    "output_cost_per_token": 1.2e-06,
+    "source": "MiniMax official API list price for minimax-m2.7 ($0.30/$1.20 per M tokens). Routed via VolcEngine Agent Plan account 88; probe 200 on 2026-07-30."
+  },
+  "minimax-m3": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 3e-07,
+    "output_cost_per_token": 1.2e-06,
+    "source": "MiniMax official API list price for minimax-m3 ($0.30/$1.20 per M tokens). Routed via VolcEngine Agent Plan account 88; probe 200 on 2026-07-30."
+  },
+  "ark-code-latest": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 4.776119402985075e-07,
+    "output_cost_per_token": 2.3880597014925373e-06,
+    "cache_read_input_token_cost": 9.55223880597015e-08,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 4.776119402985075e-07,
+        "output_cost_per_token": 2.3880597014925373e-06,
+        "cache_read_input_token_cost": 9.55223880597015e-08
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 7.164179104477612e-07,
+        "output_cost_per_token": 3.582089552238806e-06,
+        "cache_read_input_token_cost": 1.4328358208955223e-07
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 1.4328358208955224e-06,
+        "output_cost_per_token": 7.164179104477612e-06,
+        "cache_read_input_token_cost": 2.8656716417910447e-07
+      }
+    ],
+    "source": "Agent Plan coding SKU ark-code-latest priced at doubao-seed-2.0-pro proxy (same VolcEngine Ark pro ladder). Account 88 /api/plan/v3 chat probe 200 on 2026-07-30."
+  },
   "doubao-seed-1-8-251228": {
     "litellm_provider": "volcengine",
     "mode": "chat",

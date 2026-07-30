@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/gin-gonic/gin"
 )
 
@@ -26,13 +26,23 @@ func (s *AccountTestService) testNewAPIAccountConnectionTK(c *gin.Context, accou
 
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
-		testModelID = openai.DefaultTestModel
+		testModelID = defaultNewAPIAccountTestModel(account)
 	}
 	testModelID = account.GetMappedModel(testModelID)
 
 	testPrompt := strings.TrimSpace(prompt)
 	if testPrompt == "" {
 		testPrompt = "hi"
+	}
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		return s.testOpenAIChatCompletionsConnection(
+			c,
+			account,
+			testModelID,
+			testPrompt,
+			newapiintegration.NormalizeArkChannelBaseURL(account.ChannelType, account.GetBaseURL()),
+			apiKey,
+		)
 	}
 
 	stream := true

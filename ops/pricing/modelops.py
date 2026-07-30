@@ -97,6 +97,7 @@ class AccountPolicy:
 # from snapshot-sql so name/platform/channel_type come from the runtime DB.
 KNOWN_ACCOUNTS: dict[str, AccountPolicy] = {
     "7": AccountPolicy("7", "volcengine", "newapi", 45),
+    "88": AccountPolicy("88", "volcengine-agent-plan", "newapi", 45),
     "39": AccountPolicy("39", "ds-官", "newapi", 43),
     "60": AccountPolicy("60", "Qwen", "newapi", 17),
     "72": AccountPolicy("72", "Qwen-2", "newapi", 17),
@@ -472,6 +473,8 @@ def probe_env_name(
     if policy.channel_type == 26:
         return None
     if policy.channel_type == 45:
+        if account_id == "88" or "agent-plan" in policy.name.lower():
+            return "VOLCENGINE_AGENT_PLAN_MODELS"
         mode = infer_mode(model_id, overlay)
         if mode == "image":
             return "ARK_IMAGE_MODELS"
@@ -482,6 +485,15 @@ def probe_env_name(
 
 
 def run_probe_command(env_name: str, models: list[str]) -> str:
+    if env_name == "VOLCENGINE_AGENT_PLAN_MODELS":
+        model_value = " ".join(models)
+        return (
+            "bash ops/observability/run-probe.sh --target prod "
+            "--script ops/pricing/probe-volcengine-agent-plan-models.sh "
+            f"--env {shlex.quote('AGENT_PLAN_CHAT_MODELS=' + model_value)} "
+            f"--env {shlex.quote('AGENT_PLAN_RESPONSES_MODELS=' + model_value)} "
+            "--timeout-seconds 600"
+        )
     env_value = f"{env_name}={' '.join(models)}"
     # probe-servable-models.sh resolves every probe key through reserved
     # __tk_probe_* groups; its companion library must ride along via --with.
@@ -1297,6 +1309,13 @@ def _selftest() -> int:
         failures.append("removed GLM direct account must not emit zhipu probe env")
     if probe_env_name("7", "seedream-x", overlay) != "ARK_IMAGE_MODELS":
         failures.append("probe env failed for ark image")
+    if probe_env_name("88", "minimax-m3", overlay) != "VOLCENGINE_AGENT_PLAN_MODELS":
+        failures.append("probe env failed for VolcEngine Agent Plan")
+    agent_plan_command = run_probe_command("VOLCENGINE_AGENT_PLAN_MODELS", ["minimax-m3"])
+    if "probe-volcengine-agent-plan-models.sh" not in agent_plan_command:
+        failures.append("Agent Plan probe command did not use the dedicated probe")
+    if "AGENT_PLAN_RESPONSES_MODELS=minimax-m3" not in agent_plan_command:
+        failures.append("Agent Plan probe command did not pass response models")
 
     live = parse_live_mapping({
         "60": {
