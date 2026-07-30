@@ -581,10 +581,12 @@
     {
       "path": "backend/internal/service/account_model_mapping_preset_tk.go",
       "must_contain": [
+        "newAPIVolcEngineAgentPlanAccountID",
+        "accountModelMappingOverrideAccounts",
         "NewAPIModelDisplayIDsForAccount",
         "tkServedModelsManifestPresetIDsForAccount"
       ],
-      "rationale": "Agent Plan admin preset + default probe model derive from manifest served_on, not hardcoded lists or ch45 channel-wide presets that mix pay-as-you-go account 7."
+      "rationale": "Agent Plan admin preset, model-surface account override, and default probe model derive from the account-aware registry plus manifest served_on projection, not hardcoded model lists or ch45 channel-wide presets that mix pay-as-you-go account 7."
     },
     {
       "path": "backend/internal/service/account_test_service_tk_newapi_volcagentplan.go",

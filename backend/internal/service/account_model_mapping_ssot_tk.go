@@ -35,14 +35,23 @@ type accountModelMappingRuntimeDoc struct {
 // AccountModelMappingFloorDoc is the ops-facing export of the effective
 // account model_mapping floor. Platform/newapi scopes are full replacements.
 type AccountModelMappingFloorDoc struct {
-	Platforms                     map[string]map[string]string `json:"platforms"`
-	NewAPIChannelTypes            map[string]map[string]string `json:"newapi_channel_types"`
-	AntigravityScopes             []string                     `json:"antigravity_group_scopes"`
-	ForbiddenModelMappingKeys     map[string][]string          `json:"forbidden_model_mapping_keys,omitempty"`
-	ForbiddenModelMappingPrefixes map[string][]string          `json:"forbidden_model_mapping_prefixes,omitempty"`
+	Platforms                     map[string]map[string]string           `json:"platforms"`
+	NewAPIChannelTypes            map[string]map[string]string           `json:"newapi_channel_types"`
+	AccountOverrides              map[string]AccountModelMappingOverride `json:"account_overrides"`
+	AntigravityScopes             []string                               `json:"antigravity_group_scopes"`
+	ForbiddenModelMappingKeys     map[string][]string                    `json:"forbidden_model_mapping_keys,omitempty"`
+	ForbiddenModelMappingPrefixes map[string][]string                    `json:"forbidden_model_mapping_prefixes,omitempty"`
 }
 
-const ModelSurfaceBundleSchemaVersion = 1
+// AccountModelMappingOverride is a full replacement for one account. The
+// identity fields make account-id reuse fail closed in rollout tooling.
+type AccountModelMappingOverride struct {
+	Platform     string            `json:"platform"`
+	ChannelType  int               `json:"channel_type,omitempty"`
+	ModelMapping map[string]string `json:"model_mapping"`
+}
+
+const ModelSurfaceBundleSchemaVersion = 2
 
 // ModelSurfaceBundle is the deterministic release artifact consumed by modelops.
 // The digest covers the Go-owned floor projection, not mutable release metadata.
@@ -177,6 +186,7 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 	out := &AccountModelMappingFloorDoc{
 		Platforms:          make(map[string]map[string]string),
 		NewAPIChannelTypes: make(map[string]map[string]string),
+		AccountOverrides:   make(map[string]AccountModelMappingOverride),
 		AntigravityScopes:  append([]string(nil), canonicalAntigravityModelScopes...),
 		ForbiddenModelMappingKeys: map[string][]string{
 			// Kiro-backed Claude models remain public under the anthropic vendor,
@@ -236,6 +246,17 @@ func AccountModelMappingFloorForOps(ctx context.Context, runtimeRaw string) (*Ac
 		mapping, ok := accountModelMappingForAccount(ctx, &Account{Platform: PlatformNewAPI, ChannelType: ct}, nil, nil, runtime)
 		if ok && len(mapping) > 0 {
 			out.NewAPIChannelTypes[strconv.Itoa(ct)] = cloneStringMap(mapping)
+		}
+	}
+	for _, account := range accountModelMappingOverrideAccounts() {
+		mapping, ok := accountModelMappingForAccount(ctx, account, nil, nil, runtime)
+		if !ok || len(mapping) == 0 {
+			continue
+		}
+		out.AccountOverrides[strconv.FormatInt(account.ID, 10)] = AccountModelMappingOverride{
+			Platform:     account.Platform,
+			ChannelType:  account.ChannelType,
+			ModelMapping: cloneStringMap(mapping),
 		}
 	}
 	return out, nil

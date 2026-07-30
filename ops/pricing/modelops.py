@@ -845,6 +845,9 @@ class ActivationError(RuntimeError):
 
 
 def _account_platform_allows_scope(account_platform: str, account_scope: str) -> bool:
+    if account_scope.startswith("account:"):
+        account_id = account_scope.removeprefix("account:")
+        return account_id.isdigit() and int(account_id) > 0
     if account_platform == account_scope:
         return True
     if account_platform == "anthropic":
@@ -881,6 +884,9 @@ def _bundle_mapping_scopes(bundle: dict[str, Any]) -> dict[str, dict[str, str]]:
     for channel_type, mapping in (floor.get("newapi_channel_types") or {}).items():
         if isinstance(mapping, dict):
             scopes[f"newapi_channel_type:{channel_type}"] = dict(mapping)
+    for account_id, override in (floor.get("account_overrides") or {}).items():
+        if isinstance(override, dict) and isinstance(override.get("model_mapping"), dict):
+            scopes[f"account:{account_id}"] = dict(override["model_mapping"])
     return scopes
 
 
@@ -1064,6 +1070,21 @@ def build_activation_context(
             missing_pricing.append("/".join(key))
         if probe_row and pricing_row and probe_row.get("source") == pricing_row.get("source"):
             shared_sources.append("/".join(key))
+        if probe_row and row["scope"].startswith("account:"):
+            account_id = row["scope"].removeprefix("account:")
+            override = (
+                target["account_model_mapping"].get("account_overrides") or {}
+            ).get(account_id) or {}
+            if str(probe_row.get("account_id") or "").strip() != account_id:
+                raise ActivationError(
+                    f"probe evidence account_id must match mapping scope {row['scope']!r}"
+                )
+            expected_platform = str(override.get("platform") or "").strip().lower()
+            if probe_row.get("account_platform") != expected_platform:
+                raise ActivationError(
+                    f"probe evidence account_platform {probe_row.get('account_platform')!r} "
+                    f"must match {row['scope']} platform {expected_platform!r}"
+                )
     if missing_probe:
         raise ActivationError("probe evidence missing servable verdicts: " + ", ".join(missing_probe))
     if missing_pricing:

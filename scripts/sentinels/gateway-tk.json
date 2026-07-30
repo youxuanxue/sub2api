@@ -2191,6 +2191,7 @@
         "runtime.newAPIChannelTypes[account.ChannelType]",
         "ForbiddenModelMappingKeys",
         "ForbiddenModelMappingPrefixes",
+        "AccountOverrides",
         "ModelSurfaceBundleSchemaVersion",
         "func ModelSurfaceBundleForOps(",
         "func canonicalModelSurfaceFloorJSON(",
@@ -2367,6 +2368,7 @@
         "LOCK TABLE settings IN SHARE ROW EXCLUSIVE MODE",
         "def _command_with_bundle(",
         "forbidden_model_mapping_keys",
+        "account override identity mismatch",
         "\"account_bulk_changed\"",
         "\"group_changed\""
       ],
@@ -2375,7 +2377,7 @@
         "--ssot-repo-root",
         "--allow-extra-model-mapping"
       ],
-      "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script must consume the checksummed bundle without Go/source discovery, use one required-floor + forbidden-policy rule, preserve compatible extras, keep check-accounts read-only, scope release-gate to explicit model activation, require confirmation before writes, update only model_mapping/group scopes, and enqueue scheduler outbox events. Activation pins the resolved prod instance and rechecks runtime-shadow absence under a settings-table lock before writes. Generic deploy wiring is prohibited by the workflow sentinel above, while direct Edge diagnostics/apply remain available."
+      "rationale": "Explicit ops check/apply surfaces for account model_mapping. The script must consume the checksummed bundle without Go/source discovery, prioritize account-specific overrides over shared platform/channel floors, fail closed on account identity mismatch, use one required-floor + forbidden-policy rule, preserve compatible extras, keep check-accounts read-only, scope release-gate to explicit model activation, require confirmation before writes, update only model_mapping/group scopes, and enqueue scheduler outbox events. Activation pins the resolved prod instance and rechecks runtime-shadow absence under a settings-table lock before writes. Generic deploy wiring is prohibited by the workflow sentinel above, while direct Edge diagnostics/apply remain available."
     },
     {
       "path": "backend/cmd/account-model-mapping/main.go",
@@ -2395,7 +2397,9 @@
     {
       "path": "ops/pricing/model_surface_bundle.py",
       "must_contain": [
-        "SCHEMA_VERSION = 1",
+        "SCHEMA_VERSION = 2",
+        "SUPPORTED_SCHEMA_VERSIONS",
+        "account_overrides",
         "def canonical_json(",
         "def floor_sha256(",
         "def _validate_floor(",
@@ -2413,6 +2417,7 @@
         "def build_activation_context(",
         "kind=\"model_activation_probe\"",
         "kind=\"model_activation_pricing\"",
+        "f\"account:{account_id}\"",
         "def _mapping_manager_command(",
         "\"apply-accounts\", \"--target\", \"prod\"",
         "def _require_unshadowed_activation_bundle(",
@@ -2427,13 +2432,17 @@
       "must_contain": [
         "test_us035_valid_evidence_builds_activation_delta",
         "test_us035_invalid_evidence_is_rejected",
+        "test_us035_account_override_scope_is_part_of_activation_delta",
+        "test_us035_account_override_evidence_must_match_account_id",
+        "test_us035_account_override_evidence_accepts_exact_account",
+        "test_us035_v1_current_bundle_remains_readable",
         "test_us035_runtime_shadow_is_rejected",
         "test_us035_runtime_shadow_stops_before_apply",
         "test_us035_commands_are_prod_only_and_confirmed",
         "test_us035_confirmed_apply_pins_instance_and_requires_post_gate",
         "test_us035_self_digested_invalid_bundle_is_rejected"
       ],
-      "rationale": "Focused offline Story tests for activation success, stale/mismatched/non-independent evidence, runtime shadow rejection, prod-only confirmed writes, and semantic bundle validation. Preflight executes this file directly."
+      "rationale": "Focused offline Story tests for activation success, stale/mismatched/non-independent evidence, account-specific scope/evidence binding, runtime shadow rejection, prod-only confirmed writes, and semantic bundle validation. Preflight executes this file directly."
     },
     {
       "path": ".github/workflows/release.yml",

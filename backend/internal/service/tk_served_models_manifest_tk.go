@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -150,7 +151,7 @@ func manifestEntryIsAgentPlanOnly(e tkServedModelsManifestEntry) bool {
 		return false
 	}
 	for _, accountID := range e.ServedOn {
-		if strings.TrimSpace(accountID) != "88" {
+		if strings.TrimSpace(accountID) != strconv.FormatInt(newAPIVolcEngineAgentPlanAccountID, 10) {
 			return false
 		}
 	}

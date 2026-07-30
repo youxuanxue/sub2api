@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "floor_sha256": "6c6827d2bf40f24102650200fedbdf8564d2058bb4127b232e82d8a7c7e7cfea",
+  "schema_version": 2,
+  "floor_sha256": "373da8d701e0ea9ee1ee7c7dbcf7e95f7e157149f79aa3dda3fcb46cc32cc515",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -202,6 +202,28 @@
         "doubao-seedream-4-0-250828": "doubao-seedream-4-0-250828",
         "doubao-seedream-4-5-251128": "doubao-seedream-4-5-251128",
         "doubao-seedream-5-0-260128": "doubao-seedream-5-0-260128"
+      }
+    },
+    "account_overrides": {
+      "88": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "model_mapping": {
+          "ark-code-latest": "ark-code-latest",
+          "deepseek-v4-flash": "deepseek-v4-flash",
+          "deepseek-v4-pro": "deepseek-v4-pro",
+          "doubao-seed-2.0-code": "doubao-seed-2.0-code",
+          "doubao-seed-2.0-lite": "doubao-seed-2.0-lite",
+          "doubao-seed-2.0-mini": "doubao-seed-2.0-mini",
+          "doubao-seed-2.0-pro": "doubao-seed-2.0-pro",
+          "doubao-seed-evolving": "doubao-seed-evolving",
+          "glm-5.2": "glm-5.2",
+          "kimi-k2.6": "kimi-k2.6",
+          "kimi-k2.7-code": "kimi-k2.7-code",
+          "kimi-k3": "kimi-k3",
+          "minimax-m2.7": "minimax-m2.7",
+          "minimax-m3": "minimax-m3"
+        }
       }
     },
     "antigravity_group_scopes": [

@@ -54,7 +54,7 @@ Customer-visible serving is gated by three layers that must stay aligned on **pr
 
 1. **可展示** — `supported*CatalogModels` / `ServableClientFacingIDs` (public `/models`, `/pricing`, menu).
 2. **已定价** — channel pricing + `tk_pricing_overlay.json` (zero-price leak is an ops alert, not a customer block).
-3. **可服务 + prod 账号放行** — prod `accounts.credentials.model_mapping` (plus optional runtime replacement in `settings.tk_account_model_mapping_runtime`) must match the compiled Go floor for each managed platform.
+3. **可服务 + prod 账号放行** — prod `accounts.credentials.model_mapping` (plus optional runtime replacement in `settings.tk_account_model_mapping_runtime`) must match the compiled Go floor for each managed platform. Account-specific bundle overrides such as `account:88` take precedence over a shared newapi channel floor; the checker must use the account override before reporting drift.
 
 **Official upstream aliases are displayable when priced and servable.** For every
 TokenKey-managed native platform and newapi `channel_type`, if the provider's

@@ -26,6 +26,10 @@ troubleshooting belongs to ``check-accounts --include-edges``; ``release-gate``
 always checks prod only. See ``docs/global/agent-reference.md`` § Model serving
 SSOT.
 
+Compiled ``account_overrides`` take precedence over platform and newapi
+channel-type floors. They are immutable bundle scopes and are not shadowed by
+the shared-scope runtime setting.
+
 Runtime JSON shape:
 
 {
@@ -511,25 +515,54 @@ def _mapping_policy_violations(row: dict[str, Any], floor: dict[str, Any]) -> li
     return _mapping_policy_violations_for_scope(scope, mm, floor)
 
 
-def _desired_mapping_for_account(row: dict[str, Any], floor: dict[str, Any]) -> tuple[dict[str, str] | None, str]:
+def _desired_mapping_for_account(
+    row: dict[str, Any],
+    floor: dict[str, Any],
+) -> tuple[dict[str, str] | None, str, str | None]:
+    account_id = str(row.get("id") or "").strip()
+    override = (floor.get("account_overrides") or {}).get(account_id)
+    if isinstance(override, dict):
+        override_scope = f"account:{account_id}"
+        expected_platform = str(override.get("platform") or "").strip().lower()
+        actual_platform = str(row.get("platform") or "").strip().lower()
+        mismatches: list[str] = []
+        if actual_platform != expected_platform:
+            mismatches.append(f"platform={actual_platform!r} want {expected_platform!r}")
+        expected_channel_type = override.get("channel_type")
+        if expected_channel_type is not None:
+            try:
+                actual_channel_type = int(row.get("channel_type") or 0)
+            except (TypeError, ValueError):
+                actual_channel_type = 0
+            if actual_channel_type != expected_channel_type:
+                mismatches.append(
+                    f"channel_type={actual_channel_type} want {expected_channel_type}"
+                )
+        if mismatches:
+            return None, override_scope, (
+                "account override identity mismatch (" + "; ".join(mismatches) + ")"
+            )
+        mapping = override.get("model_mapping")
+        return mapping if isinstance(mapping, dict) else None, override_scope, None
+
     scope = _account_scope(row)
     if scope == "newapi":
         ct = str(row.get("channel_type") or "").strip()
         mapping = (floor.get("newapi_channel_types") or {}).get(ct)
-        return mapping if isinstance(mapping, dict) else None, f"newapi_channel_type:{ct or '0'}"
+        return mapping if isinstance(mapping, dict) else None, f"newapi_channel_type:{ct or '0'}", None
     mapping = (floor.get("platforms") or {}).get(scope)
-    return mapping if isinstance(mapping, dict) else None, scope
+    return mapping if isinstance(mapping, dict) else None, scope, None
 
 
 def _mapping_diff(
-    scope: str,
+    policy_scope: str,
     got: dict[str, str],
     want: dict[str, str],
     floor: dict[str, Any],
 ) -> dict[str, Any]:
     missing = sorted(k for k in want if k not in got)
     bad = sorted(k for k in want if k in got and got[k] != want[k])
-    forbidden = _forbidden_mapping_entries(scope, got, floor)
+    forbidden = _forbidden_mapping_entries(policy_scope, got, floor)
     return {
         "missing_keys": missing,
         "forbidden_keys": forbidden,
@@ -572,7 +605,28 @@ def _account_plan(
     row: dict[str, Any],
     floor: dict[str, Any],
 ) -> dict[str, Any] | None:
-    want, scope = _desired_mapping_for_account(row, floor)
+    want, scope, override_error = _desired_mapping_for_account(row, floor)
+    if override_error:
+        got, mapping_error = _model_mapping(row)
+        return {
+            "kind": "account",
+            "id": row.get("id"),
+            "name": row.get("name"),
+            "platform": row.get("platform"),
+            "type": row.get("type"),
+            "scope": scope,
+            "reason": override_error,
+            "apply_blocked": True,
+            "diff": {
+                "missing_keys": [],
+                "forbidden_keys": [],
+                "compatible_extra_keys": [],
+                "bad_targets": [],
+                "current_count": len(got) if mapping_error is None else 0,
+                "desired_count": 0,
+            },
+            "desired_model_mapping": {},
+        }
     if not want:
         return None
     got, err = _model_mapping(row)
@@ -588,7 +642,7 @@ def _account_plan(
         }
         reason = f"{err}; will replace with SSOT (scope={scope}, desired_count={len(want)})"
     else:
-        diff = _mapping_diff(scope, got, want, floor)
+        diff = _mapping_diff(_account_scope(row), got, want, floor)
         if not _has_mapping_diff(diff):
             return None
         reason = _format_mapping_diff_reason(scope, diff)
@@ -746,6 +800,10 @@ def _collect_apply_plan(
     account_changes: list[dict[str, Any]] = []
     for row in bundle.get("accounts") or []:
         plan = _account_plan(row, floor)
+        if plan and plan.get("apply_blocked"):
+            raise RuntimeError(
+                f"{label} account {plan.get('id')} cannot be applied: {plan.get('reason')}"
+            )
         if plan and plan.get("desired_model_mapping"):
             plan["target"] = label
             account_changes.append(plan)
@@ -1416,7 +1474,16 @@ def cmd_selftest(_args) -> int:
                 "claude-opus-5": "claude-opus-5",
             },
         },
-        "newapi_channel_types": {},
+        "newapi_channel_types": {
+            "45": {"generic-model": "generic-model"},
+        },
+        "account_overrides": {
+            "88": {
+                "platform": "newapi",
+                "channel_type": 45,
+                "model_mapping": {"agent-plan-model": "agent-plan-model"},
+            },
+        },
         "antigravity_group_scopes": ["claude", "gemini_text", "gemini_image"],
         "forbidden_model_mapping_keys": {
             "anthropic": ["claude-opus-5"],
@@ -1438,6 +1505,46 @@ def cmd_selftest(_args) -> int:
         floor,
     )
     assert openai_plan and openai_plan["diff"]["missing_keys"] == ["gpt-5.6-sol"]
+    account_override_row = {
+        "id": 88,
+        "platform": "newapi",
+        "type": "apikey",
+        "channel_type": 45,
+        "model_mapping": {"agent-plan-model": "agent-plan-model"},
+    }
+    assert _account_plan(account_override_row, floor) is None
+    generic_channel_row = {
+        "id": 89,
+        "platform": "newapi",
+        "type": "apikey",
+        "channel_type": 45,
+        "model_mapping": {"agent-plan-model": "agent-plan-model"},
+    }
+    generic_channel_plan = _account_plan(generic_channel_row, floor)
+    assert generic_channel_plan and generic_channel_plan["scope"] == "newapi_channel_type:45"
+    mismatched_override = dict(account_override_row, channel_type=17)
+    mismatch_plan = _account_plan(mismatched_override, floor)
+    assert mismatch_plan and "identity mismatch" in mismatch_plan["reason"]
+    assert mismatch_plan["apply_blocked"] is True
+    assert mismatch_plan["desired_model_mapping"] == {}
+    original_run_check_sql_json = globals()["_run_check_sql_json"]
+    original_load_effective_floor = globals()["_load_effective_floor"]
+    globals()["_run_check_sql_json"] = lambda _region, _instance_id, _label: {
+        "runtime_setting": None,
+        "accounts": [mismatched_override],
+        "antigravity_groups": [],
+    }
+    globals()["_load_effective_floor"] = lambda _raw: floor
+    try:
+        try:
+            _collect_apply_plan("prod", "test-region", "i-test")
+        except RuntimeError as e:
+            assert "identity mismatch" in str(e)
+        else:
+            raise AssertionError("account override identity mismatch did not block apply")
+    finally:
+        globals()["_run_check_sql_json"] = original_run_check_sql_json
+        globals()["_load_effective_floor"] = original_load_effective_floor
     native_anthropic_plan = _account_plan({
         "platform": "anthropic",
         "type": "oauth",

@@ -10,6 +10,8 @@ import (
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
 
+const newAPIVolcEngineAgentPlanAccountID int64 = 88
+
 // AccountModelMappingPresetIDs returns TokenKey's empirically verified model IDs
 // for admin account model_mapping auto-fill (Create/Edit when mapping is empty).
 // Native platforms share tkServableCandidateIDs with the group selector; grok/kiro
@@ -87,6 +89,22 @@ func isNewAPIVolcEngineAgentPlanAccount(account *Account) bool {
 		account.Platform == PlatformNewAPI &&
 		account.ChannelType == newapiconstant.ChannelTypeVolcEngine &&
 		newapiintegration.IsVolcEngineAgentPlanBaseURL(account.ChannelType, account.GetBaseURL())
+}
+
+// accountModelMappingOverrideAccounts declares account-specific mapping scopes
+// whose serving intent is narrower than their shared platform/channel floor.
+func accountModelMappingOverrideAccounts() []*Account {
+	return []*Account{
+		{
+			ID:          newAPIVolcEngineAgentPlanAccountID,
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeVolcEngine,
+			Credentials: map[string]any{
+				"base_url": newapiintegration.VolcEngineAgentPlanBaseURL,
+			},
+		},
+	}
 }
 
 // NewAPIModelMappingPresetIDsForAccount preserves account-specific serving

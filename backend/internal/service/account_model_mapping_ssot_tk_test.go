@@ -111,6 +111,54 @@ func TestAccountModelMappingFloorForOps_ExportsPolicyMetadata(t *testing.T) {
 	require.Contains(t, doc.ForbiddenModelMappingPrefixes[PlatformAntigravity], "gpt-oss-")
 }
 
+func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {
+	t.Parallel()
+	doc, err := AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+
+	expectedAccounts := accountModelMappingOverrideAccounts()
+	expectedIDs := make([]string, 0, len(expectedAccounts))
+	for _, account := range expectedAccounts {
+		accountID := fmt.Sprintf("%d", account.ID)
+		expectedIDs = append(expectedIDs, accountID)
+		override, ok := doc.AccountOverrides[accountID]
+		require.True(t, ok, "missing account override %s", accountID)
+		require.Equal(t, account.Platform, override.Platform)
+		require.Equal(t, account.ChannelType, override.ChannelType)
+
+		mapping, mappingOK := accountModelMappingForAccount(context.Background(), account, nil, nil, nil)
+		require.True(t, mappingOK)
+		require.Equal(t, mapping, override.ModelMapping)
+		require.NotEqual(t,
+			doc.NewAPIChannelTypes[fmt.Sprintf("%d", account.ChannelType)],
+			override.ModelMapping,
+			"account override must remain narrower than its shared channel floor",
+		)
+	}
+
+	actualIDs := make([]string, 0, len(doc.AccountOverrides))
+	for accountID := range doc.AccountOverrides {
+		actualIDs = append(actualIDs, accountID)
+	}
+	require.ElementsMatch(t, expectedIDs, actualIDs)
+}
+
+func TestAccountModelMappingFloorForOps_RuntimeDoesNotShadowAccountOverrides(t *testing.T) {
+	t.Parallel()
+	compiled, err := AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+	runtime, err := AccountModelMappingFloorForOps(
+		context.Background(),
+		`{"newapi_channel_types":{"45":{"runtime-model":"runtime-target"}}}`,
+	)
+	require.NoError(t, err)
+	require.Equal(t, compiled.AccountOverrides, runtime.AccountOverrides)
+	require.Equal(t,
+		map[string]string{"runtime-model": "runtime-target"},
+		runtime.NewAPIChannelTypes["45"],
+	)
+}
+
 func TestModelSurfaceBundleForOps_DigestCoversCompleteFloor(t *testing.T) {
 	t.Parallel()
 	bundle, err := ModelSurfaceBundleForOps(context.Background(), "")
