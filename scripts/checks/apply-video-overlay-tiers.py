@@ -215,10 +215,19 @@ def apply(data: dict) -> int:
     return updated
 
 
+def export_frontend_placeholders() -> None:
+    script = REPO / "scripts" / "checks" / "export-video-overlay-placeholders.py"
+    if script.is_file():
+        import subprocess
+
+        subprocess.run([sys.executable, str(script)], check=True, cwd=REPO)
+
+
 def main() -> int:
     data = json.loads(OVERLAY.read_text(encoding="utf-8"))
     n = apply(data)
     OVERLAY.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    export_frontend_placeholders()
     print(f"updated {n} video models in {OVERLAY.relative_to(REPO)}")
     return 0
 

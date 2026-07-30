@@ -1018,6 +1018,8 @@ func TestCalculateVideoCostUsesSeparateConfig(t *testing.T) {
 
 func TestCalculateVideoCostBillsPerSecond(t *testing.T) {
 	svc := newTestBillingService()
+	unit, ok := tkOverlayVideoUnitPriceUSD("grok-imagine-video", VideoBillingResolution720P, nil)
+	require.True(t, ok, "overlay SSOT must define grok-imagine-video 720p")
 
 	oneSecond := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 1, nil, 1.0, nil)
 	fifteenSeconds := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 15, nil, 1.0, nil)
@@ -1025,10 +1027,10 @@ func TestCalculateVideoCostBillsPerSecond(t *testing.T) {
 	defaultDuration := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 0, nil, 1.0, nil)
 	clampedDuration := svc.CalculateVideoCost("grok-imagine-video", "720p", 1, 999, nil, 1.0, nil)
 
-	require.InDelta(t, 0.07, oneSecond.TotalCost, 1e-10)
-	require.InDelta(t, 0.07*15, fifteenSeconds.TotalCost, 1e-10)
-	require.InDelta(t, 0.07*8, defaultDuration.TotalCost, 1e-10)
-	require.InDelta(t, 0.07*15, clampedDuration.TotalCost, 1e-10)
+	require.InDelta(t, unit, oneSecond.TotalCost, 1e-10)
+	require.InDelta(t, unit*15, fifteenSeconds.TotalCost, 1e-10)
+	require.InDelta(t, unit*8, defaultDuration.TotalCost, 1e-10)
+	require.InDelta(t, unit*15, clampedDuration.TotalCost, 1e-10)
 }
 
 func TestCalculateGrokImagineImageCostUsesDefaultRateCard(t *testing.T) {

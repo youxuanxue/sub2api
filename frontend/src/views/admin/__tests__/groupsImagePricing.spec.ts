@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  TK_GROK_IMAGE_ADMIN_PLACEHOLDERS,
+  TK_GROK_VIDEO_ADMIN_DESCRIPTION,
+  TK_GROK_VIDEO_ADMIN_PLACEHOLDERS,
+} from "@/constants/tkVideoOverlayPlaceholders.tk";
+import {
   getDefaultImagePreviewPrice,
   getDefaultVideoPreviewPrice,
   getImagePricePlaceholder,
   getVideoPricePlaceholder,
+  grokVideoPricingDescription,
   imagePricingPlatforms,
   imagePricingI18nKey,
   supportsImagePricingPlatform,
@@ -35,13 +41,30 @@ describe("groups image pricing platform support", () => {
   });
 
   it("uses Grok media defaults instead of generic image fallback placeholders", () => {
-    expect(getImagePricePlaceholder("grok", "image_price_1k")).toBe("0.02");
-    expect(getImagePricePlaceholder("grok", "image_price_2k")).toBe("0.02");
-    // 视频 placeholder 为每秒单价：480p/720p 取 grok-imagine-video 官方每秒价，
-    // 1080p 仅 video-1.5 支持、取 1.5 每秒价。
-    expect(getVideoPricePlaceholder("grok", "video_price_480p")).toBe("0.05");
-    expect(getVideoPricePlaceholder("grok", "video_price_720p")).toBe("0.07");
-    expect(getVideoPricePlaceholder("grok", "video_price_1080p")).toBe("0.25");
+    expect(getImagePricePlaceholder("grok", "image_price_1k")).toBe(
+      TK_GROK_IMAGE_ADMIN_PLACEHOLDERS.image_price_1k,
+    );
+    expect(getImagePricePlaceholder("grok", "image_price_2k")).toBe(
+      TK_GROK_IMAGE_ADMIN_PLACEHOLDERS.image_price_2k,
+    );
+    expect(getVideoPricePlaceholder("grok", "video_price_480p")).toBe(
+      TK_GROK_VIDEO_ADMIN_PLACEHOLDERS.video_price_480p,
+    );
+    expect(getVideoPricePlaceholder("grok", "video_price_720p")).toBe(
+      TK_GROK_VIDEO_ADMIN_PLACEHOLDERS.video_price_720p,
+    );
+    expect(getVideoPricePlaceholder("grok", "video_price_1080p")).toBe(
+      TK_GROK_VIDEO_ADMIN_PLACEHOLDERS.video_price_1080p,
+    );
+  });
+
+  it("derives Grok video admin copy from overlay export", () => {
+    expect(grokVideoPricingDescription("zh-CN")).toBe(
+      TK_GROK_VIDEO_ADMIN_DESCRIPTION.zh,
+    );
+    expect(grokVideoPricingDescription("en")).toBe(
+      TK_GROK_VIDEO_ADMIN_DESCRIPTION.en,
+    );
   });
 
   it("keeps non-Grok image placeholders on the generic image card", () => {

@@ -624,6 +624,17 @@ else
     echo "  ok: pricing overlay valid (anchors present, no \$0)"
 fi
 
+echo ""
+echo "=== sub2api: video overlay frontend placeholders ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for export-video-overlay-placeholders.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/export-video-overlay-placeholders.py --check --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: tkVideoOverlayPlaceholders.tk.ts in sync with overlay"
+fi
+
 # ---- sub2api: catalog serving drift -----------------------------------------
 # Source of truth: backend/internal/service/tk_served_models.json — the THIN intent
 # manifest ("TK serves model M on platform P via an account credentials.model_mapping

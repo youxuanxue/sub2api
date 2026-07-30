@@ -2026,6 +2026,7 @@ func TestOpenAIGatewayServiceRecordUsage_ImageIndependentMultiplierUsesImageRate
 func TestGrokVideoBillingUsesSeparateVideoRateMultiplier(t *testing.T) {
 	imagePrice2K := 0.4
 	videoPrice480P := 0.08
+	videoRateMultiplier := 0.25
 	groupID := int64(126)
 
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
@@ -2054,7 +2055,7 @@ func TestGrokVideoBillingUsesSeparateVideoRateMultiplier(t *testing.T) {
 				ImageRateMultiplier:  0.5,
 				ImagePrice2K:         &imagePrice2K,
 				VideoRateIndependent: true,
-				VideoRateMultiplier:  0.25,
+				VideoRateMultiplier:  videoRateMultiplier,
 				VideoPrice480P:       &videoPrice480P,
 			},
 		},
@@ -2067,9 +2068,9 @@ func TestGrokVideoBillingUsesSeparateVideoRateMultiplier(t *testing.T) {
 	require.Equal(t, "grok-imagine-video-1.5", usageRepo.lastLog.Model)
 	require.Equal(t, 1, usageRepo.lastLog.ImageCount)
 	require.Nil(t, usageRepo.lastLog.ImageSize)
-	require.InDelta(t, 0.08, usageRepo.lastLog.TotalCost, 1e-12)
-	require.InDelta(t, 0.02, usageRepo.lastLog.ActualCost, 1e-12)
-	require.InDelta(t, 0.25, usageRepo.lastLog.RateMultiplier, 1e-12)
+	require.InDelta(t, videoPrice480P, usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, videoPrice480P*videoRateMultiplier, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, videoRateMultiplier, usageRepo.lastLog.RateMultiplier, 1e-12)
 	require.NotNil(t, usageRepo.lastLog.BillingMode)
 	require.Equal(t, string(BillingModeVideo), *usageRepo.lastLog.BillingMode)
 	require.Equal(t, 1, usageRepo.lastLog.VideoCount)
@@ -2111,9 +2112,11 @@ func TestOpenAIGatewayServiceRecordUsage_GrokVideoUsesDefaultRateCard(t *testing
 	require.NoError(t, err)
 	require.NotNil(t, usageRepo.lastLog)
 	require.Nil(t, usageRepo.lastLog.ImageSize)
-	// 结果未携带 duration 时按上游默认 8 秒计费：0.14 USD/s × 8s。
-	require.InDelta(t, 0.14*8, usageRepo.lastLog.TotalCost, 1e-12)
-	require.InDelta(t, 0.14*8, usageRepo.lastLog.ActualCost, 1e-12)
+	unit720, ok := tkOverlayVideoUnitPriceUSD("grok-imagine-video-1.5", VideoBillingResolution720P, nil)
+	require.True(t, ok)
+	// 结果未携带 duration 时按上游默认 8 秒计费。
+	require.InDelta(t, unit720*VideoBillingDefaultDurationSeconds, usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, unit720*VideoBillingDefaultDurationSeconds, usageRepo.lastLog.ActualCost, 1e-12)
 	require.Equal(t, 1, usageRepo.lastLog.ImageCount)
 	require.NotNil(t, usageRepo.lastLog.BillingMode)
 	require.Equal(t, string(BillingModeVideo), *usageRepo.lastLog.BillingMode)
