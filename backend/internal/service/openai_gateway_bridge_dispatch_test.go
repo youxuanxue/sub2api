@@ -3,7 +3,9 @@ package service
 import (
 	"testing"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
 
 func TestOpenAIShouldDispatchToNewAPIBridge(t *testing.T) {
@@ -46,6 +48,28 @@ func TestOpenAIShouldDispatchToNewAPIBridge(t *testing.T) {
 			},
 			endpoint: BridgeEndpointChatCompletions,
 			want:     true,
+		},
+		{
+			name: "volcengine Agent Plan uses native OpenAI path",
+			account: &Account{
+				Type:        AccountTypeAPIKey,
+				ChannelType: newapiconstant.ChannelTypeVolcEngine,
+				Platform:    domain.PlatformNewAPI,
+				Credentials: map[string]any{"base_url": newapiintegration.VolcEngineAgentPlanBaseURL},
+			},
+			endpoint: BridgeEndpointResponses,
+			want:     false,
+		},
+		{
+			name: "volcengine Agent Plan chat uses native OpenAI path",
+			account: &Account{
+				Type:        AccountTypeAPIKey,
+				ChannelType: newapiconstant.ChannelTypeVolcEngine,
+				Platform:    domain.PlatformNewAPI,
+				Credentials: map[string]any{"base_url": newapiintegration.VolcEngineAgentPlanBaseURL},
+			},
+			endpoint: BridgeEndpointChatCompletions,
+			want:     false,
 		},
 		{
 			name: "positive channel type unknown endpoint",

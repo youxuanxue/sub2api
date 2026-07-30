@@ -57,11 +57,11 @@ func TestFetchUpstreamModelList_TrimsTrailingV1FromBase(t *testing.T) {
 func TestVolcEngineModelsURL_ResolvesAgentPlanSpecialBase(t *testing.T) {
 	t.Parallel()
 
-	got, err := volcEngineModelsURL(VolcEngineAgentPlanBaseKey)
+	got, err := volcEngineModelsURL(VolcEngineAgentPlanBaseURL)
 	if err != nil {
 		t.Fatalf("volcEngineModelsURL: %v", err)
 	}
-	want := newapiconstant.ChannelSpecialBases[VolcEngineAgentPlanBaseKey].OpenAIBaseURL + "/models"
+	want := VolcEngineAgentPlanBaseURL + "/models"
 	if got != want {
 		t.Fatalf("volcEngineModelsURL = %q, want %q", got, want)
 	}

@@ -18,6 +18,13 @@ var (
 
 // ShouldDispatchToNewAPIBridge reports whether this OpenAI-gateway request should use the New API adaptor path.
 func (s *OpenAIGatewayService) ShouldDispatchToNewAPIBridge(account *Account, endpoint string) bool {
+	// Agent Plan's /api/plan/v3/responses endpoint is a direct OpenAI-compatible
+	// upstream. Keep it on TokenKey's native path so the upstream new-api
+	// adaptor does not append its pay-as-you-go /api/v3 suffix.
+	if isNewAPIVolcEngineAgentPlanAccount(account) &&
+		(endpoint == BridgeEndpointChatCompletions || endpoint == BridgeEndpointResponses) {
+		return false
+	}
 	var st *SettingService
 	if s != nil {
 		st = s.settingService

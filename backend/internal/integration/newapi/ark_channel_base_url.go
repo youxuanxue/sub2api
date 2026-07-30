@@ -18,23 +18,26 @@ func NormalizeArkChannelBaseURL(channelType int, base string) string {
 	base = strings.TrimRight(base, "/")
 	switch channelType {
 	case newapiconstant.ChannelTypeVolcEngine, newapiconstant.ChannelTypeDoubaoVideo:
-		if base == VolcEngineAgentPlanBaseKey || base == VolcEngineCodingPlanBaseKey {
+		if base == VolcEngineAgentPlanBaseKey {
+			return VolcEngineAgentPlanBaseURL
+		}
+		if base == VolcEngineAgentPlanBaseURL || base == VolcEngineCodingPlanBaseKey {
 			return base
 		}
 		for _, plan := range []struct {
 			suffix string
-			key    string
+			base   string
 		}{
-			{"/api/plan/v3/chat/completions", VolcEngineAgentPlanBaseKey},
-			{"/api/plan/v3/responses", VolcEngineAgentPlanBaseKey},
-			{"/api/plan/v3", VolcEngineAgentPlanBaseKey},
-			{"/api/plan", VolcEngineAgentPlanBaseKey},
+			{"/api/plan/v3/chat/completions", VolcEngineAgentPlanBaseURL},
+			{"/api/plan/v3/responses", VolcEngineAgentPlanBaseURL},
+			{"/api/plan/v3", VolcEngineAgentPlanBaseURL},
+			{"/api/plan", VolcEngineAgentPlanBaseURL},
 			{"/api/coding/v3/chat/completions", VolcEngineCodingPlanBaseKey},
 			{"/api/coding/v3", VolcEngineCodingPlanBaseKey},
 			{"/api/coding", VolcEngineCodingPlanBaseKey},
 		} {
 			if strings.HasSuffix(base, plan.suffix) {
-				return plan.key
+				return plan.base
 			}
 		}
 		for _, suf := range []string{

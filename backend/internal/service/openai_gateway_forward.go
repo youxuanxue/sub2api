@@ -1049,7 +1049,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		targetURL = chatgptCodexURL
 	case AccountTypeAPIKey:
 		// API Key accounts use Platform API or custom base URL
-		baseURL := account.GetOpenAIBaseURL()
+		baseURL := nativeOpenAIBaseURLForAccount(account)
 		if baseURL == "" {
 			if account.IsGrokAPIKey() {
 				return nil, fmt.Errorf("grok relay account %d missing base_url", account.ID)

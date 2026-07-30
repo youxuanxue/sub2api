@@ -5,8 +5,9 @@
 -- 2026-07-30 via ops/pricing/probe-volcengine-agent-plan-models.sh.
 --
 -- Agent Plan uses /api/plan/v3/* (not pay-as-you-go /api/v3/*). model_mapping
--- is an identity whitelist (key===value). base_url is canonicalized to the
--- doubao-agent-plan magic key consumed by new-api ChannelSpecialBases.
+-- is an identity whitelist (key===value). base_url stores the direct
+-- OpenAI-compatible Agent Plan root so TokenKey does not require a patched
+-- new-api adaptor.
 --
 -- Idempotent: re-running overwrites model_mapping/base_url with the same values
 -- and enqueues one scheduler_outbox refresh.
@@ -20,7 +21,7 @@ WITH upd AS (
             jsonb_set(
                 credentials,
                 '{base_url}',
-                '"doubao-agent-plan"'::jsonb
+                '"https://ark.cn-beijing.volces.com/api/plan/v3"'::jsonb
             ),
             '{model_mapping}',
             '{

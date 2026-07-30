@@ -110,6 +110,9 @@ func FetchUpstreamModelList(ctx context.Context, baseURL string, channelType int
 }
 
 func volcEngineModelsURL(base string) (string, error) {
+	if IsVolcEngineAgentPlanBaseURL(newapiconstant.ChannelTypeVolcEngine, base) {
+		return strings.TrimRight(VolcEngineAgentPlanBaseURL, "/") + "/models", nil
+	}
 	if special, ok := newapiconstant.ChannelSpecialBases[base]; ok {
 		openAIBase := strings.TrimRight(strings.TrimSpace(special.OpenAIBaseURL), "/")
 		if openAIBase == "" {

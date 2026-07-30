@@ -8,12 +8,27 @@ import (
 	"net/url"
 	"strings"
 
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
+
+// nativeOpenAIBaseURLForAccount returns the URL used by TokenKey's native
+// OpenAI-compatible forwarding path. NewAPI accounts normally use the new-api
+// adaptor; Agent Plan is the explicit exception because its /responses route
+// is not available in the upstream adaptor yet.
+func nativeOpenAIBaseURLForAccount(account *Account) string {
+	if account == nil {
+		return ""
+	}
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		return newapiintegration.NormalizeArkChannelBaseURL(account.ChannelType, account.GetBaseURL())
+	}
+	return account.GetOpenAIBaseURL()
+}
 
 func (s *OpenAIGatewayService) validateUpstreamBaseURL(raw string) (string, error) {
 	if s == nil || s.cfg == nil || !s.cfg.Security.URLAllowlist.Enabled {
