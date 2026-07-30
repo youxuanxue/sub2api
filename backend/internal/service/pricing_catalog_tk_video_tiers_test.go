@@ -10,19 +10,18 @@ import (
 
 func TestAttachCatalogVideoPriceTiers_SeedanceMinTier(t *testing.T) {
 	const modelID = "doubao-seedance-2-0-260128"
-	hold := tkOverlayVideoHoldUnitPriceUSD(modelID)
-	require.Greater(t, hold, 0.0)
+	min, ok := tkVideoMinUnitPriceUSD(modelID)
+	require.True(t, ok)
+	staleFlatPrice := min + 0.01
 	resp := &PublicCatalogResponse{
 		Data: []PublicCatalogModel{{
 			ModelID: modelID,
 			Vendor:  "volcengine",
-			Pricing: PublicCatalogPricing{BillingMode: "video", OutputCostPerSecond: hold + 0.01},
+			Pricing: PublicCatalogPricing{BillingMode: "video", OutputCostPerSecond: staleFlatPrice},
 		}},
 	}
 	attachCatalogVideoPriceTiers(resp)
 	require.NotEmpty(t, resp.Data[0].Pricing.VideoPriceTiers)
-	min, ok := tkVideoMinUnitPriceUSD(modelID)
-	require.True(t, ok)
 	require.InDelta(t, min, resp.Data[0].Pricing.OutputCostPerSecond, 1e-9)
-	require.Less(t, resp.Data[0].Pricing.OutputCostPerSecond, hold+0.01)
+	require.Less(t, resp.Data[0].Pricing.OutputCostPerSecond, staleFlatPrice)
 }

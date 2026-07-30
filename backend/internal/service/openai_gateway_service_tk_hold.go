@@ -202,15 +202,15 @@ func (s *OpenAIGatewayService) tkEstimateImageHoldAmount(ctx context.Context, mo
 	return amount
 }
 
-// TkReserveVideoHold reserves the exact cost the video submit path will bill:
-// CalculateVideoCost over the same request-derived seconds, same multiplier.
+// TkReserveVideoHold reserves the exact cost the video submit path will bill.
 // Same fail-open posture as TkReserveTokenHold.
 func (s *OpenAIGatewayService) TkReserveVideoHold(ctx context.Context, requestID, model string, user *User, apiKey *APIKey, seconds int64, resolution string, opts *VideoBillingOptions) (held bool, reject bool) {
 	if s == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
 		return false, false
 	}
-	multiplier := s.tkHoldRateMultiplier(ctx, user, apiKey)
-	amount := s.billingService.EstimateVideoHold(model, seconds, multiplier, resolution, opts)
+	baseMultiplier := s.tkHoldRateMultiplier(ctx, user, apiKey)
+	multiplier := resolveVideoRateMultiplier(apiKey, baseMultiplier)
+	amount := s.tkEstimateVideoHoldAmount(ctx, model, apiKey, seconds, resolution, multiplier, opts)
 	held, reject, err := tkReserveBalanceHold(ctx, s.usageBillingRepo, requestID, user.ID, apiKey.ID, amount)
 	if err != nil {
 		logger.L().Error("openai_gateway.hold_reserve_failed",
@@ -222,6 +222,39 @@ func (s *OpenAIGatewayService) TkReserveVideoHold(ctx context.Context, requestID
 		return false, false
 	}
 	return held, reject
+}
+
+func (s *OpenAIGatewayService) tkEstimateVideoHoldAmount(ctx context.Context, model string, apiKey *APIKey, seconds int64, resolution string, multiplier float64, opts *VideoBillingOptions) float64 {
+	resolution = NormalizeVideoBillingResolutionForModel(model, resolution)
+	groupConfig := videoPriceConfigFromAPIKey(apiKey)
+	if apiKeyHasConfiguredVideoPrice(apiKey, resolution) {
+		return s.billingService.EstimateVideoHold(model, seconds, multiplier, resolution, groupConfig, opts)
+	}
+	if refreshed := s.apiKeyWithFreshGroupMediaPricing(ctx, apiKey); refreshed != apiKey {
+		apiKey = refreshed
+		groupConfig = videoPriceConfigFromAPIKey(apiKey)
+		if apiKeyHasConfiguredVideoPrice(apiKey, resolution) {
+			return s.billingService.EstimateVideoHold(model, seconds, multiplier, resolution, groupConfig, opts)
+		}
+	}
+	if resolved := s.resolveOpenAIChannelPricing(ctx, model, apiKey); resolved != nil &&
+		(resolved.Mode == BillingModePerRequest || resolved.Mode == BillingModeImage) && apiKey.Group != nil {
+		gid := apiKey.Group.ID
+		cost, err := s.billingService.CalculateCostUnified(CostInput{
+			Ctx:            ctx,
+			Model:          model,
+			GroupID:        &gid,
+			RequestCount:   1,
+			SizeTier:       resolution,
+			RateMultiplier: multiplier,
+			Resolver:       s.resolver,
+			Resolved:       resolved,
+		})
+		if err == nil && cost != nil {
+			return cost.ActualCost
+		}
+	}
+	return s.billingService.EstimateVideoHold(model, seconds, multiplier, resolution, groupConfig, opts)
 }
 
 // TkReleaseHold refunds a reservation at request end. Detaches from the

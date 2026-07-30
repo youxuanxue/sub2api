@@ -53,10 +53,6 @@ func tkVideoUnitPriceUSD(model, resolution string, opts *VideoBillingOptions) (f
 	return 0, false
 }
 
-func tkVideoHoldUnitPriceUSD(model string) float64 {
-	return tkOverlayVideoHoldUnitPriceUSD(model)
-}
-
 func tkVideoMinUnitPriceUSD(model string) (float64, bool) {
 	return tkOverlayVideoMinUnitPriceUSD(model)
 }

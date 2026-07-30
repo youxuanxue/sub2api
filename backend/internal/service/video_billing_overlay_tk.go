@@ -138,24 +138,6 @@ func tkOverlayVideoUnitPriceUSD(model, resolution string, opts *VideoBillingOpti
 	return rate, true
 }
 
-func tkOverlayVideoHoldUnitPriceUSD(model string) float64 {
-	p := tkOverlayVideoPricing(model)
-	if p == nil {
-		return 0
-	}
-	max := 0.0
-	for _, tier := range p.VideoPriceTiers {
-		max = math.Max(max, tier.PerSecond)
-		if tier.PerSecondSilent > 0 {
-			max = math.Max(max, tier.PerSecondSilent)
-		}
-		if tier.InputImageSurchargePerSecond > 0 {
-			max = math.Max(max, tier.PerSecond+tier.InputImageSurchargePerSecond)
-		}
-	}
-	return max
-}
-
 func tkOverlayVideoMinUnitPriceUSD(model string) (float64, bool) {
 	p := tkOverlayVideoPricing(model)
 	if p == nil {
