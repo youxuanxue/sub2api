@@ -72,7 +72,11 @@ func FetchUpstreamModelList(ctx context.Context, baseURL string, channelType int
 
 	switch channelType {
 	case newapiconstant.ChannelTypeVolcEngine, newapiconstant.ChannelTypeDoubaoVideo:
-		return fetchOpenAICompatModels(ctx, base+"/api/v3/models", key)
+		modelsURL, err := volcEngineModelsURL(base)
+		if err != nil {
+			return nil, err
+		}
+		return fetchOpenAICompatModels(ctx, modelsURL, key)
 	case newapiconstant.ChannelTypeOllama:
 		// Ollama local API doesn't expose the same metadata; we keep the upstream
 		// helper output and let the DiscoveryFilter rely on availability table +
@@ -103,6 +107,17 @@ func FetchUpstreamModelList(ctx context.Context, baseURL string, channelType int
 		}
 		return fetchOpenAICompatModels(ctx, base+"/v1/models", key)
 	}
+}
+
+func volcEngineModelsURL(base string) (string, error) {
+	if special, ok := newapiconstant.ChannelSpecialBases[base]; ok {
+		openAIBase := strings.TrimRight(strings.TrimSpace(special.OpenAIBaseURL), "/")
+		if openAIBase == "" {
+			return "", fmt.Errorf("special base %q has no OpenAI-compatible URL", base)
+		}
+		return openAIBase + "/models", nil
+	}
+	return strings.TrimRight(base, "/") + "/api/v3/models", nil
 }
 
 // openAICompatModelEntry mirrors the OpenAI /v1/models response shape with the

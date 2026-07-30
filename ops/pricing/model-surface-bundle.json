@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "floor_sha256": "0a1846f0efa17cc1ac3df249e77e4024b2045887383cf6b60433efcfd20195f5",
+  "floor_sha256": "6c6827d2bf40f24102650200fedbdf8564d2058bb4127b232e82d8a7c7e7cfea",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -176,7 +176,6 @@
         "deepseek-v4-pro": "deepseek-v4-pro"
       },
       "45": {
-        "ark-code-latest": "ark-code-latest",
         "doubao-1-5-lite-32k-250115": "doubao-1-5-lite-32k-250115",
         "doubao-1-5-pro-32k-250115": "doubao-1-5-pro-32k-250115",
         "doubao-1-5-pro-32k-character-250715": "doubao-1-5-pro-32k-character-250715",

@@ -22,6 +22,11 @@ RESPONSES_MODELS="${AGENT_PLAN_RESPONSES_MODELS:-doubao-seed-2.0-mini doubao-see
 
 emit() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4"; }
 
+cfgerr() {
+	emit setup_error "account_${AGENT_PLAN_ACCOUNT_ID}" 000 config_error
+	printf 'probe-setup: %s\n' "$1" >&2
+}
+
 verdict() {
 	local code="$1" f="$2"
 	case "$code" in
@@ -66,22 +71,42 @@ probe_one() {
 	local endpoint="$1" path="$2" base="$3" key="$4" model="$5" buildfn="$6"
 	local f code
 	f="$(mktemp)"
-	code="$(curl -s -o "$f" -w '%{http_code}' -m 75 -X POST "${base}${path}" \
+	if ! code="$(curl -s -o "$f" -w '%{http_code}' -m 75 -X POST "${base}${path}" \
 		-H "Authorization: Bearer $key" -H 'content-type: application/json' \
-		--data-binary "$($buildfn "$model")")"
+		--data-binary "$($buildfn "$model")")"; then
+		code=000
+		emit "$endpoint" "$model" "$code" inconclusive
+		rm -f "$f"
+		sleep "$REQ_SLEEP"
+		return 0
+	fi
 	emit "$endpoint" "$model" "$code" "$(verdict "$code" "$f")"
 	rm -f "$f"
 	sleep "$REQ_SLEEP"
 }
 
-api_key="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=${AGENT_PLAN_ACCOUNT_ID} AND deleted_at IS NULL" | tr -d '[:space:]')"
-base_raw="$($PSQL -c "SELECT credentials->>'base_url' FROM accounts WHERE id=${AGENT_PLAN_ACCOUNT_ID} AND deleted_at IS NULL" | tr -d '[:space:]')"
-if [ -z "$api_key" ] || [ -z "$base_raw" ]; then
-	printf 'setup_error\taccount_%s\t000\tconfig_error\n' "$AGENT_PLAN_ACCOUNT_ID" >&2
-	printf 'probe-setup: missing api_key or base_url on account id=%s\n' "$AGENT_PLAN_ACCOUNT_ID" >&2
-	exit 0
+case "$AGENT_PLAN_ACCOUNT_ID" in
+	''|*[!0-9]*)
+		cfgerr "account id must be numeric"
+		exit 1
+		;;
+esac
+if ! api_key="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=${AGENT_PLAN_ACCOUNT_ID} AND deleted_at IS NULL" | tr -d '[:space:]')"; then
+	cfgerr "failed to query api_key"
+	exit 1
 fi
-plan_base="$(normalize_plan_base "$base_raw")"
+if ! base_raw="$($PSQL -c "SELECT credentials->>'base_url' FROM accounts WHERE id=${AGENT_PLAN_ACCOUNT_ID} AND deleted_at IS NULL" | tr -d '[:space:]')"; then
+	cfgerr "failed to query base_url"
+	exit 1
+fi
+if [ -z "$api_key" ] || [ -z "$base_raw" ]; then
+	cfgerr "missing api_key or base_url on account id=$AGENT_PLAN_ACCOUNT_ID"
+	exit 1
+fi
+if ! plan_base="$(normalize_plan_base "$base_raw")"; then
+	cfgerr "unsupported Agent Plan base_url: $base_raw"
+	exit 1
+fi
 printf 'probe-meta\taccount_id=%s\tbase=%s\tplan_base=%s\n' "$AGENT_PLAN_ACCOUNT_ID" "$base_raw" "$plan_base" >&2
 
 for m in $CHAT_MODELS; do

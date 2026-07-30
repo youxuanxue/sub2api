@@ -819,7 +819,7 @@ func (s *MePricingCatalogService) fillAccountFallback(
 		}
 		var newapiPresetAllow map[string]struct{}
 		if targetGroup.Platform == PlatformNewAPI {
-			presets := NewAPIModelDisplayIDsForChannelType(a.ChannelType)
+			presets := NewAPIModelDisplayIDsForAccount(a)
 			if len(presets) == 0 {
 				continue
 			}

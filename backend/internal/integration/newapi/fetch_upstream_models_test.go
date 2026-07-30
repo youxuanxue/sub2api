@@ -54,6 +54,19 @@ func TestFetchUpstreamModelList_TrimsTrailingV1FromBase(t *testing.T) {
 	}
 }
 
+func TestVolcEngineModelsURL_ResolvesAgentPlanSpecialBase(t *testing.T) {
+	t.Parallel()
+
+	got, err := volcEngineModelsURL(VolcEngineAgentPlanBaseKey)
+	if err != nil {
+		t.Fatalf("volcEngineModelsURL: %v", err)
+	}
+	want := newapiconstant.ChannelSpecialBases[VolcEngineAgentPlanBaseKey].OpenAIBaseURL + "/models"
+	if got != want {
+		t.Fatalf("volcEngineModelsURL = %q, want %q", got, want)
+	}
+}
+
 func TestMoonshotAlternateRegionalBase(t *testing.T) {
 	t.Parallel()
 	if g := MoonshotAlternateRegionalBase("https://api.moonshot.cn"); g != "https://api.moonshot.ai" {

@@ -295,11 +295,11 @@
       "must_contain": [
         "MePricingAccountSource",
         "fillAccountFallback",
-        "NewAPIModelDisplayIDsForChannelType(a.ChannelType)",
+        "NewAPIModelDisplayIDsForAccount(a)",
         "parseWhitelistFromCredentials",
         "buildAccountFallbackEntry"
       ],
-      "rationale": "Post-#325/#326 bridge: /api/v1/me/pricing-catalog (Your Menu) falls back to accounts.credentials.model_mapping whitelist entries when no channel-configured pricing covers the target group's models. fillAccountFallback (renamed from fillWhitelistFallback when it grew the unrestricted-account → platform-default-models branch) is the entry point. Newapi account fallback MUST use NewAPIModelDisplayIDsForChannelType keyed by each account's channel_type: Vertex ch41 uses the Gemini/Vertex empirical catalog (so veo-3.1-generate-001 stays visible to universal keys), while Qwen/DeepSeek/VolcEngine use the tk_served_models manifest display=true subset and unknown channels stay hidden. Reverting to AccountModelMappingPresetIDs would leak non-display provisioning rows or historical direct-only rows into Group Catalog; reverting to a single tk_served_models manifest gate silently drops Vertex/Veo from full-key Studio; removing the fallback symbols re-opens the TK 2026-05-21 empty menu incident."
+      "rationale": "Post-#325/#326 bridge: /api/v1/me/pricing-catalog (Your Menu) falls back to account credentials when no channel pricing covers the target group. NewAPIModelDisplayIDsForAccount preserves the existing channel-type display projection while selecting Agent Plan rows by served_on account membership, preventing shared channel types from dropping valid account-88 models or leaking them into account 7."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler.go",
@@ -561,12 +561,27 @@
       "rationale": "Canonicalizes Agent Plan /api/plan/* credential shapes to the doubao-agent-plan magic key consumed by new-api ChannelSpecialBases."
     },
     {
-      "path": "backend/internal/service/account_test_service_tk_newapi_volcagentplan.go",
+      "path": "backend/internal/service/account_model_mapping_preset_tk.go",
       "must_contain": [
-        "NewAPIAvailableModelPresetIDs",
+        "NewAPIModelDisplayIDsForAccount",
         "tkServedModelsManifestPresetIDsForAccount"
       ],
       "rationale": "Agent Plan admin preset + default probe model derive from manifest served_on, not hardcoded lists or ch45 channel-wide presets that mix pay-as-you-go account 7."
+    },
+    {
+      "path": "backend/internal/service/account_test_service_tk_newapi_volcagentplan.go",
+      "must_contain": [
+        "NewAPIAvailableModelPresetIDs"
+      ],
+      "rationale": "Agent Plan admin model discovery uses the account-aware manifest preset helper instead of channel-wide defaults."
+    },
+    {
+      "path": "backend/internal/service/tk_served_models_manifest_tk.go",
+      "must_contain": [
+        "tkServedModelsManifestPresetIDsForAccount",
+        "tkServedModelsManifestDisplayPresetIDsForAccount"
+      ],
+      "rationale": "Account-specific manifest projections keep Agent Plan user menus aligned with served_on/display even when shared channel_type values describe another upstream adaptor."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_volcagentplan.go",

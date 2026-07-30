@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
-	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/channel/volcengine"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/stretchr/testify/require"
 )
@@ -54,4 +54,7 @@ func TestNewAPIAvailableModelPresetIDs_AgentPlan(t *testing.T) {
 	require.NotEmpty(t, got)
 	require.Equal(t, tkServedModelsManifestPresetIDsForAccount("88"), got)
 	require.Contains(t, got, newapiintegration.VolcEngineAgentPlanDefaultTestModel)
+	display := NewAPIModelDisplayIDsForAccount(account)
+	require.ElementsMatch(t, got, display, "all verified Agent Plan models are displayable")
+	require.Contains(t, display, "minimax-m3")
 }

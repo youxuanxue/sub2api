@@ -103,6 +103,7 @@
         "func isTkCuratedNewAPIModelListed(",
         "func isTkCuratedNewAPIModelDisplayed(",
         "func tkServedModelsManifestDisplayPresetIDsByChannelType(",
+        "func tkServedModelsManifestDisplayPresetIDsForAccount(",
         "func isTkCuratedNewAPICatalogRowDisplayed(",
         "func isNewAPILongTailCatalogVendor("
       ],
@@ -268,6 +269,7 @@
         "\"price_source\"",
         "\"served_on\"",
         "\"display\"",
+        "account 88",
         "served-via-modelops-activation"
       ],
       "rationale": "The served-models MANIFEST is the single declarative intent source consumed by the drift guard, onboarding skill, display projections, and generated account-mapping bundle. Pinning the schema keys plus the modelops activation declaration prevents an upstream merge from truncating the manifest or reverting new mapping floors to generic-deploy migrations while leaving compile/tests superficially green. Co-located with the overlay so the same preflight parses price and serving intent."

@@ -115,6 +115,13 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 		return nil, false
 	}
 	if scope == PlatformNewAPI {
+		if isNewAPIVolcEngineAgentPlanAccount(account) {
+			ids := NewAPIModelMappingPresetIDsForAccount(account)
+			if len(ids) == 0 {
+				return nil, false
+			}
+			return identityModelMapping(ids), true
+		}
 		if runtime != nil {
 			if mapping, ok := runtime.newAPIChannelTypes[account.ChannelType]; ok {
 				return cloneStringMap(mapping), true

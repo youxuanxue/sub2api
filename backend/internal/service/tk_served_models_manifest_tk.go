@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 )
 
 // TokenKey: runtime loader for tk_served_models.json — the curated newapi
@@ -38,6 +40,7 @@ var (
 	tkServedModelsManifestIDsByChannelType        map[int][]string
 	tkServedModelsManifestDisplayIDsByChannelType map[int][]string
 	tkServedModelsManifestIDsByAccount            map[string][]string
+	tkServedModelsManifestDisplayIDsByAccount     map[string][]string
 )
 
 func loadTkServedModelsManifestIDs() map[string]struct{} {
@@ -54,6 +57,7 @@ func loadTkServedModelsManifest() {
 			tkServedModelsManifestIDsByChannelType = map[int][]string{}
 			tkServedModelsManifestDisplayIDsByChannelType = map[int][]string{}
 			tkServedModelsManifestIDsByAccount = map[string][]string{}
+			tkServedModelsManifestDisplayIDsByAccount = map[string][]string{}
 			return
 		}
 		out := make(map[string]struct{}, len(doc.Entries))
@@ -61,6 +65,7 @@ func loadTkServedModelsManifest() {
 		byChannel := make(map[int]map[string]struct{})
 		displayByChannel := make(map[int]map[string]struct{})
 		byAccount := make(map[string]map[string]struct{})
+		displayByAccount := make(map[string]map[string]struct{})
 		for _, e := range doc.Entries {
 			if e.ModelID == "" {
 				continue
@@ -69,7 +74,23 @@ func loadTkServedModelsManifest() {
 			if e.Display {
 				display[e.ModelID] = struct{}{}
 			}
-			if e.ChannelType <= 0 {
+			for _, accountID := range e.ServedOn {
+				accountID = strings.TrimSpace(accountID)
+				if accountID == "" {
+					continue
+				}
+				if byAccount[accountID] == nil {
+					byAccount[accountID] = make(map[string]struct{})
+				}
+				byAccount[accountID][e.ModelID] = struct{}{}
+				if e.Display {
+					if displayByAccount[accountID] == nil {
+						displayByAccount[accountID] = make(map[string]struct{})
+					}
+					displayByAccount[accountID][e.ModelID] = struct{}{}
+				}
+			}
+			if e.ChannelType <= 0 || manifestEntryIsAgentPlanOnly(e) {
 				continue
 			}
 			if byChannel[e.ChannelType] == nil {
@@ -81,16 +102,6 @@ func loadTkServedModelsManifest() {
 					displayByChannel[e.ChannelType] = make(map[string]struct{})
 				}
 				displayByChannel[e.ChannelType][e.ModelID] = struct{}{}
-			}
-			for _, accountID := range e.ServedOn {
-				accountID = strings.TrimSpace(accountID)
-				if accountID == "" {
-					continue
-				}
-				if byAccount[accountID] == nil {
-					byAccount[accountID] = make(map[string]struct{})
-				}
-				byAccount[accountID][e.ModelID] = struct{}{}
 			}
 		}
 		tkServedModelsManifestIDs = out
@@ -122,7 +133,28 @@ func loadTkServedModelsManifest() {
 			sort.Strings(list)
 			tkServedModelsManifestIDsByAccount[accountID] = list
 		}
+		tkServedModelsManifestDisplayIDsByAccount = make(map[string][]string, len(displayByAccount))
+		for accountID, ids := range displayByAccount {
+			list := make([]string, 0, len(ids))
+			for id := range ids {
+				list = append(list, id)
+			}
+			sort.Strings(list)
+			tkServedModelsManifestDisplayIDsByAccount[accountID] = list
+		}
 	})
+}
+
+func manifestEntryIsAgentPlanOnly(e tkServedModelsManifestEntry) bool {
+	if e.ChannelType != newapiconstant.ChannelTypeVolcEngine || len(e.ServedOn) == 0 {
+		return false
+	}
+	for _, accountID := range e.ServedOn {
+		if strings.TrimSpace(accountID) != "88" {
+			return false
+		}
+	}
+	return true
 }
 
 // tkServedModelsManifestPresetIDsForAccount returns manifest model IDs whose
@@ -135,6 +167,21 @@ func tkServedModelsManifestPresetIDsForAccount(accountID string) []string {
 	}
 	loadTkServedModelsManifest()
 	ids := tkServedModelsManifestIDsByAccount[accountID]
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, len(ids))
+	copy(out, ids)
+	return out
+}
+
+func tkServedModelsManifestDisplayPresetIDsForAccount(accountID string) []string {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil
+	}
+	loadTkServedModelsManifest()
+	ids := tkServedModelsManifestDisplayIDsByAccount[accountID]
 	if len(ids) == 0 {
 		return nil
 	}
