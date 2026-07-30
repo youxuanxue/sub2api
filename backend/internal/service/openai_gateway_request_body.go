@@ -30,6 +30,16 @@ func nativeOpenAIBaseURLForAccount(account *Account) string {
 	return account.GetOpenAIBaseURL()
 }
 
+func nativeOpenAIApiKeyForAccount(account *Account) string {
+	if account == nil {
+		return ""
+	}
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		return strings.TrimSpace(account.GetCredential("api_key"))
+	}
+	return account.GetOpenAIApiKey()
+}
+
 func (s *OpenAIGatewayService) validateUpstreamBaseURL(raw string) (string, error) {
 	if s == nil || s.cfg == nil || !s.cfg.Security.URLAllowlist.Enabled {
 		allowInsecureHTTP := false
