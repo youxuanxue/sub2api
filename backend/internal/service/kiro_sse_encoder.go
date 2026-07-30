@@ -164,14 +164,17 @@ func (e *kiroSSEEncoder) closeOpenBlock() {
 	e.blockIndex++
 }
 
-func (e *kiroSSEEncoder) writeMessageDelta(outputTokens int, stopReason string) {
+func (e *kiroSSEEncoder) writeMessageDelta(inputTokens, outputTokens int, stopReason string) {
 	e.writeEvent("message_delta", map[string]any{
 		"type": "message_delta",
 		"delta": map[string]any{
 			"stop_reason":   stopReason,
 			"stop_sequence": nil,
 		},
-		"usage": map[string]any{"output_tokens": outputTokens},
+		"usage": map[string]any{
+			"input_tokens":  inputTokens,
+			"output_tokens": outputTokens,
+		},
 	})
 }
 

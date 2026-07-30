@@ -170,10 +170,109 @@ func completionSignalTextDelta(visibleText string, signal *kiroproto.ClaudeCodeC
 	if visibleText == "" {
 		return message
 	}
-	if containsCompletionTextBlock(visibleText, message) {
+	if containsVisibleCompletionBlock(visibleText, message) {
 		return ""
 	}
 	return "\n\n" + message
+}
+
+// continuationTextDelta removes ordinary text that a hidden completion
+// continuation repeated verbatim from an earlier turn. Claude Code receives
+// the first turn while the gateway keeps subsequent turns internal; allowing
+// the model to restate that turn would make one assistant response appear two
+// or three times in the client transcript.
+func continuationTextDelta(visibleText, continuationText string) string {
+	if strings.TrimSpace(continuationText) == "" {
+		return ""
+	}
+	if strings.TrimSpace(visibleText) == "" {
+		return continuationText
+	}
+
+	trimmed := strings.TrimSpace(continuationText)
+	if containsVisibleCompletionBlock(visibleText, trimmed) {
+		return ""
+	}
+
+	// Models sometimes add a short recap/header around the repeated answer.
+	// Drop repeated paragraphs while retaining any genuinely new text.
+	paragraphs := strings.Split(continuationText, "\n\n")
+	kept := make([]string, 0, len(paragraphs))
+	for _, paragraph := range paragraphs {
+		if strings.TrimSpace(paragraph) == "" {
+			continue
+		}
+		block := strings.TrimSpace(paragraph)
+		if len([]rune(block)) >= 4 && containsVisibleCompletionBlock(visibleText, block) {
+			continue
+		}
+		kept = append(kept, paragraph)
+	}
+	if len(kept) == 0 {
+		return ""
+	}
+	return separateVisibleTextDelta(visibleText, strings.Join(kept, "\n\n"))
+}
+
+// containsVisibleCompletionBlock also tolerates markdown/list decoration
+// differences between repeated model turns (for example "• Done" versus
+// "Done"), while the underlying boundary-aware matcher prevents substring
+// false positives.
+func containsVisibleCompletionBlock(text, block string) bool {
+	if containsCompletionTextBlock(text, block) {
+		return true
+	}
+	stripped, ok := stripCompletionMarkdownPrefix(block)
+	return ok && containsCompletionTextBlock(text, stripped)
+}
+
+func stripCompletionMarkdownPrefix(block string) (string, bool) {
+	trimmed := strings.TrimLeftFunc(block, isHorizontalSpace)
+	if trimmed == "" {
+		return "", false
+	}
+
+	if trimmed[0] == '#' {
+		index := 0
+		for index < len(trimmed) && trimmed[index] == '#' {
+			index++
+		}
+		if index < len(trimmed) {
+			next, _ := utf8.DecodeRuneInString(trimmed[index:])
+			if isHorizontalSpace(next) {
+				stripped := strings.TrimLeftFunc(trimmed[index:], isHorizontalSpace)
+				return stripped, stripped != ""
+			}
+		}
+	}
+
+	marker, size := utf8.DecodeRuneInString(trimmed)
+	if marker != '*' && marker != '-' && marker != '•' {
+		return "", false
+	}
+	rest := trimmed[size:]
+	next, _ := utf8.DecodeRuneInString(rest)
+	if !isHorizontalSpace(next) {
+		return "", false
+	}
+	stripped := strings.TrimLeftFunc(rest, isHorizontalSpace)
+	return stripped, stripped != ""
+}
+
+func isHorizontalSpace(r rune) bool {
+	return r == ' ' || r == '\t'
+}
+
+func separateVisibleTextDelta(visibleText, delta string) string {
+	if delta == "" || strings.TrimSpace(visibleText) == "" {
+		return delta
+	}
+	before, _ := utf8.DecodeLastRuneInString(visibleText)
+	after, _ := utf8.DecodeRuneInString(delta)
+	if unicode.IsSpace(before) || unicode.IsSpace(after) {
+		return delta
+	}
+	return "\n\n" + delta
 }
 
 // containsCompletionTextBlock reports whether the private completion message
@@ -339,7 +438,8 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	startTime time.Time,
 ) (*ForwardResult, error) {
 	var (
-		textBuf          string
+		textBuf          string // client-visible text across all turns
+		billingTextBuf   string // all model text, including hidden continuations
 		thinkingBuf      string
 		clientToolUses   []kiroproto.KiroToolUse
 		billingToolUses  []kiroproto.KiroToolUse
@@ -409,17 +509,22 @@ func (s *KiroGatewayService) forwardNonStreaming(
 			visibleToolUses, completionSignal = kiroproto.ConsumeClaudeCodeCompletionSignal(turnToolUses)
 		}
 		completionAccepted := isAcceptedClaudeCodeCompletion(stopReason, visibleToolUses, completionSignal)
-		if completionAccepted {
-			turnText += completionSignalTextDelta(textBuf+turnText, completionSignal)
+		visibleTurnText := turnText
+		if turn > 1 {
+			visibleTurnText = continuationTextDelta(textBuf, turnText)
 		}
-		if turnText == "" && turnThinking == "" && len(turnToolUses) == 0 && textBuf == "" && thinkingBuf == "" {
+		if completionAccepted {
+			visibleTurnText += completionSignalTextDelta(textBuf+visibleTurnText, completionSignal)
+		}
+		if visibleTurnText == "" && turnThinking == "" && len(turnToolUses) == 0 && textBuf == "" && thinkingBuf == "" {
 			if isKiroPolicyStopReason(stopReason) {
 				return nil, classifyAndRecordKiroForwardError(c, account, &KiroContentFilteredError{}, model)
 			}
 			return nil, classifyAndRecordKiroForwardError(c, account, errKiroEmptyResponse, model)
 		}
 
-		textBuf += turnText
+		textBuf += visibleTurnText
+		billingTextBuf += turnText
 		thinkingBuf += turnThinking
 		billingToolUses = append(billingToolUses, turnToolUses...)
 
@@ -452,7 +557,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 
 	// Estimate output across every hidden completion turn, including the private
 	// completion tool call that is intentionally absent from the client response.
-	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, billingToolUses)
+	outputToks := kiroproto.EstimateOutputTokens(billingTextBuf, thinkingBuf, billingToolUses)
 
 	resp := kiroproto.KiroToClaudeResponse(
 		textBuf, thinkingBuf, false, clientToolUses, inputTokens, outputToks, model, mappedStopReason,
@@ -520,7 +625,8 @@ func (s *KiroGatewayService) forwardStreaming(
 
 	var (
 		mu               sync.Mutex
-		textBuf          string
+		textBuf          string // client-visible text across all turns
+		billingTextBuf   string // all model text, including hidden continuations
 		thinkingBuf      string
 		clientToolUses   []kiroproto.KiroToolUse
 		billingToolUses  []kiroproto.KiroToolUse
@@ -549,7 +655,24 @@ func (s *KiroGatewayService) forwardStreaming(
 			stopReason          string
 			redactor            kiroproto.InlineThinkingRedactor
 			callOutputCommitted bool
+			bufferedTextOffset  int
+			visibleTurnText     string
 		)
+		flushContinuationText := func() {
+			if turn == 1 || bufferedTextOffset >= len(turnText) {
+				return
+			}
+			pendingText := turnText[bufferedTextOffset:]
+			bufferedTextOffset = len(turnText)
+			delta := continuationTextDelta(textBuf+visibleTurnText, pendingText)
+			if delta == "" {
+				return
+			}
+			visibleTurnText += delta
+			markFirstToken()
+			enc.writeTextDelta(delta)
+			callOutputCommitted = true
+		}
 
 		callback := &kiroproto.KiroStreamCallback{
 			OnText: func(text string, isThinking bool) {
@@ -564,8 +687,13 @@ func (s *KiroGatewayService) forwardStreaming(
 				turnThinking += inlineThinking
 				if visible != "" {
 					turnText += visible
-					enc.writeTextDelta(visible)
-					callOutputCommitted = true
+					// Continuation turns are hidden until their terminal outcome is
+					// known, so repeated model text can be removed before it reaches
+					// the client. The first turn remains fully streamed.
+					if turn == 1 {
+						enc.writeTextDelta(visible)
+						callOutputCommitted = true
+					}
 				}
 			},
 			OnToolUse: func(toolUse kiroproto.KiroToolUse) {
@@ -575,6 +703,7 @@ func (s *KiroGatewayService) forwardStreaming(
 				if payload.ClaudeCodeCompletionProtocol && kiroproto.IsClaudeCodeCompletionToolUse(toolUse) {
 					return
 				}
+				flushContinuationText()
 				markFirstToken()
 				enc.writeToolUse(toolUse)
 				callOutputCommitted = true
@@ -607,6 +736,8 @@ func (s *KiroGatewayService) forwardStreaming(
 				stopReason = ""
 				redactor = kiroproto.InlineThinkingRedactor{}
 				firstTokMs = firstTokBeforeTurn
+				bufferedTextOffset = 0
+				visibleTurnText = ""
 				return true
 			},
 		}
@@ -643,8 +774,10 @@ func (s *KiroGatewayService) forwardStreaming(
 			turnThinking += inlineThinking
 			if visible != "" {
 				turnText += visible
-				enc.writeTextDelta(visible)
-				callOutputCommitted = true
+				if turn == 1 {
+					enc.writeTextDelta(visible)
+					callOutputCommitted = true
+				}
 			}
 		}
 
@@ -654,16 +787,21 @@ func (s *KiroGatewayService) forwardStreaming(
 			visibleToolUses, completionSignal = kiroproto.ConsumeClaudeCodeCompletionSignal(turnToolUses)
 		}
 		completionAccepted := isAcceptedClaudeCodeCompletion(stopReason, visibleToolUses, completionSignal)
+		if turn == 1 {
+			visibleTurnText = turnText
+		} else {
+			flushContinuationText()
+		}
 		if completionAccepted {
-			completionDelta := completionSignalTextDelta(textBuf+turnText, completionSignal)
+			completionDelta := completionSignalTextDelta(textBuf+visibleTurnText, completionSignal)
 			if completionDelta != "" {
-				turnText += completionDelta
+				visibleTurnText += completionDelta
 				markFirstToken()
 				enc.writeTextDelta(completionDelta)
 				callOutputCommitted = true
 			}
 		}
-		if turnText == "" && turnThinking == "" && len(turnToolUses) == 0 && textBuf == "" && thinkingBuf == "" {
+		if visibleTurnText == "" && turnThinking == "" && len(turnToolUses) == 0 && textBuf == "" && thinkingBuf == "" {
 			if isKiroPolicyStopReason(stopReason) {
 				mu.Unlock()
 				return nil, classifyAndRecordKiroForwardError(c, account, &KiroContentFilteredError{}, model)
@@ -672,7 +810,8 @@ func (s *KiroGatewayService) forwardStreaming(
 			return nil, classifyAndRecordKiroForwardError(c, account, errKiroEmptyResponse, model)
 		}
 
-		textBuf += turnText
+		textBuf += visibleTurnText
+		billingTextBuf += turnText
 		thinkingBuf += turnThinking
 		billingToolUses = append(billingToolUses, turnToolUses...)
 
@@ -713,13 +852,16 @@ func (s *KiroGatewayService) forwardStreaming(
 		break
 	}
 
-	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, billingToolUses)
+	outputToks := kiroproto.EstimateOutputTokens(billingTextBuf, thinkingBuf, billingToolUses)
 
 	// Upstream succeeded but produced no content (enc.started still false):
 	// emit message_start lazily here so the closing events form a valid stream.
 	enc.writeMessageStart()
 	enc.closeOpenBlock()
-	enc.writeMessageDelta(outputToks, mappedStopReason)
+	// Repeat the final input total because hidden completion continuations add
+	// prompt tokens after message_start. Relay consumers merge this terminal
+	// usage into the same accumulator used for billing.
+	enc.writeMessageDelta(inputTokens, outputToks, mappedStopReason)
 	enc.writeMessageStop()
 	publishKiroInternalThinkingSideChannel(c, w, nil, thinkingBuf)
 	flusher.Flush()
