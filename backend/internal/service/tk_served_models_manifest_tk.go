@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -24,9 +25,10 @@ type tkServedModelsManifestFile struct {
 }
 
 type tkServedModelsManifestEntry struct {
-	ModelID     string `json:"model_id"`
-	ChannelType int    `json:"channel_type"`
-	Display     bool   `json:"display"`
+	ModelID     string   `json:"model_id"`
+	ChannelType int      `json:"channel_type"`
+	Display     bool     `json:"display"`
+	ServedOn    []string `json:"served_on"`
 }
 
 var (
@@ -35,6 +37,7 @@ var (
 	tkServedModelsManifestDisplayIDs              map[string]struct{}
 	tkServedModelsManifestIDsByChannelType        map[int][]string
 	tkServedModelsManifestDisplayIDsByChannelType map[int][]string
+	tkServedModelsManifestIDsByAccount            map[string][]string
 )
 
 func loadTkServedModelsManifestIDs() map[string]struct{} {
@@ -50,12 +53,14 @@ func loadTkServedModelsManifest() {
 			tkServedModelsManifestDisplayIDs = map[string]struct{}{}
 			tkServedModelsManifestIDsByChannelType = map[int][]string{}
 			tkServedModelsManifestDisplayIDsByChannelType = map[int][]string{}
+			tkServedModelsManifestIDsByAccount = map[string][]string{}
 			return
 		}
 		out := make(map[string]struct{}, len(doc.Entries))
 		display := make(map[string]struct{}, len(doc.Entries))
 		byChannel := make(map[int]map[string]struct{})
 		displayByChannel := make(map[int]map[string]struct{})
+		byAccount := make(map[string]map[string]struct{})
 		for _, e := range doc.Entries {
 			if e.ModelID == "" {
 				continue
@@ -76,6 +81,16 @@ func loadTkServedModelsManifest() {
 					displayByChannel[e.ChannelType] = make(map[string]struct{})
 				}
 				displayByChannel[e.ChannelType][e.ModelID] = struct{}{}
+			}
+			for _, accountID := range e.ServedOn {
+				accountID = strings.TrimSpace(accountID)
+				if accountID == "" {
+					continue
+				}
+				if byAccount[accountID] == nil {
+					byAccount[accountID] = make(map[string]struct{})
+				}
+				byAccount[accountID][e.ModelID] = struct{}{}
 			}
 		}
 		tkServedModelsManifestIDs = out
@@ -98,7 +113,34 @@ func loadTkServedModelsManifest() {
 			sort.Strings(list)
 			tkServedModelsManifestDisplayIDsByChannelType[ct] = list
 		}
+		tkServedModelsManifestIDsByAccount = make(map[string][]string, len(byAccount))
+		for accountID, ids := range byAccount {
+			list := make([]string, 0, len(ids))
+			for id := range ids {
+				list = append(list, id)
+			}
+			sort.Strings(list)
+			tkServedModelsManifestIDsByAccount[accountID] = list
+		}
 	})
+}
+
+// tkServedModelsManifestPresetIDsForAccount returns manifest model IDs whose
+// served_on anchor includes accountID. Used for pools that share a channel_type
+// with unrelated accounts (e.g. VolcEngine pay-as-you-go vs Agent Plan).
+func tkServedModelsManifestPresetIDsForAccount(accountID string) []string {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil
+	}
+	loadTkServedModelsManifest()
+	ids := tkServedModelsManifestIDsByAccount[accountID]
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, len(ids))
+	copy(out, ids)
+	return out
 }
 
 // tkServedModelsManifestPresetIDsByChannelType returns empirically verified

@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
 )
 
@@ -26,7 +25,7 @@ func (s *AccountTestService) testNewAPIAccountConnectionTK(c *gin.Context, accou
 
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
-		testModelID = openai.DefaultTestModel
+		testModelID = defaultNewAPIAccountTestModel(account)
 	}
 	testModelID = account.GetMappedModel(testModelID)
 

@@ -97,6 +97,7 @@ class AccountPolicy:
 # from snapshot-sql so name/platform/channel_type come from the runtime DB.
 KNOWN_ACCOUNTS: dict[str, AccountPolicy] = {
     "7": AccountPolicy("7", "volcengine", "newapi", 45),
+    "88": AccountPolicy("88", "volcengine-agent-plan", "newapi", 45),
     "39": AccountPolicy("39", "ds-官", "newapi", 43),
     "60": AccountPolicy("60", "Qwen", "newapi", 17),
     "72": AccountPolicy("72", "Qwen-2", "newapi", 17),

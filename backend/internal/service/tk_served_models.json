@@ -19,25 +19,27 @@
       "platform": "newapi",
       "model_id": "deepseek-v4-pro",
       "served_on": [
-        "39"
+        "39",
+        "88"
       ],
       "channel_type": 43,
       "price_source": "overlay",
       "price_key": "deepseek-v4-pro",
       "display": true,
-      "notes": "ds-官 account 39. Mapped by tk_022 (identity whitelist). Priced in overlay (litellm lags V4). served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN)."
+      "notes": "ds-官 account 39. Mapped by tk_022 (identity whitelist). Priced in overlay (litellm lags V4). served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN). Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30."
     },
     "newapi/deepseek-v4-flash": {
       "platform": "newapi",
       "model_id": "deepseek-v4-flash",
       "served_on": [
-        "39"
+        "39",
+        "88"
       ],
       "channel_type": 43,
       "price_source": "overlay",
       "price_key": "deepseek-v4-flash",
       "display": true,
-      "notes": "ds-官 account 39. Mapped by tk_022. Priced in overlay; pricing-overlay.py anchor. served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN)."
+      "notes": "ds-官 account 39. Mapped by tk_022. Priced in overlay; pricing-overlay.py anchor. served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN). Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30."
     },
     "newapi/deepseek-chat": {
       "platform": "newapi",
@@ -79,25 +81,27 @@
       "platform": "newapi",
       "model_id": "kimi-k2.6",
       "served_on": [
-        "83"
+        "83",
+        "88"
       ],
       "channel_type": 25,
       "price_source": "overlay",
       "price_key": "kimi-k2.6",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20. Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30."
     },
     "newapi/kimi-k2.7-code": {
       "platform": "newapi",
       "model_id": "kimi-k2.7-code",
       "served_on": [
-        "83"
+        "83",
+        "88"
       ],
       "channel_type": 25,
       "price_source": "overlay",
       "price_key": "kimi-k2.7-code",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20. Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30."
     },
     "newapi/kimi-k2.7-code-highspeed": {
       "platform": "newapi",
@@ -115,13 +119,14 @@
       "platform": "newapi",
       "model_id": "kimi-k3",
       "served_on": [
-        "83"
+        "83",
+        "88"
       ],
       "channel_type": 25,
       "price_source": "overlay",
       "price_key": "kimi-k3",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20. Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30."
     },
     "newapi/moonshot-v1-8k": {
       "platform": "newapi",
@@ -716,13 +721,14 @@
       "model_id": "glm-5.2",
       "served_on": [
         "60",
-        "72"
+        "72",
+        "88"
       ],
       "channel_type": 17,
       "price_source": "overlay",
       "price_key": "glm-5.2",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time). Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30."
     },
     "newapi/glm-5.1": {
       "platform": "newapi",
@@ -801,6 +807,102 @@
       "price_key": "glm-4.5-air",
       "display": true,
       "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time)."
+    },
+    "newapi/ark-code-latest": {
+      "platform": "newapi",
+      "model_id": "ark-code-latest",
+      "served_on": [
+        "88"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "ark-code-latest",
+      "display": true,
+      "notes": "VolcEngine Agent Plan account 88 (doubao-agent-plan). Mapped by tk_068. Agent Plan dot-notation SKU; overlay proxies doubao-seed-2.0-pro Ark list. Direct /api/plan/v3 chat probe 200 on 2026-07-30."
+    },
+    "newapi/doubao-seed-2.0-mini": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-2.0-mini",
+      "served_on": [
+        "88"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-2.0-mini",
+      "display": true,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay proxies doubao-seed-2-0-mini-260428. /api/plan/v3 responses probe 200 on 2026-07-30."
+    },
+    "newapi/doubao-seed-2.0-lite": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-2.0-lite",
+      "served_on": [
+        "88"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-2.0-lite",
+      "display": true,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay proxies doubao-seed-2-0-lite-260428. /api/plan/v3 responses probe 200 on 2026-07-30."
+    },
+    "newapi/doubao-seed-evolving": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-evolving",
+      "served_on": [
+        "88"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-evolving",
+      "display": true,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay from VolcEngine Agent Plan bundle list (¥6/M in, ¥30/M out at ≤32K, CNY/USD=6.7). /api/plan/v3 responses probe 200 on 2026-07-30."
+    },
+    "newapi/doubao-seed-2.0-code": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-2.0-code",
+      "served_on": [
+        "88"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-2.0-code",
+      "display": true,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay proxies doubao-seed-2-0-code-preview-260215. /api/plan/v3 responses probe 200 on 2026-07-30."
+    },
+    "newapi/doubao-seed-2.0-pro": {
+      "platform": "newapi",
+      "model_id": "doubao-seed-2.0-pro",
+      "served_on": [
+        "88"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "doubao-seed-2.0-pro",
+      "display": true,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay proxies doubao-seed-2-0-pro-260215. /api/plan/v3 responses probe 200 on 2026-07-30."
+    },
+    "newapi/minimax-m2.7": {
+      "platform": "newapi",
+      "model_id": "minimax-m2.7",
+      "served_on": [
+        "88"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "minimax-m2.7",
+      "display": true,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay from MiniMax official list ($0.30/$1.20 per M tokens). /api/plan/v3 responses probe 200 on 2026-07-30."
+    },
+    "newapi/minimax-m3": {
+      "platform": "newapi",
+      "model_id": "minimax-m3",
+      "served_on": [
+        "88"
+      ],
+      "channel_type": 45,
+      "price_source": "overlay",
+      "price_key": "minimax-m3",
+      "display": true,
+      "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay from MiniMax official list ($0.30/$1.20 per M tokens). /api/plan/v3 responses probe 200 on 2026-07-30."
     }
   }
 }
