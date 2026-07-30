@@ -208,6 +208,20 @@ describe('TokenKey client catalog', () => {
       .toBe(TK_QUICKSTART_CLIENTS.length)
   })
 
+  it('marks CC Switch managed coding CLIs as ccs-import with explicit ccsApp', () => {
+    const ccsClients = TK_CLIENT_CATALOG.filter((client) => client.action === 'ccs-import')
+    expect(ccsClients.map((client) => client.id).sort()).toEqual([
+      'claude-code',
+      'codex-cli',
+      'gemini-cli',
+      'opencode',
+    ])
+    for (const client of ccsClients) {
+      expect(client.ccsApp, `${client.id} ccsApp`).toBeTruthy()
+      expect(client.supportTier, `${client.id} supportTier`).toBe('import')
+    }
+  })
+
   it('never resolves an HTTPS integration URL containing the API key', () => {
     const webIntegrations = TK_CLIENT_INTEGRATIONS.filter((integration) => integration.kind === 'web')
     expect(webIntegrations.length).toBeGreaterThan(0)

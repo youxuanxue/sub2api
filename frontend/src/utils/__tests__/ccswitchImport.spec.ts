@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   GROK_CC_SWITCH_MODEL,
   OPENAI_CC_SWITCH_CODEX_MODEL,
-  buildCcSwitchImportDeeplink
+  buildCcSwitchImportDeeplink,
+  defaultCcsAppForPlatform,
 } from '@/utils/ccswitchImport'
 import type { GroupPlatform } from '@/types'
 
@@ -24,7 +25,7 @@ describe('ccswitchImport utils', () => {
     baseUrl: 'https://api.example.com',
     providerName: 'Sub2API',
     apiKey: 'sk-test',
-    usageScript: 'return true'
+    usageScript: 'return true',
   }
 
   it('adds the Codex model parameter for OpenAI imports', () => {
@@ -32,8 +33,8 @@ describe('ccswitchImport utils', () => {
       buildCcSwitchImportDeeplink({
         ...baseInput,
         platform: 'openai',
-        clientType: 'claude'
-      })
+        ccsApp: 'codex',
+      }),
     )
 
     expect(params.get('resource')).toBe('provider')
@@ -47,15 +48,15 @@ describe('ccswitchImport utils', () => {
     'https://api.example.com',
     'https://api.example.com/',
     'https://api.example.com/v1',
-    'https://api.example.com/v1/'
+    'https://api.example.com/v1/',
   ])('imports Grok Build with one /v1 suffix for base URL %s', (baseUrl) => {
     const params = paramsFromDeeplink(
       buildCcSwitchImportDeeplink({
         ...baseInput,
         baseUrl,
         platform: 'grok',
-        clientType: 'claude'
-      })
+        ccsApp: 'grokbuild',
+      }),
     )
 
     expect(params.get('app')).toBe('grokbuild')
@@ -64,15 +65,16 @@ describe('ccswitchImport utils', () => {
   })
 
   it.each([
-    { platform: 'anthropic' as GroupPlatform, clientType: 'claude' as const, app: 'claude' },
-    { platform: 'gemini' as GroupPlatform, clientType: 'gemini' as const, app: 'gemini' }
-  ])('does not add a model parameter for $platform imports', ({ platform, clientType, app }) => {
+    { platform: 'anthropic' as GroupPlatform, ccsApp: 'claude' as const, app: 'claude' },
+    { platform: 'gemini' as GroupPlatform, ccsApp: 'gemini' as const, app: 'gemini' },
+    { platform: 'openai' as GroupPlatform, ccsApp: 'opencode' as const, app: 'opencode' },
+  ])('uses explicit ccsApp=$ccsApp for $platform (not platform default)', ({ platform, ccsApp, app }) => {
     const params = paramsFromDeeplink(
       buildCcSwitchImportDeeplink({
         ...baseInput,
         platform,
-        clientType
-      })
+        ccsApp,
+      }),
     )
 
     expect(params.get('app')).toBe(app)
@@ -85,12 +87,20 @@ describe('ccswitchImport utils', () => {
       buildCcSwitchImportDeeplink({
         ...baseInput,
         platform: 'antigravity',
-        clientType: 'gemini'
-      })
+        ccsApp: 'gemini',
+      }),
     )
 
     expect(params.get('app')).toBe('gemini')
     expect(params.get('endpoint')).toBe(`${baseInput.baseUrl}/antigravity`)
     expect(params.has('model')).toBe(false)
+  })
+
+  it('maps platform defaults for Keys-page imports without a selected tool', () => {
+    expect(defaultCcsAppForPlatform('openai')).toBe('codex')
+    expect(defaultCcsAppForPlatform('grok')).toBe('grokbuild')
+    expect(defaultCcsAppForPlatform('gemini')).toBe('gemini')
+    expect(defaultCcsAppForPlatform('anthropic')).toBe('claude')
+    expect(defaultCcsAppForPlatform('antigravity', 'gemini')).toBe('gemini')
   })
 })

@@ -29,7 +29,8 @@ export interface TkClientIntegration {
 
 export type TkClientCategory = 'coding' | 'apps' | 'build'
 export type TkClientSupportTier = 'verified' | 'import' | 'compatible'
-export type TkClientAction = 'copy-config' | 'app-deeplink' | 'copy-fields'
+export type TkClientAction = 'ccs-import' | 'copy-config' | 'app-deeplink' | 'copy-fields'
+export type CcSwitchApp = 'claude' | 'codex' | 'gemini' | 'grokbuild' | 'opencode'
 export type TkClientGuideMode = 'native' | 'qwen' | 'openai-fields' | 'codebuddy-models' | 'raw'
 
 export const TK_CLIENT_SUPPORT_META: Record<TkClientSupportTier, {
@@ -79,6 +80,8 @@ export interface TkClientCatalogEntry {
   secretTransport: 'config' | 'env-file' | 'local-scheme' | 'secret-ui' | 'none'
   guideMode?: TkClientGuideMode
   usesEnvironmentPicker?: boolean
+  /** When set, Quickstart primary CTA imports via CC Switch (`ccswitch://`). */
+  ccsApp?: CcSwitchApp
 }
 
 /**
@@ -97,8 +100,9 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     sortOrder: 10,
     icon: 'terminal',
     guideId: 'claude',
-    supportTier: 'verified',
-    action: 'copy-config',
+    supportTier: 'import',
+    action: 'ccs-import',
+    ccsApp: 'claude',
     protocols: ['anthropic'],
     docsUrl: 'https://code.claude.com/docs/en/overview',
     surfaces: ['quickstart'],
@@ -113,8 +117,9 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     sortOrder: 20,
     icon: 'terminal',
     guideId: 'codex',
-    supportTier: 'verified',
-    action: 'copy-config',
+    supportTier: 'import',
+    action: 'ccs-import',
+    ccsApp: 'codex',
     protocols: ['openai'],
     // Official OpenAI repo; developers.openai.com/codex/* is often 403/timeouts behind Vercel WAF.
     docsUrl: 'https://github.com/openai/codex',
@@ -146,8 +151,9 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     sortOrder: 40,
     icon: 'sparkles',
     guideId: 'gemini',
-    supportTier: 'verified',
-    action: 'copy-config',
+    supportTier: 'import',
+    action: 'ccs-import',
+    ccsApp: 'gemini',
     protocols: ['gemini'],
     docsUrl: 'https://github.com/google-gemini/gemini-cli',
     surfaces: ['quickstart'],
@@ -162,8 +168,9 @@ export const TK_CLIENT_CATALOG: TkClientCatalogEntry[] = [
     sortOrder: 50,
     icon: 'terminal',
     guideId: 'opencode',
-    supportTier: 'verified',
-    action: 'copy-config',
+    supportTier: 'import',
+    action: 'ccs-import',
+    ccsApp: 'opencode',
     protocols: ['anthropic', 'openai', 'gemini'],
     docsUrl: 'https://opencode.ai/docs/providers',
     surfaces: ['quickstart'],

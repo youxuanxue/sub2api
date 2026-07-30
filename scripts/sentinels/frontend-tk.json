@@ -7,11 +7,13 @@
       "must_contain": [
         "export const TK_CLIENT_CATALOG",
         "export const TK_QUICKSTART_CLIENTS",
+        "action: 'ccs-import'",
+        "ccsApp: 'claude'",
         "id: 'qwen-code'",
         "id: 'chatbox'",
         "https://lobehub.com/?settings={\"keyVaults\":{\"openai\":{\"baseURL\":\"{address}/v1\"}}}"
       ],
-      "rationale": "Single source of truth for TokenKey's user-visible client support. Quickstart and Studio derive their catalogs from this registry so Claude/Codex/Gemini/OpenCode and the newer Qwen/Cherry/Dify/Cline/Roo/LobeHub/Chatbox entries cannot drift into separate hand-maintained lists. The LobeHub anchor intentionally contains baseURL only: reintroducing apiKey into an HTTPS settings URL would leak credentials to a third-party origin."
+      "rationale": "Single source of truth for TokenKey's user-visible client support. Quickstart and Studio derive their catalogs from this registry so Claude/Codex/Gemini/OpenCode and the newer Qwen/Cherry/Dify/Cline/Roo/LobeHub/Chatbox entries cannot drift into separate hand-maintained lists. CC Switch managed CLIs use action ccs-import + explicit ccsApp so Quickstart primary delivery stays one-tap via ccswitch://. The LobeHub anchor intentionally contains baseURL only: reintroducing apiKey into an HTTPS settings URL would leak credentials to a third-party origin."
     },
     {
       "path": "frontend/src/views/user/studio/ChatStudio.vue",
@@ -1237,7 +1239,9 @@
         "UseKeyGuide",
         "QuickstartConnectionHealth",
         "parseKeyIdFromQuery",
-        "QuickstartClientPicker",
+        "data-tk=\"quickstart-ccs-import\"",
+        "useCcSwitchImport",
+        "importSelectedClientToCcSwitch",
         "data-tk=\"quickstart-config-workspace\"",
         "data-tk=\"quickstart-advanced-options\"",
         "recommendKeyForClient",

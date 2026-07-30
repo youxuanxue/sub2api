@@ -209,10 +209,15 @@ export default {
     ccsClientSelect: {
       title: '选择客户端',
       description: '请选择您要导入到 CC-Switch 的客户端类型：',
+      universalDescription: '全能 Key 跨平台可用 — 请选择 CC Switch 中要导入的目标应用：',
       claudeCode: 'Claude Code',
       claudeCodeDesc: '导入为 Claude Code 配置',
+      codexCli: 'Codex CLI',
+      codexCliDesc: '导入为 Codex CLI 配置',
       geminiCli: 'Gemini CLI',
-      geminiCliDesc: '导入为 Gemini CLI 配置'
+      geminiCliDesc: '导入为 Gemini CLI 配置',
+      openCode: 'OpenCode',
+      openCodeDesc: '导入为 OpenCode 配置',
     },
     // 配额和有效期
     quotaLimit: '额度限制',

@@ -1042,7 +1042,7 @@
       @close="closeExportPanel"
     />
 
-    <!-- CCS Client Selection Dialog for Antigravity -->
+    <!-- CCS app selection (Antigravity or Universal keys) -->
     <BaseDialog
       :show="showCcsClientSelect"
       :title="t('keys.ccsClientSelect.title')"
@@ -1051,35 +1051,66 @@
     >
       <div class="space-y-4">
         <p class="text-sm text-gray-600 dark:text-gray-400">
-          {{ t('keys.ccsClientSelect.description') }}
-	        </p>
-	        <div class="grid grid-cols-2 gap-3">
-	          <button
-	            @click="handleCcsClientSelect('claude')"
-	            class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-gray-200 dark:border-dark-600 hover:border-primary-500 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all"
-	          >
-	            <Icon name="terminal" size="xl" class="text-gray-600 dark:text-gray-400" />
-	            <span class="font-medium text-gray-900 dark:text-white">{{
-	              t('keys.ccsClientSelect.claudeCode')
-	            }}</span>
-	            <span class="text-xs text-gray-500 dark:text-gray-400">{{
-	              t('keys.ccsClientSelect.claudeCodeDesc')
-	            }}</span>
-	          </button>
-	          <button
-	            @click="handleCcsClientSelect('gemini')"
-	            class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-gray-200 dark:border-dark-600 hover:border-primary-500 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all"
-	          >
-	            <Icon name="sparkles" size="xl" class="text-gray-600 dark:text-gray-400" />
-	            <span class="font-medium text-gray-900 dark:text-white">{{
-	              t('keys.ccsClientSelect.geminiCli')
-	            }}</span>
-	            <span class="text-xs text-gray-500 dark:text-gray-400">{{
-	              t('keys.ccsClientSelect.geminiCliDesc')
-	            }}</span>
-	          </button>
-	        </div>
-	      </div>
+          {{ ccsAppSelectMode === 'universal'
+            ? t('keys.ccsClientSelect.universalDescription')
+            : t('keys.ccsClientSelect.description') }}
+        </p>
+        <div
+          class="grid gap-3"
+          :class="ccsAppSelectMode === 'universal' ? 'grid-cols-2' : 'grid-cols-2'"
+        >
+          <button
+            @click="handleCcsAppSelect('claude')"
+            class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-gray-200 dark:border-dark-600 hover:border-primary-500 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all"
+          >
+            <Icon name="terminal" size="xl" class="text-gray-600 dark:text-gray-400" />
+            <span class="font-medium text-gray-900 dark:text-white">{{
+              t('keys.ccsClientSelect.claudeCode')
+            }}</span>
+            <span class="text-xs text-gray-500 dark:text-gray-400 text-center">{{
+              t('keys.ccsClientSelect.claudeCodeDesc')
+            }}</span>
+          </button>
+          <button
+            v-if="ccsAppSelectMode === 'universal'"
+            @click="handleCcsAppSelect('codex')"
+            class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-gray-200 dark:border-dark-600 hover:border-primary-500 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all"
+          >
+            <Icon name="terminal" size="xl" class="text-gray-600 dark:text-gray-400" />
+            <span class="font-medium text-gray-900 dark:text-white">{{
+              t('keys.ccsClientSelect.codexCli')
+            }}</span>
+            <span class="text-xs text-gray-500 dark:text-gray-400 text-center">{{
+              t('keys.ccsClientSelect.codexCliDesc')
+            }}</span>
+          </button>
+          <button
+            @click="handleCcsAppSelect('gemini')"
+            class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-gray-200 dark:border-dark-600 hover:border-primary-500 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all"
+          >
+            <Icon name="sparkles" size="xl" class="text-gray-600 dark:text-gray-400" />
+            <span class="font-medium text-gray-900 dark:text-white">{{
+              t('keys.ccsClientSelect.geminiCli')
+            }}</span>
+            <span class="text-xs text-gray-500 dark:text-gray-400 text-center">{{
+              t('keys.ccsClientSelect.geminiCliDesc')
+            }}</span>
+          </button>
+          <button
+            v-if="ccsAppSelectMode === 'universal'"
+            @click="handleCcsAppSelect('opencode')"
+            class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-gray-200 dark:border-dark-600 hover:border-primary-500 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all"
+          >
+            <Icon name="terminal" size="xl" class="text-gray-600 dark:text-gray-400" />
+            <span class="font-medium text-gray-900 dark:text-white">{{
+              t('keys.ccsClientSelect.openCode')
+            }}</span>
+            <span class="text-xs text-gray-500 dark:text-gray-400 text-center">{{
+              t('keys.ccsClientSelect.openCodeDesc')
+            }}</span>
+          </button>
+        </div>
+      </div>
       <template #footer>
         <div class="flex justify-end">
           <button @click="closeCcsClientSelect" class="btn btn-secondary">
@@ -1195,11 +1226,13 @@ import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
 import {
-  buildCcSwitchImportDeeplink,
-  type CcSwitchClientType
+  defaultCcsAppForPlatform,
+  type CcSwitchApp,
 } from '@/utils/ccswitchImport'
+import { useCcSwitchImport } from '@/composables/useCcSwitchImport'
+import { isUniversalKey } from '@/utils/studioUniversalKey.tk'
 import { STATUS_ACTIVE } from '@/constants/channel'
-import { PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI } from '@/constants/gatewayPlatforms'
+import { PLATFORM_ANTIGRAVITY } from '@/constants/gatewayPlatforms'
 
 // Helper to format date for datetime-local input
 const formatDateTimeLocal = (isoDate: string): string => {
@@ -1223,6 +1256,7 @@ interface GroupOption {
 }
 
 const appStore = useAppStore()
+const { importToCcSwitch } = useCcSwitchImport()
 const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
@@ -1364,6 +1398,7 @@ const showResetRateLimitDialog = ref(false)
 const showCcsClientSelect = ref(false)
 const showColumnDropdown = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
+const ccsAppSelectMode = ref<'antigravity' | 'universal'>('antigravity')
 const selectedKey = ref<ApiKey | null>(null)
 const copiedKeyId = ref<number | null>(null)
 const showExportPanel = ref(false)
@@ -1937,65 +1972,37 @@ const resetRateLimitUsage = async () => {
 const importToCcswitch = (row: ApiKey) => {
   const platform = row.group?.platform || 'anthropic'
 
-  // For antigravity platform, show client selection dialog
   if (platform === PLATFORM_ANTIGRAVITY) {
     pendingCcsRow.value = row
+    ccsAppSelectMode.value = 'antigravity'
     showCcsClientSelect.value = true
     return
   }
 
-  // For other platforms, execute directly
-  executeCcsImport(row, platform === PLATFORM_GEMINI ? 'gemini' : 'claude')
-}
-
-const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
-  const baseUrl = publicSettings.value?.api_base_url || window.location.origin
-  const platform = row.group?.platform || 'anthropic'
-
-  const usageScript = `({
-    request: {
-      url: "{{baseUrl}}/v1/usage",
-      method: "GET",
-      headers: { "Authorization": "Bearer {{apiKey}}" }
-    },
-    extractor: function(response) {
-      const remaining = response?.remaining ?? response?.quota?.remaining ?? response?.balance;
-      const unit = response?.unit ?? response?.quota?.unit ?? "USD";
-      return {
-        isValid: response?.is_active ?? response?.isValid ?? true,
-        remaining,
-        unit
-      };
-    }
-  })`
-  const providerName = (publicSettings.value?.site_name || 'TokenKey').trim() || 'TokenKey'
-  const deeplink = buildCcSwitchImportDeeplink({
-    baseUrl,
-    platform,
-    clientType,
-    providerName,
-    apiKey: row.key,
-    usageScript
-  })
-
-  try {
-    window.open(deeplink, '_self')
-
-    // Check if the protocol handler worked by detecting if we're still focused
-    setTimeout(() => {
-      if (document.hasFocus()) {
-        // Still focused means the protocol handler likely failed
-        appStore.showError(t('keys.ccSwitchNotInstalled'))
-      }
-    }, 100)
-  } catch (error) {
-    appStore.showError(t('keys.ccSwitchNotInstalled'))
+  if (isUniversalKey(row)) {
+    pendingCcsRow.value = row
+    ccsAppSelectMode.value = 'universal'
+    showCcsClientSelect.value = true
+    return
   }
+
+  executeCcsImport(row, defaultCcsAppForPlatform(platform))
 }
 
-const handleCcsClientSelect = (clientType: CcSwitchClientType) => {
+const executeCcsImport = (row: ApiKey, ccsApp: CcSwitchApp) => {
+  const baseUrl = (publicSettings.value?.api_base_url || window.location.origin).replace(/\/+$/, '')
+  const providerName = (publicSettings.value?.site_name || 'TokenKey').trim() || 'TokenKey'
+  importToCcSwitch({
+    key: row,
+    ccsApp,
+    baseUrl,
+    providerName,
+  })
+}
+
+const handleCcsAppSelect = (ccsApp: CcSwitchApp) => {
   if (pendingCcsRow.value) {
-    executeCcsImport(pendingCcsRow.value, clientType)
+    executeCcsImport(pendingCcsRow.value, ccsApp)
   }
   showCcsClientSelect.value = false
   pendingCcsRow.value = null
