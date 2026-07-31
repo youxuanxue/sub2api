@@ -1992,20 +1992,20 @@
   "gpt-5.6-terra": {
     "litellm_provider": "openai",
     "mode": "chat",
-    "input_cost_per_token": 2.5e-06,
-    "output_cost_per_token": 1.5e-05,
-    "cache_read_input_token_cost": 2.5e-07,
-    "cache_creation_input_token_cost": 3.125e-06,
-    "source": "GPT-5.6 Terra official OpenAI tier. gpt-5.6 is absent from the upstream Wei-Shaw/litellm runtime mirror prod fetches, so the overlay carries it for /pricing display (billing already correct via billing_service fallbackPrices, PR #1030). Mirrors resources/model-pricing/model_prices_and_context_window.json. Captured 2026-06-27."
+    "input_cost_per_token": 2e-06,
+    "output_cost_per_token": 1.2e-05,
+    "cache_read_input_token_cost": 2e-07,
+    "cache_creation_input_token_cost": 2.5e-06,
+    "source": "GPT-5.6 Terra official OpenAI tier (20% cut effective 2026-07-30). gpt-5.6 is absent from the upstream Wei-Shaw/litellm runtime mirror prod fetches, so the overlay carries it for /pricing display (billing already correct via billing_service fallbackPrices, PR #1030). Mirrors resources/model-pricing/model_prices_and_context_window.json. Captured 2026-07-30."
   },
   "gpt-5.6-luna": {
     "litellm_provider": "openai",
     "mode": "chat",
-    "input_cost_per_token": 1e-06,
-    "output_cost_per_token": 6e-06,
-    "cache_read_input_token_cost": 1e-07,
-    "cache_creation_input_token_cost": 1.25e-06,
-    "source": "GPT-5.6 Luna official OpenAI tier. gpt-5.6 is absent from the upstream Wei-Shaw/litellm runtime mirror prod fetches, so the overlay carries it for /pricing display (billing already correct via billing_service fallbackPrices, PR #1030). Mirrors resources/model-pricing/model_prices_and_context_window.json. Captured 2026-06-27."
+    "input_cost_per_token": 2e-07,
+    "output_cost_per_token": 1.2e-06,
+    "cache_read_input_token_cost": 2e-08,
+    "cache_creation_input_token_cost": 2.5e-07,
+    "source": "GPT-5.6 Luna official OpenAI tier (80% cut effective 2026-07-30). gpt-5.6 is absent from the upstream Wei-Shaw/litellm runtime mirror prod fetches, so the overlay carries it for /pricing display (billing already correct via billing_service fallbackPrices, PR #1030). Mirrors resources/model-pricing/model_prices_and_context_window.json. Captured 2026-07-30."
   },
   "gpt-5.6-chat-latest": {
     "litellm_provider": "openai",
