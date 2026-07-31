@@ -2554,6 +2554,33 @@
       "rationale": "Focused settlement regressions lock the same request precedence and TaskSubmitReq size conversion used by the bridge, preventing the held/recorded tier from diverging from the generated tier."
     },
     {
+      "path": "backend/internal/service/openai_gateway_usage_tk_video_billing.go",
+      "must_contain": [
+        "func isOpenAIVideoUsageResult",
+        "func (s *OpenAIGatewayService) tkTryCalculateOpenAIVideoUsageCost",
+        "result.VideoCount > 0",
+        "tkVideoUnitPriceUSD"
+      ],
+      "rationale": "RecordUsage video settlement gate: VideoCount>0 must route seedance/veo/newapi VideoSubmit traffic into calculateOpenAIVideoCost instead of the token funnel (pricing_missing_record_zero_cost). Companion keeps upstream openai_gateway_usage.go edits minimal; dropping this file restores the grok-model-name-only gate."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_usage.go",
+      "must_contain": [
+        "isOpenAIVideoUsageResult(result)",
+        "tkTryCalculateOpenAIVideoUsageCost"
+      ],
+      "rationale": "Injection wiring from upstream-owned RecordUsage/calculateOpenAIRecordUsageCost into the TK video settlement companion. An upstream merge reverting these call sites leaves VideoSubmit billing on the token path again even if the companion file survives."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_usage_tk_video_billing_test.go",
+      "must_contain": [
+        "TestIsOpenAIVideoUsageResult",
+        "TestOpenAIGatewayServiceRecordUsage_SeedanceVideoSubmitUsesTierPricing",
+        "TestOpenAIGatewayServiceRecordUsage_SeedanceVideoOverlayOverridesTokenChannel"
+      ],
+      "rationale": "Focused regressions: VideoCount>0 detection and non-grok async video submit must bill overlay tier video; overlay must override misconfigured token channel pricing."
+    },
+    {
       "path": "backend/internal/handler/openai_gateway_tk_video.go",
       "must_contain": [
         "tkVideoFastPathFromS3",
