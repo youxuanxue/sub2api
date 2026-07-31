@@ -192,11 +192,6 @@ func (s *PricingService) startUpdateScheduler() {
 	logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Registry scheduler disabled; changes require deployment")
 }
 
-// checkAndUpdatePricing 检查并更新价格数据
-func (s *PricingService) checkAndUpdatePricing() error {
-	return s.loadRegistryPricingData()
-}
-
 // parsePricingData 解析价格数据（处理各种格式）
 func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModelPricing, error) {
 	// 首先解析为 map[string]json.RawMessage
