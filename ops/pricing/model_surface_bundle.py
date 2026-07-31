@@ -9,7 +9,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BUNDLE_PATH = REPO_ROOT / "ops" / "pricing" / "model-surface-bundle.json"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 SUPPORTED_SCHEMA_VERSIONS = {1, SCHEMA_VERSION}
 BUNDLE_FIELDS = {
     "schema_version",
@@ -23,7 +23,7 @@ BASE_FLOOR_FIELDS = {
     "forbidden_model_mapping_keys",
     "forbidden_model_mapping_prefixes",
 }
-ACCOUNT_OVERRIDE_FIELDS = {"platform", "channel_type", "model_mapping"}
+ACCOUNT_OVERRIDE_FIELDS = {"platform", "channel_type", "base_url", "model_mapping"}
 
 
 def canonical_json(value: Any) -> str:
@@ -67,16 +67,29 @@ def _validate_policy_map(label: str, raw: Any) -> dict[str, list[str]]:
     return raw
 
 
-def _validate_account_overrides(raw: Any) -> dict[str, dict[str, Any]]:
-    if not isinstance(raw, dict):
-        raise RuntimeError("model surface bundle omitted account_model_mapping.account_overrides")
-    for account_id, override in raw.items():
-        label = f"account_model_mapping.account_overrides.{account_id}"
-        if not isinstance(account_id, str) or not account_id.isdigit() or int(account_id) <= 0:
-            raise RuntimeError(f"account_model_mapping.account_overrides has invalid key {account_id!r}")
+def normalize_account_override_base_url(raw: Any) -> str:
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip().lower().rstrip("/")
+
+
+def account_override_scope(override: dict[str, Any]) -> str:
+    platform = str(override.get("platform") or "").strip().lower()
+    channel_type = override.get("channel_type")
+    channel = str(channel_type) if channel_type is not None else "0"
+    base_url = normalize_account_override_base_url(override.get("base_url"))
+    return f"account_override:{platform}:{channel}:{base_url}"
+
+
+def _validate_account_overrides(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        raise RuntimeError("model surface bundle omitted account_model_mapping.account_overrides array")
+    seen: set[str] = set()
+    for index, override in enumerate(raw):
+        label = f"account_model_mapping.account_overrides[{index}]"
         if not isinstance(override, dict):
             raise RuntimeError(f"{label} must be an object")
-        missing = sorted({"platform", "model_mapping"} - set(override))
+        missing = sorted({"platform", "base_url", "model_mapping"} - set(override))
         if missing:
             raise RuntimeError(f"{label} omitted fields: " + ", ".join(missing))
         unknown = sorted(set(override) - ACCOUNT_OVERRIDE_FIELDS)
@@ -85,6 +98,13 @@ def _validate_account_overrides(raw: Any) -> dict[str, dict[str, Any]]:
         platform = override.get("platform")
         if not isinstance(platform, str) or not platform.strip() or platform != platform.strip().lower():
             raise RuntimeError(f"{label}.platform must be a normalized non-empty string")
+        base_url = override.get("base_url")
+        if (
+            not isinstance(base_url, str)
+            or not base_url.strip()
+            or base_url != normalize_account_override_base_url(base_url)
+        ):
+            raise RuntimeError(f"{label}.base_url must be a normalized non-empty string")
         channel_type = override.get("channel_type")
         if platform == "newapi":
             if not isinstance(channel_type, int) or isinstance(channel_type, bool) or channel_type <= 0:
@@ -92,6 +112,10 @@ def _validate_account_overrides(raw: Any) -> dict[str, dict[str, Any]]:
         elif channel_type is not None:
             raise RuntimeError(f"{label}.channel_type is only valid for newapi")
         _validate_mapping(f"{label}.model_mapping", override.get("model_mapping"))
+        scope = account_override_scope(override)
+        if scope in seen:
+            raise RuntimeError(f"{label} duplicates selector {scope!r}")
+        seen.add(scope)
     return raw
 
 
@@ -166,7 +190,7 @@ def _validate_floor(floor: dict[str, Any], schema_version: int) -> None:
                 f"account_model_mapping.newapi_channel_types.{channel_type} requires forbidden keys: "
                 + ", ".join(conflicts)
             )
-    for account_id, override in account_overrides.items():
+    for override in account_overrides:
         scope = override["platform"]
         mapping = override["model_mapping"]
         blocked = set(forbidden_keys.get(scope) or [])
@@ -177,7 +201,8 @@ def _validate_floor(floor: dict[str, Any], schema_version: int) -> None:
         )
         if conflicts:
             raise RuntimeError(
-                f"account_model_mapping.account_overrides.{account_id}.model_mapping requires forbidden keys: "
+                f"account_model_mapping.account_overrides selector {account_override_scope(override)!r} "
+                "model_mapping requires forbidden keys: "
                 + ", ".join(conflicts)
             )
 

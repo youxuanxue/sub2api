@@ -27,7 +27,8 @@ always checks prod only. See ``docs/global/agent-reference.md`` § Model serving
 SSOT.
 
 Compiled ``account_overrides`` take precedence over platform and newapi
-channel-type floors. They are immutable bundle scopes and are not shadowed by
+channel-type floors when an account's platform, channel type, and normalized
+base URL all match. They are immutable bundle scopes and are not shadowed by
 the shared-scope runtime setting.
 
 Runtime JSON shape:
@@ -518,40 +519,38 @@ def _mapping_policy_violations(row: dict[str, Any], floor: dict[str, Any]) -> li
 def _desired_mapping_for_account(
     row: dict[str, Any],
     floor: dict[str, Any],
-) -> tuple[dict[str, str] | None, str, str | None]:
-    account_id = str(row.get("id") or "").strip()
-    override = (floor.get("account_overrides") or {}).get(account_id)
-    if isinstance(override, dict):
-        override_scope = f"account:{account_id}"
+) -> tuple[dict[str, str] | None, str]:
+    actual_platform = str(row.get("platform") or "").strip().lower()
+    try:
+        actual_channel_type = int(row.get("channel_type") or 0)
+    except (TypeError, ValueError):
+        actual_channel_type = 0
+    actual_base_url = _BUNDLE.normalize_account_override_base_url(row.get("base_url"))
+    for override in floor.get("account_overrides") or []:
+        if not isinstance(override, dict):
+            continue
         expected_platform = str(override.get("platform") or "").strip().lower()
-        actual_platform = str(row.get("platform") or "").strip().lower()
-        mismatches: list[str] = []
-        if actual_platform != expected_platform:
-            mismatches.append(f"platform={actual_platform!r} want {expected_platform!r}")
         expected_channel_type = override.get("channel_type")
-        if expected_channel_type is not None:
-            try:
-                actual_channel_type = int(row.get("channel_type") or 0)
-            except (TypeError, ValueError):
-                actual_channel_type = 0
-            if actual_channel_type != expected_channel_type:
-                mismatches.append(
-                    f"channel_type={actual_channel_type} want {expected_channel_type}"
-                )
-        if mismatches:
-            return None, override_scope, (
-                "account override identity mismatch (" + "; ".join(mismatches) + ")"
+        if (
+            actual_platform != expected_platform
+            or (expected_channel_type is not None and actual_channel_type != expected_channel_type)
+            or (
+                actual_base_url
+                != _BUNDLE.normalize_account_override_base_url(override.get("base_url"))
             )
+        ):
+            continue
         mapping = override.get("model_mapping")
-        return mapping if isinstance(mapping, dict) else None, override_scope, None
+        if isinstance(mapping, dict):
+            return mapping, _BUNDLE.account_override_scope(override)
 
     scope = _account_scope(row)
     if scope == "newapi":
         ct = str(row.get("channel_type") or "").strip()
         mapping = (floor.get("newapi_channel_types") or {}).get(ct)
-        return mapping if isinstance(mapping, dict) else None, f"newapi_channel_type:{ct or '0'}", None
+        return mapping if isinstance(mapping, dict) else None, f"newapi_channel_type:{ct or '0'}"
     mapping = (floor.get("platforms") or {}).get(scope)
-    return mapping if isinstance(mapping, dict) else None, scope, None
+    return mapping if isinstance(mapping, dict) else None, scope
 
 
 def _mapping_diff(
@@ -605,28 +604,7 @@ def _account_plan(
     row: dict[str, Any],
     floor: dict[str, Any],
 ) -> dict[str, Any] | None:
-    want, scope, override_error = _desired_mapping_for_account(row, floor)
-    if override_error:
-        got, mapping_error = _model_mapping(row)
-        return {
-            "kind": "account",
-            "id": row.get("id"),
-            "name": row.get("name"),
-            "platform": row.get("platform"),
-            "type": row.get("type"),
-            "scope": scope,
-            "reason": override_error,
-            "apply_blocked": True,
-            "diff": {
-                "missing_keys": [],
-                "forbidden_keys": [],
-                "compatible_extra_keys": [],
-                "bad_targets": [],
-                "current_count": len(got) if mapping_error is None else 0,
-                "desired_count": 0,
-            },
-            "desired_model_mapping": {},
-        }
+    want, scope = _desired_mapping_for_account(row, floor)
     if not want:
         return None
     got, err = _model_mapping(row)
@@ -800,10 +778,6 @@ def _collect_apply_plan(
     account_changes: list[dict[str, Any]] = []
     for row in bundle.get("accounts") or []:
         plan = _account_plan(row, floor)
-        if plan and plan.get("apply_blocked"):
-            raise RuntimeError(
-                f"{label} account {plan.get('id')} cannot be applied: {plan.get('reason')}"
-            )
         if plan and plan.get("desired_model_mapping"):
             plan["target"] = label
             account_changes.append(plan)
@@ -1477,13 +1451,14 @@ def cmd_selftest(_args) -> int:
         "newapi_channel_types": {
             "45": {"generic-model": "generic-model"},
         },
-        "account_overrides": {
-            "88": {
+        "account_overrides": [
+            {
                 "platform": "newapi",
                 "channel_type": 45,
+                "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
                 "model_mapping": {"agent-plan-model": "agent-plan-model"},
             },
-        },
+        ],
         "antigravity_group_scopes": ["claude", "gemini_text", "gemini_image"],
         "forbidden_model_mapping_keys": {
             "anthropic": ["claude-opus-5"],
@@ -1510,6 +1485,7 @@ def cmd_selftest(_args) -> int:
         "platform": "newapi",
         "type": "apikey",
         "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3/",
         "model_mapping": {"agent-plan-model": "agent-plan-model"},
     }
     assert _account_plan(account_override_row, floor) is None
@@ -1518,15 +1494,21 @@ def cmd_selftest(_args) -> int:
         "platform": "newapi",
         "type": "apikey",
         "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/v3",
         "model_mapping": {"agent-plan-model": "agent-plan-model"},
     }
     generic_channel_plan = _account_plan(generic_channel_row, floor)
     assert generic_channel_plan and generic_channel_plan["scope"] == "newapi_channel_type:45"
-    mismatched_override = dict(account_override_row, channel_type=17)
+    mismatched_override = dict(
+        account_override_row,
+        base_url="https://ark.cn-beijing.volces.com/api/v3",
+    )
     mismatch_plan = _account_plan(mismatched_override, floor)
-    assert mismatch_plan and "identity mismatch" in mismatch_plan["reason"]
-    assert mismatch_plan["apply_blocked"] is True
-    assert mismatch_plan["desired_model_mapping"] == {}
+    assert mismatch_plan and mismatch_plan["scope"] == "newapi_channel_type:45"
+    assert mismatch_plan["desired_model_mapping"] == {
+        "agent-plan-model": "agent-plan-model",
+        "generic-model": "generic-model",
+    }
     original_run_check_sql_json = globals()["_run_check_sql_json"]
     original_load_effective_floor = globals()["_load_effective_floor"]
     globals()["_run_check_sql_json"] = lambda _region, _instance_id, _label: {
@@ -1536,12 +1518,8 @@ def cmd_selftest(_args) -> int:
     }
     globals()["_load_effective_floor"] = lambda _raw: floor
     try:
-        try:
-            _collect_apply_plan("prod", "test-region", "i-test")
-        except RuntimeError as e:
-            assert "identity mismatch" in str(e)
-        else:
-            raise AssertionError("account override identity mismatch did not block apply")
+        apply_plan = _collect_apply_plan("prod", "test-region", "i-test")
+        assert apply_plan["account_changes"][0]["scope"] == "newapi_channel_type:45"
     finally:
         globals()["_run_check_sql_json"] = original_run_check_sql_json
         globals()["_load_effective_floor"] = original_load_effective_floor

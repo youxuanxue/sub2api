@@ -845,9 +845,18 @@ class ActivationError(RuntimeError):
 
 
 def _account_platform_allows_scope(account_platform: str, account_scope: str) -> bool:
-    if account_scope.startswith("account:"):
-        account_id = account_scope.removeprefix("account:")
-        return account_id.isdigit() and int(account_id) > 0
+    if account_scope.startswith("account_override:"):
+        selector = account_scope.split(":", 3)
+        return (
+            len(selector) == 4
+            and selector[1] == account_platform
+            and selector[2].isdigit()
+            and (
+                int(selector[2]) > 0
+                or (selector[2] == "0" and account_platform != "newapi")
+            )
+            and bool(selector[3])
+        )
     if account_platform == account_scope:
         return True
     if account_platform == "anthropic":
@@ -884,9 +893,9 @@ def _bundle_mapping_scopes(bundle: dict[str, Any]) -> dict[str, dict[str, str]]:
     for channel_type, mapping in (floor.get("newapi_channel_types") or {}).items():
         if isinstance(mapping, dict):
             scopes[f"newapi_channel_type:{channel_type}"] = dict(mapping)
-    for account_id, override in (floor.get("account_overrides") or {}).items():
+    for override in floor.get("account_overrides") or []:
         if isinstance(override, dict) and isinstance(override.get("model_mapping"), dict):
-            scopes[f"account:{account_id}"] = dict(override["model_mapping"])
+            scopes[_BUNDLE.account_override_scope(override)] = dict(override["model_mapping"])
     return scopes
 
 
@@ -1007,6 +1016,15 @@ def _load_activation_evidence(
                     f"{row_label}: account_scope {account_scope!r} must match "
                     f"mapping scope {values['scope']!r}"
                 )
+            if account_scope.startswith("account_override:"):
+                account_base_url = row.get("account_base_url")
+                if not isinstance(account_base_url, str) or not account_base_url.strip():
+                    raise ActivationError(
+                        f"{row_label}: account override probe evidence requires account_base_url"
+                    )
+                values["account_base_url"] = _BUNDLE.normalize_account_override_base_url(
+                    account_base_url
+                )
             if not _account_platform_allows_scope(account_platform, account_scope):
                 raise ActivationError(
                     f"{row_label}: account_platform {account_platform!r} cannot provide "
@@ -1070,20 +1088,32 @@ def build_activation_context(
             missing_pricing.append("/".join(key))
         if probe_row and pricing_row and probe_row.get("source") == pricing_row.get("source"):
             shared_sources.append("/".join(key))
-        if probe_row and row["scope"].startswith("account:"):
-            account_id = row["scope"].removeprefix("account:")
-            override = (
-                target["account_model_mapping"].get("account_overrides") or {}
-            ).get(account_id) or {}
-            if str(probe_row.get("account_id") or "").strip() != account_id:
-                raise ActivationError(
-                    f"probe evidence account_id must match mapping scope {row['scope']!r}"
-                )
+        if probe_row and row["scope"].startswith("account_override:"):
+            override = next(
+                (
+                    candidate
+                    for candidate in target["account_model_mapping"].get("account_overrides") or []
+                    if isinstance(candidate, dict)
+                    and _BUNDLE.account_override_scope(candidate) == row["scope"]
+                ),
+                None,
+            )
+            if not override:
+                raise ActivationError(f"target bundle is missing selector {row['scope']!r}")
             expected_platform = str(override.get("platform") or "").strip().lower()
+            expected_base_url = _BUNDLE.normalize_account_override_base_url(override.get("base_url"))
             if probe_row.get("account_platform") != expected_platform:
                 raise ActivationError(
                     f"probe evidence account_platform {probe_row.get('account_platform')!r} "
                     f"must match {row['scope']} platform {expected_platform!r}"
+                )
+            actual_base_url = _BUNDLE.normalize_account_override_base_url(
+                probe_row.get("account_base_url")
+            )
+            if actual_base_url != expected_base_url:
+                raise ActivationError(
+                    f"probe evidence account_base_url {actual_base_url!r} "
+                    f"must match {row['scope']} base_url {expected_base_url!r}"
                 )
     if missing_probe:
         raise ActivationError("probe evidence missing servable verdicts: " + ", ".join(missing_probe))

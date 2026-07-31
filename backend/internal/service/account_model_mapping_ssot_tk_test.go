@@ -117,14 +117,24 @@ func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedAccounts := accountModelMappingOverrideAccounts()
-	expectedIDs := make([]string, 0, len(expectedAccounts))
+	require.Len(t, doc.AccountOverrides, len(expectedAccounts))
 	for _, account := range expectedAccounts {
-		accountID := fmt.Sprintf("%d", account.ID)
-		expectedIDs = append(expectedIDs, accountID)
-		override, ok := doc.AccountOverrides[accountID]
-		require.True(t, ok, "missing account override %s", accountID)
+		baseURL := normalizeAccountModelMappingOverrideBaseURL(account.GetBaseURL())
+		var override AccountModelMappingOverride
+		var found bool
+		for _, candidate := range doc.AccountOverrides {
+			if candidate.Platform == account.Platform &&
+				candidate.ChannelType == account.ChannelType &&
+				candidate.BaseURL == baseURL {
+				override = candidate
+				found = true
+				break
+			}
+		}
+		require.True(t, found, "missing account override for %s/%d/%s", account.Platform, account.ChannelType, baseURL)
 		require.Equal(t, account.Platform, override.Platform)
 		require.Equal(t, account.ChannelType, override.ChannelType)
+		require.Equal(t, baseURL, override.BaseURL)
 
 		mapping, mappingOK := accountModelMappingForAccount(context.Background(), account, nil, nil, nil)
 		require.True(t, mappingOK)
@@ -136,11 +146,6 @@ func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {
 		)
 	}
 
-	actualIDs := make([]string, 0, len(doc.AccountOverrides))
-	for accountID := range doc.AccountOverrides {
-		actualIDs = append(actualIDs, accountID)
-	}
-	require.ElementsMatch(t, expectedIDs, actualIDs)
 }
 
 func TestAccountModelMappingFloorForOps_RuntimeDoesNotShadowAccountOverrides(t *testing.T) {

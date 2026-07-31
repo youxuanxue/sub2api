@@ -130,6 +130,7 @@ def derive_account_scope(row):
 
 
 account_platform = str(account.get("platform") or "").strip().lower()
+account_base_url = str(account.get("base_url") or "").strip().lower().rstrip("/")
 account_scope = derive_account_scope(account)
 if not account_platform or not account_scope:
     setup_error("account platform/scope metadata is incomplete")
@@ -187,6 +188,7 @@ if model:
         "probe": "account_test",
         "account_id": int(account_id),
         "account_platform": account_platform,
+        "account_base_url": account_base_url,
         "account_scope": account_scope,
         "model": model,
         "http_status": status,
@@ -214,6 +216,7 @@ out = {
     "verdict": verdict,
     "account_id": int(account_id),
     "account_platform": account_platform,
+    "account_base_url": account_base_url,
     "account_scope": account_scope,
     "http_status": status,
     "model_count": len(models),

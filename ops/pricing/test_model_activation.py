@@ -38,7 +38,7 @@ class ModelActivationTest(unittest.TestCase):
         current_floor = {
             "platforms": {"openai": {"gpt-current": "gpt-current"}},
             "newapi_channel_types": {},
-            "account_overrides": {},
+            "account_overrides": [],
             "antigravity_group_scopes": ["claude"],
             "forbidden_model_mapping_keys": {},
             "forbidden_model_mapping_prefixes": {},
@@ -51,7 +51,7 @@ class ModelActivationTest(unittest.TestCase):
                 },
             },
             "newapi_channel_types": {},
-            "account_overrides": {},
+            "account_overrides": [],
             "antigravity_group_scopes": ["claude"],
             "forbidden_model_mapping_keys": {},
             "forbidden_model_mapping_prefixes": {},
@@ -85,6 +85,7 @@ class ModelActivationTest(unittest.TestCase):
         account_platform: str = "openai",
         account_scope: str = "openai",
         account_id: str = "test-account",
+        account_base_url: str | None = None,
         scope: str = "openai",
         model_id: str = "gpt-new",
         target: str = "gpt-new-upstream",
@@ -100,17 +101,20 @@ class ModelActivationTest(unittest.TestCase):
             "model_id": model_id,
             "target": target,
         }
+        probe_model = {
+            **model,
+            "verdict": "servable",
+            "source": probe_source,
+            "account_id": account_id,
+            "account_platform": account_platform,
+            "account_scope": account_scope,
+        }
+        if account_base_url is not None:
+            probe_model["account_base_url"] = account_base_url
         self.probe_path.write_text(json.dumps({
             **common,
             "kind": "model_activation_probe",
-            "models": [{
-                **model,
-                "verdict": "servable",
-                "source": probe_source,
-                "account_id": account_id,
-                "account_platform": account_platform,
-                "account_scope": account_scope,
-            }],
+            "models": [probe_model],
         }), encoding="utf-8")
         self.pricing_path.write_text(json.dumps({
             **common,
@@ -129,13 +133,14 @@ class ModelActivationTest(unittest.TestCase):
 
     def use_account_override_target(self) -> dict:
         target_floor = json.loads(json.dumps(self.current["account_model_mapping"]))
-        target_floor["account_overrides"] = {
-            "88": {
+        target_floor["account_overrides"] = [
+            {
                 "platform": "newapi",
                 "channel_type": 45,
+                "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
                 "model_mapping": {"agent-plan-model": "agent-plan-model"},
             },
-        }
+        ]
         self.target_path, self.target = self.write_bundle("target-account.json", target_floor)
         return self.target
 
@@ -184,7 +189,9 @@ class ModelActivationTest(unittest.TestCase):
         self.assertTrue(MODEL_OPS._account_platform_allows_scope("kiro", "kiro"))
         self.assertTrue(MODEL_OPS._account_platform_allows_scope("anthropic", "kiro"))
         self.assertTrue(MODEL_OPS._account_platform_allows_scope("newapi", "newapi_channel_type:17"))
-        self.assertTrue(MODEL_OPS._account_platform_allows_scope("newapi", "account:88"))
+        self.assertTrue(MODEL_OPS._account_platform_allows_scope(
+            "newapi", "account_override:newapi:45:https://ark.cn-beijing.volces.com/api/plan/v3"
+        ))
         self.assertFalse(MODEL_OPS._account_platform_allows_scope("kiro", "anthropic"))
 
     def test_us035_account_override_scope_is_part_of_activation_delta(self) -> None:
@@ -192,34 +199,38 @@ class ModelActivationTest(unittest.TestCase):
         delta = MODEL_OPS._activation_delta(self.current, target)
         self.assertEqual(
             [row["scope"] for row in delta["activated"]],
-            ["account:88"],
+            ["account_override:newapi:45:https://ark.cn-beijing.volces.com/api/plan/v3"],
         )
 
-    def test_us035_account_override_evidence_must_match_account_id(self) -> None:
+    def test_us035_account_override_evidence_must_match_base_url(self) -> None:
         self.use_account_override_target()
+        scope = "account_override:newapi:45:https://ark.cn-beijing.volces.com/api/plan/v3"
         self.write_evidence(
-            scope="account:88",
+            scope=scope,
             model_id="agent-plan-model",
             target="agent-plan-model",
             account_id="89",
             account_platform="newapi",
-            account_scope="account:88",
+            account_scope=scope,
+            account_base_url="https://ark.cn-beijing.volces.com/api/v3",
         )
-        with self.assertRaisesRegex(MODEL_OPS.ActivationError, "account_id must match"):
+        with self.assertRaisesRegex(MODEL_OPS.ActivationError, "account_base_url"):
             self.build_context()
 
-    def test_us035_account_override_evidence_accepts_exact_account(self) -> None:
+    def test_us035_account_override_evidence_accepts_selector_without_account_id_binding(self) -> None:
         self.use_account_override_target()
+        scope = "account_override:newapi:45:https://ark.cn-beijing.volces.com/api/plan/v3"
         self.write_evidence(
-            scope="account:88",
+            scope=scope,
             model_id="agent-plan-model",
             target="agent-plan-model",
-            account_id="88",
+            account_id="89",
             account_platform="newapi",
-            account_scope="account:88",
+            account_scope=scope,
+            account_base_url="https://ark.cn-beijing.volces.com/api/plan/v3/",
         )
         context = self.build_context()
-        self.assertEqual(context["delta"]["activated"][0]["scope"], "account:88")
+        self.assertEqual(context["delta"]["activated"][0]["scope"], scope)
 
     def test_us035_v1_current_bundle_remains_readable(self) -> None:
         legacy_floor = json.loads(json.dumps(self.current["account_model_mapping"]))
@@ -235,6 +246,24 @@ class ModelActivationTest(unittest.TestCase):
             MODEL_OPS._BUNDLE.load_bundle(legacy_path)["schema_version"],
             1,
         )
+
+    def test_us035_id_keyed_schema_v2_is_rejected(self) -> None:
+        legacy_floor = json.loads(json.dumps(self.current["account_model_mapping"]))
+        legacy_floor["account_overrides"] = {
+            "88": {
+                "platform": "newapi",
+                "channel_type": 45,
+                "model_mapping": {"agent-plan-model": "agent-plan-model"},
+            },
+        }
+        legacy_path = self.root / "legacy-v2-id-keyed.json"
+        legacy_path.write_text(json.dumps({
+            "schema_version": 2,
+            "floor_sha256": MODEL_OPS._BUNDLE.floor_sha256(legacy_floor),
+            "account_model_mapping": legacy_floor,
+        }), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "unsupported model surface bundle schema"):
+            MODEL_OPS._BUNDLE.load_bundle(legacy_path)
 
     def test_us035_runtime_shadow_is_rejected(self) -> None:
         with self.assertRaisesRegex(MODEL_OPS.ActivationError, "shadowed"):
@@ -343,7 +372,7 @@ class ModelActivationTest(unittest.TestCase):
         bad_floor = {
             "platforms": {"openai": {"": "bad-target"}},
             "newapi_channel_types": {},
-            "account_overrides": {},
+            "account_overrides": [],
             "antigravity_group_scopes": ["claude"],
             "forbidden_model_mapping_keys": {},
             "forbidden_model_mapping_prefixes": {},

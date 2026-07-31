@@ -158,9 +158,10 @@ the compiled floor.
 **prod-only SSOT check.** Public serving requires **可展示 + 已定价 + 可服务** to
 align on prod: catalog allowlists, pricing overlay/channel rows, and prod
 `accounts.credentials.model_mapping` (plus optional runtime replacement). When a
-bundle contains `account_overrides`, `account:<id>` is the required scope and
-overrides the shared platform/channel floor for that account; selector metadata
-must match before an apply plan is emitted.
+bundle contains `account_overrides`, the property-based
+`account_override:<platform>:<channel_type>:<base_url>` scope overrides the
+shared platform/channel floor only when all selector metadata matches; account IDs
+are not used as override selectors.
 Post-release diagnostics use `check-accounts` **without** `--include-edges`;
 its expected mappings and forbidden policy metadata come from the selected
 checksummed bundle.

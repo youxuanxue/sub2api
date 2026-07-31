@@ -24,9 +24,10 @@ projections, not parallel model lists.
    required key with the required target and contains no forbidden entry. Other
    entries are compatible extras for preheat and rollback and must survive routine
    check/apply. There is no strict-vs-floor mode switch. An
-   `account_overrides` entry is a full replacement for its `account:<id>` scope
-   and takes precedence over the shared platform/channel scope; its platform and
-   channel metadata must match the live account before any apply is planned.
+   `account_overrides` entry is a full replacement for its property-based
+   `account_override:<platform>:<channel_type>:<base_url>` scope and takes
+   precedence over the shared platform/channel scope only when all selector
+   properties match the live account. Account IDs are not selector keys.
 2. **Build once.** CI/release generates a deterministic, checksummed model-surface
    bundle from the Go owner. Rollout tools consume that bundle and do not compile Go
    or discover a source checkout at rollout time.
@@ -55,9 +56,9 @@ projections, not parallel model lists.
 - Bundle generation is deterministic and preflight fails on generated drift.
 - Runtime tools can validate/check/apply from a bundle without Go or a sibling source
   checkout.
-- Account-specific bundle scopes override shared channel floors without producing a
-  false-positive drift finding, and selector mismatches fail closed without an apply
-  plan.
+- Property-selected account bundle scopes override shared channel floors without
+  producing a false-positive drift finding; same-platform/channel accounts with a
+  different base URL continue to use the shared floor.
 - Routine apply preserves compatible extras and removes forbidden entries.
 - Activation refuses missing/stale/mismatched probe or pricing evidence before any
   write, defaults to dry-run, and requires an explicit confirmation phrase to write.
@@ -102,11 +103,12 @@ mapping, and be no older than 24 hours. The probe result must come from a real
 account path; `account_scope` must exactly match the bundle mapping scope and
 must be a valid projection of `account_platform` (including explicit Anthropic
 transport scopes such as `kiro`, exact `newapi_channel_type:*` scopes, and
-`account:<id>` scopes). For an account scope, `account_id` must equal the scope
-id and `account_platform` must match the bundle override metadata. The account
-probe derives these fields from the target database; its `source` must differ
-from the pricing source. Repository tests and bundle membership are not probe
-evidence.
+property-based `account_override:*` scopes). For an account override scope,
+`account_platform` and normalized `account_base_url` must match the bundle
+selector. `account_id` remains provenance for the real probe path only; it is not
+used to select an override. The account probe derives these fields from the
+target database; its `source` must differ from the pricing source. Repository
+tests and bundle membership are not probe evidence.
 
 Without `--confirm`, activation validates evidence, renders the prod apply plan,
 and runs the prod release gate read-only. With
