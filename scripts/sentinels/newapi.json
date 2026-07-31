@@ -581,12 +581,11 @@
     {
       "path": "backend/internal/service/account_model_mapping_preset_tk.go",
       "must_contain": [
-        "newAPIVolcEngineAgentPlanAccountID",
         "accountModelMappingOverrideAccounts",
         "NewAPIModelDisplayIDsForAccount",
-        "tkServedModelsManifestPresetIDsForAccount"
+        "tkServedModelsManifestPresetIDsForSelector"
       ],
-      "rationale": "Agent Plan admin preset, model-surface account override, and default probe model derive from the account-aware registry plus manifest served_on projection, not hardcoded model lists or ch45 channel-wide presets that mix pay-as-you-go account 7."
+      "rationale": "Agent Plan admin preset, model-surface account override, and default probe model derive from the platform/channel/base_url property selector, not an account-id registry or ch45 channel-wide preset that mixes pay-as-you-go account 7."
     },
     {
       "path": "backend/internal/service/account_test_service_tk_newapi_volcagentplan.go",
@@ -598,10 +597,11 @@
     {
       "path": "backend/internal/service/tk_served_models_manifest_tk.go",
       "must_contain": [
-        "tkServedModelsManifestPresetIDsForAccount",
-        "tkServedModelsManifestDisplayPresetIDsForAccount"
+        "tkServedModelsManifestPresetIDsForSelector",
+        "tkServedModelsManifestDisplayPresetIDsForSelector",
+        "account_scope"
       ],
-      "rationale": "Account-specific manifest projections keep Agent Plan user menus aligned with served_on/display even when shared channel_type values describe another upstream adaptor."
+      "rationale": "Property-scoped manifest projections keep Agent Plan user menus aligned with platform/channel/base_url while served_on remains evidence only, even when canonical channel_type values describe another upstream adaptor."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_volcagentplan.go",

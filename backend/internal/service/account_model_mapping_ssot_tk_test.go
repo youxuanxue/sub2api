@@ -119,6 +119,7 @@ func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {
 	expectedAccounts := accountModelMappingOverrideAccounts()
 	require.Len(t, doc.AccountOverrides, len(expectedAccounts))
 	for _, account := range expectedAccounts {
+		require.Zero(t, account.ID, "property-scoped overrides must not carry an account-id selector")
 		baseURL := normalizeAccountModelMappingOverrideBaseURL(account.GetBaseURL())
 		var override AccountModelMappingOverride
 		var found bool

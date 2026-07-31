@@ -103,7 +103,7 @@
         "func isTkCuratedNewAPIModelListed(",
         "func isTkCuratedNewAPIModelDisplayed(",
         "func tkServedModelsManifestDisplayPresetIDsByChannelType(",
-        "func tkServedModelsManifestDisplayPresetIDsForAccount(",
+        "func tkServedModelsManifestDisplayPresetIDsForSelector(",
         "func isTkCuratedNewAPICatalogRowDisplayed(",
         "func isNewAPILongTailCatalogVendor("
       ],

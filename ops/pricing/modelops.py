@@ -83,21 +83,34 @@ SELF_CHECK_EXEMPT = {
 
 
 class AccountPolicy:
-    __slots__ = ("account_id", "name", "platform", "channel_type")
+    __slots__ = ("account_id", "name", "platform", "channel_type", "base_url")
 
-    def __init__(self, account_id: str, name: str, platform: str, channel_type: int) -> None:
+    def __init__(
+        self,
+        account_id: str,
+        name: str,
+        platform: str,
+        channel_type: int,
+        base_url: str | None = None,
+    ) -> None:
         self.account_id = account_id
         self.name = name
         self.platform = platform
         self.channel_type = channel_type
+        self.base_url = (base_url or "").strip().lower().rstrip("/")
 
 
-# Historical guard tuples for curated long-tail seed accounts. This is not the
-# serving-pool membership source of truth: operators should pass a live snapshot
-# from snapshot-sql so name/platform/channel_type come from the runtime DB.
+# Historical metadata for curated long-tail seed accounts. Account IDs only
+# identify the legacy CLI seed; serving/probe scope comes from platform,
+# channel_type, and base_url (prefer a live snapshot from snapshot-sql).
 KNOWN_ACCOUNTS: dict[str, AccountPolicy] = {
-    "7": AccountPolicy("7", "volcengine", "newapi", 45),
-    "88": AccountPolicy("88", "volcengine-agent-plan", "newapi", 45),
+    "7": AccountPolicy(
+        "7", "volcengine", "newapi", 45, "https://ark.cn-beijing.volces.com/api/v3"
+    ),
+    "88": AccountPolicy(
+        "88", "volcengine-agent-plan", "newapi", 45,
+        "https://ark.cn-beijing.volces.com/api/plan/v3",
+    ),
     "39": AccountPolicy("39", "ds-官", "newapi", 43),
     "60": AccountPolicy("60", "Qwen", "newapi", 17),
     "72": AccountPolicy("72", "Qwen-2", "newapi", 17),
@@ -111,6 +124,7 @@ class ManifestEntry:
         "model_id",
         "served_on",
         "channel_type",
+        "account_scope",
         "price_source",
         "price_key",
         "display",
@@ -124,6 +138,7 @@ class ManifestEntry:
         model_id: str,
         served_on: tuple[str, ...],
         channel_type: int,
+        account_scope: dict[str, Any] | None,
         price_source: str,
         price_key: str,
         display: bool,
@@ -134,6 +149,7 @@ class ManifestEntry:
         self.model_id = model_id
         self.served_on = served_on
         self.channel_type = channel_type
+        self.account_scope = account_scope
         self.price_source = price_source
         self.price_key = price_key
         self.display = display
@@ -188,7 +204,7 @@ class ProbeAggregate:
 
 
 class AccountSnapshot:
-    __slots__ = ("account_id", "name", "platform", "channel_type", "model_mapping")
+    __slots__ = ("account_id", "name", "platform", "channel_type", "base_url", "model_mapping")
 
     def __init__(
         self,
@@ -197,11 +213,13 @@ class AccountSnapshot:
         platform: str | None = None,
         channel_type: int | None = None,
         model_mapping: dict[str, str] | None = None,
+        base_url: str | None = None,
     ) -> None:
         self.account_id = account_id
         self.name = name
         self.platform = platform
         self.channel_type = channel_type
+        self.base_url = (base_url or "").strip().lower().rstrip("/")
         self.model_mapping = model_mapping or {}
 
 
@@ -230,6 +248,11 @@ def load_manifest(path: Path = MANIFEST_PATH) -> list[ManifestEntry]:
             model_id=str(raw.get("model_id", "")),
             served_on=tuple(str(x) for x in raw.get("served_on", [])),
             channel_type=int(raw.get("channel_type", 0)),
+            account_scope=(
+                raw.get("account_scope")
+                if isinstance(raw.get("account_scope"), dict)
+                else None
+            ),
             price_source=str(raw.get("price_source", "")),
             price_key=str(raw.get("price_key", "")),
             display=bool(raw.get("display", False)),
@@ -414,6 +437,13 @@ def parse_live_mapping(data: Any) -> dict[str, AccountSnapshot]:
             name=row.get("name") if isinstance(row.get("name"), str) else None,
             platform=row.get("platform") if isinstance(row.get("platform"), str) else None,
             channel_type=ct,
+            base_url=(
+                row.get("base_url")
+                if isinstance(row.get("base_url"), str)
+                else credentials.get("base_url")
+                if isinstance(credentials.get("base_url"), str)
+                else None
+            ),
             model_mapping=mapping,
         )
     return out
@@ -443,6 +473,7 @@ def policy_for_account(account_id: str, snapshot: AccountSnapshot | None = None)
             name=snapshot.name or (known.name if known else f"account-{account_id}"),
             platform=snapshot.platform or (known.platform if known else "newapi"),
             channel_type=snapshot.channel_type or (known.channel_type if known else 0),
+            base_url=snapshot.base_url or (known.base_url if known else None),
         )
     return KNOWN_ACCOUNTS.get(account_id, AccountPolicy(account_id, f"account-{account_id}", "newapi", 0))
 
@@ -473,7 +504,7 @@ def probe_env_name(
     if policy.channel_type == 26:
         return None
     if policy.channel_type == 45:
-        if account_id == "88" or "agent-plan" in policy.name.lower():
+        if policy.base_url == "https://ark.cn-beijing.volces.com/api/plan/v3":
             return "VOLCENGINE_AGENT_PLAN_MODELS"
         mode = infer_mode(model_id, overlay)
         if mode == "image":
@@ -1353,7 +1384,7 @@ def _selftest() -> int:
         failures.append("infer_mode failed for image")
     if probe_env_name("60", "qwen-new", overlay) != "DASHSCOPE_CHAT_MODELS":
         failures.append("probe env failed for qwen")
-    dynamic_qwen = AccountSnapshot("17001", "Qwen runtime member", "newapi", 17, {})
+    dynamic_qwen = AccountSnapshot("17001", "Qwen runtime member", "newapi", 17, {}, None)
     if probe_env_name("17001", "qwen-new", overlay, dynamic_qwen) != "DASHSCOPE_CHAT_MODELS":
         failures.append("probe env failed for runtime qwen snapshot")
     if probe_env_name("67", "glm-5-turbo", overlay) is not None:
@@ -1362,6 +1393,29 @@ def _selftest() -> int:
         failures.append("probe env failed for ark image")
     if probe_env_name("88", "minimax-m3", overlay) != "VOLCENGINE_AGENT_PLAN_MODELS":
         failures.append("probe env failed for VolcEngine Agent Plan")
+    dynamic_agent_plan = AccountSnapshot(
+        "12345",
+        "renamed runtime account",
+        "newapi",
+        45,
+        {},
+        "https://ark.cn-beijing.volces.com/api/plan/v3",
+    )
+    if (
+        probe_env_name("12345", "minimax-m3", overlay, dynamic_agent_plan)
+        != "VOLCENGINE_AGENT_PLAN_MODELS"
+    ):
+        failures.append("probe env must select Agent Plan by base_url, not account id or name")
+    pay_as_you_go = AccountSnapshot(
+        "88",
+        "renamed runtime account",
+        "newapi",
+        45,
+        {},
+        "https://ark.cn-beijing.volces.com/api/v3",
+    )
+    if probe_env_name("88", "minimax-m3", overlay, pay_as_you_go) != "ARK_CHAT_MODELS":
+        failures.append("probe env must keep pay-as-you-go /api/v3 outside Agent Plan")
     agent_plan_command = run_probe_command("VOLCENGINE_AGENT_PLAN_MODELS", ["minimax-m3"])
     if "probe-volcengine-agent-plan-models.sh" not in agent_plan_command:
         failures.append("Agent Plan probe command did not use the dedicated probe")

@@ -3,14 +3,11 @@ package service
 import (
 	"context"
 	"sort"
-	"strconv"
 	"strings"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
-
-const newAPIVolcEngineAgentPlanAccountID int64 = 88
 
 // AccountModelMappingPresetIDs returns TokenKey's empirically verified model IDs
 // for admin account model_mapping auto-fill (Create/Edit when mapping is empty).
@@ -96,7 +93,6 @@ func isNewAPIVolcEngineAgentPlanAccount(account *Account) bool {
 func accountModelMappingOverrideAccounts() []*Account {
 	return []*Account{
 		{
-			ID:          newAPIVolcEngineAgentPlanAccountID,
 			Platform:    PlatformNewAPI,
 			Type:        AccountTypeAPIKey,
 			ChannelType: newapiconstant.ChannelTypeVolcEngine,
@@ -114,7 +110,7 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 		return nil
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
-		ids := tkServedModelsManifestPresetIDsForAccount(strconv.FormatInt(account.ID, 10))
+		ids := tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
 		sort.Strings(ids)
 		return ids
 	}
@@ -129,7 +125,7 @@ func NewAPIModelDisplayIDsForAccount(account *Account) []string {
 		return nil
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
-		ids := tkServedModelsManifestDisplayPresetIDsForAccount(strconv.FormatInt(account.ID, 10))
+		ids := tkServedModelsManifestDisplayPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
 		sort.Strings(ids)
 		return ids
 	}

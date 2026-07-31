@@ -1481,7 +1481,7 @@ def cmd_selftest(_args) -> int:
     )
     assert openai_plan and openai_plan["diff"]["missing_keys"] == ["gpt-5.6-sol"]
     account_override_row = {
-        "id": 88,
+        "id": 12345,
         "platform": "newapi",
         "type": "apikey",
         "channel_type": 45,
