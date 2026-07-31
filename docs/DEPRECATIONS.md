@@ -147,3 +147,70 @@ restores the file and removes the entry in the same change.
   assertions; they are now present in `CreateAccountModal.spec.ts`.
 - **Re-adopt when:** upstream restores the standalone fixture or splits the
   coverage back out; remove this ledger entry in the same merge that re-adds it.
+
+## `backend/internal/repository/pricing_service.go`
+
+- **Upstream path:** `backend/internal/repository/pricing_service.go`.
+- **Deletion commit + PR:** `a1aa42650` — "refactor(pricing): 统一全平台价格
+  SSOT (no-web-impact)", landed through
+  [PR #1524](https://github.com/youxuanxue/sub2api/pull/1524).
+- **Reason:** the repository fetched a remote LiteLLM-derived JSON document and
+  hash at runtime. That transport made the remote document a second global
+  price owner beside `backend/internal/service/tk_pricing_overlay.json`.
+  Billing, catalog, serving gates, and modelops now resolve their global base
+  only from the embedded registry; `channel_model_pricing` remains a scoped
+  higher-priority override.
+- **Regression cost:** future upstream changes to the remote pricing client will
+  not merge automatically. Upstream-merge review must treat them as provider
+  evidence/import tooling only and must not restore a runtime reader, hash
+  scheduler, proxy fallback, or alternate global owner.
+- **Upstream tests lost:** the companion repository suite's HTTP status, hash
+  parsing, cancellation, invalid URL, and proxy fallback cases are intentionally
+  removed with the transport. Registry parsing, required-owner, billing, and
+  serving behavior remain covered by service tests and pricing sentinels.
+- **Re-adopt when:** only an approved architecture change replaces the current
+  embedded pricing owner and updates every billing/catalog/serving/modelops
+  consumer and SSOT gate together. Never re-adopt this file as a fallback.
+
+## `backend/internal/repository/pricing_service_test.go`
+
+- **Upstream path:** `backend/internal/repository/pricing_service_test.go`.
+- **Deletion commit + PR:** `a1aa42650`, in the same
+  [PR #1524](https://github.com/youxuanxue/sub2api/pull/1524) as the deleted
+  remote client.
+- **Reason:** all ten behavior cases exercised the removed remote HTTP/hash
+  transport. Keeping or porting them would normalize a forbidden runtime price
+  source instead of protecting the registry-owned architecture.
+- **Regression cost:** upstream additions to this suite must be reviewed for
+  genuinely source-independent price semantics. Port those semantics to the
+  registry or billing tests; do not restore transport-only coverage.
+- **Upstream tests lost:** remote JSON success/error, hash parsing/error/empty
+  body, invalid URL, context cancellation, and invalid-proxy fallback tests.
+  Their subject no longer exists; registry validation and resolver tests cover
+  the retained product behavior.
+- **Re-adopt when:** only together with an approved re-adoption of
+  `backend/internal/repository/pricing_service.go`; otherwise keep the test file
+  absent.
+
+## `backend/resources/model-pricing/model_prices_and_context_window.json`
+
+- **Upstream path:**
+  `backend/resources/model-pricing/model_prices_and_context_window.json`.
+- **Deletion commit + PR:** `a1aa42650`, in the same
+  [PR #1524](https://github.com/youxuanxue/sub2api/pull/1524).
+- **Reason:** this checked-in LiteLLM mirror duplicated model prices and invited
+  billing/catalog fallbacks or manual edits outside the registry. The sole
+  global price owner is now
+  `backend/internal/service/tk_pricing_overlay.json`; provider data may be used
+  only as explicit offline evidence/import input.
+- **Regression cost:** upstream mirror refreshes no longer flow into TokenKey
+  automatically. New or changed served-model prices must be reviewed into the
+  registry, where the same change drives billing, display, modelops readiness,
+  and serving gates.
+- **Upstream tests lost:** none; this was a data artifact. Its useful structural
+  and price coverage is replaced by registry parser tests, anchor validation,
+  manifest-owner checks, display coverage, and the pricing availability
+  sentinel.
+- **Re-adopt when:** only after an approved replacement of the global SSOT
+  architecture. It must never return as a runtime fallback, hand-maintained
+  mirror, or alternative price owner.
