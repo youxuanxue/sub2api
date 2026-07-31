@@ -131,6 +131,61 @@ func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_AgentPlanUsesArkBase
 	require.Equal(t, "Bearer ark-test", upstream.lastReq.Header.Get("authorization"))
 }
 
+func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_AgentPlanInvalidActionFallsBackWithoutPenalty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hello"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusNotFound,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"error":{"code":"InvalidAction","message":"The specified action is invalid: /api/v3/responses/input_tokens","type":"NotFound"}}`,
+		)),
+	}}
+	repo := &countTokensRuntimeStateRepo{}
+	svc := &OpenAIGatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{accountRepo: repo, cfg: &config.Config{}},
+	}
+	account := &Account{
+		ID:          8801,
+		Name:        "volcengine-agent-plan-property-scope",
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeVolcEngine,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "ark-test",
+			"base_url": newapiintegration.VolcEngineAgentPlanBaseURL,
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	prepared, err := prepareOpenAIInputTokensCountRequest(body, account, "kimi-k3")
+	require.NoError(t, err)
+	expectedEstimate, err := estimateOpenAIInputTokens(prepared.Request)
+	require.NoError(t, err)
+	require.NotEqual(t, estimateAnthropicCountTokensInput(body), expectedEstimate)
+
+	err = svc.ForwardCountTokensAsAnthropic(context.Background(), c, account, body, "kimi-k3")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, int64(expectedEstimate), gjson.Get(rec.Body.String(), "input_tokens").Int())
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t,
+		newapiintegration.VolcEngineAgentPlanBaseURL+"/responses/input_tokens",
+		upstream.lastReq.URL.String())
+	require.Zero(t, repo.tempUnschedCalls)
+	require.Zero(t, repo.setErrorCalls)
+}
+
 func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_OAuthFallsBackWhenPlatformEndpointUnsupported(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -215,7 +270,27 @@ func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_OAuthFallsBackWhenPl
 	}
 }
 
-func TestOpenAIGatewayService_OpenAIOAuthInputTokensFallbackUsesMinimumWhenEstimateFails(t *testing.T) {
+func TestOpenAIGatewayService_PreparedInputTokensFallbackUsesAnthropicEstimateWhenTokenizerFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hello"}]}`)
+	prepared := &openAIInputTokensCountPrepared{
+		Request: openAIInputTokensCountRequest{
+			Model: "gpt-5",
+			Input: json.RawMessage(`[`),
+		},
+		UpstreamModel: "gpt-5",
+	}
+
+	writeOpenAIPreparedInputTokensFallback(c, &Account{ID: 303}, prepared, body, http.StatusUnauthorized)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.JSONEq(t, `{"input_tokens":2}`, rec.Body.String())
+}
+
+func TestOpenAIGatewayService_PreparedInputTokensFallbackUsesMinimumWhenAllEstimatesFail(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -228,7 +303,7 @@ func TestOpenAIGatewayService_OpenAIOAuthInputTokensFallbackUsesMinimumWhenEstim
 		UpstreamModel: "gpt-5",
 	}
 
-	writeOpenAIOAuthInputTokensFallback(c, &Account{ID: 303}, prepared, http.StatusUnauthorized)
+	writeOpenAIPreparedInputTokensFallback(c, &Account{ID: 303}, prepared, []byte(`{`), http.StatusUnauthorized)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.JSONEq(t, `{"input_tokens":1}`, rec.Body.String())

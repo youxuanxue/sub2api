@@ -142,8 +142,8 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 	if resp.StatusCode >= 400 {
 		fallback := classifyOpenAIInputTokensFallback(account, resp.StatusCode, respBody)
 		switch fallback.Kind {
-		case openAIInputTokensFallbackOAuthEstimate:
-			writeOpenAIOAuthInputTokensFallback(c, account, prepared, resp.StatusCode)
+		case openAIInputTokensFallbackPreparedEstimate:
+			writeOpenAIPreparedInputTokensFallback(c, account, prepared, body, resp.StatusCode)
 			return nil
 		case openAIInputTokensFallbackAnthropicEstimate:
 			writeEstimatedAnthropicCountTokens(c, body)

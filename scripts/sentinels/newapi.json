@@ -619,6 +619,18 @@
       "rationale": "Anthropic-compatible count_tokens can select property-scoped Agent Plan accounts. It must reuse the native OpenAI-compatible base resolver so Ark credentials go to /api/plan/v3/responses/input_tokens instead of falling through to api.openai.com and producing a false credential failure."
     },
     {
+      "path": "backend/internal/service/openai_gateway_count_tokens_fallback.go",
+      "must_contain": [
+        "isNewAPIVolcEngineAgentPlanInputTokensUnsupported(account, statusCode, upstreamMsg, body)",
+        "code == \"invalidaction\"",
+        "isNewAPIVolcEngineAgentPlanAccount(account)",
+        "openAIInputTokensFallbackPreparedEstimate",
+        "estimateOpenAIInputTokens(prepared.Request)",
+        "estimateAnthropicCountTokensInput(originalBody)"
+      ],
+      "rationale": "Ark Agent Plan serves chat/completions and responses but returns 404 InvalidAction for responses/input_tokens. The property-scoped classifier must convert that capability gap to the prepared Responses tokenizer estimate before account penalties, with the Anthropic rune heuristic only as a last-resort fallback, without masking invalid-model errors or changing ordinary VolcEngine accounts."
+    },
+    {
       "path": "backend/internal/service/ratelimit_service_tk_provider_mismatch.go",
       "must_contain": [
         "tkIsNewAPIAgentPlanOpenAIProviderMismatch",
