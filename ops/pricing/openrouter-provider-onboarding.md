@@ -29,7 +29,7 @@ Prod bootstrap (creates group/keys/config; prints ids only, never key secrets):
 
 ```bash
 python3 ops/pricing/manage-openrouter-provider-config.py snapshot
-python3 ops/pricing/manage-openrouter-provider-config.py update-config  # upsert 6 group_ids + existing keys
+python3 ops/pricing/manage-openrouter-provider-config.py update-config  # upsert 6 group_ids + existing keys; backfills missing catalog_excluded_model_ids / stream_only_model_ids from example JSON
 ```
 
 Required fields:
