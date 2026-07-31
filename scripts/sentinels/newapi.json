@@ -316,7 +316,7 @@
         "parseWhitelistFromCredentials",
         "buildAccountFallbackEntry"
       ],
-      "rationale": "Post-#325/#326 bridge: /api/v1/me/pricing-catalog (Your Menu) falls back to account credentials when no channel pricing covers the target group. NewAPIModelDisplayIDsForAccount preserves the existing channel-type display projection while selecting Agent Plan rows by served_on account membership, preventing shared channel types from dropping valid account-88 models or leaking them into account 7."
+      "rationale": "Post-#325/#326 bridge: /api/v1/me/pricing-catalog (Your Menu) falls back to account credentials when no channel pricing covers the target group. NewAPIModelDisplayIDsForAccount preserves the existing channel-type display projection while selecting Agent Plan rows by platform/channel_type/base_url; served_on is historical evidence only. This prevents shared channel types from dropping valid Agent Plan models or leaking them into pay-as-you-go accounts."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler.go",
@@ -576,7 +576,7 @@
         "VolcEngineAgentPlanBaseKey",
         "/api/plan/v3"
       ],
-      "rationale": "Canonicalizes Agent Plan /api/plan/* credential shapes to the doubao-agent-plan magic key consumed by new-api ChannelSpecialBases."
+      "rationale": "Canonicalizes legacy Agent Plan aliases and pasted /api/plan/* endpoint shapes to the native /api/plan/v3 root. TokenKey routing must not depend on a new-api fork or ChannelSpecialBases entry."
     },
     {
       "path": "backend/internal/service/account_model_mapping_preset_tk.go",
@@ -609,6 +609,31 @@
         "tkRespondNewAPIAgentPlanAvailableModelsWhenMappingEmpty"
       ],
       "rationale": "Admin GetAvailableModels empty-mapping path for Agent Plan accounts; keeps upstream account_handler.go to a one-line call site."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_count_tokens.go",
+      "must_contain": [
+        "nativeOpenAIBaseURLForAccount(account)",
+        "buildOpenAIResponsesInputTokensURL(validatedURL)"
+      ],
+      "rationale": "Anthropic-compatible count_tokens can select property-scoped Agent Plan accounts. It must reuse the native OpenAI-compatible base resolver so Ark credentials go to /api/plan/v3/responses/input_tokens instead of falling through to api.openai.com and producing a false credential failure."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_provider_mismatch.go",
+      "must_contain": [
+        "tkIsNewAPIAgentPlanOpenAIProviderMismatch",
+        "platform.openai.com/account/api-keys",
+        "isNewAPIVolcEngineAgentPlanAccount(account)"
+      ],
+      "rationale": "A property-scoped Agent Plan account receiving OpenAI's official API-key help text proves provider misrouting, not an invalid Ark credential. This classifier is the account-health safety interlock that prevents such routing defects from permanently disabling the account."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "tkIsNewAPIAgentPlanOpenAIProviderMismatch(account, statusCode, responseBody)",
+        "newapi_agent_plan_provider_mismatch_skip_penalty"
+      ],
+      "rationale": "HandleUpstreamError must consult the Agent Plan provider-mismatch interlock before generic 401 handling. Removing this call silently restores SetError plus the false permanent-auth Feishu alert even if the classifier file still compiles."
     }
   ]
 }

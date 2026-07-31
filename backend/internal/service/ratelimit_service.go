@@ -313,6 +313,14 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
+	if tkIsNewAPIAgentPlanOpenAIProviderMismatch(account, statusCode, responseBody) {
+		slog.Error("newapi_agent_plan_provider_mismatch_skip_penalty",
+			"account_id", account.ID,
+			"status_code", statusCode,
+			"expected_base_url", nativeOpenAIBaseURLForAccount(account))
+		return false
+	}
+
 	if s.handleOpenAICompatDownstreamCapacityPenalty(ctx, account, statusCode, responseBody) {
 		return true
 	}
