@@ -23,7 +23,7 @@ func TestClassifyOpenAIInputTokensFallback(t *testing.T) {
 			account:    &Account{Type: AccountTypeOAuth, Platform: PlatformOpenAI},
 			statusCode: http.StatusForbidden,
 			body:       `{"error":{"code":"missing_scope","message":"Missing scopes: api.responses.write"}}`,
-			want:       openAIInputTokensFallbackOAuthEstimate,
+			want:       openAIInputTokensFallbackPreparedEstimate,
 		},
 		{
 			name:       "oauth_plain_unauthorized_does_not_estimate",
@@ -54,18 +54,18 @@ func TestClassifyOpenAIInputTokensFallback(t *testing.T) {
 			want:       openAIInputTokensFallbackAnthropicEstimate,
 		},
 		{
-			name:       "agent_plan_invalid_action_uses_anthropic_estimate",
+			name:       "agent_plan_invalid_action_uses_prepared_estimate",
 			account:    newAgentPlanInputTokensFallbackAccount(newapiintegration.VolcEngineAgentPlanBaseURL),
 			statusCode: http.StatusNotFound,
 			body:       `{"error":{"code":"InvalidAction","message":"The specified action is invalid: /api/v3/responses/input_tokens","type":"NotFound"}}`,
-			want:       openAIInputTokensFallbackAnthropicEstimate,
+			want:       openAIInputTokensFallbackPreparedEstimate,
 		},
 		{
-			name:       "agent_plan_not_found_type_without_code_uses_anthropic_estimate",
+			name:       "agent_plan_not_found_type_without_code_uses_prepared_estimate",
 			account:    newAgentPlanInputTokensFallbackAccount(newapiintegration.VolcEngineAgentPlanBaseURL),
 			statusCode: http.StatusNotFound,
-			body:       `{"error":{"message":"The specified action is invalid: /api/v3/responses/input_tokens","type":"NotFound"}}`,
-			want:       openAIInputTokensFallbackAnthropicEstimate,
+			body:       `{"error":{"message":"The /api/v3/responses/input_tokens endpoint was not found","type":"NotFound"}}`,
+			want:       openAIInputTokensFallbackPreparedEstimate,
 		},
 		{
 			name:       "volcengine_payg_invalid_action_stays_upstream_error",

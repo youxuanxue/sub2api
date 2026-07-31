@@ -623,9 +623,12 @@
       "must_contain": [
         "isNewAPIVolcEngineAgentPlanInputTokensUnsupported(account, statusCode, upstreamMsg, body)",
         "code == \"invalidaction\"",
-        "isNewAPIVolcEngineAgentPlanAccount(account)"
+        "isNewAPIVolcEngineAgentPlanAccount(account)",
+        "openAIInputTokensFallbackPreparedEstimate",
+        "estimateOpenAIInputTokens(prepared.Request)",
+        "estimateAnthropicCountTokensInput(originalBody)"
       ],
-      "rationale": "Ark Agent Plan serves chat/completions and responses but returns 404 InvalidAction for responses/input_tokens. The property-scoped classifier must convert that capability gap to a local Anthropic token estimate before account penalties, without masking invalid-model errors or changing ordinary VolcEngine accounts."
+      "rationale": "Ark Agent Plan serves chat/completions and responses but returns 404 InvalidAction for responses/input_tokens. The property-scoped classifier must convert that capability gap to the prepared Responses tokenizer estimate before account penalties, with the Anthropic rune heuristic only as a last-resort fallback, without masking invalid-model errors or changing ordinary VolcEngine accounts."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_provider_mismatch.go",

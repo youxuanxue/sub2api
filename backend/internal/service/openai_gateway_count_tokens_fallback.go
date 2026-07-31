@@ -17,7 +17,7 @@ type openAIInputTokensFallbackKind int
 
 const (
 	openAIInputTokensFallbackNone openAIInputTokensFallbackKind = iota
-	openAIInputTokensFallbackOAuthEstimate
+	openAIInputTokensFallbackPreparedEstimate
 	openAIInputTokensFallbackAnthropicEstimate
 )
 
@@ -43,12 +43,12 @@ func shouldEstimateOpenAIInputTokensForAuthError(account *Account, err error) bo
 func classifyOpenAIInputTokensFallback(account *Account, statusCode int, body []byte) openAIInputTokensFallbackDecision {
 	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(body)))
 	if account != nil && account.Type == AccountTypeOAuth && isOpenAIOAuthInputTokensUnsupported(statusCode, body) {
-		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackOAuthEstimate, UpstreamMessage: upstreamMsg}
-	}
-	if isOpenAIInputTokensUnsupported(statusCode, body) {
-		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackAnthropicEstimate, UpstreamMessage: upstreamMsg}
+		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackPreparedEstimate, UpstreamMessage: upstreamMsg}
 	}
 	if isNewAPIVolcEngineAgentPlanInputTokensUnsupported(account, statusCode, upstreamMsg, body) {
+		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackPreparedEstimate, UpstreamMessage: upstreamMsg}
+	}
+	if isOpenAIInputTokensUnsupported(statusCode, body) {
 		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackAnthropicEstimate, UpstreamMessage: upstreamMsg}
 	}
 	if isOpenAICompatInputTokensCapabilityGap(account, statusCode, upstreamMsg, body) {
@@ -86,23 +86,40 @@ func isNewAPIVolcEngineAgentPlanInputTokensUnsupported(
 	return errType == "notfound" && isInputTokensActionGap
 }
 
-func writeOpenAIOAuthInputTokensFallback(c *gin.Context, account *Account, prepared *openAIInputTokensCountPrepared, statusCode int) {
+func writeOpenAIPreparedInputTokensFallback(
+	c *gin.Context,
+	account *Account,
+	prepared *openAIInputTokensCountPrepared,
+	originalBody []byte,
+	statusCode int,
+) {
 	estimated := openAIInputTokensFallbackMinimum
+	estimator := "minimum"
 	if got, err := estimateOpenAIInputTokens(prepared.Request); err == nil {
 		if got > 0 {
 			estimated = got
+			estimator = "prepared_tiktoken"
+		} else if fallback := estimateAnthropicCountTokensInput(originalBody); fallback > 0 {
+			estimated = fallback
+			estimator = "anthropic_heuristic"
 		}
-		logger.L().Info("openai count_tokens: oauth fallback to local tiktoken estimate",
+		logger.L().Info("openai count_tokens: serving local estimate",
 			zap.Int64("account_id", account.ID),
 			zap.Int("upstream_status", statusCode),
 			zap.Int("estimated_input_tokens", estimated),
+			zap.String("estimator", estimator),
 			zap.String("upstream_model", prepared.UpstreamModel),
 		)
 	} else {
-		logger.L().Warn("openai count_tokens: oauth local tiktoken fallback failed, using minimum estimate",
+		if got := estimateAnthropicCountTokensInput(originalBody); got > 0 {
+			estimated = got
+			estimator = "anthropic_heuristic"
+		}
+		logger.L().Warn("openai count_tokens: prepared tokenizer estimate failed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("upstream_status", statusCode),
 			zap.Int("estimated_input_tokens", estimated),
+			zap.String("fallback_estimator", estimator),
 			zap.String("upstream_model", prepared.UpstreamModel),
 			zap.Error(err),
 		)
