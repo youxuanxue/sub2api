@@ -131,6 +131,55 @@ func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_AgentPlanUsesArkBase
 	require.Equal(t, "Bearer ark-test", upstream.lastReq.Header.Get("authorization"))
 }
 
+func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_AgentPlanInvalidActionFallsBackWithoutPenalty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"kimi-k3","messages":[{"role":"user","content":"hello"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusNotFound,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"error":{"code":"InvalidAction","message":"The specified action is invalid: /api/v3/responses/input_tokens","type":"NotFound"}}`,
+		)),
+	}}
+	repo := &countTokensRuntimeStateRepo{}
+	svc := &OpenAIGatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{accountRepo: repo, cfg: &config.Config{}},
+	}
+	account := &Account{
+		ID:          8801,
+		Name:        "volcengine-agent-plan-property-scope",
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeVolcEngine,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "ark-test",
+			"base_url": newapiintegration.VolcEngineAgentPlanBaseURL,
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	err := svc.ForwardCountTokensAsAnthropic(context.Background(), c, account, body, "kimi-k3")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Greater(t, gjson.Get(rec.Body.String(), "input_tokens").Int(), int64(0))
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t,
+		newapiintegration.VolcEngineAgentPlanBaseURL+"/responses/input_tokens",
+		upstream.lastReq.URL.String())
+	require.Zero(t, repo.tempUnschedCalls)
+	require.Zero(t, repo.setErrorCalls)
+}
+
 func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_OAuthFallsBackWhenPlatformEndpointUnsupported(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

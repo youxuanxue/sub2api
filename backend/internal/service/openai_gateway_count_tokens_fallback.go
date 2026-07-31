@@ -7,6 +7,7 @@ import (
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -47,6 +48,9 @@ func classifyOpenAIInputTokensFallback(account *Account, statusCode int, body []
 	if isOpenAIInputTokensUnsupported(statusCode, body) {
 		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackAnthropicEstimate, UpstreamMessage: upstreamMsg}
 	}
+	if isNewAPIVolcEngineAgentPlanInputTokensUnsupported(account, statusCode, upstreamMsg, body) {
+		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackAnthropicEstimate, UpstreamMessage: upstreamMsg}
+	}
 	if isOpenAICompatInputTokensCapabilityGap(account, statusCode, upstreamMsg, body) {
 		return openAIInputTokensFallbackDecision{Kind: openAIInputTokensFallbackAnthropicEstimate, UpstreamMessage: upstreamMsg}
 	}
@@ -59,6 +63,27 @@ func isOpenAIInputTokensUnsupported(statusCode int, body []byte) bool {
 	}
 	msg := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(body)))
 	return strings.Contains(msg, "input_tokens") && strings.Contains(msg, "not found")
+}
+
+func isNewAPIVolcEngineAgentPlanInputTokensUnsupported(
+	account *Account,
+	statusCode int,
+	upstreamMsg string,
+	body []byte,
+) bool {
+	if statusCode != http.StatusNotFound || !isNewAPIVolcEngineAgentPlanAccount(account) {
+		return false
+	}
+
+	code := strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(body)))
+	msg := strings.ToLower(strings.TrimSpace(upstreamMsg))
+	isInputTokensActionGap := strings.Contains(msg, "responses/input_tokens")
+	if code != "" {
+		return code == "invalidaction" && isInputTokensActionGap
+	}
+
+	errType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "error.type").String()))
+	return errType == "notfound" && isInputTokensActionGap
 }
 
 func writeOpenAIOAuthInputTokensFallback(c *gin.Context, account *Account, prepared *openAIInputTokensCountPrepared, statusCode int) {

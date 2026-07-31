@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,6 +53,41 @@ func TestClassifyOpenAIInputTokensFallback(t *testing.T) {
 			body:       `{"error":{"message":"Upstream returned 403 for this request. This is an upstream access/policy rejection unrelated to request size."}}`,
 			want:       openAIInputTokensFallbackAnthropicEstimate,
 		},
+		{
+			name:       "agent_plan_invalid_action_uses_anthropic_estimate",
+			account:    newAgentPlanInputTokensFallbackAccount(newapiintegration.VolcEngineAgentPlanBaseURL),
+			statusCode: http.StatusNotFound,
+			body:       `{"error":{"code":"InvalidAction","message":"The specified action is invalid: /api/v3/responses/input_tokens","type":"NotFound"}}`,
+			want:       openAIInputTokensFallbackAnthropicEstimate,
+		},
+		{
+			name:       "agent_plan_not_found_type_without_code_uses_anthropic_estimate",
+			account:    newAgentPlanInputTokensFallbackAccount(newapiintegration.VolcEngineAgentPlanBaseURL),
+			statusCode: http.StatusNotFound,
+			body:       `{"error":{"message":"The specified action is invalid: /api/v3/responses/input_tokens","type":"NotFound"}}`,
+			want:       openAIInputTokensFallbackAnthropicEstimate,
+		},
+		{
+			name:       "volcengine_payg_invalid_action_stays_upstream_error",
+			account:    newAgentPlanInputTokensFallbackAccount("https://ark.cn-beijing.volces.com/api/v3"),
+			statusCode: http.StatusNotFound,
+			body:       `{"error":{"code":"InvalidAction","message":"The specified action is invalid: /api/v3/responses/input_tokens","type":"NotFound"}}`,
+			want:       openAIInputTokensFallbackNone,
+		},
+		{
+			name:       "agent_plan_invalid_model_stays_upstream_error",
+			account:    newAgentPlanInputTokensFallbackAccount(newapiintegration.VolcEngineAgentPlanBaseURL),
+			statusCode: http.StatusNotFound,
+			body:       `{"error":{"code":"InvalidEndpointOrModel","message":"The model does not exist","type":"NotFound"}}`,
+			want:       openAIInputTokensFallbackNone,
+		},
+		{
+			name:       "agent_plan_unrelated_invalid_action_stays_upstream_error",
+			account:    newAgentPlanInputTokensFallbackAccount(newapiintegration.VolcEngineAgentPlanBaseURL),
+			statusCode: http.StatusNotFound,
+			body:       `{"error":{"code":"InvalidAction","message":"The specified action is invalid: /api/v3/models","type":"NotFound"}}`,
+			want:       openAIInputTokensFallbackNone,
+		},
 	}
 
 	for _, tt := range cases {
@@ -59,6 +95,15 @@ func TestClassifyOpenAIInputTokensFallback(t *testing.T) {
 			got := classifyOpenAIInputTokensFallback(tt.account, tt.statusCode, []byte(tt.body))
 			require.Equal(t, tt.want, got.Kind)
 		})
+	}
+}
+
+func newAgentPlanInputTokensFallbackAccount(baseURL string) *Account {
+	return &Account{
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeVolcEngine,
+		Credentials: map[string]any{"base_url": baseURL},
 	}
 }
 
