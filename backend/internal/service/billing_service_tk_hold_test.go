@@ -16,7 +16,7 @@ import (
 // maxOut is a real client ceiling.
 
 func TestEstimateTokenHold_IsUpperBoundOverDistributions(t *testing.T) {
-	s := NewBillingService(&config.Config{}, nil) // fallback pricing, no pricingService
+	s := NewBillingService(&config.Config{}, nil) // embedded registry, no PricingService dependency
 	const (
 		model   = "claude-sonnet-4"
 		prompt  = 1000 // upper bound on input tokens

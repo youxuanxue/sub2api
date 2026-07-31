@@ -2,36 +2,28 @@
 """audit-display-coverage.py — servable ⇒ displayable completeness audit.
 
 The #1030 failure class: a model is in the Go servable allowlist
-(pricing_catalog_supported_models_tk.go) and bills correctly (fallbackPrices /
-family floor), but shows a BLANK price on /pricing because no DISPLAY source
-carries it. The display catalog is built from the upstream remote mirror
-(Wei-Shaw/model-price-repo, live-fetched) UNIONed with the TK overlay
-(tk_pricing_overlay.json, which INJECTS models the source lacks). The bundled
-backend/resources/model-pricing file is only a SHADOWED fallback prod does not
-read, and it is hand-maintained — so it is NOT a reliable "will it display"
-signal. The overlay is the only prod-reliable, repo-checkable display source.
+(pricing_catalog_supported_models_tk.go) but has no row in the unified registry
+(`tk_pricing_overlay.json`), so it shows a BLANK price on `/pricing`. Billing,
+catalog, and serving gates all resolve from that same registry; channel pricing
+is a scoped override only.
 
 This tool asserts the invariant operators actually care about:
 
-    every model in the Go servable allowlist resolves to a NON-ZERO display
-    price, via the overlay (repo truth) OR the live prod /pricing (remote truth).
+    every model in the Go servable allowlist resolves to a NON-ZERO registry
+    display price, optionally confirmed by the live prod /pricing projection.
 
 "Display price" is media-aware: token models need input/output > 0; image
 models need output_cost_per_image > 0; video models need output_cost_per_second
 > 0.
 
 Coverage sources, in order:
-  - overlay  : tk_pricing_overlay.json carries the model with a non-zero price
-               (token OR media). Reliable in prod regardless of remote lag.
-  - live     : with --live, GET <base>/api/v1/public/pricing and treat a model
-               shown there with a non-zero token price as covered (this is how
-               standard upstream models — claude/gpt-5/… — are legitimately
-               sourced from the remote mirror, NOT the overlay).
+  - registry : tk_pricing_overlay.json carries the model with a non-zero price.
+  - live     : with --live, GET <base>/api/v1/public/pricing and confirm the
+               registry-backed projection.
 
 A model covered by NEITHER is a GAP (the #1030 shape). Antigravity/grok models
 are filtered out of the PUBLIC catalog by the vendor allowlist, so for those the
-overlay is the only coverage signal — exactly why #1029's antigravity image
-additions show as gaps until overlay-priced.
+registry is the only coverage signal.
 
 Subcommands:
   check        report gaps (exit 0 clean / 1 gaps / 2 error). --live to also
@@ -73,13 +65,14 @@ def parse_allowlist(go_text: str) -> dict[str, set[str]]:
 
 
 def overlay_priced(entry: dict) -> bool:
-    """True iff the overlay entry carries a non-zero price (token OR media)."""
+    """True iff the registry entry carries a non-zero price (token OR media)."""
     if not isinstance(entry, dict):
         return False
     return (
         (entry.get("input_cost_per_token") or 0) > 0
         or (entry.get("output_cost_per_token") or 0) > 0
         or (entry.get("output_cost_per_image") or 0) > 0
+        or (entry.get("output_cost_per_image_token") or 0) > 0
         or (entry.get("output_cost_per_second") or 0) > 0
     )
 
@@ -97,8 +90,8 @@ def _row_token_priced(row: dict) -> bool:
 
 def live_token_priced(payload: dict) -> set[str]:
     """Model ids that the live public catalog shows with a non-zero TOKEN price.
-    Media coverage is judged via the overlay (reliable), so the live signal only
-    needs to credit token models sourced from the remote mirror."""
+    Media coverage is judged via the registry (reliable), so the live signal only
+    needs to credit token models surfaced by the catalog projection."""
     out: set[str] = set()
     for row in payload.get("data", []):
         mid = row.get("model_id") or row.get("id")

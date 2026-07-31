@@ -115,7 +115,7 @@ func TestPricingService_GetModelPricing_AppliesBaseTaxOnLookup(t *testing.T) {
 	}
 }
 
-func TestBillingFallback_ConfiguredModelMatchersApplyBaseTax(t *testing.T) {
+func TestRegistryAliases_ConfiguredModelMatchersApplyBaseTax(t *testing.T) {
 	base := &ModelPricing{InputPricePerToken: 1e-6, OutputPricePerToken: 2e-6}
 	policy := loadTkOfficialListBaseTaxPolicy()
 	for _, rule := range policy.Rules {

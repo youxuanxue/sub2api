@@ -7,7 +7,7 @@ description: >-
 # TokenKey：上架一个模型（served + priced，确定性流水线）
 
 适用于本仓库（TokenKey fork of sub2api）。把"客户想用模型 X，要它在某账号上**可调用 + 计费正确**"
-从一次性手工操作（裸 SQL 改 model_mapping、手补 overlay、靠记忆刷 scheduler_outbox）固化为可复跑、
+从一次性手工操作（裸 SQL 改 model_mapping、手补 registry、靠记忆刷 scheduler_outbox）固化为可复跑、
 有门禁兜底的分钟级流水线。
 
 **单一意图源 = `backend/internal/service/tk_served_models.json`**（manifest）。它是一层**薄意图**，
@@ -16,24 +16,22 @@ description: >-
 
 1. 账号 `credentials.model_mapping` —— 运行期"可服务白名单"，由 `tk_NNN_*model_mapping*.sql` 迁移
    （及 admin UI 编辑）写入；
-2. `tk_pricing_overlay.json`（+ 运行期 litellm 镜像）—— 价格。
+2. `tk_pricing_overlay.json` registry owner + scoped `channel_model_pricing` override —— 价格。
+   provider/LiteLLM 只作为离线导入证据，账单、目录和 serving gate 不读取它。
 
 manifest 与 `tk_pricing_overlay.json` 同目录（`backend/internal/service/`），所以同一个 Go 包能 `//go:embed`
 两者、同一个 preflight 能解析两者；选址理由见 manifest 头注 `_doc`。
 
-测试必须从 manifest / overlay / Go allowlist owner 派生集合断言；上架一个模型不应导致多处测试手写
+测试必须从 manifest / registry / Go allowlist owner 派生集合断言；上架一个模型不应导致多处测试手写
 正向/负向清单同步。手写测试样本只用于 SSOT 无法推导的边界（未知 ID、跨平台 ID、兼容别名、
 priced-but-hidden 等），并在测试里标明边界含义。
 
 ## 范围（严格，越界=类别错误）
 
-**只**覆盖 TK 策展、经账号 `model_mapping` 白名单服务的 **newapi 第五平台长尾**，包括这些专用账号/池：
-
-| 账号 | 名称 | platform | channel_type | group | 上游 |
-| --- | --- | --- | --- | --- | --- |
-| 60 | Qwen | newapi | 17（Ali/DashScope） | 18 | `dashscope.aliyuncs.com`（裸 host，Ali 适配器自接 `/compatible-mode/v1`） |
-| 39 | ds-官 | newapi | 43（DeepSeek） | 11 | `api.deepseek.com` |
-| 83 | kimi | newapi | 25（Moonshot） | 19 | `api.moonshot.cn`（国内站 key；价格取国内官方 RMB 表） |
+**只**覆盖 TK 策展、经账号 `model_mapping` 白名单服务的 **newapi 第五平台长尾**。
+当前账号、`channel_type` 与属性 scope 不在 skill 内维护第二份表；它们必须从
+`tk_served_models.json` 每条的 `served_on` / `channel_type` / `account_scope` 派生，并用
+`modelops.py snapshot-sql` / activation gate 对 live account 属性。
 
 **不含**：litellm 全目录；四个原生平台（anthropic / openai / gemini / antigravity，各有 Go allowlist map，
 走 `tokenkey-servable-model-refresh`）；grok（原生第七平台 #791，platform=grok，经平台路由 + ch48 API-key
@@ -44,7 +42,7 @@ priced-but-hidden 等），并在测试里标明边界含义。
 按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审：
 
 - **机械化（脚本承载）**：上游可服务性 probe（`probe-servable-models.sh` 的 dashscope/qwen 与 ark/deepseek
-  族）、价格落 overlay（`apply-pricing-hotfix.py stage-overlay`，从官方源/litellm 取价）、渠道热更
+  族）、价格落 registry（`apply-pricing-hotfix.py stage-overlay`，从官方源/provider 快照取离线证据）、渠道热更
   （`apply-pricing-hotfix.py apply`）、仓库内价格/展示/mapping 声明一致校验
   （`scripts/checks/catalog-serving-drift.py`，经 `scripts/preflight.sh` 调用）、bundle 生成与漂移校验、
   `modelops activate` 的 evidence/digest/plan/apply 门禁、livefire 200 复测（probe 族）。
@@ -63,7 +61,7 @@ priced-but-hidden 等），并在测试里标明边界含义。
   （qwen3.7-max / deepseek-v4-*），旧 migration 字面量也仅作为历史证据兼容（见 §安全网）。
 - 价格基准：DashScope 用**中国大陆（北京）RMB 列表价 ÷ 6.7**（canonical CNY/USD），国际部署价更高、
   prod 账号走大陆 endpoint故**不**建模国际价。思考/非思考双档：开源 dense Qwen3（8b/14b/32b）
-  `enable_thinking` 默认 true，输出默认按思考档计费，overlay 要带 `thinking_output_cost_per_token`
+  `enable_thinking` 默认 true，输出默认按思考档计费，registry owner 要带 `thinking_output_cost_per_token`
   （pricing-overlay.py 有 THINKING_ANCHORS 硬门禁）。
 - Moonshot 国内账号用 `platform.kimi.com/docs/pricing/*` 的 RMB 列表价 ÷ 6.7；禁止拿国际站 USD 表给
   `api.moonshot.cn` 账号定价。`moonshot-v1-auto` 当前经人审固定按 V1 128K 档计费，不自动按输入长度降档。
@@ -106,9 +104,9 @@ bash ops/observability/run-probe.sh --target prod \
   --env MAX_TOKENS=1 --timeout-seconds 180
 ```
 
-Moonshot 国内站与国际站 key/价格相互独立；账号 `base_url=api.moonshot.cn` 时，overlay 必须取
-`platform.kimi.com/docs/pricing/*` 国内 RMB 表并按 TokenKey `CNY/USD=6.7` 换算。overlay 保存税前价，
-billing、公开 `/pricing` 与 fallback 通过 overlay `_config.official_list_base_tax` 的 `moonshot` rule 统一叠加
+Moonshot 国内站与国际站 key/价格相互独立；账号 `base_url=api.moonshot.cn` 时，registry 必须取
+`platform.kimi.com/docs/pricing/*` 国内 RMB 表并按 TokenKey `CNY/USD=6.7` 换算。registry 保存税前价，
+billing、公开 `/pricing` 与 serving gate 通过 registry `_config.official_list_base_tax` 的 `moonshot` rule 统一叠加
 配置中的 multiplier；provider、matcher、multiplier 都不得在 Go 或测试里维护第二份清单。
 
 ### 2) 写 manifest 条目（单一意图源，**先于**投影）
@@ -118,7 +116,7 @@ billing、公开 `/pricing` 与 fallback 通过 overlay `_config.official_list_b
 ```json
 "newapi/qwen3-8b": {
   "platform": "newapi", "model_id": "qwen3-8b", "served_on": ["60"],
-  "channel_type": 17, "price_source": "overlay", "price_key": "qwen3-8b",
+  "channel_type": 17, "price_source": "registry", "price_key": "qwen3-8b",
   "display": false,
   "notes": "Qwen account 60. <provenance / known-gap>"
 }
@@ -128,24 +126,24 @@ billing、公开 `/pricing` 与 fallback 通过 overlay `_config.official_list_b
 
 - `display` 对 newapi 由 manifest 直接拥有：实测可服务、已定价且完成/即将完成 activation 的公开模型用
   `true`；预热、下线或尚未开放的条目用 `false`。原生平台才额外要求 Go servable-allowlist map。
-- `price_source`：`overlay`（在 overlay 有非零价）/ `mirror`（litellm 镜像已带非零价、overlay 故意不收，
-  如 deepseek-chat/reasoner）/ `channel`（渠道定价 DB）。
+- `price_source` 必须是 `registry`：每个 served manifest 模型都要在统一 registry 中解析
+  一个 owner。`channel_model_pricing` 只是带 scope 的高优先级 runtime override，不能代替 owner。
 - **新 mapping floor** 的 `notes` 必须含字面 `served-via-modelops-activation`；旧账号种子态
   （qwen3.7-max / deepseek-v4-*）保留 `served-via-admin-ui`。两者都不能替代 live activation/check，
   只让静态门禁知道预期写路径。
 
-### 3) 投影：overlay 价 + release bundle
+### 3) 投影：registry 价 + release bundle
 
-**(a) overlay 价**（fill-only，**禁臆造**）。查官方价后用 hotfix 工具固化：
+**(a) registry 价**（唯一 owner，**禁臆造**）。查官方价后用 hotfix 工具固化：
 
 ```bash
-python3 ops/pricing/apply-pricing-hotfix.py lookup --model qwen3-8b           # litellm 全量源取价
-python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model qwen3-8b --from-litellm  # 进 overlay,提 PR
+python3 ops/pricing/apply-pricing-hotfix.py lookup --model qwen3-8b           # provider/LiteLLM 离线证据
+python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model qwen3-8b --from-litellm  # 经人工确认后进 registry,提 PR
 # 官方源未收录则用 --entry-json 手填（带真实 source URL+抓取日；思考双档加 thinking_output_cost_per_token）
 ```
 
-overlay 是 fill-only：源带非零价时源胜、overlay 被忽略；**不能纠正错的非零源价**（deepseek-chat/reasoner
-镜像仍是 pre-V4 价 → 用 `price_source=mirror`，错价要修走渠道定价 DB 而非 overlay）。
+registry 条目是唯一全局基础价格；若某渠道实际价不同，只能建立该 channel scope 的 DB override，
+不能再引入第二个全局 owner。离线 provider 数据只能作为 registry 导入证据。
 
 **(b) release bundle**。manifest/Go owner 改完后生成 checksummed target artifact；禁止手改生成 JSON：
 
@@ -171,14 +169,11 @@ go run ./cmd/account-model-mapping bundle --output ../ops/pricing/model-surface-
 
   activation 只写 prod，保留兼容 extras，并在事务内拒绝会遮蔽 bundle 的 runtime mapping。必须在发布含 target
   bundle 的二进制前完成；generic deploy/rollback 永不代替这一步，也不要为新 floor 新建 mapping migration。
-- **overlay 价（热推，不等发版）**：内嵌 JSON 是**地板**，运行时活值经 settings `tk_pricing_overlay_runtime`
-  **逐 key 叠加**在地板上（runtime 胜；未推的 key 仍走内嵌；空/坏 runtime 永不跌破地板——所以也可只推单个
-  新 key 而不动其余）。PR 合并后跑 `python3 ops/pricing/manage-overlay-runtime.py sync-runtime`（先过
-  `pricing-overlay.py` 门禁 → **gzip+base64 传输绕过 SSM 97KB 上限** → 在 Postgres 内
-  `convert_from(decode(…,'base64'))` 写入、**避开 psql `:'v'` 在 `-c` 模式失效的坑** → UPSERT +
-  `PUBLISH settings_updated` 即时跨副本重载；**prod-only**，edge 不跑计费）。模型立即被定价 + 出现在公开
-  /pricing，**零镜像构建**。下次例行发版把 overlay 折进内嵌（地板追平），之后 `check` 应报「活值==内嵌」。
-- **紧急渠道价**（仅 channel-priced 模型，凌驾一切）：`apply-pricing-hotfix.py apply --channel-id N`，立即生效。
+- **registry owner（全局、随发版）**：把人工确认的完整价格维度写入
+  `backend/internal/service/tk_pricing_overlay.json`，通过 `pricing-overlay.py` 与
+  manifest/SSOT gates 后提交。它随 tagged binary 发布并同时驱动 billing、公开
+  `/pricing` 与 serving gate；不存在 settings 热层或第二份全局活值。
+- **紧急渠道价**（仅 scoped channel override，优先于 registry owner）：`apply-pricing-hotfix.py apply --channel-id N`，立即生效。
 
 ### 5) livefire 复测（真 200）
 
@@ -199,7 +194,7 @@ bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-ser
 
 ### 6) 两档计费核对 + 话术
 
-- 拉真实 usage_log 核对。**注意**：`thinking_output_cost_per_token` 是 overlay 的**定价配置字段**，
+- 拉真实 usage_log 核对。**注意**：`thinking_output_cost_per_token` 是 registry 的**定价配置字段**，
   **不是** usage_logs 列——思考档在计费时切到该费率、结果仍写进同一 `output_cost` 列（无独立思考列）。
   usage_logs 实际列：`model` / `requested_model`（**计费键取 requested_model**）/ `input_tokens` /
   `output_tokens` / `input_cost` / `output_cost` / `cache_read_cost` / `total_cost`。核对
@@ -217,25 +212,25 @@ bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-ser
 
 ## 安全网：`scripts/checks/catalog-serving-drift.py`（漂移门禁，经 preflight）
 
-manifest 编辑 + overlay + mapping 路径声明三件**必须先过门禁再提 PR**。仿 `scripts/checks/pricing-overlay.py` 约定
+manifest 编辑 + registry owner + mapping 路径声明三件**必须先过门禁再提 PR**。仿 `scripts/checks/pricing-overlay.py` 约定
 （`--quiet` / `--selftest`，exit 0 ok / 1 violation / 2 missing-dep）。校验：
 
 - **A0 PARSE**：manifest 解析、`entries` 是对象、每条字段类型对。
-- **A1 PRICE**（硬）：`overlay` 源 → price_key 在 overlay 且按 mode 字段 >0（复用 pricing-overlay.py 的
-  MODE_FIELDS）；`mirror` 源 → 只证 overlay 没把它清零（静态看不到 live 镜像，这是故意偏弱、永不假阳的一臂）；
-  `channel` 源 → notes 须含 `channel` 文档。
+- **A1 PRICE**（硬）：`price_source` 必须为 `registry`，且 price_key 在 registry 按 mode
+  对应的价格维度 >0（复用 pricing-overlay.py 的 MODE_FIELDS）。Scoped channel override 不能让
+  无 registry owner 的模型通过此门禁。
 - **A2 DISPLAY ⇒ OWNER**（硬）：原生平台 `display=true` 须在对应 Go servable-allowlist map；newapi 的 display
   由 manifest 自己拥有，不要求另一份 allowlist。
 - **A3 SERVED_ON ⇒ MAPPING PATH**（硬，**#812 捕获方向**）：旧条目可由同一 `tk_*.sql` 内账号守卫 + quoted
   model id 证明历史 mapping；新 floor 必须在 notes 声明 `served-via-modelops-activation`，表示 live write 只经
   activation contract。该声明只证明静态写路径，不是 live 证明；release 前仍须携带独立证据完成 activation。
   activation contract 之前的账号种子态可保留 `served-via-admin-ui` legacy marker，并降为 WARN。
-- **A4 ENUMERATION**（WARN，advisory）：dashscope/deepseek 的 chat overlay 键无 manifest 条目→提示（可能漏；
+- **A4 ENUMERATION**（WARN，advisory）：dashscope/deepseek 的 chat registry 键无 manifest 条目→提示（可能漏；
   也可能是 dated 快照/proxy-fill 等合法非 manifest 行，故只 WARN）。
 
 ```bash
 python3 scripts/checks/catalog-serving-drift.py --selftest   # 离线逻辑自检（preflight 跑）
-python3 scripts/checks/catalog-serving-drift.py              # 校验仓库内 manifest↔mapping-path↔overlay
+python3 scripts/checks/catalog-serving-drift.py              # 校验仓库内 manifest↔mapping-path↔registry
 ```
 
 > **#812 设计信号**：只定价/展示、不声明 mapping 写路径会让 prod 空池 429/503。A3 因此硬失败未被 legacy
@@ -262,5 +257,6 @@ python3 scripts/checks/catalog-serving-drift.py              # 校验仓库内 m
 
 ## 姊妹 skill
 
-- **`tokenkey-modelops-planner`**（总入口）：上架/mapping 走 **分支 A**；catalog 走 **分支 B**。
+- **`tokenkey-modelops-planner`**（总入口）：对账走 **分支 A**，catalog 走 **分支 B**，
+  ready-for-onboard 后上架走 **分支 C**。
 - `tokenkey-servable-model-refresh`：hub **分支 B** 写入执行体。

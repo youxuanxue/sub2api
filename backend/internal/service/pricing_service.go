@@ -1,117 +1,35 @@
 package service
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"go.uber.org/zap"
 )
 
 var (
-	openAIModelDatePattern     = regexp.MustCompile(`-\d{8}$`)
-	openAIModelBasePattern     = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
-	openAIGPT54FallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:               2.5e-06, // $2.5 per MTok
-		OutputCostPerToken:              1.5e-05, // $15 per MTok
-		CacheReadInputTokenCost:         2.5e-07, // $0.25 per MTok
-		LongContextInputTokenThreshold:  272000,
-		LongContextInputCostMultiplier:  2.0,
-		LongContextOutputCostMultiplier: 1.5,
-		LiteLLMProvider:                 "openai",
-		Mode:                            "chat",
-		SupportsPromptCaching:           true,
-	}
-	openAIGPT56SolFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:                   5e-06,
-		InputCostPerTokenPriority:           1e-05,
-		OutputCostPerToken:                  3e-05,
-		OutputCostPerTokenPriority:          6e-05,
-		CacheCreationInputTokenCost:         6.25e-06,
-		CacheCreationInputTokenCostPriority: 1.25e-05,
-		CacheReadInputTokenCost:             5e-07,
-		CacheReadInputTokenCostPriority:     1e-06,
-		LongContextInputTokenThreshold:      openAIGPT54LongContextInputThreshold,
-		LongContextInputCostMultiplier:      openAIGPT54LongContextInputMultiplier,
-		LongContextOutputCostMultiplier:     openAIGPT54LongContextOutputMultiplier,
-		SupportsServiceTier:                 true,
-		LiteLLMProvider:                     "openai",
-		Mode:                                "chat",
-		SupportsPromptCaching:               true,
-	}
-	openAIGPT56TerraFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:                   2e-06,
-		InputCostPerTokenPriority:           4e-06,
-		OutputCostPerToken:                  1.2e-05,
-		OutputCostPerTokenPriority:          2.4e-05,
-		CacheCreationInputTokenCost:         2.5e-06,
-		CacheCreationInputTokenCostPriority: 5e-06,
-		CacheReadInputTokenCost:             2e-07,
-		CacheReadInputTokenCostPriority:     4e-07,
-		LongContextInputTokenThreshold:      openAIGPT54LongContextInputThreshold,
-		LongContextInputCostMultiplier:      openAIGPT54LongContextInputMultiplier,
-		LongContextOutputCostMultiplier:     openAIGPT54LongContextOutputMultiplier,
-		SupportsServiceTier:                 true,
-		LiteLLMProvider:                     "openai",
-		Mode:                                "chat",
-		SupportsPromptCaching:               true,
-	}
-	openAIGPT56LunaFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:                   2e-07,
-		InputCostPerTokenPriority:           4e-07,
-		OutputCostPerToken:                  1.2e-06,
-		OutputCostPerTokenPriority:          2.4e-06,
-		CacheCreationInputTokenCost:         2.5e-07,
-		CacheCreationInputTokenCostPriority: 5e-07,
-		CacheReadInputTokenCost:             2e-08,
-		CacheReadInputTokenCostPriority:     4e-08,
-		LongContextInputTokenThreshold:      openAIGPT54LongContextInputThreshold,
-		LongContextInputCostMultiplier:      openAIGPT54LongContextInputMultiplier,
-		LongContextOutputCostMultiplier:     openAIGPT54LongContextOutputMultiplier,
-		SupportsServiceTier:                 true,
-		LiteLLMProvider:                     "openai",
-		Mode:                                "chat",
-		SupportsPromptCaching:               true,
-	}
-	openAIGPT54MiniFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:       7.5e-07,
-		OutputCostPerToken:      4.5e-06,
-		CacheReadInputTokenCost: 7.5e-08,
-		LiteLLMProvider:         "openai",
-		Mode:                    "chat",
-		SupportsPromptCaching:   true,
-	}
-	openAIGPT54NanoFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:       2e-07,
-		OutputCostPerToken:      1.25e-06,
-		CacheReadInputTokenCost: 2e-08,
-		LiteLLMProvider:         "openai",
-		Mode:                    "chat",
-		SupportsPromptCaching:   true,
-	}
+	openAIModelDatePattern = regexp.MustCompile(`-\d{8}$`)
+	openAIModelBasePattern = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
 )
 
-// LiteLLMModelPricing LiteLLM价格数据结构
-// 只保留我们需要的字段，使用指针来处理可能缺失的值
+// LiteLLMModelPricing is the legacy wire-compatible schema used by registry
+// owner rows. The name describes JSON field compatibility, not a runtime source:
+// production data is loaded only from the embedded registry snapshot.
 type LiteLLMModelPricing struct {
 	InputCostPerToken          float64 `json:"input_cost_per_token"`
 	InputCostPerTokenPriority  float64 `json:"input_cost_per_token_priority"`
 	OutputCostPerToken         float64 `json:"output_cost_per_token"`
 	OutputCostPerTokenPriority float64 `json:"output_cost_per_token_priority"`
-	// ThinkingOutputCostPerToken is a TK-overlay-only field (litellm has no such
+	// ThinkingOutputCostPerToken is a registry-only field (provider snapshots have no such
 	// concept): the higher output price the provider charges when the request runs
 	// in thinking mode. Mirrors Alibaba DashScope's two-rate table for one model id
 	// (qwen3-8b/14b/32b: same id, 非思考 vs 思考 output列). Billing selects it over
@@ -131,7 +49,7 @@ type LiteLLMModelPricing struct {
 	LiteLLMProvider                     string  `json:"litellm_provider"`
 	Mode                                string  `json:"mode"`
 	SupportsPromptCaching               bool    `json:"supports_prompt_caching"`
-	// Overlay-only catalog metadata travels with the same immutable overlay
+	// Registry-only catalog metadata travels with the same immutable registry
 	// snapshot as pricing so billing and display cannot parse different facts.
 	MaxInputTokens          int     `json:"max_input_tokens"`
 	MaxOutputTokens         int     `json:"max_output_tokens"`
@@ -144,15 +62,19 @@ type LiteLLMModelPricing struct {
 	SupportsWebSearch       bool    `json:"supports_web_search"`
 	OutputCostPerImage      float64 `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
 	OutputCostPerImageToken float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
-	OutputCostPerSecond     float64 `json:"output_cost_per_second"`      // 视频生成模型每秒价格（veo 等）
+	InputCostPerImageToken  float64 `json:"input_cost_per_image_token"`  // 图片输入 token 价格
+	ImagePrice1K            float64 `json:"image_price_1k,omitempty"`    // registry image tier price
+	ImagePrice2K            float64 `json:"image_price_2k,omitempty"`
+	ImagePrice4K            float64 `json:"image_price_4k,omitempty"`
+	OutputCostPerSecond     float64 `json:"output_cost_per_second"` // 视频生成模型每秒价格（veo 等）
 
-	// Intervals 输入-token 区间分档定价（TK overlay 专用，见 tk_pricing_overlay.json
-	// 的 "intervals"）。仅 TK overlay 条目填充；litellm 源无此概念。空 = 扁平定价。
+	// Intervals 输入-token 区间分档定价（registry 专用，见 tk_pricing_overlay.json
+	// 的 "intervals"）。provider snapshots 无此概念。空 = 扁平定价。
 	// 解析见 pricing_service_tk_overlay.go，接进 ResolvedPricing.Intervals 见
 	// model_pricing_resolver_tk_overlay_intervals.go。
 	Intervals []PricingInterval `json:"-"`
 
-	// VideoPriceTiers 视频 resolution×audio 阶梯（TK overlay 专用，见
+	// VideoPriceTiers 视频 resolution×audio 阶梯（registry 专用，见
 	// tk_pricing_overlay.json "video_price_tiers"）。Pre-tax USD/s；base tax at read.
 	VideoPriceTiers []PricingVideoTier `json:"-"`
 
@@ -160,18 +82,17 @@ type LiteLLMModelPricing struct {
 	DefaultVideoResolution string `json:"-"`
 
 	// TokenPricingAbsent 表示源数据中 input/output token 价格均缺失（仅有图片价）。
-	// 此类条目只可用于图片计费，token 计费必须回退到 fallback 或 fail-closed，
+	// 此类条目只可用于图片计费，token 计费必须解析 registry alias 或 fail-closed，
 	// 否则 token 流量会被按 $0 计费。零值（false）表示条目具备 token 价格。
 	TokenPricingAbsent bool `json:"-"`
+	// ExplicitFree distinguishes a deliberate zero-price product row from an
+	// unknown/unpriced placeholder. It is registry metadata, never inferred
+	// from numeric zeroes.
+	ExplicitFree bool `json:"-"`
 }
 
-// PricingRemoteClient 远程价格数据获取接口
-type PricingRemoteClient interface {
-	FetchPricingJSON(ctx context.Context, url string) ([]byte, error)
-	FetchHashText(ctx context.Context, url string) (string, error)
-}
-
-// LiteLLMRawEntry 用于解析原始JSON数据
+// LiteLLMRawEntry parses the legacy-compatible JSON shape used by offline
+// provider imports and registry parser tests. Runtime still owns one registry.
 type LiteLLMRawEntry struct {
 	InputCostPerToken                   *float64 `json:"input_cost_per_token"`
 	InputCostPerTokenPriority           *float64 `json:"input_cost_per_token_priority"`
@@ -186,73 +107,65 @@ type LiteLLMRawEntry struct {
 	LongContextInputTokenThreshold      *int     `json:"long_context_input_token_threshold"`
 	LongContextInputCostMultiplier      *float64 `json:"long_context_input_cost_multiplier"`
 	LongContextOutputCostMultiplier     *float64 `json:"long_context_output_cost_multiplier"`
-	SupportsServiceTier                 bool     `json:"supports_service_tier"`
-	LiteLLMProvider                     string   `json:"litellm_provider"`
-	Mode                                string   `json:"mode"`
-	SupportsPromptCaching               bool     `json:"supports_prompt_caching"`
-	MaxInputTokens                      int      `json:"max_input_tokens"`
-	MaxOutputTokens                     int      `json:"max_output_tokens"`
-	SupportsVision                      bool     `json:"supports_vision"`
-	SupportsToolChoice                  bool     `json:"supports_tool_choice"`
-	SupportsFunctionCalling             bool     `json:"supports_function_calling"`
-	SupportsReasoning                   bool     `json:"supports_reasoning"`
-	SupportsResponseSchema              bool     `json:"supports_response_schema"`
-	SupportsPDFInput                    bool     `json:"supports_pdf_input"`
-	SupportsWebSearch                   bool     `json:"supports_web_search"`
-	OutputCostPerImage                  *float64 `json:"output_cost_per_image"`
-	OutputCostPerImageToken             *float64 `json:"output_cost_per_image_token"`
-	OutputCostPerSecond                 *float64 `json:"output_cost_per_second"`
+	// Some imported registry snapshots use LiteLLM's descriptive 272K field
+	// names. Keep the importer tolerant, then normalize them into the runtime
+	// long-context fields below so billing never depends on a second schema.
+	InputCostPerTokenAbove272K       *float64 `json:"input_cost_per_token_above_272k_tokens"`
+	OutputCostPerTokenAbove272K      *float64 `json:"output_cost_per_token_above_272k_tokens"`
+	CacheReadInputTokenCostAbove272K *float64 `json:"cache_read_input_token_cost_above_272k_tokens"`
+	SupportsServiceTier              bool     `json:"supports_service_tier"`
+	LiteLLMProvider                  string   `json:"litellm_provider"`
+	Mode                             string   `json:"mode"`
+	SupportsPromptCaching            bool     `json:"supports_prompt_caching"`
+	MaxInputTokens                   int      `json:"max_input_tokens"`
+	MaxOutputTokens                  int      `json:"max_output_tokens"`
+	SupportsVision                   bool     `json:"supports_vision"`
+	SupportsToolChoice               bool     `json:"supports_tool_choice"`
+	SupportsFunctionCalling          bool     `json:"supports_function_calling"`
+	SupportsReasoning                bool     `json:"supports_reasoning"`
+	SupportsResponseSchema           bool     `json:"supports_response_schema"`
+	SupportsPDFInput                 bool     `json:"supports_pdf_input"`
+	SupportsWebSearch                bool     `json:"supports_web_search"`
+	OutputCostPerImage               *float64 `json:"output_cost_per_image"`
+	OutputCostPerImageToken          *float64 `json:"output_cost_per_image_token"`
+	InputCostPerImageToken           *float64 `json:"input_cost_per_image_token"`
+	ImagePrice1K                     *float64 `json:"image_price_1k"`
+	ImagePrice2K                     *float64 `json:"image_price_2k"`
+	ImagePrice4K                     *float64 `json:"image_price_4k"`
+	OutputCostPerSecond              *float64 `json:"output_cost_per_second"`
+	ExplicitFree                     bool     `json:"explicit_free"`
 }
 
 // PricingService 动态价格服务
 type PricingService struct {
-	cfg          *config.Config
-	remoteClient PricingRemoteClient
-	mu           sync.RWMutex
-	pricingData  map[string]*LiteLLMModelPricing
-	lastUpdated  time.Time
-	localHash    string
+	mu          sync.RWMutex
+	pricingData map[string]*LiteLLMModelPricing
+	lastUpdated time.Time
+	localHash   string
 
 	// 停止信号
 	stopCh chan struct{}
 	wg     sync.WaitGroup
-
-	// TK: runtime hot-pushable overlay deps (set post-construction via
-	// SetOverlayRuntimeDeps; all nil-safe). overlayRuntimeGetter reads the
-	// SettingKeyTKPricingOverlayRuntime blob; overlayCacheInvalidator busts the
-	// public-catalog mtime cache after a swap. overlayMu guards overlayRuntimeHash
-	// (the last-applied blob hash, for idempotent reloads) independently of s.mu.
-	// See pricing_service_tk_overlay_runtime.go.
-	overlayMu               sync.Mutex
-	overlayRuntimeHash      string
-	overlayRuntimeGetter    func(ctx context.Context) (string, bool)
-	overlayCacheInvalidator func()
 }
 
 // NewPricingService 创建价格服务
-func NewPricingService(cfg *config.Config, remoteClient PricingRemoteClient) *PricingService {
+func NewPricingService() *PricingService {
 	s := &PricingService{
-		cfg:          cfg,
-		remoteClient: remoteClient,
-		pricingData:  make(map[string]*LiteLLMModelPricing),
-		stopCh:       make(chan struct{}),
+		pricingData: make(map[string]*LiteLLMModelPricing),
+		stopCh:      make(chan struct{}),
 	}
 	return s
 }
 
 // Initialize 初始化价格服务
 func (s *PricingService) Initialize() error {
-	// 确保数据目录存在
-	if err := os.MkdirAll(s.cfg.Pricing.DataDir, 0755); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to create data directory: %v", err)
+	if s == nil {
+		return fmt.Errorf("pricing service is nil")
 	}
-
-	// 首次加载价格数据
-	if err := s.checkAndUpdatePricing(); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Initial load failed, using fallback: %v", err)
-		if err := s.useFallbackPricing(); err != nil {
-			return fmt.Errorf("failed to load pricing data: %w", err)
-		}
+	// The embedded TK registry is the only global runtime pricing fact source.
+	// DataDir and provider/LiteLLM import files are deliberately not consulted.
+	if err := s.loadRegistryPricingData(); err != nil {
+		return fmt.Errorf("failed to load pricing registry: %w", err)
 	}
 
 	// 启动定时更新
@@ -271,210 +184,17 @@ func (s *PricingService) Stop() {
 
 // startUpdateScheduler 启动定时更新调度器
 func (s *PricingService) startUpdateScheduler() {
-	if s == nil || s.cfg == nil || strings.TrimSpace(s.cfg.Pricing.RemoteURL) == "" {
-		logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Remote sync disabled: pricing remote URL is empty")
+	if s == nil {
 		return
 	}
-
-	// 定期检查哈希更新
-	hashInterval := time.Duration(s.cfg.Pricing.HashCheckIntervalMinutes) * time.Minute
-	if hashInterval < time.Minute {
-		hashInterval = 10 * time.Minute
-	}
-
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		ticker := time.NewTicker(hashInterval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				if err := s.syncWithRemote(); err != nil {
-					logger.LegacyPrintf("service.pricing", "[Pricing] Sync failed: %v", err)
-				}
-			case <-s.stopCh:
-				return
-			}
-		}
-	}()
-
-	logger.LegacyPrintf("service.pricing", "[Pricing] Update scheduler started (check every %v)", hashInterval)
+	// Registry changes are deployment-bound. There is no remote polling or
+	// settings reload path that could become a second global pricing owner.
+	logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Registry scheduler disabled; changes require deployment")
 }
 
 // checkAndUpdatePricing 检查并更新价格数据
 func (s *PricingService) checkAndUpdatePricing() error {
-	pricingFile := s.getPricingFilePath()
-
-	// 检查本地文件是否存在
-	if _, err := os.Stat(pricingFile); os.IsNotExist(err) {
-		logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Local pricing file not found, downloading...")
-		return s.downloadPricingData()
-	}
-
-	// 先加载本地文件（确保服务可用），再检查是否需要更新
-	if err := s.loadPricingData(pricingFile); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to load local file, downloading: %v", err)
-		return s.downloadPricingData()
-	}
-
-	// 如果配置了哈希URL，通过远程哈希检查是否有更新
-	if s.cfg.Pricing.HashURL != "" {
-		remoteHash, err := s.fetchRemoteHash()
-		if err != nil {
-			logger.LegacyPrintf("service.pricing", "[Pricing] Failed to fetch remote hash on startup: %v", err)
-			return nil // 已加载本地文件，哈希获取失败不影响启动
-		}
-
-		s.mu.RLock()
-		localHash := s.localHash
-		s.mu.RUnlock()
-
-		if localHash == "" || remoteHash != localHash {
-			logger.LegacyPrintf("service.pricing", "[Pricing] Remote hash differs on startup (local=%s remote=%s), downloading...",
-				localHash[:min(8, len(localHash))], remoteHash[:min(8, len(remoteHash))])
-			if err := s.downloadPricingData(); err != nil {
-				logger.LegacyPrintf("service.pricing", "[Pricing] Download failed, using existing file: %v", err)
-			}
-		}
-		return nil
-	}
-
-	// 没有哈希URL时，基于文件年龄检查
-	info, err := os.Stat(pricingFile)
-	if err != nil {
-		return nil // 已加载本地文件
-	}
-
-	fileAge := time.Since(info.ModTime())
-	maxAge := time.Duration(s.cfg.Pricing.UpdateIntervalHours) * time.Hour
-
-	if fileAge > maxAge {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Local file is %v old, updating...", fileAge.Round(time.Hour))
-		if err := s.downloadPricingData(); err != nil {
-			logger.LegacyPrintf("service.pricing", "[Pricing] Download failed, using existing file: %v", err)
-		}
-	}
-
-	return nil
-}
-
-// syncWithRemote 与远程同步（基于哈希校验）
-func (s *PricingService) syncWithRemote() error {
-	// TK: poll the runtime overlay blob too (settings hot-push fallback path when
-	// the pub/sub fan-out is unavailable). Hash-gated + best-effort: a no-op when
-	// unchanged, never blocks the remote price sync below.
-	if _, err := s.reloadTKOverlayRuntime(context.Background()); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] runtime overlay poll reload failed: %v", err)
-	}
-
-	// 如果配置了哈希URL，从远程获取哈希进行比对
-	if s.cfg.Pricing.HashURL != "" {
-		remoteHash, err := s.fetchRemoteHash()
-		if err != nil {
-			logger.LegacyPrintf("service.pricing", "[Pricing] Failed to fetch remote hash: %v", err)
-			return nil // 哈希获取失败不影响正常使用
-		}
-
-		s.mu.RLock()
-		localHash := s.localHash
-		s.mu.RUnlock()
-
-		if localHash == "" || remoteHash != localHash {
-			logger.LegacyPrintf("service.pricing", "[Pricing] Remote hash differs (local=%s remote=%s), downloading new version...",
-				localHash[:min(8, len(localHash))], remoteHash[:min(8, len(remoteHash))])
-			return s.downloadPricingData()
-		}
-		logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Hash check passed, no update needed")
-		return nil
-	}
-
-	// 没有哈希URL时，基于时间检查
-	pricingFile := s.getPricingFilePath()
-	info, err := os.Stat(pricingFile)
-	if err != nil {
-		return s.downloadPricingData()
-	}
-
-	fileAge := time.Since(info.ModTime())
-	maxAge := time.Duration(s.cfg.Pricing.UpdateIntervalHours) * time.Hour
-
-	if fileAge > maxAge {
-		logger.LegacyPrintf("service.pricing", "[Pricing] File is %v old, downloading...", fileAge.Round(time.Hour))
-		return s.downloadPricingData()
-	}
-
-	return nil
-}
-
-// downloadPricingData 从远程下载价格数据
-func (s *PricingService) downloadPricingData() error {
-	remoteURL, err := s.validatePricingURL(s.cfg.Pricing.RemoteURL)
-	if err != nil {
-		return err
-	}
-	logger.LegacyPrintf("service.pricing", "[Pricing] Downloading from %s", remoteURL)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// 获取远程哈希（用于同步锚点，不作为完整性校验）
-	var remoteHash string
-	if strings.TrimSpace(s.cfg.Pricing.HashURL) != "" {
-		remoteHash, err = s.fetchRemoteHash()
-		if err != nil {
-			logger.LegacyPrintf("service.pricing", "[Pricing] Failed to fetch remote hash (continuing): %v", err)
-		}
-	}
-
-	body, err := s.remoteClient.FetchPricingJSON(ctx, remoteURL)
-	if err != nil {
-		return fmt.Errorf("download failed: %w", err)
-	}
-
-	// 哈希校验：不匹配时仅告警，不阻止更新
-	// 远程哈希文件可能与数据文件不同步（如维护者更新了数据但未更新哈希文件）
-	dataHash := sha256.Sum256(body)
-	dataHashStr := hex.EncodeToString(dataHash[:])
-	if remoteHash != "" && !strings.EqualFold(remoteHash, dataHashStr) {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Hash mismatch warning: remote=%s data=%s (hash file may be out of sync)",
-			remoteHash[:min(8, len(remoteHash))], dataHashStr[:8])
-	}
-
-	// 解析JSON数据（使用灵活的解析方式）
-	data, err := s.parsePricingData(body)
-	if err != nil {
-		return fmt.Errorf("parse pricing data: %w", err)
-	}
-	data = s.mergeFallbackPricingData(data)
-
-	// 保存到本地文件
-	pricingFile := s.getPricingFilePath()
-	if err := os.WriteFile(pricingFile, body, 0644); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to save file: %v", err)
-	}
-
-	// 使用远程哈希作为同步锚点，防止重复下载
-	// 当远程哈希不可用时，回退到数据本身的哈希
-	syncHash := dataHashStr
-	if remoteHash != "" {
-		syncHash = remoteHash
-	}
-	hashFile := s.getHashFilePath()
-	if err := os.WriteFile(hashFile, []byte(syncHash+"\n"), 0644); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to save hash: %v", err)
-	}
-
-	// 更新内存数据
-	s.mu.Lock()
-	s.pricingData = data
-	s.lastUpdated = time.Now()
-	s.localHash = syncHash
-	s.mu.Unlock()
-
-	logger.LegacyPrintf("service.pricing", "[Pricing] Downloaded %d models successfully", len(data))
-	return nil
+	return s.loadRegistryPricingData()
 }
 
 // parsePricingData 解析价格数据（处理各种格式）
@@ -504,7 +224,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		// 只保留有有效价格的条目。除 token 价外，也保留纯图片(每图/每图token)与
 		// 纯视频(每秒)模型 —— 否则 imagen-4.0-* / veo-* 这类无 token 价的条目会被整体丢弃，
 		// 导致下游按裸名匹配时根本找不到（命中错误兜底价）。
-		if entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil &&
+		if entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil && entry.InputCostPerImageToken == nil &&
 			entry.OutputCostPerImage == nil && entry.OutputCostPerImageToken == nil &&
 			entry.OutputCostPerSecond == nil {
 			continue
@@ -515,7 +235,10 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 			Mode:                  entry.Mode,
 			SupportsPromptCaching: entry.SupportsPromptCaching,
 			SupportsServiceTier:   entry.SupportsServiceTier,
-			TokenPricingAbsent:    entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil,
+			TokenPricingAbsent:    entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil && entry.InputCostPerImageToken == nil,
+			ExplicitFree:          entry.ExplicitFree,
+			// Authority is a registry policy, never a claim supplied by an
+			// offline provider import.
 		}
 
 		if entry.InputCostPerToken != nil {
@@ -548,20 +271,40 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		if entry.CacheReadInputTokenCostPriority != nil {
 			pricing.CacheReadInputTokenCostPriority = *entry.CacheReadInputTokenCostPriority
 		}
-		if entry.LongContextInputTokenThreshold != nil {
-			pricing.LongContextInputTokenThreshold = *entry.LongContextInputTokenThreshold
-		}
 		if entry.LongContextInputCostMultiplier != nil {
 			pricing.LongContextInputCostMultiplier = *entry.LongContextInputCostMultiplier
 		}
 		if entry.LongContextOutputCostMultiplier != nil {
 			pricing.LongContextOutputCostMultiplier = *entry.LongContextOutputCostMultiplier
 		}
+		if entry.LongContextInputTokenThreshold != nil {
+			pricing.LongContextInputTokenThreshold = *entry.LongContextInputTokenThreshold
+		} else if entry.InputCostPerTokenAbove272K != nil || entry.OutputCostPerTokenAbove272K != nil || entry.CacheReadInputTokenCostAbove272K != nil {
+			pricing.LongContextInputTokenThreshold = 272000
+		}
+		if pricing.LongContextInputCostMultiplier == 0 && entry.InputCostPerToken != nil && entry.InputCostPerTokenAbove272K != nil && *entry.InputCostPerToken > 0 {
+			pricing.LongContextInputCostMultiplier = *entry.InputCostPerTokenAbove272K / *entry.InputCostPerToken
+		}
+		if pricing.LongContextOutputCostMultiplier == 0 && entry.OutputCostPerToken != nil && entry.OutputCostPerTokenAbove272K != nil && *entry.OutputCostPerToken > 0 {
+			pricing.LongContextOutputCostMultiplier = *entry.OutputCostPerTokenAbove272K / *entry.OutputCostPerToken
+		}
 		if entry.OutputCostPerImage != nil {
 			pricing.OutputCostPerImage = *entry.OutputCostPerImage
 		}
 		if entry.OutputCostPerImageToken != nil {
 			pricing.OutputCostPerImageToken = *entry.OutputCostPerImageToken
+		}
+		if entry.InputCostPerImageToken != nil {
+			pricing.InputCostPerImageToken = *entry.InputCostPerImageToken
+		}
+		if entry.ImagePrice1K != nil {
+			pricing.ImagePrice1K = *entry.ImagePrice1K
+		}
+		if entry.ImagePrice2K != nil {
+			pricing.ImagePrice2K = *entry.ImagePrice2K
+		}
+		if entry.ImagePrice4K != nil {
+			pricing.ImagePrice4K = *entry.ImagePrice4K
 		}
 		if entry.OutputCostPerSecond != nil {
 			pricing.OutputCostPerSecond = *entry.OutputCostPerSecond
@@ -578,138 +321,41 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		return nil, fmt.Errorf("no valid pricing entries found")
 	}
 
-	// TK: fill-only overlay for models the trimmed runtime source lacks — media
-	// (imagen-*/veo-*) and text models litellm has not yet catalogued (deepseek-v4-*).
-	// See pricing_service_tk_overlay.go.
+	// parsePricingData remains available for offline provider import/tests. Runtime
+	// loading never calls it for an external snapshot; it loads the embedded
+	// registry snapshot directly (see loadRegistryPricingData).
 	applyTKPricingOverlay(result)
 
 	return result, nil
 }
 
-// loadPricingData 从本地文件加载价格数据
-func (s *PricingService) loadPricingData(filePath string) error {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("read file failed: %w", err)
+// loadRegistryPricingData atomically publishes the embedded registry.
+// This is the only runtime loader. The flexible parser above remains solely for
+// offline provider import tooling and focused parser tests.
+func (s *PricingService) loadRegistryPricingData() error {
+	snapshot := loadTKPricingOverlaySnapshot()
+	if snapshot == nil || len(snapshot.Models) == 0 {
+		return fmt.Errorf("pricing registry is empty")
 	}
-
-	// 使用灵活的解析方式
-	pricingData, err := s.parsePricingData(data)
-	if err != nil {
-		return fmt.Errorf("parse pricing data: %w", err)
-	}
-	pricingData = s.mergeFallbackPricingData(pricingData)
-
-	// 计算哈希
-	hash := sha256.Sum256(data)
-	hashStr := hex.EncodeToString(hash[:])
-
-	s.mu.Lock()
-	s.pricingData = pricingData
-	s.localHash = hashStr
-
-	info, _ := os.Stat(filePath)
-	if info != nil {
-		s.lastUpdated = info.ModTime()
-	} else {
-		s.lastUpdated = time.Now()
-	}
-	s.mu.Unlock()
-
-	logger.LegacyPrintf("service.pricing", "[Pricing] Loaded %d models from %s", len(pricingData), filePath)
-	return nil
-}
-
-func (s *PricingService) mergeFallbackPricingData(data map[string]*LiteLLMModelPricing) map[string]*LiteLLMModelPricing {
-	if data == nil {
-		data = make(map[string]*LiteLLMModelPricing)
-	}
-	if s == nil || s.cfg == nil || strings.TrimSpace(s.cfg.Pricing.FallbackFile) == "" {
-		return data
-	}
-	fallbackBody, err := os.ReadFile(s.cfg.Pricing.FallbackFile)
-	if err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Fallback merge skipped: %v", err)
-		return data
-	}
-	fallbackData, err := s.parsePricingData(fallbackBody)
-	if err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Fallback merge parse skipped: %v", err)
-		return data
-	}
-	merged := 0
-	for modelName, pricing := range fallbackData {
-		if _, ok := data[modelName]; ok {
+	data := make(map[string]*LiteLLMModelPricing, len(snapshot.Models))
+	for name, pricing := range snapshot.Models {
+		if pricing == nil {
 			continue
 		}
-		data[modelName] = pricing
-		merged++
+		copy := *pricing
+		data[strings.ToLower(strings.TrimSpace(name))] = &copy
 	}
-	if merged > 0 {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Merged %d fallback-only models", merged)
+	if len(data) == 0 {
+		return fmt.Errorf("pricing registry has no usable rows")
 	}
-	return data
-}
-
-// useFallbackPricing 使用回退价格文件
-func (s *PricingService) useFallbackPricing() error {
-	fallbackFile := s.cfg.Pricing.FallbackFile
-
-	if _, err := os.Stat(fallbackFile); os.IsNotExist(err) {
-		return fmt.Errorf("fallback file not found: %s", fallbackFile)
-	}
-
-	logger.LegacyPrintf("service.pricing", "[Pricing] Using fallback file: %s", fallbackFile)
-
-	// 复制到数据目录
-	data, err := os.ReadFile(fallbackFile)
-	if err != nil {
-		return fmt.Errorf("read fallback failed: %w", err)
-	}
-
-	pricingFile := filepath.Clean(s.getPricingFilePath())
-	// #nosec G703 -- file path is built from operator-controlled Pricing.DataDir plus a fixed filename.
-	if err := os.WriteFile(pricingFile, data, 0644); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to copy fallback: %v", err)
-	}
-
-	return s.loadPricingData(fallbackFile)
-}
-
-// fetchRemoteHash 从远程获取哈希值
-func (s *PricingService) fetchRemoteHash() (string, error) {
-	hashURL, err := s.validatePricingURL(s.cfg.Pricing.HashURL)
-	if err != nil {
-		return "", err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	hash, err := s.remoteClient.FetchHashText(ctx, hashURL)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(hash), nil
-}
-
-func (s *PricingService) validatePricingURL(raw string) (string, error) {
-	if s.cfg != nil && !s.cfg.Security.URLAllowlist.Enabled {
-		normalized, err := urlvalidator.ValidateURLFormat(raw, s.cfg.Security.URLAllowlist.AllowInsecureHTTP)
-		if err != nil {
-			return "", fmt.Errorf("invalid pricing url: %w", err)
-		}
-		return normalized, nil
-	}
-	normalized, err := urlvalidator.ValidateHTTPSURL(raw, urlvalidator.ValidationOptions{
-		AllowedHosts:     s.cfg.Security.URLAllowlist.PricingHosts,
-		RequireAllowlist: true,
-		AllowPrivate:     s.cfg.Security.URLAllowlist.AllowPrivateHosts,
-	})
-	if err != nil {
-		return "", fmt.Errorf("invalid pricing url: %w", err)
-	}
-	return normalized, nil
+	registryHash := sha256.Sum256(tkPricingOverlayRaw)
+	s.mu.Lock()
+	s.pricingData = data
+	s.localHash = hex.EncodeToString(registryHash[:])
+	s.lastUpdated = time.Now()
+	s.mu.Unlock()
+	logger.LegacyPrintf("service.pricing", "[Pricing] Loaded %d models from TK pricing registry", len(data))
+	return nil
 }
 
 // GetModelPricing 获取模型价格（带模糊匹配）
@@ -755,30 +401,29 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	}
 
 	// 4. 基于模型系列匹配（Claude）
-	if pricing := s.matchByModelFamily(lookupCandidates[0]); pricing != nil {
+	if pricing := s.resolveRegistryFamilyAlias(lookupCandidates[0]); pricing != nil {
 		return tkPresentLiteLLMModelPricing(pricing)
 	}
 
-	// 5. OpenAI 模型回退策略
+	// 5. OpenAI registry alias policy
 	if strings.HasPrefix(lookupCandidates[0], "gpt-") {
-		return tkPresentLiteLLMModelPricing(s.matchOpenAIModel(lookupCandidates[0]))
+		return tkPresentLiteLLMModelPricing(s.resolveOpenAIRegistryAlias(lookupCandidates[0]))
 	}
 
-	// 6. Provider-prefixed 最后兜底：仅当运行时源恰好带前缀 key（"gemini/imagen-4.0-*"、
-	// "vertex_ai/imagen-4.0-*"）时才命中。注意这不是媒体计价的主路径——生产源（Wei-Shaw 镜像）
-	// 把这些前缀 key 全裁掉了，真正让 imagen-*/veo-* 解析出价的是 always-merged 的 TK overlay
-	// （见 pricing_service_tk_overlay.go），overlay 注入的裸名已在上面第 1 步 exact-match 命中。
-	if pricing := s.matchByProviderPrefix(lookupCandidates[0]); pricing != nil {
+	// 6. Provider-prefixed registry aliases are a final compatibility lookup. The
+	// canonical bare registry owner is preferred above; this path only supports
+	// imported provider naming forms and never consults an external snapshot.
+	if pricing := s.resolveRegistryProviderAlias(lookupCandidates[0]); pricing != nil {
 		return tkPresentLiteLLMModelPricing(pricing)
 	}
 
 	return nil
 }
 
-// matchByProviderPrefix 用裸模型名匹配 LiteLLM 表里 "<provider>/.../<model>" 形态的 key
+// resolveRegistryProviderAlias 用裸模型名匹配 registry 中 "<provider>/.../<model>" 形态的 key
 // （按最后一段精确相等，兼容 "gemini/x" 与 "aiml/google/x" 这类多段前缀），命中多个时取最高价。
-// 仅扫描含 "/" 的 key（裸 key 已在精确匹配阶段尝试过），避免回退误配裸名条目。
-func (s *PricingService) matchByProviderPrefix(bareModel string) *LiteLLMModelPricing {
+// 仅扫描含 "/" 的 key（裸 key 已在精确匹配阶段尝试过），避免 alias 误配裸名条目。
+func (s *PricingService) resolveRegistryProviderAlias(bareModel string) *LiteLLMModelPricing {
 	bareModel = strings.ToLower(strings.TrimSpace(bareModel))
 	if bareModel == "" {
 		return nil
@@ -830,7 +475,7 @@ func (s *PricingService) buildModelLookupCandidates(modelLower string) []string 
 
 	// A tier-specific entry should take precedence when the pricing catalog gains
 	// one later. Today Antigravity's Gemini 3.6 Flash tiers share the base rate,
-	// so the normalized base remains the fallback after the exact aliases.
+	// so the normalized base remains the final alias after the exact candidates.
 	candidates := rawCandidates
 	if normalizeGeminiThinkingTierAlias(lastSegment(modelLower)) != lastSegment(modelLower) {
 		candidates = append(candidates, normalized)
@@ -931,13 +576,13 @@ func (s *PricingService) extractBaseName(model string) string {
 	return strings.Join(result, "-")
 }
 
-// matchByModelFamily 基于模型系列匹配
-func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
+// resolveRegistryFamilyAlias 基于模型系列匹配
+func (s *PricingService) resolveRegistryFamilyAlias(model string) *LiteLLMModelPricing {
 	// modelFamily 定义一个模型系列的匹配和定价查找规则。
 	type modelFamily struct {
 		name    string   // 系列名称
 		match   []string // 用于将模型归类到此系列的模式（strings.Contains 匹配）
-		pricing []string // 用于在定价数据中查找价格的模式（nil 则复用 match；可包含低版本 fallback）
+		pricing []string // 用于在 registry 中查找 owner 的模式（nil 则复用 match）
 	}
 
 	// 按特异性降序排列：高版本号在前，避免 "claude-opus-4"（opus-4 系列）
@@ -945,7 +590,7 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 	// 注意：原 map 实现存在 Go map 迭代随机性导致的同类 bug，此处改为有序切片修复。
 	families := []modelFamily{
 		// Opus 5 与 Opus 4.8 同价（$5/$25 per MTok）。定价数据缺失 claude-opus-5 时
-		// 必须回退到 4.8，否则会掉进 "opus-4" 系列按 $15/$75 计费（3 倍超收）。
+		// 必须 alias 到 4.8 owner，否则会掉进 "opus-4" 系列按更高 tier 计费。
 		{name: "opus-5", match: []string{"claude-opus-5"}, pricing: []string{"claude-opus-5", "claude-opus-4-8"}},
 		{name: "opus-4.8", match: []string{"claude-opus-4-8", "claude-opus-4.8"}, pricing: []string{"claude-opus-4-8", "claude-opus-4.8", "claude-opus-4-7"}},
 		{name: "opus-4.7", match: []string{"claude-opus-4-7", "claude-opus-4.7"}, pricing: []string{"claude-opus-4-7", "claude-opus-4.7", "claude-opus-4-6"}},
@@ -974,7 +619,7 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 		}
 	}
 
-	// Phase 2: 二次兜底——当模型 ID 不含已知模式串时，按关键字粗分
+	// Phase 2: alias policy——当模型 ID 不含已知模式串时，按关键字粗分
 	if matched == nil {
 		var fallbackName string
 		switch {
@@ -1043,31 +688,31 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 	return nil
 }
 
-// matchOpenAIModel OpenAI 模型回退匹配策略
-// 回退顺序：
+// resolveOpenAIRegistryAlias resolves an OpenAI model to a registry owner alias.
+// Resolution order:
 // 1. gpt-5.3-codex-spark* -> gpt-5.3-codex-spark
 // 2. gpt-5.2-codex -> gpt-5.2（去掉后缀如 -codex, -mini, -max 等）
 // 3. gpt-5.2-20251222 -> gpt-5.2（去掉日期版本号）
 // 4. gpt-5.3-codex* / gpt-5-codex -> gpt-5.3-codex-spark
-// 5. gpt-5.4* / gpt-5.4-mini* -> 业务静态兜底价
-// 6. 最终回退到 DefaultTestModel
-func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
+// 5. gpt-5.4* / gpt-5.4-mini* -> the corresponding registry owner
+// 6. final compatibility alias to DefaultTestModel, when that owner exists in the registry
+func (s *PricingService) resolveOpenAIRegistryAlias(model string) *LiteLLMModelPricing {
 	if strings.HasPrefix(model, "gpt-5.3-codex-spark") {
 		if pricing, ok := s.pricingData["gpt-5.3-codex-spark"]; ok {
 			logger.LegacyPrintf("service.pricing", "[Pricing][SparkBilling] %s -> %s billing", model, "gpt-5.3-codex-spark")
 			logger.With(zap.String("component", "service.pricing")).
-				Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.3-codex-spark"))
+				Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, "gpt-5.3-codex-spark"))
 			return pricing
 		}
 	}
 
-	// 尝试的回退变体
-	variants := s.generateOpenAIModelVariants(model, openAIModelDatePattern)
+	// Try registry compatibility variants.
+	variants := s.generateOpenAIRegistryAliases(model, openAIModelDatePattern)
 
 	for _, variant := range variants {
 		if pricing, ok := s.pricingData[variant]; ok {
 			logger.With(zap.String("component", "service.pricing")).
-				Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, variant))
+				Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, variant))
 			return pricing
 		}
 	}
@@ -1075,7 +720,7 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 	if strings.HasPrefix(model, "gpt-5.3-codex") {
 		if pricing, ok := s.pricingData["gpt-5.3-codex-spark"]; ok {
 			logger.With(zap.String("component", "service.pricing")).
-				Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.3-codex-spark"))
+				Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, "gpt-5.3-codex-spark"))
 			return pricing
 		}
 	}
@@ -1083,74 +728,74 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 	if model == "gpt-5-codex" || strings.HasPrefix(model, "gpt-5-codex-") {
 		if pricing, ok := s.pricingData["gpt-5.3-codex-spark"]; ok {
 			logger.With(zap.String("component", "service.pricing")).
-				Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.3-codex-spark"))
+				Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, "gpt-5.3-codex-spark"))
 			return pricing
 		}
 	}
 
 	if strings.HasPrefix(model, "gpt-5.6-sol") {
 		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.6-sol(static)"))
-		return openAIGPT56SolFallbackPricing
+			Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, "gpt-5.6-sol"))
+		return tkOverlayLiteLLMModelPricing("gpt-5.6-sol")
 	}
 	if strings.HasPrefix(model, "gpt-5.6-terra") {
 		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.6-terra(static)"))
-		return openAIGPT56TerraFallbackPricing
+			Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, "gpt-5.6-terra"))
+		return tkOverlayLiteLLMModelPricing("gpt-5.6-terra")
 	}
 	if strings.HasPrefix(model, "gpt-5.6-luna") {
 		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.6-luna(static)"))
-		return openAIGPT56LunaFallbackPricing
+			Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, "gpt-5.6-luna"))
+		return tkOverlayLiteLLMModelPricing("gpt-5.6-luna")
 	}
 
-	// GPT-5.5 回退到 GPT-5.4 定价
+	// GPT-5.5 compatibility aliases to the GPT-5.4 registry owner.
 	if strings.HasPrefix(model, "gpt-5.5") {
 		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.4(static)"))
-		return openAIGPT54FallbackPricing
+			Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, "gpt-5.4"))
+		return tkOverlayLiteLLMModelPricing("gpt-5.4")
 	}
 
 	if strings.HasPrefix(model, "gpt-5.4-mini") {
 		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.4-mini(static)"))
-		return openAIGPT54MiniFallbackPricing
+			Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, "gpt-5.4-mini"))
+		return tkOverlayLiteLLMModelPricing("gpt-5.4-mini")
 	}
 
 	if strings.HasPrefix(model, "gpt-5.4-nano") {
 		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.4-nano(static)"))
-		return openAIGPT54NanoFallbackPricing
+			Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, "gpt-5.4-nano"))
+		return tkOverlayLiteLLMModelPricing("gpt-5.4-nano")
 	}
 
 	if strings.HasPrefix(model, "gpt-5.4") {
 		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.4(static)"))
-		return openAIGPT54FallbackPricing
+			Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, "gpt-5.4"))
+		return tkOverlayLiteLLMModelPricing("gpt-5.4")
 	}
 
 	if isOpenAIImageGenerationModel(model) {
 		for _, candidate := range []string{"gpt-image-2", "gpt-image-1.5", "gpt-image-1"} {
 			if pricing, ok := s.pricingData[candidate]; ok {
-				logger.LegacyPrintf("service.pricing", "[Pricing] OpenAI image fallback matched %s -> %s", model, candidate)
+				logger.LegacyPrintf("service.pricing", "[Pricing] OpenAI image registry alias matched %s -> %s", model, candidate)
 				return pricing
 			}
 		}
 		return nil
 	}
 
-	// 最终回退到 DefaultTestModel
+	// Final compatibility alias to DefaultTestModel, when its registry owner exists.
 	defaultModel := strings.ToLower(openai.DefaultTestModel)
 	if pricing, ok := s.pricingData[defaultModel]; ok {
-		logger.LegacyPrintf("service.pricing", "[Pricing] OpenAI fallback to default model %s -> %s", model, defaultModel)
+		logger.LegacyPrintf("service.pricing", "[Pricing] OpenAI registry alias to default model %s -> %s", model, defaultModel)
 		return pricing
 	}
 
 	return nil
 }
 
-// generateOpenAIModelVariants 生成 OpenAI 模型的回退变体列表
-func (s *PricingService) generateOpenAIModelVariants(model string, datePattern *regexp.Regexp) []string {
+// generateOpenAIRegistryAliases generates OpenAI registry compatibility variants.
+func (s *PricingService) generateOpenAIRegistryAliases(model string, datePattern *regexp.Regexp) []string {
 	seen := make(map[string]bool)
 	var variants []string
 
@@ -1197,17 +842,10 @@ func (s *PricingService) GetStatus() map[string]any {
 
 // ForceUpdate 强制更新
 func (s *PricingService) ForceUpdate() error {
-	return s.downloadPricingData()
-}
-
-// getPricingFilePath 获取价格文件路径
-func (s *PricingService) getPricingFilePath() string {
-	return filepath.Join(s.cfg.Pricing.DataDir, "model_pricing.json")
-}
-
-// getHashFilePath 获取哈希文件路径
-func (s *PricingService) getHashFilePath() string {
-	return filepath.Join(s.cfg.Pricing.DataDir, "model_pricing.sha256")
+	if s == nil {
+		return fmt.Errorf("pricing service is nil")
+	}
+	return s.loadRegistryPricingData()
 }
 
 // ListModelNamesByProvider returns all model names in the catalog whose

@@ -7,9 +7,9 @@ import (
 
 // PricingSource 定价来源标识
 const (
-	PricingSourceChannel  = "channel"
-	PricingSourceLiteLLM  = "litellm"
-	PricingSourceFallback = "fallback"
+	PricingSourceChannel     = "channel"
+	PricingSourceRegistry    = "registry"
+	PricingSourceUnavailable = "unpriced"
 )
 
 // ResolvedPricing 统一定价解析结果
@@ -17,7 +17,7 @@ type ResolvedPricing struct {
 	// Mode 计费模式
 	Mode BillingMode
 
-	// Token 模式：基础定价（来自 LiteLLM 或 fallback）
+	// Token 模式：基础定价（来自统一 registry owner）
 	BasePricing *ModelPricing
 
 	// Token 模式：区间定价列表（如有，覆盖 BasePricing 中的对应字段）
@@ -30,7 +30,7 @@ type ResolvedPricing struct {
 	DefaultPerRequestPrice float64
 
 	// 来源标识
-	Source string // "channel", "litellm", "fallback"
+	Source string // "channel", "registry", "unpriced"
 
 	// 是否支持缓存细分
 	SupportsCacheBreakdown bool
@@ -40,7 +40,7 @@ type ResolvedPricing struct {
 }
 
 // ModelPricingResolver 统一模型定价解析器。
-// 解析链：Channel → LiteLLM → Fallback。
+// 解析链：scoped channel override → unified registry → fail-closed/floor.
 type ModelPricingResolver struct {
 	channelService *ChannelService
 	billingService *BillingService
@@ -61,7 +61,7 @@ type PricingInput struct {
 }
 
 // Resolve 解析模型定价。
-// 1. 获取基础定价（LiteLLM → Fallback）
+// 1. 获取基础定价（registry → fail-closed）
 // 2. 如果指定了 GroupID，查找渠道定价并覆盖
 func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) *ResolvedPricing {
 	var chPricing *ChannelModelPricing
@@ -127,15 +127,15 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	return resolved
 }
 
-// resolveBasePricing 从 LiteLLM 或 Fallback 获取基础定价
+// resolveBasePricing 从统一 registry 获取基础定价
 func (r *ModelPricingResolver) resolveBasePricing(model string) (*ModelPricing, string) {
 	pricing, err := r.billingService.GetModelPricing(model)
 	if err != nil {
-		slog.Debug("failed to get model pricing from LiteLLM, using fallback",
+		slog.Debug("failed to get model pricing from registry",
 			"model", model, "error", err)
-		return nil, PricingSourceFallback
+		return nil, PricingSourceUnavailable
 	}
-	return pricing, PricingSourceLiteLLM
+	return pricing, PricingSourceRegistry
 }
 
 // applyChannelOverrides 应用渠道定价覆盖

@@ -63,10 +63,13 @@ func TestCalculateOpenAIRecordUsageCostWebSearchPerCall(t *testing.T) {
 	require.InDelta(t, 0.005, cost.TotalCost, 1e-12)
 	require.InDelta(t, 0.005, cost.ActualCost, 1e-12)
 
-	// WebSearchCalls = 0 时不得走按次分支（无定价数据会返回 pricing 错误，
-	// 证明回落到了 token 路径而不是被按次分支吞掉）。
+	// WebSearchCalls = 0 时不得走按次分支。使用无 fallback 的 o-series
+	// 模型，确保这里仍然能观察到 token 定价缺失，而不会被 GPT-5.6 owner
+	// overlay 正确命中后掩盖断言。
 	result.WebSearchCalls = 0
-	_, err = svc.calculateOpenAIRecordUsageCost(context.Background(), result, apiKey, []string{"gpt-5.6-sol"}, 1.0, 1.0, 1.0, 1.0, UsageTokens{InputTokens: 10}, "", false)
+	result.Model = "o5-preview"
+	result.UpstreamModel = "o5-preview"
+	_, err = svc.calculateOpenAIRecordUsageCost(context.Background(), result, apiKey, []string{"o5-preview"}, 1.0, 1.0, 1.0, 1.0, UsageTokens{InputTokens: 10}, "", false)
 	require.Error(t, err)
 }
 

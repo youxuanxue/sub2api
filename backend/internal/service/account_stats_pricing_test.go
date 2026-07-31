@@ -433,36 +433,32 @@ func TestTryCustomRules_RuleMatchesButModelNot_ContinuesToNext(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// tryModelFilePricing
+// tryRegistryPricing
 // ---------------------------------------------------------------------------
 
-// newTestBillingServiceWithPrices creates a BillingService with pre-populated
-// fallback prices for testing. No config or pricing service is needed.
-// The key must match what getFallbackPricing resolves to for a given model name.
-// E.g., model "claude-sonnet-4" resolves to key "claude-sonnet-4".
+// newTestBillingServiceWithPrices creates a BillingService with an isolated
+// registry fixture. The key must match the registry lookup used by the test.
 func newTestBillingServiceWithPrices(prices map[string]*ModelPricing) *BillingService {
-	return &BillingService{
-		fallbackPrices: prices,
-	}
+	return newBillingServiceWithModelPricing(prices)
 }
 
-func TestTryModelFilePricing_Success(t *testing.T) {
+func TestTryRegistryPricing_Success(t *testing.T) {
 	bs := newTestBillingServiceWithPrices(map[string]*ModelPricing{
-		"claude-sonnet-4": {
+		"fixture-account-stats": {
 			InputPricePerToken:  0.001,
 			OutputPricePerToken: 0.002,
 		},
 	})
 	tokens := UsageTokens{InputTokens: 100, OutputTokens: 50}
-	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens)
+	result := tryRegistryPricing(bs, "fixture-account-stats", tokens)
 	require.NotNil(t, result)
 	// 100*0.001 + 50*0.002 = 0.1 + 0.1 = 0.2
 	require.InDelta(t, 0.2, *result, 1e-12)
 }
 
-func TestTryModelFilePricing_AppliesLongContextPricing(t *testing.T) {
+func TestTryRegistryPricing_AppliesLongContextPricing(t *testing.T) {
 	bs := newTestBillingServiceWithPrices(map[string]*ModelPricing{
-		"gpt-5.6-sol": {
+		"fixture-account-stats": {
 			InputPricePerToken:          0.001,
 			OutputPricePerToken:         0.002,
 			CacheReadPricePerToken:      0.0001,
@@ -473,46 +469,36 @@ func TestTryModelFilePricing_AppliesLongContextPricing(t *testing.T) {
 	})
 	tokens := UsageTokens{InputTokens: 101, OutputTokens: 10, CacheReadTokens: 5}
 
-	result := tryModelFilePricing(bs, "gpt-5.6-sol", tokens)
+	result := tryRegistryPricing(bs, "fixture-account-stats", tokens)
 
 	require.NotNil(t, result)
 	// Input and cache-read use the 2x input tier; output uses the 1.5x tier.
 	require.InDelta(t, 0.233, *result, 1e-12)
 }
 
-func TestTryModelFilePricing_PricingNotFound(t *testing.T) {
-	// "nonexistent-model" does not match any fallback pattern
+func TestTryRegistryPricing_PricingNotFound(t *testing.T) {
+	// "nonexistent-model" has no fixture registry owner.
 	bs := newTestBillingServiceWithPrices(map[string]*ModelPricing{})
 	tokens := UsageTokens{InputTokens: 100, OutputTokens: 50}
-	result := tryModelFilePricing(bs, "nonexistent-model", tokens)
+	result := tryRegistryPricing(bs, "nonexistent-model", tokens)
 	require.Nil(t, result)
 }
 
-func TestTryModelFilePricing_NilFallback(t *testing.T) {
-	// getFallbackPricing returns nil when key maps to nil
+func TestTryRegistryPricing_ZeroCost(t *testing.T) {
 	bs := newTestBillingServiceWithPrices(map[string]*ModelPricing{
-		"claude-sonnet-4": nil,
-	})
-	tokens := UsageTokens{InputTokens: 100}
-	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens)
-	require.Nil(t, result)
-}
-
-func TestTryModelFilePricing_ZeroCost(t *testing.T) {
-	bs := newTestBillingServiceWithPrices(map[string]*ModelPricing{
-		"claude-sonnet-4": {
+		"fixture-account-stats": {
 			InputPricePerToken:  0.001,
 			OutputPricePerToken: 0.002,
 		},
 	})
 	tokens := UsageTokens{} // all zero tokens → cost = 0 → nil
-	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens)
+	result := tryRegistryPricing(bs, "fixture-account-stats", tokens)
 	require.Nil(t, result)
 }
 
-func TestTryModelFilePricing_WithImageOutput(t *testing.T) {
+func TestTryRegistryPricing_WithImageOutput(t *testing.T) {
 	bs := newTestBillingServiceWithPrices(map[string]*ModelPricing{
-		"claude-sonnet-4": {
+		"fixture-account-stats": {
 			InputPricePerToken:       0.001,
 			OutputPricePerToken:      0.002,
 			ImageOutputPricePerToken: 0.01,
@@ -523,15 +509,15 @@ func TestTryModelFilePricing_WithImageOutput(t *testing.T) {
 		OutputTokens:      50,
 		ImageOutputTokens: 10,
 	}
-	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens)
+	result := tryRegistryPricing(bs, "fixture-account-stats", tokens)
 	require.NotNil(t, result)
 	// 100*0.001 + 50*0.002 + 10*0.01 = 0.1 + 0.1 + 0.1 = 0.3
 	require.InDelta(t, 0.3, *result, 1e-12)
 }
 
-func TestTryModelFilePricing_WithCacheTokens(t *testing.T) {
+func TestTryRegistryPricing_WithCacheTokens(t *testing.T) {
 	bs := newTestBillingServiceWithPrices(map[string]*ModelPricing{
-		"claude-sonnet-4": {
+		"fixture-account-stats": {
 			InputPricePerToken:         0.001,
 			OutputPricePerToken:        0.002,
 			CacheCreationPricePerToken: 0.003,
@@ -544,7 +530,7 @@ func TestTryModelFilePricing_WithCacheTokens(t *testing.T) {
 		CacheCreationTokens: 200,
 		CacheReadTokens:     300,
 	}
-	result := tryModelFilePricing(bs, "claude-sonnet-4", tokens)
+	result := tryRegistryPricing(bs, "fixture-account-stats", tokens)
 	require.NotNil(t, result)
 	// 100*0.001 + 50*0.002 + 200*0.003 + 300*0.0005
 	// = 0.1 + 0.1 + 0.6 + 0.15 = 0.95
@@ -670,7 +656,7 @@ func TestResolveAccountStatsCost_ApplyPricingToAccountStats_ZeroTotalCost_Return
 	require.Nil(t, result)
 }
 
-func TestResolveAccountStatsCost_FallsBackToLiteLLM(t *testing.T) {
+func TestResolveAccountStatsCost_UsesRegistryPricing(t *testing.T) {
 	channel := &Channel{
 		ID:                         1,
 		Status:                     StatusActive,
@@ -699,7 +685,7 @@ func TestResolveAccountStatsCost_FallsBackToLiteLLM(t *testing.T) {
 	require.InDelta(t, 0.2, *result, 1e-12)
 }
 
-func TestResolveAccountStatsCost_Gemini36FlashTierUsesFallbackPricing(t *testing.T) {
+func TestResolveAccountStatsCost_Gemini36FlashTierUsesRegistryOwner(t *testing.T) {
 	channel := &Channel{
 		ID:                         1,
 		Status:                     StatusActive,
@@ -708,14 +694,17 @@ func TestResolveAccountStatsCost_Gemini36FlashTierUsesFallbackPricing(t *testing
 	cs := newTestChannelServiceForStats(t, channel, 10, "antigravity")
 	bs := NewBillingService(&config.Config{}, nil)
 
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
 	result := resolveAccountStatsCost(
 		context.Background(),
 		cs, bs,
 		1, 10, "gemini-3.6-flash-low",
-		UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}, 1, 0,
+		tokens, 1, 0,
 	)
 	require.NotNil(t, result)
-	require.InDelta(t, 9.15, *result, 1e-12)
+	want := tryRegistryPricing(bs, "gemini-3.6-flash-low", tokens)
+	require.NotNil(t, want)
+	require.InDelta(t, *want, *result, 1e-12)
 }
 
 func TestResolveAccountStatsCost_AllMiss_ReturnsNil(t *testing.T) {
@@ -741,7 +730,7 @@ func TestResolveAccountStatsCost_AllMiss_ReturnsNil(t *testing.T) {
 	require.Nil(t, result)
 }
 
-func TestResolveAccountStatsCost_NilBillingService_SkipsLiteLLM(t *testing.T) {
+func TestResolveAccountStatsCost_NilBillingService_SkipsRegistryPricing(t *testing.T) {
 	channel := &Channel{
 		ID:                         1,
 		Status:                     StatusActive,

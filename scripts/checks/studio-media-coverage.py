@@ -19,8 +19,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-BASE_CATALOG = REPO / "backend/resources/model-pricing/model_prices_and_context_window.json"
-OVERLAY = REPO / "backend/internal/service/tk_pricing_overlay.json"
+BASE_CATALOG = REPO / "backend/internal/service/tk_pricing_overlay.json"
 GO_ALLOWLIST = REPO / "backend/internal/service/pricing_catalog_supported_models_tk.go"
 MANIFEST = REPO / "backend/internal/service/tk_served_models.json"
 MEDIA_PRESENTATIONS = REPO / "frontend/src/constants/studioMediaPresentations.tk.ts"
@@ -67,40 +66,14 @@ def _priced_catalog_row(entry: dict[str, object]) -> bool:
     )
 
 
-def _overlay_catalog_entry(entry: dict[str, object]) -> dict[str, object]:
-    # Matches applyCatalogOverlayPricing's synthetic catalogRichEntry: overlay
-    # entries get token fields (zero when absent) plus explicit media fields.
-    out: dict[str, object] = {
-        "litellm_provider": entry.get("litellm_provider", ""),
-        "mode": entry.get("mode", ""),
-        "input_cost_per_token": entry.get("input_cost_per_token", 0),
-        "output_cost_per_token": entry.get("output_cost_per_token", 0),
-    }
-    for field in ("output_cost_per_image", "output_cost_per_second"):
-        if _positive(entry, field):
-            out[field] = entry[field]
-    return out
-
-
-def catalog_media_ids(catalog_text: str, overlay_text: str, modality: str) -> set[str]:
-    catalog = json.loads(catalog_text)
-    overlay = json.loads(overlay_text)
+def catalog_media_ids(registry_text: str, modality: str) -> set[str]:
+    registry = json.loads(registry_text)
     rows: dict[str, dict[str, object]] = {}
-    for model_id, entry in catalog.items():
-        if model_id == "sample_spec" or not isinstance(entry, dict):
+    for model_id, entry in registry.items():
+        if model_id.startswith("_") or not isinstance(entry, dict):
             continue
         if _priced_catalog_row(entry):
             rows[model_id] = dict(entry)
-
-    for model_id, entry in overlay.items():
-        if model_id.startswith("_") or not isinstance(entry, dict):
-            continue
-        is_media = _positive(entry, "output_cost_per_image") or _positive(entry, "output_cost_per_second")
-        if not _positive(entry, "input_cost_per_token") and not _positive(entry, "output_cost_per_token") and not is_media:
-            continue
-        if model_id in rows:
-            continue
-        rows[model_id] = _overlay_catalog_entry(entry)
 
     out: set[str] = set()
     for model_id, entry in rows.items():
@@ -136,13 +109,12 @@ def servable_source_ids(go_text: str, manifest_text: str) -> set[str]:
 
 
 def public_servable_media_ids(
-    catalog_text: str,
-    overlay_text: str,
+    registry_text: str,
     go_text: str,
     manifest_text: str,
     modality: str,
 ) -> set[str]:
-    return catalog_media_ids(catalog_text, overlay_text, modality) & servable_source_ids(go_text, manifest_text)
+    return catalog_media_ids(registry_text, modality) & servable_source_ids(go_text, manifest_text)
 
 
 def _media_presentations_array(ts_text: str) -> str:
@@ -215,9 +187,9 @@ def frontend_media_presentations(ts_text: str) -> dict[str, dict[str, object]]:
     return out
 
 
-def coverage_errors(catalog_text: str, overlay_text: str, go_text: str, manifest_text: str, ts_text: str) -> list[str]:
+def coverage_errors(registry_text: str, go_text: str, manifest_text: str, ts_text: str) -> list[str]:
     public_by_modality = {
-        modality: public_servable_media_ids(catalog_text, overlay_text, go_text, manifest_text, modality)
+        modality: public_servable_media_ids(registry_text, go_text, manifest_text, modality)
         for modality in MODALITIES
     }
     presentations = frontend_media_presentations(ts_text)
@@ -269,14 +241,13 @@ def coverage_errors(catalog_text: str, overlay_text: str, go_text: str, manifest
 
 def check(quiet: bool = False) -> int:
     try:
-        catalog_text = BASE_CATALOG.read_text(encoding="utf-8")
-        overlay_text = OVERLAY.read_text(encoding="utf-8")
+        registry_text = BASE_CATALOG.read_text(encoding="utf-8")
         go_text = GO_ALLOWLIST.read_text(encoding="utf-8")
         manifest_text = MANIFEST.read_text(encoding="utf-8")
         ts_text = MEDIA_PRESENTATIONS.read_text(encoding="utf-8")
-        errors = coverage_errors(catalog_text, overlay_text, go_text, manifest_text, ts_text)
+        errors = coverage_errors(registry_text, go_text, manifest_text, ts_text)
         counts = {
-            modality: len(public_servable_media_ids(catalog_text, overlay_text, go_text, manifest_text, modality))
+            modality: len(public_servable_media_ids(registry_text, go_text, manifest_text, modality))
             for modality in MODALITIES
         }
     except Exception as exc:  # noqa: BLE001
@@ -297,7 +268,7 @@ def check(quiet: bool = False) -> int:
 
 
 def selftest() -> int:
-    catalog = json.dumps(
+    registry = json.dumps(
         {
             "base-catalog-image": {
                 "mode": "image_generation",
@@ -311,10 +282,6 @@ def selftest() -> int:
                 "output_cost_per_image": 0.00012,
                 "litellm_provider": "vertex_ai-language-models",
             },
-        }
-    )
-    overlay = json.dumps(
-        {
             "imagen-4.0-generate-001": {"mode": "image_generation", "output_cost_per_image": 0.04},
             "gemini-3-pro-image": {"mode": "image_generation", "output_cost_per_image": 0.0672},
             "grok-imagine-image": {"mode": "image_generation", "output_cost_per_image": 0.02},
@@ -344,15 +311,15 @@ def selftest() -> int:
             }
         }
     )
-    assert public_servable_media_ids(catalog, overlay, go, manifest, "image") == {
+    assert public_servable_media_ids(registry, go, manifest, "image") == {
         "base-catalog-image",
         "doubao-seedream-5-0-260128",
         "gemini-3-pro-image",
         "grok-imagine-image",
         "imagen-4.0-generate-001",
     }
-    assert "gemini-3.1-pro-low" not in public_servable_media_ids(catalog, overlay, go, manifest, "image")
-    assert public_servable_media_ids(catalog, overlay, go, manifest, "video") == {
+    assert "gemini-3.1-pro-low" not in public_servable_media_ids(registry, go, manifest, "image")
+    assert public_servable_media_ids(registry, go, manifest, "video") == {
         "doubao-seedance-1-0-pro-fast-251015",
         "grok-imagine-video",
         "veo-3.1-generate-001",
@@ -373,14 +340,14 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     assert presentations["gemini-3-pro-image"]["model_id"] == "gemini-3-pro-image-preview"
     assert presentations["grok-imagine-image"]["flat_price_per_image"] is True
     assert presentations["veo-3.1-generate-001"]["durations"] == [4, 6, 8]
-    assert not coverage_errors(catalog, overlay, go, manifest, ts)
+    assert not coverage_errors(registry, go, manifest, ts)
 
     bad_ts = """
 export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   { modelId: 'doubao-seedream-5-0-260128', modality: 'image' },
 ]
 """
-    bad_errors = coverage_errors(catalog, overlay, "", manifest, bad_ts)
+    bad_errors = coverage_errors(registry, "", manifest, bad_ts)
     assert any("imageSizes or explicit flatPricePerImage" in err for err in bad_errors), bad_errors
 
     alias_ts = """

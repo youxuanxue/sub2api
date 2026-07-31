@@ -708,7 +708,7 @@ func TestMePricingCatalog_PerRequestBillingPreservesPrice(t *testing.T) {
 // TestBuildForUser_AccountWhitelistOnly_NoChannels mirrors the production
 // incident that motivated the bridge: operator created an account, ticked
 // the model-whitelist boxes in admin, never configured any channels. The
-// menu should reflect the whitelist with LiteLLM-derived OFFICIAL prices
+// menu should reflect the whitelist with registry-owned official prices
 // (decoupled from group rate), not be empty.
 func TestBuildForUser_AccountWhitelistOnly_NoChannels(t *testing.T) {
 	gOpenAI := mkGroupForMe(30, "GPT", "openai", 2.0)
@@ -1020,11 +1020,11 @@ func TestBuildForUser_AccountWhitelist_MappingModeIgnored(t *testing.T) {
 		"only the identity-mapped (whitelist) entry surfaces; the alias rewrite contributes nothing")
 }
 
-// TestBuildForUser_AccountWhitelist_MissingFromLiteLLM_StillEmits
-// documents the forgiving fallback: a model that LiteLLM doesn't price
-// yet (e.g. a freshly released family) still appears in the menu with
+// TestBuildForUser_AccountWhitelist_MissingFromRegistry_StillEmits documents
+// the forgiving display fallback: a model absent from the registry-backed
+// catalog still appears in the menu with
 // nil prices, so the user knows the gateway can serve it.
-func TestBuildForUser_AccountWhitelist_MissingFromLiteLLM_StillEmits(t *testing.T) {
+func TestBuildForUser_AccountWhitelist_MissingFromRegistry_StillEmits(t *testing.T) {
 	gOpenAI := mkGroupForMe(30, "GPT", "openai", 1.0)
 	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
 	acct := mkAccountWithWhitelist(11, "oauth", "openai", 0, []string{"gpt-5.5-not-in-catalog"})

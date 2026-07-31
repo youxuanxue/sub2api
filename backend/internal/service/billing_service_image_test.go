@@ -8,18 +8,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCalculateImageCost_DefaultPricing 测试无分组配置时使用默认价格
-func TestCalculateImageCost_DefaultPricing(t *testing.T) {
-	svc := &BillingService{} // pricingService 为 nil，使用硬编码默认值
+func mustRegistryImageBasePrice(t *testing.T, model string) float64 {
+	t.Helper()
+	owner := tkOverlayLiteLLMModelPricing(model)
+	require.NotNil(t, owner, "registry owner missing for %s", model)
+	require.Positive(t, owner.OutputCostPerImage, "registry image price missing for %s", model)
+	return owner.OutputCostPerImage
+}
 
-	// 2K 尺寸，默认价格 $0.134 * 1.5 = $0.201
+// TestCalculateImageCost_RegistryPricing tests the registry owner when no
+// scoped group override is configured.
+func TestCalculateImageCost_DefaultPricing(t *testing.T) {
+	svc := &BillingService{}
+	base := mustRegistryImageBasePrice(t, "gemini-3-pro-image")
+	want2K := base * 1.5
+
 	cost := svc.CalculateImageCost("gemini-3-pro-image", "2K", 1, nil, 1.0)
-	require.InDelta(t, 0.201, cost.TotalCost, 0.0001)
-	require.InDelta(t, 0.201, cost.ActualCost, 0.0001)
+	require.InDelta(t, want2K, cost.TotalCost, 1e-12)
+	require.InDelta(t, want2K, cost.ActualCost, 1e-12)
 
 	// 多张图片
 	cost = svc.CalculateImageCost("gemini-3-pro-image", "2K", 3, nil, 1.0)
-	require.InDelta(t, 0.603, cost.TotalCost, 0.0001)
+	require.InDelta(t, want2K*3, cost.TotalCost, 1e-12)
 }
 
 // TestCalculateImageCost_GroupCustomPricing 测试分组自定义价格
@@ -66,25 +76,27 @@ func TestCalculateImageCost_NormalizesInvalidSizeTo2K(t *testing.T) {
 // TestCalculateImageCost_4KDoublePrice 测试 4K 默认价格翻倍
 func TestCalculateImageCost_4KDoublePrice(t *testing.T) {
 	svc := &BillingService{}
+	base := mustRegistryImageBasePrice(t, "gemini-3-pro-image")
 
-	// 4K 尺寸，默认价格翻倍 $0.134 * 2 = $0.268
 	cost := svc.CalculateImageCost("gemini-3-pro-image", "4K", 1, nil, 1.0)
-	require.InDelta(t, 0.268, cost.TotalCost, 0.0001)
+	require.InDelta(t, base*2, cost.TotalCost, 1e-12)
 }
 
 // TestCalculateImageCost_RateMultiplier 测试费率倍数
 func TestCalculateImageCost_RateMultiplier(t *testing.T) {
 	svc := &BillingService{}
+	base := mustRegistryImageBasePrice(t, "gemini-3-pro-image")
+	want2K := base * 1.5
 
 	// 费率倍数 1.5x
 	cost := svc.CalculateImageCost("gemini-3-pro-image", "2K", 1, nil, 1.5)
-	require.InDelta(t, 0.201, cost.TotalCost, 0.0001)   // TotalCost = 0.134 * 1.5
-	require.InDelta(t, 0.3015, cost.ActualCost, 0.0001) // ActualCost = 0.201 * 1.5
+	require.InDelta(t, want2K, cost.TotalCost, 1e-12)
+	require.InDelta(t, want2K*1.5, cost.ActualCost, 1e-12)
 
 	// 费率倍数 2.0x
 	cost = svc.CalculateImageCost("gemini-3-pro-image", "2K", 2, nil, 2.0)
-	require.InDelta(t, 0.402, cost.TotalCost, 0.0001)
-	require.InDelta(t, 0.804, cost.ActualCost, 0.0001)
+	require.InDelta(t, want2K*2, cost.TotalCost, 1e-12)
+	require.InDelta(t, want2K*2*2, cost.ActualCost, 1e-12)
 }
 
 // TestCalculateImageCost_ZeroCount 测试 imageCount=0
@@ -109,9 +121,10 @@ func TestCalculateImageCost_NegativeCount(t *testing.T) {
 // （保存时已强制 > 0；若仍有 0 泄漏到计费层，零消耗比历史的 1.0 更安全）。
 func TestCalculateImageCost_ZeroRateMultiplier(t *testing.T) {
 	svc := &BillingService{}
+	want2K := mustRegistryImageBasePrice(t, "gemini-3-pro-image") * 1.5
 
 	cost := svc.CalculateImageCost("gemini-3-pro-image", "2K", 1, nil, 0)
-	require.InDelta(t, 0.201, cost.TotalCost, 0.0001)
+	require.InDelta(t, want2K, cost.TotalCost, 1e-12)
 	require.InDelta(t, 0.0, cost.ActualCost, 1e-10)
 }
 
@@ -124,7 +137,7 @@ func TestGetImageUnitPrice_GroupPriorityOverDefault(t *testing.T) {
 		Price2K: &price2K,
 	}
 
-	// 分组配置了 2K 价格，应该使用分组价格而不是默认的 $0.134
+	// 分组配置了 2K 价格，应该覆盖 registry owner。
 	cost := svc.CalculateImageCost("gemini-3-pro-image", "2K", 1, groupConfig, 1.0)
 	require.InDelta(t, 0.20, cost.TotalCost, 0.0001)
 }
@@ -132,6 +145,7 @@ func TestGetImageUnitPrice_GroupPriorityOverDefault(t *testing.T) {
 // TestGetImageUnitPrice_PartialGroupConfig 测试分组部分配置时回退默认
 func TestGetImageUnitPrice_PartialGroupConfig(t *testing.T) {
 	svc := &BillingService{}
+	base := mustRegistryImageBasePrice(t, "gemini-3-pro-image")
 
 	// 只配置 1K 价格
 	price1K := 0.10
@@ -143,33 +157,32 @@ func TestGetImageUnitPrice_PartialGroupConfig(t *testing.T) {
 	cost := svc.CalculateImageCost("gemini-3-pro-image", "1K", 1, groupConfig, 1.0)
 	require.InDelta(t, 0.10, cost.TotalCost, 0.0001)
 
-	// 2K 回退默认价格 $0.201 (1.5倍)
+	// 未配置的 tier 继续使用 registry owner。
 	cost = svc.CalculateImageCost("gemini-3-pro-image", "2K", 1, groupConfig, 1.0)
-	require.InDelta(t, 0.201, cost.TotalCost, 0.0001)
+	require.InDelta(t, base*1.5, cost.TotalCost, 1e-12)
 
-	// 4K 回退默认价格 $0.268 (翻倍)
 	cost = svc.CalculateImageCost("gemini-3-pro-image", "4K", 1, groupConfig, 1.0)
-	require.InDelta(t, 0.268, cost.TotalCost, 0.0001)
+	require.InDelta(t, base*2, cost.TotalCost, 1e-12)
 }
 
-// TestGetDefaultImagePrice_FallbackHardcoded 测试 PricingService 无数据时使用硬编码默认值
-func TestGetDefaultImagePrice_FallbackHardcoded(t *testing.T) {
-	svc := &BillingService{} // pricingService 为 nil
+// TestGetDefaultImagePrice_RegistryOwner verifies the embedded registry remains
+// available even when the optional PricingService dependency is nil.
+func TestGetDefaultImagePrice_RegistryOwner(t *testing.T) {
+	svc := &BillingService{}
+	base := mustRegistryImageBasePrice(t, "gemini-3-pro-image")
 
-	// 1K 默认价格 $0.134，2K 默认价格 $0.201 (1.5倍)
 	cost := svc.CalculateImageCost("gemini-3-pro-image", "1K", 1, nil, 1.0)
-	require.InDelta(t, 0.134, cost.TotalCost, 0.0001)
+	require.InDelta(t, base, cost.TotalCost, 1e-12)
 
 	cost = svc.CalculateImageCost("gemini-3-pro-image", "2K", 1, nil, 1.0)
-	require.InDelta(t, 0.201, cost.TotalCost, 0.0001)
+	require.InDelta(t, base*1.5, cost.TotalCost, 1e-12)
 }
 
 // TestGetImageUnitPrice_EmptyImageSize_UsesGroupTier locks the upstream
 // Wei-Shaw/sub2api#2539 fix: when ForwardResult.ImageSize fails to propagate
 // (image_size == ""), billing must still honor the group's configured image
 // pricing — mirroring the request-side normalizeOpenAIImageSizeTier default
-// (empty → "2K") — instead of silently falling back to the LiteLLM default
-// price of $0.134.
+// (empty → "2K") — instead of silently bypassing the scoped override.
 func TestGetImageUnitPrice_EmptyImageSize_UsesGroupTier(t *testing.T) {
 	svc := &BillingService{}
 
@@ -183,7 +196,7 @@ func TestGetImageUnitPrice_EmptyImageSize_UsesGroupTier(t *testing.T) {
 	}
 
 	// Empty imageSize should be treated as the 2K tier and pick group's Price2K
-	// ($0.50), NOT the default $0.134.
+	// ($0.50), not the registry owner price.
 	cost := svc.CalculateImageCost("gpt-image-2", "", 1, groupConfig, 1.0)
 	require.InDelta(t, 0.50, cost.TotalCost, 0.0001)
 	require.InDelta(t, 0.50, cost.ActualCost, 0.0001)
@@ -195,13 +208,14 @@ func TestGetImageUnitPrice_EmptyImageSize_UsesGroupTier(t *testing.T) {
 
 // TestGetImageUnitPrice_EmptyImageSize_NoGroupFallsBackTo2KDefault ensures the
 // empty-imageSize normalization is consistent with the request-side default
-// even when no group pricing is configured: $0.134 * 1.5 = $0.201 (2K tier),
-// not the prior 1K tier of $0.134.
+// even when no group pricing is configured: use the registry owner at the 2K
+// multiplier, not the prior 1K tier.
 func TestGetImageUnitPrice_EmptyImageSize_NoGroupFallsBackTo2KDefault(t *testing.T) {
 	svc := &BillingService{}
+	want2K := mustRegistryImageBasePrice(t, "gemini-3-pro-image") * 1.5
 
 	cost := svc.CalculateImageCost("gemini-3-pro-image", "", 1, nil, 1.0)
-	require.InDelta(t, 0.201, cost.TotalCost, 0.0001)
+	require.InDelta(t, want2K, cost.TotalCost, 1e-12)
 }
 
 // TestGetImageUnitPrice_EmptyImageSize_PartialGroupConfigTier2K covers the

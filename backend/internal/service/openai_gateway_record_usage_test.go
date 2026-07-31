@@ -1026,12 +1026,10 @@ func TestOpenAIGatewayServiceRecordUsage_GPT56SeparatesCacheWriteForBillingAndSt
 	userRepo := &openAIRecordUsageUserRepoStub{}
 	subRepo := &openAIRecordUsageSubRepoStub{}
 	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
+	owner := tkOverlayLiteLLMModelPricing("gpt-5.6-sol")
+	require.NotNil(t, owner)
 	svc.billingService = NewBillingService(svc.cfg, &PricingService{pricingData: map[string]*LiteLLMModelPricing{
-		"gpt-5.6-sol": {
-			InputCostPerToken:       5e-6,
-			OutputCostPerToken:      30e-6,
-			CacheReadInputTokenCost: 0.5e-6,
-		},
+		"gpt-5.6-sol": owner,
 	}})
 
 	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
@@ -1057,10 +1055,10 @@ func TestOpenAIGatewayServiceRecordUsage_GPT56SeparatesCacheWriteForBillingAndSt
 	require.Equal(t, 200, usageRepo.lastLog.CacheCreationTokens)
 	require.Equal(t, 100, usageRepo.lastLog.CacheReadTokens)
 	require.Equal(t, 1050, usageRepo.lastLog.TotalTokens())
-	require.InDelta(t, 700*5e-6, usageRepo.lastLog.InputCost, 1e-12)
-	require.InDelta(t, 200*6.25e-6, usageRepo.lastLog.CacheCreationCost, 1e-12)
-	require.InDelta(t, 100*0.5e-6, usageRepo.lastLog.CacheReadCost, 1e-12)
-	require.InDelta(t, 50*30e-6, usageRepo.lastLog.OutputCost, 1e-12)
+	require.InDelta(t, 700*owner.InputCostPerToken, usageRepo.lastLog.InputCost, 1e-12)
+	require.InDelta(t, 200*owner.CacheCreationInputTokenCost, usageRepo.lastLog.CacheCreationCost, 1e-12)
+	require.InDelta(t, 100*owner.CacheReadInputTokenCost, usageRepo.lastLog.CacheReadCost, 1e-12)
+	require.InDelta(t, 50*owner.OutputCostPerToken, usageRepo.lastLog.OutputCost, 1e-12)
 	require.InDelta(t, usageRepo.lastLog.TotalCost*1.1, usageRepo.lastLog.ActualCost, 1e-12)
 }
 

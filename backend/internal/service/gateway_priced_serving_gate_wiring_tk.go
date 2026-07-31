@@ -18,7 +18,7 @@ package service
 // $0 — NOT a catalog-membership shadow predicate. So the catalog is wired only
 // for legacy uses; the pass/reject decision goes through tkBillingPricingResolver
 // (a thin func over billingService.GetModelPricing). This makes gate ⟺ billing
-// constructive (it inherits getFallbackPricing family coverage + every priced
+// constructive (it inherits getRegistryAliasPricing family coverage + every priced
 // field) and judges the exact key billing will charge per route.
 //
 // All setters/wrappers are nil-safe; an un-wired service simply lets every
@@ -69,7 +69,7 @@ func tkChannelPricingProbeFromResolver(resolver *ModelPricingResolver) tkChannel
 // mode-agnostic on purpose: it checks per-request (default + tiers), token intervals, and the
 // flat BasePricing token dimensions, so an all-empty channel row (which resolves to a $0
 // BasePricing) reads as NOT chargeable and the gate rejects it. This matches the base path,
-// where an all-zero litellm entry is likewise treated as unpriced (tkIsEffectivelyUnpriced).
+// where an all-zero registry row is likewise treated as unpriced (tkIsEffectivelyUnpriced).
 func tkResolvedPricingChargeable(r *ResolvedPricing) bool {
 	if r == nil {
 		return false

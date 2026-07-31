@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Shared prod SSM execution glue for TokenKey ops tools (stdlib-only, no edge-routing deps).
 
-Centralizes the two things ops/pricing/manage-overlay-runtime.py and
-ops/newapi/apply-model-mapping-live.py both need (and previously copy-pasted):
+Centralizes the prod SSM transport used by model-mapping and other guarded ops
+tools:
 
   - resolve_prod_instance(): the prod Stage0 CFN stack's InstanceId (format-validated).
   - run_shell_b64(): run a base64-encoded shell script on prod via SSM, return stdout.

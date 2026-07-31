@@ -20,6 +20,7 @@ Exit codes:
 """
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -140,6 +141,32 @@ def is_container_internal(token: str) -> bool:
     return token.startswith("/")
 
 
+def negative_existence_refs(relpath: Path, text: str) -> set[str]:
+    """Return structured JSON paths that are explicitly required to be absent."""
+    if relpath.suffix != ".json":
+        return set()
+    try:
+        document = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return set()
+
+    refs: set[str] = set()
+
+    def walk(value: object) -> None:
+        if isinstance(value, dict):
+            path = value.get("path")
+            if value.get("must_not_exist") is True and isinstance(path, str):
+                refs.add(path)
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(document)
+    return refs
+
+
 def resolves(captured: str, token: str, file_path: Path) -> bool:
     """Return True if any plausible resolution of the reference exists.
 
@@ -175,6 +202,7 @@ def main() -> int:
         except OSError as exc:
             print(f"::warning::could not read {relpath}: {exc}", file=sys.stderr)
             continue
+        negative_refs = negative_existence_refs(relpath, text)
         for lineno, line in enumerate(text.splitlines(), start=1):
             for m in PATH_RE.finditer(line):
                 captured = m.group(1)
@@ -182,6 +210,8 @@ def main() -> int:
                     continue
                 token = full_token(line, m.start(1), m.end(1))
                 if is_container_internal(token):
+                    continue
+                if token == captured and captured in negative_refs:
                     continue
                 if resolves(captured, token, relpath):
                     continue

@@ -1,41 +1,15 @@
 package service
 
-// TK pricing overlay for models the trimmed runtime price source lacks.
+// TK pricing registry (the filename keeps the historical "overlay" suffix for
+// compatibility). This embedded snapshot is the sole runtime owner for
+// base prices, catalog metadata, and serving-price gates across native platforms
+// and active newapi channels. A scoped channel_model_pricing row may override it
+// at resolution time; provider/LiteLLM data is import evidence only.
 //
-// Why this exists: the production runtime price source (Wei-Shaw/model-price-repo)
-// is a TRIMMED mirror of litellm — it drops provider-prefixed keys
-// ("vertex_ai/imagen-4.0-generate-001") and token-less media entries entirely, so
-// imagen-*/veo-* resolve to nothing and fall back to a wrong default (imagen) or $0
-// (veo). litellm DOES carry these prices, but only under provider-prefixed keys, while
-// the lookup path normalizes toward bare names and never reconstructs a prefix. Rather
-// than open a second litellm sync pipeline (Wei-Shaw is already litellm-rooted — that
-// would be same-source redundancy), TokenKey owns this tiny curated overlay of the
-// handful of models the mirror drops.
-//
-// Scope (originally media-only, generalized 2026-06): any model the source lacks —
-// media (imagen-*/veo-*, priced per-image/per-second) AND text models that litellm
-// itself has not yet catalogued (e.g. deepseek-v4-*, which billed $0 in prod via
-// "pricing_missing_record_zero_cost" until channel pricing was hand-configured).
-// fill-only cannot fix WRONG NON-ZERO source prices (e.g. deepseek-chat still carried
-// at the pre-V4 rate): those are a judgment call between two claimed prices — use
-// channel pricing (DB), it overrides everything.
-//
-// Semantics: merged into every parsePricingData result (remote OR disk fallback) so the
-// entries are present regardless of source. Fill applies when the source key is ABSENT
-// or the source entry is EFFECTIVELY UNPRICED (every cost field zero — see
-// tkIsEffectivelyUnpriced). A zero-priced entry is not a price, it is the absence of a
-// price wearing a price's shape: litellm marks unknown costs 0.0 (e.g.
-// deepseek-v3-2-251201 under volcengine), which billed $0 in prod for weeks with no
-// alert because the key LOOKED present. The source stays authoritative for any entry
-// carrying a real (non-zero) cost, so the overlay remains self-deprecating: the day the
-// source carries a real price for a bare key, the source value wins and the entry here
-// is ignored. The DB-backed ModelPricing override (model_pricing_resolver.go) still
-// sits above everything.
-//
-// Media prices = vertex_ai provider (TK media traffic routes through Vertex ch41); text
-// prices = the provider's official list price. See the JSON _meta block for provenance.
-// Adding a model = one JSON line; if entries ever proliferate, replace this with a
-// provider-aware sync.
+// Runtime loading always starts from this immutable registry. The flexible
+// LiteLLM-shaped parser remains only for registry validation, offline import
+// tooling, and parser tests, so no external source can become a second runtime
+// owner.
 
 import (
 	"bytes"
@@ -52,35 +26,35 @@ import (
 var tkPricingOverlayRaw []byte
 
 type tkPricingOverlayExecutableConfig struct {
-	OfficialListBaseTax *tkOfficialListBaseTaxPolicy `json:"official_list_base_tax"`
-	DeepSeekPeakValley  *tkDeepSeekPeakValleyPolicy  `json:"deepseek_peak_valley"`
+	OfficialListBaseTax   *tkOfficialListBaseTaxPolicy `json:"official_list_base_tax"`
+	DeepSeekPeakValley    *tkDeepSeekPeakValleyPolicy  `json:"deepseek_peak_valley"`
+	WebSearchPricePerCall *float64                     `json:"web_search_price_per_call"`
 }
 
 type tkPricingOverlaySnapshot struct {
-	Models             map[string]*LiteLLMModelPricing
-	BaseTax            tkOfficialListBaseTaxPolicy
-	DeepSeekPeakValley *tkDeepSeekPeakValleyPolicy
+	Models                map[string]*LiteLLMModelPricing
+	BaseTax               tkOfficialListBaseTaxPolicy
+	DeepSeekPeakValley    *tkDeepSeekPeakValleyPolicy
+	WebSearchPricePerCall float64
 }
 
 type tkPricingOverlayDocument struct {
-	Models             map[string]*LiteLLMModelPricing
-	BaseTax            *tkOfficialListBaseTaxPolicy
-	DeepSeekPeakValley *tkDeepSeekPeakValleyPolicy
+	Models                map[string]*LiteLLMModelPricing
+	BaseTax               *tkOfficialListBaseTaxPolicy
+	DeepSeekPeakValley    *tkDeepSeekPeakValleyPolicy
+	WebSearchPricePerCall *float64
 }
 
-// tkOverlayEffective is the live immutable snapshot = embedded ∪ runtime-settings
-// (runtime wins on model conflicts and may replace executable policy). Model prices
-// and tax policy swap under one lock so billing, /pricing, and fallback classification
-// never read policy from a different runtime generation.
+// The embedded registry is parsed once per process. A release is the only way to
+// replace this global snapshot; channel_model_pricing remains the separate,
+// explicitly scoped override resolved above it.
 var (
-	tkOverlayMu        sync.RWMutex
-	tkOverlayEffective *tkPricingOverlaySnapshot
+	tkPricingRegistryOnce     sync.Once
+	tkPricingRegistrySnapshot *tkPricingOverlaySnapshot
 )
 
-// parseTKOverlayDocument parses an overlay JSON object (the embedded file OR the
-// runtime settings blob) into model prices plus optional executable configuration.
-// Runtime blobs may omit _config and inherit the embedded policy; when present,
-// _config is strict and invalid policy rejects the whole runtime swap.
+// parseTKOverlayDocument parses the registry-shaped JSON used by the embedded
+// owner and offline import validation. _config is strict when present.
 func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -109,6 +83,13 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 			peakPolicy := *config.DeepSeekPeakValley
 			doc.DeepSeekPeakValley = &peakPolicy
 		}
+		if config.WebSearchPricePerCall != nil {
+			if *config.WebSearchPricePerCall < 0 || !finiteNonNegative(*config.WebSearchPricePerCall) {
+				return nil, fmt.Errorf("overlay _config.web_search_price_per_call must be finite and >= 0")
+			}
+			price := *config.WebSearchPricePerCall
+			doc.WebSearchPricePerCall = &price
+		}
 	}
 
 	for name, rawEntry := range raw {
@@ -133,13 +114,26 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 			SupportsResponseSchema:  e.SupportsResponseSchema,
 			SupportsPDFInput:        e.SupportsPDFInput,
 			SupportsWebSearch:       e.SupportsWebSearch,
-			TokenPricingAbsent:      e.InputCostPerToken == nil && e.OutputCostPerToken == nil,
+			TokenPricingAbsent:      e.InputCostPerToken == nil && e.OutputCostPerToken == nil && e.InputCostPerImageToken == nil,
+			ExplicitFree:            e.ExplicitFree,
 		}
 		if e.OutputCostPerImage != nil {
 			p.OutputCostPerImage = *e.OutputCostPerImage
 		}
 		if e.OutputCostPerImageToken != nil {
 			p.OutputCostPerImageToken = *e.OutputCostPerImageToken
+		}
+		if e.InputCostPerImageToken != nil {
+			p.InputCostPerImageToken = *e.InputCostPerImageToken
+		}
+		if e.ImagePrice1K != nil {
+			p.ImagePrice1K = *e.ImagePrice1K
+		}
+		if e.ImagePrice2K != nil {
+			p.ImagePrice2K = *e.ImagePrice2K
+		}
+		if e.ImagePrice4K != nil {
+			p.ImagePrice4K = *e.ImagePrice4K
 		}
 		if e.OutputCostPerSecond != nil {
 			p.OutputCostPerSecond = *e.OutputCostPerSecond
@@ -174,14 +168,22 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 		if e.CacheReadInputTokenCostPriority != nil {
 			p.CacheReadInputTokenCostPriority = *e.CacheReadInputTokenCostPriority
 		}
-		if e.LongContextInputTokenThreshold != nil {
-			p.LongContextInputTokenThreshold = *e.LongContextInputTokenThreshold
-		}
 		if e.LongContextInputCostMultiplier != nil {
 			p.LongContextInputCostMultiplier = *e.LongContextInputCostMultiplier
 		}
 		if e.LongContextOutputCostMultiplier != nil {
 			p.LongContextOutputCostMultiplier = *e.LongContextOutputCostMultiplier
+		}
+		if e.LongContextInputTokenThreshold != nil {
+			p.LongContextInputTokenThreshold = *e.LongContextInputTokenThreshold
+		} else if e.InputCostPerTokenAbove272K != nil || e.OutputCostPerTokenAbove272K != nil || e.CacheReadInputTokenCostAbove272K != nil {
+			p.LongContextInputTokenThreshold = 272000
+		}
+		if p.LongContextInputCostMultiplier == 0 && e.InputCostPerToken != nil && e.InputCostPerTokenAbove272K != nil && *e.InputCostPerToken > 0 {
+			p.LongContextInputCostMultiplier = *e.InputCostPerTokenAbove272K / *e.InputCostPerToken
+		}
+		if p.LongContextOutputCostMultiplier == 0 && e.OutputCostPerToken != nil && e.OutputCostPerTokenAbove272K != nil && *e.OutputCostPerToken > 0 {
+			p.LongContextOutputCostMultiplier = *e.OutputCostPerTokenAbove272K / *e.OutputCostPerToken
 		}
 		// TK: input-token interval (tiered) pricing. LiteLLMRawEntry has no
 		// "intervals" field (it is TK-overlay-only), so parse the raw entry a
@@ -220,109 +222,41 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 	return doc, nil
 }
 
-func validateRuntimeBaseTaxCoverage(embedded, runtime tkOfficialListBaseTaxPolicy) error {
-	runtimeProviders := make(map[string]struct{}, len(runtime.Rules))
-	for _, rule := range runtime.Rules {
-		runtimeProviders[rule.Provider] = struct{}{}
-	}
-	var missing []string
-	for _, rule := range embedded.Rules {
-		if _, ok := runtimeProviders[rule.Provider]; !ok {
-			missing = append(missing, rule.Provider)
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("runtime official_list_base_tax drops embedded providers: %s", strings.Join(missing, ", "))
-	}
-	return nil
-}
-
-func buildTKPricingOverlaySnapshot(runtimeBytes []byte) (*tkPricingOverlaySnapshot, error) {
+func buildTKPricingOverlaySnapshot() (*tkPricingOverlaySnapshot, error) {
 	base, err := parseTKOverlayDocument(tkPricingOverlayRaw)
 	if err != nil {
-		return nil, fmt.Errorf("parse embedded TK overlay: %w", err)
+		return nil, fmt.Errorf("parse embedded TK pricing registry: %w", err)
 	}
 	if base.BaseTax == nil {
-		return nil, fmt.Errorf("embedded TK overlay missing _config.official_list_base_tax")
+		return nil, fmt.Errorf("embedded TK pricing registry missing _config.official_list_base_tax")
 	}
-	if len(runtimeBytes) > 0 {
-		runtime, err := parseTKOverlayDocument(runtimeBytes)
-		if err != nil {
-			return nil, fmt.Errorf("parse runtime TK overlay: %w", err)
-		}
-		for k, v := range runtime.Models {
-			base.Models[k] = v
-		}
-		if runtime.BaseTax != nil {
-			if err := validateRuntimeBaseTaxCoverage(*base.BaseTax, *runtime.BaseTax); err != nil {
-				return nil, err
-			}
-			base.BaseTax = runtime.BaseTax
-		}
-		if runtime.DeepSeekPeakValley != nil {
-			base.DeepSeekPeakValley = runtime.DeepSeekPeakValley
-		}
+	if len(base.Models) == 0 {
+		return nil, fmt.Errorf("embedded TK pricing registry has no model owners")
 	}
 	snapshot := &tkPricingOverlaySnapshot{Models: base.Models, BaseTax: *base.BaseTax}
 	if base.DeepSeekPeakValley != nil {
 		policy := *base.DeepSeekPeakValley
 		snapshot.DeepSeekPeakValley = &policy
 	}
+	if base.WebSearchPricePerCall != nil {
+		snapshot.WebSearchPricePerCall = *base.WebSearchPricePerCall
+	}
 	return snapshot, nil
 }
 
-// rebuildTKOverlayUnion recomputes the effective overlay = embedded ∪ runtime
-// (runtime wins on key conflict) and atomically swaps it under tkOverlayMu.
-//
-// Safety invariants (never serve $0):
-//   - The embedded JSON is parsed fresh each call as the FLOOR. If the embedded
-//     itself fails to parse (should be impossible — it is gated by
-//     pricing-overlay.py), the previous effective map is KEPT, not blanked.
-//   - A nil / empty runtimeBytes yields embedded-only. An invalid runtime keeps
-//     the previous snapshot; on first load it still establishes the embedded
-//     floor, so a corrupt setting can never leave the effective map empty.
-func rebuildTKOverlayUnion(runtimeBytes []byte) {
-	snapshot, err := buildTKPricingOverlaySnapshot(runtimeBytes)
-	if err != nil {
-		tkOverlayMu.RLock()
-		hasCurrent := tkOverlayEffective != nil
-		tkOverlayMu.RUnlock()
-		if !hasCurrent {
-			floor, floorErr := buildTKPricingOverlaySnapshot(nil)
-			if floorErr == nil {
-				tkOverlayMu.Lock()
-				if tkOverlayEffective == nil {
-					tkOverlayEffective = floor
-				}
-				tkOverlayMu.Unlock()
-			}
-		}
-		// Invalid runtime keeps the previous immutable snapshot. If this is the
-		// first load, the embedded-only build above establishes the pricing floor.
-		logger.LegacyPrintf("service.pricing", "[Pricing] TK overlay snapshot build failed (keeping current effective map): %v", err)
-		return
-	}
-	tkOverlayMu.Lock()
-	tkOverlayEffective = snapshot
-	tkOverlayMu.Unlock()
-}
-
 func loadTKPricingOverlaySnapshot() *tkPricingOverlaySnapshot {
-	tkOverlayMu.RLock()
-	snapshot := tkOverlayEffective
-	tkOverlayMu.RUnlock()
-	if snapshot != nil {
-		return snapshot
-	}
-	rebuildTKOverlayUnion(nil)
-	tkOverlayMu.RLock()
-	defer tkOverlayMu.RUnlock()
-	return tkOverlayEffective
+	tkPricingRegistryOnce.Do(func() {
+		snapshot, err := buildTKPricingOverlaySnapshot()
+		if err != nil {
+			logger.LegacyPrintf("service.pricing", "[Pricing] TK pricing registry build failed: %v", err)
+			return
+		}
+		tkPricingRegistrySnapshot = snapshot
+	})
+	return tkPricingRegistrySnapshot
 }
 
-// loadTKPricingOverlay returns the live effective overlay (embedded ∪ runtime).
-// First call before any explicit rebuild lazily builds the embedded-only floor,
-// so a process that never loads a runtime blob behaves exactly as before.
+// loadTKPricingOverlay returns the process-wide immutable registry owner map.
 func loadTKPricingOverlay() map[string]*LiteLLMModelPricing {
 	snapshot := loadTKPricingOverlaySnapshot()
 	if snapshot == nil {
@@ -331,38 +265,35 @@ func loadTKPricingOverlay() map[string]*LiteLLMModelPricing {
 	return snapshot.Models
 }
 
-// tkOverlayOverridesLitellmSource reports whether a TK overlay row is the
-// authoritative official list price and must replace a non-zero litellm-mirror
-// entry. GLM chat models use BigModel.cn as the sole pricing source; the
-// litellm mirror often carries stale USD guesses (e.g. glm-5.2 at $1.4/$4.4 per
-// Mtok) that must not win over the curated overlay.
-func tkOverlayOverridesLitellmSource(modelID string, overlay *LiteLLMModelPricing) bool {
-	if overlay == nil {
-		return false
+func tkRegistryWebSearchPricePerCall() float64 {
+	snapshot := loadTKPricingOverlaySnapshot()
+	if snapshot == nil {
+		return 0
 	}
-	if strings.ToLower(strings.TrimSpace(overlay.LiteLLMProvider)) != "zhipu" {
-		return false
-	}
-	m := strings.ToLower(strings.TrimSpace(modelID))
-	if !strings.HasPrefix(m, "glm-") {
-		return false
-	}
-	return isTkCuratedNewAPIModelListed(modelID)
+	return snapshot.WebSearchPricePerCall
 }
 
-// applyTKPricingOverlay fills in TK-owned pricing for models the loaded source
-// does not already carry — or carries only as an effectively-unpriced (all-zero)
-// placeholder. Real source prices are never overwritten (see file header),
-// except for GLM rows where the overlay is the authoritative BigModel list price.
+// tkOverlayLiteLLMModelPricing returns the immutable overlay row in the
+// LiteLLM-shaped form consumed by PricingService. The caller applies the shared
+// presentation tax/clone policy without consulting another data source.
+func tkOverlayLiteLLMModelPricing(model string) *LiteLLMModelPricing {
+	row := loadTKPricingOverlay()[strings.ToLower(strings.TrimSpace(model))]
+	if row == nil {
+		return nil
+	}
+	copy := *row
+	return &copy
+}
+
+// applyTKPricingOverlay is retained for offline provider-import tests. Runtime
+// loading starts from the registry snapshot and never merges an external source.
 func applyTKPricingOverlay(result map[string]*LiteLLMModelPricing) {
 	if result == nil {
 		return
 	}
 	for name, pricing := range loadTKPricingOverlay() {
-		existing, ok := result[name]
-		if ok && !tkIsEffectivelyUnpriced(existing) && !tkOverlayOverridesLitellmSource(name, pricing) {
-			continue
-		}
+		// The imported map is evidence only. A registry row always wins for the
+		// same model; imports may contribute only models not yet registry-owned.
 		result[name] = pricing
 	}
 }
@@ -377,6 +308,9 @@ func tkIsEffectivelyUnpriced(p *LiteLLMModelPricing) bool {
 	if p == nil {
 		return true
 	}
+	if p.ExplicitFree {
+		return false
+	}
 	// Interval (tiered) pricing is a price even if the flat base fields were left
 	// zero — never treat a tiered overlay entry as a placeholder.
 	if len(p.Intervals) > 0 {
@@ -386,6 +320,7 @@ func tkIsEffectivelyUnpriced(p *LiteLLMModelPricing) bool {
 		return false
 	}
 	return p.InputCostPerToken == 0 &&
+		p.InputCostPerImageToken == 0 &&
 		p.InputCostPerTokenPriority == 0 &&
 		p.OutputCostPerToken == 0 &&
 		p.OutputCostPerTokenPriority == 0 &&

@@ -24,10 +24,11 @@ type BuildInfo struct {
 }
 
 // ProvidePricingService creates and initializes PricingService
-func ProvidePricingService(cfg *config.Config, remoteClient PricingRemoteClient) (*PricingService, error) {
-	svc := NewPricingService(cfg, remoteClient)
+func ProvidePricingService() (*PricingService, error) {
+	svc := NewPricingService()
 	if err := svc.Initialize(); err != nil {
-		// Pricing service initialization failure should not block startup, use fallback prices
+		// Pricing service initialization failure should not block startup; billing still
+		// resolves the embedded registry owner snapshot directly and fails closed when absent.
 		println("[Service] Warning: Pricing service initialization failed:", err.Error())
 	}
 	return svc, nil
@@ -918,12 +919,6 @@ var ProviderSet = wire.NewSet(
 	// groups by the models they actually serve. Consumed by provideCleanup.
 	ProvideTKUniversalModelsProvider,
 	ProvideTKGroupUnsupportedModelCache,
-	// TokenKey: runtime hot-pushable pricing overlay — wires the settings-blob
-	// getter + catalog-cache invalidator onto PricingService, does the initial
-	// load, and subscribes to the settings pub/sub for immediate reloads. Lets a
-	// new model be priced + surfaced in /pricing without a release. Consumed by
-	// provideCleanup so wire forces evaluation.
-	ProvideTKPricingOverlayRuntime,
 	// TokenKey: client model-list filter (R-003 / Goal 2) — gates /v1/models
 	// /v1beta/models /antigravity/models to priced ∩ ¬unreachable.
 	NewModelListFilter,

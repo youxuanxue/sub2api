@@ -501,7 +501,7 @@ func buildPricingIndex(pricings []ChannelModelPricing) map[string]*platformPrici
 // 显示名命中定价时使用**定价的原始大小写**（定价是模型身份的事实来源）。
 // 按 (Platform, Name) 稳定排序，按 (Platform, lowercase(Name)) 去重，先到者胜出。
 //
-// 注意：定价仅在 channel.ModelPricing 内查找——全局 LiteLLM 回落由调用方
+// 注意：定价仅在 channel.ModelPricing 内查找——统一 registry owner 回落由调用方
 // （`ChannelService.ListAvailable`）在合成展示数据时叠加。
 func (c *Channel) SupportedModels() []SupportedModel {
 	if c == nil {

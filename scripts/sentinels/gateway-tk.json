@@ -3916,7 +3916,7 @@
         "TkImageModelUnpriced",
         "TkUnpricedMediaModelMessage"
       ],
-      "rationale": "Media unpriced-reject policy (operator decision 2026-06-12): image/video gateway surfaces refuse to serve models with no usable price — the pre-spend 400 replaces the post-spend served_zero_cost P0 for media, where one task is real upstream money (video up to ~$22) and image otherwise falls back to a blind hardcoded $0.134. Also the safety premise that lets new upstream channels auto-enable: their models arrive unpriced and are rejected until the human pricing act. Removing this file silently reverts media to serve-unpriced."
+      "rationale": "Media unpriced-reject policy (operator decision 2026-06-12): image/video gateway surfaces refuse to serve models with no usable price — the pre-spend 400 replaces the post-spend served_zero_cost P0 for media, where one task is real upstream money (video up to ~$22) and image otherwise lacks a registry owner. Also the safety premise that lets new upstream channels auto-enable: their models arrive unpriced and are rejected until the human pricing act. Removing this file silently reverts media to serve-unpriced."
     },
     {
       "path": "backend/internal/handler/openai_gateway_embeddings_images.go",

@@ -43,10 +43,10 @@ full refund — is **structurally unreachable** through the channel writer:
 | 1 | `ChannelModelPricing` has **no per-second / failure_billing / thinking** field | `channel.go:75` — only `input/output/cache_write/cache_read/image_output/per_request` |
 | 2 | `BillingMode` has **no `video`** mode | only `token / per_request / image` |
 | 3 | The resolver routes **no per-second branch**; `ResolvedPricing` has **no per-second field** | `model_pricing_resolver.go:75,139`; struct at `:16` |
-| 4 | Video cost (and its refund) is **overlay-only** | `billing_service.go:976` reads `pricing.OutputCostPerSecond` from the overlay/litellm `ModelPricing` (`pricing_service.go:84`), already gated by `pricing-overlay.py`; `openai_gateway_service_tk_video_refund.go` reverses that overlay-derived cost |
+| 4 | Video cost (and its refund) is **registry-owned** | billing reads `pricing.OutputCostPerSecond` from the registry `ModelPricing`, already gated by `pricing-overlay.py`; `openai_gateway_service_tk_video_refund.go` reverses that registry-derived cost |
 
 The same holds for **thinking**: `ThinkingOutputPricePerToken` is sourced only from
-litellm/overlay (`billing_service.go:412`), never from a channel row.
+the registry (`billing_service.go`), never from a channel row.
 
 **So `channel_model_pricing` can only carry `token / per_request / image` prices today**, and
 for those the existing admin validator (`channel_service.go validatePricingBillingMode:613`)

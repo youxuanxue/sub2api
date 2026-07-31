@@ -77,9 +77,9 @@ func TestValidateGroupMessagesDispatchModelConfig_RejectsGPTOnGeminiGroup(t *tes
 func TestValidateGroupMessagesDispatchModelConfig_AcceptsRegistryGeminiMapping(t *testing.T) {
 	vertex := requireTkMessagesDispatchGroupDefaults(t, "Google-Vertex")
 	err := validateGroupMessagesDispatchModelConfig(&Group{
-		Name:                  "Google-Vertex",
-		Platform:              PlatformNewAPI,
-		AllowMessagesDispatch: true,
+		Name:                        "Google-Vertex",
+		Platform:                    PlatformNewAPI,
+		AllowMessagesDispatch:       true,
 		MessagesDispatchModelConfig: vertex,
 	})
 	require.NoError(t, err)
@@ -88,9 +88,9 @@ func TestValidateGroupMessagesDispatchModelConfig_AcceptsRegistryGeminiMapping(t
 func TestValidateGroupMessagesDispatchModelConfig_UnknownGroupRequiresRegistryEntry(t *testing.T) {
 	glm := requireTkMessagesDispatchGroupDefaults(t, "glm")
 	err := validateGroupMessagesDispatchModelConfig(&Group{
-		Name:                  "brand-new-vendor",
-		Platform:              PlatformNewAPI,
-		AllowMessagesDispatch: true,
+		Name:                        "brand-new-vendor",
+		Platform:                    PlatformNewAPI,
+		AllowMessagesDispatch:       true,
 		MessagesDispatchModelConfig: glm,
 	})
 	require.Error(t, err)
@@ -111,9 +111,9 @@ func TestResolveMessagesDispatchModel_GeminiPlatformUsesPlatformDefaults(t *test
 func TestValidateGroupMessagesDispatchModelConfig_GeminiPlatformImplicitFamily(t *testing.T) {
 	gemini := requireTkMessagesDispatchPlatformDefaults(t, PlatformGemini)
 	err := validateGroupMessagesDispatchModelConfig(&Group{
-		Name:                  "custom-gemini-pool",
-		Platform:              PlatformGemini,
-		AllowMessagesDispatch: true,
+		Name:                        "custom-gemini-pool",
+		Platform:                    PlatformGemini,
+		AllowMessagesDispatch:       true,
 		MessagesDispatchModelConfig: gemini,
 	})
 	require.NoError(t, err)

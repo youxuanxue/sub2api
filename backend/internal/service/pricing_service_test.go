@@ -2,8 +2,6 @@ package service
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPricingSchedulerBlankRemoteURLDoesNotStart(t *testing.T) {
-	svc := NewPricingService(&config.Config{Pricing: config.PricingConfig{RemoteURL: "  \t  "}}, nil)
+func TestPricingRegistrySchedulerDoesNotStart(t *testing.T) {
+	svc := NewPricingService()
 	defer svc.Stop()
 
 	svc.startUpdateScheduler()
@@ -25,20 +23,18 @@ func TestPricingSchedulerBlankRemoteURLDoesNotStart(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("blank remote URL must not start scheduler")
+		t.Fatal("registry pricing must not start a remote scheduler")
 	}
 }
 
-func TestPricingNonEmptyInvalidRemoteURLStillReturnsValidationError(t *testing.T) {
-	svc := NewPricingService(&config.Config{Pricing: config.PricingConfig{
-		RemoteURL: "://invalid",
-		DataDir:   t.TempDir(),
-	}}, nil)
+func TestPricingForceUpdateReloadsRegistry(t *testing.T) {
+	svc := NewPricingService()
 
 	err := svc.ForceUpdate()
 
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid pricing url")
+	require.NoError(t, err)
+	status := svc.GetStatus()
+	require.Greater(t, status["model_count"], 0)
 }
 
 func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
@@ -78,67 +74,51 @@ func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
 }
 
 func TestBillingService_GPT56CacheWritePricingUsesOfficialMultiplier(t *testing.T) {
-	tests := []struct {
-		model             string
-		input             float64
-		inputPriority     float64
-		output            float64
-		outputPriority    float64
-		cacheRead         float64
-		cacheReadPriority float64
-	}{
-		{model: "gpt-5.6-sol", input: 5e-6, inputPriority: 10e-6, output: 30e-6, outputPriority: 60e-6, cacheRead: 0.5e-6, cacheReadPriority: 1e-6},
-		{model: "gpt-5.6-terra", input: 2e-6, inputPriority: 4e-6, output: 12e-6, outputPriority: 24e-6, cacheRead: 0.2e-6, cacheReadPriority: 0.4e-6},
-		{model: "gpt-5.6-luna", input: 0.2e-6, inputPriority: 0.4e-6, output: 1.2e-6, outputPriority: 2.4e-6, cacheRead: 0.02e-6, cacheReadPriority: 0.04e-6},
-	}
-	for _, tt := range tests {
-		t.Run(tt.model, func(t *testing.T) {
+	for _, model := range gpt56OverlayModels() {
+		t.Run(model, func(t *testing.T) {
+			owner := mustGPT56OverlayPricing(t, model)
 			pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
-				tt.model: {
-					InputCostPerToken:               tt.input,
-					InputCostPerTokenPriority:       tt.inputPriority,
-					OutputCostPerToken:              tt.output,
-					OutputCostPerTokenPriority:      tt.outputPriority,
-					CacheReadInputTokenCost:         tt.cacheRead,
-					CacheReadInputTokenCostPriority: tt.cacheReadPriority,
+				model: {
+					InputCostPerToken:                   owner.InputCostPerToken,
+					InputCostPerTokenPriority:           owner.InputCostPerTokenPriority,
+					OutputCostPerToken:                  owner.OutputCostPerToken,
+					OutputCostPerTokenPriority:          owner.OutputCostPerTokenPriority,
+					CacheCreationInputTokenCost:         owner.CacheCreationInputTokenCost,
+					CacheCreationInputTokenCostPriority: owner.CacheCreationInputTokenCostPriority,
+					CacheReadInputTokenCost:             owner.CacheReadInputTokenCost,
+					CacheReadInputTokenCostPriority:     owner.CacheReadInputTokenCostPriority,
+					LongContextInputTokenThreshold:      owner.LongContextInputTokenThreshold,
+					LongContextInputCostMultiplier:      owner.LongContextInputCostMultiplier,
+					LongContextOutputCostMultiplier:     owner.LongContextOutputCostMultiplier,
 				},
 			}}
 			svc := NewBillingService(&config.Config{}, pricingSvc)
 
-			pricing, err := svc.GetModelPricing(tt.model)
+			pricing, err := svc.GetModelPricing(model)
 			require.NoError(t, err)
-			require.InDelta(t, tt.input*1.25, pricing.CacheCreationPricePerToken, 1e-12)
-			require.InDelta(t, tt.inputPriority*1.25, pricing.CacheCreationPricePerTokenPriority, 1e-12)
-			require.Equal(t, 272000, pricing.LongContextInputThreshold)
-			require.InDelta(t, 2.0, pricing.LongContextInputMultiplier, 1e-12)
-			require.InDelta(t, 1.5, pricing.LongContextOutputMultiplier, 1e-12)
+			require.InDelta(t, owner.CacheCreationInputTokenCost, pricing.CacheCreationPricePerToken, 1e-12)
+			require.InDelta(t, owner.CacheCreationInputTokenCostPriority, pricing.CacheCreationPricePerTokenPriority, 1e-12)
+			require.Equal(t, owner.LongContextInputTokenThreshold, pricing.LongContextInputThreshold)
+			require.InDelta(t, owner.LongContextInputCostMultiplier, pricing.LongContextInputMultiplier, 1e-12)
+			require.InDelta(t, owner.LongContextOutputCostMultiplier, pricing.LongContextOutputMultiplier, 1e-12)
 
 			tokens := UsageTokens{InputTokens: 700, OutputTokens: 50, CacheCreationTokens: 200, CacheReadTokens: 100}
-			standard, err := svc.CalculateCostWithServiceTier(tt.model, tokens, 1, "")
+			standard, err := svc.CalculateCostWithServiceTier(model, tokens, 1, "")
 			require.NoError(t, err)
-			require.InDelta(t, 200*tt.input*1.25, standard.CacheCreationCost, 1e-12)
+			require.InDelta(t, 200*owner.CacheCreationInputTokenCost, standard.CacheCreationCost, 1e-12)
 
-			priority, err := svc.CalculateCostWithServiceTier(tt.model, tokens, 1, "priority")
+			priority, err := svc.CalculateCostWithServiceTier(model, tokens, 1, "priority")
 			require.NoError(t, err)
-			require.InDelta(t, 200*tt.inputPriority*1.25, priority.CacheCreationCost, 1e-12)
+			require.InDelta(t, 200*owner.CacheCreationInputTokenCostPriority, priority.CacheCreationCost, 1e-12)
 
-			flex, err := svc.CalculateCostWithServiceTier(tt.model, tokens, 1, "flex")
+			flex, err := svc.CalculateCostWithServiceTier(model, tokens, 1, "flex")
 			require.NoError(t, err)
-			require.InDelta(t, 200*tt.input*1.25*0.5, flex.CacheCreationCost, 1e-12)
+			require.InDelta(t, 200*owner.CacheCreationInputTokenCost*0.5, flex.CacheCreationCost, 1e-12)
 		})
 	}
 }
 
 func TestBillingService_GPT56UsesLongContextPricingAcrossModelsAndTiers(t *testing.T) {
-	models := []struct {
-		name               string
-		input, cached      float64
-		cacheWrite, output float64
-	}{
-		{name: "gpt-5.6-sol", input: 5e-6, cached: 0.5e-6, cacheWrite: 6.25e-6, output: 30e-6},
-		{name: "gpt-5.6-terra", input: 2e-6, cached: 0.2e-6, cacheWrite: 2.5e-6, output: 12e-6},
-		{name: "gpt-5.6-luna", input: 0.2e-6, cached: 0.02e-6, cacheWrite: 0.25e-6, output: 1.2e-6},
-	}
 	tiers := []struct {
 		name       string
 		priceScale float64
@@ -154,20 +134,31 @@ func TestBillingService_GPT56UsesLongContextPricingAcrossModelsAndTiers(t *testi
 		OutputTokens:        10,
 	}
 
-	for _, model := range models {
+	for _, modelName := range gpt56OverlayModels() {
 		for _, tier := range tiers {
-			t.Run(model.name+"/"+tier.name, func(t *testing.T) {
+			t.Run(modelName+"/"+tier.name, func(t *testing.T) {
+				owner := mustGPT56OverlayPricing(t, modelName)
 				svc := NewBillingService(&config.Config{}, nil)
 				serviceTier := ""
 				if tier.name != "standard" {
 					serviceTier = tier.name
 				}
-				cost, err := svc.CalculateCostWithServiceTier(model.name, tokens, 1, serviceTier)
+				cost, err := svc.CalculateCostWithServiceTier(modelName, tokens, 1, serviceTier)
 				require.NoError(t, err)
-				require.InDelta(t, float64(tokens.InputTokens)*model.input*tier.priceScale*2, cost.InputCost, 1e-12)
-				require.InDelta(t, float64(tokens.CacheCreationTokens)*model.cacheWrite*tier.priceScale*2, cost.CacheCreationCost, 1e-12)
-				require.InDelta(t, float64(tokens.CacheReadTokens)*model.cached*tier.priceScale*2, cost.CacheReadCost, 1e-12)
-				require.InDelta(t, float64(tokens.OutputTokens)*model.output*tier.priceScale*1.5, cost.OutputCost, 1e-12)
+				input, cached, cacheWrite, output := owner.InputCostPerToken, owner.CacheReadInputTokenCost, owner.CacheCreationInputTokenCost, owner.OutputCostPerToken
+				if tier.name == "priority" {
+					input, cached, cacheWrite, output = owner.InputCostPerTokenPriority, owner.CacheReadInputTokenCostPriority, owner.CacheCreationInputTokenCostPriority, owner.OutputCostPerTokenPriority
+				}
+				priceScale := tier.priceScale
+				if tier.name == "priority" {
+					// Priority has an explicit owner row; unlike flex it must not
+					// apply the legacy multiplier on top of that row.
+					priceScale = 1
+				}
+				require.InDelta(t, float64(tokens.InputTokens)*input*priceScale*2, cost.InputCost, 1e-12)
+				require.InDelta(t, float64(tokens.CacheCreationTokens)*cacheWrite*priceScale*2, cost.CacheCreationCost, 1e-12)
+				require.InDelta(t, float64(tokens.CacheReadTokens)*cached*priceScale*2, cost.CacheReadCost, 1e-12)
+				require.InDelta(t, float64(tokens.OutputTokens)*output*priceScale*1.5, cost.OutputCost, 1e-12)
 			})
 		}
 	}
@@ -175,29 +166,26 @@ func TestBillingService_GPT56UsesLongContextPricingAcrossModelsAndTiers(t *testi
 
 func TestBillingService_GPT56LongContextBoundaryIsExclusive(t *testing.T) {
 	svc := NewBillingService(&config.Config{}, nil)
+	owner := mustGPT56OverlayPricing(t, "gpt-5.6-sol")
 	tokens := UsageTokens{InputTokens: 100000, CacheCreationTokens: 100000, CacheReadTokens: 72000, OutputTokens: 10}
 
 	cost, err := svc.CalculateCost("gpt-5.6-sol", tokens, 1)
 	require.NoError(t, err)
-	require.InDelta(t, 100000*5e-6, cost.InputCost, 1e-12)
-	require.InDelta(t, 100000*6.25e-6, cost.CacheCreationCost, 1e-12)
-	require.InDelta(t, 72000*0.5e-6, cost.CacheReadCost, 1e-12)
-	require.InDelta(t, 10*30e-6, cost.OutputCost, 1e-12)
+	require.InDelta(t, float64(tokens.InputTokens)*owner.InputCostPerToken, cost.InputCost, 1e-12)
+	require.InDelta(t, float64(tokens.CacheCreationTokens)*owner.CacheCreationInputTokenCost, cost.CacheCreationCost, 1e-12)
+	require.InDelta(t, float64(tokens.CacheReadTokens)*owner.CacheReadInputTokenCost, cost.CacheReadCost, 1e-12)
+	require.InDelta(t, float64(tokens.OutputTokens)*owner.OutputCostPerToken, cost.OutputCost, 1e-12)
 }
 
 func TestPricingService_BareGPT56AliasDeterministicallyUsesSol(t *testing.T) {
-	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
-		"gpt-5.6-sol":   {InputCostPerToken: 5e-6},
-		"gpt-5.6-terra": {InputCostPerToken: 2e-6},
-		"gpt-5.6-luna":  {InputCostPerToken: 0.2e-6},
-		"gpt-5.4":       {InputCostPerToken: 2.5e-6},
-	}}
+	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{}}
+	sol := mustGPT56OverlayPricing(t, "gpt-5.6-sol")
 
 	for i := 0; i < 100; i++ {
 		for _, alias := range []string{"gpt-5.6", "openai/gpt-5.6"} {
 			pricing := pricingSvc.GetModelPricing(alias)
 			require.NotNil(t, pricing)
-			require.InDelta(t, 5e-6, pricing.InputCostPerToken, 1e-12, "iteration=%d alias=%s", i, alias)
+			require.InDelta(t, sol.InputCostPerToken, pricing.InputCostPerToken, 1e-12, "iteration=%d alias=%s", i, alias)
 		}
 	}
 
@@ -205,14 +193,13 @@ func TestPricingService_BareGPT56AliasDeterministicallyUsesSol(t *testing.T) {
 	for _, alias := range []string{"gpt-5.6", "openai/gpt-5.6"} {
 		pricing, err := billingSvc.GetModelPricing(alias)
 		require.NoError(t, err)
-		require.InDelta(t, 5e-6, pricing.InputPricePerToken, 1e-12)
-		require.InDelta(t, 6.25e-6, pricing.CacheCreationPricePerToken, 1e-12)
+		require.InDelta(t, sol.InputCostPerToken, pricing.InputPricePerToken, 1e-12)
+		require.InDelta(t, sol.CacheCreationInputTokenCost, pricing.CacheCreationPricePerToken, 1e-12)
 	}
 }
 
 func TestDefaultPricingIncludesOfficialGPT56Rates(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
-	require.NoError(t, err)
+	data := tkPricingOverlayRaw
 
 	pricingSvc := &PricingService{}
 	pricingData, err := pricingSvc.parsePricingData(data)
@@ -220,73 +207,69 @@ func TestDefaultPricingIncludesOfficialGPT56Rates(t *testing.T) {
 	pricingSvc.pricingData = pricingData
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 
-	tests := []struct {
-		model                                                             string
-		input, cached, cacheWrite, output                                 float64
-		inputPriority, cachedPriority, cacheWritePriority, outputPriority float64
-	}{
-		{model: "gpt-5.6-sol", input: 5e-6, cached: 0.5e-6, cacheWrite: 6.25e-6, output: 30e-6, inputPriority: 10e-6, cachedPriority: 1e-6, cacheWritePriority: 12.5e-6, outputPriority: 60e-6},
-		{model: "gpt-5.6-terra", input: 2e-6, cached: 0.2e-6, cacheWrite: 2.5e-6, output: 12e-6, inputPriority: 4e-6, cachedPriority: 0.4e-6, cacheWritePriority: 5e-6, outputPriority: 24e-6},
-		{model: "gpt-5.6-luna", input: 0.2e-6, cached: 0.02e-6, cacheWrite: 0.25e-6, output: 1.2e-6, inputPriority: 0.4e-6, cachedPriority: 0.04e-6, cacheWritePriority: 0.5e-6, outputPriority: 2.4e-6},
-	}
-	for _, tt := range tests {
-		t.Run(tt.model, func(t *testing.T) {
-			pricing, err := billingSvc.GetModelPricing(tt.model)
+	for _, model := range gpt56OverlayModels() {
+		t.Run(model, func(t *testing.T) {
+			owner := mustGPT56OverlayPricing(t, model)
+			pricing, err := billingSvc.GetModelPricing(model)
 			require.NoError(t, err)
-			require.InDelta(t, tt.input, pricing.InputPricePerToken, 1e-12)
-			require.InDelta(t, tt.cached, pricing.CacheReadPricePerToken, 1e-12)
-			require.InDelta(t, tt.cacheWrite, pricing.CacheCreationPricePerToken, 1e-12)
-			require.InDelta(t, tt.output, pricing.OutputPricePerToken, 1e-12)
-			require.InDelta(t, tt.inputPriority, pricing.InputPricePerTokenPriority, 1e-12)
-			require.InDelta(t, tt.cachedPriority, pricing.CacheReadPricePerTokenPriority, 1e-12)
-			require.InDelta(t, tt.cacheWritePriority, pricing.CacheCreationPricePerTokenPriority, 1e-12)
-			require.InDelta(t, tt.outputPriority, pricing.OutputPricePerTokenPriority, 1e-12)
-			require.Equal(t, 272000, pricing.LongContextInputThreshold)
-			require.InDelta(t, 2.0, pricing.LongContextInputMultiplier, 1e-12)
-			require.InDelta(t, 1.5, pricing.LongContextOutputMultiplier, 1e-12)
+			assertGPT56ModelPricing(t, pricing, owner)
 		})
 	}
 }
 
-func TestGPT56DedicatedFallbacksUseOfficialRates(t *testing.T) {
-	tests := []struct {
-		model                             string
-		input, cached, cacheWrite, output float64
-	}{
-		{model: "gpt-5.6-sol", input: 5e-6, cached: 0.5e-6, cacheWrite: 6.25e-6, output: 30e-6},
-		{model: "gpt-5.6-terra", input: 2e-6, cached: 0.2e-6, cacheWrite: 2.5e-6, output: 12e-6},
-		{model: "gpt-5.6-luna", input: 0.2e-6, cached: 0.02e-6, cacheWrite: 0.25e-6, output: 1.2e-6},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.model+"/pricing_service", func(t *testing.T) {
+func TestGPT56DedicatedAliasesUseRegistryOwners(t *testing.T) {
+	for _, model := range gpt56OverlayModels() {
+		t.Run(model+"/pricing_service", func(t *testing.T) {
+			owner := mustGPT56OverlayPricing(t, model)
 			pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
 				"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
 			}}
 			svc := NewBillingService(&config.Config{}, pricingSvc)
-			pricing, err := svc.GetModelPricing(tt.model + "-preview")
+			pricing, err := svc.GetModelPricing(model + "-preview")
 			require.NoError(t, err)
-			assertGPT56FallbackPricing(t, pricing, tt.input, tt.cached, tt.cacheWrite, tt.output)
+			assertGPT56RegistryAliasPricing(t, pricing, owner)
 		})
 
-		t.Run(tt.model+"/billing_service", func(t *testing.T) {
+		t.Run(model+"/billing_service", func(t *testing.T) {
+			owner := mustGPT56OverlayPricing(t, model)
 			svc := NewBillingService(&config.Config{}, nil)
-			pricing, err := svc.GetModelPricing(tt.model)
+			pricing, err := svc.GetModelPricing(model)
 			require.NoError(t, err)
-			assertGPT56FallbackPricing(t, pricing, tt.input, tt.cached, tt.cacheWrite, tt.output)
+			assertGPT56RegistryAliasPricing(t, pricing, owner)
 		})
 	}
 }
 
-func assertGPT56FallbackPricing(t *testing.T, pricing *ModelPricing, input, cached, cacheWrite, output float64) {
+func gpt56OverlayModels() []string {
+	return []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
+}
+
+func mustGPT56OverlayPricing(t *testing.T, model string) *LiteLLMModelPricing {
 	t.Helper()
-	require.InDelta(t, input, pricing.InputPricePerToken, 1e-12)
-	require.InDelta(t, cached, pricing.CacheReadPricePerToken, 1e-12)
-	require.InDelta(t, cacheWrite, pricing.CacheCreationPricePerToken, 1e-12)
-	require.InDelta(t, output, pricing.OutputPricePerToken, 1e-12)
-	require.Equal(t, 272000, pricing.LongContextInputThreshold)
-	require.InDelta(t, 2.0, pricing.LongContextInputMultiplier, 1e-12)
-	require.InDelta(t, 1.5, pricing.LongContextOutputMultiplier, 1e-12)
+	pricing := tkOverlayLiteLLMModelPricing(model)
+	require.NotNil(t, pricing, "missing GPT-5.6 overlay owner: %s", model)
+	return pricing
+}
+
+func assertGPT56ModelPricing(t *testing.T, got *ModelPricing, owner *LiteLLMModelPricing) {
+	t.Helper()
+	require.NotNil(t, got)
+	require.InDelta(t, owner.InputCostPerToken, got.InputPricePerToken, 1e-12)
+	require.InDelta(t, owner.CacheReadInputTokenCost, got.CacheReadPricePerToken, 1e-12)
+	require.InDelta(t, owner.CacheCreationInputTokenCost, got.CacheCreationPricePerToken, 1e-12)
+	require.InDelta(t, owner.OutputCostPerToken, got.OutputPricePerToken, 1e-12)
+	require.InDelta(t, owner.InputCostPerTokenPriority, got.InputPricePerTokenPriority, 1e-12)
+	require.InDelta(t, owner.CacheReadInputTokenCostPriority, got.CacheReadPricePerTokenPriority, 1e-12)
+	require.InDelta(t, owner.CacheCreationInputTokenCostPriority, got.CacheCreationPricePerTokenPriority, 1e-12)
+	require.InDelta(t, owner.OutputCostPerTokenPriority, got.OutputPricePerTokenPriority, 1e-12)
+	require.Equal(t, owner.LongContextInputTokenThreshold, got.LongContextInputThreshold)
+	require.InDelta(t, owner.LongContextInputCostMultiplier, got.LongContextInputMultiplier, 1e-12)
+	require.InDelta(t, owner.LongContextOutputCostMultiplier, got.LongContextOutputMultiplier, 1e-12)
+}
+
+func assertGPT56RegistryAliasPricing(t *testing.T, pricing *ModelPricing, owner *LiteLLMModelPricing) {
+	t.Helper()
+	assertGPT56ModelPricing(t, pricing, owner)
 }
 
 func TestParsePricingData_KeepsImageOnlyPricing(t *testing.T) {
@@ -330,7 +313,7 @@ func TestBillingService_GetModelPricing_FailsClosedForImageOnlyEntries(t *testin
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 
 	// image-only 条目不得进入 token 计费（否则 token 流量按 $0 计费），
-	// 必须落到 fallback / ErrModelPricingUnavailable 的 fail-closed 路径。
+	// 必须落到 registry alias / ErrModelPricingUnavailable 的 fail-closed 路径。
 	_, err = billingSvc.GetModelPricing("imagen-9.0-generate")
 	require.ErrorIs(t, err, ErrModelPricingUnavailable)
 
@@ -343,39 +326,6 @@ func TestBillingService_GetModelPricing_FailsClosedForImageOnlyEntries(t *testin
 	raw := pricingSvc.GetModelPricing("imagen-9.0-generate")
 	require.NotNil(t, raw)
 	require.InDelta(t, 0.04, raw.OutputCostPerImage, 1e-12)
-}
-
-func TestPricingService_MergesFallbackOnlyModels(t *testing.T) {
-	dir := t.TempDir()
-	fallbackFile := filepath.Join(dir, "fallback.json")
-	require.NoError(t, os.WriteFile(fallbackFile, []byte(`{
-		"remote-model": {
-			"input_cost_per_token": 0.000001,
-			"litellm_provider": "test",
-			"mode": "chat"
-		},
-		"gemini-3.1-flash-lite-image": {
-			"output_cost_per_image": 0.034,
-			"litellm_provider": "vertex_ai-language-models",
-			"mode": "image_generation"
-		}
-	}`), 0644))
-
-	svc := &PricingService{cfg: &config.Config{}}
-	svc.cfg.Pricing.FallbackFile = fallbackFile
-	remoteData, err := svc.parsePricingData([]byte(`{
-		"remote-model": {
-			"input_cost_per_token": 0.000002,
-			"litellm_provider": "test",
-			"mode": "chat"
-		}
-	}`))
-	require.NoError(t, err)
-
-	merged := svc.mergeFallbackPricingData(remoteData)
-	require.InDelta(t, 0.000002, merged["remote-model"].InputCostPerToken, 1e-12)
-	require.NotNil(t, merged["gemini-3.1-flash-lite-image"])
-	require.InDelta(t, 0.034, merged["gemini-3.1-flash-lite-image"].OutputCostPerImage, 1e-12)
 }
 
 func TestGetModelPricing_Gpt53CodexSparkUsesDedicatedSparkPricing(t *testing.T) {
@@ -393,7 +343,7 @@ func TestGetModelPricing_Gpt53CodexSparkUsesDedicatedSparkPricing(t *testing.T) 
 	require.Same(t, sparkPricing, got)
 }
 
-func TestGetModelPricing_Gpt53CodexFallbackUsesSpark(t *testing.T) {
+func TestGetModelPricing_Gpt53CodexRegistryAliasUsesSpark(t *testing.T) {
 	sparkPricing := &LiteLLMModelPricing{InputCostPerToken: 2}
 
 	svc := &PricingService{
@@ -406,7 +356,7 @@ func TestGetModelPricing_Gpt53CodexFallbackUsesSpark(t *testing.T) {
 	require.Same(t, sparkPricing, got)
 }
 
-func TestGetModelPricing_Gpt5CodexFallbackUsesSpark(t *testing.T) {
+func TestGetModelPricing_Gpt5CodexRegistryAliasUsesSpark(t *testing.T) {
 	sparkPricing := &LiteLLMModelPricing{InputCostPerToken: 2}
 
 	svc := &PricingService{
@@ -440,7 +390,7 @@ func TestCalculateCost_ClaudeDotFormMatchesDashFormFamilyPricing(t *testing.T) {
 	require.InDelta(t, 0.005, opusCost.TotalCost, 1e-12)
 }
 
-func TestGetModelPricing_OpenAIFallbackMatchedLoggedAsInfo(t *testing.T) {
+func TestGetModelPricing_OpenAIRegistryAliasLoggedAsInfo(t *testing.T) {
 	logSink, restore := captureStructuredLog(t)
 	defer restore()
 
@@ -454,26 +404,22 @@ func TestGetModelPricing_OpenAIFallbackMatchedLoggedAsInfo(t *testing.T) {
 	got := svc.GetModelPricing("gpt-5.3-codex")
 	require.Same(t, sparkPricing, got)
 
-	require.True(t, logSink.ContainsMessageAtLevel("[Pricing] OpenAI fallback matched gpt-5.3-codex -> gpt-5.3-codex-spark", "info"))
-	require.False(t, logSink.ContainsMessageAtLevel("[Pricing] OpenAI fallback matched gpt-5.3-codex -> gpt-5.3-codex-spark", "warn"))
+	const message = "[Pricing] OpenAI registry alias matched gpt-5.3-codex -> gpt-5.3-codex-spark"
+	require.True(t, logSink.ContainsMessageAtLevel(message, "info"))
+	require.False(t, logSink.ContainsMessageAtLevel(message, "warn"))
 }
 
-func TestGetModelPricing_Gpt54UsesStaticFallbackWhenRemoteMissing(t *testing.T) {
+func TestGetModelPricing_Gpt54AliasReadsRegistryOwner(t *testing.T) {
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{},
 	}
 
 	got := svc.GetModelPricing("gpt-5.4")
 	require.NotNil(t, got)
-	require.InDelta(t, 2.5e-6, got.InputCostPerToken, 1e-12)
-	require.InDelta(t, 1.5e-5, got.OutputCostPerToken, 1e-12)
-	require.InDelta(t, 2.5e-7, got.CacheReadInputTokenCost, 1e-12)
-	require.Equal(t, 272000, got.LongContextInputTokenThreshold)
-	require.InDelta(t, 2.0, got.LongContextInputCostMultiplier, 1e-12)
-	require.InDelta(t, 1.5, got.LongContextOutputCostMultiplier, 1e-12)
+	require.Equal(t, tkOverlayLiteLLMModelPricing("gpt-5.4"), got)
 }
 
-func TestGetModelPricing_OpenAICompactAliasUsesStaticFallback(t *testing.T) {
+func TestGetModelPricing_OpenAICompactAliasReadsRegistryOwner(t *testing.T) {
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
 			"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
@@ -482,8 +428,7 @@ func TestGetModelPricing_OpenAICompactAliasUsesStaticFallback(t *testing.T) {
 
 	got := svc.GetModelPricing("openai/gpt5.5")
 	require.NotNil(t, got)
-	require.InDelta(t, 2.5e-6, got.InputCostPerToken, 1e-12)
-	require.InDelta(t, 1.5e-5, got.OutputCostPerToken, 1e-12)
+	require.Equal(t, tkOverlayLiteLLMModelPricing("gpt-5.4"), got)
 }
 
 func TestPricingService_Gemini36FlashThinkingTiersUseBasePricing(t *testing.T) {
@@ -543,8 +488,7 @@ func TestBillingService_Gemini36FlashThinkingTierFallbacksAreBillable(t *testing
 }
 
 func TestDefaultPricingIncludesGemini36FlashRates(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
-	require.NoError(t, err)
+	data := tkPricingOverlayRaw
 
 	pricingSvc := &PricingService{}
 	pricingData, err := pricingSvc.parsePricingData(data)
@@ -564,8 +508,7 @@ func TestDefaultPricingIncludesGemini36FlashRates(t *testing.T) {
 }
 
 func TestDefaultPricingIncludesCodexAutoReview(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
-	require.NoError(t, err)
+	data := tkPricingOverlayRaw
 
 	svc := &PricingService{}
 	pricingData, err := svc.parsePricingData(data)
@@ -579,20 +522,17 @@ func TestDefaultPricingIncludesCodexAutoReview(t *testing.T) {
 	require.InDelta(t, 5e-7, got.CacheReadInputTokenCost, 1e-12)
 }
 
-func TestGetModelPricing_Gpt54MiniUsesDedicatedStaticFallbackWhenRemoteMissing(t *testing.T) {
+func TestGetModelPricing_Gpt54MiniAliasReadsRegistryOwner(t *testing.T) {
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{},
 	}
 
 	got := svc.GetModelPricing("gpt-5.4-mini")
 	require.NotNil(t, got)
-	require.InDelta(t, 7.5e-7, got.InputCostPerToken, 1e-12)
-	require.InDelta(t, 4.5e-6, got.OutputCostPerToken, 1e-12)
-	require.InDelta(t, 7.5e-8, got.CacheReadInputTokenCost, 1e-12)
-	require.Zero(t, got.LongContextInputTokenThreshold)
+	require.Equal(t, tkOverlayLiteLLMModelPricing("gpt-5.4-mini"), got)
 }
 
-func TestGetModelPricing_Gpt54NanoUsesDedicatedStaticFallbackWhenRemoteMissing(t *testing.T) {
+func TestGetModelPricing_Gpt54NanoAliasReadsRegistryOwner(t *testing.T) {
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
 			"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
@@ -601,10 +541,7 @@ func TestGetModelPricing_Gpt54NanoUsesDedicatedStaticFallbackWhenRemoteMissing(t
 
 	got := svc.GetModelPricing("gpt-5.4-nano")
 	require.NotNil(t, got)
-	require.InDelta(t, 2e-7, got.InputCostPerToken, 1e-12)
-	require.InDelta(t, 1.25e-6, got.OutputCostPerToken, 1e-12)
-	require.InDelta(t, 2e-8, got.CacheReadInputTokenCost, 1e-12)
-	require.Zero(t, got.LongContextInputTokenThreshold)
+	require.Equal(t, tkOverlayLiteLLMModelPricing("gpt-5.4-nano"), got)
 }
 
 func TestGetModelPricing_ImageModelDoesNotFallbackToTextModel(t *testing.T) {
@@ -799,14 +736,11 @@ func TestParsePricingData_ParsesOutputCostPerSecond(t *testing.T) {
 	require.InDelta(t, 0.4, data["gemini/veo-3.1-generate-preview"].OutputCostPerSecond, 1e-12)
 }
 
-// TestParsePricingData_TKMediaOverlayMergesWhenSourceLacksMedia proves the
-// load-bearing production path: the runtime source (Wei-Shaw mirror) carries NO
-// imagen/veo entries at all — not bare, not provider-prefixed — yet imagen-*/veo-*
-// must still resolve to a real price via the always-merged TK overlay. This is what
-// makes the feature work in prod (matchByProviderPrefix has nothing to match there).
-func TestParsePricingData_TKMediaOverlayMergesWhenSourceLacksMedia(t *testing.T) {
+// Offline import parsing always incorporates the registry owners, including
+// media rows absent from the imported provider evidence.
+func TestParsePricingData_RegistrySuppliesMediaAbsentFromImport(t *testing.T) {
 	svc := &PricingService{}
-	// Wei-Shaw-shaped source: only mainstream token models, no media, no "/" keys.
+	// Imported evidence contains token models only, with no media rows.
 	body := []byte(`{
 		"gpt-4o": {"input_cost_per_token": 0.0000025, "output_cost_per_token": 0.00001, "litellm_provider": "openai"},
 		"claude-3-7-sonnet-20250219": {"input_cost_per_token": 0.000003, "output_cost_per_token": 0.000015, "litellm_provider": "anthropic"}
@@ -816,20 +750,18 @@ func TestParsePricingData_TKMediaOverlayMergesWhenSourceLacksMedia(t *testing.T)
 	svc.pricingData = pricingData
 
 	img := svc.GetModelPricing("imagen-4.0-generate-001")
-	require.NotNil(t, img, "overlay must supply imagen even when the source lacks it")
+	require.NotNil(t, img, "registry must supply imagen even when import evidence lacks it")
 	require.Equal(t, "image_generation", img.Mode)
 	require.Greater(t, img.OutputCostPerImage, 0.0)
 
 	vid := svc.GetModelPricing("veo-3.1-generate-001")
-	require.NotNil(t, vid, "overlay must supply veo even when the source lacks it")
+	require.NotNil(t, vid, "registry must supply veo even when import evidence lacks it")
 	require.Equal(t, "video_generation", vid.Mode)
 	require.Greater(t, vid.OutputCostPerSecond, 0.0)
 }
 
-// TestParsePricingData_TKMediaOverlayIsFillOnly proves the overlay never overwrites
-// the loaded source: the day the source carries a bare media key natively, the source
-// value wins and the overlay entry is ignored (self-deprecating).
-func TestParsePricingData_TKMediaOverlayIsFillOnly(t *testing.T) {
+// Imported same-name values never override the registry owner.
+func TestParsePricingData_RegistryOwnerOverridesImportedMediaPrice(t *testing.T) {
 	svc := &PricingService{}
 	body := []byte(`{
 		"imagen-4.0-generate-001": {"output_cost_per_image": 0.99, "mode": "image_generation", "litellm_provider": "vertex_ai"}
@@ -838,5 +770,7 @@ func TestParsePricingData_TKMediaOverlayIsFillOnly(t *testing.T) {
 	require.NoError(t, err)
 	got := pricingData["imagen-4.0-generate-001"]
 	require.NotNil(t, got)
-	require.InDelta(t, 0.99, got.OutputCostPerImage, 1e-12) // source wins, not the overlay's value
+	owner := tkOverlayLiteLLMModelPricing("imagen-4.0-generate-001")
+	require.NotNil(t, owner)
+	require.InDelta(t, owner.OutputCostPerImage, got.OutputCostPerImage, 1e-12)
 }

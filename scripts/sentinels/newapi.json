@@ -396,9 +396,11 @@
     {
       "path": "backend/internal/service/pricing_service.go",
       "must_contain": [
-        "applyTKPricingOverlay(result)"
+        "loadRegistryPricingData()",
+        "loadTKPricingOverlaySnapshot()",
+        "Loaded %d models from TK pricing registry"
       ],
-      "rationale": "TK pricing overlay injection point inside parsePricingData — the single choke-point both the remote (Wei-Shaw) and disk-fallback load paths funnel through. The production price source is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries (and litellm itself lags new provider models like deepseek-v4-*), so those models resolve to nothing there; this fill-only overlay (companion pricing_service_tk_overlay.go, embedded tk_pricing_overlay.json) supplies the bare-name entries so per-image / per-second / per-token billing applies. If an upstream merge restructures parsePricingData and drops this one-line call, imagen silently reverts to the $0.134 default, veo to $0, and deepseek-v4-* to $0 (pricing_missing_record_zero_cost). The companion file's go:embed also makes the overlay JSON's presence build-enforced."
+      "rationale": "The runtime pricing choke-point must load the embedded TK registry snapshot directly. Billing, catalog, and serving gates must share that snapshot; provider/LiteLLM imports are offline evidence only. Pinning the loader call, snapshot construction, and registry load log prevents an upstream merge from reconnecting runtime pricing to a remote/local provider snapshot or silently dropping the registry owner."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay.go",
@@ -407,7 +409,7 @@
         "tkBuildOverlayIntervals(ext.Intervals)",
         "tkValidateAndBuildOverlayVideoTiers"
       ],
-      "rationale": "The overlay loader manually copies LiteLLMRawEntry fields into LiteLLMModelPricing; a missing copy is invisible at compile time and silently zeroes that price for every overlay-only model. This exact field was dropped once in prod: claude-fable-5 (absent from the trimmed runtime source, priced only by the overlay) billed all 1h cache-creation tokens at the 5m rate ($12.50/MTok instead of the official $20/MTok) because billing_service.go's breakdown predicate price1h>price5m saw price1h=0. Pinning the copy line keeps the 1h cache-write tier alive for any overlay entry carrying cache_creation_input_token_cost_above_1hr. SAME silent-drop class for tiered pricing: the loader MUST parse the overlay 'intervals' array via tkBuildOverlayIntervals(ext.Intervals) (a second raw-entry unmarshal, because the upstream LiteLLMRawEntry has no intervals field); dropping it silently flattens every overlay-tiered model (qwen plus/flash/coder, doubao-*/glm-4.7/deepseek-v3.2) to its base tier with no compile error."
+      "rationale": "The registry loader manually copies raw registry fields into LiteLLMModelPricing; a missing copy is invisible at compile time and silently zeroes that price for every registry-only model. Pinning the 1h cache-write field, tier intervals, and video tiers keeps the complete owner row intact for billing and catalog resolution. Provider/LiteLLM parser compatibility is offline-only and must not become a second runtime source."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay_test.go",

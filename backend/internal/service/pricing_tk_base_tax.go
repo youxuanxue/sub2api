@@ -13,8 +13,8 @@ type tkOfficialListBaseTaxRule struct {
 }
 
 // tkOfficialListBaseTaxPolicy is executable pricing policy loaded from
-// tk_pricing_overlay.json::_config. The embedded document is the compile floor;
-// tk_pricing_overlay_runtime may replace this policy atomically with model prices.
+// tk_pricing_overlay.json::_config. It ships atomically with the model registry;
+// no runtime settings layer may replace it independently.
 type tkOfficialListBaseTaxPolicy struct {
 	Multiplier float64                     `json:"multiplier"`
 	Rules      []tkOfficialListBaseTaxRule `json:"rules"`
@@ -96,7 +96,7 @@ func tkBaseTaxMultiplierForProvider(provider string) (float64, bool) {
 }
 
 // tkInferBaseTaxProvider maps a bare model id to a provider when only the model
-// name is known (billing fallbackPrices path — those entries carry no vendor).
+// name is known (legacy test-injected fallback path — production rows carry a registry vendor).
 func (p tkOfficialListBaseTaxPolicy) inferProvider(model string) string {
 	m := strings.ToLower(strings.TrimSpace(model))
 	for _, rule := range p.Rules {

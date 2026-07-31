@@ -28,6 +28,6 @@ func (r *ModelPricingResolver) tkResolveOverlayMediaPerRequest(model string) *Re
 	return &ResolvedPricing{
 		Mode:                   mode,
 		DefaultPerRequestPrice: lp.OutputCostPerImage,
-		Source:                 PricingSourceLiteLLM,
+		Source:                 PricingSourceRegistry,
 	}
 }

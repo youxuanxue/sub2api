@@ -1,22 +1,14 @@
 #!/usr/bin/env python3
 """display-coverage-gate.py — forward guard against the #1030 / #1029 failure class.
 
-Both #1030 (gpt-5.6) and #1029 (antigravity gemini-* image/3.5-flash) added models
-to the Go servable allowlist (pricing_catalog_supported_models_tk.go) and to the
-BUNDLED litellm mirror (backend/resources/model-pricing/…), reasoning "it's priced
-in the mirror, so it displays." It does NOT: prod's /pricing catalog is built from
-the live UPSTREAM remote mirror (Wei-Shaw/model-price-repo) ∪ the TK overlay
-(tk_pricing_overlay.json). The bundled mirror is a hand-maintained, SHADOWED
-fallback prod never reads — so a model present only there shows a BLANK price.
-The overlay is the only prod-reliable, repo-checkable display source.
+Every model added to the Go servable allowlist must also exist in the unified
+pricing registry (`tk_pricing_overlay.json`). Separate bundled or remote provider snapshots
+are not runtime display sources and are intentionally not accepted by this gate.
 
 This gate is DIFF-SCOPED: it only fires on models a PR ADDS to the allowlist
 (base..HEAD), so it passes on a clean main and never retroactively fails. For each
-newly-allowlisted model it requires display coverage in the overlay (non-zero,
-token OR media). The escape hatch is a falsifiable assertion, not a rubber stamp:
-a commit message carrying `display-via-remote-verified` declares the author
-confirmed the model already displays priced via the upstream remote (the only
-legitimate non-overlay source). The live backstop is
+newly-allowlisted model it requires display coverage in the registry (non-zero,
+token OR media). The live backstop is
 ops/pricing/audit-display-coverage.py check --live (catches a wrong assertion).
 
 Exit: 0 clean / 1 gap (uncovered new allowlist entry, no marker) / 2 error.
@@ -34,7 +26,6 @@ REPO = Path(__file__).resolve().parents[2]
 GO_REL = "backend/internal/service/pricing_catalog_supported_models_tk.go"
 OVERLAY_REL = "backend/internal/service/tk_pricing_overlay.json"
 PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
-MARKER = "display-via-remote-verified"
 
 
 def parse_allowlist(go_text: str) -> dict[str, set[str]]:
@@ -56,6 +47,7 @@ def overlay_priced(entry: object) -> bool:
         (entry.get("input_cost_per_token") or 0) > 0
         or (entry.get("output_cost_per_token") or 0) > 0
         or (entry.get("output_cost_per_image") or 0) > 0
+        or (entry.get("output_cost_per_image_token") or 0) > 0
         or (entry.get("output_cost_per_second") or 0) > 0
     )
 
@@ -116,22 +108,14 @@ def cmd_check(args) -> int:
             if mid not in covered:
                 uncovered.append((plat, mid))
     if not uncovered:
-        print("display-coverage-gate: ok (no new allowlist entries lack overlay display coverage)")
-        return 0
-    if has_marker(args.base):
-        print(f"display-coverage-gate: ok ({MARKER} present; "
-              f"{len(uncovered)} new allowlist entr(ies) declared remote-displayed)")
-        for plat, mid in uncovered:
-            print(f"    (remote-verified) {plat}: {mid}")
+        print("display-coverage-gate: ok (no new allowlist entries lack registry display coverage)")
         return 0
     print("display-coverage-gate: FAIL — new servable-allowlist entr(ies) with NO display "
-          "price source (overlay). The bundled mirror does NOT display in prod.", file=sys.stderr)
+          "price source in the unified registry.", file=sys.stderr)
     for plat, mid in uncovered:
         print(f"    {plat}: {mid}", file=sys.stderr)
-    print(f"\nfix: add a priced tk_pricing_overlay.json entry for each (ops/pricing/"
-          f"apply-pricing-hotfix.py stage-overlay), OR if it genuinely displays via the\n"
-          f"upstream remote mirror, put `{MARKER}` in a commit message after confirming with\n"
-          f"ops/pricing/audit-display-coverage.py check --live.", file=sys.stderr)
+    print("\nfix: add a priced tk_pricing_overlay.json registry entry for each model "
+          "before changing the servable allowlist.", file=sys.stderr)
     return 1
 
 

@@ -61,7 +61,7 @@ func DecorateAndPruneByAvailability(ctx context.Context, resp *PublicCatalogResp
 
 // inferPlatformFromVendor maps the vendor string in the catalog to the
 // platform string used in model_availability. Vendor values come from the
-// litellm_provider field in model_pricing.json.
+// litellm_provider metadata field on the registry owner row.
 func inferPlatformFromVendor(vendor string) string {
 	switch vendor {
 	case "gemini", "google", "vertex_ai", "vertex_ai-language-models":

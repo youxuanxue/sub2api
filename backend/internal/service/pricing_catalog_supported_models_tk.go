@@ -13,7 +13,7 @@ import (
 // supportedClaudeCatalogModels because Kiro mirror stubs live in Claude groups.
 //
 // Problem: both surfaces used to advertise models that TokenKey cannot
-// actually serve — the public catalog rendered the whole litellm mirror (22
+// actually serve — the public catalog rendered the whole registry (22
 // anthropic + 123 openai entries, most retired), and Your Menu fell back to
 // the canonical openai.DefaultModels / claude.DefaultModels advertised lists.
 // Customers picked dead models and hit 400/404/502.
@@ -328,11 +328,11 @@ func FilterPublicCatalogToServable(resp *PublicCatalogResponse) *PublicCatalogRe
 }
 
 // presentationVendorForServable re-tags antigravity-served wire ids that the
-// upstream price mirror carries under a gemini/vertex vendor. The mirror routes
+// provider discovery carries under a gemini/vertex vendor. The registry routes
 // names like gemini-3.5-flash / gemini-3-pro-image / gemini-*-image to the
 // PlatformGemini gate, whose allowlist (the constrained Vertex 7-key set) lacks
 // them — so the public catalog silently drops them even though antigravity serves
-// them and the overlay/source prices them (#1029/#1030 follow-up: same class as
+// them and the registry prices them (#1029/#1030 follow-up: same class as
 // the gpt-5.6 display gap, on a different surface). A model that is in the
 // antigravity allowlist but NOT the gemini allowlist is antigravity-EXCLUSIVE:
 // re-attribute it to the antigravity vendor so it passes the antigravity gate and

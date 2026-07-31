@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """apply-pricing-hotfix.py — 缺价模型定价热更新（飞书「模型缺价」告警的配套 runbook 脚本）。
 
-背景：catch-all 账号会把任意模型名转发到上游；缺价模型按零成本记账（不拒绝服务），
-由 PricingMissingNotifier 发飞书提醒运营。本脚本把既有的人肉止血路径机械化
-（deepseek-v4 先例：手工配渠道定价止血 → tk_pricing_overlay.json 固化）：
+背景：缺价模型由 priced-serving gate fail closed；历史零价流量和 registry
+family alias 收敛信号由 PricingMissingNotifier 发飞书提醒运营。本脚本把止血路径机械化
+（deepseek-v4 先例：手工配 scoped channel override 止血 → pricing registry 固化）：
 
   热更（立即生效，无需发版）：渠道定价 DB 凌驾一切定价来源，经 prod admin API
   （x-api-key，参考 settings.admin_api_key）upsert —— 与 TLS 指纹/tiers 的
   「repo 基线 + 脚本推运行时」热更新模式同构。
-  固化（随下次发版生效）：fill-only 条目写入 backend/internal/service/
-  tk_pricing_overlay.json（litellm 镜像补上后自动让位），提 PR。
+  固化（随下次发版生效）：把经过人工确认的 registry owner 行写入
+  backend/internal/service/tk_pricing_overlay.json，提 PR。provider/LiteLLM
+  只提供离线导入证据；它不会成为运行时价格源，也不会自动覆盖 registry owner。
 
 子命令：
-  lookup        从 litellm 上游全量源（含被裁剪镜像丢掉的带前缀键）查某模型价格，
-                输出建议的 overlay 条目 + 渠道定价 payload。
+  lookup        从 provider/LiteLLM 离线快照查某模型价格，输出建议的 registry
+                owner 条目 + scoped channel override payload。
   channels      列出渠道（id / 名称 / 各定价条目的平台与模型数），帮运营选 --channel-id。
   apply         GET 渠道 → upsert 该模型的定价条目 → PUT 回写（默认 dry-run，--yes 才真写）。
-  stage-overlay 把条目以文本追加方式写入 tk_pricing_overlay.json（保持既有格式零搅动）。
+  stage-overlay 把人工确认的新 owner 条目以文本追加方式写入 registry。
+                已有 owner 必须就地修改 registry，本命令会拒绝重复 key。
   selftest      离线自检（纯函数全覆盖，无网络）。
 
 环境变量：TOKENKEY_BASE_URL（默认 https://api.tokenkey.dev）、TOKENKEY_ADMIN_API_KEY。
@@ -41,15 +43,19 @@ BASE_URL_DEFAULT = os.environ.get("TOKENKEY_BASE_URL", "https://api.tokenkey.dev
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OVERLAY_PATH = REPO_ROOT / "backend" / "internal" / "service" / "tk_pricing_overlay.json"
 
-# overlay 允许携带的 litellm 字段（与 pricing_service_tk_overlay.go 的解析面对齐）。
+# registry 导入允许携带的 provider/LiteLLM 字段（与 registry parser 对齐）。
 OVERLAY_FIELDS = (
     "litellm_provider",
     "mode",
     "input_cost_per_token",
+    "input_cost_per_token_priority",
     "output_cost_per_token",
+    "output_cost_per_token_priority",
     "cache_creation_input_token_cost",
     "cache_creation_input_token_cost_above_1hr",
     "cache_read_input_token_cost",
+    "cache_read_input_token_cost_priority",
+    "input_cost_per_image_token",
     "output_cost_per_image",
     "output_cost_per_image_token",
     "output_cost_per_video_per_second",
@@ -112,7 +118,7 @@ def pick_litellm_candidate(found: dict, model: str, explicit_key: str | None = N
 
 
 def synthesize_overlay_entry(litellm_entry: dict, source_note: str) -> dict:
-    """从 litellm 条目裁出 overlay 条目（只保留 overlay 解析面认识的字段）。"""
+    """从离线 provider 条目裁出 registry owner 条目。"""
     out = {}
     for field in OVERLAY_FIELDS:
         if field in litellm_entry and litellm_entry[field] is not None:
@@ -123,7 +129,7 @@ def synthesize_overlay_entry(litellm_entry: dict, source_note: str) -> dict:
 
 
 def synthesize_channel_pricing(model: str, platform: str, entry: dict) -> dict:
-    """从 litellm 条目合成渠道定价 request 条目（admin PUT /channels/:id 的
+    """从离线 provider 条目合成 scoped channel override request 条目（admin PUT /channels/:id 的
     model_pricing 元素，字段名对齐 channelModelPricingRequest）。"""
     out = {"platform": platform, "models": [model]}
     mode = (entry.get("mode") or "chat").lower()
@@ -146,6 +152,8 @@ def synthesize_channel_pricing(model: str, platform: str, entry: dict) -> dict:
     for src, dst in mapping:
         if entry.get(src) is not None:
             out[dst] = entry[src]
+    if entry.get("input_cost_per_image_token") is not None:
+        out["image_input_price"] = entry["input_cost_per_image_token"]
     return out
 
 
@@ -271,7 +279,7 @@ def admin_api_key() -> str:
 
 
 def fetch_litellm(url: str) -> dict:
-    print(f"fetching litellm source: {url}", file=sys.stderr)
+    print(f"fetching offline provider pricing evidence: {url}", file=sys.stderr)
     return http_json(url)
 
 
@@ -297,11 +305,11 @@ def cmd_lookup(args) -> int:
         print(f"\n=== litellm key: {key}")
         print(json.dumps(entry, indent=2, ensure_ascii=False))
     picked_key, pick = pick_litellm_candidate(found, args.model, args.litellm_key)
-    note = f"litellm {picked_key} (captured via apply-pricing-hotfix.py lookup)"
-    print(f"\n=== suggested overlay entry (from {picked_key}; "
-          "stage-overlay --from-litellm uses this):")
+    note = f"offline provider evidence {picked_key} (captured via apply-pricing-hotfix.py lookup)"
+    print(f"\n=== suggested registry owner entry (evidence {picked_key}; "
+          "stage-overlay --from-litellm uses this after review):")
     print(render_overlay_block(args.model, synthesize_overlay_entry(pick, note)))
-    print("\n=== suggested channel pricing payload element (apply --from-litellm uses this):")
+    print("\n=== suggested scoped channel override payload (apply --from-litellm uses this):")
     print(json.dumps(synthesize_channel_pricing(args.model, args.platform, pick),
                      indent=2, ensure_ascii=False))
     return 0
@@ -364,7 +372,7 @@ def cmd_apply(args) -> int:
         return 0
     http_json(url, method="PUT", payload=payload, api_key=key)
     print("PUT ok — 渠道定价缓存即时失效，下一请求生效。")
-    print("别忘了固化：stage-overlay（或确认 litellm 镜像已收录该裸名键）。")
+    print("请将人工确认的 owner 固化到 registry；运行时不会读取 provider/LiteLLM 快照。")
     return 0
 
 
@@ -383,7 +391,7 @@ def cmd_stage_overlay(args) -> int:
             raise SystemExit(f"no litellm entry for {args.model!r}; "
                              "provide --entry-json with provider official prices")
         picked_key, picked = pick_litellm_candidate(found, args.model, args.litellm_key)
-        note = args.source or (f"litellm {picked_key} "
+        note = args.source or (f"offline provider evidence {picked_key} "
                                "(captured via apply-pricing-hotfix.py)")
         entry = synthesize_overlay_entry(picked, note)
 
@@ -395,7 +403,7 @@ def cmd_stage_overlay(args) -> int:
         return 0
     OVERLAY_PATH.write_text(new_text)
     print(f"appended {args.model!r} to {OVERLAY_PATH}")
-    print("next: scripts/checks/pricing-overlay.py + scripts/preflight.sh, 然后提 PR 固化。")
+    print("next: scripts/checks/pricing-overlay.py + scripts/preflight.sh, 然后提 PR 固化 registry owner。")
     return 0
 
 
@@ -548,7 +556,7 @@ def main() -> int:
     p.add_argument("--yes", action="store_true", help="actually PUT (default is dry-run)")
     p.set_defaults(fn=cmd_apply)
 
-    p = sub.add_parser("stage-overlay", help="append a fill-only entry to tk_pricing_overlay.json")
+    p = sub.add_parser("stage-overlay", help="append a new owner entry to tk_pricing_overlay.json")
     p.add_argument("--model", required=True)
     p.add_argument("--from-litellm", action="store_true")
     p.add_argument("--litellm-url", default=LITELLM_URL_DEFAULT)

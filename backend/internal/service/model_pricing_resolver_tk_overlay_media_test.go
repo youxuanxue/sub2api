@@ -32,7 +32,7 @@ func TestModelPricingResolver_TkResolveOverlayMediaPerRequest(t *testing.T) {
 	require.NotNil(t, media)
 	require.Equal(t, BillingModeImage, media.Mode)
 	require.InDelta(t, 0.04, media.DefaultPerRequestPrice, 1e-12)
-	require.Equal(t, PricingSourceLiteLLM, media.Source)
+	require.Equal(t, PricingSourceRegistry, media.Source)
 
 	require.Nil(t, resolver.tkResolveOverlayMediaPerRequest("gpt-4o-mini"))
 	require.Nil(t, resolver.tkResolveOverlayMediaPerRequest("unknown-model"))
@@ -57,7 +57,7 @@ func TestModelPricingResolver_Resolve_ImageOnlyOverlayOnTokenPath(t *testing.T) 
 	require.NotNil(t, resolved)
 	require.Equal(t, BillingModeImage, resolved.Mode)
 	require.InDelta(t, 0.02, resolved.DefaultPerRequestPrice, 1e-12)
-	require.Equal(t, PricingSourceLiteLLM, resolved.Source)
+	require.Equal(t, PricingSourceRegistry, resolved.Source)
 
 	cost, err := billing.CalculateCostUnified(CostInput{
 		Model:          "imagen-4.0-fast-generate-001",

@@ -33,7 +33,7 @@ allowlist 同步更新的模型正/负清单。
 按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审。本 skill
 **已达基线**——可机械化的步骤全在脚本里，prompt 不重复它们：
 
-- **机械化（脚本承载）**：候选派生（按 litellm vendor + 是否有价，分 chat/responses/image
+- **机械化（脚本承载）**：候选派生（按 registry owner + provider discovery evidence，分 chat/responses/image
   家族，Gemini 另走 discovered + seed）、**24h 流量短路**（从 `usage_logs` 拉近窗成功流量、
   与候选集求交、跳过 SSM 探测）、SSM 投递与逐模型请求、HTTP→verdict 分类、留
   `servable`、dated 去重、Go map splice、分批避开 SSM 等待窗口、自动开 PR——全在
@@ -112,7 +112,7 @@ ids 47/57/58/59/74 在 prod；旧 us6 `google` 组账号已软删、清空）。
 `GEMINI_VIDEO_MODELS`→`/v1/video/generations`（异步 submit 200 即 servable，best-effort）。
 `split_gemini_families` 自动按名分流：`imagen-`→`gemini_image`、`image`/`nano-banana`→`gemini_chat_image`、其余 `gemini-`→`gemini_chat`、`veo-`→`gemini_video`；watchlist `probe_family` 可覆写。
 probe key 由 `__tk_probe_newapi_google_*` 自动 ensure（从 **group_id=16** 源组复制 schedulable 账号）。
-所有默认源池以 group id 为 SSOT：prod `openai=2`、`anthropic mirror=1`、`antigravity=21`、
+所有默认源池以 group id 为 SSOT：prod `openai=2`、`anthropic relay=1`、`antigravity=21`、
 `Vertex/newapi=16`、`Qwen/newapi=18`、`GLM/newapi=26`；edge-native 目标库为
 `anthropic=1`、`grok=4`。`PROBE_*_SOURCE_GROUP` 只作为 legacy 诊断覆盖，默认不得填显示名。
 
@@ -154,12 +154,12 @@ bash ops/observability/run-probe.sh --target <prod|edge:edge_id> \
 所以不能通过清开 prod model_mapping/floor 单独上架，当前应保持不展示。这个判读不是 OpenAI
 特例：后续所有新模型都要同时验证「上游账号能力」和「prod SSOT model_mapping 已放行」。
 
-- **候选来源（不走 litellm）**：账号的 `credentials.model_pricing_status`（上游发现清单）∪ imagen/veo
+- **候选来源（不走价格 registry）**：账号的 `credentials.model_pricing_status`（上游发现清单）∪ imagen/veo
   种子。经 `--discovered <file>` 传入（接受该 JSON 对象、JSON list 或换行清单）；省略则只探 imagen/veo 种子。
   > **实测（2026-07-02）**：live Vertex 账号 47/57/58/59/74 的 `model_pricing_status` 当前**为空**，
   > `credentials` 只有 `{api_key, base_url, model_mapping}`；其 `model_mapping` 是**受限 7 键**
   > （gemini-2.5-{pro,flash,flash-lite} + imagen-4.0×3 + veo-3.1-generate-001），与当前 Go gemini
-  > allowlist 完全一致、且全部已定价（litellm 镜像 + overlay）。故 model_pricing_status 为空时，
+  > allowlist 完全一致、且全部已由 registry 定价。故 model_pricing_status 为空时，
   > **退回用 `model_mapping` keys 作 discovered**（即受限服务集本身）；想**扩**到 gemini-3 等需先改
   > Vertex 账号 mapping（prod 写 + 上面的 catch-all 安全闸），不在只读刷新范围内。
   ```bash
@@ -184,7 +184,7 @@ bash ops/observability/run-probe.sh --target <prod|edge:edge_id> \
 2. **对账 `servable ∩ unpriced`**：以探测窗口内的 `pricing_missing_record_zero_cost` 日志为真值
    （比 `model_pricing_status` 快照可靠），与发现清单对账。
 3. **补准价（禁臆造）**：每个 servable-且-缺价的核心模型，查 **Google Vertex 官方实价**补
-   `backend/internal/service/tk_pricing_overlay.json`，形状对齐既有 imagen/veo 条目并带真实 `source`
+   `backend/internal/service/tk_pricing_overlay.json` registry，形状对齐既有 imagen/veo 条目并带真实 `source`
    （URL+抓取日）。**无公开价的模型必须排除出 catch-all**（或暂缓），不得估价。
 4. 发版 → soak 回读确认零 $0 → **此时才**永久清空 `model_mapping` + `schedulable=true`
    （裸 SQL 后刷 `scheduler_outbox`，见 memory `gemini_media`）。
@@ -247,7 +247,7 @@ bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-ser
   --env "ANTIGRAVITY_IMAGE_MODELS=gemini-2.5-flash-image gemini-3.1-flash-image gemini-3-pro-image" --timeout-seconds 180
 ```
 
-- **闸视角**：grok **无家族 floor** → 每个 servable grok 必须有真价（overlay），否则被价格闸拒；
+- **闸视角**：grok **无家族 floor** → 每个 servable grok 必须有真价（registry owner），否则被价格闸拒；
   antigravity 全是 `gemini-*` 命名 → 命中 **gemini 家族 floor**（按模型名、平台无关）→ 永不拒，
   缺真价只走 `served_at_fallback` 告警收敛。
 - **allowlist 是手维 + 运营策展面**（antigravity 注释「gemini only per operator policy」）：探测发现
@@ -299,14 +299,14 @@ bash ops/observability/run-probe.sh --target prod \
 按零成本记账，不拒绝客户）时，处置走 `ops/pricing/apply-pricing-hotfix.py`：
 
 ```bash
-python3 ops/pricing/apply-pricing-hotfix.py lookup --model <模型名>   # litellm 全量源取价（含被裁剪镜像丢掉的带前缀键）
+python3 ops/pricing/apply-pricing-hotfix.py lookup --model <模型名>   # provider/LiteLLM 离线取证（含带前缀键）
 export TOKENKEY_ADMIN_API_KEY=...                                     # settings.admin_api_key
 python3 ops/pricing/apply-pricing-hotfix.py channels                  # 选 --channel-id
 python3 ops/pricing/apply-pricing-hotfix.py apply --model <模型名> --channel-id N --platform <平台> --from-litellm --yes   # 热更：渠道定价凌驾一切，立即生效无需发版
-python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model <模型名> --from-litellm   # 固化：fill-only 进 tk_pricing_overlay.json，提 PR
+python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model <模型名> --from-litellm   # 人工确认后固化 registry owner，提 PR
 ```
 
-细则（per-channel 语义、litellm 没收录时的 `--entry-json` 路径、镜像价格错误时只能用渠道定价修）
+细则（per-channel 语义、provider 快照没收录时的 `--entry-json` 路径、旧价格错误时只能用 scoped channel override 修）
 见 `ops/pricing/README.md` §"Pricing-missing hotfix"。
 
 ## 姊妹 skill

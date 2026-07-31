@@ -605,12 +605,10 @@ else
 fi
 
 # ---- sub2api: pricing overlay -----------------------------------------------
-# Source of truth: backend/internal/service/tk_pricing_overlay.json. The
-# production price source (Wei-Shaw mirror) is a trimmed litellm that drops
-# provider-prefixed + token-less media entries (and litellm itself lags new
-# provider models like deepseek-v4-*), so those models resolve to a wrong
-# default or $0 unless this fill-only overlay supplies them. Assert the overlay
-# is non-empty, anchors are present, and no entry ships a $0 price. CLAUDE.md
+# Source of truth: backend/internal/service/tk_pricing_overlay.json, the complete
+# runtime pricing registry for native platforms and served newapi channels.
+# Channel model pricing is the only scoped override above it. Assert the registry
+# is non-empty, anchors are present, and no unowned $0 row ships. CLAUDE.md
 # §「升级原则」: a soft rule that bit us once becomes a mechanical gate.
 echo ""
 echo "=== sub2api: pricing overlay ==="
@@ -723,24 +721,6 @@ elif ! python3 ./ops/pricing/apply-pricing-hotfix.py selftest >/dev/null 2>&1; t
     errors=$((errors + 1))
 else
     echo "  ok: pricing-hotfix runbook selftest"
-fi
-
-# ---- sub2api: overlay-runtime hot-push tool selftest ------------------------
-# ops/pricing/manage-overlay-runtime.py hot-pushes tk_pricing_overlay.json to the
-# prod runtime (settings) so a model can be priced + surfaced without a release.
-# Its selftest covers the pure drift logic (pending/shadow/orphan) offline — run
-# it so a refactor of the drift rules fails preflight, not the operator.
-echo ""
-echo "=== sub2api: overlay-runtime hot-push tool selftest ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for overlay-runtime selftest)"
-    errors=$((errors + 1))
-elif ! python3 ./ops/pricing/manage-overlay-runtime.py --selftest >/dev/null 2>&1; then
-    echo "  FAIL: overlay-runtime hot-push tool selftest"
-    echo "        — run: python3 ops/pricing/manage-overlay-runtime.py --selftest"
-    errors=$((errors + 1))
-else
-    echo "  ok: overlay-runtime hot-push tool selftest"
 fi
 
 # ---- sub2api: account model_mapping tool/SSOT contract selftest -------------
@@ -1967,11 +1947,10 @@ fi
 
 # ---- sub2api: display-coverage gate (servable ⇒ displayable) ----------------
 # Guards the #1030 / #1029 failure class: a model added to the Go servable
-# allowlist with NO display price source. Prod's /pricing reads the upstream
-# remote mirror ∪ tk_pricing_overlay.json; the bundled resources/model-pricing
-# mirror is a SHADOWED, hand-maintained fallback prod never reads — so a model
-# present only there renders a BLANK price (gpt-5.6 #1030; antigravity gemini-*
-# #1029). Diff-scoped: only NEW allowlist entries must be overlay-priced (or carry
+# allowlist with NO display price source. Prod's /pricing reads the unified
+# tk_pricing_overlay.json registry, so a model present outside that registry
+# renders a BLANK price. Diff-scoped: only NEW allowlist entries must be
+# registry-priced (or carry
 # `display-via-remote-verified`). Live backstop:
 # ops/pricing/audit-display-coverage.py check --live. CLAUDE.md §「升级原则」.
 echo ""

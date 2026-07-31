@@ -11,17 +11,15 @@ import (
 )
 
 func newTestBillingServiceForResolver() *BillingService {
-	bs := &BillingService{
-		fallbackPrices: make(map[string]*ModelPricing),
-	}
-	bs.fallbackPrices["claude-sonnet-4"] = &ModelPricing{
-		InputPricePerToken:         3e-6,
-		OutputPricePerToken:        15e-6,
-		CacheCreationPricePerToken: 3.75e-6,
-		CacheReadPricePerToken:     0.3e-6,
-		SupportsCacheBreakdown:     false,
-	}
-	return bs
+	return newBillingServiceWithModelPricing(map[string]*ModelPricing{
+		"claude-sonnet-4": {
+			InputPricePerToken:         3e-6,
+			OutputPricePerToken:        15e-6,
+			CacheCreationPricePerToken: 3.75e-6,
+			CacheReadPricePerToken:     0.3e-6,
+			SupportsCacheBreakdown:     false,
+		},
+	})
 }
 
 func TestResolve_NoGroupID(t *testing.T) {
@@ -37,9 +35,7 @@ func TestResolve_NoGroupID(t *testing.T) {
 	require.Equal(t, BillingModeToken, resolved.Mode)
 	require.NotNil(t, resolved.BasePricing)
 	require.InDelta(t, 3e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
-	// BillingService.GetModelPricing uses fallback internally, but resolveBasePricing
-	// reports "litellm" when GetModelPricing succeeds (regardless of internal source)
-	require.Equal(t, "litellm", resolved.Source)
+	require.Equal(t, PricingSourceRegistry, resolved.Source)
 }
 
 func TestResolve_UnknownModel(t *testing.T) {
@@ -53,8 +49,8 @@ func TestResolve_UnknownModel(t *testing.T) {
 
 	require.NotNil(t, resolved)
 	require.Nil(t, resolved.BasePricing)
-	// Unknown model: GetModelPricing returns error, source is "fallback"
-	require.Equal(t, "fallback", resolved.Source)
+	// Unknown model: GetModelPricing returns error; there is no pricing source.
+	require.Equal(t, PricingSourceUnavailable, resolved.Source)
 }
 
 func TestGetIntervalPricing_NoIntervals(t *testing.T) {
@@ -267,7 +263,7 @@ func TestResolve_WithChannelOverride_TokenFlat(t *testing.T) {
 }
 
 func TestResolve_WithChannelOverride_TokenPartialOverride(t *testing.T) {
-	// Channel only sets InputPrice; OutputPrice should remain from the base (LiteLLM/fallback).
+	// Channel only sets InputPrice; OutputPrice remains from the registry owner.
 	r := newResolverWithChannel(t, []ChannelModelPricing{{
 		Platform:    "anthropic",
 		Models:      []string{"claude-sonnet-4"},
@@ -914,13 +910,13 @@ func TestApplyTokenOverrides_IntervalSetsImageOutputPriceExplicit(t *testing.T) 
 }
 
 // ===========================================================================
-// 10. Regression: channel overrides must not pollute fallbackPrices
+// 10. Regression: channel overrides must not pollute the registry snapshot
 // ===========================================================================
 
 // TestApplyTokenOverrides_FlatDoesNotPolluteFallbackPrices verifies that the
 // flat-override path in applyTokenOverrides clones the BasePricing struct
-// before mutation, so the shared fallbackPrices map entry is not written through.
-func TestApplyTokenOverrides_FlatDoesNotPolluteFallbackPrices(t *testing.T) {
+// before mutation, so the shared registry row is not written through.
+func TestApplyTokenOverrides_FlatDoesNotPolluteRegistry(t *testing.T) {
 	r := newResolverWithChannel(t, []ChannelModelPricing{{
 		Platform:    "anthropic",
 		Models:      []string{"claude-sonnet-4"},
@@ -939,16 +935,16 @@ func TestApplyTokenOverrides_FlatDoesNotPolluteFallbackPrices(t *testing.T) {
 	require.InDelta(t, 10e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
 	require.InDelta(t, 50e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
 
-	// Global fallbackPrices must NOT be polluted
-	fp := r.billingService.fallbackPrices["claude-sonnet-4"]
-	require.InDelta(t, 3e-6, fp.InputPricePerToken, 1e-12, "fallback InputPricePerToken polluted")
-	require.InDelta(t, 15e-6, fp.OutputPricePerToken, 1e-12, "fallback OutputPricePerToken polluted")
-	require.False(t, fp.ImageOutputPriceExplicit, "fallback ImageOutputPriceExplicit polluted")
+	// Global registry row must NOT be polluted
+	fp := r.billingService.pricingService.pricingData["claude-sonnet-4"]
+	require.InDelta(t, 3e-6, fp.InputCostPerToken, 1e-12, "registry InputCostPerToken polluted")
+	require.InDelta(t, 15e-6, fp.OutputCostPerToken, 1e-12, "registry OutputCostPerToken polluted")
+	require.Zero(t, fp.OutputCostPerImageToken, "registry image output price polluted")
 }
 
-// TestApplyTokenOverrides_IntervalDoesNotPolluteFallbackPrices verifies that
+// TestApplyTokenOverrides_IntervalDoesNotPolluteRegistry verifies that
 // the interval-override path also clones before mutation.
-func TestApplyTokenOverrides_IntervalDoesNotPolluteFallbackPrices(t *testing.T) {
+func TestApplyTokenOverrides_IntervalDoesNotPolluteRegistry(t *testing.T) {
 	r := newResolverWithChannel(t, []ChannelModelPricing{{
 		Platform:    "anthropic",
 		Models:      []string{"claude-sonnet-4"},
@@ -966,9 +962,9 @@ func TestApplyTokenOverrides_IntervalDoesNotPolluteFallbackPrices(t *testing.T) 
 	require.NotNil(t, resolved)
 	require.True(t, resolved.BasePricing.ImageOutputPriceExplicit)
 
-	// Global fallbackPrices must NOT be polluted
-	fp := r.billingService.fallbackPrices["claude-sonnet-4"]
-	require.InDelta(t, 3e-6, fp.InputPricePerToken, 1e-12, "fallback InputPricePerToken polluted")
-	require.InDelta(t, 15e-6, fp.OutputPricePerToken, 1e-12, "fallback OutputPricePerToken polluted")
-	require.False(t, fp.ImageOutputPriceExplicit, "fallback ImageOutputPriceExplicit polluted")
+	// Global registry row must NOT be polluted
+	fp := r.billingService.pricingService.pricingData["claude-sonnet-4"]
+	require.InDelta(t, 3e-6, fp.InputCostPerToken, 1e-12, "registry InputCostPerToken polluted")
+	require.InDelta(t, 15e-6, fp.OutputCostPerToken, 1e-12, "registry OutputCostPerToken polluted")
+	require.Zero(t, fp.OutputCostPerImageToken, "registry image output price polluted")
 }

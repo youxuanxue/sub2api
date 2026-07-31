@@ -3,7 +3,7 @@ package service
 // TokenKey: per-user pricing catalog ("Group Catalog" / "分组目录").
 //
 // Unlike service.PricingCatalogService.BuildPublicCatalog (a platform-wide
-// flat list of LiteLLM list prices), MePricingCatalogService builds a view
+// registry projection), MePricingCatalogService builds a view
 // scoped to ONE group — the group of the user's selected API key, or any
 // other group the user can access ("explore other group" mode).
 //
@@ -22,7 +22,7 @@ package service
 //     are already proven in `available_channel_handler.go:151-156, 230-249`;
 //     we replicate that discipline here rather than coupling ChannelService
 //     to user-scope concerns.
-//   - LiteLLM metadata (context_window, capabilities) is joined post-hoc
+//   - Registry metadata (context_window, capabilities) is joined post-hoc
 //     from PricingCatalogService — the channel layer doesn't carry those.
 //
 // Effective rate (user_group_rate override else group.rate_multiplier) is
@@ -404,7 +404,7 @@ const keyListPageSize = 200
 //  5. Dedupe by model_id, keep the cheapest (input + output sum) row.
 //  6. Emit OFFICIAL prices (multiplier 1.0) — effectiveRate is computed but
 //     NOT applied to model prices (TK pricing-display policy; see file header).
-//  7. Join LiteLLM metadata for capabilities / context_window / max_output.
+//  7. Join registry metadata for capabilities / context_window / max_output.
 //  8. Sort alpha by model_id.
 func (s *MePricingCatalogService) BuildForUser(
 	ctx context.Context,
@@ -587,7 +587,7 @@ func resolveTargetGroupID(
 //     conflict. This is what populates Your-Menu for Anthropic OAuth
 //     groups, which have no channels and no whitelist. See
 //     fillAccountFallback for the branch detail.
-//  3. LiteLLM metadata join — vendor / context_window / capabilities /
+//  3. Registry metadata join — vendor / context_window / capabilities /
 //     max_output_tokens applied to every row, regardless of source.
 func (s *MePricingCatalogService) buildModelsForGroup(
 	ctx context.Context,
@@ -596,7 +596,7 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 ) []MePricingModel {
 	out := []MePricingModel{}
 
-	// Build LiteLLM catalog index up-front: the channel metadata join and
+	// Build the registry catalog index up-front: the channel metadata join and
 	// the account-whitelist fallback both consume it, so we read once.
 	metaByID := map[string]PublicCatalogModel{}
 	if s.catalog != nil {
@@ -650,7 +650,7 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 	// authoritative; this only fills gaps).
 	s.fillAccountFallback(ctx, targetGroup, effectiveRate, bestByModel, metaByID)
 
-	// Stage 3: LiteLLM metadata join — applied uniformly to all rows.
+	// Stage 3: registry metadata join — applied uniformly to all rows.
 	//
 	// Resolves through lookupMePricingCatalogModel (NOT a raw metaByID index) so a
 	// vendor-prefixed row id — "deepseek/deepseek-v4-pro" from a newapi channel, or
@@ -1013,8 +1013,8 @@ func parseWhitelistFromCredentials(creds map[string]any) []string {
 // capabilities uniformly later, so this function only needs to seed
 // price + vendor.
 //
-// When the catalog lacks the model (e.g. a freshly released family not
-// yet in LiteLLM), the row is returned with nil prices so the user
+// When the registry-backed catalog lacks the model, the row is returned with
+// nil prices so the user
 // still sees the model is reachable through the gateway.
 func buildAccountFallbackEntry(modelID string, rate float64, metaByID map[string]PublicCatalogModel) MePricingModel {
 	entry := MePricingModel{

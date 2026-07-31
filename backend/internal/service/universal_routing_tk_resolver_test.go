@@ -184,18 +184,18 @@ func TestUniversalCandidatePlatforms(t *testing.T) {
 
 func TestUniversalModelPlatformHint(t *testing.T) {
 	cases := map[string]string{
-		"claude-opus-4-8":        PlatformAnthropic,
-		"grok-4":                 PlatformGrok,
-		"gpt-5":                  PlatformOpenAI,
-		"o3-mini":                PlatformOpenAI,
-		"gemini-3-pro":           PlatformGemini,
-		"gemini-3.1-flash-image": PlatformAntigravity,
-		"doubao-seedream-4":      PlatformNewAPI,
-		"deepseek-chat":          PlatformNewAPI,
+		"claude-opus-4-8":            PlatformAnthropic,
+		"grok-4":                     PlatformGrok,
+		"gpt-5":                      PlatformOpenAI,
+		"o3-mini":                    PlatformOpenAI,
+		"gemini-3-pro":               PlatformGemini,
+		"gemini-3.1-flash-image":     PlatformAntigravity,
+		"doubao-seedream-4":          PlatformNewAPI,
+		"deepseek-chat":              PlatformNewAPI,
 		"tokenkey/claude-sonnet-4-6": PlatformAnthropic,
 		"tokenkey/gpt-5.4":           PlatformOpenAI,
-		"some-unknown-model-xyz": "",
-		"":                       "",
+		"some-unknown-model-xyz":     "",
+		"":                           "",
 	}
 	for model, want := range cases {
 		if got := universalModelPlatformHint(model); got != want {

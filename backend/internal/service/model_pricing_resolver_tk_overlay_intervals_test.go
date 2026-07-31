@@ -79,7 +79,7 @@ func TestOverlayIntervalPricing_CoderPlusWholeRequestTier(t *testing.T) {
 	resolved := r.Resolve(context.Background(), PricingInput{Model: "qwen3-coder-plus"})
 	require.NotNil(t, resolved.BasePricing)
 	require.Len(t, resolved.Intervals, 4, "overlay intervals must populate ResolvedPricing.Intervals when no channel")
-	require.Equal(t, PricingSourceLiteLLM, resolved.Source)
+	require.Equal(t, PricingSourceRegistry, resolved.Source)
 
 	tax := tkOfficialListBaseTaxMultiplier()
 	withTax := func(cny float64) float64 {

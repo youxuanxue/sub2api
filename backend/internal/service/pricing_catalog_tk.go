@@ -9,22 +9,18 @@ package service
 // require an Ent schema migration (visible_in_catalog on Group).
 //
 // Why a separate service rather than reusing PricingService directly?
-//   - The file-source parser remains independent from billing. The small curated
-//     overlay carries its catalog metadata in the same immutable snapshot as its
-//     price so overlay-only rows cannot diverge between billing and display.
-//   - Catalog has its own caching cadence (mtime-based) and its own DTO shape;
+//   - The registry parser remains independent from billing. Registry rows carry
+//     catalog metadata in the same immutable snapshot as their price so billing
+//     and display cannot diverge.
+//   - Catalog has its own cached DTO projection and its own DTO shape;
 //     keeping it isolated minimizes upstream merge conflicts (rule §5).
 //
-// Source resolution:
-//   1) cfg.Pricing.DataDir/model_pricing.json (live data refreshed by PricingService)
-//   2) cfg.Pricing.FallbackFile (bundled at backend/resources/model-pricing/...)
-//   3) Empty list (never 500) — see US-028 AC-005.
+// Source resolution: the embedded TK pricing registry only. Channel
+// model pricing is applied by the resolver above this catalog projection.
 
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -151,9 +147,8 @@ type PublicCatalogTier struct {
 	CacheReadPer1K    float64 `json:"cache_read_per_1k,omitempty"`
 }
 
-// catalogRichEntry mirrors the litellm-shape JSON fields needed for the public
-// catalog's file-source parser. Overlay-only rows project the same metadata from
-// LiteLLMModelPricing so their price and display facts share one snapshot.
+// catalogRichEntry parses the registry's LiteLLM-compatible field schema into
+// the public catalog DTO. Price and display facts share one registry snapshot.
 type catalogRichEntry struct {
 	InputCostPerToken           *float64 `json:"input_cost_per_token"`
 	OutputCostPerToken          *float64 `json:"output_cost_per_token"`
@@ -192,10 +187,8 @@ type PricingCatalogService struct {
 	cachedMt time.Time
 }
 
-// NewPricingCatalogService wires the default source: live data file in
-// cfg.Pricing.DataDir, falling back to the bundled fallback file. cfg may be
-// nil — the source then degrades to "no data", and BuildPublicCatalog returns
-// an empty list (which is the correct behavior per AC-005).
+// NewPricingCatalogService wires the unified registry source. cfg is retained
+// in the signature for DI compatibility but is not a pricing source.
 func NewPricingCatalogService(cfg *config.Config) *PricingCatalogService {
 	return &PricingCatalogService{source: defaultCatalogSource(cfg)}
 }
@@ -208,21 +201,6 @@ func (s *PricingCatalogService) SetSourceForTesting(src CatalogSource) {
 	}
 	s.mu.Lock()
 	s.source = src
-	s.cached = nil
-	s.cachedMt = time.Time{}
-	s.mu.Unlock()
-}
-
-// InvalidateCache drops the cached catalog so the next BuildPublicCatalog
-// re-parses + re-applies the overlay. The cache keys on the source file's mtime
-// (model_pricing.json), so a TK pricing-overlay HOT change — which does not touch
-// that file — would otherwise serve stale prices forever. The runtime overlay
-// reload (pricing_service_tk_overlay_runtime.go) calls this after a swap. Nil-safe.
-func (s *PricingCatalogService) InvalidateCache() {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
 	s.cached = nil
 	s.cachedMt = time.Time{}
 	s.mu.Unlock()
@@ -338,51 +316,44 @@ func buildCatalogFromBytes(data []byte, modTime time.Time) *PublicCatalogRespons
 	}
 }
 
-// applyCatalogOverlayPricing fill-only-merges TK-overlay-priced models the file
-// source lacks into the public catalog, so overlay-only models (deepseek-v4-pro,
-// doubao-*, …) surface with their prices in the public catalog
-// AND Your-Menu (me_pricing_catalog reads BuildPublicCatalog as metaByID).
+// applyCatalogOverlayPricing projects the immutable registry into the public catalog.
+// Registry rows replace any same-name input projection and append missing models,
+// so catalog tests/imports can never become a second base-price owner.
 //
-// The runtime price file is a TRIMMED litellm mirror; models litellm lacks are
-// priced ONLY in tk_pricing_overlay.json, which until now fed billing
-// (GetModelPricing applies it) but NOT this display path — hence empty/missing
-// price rows for the entire VolcEngine fifth-platform batch + deepseek-v4-pro.
+// The registry is complete for the active model surface. The projection step is
+// shared by catalog imports/tests and production so none can become a second owner.
 //
-// Fill mirrors the billing priority (model_pricing_resolver: channel DB >
-// litellm mirror > TK overlay) with the same absent-or-zero semantics as the
-// billing path (applyTKPricingOverlay / tkIsEffectivelyUnpriced): a name whose
-// file-source row carries a real non-zero price is left untouched, while an
-// all-zero placeholder row (litellm "cost unknown", e.g. deepseek-v3-2-251201)
-// gets its DISPLAYED price replaced by the overlay value — otherwise the
-// catalog would show $0 for a model billing actually charges. Channel pricing
-// stays a strictly higher tier handled upstream (me menu Stage 1 / billing
-// resolver), so the overlay only ever fills the litellm tier.
+// The merge mirrors the billing priority (model_pricing_resolver: channel DB >
+// registry owner). A same-name projection always receives the registry's price
+// dimensions while preserving its non-price metadata. Channel pricing stays a
+// strictly higher tier handled upstream (menu Stage 1 / billing resolver), so
+// the registry remains the only global base owner.
 //
 // Token-priced entries and true media entries merge. Per-image / per-second
-// overlay rows (imagen-*/veo-*/grok-imagine-*/seedream/seedance) carry no token
+// registry rows (imagen-*/veo-*/grok-imagine-*/seedream/seedance) carry no token
 // price, but they are catalog rows for Studio and must surface with their media
 // billing unit.
 func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 	if resp == nil {
 		return
 	}
-	overlay := loadTKPricingOverlay()
-	if len(overlay) == 0 {
+	registry := loadTKPricingOverlay()
+	if len(registry) == 0 {
 		return
 	}
 	seen := make(map[string]int, len(resp.Data))
 	for i := range resp.Data {
 		seen[resp.Data[i].ModelID] = i
 	}
-	names := make([]string, 0, len(overlay))
-	for name := range overlay {
+	names := make([]string, 0, len(registry))
+	for name := range registry {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 
 	appended := false
 	for _, name := range names {
-		p := overlay[name]
+		p := registry[name]
 		if p == nil {
 			continue
 		}
@@ -394,17 +365,9 @@ func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 			continue
 		}
 		if idx, ok := seen[name]; ok {
-			// 文件源已有该行：仅当它是全零占位（litellm "cost unknown"，与计费
-			// 侧 tkIsEffectivelyUnpriced 同语义）时用 overlay 价覆盖展示，保持
-			// 展示=计费；行内 context window 等元数据保留文件源的值。真实非零
-			// 文件价永不覆盖，除非 overlay 是 GLM 的 BigModel 官方价（litellm
-			// 镜像里的 USD 猜测会漂移）。
+			// Registry price dimensions always replace a same-name projection;
+			// non-price catalog metadata already parsed on the row is preserved.
 			row := &resp.Data[idx]
-			hasFilePrice := row.Pricing.InputPer1KTokens != 0 || row.Pricing.OutputPer1KTokens != 0 ||
-				row.Pricing.CacheReadPer1K != 0 || row.Pricing.CacheWritePer1K != 0
-			if hasFilePrice && !tkOverlayOverridesLitellmSource(name, p) {
-				continue
-			}
 			row.Pricing.InputPer1KTokens = p.InputCostPerToken * 1000
 			row.Pricing.OutputPer1KTokens = p.OutputCostPerToken * 1000
 			row.Pricing.ThinkingOutputPer1KTokens = p.ThinkingOutputCostPerToken * 1000
@@ -439,7 +402,7 @@ func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 			e.ThinkingOutputCostPerToken = &tout
 		}
 		// Media overlay entries (imagen-*/veo-*/seedream/seedance) carry the
-		// per-image / per-second price the trimmed litellm mirror drops — pass
+		// per-image / per-second price the registry carries — pass
 		// it through so the public catalog can render the media unit.
 		if p.OutputCostPerImage > 0 {
 			img := p.OutputCostPerImage
@@ -524,7 +487,7 @@ func attachCatalogDeepSeekPeakValley(resp *PublicCatalogResponse) {
 	}
 	for i := range resp.Data {
 		modelID := resp.Data[i].ModelID
-		if !tkDeepSeekPeakValleyApplies(modelID, PricingSourceLiteLLM) {
+		if !tkDeepSeekPeakValleyApplies(modelID, PricingSourceRegistry) {
 			continue
 		}
 		p := &resp.Data[i].Pricing
@@ -601,7 +564,7 @@ func perTokenTo1K(v *float64) float64 {
 	return *v * 1000
 }
 
-// catalogCapabilities maps the litellm supports_* booleans to short, stable
+// catalogCapabilities maps the registry supports_* booleans to short, stable
 // capability tags consumable by external tools (e.g. All API Hub).
 // The slice is always non-nil to keep JSON serialization stable as `[]`.
 func catalogCapabilities(e *catalogRichEntry) []string {
@@ -630,32 +593,12 @@ func catalogCapabilities(e *catalogRichEntry) []string {
 	return caps
 }
 
-// defaultCatalogSource returns a CatalogSource that resolves the live data
-// file first, then the bundled fallback. cfg may be nil during unusual
-// bootstrap; in that case the source returns ok=false (empty catalog).
+// defaultCatalogSource returns the embedded registry document. The production
+// source is immutable for the process lifetime; no provider file, settings blob,
+// or remote URL participates in catalog membership.
 func defaultCatalogSource(cfg *config.Config) CatalogSource {
 	return func() ([]byte, time.Time, bool) {
-		if cfg == nil {
-			return nil, time.Time{}, false
-		}
-		candidates := make([]string, 0, 2)
-		if cfg.Pricing.DataDir != "" {
-			candidates = append(candidates, filepath.Join(cfg.Pricing.DataDir, "model_pricing.json"))
-		}
-		if cfg.Pricing.FallbackFile != "" {
-			candidates = append(candidates, cfg.Pricing.FallbackFile)
-		}
-		for _, p := range candidates {
-			body, err := os.ReadFile(p)
-			if err != nil {
-				continue
-			}
-			var modTime time.Time
-			if info, statErr := os.Stat(p); statErr == nil {
-				modTime = info.ModTime()
-			}
-			return body, modTime, true
-		}
-		return nil, time.Time{}, false
+		_ = cfg
+		return tkPricingOverlayRaw, time.Unix(1, 0), true
 	}
 }

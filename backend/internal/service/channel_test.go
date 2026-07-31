@@ -738,7 +738,7 @@ func TestSupportedModels_ExactMappingUsesTargetPricing(t *testing.T) {
 
 func TestSupportedModels_ExactMappingTargetMissingFromPricing(t *testing.T) {
 	// `src → target` 但 target 不在渠道定价里 —— 结果中 src 的 Pricing 为 nil
-	// （等待 ListAvailable 阶段的全局 LiteLLM 回落填充）。
+	// （等待 ListAvailable 阶段的统一 registry owner 回落填充）。
 	ch := &Channel{
 		ModelPricing: []ChannelModelPricing{
 			{ID: 1, Platform: "anthropic", Models: []string{"some-priced-model"}, InputPrice: testPtrFloat64(1.5e-5)},
@@ -752,7 +752,7 @@ func TestSupportedModels_ExactMappingTargetMissingFromPricing(t *testing.T) {
 	got := ch.SupportedModels()
 	require.Len(t, got, 2)
 	require.Equal(t, "missing-src", got[0].Name)
-	require.Nil(t, got[0].Pricing, "target 在渠道定价中缺失时不虚假填充，留给 ListAvailable 走 LiteLLM 回落")
+	require.Nil(t, got[0].Pricing, "target 在渠道定价中缺失时不虚假填充，留给 ListAvailable 走 registry owner 回落")
 	require.Equal(t, "some-priced-model", got[1].Name)
 	require.NotNil(t, got[1].Pricing)
 }

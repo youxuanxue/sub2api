@@ -51,7 +51,7 @@ func TestTkImageModelUnpriced(t *testing.T) {
 	require.False(t, svc.TkImageModelUnpriced("gpt-image-token-billed", nil))
 
 	// Truly priceless / zero placeholder → rejected (this replaces the blind
-	// $0.134 hardcoded fallback for models nobody priced).
+	// unowned registry row for models nobody priced).
 	require.True(t, svc.TkImageModelUnpriced("never-priced-image-model", nil))
 	require.True(t, svc.TkImageModelUnpriced("zero-placeholder-media", nil))
 

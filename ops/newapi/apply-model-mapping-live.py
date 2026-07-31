@@ -20,7 +20,7 @@ Subcommands
              BEFORE/AFTER verify. --dry-run previews (guard match + BEFORE + plan, no write).
   --selftest Offline unit test of the additions/SQL building (no AWS).
 
-SSM transport mirrors ops/pricing/manage-overlay-runtime.py: the shell is base64'd,
+SSM transport uses ops/stage0/ssm_execution.py: the shell is base64'd,
 written to a FILE on the host and bash'd from the file (NOT piped to `bash` via stdin),
 because an inner `docker exec -i psql` would otherwise slurp the rest of the script from
 the shared stdin (silent truncation, still rc=0). JSON additions are decoded INSIDE

@@ -30,10 +30,11 @@ func TestIsModelPriced_EmptyModelID(t *testing.T) {
 }
 
 func TestIsModelPriced_ColdCatalog(t *testing.T) {
-	// nil config → defaultCatalogSource → ok=false → empty catalog
+	// nil config still uses the embedded registry snapshot; catalog startup must
+	// not depend on a remote/provider snapshot path.
 	svc := NewPricingCatalogService(nil)
-	require.False(t, svc.IsModelPriced("claude-3-opus-20240229", "anthropic"),
-		"cold catalog (no data source) must return false")
+	require.True(t, svc.IsModelPriced("claude-3-opus-20240229", "anthropic"),
+		"cold catalog must use the embedded registry")
 }
 
 func TestIsModelPriced_WithFixtureData(t *testing.T) {

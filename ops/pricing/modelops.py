@@ -69,9 +69,15 @@ ACTIVATION_EVIDENCE_MAX_AGE = dt.timedelta(hours=24)
 ACTIVATION_CONFIRM = "yes-activate-model-surface"
 
 MODE_FIELDS = {
-    "image_generation": ("output_cost_per_image",),
+    "image_generation": ("output_cost_per_image", "output_cost_per_image_token"),
     "video_generation": ("output_cost_per_second",),
     "chat": ("input_cost_per_token", "output_cost_per_token"),
+    "completion": ("input_cost_per_token", "output_cost_per_token"),
+    "responses": ("input_cost_per_token", "output_cost_per_token"),
+    "realtime": ("input_cost_per_token", "output_cost_per_token"),
+    "audio_transcription": ("input_cost_per_token", "output_cost_per_token"),
+    "audio_speech": ("input_cost_per_token", "output_cost_per_token"),
+    "embedding": ("input_cost_per_token",),
 }
 
 # SQL generator registry for scripts/checks/ops-sql-coverage.py. The argparse
@@ -273,6 +279,10 @@ def overlay_price_ok(overlay: dict[str, dict[str, Any]], model_id: str) -> bool:
     fields = MODE_FIELDS.get(entry.get("mode"))
     if not fields:
         return False
+    if entry.get("explicit_free") is True:
+        return True
+    if entry.get("mode") == "image_generation":
+        return any(_is_pos_number(entry.get(field)) for field in fields)
     return all(_is_pos_number(entry.get(field)) for field in fields)
 
 
@@ -456,12 +466,12 @@ def price_status(
     overlay: dict[str, dict[str, Any]],
 ) -> tuple[str, str]:
     if overlay_price_ok(overlay, model_id):
-        return "priced", "overlay"
-    if candidate and candidate.upstream_pricing_status == "priced":
-        return "priced", "runtime-catalog"
+        return "priced", "registry"
     for entry in manifest_by_model.get(model_id, []):
-        if entry.price_source in ("mirror", "channel"):
-            return "priced", entry.price_source
+        if entry.price_source == "registry" and overlay_price_ok(overlay, entry.price_key):
+            return "priced", "registry"
+    if candidate and candidate.upstream_pricing_status == "priced":
+        return "missing", "provider-evidence-only"
     return "missing", "none"
 
 
@@ -586,7 +596,7 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         },
         "surfaces": {
             "served_intent": "backend/internal/service/tk_served_models.json",
-            "pricing": "backend/internal/service/tk_pricing_overlay.json + channel_model_pricing",
+            "pricing": "tk_pricing_overlay.json owner; channel_model_pricing scoped override",
             "runtime_mapping": "accounts.credentials.model_mapping",
             "catalog_menu": "backend/internal/service/pricing_catalog_supported_models_tk.go",
             "catalog_menu_refresh": "ops/pricing/refresh-servable-allowlist.py",
@@ -1380,6 +1390,17 @@ def _selftest() -> int:
     }
     if not overlay_price_ok(overlay, "qwen-new") or overlay_price_ok(overlay, "missing"):
         failures.append("overlay_price_ok failed")
+    registry_status = price_status("qwen-new", None, {}, overlay)
+    if registry_status != ("priced", "registry"):
+        failures.append(f"registry owner was not authoritative: {registry_status}")
+    provider_only_status = price_status(
+        "provider-only",
+        Candidate("60", "provider-only", "selftest", "priced"),
+        {},
+        overlay,
+    )
+    if provider_only_status != ("missing", "provider-evidence-only"):
+        failures.append(f"provider evidence became a runtime owner: {provider_only_status}")
     if infer_mode("seedream-x", overlay) != "image":
         failures.append("infer_mode failed for image")
     if probe_env_name("60", "qwen-new", overlay) != "DASHSCOPE_CHAT_MODELS":
@@ -1480,11 +1501,13 @@ def _selftest() -> int:
             format="json",
         )
         plan = build_plan(args)
-        if [x["model_id"] for x in plan["ready_for_onboard"]] != ["qwen-new"]:
+        if plan["ready_for_onboard"]:
             failures.append(f"plan ready_for_onboard wrong: {plan['ready_for_onboard']}")
-        if [x["model_id"] for x in plan["price_missing"]] != ["qwen-missing-price"]:
+        if [x["model_id"] for x in plan["price_missing"]] != [
+            "qwen-missing-price", "qwen-new", "qwen-unprobed"
+        ]:
             failures.append(f"plan price_missing wrong: {plan['price_missing']}")
-        if [x["model_id"] for x in plan["probe_needed"]] != ["qwen-unprobed"]:
+        if plan["probe_needed"]:
             failures.append(f"plan probe_needed wrong: {plan['probe_needed']}")
         mirror_row = plan["mirror_drift"][0]
         if mirror_row.get("missing_in_target") != ["qwen-extra"]:

@@ -113,12 +113,6 @@ type ModelPricing struct {
 	Intervals                          []PricingInterval // 输入-token 区间分档（来自 TK overlay；空 = 扁平）。接进 ResolvedPricing.Intervals。
 }
 
-const (
-	openAIGPT54LongContextInputThreshold   = 272000
-	openAIGPT54LongContextInputMultiplier  = 2.0
-	openAIGPT54LongContextOutputMultiplier = 1.5
-)
-
 func normalizeBillingServiceTier(serviceTier string) string {
 	return strings.ToLower(strings.TrimSpace(serviceTier))
 }
@@ -167,20 +161,21 @@ type CostBreakdown struct {
 	LongContextBillingApplied bool
 }
 
-// ErrModelPricingUnavailable indicates that none of the configured pricing
-// sources can price the requested model.
+// ErrModelPricingUnavailable indicates that the registry snapshot has no
+// resolved owner for the requested model (and no scoped channel override is
+// available at the caller's resolution layer).
 var ErrModelPricingUnavailable = errors.New("pricing not found")
 
 // BillingService 计费服务
 type BillingService struct {
 	cfg            *config.Config
 	pricingService *PricingService
-	fallbackPrices map[string]*ModelPricing // 硬编码回退价格
 
-	// fallbackWarnSeen 记录已打过 fallback 警告日志的(已小写化)模型名,
-	// 让 "[Billing] Using fallback pricing" 每个模型每进程最多打一条,
+	// registryAliasWarnSeen records models that already emitted the registry-alias
+	// convergence warning (normalized to lowercase),
+	// so each model emits at most one "Using registry alias pricing" message per process,
 	// 避免热路径上每请求刷屏(issue #3394)。零值即可用,无需在构造函数初始化。
-	fallbackWarnSeen sync.Map
+	registryAliasWarnSeen sync.Map
 }
 
 // NewBillingService 创建计费服务实例
@@ -188,422 +183,69 @@ func NewBillingService(cfg *config.Config, pricingService *PricingService) *Bill
 	s := &BillingService{
 		cfg:            cfg,
 		pricingService: pricingService,
-		fallbackPrices: make(map[string]*ModelPricing),
 	}
-
-	// 初始化硬编码回退价格（当动态价格不可用时使用）
-	s.initFallbackPricing()
-
 	return s
 }
 
-// initFallbackPricing 初始化硬编码回退价格（当动态价格不可用时使用）
-// 价格单位：USD per token（与LiteLLM格式一致）
-func (s *BillingService) initFallbackPricing() {
-	// Claude 4.5 Opus
-	s.fallbackPrices["claude-opus-4.5"] = &ModelPricing{
-		InputPricePerToken:         5e-6,    // $5 per MTok
-		OutputPricePerToken:        25e-6,   // $25 per MTok
-		CacheCreationPricePerToken: 6.25e-6, // $6.25 per MTok
-		CacheReadPricePerToken:     0.5e-6,  // $0.50 per MTok
-		SupportsCacheBreakdown:     false,
-	}
-
-	// Claude 4 Sonnet
-	s.fallbackPrices["claude-sonnet-4"] = &ModelPricing{
-		InputPricePerToken:         3e-6,    // $3 per MTok
-		OutputPricePerToken:        15e-6,   // $15 per MTok
-		CacheCreationPricePerToken: 3.75e-6, // $3.75 per MTok
-		CacheReadPricePerToken:     0.3e-6,  // $0.30 per MTok
-		SupportsCacheBreakdown:     false,
-	}
-
-	// Claude 3.5 Sonnet
-	s.fallbackPrices["claude-3-5-sonnet"] = &ModelPricing{
-		InputPricePerToken:         3e-6,    // $3 per MTok
-		OutputPricePerToken:        15e-6,   // $15 per MTok
-		CacheCreationPricePerToken: 3.75e-6, // $3.75 per MTok
-		CacheReadPricePerToken:     0.3e-6,  // $0.30 per MTok
-		SupportsCacheBreakdown:     false,
-	}
-
-	// Claude 3.5 Haiku
-	s.fallbackPrices["claude-3-5-haiku"] = &ModelPricing{
-		InputPricePerToken:         1e-6,    // $1 per MTok
-		OutputPricePerToken:        5e-6,    // $5 per MTok
-		CacheCreationPricePerToken: 1.25e-6, // $1.25 per MTok
-		CacheReadPricePerToken:     0.1e-6,  // $0.10 per MTok
-		SupportsCacheBreakdown:     false,
-	}
-
-	// Claude 3 Opus
-	s.fallbackPrices["claude-3-opus"] = &ModelPricing{
-		InputPricePerToken:         15e-6,    // $15 per MTok
-		OutputPricePerToken:        75e-6,    // $75 per MTok
-		CacheCreationPricePerToken: 18.75e-6, // $18.75 per MTok
-		CacheReadPricePerToken:     1.5e-6,   // $1.50 per MTok
-		SupportsCacheBreakdown:     false,
-	}
-
-	// Claude 3 Haiku
-	s.fallbackPrices["claude-3-haiku"] = &ModelPricing{
-		InputPricePerToken:         0.25e-6, // $0.25 per MTok
-		OutputPricePerToken:        1.25e-6, // $1.25 per MTok
-		CacheCreationPricePerToken: 0.3e-6,  // $0.30 per MTok
-		CacheReadPricePerToken:     0.03e-6, // $0.03 per MTok
-		SupportsCacheBreakdown:     false,
-	}
-
-	// Claude 4.6 Opus (与4.5同价)
-	s.fallbackPrices["claude-opus-4.6"] = s.fallbackPrices["claude-opus-4.5"]
-
-	// Claude 4.7 Opus (暂与4.6同价，待官方定价更新)
-	s.fallbackPrices["claude-opus-4.7"] = s.fallbackPrices["claude-opus-4.6"]
-
-	// Claude 4.8 Opus / Claude Opus 5（官方同价：$5 输入 / $25 输出 per MTok）。
-	// 缺少这两条时 getFallbackPricing 会掉到 claude-3-opus（$15/$75），造成 3 倍超收。
-	s.fallbackPrices["claude-opus-4.8"] = s.fallbackPrices["claude-opus-4.7"]
-	s.fallbackPrices["claude-opus-5"] = s.fallbackPrices["claude-opus-4.8"]
-
-	// Claude Fable 5 (Opus 之上的新档；官方 $10/$50 per MTok)。
-	// cache 写 = 1.25× 输入 ($12.5)，cache 读 = 0.1× 输入 ($1.0)，与其它 claude 档一致。
-	s.fallbackPrices["claude-fable-5"] = &ModelPricing{
-		InputPricePerToken:         10e-6,   // $10 per MTok
-		OutputPricePerToken:        50e-6,   // $50 per MTok
-		CacheCreationPricePerToken: 12.5e-6, // $12.50 per MTok
-		CacheReadPricePerToken:     1.0e-6,  // $1.00 per MTok
-		SupportsCacheBreakdown:     false,
-	}
-
-	// Gemini 3.1 Pro
-	s.fallbackPrices["gemini-3.1-pro"] = &ModelPricing{
-		InputPricePerToken:         2e-6,   // $2 per MTok
-		OutputPricePerToken:        12e-6,  // $12 per MTok
-		CacheCreationPricePerToken: 2e-6,   // $2 per MTok
-		CacheReadPricePerToken:     0.2e-6, // $0.20 per MTok
-		SupportsCacheBreakdown:     false,
-	}
-
-	// Gemini family-grained floor (docs/approved/priced-or-it-doesnt-ship.md pivot: family floor +
-	// alert-on-fallback + converge, supersedes the C-era "no gemini fallback → reject"). A floor at
-	// the model's FAMILY median — NOT one flat rate — keeps mischarge small while never serving $0 and
-	// never rejecting a real gemini model; a served_at_fallback alert then drives ops/auto to fill the
-	// REAL price so fallback use decays to ~0. Values = current litellm gemini-2.5-{flash,pro}.
-	// getFallbackPricing maps: "pro" → pro floor; flash / flash-lite / unknown gemini → flash-tier
-	// median floor. (The earlier flat-rate concern is addressed by family granularity + leaning to the
-	// median tier, not by refusing to serve.)
-	s.fallbackPrices["gemini-2.5-flash"] = &ModelPricing{
-		InputPricePerToken:     3e-7,   // $0.30 per MTok
-		OutputPricePerToken:    2.5e-6, // $2.50 per MTok
-		CacheReadPricePerToken: 3e-8,   // $0.03 per MTok
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["gemini-2.5-pro"] = &ModelPricing{
-		InputPricePerToken:     1.25e-6, // $1.25 per MTok
-		OutputPricePerToken:    1e-5,    // $10 per MTok
-		CacheReadPricePerToken: 1.25e-7, // $0.125 per MTok
-		SupportsCacheBreakdown: false,
-	}
-	// flash-lite 是 flash 之下的独立子档（real in 1e-7/out 4e-7）；单独兜底避免把 flash-lite 类
-	// 未知模型按 flash 收（in 3e-7/out 2.5e-6 = 3x/6.25x 超收 —— 超收伤信任，对抗复审 S3）。
-	s.fallbackPrices["gemini-2.5-flash-lite"] = &ModelPricing{
-		InputPricePerToken:     1e-7, // $0.10 per MTok
-		OutputPricePerToken:    4e-7, // $0.40 per MTok
-		CacheReadPricePerToken: 1e-8, // $0.01 per MTok
-		SupportsCacheBreakdown: false,
-	}
-	// Gemini 3.6 Flash (Google AI pricing: $1.50 input / $7.50 output /
-	// $0.15 cached input per MTok). Antigravity's -high/-low/-medium/-tiered
-	// aliases are matched below so unavailable remote pricing never records
-	// token-bearing requests at $0.
-	s.fallbackPrices["gemini-3.6-flash"] = &ModelPricing{
-		InputPricePerToken:     1.5e-6,
-		OutputPricePerToken:    7.5e-6,
-		CacheReadPricePerToken: 0.15e-6,
-		SupportsCacheBreakdown: false,
-	}
-
-	// OpenAI GPT-5.4（业务指定价格）
-	s.fallbackPrices["gpt-5.4"] = &ModelPricing{
-		InputPricePerToken:             2.5e-6,  // $2.5 per MTok
-		InputPricePerTokenPriority:     5e-6,    // $5 per MTok
-		OutputPricePerToken:            15e-6,   // $15 per MTok
-		OutputPricePerTokenPriority:    30e-6,   // $30 per MTok
-		CacheCreationPricePerToken:     2.5e-6,  // $2.5 per MTok
-		CacheReadPricePerToken:         0.25e-6, // $0.25 per MTok
-		CacheReadPricePerTokenPriority: 0.5e-6,  // $0.5 per MTok
-		SupportsCacheBreakdown:         false,
-		LongContextInputThreshold:      openAIGPT54LongContextInputThreshold,
-		LongContextInputMultiplier:     openAIGPT54LongContextInputMultiplier,
-		LongContextOutputMultiplier:    openAIGPT54LongContextOutputMultiplier,
-	}
-	// GPT-5.5 / GPT-5.5 Pro 暂无独立定价，回退到 GPT-5.4。
-	s.fallbackPrices["gpt-5.5"] = s.fallbackPrices["gpt-5.4"]
-	s.fallbackPrices["gpt-5.5-pro"] = s.fallbackPrices["gpt-5.4"]
-	// GPT-5.6 preview tiers (OpenAI 2026-06-26 list; mirror also carries real prices).
-	s.fallbackPrices["gpt-5.6-sol"] = &ModelPricing{
-		InputPricePerToken:          5e-6,
-		OutputPricePerToken:         3e-5,
-		CacheCreationPricePerToken:  6.25e-6,
-		CacheReadPricePerToken:      5e-7,
-		SupportsCacheBreakdown:      false,
-		LongContextInputThreshold:   openAIGPT54LongContextInputThreshold,
-		LongContextInputMultiplier:  openAIGPT54LongContextInputMultiplier,
-		LongContextOutputMultiplier: openAIGPT54LongContextOutputMultiplier,
-	}
-	s.fallbackPrices["gpt-5.6-terra"] = &ModelPricing{
-		InputPricePerToken:         2e-6,
-		OutputPricePerToken:        12e-6,
-		CacheCreationPricePerToken: 2.5e-6,
-		CacheReadPricePerToken:     2e-7,
-		SupportsCacheBreakdown:     false,
-	}
-	s.fallbackPrices["gpt-5.6-luna"] = &ModelPricing{
-		InputPricePerToken:         2e-7,
-		OutputPricePerToken:        1.2e-6,
-		CacheCreationPricePerToken: 2.5e-7,
-		CacheReadPricePerToken:     2e-8,
-		SupportsCacheBreakdown:     false,
-	}
-	s.fallbackPrices["gpt-5.6-chat-latest"] = s.fallbackPrices["gpt-5.6-sol"]
-
-	s.fallbackPrices["gpt-5.4-mini"] = &ModelPricing{
-		InputPricePerToken:     7.5e-7,
-		OutputPricePerToken:    4.5e-6,
-		CacheReadPricePerToken: 7.5e-8,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["gpt-5.4-nano"] = &ModelPricing{
-		InputPricePerToken:     2e-7,
-		OutputPricePerToken:    1.25e-6,
-		CacheReadPricePerToken: 2e-8,
-		SupportsCacheBreakdown: false,
-	}
-	// OpenAI GPT-5.2（本地兜底）
-	s.fallbackPrices["gpt-5.2"] = &ModelPricing{
-		InputPricePerToken:             1.75e-6,
-		InputPricePerTokenPriority:     3.5e-6,
-		OutputPricePerToken:            14e-6,
-		OutputPricePerTokenPriority:    28e-6,
-		CacheCreationPricePerToken:     1.75e-6,
-		CacheReadPricePerToken:         0.175e-6,
-		CacheReadPricePerTokenPriority: 0.35e-6,
-		SupportsCacheBreakdown:         false,
-	}
-	// Codex 族兜底统一按 GPT-5.3 Codex 价格计费
-	s.fallbackPrices["gpt-5.3-codex"] = &ModelPricing{
-		InputPricePerToken:             1.5e-6, // $1.5 per MTok
-		InputPricePerTokenPriority:     3e-6,   // $3 per MTok
-		OutputPricePerToken:            12e-6,  // $12 per MTok
-		OutputPricePerTokenPriority:    24e-6,  // $24 per MTok
-		CacheCreationPricePerToken:     1.5e-6, // $1.5 per MTok
-		CacheReadPricePerToken:         0.15e-6,
-		CacheReadPricePerTokenPriority: 0.3e-6,
-		SupportsCacheBreakdown:         false,
-	}
-
-	// DeepSeek V4 and paid GLM official prices live only in
-	// tk_pricing_overlay.json. getFallbackPricing retains compatibility matching,
-	// but resolves those aliases to the live overlay instead of a numeric Go copy.
-
-	// BigModel's free GLM rows intentionally remain compatibility-only fallbacks;
-	// they are not public catalog entries and therefore do not belong in overlay.
-	// GLM-4.5-Flash / GLM-4.7-Flash 在 BigModel 当前页为 free，
-	// 保留 zero-cost entry 防止未知 alias 误计费。
-	s.fallbackPrices["glm-4.5-flash"] = &ModelPricing{
-		InputPricePerToken:     0,
-		OutputPricePerToken:    0,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["glm-4.7-flash"] = &ModelPricing{
-		InputPricePerToken:     0,
-		OutputPricePerToken:    0,
-		SupportsCacheBreakdown: false,
-	}
-
-	// ---- 月之暗面 Kimi（K 系列）----
-	// K2.5/K2.6 official prices live only in tk_pricing_overlay.json. The exact
-	// degraded path and compatible aliases below resolve those live overlay rows,
-	// so a pricing hot-push cannot drift from a second Go numeric table.
-	// TK: ¥→USD 统一用 TokenKey 口径 CNY/USD=6.7（与 tk_pricing_overlay.json 一致），
-	// 不沿用上游的 ÷7.14。
-	// Source: https://platform.moonshot.cn/docs/pricing/overview (元/百万 tokens 口径)
-	// Kimi K3 国际站 USD 价目：https://platform.kimi.ai/docs/pricing/chat-k3.md
-	// Kimi Code bare aliases（k3 / k3-256k）官方无按 token 价目；复用 API Platform
-	// kimi-k3 档位作代理计费 fallback（同 kimi-for-coding 对 K2.6 的处理口径）。
-	s.fallbackPrices["kimi-k3"] = &ModelPricing{
-		InputPricePerToken:     3e-6,    // $3.00 per MTok (cache miss)
-		OutputPricePerToken:    15e-6,   // $15.00 per MTok
-		CacheReadPricePerToken: 0.30e-6, // $0.30 per MTok (cache hit)
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["kimi-k2.6"] = &ModelPricing{
-		InputPricePerToken:     0.95e-6, // $0.95 per MTok (cache miss)
-		OutputPricePerToken:    4e-6,    // $4.00 per MTok
-		CacheReadPricePerToken: 0.15e-6, // $0.15 per MTok (cache hit, ¥1.10)
-		SupportsCacheBreakdown: false,
-	}
-	// kimi-for-coding 走 Kimi Coding endpoint，按当前 K2.6 coding 档位兜底计费。
-	s.fallbackPrices["kimi-for-coding"] = &ModelPricing{
-		InputPricePerToken:     0.95e-6,
-		OutputPricePerToken:    4e-6,
-		CacheReadPricePerToken: 0.15e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["kimi-k2.5"] = &ModelPricing{
-		InputPricePerToken:     0.60e-6, // $0.60 per MTok
-		OutputPricePerToken:    3e-6,    // $3.00 per MTok
-		CacheReadPricePerToken: 0.098e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["kimi-k2-thinking"] = &ModelPricing{
-		InputPricePerToken:     tkCNYPerMTokToUSDPerToken(4),
-		OutputPricePerToken:    tkCNYPerMTokToUSDPerToken(16),
-		CacheReadPricePerToken: tkCNYPerMTokToUSDPerToken(1),
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["kimi-k2"] = &ModelPricing{
-		InputPricePerToken:     tkCNYPerMTokToUSDPerToken(4),
-		OutputPricePerToken:    tkCNYPerMTokToUSDPerToken(16),
-		CacheReadPricePerToken: tkCNYPerMTokToUSDPerToken(1),
-		SupportsCacheBreakdown: false,
-	}
-
-	// ---- MiniMax M 系列 ----
-	// Source: https://platform.minimax.io/docs/guides/pricing-paygo
-	// 注意：MiniMax M3 在 >512K context 时价格翻倍，本兜底采用 ≤512K 标准 tier（保守口径，对用户有利）。
-	// 如需支持长上下文 multiplier，可后续参考 GPT-5.4 模式扩展 LongContextXxx 字段。
-	s.fallbackPrices["minimax-m3"] = &ModelPricing{
-		InputPricePerToken:     0.60e-6, // $0.60 per MTok (≤512K standard tier, 含 50% 永久折扣前原价 $1.20)
-		OutputPricePerToken:    2.40e-6,
-		CacheReadPricePerToken: 0.12e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["minimax-m2.7"] = &ModelPricing{
-		InputPricePerToken:     0.30e-6, // $0.30 per MTok
-		OutputPricePerToken:    1.20e-6,
-		CacheReadPricePerToken: 0.06e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["minimax-m2.7-highspeed"] = &ModelPricing{
-		InputPricePerToken:     0.60e-6,
-		OutputPricePerToken:    2.40e-6,
-		CacheReadPricePerToken: 0.06e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["minimax-m2.5"] = &ModelPricing{
-		InputPricePerToken:     0.30e-6,
-		OutputPricePerToken:    1.20e-6,
-		CacheReadPricePerToken: 0.03e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["minimax-m2.1"] = &ModelPricing{
-		InputPricePerToken:     0.30e-6,
-		OutputPricePerToken:    1.20e-6,
-		CacheReadPricePerToken: 0.03e-6,
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["minimax-m2"] = &ModelPricing{
-		InputPricePerToken:     0.30e-6,
-		OutputPricePerToken:    1.20e-6,
-		CacheReadPricePerToken: 0.03e-6,
-		SupportsCacheBreakdown: false,
-	}
-
-	// ---- 火山方舟 豆包 Embedding（多模态向量化）----
-	// doubao-embedding-vision 图文向量化：上游 usage 回传 prompt_tokens_details.{text_tokens,image_tokens}，
-	// 按量付费官方价 文本 ¥0.7/MTok、图片 ¥1.8/MTok。
-	// TK: ¥→USD 统一用 TokenKey 口径 CNY/USD=6.7（与 tk_pricing_overlay.json 其余
-	// VolcEngine Ark 条目一致），不沿用上游的 ÷7.14。embedding 无 output，置 0。
-	s.fallbackPrices["doubao-embedding-vision"] = &ModelPricing{
-		InputPricePerToken:      tkCNYPerMTokToUSDPerToken(0.7),
-		ImageInputPricePerToken: tkCNYPerMTokToUSDPerToken(1.8),
-		OutputPricePerToken:     0,
-		SupportsCacheBreakdown:  false,
-	}
-
-	// xAI Grok 4.5 (official docs: $2 input / $0.50 cached input / $6 output per MTok)
-	s.fallbackPrices["grok-4.5"] = &ModelPricing{
-		InputPricePerToken:     2e-6,
-		OutputPricePerToken:    6e-6,
-		CacheReadPricePerToken: 0.5e-6,
-		SupportsCacheBreakdown: false,
-	}
-
-	// xAI Grok 4.3 (official docs: $1.25 input / $2.50 output per MTok)
-	s.fallbackPrices["grok-4.3"] = &ModelPricing{
-		InputPricePerToken:         1.25e-6,
-		OutputPricePerToken:        2.5e-6,
-		CacheReadPricePerToken:     0.2e-6,
-		SupportsCacheBreakdown:     false,
-		LongContextInputThreshold:  1000000,
-		LongContextInputMultiplier: 1,
-	}
-	// xAI Grok Build 0.1 (official docs: $1 input / $0.20 cached input /
-	// $2 output per MTok). Composer is available only through Grok Build and
-	// has no standalone public API rate card, so its aliases use this coding
-	// model rate instead of silently billing at zero.
-	s.fallbackPrices["grok-build-0.1"] = &ModelPricing{
-		InputPricePerToken:     1e-6,
-		OutputPricePerToken:    2e-6,
-		CacheReadPricePerToken: 0.2e-6,
-		SupportsCacheBreakdown: false,
-	}
+func (s *BillingService) registryOwnerPricing(modelKey string) *ModelPricing {
+	return tkOverlayModelPricing(modelKey)
 }
 
-// getFallbackPricing 根据模型系列获取回退价格
-func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
+// getRegistryAliasPricing resolves a compatibility/family alias to another
+// registry owner row. It never contains pricing numbers; all dimensions come
+// from the resolved registry snapshot.
+func (s *BillingService) getRegistryAliasPricing(model string) *ModelPricing {
 	modelLower := strings.ToLower(model)
 
 	// 按模型系列匹配
 	if strings.Contains(modelLower, "opus") {
 		// "opus-5" 必须先判：不能用裸 "5" 匹配，否则 claude-opus-4-5 会被误判。
 		if strings.Contains(modelLower, "opus-5") || strings.Contains(modelLower, "opus5") {
-			return s.fallbackPrices["claude-opus-5"]
+			return s.registryOwnerPricing("claude-opus-5")
 		}
 		if strings.Contains(modelLower, "4.8") || strings.Contains(modelLower, "4-8") {
-			return s.fallbackPrices["claude-opus-4.8"]
+			return s.registryOwnerPricing("claude-opus-4.8")
 		}
 		if strings.Contains(modelLower, "4.7") || strings.Contains(modelLower, "4-7") {
-			return s.fallbackPrices["claude-opus-4.7"]
+			return s.registryOwnerPricing("claude-opus-4.7")
 		}
 		if strings.Contains(modelLower, "4.6") || strings.Contains(modelLower, "4-6") {
-			return s.fallbackPrices["claude-opus-4.6"]
+			return s.registryOwnerPricing("claude-opus-4.6")
 		}
 		if strings.Contains(modelLower, "4.5") || strings.Contains(modelLower, "4-5") {
-			return s.fallbackPrices["claude-opus-4.5"]
+			return s.registryOwnerPricing("claude-opus-4.5")
 		}
-		return s.fallbackPrices["claude-3-opus"]
+		return s.registryOwnerPricing("claude-3-opus")
 	}
 	if strings.Contains(modelLower, "sonnet") {
 		if strings.Contains(modelLower, "4") && !strings.Contains(modelLower, "3") {
-			return s.fallbackPrices["claude-sonnet-4"]
+			return s.registryOwnerPricing("claude-sonnet-4")
 		}
-		return s.fallbackPrices["claude-3-5-sonnet"]
+		return s.registryOwnerPricing("claude-3-5-sonnet")
 	}
 	if strings.Contains(modelLower, "haiku") {
 		if strings.Contains(modelLower, "3-5") || strings.Contains(modelLower, "3.5") {
-			return s.fallbackPrices["claude-3-5-haiku"]
+			return s.registryOwnerPricing("claude-3-5-haiku")
 		}
-		return s.fallbackPrices["claude-3-haiku"]
+		return s.registryOwnerPricing("claude-3-haiku")
 	}
 	// Claude Fable 5（Opus 之上的新档）必须先于下面的 claude 兜底命中，
 	// 否则会被误判为 sonnet（$3/$15）严重少收费。
 	if strings.Contains(modelLower, "fable") {
-		return s.fallbackPrices["claude-fable-5"]
+		return s.registryOwnerPricing("claude-fable-5")
 	}
-	// Claude 未知型号统一回退到 Sonnet，避免计费中断。
+	// Claude unknown variants resolve to the registry's Sonnet family owner.
 	if strings.Contains(modelLower, "claude") {
-		return s.fallbackPrices["claude-sonnet-4"]
+		return s.registryOwnerPricing("claude-sonnet-4")
 	}
 	if strings.Contains(modelLower, "gemini-3.1-pro") || strings.Contains(modelLower, "gemini-3-1-pro") {
-		return s.fallbackPrices["gemini-3.1-pro"]
+		return s.registryOwnerPricing("gemini-3.1-pro")
 	}
 	if strings.Contains(modelLower, "gemini-3.6-flash") || strings.Contains(modelLower, "gemini-3-6-flash") {
-		return s.fallbackPrices["gemini-3.6-flash"]
+		return s.registryOwnerPricing("gemini-3.6-flash")
 	}
-	// Gemini family-grained floor (docs/approved/priced-or-it-doesnt-ship.md pivot). A gemini id with
-	// no real litellm/overlay price falls to its FAMILY median floor (never $0, never rejected); the
+	// Gemini family-grained registry alias (docs/approved/priced-or-it-doesnt-ship.md pivot). A gemini id with
+	// no direct registry owner row resolves to its FAMILY median floor (never $0, never rejected); the
 	// served_at_fallback alert then drives a real-price fill. "pro" → pro floor; flash / flash-lite /
 	// unknown gemini → flash-tier median. (Family granularity + median tier bound the mischarge that a
 	// single flat rate would cause — that was the C-era objection, addressed here, not avoided.)
@@ -611,16 +253,16 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	// never return nil here; nil caused calculateTokenCost to record ActualCost=0 with no quota deduction.
 	if strings.Contains(modelLower, "gemini") {
 		if strings.Contains(modelLower, "pro") {
-			return s.fallbackPrices["gemini-2.5-pro"]
+			return s.registryOwnerPricing("gemini-2.5-pro")
 		}
 		if strings.Contains(modelLower, "flash-lite") || strings.Contains(modelLower, "flash-8b") {
-			return s.fallbackPrices["gemini-2.5-flash-lite"]
+			return s.registryOwnerPricing("gemini-2.5-flash-lite")
 		}
-		return s.fallbackPrices["gemini-2.5-flash"]
+		return s.registryOwnerPricing("gemini-2.5-flash")
 	}
 
 	// DeepSeek V4 系列：仅匹配已知 V4 Pro/Flash 与官方兼容别名
-	// （deepseek-chat / deepseek-reasoner → V4 Flash），未知 deepseek-* 型号不回退，避免误计价。
+	// （deepseek-chat / deepseek-reasoner → V4 Flash），未知 deepseek-* 型号不做 alias，避免误计价。
 	if strings.Contains(modelLower, "deepseek-v4-flash") {
 		return tkOverlayModelPricing("deepseek-v4-flash")
 	}
@@ -633,7 +275,7 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 
 	// ---- 国产 LLM 兜底匹配 ----
 	// 匹配策略：长 key 优先（具体模型 → 系列 / 厂商），未知型号不回退以避免误计价。
-	// 与 DeepSeek 一样采用"白名单"语义：未在本表命中的国产模型 alias 一律不返回兜底价。
+	// 与 DeepSeek 一样采用"白名单"语义：未在本表命中的国产模型不解析 registry alias，避免误计价。
 
 	// 智谱 GLM：定价源只用 BigModel 官方 pricing 页；可服务路径仍是 Qwen/DashScope 池。
 	// 匹配顺序：先判别最高 tier，再依次降级。
@@ -658,7 +300,7 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		return tkOverlayModelPricing("glm-4.7-flashx")
 	}
 	if strings.Contains(modelLower, "glm-4.7-flash") {
-		return s.fallbackPrices["glm-4.7-flash"]
+		return s.registryOwnerPricing("glm-4.7-flash")
 	}
 	if strings.Contains(modelLower, "glm-4.7") {
 		return tkOverlayModelPricing("glm-4.7")
@@ -667,7 +309,7 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		return tkOverlayModelPricing("glm-4.6")
 	}
 	if strings.Contains(modelLower, "glm-4.5-flash") {
-		return s.fallbackPrices["glm-4.5-flash"]
+		return s.registryOwnerPricing("glm-4.5-flash")
 	}
 	if strings.Contains(modelLower, "glm-4.5-x") || strings.Contains(modelLower, "glm-4.5x") ||
 		strings.Contains(modelLower, "glm-4.5-airx") || strings.Contains(modelLower, "glm-4.5airx") {
@@ -691,7 +333,7 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	if modelLower == "kimi-k3" || strings.HasSuffix(modelLower, "/kimi-k3") ||
 		modelLower == "k3" || modelLower == "k3-256k" ||
 		strings.HasSuffix(modelLower, "/k3") || strings.HasSuffix(modelLower, "/k3-256k") {
-		return s.fallbackPrices["kimi-k3"]
+		return s.registryOwnerPricing("kimi-k3")
 	}
 	if strings.Contains(modelLower, "kimi-k2.6") || strings.Contains(modelLower, "kimi-k2-6") {
 		return tkOverlayModelPricing("kimi-k2.6")
@@ -700,62 +342,62 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		return tkOverlayModelPricing("kimi-k2.5")
 	}
 	if strings.Contains(modelLower, "kimi-k2-thinking") || strings.Contains(modelLower, "kimi-k2-thinking-") {
-		return s.fallbackPrices["kimi-k2-thinking"]
+		return s.registryOwnerPricing("kimi-k2-thinking")
 	}
 	if strings.Contains(modelLower, "kimi-k2") || strings.Contains(modelLower, "kimi/k2") {
-		return s.fallbackPrices["kimi-k2"]
+		return s.registryOwnerPricing("kimi-k2")
 	}
 
 	// MiniMax M 系列（M3 / M2.7 / M2.5 / M2.1 / M2；含 highspeed 变体）
 	if strings.Contains(modelLower, "minimax-m3") {
-		return s.fallbackPrices["minimax-m3"]
+		return s.registryOwnerPricing("minimax-m3")
 	}
 	if strings.Contains(modelLower, "minimax-m2.7-highspeed") || strings.Contains(modelLower, "minimax-m2-7-highspeed") {
-		return s.fallbackPrices["minimax-m2.7-highspeed"]
+		return s.registryOwnerPricing("minimax-m2.7-highspeed")
 	}
 	if strings.Contains(modelLower, "minimax-m2.7") || strings.Contains(modelLower, "minimax-m2-7") {
-		return s.fallbackPrices["minimax-m2.7"]
+		return s.registryOwnerPricing("minimax-m2.7")
 	}
 	if strings.Contains(modelLower, "minimax-m2.5") || strings.Contains(modelLower, "minimax-m2-5") {
-		return s.fallbackPrices["minimax-m2.5"]
+		return s.registryOwnerPricing("minimax-m2.5")
 	}
 	if strings.Contains(modelLower, "minimax-m2.1") || strings.Contains(modelLower, "minimax-m2-1") {
-		return s.fallbackPrices["minimax-m2.1"]
+		return s.registryOwnerPricing("minimax-m2.1")
 	}
 	if strings.Contains(modelLower, "minimax-m2") || strings.Contains(modelLower, "minimax-m-2") {
-		return s.fallbackPrices["minimax-m2"]
+		return s.registryOwnerPricing("minimax-m2")
 	}
 
 	// 火山方舟 豆包 Embedding（多模态向量化）。
 	// most-specific-first：放在未来任何 doubao-embedding / doubao 宽匹配之前。
 	// 覆盖带版本后缀的别名（如 doubao-embedding-vision-251215）。
 	if strings.Contains(modelLower, "doubao-embedding-vision") {
-		return s.fallbackPrices["doubao-embedding-vision"]
+		return s.registryOwnerPricing("doubao-embedding-vision")
 	}
 
 	// OpenAI（GPT-5 / Codex 族）：仅匹配已知型号，避免未知 OpenAI 型号误计价。
 	if normalized := normalizeOpenAIBillingModel(modelLower); normalized != "" {
 		switch normalized {
 		case "gpt-5.6-sol":
-			return s.fallbackPrices["gpt-5.6-sol"]
+			return tkOverlayModelPricing("gpt-5.6-sol")
 		case "gpt-5.6-terra":
-			return s.fallbackPrices["gpt-5.6-terra"]
+			return tkOverlayModelPricing("gpt-5.6-terra")
 		case "gpt-5.6-luna":
-			return s.fallbackPrices["gpt-5.6-luna"]
+			return tkOverlayModelPricing("gpt-5.6-luna")
 		case "gpt-5.5-pro":
-			return s.fallbackPrices["gpt-5.5-pro"]
+			return s.registryOwnerPricing("gpt-5.5-pro")
 		case "gpt-5.5":
-			return s.fallbackPrices["gpt-5.5"]
+			return s.registryOwnerPricing("gpt-5.5")
 		case "gpt-5.4-mini":
-			return s.fallbackPrices["gpt-5.4-mini"]
+			return s.registryOwnerPricing("gpt-5.4-mini")
 		case "gpt-5.4-nano":
-			return s.fallbackPrices["gpt-5.4-nano"]
+			return s.registryOwnerPricing("gpt-5.4-nano")
 		case "gpt-5.4":
-			return s.fallbackPrices["gpt-5.4"]
+			return s.registryOwnerPricing("gpt-5.4")
 		case "gpt-5.2":
-			return s.fallbackPrices["gpt-5.2"]
+			return s.registryOwnerPricing("gpt-5.2")
 		case "gpt-5.3-codex", "gpt-5.3-codex-spark":
-			return s.fallbackPrices["gpt-5.3-codex"]
+			return s.registryOwnerPricing("gpt-5.3-codex")
 		}
 	}
 	// GPT 家族中位 floor（docs/approved/priced-or-it-doesnt-ship.md pivot）：已知型号上面已返具体价；
@@ -763,34 +405,34 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	// 配 served_at_fallback 告警 + 快补真价（解 §9 R-openai 别名）。诚实标注（对抗复审 S2）：gpt 主线
 	// 中位 ≈ gpt-5.4，但 premium 未知（如未镜像的 gpt-5.5，real out 3e-5）会被【欠收 ~2×】——欠收是临时
 	// 小漏、由告警驱动几分钟内补真价。**非 chat 模式的 gpt（image/audio/realtime/transcribe/tts）排除在
-	// floor 外** → 它们走真价或 reject 兜底，绝不按 token 中位误计成错模式（real 价在 litellm，未知的该拒）。
+	// floor 外** → 它们走 registry 价或 reject，绝不按 token 中位误计成错模式。
 	// 真正异类的 OpenAI 模型（o 系列等）不含 "gpt" → 同样走真价或 reject。
 	if strings.Contains(modelLower, "gpt") &&
 		!strings.Contains(modelLower, "image") && !strings.Contains(modelLower, "audio") &&
 		!strings.Contains(modelLower, "realtime") && !strings.Contains(modelLower, "transcribe") &&
 		!strings.Contains(modelLower, "-tts") {
-		return s.fallbackPrices["gpt-5.4"]
+		return s.registryOwnerPricing("gpt-5.4")
 	}
 
 	switch modelLower {
 	case "grok", "grok-latest", "grok-4.5", "grok-4.5-latest", "grok-build-latest":
-		return s.fallbackPrices["grok-4.5"]
+		return s.registryOwnerPricing("grok-4.5")
 	case "grok-4.3",
 		"grok-4.20-0309-reasoning",
 		"grok-4.20-0309-non-reasoning",
 		"grok-4.20-multi-agent-0309",
 		"grok-4.20-reasoning",
 		"grok-4.20-non-reasoning":
-		return s.fallbackPrices["grok-4.3"]
+		return s.registryOwnerPricing("grok-4.3")
 	case "grok-build", "grok-build-0.1", "grok-composer", "grok-composer-2.5-fast", "composer-2.5":
-		return s.fallbackPrices["grok-build-0.1"]
+		return s.registryOwnerPricing("grok-build-0.1")
 	}
 
 	return nil
 }
 
 func tkModelPricingFromLiteLLM(p *LiteLLMModelPricing) *ModelPricing {
-	if p == nil || p.TokenPricingAbsent || tkIsEffectivelyUnpriced(p) {
+	if p == nil || (p.TokenPricingAbsent && !p.ExplicitFree) || (tkIsEffectivelyUnpriced(p) && !p.ExplicitFree) {
 		return nil
 	}
 	price5m := p.CacheCreationInputTokenCost
@@ -812,6 +454,7 @@ func tkModelPricingFromLiteLLM(p *LiteLLMModelPricing) *ModelPricing {
 		LongContextInputMultiplier:         p.LongContextInputCostMultiplier,
 		LongContextOutputMultiplier:        p.LongContextOutputCostMultiplier,
 		ImageOutputPricePerToken:           p.OutputCostPerImageToken,
+		ImageInputPricePerToken:            p.InputCostPerImageToken,
 		Intervals:                          p.Intervals,
 	}
 }
@@ -820,22 +463,21 @@ func tkOverlayModelPricing(model string) *ModelPricing {
 	return tkModelPricingFromLiteLLM(loadTKPricingOverlay()[strings.ToLower(strings.TrimSpace(model))])
 }
 
-// IsServedViaFamilyFloor reports whether `model` bills via a Go FAMILY-FLOOR fallback rather than a
-// real price (litellm mirror / overlay). True = the real price source has no (effective) entry for
-// the model BUT getFallbackPricing supplies a family floor — i.e. the request is being served at an
-// ESTIMATED floor and needs a real price filled. This is the convergence signal for the post-pivot
-// design (docs/approved/priced-or-it-doesnt-ship.md §4): served_at_fallback alert → ops/auto fill →
-// fallback use decays to ~0. Channel pricing is NOT consulted here (callers that bill via channel
-// skip this); a model with a real price, or with no floor at all (→ gate-rejected), returns false.
+// IsServedViaFamilyFloor reports whether `model` bills through a registry family
+// alias rather than a direct owner row. This is an estimated registry floor and
+// the convergence signal for the post-pivot design: served_at_fallback alert →
+// operator fills the model's direct owner row. Channel pricing is NOT consulted
+// here (callers that bill via channel skip this); a model with a direct owner, or
+// with no registry alias at all (→ gate-rejected), returns false.
 func (s *BillingService) IsServedViaFamilyFloor(model string) bool {
 	if s == nil || s.pricingService == nil {
 		return false
 	}
 	lower := strings.ToLower(model)
 	if real := s.pricingService.GetModelPricing(lower); real != nil && !tkIsEffectivelyUnpriced(real) {
-		return false // has a real litellm/overlay price → not a floor
+		return false // has a real registry price → not a floor
 	}
-	return s.getFallbackPricing(lower) != nil // no real price, but a Go family floor exists
+	return s.getRegistryAliasPricing(lower) != nil // no direct owner, but a registry family alias exists
 }
 
 // GetModelPricing 获取模型价格配置
@@ -843,41 +485,41 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	// 标准化模型名称（转小写）
 	model = strings.ToLower(model)
 
-	// 1. 优先从动态价格服务获取
-	// TK: 全零价条目视同未命中（litellm 用 0.0 表示"价格未知"而非"免费"），
-	// 落入 fallback / ErrModelPricingUnavailable，让缺价 funnel 记零成本并告警。
+	// 1. 优先从 registry snapshot 获取直接 owner row
+	// TK: 全零价条目视同未命中（registry 用 0.0 表示"价格未知"而非"免费"），
+	// 落入 registry alias lookup / ErrModelPricingUnavailable，让缺价 funnel 记零成本并告警。
 	if s.pricingService != nil {
-		litellmPricing := s.pricingService.GetModelPricing(model)
-		// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
-		// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
-		// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。
+		registryPricing := s.pricingService.GetModelPricing(model)
+		// 仅有图片价、无 token 价的 registry 条目（如 imagen 类模型）不能用于
+		// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 registry alias，
+		// 无 alias 则 fail-closed（ErrModelPricingUnavailable）。
 		// 图片计费路径（getDefaultImagePrice / getImageUnitPrice）直接读
 		// PricingService，不受影响。
-		if litellmPricing != nil && litellmPricing.TokenPricingAbsent {
-			litellmPricing = nil
+		if registryPricing != nil && registryPricing.TokenPricingAbsent {
+			registryPricing = nil
 		}
-		if litellmPricing != nil && !tkIsEffectivelyUnpriced(litellmPricing) {
-			return s.applyModelSpecificPricingPolicy(model, tkModelPricingFromLiteLLM(litellmPricing)), nil
+		if registryPricing != nil && !tkIsEffectivelyUnpriced(registryPricing) {
+			return s.applyModelSpecificPricingPolicy(model, tkModelPricingFromLiteLLM(registryPricing)), nil
 		}
 	}
 
-	// 2. 使用兼容别名 / 家族回退价格。已在 overlay 定价的兼容分支只
-	// 保存 alias → price_key 关系，不在 Go 中重复价格数值。
-	fallback := s.getFallbackPricing(model)
-	if fallback != nil {
+	// 2. Resolve a compatibility/family alias. The Go policy stores only
+	// alias → registry-owner relationships; it never duplicates price numbers.
+	registryAliasPricing := s.getRegistryAliasPricing(model)
+	if registryAliasPricing != nil {
 		// 按模型名去重:每个模型每进程最多打一条 warn,避免热路径每请求刷屏（issue #3394）。
 		// model 在函数入口已 ToLower,故 GLM-5.2 / glm-5.2 视为同一条目。
-		if _, seen := s.fallbackWarnSeen.LoadOrStore(model, struct{}{}); !seen {
-			log.Printf("[Billing] Using fallback pricing for model: %s", model)
+		if _, seen := s.registryAliasWarnSeen.LoadOrStore(model, struct{}{}); !seen {
+			log.Printf("[Billing] Using registry alias pricing for model: %s", model)
 		}
-		return s.applyModelSpecificPricingPolicy(model, tkApplyOfficialListBaseTaxForModel(model, fallback)), nil
+		return s.applyModelSpecificPricingPolicy(model, tkApplyOfficialListBaseTaxForModel(model, registryAliasPricing)), nil
 	}
 
 	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
 }
 
-// GetModelPricingWithChannel 获取模型定价，渠道配置的价格覆盖默认值
-// 渠道存在时，未配置的图片输出价格归零（不回退到 LiteLLM）
+// GetModelPricingWithChannel 获取模型定价，渠道 scoped override 覆盖 registry owner。
+// 渠道存在时，未配置的图片输出价格归零（不继承全局 owner）。
 func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing *ChannelModelPricing) (*ModelPricing, error) {
 	pricing, err := s.GetModelPricing(model)
 	if err != nil {
@@ -886,7 +528,7 @@ func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing
 	if channelPricing == nil {
 		return pricing, nil
 	}
-	// 防止修改 fallbackPrices 中的共享指针
+	// 防止修改 registry 返回的共享指针
 	cloned := *pricing
 	pricing = &cloned
 	if channelPricing.InputPrice != nil {
@@ -1216,7 +858,7 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 		return nil, err
 	}
 
-	source := PricingSourceLiteLLM
+	source := PricingSourceRegistry
 	if channelPricing != nil {
 		source = PricingSourceChannel
 	}
@@ -1229,43 +871,11 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 }
 
 func (s *BillingService) applyModelSpecificPricingPolicy(model string, pricing *ModelPricing) *ModelPricing {
-	if pricing == nil {
-		return nil
-	}
-	normalized := normalizeKnownOpenAICodexModel(model)
-	isGPT56 := isOpenAIGPT56Model(normalized)
-	usesLegacyLongContextPricing := usesOpenAILegacyLongContextPricing(normalized)
-	if !isGPT56 && !usesLegacyLongContextPricing {
-		return pricing
-	}
-	needsLongContextPolicy := (isGPT56 || usesLegacyLongContextPricing) &&
-		(pricing.LongContextInputThreshold <= 0 || pricing.LongContextInputMultiplier <= 0 || pricing.LongContextOutputMultiplier <= 0)
-	needsCacheCreationPolicy := isGPT56 && !pricing.CacheCreationPriceExplicit && (pricing.CacheCreationPricePerToken <= 0 ||
-		(pricing.InputPricePerTokenPriority > 0 && pricing.CacheCreationPricePerTokenPriority <= 0))
-	if !needsLongContextPolicy && !needsCacheCreationPolicy {
-		return pricing
-	}
-	cloned := *pricing
-	if isGPT56 && !cloned.CacheCreationPriceExplicit {
-		if cloned.CacheCreationPricePerToken <= 0 {
-			cloned.CacheCreationPricePerToken = cloned.InputPricePerToken * 1.25
-		}
-		if cloned.CacheCreationPricePerTokenPriority <= 0 {
-			cloned.CacheCreationPricePerTokenPriority = cloned.InputPricePerTokenPriority * 1.25
-		}
-	}
-	if isGPT56 || usesLegacyLongContextPricing {
-		if cloned.LongContextInputThreshold <= 0 {
-			cloned.LongContextInputThreshold = openAIGPT54LongContextInputThreshold
-		}
-		if cloned.LongContextInputMultiplier <= 0 {
-			cloned.LongContextInputMultiplier = openAIGPT54LongContextInputMultiplier
-		}
-		if cloned.LongContextOutputMultiplier <= 0 {
-			cloned.LongContextOutputMultiplier = openAIGPT54LongContextOutputMultiplier
-		}
-	}
-	return &cloned
+	// Pricing policy is data-owned. Long-context thresholds, multipliers, cache
+	// prices, and service-tier rates must be present on the resolved registry row
+	// (or a scoped channel override); this method intentionally performs no
+	// numeric completion or model-family fallback.
+	return pricing
 }
 
 func (s *BillingService) shouldApplySessionLongContextPricing(tokens UsageTokens, pricing *ModelPricing) bool {
@@ -1277,10 +887,6 @@ func (s *BillingService) shouldApplySessionLongContextPricing(tokens UsageTokens
 	}
 	totalInputTokens := tokens.InputTokens + tokens.CacheCreationTokens + tokens.CacheReadTokens
 	return totalInputTokens > pricing.LongContextInputThreshold
-}
-
-func usesOpenAILegacyLongContextPricing(normalized string) bool {
-	return normalized == "gpt-5.4" || normalized == "gpt-5.5" || normalized == "gpt-5.5-pro"
 }
 
 // CalculateCostWithConfig 使用配置中的默认倍率计算费用
@@ -1369,17 +975,16 @@ func (s *BillingService) CalculateCostWithLongContext(model string, tokens Usage
 
 // ListSupportedModels 列出所有支持的模型（现在总是返回true，因为有模糊匹配）
 func (s *BillingService) ListSupportedModels() []string {
-	models := make([]string, 0)
-	// 返回回退价格支持的模型系列
-	for model := range s.fallbackPrices {
+	models := make([]string, 0, len(loadTKPricingOverlay()))
+	for model := range loadTKPricingOverlay() {
 		models = append(models, model)
 	}
 	return models
 }
 
-// IsModelSupported 检查模型是否支持（现在总是返回true，因为有模糊匹配回退）
+// IsModelSupported 检查模型是否支持（Claude 家族由 registry alias policy 覆盖）
 func (s *BillingService) IsModelSupported(model string) bool {
-	// 所有Claude模型都有回退价格支持
+	// 所有 Claude 模型都有 registry family alias 支持。
 	modelLower := strings.ToLower(model)
 	return strings.Contains(modelLower, "claude") ||
 		strings.Contains(modelLower, "opus") ||
@@ -1408,8 +1013,8 @@ func (s *BillingService) GetPricingServiceStatus() map[string]any {
 		return s.pricingService.GetStatus()
 	}
 	return map[string]any{
-		"model_count":  len(s.fallbackPrices),
-		"last_updated": "using fallback",
+		"model_count":  len(loadTKPricingOverlay()),
+		"last_updated": "using TK pricing registry",
 		"local_hash":   "N/A",
 	}
 }
@@ -1436,29 +1041,15 @@ type VideoPriceConfig struct {
 	Price1080P *float64 // 1080p 每秒价格（nil 表示使用默认值）
 }
 
-const (
-	defaultImageGenerationPrice = 0.134
-
-	defaultGrokImagineImagePrice1K        = 0.02
-	defaultGrokImagineImagePrice2K        = 0.02
-	defaultGrokImagineImageQualityPrice1K = 0.05
-	defaultGrokImagineImageQualityPrice2K = 0.07
-
-	// Grok video tier prices live in tk_pricing_overlay.json (video_price_tiers).
-
-	// Codex alpha/search 网页搜索单次默认价：OpenAI 官方 web search 定价 $10/1000 次。
-	defaultWebSearchPricePerCall = 0.01
-)
-
 // CalculateWebSearchCost 计算 Codex alpha/search 网页搜索按次费用。
 // callCount: 搜索调用次数（每次请求为 1）
-// groupPrice: 分组配置的单次价格（nil 表示使用默认价 0.01；0 表示免费）
+// groupPrice: 分组配置的单次价格（nil 表示使用 registry policy；0 表示免费）
 // rateMultiplier: 分组费率倍数
 func (s *BillingService) CalculateWebSearchCost(callCount int, groupPrice *float64, rateMultiplier float64) *CostBreakdown {
 	if callCount <= 0 {
 		return &CostBreakdown{}
 	}
-	unitPrice := defaultWebSearchPricePerCall
+	unitPrice := tkRegistryWebSearchPricePerCall()
 	if groupPrice != nil && *groupPrice >= 0 {
 		unitPrice = *groupPrice
 	}
@@ -1476,7 +1067,7 @@ func (s *BillingService) CalculateWebSearchCost(callCount int, groupPrice *float
 }
 
 // CalculateImageCost 计算图片生成费用
-// model: 请求的模型名称（用于获取 LiteLLM 默认价格）
+// model: 请求的模型名称（用于解析 registry owner）
 // imageSize: 图片尺寸 "1K", "2K", "4K"
 // imageCount: 生成的图片数量
 // groupConfig: 分组配置的价格（可能为 nil，表示使用默认值）
@@ -1574,7 +1165,7 @@ func (s *BillingService) getImageUnitPrice(model string, imageSize string, group
 		}
 	}
 
-	// 回退到 LiteLLM 默认价格
+	// Resolve the registry owner. Group pricing above is the only scoped override.
 	return s.getDefaultImagePrice(model, normalizedSize)
 }
 
@@ -1603,7 +1194,7 @@ func (s *BillingService) getVideoUnitPrice(model string, resolution string, grou
 	return s.getDefaultVideoPrice(model, resolution)
 }
 
-// getDefaultImagePrice 获取 LiteLLM 默认图片价格
+// getDefaultImagePrice resolves the global registry owner price.
 func (s *BillingService) getDefaultImagePrice(model string, imageSize string) float64 {
 	if price, ok := getDefaultGrokImagineImagePrice(model, imageSize); ok {
 		return price
@@ -1611,17 +1202,14 @@ func (s *BillingService) getDefaultImagePrice(model string, imageSize string) fl
 
 	basePrice := 0.0
 
-	// 从 PricingService 获取 output_cost_per_image
+	// Read the registry owner even when the service dependency is absent (tests and
+	// defensive startup paths); never substitute a Go numeric price.
+	pricing := tkOverlayLiteLLMModelPricing(model)
 	if s.pricingService != nil {
-		pricing := s.pricingService.GetModelPricing(model)
-		if pricing != nil && pricing.OutputCostPerImage > 0 {
-			basePrice = pricing.OutputCostPerImage
-		}
+		pricing = s.pricingService.GetModelPricing(model)
 	}
-
-	// 如果没有找到价格，使用硬编码默认值（$0.134，来自 gemini-3-pro-image-preview）
-	if basePrice <= 0 {
-		basePrice = defaultImageGenerationPrice
+	if pricing != nil && pricing.OutputCostPerImage > 0 {
+		basePrice = pricing.OutputCostPerImage
 	}
 
 	// TK: Imagen bills at its FLAT official per-image price. Google prices Imagen
@@ -1661,31 +1249,34 @@ func (s *BillingService) getDefaultVideoPrice(model string, resolution string) f
 
 func getDefaultGrokImagineImagePrice(model string, imageSize string) (float64, bool) {
 	model = strings.ToLower(strings.TrimSpace(model))
+	ownerModel := ""
 	switch model {
 	case "grok-imagine-image-quality":
-		return getGrokImagineImageTierPrice(
-			imageSize,
-			defaultGrokImagineImageQualityPrice1K,
-			defaultGrokImagineImageQualityPrice2K,
-		), true
+		ownerModel = "grok-imagine-image-quality"
 	case "grok-imagine", "grok-imagine-image", "grok-imagine-edit":
-		return getGrokImagineImageTierPrice(
-			imageSize,
-			defaultGrokImagineImagePrice1K,
-			defaultGrokImagineImagePrice2K,
-		), true
+		ownerModel = "grok-imagine-image"
 	default:
 		return 0, false
 	}
-}
 
-func getGrokImagineImageTierPrice(imageSize string, price1K float64, price2K float64) float64 {
+	pricing := tkOverlayLiteLLMModelPricing(ownerModel)
+	if pricing == nil {
+		return 0, false
+	}
+	price := pricing.OutputCostPerImage
 	switch NormalizeImageBillingTierOrDefault(imageSize) {
 	case ImageBillingSize1K:
-		return price1K
-	case ImageBillingSize2K, ImageBillingSize4K:
-		return price2K
-	default:
-		return price2K
+		if pricing.ImagePrice1K > 0 {
+			price = pricing.ImagePrice1K
+		}
+	case ImageBillingSize2K:
+		if pricing.ImagePrice2K > 0 {
+			price = pricing.ImagePrice2K
+		}
+	case ImageBillingSize4K:
+		if pricing.ImagePrice4K > 0 {
+			price = pricing.ImagePrice4K
+		}
 	}
+	return price, price > 0
 }

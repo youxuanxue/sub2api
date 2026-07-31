@@ -143,10 +143,7 @@ func TestCalculateCostUnified_ImageMode(t *testing.T) {
 		byID:                    map[int64]*Channel{},
 	})
 
-	bs := &BillingService{
-		cfg:            &config.Config{},
-		fallbackPrices: map[string]*ModelPricing{},
-	}
+	bs := NewBillingService(&config.Config{}, nil)
 	resolver := NewModelPricingResolver(cs, bs)
 	groupID := int64(2)
 

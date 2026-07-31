@@ -5,7 +5,7 @@ TokenKey model operations keep four facts separate:
 | Fact | Owner |
 | --- | --- |
 | Runtime serving | per-account `accounts.credentials.model_mapping` |
-| Price | `channel_model_pricing` + `tk_pricing_overlay.json` + litellm mirror |
+| Price | `tk_pricing_overlay.json` registry owner + scoped `channel_model_pricing` override |
 | Public catalog + user menu surface | `pricing_catalog_supported_models_tk.go` |
 | Curated newapi intent | `tk_served_models.json` |
 
@@ -35,7 +35,7 @@ hand-maintained empirical sets in the same file.
 | `model-surface-bundle.json` | Deterministic, checksummed release projection generated once from the Go model owner and published as a release asset. |
 | `model_surface_bundle.py` | Shared stdlib-only schema and digest validator used by rollout tools; it owns no model list. |
 | `manage-account-model-mapping-runtime.py` | Consumes a generated bundle without compiling Go, hot-pushes optional runtime replacement scopes, checks required floor + forbidden policy while preserving compatible extras, keeps Edge diagnostics available, and applies reviewed account/group diffs only through explicit confirmation. |
-| `apply-pricing-hotfix.py` | Companion runbook for the **"模型缺价（已记零成本）" Feishu alert** (PricingMissingNotifier). Hot-applies channel pricing via the prod admin API (immediate, no release) and stages the durable fill-only entry into `tk_pricing_overlay.json`. `selftest` covers all pure logic (no network). See "Pricing-missing hotfix" below. |
+| `apply-pricing-hotfix.py` | Companion runbook for the **"模型缺价（已记零成本）" Feishu alert** (PricingMissingNotifier). Hot-applies a scoped channel override via the prod admin API (immediate, no release) and stages the reviewed registry owner entry into `tk_pricing_overlay.json`. Provider/LiteLLM is offline import evidence only; `selftest` covers all pure logic (no network). See "Pricing-missing hotfix" below. |
 
 ## Re-run (operator, needs AWS creds for prod SSM)
 
@@ -106,7 +106,7 @@ It logs exactly what it skipped, for human review:
 **Operator entry:** skill `tokenkey-modelops-planner` (`.cursor/skills/tokenkey-modelops-planner/SKILL.md`).
 Script implementation below; do not treat this README as the primary runbook.
 
-For newapi long-tail, live runtime mapping checks, and mirror-account
+For newapi long-tail, live runtime mapping checks, and account-pair
 operations, use the planner to turn discovery/probe/pricing/runtime facts into
 a reviewable plan:
 
@@ -118,7 +118,7 @@ a reviewable plan:
 python3 ops/pricing/modelops.py snapshot-sql --channel-type 17
 
 # Compare upstream discovery, probe results, live mapping, and any explicitly
-# reviewed mirror pair from that same runtime snapshot.
+# reviewed account pair from that same runtime snapshot.
 python3 ops/pricing/modelops.py plan \
   --upstream "$QWEN_ACCOUNT_ID":/tmp/qwen_upstream_models.json \
   --probe-results /tmp/qwen_probe.tsv \
@@ -156,7 +156,7 @@ replaces the compiled account mapping floor for that scope; omitted scopes keep
 the compiled floor.
 
 **prod-only SSOT check.** Public serving requires **可展示 + 已定价 + 可服务** to
-align on prod: catalog allowlists, pricing overlay/channel rows, and prod
+align on prod: catalog allowlists, registry/scoped channel rows, and prod
 `accounts.credentials.model_mapping` (plus optional runtime replacement). When a
 bundle contains `account_overrides`, the property-based
 `account_override:<platform>:<channel_type>:<base_url>` scope overrides the
@@ -233,36 +233,37 @@ leaking. Remediation is two-step, mirroring the TLS-fingerprint / tiers
 "repo baseline + live push" hot-update shape:
 
 ```bash
-# 0. what does litellm (FULL source, incl. provider-prefixed keys the trimmed
-#    mirror drops) say this model costs?
+# 0. collect offline provider/LiteLLM evidence (including provider-prefixed keys);
+#    this lookup never becomes a runtime pricing source.
 python3 ops/pricing/apply-pricing-hotfix.py lookup --model doubao-seedream-9
 
-# 1. HOT (immediate, no release): upsert channel pricing via prod admin API.
-#    Channel pricing (DB) overrides every other pricing source; the channel
+# 1. HOT (immediate, no release): upsert a scoped channel override via prod admin API.
+#    It overrides the registry owner only for this channel/group scope; the channel
 #    cache invalidates on write. Dry-run by default; --yes to commit.
 export TOKENKEY_ADMIN_API_KEY=...   # settings.admin_api_key
 python3 ops/pricing/apply-pricing-hotfix.py channels   # pick --channel-id
 python3 ops/pricing/apply-pricing-hotfix.py apply \
   --model doubao-seedream-9 --channel-id 4 --platform newapi --from-litellm --yes
 
-# 2. DURABLE (next release): append the overlay entry to
-#    backend/internal/service/tk_pricing_overlay.json and open a PR.
-#    Fill applies when the mirror key is absent OR an all-zero placeholder
-#    (litellm's "cost unknown" — see tkIsEffectivelyUnpriced); self-deprecating:
-#    the day the mirror carries a real non-zero price under the bare key, the
-#    source value wins. For models litellm lacks entirely, use
-#    --entry-json with the provider's official list price.
+# 2. DURABLE (next release): append the reviewed registry owner entry to
+#    backend/internal/service/tk_pricing_overlay.json and open a PR. The row is
+#    the resolved owner because it is a registry row; it does not yield to a later
+#    provider snapshot. For models the provider snapshot lacks, use --entry-json
+#    with the provider's official list price.
 python3 ops/pricing/apply-pricing-hotfix.py stage-overlay \
   --model doubao-seedream-9 --from-litellm
 python3 scripts/checks/pricing-overlay.py && bash scripts/preflight.sh
 ```
 
+Registry membership establishes ownership for every model row; provider names do
+not decide precedence. Channel pricing remains the higher-priority scoped runtime
+override.
+
 Caveats: channel pricing is per-channel — if the leaking traffic spans several
-channels, repeat `apply` per channel. Mirror entries that are all-zero
-placeholders self-heal via the overlay (absent-or-zero fill) and now surface the
-pricing-missing alert instead of silently billing $0; the overlay still cannot
-fix WRONG **non-zero** mirror prices (the source stays authoritative there) —
-channel pricing is exactly the tool for that. Alert digest cadence is
+channels, repeat `apply` per channel. Registry entries with zero price surface the
+pricing-missing alert instead of silently billing $0. A wrong **non-zero** registry
+owner must be corrected in the registry (or temporarily overridden for the affected
+scope); no provider snapshot can silently replace it. Alert digest cadence is
 `feishu.pricing_missing_digest_seconds` (default 1800s).
 
 ## Classification & de-dup rules
@@ -294,7 +295,7 @@ channel pricing is exactly the tool for that. Alert digest cadence is
 ## Caveats
 
 - The probe's default source pools are group-id anchored: prod `openai=2`,
-  `anthropic mirror=1`, `antigravity=21`, `Vertex/newapi=16`, `Qwen/newapi=18`,
+  `anthropic relay=1`, `antigravity=21`, `Vertex/newapi=16`, `Qwen/newapi=18`,
   `GLM/newapi=26`, `VolcEngine/newapi=5`; edge-native probes use `anthropic=1`
   and `grok=4` on the target edge DB. Display names are operator-editable and
   only accepted through explicit legacy `PROBE_*_SOURCE_GROUP` overrides for
@@ -305,7 +306,7 @@ channel pricing is exactly the tool for that. Alert digest cadence is
   upstream proof with Codex `0.144.1`. Bare `gpt-5.6` is a compatibility alias
   (wire transform → `gpt-5.6-sol`); keep `gpt-5.6-chat-latest` out of the
   allowlist. After code SSOT changes, sync `tk_account_model_mapping_runtime`
-  and run `apply-accounts` — a stale runtime overlay will otherwise narrow
+  and run `apply-accounts` — a stale runtime mapping replacement will otherwise narrow
   OAuth accounts back below the compiled floor.
 - Antigravity has two distinct probe surfaces: text/capability checks use
   `ANTIGRAVITY_CHAT_MODELS` on `/antigravity/v1beta`, while Studio

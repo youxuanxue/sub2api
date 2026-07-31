@@ -7,8 +7,9 @@ still present in the working tree.
 Reads `scripts/sentinels/pricing-availability.json` (single source of truth)
 and for each entry verifies:
 
-  1. The file at `path` exists.
+  1. The file at `path` exists, unless `must_not_exist` is true.
   2. Every literal string in `must_contain` appears at least once in the file.
+  3. No literal string in `must_not_contain` appears in the file.
 
 Exit codes:
   0  — all sentinels intact.
@@ -71,10 +72,15 @@ def check_sentinel(entry: dict) -> tuple[bool, list[str]]:
     if not path_str:
         return False, ["entry missing 'path'"]
     file_path = REPO_ROOT / path_str
+    if entry.get("must_not_exist"):
+        if file_path.exists():
+            return False, [f"forbidden file exists: {path_str}"]
+        return True, []
     if not file_path.is_file():
         return False, [f"file missing: {path_str}"]
     must_contain = entry.get("must_contain") or []
-    if not must_contain:
+    must_not_contain = entry.get("must_not_contain") or []
+    if not must_contain and not must_not_contain:
         return True, []
     try:
         content = file_path.read_text(encoding="utf-8", errors="replace")
@@ -84,6 +90,9 @@ def check_sentinel(entry: dict) -> tuple[bool, list[str]]:
     for needle in must_contain:
         if needle not in content:
             failures.append(f"missing literal `{needle}` in {path_str}")
+    for needle in must_not_contain:
+        if needle in content:
+            failures.append(f"forbidden literal `{needle}` present in {path_str}")
     return (len(failures) == 0), failures
 
 

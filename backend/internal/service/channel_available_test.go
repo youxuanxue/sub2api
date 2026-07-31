@@ -243,7 +243,7 @@ func TestPricingNeedsFallback(t *testing.T) {
 	}
 }
 
-func TestSynthesizePricingFromLiteLLM_TokenMode(t *testing.T) {
+func TestSynthesizePricingFromRegistry_TokenMode(t *testing.T) {
 	lp := &LiteLLMModelPricing{
 		Mode:                        "chat",
 		InputCostPerToken:           3e-6,
@@ -251,7 +251,7 @@ func TestSynthesizePricingFromLiteLLM_TokenMode(t *testing.T) {
 		CacheCreationInputTokenCost: 3.75e-6,
 		CacheReadInputTokenCost:     3e-7,
 	}
-	got := synthesizePricingFromLiteLLM(lp, nil)
+	got := synthesizePricingFromRegistry(lp, nil)
 	require.NotNil(t, got)
 	require.Equal(t, BillingModeToken, got.BillingMode)
 	require.NotNil(t, got.InputPrice)
@@ -259,21 +259,21 @@ func TestSynthesizePricingFromLiteLLM_TokenMode(t *testing.T) {
 	require.NotNil(t, got.CacheReadPrice)
 }
 
-func TestSynthesizePricingFromLiteLLM_ImageGenerationMode(t *testing.T) {
-	// LiteLLM mode=image_generation 且渠道未声明模式时，按 image 合成。
+func TestSynthesizePricingFromRegistry_ImageGenerationMode(t *testing.T) {
+	// Registry mode=image_generation 且渠道未声明模式时，按 image 合成。
 	lp := &LiteLLMModelPricing{
 		Mode:                    "image_generation",
 		OutputCostPerImageToken: 4e-5,
 	}
-	got := synthesizePricingFromLiteLLM(lp, nil)
+	got := synthesizePricingFromRegistry(lp, nil)
 	require.NotNil(t, got)
 	require.Equal(t, BillingModeImage, got.BillingMode)
 	require.Nil(t, got.PerRequestPrice)
 	require.NotNil(t, got.ImageOutputPrice)
 }
 
-func TestSynthesizePricingFromLiteLLM_RespectsExistingChannelMode(t *testing.T) {
-	// admin UI 选了 per_request 但没填价：LiteLLM 数据按 per_request 合成,
+func TestSynthesizePricingFromRegistry_RespectsExistingChannelMode(t *testing.T) {
+	// admin UI 选了 per_request 但没填价：registry owner 按 per_request 合成,
 	// 即便 LiteLLM 标的是 chat 模式也尊重渠道选择。
 	lp := &LiteLLMModelPricing{
 		Mode:               "chat",
@@ -281,7 +281,7 @@ func TestSynthesizePricingFromLiteLLM_RespectsExistingChannelMode(t *testing.T) 
 		OutputCostPerImage: 0.04,
 	}
 	existing := &ChannelModelPricing{BillingMode: BillingModePerRequest}
-	got := synthesizePricingFromLiteLLM(lp, existing)
+	got := synthesizePricingFromRegistry(lp, existing)
 	require.NotNil(t, got)
 	require.Equal(t, BillingModePerRequest, got.BillingMode)
 	require.NotNil(t, got.PerRequestPrice)
@@ -303,8 +303,8 @@ func TestFillGlobalPricingFallback_NilPricing(t *testing.T) {
 	require.InDelta(t, 5e-6, *models[0].Pricing.InputPrice, 1e-12)
 }
 
-func TestFillGlobalPricingFallback_EmptyPricingFillsFromLiteLLM(t *testing.T) {
-	// 核心场景：admin UI 建了 pricing 条目（image 模式）但没填价，应走 LiteLLM 兜底。
+func TestFillGlobalPricingFallback_EmptyPricingFillsFromRegistry(t *testing.T) {
+	// 核心场景：admin UI 建了 pricing 条目（image 模式）但没填价，应走 registry owner。
 	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
 		"gpt-image-1": {
 			Mode:                    "image_generation",

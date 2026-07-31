@@ -30,7 +30,7 @@ import (
 //      → pass; family-fallback id absent from the source → priced → pass.
 
 // newConsistencyBilling builds a real BillingService over an in-test pricing blob
-// (same shape as the catalog source). Family fallbacks (getFallbackPricing) apply
+// (same shape as the catalog source). Family fallbacks (getRegistryAliasPricing) apply
 // on top, exactly as in production.
 func newConsistencyBilling(t *testing.T, blob []byte) *BillingService {
 	t.Helper()
@@ -154,7 +154,7 @@ func TestR3_ImageTokenPriced_PriceThroughBilling(t *testing.T) {
 }
 
 // TestR3_ChannelPricedModelNotFalseRejected pins the re-review BLOCKER B1 fix: billing
-// charges via TWO sources — GetModelPricing (litellm/overlay/fallback base) AND, when the
+// charges via TWO sources — GetModelPricing (registry owner) AND, when the
 // group has channel_model_pricing, resolveChannelPricing (resolver.Resolve.Source==Channel).
 // A model priced ONLY via the channel source has NO base price, so the old gate (which asked
 // only GetModelPricing) would 404 a model billing happily charges — a false reject on the
@@ -203,7 +203,7 @@ func TestR3_ChannelPricedModelNotFalseRejected(t *testing.T) {
 }
 
 // TestIsServedViaFamilyFloor pins the post-pivot convergence signal (docs/approved/
-// priced-or-it-doesnt-ship.md §4): true iff a model has NO real litellm/overlay price BUT a Go
+// priced-or-it-doesnt-ship.md §4): true iff a model has NO real registry price BUT a Go
 // family floor — i.e. it is being served at an estimated floor and needs a real price filled
 // (served_at_fallback alert). A real-priced model, or a no-floor model (gate-rejected), returns false.
 func TestIsServedViaFamilyFloor(t *testing.T) {
@@ -212,7 +212,7 @@ func TestIsServedViaFamilyFloor(t *testing.T) {
 	billing := newConsistencyBilling(t, blob)
 
 	require.False(t, billing.IsServedViaFamilyFloor("real-priced-model"),
-		"a model with a real litellm/overlay price is NOT served via floor")
+		"a model with a real registry price is NOT served via floor")
 	require.True(t, billing.IsServedViaFamilyFloor("gemini-9-ultra-preview"),
 		"a gemini model with no real price falls to the gemini family floor → served via floor")
 	require.False(t, billing.IsServedViaFamilyFloor("gpt-9-unknown-codex"),

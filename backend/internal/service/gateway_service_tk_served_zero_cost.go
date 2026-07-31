@@ -33,12 +33,14 @@ func tkServedZeroCostReason(cost *CostBreakdown, billableUnits int64, multiplier
 	return "", false
 }
 
-// tkServedAtFallbackReason 是「按家族 floor 服务」的 PricingMissingNotifier reason（设计转向后的
-// 收敛信号：cost>0 但走的是 Go 家族 floor 而非真价，需补真价）。区别于 served_zero_cost 的 $0。
+// tkServedAtFallbackReason 是「按 registry 家族 floor 服务」的
+// PricingMissingNotifier reason（设计转向后的收敛信号：cost>0 但走的是 registry alias floor
+// 而非直接 owner，需补直接 owner）。区别于 served_zero_cost 的 $0。
 const tkServedAtFallbackReason = "served_at_fallback"
 
-// tkNotifyServedAtFallback 触发「按家族 floor 服务」收敛告警：本次请求按 **非 $0 的 Go 家族 floor**
-// 计费（而非 litellm/overlay 真价），应补真价让 fallback 用量衰减到稳态（docs §4 收敛引擎）。两条
+// tkNotifyServedAtFallback 触发「按家族 floor 服务」收敛告警：本次请求按 **非 $0 的 registry
+// family alias floor** 计费（而非直接 owner），应补直接 owner 让 alias 用量衰减到稳态（docs §4
+// 收敛引擎）。两条
 // 计费 funnel（anthropic recordUsageCore + openai）共用。与 served_zero_cost（cost==0）互斥。
 // nil-safe，异步发送，绝不阻塞 funnel。
 //
@@ -46,7 +48,7 @@ const tkServedAtFallbackReason = "served_at_fallback"
 // 而 IsServedViaFamilyFloor 不查渠道价 —— 故一个【基础价缺、但配了渠道价、且名字含 gemini/gpt/claude】
 // 的模型（按真实渠道价计费）会被误判为「走 floor」误发一张卡。这类很窄（渠道价多在无 floor 的 newapi），
 // 运维一眼可辨（该模型有渠道价、无需补），与 openai 多候选误报（N2）同性质。真正需补真价的「无渠道价、
-// 走 Go floor」是主路径，不漏报。
+// 走 registry alias floor」是主路径，不漏报。
 func tkNotifyServedAtFallback(
 	notifier PricingMissingNotifier, billing *BillingService, cost *CostBreakdown,
 	apiKey *APIKey, billingModel, requestedModel, upstreamModel string, units int64,

@@ -21,6 +21,8 @@ type tkServedModelsOwnerEntryForTest struct {
 	ModelID      string                           `json:"model_id"`
 	ChannelType  int                              `json:"channel_type"`
 	AccountScope *tkServedModelsOwnerScopeForTest `json:"account_scope"`
+	PriceSource  string                           `json:"price_source"`
+	PriceKey     string                           `json:"price_key"`
 	Display      bool                             `json:"display"`
 	ServedOn     []string                         `json:"served_on"`
 }
@@ -96,6 +98,41 @@ func TestTkServedModelsManifestProjectionsMatchRawOwner(t *testing.T) {
 	}
 }
 
+func TestManifestEntryHasRegistryOwnerRejectsAlternateBaseSources(t *testing.T) {
+	var doc struct {
+		Entries map[string]tkServedModelsOwnerEntryForTest `json:"entries"`
+	}
+	if err := json.Unmarshal(tkServedModelsOwnerRawForTest, &doc); err != nil {
+		t.Fatalf("parse raw served-models owner: %v", err)
+	}
+	var owner tkServedModelsOwnerEntryForTest
+	for _, entry := range doc.Entries {
+		owner = entry
+		break
+	}
+	if owner.ModelID == "" {
+		t.Fatal("raw served-models owner must contain an entry")
+	}
+
+	entry := tkServedModelsManifestEntry{
+		ModelID:     owner.ModelID,
+		PriceSource: owner.PriceSource,
+		PriceKey:    owner.PriceKey,
+	}
+	if !manifestEntryHasRegistryOwner(entry) {
+		t.Fatalf("valid registry owner %q was rejected", owner.PriceKey)
+	}
+	entry.PriceSource = "channel"
+	if manifestEntryHasRegistryOwner(entry) {
+		t.Fatal("scoped channel override must not become a manifest base owner")
+	}
+	entry.PriceSource = "registry"
+	entry.PriceKey = "tk-missing-registry-owner-zzz"
+	if manifestEntryHasRegistryOwner(entry) {
+		t.Fatal("missing registry owner must fail closed")
+	}
+}
+
 func TestIsNewAPILongTailCatalogVendor(t *testing.T) {
 	for _, v := range []string{"volcengine", "deepseek", "dashscope", "zhipu", "newapi"} {
 		if !isNewAPILongTailCatalogVendor(v) {
@@ -133,6 +170,13 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 		}
 		if entry.ChannelType <= 0 {
 			t.Fatalf("raw owner entry %q has invalid channel_type %d", key, entry.ChannelType)
+		}
+		if entry.PriceSource != "registry" {
+			t.Fatalf("raw owner entry %q price_source = %q, want registry", key, entry.PriceSource)
+		}
+		registryOwner := loadTKPricingOverlay()[strings.ToLower(strings.TrimSpace(entry.PriceKey))]
+		if tkIsEffectivelyUnpriced(registryOwner) {
+			t.Fatalf("raw owner entry %q has no priced registry owner at %q", key, entry.PriceKey)
 		}
 		if _, duplicate := out.listedIDs[entry.ModelID]; duplicate {
 			t.Fatalf("raw owner declares model_id %q more than once", entry.ModelID)

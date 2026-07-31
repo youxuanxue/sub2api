@@ -10,21 +10,23 @@ import (
 
 // Imagen bills its FLAT official per-image price: the 2K→×1.5 / 4K→×2 size-tier
 // multiplier (upstream-owned, real only for genuine pixel-size tiers like
-// Seedream) is exempted for imagen-* models. Base here is the nil-pricing
-// fallback ($0.134); the assertion is about the MULTIPLIER, so the exact base is
-// irrelevant — imagen must return base (flat) for every tier.
+// Seedream) is exempted for imagen-* models. The assertion is about the
+// MULTIPLIER, so the exact registry price is irrelevant: Imagen must return its
+// owner price unchanged for every tier.
 func TestImagenBillsFlat_NoSizeTierMultiplier(t *testing.T) {
-	svc := &BillingService{} // pricingService nil → base = $0.134 fallback
+	svc := &BillingService{} // registry snapshot is used directly
 
+	ultraBase := mustRegistryImageBasePrice(t, "imagen-4.0-ultra-generate-001")
 	for _, size := range []string{"1K", "2K", "4K", "", "auto"} {
 		cost := svc.CalculateImageCost("imagen-4.0-ultra-generate-001", size, 1, nil, 1.0)
-		require.InDeltaf(t, 0.134, cost.TotalCost, 1e-6,
+		require.InDeltaf(t, ultraBase, cost.TotalCost, 1e-12,
 			"imagen must bill flat base regardless of size tier (size=%q)", size)
 	}
 
 	// Scales linearly by n, still flat per image (not ×1.5 per image).
+	fastBase := mustRegistryImageBasePrice(t, "imagen-4.0-fast-generate-001")
 	cost := svc.CalculateImageCost("imagen-4.0-fast-generate-001", "2K", 3, nil, 1.0)
-	require.InDelta(t, 0.402, cost.TotalCost, 1e-6) // 0.134 × 3 (NOT 0.134 × 1.5 × 3)
+	require.InDelta(t, fastBase*3, cost.TotalCost, 1e-12)
 }
 
 // The exemption is scoped to Imagen ONLY — models with genuine size tiers keep
@@ -32,11 +34,12 @@ func TestImagenBillsFlat_NoSizeTierMultiplier(t *testing.T) {
 func TestImageSizeMultiplier_StillAppliesToNonImagen(t *testing.T) {
 	svc := &BillingService{}
 
-	// gemini fallback model: 2K still ×1.5, 4K still ×2.
-	require.InDelta(t, 0.201, svc.CalculateImageCost("gemini-3-pro-image", "2K", 1, nil, 1.0).TotalCost, 1e-6)
-	require.InDelta(t, 0.268, svc.CalculateImageCost("gemini-3-pro-image", "4K", 1, nil, 1.0).TotalCost, 1e-6)
+	geminiBase := mustRegistryImageBasePrice(t, "gemini-3-pro-image")
+	require.InDelta(t, geminiBase*1.5, svc.CalculateImageCost("gemini-3-pro-image", "2K", 1, nil, 1.0).TotalCost, 1e-12)
+	require.InDelta(t, geminiBase*2, svc.CalculateImageCost("gemini-3-pro-image", "4K", 1, nil, 1.0).TotalCost, 1e-12)
 	// Seedream sends real pixel sizes — 2K still ×1.5.
-	require.InDelta(t, 0.201, svc.CalculateImageCost("seedream-4-0-250828", "2K", 1, nil, 1.0).TotalCost, 1e-6)
+	seedreamBase := mustRegistryImageBasePrice(t, "seedream-4-0-250828")
+	require.InDelta(t, seedreamBase*1.5, svc.CalculateImageCost("seedream-4-0-250828", "2K", 1, nil, 1.0).TotalCost, 1e-12)
 }
 
 // The pre-flight HOLD shares getDefaultImagePrice (EstimateImageHold forces an
@@ -46,6 +49,8 @@ func TestImageSizeMultiplier_StillAppliesToNonImagen(t *testing.T) {
 func TestImagenHold_FlatNotFourKMax(t *testing.T) {
 	svc := &BillingService{}
 
-	require.InDelta(t, 0.134, svc.EstimateImageHold("imagen-4.0-fast-generate-001", "", 1, nil, 1.0), 1e-6) // flat (was 0.268)
-	require.InDelta(t, 0.268, svc.EstimateImageHold("seedream-4-0-250828", "", 1, nil, 1.0), 1e-6)          // 4K ×2 stays
+	fastBase := mustRegistryImageBasePrice(t, "imagen-4.0-fast-generate-001")
+	seedreamBase := mustRegistryImageBasePrice(t, "seedream-4-0-250828")
+	require.InDelta(t, fastBase, svc.EstimateImageHold("imagen-4.0-fast-generate-001", "", 1, nil, 1.0), 1e-12)
+	require.InDelta(t, seedreamBase*2, svc.EstimateImageHold("seedream-4-0-250828", "", 1, nil, 1.0), 1e-12)
 }

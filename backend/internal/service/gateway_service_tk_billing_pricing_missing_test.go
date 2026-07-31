@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// upstream Wei-Shaw/sub2api#1833 / #1544: when a model has no LiteLLM entry and
-// no channel/fallback pricing (e.g. GLM/qwen/deepseek attached to an
+// upstream Wei-Shaw/sub2api#1833 / #1544: when a model has no registry owner and
+// no scoped channel pricing (e.g. GLM/qwen/deepseek attached to an
 // anthropic-type group over /v1/messages), calculateTokenCost must not silently
 // bill zero. It now returns a zero-cost breakdown explicitly marked with
 // BillingMode (and emits a structured warning), mirroring the OpenAI path's

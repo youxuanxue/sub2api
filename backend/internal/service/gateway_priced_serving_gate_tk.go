@@ -4,8 +4,9 @@ package service
 //
 // 设计：docs/approved/priced-or-it-doesnt-ship.md。**家族 floor + 只拒无 floor + 告警收敛**
 // （全平台默认开闸）：billing model 解析后、上游转发前问 billing 神谕
-// `BillingService.GetModelPricing`——它先查真价（litellm/overlay/渠道），查不到再落 Go
-// **家族兜底 floor**（claude/gpt/gemini-* 都有家族 floor）。
+// `BillingService.GetModelPricing`——它先查 registry 直接 owner，查不到再按 registry alias
+// policy 解析到**家族 floor**（claude/gpt/gemini-* 都有家族 floor）。Scoped channel
+// overrides are checked separately through the same resolver used by billing.
 //   - 解析出价（真价或家族 floor）→ 放行，**绝不按 $0 服务**（堵住空 model_mapping catch-all
 //     透传把未定价 id 按 $0 端给付费客户的漏洞）；
 //   - 连家族 floor 都没有（多厂商 newapi/国产 的未知 id，刻意「未知不回退」以免大幅误计）→
@@ -23,10 +24,11 @@ package service
 // resolver 渠道价)——与 billing 计费路径一一对应,「闸 ⟺ billing」构造性成立、永不漂移(BLOCKER1/
 // B1 的统一修法)。
 //
-// **无降级金丝雀机制**（设计转向后移除）：Go 家族 floor 是硬编码的、免疫 litellm/overlay 源
-// 故障——一次定价 glitch 不会 404 掉 floored 平台(它们恒落 floor 服务)，故不需要「降级 fail-open」
-// 兜底;而无 floor 的 newapi 在缺价时【就该 reject】(用户决策「newapi 保留 reject」)，对它 fail-open
-// 反而会违背「绝不 $0」。所以家族 floor 本身就是 glitch 防护,canary/tkPricingSystemDegraded 已删。
+// **无降级金丝雀机制**（设计转向后移除）：家族 floor 的数值和维度都在 registry owner
+// rows 中；Go 只保存 alias 关系。一次 registry reload glitch 不会 404 掉 floored 平台
+// （它们恒落已验证的 registry floor），故不需要「降级 fail-open」兜底；而无 floor 的 newapi
+// 在缺价时【就该 reject】（用户决策「newapi 保留 reject」），对它 fail-open 反而会违背「绝不 $0」。
+// 所以 registry floor 本身就是 glitch 防护，canary/tkPricingSystemDegraded 已删。
 //
 // 为什么不放 handler 包：多条注入点都在 service 深处（model mapping 发生在 handler
 // 返回后），把 helper 放 service 既避免 handler→service 反向依赖，又能直接拿到 gin
@@ -83,16 +85,17 @@ type tkChannelPricingProbe func(ctx context.Context, model string, groupID int64
 // 短路顺序（性能 + 正确性）：
 //  1. resolver/setting 未注入 → false（放行，零开销）；
 //  2. setting 未启用该平台 → false（放行，不调 billing）；
-//  3. billing 神谕解析出价（GetModelPricing 不返 ErrModelPricingUnavailable —— 含真价 litellm/
-//     overlay 与 Go 家族 floor，claude/gpt/gemini-* 都有 floor）→ 放行；
+//  3. billing 神谕解析出价（GetModelPricing 不返 ErrModelPricingUnavailable —— 含
+//     registry owner 与 registry family alias floor，claude/gpt/gemini-* 都有 floor）→ 放行；
 //  4. 基础价/floor 都缺时再查【渠道价】：该 group 对该 model 配了 channel_model_pricing
 //     （Source==PricingSourceChannel，billing 计费路径 resolveChannelPricing 会按它非零计费）→ 放行；
 //  5. 否则拒绝（真价、家族 floor、渠道价全无 —— 即多厂商 newapi/国产 的未知 id，刻意不回退以免大幅误计）。
 //
-// 闸用 billing 自己的【两个】价源（GetModelPricing 含 family floor + resolver 渠道价），与 billing
+// 闸用 billing 自己的【两个】价源（GetModelPricing 含 registry family alias floor + resolver 渠道价），与 billing
 // 计费路径（CalculateCost ← GetModelPricing；resolveChannelPricing ← resolver.Resolve）一一对应，
-// 而非 catalog 成员影子谓词——这是 R3「闸 ⟺ billing 构造性成立」的根。无降级金丝雀：Go 家族 floor
-// 免疫源故障,本身就是 glitch 防护(详见文件头)。早先只问 GetModelPricing 漏渠道价 → B1(已修)。
+// 而非 catalog 成员影子谓词——这是 R3「闸 ⟺ billing 构造性成立」的根。registry family floor
+// 免疫外部 provider 证据漂移，本身就是 glitch 防护（详见文件头）。早先只问 GetModelPricing
+// 漏渠道价 → B1(已修)。
 func tkPricedServingGateRejected(
 	ctx context.Context,
 	resolve tkBillingPricingResolver,

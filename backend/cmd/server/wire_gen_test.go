@@ -42,7 +42,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 	accountExpirySvc := service.NewAccountExpiryService(nil, time.Second)
 	proxyExpirySvc := service.NewProxyExpiryService(nil, time.Second)
 	subscriptionExpirySvc := service.NewSubscriptionExpiryService(nil, time.Second)
-	pricingSvc := service.NewPricingService(cfg, nil)
+	pricingSvc := service.NewPricingService()
 	emailQueueSvc := service.NewEmailQueueService(nil, 1)
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	idempotencyCleanupSvc := service.NewIdempotencyCleanupService(nil, cfg)
@@ -99,7 +99,6 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil,                                   // pricingMissingNotifier
 		service.TKAuthServiceColdStartReady{}, // TK: forces SetTrialKeyIssuer wiring
 		service.TKGatewayPricingAvailabilityReady{}, // TK: forces SetPricingAvailabilityService wiring
-		service.TKPricingOverlayRuntimeReady{},      // TK: forces runtime overlay (settings hot-push) wiring
 		service.TKGatewayAnthropicSigPreemptReady{}, // TK: forces SetAnthropicSigPreemptCache wiring
 		service.TKAnthropicSaturationReady{},        // TK: forces SetAnthropicSaturationCounter wiring
 		service.TKOpenAISaturationReady{},           // TK: forces SetOpenAISaturationCounter wiring

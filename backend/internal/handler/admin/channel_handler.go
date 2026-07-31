@@ -521,9 +521,9 @@ func (h *ChannelHandler) GetModelDefaultPricing(c *gin.Context) {
 	})
 }
 
-// platformToLiteLLMProvider maps a channel platform name to the corresponding
-// LiteLLM provider string used as the key in the pricing catalog.
-var platformToLiteLLMProvider = map[string]string{
+// platformToRegistryProvider maps a channel platform name to the provider
+// classification stored on pricing registry owner rows.
+var platformToRegistryProvider = map[string]string{
 	service.PlatformAnthropic:   "anthropic",
 	service.PlatformOpenAI:      "openai",
 	service.PlatformGemini:      "google",
@@ -531,7 +531,7 @@ var platformToLiteLLMProvider = map[string]string{
 	service.PlatformGrok:        "xai",
 }
 
-// SyncPricingModels 返回 LiteLLM 定价目录中指定平台的最新模型列表
+// SyncPricingModels 返回统一 pricing registry 中指定平台的模型列表。
 // GET /api/v1/admin/channels/pricing/sync-models?platform=anthropic
 func (h *ChannelHandler) SyncPricingModels(c *gin.Context) {
 	platform := strings.ToLower(strings.TrimSpace(c.Query("platform")))
@@ -541,7 +541,7 @@ func (h *ChannelHandler) SyncPricingModels(c *gin.Context) {
 		return
 	}
 
-	provider, ok := platformToLiteLLMProvider[platform]
+	provider, ok := platformToRegistryProvider[platform]
 	if !ok {
 		response.ErrorFrom(c, infraerrors.BadRequest("UNSUPPORTED_PLATFORM",
 			fmt.Sprintf("unsupported platform: %s", platform)).

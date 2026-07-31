@@ -50,12 +50,12 @@ extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07
 
 ## Decisions
 
-1. **Pricing (止血).** Fable was un-priced everywhere; `getFallbackPricing` matched
-   the generic `claude→sonnet` catch-all → ~3.3x **underbill**. Added
-   `claude-fable-5` = $10/$50 (cache write $12.50, cache read $1.00) to both
-   `tk_pricing_overlay.json` (primary, litellm mirror lags) and
-   `billing_service.go` `fallbackPrices` (safety net), plus an explicit `fable`
-   branch in `getFallbackPricing` ahead of the claude catch-all.
+1. **Pricing (止血).** Fable was un-priced everywhere; the registry alias resolver
+   matched the generic `claude→sonnet` catch-all → ~3.3x **underbill**. Added
+   `claude-fable-5` = $10/$50 (cache write $12.50, cache read $1.00) as the
+   single owner row in `tk_pricing_overlay.json`, plus an explicit `fable`
+   alias branch ahead of the claude catch-all. Provider/LiteLLM is offline evidence,
+   not a runtime fallback, and BillingService contains no duplicate numeric row.
 
 2. **Thinking integrity.** Fable shares Opus 4.7+'s adaptive-only surface
    (`thinking:{type:"enabled",budget_tokens:N}` → 400, only `adaptive` accepted),

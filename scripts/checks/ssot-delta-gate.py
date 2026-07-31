@@ -351,7 +351,7 @@ def cmd_selftest(_args) -> int:
                     "model_id": "qwen3-8b",
                     "display": False,
                     "served_on": ["60"],
-                    "price_source": "overlay",
+                    "price_source": "registry",
                     "price_key": "qwen3-8b",
                 }
             }
@@ -365,7 +365,7 @@ def cmd_selftest(_args) -> int:
                     "model_id": "qwen3-8b",
                     "display": True,
                     "served_on": ["60"],
-                    "price_source": "overlay",
+                    "price_source": "registry",
                     "price_key": "qwen3-8b",
                 }
             }

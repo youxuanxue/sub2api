@@ -9,7 +9,7 @@ mechanisms and must AGREE with each:
   (1) per-account credentials.model_mapping — the runtime servable WHITELIST, written
       by the explicit modelops activation path (legacy rows may come from migrations
       or admin-UI seed state). The DECLARED-served signal.
-  (2) tk_pricing_overlay.json + the runtime litellm mirror — the PRICE.
+  (2) tk_pricing_overlay.json — the unified runtime PRICE registry.
   (3) display intent — newapi uses this manifest's `display` bit directly; native
       platforms still use the Go servable-allowlist maps in
       pricing_catalog_supported_models_tk.go.
@@ -18,10 +18,9 @@ This guard hardens the #812-class regression (a model priced + advertised-as-int
 but never actually wired onto the serving account's model_mapping => empty pool =>
 429/503 in prod) into a mechanical CI gate (CLAUDE.md §「升级原则」). It asserts:
 
-  A0 PARSE        manifest + overlay parse; every entry has the required fields/types.
-  A1 PRICE        every entry resolves to a non-zero price in its declared price_source
-                  (overlay key > 0 for the mode; mirror => overlay does not zero it;
-                  channel => notes documents the channel source).            HARD-FAIL
+  A0 PARSE        manifest + registry parse; every entry has the required fields/types.
+  A1 PRICE        every entry resolves to a non-zero registry owner for its mode.
+                  Scoped channel pricing may override it, never replace it.   HARD-FAIL
   A2 DISPLAY      native display==true => model_id present in the platform's Go
                   allowlist map. newapi display is owned by this manifest.     HARD
   A3 SERVED_ON    every served_on account => a legacy tk_*.sql migration maps the model,
@@ -31,7 +30,7 @@ but never actually wired onto the serving account's model_mapping => empty pool 
                   This is the #812-catching direction.                        HARD-FAIL
                   Legacy escape hatch: `served-via-admin-ui` is downgraded to WARN for
                   mapping state that predates the activation contract.
-  A4 ENUMERATION  (advisory WARN) every dashscope/deepseek chat overlay key SHOULD be a
+  A4 ENUMERATION  (advisory WARN) every curated-provider chat registry key SHOULD be a
                   manifest entry (catch a priced+served-but-forgotten model).
 
 Usage: python3 scripts/checks/catalog-serving-drift.py [--quiet] [--selftest]
@@ -48,7 +47,7 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 SERVICE_DIR = REPO_ROOT / "backend" / "internal" / "service"
 MANIFEST = SERVICE_DIR / "tk_served_models.json"
-OVERLAY = SERVICE_DIR / "tk_pricing_overlay.json"
+REGISTRY = SERVICE_DIR / "tk_pricing_overlay.json"
 ALLOWLIST_GO = SERVICE_DIR / "pricing_catalog_supported_models_tk.go"
 MIGRATIONS_DIR = REPO_ROOT / "backend" / "migrations"
 # Broad on purpose: model_mapping JSON lives in several tk_*.sql files whose NAME does
@@ -58,17 +57,23 @@ MIGRATIONS_DIR = REPO_ROOT / "backend" / "migrations"
 MIGRATION_GLOB = "tk_*.sql"
 
 # Price mode -> the field(s) that MUST be > 0 for that mode (mirrors pricing-overlay.py
-# MODE_FIELDS so the overlay arm of A1 is byte-identical to a check already green).
+# MODE_FIELDS so the registry arm of A1 is byte-identical to a check already green).
 MODE_FIELDS = {
-    "image_generation": ("output_cost_per_image",),
+    "image_generation": ("output_cost_per_image", "output_cost_per_image_token"),
     "video_generation": ("output_cost_per_second",),
     "chat": ("input_cost_per_token", "output_cost_per_token"),
+    "completion": ("input_cost_per_token", "output_cost_per_token"),
+    "responses": ("input_cost_per_token", "output_cost_per_token"),
+    "realtime": ("input_cost_per_token", "output_cost_per_token"),
+    "audio_transcription": ("input_cost_per_token", "output_cost_per_token"),
+    "audio_speech": ("input_cost_per_token", "output_cost_per_token"),
+    "embedding": ("input_cost_per_token",),
 }
 
 # Native platforms that actually have a Go servable-allowlist map.
 ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity")
 
-# A4 advisory: overlay vendors whose chat models are the manifest's curated long-tail.
+# A4 advisory: registry providers whose chat models are the manifest's curated long-tail.
 ENUMERATION_PROVIDERS = {"dashscope", "deepseek", "moonshot", "volcengine", "zhipu", "bigmodel", "zai"}
 
 # Recognized literal declarations in an entry's notes (A3 migration-scan alternatives).
@@ -84,7 +89,7 @@ REQUIRED_FIELDS = {
     "price_key": str,
     "display": bool,
 }
-VALID_PRICE_SOURCES = {"overlay", "mirror", "channel"}
+VALID_PRICE_SOURCES = {"registry"}
 ACCOUNT_SCOPE_FIELDS = {"platform", "channel_type", "base_url"}
 
 
@@ -142,7 +147,7 @@ def migration_maps_model(files: dict[str, str], account: str, model_id: str) -> 
 
 def evaluate(
     manifest: dict,
-    overlay: dict,
+    registry: dict,
     allowlist: dict[str, set[str]],
     migration_files: dict[str, str],
 ) -> tuple[list[str], list[str]]:
@@ -154,7 +159,7 @@ def evaluate(
     if not isinstance(entries, dict):
         return (["manifest has no top-level `entries` object"], warnings)
 
-    overlay_entries = {k: v for k, v in overlay.items() if not k.startswith("_")}
+    registry_entries = {k: v for k, v in registry.items() if not k.startswith("_")}
     manifest_model_ids: set[str] = set()
 
     for key, entry in entries.items():
@@ -237,47 +242,30 @@ def evaluate(
         manifest_model_ids.add(model_id)
 
         # ---- A1 price-resolvable -----------------------------------------------
-        if price_source == "overlay":
-            po = overlay_entries.get(price_key)
+        if price_source == "registry":
+            po = registry_entries.get(price_key)
             if not isinstance(po, dict):
-                errors.append(
-                    f"{key}: price_source=overlay but price_key {price_key!r} absent from "
-                    f"tk_pricing_overlay.json"
-                )
+                errors.append(f"{key}: price_source=registry but price_key {price_key!r} absent from tk_pricing_overlay.json")
             else:
                 mode = po.get("mode")
                 fields = MODE_FIELDS.get(mode)
                 if fields is None:
                     errors.append(
-                        f"{key}: overlay entry {price_key!r} has unrecognized mode {mode!r}"
+                        f"{key}: registry entry {price_key!r} has unrecognized mode {mode!r}"
                     )
                 else:
-                    for f in fields:
-                        if not _is_pos_number(po.get(f)):
-                            errors.append(
-                                f"{key}: overlay {price_key!r} (mode={mode}) requires {f} > 0, "
-                                f"got {po.get(f)!r}"
-                            )
-        elif price_source == "mirror":
-            # Static guard cannot read the live mirror; only prove the overlay does NOT
-            # zero it out (a $0 overlay row would shadow the mirror price). Deliberately
-            # weak arm (deepseek-chat/reasoner): can false-NEGATIVE, never false-POSITIVE.
-            po = overlay_entries.get(price_key)
-            if isinstance(po, dict):
-                mode = po.get("mode")
-                fields = MODE_FIELDS.get(mode, ())
-                if fields and all(not _is_pos_number(po.get(f)) for f in fields):
-                    errors.append(
-                        f"{key}: price_source=mirror but a $0 overlay row for {price_key!r} "
-                        f"shadows the mirror price (remove the zero overlay row or correct it)"
-                    )
-        elif price_source == "channel":
-            if "channel" not in notes.lower():
-                errors.append(
-                    f"{key}: price_source=channel requires a notes substring documenting "
-                    f"the channel_model_pricing source (static guard cannot read the DB)"
-                )
-
+                    if po.get("explicit_free") is True:
+                        continue
+                    if mode == "image_generation":
+                        if not any(_is_pos_number(po.get(f)) for f in fields):
+                            errors.append(f"{key}: registry {price_key!r} (mode={mode}) requires one media price > 0")
+                    else:
+                        for f in fields:
+                            if not _is_pos_number(po.get(f)):
+                                errors.append(
+                                    f"{key}: registry {price_key!r} (mode={mode}) requires {f} > 0, "
+                                    f"got {po.get(f)!r}"
+                                )
         # ---- A2 display => allowlist -------------------------------------------
         if entry["display"] and platform != "newapi":
             if platform not in ALLOWLIST_PLATFORMS:
@@ -315,13 +303,13 @@ def evaluate(
                 errors.append(msg)
 
     # ---- A4 enumeration completeness (advisory) --------------------------------
-    for k, v in overlay_entries.items():
+    for k, v in registry_entries.items():
         if not isinstance(v, dict):
             continue
         if v.get("litellm_provider") in ENUMERATION_PROVIDERS and v.get("mode") == "chat":
             if k not in manifest_model_ids:
                 warnings.append(
-                    f"overlay chat model {k!r} (provider={v.get('litellm_provider')}) is not a "
+                    f"registry chat model {k!r} (provider={v.get('litellm_provider')}) is not a "
                     f"manifest entry — confirm it is intentionally not account-mapping-served, "
                     f"or add it (advisory)."
                 )
@@ -334,7 +322,7 @@ def evaluate(
 
 def _selftest() -> int:
     """Synthetic pass+fail fixtures, no repo I/O — proves each assertion fires."""
-    overlay = {
+    registry = {
         "_meta": {"note": "x"},
         "good-chat": {
             "litellm_provider": "dashscope",
@@ -364,7 +352,7 @@ def _selftest() -> int:
     }
 
     def run(entries):
-        return evaluate({"entries": entries}, overlay, allowlist, migrations)
+        return evaluate({"entries": entries}, registry, allowlist, migrations)
 
     failures: list[str] = []
 
@@ -372,22 +360,22 @@ def _selftest() -> int:
     pass_entries = {
         "newapi/good-chat": {
             "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
-            "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+            "channel_type": 17, "price_source": "registry", "price_key": "good-chat",
             "display": True, "notes": "ok",
         },
-        "newapi/mirror-chat": {
+        "newapi/registry-chat": {
             "platform": "newapi", "model_id": "mirror-chat", "served_on": ["60"],
-            "channel_type": 43, "price_source": "mirror", "price_key": "mirror-chat",
-            "display": False, "notes": "mirror priced",
+            "channel_type": 43, "price_source": "registry", "price_key": "good-chat",
+            "display": False, "notes": "registry priced",
         },
         "newapi/adminui-chat": {
             "platform": "newapi", "model_id": "adminui-chat", "served_on": ["60"],
-            "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+            "channel_type": 17, "price_source": "registry", "price_key": "good-chat",
             "display": False, "notes": "applied out-of-band served-via-admin-ui",
         },
         "newapi/activation-chat": {
             "platform": "newapi", "model_id": "activation-chat", "served_on": ["60"],
-            "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+            "channel_type": 17, "price_source": "registry", "price_key": "good-chat",
             "display": False, "notes": "pre-release served-via-modelops-activation",
             "account_scope": {
                 "platform": "newapi", "channel_type": 45,
@@ -408,54 +396,52 @@ def _selftest() -> int:
         failures.append("A0: missing-field not flagged")
     errs, _ = run({"newapi/bad": {
         "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
-        "channel_type": True, "price_source": "overlay", "price_key": "good-chat",
+        "channel_type": True, "price_source": "registry", "price_key": "good-chat",
         "display": False,
     }})
     if not any("must be int, got bool" in e for e in errs):
         failures.append("A0: channel_type bool-as-int not flagged")
+    errs, _ = run({"newapi/channel-owner": {
+        "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
+        "channel_type": 17, "price_source": "channel", "price_key": "good-chat",
+        "display": False, "notes": "channel_model_pricing",
+    }})
+    if not any("price_source" in e and "not in" in e for e in errs):
+        failures.append("A0: channel accepted as a base owner instead of scoped override only")
     errs, _ = run({"newapi/bad-scope": {
         "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+        "channel_type": 17, "price_source": "registry", "price_key": "good-chat",
         "display": False, "account_scope": {"platform": "newapi", "channel_type": 45},
     }})
     if not any("account_scope omitted fields" in e for e in errs):
         failures.append("A0: incomplete account_scope not flagged")
 
-    # --- A1: overlay price missing / zero --------------------------------------
+    # --- A1: registry price missing / zero -------------------------------------
     errs, _ = run({"newapi/absent": {
         "platform": "newapi", "model_id": "nope", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "nonexistent",
+        "channel_type": 17, "price_source": "registry", "price_key": "nonexistent",
         "display": False, "notes": "served-via-admin-ui",
     }})
     if not any("absent from" in e for e in errs):
-        failures.append("A1: missing overlay key not flagged")
+        failures.append("A1: missing registry key not flagged")
     errs, _ = run({"newapi/zero": {
         "platform": "newapi", "model_id": "zero-chat", "served_on": ["60"],
-        "channel_type": 43, "price_source": "overlay", "price_key": "zero-chat",
+        "channel_type": 43, "price_source": "registry", "price_key": "zero-chat",
         "display": False, "notes": "served-via-admin-ui",
     }})
     if not any("requires" in e and "> 0" in e for e in errs):
-        failures.append("A1: $0 overlay price not flagged")
-    # mirror shadowed by a $0 overlay row
-    errs, _ = run({"newapi/mzero": {
-        "platform": "newapi", "model_id": "zero-chat", "served_on": ["60"],
-        "channel_type": 43, "price_source": "mirror", "price_key": "zero-chat",
-        "display": False, "notes": "served-via-admin-ui",
-    }})
-    if not any("shadows the mirror" in e for e in errs):
-        failures.append("A1: $0 overlay shadowing a mirror entry not flagged")
-
+        failures.append("A1: $0 registry price not flagged")
     # --- A2: display=true on a no-map platform, and missing from a real map -----
     errs, _ = run({"other/disp": {
         "platform": "bedrock", "model_id": "good-chat", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+        "channel_type": 17, "price_source": "registry", "price_key": "good-chat",
         "display": True, "notes": "served-via-admin-ui",
     }})
     if not any("has NO Go" in e for e in errs):
         failures.append("A2: display=true on no-map platform not flagged")
     errs, _ = run({"anthropic/disp": {
         "platform": "anthropic", "model_id": "claude-ghost", "served_on": ["1"],
-        "channel_type": 0, "price_source": "mirror", "price_key": "claude-ghost",
+        "channel_type": 0, "price_source": "registry", "price_key": "claude-ghost",
         "display": True, "notes": "served-via-admin-ui",
     }})
     if not any("absent from the anthropic servable-allowlist" in e for e in errs):
@@ -464,14 +450,14 @@ def _selftest() -> int:
     # --- A3: served_on with no migration (hard) vs admin-ui opt-out (warn) ------
     errs, _ = run({"newapi/gap": {
         "platform": "newapi", "model_id": "unmapped", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+        "channel_type": 17, "price_source": "registry", "price_key": "good-chat",
         "display": False, "notes": "known gap",
     }})
     if not any("#812-class gap" in e for e in errs):
         failures.append("A3: unmapped served_on not hard-flagged")
     errs, warns = run({"newapi/oob": {
         "platform": "newapi", "model_id": "unmapped", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+        "channel_type": 17, "price_source": "registry", "price_key": "good-chat",
         "display": False, "notes": "applied out-of-band served-via-admin-ui",
     }})
     if any("#812-class gap" in e for e in errs):
@@ -480,7 +466,7 @@ def _selftest() -> int:
         failures.append("A3: admin-ui opt-out did not downgrade to WARN")
     errs, warns = run({"newapi/activation": {
         "platform": "newapi", "model_id": "unmapped", "served_on": ["60"],
-        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+        "channel_type": 17, "price_source": "registry", "price_key": "good-chat",
         "display": False, "notes": "served-via-modelops-activation",
     }})
     if any("#812-class gap" in e for e in errs):
@@ -493,10 +479,10 @@ def _selftest() -> int:
     errs, _ = evaluate(
         {"entries": {"newapi/pfx": {
             "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
-            "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+            "channel_type": 17, "price_source": "registry", "price_key": "good-chat",
             "display": False, "notes": "n",
         }}},
-        overlay, allowlist, pmig,
+        registry, allowlist, pmig,
     )
     if not any("#812-class gap" in e for e in errs):
         failures.append("A3: quoted-id prefix isolation broken (matched a -preview key)")
@@ -519,7 +505,7 @@ def main() -> int:
         return _selftest()
 
     for path, label in ((MANIFEST, "served-models manifest"),
-                        (OVERLAY, "pricing overlay"),
+                        (REGISTRY, "pricing registry"),
                         (ALLOWLIST_GO, "servable-allowlist Go file")):
         if not path.is_file():
             print(f"  FAIL: {label} not found: {path}", flush=True)
@@ -530,9 +516,9 @@ def main() -> int:
 
     try:
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        overlay = json.loads(OVERLAY.read_text(encoding="utf-8"))
+        registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
     except (ValueError, OSError) as exc:
-        print(f"  FAIL: manifest/overlay unparseable: {exc}", flush=True)
+        print(f"  FAIL: manifest/registry unparseable: {exc}", flush=True)
         return 2
     try:
         allowlist = parse_allowlist_maps(ALLOWLIST_GO.read_text(encoding="utf-8"))
@@ -544,7 +530,7 @@ def main() -> int:
         print(f"  FAIL: reading allowlist/migrations: {exc}", flush=True)
         return 2
 
-    errors, warnings = evaluate(manifest, overlay, allowlist, migration_files)
+    errors, warnings = evaluate(manifest, registry, allowlist, migration_files)
 
     if warnings and not quiet:
         print(f"  note: {len(warnings)} advisory warning(s):", flush=True)

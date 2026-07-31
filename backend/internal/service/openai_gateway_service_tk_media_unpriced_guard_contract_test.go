@@ -55,8 +55,7 @@ func TestMediaUnpricedGuard_ParityWithVideoBilling(t *testing.T) {
 // DEFAULT is itself a priced model. The default name is extracted from the
 // live source (same package), so an upstream merge that changes it to an
 // unpriced model turns this red instead of silently re-opening the
-// unpriced-media hole; the shipped fallback pricing + overlay is the same
-// chain the runtime resolves through.
+// unpriced-media hole; the shipped registry is the same owner the runtime resolves.
 func TestMediaUnpricedGuard_EmptyModelDefaultIsPriced(t *testing.T) {
 	src, err := os.ReadFile("openai_images_responses.go")
 	require.NoError(t, err)
@@ -66,9 +65,7 @@ func TestMediaUnpricedGuard_EmptyModelDefaultIsPriced(t *testing.T) {
 			"if defaulting moved or was removed, re-evaluate the empty-model fail-open in TkImageModelUnpriced")
 	defaultModel := string(m[1])
 
-	fallback, err := os.ReadFile("../../resources/model-pricing/model_prices_and_context_window.json")
-	require.NoError(t, err)
-	data, err := (&PricingService{}).parsePricingData(fallback)
+	data, err := (&PricingService{}).parsePricingData(tkPricingOverlayRaw)
 	require.NoError(t, err)
 	svc := &BillingService{pricingService: &PricingService{pricingData: data}}
 

@@ -1,12 +1,13 @@
 # Pricing evidence
 
-Point-in-time vendor pricing captures live here. These files are provenance for
-pricing overlays and audits; they are not the current pricing source of truth.
+Point-in-time vendor pricing captures live here. These files are offline
+provenance/import evidence only; they are not runtime pricing sources.
 
 Current model-operations entry point: [`../../../ops/pricing/README.md`](../../../ops/pricing/README.md).
-Runtime pricing data lives in code/data files such as
-`backend/internal/service/tk_pricing_overlay.json` and the mirrored LiteLLM
-fallback under `backend/resources/model-pricing/`.
+The only global runtime owner is
+`backend/internal/service/tk_pricing_overlay.json`. A
+`channel_model_pricing` row may override it only within its explicit
+channel/group scope.
 
 | File | Captured source |
 | --- | --- |

@@ -14,7 +14,7 @@ import (
 
 // TokenKey: runtime loader for tk_served_models.json — the curated newapi
 // long-tail manifest. The drift guard (scripts/checks/catalog-serving-drift.py)
-// asserts this file agrees with overlay price + account model_mapping; the
+// asserts this file agrees with its registry owner + account model_mapping; the
 // public /pricing presentation filter and the per-user newapi Group Catalog
 // whitelist fallback consume the same embedded source so priced-but-unwired
 // models (deepseek-v3-2-251201) and withdrawn SKUs (glm-4-32b upstream 400,
@@ -33,6 +33,8 @@ type tkServedModelsManifestEntry struct {
 	ModelID      string                       `json:"model_id"`
 	ChannelType  int                          `json:"channel_type"`
 	AccountScope *tkServedModelsManifestScope `json:"account_scope"`
+	PriceSource  string                       `json:"price_source"`
+	PriceKey     string                       `json:"price_key"`
 	Display      bool                         `json:"display"`
 	ServedOn     []string                     `json:"served_on"`
 }
@@ -77,7 +79,7 @@ func loadTkServedModelsManifest() {
 		byScope := make(map[string]map[string]struct{})
 		displayByScope := make(map[string]map[string]struct{})
 		for _, e := range doc.Entries {
-			if e.ModelID == "" {
+			if e.ModelID == "" || !manifestEntryHasRegistryOwner(e) {
 				continue
 			}
 			out[e.ModelID] = struct{}{}
@@ -152,6 +154,14 @@ func loadTkServedModelsManifest() {
 			tkServedModelsManifestDisplayIDsByScope[scope] = list
 		}
 	})
+}
+
+func manifestEntryHasRegistryOwner(e tkServedModelsManifestEntry) bool {
+	if !strings.EqualFold(strings.TrimSpace(e.PriceSource), "registry") {
+		return false
+	}
+	priceKey := strings.ToLower(strings.TrimSpace(e.PriceKey))
+	return priceKey != "" && !tkIsEffectivelyUnpriced(loadTKPricingOverlay()[priceKey])
 }
 
 func manifestEntryIsAgentPlanOnly(e tkServedModelsManifestEntry) bool {

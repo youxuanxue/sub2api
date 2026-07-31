@@ -32,9 +32,10 @@ fi
 pass=0
 fail=0
 
-# run <label> <fixture-line> <expect: fail|skip>
+# run <label> <fixture-line> <expect: fail|skip> [fixture-name]
 run() {
   local label="$1" content="$2" expect="$3"
+  local fixture="${4:-fixture.md}"
   local dir
   dir="$(mktemp -d)"
   (
@@ -47,8 +48,8 @@ run() {
     git init -q
     mkdir -p scripts/checks
     cp "$SCRIPT" scripts/checks/
-    printf '%s\n' "$content" > fixture.md
-    git add fixture.md
+    printf '%s\n' "$content" > "$fixture"
+    git add "$fixture"
   )
   local out hit
   # env -u: strip GIT_* env vars inherited from a parent git pre-commit hook so
@@ -56,7 +57,7 @@ run() {
   # back to the outer worktree's .git.
   out="$(env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY -u GIT_NAMESPACE python3 "$dir/scripts/checks/script-ref-existence.py" 2>&1 || true)"
   hit=0
-  if grep -q 'file=fixture.md' <<<"$out"; then
+  if grep -q "file=$fixture" <<<"$out"; then
     hit=1
   fi
   case "$expect" in
@@ -96,6 +97,10 @@ run "P7 .json not short-matched to .js"   "ref scripts/sentinels/missing.json"  
 run "P8 ops/X.vue (Vue path, skip)"       "import '@/views/admin/ops/D.vue'"         skip
 run "P9 dev-rules/scripts/X (subm-nested, fixture missing → expect fail)" \
     "see dev-rules/scripts/never-existed.py for ..."                                   fail
+run "P10 JSON regular path must exist" \
+    '{"path":"ops/pricing/missing-owner.py"}'                                        fail fixture.json
+run "P11 JSON must_not_exist path may be absent" \
+    '{"path":"ops/pricing/forbidden-owner.py","must_not_exist":true}'                skip fixture.json
 
 # ---- result ------------------------------------------------------------------
 

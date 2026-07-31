@@ -38,7 +38,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-CATALOG = REPO / "backend/resources/model-pricing/model_prices_and_context_window.json"
+CATALOG = REPO / "backend/internal/service/tk_pricing_overlay.json"
 GO_FILE = REPO / "backend/internal/service/pricing_catalog_supported_models_tk.go"
 PROBE = REPO / "ops/pricing/probe-servable-models.sh"
 PROBE_LIB = REPO / "ops/pricing/probe_reserved_resources.sh"

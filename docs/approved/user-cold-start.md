@@ -38,7 +38,7 @@ P2（每日签到）按你的拍板**暂缓**，不在本设计范围。
 | 注册 → balance | `default_balance`，**默认 0**；OAuth 路径**不走** promo code | `auth_service.go:182-208`、`auth_service.go:472-505`、`auth_service.go:587-640` |
 | 注册 → API Key | **手动**到 `/keys` 创建；邮箱注册路径与 OAuth 路径都不创建 | `api_key_service.go:329-462` |
 | 模型发现 | `GET /v1/models` 在 API Key 鉴权之后；前端 sidebar 无「模型」入口 | `routes/gateway.go:36-50`、`gateway_handler.go:850-908` |
-| 价格元数据 | 已有 `model_prices_and_context_window.json`（litellm 格式），目前只用于计费，未对外暴露 | `config/config.go:1318-1321` |
+| 价格元数据 | 统一 `tk_pricing_overlay.json` registry；账单、公开目录和 serving gate 共享同一 resolved owner，channel DB 仅为 scoped override | `backend/internal/service/pricing_service_tk_overlay.go` |
 | 计价口径 | `users.balance` 用 USD（前端 `formatCurrency` 默认 `'USD'`、dashboard 直接 `${balance}`、`order_type==='balance'` 显示 `$`）；CNY 仅出现在「充值订单」链路 | `frontend/src/utils/format.ts:61`、`UserDashboardStats.vue:14` |
 | Onboarding tour | Driver.js 步骤已写好，但 `useOnboardingTour.ts:540` 提前 return 了非 admin 用户 | `frontend/src/composables/useOnboardingTour.ts` |
 | Playground | **不存在** | — |
@@ -120,7 +120,7 @@ PR 1 的 catalog 已能解决 L 站 `t/topic/1413702` 反映的核心痛点（"�
 ### 数据来源（v1）
 
 ```text
-backend/resources/model-pricing/*.json   ← 价格 + context window + capability 元数据（litellm shape，单位 USD per token）
+backend/internal/service/tk_pricing_overlay.json   ← 全局价格 + context window + capability registry owner（单位 USD per token）
 ```
 
 v1 deferred:
@@ -310,7 +310,7 @@ CLAUDE.md 规则 4 / 5：**不能** import new-api 的 `controller/` + `model/`�
 | 公开 pricing 暴露内部 channel/account 信息 | 低 | 新增端点只读 group + model 元数据，账号字段一律不进 DTO；增加 unit test 断言响应 JSON 不含 `account_id/channel_type/api_key/access_token` 等 |
 | 注册赠额被注册机滥用 | 中 | 已有 `auth-register` rate limit 5/min；email 验证开启时门槛已经存在；admin 可一键设 `signup_bonus_balance=0` 立即停掉而不重启 |
 | 自动建 trial key 让用户误以为已自动绑卡 / 自动消费 | 低 | dashboard 卡片明确标注"试用额度 ${bonus}，用完不会自动扣费"；超额请求被现有 quota 中间件拦截 |
-| Pricing 数据来源 (litellm JSON) 与实际可调模型可能不完全一致 | 中 | **v1** 仅展示定价 JSON 扁平目录（见 §2 v1 范围）；与调度池取交集列为 **follow-up**，避免在本 PR 引入多源 JOIN；Playground 用真实 Key 调 `/v1/models` 反映「本站可调」模型 |
+| Pricing registry 与实际可调模型可能不完全一致 | 中 | 展示面取 registry priced 与 serving manifest/allowlist 的受控交集；`catalog-serving-drift.py` 机械阻止已服务模型缺 owner。Playground 用真实 Key 调 `/v1/models` 反映「本站可调」模型 |
 
 回滚：所有改动都通过 settings 控制，admin 可一键关闭：
 

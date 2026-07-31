@@ -3,8 +3,8 @@
 
 The source is the user-visible priced catalog projection
 (`/api/v1/public/pricing`), which is built from TokenKey's servable allowlists,
-curated newapi manifest, and pricing sources. This tool deliberately does not
-maintain a second hand-written model list.
+curated newapi manifest, and the unified pricing registry. The local mode reads
+that registry directly; this tool never maintains a second model/price list.
 """
 from __future__ import annotations
 
@@ -28,8 +28,7 @@ from ssot_recent_success import load_skip_keys, parse_recent_success_tsv
 DEFAULT_BASE_URL = os.environ.get("TK_FULLTEST_BASE_URL", "https://api.tokenkey.dev")
 DEFAULT_TIMEOUT = float(os.environ.get("TK_FULLTEST_TIMEOUT", "90"))
 REPO = Path(__file__).resolve().parents[2]
-LOCAL_FALLBACK_PRICING = REPO / "backend/resources/model-pricing/model_prices_and_context_window.json"
-LOCAL_TK_OVERLAY = REPO / "backend/internal/service/tk_pricing_overlay.json"
+LOCAL_PRICING_REGISTRY = REPO / "backend/internal/service/tk_pricing_overlay.json"
 LOCAL_ALLOWLIST_GO = REPO / "backend/internal/service/pricing_catalog_supported_models_tk.go"
 LOCAL_SERVED_MANIFEST = REPO / "backend/internal/service/tk_served_models.json"
 
@@ -348,23 +347,15 @@ def local_public_catalog_supported(
 
 
 def local_pricing_payload() -> dict[str, Any]:
-    fallback = load_json_file(LOCAL_FALLBACK_PRICING)
-    overlay = load_json_file(LOCAL_TK_OVERLAY)
+    registry = load_json_file(LOCAL_PRICING_REGISTRY)
     allowlists = parse_local_allowlists()
     manifest_listed, manifest_displayed = load_local_served_manifest()
 
     items: dict[str, dict[str, Any]] = {}
-    for model, entry in fallback.items():
-        if model == "sample_spec" or not isinstance(entry, dict):
+    for model in sorted(registry):
+        if model.startswith("_"):
             continue
-        if not local_entry_has_catalog_price(entry):
-            continue
-        items[model] = local_item_from_entry(model, entry)
-
-    for model in sorted(overlay):
-        if model == "_meta":
-            continue
-        entry = overlay.get(model)
+        entry = registry.get(model)
         if not isinstance(entry, dict):
             continue
         vendor = str(entry.get("litellm_provider") or "").strip()
@@ -372,8 +363,7 @@ def local_pricing_payload() -> dict[str, Any]:
             continue
         if not local_entry_effectively_priced(entry):
             continue
-        if model not in items or local_item_effectively_unpriced(items[model]):
-            items[model] = local_item_from_entry(model, entry)
+        items[model] = local_item_from_entry(model, entry)
 
     data: list[dict[str, Any]] = []
     for model in sorted(items):

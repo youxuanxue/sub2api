@@ -23,7 +23,7 @@ This implements the allowed half of automatic model operations:
 - NO: do not let upstream `/models` or pricing presence write SERVING.
 
 That boundary follows `pricing-serving-single-source-of-truth.md`: SERVING is owned by
-per-account `model_mapping`; PRICE is owned by overlay / channel pricing; PUBLIC SURFACE
+per-account `model_mapping`; PRICE is owned by the registry / scoped channel override; PUBLIC SURFACE
 is owned by `pricing_catalog_supported_models_tk.go`. Upstream `/models` is discovery, not
 authority.
 
@@ -32,7 +32,7 @@ The Jobs cut is one entry, four facts:
 | Fact | Owner | Planner role |
 | --- | --- | --- |
 | Runtime serving | `accounts.credentials.model_mapping` | diff live snapshots and print guarded dry-runs |
-| Price | `channel_model_pricing` + `tk_pricing_overlay.json` + litellm mirror | classify priced/missing and point to pricing-hotfix |
+| Price | `tk_pricing_overlay.json` registry owner + scoped `channel_model_pricing` override | classify priced/missing and point to pricing-hotfix; provider/LiteLLM is offline evidence only |
 | Public catalog + user menu | `pricing_catalog_supported_models_tk.go` | identify the shared surface; refresh remains a separate apply path |
 | Curated newapi intent | `tk_served_models.json` | compare manifest intent with candidates and live mapping |
 

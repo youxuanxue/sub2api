@@ -26,9 +26,10 @@ supersedes: none
 
 - **堵漏**：native 平台「空 `model_mapping` = catch-all 透传」——空映射账号会服务**任意**客户
   model id，包括上游刚发、**还没真价**的 id → 按 `$0` 记账（`served_zero_cost` 只观测、从不拒绝）。
-- **决策（真价 > 家族 floor > 拒）**：serving 准入处问 billing 神谕
-  **`BillingService.GetModelPricing(billingKey)`**——它先查**真价**（litellm 镜像 / overlay / 渠道价），
-  查不到再落 Go **家族 floor**（`getFallbackPricing`：claude / gpt / gemini-* 各有家族中位 floor）。
+- **决策（直接 owner > registry 家族 floor > 拒）**：serving 准入处问 billing 神谕
+  **`BillingService.GetModelPricing(billingKey)`**——它先查 registry 直接 owner，查不到再由
+  `getRegistryAliasPricing` 按 alias 关系解析到 registry 家族 floor（claude / gpt / gemini-* 各有家族中位 floor；
+  Go 只保存 alias 关系，不保存价格数值）。
   - **解析出价（真价或家族 floor）→ 放行，绝不按 `$0` 服务**；
   - 走的是**家族 floor 而非真价** → 发 `served_at_fallback` 告警（收敛信号）→ 运维/自动补真价 →
     fallback 用量衰减到稳态；
@@ -53,7 +54,7 @@ supersedes: none
 | --- | --- | --- |
 | 空 `model_mapping` = allow-all | `Account.IsModelSupported`（`account.go:639`）：`len(mapping)==0 → return true // 无映射 = 允许所有` | native catch-all 账号（如被清空 mapping 的 Vertex 账号）会服务**任意**客户 model id，含上游新 id。 |
 | unpriced never blocks | `gateway_service_tk_served_zero_cost.go`：*「计价不确定时系统选择免费放行（unpriced never blocks）…… 不拒绝服务、不改金额，纯可观测性」* | 未定价的已服务 id 被按 `$0` 记账；唯一反馈是事后的 P0 飞书告警。 |
-| 价格解析会 fail-open | `billing_service.go:757`：`GetModelPricing`（litellm/overlay 真价 + Go fallback）都 miss 时返 `ErrModelPricingUnavailable`，funnel 记 `$0` 并服务。注：`channel_model_pricing` 是 billing 计费路径的**另一个**价源（`resolveChannelPricing`，`gateway_service.go:10295`），**不在** `GetModelPricing` 内——故闸必须**两个源都查**（见 §2，复审 B1）。 | 漏血窗口 = 上游发模型 → 运维注意到 P0 → 热补价，这段时间。 |
+| 价格解析会 fail-open | `billing_service.go:757`：`GetModelPricing`（registry owner + registry alias floor）都 miss 时返 `ErrModelPricingUnavailable`，funnel 记 `$0` 并服务。注：`channel_model_pricing` 是 billing 计费路径的**另一个**价源（`resolveChannelPricing`，`gateway_service.go:10295`），**不在** `GetModelPricing` 内——故闸必须**两个源都查**（见 §2，复审 B1）。 | 漏血窗口 = 上游发模型 → 运维注意到 P0 → 热补价，这段时间。 |
 | A1 只在 CI | `pricing-serving-single-source-of-truth.md` §3：A1 断言每个 catalog/manifest id 可解析出价——**在 CI**。 | catch-all 服务的是 A1 从没见过的*非 manifest* id。运行期没有等价闸。 |
 | newapi 已堵，native 通过显式 apply 收敛 | `account_service_tk_newapi_mapping.go`（`validateNewapiAccountModelMapping`）+ `manage-account-model-mapping-runtime.py check-accounts/apply-accounts`：newapi 写时强制非空；native 平台由运维审 diff 后写入显式 `model_mapping`，不再把空 mapping 当目标运营状态。 | 剩余风险在账号刚创建、尚未跑 post-release/post-hotfix check，或 operator 尚未确认 apply 的窗口；空 mapping 是降级 fallback，不是配置目标。 |
 
@@ -71,20 +72,20 @@ floor 都解析不出、billing 会按 `$0` 记账）**且无渠道价**，则**
 `model_not_priced`）——*除非该平台未在启用集内*。**有真价或有家族 floor 的请求一律放行**，绝不 `$0`。
 
 - **闸点 = billing 自己的两个价源，不是 catalog 影子谓词**：billing 决定记不记 `$0` 用**两个**源——
-  基础价 `BillingService.GetModelPricing`（`billing_service.go:757`，litellm 镜像 / overlay 真价 +
-  Go **家族 floor** 兜底）+ 渠道价 `resolveChannelPricing`（`gateway_service.go:10295`，即
+  基础价 `BillingService.GetModelPricing`（`billing_service.go:757`，registry owner + registry alias
+  **家族 floor**）+ 渠道价 `resolveChannelPricing`（`gateway_service.go:10295`，即
   `resolver.Resolve(...).Source==PricingSourceChannel`，对应 `channel_model_pricing`）。闸用**同样两个
   源、同一个键**（native gemini/anthropic 是 `originalModel`，openai native 是 mapped `billingModel`）：
   **两个源都解析不出价（含家族 floor）才拒**。**这样「闸 ⟺ billing」按构造成立**——billing 用这两个
-  源决定记不记 `$0`，闸用同样两个源、同一键，没有影子谓词可漂移（含 `getFallbackPricing` 家族 floor +
+  源决定记不记 `$0`，闸用同样两个源、同一键，没有影子谓词可漂移（含 `getRegistryAliasPricing` 家族 floor +
   全维度价字段 + 渠道价）。**只问 GetModelPricing 会漏渠道价 → 误拒「渠道有价、基础价缺」的可计费模型
   （复审 BLOCKER B1，已修）**。渠道价探测判的是「该渠道行**真能算出 >$0**」而非「有渠道行」——全空渠道
   行 billing 会记 `$0`（`served_zero_cost`），故仍按未定价拒，与基础价侧「全零=未定价」一致。两个源都
   走内存/既有解析，渠道价探测仅在基础价 miss 时触发（罕见），不引入热路径开销。
 - **无降级金丝雀（设计转向后移除）**：早先版本在「整个 pricing 源降级」时用一个常驻 canary 探一次、
-  连它都解析为未定价则放行（fail-open）。**这套机制已删**——Go **家族 floor 是硬编码、免疫 litellm/
-  overlay 源故障**：一次定价文件 glitch 不会 404 掉 floored 平台（它们恒落 floor 服务），家族 floor
-  **本身就是 glitch 防护**，不需要再叠一层降级 fail-open。而且无 floor 的 newapi 在缺价时**就该 reject**
+  连它都解析为未定价则放行（fail-open）。**这套机制已删**——家族 floor 的价格和维度已经是 registry
+  owner rows，Go 只保存 alias 关系，且不受外部 provider/LiteLLM 证据漂移影响：一次 registry reload glitch
+  不会 404 掉 floored 平台（它们恒落已验证的 registry floor），家族 floor **本身就是 glitch 防护**，不需要再叠一层降级 fail-open。而且无 floor 的 newapi 在缺价时**就该 reject**
   （用户决策「newapi 保留 reject」），对它 fail-open 反而违背「绝不 `$0`」。故 `tkPricingSystemDegraded`
   / canary 模型常量已一并删除。`/pricing` 与 `/v1/models` 仍用 `IsModelPriced` 做展示过滤，serving 闸
   用 billing 神谕——两面同向但闸更宽（接受家族 floor）。
@@ -122,9 +123,9 @@ floor 都解析不出、billing 会按 `$0` 记账）**且无渠道价**，则**
 - **`pricing-serving-single-source-of-truth.md` —「一个事实一个 owner」**：SERVING 由 per-account
   `model_mapping` 拥有；PRICE 由 overlay + `channel_model_pricing` 拥有。**本闸不拥有任何事实**，
   它是横切的*计费完整性准入规则*——「我们不服务我们算不出钱的东西」——只**读**两个事实、**不改**
-  任何一个。它绝不写 `model_mapping`，也绝不写价格。**家族 floor 是对 PRICE 事实的*估计***（Go
-  硬编码兜底），不是新增的事实源、也不写回 overlay/`channel_model_pricing`——真价仍由那两个 owner
-  拥有，floor 只是真价 miss 时的临时读侧估值，由 `served_at_fallback` 驱动补成真价。
+  任何一个。它绝不写 `model_mapping`，也绝不写价格。**registry alias 家族 floor 是对 PRICE 事实的*估计***，
+  不是新增的事实源、也不写回 overlay/`channel_model_pricing`——真价仍由那两个 owner 拥有，floor 只是真价
+  miss 时的临时读侧估值，由 `served_at_fallback` 驱动补成直接 owner。
 - **它不是被 REJECTED 的「让白名单对齐 overlay」**：那条否决禁的是*价格存在 ⇒ 自动映射到账号*
   （#812 那种「有价看着像已服务」的幻觉：已定价但未映射 → `429/503`）。本闸是**反方向**：*价格缺失
   ⇒ 不服务（仅无 floor 时）*。它从 catch-all 会服务的集合里**减**，绝不**加**一条 serving 声明。#812
@@ -148,7 +149,7 @@ floor 都解析不出、billing 会按 `$0` 记账）**且无渠道价**，则**
 
 ### 4.1 家族 floor 本身就是可用性机制
 
-`getFallbackPricing`（`billing_service.go:546`）按**家族**给中位 floor，真价 miss 时立即兜住：
+`getRegistryAliasPricing`（`billing_service.go:546`）按**家族**给中位 floor，真价 miss 时立即兜住：
 
 - **gemini 家族 floor**（分 3 档，避免子档误计）：`pro` → `gemini-2.5-pro`（in `1.25e-6` / out
   `1e-5` / cacheRead `1.25e-7`）；`flash-lite` / `flash-8b` → `gemini-2.5-flash-lite`（in `1e-7` /
@@ -169,11 +170,11 @@ OpenAI o 系列 / 非 chat gpt**——它们是**白名单**语义，未命中�
 
 ### 4.2 `served_at_fallback` 驱动补真价（收敛引擎）
 
-`IsServedViaFamilyFloor(model)`（`billing_service.go:745`）是收敛信号：真价 miss 但有 Go 家族 floor →
+`IsServedViaFamilyFloor(model)`（`billing_service.go:745`）是收敛信号：直接 owner miss 但有 registry 家族 floor →
 `true`。两条计费 funnel（anthropic `recordUsageCore` 在 `gateway_service.go:10201`、openai 在
 `openai_gateway_service.go:6627`）在记账点都调 `tkNotifyServedAtFallback`
 （`gateway_service_tk_served_zero_cost.go`），命中即发 reason `served_at_fallback` 的飞书卡片
-（文案「模型按家族兜底价(floor)服务、非真价」），点名该模型去补真价。补真价后 `IsServedViaFamilyFloor`
+  （文案「模型按 registry 家族 floor 服务、非直接 owner」），点名该模型去补直接 owner。补价后 `IsServedViaFamilyFloor`
 转 `false`、告警自动停——fallback 用量衰减到稳态。它与 `served_zero_cost`（cost==0）互斥：floor 是
 `cost>0`，不是漏血。
 
@@ -185,28 +186,26 @@ OpenAI o 系列 / 非 chat gpt**——它们是**白名单**语义，未命中�
   `PricingMissingNotifier`，运维用现成 `ops/pricing/apply-pricing-hotfix.py lookup` 取价、`apply` 经
   admin API 写渠道定价（立即生效、无发版），再 `stage-overlay` 固化进 `tk_pricing_overlay.json` 提 PR。
   人在环约 5 秒批；补价落地前模型**仍按 floor 服务**（非拒、非 `$0`）。
-- **v2（fast-follow）= litellm-一键确认 + Go-native overlay runtime 写器。** 触发时把 litellm 候选
-  **预填**进飞书/admin 卡，人批后由进程内 overlay runtime 写器
-  （`settingRepo.Set(SettingKeyTKPricingOverlayRuntime)` + `Publish(settings_updated)`）热推、全副本即时
-  reload——无发版、无 ops 脚本。litellm 是派生、偶尔出错的 feed（`$0 = 未知` 陷阱），无人值守 apply 会
-  算错钱，故这一档天然需人 5 秒确认；确认期间仍按 floor 服务。
-- **v3（fast-follow，需先建价源）= 官方价全自动 apply，无人无发版。** 官方价页（Vertex / OpenAI /
+- **v2（fast-follow）= provider/LiteLLM 建议 + registry PR。** 触发时把候选价
+  **预填**进飞书/admin 卡；人批后只生成 `tk_pricing_overlay.json` owner 变更，经门禁、review、release 生效。
+  provider/LiteLLM 是派生、偶尔出错的离线证据（`$0 = 未知` 陷阱），不得进入 billing/catalog/runtime。
+  确认与发布期间仍按 floor 服务；确需立即修正时只写 scoped channel override。
+- **v3（fast-follow，需先建价源）= 官方价自动生成 registry PR。** 官方价页（Vertex / OpenAI /
   Anthropic，带 `source` URL + 抓取日）是权威。**但官方价抓取（`FetchOfficialPricing`）当前两侧零实现**，
-  全自动**前置依赖先建权威价源**，故是 fast-follow、非 v1 前置；在价源落地前缺真价新模型走 floor + v1
-  人批通路。
+  自动化**前置依赖先建权威价源**，故是 fast-follow、非 v1 前置；它仍必须生成同一 registry owner 变更并
+  走 release，不能直接写第二运行时价格源。
 
 **三档共有的不变量（仅写 PRICE，绝不碰 serving）：**
 
 1. **信号**：一次 `served_at_fallback`（或对无 floor id 的闸拒绝 / `served_zero_cost`）点名一个走 floor /
    未定价、且是**候选**（在 catalog 候选集内——不是任意客户垃圾串）的模型。
-2. **写入 PRICE = overlay 热推**：fill 写进 overlay（`tk_pricing_overlay.json`，git 唯一事实源），经
-   **overlay runtime 热层**（`SettingKeyTKPricingOverlayRuntime`）热推 + publish `settings_updated`，所有
-   副本立即 reload——运行期生效、**无发版**；runtime 只是 git 的热投影，下次例行发版折进 embedded floor。
-   v1 的「写入」由运维用 `apply-pricing-hotfix.py` / `manage-overlay-runtime.py` 完成（人触发）；v2/v3
-   把这一步搬进进程内。**不写 `model_mapping`**。overlay **承载全维度**（`OutputCostPerSecond` /
+2. **写入 PRICE = 一个 registry owner**：全局价只写 `tk_pricing_overlay.json`，通过 release 让所有副本
+   同时加载；不存在 settings 热层、runtime union 或镜像 fallback。紧急修正只允许
+   `apply-pricing-hotfix.py apply --channel-id ...` 写 scoped `channel_model_pricing`，不得扩成全局 override。
+   **不写 `model_mapping`**。registry **承载全维度**（`OutputCostPerSecond` /
    `ThinkingOutputCostPerToken` 都在内，`pricing_service_tk_overlay.go`），故 veo/seedance/思考模型也无
-   维度 carve-out。价格优先级不变（`channel_model_pricing` > overlay > litellm > Go 家族 floor）；家族
-   floor 是该链**最底兜底**，真价一到即覆盖它。
+  维度 carve-out。价格优先级不变（scoped `channel_model_pricing` override > registry owner）；registry alias
+  floor 是该链**最底 alias**，直接 owner 一到即停止 alias 告警。
 3. **服务**：补真价后请求改用真价、`served_at_fallback` 停。**连家族 floor 都没有**的模型保持被拒
    （响亮 `404`），交人补价或弃用——绝不无声 `$0`。
 
@@ -278,13 +277,12 @@ soak 才敢开下一个；唯一会被拒的是无 floor 的 id，那是设计**
   而非回避；偏差只在真价补上前的短窗。无 catch-all 的家族（newapi/国产/o 系列）刻意保持白名单→无 floor→
   reject。
 - **D4 — 补真价由来源派生、分档增量落地**（§4.3）：v1 = floor 服务 + `served_at_fallback` 告警 + 运维
-  现成工具补真价（人在环约 5 秒批）；v2 = litellm-一键确认 + Go-native overlay 写器；v3 = 官方价全自动
-  （需先建权威价源，fast-follow 非 v1 前置）。错价比延迟更伤信任，故 litellm/官方两档天然需人或需先建源。
+  现成工具补真价；v2 = provider/LiteLLM 建议 + 人审 registry PR；v3 = 官方价自动生成 registry PR
+  （需先建权威价源，fast-follow 非 v1 前置）。错价比延迟更伤信任，离线证据不能直接成为 runtime owner。
   非旗标、无逃生门，校准期间按 floor 服务（非拒、非 `$0`）。
-- **D5 — 价格写 overlay runtime 热推**（§4.3 共有不变量 step 2）：单一事实源（git overlay）、无发版、
-  承载全维度、不依赖渠道价②；`channel_model_pricing` 回归 per-channel 修正本职。家族 floor 是价格链最底
-  兜底（Go 硬编码），真价一到即覆盖。v1 写入由运维工具完成（人触发同一 overlay runtime 热层）；v2/v3
-  把写入搬进进程内。
+- **D5 — 全局价格随 registry release 生效**（§4.3 共有不变量 step 2）：一个全局事实源、承载全维度；
+  `channel_model_pricing` 只做 per-channel/group 紧急修正。registry alias 家族 floor 是价格链最底 owner alias，
+  直接 owner 一到即停止告警。任何自动化都只能更新 registry PR，不能再建立全局 runtime 热层。
 
 ## 9. 已知残留（全平台默认已覆盖有 floor 的家族；下列各面/平台逐条处理）
 
@@ -298,7 +296,7 @@ soak 才敢开下一个；唯一会被拒的是无 floor 的 id，那是设计**
 - **R-embeddings — `/v1/embeddings` 无闸**：经 `ForwardAsEmbeddingsDispatched` 计费但无
   `tkPricedServingGate`，靠事后 `served_zero_cost` 兜底（血量小）。embeddings 是未纳入面而非有意豁免
   ——纳入前补 hook。
-- **R-openai o 系列 — 无家族 floor**：`getFallbackPricing` 的 gpt catch-all 只匹配含 `"gpt"` 的 id；
+- **R-openai o 系列 — 无家族 floor**：`getRegistryAliasPricing` 的 gpt catch-all 只匹配含 `"gpt"` 的 id；
   OpenAI **o 系列**（o1/o3/o4 等，不含 "gpt"）**无 floor** → 缺真价时会被闸拒。gpt 主线已被 catch-all
   覆盖，o 系列是已知缺口——若要 o 系列也按 floor 服务，需为其加一档家族 floor；否则缺真价即 reject
   backstop（与多厂商无 floor 同语义）。

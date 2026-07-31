@@ -81,7 +81,7 @@ func newGateSettingService(enabledSet string) *SettingService {
 // BillingService whose pricing source contains exactly the given model ids (each
 // priced with a real non-zero input/output cost). Because it is the real
 // GetModelPricing, family fallbacks ALSO apply (e.g. any "gemini-*" / "claude-*"
-// resolves via getFallbackPricing even when absent from the source) — which is
+// resolves via getRegistryAliasPricing even when absent from the source) — which is
 // the whole point of the refactor. The canary gemini-2.5-pro therefore always
 // resolves priced (gemini family fallback), so the degraded-source branch stays
 // inert here.
@@ -155,7 +155,7 @@ func TestPricedServingGateRejected_NilDepsFailOpen(t *testing.T) {
 
 // TestPricedServingGate_GeminiUnknownServedAtFamilyFloor pins the post-pivot behavior (reverses the
 // C-era "gemini unknown → reject", docs/approved/priced-or-it-doesnt-ship.md): a brand-new gemini-*
-// id with no real price now falls to the gemini FAMILY FLOOR (getFallbackPricing), so it is SERVED
+// id with no real price now falls to the gemini FAMILY FLOOR (getRegistryAliasPricing), so it is SERVED
 // (never $0, never 404). Only an id with NO family floor (multi-vendor newapi/国产 unknown) is
 // rejected — the intended backstop. The degrade/canary fail-open mechanism was removed: the Go family
 // floors are themselves the source-glitch protection (floored families can't mass-404).

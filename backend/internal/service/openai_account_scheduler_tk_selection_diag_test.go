@@ -16,10 +16,10 @@ func TestCollectOpenAICompatSelectionFailureStatsForRequest_RuntimeBlocked(t *te
 	gateway := &OpenAIGatewayService{}
 	groupID := int64(2)
 	account := &Account{
-		ID:       73,
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeOAuth,
-		Status:   StatusActive,
+		ID:          73,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
 		Schedulable: true,
 		Credentials: map[string]any{
 			"model_mapping": map[string]any{"gpt-5.4": "gpt-5.4"},

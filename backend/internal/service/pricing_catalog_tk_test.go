@@ -151,15 +151,11 @@ func TestPublicCatalog_ChatRowsWithImageCostsStayTokenCatalogRows(t *testing.T) 
 	assert.InDelta(t, 0.012, row.Pricing.OutputPer1KTokens, 1e-12)
 }
 
-// TestPricingCatalogService_AppliesTKOverlayPricing pins the display-side overlay
-// merge: models priced ONLY in tk_pricing_overlay.json (deepseek-v4-pro, doubao-*,
-// glm-5.2, plus media rows such as Veo/Grok image/video) must
-// surface in the public catalog / Your-Menu with their prices, matching the
-// billing path that already applies the overlay. The merge is fill-only: a model
-// the file source prices natively keeps the source value (overlay never overrides).
-func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
-	// Healthy source: one base model + deepseek-v4-flash at a deliberately absurd
-	// price so the fill-only assertion can prove the source wins over the overlay.
+// TestPricingCatalogService_AppliesRegistryPricing pins the display-side registry
+// projection: registry models must surface in the public catalog / Your-Menu with
+// the same owners billing uses. A conflicting input projection cannot win.
+func TestPricingCatalogService_AppliesRegistryPricing(t *testing.T) {
+	// Healthy projection with one deliberately conflicting row.
 	const fixture = `{
 	  "claude-opus-5": {
 	    "input_cost_per_token": 0.000005,
@@ -252,17 +248,16 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	require.Contains(t, filteredByID, "grok-imagine-video", "paid-gate-proven Grok video must remain in public pricing")
 	require.Contains(t, filteredByID, "claude-opus-5", "Kiro-proven Opus 5 must remain in public pricing")
 
-	// fill-only: a model present in BOTH source and overlay keeps the SOURCE price.
+	// A same-name projection cannot override the registry owner.
 	flash, ok := byID["deepseek-v4-flash"]
 	require.True(t, ok)
-	assert.InDelta(t, 999.0*tkOfficialListBaseTaxMultiplier(), flash.Pricing.InputPer1KTokens, 1e-6,
-		"source price wins over overlay (fill-only); base tax applies on top of source")
+	flashOwner := tkOverlayLiteLLMModelPricing("deepseek-v4-flash")
+	require.NotNil(t, flashOwner)
+	assert.InDelta(t, flashOwner.InputCostPerToken*1000*tkOfficialListBaseTaxMultiplier(), flash.Pricing.InputPer1KTokens, 1e-12)
 }
 
-// TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay pins that
-// stale litellm USD guesses for manifest-listed GLM models do not win over the
-// BigModel-sourced overlay (prod symptom: glm-5.2 at $1.4/$4.4 per Mtok).
-func TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay(t *testing.T) {
+// Imported provider evidence cannot override the registry owner.
+func TestPricingCatalogService_RegistryOwnerOverridesImportedGLMFixture(t *testing.T) {
 	const fixture = `{
 	  "glm-5.2": {
 	    "input_cost_per_token": 1.4e-06,
@@ -285,12 +280,41 @@ func TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay(t *te
 	}
 	glm52, ok := byID["glm-5.2"]
 	require.True(t, ok)
-	cnyPer1K := func(cny float64) float64 {
-		return tkCNYPerMTokToUSDPerToken(cny) * 1_000
+	owner := tkOverlayLiteLLMModelPricing("glm-5.2")
+	require.NotNil(t, owner)
+	multiplier := tkOfficialListBaseTaxMultiplier()
+	assert.InDelta(t, owner.InputCostPerToken*1000*multiplier, glm52.Pricing.InputPer1KTokens, 1e-12)
+	assert.InDelta(t, owner.OutputCostPerToken*1000*multiplier, glm52.Pricing.OutputPer1KTokens, 1e-12)
+	assert.InDelta(t, owner.CacheReadInputTokenCost*1000*multiplier, glm52.Pricing.CacheReadPer1K, 1e-12)
+}
+
+func TestPricingCatalogService_RegistryOwnerOverridesImportedGPT56Fixture(t *testing.T) {
+	const fixture = `{
+  "gpt-5.6-terra": {
+    "input_cost_per_token": 0.000099,
+    "output_cost_per_token": 0.000999,
+    "litellm_provider": "openai",
+    "mode": "chat"
+  }
+}`
+	s := &PricingCatalogService{}
+	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return []byte(fixture), time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC), true
+	})
+
+	resp := s.BuildPublicCatalog(context.Background())
+	require.NotNil(t, resp)
+	byID := make(map[string]PublicCatalogModel, len(resp.Data))
+	for _, model := range resp.Data {
+		byID[model.ModelID] = model
 	}
-	assert.InDelta(t, cnyPer1K(8)*tkOfficialListBaseTaxMultiplier(), glm52.Pricing.InputPer1KTokens, 1e-12)
-	assert.InDelta(t, cnyPer1K(28)*tkOfficialListBaseTaxMultiplier(), glm52.Pricing.OutputPer1KTokens, 1e-12)
-	assert.InDelta(t, cnyPer1K(2)*tkOfficialListBaseTaxMultiplier(), glm52.Pricing.CacheReadPer1K, 1e-12)
+
+	terra, ok := byID["gpt-5.6-terra"]
+	require.True(t, ok)
+	owner := tkOverlayLiteLLMModelPricing("gpt-5.6-terra")
+	require.NotNil(t, owner)
+	assert.InDelta(t, owner.InputCostPerToken*1000, terra.Pricing.InputPer1KTokens, 1e-12)
+	assert.InDelta(t, owner.OutputCostPerToken*1000, terra.Pricing.OutputPer1KTokens, 1e-12)
 }
 
 // TestPricingCatalogService_AttachesOverlayTiers pins that input-token interval
@@ -669,13 +693,13 @@ func TestPricingCatalogService_NilReceiverIsSafe(t *testing.T) {
 }
 
 func TestFilterPublicCatalog_ReattributesAntigravityExclusiveVendor(t *testing.T) {
-	// The upstream price mirror carries antigravity-served wire ids under the
+	// The provider discovery projection carries antigravity-served wire ids under the
 	// vertex_ai vendor; without re-attribution the gemini gate (constrained Vertex
 	// allowlist) drops them from the public catalog (#1029/#1030 follow-up — same
 	// class as the gpt-5.6 display gap, on the antigravity surface).
 	in := &PublicCatalogResponse{Object: "list", Data: []PublicCatalogModel{
-		{ModelID: "gemini-3.5-flash", Vendor: "vertex_ai-language-models"},               // antigravity-exclusive, mirror-vendored
-		{ModelID: "gemini-3-pro-image", Vendor: "antigravity"},                           // antigravity-exclusive, overlay-injected
+		{ModelID: "gemini-3.5-flash", Vendor: "vertex_ai-language-models"},               // antigravity-exclusive, provider-vendored
+		{ModelID: "gemini-3-pro-image", Vendor: "antigravity"},                           // antigravity-exclusive, registry-injected
 		{ModelID: "gemini-2.5-flash", Vendor: "vertex_ai-language-models"},               // DUAL-listed (gemini + antigravity)
 		{ModelID: "imagen-4.0-generate-001", Vendor: "vertex_ai"},                        // gemini allowlist
 		{ModelID: "gemini-9-experimental-unlisted", Vendor: "vertex_ai-language-models"}, // in NO allowlist -> dropped

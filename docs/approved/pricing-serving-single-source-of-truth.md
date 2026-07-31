@@ -26,20 +26,20 @@ supersedes: none
 | Fact | Question | OWNER (single source) | Thin projection / cache |
 | --- | --- | --- | --- |
 | **SERVING** | Does account N serve client-id `m`? | per-account `credentials.model_mapping` (identity whitelist `key==value`) | `tk_served_models.json` manifest — CI-time **intent** projection only, NOT runtime |
-| **PRICE** | What does `m` cost? | two-tier: `tk_pricing_overlay.json` (gated/固化) **+** `channel_model_pricing` DB (ungated/热更) | litellm-base mirror + Go fallback |
+| **PRICE** | What does `m` cost? | one registry owner: `tk_pricing_overlay.json` (gated/固化), plus a scoped `channel_model_pricing` override | provider/LiteLLM snapshots are offline import evidence only |
 
 **Price precedence (highest wins):**
 
 ```
-channel_model_pricing (DB, raw-SQL resolver)   ← WINS over everything
-  > tk_pricing_overlay.json                     ← fill-only, never overrides a DB row
-    > litellm-base mirror
-      > Go in-code fallback
+channel_model_pricing (DB, model + channel/group scope)   ← high-priority override
+  > tk_pricing_overlay.json                              ← one resolved registry owner
+    > provider/LiteLLM snapshots                         ← offline import evidence only
 ```
 
-The overlay header states this literally (`pricing_service_tk_overlay.go:32-33`):
-*"The DB-backed ModelPricing override (model_pricing_resolver.go) still sits above
-everything."* That sentence is the whole reason PRICE has **two** writers.
+The registry header states this literally: the embedded snapshot is the runtime
+owner, while a `channel_model_pricing` row may override it only for its explicit
+channel/group scope. There is no provider mirror or Go numeric fallback in the
+runtime chain.
 
 **Serving owner is genuinely per-account.** `Account.IsModelSupported`
 (`backend/internal/service/account.go:639`) returns `true` on an **empty** mapping —
@@ -52,7 +52,7 @@ rejection of an auto-sync reconciler and is documented in
 
 ### REJECTED: "align the whitelist to the overlay"
 
-The overlay is a PRICE source. Letting price-presence imply serving (auto-mapping every
+The registry is a PRICE source. Letting price-presence imply serving (auto-mapping every
 priced id onto an account) inverts the fact ownership: it makes the PRICE owner silently
 write the SERVING fact. This is exactly the #812-class confusion — `qwen3-8b/14b/32b` were
 priced in the overlay but not mapped onto account 60, and the price-present-looks-served
@@ -125,11 +125,11 @@ refund leak) is **structurally unreachable** through `channel_model_pricing` tod
 3. **No resolver branch.** `ModelPricingResolver` (`model_pricing_resolver.go:75,139`) routes
    only `token / per_request / image`; `ResolvedPricing` (`:16`) has **no per-second field**.
 4. **Video cost is overlay-only.** `billing_service.go:976` reads `pricing.OutputCostPerSecond`
-   from the overlay/litellm `ModelPricing` (`pricing_service.go:84`) — which
+   from the registry-owned `ModelPricing` (`pricing_service.go`) — which
    `pricing-overlay.py` **already gates**. The video refund
    (`openai_gateway_service_tk_video_refund.go`) reverses that overlay-derived cost. A
    `channel_model_pricing` row never feeds video cost or its refund. Thinking rate is the
-   same story: `ThinkingOutputPricePerToken` is sourced only from litellm/overlay
+   same story: `ThinkingOutputPricePerToken` is sourced only from the registry
    (`billing_service.go:412`), never from a channel row.
 
 So the only price dimensions `channel_model_pricing` can actually carry are

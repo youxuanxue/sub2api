@@ -29,8 +29,8 @@ import (
 // forwarding deps, so only the REJECT (and the countTokens EXEMPT) paths are asserted here; the
 // PASS path is covered by the companion tests.
 
-// newGateBillingService builds a *BillingService (via the real constructor so fallbackPrices is
-// populated for the degraded-source canary) priced ONLY for pricedIDs. Any other model resolves
+// newGateBillingService builds a *BillingService backed by a registry fixture
+// priced ONLY for pricedIDs. Any other model resolves
 // to ErrModelPricingUnavailable — i.e. billing would charge it $0, so the gate must reject it.
 func newGateBillingService(t *testing.T, pricedIDs ...string) *BillingService {
 	t.Helper()

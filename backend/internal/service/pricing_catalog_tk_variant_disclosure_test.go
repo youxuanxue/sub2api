@@ -34,7 +34,7 @@ func TestOverlayHasNoTieredAndPeakValleyModel(t *testing.T) {
 			continue
 		}
 		hasTiers := len(pricing.Intervals) > 1
-		hasPeak := tkDeepSeekPeakValleyApplies(modelID, PricingSourceLiteLLM)
+		hasPeak := tkDeepSeekPeakValleyApplies(modelID, PricingSourceRegistry)
 		hasThinking := pricing.ThinkingOutputCostPerToken > 0
 		if hasTiers {
 			tiered++
@@ -149,7 +149,7 @@ func TestPublicCatalogPeakValleyIsFlatTimesMultiplier(t *testing.T) {
 	// Find a model the policy actually matches, from the policy's own matchers.
 	var modelID string
 	for id, pricing := range loadTKPricingOverlay() {
-		if pricing != nil && tkDeepSeekPeakValleyApplies(id, PricingSourceLiteLLM) {
+		if pricing != nil && tkDeepSeekPeakValleyApplies(id, PricingSourceRegistry) {
 			modelID = id
 			break
 		}

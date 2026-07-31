@@ -2,16 +2,10 @@ package service
 
 // TK: 缺价计费（pricing_missing_record_zero_cost）→ 飞书聚合告警。
 //
-// 背景（PR #675 遗留项）：catch-all 账号会把任意模型名转发到上游；若该模型没有
-// 定价条目，两条计费 funnel（GatewayService.calculateRecordUsageCost 与
-// OpenAIGatewayService.RecordUsage）会记一条零成本 usage log 并继续服务——即
-// 免费用量 = 收入流失，此前只有结构化日志可见，无人主动通知。
-//
-// 设计决策：**不拒绝服务**。计费模型在请求前不可知（候选链含上游响应字段），
-// 入口硬护栏 by-construction 不准；定价 ≠ 可服务（litellm 镜像滞后会把数据缺口
-// 放大成客户侧故障）；servable 探测流水线也依赖真实请求穿过 catch-all。本通知器
-// 只补"运营可见性"：缺价流量照常服务、照常记零成本日志，另路飞书告警提醒运营
-// 热更定价（渠道定价 admin API，立即生效）并固化进 tk_pricing_overlay.json。
+// 未定价模型在 priced-serving gate 上 fail closed；已进入后置计费链的异常零价、
+// 旧流量或 registry family alias 收敛信号，仍由本通知器聚合到飞书。
+// 价格修复必须固化到 tk_pricing_overlay.json；紧急修正只能用带明确
+// channel/group scope 的 channel_model_pricing override。provider/LiteLLM 只是离线取证。
 //
 // 形态仿 account_incident_notifier_tk.go（#516），信噪比第一：
 //   - 首见 (platform, model) → 即时一张橙头卡（24h 去重 + 每小时滑窗限量），
@@ -80,9 +74,8 @@ func pricingMissingReasonLabel(reason string) string {
 		// 运维补价后即可放行（docs/approved/priced-or-it-doesnt-ship.md）。
 		return "模型未定价被准入闸拒绝（已返回 404、未服务；补价后放行）"
 	case tkServedAtFallbackReason:
-		// 按家族兜底 floor 计费（非真价、非 $0、未拒客户）。设计转向后的收敛信号：
-		// 补真价后自动改用真价，fallback 用量衰减到稳态（docs §4）。
-		return "模型按家族兜底价(floor)服务、非真价（未拒客户、未漏 $0；补真价后改用真价）"
+		// registry family alias 是 owner 关系，不是第二数值价源。
+		return "模型按 registry 家族 owner alias 服务（未拒客户、未漏 $0；补直接 owner 后停止 alias）"
 	default:
 		return "模型无价（倍率前成本为零）"
 	}
@@ -339,7 +332,7 @@ func (n *TKPricingMissingNotifier) currentTime() time.Time {
 // pricingMissingActionSteps 是各类卡片共用的补价动作（与「是否已服务客户」无关）。
 const pricingMissingActionSteps = "运营动作：\n" +
 	"1. 热更止血：`python3 ops/pricing/apply-pricing-hotfix.py lookup --model <模型名>` 取价，再 `apply` 经 admin API 写入渠道定价（立即生效，无需发版）；\n" +
-	"2. 固化：`stage-overlay` 把 fill-only 条目写入 `tk_pricing_overlay.json` 提 PR（litellm 镜像补上后自动让位）。"
+	"2. 固化：新模型用 `stage-overlay` 追加 owner；已有模型直接修改 `tk_pricing_overlay.json` 中唯一 owner 并提 PR。provider/LiteLLM 只作离线证据。"
 
 // pricingMissingSituationText 按 Reason 给出「这次到底发生了什么」。运行期价格闸拒绝是
 // 404、未服务客户、未记账——与「已服务零计费」是相反的客户影响，绝不能共用「已照常服务」
@@ -349,7 +342,7 @@ func pricingMissingSituationText(reason string) string {
 	case tkPricedServingGateRejectReason:
 		return "说明：该请求已被运行期价格闸**返回 404 拒绝**（未服务客户、未记账）；补价后下次请求即放行。"
 	case tkServedAtFallbackReason:
-		return "说明：该请求已按**家族兜底价 floor 计费**（非真价、非 $0、未拒客户）；补真价后自动改用真价。"
+		return "说明：该请求已按**registry 家族 owner alias 计费**（非 $0、未拒客户）；补直接 owner 后停止 alias。"
 	default:
 		return "说明：该流量**已照常服务、按零成本记录**（未拒绝客户）。"
 	}

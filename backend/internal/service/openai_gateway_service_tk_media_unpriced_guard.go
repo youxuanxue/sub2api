@@ -12,13 +12,13 @@ import (
 // the served_zero_cost P0 probe surfaces the gap). Media is the opposite
 // regime: one video task is up to ~$22 of upstream spend and images burn
 // hard per-project provider quota — serving them unpriced (video bills $0,
-// image falls back to a blind hardcoded $0.134) converts a pricing gap into
+// image was historically charged a blind hardcoded default) converts a pricing gap into
 // real money loss before any operator can react to the P0. So the image and
 // video gateway surfaces refuse to serve a model with no usable price: the
 // pre-spend 400 below replaces the post-spend alert.
 //
 // This is also what makes new upstream channels safe to auto-enable: their
-// models arrive unpriced → rejected → the human pricing act (overlay entry
+// models arrive unpriced → rejected → the human pricing act (registry entry
 // with per-entry source + failure_billing declaration, see
 // scripts/checks/pricing-overlay.py) is the approval gate.
 //

@@ -33,7 +33,7 @@
 
 ## Gemini 原生图（Nano Banana 家族）— **token 计费，按分辨率分档**
 
-> 这才是 1K/2K/4K 分辨率档位定价的真正归属，**与 Imagen 无关**。TokenKey 后端 `getDefaultImagePrice` 的硬编码 fallback `$0.134` 即来自这里（Gemini 3 Pro Image 的 1K/2K 输出价）。
+> 这才是 1K/2K/4K 分辨率档位定价的真正归属，**与 Imagen 无关**。TokenKey 将 Gemini 3 Pro Image 的 1K/2K 输出价 `$0.134` 固化在统一 pricing registry；运行时代码不再保存该数值。
 
 | 模型 | 输出图分辨率 | 官方价（每张输出图，token 折算） |
 | --- | --- | --- |

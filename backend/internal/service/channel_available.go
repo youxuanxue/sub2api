@@ -91,8 +91,8 @@ type AvailableChannel struct {
 // ListAvailable 返回所有渠道的可用视图：每个渠道附带关联分组信息与支持模型列表。
 //
 // 支持模型通过 (*Channel).SupportedModels() 计算（mapping ∪ pricing 并联）。
-// 对于渠道未配置定价的模型，进一步用 PricingService 的全局 LiteLLM 数据合成
-// 一份展示用定价，让用户看到默认价格而非"未配置"。
+// 对于渠道未配置 scoped override 的模型，用 PricingService 的统一
+// registry owner 合成展示定价。PricingService 不读取 provider mirror。
 //
 // 关联分组信息通过 groupRepo.ListActive 查询后按 ID 映射；渠道 GroupIDs 中未在活跃列表中
 // 的分组（已停用或删除）会被忽略。
@@ -187,7 +187,7 @@ func (s *ChannelService) buildAvailableChannels(ctx context.Context, gen uint64)
 	return out, nil
 }
 
-// fillGlobalPricingFallback 对未命中渠道定价的支持模型，从全局 LiteLLM 数据合成一份
+// fillGlobalPricingFallback 对未命中 scoped channel override 的支持模型，从 registry owner 合成一份
 // 展示用定价。仅用于「可用渠道」展示，不影响真实计费链路。
 //
 // 触发条件：
@@ -207,7 +207,7 @@ func (s *ChannelService) fillGlobalPricingFallback(models []SupportedModel) {
 		if lp == nil {
 			continue
 		}
-		models[i].Pricing = synthesizePricingFromLiteLLM(lp, models[i].Pricing)
+		models[i].Pricing = synthesizePricingFromRegistry(lp, models[i].Pricing)
 	}
 }
 
@@ -232,17 +232,16 @@ func pricingNeedsFallback(p *ChannelModelPricing) bool {
 	return true
 }
 
-// synthesizePricingFromLiteLLM 把 LiteLLM 的定价数据转成 ChannelModelPricing 形态，
-// 仅用于展示。
+// synthesizePricingFromRegistry 把 registry owner 转成 ChannelModelPricing 展示形态。
 //
 // 计费模式优先级：
 //  1. 渠道已选 BillingMode（admin 在 UI 里选了 image / per_request 但没填价的场景，
 //     按选定模式合成对应字段）
-//  2. LiteLLM mode="image_generation" → image
+//  2. Registry mode="image_generation" → image
 //  3. 默认 token
 //
-// LiteLLM 中字段 0 视为未配置，不带入展示。
-func synthesizePricingFromLiteLLM(lp *LiteLLMModelPricing, existing *ChannelModelPricing) *ChannelModelPricing {
+// Registry 中字段 0 视为未配置，不带入展示。
+func synthesizePricingFromRegistry(lp *LiteLLMModelPricing, existing *ChannelModelPricing) *ChannelModelPricing {
 	if lp == nil {
 		return existing
 	}

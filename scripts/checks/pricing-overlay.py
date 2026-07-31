@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 """Validate the TK-owned pricing overlay.
 
-Source of truth: backend/internal/service/tk_pricing_overlay.json — a small curated
-overlay merged (fill-only) into every PricingService load so models the production
-runtime source lacks resolve to a real price. The source (Wei-Shaw mirror, a trimmed
-litellm) drops provider-prefixed + token-less media keys (imagen-*/veo-*), and litellm
-itself lags new provider models (deepseek-v4-*). Without this overlay imagen silently
-bills the $0.134 default, veo bills $0, and uncatalogued text models bill $0 via
-pricing_missing_record_zero_cost.
+Source of truth: backend/internal/service/tk_pricing_overlay.json — the complete
+runtime pricing registry. Every active model resolves to one owner row; provider
+snapshots are offline import evidence only, and channel_model_pricing is the only
+scoped override above it. No remote or bundled mirror participates in runtime resolution.
 
 This check hardens that against silent regression (CLAUDE.md §5 "upgrade principle":
 a soft rule that bit us once becomes a mechanical gate). It asserts:
@@ -43,11 +40,19 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 OVERLAY = REPO_ROOT / "backend" / "internal" / "service" / "tk_pricing_overlay.json"
 
-# mode -> the price field(s) that MUST be > 0 for that mode
+# mode -> the price field(s) that MUST be > 0 for that mode. The registry also
+# carries native OpenAI/Gemini embedding/audio rows imported from the former
+# catalog; they are validated here so they cannot become an unowned runtime gap.
 MODE_FIELDS = {
-    "image_generation": ("output_cost_per_image",),
+    "image_generation": ("output_cost_per_image", "output_cost_per_image_token"),
     "video_generation": ("output_cost_per_second",),
     "chat": ("input_cost_per_token", "output_cost_per_token"),
+    "completion": ("input_cost_per_token", "output_cost_per_token"),
+    "responses": ("input_cost_per_token", "output_cost_per_token"),
+    "realtime": ("input_cost_per_token", "output_cost_per_token"),
+    "audio_transcription": ("input_cost_per_token", "output_cost_per_token"),
+    "audio_speech": ("input_cost_per_token", "output_cost_per_token"),
+    "embedding": ("input_cost_per_token",),
 }
 
 ANCHORS = {
@@ -87,9 +92,16 @@ def validate_official_list_base_tax(data: dict) -> list[str]:
     config = data.get("_config")
     if not isinstance(config, dict):
         return ["_config must be an object"]
-    unknown_config = sorted(set(config) - {"official_list_base_tax", "deepseek_peak_valley"})
+    unknown_config = sorted(set(config) - {"official_list_base_tax", "deepseek_peak_valley", "web_search_price_per_call"})
     if unknown_config:
         errors.append(f"_config has unknown fields: {unknown_config}")
+    web_search_price = config.get("web_search_price_per_call")
+    if web_search_price is not None and (
+            not isinstance(web_search_price, (int, float)) or isinstance(web_search_price, bool)
+            or not math.isfinite(web_search_price) or web_search_price < 0):
+        errors.append(
+            f"_config.web_search_price_per_call must be finite and >= 0, got {web_search_price!r}"
+        )
     policy = config.get("official_list_base_tax")
     if not isinstance(policy, dict):
         return errors + ["_config.official_list_base_tax must be an object"]
@@ -242,15 +254,25 @@ def main() -> int:
         if not isinstance(pricing, dict):
             errors.append(f"{model}: entry is not an object")
             continue
+        if "explicit_free" in pricing and not isinstance(pricing["explicit_free"], bool):
+            errors.append(f"{model}: explicit_free must be boolean when present")
         mode = pricing.get("mode")
         fields = MODE_FIELDS.get(mode)
         if fields is None:
             errors.append(f"{model}: unrecognized mode {mode!r} (want one of {sorted(MODE_FIELDS)})")
             continue
-        for field in fields:
-            price = pricing.get(field)
-            if not isinstance(price, (int, float)) or price <= 0:
-                errors.append(f"{model}: mode={mode} requires {field} > 0, got {price!r}")
+        if pricing.get("explicit_free") is True:
+            if any((pricing.get(field) or 0) != 0 for field in fields):
+                errors.append(f"{model}: explicit_free rows must carry zero registry prices")
+            continue
+        if mode == "image_generation":
+            if not any(_finite_number(pricing.get(field)) and pricing.get(field) > 0 for field in fields):
+                errors.append(f"{model}: mode={mode} requires one of {fields} > 0")
+        else:
+            for field in fields:
+                price = pricing.get(field)
+                if not isinstance(price, (int, float)) or price <= 0:
+                    errors.append(f"{model}: mode={mode} requires {field} > 0, got {price!r}")
         if mode == "video_generation":
             tiers = pricing.get("video_price_tiers")
             if isinstance(tiers, list) and tiers:

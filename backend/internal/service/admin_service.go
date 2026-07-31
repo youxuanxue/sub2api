@@ -236,7 +236,7 @@ type CreateGroupInput struct {
 	VideoPrice480P     *float64
 	VideoPrice720P     *float64
 	VideoPrice1080P    *float64
-	// Codex alpha/search 网页搜索单次价格（USD/次，仅 openai 平台使用）；nil/负数按默认价 0.01 处理
+	// Codex alpha/search 网页搜索单次价格（USD/次，仅 openai 平台使用）；nil/负数使用 registry policy
 	WebSearchPricePerCall *float64
 	ClaudeCodeOnly        bool   // 仅允许 Claude Code 客户端
 	FallbackGroupID       *int64 // 降级分组 ID
@@ -298,7 +298,7 @@ type UpdateGroupInput struct {
 	VideoPrice480P     *float64
 	VideoPrice720P     *float64
 	VideoPrice1080P    *float64
-	// Codex alpha/search 网页搜索单次价格（USD/次）；nil 表示不修改，负数表示清除回默认价 0.01
+	// Codex alpha/search 网页搜索单次价格（USD/次）；nil 表示不修改，负数表示清除并使用 registry policy
 	WebSearchPricePerCall *float64
 	ClaudeCodeOnly        *bool  // 仅允许 Claude Code 客户端
 	FallbackGroupID       *int64 // 降级分组 ID
