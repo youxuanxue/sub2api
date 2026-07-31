@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import tempfile
 import threading
@@ -34,19 +35,37 @@ class _Server:
 
 
 class ProbeAccountUpstreamModelsTest(unittest.TestCase):
-    def run_probe(self, *, base_url: str, model: str = "", targets: str = "") -> dict:
+    def run_probe(
+        self,
+        *,
+        base_url: str,
+        model: str = "",
+        targets: str = "",
+        account_id: str = "19",
+        account: dict | None = None,
+    ) -> dict:
+        if account is None:
+            account = {
+                "name": "kiro-us3",
+                "platform": "anthropic",
+                "type": "apikey",
+                "channel_type": 0,
+                "mirror_platform": "kiro",
+                "base_url": "https://api-us3.tokenkey.dev",
+            }
+        bootstrap = json.dumps({"admin_key": "test-admin-key", "account": account})
         with tempfile.TemporaryDirectory() as tmp:
             fake_sudo = Path(tmp) / "sudo"
             fake_sudo.write_text(
                 "#!/bin/sh\n"
-                "printf '%s\\n' '{\"admin_key\":\"test-admin-key\",\"account\":{\"name\":\"kiro-us3\",\"platform\":\"anthropic\",\"type\":\"apikey\",\"channel_type\":0,\"mirror_platform\":\"kiro\",\"base_url\":\"https://api-us3.tokenkey.dev\"}}'\n",
+                f"printf '%s\\n' {shlex.quote(bootstrap)}\n",
                 encoding="utf-8",
             )
             fake_sudo.chmod(0o755)
             env = {
                 **os.environ,
                 "PATH": f"{tmp}:{os.environ.get('PATH', '')}",
-                "ACCOUNT_ID": "19",
+                "ACCOUNT_ID": account_id,
                 "BASE_URL": base_url,
                 "MODEL": model,
                 "TARGET_MODELS": targets,
@@ -103,6 +122,77 @@ class ProbeAccountUpstreamModelsTest(unittest.TestCase):
         self.assertEqual(got["account_scope"], "kiro")
         self.assertEqual(seen["key"], "test-admin-key")
         self.assertEqual(seen["path"], "/api/v1/admin/accounts/19/models/sync-upstream")
+
+    def test_agent_plan_scope_uses_properties_not_account_id(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                payload = {"data": {"models": ["ark-code-latest"]}}
+                body = json.dumps(payload).encode()
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        account = {
+            "name": "volcengine-agent-plan-secondary",
+            "platform": "newapi",
+            "type": "apikey",
+            "channel_type": 45,
+            "mirror_platform": "",
+            "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3/",
+        }
+        with _Server(Handler) as server:
+            got = self.run_probe(
+                base_url=server.base_url,
+                targets="ark-code-latest",
+                account_id="89",
+                account=account,
+            )
+        self.assertEqual(got["account_id"], 89)
+        self.assertEqual(got["account_platform"], "newapi")
+        self.assertEqual(
+            got["account_scope"],
+            "account_override:newapi:45:https://ark.cn-beijing.volces.com/api/plan/v3",
+        )
+        self.assertEqual(
+            got["account_base_url"],
+            "https://ark.cn-beijing.volces.com/api/plan/v3",
+        )
+
+    def test_volcengine_payg_scope_stays_channel_floor(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                payload = {"data": {"models": ["doubao-seed-1-6"]}}
+                body = json.dumps(payload).encode()
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        account = {
+            "name": "volcengine-payg-secondary",
+            "platform": "newapi",
+            "type": "apikey",
+            "channel_type": 45,
+            "mirror_platform": "",
+            "base_url": "https://ark.cn-beijing.volces.com/api/v3/",
+        }
+        with _Server(Handler) as server:
+            got = self.run_probe(
+                base_url=server.base_url,
+                targets="doubao-seed-1-6",
+                account_id="89",
+                account=account,
+            )
+        self.assertEqual(got["account_scope"], "newapi_channel_type:45")
 
     def test_direct_account_test_parses_successful_sse(self):
         class Handler(BaseHTTPRequestHandler):
