@@ -4,10 +4,12 @@ import (
 	_ "embed"
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
 
 // TokenKey: runtime loader for tk_served_models.json — the curated newapi
@@ -27,10 +29,18 @@ type tkServedModelsManifestFile struct {
 }
 
 type tkServedModelsManifestEntry struct {
-	ModelID     string   `json:"model_id"`
-	ChannelType int      `json:"channel_type"`
-	Display     bool     `json:"display"`
-	ServedOn    []string `json:"served_on"`
+	Platform     string                       `json:"platform"`
+	ModelID      string                       `json:"model_id"`
+	ChannelType  int                          `json:"channel_type"`
+	AccountScope *tkServedModelsManifestScope `json:"account_scope"`
+	Display      bool                         `json:"display"`
+	ServedOn     []string                     `json:"served_on"`
+}
+
+type tkServedModelsManifestScope struct {
+	Platform    string `json:"platform"`
+	ChannelType int    `json:"channel_type"`
+	BaseURL     string `json:"base_url"`
 }
 
 var (
@@ -39,8 +49,8 @@ var (
 	tkServedModelsManifestDisplayIDs              map[string]struct{}
 	tkServedModelsManifestIDsByChannelType        map[int][]string
 	tkServedModelsManifestDisplayIDsByChannelType map[int][]string
-	tkServedModelsManifestIDsByAccount            map[string][]string
-	tkServedModelsManifestDisplayIDsByAccount     map[string][]string
+	tkServedModelsManifestIDsByScope              map[string][]string
+	tkServedModelsManifestDisplayIDsByScope       map[string][]string
 )
 
 func loadTkServedModelsManifestIDs() map[string]struct{} {
@@ -56,16 +66,16 @@ func loadTkServedModelsManifest() {
 			tkServedModelsManifestDisplayIDs = map[string]struct{}{}
 			tkServedModelsManifestIDsByChannelType = map[int][]string{}
 			tkServedModelsManifestDisplayIDsByChannelType = map[int][]string{}
-			tkServedModelsManifestIDsByAccount = map[string][]string{}
-			tkServedModelsManifestDisplayIDsByAccount = map[string][]string{}
+			tkServedModelsManifestIDsByScope = map[string][]string{}
+			tkServedModelsManifestDisplayIDsByScope = map[string][]string{}
 			return
 		}
 		out := make(map[string]struct{}, len(doc.Entries))
 		display := make(map[string]struct{}, len(doc.Entries))
 		byChannel := make(map[int]map[string]struct{})
 		displayByChannel := make(map[int]map[string]struct{})
-		byAccount := make(map[string]map[string]struct{})
-		displayByAccount := make(map[string]map[string]struct{})
+		byScope := make(map[string]map[string]struct{})
+		displayByScope := make(map[string]map[string]struct{})
 		for _, e := range doc.Entries {
 			if e.ModelID == "" {
 				continue
@@ -74,23 +84,22 @@ func loadTkServedModelsManifest() {
 			if e.Display {
 				display[e.ModelID] = struct{}{}
 			}
-			for _, accountID := range e.ServedOn {
-				accountID = strings.TrimSpace(accountID)
-				if accountID == "" {
+			if scope := manifestEntryScopeKey(e); scope != "" {
+				if byScope[scope] == nil {
+					byScope[scope] = make(map[string]struct{})
+				}
+				byScope[scope][e.ModelID] = struct{}{}
+				if e.Display {
+					if displayByScope[scope] == nil {
+						displayByScope[scope] = make(map[string]struct{})
+					}
+					displayByScope[scope][e.ModelID] = struct{}{}
+				}
+				if manifestEntryIsAgentPlanOnly(e) {
 					continue
 				}
-				if byAccount[accountID] == nil {
-					byAccount[accountID] = make(map[string]struct{})
-				}
-				byAccount[accountID][e.ModelID] = struct{}{}
-				if e.Display {
-					if displayByAccount[accountID] == nil {
-						displayByAccount[accountID] = make(map[string]struct{})
-					}
-					displayByAccount[accountID][e.ModelID] = struct{}{}
-				}
 			}
-			if e.ChannelType <= 0 || manifestEntryIsAgentPlanOnly(e) {
+			if e.ChannelType <= 0 {
 				continue
 			}
 			if byChannel[e.ChannelType] == nil {
@@ -124,49 +133,60 @@ func loadTkServedModelsManifest() {
 			sort.Strings(list)
 			tkServedModelsManifestDisplayIDsByChannelType[ct] = list
 		}
-		tkServedModelsManifestIDsByAccount = make(map[string][]string, len(byAccount))
-		for accountID, ids := range byAccount {
+		tkServedModelsManifestIDsByScope = make(map[string][]string, len(byScope))
+		for scope, ids := range byScope {
 			list := make([]string, 0, len(ids))
 			for id := range ids {
 				list = append(list, id)
 			}
 			sort.Strings(list)
-			tkServedModelsManifestIDsByAccount[accountID] = list
+			tkServedModelsManifestIDsByScope[scope] = list
 		}
-		tkServedModelsManifestDisplayIDsByAccount = make(map[string][]string, len(displayByAccount))
-		for accountID, ids := range displayByAccount {
+		tkServedModelsManifestDisplayIDsByScope = make(map[string][]string, len(displayByScope))
+		for scope, ids := range displayByScope {
 			list := make([]string, 0, len(ids))
 			for id := range ids {
 				list = append(list, id)
 			}
 			sort.Strings(list)
-			tkServedModelsManifestDisplayIDsByAccount[accountID] = list
+			tkServedModelsManifestDisplayIDsByScope[scope] = list
 		}
 	})
 }
 
 func manifestEntryIsAgentPlanOnly(e tkServedModelsManifestEntry) bool {
-	if e.ChannelType != newapiconstant.ChannelTypeVolcEngine || len(e.ServedOn) == 0 {
-		return false
-	}
-	for _, accountID := range e.ServedOn {
-		if strings.TrimSpace(accountID) != "88" {
-			return false
-		}
-	}
-	return true
+	return strings.EqualFold(strings.TrimSpace(e.Platform), PlatformNewAPI) &&
+		e.AccountScope != nil &&
+		e.ChannelType == e.AccountScope.ChannelType &&
+		e.ChannelType == newapiconstant.ChannelTypeVolcEngine &&
+		newapiintegration.IsVolcEngineAgentPlanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL)
 }
 
-// tkServedModelsManifestPresetIDsForAccount returns manifest model IDs whose
-// served_on anchor includes accountID. Used for pools that share a channel_type
-// with unrelated accounts (e.g. VolcEngine pay-as-you-go vs Agent Plan).
-func tkServedModelsManifestPresetIDsForAccount(accountID string) []string {
-	accountID = strings.TrimSpace(accountID)
-	if accountID == "" {
-		return nil
+func manifestEntryScopeKey(e tkServedModelsManifestEntry) string {
+	if e.AccountScope == nil ||
+		!strings.EqualFold(strings.TrimSpace(e.AccountScope.Platform), PlatformNewAPI) ||
+		!newapiintegration.IsVolcEngineAgentPlanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL) {
+		return ""
 	}
+	return normalizeAccountModelMappingOverrideScope(
+		e.AccountScope.Platform,
+		e.AccountScope.ChannelType,
+		e.AccountScope.BaseURL,
+	)
+}
+
+func normalizeAccountModelMappingOverrideScope(platform string, channelType int, baseURL string) string {
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	baseURL = normalizeAccountModelMappingOverrideBaseURL(baseURL)
+	if platform == "" || channelType <= 0 || baseURL == "" {
+		return ""
+	}
+	return platform + ":" + strconv.Itoa(channelType) + ":" + baseURL
+}
+
+func tkServedModelsManifestPresetIDsForSelector(platform string, channelType int, baseURL string) []string {
 	loadTkServedModelsManifest()
-	ids := tkServedModelsManifestIDsByAccount[accountID]
+	ids := tkServedModelsManifestIDsByScope[normalizeAccountModelMappingOverrideScope(platform, channelType, baseURL)]
 	if len(ids) == 0 {
 		return nil
 	}
@@ -175,13 +195,9 @@ func tkServedModelsManifestPresetIDsForAccount(accountID string) []string {
 	return out
 }
 
-func tkServedModelsManifestDisplayPresetIDsForAccount(accountID string) []string {
-	accountID = strings.TrimSpace(accountID)
-	if accountID == "" {
-		return nil
-	}
+func tkServedModelsManifestDisplayPresetIDsForSelector(platform string, channelType int, baseURL string) []string {
 	loadTkServedModelsManifest()
-	ids := tkServedModelsManifestDisplayIDsByAccount[accountID]
+	ids := tkServedModelsManifestDisplayIDsByScope[normalizeAccountModelMappingOverrideScope(platform, channelType, baseURL)]
 	if len(ids) == 0 {
 		return nil
 	}

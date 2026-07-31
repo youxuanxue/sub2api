@@ -31,6 +31,7 @@ from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_ope
 account_id, base_url, target_models_raw, model, timeout_raw = sys.argv[1:6]
 targets = target_models_raw.split()
 timeout = int(timeout_raw)
+VOLCENGINE_AGENT_PLAN_BASE_URL = "https://ark.cn-beijing.volces.com/api/plan/v3"
 
 def setup_error(message):
     print(json.dumps({"verdict": "setup_error", "error": message}, ensure_ascii=False))
@@ -125,11 +126,17 @@ def derive_account_scope(row):
     if platform == "newapi":
         channel_type = account.get("channel_type")
         if isinstance(channel_type, int) and channel_type > 0:
+            if (
+                channel_type == 45
+                and account_base_url == VOLCENGINE_AGENT_PLAN_BASE_URL
+            ):
+                return f"account_override:{platform}:{channel_type}:{account_base_url}"
             return f"newapi_channel_type:{channel_type}"
     return platform
 
 
 account_platform = str(account.get("platform") or "").strip().lower()
+account_base_url = str(account.get("base_url") or "").strip().lower().rstrip("/")
 account_scope = derive_account_scope(account)
 if not account_platform or not account_scope:
     setup_error("account platform/scope metadata is incomplete")
@@ -187,6 +194,7 @@ if model:
         "probe": "account_test",
         "account_id": int(account_id),
         "account_platform": account_platform,
+        "account_base_url": account_base_url,
         "account_scope": account_scope,
         "model": model,
         "http_status": status,
@@ -214,6 +222,7 @@ out = {
     "verdict": verdict,
     "account_id": int(account_id),
     "account_platform": account_platform,
+    "account_base_url": account_base_url,
     "account_scope": account_scope,
     "http_status": status,
     "model_count": len(models),

@@ -8,6 +8,7 @@
       "model_id": "the client-facing model id that must appear as a KEY in the served account's credentials.model_mapping whitelist (identity-mapped: key==value for these accounts).",
       "served_on": "string list of accounts.id (as strings) whose credentials.model_mapping MUST advertise model_id. This is a static drift-guard/evidence anchor, not the complete live serving pool; account membership can expand or shrink in runtime DB/admin config. New floors declare served-via-modelops-activation in notes; legacy rows may be evidenced by a migration or served-via-admin-ui marker.",
       "channel_type": "the newapi channel_type of the serving account (17=Ali/DashScope, 25=Moonshot, 43=DeepSeek, 45=VolcEngine; 26=ZhipuV4 only if a future direct GLM pool is re-provisioned). Documents the upstream adaptor; not asserted against DB (admin-UI editable) but recorded for the reconciler.",
+      "account_scope": "optional object with platform + channel_type + normalized base_url. When present, it adds a property-scoped serving pool; served_on remains evidence only.",
       "price_source": "one of 'overlay' (priced in tk_pricing_overlay.json), 'mirror' (priced by the runtime litellm/Wei-Shaw mirror under the bare key — overlay deliberately absent because the mirror already carries a non-zero price), 'channel' (priced via channel_model_pricing DB rows). The guard resolves price differently per source.",
       "price_key": "the key under which the price resolves in the named source (overlay JSON key, or mirror/litellm key, or channel pricing model id). Usually == model_id.",
       "display": "bool. true => this manifest-listed, priced, mapped model is allowed to appear in public /pricing and model-menu display surfaces. false keeps the runtime mapping/pricing intent but hides the model until the SSOT display gate proves it or entitlement/provisioning is fixed.",
@@ -23,6 +24,11 @@
         "88"
       ],
       "channel_type": 43,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "deepseek-v4-pro",
       "display": true,
@@ -36,6 +42,11 @@
         "88"
       ],
       "channel_type": 43,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "deepseek-v4-flash",
       "display": true,
@@ -85,6 +96,11 @@
         "88"
       ],
       "channel_type": 25,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "kimi-k2.6",
       "display": true,
@@ -98,6 +114,11 @@
         "88"
       ],
       "channel_type": 25,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "kimi-k2.7-code",
       "display": true,
@@ -123,6 +144,11 @@
         "88"
       ],
       "channel_type": 25,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "kimi-k3",
       "display": true,
@@ -725,6 +751,11 @@
         "88"
       ],
       "channel_type": 17,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "glm-5.2",
       "display": true,
@@ -815,6 +846,11 @@
         "88"
       ],
       "channel_type": 45,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "ark-code-latest",
       "display": true,
@@ -827,6 +863,11 @@
         "88"
       ],
       "channel_type": 45,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "doubao-seed-2.0-mini",
       "display": true,
@@ -839,6 +880,11 @@
         "88"
       ],
       "channel_type": 45,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "doubao-seed-2.0-lite",
       "display": true,
@@ -851,6 +897,11 @@
         "88"
       ],
       "channel_type": 45,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "doubao-seed-evolving",
       "display": true,
@@ -863,6 +914,11 @@
         "88"
       ],
       "channel_type": 45,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "doubao-seed-2.0-code",
       "display": true,
@@ -875,6 +931,11 @@
         "88"
       ],
       "channel_type": 45,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "doubao-seed-2.0-pro",
       "display": true,
@@ -887,6 +948,11 @@
         "88"
       ],
       "channel_type": 45,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "minimax-m2.7",
       "display": true,
@@ -899,6 +965,11 @@
         "88"
       ],
       "channel_type": 45,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+      },
       "price_source": "overlay",
       "price_key": "minimax-m3",
       "display": true,

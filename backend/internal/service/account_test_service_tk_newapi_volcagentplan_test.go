@@ -34,7 +34,7 @@ func TestDefaultNewAPIAccountTestModel_AgentPlanUsesArkCodeLatest(t *testing.T) 
 func TestNewAPIAvailableModelPresetIDs_AgentPlan(t *testing.T) {
 	t.Parallel()
 	account := &Account{
-		ID:          88,
+		ID:          89,
 		Platform:    PlatformNewAPI,
 		Type:        AccountTypeAPIKey,
 		ChannelType: newapiconstant.ChannelTypeVolcEngine,
@@ -44,17 +44,38 @@ func TestNewAPIAvailableModelPresetIDs_AgentPlan(t *testing.T) {
 	}
 	got := NewAPIAvailableModelPresetIDs(account)
 	require.NotEmpty(t, got)
-	require.Equal(t, tkServedModelsManifestPresetIDsForAccount("88"), got)
+	require.Equal(t, tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL()), got)
 	require.Contains(t, got, newapiintegration.VolcEngineAgentPlanDefaultTestModel)
 	display := NewAPIModelDisplayIDsForAccount(account)
 	require.ElementsMatch(t, got, display, "all verified Agent Plan models are displayable")
 	require.Contains(t, display, "minimax-m3")
 }
 
+func TestNewAPIModelMappingPresetIDs_AgentPlanUsesPropertiesNotAccountID(t *testing.T) {
+	t.Parallel()
+
+	makeAccount := func(id int64, baseURL string) *Account {
+		return &Account{
+			ID:          id,
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeVolcEngine,
+			Credentials: map[string]any{"base_url": baseURL},
+		}
+	}
+	agentPlan := makeAccount(88, newapiintegration.VolcEngineAgentPlanBaseURL)
+	otherID := makeAccount(12345, newapiintegration.VolcEngineAgentPlanBaseURL)
+	payAsYouGo := makeAccount(88, "https://ark.cn-beijing.volces.com/api/v3")
+
+	require.Equal(t, NewAPIModelMappingPresetIDsForAccount(agentPlan), NewAPIModelMappingPresetIDsForAccount(otherID))
+	require.NotEqual(t, NewAPIModelMappingPresetIDsForAccount(agentPlan), NewAPIModelMappingPresetIDsForAccount(payAsYouGo))
+	require.NotContains(t, NewAPIModelMappingPresetIDsForAccount(payAsYouGo), "doubao-seed-2.0-pro")
+}
+
 func TestNativeAgentPlanUsesNewAPIKeyCredential(t *testing.T) {
 	t.Parallel()
 	account := &Account{
-		ID:          88,
+		ID:          89,
 		Platform:    PlatformNewAPI,
 		Type:        AccountTypeAPIKey,
 		ChannelType: newapiconstant.ChannelTypeVolcEngine,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -16,10 +17,18 @@ import (
 var tkServedModelsOwnerRawForTest []byte
 
 type tkServedModelsOwnerEntryForTest struct {
-	ModelID     string   `json:"model_id"`
-	ChannelType int      `json:"channel_type"`
-	Display     bool     `json:"display"`
-	ServedOn    []string `json:"served_on"`
+	Platform     string                           `json:"platform"`
+	ModelID      string                           `json:"model_id"`
+	ChannelType  int                              `json:"channel_type"`
+	AccountScope *tkServedModelsOwnerScopeForTest `json:"account_scope"`
+	Display      bool                             `json:"display"`
+	ServedOn     []string                         `json:"served_on"`
+}
+
+type tkServedModelsOwnerScopeForTest struct {
+	Platform    string `json:"platform"`
+	ChannelType int    `json:"channel_type"`
+	BaseURL     string `json:"base_url"`
 }
 
 type tkServedModelsOwnerProjectionForTest struct {
@@ -27,8 +36,8 @@ type tkServedModelsOwnerProjectionForTest struct {
 	displayIDs          map[string]struct{}
 	IDsByChannel        map[int][]string
 	displayIDsByChannel map[int][]string
-	IDsByAccount        map[string][]string
-	displayIDsByAccount map[string][]string
+	IDsByScope          map[string][]string
+	displayIDsByScope   map[string][]string
 	channelTypes        []int
 }
 
@@ -40,8 +49,8 @@ func TestTkServedModelsManifestProjectionsMatchRawOwner(t *testing.T) {
 	requireServedManifestProjectionEqualForTest(t, "display IDs", want.displayIDs, tkServedModelsManifestDisplayIDs)
 	requireServedManifestProjectionEqualForTest(t, "IDs by channel", want.IDsByChannel, tkServedModelsManifestIDsByChannelType)
 	requireServedManifestProjectionEqualForTest(t, "display IDs by channel", want.displayIDsByChannel, tkServedModelsManifestDisplayIDsByChannelType)
-	requireServedManifestProjectionEqualForTest(t, "IDs by account", want.IDsByAccount, tkServedModelsManifestIDsByAccount)
-	requireServedManifestProjectionEqualForTest(t, "display IDs by account", want.displayIDsByAccount, tkServedModelsManifestDisplayIDsByAccount)
+	requireServedManifestProjectionEqualForTest(t, "IDs by scope", want.IDsByScope, tkServedModelsManifestIDsByScope)
+	requireServedManifestProjectionEqualForTest(t, "display IDs by scope", want.displayIDsByScope, tkServedModelsManifestDisplayIDsByScope)
 	requireServedManifestProjectionEqualForTest(t, "channel types", want.channelTypes, NewAPIManifestPresetChannelTypes())
 
 	for modelID := range want.listedIDs {
@@ -115,8 +124,8 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 		displayIDs:          make(map[string]struct{}, len(doc.Entries)),
 		IDsByChannel:        make(map[int][]string),
 		displayIDsByChannel: make(map[int][]string),
-		IDsByAccount:        make(map[string][]string),
-		displayIDsByAccount: make(map[string][]string),
+		IDsByScope:          make(map[string][]string),
+		displayIDsByScope:   make(map[string][]string),
 	}
 	for key, entry := range doc.Entries {
 		if entry.ModelID == "" {
@@ -132,10 +141,10 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 		if entry.Display {
 			out.displayIDs[entry.ModelID] = struct{}{}
 		}
-		for _, accountID := range entry.ServedOn {
-			out.IDsByAccount[accountID] = append(out.IDsByAccount[accountID], entry.ModelID)
+		if scope := manifestScopeKeyForTest(entry); scope != "" {
+			out.IDsByScope[scope] = append(out.IDsByScope[scope], entry.ModelID)
 			if entry.Display {
-				out.displayIDsByAccount[accountID] = append(out.displayIDsByAccount[accountID], entry.ModelID)
+				out.displayIDsByScope[scope] = append(out.displayIDsByScope[scope], entry.ModelID)
 			}
 		}
 		if manifestEntryIsAgentPlanOnlyForTest(entry) {
@@ -155,28 +164,34 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 		sort.Strings(ids)
 		out.displayIDsByChannel[channelType] = ids
 	}
-	for accountID, ids := range out.IDsByAccount {
+	for scope, ids := range out.IDsByScope {
 		sort.Strings(ids)
-		out.IDsByAccount[accountID] = ids
+		out.IDsByScope[scope] = ids
 	}
-	for accountID, ids := range out.displayIDsByAccount {
+	for scope, ids := range out.displayIDsByScope {
 		sort.Strings(ids)
-		out.displayIDsByAccount[accountID] = ids
+		out.displayIDsByScope[scope] = ids
 	}
 	sort.Ints(out.channelTypes)
 	return out
 }
 
 func manifestEntryIsAgentPlanOnlyForTest(entry tkServedModelsOwnerEntryForTest) bool {
-	if entry.ChannelType != 45 || len(entry.ServedOn) == 0 {
-		return false
+	return entry.AccountScope != nil &&
+		entry.ChannelType == entry.AccountScope.ChannelType &&
+		manifestScopeKeyForTest(entry) != ""
+}
+
+func manifestScopeKeyForTest(entry tkServedModelsOwnerEntryForTest) string {
+	if entry.AccountScope == nil {
+		return ""
 	}
-	for _, accountID := range entry.ServedOn {
-		if accountID != "88" {
-			return false
-		}
+	baseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(entry.AccountScope.BaseURL)), "/")
+	if strings.ToLower(strings.TrimSpace(entry.AccountScope.Platform)) != "newapi" ||
+		entry.AccountScope.ChannelType != 45 || baseURL != "https://ark.cn-beijing.volces.com/api/plan/v3" {
+		return ""
 	}
-	return true
+	return "newapi:45:" + baseURL
 }
 
 func requireServedManifestProjectionEqualForTest(t *testing.T, name string, want, got any) {

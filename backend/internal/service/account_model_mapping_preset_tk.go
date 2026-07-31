@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"sort"
-	"strconv"
 	"strings"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
@@ -89,6 +88,21 @@ func isNewAPIVolcEngineAgentPlanAccount(account *Account) bool {
 		newapiintegration.IsVolcEngineAgentPlanBaseURL(account.ChannelType, account.GetBaseURL())
 }
 
+// accountModelMappingOverrideAccounts declares account-specific mapping scopes
+// whose serving intent is narrower than their shared platform/channel floor.
+func accountModelMappingOverrideAccounts() []*Account {
+	return []*Account{
+		{
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeVolcEngine,
+			Credentials: map[string]any{
+				"base_url": newapiintegration.VolcEngineAgentPlanBaseURL,
+			},
+		},
+	}
+}
+
 // NewAPIModelMappingPresetIDsForAccount preserves account-specific serving
 // intent for channel types shared by multiple VolcEngine products.
 func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
@@ -96,7 +110,7 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 		return nil
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
-		ids := tkServedModelsManifestPresetIDsForAccount(strconv.FormatInt(account.ID, 10))
+		ids := tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
 		sort.Strings(ids)
 		return ids
 	}
@@ -111,7 +125,7 @@ func NewAPIModelDisplayIDsForAccount(account *Account) []string {
 		return nil
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
-		ids := tkServedModelsManifestDisplayPresetIDsForAccount(strconv.FormatInt(account.ID, 10))
+		ids := tkServedModelsManifestDisplayPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
 		sort.Strings(ids)
 		return ids
 	}

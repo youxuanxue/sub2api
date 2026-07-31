@@ -175,7 +175,7 @@ def manifest_delta_models(base: str) -> set[str]:
         if not base_entry.get("display"):
             out.add(model_id)
             continue
-        for field in ("model_id", "served_on", "price_source", "price_key", "display"):
+        for field in ("model_id", "served_on", "channel_type", "account_scope", "price_source", "price_key", "display"):
             if base_entry.get(field) != head.get(field):
                 out.add(model_id)
                 break

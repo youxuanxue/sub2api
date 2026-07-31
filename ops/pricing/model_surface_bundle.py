@@ -9,19 +9,21 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BUNDLE_PATH = REPO_ROOT / "ops" / "pricing" / "model-surface-bundle.json"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
+SUPPORTED_SCHEMA_VERSIONS = {1, SCHEMA_VERSION}
 BUNDLE_FIELDS = {
     "schema_version",
     "floor_sha256",
     "account_model_mapping",
 }
-FLOOR_FIELDS = {
+BASE_FLOOR_FIELDS = {
     "platforms",
     "newapi_channel_types",
     "antigravity_group_scopes",
     "forbidden_model_mapping_keys",
     "forbidden_model_mapping_prefixes",
 }
+ACCOUNT_OVERRIDE_FIELDS = {"platform", "channel_type", "base_url", "model_mapping"}
 
 
 def canonical_json(value: Any) -> str:
@@ -65,11 +67,66 @@ def _validate_policy_map(label: str, raw: Any) -> dict[str, list[str]]:
     return raw
 
 
-def _validate_floor(floor: dict[str, Any]) -> None:
-    missing = sorted(FLOOR_FIELDS - set(floor))
+def normalize_account_override_base_url(raw: Any) -> str:
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip().lower().rstrip("/")
+
+
+def account_override_scope(override: dict[str, Any]) -> str:
+    platform = str(override.get("platform") or "").strip().lower()
+    channel_type = override.get("channel_type")
+    channel = str(channel_type) if channel_type is not None else "0"
+    base_url = normalize_account_override_base_url(override.get("base_url"))
+    return f"account_override:{platform}:{channel}:{base_url}"
+
+
+def _validate_account_overrides(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        raise RuntimeError("model surface bundle omitted account_model_mapping.account_overrides array")
+    seen: set[str] = set()
+    for index, override in enumerate(raw):
+        label = f"account_model_mapping.account_overrides[{index}]"
+        if not isinstance(override, dict):
+            raise RuntimeError(f"{label} must be an object")
+        missing = sorted({"platform", "base_url", "model_mapping"} - set(override))
+        if missing:
+            raise RuntimeError(f"{label} omitted fields: " + ", ".join(missing))
+        unknown = sorted(set(override) - ACCOUNT_OVERRIDE_FIELDS)
+        if unknown:
+            raise RuntimeError(f"{label} has unknown fields: " + ", ".join(unknown))
+        platform = override.get("platform")
+        if not isinstance(platform, str) or not platform.strip() or platform != platform.strip().lower():
+            raise RuntimeError(f"{label}.platform must be a normalized non-empty string")
+        base_url = override.get("base_url")
+        if (
+            not isinstance(base_url, str)
+            or not base_url.strip()
+            or base_url != normalize_account_override_base_url(base_url)
+        ):
+            raise RuntimeError(f"{label}.base_url must be a normalized non-empty string")
+        channel_type = override.get("channel_type")
+        if platform == "newapi":
+            if not isinstance(channel_type, int) or isinstance(channel_type, bool) or channel_type <= 0:
+                raise RuntimeError(f"{label}.channel_type must be a positive integer for newapi")
+        elif channel_type is not None:
+            raise RuntimeError(f"{label}.channel_type is only valid for newapi")
+        _validate_mapping(f"{label}.model_mapping", override.get("model_mapping"))
+        scope = account_override_scope(override)
+        if scope in seen:
+            raise RuntimeError(f"{label} duplicates selector {scope!r}")
+        seen.add(scope)
+    return raw
+
+
+def _validate_floor(floor: dict[str, Any], schema_version: int) -> None:
+    floor_fields = set(BASE_FLOOR_FIELDS)
+    if schema_version >= 2:
+        floor_fields.add("account_overrides")
+    missing = sorted(floor_fields - set(floor))
     if missing:
         raise RuntimeError("model surface bundle omitted account_model_mapping fields: " + ", ".join(missing))
-    unknown = sorted(set(floor) - FLOOR_FIELDS)
+    unknown = sorted(set(floor) - floor_fields)
     if unknown:
         raise RuntimeError("model surface bundle has unknown account_model_mapping fields: " + ", ".join(unknown))
     platforms = floor.get("platforms")
@@ -87,6 +144,11 @@ def _validate_floor(floor: dict[str, Any]) -> None:
         if not isinstance(channel_type, str) or not channel_type.isdigit() or int(channel_type) <= 0:
             raise RuntimeError(f"account_model_mapping.newapi_channel_types has invalid key {channel_type!r}")
         _validate_mapping(f"account_model_mapping.newapi_channel_types.{channel_type}", mapping)
+
+    account_overrides = (
+        _validate_account_overrides(floor.get("account_overrides"))
+        if schema_version >= 2 else {}
+    )
 
     scopes = floor.get("antigravity_group_scopes")
     if not isinstance(scopes, list) or not scopes:
@@ -128,6 +190,21 @@ def _validate_floor(floor: dict[str, Any]) -> None:
                 f"account_model_mapping.newapi_channel_types.{channel_type} requires forbidden keys: "
                 + ", ".join(conflicts)
             )
+    for override in account_overrides:
+        scope = override["platform"]
+        mapping = override["model_mapping"]
+        blocked = set(forbidden_keys.get(scope) or [])
+        prefixes = forbidden_prefixes.get(scope) or []
+        conflicts = sorted(
+            key for key in mapping
+            if key in blocked or any(key.startswith(prefix) for prefix in prefixes)
+        )
+        if conflicts:
+            raise RuntimeError(
+                f"account_model_mapping.account_overrides selector {account_override_scope(override)!r} "
+                "model_mapping requires forbidden keys: "
+                + ", ".join(conflicts)
+            )
 
 
 def load_bundle(path: Path) -> dict[str, Any]:
@@ -146,10 +223,15 @@ def load_bundle(path: Path) -> dict[str, Any]:
     unknown = sorted(set(bundle) - BUNDLE_FIELDS)
     if unknown:
         raise RuntimeError("model surface bundle has unknown fields: " + ", ".join(unknown))
-    if bundle.get("schema_version") != SCHEMA_VERSION:
+    schema_version = bundle.get("schema_version")
+    if (
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version not in SUPPORTED_SCHEMA_VERSIONS
+    ):
         raise RuntimeError(
-            f"unsupported model surface bundle schema {bundle.get('schema_version')!r}; "
-            f"expected {SCHEMA_VERSION}"
+            f"unsupported model surface bundle schema {schema_version!r}; "
+            f"supported {sorted(SUPPORTED_SCHEMA_VERSIONS)}"
         )
     floor = bundle.get("account_model_mapping")
     if not isinstance(floor, dict):
@@ -160,5 +242,5 @@ def load_bundle(path: Path) -> dict[str, Any]:
             "model surface bundle floor_sha256 mismatch: "
             f"got {bundle.get('floor_sha256')!r}, computed {got_digest}"
         )
-    _validate_floor(floor)
+    _validate_floor(floor, schema_version)
     return bundle

@@ -111,6 +111,60 @@ func TestAccountModelMappingFloorForOps_ExportsPolicyMetadata(t *testing.T) {
 	require.Contains(t, doc.ForbiddenModelMappingPrefixes[PlatformAntigravity], "gpt-oss-")
 }
 
+func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {
+	t.Parallel()
+	doc, err := AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+
+	expectedAccounts := accountModelMappingOverrideAccounts()
+	require.Len(t, doc.AccountOverrides, len(expectedAccounts))
+	for _, account := range expectedAccounts {
+		require.Zero(t, account.ID, "property-scoped overrides must not carry an account-id selector")
+		baseURL := normalizeAccountModelMappingOverrideBaseURL(account.GetBaseURL())
+		var override AccountModelMappingOverride
+		var found bool
+		for _, candidate := range doc.AccountOverrides {
+			if candidate.Platform == account.Platform &&
+				candidate.ChannelType == account.ChannelType &&
+				candidate.BaseURL == baseURL {
+				override = candidate
+				found = true
+				break
+			}
+		}
+		require.True(t, found, "missing account override for %s/%d/%s", account.Platform, account.ChannelType, baseURL)
+		require.Equal(t, account.Platform, override.Platform)
+		require.Equal(t, account.ChannelType, override.ChannelType)
+		require.Equal(t, baseURL, override.BaseURL)
+
+		mapping, mappingOK := accountModelMappingForAccount(context.Background(), account, nil, nil, nil)
+		require.True(t, mappingOK)
+		require.Equal(t, mapping, override.ModelMapping)
+		require.NotEqual(t,
+			doc.NewAPIChannelTypes[fmt.Sprintf("%d", account.ChannelType)],
+			override.ModelMapping,
+			"account override must remain narrower than its shared channel floor",
+		)
+	}
+
+}
+
+func TestAccountModelMappingFloorForOps_RuntimeDoesNotShadowAccountOverrides(t *testing.T) {
+	t.Parallel()
+	compiled, err := AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+	runtime, err := AccountModelMappingFloorForOps(
+		context.Background(),
+		`{"newapi_channel_types":{"45":{"runtime-model":"runtime-target"}}}`,
+	)
+	require.NoError(t, err)
+	require.Equal(t, compiled.AccountOverrides, runtime.AccountOverrides)
+	require.Equal(t,
+		map[string]string{"runtime-model": "runtime-target"},
+		runtime.NewAPIChannelTypes["45"],
+	)
+}
+
 func TestModelSurfaceBundleForOps_DigestCoversCompleteFloor(t *testing.T) {
 	t.Parallel()
 	bundle, err := ModelSurfaceBundleForOps(context.Background(), "")

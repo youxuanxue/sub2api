@@ -85,6 +85,7 @@ REQUIRED_FIELDS = {
     "display": bool,
 }
 VALID_PRICE_SOURCES = {"overlay", "mirror", "channel"}
+ACCOUNT_SCOPE_FIELDS = {"platform", "channel_type", "base_url"}
 
 
 # --------------------------------------------------------------------------- helpers
@@ -189,6 +190,44 @@ def evaluate(
                 f"{key}: price_source {entry['price_source']!r} not in {sorted(VALID_PRICE_SOURCES)}"
             )
             continue
+
+        account_scope = entry.get("account_scope")
+        if account_scope is not None:
+            if not isinstance(account_scope, dict):
+                errors.append(f"{key}: account_scope must be an object")
+                continue
+            missing_scope = sorted(ACCOUNT_SCOPE_FIELDS - set(account_scope))
+            unknown_scope = sorted(set(account_scope) - ACCOUNT_SCOPE_FIELDS)
+            if missing_scope:
+                errors.append(f"{key}: account_scope omitted fields: " + ", ".join(missing_scope))
+                continue
+            if unknown_scope:
+                errors.append(f"{key}: account_scope has unknown fields: " + ", ".join(unknown_scope))
+                continue
+            scope_platform = account_scope["platform"]
+            scope_channel_type = account_scope["channel_type"]
+            scope_base_url = account_scope["base_url"]
+            if (
+                not isinstance(scope_platform, str)
+                or not scope_platform.strip()
+                or scope_platform != scope_platform.strip().lower()
+            ):
+                errors.append(f"{key}: account_scope.platform must be a normalized non-empty string")
+                continue
+            if (
+                not isinstance(scope_channel_type, int)
+                or isinstance(scope_channel_type, bool)
+                or scope_channel_type <= 0
+            ):
+                errors.append(f"{key}: account_scope.channel_type must be a positive integer")
+                continue
+            if (
+                not isinstance(scope_base_url, str)
+                or not scope_base_url.strip()
+                or scope_base_url != scope_base_url.strip().lower().rstrip("/")
+            ):
+                errors.append(f"{key}: account_scope.base_url must be a normalized non-empty string")
+                continue
 
         platform = entry["platform"]
         model_id = entry["model_id"]
@@ -350,6 +389,10 @@ def _selftest() -> int:
             "platform": "newapi", "model_id": "activation-chat", "served_on": ["60"],
             "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
             "display": False, "notes": "pre-release served-via-modelops-activation",
+            "account_scope": {
+                "platform": "newapi", "channel_type": 45,
+                "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
+            },
         },
     }
     errs, warns = run(pass_entries)
@@ -370,6 +413,13 @@ def _selftest() -> int:
     }})
     if not any("must be int, got bool" in e for e in errs):
         failures.append("A0: channel_type bool-as-int not flagged")
+    errs, _ = run({"newapi/bad-scope": {
+        "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
+        "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
+        "display": False, "account_scope": {"platform": "newapi", "channel_type": 45},
+    }})
+    if not any("account_scope omitted fields" in e for e in errs):
+        failures.append("A0: incomplete account_scope not flagged")
 
     # --- A1: overlay price missing / zero --------------------------------------
     errs, _ = run({"newapi/absent": {

@@ -26,6 +26,11 @@ troubleshooting belongs to ``check-accounts --include-edges``; ``release-gate``
 always checks prod only. See ``docs/global/agent-reference.md`` § Model serving
 SSOT.
 
+Compiled ``account_overrides`` take precedence over platform and newapi
+channel-type floors when an account's platform, channel type, and normalized
+base URL all match. They are immutable bundle scopes and are not shadowed by
+the shared-scope runtime setting.
+
 Runtime JSON shape:
 
 {
@@ -511,7 +516,34 @@ def _mapping_policy_violations(row: dict[str, Any], floor: dict[str, Any]) -> li
     return _mapping_policy_violations_for_scope(scope, mm, floor)
 
 
-def _desired_mapping_for_account(row: dict[str, Any], floor: dict[str, Any]) -> tuple[dict[str, str] | None, str]:
+def _desired_mapping_for_account(
+    row: dict[str, Any],
+    floor: dict[str, Any],
+) -> tuple[dict[str, str] | None, str]:
+    actual_platform = str(row.get("platform") or "").strip().lower()
+    try:
+        actual_channel_type = int(row.get("channel_type") or 0)
+    except (TypeError, ValueError):
+        actual_channel_type = 0
+    actual_base_url = _BUNDLE.normalize_account_override_base_url(row.get("base_url"))
+    for override in floor.get("account_overrides") or []:
+        if not isinstance(override, dict):
+            continue
+        expected_platform = str(override.get("platform") or "").strip().lower()
+        expected_channel_type = override.get("channel_type")
+        if (
+            actual_platform != expected_platform
+            or (expected_channel_type is not None and actual_channel_type != expected_channel_type)
+            or (
+                actual_base_url
+                != _BUNDLE.normalize_account_override_base_url(override.get("base_url"))
+            )
+        ):
+            continue
+        mapping = override.get("model_mapping")
+        if isinstance(mapping, dict):
+            return mapping, _BUNDLE.account_override_scope(override)
+
     scope = _account_scope(row)
     if scope == "newapi":
         ct = str(row.get("channel_type") or "").strip()
@@ -522,14 +554,14 @@ def _desired_mapping_for_account(row: dict[str, Any], floor: dict[str, Any]) -> 
 
 
 def _mapping_diff(
-    scope: str,
+    policy_scope: str,
     got: dict[str, str],
     want: dict[str, str],
     floor: dict[str, Any],
 ) -> dict[str, Any]:
     missing = sorted(k for k in want if k not in got)
     bad = sorted(k for k in want if k in got and got[k] != want[k])
-    forbidden = _forbidden_mapping_entries(scope, got, floor)
+    forbidden = _forbidden_mapping_entries(policy_scope, got, floor)
     return {
         "missing_keys": missing,
         "forbidden_keys": forbidden,
@@ -588,7 +620,7 @@ def _account_plan(
         }
         reason = f"{err}; will replace with SSOT (scope={scope}, desired_count={len(want)})"
     else:
-        diff = _mapping_diff(scope, got, want, floor)
+        diff = _mapping_diff(_account_scope(row), got, want, floor)
         if not _has_mapping_diff(diff):
             return None
         reason = _format_mapping_diff_reason(scope, diff)
@@ -1416,7 +1448,17 @@ def cmd_selftest(_args) -> int:
                 "claude-opus-5": "claude-opus-5",
             },
         },
-        "newapi_channel_types": {},
+        "newapi_channel_types": {
+            "45": {"generic-model": "generic-model"},
+        },
+        "account_overrides": [
+            {
+                "platform": "newapi",
+                "channel_type": 45,
+                "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
+                "model_mapping": {"agent-plan-model": "agent-plan-model"},
+            },
+        ],
         "antigravity_group_scopes": ["claude", "gemini_text", "gemini_image"],
         "forbidden_model_mapping_keys": {
             "anthropic": ["claude-opus-5"],
@@ -1438,6 +1480,49 @@ def cmd_selftest(_args) -> int:
         floor,
     )
     assert openai_plan and openai_plan["diff"]["missing_keys"] == ["gpt-5.6-sol"]
+    account_override_row = {
+        "id": 12345,
+        "platform": "newapi",
+        "type": "apikey",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3/",
+        "model_mapping": {"agent-plan-model": "agent-plan-model"},
+    }
+    assert _account_plan(account_override_row, floor) is None
+    generic_channel_row = {
+        "id": 89,
+        "platform": "newapi",
+        "type": "apikey",
+        "channel_type": 45,
+        "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+        "model_mapping": {"agent-plan-model": "agent-plan-model"},
+    }
+    generic_channel_plan = _account_plan(generic_channel_row, floor)
+    assert generic_channel_plan and generic_channel_plan["scope"] == "newapi_channel_type:45"
+    mismatched_override = dict(
+        account_override_row,
+        base_url="https://ark.cn-beijing.volces.com/api/v3",
+    )
+    mismatch_plan = _account_plan(mismatched_override, floor)
+    assert mismatch_plan and mismatch_plan["scope"] == "newapi_channel_type:45"
+    assert mismatch_plan["desired_model_mapping"] == {
+        "agent-plan-model": "agent-plan-model",
+        "generic-model": "generic-model",
+    }
+    original_run_check_sql_json = globals()["_run_check_sql_json"]
+    original_load_effective_floor = globals()["_load_effective_floor"]
+    globals()["_run_check_sql_json"] = lambda _region, _instance_id, _label: {
+        "runtime_setting": None,
+        "accounts": [mismatched_override],
+        "antigravity_groups": [],
+    }
+    globals()["_load_effective_floor"] = lambda _raw: floor
+    try:
+        apply_plan = _collect_apply_plan("prod", "test-region", "i-test")
+        assert apply_plan["account_changes"][0]["scope"] == "newapi_channel_type:45"
+    finally:
+        globals()["_run_check_sql_json"] = original_run_check_sql_json
+        globals()["_load_effective_floor"] = original_load_effective_floor
     native_anthropic_plan = _account_plan({
         "platform": "anthropic",
         "type": "oauth",

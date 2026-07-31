@@ -254,7 +254,7 @@ func (s *OpenAIGatewayService) buildInputTokensUpstreamRequest(
 		}
 		targetURL = grokURL
 	case account.Type == AccountTypeAPIKey:
-		if baseURL := account.GetOpenAIBaseURL(); strings.TrimSpace(baseURL) != "" {
+		if baseURL := nativeOpenAIBaseURLForAccount(account); strings.TrimSpace(baseURL) != "" {
 			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 			if err != nil {
 				return nil, err
