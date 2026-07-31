@@ -28,8 +28,6 @@ DEFAULT_SLEEP_S = 1.0
 
 
 def load_chain_probe():
-    import sys
-
     name = "or_chain_probe"
     spec = importlib.util.spec_from_file_location(name, CHAIN_PROBE)
     mod = importlib.util.module_from_spec(spec)
