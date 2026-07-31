@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const claudeCodeCompletionContinuationPrompt = `The preceding assistant response ended without the required transport completion signal, so the Claude Code turn is still active. Continue the same task now. Do not repeat or restate text from the preceding assistant response. Use the normal Claude Code tools for every remaining action. When the requested work and verification are actually complete, or progress genuinely requires user input, finish by calling sub2apiClaudeCodeCompletion with the appropriate status and a complete user-facing message.`
+const claudeCodeCompletionContinuationPrompt = `The preceding assistant response ended without the required transport completion signal, so the Claude Code turn is still active. Continue the same task now. This repair turn is transport-only unless you call a normal Claude Code tool. Do not emit a recap or repeat or restate text from the preceding assistant response. Use the normal Claude Code tools for every remaining action. If the preceding response already completed the requested work and verification, emit no additional assistant text and call sub2apiClaudeCodeCompletion with status complete, reusing the preceding user-facing answer verbatim as its message. If progress genuinely requires user input, call it with status blocked and the exact blocker question.`
 
 // ClaudeCodeCompletionSignal is emitted by the transport-private completion
 // tool. The Kiro gateway consumes it and never exposes the tool call itself to

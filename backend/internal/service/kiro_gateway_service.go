@@ -161,6 +161,36 @@ func shouldContinueClaudeCodeCompletion(
 		acceptsClaudeCodeCompletionSignal(rawStopReason)
 }
 
+// shouldExposeClaudeCodeContinuationText keeps transport-only completion
+// repair turns private. A continuation may expose its ordinary assistant text
+// only when it returns a real client tool or terminates for a non-completion
+// reason such as max_tokens/refusal. Missing-signal turns and accepted private
+// completion turns remain internal.
+func shouldExposeClaudeCodeContinuationText(
+	rawStopReason string,
+	clientToolUses []kiroproto.KiroToolUse,
+	completionAccepted bool,
+) bool {
+	return len(clientToolUses) > 0 ||
+		(!completionAccepted && !acceptsClaudeCodeCompletionSignal(rawStopReason))
+}
+
+// shouldExposeClaudeCodeCompletionMessage preserves the normal first-turn
+// final answer and genuine blocker questions. A later complete signal is only
+// a transport acknowledgement when client-visible text already exists, so its
+// recap/message must not become a second user-facing answer.
+func shouldExposeClaudeCodeCompletionMessage(
+	turn int,
+	visibleText string,
+	signal *kiroproto.ClaudeCodeCompletionSignal,
+	completionAccepted bool,
+) bool {
+	if !completionAccepted || signal == nil {
+		return false
+	}
+	return turn == 1 || signal.Status == "blocked" || strings.TrimSpace(visibleText) == ""
+}
+
 func completionSignalTextDelta(visibleText string, signal *kiroproto.ClaudeCodeCompletionSignal) string {
 	if signal == nil || strings.TrimSpace(signal.Message) == "" {
 		return ""
@@ -176,11 +206,9 @@ func completionSignalTextDelta(visibleText string, signal *kiroproto.ClaudeCodeC
 	return "\n\n" + message
 }
 
-// continuationTextDelta removes ordinary text that a hidden completion
-// continuation repeated verbatim from an earlier turn. Claude Code receives
-// the first turn while the gateway keeps subsequent turns internal; allowing
-// the model to restate that turn would make one assistant response appear two
-// or three times in the client transcript.
+// continuationTextDelta removes earlier text from the continuation content
+// that must remain visible before a real client tool or non-completion terminal
+// outcome. Completion-only repair text is screened before this helper runs.
 func continuationTextDelta(visibleText, continuationText string) string {
 	if strings.TrimSpace(continuationText) == "" {
 		return ""
@@ -511,9 +539,12 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		completionAccepted := isAcceptedClaudeCodeCompletion(stopReason, visibleToolUses, completionSignal)
 		visibleTurnText := turnText
 		if turn > 1 {
-			visibleTurnText = continuationTextDelta(textBuf, turnText)
+			visibleTurnText = ""
+			if shouldExposeClaudeCodeContinuationText(stopReason, visibleToolUses, completionAccepted) {
+				visibleTurnText = continuationTextDelta(textBuf, turnText)
+			}
 		}
-		if completionAccepted {
+		if shouldExposeClaudeCodeCompletionMessage(turn, textBuf+visibleTurnText, completionSignal, completionAccepted) {
 			visibleTurnText += completionSignalTextDelta(textBuf+visibleTurnText, completionSignal)
 		}
 		if visibleTurnText == "" && turnThinking == "" && len(turnToolUses) == 0 && textBuf == "" && thinkingBuf == "" {
@@ -789,10 +820,10 @@ func (s *KiroGatewayService) forwardStreaming(
 		completionAccepted := isAcceptedClaudeCodeCompletion(stopReason, visibleToolUses, completionSignal)
 		if turn == 1 {
 			visibleTurnText = turnText
-		} else {
+		} else if shouldExposeClaudeCodeContinuationText(stopReason, visibleToolUses, completionAccepted) {
 			flushContinuationText()
 		}
-		if completionAccepted {
+		if shouldExposeClaudeCodeCompletionMessage(turn, textBuf+visibleTurnText, completionSignal, completionAccepted) {
 			completionDelta := completionSignalTextDelta(textBuf+visibleTurnText, completionSignal)
 			if completionDelta != "" {
 				visibleTurnText += completionDelta

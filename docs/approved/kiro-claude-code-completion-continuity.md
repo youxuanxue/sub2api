@@ -47,8 +47,10 @@ Claude Code 对 Anthropic stop reason 的消费语义不同：`end_turn`、
 
 - Claude Code system prompt 由共享 owner 注入完成连续性守卫：实现与验证尚未完成时继续调用工具，多步骤任务保持 task/todo 状态真实，只有需要用户输入的真实 blocker 才能提前停止。
 - Kiro system priming 对已识别的 Claude Code prompt 只注入一次共享守卫，并注入 transport-private completion tool；普通 API prompt 不启用该协议。客户端已声明同名工具时禁用私有协议，绝不遮蔽客户端工具。
-- 模型必须通过私有工具显式报告 `complete` 或 `blocked`，并提供非空的最终答复或 blocker 问题。该工具及其参数不暴露给 Claude Code。
+- 模型必须通过私有工具显式报告 `complete` 或 `blocked`，并提供非空的最终答复或 blocker 问题。该工具及其参数不暴露给 Claude Code；首轮完成信号仍可补齐尚未输出的最终答复。
 - 未收到有效完成信号的 Claude Code `END_TURN` 或只有无效私有工具的 `TOOL_USE`，在同一客户端 HTTP 请求内进入有界 Kiro 续跑；续跑上限由 service 常量统一控制，禁止无限 Agent loop。
+- 第二轮及之后属于 transport-only completion repair：缺少完成信号的普通 assistant 文本只进入续跑历史与计费，不进入客户端输出；已有首轮可见文本时，后续 `complete` 的普通文本与私有 message 都只作为内部完成证据，禁止把 recap、语义改写或 tool output 摘要拼成第二份答复。
+- 隐藏续跑产生普通 Claude Code 工具时，工具前的新文本与工具调用仍按原顺序返回客户端；`blocked` 的具体问题仍可见。隐藏续跑以 `MAX_TOKENS`、policy refusal 等非 completion 原因终止时也保留其应有的客户端错误/文本语义。
 - 普通 Claude Code 工具调用立即以 `tool_use` 返回客户端。私有完成信号与普通工具同时出现时，普通工具优先；`MAX_TOKENS` 等非完成终止原因也始终优先。
 - `CONTENT_FILTERED` 与 `GUARDRAIL_INTERVENED` 无输出时沿用客户端内容过滤错误契约；已有可见拒答文本时返回 Anthropic `refusal`。
 - 空值或未知 stop reason 不得伪造成 `end_turn`。非流式请求进入 502 failover；已开始的流式响应发送 SSE error，并且不发送成功终止事件。
@@ -82,7 +84,8 @@ Claude Code system prompt
 
 - 共享守卫幂等，并保留旧 marker 兼容既有 bridge 检测。
 - 完整 `ClaudeToKiro` payload 的 system priming 与私有工具只出现一次；普通 prompt 及同名客户端工具不受影响。
-- 流式与非流式 Claude Code 请求在首次 `END_TURN` 缺少完成信号时内部续跑，收到有效信号后只返回聚合文本与 `end_turn`。
+- 流式与非流式 Claude Code 请求在首次 `END_TURN` 缺少完成信号时内部续跑；收到隐藏 `complete` 后只保留此前已展示的答复与 `end_turn`，隐藏 recap、语义改写、tool output 摘要及 completion message 均不得追加。
+- 隐藏 `blocked` 必须保留具体问题；隐藏普通工具必须保留 text-before-tool 顺序；没有首轮可见文本时允许 completion message 作为唯一兜底答复。
 - 普通客户端工具立即返回；普通工具与完成信号并存时普通工具优先；空完成消息不能结束任务。
 - 流式与非流式 `MAX_TOKENS` 均返回 `max_tokens`；context window、policy refusal 与不支持的官方值按上表处理。
 - 未知 stop reason 在流式与非流式路径都 fail closed，且成功终止事件不会泄漏；续跑达到上限时确定性停止。
