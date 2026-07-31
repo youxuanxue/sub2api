@@ -48,6 +48,9 @@ func TestPrepareClaudeCodeCompletionContinuation_PreservesToolsAndMovesTurnToHis
 
 	require.NotEqual(t, "old-continuation", payload.ConversationState.AgentContinuationId)
 	require.Contains(t, payload.ConversationState.CurrentMessage.UserInputMessage.Content, "still active")
+	require.Contains(t, payload.ConversationState.CurrentMessage.UserInputMessage.Content, "repair turn is transport-only")
+	require.Contains(t, payload.ConversationState.CurrentMessage.UserInputMessage.Content, "Do not emit a recap")
+	require.Contains(t, payload.ConversationState.CurrentMessage.UserInputMessage.Content, "reusing the preceding user-facing answer verbatim")
 	require.Len(t, payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext.Tools, 1)
 	require.Equal(t, claudepkg.ClaudeCodeCompletionToolName,
 		payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext.Tools[0].ToolSpecification.Name)

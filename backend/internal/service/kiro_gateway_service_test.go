@@ -468,8 +468,8 @@ func TestUS041_KiroGatewayService_ClaudeCodeEndTurnContinuesUntilExplicitComplet
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
 			upstream := &kiroSequenceUpstream{bodies: [][]byte{
-				kiroTextStopStream("I found the relevant code. ", "END_TURN"),
-				kiroCompletionSignalStream("complete", "Implemented and verified the fix."),
+				kiroTextStopStream("Implemented and verified the fix. ", "END_TURN"),
+				kiroCompletionSignalStream("complete", "recap: Implemented and verified the fix."),
 			}}
 
 			svc := NewKiroGatewayService(upstream, nil, nil)
@@ -477,14 +477,14 @@ func TestUS041_KiroGatewayService_ClaudeCodeEndTurnContinuesUntilExplicitComplet
 
 			require.NoError(t, err)
 			require.NotNil(t, result)
-			require.Equal(t, 2, upstream.calls, "unfinished END_TURN must be continued inside the same client request")
+			require.Equal(t, 2, upstream.calls, "END_TURN without explicit completion must continue inside the same client request")
 			require.Len(t, upstream.requests, 2)
 			require.Contains(t, string(upstream.requests[1]), "preceding assistant response ended without the required transport completion signal")
-			require.Contains(t, string(upstream.requests[1]), "I found the relevant code.")
+			require.Contains(t, string(upstream.requests[1]), "Implemented and verified the fix.")
 
 			out := rec.Body.String()
-			require.Contains(t, out, "I found the relevant code.")
-			require.Contains(t, out, "Implemented and verified the fix.")
+			require.Equal(t, 1, strings.Count(out, "Implemented and verified the fix."))
+			require.NotContains(t, out, "recap:", "hidden complete message is transport-only once text is visible")
 			require.Contains(t, out, `"stop_reason":"end_turn"`)
 			require.NotContains(t, out, "sub2apiClaudeCodeCompletion", "private completion tool must not leak to Claude Code")
 		})
@@ -522,14 +522,14 @@ func TestUS041_KiroGatewayService_EmptyCompletionMessageWithAssistantTextDoesNot
 			gin.SetMode(gin.TestMode)
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
-			body := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"partial progress only"}`))
+			body := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"Implemented and verified the fix."}`))
 			body = append(body, kiroToolUseEvent("toolu_completion", "sub2apiClaudeCodeCompletion", map[string]any{
 				"status": "complete", "message": "",
 			})...)
 			body = appendKiroTerminalStop(body, "TOOL_USE")
 			upstream := &kiroSequenceUpstream{bodies: [][]byte{
 				body,
-				kiroCompletionSignalStream("complete", "Implemented and verified the fix."),
+				kiroCompletionSignalStream("complete", "recap: completion confirmed."),
 			}}
 
 			svc := NewKiroGatewayService(upstream, nil, nil)
@@ -540,8 +540,8 @@ func TestUS041_KiroGatewayService_EmptyCompletionMessageWithAssistantTextDoesNot
 			require.NotNil(t, result)
 			require.Equal(t, 2, upstream.calls, "assistant text must not substitute for an empty private completion message")
 			out := rec.Body.String()
-			require.Contains(t, out, "partial progress only")
 			require.Contains(t, out, "Implemented and verified the fix.")
+			require.NotContains(t, out, "recap:", "later complete message must not become a second answer")
 			require.Contains(t, out, `"stop_reason":"end_turn"`)
 		})
 	}
@@ -660,8 +660,97 @@ func TestUS041_KiroGatewayService_ContinuationCompletionDoesNotRepeatPriorFinalT
 	}
 }
 
+func TestUS041_KiroGatewayService_HiddenCompletionSuppressesSemanticRecapAndToolOutputSummary(t *testing.T) {
+	const visibleAnswer = "盯盘已运行，当前无需进一步动作。"
+	const hiddenRecap = "recap: 已完成三窗检查。user 1 请求 57，计费 2.2547；另有 2 条客户端 400。"
+	const hiddenMessage = "三窗结果正常，定时任务下次在 :43 自动运行。"
+
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			hiddenTurn := buildKiroEventStreamMessage("assistantResponseEvent", []byte(fmt.Sprintf(`{"content":%q}`, hiddenRecap)))
+			hiddenTurn = append(hiddenTurn, kiroToolUseEvent("toolu_completion", "sub2apiClaudeCodeCompletion", map[string]any{
+				"status": "complete", "message": hiddenMessage,
+			})...)
+			hiddenTurn = appendKiroTerminalStop(hiddenTurn, "TOOL_USE")
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroTextStopStream(visibleAnswer, "END_TURN"),
+				hiddenTurn,
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 2, upstream.calls)
+			out := rec.Body.String()
+			require.Equal(t, 1, strings.Count(out, visibleAnswer))
+			require.NotContains(t, out, "recap:")
+			require.NotContains(t, out, "user 1 请求 57")
+			require.NotContains(t, out, hiddenMessage)
+			require.Contains(t, out, `"stop_reason":"end_turn"`)
+		})
+	}
+}
+
+func TestUS041_KiroGatewayService_HiddenBlockedMessageRemainsVisible(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroTextStopStream("已完成安全检查。", "END_TURN"),
+				kiroCompletionSignalStream("blocked", "需要你确认是否部署到生产。"),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			out := rec.Body.String()
+			require.Contains(t, out, "已完成安全检查。")
+			require.Contains(t, out, "需要你确认是否部署到生产。")
+			require.Contains(t, out, `"stop_reason":"end_turn"`)
+		})
+	}
+}
+
+func TestUS041_KiroGatewayService_HiddenMaxTokensTextRemainsVisible(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroTextStopStream("已开始处理。", "END_TURN"),
+				kiroTextStopStream("达到本轮输出上限前的有效结果。", "MAX_TOKENS"),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			out := rec.Body.String()
+			require.Contains(t, out, "已开始处理。")
+			require.Contains(t, out, "达到本轮输出上限前的有效结果。")
+			require.Contains(t, out, `"stop_reason":"max_tokens"`)
+		})
+	}
+}
+
 func TestUS041_KiroGatewayService_ContinuationTextDoesNotRepeatAcrossTurns(t *testing.T) {
 	const summary = "清理完成，全程可回滚。\n\n## 做了什么\n\nmain 从 062c77b81 fast-forward 到 57f04ad4d。"
+	const hiddenRecap = "recap: 仓库清理已经完成；git output 显示 main 已更新到 57f04ad4d。"
+	const hiddenMessage = "最终确认：仓库状态正常。"
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
@@ -669,8 +758,8 @@ func TestUS041_KiroGatewayService_ContinuationTextDoesNotRepeatAcrossTurns(t *te
 			c, _ := gin.CreateTestContext(rec)
 			upstream := &kiroSequenceUpstream{bodies: [][]byte{
 				kiroTextStopStream(summary, "END_TURN"),
-				kiroTextStopStream(summary, "END_TURN"),
-				kiroCompletionSignalStream("complete", summary),
+				kiroTextStopStream(hiddenRecap, "END_TURN"),
+				kiroCompletionSignalStream("complete", hiddenMessage),
 			}}
 
 			svc := NewKiroGatewayService(upstream, nil, nil)
@@ -681,14 +770,17 @@ func TestUS041_KiroGatewayService_ContinuationTextDoesNotRepeatAcrossTurns(t *te
 			require.Equal(t, 3, upstream.calls)
 			require.Equal(t, 1, strings.Count(rec.Body.String(), "清理完成"))
 			require.Equal(t, 1, strings.Count(rec.Body.String(), "57f04ad4d"))
+			require.NotContains(t, rec.Body.String(), "recap:")
+			require.NotContains(t, rec.Body.String(), "git output")
+			require.NotContains(t, rec.Body.String(), hiddenMessage)
 		})
 	}
 }
 
-func TestContinuationTextDeltaKeepsOnlyNewRecapText(t *testing.T) {
+func TestContinuationTextDeltaKeepsOnlyNewToolContext(t *testing.T) {
 	visible := "清理完成，全程可回滚。\n\n## 做了什么\n\nmain 从 062c77b81 fast-forward 到 57f04ad4d。"
-	continuation := "recap: 已完成仓库清理。\n\n清理完成，全程可回滚。\n\n## 做了什么\n\nmain 从 062c77b81 fast-forward 到 57f04ad4d。"
-	require.Equal(t, "\n\nrecap: 已完成仓库清理。", continuationTextDelta(visible, continuation))
+	continuation := "调用 Read 前补充新上下文。\n\n清理完成，全程可回滚。\n\n## 做了什么\n\nmain 从 062c77b81 fast-forward 到 57f04ad4d。"
+	require.Equal(t, "\n\n调用 Read 前补充新上下文。", continuationTextDelta(visible, continuation))
 }
 
 func TestContinuationTextDeltaKeepsParagraphBoundary(t *testing.T) {
@@ -706,30 +798,34 @@ func TestCompletionSignalTextDeltaPreservesNegativeNumber(t *testing.T) {
 }
 
 func TestUS041_KiroGatewayService_ContinuationToolPreservesTextBeforeTool(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	toolTurn := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"new context before Read"}`))
-	toolTurn = append(toolTurn, kiroToolUseEvent("toolu_read", "Read", map[string]any{"file_path": "a.go"})...)
-	toolTurn = appendKiroTerminalStop(toolTurn, "TOOL_USE")
-	upstream := &kiroSequenceUpstream{bodies: [][]byte{
-		kiroTextStopStream("initial progress", "END_TURN"),
-		toolTurn,
-	}}
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			toolTurn := buildKiroEventStreamMessage("assistantResponseEvent", []byte(`{"content":"new context before Read"}`))
+			toolTurn = append(toolTurn, kiroToolUseEvent("toolu_read", "Read", map[string]any{"file_path": "a.go"})...)
+			toolTurn = appendKiroTerminalStop(toolTurn, "TOOL_USE")
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroTextStopStream("initial progress", "END_TURN"),
+				toolTurn,
+			}}
 
-	svc := NewKiroGatewayService(upstream, nil, nil)
-	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
-		newKiroToolRequestForTest(true, true, "Read"), time.Now())
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newKiroToolRequestForTest(stream, true, "Read"), time.Now())
 
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	out := rec.Body.String()
-	textIndex := strings.Index(out, "new context before Read")
-	toolIndex := strings.Index(out, `"name":"Read"`)
-	require.NotEqual(t, -1, textIndex)
-	require.NotEqual(t, -1, toolIndex)
-	require.Less(t, textIndex, toolIndex)
-	require.Contains(t, out, `"stop_reason":"tool_use"`)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			out := rec.Body.String()
+			textIndex := strings.Index(out, "new context before Read")
+			toolIndex := strings.Index(out, `"name":"Read"`)
+			require.NotEqual(t, -1, textIndex)
+			require.NotEqual(t, -1, toolIndex)
+			require.Less(t, textIndex, toolIndex)
+			require.Contains(t, out, `"stop_reason":"tool_use"`)
+		})
+	}
 }
 
 func TestUS041_KiroGatewayService_CompletionBillingCountsPrivateToolOnce(t *testing.T) {
