@@ -1,4 +1,5 @@
 <template>
+  <AppLayout>
     <TablePageLayout>
       <template #filters>
         <!-- Top Toolbar: Left (search + filters) / Right (actions) -->
@@ -352,9 +353,14 @@
               >
                 {{ formatDateTimeToMinute(value) }}
               </span>
-              <div v-if="getDaysRemaining(value) !== null" class="text-xs text-gray-500">
-                {{ getDaysRemaining(value) }} {{ t('admin.subscriptions.daysRemaining') }}
-              </div>
+              <template
+                v-for="remainingExpiry in [formatRemainingExpiry(value)]"
+                :key="remainingExpiry ?? 'expired'"
+              >
+                <div v-if="remainingExpiry" class="text-xs text-gray-500">
+                  {{ remainingExpiry }}
+                </div>
+              </template>
             </div>
             <span v-else class="text-sm text-gray-500">{{
               t('admin.subscriptions.noExpiration')
@@ -752,7 +758,8 @@
         </div>
       </transition>
     </teleport>
-  </template>
+  </AppLayout>
+</template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
@@ -764,7 +771,7 @@ import type { SimpleUser } from '@/api/admin/usage'
 import type { Column } from '@/components/common/types'
 import { formatDateTimeToMinute } from '@/utils/format'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
-import { usePlatformOptions } from '@/composables/usePlatformOptions'
+import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
@@ -775,8 +782,12 @@ import Select from '@/components/common/Select.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { getRemainingDurationParts, isOneTimeDailyQuota, type RemainingDurationParts } from '@/utils/subscriptionQuota'
-import { STATUS_ACTIVE } from '@/constants/channel'
+import {
+  getRemainingDurationParts,
+  getRemainingExpiryDuration,
+  isOneTimeDailyQuota,
+  type RemainingDurationParts
+} from '@/utils/subscriptionQuota'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -983,18 +994,18 @@ const groupOptions = computed(() => [
   ...groups.value.map((g) => ({ value: g.id.toString(), label: g.name }))
 ])
 
-// US-026: Use canonical usePlatformOptions composable so the fifth platform
-// (newapi) and any future platform auto-propagate to this filter without a
-// manual edit. The previous hardcoded quad silently dropped newapi groups
-// from the filter even though backend `subscription_handler.List` accepts
-// `platform=newapi` as a valid query parameter.
-const { optionsWithAll } = usePlatformOptions()
-const platformFilterOptions = optionsWithAll(() => t('admin.subscriptions.allPlatforms'))
+const platformFilterOptions = computed(() => [
+  { value: '', label: t('admin.subscriptions.allPlatforms') },
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'antigravity', label: 'Antigravity' }
+])
 
 // Group options for assign (only subscription type groups)
 const subscriptionGroupOptions = computed(() =>
   groups.value
-    .filter((g) => g.subscription_type === 'subscription' && g.status === STATUS_ACTIVE)
+    .filter((g) => g.subscription_type === 'subscription' && g.status === 'active')
     .map((g) => ({
       value: g.id,
       label: g.name,
@@ -1331,6 +1342,21 @@ const getDaysRemaining = (expiresAt: string): number | null => {
   const diff = expires.getTime() - now.getTime()
   if (diff < 0) return null
   return Math.ceil(diff / (1000 * 60 * 60 * 24))
+}
+
+const formatRemainingExpiry = (expiresAt: string): string | null => {
+  const duration = getRemainingExpiryDuration(expiresAt)
+  if (!duration) return null
+  if (duration.unit === 'days') {
+    return t('admin.subscriptions.daysRemaining', { days: duration.days })
+  }
+  if (duration.hours) {
+    return t('admin.subscriptions.hoursMinutesRemaining', {
+      hours: duration.hours,
+      minutes: duration.minutes
+    })
+  }
+  return t('admin.subscriptions.minutesRemaining', { minutes: duration.minutes })
 }
 
 const isExpiringSoon = (expiresAt: string): boolean => {

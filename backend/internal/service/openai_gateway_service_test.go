@@ -31,10 +31,6 @@ type stubOpenAIAccountRepo struct {
 	accounts []Account
 }
 
-func (stubOpenAIAccountRepo) SumConcurrencyAnthropic(context.Context) (int64, error) {
-	return 0, nil
-}
-
 type snapshotUpdateAccountRepo struct {
 	stubOpenAIAccountRepo
 	updateExtraCalls chan map[string]any
@@ -129,6 +125,20 @@ type errReadCloser struct {
 func (r errReadCloser) Read([]byte) (int, error) { return 0, r.err }
 func (r errReadCloser) Close() error             { return nil }
 
+type openAIStreamReadThenErrorCloser struct {
+	reader *strings.Reader
+	err    error
+}
+
+func (r *openAIStreamReadThenErrorCloser) Read(p []byte) (int, error) {
+	if r.reader != nil && r.reader.Len() > 0 {
+		return r.reader.Read(p)
+	}
+	return 0, r.err
+}
+
+func (r *openAIStreamReadThenErrorCloser) Close() error { return nil }
+
 type failingGinWriter struct {
 	gin.ResponseWriter
 	failAfter int
@@ -209,9 +219,8 @@ func TestOpenAIGatewayService_GenerateSessionHash_Priority(t *testing.T) {
 		t.Fatalf("expected different hashes for different keys")
 	}
 
-	// 3) X-Claude-Code-Session-Id used when session_id/conversation_id absent
+	// 3) prompt_cache_key used when both headers absent
 	c.Request.Header.Del("conversation_id")
-	c.Request.Header.Set("X-Claude-Code-Session-Id", "cc-789")
 	h3 := svc.GenerateSessionHash(c, bodyWithKey)
 	if h3 == "" {
 		t.Fatalf("expected non-empty hash")
@@ -220,32 +229,66 @@ func TestOpenAIGatewayService_GenerateSessionHash_Priority(t *testing.T) {
 		t.Fatalf("expected different hashes for different keys")
 	}
 
-	// 4) X-Session-Id used when cc header absent
-	c.Request.Header.Del("X-Claude-Code-Session-Id")
-	c.Request.Header.Set("X-Session-Id", "x-999")
-	h4 := svc.GenerateSessionHash(c, bodyWithKey)
-	if h4 == "" {
-		t.Fatalf("expected non-empty hash")
-	}
-	if h3 == h4 {
-		t.Fatalf("expected different hashes for different keys")
-	}
-
-	// 5) prompt_cache_key used when all headers absent
-	c.Request.Header.Del("X-Session-Id")
-	h5 := svc.GenerateSessionHash(c, bodyWithKey)
-	if h5 == "" {
-		t.Fatalf("expected non-empty hash")
-	}
-	if h4 == h5 {
-		t.Fatalf("expected different hashes for different keys")
-	}
-
-	// 6) empty when no signals
-	h6 := svc.GenerateSessionHash(c, []byte(`{}`))
-	if h6 != "" {
+	// 4) empty when no signals
+	h4 := svc.GenerateSessionHash(c, []byte(`{}`))
+	if h4 != "" {
 		t.Fatalf("expected empty hash when no signals")
 	}
+}
+
+func TestOpenAIGatewayService_ClientSessionHeaderPriority(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	c.Set("api_key", &APIKey{ID: 901, Group: &Group{Platform: PlatformGrok}})
+
+	headers := []struct {
+		name  string
+		value string
+	}{
+		{name: "session_id", value: "generic-session"},
+		{name: "conversation_id", value: "generic-conversation"},
+		{name: openCodeSessionAffinityHeader, value: "opencode-affinity"},
+		{name: openCodeSessionIDHeader, value: "opencode-session-id"},
+		{name: openCodeNativeSessionHeader, value: "opencode-native-session"},
+		{name: codeBuddyConversationHeader, value: "codebuddy-conversation"},
+		{name: grokConversationIDHeader, value: "grok-conversation"},
+	}
+	for _, header := range headers {
+		c.Request.Header.Set(header.name, header.value)
+	}
+
+	svc := &OpenAIGatewayService{}
+	body := []byte(`{"prompt_cache_key":"body-session"}`)
+	for _, header := range headers {
+		require.Equal(t, header.value, svc.ExtractSessionID(c, body), header.name)
+		require.Equal(t, fmt.Sprintf("%016x", xxhash.Sum64String(header.value)), svc.GenerateExplicitSessionHash(c, body), header.name)
+		if header.name != grokConversationIDHeader {
+			require.Equal(t, header.value, explicitOpenAISessionID(c, body), header.name)
+		}
+		c.Request.Header.Del(header.name)
+	}
+	require.Equal(t, "body-session", svc.ExtractSessionID(c, body))
+}
+
+func TestOpenAIGatewayService_ClientSessionHeadersIgnorePerRequestIDs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	for name, value := range map[string]string{
+		"X-Conversation-Request-ID": "request-rotates-every-turn",
+		"X-Conversation-Message-ID": "message-rotates-every-turn",
+		"X-Request-ID":              "generic-request-id",
+	} {
+		c.Request.Header.Set(name, value)
+	}
+
+	svc := &OpenAIGatewayService{}
+	require.Empty(t, explicitOpenAIHeaderSessionID(c))
+	require.Empty(t, svc.ExtractSessionID(c, nil))
+	require.Empty(t, svc.GenerateExplicitSessionHash(c, nil))
 }
 
 func TestOpenAIGatewayService_GenerateSessionHash_UsesXXHash64(t *testing.T) {
@@ -283,6 +326,31 @@ func TestExtractOpenAIResponseIDFromJSONBytes(t *testing.T) {
 	require.Equal(t, "resp_sse", extractOpenAIResponseIDFromJSONBytes([]byte(`{"type":"response.completed","response":{"id":"resp_sse"}}`)))
 	require.Empty(t, extractOpenAIResponseIDFromJSONBytes([]byte(`{"response":{}}`)))
 	require.Empty(t, extractOpenAIResponseIDFromJSONBytes([]byte(`not-json`)))
+}
+
+// 复现 #4386：gpt-image-2 /v1/images/edits 的 usage 携带 input_tokens_details.image_tokens，
+// 提取器须将图片输入 token 单独填入 ImageInputTokens（此前被丢弃并入 InputTokens 按文本价计费）。
+func TestExtractOpenAIUsage_CapturesImageInputTokens(t *testing.T) {
+	body := []byte(`{"usage":{"input_tokens":371,"input_tokens_details":{"image_tokens":352,"text_tokens":19},"output_tokens":439,"output_tokens_details":{"image_tokens":439,"text_tokens":0},"total_tokens":810}}`)
+	usage, ok := extractOpenAIUsageFromJSONBytes(body)
+	require.True(t, ok)
+	require.Equal(t, 371, usage.InputTokens)
+	require.Equal(t, 352, usage.ImageInputTokens)
+	require.Equal(t, 439, usage.OutputTokens)
+	require.Equal(t, 439, usage.ImageOutputTokens)
+
+	// prompt_tokens_details 回退路径（部分上游用 prompt_tokens 口径）。
+	promptStyle := []byte(`{"usage":{"prompt_tokens":100,"prompt_tokens_details":{"image_tokens":80}}}`)
+	pu, ok := extractOpenAIUsageFromJSONBytes(promptStyle)
+	require.True(t, ok)
+	require.Equal(t, 100, pu.InputTokens)
+	require.Equal(t, 80, pu.ImageInputTokens)
+
+	// 纯文本请求：无 image_tokens 时 ImageInputTokens 为 0，行为不变。
+	textOnly := []byte(`{"usage":{"input_tokens":50,"output_tokens":10}}`)
+	tu, ok := extractOpenAIUsageFromJSONBytes(textOnly)
+	require.True(t, ok)
+	require.Zero(t, tu.ImageInputTokens)
 }
 
 func TestOpenAIGatewayService_BindHTTPResponseAccount(t *testing.T) {
@@ -633,11 +701,7 @@ func TestOpenAISelectAccountForModelWithExclusions_StickyOutsideGroupClearsSessi
 	repo := groupAwareStubOpenAIAccountRepo{
 		stubOpenAIAccountRepo{
 			accounts: []Account{
-				// TK conservative sticky-group semantics (openaiStickyAccountStillInGroup):
-				// the stale sticky account must have KNOWN membership excluding the
-				// requested group to be cleared (empty membership is intentionally kept,
-				// US013/US015). Pin it to a concrete foreign group (#1934 reassign case).
-				{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, AccountGroups: []AccountGroup{{GroupID: 2002}}},
+				{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1},
 				{ID: 2, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, AccountGroups: []AccountGroup{{GroupID: groupID}}},
 			},
 		},
@@ -768,13 +832,8 @@ func TestOpenAISelectAccountForModelWithExclusions_NoModelSupport(t *testing.T) 
 	if acc != nil {
 		t.Fatalf("expected nil account for unsupported model")
 	}
-	// TK 2026-06-13: a model name that NO account in the pool serves is now a
-	// CLIENT error (ErrUnsupportedModel → HTTP 400 invalid_request_error), not the
-	// generic no-available "supporting model" 429 family — so this exact path
-	// (selectBestAccount → nil) stops misclassifying an unservable model id as a
-	// capacity signal. See openAICompatNoCandidateError.
-	if !errors.Is(err, ErrUnsupportedModel) {
-		t.Fatalf("expected ErrUnsupportedModel for unservable model name, got: %v", err)
+	if !strings.Contains(err.Error(), "supporting model") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -1284,6 +1343,109 @@ func TestOpenAIStreamingReadErrorBeforeOutputReturnsFailover(t *testing.T) {
 	require.Empty(t, rec.Body.String())
 }
 
+func TestOpenAIStreamingPostOutputDisconnectQuarantinesSharedProxyWithoutSameStreamFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	proxyID := int64(4698)
+	account := &Account{
+		ID:       469801,
+		Name:     "oauth-on-shared-proxy",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		ProxyID:  &proxyID,
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		MaxLineSize: defaultMaxLineSize,
+	}}}
+	// collapseInterval 0: the two loop iterations below record within the
+	// production collapse window and must count as distinct failure events here.
+	svc.openaiProxyStreamCircuit = newOpenAIProxyStreamCircuit(openAIProxyStreamCircuitSettings{
+		failureThreshold: 2,
+		failureWindow:    time.Minute,
+		quarantineTTL:    10 * time.Minute,
+		maxEntries:       16,
+	})
+
+	for _, readErr := range []error{
+		io.ErrUnexpectedEOF,
+		errors.New("http2: client connection lost"),
+	} {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body: &openAIStreamReadThenErrorCloser{
+				reader: strings.NewReader(strings.Join([]string{
+					"event: response.output_text.delta",
+					`data: {"type":"response.output_text.delta","delta":"partial"}`,
+					"",
+				}, "\n")),
+				err: readErr,
+			},
+			Header: http.Header{"X-Request-Id": []string{"rid-proxy-disconnect"}},
+		}
+
+		_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "gpt-5.6-sol", "gpt-5.6-sol")
+		require.Error(t, err)
+		var failoverErr *UpstreamFailoverError
+		require.False(t, errors.As(err, &failoverErr), "post-output disconnect must not fail over inside the same stream")
+		require.Contains(t, rec.Body.String(), "partial")
+	}
+
+	scheduler := &defaultOpenAIAccountScheduler{service: svc}
+	compatible, reason := scheduler.isAccountRequestCompatibleReason(context.Background(), account, OpenAIAccountScheduleRequest{})
+	require.False(t, compatible, "the next request must exclude accounts sharing the quarantined proxy")
+	require.Equal(t, "proxy_stream_quarantined", reason)
+}
+
+func TestOpenAIStreamingTerminalAndClientCancellationDoNotQuarantineProxy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	proxyID := int64(4699)
+	account := &Account{ID: 469901, Name: "oauth", Platform: PlatformOpenAI, Type: AccountTypeOAuth, ProxyID: &proxyID}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+
+	terminalRecorder := httptest.NewRecorder()
+	terminalCtx, _ := gin.CreateTestContext(terminalRecorder)
+	terminalCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	terminalResp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: &openAIStreamReadThenErrorCloser{
+			reader: strings.NewReader(strings.Join([]string{
+				"event: response.completed",
+				`data: {"type":"response.completed","response":{"status":"completed","output":[]}}`,
+				"",
+			}, "\n")),
+			err: io.ErrUnexpectedEOF,
+		},
+		Header: http.Header{},
+	}
+	_, err := svc.handleStreamingResponse(terminalCtx.Request.Context(), terminalResp, terminalCtx, account, time.Now(), "model", "model")
+	require.NoError(t, err)
+
+	for range 2 {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body: &openAIStreamReadThenErrorCloser{
+				reader: strings.NewReader("data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n"),
+				err:    context.Canceled,
+			},
+			Header: http.Header{},
+		}
+		_, err = svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "model", "model")
+		require.Error(t, err)
+	}
+
+	scheduler := &defaultOpenAIAccountScheduler{service: svc}
+	compatible, reason := scheduler.isAccountRequestCompatibleReason(context.Background(), account, OpenAIAccountScheduleRequest{})
+	require.True(t, compatible)
+	require.Empty(t, reason)
+}
+
 func TestOpenAIStreamingResponseFailedBeforeOutputReturnsFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{
@@ -1320,6 +1482,7 @@ func TestOpenAIStreamingResponseFailedBeforeOutputReturnsFailover(t *testing.T) 
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.False(t, failoverErr.RetryableOnSameAccount)
 	require.Contains(t, string(failoverErr.ResponseBody), "An error occurred while processing your request")
 	require.False(t, c.Writer.Written())
 	require.Empty(t, rec.Body.String())
@@ -1356,52 +1519,24 @@ func TestOpenAIStreamingResponseFailedBeforeOutputCapacityErrorReturnsFailover(t
 		Header: http.Header{"X-Request-Id": []string{"rid-capacity-failed"}},
 	}
 
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "model", "model")
+	account := &Account{
+		ID:       1,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Name:     "pool-account",
+		Credentials: map[string]any{
+			"pool_mode": true,
+		},
+	}
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "model", "model")
 	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.True(t, failoverErr.RetryableOnSameAccount)
 	require.Contains(t, string(failoverErr.ResponseBody), "Selected model is at capacity")
 	require.False(t, c.Writer.Written())
 	require.Empty(t, rec.Body.String())
-}
-
-func TestOpenAIStreamingResponseFailedAfterKeepaliveStillFailovers(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	cfg := &config.Config{
-		Gateway: config.GatewayConfig{
-			StreamDataIntervalTimeout: 0,
-			StreamKeepaliveInterval:   1,
-			MaxLineSize:               defaultMaxLineSize,
-		},
-	}
-	svc := &OpenAIGatewayService{cfg: cfg}
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
-
-	pr, pw := io.Pipe()
-	resp := &http.Response{
-		StatusCode: http.StatusOK,
-		Body:       pr,
-		Header:     http.Header{"X-Request-Id": []string{"rid-capacity-after-keepalive"}},
-	}
-
-	go func() {
-		defer func() { _ = pw.Close() }()
-		_, _ = pw.Write([]byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n"))
-		time.Sleep(1200 * time.Millisecond)
-		_, _ = pw.Write([]byte(`data: {"type":"response.failed","response":{"error":{"type":"server_error","code":"model_capacity","message":"Selected model is at capacity. Please try a different model."}}}` + "\n\n"))
-	}()
-
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "model", "model")
-	_ = pr.Close()
-	require.Error(t, err)
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Contains(t, string(failoverErr.ResponseBody), "Selected model is at capacity")
-	require.NotContains(t, rec.Body.String(), "Selected model is at capacity")
 }
 
 func TestOpenAIStreamingResponseFailedBeforeOutputServerOverloadedCodeReturnsFailover(t *testing.T) {
@@ -1442,7 +1577,7 @@ func TestOpenAIStreamingResponseFailedBeforeOutputServerOverloadedCodeReturnsFai
 	require.Empty(t, rec.Body.String())
 }
 
-func TestOpenAIStreamingResponseFailedAfterOutputItemAddedStillFailovers(t *testing.T) {
+func TestOpenAIStreamingResponseFailedAfterOutputSanitizesVerboseResponseForClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{
 		Gateway: config.GatewayConfig{
@@ -1457,81 +1592,39 @@ func TestOpenAIStreamingResponseFailedAfterOutputItemAddedStillFailovers(t *test
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
 
+	longInstructions := strings.Repeat("You are GPT-5.1 running in the Codex CLI. ", 20)
+	failedPayload := fmt.Sprintf(
+		`{"type":"response.failed","response":{"id":"resp_failed","object":"response","created_at":1782446336,"status":"failed","instructions":%q,"output":[{"type":"message","content":[{"type":"output_text","text":"large"}]}],"usage":{"input_tokens":123,"output_tokens":0},"error":{"code":"context_length_exceeded","message":"Your input exceeds the context window of this model. Please adjust your input and try again."}}}`,
+		longInstructions,
+	)
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
 		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
 			"event: response.created",
-			`data: {"type":"response.created","response":{"id":"resp_1"}}`,
-			"",
-			"event: response.output_item.added",
-			`data: {"type":"response.output_item.added","response":{"id":"resp_1"}}`,
-			"",
-			"event: response.failed",
-			`data: {"type":"response.failed","response":{"error":{"type":"server_error","code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}}`,
-			"",
-		}, "\n"))),
-		Header: http.Header{"X-Request-Id": []string{"rid-overload-after-structural"}},
-	}
-
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "model", "model")
-	require.Error(t, err)
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Contains(t, string(failoverErr.ResponseBody), "servers are currently overloaded")
-	require.NotContains(t, rec.Body.String(), "servers are currently overloaded")
-}
-
-func TestOpenAIStreamFailoverBlockedByClientOutput_UsesFirstTokenOnly(t *testing.T) {
-	require.False(t, openAIStreamFailoverBlockedByClientOutput(nil))
-	ms := 1
-	require.True(t, openAIStreamFailoverBlockedByClientOutput(&ms))
-}
-
-func TestIsOpenAITransientProcessingError_ServerOverloaded(t *testing.T) {
-	require.True(t, isOpenAITransientProcessingError(
-		http.StatusBadRequest,
-		"Our servers are currently overloaded. Please try again later.",
-		[]byte(`{"error":{"type":"invalid_request_error","code":"server_is_overloaded"}}`),
-	))
-}
-
-func TestOpenAIStreamingResponseFailedAfterRealTokenDoesNotFailover(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	cfg := &config.Config{
-		Gateway: config.GatewayConfig{
-			StreamDataIntervalTimeout: 0,
-			StreamKeepaliveInterval:   0,
-			MaxLineSize:               defaultMaxLineSize,
-		},
-	}
-	svc := &OpenAIGatewayService{cfg: cfg}
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
-
-	resp := &http.Response{
-		StatusCode: http.StatusOK,
-		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
-			"event: response.created",
-			`data: {"type":"response.created","response":{"id":"resp_1"}}`,
+			`data: {"type":"response.created","response":{"id":"resp_failed"}}`,
 			"",
 			"event: response.output_text.delta",
-			`data: {"type":"response.output_text.delta","delta":"hi"}`,
+			`data: {"type":"response.output_text.delta","delta":"partial"}`,
 			"",
 			"event: response.failed",
-			`data: {"type":"response.failed","response":{"error":{"type":"server_error","code":"model_capacity","message":"Selected model is at capacity. Please try a different model."}}}`,
+			"data: " + failedPayload,
 			"",
 		}, "\n"))),
-		Header: http.Header{"X-Request-Id": []string{"rid-capacity-after-token"}},
+		Header: http.Header{"X-Request-Id": []string{"rid-failed-after-output"}},
 	}
 
 	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "model", "model")
 	require.Error(t, err)
-	var failoverErr *UpstreamFailoverError
-	require.False(t, errors.As(err, &failoverErr))
-	require.Contains(t, err.Error(), "upstream response failed")
-	require.Contains(t, rec.Body.String(), "Selected model is at capacity")
+
+	body := rec.Body.String()
+	require.Contains(t, body, "event: response.failed")
+	require.Contains(t, body, "context_length_exceeded")
+	require.Contains(t, body, `"type":"invalid_request_error"`)
+	require.Contains(t, body, "Your input exceeds the context window")
+	require.NotContains(t, body, "You are GPT-5.1 running in the Codex CLI")
+	require.NotContains(t, body, `"instructions"`)
+	require.NotContains(t, body, `"output"`)
+	require.NotContains(t, body, `"usage"`)
 }
 
 func TestOpenAIStreamingContextWindowResponseFailedBeforeOutputPassesThrough(t *testing.T) {
@@ -1929,6 +2022,43 @@ func TestOpenAIStreamingPassthroughMissingTerminalEventReturnsIncompleteError(t 
 	}
 }
 
+func TestOpenAIStreamingPassthroughPostOutputDisconnectQuarantinesSharedProxy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	proxyID := int64(4698)
+	account := &Account{ID: 469804, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, ProxyID: &proxyID}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+	// collapseInterval 0: the loop below records within the production collapse
+	// window and must count as distinct failure events here.
+	svc.openaiProxyStreamCircuit = newOpenAIProxyStreamCircuit(openAIProxyStreamCircuitSettings{
+		failureThreshold: 2,
+		failureWindow:    time.Minute,
+		quarantineTTL:    10 * time.Minute,
+		maxEntries:       16,
+	})
+
+	for _, readErr := range []error{io.ErrUnexpectedEOF, errors.New("http2: client connection lost")} {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body: &openAIStreamReadThenErrorCloser{
+				reader: strings.NewReader("data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n"),
+				err:    readErr,
+			},
+			Header: http.Header{"X-Request-Id": []string{"rid-passthrough-proxy-disconnect"}},
+		}
+
+		_, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, account, time.Now(), "model", "model")
+		require.Error(t, err)
+		var failoverErr *UpstreamFailoverError
+		require.False(t, errors.As(err, &failoverErr), "post-output disconnect must not fail over inside the same stream")
+		require.Contains(t, rec.Body.String(), "partial")
+	}
+
+	require.True(t, svc.isOpenAIProxyStreamQuarantined(context.Background(), account))
+}
+
 func TestOpenAIStreamingPassthroughResponseFailedBeforeOutputReturnsFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{
@@ -1963,6 +2093,142 @@ func TestOpenAIStreamingPassthroughResponseFailedBeforeOutputReturnsFailover(t *
 	require.Contains(t, string(failoverErr.ResponseBody), "upstream processing failed")
 	require.False(t, c.Writer.Written())
 	require.Empty(t, rec.Body.String())
+}
+
+func TestOpenAIStreamingPassthroughContextWindowResponseFailedBeforeOutputAppliesPassthroughRule(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{
+		Gateway: config.GatewayConfig{
+			MaxLineSize: defaultMaxLineSize,
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: cfg}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	rule := newNonFailoverPassthroughRule(http.StatusBadRequest, "input exceeds the context window", http.StatusBadRequest, "")
+	rule.Platforms = []string{PlatformOpenAI}
+	rule.PassthroughBody = true
+	rule.CustomMessage = nil
+	ruleSvc := &ErrorPassthroughService{}
+	ruleSvc.setLocalCache([]*model.ErrorPassthroughRule{rule})
+	BindErrorPassthroughService(c, ruleSvc)
+
+	upstreamMessage := "Your input exceeds the context window of this model. Please adjust your input and try again."
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			"event: response.created",
+			`data: {"type":"response.created","response":{"id":"resp_1"}}`,
+			"",
+			"event: response.failed",
+			`data: {"type":"response.failed","response":{"id":"resp_1","error":{"type":"invalid_request_error","code":"context_length_exceeded","message":"` + upstreamMessage + `"}}}`,
+			"",
+		}, "\n"))),
+		Header: http.Header{"X-Request-Id": []string{"rid-pass-context-window-passthrough-rule"}},
+	}
+
+	_, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "", "")
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr))
+	require.True(t, IsResponseCommitted(c))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	body := rec.Body.String()
+	require.Equal(t, "upstream_error", gjson.Get(body, "error.type").String())
+	require.Equal(t, upstreamMessage, gjson.Get(body, "error.message").String())
+	require.NotContains(t, body, "response.failed")
+	require.NotContains(t, body, "Upstream request failed")
+	// 命中透传规则也应记录 ops 上游错误事件（对齐 CC/Messages 与 antigravity 先例）。
+	opsVal, opsRecorded := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, opsRecorded, "passthrough hit should record an ops upstream error event")
+	opsEvents, _ := opsVal.([]*OpsUpstreamErrorEvent)
+	require.NotEmpty(t, opsEvents)
+}
+
+func TestOpenAIStreamingPassthroughContextWindowResponseFailedBeforeOutputWithoutRulePassesThrough(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{
+		Gateway: config.GatewayConfig{
+			MaxLineSize: defaultMaxLineSize,
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: cfg}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			"event: response.created",
+			`data: {"type":"response.created","response":{"id":"resp_1"}}`,
+			"",
+			"event: response.failed",
+			`data: {"type":"response.failed","response":{"id":"resp_1","error":{"type":"invalid_request_error","code":"context_length_exceeded","message":"Your input exceeds the context window of this model. Please adjust your input and try again."}}}`,
+			"",
+		}, "\n"))),
+		Header: http.Header{"X-Request-Id": []string{"rid-pass-context-window-no-rule"}},
+	}
+
+	_, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "", "")
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr))
+	body := rec.Body.String()
+	require.Contains(t, body, "event: response.failed")
+	require.Contains(t, body, "context_length_exceeded")
+	require.Contains(t, body, "Your input exceeds the context window")
+}
+
+func TestOpenAIStreamingPassthroughResponseFailedAfterOutputSanitizesVerboseResponseForClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{
+		Gateway: config.GatewayConfig{
+			MaxLineSize: defaultMaxLineSize,
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: cfg}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	longInstructions := strings.Repeat("You are GPT-5.1 running in the Codex CLI. ", 20)
+	failedPayload := fmt.Sprintf(
+		`{"type":"response.failed","response":{"id":"resp_pass_failed","object":"response","created_at":1782446336,"status":"failed","instructions":%q,"output":[{"type":"message","content":[{"type":"output_text","text":"large"}]}],"usage":{"input_tokens":123,"output_tokens":0},"error":{"code":"context_length_exceeded","message":"Your input exceeds the context window of this model. Please adjust your input and try again."}}}`,
+		longInstructions,
+	)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			"event: response.created",
+			`data: {"type":"response.created","response":{"id":"resp_pass_failed"}}`,
+			"",
+			"event: response.output_text.delta",
+			`data: {"type":"response.output_text.delta","delta":"partial"}`,
+			"",
+			"event: response.failed",
+			"data: " + failedPayload,
+			"",
+		}, "\n"))),
+		Header: http.Header{"X-Request-Id": []string{"rid-pass-failed-after-output"}},
+	}
+
+	_, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "", "")
+	require.Error(t, err)
+
+	body := rec.Body.String()
+	require.Contains(t, body, "event: response.failed")
+	require.Contains(t, body, "context_length_exceeded")
+	require.Contains(t, body, `"type":"invalid_request_error"`)
+	require.Contains(t, body, "Your input exceeds the context window")
+	require.NotContains(t, body, "You are GPT-5.1 running in the Codex CLI")
+	require.NotContains(t, body, `"instructions"`)
+	require.NotContains(t, body, `"output"`)
+	require.NotContains(t, body, `"usage"`)
 }
 
 func TestOpenAIStreamingPassthroughResponseDoneWithoutDoneMarkerStillSucceeds(t *testing.T) {
@@ -2307,37 +2573,6 @@ func TestOpenAIValidateUpstreamBaseURLEnabledEnforcesAllowlist(t *testing.T) {
 	}
 }
 
-func TestOpenAIValidateUpstreamBaseURLForAccountAllowsEdgeMirrorOnly(t *testing.T) {
-	cfg := &config.Config{
-		Security: config.SecurityConfig{
-			URLAllowlist: config.URLAllowlistConfig{
-				Enabled:       true,
-				UpstreamHosts: []string{"api.x.ai"},
-			},
-		},
-	}
-	svc := &OpenAIGatewayService{cfg: cfg}
-	account := &Account{
-		Platform: PlatformGrok,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key":  "edge-key",
-			"base_url": "https://api-us4.tokenkey.dev",
-		},
-	}
-
-	normalized, err := svc.validateUpstreamBaseURLForAccount(account, "https://api-us4.tokenkey.dev")
-	if err != nil {
-		t.Fatalf("expected edge mirror host to pass, got %v", err)
-	}
-	if normalized != "https://api-us4.tokenkey.dev" {
-		t.Fatalf("unexpected normalized url %q", normalized)
-	}
-	if _, err := svc.validateUpstreamBaseURLForAccount(account, "https://evil.example.com"); err == nil {
-		t.Fatalf("edge mirror extra host must not allow arbitrary hosts")
-	}
-}
-
 func TestOpenAIUpdateCodexUsageSnapshotFromHeaders(t *testing.T) {
 	repo := &snapshotUpdateAccountRepo{updateExtraCalls: make(chan map[string]any, 1)}
 	svc := &OpenAIGatewayService{accountRepo: repo}
@@ -2412,7 +2647,7 @@ func TestOpenAIBuildUpstreamRequestOpenAIPassthroughPreservesCompactPath(t *test
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses/compact", bytes.NewReader([]byte(`{"model":"gpt-5"}`)))
 
 	svc := &OpenAIGatewayService{}
-	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	account := &Account{Type: AccountTypeOAuth}
 
 	req, err := svc.buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, []byte(`{"model":"gpt-5"}`), "token")
 	require.NoError(t, err)
@@ -2431,7 +2666,6 @@ func TestOpenAIBuildUpstreamRequestCompactForcesJSONAcceptForOAuth(t *testing.T)
 
 	svc := &OpenAIGatewayService{}
 	account := &Account{
-		Platform:    PlatformOpenAI,
 		Type:        AccountTypeOAuth,
 		Credentials: map[string]any{"chatgpt_account_id": "chatgpt-acc"},
 	}
@@ -2445,26 +2679,6 @@ func TestOpenAIBuildUpstreamRequestCompactForcesJSONAcceptForOAuth(t *testing.T)
 	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(req.Context()))
 }
 
-func TestOpenAIBuildUpstreamRequestStreamingOAuthForcesCodexVersion(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader([]byte(`{"model":"gpt-5.6-luna","stream":true}`)))
-
-	svc := &OpenAIGatewayService{}
-	account := &Account{
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeOAuth,
-		Credentials: map[string]any{"chatgpt_account_id": "chatgpt-acc"},
-	}
-
-	req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte(`{"model":"gpt-5.6-luna","stream":true}`), "token", false, "", false)
-	require.NoError(t, err)
-	require.Equal(t, chatgptCodexURL, req.URL.String())
-	require.Equal(t, "text/event-stream", req.Header.Get("Accept"))
-	require.Equal(t, codexCLIVersion, req.Header.Get("Version"))
-}
-
 func TestOpenAIBuildUpstreamRequestOAuthMessagesBridgeUsesSessionOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -2476,7 +2690,6 @@ func TestOpenAIBuildUpstreamRequestOAuthMessagesBridgeUsesSessionOnly(t *testing
 
 	svc := &OpenAIGatewayService{}
 	account := &Account{
-		Platform:    PlatformOpenAI,
 		Type:        AccountTypeOAuth,
 		Credentials: map[string]any{"chatgpt_account_id": "chatgpt-acc"},
 	}
@@ -2486,7 +2699,7 @@ func TestOpenAIBuildUpstreamRequestOAuthMessagesBridgeUsesSessionOnly(t *testing
 	require.NotEmpty(t, req.Header.Get("Session_Id"))
 	require.Empty(t, req.Header.Get("Conversation_Id"))
 	require.Empty(t, req.Header.Get("OpenAI-Beta"))
-	require.Equal(t, "codex_cli_rs", req.Header.Get("originator"))
+	require.Empty(t, req.Header.Get("originator"))
 }
 
 func TestOpenAIBuildUpstreamRequestPreservesCompactPathForAPIKeyBaseURL(t *testing.T) {
@@ -2511,25 +2724,30 @@ func TestOpenAIBuildUpstreamRequestPreservesCompactPathForAPIKeyBaseURL(t *testi
 	require.Equal(t, "https://example.com/v1/responses/compact", req.URL.String())
 }
 
-func TestOpenAIBuildUpstreamRequestGrokAPIKeyRelayRequiresBaseURL(t *testing.T) {
+func TestOpenAIBuildUpstreamRequestPreservesCodexIdentityHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader([]byte(`{"model":"grok-4"}`)))
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.144.1")
+	c.Request.Header.Set("X-Codex-Window-ID", "window-http")
+	c.Request.Header.Set("X-Codex-Installation-ID", "installation-http")
+	c.Request.Header.Set("X-Test", "blocked")
 
-	svc := &OpenAIGatewayService{}
-	account := &Account{
-		ID:       407,
-		Type:     AccountTypeAPIKey,
-		Platform: PlatformGrok,
-		Credentials: map[string]any{
-			"api_key": "edge-grok-key",
+	body := []byte(`{"model":"gpt-5","input":"hello"}`)
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
 		},
-	}
+	}}
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 
-	_, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte(`{"model":"grok-4"}`), "edge-grok-key", false, "", false)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "missing base_url")
+	req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, body, "token", false, "", true)
+	require.NoError(t, err)
+	require.Equal(t, "window-http", req.Header.Get("X-Codex-Window-ID"))
+	require.Equal(t, "installation-http", req.Header.Get("X-Codex-Installation-ID"))
+	require.Empty(t, req.Header.Get("X-Test"))
+	require.True(t, openai.EvaluateEngineFingerprint(req.Header, body, openai.DefaultEngineFingerprintSignals))
 }
 
 func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t *testing.T) {
@@ -2570,7 +2788,6 @@ func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t 
 
 			svc := &OpenAIGatewayService{}
 			account := &Account{
-				Platform:    PlatformOpenAI,
 				Type:        AccountTypeOAuth,
 				Credentials: map[string]any{"chatgpt_account_id": "chatgpt-acc"},
 			}
@@ -2582,17 +2799,6 @@ func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t 
 			require.Equal(t, tt.wantUA, req.Header.Get("User-Agent"))
 		})
 	}
-}
-
-func TestResolveOpenAIUpstreamOriginatorRejectsNonCodexOriginator(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	c.Request.Header.Set("originator", "opencode")
-
-	require.Equal(t, "codex_cli_rs", resolveOpenAIUpstreamOriginator(c, false))
 }
 
 // ==================== P1-08 修复：model 替换性能优化测试 ====================

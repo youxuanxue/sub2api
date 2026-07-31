@@ -55,21 +55,6 @@ type GeminiMessagesCompatService struct {
 	antigravityGatewayService *AntigravityGatewayService
 	cfg                       *config.Config
 	responseHeaderFilter      *responseheaders.CompiledHeaderFilter
-	// TK: runtime priced-serving gate deps (docs/approved/priced-or-it-doesnt-ship.md).
-	// This service holds neither settingService nor pricing services on the upstream
-	// constructor, so all are injected post-construction via SetPricedServingGateDeps
-	// (TK companion). nil = gate disabled (fail-open). The gate judges via
-	// tkBillingService.GetModelPricing (the same oracle billing uses to decide $0),
-	// NOT a catalog shadow predicate; tkPricingCatalog is retained for legacy/list uses.
-	tkSettingService         *SettingService
-	tkBillingService         *BillingService
-	tkPricingCatalog         *PricingCatalogService
-	tkPricingMissingNotifier PricingMissingNotifier
-	// tkPricingResolver mirrors the billing cost path's channel-pricing source
-	// (resolveChannelPricing ← resolver.Resolve). The gate probes it so a model
-	// priced ONLY via channel_model_pricing (no litellm/overlay/fallback base) is
-	// NOT falsely 404'd — keeping gate ⟺ billing on the channel source too (B1).
-	tkPricingResolver *ModelPricingResolver
 }
 
 func (s *GeminiMessagesCompatService) readUpstreamErrorBody(resp *http.Response) []byte {
@@ -610,28 +595,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	}
 
 	originalModel := req.Model
-	// TK: 分组级 Claude→Gemini 模型映射 (gemini_messages_dispatch_tk.go)。
-	// handler 通过 gin.Context 透传 *Group；resolver 仅当 group 非空且
-	// 配置了映射规则、且 req.Model 不是 gemini-* 形态时才改写 req.Model。
-	if g := tkGroupFromGinContext(c); g != nil {
-		if mapped := g.TKResolveGeminiDispatchModel(req.Model); mapped != "" {
-			req.Model = mapped
-		}
+	mappedModel := req.Model
+	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
+		mappedModel = account.GetMappedModel(req.Model)
 	}
-	mappedModel, requestModel := resolveGeminiForwardModels(account, req.Model)
-	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
-	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
-	// No-op unless account.Platform is in the enabled set (gemini ships first).
-	// Forward serves an Anthropic /v1/messages ingress (writeClaudeError elsewhere),
-	// so the 404 body must be the ANTHROPIC envelope (BLOCKER4: byte-align to the
-	// client's wire protocol, not account.Platform). Judge originalModel — billing
-	// records on result.Model=originalModel here (forwardResultBillingModel), so the
-	// gate must use the exact key billing charges (BLOCKER1). See
-	// gateway_priced_serving_gate_tk.go.
-	if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {
-		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
-	}
-	ctx = withGeminiCodeAssistMappedModel(ctx, mappedModel)
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body)
 	if err != nil {
@@ -671,9 +638,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			if req.Stream {
 				action = "streamGenerateContent"
 			}
-			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), requestModel, action)
-			if req.Stream {
-				fullURL += "?alt=sse"
+			fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, mappedModel, action, req.Stream)
+			if err != nil {
+				return nil, "", err
 			}
 
 			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
@@ -745,9 +712,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 					return nil, "", err
 				}
 
-				fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), mappedModel, action)
-				if useUpstreamStream {
-					fullURL += "?alt=sse"
+				fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, mappedModel, action, useUpstreamStream)
+				if err != nil {
+					return nil, "", err
 				}
 
 				restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
@@ -869,20 +836,15 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				// 路径说明：本处上游是 Gemini，但被剥离的 body 是 Anthropic 格式。传 originalModel
 				// （客户端原 Anthropic model）而非 mappedModel（上游 Gemini model），让剥离逻辑按
 				// 客户端请求的 Anthropic 子协议族判定（详见 ResolveThinkingProtocol 文档）。
-				// thinkingRefModelForAnthropicCompat names the deliberate choice of
-				// originalModel over mappedModel on this Anthropic-shape→Gemini-backend
-				// path, so an upstream merge cannot silently swap it (see
-				// thinking_ref_model_tk.go).
-				compatRefModel := thinkingRefModelForAnthropicCompat(originalModel)
 				switch signatureRetryStage {
 				case 0:
 					// Stage 1: disable thinking + thinking->text
-					strippedClaudeBody = FilterThinkingBlocksForRetry(originalClaudeBody, compatRefModel)
+					strippedClaudeBody = FilterThinkingBlocksForRetry(originalClaudeBody, originalModel)
 					stageName = "thinking-only"
 					signatureRetryStage = 1
 				default:
 					// Stage 2: additionally downgrade tool_use/tool_result blocks to text
-					strippedClaudeBody = FilterSignatureSensitiveBlocksForRetry(originalClaudeBody, compatRefModel)
+					strippedClaudeBody = FilterSignatureSensitiveBlocksForRetry(originalClaudeBody, originalModel)
 					stageName = "thinking+tools"
 					signatureRetryStage = 2
 				}
@@ -906,7 +868,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, req.Model); matched {
+		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel); matched {
 			resp = rebuilt
 			break
 		} else {
@@ -974,11 +936,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
-		// 统一错误策略：自定义错误码 + 临时不可调度。内部 Antigravity
-		// relay 空池已在重试循环内分类并计数，不能再落入 pool_mode skipped。
-		if s.rateLimitService != nil &&
-			!tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
-			switch s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody) {
+		// 统一错误策略：自定义错误码 + 临时不可调度
+		if s.rateLimitService != nil {
+			policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
+			switch policy {
 			case ErrorPolicySkipped:
 				upstreamReqID := resp.Header.Get(requestIDHeader)
 				if upstreamReqID == "" {
@@ -989,7 +950,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				}
 				return nil, s.writeGeminiMappedError(c, account, http.StatusInternalServerError, upstreamReqID, respBody)
 			case ErrorPolicyMatched, ErrorPolicyTempUnscheduled:
-				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+				if policy == ErrorPolicyMatched {
+					s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+				}
 				upstreamReqID := resp.Header.Get(requestIDHeader)
 				if upstreamReqID == "" {
 					upstreamReqID = resp.Header.Get("x-goog-request-id")
@@ -1014,14 +977,12 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 					Message:            upstreamMsg,
 					Detail:             upstreamDetail,
 				})
-				return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, respBody)
+				return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody}
 			}
 		}
 
 		// ErrorPolicyNone → 原有逻辑
-		if !tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
-			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-		}
+		s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		// 精确匹配服务端配置类 400 错误，触发 failover + 临时封禁
 		if resp.StatusCode == http.StatusBadRequest {
 			msg400 := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
@@ -1078,7 +1039,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				Message:            upstreamMsg,
 				Detail:             upstreamDetail,
 			})
-			return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, respBody)
+			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody}
 		}
 		upstreamReqID := resp.Header.Get(requestIDHeader)
 		if upstreamReqID == "" {
@@ -1106,12 +1067,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		firstTokenMs = streamRes.firstTokenMs
 	} else {
 		if useUpstreamStream {
-			collected, usageObj, internalThinkingBlocks, err := collectGeminiSSE(resp.Body, true)
+			collected, usageObj, err := collectGeminiSSE(resp.Body, true)
 			if err != nil {
 				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
-			}
-			if len(internalThinkingBlocks) > 0 {
-				c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
 			}
 			collectedBytes, _ := json.Marshal(collected)
 			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, originalModel, collectedBytes, false)
@@ -1187,20 +1145,10 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	// `thoughtSignature` to avoid frequent INVALID_ARGUMENT 400s.
 	body = ensureGeminiFunctionCallThoughtSignatures(body)
 
-	mappedModel, requestModel := resolveGeminiForwardModels(account, originalModel)
-	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject unpriced
-	// models with a 404 BEFORE forward / stream start (SSE pre-flight). Native Gemini ingress
-	// (generateContent/streamGenerateContent) → Gemini 404 envelope. countTokens is EXEMPT
-	// (docs §4, BLOCKER5): it is zero-billing (Usage{}) and a never-hard-fail pre-flight, so
-	// gating it breaks that contract for no leak benefit. Judge originalModel — billing records
-	// result.Model=originalModel here, so the gate must use billing's exact key (BLOCKER1).
-	// No-op unless account.Platform is in the enabled set. See gateway_priced_serving_gate_tk.go.
-	if action != "countTokens" {
-		if !s.tkPricedServingGate(ctx, c, tkGateWireGemini, account.Platform, originalModel, originalModel) {
-			return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
-		}
+	mappedModel := originalModel
+	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
+		mappedModel = account.GetMappedModel(originalModel)
 	}
-	ctx = withGeminiCodeAssistMappedModel(ctx, mappedModel)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -1233,9 +1181,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				return nil, "", err
 			}
 
-			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), requestModel, upstreamAction)
-			if useUpstreamStream {
-				fullURL += "?alt=sse"
+			fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, mappedModel, upstreamAction, useUpstreamStream)
+			if err != nil {
+				return nil, "", err
 			}
 
 			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
@@ -1301,9 +1249,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 					return nil, "", err
 				}
 
-				fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), mappedModel, upstreamAction)
-				if useUpstreamStream {
-					fullURL += "?alt=sse"
+				fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, mappedModel, upstreamAction, useUpstreamStream)
+				if err != nil {
+					return nil, "", err
 				}
 
 				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
@@ -1395,7 +1343,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, originalModel); matched {
+		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel); matched {
 			resp = rebuilt
 			break
 		} else {
@@ -1502,11 +1450,10 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			}, nil
 		}
 
-		// 统一错误策略：自定义错误码 + 临时不可调度。内部 Antigravity
-		// relay 空池已在重试循环内分类并计数，不能再落入 pool_mode skipped。
-		if s.rateLimitService != nil &&
-			!tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
-			switch s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody) {
+		// 统一错误策略：自定义错误码 + 临时不可调度
+		if s.rateLimitService != nil {
+			policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
+			switch policy {
 			case ErrorPolicySkipped:
 				if failoverErr := s.poolModeSkippedFailoverError(c, account, resp.StatusCode, respBody, requestID); failoverErr != nil {
 					return nil, failoverErr
@@ -1520,7 +1467,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				c.Data(http.StatusInternalServerError, contentType, respBody)
 				return nil, fmt.Errorf("gemini upstream error: %d (skipped by error policy)", resp.StatusCode)
 			case ErrorPolicyMatched, ErrorPolicyTempUnscheduled:
-				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+				if policy == ErrorPolicyMatched {
+					s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+				}
 				evBody := unwrapIfNeeded(isOAuth, respBody)
 				upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(evBody))
 				upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -1542,14 +1491,12 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 					Message:            upstreamMsg,
 					Detail:             upstreamDetail,
 				})
-				return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, respBody)
+				return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody}
 			}
 		}
 
 		// ErrorPolicyNone → 原有逻辑
-		if !tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
-			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-		}
+		s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		// 精确匹配服务端配置类 400 错误，触发 failover + 临时封禁
 		if resp.StatusCode == http.StatusBadRequest {
 			msg400 := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
@@ -1600,7 +1547,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				Message:            upstreamMsg,
 				Detail:             upstreamDetail,
 			})
-			return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, evBody)
+			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: evBody}
 		}
 
 		respBody = unwrapIfNeeded(isOAuth, respBody)
@@ -1651,12 +1598,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		firstTokenMs = streamRes.firstTokenMs
 	} else {
 		if useUpstreamStream {
-			collected, usageObj, internalThinkingBlocks, err := collectGeminiSSE(resp.Body, isOAuth)
+			collected, usageObj, err := collectGeminiSSE(resp.Body, isOAuth)
 			if err != nil {
 				return nil, s.writeGoogleError(c, http.StatusBadGateway, "Failed to read upstream stream")
-			}
-			if len(internalThinkingBlocks) > 0 {
-				c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
 			}
 			b, _ := json.Marshal(collected)
 			c.Data(http.StatusOK, "application/json", b)
@@ -1700,12 +1644,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 // 返回 true 表示策略已匹配（调用者应 break），resp 已重建可直接使用。
 // 返回 false 表示 ErrorPolicyNone，resp 已重建，调用者继续走重试逻辑。
 func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
-	ctx context.Context,
-	account *Account,
-	resp *http.Response,
-	requestedModel string,
+	ctx context.Context, account *Account, resp *http.Response, mappedModel string,
 ) (matched bool, rebuilt *http.Response) {
-	if resp.StatusCode < 400 {
+	if resp.StatusCode < 400 || s.rateLimitService == nil {
 		return false, resp
 	}
 	body := s.readUpstreamErrorBody(resp)
@@ -1715,23 +1656,7 @@ func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
 		Header:     resp.Header.Clone(),
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
-	if strings.TrimSpace(requestedModel) != "" &&
-		tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, body) {
-		if s.rateLimitService != nil {
-			s.rateLimitService.handleAntigravityRelayCapacity(
-				ctx,
-				account,
-				resp.StatusCode,
-				body,
-				requestedModel,
-			)
-		}
-		return true, rebuilt
-	}
-	if s.rateLimitService == nil {
-		return false, rebuilt
-	}
-	policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, body)
+	policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, body, mappedModel)
 	return policy != ErrorPolicyNone, rebuilt
 }
 
@@ -1917,7 +1842,7 @@ func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, acc
 			errType = "permission_error"
 		}
 		if errMsg == "" {
-			errMsg = TkEnrichForbiddenMessage(c, "Upstream access forbidden, please contact administrator")
+			errMsg = "Upstream access forbidden, please contact administrator"
 		}
 	case 404:
 		if statusCode == 0 {
@@ -2080,10 +2005,6 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
 
-	internalThinkingBlocks := extractGeminiInternalThinkingBlocks(geminiResp)
-	if len(internalThinkingBlocks) > 0 {
-		c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
-	}
 	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody, false)
 	c.JSON(http.StatusOK, claudeResp)
 
@@ -2135,7 +2056,6 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	openToolID := ""
 	openToolName := ""
 	seenToolJSON := ""
-	var internalThinkingBlocks []string
 
 	reader := bufio.NewReader(resp.Body)
 	for {
@@ -2175,21 +2095,12 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		parts := extractGeminiParts(geminiResp)
 		for _, part := range parts {
 			if text, ok := part["text"].(string); ok && text != "" {
-				if shouldDropGeminiInternalText(text) {
-					internalThinkingBlocks = append(internalThinkingBlocks, strings.TrimSpace(text))
-					continue
-				}
-				delta, newSeen := computeGeminiTextDelta(seenText, text)
-				seenText = newSeen
-				if delta == "" {
-					continue
-				}
-
-				// Close an open tool_use block before starting text. HEAD tracks tool
-				// and text blocks separately (openToolIndex vs openBlockIndex), so —
-				// mirroring the functionCall branch that closes the open text block —
-				// the text path must explicitly stop openToolIndex, or a tool→text
-				// turn emits overlapping Anthropic content blocks (SSE contract break).
+				// Close an open tool_use block before starting text, mirroring
+				// the functionCall branch (which closes open text blocks) and
+				// the chat-completions sibling's closeOpenTool(). Otherwise a
+				// tool→text sequence keeps the tool_use block open while the
+				// text block starts, emitting overlapping Anthropic content
+				// blocks that violate the SSE contract.
 				if openToolIndex >= 0 {
 					writeSSE(c.Writer, "content_block_stop", map[string]any{
 						"type":  "content_block_stop",
@@ -2198,6 +2109,12 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					openToolIndex = -1
 					openToolName = ""
 					seenToolJSON = ""
+				}
+
+				delta, newSeen := computeGeminiTextDelta(seenText, text)
+				seenText = newSeen
+				if delta == "" {
+					continue
 				}
 
 				if openBlockType != "text" {
@@ -2283,7 +2200,19 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					})
 				}
 
-				argsJSONText := normalizeGeminiFunctionArgsJSON(args)
+				argsJSONText := "{}"
+				switch v := args.(type) {
+				case nil:
+					// keep default "{}"
+				case string:
+					if strings.TrimSpace(v) != "" {
+						argsJSONText = v
+					}
+				default:
+					if b, err := json.Marshal(args); err == nil && len(b) > 0 {
+						argsJSONText = string(b)
+					}
+				}
 
 				delta, newSeen := computeGeminiTextDelta(seenToolJSON, argsJSONText)
 				seenToolJSON = newSeen
@@ -2347,9 +2276,6 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		"type": "message_stop",
 	})
 	flusher.Flush()
-	if len(internalThinkingBlocks) > 0 {
-		c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
-	}
 
 	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 }
@@ -2415,13 +2341,12 @@ func unwrapIfNeeded(isOAuth bool, raw []byte) []byte {
 	return inner
 }
 
-func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, []string, error) {
+func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, error) {
 	reader := bufio.NewReader(body)
 
 	var last map[string]any
 	var lastWithParts map[string]any
 	var collectedTextParts []string // Collect all text parts for aggregation
-	var internalThinkingBlocks []string
 	usage := &ClaudeUsage{}
 
 	for {
@@ -2433,7 +2358,7 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 				switch payload {
 				case "", "[DONE]":
 					if payload == "[DONE]" {
-						return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, internalThinkingBlocks, nil
+						return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, nil
 					}
 				default:
 					var parsed map[string]any
@@ -2458,10 +2383,6 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 							// Collect text from each part for aggregation
 							for _, part := range parts {
 								if text, ok := part["text"].(string); ok && text != "" {
-									if shouldDropGeminiInternalText(text) {
-										internalThinkingBlocks = append(internalThinkingBlocks, strings.TrimSpace(text))
-										continue
-									}
 									collectedTextParts = append(collectedTextParts, text)
 								}
 							}
@@ -2475,11 +2396,11 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 			break
 		}
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 	}
 
-	return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, internalThinkingBlocks, nil
+	return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, nil
 }
 
 func pickGeminiCollectResult(last map[string]any, lastWithParts map[string]any) map[string]any {
@@ -2780,10 +2701,13 @@ func (s *GeminiMessagesCompatService) ForwardAIStudioGET(ctx context.Context, ac
 	if account == nil {
 		return nil, errors.New("account is nil")
 	}
-	path = strings.TrimSpace(path)
-	if path == "" || !strings.HasPrefix(path, "/") {
+	// path 会被直接拼到上游 base URL 后面，因此按路径护栏逐片段校验，
+	// 见 upstream_path_guard.go。
+	sanitizedPath, ok := sanitizedUpstreamPathSuffix(path)
+	if !ok || sanitizedPath == "" {
 		return nil, errors.New("invalid path")
 	}
+	path = sanitizedPath
 
 	baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
 	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
@@ -2869,9 +2793,6 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 							continue
 						}
 						if text, ok := pm["text"].(string); ok && text != "" {
-							if shouldDropGeminiInternalText(text) {
-								continue
-							}
 							contentBlocks = append(contentBlocks, map[string]any{
 								"type": "text",
 								"text": text,
@@ -2898,7 +2819,7 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 								"type":  "tool_use",
 								"id":    "toolu_" + randomHex(8),
 								"name":  name,
-								"input": normalizeGeminiFunctionArgs(args),
+								"input": args,
 							})
 						}
 					}
@@ -3016,36 +2937,27 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 	projectID := strings.TrimSpace(account.GetCredential("project_id"))
 	isCodeAssist := account.IsGeminiCodeAssist()
 
-	// TK: per-model rate limit for Code Assist 429s carrying ErrorInfo.metadata.model
-	// (e.g. MODEL_CAPACITY_EXHAUSTED on a single model). See
-	// gemini_messages_compat_service_tk_model_rate_limit.go for rationale.
-	if s.tryGeminiCodeAssistApplyModelRateLimit(ctx, account, body) {
-		return
-	}
-
 	resetAt := ParseGeminiRateLimitResetTime(body)
 	if resetAt == nil {
-		// 根据账号类型使用不同的默认重置时间。
-		//
-		// TK: See upstream Wei-Shaw/sub2api#641 —— 反代 Gemini CLI 的
-		// google_one OAuth 账号收到 429（无 quotaResetDelay/retryDelay）时，
-		// upstream 旧逻辑直接封禁到 PST 午夜，完全忽略 tier 上的 Cooldown
-		// 配置（如 google_ai_pro 的 5min）。所有 OAuth 账号（含 google_one /
-		// aistudio OAuth / code_assist）都应走 tier cooldown；只有非 OAuth
-		// 的 AI Studio API Key 才用 PST 午夜兜底。
+		// 根据账号类型使用不同的默认重置时间
 		var ra time.Time
-		if account.Type == AccountTypeOAuth {
+		if isCodeAssist || oauthType == "google_one" {
+			// Gemini CLI / Google One: fallback cooldown by tier
 			cooldown := geminiCooldownForTier(tierID)
 			if s.rateLimitService != nil {
 				cooldown = s.rateLimitService.GeminiCooldown(ctx, account)
 			}
 			ra = time.Now().Add(cooldown)
-			logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (OAuth oauth_type=%s, tier=%s, project=%s, code_assist=%v) rate limited, cooldown=%v", account.ID, oauthType, tierID, projectID, isCodeAssist, time.Until(ra).Truncate(time.Second))
+			if isCodeAssist {
+				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (Code Assist, tier=%s, project=%s) rate limited, cooldown=%v", account.ID, tierID, projectID, time.Until(ra).Truncate(time.Second))
+			} else {
+				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (Google One OAuth, tier=%s, project=%s) rate limited, cooldown=%v", account.ID, tierID, projectID, time.Until(ra).Truncate(time.Second))
+			}
 		} else {
-			// API Key (AI Studio): PST 午夜
+			// API Key / AI Studio OAuth: PST 午夜
 			if ts := nextGeminiDailyResetUnix(); ts != nil {
 				ra = time.Unix(*ts, 0)
-				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (API Key, type=%s) rate limited, reset at PST midnight (%v)", account.ID, account.Type, ra)
+				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (API Key/AI Studio, type=%s) rate limited, reset at PST midnight (%v)", account.ID, account.Type, ra)
 			} else {
 				// 兜底：5 分钟
 				ra = time.Now().Add(5 * time.Minute)
@@ -3073,29 +2985,19 @@ func ParseGeminiRateLimitResetTime(body []byte) *int64 {
 		}
 	}
 
-	// 遍历 error.details 查找 reset delay。
-	// Google 错误体常见两种位置：
-	//  1) ErrorInfo.metadata.quotaResetDelay
-	//  2) RetryInfo.retryDelay（部分代理会放到 metadata.retryDelay）
+	// 遍历 error.details 查找 quotaResetDelay
 	var found *int64
 	gjson.GetBytes(body, "error.details").ForEach(func(_, detail gjson.Result) bool {
-		candidates := []string{
-			detail.Get("metadata.quotaResetDelay").String(),
-			detail.Get("retryDelay").String(),
-			detail.Get("metadata.retryDelay").String(),
+		v := detail.Get("metadata.quotaResetDelay").String()
+		if v == "" {
+			return true
 		}
-		for _, v := range candidates {
-			v = strings.TrimSpace(v)
-			if v == "" {
-				continue
-			}
-			if dur, err := time.ParseDuration(v); err == nil {
-				// Use ceil to avoid undercounting fractional seconds (e.g. 10.1s should not become 10s),
-				// which can affect scheduling decisions around thresholds (like 10s).
-				ts := time.Now().Unix() + int64(math.Ceil(dur.Seconds()))
-				found = &ts
-				return false
-			}
+		if dur, err := time.ParseDuration(v); err == nil {
+			// Use ceil to avoid undercounting fractional seconds (e.g. 10.1s should not become 10s),
+			// which can affect scheduling decisions around thresholds (like 10s).
+			ts := time.Now().Unix() + int64(math.Ceil(dur.Seconds()))
+			found = &ts
+			return false
 		}
 		return true
 	})
@@ -3211,95 +3113,6 @@ func extractGeminiParts(geminiResp map[string]any) []map[string]any {
 		}
 	}
 	return nil
-}
-
-func extractGeminiInternalThinkingBlocks(geminiResp map[string]any) []string {
-	parts := extractGeminiParts(geminiResp)
-	if len(parts) == 0 {
-		return nil
-	}
-	blocks := make([]string, 0, len(parts))
-	for _, part := range parts {
-		text, ok := part["text"].(string)
-		if !ok || text == "" {
-			continue
-		}
-		if !shouldDropGeminiInternalText(text) {
-			continue
-		}
-		blocks = append(blocks, strings.TrimSpace(text))
-	}
-	if len(blocks) == 0 {
-		return nil
-	}
-	return blocks
-}
-
-func shouldDropGeminiInternalText(text string) bool {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return false
-	}
-	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
-		return false
-	}
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
-		return false
-	}
-	typeVal, _ := payload["type"].(string)
-	typeVal = strings.TrimSpace(strings.ToLower(typeVal))
-	if typeVal != "thinking" {
-		return false
-	}
-	_, hasSignature := payload["signature"]
-	return hasSignature
-}
-
-func normalizeGeminiFunctionArgs(args any) map[string]any {
-	switch v := args.(type) {
-	case nil:
-		return map[string]any{}
-	case map[string]any:
-		return v
-	case string:
-		trimmed := strings.TrimSpace(v)
-		if trimmed == "" {
-			return map[string]any{}
-		}
-		var parsed any
-		if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
-			return map[string]any{}
-		}
-		obj, ok := parsed.(map[string]any)
-		if !ok {
-			return map[string]any{}
-		}
-		return obj
-	default:
-		b, err := json.Marshal(v)
-		if err != nil || len(b) == 0 {
-			return map[string]any{}
-		}
-		var parsed any
-		if err := json.Unmarshal(b, &parsed); err != nil {
-			return map[string]any{}
-		}
-		obj, ok := parsed.(map[string]any)
-		if !ok {
-			return map[string]any{}
-		}
-		return obj
-	}
-}
-
-func normalizeGeminiFunctionArgsJSON(args any) string {
-	normalized := normalizeGeminiFunctionArgs(args)
-	b, err := json.Marshal(normalized)
-	if err != nil || len(b) == 0 {
-		return "{}"
-	}
-	return string(b)
 }
 
 func computeGeminiTextDelta(seen, incoming string) (delta, newSeen string) {
@@ -3510,11 +3323,6 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 							}
 						}
 					}
-				case "thinking":
-					// Drop Claude thinking blocks — Gemini does not consume Claude's
-					// thinking format. The default: path would serialize them as JSON
-					// text, which Gemini echoes back verbatim in its response, producing
-					// {"type":"thinking","signature":"..."} text visible to the caller.
 				default:
 					// best-effort: preserve unknown blocks as text
 					if b, err := json.Marshal(bm); err == nil {
@@ -3609,7 +3417,7 @@ func convertClaudeToolsToGeminiTools(tools any) []any {
 			}
 		}
 		// 清理 JSON Schema
-		cleanedParams := tkCleanToolSchema(params)
+		cleanedParams := cleanToolSchema(params)
 
 		funcDecls = append(funcDecls, map[string]any{
 			"name":        name,

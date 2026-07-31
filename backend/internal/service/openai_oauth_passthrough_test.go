@@ -223,81 +223,7 @@ func TestOpenAIGatewayService_OAuthMessagesBridgeDoesNotInjectDefaultInstruction
 	require.NotEmpty(t, upstream.lastReq.Header.Get("Session_Id"))
 	require.Empty(t, upstream.lastReq.Header.Get("Conversation_Id"))
 	require.Empty(t, upstream.lastReq.Header.Get("OpenAI-Beta"))
-	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
-}
-
-func TestOpenAIGatewayService_OAuthUpstreamHeadersNormalizeNonCodexIngress(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	tests := []struct {
-		name           string
-		path           string
-		body           []byte
-		userAgent      string
-		wantOriginator string
-	}{
-		{
-			name:           "responses python requests",
-			path:           "/v1/responses",
-			body:           []byte(`{"model":"gpt-5.5","stream":true,"instructions":"local-test-instructions","input":[{"type":"input_text","text":"hi"}]}`),
-			userAgent:      "python-requests/2.33.1",
-			wantOriginator: "codex_cli_rs",
-		},
-		{
-			name:           "chat completions python urllib",
-			path:           "/v1/chat/completions",
-			body:           []byte(`{"model":"gpt-5.5","stream":true,"messages":[{"role":"user","content":"hi"}]}`),
-			userAgent:      "Python-urllib/3.13",
-			wantOriginator: "codex_cli_rs",
-		},
-		{
-			name:           "messages claude cli",
-			path:           "/v1/messages",
-			body:           []byte(`{"model":"claude-opus-4-7","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"hi"}]}`),
-			userAgent:      "claude-cli/2.1.179 (external, sdk-cli)",
-			wantOriginator: "codex_cli_rs",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			rec := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(rec)
-			c.Request = httptest.NewRequest(http.MethodPost, tt.path, bytes.NewReader(tt.body))
-			c.Request.Header.Set("Content-Type", "application/json")
-			c.Request.Header.Set("User-Agent", tt.userAgent)
-
-			upstream := &httpUpstreamRecorder{resp: &http.Response{
-				StatusCode: http.StatusBadRequest,
-				Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-normalize"}},
-				Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"stop after capture"}}`)),
-			}}
-			svc := &OpenAIGatewayService{
-				cfg:          &config.Config{},
-				httpUpstream: upstream,
-			}
-			account := &Account{
-				ID:          123,
-				Name:        "acc",
-				Platform:    PlatformOpenAI,
-				Type:        AccountTypeOAuth,
-				Concurrency: 1,
-				Credentials: map[string]any{
-					"access_token":       "oauth-token",
-					"chatgpt_account_id": "chatgpt-acc",
-				},
-				Status:      StatusActive,
-				Schedulable: true,
-			}
-
-			_, err := svc.Forward(context.Background(), c, account, tt.body)
-			require.Error(t, err)
-			require.NotNil(t, upstream.lastReq)
-			require.Equal(t, DefaultOpenAICodexUserAgent, upstream.lastReq.Header.Get("User-Agent"))
-			require.Equal(t, tt.wantOriginator, upstream.lastReq.Header.Get("originator"))
-			require.NotEqual(t, tt.userAgent, upstream.lastReq.Header.Get("User-Agent"))
-		})
-	}
+	require.Empty(t, upstream.lastReq.Header.Get("originator"))
 }
 
 type openAIPassthroughFailoverRepo struct {
@@ -507,14 +433,83 @@ func TestOpenAIGatewayService_OAuthPassthrough_StreamKeepsToolNameAndBodyNormali
 	require.NotContains(t, body, "\"name\":\"edit\"")
 }
 
-func TestOpenAIGatewayService_OAuthPassthrough_NamespaceRequestAndStreamResponse(t *testing.T) {
+// 「自动透传（仅替换认证）」的默认行为必须真的只替换认证：namespace 声明、
+// namespace 形态的 tool_choice、历史调用项上的 namespace 都原样转发，只清掉
+// 非调用项上的残留 namespace（Codex 协议里只有调用项会带该字段）。
+func TestOpenAIGatewayService_OAuthPassthrough_PreservesNamespaceRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
 	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.144.1")
-	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+
+	originalBody := []byte(`{
+		"model":"gpt-5.5",
+		"stream":true,
+		"instructions":"local-test-instructions",
+		"tools":[
+			{"type":"function","name":"plain","description":"keep","parameters":{"type":"object"}},
+			{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"spawn_agent","description":"spawn","parameters":{"type":"object"}}]}
+		],
+		"tool_choice":{"type":"function","name":"spawn_agent","namespace":"collaboration"},
+		"input":[
+			{"type":"function_call","call_id":"call_old","name":"spawn_agent","namespace":"collaboration","arguments":"{}"},
+			{"type":"message","role":"user","namespace":"residual","content":[{"type":"input_text","text":"keep","namespace":"nested"}]}
+		]
+	}`)
+
+	upstreamSSE := strings.Join([]string{
+		`data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"spawn_agent","namespace":"collaboration","arguments":"{}"}}`,
+		"",
+		`data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_preserve"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamSSE)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{
+		ID: 125, Name: "acc", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
+		Credentials: map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "chatgpt-acc"},
+		Extra:       map[string]any{"openai_passthrough": true}, Status: StatusActive, Schedulable: true, RateMultiplier: f64p(1),
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	require.Len(t, gjson.GetBytes(upstream.lastBody, "tools").Array(), 2)
+	require.Equal(t, "namespace", gjson.GetBytes(upstream.lastBody, "tools.1.type").String())
+	require.Equal(t, "collaboration", gjson.GetBytes(upstream.lastBody, "tools.1.name").String())
+	require.Equal(t, "spawn_agent", gjson.GetBytes(upstream.lastBody, "tools.1.tools.0.name").String())
+	require.Equal(t, "collaboration", gjson.GetBytes(upstream.lastBody, "tool_choice.namespace").String())
+	require.Equal(t, "spawn_agent", gjson.GetBytes(upstream.lastBody, "tool_choice.name").String())
+	require.Equal(t, "collaboration", gjson.GetBytes(upstream.lastBody, "input.0.namespace").String())
+	require.Equal(t, "spawn_agent", gjson.GetBytes(upstream.lastBody, "input.0.name").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "input.1.namespace").Exists())
+	require.Equal(t, "nested", gjson.GetBytes(upstream.lastBody, "input.1.content.0.namespace").String())
+	require.NotContains(t, string(upstream.lastBody), "collaboration__spawn_agent")
+
+	// 未摊平即无需回程还原，上游事件原样下发。
+	downstream := rec.Body.String()
+	require.Contains(t, downstream, `"name":"spawn_agent"`)
+	require.Contains(t, downstream, `"namespace":"collaboration"`)
+}
+
+// 兼容开关打开时的旧行为：摊平请求、回程还原。默认路径见
+// TestOpenAIGatewayService_OAuthPassthrough_PreservesNamespaceRequest。
+func TestOpenAIGatewayService_OAuthPassthrough_FlattenEnabledNamespaceRequestAndStreamResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.144.1")
 
 	originalBody := []byte(`{
 		"model":"gpt-5.5",
@@ -550,7 +545,11 @@ func TestOpenAIGatewayService_OAuthPassthrough_NamespaceRequestAndStreamResponse
 	account := &Account{
 		ID: 123, Name: "acc", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
 		Credentials: map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "chatgpt-acc"},
-		Extra:       map[string]any{"openai_passthrough": true}, Status: StatusActive, Schedulable: true, RateMultiplier: f64p(1),
+		Extra: map[string]any{
+			"openai_passthrough":                  true,
+			"openai_responses_flatten_namespaces": true,
+		},
+		Status: StatusActive, Schedulable: true, RateMultiplier: f64p(1),
 	}
 
 	result, err := svc.Forward(context.Background(), c, account, originalBody)
@@ -576,13 +575,14 @@ func TestOpenAIGatewayService_OAuthPassthrough_NamespaceRequestAndStreamResponse
 	require.Contains(t, downstream, `"namespace":"collaboration"`)
 }
 
-func TestOpenAIGatewayService_NativeOAuth_NamespaceRequestAndStreamResponse(t *testing.T) {
+// 兼容开关打开时的旧行为；默认保留路径见
+// TestOpenAIGatewayService_OAuthPreservesCodexNamespaceTools。
+func TestOpenAIGatewayService_NativeOAuth_FlattenEnabledNamespaceRequestAndStreamResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
 	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.144.1")
-	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
 	body := []byte(`{
 		"model":"gpt-5.5","stream":true,"instructions":"test",
 		"tools":[{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"spawn_agent","parameters":{"type":"object"}}]}],
@@ -605,7 +605,7 @@ func TestOpenAIGatewayService_NativeOAuth_NamespaceRequestAndStreamResponse(t *t
 	account := &Account{
 		ID: 124, Name: "native", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
 		Credentials: map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "chatgpt-acc"},
-		Extra:       map[string]any{"openai_oauth_responses_websockets_v2_mode": OpenAIWSIngressModeOff},
+		Extra:       map[string]any{"openai_responses_flatten_namespaces": true},
 		Status:      StatusActive, Schedulable: true, RateMultiplier: f64p(1),
 	}
 
@@ -673,7 +673,8 @@ func TestOpenAIGatewayService_OAuthPassthrough_NamespaceNonStreamingResponse(t *
 	require.Contains(t, rec.Body.String(), `"namespace":"collaboration"`)
 }
 
-func TestOpenAIGatewayService_OAuthPassthrough_NamespaceCollisionReturnsBadRequest(t *testing.T) {
+// 摊平名冲突只在兼容开关打开时才可能发生：默认保留 namespace，不存在平名冲突。
+func TestOpenAIGatewayService_OAuthPassthrough_FlattenEnabledNamespaceCollisionReturnsBadRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -691,7 +692,11 @@ func TestOpenAIGatewayService_OAuthPassthrough_NamespaceCollisionReturnsBadReque
 	account := &Account{
 		ID: 123, Name: "acc", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
 		Credentials: map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "chatgpt-acc"},
-		Extra:       map[string]any{"openai_passthrough": true}, Status: StatusActive, Schedulable: true, RateMultiplier: f64p(1),
+		Extra: map[string]any{
+			"openai_passthrough":                  true,
+			"openai_responses_flatten_namespaces": true,
+		},
+		Status: StatusActive, Schedulable: true, RateMultiplier: f64p(1),
 	}
 
 	result, err := svc.Forward(context.Background(), c, account, body)
@@ -804,57 +809,53 @@ func TestOpenAIGatewayService_OAuthPassthrough_UpstreamRequestIgnoresClientCance
 	require.NoError(t, upstream.lastReq.Context().Err())
 }
 
-func TestOpenAIGatewayService_OAuthPassthrough_CodexMissingInstructionsRejectedBeforeUpstream(t *testing.T) {
+func TestOpenAIGatewayService_OAuthPassthrough_CodexMissingInstructionsGetsDefault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	logSink, restore := captureStructuredLog(t)
-	defer restore()
 
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses?trace=1", bytes.NewReader(nil))
-	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.98.0 (Windows 10.0.19045; x86_64) unknown")
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Request.Header.Set("OpenAI-Beta", "responses=experimental")
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			path := "/v1/responses"
+			responseBody := strings.Join([]string{
+				`data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}`,
+				"", "data: [DONE]", "",
+			}, "\n")
+			responseContentType := "text/event-stream"
+			if !stream {
+				path = "/v1/responses/compact"
+				responseBody = `{"id":"resp_1","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1}}`
+				responseContentType = "application/json"
+			}
+			c.Request = httptest.NewRequest(http.MethodPost, path, bytes.NewReader(nil))
+			c.Request.Header.Set("User-Agent", "codex_cli_rs/0.98.0")
 
-	// Codex 模型且缺少 instructions，应在本地直接 403 拒绝，不触达上游。
-	originalBody := []byte(`{"model":"gpt-5.1-codex-max","stream":false,"store":true,"input":[{"type":"text","text":"hi"}]}`)
+			originalBody := []byte(fmt.Sprintf(`{"model":"gpt-5.1-codex-max","stream":%t,"store":true,"input":[{"type":"text","text":"hi"}]}`, stream))
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{responseContentType}, "x-request-id": []string{"rid"}},
+				Body:       io.NopCloser(strings.NewReader(responseBody)),
+			}}
+			svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+			account := &Account{
+				ID: 123, Name: "acc", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
+				Credentials: map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "chatgpt-acc"},
+				Extra:       map[string]any{"openai_passthrough": true, "openai_oauth_responses_websockets_v2_mode": OpenAIWSIngressModeOff},
+				Status:      StatusActive, Schedulable: true, RateMultiplier: f64p(1),
+			}
 
-	upstream := &httpUpstreamRecorder{
-		resp: &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid"}},
-			Body:       io.NopCloser(strings.NewReader(`{"output":[],"usage":{"input_tokens":1,"output_tokens":1}}`)),
-		},
+			result, err := svc.Forward(context.Background(), c, account, originalBody)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.NotNil(t, upstream.lastReq)
+			if stream {
+				require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+			} else {
+				require.False(t, gjson.GetBytes(upstream.lastBody, "stream").Exists())
+			}
+			require.Equal(t, strings.TrimSpace(defaultCodexSynthInstructions("gpt-5.1-codex-max")), strings.TrimSpace(gjson.GetBytes(upstream.lastBody, "instructions").String()))
+		})
 	}
-
-	svc := &OpenAIGatewayService{
-		cfg:          &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
-		httpUpstream: upstream,
-	}
-
-	account := &Account{
-		ID:             123,
-		Name:           "acc",
-		Platform:       PlatformOpenAI,
-		Type:           AccountTypeOAuth,
-		Concurrency:    1,
-		Credentials:    map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "chatgpt-acc"},
-		Extra:          map[string]any{"openai_passthrough": true},
-		Status:         StatusActive,
-		Schedulable:    true,
-		RateMultiplier: f64p(1),
-	}
-
-	result, err := svc.Forward(context.Background(), c, account, originalBody)
-	require.Error(t, err)
-	require.Nil(t, result)
-	require.Equal(t, http.StatusForbidden, rec.Code)
-	require.Contains(t, rec.Body.String(), "requires a non-empty instructions field")
-	require.Nil(t, upstream.lastReq)
-
-	require.True(t, logSink.ContainsMessage("OpenAI passthrough 本地拦截：Codex 请求缺少有效 instructions"))
-	require.True(t, logSink.ContainsFieldValue("request_user_agent", "codex_cli_rs/0.98.0 (Windows 10.0.19045; x86_64) unknown"))
-	require.True(t, logSink.ContainsFieldValue("reject_reason", "instructions_missing"))
 }
 
 func TestOpenAIGatewayService_OAuthPassthrough_DisabledUsesLegacyTransform(t *testing.T) {
@@ -987,9 +988,9 @@ func TestOpenAIGatewayService_OAuthLegacy_CompositeCodexUAUsesCodexOriginator(t 
 	_, err := svc.Forward(context.Background(), c, account, inputBody)
 	require.NoError(t, err)
 	require.NotNil(t, upstream.lastReq)
-	// 浏览器型复合 UA 被替换为默认 Codex CLI UA，originator 随最终 UA 配套（issue #3901）。
+	// 浏览器型复合 UA 被替换为默认 Codex UA（codex-tui 形态），originator 随最终 UA 配套（issue #3901）。
 	require.Equal(t, DefaultOpenAICodexUserAgent, upstream.lastReq.Header.Get("User-Agent"))
-	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
+	require.Equal(t, "codex-tui", upstream.lastReq.Header.Get("originator"))
 	require.NotEqual(t, "opencode", upstream.lastReq.Header.Get("originator"))
 }
 
@@ -1407,9 +1408,7 @@ func TestOpenAIGatewayService_OpenAIPassthrough_RetryableStatusesTriggerFailover
 			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, start time.Time) {
 				require.Empty(t, repo.rateLimitCalls)
 				require.Len(t, repo.overloadCalls, 1)
-				// 529 without Retry-After now gets the 30s tier-0 floor, not flat 10min
-				// (amplifier removal, 2026-06-11). Sustained 529 escalates via the 3/3 ladder.
-				require.WithinDuration(t, start.Add(anthropicCooldownTierLadder[0]), repo.overloadCalls[0], 5*time.Second)
+				require.WithinDuration(t, start.Add(10*time.Minute), repo.overloadCalls[0], 5*time.Second)
 			},
 		},
 		{
@@ -1469,9 +1468,7 @@ func TestOpenAIGatewayService_OpenAIPassthrough_RetryableStatusesTriggerFailover
 			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, start time.Time) {
 				require.Empty(t, repo.rateLimitCalls)
 				require.Len(t, repo.overloadCalls, 1)
-				// 529 without Retry-After now gets the 30s tier-0 floor, not flat 10min
-				// (amplifier removal, 2026-06-11). Sustained 529 escalates via the 3/3 ladder.
-				require.WithinDuration(t, start.Add(anthropicCooldownTierLadder[0]), repo.overloadCalls[0], 5*time.Second)
+				require.WithinDuration(t, start.Add(10*time.Minute), repo.overloadCalls[0], 5*time.Second)
 			},
 		},
 	}
@@ -1540,139 +1537,140 @@ func TestOpenAIGatewayService_OpenAIPassthrough_RetryableStatusesTriggerFailover
 	}
 }
 
-// passthroughTempUnschedRepo records SetTempUnschedulable calls so the test can
-// assert that a hit on a temp-unsched rule actually propagates to the account
-// repository. SetTempUnschedulable returns nil so the rate-limit service treats
-// the trigger as successful and HandleUpstreamError reports shouldDisable=true.
-type passthroughTempUnschedRepo struct {
-	stubOpenAIAccountRepo
-	tempUnschedCalls      []time.Time
-	tempUnschedReasons    []string
-	modelRateLimitScopes  []string
-	modelRateLimitReasons []string
-}
-
-func (r *passthroughTempUnschedRepo) SetTempUnschedulable(_ context.Context, _ int64, until time.Time, reason string) error {
-	r.tempUnschedCalls = append(r.tempUnschedCalls, until)
-	r.tempUnschedReasons = append(r.tempUnschedReasons, reason)
-	return nil
-}
-
-func (r *passthroughTempUnschedRepo) SetModelRateLimit(_ context.Context, _ int64, scope string, _ time.Time, reason ...string) error {
-	r.modelRateLimitScopes = append(r.modelRateLimitScopes, scope)
-	if len(reason) > 0 {
-		r.modelRateLimitReasons = append(r.modelRateLimitReasons, reason[0])
-	}
-	return nil
-}
-
-// TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover pins
-// the fix for upstream Wei-Shaw/sub2api#1318: when an OAuth account in
-// passthrough mode hits a configured temporary-unschedulable rule, the rate-
-// limit service must (a) mark the account temp-unsched (existing behavior),
-// AND (b) the current request must return UpstreamFailoverError so the handler
-// can fail over to another account instead of returning the upstream error to
-// the client. Before the fix, passthrough discarded HandleUpstreamError's
-// shouldDisable signal and only the side effect fired — the in-flight request
-// was still completed against the now-disabled account.
-func TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover(t *testing.T) {
+func TestOpenAIGatewayService_APIKeyPassthrough_Transient5xxTriggersFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	requestBody := []byte(`{"model":"gpt-5.2","stream":false,"input":"hello"}`)
 
+	for _, statusCode := range []int{
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
+		520, 521, 522, 523, 524,
+	} {
+		t.Run(fmt.Sprintf("status_%d", statusCode), func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+			c.Request.Header.Set("User-Agent", "codex_cli_rs/0.1.0")
+
+			upstreamBody := fmt.Sprintf(`{"error":{"message":"temporary upstream failure","status":%d}}`, statusCode)
+			body := &passthroughCloseTrackingReadCloser{Reader: strings.NewReader(upstreamBody)}
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: statusCode,
+				Header: http.Header{
+					"Content-Type": []string{"application/json"},
+					"X-Request-Id": []string{"rid-api-key-5xx"},
+				},
+				Body: body,
+			}}
+			svc := &OpenAIGatewayService{
+				cfg:          &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
+				httpUpstream: upstream,
+			}
+			account := &Account{
+				ID:          124,
+				Name:        "api-key-transient-5xx",
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Concurrency: 1,
+				Credentials: map[string]any{
+					"api_key":  "sk-test",
+					"base_url": "https://api.example.test",
+				},
+				Extra:       map[string]any{"openai_passthrough": true},
+				Status:      StatusActive,
+				Schedulable: true,
+			}
+
+			result, err := svc.Forward(context.Background(), c, account, requestBody)
+
+			require.Nil(t, result, "failed attempts must not report usage or success metadata")
+			var failoverErr *UpstreamFailoverError
+			require.ErrorAs(t, err, &failoverErr)
+			require.Equal(t, statusCode, failoverErr.StatusCode)
+			require.JSONEq(t, upstreamBody, string(failoverErr.ResponseBody))
+			require.Equal(t, "rid-api-key-5xx", failoverErr.ResponseHeaders.Get("x-request-id"))
+			require.False(t, c.Writer.Written(), "failover must happen before downstream output is committed")
+			require.True(t, body.closed, "the failed upstream response body must be closed")
+			require.Equal(t, requestBody, upstream.lastBody, "the request body remains available for the outer account retry")
+
+			value, ok := c.Get(OpsUpstreamErrorsKey)
+			require.True(t, ok)
+			events, ok := value.([]*OpsUpstreamErrorEvent)
+			require.True(t, ok)
+			require.NotEmpty(t, events)
+			require.Equal(t, "failover", events[len(events)-1].Kind)
+			require.Equal(t, account.ID, events[len(events)-1].AccountID)
+		})
+	}
+}
+
+func TestOpenAIGatewayService_APIKeyPassthrough_ContextWindow502DoesNotFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
-	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.1.0")
 
-	originalBody := []byte(`{"model":"gpt-5.2","stream":false,"instructions":"local-test-instructions","input":[{"type":"text","text":"hi"}]}`)
-
-	// Upstream returns 402 with body matching the configured temp-unsched
-	// keyword "deactivated". The rate-limit service must trigger the rule and
-	// report shouldDisable=true.
-	resp := &http.Response{
-		StatusCode: http.StatusPaymentRequired,
-		Header: http.Header{
-			"Content-Type": []string{"application/json"},
-			"x-request-id": []string{"rid-temp-unsched"},
-		},
-		Body: io.NopCloser(strings.NewReader(`{"detail":{"code":"deactivated_workspace"}}`)),
+	const upstreamBody = `{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","type":"upstream_error"}}`
+	body := &passthroughCloseTrackingReadCloser{Reader: strings.NewReader(upstreamBody)}
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
+		httpUpstream: &httpUpstreamRecorder{resp: &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       body,
+		}},
 	}
-	upstream := &httpUpstreamRecorder{resp: resp}
-
-	repo := &passthroughTempUnschedRepo{}
-	rateSvc := &RateLimitService{
-		accountRepo: repo,
-		cfg: &config.Config{
-			RateLimit: config.RateLimitConfig{OverloadCooldownMinutes: 10},
-		},
+	account := &Account{
+		ID: 127, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.example.test"},
+		Extra:       map[string]any{"openai_passthrough": true}, Status: StatusActive, Schedulable: true,
 	}
+
+	result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.2","input":"hello"}`))
+
+	require.Nil(t, result)
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr), "context-window errors are deterministic request failures")
+	require.True(t, c.Writer.Written())
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.Contains(t, rec.Body.String(), "exceeds the context window")
+	require.True(t, body.closed)
+}
+
+func TestOpenAIGatewayService_APIKeyPassthrough_PoolModeConfigured5xxRetriesSameAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
 
 	svc := &OpenAIGatewayService{
-		cfg:              &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
-		httpUpstream:     upstream,
-		rateLimitService: rateSvc,
+		cfg: &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
+		httpUpstream: &httpUpstreamRecorder{resp: &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"temporary upstream failure"}}`)),
+		}},
 	}
-
 	account := &Account{
-		ID:          321,
-		Name:        "acc-temp-unsched",
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeOAuth,
-		Concurrency: 1,
+		ID: 128, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
 		Credentials: map[string]any{
-			"access_token":               "oauth-token",
-			"chatgpt_account_id":         "chatgpt-acc",
-			"temp_unschedulable_enabled": true,
-			"temp_unschedulable_rules": []any{
-				map[string]any{
-					"error_code":       float64(402),
-					"keywords":         []any{"deactivated"},
-					"duration_minutes": float64(1440),
-					"description":      "402 deactivated workspace -> temp unsched",
-				},
-			},
+			"api_key":                      "sk-test",
+			"base_url":                     "https://api.example.test",
+			"pool_mode":                    true,
+			"pool_mode_retry_status_codes": []any{float64(http.StatusBadGateway)},
 		},
-		Extra:          map[string]any{"openai_passthrough": true},
-		Status:         StatusActive,
-		Schedulable:    true,
-		RateMultiplier: f64p(1),
+		Extra: map[string]any{"openai_passthrough": true}, Status: StatusActive, Schedulable: true,
 	}
 
-	_, err := svc.Forward(context.Background(), c, account, originalBody)
-	require.Error(t, err)
+	_, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.2","input":"hello"}`))
 
 	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr,
-		"passthrough + temp-unsched rule match must surface UpstreamFailoverError so the handler retries on another account")
-	require.Equal(t, http.StatusPaymentRequired, failoverErr.StatusCode)
-	require.False(t, c.Writer.Written(),
-		"passthrough must NOT write the upstream error to the client when the account was disabled — failover loop owns the response")
-
-	require.Len(t, repo.modelRateLimitScopes, 1,
-		"known-model temp-unsched rule matches must persist under the model key")
-	require.Equal(t, "gpt-5.2", repo.modelRateLimitScopes[0])
-	// Reason must carry the matched rule context (status code + matched keyword)
-	// so ops can later attribute the disable back to the right rule. This pins
-	// that #1318's regression is not just "shouldDisable propagated" but also
-	// "the matched-rule reason was actually persisted" — a previous half-applied
-	// state where the reason was empty would silently make admin troubleshooting
-	// useless.
-	require.Len(t, repo.modelRateLimitReasons, 1)
-	persistedReason := repo.modelRateLimitReasons[0]
-	require.Contains(t, persistedReason, "deactivated",
-		"persisted temp-unsched reason must contain the matched keyword so admin/ops can attribute the disable")
-	require.Contains(t, persistedReason, "402",
-		"persisted temp-unsched reason must contain the triggering status code")
-
-	v, ok := c.Get(OpsUpstreamErrorsKey)
-	require.True(t, ok)
-	arr, ok := v.([]*OpsUpstreamErrorEvent)
-	require.True(t, ok)
-	require.NotEmpty(t, arr)
-	last := arr[len(arr)-1]
-	require.True(t, last.Passthrough)
-	require.Equal(t, "failover", last.Kind,
-		"shouldDisable=true must mark the ops event as failover, not http_error")
-	require.Equal(t, http.StatusPaymentRequired, last.UpstreamStatusCode)
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.False(t, c.Writer.Written())
 }
 
 func TestOpenAIGatewayService_OpenAIPassthrough_CompactNetworkErrorsTriggerFailover(t *testing.T) {
@@ -2046,6 +2044,8 @@ func TestOpenAIGatewayService_APIKeyPassthrough_PreservesBodyAndUsesResponsesEnd
 	c.Request.Header.Set("User-Agent", "curl/8.0")
 	c.Request.Header.Set("X-Test", "keep")
 	c.Request.Header.Set("x-codex-beta-features", "remote_compaction_v2")
+	c.Request.Header.Set("X-Codex-Window-ID", "window-passthrough")
+	c.Request.Header.Set("X-Codex-Installation-ID", "installation-passthrough")
 
 	originalBody := []byte(`{"model":"gpt-5.2","stream":false,"service_tier":"flex","max_output_tokens":128,"input":[{"type":"text","text":"hi"}]}`)
 	resp := &http.Response{
@@ -2079,19 +2079,13 @@ func TestOpenAIGatewayService_APIKeyPassthrough_PreservesBodyAndUsesResponsesEnd
 	require.NotNil(t, result.ServiceTier)
 	require.Equal(t, "flex", *result.ServiceTier)
 	require.NotNil(t, upstream.lastReq)
-	// Sticky routing: passthrough now derives + injects prompt_cache_key when
-	// the body lacks one. Original fields must be preserved verbatim.
-	// See docs/approved/sticky-routing.md.
-	require.Equal(t, "gpt-5.2", gjson.GetBytes(upstream.lastBody, "model").String())
-	require.Equal(t, false, gjson.GetBytes(upstream.lastBody, "stream").Bool())
-	require.Equal(t, "flex", gjson.GetBytes(upstream.lastBody, "service_tier").String())
-	require.Equal(t, int64(128), gjson.GetBytes(upstream.lastBody, "max_output_tokens").Int())
-	require.NotEmpty(t, gjson.GetBytes(upstream.lastBody, "prompt_cache_key").String(),
-		"sticky routing should inject prompt_cache_key on passthrough when client didn't supply one")
+	require.Equal(t, originalBody, upstream.lastBody)
 	require.Equal(t, "https://api.openai.com/v1/responses", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer sk-api-key", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "curl/8.0", upstream.lastReq.Header.Get("User-Agent"))
 	require.Equal(t, "remote_compaction_v2", upstream.lastReq.Header.Get("x-codex-beta-features"))
+	require.Equal(t, "window-passthrough", upstream.lastReq.Header.Get("X-Codex-Window-ID"))
+	require.Equal(t, "installation-passthrough", upstream.lastReq.Header.Get("X-Codex-Installation-ID"))
 	require.Empty(t, upstream.lastReq.Header.Get("X-Test"))
 }
 

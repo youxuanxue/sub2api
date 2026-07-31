@@ -33,8 +33,10 @@ const (
 	openaiPlatformAPIURL            = "https://api.openai.com/v1/responses"
 	openaiPlatformAPIInputTokensURL = "https://api.openai.com/v1/responses/input_tokens"
 	openaiStickySessionTTL          = time.Hour // 粘性会话TTL
-	// Keep the forged Codex UA pinned to the runtime setting default.
-	codexCLIUserAgent = DefaultOpenAICodexUserAgent
+	// 与真实 Codex CLI 的 User-Agent 结构对齐：
+	// {originator}/{version} ({OS} {OS_version}; {arch}) {terminal}
+	// 旧值 "codex_cli_rs/0.125.0" 缺少 OS/架构/终端后缀，易被上游指纹识别为非官方客户端。
+	codexCLIUserAgent = "codex_cli_rs/0.144.1 (Ubuntu 22.4.0; x86_64) xterm-256color"
 	// codex_cli_only 拒绝时单个请求头日志长度上限（字符）
 	codexCLIOnlyHeaderValueMaxBytes = 256
 
@@ -48,6 +50,8 @@ const (
 	openAIWSRetryBackoffMaxDefault     = 2 * time.Second
 	openAIWSRetryJitterRatioDefault    = 0.2
 	openAICompactSessionSeedKey        = "openai_compact_session_seed"
+	openAIUpstreamEndpointContextKey   = "openai_actual_upstream_endpoint"
+	codexCLIVersion                    = "0.144.1"
 	// Codex 限额快照仅用于后台展示/诊断，不需要每个成功请求都立即落库。
 	openAICodexSnapshotPersistMinInterval = 30 * time.Second
 	// 配额自动暂停时，超过该时长仍未刷新的 used% 快照视为陈旧，不再据此暂停账号。
@@ -58,33 +62,37 @@ const (
 
 // OpenAI allowed headers whitelist (for non-passthrough).
 var openaiAllowedHeaders = map[string]bool{
-	"accept-language":       true,
-	"content-type":          true,
-	"conversation_id":       true,
-	"user-agent":            true,
-	"originator":            true,
-	"session_id":            true,
-	"x-codex-beta-features": true,
-	"x-codex-turn-state":    true,
-	"x-codex-turn-metadata": true,
-	responsesLiteHeaderKey:  true,
+	"accept-language":         true,
+	"content-type":            true,
+	"conversation_id":         true,
+	"user-agent":              true,
+	"originator":              true,
+	"session_id":              true,
+	"x-codex-beta-features":   true,
+	"x-codex-installation-id": true,
+	"x-codex-turn-state":      true,
+	"x-codex-turn-metadata":   true,
+	"x-codex-window-id":       true,
+	responsesLiteHeaderKey:    true,
 }
 
 // OpenAI passthrough allowed headers whitelist.
 // 透传模式下仅放行这些低风险请求头，避免将非标准/环境噪声头传给上游触发风控。
 var openaiPassthroughAllowedHeaders = map[string]bool{
-	"accept":                true,
-	"accept-language":       true,
-	"content-type":          true,
-	"conversation_id":       true,
-	"openai-beta":           true,
-	"user-agent":            true,
-	"originator":            true,
-	"session_id":            true,
-	"x-codex-beta-features": true,
-	"x-codex-turn-state":    true,
-	"x-codex-turn-metadata": true,
-	responsesLiteHeaderKey:  true,
+	"accept":                  true,
+	"accept-language":         true,
+	"content-type":            true,
+	"conversation_id":         true,
+	"openai-beta":             true,
+	"user-agent":              true,
+	"originator":              true,
+	"session_id":              true,
+	"x-codex-beta-features":   true,
+	"x-codex-installation-id": true,
+	"x-codex-turn-state":      true,
+	"x-codex-turn-metadata":   true,
+	"x-codex-window-id":       true,
+	responsesLiteHeaderKey:    true,
 }
 
 // codex_cli_only 拒绝时记录的请求头白名单（仅用于诊断日志，不参与上游透传）
@@ -103,6 +111,104 @@ var codexCLIOnlyDebugHeaderWhitelist = []string{
 	"X-Real-IP",
 }
 
+// OpenAICodexUsageSnapshot represents Codex API usage limits from response headers
+type OpenAICodexUsageSnapshot struct {
+	PrimaryUsedPercent          *float64 `json:"primary_used_percent,omitempty"`
+	PrimaryResetAfterSeconds    *int     `json:"primary_reset_after_seconds,omitempty"`
+	PrimaryWindowMinutes        *int     `json:"primary_window_minutes,omitempty"`
+	SecondaryUsedPercent        *float64 `json:"secondary_used_percent,omitempty"`
+	SecondaryResetAfterSeconds  *int     `json:"secondary_reset_after_seconds,omitempty"`
+	SecondaryWindowMinutes      *int     `json:"secondary_window_minutes,omitempty"`
+	PrimaryOverSecondaryPercent *float64 `json:"primary_over_secondary_percent,omitempty"`
+	UpdatedAt                   string   `json:"updated_at,omitempty"`
+}
+
+// NormalizedCodexLimits contains normalized 5h/7d rate limit data
+type NormalizedCodexLimits struct {
+	Used5hPercent   *float64
+	Reset5hSeconds  *int
+	Window5hMinutes *int
+	Used7dPercent   *float64
+	Reset7dSeconds  *int
+	Window7dMinutes *int
+}
+
+// Normalize converts primary/secondary fields to canonical 5h/7d fields.
+// Strategy: Compare window_minutes to determine which is 5h vs 7d.
+// Returns nil if snapshot is nil or has no useful data.
+func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits {
+	if s == nil {
+		return nil
+	}
+
+	result := &NormalizedCodexLimits{}
+
+	primaryMins := 0
+	secondaryMins := 0
+	hasPrimaryWindow := false
+	hasSecondaryWindow := false
+
+	if s.PrimaryWindowMinutes != nil {
+		primaryMins = *s.PrimaryWindowMinutes
+		hasPrimaryWindow = true
+	}
+	if s.SecondaryWindowMinutes != nil {
+		secondaryMins = *s.SecondaryWindowMinutes
+		hasSecondaryWindow = true
+	}
+
+	// Determine mapping based on window_minutes
+	use5hFromPrimary := false
+	use7dFromPrimary := false
+
+	if hasPrimaryWindow && hasSecondaryWindow {
+		// Both known: smaller window is 5h, larger is 7d
+		if primaryMins < secondaryMins {
+			use5hFromPrimary = true
+		} else {
+			use7dFromPrimary = true
+		}
+	} else if hasPrimaryWindow {
+		// Only primary known: classify by threshold (<=360 min = 6h -> 5h window)
+		if primaryMins <= 360 {
+			use5hFromPrimary = true
+		} else {
+			use7dFromPrimary = true
+		}
+	} else if hasSecondaryWindow {
+		// Only secondary known: classify by threshold
+		if secondaryMins <= 360 {
+			// 5h from secondary, so primary (if any data) is 7d
+			use7dFromPrimary = true
+		} else {
+			// 7d from secondary, so primary (if any data) is 5h
+			use5hFromPrimary = true
+		}
+	} else {
+		// No window_minutes: fall back to legacy assumption (primary=7d, secondary=5h)
+		use7dFromPrimary = true
+	}
+
+	// Assign values
+	if use5hFromPrimary {
+		result.Used5hPercent = s.PrimaryUsedPercent
+		result.Reset5hSeconds = s.PrimaryResetAfterSeconds
+		result.Window5hMinutes = s.PrimaryWindowMinutes
+		result.Used7dPercent = s.SecondaryUsedPercent
+		result.Reset7dSeconds = s.SecondaryResetAfterSeconds
+		result.Window7dMinutes = s.SecondaryWindowMinutes
+	} else if use7dFromPrimary {
+		result.Used7dPercent = s.PrimaryUsedPercent
+		result.Reset7dSeconds = s.PrimaryResetAfterSeconds
+		result.Window7dMinutes = s.PrimaryWindowMinutes
+		result.Used5hPercent = s.SecondaryUsedPercent
+		result.Reset5hSeconds = s.SecondaryResetAfterSeconds
+		result.Window5hMinutes = s.SecondaryWindowMinutes
+	}
+
+	return result
+}
+
 // OpenAIUsage represents OpenAI API response usage
 type OpenAIUsage struct {
 	InputTokens              int `json:"input_tokens"`
@@ -112,8 +218,6 @@ type OpenAIUsage struct {
 	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 	ImageOutputTokens        int `json:"image_output_tokens,omitempty"`
 }
-
-const openAIUpstreamEndpointContextKey = "openai_actual_upstream_endpoint"
 
 // OpenAIForwardResult represents the result of forwarding
 type OpenAIForwardResult struct {
@@ -137,14 +241,9 @@ type OpenAIForwardResult struct {
 	ServiceTier *string
 	// ReasoningEffort is extracted from request body (reasoning.effort) or derived from model suffix.
 	// Stored for usage records display; nil means not provided / not applicable.
-	ReasoningEffort  *string
-	EnableThinking   bool
-	StopReason       string
-	IncompleteReason string
-	ContentTextLen   int
-	CompactCandidate bool
-	Stream           bool
-	OpenAIWSMode     bool
+	ReasoningEffort *string
+	Stream          bool
+	OpenAIWSMode    bool
 	// UpstreamTerminalEvent is the normalized terminal event observed on an
 	// upstream Responses WebSocket turn. Empty preserves legacy/non-WS success.
 	UpstreamTerminalEvent string
@@ -161,8 +260,11 @@ type OpenAIForwardResult struct {
 	ImageSizeBreakdown    map[string]int
 	VideoCount            int
 	VideoResolution       string
-	VideoDurationSeconds  int
-	WebSearchCalls        int
+	// VideoDurationSeconds 是提交时请求的生成时长（xAI 按输出秒数计费），已归一化到 1-15 秒。
+	VideoDurationSeconds int
+	// WebSearchCalls 是 Codex alpha/search 网页搜索调用次数（每次成功请求为 1）。
+	// 上游不返回 usage 字段，>0 时走按次计费（分组单价 × 次数 × 倍率）。
+	WebSearchCalls int
 
 	wsReplayInput       []json.RawMessage
 	wsReplayInputExists bool
@@ -238,9 +340,49 @@ type openAIWSRetryMetrics struct {
 	nonRetryableFastFallback atomic.Int64
 }
 
+type accountWriteThrottle struct {
+	minInterval time.Duration
+	mu          sync.Mutex
+	lastByID    map[int64]time.Time
+}
+
+func newAccountWriteThrottle(minInterval time.Duration) *accountWriteThrottle {
+	return &accountWriteThrottle{
+		minInterval: minInterval,
+		lastByID:    make(map[int64]time.Time),
+	}
+}
+
+func (t *accountWriteThrottle) Allow(id int64, now time.Time) bool {
+	if t == nil || id <= 0 || t.minInterval <= 0 {
+		return true
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if last, ok := t.lastByID[id]; ok && now.Sub(last) < t.minInterval {
+		return false
+	}
+	t.lastByID[id] = now
+
+	if len(t.lastByID) > 4096 {
+		cutoff := now.Add(-4 * t.minInterval)
+		for accountID, writtenAt := range t.lastByID {
+			if writtenAt.Before(cutoff) {
+				delete(t.lastByID, accountID)
+			}
+		}
+	}
+
+	return true
+}
+
+var defaultOpenAICodexSnapshotPersistThrottle = newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval)
+
 // ErrNoAvailableCompactAccounts indicates the request needs /responses/compact
 // support but no compatible account is available.
-var ErrNoAvailableCompactAccounts = errors.New("no available OpenAI accounts support /responses/compact")
+var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /responses/compact")
 
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
@@ -269,22 +411,24 @@ type OpenAIGatewayService struct {
 	balanceNotifyService  *BalanceNotifyService
 	settingService        *SettingService
 	userPlatformQuotaRepo UserPlatformQuotaRepository
-	mediaStore            MediaStore
 	liveAttestation       liveattestation.Provider
 	liveAttestationCipher SecretEncryptor
 
-	openaiWSPoolOnce              sync.Once
-	openaiWSStateStoreOnce        sync.Once
-	openaiSchedulerOnce           sync.Once
-	openaiProxyStreamCircuitOnce  sync.Once
-	openaiWSPassthroughDialerOnce sync.Once
-	agentIdentityTaskMu           sync.Mutex
-	openaiWSPool                  *openAIWSConnPool
-	openaiWSStateStore            OpenAIWSStateStore
-	openaiScheduler               OpenAIAccountScheduler
-	openaiWSPassthroughDialer     openAIWSClientDialer
-	openaiAccountStats            *openAIAccountRuntimeStats
-	openaiProxyStreamCircuit      *openAIProxyStreamCircuit
+	openaiWSPoolOnce               sync.Once
+	openaiWSStateStoreOnce         sync.Once
+	openaiSchedulerOnce            sync.Once
+	openaiProxyStreamCircuitOnce   sync.Once
+	openaiWSPassthroughDialerOnce  sync.Once
+	openaiModelTransientOnce       sync.Once
+	agentIdentityTaskMu            sync.Mutex
+	openaiWSPool                   *openAIWSConnPool
+	openaiWSStateStore             OpenAIWSStateStore
+	openaiScheduler                OpenAIAccountScheduler
+	openaiWSPassthroughDialer      openAIWSClientDialer
+	openaiAccountStats             *openAIAccountRuntimeStats
+	openaiModelTransient           *openAIAccountModelTransientState
+	openaiProxyStreamCircuit       *openAIProxyStreamCircuit
+	openaiProxyStreamFailOpenLogAt atomic.Int64
 
 	openaiWSFallbackUntil               sync.Map // key: int64(accountID), value: time.Time
 	openaiAccountRuntimeBlockUntil      sync.Map // key: int64(accountID), value: time.Time
@@ -294,18 +438,12 @@ type OpenAIGatewayService struct {
 	grokCredentialMutationLocks         sync.Map // key: int64(accountID), value: *sync.Mutex
 	openaiOAuth429WindowStartUnixNano   atomic.Int64
 	openaiOAuth429WindowCount           atomic.Int64
-	openaiModelTransientOnce            sync.Once
-	openaiModelTransient                *openAIAccountModelTransientState
 	openaiWSRetryMetrics                openAIWSRetryMetrics
 	responseHeaderFilter                *responseheaders.CompiledHeaderFilter
 	codexSnapshotThrottle               *accountWriteThrottle
 	codexModelsManifestCache            codexModelsManifestCache
 	openaiCompatSessionResponses        sync.Map
 	openaiCompatAnthropicDigestSessions sync.Map
-	tkPricingMissingNotifier            PricingMissingNotifier
-	tkPricingCatalog                    *PricingCatalogService
-	tkGroupUnsupportedCache             *tkGroupUnsupportedModelNegativeCache
-	tkOpenAISaturationCounter           OpenAISaturationCounterCache
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -379,22 +517,6 @@ func NewOpenAIGatewayService(
 	}
 	svc.logOpenAIWSModeBootstrap()
 	return svc
-}
-
-// NormalizeOpenRouterProviderChatBody rewrites tokenkey/* model ids for OR inference keys.
-func (s *OpenAIGatewayService) NormalizeOpenRouterProviderChatBody(
-	ctx context.Context,
-	apiKeyID, userID int64,
-	body []byte,
-) ([]byte, error) {
-	if s == nil || s.settingService == nil {
-		return body, nil
-	}
-	newBody, _, changed, err := s.settingService.NormalizeOpenRouterProviderChatBody(ctx, apiKeyID, userID, body)
-	if err != nil || !changed {
-		return body, err
-	}
-	return newBody, nil
 }
 
 // ResolveChannelMapping 解析渠道级模型映射（代理到 ChannelService）
