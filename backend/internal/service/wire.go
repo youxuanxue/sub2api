@@ -27,9 +27,7 @@ type BuildInfo struct {
 func ProvidePricingService() (*PricingService, error) {
 	svc := NewPricingService()
 	if err := svc.Initialize(); err != nil {
-		// Pricing service initialization failure should not block startup; billing still
-		// resolves the embedded registry owner snapshot directly and fails closed when absent.
-		println("[Service] Warning: Pricing service initialization failed:", err.Error())
+		return nil, err
 	}
 	return svc, nil
 }

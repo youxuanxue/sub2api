@@ -96,9 +96,12 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 		if strings.HasPrefix(name, "_") {
 			continue
 		}
+		if name != strings.ToLower(strings.TrimSpace(name)) || strings.Contains(name, "/") {
+			return nil, fmt.Errorf("overlay model owner %q must be a normalized bare key", name)
+		}
 		var e LiteLLMRawEntry
 		if err := json.Unmarshal(rawEntry, &e); err != nil {
-			continue
+			return nil, fmt.Errorf("parse overlay model %s: %w", name, err)
 		}
 		p := &LiteLLMModelPricing{
 			LiteLLMProvider:         e.LiteLLMProvider,
@@ -193,8 +196,14 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 		var ext struct {
 			Intervals []tkOverlayRawInterval `json:"intervals"`
 		}
-		if err := json.Unmarshal(rawEntry, &ext); err == nil && len(ext.Intervals) > 0 {
+		if err := json.Unmarshal(rawEntry, &ext); err != nil {
+			return nil, fmt.Errorf("parse overlay model %s intervals: %w", name, err)
+		}
+		if len(ext.Intervals) > 0 {
 			p.Intervals = tkBuildOverlayIntervals(ext.Intervals)
+			if err := ValidateIntervals(p.Intervals, BillingModeToken); err != nil {
+				return nil, fmt.Errorf("overlay model %s intervals: %w", name, err)
+			}
 		}
 		var videoExt struct {
 			VideoPriceTiers        []tkOverlayRawVideoTier `json:"video_price_tiers"`

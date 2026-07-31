@@ -1,15 +1,12 @@
 package service
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -136,25 +133,17 @@ type LiteLLMRawEntry struct {
 	ExplicitFree                     bool     `json:"explicit_free"`
 }
 
-// PricingService 动态价格服务
+// PricingService exposes the immutable, deployment-bound pricing registry.
 type PricingService struct {
 	mu          sync.RWMutex
 	pricingData map[string]*LiteLLMModelPricing
-	lastUpdated time.Time
-	localHash   string
-
-	// 停止信号
-	stopCh chan struct{}
-	wg     sync.WaitGroup
 }
 
 // NewPricingService 创建价格服务
 func NewPricingService() *PricingService {
-	s := &PricingService{
+	return &PricingService{
 		pricingData: make(map[string]*LiteLLMModelPricing),
-		stopCh:      make(chan struct{}),
 	}
-	return s
 }
 
 // Initialize 初始化价格服务
@@ -168,28 +157,8 @@ func (s *PricingService) Initialize() error {
 		return fmt.Errorf("failed to load pricing registry: %w", err)
 	}
 
-	// 启动定时更新
-	s.startUpdateScheduler()
-
 	logger.LegacyPrintf("service.pricing", "[Pricing] Service initialized with %d models", len(s.pricingData))
 	return nil
-}
-
-// Stop 停止价格服务
-func (s *PricingService) Stop() {
-	close(s.stopCh)
-	s.wg.Wait()
-	logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Service stopped")
-}
-
-// startUpdateScheduler 启动定时更新调度器
-func (s *PricingService) startUpdateScheduler() {
-	if s == nil {
-		return
-	}
-	// Registry changes are deployment-bound. There is no remote polling or
-	// settings reload path that could become a second global pricing owner.
-	logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Registry scheduler disabled; changes require deployment")
 }
 
 // parsePricingData 解析价格数据（处理各种格式）
@@ -343,11 +312,8 @@ func (s *PricingService) loadRegistryPricingData() error {
 	if len(data) == 0 {
 		return fmt.Errorf("pricing registry has no usable rows")
 	}
-	registryHash := sha256.Sum256(tkPricingOverlayRaw)
 	s.mu.Lock()
 	s.pricingData = data
-	s.localHash = hex.EncodeToString(registryHash[:])
-	s.lastUpdated = time.Now()
 	s.mu.Unlock()
 	logger.LegacyPrintf("service.pricing", "[Pricing] Loaded %d models from TK pricing registry", len(data))
 	return nil
@@ -405,58 +371,7 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 		return tkPresentLiteLLMModelPricing(s.resolveOpenAIRegistryAlias(lookupCandidates[0]))
 	}
 
-	// 6. Provider-prefixed registry aliases are a final compatibility lookup. The
-	// canonical bare registry owner is preferred above; this path only supports
-	// imported provider naming forms and never consults an external snapshot.
-	if pricing := s.resolveRegistryProviderAlias(lookupCandidates[0]); pricing != nil {
-		return tkPresentLiteLLMModelPricing(pricing)
-	}
-
 	return nil
-}
-
-// resolveRegistryProviderAlias 用裸模型名匹配 registry 中 "<provider>/.../<model>" 形态的 key
-// （按最后一段精确相等，兼容 "gemini/x" 与 "aiml/google/x" 这类多段前缀），命中多个时取最高价。
-// 仅扫描含 "/" 的 key（裸 key 已在精确匹配阶段尝试过），避免 alias 误配裸名条目。
-func (s *PricingService) resolveRegistryProviderAlias(bareModel string) *LiteLLMModelPricing {
-	bareModel = strings.ToLower(strings.TrimSpace(bareModel))
-	if bareModel == "" {
-		return nil
-	}
-	var best *LiteLLMModelPricing
-	var bestCost float64
-	for key, pricing := range s.pricingData {
-		if pricing == nil || !strings.Contains(key, "/") {
-			continue
-		}
-		if lastSegment(strings.ToLower(key)) != bareModel {
-			continue
-		}
-		if cost := comparablePricingCost(pricing); best == nil || cost > bestCost {
-			best = pricing
-			bestCost = cost
-		}
-	}
-	return best
-}
-
-// comparablePricingCost 取一个可比单价，仅用于第 6 步兜底里同名多 provider 变体的挑选。
-// 此处取最高价是「无法确定实际承接 provider 时的保守猜测」，不是计价语义的主张——主路径
-// （TK overlay）已固化按实际承接 provider（Vertex ch41）的价。优先级：每图 > 每秒(视频) > 每输出 token > 每输入 token。
-func comparablePricingCost(p *LiteLLMModelPricing) float64 {
-	if p == nil {
-		return 0
-	}
-	if p.OutputCostPerImage > 0 {
-		return p.OutputCostPerImage
-	}
-	if p.OutputCostPerSecond > 0 {
-		return p.OutputCostPerSecond
-	}
-	if p.OutputCostPerToken > 0 {
-		return p.OutputCostPerToken
-	}
-	return p.InputCostPerToken
 }
 
 func (s *PricingService) buildModelLookupCandidates(modelLower string) []string {
@@ -821,26 +736,6 @@ func (s *PricingService) generateOpenAIRegistryAliases(model string, datePattern
 	}
 
 	return variants
-}
-
-// GetStatus 获取服务状态
-func (s *PricingService) GetStatus() map[string]any {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return map[string]any{
-		"model_count":  len(s.pricingData),
-		"last_updated": s.lastUpdated,
-		"local_hash":   s.localHash[:min(8, len(s.localHash))],
-	}
-}
-
-// ForceUpdate 强制更新
-func (s *PricingService) ForceUpdate() error {
-	if s == nil {
-		return fmt.Errorf("pricing service is nil")
-	}
-	return s.loadRegistryPricingData()
 }
 
 // ListModelNamesByProvider returns all model names in the catalog whose

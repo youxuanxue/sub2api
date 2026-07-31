@@ -3,39 +3,10 @@ package service
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
-
-func TestPricingRegistrySchedulerDoesNotStart(t *testing.T) {
-	svc := NewPricingService()
-	defer svc.Stop()
-
-	svc.startUpdateScheduler()
-	done := make(chan struct{})
-	go func() {
-		svc.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("registry pricing must not start a remote scheduler")
-	}
-}
-
-func TestPricingForceUpdateReloadsRegistry(t *testing.T) {
-	svc := NewPricingService()
-
-	err := svc.ForceUpdate()
-
-	require.NoError(t, err)
-	status := svc.GetStatus()
-	require.Greater(t, status["model_count"], 0)
-}
 
 func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
 	svc := &PricingService{}
@@ -677,49 +648,14 @@ func TestListModelNamesByProvider_EmptyCatalog(t *testing.T) {
 	require.Empty(t, got)
 }
 
-func TestGetModelPricing_BareNameMatchesProviderPrefixedHighestPrice(t *testing.T) {
-	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{
-			"gemini/imagen-4.0-generate-001":    {OutputCostPerImage: 0.04, Mode: "image_generation"},
-			"vertex_ai/imagen-4.0-generate-001": {OutputCostPerImage: 0.06, Mode: "image_generation"},
-		},
-	}
-	got := svc.GetModelPricing("imagen-4.0-generate-001")
-	require.NotNil(t, got)
-	// 多 provider 命中取最高价（保守计费）
-	require.InDelta(t, 0.06, got.OutputCostPerImage, 1e-12)
-}
+func TestGetModelPricing_ProviderPrefixedRequestUsesBareOwner(t *testing.T) {
+	owner := &LiteLLMModelPricing{InputCostPerToken: 1e-6, OutputCostPerToken: 2e-6}
+	svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{"model": owner}}
 
-func TestGetModelPricing_BareNameMatchesMultiSegmentPrefix(t *testing.T) {
-	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{
-			"aiml/google/imagen-4.0-ultra-generate-001": {OutputCostPerImage: 0.05, Mode: "image_generation"},
-		},
-	}
-	got := svc.GetModelPricing("imagen-4.0-ultra-generate-001")
+	got := svc.GetModelPricing("provider/model")
 	require.NotNil(t, got)
-	require.InDelta(t, 0.05, got.OutputCostPerImage, 1e-12)
-}
-
-func TestGetModelPricing_VideoBareNameMatchesPerSecondHighestPrice(t *testing.T) {
-	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{
-			"gemini/veo-3.1-generate-preview":    {OutputCostPerSecond: 0.40, Mode: "video_generation"},
-			"vertex_ai/veo-3.1-generate-preview": {OutputCostPerSecond: 0.30, Mode: "video_generation"},
-		},
-	}
-	got := svc.GetModelPricing("veo-3.1-generate-preview")
-	require.NotNil(t, got)
-	require.InDelta(t, 0.40, got.OutputCostPerSecond, 1e-12)
-}
-
-func TestGetModelPricing_ProviderPrefixFallbackNoFalseMatch(t *testing.T) {
-	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{
-			"gemini/imagen-4.0-generate-001": {OutputCostPerImage: 0.04},
-		},
-	}
-	require.Nil(t, svc.GetModelPricing("nonexistent-model-xyz"))
+	require.InDelta(t, owner.InputCostPerToken, got.InputCostPerToken, 1e-12)
+	require.InDelta(t, owner.OutputCostPerToken, got.OutputCostPerToken, 1e-12)
 }
 
 func TestParsePricingData_ParsesOutputCostPerSecond(t *testing.T) {

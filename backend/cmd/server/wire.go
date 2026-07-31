@@ -107,7 +107,6 @@ func provideCleanup(
 	holdReconciler *service.HoldReconcilerService,
 	batchImageCleanup *service.BatchImageCleanupService,
 	batchImageWorker *service.BatchImageWorkerRuntime,
-	pricing *service.PricingService,
 	emailQueue *service.EmailQueueService,
 	billingCache *service.BillingCacheService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
@@ -335,10 +334,6 @@ func provideCleanup(
 				if subscriptionService != nil {
 					subscriptionService.Stop()
 				}
-				return nil
-			}},
-			{"PricingService", func() error {
-				pricing.Stop()
 				return nil
 			}},
 			{"EmailQueueService", func() error {

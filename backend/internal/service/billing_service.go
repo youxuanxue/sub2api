@@ -1007,26 +1007,6 @@ func (s *BillingService) GetEstimatedCost(model string, estimatedInputTokens, es
 	return breakdown.ActualCost, nil
 }
 
-// GetPricingServiceStatus 获取价格服务状态
-func (s *BillingService) GetPricingServiceStatus() map[string]any {
-	if s.pricingService != nil {
-		return s.pricingService.GetStatus()
-	}
-	return map[string]any{
-		"model_count":  len(loadTKPricingOverlay()),
-		"last_updated": "using TK pricing registry",
-		"local_hash":   "N/A",
-	}
-}
-
-// ForceUpdatePricing 强制更新价格数据
-func (s *BillingService) ForceUpdatePricing() error {
-	if s.pricingService != nil {
-		return s.pricingService.ForceUpdate()
-	}
-	return fmt.Errorf("pricing service not initialized")
-}
-
 // ImagePriceConfig 图片计费配置
 type ImagePriceConfig struct {
 	Price1K *float64 // 1K 尺寸价格（nil 表示使用默认值）

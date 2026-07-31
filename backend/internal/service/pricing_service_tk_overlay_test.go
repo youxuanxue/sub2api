@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"math"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -35,6 +36,39 @@ func TestParseTKOverlayDocument_RejectsInvalidTaxPolicy(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestParseTKOverlayDocument_RejectsMalformedOwnerRows(t *testing.T) {
+	tests := map[string]string{
+		"typed metadata mismatch": `{"model":{"mode":"chat","input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"max_input_tokens":"not-an-int"}}`,
+		"malformed intervals":     `{"model":{"mode":"chat","input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"intervals":"not-an-array"}}`,
+		"negative interval price": `{"model":{"mode":"chat","input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"intervals":[{"min_tokens":0,"max_tokens":100,"input_cost_per_token":-0.000001}]}}`,
+		"overlapping intervals":   `{"model":{"mode":"chat","input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"intervals":[{"min_tokens":0,"max_tokens":100,"input_cost_per_token":0.000001},{"min_tokens":50,"max_tokens":200,"input_cost_per_token":0.000001}]}}`,
+		"provider-prefixed owner": `{"provider/model":{"mode":"chat","input_cost_per_token":0.000001,"output_cost_per_token":0.000002}}`,
+		"unnormalized owner":      `{"Model ":{"mode":"chat","input_cost_per_token":0.000001,"output_cost_per_token":0.000002}}`,
+	}
+	for name, blob := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseTKOverlayDocument([]byte(blob))
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestProvidePricingService_FailsClosedOnInvalidRegistry(t *testing.T) {
+	originalRaw := tkPricingOverlayRaw
+	tkPricingOverlayRaw = []byte(`{"_config":{"unexpected":true}}`)
+	tkPricingRegistryOnce = sync.Once{}
+	tkPricingRegistrySnapshot = nil
+	t.Cleanup(func() {
+		tkPricingOverlayRaw = originalRaw
+		tkPricingRegistryOnce = sync.Once{}
+		tkPricingRegistrySnapshot = nil
+	})
+
+	svc, err := ProvidePricingService()
+	require.Error(t, err)
+	require.Nil(t, svc)
 }
 
 func TestParseTKOverlayDocument_RejectsMalformedVideoTiers(t *testing.T) {

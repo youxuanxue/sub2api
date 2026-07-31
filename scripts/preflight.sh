@@ -615,11 +615,15 @@ echo "=== sub2api: pricing overlay ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to validate tk_pricing_overlay.json)"
     errors=$((errors + 1))
+elif ! python3 ./scripts/checks/test_pricing_overlay.py >/dev/null; then
+    echo "  FAIL: pricing overlay gate regression tests failed"
+    echo "        — run: python3 scripts/checks/test_pricing_overlay.py"
+    errors=$((errors + 1))
 elif ! python3 ./scripts/checks/pricing-overlay.py --quiet; then
     # pricing-overlay.py already printed the actionable failure.
     errors=$((errors + 1))
 else
-    echo "  ok: pricing overlay valid (anchors present, no \$0)"
+    echo "  ok: pricing overlay valid + gate regression tests (anchors present, no \$0)"
 fi
 
 echo ""

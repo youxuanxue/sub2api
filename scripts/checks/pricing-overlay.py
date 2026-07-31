@@ -55,6 +55,55 @@ MODE_FIELDS = {
     "embedding": ("input_cost_per_token",),
 }
 
+GO_FLOAT_FIELDS = (
+    "input_cost_per_token",
+    "input_cost_per_token_priority",
+    "output_cost_per_token",
+    "output_cost_per_token_priority",
+    "thinking_output_cost_per_token",
+    "cache_creation_input_token_cost",
+    "cache_creation_input_token_cost_priority",
+    "cache_creation_input_token_cost_above_1hr",
+    "cache_read_input_token_cost",
+    "cache_read_input_token_cost_priority",
+    "long_context_input_cost_multiplier",
+    "long_context_output_cost_multiplier",
+    "input_cost_per_token_above_272k_tokens",
+    "output_cost_per_token_above_272k_tokens",
+    "cache_read_input_token_cost_above_272k_tokens",
+    "output_cost_per_image",
+    "output_cost_per_image_token",
+    "input_cost_per_image_token",
+    "image_price_1k",
+    "image_price_2k",
+    "image_price_4k",
+    "output_cost_per_second",
+)
+GO_INT_FIELDS = (
+    "long_context_input_token_threshold",
+    "max_input_tokens",
+    "max_output_tokens",
+)
+GO_BOOL_FIELDS = (
+    "supports_service_tier",
+    "supports_prompt_caching",
+    "supports_vision",
+    "supports_tool_choice",
+    "supports_function_calling",
+    "supports_reasoning",
+    "supports_response_schema",
+    "supports_pdf_input",
+    "supports_web_search",
+    "explicit_free",
+)
+GO_STRING_FIELDS = ("litellm_provider", "mode")
+INTERVAL_FLOAT_FIELDS = (
+    "input_cost_per_token",
+    "output_cost_per_token",
+    "cache_read_input_token_cost",
+    "cache_creation_input_token_cost",
+)
+
 ANCHORS = {
     "imagen-4.0-generate-001": "output_cost_per_image",
     "veo-3.1-generate-001": "output_cost_per_second",
@@ -85,6 +134,82 @@ STALE_VIDEO_SOURCE_PHRASES = (
 
 def _finite_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def validate_runtime_owner_shape(model: str, pricing: dict) -> list[str]:
+    """Keep the standalone gate aligned with the Go registry decoder."""
+    errors: list[str] = []
+    if model != model.strip().lower() or "/" in model:
+        errors.append(f"{model}: owner key must be normalized lowercase and bare")
+    for field in GO_FLOAT_FIELDS:
+        value = pricing.get(field)
+        if field in pricing and value is not None and not _finite_number(value):
+            errors.append(f"{model}: {field} must be a finite number when present")
+        elif field in pricing and value is not None and value < 0:
+            errors.append(f"{model}: {field} must be >= 0 when present")
+    for field in GO_INT_FIELDS:
+        value = pricing.get(field)
+        if field in pricing and value is not None and (not isinstance(value, int) or isinstance(value, bool)):
+            errors.append(f"{model}: {field} must be an integer when present")
+        elif field in pricing and value is not None and value <= 0:
+            errors.append(f"{model}: {field} must be > 0 when present")
+    for field in GO_BOOL_FIELDS:
+        value = pricing.get(field)
+        if field in pricing and value is not None and not isinstance(value, bool):
+            errors.append(f"{model}: {field} must be boolean when present")
+    for field in GO_STRING_FIELDS:
+        value = pricing.get(field)
+        if field in pricing and value is not None and not isinstance(value, str):
+            errors.append(f"{model}: {field} must be a string when present")
+
+    intervals = pricing.get("intervals")
+    if intervals is not None:
+        if not isinstance(intervals, list):
+            errors.append(f"{model}: intervals must be an array when present")
+        else:
+            parsed_bounds: list[tuple[int, int | None, str]] = []
+            for idx, interval in enumerate(intervals):
+                label = f"{model}.intervals[{idx}]"
+                if not isinstance(interval, dict):
+                    errors.append(f"{label} must be an object")
+                    continue
+                for field in ("min_tokens", "max_tokens"):
+                    value = interval.get(field)
+                    if field in interval and value is not None and (
+                            not isinstance(value, int) or isinstance(value, bool)):
+                        errors.append(f"{label}.{field} must be an integer or null")
+                for field in INTERVAL_FLOAT_FIELDS:
+                    value = interval.get(field)
+                    if field in interval and value is not None and not _finite_number(value):
+                        errors.append(f"{label}.{field} must be a finite number")
+                    elif field in interval and value is not None and value < 0:
+                        errors.append(f"{label}.{field} must be >= 0")
+                min_tokens = interval.get("min_tokens", 0)
+                max_tokens = interval.get("max_tokens")
+                if isinstance(min_tokens, int) and not isinstance(min_tokens, bool):
+                    if min_tokens < 0:
+                        errors.append(f"{label}.min_tokens must be >= 0")
+                    if isinstance(max_tokens, int) and not isinstance(max_tokens, bool):
+                        if max_tokens <= min_tokens:
+                            errors.append(f"{label}.max_tokens must be > min_tokens")
+                    if max_tokens is None or (isinstance(max_tokens, int) and not isinstance(max_tokens, bool)):
+                        parsed_bounds.append((min_tokens, max_tokens, label))
+            parsed_bounds.sort(key=lambda item: item[0])
+            for idx, (min_tokens, max_tokens, label) in enumerate(parsed_bounds):
+                if max_tokens is None and idx < len(parsed_bounds) - 1:
+                    errors.append(f"{label}.max_tokens=null is only valid on the last interval")
+                if idx > 0:
+                    previous_max = parsed_bounds[idx - 1][1]
+                    if previous_max is None or previous_max > min_tokens:
+                        errors.append(f"{label} overlaps the preceding interval")
+
+    video_tiers = pricing.get("video_price_tiers")
+    if video_tiers is not None and not isinstance(video_tiers, list):
+        errors.append(f"{model}: video_price_tiers must be an array when present")
+    default_resolution = pricing.get("default_video_resolution")
+    if default_resolution is not None and not isinstance(default_resolution, str):
+        errors.append(f"{model}: default_video_resolution must be a string when present")
+    return errors
 
 
 def validate_official_list_base_tax(data: dict) -> list[str]:
@@ -254,8 +379,7 @@ def main() -> int:
         if not isinstance(pricing, dict):
             errors.append(f"{model}: entry is not an object")
             continue
-        if "explicit_free" in pricing and not isinstance(pricing["explicit_free"], bool):
-            errors.append(f"{model}: explicit_free must be boolean when present")
+        errors.extend(validate_runtime_owner_shape(model, pricing))
         mode = pricing.get("mode")
         fields = MODE_FIELDS.get(mode)
         if fields is None:
@@ -292,6 +416,8 @@ def main() -> int:
                         seen_resolutions.add(res)
                     if tier.get("default_for_model") is True and isinstance(res, str):
                         defaults.append(res)
+                    if "default_for_model" in tier and not isinstance(tier["default_for_model"], bool):
+                        errors.append(f"{label}.default_for_model must be boolean when present")
                     rate = tier.get("output_cost_per_second")
                     if not _finite_number(rate) or rate <= 0:
                         errors.append(f"{label}.output_cost_per_second must be > 0, got {rate!r}")

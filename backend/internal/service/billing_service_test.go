@@ -911,22 +911,6 @@ func TestListSupportedModels(t *testing.T) {
 	require.GreaterOrEqual(t, len(models), 6)
 }
 
-func TestGetPricingServiceStatus_NilService(t *testing.T) {
-	svc := newTestBillingService()
-
-	status := svc.GetPricingServiceStatus()
-	require.NotNil(t, status)
-	require.Equal(t, "using TK pricing registry", status["last_updated"])
-}
-
-func TestForceUpdatePricing_NilService(t *testing.T) {
-	svc := newTestBillingService()
-
-	err := svc.ForceUpdatePricing()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not initialized")
-}
-
 func TestCalculateCostWithLongContext_PropagatesError(t *testing.T) {
 	// An empty registry fixture makes GetModelPricing fail closed.
 	svc := newBillingServiceWithModelPricing(nil)

@@ -318,10 +318,21 @@
       "must_contain": [
         "TestEmbeddedPricingRegistryParses",
         "TestParseTKOverlayDocument_RejectsInvalidTaxPolicy",
+        "TestParseTKOverlayDocument_RejectsMalformedOwnerRows",
+        "TestProvidePricingService_FailsClosedOnInvalidRegistry",
         "TestParseTKOverlayDocument_RejectsMalformedVideoTiers",
         "TestParseTKOverlayDocument_DerivesVideoDefaultFromTierOwner"
       ],
       "rationale": "Focused registry regression evidence: the shipped owner must parse with valid executable policy, malformed video ladders are rejected, and an omitted compatibility default is deterministically derived from the tier row marked default_for_model."
+    },
+    {
+      "path": "scripts/checks/test_pricing_overlay.py",
+      "must_contain": [
+        "test_rejects_owner_shape_that_go_decoder_rejects",
+        "provider-prefixed owner",
+        "malformed intervals"
+      ],
+      "rationale": "The standalone pricing gate must reject the same malformed owner shapes as the Go runtime parser, including typed metadata mismatches and non-bare owner keys."
     },
     {
       "path": "ops/pricing/manage-overlay-runtime.py",
@@ -352,15 +363,17 @@
       "path": "backend/internal/service/pricing_service.go",
       "must_contain": [
         "func (s *PricingService) loadRegistryPricingData() error",
-        "snapshot := loadTKPricingOverlaySnapshot()",
-        "Registry scheduler disabled; changes require deployment"
+        "snapshot := loadTKPricingOverlaySnapshot()"
       ],
       "must_not_contain": [
         "overlayRuntimeGetter",
         "reloadTKOverlayRuntime",
-        "SettingKeyTKPricingOverlayRuntime"
+        "SettingKeyTKPricingOverlayRuntime",
+        "func (s *PricingService) startUpdateScheduler",
+        "func (s *PricingService) ForceUpdate",
+        "stopCh"
       ],
-      "rationale": "PricingService must build billing data only from the embedded registry snapshot. The negative anchors stop a future merge from reintroducing a settings-backed global price getter or reload path."
+      "rationale": "PricingService must build billing data only from the embedded registry snapshot. The negative anchors stop a future merge from reintroducing a settings-backed global price getter, reload API, scheduler, or fake update lifecycle."
     },
     {
       "path": "backend/internal/service/domain_constants.go",
