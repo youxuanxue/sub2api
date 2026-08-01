@@ -547,6 +547,25 @@ func (s *OpenAIGatewayService) calculateOpenAIImageCost(
 		logger.LegacyPrintf("service.openai_gateway", "Calculate image channel cost failed: %v", err)
 	}
 
+	// TK: a per-image-TOKEN registry owner (gpt-image-*) carries no per-image price,
+	// so CalculateImageCost below would charge $0 while the unpriced-media guard still
+	// sees a priced row. Settle it on its own image-token rate, keeping
+	// BillingMode=image. Runs last so group size prices and channel_model_pricing
+	// (both handled above) keep their higher precedence.
+	if cost := s.billingService.TkCalculateImageTokenCost(
+		billingModel,
+		UsageTokens{
+			InputTokens:       result.Usage.InputTokens,
+			ImageInputTokens:  result.Usage.ImageInputTokens,
+			OutputTokens:      result.Usage.OutputTokens,
+			ImageOutputTokens: result.Usage.ImageOutputTokens,
+			CacheReadTokens:   result.Usage.CacheReadInputTokens,
+		},
+		multiplier,
+	); cost != nil {
+		return cost
+	}
+
 	return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
 }
 

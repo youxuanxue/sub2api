@@ -60,5 +60,95 @@ class PricingOverlayShapeTest(unittest.TestCase):
                 self.assertTrue(CHECK.validate_runtime_owner_shape(model, row))
 
 
+class PricedDimensionCompletenessTest(unittest.TestCase):
+    """Pins the gate that replaced BillingService.applyModelSpecificPricingPolicy.
+
+    That Go function used to complete missing price dimensions at runtime
+    (deriving gpt-5.6 cache-write as input x 1.25, back-filling the 272K
+    long-context triple). Pricing policy is now data-owned and the numeric
+    completion is gone, so an incomplete owner row bills $0 / base-rate instead
+    of getting a silent Go rescue. These cases keep that failure mechanical.
+    """
+
+    def test_accepts_complete_rows(self) -> None:
+        rows = {
+            "full priority tier": {
+                "mode": "chat",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+                "input_cost_per_token_priority": 2e-6,
+                "cache_creation_input_token_cost_priority": 2.5e-6,
+                "cache_read_input_token_cost_priority": 2e-7,
+            },
+            "no priority tier at all": {
+                "mode": "chat",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+            },
+            "long-context derivable from above_272k rate": {
+                "mode": "chat",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+                "input_cost_per_token_above_272k_tokens": 2e-6,
+                "long_context_input_token_threshold": 272000,
+            },
+            "explicit long-context triple": {
+                "mode": "chat",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+                "long_context_input_token_threshold": 272000,
+                "long_context_input_cost_multiplier": 2,
+                "long_context_output_cost_multiplier": 1.5,
+            },
+            "explicit_free row": {
+                "mode": "chat",
+                "explicit_free": True,
+                "input_cost_per_token": 0,
+                "output_cost_per_token": 0,
+            },
+        }
+        for name, row in rows.items():
+            with self.subTest(name=name):
+                self.assertEqual([], CHECK.validate_priced_dimension_completeness("m", row))
+
+    def test_rejects_incomplete_rows(self) -> None:
+        rows = {
+            "priority input with $0 priority cache-write": {
+                "mode": "chat",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+                "input_cost_per_token_priority": 2e-6,
+                "cache_creation_input_token_cost_priority": 0,
+            },
+            "long-context threshold with no multipliers": {
+                "mode": "chat",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+                "long_context_input_token_threshold": 272000,
+            },
+            "long-context missing output multiplier": {
+                "mode": "chat",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+                "long_context_input_token_threshold": 272000,
+                "long_context_input_cost_multiplier": 2,
+            },
+        }
+        for name, row in rows.items():
+            with self.subTest(name=name):
+                self.assertTrue(CHECK.validate_priced_dimension_completeness("m", row))
+
+    def test_shipped_registry_is_complete(self) -> None:
+        """The registry we ship must already satisfy the gate."""
+        import json
+        data = json.loads(CHECK.OVERLAY.read_text(encoding="utf-8"))
+        failures = []
+        for model, row in data.items():
+            if model.startswith("_") or not isinstance(row, dict):
+                continue
+            failures.extend(CHECK.validate_priced_dimension_completeness(model, row))
+        self.assertEqual([], failures)
+
+
 if __name__ == "__main__":
     unittest.main()

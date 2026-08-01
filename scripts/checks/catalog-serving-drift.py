@@ -253,9 +253,12 @@ def evaluate(
                     errors.append(
                         f"{key}: registry entry {price_key!r} has unrecognized mode {mode!r}"
                     )
-                else:
-                    if po.get("explicit_free") is True:
-                        continue
+                elif po.get("explicit_free") is not True:
+                    # explicit_free rows deliberately carry zero prices, so only the
+                    # price arm below is skipped for them. Never `continue` here: that
+                    # would also skip this entry's A2 (display => allowlist) and A3
+                    # (served_on => mapping) checks, silently disarming the
+                    # #812-class empty-pool guard for every free model.
                     if mode == "image_generation":
                         if not any(_is_pos_number(po.get(f)) for f in fields):
                             errors.append(f"{key}: registry {price_key!r} (mode={mode}) requires one media price > 0")
@@ -341,6 +344,13 @@ def _selftest() -> int:
             "mode": "chat",
             "input_cost_per_token": 1e-7,
             "output_cost_per_token": 2e-7,
+        },
+        "free-chat": {
+            "litellm_provider": "zhipu",
+            "mode": "chat",
+            "input_cost_per_token": 0,
+            "output_cost_per_token": 0,
+            "explicit_free": True,
         },
     }
     allowlist = {"anthropic": {"claude-opus-4-8"}, "openai": set(), "gemini": set(),
@@ -486,6 +496,26 @@ def _selftest() -> int:
     )
     if not any("#812-class gap" in e for e in errs):
         failures.append("A3: quoted-id prefix isolation broken (matched a -preview key)")
+
+    # --- explicit_free must skip ONLY the A1 price arm, never A2/A3 -------------
+    # Regression pin: an `explicit_free` row once `continue`d the whole entry loop,
+    # silently disarming the #812-class empty-pool guard for every free model.
+    errs, _ = run({"newapi/free-unmapped": {
+        "platform": "newapi", "model_id": "unmapped-free", "served_on": ["60"],
+        "channel_type": 17, "price_source": "registry", "price_key": "free-chat",
+        "display": False, "notes": "free but never wired",
+    }})
+    if not any("#812-class gap" in e for e in errs):
+        failures.append("explicit_free entry skipped its A3 served_on/mapping check")
+    if any("requires" in e and "> 0" in e for e in errs):
+        failures.append("explicit_free entry was wrongly required to carry a non-zero price")
+    errs, _ = run({"anthropic/free-disp": {
+        "platform": "anthropic", "model_id": "claude-ghost-free", "served_on": ["1"],
+        "channel_type": 0, "price_source": "registry", "price_key": "free-chat",
+        "display": True, "notes": "served-via-admin-ui",
+    }})
+    if not any("absent from the anthropic servable-allowlist" in e for e in errs):
+        failures.append("explicit_free entry skipped its A2 display/allowlist check")
 
     if failures:
         print("SELFTEST FAILED:", flush=True)

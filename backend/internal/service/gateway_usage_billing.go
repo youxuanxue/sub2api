@@ -904,6 +904,21 @@ func (s *GatewayService) calculateImageCost(
 		return cost
 	}
 
+	// TK: same image-token owner case as the OpenAI funnel — see
+	// billing_service_tk_image_token_settlement.go. Last, so scoped overrides win.
+	if cost := s.billingService.TkCalculateImageTokenCost(
+		billingModel,
+		UsageTokens{
+			InputTokens:       result.Usage.InputTokens,
+			OutputTokens:      result.Usage.OutputTokens,
+			ImageOutputTokens: result.Usage.ImageOutputTokens,
+			CacheReadTokens:   result.Usage.CacheReadInputTokens,
+		},
+		multiplier,
+	); cost != nil {
+		return cost
+	}
+
 	return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
 }
 

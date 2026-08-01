@@ -870,11 +870,25 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, false, longContextBillingEnabled), nil
 }
 
+// applyModelSpecificPricingPolicy is an upstream-owned seam (CLAUDE.md §5.x:
+// keep the symbol, change the behavior) that TokenKey deliberately reduces to a
+// pass-through: pricing policy is data-owned.
+//
+// Upstream completes missing numbers here — deriving a gpt-5.6 cache-write price
+// as input × 1.25 and back-filling the 272K long-context threshold/multipliers.
+// Under the unified registry those dimensions must be present on the resolved
+// owner row (or a scoped channel override), because a Go rescue path IS a second
+// pricing fact source: the same model would bill differently depending on whether
+// its row was complete.
+//
+// Removing that rescue means an incomplete row now bills zero in the missing
+// dimension instead of being silently patched, so the safety net was replaced
+// mechanically rather than dropped — validate_priced_dimension_completeness in
+// scripts/checks/pricing-overlay.py fails preflight when a row declares a
+// priority rate or a partial long-context policy without the fields billing
+// reads. Keep this seam (upstream calls it from four sites); add new policy to
+// the registry and that gate, never as numeric completion here.
 func (s *BillingService) applyModelSpecificPricingPolicy(model string, pricing *ModelPricing) *ModelPricing {
-	// Pricing policy is data-owned. Long-context thresholds, multipliers, cache
-	// prices, and service-tier rates must be present on the resolved registry row
-	// (or a scoped channel override); this method intentionally performs no
-	// numeric completion or model-family fallback.
 	return pricing
 }
 
@@ -973,7 +987,10 @@ func (s *BillingService) CalculateCostWithLongContext(model string, tokens Usage
 	}, nil
 }
 
-// ListSupportedModels 列出所有支持的模型（现在总是返回true，因为有模糊匹配）
+// ListSupportedModels 列出 registry 中的全部 owner model id。
+// Upstream-owned symbol (§5.x): upstream enumerates its Go fallback table here;
+// TokenKey enumerates the registry instead, since that is now the only global
+// owner. Not on any billing path — admin/diagnostic callers only.
 func (s *BillingService) ListSupportedModels() []string {
 	models := make([]string, 0, len(loadTKPricingOverlay()))
 	for model := range loadTKPricingOverlay() {

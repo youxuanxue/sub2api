@@ -64,7 +64,16 @@ func (s *BillingService) TkImageModelUnpriced(model string, group *Group) bool {
 		return false
 	}
 	pricing := s.pricingService.GetModelPricing(model)
-	return pricing == nil || tkIsEffectivelyUnpriced(pricing)
+	if pricing == nil || tkIsEffectivelyUnpriced(pricing) {
+		return true
+	}
+	// TK: a row may be "priced" in the tkIsEffectivelyUnpriced sense (which accepts
+	// a price in ANY dimension, including per-second video) while carrying NO price
+	// in a dimension an image settlement path can actually charge. gpt-image-* is
+	// accepted here only because image-token settlement is wired
+	// (TkImageModelBillsByImageTokens); a row with neither a per-image nor an
+	// image-token price would bill $0 on every router, so it fails closed.
+	return !tkRegistryRowHasBillableImagePrice(pricing)
 }
 
 // TkVideoModelUnpriced / TkImageModelUnpriced — handler-facing wrappers so the

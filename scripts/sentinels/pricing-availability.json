@@ -241,9 +241,10 @@
         "grok-4.3",
         "grok-build-0.1",
         "def validate_official_list_base_tax",
-        "official_list_base_tax.multiplier must be within [1,2]"
+        "official_list_base_tax.multiplier must be within [1,2]",
+        "def validate_priced_dimension_completeness"
       ],
-      "rationale": "The registry gate validates media failure billing, critical price anchors, and executable base-tax policy. Tax config must have a bounded multiplier, unique normalized providers, and valid non-duplicated fallback matchers before an embedded release can consume it."
+      "rationale": "The registry gate validates media failure billing, critical price anchors, and executable base-tax policy. Tax config must have a bounded multiplier, unique normalized providers, and valid non-duplicated fallback matchers before an embedded release can consume it. validate_priced_dimension_completeness replaces the numeric completion that BillingService.applyModelSpecificPricingPolicy used to perform in Go (deriving gpt-5.6 cache-write as input x 1.25 and back-filling the 272K long-context triple). With policy now data-owned there is no Go rescue for an omitted dimension — billing simply reads zero — so the omission must fail CI: a row exposing a priority input rate must price priority cache dimensions it declares, and a row declaring any long-context signal must declare the whole triple."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_media_unpriced_guard_contract_test.go",
@@ -262,9 +263,13 @@
         "served-via-admin-ui",
         "served-via-modelops-activation",
         "#812-class gap",
-        "def _selftest("
+        "def _selftest(",
+        "elif po.get(\"explicit_free\") is not True:"
       ],
-      "rationale": "The served-models manifest drift guard asserts repository agreement for the thin intent layer: (A1) non-zero pricing, (A2) native allowlist or manifest-owned newapi display, and (A3) an explicit mapping write path. Legacy rows may be evidenced by a quoted model id plus account guard in tk_*.sql or by the served-via-admin-ui seed-state marker; every new floor must declare served-via-modelops-activation and then complete the approved evidence-backed prod activation before release. A3 catches the #812 priced/displayed-but-empty-pool failure without forcing generic deploy to mutate live accounts. Pinning both legacy and activation markers, the selftest, and the allowlist parser prevents an upstream merge from silently dropping either safety path. Wired into preflight and the upstream conflict gate."
+      "rationale": "The served-models manifest drift guard asserts repository agreement for the thin intent layer: (A1) non-zero pricing, (A2) native allowlist or manifest-owned newapi display, and (A3) an explicit mapping write path. Legacy rows may be evidenced by a quoted model id plus account guard in tk_*.sql or by the served-via-admin-ui seed-state marker; every new floor must declare served-via-modelops-activation and then complete the approved evidence-backed prod activation before release. A3 catches the #812 priced/displayed-but-empty-pool failure without forcing generic deploy to mutate live accounts. Pinning both legacy and activation markers, the selftest, and the allowlist parser prevents an upstream merge from silently dropping either safety path. Wired into preflight and the upstream conflict gate. The explicit_free branch must be an `elif` guarding ONLY the price arm: an earlier `continue` there skipped the whole entry, silently disarming that entry's A2 (display => allowlist) and A3 (served_on => mapping) checks — the #812-class empty-pool guard — for every free model.",
+      "must_not_contain": [
+        "                    if po.get(\"explicit_free\") is True:\n                        continue"
+      ]
     },
     {
       "path": "backend/internal/service/tk_served_models.json",
@@ -303,7 +308,8 @@
         "func applyTKPricingOverlay",
         "tkValidateAndBuildOverlayVideoTiers",
         "TokenPricingAbsent:      e.InputCostPerToken == nil && e.OutputCostPerToken == nil",
-        "SupportsReasoning:       e.SupportsReasoning"
+        "SupportsReasoning:       e.SupportsReasoning",
+        "func tkParseRegistryPricingEntry("
       ],
       "must_not_contain": [
         "runtimeBytes",
@@ -311,7 +317,7 @@
         "tkOverlayMu",
         "tkOverlayEffective"
       ],
-      "rationale": "The registry loader builds exactly one immutable process snapshot containing model prices, catalog metadata, and executable tax policy. It accepts no runtime document and has no mutable union/swap path. tkValidateAndBuildOverlayVideoTiers rejects malformed billing ladders before startup use. TokenPricingAbsent preserves the fail-closed token-billing boundary for media-only owners; SupportsReasoning anchors the public-catalog capability projection."
+      "rationale": "The registry loader builds exactly one immutable process snapshot containing model prices, catalog metadata, and executable tax policy. It accepts no runtime document and has no mutable union/swap path. tkValidateAndBuildOverlayVideoTiers rejects malformed billing ladders before startup use. TokenPricingAbsent preserves the fail-closed token-billing boundary for media-only owners; SupportsReasoning anchors the public-catalog capability projection. tkParseRegistryPricingEntry is the SINGLE row projection shared by the production loader and the offline import parser (PricingService.parsePricingData); before it existed the two diverged silently (the offline one dropped intervals and video_price_tiers and duplicated the 272K normalization), so guard/contract tests built on the offline parser asserted a shape production never produced. Re-forking it recreates a second schema interpretation of the one registry."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay_test.go",
@@ -434,6 +440,48 @@
         "response must expose only id and display_name"
       ],
       "rationale": "Regression guards for Gemini mapping ∩ servable behavior and the exact two-field response contract across every first-class account platform. Upstream merges that rewrite the handler/tests must fail if they re-advertise an unservable Gemini id or leak platform-specific model fields."
+    },
+    {
+      "path": "backend/internal/service/pricing_service.go",
+      "must_contain": [
+        "tkParseRegistryPricingEntry(modelName, rawEntry)"
+      ],
+      "must_not_contain": [
+        "pricing.LongContextInputTokenThreshold = 272000"
+      ],
+      "rationale": "The offline import parser must project rows through the shared registry mapper, not its own field-by-field copy. The negative anchor pins the specific duplication that existed before (a second 272K long-context normalization): re-adding it means the offline parser can again disagree with production about the same registry bytes, which is what made an earlier media-guard contract test assert against a shape billing never saw."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_image_token_settlement.go",
+      "must_contain": [
+        "func tkRegistryRowBillsImageByTokens(",
+        "func tkRegistryRowHasBillableImagePrice(",
+        "func (s *BillingService) TkCalculateImageTokenCost(",
+        "s.computeTokenBreakdown(pricing, tokens, rateMultiplier",
+        "BillingMode = string(BillingModeImage)"
+      ],
+      "rationale": "Closes the $0 media hole for per-image-TOKEN owners (OpenAI gpt-image-*): those rows carry output_cost_per_image_token and NO output_cost_per_image, so CalculateImageCost (which reads only OutputCostPerImage) charged $0 while the unpriced-media guard still saw a priced row — bills nothing AND passes the gate, the exact pair docs/approved/priced-or-it-doesnt-ship.md forbids. TkCalculateImageTokenCost settles them by delegating to computeTokenBreakdown (never reimplementing the arithmetic, so image-input/output token dimension precedence stays owned in one place) while keeping BillingMode=image so the usage-log billing_mode filter and the image rate multiplier are unchanged. Dropping any anchor silently restores $0 image billing for the whole gpt-image family."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_usage.go",
+      "must_contain": [
+        "TkCalculateImageTokenCost("
+      ],
+      "rationale": "The OpenAI image settlement funnel must consult the image-token settlement before falling back to per-image settlement, or a per-image-token owner (gpt-image-*) bills $0. It is placed LAST so scoped overrides keep strictly higher precedence: group size prices and channel_model_pricing are both resolved above it. Removing the call reintroduces silent $0 image revenue loss with no test or compile failure."
+    },
+    {
+      "path": "backend/internal/service/gateway_usage_billing.go",
+      "must_contain": [
+        "TkCalculateImageTokenCost("
+      ],
+      "rationale": "The native image settlement funnel must consult the image-token settlement before falling back to per-image settlement, or a per-image-token owner (gpt-image-*) bills $0. It is placed LAST so scoped overrides keep strictly higher precedence: group size prices and channel_model_pricing are both resolved above it. Removing the call reintroduces silent $0 image revenue loss with no test or compile failure."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_media_unpriced_guard.go",
+      "must_contain": [
+        "!tkRegistryRowHasBillableImagePrice(pricing)"
+      ],
+      "rationale": "tkIsEffectivelyUnpriced accepts a price in ANY dimension, so a row priced only per-SECOND (a video owner pointed at an image endpoint) passed the image guard while every image settlement path read zero. The guard must additionally require a dimension the image surface can actually charge (per-image, per-image-token, or plain token). Without this the guard admits models it cannot bill."
     }
   ]
 }

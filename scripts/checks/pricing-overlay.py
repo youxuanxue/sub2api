@@ -212,6 +212,69 @@ def validate_runtime_owner_shape(model: str, pricing: dict) -> list[str]:
     return errors
 
 
+def validate_priced_dimension_completeness(model: str, pricing: dict) -> list[str]:
+    """Assert a row carries every price dimension its billing path will read.
+
+    BillingService.applyModelSpecificPricingPolicy used to COMPLETE missing
+    numbers in Go (deriving a gpt-5.6 cache-write price as input x 1.25, and
+    back-filling the 272K long-context threshold/multipliers). Now that pricing
+    policy is data-owned, that numeric completion is deliberately gone — which
+    means an owner row that omits a dimension no longer gets a silent Go rescue;
+    billing simply reads zero. This gate replaces the removed safety net
+    mechanically (CLAUDE.md upgrade principle) so the omission fails CI instead
+    of under-billing production.
+
+    Two dimensions are load-bearing today:
+      1. A row exposing a PRIORITY input rate must also price priority
+         cache-creation and cache-read, or priority traffic bills those at $0.
+      2. A row declaring ANY long-context signal must declare the whole triple
+         (threshold + input multiplier + output multiplier), or long-context
+         requests silently bill at the base rate.
+    """
+    errors: list[str] = []
+    if pricing.get("explicit_free") is True:
+        return errors
+
+    def positive(field: str) -> bool:
+        value = pricing.get(field)
+        return _finite_number(value) and value > 0
+
+    # (1) priority tier completeness
+    if positive("input_cost_per_token_priority"):
+        for field in ("cache_creation_input_token_cost_priority",
+                      "cache_read_input_token_cost_priority"):
+            if field in pricing and not positive(field):
+                errors.append(
+                    f"{model}: input_cost_per_token_priority > 0 requires {field} > 0 when "
+                    f"declared (Go no longer derives it; priority traffic would bill $0)"
+                )
+
+    # (2) long-context triple completeness
+    long_context_fields = (
+        "long_context_input_token_threshold",
+        "long_context_input_cost_multiplier",
+        "long_context_output_cost_multiplier",
+    )
+    above_272k_fields = (
+        "input_cost_per_token_above_272k_tokens",
+        "output_cost_per_token_above_272k_tokens",
+        "cache_read_input_token_cost_above_272k_tokens",
+    )
+    declares_long_context = any(f in pricing for f in long_context_fields)
+    # An above-272K rate alone is self-describing: the decoder derives the
+    # threshold and multipliers from it, so it is complete by construction.
+    derivable = any(f in pricing for f in above_272k_fields)
+    if declares_long_context and not derivable:
+        missing = [f for f in long_context_fields if not positive(f)]
+        if missing:
+            errors.append(
+                f"{model}: partial long-context policy — missing {missing}. Declare the full "
+                f"triple (threshold + both multipliers) or an above_272k rate; Go no longer "
+                f"back-fills it, so long-context requests would bill at the base rate"
+            )
+    return errors
+
+
 def validate_official_list_base_tax(data: dict) -> list[str]:
     errors: list[str] = []
     config = data.get("_config")
@@ -380,6 +443,7 @@ def main() -> int:
             errors.append(f"{model}: entry is not an object")
             continue
         errors.extend(validate_runtime_owner_shape(model, pricing))
+        errors.extend(validate_priced_dimension_completeness(model, pricing))
         mode = pricing.get("mode")
         fields = MODE_FIELDS.get(mode)
         if fields is None:

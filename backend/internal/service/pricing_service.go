@@ -162,8 +162,21 @@ func (s *PricingService) Initialize() error {
 }
 
 // parsePricingData 解析价格数据（处理各种格式）
+// parsePricingData parses a registry-shaped document into runtime pricing rows.
+//
+// This is the OFFLINE parser: it backs provider-import tooling and focused parser
+// tests. Production loading goes through parseTKOverlayDocument (which is strict —
+// any malformed row fails startup). The difference between them is deliberately
+// only TOLERANCE, never field coverage: both project each row through the one
+// shared mapper, tkParseRegistryPricingEntry.
+//
+// That sharing is the point. These two parsers previously each mapped fields by
+// hand and had silently drifted — this one dropped `intervals` and
+// `video_price_tiers` entirely and carried its own copy of the 272K long-context
+// normalization. Any test built on it was therefore asserting against a shape
+// production never produced, which is exactly the second-source-of-truth problem
+// the unified registry exists to eliminate.
 func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModelPricing, error) {
-	// 首先解析为 map[string]json.RawMessage
 	var rawData map[string]json.RawMessage
 	if err := json.Unmarshal(body, &rawData); err != nil {
 		return nil, fmt.Errorf("parse raw JSON: %w", err)
@@ -173,14 +186,15 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 	skipped := 0
 
 	for modelName, rawEntry := range rawData {
-		// 跳过 sample_spec 等文档条目
-		if modelName == "sample_spec" {
+		// 跳过 sample_spec 等文档条目与 _meta/_config 这类非价格键。
+		if modelName == "sample_spec" || strings.HasPrefix(modelName, "_") {
 			continue
 		}
 
-		// 尝试解析每个条目
-		var entry LiteLLMRawEntry
-		if err := json.Unmarshal(rawEntry, &entry); err != nil {
+		pricing, entry, err := tkParseRegistryPricingEntry(modelName, rawEntry)
+		if err != nil {
+			// Offline tolerance: a malformed row is skipped here rather than
+			// failing the whole import. Production keeps the strict behavior.
 			skipped++
 			continue
 		}
@@ -192,86 +206,6 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 			entry.OutputCostPerImage == nil && entry.OutputCostPerImageToken == nil &&
 			entry.OutputCostPerSecond == nil {
 			continue
-		}
-
-		pricing := &LiteLLMModelPricing{
-			LiteLLMProvider:       entry.LiteLLMProvider,
-			Mode:                  entry.Mode,
-			SupportsPromptCaching: entry.SupportsPromptCaching,
-			SupportsServiceTier:   entry.SupportsServiceTier,
-			TokenPricingAbsent:    entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil && entry.InputCostPerImageToken == nil,
-			ExplicitFree:          entry.ExplicitFree,
-			// Authority is a registry policy, never a claim supplied by an
-			// offline provider import.
-		}
-
-		if entry.InputCostPerToken != nil {
-			pricing.InputCostPerToken = *entry.InputCostPerToken
-		}
-		if entry.InputCostPerTokenPriority != nil {
-			pricing.InputCostPerTokenPriority = *entry.InputCostPerTokenPriority
-		}
-		if entry.OutputCostPerToken != nil {
-			pricing.OutputCostPerToken = *entry.OutputCostPerToken
-		}
-		if entry.OutputCostPerTokenPriority != nil {
-			pricing.OutputCostPerTokenPriority = *entry.OutputCostPerTokenPriority
-		}
-		if entry.ThinkingOutputCostPerToken != nil {
-			pricing.ThinkingOutputCostPerToken = *entry.ThinkingOutputCostPerToken
-		}
-		if entry.CacheCreationInputTokenCost != nil {
-			pricing.CacheCreationInputTokenCost = *entry.CacheCreationInputTokenCost
-		}
-		if entry.CacheCreationInputTokenCostPriority != nil {
-			pricing.CacheCreationInputTokenCostPriority = *entry.CacheCreationInputTokenCostPriority
-		}
-		if entry.CacheCreationInputTokenCostAbove1hr != nil {
-			pricing.CacheCreationInputTokenCostAbove1hr = *entry.CacheCreationInputTokenCostAbove1hr
-		}
-		if entry.CacheReadInputTokenCost != nil {
-			pricing.CacheReadInputTokenCost = *entry.CacheReadInputTokenCost
-		}
-		if entry.CacheReadInputTokenCostPriority != nil {
-			pricing.CacheReadInputTokenCostPriority = *entry.CacheReadInputTokenCostPriority
-		}
-		if entry.LongContextInputCostMultiplier != nil {
-			pricing.LongContextInputCostMultiplier = *entry.LongContextInputCostMultiplier
-		}
-		if entry.LongContextOutputCostMultiplier != nil {
-			pricing.LongContextOutputCostMultiplier = *entry.LongContextOutputCostMultiplier
-		}
-		if entry.LongContextInputTokenThreshold != nil {
-			pricing.LongContextInputTokenThreshold = *entry.LongContextInputTokenThreshold
-		} else if entry.InputCostPerTokenAbove272K != nil || entry.OutputCostPerTokenAbove272K != nil || entry.CacheReadInputTokenCostAbove272K != nil {
-			pricing.LongContextInputTokenThreshold = 272000
-		}
-		if pricing.LongContextInputCostMultiplier == 0 && entry.InputCostPerToken != nil && entry.InputCostPerTokenAbove272K != nil && *entry.InputCostPerToken > 0 {
-			pricing.LongContextInputCostMultiplier = *entry.InputCostPerTokenAbove272K / *entry.InputCostPerToken
-		}
-		if pricing.LongContextOutputCostMultiplier == 0 && entry.OutputCostPerToken != nil && entry.OutputCostPerTokenAbove272K != nil && *entry.OutputCostPerToken > 0 {
-			pricing.LongContextOutputCostMultiplier = *entry.OutputCostPerTokenAbove272K / *entry.OutputCostPerToken
-		}
-		if entry.OutputCostPerImage != nil {
-			pricing.OutputCostPerImage = *entry.OutputCostPerImage
-		}
-		if entry.OutputCostPerImageToken != nil {
-			pricing.OutputCostPerImageToken = *entry.OutputCostPerImageToken
-		}
-		if entry.InputCostPerImageToken != nil {
-			pricing.InputCostPerImageToken = *entry.InputCostPerImageToken
-		}
-		if entry.ImagePrice1K != nil {
-			pricing.ImagePrice1K = *entry.ImagePrice1K
-		}
-		if entry.ImagePrice2K != nil {
-			pricing.ImagePrice2K = *entry.ImagePrice2K
-		}
-		if entry.ImagePrice4K != nil {
-			pricing.ImagePrice4K = *entry.ImagePrice4K
-		}
-		if entry.OutputCostPerSecond != nil {
-			pricing.OutputCostPerSecond = *entry.OutputCostPerSecond
 		}
 
 		result[modelName] = pricing

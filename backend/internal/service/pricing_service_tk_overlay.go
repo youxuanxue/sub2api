@@ -99,136 +99,157 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 		if name != strings.ToLower(strings.TrimSpace(name)) || strings.Contains(name, "/") {
 			return nil, fmt.Errorf("overlay model owner %q must be a normalized bare key", name)
 		}
-		var e LiteLLMRawEntry
-		if err := json.Unmarshal(rawEntry, &e); err != nil {
-			return nil, fmt.Errorf("parse overlay model %s: %w", name, err)
-		}
-		p := &LiteLLMModelPricing{
-			LiteLLMProvider:         e.LiteLLMProvider,
-			Mode:                    e.Mode,
-			SupportsPromptCaching:   e.SupportsPromptCaching,
-			SupportsServiceTier:     e.SupportsServiceTier,
-			MaxInputTokens:          e.MaxInputTokens,
-			MaxOutputTokens:         e.MaxOutputTokens,
-			SupportsVision:          e.SupportsVision,
-			SupportsToolChoice:      e.SupportsToolChoice,
-			SupportsFunctionCalling: e.SupportsFunctionCalling,
-			SupportsReasoning:       e.SupportsReasoning,
-			SupportsResponseSchema:  e.SupportsResponseSchema,
-			SupportsPDFInput:        e.SupportsPDFInput,
-			SupportsWebSearch:       e.SupportsWebSearch,
-			TokenPricingAbsent:      e.InputCostPerToken == nil && e.OutputCostPerToken == nil && e.InputCostPerImageToken == nil,
-			ExplicitFree:            e.ExplicitFree,
-		}
-		if e.OutputCostPerImage != nil {
-			p.OutputCostPerImage = *e.OutputCostPerImage
-		}
-		if e.OutputCostPerImageToken != nil {
-			p.OutputCostPerImageToken = *e.OutputCostPerImageToken
-		}
-		if e.InputCostPerImageToken != nil {
-			p.InputCostPerImageToken = *e.InputCostPerImageToken
-		}
-		if e.ImagePrice1K != nil {
-			p.ImagePrice1K = *e.ImagePrice1K
-		}
-		if e.ImagePrice2K != nil {
-			p.ImagePrice2K = *e.ImagePrice2K
-		}
-		if e.ImagePrice4K != nil {
-			p.ImagePrice4K = *e.ImagePrice4K
-		}
-		if e.OutputCostPerSecond != nil {
-			p.OutputCostPerSecond = *e.OutputCostPerSecond
-		}
-		if e.InputCostPerToken != nil {
-			p.InputCostPerToken = *e.InputCostPerToken
-		}
-		if e.InputCostPerTokenPriority != nil {
-			p.InputCostPerTokenPriority = *e.InputCostPerTokenPriority
-		}
-		if e.OutputCostPerToken != nil {
-			p.OutputCostPerToken = *e.OutputCostPerToken
-		}
-		if e.OutputCostPerTokenPriority != nil {
-			p.OutputCostPerTokenPriority = *e.OutputCostPerTokenPriority
-		}
-		if e.ThinkingOutputCostPerToken != nil {
-			p.ThinkingOutputCostPerToken = *e.ThinkingOutputCostPerToken
-		}
-		if e.CacheCreationInputTokenCost != nil {
-			p.CacheCreationInputTokenCost = *e.CacheCreationInputTokenCost
-		}
-		if e.CacheCreationInputTokenCostPriority != nil {
-			p.CacheCreationInputTokenCostPriority = *e.CacheCreationInputTokenCostPriority
-		}
-		if e.CacheCreationInputTokenCostAbove1hr != nil {
-			p.CacheCreationInputTokenCostAbove1hr = *e.CacheCreationInputTokenCostAbove1hr
-		}
-		if e.CacheReadInputTokenCost != nil {
-			p.CacheReadInputTokenCost = *e.CacheReadInputTokenCost
-		}
-		if e.CacheReadInputTokenCostPriority != nil {
-			p.CacheReadInputTokenCostPriority = *e.CacheReadInputTokenCostPriority
-		}
-		if e.LongContextInputCostMultiplier != nil {
-			p.LongContextInputCostMultiplier = *e.LongContextInputCostMultiplier
-		}
-		if e.LongContextOutputCostMultiplier != nil {
-			p.LongContextOutputCostMultiplier = *e.LongContextOutputCostMultiplier
-		}
-		if e.LongContextInputTokenThreshold != nil {
-			p.LongContextInputTokenThreshold = *e.LongContextInputTokenThreshold
-		} else if e.InputCostPerTokenAbove272K != nil || e.OutputCostPerTokenAbove272K != nil || e.CacheReadInputTokenCostAbove272K != nil {
-			p.LongContextInputTokenThreshold = 272000
-		}
-		if p.LongContextInputCostMultiplier == 0 && e.InputCostPerToken != nil && e.InputCostPerTokenAbove272K != nil && *e.InputCostPerToken > 0 {
-			p.LongContextInputCostMultiplier = *e.InputCostPerTokenAbove272K / *e.InputCostPerToken
-		}
-		if p.LongContextOutputCostMultiplier == 0 && e.OutputCostPerToken != nil && e.OutputCostPerTokenAbove272K != nil && *e.OutputCostPerToken > 0 {
-			p.LongContextOutputCostMultiplier = *e.OutputCostPerTokenAbove272K / *e.OutputCostPerToken
-		}
-		// TK: input-token interval (tiered) pricing. LiteLLMRawEntry has no
-		// "intervals" field (it is TK-overlay-only), so parse the raw entry a
-		// second time into a TK-local shape. An entry's flat input/output cost
-		// stays as the out-of-range fallback (BasePricing); the intervals drive
-		// whole-request tier billing via ResolvedPricing.Intervals.
-		var ext struct {
-			Intervals []tkOverlayRawInterval `json:"intervals"`
-		}
-		if err := json.Unmarshal(rawEntry, &ext); err != nil {
-			return nil, fmt.Errorf("parse overlay model %s intervals: %w", name, err)
-		}
-		if len(ext.Intervals) > 0 {
-			p.Intervals = tkBuildOverlayIntervals(ext.Intervals)
-			if err := ValidateIntervals(p.Intervals, BillingModeToken); err != nil {
-				return nil, fmt.Errorf("overlay model %s intervals: %w", name, err)
-			}
-		}
-		var videoExt struct {
-			VideoPriceTiers        []tkOverlayRawVideoTier `json:"video_price_tiers"`
-			DefaultVideoResolution string                  `json:"default_video_resolution"`
-		}
-		if err := json.Unmarshal(rawEntry, &videoExt); err != nil {
-			return nil, fmt.Errorf("parse overlay model %s video tiers: %w", name, err)
-		}
-		if videoExt.VideoPriceTiers != nil {
-			tiers, defaultResolution, err := tkValidateAndBuildOverlayVideoTiers(
-				videoExt.VideoPriceTiers,
-				videoExt.DefaultVideoResolution,
-				p.OutputCostPerSecond,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("overlay model %s video tiers: %w", name, err)
-			}
-			p.VideoPriceTiers = tiers
-			p.DefaultVideoResolution = defaultResolution
-		} else if strings.TrimSpace(videoExt.DefaultVideoResolution) != "" {
-			return nil, fmt.Errorf("overlay model %s has default_video_resolution without video_price_tiers", name)
+		p, _, err := tkParseRegistryPricingEntry(name, rawEntry)
+		if err != nil {
+			return nil, err
 		}
 		doc.Models[name] = p
 	}
 	return doc, nil
+}
+
+// tkParseRegistryPricingEntry maps ONE registry row into its runtime pricing
+// struct. It is the single projection used by every consumer of the registry
+// schema — the production loader (parseTKOverlayDocument) and the offline
+// import/validation parser (PricingService.parsePricingData) — so no caller can
+// observe a different set of fields than billing does.
+//
+// Before this was shared, the two parsers diverged silently: the offline one
+// dropped `intervals` and `video_price_tiers` entirely and duplicated the 272K
+// long-context normalization, which meant guard/contract tests built on it were
+// asserting against a shape production never produced.
+//
+// Returns the mapped row plus the decoded raw entry, whose pointer fields let a
+// caller distinguish "absent" from "explicit zero" without re-unmarshalling.
+func tkParseRegistryPricingEntry(name string, rawEntry json.RawMessage) (*LiteLLMModelPricing, *LiteLLMRawEntry, error) {
+	var e LiteLLMRawEntry
+	if err := json.Unmarshal(rawEntry, &e); err != nil {
+		return nil, nil, fmt.Errorf("parse overlay model %s: %w", name, err)
+	}
+	p := &LiteLLMModelPricing{
+		LiteLLMProvider:         e.LiteLLMProvider,
+		Mode:                    e.Mode,
+		SupportsPromptCaching:   e.SupportsPromptCaching,
+		SupportsServiceTier:     e.SupportsServiceTier,
+		MaxInputTokens:          e.MaxInputTokens,
+		MaxOutputTokens:         e.MaxOutputTokens,
+		SupportsVision:          e.SupportsVision,
+		SupportsToolChoice:      e.SupportsToolChoice,
+		SupportsFunctionCalling: e.SupportsFunctionCalling,
+		SupportsReasoning:       e.SupportsReasoning,
+		SupportsResponseSchema:  e.SupportsResponseSchema,
+		SupportsPDFInput:        e.SupportsPDFInput,
+		SupportsWebSearch:       e.SupportsWebSearch,
+		TokenPricingAbsent:      e.InputCostPerToken == nil && e.OutputCostPerToken == nil && e.InputCostPerImageToken == nil,
+		ExplicitFree:            e.ExplicitFree,
+	}
+	if e.OutputCostPerImage != nil {
+		p.OutputCostPerImage = *e.OutputCostPerImage
+	}
+	if e.OutputCostPerImageToken != nil {
+		p.OutputCostPerImageToken = *e.OutputCostPerImageToken
+	}
+	if e.InputCostPerImageToken != nil {
+		p.InputCostPerImageToken = *e.InputCostPerImageToken
+	}
+	if e.ImagePrice1K != nil {
+		p.ImagePrice1K = *e.ImagePrice1K
+	}
+	if e.ImagePrice2K != nil {
+		p.ImagePrice2K = *e.ImagePrice2K
+	}
+	if e.ImagePrice4K != nil {
+		p.ImagePrice4K = *e.ImagePrice4K
+	}
+	if e.OutputCostPerSecond != nil {
+		p.OutputCostPerSecond = *e.OutputCostPerSecond
+	}
+	if e.InputCostPerToken != nil {
+		p.InputCostPerToken = *e.InputCostPerToken
+	}
+	if e.InputCostPerTokenPriority != nil {
+		p.InputCostPerTokenPriority = *e.InputCostPerTokenPriority
+	}
+	if e.OutputCostPerToken != nil {
+		p.OutputCostPerToken = *e.OutputCostPerToken
+	}
+	if e.OutputCostPerTokenPriority != nil {
+		p.OutputCostPerTokenPriority = *e.OutputCostPerTokenPriority
+	}
+	if e.ThinkingOutputCostPerToken != nil {
+		p.ThinkingOutputCostPerToken = *e.ThinkingOutputCostPerToken
+	}
+	if e.CacheCreationInputTokenCost != nil {
+		p.CacheCreationInputTokenCost = *e.CacheCreationInputTokenCost
+	}
+	if e.CacheCreationInputTokenCostPriority != nil {
+		p.CacheCreationInputTokenCostPriority = *e.CacheCreationInputTokenCostPriority
+	}
+	if e.CacheCreationInputTokenCostAbove1hr != nil {
+		p.CacheCreationInputTokenCostAbove1hr = *e.CacheCreationInputTokenCostAbove1hr
+	}
+	if e.CacheReadInputTokenCost != nil {
+		p.CacheReadInputTokenCost = *e.CacheReadInputTokenCost
+	}
+	if e.CacheReadInputTokenCostPriority != nil {
+		p.CacheReadInputTokenCostPriority = *e.CacheReadInputTokenCostPriority
+	}
+	if e.LongContextInputCostMultiplier != nil {
+		p.LongContextInputCostMultiplier = *e.LongContextInputCostMultiplier
+	}
+	if e.LongContextOutputCostMultiplier != nil {
+		p.LongContextOutputCostMultiplier = *e.LongContextOutputCostMultiplier
+	}
+	if e.LongContextInputTokenThreshold != nil {
+		p.LongContextInputTokenThreshold = *e.LongContextInputTokenThreshold
+	} else if e.InputCostPerTokenAbove272K != nil || e.OutputCostPerTokenAbove272K != nil || e.CacheReadInputTokenCostAbove272K != nil {
+		p.LongContextInputTokenThreshold = 272000
+	}
+	if p.LongContextInputCostMultiplier == 0 && e.InputCostPerToken != nil && e.InputCostPerTokenAbove272K != nil && *e.InputCostPerToken > 0 {
+		p.LongContextInputCostMultiplier = *e.InputCostPerTokenAbove272K / *e.InputCostPerToken
+	}
+	if p.LongContextOutputCostMultiplier == 0 && e.OutputCostPerToken != nil && e.OutputCostPerTokenAbove272K != nil && *e.OutputCostPerToken > 0 {
+		p.LongContextOutputCostMultiplier = *e.OutputCostPerTokenAbove272K / *e.OutputCostPerToken
+	}
+	// TK: input-token interval (tiered) pricing. LiteLLMRawEntry has no
+	// "intervals" field (it is TK-overlay-only), so parse the raw entry a
+	// second time into a TK-local shape. An entry's flat input/output cost
+	// stays as the out-of-range fallback (BasePricing); the intervals drive
+	// whole-request tier billing via ResolvedPricing.Intervals.
+	var ext struct {
+		Intervals []tkOverlayRawInterval `json:"intervals"`
+	}
+	if err := json.Unmarshal(rawEntry, &ext); err != nil {
+		return nil, nil, fmt.Errorf("parse overlay model %s intervals: %w", name, err)
+	}
+	if len(ext.Intervals) > 0 {
+		p.Intervals = tkBuildOverlayIntervals(ext.Intervals)
+		if err := ValidateIntervals(p.Intervals, BillingModeToken); err != nil {
+			return nil, nil, fmt.Errorf("overlay model %s intervals: %w", name, err)
+		}
+	}
+	var videoExt struct {
+		VideoPriceTiers        []tkOverlayRawVideoTier `json:"video_price_tiers"`
+		DefaultVideoResolution string                  `json:"default_video_resolution"`
+	}
+	if err := json.Unmarshal(rawEntry, &videoExt); err != nil {
+		return nil, nil, fmt.Errorf("parse overlay model %s video tiers: %w", name, err)
+	}
+	if videoExt.VideoPriceTiers != nil {
+		tiers, defaultResolution, err := tkValidateAndBuildOverlayVideoTiers(
+			videoExt.VideoPriceTiers,
+			videoExt.DefaultVideoResolution,
+			p.OutputCostPerSecond,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("overlay model %s video tiers: %w", name, err)
+		}
+		p.VideoPriceTiers = tiers
+		p.DefaultVideoResolution = defaultResolution
+	} else if strings.TrimSpace(videoExt.DefaultVideoResolution) != "" {
+		return nil, nil, fmt.Errorf("overlay model %s has default_video_resolution without video_price_tiers", name)
+	}
+	return p, &e, nil
 }
 
 func buildTKPricingOverlaySnapshot() (*tkPricingOverlaySnapshot, error) {
