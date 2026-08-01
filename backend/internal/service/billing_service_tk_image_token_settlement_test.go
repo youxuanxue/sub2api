@@ -114,11 +114,14 @@ func TestImageUnpricedGuard_RejectsRowWithNoUsableImageDimension(t *testing.T) {
 	svc := &BillingService{
 		pricingService: &PricingService{
 			pricingData: map[string]*LiteLLMModelPricing{
-				// Chat-style token prices only: image settlement can charge nothing.
 				"token-only-image": {
 					Mode:               "image_generation",
 					InputCostPerToken:  5e-6,
 					OutputCostPerToken: 1e-5,
+				},
+				"image-input-token-only": {
+					Mode:                   "image_generation",
+					InputCostPerImageToken: 8e-6,
 				},
 				"image-token-priced": {
 					Mode:                    "image_generation",
@@ -132,10 +135,17 @@ func TestImageUnpricedGuard_RejectsRowWithNoUsableImageDimension(t *testing.T) {
 		},
 	}
 
-	require.False(t, svc.TkImageModelUnpriced("token-only-image", nil),
-		"plain input/output token prices ARE chargeable on the image surface "+
-			"(computeTokenBreakdown falls back to the text output rate for image output "+
-			"tokens), so this row is admitted — matching the pre-existing guard fixture")
+	for _, model := range []string{"token-only-image", "image-input-token-only"} {
+		require.True(t, svc.TkImageModelUnpriced(model, nil),
+			"%q has no price that an image settlement router can charge", model)
+		require.False(t, svc.TkImageModelBillsByImageTokens(model),
+			"%q must not enter output-image-token settlement", model)
+		require.Nil(t, svc.TkCalculateImageTokenCost(model,
+			UsageTokens{InputTokens: 100, ImageInputTokens: 100, ImageOutputTokens: 100}, 1.0),
+			"%q has no output-image-token rate, so token settlement cannot charge it", model)
+		require.Zero(t, svc.CalculateImageCost(model, ImageBillingSize2K, 1, nil, 1.0).TotalCost,
+			"%q also has no per-image rate; admitting it would serve at $0", model)
+	}
 	require.False(t, svc.TkImageModelUnpriced("image-token-priced", nil),
 		"image-token pricing is billable via image-token settlement, so it is admitted")
 	require.False(t, svc.TkImageModelUnpriced("per-image-priced", nil),

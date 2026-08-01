@@ -62,18 +62,20 @@ func tkRegistryRowBillsImageByTokens(p *LiteLLMModelPricing) bool {
 
 // tkRegistryRowHasBillableImagePrice reports whether a resolved row carries a
 // price in SOME dimension one of the image settlement paths can actually charge.
-// Three families qualify:
+// Two families qualify:
 //
 //   - per-image (any tier)      -> CalculateImageCost
 //   - per-image-token           -> token settlement via the routing above
-//   - plain input/output token  -> token settlement (computeTokenBreakdown falls
-//     back to the text output rate for image output tokens)
 //
-// A row outside all three is unbillable on the image surface no matter which
+// A row outside both is unbillable on the image surface no matter which
 // router it reaches. The concrete case this rejects is a row priced ONLY
 // per-second (a video owner pointed at an image endpoint): tkIsEffectivelyUnpriced
 // sees a non-zero media cost and calls it priced, yet every image path reads zero.
-// The guard must reject that rather than serve at $0.
+// Plain token prices and input-image-token prices alone are also insufficient:
+// TkCalculateImageTokenCost intentionally routes only rows with a positive
+// output-image-token rate, while CalculateImageCost reads only per-image rates.
+// The guard must match those actual settlement predicates rather than admitting a
+// dimension that no image funnel will charge.
 func tkRegistryRowHasBillableImagePrice(p *LiteLLMModelPricing) bool {
 	if p == nil {
 		return false
@@ -83,9 +85,7 @@ func tkRegistryRowHasBillableImagePrice(p *LiteLLMModelPricing) bool {
 	}
 	return p.OutputCostPerImage > 0 ||
 		p.ImagePrice1K > 0 || p.ImagePrice2K > 0 || p.ImagePrice4K > 0 ||
-		p.OutputCostPerImageToken > 0 ||
-		p.InputCostPerImageToken > 0 ||
-		p.InputCostPerToken > 0 || p.OutputCostPerToken > 0
+		tkRegistryRowBillsImageByTokens(p)
 }
 
 // TkImageModelBillsByImageTokens exposes the predicate to the OpenAI gateway

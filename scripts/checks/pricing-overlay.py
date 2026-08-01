@@ -225,11 +225,12 @@ def validate_priced_dimension_completeness(model: str, pricing: dict) -> list[st
     of under-billing production.
 
     Two dimensions are load-bearing today:
-      1. A row exposing a PRIORITY input rate must also price priority
-         cache-creation and cache-read, or priority traffic bills those at $0.
-      2. A row declaring ANY long-context signal must declare the whole triple
-         (threshold + input multiplier + output multiplier), or long-context
-         requests silently bill at the base rate.
+      1. A row exposing ANY priority rate must provide a positive priority price
+         for every positive base dimension billing can consume. Missing fields
+         silently fall back to the base rate.
+      2. A row declaring either normalized long-context policy or imported
+         above-272K rates must declare the complete representation needed to
+         derive both input and output multipliers.
     """
     errors: list[str] = []
     if pricing.get("explicit_free") is True:
@@ -239,39 +240,62 @@ def validate_priced_dimension_completeness(model: str, pricing: dict) -> list[st
         value = pricing.get(field)
         return _finite_number(value) and value > 0
 
-    # (1) priority tier completeness
-    if positive("input_cost_per_token_priority"):
-        for field in ("cache_creation_input_token_cost_priority",
-                      "cache_read_input_token_cost_priority"):
-            if field in pricing and not positive(field):
+    # (1) priority tier completeness. Presence matters: the old gate checked
+    # only fields that happened to exist, so deleting a priority cache-write
+    # field made the row pass while runtime silently fell back to its base rate.
+    priority_pairs = (
+        ("input_cost_per_token", "input_cost_per_token_priority"),
+        ("output_cost_per_token", "output_cost_per_token_priority"),
+        ("cache_creation_input_token_cost", "cache_creation_input_token_cost_priority"),
+        ("cache_read_input_token_cost", "cache_read_input_token_cost_priority"),
+    )
+    declares_priority = any(priority in pricing for _, priority in priority_pairs)
+    if declares_priority:
+        for base, priority in priority_pairs:
+            if positive(base) and not positive(priority):
                 errors.append(
-                    f"{model}: input_cost_per_token_priority > 0 requires {field} > 0 when "
-                    f"declared (Go no longer derives it; priority traffic would bill $0)"
+                    f"{model}: priority tier requires {priority} > 0 because {base} > 0 "
+                    f"(Go no longer derives it; priority traffic would fall back to base price)"
                 )
 
-    # (2) long-context triple completeness
+    # (2a) normalized long-context triple completeness.
     long_context_fields = (
         "long_context_input_token_threshold",
         "long_context_input_cost_multiplier",
         "long_context_output_cost_multiplier",
     )
-    above_272k_fields = (
-        "input_cost_per_token_above_272k_tokens",
-        "output_cost_per_token_above_272k_tokens",
-        "cache_read_input_token_cost_above_272k_tokens",
-    )
     declares_long_context = any(f in pricing for f in long_context_fields)
-    # An above-272K rate alone is self-describing: the decoder derives the
-    # threshold and multipliers from it, so it is complete by construction.
-    derivable = any(f in pricing for f in above_272k_fields)
-    if declares_long_context and not derivable:
+    if declares_long_context:
         missing = [f for f in long_context_fields if not positive(f)]
         if missing:
             errors.append(
                 f"{model}: partial long-context policy — missing {missing}. Declare the full "
-                f"triple (threshold + both multipliers) or an above_272k rate; Go no longer "
-                f"back-fills it, so long-context requests would bill at the base rate"
+                f"triple (threshold + both multipliers); Go no longer back-fills it, so "
+                f"long-context requests would bill at the base rate"
             )
+
+    # (2b) imported above-272K rates are an alternative complete expression.
+    # The decoder derives the threshold and input/output multipliers from these
+    # fields. Seeing just one field is not self-describing: the absent multiplier
+    # remains zero and that side of the request bills at the base rate.
+    above_272k_pairs = (
+        ("input_cost_per_token", "input_cost_per_token_above_272k_tokens"),
+        ("output_cost_per_token", "output_cost_per_token_above_272k_tokens"),
+        ("cache_read_input_token_cost", "cache_read_input_token_cost_above_272k_tokens"),
+    )
+    declares_above_272k = any(above in pricing for _, above in above_272k_pairs)
+    if declares_above_272k:
+        for base, above in above_272k_pairs:
+            if positive(base) and not positive(above):
+                errors.append(
+                    f"{model}: above-272K policy requires {above} > 0 because {base} > 0; "
+                    f"the decoder cannot derive a complete long-context policy without it"
+                )
+            elif positive(above) and not positive(base):
+                errors.append(
+                    f"{model}: {above} > 0 requires positive base field {base} to derive "
+                    f"the long-context multiplier"
+                )
     return errors
 
 

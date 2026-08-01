@@ -44,7 +44,8 @@ func (s *BillingService) TkVideoModelUnpriced(model string) bool {
 
 // TkImageModelUnpriced reports whether the requested model has no usable
 // image price from ANY static source: group-level size prices, a per-image
-// price, or token prices (gpt-image-style models bill by image tokens).
+// price, or an output-image-token price (gpt-image-style models bill by image
+// tokens).
 // Only the truly priceless are rejected — tkIsEffectivelyUnpriced treats
 // litellm's all-zero placeholder rows as unpriced too. Channel-level DB
 // pricing is deliberately not consulted (unknown before scheduling; per
