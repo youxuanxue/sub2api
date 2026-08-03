@@ -106,6 +106,26 @@ Resources:
             Resource:
               - !Sub '${OpsArchiveBucket.Arn}/${Environment}/ops-archive/*'
               - !Sub '${OpsArchiveBucket.Arn}/${Environment}/raw-telemetry/*'
+          - Sid: DenyAppInstanceRoleNonPutRawTelemetryObjects
+            Effect: Deny
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            NotAction: 's3:PutObject'
+            Resource: !Sub '${OpsArchiveBucket.Arn}/${Environment}/raw-telemetry/*'
+          - Sid: DenyAppInstanceRoleListRawTelemetry
+            Effect: Deny
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action:
+              - 's3:ListBucket'
+              - 's3:ListBucketVersions'
+              - 's3:ListBucketMultipartUploads'
+            Resource: !GetAtt OpsArchiveBucket.Arn
+            Condition:
+              StringLike:
+                's3:prefix':
+                  - !Sub '${Environment}/raw-telemetry'
+                  - !Sub '${Environment}/raw-telemetry/*'
           - Sid: AllowAppInstanceRoleGetOpsArchive
             Effect: Allow
             Principal:
