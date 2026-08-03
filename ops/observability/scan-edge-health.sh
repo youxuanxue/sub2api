@@ -96,8 +96,7 @@ for tgt in "${TARGETS[@]}"; do
   # Skip SSM ONLY on transport failure (reachable=false / http_code=0).
   # Non-200 (deploy 502/503) still runs SSM for a truth-telling verdict.
   if [ "$SKIP_HTTPS" != "1" ]; then
-    # preflight-allow: swallow — empty/failed probe JSON treated as transport failure below
-    https_json="$(python3 "$HTTPS_PROBE" --target "$tgt" --probe --timeout-seconds "$HTTPS_TIMEOUT" 2>/dev/null || true)"
+    https_json="$(python3 "$HTTPS_PROBE" --target "$tgt" --probe --timeout-seconds "$HTTPS_TIMEOUT" 2>/dev/null || true)"  # preflight-allow: swallow — empty/failed probe JSON treated as transport failure below
     https_transport_ok="$(printf '%s' "$https_json" | python3 -c 'import json,sys; d=json.loads(sys.stdin.read() or "{}"); print("1" if d.get("reachable") else "0")' 2>/dev/null || echo 0)"
     if [ "$https_transport_ok" != "1" ]; then
       echo "    https transport failure — marking unreachable (skip SSM)" >&2
