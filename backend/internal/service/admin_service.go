@@ -258,11 +258,18 @@ type CreateGroupInput struct {
 	StickyRoutingMode           string
 	ModelsListConfig            GroupModelsListConfig
 	// RPMLimit 分组 RPM 上限（0 = 不限制）
-	RPMLimit                               int
+	RPMLimit int
+	// OpenAI /v1/messages 自动压缩策略（nil = 未配置）
 	MessagesCompactionEnabled              *bool
 	MessagesCompactionInputTokensThreshold *int
-	MaxReasoningEffort                     string
-	ReasoningEffortMappings                []ReasoningEffortMapping
+	// MaxReasoningEffort OpenAI/Codex 请求的推理强度上限，空字符串表示不限制。
+	MaxReasoningEffort string
+	// ReasoningEffortMappings OpenAI/Codex 推理强度精确映射。
+	ReasoningEffortMappings []ReasoningEffortMapping
+	// 分组利润控制（五个 token 平台分组可启用；margin/buffer 为小数，nil 按 0 处理）
+	ProfitControlEnabled bool
+	ProfitMinMargin      *float64
+	ProfitSafetyBuffer   *float64
 	// 从指定分组复制账号（创建分组后在同一事务内绑定）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -320,11 +327,18 @@ type UpdateGroupInput struct {
 	StickyRoutingMode           *string
 	ModelsListConfig            *GroupModelsListConfig
 	// RPMLimit 分组 RPM 上限（0 = 不限制），nil 表示未提供不改动。
-	RPMLimit                               *int
+	RPMLimit *int
+	// OpenAI /v1/messages 自动压缩策略（nil = 未提供不改动）
 	MessagesCompactionEnabled              *bool
 	MessagesCompactionInputTokensThreshold *int
-	MaxReasoningEffort                     *string
-	ReasoningEffortMappings                *[]ReasoningEffortMapping
+	// MaxReasoningEffort 空字符串表示清除上限；nil 表示未提供不改动。
+	MaxReasoningEffort *string
+	// ReasoningEffortMappings nil 表示不修改，空数组表示清空，非空数组表示替换。
+	ReasoningEffortMappings *[]ReasoningEffortMapping
+	// 分组利润控制（nil 表示不修改；margin/buffer 为小数）
+	ProfitControlEnabled *bool
+	ProfitMinMargin      *float64
+	ProfitSafetyBuffer   *float64
 	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -381,6 +395,8 @@ type UpdateAccountInput struct {
 	ExpiresAt             *int64
 	AutoPauseOnExpired    *bool
 	AccountEmail          *string
+	ProbeEnabled          *bool
+	RateSyncEnabled       *bool
 	SkipMixedChannelCheck bool // 跳过混合渠道检查（用户已确认风险）
 }
 
@@ -614,6 +630,7 @@ type adminServiceImpl struct {
 	groupDuplicateRepo   GroupDuplicateRepository
 	accountRepo          AccountRepository
 	accountDuplicateRepo AccountDuplicateRepository
+	accountBillingRepo   AccountBillingSettingsRepository
 	proxyRepo            ProxyRepository
 	apiKeyRepo           APIKeyRepository
 	redeemCodeRepo       RedeemCodeRepository
@@ -674,6 +691,7 @@ func NewAdminService(
 		groupDuplicateRepo:   groupRepo,
 		accountRepo:          accountRepo,
 		accountDuplicateRepo: accountRepo,
+		accountBillingRepo:   accountRepo,
 		proxyRepo:            proxyRepo,
 		apiKeyRepo:           apiKeyRepo,
 		redeemCodeRepo:       redeemCodeRepo,

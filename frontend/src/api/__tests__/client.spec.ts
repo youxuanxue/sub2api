@@ -364,36 +364,92 @@ describe('API Client', () => {
       })
     })
 
-    it('refresh_token 请求遇到网络错误时保留 localStorage', async () => {
+    it('有 refresh_token 时刷新并重试原请求', async () => {
       localStorage.setItem('auth_token', 'expired-token')
       localStorage.setItem('refresh_token', 'refresh-token')
-      vi.spyOn(axios, 'post').mockRejectedValue({
-        code: 'ERR_NETWORK',
-        message: 'Network Error',
-        config: { url: '/auth/refresh' },
+      localStorage.setItem('token_expires_at', String(Date.now() - 1))
+      localStorage.setItem('auth_user', JSON.stringify({ id: 7 }))
+
+      const adapter = vi.fn()
+        .mockRejectedValueOnce({
+          response: {
+            status: 401,
+            data: { code: 'TOKEN_EXPIRED', message: 'Token expired' },
+          },
+          config: {
+            url: '/test',
+            headers: { Authorization: 'Bearer expired-token' },
+          },
+          code: 'ERR_BAD_REQUEST',
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          data: { code: 0, data: { ok: true } },
+          headers: {},
+          config: {},
+          statusText: 'OK',
+        })
+      apiClient.defaults.adapter = adapter
+      vi.spyOn(axios, 'post').mockResolvedValueOnce({
+        data: {
+          code: 0,
+          message: 'ok',
+          data: {
+            access_token: 'new-token',
+            refresh_token: 'new-refresh-token',
+            expires_in: 3600,
+            token_type: 'Bearer',
+          },
+        },
       })
 
-      const adapter = vi.fn().mockRejectedValue({
+      await expect(apiClient.get('/test')).resolves.toMatchObject({ data: { ok: true } })
+
+      expect(adapter).toHaveBeenCalledTimes(2)
+      expect(localStorage.getItem('auth_token')).toBe('new-token')
+      expect(localStorage.getItem('refresh_token')).toBe('new-refresh-token')
+      expect(adapter.mock.calls[1][0].headers.get('Authorization')).toBe('Bearer new-token')
+    })
+
+    it('刷新期间换号时旧请求不会清除新会话', async () => {
+      localStorage.setItem('auth_token', 'user-a-access')
+      localStorage.setItem('refresh_token', 'user-a-refresh')
+      localStorage.setItem('token_expires_at', String(Date.now() - 1))
+      localStorage.setItem('auth_user', JSON.stringify({ id: 7 }))
+
+      apiClient.defaults.adapter = vi.fn().mockRejectedValueOnce({
         response: {
           status: 401,
           data: { code: 'TOKEN_EXPIRED', message: 'Token expired' },
         },
         config: {
           url: '/test',
-          headers: { Authorization: 'Bearer expired-token' },
+          headers: { Authorization: 'Bearer user-a-access' },
         },
         code: 'ERR_BAD_REQUEST',
       })
-      apiClient.defaults.adapter = adapter
 
-      await expect(apiClient.get('/test')).rejects.toEqual(
-        expect.objectContaining({
-          status: 0,
-          code: 'NETWORK_ERROR',
+      let rejectRefresh!: (reason: Error) => void
+      vi.spyOn(axios, 'post').mockImplementationOnce(
+        () => new Promise((_resolve, reject) => {
+          rejectRefresh = reject
         })
       )
-      expect(localStorage.getItem('auth_token')).toBe('expired-token')
-      expect(localStorage.getItem('refresh_token')).toBe('refresh-token')
+
+      const staleRequest = apiClient.get('/test')
+      await vi.waitFor(() => expect(axios.post).toHaveBeenCalledTimes(1))
+
+      localStorage.setItem('auth_token', 'user-b-access')
+      localStorage.setItem('refresh_token', 'user-b-refresh')
+      localStorage.setItem('token_expires_at', String(Date.now() + 3600_000))
+      localStorage.setItem('auth_user', JSON.stringify({ id: 8 }))
+      rejectRefresh(new Error('stale refresh failed'))
+
+      await expect(staleRequest).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(localStorage.getItem('auth_token')).toBe('user-b-access')
+      expect(localStorage.getItem('refresh_token')).toBe('user-b-refresh')
+      expect(localStorage.getItem('auth_user')).toBe(JSON.stringify({ id: 8 }))
+      expect(window.location.pathname).toBe('/')
     })
   })
 

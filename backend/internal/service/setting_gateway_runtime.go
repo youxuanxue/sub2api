@@ -90,7 +90,9 @@ const antigravityUserAgentVersionDBTimeout = 5 * time.Second
 // from it.
 const DefaultOpenAICodexVersion = "0.146.0"
 
-// DefaultOpenAICodexUserAgent OpenAI Codex 默认 User-Agent。
+// DefaultOpenAICodexUserAgent OpenAI Codex 默认 User-Agent（用于规避 Cloudflare 对浏览器 UA 的质询）。
+// 取官方 CLI 身份而非 TUI 身份：上游按 originator 分桶调度容量，TUI 身份命中降载桶会被回
+// server_is_overloaded 并触发账号冷却，而该默认值是浏览器 UA 兜底路径上最主要的身份来源。
 const DefaultOpenAICodexUserAgent = "codex_cli_rs/" + DefaultOpenAICodexVersion + " (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex_cli_rs; " + DefaultOpenAICodexVersion + ")"
 
 const (

@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -186,123 +188,32 @@ const smtpIOTimeout = 20 * time.Second
 
 // SendEmailWithConfig 使用指定配置发送邮件
 func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body string) error {
-	// Sanitize all SMTP header fields to prevent header injection (CR/LF removal).
-	to = sanitizeEmailHeader(to)
-	subject = sanitizeEmailHeader(subject)
-
-	from := sanitizeEmailHeader(config.From)
-	if config.FromName != "" {
-		from = fmt.Sprintf("%s <%s>", sanitizeEmailHeader(config.FromName), sanitizeEmailHeader(config.From))
-	}
-
-	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n%s",
-		from, to, subject, body)
-
-	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
-	auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
-	ehloHost := ehloHostFromConfig(config)
-
-	if config.UseTLS {
-		return s.sendMailTLS(addr, auth, config.From, to, []byte(msg), config.Host, ehloHost)
-	}
-
-	return s.sendMailPlain(addr, auth, config.From, to, []byte(msg), config.Host, ehloHost)
-}
-
-// ehloHostFromConfig derives a non-localhost hostname for the EHLO command.
-//
-// Background: Go stdlib net/smtp.Client defaults its EHLO/HELO local name to
-// "localhost" when Hello() is not called explicitly. Strict relays — most
-// notably Google Workspace SMTP relay (smtp-relay.gmail.com) — drop the TCP
-// connection at AUTH stage when greeted with "EHLO localhost" as part of
-// anti-abuse / anti-open-relay protection, surfacing as `smtp auth: EOF`
-// to the caller. We must always EHLO with a real domain we own.
-//
-// Priority (first non-empty wins, "localhost" is rejected as last-resort fallback):
-//  1. Domain part of the From address  (admin@orbitlogic.dev → orbitlogic.dev)
-//  2. Domain part of the SMTP username (same shape)
-//  3. SMTP host as last resort (e.g. smtp-relay.gmail.com — verified accepted)
-//
-// RFC 5321 §4.1.4 caveat: strictly speaking the EHLO argument is supposed to
-// be the *client's own* fully-qualified domain (or address literal), not the
-// mail domain. We use the mail domain because (a) Google Workspace SMTP relay
-// only enforces "not localhost" and authenticates the tenant via the App
-// Password rather than the EHLO name, and (b) we don't have a stable public
-// hostname (containers, autoscaling, no PTR for the From-domain on EC2).
-// If a future relay performs forward-confirmed reverse DNS validation against
-// the EHLO argument we'll need to surface this as an explicit operator
-// setting; track that work behind US-016 follow-ups, not in this helper.
-func ehloHostFromConfig(config *SMTPConfig) string {
-	for _, candidate := range []string{config.From, config.Username} {
-		if d := domainFromEmail(candidate); d != "" {
-			return d
-		}
-	}
-	if h := strings.TrimSpace(config.Host); h != "" && !strings.EqualFold(h, "localhost") {
-		return h
-	}
-	// Should not happen in practice (config.Host is required upstream of this
-	// helper). Returning a marker rather than empty/"localhost" keeps the
-	// failure mode loud rather than silently regressing to the original bug.
-	return "tokenkey.invalid"
-}
-
-// domainFromEmail extracts the domain portion of an email address ("user@host"
-// → "host"). Returns "" when the input is not a well-formed address.
-func domainFromEmail(addr string) string {
-	addr = strings.TrimSpace(addr)
-	i := strings.LastIndex(addr, "@")
-	if i < 0 || i == len(addr)-1 {
-		return ""
-	}
-	return addr[i+1:]
-}
-
-// sendMailPlain sends mail without TLS using a dialer with timeout.
-func (s *EmailService) sendMailPlain(addr string, auth smtp.Auth, from, to string, msg []byte, host, ehloHost string) error {
-	dialer := &net.Dialer{Timeout: smtpDialTimeout}
-	conn, err := dialer.Dial("tcp", addr)
+	message, err := buildSMTPMessage(config, to, subject, body)
 	if err != nil {
-		return fmt.Errorf("smtp dial: %w", err)
+		return err
 	}
-	_ = conn.SetDeadline(time.Now().Add(smtpIOTimeout))
-	defer func() { _ = conn.Close() }()
 
-	client, err := smtp.NewClient(conn, host)
+	client, err := s.connectSMTP(config)
 	if err != nil {
-		return fmt.Errorf("new smtp client: %w", err)
+		return err
 	}
 	defer func() { _ = client.Close() }()
 
-	// EHLO with our real domain BEFORE Extension/StartTLS/Auth. See
-	// ehloHostFromConfig docstring — Google Workspace SMTP relay drops the
-	// connection at AUTH when greeted with the stdlib default "EHLO localhost".
-	if err = client.Hello(ehloHost); err != nil {
-		return fmt.Errorf("smtp hello: %w", err)
-	}
-
-	// Opportunistic STARTTLS: upgrade to encrypted connection if the server supports it.
-	// This mirrors the behavior of smtp.SendMail which we replaced for timeout support.
-	if ok, _ := client.Extension("STARTTLS"); ok {
-		if err = client.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
-			return fmt.Errorf("starttls: %w", err)
-		}
-	}
-
+	auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
 	if err = client.Auth(auth); err != nil {
 		return fmt.Errorf("smtp auth: %w", err)
 	}
-	if err = client.Mail(from); err != nil {
+	if err = client.Mail(message.envelopeFrom); err != nil {
 		return fmt.Errorf("smtp mail: %w", err)
 	}
-	if err = client.Rcpt(to); err != nil {
+	if err = client.Rcpt(message.envelopeTo); err != nil {
 		return fmt.Errorf("smtp rcpt: %w", err)
 	}
 	w, err := client.Data()
 	if err != nil {
 		return fmt.Errorf("smtp data: %w", err)
 	}
-	if _, err = w.Write(msg); err != nil {
+	if _, err = w.Write(message.data); err != nil {
 		return fmt.Errorf("write msg: %w", err)
 	}
 	if err = w.Close(); err != nil {
@@ -370,6 +281,123 @@ func (s *EmailService) sendMailTLS(addr string, auth smtp.Auth, from, to string,
 	// Some SMTP servers return non-standard responses on QUIT
 	_ = client.Quit()
 	return nil
+}
+
+// smtpTestRootCAs 仅供单元测试注入自签 CA，生产环境始终为 nil（走系统信任链）。
+var smtpTestRootCAs *x509.CertPool
+
+func smtpTLSConfig(host string) *tls.Config {
+	return &tls.Config{
+		ServerName: host,
+		// 强制 TLS 1.2+，避免协议降级导致的弱加密风险。
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    smtpTestRootCAs,
+	}
+}
+
+// connectSMTP 按配置建立 SMTP 会话，发送与测试连接共用此路径，
+// 保证"测试连接成功 ⇔ 实际发信可用"：
+//   - UseTLS=true：先尝试隐式 TLS（465 语义）；若服务器以明文应答
+//     （587/25 等提交端口的 STARTTLS 语义），自动改走"明文连接 + 强制 STARTTLS"。
+//     两种方式都无法建立加密连接时报错，绝不明文继续。
+//   - UseTLS=false：明文连接后若服务器支持 STARTTLS 则机会式升级，
+//     与 smtp.SendMail 的默认行为一致。
+func (s *EmailService) connectSMTP(config *SMTPConfig) (*smtp.Client, error) {
+	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
+	dialer := &net.Dialer{Timeout: smtpDialTimeout}
+	tlsConfig := smtpTLSConfig(config.Host)
+
+	if config.UseTLS {
+		conn, err := tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
+		if err == nil {
+			client, clientErr := newSMTPClient(conn, config.Host)
+			if clientErr != nil {
+				return nil, clientErr
+			}
+			return s.finalizeSMTPClient(client, config)
+		}
+		var recordErr tls.RecordHeaderError
+		if !errors.As(err, &recordErr) {
+			return nil, fmt.Errorf("tls dial: %w", err)
+		}
+		// SMTP 服务器先发问候语：明文问候会让 TLS 握手立刻返回
+		// RecordHeaderError，据此可靠判定对端期望 STARTTLS。
+		return s.connectSMTPStartTLS(dialer, addr, config, tlsConfig, true)
+	}
+
+	return s.connectSMTPStartTLS(dialer, addr, config, tlsConfig, false)
+}
+
+// ehloHostFromConfig derives a non-localhost hostname for the EHLO command.
+//
+// Google Workspace SMTP relay drops connections at AUTH when greeted with the
+// stdlib default "EHLO localhost". See email_service_ehlo_test.go.
+func ehloHostFromConfig(config *SMTPConfig) string {
+	for _, candidate := range []string{config.From, config.Username} {
+		if d := domainFromEmail(candidate); d != "" {
+			return d
+		}
+	}
+	if h := strings.TrimSpace(config.Host); h != "" && !strings.EqualFold(h, "localhost") {
+		return h
+	}
+	return "tokenkey.invalid"
+}
+
+func domainFromEmail(addr string) string {
+	addr = strings.TrimSpace(addr)
+	i := strings.LastIndex(addr, "@")
+	if i < 0 || i == len(addr)-1 {
+		return ""
+	}
+	return addr[i+1:]
+}
+
+func (s *EmailService) finalizeSMTPClient(client *smtp.Client, config *SMTPConfig) (*smtp.Client, error) {
+	if err := client.Hello(ehloHostFromConfig(config)); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("smtp hello: %w", err)
+	}
+	return client, nil
+}
+
+// connectSMTPStartTLS 建立明文连接并按需升级 STARTTLS。
+// mandatory 为 true 时服务器必须支持 STARTTLS，否则报错。
+func (s *EmailService) connectSMTPStartTLS(dialer *net.Dialer, addr string, config *SMTPConfig, tlsConfig *tls.Config, mandatory bool) (*smtp.Client, error) {
+	conn, err := dialer.Dial("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("smtp dial: %w", err)
+	}
+	client, err := newSMTPClient(conn, config.Host)
+	if err != nil {
+		return nil, err
+	}
+	client, err = s.finalizeSMTPClient(client, config)
+	if err != nil {
+		return nil, err
+	}
+	if ok, _ := client.Extension("STARTTLS"); !ok {
+		if mandatory {
+			_ = client.Close()
+			return nil, errors.New("smtp server does not support STARTTLS")
+		}
+		return client, nil
+	}
+	if err := client.StartTLS(tlsConfig); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("starttls: %w", err)
+	}
+	return client, nil
+}
+
+func newSMTPClient(conn net.Conn, host string) (*smtp.Client, error) {
+	_ = conn.SetDeadline(time.Now().Add(smtpIOTimeout))
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("new smtp client: %w", err)
+	}
+	return client, nil
 }
 
 // GenerateVerifyCode 生成6位数字验证码
@@ -520,70 +548,24 @@ func (s *EmailService) buildVerifyCodeEmailBody(code, siteName string) string {
 `, html.EscapeString(siteName), code)
 }
 
-// TestSMTPConnectionWithConfig 使用指定配置测试SMTP连接
+// TestSMTPConnectionWithConfig 使用指定配置测试SMTP连接。
+// 与 SendEmailWithConfig 共用 connectSMTP 建连（含 STARTTLS 升级逻辑），
+// 避免出现"测试连接失败但实际发信成功"的不一致。
 func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
-	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
-	ehloHost := ehloHostFromConfig(config)
-
-	if config.UseTLS {
-		tlsConfig := &tls.Config{
-			ServerName: config.Host,
-			// 与发送逻辑一致，显式要求 TLS 1.2+。
-			MinVersion: tls.VersionTLS12,
-		}
-		conn, err := tls.Dial("tcp", addr, tlsConfig)
-		if err != nil {
-			return fmt.Errorf("tls connection failed: %w", err)
-		}
-		defer func() { _ = conn.Close() }()
-
-		client, err := smtp.NewClient(conn, config.Host)
-		if err != nil {
-			return fmt.Errorf("smtp client creation failed: %w", err)
-		}
-		defer func() { _ = client.Close() }()
-
-		// EHLO with our real domain BEFORE Auth — see ehloHostFromConfig docstring.
-		if err = client.Hello(ehloHost); err != nil {
-			return fmt.Errorf("smtp hello failed: %w", err)
-		}
-
-		auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
-		if err = client.Auth(auth); err != nil {
-			return fmt.Errorf("smtp authentication failed: %w", err)
-		}
-
-		return client.Quit()
-	}
-
-	// 非 TLS（端口 25/587）：先建明文连接，若服务端宣告 STARTTLS 则升级。
-	// 必须升级后再 Auth，否则 Go net/smtp 的 PlainAuth 会以
-	// "unencrypted connection" 拒绝把账号密码发送到明文链路
-	// （此前导致用户用 587+UseTLS=false 测试 SES 一直误报"认证失败"）。
-	// 与 sendMailPlain 的发送路径保持行为一致。
-	client, err := smtp.Dial(addr)
+	client, err := s.connectSMTP(config)
 	if err != nil {
 		return fmt.Errorf("smtp connection failed: %w", err)
 	}
 	defer func() { _ = client.Close() }()
 
-	// EHLO with our real domain BEFORE Extension/StartTLS/Auth.
-	if err = client.Hello(ehloHost); err != nil {
-		return fmt.Errorf("smtp hello failed: %w", err)
-	}
-
-	if ok, _ := client.Extension("STARTTLS"); ok {
-		if err = client.StartTLS(&tls.Config{ServerName: config.Host, MinVersion: tls.VersionTLS12}); err != nil {
-			return fmt.Errorf("starttls failed: %w", err)
-		}
-	}
-
 	auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
-	if err = client.Auth(auth); err != nil {
+	if err := client.Auth(auth); err != nil {
 		return fmt.Errorf("smtp authentication failed: %w", err)
 	}
 
-	return client.Quit()
+	// 认证成功即视为连接可用；与发送路径一致，忽略 QUIT 的非标准响应。
+	_ = client.Quit()
+	return nil
 }
 
 // GeneratePasswordResetToken generates a secure 32-byte random token (64 hex characters)
