@@ -3,6 +3,44 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/telemetryarchive/shadow.go",
+      "must_contain": [
+        "type Sink interface",
+        "s.recordDrop(\"queue_full\")",
+        "context.WithTimeout(context.Background(), s.config.PutTimeout)",
+        "map[string]string{\"sha256\": hex.EncodeToString(digest[:])}",
+        "s.instance"
+      ],
+      "rationale": "Single owner for the best-effort raw telemetry shadow. The bounded non-blocking queue, upload timeout, per-object checksum, and per-process key component are the guarantees that keep S3 latency/failure off the PostgreSQL request path and prevent multi-replica object collisions. Dropping any of these can either affect online writes or silently corrupt archive coverage while ordinary repository tests remain green."
+    },
+    {
+      "path": "backend/internal/repository/telemetry_archive_provider.go",
+      "must_contain": [
+        "func ProvideTelemetryArchive(cfg *config.Config) *telemetryarchive.Shadow",
+        "func ProvideUsageLogRepository(",
+        "repo.telemetry = archive",
+        "func ProvideOpsRepository(db *sql.DB, archive *telemetryarchive.Shadow) service.OpsRepository"
+      ],
+      "rationale": "Repository injection owner for usage, ops-error, and ops-system telemetry. The shadow package alone is inert; these provider assignments ensure every committed PostgreSQL write path shares the same bounded sink without making S3 canonical."
+    },
+    {
+      "path": "backend/internal/repository/wire.go",
+      "must_contain": [
+        "ProvideTelemetryArchive,",
+        "ProvideUsageLogRepository,",
+        "ProvideOpsRepository,"
+      ],
+      "rationale": "Wire registration for the telemetry archive provider and both repository consumers. An upstream merge can restore the old constructors while compiling successfully, leaving the S3 shadow silently unused."
+    },
+    {
+      "path": "backend/cmd/server/wire.go",
+      "must_contain": [
+        "telemetryArchive *telemetryarchive.Shadow,",
+        "return telemetryArchive.Stop(ctx)"
+      ],
+      "rationale": "Application shutdown must drain the bounded telemetry shadow through the normal cleanup owner. Losing this hook discards queued committed events on every restart even though runtime writes and S3 uploads otherwise look healthy."
+    },
+    {
       "path": "backend/internal/service/gateway_request_tk_prompt_fingerprint.go",
       "must_contain": [
         "HasToolResult         bool",

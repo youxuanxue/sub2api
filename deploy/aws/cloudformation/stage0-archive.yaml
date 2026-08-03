@@ -24,6 +24,18 @@ Parameters:
     MinValue: 91
     MaxValue: 3650
     Description: Days after upload when archive objects expire permanently.
+  RawTelemetryGlacierTransitionDay:
+    Type: Number
+    Default: 8
+    MinValue: 2
+    MaxValue: 90
+    Description: Day count when raw telemetry moves out of Standard storage.
+  RawTelemetryExpireDays:
+    Type: Number
+    Default: 120
+    MinValue: 30
+    MaxValue: 730
+    Description: Days after upload when replayable raw telemetry expires.
   AppInstanceRoleArn:
     Type: String
     Description: >
@@ -59,6 +71,15 @@ Resources:
             ExpirationInDays: !Ref ArchiveExpireDays
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 7
+          - Id: tier-and-expire-raw-telemetry
+            Status: Enabled
+            Prefix: !Sub '${Environment}/raw-telemetry/'
+            Transitions:
+              - TransitionInDays: !Ref RawTelemetryGlacierTransitionDay
+                StorageClass: GLACIER
+            ExpirationInDays: !Ref RawTelemetryExpireDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
 
   OpsArchiveBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -84,7 +105,9 @@ Resources:
             Action:
               - 's3:PutObject'
               - 's3:GetObject'
-            Resource: !Sub '${OpsArchiveBucket.Arn}/${Environment}/ops-archive/*'
+            Resource:
+              - !Sub '${OpsArchiveBucket.Arn}/${Environment}/ops-archive/*'
+              - !Sub '${OpsArchiveBucket.Arn}/${Environment}/raw-telemetry/*'
           - Sid: AllowAppInstanceRoleListArchive
             Effect: Allow
             Principal:
@@ -95,6 +118,7 @@ Resources:
               StringLike:
                 's3:prefix':
                   - !Sub '${Environment}/ops-archive/*'
+                  - !Sub '${Environment}/raw-telemetry/*'
 
 Outputs:
   BucketName:
@@ -109,3 +133,9 @@ Outputs:
   ArchiveExpireDays:
     Description: Total retention before lifecycle expiry (contract).
     Value: !Ref ArchiveExpireDays
+  RawTelemetryS3Uri:
+    Description: Canonical base URI for asynchronous raw telemetry shadow objects.
+    Value: !Sub 's3://${OpsArchiveBucket}/${Environment}/raw-telemetry'
+  RawTelemetryExpireDays:
+    Description: Total retention before raw telemetry lifecycle expiry.
+    Value: !Ref RawTelemetryExpireDays

@@ -224,5 +224,26 @@ python3 ops/archive/data_layer_archive_promote_batch.py promote-ledger \
   --confirm tokenkey-prod-archive-promote-batch-v1
 ```
 
-Legacy partition drop remains blocked until export ledger complete **and** every
-batch has a promote receipt in the promote ledger.
+`more_cold_rows_remaining=false` is point-in-time only. On a later day, run another
+batch from the same cursor so newly cold tail rows are checked and the final batch
+records `cutoff_exclusive >= legacy_upper_exclusive`.
+
+After every batch is promoted, create one closeout per ops table by downloading a
+seeded random batch from the long-term archive and restoring it into an independent
+PostgreSQL database:
+
+```bash
+python3 ops/archive/data_layer_archive_closeout.py \
+  --export-ledger <table-export-ledger.json> \
+  --promote-ledger <table-promote-ledger.json> \
+  --cleanup-hold-receipt <active-hold.json> \
+  --closeout-receipt <table-archive-closeout.json> \
+  --evidence-root /tmp/tokenkey-archive-closeout \
+  --restore-target-dsn '<independent restore DSN>' \
+  --seed 20260803 \
+  --confirm tokenkey-prod-archive-closeout-v1
+```
+
+Cleanup release requires both `ops_error_logs` and `ops_system_logs` closeout
+receipts. A normal hold receipt plus the old release token is insufficient; deletion
+remains unauthorized until runtime retention runs after the guarded release.

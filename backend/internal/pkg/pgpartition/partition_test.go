@@ -6,10 +6,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
 )
 
@@ -85,6 +87,9 @@ func TestEnsureMonthly_CreatesCurrentThroughAhead(t *testing.T) {
 		if !strings.Contains(q, wantBounds[i][0]) || !strings.Contains(q, wantBounds[i][1]) {
 			t.Errorf("statement %d bounds want %v: %s", i, wantBounds[i], q)
 		}
+		if !strings.Contains(q, "T00:00:00Z") {
+			t.Errorf("statement %d must use an explicit UTC bound: %s", i, q)
+		}
 	}
 }
 
@@ -106,5 +111,96 @@ func TestEnsureMonthly_RealErrorPropagates(t *testing.T) {
 	now := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
 	if err := EnsureMonthly(context.Background(), rec, "ops_system_logs", now, 2); err == nil {
 		t.Fatal("a non-overlap error must propagate")
+	}
+}
+
+func TestEnsureDaily_CreatesCurrentThroughAhead(t *testing.T) {
+	rec := &execRecorder{}
+	now := time.Date(2026, 8, 3, 23, 30, 0, 0, time.FixedZone("cst", 8*3600))
+	if err := EnsureDaily(context.Background(), rec, "usage_logs", now, 2); err != nil {
+		t.Fatalf("EnsureDaily: %v", err)
+	}
+	if len(rec.queries) != 3 {
+		t.Fatalf("expected 3 CREATE statements, got %d: %v", len(rec.queries), rec.queries)
+	}
+	wantNames := []string{"usage_logs_20260803", "usage_logs_20260804", "usage_logs_20260805"}
+	for i, query := range rec.queries {
+		if !strings.Contains(query, wantNames[i]) {
+			t.Errorf("statement %d missing partition name %s: %s", i, wantNames[i], query)
+		}
+		if !strings.Contains(query, "T00:00:00Z") {
+			t.Errorf("statement %d must use an explicit UTC bound: %s", i, query)
+		}
+	}
+}
+
+func TestEnsureDaily_SkipsLegacyOverlapAndContinues(t *testing.T) {
+	rec := &execRecorder{errs: []error{&pq.Error{Code: pq.ErrorCode(pgPartitionOverlapCode)}}}
+	now := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+	if err := EnsureDaily(context.Background(), rec, "usage_logs", now, 2); err != nil {
+		t.Fatalf("overlap on cutover day must be benign, got: %v", err)
+	}
+	if len(rec.queries) != 3 {
+		t.Fatalf("must still attempt all 3 days, got %d", len(rec.queries))
+	}
+}
+
+func TestEnsureDaily_RealErrorPropagates(t *testing.T) {
+	rec := &execRecorder{errs: []error{&pq.Error{Code: "53100"}}}
+	if err := EnsureDaily(context.Background(), rec, "usage_logs", time.Now(), 1); err == nil {
+		t.Fatal("a non-overlap error must propagate")
+	}
+}
+
+func TestDropExpired_UsesBoundsAndKeepsEmptyFuturePartition(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	cutoff := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+	rows := sqlmock.NewRows([]string{"schema_name", "partition_name", "bound_expr", "upper_bound", "estimated_rows"}).
+		AddRow("public", "usage_logs_20260801", "FOR VALUES FROM ('2026-08-01 00:00:00+00') TO ('2026-08-02 00:00:00+00')", cutoff.AddDate(0, 0, -1), int64(12)).
+		AddRow("public", "usage_logs_20260804", "FOR VALUES FROM ('2026-08-04 00:00:00+00') TO ('2026-08-05 00:00:00+00')", cutoff.AddDate(0, 0, 2), int64(-1))
+	mock.ExpectQuery(`(?s)SELECT.*pg_get_expr.*FROM pg_inherits`).
+		WithArgs("usage_logs").
+		WillReturnRows(rows)
+	mock.ExpectExec(regexp.QuoteMeta(`DROP TABLE IF EXISTS "public"."usage_logs_20260801"`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	reclaimed, err := DropExpired(context.Background(), db, "usage_logs", cutoff)
+	if err != nil {
+		t.Fatalf("DropExpired: %v", err)
+	}
+	if reclaimed != 12 {
+		t.Fatalf("reclaimed=%d want 12", reclaimed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected database action: %v", err)
+	}
+}
+
+func TestDropExpired_UnparseableBoundFailsBeforeAnyDrop(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	cutoff := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+	rows := sqlmock.NewRows([]string{"schema_name", "partition_name", "bound_expr", "upper_bound", "estimated_rows"}).
+		AddRow("public", "usage_logs_old", "FOR VALUES FROM (MINVALUE) TO ('2026-08-02 00:00:00+00')", cutoff.AddDate(0, 0, -1), int64(12)).
+		AddRow("public", "usage_logs_default", "DEFAULT", nil, int64(5))
+	mock.ExpectQuery(`(?s)SELECT.*pg_get_expr.*FROM pg_inherits`).
+		WithArgs("usage_logs").
+		WillReturnRows(rows)
+
+	_, err = DropExpired(context.Background(), db, "usage_logs", cutoff)
+	if err == nil || !strings.Contains(err.Error(), "has no finite timestamptz upper bound") {
+		t.Fatalf("expected fail-safe bound error, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected database action: %v", err)
 	}
 }

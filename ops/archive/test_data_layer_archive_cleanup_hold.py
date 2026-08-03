@@ -18,6 +18,7 @@ sys.path.insert(0, str(_DIR))
 
 import data_layer_archive_cleanup_hold as control  # noqa: E402
 import data_layer_archive_cleanup_hold_remote as remote  # noqa: E402
+import data_layer_archive_closeout as closeout  # noqa: E402
 
 
 _INSTANCE_ID = "i-0123456789abcdef0"
@@ -58,6 +59,28 @@ def _state(
 
 
 class CleanupHoldRemoteTest(unittest.TestCase):
+    def test_runtime_disable_proof_accepts_scheduled_maintenance_marker(self) -> None:
+        logs = (
+            '[OpsCleanup] scheduled (schedule="0 2 * * *" '
+            "tz=UTC cleanup_enabled=false)\n"
+        )
+        with mock.patch.object(
+            remote, "_app_containers", return_value=["tokenkey"]
+        ), mock.patch.object(remote, "_run", return_value=logs):
+            self.assertTrue(remote._runtime_disabled_since(_STARTED_AT))
+
+    def test_runtime_disable_proof_rejects_later_cleanup_enable(self) -> None:
+        logs = "\n".join(
+            [
+                "[OpsCleanup] scheduled (cleanup_enabled=false)",
+                "[OpsCleanup] scheduled (cleanup_enabled=true)",
+            ]
+        )
+        with mock.patch.object(
+            remote, "_app_containers", return_value=["tokenkey"]
+        ), mock.patch.object(remote, "_run", return_value=logs):
+            self.assertFalse(remote._runtime_disabled_since(_STARTED_AT))
+
     def test_us039_plan_is_read_only_and_sanitized(self) -> None:
         with mock.patch.object(remote, "_read_state", return_value=_state(True)):
             result = remote.plan()
@@ -255,11 +278,21 @@ class CleanupHoldControlTest(unittest.TestCase):
             "deletion_authorized": False,
         }
         with tempfile.TemporaryDirectory() as temp, mock.patch.object(
-            control, "_run_remote", return_value=released
-        ) as run_remote:
+            control,
+            "_verified_closeouts",
+            return_value=[
+                {"table": "ops_error_logs"},
+                {"table": "ops_system_logs"},
+            ],
+        ), mock.patch.object(control, "_run_remote", return_value=released) as run_remote:
             path = pathlib.Path(temp) / "hold.json"
             path.write_text(json.dumps(receipt), encoding="utf-8")
-            control.release(path, control.RELEASE_CONFIRMATION)
+            result = control.release(
+                path,
+                control.RELEASE_CONFIRMATION,
+                closeout_receipt_paths=["error-closeout.json", "system-closeout.json"],
+            )
+        self.assertEqual(len(result["archive_closeouts"]), 2)
         self.assertEqual(
             run_remote.call_args.args,
             (
@@ -274,6 +307,40 @@ class CleanupHoldControlTest(unittest.TestCase):
                 ],
             ),
         )
+
+    def test_release_rejects_closeout_for_a_modified_hold_receipt(self) -> None:
+        receipt = {
+            "mode": "prod_archive_cleanup_hold",
+            "environment": "prod",
+            "instance_id": _INSTANCE_ID,
+            "hold_active": True,
+            "reload_proven": True,
+            "hold_started_at": _STARTED_AT,
+            "previous_cleanup_enabled": True,
+            "deletion_authorized": False,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            hold_path = root / "hold.json"
+            hold_path.write_text(json.dumps(receipt), encoding="utf-8")
+            paths = [root / "error.json", root / "system.json"]
+            for path in paths:
+                path.write_text("{}\n", encoding="utf-8")
+            payloads = [
+                {
+                    "table": table,
+                    "instance_id": _INSTANCE_ID,
+                    "hold_started_at": _STARTED_AT,
+                    "restore_verified_at": "2026-08-03T00:00:00.000000Z",
+                    "cleanup_hold_receipt_sha256": "0" * 64,
+                }
+                for table in ("ops_error_logs", "ops_system_logs")
+            ]
+            with mock.patch.object(
+                closeout, "load_closeout_receipt", side_effect=payloads
+            ):
+                with self.assertRaisesRegex(control.HoldControlError, "active cleanup hold"):
+                    control._verified_closeouts(paths, receipt, hold_path)
 
     def test_us039_run_remote_fixes_prod_target_and_companion(self) -> None:
         payload = {

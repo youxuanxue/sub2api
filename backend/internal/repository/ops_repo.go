@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/telemetryarchive"
 	"github.com/lib/pq"
 )
 
 type opsRepository struct {
-	db *sql.DB
+	db        *sql.DB
+	telemetry telemetryarchive.Sink
 }
 
 const insertOpsErrorLogSQL = `
@@ -102,6 +104,9 @@ func (r *opsRepository) InsertErrorLog(ctx context.Context, input *service.OpsIn
 	if err != nil {
 		return 0, err
 	}
+	if r.telemetry != nil {
+		r.telemetry.Enqueue(telemetryarchive.DatasetOpsError, input)
+	}
 	return id, nil
 }
 
@@ -144,6 +149,13 @@ func (r *opsRepository) BatchInsertErrorLogs(ctx context.Context, inputs []*serv
 
 	if err = tx.Commit(); err != nil {
 		return inserted, err
+	}
+	if r.telemetry != nil {
+		for _, input := range inputs {
+			if input != nil {
+				r.telemetry.Enqueue(telemetryarchive.DatasetOpsError, input)
+			}
+		}
 	}
 	return inserted, nil
 }
@@ -697,6 +709,7 @@ func (r *opsRepository) BatchInsertSystemLogs(ctx context.Context, inputs []*ser
 	}
 
 	var inserted int64
+	shadowed := make([]*service.OpsInsertSystemLogInput, 0, len(inputs))
 	for _, input := range inputs {
 		if input == nil {
 			continue
@@ -739,6 +752,7 @@ func (r *opsRepository) BatchInsertSystemLogs(ctx context.Context, inputs []*ser
 			return inserted, err
 		}
 		inserted++
+		shadowed = append(shadowed, input)
 	}
 
 	if _, err := stmt.ExecContext(ctx); err != nil {
@@ -752,6 +766,11 @@ func (r *opsRepository) BatchInsertSystemLogs(ctx context.Context, inputs []*ser
 	}
 	if err := tx.Commit(); err != nil {
 		return inserted, err
+	}
+	if r.telemetry != nil {
+		for _, input := range shadowed {
+			r.telemetry.Enqueue(telemetryarchive.DatasetOpsSystem, input)
+		}
 	}
 	return inserted, nil
 }

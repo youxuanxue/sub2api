@@ -128,10 +128,6 @@ func (s *dashboardAggregationRepoStub) CleanupUsageBillingDedup(ctx context.Cont
 	return nil
 }
 
-func (s *dashboardAggregationRepoStub) EnsureUsageLogsPartitions(ctx context.Context, now time.Time) error {
-	return nil
-}
-
 func (c *dashboardCacheStub) readLastEntry(t *testing.T) dashboardStatsCacheEntry {
 	t.Helper()
 	c.lastSetMu.Lock()

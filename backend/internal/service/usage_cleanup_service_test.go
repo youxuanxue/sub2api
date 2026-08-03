@@ -89,10 +89,6 @@ func (s *dashboardRepoStub) CleanupUsageBillingDedup(ctx context.Context, cutoff
 	return nil
 }
 
-func (s *dashboardRepoStub) EnsureUsageLogsPartitions(ctx context.Context, now time.Time) error {
-	return nil
-}
-
 func (s *cleanupRepoStub) CreateTask(ctx context.Context, task *UsageCleanupTask) error {
 	if task == nil {
 		return nil

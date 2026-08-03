@@ -6,6 +6,14 @@ from scripts import export_agent_contract
 
 
 class RetiredRouteContractTest(unittest.TestCase):
+    def test_all_registered_cli_entrypoints_load(self) -> None:
+        for rel_path, factory_name in export_agent_contract.CLI_ENTRYPOINTS:
+            with self.subTest(rel_path=rel_path):
+                parser = export_agent_contract._load_argparse_parser(
+                    rel_path, factory_name
+                )
+                self.assertIsNotNone(parser)
+
     def test_prune_retired_route_removes_only_tombstoned_bullet(self) -> None:
         doc = """\
 - `GET /payment/channels` from `stale/generated/source.go`

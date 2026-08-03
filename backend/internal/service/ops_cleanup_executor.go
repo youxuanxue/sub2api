@@ -16,11 +16,13 @@ const (
 	opsCleanupCronStopTimeout  = 3 * time.Second
 	opsCleanupRunTimeout       = 30 * time.Minute
 	opsCleanupHeartbeatTimeout = 2 * time.Second
+	opsPartitionJobName        = "ops_partition_maintenance"
 	// opsPartitionMonthsAhead is how many future monthly partitions to keep
 	// provisioned for partitioned ops tables (e.g. ops_system_logs after tk_035),
 	// so live inserts always have a home as the calendar rolls forward. The daily
 	// cleanup tick re-ensures these; the conversion migration seeds the first two.
 	opsPartitionMonthsAhead = 3
+	opsPartitionDaysAhead   = 7
 	// opsStraddleReclaimMaxRowsPerRun caps how many expired rows the daily cleanup
 	// will chunk-DELETE from a straddling partition (the wide legacy mega-partition
 	// that can't be dropped because it also absorbs current writes) in a single run.
@@ -87,20 +89,15 @@ func opsCleanupRunOne(
 	if truncate {
 		return truncateOpsTable(ctx, db, table)
 	}
-	// Partitioned ops tables (e.g. ops_system_logs once tk_035 has converted it):
-	// retention is instant DROP PARTITION + keeping future months provisioned, not a
-	// bloat-generating chunked DELETE. The branch is keyed on the live partition state
-	// (not a hardcoded table list), so ops_error_logs / usage_logs auto-adopt it when
-	// their own conversion lands. Pre-conversion (plain table) falls through to DELETE.
+	// Partitioned tables use instant DROP PARTITION rather than a bloat-generating
+	// chunked DELETE. Future partition provisioning is owned by the independent
+	// maintenance phase, which still runs while destructive cleanup is disabled.
 	partitioned, err := pgpartition.IsPartitioned(ctx, db, table)
 	if err != nil {
 		return 0, err
 	}
 	if partitioned {
-		if err := pgpartition.EnsureMonthly(ctx, db, table, time.Now().UTC(), opsPartitionMonthsAhead); err != nil {
-			return 0, err
-		}
-		dropped, err := pgpartition.DropExpired(ctx, db, table, timeCol, cutoff)
+		dropped, err := pgpartition.DropExpired(ctx, db, table, cutoff)
 		if err != nil {
 			return dropped, err
 		}
@@ -130,6 +127,39 @@ func opsCleanupRunOne(
 		return reclaimed, nil
 	}
 	return deleteOldRowsByID(ctx, db, table, timeCol, cutoff, batchSize, castDate, 0)
+}
+
+func ensureOpsPartitions(ctx context.Context, db *sql.DB, now time.Time) (string, error) {
+	if db == nil {
+		return "", nil
+	}
+	monthly := []string{"ops_system_logs", "ops_error_logs"}
+	maintained := make([]string, 0, len(monthly)+1)
+	for _, table := range monthly {
+		partitioned, err := pgpartition.IsPartitioned(ctx, db, table)
+		if err != nil {
+			return strings.Join(maintained, ","), err
+		}
+		if !partitioned {
+			continue
+		}
+		if err := pgpartition.EnsureMonthly(ctx, db, table, now, opsPartitionMonthsAhead); err != nil {
+			return strings.Join(maintained, ","), err
+		}
+		maintained = append(maintained, table)
+	}
+
+	partitioned, err := pgpartition.IsPartitioned(ctx, db, "usage_logs")
+	if err != nil {
+		return strings.Join(maintained, ","), err
+	}
+	if partitioned {
+		if err := pgpartition.EnsureDaily(ctx, db, "usage_logs", now, opsPartitionDaysAhead); err != nil {
+			return strings.Join(maintained, ","), err
+		}
+		maintained = append(maintained, "usage_logs")
+	}
+	return strings.Join(maintained, ","), nil
 }
 
 func deleteOldRowsByID(

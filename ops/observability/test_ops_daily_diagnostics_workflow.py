@@ -120,6 +120,14 @@ def run_issue_lifecycle(
 
 
 class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
+    def test_data_layer_safety_is_independent_from_capacity(self) -> None:
+        text = workflow_text()
+        self.assertIn("probe-data-layer-safety.sh", text)
+        self.assertIn("data_layer_safety_verdict.py", text)
+        self.assertIn("describe-snapshots", text)
+        self.assertIn("data-layer-safety|$TARGET_ID|$SF_KIND", text)
+        self.assertLess(text.index("CAP_VERDICT="), text.index("SAFETY_VERDICT="))
+
     def test_internal_health_probe_uses_drain_immune_live_endpoint(self) -> None:
         commands = extract_runtime_params_commands()
         internal_start = commands.index("echo ===INTERNAL_HEALTH===")

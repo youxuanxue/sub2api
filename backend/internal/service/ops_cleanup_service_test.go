@@ -3,12 +3,23 @@ package service
 import (
 	"context"
 	"database/sql/driver"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
+
+type opsCleanupHeartbeatCapture struct {
+	opsRepoMock
+	heartbeats []*OpsUpsertJobHeartbeatInput
+}
+
+func (c *opsCleanupHeartbeatCapture) UpsertJobHeartbeat(_ context.Context, input *OpsUpsertJobHeartbeatInput) error {
+	c.heartbeats = append(c.heartbeats, input)
+	return nil
+}
 
 type cutoffDaysArg struct {
 	days int
@@ -82,6 +93,72 @@ func TestOpsCleanupServiceRunCleanupOnceUsesSeparateLogRetentions(t *testing.T) 
 	}
 	if counts.systemMetrics != 0 || counts.hourlyPreagg != 0 || counts.dailyPreagg != 0 {
 		t.Fatalf("metrics cleanup should be disabled in this test: %+v", counts)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestOpsCleanupScheduled_DisabledStillMaintainsPartitionsWithoutCleanupHeartbeat(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	for _, table := range []string{"ops_system_logs", "ops_error_logs"} {
+		mock.ExpectQuery("pg_partitioned_table").WithArgs(table).
+			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		for i := 0; i <= opsPartitionMonthsAhead; i++ {
+			mock.ExpectExec("CREATE TABLE IF NOT EXISTS").WillReturnResult(sqlmock.NewResult(0, 0))
+		}
+	}
+	mock.ExpectQuery("pg_partitioned_table").WithArgs("usage_logs").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	repo := &opsCleanupHeartbeatCapture{}
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.Ops.Cleanup.Enabled = false
+	cfg.Ops.Cleanup.Schedule = opsCleanupDefaultSchedule
+	svc := NewOpsCleanupService(repo, db, nil, cfg, nil, nil)
+	svc.refreshEffectiveBeforeRun(context.Background())
+	svc.runScheduled()
+
+	if len(repo.heartbeats) != 1 || repo.heartbeats[0].JobName != opsPartitionJobName {
+		t.Fatalf("heartbeats=%+v, want only %s", repo.heartbeats, opsPartitionJobName)
+	}
+	if repo.heartbeats[0].LastSuccessAt == nil || repo.heartbeats[0].LastErrorAt != nil {
+		t.Fatalf("partition heartbeat should be successful: %+v", repo.heartbeats[0])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestOpsCleanupScheduled_PartitionFailureStopsBeforeCleanup(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectQuery("pg_partitioned_table").WithArgs("ops_system_logs").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec("CREATE TABLE IF NOT EXISTS").WillReturnError(errors.New("disk full"))
+
+	repo := &opsCleanupHeartbeatCapture{}
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.Ops.Cleanup.Enabled = true
+	cfg.Ops.Cleanup.Schedule = opsCleanupDefaultSchedule
+	svc := NewOpsCleanupService(repo, db, nil, cfg, nil, nil)
+	svc.refreshEffectiveBeforeRun(context.Background())
+	svc.runScheduled()
+
+	if len(repo.heartbeats) != 1 || repo.heartbeats[0].JobName != opsPartitionJobName {
+		t.Fatalf("heartbeats=%+v, want only failed %s", repo.heartbeats, opsPartitionJobName)
+	}
+	if repo.heartbeats[0].LastErrorAt == nil || repo.heartbeats[0].LastSuccessAt != nil {
+		t.Fatalf("partition heartbeat should record the error: %+v", repo.heartbeats[0])
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)

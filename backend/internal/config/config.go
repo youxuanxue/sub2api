@@ -101,6 +101,21 @@ type Config struct {
 	MediaStorage            MediaStorageConfig            `mapstructure:"media_storage"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
+	TelemetryArchive        TelemetryArchiveConfig        `mapstructure:"telemetry_archive"`
+}
+
+// TelemetryArchiveConfig controls the best-effort raw telemetry S3 shadow.
+// PostgreSQL remains canonical; this path is disabled unless explicitly enabled
+// with a complete region/bucket/prefix configuration.
+type TelemetryArchiveConfig struct {
+	Enabled              bool   `mapstructure:"enabled"`
+	Region               string `mapstructure:"region"`
+	Bucket               string `mapstructure:"bucket"`
+	Prefix               string `mapstructure:"prefix"`
+	QueueSize            int    `mapstructure:"queue_size"`
+	BatchSize            int    `mapstructure:"batch_size"`
+	FlushIntervalSeconds int    `mapstructure:"flush_interval_seconds"`
+	PutTimeoutSeconds    int    `mapstructure:"put_timeout_seconds"`
 }
 
 type LogConfig struct {
@@ -2039,6 +2054,16 @@ func setDefaults() {
 	viper.SetDefault("log.sampling.enabled", false)
 	viper.SetDefault("log.sampling.initial", 100)
 	viper.SetDefault("log.sampling.thereafter", 100)
+
+	// Raw telemetry S3 shadow. Default-off and IAM-role-only on Stage0.
+	viper.SetDefault("telemetry_archive.enabled", false)
+	viper.SetDefault("telemetry_archive.region", "")
+	viper.SetDefault("telemetry_archive.bucket", "")
+	viper.SetDefault("telemetry_archive.prefix", "prod/raw-telemetry")
+	viper.SetDefault("telemetry_archive.queue_size", 8192)
+	viper.SetDefault("telemetry_archive.batch_size", 256)
+	viper.SetDefault("telemetry_archive.flush_interval_seconds", 5)
+	viper.SetDefault("telemetry_archive.put_timeout_seconds", 10)
 
 	// CORS
 	viper.SetDefault("cors.allowed_origins", []string{})

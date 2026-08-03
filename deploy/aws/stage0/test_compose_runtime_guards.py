@@ -28,6 +28,12 @@ def logging_violations(text: str) -> list[str]:
 
 
 class ComposeRuntimeGuardsTest(unittest.TestCase):
+    def test_raw_telemetry_shadow_is_explicitly_default_off(self) -> None:
+        text = COMPOSE.read_text(encoding="utf-8")
+        self.assertIn("TELEMETRY_ARCHIVE_ENABLED=${TELEMETRY_ARCHIVE_ENABLED:-false}", text)
+        self.assertIn("TELEMETRY_ARCHIVE_BUCKET=${TELEMETRY_ARCHIVE_BUCKET:-}", text)
+        self.assertNotIn("TELEMETRY_ARCHIVE_ACCESS_KEY", text)
+
     def test_all_stage0_services_use_bounded_json_logging(self) -> None:
         self.assertEqual(logging_violations(COMPOSE.read_text(encoding="utf-8")), [])
 

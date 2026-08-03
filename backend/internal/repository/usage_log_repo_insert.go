@@ -14,6 +14,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/telemetryarchive"
 )
 
 // usageLogInsertArgTypes must stay in the same order as:
@@ -151,14 +152,25 @@ func (r *usageLogRepository) Create(ctx context.Context, log *service.UsageLog) 
 	}
 
 	if tx := dbent.TxFromContext(ctx); tx != nil {
-		return r.createSingle(ctx, tx.Client(), log)
+		inserted, err := r.createSingle(ctx, tx.Client(), log)
+		if err == nil && inserted {
+			r.enqueueUsageAfterCommit(tx, log)
+		}
+		return inserted, err
 	}
+	var inserted bool
+	var err error
 	requestID := strings.TrimSpace(log.RequestID)
 	if requestID == "" {
-		return r.createSingle(ctx, r.sql, log)
+		inserted, err = r.createSingle(ctx, r.sql, log)
+	} else {
+		log.RequestID = requestID
+		inserted, err = r.createBatched(ctx, log)
 	}
-	log.RequestID = requestID
-	return r.createBatched(ctx, log)
+	if err == nil && inserted {
+		r.enqueueUsage(log)
+	}
+	return inserted, err
 }
 
 func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.UsageLog) error {
@@ -167,17 +179,26 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 	}
 
 	if tx := dbent.TxFromContext(ctx); tx != nil {
-		_, err := r.createSingle(ctx, tx.Client(), log)
+		inserted, err := r.createSingle(ctx, tx.Client(), log)
+		if err == nil && inserted {
+			r.enqueueUsageAfterCommit(tx, log)
+		}
 		return err
 	}
 	if r.db == nil {
-		_, err := r.createSingle(ctx, r.sql, log)
+		inserted, err := r.createSingle(ctx, r.sql, log)
+		if err == nil && inserted {
+			r.enqueueUsage(log)
+		}
 		return err
 	}
 
 	r.ensureBestEffortBatcher()
 	if r.bestEffortBatchCh == nil {
-		_, err := r.createSingle(ctx, r.sql, log)
+		inserted, err := r.createSingle(ctx, r.sql, log)
+		if err == nil && inserted {
+			r.enqueueUsage(log)
+		}
 		return err
 	}
 
@@ -203,10 +224,34 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 
 	select {
 	case err := <-req.resultCh:
+		if err == nil {
+			r.enqueueUsage(log)
+		}
 		return err
 	case <-ctx.Done():
 		return service.MarkUsageLogCreateDropped(ctx.Err())
 	}
+}
+
+func (r *usageLogRepository) enqueueUsage(log *service.UsageLog) {
+	if r != nil && r.telemetry != nil && log != nil {
+		r.telemetry.Enqueue(telemetryarchive.DatasetUsage, log)
+	}
+}
+
+func (r *usageLogRepository) enqueueUsageAfterCommit(tx *dbent.Tx, log *service.UsageLog) {
+	if r == nil || r.telemetry == nil || tx == nil || log == nil {
+		return
+	}
+	tx.OnCommit(func(next dbent.Committer) dbent.Committer {
+		return dbent.CommitFunc(func(ctx context.Context, committedTx *dbent.Tx) error {
+			if err := next.Commit(ctx, committedTx); err != nil {
+				return err
+			}
+			r.enqueueUsage(log)
+			return nil
+		})
+	})
 }
 
 func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor, log *service.UsageLog) (bool, error) {
@@ -285,7 +330,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			$18, $19, $20, $21, $22, $23,
 			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
 		)
-		ON CONFLICT (request_id, api_key_id) DO NOTHING
+		ON CONFLICT DO NOTHING
 		RETURNING id, created_at
 	`
 
@@ -882,7 +927,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				session_id,
 				created_at
 			FROM input
-			ON CONFLICT (request_id, api_key_id) DO NOTHING
+			ON CONFLICT DO NOTHING
 			RETURNING request_id, api_key_id, id, created_at
 		),
 		resolved AS (
@@ -1125,7 +1170,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			session_id,
 			created_at
 		FROM input
-		ON CONFLICT (request_id, api_key_id) DO NOTHING
+		ON CONFLICT DO NOTHING
 	`)
 
 	return query.String(), args
@@ -1199,7 +1244,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			$18, $19, $20, $21, $22, $23,
 			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
 		)
-		ON CONFLICT (request_id, api_key_id) DO NOTHING
+		ON CONFLICT DO NOTHING
 	`, prepared.args...)
 	return err
 }
