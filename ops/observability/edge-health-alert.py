@@ -4,11 +4,10 @@ decision + a Feishu message, with cross-run dedup via a state key.
 
 This is the *decision* half of manual edge-health triage; the *transport* halves
 are scan-edge-health.sh --json (read-only SSM fleet sweep) and optional Feishu post
-by an operator. Scheduled edge-health-watch GHA was retired 2026-07 — see
-docs/spec-delta-cc-oauth-mimicry-fingerprint-scope.md. Keeping
-the decision here (pure Python, no HTTP/AWS) makes it unit-testable with fixtures
-(--selftest) and registerable in preflight, mirroring data_layer_capacity_verdict.py
-and edge_health_verdict.py.
+by an operator / the scheduled edge-health-watch GHA (restored after 2026-08-03
+us6 host-hang silence). Keeping the decision here (pure Python, no HTTP/AWS)
+makes it unit-testable with fixtures (--selftest) and registerable in preflight,
+mirroring data_layer_capacity_verdict.py and edge_health_verdict.py.
 
 WHY (2026-06-07 incident): 4 edges went to 0 schedulable accounts and the one healthy
 multi-account edge (us5) buckled under concentrated failover load; ~3445 clients ate
