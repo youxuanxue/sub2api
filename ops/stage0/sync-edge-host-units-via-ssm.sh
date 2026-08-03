@@ -148,7 +148,7 @@ jq -n \
       ("echo " + $dmsh + " | base64 -d | sudo tee /usr/local/bin/tokenkey-disk-metrics.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-disk-metrics.sh",
       "grep -E -c '\''memory-pressure alert|MemAvailable'\'' /usr/local/bin/tokenkey-disk-metrics.sh || true",  # preflight-allow: swallow — host-side diagnostic count; 0 matches must not abort the remote script
-      "sudo /usr/local/bin/tokenkey-disk-metrics.sh --selftest || true",  # preflight-allow: swallow — best-effort; timer still armed
+      "sudo /usr/local/bin/tokenkey-disk-metrics.sh --selftest",
       ("echo " + $dmsvc + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-disk-metrics.service > /dev/null"),
       ("echo " + $dmtmr + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-disk-metrics.timer > /dev/null"),
       ("echo " + $qash + " | base64 -d | sudo tee /usr/local/bin/tokenkey-qa-stale-cleanup.sh > /dev/null"),

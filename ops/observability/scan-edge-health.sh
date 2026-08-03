@@ -24,17 +24,18 @@
 #   bash ops/observability/scan-edge-health.sh --since 15h     # widen traffic window
 #   bash ops/observability/scan-edge-health.sh --edges us3,us6 # subset
 #
-# Exit codes: 0 always (verdicts are in the table). An edge whose probe fails shows
-# verdict=unreachable rather than aborting the whole scan.
+# Exit codes: 0 when every intended target produced a valid verdict. Remote probe
+# failures are represented as verdict=unreachable; local helper/resolver failures or
+# an incomplete result set return nonzero so automation cannot advance dedup state.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
-RUN_PROBE="$HERE/run-probe.sh"
+RUN_PROBE="${EDGE_HEALTH_RUN_PROBE:-$HERE/run-probe.sh}"
 PROBE="$HERE/probe-edge-health.sh"
-VERDICT="$HERE/edge_health_verdict.py"
-HTTPS_PROBE="$HERE/edge_https_health.py"
-RESOLVE="$REPO_ROOT/deploy/aws/stage0/resolve-edge-target.py"
+VERDICT="${EDGE_HEALTH_VERDICT:-$HERE/edge_health_verdict.py}"
+HTTPS_PROBE="${EDGE_HEALTH_HTTPS_PROBE:-$HERE/edge_https_health.py}"
+RESOLVE="${EDGE_HEALTH_RESOLVE:-$REPO_ROOT/deploy/aws/stage0/resolve-edge-target.py}"
 
 SINCE="2h"
 WITH_PROD=0
@@ -66,9 +67,13 @@ else
   # macOS default bash is 3.2 and has no `mapfile`; read line-by-line so the
   # default (no --edges) invocation works for operators on a Mac, not just the
   # --edges path.
+  if ! resolved_edges="$(python3 "$RESOLVE" --list-deployable)"; then
+    echo "scan-edge-health: failed to resolve deployable targets" >&2
+    exit 1
+  fi
   while IFS= read -r _edge; do
     [ -n "$_edge" ] && EDGES+=("$_edge")
-  done < <(python3 "$RESOLVE" --list-deployable)
+  done <<< "$resolved_edges"
 fi
 
 TARGETS=()
@@ -88,6 +93,7 @@ echo "scan-edge-health: ${#TARGETS[@]} targets, traffic window since=$SINCE" >&2
 
 RESULTS="$(mktemp /tmp/eh_scan.XXXXXX)"
 trap 'rm -f "$RESULTS"' EXIT
+ORCHESTRATION_ERRORS=0
 
 for tgt in "${TARGETS[@]}"; do
   label="${tgt#edge:}"
@@ -96,9 +102,14 @@ for tgt in "${TARGETS[@]}"; do
   # Skip SSM ONLY on transport failure (reachable=false / http_code=0).
   # Non-200 (deploy 502/503) still runs SSM for a truth-telling verdict.
   if [ "$SKIP_HTTPS" != "1" ]; then
-    https_json="$(python3 "$HTTPS_PROBE" --target "$tgt" --probe --timeout-seconds "$HTTPS_TIMEOUT" 2>/dev/null || true)"  # preflight-allow: swallow — empty/failed probe JSON treated as transport failure below
-    https_transport_ok="$(printf '%s' "$https_json" | python3 -c 'import json,sys; d=json.loads(sys.stdin.read() or "{}"); print("1" if d.get("reachable") else "0")' 2>/dev/null || echo 0)"
-    if [ "$https_transport_ok" != "1" ]; then
+    https_json=""
+    if ! https_json="$(python3 "$HTTPS_PROBE" --target "$tgt" --probe --timeout-seconds "$HTTPS_TIMEOUT")"; then
+      echo "    https probe helper failed — collecting SSM evidence, scan will fail" >&2
+      ORCHESTRATION_ERRORS=$((ORCHESTRATION_ERRORS + 1))
+    elif ! https_transport_ok="$(printf '%s' "$https_json" | python3 -c 'import json,sys; d=json.load(sys.stdin); r=d["reachable"]; c=d["http_code"]; assert isinstance(r,bool) and (r or c == 0); print("1" if r else "0")' 2>/dev/null)"; then
+      echo "    https probe returned invalid JSON — collecting SSM evidence, scan will fail" >&2
+      ORCHESTRATION_ERRORS=$((ORCHESTRATION_ERRORS + 1))
+    elif [ "$https_transport_ok" != "1" ]; then
       echo "    https transport failure — marking unreachable (skip SSM)" >&2
       printf '{"edge":"%s","verdict":"unreachable","reason":"https_unreachable"}\n' "$label" >> "$RESULTS"
       continue
@@ -107,8 +118,12 @@ for tgt in "${TARGETS[@]}"; do
   if out="$(bash "$RUN_PROBE" --target "$tgt" --script "$PROBE" \
               --env "PLATFORM=anthropic" --env "SINCE=$SINCE" \
               --timeout-seconds "$PROBE_TIMEOUT" 2>/dev/null)"; then
-    verdict_json="$(printf '%s\n' "$out" | python3 "$VERDICT" --label "$label" 2>/dev/null)"
-    if [ -n "$verdict_json" ]; then
+    verdict_json=""
+    if ! verdict_json="$(printf '%s\n' "$out" | python3 "$VERDICT" --label "$label" 2>/dev/null)"; then
+      echo "    verdict helper failed — scan will fail" >&2
+      ORCHESTRATION_ERRORS=$((ORCHESTRATION_ERRORS + 1))
+      printf '{"edge":"%s","verdict":"parse-error"}\n' "$label" >> "$RESULTS"
+    elif [ -n "$verdict_json" ]; then
       printf '%s\n' "$verdict_json" >> "$RESULTS"
     else
       printf '{"edge":"%s","verdict":"parse-error"}\n' "$label" >> "$RESULTS"
@@ -118,11 +133,40 @@ for tgt in "${TARGETS[@]}"; do
   fi
 done
 
+# One valid, unique verdict per intended target is required before a caller may
+# compare the actionable set with prior state. Partial scans can otherwise look
+# like recoveries and incorrectly advance the dedup key.
+if ! python3 - "$RESULTS" "${TARGETS[@]}" <<'PY'
+import json
+import sys
+
+result_path, *targets = sys.argv[1:]
+expected = [target[5:] if target.startswith("edge:") else target for target in targets]
+valid_verdicts = {
+    "down", "unreachable", "parse-error", "degraded", "thin", "no-accounts",
+    "idle-thin", "idle", "healthy",
+}
+rows = []
+with open(result_path, encoding="utf-8") as fh:
+    for line in fh:
+        rows.append(json.loads(line))
+if any(not isinstance(row, dict) or row.get("verdict") not in valid_verdicts for row in rows):
+    raise SystemExit(f"invalid verdict row: {rows!r}")
+actual = [row.get("edge") for row in rows]
+if len(actual) != len(expected) or len(set(actual)) != len(actual) or set(actual) != set(expected):
+    raise SystemExit(f"incomplete verdict set: expected={expected!r} actual={actual!r}")
+PY
+then
+  echo "scan-edge-health: incomplete or invalid verdict set" >&2
+  ORCHESTRATION_ERRORS=$((ORCHESTRATION_ERRORS + 1))
+fi
+
 # --json: emit the per-edge verdict JSON lines verbatim (machine-readable, for
 # edge-health-alert.py manual triage) and skip the human table.
 if [ "$JSON" = "1" ]; then
   cat "$RESULTS"
-  exit 0
+  [ "$ORCHESTRATION_ERRORS" -eq 0 ] && exit 0
+  exit 1
 fi
 
 echo
@@ -171,3 +215,6 @@ if noacct:
 if not bad and not spof and not noacct:
     print("all edges healthy with >=2 schedulable accounts")
 PY
+
+[ "$ORCHESTRATION_ERRORS" -eq 0 ] && exit 0
+exit 1

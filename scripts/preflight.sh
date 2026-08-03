@@ -1545,6 +1545,42 @@ else
     echo "  ok: edge HTTPS health resolve/probe fixtures pass"
 fi
 
+# The scan integration fixtures pin transport-only unreachable classification,
+# HTTP non-200 SSM fallback, and hard failure for helper/resolver errors.
+echo ""
+echo "=== sub2api: edge-health scan integration selftest ==="
+if ! bash ./ops/observability/test_scan_edge_health.sh >/dev/null 2>&1; then
+    echo "  FAIL: edge-health scan integration selftest"
+    echo "        — run: bash ops/observability/test_scan_edge_health.sh"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge-health scan transport/error fixtures pass"
+fi
+
+# Delivery owns the alert acknowledgment boundary: rejected/missing Feishu
+# delivery must never advance the cached actionable key.
+echo ""
+echo "=== sub2api: edge-health delivery selftest ==="
+if ! python3 ./ops/observability/edge_health_delivery.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: edge-health delivery selftest"
+    echo "        — run: python3 ops/observability/edge_health_delivery.py --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge-health delivery acknowledgment fixtures pass"
+fi
+
+# The helper tests can remain green after someone deletes or bypasses the actual
+# schedule. Anchor the load-bearing workflow trigger and scan/delivery call sites.
+echo ""
+echo "=== sub2api: edge-health watch workflow contract ==="
+if ! python3 ./scripts/checks/edge-health-watch-contract.py >/dev/null 2>&1; then
+    echo "  FAIL: edge-health watch workflow contract"
+    echo "        — run: python3 scripts/checks/edge-health-watch-contract.py"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge-health schedule, scan, delivery, and state call sites anchored"
+fi
+
 # ---- sub2api: edge disk/memory host-alert script selftest ------------------
 echo ""
 echo "=== sub2api: edge disk/memory host-alert selftest ==="
