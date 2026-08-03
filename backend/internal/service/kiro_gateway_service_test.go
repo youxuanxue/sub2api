@@ -722,6 +722,65 @@ func TestUS041_KiroGatewayService_HiddenBlockedMessageRemainsVisible(t *testing.
 	}
 }
 
+// Reproduces prod 2026-08-03 edge-us4 turn2 finish/blocked after visible turn1
+// text: models abuse blocked to restate the already-shown answer. Overlapping
+// recap paragraphs must stay hidden; only a novel blocker question may pass.
+func TestUS041_KiroGatewayService_HiddenBlockedRecapDoesNotRepeatVisibleAnswer(t *testing.T) {
+	const visibleAnswer = "PR #1524 review – 乔布斯上帝视角\n\n风险：high\n决策：needs-fix → fixed locally, awaiting push approval\n\n净代码变更：-1786 行"
+	const blockedRecap = "PR #1524 review – 乔布斯上帝视角\n\n风险：high\n决策：needs-fix → fixed locally, awaiting push approval\n\n净代码变更：-1786 行\n\n需要你的批准才能 push。"
+
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroTextStopStream(visibleAnswer, "END_TURN"),
+				kiroCompletionSignalStream("blocked", blockedRecap),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 2, upstream.calls)
+			out := rec.Body.String()
+			require.Equal(t, 1, strings.Count(out, "PR #1524 review – 乔布斯上帝视角"))
+			require.Equal(t, 1, strings.Count(out, "净代码变更：-1786 行"))
+			require.Contains(t, out, "需要你的批准才能 push。", "novel blocker question after recap paragraphs must remain")
+			require.Contains(t, out, `"stop_reason":"end_turn"`)
+		})
+	}
+}
+
+func TestUS041_KiroGatewayService_HiddenBlockedExactRecapIsTransportOnly(t *testing.T) {
+	const visibleAnswer = "已汇总审查结论，等待人工确认是否 push。"
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroTextStopStream(visibleAnswer, "END_TURN"),
+				kiroCompletionSignalStream("blocked", visibleAnswer),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 2, upstream.calls)
+			out := rec.Body.String()
+			require.Equal(t, 1, strings.Count(out, visibleAnswer))
+			require.Contains(t, out, `"stop_reason":"end_turn"`)
+		})
+	}
+}
+
 func TestUS041_KiroGatewayService_HiddenMaxTokensTextRemainsVisible(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
@@ -791,10 +850,66 @@ func TestContinuationTextDeltaKeepsParagraphBoundary(t *testing.T) {
 
 func TestCompletionSignalTextDeltaPreservesNegativeNumber(t *testing.T) {
 	signal := &kiroproto.ClaudeCodeCompletionSignal{Status: "complete", Message: "-10"}
-	require.Equal(t, "\n\n-10", completionSignalTextDelta("Earlier result: 10", signal))
+	require.Equal(t, "\n\n-10", completionSignalTextDelta(1, "Earlier result: 10", signal))
 
 	markdownSignal := &kiroproto.ClaudeCodeCompletionSignal{Status: "complete", Message: "- Done and verified."}
-	require.Empty(t, completionSignalTextDelta("Done and verified.", markdownSignal))
+	require.Empty(t, completionSignalTextDelta(1, "Done and verified.", markdownSignal))
+}
+
+func TestCompletionSignalTextDeltaDropsBlockedRecapKeepsNovelQuestion(t *testing.T) {
+	visible := "风险：high\n\n决策：needs-fix → fixed locally"
+	signal := &kiroproto.ClaudeCodeCompletionSignal{
+		Status:  "blocked",
+		Message: "风险：high\n\n决策：needs-fix → fixed locally\n\n需要你确认是否 push 到 feature/pricing-ssot。",
+	}
+	require.Equal(t, "\n\n需要你确认是否 push 到 feature/pricing-ssot。", completionSignalTextDelta(2, visible, signal))
+
+	exact := &kiroproto.ClaudeCodeCompletionSignal{Status: "blocked", Message: visible}
+	require.Empty(t, completionSignalTextDelta(2, visible, exact))
+}
+
+func TestIsShortBlockerQuestion(t *testing.T) {
+	require.True(t, isShortBlockerQuestion("需要你确认是否部署到生产。"))
+	require.True(t, isShortBlockerQuestion("需要你的批准才能 push。"))
+	require.True(t, isShortBlockerQuestion("Waiting for your approval."))
+	require.False(t, isShortBlockerQuestion(strings.Repeat("x", maxBlockerQuestionRunes+1)))
+	require.False(t, isShortBlockerQuestion("第一段。\n\n第二段。"))
+	require.False(t, isShortBlockerQuestion("第一段：已完成。\r\n \r\n第二段：需要你确认是否部署。"))
+	require.False(t, isShortBlockerQuestion("已完成全部检查，仓库状态正常，无需进一步动作。"))
+}
+
+func TestCompletionSignalTextDeltaTurn2CompleteIsAlwaysSilent(t *testing.T) {
+	signal := &kiroproto.ClaudeCodeCompletionSignal{Status: "complete", Message: "novel final answer"}
+	require.Empty(t, completionSignalTextDelta(2, "already visible", signal))
+}
+
+func TestUS041_KiroGatewayService_HiddenBlockedLongEssayIsTransportOnly(t *testing.T) {
+	const visibleAnswer = "PR #1524 review – 乔布斯上帝视角\n\n风险：high"
+	longEssay := visibleAnswer + "\n\n" + strings.Repeat("这是模型用 blocked 复述的长段总结。", 20)
+
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			upstream := &kiroSequenceUpstream{bodies: [][]byte{
+				kiroTextStopStream(visibleAnswer, "END_TURN"),
+				kiroCompletionSignalStream("blocked", longEssay),
+			}}
+
+			svc := NewKiroGatewayService(upstream, nil, nil)
+			result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(),
+				newClaudeCodeKiroParsedRequestForTest(stream), time.Now())
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 2, upstream.calls)
+			out := rec.Body.String()
+			require.Equal(t, 1, strings.Count(out, "PR #1524 review – 乔布斯上帝视角"))
+			require.NotContains(t, out, "长段总结")
+			require.Contains(t, out, `"stop_reason":"end_turn"`)
+		})
+	}
 }
 
 func TestUS041_KiroGatewayService_ContinuationToolPreservesTextBeforeTool(t *testing.T) {

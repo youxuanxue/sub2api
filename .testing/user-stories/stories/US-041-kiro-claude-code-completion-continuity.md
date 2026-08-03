@@ -19,8 +19,8 @@
 
 ## Acceptance Criteria
 
-1. **AC-001（显式完成协议）**：Given Claude Code system prompt，When 构建 Kiro payload，Then completion guard 与 transport-private completion tool 各只出现一次；有效 `complete/blocked` 信号被消费并转换为 `end_turn`；首轮 completion message 可补齐最终答复，隐藏续跑的 `complete` 在已有可见文本时只作为内部确认，不追加普通文本或私有 message。
-2. **AC-002（未完成续跑）**：Given Kiro 返回文本与 `END_TURN` 但无有效完成信号，When 流式或非流式 gateway 处理，Then 在同一客户端请求内继续 Kiro turn，直到收到完成信号或达到确定性上限；第二轮及之后 missing-signal 的 recap、语义改写及 tool output 摘要不得进入客户端输出。
+1. **AC-001（显式完成协议）**：Given Claude Code system prompt，When 构建 Kiro payload，Then completion guard 与 transport-private completion tool 各只出现一次；有效 `complete/blocked` 信号被消费并转换为 `end_turn`；首轮 completion message 可补齐最终答复；续跑轮默认对用户零可见文本，仅短 blocker 问句、普通 client 工具与非 completion 终止结果例外。
+2. **AC-002（未完成续跑）**：Given Kiro 返回文本与 `END_TURN` 但无有效完成信号，When 流式或非流式 gateway 处理，Then 在同一客户端请求内继续 Kiro turn，直到收到完成信号或达到确定性上限；续跑轮 missing-signal 的 recap、语义改写及 tool output 摘要不得进入客户端输出。
 3. **AC-003（范围与工具守卫）**：Given 普通 API 请求声明同名工具，When Kiro 调用该工具，Then 工具不得被吞；Given Claude Code 调用普通工具或同时产生普通工具与完成信号，Then 普通工具立即以 `tool_use` 返回并优先于完成信号。
 4. **AC-004（截断语义）**：Given Kiro 返回 `MAX_TOKENS` 或 `MODEL_CONTEXT_WINDOW_EXCEEDED`，When gateway 转换，Then保留对应 Anthropic stop reason，即使同一响应含私有完成信号也不得覆盖。
 5. **AC-005（policy 与 malformed 语义）**：Given Kiro 返回 policy refusal，When有可见文本时映射 `refusal`、无输出时返回客户端内容过滤错误；Given malformed/未知/空 stop reason，Then fail closed，不伪造成功结束。
@@ -33,7 +33,7 @@
 - `mapKiroStopReason` 对已知值显式映射，对空值和未知值返回 typed error。
 - JSON 与 SSE wire 分别保留 `max_tokens`；未知流式终止态不包含 `message_stop`。
 - 私有工具只在 `ClaudeCodeCompletionProtocol` 为真时被消费；空消息、普通工具或非完成 stop reason 不能提前结束。
-- 流式与非流式输出在同轮不得重复已经可见的完整 completion message；隐藏续跑的 missing-signal/complete 文本是 transport-only，不得把 recap、语义改写或 tool output 摘要作为第二份答复。隐藏普通工具的 text-before-tool 与真实 `blocked` 问题仍须可见。
+- 流式与非流式输出在同轮不得重复已经可见的完整 completion message；续跑轮默认 transport-only，仅短 blocker 问句、普通 client 工具与非 completion 终止结果可出门。隐藏普通工具的 text-before-tool 顺序仍须保留。
 - sentinel 锚定共享 owner、私有协议 owner、有界续跑、范围门禁、stop metadata、结构化日志与核心回归测试。
 
 ## Linked Tests
@@ -52,6 +52,12 @@
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_ContinuationCompletionDoesNotRepeatPriorFinalText`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_HiddenCompletionSuppressesSemanticRecapAndToolOutputSummary`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_HiddenBlockedMessageRemainsVisible`
+- `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_HiddenBlockedRecapDoesNotRepeatVisibleAnswer`
+- `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_HiddenBlockedExactRecapIsTransportOnly`
+- `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_HiddenBlockedLongEssayIsTransportOnly`
+- `backend/internal/service/kiro_gateway_service_test.go`::`TestIsShortBlockerQuestion`
+- `backend/internal/service/kiro_gateway_service_test.go`::`TestCompletionSignalTextDeltaTurn2CompleteIsAlwaysSilent`
+- `backend/internal/service/kiro_gateway_service_test.go`::`TestCompletionSignalTextDeltaDropsBlockedRecapKeepsNovelQuestion`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_HiddenMaxTokensTextRemainsVisible`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_NonClaudeCodeCompletionNamedToolIsPreserved`
 - `backend/internal/service/kiro_gateway_service_test.go`::`TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolUseReturnsImmediately`
