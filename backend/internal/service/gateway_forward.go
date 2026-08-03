@@ -136,7 +136,15 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		if s.kiroGateway == nil {
 			return nil, fmt.Errorf("kiro gateway service not configured")
 		}
+		// Kiro dial + reasoning can sit silent for minutes before the first
+		// client-visible text/tool block. Anthropic's header-wait keepalive
+		// only covers the native HTTP Do path; bind the shared pre-content
+		// ping emitter here and let forwardStreaming stop it on the first
+		// visible SSE write.
+		hwka := s.beginHeaderWaitKeepalive(c, parsed != nil && parsed.Stream)
+		bindPreContentStreamKeepalive(c, hwka)
 		result, err := s.kiroGateway.Forward(ctx, c, account, parsed, startTime)
+		hwka.stop()
 		if err != nil && s.rateLimitService != nil {
 			var failoverErr *UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
@@ -490,7 +498,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 
 		// 发送请求
 		hwka := s.beginHeaderWaitKeepalive(c, reqStream)
+		bindPreContentStreamKeepalive(c, hwka)
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+		stopPreContentStreamKeepalive(c)
 		hwka.stop()
 		if err != nil {
 			if resp != nil && resp.Body != nil {

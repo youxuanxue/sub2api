@@ -812,7 +812,11 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		}
 		requestIDHeader = idHeader
 
+		hwka := s.beginHeaderWaitKeepalive(c, req.Stream)
+		bindPreContentStreamKeepalive(c, hwka)
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		stopPreContentStreamKeepalive(c)
+		hwka.stop()
 		if err != nil {
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -1361,7 +1365,11 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 		requestIDHeader = idHeader
 
+		hwka := s.beginSSECommentHeaderWaitKeepalive(c, stream)
+		bindPreContentStreamKeepalive(c, hwka)
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		stopPreContentStreamKeepalive(c)
+		hwka.stop()
 		if err != nil {
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{

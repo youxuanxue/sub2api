@@ -107,6 +107,93 @@ func TestOpenAIWSCyberPolicyMark_NonCyberPayload(t *testing.T) {
 	require.False(t, hit, "detectOpenAICyberPolicy should return false for non-cyber_policy error code")
 }
 
+func TestOpenAIWSShouldBufferPreTokenStreamEvent_ReasoningProgressFlushes(t *testing.T) {
+	cases := []struct {
+		name      string
+		eventType string
+		message   string
+		wantBuf   bool
+	}{
+		{
+			name:      "preamble_created_buffers",
+			eventType: "response.created",
+			message:   `{"type":"response.created","response":{"id":"resp_1"}}`,
+			wantBuf:   true,
+		},
+		{
+			name:      "preamble_in_progress_buffers",
+			eventType: "response.in_progress",
+			message:   `{"type":"response.in_progress","response":{"id":"resp_1"}}`,
+			wantBuf:   true,
+		},
+		{
+			name:      "message_structure_still_buffers",
+			eventType: "response.output_item.added",
+			message:   `{"type":"response.output_item.added","item":{"type":"message","id":"msg_1"}}`,
+			wantBuf:   true,
+		},
+		{
+			name:      "reasoning_structure_flushes",
+			eventType: "response.output_item.added",
+			message:   `{"type":"response.output_item.added","item":{"type":"reasoning","id":"rs_1"}}`,
+			wantBuf:   false,
+		},
+		{
+			name:      "reasoning_summary_part_flushes",
+			eventType: "response.reasoning_summary_part.added",
+			message:   `{"type":"response.reasoning_summary_part.added","item_id":"rs_1","part":{"type":"summary_text"}}`,
+			wantBuf:   false,
+		},
+		{
+			name:      "reasoning_delta_flushes_as_token",
+			eventType: "response.reasoning_summary_text.delta",
+			message:   `{"type":"response.reasoning_summary_text.delta","delta":"think"}`,
+			wantBuf:   false,
+		},
+		{
+			name:      "terminal_flushes",
+			eventType: "response.completed",
+			message:   `{"type":"response.completed","response":{"id":"resp_1"}}`,
+			wantBuf:   false,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			isToken := isOpenAIWSTokenEvent(tc.eventType)
+			isTerminal := isOpenAIWSTerminalEvent(tc.eventType)
+			got := openAIWSShouldBufferPreTokenStreamEvent(
+				tc.eventType, []byte(tc.message), nil, isToken, isTerminal,
+			)
+			require.Equal(t, tc.wantBuf, got)
+			if !tc.wantBuf && !isToken && !isTerminal {
+				require.True(t, isOpenAIWSReasoningProgressEvent(tc.eventType, []byte(tc.message)),
+					"non-token/non-terminal flush must be classified as reasoning progress")
+			}
+		})
+	}
+}
+
+func TestOpenAIWSMarksClientVisibleProgress_ReasoningStructure(t *testing.T) {
+	require.True(t, openAIWSMarksClientVisibleProgress(
+		"response.output_item.added",
+		[]byte(`{"type":"response.output_item.added","item":{"type":"reasoning"}}`),
+	))
+	require.False(t, openAIWSMarksClientVisibleProgress(
+		"response.output_item.added",
+		[]byte(`{"type":"response.output_item.added","item":{"type":"message"}}`),
+	))
+	require.False(t, openAIWSMarksClientVisibleProgress(
+		"response.created",
+		[]byte(`{"type":"response.created"}`),
+	))
+	require.True(t, openAIWSMarksClientVisibleProgress(
+		"response.output_text.delta",
+		[]byte(`{"type":"response.output_text.delta","delta":"hi"}`),
+	))
+}
+
 // TestIsOpenAIWSTokenEvent_DisjointWithTerminal 守护「token 事件集合与终止事件集合互斥」的不变量。
 // firstTokenMs 的计算依赖于 isTokenEvent && !isTerminalEvent；
 // 若两者再次出现交集，则 issue #2651 描述的 latency 误报会重现。

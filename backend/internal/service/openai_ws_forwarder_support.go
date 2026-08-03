@@ -320,6 +320,47 @@ func isOpenAIWSTokenEvent(eventType string) bool {
 	return false
 }
 
+// isOpenAIWSReasoningProgressEvent reports client-visible reasoning progress that
+// is not necessarily a billable/answer token event. Structure frames such as
+// output_item.added(type=reasoning) and reasoning_summary_part.* must reach the
+// client immediately so UIs do not stall during long upstream thinking.
+func isOpenAIWSReasoningProgressEvent(eventType string, message []byte) bool {
+	eventType = strings.TrimSpace(eventType)
+	if eventType == "" {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(eventType, "response.reasoning_summary"),
+		strings.HasPrefix(eventType, "response.reasoning_text"),
+		strings.HasPrefix(eventType, "response.reasoning."):
+		return true
+	case eventType == "response.output_item.added", eventType == "response.output_item.done":
+		return strings.TrimSpace(gjson.GetBytes(message, "item.type").String()) == "reasoning"
+	default:
+		return false
+	}
+}
+
+// openAIWSShouldBufferPreTokenStreamEvent keeps only the early preamble buffered
+// before the first client-visible progress so early-disconnect failover stays
+// transparent. Reasoning structure frames and token/terminal events flush.
+func openAIWSShouldBufferPreTokenStreamEvent(eventType string, message []byte, firstTokenMs *int, isTokenEvent, isTerminalEvent bool) bool {
+	if firstTokenMs != nil || isTokenEvent || isTerminalEvent {
+		return false
+	}
+	if isOpenAIWSReasoningProgressEvent(eventType, message) {
+		return false
+	}
+	return true
+}
+
+// openAIWSMarksClientVisibleProgress is true for the first downstream-visible
+// semantic progress used by TTFT / first-output disarm. Structure-only
+// reasoning frames count; they are not billed as answer tokens.
+func openAIWSMarksClientVisibleProgress(eventType string, message []byte) bool {
+	return isOpenAIWSTokenEvent(eventType) || isOpenAIWSReasoningProgressEvent(eventType, message)
+}
+
 func replaceOpenAIWSMessageModel(message []byte, fromModel, toModel string) []byte {
 	if len(message) == 0 {
 		return message

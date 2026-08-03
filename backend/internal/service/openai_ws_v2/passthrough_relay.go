@@ -660,7 +660,7 @@ func observeUpstreamMessage(
 	}
 	now := nowFn()
 
-	if state.firstTokenMs == nil && isTokenEvent(eventType) {
+	if state.firstTokenMs == nil && marksClientVisibleProgress(eventType, message) {
 		ms := int(now.Sub(startAt).Milliseconds())
 		if ms >= 0 {
 			state.firstTokenMs = &ms
@@ -680,7 +680,7 @@ func observeUpstreamMessage(
 	}
 	if responseID != "" {
 		turnTiming := openAIWSRelayGetOrInitTurnTiming(state, responseID, now)
-		if turnTiming != nil && turnTiming.firstTokenMs == nil && isTokenEvent(eventType) {
+		if turnTiming != nil && turnTiming.firstTokenMs == nil && marksClientVisibleProgress(eventType, message) {
 			ms := int(now.Sub(turnTiming.startAt).Milliseconds())
 			if ms >= 0 {
 				turnTiming.firstTokenMs = &ms
@@ -964,6 +964,29 @@ func isTokenEvent(eventType string) bool {
 		return true
 	}
 	return eventType == "response.completed" || eventType == "response.done"
+}
+
+// isReasoningProgressEvent mirrors service.isOpenAIWSReasoningProgressEvent for
+// this subpackage (no import of internal/service — would cycle). Keep in sync.
+func isReasoningProgressEvent(eventType string, message []byte) bool {
+	eventType = strings.TrimSpace(eventType)
+	if eventType == "" {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(eventType, "response.reasoning_summary"),
+		strings.HasPrefix(eventType, "response.reasoning_text"),
+		strings.HasPrefix(eventType, "response.reasoning."):
+		return true
+	case eventType == "response.output_item.added", eventType == "response.output_item.done":
+		return strings.TrimSpace(gjson.GetBytes(message, "item.type").String()) == "reasoning"
+	default:
+		return false
+	}
+}
+
+func marksClientVisibleProgress(eventType string, message []byte) bool {
+	return isTokenEvent(eventType) || isReasoningProgressEvent(eventType, message)
 }
 
 func minDuration(a, b time.Duration) time.Duration {

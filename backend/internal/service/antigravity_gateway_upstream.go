@@ -78,7 +78,11 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 	}
 
 	// 发送请求
+	hwka := s.beginHeaderWaitKeepalive(c, claudeReq.Stream)
+	bindPreContentStreamKeepalive(c, hwka)
 	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	stopPreContentStreamKeepalive(c)
+	hwka.stop()
 	if err != nil {
 		logger.LegacyPrintf("service.antigravity_gateway", "%s upstream request failed: %v", prefix, err)
 		return nil, fmt.Errorf("upstream request failed: %w", err)

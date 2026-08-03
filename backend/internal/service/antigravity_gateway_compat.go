@@ -190,6 +190,7 @@ func (s *AntigravityGatewayService) forwardAntigravityCompat(
 		isStickySession: false,
 		groupID:         0,
 		sessionHash:     "",
+		clientStream:    request.clientStream,
 	})
 	if err != nil {
 		return nil, s.handleAntigravityCompatTransportError(c, err)

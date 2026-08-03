@@ -844,8 +844,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 		// Send request
 		hwka := s.beginHeaderWaitKeepalive(c, reqStream)
+		bindPreContentStreamKeepalive(c, hwka)
 		upstreamStart := time.Now()
 		resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		stopPreContentStreamKeepalive(c)
 		hwka.stop()
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		if headerGuard != nil && headerGuard.stopHeaderWait() {

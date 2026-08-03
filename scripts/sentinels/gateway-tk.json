@@ -3439,14 +3439,21 @@
         "func (k *headerWaitKeepalive) stop()",
         "anthropicSSEPingFrame",
         "func (s *OpenAIGatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive",
-        "openaiSSECommentFrame"
+        "openaiSSECommentFrame",
+        "func bindPreContentStreamKeepalive(c *gin.Context, k *headerWaitKeepalive)",
+        "func stopPreContentStreamKeepalive(c *gin.Context)",
+        "func (s *AntigravityGatewayService) beginHeaderWaitKeepalive",
+        "func (s *GeminiMessagesCompatService) beginHeaderWaitKeepalive",
+        "func (s *GeminiMessagesCompatService) beginSSECommentHeaderWaitKeepalive"
       ],
-      "rationale": "Header-wait SSE keepalive (Wei-Shaw/sub2api#2121): emits Anthropic-shaped ping frames to the downstream client while Forward blocks in DoWithTLS waiting for upstream response headers, so idle-sensitive intermediaries (Cloudflare Tunnel / Caddy / client SDKs) do not drop a slow request before the first upstream byte. This closes the gap left by the in-stream keepalive (which only fires AFTER the first SSE byte) and is amplified on the prod->edge mirror relay. The first ping is delayed one keepalive interval so fast failover-eligible errors return before any byte is written, preserving the handler's c.Writer.Written() failover gate. An upstream merge that overwrites this companion would silently re-open the slow-header connection-drop on the busiest path. Now parameterized by frame and used by BOTH the Anthropic Forward path (event:ping frame) and the OpenAI/Codex passthrough path (bare SSE comment frame) — one keepalive implementation, two platforms."
+      "rationale": "Pre-content / header-wait SSE keepalive (Wei-Shaw/sub2api#2121 generalized): emits platform-shaped ping frames while streaming Do waits for upstream headers so idle intermediaries do not drop slow thinking/header-wait. First ping is delayed one interval to preserve transparent failover. Shared bind/stop helpers are the single extension point for Anthropic, OpenAI, Kiro, Bedrock, Antigravity, and Gemini streaming Do entries."
     },
     {
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
         "hwka := s.beginHeaderWaitKeepalive(c, reqStream)",
+        "bindPreContentStreamKeepalive(c, hwka)",
+        "stopPreContentStreamKeepalive(c)",
         "hwka.stop()"
       ],
       "rationale": "Thin injection point of the header-wait SSE keepalive around the primary streaming DoWithTLS call in Forward. Begin returns a no-op for non-streaming/disabled requests; stop() must run the instant DoWithTLS returns and before any other write to c.Writer so a ping cannot race the stream handler. Catches an upstream merge that copies the old DoWithTLS shape back over the injection."
@@ -3464,9 +3471,90 @@
       "path": "backend/internal/service/openai_gateway_forward.go",
       "must_contain": [
         "hwka := s.beginHeaderWaitKeepalive(c, reqStream)",
+        "bindPreContentStreamKeepalive(c, hwka)",
+        "stopPreContentStreamKeepalive(c)",
         "hwka.stop()"
       ],
       "rationale": "Header-wait SSE keepalive injection on the OpenAI/Codex passthrough streaming forward (forwardOpenAIPassthrough, around s.httpUpstream.Do). Same Wei-Shaw/sub2api#2121 idle-drop fix as the Anthropic Forward path, same failover-safe delayed-first-ping (the handler's failover gate compares c.Writer.Size() before/after forward). stop() must run the instant Do() returns. Catches an upstream merge that copies the old Do() shape back over the injection."
+    },
+    {
+      "path": "backend/internal/service/gateway_bedrock.go",
+      "must_contain": [
+        "hwka := s.beginHeaderWaitKeepalive(c, stream)",
+        "bindPreContentStreamKeepalive(c, hwka)",
+        "stopPreContentStreamKeepalive(c)"
+      ],
+      "rationale": "Bedrock streaming Do must emit pre-content keepalive during long InvokeModelWithResponseStream header/thinking waits; without this branch Bedrock-only accounts regress to idle-drop / Moonwalking while Anthropic/OpenAI stay healthy."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_retry.go",
+      "must_contain": [
+        "clientStream bool",
+        "hwka := s.beginHeaderWaitKeepalive(p.c, p.clientStream)",
+        "bindPreContentStreamKeepalive(p.c, hwka)",
+        "stopPreContentStreamKeepalive(p.c)"
+      ],
+      "rationale": "Antigravity's shared retry Do loop is the single upstream dial chokepoint for Claude/Gemini/compat forwards. clientStream gates keepalive so non-stream clients never receive SSE pings; losing the bind/stop pair re-opens pre-content idle drops on Antigravity."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "hwka := s.beginHeaderWaitKeepalive(c, req.Stream)",
+        "hwka := s.beginSSECommentHeaderWaitKeepalive(c, stream)",
+        "bindPreContentStreamKeepalive(c, hwka)",
+        "stopPreContentStreamKeepalive(c)"
+      ],
+      "rationale": "Gemini /v1/messages Forward uses Anthropic ping; ForwardNative passthrough uses SSE comment keepalive on Google-native wire. Mixing frames breaks Gemini CLI strict parsers during header-wait."
+    },
+    {
+      "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
+      "must_contain": [
+        "beginSSECommentHeaderWaitKeepalive(c, clientStream)",
+        "bindPreContentStreamKeepalive(c, hwka)",
+        "stopPreContentStreamKeepalive(c)"
+      ],
+      "rationale": "Gemini chat-completions compat serves OpenAI wire; header-wait keepalive must use SSE comment frames, not Anthropic event:ping."
+    },
+    {
+      "path": "backend/internal/service/gemini_responses_compat_service.go",
+      "must_contain": [
+        "beginSSECommentHeaderWaitKeepalive(c, clientStream)",
+        "bindPreContentStreamKeepalive(c, hwka)",
+        "stopPreContentStreamKeepalive(c)"
+      ],
+      "rationale": "Gemini responses compat serves OpenAI wire; header-wait keepalive must use SSE comment frames, not Anthropic event:ping."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder_support.go",
+      "must_contain": [
+        "func isOpenAIWSReasoningProgressEvent(eventType string, message []byte) bool",
+        "func openAIWSShouldBufferPreTokenStreamEvent(eventType string, message []byte, firstTokenMs *int, isTokenEvent, isTerminalEvent bool) bool",
+        "func openAIWSMarksClientVisibleProgress(eventType string, message []byte) bool"
+      ],
+      "rationale": "OpenAI WS v2 L2: reasoning structure frames (output_item.added type=reasoning / reasoning_summary_part.*) must flush immediately instead of blanket pre-token buffering. Losing these helpers reverts GPT clients to stalled UIs during long reasoning before the first delta."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_v2/passthrough_relay.go",
+      "must_contain": [
+        "func marksClientVisibleProgress(eventType string, message []byte) bool",
+        "marksClientVisibleProgress(eventType, message)"
+      ],
+      "rationale": "WS passthrough relay TTFT must count reasoning structure frames as client-visible progress, aligned with forwarder_v2 and HTTP passthrough."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "openAIWSMarksClientVisibleProgress(eventType, dataBytes)"
+      ],
+      "rationale": "OpenAI admin passthrough streaming TTFT/failover gate must treat reasoning structure frames as client-visible progress, not only .delta token events."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder_test.go",
+      "must_contain": [
+        "TestOpenAIWSShouldBufferPreTokenStreamEvent_ReasoningProgressFlushes",
+        "TestOpenAIWSMarksClientVisibleProgress_ReasoningStructure"
+      ],
+      "rationale": "Table-driven regressions for WS reasoning-progress flush vs preamble buffer, and TTFT/progress classification that must not treat message structure frames as visible progress."
     },
     {
       "path": "backend/internal/handler/admin/dashboard_handler.go",
@@ -4931,9 +5019,10 @@
     {
       "path": "backend/internal/service/openai_ws_forwarder_v2.go",
       "must_contain": [
-        "firstTokenMs == nil && !isTokenEvent && !isTerminalEvent"
+        "openAIWSShouldBufferPreTokenStreamEvent(",
+        "openAIWSMarksClientVisibleProgress(eventType, message)"
       ],
-      "rationale": "PR #1001: WS Responses paths (forwardOpenAIWSV2 + ProxyResponsesWebSocketFromClient) must surface UpstreamFailoverError on pre-token response.failed transient/capacity errors instead of forwarding to the client. Losing this branch reverts WS to the HTTP/SSE bug class fixed in #1001."
+      "rationale": "PR #1001 + streaming-stall L2: WS Responses paths keep preamble buffered for transparent early-disconnect failover, but must flush reasoning progress immediately via openAIWSShouldBufferPreTokenStreamEvent and mark TTFT on first client-visible progress. Restoring the old blanket firstTokenMs==nil && !isTokenEvent buffer reverts GPT reasoning stalls; dropping the helper also reopens the #1001 failover class."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_buffered_failover.go",

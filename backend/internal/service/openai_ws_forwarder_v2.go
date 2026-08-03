@@ -505,7 +505,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		if isTerminalEvent {
 			terminalEventCount++
 		}
-		if firstTokenMs == nil && isTokenEvent {
+		if firstTokenMs == nil && openAIWSMarksClientVisibleProgress(eventType, message) {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
@@ -620,9 +620,12 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 
 		if reqStream {
-			// 在首个 token 前先缓冲事件（如 response.created），
-			// 以便上游早期断连时仍可安全回退到 HTTP，不给下游发送半截流。
-			shouldBuffer := firstTokenMs == nil && !isTokenEvent && !isTerminalEvent
+			// Buffer only the early preamble (response.created / in_progress, …)
+			// before first client-visible progress so early-disconnect failover
+			// stays transparent. Reasoning structure frames flush immediately.
+			shouldBuffer := openAIWSShouldBufferPreTokenStreamEvent(
+				eventType, message, firstTokenMs, isTokenEvent, isTerminalEvent,
+			)
 			if shouldBuffer {
 				buffered := make([]byte, len(message))
 				copy(buffered, message)
