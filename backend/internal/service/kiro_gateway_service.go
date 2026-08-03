@@ -237,15 +237,21 @@ func isShortBlockerQuestion(message string) bool {
 	if message == "" {
 		return false
 	}
-	paragraphs := strings.Split(message, "\n\n")
-	nonEmpty := 0
-	for _, paragraph := range paragraphs {
-		if strings.TrimSpace(paragraph) != "" {
-			nonEmpty++
+	normalized := strings.ReplaceAll(strings.ReplaceAll(message, "\r\n", "\n"), "\r", "\n")
+	paragraphs := 0
+	inParagraph := false
+	for _, line := range strings.Split(normalized, "\n") {
+		if strings.TrimSpace(line) == "" {
+			inParagraph = false
+			continue
 		}
-	}
-	if nonEmpty == 0 || nonEmpty > maxBlockerQuestionParagraphs {
-		return false
+		if !inParagraph {
+			paragraphs++
+			if paragraphs > maxBlockerQuestionParagraphs {
+				return false
+			}
+			inParagraph = true
+		}
 	}
 	if utf8.RuneCountInString(message) > maxBlockerQuestionRunes {
 		return false
@@ -253,11 +259,12 @@ func isShortBlockerQuestion(message string) bool {
 	if strings.ContainsAny(message, "?？") {
 		return true
 	}
+	normalizedCase := strings.ToLower(message)
 	for _, hint := range []string{
 		"是否", "能否", "要不要", "需要您", "需要你", "需要你的",
 		"请确认", "请选择", "请提供", "请批准", "waiting for", "blocked on",
 	} {
-		if strings.Contains(message, hint) {
+		if strings.Contains(normalizedCase, strings.ToLower(hint)) {
 			return true
 		}
 	}

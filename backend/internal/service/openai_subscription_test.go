@@ -130,7 +130,9 @@ func TestShouldApplyChatGPTAccountInfoPlanType(t *testing.T) {
 }
 
 func TestFetchChatGPTAccountInfo_OrgMatchWithoutExpiryScansOtherAccounts(t *testing.T) {
-	const wantExpiresAt = "2026-08-01T00:00:00Z"
+	// Relative future: parseChatGPTAccountInfo drops already-expired entitlements
+	// via time.Now(); a fixed date makes this fixture fail as the calendar advances.
+	wantExpiresAt := time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/backend-api/accounts/check/v4-2023-04-27", r.URL.Path)

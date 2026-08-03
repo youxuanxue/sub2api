@@ -871,8 +871,10 @@ func TestCompletionSignalTextDeltaDropsBlockedRecapKeepsNovelQuestion(t *testing
 func TestIsShortBlockerQuestion(t *testing.T) {
 	require.True(t, isShortBlockerQuestion("需要你确认是否部署到生产。"))
 	require.True(t, isShortBlockerQuestion("需要你的批准才能 push。"))
+	require.True(t, isShortBlockerQuestion("Waiting for your approval."))
 	require.False(t, isShortBlockerQuestion(strings.Repeat("x", maxBlockerQuestionRunes+1)))
 	require.False(t, isShortBlockerQuestion("第一段。\n\n第二段。"))
+	require.False(t, isShortBlockerQuestion("第一段：已完成。\r\n \r\n第二段：需要你确认是否部署。"))
 	require.False(t, isShortBlockerQuestion("已完成全部检查，仓库状态正常，无需进一步动作。"))
 }
 
