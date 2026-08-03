@@ -613,10 +613,6 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	return account, nil
 }
 
-type accountProbeEnabledAtomicUpdater interface {
-	UpdateWithUpstreamBillingProbeEnabled(context.Context, *Account, bool) error
-}
-
 func upstreamBillingProbeIdentity(account *Account) map[string]any {
 	if account == nil {
 		return nil
@@ -893,6 +889,15 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			}
 		}
 	}
+	if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {
+		return nil, err
+	}
+	if account.Platform == PlatformGrok &&
+		tkInputHasNonEmptyCredential(input.Credentials, "refresh_token") {
+		if err := resolveGrokTokenOnSave(ctx, account); err != nil {
+			return nil, err
+		}
+	}
 
 	billingSettingsAppliedAtomically := false
 	updater := s.accountBillingRepo
@@ -1033,7 +1038,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || input.ProbeEnabled != nil || input.RateMultiplier != nil {
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || needPublicGroupAggregatorCheck || hasLongContextBillingUpdate || input.ProbeEnabled != nil || input.RateMultiplier != nil {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err

@@ -894,6 +894,9 @@ onMounted(() => {
                   : t("admin.settings.security.passkeyValueNotConfigured")
               }}
             </p>
+            <p v-if="!form.passkey_configured" class="mt-2">
+              {{ t("admin.settings.security.passkeyDeploymentHint") }}
+            </p>
           </div>
         </div>
       </div>

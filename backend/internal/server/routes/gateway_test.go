@@ -450,3 +450,65 @@ func TestGatewayRoutesGrokCountTokensPathIsRegistered(t *testing.T) {
 	require.NotEqual(t, http.StatusNotFound, w.Code)
 	require.NotContains(t, w.Body.String(), "Token counting is not supported for this platform")
 }
+
+func TestGatewayRoutesNewAPICountTokensPathIsRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformNewAPI)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+	require.NotEqual(t, http.StatusNotFound, w.Code)
+	require.NotContains(t, w.Body.String(), "Token counting is not supported for this platform")
+}
+
+func TestGatewayRoutesVideoGenerationPathsAreRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformNewAPI)
+
+	for _, path := range []string{
+		"/v1/video/generations",
+		"/v1/videos",
+		"/v1/videos/generations",
+		"/video/generations",
+		"/videos",
+		"/videos/generations",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"doubao-seedance","prompt":"x"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "POST path=%s should be routed for newapi/openai-compatible groups", path)
+	}
+
+	for _, path := range []string{
+		"/v1/video/generations/abc",
+		"/v1/videos/abc",
+		"/video/generations/abc",
+		"/videos/abc",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "GET path=%s should be routed for newapi/openai-compatible groups", path)
+	}
+}
+
+func TestGatewayRoutesVideoGenerationRejectsNonCompatPlatform(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformAnthropic)
+
+	for _, path := range []string{
+		"/v1/video/generations",
+		"/v1/videos",
+		"/v1/videos/generations",
+		"/video/generations",
+		"/videos",
+		"/videos/generations",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"any","prompt":"x"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code, "POST path=%s on anthropic group should 404", path)
+	}
+}

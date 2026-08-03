@@ -15,12 +15,15 @@ assert_line() {
   grep -Fqx "$line" "$file" || fail "$file is missing: $line"
 }
 
-assert_count() {
+assert_goreleaser_docker_extra_file() {
   file=$1
-  line=$2
-  expected=$3
-  actual=$(grep -Fxc "$line" "$file" || true)
-  [ "$actual" -eq "$expected" ] || fail "$file has $actual occurrences of '$line', expected $expected"
+  awk '
+    /^dockers_v2:/ { in_dockers = 1 }
+    in_dockers && /^    extra_files:/ { in_extra_files = 1; next }
+    in_extra_files && $0 == "      - backend/resources" { found = 1 }
+    in_extra_files && !/^      - / { in_extra_files = 0 }
+    END { exit found ? 0 : 1 }
+  ' "$file" || fail "$file dockers_v2.extra_files is missing backend/resources"
 }
 
 test -s backend/resources/model-pricing/model_prices_and_context_window.json || \
@@ -28,7 +31,7 @@ test -s backend/resources/model-pricing/model_prices_and_context_window.json || 
 
 assert_line Dockerfile.goreleaser 'COPY --chown=sub2api:sub2api backend/resources /app/resources'
 assert_line deploy/Dockerfile 'COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources'
-assert_count .goreleaser.yaml '      - backend/resources' 4
-assert_count .goreleaser.simple.yaml '      - backend/resources' 1
+assert_goreleaser_docker_extra_file .goreleaser.yaml
+assert_goreleaser_docker_extra_file .goreleaser.simple.yaml
 
 printf 'docker runtime resources test passed\n'

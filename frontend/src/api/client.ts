@@ -153,15 +153,16 @@ apiClient.interceptors.response.use(
         }))
       }
 
-      // 401: Try to refresh the token if we have a refresh token
+      // 401: Try to refresh the token for protected endpoints. The refresh token may live only
+      // in the HttpOnly cookie, so localStorage is not a prerequisite.
       // This handles TOKEN_EXPIRED, INVALID_TOKEN, TOKEN_REVOKED, etc.
       if (status === 401 && !originalRequest._retry) {
         const refreshToken = localStorage.getItem('refresh_token')
         const isAuthEndpoint =
           url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh')
 
-        // If we have a refresh token and this is not an auth endpoint, try to refresh
-        if (refreshToken && !isAuthEndpoint) {
+        if (!isAuthEndpoint) {
+          const refreshSessionAccessToken = localStorage.getItem('auth_token')
           const refreshSessionUser = localStorage.getItem('auth_user')
           originalRequest._retry = true
 
@@ -184,8 +185,9 @@ apiClient.interceptors.response.use(
             // A stale request must never destroy a session that was logged out or replaced while
             // its refresh was in flight (for example, when another tab signs in as another user).
             const sessionChanged =
-              localStorage.getItem('refresh_token') !== refreshToken ||
-              localStorage.getItem('auth_user') !== refreshSessionUser
+              localStorage.getItem('auth_user') !== refreshSessionUser ||
+              localStorage.getItem('auth_token') !== refreshSessionAccessToken ||
+              (refreshToken !== null && localStorage.getItem('refresh_token') !== refreshToken)
             if (sessionChanged) {
               return Promise.reject(createApiError({
                 status: 401,
@@ -221,7 +223,7 @@ apiClient.interceptors.response.use(
           }
         }
 
-        // No refresh token or is auth endpoint - clear auth and redirect
+        // Auth endpoints must not recursively refresh themselves.
         const hasToken = !!localStorage.getItem('auth_token')
         const headers = error.config?.headers as Record<string, unknown> | undefined
         const authHeader = headers?.Authorization ?? headers?.authorization

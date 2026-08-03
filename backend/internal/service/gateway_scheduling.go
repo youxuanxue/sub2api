@@ -2020,12 +2020,12 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 }
 
 type selectionFailureStats struct {
-	Total              int
-	Eligible           int
-	Excluded           int
-	Unschedulable      int
-	PlatformFiltered   int
-	ModelUnsupported   int
+	Total                   int
+	Eligible                int
+	Excluded                int
+	Unschedulable           int
+	PlatformFiltered        int
+	ModelUnsupported        int
 	ModelRateLimited        int
 	RuntimeBlocked          int
 	ProfitThreshold         int
@@ -2193,7 +2193,7 @@ func appendSelectionFailureRateSample(samples []string, accountID int64, remaini
 
 func summarizeSelectionFailureStats(stats selectionFailureStats) string {
 	return fmt.Sprintf(
-		"total=%d eligible=%d excluded=%d unschedulable=%d platform_filtered=%d model_unsupported=%d model_rate_limited=%d profit_threshold=%d profit_invalid_account_rate=%d",
+		"total=%d eligible=%d excluded=%d unschedulable=%d platform_filtered=%d model_unsupported=%d model_rate_limited=%d runtime_blocked=%d profit_threshold=%d profit_invalid_account_rate=%d",
 		stats.Total,
 		stats.Eligible,
 		stats.Excluded,
@@ -2201,6 +2201,7 @@ func summarizeSelectionFailureStats(stats selectionFailureStats) string {
 		stats.PlatformFiltered,
 		stats.ModelUnsupported,
 		stats.ModelRateLimited,
+		stats.RuntimeBlocked,
 		stats.ProfitThreshold,
 		stats.ProfitInvalidRate,
 	)

@@ -223,66 +223,6 @@ func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body
 	return nil
 }
 
-// sendMailTLS 使用TLS发送邮件
-func (s *EmailService) sendMailTLS(addr string, auth smtp.Auth, from, to string, msg []byte, host, ehloHost string) error {
-	tlsConfig := &tls.Config{
-		ServerName: host,
-		// 强制 TLS 1.2+，避免协议降级导致的弱加密风险。
-		MinVersion: tls.VersionTLS12,
-	}
-
-	dialer := &net.Dialer{Timeout: smtpDialTimeout}
-	conn, err := tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
-	if err != nil {
-		return fmt.Errorf("tls dial: %w", err)
-	}
-	_ = conn.SetDeadline(time.Now().Add(smtpIOTimeout))
-	defer func() { _ = conn.Close() }()
-
-	client, err := smtp.NewClient(conn, host)
-	if err != nil {
-		return fmt.Errorf("new smtp client: %w", err)
-	}
-	defer func() { _ = client.Close() }()
-
-	// EHLO with our real domain BEFORE Auth — see ehloHostFromConfig docstring.
-	if err = client.Hello(ehloHost); err != nil {
-		return fmt.Errorf("smtp hello: %w", err)
-	}
-
-	if err = client.Auth(auth); err != nil {
-		return fmt.Errorf("smtp auth: %w", err)
-	}
-
-	if err = client.Mail(from); err != nil {
-		return fmt.Errorf("smtp mail: %w", err)
-	}
-
-	if err = client.Rcpt(to); err != nil {
-		return fmt.Errorf("smtp rcpt: %w", err)
-	}
-
-	w, err := client.Data()
-	if err != nil {
-		return fmt.Errorf("smtp data: %w", err)
-	}
-
-	_, err = w.Write(msg)
-	if err != nil {
-		return fmt.Errorf("write msg: %w", err)
-	}
-
-	err = w.Close()
-	if err != nil {
-		return fmt.Errorf("close writer: %w", err)
-	}
-
-	// Email is sent successfully after w.Close(), ignore Quit errors
-	// Some SMTP servers return non-standard responses on QUIT
-	_ = client.Quit()
-	return nil
-}
-
 // smtpTestRootCAs 仅供单元测试注入自签 CA，生产环境始终为 nil（走系统信任链）。
 var smtpTestRootCAs *x509.CertPool
 

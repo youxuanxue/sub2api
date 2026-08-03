@@ -5503,6 +5503,49 @@
       "rationale": "PR #1461: semantic HTTP status/type mapping for response.failed on compat paths when no admin passthrough rule matches. Caller-fault rejections (context window, invalid_request, auth, rate limit) must not surface as 502 upstream_error — Claude Code and Codex CLI treat 502 as transient and retry unrecoverable prompt-size failures into a storm."
     },
     {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "logOpenAIStreamFailedEvent(\n\t\tlogCtx, c, account, upstreamRequestID, payload, message, false, passthrough,"
+      ],
+      "rationale": "newOpenAIStreamFailoverError must emit the structured response.failed diagnostic before recording the generic upstream error. Keeping only the helper definition compiles but drops error_code, request model, output-started state, and failover eligibility from production evidence."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling.go",
+      "must_contain": [
+        "model_rate_limited=%d runtime_blocked=%d profit_threshold=%d profit_invalid_account_rate=%d"
+      ],
+      "rationale": "The shared selection failure summary must retain runtime-blocked diagnostics while adding both profit-control rejection counts. Replacing one dimension with another makes empty-pool incidents impossible to attribute even though scheduling behavior still compiles."
+    },
+    {
+      "path": "backend/internal/repository/api_key_repo.go",
+      "must_contain": [
+        "string(g.StickyRoutingMode)",
+        "g.MessagesCompactionEnabled",
+        "g.MessagesCompactionInputTokensThreshold"
+      ],
+      "rationale": "GetByKeyForAuth hydrates the service Group from the Ent projection. Sticky routing and messages compaction fields are selected by SQL but are silently lost unless groupEntityToService maps them, causing cached gateway requests to observe zero values."
+    },
+    {
+      "path": "backend/internal/service/api_key_auth_cache_impl.go",
+      "must_contain": [
+        "apiKeyAuthSnapshotVersion = 19",
+        "apiKey.Group.StickyRoutingMode",
+        "apiKey.Group.MessagesCompactionEnabled",
+        "apiKey.Group.MessagesCompactionInputTokensThreshold",
+        "snapshot.Group.StickyRoutingMode",
+        "snapshot.Group.MessagesCompactionEnabled",
+        "snapshot.Group.MessagesCompactionInputTokensThreshold"
+      ],
+      "rationale": "Auth snapshot serialization and hydration must preserve sticky routing plus both messages compaction fields in both directions, and a version bump must invalidate Redis/L1 entries serialized with the broken projection. One-way mapping still silently drops these policies after cache materialization."
+    },
+    {
+      "path": "backend/internal/service/admin_account.go",
+      "must_contain": [
+        "needMixedChannelCheck || needPublicGroupAggregatorCheck || hasLongContextBillingUpdate"
+      ],
+      "rationale": "A group-only bulk edit with SkipMixedChannelCheck still needs hydrated target accounts for the public-group aggregator loop-prevention policy. Without this preload term accountByID stays empty, the policy loop skips every target, and forbidden OpenRouter/Coze/Submodel accounts enter public groups."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
       "must_contain": [
         "openAIStreamFailedClientResponse(payloadBytes, message, \"upstream_error\")"

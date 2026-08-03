@@ -67,6 +67,25 @@ describe('refreshAuthTokens', () => {
     expect(localStorage.getItem('refresh_token')).toBe('new-refresh')
   })
 
+  it('refreshes a cookie-only session with credentials and an empty request body', async () => {
+    localStorage.setItem('auth_token', 'cookie-access')
+    localStorage.setItem('token_expires_at', String(Date.now() - 1))
+    localStorage.setItem('auth_user', JSON.stringify({ id: 7, email: 'admin@example.com' }))
+    mockedPost.mockResolvedValueOnce(refreshedResponse())
+    const { refreshAuthTokens } = await import('@/api/tokenRefresh')
+
+    await expect(
+      refreshAuthTokens({ failedAccessToken: 'cookie-access' })
+    ).resolves.toMatchObject({ access_token: 'new-access' })
+
+    expect(mockedPost).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/refresh'),
+      {},
+      expect.objectContaining({ withCredentials: true })
+    )
+    expect(localStorage.getItem('refresh_token')).toBe('new-refresh')
+  })
+
   it('adopts tokens refreshed by another tab after acquiring the Web Lock', async () => {
     seedSession()
     const request = vi.fn(async (_name: string, callback: () => Promise<unknown>) => {

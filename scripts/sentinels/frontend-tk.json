@@ -391,9 +391,29 @@
       "must_contain": [
         "./client.tk",
         "networkErrorFromAxios(error)",
-        "onTokenRefreshed('', networkError)"
+        "onTokenRefreshed('', networkError)",
+        "if (!isAuthEndpoint) {",
+        "const tokens = await refreshAuthTokens({ failedAccessToken })"
       ],
-      "rationale": "The upstream-shaped Axios client must keep only the TK injection points for network-error normalization and refresh-token network failure propagation. Without these literals, the companion module can remain present while the runtime silently falls back to clearing auth on transient network failures."
+      "rationale": "The upstream-shaped Axios client must keep the TK injection points for network-error normalization, refresh-token network failure propagation, and protected-endpoint refresh without requiring a localStorage refresh token. The latter is required for HttpOnly cookie-only sessions; losing it clears an otherwise renewable session on the first 401."
+    },
+    {
+      "path": "frontend/src/api/tokenRefresh.ts",
+      "must_contain": [
+        "refreshToken: string | null",
+        "const requestBody = snapshot.refreshToken",
+        "withCredentials: true",
+        "const localRefreshTokenChanged = snapshot.refreshToken !== null"
+      ],
+      "rationale": "The shared refresh coordinator must support both rotating localStorage tokens and HttpOnly cookie-only sessions. A nullable snapshot selects an empty JSON body for cookie fallback, withCredentials sends the cookie, and local-token race detection runs only when a local token actually existed."
+    },
+    {
+      "path": "frontend/src/api/__tests__/client.spec.ts",
+      "must_contain": [
+        "无 localStorage refresh_token 时使用 cookie 刷新并重试原请求",
+        "refresh_token 请求遇到网络错误时保留 localStorage"
+      ],
+      "rationale": "Focused interceptor regressions prove cookie-only 401 recovery and preserve auth state on transient refresh network failures. Both regressions are user-visible logout failures that can survive typecheck and build."
     },
     {
       "path": "frontend/src/stores/auth.ts",

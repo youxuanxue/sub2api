@@ -27,7 +27,7 @@ export interface RefreshAuthTokensOptions {
 
 interface AuthSnapshot {
   accessToken: string | null
-  refreshToken: string
+  refreshToken: string | null
   expiresAt: number
   userID: number | null
 }
@@ -49,14 +49,9 @@ function getStoredUserID(): number | null {
 }
 
 function readAuthSnapshot(): AuthSnapshot {
-  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
-  if (!refreshToken) {
-    throw new Error('No refresh token available')
-  }
-
   return {
     accessToken: localStorage.getItem(AUTH_TOKEN_KEY),
-    refreshToken,
+    refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY),
     expiresAt: Number(localStorage.getItem(TOKEN_EXPIRES_AT_KEY)),
     userID: getStoredUserID()
   }
@@ -154,20 +149,28 @@ async function requestTokenPair(
   const peerRefreshDeadline = Date.now() + TOKEN_REFRESH_TIMEOUT_MS + PEER_REFRESH_GRACE_MS
 
   try {
+    const requestBody = snapshot.refreshToken
+      ? { refresh_token: snapshot.refreshToken }
+      : {}
     const response = await axios.post<ApiResponse<RefreshTokenResponse>>(
       `${getAPIBaseURL()}/auth/refresh`,
-      { refresh_token: snapshot.refreshToken },
-      { headers: { 'Content-Type': 'application/json' }, timeout: TOKEN_REFRESH_TIMEOUT_MS }
+      requestBody,
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: TOKEN_REFRESH_TIMEOUT_MS,
+        withCredentials: true
+      }
     )
     const payload = response.data
     if (payload.code !== 0 || !payload.data) {
       throw new Error(payload.message || 'Token refresh failed')
     }
 
-    if (
-      localStorage.getItem(REFRESH_TOKEN_KEY) !== snapshot.refreshToken ||
-      getStoredUserID() !== snapshot.userID
-    ) {
+    const localRefreshTokenChanged = snapshot.refreshToken !== null &&
+      localStorage.getItem(REFRESH_TOKEN_KEY) !== snapshot.refreshToken
+    const cookieSessionChanged = snapshot.refreshToken === null &&
+      localStorage.getItem(AUTH_TOKEN_KEY) !== snapshot.accessToken
+    if (localRefreshTokenChanged || cookieSessionChanged || getStoredUserID() !== snapshot.userID) {
       const peerResult = readPeerRefreshResult(snapshot, failedAccessToken)
       if (peerResult) {
         return peerResult

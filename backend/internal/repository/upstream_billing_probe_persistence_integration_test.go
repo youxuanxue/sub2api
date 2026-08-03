@@ -49,7 +49,7 @@ func TestAccountUpdatePreservesConcurrentProbeSnapshot(t *testing.T) {
 func TestAdminAccountEditPreservesRateSynchronizedAfterLoad(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil, nil)
 	initialRate := 0.1
 	account := mustCreateAccount(t, tx.Client(), &service.Account{
 		Name:           "probe-rate-concurrent-edit",
@@ -87,7 +87,7 @@ func TestAdminAccountEditPreservesRateSynchronizedAfterLoad(t *testing.T) {
 func TestProbeSnapshotSyncsRateOnlyForSuccessfulEnabledAccount(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil, nil)
 	initialRate := 0.25
 	account := mustCreateAccount(t, tx.Client(), &service.Account{
 		Name:           "probe-rate-sync",
@@ -295,7 +295,7 @@ func TestProbeSnapshotCASIncludesLoadedEnabledState(t *testing.T) {
 func TestProbeSnapshotCASProtectsManualRateAfterSyncDisabled(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil, nil)
 	initialRate := 0.25
 	account := mustCreateAccount(t, tx.Client(), &service.Account{
 		Name:           "probe-sync-cas",

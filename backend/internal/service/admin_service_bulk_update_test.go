@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"testing"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
@@ -231,6 +232,38 @@ func TestAdminService_BulkUpdateAccounts_NilGroupRepoReturnsError(t *testing.T) 
 	require.Nil(t, result)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "group repository not configured")
+}
+
+func TestAdminService_BulkUpdateAccounts_GroupOnlyRejectsPublicAggregator(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{{
+			ID:          1,
+			Name:        "openrouter-upstream",
+			Platform:    PlatformNewAPI,
+			ChannelType: newapiconstant.ChannelTypeOpenRouter,
+		}},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo: &groupRepoStubForAdmin{getByID: &Group{
+			ID:          10,
+			Name:        "public-newapi",
+			IsExclusive: false,
+		}},
+	}
+	groupIDs := []int64{10}
+
+	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs:            []int64{1},
+		GroupIDs:              &groupIDs,
+		SkipMixedChannelCheck: true,
+	})
+
+	require.Nil(t, result)
+	var policyErr *PublicGroupAggregatorChannelError
+	require.ErrorAs(t, err, &policyErr)
+	require.True(t, repo.getByIDsCalled, "group-only policy checks require hydrated target accounts")
+	require.Empty(t, repo.bindGroupsCalls, "policy violation must be rejected before binding")
 }
 
 // TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckBlocksOnExistingConflict verifies

@@ -159,7 +159,7 @@ func TestListDueUpstreamBillingProbeAccountsSelectsEarliestDueAcrossIDs(t *testi
 func TestListDueUpstreamBillingProbeAccountsIncludesAllAPIKeyPlatforms(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil, nil)
 	now := time.Date(2026, time.July, 26, 3, 0, 0, 0, time.UTC)
 	_, err := tx.ExecContext(ctx, `
 		UPDATE accounts
