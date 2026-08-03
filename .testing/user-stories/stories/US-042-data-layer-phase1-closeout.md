@@ -41,6 +41,7 @@
 - `ops/archive/test_data_layer_archive_closeout.py`::`ArchiveCloseoutTest.test_receipt_rejects_unbound_restore_and_invalid_evidence`
 - `backend/internal/repository/telemetry_archive_hooks_test.go`::`TestUS042UsageBestEffortLateCompletionStillEnqueuesTelemetry`
 - `backend/internal/repository/telemetry_archive_hooks_test.go`::`TestUS042UsageBatchLateCompletionEnqueuesImmutableTelemetryOnce`
+- `backend/internal/repository/telemetry_archive_hooks_test.go`::`TestUS042OpsErrorTelemetryExcludesNonPersistedDiagnostics`
 - `backend/internal/telemetryarchive/shadow_test.go`::`TestShadowQueueFullDropsOnlyShadowCopy`
 - `backend/internal/telemetryarchive/shadow_test.go`::`TestShadowQueueBytesAndEventSizeAreBounded`
 - `backend/internal/service/telemetry_archive_health_test.go`::`TestTelemetryArchiveHealthPublishesCleanAndFailedStats`

@@ -104,9 +104,7 @@ func (r *opsRepository) InsertErrorLog(ctx context.Context, input *service.OpsIn
 	if err != nil {
 		return 0, err
 	}
-	if r.telemetry != nil {
-		r.telemetry.Enqueue(telemetryarchive.DatasetOpsError, input)
-	}
+	r.enqueueOpsError(input)
 	return id, nil
 }
 
@@ -150,14 +148,25 @@ func (r *opsRepository) BatchInsertErrorLogs(ctx context.Context, inputs []*serv
 	if err = tx.Commit(); err != nil {
 		return inserted, err
 	}
-	if r.telemetry != nil {
-		for _, input := range inputs {
-			if input != nil {
-				r.telemetry.Enqueue(telemetryarchive.DatasetOpsError, input)
-			}
-		}
+	for _, input := range inputs {
+		r.enqueueOpsError(input)
 	}
 	return inserted, nil
+}
+
+func (r *opsRepository) enqueueOpsError(input *service.OpsInsertErrorLogInput) {
+	if r == nil || r.telemetry == nil || input == nil {
+		return
+	}
+	snapshot := *input
+	// Only the sanitized JSON is persisted. Keep raw/non-column diagnostic
+	// fields out of the long-lived S3 replay payload.
+	snapshot.UpstreamErrors = nil
+	snapshot.IsBusinessLimited = false
+	snapshot.AttemptedKeyPrefix = ""
+	snapshot.DeletedKeyOwnerUserID = nil
+	snapshot.DeletedKeyName = ""
+	r.telemetry.Enqueue(telemetryarchive.DatasetOpsError, &snapshot)
 }
 
 func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {

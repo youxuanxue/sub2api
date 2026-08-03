@@ -50,16 +50,19 @@
     {
       "path": "backend/internal/repository/ops_repo.go",
       "must_contain": [
-        "r.telemetry.Enqueue(telemetryarchive.DatasetOpsError, input)",
+        "r.enqueueOpsError(input)",
+        "snapshot.UpstreamErrors = nil",
+        "r.telemetry.Enqueue(telemetryarchive.DatasetOpsError, &snapshot)",
         "r.telemetry.Enqueue(telemetryarchive.DatasetOpsSystem, input)"
       ],
-      "rationale": "Ops error and system writes are the other two raw telemetry producers. Provider wiring can remain compile-clean while an upstream merge drops these post-commit enqueue call sites, silently making the archive incomplete."
+      "rationale": "Ops error and system writes are the other two raw telemetry producers. Provider wiring can remain compile-clean while an upstream merge drops these post-commit enqueue call sites, silently making the archive incomplete. The ops-error snapshot must also discard the non-persisted raw upstream graph before the long-lived S3 write, retaining only the sanitized JSON stored in PostgreSQL."
     },
     {
       "path": "backend/internal/repository/telemetry_archive_hooks_test.go",
       "must_contain": [
         "TestUS042UsageBestEffortLateCompletionStillEnqueuesTelemetry",
         "TestUS042UsageBatchLateCompletionEnqueuesImmutableTelemetryOnce",
+        "TestUS042OpsErrorTelemetryExcludesNonPersistedDiagnostics",
         "TestOpsBatchTelemetryWaitsForCommit",
         "TestOpsSystemTelemetryMatchesPersistedNormalization"
       ],
