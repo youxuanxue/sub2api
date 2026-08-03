@@ -97,10 +97,11 @@ const (
 )
 
 type usageLogCreateRequest struct {
-	log      *service.UsageLog
-	prepared usageLogInsertPrepared
-	shared   *usageLogCreateShared
-	resultCh chan usageLogCreateResult
+	log            *service.UsageLog
+	prepared       usageLogInsertPrepared
+	telemetryValue any
+	shared         *usageLogCreateShared
+	resultCh       chan usageLogCreateResult
 }
 
 type usageLogCreateResult struct {
@@ -113,15 +114,6 @@ type usageLogBestEffortRequest struct {
 	apiKeyID       int64
 	telemetryValue any
 	resultCh       chan usageLogCreateResult
-}
-
-type usageLogTelemetrySnapshot struct {
-	payload json.RawMessage
-	err     error
-}
-
-func (s usageLogTelemetrySnapshot) MarshalJSON() ([]byte, error) {
-	return s.payload, s.err
 }
 
 type usageLogInsertPrepared struct {
@@ -175,7 +167,7 @@ func (r *usageLogRepository) Create(ctx context.Context, log *service.UsageLog) 
 		inserted, err = r.createSingle(ctx, r.sql, log)
 	} else {
 		log.RequestID = requestID
-		inserted, err = r.createBatched(ctx, log)
+		return r.createBatched(ctx, log)
 	}
 	if err == nil && inserted {
 		r.enqueueUsage(log)
@@ -249,13 +241,52 @@ func (r *usageLogRepository) snapshotUsageTelemetry(
 	if r == nil || r.telemetry == nil || log == nil {
 		return nil
 	}
-	snapshot := *log
+	snapshot := cloneUsageLog(log)
 	snapshot.CreatedAt = prepared.createdAt
 	snapshot.RequestID = prepared.requestID
 	snapshot.RateMultiplier = prepared.rateMultiplier
 	snapshot.RequestType = service.RequestType(prepared.requestType)
 	if strings.TrimSpace(snapshot.RequestedModel) == "" {
 		snapshot.RequestedModel = strings.TrimSpace(snapshot.Model)
+	}
+	return snapshot
+}
+
+func cloneUsageLog(log *service.UsageLog) *service.UsageLog {
+	if log == nil {
+		return nil
+	}
+	snapshot := *log
+	snapshot.UpstreamModel = cloneUsageLogValue(log.UpstreamModel)
+	snapshot.ChannelID = cloneUsageLogValue(log.ChannelID)
+	snapshot.ModelMappingChain = cloneUsageLogValue(log.ModelMappingChain)
+	snapshot.BillingTier = cloneUsageLogValue(log.BillingTier)
+	snapshot.BillingMode = cloneUsageLogValue(log.BillingMode)
+	snapshot.ServiceTier = cloneUsageLogValue(log.ServiceTier)
+	snapshot.ReasoningEffort = cloneUsageLogValue(log.ReasoningEffort)
+	snapshot.InboundEndpoint = cloneUsageLogValue(log.InboundEndpoint)
+	snapshot.UpstreamEndpoint = cloneUsageLogValue(log.UpstreamEndpoint)
+	snapshot.GroupID = cloneUsageLogValue(log.GroupID)
+	snapshot.SubscriptionID = cloneUsageLogValue(log.SubscriptionID)
+	snapshot.AccountRateMultiplier = cloneUsageLogValue(log.AccountRateMultiplier)
+	snapshot.AccountStatsCost = cloneUsageLogValue(log.AccountStatsCost)
+	snapshot.DurationMs = cloneUsageLogValue(log.DurationMs)
+	snapshot.FirstTokenMs = cloneUsageLogValue(log.FirstTokenMs)
+	snapshot.UserAgent = cloneUsageLogValue(log.UserAgent)
+	snapshot.IPAddress = cloneUsageLogValue(log.IPAddress)
+	snapshot.SessionID = cloneUsageLogValue(log.SessionID)
+	snapshot.ImageSize = cloneUsageLogValue(log.ImageSize)
+	snapshot.ImageInputSize = cloneUsageLogValue(log.ImageInputSize)
+	snapshot.ImageOutputSize = cloneUsageLogValue(log.ImageOutputSize)
+	snapshot.ImageSizeSource = cloneUsageLogValue(log.ImageSizeSource)
+	snapshot.MediaType = cloneUsageLogValue(log.MediaType)
+	snapshot.VideoResolution = cloneUsageLogValue(log.VideoResolution)
+	snapshot.VideoDurationSeconds = cloneUsageLogValue(log.VideoDurationSeconds)
+	if log.ImageSizeBreakdown != nil {
+		snapshot.ImageSizeBreakdown = make(map[string]int, len(log.ImageSizeBreakdown))
+		for size, count := range log.ImageSizeBreakdown {
+			snapshot.ImageSizeBreakdown[size] = count
+		}
 	}
 
 	// Relations are not usage_logs columns and can retain large or sensitive graphs.
@@ -264,8 +295,22 @@ func (r *usageLogRepository) snapshotUsageTelemetry(
 	snapshot.Account = nil
 	snapshot.Group = nil
 	snapshot.Subscription = nil
-	payload, err := json.Marshal(&snapshot)
-	return usageLogTelemetrySnapshot{payload: payload, err: err}
+	return &snapshot
+}
+
+func cloneUsageLogValue[T any](value *T) *T {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func freezeUsageLogFloat64(value *float64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 func (r *usageLogRepository) enqueueUsage(log *service.UsageLog) {
@@ -282,12 +327,13 @@ func (r *usageLogRepository) enqueueUsageAfterCommit(tx *dbent.Tx, log *service.
 	if r == nil || r.telemetry == nil || tx == nil || log == nil {
 		return
 	}
+	value := r.snapshotUsageTelemetry(log, prepareUsageLogInsert(log))
 	tx.OnCommit(func(next dbent.Committer) dbent.Committer {
 		return dbent.CommitFunc(func(ctx context.Context, committedTx *dbent.Tx) error {
 			if err := next.Commit(ctx, committedTx); err != nil {
 				return err
 			}
-			r.enqueueUsage(log)
+			r.enqueueUsageValue(value)
 			return nil
 		})
 	})
@@ -295,6 +341,15 @@ func (r *usageLogRepository) enqueueUsageAfterCommit(tx *dbent.Tx, log *service.
 
 func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor, log *service.UsageLog) (bool, error) {
 	prepared := prepareUsageLogInsert(log)
+	return r.createSinglePrepared(ctx, sqlq, log, prepared)
+}
+
+func (r *usageLogRepository) createSinglePrepared(
+	ctx context.Context,
+	sqlq sqlExecutor,
+	log *service.UsageLog,
+	prepared usageLogInsertPrepared,
+) (bool, error) {
 	if sqlq == nil {
 		sqlq = r.sql
 	}
@@ -390,19 +445,31 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 }
 
 func (r *usageLogRepository) createBatched(ctx context.Context, log *service.UsageLog) (bool, error) {
+	prepared := prepareUsageLogInsert(log)
+	telemetryValue := r.snapshotUsageTelemetry(log, prepared)
 	if r.db == nil {
-		return r.createSingle(ctx, r.sql, log)
+		inserted, err := r.createSingle(ctx, r.sql, log)
+		if err == nil && inserted {
+			r.enqueueUsageValue(telemetryValue)
+		}
+		return inserted, err
 	}
 	r.ensureCreateBatcher()
 	if r.createBatchCh == nil {
-		return r.createSingle(ctx, r.sql, log)
+		inserted, err := r.createSingle(ctx, r.sql, log)
+		if err == nil && inserted {
+			r.enqueueUsageValue(telemetryValue)
+		}
+		return inserted, err
 	}
+	ownedLog := *log
 
 	req := usageLogCreateRequest{
-		log:      log,
-		prepared: prepareUsageLogInsert(log),
-		shared:   &usageLogCreateShared{},
-		resultCh: make(chan usageLogCreateResult, 1),
+		log:            &ownedLog,
+		prepared:       prepared,
+		telemetryValue: telemetryValue,
+		shared:         &usageLogCreateShared{},
+		resultCh:       make(chan usageLogCreateResult, 1),
 	}
 
 	// 队列满时阻塞等待而非立即报错：本路径是 best-effort 丢弃后的最后兜底，
@@ -415,6 +482,7 @@ func (r *usageLogRepository) createBatched(ctx context.Context, log *service.Usa
 
 	select {
 	case res := <-req.resultCh:
+		copyUsageLogCreateResult(log, &ownedLog)
 		return res.inserted, res.err
 	case <-ctx.Done():
 		if req.shared != nil && req.shared.state.CompareAndSwap(usageLogCreateStateQueued, usageLogCreateStateCanceled) {
@@ -424,11 +492,21 @@ func (r *usageLogRepository) createBatched(ctx context.Context, log *service.Usa
 		defer timer.Stop()
 		select {
 		case res := <-req.resultCh:
+			copyUsageLogCreateResult(log, &ownedLog)
 			return res.inserted, res.err
 		case <-timer.C:
 			return false, ctx.Err()
 		}
 	}
+}
+
+func copyUsageLogCreateResult(dst, src *service.UsageLog) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.ID = src.ID
+	dst.CreatedAt = src.CreatedAt
+	dst.RateMultiplier = src.RateMultiplier
 }
 
 func (r *usageLogRepository) ensureCreateBatcher() {
@@ -537,12 +615,12 @@ func (r *usageLogRepository) flushCreateBatch(db *sql.DB, batch []usageLogCreate
 
 	for _, req := range batch {
 		if req.log == nil {
-			completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
+			r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
 			continue
 		}
 		if req.shared != nil && !req.shared.state.CompareAndSwap(usageLogCreateStateQueued, usageLogCreateStateProcessing) {
 			if req.shared.state.Load() == usageLogCreateStateCanceled {
-				completeUsageLogCreateRequest(req, usageLogCreateResult{
+				r.completeUsageLogCreateRequest(req, usageLogCreateResult{
 					inserted: false,
 					err:      service.MarkUsageLogCreateNotPersisted(context.Canceled),
 				})
@@ -582,15 +660,15 @@ func (r *usageLogRepository) flushCreateBatch(db *sql.DB, batch []usageLogCreate
 						}
 						switch {
 						case inserted && idx == 0:
-							completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: true, err: nil})
+							r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: true, err: nil})
 						case inserted:
-							completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
+							r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
 						case hasState:
-							completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
+							r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
 						case idx == 0:
-							completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: err})
+							r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: err})
 						default:
-							completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
+							r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
 						}
 					}
 				}
@@ -601,7 +679,7 @@ func (r *usageLogRepository) flushCreateBatch(db *sql.DB, batch []usageLogCreate
 				state, ok := stateMap[key]
 				if !ok {
 					for _, req := range reqs {
-						completeUsageLogCreateRequest(req, usageLogCreateResult{
+						r.completeUsageLogCreateRequest(req, usageLogCreateResult{
 							inserted: false,
 							err:      fmt.Errorf("usage log batch state missing for key=%s", key),
 						})
@@ -612,7 +690,7 @@ func (r *usageLogRepository) flushCreateBatch(db *sql.DB, batch []usageLogCreate
 					req.log.ID = state.ID
 					req.log.CreatedAt = state.CreatedAt
 					req.log.RateMultiplier = preparedByKey[key].rateMultiplier
-					completeUsageLogCreateRequest(req, usageLogCreateResult{
+					r.completeUsageLogCreateRequest(req, usageLogCreateResult{
 						inserted: idx == 0 && insertedMap[key],
 						err:      nil,
 					})
@@ -627,9 +705,9 @@ func (r *usageLogRepository) flushCreateBatch(db *sql.DB, batch []usageLogCreate
 
 	for _, req := range fallback {
 		fallbackCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		inserted, err := r.createSingle(fallbackCtx, db, req.log)
+		inserted, err := r.createSinglePrepared(fallbackCtx, db, req.log, req.prepared)
 		cancel()
-		completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: inserted, err: err})
+		r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: inserted, err: err})
 	}
 }
 
@@ -801,7 +879,10 @@ func sendUsageLogBestEffortResult(ch chan usageLogCreateResult, result usageLogC
 	}
 }
 
-func completeUsageLogCreateRequest(req usageLogCreateRequest, res usageLogCreateResult) {
+func (r *usageLogRepository) completeUsageLogCreateRequest(req usageLogCreateRequest, res usageLogCreateResult) {
+	if res.err == nil && res.inserted {
+		r.enqueueUsageValue(req.telemetryValue)
+	}
 	if req.shared != nil {
 		req.shared.state.Store(usageLogCreateStateCompleted)
 	}
@@ -1459,7 +1540,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			log.TotalCost,
 			log.ActualCost,
 			rateMultiplier,
-			log.AccountRateMultiplier,
+			freezeUsageLogFloat64(log.AccountRateMultiplier),
 			log.BillingType,
 			requestType,
 			log.Stream,
@@ -1487,8 +1568,8 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			modelMappingChain,
 			billingTier,
 			billingMode,
-			log.AccountStatsCost, // account_stats_cost
-			sessionID,            // session_id
+			freezeUsageLogFloat64(log.AccountStatsCost), // account_stats_cost
+			sessionID, // session_id
 			createdAt,
 		},
 	}

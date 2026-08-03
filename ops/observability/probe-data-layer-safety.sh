@@ -4,6 +4,24 @@ set -u
 
 PSQL=(docker exec -e 'PGOPTIONS=-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=2s' tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 
+if app_env="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' tokenkey 2>/dev/null)"; then
+  telemetry_setting="$(printf '%s\n' "$app_env" | awk -F= '$1 == "TELEMETRY_ARCHIVE_ENABLED" {print substr($0, index($0, "=") + 1); exit}')"
+  telemetry_setting="$(printf '%s' "$telemetry_setting" | tr '[:upper:]' '[:lower:]')"
+  case "$telemetry_setting" in
+    ""|false|0|no|off)
+      telemetry_enabled=false
+      ;;
+    true|1|yes|on)
+      telemetry_enabled=true
+      ;;
+    *)
+      telemetry_enabled=invalid
+      ;;
+  esac
+else
+  telemetry_enabled=unknown
+fi
+
 "${PSQL[@]}" -c "
 WITH names AS (
   SELECT
@@ -119,6 +137,35 @@ FROM (
   FROM names
 ) v;
 " 2>/dev/null || printf '%s\n' 'PARTITIONSTATS {"probe_ok":false}'
+
+case "$telemetry_enabled" in
+  false)
+    printf '%s\n' 'TELEMETRYSTATS {"probe_ok":true,"enabled":false}'
+    ;;
+  true)
+    "${PSQL[@]}" -c "
+WITH heartbeat AS (
+  SELECT last_success_at, last_error_at, last_error, last_result
+  FROM ops_job_heartbeats
+  WHERE job_name = 'telemetry_archive_shadow'
+)
+SELECT 'TELEMETRYSTATS ' || json_build_object(
+  'probe_ok', true,
+  'enabled', true,
+  'last_success_at', (SELECT last_success_at FROM heartbeat),
+  'last_error_at', (SELECT last_error_at FROM heartbeat),
+  'last_error', (SELECT last_error FROM heartbeat),
+  'last_result', (
+    SELECT CASE WHEN last_result IS NULL THEN NULL ELSE last_result::jsonb END
+    FROM heartbeat
+  )
+)::text;
+" 2>/dev/null || printf '%s\n' 'TELEMETRYSTATS {"probe_ok":false,"enabled":true}'
+    ;;
+  *)
+    printf '%s\n' 'TELEMETRYSTATS {"probe_ok":false,"enabled":null}'
+    ;;
+esac
 
 latest_dump="$(find /var/lib/tokenkey/pgdump -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -printf '%T@\n' 2>/dev/null | sort -nr | head -1)"
 if [[ "$latest_dump" =~ ^[0-9]+([.][0-9]+)?$ ]]; then

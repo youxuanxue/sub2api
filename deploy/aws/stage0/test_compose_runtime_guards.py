@@ -6,6 +6,21 @@ import re
 import unittest
 
 COMPOSE = pathlib.Path(__file__).with_name("docker-compose.yml")
+ENV_EXAMPLE = pathlib.Path(__file__).with_name(".env.example")
+
+TELEMETRY_DEFAULTS = {
+    "ENABLED": "false",
+    "REGION": "",
+    "BUCKET": "",
+    "PREFIX": "prod/raw-telemetry",
+    "QUEUE_SIZE": "8192",
+    "QUEUE_MAX_BYTES": "33554432",
+    "MAX_EVENT_BYTES": "1048576",
+    "BATCH_SIZE": "256",
+    "WORKER_COUNT": "4",
+    "FLUSH_INTERVAL_SECONDS": "5",
+    "PUT_TIMEOUT_SECONDS": "10",
+}
 
 
 def logging_violations(text: str) -> list[str]:
@@ -30,8 +45,17 @@ def logging_violations(text: str) -> list[str]:
 class ComposeRuntimeGuardsTest(unittest.TestCase):
     def test_raw_telemetry_shadow_is_explicitly_default_off(self) -> None:
         text = COMPOSE.read_text(encoding="utf-8")
-        self.assertIn("TELEMETRY_ARCHIVE_ENABLED=${TELEMETRY_ARCHIVE_ENABLED:-false}", text)
-        self.assertIn("TELEMETRY_ARCHIVE_BUCKET=${TELEMETRY_ARCHIVE_BUCKET:-}", text)
+        env_values = {}
+        for line in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines():
+            if line.startswith("TELEMETRY_ARCHIVE_"):
+                key, value = line.split("=", 1)
+                env_values[key.removeprefix("TELEMETRY_ARCHIVE_")] = value
+        self.assertEqual(env_values, TELEMETRY_DEFAULTS)
+        for name, value in TELEMETRY_DEFAULTS.items():
+            self.assertIn(
+                f"TELEMETRY_ARCHIVE_{name}=${{TELEMETRY_ARCHIVE_{name}:-{value}}}",
+                text,
+            )
         self.assertNotIn("TELEMETRY_ARCHIVE_ACCESS_KEY", text)
 
     def test_all_stage0_services_use_bounded_json_logging(self) -> None:

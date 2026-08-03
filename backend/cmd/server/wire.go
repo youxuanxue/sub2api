@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"sync"
@@ -182,6 +183,7 @@ func provideCleanup(
 	auditLog *service.AuditLogService,
 	promptAudit *securityaudit.PromptService,
 	telemetryArchive *telemetryarchive.Shadow,
+	telemetryArchiveHealth *service.TelemetryArchiveHealth,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -195,10 +197,15 @@ func provideCleanup(
 		// 应用层清理步骤可并行执行，基础设施资源（Redis/Ent）最后按顺序关闭。
 		parallelSteps := []cleanupStep{
 			{"TelemetryArchive", func() error {
-				if telemetryArchive != nil {
-					return telemetryArchive.Stop(ctx)
+				var healthErr error
+				if telemetryArchiveHealth != nil {
+					healthErr = telemetryArchiveHealth.Stop(ctx)
 				}
-				return nil
+				var archiveErr error
+				if telemetryArchive != nil {
+					archiveErr = telemetryArchive.Stop(ctx)
+				}
+				return errors.Join(healthErr, archiveErr)
 			}},
 			{"OpsIngressRejectAggregator", func() error {
 				if opsIngressReject != nil {

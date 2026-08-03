@@ -503,7 +503,7 @@ func TestUsageLogRepositoryCreate_BatchPathCanceledAfterQueueMarksNotPersisted(t
 	err := <-errCh
 	require.Error(t, err)
 	require.True(t, service.IsUsageLogCreateNotPersisted(err))
-	completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: service.MarkUsageLogCreateNotPersisted(context.Canceled)})
+	repo.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: service.MarkUsageLogCreateNotPersisted(context.Canceled)})
 }
 
 func TestUsageLogRepositoryFlushCreateBatch_CanceledRequestReturnsNotPersisted(t *testing.T) {

@@ -14,7 +14,7 @@
   - 逻辑错误：错误分区边界、ledger 水位或 checksum 允许热数据删除。
   - 行为回归：cleanup hold 关闭分区维护，或 PostgreSQL 成功后 telemetry shadow 丢失。
   - 安全问题：错误确认串、未验证 CHECK 或不完整恢复证据仍允许 cutover/release。
-  - 运行时问题：调用方超时、S3 队列/上传失败、维护心跳过期或行数漂移。
+  - 运行时问题：调用方超时、S3 队列/字节上限/上传失败、telemetry 或维护心跳过期、行数漂移。
 
 ## Acceptance Criteria
 
@@ -22,9 +22,10 @@
 2. **AC-002（边界驱动回收）**：Given 分区表，When 计算过期分区，Then 只使用 PostgreSQL 声明的有限上界；未知/default bound 在任何 drop 前 fail closed。
 3. **AC-003（显式 usage cutover）**：Given operator prepare receipt，When abort/cutover，Then 精确确认串、数据库时钟上界、operator-owned CHECK、短锁等待、外键和行数校验全部成立；不复制历史行且不随应用启动执行。
 4. **AC-004（归档后才 release）**：Given export/promote ledgers，When closeout，Then 每个 batch 的 manifest/checksum 精确绑定并随机恢复到独立 PostgreSQL；任一证据不一致时保留 cleanup hold。
-5. **AC-005（提交后 shadow）**：Given usage/ops PostgreSQL 写入，When commit/insert 成功，Then 才尝试非阻塞 telemetry enqueue；调用方在批写处理中超时但后台最终成功时仍由 worker 入队一次，队列或上传失败不改变 OLTP 结果。
-6. **AC-006（保护信号独立）**：Given 任一分区、备份、archive、hold 或恢复证据缺失/过期，When 生成 safety verdict，Then 产生独立 fail-closed finding，容量 green 不得覆盖。
+5. **AC-005（提交后 shadow）**：Given usage/ops PostgreSQL 写入，When commit/insert 成功，Then 才尝试非阻塞 telemetry enqueue；调用方在批写处理中超时但后台最终成功时仍由 worker 入队一次；队列在序列化前预占，并同时限制 queued/in-flight record count、serialized payload bytes 和单事件大小；队列或上传失败不改变 OLTP 结果。
+6. **AC-006（保护信号独立）**：Given 任一分区、备份、archive、hold、恢复或已启用 telemetry 的健康证据缺失/过期，When 生成 safety verdict，Then 产生独立 fail-closed finding；telemetry 还必须具有 3 分钟内的 clean heartbeat 和 dropped=failed=0，容量 green 不得覆盖。
 7. **AC-007（阶段隔离）**：Given 本 Story，When 审查资源和入口，Then RDS 第二阶段保持 hold，且合并本 PR 不执行生产 schema、archive、cleanup release、部署或发布。
+8. **AC-008（单一默认与可重放格式）**：Given telemetry 默认配置，When 对比 Go、Compose、env 示例与设计，Then 均为 disabled、空 region/bucket、`prod/raw-telemetry`、8192 records、32 MiB、1 MiB/event、256/batch、4 workers、5s flush、10s put；对象为 schema v1 envelope + checksum metadata，生命周期默认 8 天转 Glacier、120 天过期，runtime 对 raw prefix 只有写权限。
 
 ## Assertions
 
@@ -39,8 +40,12 @@
 - `ops/migration/test_usage_logs_daily_partition.py`::`UsageLogsDailyPartitionTest.test_cutover_sql_has_short_lock_and_no_data_copy`
 - `ops/archive/test_data_layer_archive_closeout.py`::`ArchiveCloseoutTest.test_receipt_rejects_unbound_restore_and_invalid_evidence`
 - `backend/internal/repository/telemetry_archive_hooks_test.go`::`TestUS042UsageBestEffortLateCompletionStillEnqueuesTelemetry`
+- `backend/internal/repository/telemetry_archive_hooks_test.go`::`TestUS042UsageBatchLateCompletionEnqueuesImmutableTelemetryOnce`
 - `backend/internal/telemetryarchive/shadow_test.go`::`TestShadowQueueFullDropsOnlyShadowCopy`
+- `backend/internal/telemetryarchive/shadow_test.go`::`TestShadowQueueBytesAndEventSizeAreBounded`
+- `backend/internal/service/telemetry_archive_health_test.go`::`TestTelemetryArchiveHealthPublishesCleanAndFailedStats`
 - `ops/observability/test_data_layer_safety_verdict.py`::`DataLayerSafetyVerdictTest.test_capacity_independent_failures_are_separate_findings`
+- `ops/observability/test_data_layer_safety_verdict.py`::`DataLayerSafetyVerdictTest.test_enabled_telemetry_requires_fresh_clean_zero_loss_stats`
 
 运行命令：
 

@@ -139,6 +139,64 @@ func TestUS042UsageBestEffortLateCompletionStillEnqueuesTelemetry(t *testing.T) 
 	require.False(t, shadowed.CreatedAt.IsZero())
 }
 
+func TestUS042UsageBatchLateCompletionEnqueuesImmutableTelemetryOnce(t *testing.T) {
+	db, _ := newSQLMock(t)
+	repo := newUsageLogRepositoryWithSQL(nil, db)
+	sink := &captureTelemetrySink{}
+	repo.telemetry = sink
+	repo.createBatchCh = make(chan usageLogCreateRequest, 1)
+
+	userAgent := "original-agent"
+	log := &service.UsageLog{
+		UserID: 1, APIKeyID: 2, AccountID: 3,
+		RequestID: " late-completion ", Model: "model",
+		UserAgent: &userAgent, ImageSizeBreakdown: map[string]int{"1024x1024": 1},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	type createResult struct {
+		inserted bool
+		err      error
+	}
+	resultCh := make(chan createResult, 1)
+	go func() {
+		inserted, err := repo.Create(ctx, log)
+		resultCh <- createResult{inserted: inserted, err: err}
+	}()
+
+	req := <-repo.createBatchCh
+	require.NotSame(t, log, req.log)
+	require.True(t, req.shared.state.CompareAndSwap(usageLogCreateStateQueued, usageLogCreateStateProcessing))
+	cancel()
+
+	select {
+	case result := <-resultCh:
+		require.False(t, result.inserted)
+		require.ErrorIs(t, result.err, context.Canceled)
+	case <-time.After(usageLogCreateCancelWait + time.Second):
+		t.Fatal("Create did not return after the late-completion wait")
+	}
+	require.Empty(t, sink.values)
+
+	log.RequestID = "caller-reused"
+	*log.UserAgent = "mutated-agent"
+	log.ImageSizeBreakdown["1024x1024"] = 9
+	req.log.ID = 7
+	req.log.CreatedAt = time.Now().UTC()
+	repo.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: true})
+
+	require.Zero(t, log.ID, "late worker completion must not mutate a returned caller value")
+	require.Len(t, sink.values, 1)
+	payload, err := json.Marshal(sink.values[0])
+	require.NoError(t, err)
+	var shadowed service.UsageLog
+	require.NoError(t, json.Unmarshal(payload, &shadowed))
+	require.Equal(t, "late-completion", shadowed.RequestID)
+	require.Equal(t, "model", shadowed.RequestedModel)
+	require.Equal(t, "original-agent", *shadowed.UserAgent)
+	require.Equal(t, map[string]int{"1024x1024": 1}, shadowed.ImageSizeBreakdown)
+	require.False(t, shadowed.CreatedAt.IsZero())
+}
+
 func TestOpsBatchTelemetryWaitsForCommit(t *testing.T) {
 	tests := []struct {
 		name        string

@@ -113,7 +113,10 @@ type TelemetryArchiveConfig struct {
 	Bucket               string `mapstructure:"bucket"`
 	Prefix               string `mapstructure:"prefix"`
 	QueueSize            int    `mapstructure:"queue_size"`
+	QueueMaxBytes        int64  `mapstructure:"queue_max_bytes"`
+	MaxEventBytes        int    `mapstructure:"max_event_bytes"`
 	BatchSize            int    `mapstructure:"batch_size"`
+	WorkerCount          int    `mapstructure:"worker_count"`
 	FlushIntervalSeconds int    `mapstructure:"flush_interval_seconds"`
 	PutTimeoutSeconds    int    `mapstructure:"put_timeout_seconds"`
 }
@@ -2061,7 +2064,10 @@ func setDefaults() {
 	viper.SetDefault("telemetry_archive.bucket", "")
 	viper.SetDefault("telemetry_archive.prefix", "prod/raw-telemetry")
 	viper.SetDefault("telemetry_archive.queue_size", 8192)
+	viper.SetDefault("telemetry_archive.queue_max_bytes", 32*1024*1024)
+	viper.SetDefault("telemetry_archive.max_event_bytes", 1024*1024)
 	viper.SetDefault("telemetry_archive.batch_size", 256)
+	viper.SetDefault("telemetry_archive.worker_count", 4)
 	viper.SetDefault("telemetry_archive.flush_interval_seconds", 5)
 	viper.SetDefault("telemetry_archive.put_timeout_seconds", 10)
 
@@ -3769,6 +3775,39 @@ func (c *Config) Validate() error {
 	}
 	if c.Ops.Cleanup.Enabled && strings.TrimSpace(c.Ops.Cleanup.Schedule) == "" {
 		return fmt.Errorf("ops.cleanup.schedule is required when ops.cleanup.enabled=true")
+	}
+	archive := c.TelemetryArchive
+	if archive.Enabled {
+		if archive.QueueSize <= 0 || archive.QueueSize > 1_000_000 {
+			return fmt.Errorf("telemetry_archive.queue_size must be between 1 and 1000000")
+		}
+		if archive.QueueMaxBytes <= 0 || archive.QueueMaxBytes > 4*1024*1024*1024 {
+			return fmt.Errorf("telemetry_archive.queue_max_bytes must be between 1 and 4294967296")
+		}
+		if archive.MaxEventBytes <= 0 || int64(archive.MaxEventBytes) > archive.QueueMaxBytes {
+			return fmt.Errorf("telemetry_archive.max_event_bytes must be positive and no greater than queue_max_bytes")
+		}
+		if archive.BatchSize <= 0 || archive.BatchSize > archive.QueueSize {
+			return fmt.Errorf("telemetry_archive.batch_size must be positive and no greater than queue_size")
+		}
+		if archive.WorkerCount <= 0 || archive.WorkerCount > 64 {
+			return fmt.Errorf("telemetry_archive.worker_count must be between 1 and 64")
+		}
+		if archive.FlushIntervalSeconds <= 0 || archive.FlushIntervalSeconds > 300 {
+			return fmt.Errorf("telemetry_archive.flush_interval_seconds must be between 1 and 300")
+		}
+		if archive.PutTimeoutSeconds <= 0 || archive.PutTimeoutSeconds > 60 {
+			return fmt.Errorf("telemetry_archive.put_timeout_seconds must be between 1 and 60")
+		}
+		if strings.TrimSpace(archive.Region) == "" {
+			return fmt.Errorf("telemetry_archive.region is required when enabled")
+		}
+		if strings.TrimSpace(archive.Bucket) == "" {
+			return fmt.Errorf("telemetry_archive.bucket is required when enabled")
+		}
+		if strings.Trim(strings.TrimSpace(archive.Prefix), "/") == "" {
+			return fmt.Errorf("telemetry_archive.prefix is required when enabled")
+		}
 	}
 	if c.Concurrency.PingInterval < 5 || c.Concurrency.PingInterval > 30 {
 		return fmt.Errorf("concurrency.ping_interval must be between 5-30 seconds")

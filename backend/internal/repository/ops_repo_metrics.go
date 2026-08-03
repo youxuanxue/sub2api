@@ -320,10 +320,7 @@ ON CONFLICT (job_name) DO UPDATE SET
     ELSE COALESCE(EXCLUDED.last_error, ops_job_heartbeats.last_error)
   END,
   last_duration_ms = COALESCE(EXCLUDED.last_duration_ms, ops_job_heartbeats.last_duration_ms),
-  last_result = CASE
-    WHEN EXCLUDED.last_success_at IS NOT NULL THEN COALESCE(EXCLUDED.last_result, ops_job_heartbeats.last_result)
-    ELSE ops_job_heartbeats.last_result
-  END,
+  last_result = COALESCE(EXCLUDED.last_result, ops_job_heartbeats.last_result),
   updated_at = NOW()`
 
 	_, err := r.db.ExecContext(

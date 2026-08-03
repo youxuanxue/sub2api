@@ -113,6 +113,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // auditLog
 		nil, // promptAudit
 		nil, // telemetryArchive
+		nil, // telemetryArchiveHealth
 	)
 
 	require.NotPanics(t, func() {

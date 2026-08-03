@@ -244,7 +244,7 @@ func (s *OpsCleanupService) snapshotEffective() config.OpsCleanupConfig {
 	return s.effective
 }
 
-// refreshEffectiveBeforeRun 在 cron 触发时刷新 effective，让 retention 改动当次即生效。
+// refreshEffectiveBeforeRun 在 cron 触发时刷新 effective，让 retention/enabled 改动当次即生效。
 // schedule 改动不影响当次（cron 调度由库管理，需要 Reload 才换 schedule）。
 func (s *OpsCleanupService) refreshEffectiveBeforeRun(ctx context.Context) {
 	s.mu.Lock()

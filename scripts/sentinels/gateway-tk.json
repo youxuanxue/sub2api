@@ -6,12 +6,26 @@
       "path": "backend/internal/telemetryarchive/shadow.go",
       "must_contain": [
         "type Sink interface",
+        "DefaultQueueMaxBytes",
+        "s.slots <- struct{}{}",
+        "s.reserveBytes(maxReservation)",
         "s.recordDrop(\"queue_full\")",
         "context.WithTimeout(context.Background(), s.config.PutTimeout)",
-        "map[string]string{\"sha256\": hex.EncodeToString(digest[:])}",
+        "\"schema-version\":",
+        "\"record-count\":",
         "s.instance"
       ],
-      "rationale": "Single owner for the best-effort raw telemetry shadow. The bounded non-blocking queue, upload timeout, per-object checksum, and per-process key component are the guarantees that keep S3 latency/failure off the PostgreSQL request path and prevent multi-replica object collisions. Dropping any of these can either affect online writes or silently corrupt archive coverage while ordinary repository tests remain green."
+      "rationale": "Single owner for the best-effort raw telemetry shadow. Count is reserved before JSON serialization, queued/in-flight payload bytes have an independent hard bound, uploads have a timeout, and versioned object metadata plus per-process keys make replay deterministic without putting S3 on the PostgreSQL request path. Dropping any of these can affect online writes or silently corrupt archive coverage while ordinary repository tests remain green."
+    },
+    {
+      "path": "backend/internal/service/telemetry_archive_health.go",
+      "must_contain": [
+        "telemetry_archive_shadow",
+        "stats := s.shadow.Stats()",
+        "stats.Dropped > 0 || stats.Failed > 0",
+        "LastResult: &resultText"
+      ],
+      "rationale": "Single runtime-health owner for telemetry activation. It publishes cumulative JSON stats through ops_job_heartbeats and keeps any process-level drop or upload failure unhealthy until restart; without it an enabled but lossy shadow can look green and incorrectly support a later PostgreSQL-retention decision."
     },
     {
       "path": "backend/internal/repository/telemetry_archive_provider.go",
@@ -22,6 +36,34 @@
         "func ProvideOpsRepository(db *sql.DB, archive *telemetryarchive.Shadow) service.OpsRepository"
       ],
       "rationale": "Repository injection owner for usage, ops-error, and ops-system telemetry. The shadow package alone is inert; these provider assignments ensure every committed PostgreSQL write path shares the same bounded sink without making S3 canonical."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_insert.go",
+      "must_contain": [
+        "telemetryValue: r.snapshotUsageTelemetry(log, prepared)",
+        "ownedLog := *log",
+        "r.enqueueUsageValue(req.telemetryValue)",
+        "r.enqueueUsageAfterCommit(tx, log)"
+      ],
+      "rationale": "Usage telemetry must be captured at the committed insert call sites, including transaction and late batch completion paths. The worker-owned copy prevents a timed-out caller from racing a still-running batch, while the immutable telemetry value ensures a late successful insert is shadowed exactly once without serializing before Shadow reserves capacity."
+    },
+    {
+      "path": "backend/internal/repository/ops_repo.go",
+      "must_contain": [
+        "r.telemetry.Enqueue(telemetryarchive.DatasetOpsError, input)",
+        "r.telemetry.Enqueue(telemetryarchive.DatasetOpsSystem, input)"
+      ],
+      "rationale": "Ops error and system writes are the other two raw telemetry producers. Provider wiring can remain compile-clean while an upstream merge drops these post-commit enqueue call sites, silently making the archive incomplete."
+    },
+    {
+      "path": "backend/internal/repository/telemetry_archive_hooks_test.go",
+      "must_contain": [
+        "TestUS042UsageBestEffortLateCompletionStillEnqueuesTelemetry",
+        "TestUS042UsageBatchLateCompletionEnqueuesImmutableTelemetryOnce",
+        "TestOpsBatchTelemetryWaitsForCommit",
+        "TestOpsSystemTelemetryMatchesPersistedNormalization"
+      ],
+      "rationale": "Focused behavior guards for post-commit telemetry: best-effort and normal usage batches preserve immutable late completions, failed commits emit nothing, and ops-system payloads match persisted normalization."
     },
     {
       "path": "backend/internal/repository/wire.go",
@@ -36,9 +78,12 @@
       "path": "backend/cmd/server/wire.go",
       "must_contain": [
         "telemetryArchive *telemetryarchive.Shadow,",
-        "return telemetryArchive.Stop(ctx)"
+        "telemetryArchiveHealth *service.TelemetryArchiveHealth,",
+        "telemetryArchiveHealth.Stop(ctx)",
+        "archiveErr = telemetryArchive.Stop(ctx)",
+        "return errors.Join(healthErr, archiveErr)"
       ],
-      "rationale": "Application shutdown must drain the bounded telemetry shadow through the normal cleanup owner. Losing this hook discards queued committed events on every restart even though runtime writes and S3 uploads otherwise look healthy."
+      "rationale": "Application shutdown must stop the telemetry heartbeat before draining the bounded shadow through the normal cleanup owner. Losing these hooks leaves a stale green heartbeat or discards queued committed events on restart even though ordinary runtime writes look healthy."
     },
     {
       "path": "backend/internal/service/gateway_request_tk_prompt_fingerprint.go",

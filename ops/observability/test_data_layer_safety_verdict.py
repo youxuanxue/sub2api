@@ -34,6 +34,7 @@ def _signals() -> dict:
         },
         "BACKUPSTATS": {"latest_pgdump_at": (NOW - dt.timedelta(hours=1)).isoformat()},
         "SNAPSHOTSTATS": {"latest_snapshot_at": (NOW - dt.timedelta(hours=12)).isoformat()},
+        "TELEMETRYSTATS": {"probe_ok": True, "enabled": False},
         "ARCHIVESTATS": {
             "ledgers": [
                 {
@@ -132,6 +133,68 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
             for finding in verdict.compute_verdict(signals)["findings"]
         }
         self.assertIn("archive_restore_proof", kinds)
+
+    def test_enabled_telemetry_requires_fresh_clean_zero_loss_stats(self) -> None:
+        signals = _signals()
+        signals["TELEMETRYSTATS"] = {
+            "probe_ok": True,
+            "enabled": True,
+            "last_success_at": (NOW - dt.timedelta(minutes=1)).isoformat(),
+            "last_error_at": None,
+            "last_result": {"dropped": 0, "failed": 0},
+        }
+        self.assertEqual(verdict.compute_verdict(signals)["verdict"], "green")
+
+        signals["TELEMETRYSTATS"]["last_error_at"] = NOW.isoformat()
+        signals["TELEMETRYSTATS"]["last_result"] = {"dropped": 2, "failed": 1}
+        kinds = {
+            finding["kind"]
+            for finding in verdict.compute_verdict(signals)["findings"]
+        }
+        self.assertIn("telemetry_archive_error", kinds)
+        self.assertIn("telemetry_archive_loss", kinds)
+
+    def test_enabled_telemetry_missing_or_stale_health_fails_closed(self) -> None:
+        cases = (
+            ({"probe_ok": False, "enabled": True}, "telemetry_archive_probe"),
+            ({"probe_ok": True, "enabled": "true"}, "telemetry_archive_probe"),
+            (
+                {
+                    "probe_ok": True,
+                    "enabled": True,
+                    "last_success_at": (NOW - dt.timedelta(minutes=4)).isoformat(),
+                    "last_result": {"dropped": 0, "failed": 0},
+                },
+                "telemetry_archive_heartbeat",
+            ),
+            (
+                {
+                    "probe_ok": True,
+                    "enabled": True,
+                    "last_success_at": NOW.isoformat(),
+                    "last_result": "not-json",
+                },
+                "telemetry_archive_stats",
+            ),
+        )
+        for signal, expected_kind in cases:
+            with self.subTest(expected_kind=expected_kind):
+                signals = _signals()
+                signals["TELEMETRYSTATS"] = signal
+                kinds = {
+                    finding["kind"]
+                    for finding in verdict.compute_verdict(signals)["findings"]
+                }
+                self.assertIn(expected_kind, kinds)
+
+    def test_missing_telemetry_enablement_signal_fails_closed(self) -> None:
+        signals = _signals()
+        del signals["TELEMETRYSTATS"]
+        kinds = {
+            finding["kind"]
+            for finding in verdict.compute_verdict(signals)["findings"]
+        }
+        self.assertIn("telemetry_archive_probe", kinds)
 
     def test_probe_shell_parses(self) -> None:
         proc = subprocess.run(

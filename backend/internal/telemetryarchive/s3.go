@@ -53,13 +53,22 @@ func NewS3(ctx context.Context, region string, config Config) *Shadow {
 	return New(config, &s3Uploader{client: s3.NewFromConfig(awsConfig)})
 }
 
-func ConfigFromValues(enabled bool, bucket, prefix string, queueSize, batchSize, flushSeconds, putTimeoutSeconds int) Config {
+func ConfigFromValues(
+	enabled bool,
+	bucket, prefix string,
+	queueSize int,
+	queueMaxBytes int64,
+	maxEventBytes, batchSize, workerCount, flushSeconds, putTimeoutSeconds int,
+) Config {
 	return Config{
 		Enabled:       enabled,
 		Bucket:        bucket,
 		Prefix:        prefix,
 		QueueSize:     queueSize,
+		QueueMaxBytes: queueMaxBytes,
+		MaxEventBytes: maxEventBytes,
 		BatchSize:     batchSize,
+		WorkerCount:   workerCount,
 		FlushInterval: time.Duration(flushSeconds) * time.Second,
 		PutTimeout:    time.Duration(putTimeoutSeconds) * time.Second,
 	}

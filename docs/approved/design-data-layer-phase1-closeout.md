@@ -83,8 +83,36 @@ PostgreSQL success -> non-blocking enqueue -> gzip batch -> S3
 ```
 
 功能默认关闭；只有 bucket、region、prefix 完整且显式启用时启动。对象 key 按 dataset 和 UTC
-日期分层，写入 SHA-256 metadata。S3 shadow 连续稳定后才可缩短 PostgreSQL raw retention；
-本阶段不把 S3 变成账务 source of truth。
+入队日期分层。每条 JSONL 使用 `schema_version=1` envelope，保留 dataset、入队时间和原始
+payload；对象 metadata 写入 schema version、record count、首尾入队时间和 gzip body 的
+SHA-256。应用 instance role 对 raw telemetry prefix 只有 `PutObject`，没有 read/list 权限。
+
+所有默认值只采用下面这一组，代码、Compose 和 env 示例必须机械保持一致：
+
+| 配置 | 默认值 |
+| --- | ---: |
+| `enabled` | `false` |
+| `region` / `bucket` | 空 |
+| `prefix` | `prod/raw-telemetry` |
+| `queue_size` | `8192` |
+| `queue_max_bytes` | `33554432` |
+| `max_event_bytes` | `1048576` |
+| `batch_size` | `256` |
+| `worker_count` | `4` |
+| `flush_interval_seconds` | `5` |
+| `put_timeout_seconds` | `10` |
+| Glacier transition / expiry | `8` 天 / `120` 天 |
+
+record slot 和 `max_event_bytes` budget 均在 JSON 序列化前预占，饱和请求不再消耗额外序列化
+CPU/内存；序列化成功后退还未使用的 byte budget。已排队和上传中的 payload 同时受 record
+count 与 serialized byte 两个硬上限保护。4 个固定 worker 独立批量上传，失败
+只累计 shadow loss，不回滚 PostgreSQL。
+
+启用后，唯一健康 owner 每分钟把累计统计写入 `ops_job_heartbeats` 的
+`telemetry_archive_shadow` 行，JSON 统计存入 `last_result`。日常诊断要求 3 分钟内存在 clean
+heartbeat，且 dropped/failed 均为零；配置已启用但 runtime 未启动、心跳缺失/过期、统计非法
+或出现任何 loss 时均 fail closed。S3 shadow 连续稳定后才可另行审批缩短 PostgreSQL raw
+retention；本阶段不把 S3 变成账务 source of truth。
 
 ## 回滚边界
 
@@ -102,4 +130,6 @@ PostgreSQL success -> non-blocking enqueue -> gzip batch -> S3
 - promote checksum 或随机 restore 不一致时拒绝 release。
 - usage 切换脚本拒绝未验证约束、错误上界、活跃锁和行数漂移。
 - telemetry 未配置时零行为变化；队列满或 S3 失败不影响 PostgreSQL 成功。
+- telemetry 默认值在 Go、Compose、env 示例和设计表中完全一致；启用后没有新鲜零损失心跳则
+  protection gate 不得为 green。
 - RDS 相关文件、资源和 branch 无改动。

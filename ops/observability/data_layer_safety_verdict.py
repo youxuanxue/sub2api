@@ -11,6 +11,7 @@ from typing import Any
 
 
 HEARTBEAT_MAX_AGE = dt.timedelta(hours=26)
+TELEMETRY_HEARTBEAT_MAX_AGE = dt.timedelta(minutes=3)
 PGDUMP_MAX_AGE = dt.timedelta(hours=2)
 SNAPSHOT_MAX_AGE = dt.timedelta(hours=36)
 HOLD_MAX_AGE = dt.timedelta(days=14)
@@ -56,6 +57,7 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
     backups = signals.get("BACKUPSTATS")
     snapshot = signals.get("SNAPSHOTSTATS")
     archive = signals.get("ARCHIVESTATS")
+    telemetry = signals.get("TELEMETRYSTATS")
     findings: list[dict[str, str]] = []
 
     now = _timestamp(partitions.get("server_clock")) if isinstance(partitions, dict) else None
@@ -118,6 +120,66 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
                 "latest completed EBS snapshot is missing, stale, or future-dated",
             )
         )
+
+    if not isinstance(telemetry, dict):
+        findings.append(
+            _finding("telemetry_archive_probe", "telemetry archive enablement signal is missing")
+        )
+    elif telemetry.get("probe_ok") is not True:
+        findings.append(
+            _finding("telemetry_archive_probe", "telemetry archive health probe failed")
+        )
+    elif telemetry.get("enabled") is False:
+        pass
+    elif telemetry.get("enabled") is not True:
+        findings.append(
+            _finding("telemetry_archive_probe", "telemetry archive enablement signal is invalid")
+        )
+    else:
+        telemetry_success = _timestamp(telemetry.get("last_success_at"))
+        telemetry_error = _timestamp(telemetry.get("last_error_at"))
+        if telemetry_error is not None and (
+            telemetry_success is None or telemetry_error > telemetry_success
+        ):
+            findings.append(
+                _finding(
+                    "telemetry_archive_error",
+                    "telemetry archive has failed since its last clean heartbeat",
+                )
+            )
+        if not _fresh(telemetry_success, now, TELEMETRY_HEARTBEAT_MAX_AGE):
+            findings.append(
+                _finding(
+                    "telemetry_archive_heartbeat",
+                    "telemetry archive clean heartbeat is missing, stale, or future-dated",
+                )
+            )
+        telemetry_result = telemetry.get("last_result")
+        if not isinstance(telemetry_result, dict):
+            findings.append(
+                _finding("telemetry_archive_stats", "telemetry archive stats are missing or invalid")
+            )
+        else:
+            dropped = telemetry_result.get("dropped")
+            failed = telemetry_result.get("failed")
+            if (
+                not isinstance(dropped, int)
+                or isinstance(dropped, bool)
+                or dropped < 0
+                or not isinstance(failed, int)
+                or isinstance(failed, bool)
+                or failed < 0
+            ):
+                findings.append(
+                    _finding("telemetry_archive_stats", "telemetry archive loss counters are invalid")
+                )
+            elif dropped > 0 or failed > 0:
+                findings.append(
+                    _finding(
+                        "telemetry_archive_loss",
+                        f"telemetry archive lost records: dropped={dropped}, failed={failed}",
+                    )
+                )
 
     ledgers = archive.get("ledgers") if isinstance(archive, dict) else None
     evidence_errors = (
@@ -200,7 +262,13 @@ def parse_signals(text: str) -> dict[str, Any]:
     signals: dict[str, Any] = {}
     for line in text.splitlines():
         line = line.strip()
-        for tag in ("PARTITIONSTATS", "BACKUPSTATS", "SNAPSHOTSTATS", "ARCHIVESTATS"):
+        for tag in (
+            "PARTITIONSTATS",
+            "BACKUPSTATS",
+            "SNAPSHOTSTATS",
+            "ARCHIVESTATS",
+            "TELEMETRYSTATS",
+        ):
             if not line.startswith(tag + " "):
                 continue
             try:
