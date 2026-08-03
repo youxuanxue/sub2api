@@ -568,10 +568,16 @@ func openAIWSPassthroughStartsSemanticOutput(payload []byte) bool {
 	switch eventType {
 	case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
 		return true
-	case "", "response.created", "response.in_progress", "response.output_item.added", "response.output_item.done":
+	case "", "response.created", "response.in_progress":
 		return false
+	case "response.output_item.added", "response.output_item.done":
+		// Only reasoning items are client-visible progress before deltas.
+		// Plain message/function_call structure frames stay non-semantic for
+		// first-output disarm so early failover remains possible.
+		return isOpenAIWSReasoningProgressEvent(eventType, payload)
 	}
-	return strings.Contains(eventType, ".delta") ||
+	return openAIWSMarksClientVisibleProgress(eventType, payload) ||
+		strings.Contains(eventType, ".delta") ||
 		strings.HasPrefix(eventType, "response.output_text") ||
 		strings.HasPrefix(eventType, "response.output")
 }

@@ -70,14 +70,10 @@ func (k *headerWaitKeepalive) stop() {
 // pre-existing ensureForwardErrorResponse path still delivers a protocol-
 // compliant SSE terminal event to the downstream client.
 func (s *GatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive {
-	if !reqStream {
+	if s == nil || s.cfg == nil {
 		return nil
 	}
-	if s == nil || s.cfg == nil || s.cfg.Gateway.StreamKeepaliveInterval <= 0 {
-		return nil
-	}
-	interval := time.Duration(s.cfg.Gateway.StreamKeepaliveInterval) * time.Second
-	return startHeaderWaitKeepalive(c, interval, anthropicSSEPingFrame)
+	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, anthropicSSEPingFrame)
 }
 
 // beginHeaderWaitKeepalive (OpenAI) is the OpenAI/Codex passthrough analogue of
@@ -90,14 +86,44 @@ func (s *GatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool
 // frame — a bare SSE comment that the strict Codex/Responses SDK tolerates. A
 // no-op for non-streaming/disabled requests.
 func (s *OpenAIGatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive {
-	if !reqStream {
+	if s == nil || s.cfg == nil {
 		return nil
 	}
-	if s == nil || s.cfg == nil || s.cfg.Gateway.StreamKeepaliveInterval <= 0 {
+	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, openaiSSECommentFrame)
+}
+
+// beginConfiguredHeaderWaitKeepalive is the shared constructor used by every
+// streaming platform Forward/Do path (Anthropic, OpenAI, Kiro, Bedrock,
+// Antigravity, Gemini). intervalSec comes from gateway.stream_keepalive_interval.
+func beginConfiguredHeaderWaitKeepalive(c *gin.Context, reqStream bool, intervalSec int, frame string) *headerWaitKeepalive {
+	if !reqStream || intervalSec <= 0 {
 		return nil
 	}
-	interval := time.Duration(s.cfg.Gateway.StreamKeepaliveInterval) * time.Second
-	return startHeaderWaitKeepalive(c, interval, openaiSSECommentFrame)
+	return startHeaderWaitKeepalive(c, time.Duration(intervalSec)*time.Second, frame)
+}
+
+func (s *AntigravityGatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool, frame string) *headerWaitKeepalive {
+	if s == nil || s.settingService == nil || s.settingService.cfg == nil || frame == "" {
+		return nil
+	}
+	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.settingService.cfg.Gateway.StreamKeepaliveInterval, frame)
+}
+
+func (s *GeminiMessagesCompatService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive {
+	if s == nil || s.cfg == nil {
+		return nil
+	}
+	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, anthropicSSEPingFrame)
+}
+
+// beginSSECommentHeaderWaitKeepalive emits the wire-neutral SSE comment keepalive
+// for OpenAI Responses/Chat Completions compat and Google-native stream passthrough.
+// Strict OpenAI SDKs reject Anthropic-shaped ping events on those ingresses.
+func (s *GeminiMessagesCompatService) beginSSECommentHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive {
+	if s == nil || s.cfg == nil {
+		return nil
+	}
+	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, openaiSSECommentFrame)
 }
 
 // startHeaderWaitKeepalive is the interval-driven core of beginHeaderWaitKeepalive,
@@ -160,4 +186,35 @@ func startHeaderWaitKeepalive(c *gin.Context, interval time.Duration, frame stri
 		}
 	}()
 	return k
+}
+
+// preContentStreamKeepaliveKey stores a header-wait / pre-content keepalive on
+// the gin context so nested streaming writers (Kiro thinking stall, Bedrock Do,
+// etc.) can stop it the instant the first client-visible SSE byte is written,
+// without racing the keepalive goroutine.
+const preContentStreamKeepaliveKey = "tk_pre_content_stream_keepalive"
+
+// bindPreContentStreamKeepalive attaches a keepalive handle for later stop from
+// the first client-visible write path. No-op when c or k is nil.
+func bindPreContentStreamKeepalive(c *gin.Context, k *headerWaitKeepalive) {
+	if c == nil || k == nil {
+		return
+	}
+	c.Set(preContentStreamKeepaliveKey, k)
+}
+
+// stopPreContentStreamKeepalive stops any bound pre-content keepalive and
+// clears the context slot. Safe to call repeatedly or when unbound.
+func stopPreContentStreamKeepalive(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	v, ok := c.Get(preContentStreamKeepaliveKey)
+	if !ok || v == nil {
+		return
+	}
+	if k, ok := v.(*headerWaitKeepalive); ok {
+		k.stop()
+	}
+	c.Set(preContentStreamKeepaliveKey, nil)
 }

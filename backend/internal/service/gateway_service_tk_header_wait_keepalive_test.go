@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 )
 
@@ -117,5 +118,51 @@ func TestStartHeaderWaitKeepalive_OpenAICommentFrame(t *testing.T) {
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "text/event-stream" {
 		t.Fatalf("expected SSE content-type committed before first comment, got %q", ct)
+	}
+}
+
+func TestGeminiMessagesCompatService_BeginSSECommentHeaderWaitKeepalive(t *testing.T) {
+	c, rec := newKeepaliveTestContext(t)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	svc := &GeminiMessagesCompatService{cfg: &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}}}
+	k := svc.beginSSECommentHeaderWaitKeepalive(c, true)
+	if k == nil {
+		t.Fatal("expected non-nil keepalive handle")
+	}
+	time.Sleep(1100 * time.Millisecond)
+	k.stop()
+
+	body := rec.Body.String()
+	if strings.Contains(body, "event: ping") {
+		t.Fatalf("OpenAI-wire Gemini compat must not emit Anthropic ping, got %q", body)
+	}
+	if !strings.Contains(body, ":\n\n") {
+		t.Fatalf("expected SSE comment keepalive, got %q", body)
+	}
+}
+
+func TestAntigravityGatewayService_BeginHeaderWaitKeepaliveUsesClientWireFrame(t *testing.T) {
+	claudeContext, claudeRecorder := newKeepaliveTestContext(t)
+	geminiContext, geminiRecorder := newKeepaliveTestContext(t)
+	geminiContext.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini:streamGenerateContent", nil)
+
+	cfg := &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}}
+	svc := &AntigravityGatewayService{settingService: &SettingService{cfg: cfg}}
+	claudeKeepalive := svc.beginHeaderWaitKeepalive(claudeContext, true, anthropicSSEPingFrame)
+	geminiKeepalive := svc.beginHeaderWaitKeepalive(geminiContext, true, openaiSSECommentFrame)
+	if claudeKeepalive == nil || geminiKeepalive == nil {
+		t.Fatal("expected non-nil Antigravity keepalive handles")
+	}
+
+	time.Sleep(1100 * time.Millisecond)
+	claudeKeepalive.stop()
+	geminiKeepalive.stop()
+
+	if body := claudeRecorder.Body.String(); !strings.Contains(body, "event: ping") {
+		t.Fatalf("Anthropic wire must emit a typed ping, got %q", body)
+	}
+	if body := geminiRecorder.Body.String(); strings.Contains(body, "event: ping") || !strings.Contains(body, ":\n\n") {
+		t.Fatalf("Gemini wire must emit only an SSE comment, got %q", body)
 	}
 }

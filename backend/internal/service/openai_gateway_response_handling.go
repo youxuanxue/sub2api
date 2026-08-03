@@ -530,7 +530,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
 			if guardFirstOutput {
 				eventStartsClientOutput = eventStartsClientOutput || startsClientOutput
-				eventStartsFirstToken = eventStartsFirstToken || isOpenAIWSTokenEvent(eventType)
+				// Disarm first-output on reasoning structure frames too — long
+				// thinking can emit only output_item.added(type=reasoning) /
+				// reasoning_summary_part.* before any .delta.
+				eventStartsFirstToken = eventStartsFirstToken || openAIWSMarksClientVisibleProgress(eventType, dataBytes)
 			}
 
 			// 写入客户端（客户端断开后继续 drain 上游）
@@ -550,8 +553,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				}
 			}
 
-			// Record first token time
-			if !guardFirstOutput && firstTokenMs == nil && isOpenAIWSTokenEvent(eventType) {
+			// Record first client-visible progress (token delta or reasoning structure).
+			if !guardFirstOutput && firstTokenMs == nil && openAIWSMarksClientVisibleProgress(eventType, dataBytes) {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
 				stopFirstOutputTimer()

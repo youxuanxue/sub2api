@@ -196,7 +196,9 @@ func (s *GatewayService) executeBedrockUpstream(
 			return nil, err
 		}
 
+		hwka := s.beginHeaderWaitKeepalive(c, stream)
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, nil)
+		hwka.stop()
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()

@@ -39,6 +39,12 @@ type antigravityRetryLoopParams struct {
 	isStickySession bool   // 是否为粘性会话（用于账号切换时的缓存计费判断）
 	groupID         int64  // 用于模型级限流时清除粘性会话
 	sessionHash     string // 用于模型级限流时清除粘性会话
+	// clientStream gates pre-content keepalive. Upstream always uses
+	// streamGenerateContent, but non-stream clients must not receive SSE pings
+	// before a JSON body is written. keepaliveFrame preserves the client wire
+	// protocol for Anthropic, Gemini-native, and OpenAI-compatible ingresses.
+	clientStream   bool
+	keepaliveFrame string
 }
 
 // antigravityRetryLoopResult 重试循环的结果
@@ -525,7 +531,9 @@ urlFallbackLoop:
 				return nil, err
 			}
 
+			hwka := s.beginHeaderWaitKeepalive(p.c, p.clientStream, p.keepaliveFrame)
 			resp, err = p.httpUpstream.Do(upstreamReq, p.proxyURL, p.account.ID, p.account.Concurrency)
+			hwka.stop()
 			if err == nil && resp == nil {
 				err = errors.New("upstream returned nil response")
 			}

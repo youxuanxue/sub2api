@@ -730,11 +730,26 @@ func (s *KiroGatewayService) forwardStreaming(
 		firstTokMs       *int
 	)
 
-	markFirstToken := func() {
+	markFirstVisibleToken := func() {
 		if firstTokMs == nil {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokMs = &ms
 		}
+	}
+	// Stop header-wait pings before the first client-visible write so the
+	// keepalive goroutine cannot race content frames on c.Writer.
+	writeVisibleText := func(delta string) {
+		if delta == "" {
+			return
+		}
+		stopPreContentStreamKeepalive(c)
+		markFirstVisibleToken()
+		enc.writeTextDelta(delta)
+	}
+	writeVisibleToolUse := func(toolUse kiroproto.KiroToolUse) {
+		stopPreContentStreamKeepalive(c)
+		markFirstVisibleToken()
+		enc.writeToolUse(toolUse)
 	}
 
 	// message_start is emitted lazily on first client-visible content (see
@@ -765,8 +780,7 @@ func (s *KiroGatewayService) forwardStreaming(
 				return
 			}
 			visibleTurnText += delta
-			markFirstToken()
-			enc.writeTextDelta(delta)
+			writeVisibleText(delta)
 			callOutputCommitted = true
 		}
 
@@ -774,8 +788,10 @@ func (s *KiroGatewayService) forwardStreaming(
 			OnText: func(text string, isThinking bool) {
 				mu.Lock()
 				defer mu.Unlock()
-				markFirstToken()
 				if isThinking {
+					// Thinking stays off the client wire (unsigned Kiro
+					// reasoning). Keepalive continues until visible text/tool
+					// arrives; first_token_ms only arms on client-visible bytes.
 					turnThinking += text
 					return
 				}
@@ -787,7 +803,7 @@ func (s *KiroGatewayService) forwardStreaming(
 					// known, so repeated model text can be removed before it reaches
 					// the client. The first turn remains fully streamed.
 					if turn == 1 {
-						enc.writeTextDelta(visible)
+						writeVisibleText(visible)
 						callOutputCommitted = true
 					}
 				}
@@ -800,8 +816,7 @@ func (s *KiroGatewayService) forwardStreaming(
 					return
 				}
 				flushContinuationText()
-				markFirstToken()
-				enc.writeToolUse(toolUse)
+				writeVisibleToolUse(toolUse)
 				callOutputCommitted = true
 			},
 			OnStopReason: func(reason string) {
@@ -851,6 +866,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		if callErr != nil {
 			msg := "upstream stream disconnected: " + sanitizeStreamError(callErr)
 			recordKiroStreamError(c, account, msg)
+			stopPreContentStreamKeepalive(c)
 			writeKiroStreamError(c, flusher, "stream_read_error", msg)
 			mu.Unlock()
 			return nil, classifyKiroPostOutputStreamError("read", callErr)
@@ -862,6 +878,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		if callbackErr != nil {
 			msg := "upstream stream disconnected: " + sanitizeStreamError(callbackErr)
 			recordKiroStreamError(c, account, msg)
+			stopPreContentStreamKeepalive(c)
 			writeKiroStreamError(c, flusher, "stream_read_error", msg)
 			mu.Unlock()
 			return nil, classifyKiroPostOutputStreamError("callback", callbackErr)
@@ -871,7 +888,7 @@ func (s *KiroGatewayService) forwardStreaming(
 			if visible != "" {
 				turnText += visible
 				if turn == 1 {
-					enc.writeTextDelta(visible)
+					writeVisibleText(visible)
 					callOutputCommitted = true
 				}
 			}
@@ -892,8 +909,7 @@ func (s *KiroGatewayService) forwardStreaming(
 			completionDelta := completionSignalTextDelta(turn, textBuf+visibleTurnText, completionSignal)
 			if completionDelta != "" {
 				visibleTurnText += completionDelta
-				markFirstToken()
-				enc.writeTextDelta(completionDelta)
+				writeVisibleText(completionDelta)
 				callOutputCommitted = true
 			}
 		}
@@ -923,6 +939,7 @@ func (s *KiroGatewayService) forwardStreaming(
 			err := fmt.Errorf("%w after %d turns", errKiroCompletionExhausted, maxClaudeCodeCompletionTurns)
 			msg := sanitizeStreamError(err)
 			recordKiroStreamError(c, account, msg)
+			stopPreContentStreamKeepalive(c)
 			writeKiroStreamError(c, flusher, "completion_exhausted", msg)
 			mu.Unlock()
 			return nil, fmt.Errorf("kiro stream completion error: %w", err)
@@ -938,6 +955,7 @@ func (s *KiroGatewayService) forwardStreaming(
 			if err != nil {
 				msg := sanitizeStreamError(err)
 				recordKiroStreamError(c, account, msg)
+				stopPreContentStreamKeepalive(c)
 				writeKiroStreamError(c, flusher, "unsupported_stop_reason", msg)
 				mu.Unlock()
 				return nil, fmt.Errorf("kiro stream stop reason error: %w", err)
@@ -952,6 +970,7 @@ func (s *KiroGatewayService) forwardStreaming(
 
 	// Upstream succeeded but produced no content (enc.started still false):
 	// emit message_start lazily here so the closing events form a valid stream.
+	stopPreContentStreamKeepalive(c)
 	enc.writeMessageStart()
 	enc.closeOpenBlock()
 	// Repeat the final input total because hidden completion continuations add

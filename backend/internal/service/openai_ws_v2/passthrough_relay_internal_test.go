@@ -411,6 +411,23 @@ func TestIsTokenEventCoverageBranches(t *testing.T) {
 	require.True(t, isTokenEvent("response.done"))
 }
 
+func TestMarksClientVisibleProgress_ReasoningStructure(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, marksClientVisibleProgress(
+		"response.output_item.added",
+		[]byte(`{"type":"response.output_item.added","item":{"type":"reasoning"}}`),
+	))
+	require.False(t, marksClientVisibleProgress(
+		"response.output_item.added",
+		[]byte(`{"type":"response.output_item.added","item":{"type":"message"}}`),
+	))
+	require.True(t, marksClientVisibleProgress(
+		"response.reasoning_summary_part.added",
+		[]byte(`{"type":"response.reasoning_summary_part.added"}`),
+	))
+}
+
 func TestShouldParseUsageTerminalEvents(t *testing.T) {
 	t.Parallel()
 
