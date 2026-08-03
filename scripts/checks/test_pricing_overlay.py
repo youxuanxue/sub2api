@@ -183,5 +183,43 @@ class PricedDimensionCompletenessTest(unittest.TestCase):
         self.assertEqual([], failures)
 
 
+class WebSearchPriceOwnerTest(unittest.TestCase):
+    """web_search_price_per_call replaced a hardcoded Go default, so an absent or
+    zero key must fail loudly instead of silently billing searches at $0."""
+
+    BASE_TAX = {
+        "multiplier": 1.06,
+        "rules": [{"provider": "dashscope", "model_prefixes": ["qwen"]}],
+    }
+
+    def _errors(self, config: dict) -> list[str]:
+        return CHECK.validate_official_list_base_tax({"_config": config})
+
+    def test_requires_web_search_price(self) -> None:
+        errors = self._errors({"official_list_base_tax": self.BASE_TAX})
+        self.assertTrue(any("web_search_price_per_call" in e for e in errors))
+
+    def test_rejects_zero_and_negative_web_search_price(self) -> None:
+        for value in (0, -0.01):
+            with self.subTest(value=value):
+                errors = self._errors({
+                    "official_list_base_tax": self.BASE_TAX,
+                    "web_search_price_per_call": value,
+                })
+                self.assertTrue(any("web_search_price_per_call" in e for e in errors))
+
+    def test_accepts_positive_web_search_price(self) -> None:
+        errors = self._errors({
+            "official_list_base_tax": self.BASE_TAX,
+            "web_search_price_per_call": 0.01,
+        })
+        self.assertEqual([], errors)
+
+    def test_shipped_registry_declares_web_search_price(self) -> None:
+        import json
+        data = json.loads(CHECK.OVERLAY.read_text(encoding="utf-8"))
+        self.assertEqual([], CHECK.validate_official_list_base_tax(data))
+
+
 if __name__ == "__main__":
     unittest.main()

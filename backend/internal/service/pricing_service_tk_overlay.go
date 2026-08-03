@@ -263,6 +263,21 @@ func buildTKPricingOverlaySnapshot() (*tkPricingOverlaySnapshot, error) {
 	if len(base.Models) == 0 {
 		return nil, fmt.Errorf("embedded TK pricing registry has no model owners")
 	}
+	// Required, like official_list_base_tax: this price used to be a Go constant
+	// (defaultWebSearchPricePerCall = 0.01). Once it moved into the registry, an
+	// absent key would resolve to 0 and bill every un-overridden web search at $0
+	// with no failure — the same silent-zero shape this registry exists to reject.
+	// A deliberate free tier must be expressed as an explicit group price, not by
+	// omitting the global owner.
+	if base.WebSearchPricePerCall == nil {
+		return nil, fmt.Errorf("embedded TK pricing registry missing _config.web_search_price_per_call")
+	}
+	if *base.WebSearchPricePerCall <= 0 {
+		return nil, fmt.Errorf(
+			"embedded TK pricing registry _config.web_search_price_per_call must be > 0, got %v",
+			*base.WebSearchPricePerCall,
+		)
+	}
 	snapshot := &tkPricingOverlaySnapshot{Models: base.Models, BaseTax: *base.BaseTax}
 	if base.DeepSeekPeakValley != nil {
 		policy := *base.DeepSeekPeakValley

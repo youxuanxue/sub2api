@@ -307,12 +307,19 @@ def validate_official_list_base_tax(data: dict) -> list[str]:
     unknown_config = sorted(set(config) - {"official_list_base_tax", "deepseek_peak_valley", "web_search_price_per_call"})
     if unknown_config:
         errors.append(f"_config has unknown fields: {unknown_config}")
+    # web_search_price_per_call is REQUIRED and must be > 0. It replaced a
+    # hardcoded Go default, so an omitted/zero key would silently bill every
+    # Codex alpha/search call at $0 instead of failing loudly.
     web_search_price = config.get("web_search_price_per_call")
-    if web_search_price is not None and (
-            not isinstance(web_search_price, (int, float)) or isinstance(web_search_price, bool)
-            or not math.isfinite(web_search_price) or web_search_price < 0):
+    if web_search_price is None:
         errors.append(
-            f"_config.web_search_price_per_call must be finite and >= 0, got {web_search_price!r}"
+            "_config.web_search_price_per_call is required (it owns the "
+            "per-call web-search price; omitting it bills searches at $0)"
+        )
+    elif (not isinstance(web_search_price, (int, float)) or isinstance(web_search_price, bool)
+            or not math.isfinite(web_search_price) or web_search_price <= 0):
+        errors.append(
+            f"_config.web_search_price_per_call must be finite and > 0, got {web_search_price!r}"
         )
     policy = config.get("official_list_base_tax")
     if not isinstance(policy, dict):

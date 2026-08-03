@@ -71,6 +71,37 @@ func TestProvidePricingService_FailsClosedOnInvalidRegistry(t *testing.T) {
 	require.Nil(t, svc)
 }
 
+// The per-call web-search price moved out of Go (defaultWebSearchPricePerCall =
+// 0.01) into the registry _config. An absent or zero key must fail startup rather
+// than resolve to 0 and bill every un-overridden search at $0.
+func TestBuildSnapshot_RequiresWebSearchPricePerCall(t *testing.T) {
+	baseTax := `"official_list_base_tax":{"multiplier":1.06,"rules":[{"provider":"dashscope","model_prefixes":["qwen"]}]}`
+	owner := `"m":{"mode":"chat","input_cost_per_token":0.000001,"output_cost_per_token":0.000002}`
+	tests := map[string]string{
+		"omitted": `{"_config":{` + baseTax + `},` + owner + `}`,
+		"zero":    `{"_config":{` + baseTax + `,"web_search_price_per_call":0},` + owner + `}`,
+	}
+	originalRaw := tkPricingOverlayRaw
+	t.Cleanup(func() {
+		tkPricingOverlayRaw = originalRaw
+		tkPricingRegistryOnce = sync.Once{}
+		tkPricingRegistrySnapshot = nil
+	})
+	for name, blob := range tests {
+		t.Run(name, func(t *testing.T) {
+			tkPricingOverlayRaw = []byte(blob)
+			_, err := buildTKPricingOverlaySnapshot()
+			require.ErrorContains(t, err, "web_search_price_per_call")
+		})
+	}
+
+	// The registry we actually ship must satisfy the requirement.
+	tkPricingOverlayRaw = originalRaw
+	snapshot, err := buildTKPricingOverlaySnapshot()
+	require.NoError(t, err)
+	require.Greater(t, snapshot.WebSearchPricePerCall, 0.0)
+}
+
 func TestParseTKOverlayDocument_RejectsMalformedVideoTiers(t *testing.T) {
 	validTier := `{"resolution":"720p","output_cost_per_second":0.1,"default_for_model":true}`
 	tests := map[string]string{

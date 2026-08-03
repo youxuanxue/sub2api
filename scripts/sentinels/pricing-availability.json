@@ -307,7 +307,7 @@
         "func loadTKPricingOverlaySnapshot",
         "func applyTKPricingOverlay",
         "tkValidateAndBuildOverlayVideoTiers",
-        "TokenPricingAbsent:      e.InputCostPerToken == nil && e.OutputCostPerToken == nil",
+        "TokenPricingAbsent:      e.InputCostPerToken == nil && e.OutputCostPerToken == nil && e.InputCostPerImageToken == nil,",
         "SupportsReasoning:       e.SupportsReasoning",
         "func tkParseRegistryPricingEntry("
       ],
@@ -317,7 +317,7 @@
         "tkOverlayMu",
         "tkOverlayEffective"
       ],
-      "rationale": "The registry loader builds exactly one immutable process snapshot containing model prices, catalog metadata, and executable tax policy. It accepts no runtime document and has no mutable union/swap path. tkValidateAndBuildOverlayVideoTiers rejects malformed billing ladders before startup use. TokenPricingAbsent preserves the fail-closed token-billing boundary for media-only owners; SupportsReasoning anchors the public-catalog capability projection. tkParseRegistryPricingEntry is the SINGLE row projection shared by the production loader and the offline import parser (PricingService.parsePricingData); before it existed the two diverged silently (the offline one dropped intervals and video_price_tiers and duplicated the 272K normalization), so guard/contract tests built on the offline parser asserted a shape production never produced. Re-forking it recreates a second schema interpretation of the one registry."
+      "rationale": "The registry loader builds exactly one immutable process snapshot containing model prices, catalog metadata, and executable tax policy. It accepts no runtime document and has no mutable union/swap path. tkValidateAndBuildOverlayVideoTiers rejects malformed billing ladders before startup use. TokenPricingAbsent preserves the fail-closed token-billing boundary for media-only owners, and the anchor pins the FULL clause including e.InputCostPerImageToken == nil: without that term a gpt-image-* row (priced only per image token) is marked token-pricing-absent, tkModelPricingFromLiteLLM returns nil, and the image-token settlement path can never charge — silently restoring the $0 image billing this PR fixes; SupportsReasoning anchors the public-catalog capability projection. tkParseRegistryPricingEntry is the SINGLE row projection shared by the production loader and the offline import parser (PricingService.parsePricingData); before it existed the two diverged silently (the offline one dropped intervals and video_price_tiers and duplicated the 272K normalization), so guard/contract tests built on the offline parser asserted a shape production never produced. Re-forking it recreates a second schema interpretation of the one registry."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay_test.go",
