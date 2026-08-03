@@ -60,6 +60,85 @@ class PricingOverlayShapeTest(unittest.TestCase):
                 self.assertTrue(CHECK.validate_runtime_owner_shape(model, row))
 
 
+class PriceEvidenceConsistencyTest(unittest.TestCase):
+    def test_parity_accepts_equivalent_explicit_and_derived_policies(self) -> None:
+        rows = {
+            "bare": {
+                "input_cost_per_token": 5e-6,
+                "output_cost_per_token": 30e-6,
+                "cache_creation_input_token_cost": 5e-6,
+                "cache_read_input_token_cost": 0.5e-6,
+                "input_cost_per_token_priority": 10e-6,
+                "output_cost_per_token_priority": 60e-6,
+                "cache_creation_input_token_cost_priority": 10e-6,
+                "cache_read_input_token_cost_priority": 1e-6,
+                "long_context_input_token_threshold": 272000,
+                "long_context_input_cost_multiplier": 2,
+                "long_context_output_cost_multiplier": 1.5,
+            },
+            "dated": {
+                "input_cost_per_token": 5e-6,
+                "output_cost_per_token": 30e-6,
+                "cache_creation_input_token_cost": 5e-6,
+                "cache_read_input_token_cost": 0.5e-6,
+                "input_cost_per_token_above_272k_tokens": 10e-6,
+                "output_cost_per_token_above_272k_tokens": 45e-6,
+                "cache_read_input_token_cost_above_272k_tokens": 1e-6,
+            },
+        }
+        original = CHECK.PRICE_PARITY_OWNERS
+        try:
+            CHECK.PRICE_PARITY_OWNERS = {"bare": "dated"}
+            self.assertEqual([], CHECK.validate_price_parity(rows))
+        finally:
+            CHECK.PRICE_PARITY_OWNERS = original
+
+    def test_parity_rejects_bare_owner_price_drift(self) -> None:
+        rows = {
+            "bare": {"input_cost_per_token": 2.5e-6},
+            "dated": {"input_cost_per_token": 5e-6},
+        }
+        original = CHECK.PRICE_PARITY_OWNERS
+        try:
+            CHECK.PRICE_PARITY_OWNERS = {"bare": "dated"}
+            errors = CHECK.validate_price_parity(rows)
+        finally:
+            CHECK.PRICE_PARITY_OWNERS = original
+        self.assertTrue(any("input_cost_per_token" in error for error in errors))
+
+    def test_shipped_registry_preserves_owner_price_parity(self) -> None:
+        import json
+        data = json.loads(CHECK.OVERLAY.read_text(encoding="utf-8"))
+        self.assertEqual([], CHECK.validate_price_parity(data))
+
+    def test_source_claim_accepts_matching_row(self) -> None:
+        row = {
+            "input_cost_per_token": 0.3e-6,
+            "output_cost_per_token": 1.2e-6,
+            "source": "Provider list price ($0.30/$1.20 per M tokens).",
+        }
+        self.assertEqual([], CHECK.validate_source_price_claim("model", row))
+
+    def test_source_claim_rejects_contradictory_row(self) -> None:
+        row = {
+            "input_cost_per_token": 0.6e-6,
+            "output_cost_per_token": 2.4e-6,
+            "source": "Provider list price ($0.30/$1.20 per M tokens).",
+        }
+        errors = CHECK.validate_source_price_claim("model", row)
+        self.assertEqual(2, len(errors))
+
+    def test_shipped_registry_source_claims_match_rows(self) -> None:
+        import json
+        data = json.loads(CHECK.OVERLAY.read_text(encoding="utf-8"))
+        failures = []
+        for model, row in data.items():
+            if model.startswith("_") or not isinstance(row, dict):
+                continue
+            failures.extend(CHECK.validate_source_price_claim(model, row))
+        self.assertEqual([], failures)
+
+
 class PricedDimensionCompletenessTest(unittest.TestCase):
     """Pins the gate that replaced BillingService.applyModelSpecificPricingPolicy.
 

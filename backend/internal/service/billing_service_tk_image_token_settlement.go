@@ -152,16 +152,7 @@ func (s *BillingService) TkCalculateImageTokenCost(
 	return bd
 }
 
-// Known limitation — the pre-flight balance HOLD still reserves $0 for these
-// owners. EstimateImageHold routes through CalculateImageCost, which reads only
-// OutputCostPerImage, so a per-image-token owner reserves nothing at submit time
-// even though settlement now charges correctly.
-//
-// This is deliberately left alone rather than patched with an invented number: an
-// upper-bound hold would need "image tokens per generated image", which no
-// registry owner declares, and hardcoding one in Go would create exactly the
-// second pricing source this package is converging away from. The gap is also not
-// a regression — before this fix hold AND settlement were both $0; now only the
-// hold is, so the worst case narrowed from "served free" to "served, then charged
-// correctly, without a prior reservation". Closing it properly means adding an
-// explicit tokens-per-image upper bound to the registry schema.
+// The pre-flight hold cannot invent an image-token maximum. Its owner lives in
+// openai_gateway_service_tk_hold.go: fixed group/channel image prices are
+// reservable, while a balance request that can still reach this token path is
+// rejected before upstream spend. Subscription requests do not use balance holds.

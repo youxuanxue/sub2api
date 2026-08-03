@@ -24,6 +24,8 @@ a soft rule that bit us once becomes a mechanical gate). It asserts:
        chat             -> input_cost_per_token AND output_cost_per_token
   4. `_config.official_list_base_tax` is a valid executable policy: one bounded
      multiplier, unique normalized providers, and non-duplicated fallback matchers.
+  5. Bare GPT owners stay billing-equivalent to their dated provider snapshots.
+  6. Numeric per-M-token claims embedded in source provenance match the row.
 
 Usage: python3 scripts/checks/pricing-overlay.py [--quiet]
 Exit 0 ok, 1 violation, 2 missing dep / file / unparseable.
@@ -35,6 +37,7 @@ import argparse
 import json
 import math
 import pathlib
+import re
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
@@ -119,6 +122,26 @@ ANCHORS = {
 # would make the DEFAULT request bill the cheaper non-thinking rate — a silent
 # under-bill. These anchors fail the check if the field goes missing.
 THINKING_ANCHORS = ("qwen3-8b", "qwen3-14b", "qwen3-32b")
+PRICE_PARITY_OWNERS = {
+    "gpt-5.4-pro": "gpt-5.4-pro-2026-03-05",
+    "gpt-5.5": "gpt-5.5-2026-04-23",
+    "gpt-5.5-pro": "gpt-5.5-pro-2026-04-23",
+}
+PRICE_PARITY_BASE_FIELDS = (
+    "input_cost_per_token",
+    "output_cost_per_token",
+    "cache_creation_input_token_cost",
+    "cache_read_input_token_cost",
+)
+PRICE_PARITY_PRIORITY_FIELDS = (
+    ("input_cost_per_token", "input_cost_per_token_priority"),
+    ("output_cost_per_token", "output_cost_per_token_priority"),
+    ("cache_creation_input_token_cost", "cache_creation_input_token_cost_priority"),
+    ("cache_read_input_token_cost", "cache_read_input_token_cost_priority"),
+)
+SOURCE_PER_MTOK_RE = re.compile(
+    r"\(\$(?P<input>[0-9]+(?:\.[0-9]+)?)/\$(?P<output>[0-9]+(?:\.[0-9]+)?) per M tokens\)"
+)
 VIDEO_RESOLUTIONS = {"480p", "720p", "1080p", "4k"}
 VIDEO_SOURCE_CONTRACT = "video_price_tiers is the billing ssot"
 STALE_VIDEO_SOURCE_PHRASES = (
@@ -134,6 +157,126 @@ STALE_VIDEO_SOURCE_PHRASES = (
 
 def _finite_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _prices_equal(left: object, right: object) -> bool:
+    if left is None or right is None:
+        return left is None and right is None
+    if not _finite_number(left) or not _finite_number(right):
+        return False
+    return math.isclose(left, right, rel_tol=1e-12, abs_tol=1e-15)
+
+
+def _effective_priority_price(pricing: dict, base_field: str, priority_field: str) -> object:
+    """Mirror computeTokenBreakdown's priority branch for one price dimension."""
+    base = pricing.get(base_field)
+    if not _finite_number(base):
+        return None
+    declares_priority = any(priority in pricing for _, priority in PRICE_PARITY_PRIORITY_FIELDS)
+    if not declares_priority:
+        return base * 2
+    priority = pricing.get(priority_field)
+    return priority if _finite_number(priority) and priority > 0 else base
+
+
+def _effective_long_context_price(pricing: dict, base_field: str) -> object:
+    """Resolve the price charged above the row's long-context threshold."""
+    base = pricing.get(base_field)
+    if not _finite_number(base):
+        return None
+
+    above_fields = {
+        "input_cost_per_token": "input_cost_per_token_above_272k_tokens",
+        "output_cost_per_token": "output_cost_per_token_above_272k_tokens",
+        "cache_read_input_token_cost": "cache_read_input_token_cost_above_272k_tokens",
+    }
+    declares_long_context = (
+        _finite_number(pricing.get("long_context_input_token_threshold"))
+        or any(field in pricing for field in above_fields.values())
+    )
+    if not declares_long_context:
+        return base
+
+    multiplier_field = (
+        "long_context_output_cost_multiplier"
+        if base_field == "output_cost_per_token"
+        else "long_context_input_cost_multiplier"
+    )
+    multiplier = pricing.get(multiplier_field)
+    if not _finite_number(multiplier) or multiplier <= 0:
+        derivation_base = (
+            "output_cost_per_token"
+            if base_field == "output_cost_per_token"
+            else "input_cost_per_token"
+        )
+        derivation_above = above_fields[derivation_base]
+        base_for_multiplier = pricing.get(derivation_base)
+        above_for_multiplier = pricing.get(derivation_above)
+        if (_finite_number(base_for_multiplier) and base_for_multiplier > 0
+                and _finite_number(above_for_multiplier) and above_for_multiplier > 0):
+            multiplier = above_for_multiplier / base_for_multiplier
+        else:
+            multiplier = 1
+    return base * multiplier
+
+
+def validate_price_parity(entries: dict) -> list[str]:
+    """Keep selected bare owners billing-equivalent to dated provider evidence."""
+    errors: list[str] = []
+    for bare_name, dated_name in PRICE_PARITY_OWNERS.items():
+        bare = entries.get(bare_name)
+        dated = entries.get(dated_name)
+        if not isinstance(bare, dict) or not isinstance(dated, dict):
+            errors.append(f"price parity requires owner pair {bare_name!r} / {dated_name!r}")
+            continue
+
+        for field in PRICE_PARITY_BASE_FIELDS:
+            if not _prices_equal(bare.get(field), dated.get(field)):
+                errors.append(
+                    f"{bare_name}: {field} must match dated owner {dated_name} "
+                    f"({bare.get(field)!r} != {dated.get(field)!r})"
+                )
+            bare_long = _effective_long_context_price(bare, field)
+            dated_long = _effective_long_context_price(dated, field)
+            if not _prices_equal(bare_long, dated_long):
+                errors.append(
+                    f"{bare_name}: effective long-context {field} must match dated owner "
+                    f"{dated_name} ({bare_long!r} != {dated_long!r})"
+                )
+
+        for base_field, priority_field in PRICE_PARITY_PRIORITY_FIELDS:
+            bare_priority = _effective_priority_price(bare, base_field, priority_field)
+            dated_priority = _effective_priority_price(dated, base_field, priority_field)
+            if not _prices_equal(bare_priority, dated_priority):
+                errors.append(
+                    f"{bare_name}: effective {priority_field} must match dated owner "
+                    f"{dated_name} ({bare_priority!r} != {dated_priority!r})"
+                )
+    return errors
+
+
+def validate_source_price_claim(model: str, pricing: dict) -> list[str]:
+    """Validate machine-readable per-M-token claims embedded in provenance."""
+    source = pricing.get("source")
+    if not isinstance(source, str):
+        return []
+    match = SOURCE_PER_MTOK_RE.search(source)
+    if match is None:
+        return []
+
+    errors: list[str] = []
+    claims = {
+        "input_cost_per_token": float(match.group("input")) / 1_000_000,
+        "output_cost_per_token": float(match.group("output")) / 1_000_000,
+    }
+    for field, claimed_price in claims.items():
+        actual_price = pricing.get(field)
+        if not _prices_equal(actual_price, claimed_price):
+            errors.append(
+                f"{model}: source claims {field}={claimed_price!r}, "
+                f"but registry row declares {actual_price!r}"
+            )
+    return errors
 
 
 def validate_runtime_owner_shape(model: str, pricing: dict) -> list[str]:
@@ -475,6 +618,7 @@ def main() -> int:
             continue
         errors.extend(validate_runtime_owner_shape(model, pricing))
         errors.extend(validate_priced_dimension_completeness(model, pricing))
+        errors.extend(validate_source_price_claim(model, pricing))
         mode = pricing.get("mode")
         fields = MODE_FIELDS.get(mode)
         if fields is None:
@@ -578,6 +722,8 @@ def main() -> int:
                     f"breaks the terminal-failure refund — change the refund design before "
                     f"pricing it"
                 )
+
+    errors.extend(validate_price_parity(entries))
 
     for model, field in ANCHORS.items():
         pricing = entries.get(model)

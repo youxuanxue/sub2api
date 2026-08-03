@@ -133,8 +133,10 @@ func (s *OpenAIGatewayService) TkReserveTokenHold(ctx context.Context, requestID
 }
 
 // TkReserveImageHold estimates an upper-bound image-generation cost and
-// reserves it. n is the REQUESTED image count (actual delivers ≤ n). Same
-// fail-open posture as TkReserveTokenHold.
+// reserves it. n is the REQUESTED image count (actual delivers ≤ n).
+// Pricing/DB failures keep the ordinary fail-open posture, but an image-token
+// owner with no provable per-image bound fails closed for balance users: a zero
+// hold there would re-open the concurrent-overdraft hole this reservation owns.
 //
 // Upper-bound construction: billing resolves the size tier from the upstream
 // OUTPUT size (which may exceed the requested size), so the estimate takes the
@@ -148,8 +150,17 @@ func (s *OpenAIGatewayService) TkReserveImageHold(ctx context.Context, requestID
 	if s == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
 		return false, false
 	}
+	apiKey = s.apiKeyWithFreshGroupMediaPricing(ctx, apiKey)
 	multiplier := resolveImageRateMultiplier(apiKey, s.tkHoldRateMultiplier(ctx, user, apiKey))
-	amount := s.tkEstimateImageHoldAmount(ctx, model, apiKey, n, multiplier)
+	amount, bounded := s.tkEstimateImageHoldAmount(ctx, model, apiKey, n, multiplier)
+	if multiplier > 0 && !bounded {
+		logger.L().Warn("openai_gateway.image_hold_unbounded",
+			zap.String("request_id", requestID),
+			zap.Int64("user_id", user.ID),
+			zap.String("model", model),
+		)
+		return false, true
+	}
 	held, reject, err := tkReserveBalanceHold(ctx, s.usageBillingRepo, requestID, user.ID, apiKey.ID, amount)
 	if err != nil {
 		logger.L().Error("openai_gateway.hold_reserve_failed",
@@ -164,8 +175,10 @@ func (s *OpenAIGatewayService) TkReserveImageHold(ctx context.Context, requestID
 }
 
 // tkEstimateImageHoldAmount mirrors calculateOpenAIImageCost with at-submit
-// upper-bound inputs: requested count, MAX over billing tiers.
-func (s *OpenAIGatewayService) tkEstimateImageHoldAmount(ctx context.Context, model string, apiKey *APIKey, n int, multiplier float64) float64 {
+// upper-bound inputs: requested count, MAX over billing tiers. bounded is false
+// only when an image-token owner can still reach token settlement, whose output
+// token count is unavailable before the upstream request runs.
+func (s *OpenAIGatewayService) tkEstimateImageHoldAmount(ctx context.Context, model string, apiKey *APIKey, n int, multiplier float64) (amount float64, bounded bool) {
 	if n <= 0 {
 		n = 1
 	}
@@ -178,8 +191,15 @@ func (s *OpenAIGatewayService) tkEstimateImageHoldAmount(ctx context.Context, mo
 		}
 	}
 	resolved := s.resolveOpenAIChannelPricing(ctx, model, apiKey)
-	amount := 0.0
+	billsByImageTokens := s.billingService.TkImageModelBillsByImageTokens(model)
+	bounded = true
 	for _, tier := range []string{ImageBillingSize1K, ImageBillingSize2K, ImageBillingSize4K} {
+		// Settlement gives an explicit group tier first priority, including an
+		// intentional zero price. Hold calculation must preserve that order.
+		if apiKeyHasConfiguredImagePrice(apiKey, tier) {
+			amount = maxFloat(amount, s.billingService.EstimateImageHold(model, tier, n, groupConfig, multiplier))
+			continue
+		}
 		if resolved != nil && (resolved.Mode == BillingModePerRequest || resolved.Mode == BillingModeImage) && apiKey.Group != nil {
 			gid := apiKey.Group.ID
 			cost, err := s.billingService.CalculateCostUnified(CostInput{
@@ -197,9 +217,12 @@ func (s *OpenAIGatewayService) tkEstimateImageHoldAmount(ctx context.Context, mo
 				continue
 			}
 		}
+		if billsByImageTokens {
+			bounded = false
+		}
 		amount = maxFloat(amount, s.billingService.EstimateImageHold(model, tier, n, groupConfig, multiplier))
 	}
-	return amount
+	return amount, bounded
 }
 
 // TkReserveVideoHold reserves the exact cost the video submit path will bill.

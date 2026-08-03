@@ -178,6 +178,13 @@ func normalizeKnownOpenAICodexModel(model string) string {
 // normalizeOpenAIBillingModel maps OpenAI/Codex wire ids to billing tier keys.
 // Codex wire transform keeps ids such as gpt-5.6-chat-latest; billing collapses them to Sol/Terra/Luna.
 func normalizeOpenAIBillingModel(model string) string {
+	// Routing deliberately sends the Pro compatibility surface to the gpt-5.5
+	// wire model, but billing must retain the requested Pro tier. Running this
+	// through normalizeKnownOpenAICodexModel first loses that distinction.
+	canonical := canonicalizeOpenAIModelAliasSpelling(model)
+	if canonical == "gpt-5.5-pro" || strings.HasPrefix(canonical, "gpt-5.5-pro-") {
+		return "gpt-5.5-pro"
+	}
 	normalized := normalizeKnownOpenAICodexModel(model)
 	if normalized == "" || !strings.Contains(normalized, "gpt-5.6") {
 		return normalized
@@ -218,6 +225,12 @@ func appendUsageBillingModelCandidate(candidates []string, seen map[string]struc
 	}
 	if normalized := normalizeOpenAIBillingModel(trimmed); normalized != "" {
 		add(normalized)
+	}
+	// Billing and routing intentionally diverge for compatibility surfaces such
+	// as gpt-5.5-pro: price the requested Pro tier first, while retaining the
+	// actual gpt-5.5 wire id as a later usage lookup candidate.
+	if routed := CanonicalizeOpenAICompatRoutingModel(trimmed); routed != "" {
+		add(routed)
 	}
 	return candidates
 }

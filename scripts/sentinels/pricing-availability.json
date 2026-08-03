@@ -229,10 +229,44 @@
       "path": "backend/internal/service/openai_model_alias.go",
       "must_contain": [
         "func normalizeOpenAIBillingModel",
+        "canonical == \"gpt-5.5-pro\"",
+        "CanonicalizeOpenAICompatRoutingModel(trimmed)",
         "gpt-5.6-chat-latest",
         "return \"gpt-5.6-sol\""
       ],
-      "rationale": "GPT-5.6 billing tier normalization is intentionally split from codex wire normalization (normalizeKnownOpenAICodexModel / normalizeCodexModel): upstream wire ids such as gpt-5.6-chat-latest must stay intact for OAuth transform while billing collapses chat-latest to the Sol tier key. Merging tier collapse back into normalizeKnownOpenAICodexModel silently breaks TestNormalizeCodexModel_Gpt53 and mis-bills chat-latest at the gpt-5.4 family floor. Pinning normalizeOpenAIBillingModel and the Sol collapse makes an upstream merge refactor fail CI instead of regressing wire vs billing separation."
+      "rationale": "OpenAI billing tier normalization is intentionally split from wire normalization. The gpt-5.5-pro compatibility surface routes on the ordinary gpt-5.5 wire id but must retain its Pro registry owner for billing; usage lookup then appends the routed wire id as a later candidate. GPT-5.6 wire ids such as gpt-5.6-chat-latest likewise stay intact for OAuth transform while billing collapses chat-latest to the Sol tier key. Dropping these anchors silently under-bills Pro requests or breaks wire-vs-billing separation."
+    },
+    {
+      "path": "backend/internal/service/openai_model_alias_test.go",
+      "must_contain": [
+        "TestNormalizeOpenAIBillingModelPreservesGPT55ProTier"
+      ],
+      "rationale": "Regression coverage that the routed gpt-5.5 wire compatibility path cannot erase the requested Pro billing tier."
+    },
+    {
+      "path": "backend/internal/service/pricing_service.go",
+      "must_contain": [
+        "strings.HasPrefix(model, \"gpt-5.5-pro\")",
+        "tkOverlayLiteLLMModelPricing(\"gpt-5.5-pro\")",
+        "tkOverlayLiteLLMModelPricing(\"gpt-5.5\")"
+      ],
+      "rationale": "PricingService compatibility aliases must resolve gpt-5.5 and gpt-5.5-pro to their own registry owners. Falling back to gpt-5.4 or collapsing Pro to the base owner silently under-bills both surfaces even though routing still succeeds."
+    },
+    {
+      "path": "backend/internal/service/pricing_service_test.go",
+      "must_contain": [
+        "TestGetModelPricing_OpenAICompactAliasReadsRegistryOwner",
+        "tkOverlayLiteLLMModelPricing(\"gpt-5.5-pro\")"
+      ],
+      "rationale": "Regression coverage for compact OpenAI aliases resolving the base and Pro gpt-5.5 registry owners."
+    },
+    {
+      "path": "backend/internal/service/billing_service_test.go",
+      "must_contain": [
+        "TestCalculateCost_OpenAIGPT55ProUsesProPricingPolicy",
+        "owner := mustRegistryOwnerModelPricing(t, \"gpt-5.5-pro\")"
+      ],
+      "rationale": "End-to-end billing regression coverage that a gpt-5.5-pro request uses the Pro owner rather than the cheaper base tier."
     },
     {
       "path": "scripts/checks/pricing-overlay.py",
@@ -242,9 +276,11 @@
         "grok-build-0.1",
         "def validate_official_list_base_tax",
         "official_list_base_tax.multiplier must be within [1,2]",
-        "def validate_priced_dimension_completeness"
+        "def validate_priced_dimension_completeness",
+        "def validate_price_parity",
+        "def validate_source_price_claim"
       ],
-      "rationale": "The registry gate validates media failure billing, critical price anchors, and executable base-tax policy. Tax config must have a bounded multiplier, unique normalized providers, and valid non-duplicated fallback matchers before an embedded release can consume it. validate_priced_dimension_completeness replaces the numeric completion that BillingService.applyModelSpecificPricingPolicy used to perform in Go (deriving gpt-5.6 cache-write as input x 1.25 and back-filling the 272K long-context triple). With policy now data-owned there is no Go rescue for an omitted dimension — billing silently falls back to a base rate or zero — so the omission must fail CI: a declared priority tier must price every positive base dimension billing can consume, and either long-context representation (normalized triple or above-272K rates) must be complete."
+      "rationale": "The registry gate validates media failure billing, critical price anchors, executable base-tax policy, bare-vs-dated owner price parity, and numeric price claims embedded in provenance. validate_price_parity compares base fields plus runtime-effective priority and long-context rates so a copied bare owner cannot drift cheaper than provider evidence. validate_source_price_claim turns source strings of the form ($input/$output per M tokens) into executable consistency checks. validate_priced_dimension_completeness rejects omitted runtime dimensions now that no Go rescue path remains."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_media_unpriced_guard_contract_test.go",
@@ -336,9 +372,11 @@
       "must_contain": [
         "test_rejects_owner_shape_that_go_decoder_rejects",
         "provider-prefixed owner",
-        "malformed intervals"
+        "malformed intervals",
+        "test_shipped_registry_preserves_owner_price_parity",
+        "test_shipped_registry_source_claims_match_rows"
       ],
-      "rationale": "The standalone pricing gate must reject the same malformed owner shapes as the Go runtime parser, including typed metadata mismatches and non-bare owner keys."
+      "rationale": "The standalone pricing gate must reject the same malformed owner shapes as the Go runtime parser and prove the shipped registry preserves bare-owner parity plus source-claim consistency."
     },
     {
       "path": "ops/pricing/manage-overlay-runtime.py",
@@ -461,6 +499,25 @@
         "BillingMode = string(BillingModeImage)"
       ],
       "rationale": "Closes the $0 media hole for per-image-TOKEN owners (OpenAI gpt-image-*): those rows carry output_cost_per_image_token and NO output_cost_per_image, so CalculateImageCost (which reads only OutputCostPerImage) charged $0 while the unpriced-media guard still saw a priced row — bills nothing AND passes the gate, the exact pair docs/approved/priced-or-it-doesnt-ship.md forbids. TkCalculateImageTokenCost settles them by delegating to computeTokenBreakdown (never reimplementing the arithmetic, so image-input/output token dimension precedence stays owned in one place) while keeping BillingMode=image so the usage-log billing_mode filter and the image rate multiplier are unchanged. tkRegistryRowHasBillableImagePrice must admit exactly the dimensions those two settlement paths can charge: per-image or positive output-image-token pricing. Plain token or input-image-token prices alone remain fail-closed because no image router settles them. Dropping any anchor silently restores $0 image billing for the whole gpt-image family."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_hold.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) TkReserveImageHold(",
+        "amount, bounded := s.tkEstimateImageHoldAmount",
+        "openai_gateway.image_hold_unbounded",
+        "if apiKeyHasConfiguredImagePrice(apiKey, tier)"
+      ],
+      "rationale": "Image-token owners have no pre-submit output-token maximum, so a zero balance hold would let concurrent gpt-image-* requests reuse the same funds. Fixed group tiers and channel per-request/image prices remain reservable; any tier that can still reach token settlement makes the balance request fail closed before upstream spend. The group-price anchor also preserves settlement precedence so a cheaper channel price cannot under-reserve a higher explicit group image tier."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_hold_test.go",
+      "must_contain": [
+        "TestTkReserveImageHold_RejectsUnboundedImageTokenOwner",
+        "TestTkReserveImageHold_ZeroMultiplierNeedsNoBound",
+        "TestTkReserveImageHold_GroupPricesBoundTokenOwnerAndPrecedeChannel"
+      ],
+      "rationale": "Regression coverage for the image-token balance boundary: unbounded paid requests reject, intentional zero-multiplier requests remain free, and complete fixed group tiers both bound the request and retain precedence over channel pricing."
     },
     {
       "path": "backend/internal/service/openai_gateway_usage.go",

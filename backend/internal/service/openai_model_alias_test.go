@@ -42,3 +42,20 @@ func TestCanonicalizeOpenAICompatRoutingModel(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeOpenAIBillingModelPreservesGPT55ProTier(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"gpt-5.5-pro":             "gpt-5.5-pro",
+		"gpt5.5-pro":              "gpt-5.5-pro",
+		"openai/gpt-5.5-pro-high": "gpt-5.5-pro",
+		"gpt-5.5":                 "gpt-5.5",
+	}
+	for model, want := range cases {
+		model, want := model, want
+		t.Run(model, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, want, normalizeOpenAIBillingModel(model))
+		})
+	}
+}

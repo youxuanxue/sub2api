@@ -399,7 +399,11 @@ func TestGetModelPricing_OpenAICompactAliasReadsRegistryOwner(t *testing.T) {
 
 	got := svc.GetModelPricing("openai/gpt5.5")
 	require.NotNil(t, got)
-	require.Equal(t, tkOverlayLiteLLMModelPricing("gpt-5.4"), got)
+	require.Equal(t, tkOverlayLiteLLMModelPricing("gpt-5.5"), got)
+
+	gotPro := svc.GetModelPricing("openai/gpt5.5-pro-high")
+	require.NotNil(t, gotPro)
+	require.Equal(t, tkOverlayLiteLLMModelPricing("gpt-5.5-pro"), gotPro)
 }
 
 func TestPricingService_Gemini36FlashThinkingTiersUseBasePricing(t *testing.T) {

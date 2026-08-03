@@ -593,11 +593,17 @@ func (s *PricingService) resolveOpenAIRegistryAlias(model string) *LiteLLMModelP
 		return tkOverlayLiteLLMModelPricing("gpt-5.6-luna")
 	}
 
-	// GPT-5.5 compatibility aliases to the GPT-5.4 registry owner.
+	// GPT-5.5 compatibility aliases retain their registry billing tier even when
+	// routing later collapses Pro to the ordinary gpt-5.5 wire model.
+	if strings.HasPrefix(model, "gpt-5.5-pro") {
+		logger.With(zap.String("component", "service.pricing")).
+			Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, "gpt-5.5-pro"))
+		return tkOverlayLiteLLMModelPricing("gpt-5.5-pro")
+	}
 	if strings.HasPrefix(model, "gpt-5.5") {
 		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, "gpt-5.4"))
-		return tkOverlayLiteLLMModelPricing("gpt-5.4")
+			Info(fmt.Sprintf("[Pricing] OpenAI registry alias matched %s -> %s", model, "gpt-5.5"))
+		return tkOverlayLiteLLMModelPricing("gpt-5.5")
 	}
 
 	if strings.HasPrefix(model, "gpt-5.4-mini") {

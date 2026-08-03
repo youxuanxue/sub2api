@@ -285,7 +285,7 @@ func TestGetModelPricing_OpenAICompactAliasesResolveRegistryOwners(t *testing.T)
 		model string
 		owner string
 	}{
-		{model: "gpt5.5", owner: "gpt-5.4"},
+		{model: "gpt5.5", owner: "gpt-5.5"},
 		{model: "openai/gpt5.4", owner: "gpt-5.4"},
 		{model: "gpt5.4-mini", owner: "gpt-5.4-mini"},
 		{model: "gpt5.3codexspark", owner: "gpt-5.3-codex"},
@@ -348,7 +348,7 @@ func TestCalculateCost_OpenAIGPT54LongContextMarkerRequiresActualCostIncrease(t 
 	require.False(t, cost.LongContextBillingApplied)
 }
 
-func TestCalculateCost_OpenAIGPT55ProUsesGPT55PricingPolicy(t *testing.T) {
+func TestCalculateCost_OpenAIGPT55ProUsesProPricingPolicy(t *testing.T) {
 	svc := newTestBillingService()
 	owner := mustRegistryOwnerModelPricing(t, "gpt-5.5-pro")
 

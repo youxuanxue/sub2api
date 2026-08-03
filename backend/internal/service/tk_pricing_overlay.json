@@ -1039,9 +1039,9 @@
   "minimax-m3": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 6E-7,
-    "output_cost_per_token": 0.0000024,
-    "cache_read_input_token_cost": 1.2E-7,
+    "input_cost_per_token": 3E-7,
+    "output_cost_per_token": 0.0000012,
+    "cache_read_input_token_cost": 6E-8,
     "source": "MiniMax official API list price for minimax-m3 ($0.30/$1.20 per M tokens). Routed via VolcEngine Agent Plan account 88; probe 200 on 2026-07-30."
   },
   "ark-code-latest": {
@@ -3044,22 +3044,22 @@
     "source": "offline provider evidence gpt-5.4-mini (captured via apply-pricing-hotfix.py)"
   },
   "gpt-5.5": {
-    "cache_creation_input_token_cost": 0.0000025,
-    "cache_creation_input_token_cost_priority": 0.000005,
-    "cache_read_input_token_cost": 0.00000025,
-    "cache_read_input_token_cost_priority": 0.0000005,
+    "cache_creation_input_token_cost": 0.000005,
+    "cache_creation_input_token_cost_priority": 0.00001,
+    "cache_read_input_token_cost": 0.0000005,
+    "cache_read_input_token_cost_priority": 0.000001,
     "long_context_input_token_threshold": 272000,
     "long_context_input_cost_multiplier": 2,
     "long_context_output_cost_multiplier": 1.5,
-    "input_cost_per_token": 0.0000025,
-    "input_cost_per_token_priority": 0.000005,
+    "input_cost_per_token": 0.000005,
+    "input_cost_per_token_priority": 0.00001,
     "litellm_provider": "openai",
     "max_input_tokens": 1050000,
     "max_output_tokens": 128000,
     "max_tokens": 128000,
     "mode": "chat",
-    "output_cost_per_token": 0.000015,
-    "output_cost_per_token_priority": 0.00003,
+    "output_cost_per_token": 0.00003,
+    "output_cost_per_token_priority": 0.00006,
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/batch",
@@ -3518,7 +3518,7 @@
     "source": "offline provider evidence gpt-5.3-codex-spark (captured via apply-pricing-hotfix.py)"
   },
   "gpt-5.4-pro": {
-    "cache_read_input_token_cost": 0.00000025,
+    "cache_read_input_token_cost": 0.000003,
     "cache_read_input_token_cost_above_272k_tokens": 0.000006,
     "input_cost_per_token": 0.00003,
     "input_cost_per_token_above_272k_tokens": 0.00006,
@@ -7442,22 +7442,22 @@
     "supports_xhigh_reasoning_effort": true
   },
   "gpt-5.5-pro": {
-    "cache_creation_input_token_cost": 0.0000025,
-    "cache_creation_input_token_cost_priority": 0.000005,
-    "cache_read_input_token_cost": 0.00000025,
-    "cache_read_input_token_cost_priority": 0.0000005,
+    "cache_creation_input_token_cost": 0.00003,
+    "cache_creation_input_token_cost_priority": 0.00006,
+    "cache_read_input_token_cost": 0.000003,
+    "cache_read_input_token_cost_priority": 0.000006,
     "long_context_input_token_threshold": 272000,
     "long_context_input_cost_multiplier": 2,
     "long_context_output_cost_multiplier": 1.5,
-    "input_cost_per_token": 0.0000025,
-    "input_cost_per_token_priority": 0.000005,
+    "input_cost_per_token": 0.00003,
+    "input_cost_per_token_priority": 0.00006,
     "litellm_provider": "openai",
     "max_input_tokens": 1050000,
     "max_output_tokens": 128000,
     "max_tokens": 128000,
     "mode": "responses",
-    "output_cost_per_token": 0.000015,
-    "output_cost_per_token_priority": 0.00003,
+    "output_cost_per_token": 0.00018,
+    "output_cost_per_token_priority": 0.00036,
     "supported_endpoints": [
       "/v1/responses",
       "/v1/batch"
@@ -7484,7 +7484,8 @@
     "supports_tool_choice": true,
     "supports_vision": true,
     "supports_web_search": true,
-    "supports_xhigh_reasoning_effort": true
+    "supports_xhigh_reasoning_effort": true,
+    "source": "offline provider evidence gpt-5.5-pro-2026-04-23; bare owner price parity is mechanically enforced"
   },
   "gpt-5.5-pro-2026-04-23": {
     "cache_creation_input_token_cost": 0.00003,

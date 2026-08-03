@@ -92,6 +92,110 @@ func TestEstimateImageHold_CoversFewerDeliveredImages(t *testing.T) {
 	}
 }
 
+func TestTkReserveImageHold_RejectsUnboundedImageTokenOwner(t *testing.T) {
+	repo := &videoHoldRepoStub{}
+	s := &OpenAIGatewayService{
+		billingService:   NewBillingService(&config.Config{}, nil),
+		usageBillingRepo: repo,
+	}
+	apiKey := &APIKey{ID: 2, Group: &Group{ID: 10, RateMultiplier: 1}}
+
+	held, reject := s.TkReserveImageHold(
+		context.Background(), "image-token-unbounded", "gpt-image-2",
+		&User{ID: 1}, apiKey, 1,
+	)
+
+	if held || !reject {
+		t.Fatalf("unbounded image-token owner must fail closed: held=%v reject=%v", held, reject)
+	}
+	if repo.command != nil {
+		t.Fatalf("unbounded image-token owner must not submit a zero hold: %+v", repo.command)
+	}
+}
+
+func TestTkReserveImageHold_ZeroMultiplierNeedsNoBound(t *testing.T) {
+	repo := &videoHoldRepoStub{}
+	s := &OpenAIGatewayService{
+		billingService:   NewBillingService(&config.Config{}, nil),
+		usageBillingRepo: repo,
+	}
+	apiKey := &APIKey{
+		ID: 2,
+		Group: &Group{
+			ID:                   10,
+			RateMultiplier:       1,
+			ImageRateIndependent: true,
+			ImageRateMultiplier:  0,
+			VideoRateIndependent: true,
+			VideoRateMultiplier:  1,
+		},
+	}
+
+	held, reject := s.TkReserveImageHold(
+		context.Background(), "image-token-free", "gpt-image-2",
+		&User{ID: 1}, apiKey, 1,
+	)
+
+	if held || reject {
+		t.Fatalf("an intentional zero image multiplier needs no balance hold: held=%v reject=%v", held, reject)
+	}
+	if repo.command != nil {
+		t.Fatalf("zero-cost image request must not reserve balance: %+v", repo.command)
+	}
+}
+
+func TestTkReserveImageHold_GroupPricesBoundTokenOwnerAndPrecedeChannel(t *testing.T) {
+	const groupID = int64(100)
+	price1K, price2K, price4K := 0.2, 0.3, 0.4
+	channelPrice := 0.05
+	cache := newEmptyChannelCache()
+	cache.pricingByGroupModel[channelModelKey{groupID: groupID, model: "gpt-image-2"}] = &ChannelModelPricing{
+		BillingMode:     BillingModeImage,
+		PerRequestPrice: &channelPrice,
+	}
+	cache.channelByGroupID[groupID] = &Channel{ID: groupID, Status: StatusActive}
+	cache.groupPlatform[groupID] = ""
+	cache.loadedAt = time.Now()
+	channelService := &ChannelService{}
+	channelService.cache.Store(cache)
+	billingService := NewBillingService(&config.Config{}, nil)
+	repo := &videoHoldRepoStub{}
+	s := &OpenAIGatewayService{
+		billingService:   billingService,
+		usageBillingRepo: repo,
+		resolver:         NewModelPricingResolver(channelService, billingService),
+	}
+	apiKey := &APIKey{
+		ID:      2,
+		GroupID: i64p(groupID),
+		Group: &Group{
+			ID:                  groupID,
+			RateMultiplier:      1,
+			ImageRateMultiplier: 1,
+			VideoRateMultiplier: 1,
+			ImagePrice1K:        &price1K,
+			ImagePrice2K:        &price2K,
+			ImagePrice4K:        &price4K,
+		},
+	}
+
+	held, reject := s.TkReserveImageHold(
+		context.Background(), "image-token-group-prices", "gpt-image-2",
+		&User{ID: 1}, apiKey, 2,
+	)
+
+	if !held || reject {
+		t.Fatalf("complete fixed group prices make the hold bounded: held=%v reject=%v", held, reject)
+	}
+	if repo.command == nil {
+		t.Fatal("expected a balance hold")
+	}
+	want := price4K * 2
+	if repo.command.Amount != want {
+		t.Errorf("group image tiers must precede the cheaper channel price: amount=%.6f want=%.6f", repo.command.Amount, want)
+	}
+}
+
 func TestEstimateVideoHold_MatchesBilledDuration(t *testing.T) {
 	s := NewBillingService(&config.Config{}, nil)
 	hold := s.EstimateVideoHold("some-video-model", 8, 1.0, "", nil, nil)
