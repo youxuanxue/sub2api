@@ -297,6 +297,8 @@
         "shouldExposeClaudeCodeContinuationText",
         "shouldExposeClaudeCodeCompletionMessage",
         "completionSignalTextDelta",
+        "isShortBlockerQuestion",
+        "maxBlockerQuestionRunes",
         "continuationTextDelta",
         "stripCompletionMarkdownPrefix",
         "flushContinuationText",
@@ -307,7 +309,7 @@
         "classifyAndRecordKiroForwardError",
         "publishKiroInternalThinkingSideChannel"
       ],
-      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. shouldExposeClaudeCodeContinuationText and shouldExposeClaudeCodeCompletionMessage make repair turns deterministic control-plane traffic: missing-signal and later complete recap/message text stays hidden, while ordinary client tools, non-completion terminal outcomes, first-turn answers, empty-visible-output fallbacks, and blocked questions remain visible. completionSignalTextDelta and continuationTextDelta still protect same-turn and text-before-tool boundaries; stripCompletionMarkdownPrefix accepts only explicit marker-plus-space decoration so semantic prefixes such as negative signs survive. flushContinuationText preserves text-before-tool ordering in SSE. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. billingTextBuf keeps hidden continuation output billable even when presentation is suppressed, while private completion input is counted exactly once through billingToolUses. Both stop/completion actions remain observable, and the visible-text-aware pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
+      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. Continuation turns are transport-only wiring: default zero client-visible text; only ordinary client tools, non-completion terminal outcomes, and deduped short blocker questions may pass. shouldExposeClaudeCodeCompletionMessage and completionSignalTextDelta enforce turn>=2 complete silence plus isShortBlockerQuestion gating after continuationTextDelta dedupe. stripCompletionMarkdownPrefix accepts only explicit marker-plus-space decoration so semantic prefixes such as negative signs survive. flushContinuationText preserves text-before-tool ordering in SSE. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. billingTextBuf keeps hidden continuation output billable even when presentation is suppressed, while private completion input is counted exactly once through billingToolUses. Both stop/completion actions remain observable, and the visible-text-aware pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_test.go",
@@ -333,6 +335,12 @@
         "TestUS041_KiroGatewayService_ContinuationCompletionDoesNotRepeatPriorFinalText",
         "TestUS041_KiroGatewayService_HiddenCompletionSuppressesSemanticRecapAndToolOutputSummary",
         "TestUS041_KiroGatewayService_HiddenBlockedMessageRemainsVisible",
+        "TestUS041_KiroGatewayService_HiddenBlockedRecapDoesNotRepeatVisibleAnswer",
+        "TestUS041_KiroGatewayService_HiddenBlockedExactRecapIsTransportOnly",
+        "TestUS041_KiroGatewayService_HiddenBlockedLongEssayIsTransportOnly",
+        "TestIsShortBlockerQuestion",
+        "TestCompletionSignalTextDeltaTurn2CompleteIsAlwaysSilent",
+        "TestCompletionSignalTextDeltaDropsBlockedRecapKeepsNovelQuestion",
         "TestUS041_KiroGatewayService_HiddenMaxTokensTextRemainsVisible",
         "TestUS041_KiroGatewayService_ContinuationTextDoesNotRepeatAcrossTurns",
         "TestContinuationTextDeltaKeepsOnlyNewToolContext",

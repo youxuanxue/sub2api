@@ -43,6 +43,13 @@ type KiroGatewayService struct {
 // stops without creating an unbounded agent loop.
 const maxClaudeCodeCompletionTurns = 3
 
+// Continuation turns are transport-only wiring. A later blocked signal may
+// surface at most one short, question-like paragraph after dedupe.
+const (
+	maxBlockerQuestionRunes      = 256
+	maxBlockerQuestionParagraphs = 1
+)
+
 // KiroPostOutputStreamDisconnectError marks an incomplete upstream stream after
 // response content has already been sent. The current request cannot be replayed
 // safely; the handler uses this marker to exclude the account once on the
@@ -176,9 +183,8 @@ func shouldExposeClaudeCodeContinuationText(
 }
 
 // shouldExposeClaudeCodeCompletionMessage preserves the normal first-turn
-// final answer and genuine blocker questions. A later complete signal is only
-// a transport acknowledgement when client-visible text already exists, so its
-// recap/message must not become a second user-facing answer.
+// final answer. Continuation turns are silent by default; only a short,
+// question-like blocked delta may become client-visible once deduped.
 func shouldExposeClaudeCodeCompletionMessage(
 	turn int,
 	visibleText string,
@@ -188,22 +194,74 @@ func shouldExposeClaudeCodeCompletionMessage(
 	if !completionAccepted || signal == nil {
 		return false
 	}
-	return turn == 1 || signal.Status == "blocked" || strings.TrimSpace(visibleText) == ""
+	if turn == 1 || strings.TrimSpace(visibleText) == "" {
+		return true
+	}
+	return completionSignalTextDelta(turn, visibleText, signal) != ""
 }
 
-func completionSignalTextDelta(visibleText string, signal *kiroproto.ClaudeCodeCompletionSignal) string {
+func completionSignalTextDelta(
+	turn int,
+	visibleText string,
+	signal *kiroproto.ClaudeCodeCompletionSignal,
+) string {
 	if signal == nil || strings.TrimSpace(signal.Message) == "" {
 		return ""
 	}
 	message := strings.TrimSpace(signal.Message)
-	visibleText = strings.TrimSpace(visibleText)
-	if visibleText == "" {
+	if strings.TrimSpace(visibleText) == "" {
 		return message
 	}
-	if containsVisibleCompletionBlock(visibleText, message) {
+	delta := continuationTextDelta(visibleText, message)
+	if turn == 1 {
+		return delta
+	}
+	// Continuation turns: complete is always transport-only.
+	if signal.Status == "complete" {
 		return ""
 	}
-	return "\n\n" + message
+	if signal.Status != "blocked" {
+		return ""
+	}
+	trimmed := strings.TrimSpace(delta)
+	if trimmed == "" || !isShortBlockerQuestion(trimmed) {
+		return ""
+	}
+	return delta
+}
+
+// isShortBlockerQuestion gates the only completion-message exception on
+// continuation turns: one short paragraph that reads like a user question.
+func isShortBlockerQuestion(message string) bool {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return false
+	}
+	paragraphs := strings.Split(message, "\n\n")
+	nonEmpty := 0
+	for _, paragraph := range paragraphs {
+		if strings.TrimSpace(paragraph) != "" {
+			nonEmpty++
+		}
+	}
+	if nonEmpty == 0 || nonEmpty > maxBlockerQuestionParagraphs {
+		return false
+	}
+	if utf8.RuneCountInString(message) > maxBlockerQuestionRunes {
+		return false
+	}
+	if strings.ContainsAny(message, "?？") {
+		return true
+	}
+	for _, hint := range []string{
+		"是否", "能否", "要不要", "需要您", "需要你", "需要你的",
+		"请确认", "请选择", "请提供", "请批准", "waiting for", "blocked on",
+	} {
+		if strings.Contains(message, hint) {
+			return true
+		}
+	}
+	return false
 }
 
 // continuationTextDelta removes earlier text from the continuation content
@@ -545,7 +603,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 			}
 		}
 		if shouldExposeClaudeCodeCompletionMessage(turn, textBuf+visibleTurnText, completionSignal, completionAccepted) {
-			visibleTurnText += completionSignalTextDelta(textBuf+visibleTurnText, completionSignal)
+			visibleTurnText += completionSignalTextDelta(turn, textBuf+visibleTurnText, completionSignal)
 		}
 		if visibleTurnText == "" && turnThinking == "" && len(turnToolUses) == 0 && textBuf == "" && thinkingBuf == "" {
 			if isKiroPolicyStopReason(stopReason) {
@@ -824,7 +882,7 @@ func (s *KiroGatewayService) forwardStreaming(
 			flushContinuationText()
 		}
 		if shouldExposeClaudeCodeCompletionMessage(turn, textBuf+visibleTurnText, completionSignal, completionAccepted) {
-			completionDelta := completionSignalTextDelta(textBuf+visibleTurnText, completionSignal)
+			completionDelta := completionSignalTextDelta(turn, textBuf+visibleTurnText, completionSignal)
 			if completionDelta != "" {
 				visibleTurnText += completionDelta
 				markFirstToken()
