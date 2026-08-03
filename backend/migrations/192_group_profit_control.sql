@@ -3,6 +3,8 @@
 -- U (accounts.rate_multiplier) satisfies U <= D * (1 - margin - buffer), where
 -- D is the requester's effective downstream multiplier at the request's
 -- pricing instant.
+-- bluegreen-safe-destructive-ok: expand-only columns with NOT NULL + DEFAULT;
+-- old active app ignores them; new app reads defaults until profit control is enabled.
 ALTER TABLE groups
     ADD COLUMN IF NOT EXISTS profit_control_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS profit_min_margin DECIMAL(10,4) NOT NULL DEFAULT 0,
