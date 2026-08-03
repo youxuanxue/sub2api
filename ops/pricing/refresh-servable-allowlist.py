@@ -447,10 +447,29 @@ def validate_results_against_reprobe_ledger(servable: dict[str, set[str]], ledge
         raise SystemExit(f"FATAL: probe results mark skiplist/deadlist model as servable: {rendered}")
 
 
-def build_probe_candidates(catalog: dict, discovered: list[str]) -> tuple[dict[str, list[str]], dict]:
+def _watchlist_last_probe_dates(ledger: dict) -> list[dt.date]:
+    dates: list[dt.date] = []
+    for entry in _ledger_entries(ledger, "watchlist"):
+        last_probe = entry.get("last_probe")
+        if last_probe:
+            dates.append(_parse_date(str(last_probe), "watchlist last_probe"))
+    return dates
+
+
+def build_probe_candidates(
+    catalog: dict,
+    discovered: list[str],
+    *,
+    today: dt.date | None = None,
+) -> tuple[dict[str, list[str]], dict]:
     ledger = load_reprobe_ledger()
     cands = augment_candidates_with_watchlist(build_candidates(catalog, discovered), ledger)
-    validate_reprobe_ledger(ledger, allowlist_members=_known_allowlist_members(GO_FILE.read_text(encoding="utf-8")), candidates=cands)
+    validate_reprobe_ledger(
+        ledger,
+        today=today,
+        allowlist_members=_known_allowlist_members(GO_FILE.read_text(encoding="utf-8")),
+        candidates=cands,
+    )
     return cands, ledger
 
 
@@ -1067,10 +1086,18 @@ def selftest() -> int:
     # The real machine ledger is part of preflight, not just a runtime input.
     # Include discovered fixtures so skiplist removal and watchlist
     # probe_family overrides are both exercised without prod.
+    # Anchor today to max(watchlist last_probe) so calendar bitrot on
+    # freshness_days does not force unrelated PRs to fake-roll last_probe.
+    # Operational refresh (default today=None → date.today()) still enforces
+    # wall-clock staleness when operators actually rebuild candidates.
     real_catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+    real_ledger_preview = load_reprobe_ledger()
+    probe_dates = _watchlist_last_probe_dates(real_ledger_preview)
+    selftest_today = max(probe_dates) if probe_dates else dt.date.today()
     real_cands, _real_ledger = build_probe_candidates(
         real_catalog,
         ["gemini-3-pro-preview", "gemini-3-pro-image-preview", "gemini-3.1-flash-image"],
+        today=selftest_today,
     )
     real_members = _candidate_members(real_cands)
     assert ("openai", "gpt-5.2") not in real_members, "deprecated gpt-5.2 must not be probed back into allowlist"
