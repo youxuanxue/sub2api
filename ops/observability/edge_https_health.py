@@ -52,25 +52,48 @@ def probe_health(
     timeout_sec: float = 8.0,
     opener=None,
 ) -> dict:
-    """GET url; reachable means HTTP 200. Connection failures => reachable=false."""
+    """GET url.
+
+    ``reachable`` means *transport* succeeded (TCP/TLS + an HTTP response),
+    including non-200. Only timeouts / connect failures set reachable=false
+    and http_code=0 — that is the sole signal scan-edge-health uses to skip
+    SSM. Deploy-time 502/503 must still fall through to SSM.
+    ``healthy`` is HTTP 200.
+    """
     open_url = opener or urllib.request.urlopen
     try:
         req = urllib.request.Request(url, method="GET")
         with open_url(req, timeout=timeout_sec, context=ssl.create_default_context()) as resp:
             code = int(getattr(resp, "status", None) or resp.getcode())
             body = resp.read(64)
-            ok = code == 200
             return {
                 "url": url,
-                "reachable": ok,
+                "reachable": True,
+                "healthy": code == 200,
                 "http_code": code,
                 "body_prefix": body.decode("utf-8", errors="replace")[:64],
                 "error": "",
             }
-    except Exception as exc:  # noqa: BLE001 — any transport failure is unreachable
+    except urllib.error.HTTPError as exc:
+        # urllib raises on 4xx/5xx — still a transport-level success.
+        try:
+            body = exc.read(64) or b""
+        except Exception:  # noqa: BLE001 — best-effort body snip
+            body = b""
+        code = int(getattr(exc, "code", 0) or 0)
+        return {
+            "url": url,
+            "reachable": True,
+            "healthy": False,
+            "http_code": code,
+            "body_prefix": body.decode("utf-8", errors="replace")[:64],
+            "error": f"HTTPError: {code}",
+        }
+    except Exception as exc:  # noqa: BLE001 — timeout/connect/DNS => unreachable
         return {
             "url": url,
             "reachable": False,
+            "healthy": False,
             "http_code": 0,
             "body_prefix": "",
             "error": f"{type(exc).__name__}: {exc}",
@@ -116,13 +139,30 @@ def _selftest() -> int:
         return _Resp()
 
     got = probe_health("https://example.test/health", opener=ok_open)
-    check("200 => reachable", got["reachable"] is True and got["http_code"] == 200)
+    check(
+        "200 => reachable+healthy",
+        got["reachable"] is True and got.get("healthy") is True and got["http_code"] == 200,
+    )
 
     def boom_open(_req, timeout=0, context=None):  # noqa: ARG001
         raise TimeoutError("connect timed out")
 
     bad = probe_health("https://example.test/health", opener=boom_open)
-    check("timeout => unreachable", bad["reachable"] is False and bad["http_code"] == 0)
+    check(
+        "timeout => unreachable http_code=0",
+        bad["reachable"] is False and bad["http_code"] == 0 and bad.get("healthy") is False,
+    )
+
+    def http503_open(_req, timeout=0, context=None):  # noqa: ARG001
+        raise urllib.error.HTTPError(
+            "https://example.test/health", 503, "Service Unavailable", hdrs=None, fp=None
+        )
+
+    soft = probe_health("https://example.test/health", opener=http503_open)
+    check(
+        "503 => reachable (do not skip SSM) but not healthy",
+        soft["reachable"] is True and soft.get("healthy") is False and soft["http_code"] == 503,
+    )
 
     if failures:
         print(f"edge_https_health selftest: {failures} FAILED", file=sys.stderr)

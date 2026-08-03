@@ -11,12 +11,12 @@ App 内 Ops/Feishu 无法在主机僵死时发出；prod failover 掩盖单 edge
 ### ADDED
 
 - 恢复 `.github/workflows/edge-health-watch.yml`（~15min，状态差飞书）。
-- `ops/observability/edge_https_health.py`：外网 `GET /health`，供 scan 在 SSM 前判定 `unreachable`。
+- `ops/observability/edge_https_health.py`：外网 `GET /health`；`reachable`=传输成功，`healthy`=HTTP 200。
 - Edge `tokenkey-disk-metrics-edge.sh` 增加与 prod 同构的 **memory-pressure** Feishu（MemAvailable%）。
 
 ### MODIFIED
 
-- `scan-edge-health.sh`：HTTPS 不通则直接 `unreachable`（`reason=https_unreachable`），跳过 SSM。
+- `scan-edge-health.sh`：仅 HTTPS **传输失败**（timeout/connect，`http_code=0`）直接 `unreachable`（`reason=https_unreachable`）并跳过 SSM；非 200（部署期 502/503）仍走 SSM。
 - `sync-edge-host-units-via-ssm.sh`：推送/描述覆盖 disk+memory；部署后仍由此脚本 backfill。
 
 ### REMOVED
