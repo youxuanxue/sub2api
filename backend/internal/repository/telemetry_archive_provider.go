@@ -12,7 +12,7 @@ import (
 
 func ProvideTelemetryArchive(cfg *config.Config) *telemetryarchive.Shadow {
 	archive := cfg.TelemetryArchive
-	return telemetryarchive.NewS3(
+	shadow := telemetryarchive.NewS3(
 		context.Background(),
 		archive.Region,
 		telemetryarchive.ConfigFromValues(
@@ -25,6 +25,10 @@ func ProvideTelemetryArchive(cfg *config.Config) *telemetryarchive.Shadow {
 			archive.PutTimeoutSeconds,
 		),
 	)
+	if !shadow.Enabled() {
+		return nil
+	}
+	return shadow
 }
 
 func ProvideUsageLogRepository(

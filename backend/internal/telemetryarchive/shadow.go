@@ -117,6 +117,10 @@ func (s *Shadow) active() bool {
 	return s != nil && s.config.Enabled && s.uploader != nil && s.config.Bucket != "" && s.config.Prefix != ""
 }
 
+func (s *Shadow) Enabled() bool {
+	return s.active()
+}
+
 func (s *Shadow) Enqueue(dataset Dataset, value any) bool {
 	if !s.active() || s.stopped.Load() || !validDataset(dataset) {
 		return false

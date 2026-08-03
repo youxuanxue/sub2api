@@ -44,3 +44,4 @@
 | US-039 | Data-layer 生产只读导出 canary | Done   | `.testing/user-stories/stories/US-039-data-layer-prod-export-canary.md` |
 | US-040 | Legacy 冷数据分批 export 与长期 archive promote | Done   | `.testing/user-stories/stories/US-040-ops-legacy-export-promote.md` |
 | US-041 | Kiro Claude Code completion continuity preserves unfinished work | InTest | `.testing/user-stories/stories/US-041-kiro-claude-code-completion-continuity.md` |
+| US-042 | Data-layer 第一阶段安全收口 | InTest | `.testing/user-stories/stories/US-042-data-layer-phase1-closeout.md` |

@@ -109,9 +109,19 @@ type usageLogCreateResult struct {
 }
 
 type usageLogBestEffortRequest struct {
-	prepared usageLogInsertPrepared
-	apiKeyID int64
-	resultCh chan usageLogCreateResult
+	prepared       usageLogInsertPrepared
+	apiKeyID       int64
+	telemetryValue any
+	resultCh       chan usageLogCreateResult
+}
+
+type usageLogTelemetrySnapshot struct {
+	payload json.RawMessage
+	err     error
+}
+
+func (s usageLogTelemetrySnapshot) MarshalJSON() ([]byte, error) {
+	return s.payload, s.err
 }
 
 type usageLogInsertPrepared struct {
@@ -202,10 +212,12 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 		return err
 	}
 
+	prepared := prepareUsageLogInsert(log)
 	req := usageLogBestEffortRequest{
-		prepared: prepareUsageLogInsert(log),
-		apiKeyID: log.APIKeyID,
-		resultCh: make(chan usageLogCreateResult, 1),
+		prepared:       prepared,
+		apiKeyID:       log.APIKeyID,
+		telemetryValue: r.snapshotUsageTelemetry(log, prepared),
+		resultCh:       make(chan usageLogCreateResult, 1),
 	}
 	if key, ok := r.bestEffortRecentKey(req.prepared.requestID, req.apiKeyID); ok {
 		if _, exists := r.bestEffortRecent.Get(key); exists {
@@ -224,18 +236,45 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 
 	select {
 	case result := <-req.resultCh:
-		if result.err == nil && result.inserted {
-			r.enqueueUsage(log)
-		}
 		return result.err
 	case <-ctx.Done():
 		return service.MarkUsageLogCreateDropped(ctx.Err())
 	}
 }
 
+func (r *usageLogRepository) snapshotUsageTelemetry(
+	log *service.UsageLog,
+	prepared usageLogInsertPrepared,
+) any {
+	if r == nil || r.telemetry == nil || log == nil {
+		return nil
+	}
+	snapshot := *log
+	snapshot.CreatedAt = prepared.createdAt
+	snapshot.RequestID = prepared.requestID
+	snapshot.RateMultiplier = prepared.rateMultiplier
+	snapshot.RequestType = service.RequestType(prepared.requestType)
+	if strings.TrimSpace(snapshot.RequestedModel) == "" {
+		snapshot.RequestedModel = strings.TrimSpace(snapshot.Model)
+	}
+
+	// Relations are not usage_logs columns and can retain large or sensitive graphs.
+	snapshot.User = nil
+	snapshot.APIKey = nil
+	snapshot.Account = nil
+	snapshot.Group = nil
+	snapshot.Subscription = nil
+	payload, err := json.Marshal(&snapshot)
+	return usageLogTelemetrySnapshot{payload: payload, err: err}
+}
+
 func (r *usageLogRepository) enqueueUsage(log *service.UsageLog) {
-	if r != nil && r.telemetry != nil && log != nil {
-		r.telemetry.Enqueue(telemetryarchive.DatasetUsage, log)
+	r.enqueueUsageValue(log)
+}
+
+func (r *usageLogRepository) enqueueUsageValue(value any) {
+	if r != nil && r.telemetry != nil && value != nil {
+		r.telemetry.Enqueue(telemetryarchive.DatasetUsage, value)
 	}
 }
 
@@ -656,7 +695,7 @@ func (r *usageLogRepository) flushBestEffortBatch(db *sql.DB, batch []usageLogBe
 			for _, group := range anonymousGroups {
 				inserted, singleErr := execUsageLogInsertNoResult(ctx, db, group.prepared)
 				for idx, req := range group.reqs {
-					sendUsageLogBestEffortResult(req.resultCh, usageLogCreateResult{
+					r.completeUsageLogBestEffortRequest(req, usageLogCreateResult{
 						inserted: inserted && idx == 0,
 						err:      singleErr,
 					})
@@ -665,7 +704,7 @@ func (r *usageLogRepository) flushBestEffortBatch(db *sql.DB, batch []usageLogBe
 		} else {
 			for _, group := range anonymousGroups {
 				for idx, req := range group.reqs {
-					sendUsageLogBestEffortResult(req.resultCh, usageLogCreateResult{
+					r.completeUsageLogBestEffortRequest(req, usageLogCreateResult{
 						inserted: allInserted && idx == 0,
 					})
 				}
@@ -692,7 +731,7 @@ func (r *usageLogRepository) flushBestEffortBatch(db *sql.DB, batch []usageLogBe
 				r.bestEffortRecent.SetDefault(group.key, struct{}{})
 			}
 			for idx, req := range group.reqs {
-				sendUsageLogBestEffortResult(req.resultCh, usageLogCreateResult{
+				r.completeUsageLogBestEffortRequest(req, usageLogCreateResult{
 					inserted: inserted && idx == 0,
 					err:      singleErr,
 				})
@@ -708,11 +747,21 @@ func (r *usageLogRepository) flushBestEffortBatch(db *sql.DB, batch []usageLogBe
 			r.bestEffortRecent.SetDefault(group.key, struct{}{})
 		}
 		for idx, req := range group.reqs {
-			sendUsageLogBestEffortResult(req.resultCh, usageLogCreateResult{
+			r.completeUsageLogBestEffortRequest(req, usageLogCreateResult{
 				inserted: insertedKeys[group.key] && idx == 0,
 			})
 		}
 	}
+}
+
+func (r *usageLogRepository) completeUsageLogBestEffortRequest(
+	req usageLogBestEffortRequest,
+	result usageLogCreateResult,
+) {
+	if result.err == nil && result.inserted {
+		r.enqueueUsageValue(req.telemetryValue)
+	}
+	sendUsageLogBestEffortResult(req.resultCh, result)
 }
 
 func queryUsageLogBestEffortInsertedKeys(

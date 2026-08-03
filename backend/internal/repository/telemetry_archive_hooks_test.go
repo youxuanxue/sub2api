@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -69,6 +70,7 @@ func TestUsageTelemetryEnqueuesOnlyAfterSuccessfulInsert(t *testing.T) {
 
 func TestUsageBestEffortBatchReportsOnlyTheInsertedDuplicate(t *testing.T) {
 	db, mock := newSQLMock(t)
+	sink := &captureTelemetrySink{}
 	prepared := prepareUsageLogInsert(&service.UsageLog{
 		UserID: 1, APIKeyID: 2, AccountID: 3, RequestID: "same-request", Model: "model",
 	})
@@ -77,11 +79,11 @@ func TestUsageBestEffortBatchReportsOnlyTheInsertedDuplicate(t *testing.T) {
 			AddRow("same-request", int64(2)),
 	)
 	requests := []usageLogBestEffortRequest{
-		{prepared: prepared, apiKeyID: 2, resultCh: make(chan usageLogCreateResult, 1)},
-		{prepared: prepared, apiKeyID: 2, resultCh: make(chan usageLogCreateResult, 1)},
+		{prepared: prepared, apiKeyID: 2, telemetryValue: &service.UsageLog{RequestID: "same-request"}, resultCh: make(chan usageLogCreateResult, 1)},
+		{prepared: prepared, apiKeyID: 2, telemetryValue: &service.UsageLog{RequestID: "same-request"}, resultCh: make(chan usageLogCreateResult, 1)},
 	}
 
-	repo := &usageLogRepository{}
+	repo := &usageLogRepository{telemetry: sink}
 	repo.flushBestEffortBatch(db, requests)
 	first := <-requests[0].resultCh
 	second := <-requests[1].resultCh
@@ -90,7 +92,51 @@ func TestUsageBestEffortBatchReportsOnlyTheInsertedDuplicate(t *testing.T) {
 	require.True(t, first.inserted)
 	require.NoError(t, second.err)
 	require.False(t, second.inserted)
+	require.Len(t, sink.values, 1)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUS042UsageBestEffortLateCompletionStillEnqueuesTelemetry(t *testing.T) {
+	db, _ := newSQLMock(t)
+	repo := newUsageLogRepositoryWithSQL(nil, db)
+	sink := &captureTelemetrySink{}
+	repo.telemetry = sink
+	repo.bestEffortBatchCh = make(chan usageLogBestEffortRequest, 1)
+
+	userAgent := "original-agent"
+	log := &service.UsageLog{
+		UserID: 1, APIKeyID: 2, AccountID: 3,
+		RequestID: " late-completion ", Model: "model",
+		UserAgent: &userAgent, ImageSizeBreakdown: map[string]int{"1024x1024": 1},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- repo.CreateBestEffort(ctx, log)
+	}()
+
+	req := <-repo.bestEffortBatchCh
+	cancel()
+	err := <-errCh
+	require.Error(t, err)
+	require.True(t, service.IsUsageLogCreateDropped(err))
+	require.Empty(t, sink.values)
+
+	log.RequestID = "caller-reused"
+	*log.UserAgent = "mutated-agent"
+	log.ImageSizeBreakdown["1024x1024"] = 9
+	repo.completeUsageLogBestEffortRequest(req, usageLogCreateResult{inserted: true})
+
+	require.Len(t, sink.values, 1)
+	payload, err := json.Marshal(sink.values[0])
+	require.NoError(t, err)
+	var shadowed service.UsageLog
+	require.NoError(t, json.Unmarshal(payload, &shadowed))
+	require.Equal(t, "late-completion", shadowed.RequestID)
+	require.Equal(t, "model", shadowed.RequestedModel)
+	require.Equal(t, "original-agent", *shadowed.UserAgent)
+	require.Equal(t, map[string]int{"1024x1024": 1}, shadowed.ImageSizeBreakdown)
+	require.False(t, shadowed.CreatedAt.IsZero())
 }
 
 func TestOpsBatchTelemetryWaitsForCommit(t *testing.T) {
