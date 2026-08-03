@@ -15,6 +15,7 @@ from typing import Any
 
 PREPARE_CONFIRMATION = "tokenkey-prod-usage-daily-prepare-v1"
 CUTOVER_CONFIRMATION_PREFIX = "tokenkey-prod-usage-daily-cutover-v1:"
+ABORT_CONFIRMATION_PREFIX = "tokenkey-prod-usage-daily-abort-v1:"
 BOUND_CONSTRAINT = "usage_logs_partition_upper"
 BOUND_COMMENT_PREFIX = "tokenkey-usage-partition-upper-v1:"
 QUERY_INDEX = "idx_usage_logs_request_api_key_partition"
@@ -38,6 +39,24 @@ def _upper(value: str) -> str:
     except ValueError as exc:
         raise UsagePartitionError("partition upper is invalid") from exc
     return value
+
+
+def _row_count(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise UsagePartitionError("usage partition row count is invalid")
+    return value
+
+
+def _utc_timestamp(value: Any) -> dt.datetime:
+    if not isinstance(value, str):
+        raise UsagePartitionError("PostgreSQL server clock is invalid")
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise UsagePartitionError("PostgreSQL server clock is invalid") from exc
+    if parsed.tzinfo is None:
+        raise UsagePartitionError("PostgreSQL server clock is invalid")
+    return parsed.astimezone(dt.timezone.utc)
 
 
 def _psql(sql: str, *, timeout_seconds: int = 360) -> str:
@@ -87,7 +106,7 @@ def _query_json(sql: str, *, timeout_seconds: int = 360) -> dict[str, Any]:
 
 def status() -> dict[str, Any]:
     return _query_json(
-        """
+        f"""
 SELECT row_to_json(v) FROM (
   SELECT
     now() AS server_clock,
@@ -98,8 +117,29 @@ SELECT row_to_json(v) FROM (
     COALESCE((
       SELECT convalidated FROM pg_constraint
       WHERE conrelid = to_regclass('public.usage_logs')
-        AND conname = 'usage_logs_partition_upper'
+        AND conname = '{BOUND_CONSTRAINT}'
     ), false) AS bound_validated,
+    EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = to_regclass('public.usage_logs')
+        AND conname = '{BOUND_CONSTRAINT}'
+    ) AS bound_exists,
+    COALESCE((
+      SELECT obj_description(oid, 'pg_constraint') LIKE '{BOUND_COMMENT_PREFIX}%'
+      FROM pg_constraint
+      WHERE conrelid = to_regclass('public.usage_logs')
+        AND conname = '{BOUND_CONSTRAINT}'
+    ), false) AS bound_operator_owned,
+    (
+      SELECT substring(
+        obj_description(oid, 'pg_constraint')
+        FROM length('{BOUND_COMMENT_PREFIX}') + 1
+      )
+      FROM pg_constraint
+      WHERE conrelid = to_regclass('public.usage_logs')
+        AND conname = '{BOUND_CONSTRAINT}'
+        AND obj_description(oid, 'pg_constraint') LIKE '{BOUND_COMMENT_PREFIX}%'
+    ) AS legacy_upper_exclusive,
     (SELECT count(*) FROM usage_logs) AS row_count
 ) v
 """
@@ -112,10 +152,22 @@ def prepare(confirmation: str) -> dict[str, Any]:
     before = status()
     if before.get("partitioned") is True:
         raise UsagePartitionError("usage_logs is already partitioned")
-    upper = _psql(
-        "SELECT to_char(date_trunc('day', now() AT TIME ZONE 'UTC') + interval '2 days', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
-    ).strip()
-    upper = _upper(upper)
+    if before.get("bound_exists") is True:
+        if before.get("bound_operator_owned") is not True:
+            raise UsagePartitionError(
+                "existing usage_logs partition bound is not operator-owned"
+            )
+        upper = _upper(str(before.get("legacy_upper_exclusive", "")))
+        if _utc_timestamp(before.get("server_clock")) >= _utc_timestamp(upper):
+            raise UsagePartitionError(
+                "existing usage_logs partition bound has expired; abort is required"
+            )
+    else:
+        upper = _upper(
+            _psql(
+                "SELECT to_char(date_trunc('day', now() AT TIME ZONE 'UTC') + interval '2 days', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
+            ).strip()
+        )
     inventory = _query_json(
         """
 SELECT row_to_json(v) FROM (
@@ -142,6 +194,10 @@ SELECT row_to_json(v) FROM (
         raise UsagePartitionError("usage_logs has an unapproved incoming foreign key")
 
     _psql(
+        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {QUERY_INDEX} ON usage_logs (request_id, api_key_id)",
+        timeout_seconds=900,
+    )
+    _psql(
         f"""
 DO $$
 DECLARE existing oid; existing_comment text;
@@ -163,18 +219,18 @@ COMMENT ON CONSTRAINT {BOUND_CONSTRAINT} ON usage_logs
 ALTER TABLE usage_logs VALIDATE CONSTRAINT {BOUND_CONSTRAINT};
 """
     )
-    _psql(
-        f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {QUERY_INDEX} ON usage_logs (request_id, api_key_id)",
-        timeout_seconds=900,
-    )
     after = status()
-    if after.get("bound_validated") is not True:
+    if (
+        after.get("bound_validated") is not True
+        or after.get("bound_operator_owned") is not True
+        or after.get("legacy_upper_exclusive") != upper
+    ):
         raise UsagePartitionError("usage_logs fixed upper CHECK was not validated")
     return {
         "mode": "prod_usage_logs_daily_partition_prepare",
         "environment": "prod",
         "legacy_upper_exclusive": upper,
-        "row_count_before": before["row_count"],
+        "row_count_before": _row_count(before.get("row_count")),
         "bound_constraint": BOUND_CONSTRAINT,
         "bound_validated": True,
         "query_index": QUERY_INDEX,
@@ -185,8 +241,56 @@ ALTER TABLE usage_logs VALIDATE CONSTRAINT {BOUND_CONSTRAINT};
     }
 
 
-def build_cutover_sql(upper: str) -> str:
+def abort(upper: str, confirmation: str) -> dict[str, Any]:
     upper = _upper(upper)
+    if confirmation != ABORT_CONFIRMATION_PREFIX + upper:
+        raise UsagePartitionError("usage partition abort confirmation is invalid")
+    _psql(
+        f"""
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '30s';
+SELECT pg_advisory_xact_lock(hashtext('tokenkey-usage-logs-daily-partition-v1'));
+
+DO $$
+DECLARE existing oid; existing_comment text;
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_partitioned_table WHERE partrelid = to_regclass('public.usage_logs')) THEN
+    RAISE EXCEPTION 'usage_logs is already partitioned';
+  END IF;
+  SELECT oid, obj_description(oid, 'pg_constraint') INTO existing, existing_comment
+  FROM pg_constraint
+  WHERE conrelid = to_regclass('public.usage_logs') AND conname = '{BOUND_CONSTRAINT}';
+  IF existing IS NULL THEN
+    RAISE EXCEPTION 'operator-owned usage_logs partition bound is absent';
+  END IF;
+  IF existing_comment IS DISTINCT FROM '{BOUND_COMMENT_PREFIX}{upper}' THEN
+    RAISE EXCEPTION 'existing usage_logs partition bound is not operator-owned';
+  END IF;
+END $$;
+
+ALTER TABLE usage_logs DROP CONSTRAINT {BOUND_CONSTRAINT};
+COMMIT;
+""",
+        timeout_seconds=60,
+    )
+    after = status()
+    if after.get("partitioned") is True or after.get("bound_exists") is True:
+        raise UsagePartitionError("usage_logs partition prepare abort verification failed")
+    return {
+        "mode": "prod_usage_logs_daily_partition_abort",
+        "environment": "prod",
+        "legacy_upper_exclusive": upper,
+        "bound_constraint": BOUND_CONSTRAINT,
+        "bound_removed": True,
+        "source_rows_copied": False,
+        "deletion_authorized": False,
+    }
+
+
+def build_cutover_sql(upper: str, minimum_legacy_row_count: int) -> str:
+    upper = _upper(upper)
+    minimum_legacy_row_count = _row_count(minimum_legacy_row_count)
     return f"""
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -348,6 +452,13 @@ BEGIN
     );
   END LOOP;
 END $$;
+
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM ONLY usage_logs_legacy) < {minimum_legacy_row_count} THEN
+    RAISE EXCEPTION 'usage_logs legacy row count drifted below prepare receipt';
+  END IF;
+END $$;
 COMMIT;
 """
 
@@ -367,8 +478,9 @@ def iter_self_check_sql() -> list[tuple[str, str]]:
     return []
 
 
-def verify(upper: str) -> dict[str, Any]:
+def verify(upper: str, minimum_legacy_row_count: int) -> dict[str, Any]:
     upper = _upper(upper)
+    minimum_legacy_row_count = _row_count(minimum_legacy_row_count)
     result = _query_json(
         f"""
 SELECT row_to_json(v) FROM (
@@ -419,17 +531,28 @@ SELECT row_to_json(v) FROM (
     )
     if any(result.get(key) is not True for key in required):
         raise UsagePartitionError("usage_logs partition cutover verification failed")
-    if int(result["parent_row_count"]) < int(result["legacy_row_count"]):
+    legacy_row_count = _row_count(result.get("legacy_row_count"))
+    parent_row_count = _row_count(result.get("parent_row_count"))
+    if legacy_row_count < minimum_legacy_row_count:
+        raise UsagePartitionError(
+            "usage_logs legacy row count drifted below the prepare receipt"
+        )
+    if parent_row_count < legacy_row_count:
         raise UsagePartitionError("usage_logs row count drifted below the attached legacy count")
     return result
 
 
-def cutover(upper: str, confirmation: str) -> dict[str, Any]:
+def cutover(
+    upper: str, minimum_legacy_row_count: int, confirmation: str
+) -> dict[str, Any]:
     upper = _upper(upper)
+    minimum_legacy_row_count = _row_count(minimum_legacy_row_count)
     if confirmation != CUTOVER_CONFIRMATION_PREFIX + upper:
         raise UsagePartitionError("usage partition cutover confirmation is invalid")
-    _psql(build_cutover_sql(upper), timeout_seconds=120)
-    result = verify(upper)
+    _psql(
+        build_cutover_sql(upper, minimum_legacy_row_count), timeout_seconds=120
+    )
+    result = verify(upper, minimum_legacy_row_count)
     return {
         "mode": "prod_usage_logs_daily_partition_cutover",
         "environment": "prod",
@@ -446,10 +569,15 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("status")
     prepare_parser = commands.add_parser("prepare")
     prepare_parser.add_argument("--confirm", required=True)
+    abort_parser = commands.add_parser("abort")
+    abort_parser.add_argument("--legacy-upper-exclusive", required=True)
+    abort_parser.add_argument("--confirm", required=True)
     verify_parser = commands.add_parser("verify")
     verify_parser.add_argument("--legacy-upper-exclusive", required=True)
+    verify_parser.add_argument("--minimum-legacy-row-count", type=int, required=True)
     cutover_parser = commands.add_parser("cutover")
     cutover_parser.add_argument("--legacy-upper-exclusive", required=True)
+    cutover_parser.add_argument("--minimum-legacy-row-count", type=int, required=True)
     cutover_parser.add_argument("--confirm", required=True)
     return parser
 
@@ -461,10 +589,22 @@ def main(argv: Iterable[str] | None = None) -> int:
             payload = {"mode": "prod_usage_logs_daily_partition_status", **status(), "deletion_authorized": False}
         elif args.command == "prepare":
             payload = prepare(args.confirm)
+        elif args.command == "abort":
+            payload = abort(args.legacy_upper_exclusive, args.confirm)
         elif args.command == "verify":
-            payload = {"mode": "prod_usage_logs_daily_partition_verify", **verify(args.legacy_upper_exclusive), "deletion_authorized": False}
+            payload = {
+                "mode": "prod_usage_logs_daily_partition_verify",
+                **verify(
+                    args.legacy_upper_exclusive, args.minimum_legacy_row_count
+                ),
+                "deletion_authorized": False,
+            }
         elif args.command == "cutover":
-            payload = cutover(args.legacy_upper_exclusive, args.confirm)
+            payload = cutover(
+                args.legacy_upper_exclusive,
+                args.minimum_legacy_row_count,
+                args.confirm,
+            )
         else:  # pragma: no cover
             raise UsagePartitionError(f"unsupported command: {args.command}")
         print(_canonical_json(payload))

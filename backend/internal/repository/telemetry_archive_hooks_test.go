@@ -67,6 +67,32 @@ func TestUsageTelemetryEnqueuesOnlyAfterSuccessfulInsert(t *testing.T) {
 	}
 }
 
+func TestUsageBestEffortBatchReportsOnlyTheInsertedDuplicate(t *testing.T) {
+	db, mock := newSQLMock(t)
+	prepared := prepareUsageLogInsert(&service.UsageLog{
+		UserID: 1, APIKeyID: 2, AccountID: 3, RequestID: "same-request", Model: "model",
+	})
+	mock.ExpectQuery("INSERT INTO usage_logs").WillReturnRows(
+		sqlmock.NewRows([]string{"request_id", "api_key_id"}).
+			AddRow("same-request", int64(2)),
+	)
+	requests := []usageLogBestEffortRequest{
+		{prepared: prepared, apiKeyID: 2, resultCh: make(chan usageLogCreateResult, 1)},
+		{prepared: prepared, apiKeyID: 2, resultCh: make(chan usageLogCreateResult, 1)},
+	}
+
+	repo := &usageLogRepository{}
+	repo.flushBestEffortBatch(db, requests)
+	first := <-requests[0].resultCh
+	second := <-requests[1].resultCh
+
+	require.NoError(t, first.err)
+	require.True(t, first.inserted)
+	require.NoError(t, second.err)
+	require.False(t, second.inserted)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestOpsBatchTelemetryWaitsForCommit(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -108,4 +134,41 @@ func TestOpsBatchTelemetryWaitsForCommit(t *testing.T) {
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
+}
+
+func TestOpsSystemTelemetryMatchesPersistedNormalization(t *testing.T) {
+	db, mock := newSQLMock(t)
+	sink := &captureTelemetrySink{}
+	repo := &opsRepository{db: db, telemetry: sink}
+	mock.ExpectBegin()
+	copyStatement := mock.ExpectPrepare(`COPY "ops_system_logs"`)
+	copyStatement.ExpectExec().WillReturnResult(sqlmock.NewResult(0, 1))
+	copyStatement.ExpectExec().WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+	createdAt := time.Date(2026, 8, 3, 9, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	input := &service.OpsInsertSystemLogInput{
+		CreatedAt: createdAt,
+		Level:     " WARN ",
+		Component: " ",
+		Message:   " persisted message ",
+		ExtraJSON: " ",
+	}
+
+	inserted, err := repo.BatchInsertSystemLogs(
+		context.Background(), []*service.OpsInsertSystemLogInput{input},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, int64(1), inserted)
+	require.Equal(t, []telemetryarchive.Dataset{telemetryarchive.DatasetOpsSystem}, sink.datasets)
+	require.Len(t, sink.values, 1)
+	shadowed, ok := sink.values[0].(*service.OpsInsertSystemLogInput)
+	require.True(t, ok)
+	require.Equal(t, createdAt.UTC(), shadowed.CreatedAt)
+	require.Equal(t, "warn", shadowed.Level)
+	require.Equal(t, "app", shadowed.Component)
+	require.Equal(t, "persisted message", shadowed.Message)
+	require.Equal(t, "{}", shadowed.ExtraJSON)
+	require.Equal(t, " WARN ", input.Level, "normalization must not mutate the caller")
+	require.NoError(t, mock.ExpectationsWereMet())
 }

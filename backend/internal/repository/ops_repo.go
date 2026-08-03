@@ -714,45 +714,51 @@ func (r *opsRepository) BatchInsertSystemLogs(ctx context.Context, inputs []*ser
 		if input == nil {
 			continue
 		}
-		createdAt := input.CreatedAt
+		normalized := *input
+		createdAt := normalized.CreatedAt
 		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
 		}
-		component := strings.TrimSpace(input.Component)
-		level := strings.ToLower(strings.TrimSpace(input.Level))
-		message := strings.TrimSpace(input.Message)
+		component := strings.TrimSpace(normalized.Component)
+		level := strings.ToLower(strings.TrimSpace(normalized.Level))
+		message := strings.TrimSpace(normalized.Message)
 		if level == "" || message == "" {
 			continue
 		}
 		if component == "" {
 			component = "app"
 		}
-		extra := strings.TrimSpace(input.ExtraJSON)
+		extra := strings.TrimSpace(normalized.ExtraJSON)
 		if extra == "" {
 			extra = "{}"
 		}
+		normalized.CreatedAt = createdAt.UTC()
+		normalized.Level = level
+		normalized.Component = component
+		normalized.Message = message
+		normalized.ExtraJSON = extra
 		if _, err := stmt.ExecContext(
 			ctx,
-			createdAt.UTC(),
-			opsNullString(input.Host),
-			level,
-			component,
-			message,
-			opsNullString(input.RequestID),
-			opsNullString(input.ClientRequestID),
-			opsNullInt64(input.UserID),
-			opsNullInt64(input.APIKeyID),
-			opsNullInt64(input.AccountID),
-			opsNullString(input.Platform),
-			opsNullString(input.Model),
-			extra,
+			normalized.CreatedAt,
+			opsNullString(normalized.Host),
+			normalized.Level,
+			normalized.Component,
+			normalized.Message,
+			opsNullString(normalized.RequestID),
+			opsNullString(normalized.ClientRequestID),
+			opsNullInt64(normalized.UserID),
+			opsNullInt64(normalized.APIKeyID),
+			opsNullInt64(normalized.AccountID),
+			opsNullString(normalized.Platform),
+			opsNullString(normalized.Model),
+			normalized.ExtraJSON,
 		); err != nil {
 			_ = stmt.Close()
 			_ = tx.Rollback()
 			return inserted, err
 		}
 		inserted++
-		shadowed = append(shadowed, input)
+		shadowed = append(shadowed, &normalized)
 	}
 
 	if _, err := stmt.ExecContext(ctx); err != nil {

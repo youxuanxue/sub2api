@@ -21,6 +21,34 @@ import data_layer_archive_promote_batch as promote  # noqa: E402
 
 _BATCH_ID = "prod-export-20260803T010203.000000Z-0123456789ab"
 _UPPER = "2026-07-01T00:00:00.000000Z"
+_INSTANCE = "i-0123456789abcdef0"
+
+
+def _manifest(*, table: str = "ops_system_logs", instance_id: str = _INSTANCE) -> dict:
+    return {
+        "batch_id": _BATCH_ID,
+        "source_identity_sha256": "f" * 64,
+        "source_file_identity": {
+            "instance_id": instance_id,
+            "table": table,
+        },
+        "export": {
+            "table": table,
+            "legacy_upper_exclusive": _UPPER,
+        },
+        "artifacts": [
+            {
+                "dataset": "other",
+                "row_count": 9,
+                "logical_sha256": "d" * 64,
+            },
+            {
+                "dataset": "ops",
+                "row_count": 7,
+                "logical_sha256": "c" * 64,
+            },
+        ],
+    }
 
 
 def _write_ledgers(root: pathlib.Path, *, cutoff: str = _UPPER, checksum: str = "a" * 64):
@@ -111,11 +139,18 @@ class ArchiveCloseoutTest(unittest.TestCase):
     def test_closeout_writes_restore_bound_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)
-            export_path, promote_path = _write_ledgers(root)
             hold_path = root / "hold.json"
             hold_path.write_text("{}\n", encoding="utf-8")
             batch_dir = root / _BATCH_ID
             batch_dir.mkdir()
+            manifest_bytes = closeout.rehearsal._canonical_json(_manifest()).encode(
+                "utf-8"
+            )
+            (batch_dir / "manifest.json").write_bytes(manifest_bytes)
+            manifest_sha256 = closeout.rehearsal._sha256(manifest_bytes)
+            export_path, promote_path = _write_ledgers(
+                root, checksum=manifest_sha256
+            )
             restore = {
                 "verified": True,
                 "batch_id": _BATCH_ID,
@@ -126,21 +161,12 @@ class ArchiveCloseoutTest(unittest.TestCase):
                 "deletion_authorized": False,
             }
             verification = {
-                "artifacts": [
-                    {
-                        "dataset": "other",
-                        "row_count": 9,
-                        "logical_sha256": "d" * 64,
-                    },
-                    {
-                        "dataset": "ops",
-                        "row_count": 7,
-                        "logical_sha256": "c" * 64,
-                    },
-                ],
+                "verified": True,
+                "batch_id": _BATCH_ID,
+                "manifest_sha256": manifest_sha256,
             }
             with mock.patch.object(
-                closeout.canary, "_prod_instance", return_value="i-0123456789abcdef0"
+                closeout.canary, "_prod_instance", return_value=_INSTANCE
             ), mock.patch.object(
                 closeout.cleanup_hold,
                 "verify_receipt_for_instance",
@@ -149,7 +175,7 @@ class ArchiveCloseoutTest(unittest.TestCase):
                 closeout.cleanup_hold,
                 "verify",
                 return_value={
-                    "instance_id": "i-0123456789abcdef0",
+                    "instance_id": _INSTANCE,
                     "server_clock": "2026-08-03T00:00:00Z",
                 },
             ), mock.patch.object(
@@ -174,16 +200,42 @@ class ArchiveCloseoutTest(unittest.TestCase):
             self.assertFalse(result["deletion_authorized"])
             self.assertEqual(result["selected_batch_id"], _BATCH_ID)
             self.assertEqual(
+                result["selected_manifest_binding"]["instance_id"], _INSTANCE
+            )
+            self.assertEqual(
                 closeout.load_closeout_receipt(root / "closeout.json")["table"],
                 "ops_system_logs",
             )
+
+    def test_manifest_binding_rejects_wrong_table_and_instance(self) -> None:
+        verification = {
+            "verified": True,
+            "batch_id": _BATCH_ID,
+            "manifest_sha256": "a" * 64,
+        }
+        for field, manifest in (
+            ("table", _manifest(table="ops_error_logs")),
+            ("instance", _manifest(instance_id="i-aaaaaaaaaaaaaaaaa")),
+        ):
+            with self.subTest(field=field), self.assertRaisesRegex(
+                closeout.CloseoutError, "does not match"
+            ):
+                closeout._validate_manifest_binding(
+                    manifest,
+                    verification,
+                    batch_id=_BATCH_ID,
+                    manifest_sha256="a" * 64,
+                    table="ops_system_logs",
+                    instance_id=_INSTANCE,
+                    legacy_upper_exclusive=_UPPER,
+                )
 
     def test_receipt_rejects_unbound_restore_and_invalid_evidence(self) -> None:
         valid = {
             "schema_version": closeout.CLOSEOUT_SCHEMA_VERSION,
             "mode": closeout.CLOSEOUT_MODE,
             "environment": "prod",
-            "instance_id": "i-0123456789abcdef0",
+            "instance_id": _INSTANCE,
             "table": "ops_system_logs",
             "legacy_upper_exclusive": _UPPER,
             "final_cutoff_exclusive": _UPPER,
@@ -199,6 +251,12 @@ class ArchiveCloseoutTest(unittest.TestCase):
                 f"s3://archive/prod/ops-archive/{_BATCH_ID}"
             ),
             "selected_manifest_sha256": "d" * 64,
+            "selected_manifest_binding": {
+                "source_identity_sha256": "f" * 64,
+                "instance_id": _INSTANCE,
+                "table": "ops_system_logs",
+                "legacy_upper_exclusive": _UPPER,
+            },
             "restore": {
                 "verified": True,
                 "batch_id": _BATCH_ID,
@@ -231,6 +289,19 @@ class ArchiveCloseoutTest(unittest.TestCase):
             export._atomic_json(receipt, payload)
             with self.assertRaises(closeout.CloseoutError):
                 closeout.load_closeout_receipt(receipt)
+
+        for field, value in (
+            ("instance_id", "i-aaaaaaaaaaaaaaaaa"),
+            ("table", "ops_error_logs"),
+            ("legacy_upper_exclusive", "2026-06-01T00:00:00.000000Z"),
+        ):
+            with self.subTest(binding_field=field), tempfile.TemporaryDirectory() as temp:
+                receipt = pathlib.Path(temp) / "closeout.json"
+                payload = json.loads(json.dumps(valid))
+                payload["selected_manifest_binding"][field] = value
+                export._atomic_json(receipt, payload)
+                with self.assertRaises(closeout.CloseoutError):
+                    closeout.load_closeout_receipt(receipt)
 
 
 if __name__ == "__main__":

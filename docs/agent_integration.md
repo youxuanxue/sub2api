@@ -643,6 +643,14 @@ Root options:
 - `--receipt` (required):
 - `--confirm` (required):
 
+#### `usage_logs_daily_partition.py abort`
+
+
+
+- `--receipt` (required):
+- `--legacy-upper-exclusive` (required):
+- `--confirm` (required):
+
 #### `usage_logs_daily_partition.py cutover`
 
 

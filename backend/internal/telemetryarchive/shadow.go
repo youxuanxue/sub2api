@@ -67,19 +67,20 @@ type Stats struct {
 // Shadow is a bounded, best-effort raw telemetry writer. Enqueue never waits for
 // S3 and Stop is only used during application shutdown.
 type Shadow struct {
-	config   Config
-	uploader Uploader
-	queue    chan event
-	stopCh   chan struct{}
-	doneCh   chan struct{}
-	stopOnce sync.Once
-	stopped  atomic.Bool
-	sequence atomic.Uint64
-	instance string
-	enqueued atomic.Uint64
-	dropped  atomic.Uint64
-	uploaded atomic.Uint64
-	failed   atomic.Uint64
+	config    Config
+	uploader  Uploader
+	queue     chan event
+	stopCh    chan struct{}
+	doneCh    chan struct{}
+	stopOnce  sync.Once
+	stopped   atomic.Bool
+	lifecycle sync.RWMutex
+	sequence  atomic.Uint64
+	instance  string
+	enqueued  atomic.Uint64
+	dropped   atomic.Uint64
+	uploaded  atomic.Uint64
+	failed    atomic.Uint64
 }
 
 func New(config Config, uploader Uploader) *Shadow {
@@ -123,6 +124,11 @@ func (s *Shadow) Enqueue(dataset Dataset, value any) bool {
 	payload, err := json.Marshal(value)
 	if err != nil {
 		s.recordDrop("json_marshal")
+		return false
+	}
+	s.lifecycle.RLock()
+	defer s.lifecycle.RUnlock()
+	if s.stopped.Load() {
 		return false
 	}
 	select {
@@ -257,6 +263,8 @@ func (s *Shadow) Stop(ctx context.Context) error {
 		return nil
 	}
 	s.stopOnce.Do(func() {
+		s.lifecycle.Lock()
+		defer s.lifecycle.Unlock()
 		s.stopped.Store(true)
 		if s.active() {
 			close(s.stopCh)

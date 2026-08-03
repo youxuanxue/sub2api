@@ -106,6 +106,9 @@ def _load_prepare_receipt(path: str | os.PathLike[str]) -> dict[str, Any]:
         or value.get("bound_validated") is not True
         or value.get("source_rows_copied") is not False
         or value.get("deletion_authorized") is not False
+        or isinstance(value.get("row_count_before"), bool)
+        or not isinstance(value.get("row_count_before"), int)
+        or value.get("row_count_before") < 0
         or INSTANCE_RE.fullmatch(str(value.get("instance_id", ""))) is None
         or value.get("required_cutover_confirmation")
         != remote.CUTOVER_CONFIRMATION_PREFIX + str(value.get("legacy_upper_exclusive"))
@@ -125,6 +128,37 @@ def prepare(receipt_path: str | os.PathLike[str], confirmation: str) -> dict[str
     return payload
 
 
+def abort(
+    receipt_path: str | os.PathLike[str],
+    upper: str,
+    confirmation: str,
+) -> dict[str, Any]:
+    upper = remote._upper(upper)
+    if confirmation != remote.ABORT_CONFIRMATION_PREFIX + upper:
+        raise UsagePartitionControlError(
+            "abort confirmation must exactly match the partition upper bound"
+        )
+    payload = _run_remote(
+        "abort",
+        [
+            "--legacy-upper-exclusive",
+            upper,
+            "--confirm",
+            confirmation,
+        ],
+        timeout_seconds=120,
+    )
+    if (
+        payload.get("mode") != "prod_usage_logs_daily_partition_abort"
+        or payload.get("legacy_upper_exclusive") != upper
+        or payload.get("bound_removed") is not True
+        or payload.get("source_rows_copied") is not False
+    ):
+        raise UsagePartitionControlError("remote abort returned incomplete proof")
+    _atomic_json(pathlib.Path(receipt_path), payload)
+    return payload
+
+
 def cutover(
     prepare_receipt_path: str | os.PathLike[str],
     cutover_receipt_path: str | os.PathLike[str],
@@ -139,6 +173,8 @@ def cutover(
         [
             "--legacy-upper-exclusive",
             upper,
+            "--minimum-legacy-row-count",
+            str(prepared["row_count_before"]),
             "--confirm",
             confirmation,
         ],
@@ -155,6 +191,12 @@ def cutover(
         or verification.get("no_parent_global_unique") is not True
         or verification.get("no_incoming_legacy_fk") is not True
         or verification.get("constraints_preserved") is not True
+        or isinstance(verification.get("legacy_row_count"), bool)
+        or not isinstance(verification.get("legacy_row_count"), int)
+        or verification.get("legacy_row_count") < prepared["row_count_before"]
+        or isinstance(verification.get("parent_row_count"), bool)
+        or not isinstance(verification.get("parent_row_count"), int)
+        or verification.get("parent_row_count") < verification.get("legacy_row_count", 0)
     ):
         raise UsagePartitionControlError("cutover did not return complete verification")
     combined = {
@@ -173,6 +215,10 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser = commands.add_parser("prepare")
     prepare_parser.add_argument("--receipt", required=True)
     prepare_parser.add_argument("--confirm", required=True)
+    abort_parser = commands.add_parser("abort")
+    abort_parser.add_argument("--receipt", required=True)
+    abort_parser.add_argument("--legacy-upper-exclusive", required=True)
+    abort_parser.add_argument("--confirm", required=True)
     cutover_parser = commands.add_parser("cutover")
     cutover_parser.add_argument("--prepare-receipt", required=True)
     cutover_parser.add_argument("--cutover-receipt", required=True)
@@ -189,6 +235,12 @@ def main(argv: Iterable[str] | None = None) -> int:
             payload = _run_remote("status", [], timeout_seconds=120)
         elif args.command == "prepare":
             payload = prepare(args.receipt, args.confirm)
+        elif args.command == "abort":
+            payload = abort(
+                args.receipt,
+                args.legacy_upper_exclusive,
+                args.confirm,
+            )
         elif args.command == "cutover":
             payload = cutover(
                 args.prepare_receipt,
@@ -199,7 +251,12 @@ def main(argv: Iterable[str] | None = None) -> int:
             prepared = _load_prepare_receipt(args.prepare_receipt)
             payload = _run_remote(
                 "verify",
-                ["--legacy-upper-exclusive", prepared["legacy_upper_exclusive"]],
+                [
+                    "--legacy-upper-exclusive",
+                    prepared["legacy_upper_exclusive"],
+                    "--minimum-legacy-row-count",
+                    str(prepared["row_count_before"]),
+                ],
                 timeout_seconds=900,
             )
         else:  # pragma: no cover

@@ -13,6 +13,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type blockingMarshaler struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (m *blockingMarshaler) MarshalJSON() ([]byte, error) {
+	close(m.started)
+	<-m.release
+	return []byte(`{"id":1}`), nil
+}
+
 type fakeUploader struct {
 	mu       sync.Mutex
 	requests []PutRequest
@@ -100,4 +111,26 @@ func TestShadowQueueFullDropsOnlyShadowCopy(t *testing.T) {
 	require.Equal(t, uint64(1), shadow.Stats().Dropped)
 	close(uploader.release)
 	require.NoError(t, shadow.Stop(context.Background()))
+}
+
+func TestShadowDoesNotAcceptAfterConcurrentStopCompletes(t *testing.T) {
+	shadow := New(Config{
+		Enabled: true, Bucket: "archive", Prefix: "raw", QueueSize: 1,
+		BatchSize: 1, FlushInterval: time.Hour, PutTimeout: time.Second,
+	}, &fakeUploader{})
+	value := &blockingMarshaler{started: make(chan struct{}), release: make(chan struct{})}
+	accepted := make(chan bool, 1)
+	go func() {
+		accepted <- shadow.Enqueue(DatasetUsage, value)
+	}()
+
+	select {
+	case <-value.started:
+	case <-time.After(time.Second):
+		t.Fatal("JSON marshaling did not start")
+	}
+	require.NoError(t, shadow.Stop(context.Background()))
+	close(value.release)
+	require.False(t, <-accepted)
+	require.Zero(t, shadow.Stats().Enqueued)
 }

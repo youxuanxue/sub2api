@@ -23,7 +23,7 @@ import data_layer_archive_rehearsal as rehearsal
 
 
 CLOSEOUT_CONFIRMATION = "tokenkey-prod-archive-closeout-v1"
-CLOSEOUT_SCHEMA_VERSION = 1
+CLOSEOUT_SCHEMA_VERSION = 2
 CLOSEOUT_MODE = "prod_archive_reclaim_closeout"
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
@@ -63,10 +63,10 @@ def _validated_archive_prefix(value: Any, batch_id: str) -> str:
 
 
 def _restored_artifact(
-    verification: dict[str, Any], restore: dict[str, Any]
+    manifest: dict[str, Any], restore: dict[str, Any]
 ) -> dict[str, Any]:
     dataset = restore.get("selected_dataset")
-    artifacts = verification.get("artifacts")
+    artifacts = manifest.get("artifacts")
     if not isinstance(dataset, str) or not isinstance(artifacts, list):
         raise CloseoutError("long-term archive restore dataset is invalid")
     matches = [
@@ -77,6 +77,65 @@ def _restored_artifact(
     if len(matches) != 1:
         raise CloseoutError("long-term archive restore dataset is not unique")
     return matches[0]
+
+
+def _load_verified_manifest(
+    batch_dir: pathlib.Path,
+    verification: dict[str, Any],
+    expected_manifest_sha256: str,
+) -> dict[str, Any]:
+    manifest_path = batch_dir / "manifest.json"
+    try:
+        if not manifest_path.is_file() or manifest_path.is_symlink():
+            raise CloseoutError("long-term archive manifest is not a regular file")
+        manifest_bytes = manifest_path.read_bytes()
+        manifest = json.loads(manifest_bytes)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CloseoutError("long-term archive manifest cannot be read") from exc
+    actual_sha256 = rehearsal._sha256(manifest_bytes)
+    if (
+        not isinstance(manifest, dict)
+        or verification.get("verified") is not True
+        or verification.get("manifest_sha256") != actual_sha256
+        or actual_sha256 != expected_manifest_sha256
+    ):
+        raise CloseoutError("long-term archive manifest changed after verification")
+    return manifest
+
+
+def _validate_manifest_binding(
+    manifest: dict[str, Any],
+    verification: dict[str, Any],
+    *,
+    batch_id: str,
+    manifest_sha256: str,
+    table: str,
+    instance_id: str,
+    legacy_upper_exclusive: str,
+) -> dict[str, Any]:
+    source = manifest.get("source_file_identity")
+    bounds = manifest.get("export")
+    if (
+        manifest.get("batch_id") != batch_id
+        or verification.get("batch_id") != batch_id
+        or verification.get("manifest_sha256") != manifest_sha256
+        or not isinstance(source, dict)
+        or source.get("instance_id") != instance_id
+        or source.get("table") != table
+        or not isinstance(bounds, dict)
+        or bounds.get("table") != table
+        or bounds.get("legacy_upper_exclusive") != legacy_upper_exclusive
+        or not _valid_sha256(manifest.get("source_identity_sha256"))
+    ):
+        raise CloseoutError(
+            "long-term archive manifest does not match the ledger and cleanup hold"
+        )
+    return {
+        "source_identity_sha256": manifest["source_identity_sha256"],
+        "instance_id": source["instance_id"],
+        "table": source["table"],
+        "legacy_upper_exclusive": bounds["legacy_upper_exclusive"],
+    }
 
 
 def validate_ledger_pair(
@@ -256,13 +315,25 @@ def closeout(
         promote_receipt, evidence_root, command_runner=command_runner
     )
     verification = rehearsal.verify_batch(batch_dir)
+    manifest = _load_verified_manifest(
+        batch_dir, verification, promote_receipt["manifest_sha256"]
+    )
+    selected_manifest_binding = _validate_manifest_binding(
+        manifest,
+        verification,
+        batch_id=batch_id,
+        manifest_sha256=promote_receipt["manifest_sha256"],
+        table=ledger_proof["table"],
+        instance_id=instance_id,
+        legacy_upper_exclusive=ledger_proof["legacy_upper_exclusive"],
+    )
     restored = rehearsal.restore_postgres_random(
         batch_dir,
         restore_target_dsn,
         seed=seed,
         timeout_seconds=export.DEFAULT_TIMEOUT_SECONDS,
     )
-    restored_artifact = _restored_artifact(verification, restored)
+    restored_artifact = _restored_artifact(manifest, restored)
     if (
         restored.get("verified") is not True
         or restored.get("expected_rows") != restored.get("restored_rows")
@@ -291,6 +362,7 @@ def closeout(
         "selected_batch_id": batch_id,
         "selected_archive_s3_prefix": promote_receipt["archive_s3_prefix"],
         "selected_manifest_sha256": promote_receipt["manifest_sha256"],
+        "selected_manifest_binding": selected_manifest_binding,
         "restore": restored,
         "cleanup_release_authorized": True,
         "deletion_authorized": False,
@@ -307,6 +379,11 @@ def load_closeout_receipt(path: str | os.PathLike[str]) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         raise CloseoutError("closeout receipt cannot be read") from exc
     restore = payload.get("restore") if isinstance(payload, dict) else None
+    binding = (
+        payload.get("selected_manifest_binding")
+        if isinstance(payload, dict)
+        else None
+    )
     if (
         not isinstance(payload, dict)
         or payload.get("schema_version") != CLOSEOUT_SCHEMA_VERSION
@@ -329,6 +406,19 @@ def load_closeout_receipt(path: str | os.PathLike[str]) -> dict[str, Any]:
         )
         or not isinstance(payload.get("selected_batch_id"), str)
         or not isinstance(payload.get("selected_archive_s3_prefix"), str)
+        or not isinstance(binding, dict)
+        or set(binding)
+        != {
+            "source_identity_sha256",
+            "instance_id",
+            "table",
+            "legacy_upper_exclusive",
+        }
+        or not _valid_sha256(binding.get("source_identity_sha256"))
+        or binding.get("instance_id") != payload.get("instance_id")
+        or binding.get("table") != payload.get("table")
+        or binding.get("legacy_upper_exclusive")
+        != payload.get("legacy_upper_exclusive")
         or payload.get("cleanup_release_authorized") is not True
         or payload.get("deletion_authorized") is not False
         or not isinstance(restore, dict)

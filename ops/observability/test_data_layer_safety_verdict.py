@@ -82,6 +82,18 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
         self.assertIn("cleanup_hold_stale", kinds)
         self.assertIn("archive_restore_proof", kinds)
 
+    def test_archive_evidence_validation_error_is_independent(self) -> None:
+        signals = _signals()
+        signals["ARCHIVESTATS"]["evidence_errors"] = [
+            "ops_error_logs:closeout_binding"
+        ]
+        result = verdict.compute_verdict(signals)
+        self.assertEqual(result["verdict"], "unsafe")
+        self.assertIn(
+            "archive_evidence",
+            {finding["kind"] for finding in result["findings"]},
+        )
+
     def test_latest_partition_failure_is_immediate_and_duplicate_ledgers_fail(self) -> None:
         signals = _signals()
         signals["PARTITIONSTATS"]["partition_maintenance_last_error_at"] = (
@@ -92,6 +104,34 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
         kinds = {finding["kind"] for finding in result["findings"]}
         self.assertIn("partition_maintenance_error", kinds)
         self.assertIn("archive_lag", kinds)
+
+    def test_future_dated_freshness_evidence_fails_closed(self) -> None:
+        cases = (
+            ("heartbeat", "PARTITIONSTATS", "partition_maintenance_last_success_at", "partition_maintenance_heartbeat"),
+            ("pgdump", "BACKUPSTATS", "latest_pgdump_at", "pgdump_freshness"),
+            ("snapshot", "SNAPSHOTSTATS", "latest_snapshot_at", "ebs_snapshot_freshness"),
+        )
+        for name, section, field, expected_kind in cases:
+            with self.subTest(name=name):
+                signals = _signals()
+                signals[section][field] = (
+                    NOW + verdict.MAX_FUTURE_SKEW + dt.timedelta(seconds=1)
+                ).isoformat()
+                kinds = {
+                    finding["kind"]
+                    for finding in verdict.compute_verdict(signals)["findings"]
+                }
+                self.assertIn(expected_kind, kinds)
+
+        signals = _signals()
+        signals["ARCHIVESTATS"]["restore_verified_at"][0] = (
+            NOW + verdict.MAX_FUTURE_SKEW + dt.timedelta(seconds=1)
+        ).isoformat()
+        kinds = {
+            finding["kind"]
+            for finding in verdict.compute_verdict(signals)["findings"]
+        }
+        self.assertIn("archive_restore_proof", kinds)
 
     def test_probe_shell_parses(self) -> None:
         proc = subprocess.run(

@@ -42,7 +42,7 @@ def _prepare_receipt() -> dict:
 
 class UsageLogsDailyPartitionTest(unittest.TestCase):
     def test_cutover_sql_has_short_lock_and_no_data_copy(self) -> None:
-        sql = remote.build_cutover_sql(_UPPER)
+        sql = remote.build_cutover_sql(_UPPER, 6_000_000)
         self.assertIn("lock_timeout = '5s'", sql)
         self.assertIn("LOCK TABLE usage_logs IN ACCESS EXCLUSIVE MODE", sql)
         self.assertIn("ATTACH PARTITION usage_logs_legacy", sql)
@@ -52,6 +52,37 @@ class UsageLogsDailyPartitionTest(unittest.TestCase):
         self.assertIn("contype = 'c'", sql)
         self.assertNotIn("INSERT INTO usage_logs SELECT", sql)
         self.assertNotIn("DROP TABLE usage_logs_legacy", sql)
+        self.assertIn("legacy row count drifted below prepare receipt", sql)
+
+    def test_prepare_reuses_existing_operator_bound_and_indexes_first(self) -> None:
+        before = {
+            "partitioned": False,
+            "server_clock": "2026-08-03T00:00:00Z",
+            "bound_exists": True,
+            "bound_operator_owned": True,
+            "legacy_upper_exclusive": _UPPER,
+            "row_count": 6_000_000,
+        }
+        after = {
+            **before,
+            "bound_validated": True,
+        }
+        inventory = {"unique_indexes": [], "incoming_foreign_keys": []}
+        with mock.patch.object(remote, "status", side_effect=[before, after]), mock.patch.object(
+            remote, "_query_json", return_value=inventory
+        ), mock.patch.object(remote, "_psql", return_value="") as psql:
+            receipt = remote.prepare(remote.PREPARE_CONFIRMATION)
+
+        self.assertEqual(receipt["legacy_upper_exclusive"], _UPPER)
+        self.assertEqual(psql.call_count, 2)
+        self.assertIn("CREATE INDEX CONCURRENTLY", psql.call_args_list[0].args[0])
+        self.assertIn(_UPPER, psql.call_args_list[1].args[0])
+
+    def test_abort_refuses_confirmation_not_bound_to_upper(self) -> None:
+        with mock.patch.object(remote, "_psql") as psql:
+            with self.assertRaisesRegex(remote.UsagePartitionError, "confirmation"):
+                remote.abort(_UPPER, remote.ABORT_CONFIRMATION_PREFIX + "2026-08-06T00:00:00Z")
+        psql.assert_not_called()
 
     def test_cutover_refuses_confirmation_not_bound_to_upper(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -97,6 +128,34 @@ class UsageLogsDailyPartitionTest(unittest.TestCase):
                 json.loads(cutover_path.read_text(encoding="utf-8"))["verification"]["parent_row_count"],
                 6_000_100,
             )
+
+    def test_cutover_refuses_legacy_count_below_prepare_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            prepare_path = root / "prepare.json"
+            prepare_path.write_text(json.dumps(_prepare_receipt()), encoding="utf-8")
+            remote_result = {
+                "mode": "prod_usage_logs_daily_partition_cutover",
+                "environment": "prod",
+                "instance_id": _INSTANCE,
+                "legacy_upper_exclusive": _UPPER,
+                "source_rows_copied": False,
+                "deletion_authorized": False,
+                "verification": {
+                    "partitioned": True,
+                    "legacy_attached": True,
+                    "no_parent_global_unique": True,
+                    "no_incoming_legacy_fk": True,
+                    "constraints_preserved": True,
+                    "legacy_row_count": 5_999_999,
+                    "parent_row_count": 5_999_999,
+                },
+            }
+            with mock.patch.object(control, "_run_remote", return_value=remote_result):
+                with self.assertRaisesRegex(
+                    control.UsagePartitionControlError, "complete verification"
+                ):
+                    control.cutover(prepare_path, root / "cutover.json", _CONFIRM)
 
     def test_raw_usage_conflict_target_removed_but_billing_dedup_kept(self) -> None:
         repo = (_DIR.parents[1] / "backend" / "internal" / "repository" / "usage_log_repo_insert.go").read_text(encoding="utf-8")
@@ -244,13 +303,21 @@ INSERT INTO billing_usage_entries(usage_log_id) VALUES (1);
 """
         )
         with mock.patch.object(remote, "_psql", side_effect=self._psql):
+            first_prepare = remote.prepare(remote.PREPARE_CONFIRMATION)
+            aborted = remote.abort(
+                first_prepare["legacy_upper_exclusive"],
+                remote.ABORT_CONFIRMATION_PREFIX
+                + first_prepare["legacy_upper_exclusive"],
+            )
             prepared = remote.prepare(remote.PREPARE_CONFIRMATION)
             result = remote.cutover(
                 prepared["legacy_upper_exclusive"],
+                prepared["row_count_before"],
                 remote.CUTOVER_CONFIRMATION_PREFIX
                 + prepared["legacy_upper_exclusive"],
             )
 
+        self.assertTrue(aborted["bound_removed"])
         verification = result["verification"]
         self.assertEqual(verification["legacy_row_count"], 1)
         self.assertEqual(verification["parent_row_count"], 1)

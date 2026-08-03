@@ -4,22 +4,30 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
+import sys
 from typing import Any
 
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 ATTACHMENTS = REPO / ".testing" / "user-stories" / "attachments"
 TABLES = ("ops_error_logs", "ops_system_logs")
+ARCHIVE = REPO / "ops" / "archive"
+sys.path.insert(0, str(ARCHIVE))
+
+import data_layer_archive_cleanup_hold as cleanup_hold  # noqa: E402
+import data_layer_archive_closeout as closeout  # noqa: E402
+import data_layer_archive_prod_export as export  # noqa: E402
+import data_layer_archive_promote_batch as promote  # noqa: E402
 
 
-def _load(path: pathlib.Path) -> dict[str, Any] | None:
+def _sha256(path: pathlib.Path) -> str:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return value if isinstance(value, dict) else None
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise ValueError(f"cannot hash archive evidence: {path}") from exc
 
 
 def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
@@ -30,12 +38,22 @@ def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
     ledgers: list[dict[str, Any]] = []
     restores: list[str] = []
     closeout_tables: set[str] = set()
+    evidence_errors: list[str] = []
+    hold_path = attachments / "US-039-prod-cleanup-hold-20260721.json"
+    try:
+        hold = cleanup_hold._load_receipt(hold_path)
+    except (cleanup_hold.HoldControlError, OSError):
+        hold = {}
+        evidence_errors.append("cleanup_hold")
     for table in TABLES:
         slug = slugs[table]
-        ledger = _load(attachments / f"US-040-{slug}-export-ledger.json")
-        if ledger is not None:
+        export_path = attachments / f"US-040-{slug}-export-ledger.json"
+        try:
+            ledger = export.load_ledger(export_path)
             batches = ledger.get("completed_batches")
             final = batches[-1] if isinstance(batches, list) and batches else {}
+            if not isinstance(final, dict):
+                raise export.ExportError("export ledger final batch is invalid")
             ledgers.append(
                 {
                     "table": table,
@@ -44,17 +62,42 @@ def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
                     "more_cold_rows_remaining": ledger.get("more_cold_rows_remaining"),
                 }
             )
-        closeout = _load(attachments / f"US-040-{slug}-archive-closeout.json")
-        if closeout is not None and closeout.get("table") == table:
-            closeout_tables.add(table)
-            if isinstance(closeout.get("restore_verified_at"), str):
-                restores.append(closeout["restore_verified_at"])
-    hold = _load(attachments / "US-039-prod-cleanup-hold-20260721.json") or {}
+        except (export.ExportError, OSError):
+            evidence_errors.append(f"{table}:export_ledger")
+
+        closeout_path = attachments / f"US-040-{slug}-archive-closeout.json"
+        if not closeout_path.exists():
+            continue
+        promote_path = attachments / f"US-040-{slug}-promote-ledger.json"
+        try:
+            receipt = closeout.load_closeout_receipt(closeout_path)
+            promote.load_promote_ledger(promote_path)
+            if (
+                receipt.get("table") != table
+                or receipt.get("instance_id") != hold.get("instance_id")
+                or receipt.get("hold_started_at") != hold.get("hold_started_at")
+                or receipt.get("export_ledger_sha256") != _sha256(export_path)
+                or receipt.get("promote_ledger_sha256") != _sha256(promote_path)
+                or receipt.get("cleanup_hold_receipt_sha256") != _sha256(hold_path)
+            ):
+                evidence_errors.append(f"{table}:closeout_binding")
+                continue
+        except (
+            ValueError,
+            closeout.CloseoutError,
+            promote.PromoteError,
+            OSError,
+        ):
+            evidence_errors.append(f"{table}:closeout_receipt")
+            continue
+        closeout_tables.add(table)
+        restores.append(receipt["restore_verified_at"])
     return {
         "ledgers": ledgers,
         "hold_started_at": hold.get("hold_started_at"),
         "closeout_complete": closeout_tables == set(TABLES),
         "restore_verified_at": restores,
+        "evidence_errors": sorted(set(evidence_errors)),
     }
 
 

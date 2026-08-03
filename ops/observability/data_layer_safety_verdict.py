@@ -15,6 +15,7 @@ PGDUMP_MAX_AGE = dt.timedelta(hours=2)
 SNAPSHOT_MAX_AGE = dt.timedelta(hours=36)
 HOLD_MAX_AGE = dt.timedelta(days=14)
 RESTORE_MAX_AGE = dt.timedelta(days=30)
+MAX_FUTURE_SKEW = dt.timedelta(minutes=5)
 
 
 def _timestamp(value: Any) -> dt.datetime | None:
@@ -36,6 +37,18 @@ def _finding(kind: str, summary: str, *, severity: str = "error") -> dict[str, s
         "severity": severity,
         "summary": summary,
     }
+
+
+def _fresh(
+    stamp: dt.datetime | None,
+    now: dt.datetime,
+    max_age: dt.timedelta,
+) -> bool:
+    return (
+        stamp is not None
+        and now - max_age <= stamp
+        and stamp <= now + MAX_FUTURE_SKEW
+    )
 
 
 def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
@@ -80,23 +93,48 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
                     "partition maintenance has failed since its last success",
                 )
             )
-        if heartbeat is None or now - heartbeat > HEARTBEAT_MAX_AGE:
+        if not _fresh(heartbeat, now, HEARTBEAT_MAX_AGE):
             findings.append(
                 _finding(
                     "partition_maintenance_heartbeat",
-                    "partition maintenance success heartbeat is missing or older than 26h",
+                    "partition maintenance success heartbeat is missing, stale, or future-dated",
                 )
             )
 
     pgdump = _timestamp(backups.get("latest_pgdump_at")) if isinstance(backups, dict) else None
-    if pgdump is None or now - pgdump > PGDUMP_MAX_AGE:
-        findings.append(_finding("pgdump_freshness", "latest pgdump is missing or older than 2h"))
+    if not _fresh(pgdump, now, PGDUMP_MAX_AGE):
+        findings.append(
+            _finding(
+                "pgdump_freshness",
+                "latest pgdump is missing, stale, or future-dated",
+            )
+        )
 
     snapshot_at = _timestamp(snapshot.get("latest_snapshot_at")) if isinstance(snapshot, dict) else None
-    if snapshot_at is None or now - snapshot_at > SNAPSHOT_MAX_AGE:
-        findings.append(_finding("ebs_snapshot_freshness", "latest completed EBS snapshot is missing or older than 36h"))
+    if not _fresh(snapshot_at, now, SNAPSHOT_MAX_AGE):
+        findings.append(
+            _finding(
+                "ebs_snapshot_freshness",
+                "latest completed EBS snapshot is missing, stale, or future-dated",
+            )
+        )
 
     ledgers = archive.get("ledgers") if isinstance(archive, dict) else None
+    evidence_errors = (
+        archive.get("evidence_errors") if isinstance(archive, dict) else None
+    )
+    if evidence_errors:
+        valid_errors = (
+            sorted({str(item) for item in evidence_errors})
+            if isinstance(evidence_errors, list)
+            else ["invalid evidence error signal"]
+        )
+        findings.append(
+            _finding(
+                "archive_evidence",
+                "archive evidence failed validation: " + ", ".join(valid_errors),
+            )
+        )
     expected_tables = {"ops_error_logs", "ops_system_logs"}
     ledger_tables = {
         ledger.get("table") for ledger in ledgers if isinstance(ledger, dict)
@@ -137,12 +175,16 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
         )
 
     restore_times = archive.get("restore_verified_at") if isinstance(archive, dict) else None
-    parsed_restore = [stamp for stamp in (_timestamp(value) for value in (restore_times or [])) if stamp]
-    if len(parsed_restore) != 2 or any(now - stamp > RESTORE_MAX_AGE for stamp in parsed_restore):
+    parsed_restore = [
+        stamp for stamp in (_timestamp(value) for value in (restore_times or [])) if stamp
+    ]
+    if len(parsed_restore) != 2 or any(
+        not _fresh(stamp, now, RESTORE_MAX_AGE) for stamp in parsed_restore
+    ):
         findings.append(
             _finding(
                 "archive_restore_proof",
-                "long-term archive restore proof is missing for one or both ops tables, or older than 30d",
+                "long-term archive restore proof is missing, stale, or future-dated for one or both ops tables",
             )
         )
 
