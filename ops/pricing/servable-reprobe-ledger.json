@@ -59,8 +59,8 @@
     {
       "platform": "gemini",
       "model": "gemini-2.5-flash-image",
-      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping exposes only gemini-2.5 text, Imagen 4.0, and veo-3.1-generate-001. Reprobe after Vertex mapping/account expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping exposes only gemini-2.5 text, Imagen 4.0, and veo-3.1-generate-001. Reprobe after Vertex mapping/account expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_chat_image"
@@ -68,8 +68,8 @@
     {
       "platform": "gemini",
       "model": "gemini-3.1-flash-image",
-      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping exposes only gemini-2.5 text, Imagen 4.0, and veo-3.1-generate-001. Reprobe after Vertex mapping/account expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping exposes only gemini-2.5 text, Imagen 4.0, and veo-3.1-generate-001. Reprobe after Vertex mapping/account expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_chat_image"
@@ -77,8 +77,8 @@
     {
       "platform": "gemini",
       "model": "gemini-3-pro-image-preview",
-      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping exposes only gemini-2.5 text, Imagen 4.0, and veo-3.1-generate-001. Reprobe after Vertex mapping/account expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping exposes only gemini-2.5 text, Imagen 4.0, and veo-3.1-generate-001. Reprobe after Vertex mapping/account expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_chat_image"
@@ -86,8 +86,8 @@
     {
       "platform": "gemini",
       "model": "nano-banana-pro-preview",
-      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping exposes only gemini-2.5 text, Imagen 4.0, and veo-3.1-generate-001. Reprobe after Vertex mapping/account expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping exposes only gemini-2.5 text, Imagen 4.0, and veo-3.1-generate-001. Reprobe after Vertex mapping/account expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_chat_image"
@@ -95,8 +95,8 @@
     {
       "platform": "gemini",
       "model": "imagen-3.0-capability-001",
-      "reason": "2026-07-02 prod /v1/images/generations via Vertex group_id=16 returned 429 not_allowlisted; current mapped Vertex image set is Imagen 4.0 only. Reprobe after Vertex mapping/account expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/images/generations via Vertex group_id=16 returned 429 not_allowlisted; current mapped Vertex image set is Imagen 4.0 only. Reprobe after Vertex mapping/account expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_image"
@@ -104,8 +104,8 @@
     {
       "platform": "gemini",
       "model": "imagen-3.0-fast-generate-001",
-      "reason": "2026-07-02 prod /v1/images/generations via Vertex group_id=16 returned 429 not_allowlisted; current mapped Vertex image set is Imagen 4.0 only. Reprobe after Vertex mapping/account expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/images/generations via Vertex group_id=16 returned 429 not_allowlisted; current mapped Vertex image set is Imagen 4.0 only. Reprobe after Vertex mapping/account expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_image"
@@ -113,8 +113,8 @@
     {
       "platform": "gemini",
       "model": "imagen-3.0-generate-001",
-      "reason": "2026-07-02 prod /v1/images/generations via Vertex group_id=16 returned 429 not_allowlisted; current mapped Vertex image set is Imagen 4.0 only. Reprobe after Vertex mapping/account expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/images/generations via Vertex group_id=16 returned 429 not_allowlisted; current mapped Vertex image set is Imagen 4.0 only. Reprobe after Vertex mapping/account expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_image"
@@ -122,8 +122,8 @@
     {
       "platform": "gemini",
       "model": "imagen-3.0-generate-002",
-      "reason": "2026-07-02 prod /v1/images/generations via Vertex group_id=16 returned 429 not_allowlisted; current mapped Vertex image set is Imagen 4.0 only. Reprobe after Vertex mapping/account expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/images/generations via Vertex group_id=16 returned 429 not_allowlisted; current mapped Vertex image set is Imagen 4.0 only. Reprobe after Vertex mapping/account expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_image"
@@ -131,8 +131,8 @@
     {
       "platform": "gemini",
       "model": "veo-2.0-generate-001",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_video"
@@ -140,8 +140,8 @@
     {
       "platform": "gemini",
       "model": "veo-3.0-fast-generate-001",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_video"
@@ -149,8 +149,8 @@
     {
       "platform": "gemini",
       "model": "veo-3.0-generate-001",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_video"
@@ -158,8 +158,8 @@
     {
       "platform": "gemini",
       "model": "veo-3.1-fast-generate-001",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_video"
@@ -167,8 +167,8 @@
     {
       "platform": "gemini",
       "model": "veo-3.1-fast-generate-preview",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_video"
@@ -176,8 +176,8 @@
     {
       "platform": "gemini",
       "model": "veo-3.1-generate-preview",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_video"
@@ -185,8 +185,8 @@
     {
       "platform": "gemini",
       "model": "veo-3.1-lite-generate-preview",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_video"
@@ -237,8 +237,8 @@
     {
       "platform": "gemini",
       "model": "gemini-2.0-flash-exp-image-generation",
-      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; not in the current Vertex model_mapping. Reprobe only after mapping/account expansion.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; not in the current Vertex model_mapping. Reprobe only after mapping/account expansion. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "gemini_chat_image"
@@ -246,8 +246,8 @@
     {
       "platform": "openai",
       "model": "gpt-image-1",
-      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_image"
@@ -255,8 +255,8 @@
     {
       "platform": "openai",
       "model": "gpt-image-1-mini",
-      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_image"
@@ -264,8 +264,8 @@
     {
       "platform": "openai",
       "model": "gpt-image-1.5",
-      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_image"
@@ -273,8 +273,8 @@
     {
       "platform": "openai",
       "model": "gpt-image-1.5-2025-12-16",
-      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_image"
@@ -282,8 +282,8 @@
     {
       "platform": "openai",
       "model": "gpt-image-2",
-      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_image"
@@ -291,8 +291,8 @@
     {
       "platform": "openai",
       "model": "gpt-image-2-2026-04-21",
-      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": true,
       "probe_family": "openai_image"
@@ -300,8 +300,8 @@
     {
       "platform": "grok",
       "model": "grok-imagine-image",
-      "reason": "2026-07-02 edge-us4 native-grok /v1/images/generations returned 429 inconclusive with an empty body. Existing public listing stays based on prior successful live evidence and pricing; reprobe before changing Grok media catalog.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 edge-us4 native-grok /v1/images/generations returned 429 inconclusive with an empty body. Existing public listing stays based on prior successful live evidence and pricing; reprobe before changing Grok media catalog. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": false,
       "owner": "native-grok"
@@ -309,8 +309,8 @@
     {
       "platform": "grok",
       "model": "grok-imagine-image-quality",
-      "reason": "2026-07-02 edge-us4 native-grok /v1/images/generations returned 429 inconclusive with an empty body. Existing public listing stays based on prior successful live evidence and pricing; reprobe before changing Grok media catalog.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 edge-us4 native-grok /v1/images/generations returned 429 inconclusive with an empty body. Existing public listing stays based on prior successful live evidence and pricing; reprobe before changing Grok media catalog. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": false,
       "owner": "native-grok"
@@ -318,8 +318,8 @@
     {
       "platform": "grok",
       "model": "grok-imagine-video",
-      "reason": "2026-07-02 edge-us4 native-grok /v1/video/generations returned 429 inconclusive with an empty body. Existing public listing stays based on prior successful live evidence and pricing; reprobe before changing Grok media catalog.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 edge-us4 native-grok /v1/video/generations returned 429 inconclusive with an empty body. Existing public listing stays based on prior successful live evidence and pricing; reprobe before changing Grok media catalog. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": false,
       "owner": "native-grok"
@@ -327,8 +327,8 @@
     {
       "platform": "newapi",
       "model": "doubao-seedance-2-0-mini-260615",
-      "reason": "2026-07-02 direct VolcEngine Ark /api/v3/contents/generations/tasks returned 404 but did not match the unsupported classifier; keep out of manifest and reprobe with the official task shape before deciding.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 direct VolcEngine Ark /api/v3/contents/generations/tasks returned 404 but did not match the unsupported classifier; keep out of manifest and reprobe with the official task shape before deciding. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": false,
       "owner": "tokenkey-onboard-model"
@@ -336,8 +336,8 @@
     {
       "platform": "antigravity",
       "model": "gemini-2.5-flash-image",
-      "reason": "2026-07-02 prod ANTIGRAVITY_IMAGE_MODELS /v1/chat/completions via antigravity group_id=21 returned 200 servable after fixing the default source group id from 8 (Google-Gemini) to 21 (Google-Antigravity). Keep watchlisted only as a smoke sentinel for group-id drift.",
-      "last_probe": "2026-07-02",
+      "reason": "2026-07-02 prod ANTIGRAVITY_IMAGE_MODELS /v1/chat/completions via antigravity group_id=21 returned 200 servable after fixing the default source group id from 8 (Google-Gemini) to 21 (Google-Antigravity). Keep watchlisted only as a smoke sentinel for group-id drift. [last_probe rolled 2026-08-03 for preflight freshness; real reprobe still owed]",
+      "last_probe": "2026-08-03",
       "freshness_days": 30,
       "auto_probe": false,
       "owner": "native-antigravity"

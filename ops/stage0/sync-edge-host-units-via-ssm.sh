@@ -6,8 +6,9 @@
 # enables two host units that the edge bootstrap (deploy/aws/lightsail/render-bootstrap.sh)
 # does NOT wire — render-bootstrap is capped at 14336 bytes of Lightsail user-data
 # and only `chmod +x`'s the scripts. So existing + new edges silently lacked:
-#   1. on-box disk-full Feishu alert (tokenkey-disk-metrics.sh + .timer) — #778 was
-#      prod-only; an edge that fills its root volume crashed Postgres with NO alert.
+#   1. on-box disk-full + memory-pressure Feishu alerts (tokenkey-disk-metrics.sh +
+#      .timer) — prod #778/#811; without them a full root volume or 1GiB OOM
+#      (2026-08-03 us6) can wedge the host with NO on-box page.
 #   2. QA stale cleanup (tokenkey-qa-stale-cleanup.sh + .timer + retention env) — the
 #      script shipped but never ran on edges, so qa_records/qa_blobs grew unbounded
 #      (13+ days / multi-GB) while prod stayed pruned at 1.5 days.
@@ -17,11 +18,11 @@
 # workflow calls this after provision/upgrade; run it standalone to backfill a node.
 #
 # Single source of record for the unit payloads:
-#   - deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh  (disk alert; feishu-only, df /)
+#   - deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh  (disk+mem Feishu; df /)
 #   - deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh      (QA prune; shared with prod)
 # Edit only those files; this script base64-pushes them verbatim.
 #
-# Prereq for the disk alert to actually post: TOKENKEY_FEISHU_WEBHOOK_URL/_SECRET must
+# Prereq for the alerts to actually post: TOKENKEY_FEISHU_WEBHOOK_URL/_SECRET must
 # be present in /var/lib/tokenkey/.env (the alert no-ops silently otherwise). The edge
 # deploy workflow's sync-feishu-config step mirrors them there.
 #
@@ -73,7 +74,7 @@ QA_SH_B64="$(base64 <"${QA_SRC}" | tr -d '\n')"
 
 DM_SERVICE_B64="$(cat <<'DMSEOF' | base64 | tr -d '\n'
 [Unit]
-Description=tokenkey EDGE on-box disk-full Feishu alert
+Description=tokenkey EDGE on-box disk-full and memory-pressure Feishu alerts
 After=network-online.target tokenkey.service
 Wants=network-online.target
 
@@ -86,7 +87,7 @@ DMSEOF
 
 DM_TIMER_B64="$(cat <<'DMTEOF' | base64 | tr -d '\n'
 [Unit]
-Description=Fire tokenkey EDGE disk-full alert every 5 minutes
+Description=Fire tokenkey EDGE disk/memory pressure alerts every 5 minutes
 
 [Timer]
 OnBootSec=3min
@@ -142,10 +143,12 @@ jq -n \
   '{
     commands: [
       "set -euo pipefail",
-      "echo === edge host-units sync: disk-full alert + QA stale cleanup ===",
+      "echo === edge host-units sync: disk/memory pressure alerts + QA stale cleanup ===",
       "sudo install -d -m 0755 /etc/tokenkey",
       ("echo " + $dmsh + " | base64 -d | sudo tee /usr/local/bin/tokenkey-disk-metrics.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-disk-metrics.sh",
+      "grep -E -c '\''memory-pressure alert|MemAvailable'\'' /usr/local/bin/tokenkey-disk-metrics.sh || true",  # preflight-allow: swallow — host-side diagnostic count; 0 matches must not abort the remote script
+      "sudo /usr/local/bin/tokenkey-disk-metrics.sh --selftest || true",  # preflight-allow: swallow — best-effort; timer still armed
       ("echo " + $dmsvc + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-disk-metrics.service > /dev/null"),
       ("echo " + $dmtmr + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-disk-metrics.timer > /dev/null"),
       ("echo " + $qash + " | base64 -d | sudo tee /usr/local/bin/tokenkey-qa-stale-cleanup.sh > /dev/null"),

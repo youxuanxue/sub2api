@@ -1514,10 +1514,8 @@ fi
 
 # ---- sub2api: edge-health alert decision selftest --------------------------
 # The edge-health alert decision logic (actionable-set + state-diff dedup) lives in
-# edge-health-alert.py for manual triage via scan-edge-health.sh. Scheduled
-# edge-health-watch workflow was retired (2026-07): prod pool-exhaust Feishu + daily
-# client-fidelity-watch cover user-visible failures; intermediate edge posture churn
-# is intentionally manual. Fixtures pin the 2026-06-07 incident shapes + dedup behavior.
+# edge-health-alert.py; scheduled edge-health-watch GHA posts Feishu on change.
+# Fixtures pin the 2026-06-07 incident shapes + dedup behavior.
 echo ""
 echo "=== sub2api: edge-health alert decision selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
@@ -1529,6 +1527,32 @@ elif ! python3 ./ops/observability/edge-health-alert.py --selftest >/dev/null 2>
     errors=$((errors + 1))
 else
     echo "  ok: edge-health alert decision/dedup fixtures pass"
+fi
+
+# ---- sub2api: edge HTTPS health probe selftest -----------------------------
+# External /health resolver+probe (scan-edge-health.sh leading signal for host
+# hang / blackhole). Pure unit fixtures — no network.
+echo ""
+echo "=== sub2api: edge HTTPS health probe selftest ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for edge HTTPS health selftest)"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/edge_https_health.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: edge HTTPS health probe selftest"
+    echo "        — run: python3 ops/observability/edge_https_health.py --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge HTTPS health resolve/probe fixtures pass"
+fi
+
+# ---- sub2api: edge disk/memory host-alert script selftest ------------------
+echo ""
+echo "=== sub2api: edge disk/memory host-alert selftest ==="
+if ! bash ./deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh --selftest >/dev/null 2>&1; then
+    echo "  FAIL: tokenkey-disk-metrics-edge.sh --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge disk/memory alert awk fixtures pass"
 fi
 
 # live-host state drift verdict (ops/stage0/live_host_state_verdict.py): the logic

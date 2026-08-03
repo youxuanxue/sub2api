@@ -11,7 +11,11 @@
 # WHY: prod's "upstream-429 by account" reads ~1300 across ALL mirror edges whether an
 # edge is fully healthy (us5) or 100% dead for hours (us3, 2026-06-06). This scan reads
 # each edge's OWN access log + roster so a silently-dead edge shows verdict=down at a
-# glance instead of being masked by prod failover. Read-only: only runs run-probe.sh
+# glance instead of being masked by prod failover.
+#
+# External HTTPS /health (edge_https_health.py) runs BEFORE SSM: a guest hang
+# (2026-08-03 us6: SSM ConnectionLost + NetworkOut=0) must page as unreachable
+# without waiting on Undeliverable SSM. Read-only: HTTPS GET + run-probe.sh
 # (docker logs + psql SELECT). No writes, no AWS mutations.
 #
 # Usage:
@@ -29,6 +33,7 @@ REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 RUN_PROBE="$HERE/run-probe.sh"
 PROBE="$HERE/probe-edge-health.sh"
 VERDICT="$HERE/edge_health_verdict.py"
+HTTPS_PROBE="$HERE/edge_https_health.py"
 RESOLVE="$REPO_ROOT/deploy/aws/stage0/resolve-edge-target.py"
 
 SINCE="2h"
@@ -36,6 +41,8 @@ WITH_PROD=0
 EDGES_CSV=""
 JSON=0
 PROBE_TIMEOUT=150 # per-edge SSM timeout (s); the watch lowers it to bound total wall-clock
+HTTPS_TIMEOUT=8
+SKIP_HTTPS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --since) SINCE="$2"; shift 2 ;;
@@ -43,6 +50,8 @@ while [ $# -gt 0 ]; do
     --edges) EDGES_CSV="$2"; shift 2 ;;
     --json) JSON=1; shift ;;
     --timeout-seconds) PROBE_TIMEOUT="$2"; shift 2 ;;
+    --https-timeout-seconds) HTTPS_TIMEOUT="$2"; shift 2 ;;
+    --skip-https) SKIP_HTTPS=1; shift ;;
     -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "scan-edge-health: unknown arg '$1'" >&2; exit 1 ;;
   esac
@@ -83,6 +92,16 @@ trap 'rm -f "$RESULTS"' EXIT
 for tgt in "${TARGETS[@]}"; do
   label="${tgt#edge:}"
   echo "  probing $tgt ..." >&2
+  # Cheap external probe first: host hang / blackhole must not wait on SSM.
+  if [ "$SKIP_HTTPS" != "1" ]; then
+    https_json="$(python3 "$HTTPS_PROBE" --target "$tgt" --probe --timeout-seconds "$HTTPS_TIMEOUT" 2>/dev/null || true)"
+    https_ok="$(printf '%s' "$https_json" | python3 -c 'import json,sys; d=json.loads(sys.stdin.read() or "{}"); print("1" if d.get("reachable") else "0")' 2>/dev/null || echo 0)"
+    if [ "$https_ok" != "1" ]; then
+      echo "    https unreachable — marking unreachable (skip SSM)" >&2
+      printf '{"edge":"%s","verdict":"unreachable","reason":"https_unreachable"}\n' "$label" >> "$RESULTS"
+      continue
+    fi
+  fi
   if out="$(bash "$RUN_PROBE" --target "$tgt" --script "$PROBE" \
               --env "PLATFORM=anthropic" --env "SINCE=$SINCE" \
               --timeout-seconds "$PROBE_TIMEOUT" 2>/dev/null)"; then
@@ -93,7 +112,7 @@ for tgt in "${TARGETS[@]}"; do
       printf '{"edge":"%s","verdict":"parse-error"}\n' "$label" >> "$RESULTS"
     fi
   else
-    printf '{"edge":"%s","verdict":"unreachable"}\n' "$label" >> "$RESULTS"
+    printf '{"edge":"%s","verdict":"unreachable","reason":"ssm_unreachable"}\n' "$label" >> "$RESULTS"
   fi
 done
 
