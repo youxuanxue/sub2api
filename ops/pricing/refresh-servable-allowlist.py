@@ -1088,7 +1088,7 @@ def selftest() -> int:
     # probe_family overrides are both exercised without prod.
     # Anchor today to max(watchlist last_probe) so calendar bitrot on
     # freshness_days does not force unrelated PRs to fake-roll last_probe.
-    # Operational refresh (default today=None -> date.today()) still enforces
+    # Operational refresh (default today=None → date.today()) still enforces
     # wall-clock staleness when operators actually rebuild candidates.
     real_catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
     real_ledger_preview = load_reprobe_ledger()

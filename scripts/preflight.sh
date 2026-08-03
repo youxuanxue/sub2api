@@ -1514,10 +1514,8 @@ fi
 
 # ---- sub2api: edge-health alert decision selftest --------------------------
 # The edge-health alert decision logic (actionable-set + state-diff dedup) lives in
-# edge-health-alert.py for manual triage via scan-edge-health.sh. Scheduled
-# edge-health-watch workflow was retired (2026-07): prod pool-exhaust Feishu + daily
-# client-fidelity-watch cover user-visible failures; intermediate edge posture churn
-# is intentionally manual. Fixtures pin the 2026-06-07 incident shapes + dedup behavior.
+# edge-health-alert.py; scheduled edge-health-watch GHA posts Feishu on change.
+# Fixtures pin the 2026-06-07 incident shapes + dedup behavior.
 echo ""
 echo "=== sub2api: edge-health alert decision selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
@@ -1529,6 +1527,68 @@ elif ! python3 ./ops/observability/edge-health-alert.py --selftest >/dev/null 2>
     errors=$((errors + 1))
 else
     echo "  ok: edge-health alert decision/dedup fixtures pass"
+fi
+
+# ---- sub2api: edge HTTPS health probe selftest -----------------------------
+# External /health resolver+probe (scan-edge-health.sh leading signal for host
+# hang / blackhole). Pure unit fixtures — no network.
+echo ""
+echo "=== sub2api: edge HTTPS health probe selftest ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for edge HTTPS health selftest)"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/edge_https_health.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: edge HTTPS health probe selftest"
+    echo "        — run: python3 ops/observability/edge_https_health.py --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge HTTPS health resolve/probe fixtures pass"
+fi
+
+# The scan integration fixtures pin transport-only unreachable classification,
+# HTTP non-200 SSM fallback, and hard failure for helper/resolver errors.
+echo ""
+echo "=== sub2api: edge-health scan integration selftest ==="
+if ! bash ./ops/observability/test_scan_edge_health.sh >/dev/null 2>&1; then
+    echo "  FAIL: edge-health scan integration selftest"
+    echo "        — run: bash ops/observability/test_scan_edge_health.sh"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge-health scan transport/error fixtures pass"
+fi
+
+# Delivery owns the alert acknowledgment boundary: rejected/missing Feishu
+# delivery must never advance the cached actionable key.
+echo ""
+echo "=== sub2api: edge-health delivery selftest ==="
+if ! python3 ./ops/observability/edge_health_delivery.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: edge-health delivery selftest"
+    echo "        — run: python3 ops/observability/edge_health_delivery.py --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge-health delivery acknowledgment fixtures pass"
+fi
+
+# The helper tests can remain green after someone deletes or bypasses the actual
+# schedule. Anchor the load-bearing workflow trigger and scan/delivery call sites.
+echo ""
+echo "=== sub2api: edge-health watch workflow contract ==="
+if ! python3 ./scripts/checks/edge-health-watch-contract.py >/dev/null 2>&1; then
+    echo "  FAIL: edge-health watch workflow contract"
+    echo "        — run: python3 scripts/checks/edge-health-watch-contract.py"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge-health schedule, scan, delivery, and state call sites anchored"
+fi
+
+# ---- sub2api: edge disk/memory host-alert script selftest ------------------
+echo ""
+echo "=== sub2api: edge disk/memory host-alert selftest ==="
+if ! bash ./deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh --selftest >/dev/null 2>&1; then
+    echo "  FAIL: tokenkey-disk-metrics-edge.sh --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge disk/memory alert awk fixtures pass"
 fi
 
 # live-host state drift verdict (ops/stage0/live_host_state_verdict.py): the logic

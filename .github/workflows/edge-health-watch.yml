@@ -1,0 +1,131 @@
+name: Edge Health Watch
+
+# Frequent, read-only fleet edge-health watch that turns scan-edge-health.sh (#640)
+# from "someone has to remember to run it" into "Feishu shouts the moment an edge
+# dies". Born from the 2026-06-07 incident: 4 edges went to 0 schedulable accounts
+# and the one healthy multi-account edge buckled under concentrated failover load;
+# ~3445 clients ate 429s across two spikes — with ZERO alerts, because the only
+# truth signal was a manual scan.
+#
+# Restored after 2026-08-03 edge-us6: guest hang (SSM ConnectionLost, NetworkOut=0)
+# for ~16h with ZERO Feishu pages — app-local alerts cannot fire when the host is
+# wedged, and prod failover masks single-edge death. scan-edge-health.sh now does
+# external HTTPS /health BEFORE SSM so blackhole hosts page as unreachable quickly.
+#
+# Read-only: GHA -> HTTPS /health + AWS STS (OIDC) -> SSM `docker logs` + `psql SELECT`
+# via scan-edge-health.sh. Never deploys, writes config, edits secrets, or mutates AWS.
+# The ONLY outbound side effect is a Feishu text post when the actionable edge set
+# (degraded / active-down / unreachable / parse-error) CHANGES vs the previous run.
+# Leading `down` (pool empty, zero 429 yet) is not paged. Posture (thin/no-accounts) is
+# not paged; recovery posts a green all-clear.
+#
+# Cadence caveat: GitHub scheduled workflows are best-effort and can run late or skip
+# under load — this is detection-latency insurance, not a hard SLA. If a tighter SLA
+# is needed later, move the loop to the in-cluster reconciler.
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *" # ~every 15 min, off the :00 mark (GHA best-effort)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Compute + print the alert but do NOT post to Feishu"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      since:
+        description: "Traffic window for the scan (docker logs --since)"
+        required: false
+        default: "2h"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: edge-health-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    # The workflow contract check proves this budget covers the current target matrix,
+    # both per-target timeouts, and setup headroom.
+    timeout-minutes: 15
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      SINCE: ${{ inputs.since || '2h' }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      SCAN_PROBE_TIMEOUT: "60"
+      SCAN_HTTPS_TIMEOUT: "8"
+      FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+      FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check required configuration
+        run: |
+          set -euo pipefail
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable is empty — edge-health-watch cannot reach SSM."
+            exit 1
+          fi
+          if [ "$DRY_RUN" != "true" ] && { [ -z "${FEISHU_WEBHOOK_URL:-}" ] || [ -z "${FEISHU_SIGNING_SECRET:-}" ]; }; then
+            echo "::error::TK_FEISHU_WEBHOOK_URL / TK_FEISHU_SIGNING_SECRET must be set for live watches."
+            exit 1
+          fi
+
+      - name: Restore previous state key
+        uses: actions/cache/restore@v4
+        with:
+          path: .edge-health-state
+          key: edge-health-watch-state-${{ github.run_id }}
+          restore-keys: |
+            edge-health-watch-state-
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Scan fleet edge health (read-only SSM)
+        run: |
+          set -uo pipefail
+          mkdir -p .edge-health-state
+          scan_status=0
+          bash ops/observability/scan-edge-health.sh --with-prod --since "$SINCE" \
+            --timeout-seconds "$SCAN_PROBE_TIMEOUT" \
+            --https-timeout-seconds "$SCAN_HTTPS_TIMEOUT" \
+            --json > verdicts.jsonl 2> scan.stderr || scan_status=$?
+          echo "---- verdicts ----"; cat verdicts.jsonl
+          echo "---- scan stderr (tail) ----"; tail -20 scan.stderr
+          if [ "$scan_status" -ne 0 ]; then
+            echo "::error::edge-health scan failed or produced an incomplete result set."
+            exit "$scan_status"
+          fi
+
+      - name: Decide + post alert
+        run: |
+          set -euo pipefail
+          KEYFILE=.edge-health-state/key
+          python3 ops/observability/edge-health-alert.py --window "$SINCE" \
+            --prev-key-file "$KEYFILE" < verdicts.jsonl > decision.json
+          cat decision.json
+          if [ "$DRY_RUN" = "true" ]; then
+            python3 ops/observability/edge_health_delivery.py \
+              --decision decision.json --key-file "$KEYFILE" --dry-run
+          else
+            python3 ops/observability/edge_health_delivery.py \
+              --decision decision.json --key-file "$KEYFILE"
+          fi
+
+      - name: Save state key
+        # Not on dry-run: a dry-run must not advance the dedup state (see Decide step).
+        if: inputs.dry_run != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .edge-health-state
+          key: edge-health-watch-state-${{ github.run_id }}
