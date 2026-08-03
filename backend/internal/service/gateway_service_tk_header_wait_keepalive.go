@@ -102,11 +102,11 @@ func beginConfiguredHeaderWaitKeepalive(c *gin.Context, reqStream bool, interval
 	return startHeaderWaitKeepalive(c, time.Duration(intervalSec)*time.Second, frame)
 }
 
-func (s *AntigravityGatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive {
-	if s == nil || s.settingService == nil || s.settingService.cfg == nil {
+func (s *AntigravityGatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool, frame string) *headerWaitKeepalive {
+	if s == nil || s.settingService == nil || s.settingService.cfg == nil || frame == "" {
 		return nil
 	}
-	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.settingService.cfg.Gateway.StreamKeepaliveInterval, anthropicSSEPingFrame)
+	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.settingService.cfg.Gateway.StreamKeepaliveInterval, frame)
 }
 
 func (s *GeminiMessagesCompatService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive {

@@ -400,14 +400,6 @@
       "rationale": "The Forward() dispatch injection point (next to IsBedrock) + the GatewayService.kiroGateway field. Kiro dial/thinking can sit silent for minutes with no client-visible SSE (unsigned reasoning stays off the wire); the shared pre-content header-wait keepalive must be bound on this early branch or idle intermediaries and Claude Code drop/appear stuck. An upstream merge that rewrites Forward()/NewGatewayService() must preserve the dispatch branch (or kiro accounts fall through to the Anthropic path and fail)."
     },
     {
-      "path": "backend/internal/service/kiro_gateway_service_tk_keepalive.go",
-      "must_contain": [
-        "bindPreContentStreamKeepalive",
-        "stopPreContentStreamKeepalive"
-      ],
-      "rationale": "Stable TK companion pointer documenting that Kiro streaming uses the shared pre-content keepalive helpers. Losing this file/path silently erases the historical Kiro keepalive seam from sentinel inventories."
-    },
-    {
       "path": "backend/internal/service/kiro_gateway_service_tk_keepalive_test.go",
       "must_contain": [
         "TestKiroStreaming_HeaderWaitKeepaliveDuringThinkingStall",

@@ -3442,7 +3442,7 @@
         "openaiSSECommentFrame",
         "func bindPreContentStreamKeepalive(c *gin.Context, k *headerWaitKeepalive)",
         "func stopPreContentStreamKeepalive(c *gin.Context)",
-        "func (s *AntigravityGatewayService) beginHeaderWaitKeepalive",
+        "func (s *AntigravityGatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool, frame string)",
         "func (s *GeminiMessagesCompatService) beginHeaderWaitKeepalive",
         "func (s *GeminiMessagesCompatService) beginSSECommentHeaderWaitKeepalive"
       ],
@@ -3452,8 +3452,7 @@
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
         "hwka := s.beginHeaderWaitKeepalive(c, reqStream)",
-        "bindPreContentStreamKeepalive(c, hwka)",
-        "stopPreContentStreamKeepalive(c)",
+        "s.httpUpstream.DoWithTLS(upstreamReq",
         "hwka.stop()"
       ],
       "rationale": "Thin injection point of the header-wait SSE keepalive around the primary streaming DoWithTLS call in Forward. Begin returns a no-op for non-streaming/disabled requests; stop() must run the instant DoWithTLS returns and before any other write to c.Writer so a ping cannot race the stream handler. Catches an upstream merge that copies the old DoWithTLS shape back over the injection."
@@ -3463,7 +3462,8 @@
       "must_contain": [
         "TestStartHeaderWaitKeepalive_EmitsPingsAfterInterval",
         "TestStartHeaderWaitKeepalive_NoWriteBeforeInterval",
-        "TestBeginHeaderWaitKeepalive_NonStreamReturnsNil"
+        "TestBeginHeaderWaitKeepalive_NonStreamReturnsNil",
+        "TestAntigravityGatewayService_BeginHeaderWaitKeepaliveUsesClientWireFrame"
       ],
       "rationale": "Focused regressions for the header-wait keepalive: (1) ping frames + SSE headers are emitted once one interval elapses on a slow upstream; (2) NOT a single byte is written before the interval, which is the failover-gate contract (a fast 429/503/5xx must still be able to failover via c.Writer.Written()==false); (3) non-streaming requests get a nil no-op. Dropping these lets an upstream merge silently revert the failover-safe delayed-ping behavior."
     },
@@ -3471,8 +3471,7 @@
       "path": "backend/internal/service/openai_gateway_forward.go",
       "must_contain": [
         "hwka := s.beginHeaderWaitKeepalive(c, reqStream)",
-        "bindPreContentStreamKeepalive(c, hwka)",
-        "stopPreContentStreamKeepalive(c)",
+        "s.httpUpstream.Do(upstreamReq",
         "hwka.stop()"
       ],
       "rationale": "Header-wait SSE keepalive injection on the OpenAI/Codex passthrough streaming forward (forwardOpenAIPassthrough, around s.httpUpstream.Do). Same Wei-Shaw/sub2api#2121 idle-drop fix as the Anthropic Forward path, same failover-safe delayed-first-ping (the handler's failover gate compares c.Writer.Size() before/after forward). stop() must run the instant Do() returns. Catches an upstream merge that copies the old Do() shape back over the injection."
@@ -3481,28 +3480,52 @@
       "path": "backend/internal/service/gateway_bedrock.go",
       "must_contain": [
         "hwka := s.beginHeaderWaitKeepalive(c, stream)",
-        "bindPreContentStreamKeepalive(c, hwka)",
-        "stopPreContentStreamKeepalive(c)"
+        "s.httpUpstream.DoWithTLS(upstreamReq",
+        "hwka.stop()"
       ],
       "rationale": "Bedrock streaming Do must emit pre-content keepalive during long InvokeModelWithResponseStream header/thinking waits; without this branch Bedrock-only accounts regress to idle-drop / Moonwalking while Anthropic/OpenAI stay healthy."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_retry.go",
       "must_contain": [
-        "clientStream bool",
-        "hwka := s.beginHeaderWaitKeepalive(p.c, p.clientStream)",
-        "bindPreContentStreamKeepalive(p.c, hwka)",
-        "stopPreContentStreamKeepalive(p.c)"
+        "keepaliveFrame string",
+        "hwka := s.beginHeaderWaitKeepalive(p.c, p.clientStream, p.keepaliveFrame)",
+        "p.httpUpstream.Do(upstreamReq",
+        "hwka.stop()"
       ],
-      "rationale": "Antigravity's shared retry Do loop is the single upstream dial chokepoint for Claude/Gemini/compat forwards. clientStream gates keepalive so non-stream clients never receive SSE pings; losing the bind/stop pair re-opens pre-content idle drops on Antigravity."
+      "rationale": "Antigravity's shared retry Do loop is the single upstream dial chokepoint for Claude/Gemini/compat forwards. clientStream gates keepalive for non-stream clients and keepaliveFrame preserves the downstream wire protocol: Anthropic gets event:ping while Gemini/OpenAI-compatible routes get an SSE comment."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_claude.go",
+      "must_contain": [
+        "clientStream:    claudeReq.Stream",
+        "keepaliveFrame:  anthropicSSEPingFrame"
+      ],
+      "rationale": "Antigravity Claude ingress must select the Anthropic typed ping frame for every primary and signature-retry request."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat.go",
+      "must_contain": [
+        "clientStream:    request.clientStream",
+        "keepaliveFrame:  openaiSSECommentFrame"
+      ],
+      "rationale": "Antigravity Chat Completions and Responses compatibility routes must use a bare SSE comment; strict OpenAI clients reject Anthropic typed events."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "keepaliveFrame:  openaiSSECommentFrame",
+        "fallbackHWKA := s.beginHeaderWaitKeepalive(c, stream, openaiSSECommentFrame)",
+        "fallbackHWKA.stop()"
+      ],
+      "rationale": "Antigravity Gemini-native primary, retry, and model-fallback dials must use the wire-neutral SSE comment keepalive. The fallback call is part of the same user journey and must not reopen the slow-header stall."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
         "hwka := s.beginHeaderWaitKeepalive(c, req.Stream)",
         "hwka := s.beginSSECommentHeaderWaitKeepalive(c, stream)",
-        "bindPreContentStreamKeepalive(c, hwka)",
-        "stopPreContentStreamKeepalive(c)"
+        "hwka.stop()"
       ],
       "rationale": "Gemini /v1/messages Forward uses Anthropic ping; ForwardNative passthrough uses SSE comment keepalive on Google-native wire. Mixing frames breaks Gemini CLI strict parsers during header-wait."
     },
@@ -3510,8 +3533,7 @@
       "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
       "must_contain": [
         "beginSSECommentHeaderWaitKeepalive(c, clientStream)",
-        "bindPreContentStreamKeepalive(c, hwka)",
-        "stopPreContentStreamKeepalive(c)"
+        "hwka.stop()"
       ],
       "rationale": "Gemini chat-completions compat serves OpenAI wire; header-wait keepalive must use SSE comment frames, not Anthropic event:ping."
     },
@@ -3519,8 +3541,7 @@
       "path": "backend/internal/service/gemini_responses_compat_service.go",
       "must_contain": [
         "beginSSECommentHeaderWaitKeepalive(c, clientStream)",
-        "bindPreContentStreamKeepalive(c, hwka)",
-        "stopPreContentStreamKeepalive(c)"
+        "hwka.stop()"
       ],
       "rationale": "Gemini responses compat serves OpenAI wire; header-wait keepalive must use SSE comment frames, not Anthropic event:ping."
     },

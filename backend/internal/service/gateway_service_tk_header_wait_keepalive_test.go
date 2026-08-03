@@ -141,3 +141,28 @@ func TestGeminiMessagesCompatService_BeginSSECommentHeaderWaitKeepalive(t *testi
 		t.Fatalf("expected SSE comment keepalive, got %q", body)
 	}
 }
+
+func TestAntigravityGatewayService_BeginHeaderWaitKeepaliveUsesClientWireFrame(t *testing.T) {
+	claudeContext, claudeRecorder := newKeepaliveTestContext(t)
+	geminiContext, geminiRecorder := newKeepaliveTestContext(t)
+	geminiContext.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini:streamGenerateContent", nil)
+
+	cfg := &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}}
+	svc := &AntigravityGatewayService{settingService: &SettingService{cfg: cfg}}
+	claudeKeepalive := svc.beginHeaderWaitKeepalive(claudeContext, true, anthropicSSEPingFrame)
+	geminiKeepalive := svc.beginHeaderWaitKeepalive(geminiContext, true, openaiSSECommentFrame)
+	if claudeKeepalive == nil || geminiKeepalive == nil {
+		t.Fatal("expected non-nil Antigravity keepalive handles")
+	}
+
+	time.Sleep(1100 * time.Millisecond)
+	claudeKeepalive.stop()
+	geminiKeepalive.stop()
+
+	if body := claudeRecorder.Body.String(); !strings.Contains(body, "event: ping") {
+		t.Fatalf("Anthropic wire must emit a typed ping, got %q", body)
+	}
+	if body := geminiRecorder.Body.String(); strings.Contains(body, "event: ping") || !strings.Contains(body, ":\n\n") {
+		t.Fatalf("Gemini wire must emit only an SSE comment, got %q", body)
+	}
+}

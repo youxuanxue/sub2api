@@ -116,6 +116,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		groupID:         0,               // Forward 方法没有 groupID，由上层处理粘性会话清除
 		sessionHash:     "",              // Forward 方法没有 sessionHash，由上层处理粘性会话清除
 		clientStream:    claudeReq.Stream,
+		keepaliveFrame:  anthropicSSEPingFrame,
 	})
 	if err != nil {
 		// 检查是否是账号切换信号，转换为 UpstreamFailoverError 让 Handler 切换账号
@@ -201,6 +202,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 					groupID:         0,  // Forward 方法没有 groupID，由上层处理粘性会话清除
 					sessionHash:     "", // Forward 方法没有 sessionHash，由上层处理粘性会话清除
 					clientStream:    claudeReq.Stream,
+					keepaliveFrame:  anthropicSSEPingFrame,
 				})
 				if retryErr != nil {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -324,6 +326,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 							groupID:         0,
 							sessionHash:     "",
 							clientStream:    claudeReq.Stream,
+							keepaliveFrame:  anthropicSSEPingFrame,
 						})
 						if retryErr == nil {
 							retryResp := retryResult.resp

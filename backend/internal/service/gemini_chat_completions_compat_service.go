@@ -135,9 +135,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		requestIDHeader = idHeader
 
 		hwka := s.beginSSECommentHeaderWaitKeepalive(c, clientStream)
-		bindPreContentStreamKeepalive(c, hwka)
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
-		stopPreContentStreamKeepalive(c)
 		hwka.stop()
 		if err != nil {
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
