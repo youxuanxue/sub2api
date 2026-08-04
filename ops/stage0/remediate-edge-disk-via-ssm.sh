@@ -14,7 +14,7 @@
 #   bash ops/stage0/remediate-edge-disk-via-ssm.sh --edge-id us3
 #   bash ops/stage0/remediate-edge-disk-via-ssm.sh --edges us3,us4,us6
 #   bash ops/stage0/remediate-edge-disk-via-ssm.sh --all-deployable
-#   GHCR_KEEP_TAGS=2 bash ops/stage0/remediate-edge-disk-via-ssm.sh --edge-id us3
+#   TOKENKEY_GHCR_KEEP_TAGS=2 bash ops/stage0/remediate-edge-disk-via-ssm.sh --edge-id us3
 #
 # Options:
 #   --edge-id <id>       one deployable edge
@@ -222,9 +222,14 @@ for edge_id in "${EDGE_IDS[@]}"; do
     continue
   fi
 
-  mapfile -t _ls < <(resolve_lightsail "${edge_id}")
-  lightsail_region="${_ls[0]}"
-  instance_name="${_ls[1]}"
+  _ls_out="$(resolve_lightsail "${edge_id}")"
+  lightsail_region="$(printf '%s\n' "${_ls_out}" | sed -n '1p')"
+  instance_name="$(printf '%s\n' "${_ls_out}" | sed -n '2p')"
+  if [ -z "${lightsail_region}" ] || [ -z "${instance_name}" ]; then
+    echo "  FAIL: could not resolve Lightsail target for ${edge_id}" >&2
+    failures=$((failures + 1))
+    continue
+  fi
   echo "  SSM failed — trying Lightsail SSH (${instance_name} @ ${lightsail_region})" >&2
   if lightsail_ssh_run "${lightsail_region}" "${instance_name}" "${REMOTE_CLEANUP}"; then
     echo "  ok: SSH cleanup succeeded" >&2

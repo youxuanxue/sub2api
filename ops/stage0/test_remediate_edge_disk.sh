@@ -28,7 +28,9 @@ for needle in \
   'DISK_ACTIVE_STAMP' \
   'tk_feishu_post_now' \
   '磁盘压力已恢复' \
-  'TOKENKEY_DISK_RECOVER_THRESHOLD'; do
+  'TOKENKEY_DISK_RECOVER_THRESHOLD' \
+  'tokenkey-disk-alert.stamp' \
+  'legacy_has_cooldown'; do
   if ! printf '%s' "${disk}" | grep -F -e "${needle}" >/dev/null; then
     echo "FAIL: disk-metrics-edge missing recovery anchor ${needle}" >&2
     exit 1

@@ -40,6 +40,15 @@ if [ "${1:-}" = "--selftest" ]; then
   if [ "$recover_used" -lt "$RECOVER_THRESHOLD" ]; then should_recover=1; fi
   [ "$should_arm" = "1" ] || { echo "FAIL latch arm" >&2; fail=1; }
   [ "$should_recover" = "1" ] || { echo "FAIL latch recover" >&2; fail=1; }
+  # migration: old script wrote cooldown stamp only (no DISK_ACTIVE_STAMP latch)
+  legacy_has_latch=0
+  legacy_has_cooldown=1
+  should_migrate_recover=0
+  if [ "${legacy_has_latch}" -eq 0 ] && [ "${legacy_has_cooldown}" -eq 1 ] \
+     && [ "${recover_used}" -lt "${RECOVER_THRESHOLD}" ]; then
+    should_migrate_recover=1
+  fi
+  [ "${should_migrate_recover}" = "1" ] || { echo "FAIL migration recover" >&2; fail=1; }
   if [ "$fail" -ne 0 ]; then
     echo "tokenkey-disk-metrics-edge selftest FAILED" >&2
     exit 1
@@ -106,10 +115,12 @@ if [ -n "${USED}" ]; then
     tk_feishu_alert /run/tokenkey-disk-alert.stamp \
       "🔴 P0 磁盘将满 ${NODE} — 根盘 / 使用率 ${USED}% (阈值 ${THRESHOLD}%)。Postgres 满盘会崩溃→网关全挂。立即清 docker 镜像/日志或扩容。node=${NODE}"
     echo 1 >"${DISK_ACTIVE_STAMP}" 2>/dev/null || true  # preflight-allow: swallow — best-effort latch; timer retries next tick
-  elif [ -r "${DISK_ACTIVE_STAMP}" ] && [ "${USED}" -lt "${RECOVER_THRESHOLD}" ]; then
-    tk_feishu_post_now \
-      "✅ P0 磁盘压力已恢复 ${NODE} — 根盘 / 使用率 ${USED}% (恢复阈值 ${RECOVER_THRESHOLD}%，告警阈值 ${THRESHOLD}%)。node=${NODE}"
-    rm -f "${DISK_ACTIVE_STAMP}" /run/tokenkey-disk-alert.stamp 2>/dev/null || true  # preflight-allow: swallow — clear latch for next incident
+  elif [ "${USED}" -lt "${RECOVER_THRESHOLD}" ]; then
+    if [ -r "${DISK_ACTIVE_STAMP}" ] || [ -r /run/tokenkey-disk-alert.stamp ]; then
+      tk_feishu_post_now \
+        "✅ P0 磁盘压力已恢复 ${NODE} — 根盘 / 使用率 ${USED}% (恢复阈值 ${RECOVER_THRESHOLD}%，告警阈值 ${THRESHOLD}%)。node=${NODE}"
+      rm -f "${DISK_ACTIVE_STAMP}" /run/tokenkey-disk-alert.stamp 2>/dev/null || true  # preflight-allow: swallow — clear latch + legacy cooldown for next incident
+    fi
   fi
 fi
 
