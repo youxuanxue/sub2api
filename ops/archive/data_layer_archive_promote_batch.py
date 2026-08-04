@@ -288,6 +288,8 @@ def load_promote_ledger(path: str | os.PathLike[str]) -> dict[str, Any]:
         or payload.get("schema_version") != PROMOTE_LEDGER_SCHEMA
         or payload.get("mode") != PROMOTE_LEDGER_MODE
         or payload.get("environment") != "prod"
+        or payload.get("source_mutated") is not False
+        or payload.get("deletion_authorized") is not False
         or not isinstance(payload.get("promoted_batches"), list)
     ):
         raise PromoteError("promote ledger failed validation")

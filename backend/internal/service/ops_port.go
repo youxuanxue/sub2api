@@ -330,7 +330,7 @@ type OpsUpsertJobHeartbeatInput struct {
 	LastError      *string
 	LastDurationMs *int64
 
-	// LastResult is an optional human-readable summary of the last successful run.
+	// LastResult is an optional human-readable or structured summary of the latest run.
 	LastResult *string
 }
 

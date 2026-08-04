@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/telemetryarchive"
 	"github.com/lib/pq"
 )
 
 type opsRepository struct {
-	db *sql.DB
+	db        *sql.DB
+	telemetry telemetryarchive.Sink
 }
 
 const insertOpsErrorLogSQL = `
@@ -102,6 +104,7 @@ func (r *opsRepository) InsertErrorLog(ctx context.Context, input *service.OpsIn
 	if err != nil {
 		return 0, err
 	}
+	r.enqueueOpsError(input)
 	return id, nil
 }
 
@@ -145,7 +148,25 @@ func (r *opsRepository) BatchInsertErrorLogs(ctx context.Context, inputs []*serv
 	if err = tx.Commit(); err != nil {
 		return inserted, err
 	}
+	for _, input := range inputs {
+		r.enqueueOpsError(input)
+	}
 	return inserted, nil
+}
+
+func (r *opsRepository) enqueueOpsError(input *service.OpsInsertErrorLogInput) {
+	if r == nil || r.telemetry == nil || input == nil {
+		return
+	}
+	snapshot := *input
+	// Only the sanitized JSON is persisted. Keep raw/non-column diagnostic
+	// fields out of the long-lived S3 replay payload.
+	snapshot.UpstreamErrors = nil
+	snapshot.IsBusinessLimited = false
+	snapshot.AttemptedKeyPrefix = ""
+	snapshot.DeletedKeyOwnerUserID = nil
+	snapshot.DeletedKeyName = ""
+	r.telemetry.Enqueue(telemetryarchive.DatasetOpsError, &snapshot)
 }
 
 func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
@@ -697,48 +718,56 @@ func (r *opsRepository) BatchInsertSystemLogs(ctx context.Context, inputs []*ser
 	}
 
 	var inserted int64
+	shadowed := make([]*service.OpsInsertSystemLogInput, 0, len(inputs))
 	for _, input := range inputs {
 		if input == nil {
 			continue
 		}
-		createdAt := input.CreatedAt
+		normalized := *input
+		createdAt := normalized.CreatedAt
 		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
 		}
-		component := strings.TrimSpace(input.Component)
-		level := strings.ToLower(strings.TrimSpace(input.Level))
-		message := strings.TrimSpace(input.Message)
+		component := strings.TrimSpace(normalized.Component)
+		level := strings.ToLower(strings.TrimSpace(normalized.Level))
+		message := strings.TrimSpace(normalized.Message)
 		if level == "" || message == "" {
 			continue
 		}
 		if component == "" {
 			component = "app"
 		}
-		extra := strings.TrimSpace(input.ExtraJSON)
+		extra := strings.TrimSpace(normalized.ExtraJSON)
 		if extra == "" {
 			extra = "{}"
 		}
+		normalized.CreatedAt = createdAt.UTC()
+		normalized.Level = level
+		normalized.Component = component
+		normalized.Message = message
+		normalized.ExtraJSON = extra
 		if _, err := stmt.ExecContext(
 			ctx,
-			createdAt.UTC(),
-			opsNullString(input.Host),
-			level,
-			component,
-			message,
-			opsNullString(input.RequestID),
-			opsNullString(input.ClientRequestID),
-			opsNullInt64(input.UserID),
-			opsNullInt64(input.APIKeyID),
-			opsNullInt64(input.AccountID),
-			opsNullString(input.Platform),
-			opsNullString(input.Model),
-			extra,
+			normalized.CreatedAt,
+			opsNullString(normalized.Host),
+			normalized.Level,
+			normalized.Component,
+			normalized.Message,
+			opsNullString(normalized.RequestID),
+			opsNullString(normalized.ClientRequestID),
+			opsNullInt64(normalized.UserID),
+			opsNullInt64(normalized.APIKeyID),
+			opsNullInt64(normalized.AccountID),
+			opsNullString(normalized.Platform),
+			opsNullString(normalized.Model),
+			normalized.ExtraJSON,
 		); err != nil {
 			_ = stmt.Close()
 			_ = tx.Rollback()
 			return inserted, err
 		}
 		inserted++
+		shadowed = append(shadowed, &normalized)
 	}
 
 	if _, err := stmt.ExecContext(ctx); err != nil {
@@ -752,6 +781,11 @@ func (r *opsRepository) BatchInsertSystemLogs(ctx context.Context, inputs []*ser
 	}
 	if err := tx.Commit(); err != nil {
 		return inserted, err
+	}
+	if r.telemetry != nil {
+		for _, input := range shadowed {
+			r.telemetry.Enqueue(telemetryarchive.DatasetOpsSystem, input)
+		}
 	}
 	return inserted, nil
 }

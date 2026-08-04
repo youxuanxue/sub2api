@@ -293,6 +293,90 @@ class ProdArchiveExportTest(unittest.TestCase):
             ledger = export.load_ledger(ledger_path)
             self.assertEqual(len(ledger["completed_batches"]), 1)
             self.assertFalse(ledger["more_cold_rows_remaining"])
+            self.assertEqual(
+                ledger["completed_batches"][0]["cutoff_exclusive"],
+                manifest["export"]["cutoff_exclusive"],
+            )
+
+    def test_run_batch_rechecks_a_previously_complete_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = pathlib.Path(temp)
+            ledger_path = temp_path / "ledger.json"
+            ledger = export.init_ledger(
+                ledger_path,
+                table="ops_system_logs",
+                legacy_upper_exclusive=rehearsal.PROD_LEGACY_UPPER_EXCLUSIVE,
+            )
+            ledger["more_cold_rows_remaining"] = False
+            export._atomic_json(ledger_path, ledger)
+
+            rows = [_legacy_cold_row(_AS_OF, record_id="10")]
+            sealed = export.seal_prod_export_batch(
+                temp_path / "sealed",
+                table="ops_system_logs",
+                instance_id=_INSTANCE_ID,
+                staging_s3_base_uri=_STAGING_BASE,
+                cursor_before=None,
+                legacy_upper_exclusive=rehearsal.PROD_LEGACY_UPPER_EXCLUSIVE,
+                query_runner=_fake_query_runner(as_of=_AS_OF, rows=rows),
+            )
+            manifest_path = pathlib.Path(sealed["batch_dir"]) / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            uploaded = {
+                "mode": "prod_archive_export_canary_upload",
+                "batch_id": manifest["batch_id"],
+                "s3_prefix": manifest["staging_s3_prefix"],
+                "manifest_sha256": rehearsal._sha256(manifest_path.read_bytes()),
+                "objects": [{"uri": f"{manifest['staging_s3_prefix']}/manifest.json"}],
+                "manifest_uploaded_last": True,
+                "source_mutated": False,
+                "deletion_authorized": False,
+                "export": manifest["export"],
+                "cleanup_hold": {"hold_started_at": _HOLD_STARTED_AT},
+            }
+            args = argparse.Namespace(
+                confirm=export.PROD_EXPORT_CONFIRMATION,
+                ledger=str(ledger_path),
+                evidence_root=str(temp_path / "evidence"),
+                cleanup_hold_receipt=str(temp_path / "hold.json"),
+                ssm_timeout_seconds=300,
+                timeout_seconds=120,
+                max_rows=50_000,
+                max_logical_bytes=256 * 1024 * 1024,
+                verify_restore=False,
+                restore_target_dsn="",
+                seed=0,
+            )
+            with mock.patch.object(
+                canary, "_prod_instance", return_value=_INSTANCE_ID
+            ), mock.patch.object(
+                export.cleanup_hold,
+                "verify_receipt_for_instance",
+                return_value={"hold_started_at": _HOLD_STARTED_AT},
+            ), mock.patch.object(
+                export.cleanup_hold, "verify", return_value={"server_clock": _AS_OF}
+            ), mock.patch.object(
+                canary, "_stack_output", return_value="test-backups"
+            ), mock.patch.object(
+                canary, "_stack_parameter", return_value="7"
+            ), mock.patch.object(
+                export,
+                "stage_remote_bundle",
+                return_value={
+                    "uri": f"{_STAGING_BASE}/control/x.tar.gz",
+                    "sha256": "a" * 64,
+                },
+            ), mock.patch.object(
+                canary, "_run_ssm", return_value=uploaded
+            ), mock.patch.object(
+                canary,
+                "_download_committed_batch",
+                return_value=pathlib.Path(sealed["batch_dir"]),
+            ):
+                result = export.run_export_batch(args)
+
+            self.assertTrue(result["production_export_executed"])
+            self.assertEqual(len(export.load_ledger(ledger_path)["completed_batches"]), 1)
 
     def test_remote_bundle_includes_export_script(self) -> None:
         sources = export._remote_bundle_sources()

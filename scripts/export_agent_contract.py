@@ -97,6 +97,11 @@ CLI_END_MARKER = "## MCP"
 CLI_ENTRYPOINTS = (
     ("ops/pricing/modelops.py", "build_parser"),
     ("ops/pricing/manage-account-model-mapping-runtime.py", "_build_parser"),
+    ("ops/archive/data_layer_archive_cleanup_hold.py", "build_parser"),
+    ("ops/archive/data_layer_archive_prod_export.py", "build_parser"),
+    ("ops/archive/data_layer_archive_promote_batch.py", "build_parser"),
+    ("ops/archive/data_layer_archive_closeout.py", "build_parser"),
+    ("ops/migration/usage_logs_daily_partition.py", "build_parser"),
 )
 
 # TokenKey first-class platforms — the doc Notes section MUST mention each
@@ -207,7 +212,15 @@ def _load_argparse_parser(rel_path: str, factory_name: str) -> argparse.Argument
         raise RuntimeError(f"cannot load CLI entrypoint {rel_path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
-    spec.loader.exec_module(module)
+    module_dir = str(path.parent)
+    added_module_dir = module_dir not in sys.path
+    if added_module_dir:
+        sys.path.insert(0, module_dir)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if added_module_dir:
+            sys.path.remove(module_dir)
     factory = getattr(module, factory_name, None)
     if not callable(factory):
         raise RuntimeError(f"{rel_path}: parser factory {factory_name} is not callable")
@@ -294,6 +307,8 @@ def render_cli_contract() -> str:
         }
         for name, child in subparsers.choices.items():
             help_text = help_by_name.get(name) or ""
+            if help_text == argparse.SUPPRESS:
+                continue
             lines.extend(["", f"#### `{command_name} {name}`", "", help_text])
             options = _parser_options(child)
             if options:

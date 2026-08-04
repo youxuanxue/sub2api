@@ -24,11 +24,23 @@ Parameters:
     MinValue: 91
     MaxValue: 3650
     Description: Days after upload when archive objects expire permanently.
+  RawTelemetryGlacierTransitionDay:
+    Type: Number
+    Default: 8
+    MinValue: 2
+    MaxValue: 30
+    Description: Day count when raw telemetry moves out of Standard storage (expiry is always at least 90 days later).
+  RawTelemetryExpireDays:
+    Type: Number
+    Default: 120
+    MinValue: 120
+    MaxValue: 730
+    Description: Days after upload when replayable raw telemetry expires (minimum preserves Glacier's 90-day storage window).
   AppInstanceRoleArn:
     Type: String
     Description: >
-      IAM role ARN allowed to read/write prod/ops-archive/* (same direct-principal
-      pattern as stage0-backups.yaml).
+      IAM role ARN allowed to read/write prod/ops-archive/* and write-only
+      prod/raw-telemetry/* (same direct-principal pattern as stage0-backups.yaml).
 
 Resources:
   OpsArchiveBucket:
@@ -59,6 +71,15 @@ Resources:
             ExpirationInDays: !Ref ArchiveExpireDays
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 7
+          - Id: tier-and-expire-raw-telemetry
+            Status: Enabled
+            Prefix: !Sub '${Environment}/raw-telemetry/'
+            Transitions:
+              - TransitionInDays: !Ref RawTelemetryGlacierTransitionDay
+                StorageClass: GLACIER
+            ExpirationInDays: !Ref RawTelemetryExpireDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
 
   OpsArchiveBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -77,13 +98,39 @@ Resources:
             Condition:
               Bool:
                 'aws:SecureTransport': 'false'
-          - Sid: AllowAppInstanceRolePutGetArchive
+          - Sid: AllowAppInstanceRolePutArchive
             Effect: Allow
             Principal:
               AWS: !Ref AppInstanceRoleArn
+            Action: 's3:PutObject'
+            Resource:
+              - !Sub '${OpsArchiveBucket.Arn}/${Environment}/ops-archive/*'
+              - !Sub '${OpsArchiveBucket.Arn}/${Environment}/raw-telemetry/*'
+          - Sid: DenyAppInstanceRoleNonPutRawTelemetryObjects
+            Effect: Deny
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            NotAction: 's3:PutObject'
+            Resource: !Sub '${OpsArchiveBucket.Arn}/${Environment}/raw-telemetry/*'
+          - Sid: DenyAppInstanceRoleListRawTelemetry
+            Effect: Deny
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
             Action:
-              - 's3:PutObject'
-              - 's3:GetObject'
+              - 's3:ListBucket'
+              - 's3:ListBucketVersions'
+              - 's3:ListBucketMultipartUploads'
+            Resource: !GetAtt OpsArchiveBucket.Arn
+            Condition:
+              StringLike:
+                's3:prefix':
+                  - !Sub '${Environment}/raw-telemetry'
+                  - !Sub '${Environment}/raw-telemetry/*'
+          - Sid: AllowAppInstanceRoleGetOpsArchive
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action: 's3:GetObject'
             Resource: !Sub '${OpsArchiveBucket.Arn}/${Environment}/ops-archive/*'
           - Sid: AllowAppInstanceRoleListArchive
             Effect: Allow
@@ -109,3 +156,9 @@ Outputs:
   ArchiveExpireDays:
     Description: Total retention before lifecycle expiry (contract).
     Value: !Ref ArchiveExpireDays
+  RawTelemetryS3Uri:
+    Description: Canonical base URI for asynchronous raw telemetry shadow objects.
+    Value: !Sub 's3://${OpsArchiveBucket}/${Environment}/raw-telemetry'
+  RawTelemetryExpireDays:
+    Description: Total retention before raw telemetry lifecycle expiry.
+    Value: !Ref RawTelemetryExpireDays

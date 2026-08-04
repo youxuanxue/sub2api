@@ -3,11 +3,10 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"log"
-	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
@@ -277,7 +276,8 @@ func (r *dashboardAggregationRepository) CleanupUsageLogs(ctx context.Context, c
 		return err
 	}
 	if isPartitioned {
-		return r.dropUsageLogsPartitions(ctx, cutoff)
+		_, err := pgpartition.DropExpired(ctx, r.sql, "usage_logs", cutoff.UTC())
+		return err
 	}
 	for {
 		res, err := r.sql.ExecContext(ctx, `
@@ -331,23 +331,6 @@ func (r *dashboardAggregationRepository) CleanupUsageBillingDedup(ctx context.Co
 			return nil
 		}
 	}
-}
-
-func (r *dashboardAggregationRepository) EnsureUsageLogsPartitions(ctx context.Context, now time.Time) error {
-	isPartitioned, err := r.isUsageLogsPartitioned(ctx)
-	if err != nil || !isPartitioned {
-		return err
-	}
-	monthStart := truncateToMonthUTC(now)
-	prevMonth := monthStart.AddDate(0, -1, 0)
-	nextMonth := monthStart.AddDate(0, 1, 0)
-
-	for _, m := range []time.Time{prevMonth, monthStart, nextMonth} {
-		if err := r.createUsageLogsPartition(ctx, m); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (r *dashboardAggregationRepository) insertHourlyActiveUsers(ctx context.Context, start, end time.Time) error {
@@ -540,64 +523,6 @@ func (r *dashboardAggregationRepository) isUsageLogsPartitioned(ctx context.Cont
 	return partitioned, nil
 }
 
-func (r *dashboardAggregationRepository) dropUsageLogsPartitions(ctx context.Context, cutoff time.Time) error {
-	rows, err := r.sql.QueryContext(ctx, `
-		SELECT c.relname
-		FROM pg_inherits
-		JOIN pg_class c ON c.oid = pg_inherits.inhrelid
-		JOIN pg_class p ON p.oid = pg_inherits.inhparent
-		WHERE p.relname = 'usage_logs'
-	`)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = rows.Close()
-	}()
-
-	cutoffMonth := truncateToMonthUTC(cutoff)
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return err
-		}
-		if !strings.HasPrefix(name, "usage_logs_") {
-			continue
-		}
-		suffix := strings.TrimPrefix(name, "usage_logs_")
-		month, err := time.Parse("200601", suffix)
-		if err != nil {
-			continue
-		}
-		month = month.UTC()
-		if month.Before(cutoffMonth) {
-			if _, err := r.sql.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", pq.QuoteIdentifier(name))); err != nil {
-				return err
-			}
-		}
-	}
-	return rows.Err()
-}
-
-func (r *dashboardAggregationRepository) createUsageLogsPartition(ctx context.Context, month time.Time) error {
-	monthStart := truncateToMonthUTC(month)
-	nextMonth := monthStart.AddDate(0, 1, 0)
-	name := fmt.Sprintf("usage_logs_%s", monthStart.Format("200601"))
-	query := fmt.Sprintf(
-		"CREATE TABLE IF NOT EXISTS %s PARTITION OF usage_logs FOR VALUES FROM (%s) TO (%s)",
-		pq.QuoteIdentifier(name),
-		pq.QuoteLiteral(monthStart.Format("2006-01-02")),
-		pq.QuoteLiteral(nextMonth.Format("2006-01-02")),
-	)
-	_, err := r.sql.ExecContext(ctx, query)
-	return err
-}
-
 func truncateToDay(t time.Time) time.Time {
 	return timezone.StartOfDay(t)
-}
-
-func truncateToMonthUTC(t time.Time) time.Time {
-	t = t.UTC()
-	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
 }

@@ -304,6 +304,28 @@ jobs:
               trigger) add_finding "data_layer_capacity" "issue_candidate" "error" "Data-layer capacity hit RDS trigger ($TARGET_ID)" "$CAP_S — evaluate #587 RDS extraction (run off-box dump + failover rehearsal gates first)" "data-capacity|$TARGET_ID" ;;
               *) add_finding "data_layer_capacity" "skip" "info" "Data-layer capacity inconclusive ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
             esac
+
+            SAFETY_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-safety.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
+            VOLUME_ID="$(aws ec2 describe-instances --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].BlockDeviceMappings[0].Ebs.VolumeId' --output text 2>>"$STDERR" || true)" # preflight-allow: swallow — verdict reports missing snapshot
+            SNAPSHOT_AT=""
+            if [ -n "$VOLUME_ID" ] && [ "$VOLUME_ID" != "None" ]; then
+              SNAPSHOT_AT="$(aws ec2 describe-snapshots --region "$TARGET_REGION" --owner-ids self --filters "Name=volume-id,Values=$VOLUME_ID" "Name=status,Values=completed" --query 'reverse(sort_by(Snapshots,&StartTime))[0].StartTime' --output text 2>>"$STDERR" || true)" # preflight-allow: swallow — verdict reports missing snapshot
+            fi
+            SNAPSHOT_SIGNAL="$(jq -cn --arg value "$SNAPSHOT_AT" '{latest_snapshot_at:(if $value == "" or $value == "None" then null else $value end)}')"
+            ARCHIVE_SIGNAL="$(python3 ops/observability/data_layer_archive_health.py 2>>"$STDERR" || echo 'ARCHIVESTATS {}')"
+            SAFETY_VERDICT="$(printf '%s\nSNAPSHOTSTATS %s\n%s\n' "$SAFETY_OUT" "$SNAPSHOT_SIGNAL" "$ARCHIVE_SIGNAL" | python3 ops/observability/data_layer_safety_verdict.py 2>>"$STDERR" || echo '{"verdict":"unsafe","findings":[{"kind":"data_layer_safety_probe","status":"issue_candidate","severity":"error","summary":"data-layer safety verdict failed"}]}')"
+            printf 'data_layer_safety: %s\n' "$SAFETY_VERDICT" >> "$STDOUT"
+            if [ "$(printf '%s' "$SAFETY_VERDICT" | jq -r '.verdict // "unsafe"')" = "green" ]; then
+              add_finding "data_layer_safety" "ok" "info" "Data-layer protection gates passed ($TARGET_ID)" "Partition, backup, archive, hold, and restore gates are current." "data-layer-safety|$TARGET_ID"
+            else
+              while IFS= read -r SAFETY_FINDING; do
+                SF_KIND="$(printf '%s' "$SAFETY_FINDING" | jq -r '.kind')"
+                SF_STATUS="$(printf '%s' "$SAFETY_FINDING" | jq -r '.status')"
+                SF_SEVERITY="$(printf '%s' "$SAFETY_FINDING" | jq -r '.severity')"
+                SF_SUMMARY="$(printf '%s' "$SAFETY_FINDING" | jq -r '.summary')"
+                add_finding "$SF_KIND" "$SF_STATUS" "$SF_SEVERITY" "Data-layer protection gate failed: $SF_KIND ($TARGET_ID)" "$SF_SUMMARY" "data-layer-safety|$TARGET_ID|$SF_KIND"
+              done < <(printf '%s' "$SAFETY_VERDICT" | jq -c '.findings[]')
+            fi
           fi
 
           if [ "$TARGET_KIND" = "edge" ] && [ -n "$API_URL" ]; then
