@@ -11,6 +11,7 @@ import unittest
 _REPO = pathlib.Path(__file__).resolve().parents[3]
 STAGE0 = _REPO / "deploy/aws/stage0"
 CFN_MAIN = _REPO / "deploy/aws/cloudformation/stage0-single-ec2.yaml"
+CFN_EDGE = _REPO / "deploy/aws/cloudformation/stage0-edge-ec2.yaml"
 
 EC2_USERDATA_LIMIT = 16384
 SSM_STANDARD_LIMIT = 4096
@@ -25,6 +26,17 @@ def _extract_userdata_body(cfn_text: str) -> str:
     if not m:
         raise AssertionError("UserData block not found")
     return m.group(1)
+
+
+def _extract_instance_body(cfn_text: str) -> str:
+    match = re.search(
+        r"^  Instance:\n(.*?)(?=^  [A-Za-z][A-Za-z0-9]*:\n|^Outputs:\n|\Z)",
+        cfn_text,
+        re.M | re.S,
+    )
+    if not match:
+        raise AssertionError("Instance resource not found")
+    return match.group(1)
 
 
 class BuildCfnSizeTest(unittest.TestCase):
@@ -44,6 +56,19 @@ class BuildCfnSizeTest(unittest.TestCase):
             "#!/bin/bash",
             "cloud-init only runs UserData as a shell script when shebang is the first non-empty line",
         )
+
+    def test_edge_userdata_under_ec2_limit(self) -> None:
+        body = _extract_userdata_body(CFN_EDGE.read_text())
+        self.assertLessEqual(
+            len(body.encode()),
+            EC2_USERDATA_LIMIT,
+            f"edge UserData body is {len(body.encode())} bytes; EC2 limit is {EC2_USERDATA_LIMIT}",
+        )
+
+    def test_edge_userdata_shebang_is_first_line(self) -> None:
+        body = _extract_userdata_body(CFN_EDGE.read_text())
+        first = next((line.strip() for line in body.splitlines() if line.strip()), "")
+        self.assertEqual(first, "#!/bin/bash")
 
     def test_bootstrap_gzip_b64_fits_three_ssm_standard_parts(self) -> None:
         # The bootstrap gzip|base64 blob is split across SSM Standard parameters
@@ -101,13 +126,28 @@ class BuildCfnSizeTest(unittest.TestCase):
             src.write_bytes(original)
 
     def test_cfn_has_bootstrap_ssm_markers(self) -> None:
-        text = CFN_MAIN.read_text()
-        for marker in (
-            "BOOTSTRAP_GZB64_SSM_PART1 START",
-            "BOOTSTRAP_GZB64_SSM_PART2 START",
-            "USERDATA_LAUNCHER markers",
-        ):
-            self.assertIn(marker, text)
+        for template in (CFN_MAIN, CFN_EDGE):
+            with self.subTest(template=template.name):
+                text = template.read_text()
+                for marker in (
+                    "BOOTSTRAP_GZB64_SSM_PART1 START",
+                    "BOOTSTRAP_GZB64_SSM_PART2 START",
+                    "BOOTSTRAP_GZB64_SSM_PART3 START",
+                    ">>> USERDATA_LAUNCHER START",
+                    ">>> USERDATA_LAUNCHER END",
+                ):
+                    self.assertIn(marker, text)
+
+    def test_instances_wait_for_all_bootstrap_parameters(self) -> None:
+        for template in (CFN_MAIN, CFN_EDGE):
+            with self.subTest(template=template.name):
+                instance = _extract_instance_body(template.read_text())
+                for part in (1, 2, 3):
+                    self.assertIn(
+                        f"TokenkeyStage0BootstrapGzipB64Part{part}Parameter",
+                        instance,
+                        f"{template.name} can boot before bootstrap part {part} exists",
+                    )
 
 
 if __name__ == "__main__":

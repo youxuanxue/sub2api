@@ -28,7 +28,7 @@ GHCR_PULL_USER="${TK_GHCR_PULL_USER}"
 GHCR_PAT_SSM_NAME="${TK_GHCR_PAT_SSM_NAME}"
 DATA_VOLUME_ID="${TK_DATA_VOLUME_ID}"
 TOKENKEY_IMAGE="${TK_TOKENKEY_IMAGE}"
-STAGE0_PREFIX="/${TK_PROJECT_NAME}/${TK_ENVIRONMENT}/stage0"
+STAGE0_PREFIX="${TK_STAGE0_PREFIX:-/${TK_PROJECT_NAME}/${TK_ENVIRONMENT}/stage0}"
 
 # --- 1. system packages -------------------------------------------------
 dnf -y update
@@ -59,7 +59,12 @@ usermod -aG docker ec2-user
 # degradation. Lives on the ROOT volume so swap I/O never contends with
 # Postgres on /var/lib/tokenkey. Idempotent: skip if already active.
 SWAPFILE=/swapfile
-SWAP_SIZE_MB="${TK_SWAP_SIZE_MB:-4096}"
+if [[ -n "${TK_SWAP_SIZE_GIB:-}" ]]; then
+  [[ "${TK_SWAP_SIZE_GIB}" =~ ^[0-9]+$ ]] || { echo "invalid TK_SWAP_SIZE_GIB" >&2; exit 1; }
+  SWAP_SIZE_MB="$((TK_SWAP_SIZE_GIB * 1024))"
+else
+  SWAP_SIZE_MB="${TK_SWAP_SIZE_MB:-4096}"
+fi
 # Best-effort: swap is defense-in-depth, so a setup failure must NEVER abort the
 # essential bootstrap (every step here is failure-guarded under set -e), and we
 # persist the fstab entry only after swap is confirmed active so a partial setup
@@ -222,7 +227,14 @@ render_prod_caddyfile() {
   fi
   rm -f "${tmp}"
 }
-render_prod_caddyfile caddy/Caddyfile.template caddy/Caddyfile
+if [[ "${TK_CADDY_PROFILE:-prod}" == "edge" ]]; then
+  : "${TK_MAIN_GATEWAY_ALLOWED_CIDR:?}"
+  export API_DOMAIN ACME_EMAIL MAIN_GATEWAY_ALLOWED_CIDR="${TK_MAIN_GATEWAY_ALLOWED_CIDR}"
+  envsubst '$API_DOMAIN $ACME_EMAIL $MAIN_GATEWAY_ALLOWED_CIDR' \
+    < caddy/Caddyfile.template > caddy/Caddyfile
+else
+  render_prod_caddyfile caddy/Caddyfile.template caddy/Caddyfile
+fi
 
 install -d -m 0755 /etc/tokenkey
 printf 'TOKENKEY_QA_STALE_RETENTION_DAYS=%s\n' "${TK_QA_STALE_RETENTION_DAYS}" > /etc/tokenkey/qa-stale-retention.env
