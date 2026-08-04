@@ -9,6 +9,7 @@
 
 - Trace:
   - 设计锚点：`docs/approved/design-data-layer-phase1-closeout.md`
+  - 生产启用门禁：`docs/approved/design-phase1-prod-activation-gates.md`
   - 前序归档：US-039、US-040
 - Risk Focus:
   - 逻辑错误：错误分区边界、ledger 水位或 checksum 允许热数据删除。
@@ -26,6 +27,7 @@
 6. **AC-006（保护信号独立）**：Given 任一分区、备份、archive、hold、恢复或已启用 telemetry 的健康证据缺失/过期，When 生成 safety verdict，Then 产生独立 fail-closed finding；telemetry 还必须具有 3 分钟内的 clean heartbeat 和 dropped=failed=0，容量 green 不得覆盖。
 7. **AC-007（阶段隔离）**：Given 本 Story，When 审查资源和入口，Then RDS 第二阶段保持 hold，且合并本 PR 不执行生产 schema、archive、cleanup release、部署或发布。
 8. **AC-008（单一默认与可重放格式）**：Given telemetry 默认配置，When 对比 Go、Compose、env 示例与设计，Then 均为 disabled、空 region/bucket、`prod/raw-telemetry`、8192 records、32 MiB、1 MiB/event、256/batch、4 workers、5s flush、10s put；对象为 schema v1 envelope + checksum metadata，生命周期默认 8 天转 Glacier、120 天过期，runtime 对 raw prefix 只有写权限。
+9. **AC-009（生产启用门禁）**：Given 第一阶段代码已合并但仍未启用，When 修复只读诊断和一次性分区入口，Then 活跃容器与 DataVolume 快照均失败关闭，容量查询保持有界，cron 与一次性模式共享同一个分区 owner，固定 controller 在二次生产审批前不得执行。
 
 ## Assertions
 
@@ -47,12 +49,17 @@
 - `backend/internal/service/telemetry_archive_health_test.go`::`TestTelemetryArchiveHealthPublishesCleanAndFailedStats`
 - `ops/observability/test_data_layer_safety_verdict.py`::`DataLayerSafetyVerdictTest.test_capacity_independent_failures_are_separate_findings`
 - `ops/observability/test_data_layer_safety_verdict.py`::`DataLayerSafetyVerdictTest.test_enabled_telemetry_requires_fresh_clean_zero_loss_stats`
+- `backend/internal/pkg/partitionmaintenance/maintenance_test.go`::`TestEnsureStrictCreatesAndVerifiesAllTargets`
+- `backend/cmd/server/partition_maintenance_test.go`::`TestPartitionMaintenanceSuccessUsesStrictBoundedPath`
+- `ops/migration/test_data_layer_partition_maintenance.py`::`DataLayerPartitionMaintenanceTest.test_success_uses_fixed_instance_command_and_full_json`
 
 运行命令：
 
 ```bash
 cd backend && go test ./internal/pkg/pgpartition ./internal/repository ./internal/service ./internal/telemetryarchive
+cd backend && go test -tags unit ./cmd/server ./internal/pkg/partitionmaintenance ./internal/service
 python3 ops/migration/test_usage_logs_daily_partition.py
+python3 ops/migration/test_data_layer_partition_maintenance.py
 python3 ops/archive/test_data_layer_archive_closeout.py
 python3 ops/observability/test_data_layer_safety_verdict.py
 ```

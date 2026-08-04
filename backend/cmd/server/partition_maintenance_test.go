@@ -123,6 +123,8 @@ func TestPartitionMaintenanceSuccessUsesStrictBoundedPath(t *testing.T) {
 		t.Fatalf("heartbeat result must deny deletion: %+v", heartbeat)
 	}
 	var receipt struct {
+		ReceiptVersion     int                                `json:"receipt_version"`
+		Mode               string                             `json:"mode"`
 		OK                 bool                               `json:"ok"`
 		JobName            string                             `json:"job_name"`
 		Tables             []partitionmaintenance.TableResult `json:"tables"`
@@ -131,7 +133,7 @@ func TestPartitionMaintenanceSuccessUsesStrictBoundedPath(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
 		t.Fatalf("decode output %q: %v", out.String(), err)
 	}
-	if !receipt.OK || receipt.JobName != partitionmaintenance.JobName || receipt.DeletionAuthorized || len(receipt.Tables) != 3 {
+	if receipt.ReceiptVersion != 1 || receipt.Mode != "partition_maintenance" || !receipt.OK || receipt.JobName != partitionmaintenance.JobName || receipt.DeletionAuthorized || len(receipt.Tables) != 3 {
 		t.Fatalf("unexpected receipt: %+v", receipt)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

@@ -17,7 +17,11 @@ import (
 	_ "github.com/lib/pq"
 )
 
-const partitionMaintenanceConfirmation = "tokenkey-prod-partition-maintenance-v1"
+const (
+	partitionMaintenanceConfirmation   = "tokenkey-prod-partition-maintenance-v1"
+	partitionMaintenanceReceiptVersion = 1
+	partitionMaintenanceReceiptMode    = "partition_maintenance"
+)
 
 type partitionMaintenanceDeps struct {
 	loadConfig     func() (*config.Config, error)
@@ -143,12 +147,16 @@ func runPartitionMaintenanceCommand(
 	}
 
 	receipt := struct {
+		ReceiptVersion     int                                `json:"receipt_version"`
+		Mode               string                             `json:"mode"`
 		OK                 bool                               `json:"ok"`
 		JobName            string                             `json:"job_name"`
 		CompletedAt        time.Time                          `json:"completed_at"`
 		Tables             []partitionmaintenance.TableResult `json:"tables"`
 		DeletionAuthorized bool                               `json:"deletion_authorized"`
 	}{
+		ReceiptVersion:     partitionMaintenanceReceiptVersion,
+		Mode:               partitionMaintenanceReceiptMode,
 		OK:                 true,
 		JobName:            partitionmaintenance.JobName,
 		CompletedAt:        completedAt,

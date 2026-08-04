@@ -36,3 +36,20 @@ python3 ops/migration/usage_logs_daily_partition.py cutover \
 锁等待超过 5 秒、上界过期、CHECK 未验证、出现未知 incoming FK、父表仍有全局唯一索引或
 切换后 legacy 行数小于 prepare receipt、或父表行数小于 legacy 行数时均 fail closed。账务幂等
 仍由 `usage_billing_dedup` 负责。
+
+## 分区维护一次性入口（本 PR 禁止执行）
+
+`data_layer_partition_maintenance.py` 只面向固定的 `us-east-1` / `tokenkey-prod-stage0`，
+不接受 target、instance、script 或 command 参数。合并本 PR 不会调用该入口，也不代表生产执行获批。
+
+获得独立的生产执行审批后，命令形状固定为：
+
+```bash
+python3 ops/migration/data_layer_partition_maintenance.py run \
+  --receipt .testing/user-stories/attachments/prod-partition-maintenance.json \
+  --confirm tokenkey-prod-partition-maintenance-v1
+```
+
+controller 只发送一次固定 SSM 命令，并轮询同一个 `CommandId`。只有远端严格分区维护、覆盖验证和
+成功 heartbeat 全部完成后，才会原子创建本地 receipt；已有 receipt 不会被覆盖。该入口不授权删除、
+cleanup release、部署、重启或配置修改。
