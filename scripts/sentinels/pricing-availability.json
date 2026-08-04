@@ -164,6 +164,16 @@
       "rationale": "Executable SSOT for all currently taxed official-list providers. The embedded overlay is the compile floor and the same full document is hot-pushed to tk_pricing_overlay_runtime. Pinning all five behavior-preserving provider rows and the multiplier prevents an upstream merge from silently dropping one tax family while model prices continue to parse. New providers are added here, not in Go."
     },
     {
+      "path": "backend/internal/service/pricing_service_test.go",
+      "must_contain": [
+        "TestDefaultPricingKeepsTokenKeyCodexAutoReviewRates",
+        "TestCodexAutoReviewBundledPricingMatchesTokenKeyOverlay",
+        "priceFields := []string{",
+        "require.JSONEq(t, string(overlayValue), string(bundledValue)"
+      ],
+      "rationale": "Pins the codex-auto-review billing regression and its cross-source parity contract. The focused behavior test verifies the parsed base/priority prices used by runtime billing; the structured parity test compares every bundled base, priority, flex, batch, and above-272k price against the TokenKey overlay owner. Without this sentinel a future upstream merge could delete both tests while leaving a source-dependent fallback price split that ordinary compilation cannot detect."
+    },
+    {
       "path": "backend/internal/service/pricing_tk_base_tax_test.go",
       "must_contain": [
         "TestTkOfficialListBaseTax_AppliesToTargetProvidersOnly",

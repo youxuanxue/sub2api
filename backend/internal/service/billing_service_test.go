@@ -178,8 +178,8 @@ func TestGetModelPricing_FallbackWarnPerModelNotGlobal(t *testing.T) {
 	require.Equal(t, 0, strings.Count(out, "model: CLAUDE-UNKNOWN-WARNING-A"), out)
 }
 
-// 回归：即使 PricingService 不可用，glm-5.2 仍从 overlay 精确价恢复，
-// 不会落到更宽的 glm-5 兼容分支。
+// 回归:glm-5.2 必须命中自己的兜底价,不能被 strings.Contains("glm-5") 抢成 glm-5 价。
+// 历史 bug:兜底表缺 glm-5.2 条目,使用记录按 $1.00/$3.20 计费,比官方 $1.40/$4.40 少收约 27%。
 func TestGetModelPricing_GLM52UsesBigModelPriceWithBaseTax(t *testing.T) {
 	svc := newTestBillingService()
 
@@ -628,6 +628,7 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			expectedOutput:    floatPtr(glmCNYPerMTokPreTax(28)),
 			expectedCacheRead: floatPtr(glmCNYPerMTokPreTax(2)),
 		},
+		// 关键：5.1 / 5.2 必须先于 5 匹配（避免被 glm-5 抢走）
 		{
 			name:              "glm 5.1 vs glm 5 ordering (verbatim 5.1)",
 			model:             "glm-5.1",

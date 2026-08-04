@@ -202,9 +202,10 @@
     {
       "path": "backend/internal/service/admin_account.go",
       "must_contain": [
-        "resolveGrokTokenOnSave(ctx, account)"
+        "if err := resolveGrokTokenOnSave(ctx, account); err != nil {\n\t\treturn nil, err\n\t}\n\tif err := s.accountRepo.Create",
+        "if account.Platform == PlatformGrok &&\n\t\ttkInputHasNonEmptyCredential(input.Credentials, \"refresh_token\") {\n\t\tif err := resolveGrokTokenOnSave(ctx, account); err != nil {"
       ],
-      "rationale": "The wiring of the grok create-time validate+prime into CreateAccount (next to resolveNewAPIMoonshotBaseURLOnSave). An upstream merge that rewrites CreateAccount must preserve this call, or grok accounts are created unvalidated/unprimed."
+      "rationale": "The Grok validate+prime hook must remain wired at both save boundaries: CreateAccount always validates a newly pasted token, while UpdateAccount revalidates only when that request explicitly supplies a non-empty refresh_token. The distinct surrounding blocks prevent a surviving create call from masking deletion of the update call, and prevent unrelated Grok edits from acquiring a live xAI dependency."
     },
     {
       "path": "backend/internal/service/account_test_service.go",

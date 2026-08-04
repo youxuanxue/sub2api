@@ -217,6 +217,12 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldPeakStart,
 				group.FieldPeakEnd,
 				group.FieldPeakRateMultiplier,
+				// 分组利润控制：认证快照是调度门 enable 判定的直接来源，
+				// 漏选会让门静默失效；新增快照分组字段时必须同步本投影，
+				// 集成测试对账兜底。
+				group.FieldProfitControlEnabled,
+				group.FieldProfitMinMargin,
+				group.FieldProfitSafetyBuffer,
 			)
 		}).
 		Only(ctx)
@@ -978,10 +984,6 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		AllowBatchImageGeneration:              g.AllowBatchImageGeneration,
 		ImageRateIndependent:                   g.ImageRateIndependent,
 		ImageRateMultiplier:                    g.ImageRateMultiplier,
-		PeakRateEnabled:                        g.PeakRateEnabled,
-		PeakStart:                              g.PeakStart,
-		PeakEnd:                                g.PeakEnd,
-		PeakRateMultiplier:                     g.PeakRateMultiplier,
 		ImagePrice1K:                           g.ImagePrice1k,
 		ImagePrice2K:                           g.ImagePrice2k,
 		ImagePrice4K:                           g.ImagePrice4k,
@@ -1015,6 +1017,13 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		MessagesCompactionInputTokensThreshold: g.MessagesCompactionInputTokensThreshold,
 		MaxReasoningEffort:                     g.MaxReasoningEffort,
 		ReasoningEffortMappings:                g.ReasoningEffortMappings,
+		PeakRateEnabled:                        g.PeakRateEnabled,
+		PeakStart:                              g.PeakStart,
+		PeakEnd:                                g.PeakEnd,
+		PeakRateMultiplier:                     g.PeakRateMultiplier,
+		ProfitControlEnabled:                   g.ProfitControlEnabled,
+		ProfitMinMargin:                        g.ProfitMinMargin,
+		ProfitSafetyBuffer:                     g.ProfitSafetyBuffer,
 		CreatedAt:                              g.CreatedAt,
 		UpdatedAt:                              g.UpdatedAt,
 	}

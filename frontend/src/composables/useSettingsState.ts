@@ -86,6 +86,7 @@ export type SettingsForm = {
   contact_info: string;
   doc_url: string;
   home_content: string;
+  compact_home_enabled: boolean;
   force_email_on_third_party_signup: boolean;
   default_user_rpm_limit: number;
   backend_mode_enabled: boolean;

@@ -1,6 +1,6 @@
 <template>
   <!-- Custom Home Content: Full Page Mode (upstream admin override) -->
-  <div v-if="homeContent" class="min-h-screen">
+  <div v-if="hasHomeContent" class="min-h-screen">
     <!-- iframe mode -->
     <iframe
       v-if="isHomeContentUrl"
@@ -26,6 +26,7 @@ const appStore = useAppStore()
 // Admin-configurable custom home content (upstream feature). When empty, the
 // default TokenKey landing renders instead.
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
+const hasHomeContent = computed(() => homeContent.value.trim().length > 0)
 
 // Check if homeContent is a URL (for iframe display)
 const isHomeContentUrl = computed(() => {
