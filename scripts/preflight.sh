@@ -1591,6 +1591,27 @@ else
     echo "  ok: edge disk/memory alert awk fixtures pass"
 fi
 
+echo "=== sub2api: edge disk remediation script contract ==="
+if ! bash ./ops/stage0/test_remediate_edge_disk.sh >/dev/null 2>&1; then
+    echo "  FAIL: remediate-edge-disk-via-ssm contract test"
+    echo "        — run: bash ops/stage0/test_remediate_edge_disk.sh"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge disk remediation + recovery anchors pass"
+fi
+
+echo "=== sub2api: ghcr-prune-daily timer contract ==="
+if ! bash ./deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh --selftest >/dev/null 2>&1; then
+    echo "  FAIL: tokenkey-ghcr-prune-daily.sh --selftest"
+    errors=$((errors + 1))
+elif ! bash ./ops/stage0/test_ghcr_prune_daily.sh >/dev/null 2>&1; then
+    echo "  FAIL: ghcr-prune-daily timer contract test"
+    echo "        — run: bash ops/stage0/test_ghcr_prune_daily.sh"
+    errors=$((errors + 1))
+else
+    echo "  ok: ghcr-prune-daily timer anchors pass"
+fi
+
 # live-host state drift verdict (ops/stage0/live_host_state_verdict.py): the logic
 # half of assert-live-host-state.sh (the read-only SSM probe wired into
 # deploy-stage0.yml post-deploy + ops-daily-diagnostics.yml). Fixtures pin the
