@@ -142,7 +142,7 @@
       "must_contain": [
         "func loadTkOfficialListBaseTaxPolicy",
         "loadTKPricingOverlaySnapshot()",
-        "func tkBaseTaxMultiplierForProvider",
+        "func (p tkOfficialListBaseTaxPolicy) multiplierForProvider",
         "func (p tkOfficialListBaseTaxPolicy) inferProvider",
         "policy.multiplierForProvider(policy.inferProvider(model))",
         "for _, rule := range p.Rules",

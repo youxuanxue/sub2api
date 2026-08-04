@@ -8,7 +8,7 @@ import (
 
 // PricingVideoTier is one resolution (and optional audio / image-input) bracket
 // owned by tk_pricing_overlay.json "video_price_tiers". Pre-tax official list
-// USD/s; tkPresentLiteLLMModelPricing applies provider base tax at read time.
+// USD/s; tkPresentLiteLLMModelPricingFromSnapshot applies provider base tax at read time.
 type PricingVideoTier struct {
 	Resolution                   string
 	PerSecond                    float64
@@ -54,18 +54,9 @@ func tkOverlayVideoPricingFromSnapshot(snapshot *tkPricingOverlaySnapshot, model
 	return tkPresentLiteLLMModelPricingFromSnapshot(raw, snapshot)
 }
 
-func tkIsTieredVideoModel(model string) bool {
-	return tkOverlayRawVideoEntry(model) != nil
-}
-
 func tkIsGrokImagineVideoModel(model string) bool {
 	m := strings.ToLower(strings.TrimSpace(model))
 	return strings.HasPrefix(m, "grok-imagine-video") && tkOverlayRawVideoEntry(model) != nil
-}
-
-func tkOverlayVideoDefaultResolution(model string) string {
-	p := tkOverlayVideoPricing(model)
-	return tkOverlayVideoDefaultResolutionFromPricing(p)
 }
 
 func tkOverlayVideoDefaultResolutionFromPricing(p *LiteLLMModelPricing) string {
@@ -84,11 +75,6 @@ func tkOverlayVideoDefaultResolutionFromPricing(p *LiteLLMModelPricing) string {
 		return p.VideoPriceTiers[0].Resolution
 	}
 	return VideoBillingResolution480P
-}
-
-func tkOverlayVideoSupportsResolution(model, resolution string) bool {
-	p := tkOverlayVideoPricing(model)
-	return tkOverlayVideoSupportsResolutionFromPricing(p, resolution)
 }
 
 func tkOverlayVideoSupportsResolutionFromPricing(p *LiteLLMModelPricing, resolution string) bool {
@@ -192,10 +178,6 @@ func tkOverlayVideoMinUnitPriceUSDFromSnapshot(snapshot *tkPricingOverlaySnapsho
 		return 0, false
 	}
 	return min, true
-}
-
-func tkOverlayVideoCatalogTiers(model string) []PublicCatalogVideoTier {
-	return tkOverlayVideoCatalogTiersFromSnapshot(loadTKPricingOverlaySnapshot(), model)
 }
 
 func tkOverlayVideoCatalogTiersFromSnapshot(snapshot *tkPricingOverlaySnapshot, model string) []PublicCatalogVideoTier {

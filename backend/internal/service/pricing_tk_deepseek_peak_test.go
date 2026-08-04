@@ -19,14 +19,15 @@ func atBJ(t *testing.T, h, m int) time.Time {
 }
 
 func TestDeepSeekPeakMultiplierAt_Boundaries(t *testing.T) {
-	require.InDelta(t, 2.0, tkDeepSeekPeakMultiplierAt(atBJ(t, 9, 0)), 1e-9)
-	require.InDelta(t, 2.0, tkDeepSeekPeakMultiplierAt(atBJ(t, 11, 59)), 1e-9)
-	require.InDelta(t, 1.0, tkDeepSeekPeakMultiplierAt(atBJ(t, 12, 0)), 1e-9)
-	require.InDelta(t, 1.0, tkDeepSeekPeakMultiplierAt(atBJ(t, 13, 59)), 1e-9)
-	require.InDelta(t, 2.0, tkDeepSeekPeakMultiplierAt(atBJ(t, 14, 0)), 1e-9)
-	require.InDelta(t, 2.0, tkDeepSeekPeakMultiplierAt(atBJ(t, 17, 59)), 1e-9)
-	require.InDelta(t, 1.0, tkDeepSeekPeakMultiplierAt(atBJ(t, 18, 0)), 1e-9)
-	require.InDelta(t, 1.0, tkDeepSeekPeakMultiplierAt(atBJ(t, 8, 59)), 1e-9)
+	policy := loadTkDeepSeekPeakValleyPolicy()
+	require.InDelta(t, 2.0, tkDeepSeekPeakMultiplierAtWithPolicy(policy, atBJ(t, 9, 0)), 1e-9)
+	require.InDelta(t, 2.0, tkDeepSeekPeakMultiplierAtWithPolicy(policy, atBJ(t, 11, 59)), 1e-9)
+	require.InDelta(t, 1.0, tkDeepSeekPeakMultiplierAtWithPolicy(policy, atBJ(t, 12, 0)), 1e-9)
+	require.InDelta(t, 1.0, tkDeepSeekPeakMultiplierAtWithPolicy(policy, atBJ(t, 13, 59)), 1e-9)
+	require.InDelta(t, 2.0, tkDeepSeekPeakMultiplierAtWithPolicy(policy, atBJ(t, 14, 0)), 1e-9)
+	require.InDelta(t, 2.0, tkDeepSeekPeakMultiplierAtWithPolicy(policy, atBJ(t, 17, 59)), 1e-9)
+	require.InDelta(t, 1.0, tkDeepSeekPeakMultiplierAtWithPolicy(policy, atBJ(t, 18, 0)), 1e-9)
+	require.InDelta(t, 1.0, tkDeepSeekPeakMultiplierAtWithPolicy(policy, atBJ(t, 8, 59)), 1e-9)
 }
 
 func TestCalculateCostUnified_DeepSeekPeakDoublesOffPeakBase(t *testing.T) {
@@ -201,7 +202,7 @@ func TestAttachCatalogDeepSeekPeakValley(t *testing.T) {
 			},
 		}},
 	}
-	attachCatalogDeepSeekPeakValley(resp)
+	attachCatalogDeepSeekPeakValleyFromSnapshot(resp, loadTKPricingOverlaySnapshot())
 	require.NotNil(t, resp.Data[0].Pricing.PeakValley)
 	require.InDelta(t, 0.28, resp.Data[0].Pricing.PeakValley.InputPer1KTokens, 1e-9)
 	require.Contains(t, resp.Data[0].Pricing.PeakValley.Windows, "09:00-12:00")

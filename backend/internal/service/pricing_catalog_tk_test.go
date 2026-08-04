@@ -58,7 +58,7 @@ const litellmFixtureJSON = `{
 func TestPricingCatalogService_ParsesLiteLLMShape(t *testing.T) {
 	ts := time.Date(2026, 4, 22, 10, 0, 0, 0, time.UTC)
 	// Test the pure parser directly: BuildPublicCatalog additionally fill-merges
-	// the always-on TK pricing overlay (applyCatalogOverlayPricing), which would
+	// the always-on TK pricing overlay (applyCatalogOverlayPricingFromSnapshot), which would
 	// add ~24 unrelated overlay models here. buildCatalogFromBytes is exactly the
 	// parse-mechanics seam these assertions target.
 	resp := buildCatalogFromBytes([]byte(litellmFixtureJSON), ts)

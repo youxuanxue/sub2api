@@ -9,10 +9,6 @@ type PublicCatalogVideoTier struct {
 	DefaultForModel              bool     `json:"default_for_model,omitempty"`
 }
 
-func attachCatalogVideoPriceTiers(resp *PublicCatalogResponse) {
-	attachCatalogVideoPriceTiersFromSnapshot(resp, loadTKPricingOverlaySnapshot())
-}
-
 func attachCatalogVideoPriceTiersFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
 	if resp == nil || len(resp.Data) == 0 {
 		return
@@ -31,10 +27,6 @@ func attachCatalogVideoPriceTiersFromSnapshot(resp *PublicCatalogResponse, snaps
 			resp.Data[i].Pricing.OutputCostPerSecond = min
 		}
 	}
-}
-
-func buildPublicCatalogVideoTiers(modelID string) []PublicCatalogVideoTier {
-	return buildPublicCatalogVideoTiersFromSnapshot(loadTKPricingOverlaySnapshot(), modelID)
 }
 
 func buildPublicCatalogVideoTiersFromSnapshot(snapshot *tkPricingOverlaySnapshot, modelID string) []PublicCatalogVideoTier {

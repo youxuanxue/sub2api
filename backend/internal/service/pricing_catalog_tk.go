@@ -359,15 +359,11 @@ func buildCatalogFromBytes(data []byte, modTime time.Time) *PublicCatalogRespons
 	}
 }
 
-// applyCatalogOverlayPricing projects the active complete registry onto the
+// applyCatalogOverlayPricingFromSnapshot projects the active complete registry onto the
 // public catalog. The file source may still supply compatibility rows, but it is
 // sensor evidence only: even a non-zero external price cannot override the
 // registry. Channel pricing remains a separately scoped higher-priority tier in
 // the per-user menu and billing resolver.
-func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
-	applyCatalogOverlayPricingFromSnapshot(resp, loadTKPricingOverlaySnapshot())
-}
-
 func applyCatalogOverlayPricingFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
 	if resp == nil {
 		return
@@ -474,17 +470,13 @@ func catalogModelFromRegistry(name string, p *LiteLLMModelPricing) PublicCatalog
 	return catalogModelFromEntry(name, &e)
 }
 
-// attachCatalogOverlayTiers surfaces registry-defined input-token interval (阶梯)
-// pricing on the public catalog. Runs AFTER applyCatalogOverlayPricing so it sees
+// attachCatalogOverlayTiersFromSnapshot surfaces registry-defined input-token interval (阶梯)
+// pricing on the public catalog. Runs after applyCatalogOverlayPricingFromSnapshot so it sees
 // every model (file-sourced and overlay-filled). The flat Input/OutputPer1KTokens
 // fields stay the base (first) tier for pre-tier clients; this fills the full
 // ladder on Pricing.Tiers for tier-aware clients and the admin CSV export. Overlay
 // Registry interval prices are per-token → ×1000 to match the catalog's per-1k unit.
 // Purely additive (never mutates flat prices), idempotent, nil-safe.
-func attachCatalogOverlayTiers(resp *PublicCatalogResponse) {
-	attachCatalogOverlayTiersFromSnapshot(resp, loadTKPricingOverlaySnapshot())
-}
-
 func attachCatalogOverlayTiersFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
 	if resp == nil || len(resp.Data) == 0 {
 		return
@@ -520,10 +512,6 @@ func attachCatalogOverlayTiersFromSnapshot(resp *PublicCatalogResponse, snapshot
 	}
 }
 
-func applyCatalogOfficialListBaseTax(resp *PublicCatalogResponse) {
-	applyCatalogOfficialListBaseTaxFromSnapshot(resp, loadTKPricingOverlaySnapshot())
-}
-
 func applyCatalogOfficialListBaseTaxFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
 	if resp == nil {
 		return
@@ -534,10 +522,6 @@ func applyCatalogOfficialListBaseTaxFromSnapshot(resp *PublicCatalogResponse, sn
 	for i := range resp.Data {
 		tkApplyBaseTaxToPublicCatalogPricingWithPolicy(resp.Data[i].Vendor, &resp.Data[i].Pricing, snapshot.BaseTax)
 	}
-}
-
-func attachCatalogDeepSeekPeakValley(resp *PublicCatalogResponse) {
-	attachCatalogDeepSeekPeakValleyFromSnapshot(resp, loadTKPricingOverlaySnapshot())
 }
 
 func attachCatalogDeepSeekPeakValleyFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {

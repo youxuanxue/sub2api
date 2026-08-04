@@ -23,7 +23,8 @@ import (
 // Model sets are derived from the overlay + policy, per CLAUDE.md: no
 // hand-maintained model lists.
 func TestOverlayHasNoTieredAndPeakValleyModel(t *testing.T) {
-	overlay := loadTKPricingOverlay()
+	snapshot := loadTKPricingOverlaySnapshot()
+	overlay := snapshot.Models
 	if len(overlay) == 0 {
 		t.Fatal("overlay is empty — the embedded tk_pricing_overlay.json should always load")
 	}
@@ -34,7 +35,7 @@ func TestOverlayHasNoTieredAndPeakValleyModel(t *testing.T) {
 			continue
 		}
 		hasTiers := len(pricing.Intervals) > 1
-		hasPeak := tkDeepSeekPeakValleyApplies(modelID, PricingSourceLiteLLM)
+		hasPeak := tkDeepSeekPeakValleyAppliesWithPolicy(snapshot.DeepSeekPeakValley, modelID, PricingSourceLiteLLM)
 		hasThinking := pricing.ThinkingOutputCostPerToken > 0
 		if hasTiers {
 			tiered++
@@ -86,7 +87,8 @@ func TestOverlayHasNoTieredAndPeakValleyModel(t *testing.T) {
 // page showed a first-tier price as if it were the price — doubao-seed-2-0-pro's
 // top bracket is ~3× the first, qwen-plus's top output bracket ~24×.
 func TestPublicCatalogTieredModelsCarryFullLadder(t *testing.T) {
-	overlay := loadTKPricingOverlay()
+	snapshot := loadTKPricingOverlaySnapshot()
+	overlay := snapshot.Models
 	if len(overlay) == 0 {
 		t.Fatal("overlay is empty")
 	}
@@ -109,7 +111,7 @@ func TestPublicCatalogTieredModelsCarryFullLadder(t *testing.T) {
 			Pricing: PublicCatalogPricing{Currency: "USD"},
 		})
 	}
-	attachCatalogOverlayTiers(resp)
+	attachCatalogOverlayTiersFromSnapshot(resp, snapshot)
 
 	for i := range resp.Data {
 		modelID := resp.Data[i].ModelID
@@ -135,7 +137,8 @@ func TestPublicCatalogTieredModelsCarryFullLadder(t *testing.T) {
 // be the flat (off-peak) prices scaled by the policy multiplier. If billing and
 // disclosure ever diverge here, the page lies about what a peak request costs.
 func TestPublicCatalogPeakValleyIsFlatTimesMultiplier(t *testing.T) {
-	policy := loadTkDeepSeekPeakValleyPolicy()
+	snapshot := loadTKPricingOverlaySnapshot()
+	policy := snapshot.DeepSeekPeakValley
 	if policy == nil || policy.PeakMultiplier <= 1 {
 		t.Skip("no peak-valley policy configured")
 	}
@@ -148,8 +151,8 @@ func TestPublicCatalogPeakValleyIsFlatTimesMultiplier(t *testing.T) {
 
 	// Find a model the policy actually matches, from the policy's own matchers.
 	var modelID string
-	for id, pricing := range loadTKPricingOverlay() {
-		if pricing != nil && tkDeepSeekPeakValleyApplies(id, PricingSourceLiteLLM) {
+	for id, pricing := range snapshot.Models {
+		if pricing != nil && tkDeepSeekPeakValleyAppliesWithPolicy(policy, id, PricingSourceLiteLLM) {
 			modelID = id
 			break
 		}
@@ -170,7 +173,7 @@ func TestPublicCatalogPeakValleyIsFlatTimesMultiplier(t *testing.T) {
 			},
 		}},
 	}
-	attachCatalogDeepSeekPeakValley(resp)
+	attachCatalogDeepSeekPeakValleyFromSnapshot(resp, snapshot)
 
 	pv := resp.Data[0].Pricing.PeakValley
 	if pv == nil {

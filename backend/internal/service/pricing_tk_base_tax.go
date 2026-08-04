@@ -91,10 +91,6 @@ func (p tkOfficialListBaseTaxPolicy) multiplierForProvider(provider string) (flo
 	return 0, false
 }
 
-func tkBaseTaxMultiplierForProvider(provider string) (float64, bool) {
-	return loadTkOfficialListBaseTaxPolicy().multiplierForProvider(provider)
-}
-
 // tkInferBaseTaxProvider maps a bare model id to a provider when only the model
 // name is known (billing fallbackPrices path — those entries carry no vendor).
 func (p tkOfficialListBaseTaxPolicy) inferProvider(model string) string {
@@ -157,13 +153,6 @@ func tkApplyBaseTaxToPricingIntervals(intervals []PricingInterval, multiplier fl
 	return out
 }
 
-func tkApplyBaseTaxToLiteLLMModelPricingClone(p *LiteLLMModelPricing) *LiteLLMModelPricing {
-	if p == nil {
-		return p
-	}
-	return tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(p, loadTkOfficialListBaseTaxPolicy())
-}
-
 func tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(p *LiteLLMModelPricing, policy tkOfficialListBaseTaxPolicy) *LiteLLMModelPricing {
 	if p == nil {
 		return nil
@@ -197,10 +186,6 @@ func tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(p *LiteLLMModelPricing, 
 		c.VideoPriceTiers = tkApplyBaseTaxToVideoTiers(c.VideoPriceTiers, multiplier)
 	}
 	return &c
-}
-
-func tkPresentLiteLLMModelPricing(p *LiteLLMModelPricing) *LiteLLMModelPricing {
-	return tkApplyBaseTaxToLiteLLMModelPricingClone(p)
 }
 
 func tkPresentLiteLLMModelPricingFromSnapshot(p *LiteLLMModelPricing, snapshot *tkPricingOverlaySnapshot) *LiteLLMModelPricing {
@@ -238,10 +223,6 @@ func tkApplyBaseTaxToModelPricingClone(p *ModelPricing, multiplier float64) *Mod
 		c.Intervals = tkApplyBaseTaxToPricingIntervals(c.Intervals, multiplier)
 	}
 	return &c
-}
-
-func tkApplyBaseTaxToPublicCatalogPricing(vendor string, p *PublicCatalogPricing) {
-	tkApplyBaseTaxToPublicCatalogPricingWithPolicy(vendor, p, loadTkOfficialListBaseTaxPolicy())
 }
 
 func tkApplyBaseTaxToPublicCatalogPricingWithPolicy(vendor string, p *PublicCatalogPricing, policy tkOfficialListBaseTaxPolicy) {

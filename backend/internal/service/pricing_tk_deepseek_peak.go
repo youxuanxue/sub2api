@@ -71,11 +71,6 @@ func loadTkDeepSeekPeakValleyPolicy() *tkDeepSeekPeakValleyPolicy {
 	return &policy
 }
 
-func tkDeepSeekPeakValleyApplies(model string, pricingSource string) bool {
-	policy := loadTkDeepSeekPeakValleyPolicy()
-	return tkDeepSeekPeakValleyAppliesWithPolicy(policy, model, pricingSource)
-}
-
 func tkDeepSeekPeakValleyAppliesWithPolicy(policy *tkDeepSeekPeakValleyPolicy, model string, pricingSource string) bool {
 	if pricingSource == PricingSourceChannel {
 		return false
@@ -92,14 +87,9 @@ func tkDeepSeekPeakValleyAppliesWithPolicy(policy *tkDeepSeekPeakValleyPolicy, m
 	return false
 }
 
-// tkDeepSeekPeakMultiplierAt returns the DeepSeek upstream peak multiplier at `now`
+// tkDeepSeekPeakMultiplierAtWithPolicy returns the DeepSeek upstream peak multiplier at `now`
 // (1.0 off-peak, policy.PeakMultiplier during configured windows). Windows are
 // evaluated in policy.Timezone (default Asia/Shanghai when empty).
-func tkDeepSeekPeakMultiplierAt(now time.Time) float64 {
-	policy := loadTkDeepSeekPeakValleyPolicy()
-	return tkDeepSeekPeakMultiplierAtWithPolicy(policy, now)
-}
-
 func tkDeepSeekPeakMultiplierAtWithPolicy(policy *tkDeepSeekPeakValleyPolicy, now time.Time) float64 {
 	if policy == nil || len(policy.Windows) == 0 || policy.PeakMultiplier <= 1 {
 		return 1.0

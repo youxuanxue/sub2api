@@ -48,7 +48,10 @@ func TestTkOverlayVideoUnitPriceUSD_GrokImageInputSurcharge(t *testing.T) {
 	require.Greater(t, image, text)
 	raw := tkOverlayRawVideoEntry(model)
 	require.NotNil(t, raw)
-	tier := tkOverlayVideoTierForResolution(tkPresentLiteLLMModelPricing(raw), VideoBillingResolution720P)
+	tier := tkOverlayVideoTierForResolution(
+		tkPresentLiteLLMModelPricingFromSnapshot(raw, loadTKPricingOverlaySnapshot()),
+		VideoBillingResolution720P,
+	)
 	require.NotNil(t, tier)
 	require.InDelta(t, tier.InputImageSurchargePerSecond, image-text, 1e-9)
 }
