@@ -411,9 +411,10 @@
       "path": "frontend/src/api/__tests__/client.spec.ts",
       "must_contain": [
         "无 localStorage refresh_token 时使用 cookie 刷新并重试原请求",
-        "refresh_token 请求遇到网络错误时保留 localStorage"
+        "refresh_token 请求遇到网络错误时保留 localStorage",
+        "cookie-only refresh 遇到网络错误时保留 localStorage"
       ],
-      "rationale": "Focused interceptor regressions prove cookie-only 401 recovery and preserve auth state on transient refresh network failures. Both regressions are user-visible logout failures that can survive typecheck and build."
+      "rationale": "Focused interceptor regressions prove cookie-only 401 recovery and preserve auth state on transient refresh network failures for both localStorage and HttpOnly cookie-only sessions. Both regressions are user-visible logout failures that can survive typecheck and build."
     },
     {
       "path": "frontend/src/stores/auth.ts",
