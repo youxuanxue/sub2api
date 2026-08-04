@@ -159,18 +159,36 @@ func countCoveredRanges(
 		ends = append(ends, item.end)
 	}
 
+	// A converted table keeps its history in an attached legacy partition declared
+	// FROM (MINVALUE), which is how tk_035 / tk_037 / the usage_logs cutover leave
+	// prod: the current month or day is served by that partition alone, and the
+	// matching CREATE is skipped as a benign overlap. Treating MINVALUE as an
+	// unparseable bound would drop that partition from the union and report a real,
+	// writable range as uncovered. Bounds we cannot classify (DEFAULT, LIST) are
+	// still excluded so an unrecognized topology fails closed instead of counting
+	// as covered.
 	const query = `
 WITH child_bounds AS (
-  SELECT
-    substring(pg_get_expr(child.relpartbound, child.oid, true) FROM $$FROM \('([^']+)'$$)::timestamptz AS lower_bound,
-    substring(pg_get_expr(child.relpartbound, child.oid, true) FROM $$TO \('([^']+)'$$)::timestamptz AS upper_bound
+  SELECT pg_get_expr(child.relpartbound, child.oid, true) AS bound_expr
   FROM pg_inherits inheritance
   JOIN pg_class child ON child.oid = inheritance.inhrelid
   WHERE inheritance.inhparent = to_regclass($1)
-), covered_union AS (
-  SELECT range_agg(tstzrange(lower_bound, upper_bound, '[)')) AS ranges
+), parsed_bounds AS (
+  SELECT
+    bound_expr LIKE 'FOR VALUES FROM (MINVALUE)%' AS lower_unbounded,
+    bound_expr LIKE '%TO (MAXVALUE)' AS upper_unbounded,
+    substring(bound_expr FROM $$FROM \('([^']+)'$$)::timestamptz AS lower_bound,
+    substring(bound_expr FROM $$TO \('([^']+)'$$)::timestamptz AS upper_bound
   FROM child_bounds
-  WHERE lower_bound IS NOT NULL AND upper_bound IS NOT NULL
+), covered_union AS (
+  SELECT range_agg(tstzrange(
+    CASE WHEN lower_unbounded THEN NULL ELSE lower_bound END,
+    CASE WHEN upper_unbounded THEN NULL ELSE upper_bound END,
+    '[)'
+  )) AS ranges
+  FROM parsed_bounds
+  WHERE (lower_unbounded OR lower_bound IS NOT NULL)
+    AND (upper_unbounded OR upper_bound IS NOT NULL)
 ), required_ranges AS (
   SELECT lower_bound, upper_bound
   FROM unnest($2::timestamptz[], $3::timestamptz[]) AS required(lower_bound, upper_bound)
