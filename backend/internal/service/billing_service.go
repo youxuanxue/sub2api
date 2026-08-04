@@ -112,6 +112,7 @@ type ModelPricing struct {
 	ImageOutputPriceExplicit           bool              // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
 	Intervals                          []PricingInterval // 输入-token 区间分档（来自 active registry；空 = 扁平）。接进 ResolvedPricing.Intervals。
 	registryOwner                      string            // non-empty only when dimensions were materialized from the active registry
+	registrySnapshot                   *tkPricingOverlaySnapshot
 }
 
 const (
@@ -794,6 +795,7 @@ func tkModelPricingFromLiteLLM(p *LiteLLMModelPricing) *ModelPricing {
 		ImageInputPricePerToken:            p.InputCostPerImageToken,
 		ImageOutputPricePerToken:           p.OutputCostPerImageToken,
 		Intervals:                          p.Intervals,
+		registrySnapshot:                   p.registrySnapshot,
 	}
 }
 

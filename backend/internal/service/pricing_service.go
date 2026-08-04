@@ -93,6 +93,8 @@ type LiteLLMModelPricing struct {
 	// ExplicitFree distinguishes a deliberate free product row from an unknown
 	// all-zero placeholder. It is never inferred from numeric zeroes.
 	ExplicitFree bool `json:"-"`
+
+	registrySnapshot *tkPricingOverlaySnapshot
 }
 
 // PricingRemoteClient 远程价格数据获取接口
@@ -661,21 +663,28 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 		return nil
 	}
 	var snapshot *tkPricingOverlaySnapshot
+	var pricingData map[string]*LiteLLMModelPricing
+	var present func(*LiteLLMModelPricing) *LiteLLMModelPricing
 	if s != nil && s.useActiveRegistry {
 		snapshot = loadTKPricingOverlaySnapshot()
+		if snapshot != nil {
+			pricingData = snapshot.Models
+			present = func(pricing *LiteLLMModelPricing) *LiteLLMModelPricing {
+				return tkPresentLiteLLMModelPricingFromSnapshot(pricing, snapshot)
+			}
+		}
 	} else if s != nil {
 		s.mu.RLock()
-		pricingData := s.pricingData
+		pricingData = s.pricingData
 		s.mu.RUnlock()
-		snapshot = &tkPricingOverlaySnapshot{
-			Models:  pricingData,
-			BaseTax: loadTkOfficialListBaseTaxPolicy(),
+		baseTax := loadTkOfficialListBaseTaxPolicy()
+		present = func(pricing *LiteLLMModelPricing) *LiteLLMModelPricing {
+			return tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(pricing, baseTax)
 		}
 	}
-	if snapshot == nil {
+	if pricingData == nil || present == nil {
 		return nil
 	}
-	pricingData := snapshot.Models
 	lookupService := &PricingService{pricingData: pricingData}
 
 	// 标准化模型名称（同时兼容 "models/xxx"、VertexAI 资源名等前缀）
@@ -688,7 +697,7 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 			continue
 		}
 		if pricing, ok := pricingData[candidate]; ok {
-			return tkPresentLiteLLMModelPricingFromSnapshot(pricing, snapshot)
+			return present(pricing)
 		}
 	}
 
@@ -697,7 +706,7 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	for _, candidate := range lookupCandidates {
 		normalized := strings.ReplaceAll(candidate, "-4-5-", "-4.5-")
 		if pricing, ok := pricingData[normalized]; ok {
-			return tkPresentLiteLLMModelPricingFromSnapshot(pricing, snapshot)
+			return present(pricing)
 		}
 	}
 
@@ -707,24 +716,24 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	for key, pricing := range pricingData {
 		keyBase := s.extractBaseName(strings.ToLower(key))
 		if keyBase == baseName {
-			return tkPresentLiteLLMModelPricingFromSnapshot(pricing, snapshot)
+			return present(pricing)
 		}
 	}
 
 	// 4. 基于模型系列匹配（Claude）
 	if pricing := lookupService.matchByModelFamily(lookupCandidates[0]); pricing != nil {
-		return tkPresentLiteLLMModelPricingFromSnapshot(pricing, snapshot)
+		return present(pricing)
 	}
 
 	// 5. OpenAI 模型回退策略
 	if strings.HasPrefix(lookupCandidates[0], "gpt-") {
-		return tkPresentLiteLLMModelPricingFromSnapshot(lookupService.matchOpenAIModel(lookupCandidates[0]), snapshot)
+		return present(lookupService.matchOpenAIModel(lookupCandidates[0]))
 	}
 
 	// 6. Provider-prefixed 最后兜底仅兼容直接构造 PricingService 的聚焦测试夹具。
 	// 生产构造器读取只含 normalized bare owners 的 active registry，必在第 1 步 exact match。
 	if pricing := lookupService.matchByProviderPrefix(lookupCandidates[0]); pricing != nil {
-		return tkPresentLiteLLMModelPricingFromSnapshot(pricing, snapshot)
+		return present(pricing)
 	}
 
 	return nil

@@ -26,24 +26,20 @@ func videoBillingHasInputImage(opts *VideoBillingOptions) bool {
 // (video_price_tiers). See video_billing_overlay_tk.go.
 
 func tkVideoDefaultResolution(model string) string {
-	if tkIsTieredVideoModel(model) {
-		return tkOverlayVideoDefaultResolution(model)
+	if pricing := tkOverlayVideoPricing(model); pricing != nil {
+		return tkOverlayVideoDefaultResolutionFromPricing(pricing)
 	}
 	return VideoBillingResolution480P
 }
 
 func tkVideoNormalizeResolution(model, resolution string) string {
+	if pricing := tkOverlayVideoPricing(model); pricing != nil {
+		return tkVideoNormalizeResolutionFromPricing(pricing, resolution)
+	}
 	if strings.TrimSpace(resolution) == "" {
-		return tkVideoDefaultResolution(model)
+		return VideoBillingResolution480P
 	}
-	resolution = NormalizeVideoBillingResolutionOrDefault(resolution)
-	if tkIsTieredVideoModel(model) {
-		if tkOverlayVideoSupportsResolution(model, resolution) {
-			return resolution
-		}
-		return tkOverlayVideoDefaultResolution(model)
-	}
-	return resolution
+	return NormalizeVideoBillingResolutionOrDefault(resolution)
 }
 
 func tkVideoUnitPriceUSD(model, resolution string, opts *VideoBillingOptions) (float64, bool) {

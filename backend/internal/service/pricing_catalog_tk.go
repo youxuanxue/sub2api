@@ -199,6 +199,7 @@ type PricingCatalogService struct {
 	mu       sync.RWMutex
 	cached   *PublicCatalogResponse
 	cachedMt time.Time
+	cachedTk *tkPricingOverlaySnapshot
 }
 
 // NewPricingCatalogService wires the default source: live data file in
@@ -219,6 +220,7 @@ func (s *PricingCatalogService) SetSourceForTesting(src CatalogSource) {
 	s.source = src
 	s.cached = nil
 	s.cachedMt = time.Time{}
+	s.cachedTk = nil
 	s.mu.Unlock()
 }
 
@@ -234,6 +236,7 @@ func (s *PricingCatalogService) InvalidateCache() {
 	s.mu.Lock()
 	s.cached = nil
 	s.cachedMt = time.Time{}
+	s.cachedTk = nil
 	s.mu.Unlock()
 }
 
@@ -250,45 +253,54 @@ func (s *PricingCatalogService) BuildPublicCatalog(ctx context.Context) *PublicC
 	}
 	_ = ctx
 
-	s.mu.RLock()
-	src := s.source
-	s.mu.RUnlock()
+	for {
+		s.mu.RLock()
+		src := s.source
+		s.mu.RUnlock()
 
-	if src == nil {
-		return emptyPublicCatalog(time.Now().UTC())
+		if src == nil {
+			return emptyPublicCatalog(time.Now().UTC())
+		}
+
+		data, modTime, ok := src()
+		if !ok || len(data) == 0 {
+			return emptyPublicCatalog(time.Now().UTC())
+		}
+
+		registrySnapshot := loadTKPricingOverlaySnapshot()
+		s.mu.RLock()
+		cached := s.cached
+		cachedMt := s.cachedMt
+		cachedTk := s.cachedTk
+		s.mu.RUnlock()
+		if cached != nil && cachedTk == registrySnapshot && !modTime.IsZero() && modTime.Equal(cachedMt) {
+			return cached
+		}
+
+		resp := buildCatalogFromBytes(data, modTime)
+		// Enrich only a healthy (non-degraded) catalog: a garbage/empty source yields
+		// an empty list and must STAY empty (AC-005 degraded→empty / 200-not-500
+		// contract) rather than surfacing a partial registry-only catalog.
+		if len(resp.Data) > 0 {
+			applyCatalogRegistrySnapshot(resp, registrySnapshot)
+		}
+
+		if s.storeCatalogIfSnapshotCurrent(resp, modTime, registrySnapshot) {
+			return resp
+		}
 	}
+}
 
-	data, modTime, ok := src()
-	if !ok || len(data) == 0 {
-		return emptyPublicCatalog(time.Now().UTC())
-	}
-
-	s.mu.RLock()
-	cached := s.cached
-	cachedMt := s.cachedMt
-	s.mu.RUnlock()
-	if cached != nil && !modTime.IsZero() && modTime.Equal(cachedMt) {
-		return cached
-	}
-
-	resp := buildCatalogFromBytes(data, modTime)
-	// Enrich only a healthy (non-degraded) catalog: a garbage/empty source yields
-	// an empty list and must STAY empty (AC-005 degraded→empty / 200-not-500
-	// contract) rather than surfacing a partial registry-only catalog.
-	if len(resp.Data) > 0 {
-		applyCatalogOverlayPricing(resp)
-		attachCatalogOverlayTiers(resp)
-		applyCatalogOfficialListBaseTax(resp)
-		attachCatalogVideoPriceTiers(resp)
-		attachCatalogDeepSeekPeakValley(resp)
-	}
-
+func (s *PricingCatalogService) storeCatalogIfSnapshotCurrent(resp *PublicCatalogResponse, modTime time.Time, snapshot *tkPricingOverlaySnapshot) bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if loadTKPricingOverlaySnapshot() != snapshot {
+		return false
+	}
 	s.cached = resp
 	s.cachedMt = modTime
-	s.mu.Unlock()
-
-	return resp
+	s.cachedTk = snapshot
+	return true
 }
 
 func emptyPublicCatalog(updatedAt time.Time) *PublicCatalogResponse {
@@ -353,10 +365,17 @@ func buildCatalogFromBytes(data []byte, modTime time.Time) *PublicCatalogRespons
 // registry. Channel pricing remains a separately scoped higher-priority tier in
 // the per-user menu and billing resolver.
 func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
+	applyCatalogOverlayPricingFromSnapshot(resp, loadTKPricingOverlaySnapshot())
+}
+
+func applyCatalogOverlayPricingFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
 	if resp == nil {
 		return
 	}
-	overlay := loadTKPricingOverlay()
+	if snapshot == nil {
+		return
+	}
+	overlay := snapshot.Models
 	if len(overlay) == 0 {
 		return
 	}
@@ -463,10 +482,17 @@ func catalogModelFromRegistry(name string, p *LiteLLMModelPricing) PublicCatalog
 // Registry interval prices are per-token → ×1000 to match the catalog's per-1k unit.
 // Purely additive (never mutates flat prices), idempotent, nil-safe.
 func attachCatalogOverlayTiers(resp *PublicCatalogResponse) {
+	attachCatalogOverlayTiersFromSnapshot(resp, loadTKPricingOverlaySnapshot())
+}
+
+func attachCatalogOverlayTiersFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
 	if resp == nil || len(resp.Data) == 0 {
 		return
 	}
-	overlay := loadTKPricingOverlay()
+	if snapshot == nil {
+		return
+	}
+	overlay := snapshot.Models
 	if len(overlay) == 0 {
 		return
 	}
@@ -495,16 +521,30 @@ func attachCatalogOverlayTiers(resp *PublicCatalogResponse) {
 }
 
 func applyCatalogOfficialListBaseTax(resp *PublicCatalogResponse) {
+	applyCatalogOfficialListBaseTaxFromSnapshot(resp, loadTKPricingOverlaySnapshot())
+}
+
+func applyCatalogOfficialListBaseTaxFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
 	if resp == nil {
 		return
 	}
+	if snapshot == nil {
+		return
+	}
 	for i := range resp.Data {
-		tkApplyBaseTaxToPublicCatalogPricing(resp.Data[i].Vendor, &resp.Data[i].Pricing)
+		tkApplyBaseTaxToPublicCatalogPricingWithPolicy(resp.Data[i].Vendor, &resp.Data[i].Pricing, snapshot.BaseTax)
 	}
 }
 
 func attachCatalogDeepSeekPeakValley(resp *PublicCatalogResponse) {
-	policy := loadTkDeepSeekPeakValleyPolicy()
+	attachCatalogDeepSeekPeakValleyFromSnapshot(resp, loadTKPricingOverlaySnapshot())
+}
+
+func attachCatalogDeepSeekPeakValleyFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
+	if snapshot == nil {
+		return
+	}
+	policy := snapshot.DeepSeekPeakValley
 	if resp == nil || policy == nil || policy.PeakMultiplier <= 1 {
 		return
 	}
@@ -520,7 +560,7 @@ func attachCatalogDeepSeekPeakValley(resp *PublicCatalogResponse) {
 	}
 	for i := range resp.Data {
 		modelID := resp.Data[i].ModelID
-		if !tkDeepSeekPeakValleyApplies(modelID, PricingSourceLiteLLM) {
+		if !tkDeepSeekPeakValleyAppliesWithPolicy(policy, modelID, PricingSourceLiteLLM) {
 			continue
 		}
 		p := &resp.Data[i].Pricing
@@ -539,6 +579,14 @@ func attachCatalogDeepSeekPeakValley(resp *PublicCatalogResponse) {
 		}
 		p.PeakValley = &peak
 	}
+}
+
+func applyCatalogRegistrySnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
+	applyCatalogOverlayPricingFromSnapshot(resp, snapshot)
+	attachCatalogOverlayTiersFromSnapshot(resp, snapshot)
+	applyCatalogOfficialListBaseTaxFromSnapshot(resp, snapshot)
+	attachCatalogVideoPriceTiersFromSnapshot(resp, snapshot)
+	attachCatalogDeepSeekPeakValleyFromSnapshot(resp, snapshot)
 }
 
 func catalogModelFromEntry(name string, e *catalogRichEntry) PublicCatalogModel {

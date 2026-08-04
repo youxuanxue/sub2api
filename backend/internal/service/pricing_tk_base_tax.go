@@ -204,10 +204,16 @@ func tkPresentLiteLLMModelPricing(p *LiteLLMModelPricing) *LiteLLMModelPricing {
 }
 
 func tkPresentLiteLLMModelPricingFromSnapshot(p *LiteLLMModelPricing, snapshot *tkPricingOverlaySnapshot) *LiteLLMModelPricing {
-	if snapshot == nil {
+	if p == nil || snapshot == nil {
 		return nil
 	}
-	return tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(p, snapshot.BaseTax)
+	presented := tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(p, snapshot.BaseTax)
+	if presented == p {
+		clone := *p
+		presented = &clone
+	}
+	presented.registrySnapshot = snapshot
+	return presented
 }
 
 func tkApplyBaseTaxToModelPricingClone(p *ModelPricing, multiplier float64) *ModelPricing {
@@ -235,10 +241,14 @@ func tkApplyBaseTaxToModelPricingClone(p *ModelPricing, multiplier float64) *Mod
 }
 
 func tkApplyBaseTaxToPublicCatalogPricing(vendor string, p *PublicCatalogPricing) {
+	tkApplyBaseTaxToPublicCatalogPricingWithPolicy(vendor, p, loadTkOfficialListBaseTaxPolicy())
+}
+
+func tkApplyBaseTaxToPublicCatalogPricingWithPolicy(vendor string, p *PublicCatalogPricing, policy tkOfficialListBaseTaxPolicy) {
 	if p == nil {
 		return
 	}
-	multiplier, ok := tkBaseTaxMultiplierForProvider(vendor)
+	multiplier, ok := policy.multiplierForProvider(vendor)
 	if !ok {
 		return
 	}

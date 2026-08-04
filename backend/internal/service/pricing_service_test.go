@@ -41,7 +41,7 @@ func TestPricingNonEmptyInvalidRemoteURLStillReturnsValidationError(t *testing.T
 	require.Contains(t, err.Error(), "invalid pricing url")
 }
 
-func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
+func TestParsePricingData_UsesRegistryPriorityAndServiceTierFields(t *testing.T) {
 	svc := &PricingService{}
 	body := []byte(`{
 		"gpt-5.4": {
@@ -69,7 +69,8 @@ func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
 	require.NotNil(t, pricing)
 	require.InDelta(t, 5e-6, pricing.InputCostPerTokenPriority, 1e-12)
 	require.InDelta(t, 3e-5, pricing.OutputCostPerTokenPriority, 1e-12)
-	require.InDelta(t, 5e-6, pricing.CacheCreationInputTokenCostPriority, 1e-12)
+	require.Zero(t, pricing.CacheCreationInputTokenCostPriority,
+		"provider sensor fields absent from the registry must not become effective prices")
 	require.InDelta(t, 5e-7, pricing.CacheReadInputTokenCostPriority, 1e-12)
 	require.Equal(t, 272000, pricing.LongContextInputTokenThreshold)
 	require.InDelta(t, 2.0, pricing.LongContextInputCostMultiplier, 1e-12)

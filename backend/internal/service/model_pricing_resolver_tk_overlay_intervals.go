@@ -32,5 +32,23 @@ func tkApplyOverlayIntervals(resolved *ResolvedPricing) {
 	if resolved.BasePricing == nil || len(resolved.BasePricing.Intervals) == 0 {
 		return
 	}
-	resolved.Intervals = filterValidIntervals(resolved.BasePricing.Intervals)
+	intervals := filterValidIntervals(resolved.BasePricing.Intervals)
+	if chPricing := resolved.channelPricing; chPricing != nil {
+		for i := range intervals {
+			if chPricing.InputPrice != nil {
+				intervals[i].InputPrice = nil
+			}
+			if chPricing.OutputPrice != nil {
+				intervals[i].OutputPrice = nil
+			}
+			if chPricing.CacheWritePrice != nil {
+				intervals[i].CacheWritePrice = nil
+			}
+			if chPricing.CacheReadPrice != nil {
+				intervals[i].CacheReadPrice = nil
+			}
+		}
+		intervals = filterValidIntervals(intervals)
+	}
+	resolved.Intervals = intervals
 }

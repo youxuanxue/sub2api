@@ -275,6 +275,174 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 		"active registry price wins over external non-zero evidence")
 }
 
+func TestUS043_CatalogCacheKeysActiveRegistrySnapshot(t *testing.T) {
+	tkOverlayMu.Lock()
+	previous := tkOverlayEffective
+	tkOverlayMu.Unlock()
+	t.Cleanup(func() {
+		tkOverlayMu.Lock()
+		tkOverlayEffective = previous
+		tkOverlayMu.Unlock()
+	})
+
+	snapshot := func(input float64, digest string) *tkPricingOverlaySnapshot {
+		return &tkPricingOverlaySnapshot{
+			Models: map[string]*LiteLLMModelPricing{
+				"gpt-5.4": {
+					InputCostPerToken:  input,
+					OutputCostPerToken: input * 4,
+					LiteLLMProvider:    "openai",
+					Mode:               "chat",
+				},
+			},
+			Metadata: tkPricingRegistrySnapshotMetadata{RegistrySHA256: digest},
+		}
+	}
+	setActive := func(active *tkPricingOverlaySnapshot) {
+		tkOverlayMu.Lock()
+		tkOverlayEffective = active
+		tkOverlayMu.Unlock()
+	}
+
+	const fixture = `{
+	  "gpt-5.4": {"input_cost_per_token":0.99,"output_cost_per_token":0.99,"litellm_provider":"openai","mode":"chat"}
+	}`
+	modTime := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	service := &PricingCatalogService{}
+	service.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return []byte(fixture), modTime, true
+	})
+
+	setActive(snapshot(1e-6, "old"))
+	oldCatalog := service.BuildPublicCatalog(context.Background())
+	require.Len(t, oldCatalog.Data, 1)
+	require.InDelta(t, 0.001, oldCatalog.Data[0].Pricing.InputPer1KTokens, 1e-15)
+
+	setActive(snapshot(2e-6, "new"))
+	newCatalog := service.BuildPublicCatalog(context.Background())
+	require.Len(t, newCatalog.Data, 1)
+	require.InDelta(t, 0.002, newCatalog.Data[0].Pricing.InputPer1KTokens, 1e-15,
+		"cache lookup must include active registry snapshot identity, not only source mtime")
+}
+
+func TestUS043_CatalogProjectionUsesOneRegistrySnapshot(t *testing.T) {
+	maxTokens := 128_000
+	intervalInput := 2e-6
+	intervalOutput := 8e-6
+	oldSnapshot := &tkPricingOverlaySnapshot{
+		Models: map[string]*LiteLLMModelPricing{
+			"deepseek-v4-flash": {
+				InputCostPerToken:  1e-6,
+				OutputCostPerToken: 4e-6,
+				LiteLLMProvider:    "deepseek",
+				Mode:               "chat",
+				Intervals: []PricingInterval{{
+					MinTokens:   0,
+					MaxTokens:   &maxTokens,
+					InputPrice:  &intervalInput,
+					OutputPrice: &intervalOutput,
+				}},
+			},
+			"veo-3.1-generate-001": {
+				LiteLLMProvider:     "deepseek",
+				Mode:                "video_generation",
+				OutputCostPerSecond: 0.1,
+				VideoPriceTiers: []PricingVideoTier{{
+					Resolution:      VideoBillingResolution720P,
+					PerSecond:       0.1,
+					DefaultForModel: true,
+				}},
+			},
+		},
+		BaseTax: tkOfficialListBaseTaxPolicy{
+			Multiplier: 2,
+			Rules: []tkOfficialListBaseTaxRule{{
+				Provider:      "deepseek",
+				ModelContains: []string{"deepseek"},
+			}},
+		},
+		DeepSeekPeakValley: &tkDeepSeekPeakValleyPolicy{
+			Timezone:       "Asia/Shanghai",
+			PeakMultiplier: 2,
+			Windows:        []tkDeepSeekPeakValleyWindow{{Start: "09:00", End: "12:00"}},
+			ModelContains:  []string{"deepseek"},
+		},
+	}
+
+	tkOverlayMu.Lock()
+	previous := tkOverlayEffective
+	tkOverlayEffective = &tkPricingOverlaySnapshot{
+		Models: map[string]*LiteLLMModelPricing{
+			"deepseek-v4-flash": {
+				InputCostPerToken:  9e-6,
+				OutputCostPerToken: 9e-6,
+				LiteLLMProvider:    "deepseek",
+				Mode:               "chat",
+			},
+		},
+		BaseTax: tkOfficialListBaseTaxPolicy{Multiplier: 1.5},
+	}
+	tkOverlayMu.Unlock()
+	t.Cleanup(func() {
+		tkOverlayMu.Lock()
+		tkOverlayEffective = previous
+		tkOverlayMu.Unlock()
+	})
+
+	resp := &PublicCatalogResponse{Data: []PublicCatalogModel{
+		{ModelID: "deepseek-v4-flash"},
+		{ModelID: "veo-3.1-generate-001", Pricing: PublicCatalogPricing{BillingMode: "video"}},
+	}}
+	applyCatalogRegistrySnapshot(resp, oldSnapshot)
+
+	byID := make(map[string]PublicCatalogModel, len(resp.Data))
+	for _, row := range resp.Data {
+		byID[row.ModelID] = row
+	}
+	deepseek := byID["deepseek-v4-flash"]
+	require.InDelta(t, 0.002, deepseek.Pricing.InputPer1KTokens, 1e-15)
+	require.Len(t, deepseek.Pricing.Tiers, 1)
+	require.InDelta(t, 0.004, deepseek.Pricing.Tiers[0].InputPer1KTokens, 1e-15)
+	require.NotNil(t, deepseek.Pricing.PeakValley)
+	require.InDelta(t, 0.004, deepseek.Pricing.PeakValley.InputPer1KTokens, 1e-15)
+	video := byID["veo-3.1-generate-001"]
+	require.Len(t, video.Pricing.VideoPriceTiers, 1)
+	require.InDelta(t, 0.2, video.Pricing.VideoPriceTiers[0].PerSecond, 1e-15)
+}
+
+func TestUS043_CatalogRejectsCacheWriteFromSupersededSnapshot(t *testing.T) {
+	oldSnapshot := &tkPricingOverlaySnapshot{Metadata: tkPricingRegistrySnapshotMetadata{RegistrySHA256: "old"}}
+	newSnapshot := &tkPricingOverlaySnapshot{Metadata: tkPricingRegistrySnapshotMetadata{RegistrySHA256: "new"}}
+	tkOverlayMu.Lock()
+	previous := tkOverlayEffective
+	tkOverlayEffective = newSnapshot
+	tkOverlayMu.Unlock()
+	t.Cleanup(func() {
+		tkOverlayMu.Lock()
+		tkOverlayEffective = previous
+		tkOverlayMu.Unlock()
+	})
+
+	service := &PricingCatalogService{}
+	stored := service.storeCatalogIfSnapshotCurrent(
+		&PublicCatalogResponse{Data: []PublicCatalogModel{{ModelID: "old"}}},
+		time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC),
+		oldSnapshot,
+	)
+	require.False(t, stored)
+	require.Nil(t, service.cached)
+	require.Nil(t, service.cachedTk)
+
+	stored = service.storeCatalogIfSnapshotCurrent(
+		&PublicCatalogResponse{Data: []PublicCatalogModel{{ModelID: "new"}}},
+		time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC),
+		newSnapshot,
+	)
+	require.True(t, stored)
+	require.Equal(t, "new", service.cached.Data[0].ModelID)
+	require.Same(t, newSnapshot, service.cachedTk)
+}
+
 // TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay pins that
 // stale litellm USD guesses for manifest-listed GLM models do not win over the
 // BigModel-sourced overlay (prod symptom: glm-5.2 at $1.4/$4.4 per Mtok).

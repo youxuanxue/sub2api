@@ -72,10 +72,14 @@ func loadTkDeepSeekPeakValleyPolicy() *tkDeepSeekPeakValleyPolicy {
 }
 
 func tkDeepSeekPeakValleyApplies(model string, pricingSource string) bool {
+	policy := loadTkDeepSeekPeakValleyPolicy()
+	return tkDeepSeekPeakValleyAppliesWithPolicy(policy, model, pricingSource)
+}
+
+func tkDeepSeekPeakValleyAppliesWithPolicy(policy *tkDeepSeekPeakValleyPolicy, model string, pricingSource string) bool {
 	if pricingSource == PricingSourceChannel {
 		return false
 	}
-	policy := loadTkDeepSeekPeakValleyPolicy()
 	if policy == nil {
 		return false
 	}
@@ -93,6 +97,10 @@ func tkDeepSeekPeakValleyApplies(model string, pricingSource string) bool {
 // evaluated in policy.Timezone (default Asia/Shanghai when empty).
 func tkDeepSeekPeakMultiplierAt(now time.Time) float64 {
 	policy := loadTkDeepSeekPeakValleyPolicy()
+	return tkDeepSeekPeakMultiplierAtWithPolicy(policy, now)
+}
+
+func tkDeepSeekPeakMultiplierAtWithPolicy(policy *tkDeepSeekPeakValleyPolicy, now time.Time) float64 {
 	if policy == nil || len(policy.Windows) == 0 || policy.PeakMultiplier <= 1 {
 		return 1.0
 	}
@@ -118,10 +126,17 @@ func tkDeepSeekPeakMultiplierAt(now time.Time) float64 {
 }
 
 func tkApplyDeepSeekPeakValleyPricing(model string, pricing *ModelPricing, at time.Time, pricingSource string) *ModelPricing {
-	if pricing == nil || !tkDeepSeekPeakValleyApplies(model, pricingSource) {
+	if pricing == nil {
 		return pricing
 	}
-	mult := tkDeepSeekPeakMultiplierAt(at)
+	policy := loadTkDeepSeekPeakValleyPolicy()
+	if pricing.registrySnapshot != nil {
+		policy = pricing.registrySnapshot.DeepSeekPeakValley
+	}
+	if !tkDeepSeekPeakValleyAppliesWithPolicy(policy, model, pricingSource) {
+		return pricing
+	}
+	mult := tkDeepSeekPeakMultiplierAtWithPolicy(policy, at)
 	if mult <= 1 {
 		return pricing
 	}

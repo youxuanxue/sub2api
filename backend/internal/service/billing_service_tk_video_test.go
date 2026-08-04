@@ -114,3 +114,92 @@ func TestTKPricingOverlay_VideoTierModelsPresent(t *testing.T) {
 		require.NotEmpty(t, raw.VideoPriceTiers, model)
 	}
 }
+
+func TestUS043_OverlayVideoPricingUsesOneSnapshotForTiersAndTax(t *testing.T) {
+	videoRow := func() *LiteLLMModelPricing {
+		return &LiteLLMModelPricing{
+			LiteLLMProvider: "volcengine",
+			Mode:            "video_generation",
+			VideoPriceTiers: []PricingVideoTier{{
+				Resolution:      VideoBillingResolution720P,
+				PerSecond:       0.1,
+				DefaultForModel: true,
+			}},
+		}
+	}
+	policy := func(multiplier float64) tkOfficialListBaseTaxPolicy {
+		return tkOfficialListBaseTaxPolicy{
+			Multiplier: multiplier,
+			Rules: []tkOfficialListBaseTaxRule{{
+				Provider:      "volcengine",
+				ModelPrefixes: []string{"video"},
+			}},
+		}
+	}
+	oldSnapshot := &tkPricingOverlaySnapshot{
+		Models:  map[string]*LiteLLMModelPricing{"video": videoRow()},
+		BaseTax: policy(2),
+	}
+	newSnapshot := &tkPricingOverlaySnapshot{
+		Models:  map[string]*LiteLLMModelPricing{"video": videoRow()},
+		BaseTax: policy(1.5),
+	}
+
+	tkOverlayMu.Lock()
+	previous := tkOverlayEffective
+	tkOverlayEffective = newSnapshot
+	tkOverlayMu.Unlock()
+	t.Cleanup(func() {
+		tkOverlayMu.Lock()
+		tkOverlayEffective = previous
+		tkOverlayMu.Unlock()
+	})
+
+	priced := tkOverlayVideoPricingFromSnapshot(oldSnapshot, "video")
+	require.NotNil(t, priced)
+	require.Len(t, priced.VideoPriceTiers, 1)
+	require.InDelta(t, 0.2, priced.VideoPriceTiers[0].PerSecond, 1e-15)
+}
+
+func TestUS043_OverlayVideoUnitPriceUsesSnapshotDefaultResolution(t *testing.T) {
+	oldSnapshot := &tkPricingOverlaySnapshot{
+		Models: map[string]*LiteLLMModelPricing{
+			"video": {
+				LiteLLMProvider:        "openai",
+				Mode:                   "video_generation",
+				DefaultVideoResolution: VideoBillingResolution720P,
+				VideoPriceTiers: []PricingVideoTier{
+					{Resolution: VideoBillingResolution720P, PerSecond: 0.1, DefaultForModel: true},
+					{Resolution: VideoBillingResolution1080P, PerSecond: 0.4},
+				},
+			},
+		},
+	}
+	newSnapshot := &tkPricingOverlaySnapshot{
+		Models: map[string]*LiteLLMModelPricing{
+			"video": {
+				LiteLLMProvider:        "openai",
+				Mode:                   "video_generation",
+				DefaultVideoResolution: VideoBillingResolution1080P,
+				VideoPriceTiers: []PricingVideoTier{
+					{Resolution: VideoBillingResolution720P, PerSecond: 0.2},
+					{Resolution: VideoBillingResolution1080P, PerSecond: 0.8, DefaultForModel: true},
+				},
+			},
+		},
+	}
+
+	tkOverlayMu.Lock()
+	previous := tkOverlayEffective
+	tkOverlayEffective = newSnapshot
+	tkOverlayMu.Unlock()
+	t.Cleanup(func() {
+		tkOverlayMu.Lock()
+		tkOverlayEffective = previous
+		tkOverlayMu.Unlock()
+	})
+
+	price, ok := tkOverlayVideoUnitPriceUSDFromSnapshot(oldSnapshot, "video", "", nil)
+	require.True(t, ok)
+	require.InDelta(t, 0.1, price, 1e-15)
+}
