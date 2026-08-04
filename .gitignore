@@ -193,6 +193,8 @@ docs/*
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
 !docs/ASYNC_IMAGE_TASKS.md
+!docs/approved/
+!docs/approved/**
 !docs/legal/
 !docs/legal/*.md
 # Release bump syncs docs/ops/endpoint-compat-baseline.md (release-bump-and-tag.sh);

@@ -35,6 +35,7 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 | [`anthropic-window-util-sched.md`](anthropic-window-util-sched.md) | Upstream window-util scheduling |
 | [`cc-only-disable-prep-decisions.md`](cc-only-disable-prep-decisions.md) | cc-only disable prep |
 | [`channel-pricing-refund-gate-and-runtime-pricing.md`](channel-pricing-refund-gate-and-runtime-pricing.md) | Runtime pricing and refund gate |
+| [`design-all-edge-ec2-t4g-small-unlimited-migration.md`](design-all-edge-ec2-t4g-small-unlimited-migration.md) | 全部活动 Edge 迁移到 EC2 `t4g.small` Unlimited，并退役 Lightsail 平台与 Agent 契约 |
 | [`design-data-layer-prod-export-canary.md`](design-data-layer-prod-export-canary.md) | 生产只读、export-only、无删除归档 canary |
 | [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 archive 桶 + promote |
 | [`disable-cancel-storm-detector.md`](disable-cancel-storm-detector.md) | Cancel-storm detector retirement |
