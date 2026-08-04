@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	partitionMaintenanceConfirmation   = "tokenkey-prod-partition-maintenance-v1"
-	partitionMaintenanceReceiptVersion = 1
-	partitionMaintenanceReceiptMode    = "partition_maintenance"
+	partitionMaintenanceConfirmation     = "tokenkey-prod-partition-maintenance-v1"
+	partitionMaintenanceReceiptVersion   = 1
+	partitionMaintenanceReceiptMode      = "partition_maintenance"
+	partitionMaintenanceHeartbeatTimeout = 5 * time.Second
 )
 
 type partitionMaintenanceDeps struct {
@@ -109,26 +110,40 @@ func runPartitionMaintenanceCommand(
 	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	if err := db.PingContext(ctx); err != nil {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire partition maintenance connection: %w", err)
+	}
+	connReleased := false
+	defer func() {
+		if !connReleased {
+			_ = conn.Close()
+		}
+	}()
+	if err := conn.PingContext(ctx); err != nil {
 		return fmt.Errorf("ping partition maintenance database: %w", err)
 	}
-	if _, err := db.ExecContext(ctx, "SET lock_timeout = '100ms'"); err != nil {
+	if _, err := conn.ExecContext(ctx, "SET lock_timeout = '100ms'"); err != nil {
 		return fmt.Errorf("set partition maintenance lock timeout: %w", err)
 	}
-	if _, err := db.ExecContext(ctx, "SET statement_timeout = '5s'"); err != nil {
+	if _, err := conn.ExecContext(ctx, "SET statement_timeout = '5s'"); err != nil {
 		return fmt.Errorf("set partition maintenance statement timeout: %w", err)
 	}
 
 	startedAt := deps.now().UTC()
 	result, err := deps.ensure(
 		ctx,
-		db,
+		conn,
 		startedAt,
 		partitionmaintenance.ModeRequireAllPartitioned,
 	)
 	if err != nil {
 		return fmt.Errorf("ensure production partitions: %w", err)
 	}
+	if err := conn.Close(); err != nil {
+		return fmt.Errorf("release partition maintenance connection: %w", err)
+	}
+	connReleased = true
 	completedAt := deps.now().UTC()
 	duration := completedAt.Sub(startedAt)
 	if duration < 0 {
@@ -136,7 +151,9 @@ func runPartitionMaintenanceCommand(
 	}
 	durationMs := duration.Milliseconds()
 	lastResult := "tables=" + result.String() + " deletion_authorized=false"
-	if err := deps.writeHeartbeat(ctx, db, &service.OpsUpsertJobHeartbeatInput{
+	heartbeatCtx, cancelHeartbeat := context.WithTimeout(ctx, partitionMaintenanceHeartbeatTimeout)
+	defer cancelHeartbeat()
+	if err := deps.writeHeartbeat(heartbeatCtx, db, &service.OpsUpsertJobHeartbeatInput{
 		JobName:        partitionmaintenance.JobName,
 		LastRunAt:      &startedAt,
 		LastSuccessAt:  &completedAt,

@@ -81,7 +81,7 @@ func TestPartitionMaintenanceSuccessUsesStrictBoundedPath(t *testing.T) {
 		},
 		ensure: func(_ context.Context, gotDB pgpartition.DB, now time.Time, mode partitionmaintenance.Mode) (partitionmaintenance.Result, error) {
 			ensureCalls++
-			if gotDB != db || !now.Equal(fixedNow) || mode != partitionmaintenance.ModeRequireAllPartitioned {
+			if _, ok := gotDB.(*sql.Conn); !ok || !now.Equal(fixedNow) || mode != partitionmaintenance.ModeRequireAllPartitioned {
 				t.Fatalf("unexpected ensure args: db=%T now=%s mode=%d", gotDB, now, mode)
 			}
 			return partitionmaintenance.Result{Tables: []partitionmaintenance.TableResult{
@@ -90,9 +90,14 @@ func TestPartitionMaintenanceSuccessUsesStrictBoundedPath(t *testing.T) {
 				{Table: "usage_logs", RangeCount: 8},
 			}}, nil
 		},
-		writeHeartbeat: func(_ context.Context, gotDB *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
+		writeHeartbeat: func(heartbeatCtx context.Context, gotDB *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
 			if gotDB != db {
 				t.Fatalf("heartbeat db=%p want %p", gotDB, db)
+			}
+			deadline, ok := heartbeatCtx.Deadline()
+			remaining := time.Until(deadline)
+			if !ok || remaining <= 0 || remaining > 5*time.Second {
+				t.Fatalf("heartbeat context must have a live bounded deadline: ok=%v remaining=%s", ok, remaining)
 			}
 			heartbeat = input
 			return nil
