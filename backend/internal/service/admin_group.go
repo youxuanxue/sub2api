@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -306,9 +307,14 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		return nil, errors.New("rate_multiplier must be > 0")
 	}
 
-	platform := input.Platform
-	if platform == "" {
-		platform = PlatformAnthropic
+	platform := NormalizeGroupPlatform(input.Platform)
+	maxReasoningEffort, err := normalizeMaxReasoningEffortForPlatform(platform, input.MaxReasoningEffort)
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_MAX_REASONING_EFFORT", "%v", err)
+	}
+	reasoningEffortMappings, err := NormalizeReasoningEffortMappings(platform, input.ReasoningEffortMappings)
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_REASONING_EFFORT_MAPPING", "%v", err)
 	}
 
 	subscriptionType := input.SubscriptionType
@@ -373,6 +379,20 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		return nil, err
 	}
 
+	profitMinMargin := 0.0
+	if input.ProfitMinMargin != nil {
+		profitMinMargin = *input.ProfitMinMargin
+	}
+	profitSafetyBuffer := 0.0
+	if input.ProfitSafetyBuffer != nil {
+		profitSafetyBuffer = *input.ProfitSafetyBuffer
+	}
+	// 利润控制与高峰倍率同一收口顺序：先按平台归一化（不支持的平台重置），再校验。
+	profitControlEnabled, profitMinMargin, profitSafetyBuffer := NormalizeProfitControlConfig(platform, input.ProfitControlEnabled, profitMinMargin, profitSafetyBuffer)
+	if err := ValidateProfitControlConfig(platform, profitControlEnabled, profitMinMargin, profitSafetyBuffer); err != nil {
+		return nil, err
+	}
+
 	// 校验降级分组
 	if input.FallbackGroupID != nil {
 		if err := s.validateFallbackGroup(ctx, 0, *input.FallbackGroupID); err != nil {
@@ -431,12 +451,6 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		}
 	}
 
-	maxReasoningEffort := NormalizeMaxReasoningEffort(input.MaxReasoningEffort)
-	var reasoningEffortMappings []ReasoningEffortMapping
-	if input.ReasoningEffortMappings != nil {
-		reasoningEffortMappings = input.ReasoningEffortMappings
-	}
-
 	group := &Group{
 		Name:                                   input.Name,
 		Description:                            input.Description,
@@ -454,15 +468,18 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ImageRateMultiplier:                    imageRateMultiplier,
 		BatchImageDiscountMultiplier:           batchImageDiscountMultiplier,
 		BatchImageHoldMultiplier:               batchImageHoldMultiplier,
+		VideoRateIndependent:                   input.VideoRateIndependent,
+		VideoRateMultiplier:                    videoRateMultiplier,
 		PeakRateEnabled:                        peakRateEnabled,
 		PeakStart:                              peakStart,
 		PeakEnd:                                peakEnd,
 		PeakRateMultiplier:                     peakRateMultiplier,
+		ProfitControlEnabled:                   profitControlEnabled,
+		ProfitMinMargin:                        profitMinMargin,
+		ProfitSafetyBuffer:                     profitSafetyBuffer,
 		ImagePrice1K:                           imagePrice1K,
 		ImagePrice2K:                           imagePrice2K,
 		ImagePrice4K:                           imagePrice4K,
-		VideoRateIndependent:                   input.VideoRateIndependent,
-		VideoRateMultiplier:                    videoRateMultiplier,
 		VideoPrice480P:                         videoPrice480P,
 		VideoPrice720P:                         videoPrice720P,
 		VideoPrice1080P:                        videoPrice1080P,
@@ -718,6 +735,21 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if err := ValidatePeakRateConfig(group.SubscriptionType, group.PeakRateEnabled, group.PeakStart, group.PeakEnd, group.PeakRateMultiplier); err != nil {
 		return nil, err
 	}
+	if input.ProfitControlEnabled != nil {
+		group.ProfitControlEnabled = *input.ProfitControlEnabled
+	}
+	if input.ProfitMinMargin != nil {
+		group.ProfitMinMargin = *input.ProfitMinMargin
+	}
+	if input.ProfitSafetyBuffer != nil {
+		group.ProfitSafetyBuffer = *input.ProfitSafetyBuffer
+	}
+	// 利润控制与高峰同一收口：按合并后的最终平台归一化（转到不支持平台时静默重置），
+	// 再对合并后的最终配置统一校验，防止部分字段更新拼出非法组合入库。
+	group.ProfitControlEnabled, group.ProfitMinMargin, group.ProfitSafetyBuffer = NormalizeProfitControlConfig(group.Platform, group.ProfitControlEnabled, group.ProfitMinMargin, group.ProfitSafetyBuffer)
+	if err := ValidateProfitControlConfig(group.Platform, group.ProfitControlEnabled, group.ProfitMinMargin, group.ProfitSafetyBuffer); err != nil {
+		return nil, err
+	}
 	if input.ImagePrice1K != nil {
 		group.ImagePrice1K = normalizePrice(input.ImagePrice1K)
 	}
@@ -827,6 +859,20 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if group.Platform != PlatformOpenAI {
 		group.AllowLive = false
+	}
+	if input.MaxReasoningEffort != nil {
+		maxReasoningEffort, err := normalizeMaxReasoningEffortForPlatform(group.Platform, *input.MaxReasoningEffort)
+		if err != nil {
+			return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_MAX_REASONING_EFFORT", "%v", err)
+		}
+		group.MaxReasoningEffort = maxReasoningEffort
+	}
+	if input.ReasoningEffortMappings != nil {
+		reasoningEffortMappings, err := NormalizeReasoningEffortMappings(group.Platform, *input.ReasoningEffortMappings)
+		if err != nil {
+			return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_REASONING_EFFORT_MAPPING", "%v", err)
+		}
+		group.ReasoningEffortMappings = reasoningEffortMappings
 	}
 	sanitizeGroupReasoningEffortPolicy(group)
 

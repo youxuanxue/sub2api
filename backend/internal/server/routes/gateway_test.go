@@ -401,16 +401,42 @@ func TestGatewayRoutesGrokAllowsCountTokensAndResponses(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesNewAPICountTokensPathIsRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformNewAPI)
+// TestGatewayRoutesResponsesSubpathRejectsNonConformingSubpaths 端到端锁定不变式：
+// /responses/*subpath 的子路径会被转发到上游同名端点之后，因此不合规的子路径必须
+// 在入口就被拒绝，不得进入调度与转发流程。
+func TestGatewayRoutesResponsesSubpathRejectsNonConformingSubpaths(t *testing.T) {
+	router := newGatewayRoutesTestRouter()
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`))
+	for _, path := range []string{
+		"/v1/responses/../../x/y",
+		"/v1/responses/..%2f..%2fx/y",
+		"/v1/responses/%2e%2e/%2e%2e/x",
+		"/responses/%2e%2e%2fx",
+		"/backend-api/codex/responses/..%2f..%2fx",
+		`/v1/responses/..\..\x`,
+		"/v1/responses/%3fa=b",
+		"/v1/responses/x%23frag",
+		"/v1/responses/compact%2f..",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-5"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code, "path=%s must be rejected at the edge", path)
+		require.Contains(t, w.Body.String(), "Unsupported responses subpath", "path=%s", path)
+	}
+}
+
+func TestGatewayRoutesOpenAICountTokensPathIsRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}]}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
 	require.NotEqual(t, http.StatusNotFound, w.Code)
-	require.NotContains(t, w.Body.String(), "Token counting is not supported for this platform")
 }
 
 func TestGatewayRoutesGrokCountTokensPathIsRegistered(t *testing.T) {
@@ -425,24 +451,29 @@ func TestGatewayRoutesGrokCountTokensPathIsRegistered(t *testing.T) {
 	require.NotContains(t, w.Body.String(), "Token counting is not supported for this platform")
 }
 
-// TestGatewayRoutesVideoGenerationPathsAreRegistered protects the four async
-// video task routes added for the fifth platform `newapi` (volcengine /
-// doubaovideo). The async task registry is required for the actual handler
-// to do work, but this test only asserts the route table is wired (i.e. the
-// router does NOT return 404). A regression that drops any of these four
-// paths would silently disable all volcengine video generation.
+func TestGatewayRoutesNewAPICountTokensPathIsRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformNewAPI)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+	require.NotEqual(t, http.StatusNotFound, w.Code)
+	require.NotContains(t, w.Body.String(), "Token counting is not supported for this platform")
+}
+
 func TestGatewayRoutesVideoGenerationPathsAreRegistered(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformNewAPI)
 
-	postPaths := []string{
+	for _, path := range []string{
 		"/v1/video/generations",
 		"/v1/videos",
-		"/v1/videos/generations", // xAI-shaped alias (grok native arm / prod→edge relay)
+		"/v1/videos/generations",
 		"/video/generations",
 		"/videos",
 		"/videos/generations",
-	}
-	for _, path := range postPaths {
+	} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"doubao-seedance","prompt":"x"}`))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -450,13 +481,12 @@ func TestGatewayRoutesVideoGenerationPathsAreRegistered(t *testing.T) {
 		require.NotEqual(t, http.StatusNotFound, w.Code, "POST path=%s should be routed for newapi/openai-compatible groups", path)
 	}
 
-	getPaths := []string{
+	for _, path := range []string{
 		"/v1/video/generations/abc",
 		"/v1/videos/abc",
 		"/video/generations/abc",
 		"/videos/abc",
-	}
-	for _, path := range getPaths {
+	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -464,12 +494,6 @@ func TestGatewayRoutesVideoGenerationPathsAreRegistered(t *testing.T) {
 	}
 }
 
-// TestGatewayRoutesVideoGenerationRejectsNonCompatPlatform proves the
-// platform gating in tkOpenAICompatVideoSubmitHandler / VideoFetchHandler
-// returns 404 for groups whose platform is NOT in OpenAICompatPlatforms()
-// (e.g. anthropic). This is the inverse safety check — without it an
-// anthropic group would route to OpenAIGateway.VideoSubmit which would
-// crash on a nil group platform during account selection.
 func TestGatewayRoutesVideoGenerationRejectsNonCompatPlatform(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformAnthropic)
 
@@ -487,15 +511,4 @@ func TestGatewayRoutesVideoGenerationRejectsNonCompatPlatform(t *testing.T) {
 		router.ServeHTTP(w, req)
 		require.Equal(t, http.StatusNotFound, w.Code, "POST path=%s on anthropic group should 404", path)
 	}
-}
-
-func TestGatewayRoutesOpenAICountTokensPathIsRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}]}`))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	router.ServeHTTP(w, req)
-	require.NotEqual(t, http.StatusNotFound, w.Code)
 }

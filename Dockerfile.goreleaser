@@ -45,12 +45,13 @@ WORKDIR /app
 
 # Copy the pre-built binary selected by GoReleaser dockers_v2 for this target platform.
 COPY --chown=sub2api:sub2api --chmod=0755 ${TARGETPLATFORM}/sub2api /app/sub2api
+COPY --chown=sub2api:sub2api backend/resources /app/resources
 
 # Create data directory
 RUN mkdir -p /app/data && chown sub2api:sub2api /app/data
 
 # Copy entrypoint script (fixes volume permissions then drops to sub2api)
-COPY --chmod=0755 deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY --chmod=755 deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
 
 EXPOSE 8080
 

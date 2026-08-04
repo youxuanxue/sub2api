@@ -33,6 +33,10 @@ func (r *stubSchedulerGroupRepo) GetByID(ctx context.Context, id int64) (*Group,
 	return nil, errors.New("group not found")
 }
 
+func (r *stubSchedulerGroupRepo) GetByIDLite(ctx context.Context, id int64) (*Group, error) {
+	return r.GetByID(ctx, id)
+}
+
 // newAPISchedFixture builds an OpenAIGatewayService wired with stubs for
 // scheduler-tier tests. The pool argument is the snapshot the scheduler will
 // see; pass mixed openai+newapi accounts to exercise the cross-platform

@@ -5,9 +5,12 @@ package service
 import (
 	"context"
 	"errors"
+	"net/http"
 	"reflect"
 	"testing"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
 )
@@ -16,6 +19,7 @@ type accountRepoStubForBulkUpdate struct {
 	accountRepoStub
 	bulkUpdateErr       error
 	bulkUpdateIDs       []int64
+	lastBulkUpdate      AccountBulkUpdate
 	bindGroupErrByID    map[int64]error
 	bindGroupsCalls     []int64
 	bindGroupsByAccount map[int64][]int64
@@ -48,8 +52,9 @@ type accountRepoStubForBulkUpdate struct {
 	}
 }
 
-func (s *accountRepoStubForBulkUpdate) BulkUpdate(_ context.Context, ids []int64, _ AccountBulkUpdate) (int64, error) {
+func (s *accountRepoStubForBulkUpdate) BulkUpdate(_ context.Context, ids []int64, update AccountBulkUpdate) (int64, error) {
 	s.bulkUpdateIDs = append([]int64{}, ids...)
+	s.lastBulkUpdate = update
 	if s.bulkUpdateErr != nil {
 		return 0, s.bulkUpdateErr
 	}
@@ -153,6 +158,63 @@ func TestAdminService_BulkUpdateAccounts_AllSuccessIDs(t *testing.T) {
 	require.Len(t, result.Results, 3)
 }
 
+func TestAdminService_BulkUpdateAccounts_StripsManagedProbeKeysFromExtra(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{}
+	svc := &adminServiceImpl{accountRepo: repo}
+	schedulable := true
+
+	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs:  []int64{1},
+		Schedulable: &schedulable,
+		Extra: map[string]any{
+			UpstreamBillingProbeEnabledExtraKey:    true,
+			UpstreamBillingRateSyncEnabledExtraKey: true,
+			UpstreamBillingProbeExtraKey:           map[string]any{"status": "ok"},
+			"custom_flag":                          true,
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Success)
+	require.Equal(t, []int64{1}, repo.bulkUpdateIDs)
+	require.NotContains(t, repo.lastBulkUpdate.Extra, UpstreamBillingProbeEnabledExtraKey)
+	require.NotContains(t, repo.lastBulkUpdate.Extra, UpstreamBillingRateSyncEnabledExtraKey)
+	require.NotContains(t, repo.lastBulkUpdate.Extra, UpstreamBillingProbeExtraKey)
+	require.Equal(t, true, repo.lastBulkUpdate.Extra["custom_flag"])
+}
+
+func TestAdminService_BulkUpdateAccounts_RejectsRateChangeForSyncedAccounts(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{
+			{
+				ID: 1,
+				Extra: map[string]any{
+					UpstreamBillingProbeEnabledExtraKey:    true,
+					UpstreamBillingRateSyncEnabledExtraKey: true,
+				},
+			},
+			{ID: 2, Extra: map[string]any{}},
+		},
+	}
+	svc := &adminServiceImpl{accountRepo: repo}
+	rateMultiplier := 0.5
+
+	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs:     []int64{1, 2},
+		RateMultiplier: &rateMultiplier,
+	})
+
+	require.Nil(t, result)
+	require.Error(t, err)
+	var appErr *infraerrors.ApplicationError
+	require.ErrorAs(t, err, &appErr)
+	require.Equal(t, int32(http.StatusConflict), appErr.Code)
+	require.Equal(t, "UPSTREAM_BILLING_RATE_SYNC_BULK_CONFLICT", appErr.Reason)
+	require.Equal(t, "1", appErr.Metadata["count"])
+	require.True(t, repo.getByIDsCalled)
+	require.Empty(t, repo.bulkUpdateIDs, "rate conflict must be rejected before any write")
+}
+
 // TestAdminService_BulkUpdateAccounts_PartialFailureIDs 验证部分失败时 success_ids/failed_ids 正确。
 func TestAdminService_BulkUpdateAccounts_PartialFailureIDs(t *testing.T) {
 	repo := &accountRepoStubForBulkUpdate{
@@ -197,6 +259,38 @@ func TestAdminService_BulkUpdateAccounts_NilGroupRepoReturnsError(t *testing.T) 
 	require.Nil(t, result)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "group repository not configured")
+}
+
+func TestAdminService_BulkUpdateAccounts_GroupOnlyRejectsPublicAggregator(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{{
+			ID:          1,
+			Name:        "openrouter-upstream",
+			Platform:    PlatformNewAPI,
+			ChannelType: newapiconstant.ChannelTypeOpenRouter,
+		}},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo: &groupRepoStubForAdmin{getByID: &Group{
+			ID:          10,
+			Name:        "public-newapi",
+			IsExclusive: false,
+		}},
+	}
+	groupIDs := []int64{10}
+
+	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs:            []int64{1},
+		GroupIDs:              &groupIDs,
+		SkipMixedChannelCheck: true,
+	})
+
+	require.Nil(t, result)
+	var policyErr *PublicGroupAggregatorChannelError
+	require.ErrorAs(t, err, &policyErr)
+	require.True(t, repo.getByIDsCalled, "group-only policy checks require hydrated target accounts")
+	require.Empty(t, repo.bindGroupsCalls, "policy violation must be rejected before binding")
 }
 
 // TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckBlocksOnExistingConflict verifies

@@ -51,6 +51,10 @@ func (s *OpenAIGatewayService) collectOpenAICompatSelectionFailureStatsForReques
 			stats.SampleRateLimitIDs = appendSelectionFailureRateSample(stats.SampleRateLimitIDs, acc.ID, remaining)
 		case "unschedulable":
 			stats.Unschedulable++
+		case openAIProfitFilterReasonThreshold:
+			stats.ProfitThreshold++
+		case openAIProfitFilterReasonInvalidAccountRate:
+			stats.ProfitInvalidRate++
 		default:
 			stats.Eligible++
 		}
@@ -84,7 +88,7 @@ func (s *OpenAIGatewayService) diagnoseOpenAICompatSelectionFailure(
 			Detail:   "model_or_channel",
 		}
 	}
-	if !isOpenAICompatibleAccountEligibleForRequest(ctx, acc, platform, requestedModel, requireCompact, requiredCapability) {
+	if !openAICompatAccountMeetsSchedulingPrerequisites(ctx, acc, platform, requestedModel, requireCompact, requiredCapability) {
 		if requestedModel != "" && !acc.IsSchedulableForModelWithContext(ctx, requestedModel) {
 			remaining := acc.GetRateLimitRemainingTimeWithContext(ctx, requestedModel)
 			if remaining > 0 {
@@ -95,6 +99,9 @@ func (s *OpenAIGatewayService) diagnoseOpenAICompatSelectionFailure(
 			}
 		}
 		return openAICompatSelectionFailureDiagnosis{Category: "unschedulable", Detail: "eligibility"}
+	}
+	if vetoed, reason := openAIProfitControlVetoReason(ctx, acc); vetoed {
+		return openAICompatSelectionFailureDiagnosis{Category: reason}
 	}
 	if s.isOpenAIAccountRuntimeBlocked(acc) {
 		return openAICompatSelectionFailureDiagnosis{Category: "runtime_blocked", Detail: "whole_account"}

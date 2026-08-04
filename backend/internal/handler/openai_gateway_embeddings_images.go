@@ -128,6 +128,7 @@ func (h *OpenAIGatewayHandler) embeddings(c *gin.Context) {
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
+	profitVetoCount := 0
 
 	for {
 		c.Set("openai_v1_json_fallback_model", "")
@@ -198,8 +199,15 @@ func (h *OpenAIGatewayHandler) embeddings(c *gin.Context) {
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 		openAIMarkAffinitySelected(c, groupName, account.ID)
 
-		accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
-		if !acquired {
+		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+		if slotResult == openAISlotAcquireProfitVetoed {
+			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
+				return
+			}
+			continue
+		}
+		if slotResult != openAISlotAcquireOK {
 			return
 		}
 
@@ -446,6 +454,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
+	profitVetoCount := 0
 
 	for {
 		c.Set("openai_v1_json_fallback_model", "")
@@ -516,8 +525,15 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 		openAIMarkAffinitySelected(c, groupName, account.ID)
 
-		accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
-		if !acquired {
+		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+		if slotResult == openAISlotAcquireProfitVetoed {
+			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
+				return
+			}
+			continue
+		}
+		if slotResult != openAISlotAcquireOK {
 			return
 		}
 
