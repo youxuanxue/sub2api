@@ -125,11 +125,11 @@ lightsail_active
 3. 四个状态 PR：每个 Edge 一个最小矩阵 owner 变更，只在该 Edge 的切流窗口合并。
 4. 退役 PR：7 天观察完成且 Lightsail 云资源删除后，清理所有 Lightsail/临时迁移代码，重建 Agent 契约，并把本文改为 `shipped`。
 
-### 任务 1：建立只读迁移预检
+### Task 1（任务 1）：建立只读迁移预检
 
 **文件：**
-- 新建：`ops/migration/edge-platform-migration-preflight.sh`
-- 新建：`ops/migration/test_edge_platform_migration_preflight.py`
+- 新建：`ops/migration/edge-platform-migration-preflight.sh` <!-- script-ref: planned -->
+- 新建：`ops/migration/test_edge_platform_migration_preflight.py` <!-- script-ref: planned -->
 - 修改：`.gitignore`
 - 修改：`scripts/preflight.sh`
 
@@ -145,7 +145,7 @@ lightsail_active
 - [ ] **步骤 2：确认测试先失败**
 
 ```bash
-python3 -m unittest ops/migration/test_edge_platform_migration_preflight.py -v
+python3 -m unittest ops/migration/test_edge_platform_migration_preflight.py -v # script-ref: planned
 ```
 
 预期：因预检脚本尚未实现而 FAIL。
@@ -157,8 +157,8 @@ python3 -m unittest ops/migration/test_edge_platform_migration_preflight.py -v
 - [ ] **步骤 4：接入确定性测试**
 
 ```bash
-python3 -m unittest ops/migration/test_edge_platform_migration_preflight.py -v
-bash -n ops/migration/edge-platform-migration-preflight.sh
+python3 -m unittest ops/migration/test_edge_platform_migration_preflight.py -v # script-ref: planned
+bash -n ops/migration/edge-platform-migration-preflight.sh # script-ref: planned
 ```
 
 同时在 `.gitignore` 放行 `docs/evidence/`，保证脱敏 receipt 可以进入 review，而不是滞留在单台工作站。
@@ -166,14 +166,12 @@ bash -n ops/migration/edge-platform-migration-preflight.sh
 - [ ] **步骤 5：运行真实只读报告并人工审批成本**
 
 ```bash
-bash ops/migration/edge-platform-migration-preflight.sh \
-  --format json \
-  --output docs/evidence/all-edge-ec2-migration-preflight.json
+bash ops/migration/edge-platform-migration-preflight.sh --format json --output docs/evidence/all-edge-ec2-migration-preflight.json # script-ref: planned
 ```
 
 任何 quota、容量、DNS、SSM 或成本 blocker 都必须在任务 6 前暂停。
 
-### 任务 2：恢复加固后的通用 EC2 Edge Stack
+### Task 2（任务 2）：恢复加固后的通用 EC2 Edge Stack
 
 **文件：**
 - 新建：`deploy/aws/cloudformation/stage0-edge-ec2.yaml`
@@ -216,12 +214,12 @@ aws cloudformation validate-template \
   --template-body file://deploy/aws/cloudformation/stage0-edge-ec2.yaml
 ```
 
-### 任务 3：增加最小权限 EC2 Edge OIDC 与 Workflow
+### Task 3（任务 3）：增加最小权限 EC2 Edge OIDC 与 Workflow
 
 **文件：**
 - 新建：`deploy/aws/cloudformation/cicd-oidc-ec2-edge-addon.yaml`
-- 新建：`scripts/checks/ec2-edge-oidc-perm-coverage.py`
-- 新建：`scripts/checks/test_ec2_edge_oidc_perm_coverage.py`
+- 新建：`scripts/checks/ec2-edge-oidc-perm-coverage.py` <!-- script-ref: planned -->
+- 新建：`scripts/checks/test_ec2_edge_oidc_perm_coverage.py` <!-- script-ref: planned -->
 - 新建：`.github/workflows/deploy-edge-stage0.yml`
 - 修改：`deploy/aws/cloudformation/cicd-oidc.yaml`
 - 修改：`scripts/checks/workflow-edge-coverage.json`
@@ -245,11 +243,11 @@ aws cloudformation validate-template \
 - [ ] **步骤 4：验证权限和 workflow 覆盖**
 
 ```bash
-python3 scripts/checks/ec2-edge-oidc-perm-coverage.py --quiet
-python3 -m unittest scripts/checks/test_ec2_edge_oidc_perm_coverage.py scripts/checks/test_workflow_edge_coverage.py -v
+python3 scripts/checks/ec2-edge-oidc-perm-coverage.py --quiet # script-ref: planned
+python3 -m unittest scripts/checks/test_ec2_edge_oidc_perm_coverage.py scripts/checks/test_workflow_edge_coverage.py -v # script-ref: planned
 ```
 
-### 任务 4：引入临时影子平台路由
+### Task 4（任务 4）：引入临时影子平台路由
 
 **文件：**
 - 修改：`deploy/aws/stage0/edge-targets.json`
@@ -289,11 +287,11 @@ python3 -m unittest \
   scripts/checks/test_edge_platform_exclusivity.py -v
 ```
 
-### 任务 5：让账号迁移显式区分平台
+### Task 5（任务 5）：让账号迁移显式区分平台
 
 **文件：**
 - 修改：`ops/migration/migrate-edge-accounts.py`
-- 新建：`ops/migration/test_migrate_edge_accounts.py`
+- 新建：`ops/migration/test_migrate_edge_accounts.py` <!-- script-ref: planned -->
 
 **接口：**
 - `parse_target("edge:us4@lightsail") -> ("edge", "us4", "lightsail")`
@@ -313,7 +311,7 @@ python3 -m unittest \
 - [ ] **步骤 4：运行测试与无账号 fail-closed 验证**
 
 ```bash
-python3 -m unittest ops/migration/test_migrate_edge_accounts.py -v
+python3 -m unittest ops/migration/test_migrate_edge_accounts.py -v # script-ref: planned
 python3 ops/migration/migrate-edge-accounts.py extract \
   --from edge:us5@lightsail \
   --account-ids ""
@@ -321,7 +319,7 @@ python3 ops/migration/migrate-edge-accounts.py extract \
 
 预期第二条因缺少账号 ID 失败且不产生写入；真实 ID 只能来自任务 1 的新鲜报告。
 
-### 任务 6：创建并验证 `us5` EC2 基础设施 Canary
+### Task 6（任务 6）：创建并验证 `us5` EC2 基础设施 Canary
 
 **证据文件：** `docs/evidence/all-edge-ec2-migration-us5.json`。本任务不修改 DNS 或 owner。
 
@@ -367,11 +365,11 @@ aws ec2 describe-instance-credit-specifications \
 
 要求实例/SSM 不掉线、无磁盘/内存 P0、`NetworkOut` 非零、credit mode 仍为 Unlimited、无意外 `CPUSurplusCreditsCharged`。证据只记录资源 ID、IP、时间和结果，不记录 secret。
 
-### 任务 7：执行单个 Edge 切换事务
+### Task 7（任务 7）：执行单个 Edge 切换事务
 
 **文件：**
-- 新建：`ops/migration/edge-platform-cutover-check.sh`
-- 新建：`ops/migration/test_edge_platform_cutover_check.py`
+- 新建：`ops/migration/edge-platform-cutover-check.sh` <!-- script-ref: planned -->
+- 新建：`ops/migration/test_edge_platform_cutover_check.py` <!-- script-ref: planned -->
 - 新建：`docs/evidence/all-edge-ec2-migration-<edge>.json`
 - 每次修改两个 matrix 中同一个 Edge 的 owner 状态
 
@@ -417,7 +415,7 @@ aws ec2 describe-instance-credit-specifications \
 
 重新启用源账号、DNS 切回证据中的 Lightsail IP、关闭目标账号、验证源 `/health` 和 OAuth smoke、回滚状态 PR。用户路径失败时不继续向前修补。
 
-### 任务 8：顺序迁移全部 Fleet
+### Task 8（任务 8）：顺序迁移全部 Fleet
 
 - [ ] **步骤 1：完成 `us5` 切换并观察 10 分钟**
 - [ ] **步骤 2：完成 `us4` 真实流量切换并观察 10 分钟**
@@ -433,11 +431,11 @@ aws ec2 describe-instance-credit-specifications \
 
 以 `us3` 最后一个 10 分钟验收完成时间作为 `fleet_observation_started_at`，四个 Edge 连续健康满 7 个完整自然日后才进入任务 9。
 
-### 任务 9：退役线上 Lightsail Fleet
+### Task 9（任务 9）：退役线上 Lightsail Fleet
 
 **临时文件：**
-- `ops/migration/retire-lightsail-fleet.sh`
-- `ops/migration/test_retire_lightsail_fleet.py`
+- `ops/migration/retire-lightsail-fleet.sh` <!-- script-ref: planned -->
+- `ops/migration/test_retire_lightsail_fleet.py` <!-- script-ref: planned -->
 - `docs/evidence/all-edge-ec2-migration-retirement.json`
 
 脚本默认只输出计划；破坏性执行必须显式传：
@@ -459,7 +457,7 @@ aws ec2 describe-instance-credit-specifications \
 - [ ] **步骤 3：运行 plan mode 并取得删除审批**
 
 ```bash
-bash ops/migration/retire-lightsail-fleet.sh
+bash ops/migration/retire-lightsail-fleet.sh # script-ref: planned
 ```
 
 - [ ] **步骤 4：逐个删除 `us5`、`us4`、`us6`、`us3` 的 Lightsail 资源**
@@ -474,7 +472,7 @@ bash ops/migration/retire-lightsail-fleet.sh
 
 要求不存在 TokenKey Lightsail instance、Static IP、`Platform=lightsail` 的 SSM Hybrid managed instance、`/tokenkey/lightsail/` 参数、残留 activation 或 Lightsail addon IAM policy/role；重新实测四个 EC2 Edge。
 
-### 任务 10：把仓库收敛为 EC2-only
+### Task 10（任务 10）：把仓库收敛为 EC2-only
 
 **删除：**
 - `.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/`
@@ -529,8 +527,8 @@ bash ops/migration/retire-lightsail-fleet.sh
 - 由 `dev-rules/sync.sh --local` 更新 `AGENTS.md`
 
 **新建：**
-- `scripts/checks/edge-platform-contract.py`
-- `scripts/checks/test_edge_platform_contract.py`
+- `scripts/checks/edge-platform-contract.py` <!-- script-ref: planned -->
+- `scripts/checks/test_edge_platform_contract.py` <!-- script-ref: planned -->
 - `docs/archive/deploy/edge-lightsail-retired.md`
 
 - [ ] **步骤 1：先建立最终 EC2-only 契约测试**
@@ -567,14 +565,14 @@ dev-rules/sync.sh --check
 - [ ] **步骤 7：运行零残留与聚焦测试**
 
 ```bash
-python3 scripts/checks/edge-platform-contract.py
-python3 -m unittest scripts/checks/test_edge_platform_contract.py -v
+python3 scripts/checks/edge-platform-contract.py # script-ref: planned
+python3 -m unittest scripts/checks/test_edge_platform_contract.py -v # script-ref: planned
 python3 -m unittest discover -s ops/stage0 -p 'test_*.py' -t ops/stage0 -v
 python3 -m unittest discover -s scripts -p 'test_*.py' -t scripts -v
 bash deploy/aws/stage0/build-cfn.sh --check
 ```
 
-### 任务 11：最终实测与收口
+### Task 11（任务 11）：最终实测与收口
 
 - [ ] **步骤 1：运行真实 fleet health scan**
 

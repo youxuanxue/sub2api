@@ -32,9 +32,9 @@ fi
 pass=0
 fail=0
 
-# run <label> <fixture-line> <expect: fail|skip>
+# run <label> <fixture-line> <expect: fail|skip> [fixture-relative-path]
 run() {
-  local label="$1" content="$2" expect="$3"
+  local label="$1" content="$2" expect="$3" fixture_path="${4:-fixture.md}"
   local dir
   dir="$(mktemp -d)"
   (
@@ -47,8 +47,9 @@ run() {
     git init -q
     mkdir -p scripts/checks
     cp "$SCRIPT" scripts/checks/
-    printf '%s\n' "$content" > fixture.md
-    git add fixture.md
+    mkdir -p "$(dirname "$fixture_path")"
+    printf '%s\n' "$content" > "$fixture_path"
+    git add "$fixture_path"
   )
   local out hit
   # env -u: strip GIT_* env vars inherited from a parent git pre-commit hook so
@@ -56,7 +57,7 @@ run() {
   # back to the outer worktree's .git.
   out="$(env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY -u GIT_NAMESPACE python3 "$dir/scripts/checks/script-ref-existence.py" 2>&1 || true)"
   hit=0
-  if grep -q 'file=fixture.md' <<<"$out"; then
+  if grep -q "file=$fixture_path" <<<"$out"; then
     hit=1
   fi
   case "$expect" in
@@ -96,6 +97,15 @@ run "P7 .json not short-matched to .js"   "ref scripts/sentinels/missing.json"  
 run "P8 ops/X.vue (Vue path, skip)"       "import '@/views/admin/ops/D.vue'"         skip
 run "P9 dev-rules/scripts/X (subm-nested, fixture missing → expect fail)" \
     "see dev-rules/scripts/never-existed.py for ..."                                   fail
+
+# ---- planned approved-document references -----------------------------------
+
+run "P10 planned ref in approved doc (skip)" \
+    '- 新建：`scripts/missing-planned.sh` <!-- script-ref: planned -->' \
+    skip "docs/approved/fixture.md"
+run "P11 planned marker outside approved doc (fail)" \
+    "bash scripts/missing-outside-planned.sh # script-ref: planned" \
+    fail
 
 # ---- result ------------------------------------------------------------------
 

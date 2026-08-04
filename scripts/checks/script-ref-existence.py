@@ -53,6 +53,7 @@ PATH_RE = re.compile(
 )
 
 GLOB_OR_REGEX = set("*?[]{}$\\")
+PLANNED_REFERENCE_MARKER = "script-ref: planned"
 
 # File extensions whose contents we scan.
 SCAN_EXTS = {
@@ -140,6 +141,11 @@ def is_container_internal(token: str) -> bool:
     return token.startswith("/")
 
 
+def is_planned_approved_reference(relpath: Path, line: str) -> bool:
+    """Allow explicit future paths in tracked approved implementation plans."""
+    return relpath.parts[:2] == ("docs", "approved") and PLANNED_REFERENCE_MARKER in line
+
+
 def resolves(captured: str, token: str, file_path: Path) -> bool:
     """Return True if any plausible resolution of the reference exists.
 
@@ -184,6 +190,8 @@ def main() -> int:
                 if is_container_internal(token):
                     continue
                 if resolves(captured, token, relpath):
+                    continue
+                if is_planned_approved_reference(relpath, line):
                     continue
                 bad.append((relpath, lineno, token, line.strip()))
 
