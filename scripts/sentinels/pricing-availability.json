@@ -294,7 +294,6 @@
         "func buildTKPricingRegistrySnapshot",
         "func buildTKPricingOverlaySnapshot",
         "func validateTKPricingRegistryOwner",
-        "func tkOverlayOverridesLitellmSource",
         "func applyTKPricingOverlay",
         "func rebuildTKOverlayUnion",
         "tkValidateAndBuildOverlayVideoTiers",

@@ -1424,18 +1424,6 @@ type VideoPriceConfig struct {
 	Price1080P *float64 // 1080p 每秒价格（nil 表示使用默认值）
 }
 
-const (
-	defaultImageGenerationPrice = 0.134
-
-	defaultGrokImagineImagePrice1K        = 0.02
-	defaultGrokImagineImagePrice2K        = 0.02
-	defaultGrokImagineImageQualityPrice1K = 0.05
-	defaultGrokImagineImageQualityPrice2K = 0.07
-
-	// Grok video tier prices live in tk_pricing_overlay.json (video_price_tiers).
-
-)
-
 // CalculateWebSearchCost 计算 Codex alpha/search 网页搜索按次费用。
 // callCount: 搜索调用次数（每次请求为 1）
 // groupPrice: 分组配置的单次价格（nil 表示使用默认价 0.01；0 表示免费）
@@ -1640,35 +1628,4 @@ func (s *BillingService) getDefaultVideoPrice(model string, resolution string) f
 		}
 	}
 	return 0
-}
-
-func getDefaultGrokImagineImagePrice(model string, imageSize string) (float64, bool) {
-	model = strings.ToLower(strings.TrimSpace(model))
-	switch model {
-	case "grok-imagine-image-quality":
-		return getGrokImagineImageTierPrice(
-			imageSize,
-			defaultGrokImagineImageQualityPrice1K,
-			defaultGrokImagineImageQualityPrice2K,
-		), true
-	case "grok-imagine", "grok-imagine-image", "grok-imagine-edit":
-		return getGrokImagineImageTierPrice(
-			imageSize,
-			defaultGrokImagineImagePrice1K,
-			defaultGrokImagineImagePrice2K,
-		), true
-	default:
-		return 0, false
-	}
-}
-
-func getGrokImagineImageTierPrice(imageSize string, price1K float64, price2K float64) float64 {
-	switch NormalizeImageBillingTierOrDefault(imageSize) {
-	case ImageBillingSize1K:
-		return price1K
-	case ImageBillingSize2K, ImageBillingSize4K:
-		return price2K
-	default:
-		return price2K
-	}
 }

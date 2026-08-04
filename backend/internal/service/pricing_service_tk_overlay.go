@@ -481,12 +481,6 @@ func loadTKPricingOverlay() map[string]*LiteLLMModelPricing {
 	return snapshot.Models
 }
 
-// tkOverlayOverridesLitellmSource is retained for catalog compatibility. Every
-// complete-registry row is authoritative over provider sensor data.
-func tkOverlayOverridesLitellmSource(_ string, overlay *LiteLLMModelPricing) bool {
-	return overlay != nil
-}
-
 // applyTKPricingOverlay preserves the upstream parser/sync call sites while
 // preventing provider documents from participating in runtime billing.
 func applyTKPricingOverlay(result map[string]*LiteLLMModelPricing) {
