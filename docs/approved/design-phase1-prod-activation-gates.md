@@ -1,8 +1,8 @@
 ---
 title: 第一阶段生产启用门禁修复
-status: pending
-approved_by: pending
-approved_at: pending
+status: approved
+approved_by: "xuejiao (conversation approval, 2026-08-04)"
+approved_at: 2026-08-04
 authors: [agent]
 created: 2026-08-04
 risk: high
@@ -142,4 +142,4 @@ controller 禁止调用 ops/observability/run-probe.sh。精确确认词在本�
 
 ## 审批门禁
 
-approved_by 为 pending 时不得开始实现或合并。人工确认本文件后，才可进入实现计划；实现完成后仍需独立合并审批。merge 不等于生产执行批准。
+本设计已获人工确认，可以进入实现计划；实现完成后仍需独立合并审批。merge 不等于生产执行批准。

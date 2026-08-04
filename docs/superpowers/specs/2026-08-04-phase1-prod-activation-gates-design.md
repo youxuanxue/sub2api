@@ -6,4 +6,4 @@
 
 [第一阶段生产启用门禁修复](../../approved/design-phase1-prod-activation-gates.md)
 
-该基线处于 pending 状态。人工确认前不得开始实现；merge 只合并代码，不代表部署或执行任何生产命令。
+该基线已于 2026-08-04 获人工确认。merge 只合并代码，不代表部署或执行任何生产命令。
