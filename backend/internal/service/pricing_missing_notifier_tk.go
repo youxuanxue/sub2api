@@ -7,11 +7,10 @@ package service
 // OpenAIGatewayService.RecordUsage）会记一条零成本 usage log 并继续服务——即
 // 免费用量 = 收入流失，此前只有结构化日志可见，无人主动通知。
 //
-// 设计决策：**不拒绝服务**。计费模型在请求前不可知（候选链含上游响应字段），
-// 入口硬护栏 by-construction 不准；定价 ≠ 可服务（litellm 镜像滞后会把数据缺口
-// 放大成客户侧故障）；servable 探测流水线也依赖真实请求穿过 catch-all。本通知器
-// 只补"运营可见性"：缺价流量照常服务、照常记零成本日志，另路飞书告警提醒运营
-// 热更定价（渠道定价 admin API，立即生效）并固化进 tk_pricing_overlay.json。
+// 本通知器只拥有运营可见性，不拥有 serving 或价格决策。运行期价格闸可在转发前
+// 拒绝可判定的无价请求；计费阶段仍无法定价的请求继续由既有 funnel 记录零成本并
+// 告警。全局补价只修改完整 registry，合并到受保护 main 后由独立 publisher 热生效；
+// channel_model_pricing 只用于明确渠道 scope 的商业覆盖。
 //
 // 形态仿 account_incident_notifier_tk.go（#516），信噪比第一：
 //   - 首见 (platform, model) → 即时一张橙头卡（24h 去重 + 每小时滑窗限量），
@@ -338,8 +337,8 @@ func (n *TKPricingMissingNotifier) currentTime() time.Time {
 
 // pricingMissingActionSteps 是各类卡片共用的补价动作（与「是否已服务客户」无关）。
 const pricingMissingActionSteps = "运营动作：\n" +
-	"1. 热更止血：`python3 ops/pricing/apply-pricing-hotfix.py lookup --model <模型名>` 取价，再 `apply` 经 admin API 写入渠道定价（立即生效，无需发版）；\n" +
-	"2. 固化：`stage-overlay` 把 fill-only 条目写入 `tk_pricing_overlay.json` 提 PR（litellm 镜像补上后自动让位）。"
+	"1. 核价：用官方价源与 pricing registry sensor 报告交叉确认全部计费维度；\n" +
+	"2. 全局热更：只修改 `tk_pricing_overlay.json` 并提 PR；合并到受保护 main 后 publisher 自动热生效，无需应用发版。渠道专属价格才写 `channel_model_pricing`。"
 
 // pricingMissingSituationText 按 Reason 给出「这次到底发生了什么」。运行期价格闸拒绝是
 // 404、未服务客户、未记账——与「已服务零计费」是相反的客户影响，绝不能共用「已照常服务」

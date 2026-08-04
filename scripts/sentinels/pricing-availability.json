@@ -142,7 +142,7 @@
       "must_contain": [
         "func loadTkOfficialListBaseTaxPolicy",
         "loadTKPricingOverlaySnapshot()",
-        "func tkBaseTaxMultiplierForProvider",
+        "func (p tkOfficialListBaseTaxPolicy) multiplierForProvider",
         "func (p tkOfficialListBaseTaxPolicy) inferProvider",
         "policy.multiplierForProvider(policy.inferProvider(model))",
         "for _, rule := range p.Rules",
@@ -161,17 +161,17 @@
         "\"provider\": \"volcengine\"",
         "\"provider\": \"zhipu\""
       ],
-      "rationale": "Executable SSOT for all currently taxed official-list providers. The embedded overlay is the compile floor and the same full document is hot-pushed to tk_pricing_overlay_runtime. Pinning all five behavior-preserving provider rows and the multiplier prevents an upstream merge from silently dropping one tax family while model prices continue to parse. New providers are added here, not in Go."
+      "rationale": "Executable SSOT for all currently taxed official-list providers. The embedded registry is the last-known-good fallback and a valid protected-main envelope replaces the whole snapshot atomically. Pinning every behavior-preserving provider row and the multiplier prevents an upstream merge from silently dropping one tax family while model prices continue to parse. New providers are added here, not in Go."
     },
     {
       "path": "backend/internal/service/pricing_service_test.go",
       "must_contain": [
-        "TestDefaultPricingKeepsTokenKeyCodexAutoReviewRates",
-        "TestCodexAutoReviewBundledPricingMatchesTokenKeyOverlay",
-        "priceFields := []string{",
-        "require.JSONEq(t, string(overlayValue), string(bundledValue)"
+        "TestCodexAutoReviewBundledPricingCannotOverrideRegistry",
+        "bundled[\"codex-auto-review\"] = json.RawMessage",
+        "\"input_cost_per_token\": 0.99",
+        "require.InDelta(t, 5e-6, got.InputCostPerToken"
       ],
-      "rationale": "Pins the codex-auto-review billing regression and its cross-source parity contract. The focused behavior test verifies the parsed base/priority prices used by runtime billing; the structured parity test compares every bundled base, priority, flex, batch, and above-272k price against the TokenKey overlay owner. Without this sentinel a future upstream merge could delete both tests while leaving a source-dependent fallback price split that ordinary compilation cannot detect."
+      "rationale": "Pins the codex-auto-review SSOT regression at the runtime boundary. The behavior test injects deliberately wrong bundled prices and proves parsing still resolves the active registry owner, including base, priority, cache, and service-tier dimensions. Bundled/provider documents may drift as sensor evidence without becoming a second price owner or forcing a multi-file registry edit."
     },
     {
       "path": "backend/internal/service/pricing_tk_base_tax_test.go",
@@ -186,15 +186,36 @@
       "rationale": "Pins provider billing, catalog presentation, and bare-model fallback behavior by deriving exhaustive providers and model matchers from the executable overlay policy. Tests retain only independent negative boundaries, so adding a provider or matcher changes the SSOT rather than requiring a second hand-maintained test list."
     },
     {
+      "path": "backend/internal/service/pricing_service.go",
+      "must_contain": [
+        "func (s *PricingService) ListModelNamesByProvider",
+        "if s != nil && s.useActiveRegistry",
+        "pricingData = snapshot.Models"
+      ],
+      "rationale": "Provider model listing must read the immutable active registry in production. The mutable pricingData field remains only an upstream compatibility cache and direct-test fixture; reading it here lets a concurrent provider sync make the admin sync-models response stale after a successful hot reload."
+    },
+    {
+      "path": "backend/internal/service/pricing_service_test.go",
+      "must_contain": [
+        "TestListModelNamesByProvider_ConstructorUsesActiveRegistry",
+        "\"stale-provider-only\"",
+        "require.Contains(t, got, \"codex-auto-review\")",
+        "require.NotContains(t, got, \"stale-provider-only\")"
+      ],
+      "rationale": "Pins the regression proving constructor-created production services list models from the active registry rather than a stale provider compatibility cache after hot reload."
+    },
+    {
       "path": "backend/internal/service/pricing_catalog_tk.go",
       "must_contain": [
-        "func applyCatalogOverlayPricing",
-        "tkOverlayOverridesLitellmSource",
-        "applyCatalogOverlayPricing(resp)",
-        "attachCatalogDeepSeekPeakValley(resp)",
+        "applyCatalogRegistrySnapshot(resp, registrySnapshot)",
+        "storeCatalogIfSnapshotCurrent(resp, modTime, registrySnapshot)",
+        "func applyCatalogRegistrySnapshot(",
+        "applyCatalogOverlayPricingFromSnapshot(resp, snapshot)",
+        "attachCatalogDeepSeekPeakValleyFromSnapshot(resp, snapshot)",
+        "catalogModelFromRegistry(name, p)",
         "func (s *PricingCatalogService) InvalidateCache"
       ],
-      "rationale": "Display-side TK pricing-overlay merge. BuildPublicCatalog reads the trimmed litellm price file (model_pricing.json) and, unlike the billing path (GetModelPricing → applyTKPricingOverlay), did NOT apply the overlay — so every model priced ONLY in tk_pricing_overlay.json (the VolcEngine fifth-platform doubao-* batch, plus deepseek-v4-pro; GLM chat is DashScope-first as glm-4.7, not VolcEngine glm-4-7-251222) showed empty/missing prices in the public /pricing catalog AND Your-Menu (me_pricing_catalog reads BuildPublicCatalog as metaByID), even though billing was correct. applyCatalogOverlayPricing fill-merges the overlay's token-priced models into the catalog so display matches billing, with absent-or-zero semantics: a real non-zero file price wins, an all-zero placeholder row gets its displayed price replaced (same predicate family as billing's tkIsEffectivelyUnpriced). Channel pricing stays a strictly higher tier upstream; the merge is gated behind a non-degraded catalog (len(resp.Data)>0) to preserve the AC-005 degraded→empty contract. An upstream merge refactoring BuildPublicCatalog could silently drop the applyCatalogOverlayPricing(resp) call, regressing every overlay-only model back to an empty price row."
+      "rationale": "Catalog projection hook for the active complete registry. BuildPublicCatalog may still parse upstream metadata, but applyCatalogRegistrySnapshot must replace every external non-zero price and project intervals, tax, video, and DeepSeek policy from one immutable registry snapshot. Cache publication must also reject a response if that snapshot changed during construction. Channel pricing remains a higher explicit scope. Dropping either hook can make display and settlement disagree while both paths continue to compile."
     },
     {
       "path": "backend/internal/service/billing_service.go",
@@ -207,13 +228,26 @@
         "tkIsFlatPerImageModel(model)",
         "normalizeOpenAIBillingModel",
         "func tkOverlayModelPricing",
-        "loadTKPricingOverlay()[strings.ToLower(strings.TrimSpace(model))]",
+        "tkModelPricingFromLiteLLM(loadTKPricingOverlay()[owner])",
         "tkOverlayModelPricing(\"deepseek-v4-flash\")",
         "tkApplyDeepSeekPeakValleyPricing",
         "tkOverlayModelPricing(\"glm-5.2\")",
-        "tkOverlayModelPricing(\"kimi-k2.6\")"
+        "getRegistryAliasPricing(model)",
+        "if fallback.registryOwner == \"\""
       ],
-      "rationale": "BillingService pricing hooks: zero placeholders fall through, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and billing aliases normalize. DeepSeek V4, paid GLM, and Kimi K2.5/K2.6 compatibility branches resolve tkOverlayModelPricing instead of maintaining a second numeric Go fallback table. This deliberately does not make every overlay row a new family fallback; dropping the scoped alias hooks would reintroduce price drift while broadening them would change fail-closed behavior for unrelated models."
+      "rationale": "BillingService pricing hooks: unknown zeroes fail closed, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and compatibility aliases normalize. Production alias matching must resolve an active registry owner instead of using the legacy numeric Go fixture table. Not every registry row is a family alias; dropping the scoped hooks reintroduces price drift while broadening them changes fail-closed behavior for unrelated models."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_registry_alias.go",
+      "must_contain": [
+        "func (s *BillingService) getRegistryAliasPricing",
+        "func tkRegistryAliasOwnerPricing",
+        "if !s.useActiveRegistryAliases",
+        "if legacy.registryOwner != \"\"",
+        "tkRegistryAliasOwnerPricing(\"gpt-5.5\")",
+        "\"kimi-k2.6\""
+      ],
+      "rationale": "Production alias owner: the mature legacy matcher may classify a requested model, but effective dimensions must be re-read from the active registry. The explicit fixture escape remains test-only, GPT-5.5 Pro resolves to the routed GPT-5.5 owner, and Kimi compatibility remains mapped without copying canonical price numbers here."
     },
     {
       "path": "backend/internal/service/pricing_tk_deepseek_peak.go",
@@ -288,9 +322,9 @@
       "path": "backend/internal/service/pricing_service_tk_overlay.go",
       "must_contain": [
         "func parseTKOverlayDocument",
+        "func buildTKPricingRegistrySnapshot",
         "func buildTKPricingOverlaySnapshot",
-        "func validateRuntimeBaseTaxCoverage",
-        "func tkOverlayOverridesLitellmSource",
+        "func validateTKPricingRegistryOwner",
         "func applyTKPricingOverlay",
         "func rebuildTKOverlayUnion",
         "tkValidateAndBuildOverlayVideoTiers",
@@ -299,7 +333,7 @@
         "tkOverlayMu",
         "tkOverlayEffective"
       ],
-      "rationale": "The overlay loader builds one immutable snapshot containing model prices, catalog metadata, and executable tax policy. Runtime model rows merge over the embedded floor; runtime policy may add providers or change rates/matchers but must retain every embedded provider. tkValidateAndBuildOverlayVideoTiers rejects malformed billing ladders before swap instead of normalizing corrupt rows into a live price. TokenPricingAbsent preserves the fail-closed token-billing boundary when media-only overlay rows are merged into PricingService; SupportsReasoning anchors the capability projection used by the public catalog."
+      "rationale": "The registry loader builds one immutable snapshot containing model prices, catalog metadata, executable policy, and publication metadata. A valid runtime envelope exactly replaces the embedded snapshot; there is no union. Invalid schema/digest/content keeps last-known-good. tkValidateAndBuildOverlayVideoTiers rejects malformed billing ladders before swap, TokenPricingAbsent preserves media/token settlement separation, and SupportsReasoning anchors catalog capability projection."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay_runtime_test.go",
@@ -312,23 +346,33 @@
     {
       "path": "ops/pricing/manage-overlay-runtime.py",
       "must_contain": [
-        "k == \"_config\"",
-        "config-shadow",
-        "compute_overlay_drift",
-        "config_errors = runtime_config_errors(doc)",
-        "runtime official_list_base_tax drops embedded providers"
+        "def build_runtime_envelope",
+        "def load_origin_main_artifact",
+        "require_publishable_checkout=True",
+        "def _git_is_ancestor",
+        "refusing pricing snapshot downgrade",
+        "def cmd_sync_runtime",
+        "inspection.is_current(expected)"
       ],
-      "rationale": "Runtime drift and sync must treat executable _config as owned state while continuing to ignore _meta provenance. Before any prod UPSERT, a custom --overlay-path must reuse the executable policy validator and retain every embedded provider; otherwise the tool can report byte-level sync success while all replicas reject the snapshot and keep last-known-good."
+      "rationale": "Protected publisher contract: sync-runtime must load the exact current origin/main registry, require HEAD and workspace bytes to match, build a schema/commit/exact-byte digest envelope, and verify the stored readback. Arbitrary local files and unmerged branches cannot become global runtime owners."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay_runtime.go",
       "must_contain": [
         "func (s *PricingService) reloadTKOverlayRuntime",
         "func (s *PricingService) SubscribeOverlayRuntime",
-        "func (s *PricingService) SetOverlayRuntimeDeps",
-        "SettingKeyTKPricingOverlayRuntime"
+        "func (s *PricingService) SetOverlayRuntimeDeps"
       ],
-      "rationale": "Runtime hot-push wiring for the TK pricing overlay: reloadTKOverlayRuntime validates the SettingKeyTKPricingOverlayRuntime blob before swapping (corrupt → keep current, never $0), rebuilds the merged billing price map, and busts the public-catalog mtime cache; SubscribeOverlayRuntime gives immediate cross-replica reload on the settings_updated pub/sub; SetOverlayRuntimeDeps is the nil-safe post-construction injection wired by ProvideTKPricingOverlayRuntime. ops/pricing/manage-overlay-runtime.py sync-runtime UPSERTs that settings key on prod + PUBLISHes the channel. If an upstream merge drops these, the gateway silently falls back to the embedded floor and every hot-push becomes a no-op (a model would appear priced in git/ops but never go live without a release) — the exact regression this change exists to prevent. Pinning makes the drop fail CI."
+      "rationale": "Runtime hot-reload wiring for the complete registry: reloadTKOverlayRuntime validates the protected-main envelope before atomically replacing prices, policy, metadata, and catalog inputs; corruption keeps last-known-good. SubscribeOverlayRuntime reloads replicas on settings_updated and SetOverlayRuntimeDeps preserves the upstream constructor. Dropping these hooks turns protected hot publication into a silent no-op until the next application release."
+    },
+    {
+      "path": "backend/internal/service/wire_tk.go",
+      "must_contain": [
+        "func ProvideTKPricingOverlayRuntime",
+        "SettingKeyTKPricingOverlayRuntime",
+        "ps.SubscribeOverlayRuntime"
+      ],
+      "rationale": "Wire boundary for the complete registry runtime setting. The setting getter, initial reload, and cross-replica subscription must remain forced into the server graph without changing the upstream PricingService constructor."
     },
     {
       "path": "backend/internal/handler/admin/account_handler.go",

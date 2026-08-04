@@ -15,7 +15,7 @@ func tkMediaGuardBillingService() *BillingService {
 			pricingData: map[string]*LiteLLMModelPricing{
 				"veo-3.1-generate-001":           {OutputCostPerSecond: 0.40, Mode: "video_generation"},
 				"imagen-4.0-generate-001":        {OutputCostPerImage: 0.04, Mode: "image_generation"},
-				"gpt-image-token-billed":         {InputCostPerToken: 1e-6, OutputCostPerToken: 4e-5, Mode: "chat"},
+				"gpt-image-token-billed":         {InputCostPerImageToken: 1e-6, OutputCostPerImageToken: 4e-5, Mode: "image_generation"},
 				"zero-placeholder-media":         {Mode: "image_generation"}, // litellm all-zero placeholder
 				"doubao-seedance-1-0-pro-250528": {OutputCostPerSecond: 0.10880597014925374, Mode: "video_generation"},
 			},

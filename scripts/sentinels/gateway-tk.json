@@ -1161,7 +1161,7 @@
         "tkApplyOverlayIntervals(resolved)",
         "tkResolveOverlayMediaPerRequest(input.Model)"
       ],
-      "rationale": "TK channel-pricing policy: applyTokenOverrides MUST delegate flat-default application to the TK companion regardless of whether intervals are configured (upstream #2107 — out-of-range fallback). GetIntervalPricing MUST delegate matched-interval pricing to the TK overlay helper instead of building a brand-new ModelPricing from interval fields only (upstream #2363 — in-range cache_read/cache_write/image_output preservation). Either revert silently re-introduces $0 or wrong-tier billing on the most cache-hit-heavy traffic that sticky-routing was designed to bank. ALSO: Resolve MUST call tkApplyOverlayIntervals(resolved) so overlay-defined interval (tiered) pricing reaches ResolvedPricing.Intervals when no channel override is present; an upstream merge dropping the call silently flattens every overlay-tiered model (qwen3-coder-plus/plus/flash, doubao-*/glm-4.7/deepseek-v3.2) to its tier-1 base price with no compile error."
+      "rationale": "TK channel-pricing policy: applyTokenOverrides MUST delegate flat-default application to the TK companion regardless of whether intervals are configured (upstream #2107 — out-of-range fallback). GetIntervalPricing MUST preserve base dimensions while overlaying an interval (upstream #2363). Resolve MUST project active-registry intervals through the historically named tkApplyOverlayIntervals hook when no channel override is present. Dropping either hook silently restores $0 or wrong-tier billing while the resolver still compiles."
     },
     {
       "path": "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
@@ -1195,7 +1195,7 @@
         "lp.OutputCostPerImage",
         "BillingModeImage"
       ],
-      "rationale": "Imagen/veo overlay rows are TokenPricingAbsent in GetModelPricing (fail-closed on token traffic) but must still bill per-image when settlement hits the OpenAI token path (ImageCount not propagated or bridge accounting gap). This companion resolves OutputCostPerImage into BillingModeImage/per-request ResolvedPricing. Dropping it silently restores served_zero_cost P0 on imagen-* newapi traffic with no compile error."
+      "rationale": "Imagen/veo active-registry rows are TokenPricingAbsent in GetModelPricing (fail-closed on token traffic) but must still bill per-image when settlement hits the OpenAI token path. This historically named companion resolves registry OutputCostPerImage into BillingModeImage/per-request ResolvedPricing. Dropping it silently restores served_zero_cost on imagen-* traffic."
     },
     {
       "path": "backend/internal/service/model_pricing_resolver_tk_overlay_media_test.go",
@@ -1204,7 +1204,7 @@
         "TestModelPricingResolver_Resolve_ImageOnlyOverlayOnTokenPath",
         "TestOpenAIGatewayService_CalculateRecordUsageCost_ImagenTokenPathUsesOverlayPerImage"
       ],
-      "rationale": "Focused regressions for imagen overlay per-image billing on the token settlement path: resolver helper, CalculateCostUnified, and calculateOpenAIRecordUsageCost with ImageCount=0 must charge overlay OutputCostPerImage instead of $0."
+      "rationale": "Focused regressions for active-registry Imagen per-image billing on the token settlement path: resolver helper, CalculateCostUnified, and calculateOpenAIRecordUsageCost with ImageCount=0 must charge registry OutputCostPerImage instead of $0."
     },
     {
       "path": "backend/internal/repository/account_repo.go",
@@ -2676,7 +2676,7 @@
         "TestOpenAIGatewayServiceRecordUsage_SeedanceVideoSubmitUsesTierPricing",
         "TestOpenAIGatewayServiceRecordUsage_SeedanceVideoOverlayOverridesTokenChannel"
       ],
-      "rationale": "Focused regressions: VideoCount>0 detection and non-grok async video submit must bill overlay tier video; overlay must override misconfigured token channel pricing."
+      "rationale": "Focused regressions: VideoCount>0 detection and non-grok async video submit must bill the active-registry video tier; media settlement must not be flattened into a misconfigured token-channel price."
     },
     {
       "path": "backend/internal/handler/openai_gateway_tk_video.go",
@@ -3696,7 +3696,7 @@
       "must_contain": [
         "tkResolveOverlayMediaPerRequest(billingModel)"
       ],
-      "rationale": "Imagen overlay guard on calculateOpenAIRecordUsageCost: when channel pricing is token mode but the model is image-only overlay (TokenPricingAbsent), force image settlement instead of token path that would bill $0. Wired adjacent to the ImageCount>0 branch; dropping the hook silently restores zero-cost imagen traffic on newapi groups configured for token billing."
+      "rationale": "Imagen active-registry guard on calculateOpenAIRecordUsageCost: when channel pricing is token mode but the model registry owner is image-only (TokenPricingAbsent), force image settlement instead of a token path that would bill $0. Dropping the historically named hook silently restores zero-cost Imagen traffic."
     },
     {
       "rationale": "Served-but-zero-cost -> Feishu P0 hook on the OpenAI-compat record-usage funnel (covers newapi fifth platform + image/video relays). The upstream-owned openai_usage.pricing_missing_record_zero_cost log line stays untouched; this adjacent result-side probe is the only feed into PricingMissingNotifier on this path (root-cause ②) and is compile-clean if dropped by an upstream merge.",

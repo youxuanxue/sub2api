@@ -1,0 +1,58 @@
+name: Publish Pricing Registry
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - backend/internal/service/tk_pricing_overlay.json
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: pricing-registry-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: prod
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve latest protected main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git checkout --detach origin/main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+
+      - name: Validate exact registry artifact
+        run: |
+          set -euo pipefail
+          python3 scripts/checks/pricing-overlay.py
+          python3 ops/pricing/manage-overlay-runtime.py sync-runtime --dry-run
+
+      - name: Require production OIDC role
+        run: |
+          set -euo pipefail
+          test -n "${OIDC_ROLE_ARN:-}" || {
+            echo "::error::AWS_OIDC_ROLE_ARN is required for pricing publication"
+            exit 1
+          }
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Publish and verify protected-main snapshot
+        run: python3 ops/pricing/manage-overlay-runtime.py sync-runtime

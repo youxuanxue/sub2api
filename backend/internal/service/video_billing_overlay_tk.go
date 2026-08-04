@@ -8,7 +8,7 @@ import (
 
 // PricingVideoTier is one resolution (and optional audio / image-input) bracket
 // owned by tk_pricing_overlay.json "video_price_tiers". Pre-tax official list
-// USD/s; tkPresentLiteLLMModelPricing applies provider base tax at read time.
+// USD/s; tkPresentLiteLLMModelPricingFromSnapshot applies provider base tax at read time.
 type PricingVideoTier struct {
 	Resolution                   string
 	PerSecond                    float64
@@ -26,12 +26,15 @@ func tkOverlayVideoModelKey(model string) string {
 }
 
 func tkOverlayRawVideoEntry(model string) *LiteLLMModelPricing {
-	overlay := loadTKPricingOverlay()
-	if overlay == nil {
+	return tkOverlayRawVideoEntryFromSnapshot(loadTKPricingOverlaySnapshot(), model)
+}
+
+func tkOverlayRawVideoEntryFromSnapshot(snapshot *tkPricingOverlaySnapshot, model string) *LiteLLMModelPricing {
+	if snapshot == nil {
 		return nil
 	}
 	for _, key := range []string{tkOverlayVideoModelKey(model), strings.ToLower(strings.TrimSpace(model))} {
-		if p, ok := overlay[key]; ok && p != nil && len(p.VideoPriceTiers) > 0 {
+		if p, ok := snapshot.Models[key]; ok && p != nil && len(p.VideoPriceTiers) > 0 {
 			return p
 		}
 	}
@@ -40,15 +43,15 @@ func tkOverlayRawVideoEntry(model string) *LiteLLMModelPricing {
 
 // tkOverlayVideoPricing returns overlay video tiers with base tax applied (billing/catalog SSOT).
 func tkOverlayVideoPricing(model string) *LiteLLMModelPricing {
-	raw := tkOverlayRawVideoEntry(model)
+	return tkOverlayVideoPricingFromSnapshot(loadTKPricingOverlaySnapshot(), model)
+}
+
+func tkOverlayVideoPricingFromSnapshot(snapshot *tkPricingOverlaySnapshot, model string) *LiteLLMModelPricing {
+	raw := tkOverlayRawVideoEntryFromSnapshot(snapshot, model)
 	if raw == nil {
 		return nil
 	}
-	return tkPresentLiteLLMModelPricing(raw)
-}
-
-func tkIsTieredVideoModel(model string) bool {
-	return tkOverlayRawVideoEntry(model) != nil
+	return tkPresentLiteLLMModelPricingFromSnapshot(raw, snapshot)
 }
 
 func tkIsGrokImagineVideoModel(model string) bool {
@@ -56,8 +59,7 @@ func tkIsGrokImagineVideoModel(model string) bool {
 	return strings.HasPrefix(m, "grok-imagine-video") && tkOverlayRawVideoEntry(model) != nil
 }
 
-func tkOverlayVideoDefaultResolution(model string) string {
-	p := tkOverlayVideoPricing(model)
+func tkOverlayVideoDefaultResolutionFromPricing(p *LiteLLMModelPricing) string {
 	if p == nil {
 		return VideoBillingResolution480P
 	}
@@ -75,8 +77,7 @@ func tkOverlayVideoDefaultResolution(model string) string {
 	return VideoBillingResolution480P
 }
 
-func tkOverlayVideoSupportsResolution(model, resolution string) bool {
-	p := tkOverlayVideoPricing(model)
+func tkOverlayVideoSupportsResolutionFromPricing(p *LiteLLMModelPricing, resolution string) bool {
 	if p == nil {
 		return false
 	}
@@ -111,12 +112,16 @@ func tkOverlayVideoTierForResolution(p *LiteLLMModelPricing, resolution string) 
 }
 
 func tkOverlayVideoUnitPriceUSD(model, resolution string, opts *VideoBillingOptions) (float64, bool) {
-	p := tkOverlayVideoPricing(model)
+	return tkOverlayVideoUnitPriceUSDFromSnapshot(loadTKPricingOverlaySnapshot(), model, resolution, opts)
+}
+
+func tkOverlayVideoUnitPriceUSDFromSnapshot(snapshot *tkPricingOverlaySnapshot, model, resolution string, opts *VideoBillingOptions) (float64, bool) {
+	p := tkOverlayVideoPricingFromSnapshot(snapshot, model)
 	if p == nil {
 		return 0, false
 	}
-	if resolution = tkVideoNormalizeResolution(model, resolution); resolution == "" {
-		resolution = tkOverlayVideoDefaultResolution(model)
+	if resolution = tkVideoNormalizeResolutionFromPricing(p, resolution); resolution == "" {
+		resolution = tkOverlayVideoDefaultResolutionFromPricing(p)
 	}
 	tier := tkOverlayVideoTierForResolution(p, resolution)
 	if tier == nil {
@@ -138,8 +143,26 @@ func tkOverlayVideoUnitPriceUSD(model, resolution string, opts *VideoBillingOpti
 	return rate, true
 }
 
+func tkVideoNormalizeResolutionFromPricing(p *LiteLLMModelPricing, resolution string) string {
+	if strings.TrimSpace(resolution) == "" {
+		return tkOverlayVideoDefaultResolutionFromPricing(p)
+	}
+	resolution = NormalizeVideoBillingResolutionOrDefault(resolution)
+	if p == nil {
+		return resolution
+	}
+	if tkOverlayVideoSupportsResolutionFromPricing(p, resolution) {
+		return resolution
+	}
+	return tkOverlayVideoDefaultResolutionFromPricing(p)
+}
+
 func tkOverlayVideoMinUnitPriceUSD(model string) (float64, bool) {
-	p := tkOverlayVideoPricing(model)
+	return tkOverlayVideoMinUnitPriceUSDFromSnapshot(loadTKPricingOverlaySnapshot(), model)
+}
+
+func tkOverlayVideoMinUnitPriceUSDFromSnapshot(snapshot *tkPricingOverlaySnapshot, model string) (float64, bool) {
+	p := tkOverlayVideoPricingFromSnapshot(snapshot, model)
 	if p == nil {
 		return 0, false
 	}
@@ -157,8 +180,8 @@ func tkOverlayVideoMinUnitPriceUSD(model string) (float64, bool) {
 	return min, true
 }
 
-func tkOverlayVideoCatalogTiers(model string) []PublicCatalogVideoTier {
-	p := tkOverlayVideoPricing(model)
+func tkOverlayVideoCatalogTiersFromSnapshot(snapshot *tkPricingOverlaySnapshot, model string) []PublicCatalogVideoTier {
+	p := tkOverlayVideoPricingFromSnapshot(snapshot, model)
 	if p == nil {
 		return nil
 	}

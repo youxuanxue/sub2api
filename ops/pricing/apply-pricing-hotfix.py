@@ -3,20 +3,20 @@
 
 背景：catch-all 账号会把任意模型名转发到上游；缺价模型按零成本记账（不拒绝服务），
 由 PricingMissingNotifier 发飞书提醒运营。本脚本把既有的人肉止血路径机械化
-（deepseek-v4 先例：手工配渠道定价止血 → tk_pricing_overlay.json 固化）：
+（deepseek-v4 先例：显式 scoped 渠道定价止血 → registry PR 固化）：
 
   热更（立即生效，无需发版）：渠道定价 DB 凌驾一切定价来源，经 prod admin API
   （x-api-key，参考 settings.admin_api_key）upsert —— 与 TLS 指纹/tiers 的
   「repo 基线 + 脚本推运行时」热更新模式同构。
-  固化（随下次发版生效）：fill-only 条目写入 backend/internal/service/
-  tk_pricing_overlay.json（litellm 镜像补上后自动让位），提 PR。
+  固化（合并后由 protected publisher 热生效）：候选 owner 写入唯一 complete
+  registry backend/internal/service/tk_pricing_overlay.json，核对官方价后提 PR。
 
 子命令：
   lookup        从 litellm 上游全量源（含被裁剪镜像丢掉的带前缀键）查某模型价格，
                 输出建议的 overlay 条目 + 渠道定价 payload。
   channels      列出渠道（id / 名称 / 各定价条目的平台与模型数），帮运营选 --channel-id。
   apply         GET 渠道 → upsert 该模型的定价条目 → PUT 回写（默认 dry-run，--yes 才真写）。
-  stage-overlay 把条目以文本追加方式写入 tk_pricing_overlay.json（保持既有格式零搅动）。
+  stage-overlay 把新 owner 候选以文本追加到 complete registry（保持既有格式零搅动）。
   selftest      离线自检（纯函数全覆盖，无网络）。
 
 环境变量：TOKENKEY_BASE_URL（默认 https://api.tokenkey.dev）、TOKENKEY_ADMIN_API_KEY。
@@ -364,7 +364,7 @@ def cmd_apply(args) -> int:
         return 0
     http_json(url, method="PUT", payload=payload, api_key=key)
     print("PUT ok — 渠道定价缓存即时失效，下一请求生效。")
-    print("别忘了固化：stage-overlay（或确认 litellm 镜像已收录该裸名键）。")
+    print("别忘了固化：核对官方价后更新 complete registry 并提 PR。")
     return 0
 
 
@@ -548,7 +548,7 @@ def main() -> int:
     p.add_argument("--yes", action="store_true", help="actually PUT (default is dry-run)")
     p.set_defaults(fn=cmd_apply)
 
-    p = sub.add_parser("stage-overlay", help="append a fill-only entry to tk_pricing_overlay.json")
+    p = sub.add_parser("stage-overlay", help="append a new owner candidate to the complete registry")
     p.add_argument("--model", required=True)
     p.add_argument("--from-litellm", action="store_true")
     p.add_argument("--litellm-url", default=LITELLM_URL_DEFAULT)

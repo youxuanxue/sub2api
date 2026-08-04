@@ -68,9 +68,11 @@ if [ -z "${DISK_METRICS_BODY}" ]; then
   echo "::error::could not extract tokenkey-disk-metrics.sh body from ${BOOTSTRAP_SRC} (markers moved?)" >&2
   exit 2
 fi
-# Sanity: the body must carry both memory and root-disk defenses.
-if ! printf '%s' "${DISK_METRICS_BODY}" | grep -q 'memory-pressure alert' \
-  || ! printf '%s' "${DISK_METRICS_BODY}" | grep -q 'RootVolumeUsedPercent'; then
+# Sanity: the body must carry both memory and root-disk defenses. Use shell
+# matching instead of grep -q: with pipefail, grep's early exit can SIGPIPE the
+# producer for a large payload and turn a successful match into status 141.
+if [[ "${DISK_METRICS_BODY}" != *"memory-pressure alert"* \
+  || "${DISK_METRICS_BODY}" != *"RootVolumeUsedPercent"* ]]; then
   echo "::error::extracted disk-metrics.sh body lacks memory/root-disk guards — refusing to push a stale payload" >&2
   exit 2
 fi

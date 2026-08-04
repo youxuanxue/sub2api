@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""Validate the TK-owned pricing overlay.
+"""Validate the complete TokenKey global pricing registry.
 
-Source of truth: backend/internal/service/tk_pricing_overlay.json — a small curated
-overlay merged (fill-only) into every PricingService load so models the production
-runtime source lacks resolve to a real price. The source (Wei-Shaw mirror, a trimmed
-litellm) drops provider-prefixed + token-less media keys (imagen-*/veo-*), and litellm
-itself lags new provider models (deepseek-v4-*). Without this overlay imagen silently
-bills the $0.134 default, veo bills $0, and uncatalogued text models bill $0 via
-pricing_missing_record_zero_cost.
+The historical overlay path is retained to minimize upstream conflicts, but the
+document is now the only global runtime price owner. Provider and LiteLLM data are
+sensor evidence only; channel_model_pricing remains a scoped override.
 
 This check hardens that against silent regression (CLAUDE.md §5 "upgrade principle":
 a soft rule that bit us once becomes a mechanical gate). It asserts:
@@ -20,11 +16,8 @@ a soft rule that bit us once becomes a mechanical gate). It asserts:
        doubao-seedance-1-0-pro-250528 -> output_cost_per_second > 0
        grok-4.3                       -> input_cost_per_token > 0
        grok-build-0.1                 -> input_cost_per_token > 0
-  3. EVERY entry has a recognized mode and a > 0 price in the matching field(s)
-     (no silently-shipped $0 entry, which would deduct nothing):
-       image_generation -> output_cost_per_image
-       video_generation -> output_cost_per_second
-       chat             -> input_cost_per_token AND output_cost_per_token
+  3. Every owner has a supported mode and settlement-compatible price dimensions.
+     Deliberately free rows must say explicit_free=true; unknown zeroes are rejected.
   4. `_config.official_list_base_tax` is a valid executable policy: one bounded
      multiplier, unique normalized providers, and non-duplicated fallback matchers.
 
@@ -43,12 +36,48 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 OVERLAY = REPO_ROOT / "backend" / "internal" / "service" / "tk_pricing_overlay.json"
 
-# mode -> the price field(s) that MUST be > 0 for that mode
+# mode -> alternative billable dimension sets. At least one complete set is required.
 MODE_FIELDS = {
-    "image_generation": ("output_cost_per_image",),
-    "video_generation": ("output_cost_per_second",),
-    "chat": ("input_cost_per_token", "output_cost_per_token"),
+    "image_generation": (
+        ("output_cost_per_image",),
+        ("output_cost_per_image_token",),
+    ),
+    "video_generation": (("output_cost_per_second",),),
+    "chat": (("input_cost_per_token", "output_cost_per_token"),),
+    "completion": (("input_cost_per_token", "output_cost_per_token"),),
+    "responses": (("input_cost_per_token", "output_cost_per_token"),),
+    "realtime": (("input_cost_per_token", "output_cost_per_token"),),
+    "audio_transcription": (("input_cost_per_token", "output_cost_per_token"),),
+    "audio_speech": (("input_cost_per_token", "output_cost_per_token"),),
+    "embedding": (("input_cost_per_token",),),
 }
+
+RUNTIME_FLOAT_FIELDS = (
+    "input_cost_per_token", "input_cost_per_token_priority",
+    "output_cost_per_token", "output_cost_per_token_priority",
+    "thinking_output_cost_per_token", "cache_creation_input_token_cost",
+    "cache_creation_input_token_cost_priority",
+    "cache_creation_input_token_cost_above_1hr", "cache_read_input_token_cost",
+    "cache_read_input_token_cost_priority", "long_context_input_cost_multiplier",
+    "long_context_output_cost_multiplier", "input_cost_per_token_above_272k_tokens",
+    "output_cost_per_token_above_272k_tokens",
+    "cache_read_input_token_cost_above_272k_tokens", "output_cost_per_image",
+    "output_cost_per_image_token", "input_cost_per_image_token", "image_price_1k",
+    "image_price_2k", "image_price_4k", "output_cost_per_second",
+)
+RUNTIME_INT_FIELDS = (
+    "long_context_input_token_threshold", "max_input_tokens", "max_output_tokens",
+)
+RUNTIME_BOOL_FIELDS = (
+    "supports_service_tier", "supports_prompt_caching", "supports_vision",
+    "supports_tool_choice", "supports_function_calling", "supports_reasoning",
+    "supports_response_schema", "supports_pdf_input", "supports_web_search",
+    "explicit_free",
+)
+INTERVAL_FLOAT_FIELDS = (
+    "input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost",
+    "cache_creation_input_token_cost",
+)
 
 ANCHORS = {
     "imagen-4.0-generate-001": "output_cost_per_image",
@@ -82,14 +111,136 @@ def _finite_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
+def validate_runtime_owner_shape(model: str, pricing: dict) -> list[str]:
+    """Keep the standalone gate aligned with fields consumed by the Go decoder."""
+    errors: list[str] = []
+    if model != model.strip().lower() or "/" in model:
+        errors.append(f"{model}: owner key must be normalized lowercase and bare")
+
+    for field in RUNTIME_FLOAT_FIELDS:
+        if field not in pricing or pricing[field] is None:
+            continue
+        value = pricing[field]
+        if not _finite_number(value):
+            errors.append(f"{model}: {field} must be a finite number when present")
+        elif value < 0:
+            errors.append(f"{model}: {field} must be >= 0 when present")
+    for field in RUNTIME_INT_FIELDS:
+        if field not in pricing or pricing[field] is None:
+            continue
+        value = pricing[field]
+        if not isinstance(value, int) or isinstance(value, bool):
+            errors.append(f"{model}: {field} must be an integer when present")
+        elif value <= 0:
+            errors.append(f"{model}: {field} must be > 0 when present")
+    for field in RUNTIME_BOOL_FIELDS:
+        if field in pricing and pricing[field] is not None and not isinstance(pricing[field], bool):
+            errors.append(f"{model}: {field} must be boolean when present")
+    for field in ("litellm_provider", "mode"):
+        if field in pricing and pricing[field] is not None and not isinstance(pricing[field], str):
+            errors.append(f"{model}: {field} must be a string when present")
+
+    intervals = pricing.get("intervals")
+    if intervals is not None:
+        if not isinstance(intervals, list):
+            errors.append(f"{model}: intervals must be an array when present")
+        else:
+            bounds: list[tuple[int, int | None, str]] = []
+            for idx, interval in enumerate(intervals):
+                label = f"{model}.intervals[{idx}]"
+                if not isinstance(interval, dict):
+                    errors.append(f"{label} must be an object")
+                    continue
+                for field in ("min_tokens", "max_tokens"):
+                    value = interval.get(field)
+                    if field in interval and value is not None and (
+                            not isinstance(value, int) or isinstance(value, bool)):
+                        errors.append(f"{label}.{field} must be an integer or null")
+                for field in INTERVAL_FLOAT_FIELDS:
+                    value = interval.get(field)
+                    if field in interval and value is not None and not _finite_number(value):
+                        errors.append(f"{label}.{field} must be a finite number")
+                    elif field in interval and value is not None and value < 0:
+                        errors.append(f"{label}.{field} must be >= 0")
+                min_tokens = interval.get("min_tokens", 0)
+                max_tokens = interval.get("max_tokens")
+                if isinstance(min_tokens, int) and not isinstance(min_tokens, bool):
+                    if min_tokens < 0:
+                        errors.append(f"{label}.min_tokens must be >= 0")
+                    if isinstance(max_tokens, int) and not isinstance(max_tokens, bool):
+                        if max_tokens <= min_tokens:
+                            errors.append(f"{label}.max_tokens must be > min_tokens")
+                    if max_tokens is None or (
+                            isinstance(max_tokens, int) and not isinstance(max_tokens, bool)):
+                        bounds.append((min_tokens, max_tokens, label))
+            bounds.sort(key=lambda item: item[0])
+            for idx, (min_tokens, max_tokens, label) in enumerate(bounds):
+                if max_tokens is None and idx < len(bounds) - 1:
+                    errors.append(f"{label}.max_tokens=null is only valid on the last interval")
+                if idx > 0:
+                    previous_max = bounds[idx - 1][1]
+                    if previous_max is None or previous_max > min_tokens:
+                        errors.append(f"{label} overlaps the preceding interval")
+    return errors
+
+
+def validate_priced_dimension_completeness(model: str, pricing: dict) -> list[str]:
+    """Reject owner rows that cannot be settled without an implicit Go price."""
+    if pricing.get("explicit_free") is True:
+        return []
+    errors: list[str] = []
+
+    def positive(field: str) -> bool:
+        value = pricing.get(field)
+        return _finite_number(value) and value > 0
+
+    if positive("input_cost_per_token_priority"):
+        for field in (
+                "cache_creation_input_token_cost_priority",
+                "cache_read_input_token_cost_priority"):
+            if field in pricing and not positive(field):
+                errors.append(
+                    f"{model}: priority input declares non-positive {field}; "
+                    "priority cache traffic would settle at zero"
+                )
+
+    long_context_fields = (
+        "long_context_input_token_threshold",
+        "long_context_input_cost_multiplier",
+        "long_context_output_cost_multiplier",
+    )
+    above_272k_fields = (
+        "input_cost_per_token_above_272k_tokens",
+        "output_cost_per_token_above_272k_tokens",
+        "cache_read_input_token_cost_above_272k_tokens",
+    )
+    if any(field in pricing for field in long_context_fields) and not any(
+            field in pricing for field in above_272k_fields):
+        missing = [field for field in long_context_fields if not positive(field)]
+        if missing:
+            errors.append(
+                f"{model}: partial long-context policy; missing positive {missing}"
+            )
+    return errors
+
+
 def validate_official_list_base_tax(data: dict) -> list[str]:
     errors: list[str] = []
     config = data.get("_config")
     if not isinstance(config, dict):
         return ["_config must be an object"]
-    unknown_config = sorted(set(config) - {"official_list_base_tax", "deepseek_peak_valley"})
+    unknown_config = sorted(set(config) - {
+        "official_list_base_tax", "deepseek_peak_valley", "web_search_price_per_call",
+    })
     if unknown_config:
         errors.append(f"_config has unknown fields: {unknown_config}")
+    web_search_price = config.get("web_search_price_per_call")
+    if web_search_price is not None and (
+            not _finite_number(web_search_price) or web_search_price < 0):
+        errors.append(
+            "_config.web_search_price_per_call must be finite and >= 0, "
+            f"got {web_search_price!r}"
+        )
     policy = config.get("official_list_base_tax")
     if not isinstance(policy, dict):
         return errors + ["_config.official_list_base_tax must be an object"]
@@ -242,15 +393,29 @@ def main() -> int:
         if not isinstance(pricing, dict):
             errors.append(f"{model}: entry is not an object")
             continue
+        errors.extend(validate_runtime_owner_shape(model, pricing))
+        errors.extend(validate_priced_dimension_completeness(model, pricing))
         mode = pricing.get("mode")
-        fields = MODE_FIELDS.get(mode)
-        if fields is None:
+        alternatives = MODE_FIELDS.get(mode)
+        if alternatives is None:
             errors.append(f"{model}: unrecognized mode {mode!r} (want one of {sorted(MODE_FIELDS)})")
             continue
-        for field in fields:
-            price = pricing.get(field)
-            if not isinstance(price, (int, float)) or price <= 0:
-                errors.append(f"{model}: mode={mode} requires {field} > 0, got {price!r}")
+        explicit_free = pricing.get("explicit_free") is True
+        if explicit_free:
+            priced_fields = {field for fields in alternatives for field in fields}
+            nonzero = [
+                field for field in priced_fields
+                if _finite_number(pricing.get(field)) and pricing[field] != 0
+            ]
+            if nonzero:
+                errors.append(f"{model}: explicit_free row has non-zero prices: {sorted(nonzero)}")
+        elif not any(
+                all(_finite_number(pricing.get(field)) and pricing[field] > 0 for field in fields)
+                for fields in alternatives):
+            errors.append(
+                f"{model}: mode={mode} requires one complete positive dimension set from "
+                f"{alternatives}; use explicit_free=true only for deliberate free products"
+            )
         if mode == "video_generation":
             tiers = pricing.get("video_price_tiers")
             if isinstance(tiers, list) and tiers:
@@ -315,7 +480,7 @@ def main() -> int:
         # would silently under-bill thinking traffic, which for these models is the
         # DEFAULT mode (enable_thinking defaults to true). Mirrors Alibaba's two-rate
         # table; consumed by computeTokenBreakdown.
-        if "thinking_output_cost_per_token" in pricing:
+        if "thinking_output_cost_per_token" in pricing and not explicit_free:
             tp = pricing.get("thinking_output_cost_per_token")
             if not isinstance(tp, (int, float)) or tp <= 0:
                 errors.append(
@@ -364,7 +529,7 @@ def main() -> int:
         return 1
 
     if not quiet:
-        print(f"  ok: {len(entries)} pricing overlay entries valid (anchors present, no $0)", flush=True)
+        print(f"  ok: {len(entries)} complete pricing registry owners valid", flush=True)
     return 0
 
 

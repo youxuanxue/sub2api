@@ -22,7 +22,7 @@ func TestTkOfficialListBaseTax_AppliesToTargetProvidersOnly(t *testing.T) {
 			OutputCostPerToken:                  out,
 			CacheCreationInputTokenCostPriority: 3,
 		}
-		taxed := tkPresentLiteLLMModelPricing(p)
+		taxed := tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(p, policy)
 		require.NotSame(t, p, taxed, rule.Provider+" lookup must clone, not mutate cache")
 		assert.InDelta(t, in*policy.Multiplier, taxed.InputCostPerToken, 1e-12, rule.Provider)
 		assert.InDelta(t, out*policy.Multiplier, taxed.OutputCostPerToken, 1e-12, rule.Provider)
@@ -35,7 +35,7 @@ func TestTkOfficialListBaseTax_AppliesToTargetProvidersOnly(t *testing.T) {
 		InputCostPerToken:  in,
 		OutputCostPerToken: out,
 	}
-	assert.Same(t, openai, tkPresentLiteLLMModelPricing(openai))
+	assert.Same(t, openai, tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(openai, policy))
 }
 
 func TestTkOfficialListBaseTax_PublicCatalogAndBillingStayAligned(t *testing.T) {
@@ -50,7 +50,7 @@ func TestTkOfficialListBaseTax_PublicCatalogAndBillingStayAligned(t *testing.T) 
 				{MinTokens: 0, InputPer1KTokens: 0.001, OutputPer1KTokens: 0.002},
 			},
 		}
-		tkApplyBaseTaxToPublicCatalogPricing(vendor, &catalog)
+		tkApplyBaseTaxToPublicCatalogPricingWithPolicy(vendor, &catalog, policy)
 		assert.InDelta(t, 0.001*policy.Multiplier, catalog.InputPer1KTokens, 1e-12, vendor)
 		assert.InDelta(t, 0.002*policy.Multiplier, catalog.OutputPer1KTokens, 1e-12, vendor)
 		assert.InDelta(t, catalog.InputPer1KTokens, catalog.Tiers[0].InputPer1KTokens, 1e-12, vendor)

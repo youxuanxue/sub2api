@@ -167,6 +167,7 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 // tkApplyChannelFlatOverridesAsFallback in
 // model_pricing_resolver_tk_channel_flat_fallback.go.
 func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricing, resolved *ResolvedPricing) {
+	resolved.channelPricing = chPricing
 	resolved.Intervals = filterValidIntervals(chPricing.Intervals)
 	tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)
 }

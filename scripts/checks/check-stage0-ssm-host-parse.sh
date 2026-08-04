@@ -63,8 +63,13 @@ check_one() {
   # Primitives name their params file differently (deploy: ssm-params.json,
   # warm: warm-ssm-params.json) — match any *ssm-params.json so the parse gate
   # stays agnostic to the exact filename.
-  local pf
-  pf="$(ls "${tmp}/${out}/"*ssm-params.json 2>/dev/null | head -1)"
+  local candidate pf=""
+  for candidate in "${tmp}/${out}/"*ssm-params.json; do
+    if [[ -f "${candidate}" ]]; then
+      pf="${candidate}"
+      break
+    fi
+  done
   if [[ ! -f "${pf}" ]]; then
     echo "  FAIL: ${label} — no ssm-params.json emitted (stub run aborted before params generation)" >&2
     tail -3 "${tmp}/${out}/err" 2>/dev/null | sed 's/^/      /' >&2 || true  # preflight-allow: swallow (diagnostic only)

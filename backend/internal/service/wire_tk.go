@@ -79,13 +79,13 @@ func ProvideTKUniversalModelsProvider(
 }
 
 // TKPricingOverlayRuntimeReady is a wire sentinel: holding it proves the runtime
-// hot-pushable TK pricing overlay has been wired onto PricingService
+// hot-pushable complete pricing registry has been wired onto PricingService
 // (SetOverlayRuntimeDeps + initial reload + pub/sub subscribe). provideCleanup
 // (cmd/server/wire.go) consumes this type as an unused parameter to force wire to
 // evaluate the side-effect.
 type TKPricingOverlayRuntimeReady struct{}
 
-// ProvideTKPricingOverlayRuntime wires the runtime overlay (settings-blob getter
+// ProvideTKPricingOverlayRuntime wires the runtime registry (settings-envelope getter
 // + public-catalog cache invalidator) onto PricingService post-construction, does
 // the initial load so an already-present runtime blob is honored at boot, and
 // subscribes to the settings pub/sub so a hot-push reloads immediately across
@@ -93,7 +93,7 @@ type TKPricingOverlayRuntimeReady struct{}
 // NewPricingService signature stable, attach setter-only deps in TK companion glue.
 //
 // All setters are nil-safe: with a nil settingService/catalog/pubsub the service
-// serves the embedded overlay floor exactly as before.
+// serves the complete embedded registry fallback.
 func ProvideTKPricingOverlayRuntime(
 	ps *PricingService,
 	settingService *SettingService,

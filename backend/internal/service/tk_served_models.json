@@ -1,5 +1,5 @@
 {
-  "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST; new floors are written only by evidence-backed modelops activation, while legacy rows may come from migrations/admin seed state), and (2) tk_pricing_overlay.json + the runtime litellm mirror (the PRICE). Generic deploy/rollback never writes live mappings. scripts/checks/catalog-serving-drift.py asserts repository agreement; modelops activate proves and writes live agreement before release. SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail — qwen/deepseek, Moonshot/Kimi channel_type 25, GLM through the configured China newapi pool, and VolcEngine Ark chat/image/video. NOT the litellm catalog, native-platform allowlists, or grok. Consumers: drift guard, tokenkey-onboard-model skill, public /pricing + Group Catalog filters, and the account model_mapping bundle/reconciler. Co-located with tk_pricing_overlay.json so the same Go package embeds both and preflight parses both.",
+  "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST; new floors are written only by evidence-backed modelops activation, while legacy rows may come from migrations/admin seed state), and (2) tk_pricing_overlay.json as the complete global price registry. Generic deploy/rollback never writes live mappings or pricing. scripts/checks/catalog-serving-drift.py asserts repository agreement; modelops activate proves and writes live mapping agreement before release. SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail — qwen/deepseek, Moonshot/Kimi channel_type 25, GLM through the configured China newapi pool, and VolcEngine Ark chat/image/video. NOT the litellm catalog, native-platform allowlists, or grok. Consumers: drift guard, tokenkey-onboard-model skill, public /pricing + Group Catalog filters, and the account model_mapping bundle/reconciler. Co-located with tk_pricing_overlay.json so the same Go package embeds both and preflight parses both.",
   "_schema": {
     "version": 1,
     "entry_key": "<platform>/<model_id>",
@@ -9,8 +9,8 @@
       "served_on": "string list of accounts.id (as strings) whose credentials.model_mapping MUST advertise model_id. This is a static drift-guard/evidence anchor, not the complete live serving pool; account membership can expand or shrink in runtime DB/admin config. New floors declare served-via-modelops-activation in notes; legacy rows may be evidenced by a migration or served-via-admin-ui marker.",
       "channel_type": "the newapi channel_type of the serving account (17=Ali/DashScope, 25=Moonshot, 43=DeepSeek, 45=VolcEngine; 26=ZhipuV4 only if a future direct GLM pool is re-provisioned). Documents the upstream adaptor; not asserted against DB (admin-UI editable) but recorded for the reconciler.",
       "account_scope": "optional object with platform + channel_type + normalized base_url. When present, it adds a property-scoped serving pool; served_on remains evidence only.",
-      "price_source": "one of 'overlay' (priced in tk_pricing_overlay.json), 'mirror' (priced by the runtime litellm/Wei-Shaw mirror under the bare key — overlay deliberately absent because the mirror already carries a non-zero price), 'channel' (priced via channel_model_pricing DB rows). The guard resolves price differently per source.",
-      "price_key": "the key under which the price resolves in the named source (overlay JSON key, or mirror/litellm key, or channel pricing model id). Usually == model_id.",
+      "price_source": "one of 'overlay' (historical token meaning the complete tk_pricing_overlay.json registry) or 'channel' (explicitly scoped channel_model_pricing DB rows). Provider/LiteLLM mirrors are sensor evidence and never an effective price source.",
+      "price_key": "the complete-registry owner key, or the scoped channel pricing model id. Usually == model_id.",
       "display": "bool. true => this manifest-listed, priced, mapped model is allowed to appear in public /pricing and model-menu display surfaces. false keeps the runtime mapping/pricing intent but hides the model until the SSOT display gate proves it or entitlement/provisioning is fixed.",
       "notes": "free-form provenance / known-gap marker."
     }
@@ -59,10 +59,10 @@
         "39"
       ],
       "channel_type": 43,
-      "price_source": "mirror",
+      "price_source": "overlay",
       "price_key": "deepseek-chat",
       "display": true,
-      "notes": "ds-官 account 39. Legacy/canonical alias mapped by tk_027. NOT in overlay on purpose: the runtime litellm mirror carries a non-zero (pre-V4) deepseek-chat price, and the overlay is fill-only and cannot correct a wrong-but-non-zero source price (see overlay header). price_source=mirror => guard does NOT require an overlay key, only that no overlay key with value 0 shadows it."
+      "notes": "ds-官 account 39. Legacy/canonical alias mapped by tk_027. Complete-registry owner deepseek-chat is authoritative; provider mirror rows are comparison evidence only."
     },
     "newapi/deepseek-reasoner": {
       "platform": "newapi",
@@ -71,10 +71,10 @@
         "39"
       ],
       "channel_type": 43,
-      "price_source": "mirror",
+      "price_source": "overlay",
       "price_key": "deepseek-reasoner",
       "display": true,
-      "notes": "ds-官 account 39. Legacy/canonical alias mapped by tk_027. Same mirror-priced rationale as deepseek-chat."
+      "notes": "ds-官 account 39. Legacy/canonical alias mapped by tk_027. Complete-registry owner deepseek-reasoner is authoritative."
     },
     "newapi/kimi-k2.5": {
       "platform": "newapi",

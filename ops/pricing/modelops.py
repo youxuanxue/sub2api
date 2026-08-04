@@ -451,16 +451,14 @@ def parse_live_mapping(data: Any) -> dict[str, AccountSnapshot]:
 
 def price_status(
     model_id: str,
-    candidate: Candidate | None,
+    _candidate: Candidate | None,
     manifest_by_model: dict[str, list[ManifestEntry]],
     overlay: dict[str, dict[str, Any]],
 ) -> tuple[str, str]:
     if overlay_price_ok(overlay, model_id):
         return "priced", "overlay"
-    if candidate and candidate.upstream_pricing_status == "priced":
-        return "priced", "runtime-catalog"
     for entry in manifest_by_model.get(model_id, []):
-        if entry.price_source in ("mirror", "channel"):
+        if entry.price_source == "channel":
             return "priced", entry.price_source
     return "missing", "none"
 
@@ -1377,6 +1375,11 @@ def _selftest() -> int:
             "mode": "image_generation",
             "output_cost_per_image": 0.2,
         },
+        "qwen-unprobed": {
+            "mode": "chat",
+            "input_cost_per_token": 0.1,
+            "output_cost_per_token": 0.2,
+        },
     }
     if not overlay_price_ok(overlay, "qwen-new") or overlay_price_ok(overlay, "missing"):
         failures.append("overlay_price_ok failed")
@@ -1443,7 +1446,7 @@ def _selftest() -> int:
         upstream.write_text(json.dumps({
             "models": [
                 {"id": "qwen-new", "pricing_status": "priced"},
-                {"id": "qwen-missing-price", "pricing_status": "missing"},
+                {"id": "qwen-missing-price", "pricing_status": "priced"},
                 {"id": "qwen-unprobed", "pricing_status": "priced"},
             ]
         }), encoding="utf-8")
@@ -1480,11 +1483,13 @@ def _selftest() -> int:
             format="json",
         )
         plan = build_plan(args)
-        if [x["model_id"] for x in plan["ready_for_onboard"]] != ["qwen-new"]:
+        if plan["ready_for_onboard"]:
             failures.append(f"plan ready_for_onboard wrong: {plan['ready_for_onboard']}")
-        if [x["model_id"] for x in plan["price_missing"]] != ["qwen-missing-price"]:
+        if [x["model_id"] for x in plan["price_missing"]] != [
+            "qwen-missing-price", "qwen-new", "qwen-unprobed"
+        ]:
             failures.append(f"plan price_missing wrong: {plan['price_missing']}")
-        if [x["model_id"] for x in plan["probe_needed"]] != ["qwen-unprobed"]:
+        if plan["probe_needed"]:
             failures.append(f"plan probe_needed wrong: {plan['probe_needed']}")
         mirror_row = plan["mirror_drift"][0]
         if mirror_row.get("missing_in_target") != ["qwen-extra"]:

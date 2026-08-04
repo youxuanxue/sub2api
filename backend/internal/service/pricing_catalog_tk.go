@@ -9,9 +9,9 @@ package service
 // require an Ent schema migration (visible_in_catalog on Group).
 //
 // Why a separate service rather than reusing PricingService directly?
-//   - The file-source parser remains independent from billing. The small curated
-//     overlay carries its catalog metadata in the same immutable snapshot as its
-//     price so overlay-only rows cannot diverge between billing and display.
+//   - The file-source parser supplies compatibility metadata, while the complete
+//     registry snapshot always owns displayed price dimensions. This keeps
+//     billing and display on the same atomic price decision.
 //   - Catalog has its own caching cadence (mtime-based) and its own DTO shape;
 //     keeping it isolated minimizes upstream merge conflicts (rule §5).
 //
@@ -96,22 +96,26 @@ type PublicCatalogPricing struct {
 	// (per-generated-image) or "video" (per-second). The per-image / per-second
 	// field is meaningful only when BillingMode says it is a media catalog row:
 	// some chat rows carry image-related price fields for multimodal inputs.
-	BillingMode         string  `json:"billing_mode,omitempty"`
-	OutputCostPerImage  float64 `json:"output_cost_per_image,omitempty"`
-	OutputCostPerSecond float64 `json:"output_cost_per_second,omitempty"`
+	BillingMode             string  `json:"billing_mode,omitempty"`
+	OutputCostPerImage      float64 `json:"output_cost_per_image,omitempty"`
+	InputCostPerImageToken  float64 `json:"input_cost_per_image_token,omitempty"`
+	OutputCostPerImageToken float64 `json:"output_cost_per_image_token,omitempty"`
+	ImagePrice1K            float64 `json:"image_price_1k,omitempty"`
+	ImagePrice2K            float64 `json:"image_price_2k,omitempty"`
+	ImagePrice4K            float64 `json:"image_price_4k,omitempty"`
+	OutputCostPerSecond     float64 `json:"output_cost_per_second,omitempty"`
 	// VideoPriceTiers surfaces official resolution×audio (and Grok image-input) ladders.
 	// OutputCostPerSecond carries the minimum tier for legacy clients; tier-aware UIs
 	// should render the full ladder. Omitted for flat-priced legacy rows.
 	VideoPriceTiers []PublicCatalogVideoTier `json:"video_price_tiers,omitempty"`
 	// Tiers, when non-empty, is the input-token interval (阶梯) pricing for models
-	// whose unit price varies by request input length (overlay `intervals` —
+	// whose unit price varies by request input length (registry `intervals` —
 	// VolcEngine doubao-seed-*, DeepSeek, Qwen-plus/coder, GLM-4.7 tiered SKUs).
 	// The flat Input/OutputPer1KTokens fields above carry the FIRST (lowest) tier
 	// so pre-tier clients still render a sane base price; tier-aware clients (and
 	// the admin CSV export) render the full ladder. Per 1k tokens, USD. Until this
 	// field shipped the public /pricing endpoint silently flattened these models to
-	// their first-tier price only — the ladder lived only in the compiled-in
-	// tk_pricing_overlay.json. Omitted for flat-priced models.
+	// their first-tier price only. Omitted for flat-priced models.
 	Tiers []PublicCatalogTier `json:"tiers,omitempty"`
 	// PeakValley, when present, documents provider time-of-day peak pricing on top
 	// of the flat fields above (currently DeepSeek direct API). Billing applies
@@ -141,7 +145,7 @@ type PublicCatalogPeakValley struct {
 // The bracket is matched against the whole request context (input + cache-write +
 // cache-read tokens; see calculateTokenCost), not input tokens alone.
 //
-// Prices are USD per 1k tokens (overlay intervals are stored per-token → ×1000 to
+// Prices are USD per 1k tokens (registry intervals are stored per-token → ×1000 to
 // match the rest of the catalog).
 type PublicCatalogTier struct {
 	MinTokens         int     `json:"min_tokens"`
@@ -152,8 +156,8 @@ type PublicCatalogTier struct {
 }
 
 // catalogRichEntry mirrors the litellm-shape JSON fields needed for the public
-// catalog's file-source parser. Overlay-only rows project the same metadata from
-// LiteLLMModelPricing so their price and display facts share one snapshot.
+// catalog's compatibility file-source parser. Active-registry rows project the
+// same metadata from LiteLLMModelPricing so price and display share one snapshot.
 type catalogRichEntry struct {
 	InputCostPerToken           *float64 `json:"input_cost_per_token"`
 	OutputCostPerToken          *float64 `json:"output_cost_per_token"`
@@ -161,6 +165,11 @@ type catalogRichEntry struct {
 	CacheCreationInputTokenCost *float64 `json:"cache_creation_input_token_cost"`
 	CacheReadInputTokenCost     *float64 `json:"cache_read_input_token_cost"`
 	OutputCostPerImage          *float64 `json:"output_cost_per_image"`
+	OutputCostPerImageToken     *float64 `json:"output_cost_per_image_token"`
+	InputCostPerImageToken      *float64 `json:"input_cost_per_image_token"`
+	ImagePrice1K                *float64 `json:"image_price_1k"`
+	ImagePrice2K                *float64 `json:"image_price_2k"`
+	ImagePrice4K                *float64 `json:"image_price_4k"`
 	OutputCostPerSecond         *float64 `json:"output_cost_per_second"`
 	LiteLLMProvider             string   `json:"litellm_provider"`
 	Mode                        string   `json:"mode"`
@@ -190,6 +199,7 @@ type PricingCatalogService struct {
 	mu       sync.RWMutex
 	cached   *PublicCatalogResponse
 	cachedMt time.Time
+	cachedTk *tkPricingOverlaySnapshot
 }
 
 // NewPricingCatalogService wires the default source: live data file in
@@ -210,13 +220,14 @@ func (s *PricingCatalogService) SetSourceForTesting(src CatalogSource) {
 	s.source = src
 	s.cached = nil
 	s.cachedMt = time.Time{}
+	s.cachedTk = nil
 	s.mu.Unlock()
 }
 
 // InvalidateCache drops the cached catalog so the next BuildPublicCatalog
-// re-parses + re-applies the overlay. The cache keys on the source file's mtime
-// (model_pricing.json), so a TK pricing-overlay HOT change — which does not touch
-// that file — would otherwise serve stale prices forever. The runtime overlay
+// re-parses + re-applies the active registry. The cache keys on the compatibility
+// source file's mtime, so a registry hot change would otherwise serve stale prices.
+// The runtime registry
 // reload (pricing_service_tk_overlay_runtime.go) calls this after a swap. Nil-safe.
 func (s *PricingCatalogService) InvalidateCache() {
 	if s == nil {
@@ -225,6 +236,7 @@ func (s *PricingCatalogService) InvalidateCache() {
 	s.mu.Lock()
 	s.cached = nil
 	s.cachedMt = time.Time{}
+	s.cachedTk = nil
 	s.mu.Unlock()
 }
 
@@ -241,45 +253,54 @@ func (s *PricingCatalogService) BuildPublicCatalog(ctx context.Context) *PublicC
 	}
 	_ = ctx
 
-	s.mu.RLock()
-	src := s.source
-	s.mu.RUnlock()
+	for {
+		s.mu.RLock()
+		src := s.source
+		s.mu.RUnlock()
 
-	if src == nil {
-		return emptyPublicCatalog(time.Now().UTC())
+		if src == nil {
+			return emptyPublicCatalog(time.Now().UTC())
+		}
+
+		data, modTime, ok := src()
+		if !ok || len(data) == 0 {
+			return emptyPublicCatalog(time.Now().UTC())
+		}
+
+		registrySnapshot := loadTKPricingOverlaySnapshot()
+		s.mu.RLock()
+		cached := s.cached
+		cachedMt := s.cachedMt
+		cachedTk := s.cachedTk
+		s.mu.RUnlock()
+		if cached != nil && cachedTk == registrySnapshot && !modTime.IsZero() && modTime.Equal(cachedMt) {
+			return cached
+		}
+
+		resp := buildCatalogFromBytes(data, modTime)
+		// Enrich only a healthy (non-degraded) catalog: a garbage/empty source yields
+		// an empty list and must STAY empty (AC-005 degraded→empty / 200-not-500
+		// contract) rather than surfacing a partial registry-only catalog.
+		if len(resp.Data) > 0 {
+			applyCatalogRegistrySnapshot(resp, registrySnapshot)
+		}
+
+		if s.storeCatalogIfSnapshotCurrent(resp, modTime, registrySnapshot) {
+			return resp
+		}
 	}
+}
 
-	data, modTime, ok := src()
-	if !ok || len(data) == 0 {
-		return emptyPublicCatalog(time.Now().UTC())
-	}
-
-	s.mu.RLock()
-	cached := s.cached
-	cachedMt := s.cachedMt
-	s.mu.RUnlock()
-	if cached != nil && !modTime.IsZero() && modTime.Equal(cachedMt) {
-		return cached
-	}
-
-	resp := buildCatalogFromBytes(data, modTime)
-	// Enrich only a healthy (non-degraded) catalog: a garbage/empty source yields
-	// an empty list and must STAY empty (AC-005 degraded→empty / 200-not-500
-	// contract) rather than surfacing a partial overlay-only catalog.
-	if len(resp.Data) > 0 {
-		applyCatalogOverlayPricing(resp)
-		attachCatalogOverlayTiers(resp)
-		applyCatalogOfficialListBaseTax(resp)
-		attachCatalogVideoPriceTiers(resp)
-		attachCatalogDeepSeekPeakValley(resp)
-	}
-
+func (s *PricingCatalogService) storeCatalogIfSnapshotCurrent(resp *PublicCatalogResponse, modTime time.Time, snapshot *tkPricingOverlaySnapshot) bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if loadTKPricingOverlaySnapshot() != snapshot {
+		return false
+	}
 	s.cached = resp
 	s.cachedMt = modTime
-	s.mu.Unlock()
-
-	return resp
+	s.cachedTk = snapshot
+	return true
 }
 
 func emptyPublicCatalog(updatedAt time.Time) *PublicCatalogResponse {
@@ -338,35 +359,19 @@ func buildCatalogFromBytes(data []byte, modTime time.Time) *PublicCatalogRespons
 	}
 }
 
-// applyCatalogOverlayPricing fill-only-merges TK-overlay-priced models the file
-// source lacks into the public catalog, so overlay-only models (deepseek-v4-pro,
-// doubao-*, …) surface with their prices in the public catalog
-// AND Your-Menu (me_pricing_catalog reads BuildPublicCatalog as metaByID).
-//
-// The runtime price file is a TRIMMED litellm mirror; models litellm lacks are
-// priced ONLY in tk_pricing_overlay.json, which until now fed billing
-// (GetModelPricing applies it) but NOT this display path — hence empty/missing
-// price rows for the entire VolcEngine fifth-platform batch + deepseek-v4-pro.
-//
-// Fill mirrors the billing priority (model_pricing_resolver: channel DB >
-// litellm mirror > TK overlay) with the same absent-or-zero semantics as the
-// billing path (applyTKPricingOverlay / tkIsEffectivelyUnpriced): a name whose
-// file-source row carries a real non-zero price is left untouched, while an
-// all-zero placeholder row (litellm "cost unknown", e.g. deepseek-v3-2-251201)
-// gets its DISPLAYED price replaced by the overlay value — otherwise the
-// catalog would show $0 for a model billing actually charges. Channel pricing
-// stays a strictly higher tier handled upstream (me menu Stage 1 / billing
-// resolver), so the overlay only ever fills the litellm tier.
-//
-// Token-priced entries and true media entries merge. Per-image / per-second
-// overlay rows (imagen-*/veo-*/grok-imagine-*/seedream/seedance) carry no token
-// price, but they are catalog rows for Studio and must surface with their media
-// billing unit.
-func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
+// applyCatalogOverlayPricingFromSnapshot projects the active complete registry onto the
+// public catalog. The file source may still supply compatibility rows, but it is
+// sensor evidence only: even a non-zero external price cannot override the
+// registry. Channel pricing remains a separately scoped higher-priority tier in
+// the per-user menu and billing resolver.
+func applyCatalogOverlayPricingFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
 	if resp == nil {
 		return
 	}
-	overlay := loadTKPricingOverlay()
+	if snapshot == nil {
+		return
+	}
+	overlay := snapshot.Models
 	if len(overlay) == 0 {
 		return
 	}
@@ -389,67 +394,17 @@ func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 		if isNewAPILongTailCatalogVendor(p.LiteLLMProvider) && !isTkCuratedNewAPIModelListed(name) {
 			continue
 		}
-		isMedia := p.OutputCostPerImage > 0 || p.OutputCostPerSecond > 0
-		if p.InputCostPerToken == 0 && p.OutputCostPerToken == 0 && !isMedia {
+		isMedia := p.OutputCostPerImage > 0 || p.OutputCostPerImageToken > 0 || p.OutputCostPerSecond > 0
+		if p.InputCostPerToken == 0 && p.OutputCostPerToken == 0 && !isMedia && !p.ExplicitFree {
 			continue
 		}
+		projected := catalogModelFromRegistry(name, p)
 		if idx, ok := seen[name]; ok {
-			// 文件源已有该行：仅当它是全零占位（litellm "cost unknown"，与计费
-			// 侧 tkIsEffectivelyUnpriced 同语义）时用 overlay 价覆盖展示，保持
-			// 展示=计费；行内 context window 等元数据保留文件源的值。真实非零
-			// 文件价永不覆盖，除非 overlay 是 GLM 的 BigModel 官方价（litellm
-			// 镜像里的 USD 猜测会漂移）。
-			row := &resp.Data[idx]
-			hasFilePrice := row.Pricing.InputPer1KTokens != 0 || row.Pricing.OutputPer1KTokens != 0 ||
-				row.Pricing.CacheReadPer1K != 0 || row.Pricing.CacheWritePer1K != 0
-			if hasFilePrice && !tkOverlayOverridesLitellmSource(name, p) {
-				continue
-			}
-			row.Pricing.InputPer1KTokens = p.InputCostPerToken * 1000
-			row.Pricing.OutputPer1KTokens = p.OutputCostPerToken * 1000
-			row.Pricing.ThinkingOutputPer1KTokens = p.ThinkingOutputCostPerToken * 1000
-			row.Pricing.CacheReadPer1K = p.CacheReadInputTokenCost * 1000
-			row.Pricing.CacheWritePer1K = p.CacheCreationInputTokenCost * 1000
+			projected.Availability = resp.Data[idx].Availability
+			resp.Data[idx] = projected
 			continue
 		}
-		in, out := p.InputCostPerToken, p.OutputCostPerToken
-		cacheRead, cacheWrite := p.CacheReadInputTokenCost, p.CacheCreationInputTokenCost
-		e := catalogRichEntry{
-			InputCostPerToken:           &in,
-			OutputCostPerToken:          &out,
-			CacheReadInputTokenCost:     &cacheRead,
-			CacheCreationInputTokenCost: &cacheWrite,
-			LiteLLMProvider:             p.LiteLLMProvider,
-			Mode:                        p.Mode,
-			MaxInputTokens:              p.MaxInputTokens,
-			MaxOutputTokens:             p.MaxOutputTokens,
-			SupportsVision:              p.SupportsVision,
-			SupportsToolChoice:          p.SupportsToolChoice,
-			SupportsFunctionCalling:     p.SupportsFunctionCalling,
-			SupportsPromptCaching:       p.SupportsPromptCaching,
-			SupportsReasoning:           p.SupportsReasoning,
-			SupportsResponseSchema:      p.SupportsResponseSchema,
-			SupportsPDFInput:            p.SupportsPDFInput,
-			SupportsWebSearch:           p.SupportsWebSearch,
-		}
-		// Thinking-mode output price (qwen3 dense): surface it so the public
-		// catalog can show both 非思考/思考 output rates for the one model id.
-		if p.ThinkingOutputCostPerToken > 0 {
-			tout := p.ThinkingOutputCostPerToken
-			e.ThinkingOutputCostPerToken = &tout
-		}
-		// Media overlay entries (imagen-*/veo-*/seedream/seedance) carry the
-		// per-image / per-second price the trimmed litellm mirror drops — pass
-		// it through so the public catalog can render the media unit.
-		if p.OutputCostPerImage > 0 {
-			img := p.OutputCostPerImage
-			e.OutputCostPerImage = &img
-		}
-		if p.OutputCostPerSecond > 0 {
-			sec := p.OutputCostPerSecond
-			e.OutputCostPerSecond = &sec
-		}
-		resp.Data = append(resp.Data, catalogModelFromEntry(name, &e))
+		resp.Data = append(resp.Data, projected)
 		appended = true
 	}
 	if appended {
@@ -459,18 +414,77 @@ func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 	}
 }
 
-// attachCatalogOverlayTiers surfaces overlay-defined input-token interval (阶梯)
-// pricing on the public catalog. Runs AFTER applyCatalogOverlayPricing so it sees
+func catalogModelFromRegistry(name string, p *LiteLLMModelPricing) PublicCatalogModel {
+	in, out := p.InputCostPerToken, p.OutputCostPerToken
+	cacheRead, cacheWrite := p.CacheReadInputTokenCost, p.CacheCreationInputTokenCost
+	e := catalogRichEntry{
+		InputCostPerToken:           &in,
+		OutputCostPerToken:          &out,
+		CacheReadInputTokenCost:     &cacheRead,
+		CacheCreationInputTokenCost: &cacheWrite,
+		LiteLLMProvider:             p.LiteLLMProvider,
+		Mode:                        p.Mode,
+		MaxInputTokens:              p.MaxInputTokens,
+		MaxOutputTokens:             p.MaxOutputTokens,
+		SupportsVision:              p.SupportsVision,
+		SupportsToolChoice:          p.SupportsToolChoice,
+		SupportsFunctionCalling:     p.SupportsFunctionCalling,
+		SupportsPromptCaching:       p.SupportsPromptCaching,
+		SupportsReasoning:           p.SupportsReasoning,
+		SupportsResponseSchema:      p.SupportsResponseSchema,
+		SupportsPDFInput:            p.SupportsPDFInput,
+		SupportsWebSearch:           p.SupportsWebSearch,
+	}
+	if p.ThinkingOutputCostPerToken > 0 {
+		v := p.ThinkingOutputCostPerToken
+		e.ThinkingOutputCostPerToken = &v
+	}
+	if p.OutputCostPerImage > 0 {
+		v := p.OutputCostPerImage
+		e.OutputCostPerImage = &v
+	}
+	if p.OutputCostPerImageToken > 0 {
+		v := p.OutputCostPerImageToken
+		e.OutputCostPerImageToken = &v
+	}
+	if p.InputCostPerImageToken > 0 {
+		v := p.InputCostPerImageToken
+		e.InputCostPerImageToken = &v
+	}
+	if p.ImagePrice1K > 0 {
+		v := p.ImagePrice1K
+		e.ImagePrice1K = &v
+	}
+	if p.ImagePrice2K > 0 {
+		v := p.ImagePrice2K
+		e.ImagePrice2K = &v
+	}
+	if p.ImagePrice4K > 0 {
+		v := p.ImagePrice4K
+		e.ImagePrice4K = &v
+	}
+	if p.OutputCostPerSecond > 0 {
+		v := p.OutputCostPerSecond
+		e.OutputCostPerSecond = &v
+	}
+	return catalogModelFromEntry(name, &e)
+}
+
+// attachCatalogOverlayTiersFromSnapshot surfaces registry-defined input-token interval (阶梯)
+// pricing on the public catalog. Runs after applyCatalogOverlayPricingFromSnapshot so it sees
 // every model (file-sourced and overlay-filled). The flat Input/OutputPer1KTokens
 // fields stay the base (first) tier for pre-tier clients; this fills the full
 // ladder on Pricing.Tiers for tier-aware clients and the admin CSV export. Overlay
-// interval prices are per-token → ×1000 to match the catalog's per-1k unit.
+// Registry interval prices are per-token → ×1000 to match the catalog's per-1k unit.
 // Purely additive (never mutates flat prices), idempotent, nil-safe.
-func attachCatalogOverlayTiers(resp *PublicCatalogResponse) {
+func attachCatalogOverlayTiersFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
 	if resp == nil || len(resp.Data) == 0 {
 		return
 	}
-	overlay := loadTKPricingOverlay()
+	if snapshot == nil {
+		return
+	}
+	overlay := snapshot.Models
 	if len(overlay) == 0 {
 		return
 	}
@@ -498,17 +512,23 @@ func attachCatalogOverlayTiers(resp *PublicCatalogResponse) {
 	}
 }
 
-func applyCatalogOfficialListBaseTax(resp *PublicCatalogResponse) {
+func applyCatalogOfficialListBaseTaxFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
 	if resp == nil {
 		return
 	}
+	if snapshot == nil {
+		return
+	}
 	for i := range resp.Data {
-		tkApplyBaseTaxToPublicCatalogPricing(resp.Data[i].Vendor, &resp.Data[i].Pricing)
+		tkApplyBaseTaxToPublicCatalogPricingWithPolicy(resp.Data[i].Vendor, &resp.Data[i].Pricing, snapshot.BaseTax)
 	}
 }
 
-func attachCatalogDeepSeekPeakValley(resp *PublicCatalogResponse) {
-	policy := loadTkDeepSeekPeakValleyPolicy()
+func attachCatalogDeepSeekPeakValleyFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
+	if snapshot == nil {
+		return
+	}
+	policy := snapshot.DeepSeekPeakValley
 	if resp == nil || policy == nil || policy.PeakMultiplier <= 1 {
 		return
 	}
@@ -524,7 +544,7 @@ func attachCatalogDeepSeekPeakValley(resp *PublicCatalogResponse) {
 	}
 	for i := range resp.Data {
 		modelID := resp.Data[i].ModelID
-		if !tkDeepSeekPeakValleyApplies(modelID, PricingSourceLiteLLM) {
+		if !tkDeepSeekPeakValleyAppliesWithPolicy(policy, modelID, PricingSourceLiteLLM) {
 			continue
 		}
 		p := &resp.Data[i].Pricing
@@ -543,6 +563,14 @@ func attachCatalogDeepSeekPeakValley(resp *PublicCatalogResponse) {
 		}
 		p.PeakValley = &peak
 	}
+}
+
+func applyCatalogRegistrySnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
+	applyCatalogOverlayPricingFromSnapshot(resp, snapshot)
+	attachCatalogOverlayTiersFromSnapshot(resp, snapshot)
+	applyCatalogOfficialListBaseTaxFromSnapshot(resp, snapshot)
+	attachCatalogVideoPriceTiersFromSnapshot(resp, snapshot)
+	attachCatalogDeepSeekPeakValleyFromSnapshot(resp, snapshot)
 }
 
 func catalogModelFromEntry(name string, e *catalogRichEntry) PublicCatalogModel {
@@ -564,7 +592,24 @@ func catalogModelFromEntry(name string, e *catalogRichEntry) PublicCatalogModel 
 		pricing.OutputCostPerSecond = *e.OutputCostPerSecond
 	case "image":
 		pricing.BillingMode = "image"
-		pricing.OutputCostPerImage = *e.OutputCostPerImage
+		if e.OutputCostPerImage != nil {
+			pricing.OutputCostPerImage = *e.OutputCostPerImage
+		}
+		if e.InputCostPerImageToken != nil {
+			pricing.InputCostPerImageToken = *e.InputCostPerImageToken
+		}
+		if e.OutputCostPerImageToken != nil {
+			pricing.OutputCostPerImageToken = *e.OutputCostPerImageToken
+		}
+		if e.ImagePrice1K != nil {
+			pricing.ImagePrice1K = *e.ImagePrice1K
+		}
+		if e.ImagePrice2K != nil {
+			pricing.ImagePrice2K = *e.ImagePrice2K
+		}
+		if e.ImagePrice4K != nil {
+			pricing.ImagePrice4K = *e.ImagePrice4K
+		}
 	}
 	return PublicCatalogModel{
 		ModelID:         name,
@@ -586,7 +631,8 @@ func catalogMediaBillingMode(e *catalogRichEntry) string {
 	case e.OutputCostPerSecond != nil && *e.OutputCostPerSecond > 0 &&
 		(e.Mode == "video_generation" || pureMediaWithoutMode):
 		return "video"
-	case e.OutputCostPerImage != nil && *e.OutputCostPerImage > 0 &&
+	case ((e.OutputCostPerImage != nil && *e.OutputCostPerImage > 0) ||
+		(e.OutputCostPerImageToken != nil && *e.OutputCostPerImageToken > 0)) &&
 		(e.Mode == "image_generation" || pureMediaWithoutMode):
 		return "image"
 	default:

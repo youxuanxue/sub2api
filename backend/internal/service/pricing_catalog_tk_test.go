@@ -58,7 +58,7 @@ const litellmFixtureJSON = `{
 func TestPricingCatalogService_ParsesLiteLLMShape(t *testing.T) {
 	ts := time.Date(2026, 4, 22, 10, 0, 0, 0, time.UTC)
 	// Test the pure parser directly: BuildPublicCatalog additionally fill-merges
-	// the always-on TK pricing overlay (applyCatalogOverlayPricing), which would
+	// the always-on TK pricing overlay (applyCatalogOverlayPricingFromSnapshot), which would
 	// add ~24 unrelated overlay models here. buildCatalogFromBytes is exactly the
 	// parse-mechanics seam these assertions target.
 	resp := buildCatalogFromBytes([]byte(litellmFixtureJSON), ts)
@@ -151,15 +151,29 @@ func TestPublicCatalog_ChatRowsWithImageCostsStayTokenCatalogRows(t *testing.T) 
 	assert.InDelta(t, 0.012, row.Pricing.OutputPer1KTokens, 1e-12)
 }
 
-// TestPricingCatalogService_AppliesTKOverlayPricing pins the display-side overlay
-// merge: models priced ONLY in tk_pricing_overlay.json (deepseek-v4-pro, doubao-*,
-// glm-5.2, plus media rows such as Veo/Grok image/video) must
-// surface in the public catalog / Your-Menu with their prices, matching the
-// billing path that already applies the overlay. The merge is fill-only: a model
-// the file source prices natively keeps the source value (overlay never overrides).
+func TestUS043_PublicCatalogSurfacesImageTokenSettlementDimensions(t *testing.T) {
+	inputToken := 1e-5
+	outputToken := 4e-5
+	entry := catalogRichEntry{
+		Mode:                    "image_generation",
+		LiteLLMProvider:         "openai",
+		InputCostPerImageToken:  &inputToken,
+		OutputCostPerImageToken: &outputToken,
+	}
+
+	row := catalogModelFromEntry("gpt-image-1", &entry)
+	assert.Equal(t, "image", row.Pricing.BillingMode)
+	assert.InDelta(t, inputToken, row.Pricing.InputCostPerImageToken, 1e-15)
+	assert.InDelta(t, outputToken, row.Pricing.OutputCostPerImageToken, 1e-15)
+	assert.Zero(t, row.Pricing.OutputCostPerImage)
+}
+
+// TestPricingCatalogService_AppliesTKOverlayPricing pins the complete-registry
+// projection: registry-only rows surface and an external non-zero price cannot
+// override the active billing owner in public catalog / Your-Menu display.
 func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	// Healthy source: one base model + deepseek-v4-flash at a deliberately absurd
-	// price so the fill-only assertion can prove the source wins over the overlay.
+	// price so the assertion proves the registry wins over provider evidence.
 	const fixture = `{
 	  "claude-opus-5": {
 	    "input_cost_per_token": 0.000005,
@@ -252,11 +266,181 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	require.Contains(t, filteredByID, "grok-imagine-video", "paid-gate-proven Grok video must remain in public pricing")
 	require.Contains(t, filteredByID, "claude-opus-5", "Kiro-proven Opus 5 must remain in public pricing")
 
-	// fill-only: a model present in BOTH source and overlay keeps the SOURCE price.
+	// Complete registry: a model present in both sources keeps the REGISTRY price.
 	flash, ok := byID["deepseek-v4-flash"]
 	require.True(t, ok)
-	assert.InDelta(t, 999.0*tkOfficialListBaseTaxMultiplier(), flash.Pricing.InputPer1KTokens, 1e-6,
-		"source price wins over overlay (fill-only); base tax applies on top of source")
+	registryFlash := loadTKPricingOverlay()["deepseek-v4-flash"]
+	require.NotNil(t, registryFlash)
+	assert.InDelta(t, registryFlash.InputCostPerToken*1000*tkOfficialListBaseTaxMultiplier(), flash.Pricing.InputPer1KTokens, 1e-12,
+		"active registry price wins over external non-zero evidence")
+}
+
+func TestUS043_CatalogCacheKeysActiveRegistrySnapshot(t *testing.T) {
+	tkOverlayMu.Lock()
+	previous := tkOverlayEffective
+	tkOverlayMu.Unlock()
+	t.Cleanup(func() {
+		tkOverlayMu.Lock()
+		tkOverlayEffective = previous
+		tkOverlayMu.Unlock()
+	})
+
+	snapshot := func(input float64, digest string) *tkPricingOverlaySnapshot {
+		return &tkPricingOverlaySnapshot{
+			Models: map[string]*LiteLLMModelPricing{
+				"gpt-5.4": {
+					InputCostPerToken:  input,
+					OutputCostPerToken: input * 4,
+					LiteLLMProvider:    "openai",
+					Mode:               "chat",
+				},
+			},
+			Metadata: tkPricingRegistrySnapshotMetadata{RegistrySHA256: digest},
+		}
+	}
+	setActive := func(active *tkPricingOverlaySnapshot) {
+		tkOverlayMu.Lock()
+		tkOverlayEffective = active
+		tkOverlayMu.Unlock()
+	}
+
+	const fixture = `{
+	  "gpt-5.4": {"input_cost_per_token":0.99,"output_cost_per_token":0.99,"litellm_provider":"openai","mode":"chat"}
+	}`
+	modTime := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	service := &PricingCatalogService{}
+	service.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return []byte(fixture), modTime, true
+	})
+
+	setActive(snapshot(1e-6, "old"))
+	oldCatalog := service.BuildPublicCatalog(context.Background())
+	require.Len(t, oldCatalog.Data, 1)
+	require.InDelta(t, 0.001, oldCatalog.Data[0].Pricing.InputPer1KTokens, 1e-15)
+
+	setActive(snapshot(2e-6, "new"))
+	newCatalog := service.BuildPublicCatalog(context.Background())
+	require.Len(t, newCatalog.Data, 1)
+	require.InDelta(t, 0.002, newCatalog.Data[0].Pricing.InputPer1KTokens, 1e-15,
+		"cache lookup must include active registry snapshot identity, not only source mtime")
+}
+
+func TestUS043_CatalogProjectionUsesOneRegistrySnapshot(t *testing.T) {
+	maxTokens := 128_000
+	intervalInput := 2e-6
+	intervalOutput := 8e-6
+	oldSnapshot := &tkPricingOverlaySnapshot{
+		Models: map[string]*LiteLLMModelPricing{
+			"deepseek-v4-flash": {
+				InputCostPerToken:  1e-6,
+				OutputCostPerToken: 4e-6,
+				LiteLLMProvider:    "deepseek",
+				Mode:               "chat",
+				Intervals: []PricingInterval{{
+					MinTokens:   0,
+					MaxTokens:   &maxTokens,
+					InputPrice:  &intervalInput,
+					OutputPrice: &intervalOutput,
+				}},
+			},
+			"veo-3.1-generate-001": {
+				LiteLLMProvider:     "deepseek",
+				Mode:                "video_generation",
+				OutputCostPerSecond: 0.1,
+				VideoPriceTiers: []PricingVideoTier{{
+					Resolution:      VideoBillingResolution720P,
+					PerSecond:       0.1,
+					DefaultForModel: true,
+				}},
+			},
+		},
+		BaseTax: tkOfficialListBaseTaxPolicy{
+			Multiplier: 2,
+			Rules: []tkOfficialListBaseTaxRule{{
+				Provider:      "deepseek",
+				ModelContains: []string{"deepseek"},
+			}},
+		},
+		DeepSeekPeakValley: &tkDeepSeekPeakValleyPolicy{
+			Timezone:       "Asia/Shanghai",
+			PeakMultiplier: 2,
+			Windows:        []tkDeepSeekPeakValleyWindow{{Start: "09:00", End: "12:00"}},
+			ModelContains:  []string{"deepseek"},
+		},
+	}
+
+	tkOverlayMu.Lock()
+	previous := tkOverlayEffective
+	tkOverlayEffective = &tkPricingOverlaySnapshot{
+		Models: map[string]*LiteLLMModelPricing{
+			"deepseek-v4-flash": {
+				InputCostPerToken:  9e-6,
+				OutputCostPerToken: 9e-6,
+				LiteLLMProvider:    "deepseek",
+				Mode:               "chat",
+			},
+		},
+		BaseTax: tkOfficialListBaseTaxPolicy{Multiplier: 1.5},
+	}
+	tkOverlayMu.Unlock()
+	t.Cleanup(func() {
+		tkOverlayMu.Lock()
+		tkOverlayEffective = previous
+		tkOverlayMu.Unlock()
+	})
+
+	resp := &PublicCatalogResponse{Data: []PublicCatalogModel{
+		{ModelID: "deepseek-v4-flash"},
+		{ModelID: "veo-3.1-generate-001", Pricing: PublicCatalogPricing{BillingMode: "video"}},
+	}}
+	applyCatalogRegistrySnapshot(resp, oldSnapshot)
+
+	byID := make(map[string]PublicCatalogModel, len(resp.Data))
+	for _, row := range resp.Data {
+		byID[row.ModelID] = row
+	}
+	deepseek := byID["deepseek-v4-flash"]
+	require.InDelta(t, 0.002, deepseek.Pricing.InputPer1KTokens, 1e-15)
+	require.Len(t, deepseek.Pricing.Tiers, 1)
+	require.InDelta(t, 0.004, deepseek.Pricing.Tiers[0].InputPer1KTokens, 1e-15)
+	require.NotNil(t, deepseek.Pricing.PeakValley)
+	require.InDelta(t, 0.004, deepseek.Pricing.PeakValley.InputPer1KTokens, 1e-15)
+	video := byID["veo-3.1-generate-001"]
+	require.Len(t, video.Pricing.VideoPriceTiers, 1)
+	require.InDelta(t, 0.2, video.Pricing.VideoPriceTiers[0].PerSecond, 1e-15)
+}
+
+func TestUS043_CatalogRejectsCacheWriteFromSupersededSnapshot(t *testing.T) {
+	oldSnapshot := &tkPricingOverlaySnapshot{Metadata: tkPricingRegistrySnapshotMetadata{RegistrySHA256: "old"}}
+	newSnapshot := &tkPricingOverlaySnapshot{Metadata: tkPricingRegistrySnapshotMetadata{RegistrySHA256: "new"}}
+	tkOverlayMu.Lock()
+	previous := tkOverlayEffective
+	tkOverlayEffective = newSnapshot
+	tkOverlayMu.Unlock()
+	t.Cleanup(func() {
+		tkOverlayMu.Lock()
+		tkOverlayEffective = previous
+		tkOverlayMu.Unlock()
+	})
+
+	service := &PricingCatalogService{}
+	stored := service.storeCatalogIfSnapshotCurrent(
+		&PublicCatalogResponse{Data: []PublicCatalogModel{{ModelID: "old"}}},
+		time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC),
+		oldSnapshot,
+	)
+	require.False(t, stored)
+	require.Nil(t, service.cached)
+	require.Nil(t, service.cachedTk)
+
+	stored = service.storeCatalogIfSnapshotCurrent(
+		&PublicCatalogResponse{Data: []PublicCatalogModel{{ModelID: "new"}}},
+		time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC),
+		newSnapshot,
+	)
+	require.True(t, stored)
+	require.Equal(t, "new", service.cached.Data[0].ModelID)
+	require.Same(t, newSnapshot, service.cachedTk)
 }
 
 // TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay pins that
@@ -364,10 +548,9 @@ func TestPricingCatalogService_AntigravityThinkingOverlaySurfaces(t *testing.T) 
 	assert.Contains(t, thinking.Capabilities, "prompt_caching")
 }
 
-// TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice verifies the
-// display side of the absent-or-zero fill: a source row whose every price field
-// is 0.0 (litellm "cost unknown") must show the overlay price for a manifest-
-// listed model, matching what billing actually charges.
+// TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice verifies that an
+// unknown-zero source row is replaced by the complete registry row, including
+// its catalog metadata.
 func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) {
 	const fixture = `{
 	  "gpt-5.4": {"input_cost_per_token":0.0000005,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
@@ -391,8 +574,10 @@ func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) 
 		"zero placeholder row must display the overlay deepseek-v4-pro price with base tax")
 	assert.InDelta(t, 0.00087*tkOfficialListBaseTaxMultiplier(), pro.Pricing.OutputPer1KTokens, 1e-9)
 	assert.InDelta(t, 0.000003625*tkOfficialListBaseTaxMultiplier(), pro.Pricing.CacheReadPer1K, 1e-12)
-	assert.Equal(t, 65536, pro.ContextWindow, "file-source row metadata must be preserved")
-	assert.Equal(t, 8192, pro.MaxOutputTokens)
+	registryPro := loadTKPricingOverlay()["deepseek-v4-pro"]
+	require.NotNil(t, registryPro)
+	assert.Equal(t, registryPro.MaxInputTokens, pro.ContextWindow, "registry metadata must match the billing snapshot")
+	assert.Equal(t, registryPro.MaxOutputTokens, pro.MaxOutputTokens)
 
 	filtered := FilterPublicCatalogToServable(resp)
 	require.NotNil(t, filtered)

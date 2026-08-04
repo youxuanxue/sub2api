@@ -64,7 +64,7 @@ func (s *BillingService) TkImageModelUnpriced(model string, group *Group) bool {
 		return false
 	}
 	pricing := s.pricingService.GetModelPricing(model)
-	return pricing == nil || tkIsEffectivelyUnpriced(pricing)
+	return !tkRegistryRowHasBillableImagePrice(pricing)
 }
 
 // TkVideoModelUnpriced / TkImageModelUnpriced — handler-facing wrappers so the

@@ -89,7 +89,7 @@ type BillingCache interface {
 	BatchGetUserPlatformQuotaCache(ctx context.Context, keys []UserPlatformQuotaKey) ([]*UserPlatformQuotaCacheEntry, error)
 }
 
-// ModelPricing 模型价格配置（per-token价格，与LiteLLM格式一致）
+// ModelPricing 模型价格配置（per-token 价格，与 registry 的 LiteLLM-compatible shape 一致）
 type ModelPricing struct {
 	InputPricePerToken                 float64           // 每token输入价格 (USD)
 	InputPricePerTokenPriority         float64           // priority service tier 下每token输入价格 (USD)
@@ -110,7 +110,9 @@ type ModelPricing struct {
 	LongContextOutputMultiplier        float64           // 长上下文整次会话输出倍率
 	ImageOutputPricePerToken           float64           // 图片输出 token 价格 (USD)
 	ImageOutputPriceExplicit           bool              // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
-	Intervals                          []PricingInterval // 输入-token 区间分档（来自 TK overlay；空 = 扁平）。接进 ResolvedPricing.Intervals。
+	Intervals                          []PricingInterval // 输入-token 区间分档（来自 active registry；空 = 扁平）。接进 ResolvedPricing.Intervals。
+	registryOwner                      string            // non-empty only when dimensions were materialized from the active registry
+	registrySnapshot                   *tkPricingOverlaySnapshot
 }
 
 const (
@@ -173,9 +175,10 @@ var ErrModelPricingUnavailable = errors.New("pricing not found")
 
 // BillingService 计费服务
 type BillingService struct {
-	cfg            *config.Config
-	pricingService *PricingService
-	fallbackPrices map[string]*ModelPricing // 硬编码回退价格
+	cfg                      *config.Config
+	pricingService           *PricingService
+	fallbackPrices           map[string]*ModelPricing // legacy family matcher/test fixtures; production re-reads the active registry owner
+	useActiveRegistryAliases bool                     // constructor instances re-read alias owners from the live registry
 
 	// fallbackWarnSeen 记录已打过 fallback 警告日志的(已小写化)模型名,
 	// 让 "[Billing] Using fallback pricing" 每个模型每进程最多打一条,
@@ -186,19 +189,20 @@ type BillingService struct {
 // NewBillingService 创建计费服务实例
 func NewBillingService(cfg *config.Config, pricingService *PricingService) *BillingService {
 	s := &BillingService{
-		cfg:            cfg,
-		pricingService: pricingService,
-		fallbackPrices: make(map[string]*ModelPricing),
+		cfg:                      cfg,
+		pricingService:           pricingService,
+		fallbackPrices:           make(map[string]*ModelPricing),
+		useActiveRegistryAliases: true,
 	}
 
-	// 初始化硬编码回退价格（当动态价格不可用时使用）
+	// 初始化 legacy family matcher。生产别名只复用匹配结果，价格维度重新读取 active registry。
 	s.initFallbackPricing()
 
 	return s
 }
 
-// initFallbackPricing 初始化硬编码回退价格（当动态价格不可用时使用）
-// 价格单位：USD per token（与LiteLLM格式一致）
+// initFallbackPricing initializes compatibility matching and direct-test fixtures.
+// Constructor-created production instances never treat these numeric rows as price owners.
 func (s *BillingService) initFallbackPricing() {
 	// Claude 4.5 Opus
 	s.fallbackPrices["claude-opus-4.5"] = &ModelPricing{
@@ -284,14 +288,9 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown:     false,
 	}
 
-	// Gemini family-grained floor (docs/approved/priced-or-it-doesnt-ship.md pivot: family floor +
-	// alert-on-fallback + converge, supersedes the C-era "no gemini fallback → reject"). A floor at
-	// the model's FAMILY median — NOT one flat rate — keeps mischarge small while never serving $0 and
-	// never rejecting a real gemini model; a served_at_fallback alert then drives ops/auto to fill the
-	// REAL price so fallback use decays to ~0. Values = current litellm gemini-2.5-{flash,pro}.
-	// getFallbackPricing maps: "pro" → pro floor; flash / flash-lite / unknown gemini → flash-tier
-	// median floor. (The earlier flat-rate concern is addressed by family granularity + leaning to the
-	// median tier, not by refusing to serve.)
+	// Legacy Gemini family classifier. Production uses these pointer identities only
+	// to select the gemini-2.5-* registry owner; the numeric fixture values below do
+	// not participate in constructor-created billing services.
 	s.fallbackPrices["gemini-2.5-flash"] = &ModelPricing{
 		InputPricePerToken:     3e-7,   // $0.30 per MTok
 		OutputPricePerToken:    2.5e-6, // $2.50 per MTok
@@ -314,8 +313,7 @@ func (s *BillingService) initFallbackPricing() {
 	}
 	// Gemini 3.6 Flash (Google AI pricing: $1.50 input / $7.50 output /
 	// $0.15 cached input per MTok). Antigravity's -high/-low/-medium/-tiered
-	// aliases are matched below so unavailable remote pricing never records
-	// token-bearing requests at $0.
+	// aliases are matched below and then re-read from the active registry owner.
 	s.fallbackPrices["gemini-3.6-flash"] = &ModelPricing{
 		InputPricePerToken:     1.5e-6,
 		OutputPricePerToken:    7.5e-6,
@@ -337,10 +335,11 @@ func (s *BillingService) initFallbackPricing() {
 		LongContextInputMultiplier:     openAIGPT54LongContextInputMultiplier,
 		LongContextOutputMultiplier:    openAIGPT54LongContextOutputMultiplier,
 	}
-	// GPT-5.5 / GPT-5.5 Pro 暂无独立定价，回退到 GPT-5.4。
+	// Legacy pointer identity only. Production maps both variants to the gpt-5.5
+	// registry owner and never reads this shared GPT-5.4 fixture value.
 	s.fallbackPrices["gpt-5.5"] = s.fallbackPrices["gpt-5.4"]
 	s.fallbackPrices["gpt-5.5-pro"] = s.fallbackPrices["gpt-5.4"]
-	// GPT-5.6 preview tiers (OpenAI 2026-06-26 list; mirror also carries real prices).
+	// GPT-5.6 legacy fixtures; production prices come from the matching registry owners.
 	s.fallbackPrices["gpt-5.6-sol"] = &ModelPricing{
 		InputPricePerToken:          5e-6,
 		OutputPricePerToken:         3e-5,
@@ -402,14 +401,11 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown:         false,
 	}
 
-	// DeepSeek V4 and paid GLM official prices live only in
-	// tk_pricing_overlay.json. getFallbackPricing retains compatibility matching,
-	// but resolves those aliases to the live overlay instead of a numeric Go copy.
+	// DeepSeek V4 and paid GLM compatibility branches resolve directly to active
+	// registry owners instead of duplicating their numeric dimensions in Go.
 
-	// BigModel's free GLM rows intentionally remain compatibility-only fallbacks;
-	// they are not public catalog entries and therefore do not belong in overlay.
-	// GLM-4.5-Flash / GLM-4.7-Flash 在 BigModel 当前页为 free，
-	// 保留 zero-cost entry 防止未知 alias 误计费。
+	// These zero-valued fixtures classify aliases only. Their active registry rows
+	// carry explicit_free=true so zero is deliberate rather than unknown pricing.
 	s.fallbackPrices["glm-4.5-flash"] = &ModelPricing{
 		InputPricePerToken:     0,
 		OutputPricePerToken:    0,
@@ -422,15 +418,8 @@ func (s *BillingService) initFallbackPricing() {
 	}
 
 	// ---- 月之暗面 Kimi（K 系列）----
-	// K2.5/K2.6 official prices live only in tk_pricing_overlay.json. The exact
-	// degraded path and compatible aliases below resolve those live overlay rows,
-	// so a pricing hot-push cannot drift from a second Go numeric table.
-	// TK: ¥→USD 统一用 TokenKey 口径 CNY/USD=6.7（与 tk_pricing_overlay.json 一致），
-	// 不沿用上游的 ÷7.14。
-	// Source: https://platform.moonshot.cn/docs/pricing/overview (元/百万 tokens 口径)
-	// Kimi K3 国际站 USD 价目：https://platform.kimi.ai/docs/pricing/chat-k3.md
-	// Kimi Code bare aliases（k3 / k3-256k）官方无按 token 价目；复用 API Platform
-	// kimi-k3 档位作代理计费 fallback（同 kimi-for-coding 对 K2.6 的处理口径）。
+	// Legacy Kimi matcher fixtures. Production aliases resolve to Kimi registry
+	// owners, whose source provenance and exact CNY/USD conversion are authoritative.
 	s.fallbackPrices["kimi-k3"] = &ModelPricing{
 		InputPricePerToken:     3e-6,    // $3.00 per MTok (cache miss)
 		OutputPricePerToken:    15e-6,   // $15.00 per MTok
@@ -602,13 +591,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	if strings.Contains(modelLower, "gemini-3.6-flash") || strings.Contains(modelLower, "gemini-3-6-flash") {
 		return s.fallbackPrices["gemini-3.6-flash"]
 	}
-	// Gemini family-grained floor (docs/approved/priced-or-it-doesnt-ship.md pivot). A gemini id with
-	// no real litellm/overlay price falls to its FAMILY median floor (never $0, never rejected); the
-	// served_at_fallback alert then drives a real-price fill. "pro" → pro floor; flash / flash-lite /
-	// unknown gemini → flash-tier median. (Family granularity + median tier bound the mischarge that a
-	// single flat rate would cause — that was the C-era objection, addressed here, not avoided.)
-	// TK: See upstream Wei-Shaw/sub2api#2486 — gemini-pro-agent and other unknown gemini-* ids must
-	// never return nil here; nil caused calculateTokenCost to record ActualCost=0 with no quota deduction.
+	// Compatibility aliases classify unknown Gemini variants into an explicit
+	// registry owner. The active owner's dimensions are re-read after this matcher,
+	// and served_at_fallback marks the missing direct owner for convergence.
 	if strings.Contains(modelLower, "gemini") {
 		if strings.Contains(modelLower, "pro") {
 			return s.fallbackPrices["gemini-2.5-pro"]
@@ -686,7 +671,7 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	// Code bare aliases 仅精确 k3 / k3-256k 或 /k3|/k3-256k 后缀，避免 kimi-k30 等未知型号误命中。
 	// 注意：kimi-k3[1m] 是 Claude Code 上下文选择语法，不是 Kimi API 模型 ID，不进入 fallback。
 	if strings.Contains(modelLower, "kimi-for-coding") {
-		return tkOverlayModelPricing("kimi-k2.6")
+		return s.fallbackPrices["kimi-k2.6"]
 	}
 	if modelLower == "kimi-k3" || strings.HasSuffix(modelLower, "/kimi-k3") ||
 		modelLower == "k3" || modelLower == "k3-256k" ||
@@ -694,10 +679,10 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		return s.fallbackPrices["kimi-k3"]
 	}
 	if strings.Contains(modelLower, "kimi-k2.6") || strings.Contains(modelLower, "kimi-k2-6") {
-		return tkOverlayModelPricing("kimi-k2.6")
+		return s.fallbackPrices["kimi-k2.6"]
 	}
 	if strings.Contains(modelLower, "kimi-k2.5") || strings.Contains(modelLower, "kimi-k2-5") {
-		return tkOverlayModelPricing("kimi-k2.5")
+		return s.fallbackPrices["kimi-k2.5"]
 	}
 	if strings.Contains(modelLower, "kimi-k2-thinking") || strings.Contains(modelLower, "kimi-k2-thinking-") {
 		return s.fallbackPrices["kimi-k2-thinking"]
@@ -758,13 +743,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 			return s.fallbackPrices["gpt-5.3-codex"]
 		}
 	}
-	// GPT 家族中位 floor（docs/approved/priced-or-it-doesnt-ship.md pivot）：已知型号上面已返具体价；
-	// 其余【chat 形】gpt-*（新变体 / 未登记 codex 后缀）→ gpt-5.4-tier 中位 floor，而非「未知即拒」，
-	// 配 served_at_fallback 告警 + 快补真价（解 §9 R-openai 别名）。诚实标注（对抗复审 S2）：gpt 主线
-	// 中位 ≈ gpt-5.4，但 premium 未知（如未镜像的 gpt-5.5，real out 3e-5）会被【欠收 ~2×】——欠收是临时
-	// 小漏、由告警驱动几分钟内补真价。**非 chat 模式的 gpt（image/audio/realtime/transcribe/tts）排除在
-	// floor 外** → 它们走真价或 reject 兜底，绝不按 token 中位误计成错模式（real 价在 litellm，未知的该拒）。
-	// 真正异类的 OpenAI 模型（o 系列等）不含 "gpt" → 同样走真价或 reject。
+	// Unknown chat-shaped gpt-* variants use the gpt-5.4 registry owner and emit
+	// served_at_fallback for convergence. Non-chat GPT modes stay excluded so an
+	// image/audio/realtime request cannot inherit token pricing accidentally.
 	if strings.Contains(modelLower, "gpt") &&
 		!strings.Contains(modelLower, "image") && !strings.Contains(modelLower, "audio") &&
 		!strings.Contains(modelLower, "realtime") && !strings.Contains(modelLower, "transcribe") &&
@@ -811,31 +792,36 @@ func tkModelPricingFromLiteLLM(p *LiteLLMModelPricing) *ModelPricing {
 		LongContextInputThreshold:          p.LongContextInputTokenThreshold,
 		LongContextInputMultiplier:         p.LongContextInputCostMultiplier,
 		LongContextOutputMultiplier:        p.LongContextOutputCostMultiplier,
+		ImageInputPricePerToken:            p.InputCostPerImageToken,
 		ImageOutputPricePerToken:           p.OutputCostPerImageToken,
 		Intervals:                          p.Intervals,
+		registrySnapshot:                   p.registrySnapshot,
 	}
 }
 
 func tkOverlayModelPricing(model string) *ModelPricing {
-	return tkModelPricingFromLiteLLM(loadTKPricingOverlay()[strings.ToLower(strings.TrimSpace(model))])
+	owner := strings.ToLower(strings.TrimSpace(model))
+	pricing := tkModelPricingFromLiteLLM(loadTKPricingOverlay()[owner])
+	if pricing != nil {
+		pricing.registryOwner = owner
+	}
+	return pricing
 }
 
-// IsServedViaFamilyFloor reports whether `model` bills via a Go FAMILY-FLOOR fallback rather than a
-// real price (litellm mirror / overlay). True = the real price source has no (effective) entry for
-// the model BUT getFallbackPricing supplies a family floor — i.e. the request is being served at an
-// ESTIMATED floor and needs a real price filled. This is the convergence signal for the post-pivot
-// design (docs/approved/priced-or-it-doesnt-ship.md §4): served_at_fallback alert → ops/auto fill →
-// fallback use decays to ~0. Channel pricing is NOT consulted here (callers that bill via channel
-// skip this); a model with a real price, or with no floor at all (→ gate-rejected), returns false.
+// IsServedViaFamilyFloor reports whether `model` has no direct active-registry owner but resolves
+// through a compatibility alias to another registry owner. It is retained as the convergence
+// signal for served_at_fallback alerts; the returned dimensions are still registry-owned, never
+// read from the legacy numeric matcher. Channel pricing is not consulted here because channel-
+// priced callers skip this classification.
 func (s *BillingService) IsServedViaFamilyFloor(model string) bool {
 	if s == nil || s.pricingService == nil {
 		return false
 	}
 	lower := strings.ToLower(model)
 	if real := s.pricingService.GetModelPricing(lower); real != nil && !tkIsEffectivelyUnpriced(real) {
-		return false // has a real litellm/overlay price → not a floor
+		return false // has a direct active-registry owner
 	}
-	return s.getFallbackPricing(lower) != nil // no real price, but a Go family floor exists
+	return s.getRegistryAliasPricing(lower) != nil
 }
 
 // GetModelPricing 获取模型价格配置
@@ -843,14 +829,12 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	// 标准化模型名称（转小写）
 	model = strings.ToLower(model)
 
-	// 1. 优先从动态价格服务获取
-	// TK: 全零价条目视同未命中（litellm 用 0.0 表示"价格未知"而非"免费"），
-	// 落入 fallback / ErrModelPricingUnavailable，让缺价 funnel 记零成本并告警。
+	// 1. 生产路径优先从 active complete registry 获取 direct owner。
+	// 未显式声明 free 的全零条目视同缺价，继续 alias owner lookup 或 fail closed。
 	if s.pricingService != nil {
 		litellmPricing := s.pricingService.GetModelPricing(model)
-		// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
-		// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
-		// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。
+		// 仅有图片价、无 token 价的 registry owner 不能用于 token 计费：直接返回会
+		// 把 token 流量按 $0 计费。跳过后走 registry alias，无 alias 则 fail closed。
 		// 图片计费路径（getDefaultImagePrice / getImageUnitPrice）直接读
 		// PricingService，不受影响。
 		if litellmPricing != nil && litellmPricing.TokenPricingAbsent {
@@ -861,16 +845,22 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 		}
 	}
 
-	// 2. 使用兼容别名 / 家族回退价格。已在 overlay 定价的兼容分支只
-	// 保存 alias → price_key 关系，不在 Go 中重复价格数值。
-	fallback := s.getFallbackPricing(model)
+	// 2. 使用兼容别名。legacy matcher 只识别 alias family，所有价格维度都
+	// 从命中的 active registry owner 重读，不让 Go 数值表成为第二价格源。
+	fallback := s.getRegistryAliasPricing(model)
 	if fallback != nil {
 		// 按模型名去重:每个模型每进程最多打一条 warn,避免热路径每请求刷屏（issue #3394）。
 		// model 在函数入口已 ToLower,故 GLM-5.2 / glm-5.2 视为同一条目。
 		if _, seen := s.fallbackWarnSeen.LoadOrStore(model, struct{}{}); !seen {
-			log.Printf("[Billing] Using fallback pricing for model: %s", model)
+			log.Printf("[Billing] Using registry alias pricing for model: %s", model)
 		}
-		return s.applyModelSpecificPricingPolicy(model, tkApplyOfficialListBaseTaxForModel(model, fallback)), nil
+		// Registry-backed aliases are already presented with the tax policy from
+		// the same immutable snapshot. Only direct-test legacy fixtures need the
+		// compatibility tax lookup here.
+		if fallback.registryOwner == "" {
+			fallback = tkApplyOfficialListBaseTaxForModel(model, fallback)
+		}
+		return s.applyModelSpecificPricingPolicy(model, fallback), nil
 	}
 
 	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
@@ -1436,20 +1426,6 @@ type VideoPriceConfig struct {
 	Price1080P *float64 // 1080p 每秒价格（nil 表示使用默认值）
 }
 
-const (
-	defaultImageGenerationPrice = 0.134
-
-	defaultGrokImagineImagePrice1K        = 0.02
-	defaultGrokImagineImagePrice2K        = 0.02
-	defaultGrokImagineImageQualityPrice1K = 0.05
-	defaultGrokImagineImageQualityPrice2K = 0.07
-
-	// Grok video tier prices live in tk_pricing_overlay.json (video_price_tiers).
-
-	// Codex alpha/search 网页搜索单次默认价：OpenAI 官方 web search 定价 $10/1000 次。
-	defaultWebSearchPricePerCall = 0.01
-)
-
 // CalculateWebSearchCost 计算 Codex alpha/search 网页搜索按次费用。
 // callCount: 搜索调用次数（每次请求为 1）
 // groupPrice: 分组配置的单次价格（nil 表示使用默认价 0.01；0 表示免费）
@@ -1458,7 +1434,7 @@ func (s *BillingService) CalculateWebSearchCost(callCount int, groupPrice *float
 	if callCount <= 0 {
 		return &CostBreakdown{}
 	}
-	unitPrice := defaultWebSearchPricePerCall
+	unitPrice := tkRegistryWebSearchPricePerCall()
 	if groupPrice != nil && *groupPrice >= 0 {
 		unitPrice = *groupPrice
 	}
@@ -1476,7 +1452,7 @@ func (s *BillingService) CalculateWebSearchCost(callCount int, groupPrice *float
 }
 
 // CalculateImageCost 计算图片生成费用
-// model: 请求的模型名称（用于获取 LiteLLM 默认价格）
+// model: 请求的模型名称（用于获取 registry 默认价格）
 // imageSize: 图片尺寸 "1K", "2K", "4K"
 // imageCount: 生成的图片数量
 // groupConfig: 分组配置的价格（可能为 nil，表示使用默认值）
@@ -1574,7 +1550,7 @@ func (s *BillingService) getImageUnitPrice(model string, imageSize string, group
 		}
 	}
 
-	// 回退到 LiteLLM 默认价格
+	// 回退到 active registry 默认价格
 	return s.getDefaultImagePrice(model, normalizedSize)
 }
 
@@ -1603,25 +1579,22 @@ func (s *BillingService) getVideoUnitPrice(model string, resolution string, grou
 	return s.getDefaultVideoPrice(model, resolution)
 }
 
-// getDefaultImagePrice 获取 LiteLLM 默认图片价格
+// getDefaultImagePrice 获取 active registry 默认图片价格
 func (s *BillingService) getDefaultImagePrice(model string, imageSize string) float64 {
-	if price, ok := getDefaultGrokImagineImagePrice(model, imageSize); ok {
+	if price, ok := s.tkRegistryImageTierPrice(model, imageSize); ok {
 		return price
 	}
 
 	basePrice := 0.0
 
-	// 从 PricingService 获取 output_cost_per_image
-	if s.pricingService != nil {
-		pricing := s.pricingService.GetModelPricing(model)
-		if pricing != nil && pricing.OutputCostPerImage > 0 {
-			basePrice = pricing.OutputCostPerImage
-		}
+	if pricing := s.tkRegistryMediaPricing(model); pricing != nil && pricing.OutputCostPerImage > 0 {
+		basePrice = pricing.OutputCostPerImage
 	}
 
-	// 如果没有找到价格，使用硬编码默认值（$0.134，来自 gemini-3-pro-image-preview）
+	// Unknown image owners fail closed at the media guard; never invent a global
+	// per-image fallback outside the registry.
 	if basePrice <= 0 {
-		basePrice = defaultImageGenerationPrice
+		return 0
 	}
 
 	// TK: Imagen bills at its FLAT official per-image price. Google prices Imagen
@@ -1657,35 +1630,4 @@ func (s *BillingService) getDefaultVideoPrice(model string, resolution string) f
 		}
 	}
 	return 0
-}
-
-func getDefaultGrokImagineImagePrice(model string, imageSize string) (float64, bool) {
-	model = strings.ToLower(strings.TrimSpace(model))
-	switch model {
-	case "grok-imagine-image-quality":
-		return getGrokImagineImageTierPrice(
-			imageSize,
-			defaultGrokImagineImageQualityPrice1K,
-			defaultGrokImagineImageQualityPrice2K,
-		), true
-	case "grok-imagine", "grok-imagine-image", "grok-imagine-edit":
-		return getGrokImagineImageTierPrice(
-			imageSize,
-			defaultGrokImagineImagePrice1K,
-			defaultGrokImagineImagePrice2K,
-		), true
-	default:
-		return 0, false
-	}
-}
-
-func getGrokImagineImageTierPrice(imageSize string, price1K float64, price2K float64) float64 {
-	switch NormalizeImageBillingTierOrDefault(imageSize) {
-	case ImageBillingSize1K:
-		return price1K
-	case ImageBillingSize2K, ImageBillingSize4K:
-		return price2K
-	default:
-		return price2K
-	}
 }

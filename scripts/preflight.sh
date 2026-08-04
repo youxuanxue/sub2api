@@ -604,24 +604,25 @@ else
     echo "  ok: all pricing-availability sentinels intact"
 fi
 
-# ---- sub2api: pricing overlay -----------------------------------------------
+# ---- sub2api: complete pricing registry -------------------------------------
 # Source of truth: backend/internal/service/tk_pricing_overlay.json. The
-# production price source (Wei-Shaw mirror) is a trimmed litellm that drops
-# provider-prefixed + token-less media entries (and litellm itself lags new
-# provider models like deepseek-v4-*), so those models resolve to a wrong
-# default or $0 unless this fill-only overlay supplies them. Assert the overlay
-# is non-empty, anchors are present, and no entry ships a $0 price. CLAUDE.md
-# §「升级原则」: a soft rule that bit us once becomes a mechanical gate.
+# historical path is retained to reduce upstream conflict, but the document is
+# the complete global owner for all billable dimensions and executable price
+# policy. Provider/LiteLLM data is sensor evidence only. Validate every owner
+# and the protected publication boundary mechanically.
 echo ""
-echo "=== sub2api: pricing overlay ==="
+echo "=== sub2api: complete pricing registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to validate tk_pricing_overlay.json)"
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/pricing-overlay.py --quiet; then
     # pricing-overlay.py already printed the actionable failure.
     errors=$((errors + 1))
+elif ! python3 ./scripts/checks/pricing-registry-publication.py --quiet; then
+    # pricing-registry-publication.py already printed the actionable failure.
+    errors=$((errors + 1))
 else
-    echo "  ok: pricing overlay valid (anchors present, no \$0)"
+    echo "  ok: complete registry and protected publication boundary valid"
 fi
 
 echo ""
@@ -706,12 +707,10 @@ else
     echo "  ok: modelops plan/activation selftest + behavior tests"
 fi
 
-# ---- sub2api: pricing-hotfix runbook selftest -------------------------------
-# ops/pricing/apply-pricing-hotfix.py is the runbook the PricingMissingNotifier
-# Feishu card points operators at (lookup / apply channel pricing / stage
-# overlay). Its selftest is offline and covers all pure logic — run it so a
-# refactor of the overlay file format or upsert rules fails preflight instead
-# of failing the operator mid-incident.
+# ---- sub2api: pricing-hotfix compatibility tool selftest -------------------
+# apply-pricing-hotfix.py remains available for provider evidence lookup and
+# explicitly scoped channel pricing. Global prices publish only from the
+# protected-main registry path gated below.
 echo ""
 echo "=== sub2api: pricing-hotfix runbook selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
@@ -725,22 +724,21 @@ else
     echo "  ok: pricing-hotfix runbook selftest"
 fi
 
-# ---- sub2api: overlay-runtime hot-push tool selftest ------------------------
-# ops/pricing/manage-overlay-runtime.py hot-pushes tk_pricing_overlay.json to the
-# prod runtime (settings) so a model can be priced + surfaced without a release.
-# Its selftest covers the pure drift logic (pending/shadow/orphan) offline — run
-# it so a refactor of the drift rules fails preflight, not the operator.
+# ---- sub2api: complete-registry runtime publisher tests ---------------------
+# manage-overlay-runtime.py accepts only a complete, digest-bound registry from
+# protected main. Keep envelope validation, LKG audit, and publication guards
+# covered offline so partial overlays or arbitrary branch files cannot publish.
 echo ""
-echo "=== sub2api: overlay-runtime hot-push tool selftest ==="
+echo "=== sub2api: complete-registry runtime publisher tests ==="
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for overlay-runtime selftest)"
-    errors=$((errors + 1))
-elif ! python3 ./ops/pricing/manage-overlay-runtime.py --selftest >/dev/null 2>&1; then
-    echo "  FAIL: overlay-runtime hot-push tool selftest"
-    echo "        — run: python3 ops/pricing/manage-overlay-runtime.py --selftest"
-    errors=$((errors + 1))
+	echo "  FAIL: python3 not on PATH (required for registry publisher tests)"
+	errors=$((errors + 1))
+elif ! python3 -m unittest ops.pricing.test_manage_overlay_runtime >/dev/null 2>&1; then
+	echo "  FAIL: complete-registry runtime publisher tests"
+	echo "        — run: python3 -m unittest ops.pricing.test_manage_overlay_runtime"
+	errors=$((errors + 1))
 else
-    echo "  ok: overlay-runtime hot-push tool selftest"
+	echo "  ok: complete-registry runtime publisher tests"
 fi
 
 # ---- sub2api: account model_mapping tool/SSOT contract selftest -------------

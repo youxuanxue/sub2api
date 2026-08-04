@@ -5,7 +5,8 @@ TokenKey model operations keep four facts separate:
 | Fact | Owner |
 | --- | --- |
 | Runtime serving | per-account `accounts.credentials.model_mapping` |
-| Price | `channel_model_pricing` + `tk_pricing_overlay.json` + litellm mirror |
+| Global price | active complete `tk_pricing_overlay.json` registry snapshot |
+| Scoped commercial override | `channel_model_pricing` |
 | Public catalog + user menu surface | `pricing_catalog_supported_models_tk.go` |
 | Curated newapi intent | `tk_served_models.json` |
 
@@ -35,7 +36,9 @@ hand-maintained empirical sets in the same file.
 | `model-surface-bundle.json` | Deterministic, checksummed release projection generated once from the Go model owner and published as a release asset. |
 | `model_surface_bundle.py` | Shared stdlib-only schema and digest validator used by rollout tools; it owns no model list. |
 | `manage-account-model-mapping-runtime.py` | Consumes a generated bundle without compiling Go, hot-pushes optional runtime replacement scopes, checks required floor + forbidden policy while preserving compatible extras, keeps Edge diagnostics available, and applies reviewed account/group diffs only through explicit confirmation. |
-| `apply-pricing-hotfix.py` | Companion runbook for the **"模型缺价（已记零成本）" Feishu alert** (PricingMissingNotifier). Hot-applies channel pricing via the prod admin API (immediate, no release) and stages the durable fill-only entry into `tk_pricing_overlay.json`. `selftest` covers all pure logic (no network). See "Pricing-missing hotfix" below. |
+| `pricing-registry-sensor.py` | Compares provider/LiteLLM evidence with the complete registry and prepares a registry-only draft PR candidate. It never publishes or changes serving. |
+| `manage-overlay-runtime.py` | Publishes or audits the exact protected-main registry envelope. `sync-runtime` is reserved for the protected publisher workflow; operators use `check` for read-only drift inspection. |
+| `apply-pricing-hotfix.py` | Legacy helper for provider lookup and explicitly scoped `channel_model_pricing` operations. Its output is evidence only for global prices; durable global changes go through the registry PR and protected publisher. |
 
 ## Re-run (operator, needs AWS creds for prod SSM)
 
@@ -156,7 +159,7 @@ replaces the compiled account mapping floor for that scope; omitted scopes keep
 the compiled floor.
 
 **prod-only SSOT check.** Public serving requires **可展示 + 已定价 + 可服务** to
-align on prod: catalog allowlists, pricing overlay/channel rows, and prod
+align on prod: catalog allowlists, active registry/scoped channel rows, and prod
 `accounts.credentials.model_mapping` (plus optional runtime replacement). When a
 bundle contains `account_overrides`, the property-based
 `account_override:<platform>:<channel_type>:<base_url>` scope overrides the
@@ -224,45 +227,33 @@ convergence and target-tag helper availability; they are accepted by image,
 health, smoke, and display-canary results. Post-release `check-accounts` reports
 any remaining drift as yellow.
 
-## Pricing-missing hotfix (Feishu「模型缺价」告警的处置 runbook)
+## Pricing-missing remediation (Feishu「模型缺价」)
 
-Unpriced models are **served and recorded at zero cost** (never refused —
-pricing data lag must not become a customer-facing outage); the
-`PricingMissingNotifier` Feishu card tells you which `(platform, model)` is
-leaking. Remediation is two-step, mirroring the TLS-fingerprint / tiers
-"repo baseline + live push" hot-update shape:
+The Feishu card identifies the requested, routed, and billing model relationship.
+First verify the owner and every billable dimension against an official source;
+provider/LiteLLM output is comparison evidence, never effective billing input.
+
+For a global price, edit only
+`backend/internal/service/tk_pricing_overlay.json`, run the registry gate, and open
+a PR. A merge to protected `main` triggers `pricing-registry-publish.yml`, which
+publishes the exact merged bytes as one atomic runtime snapshot without an
+application release:
 
 ```bash
-# 0. what does litellm (FULL source, incl. provider-prefixed keys the trimmed
-#    mirror drops) say this model costs?
-python3 ops/pricing/apply-pricing-hotfix.py lookup --model doubao-seedream-9
-
-# 1. HOT (immediate, no release): upsert channel pricing via prod admin API.
-#    Channel pricing (DB) overrides every other pricing source; the channel
-#    cache invalidates on write. Dry-run by default; --yes to commit.
-export TOKENKEY_ADMIN_API_KEY=...   # settings.admin_api_key
-python3 ops/pricing/apply-pricing-hotfix.py channels   # pick --channel-id
-python3 ops/pricing/apply-pricing-hotfix.py apply \
-  --model doubao-seedream-9 --channel-id 4 --platform newapi --from-litellm --yes
-
-# 2. DURABLE (next release): append the overlay entry to
-#    backend/internal/service/tk_pricing_overlay.json and open a PR.
-#    Fill applies when the mirror key is absent OR an all-zero placeholder
-#    (litellm's "cost unknown" — see tkIsEffectivelyUnpriced); self-deprecating:
-#    the day the mirror carries a real non-zero price under the bare key, the
-#    source value wins. For models litellm lacks entirely, use
-#    --entry-json with the provider's official list price.
-python3 ops/pricing/apply-pricing-hotfix.py stage-overlay \
-  --model doubao-seedream-9 --from-litellm
-python3 scripts/checks/pricing-overlay.py && bash scripts/preflight.sh
+python3 ops/pricing/pricing-registry-sensor.py \
+  --report-json /tmp/pricing-registry-sensor.json \
+  --report-md /tmp/pricing-registry-sensor.md
+# review official evidence, then edit the one registry owner
+python3 scripts/checks/pricing-overlay.py
+python3 scripts/checks/pricing-registry-publication.py
 ```
 
-Caveats: channel pricing is per-channel — if the leaking traffic spans several
-channels, repeat `apply` per channel. Mirror entries that are all-zero
-placeholders self-heal via the overlay (absent-or-zero fill) and now surface the
-pricing-missing alert instead of silently billing $0; the overlay still cannot
-fix WRONG **non-zero** mirror prices (the source stays authoritative there) —
-channel pricing is exactly the tool for that. Alert digest cadence is
+Use `channel_model_pricing` only when the price is intentionally scoped to one
+channel. It wins within that scope but is not a global hotfix owner. Do not call
+`manage-overlay-runtime.py sync-runtime` from a workstation: publication accepts
+only the exact current `origin/main` registry and is bound to the protected prod
+environment. Rollback is a Git revert of the registry followed by the same
+publisher. Alert digest cadence remains
 `feishu.pricing_missing_digest_seconds` (default 1800s).
 
 ## Classification & de-dup rules

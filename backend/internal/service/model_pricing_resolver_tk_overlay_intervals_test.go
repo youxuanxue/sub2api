@@ -128,22 +128,20 @@ func TestOverlayIntervalPricing_PlusFlashTwoTier(t *testing.T) {
 	require.InDelta(t, withTax(28.8), r.GetIntervalPricing(flash, 300_000).OutputPricePerToken, 1e-15) // tier2 ¥28.8
 }
 
-func TestOverlayIntervalPricing_GLMUsesBigModelTiersAndBaseTax(t *testing.T) {
+func TestOverlayIntervalPricing_GLM51UsesMigrationBaselineFlatPriceAndBaseTax(t *testing.T) {
 	r := overlayResolver(t)
 	resolved := r.Resolve(context.Background(), PricingInput{Model: "glm-5.1"})
 	require.NotNil(t, resolved.BasePricing)
-	require.Len(t, resolved.Intervals, 2)
+	require.Empty(t, resolved.Intervals,
+		"migration must not promote previously ineffective overlay tiers")
 
 	tax := tkOfficialListBaseTaxMultiplier()
-	withTax := func(cny float64) float64 {
-		return tax * tkCNYPerMTokToUSDPerToken(cny)
+	for _, inputTokens := range []int{10_000, 40_000} {
+		pricing := r.GetIntervalPricing(resolved, inputTokens)
+		require.InDelta(t, tax*1.4e-6, pricing.InputPricePerToken, 1e-15)
+		require.InDelta(t, tax*4.4e-6, pricing.OutputPricePerToken, 1e-15)
+		require.InDelta(t, tax*2.8e-7, pricing.CacheReadPricePerToken, 1e-15)
 	}
-	require.InDelta(t, withTax(6), r.GetIntervalPricing(resolved, 10_000).InputPricePerToken, 1e-15)
-	require.InDelta(t, withTax(24), r.GetIntervalPricing(resolved, 10_000).OutputPricePerToken, 1e-15)
-	require.InDelta(t, withTax(1.3), r.GetIntervalPricing(resolved, 10_000).CacheReadPricePerToken, 1e-15)
-	require.InDelta(t, withTax(8), r.GetIntervalPricing(resolved, 40_000).InputPricePerToken, 1e-15)
-	require.InDelta(t, withTax(28), r.GetIntervalPricing(resolved, 40_000).OutputPricePerToken, 1e-15)
-	require.InDelta(t, withTax(2), r.GetIntervalPricing(resolved, 40_000).CacheReadPricePerToken, 1e-15)
 }
 
 // TestOverlayIntervals_FlatModelUnaffected guards the orthogonality: a flat overlay
@@ -160,4 +158,71 @@ func TestOverlayIntervals_FlatModelUnaffected(t *testing.T) {
 	require.InDelta(t, withTax(12), resolved.BasePricing.InputPricePerToken, 1e-15)
 	// cache-read billed at full input rate ("用原价"), not $0.
 	require.InDelta(t, withTax(12), resolved.BasePricing.CacheReadPricePerToken, 1e-15)
+}
+
+func TestOverlayIntervals_ChannelFlatOverrideSuppressesRegistryTiers(t *testing.T) {
+	resolver := NewModelPricingResolver(nil, &BillingService{})
+	registryInput := 2e-6
+	registryOutput := 8e-6
+	channelInput := 11e-6
+	channelOutput := 44e-6
+	resolved := &ResolvedPricing{
+		Mode: BillingModeToken,
+		BasePricing: &ModelPricing{
+			InputPricePerToken:  registryInput,
+			OutputPricePerToken: registryOutput,
+			Intervals: []PricingInterval{{
+				MinTokens:   0,
+				MaxTokens:   testPtrInt(128_000),
+				InputPrice:  &registryInput,
+				OutputPrice: &registryOutput,
+			}},
+		},
+	}
+
+	resolver.applyTokenOverrides(&ChannelModelPricing{
+		BillingMode: BillingModeToken,
+		InputPrice:  &channelInput,
+		OutputPrice: &channelOutput,
+	}, resolved)
+	tkApplyOverlayIntervals(resolved)
+
+	require.Empty(t, resolved.Intervals, "channel flat pricing must suppress lower-priority registry intervals")
+	inRange := resolver.GetIntervalPricing(resolved, 32_000)
+	require.InDelta(t, channelInput, inRange.InputPricePerToken, 1e-15)
+	require.InDelta(t, channelOutput, inRange.OutputPricePerToken, 1e-15)
+	outOfRange := resolver.GetIntervalPricing(resolved, 256_000)
+	require.InDelta(t, channelInput, outOfRange.InputPricePerToken, 1e-15)
+	require.InDelta(t, channelOutput, outOfRange.OutputPricePerToken, 1e-15)
+}
+
+func TestOverlayIntervals_ChannelPartialFlatOverrideKeepsUnconfiguredRegistryTierDimensions(t *testing.T) {
+	resolver := NewModelPricingResolver(nil, &BillingService{})
+	registryInput := 2e-6
+	registryOutput := 8e-6
+	channelInput := 11e-6
+	resolved := &ResolvedPricing{
+		Mode: BillingModeToken,
+		BasePricing: &ModelPricing{
+			InputPricePerToken:  registryInput,
+			OutputPricePerToken: registryOutput,
+			Intervals: []PricingInterval{{
+				MinTokens:   0,
+				MaxTokens:   testPtrInt(128_000),
+				InputPrice:  &registryInput,
+				OutputPrice: &registryOutput,
+			}},
+		},
+	}
+
+	resolver.applyTokenOverrides(&ChannelModelPricing{
+		BillingMode: BillingModeToken,
+		InputPrice:  &channelInput,
+	}, resolved)
+	tkApplyOverlayIntervals(resolved)
+
+	require.Len(t, resolved.Intervals, 1, "unconfigured output must retain its registry tier")
+	inRange := resolver.GetIntervalPricing(resolved, 32_000)
+	require.InDelta(t, channelInput, inRange.InputPricePerToken, 1e-15)
+	require.InDelta(t, registryOutput, inRange.OutputPricePerToken, 1e-15)
 }

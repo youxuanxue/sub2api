@@ -9,7 +9,7 @@ type PublicCatalogVideoTier struct {
 	DefaultForModel              bool     `json:"default_for_model,omitempty"`
 }
 
-func attachCatalogVideoPriceTiers(resp *PublicCatalogResponse) {
+func attachCatalogVideoPriceTiersFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
 	if resp == nil || len(resp.Data) == 0 {
 		return
 	}
@@ -18,17 +18,17 @@ func attachCatalogVideoPriceTiers(resp *PublicCatalogResponse) {
 		if resp.Data[i].Pricing.BillingMode != "video" {
 			continue
 		}
-		tiers := buildPublicCatalogVideoTiers(modelID)
+		tiers := buildPublicCatalogVideoTiersFromSnapshot(snapshot, modelID)
 		if len(tiers) == 0 {
 			continue
 		}
 		resp.Data[i].Pricing.VideoPriceTiers = tiers
-		if min, ok := tkVideoMinUnitPriceUSD(modelID); ok && min > 0 {
+		if min, ok := tkOverlayVideoMinUnitPriceUSDFromSnapshot(snapshot, modelID); ok && min > 0 {
 			resp.Data[i].Pricing.OutputCostPerSecond = min
 		}
 	}
 }
 
-func buildPublicCatalogVideoTiers(modelID string) []PublicCatalogVideoTier {
-	return tkOverlayVideoCatalogTiers(modelID)
+func buildPublicCatalogVideoTiersFromSnapshot(snapshot *tkPricingOverlaySnapshot, modelID string) []PublicCatalogVideoTier {
+	return tkOverlayVideoCatalogTiersFromSnapshot(snapshot, modelID)
 }

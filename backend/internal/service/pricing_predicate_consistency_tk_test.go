@@ -34,10 +34,10 @@ import (
 // on top, exactly as in production.
 func newConsistencyBilling(t *testing.T, blob []byte) *BillingService {
 	t.Helper()
-	ps := &PricingService{}
-	data, err := ps.parsePricingData(blob)
+	var data map[string]*LiteLLMModelPricing
+	err := json.Unmarshal(blob, &data)
 	require.NoError(t, err)
-	ps.pricingData = data
+	ps := &PricingService{pricingData: data}
 	return NewBillingService(nil, ps)
 }
 
@@ -203,8 +203,8 @@ func TestR3_ChannelPricedModelNotFalseRejected(t *testing.T) {
 }
 
 // TestIsServedViaFamilyFloor pins the post-pivot convergence signal (docs/approved/
-// priced-or-it-doesnt-ship.md §4): true iff a model has NO real litellm/overlay price BUT a Go
-// family floor — i.e. it is being served at an estimated floor and needs a real price filled
+// priced-or-it-doesnt-ship.md §4): true iff a model has NO direct registry owner BUT a registry
+// family alias — i.e. it is being served at an estimated family price and needs a real owner added
 // (served_at_fallback alert). A real-priced model, or a no-floor model (gate-rejected), returns false.
 func TestIsServedViaFamilyFloor(t *testing.T) {
 	// Only "real-priced-model" has a real price; everything else relies on Go family floors (or none).
@@ -215,8 +215,8 @@ func TestIsServedViaFamilyFloor(t *testing.T) {
 		"a model with a real litellm/overlay price is NOT served via floor")
 	require.True(t, billing.IsServedViaFamilyFloor("gemini-9-ultra-preview"),
 		"a gemini model with no real price falls to the gemini family floor → served via floor")
-	require.False(t, billing.IsServedViaFamilyFloor("gpt-9-unknown-codex"),
-		"unknown gpt models fall through the OpenAI default-model pricing path; with a real overlay price there is no served-via-floor alert")
+	require.True(t, billing.IsServedViaFamilyFloor("gpt-9-unknown-codex"),
+		"an unknown gpt model aliases to the gpt-5.4 registry family price and still needs a direct owner")
 	require.True(t, billing.IsServedViaFamilyFloor("claude-brand-new-xyz"),
 		"an unknown claude model falls to the claude family floor → served via floor")
 	require.False(t, billing.IsServedViaFamilyFloor("no-family-vendor-zzz"),

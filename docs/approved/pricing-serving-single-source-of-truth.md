@@ -8,7 +8,7 @@ created: 2026-06-17
 related_prs: []
 related_commits: []
 related_stories: []
-related_design: docs/approved/newapi-as-fifth-platform.md, docs/approved/pricing-availability-source-of-truth.md, docs/approved/newapi-served-models-reconciler.md, docs/approved/channel-pricing-refund-gate-and-runtime-pricing.md
+related_design: docs/approved/pricing-registry-hot-reload.md, docs/approved/newapi-as-fifth-platform.md, docs/approved/pricing-availability-source-of-truth.md, docs/approved/newapi-served-models-reconciler.md, docs/approved/channel-pricing-refund-gate-and-runtime-pricing.md
 supersedes: none
 ---
 
@@ -26,20 +26,20 @@ supersedes: none
 | Fact | Question | OWNER (single source) | Thin projection / cache |
 | --- | --- | --- | --- |
 | **SERVING** | Does account N serve client-id `m`? | per-account `credentials.model_mapping` (identity whitelist `key==value`) | `tk_served_models.json` manifest — CI-time **intent** projection only, NOT runtime |
-| **PRICE** | What does `m` cost? | two-tier: `tk_pricing_overlay.json` (gated/固化) **+** `channel_model_pricing` DB (ungated/热更) | litellm-base mirror + Go fallback |
+| **GLOBAL PRICE** | What does `m` cost by default? | active complete `tk_pricing_overlay.json` registry snapshot | embedded copy is last-known-good fallback; provider/LiteLLM data is sensor evidence |
+| **SCOPED PRICE OVERRIDE** | Does one commercial channel override `m`? | `channel_model_pricing` for that explicit scope | resolver/cache only |
 
 **Price precedence (highest wins):**
 
 ```
-channel_model_pricing (DB, raw-SQL resolver)   ← WINS over everything
-  > tk_pricing_overlay.json                     ← fill-only, never overrides a DB row
-    > litellm-base mirror
-      > Go in-code fallback
+matching channel_model_pricing scope
+  > active complete registry snapshot
+    > embedded complete registry fallback
 ```
 
-The overlay header states this literally (`pricing_service_tk_overlay.go:32-33`):
-*"The DB-backed ModelPricing override (model_pricing_resolver.go) still sits above
-everything."* That sentence is the whole reason PRICE has **two** writers.
+There is one editable global owner. A channel row is not a second global writer: it
+applies only when the resolver selects that commercial scope. Provider/LiteLLM files may
+produce a candidate diff, but no value from them participates in effective billing.
 
 **Serving owner is genuinely per-account.** `Account.IsModelSupported`
 (`backend/internal/service/account.go:639`) returns `true` on an **empty** mapping —
@@ -50,12 +50,12 @@ rejection of an auto-sync reconciler and is documented in
 
 ## 2. Two wrong answers we explicitly REJECT
 
-### REJECTED: "align the whitelist to the overlay"
+### REJECTED: "align the whitelist to the price registry"
 
-The overlay is a PRICE source. Letting price-presence imply serving (auto-mapping every
+The registry is a PRICE source. Letting price-presence imply serving (auto-mapping every
 priced id onto an account) inverts the fact ownership: it makes the PRICE owner silently
 write the SERVING fact. This is exactly the #812-class confusion — `qwen3-8b/14b/32b` were
-priced in the overlay but not mapped onto account 60, and the price-present-looks-served
+priced in the registry but not mapped onto account 60, and the price-present-looks-served
 illusion produced `429`/`503` in prod. The fix is **not** to let the price drag serving
 along; it is to keep them separate facts and let a guard assert they agree
 (A1/A3 below, shipped in #819).
@@ -103,8 +103,9 @@ which keeps the owner single.
 | Track | What | Owner-fact it closes | Status |
 | --- | --- | --- | --- |
 | **FE catalog (PR-B)** | newapi whitelist picker offers the served long-tail (qwen3 dense ids) | SERVING fact *offerable* in admin UI | **this batch (PR-B)** |
-| **channel-pricing refund gate** | new columns + write-time validator on `channel_model_pricing` | would make the **PRICE** fact have ONE *enforced* owner across **both** writers | **DEFERRED into ②** — investigated, no live leak today (§4.1) |
-| **② runtime pricing** | route new long-tail prices to `channel_model_pricing` so onboarding needs no release | true-runtime PRICE; **builds the gate as part of itself** | **staged-next** (deploy-ordering hazard documented) |
+| **channel-pricing refund gate** | validate dimensions that `channel_model_pricing` can override in its explicit scope | keeps scoped overrides settlement-safe without making them a global owner | **deferred** — investigated, no live refund leak today (§4.1) |
+| **protected registry publication** | merge a registry-only PR and atomically publish the exact protected-main artifact | makes the single global PRICE owner hot without an application release | **implemented** — see `pricing-registry-hot-reload.md` |
+| **provider price sensor** | compare external evidence and prepare a draft registry-only candidate | removes manual discovery toil without delegating the price decision | **implemented** — sensor cannot publish or access AWS |
 
 See `docs/approved/channel-pricing-refund-gate-and-runtime-pricing.md` for the full gate +
 ② design and the investigation below.
@@ -112,7 +113,7 @@ See `docs/approved/channel-pricing-refund-gate-and-runtime-pricing.md` for the f
 ### 4.1 The channel-pricing "hole" — investigated, found INERT today (no live leak)
 
 The prior framing of this work called `channel_model_pricing` "the real remaining money
-hole": it **WINS** precedence and **bypasses** the overlay's preflight refund gate
+hole": it **WINS within its selected scope** and **bypasses** the registry's preflight refund gate
 (`scripts/checks/pricing-overlay.py` runs CI-only against the JSON, never a DB write). The
 precedence + bypass are real. **But a direct code read retracts the "live money-leak"
 claim** — the dangerous write (an ungated *video* price re-enabling the terminal-failure
@@ -124,12 +125,12 @@ refund leak) is **structurally unreachable** through `channel_model_pricing` tod
 2. **No billing mode.** `BillingMode` has `token / per_request / image` — **no `video`.**
 3. **No resolver branch.** `ModelPricingResolver` (`model_pricing_resolver.go:75,139`) routes
    only `token / per_request / image`; `ResolvedPricing` (`:16`) has **no per-second field**.
-4. **Video cost is overlay-only.** `billing_service.go:976` reads `pricing.OutputCostPerSecond`
-   from the overlay/litellm `ModelPricing` (`pricing_service.go:84`) — which
+4. **Video cost is registry-only.** `billing_service.go:976` reads `pricing.OutputCostPerSecond`
+   from the active registry `ModelPricing` (`pricing_service.go:84`) — which
    `pricing-overlay.py` **already gates**. The video refund
-   (`openai_gateway_service_tk_video_refund.go`) reverses that overlay-derived cost. A
+   (`openai_gateway_service_tk_video_refund.go`) reverses that registry-derived cost. A
    `channel_model_pricing` row never feeds video cost or its refund. Thinking rate is the
-   same story: `ThinkingOutputPricePerToken` is sourced only from litellm/overlay
+   same story: `ThinkingOutputPricePerToken` is sourced only from the registry
    (`billing_service.go:412`), never from a channel row.
 
 So the only price dimensions `channel_model_pricing` can actually carry are

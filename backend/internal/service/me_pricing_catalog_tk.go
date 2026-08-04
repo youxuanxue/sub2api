@@ -239,7 +239,7 @@ type MePricingPrice struct {
 	// Tiers, when non-empty, is the input-token interval (阶梯) ladder for models
 	// whose unit price varies by request input length. Single source of truth: it
 	// is copied verbatim from the public catalog (PublicCatalogModel.Pricing.Tiers,
-	// built once in attachCatalogOverlayTiers) — me-pricing shows the OFFICIAL list
+	// built once in attachCatalogOverlayTiersFromSnapshot) — me-pricing shows the OFFICIAL list
 	// price (officialRate = 1.0, no group/override scaling), so its ladder is the
 	// same one the public /pricing endpoint serves. The flat Input/OutputPer1K
 	// fields carry the first (lowest) tier. Per 1k tokens, USD.

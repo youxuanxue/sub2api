@@ -1,0 +1,106 @@
+name: Pricing Registry Sensor
+
+on:
+  schedule:
+    - cron: "37 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pricing-registry-sensor
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SENSOR_BRANCH: chore/pricing-registry-sensor
+      REGISTRY: backend/internal/service/tk_pricing_overlay.json
+      REPORT_JSON: /tmp/pricing-registry-sensor.json
+      REPORT_MD: /tmp/pricing-registry-sensor.md
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Compare provider evidence with registry
+        run: |
+          set -euo pipefail
+          python3 ops/pricing/pricing-registry-sensor.py \
+            --report-json "$REPORT_JSON" \
+            --report-md "$REPORT_MD" \
+            --candidate-registry "$REGISTRY"
+
+      - name: Validate candidate and enforce one-file scope
+        id: candidate
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- "$REGISTRY"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "$(git diff --name-only | sed '/^$/d')" = "$REGISTRY"
+          python3 scripts/checks/pricing-overlay.py
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pricing-registry-sensor-${{ github.run_id }}
+          path: |
+            /tmp/pricing-registry-sensor.json
+            /tmp/pricing-registry-sensor.md
+          if-no-files-found: error
+
+      - name: Create or refresh registry-only draft PR
+        if: steps.candidate.outputs.changed == 'true'
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          git config user.name "tk-pricing-registry-sensor[bot]"
+          git config user.email "pricing-registry-sensor@tokenkey.dev"
+          git checkout -B "$SENSOR_BRANCH"
+          test "$(git diff --name-only | sed '/^$/d')" = "$REGISTRY"
+          git add "$REGISTRY"
+          git commit -m "chore(pricing): refresh provider evidence candidate"
+          git push --force-with-lease origin "$SENSOR_BRANCH"
+
+          BODY=/tmp/pricing-registry-pr-body.md
+          {
+            echo "## 摘要"
+            echo
+            echo "Provider/LiteLLM 传感器发现已存在 owner 的价格维度变化，并生成仅修改 registry 的候选。此 PR 不会自动发布；合并到受保护 main 后才由独立 publisher 热生效。"
+            echo
+            echo "## 风险"
+            echo
+            echo "外部数据仅是证据。请人工核对 requested model、routed model、billing owner 与全部计费维度。新模型和路由别名不会由本 PR 自动上架。"
+            echo
+            echo "## 验证"
+            echo
+            echo "- Registry gate 已通过"
+            echo "- 变更范围机械限制为 \`$REGISTRY\`"
+            echo "- [传感器运行]($RUN_URL)"
+          } > "$BODY"
+
+          EXISTING="$(gh pr list --state open --base main --head "$SENSOR_BRANCH" --json number,url,isDraft --jq '.[0] // empty')"
+          if [ -n "$EXISTING" ]; then
+            NUMBER="$(printf '%s' "$EXISTING" | jq -r '.number')"
+            gh pr edit "$NUMBER" --title "WIP: chore(pricing): review provider pricing drift" --body-file "$BODY"
+            if [ "$(printf '%s' "$EXISTING" | jq -r '.isDraft')" != "true" ]; then
+              gh pr ready "$NUMBER" --undo
+            fi
+          else
+            gh pr create --draft --base main --head "$SENSOR_BRANCH" \
+              --title "WIP: chore(pricing): review provider pricing drift" \
+              --body-file "$BODY"
+            NUMBER="$(gh pr list --state open --base main --head "$SENSOR_BRANCH" --json number --jq '.[0].number')"
+          fi
+          test -n "$NUMBER"
+          test "$(gh pr view "$NUMBER" --json isDraft --jq '.isDraft')" = "true"

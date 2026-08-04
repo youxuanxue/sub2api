@@ -20,7 +20,7 @@ func TestAttachCatalogVideoPriceTiers_SeedanceMinTier(t *testing.T) {
 			Pricing: PublicCatalogPricing{BillingMode: "video", OutputCostPerSecond: staleFlatPrice},
 		}},
 	}
-	attachCatalogVideoPriceTiers(resp)
+	attachCatalogVideoPriceTiersFromSnapshot(resp, loadTKPricingOverlaySnapshot())
 	require.NotEmpty(t, resp.Data[0].Pricing.VideoPriceTiers)
 	require.InDelta(t, min, resp.Data[0].Pricing.OutputCostPerSecond, 1e-9)
 	require.Less(t, resp.Data[0].Pricing.OutputCostPerSecond, staleFlatPrice)

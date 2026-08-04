@@ -56,7 +56,7 @@ ADVERTISED（在某平台 DefaultModels → 喂 /v1/models 与「我的菜单」
 ### 1.2 四个状态维度（每个模型都要分开看）
 
 - **SERVABLE**：网关能真拿到 200。判定方式按平台不同：原生显示平台是 Go 硬 allowlist；newapi 是 per-account `model_mapping` identity 白名单（空 mapping = 该账号 catch-all 放行全渠道）；kiro 与 grok 原生臂是纯透传中继。
-- **PRICED**：在 litellm 运行时镜像或 `tk_pricing_overlay.json` 有非零价。`price_source ∈ {overlay, mirror, channel, none}`。`none` = 计 `$0`（chat 会 P0 告警；media 会被 400 守卫拦下）。
+- **PRICED**：全局价格必须在 complete registry `tk_pricing_overlay.json` 有有效 owner；`channel_model_pricing` 只作为显式 scope 覆盖。`price_source ∈ {overlay, channel, none}`，其中 `overlay` 是历史枚举名、语义为 complete registry。Provider/LiteLLM 镜像只做 sensor；`none` = 计 `$0`（chat 会 P0 告警；media 会被 400 守卫拦下）。
 - **DISPLAYED**：是否进 `GET /api/v1/public/pricing` 与 `IsModelPriced` 会员资格，由 `isPublicCatalogModelSupported` / `isTkCuratedNewAPICatalogRowListed` 决定（native 平台用 Go allowlist；newapi 用 manifest）。
 - **ADVERTISED**：是否在某平台 `DefaultModels`（喂网关 `/v1/models` 与「我的菜单」）。**与可服务正交**——可服务未必广告（如 `claude-opus-4-1`），广告未必可服务（`advertised_dead`）。
 
@@ -141,7 +141,7 @@ gemini-3.5-flash-low       gemini-pro-agent
 ```
 
 - 价/展示闭环（2026-06-23）：`gemini-2.5-flash-thinking` 已补 `tk_pricing_overlay.json`（按 bundled `gemini-2.5-flash` 官方价镜像：in $0.30/M、out $2.50/M、cache-read $0.03/M）；`gemini-3-flash-agent`、`gemini-3.5-flash-{low,extra-low}`、`gemini-pro-agent` 继续走 Antigravity overlay；`gemini-2.5-flash`、`gemini-2.5-flash-lite`、`gemini-3-flash`、`gemini-3.1-flash-image`、`gemini-3.1-pro-low` 走 bundled/litellm Gemini/Vertex 非零价。`/antigravity/models` 和 admin selector 已接 `supportedAntigravityCatalogModels`，因此这些 10 个 id 会作为 Antigravity 默认可见候选；`gemini-2.5-pro` 虽有原生 Gemini 价，但因 Antigravity 复测未拿到 200，不进该面。
-- `/api/v1/public/pricing` 仍是 flat `model_id` 目录：同名模型（如 `gemini-3-flash`）已有 Gemini/Vertex vendor 行时，fill-only overlay 不改 vendor 归属；只有 overlay-only wire id（如 `gemini-2.5-flash-thinking`、`gemini-3-flash-agent`、`gemini-pro-agent`）会显示为 `vendor=antigravity`。这是当前 DTO 的平台维度限制，不影响 Antigravity 请求按 `requested_model` 计费。
+- `/api/v1/public/pricing` 仍是 flat `model_id` 目录：complete registry owner 同时决定价格和 vendor/catalog metadata，外部目录的同名行不能覆盖它。DTO 仍无独立平台维度；Antigravity 请求按 `requested_model` 解析 registry owner 计费。
 - **`tab_flash_lite_preview` 清理（2026-06-22）**：该模型无公开价，已从默认 antigravity mapping / SSOT 目标面移除，并由静态检查标为 unpriced mapping violation，避免继续可见或经显式 apply 回写。
 - **policy（不可服务因策略）**：`gpt-oss-120b-medium` 与非 live Antigravity Claude id 不在 antigravity 服务；account model_mapping SSOT + 显式 `apply-accounts` 仅保留 PR #1265 live Claude 子集（`claude-sonnet-4-6`、`claude-opus-4-6-thinking`，含 `claude-opus-4-6` 兼容别名）+ Gemini 可服务清单。
 
@@ -323,7 +323,7 @@ glm-4.7  glm-4.6  glm-4.5  glm-4.5-air
 ## 6. 维护与刷新
 
 - **可服务 allowlist 刷新**：`/tokenkey-servable-model-refresh`（`ops/pricing/refresh-servable-allowlist.py`）——经 prod SSM 逐模型真实请求，只留 200，splice 回 Go servable map。探测元组当前为 anthropic/openai/gemini；antigravity/grok 手维护。
-- **上架单个模型（served+priced）**：`/tokenkey-onboard-model`——probe → `tk_served_models.json` 清单 + overlay fill-only 价（**官方源、禁臆造**）→ 生成 checksummed bundle → `modelops activate` 以独立 probe/pricing evidence 写入 prod mapping → release/livefire 200 → 两档计费核对；generic deploy/rollback 不写 live mapping。
+- **上架单个模型（served+priced）**：`/tokenkey-onboard-model`——probe → `tk_served_models.json` 清单 + complete registry owner（**官方源、禁臆造**）→ registry PR 合并热发布 → 生成 checksummed bundle → `modelops activate` 以独立 probe/pricing evidence 写入 prod mapping → release/livefire 200 → 两档计费核对；generic deploy/rollback 不写 live mapping 或价格。
 - **漂移门禁**：`scripts/checks/catalog-serving-drift.py`（manifest↔mapping path↔overlay 一致，未声明 activation/legacy mapping 的 priced-but-not-mapped 条目硬失败）经 `scripts/preflight.sh` 调用。
 - **不可服务台账机器源**：`ops/pricing/servable-reprobe-ledger.json`（watchlist / skiplist / deadlist）由 `refresh-servable-allowlist.py selftest` 和 preflight 校验，避免 transient 记录过期或误进永久 skip。
 

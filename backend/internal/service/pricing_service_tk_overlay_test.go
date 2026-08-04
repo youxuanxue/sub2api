@@ -123,10 +123,9 @@ func TestBillingOverlayMediaOnlyPricingRemainsTokenAbsent(t *testing.T) {
 	require.Nil(t, pricing)
 }
 
-// TestTKPricingOverlay_FillOnlySourceWins verifies the overlay never overwrites
-// an entry the loaded source already carries: the day the mirror catalogues
-// deepseek-v4-flash natively, the source value must win (self-deprecating).
-func TestTKPricingOverlay_FillOnlySourceWins(t *testing.T) {
+// TestUS043_RegistryWinsOverNonZeroProviderPrice proves provider snapshots are
+// sensors only, including when they carry a plausible non-zero price.
+func TestUS043_RegistryWinsOverNonZeroProviderPrice(t *testing.T) {
 	svc := &PricingService{}
 	body := []byte(`{
 		"deepseek-v4-flash": {
@@ -142,8 +141,8 @@ func TestTKPricingOverlay_FillOnlySourceWins(t *testing.T) {
 
 	flash := data["deepseek-v4-flash"]
 	require.NotNil(t, flash)
-	require.InDelta(t, 1e-6, flash.InputCostPerToken, 1e-15, "source value must win over overlay")
-	require.InDelta(t, 2e-6, flash.OutputCostPerToken, 1e-15, "source value must win over overlay")
+	require.InDelta(t, 1.4e-7, flash.InputCostPerToken, 1e-15, "registry must replace provider value")
+	require.InDelta(t, 2.8e-7, flash.OutputCostPerToken, 1e-15, "registry must replace provider value")
 }
 
 // TestTKPricingOverlay_FillsAntigravityGeminiThinking verifies the Antigravity
