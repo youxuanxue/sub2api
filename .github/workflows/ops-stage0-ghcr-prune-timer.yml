@@ -105,12 +105,11 @@ jobs:
     if: inputs.target == 'all-deployable-edges' && needs.discover-edges.outputs.has_targets == 'true'
     runs-on: ubuntu-latest
     environment: prod
-    env:
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.discover-edges.outputs.matrix) }}
     env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       EDGE_ID: ${{ matrix.edge_id }}
       AWS_REGION: ${{ matrix.region }}
     steps:
