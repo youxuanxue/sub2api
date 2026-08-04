@@ -166,12 +166,12 @@
     {
       "path": "backend/internal/service/pricing_service_test.go",
       "must_contain": [
-        "TestDefaultPricingKeepsTokenKeyCodexAutoReviewRates",
-        "TestCodexAutoReviewBundledPricingMatchesTokenKeyOverlay",
-        "priceFields := []string{",
-        "require.JSONEq(t, string(overlayValue), string(bundledValue)"
+        "TestCodexAutoReviewBundledPricingCannotOverrideRegistry",
+        "bundled[\"codex-auto-review\"] = json.RawMessage",
+        "\"input_cost_per_token\": 0.99",
+        "require.InDelta(t, 5e-6, got.InputCostPerToken"
       ],
-      "rationale": "Pins the codex-auto-review billing regression and its cross-source parity contract. The focused behavior test verifies the parsed base/priority prices used by runtime billing; the structured parity test compares every bundled base, priority, flex, batch, and above-272k price against the TokenKey overlay owner. Without this sentinel a future upstream merge could delete both tests while leaving a source-dependent fallback price split that ordinary compilation cannot detect."
+      "rationale": "Pins the codex-auto-review SSOT regression at the runtime boundary. The behavior test injects deliberately wrong bundled prices and proves parsing still resolves the active registry owner, including base, priority, cache, and service-tier dimensions. Bundled/provider documents may drift as sensor evidence without becoming a second price owner or forcing a multi-file registry edit."
     },
     {
       "path": "backend/internal/service/pricing_tk_base_tax_test.go",
@@ -184,6 +184,25 @@
         "TestBillingFallback_ConfiguredModelMatchersApplyBaseTax"
       ],
       "rationale": "Pins provider billing, catalog presentation, and bare-model fallback behavior by deriving exhaustive providers and model matchers from the executable overlay policy. Tests retain only independent negative boundaries, so adding a provider or matcher changes the SSOT rather than requiring a second hand-maintained test list."
+    },
+    {
+      "path": "backend/internal/service/pricing_service.go",
+      "must_contain": [
+        "func (s *PricingService) ListModelNamesByProvider",
+        "if s != nil && s.useActiveRegistry",
+        "pricingData = snapshot.Models"
+      ],
+      "rationale": "Provider model listing must read the immutable active registry in production. The mutable pricingData field remains only an upstream compatibility cache and direct-test fixture; reading it here lets a concurrent provider sync make the admin sync-models response stale after a successful hot reload."
+    },
+    {
+      "path": "backend/internal/service/pricing_service_test.go",
+      "must_contain": [
+        "TestListModelNamesByProvider_ConstructorUsesActiveRegistry",
+        "\"stale-provider-only\"",
+        "require.Contains(t, got, \"codex-auto-review\")",
+        "require.NotContains(t, got, \"stale-provider-only\")"
+      ],
+      "rationale": "Pins the regression proving constructor-created production services list models from the active registry rather than a stale provider compatibility cache after hot reload."
     },
     {
       "path": "backend/internal/service/pricing_catalog_tk.go",

@@ -1154,12 +1154,20 @@ func (s *PricingService) getHashFilePath() string {
 // LiteLLMProvider matches the given provider string (case-insensitive).
 // The returned slice is sorted alphabetically.
 func (s *PricingService) ListModelNamesByProvider(provider string) []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	var pricingData map[string]*LiteLLMModelPricing
+	if s != nil && s.useActiveRegistry {
+		if snapshot := loadTKPricingOverlaySnapshot(); snapshot != nil {
+			pricingData = snapshot.Models
+		}
+	} else if s != nil {
+		s.mu.RLock()
+		pricingData = s.pricingData
+		s.mu.RUnlock()
+	}
 
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	names := make([]string, 0)
-	for name, p := range s.pricingData {
+	for name, p := range pricingData {
 		if strings.ToLower(p.LiteLLMProvider) == provider {
 			names = append(names, name)
 		}

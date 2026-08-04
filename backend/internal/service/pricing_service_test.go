@@ -554,8 +554,19 @@ func TestDefaultPricingIncludesGemini36FlashRates(t *testing.T) {
 	}
 }
 
-func TestDefaultPricingKeepsTokenKeyCodexAutoReviewRates(t *testing.T) {
+func TestCodexAutoReviewBundledPricingCannotOverrideRegistry(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
+	require.NoError(t, err)
+	var bundled map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(data, &bundled))
+	bundled["codex-auto-review"] = json.RawMessage(`{
+		"input_cost_per_token": 0.99,
+		"output_cost_per_token": 0.98,
+		"cache_read_input_token_cost": 0.97,
+		"litellm_provider": "openai",
+		"mode": "chat"
+	}`)
+	data, err = json.Marshal(bundled)
 	require.NoError(t, err)
 
 	svc := &PricingService{}
@@ -574,51 +585,6 @@ func TestDefaultPricingKeepsTokenKeyCodexAutoReviewRates(t *testing.T) {
 	require.Zero(t, got.CacheCreationInputTokenCost)
 	require.Zero(t, got.CacheCreationInputTokenCostPriority)
 	require.True(t, got.SupportsServiceTier)
-}
-
-func TestCodexAutoReviewBundledPricingMatchesTokenKeyOverlay(t *testing.T) {
-	loadEntry := func(path string) map[string]json.RawMessage {
-		t.Helper()
-		body, err := os.ReadFile(path)
-		require.NoError(t, err)
-
-		var document map[string]json.RawMessage
-		require.NoError(t, json.Unmarshal(body, &document))
-		raw, ok := document["codex-auto-review"]
-		require.True(t, ok, "%s must define codex-auto-review", path)
-
-		var entry map[string]json.RawMessage
-		require.NoError(t, json.Unmarshal(raw, &entry))
-		return entry
-	}
-
-	bundled := loadEntry(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
-	overlay := loadEntry("tk_pricing_overlay.json")
-	priceFields := []string{
-		"input_cost_per_token",
-		"input_cost_per_token_priority",
-		"input_cost_per_token_flex",
-		"input_cost_per_token_batches",
-		"input_cost_per_token_above_272k_tokens",
-		"output_cost_per_token",
-		"output_cost_per_token_priority",
-		"output_cost_per_token_flex",
-		"output_cost_per_token_batches",
-		"output_cost_per_token_above_272k_tokens",
-		"cache_read_input_token_cost",
-		"cache_read_input_token_cost_priority",
-		"cache_read_input_token_cost_flex",
-		"cache_read_input_token_cost_above_272k_tokens",
-	}
-	for _, field := range priceFields {
-		t.Run(field, func(t *testing.T) {
-			bundledValue, bundledOK := bundled[field]
-			overlayValue, overlayOK := overlay[field]
-			require.True(t, bundledOK, "bundled pricing must define %s", field)
-			require.True(t, overlayOK, "TokenKey overlay must define %s", field)
-			require.JSONEq(t, string(overlayValue), string(bundledValue), "pricing sources disagree on %s", field)
-		})
-	}
 }
 
 func TestGetModelPricing_Gpt54MiniUsesDedicatedRegistryOwner(t *testing.T) {
@@ -774,6 +740,19 @@ func TestListModelNamesByProvider_EmptyCatalog(t *testing.T) {
 	got := svc.ListModelNamesByProvider("openai")
 	require.NotNil(t, got)
 	require.Empty(t, got)
+}
+
+func TestListModelNamesByProvider_ConstructorUsesActiveRegistry(t *testing.T) {
+	rebuildTKOverlayUnion(nil)
+	t.Cleanup(func() { rebuildTKOverlayUnion(nil) })
+	svc := NewPricingService(&config.Config{}, nil)
+	svc.pricingData = map[string]*LiteLLMModelPricing{
+		"stale-provider-only": {LiteLLMProvider: "openai"},
+	}
+
+	got := svc.ListModelNamesByProvider("openai")
+	require.Contains(t, got, "codex-auto-review")
+	require.NotContains(t, got, "stale-provider-only")
 }
 
 func TestGetModelPricing_BareNameMatchesProviderPrefixedHighestPrice(t *testing.T) {
