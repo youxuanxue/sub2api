@@ -13,9 +13,8 @@ import textwrap
 import unittest
 
 _DIR = pathlib.Path(__file__).resolve().parent
-_TEST = pathlib.Path(__file__).resolve()
-_PROBE = _DIR / "probe-data-layer-capacity-prototype.sh"
-_VERDICT = _DIR / "data_layer_capacity_verdict_prototype.py"
+_PROBE = _DIR / "probe-data-layer-capacity.sh"
+_VERDICT = _DIR / "data_layer_capacity_verdict.py"
 _PROJECTION = _DIR / "data_layer_capacity_projection.py"
 
 
@@ -28,27 +27,11 @@ def _load_module(name: str, path: pathlib.Path):
     return module
 
 
-verdict = _load_module("data_layer_capacity_verdict_prototype", _VERDICT)
+verdict = _load_module("data_layer_capacity_verdict", _VERDICT)
 projection = _load_module("data_layer_capacity_projection", _PROJECTION)
 
 
 class DataLayerCapacitySafetyTest(unittest.TestCase):
-    def test_prototype_is_not_wired_to_prod_workflows(self) -> None:
-        repo_root = _DIR.parents[1]
-        consumers = [repo_root / ".github", repo_root / "ops"]
-        references: list[str] = []
-        for root in consumers:
-            for path in root.rglob("*"):
-                if not path.is_file() or path.resolve() in {_TEST, _PROBE, _VERDICT}:
-                    continue
-                try:
-                    body = path.read_text(encoding="utf-8")
-                except UnicodeDecodeError:
-                    continue
-                if _PROBE.name in body or _VERDICT.name in body:
-                    references.append(str(path.relative_to(repo_root)))
-        self.assertEqual(references, [], msg=f"prototype unexpectedly activated by {references}")
-
     def test_growth_timeout_is_unknown_not_green(self) -> None:
         thresholds = {
             "months_to_volume_full": {"approaching": 6, "trigger": 3},

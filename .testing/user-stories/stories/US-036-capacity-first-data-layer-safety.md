@@ -1,7 +1,7 @@
 # US-036-capacity-first-data-layer-safety
 
 - ID: US-036
-- Title: Capacity-first 数据层安全原型
+- Title: Capacity-first 数据层安全保护
 - Version: V1
 - Priority: P0
 - As a / I want / So that:
@@ -9,8 +9,8 @@
 
 - Trace:
   - 设计锚点：`docs/approved/design-capacity-first-data-layer-safety.md`
-  - 容量探针：`ops/observability/probe-data-layer-capacity-prototype.sh`
-  - 容量判定：`ops/observability/data_layer_capacity_verdict_prototype.py`
+  - 容量探针：`ops/observability/probe-data-layer-capacity.sh`
+  - 容量判定：`ops/observability/data_layer_capacity_verdict.py`
   - 离线投影：`ops/observability/data_layer_capacity_projection.py`
   - 扩盘计划：`ops/stage0/reconcile-cfn-datavolume-no-replace.sh`
 - Risk Focus:
@@ -28,7 +28,7 @@
 5. **AC-005（prod plan 审批）**：Given 默认 prod stack，When 未提供与 stack 完全一致的 `--confirm-prod-plan`，Then 在任何 AWS 调用前拒绝。
 6. **AC-006（no-replace）**：Given CloudFormation change set，When guard 校验，Then 只接受 `DataVolume` 的 `Modify/Replacement=False/Scope=Properties/Property=Size`；`Instance`、`EIPAssoc`、其它属性或 replacement 全部拒绝。
 7. **AC-007（无执行面）**：Given 本阶段扩盘工具，When 审查 shell contract，Then 不存在 `execute-change-set`、部署、容器重启、文件系统 resize 或数据删除路径。
-8. **AC-008（未激活）**：Given 本 PR 仍是 pending prototype，When 合并到 main，Then 现有 prod daily diagnostics 继续使用原 probe/verdict，prototype 文件不得被 workflow 或运行时入口引用。
+8. **AC-008（唯一正式 owner）**：Given 有界实现已获批准，When prod daily diagnostics 调用容量检查，Then 只使用正式 probe/verdict，仓库不保留并行 prototype 副本。
 
 ## Assertions
 
@@ -41,7 +41,6 @@
 ## Linked Tests
 
 - `ops/observability/test_data_layer_capacity_safety.py`::`DataLayerCapacitySafetyTest.test_growth_timeout_is_unknown_not_green`
-- `ops/observability/test_data_layer_capacity_safety.py`::`DataLayerCapacitySafetyTest.test_prototype_is_not_wired_to_prod_workflows`
 - `ops/observability/test_data_layer_capacity_safety.py`::`DataLayerCapacitySafetyTest.test_projection_requires_explicit_reclaim_and_residual_growth`
 - `ops/observability/test_data_layer_capacity_safety.py`::`DataLayerCapacitySafetyTest.test_probe_is_read_only_and_scan_bounded`
 - `ops/stage0/test_cfn_datavolume_no_replace.py`::`CfnDataVolumeNoReplaceTest.test_parameter_plan_grows_without_rewriting_unrelated_values`
