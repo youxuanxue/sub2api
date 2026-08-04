@@ -2,30 +2,30 @@
   "amis": {
     "us-east-2": {
       "architecture": "arm64",
-      "image_id": "ami-0263206814db4826a"
+      "image_id": "ami-0d6382d93c63fa985"
     },
     "us-west-2": {
       "architecture": "arm64",
-      "image_id": "ami-0159f3bbb387b05a7"
+      "image_id": "ami-098176c88d53db397"
     }
   },
   "blockers": [],
   "cpu_24h": {
     "us3": {
-      "average_pct": 14.039,
-      "p95_pct": 28.267
+      "average_pct": 9.874,
+      "p95_pct": 11.522
     },
     "us4": {
-      "average_pct": 14.053,
-      "p95_pct": 28.551
+      "average_pct": 10.0,
+      "p95_pct": 11.367
     },
     "us5": {
-      "average_pct": 5.176,
-      "p95_pct": 6.822
+      "average_pct": 4.946,
+      "p95_pct": 6.164
     },
     "us6": {
-      "average_pct": 13.846,
-      "p95_pct": 26.884
+      "average_pct": 10.09,
+      "p95_pct": 12.035
     }
   },
   "dns": {
@@ -98,15 +98,15 @@
     }
   ],
   "forecast_monthly_usd": {
-    "fleet": 152,
+    "fleet": 153,
     "per_edge": {
       "us3": 41,
       "us4": 39,
-      "us5": 36,
+      "us5": 37,
       "us6": 36
     }
   },
-  "generated_at": "2026-08-04T15:47:08+00:00",
+  "generated_at": "2026-08-04T23:01:14+00:00",
   "instance_type_offerings": {
     "us-east-2": [
       "t4g.small"
@@ -116,10 +116,30 @@
     ]
   },
   "network_out_30d": {
-    "us3": 127.974,
-    "us4": 107.052,
-    "us5": 72.443,
-    "us6": 66.601
+    "us3": {
+      "bucket_count": 30,
+      "gib": 128.414,
+      "window_end": "2026-08-04T00:00:00+00:00",
+      "window_start": "2026-07-05T00:00:00+00:00"
+    },
+    "us4": {
+      "bucket_count": 30,
+      "gib": 105.72,
+      "window_end": "2026-08-04T00:00:00+00:00",
+      "window_start": "2026-07-05T00:00:00+00:00"
+    },
+    "us5": {
+      "bucket_count": 30,
+      "gib": 82.707,
+      "window_end": "2026-08-04T00:00:00+00:00",
+      "window_start": "2026-07-05T00:00:00+00:00"
+    },
+    "us6": {
+      "bucket_count": 30,
+      "gib": 69.163,
+      "window_end": "2026-08-04T00:00:00+00:00",
+      "window_start": "2026-07-05T00:00:00+00:00"
+    }
   },
   "quotas": {
     "us-east-2": {

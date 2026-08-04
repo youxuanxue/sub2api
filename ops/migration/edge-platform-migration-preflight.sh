@@ -15,7 +15,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 
@@ -107,7 +107,7 @@ def metric_points(
     end_time: dt.datetime,
     unit: str,
     statistic: str,
-) -> list[float]:
+) -> list[tuple[dt.datetime, Decimal]]:
     payload = aws_json(
         [
             "lightsail",
@@ -134,11 +134,65 @@ def metric_points(
     if not isinstance(points, list):
         raise RuntimeError(f"{edge['edge_id']} {metric_name}: missing metricData")
     key = statistic[0].lower() + statistic[1:]
-    values: list[float] = []
-    for point in points:
-        if isinstance(point, dict) and isinstance(point.get(key), (int, float)):
-            values.append(float(point[key]))
+    values: list[tuple[dt.datetime, Decimal]] = []
+    for index, point in enumerate(points):
+        if not isinstance(point, dict):
+            raise RuntimeError(f"{edge['edge_id']} {metric_name}: invalid metricData[{index}]")
+        timestamp = utc_timestamp(
+            point.get("timestamp"),
+            label=f"{edge['edge_id']} {metric_name} metricData[{index}] timestamp",
+        )
+        value = decimal_number(point.get(key))
+        if value is None:
+            raise RuntimeError(
+                f"{edge['edge_id']} {metric_name}: invalid {key} in metricData[{index}]",
+            )
+        values.append((timestamp, value))
     return values
+
+
+def utc_timestamp(value: Any, *, label: str) -> dt.datetime:
+    if not isinstance(value, str):
+        raise RuntimeError(f"{label}: missing or invalid")
+    normalized = f"{value[:-1]}+00:00" if value.endswith("Z") else value
+    try:
+        parsed = dt.datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise RuntimeError(f"{label}: invalid ISO-8601 value") from exc
+    if parsed.tzinfo is None:
+        raise RuntimeError(f"{label}: timezone is required")
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def decimal_number(value: Any) -> Decimal | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except InvalidOperation:
+        return None
+    return parsed if parsed.is_finite() else None
+
+
+def complete_daily_metric_total(
+    edge_id: str,
+    points: list[tuple[dt.datetime, Decimal]],
+    *,
+    start_time: dt.datetime,
+    end_time: dt.datetime,
+) -> Decimal:
+    expected = {start_time + dt.timedelta(days=index) for index in range(30)}
+    timestamps = [timestamp for timestamp, _ in points]
+    actual = set(timestamps)
+    if len(points) != 30 or len(actual) != 30 or actual != expected:
+        raise RuntimeError(
+            f"{edge_id} NetworkOut: expected_30_complete_utc_daily_buckets: "
+            f"count={len(points)} distinct={len(actual)} "
+            f"missing={len(expected - actual)} unexpected={len(actual - expected)}",
+        )
+    if end_time - start_time != dt.timedelta(days=30):
+        raise RuntimeError(f"{edge_id} NetworkOut: expected_30_complete_utc_daily_buckets: invalid_window")
+    return sum((value for _, value in points), start=Decimal(0))
 
 
 def percentile_nearest_rank(values: list[float], percentile: float) -> float | None:
@@ -164,6 +218,8 @@ def collect_live(matrix_path: pathlib.Path) -> dict[str, Any]:
     }
     errors: list[str] = collected["collection_errors"]
     now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    network_window_end = now.replace(hour=0, minute=0, second=0)
+    network_window_start = network_window_end - dt.timedelta(days=30)
 
     for region in REGIONS:
         quota_row: dict[str, Any] = {}
@@ -265,21 +321,32 @@ def collect_live(matrix_path: pathlib.Path) -> dict[str, Any]:
         edge_id = str(edge.get("edge_id") or "")
         region = str(edge.get("region") or "")
         try:
-            values = metric_points(
+            points = metric_points(
                 edge,
                 metric_name="NetworkOut",
                 period=86400,
-                start_time=now - dt.timedelta(days=30),
-                end_time=now,
+                start_time=network_window_start,
+                end_time=network_window_end,
                 unit="Bytes",
                 statistic="Sum",
             )
-            collected["network_out_30d"][edge_id] = round(sum(values) / (1024**3), 3)
+            total_bytes = complete_daily_metric_total(
+                edge_id,
+                points,
+                start_time=network_window_start,
+                end_time=network_window_end,
+            )
+            collected["network_out_30d"][edge_id] = {
+                "window_start": network_window_start.isoformat(),
+                "window_end": network_window_end.isoformat(),
+                "bucket_count": len(points),
+                "total_bytes": format(total_bytes, "f"),
+            }
         except (RuntimeError, json.JSONDecodeError, KeyError) as exc:
             errors.append(f"network_out_30d:{edge_id}:{exc}")
 
         try:
-            values = metric_points(
+            points = metric_points(
                 edge,
                 metric_name="CPUUtilization",
                 period=3600,
@@ -288,6 +355,7 @@ def collect_live(matrix_path: pathlib.Path) -> dict[str, Any]:
                 unit="Percent",
                 statistic="Average",
             )
+            values = [float(value) for _, value in points]
             collected["cpu_24h"][edge_id] = {
                 "average_pct": round(statistics.fmean(values), 3) if values else None,
                 "p95_pct": round(percentile_nearest_rank(values, 0.95), 3) if values else None,
@@ -349,6 +417,38 @@ def money(value: Decimal) -> float:
     return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
+def rounded_decimal(value: Decimal, places: int) -> float:
+    quantum = Decimal(1).scaleb(-places)
+    return float(value.quantize(quantum, rounding=ROUND_HALF_UP))
+
+
+def network_usage(raw: Any) -> tuple[dict[str, Any], Decimal] | None:
+    if not isinstance(raw, dict) or raw.get("bucket_count") != 30:
+        return None
+    try:
+        window_start = utc_timestamp(raw.get("window_start"), label="NetworkOut window_start")
+        window_end = utc_timestamp(raw.get("window_end"), label="NetworkOut window_end")
+    except RuntimeError:
+        return None
+    if (
+        window_start.timetz() != dt.time(0, 0, tzinfo=dt.timezone.utc)
+        or window_end.timetz() != dt.time(0, 0, tzinfo=dt.timezone.utc)
+        or window_end - window_start != dt.timedelta(days=30)
+    ):
+        return None
+    total_bytes = decimal_number(raw.get("total_bytes"))
+    if total_bytes is None or total_bytes < 0:
+        return None
+    gib = total_bytes / Decimal(1024**3)
+    receipt = {
+        "window_start": window_start.isoformat(),
+        "window_end": window_end.isoformat(),
+        "bucket_count": 30,
+        "gib": rounded_decimal(gib, 3),
+    }
+    return receipt, gib
+
+
 def evaluate(raw: dict[str, Any]) -> dict[str, Any]:
     blockers: list[str] = []
     fleet_raw = raw.get("fleet")
@@ -381,7 +481,8 @@ def evaluate(raw: dict[str, Any]) -> dict[str, Any]:
         if not ami.get("image_id") or ami.get("architecture") != "arm64":
             blockers.append(f"ami:{region}:missing_or_not_arm64")
 
-    network_out = raw.get("network_out_30d") if isinstance(raw.get("network_out_30d"), dict) else {}
+    network_out_raw = raw.get("network_out_30d") if isinstance(raw.get("network_out_30d"), dict) else {}
+    network_out: dict[str, dict[str, Any]] = {}
     cpu_24h = raw.get("cpu_24h") if isinstance(raw.get("cpu_24h"), dict) else {}
     dns = raw.get("dns") if isinstance(raw.get("dns"), dict) else {}
     ssm = raw.get("ssm") if isinstance(raw.get("ssm"), dict) else {}
@@ -390,11 +491,13 @@ def evaluate(raw: dict[str, Any]) -> dict[str, Any]:
     for edge in fleet:
         edge_id = str(edge.get("edge_id") or "")
         fixed_per_edge[edge_id] = money(FIXED_EDGE_RAW)
-        traffic = network_out.get(edge_id)
-        if not numeric(traffic) or float(traffic) < 0:
+        usage = network_usage(network_out_raw.get(edge_id))
+        if usage is None:
             blockers.append(f"network_out_30d:{edge_id}:missing_or_invalid")
         else:
-            forecast = FIXED_EDGE_DISPLAY + NETWORK_OUT_USD_PER_GIB * Decimal(str(traffic)) + CONTINGENCY_USD
+            receipt, traffic_gib = usage
+            network_out[edge_id] = receipt
+            forecast = FIXED_EDGE_DISPLAY + NETWORK_OUT_USD_PER_GIB * traffic_gib + CONTINGENCY_USD
             forecast_per_edge[edge_id] = math.ceil(forecast)
         cpu = cpu_24h.get(edge_id)
         if not isinstance(cpu, dict) or not numeric(cpu.get("average_pct")) or not numeric(cpu.get("p95_pct")):
