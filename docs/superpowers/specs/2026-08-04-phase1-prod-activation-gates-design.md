@@ -1,127 +1,97 @@
-# Phase 1 Production Activation Gates Design
+# 第一阶段生产启用门禁修复设计
 
-## Background
+## 背景
 
-PR #1536 merged the first-stage data protection and archive groundwork, but
-read-only production review found four activation blockers:
+PR #1536 已合并第一阶段的数据保护与归档基础能力，但只读生产核查发现四个启用阻塞项：
 
-- the safety probe assumes the legacy tokenkey app container even though
-  production uses a blue/green container;
-- daily diagnostics snapshots the instance's first block device instead of the
-  CloudFormation DataVolumeId;
-- the active capacity probe performs unbounded COUNT(*) scans;
-- partition maintenance starts only on the daily cron, so a newly deployed
-  version cannot repair missing current/future partitions immediately.
+- 安全探针固定读取旧的 tokenkey 应用容器，而生产环境使用蓝绿容器；
+- 每日诊断对实例的第一个块设备做快照检查，没有使用 CloudFormation 输出的 DataVolumeId；
+- 当前容量探针执行无边界的 COUNT(*) 扫描；
+- 分区维护只在每日 cron 触发，部署新版本后不能立即修复缺失的当前及未来分区。
 
-This PR repairs those gates. It does not deploy code, run a production command,
-change configuration, delete data, or authorize archive cleanup.
+本 PR 只修复上述门禁。它不部署代码、不运行生产命令、不修改配置、不删除数据，也不授权解除归档清理暂停。
 
-## Considered Approaches
+## 方案比较
 
-### Chosen: focused activation repair
+### 采用：聚焦修复启用门禁
 
-Promote the already-approved bounded capacity prototype into the active probe,
-reuse the existing blue/green container-resolution behavior, resolve the
-snapshot volume from the stack output, and add a separately invoked partition
-maintenance operator command. This has the smallest runtime surface and keeps
-all write behavior behind an explicit one-shot command.
+将已批准的有界容量探针原型提升为正式探针，复用仓库既有的蓝绿容器解析逻辑，从 stack 输出解析快照卷，并新增一个必须显式调用的一次性分区维护命令。
 
-### Rejected: run partition maintenance on application startup
+该方案的运行时改动最小，所有写行为仍封闭在独立、显式确认的运维命令中。
 
-This would eventually self-heal missing partitions, but every restart would
-gain a DDL side effect and a lock-contention path on the request-serving
-process. It also would not provide a deterministic operator receipt.
+### 不采用：应用启动时自动维护分区
 
-### Rejected: expose an admin API
+该方案最终也能修复缺失分区，但会让每次重启都附带 DDL 和锁竞争路径，并把维护风险带入请求服务进程；同时无法生成确定性的运维回执。
 
-An API would add authentication, authorization, routing, and public-contract
-surface for an operation that should be rare. A local operator command is
-simpler and easier to keep fail closed.
+### 不采用：新增管理 API
 
-## Design
+管理 API 会为一个低频运维动作引入鉴权、授权、路由和公共契约。使用本地运维命令更简单，也更容易做到失败即关闭。
 
-### Active application container
+## 设计
 
-probe-data-layer-safety.sh accepts APP_CONTAINER=auto by default. Resolution
-first reads /var/lib/tokenkey/active-color and accepts only blue or green when
-the matching container exists. It then falls back through the legacy, blue,
-and green names. An explicit APP_CONTAINER remains available for diagnostics
-and tests.
+### 活跃应用容器解析
 
-The probe must emit an unusable signal when no app container can be resolved;
-it must not silently read configuration from an arbitrary stopped or missing
-container.
+probe-data-layer-safety.sh 默认使用 APP_CONTAINER=auto：
 
-### Snapshot target
+1. 优先读取 /var/lib/tokenkey/active-color。
+2. 只接受 blue 或 green，并验证对应 tokenkey-blue 或 tokenkey-green 容器存在。
+3. 若无法从 active-color 解析，则依次尝试 tokenkey、tokenkey-blue、tokenkey-green。
+4. 保留显式 APP_CONTAINER，用于诊断和测试。
 
-Daily diagnostics reads DataVolumeId from the already-described CloudFormation
-stack. A missing output produces a missing snapshot signal and therefore a
-fail-closed safety verdict. It must not fall back to BlockDeviceMappings[0],
-because that position is the root volume in the current stack.
+如果无法解析应用容器，探针必须输出不可用信号；禁止静默读取任意已停止或不存在的容器。
 
-### Bounded capacity signal
+### 快照目标
 
-The active probe adopts the approved prototype contract:
+每日诊断从已查询的 CloudFormation stack 输出中读取 DataVolumeId。输出缺失时，生成“快照信号缺失”，让安全判定失败关闭。
 
-- PostgreSQL sessions set default_transaction_read_only=on;
-- lock_timeout=100ms and statement_timeout=2s;
-- total usage_logs rows come from pg_stat_user_tables;
-- relation size and row estimates sum leaf partitions when applicable;
-- one bounded 30-day query derives both 30-day and 7-day growth;
-- catalog failure, timeout, missing statistics, or invalid values produce
-  unknown, never a guessed green verdict.
+禁止回退到 BlockDeviceMappings[0]，因为当前 stack 中该位置是根卷，不是 PostgreSQL 持久数据卷。
 
-The existing thresholds and daily workflow schedule do not change.
+### 有界容量信号
 
-### One-shot partition maintenance
+正式探针采用已批准原型的保护契约：
 
-A dedicated production operator CLI uses the repository's existing SSM
-transport pattern to run a remote implementation on the Stage0 host. It
-requires the exact confirmation token
-tokenkey-prod-partition-maintenance-v1.
+- PostgreSQL 会话设置 default_transaction_read_only=on；
+- lock_timeout=100ms，statement_timeout=2s；
+- usage_logs 总行数使用 pg_stat_user_tables 估算；
+- 表已分区时，关系大小和行数估算汇总叶子分区；
+- 只执行一次有边界的近 30 天查询，同时得出 30 天和 7 天增长量；
+- catalog 查询失败、查询超时、统计缺失或数值无效时返回 unknown，禁止猜测为 green。
 
-The remote implementation:
+现有阈值和每日 workflow 调度频率不变。
 
-- sets lock_timeout=100ms and statement_timeout=5s;
-- verifies each target is a partitioned table before changing it;
-- creates only current and future partitions for ops_system_logs,
-  ops_error_logs, and usage_logs;
-- uses the same horizons as the application maintenance owner: current plus
-  three future months for ops tables and current plus seven future days for
-  usage;
-- treats an existing or overlapping partition as already covered only after
-  catalog verification proves the target time range is covered;
-- never issues DELETE, DROP, TRUNCATE, DETACH, table rewrite, container restart,
-  or configuration mutation;
-- writes the existing ops_partition_maintenance heartbeat only after all target
-  ranges are verified;
-- returns a field-named JSON receipt with deletion_authorized=false.
+### 一次性分区维护
 
-Any lock timeout, unexpected schema, uncovered range, malformed receipt, or
-transport ambiguity fails closed with a non-zero exit.
+新增独立的生产运维 CLI，复用仓库既有的 SSM 传输模式，在 Stage0 主机运行远端实现。执行必须提供精确确认词：
 
-## Validation
+tokenkey-prod-partition-maintenance-v1
 
-Behavior tests will prove:
+远端实现必须：
 
-- blue/green resolution selects the active app container and fails closed when
-  none exists;
-- workflow snapshot lookup uses DataVolumeId and contains no positional block
-  device lookup;
-- capacity SQL contains the read-only and timeout guards, avoids full-table
-  counts, and reports unknown for partial or invalid signals;
-- the maintenance command rejects a missing or wrong confirmation, generates
-  create-only SQL with the fixed horizons and timeouts, validates its receipt,
-  and contains no destructive SQL;
-- existing data-layer verdict, workflow, partition, and preflight checks remain
-  green.
+- 设置 lock_timeout=100ms 和 statement_timeout=5s；
+- 修改前确认每个目标确实是分区表；
+- 只为 ops_system_logs、ops_error_logs 和 usage_logs 创建当前及未来分区；
+- 与应用内维护 owner 使用相同窗口：ops 表创建当前月加未来三个月，usage 表创建当天加未来七天；
+- 遇到已存在或范围重叠的分区时，必须通过 catalog 再次证明目标时间范围已经被覆盖，才可视为成功；
+- 禁止 DELETE、DROP、TRUNCATE、DETACH、表重写、容器重启和配置修改；
+- 只有全部目标范围验证通过后，才写入现有 ops_partition_maintenance 成功心跳；
+- 返回字段化 JSON 回执，并明确 deletion_authorized=false。
 
-No test or validation step connects to production.
+发生锁超时、未知 schema、时间范围未覆盖、回执格式错误或传输目标不明确时，必须以非零状态失败关闭。
 
-## Non-Goals
+## 验证
 
-- No production execution, deployment, restart, schema migration, or setting
-  change.
-- No telemetry activation, cleanup release, retention change, archive deletion,
-  volume resize, or RDS work.
-- No change to request handling, billing, authentication, or user-visible APIs.
+行为测试必须证明：
+
+- 蓝绿解析能选择活跃应用容器；没有可用容器时失败关闭；
+- workflow 使用 DataVolumeId 查询快照，且不包含按块设备位置取卷的逻辑；
+- 容量 SQL 包含只读和超时保护，不执行全表计数；信号不完整或无效时返回 unknown；
+- 分区维护命令拒绝缺失或错误的确认词，生成固定窗口、带超时且只创建分区的 SQL，校验远端回执，并且不包含破坏性 SQL；
+- 现有数据层判定、workflow、分区和 preflight 检查继续通过。
+
+所有测试和验证均不得连接生产环境。
+
+## 不做
+
+- 不执行生产命令，不部署、不重启、不执行 schema 迁移、不修改 setting。
+- 不启用 telemetry，不解除 cleanup hold，不调整保留期，不删除归档数据，不扩容，也不推进 RDS。
+- 不修改请求处理、计费、鉴权或任何用户可见 API。
