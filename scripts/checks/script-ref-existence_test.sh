@@ -106,6 +106,12 @@ run "P10 planned ref in approved doc (skip)" \
 run "P11 planned marker outside approved doc (fail)" \
     "bash scripts/missing-outside-planned.sh # script-ref: planned" \
     fail
+run "P12 malformed planned marker in approved doc (fail)" \
+    '- 新建：`scripts/missing-malformed-planned.sh` <!-- script-ref: planned-invalid -->' \
+    fail "docs/approved/fixture.md"
+run "P13 unmarked ref in approved doc (fail)" \
+    '- 新建：`scripts/missing-unmarked-approved.sh`' \
+    fail "docs/approved/fixture.md"
 
 # ---- result ------------------------------------------------------------------
 
