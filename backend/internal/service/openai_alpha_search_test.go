@@ -65,9 +65,146 @@ func TestForwardAlphaSearchOAuthPreservesWire(t *testing.T) {
 	require.Equal(t, "Bearer oauth-token", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "chatgpt-account", upstream.lastReq.Header.Get("chatgpt-account-id"))
 	require.Equal(t, "application/json", upstream.lastReq.Header.Get("Accept"))
-	require.Equal(t, "0.144.1", upstream.lastReq.Header.Get("Version"))
+	require.Equal(t, codexCLIVersion, upstream.lastReq.Header.Get("Version"))
 	require.Empty(t, upstream.lastReq.Header.Get("OpenAI-Beta"))
 	require.JSONEq(t, string(body), string(upstream.lastBody))
+}
+
+func TestForwardAlphaSearchPATUsesResponsesWebSearchFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{
+		"id":"search-session",
+		"model":"gpt-5.6-sol",
+		"commands":{"search_query":[{"q":"OpenAI news"}]},
+		"prompt_cache_key":"responses-cache-key",
+		"prompt_cache_retention":"24h"
+	}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/alpha/search", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("User-Agent", codexCLIUserAgent)
+	c.Request.Header.Set("Originator", "codex_cli_rs")
+	c.Request.Header.Set("Version", "0.144.1")
+	c.Request.Header.Set("OpenAI-Beta", "responses=experimental")
+	c.Request.Header.Set("Accept-Language", "zh-CN")
+	c.Request.Header.Set("Authorization", "Bearer client-token")
+	c.Request.Header.Set("Session_ID", "session-client")
+	c.Request.Header.Set("Conversation_ID", "conversation-client")
+	c.Request.Header.Set("X-Codex-Beta-Features", "feature-a")
+	c.Request.Header.Set("X-Codex-Turn-State", "turn-state")
+	c.Request.Header.Set(responsesLiteHeaderKey, "true")
+	c.Request.Header.Set("X-Codex-Turn-Metadata", `{"turn_id":"turn-1"}`)
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"req-search"}},
+		Body:       io.NopCloser(strings.NewReader(alphaSearchResponsesSSE("search result"))),
+	}}
+	service := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := &Account{
+		ID:          43,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token":               "at-test-token",
+			"auth_mode":                  OpenAIAuthModePersonalAccessToken,
+			"chatgpt_account_id":         "chatgpt-account",
+			"chatgpt_account_is_fedramp": true,
+		},
+	}
+
+	result, err := service.ForwardAlphaSearch(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.WebSearchCalls)
+	require.Equal(t, "/v1/responses", result.UpstreamEndpoint)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{"output":"search result","results":[{"type":"text_result","ref_id":"turn0search0","url":"https://example.com/news","title":"Example News"}]}`, recorder.Body.String())
+	require.Equal(t, chatgptCodexURL, upstream.lastReq.URL.String())
+	require.Equal(t, "Bearer at-test-token", upstream.lastReq.Header.Get("Authorization"))
+	require.Equal(t, "chatgpt-account", upstream.lastReq.Header.Get("ChatGPT-Account-ID"))
+	require.Equal(t, "true", upstream.lastReq.Header.Get("X-OpenAI-Fedramp"))
+	require.Equal(t, "application/json", upstream.lastReq.Header.Get("Content-Type"))
+	require.Equal(t, "text/event-stream", upstream.lastReq.Header.Get("Accept"))
+	require.Equal(t, "responses=experimental", upstream.lastReq.Header.Get("OpenAI-Beta"))
+	require.Equal(t, codexCLIVersion, upstream.lastReq.Header.Get("Version"))
+	require.Equal(t, `{"turn_id":"turn-1"}`, upstream.lastReq.Header.Get("X-Codex-Turn-Metadata"))
+	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("Originator"))
+	require.Empty(t, upstream.lastReq.Header.Get("X-Codex-Beta-Features"))
+	require.Empty(t, upstream.lastReq.Header.Get("X-Codex-Turn-State"))
+	require.Empty(t, upstream.lastReq.Header.Get(responsesLiteHeaderKey))
+	require.Empty(t, upstream.lastReq.Header.Get("Accept-Language"))
+	require.False(t, gjson.GetBytes(upstream.lastBody, "prompt_cache_key").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "prompt_cache_retention").Exists())
+	require.Equal(t, "gpt-5.6-sol", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "store").Bool())
+	require.Equal(t, "web_search", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
+	require.Contains(t, gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String(), `"search_query"`)
+}
+
+func TestForwardAlphaSearchPATBackfillsMissingChatGPTAccountMetadata(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"id":"search-session","model":"gpt-5.6-sol","commands":{"search_query":[{"q":"OpenAI news"}]}}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/alpha/search", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	var whoamiCalls int32
+	whoamiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&whoamiCalls, 1)
+		require.Equal(t, "Bearer at-test-token", r.Header.Get("Authorization"))
+		require.Equal(t, "application/json", r.Header.Get("Accept"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"email":"pat@example.com",
+			"chatgpt_user_id":"user-123",
+			"chatgpt_account_id":"acct-123",
+			"chatgpt_plan_type":"plus",
+			"chatgpt_account_is_fedramp":true
+		}`))
+	}))
+	defer whoamiServer.Close()
+	oldWhoamiURL := openAICodexPATWhoamiURL
+	openAICodexPATWhoamiURL = whoamiServer.URL
+	defer func() { openAICodexPATWhoamiURL = oldWhoamiURL }()
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"output":"search result"}`)),
+	}}
+	oauthService := NewOpenAIOAuthService(nil, nil)
+	service := &OpenAIGatewayService{
+		cfg:                 &config.Config{},
+		httpUpstream:        upstream,
+		openAITokenProvider: NewOpenAITokenProvider(nil, nil, oauthService),
+	}
+	account := &Account{
+		ID:          45,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "at-test-token",
+			"auth_mode":    OpenAIAuthModePersonalAccessToken,
+		},
+	}
+
+	result, err := service.ForwardAlphaSearch(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, int32(1), atomic.LoadInt32(&whoamiCalls))
+	require.Equal(t, "acct-123", upstream.lastReq.Header.Get("ChatGPT-Account-ID"))
+	require.Equal(t, "true", upstream.lastReq.Header.Get("X-OpenAI-Fedramp"))
+	require.Equal(t, "acct-123", account.Credentials["chatgpt_account_id"])
+	require.Equal(t, "user-123", account.Credentials["chatgpt_user_id"])
+	require.Equal(t, OpenAIAuthModePersonalAccessToken, account.Credentials["auth_mode"])
 }
 
 func TestForwardAlphaSearchAPIKeyMapsModelAndPassesThroughError(t *testing.T) {

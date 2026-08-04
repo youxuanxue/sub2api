@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h, watchEffect } from "vue";
+import { defineComponent, h } from "vue";
 import { flushPromises, mount } from "@vue/test-utils";
 
 import SettingsView from "../SettingsView.vue";
@@ -192,8 +192,6 @@ vi.mock("vue-i18n", async () => {
     "admin.settings.paymentVisibleMethods.sourceRequiredError": "{title} 已启用，请先选择支付来源。",
     "admin.settings.payment.configGuide": "查看支付配置说明",
     "admin.settings.payment.findProvider": "查看支持的支付方式",
-    "admin.settings.upstreamBillingProbe.title": "上游倍率自动探测",
-    "admin.settings.upstreamBillingProbe.saved": "上游倍率自动探测设置已保存",
     "admin.settings.openaiExperimentalScheduler.title": "OpenAI 实验调度策略",
     "admin.settings.openaiExperimentalScheduler.description": "默认关闭。开启后仅影响本网关在 OpenAI 账号间的实验性调度选择逻辑，不代表上游 OpenAI 官方能力。",
     "admin.settings.openaiExperimentalScheduler.lowRatePriorityTitle": "低倍率优先",
@@ -216,6 +214,7 @@ vi.mock("vue-i18n", async () => {
     "admin.settings.openaiExperimentalScheduler.ttftWeight": "首包延迟",
     "admin.settings.openaiExperimentalScheduler.resetWeight": "重置窗口",
     "admin.settings.openaiExperimentalScheduler.quotaHeadroomWeight": "额度余量",
+    "admin.settings.openaiExperimentalScheduler.upstreamCostWeight": "计费倍率",
     "admin.settings.openaiExperimentalScheduler.previousResponseWeight": "previous_response 粘性",
     "admin.settings.openaiExperimentalScheduler.sessionStickyWeight": "session_hash 粘性",
     "admin.settings.upstreamBillingProbe.title": "上游倍率自动探测",
@@ -397,6 +396,13 @@ const baseSettingsResponse = {
   turnstile_enabled: false,
   turnstile_site_key: "",
   turnstile_secret_key_configured: false,
+  tencent_captcha_enabled: false,
+  tencent_captcha_app_id: "",
+  tencent_captcha_app_secret_key_configured: false,
+  tencent_captcha_cloud_secret_id_configured: false,
+  tencent_captcha_cloud_secret_key_configured: false,
+  api_key_acl_trust_forwarded_ip: true,
+  forwarded_client_ip_headers: [],
   linuxdo_connect_enabled: false,
   linuxdo_connect_client_id: "",
   linuxdo_connect_client_secret_configured: false,
@@ -483,6 +489,8 @@ const baseSettingsResponse = {
   payment_visible_method_wxpay_source: "invalid-source",
   payment_visible_method_alipay_enabled: true,
   payment_visible_method_wxpay_enabled: true,
+  openai_low_upstream_rate_priority_enabled: false,
+  openai_oauth_scheduling_rate_multiplier: 1,
   openai_advanced_scheduler_enabled: false,
   openai_advanced_scheduler_sticky_weighted_enabled: false,
   openai_advanced_scheduler_subscription_priority_enabled: false,
@@ -494,6 +502,7 @@ const baseSettingsResponse = {
   openai_advanced_scheduler_weight_ttft: "",
   openai_advanced_scheduler_weight_reset: "",
   openai_advanced_scheduler_weight_quota_headroom: "",
+  openai_advanced_scheduler_weight_upstream_cost: "",
   openai_advanced_scheduler_weight_previous_response: "",
   openai_advanced_scheduler_weight_session_sticky: "",
   openai_advanced_scheduler_effective_lb_top_k: "7",
@@ -504,6 +513,7 @@ const baseSettingsResponse = {
   openai_advanced_scheduler_effective_weight_ttft: "0.5",
   openai_advanced_scheduler_effective_weight_reset: "0",
   openai_advanced_scheduler_effective_weight_quota_headroom: "0",
+  openai_advanced_scheduler_effective_weight_upstream_cost: "0",
   openai_advanced_scheduler_effective_weight_previous_response: "5",
   openai_advanced_scheduler_effective_weight_session_sticky: "3",
   balance_low_notify_enabled: false,
@@ -552,16 +562,6 @@ async function openPaymentTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
-async function openGatewayTab(wrapper: ReturnType<typeof mountView>) {
-  const gatewayTabButton = wrapper
-    .findAll("button")
-    .find((node) => node.text().includes("admin.settings.tabs.gateway"));
-
-  expect(gatewayTabButton).toBeDefined();
-  await gatewayTabButton?.trigger("click");
-  await flushPromises();
-}
-
 async function openSecurityTab(wrapper: ReturnType<typeof mountView>) {
   const securityTabButton = wrapper
     .findAll("button")
@@ -569,6 +569,16 @@ async function openSecurityTab(wrapper: ReturnType<typeof mountView>) {
 
   expect(securityTabButton).toBeDefined();
   await securityTabButton?.trigger("click");
+  await flushPromises();
+}
+
+async function openGatewayTab(wrapper: ReturnType<typeof mountView>) {
+  const gatewayTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.gateway"));
+
+  expect(gatewayTabButton).toBeDefined();
+  await gatewayTabButton?.trigger("click");
   await flushPromises();
 }
 
@@ -648,7 +658,7 @@ describe("admin SettingsView payment visible method controls", () => {
       enabled: true,
       thinking_signature_enabled: true,
       thinking_budget_enabled: true,
-      apikey_signature_enabled: true,
+      apikey_signature_enabled: false,
       apikey_signature_patterns: [],
     });
     getBetaPolicySettings.mockResolvedValue({
@@ -762,6 +772,122 @@ describe("admin SettingsView payment visible method controls", () => {
     );
   });
 
+  it("人机验证切换到腾讯天御并保存四项配置", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    const masterToggle = wrapper.get('[data-testid="captcha-enabled-toggle"]');
+    await masterToggle.setValue(true);
+    // 默认选中 Turnstile
+    expect(wrapper.text()).toContain("admin.settings.turnstile.siteKey");
+
+    await wrapper.get('[data-testid="captcha-provider-tencent"]').trigger("click");
+    await flushPromises();
+
+    const card = wrapper
+      .findAll(".card")
+      .find((node) => node.text().includes("admin.settings.captcha.title"));
+    expect(card).toBeDefined();
+    expect(card!.text()).not.toContain("admin.settings.turnstile.siteKey");
+    expect(card!.get('a[href="https://console.cloud.tencent.com/captcha"]').exists()).toBe(true);
+    expect(card!.get('a[href="https://console.cloud.tencent.com/cam/capi"]').exists()).toBe(true);
+    expect(
+      card!.get('a[href="https://cloud.tencent.com/document/product/1110/36841"]').exists(),
+    ).toBe(true);
+    const inputs = card!.findAll("input").filter((input) => input.attributes("type") !== "checkbox");
+    await inputs[0]!.setValue("123456789");
+    await inputs[1]!.setValue("app-secret-value");
+    await inputs[2]!.setValue("cloud-secret-id-value");
+    await inputs[3]!.setValue("cloud-secret-key-value");
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnstile_enabled: false,
+        tencent_captcha_enabled: true,
+        aliyun_captcha_enabled: false,
+        tencent_captcha_app_id: "123456789",
+        tencent_captcha_app_secret_key: "app-secret-value",
+        tencent_captcha_cloud_secret_id: "cloud-secret-id-value",
+        tencent_captcha_cloud_secret_key: "cloud-secret-key-value",
+      }),
+    );
+  });
+
+  it("人机验证切换到阿里云并保存配置", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    const masterToggle = wrapper.get('[data-testid="captcha-enabled-toggle"]');
+    await masterToggle.setValue(true);
+
+    await wrapper.get('[data-testid="captcha-provider-aliyun"]').trigger("click");
+    await flushPromises();
+
+    const card = wrapper
+      .findAll(".card")
+      .find((node) => node.text().includes("admin.settings.captcha.title"));
+    expect(card).toBeDefined();
+    expect(card!.text()).toContain("admin.settings.aliyunCaptcha.region");
+    expect(card!.text()).not.toContain("admin.settings.turnstile.siteKey");
+    const inputs = card!.findAll("input").filter((input) => input.attributes("type") !== "checkbox");
+    await inputs[0]!.setValue("prefix-1");
+    await inputs[1]!.setValue("scene-1");
+    await inputs[2]!.setValue("ak-id");
+    await inputs[3]!.setValue("ak-secret-value");
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnstile_enabled: false,
+        tencent_captcha_enabled: false,
+        aliyun_captcha_enabled: true,
+        aliyun_captcha_prefix: "prefix-1",
+        aliyun_captcha_scene_id: "scene-1",
+        aliyun_captcha_access_key_id: "ak-id",
+        aliyun_captcha_access_key_secret: "ak-secret-value",
+        aliyun_captcha_region: "cn",
+      }),
+    );
+  });
+
+  it("关闭人机验证总开关会同时关闭所有服务商", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      tencent_captcha_enabled: true,
+      tencent_captcha_app_id: "123456789",
+      tencent_captcha_app_secret_key_configured: true,
+      tencent_captcha_cloud_secret_id_configured: true,
+      tencent_captcha_cloud_secret_key_configured: true,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    const masterToggle = wrapper.get('[data-testid="captcha-enabled-toggle"]');
+    expect((masterToggle.element as HTMLInputElement).checked).toBe(true);
+    // 加载后选中项跟随已启用的服务商
+    expect(wrapper.text()).toContain("admin.settings.tencentCaptcha.appId");
+
+    await masterToggle.setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnstile_enabled: false,
+        tencent_captcha_enabled: false,
+        aliyun_captcha_enabled: false,
+      }),
+    );
+  });
+
   it("disables passkey sign-in when the RP configuration is unavailable", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
@@ -845,7 +971,7 @@ describe("admin SettingsView payment visible method controls", () => {
     );
   });
 
-  it("links payment guidance to TokenKey payment docs", async () => {
+  it("links payment guidance to README sections instead of removed payment docs", async () => {
     const wrapper = mountView();
 
     await flushPromises();
@@ -859,10 +985,10 @@ describe("admin SettingsView payment visible method controls", () => {
 
     expect(paymentLinks).toHaveLength(2);
     expect(paymentLinks[0]?.attributes("href")).toBe(
-      "https://github.com/youxuanxue/sub2api/blob/main/docs/PAYMENT_CN.md",
+      "https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md",
     );
     expect(paymentLinks[1]?.attributes("href")).toBe(
-      "https://github.com/youxuanxue/sub2api/blob/main/docs/PAYMENT_CN.md#支持的支付方式",
+      "https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md#支持的支付方式",
     );
     for (const link of paymentLinks) {
       expect(link.attributes("href")).toContain("docs/PAYMENT");
@@ -883,29 +1009,6 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(payload).not.toHaveProperty("payment_visible_method_wxpay_source");
     expect(payload).not.toHaveProperty("payment_visible_method_alipay_enabled");
     expect(payload).not.toHaveProperty("payment_visible_method_wxpay_enabled");
-  });
-
-  it("loads and submits the mobile Alipay precreate deep-link setting", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      payment_alipay_mobile_precreate_deep_link: false,
-    });
-
-    const wrapper = mountView();
-
-    await flushPromises();
-    await openPaymentTab(wrapper);
-    await wrapper
-      .get('[data-testid="payment-alipay-mobile-precreate-deep-link"]')
-      .setValue(true);
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-
-    expect(updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({
-        payment_alipay_mobile_precreate_deep_link: true,
-      }),
-    );
   });
 
   it("submits the admin recharge affiliate rebate setting", async () => {
@@ -1008,7 +1111,7 @@ describe("admin SettingsView payment visible method controls", () => {
   it("submits Antigravity user agent version gateway setting", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
-      antigravity_user_agent_version: "2.2.1",
+      antigravity_user_agent_version: "1.23.2",
     });
 
     const wrapper = mountView();
@@ -1020,7 +1123,7 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(updateSettings).toHaveBeenCalledTimes(1);
     expect(updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({
-        antigravity_user_agent_version: "2.2.1",
+        antigravity_user_agent_version: "1.23.2",
       }),
     );
   });
@@ -1258,10 +1361,6 @@ describe("admin SettingsView payment visible method controls", () => {
     getProviders.mockReset();
     getProviders.mockResolvedValue({ data: [providerWithNullTypes] });
 
-    // Track the latest providers prop reactively — setup() captures a
-    // one-shot snapshot which misses later reactive updates from
-    // PaymentPanel's loadProviders(). watchEffect re-captures whenever
-    // the prop changes.
     let receivedProviders: Array<Record<string, unknown>> = [];
     const PaymentProviderListCapture = defineComponent({
       props: {
@@ -1271,9 +1370,7 @@ describe("admin SettingsView payment visible method controls", () => {
         },
       },
       setup(props) {
-        watchEffect(() => {
-          receivedProviders = props.providers as Array<Record<string, unknown>>;
-        });
+        receivedProviders = props.providers as Array<Record<string, unknown>>;
         return () => h("div", { class: "provider-list-capture" });
       },
     });
@@ -1373,7 +1470,7 @@ describe("admin SettingsView wechat connect controls", () => {
       enabled: true,
       thinking_signature_enabled: true,
       thinking_budget_enabled: true,
-      apikey_signature_enabled: true,
+      apikey_signature_enabled: false,
       apikey_signature_patterns: [],
     });
     getBetaPolicySettings.mockResolvedValue({
