@@ -9,6 +9,26 @@ import (
 	"testing"
 )
 
+func TestSummarizeSelectionFailureStats_IncludesRuntimeAndProfitReasons(t *testing.T) {
+	got := summarizeSelectionFailureStats(selectionFailureStats{
+		Total:             9,
+		Eligible:          1,
+		Excluded:          2,
+		Unschedulable:     3,
+		PlatformFiltered:  4,
+		ModelUnsupported:  5,
+		ModelRateLimited:  6,
+		RuntimeBlocked:    7,
+		ProfitThreshold:   8,
+		ProfitInvalidRate: 9,
+	})
+
+	want := "total=9 eligible=1 excluded=2 unschedulable=3 platform_filtered=4 model_unsupported=5 model_rate_limited=6 runtime_blocked=7 profit_threshold=8 profit_invalid_account_rate=9"
+	if got != want {
+		t.Fatalf("summarizeSelectionFailureStats() = %q, want %q", got, want)
+	}
+}
+
 func TestTkSelectionFailedDueToUnsupportedModel(t *testing.T) {
 	cases := []struct {
 		name  string

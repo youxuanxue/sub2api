@@ -27,7 +27,7 @@ func TestGatewayCache_KiroSessionRecoveryClearsStickyAndConsumesOnce(t *testing.
 	require.NoError(t, cache.SetSessionAccountID(ctx, groupID, sessionHash, 99, time.Hour))
 	require.NoError(t, store.SetKiroSessionRecoveryExclusion(ctx, groupID, sessionHash, 99, time.Hour))
 	_, err := cache.GetSessionAccountID(ctx, groupID, sessionHash)
-	require.True(t, errors.Is(err, redis.Nil), "the failed sticky binding must be removed")
+	require.True(t, errors.Is(err, service.ErrStickySessionNotFound), "the failed sticky binding must be removed")
 
 	ttl, err := rdb.TTL(ctx, buildKiroSessionRecoveryKey(groupID, sessionHash)).Result()
 	require.NoError(t, err)

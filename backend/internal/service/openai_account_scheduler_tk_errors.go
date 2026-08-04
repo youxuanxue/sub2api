@@ -79,6 +79,9 @@ func openAICompatNoCandidateError(requestedModel, groupPlatform string, compactB
 	if err := tkDeprecatedOpenAISelectionFailure(requestedModel); err != nil {
 		return err
 	}
+	if compactBlocked {
+		return ErrNoAvailableCompactAccounts
+	}
 	if requestedModel != "" {
 		var stats selectionFailureStats
 		if eval != nil && eval.svc != nil && eval.ctx != nil {
@@ -105,6 +108,20 @@ func openAICompatNoCandidateError(requestedModel, groupPlatform string, compactB
 		if eval != nil && eval.svc != nil && eval.ctx != nil {
 			eval.svc.logOpenAICompatSelectionFailure(eval.ctx, eval, requestedModel, stats)
 		}
+		platform := openAICompatErrorPlatformLabel(groupPlatform)
+		if eval != nil && eval.platform != "" {
+			platform = openAICompatErrorPlatformLabel(eval.platform)
+		}
+		if stats.ProfitThreshold > 0 || stats.ProfitInvalidRate > 0 ||
+			groupPlatform == "" || groupPlatform == PlatformOpenAI ||
+			(eval != nil && (eval.platform == "" || eval.platform == PlatformOpenAI)) {
+			err := tkWrapSelectionFailure(platform, requestedModel, stats)
+			if eval != nil && eval.svc != nil && eval.groupID != nil {
+				err = eval.svc.tkGroupUnsupportedModelRecordErr(eval.groupID, requestedModel, err)
+			}
+			return err
+		}
+		return fmt.Errorf("no available accounts for platform %q", openAICompatErrorPlatformLabel(groupPlatform))
 	}
 	if groupPlatform != "" && groupPlatform != PlatformOpenAI {
 		return fmt.Errorf("no available accounts for platform %q", openAICompatErrorPlatformLabel(groupPlatform))

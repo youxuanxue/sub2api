@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 18 // v18: MessagesCompaction + StickyRouting + ReasoningEffort + AllowLive
+const apiKeyAuthSnapshotVersion = 19 // v19: restore compaction fields while retaining group profit control
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -413,6 +413,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			AllowLive:                              apiKey.Group.AllowLive,
 			DefaultMappedModel:                     apiKey.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:            apiKey.Group.MessagesDispatchModelConfig,
+			StickyRoutingMode:                      apiKey.Group.StickyRoutingMode,
 			ModelsListConfig:                       apiKey.Group.ModelsListConfig,
 			RPMLimit:                               apiKey.Group.RPMLimit,
 			MessagesCompactionEnabled:              apiKey.Group.MessagesCompactionEnabled,
@@ -423,6 +424,9 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			PeakStart:                              apiKey.Group.PeakStart,
 			PeakEnd:                                apiKey.Group.PeakEnd,
 			PeakRateMultiplier:                     apiKey.Group.PeakRateMultiplier,
+			ProfitControlEnabled:                   apiKey.Group.ProfitControlEnabled,
+			ProfitMinMargin:                        apiKey.Group.ProfitMinMargin,
+			ProfitSafetyBuffer:                     apiKey.Group.ProfitSafetyBuffer,
 		}
 	}
 	return snapshot
@@ -503,6 +507,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			AllowLive:                              snapshot.Group.AllowLive,
 			DefaultMappedModel:                     snapshot.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:            snapshot.Group.MessagesDispatchModelConfig,
+			StickyRoutingMode:                      snapshot.Group.StickyRoutingMode,
 			ModelsListConfig:                       snapshot.Group.ModelsListConfig,
 			RPMLimit:                               snapshot.Group.RPMLimit,
 			MessagesCompactionEnabled:              snapshot.Group.MessagesCompactionEnabled,
@@ -513,6 +518,9 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			PeakStart:                              snapshot.Group.PeakStart,
 			PeakEnd:                                snapshot.Group.PeakEnd,
 			PeakRateMultiplier:                     snapshot.Group.PeakRateMultiplier,
+			ProfitControlEnabled:                   snapshot.Group.ProfitControlEnabled,
+			ProfitMinMargin:                        snapshot.Group.ProfitMinMargin,
+			ProfitSafetyBuffer:                     snapshot.Group.ProfitSafetyBuffer,
 		}
 	}
 	s.compileAPIKeyIPRules(apiKey)

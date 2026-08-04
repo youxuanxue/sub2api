@@ -53,3 +53,25 @@ func TestLogOpenAIStreamFailedEvent_PostOutputCapacityWarnsAndMarksCompact(t *te
 	require.True(t, logSink.ContainsFieldValue("passthrough_mode", "true"))
 	require.True(t, logSink.ContainsFieldValue("error_code", "model_capacity"))
 }
+
+func TestNewOpenAIStreamFailoverError_EmitsStructuredFailedEvent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	logSink, restore := captureStructuredLog(t)
+	defer restore()
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Set(OpsModelKey, "gpt-5.5")
+	account := &Account{ID: 73, Name: "GPT-pro3", Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	payload := []byte(`{"type":"response.failed","response":{"error":{"type":"server_error","code":"model_capacity","message":"Selected model is at capacity."}}}`)
+
+	err := (&OpenAIGatewayService{}).newOpenAIStreamFailoverError(
+		c, account, true, "rid-runtime-1", payload, "Selected model is at capacity.",
+	)
+
+	require.Equal(t, http.StatusBadGateway, err.StatusCode)
+	require.True(t, logSink.ContainsMessageAtLevel("openai.stream_failed_event.failover_candidate", "info"))
+	require.True(t, logSink.ContainsFieldValue("error_code", "model_capacity"))
+	require.True(t, logSink.ContainsFieldValue("request_id", "rid-runtime-1"))
+}

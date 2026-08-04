@@ -48,6 +48,7 @@ dockers_v2:
       - linux/amd64
     extra_files:
       - deploy/docker-entrypoint.sh
+      - backend/resources
     labels:
       "org.opencontainers.image.version": "{{ .Version }}"
       "org.opencontainers.image.revision": "{{ .Commit }}"

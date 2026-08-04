@@ -662,10 +662,23 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 }
 
 func sanitizeCountTokensRequestBody(body []byte) []byte {
-	out, _ := StripCountTokensUnsupportedFields(body)
-	if gjson.GetBytes(out, "stop").Exists() {
-		if next, ok := deleteJSONPathBytes(out, "stop"); ok {
-			out = next
+	out := body
+	for _, path := range []string{
+		"temperature",
+		"top_p",
+		"top_k",
+		"stream",
+		"stop_sequences",
+		"stop",
+		// Anthropic's /v1/messages/count_tokens accepts request-input fields only.
+		// max_tokens is a generation parameter; OAuth mimicry may inject it to
+		// resemble Claude Code messages requests, so it must never reach this endpoint.
+		"max_tokens",
+	} {
+		if gjson.GetBytes(out, path).Exists() {
+			if next, ok := deleteJSONPathBytes(out, path); ok {
+				out = next
+			}
 		}
 	}
 	return out

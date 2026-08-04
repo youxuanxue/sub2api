@@ -155,7 +155,10 @@ func openAIUpstreamCostFactors(accounts []*Account, now time.Time, oauthScheduli
 }
 
 func openAISchedulingRate(account *Account, now time.Time, oauthSchedulingRateMultiplier float64) (float64, bool) {
-	if account != nil && account.IsOpenAIOAuth() {
+	if account == nil || !account.IsOpenAI() {
+		return 0, false
+	}
+	if account.IsOpenAIOAuth() {
 		return oauthSchedulingRateMultiplier, true
 	}
 	return openAIFreshUpstreamBillingRate(account, now)
