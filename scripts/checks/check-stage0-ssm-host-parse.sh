@@ -107,6 +107,8 @@ check_one "sync-feishu-config.sh"           sync-feishu \
   bash "${OPS}/sync-feishu-config.sh" prod
 check_one "sync-edge-host-units-via-ssm.sh" sync-host-units \
   bash "${OPS}/sync-edge-host-units-via-ssm.sh" mi-0stub
+check_one "sync-ghcr-prune-timer-via-ssm.sh" sync-ghcr-prune \
+  bash "${OPS}/sync-ghcr-prune-timer-via-ssm.sh" i-0stub
 check_one "sync-host-mem-guard-via-ssm.sh"  sync-mem-guard \
   bash "${OPS}/sync-host-mem-guard-via-ssm.sh" i-0stub
 check_one "sync-container-log-policy-via-ssm.sh" sync-log-policy \

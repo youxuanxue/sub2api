@@ -252,6 +252,13 @@ chmod +x "$TMP"
 exec bash "$TMP"
 LOADEREOF
 
+GHCR_DAILY_B64_PARAM_NAME="${STAGE0_PREFIX}/ghcr-prune-daily.b64"
+RAW="$(aws ssm get-parameter --name "${GHCR_DAILY_B64_PARAM_NAME}" --region "${REGION}" --query Parameter.Value --output text)"
+printf '%s' "${RAW}" | base64 -d > /usr/local/bin/tokenkey-ghcr-prune-daily.sh
+chmod +x /usr/local/bin/tokenkey-ghcr-prune-daily.sh
+/usr/local/bin/tokenkey-ghcr-prune-daily.sh --selftest
+/usr/local/bin/tokenkey-ghcr-prune-daily.sh --install-units
+
 # --- 4. secrets + .env --------------------------------------------------
 SECRET_FILE=/var/lib/tokenkey/.env.secret
 if [ ! -f "${SECRET_FILE}" ]; then
@@ -533,6 +540,7 @@ systemctl enable --now tokenkey.service
 systemctl enable --now tokenkey-pgdump.timer
 systemctl enable --now tokenkey-disk-metrics.timer
 systemctl enable --now tokenkey-qa-stale-cleanup.timer
+systemctl enable --now tokenkey-ghcr-prune-daily.timer
 if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
   /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
     -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json -s || true

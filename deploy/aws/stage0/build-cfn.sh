@@ -17,6 +17,7 @@ CADDY_SRC="${HERE}/Caddyfile"
 QA_CLEANUP_SRC="${HERE}/tokenkey-qa-stale-cleanup.sh"
 PGDUMP_SRC="${HERE}/tokenkey-pgdump.sh"
 PRUNE_SRC="${HERE}/tokenkey-prune-ghcr-app-tags.sh"
+DAILY_PRUNE_SRC="${HERE}/tokenkey-ghcr-prune-daily.sh"
 BOOTSTRAP_SRC="${HERE}/stage0-ec2-bootstrap.sh"
 LAUNCHER_SRC="${HERE}/stage0-ec2-userdata-launcher.sub.sh"
 CFN_FILE="${REPO_ROOT}/deploy/aws/cloudformation/stage0-single-ec2.yaml"
@@ -32,7 +33,7 @@ fi
 
 required=(
   "${COMPOSE_SRC}" "${CADDY_SRC}"
-  "${QA_CLEANUP_SRC}" "${PGDUMP_SRC}" "${PRUNE_SRC}" "${BOOTSTRAP_SRC}" "${LAUNCHER_SRC}"
+  "${QA_CLEANUP_SRC}" "${PGDUMP_SRC}" "${PRUNE_SRC}" "${DAILY_PRUNE_SRC}" "${BOOTSTRAP_SRC}" "${LAUNCHER_SRC}"
   "${CFN_FILE}"
 )
 for f in "${required[@]}"; do
@@ -79,6 +80,7 @@ QA_CLEANUP_B64="$(encode_b64 "${QA_CLEANUP_SRC}")"
 # stage0-ec2-bootstrap.sh with `base64 -d | gunzip`.
 PGDUMP_GZB64="$(encode_gzb64 "${PGDUMP_SRC}")"
 PRUNE_B64="$(encode_b64 "${PRUNE_SRC}")"
+DAILY_PRUNE_B64="$(encode_b64 "${DAILY_PRUNE_SRC}")"
 BOOTSTRAP_GZB64="$(encode_gzb64 "${BOOTSTRAP_SRC}")"
 
 BOOTSTRAP_PART1="$(split_b64_for_ssm "${BOOTSTRAP_GZB64}" | sed -n '1p')"
@@ -99,6 +101,7 @@ check_ssm_len caddy "${CADDY_GZB64}"
 check_ssm_len qa "${QA_CLEANUP_B64}"
 check_ssm_len pgdump "${PGDUMP_GZB64}"
 check_ssm_len prune "${PRUNE_B64}"
+check_ssm_len daily_prune "${DAILY_PRUNE_B64}"
 check_ssm_len bootstrap_part1 "${BOOTSTRAP_PART1}"
 check_ssm_len bootstrap_part2 "${BOOTSTRAP_PART2}"
 check_ssm_len bootstrap_part3 "${BOOTSTRAP_PART3}"
@@ -127,6 +130,7 @@ refresh_template() {
   local new_qa="${indent}Value: '${QA_CLEANUP_B64}'"
   local new_pgdump="${indent}Value: '${PGDUMP_GZB64}'"
   local new_prune="${indent}Value: '${PRUNE_B64}'"
+  local new_daily_prune="${indent}Value: '${DAILY_PRUNE_B64}'"
   local new_bootstrap1="${indent}Value: '${BOOTSTRAP_PART1}'"
   local new_bootstrap2="${indent}Value: '${BOOTSTRAP_PART2}'"
   local new_bootstrap3="${indent}Value: '${BOOTSTRAP_PART3}'"
@@ -139,6 +143,7 @@ refresh_template() {
       -v new_qa_ssm="${new_qa}" \
       -v new_pgdump_ssm="${new_pgdump}" \
       -v new_prune_ssm="${new_prune}" \
+      -v new_daily_prune_ssm="${new_daily_prune}" \
       -v new_bootstrap1_ssm="${new_bootstrap1}" \
       -v new_bootstrap2_ssm="${new_bootstrap2}" \
       -v new_bootstrap3_ssm="${new_bootstrap3}" \
@@ -154,6 +159,8 @@ refresh_template() {
     />>> PGDUMP_B64_PARAM END/ { skip = 0; print; next }
     />>> GHCR_PRUNE_B64_PARAM START/ { print; print new_prune_ssm; skip = 1; next }
     />>> GHCR_PRUNE_B64_PARAM END/ { skip = 0; print; next }
+    />>> GHCR_PRUNE_DAILY_B64_PARAM START/ { print; print new_daily_prune_ssm; skip = 1; next }
+    />>> GHCR_PRUNE_DAILY_B64_PARAM END/ { skip = 0; print; next }
     />>> BOOTSTRAP_GZB64_SSM_PART1 START/ { print; print new_bootstrap1_ssm; skip = 1; next }
     />>> BOOTSTRAP_GZB64_SSM_PART1 END/ { skip = 0; print; next }
     />>> BOOTSTRAP_GZB64_SSM_PART2 START/ { print; print new_bootstrap2_ssm; skip = 1; next }
@@ -205,6 +212,7 @@ if [[ "${mode}" == "check" ]]; then
   # plain base64 payloads:
   committed_value QA_CLEANUP_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${QA_CLEANUP_SRC}" || report qa-cleanup
   committed_value GHCR_PRUNE_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${PRUNE_SRC}"      || report ghcr-prune
+  committed_value GHCR_PRUNE_DAILY_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${DAILY_PRUNE_SRC}" || report ghcr-prune-daily
   # (The thin UserData launcher is a pass-through YAML block, not a marker-spliced
   #  SSM embed, so it is not part of the gzip-drift surface; its 16 KiB size guard
   #  above still runs in both modes.)
@@ -227,6 +235,7 @@ echo "  caddy gzip+base64 (SSM): ${#CADDY_GZB64} chars"
 echo "  qa cleanup base64 (SSM): ${#QA_CLEANUP_B64} chars"
 echo "  pgdump gzip+base64 (SSM): ${#PGDUMP_GZB64} chars"
 echo "  ghcr prune base64 (SSM): ${#PRUNE_B64} chars"
+echo "  ghcr daily prune base64 (SSM): ${#DAILY_PRUNE_B64} chars"
 echo "  bootstrap gzip+base64 (SSM total): ${#BOOTSTRAP_GZB64} chars (part1=${#BOOTSTRAP_PART1}, part2=${#BOOTSTRAP_PART2}, part3=${#BOOTSTRAP_PART3})"
 echo "  prod UserData launcher: ${USERDATA_BYTES} bytes (EC2 limit ${EC2_USERDATA_LIMIT})"
 if (( USERDATA_BYTES > USERDATA_WARN_BYTES )); then
