@@ -122,6 +122,21 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+# Always ship the canonical app-container resolvers alongside the probe, so any
+# probe can `. /tmp/resolve-app-container.sh` without every call site having to
+# remember an explicit --with. Uploading them unconditionally is what makes a
+# single owner viable for remote scripts: the alternative is each probe carrying
+# its own copy of the active-color logic, which is exactly the drift this
+# replaced. Both shapes go up because probes are split between bash bodies and
+# python heredocs.
+for _tk_resolver in \
+  "$REPO_ROOT/ops/lib/resolve-app-container.sh" \
+  "$REPO_ROOT/ops/lib/resolve_app_container.py"; do
+  if [ -f "$_tk_resolver" ] && [ "$_tk_resolver" != "$SCRIPT_PATH" ]; then
+    WITH_FILES+=("$_tk_resolver")
+  fi
+done
+
 # Local macOS/Homebrew preflight: catch the known aws/pyexpat loader breakage
 # before the first real AWS call. Diagnose only; repair stays explicit in the
 # helper's --apply mode so this wrapper remains read-only.

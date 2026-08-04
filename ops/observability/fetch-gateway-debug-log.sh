@@ -112,20 +112,44 @@ print(boto3.client('s3', region_name=r).generate_presigned_url(
 ")"
 PRESIGN_B64="$(printf '%s' "$PUT_URL" | base64 | tr -d '\n')"
 
+# Canonical app-container resolver. This tool sends an inline SSM command array
+# and cannot source the shell library, so it renders the same rules from the one
+# owner (ops/lib/resolve_app_container.py). The hand-rolled copy this replaced
+# only checked existence, so a STOPPED container could be selected.
+TK_RESOLVER_LINES="$(python3 - "$ACTIVE_COLOR_FILE" <<'RESOLVEPY'
+import json, pathlib, sys
+import importlib.util as ilu
+here = pathlib.Path(__file__).resolve().parent if "__file__" in dir() else pathlib.Path.cwd()
+cands = [pathlib.Path("ops/lib/resolve_app_container.py")]
+d = pathlib.Path.cwd()
+for _ in range(6):
+    cands.append(d / "ops/lib/resolve_app_container.py")
+    d = d.parent
+path = next((c for c in cands if c.is_file()), None)
+if path is None:
+    raise SystemExit("canonical app-container resolver not found: ops/lib/resolve_app_container.py")
+spec = ilu.spec_from_file_location("tk_resolver", path)
+mod = ilu.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(json.dumps(mod.remote_shell_snippet(variable="TK_CONTAINER")))
+RESOLVEPY
+)"
+
 PARAMS="$SCRATCH/ssm-params.json"
 jq -n \
+  --argjson resolver_lines "$TK_RESOLVER_LINES" \
   --arg log_path "$LOG_PATH" \
   --arg container "$CONTAINER" \
   --arg active_color_file "$ACTIVE_COLOR_FILE" \
   --arg remote_gz "$REMOTE_GZ" \
   --arg b64 "$PRESIGN_B64" \
   '{
-    commands: [
+    commands: ([
       "set -euo pipefail",
-      ("TK_CONTAINER=" + ($container | @sh)),
-      ("ACTIVE_COLOR_FILE=" + ($active_color_file | @sh)),
-      "if [ \"$TK_CONTAINER\" = auto ]; then if [ -f \"$ACTIVE_COLOR_FILE\" ]; then color=$(cat \"$ACTIVE_COLOR_FILE\" 2>/dev/null | tr -d \" \\t\\r\\n\"); case \"$color\" in blue|green) if docker inspect \"tokenkey-$color\" >/dev/null 2>&1; then TK_CONTAINER=\"tokenkey-$color\"; fi ;; esac; fi; fi",
-      "if [ \"$TK_CONTAINER\" = auto ]; then for c in tokenkey tokenkey-blue tokenkey-green; do if docker inspect \"$c\" >/dev/null 2>&1; then TK_CONTAINER=\"$c\"; break; fi; done; fi",
+      ("TK_CONTAINER_INPUT=" + ($container | @sh))
+    ] + $resolver_lines + [
+      "if [ \"$TK_CONTAINER_INPUT\" != auto ]; then TK_CONTAINER=\"$TK_CONTAINER_INPUT\"; fi",
+      "if [ -z \"$TK_CONTAINER\" ]; then echo \"fetch-gateway-debug-log: app container unresolved\" >&2; exit 40; fi",
       "echo \"container=$TK_CONTAINER\" >&2",
       ("docker exec \"$TK_CONTAINER\" test -f " + ($log_path | @sh)),
       ("docker exec \"$TK_CONTAINER\" gzip -c " + ($log_path | @sh) + " > " + ($remote_gz | @sh)),
@@ -133,7 +157,7 @@ jq -n \
       ("curl -fS --max-time 3600 -X PUT --upload-file " + ($remote_gz | @sh) + " \"$(cat /tmp/gw-debug-put.url)\""),
       "rm -f /tmp/gw-debug-put.url",
       ("wc -c < " + ($remote_gz | @sh) + " | tr -d \" \\n\"")
-    ]
+    ])
   }' > "$PARAMS"
 
 log "target=$TARGET region=$REGION instance=$INSTANCE_ID"

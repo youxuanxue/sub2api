@@ -32,9 +32,13 @@ class ProbePromptSurfaceFingerprintsTest(unittest.TestCase):
                 textwrap.dedent(
                     """\
                     #!/usr/bin/env bash
+                    # The canonical resolver asks for State.Running (not mere
+                    # existence) and passes the name last.
                     if [ "$1" = inspect ]; then
-                      [ "$2" = tokenkey ] && exit 0
-                      exit 1
+                      for a in "$@"; do name="$a"; done
+                      [ "$name" = tokenkey ] || exit 1
+                      case "$*" in *State.Running*) echo true ;; esac
+                      exit 0
                     fi
                     if [ "$1" = logs ]; then
                       cat <<'LOGS'

@@ -7,54 +7,77 @@ CONTAINER="${CONTAINER:-auto}"
 TOP_LIMIT="${TOP_LIMIT:-80}"
 SLOW_LIMIT="${SLOW_LIMIT:-30}"
 
+# Where the canonical resolver lives. run-probe.sh uploads
+# resolve_app_container.py next to this probe (/tmp); a repo checkout has it
+# under ops/lib. Exported so the python heredoc below resolves the same owner.
+TK_LIB_DIR="${TK_LIB_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+export TK_LIB_DIR
+
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 
+TK_PROBE_DIR="$(cd "$(dirname "$0")" && pwd)"
+export TK_PROBE_DIR
 CONTAINER_RESOLUTION="$(python3 - "$CONTAINER" <<'PY'
 import pathlib
-import subprocess
 import sys
 
-container_arg = sys.argv[1]
+# Canonical resolver (ops/lib/resolve_app_container.py); run-probe.sh uploads it
+# beside this probe. The hand-rolled copy this replaced only asked whether a
+# container existed, so a stopped container could be reported as live runtime.
+import importlib.util as _ilu
+import os as _os
 
-def exists(name: str) -> bool:
-    return subprocess.run(
-        ["docker", "inspect", name, "--format", "{{.Name}}"],
-        capture_output=True,
-        text=True,
-        check=False,
-    ).returncode == 0
+# TK_PROBE_DIR is exported by this script so the heredoc knows where it lives:
+# python reading a heredoc has no __file__. run-probe.sh drops the resolver next
+# to the probe on the host; the ../lib hop covers running from the repo.
+_tk_probe_dir = _os.environ.get("TK_PROBE_DIR", "")
+_tk_resolver_candidates = [
+    pathlib.Path(_tk_probe_dir) / "resolve_app_container.py",
+    pathlib.Path(_tk_probe_dir) / ".." / "lib" / "resolve_app_container.py",
+    pathlib.Path("/tmp/resolve_app_container.py"),
+    pathlib.Path("ops/lib/resolve_app_container.py"),
+]
+_spec = None
+for _cand in _tk_resolver_candidates:
+    if _cand.is_file():
+        _spec = _ilu.spec_from_file_location("tk_resolve_app_container", str(_cand))
+        break
+if _spec is None:
+    raise SystemExit("canonical app-container resolver not found (ops/lib/resolve_app_container.py)")
+_tk = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(_tk)
 
-notes = []
-container = container_arg
-if container_arg == "auto":
-    active = pathlib.Path("/var/lib/tokenkey/active-color")
-    if active.is_file():
-        color = active.read_text(encoding="utf-8", errors="ignore").strip()
-        notes.append(f"active-color={color or '<empty>'}")
-        if color in ("blue", "green") and exists(f"tokenkey-{color}"):
-            container = f"tokenkey-{color}"
-            notes.append("active-color container exists")
-        else:
-            if color in ("blue", "green"):
-                notes.append(f"tokenkey-{color} missing")
-            for candidate in ("tokenkey", "tokenkey-blue", "tokenkey-green"):
-                if exists(candidate):
-                    container = candidate
-                    notes.append(f"fallback={candidate}")
-                    break
-    else:
-        notes.append("active-color missing")
-        for candidate in ("tokenkey", "tokenkey-blue", "tokenkey-green"):
-            if exists(candidate):
-                container = candidate
-                notes.append(f"fallback={candidate}")
-                break
-print(container + "\t" + ",".join(notes))
+container, notes = _tk.resolve(sys.argv[1])
+# Empty first field means unresolved; the consumer below turns that into an
+# explicit unknown rather than running docker against a guessed name.
+print((container or "") + "\t" + ",".join(notes))
 PY
 )"
 RESOLVED_CONTAINER="${CONTAINER_RESOLUTION%%$'\t'*}"
 RESOLUTION_NOTES="${CONTAINER_RESOLUTION#*$'\t'}"
+
+# An unresolved container must not reach `docker logs ""`: that returns nothing and
+# is indistinguishable from a genuinely idle admin UI. Report unknown instead.
+if [ -z "$RESOLVED_CONTAINER" ]; then
+  python3 - "$CONTAINER" "$RESOLUTION_NOTES" "$SINCE" <<'PY'
+import json
+import sys
+
+container_input, resolution_notes, since = sys.argv[1], sys.argv[2], sys.argv[3]
+print(json.dumps({
+    "meta": {
+        "container_input": container_input,
+        "container": None,
+        "container_resolution": [p for p in resolution_notes.split(",") if p],
+        "since": since,
+        "status": "unknown",
+        "reason": "app container unresolved (no running candidate, or several)",
+    },
+}, ensure_ascii=False))
+PY
+  exit 3
+fi
 
 docker logs "$RESOLVED_CONTAINER" --since "$SINCE" >"$tmp" 2>&1 || true
 

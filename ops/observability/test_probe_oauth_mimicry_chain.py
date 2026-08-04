@@ -32,9 +32,13 @@ class ProbeOAuthMimicryChainTest(unittest.TestCase):
                 textwrap.dedent(
                     """\
                     #!/usr/bin/env bash
+                    # The canonical resolver asks for State.Running (not mere
+                    # existence) and passes the name last.
                     if [ "$1" = inspect ]; then
-                      [ "$2" = tokenkey ] && exit 0
-                      exit 1
+                      for a in "$@"; do name="$a"; done
+                      [ "$name" = tokenkey ] || exit 1
+                      case "$*" in *State.Running*) echo true ;; esac
+                      exit 0
                     fi
                     if [ "$1" = exec ]; then
                       echo '{"user_agent":"OpenAI/Python 2.44.0","account_type":"oauth","platform":"anthropic","model":"claude-sonnet-4-6","tls_profile_name":"tk_canonical_cc_oauth"}'

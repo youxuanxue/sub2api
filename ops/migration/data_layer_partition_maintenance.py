@@ -17,6 +17,9 @@ import time
 from collections.abc import Callable, Iterable
 from typing import Any
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "lib"))
+import resolve_app_container  # noqa: E402  (path bootstrap above)
+
 
 PROD_REGION = "us-east-1"
 PROD_STACK = "tokenkey-prod-stage0"
@@ -26,34 +29,26 @@ COMMAND_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{7,127}")
 POLL_ATTEMPTS = 100
 POLL_INTERVAL_SECONDS = 3
 
-_REMOTE_SCRIPT = r'''set -euo pipefail
-container_running() {
-  local running
-  running="$(sudo docker inspect --format '{{.State.Running}}' "$1" 2>/dev/null)" || return 1
-  [ "$running" = true ]
-}
-APP_CONTAINER=""
-if [ -r /var/lib/tokenkey/active-color ]; then
-  color="$(tr -d '[:space:]' < /var/lib/tokenkey/active-color 2>/dev/null || true)"
-  case "$color" in
-    blue|green)
-      candidate="tokenkey-$color"
-      if container_running "$candidate"; then APP_CONTAINER="$candidate"; fi
-      ;;
-  esac
-fi
-if [ -z "$APP_CONTAINER" ]; then
-  running_candidates=()
-  for candidate in tokenkey tokenkey-blue tokenkey-green; do
-    if container_running "$candidate"; then running_candidates+=("$candidate"); fi
-  done
-  if [ "${#running_candidates[@]}" -ne 1 ]; then
-    echo "partition maintenance refused: running app container is ambiguous" >&2
-    exit 40
-  fi
-  APP_CONTAINER="${running_candidates[0]}"
-fi
-sudo docker exec --user 1000:1000 "$APP_CONTAINER" /app/sub2api --partition-maintenance-once --confirm tokenkey-prod-partition-maintenance-v1'''
+# The remote side receives a command string, not a checkout, so it cannot source
+# ops/lib/resolve-app-container.sh. It renders the resolver from the same owner
+# instead of carrying a hand-written copy: scripts/checks/app-container-resolver.py
+# fails the build if the active-color logic is inlined here again.
+_RESOLVER_LINES = resolve_app_container.remote_shell_snippet(docker="sudo docker")
+
+_REMOTE_SCRIPT = "\n".join(
+    [
+        "set -euo pipefail",
+        *_RESOLVER_LINES,
+        # Ambiguity is refusal, not a positional guess: running the guarded DDL
+        # against the wrong half of a blue/green pair is not recoverable by retry.
+        'if [ -z "$APP_CONTAINER" ]; then',
+        '  echo "partition maintenance refused: running app container is ambiguous" >&2',
+        "  exit 40",
+        "fi",
+        'sudo docker exec --user 1000:1000 "$APP_CONTAINER" /app/sub2api'
+        f" --partition-maintenance-once --confirm {CONFIRMATION}",
+    ]
+)
 REMOTE_COMMAND = "sudo bash -c " + shlex.quote(_REMOTE_SCRIPT)
 
 

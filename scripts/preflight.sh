@@ -1470,6 +1470,23 @@ else
     echo "  ok: fail-closed probes + fixed partition repair controller"
 fi
 
+# ---- sub2api: single app-container resolver owner --------------------------
+# Host-side probes must resolve the live blue/green container through
+# ops/lib/resolve-app-container.sh (or its python sibling for inline SSM and
+# heredoc shapes). This grew from ~16 hand-written copies that had already
+# drifted: most only asked whether a container EXISTED, so during a deploy
+# window they could select a STOPPED container and report its stale env as live
+# runtime state. A copy is cheap to reintroduce and invisible in review, so the
+# no-copy rule is mechanical rather than prose.
+echo ""
+echo "=== sub2api: single app-container resolver owner ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for resolver ownership check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/app-container-resolver.py; then
+    errors=$((errors + 1))
+fi
+
 # ---- sub2api: nonprod archive/restore rehearsal ----------------------------
 echo ""
 echo "=== sub2api: nonprod archive/restore rehearsal ==="

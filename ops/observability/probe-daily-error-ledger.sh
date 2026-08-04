@@ -16,37 +16,30 @@ if [ "$WINDOW_HOURS" -lt 1 ] || [ "$WINDOW_HOURS" -gt 168 ]; then
 fi
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
-ACTIVE_COLOR_FILE="${ACTIVE_COLOR_FILE:-/var/lib/tokenkey/active-color}"
+# Canonical app-container resolver (ops/lib/resolve-app-container.sh) owns the
+# active-color + running-candidate logic; TK_DOCKER carries this probe's DOCKER_BIN
+# seam so the resolver uses the same CLI as every other call here.
+TK_DOCKER="$DOCKER_BIN"
+_tk_resolver=""
+for _cand in "${TK_LIB_DIR:-$(dirname "$0")}/resolve-app-container.sh" \
+             "$(dirname "$0")/../lib/resolve-app-container.sh"; do
+  if [ -f "$_cand" ]; then _tk_resolver="$_cand"; break; fi
+done
+if [ -z "$_tk_resolver" ]; then
+  echo "canonical app-container resolver not found (ops/lib/resolve-app-container.sh)" >&2
+  exit 1
+fi
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_resolver"
 
 psql_query() {
   "$DOCKER_BIN" exec tokenkey-postgres psql \
     -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -c "$1"
 }
 
-resolve_app_container() {
-  local color candidate
-  if [ -r "$ACTIVE_COLOR_FILE" ]; then
-    color="$(tr -d '[:space:]' < "$ACTIVE_COLOR_FILE" 2>/dev/null || true)"
-    case "$color" in
-      blue|green)
-        candidate="tokenkey-$color"
-        if "$DOCKER_BIN" inspect "$candidate" >/dev/null 2>&1; then
-          printf '%s\n' "$candidate"
-          return 0
-        fi
-        ;;
-    esac
-  fi
-  for candidate in tokenkey tokenkey-blue tokenkey-green; do
-    if "$DOCKER_BIN" inspect "$candidate" >/dev/null 2>&1; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done
-  return 1
-}
-
-APP_CONTAINER="$(resolve_app_container || true)"
+# Unresolved stays empty on purpose: the access_clusters section below already
+# emits an explicit {"status":"skip"} rather than an empty-looking success.
+APP_CONTAINER="$(tk_resolve_app_container "${APP_CONTAINER:-auto}" || true)"
 RUNTIME_IMAGE=""
 RUNTIME_STARTED_AT=""
 if [ -n "$APP_CONTAINER" ]; then
