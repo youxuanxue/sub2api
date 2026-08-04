@@ -83,34 +83,25 @@ psql_capture_numeric() {
   printf -v "$dest" '%s' "$value"
 }
 
-resolve_app_container() {
-  if [[ "$APP_CONTAINER" != "auto" ]]; then
-    return 0
-  fi
-  if [[ -r /var/lib/tokenkey/active-color ]]; then
-    local color
-    color="$(sed -n '1p' /var/lib/tokenkey/active-color 2>/dev/null | tr -d '[:space:]')"
-    case "$color" in
-      blue|green)
-        if sudo docker inspect "tokenkey-$color" >/dev/null 2>&1; then
-          APP_CONTAINER="tokenkey-$color"
-          return 0
-        fi
-        ;;
-    esac
-  fi
-  for candidate in tokenkey tokenkey-blue tokenkey-green; do
-    if sudo docker inspect "$candidate" >/dev/null 2>&1; then
-      APP_CONTAINER="$candidate"
-      return 0
-    fi
-  done
-  APP_CONTAINER="tokenkey"
-}
+# Canonical app-container resolver (ops/lib/resolve-app-container.sh) owns the
+# active-color + running-candidate logic; TK_DOCKER carries this script's sudo
+# prefix. The resolver already proves State.Running, so the old post-hoc
+# `docker inspect` existence check is gone with the duplicated loop.
+TK_DOCKER="sudo docker"
+_tk_resolver=""
+for _cand in "${TK_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}/resolve-app-container.sh" \
+             "$(dirname "${BASH_SOURCE[0]}")/../lib/resolve-app-container.sh"; do
+  if [ -f "$_cand" ]; then _tk_resolver="$_cand"; break; fi
+done
+if [ -z "$_tk_resolver" ]; then
+  echo "canonical app-container resolver not found (ops/lib/resolve-app-container.sh)" >&2
+  exit 1
+fi
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_resolver"
 
-resolve_app_container
-if ! sudo docker inspect "$APP_CONTAINER" >/dev/null 2>&1; then
-  fail_json "app container not running: ${APP_CONTAINER}"
+if ! APP_CONTAINER="$(tk_resolve_app_container "$APP_CONTAINER")"; then
+  fail_json "app container unresolved (no running candidate, or several)"
 fi
 
 if [[ ! "$ACCOUNT_ID" =~ ^[0-9]+$ ]]; then

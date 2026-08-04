@@ -41,41 +41,32 @@ set -u
 PLATFORM="${PLATFORM:-anthropic}"
 SINCE="${SINCE:-2h}"
 CONTAINER_INPUT="${CONTAINER:-auto}"
-ACTIVE_COLOR_FILE="${ACTIVE_COLOR_FILE:-/var/lib/tokenkey/active-color}"
 PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
 
-resolve_gateway_container() {
-  local requested="$1"
-  if [ "$requested" != "auto" ]; then
-    printf '%s\n' "$requested"
-    return 0
-  fi
+# Canonical app-container resolver (ops/lib/resolve-app-container.sh) is the sole
+# owner of active-color + running-candidate logic. run-probe.sh ships it next to
+# this probe; the second path covers running straight from the repo.
+_tk_resolver=""
+for _cand in "${TK_LIB_DIR:-$(dirname "$0")}/resolve-app-container.sh" \
+             "$(dirname "$0")/../lib/resolve-app-container.sh"; do
+  if [ -f "$_cand" ]; then _tk_resolver="$_cand"; break; fi
+done
+if [ -z "$_tk_resolver" ]; then
+  echo "canonical app-container resolver not found (ops/lib/resolve-app-container.sh)" >&2
+  exit 1
+fi
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_resolver"
 
-  local color candidate
-  if [ -f "$ACTIVE_COLOR_FILE" ]; then
-    color="$(tr -d '[:space:]' < "$ACTIVE_COLOR_FILE" 2>/dev/null || true)"  # preflight-allow: swallow - unreadable active-color falls back to legacy container
-    case "$color" in
-      blue|green)
-        candidate="tokenkey-$color"
-        if docker inspect "$candidate" >/dev/null 2>&1; then
-          printf '%s\n' "$candidate"
-          return 0
-        fi
-        ;;
-    esac
-  fi
-
-  for candidate in tokenkey tokenkey-blue tokenkey-green; do
-    if docker inspect "$candidate" >/dev/null 2>&1; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done
-
-  printf '%s\n' tokenkey
-}
-
-CONTAINER="$(resolve_gateway_container "$CONTAINER_INPUT")"
+# Unresolved must fail the probe rather than emit zeroed TRAFFIC. `docker logs ""`
+# returns nothing, which the verdict reads as `idle` — a BENIGN verdict. A dead or
+# mis-resolved edge would then be indistinguishable from a quiet one, which is the
+# exact ambiguity this probe exists to remove. Exiting non-zero makes
+# scan-edge-health.sh record `unreachable` (fail closed) instead.
+if ! CONTAINER="$(tk_resolve_app_container "$CONTAINER_INPUT")"; then
+  echo "probe-edge-health: app container unresolved (no single running candidate); refusing to report an idle window" >&2
+  exit 3
+fi
 
 echo "=== docker ps (tokenkey stack) ==="
 docker ps --filter name=tokenkey --format '{{.Names}}\t{{.Status}}' 2>/dev/null || true  # preflight-allow: swallow — diagnostic header only

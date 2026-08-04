@@ -21,10 +21,10 @@ related_prs: [1385]
 3. 只创建并验证 no-execute change set 的 DataVolume plan 工具。
 
 归档 worker、S3 bucket、生产保留期、在线文件系统扩容和数据删除不在本原型实现范围。
-容量探针 `ops/observability/probe-data-layer-capacity-prototype.sh` 与判定器
-`ops/observability/data_layer_capacity_verdict_prototype.py` 不接入现有 workflow、schedule
-或运行时入口；把它们替换进 prod daily diagnostics 属于下一次独立生产审批，不随本 PR
-merge 自动激活。
+本原型在 PR #1385 中保持休眠；后续正式晋升由独立审批基线
+`docs/approved/design-phase1-prod-activation-gates.md` 约束。晋升完成后删除 prototype
+源码副本，由正式 probe/verdict 和对应测试成为唯一 owner。任何 merge 均不自动部署或
+执行生产命令。
 
 ## 零影响边界
 
@@ -91,7 +91,7 @@ usage 当前不是自动分区表，不在 prod 做 `VACUUM FULL` 或直接 rewr
 ## 验收门
 
 - [ ] 探针正向返回字段化 snapshot，超时/缺统计负向返回 `unknown`。
-- [ ] 现有 prod probe/verdict 与 daily diagnostics 接线保持不变，prototype 无运行时 consumer。
+- [ ] PR #1385 合并时 prod 接线保持不变；后续晋升必须绑定独立生产审批基线。
 - [ ] 离线投影对 50→100 GiB 和低/高回收 scenario 的计算由测试覆盖。
 - [ ] DataVolume 参数计划拒绝缩盘、缺 size 和错误 prod 确认串。
 - [ ] change-set guard 只接受恰好一条 `DataVolume/Modify/Replacement=False/Properties/Size`。

@@ -113,10 +113,32 @@ if [[ "${INSTANCE_ID}" != i-* ]]; then
   exit 1
 fi
 
+TK_RESOLVER_SNIPPET="$(cd "${SCRIPT_DIR}/../.." && python3 - <<'RESOLVEPY'
+import importlib.util
+import pathlib
+import sys
+
+# Canonical resolver (ops/lib/resolve_app_container.py). This helper delivers an
+# inline base64 script to the host, so it cannot source the shell library the
+# probes use; it renders the same rules from the one owner instead.
+# scripts/checks/app-container-resolver.py fails the build if a hand-written
+# copy reappears here.
+path = pathlib.Path("ops/lib/resolve_app_container.py")
+if not path.is_file():
+    raise SystemExit(f"canonical app-container resolver not found: {path}")
+spec = importlib.util.spec_from_file_location("tk_resolve_app_container", path)
+tk = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tk)
+sys.stdout.write("\n".join(tk.remote_shell_snippet(variable="app_container")))
+RESOLVEPY
+)" || {
+  echo "resolve-prod-running-tag: could not render canonical container resolver" >&2
+  exit 2
+}
+
 read -r -d '' REMOTE_PROBE <<PROBE || true  # preflight-allow: swallow -- read -d '' returns nonzero at heredoc EOF under set -e
 set -u
 requested_container='${APP_CONTAINER}'
-app_container="\$requested_container"
 active_color=""
 fallback_used=false
 
@@ -124,24 +146,27 @@ if [ -r /var/lib/tokenkey/active-color ]; then
   active_color=\$(sed -n '1p' /var/lib/tokenkey/active-color 2>/dev/null | tr -d '[:space:]')
 fi
 
-if [ "\$requested_container" = auto ]; then
-  app_container=tokenkey
-  case "\$active_color" in
-    blue|green)
-      candidate="tokenkey-\$active_color"
-      if docker inspect "\$candidate" >/dev/null 2>&1; then
-        app_container="\$candidate"
-      fi
-      ;;
-  esac
+${TK_RESOLVER_SNIPPET}
+
+# An explicit --container still has to be running: this tag gets pinned into
+# CloudFormation ImageTag, and a stopped container happily reports Config.Image,
+# which would pin the image of something that is not serving traffic.
+if [ "\$requested_container" != auto ]; then
+  if tk_running "\$requested_container"; then
+    app_container="\$requested_container"
+  else
+    app_container=""
+  fi
 fi
 
-img=\$(docker inspect "\$app_container" --format '{{.Config.Image}}' 2>/dev/null || true)  # preflight-allow: swallow -- missing active-color candidate falls back or is reported by parser
-if [ -z "\$img" ] && [ "\$requested_container" = auto ] && [ "\$app_container" != tokenkey ]; then
-  app_container=tokenkey
-  fallback_used=true
-  img=\$(docker inspect "\$app_container" --format '{{.Config.Image}}' 2>/dev/null || true)  # preflight-allow: swallow -- legacy fallback may be absent; parser fails closed
+if [ -z "\$app_container" ]; then
+  printf 'ACTIVE_COLOR {"value":"%s"}\n' "\$active_color"
+  printf 'APPCONTAINER {"name":"","requested":"%s","fallback_used":false}\n' "\$requested_container"
+  printf 'RUNIMAGE {"image":""}\n'
+  exit 0
 fi
+
+img=\$(docker inspect "\$app_container" --format '{{.Config.Image}}' 2>/dev/null || true)  # preflight-allow: swallow -- empty image is reported to the parser, which fails closed
 
 printf 'ACTIVE_COLOR {"value":"%s"}\n' "\$active_color"
 printf 'APPCONTAINER {"name":"%s","requested":"%s","fallback_used":%s}\n' "\$app_container" "\$requested_container" "\$fallback_used"

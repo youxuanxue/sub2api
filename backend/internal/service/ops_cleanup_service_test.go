@@ -9,6 +9,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/partitionmaintenance"
 )
 
 type opsCleanupHeartbeatCapture struct {
@@ -109,9 +110,12 @@ func TestOpsCleanupScheduled_DisabledStillMaintainsPartitionsWithoutCleanupHeart
 	for _, table := range []string{"ops_system_logs", "ops_error_logs"} {
 		mock.ExpectQuery("pg_partitioned_table").WithArgs(table).
 			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-		for i := 0; i <= opsPartitionMonthsAhead; i++ {
+		for i := 0; i < 4; i++ {
 			mock.ExpectExec("CREATE TABLE IF NOT EXISTS").WillReturnResult(sqlmock.NewResult(0, 0))
 		}
+		mock.ExpectQuery("(?s)pg_get_expr.*pg_inherits").
+			WithArgs(table, sqlmock.AnyArg(), sqlmock.AnyArg()).
+			WillReturnRows(sqlmock.NewRows([]string{"covered_ranges"}).AddRow(4))
 	}
 	mock.ExpectQuery("pg_partitioned_table").WithArgs("usage_logs").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -124,8 +128,8 @@ func TestOpsCleanupScheduled_DisabledStillMaintainsPartitionsWithoutCleanupHeart
 	svc.refreshEffectiveBeforeRun(context.Background())
 	svc.runScheduled()
 
-	if len(repo.heartbeats) != 1 || repo.heartbeats[0].JobName != opsPartitionJobName {
-		t.Fatalf("heartbeats=%+v, want only %s", repo.heartbeats, opsPartitionJobName)
+	if len(repo.heartbeats) != 1 || repo.heartbeats[0].JobName != partitionmaintenance.JobName {
+		t.Fatalf("heartbeats=%+v, want only %s", repo.heartbeats, partitionmaintenance.JobName)
 	}
 	if repo.heartbeats[0].LastSuccessAt == nil || repo.heartbeats[0].LastErrorAt != nil {
 		t.Fatalf("partition heartbeat should be successful: %+v", repo.heartbeats[0])
@@ -154,8 +158,8 @@ func TestOpsCleanupScheduled_PartitionFailureStopsBeforeCleanup(t *testing.T) {
 	svc.refreshEffectiveBeforeRun(context.Background())
 	svc.runScheduled()
 
-	if len(repo.heartbeats) != 1 || repo.heartbeats[0].JobName != opsPartitionJobName {
-		t.Fatalf("heartbeats=%+v, want only failed %s", repo.heartbeats, opsPartitionJobName)
+	if len(repo.heartbeats) != 1 || repo.heartbeats[0].JobName != partitionmaintenance.JobName {
+		t.Fatalf("heartbeats=%+v, want only failed %s", repo.heartbeats, partitionmaintenance.JobName)
 	}
 	if repo.heartbeats[0].LastErrorAt == nil || repo.heartbeats[0].LastSuccessAt != nil {
 		t.Fatalf("partition heartbeat should record the error: %+v", repo.heartbeats[0])

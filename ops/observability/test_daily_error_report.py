@@ -328,13 +328,15 @@ class DailyErrorReportTest(unittest.TestCase):
                 """#!/usr/bin/env bash
 set -euo pipefail
 if [ "$1" = inspect ]; then
-  [ "$2" = tokenkey-green ] || exit 1
-  if [ "${3:-}" = --format ]; then
-    case "$4" in
-      *Config.Image*) echo ghcr.io/youxuanxue/sub2api:1.8.115 ;;
-      *State.StartedAt*) echo 2026-07-22T01:00:00Z ;;
-    esac
-  fi
+  case "$*" in
+    *tokenkey-green*) ;;
+    *) exit 1 ;;
+  esac
+  case "$*" in
+    *State.Running*) echo true ;;
+    *Config.Image*) echo ghcr.io/youxuanxue/sub2api:1.8.115 ;;
+    *State.StartedAt*) echo 2026-07-22T01:00:00Z ;;
+  esac
   exit 0
 fi
 if [ "$1" = logs ]; then

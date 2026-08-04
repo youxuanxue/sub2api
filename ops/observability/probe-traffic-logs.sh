@@ -26,40 +26,29 @@ set -u
 SINCE="${SINCE:-1h}"
 PATH_KEY="${PATH_KEY:-/v1/messages}"
 CONTAINER_INPUT="${CONTAINER:-auto}"
-ACTIVE_COLOR_FILE="${ACTIVE_COLOR_FILE:-/var/lib/tokenkey/active-color}"
 
-resolve_gateway_container() {
-  local requested="$1"
-  if [ "$requested" != "auto" ]; then
-    printf '%s\n' "$requested"
-    return 0
-  fi
+# Canonical app-container resolver (ops/lib/resolve-app-container.sh) is the sole
+# owner of active-color + running-candidate logic. run-probe.sh ships it next to
+# this probe; the second path covers running straight from the repo.
+_tk_resolver=""
+for _cand in "${TK_LIB_DIR:-$(dirname "$0")}/resolve-app-container.sh" \
+             "$(dirname "$0")/../lib/resolve-app-container.sh"; do
+  if [ -f "$_cand" ]; then _tk_resolver="$_cand"; break; fi
+done
+if [ -z "$_tk_resolver" ]; then
+  echo "canonical app-container resolver not found (ops/lib/resolve-app-container.sh)" >&2
+  exit 1
+fi
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_resolver"
 
-  local color candidate
-  if [ -f "$ACTIVE_COLOR_FILE" ]; then
-    color="$(tr -d '[:space:]' < "$ACTIVE_COLOR_FILE" 2>/dev/null || true)"  # preflight-allow: swallow - unreadable active-color falls back to legacy container
-    case "$color" in
-      blue|green)
-        candidate="tokenkey-$color"
-        if docker inspect "$candidate" >/dev/null 2>&1; then
-          printf '%s\n' "$candidate"
-          return 0
-        fi
-        ;;
-    esac
-  fi
-
-  for candidate in tokenkey tokenkey-blue tokenkey-green; do
-    if docker inspect "$candidate" >/dev/null 2>&1; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done
-
-  printf '%s\n' tokenkey
-}
-
-CONTAINER="$(resolve_gateway_container "$CONTAINER_INPUT")"
+# An unresolved container must not fall through to `docker logs ""`: that returns
+# nothing and reads exactly like a quiet traffic window.
+if ! CONTAINER="$(tk_resolve_app_container "$CONTAINER_INPUT")"; then
+  echo "probe_traffic_logs container_input=$CONTAINER_INPUT container=unknown since=$SINCE path_key=$PATH_KEY acc_lines=0 sse_lines=0"
+  echo "probe_traffic_logs ERROR app container unresolved (no running candidate, or several) — refusing to report zero traffic" >&2
+  exit 3
+fi
 
 docker logs "$CONTAINER" --since "$SINCE" 2>&1 \
   | grep -F 'http request completed' \

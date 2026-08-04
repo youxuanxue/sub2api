@@ -306,12 +306,7 @@ jobs:
             esac
 
             SAFETY_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-safety.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
-            VOLUME_ID="$(aws ec2 describe-instances --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].BlockDeviceMappings[0].Ebs.VolumeId' --output text 2>>"$STDERR" || true)" # preflight-allow: swallow — verdict reports missing snapshot
-            SNAPSHOT_AT=""
-            if [ -n "$VOLUME_ID" ] && [ "$VOLUME_ID" != "None" ]; then
-              SNAPSHOT_AT="$(aws ec2 describe-snapshots --region "$TARGET_REGION" --owner-ids self --filters "Name=volume-id,Values=$VOLUME_ID" "Name=status,Values=completed" --query 'reverse(sort_by(Snapshots,&StartTime))[0].StartTime' --output text 2>>"$STDERR" || true)" # preflight-allow: swallow — verdict reports missing snapshot
-            fi
-            SNAPSHOT_SIGNAL="$(jq -cn --arg value "$SNAPSHOT_AT" '{latest_snapshot_at:(if $value == "" or $value == "None" then null else $value end)}')"
+            SNAPSHOT_SIGNAL="$(bash ops/observability/data_layer_snapshot_signal.sh "$TARGET_REGION" "$STACK_NAME" 2>>"$STDERR" || echo '{"latest_snapshot_at":null}')" # preflight-allow: swallow — helper failures become an explicit missing snapshot signal
             ARCHIVE_SIGNAL="$(python3 ops/observability/data_layer_archive_health.py 2>>"$STDERR" || echo 'ARCHIVESTATS {}')"
             SAFETY_VERDICT="$(printf '%s\nSNAPSHOTSTATS %s\n%s\n' "$SAFETY_OUT" "$SNAPSHOT_SIGNAL" "$ARCHIVE_SIGNAL" | python3 ops/observability/data_layer_safety_verdict.py 2>>"$STDERR" || echo '{"verdict":"unsafe","findings":[{"kind":"data_layer_safety_probe","status":"issue_candidate","severity":"error","summary":"data-layer safety verdict failed"}]}')"
             printf 'data_layer_safety: %s\n' "$SAFETY_VERDICT" >> "$STDOUT"
@@ -343,18 +338,34 @@ jobs:
             fi
 
             python3 - <<'PY' > "$OUT/runtime-params.json"
+          import importlib.util
           import json
           import os
+          import pathlib
           import shlex
           log_since = os.environ["DIAGNOSTICS_LOG_SINCE"]
           quoted_since = shlex.quote(log_since)
+          # Canonical app-container resolver. This workflow sends an inline SSM
+          # command array, so it cannot source the shell library the probes use;
+          # it renders the same rules from the one owner instead of keeping a
+          # fourth hand-written copy. scripts/checks/app-container-resolver.py
+          # fails the build if a copy reappears here.
+          _rel = "ops/lib/resolve_app_container.py"
+          _resolver_path = next(
+              (base / _rel for base in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents)
+               if (base / _rel).is_file()),
+              None,
+          )
+          if _resolver_path is None:
+              raise SystemExit(f"canonical app-container resolver not found: {_rel}")
+          _spec = importlib.util.spec_from_file_location("tk_resolve_app_container", _resolver_path)
+          _tk = importlib.util.module_from_spec(_spec)
+          _spec.loader.exec_module(_tk)
           commands = [
               "set -euo pipefail",
               "echo ===DOCKER_PS===",
               "sudo docker ps --format 'table {{.Names}}\\t{{.Image}}\\t{{.Status}}' || true",
-              "APP_CONTAINER=''",
-              "if [ -r /var/lib/tokenkey/active-color ]; then color=$(tr -d '[:space:]' < /var/lib/tokenkey/active-color 2>/dev/null || true); case \"$color\" in blue|green) candidate=tokenkey-$color; if sudo docker inspect \"$candidate\" >/dev/null 2>&1; then APP_CONTAINER=$candidate; fi ;; esac; fi",
-              "if [ -z \"$APP_CONTAINER\" ]; then for candidate in tokenkey tokenkey-blue tokenkey-green; do if sudo docker inspect \"$candidate\" >/dev/null 2>&1; then APP_CONTAINER=$candidate; break; fi; done; fi",
+              *_tk.remote_shell_snippet(docker="sudo docker"),
               "echo app_container=${APP_CONTAINER:-unavailable}",
               "echo ===CONTAINER_HEALTH===",
               "if [ -n \"$APP_CONTAINER\" ]; then sudo docker inspect \"$APP_CONTAINER\" --format 'tokenkey_status={{.State.Status}} tokenkey_health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'; fi",

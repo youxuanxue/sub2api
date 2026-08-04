@@ -73,10 +73,24 @@
       "must_contain": [
         "pgpartition.DropExpired(ctx, db, table, cutoff)",
         "pgpartition.ListStraddling(ctx, db, table, timeCol, cutoff)",
-        "opsStraddleReclaimMaxRowsPerRun",
-        "pgpartition.EnsureDaily(ctx, db, \"usage_logs\", now, opsPartitionDaysAhead)"
+        "opsStraddleReclaimMaxRowsPerRun"
       ],
-      "rationale": "OpsCleanupService is the sole partition-maintenance owner. Each partitioned cleanup first drops only fully expired bounds, then caps row-level reclaim from a surviving wide legacy partition that still contains expired rows; the independent maintenance phase provisions usage_logs daily partitions even while destructive cleanup is held. Removing any call can yield green heartbeats while disk growth resumes or the next UTC day has no insert target."
+      "rationale": "Each partitioned cleanup first drops only fully expired bounds, then caps row-level reclaim from a surviving wide legacy partition that still contains expired rows. Removing either bound-driven call or the cap can yield green cleanup heartbeats while disk growth resumes. Partition provisioning is separately guarded by the shared partitionmaintenance owner."
+    },
+    {
+      "path": "backend/internal/pkg/partitionmaintenance/maintenance.go",
+      "must_contain": [
+        "{table: \"ops_system_logs\"",
+        "{table: \"ops_error_logs\"",
+        "{table: \"usage_logs\"",
+        "pgpartition.EnsureMonthly(ctx, db, target.table, now, target.ahead)",
+        "pgpartition.EnsureDaily(ctx, db, target.table, now, target.ahead)",
+        "ModeRequireAllPartitioned",
+        "pg_get_expr(child.relpartbound, child.oid, true)",
+        "FOR VALUES FROM (MINVALUE)%' AS lower_unbounded",
+        "covered != len(ranges)"
+      ],
+      "rationale": "The shared maintainer is the sole owner of all three partition targets, monthly/daily provisioning windows, strict production validation, and post-create coverage proof. Cron and the guarded one-shot path must not drift into duplicate table lists or accept overlap errors without proving every required range is fully covered. The MINVALUE branch is load-bearing: tk_035 / tk_037 / the usage_logs cutover all attach history as FOR VALUES FROM (MINVALUE), which is the partition that actually serves the current month or day on prod. Dropping that branch makes substring() return NULL, excludes the legacy partition from the covered union, and reports a genuinely writable range as uncovered — turning every cron tick into a partition-maintenance error heartbeat and hard-failing the guarded one-shot command."
     },
     {
       "path": "backend/internal/handler/admin/dashboard_snapshot_v2_handler.go",

@@ -4,28 +4,26 @@
 set -euo pipefail
 
 APP_CONTAINER="${APP_CONTAINER:-auto}"
-if [ "$APP_CONTAINER" = "auto" ]; then
-  if [ -r /var/lib/tokenkey/active-color ]; then
-    color="$(sed -n '1p' /var/lib/tokenkey/active-color 2>/dev/null | tr -d '[:space:]')"
-    case "$color" in
-      blue|green)
-        if docker inspect "tokenkey-$color" >/dev/null 2>&1; then
-          APP_CONTAINER="tokenkey-$color"
-        fi
-        ;;
-    esac
-  fi
-  if [ "$APP_CONTAINER" = "auto" ]; then
-    for candidate in tokenkey tokenkey-blue tokenkey-green; do
-      if docker inspect "$candidate" >/dev/null 2>&1; then
-        APP_CONTAINER="$candidate"
-        break
-      fi
-    done
-  fi
-  if [ "$APP_CONTAINER" = "auto" ]; then
-    APP_CONTAINER="tokenkey"
-  fi
+
+# Canonical app-container resolver (ops/lib/resolve-app-container.sh) owns the
+# active-color + running-candidate logic. Previously this probe fell back to the
+# literal "tokenkey" name when nothing resolved, so on a blue/green host it would
+# `docker exec` a stopped container and report its stale env as live config.
+_tk_resolver=""
+for _cand in "${TK_LIB_DIR:-$(dirname "$0")}/resolve-app-container.sh" \
+             "$(dirname "$0")/../lib/resolve-app-container.sh"; do
+  if [ -f "$_cand" ]; then _tk_resolver="$_cand"; break; fi
+done
+if [ -z "$_tk_resolver" ]; then
+  echo "canonical app-container resolver not found (ops/lib/resolve-app-container.sh)" >&2
+  exit 1
+fi
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_resolver"
+
+if ! APP_CONTAINER="$(tk_resolve_app_container "$APP_CONTAINER")"; then
+  echo "[probe-admin-aggregation-config] ERROR: app container unresolved (no running candidate, or several)" >&2
+  exit 3
 fi
 
 echo "=== env_dashboard_aggregation ==="

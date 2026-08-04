@@ -34,9 +34,12 @@ class QAErrorEvidenceProbeTest(unittest.TestCase):
         proc = self.run_probe(
             r"""
             #!/bin/sh
+            # The canonical resolver asks for State.Running (last arg is the name).
             if [ "$1" = "inspect" ]; then
-              [ "$2" = "tokenkey-blue" ] && exit 0
-              exit 1
+              for a in "$@"; do name="$a"; done
+              [ "$name" = "tokenkey-blue" ] || exit 1
+              echo true
+              exit 0
             fi
             if [ "$1" = "exec" ] && [ "$2" = "tokenkey-postgres" ]; then
               case "$*" in

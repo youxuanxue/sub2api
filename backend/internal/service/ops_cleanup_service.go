@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/partitionmaintenance"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
@@ -274,13 +275,18 @@ func (s *OpsCleanupService) runScheduled() {
 
 	startedAt := time.Now().UTC()
 	runAt := startedAt
-	partitionResult, partitionErr := ensureOpsPartitions(ctx, s.db, runAt)
+	partitionResult, partitionErr := partitionmaintenance.Ensure(
+		ctx,
+		s.db,
+		runAt,
+		partitionmaintenance.ModeAllowUnpartitioned,
+	)
 	if partitionErr != nil {
-		s.recordJobHeartbeatError(opsPartitionJobName, runAt, time.Since(startedAt), partitionErr)
+		s.recordJobHeartbeatError(partitionmaintenance.JobName, runAt, time.Since(startedAt), partitionErr)
 		logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] partition maintenance failed: %v", partitionErr)
 		return
 	}
-	s.recordJobHeartbeatSuccess(opsPartitionJobName, runAt, time.Since(startedAt), "tables="+partitionResult)
+	s.recordJobHeartbeatSuccess(partitionmaintenance.JobName, runAt, time.Since(startedAt), "tables="+partitionResult.String())
 
 	// A cleanup hold must leave the destructive job heartbeat untouched. Operators
 	// can therefore prove that maintenance continued without implying deletion ran.

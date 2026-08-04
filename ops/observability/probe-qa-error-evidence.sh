@@ -14,6 +14,21 @@
 set -eu
 
 PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
+
+# Canonical app-container resolver (ops/lib/resolve-app-container.sh) owns the
+# active-color + running-candidate logic. An unresolved container degrades the
+# local-blob existence check below rather than reporting evidence as missing.
+_tk_resolver=""
+for _cand in "${TK_LIB_DIR:-$(dirname "$0")}/resolve-app-container.sh" \
+             "$(dirname "$0")/../lib/resolve-app-container.sh"; do
+  if [ -f "$_cand" ]; then _tk_resolver="$_cand"; break; fi
+done
+if [ -z "$_tk_resolver" ]; then
+  echo "canonical app-container resolver not found (ops/lib/resolve-app-container.sh)" >&2
+  exit 1
+fi
+# shellcheck source=../lib/resolve-app-container.sh
+. "$_tk_resolver"
 WINDOW_MINUTES="${WINDOW_MINUTES:-1440}"
 STATUS_CODE="${STATUS_CODE:-502}"
 MODEL="${MODEL:-}"
@@ -206,25 +221,7 @@ local_refs=0
 local_present=0
 local_missing=0
 remote_refs=0
-app_container=""
-if [ -r /var/lib/tokenkey/active-color ]; then
-  color=$(tr -d '[:space:]' < /var/lib/tokenkey/active-color 2>/dev/null || true)  # preflight-allow: swallow -- fallback below
-  case "$color" in
-    blue|green)
-      if docker inspect "tokenkey-$color" >/dev/null 2>&1; then
-        app_container="tokenkey-$color"
-      fi
-      ;;
-  esac
-fi
-if [ -z "$app_container" ]; then
-  for candidate in tokenkey tokenkey-blue tokenkey-green; do
-    if docker inspect "$candidate" >/dev/null 2>&1; then
-      app_container="$candidate"
-      break
-    fi
-  done
-fi
+app_container="$(tk_resolve_app_container "${APP_CONTAINER:-auto}" || true)"
 while IFS=$'\t' read -r _request_id blob_uri; do
   [ -n "${blob_uri:-}" ] || continue
   case "$blob_uri" in

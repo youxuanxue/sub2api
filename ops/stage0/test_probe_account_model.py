@@ -47,9 +47,14 @@ class ProbeAccountModelTest(unittest.TestCase):
         script = _SCRIPT.read_text()
 
         self.assertIn('APP_CONTAINER="${APP_CONTAINER:-auto}"', script)
-        self.assertIn("resolve_app_container() {", script)
-        self.assertIn("/var/lib/tokenkey/active-color", script)
-        self.assertIn("app container not running", script)
+        # The resolver itself is the canonical shared owner, not a local copy:
+        # a re-introduced hand-rolled loop here is what let a STOPPED container be
+        # reported as live. Assert the sourced call, and that no copy came back.
+        self.assertIn("resolve-app-container.sh", script)
+        self.assertIn('tk_resolve_app_container "$APP_CONTAINER"', script)
+        self.assertIn("app container unresolved", script)
+        self.assertNotIn("resolve_app_container() {", script)
+        self.assertNotIn("for candidate in tokenkey tokenkey-blue tokenkey-green", script)
 
     def test_reuse_mode_unbinds_stale_probe_groups_before_bind(self) -> None:
         script = _SCRIPT.read_text()

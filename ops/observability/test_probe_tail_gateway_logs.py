@@ -42,9 +42,12 @@ class ProbeTailGatewayLogsTest(unittest.TestCase):
                 textwrap.dedent(
                     """\
                     #!/usr/bin/env bash
+                    # The canonical resolver asks for State.Running, not mere existence.
                     if [ "$1" = inspect ]; then
-                      [ "$2" = tokenkey-green ] && exit 0
-                      exit 1
+                      name="${@: -1}"
+                      [ "$name" = tokenkey-green ] || exit 1
+                      echo true
+                      exit 0
                     fi
                     if [ "$1" = logs ]; then
                       cat <<'LOGS'
@@ -73,7 +76,7 @@ class ProbeTailGatewayLogsTest(unittest.TestCase):
             payload = json.loads(proc.stdout)
             self.assertEqual(payload["meta"]["container"], "tokenkey-green")
             self.assertIn("active-color=green", payload["meta"]["container_resolution"])
-            self.assertIn("active-color container exists", payload["meta"]["container_resolution"])
+            self.assertIn("tokenkey-green is running", payload["meta"]["container_resolution"])
             self.assertEqual(payload["requests"][0]["request_id"], "r1")
 
     def test_auto_container_falls_back_to_legacy(self) -> None:
@@ -85,9 +88,12 @@ class ProbeTailGatewayLogsTest(unittest.TestCase):
                 textwrap.dedent(
                     """\
                     #!/usr/bin/env bash
+                    # Only the legacy container runs -> unique running candidate.
                     if [ "$1" = inspect ]; then
-                      [ "$2" = tokenkey ] && exit 0
-                      exit 1
+                      name="${@: -1}"
+                      [ "$name" = tokenkey ] || exit 1
+                      echo true
+                      exit 0
                     fi
                     if [ "$1" = logs ]; then
                       echo 'INFO http request completed {"request_id":"r2","path":"/health/live","status_code":200}'
@@ -113,7 +119,7 @@ class ProbeTailGatewayLogsTest(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
             payload = json.loads(proc.stdout)
             self.assertEqual(payload["meta"]["container"], "tokenkey")
-            self.assertIn("fallback=tokenkey", payload["meta"]["container_resolution"])
+            self.assertIn("unique running candidate tokenkey", payload["meta"]["container_resolution"])
 
 
 if __name__ == "__main__":
