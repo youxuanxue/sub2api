@@ -14,6 +14,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/telemetryarchive"
 )
 
 // usageLogInsertArgTypes must stay in the same order as:
@@ -96,10 +97,11 @@ const (
 )
 
 type usageLogCreateRequest struct {
-	log      *service.UsageLog
-	prepared usageLogInsertPrepared
-	shared   *usageLogCreateShared
-	resultCh chan usageLogCreateResult
+	log            *service.UsageLog
+	prepared       usageLogInsertPrepared
+	telemetryValue any
+	shared         *usageLogCreateShared
+	resultCh       chan usageLogCreateResult
 }
 
 type usageLogCreateResult struct {
@@ -108,9 +110,10 @@ type usageLogCreateResult struct {
 }
 
 type usageLogBestEffortRequest struct {
-	prepared usageLogInsertPrepared
-	apiKeyID int64
-	resultCh chan error
+	prepared       usageLogInsertPrepared
+	apiKeyID       int64
+	telemetryValue any
+	resultCh       chan usageLogCreateResult
 }
 
 type usageLogInsertPrepared struct {
@@ -151,14 +154,25 @@ func (r *usageLogRepository) Create(ctx context.Context, log *service.UsageLog) 
 	}
 
 	if tx := dbent.TxFromContext(ctx); tx != nil {
-		return r.createSingle(ctx, tx.Client(), log)
+		inserted, err := r.createSingle(ctx, tx.Client(), log)
+		if err == nil && inserted {
+			r.enqueueUsageAfterCommit(tx, log)
+		}
+		return inserted, err
 	}
+	var inserted bool
+	var err error
 	requestID := strings.TrimSpace(log.RequestID)
 	if requestID == "" {
-		return r.createSingle(ctx, r.sql, log)
+		inserted, err = r.createSingle(ctx, r.sql, log)
+	} else {
+		log.RequestID = requestID
+		return r.createBatched(ctx, log)
 	}
-	log.RequestID = requestID
-	return r.createBatched(ctx, log)
+	if err == nil && inserted {
+		r.enqueueUsage(log)
+	}
+	return inserted, err
 }
 
 func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.UsageLog) error {
@@ -167,24 +181,35 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 	}
 
 	if tx := dbent.TxFromContext(ctx); tx != nil {
-		_, err := r.createSingle(ctx, tx.Client(), log)
+		inserted, err := r.createSingle(ctx, tx.Client(), log)
+		if err == nil && inserted {
+			r.enqueueUsageAfterCommit(tx, log)
+		}
 		return err
 	}
 	if r.db == nil {
-		_, err := r.createSingle(ctx, r.sql, log)
+		inserted, err := r.createSingle(ctx, r.sql, log)
+		if err == nil && inserted {
+			r.enqueueUsage(log)
+		}
 		return err
 	}
 
 	r.ensureBestEffortBatcher()
 	if r.bestEffortBatchCh == nil {
-		_, err := r.createSingle(ctx, r.sql, log)
+		inserted, err := r.createSingle(ctx, r.sql, log)
+		if err == nil && inserted {
+			r.enqueueUsage(log)
+		}
 		return err
 	}
 
+	prepared := prepareUsageLogInsert(log)
 	req := usageLogBestEffortRequest{
-		prepared: prepareUsageLogInsert(log),
-		apiKeyID: log.APIKeyID,
-		resultCh: make(chan error, 1),
+		prepared:       prepared,
+		apiKeyID:       log.APIKeyID,
+		telemetryValue: r.snapshotUsageTelemetry(log, prepared),
+		resultCh:       make(chan usageLogCreateResult, 1),
 	}
 	if key, ok := r.bestEffortRecentKey(req.prepared.requestID, req.apiKeyID); ok {
 		if _, exists := r.bestEffortRecent.Get(key); exists {
@@ -202,15 +227,129 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 	}
 
 	select {
-	case err := <-req.resultCh:
-		return err
+	case result := <-req.resultCh:
+		return result.err
 	case <-ctx.Done():
 		return service.MarkUsageLogCreateDropped(ctx.Err())
 	}
 }
 
+func (r *usageLogRepository) snapshotUsageTelemetry(
+	log *service.UsageLog,
+	prepared usageLogInsertPrepared,
+) any {
+	if r == nil || r.telemetry == nil || log == nil {
+		return nil
+	}
+	snapshot := cloneUsageLog(log)
+	snapshot.CreatedAt = prepared.createdAt
+	snapshot.RequestID = prepared.requestID
+	snapshot.RateMultiplier = prepared.rateMultiplier
+	snapshot.RequestType = service.RequestType(prepared.requestType)
+	if strings.TrimSpace(snapshot.RequestedModel) == "" {
+		snapshot.RequestedModel = strings.TrimSpace(snapshot.Model)
+	}
+	return snapshot
+}
+
+func cloneUsageLog(log *service.UsageLog) *service.UsageLog {
+	if log == nil {
+		return nil
+	}
+	snapshot := *log
+	snapshot.UpstreamModel = cloneUsageLogValue(log.UpstreamModel)
+	snapshot.ChannelID = cloneUsageLogValue(log.ChannelID)
+	snapshot.ModelMappingChain = cloneUsageLogValue(log.ModelMappingChain)
+	snapshot.BillingTier = cloneUsageLogValue(log.BillingTier)
+	snapshot.BillingMode = cloneUsageLogValue(log.BillingMode)
+	snapshot.ServiceTier = cloneUsageLogValue(log.ServiceTier)
+	snapshot.ReasoningEffort = cloneUsageLogValue(log.ReasoningEffort)
+	snapshot.InboundEndpoint = cloneUsageLogValue(log.InboundEndpoint)
+	snapshot.UpstreamEndpoint = cloneUsageLogValue(log.UpstreamEndpoint)
+	snapshot.GroupID = cloneUsageLogValue(log.GroupID)
+	snapshot.SubscriptionID = cloneUsageLogValue(log.SubscriptionID)
+	snapshot.AccountRateMultiplier = cloneUsageLogValue(log.AccountRateMultiplier)
+	snapshot.AccountStatsCost = cloneUsageLogValue(log.AccountStatsCost)
+	snapshot.DurationMs = cloneUsageLogValue(log.DurationMs)
+	snapshot.FirstTokenMs = cloneUsageLogValue(log.FirstTokenMs)
+	snapshot.UserAgent = cloneUsageLogValue(log.UserAgent)
+	snapshot.IPAddress = cloneUsageLogValue(log.IPAddress)
+	snapshot.SessionID = cloneUsageLogValue(log.SessionID)
+	snapshot.ImageSize = cloneUsageLogValue(log.ImageSize)
+	snapshot.ImageInputSize = cloneUsageLogValue(log.ImageInputSize)
+	snapshot.ImageOutputSize = cloneUsageLogValue(log.ImageOutputSize)
+	snapshot.ImageSizeSource = cloneUsageLogValue(log.ImageSizeSource)
+	snapshot.MediaType = cloneUsageLogValue(log.MediaType)
+	snapshot.VideoResolution = cloneUsageLogValue(log.VideoResolution)
+	snapshot.VideoDurationSeconds = cloneUsageLogValue(log.VideoDurationSeconds)
+	if log.ImageSizeBreakdown != nil {
+		snapshot.ImageSizeBreakdown = make(map[string]int, len(log.ImageSizeBreakdown))
+		for size, count := range log.ImageSizeBreakdown {
+			snapshot.ImageSizeBreakdown[size] = count
+		}
+	}
+
+	// Relations are not usage_logs columns and can retain large or sensitive graphs.
+	snapshot.User = nil
+	snapshot.APIKey = nil
+	snapshot.Account = nil
+	snapshot.Group = nil
+	snapshot.Subscription = nil
+	return &snapshot
+}
+
+func cloneUsageLogValue[T any](value *T) *T {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func freezeUsageLogFloat64(value *float64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func (r *usageLogRepository) enqueueUsage(log *service.UsageLog) {
+	r.enqueueUsageValue(log)
+}
+
+func (r *usageLogRepository) enqueueUsageValue(value any) {
+	if r != nil && r.telemetry != nil && value != nil {
+		r.telemetry.Enqueue(telemetryarchive.DatasetUsage, value)
+	}
+}
+
+func (r *usageLogRepository) enqueueUsageAfterCommit(tx *dbent.Tx, log *service.UsageLog) {
+	if r == nil || r.telemetry == nil || tx == nil || log == nil {
+		return
+	}
+	value := r.snapshotUsageTelemetry(log, prepareUsageLogInsert(log))
+	tx.OnCommit(func(next dbent.Committer) dbent.Committer {
+		return dbent.CommitFunc(func(ctx context.Context, committedTx *dbent.Tx) error {
+			if err := next.Commit(ctx, committedTx); err != nil {
+				return err
+			}
+			r.enqueueUsageValue(value)
+			return nil
+		})
+	})
+}
+
 func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor, log *service.UsageLog) (bool, error) {
 	prepared := prepareUsageLogInsert(log)
+	return r.createSinglePrepared(ctx, sqlq, log, prepared)
+}
+
+func (r *usageLogRepository) createSinglePrepared(
+	ctx context.Context,
+	sqlq sqlExecutor,
+	log *service.UsageLog,
+	prepared usageLogInsertPrepared,
+) (bool, error) {
 	if sqlq == nil {
 		sqlq = r.sql
 	}
@@ -285,7 +424,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			$18, $19, $20, $21, $22, $23,
 			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
 		)
-		ON CONFLICT (request_id, api_key_id) DO NOTHING
+		ON CONFLICT DO NOTHING
 		RETURNING id, created_at
 	`
 
@@ -306,19 +445,31 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 }
 
 func (r *usageLogRepository) createBatched(ctx context.Context, log *service.UsageLog) (bool, error) {
+	prepared := prepareUsageLogInsert(log)
+	telemetryValue := r.snapshotUsageTelemetry(log, prepared)
 	if r.db == nil {
-		return r.createSingle(ctx, r.sql, log)
+		inserted, err := r.createSingle(ctx, r.sql, log)
+		if err == nil && inserted {
+			r.enqueueUsageValue(telemetryValue)
+		}
+		return inserted, err
 	}
 	r.ensureCreateBatcher()
 	if r.createBatchCh == nil {
-		return r.createSingle(ctx, r.sql, log)
+		inserted, err := r.createSingle(ctx, r.sql, log)
+		if err == nil && inserted {
+			r.enqueueUsageValue(telemetryValue)
+		}
+		return inserted, err
 	}
+	ownedLog := *log
 
 	req := usageLogCreateRequest{
-		log:      log,
-		prepared: prepareUsageLogInsert(log),
-		shared:   &usageLogCreateShared{},
-		resultCh: make(chan usageLogCreateResult, 1),
+		log:            &ownedLog,
+		prepared:       prepared,
+		telemetryValue: telemetryValue,
+		shared:         &usageLogCreateShared{},
+		resultCh:       make(chan usageLogCreateResult, 1),
 	}
 
 	// 队列满时阻塞等待而非立即报错：本路径是 best-effort 丢弃后的最后兜底，
@@ -331,6 +482,7 @@ func (r *usageLogRepository) createBatched(ctx context.Context, log *service.Usa
 
 	select {
 	case res := <-req.resultCh:
+		copyUsageLogCreateResult(log, &ownedLog)
 		return res.inserted, res.err
 	case <-ctx.Done():
 		if req.shared != nil && req.shared.state.CompareAndSwap(usageLogCreateStateQueued, usageLogCreateStateCanceled) {
@@ -340,11 +492,21 @@ func (r *usageLogRepository) createBatched(ctx context.Context, log *service.Usa
 		defer timer.Stop()
 		select {
 		case res := <-req.resultCh:
+			copyUsageLogCreateResult(log, &ownedLog)
 			return res.inserted, res.err
 		case <-timer.C:
 			return false, ctx.Err()
 		}
 	}
+}
+
+func copyUsageLogCreateResult(dst, src *service.UsageLog) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.ID = src.ID
+	dst.CreatedAt = src.CreatedAt
+	dst.RateMultiplier = src.RateMultiplier
 }
 
 func (r *usageLogRepository) ensureCreateBatcher() {
@@ -453,12 +615,12 @@ func (r *usageLogRepository) flushCreateBatch(db *sql.DB, batch []usageLogCreate
 
 	for _, req := range batch {
 		if req.log == nil {
-			completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
+			r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
 			continue
 		}
 		if req.shared != nil && !req.shared.state.CompareAndSwap(usageLogCreateStateQueued, usageLogCreateStateProcessing) {
 			if req.shared.state.Load() == usageLogCreateStateCanceled {
-				completeUsageLogCreateRequest(req, usageLogCreateResult{
+				r.completeUsageLogCreateRequest(req, usageLogCreateResult{
 					inserted: false,
 					err:      service.MarkUsageLogCreateNotPersisted(context.Canceled),
 				})
@@ -498,15 +660,15 @@ func (r *usageLogRepository) flushCreateBatch(db *sql.DB, batch []usageLogCreate
 						}
 						switch {
 						case inserted && idx == 0:
-							completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: true, err: nil})
+							r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: true, err: nil})
 						case inserted:
-							completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
+							r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
 						case hasState:
-							completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
+							r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
 						case idx == 0:
-							completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: err})
+							r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: err})
 						default:
-							completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
+							r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: false, err: nil})
 						}
 					}
 				}
@@ -517,7 +679,7 @@ func (r *usageLogRepository) flushCreateBatch(db *sql.DB, batch []usageLogCreate
 				state, ok := stateMap[key]
 				if !ok {
 					for _, req := range reqs {
-						completeUsageLogCreateRequest(req, usageLogCreateResult{
+						r.completeUsageLogCreateRequest(req, usageLogCreateResult{
 							inserted: false,
 							err:      fmt.Errorf("usage log batch state missing for key=%s", key),
 						})
@@ -528,7 +690,7 @@ func (r *usageLogRepository) flushCreateBatch(db *sql.DB, batch []usageLogCreate
 					req.log.ID = state.ID
 					req.log.CreatedAt = state.CreatedAt
 					req.log.RateMultiplier = preparedByKey[key].rateMultiplier
-					completeUsageLogCreateRequest(req, usageLogCreateResult{
+					r.completeUsageLogCreateRequest(req, usageLogCreateResult{
 						inserted: idx == 0 && insertedMap[key],
 						err:      nil,
 					})
@@ -543,9 +705,9 @@ func (r *usageLogRepository) flushCreateBatch(db *sql.DB, batch []usageLogCreate
 
 	for _, req := range fallback {
 		fallbackCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		inserted, err := r.createSingle(fallbackCtx, db, req.log)
+		inserted, err := r.createSinglePrepared(fallbackCtx, db, req.log, req.prepared)
 		cancel()
-		completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: inserted, err: err})
+		r.completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: inserted, err: err})
 	}
 }
 
@@ -564,6 +726,7 @@ func (r *usageLogRepository) flushBestEffortBatch(db *sql.DB, batch []usageLogBe
 	groupsByKey := make(map[string]*bestEffortGroup, len(batch))
 	groupOrder := make([]*bestEffortGroup, 0, len(batch))
 	preparedList := make([]usageLogInsertPrepared, 0, len(batch))
+	anonymousGroups := make([]*bestEffortGroup, 0, len(batch))
 
 	for idx, req := range batch {
 		prepared := req.prepared
@@ -580,58 +743,146 @@ func (r *usageLogRepository) flushBestEffortBatch(db *sql.DB, batch []usageLogBe
 			}
 			groupsByKey[key] = group
 			groupOrder = append(groupOrder, group)
-			preparedList = append(preparedList, prepared)
+			if prepared.requestID != "" {
+				preparedList = append(preparedList, prepared)
+			} else {
+				anonymousGroups = append(anonymousGroups, group)
+			}
 		}
 		group.reqs = append(group.reqs, req)
-	}
-
-	if len(preparedList) == 0 {
-		for _, req := range batch {
-			sendUsageLogBestEffortResult(req.resultCh, nil)
-		}
-		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	if len(anonymousGroups) > 0 {
+		anonymousPrepared := make([]usageLogInsertPrepared, 0, len(anonymousGroups))
+		for _, group := range anonymousGroups {
+			anonymousPrepared = append(anonymousPrepared, group.prepared)
+		}
+		query, args := buildUsageLogBestEffortInsertQuery(anonymousPrepared)
+		result, batchErr := db.ExecContext(ctx, query, args...)
+		allInserted := false
+		if batchErr == nil {
+			rowsAffected, rowsErr := result.RowsAffected()
+			batchErr = rowsErr
+			allInserted = rowsErr == nil && rowsAffected == int64(len(anonymousGroups))
+		}
+		if batchErr != nil {
+			logger.LegacyPrintf("repository.usage_log", "best-effort anonymous batch insert failed: %v", batchErr)
+			for _, group := range anonymousGroups {
+				inserted, singleErr := execUsageLogInsertNoResult(ctx, db, group.prepared)
+				for idx, req := range group.reqs {
+					r.completeUsageLogBestEffortRequest(req, usageLogCreateResult{
+						inserted: inserted && idx == 0,
+						err:      singleErr,
+					})
+				}
+			}
+		} else {
+			for _, group := range anonymousGroups {
+				for idx, req := range group.reqs {
+					r.completeUsageLogBestEffortRequest(req, usageLogCreateResult{
+						inserted: allInserted && idx == 0,
+					})
+				}
+			}
+		}
+	}
+	if len(preparedList) == 0 {
+		return
+	}
+
 	query, args := buildUsageLogBestEffortInsertQuery(preparedList)
-	if _, err := db.ExecContext(ctx, query, args...); err != nil {
+	query += "\nRETURNING request_id, api_key_id"
+	insertedKeys, err := queryUsageLogBestEffortInsertedKeys(ctx, db, query, args)
+	if err != nil {
 		logger.LegacyPrintf("repository.usage_log", "best-effort batch insert failed: %v", err)
 		for _, group := range groupOrder {
-			singleErr := execUsageLogInsertNoResult(ctx, db, group.prepared)
+			if group.prepared.requestID == "" {
+				continue
+			}
+			inserted, singleErr := execUsageLogInsertNoResult(ctx, db, group.prepared)
 			if singleErr != nil {
 				logger.LegacyPrintf("repository.usage_log", "best-effort single fallback insert failed: %v", singleErr)
 			} else if group.prepared.requestID != "" && r != nil && r.bestEffortRecent != nil {
 				r.bestEffortRecent.SetDefault(group.key, struct{}{})
 			}
-			for _, req := range group.reqs {
-				sendUsageLogBestEffortResult(req.resultCh, singleErr)
+			for idx, req := range group.reqs {
+				r.completeUsageLogBestEffortRequest(req, usageLogCreateResult{
+					inserted: inserted && idx == 0,
+					err:      singleErr,
+				})
 			}
 		}
 		return
 	}
 	for _, group := range groupOrder {
+		if group.prepared.requestID == "" {
+			continue
+		}
 		if group.prepared.requestID != "" && r != nil && r.bestEffortRecent != nil {
 			r.bestEffortRecent.SetDefault(group.key, struct{}{})
 		}
-		for _, req := range group.reqs {
-			sendUsageLogBestEffortResult(req.resultCh, nil)
+		for idx, req := range group.reqs {
+			r.completeUsageLogBestEffortRequest(req, usageLogCreateResult{
+				inserted: insertedKeys[group.key] && idx == 0,
+			})
 		}
 	}
 }
 
-func sendUsageLogBestEffortResult(ch chan error, err error) {
+func (r *usageLogRepository) completeUsageLogBestEffortRequest(
+	req usageLogBestEffortRequest,
+	result usageLogCreateResult,
+) {
+	if result.err == nil && result.inserted {
+		r.enqueueUsageValue(req.telemetryValue)
+	}
+	sendUsageLogBestEffortResult(req.resultCh, result)
+}
+
+func queryUsageLogBestEffortInsertedKeys(
+	ctx context.Context,
+	db *sql.DB,
+	query string,
+	args []any,
+) (map[string]bool, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	inserted := make(map[string]bool)
+	for rows.Next() {
+		var requestID string
+		var apiKeyID int64
+		if err := rows.Scan(&requestID, &apiKeyID); err != nil {
+			return nil, err
+		}
+		inserted[usageLogBatchKey(requestID, apiKeyID)] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return inserted, nil
+}
+
+func sendUsageLogBestEffortResult(ch chan usageLogCreateResult, result usageLogCreateResult) {
 	if ch == nil {
 		return
 	}
 	select {
-	case ch <- err:
+	case ch <- result:
 	default:
 	}
 }
 
-func completeUsageLogCreateRequest(req usageLogCreateRequest, res usageLogCreateResult) {
+func (r *usageLogRepository) completeUsageLogCreateRequest(req usageLogCreateRequest, res usageLogCreateResult) {
+	if res.err == nil && res.inserted {
+		r.enqueueUsageValue(req.telemetryValue)
+	}
 	if req.shared != nil {
 		req.shared.state.Store(usageLogCreateStateCompleted)
 	}
@@ -882,7 +1133,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				session_id,
 				created_at
 			FROM input
-			ON CONFLICT (request_id, api_key_id) DO NOTHING
+			ON CONFLICT DO NOTHING
 			RETURNING request_id, api_key_id, id, created_at
 		),
 		resolved AS (
@@ -1124,15 +1375,15 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			account_stats_cost,
 			session_id,
 			created_at
-		FROM input
-		ON CONFLICT (request_id, api_key_id) DO NOTHING
-	`)
+			FROM input
+			ON CONFLICT DO NOTHING
+		`)
 
 	return query.String(), args
 }
 
-func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared usageLogInsertPrepared) error {
-	_, err := sqlq.ExecContext(ctx, `
+func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared usageLogInsertPrepared) (bool, error) {
+	result, err := sqlq.ExecContext(ctx, `
 		INSERT INTO usage_logs (
 			user_id,
 			api_key_id,
@@ -1199,9 +1450,16 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			$18, $19, $20, $21, $22, $23,
 			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
 		)
-		ON CONFLICT (request_id, api_key_id) DO NOTHING
-	`, prepared.args...)
-	return err
+		ON CONFLICT DO NOTHING
+		`, prepared.args...)
+	if err != nil {
+		return false, err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rowsAffected > 0, nil
 }
 
 func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
@@ -1282,7 +1540,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			log.TotalCost,
 			log.ActualCost,
 			rateMultiplier,
-			log.AccountRateMultiplier,
+			freezeUsageLogFloat64(log.AccountRateMultiplier),
 			log.BillingType,
 			requestType,
 			log.Stream,
@@ -1310,8 +1568,8 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			modelMappingChain,
 			billingTier,
 			billingMode,
-			log.AccountStatsCost, // account_stats_cost
-			sessionID,            // session_id
+			freezeUsageLogFloat64(log.AccountStatsCost), // account_stats_cost
+			sessionID, // session_id
 			createdAt,
 		},
 	}

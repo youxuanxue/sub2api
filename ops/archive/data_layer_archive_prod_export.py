@@ -196,6 +196,7 @@ def load_ledger(path: str | os.PathLike[str]) -> dict[str, Any]:
         or payload.get("environment") != "prod"
         or payload.get("export_scope") != rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD
         or payload.get("table") not in rehearsal.PROD_CANARY_TABLES
+        or payload.get("source_mutated") is not False
         or payload.get("deletion_authorized") is not False
         or not isinstance(payload.get("completed_batches"), list)
         or not isinstance(payload.get("more_cold_rows_remaining"), bool)
@@ -532,8 +533,6 @@ def run_export_batch(args: argparse.Namespace) -> dict[str, Any]:
     if args.confirm != PROD_EXPORT_CONFIRMATION:
         raise ExportError("production export refused: confirmation token is invalid")
     ledger = load_ledger(args.ledger)
-    if not ledger["more_cold_rows_remaining"]:
-        raise ExportError("export ledger reports no remaining legacy cold rows")
     request = _validated_request(
         table=ledger["table"],
         timeout_seconds=args.timeout_seconds,
@@ -608,6 +607,7 @@ def run_export_batch(args: argparse.Namespace) -> dict[str, Any]:
             "manifest_sha256": upload["manifest_sha256"],
             "s3_prefix": upload["s3_prefix"],
             "row_count": verification["row_count"],
+            "cutoff_exclusive": export_meta["cutoff_exclusive"],
             "cursor_after": export_meta["cursor_after"],
             "more_cold_rows_remaining": export_meta["more_cold_rows_remaining"],
         }

@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/server"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/telemetryarchive"
 
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
@@ -180,6 +182,8 @@ func provideCleanup(
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	auditLog *service.AuditLogService,
 	promptAudit *securityaudit.PromptService,
+	telemetryArchive *telemetryarchive.Shadow,
+	telemetryArchiveHealth *service.TelemetryArchiveHealth,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -192,6 +196,17 @@ func provideCleanup(
 
 		// 应用层清理步骤可并行执行，基础设施资源（Redis/Ent）最后按顺序关闭。
 		parallelSteps := []cleanupStep{
+			{"TelemetryArchive", func() error {
+				var healthErr error
+				if telemetryArchiveHealth != nil {
+					healthErr = telemetryArchiveHealth.Stop(ctx)
+				}
+				var archiveErr error
+				if telemetryArchive != nil {
+					archiveErr = telemetryArchive.Stop(ctx)
+				}
+				return errors.Join(healthErr, archiveErr)
+			}},
 			{"OpsIngressRejectAggregator", func() error {
 				if opsIngressReject != nil {
 					opsIngressReject.Stop()

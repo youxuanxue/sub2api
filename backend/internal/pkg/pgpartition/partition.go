@@ -34,6 +34,13 @@ type DB interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
+// DropExecutor is the smaller database surface needed for bound-based retention.
+// Both *sql.DB and repository transaction/executor wrappers satisfy it.
+type DropExecutor interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
 // IsPartitioned reports whether `table` is a partitioned (parent) table.
 func IsPartitioned(ctx context.Context, db DB, table string) (bool, error) {
 	const q = `
@@ -66,8 +73,8 @@ func EnsureMonthly(ctx context.Context, db DB, table string, now time.Time, mont
 			"CREATE TABLE IF NOT EXISTS %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)",
 			pq.QuoteIdentifier(name),
 			pq.QuoteIdentifier(table),
-			pq.QuoteLiteral(start.Format("2006-01-02")),
-			pq.QuoteLiteral(end.Format("2006-01-02")),
+			pq.QuoteLiteral(start.Format(time.RFC3339)),
+			pq.QuoteLiteral(end.Format(time.RFC3339)),
 		)
 		if _, err := db.ExecContext(ctx, q); err != nil {
 			if isOverlap(err) {
@@ -79,31 +86,85 @@ func EnsureMonthly(ctx context.Context, db DB, table string, now time.Time, mont
 	return nil
 }
 
-// DropExpired drops every child partition of `table` whose newest `timeCol` value is
-// strictly before `cutoff` (or which is empty) — i.e. fully past the retention window.
-// It judges by DATA (max(timeCol)), not partition-name parsing, so it correctly handles
-// both monthly partitions and the wide legacy mega-partition created at conversion.
+// EnsureDaily creates UTC daily partitions for the current day through daysAhead.
+// It has the same overlap semantics as EnsureMonthly so the attach-legacy partition
+// may cover the cutover day while tomorrow and later are still provisioned.
+func EnsureDaily(ctx context.Context, db DB, table string, now time.Time, daysAhead int) error {
+	base := dayStartUTC(now)
+	for d := 0; d <= daysAhead; d++ {
+		start := base.AddDate(0, 0, d)
+		end := start.AddDate(0, 0, 1)
+		name := fmt.Sprintf("%s_%s", table, start.Format("20060102"))
+		q := fmt.Sprintf(
+			"CREATE TABLE IF NOT EXISTS %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)",
+			pq.QuoteIdentifier(name),
+			pq.QuoteIdentifier(table),
+			pq.QuoteLiteral(start.Format(time.RFC3339)),
+			pq.QuoteLiteral(end.Format(time.RFC3339)),
+		)
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			if isOverlap(err) {
+				continue
+			}
+			return fmt.Errorf("pgpartition: ensure %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// DropExpired drops every child partition of `table` whose exclusive upper bound is at
+// or before `cutoff`. Partition bounds, rather than current row contents or partition
+// names, are the retention authority: empty future partitions remain provisioned, while
+// empty expired partitions can still be reclaimed. A bound that PostgreSQL cannot expose
+// as a finite timestamptz aborts the operation before any partition is dropped.
 // Returns the estimated number of rows reclaimed (sum of dropped partitions' reltuples,
 // for heartbeat/observability). Never drops the parent.
-func DropExpired(ctx context.Context, db DB, table, timeCol string, cutoff time.Time) (int64, error) {
+func DropExpired(ctx context.Context, db DropExecutor, table string, cutoff time.Time) (int64, error) {
 	const listQ = `
-		SELECT c.relname
+		SELECT
+			n.nspname,
+			c.relname,
+			pg_get_expr(c.relpartbound, c.oid, true) AS bound_expr,
+			substring(
+				pg_get_expr(c.relpartbound, c.oid, true)
+				FROM $$TO \('([^']+)'\)$$
+			)::timestamptz AS upper_bound,
+			c.reltuples::bigint AS estimated_rows
 		FROM pg_inherits i
 		JOIN pg_class c ON c.oid = i.inhrelid
-		JOIN pg_class p ON p.oid = i.inhparent
-		WHERE p.relname = $1`
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE i.inhparent = to_regclass($1)
+		ORDER BY n.nspname, c.relname`
 	rows, err := db.QueryContext(ctx, listQ, table)
 	if err != nil {
 		return 0, fmt.Errorf("pgpartition: list partitions of %s: %w", table, err)
 	}
-	var children []string
+	type childPartition struct {
+		schema        string
+		name          string
+		boundExpr     string
+		upper         time.Time
+		estimatedRows int64
+	}
+	var expired []childPartition
 	for rows.Next() {
-		var name string
-		if scanErr := rows.Scan(&name); scanErr != nil {
+		var child childPartition
+		var upper sql.NullTime
+		if scanErr := rows.Scan(&child.schema, &child.name, &child.boundExpr, &upper, &child.estimatedRows); scanErr != nil {
 			_ = rows.Close()
-			return 0, fmt.Errorf("pgpartition: scan partition name: %w", scanErr)
+			return 0, fmt.Errorf("pgpartition: scan partition bound: %w", scanErr)
 		}
-		children = append(children, name)
+		if !upper.Valid {
+			_ = rows.Close()
+			return 0, fmt.Errorf(
+				"pgpartition: partition %s.%s has no finite timestamptz upper bound: %s",
+				child.schema, child.name, child.boundExpr,
+			)
+		}
+		child.upper = upper.Time
+		if !child.upper.After(cutoff) {
+			expired = append(expired, child)
+		}
 	}
 	if rowsErr := rows.Err(); rowsErr != nil {
 		_ = rows.Close()
@@ -112,35 +173,23 @@ func DropExpired(ctx context.Context, db DB, table, timeCol string, cutoff time.
 	_ = rows.Close()
 
 	var reclaimed int64
-	for _, name := range children {
-		var maxT sql.NullTime
-		maxQ := fmt.Sprintf("SELECT max(%s) FROM %s", pq.QuoteIdentifier(timeCol), pq.QuoteIdentifier(name))
-		if err := db.QueryRowContext(ctx, maxQ).Scan(&maxT); err != nil {
-			return reclaimed, fmt.Errorf("pgpartition: max(%s) on %s: %w", timeCol, name, err)
+	for _, child := range expired {
+		qualifiedName := pq.QuoteIdentifier(child.schema) + "." + pq.QuoteIdentifier(child.name)
+		if _, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS "+qualifiedName); err != nil {
+			return reclaimed, fmt.Errorf("pgpartition: drop %s: %w", qualifiedName, err)
 		}
-		if maxT.Valid && !maxT.Time.Before(cutoff) {
-			continue // still has data within the retention window — keep
-		}
-		var est sql.NullInt64
-		_ = db.QueryRowContext(ctx, "SELECT reltuples::bigint FROM pg_class WHERE relname = $1", name).Scan(&est)
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", pq.QuoteIdentifier(name))); err != nil {
-			return reclaimed, fmt.Errorf("pgpartition: drop %s: %w", name, err)
-		}
-		if est.Valid && est.Int64 > 0 {
-			reclaimed += est.Int64
+		if child.estimatedRows > 0 {
+			reclaimed += child.estimatedRows
 		}
 	}
 	return reclaimed, nil
 }
 
-// ListStraddling returns child partitions of `table` that DropExpired cannot drop
-// (their newest timeCol value is NOT before cutoff — they still hold in-window
-// rows) yet which ALSO contain rows older than cutoff (oldest timeCol value is
-// before cutoff). This is the wide "legacy" mega-partition created at conversion:
-// it absorbs current writes (so it can never be dropped) while accumulating
-// expired rows. Without row-level reclaim such a partition grows unbounded — the
-// prod disk-fill root cause where retention "runs" but reclaims 0. Callers feed
-// the returned partitions to a capped chunked DELETE.
+// ListStraddling returns remaining child partitions that contain rows older than the
+// cutoff. Callers invoke it after DropExpired, so these are bound-straddling partitions
+// (notably the wide legacy partition) that cannot yet be dropped as a whole and need a
+// capped row-level reclaim. Checking min(timeCol) also catches a surviving partition
+// whose current rows are all expired while its declared upper bound is still in-window.
 func ListStraddling(ctx context.Context, db DB, table, timeCol string, cutoff time.Time) ([]string, error) {
 	const listQ = `
 		SELECT c.relname
@@ -169,19 +218,11 @@ func ListStraddling(ctx context.Context, db DB, table, timeCol string, cutoff ti
 
 	var straddling []string
 	for _, name := range children {
-		var minT, maxT sql.NullTime
-		q := fmt.Sprintf(
-			"SELECT min(%s), max(%s) FROM %s",
-			pq.QuoteIdentifier(timeCol), pq.QuoteIdentifier(timeCol), pq.QuoteIdentifier(name),
-		)
-		if err := db.QueryRowContext(ctx, q).Scan(&minT, &maxT); err != nil {
-			return nil, fmt.Errorf("pgpartition: min/max(%s) on %s: %w", timeCol, name, err)
+		var minT sql.NullTime
+		q := fmt.Sprintf("SELECT min(%s) FROM %s", pq.QuoteIdentifier(timeCol), pq.QuoteIdentifier(name))
+		if err := db.QueryRowContext(ctx, q).Scan(&minT); err != nil {
+			return nil, fmt.Errorf("pgpartition: min(%s) on %s: %w", timeCol, name, err)
 		}
-		// Empty, or fully past the window (max < cutoff) → DropExpired handles it.
-		if !maxT.Valid || maxT.Time.Before(cutoff) {
-			continue
-		}
-		// Holds in-window rows (can't be dropped) AND has expired rows → straddling.
 		if minT.Valid && minT.Time.Before(cutoff) {
 			straddling = append(straddling, name)
 		}
@@ -200,4 +241,9 @@ func isOverlap(err error) bool {
 func monthStartUTC(t time.Time) time.Time {
 	u := t.UTC()
 	return time.Date(u.Year(), u.Month(), 1, 0, 0, 0, 0, time.UTC)
+}
+
+func dayStartUTC(t time.Time) time.Time {
+	u := t.UTC()
+	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 }

@@ -526,6 +526,145 @@ delete runtime override and use compiled floor
 
 print an example runtime JSON
 
+### `python3 ops/archive/data_layer_archive_cleanup_hold.py`
+
+#### `data_layer_archive_cleanup_hold.py plan`
+
+read the current production cleanup state
+
+#### `data_layer_archive_cleanup_hold.py apply`
+
+disable cleanup and write a receipt
+
+- `--receipt` (required):
+- `--confirm` (required):
+
+#### `data_layer_archive_cleanup_hold.py verify`
+
+verify an existing hold receipt
+
+- `--receipt` (required):
+
+#### `data_layer_archive_cleanup_hold.py release`
+
+restore the pre-hold cleanup state
+
+- `--receipt` (required):
+- `--closeout-receipt` (required; repeatable): repeat once for ops_error_logs and once for ops_system_logs
+- `--confirm` (required):
+
+### `python3 ops/archive/data_layer_archive_prod_export.py`
+
+#### `data_layer_archive_prod_export.py plan`
+
+offline export plan
+
+- `--table` (required; choices: `ops_system_logs`, `ops_error_logs`):
+- `--legacy-upper-exclusive` (default: `2026-07-01T00:00:00.000000Z`): exclusive upper created_at bound for legacy scope
+- `--timeout-seconds` (default: `120`):
+- `--max-rows` (default: `50000`):
+- `--max-logical-bytes` (default: `268435456`):
+
+#### `data_layer_archive_prod_export.py init-ledger`
+
+create a continuation ledger
+
+- `--ledger` (required):
+- `--table` (required; choices: `ops_system_logs`, `ops_error_logs`):
+- `--legacy-upper-exclusive` (default: `2026-07-01T00:00:00.000000Z`):
+
+#### `data_layer_archive_prod_export.py run-batch`
+
+export one legacy cold batch
+
+- `--ledger` (required):
+- `--evidence-root` (required):
+- `--cleanup-hold-receipt` (required):
+- `--ssm-timeout-seconds` (default: `900`):
+- `--confirm` (required):
+- `--timeout-seconds` (default: `120`):
+- `--max-rows` (default: `50000`):
+- `--max-logical-bytes` (default: `268435456`):
+- `--verify-restore`:
+- `--restore-target-dsn` (default: ``):
+- `--seed`:
+
+### `python3 ops/archive/data_layer_archive_promote_batch.py`
+
+#### `data_layer_archive_promote_batch.py plan`
+
+offline promote plan
+
+- `--batch-id` (required):
+
+#### `data_layer_archive_promote_batch.py promote`
+
+promote one export batch
+
+- `--batch-id` (required):
+- `--confirm` (required):
+
+#### `data_layer_archive_promote_batch.py promote-ledger`
+
+promote all batches listed in an export ledger
+
+- `--export-ledger` (required):
+- `--promote-ledger` (required):
+- `--confirm` (required):
+
+#### `data_layer_archive_promote_batch.py init-promote-ledger`
+
+create promote ledger
+
+- `--promote-ledger` (required):
+
+### `python3 ops/archive/data_layer_archive_closeout.py`
+
+Root options:
+- `--export-ledger` (required):
+- `--promote-ledger` (required):
+- `--cleanup-hold-receipt` (required):
+- `--closeout-receipt` (required):
+- `--evidence-root` (required):
+- `--restore-target-dsn` (required):
+- `--seed` (required):
+- `--confirm` (required):
+
+### `python3 ops/migration/usage_logs_daily_partition.py`
+
+#### `usage_logs_daily_partition.py status`
+
+
+
+#### `usage_logs_daily_partition.py prepare`
+
+
+
+- `--receipt` (required):
+- `--confirm` (required):
+
+#### `usage_logs_daily_partition.py abort`
+
+
+
+- `--receipt` (required):
+- `--legacy-upper-exclusive` (required):
+- `--confirm` (required):
+
+#### `usage_logs_daily_partition.py cutover`
+
+
+
+- `--prepare-receipt` (required):
+- `--cutover-receipt` (required):
+- `--confirm` (required):
+
+#### `usage_logs_daily_partition.py verify`
+
+
+
+- `--prepare-receipt` (required):
+
 ## MCP
 
 _No MCP entrypoint detected in this repository._

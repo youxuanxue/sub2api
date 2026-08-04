@@ -59,12 +59,24 @@
       "rationale": "Schema bridge for old deployments that already ran tk_038 with actual_cost only. Dashboard/Usage group distribution needs requests, tokens, total_cost and account_cost; without tk_046 the Go feeder/read path cannot use usage_dashboard_group_daily safely after rollout. Pins the additive migration so the performance fix is deployable on prod, not just fresh databases."
     },
     {
+      "path": "backend/internal/pkg/pgpartition/partition.go",
+      "must_contain": [
+        "pg_get_expr(c.relpartbound, c.oid, true) AS bound_expr",
+        "WHERE i.inhparent = to_regclass($1)",
+        "if !child.upper.After(cutoff)",
+        "has no finite timestamptz upper bound"
+      ],
+      "rationale": "Partition retention must use PostgreSQL's declared exclusive upper bound, never max(data) or a filename suffix. This preserves empty future partitions, reclaims empty expired partitions, handles legacy names, and fails before any DROP when a finite time bound cannot be proven. A data-based regression can delete newly provisioned empty partitions immediately while every populated-partition test stays green."
+    },
+    {
       "path": "backend/internal/service/ops_cleanup_executor.go",
       "must_contain": [
+        "pgpartition.DropExpired(ctx, db, table, cutoff)",
         "pgpartition.ListStraddling(ctx, db, table, timeCol, cutoff)",
-        "opsStraddleReclaimMaxRowsPerRun"
+        "opsStraddleReclaimMaxRowsPerRun",
+        "pgpartition.EnsureDaily(ctx, db, \"usage_logs\", now, opsPartitionDaysAhead)"
       ],
-      "rationale": "opsCleanupRunOne's partitioned branch MUST, after DropExpired, call pgpartition.ListStraddling + a capped chunked DELETE to reclaim expired rows from the wide legacy mega-partition that DropExpired can never drop (its max(created_at) is always 'now' because it still absorbs current writes). Without it the daily retention job runs and SUCCEEDS but reclaims 0 from ops_system_logs / ops_error_logs — the silent unbounded disk growth that has caused prod login 503s (disk full). An upstream merge or a 'simplify' refactor that drops the straddle-reclaim block restores the unbounded growth with every test green (DropExpired still returns success, the heartbeat still says it ran), so this source-substring assertion is the only mechanical merge-time guard. opsStraddleReclaimMaxRowsPerRun caps each run for online safety (behavior covered by TestDeleteOldRowsByID_RespectsMaxRowsCap); this sentinel pins the call-site presence."
+      "rationale": "OpsCleanupService is the sole partition-maintenance owner. Each partitioned cleanup first drops only fully expired bounds, then caps row-level reclaim from a surviving wide legacy partition that still contains expired rows; the independent maintenance phase provisions usage_logs daily partitions even while destructive cleanup is held. Removing any call can yield green heartbeats while disk growth resumes or the next UTC day has no insert target."
     },
     {
       "path": "backend/internal/handler/admin/dashboard_snapshot_v2_handler.go",
