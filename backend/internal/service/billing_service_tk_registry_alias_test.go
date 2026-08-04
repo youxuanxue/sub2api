@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUS042_GPT55ProAliasBillsRoutedRegistryOwner(t *testing.T) {
+func TestUS043_GPT55ProAliasBillsRoutedRegistryOwner(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	pricingService := NewPricingService(&config.Config{}, nil)
 	billing := NewBillingService(&config.Config{}, pricingService)
@@ -24,7 +24,7 @@ func TestUS042_GPT55ProAliasBillsRoutedRegistryOwner(t *testing.T) {
 	require.InDelta(t, 30e-6, pricing.OutputPricePerToken, 1e-15)
 }
 
-func TestUS042_LegacyFallbackNumbersCannotAffectBilling(t *testing.T) {
+func TestUS043_LegacyFallbackNumbersCannotAffectBilling(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	billing := NewBillingService(&config.Config{}, &PricingService{})
 	legacy := billing.fallbackPrices["gemini-2.5-pro"]
@@ -41,7 +41,7 @@ func TestUS042_LegacyFallbackNumbersCannotAffectBilling(t *testing.T) {
 	require.NotEqual(t, 0.99, pricing.InputPricePerToken)
 }
 
-func TestUS042_RegistryBackedLegacyMatcherKeepsExplicitOwner(t *testing.T) {
+func TestUS043_RegistryBackedLegacyMatcherKeepsExplicitOwner(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	billing := NewBillingService(&config.Config{}, &PricingService{})
 
@@ -54,7 +54,7 @@ func TestUS042_RegistryBackedLegacyMatcherKeepsExplicitOwner(t *testing.T) {
 	require.InDelta(t, owner.OutputCostPerToken, pricing.OutputPricePerToken, 1e-15)
 }
 
-func TestUS042_RegistryAliasPriceAndPolicyUseOneSnapshot(t *testing.T) {
+func TestUS043_RegistryAliasPriceAndPolicyUseOneSnapshot(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	envelope := registryEnvelopeForTest(t, func(registry map[string]any) {
 		registry["deepseek-v4-flash"].(map[string]any)["input_cost_per_token"] = 1.0

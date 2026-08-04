@@ -55,7 +55,7 @@ func registryEnvelopeForTest(t *testing.T, mutate func(map[string]any), metadata
 	return string(envelope)
 }
 
-func TestUS042_RegistryReplacesExternalPricing(t *testing.T) {
+func TestUS043_RegistryReplacesExternalPricing(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	svc := &PricingService{}
 	data, err := svc.parsePricingData([]byte(`{
@@ -70,7 +70,7 @@ func TestUS042_RegistryReplacesExternalPricing(t *testing.T) {
 	require.InDelta(t, 30e-6, data["gpt-5.5"].OutputCostPerToken, 1e-15)
 }
 
-func TestUS042_RuntimeSnapshotAtomicallyReplacesRegistry(t *testing.T) {
+func TestUS043_RuntimeSnapshotAtomicallyReplacesRegistry(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	const removed = "qwen3-32b"
 	envelope := registryEnvelopeForTest(t, func(registry map[string]any) {
@@ -89,7 +89,7 @@ func TestUS042_RuntimeSnapshotAtomicallyReplacesRegistry(t *testing.T) {
 	require.InDelta(t, 0.02, snapshot.WebSearchPrice, 1e-15)
 }
 
-func TestUS042_InvalidAndLegacyRuntimeKeepLastKnownGood(t *testing.T) {
+func TestUS043_InvalidAndLegacyRuntimeKeepLastKnownGood(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	good := registryEnvelopeForTest(t, func(registry map[string]any) {
 		registry["qwen3-8b"].(map[string]any)["input_cost_per_token"] = 8e-6

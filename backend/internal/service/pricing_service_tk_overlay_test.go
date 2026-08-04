@@ -123,9 +123,9 @@ func TestBillingOverlayMediaOnlyPricingRemainsTokenAbsent(t *testing.T) {
 	require.Nil(t, pricing)
 }
 
-// TestUS042_RegistryWinsOverNonZeroProviderPrice proves provider snapshots are
+// TestUS043_RegistryWinsOverNonZeroProviderPrice proves provider snapshots are
 // sensors only, including when they carry a plausible non-zero price.
-func TestUS042_RegistryWinsOverNonZeroProviderPrice(t *testing.T) {
+func TestUS043_RegistryWinsOverNonZeroProviderPrice(t *testing.T) {
 	svc := &PricingService{}
 	body := []byte(`{
 		"deepseek-v4-flash": {

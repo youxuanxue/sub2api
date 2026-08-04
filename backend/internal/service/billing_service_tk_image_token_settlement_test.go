@@ -17,7 +17,7 @@ func activeRegistryBillingService(t *testing.T) *BillingService {
 	return NewBillingService(&config.Config{}, NewPricingService(&config.Config{}, nil))
 }
 
-func TestUS042_ImageTokenOwnerSettlesPositiveCost(t *testing.T) {
+func TestUS043_ImageTokenOwnerSettlesPositiveCost(t *testing.T) {
 	svc := activeRegistryBillingService(t)
 	for _, model := range []string{"gpt-image-2", "gpt-image-1.5", "gpt-image-1"} {
 		require.True(t, svc.TkImageModelBillsByImageTokens(model), model)
@@ -32,14 +32,14 @@ func TestUS042_ImageTokenOwnerSettlesPositiveCost(t *testing.T) {
 	}
 }
 
-func TestUS042_ImageTokenOwnerMissingUsageFailsClosed(t *testing.T) {
+func TestUS043_ImageTokenOwnerMissingUsageFailsClosed(t *testing.T) {
 	svc := activeRegistryBillingService(t)
 	cost, err := svc.TkCalculateImageTokenCost("gpt-image-2", UsageTokens{InputTokens: 100}, 1)
 	require.Nil(t, cost)
 	require.ErrorIs(t, err, ErrImageUsageTokensUnavailable)
 }
 
-func TestUS042_BothGatewayImageFunnelsUseTokenSettlement(t *testing.T) {
+func TestUS043_BothGatewayImageFunnelsUseTokenSettlement(t *testing.T) {
 	billing := activeRegistryBillingService(t)
 	apiKey := &APIKey{Group: &Group{}}
 
@@ -66,7 +66,7 @@ func TestUS042_BothGatewayImageFunnelsUseTokenSettlement(t *testing.T) {
 	require.Equal(t, string(BillingModeImage), openAICost.BillingMode)
 }
 
-func TestUS042_GatewayMissingImageTokensReturnsBillingError(t *testing.T) {
+func TestUS043_GatewayMissingImageTokensReturnsBillingError(t *testing.T) {
 	billing := activeRegistryBillingService(t)
 	gateway := &GatewayService{billingService: billing}
 	_, err := gateway.calculateImageCost(

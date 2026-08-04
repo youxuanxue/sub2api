@@ -130,9 +130,9 @@ func TestPgPartition_EnsureMonthlySkipsLegacyOverlap(t *testing.T) {
 	require.Equal(t, 3, parts, "legacy + 2 future months (current month skipped as overlap)")
 }
 
-// TestPgPartition_DropExpiredByData proves DropExpired drops a partition whose newest
-// row is past the cutoff and keeps one with recent data — judged by data, not by name.
-func TestPgPartition_DropExpiredByData(t *testing.T) {
+// TestPgPartition_DropExpiredByBound proves retention uses declared bounds: an empty
+// expired partition is dropped while an empty current/future partition is preserved.
+func TestPgPartition_DropExpiredByBound(t *testing.T) {
 	ctx := context.Background()
 	tbl := "pgpart_itest_drop"
 	q := pq.QuoteIdentifier(tbl)
@@ -149,28 +149,36 @@ func TestPgPartition_DropExpiredByData(t *testing.T) {
 		"CREATE TABLE %s (id BIGSERIAL, created_at TIMESTAMPTZ NOT NULL) PARTITION BY RANGE (created_at)", q))
 	require.NoError(t, err)
 	oldName := tbl + "_old"
+	legacyName := tbl + "_legacy"
 	curName := tbl + "_cur"
 	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)",
 		pq.QuoteIdentifier(oldName), q, pq.QuoteLiteral(oldStart.Format("2006-01-02")), pq.QuoteLiteral(oldEnd.Format("2006-01-02"))))
 	require.NoError(t, err)
 	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)",
+		pq.QuoteIdentifier(legacyName), q, pq.QuoteLiteral(oldEnd.Format("2006-01-02")), pq.QuoteLiteral(thisMonth.Format("2006-01-02"))))
+	require.NoError(t, err)
+	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s PARTITION OF %s FOR VALUES FROM (%s) TO (%s)",
 		pq.QuoteIdentifier(curName), q, pq.QuoteLiteral(thisMonth.Format("2006-01-02")), pq.QuoteLiteral(nextMonth.Format("2006-01-02"))))
 	require.NoError(t, err)
-	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s(created_at) VALUES ($1)", q), oldStart.AddDate(0, 0, 5))
+	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s(created_at) VALUES ($1)", q), oldEnd.AddDate(0, 0, 1))
 	require.NoError(t, err)
-	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s(created_at) VALUES (now())", q))
-	require.NoError(t, err)
-
-	// cutoff = now - 90d: the old partition's data is fully past it -> drop; current kept.
+	// The old and current partitions are empty. Their bounds alone decide retention;
+	// the legacy partition has only expired data but a still-live upper bound.
 	cutoff := now.AddDate(0, 0, -90)
-	_, err = pgpartition.DropExpired(ctx, integrationDB, tbl, "created_at", cutoff)
+	_, err = pgpartition.DropExpired(ctx, integrationDB, tbl, cutoff)
 	require.NoError(t, err)
 
-	var hasOld, hasCur bool
+	var hasOld, hasLegacy, hasCur bool
 	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname=$1)`, oldName).Scan(&hasOld))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname=$1)`, legacyName).Scan(&hasLegacy))
 	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname=$1)`, curName).Scan(&hasCur))
-	require.False(t, hasOld, "expired partition (all data < cutoff) must be dropped")
-	require.True(t, hasCur, "partition with recent data must be kept")
+	require.False(t, hasOld, "empty partition with upper bound <= cutoff must be dropped")
+	require.True(t, hasLegacy, "bound-straddling partition must remain even when every current row is expired")
+	require.True(t, hasCur, "empty partition with upper bound > cutoff must be kept")
+
+	straddling, err := pgpartition.ListStraddling(ctx, integrationDB, tbl, "created_at", cutoff)
+	require.NoError(t, err)
+	require.Equal(t, []string{legacyName}, straddling, "surviving legacy partition still needs row-level reclaim")
 }
 
 // TestPgPartition_OpsErrorLogsConvertedByMigration proves tk_037 (WAVE 2) converts

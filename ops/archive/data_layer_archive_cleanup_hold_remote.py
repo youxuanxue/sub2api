@@ -232,7 +232,11 @@ def _reload_proof(since: str, *, enabled: bool) -> bool:
         )
     if "cleanup reload after advanced-settings update failed" in logs:
         raise HoldError("cleanup runtime reload reported an error")
-    marker = "[OpsCleanup] scheduled" if enabled else "[OpsCleanup] cron disabled by settings"
+    marker = (
+        "cleanup_enabled=true"
+        if enabled
+        else "cleanup_enabled=false"
+    )
     return marker in logs
 
 
@@ -242,8 +246,8 @@ def _runtime_disabled_since(hold_started_at: str) -> bool:
     except (TypeError, ValueError) as exc:
         raise HoldError("cleanup hold timestamp is invalid") from exc
     since = (started - dt.timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
-    disabled_marker = "[OpsCleanup] cron disabled by settings"
-    scheduled_marker = "[OpsCleanup] scheduled"
+    disabled_marker = "cleanup_enabled=false"
+    enabled_marker = "cleanup_enabled=true"
     reload_error = "cleanup reload after advanced-settings update failed"
     for container in _app_containers():
         logs = _run(
@@ -252,7 +256,7 @@ def _runtime_disabled_since(hold_started_at: str) -> bool:
             include_stderr=True,
         )
         disabled_at = logs.rfind(disabled_marker)
-        if disabled_at < 0 or logs.rfind(scheduled_marker) > disabled_at:
+        if disabled_at < 0 or logs.rfind(enabled_marker) > disabled_at:
             return False
         if logs.rfind(reload_error) > disabled_at:
             return False

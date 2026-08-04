@@ -1,6 +1,6 @@
-# US-042-pricing-registry-hot-reload
+# US-043-pricing-registry-hot-reload
 
-- ID: US-042
+- ID: US-043
 - Title: Global pricing has one registry owner and protected hot reload
 - Priority: P0 (计费正确性与全局价格发布)
 - As a / I want / So that:
@@ -38,19 +38,19 @@
 
 ## Linked Tests
 
-- `backend/internal/service/pricing_service_tk_overlay_runtime_test.go`::`TestUS042_RegistryReplacesExternalPricing`
-- `backend/internal/service/pricing_service_tk_overlay_runtime_test.go`::`TestUS042_RuntimeSnapshotAtomicallyReplacesRegistry`
-- `backend/internal/service/pricing_service_tk_overlay_runtime_test.go`::`TestUS042_InvalidAndLegacyRuntimeKeepLastKnownGood`
+- `backend/internal/service/pricing_service_tk_overlay_runtime_test.go`::`TestUS043_RegistryReplacesExternalPricing`
+- `backend/internal/service/pricing_service_tk_overlay_runtime_test.go`::`TestUS043_RuntimeSnapshotAtomicallyReplacesRegistry`
+- `backend/internal/service/pricing_service_tk_overlay_runtime_test.go`::`TestUS043_InvalidAndLegacyRuntimeKeepLastKnownGood`
 - `backend/internal/service/pricing_service_tk_overlay_runtime_test.go`::`TestReloadTKOverlayRuntimeKeepsLKGWhenSettingTemporarilyDisappears`
 - `backend/internal/service/pricing_service_tk_overlay_runtime_test.go`::`TestReloadTKOverlayRuntimeSerializesGetterThroughSwap`
 - `backend/internal/service/pricing_service_tk_overlay_runtime_test.go`::`TestConcurrentRegistryReadDuringExactSwap`
-- `backend/internal/service/billing_service_tk_registry_alias_test.go`::`TestUS042_GPT55ProAliasBillsRoutedRegistryOwner`
-- `backend/internal/service/billing_service_tk_registry_alias_test.go`::`TestUS042_LegacyFallbackNumbersCannotAffectBilling`
-- `backend/internal/service/billing_service_tk_registry_alias_test.go`::`TestUS042_RegistryBackedLegacyMatcherKeepsExplicitOwner`
-- `backend/internal/service/billing_service_tk_registry_alias_test.go`::`TestUS042_RegistryAliasPriceAndPolicyUseOneSnapshot`
-- `backend/internal/service/billing_service_tk_image_token_settlement_test.go`::`TestUS042_BothGatewayImageFunnelsUseTokenSettlement`
-- `backend/internal/service/billing_service_tk_image_token_settlement_test.go`::`TestUS042_GatewayMissingImageTokensReturnsBillingError`
-- `backend/internal/service/pricing_catalog_tk_test.go`::`TestUS042_PublicCatalogSurfacesImageTokenSettlementDimensions`
+- `backend/internal/service/billing_service_tk_registry_alias_test.go`::`TestUS043_GPT55ProAliasBillsRoutedRegistryOwner`
+- `backend/internal/service/billing_service_tk_registry_alias_test.go`::`TestUS043_LegacyFallbackNumbersCannotAffectBilling`
+- `backend/internal/service/billing_service_tk_registry_alias_test.go`::`TestUS043_RegistryBackedLegacyMatcherKeepsExplicitOwner`
+- `backend/internal/service/billing_service_tk_registry_alias_test.go`::`TestUS043_RegistryAliasPriceAndPolicyUseOneSnapshot`
+- `backend/internal/service/billing_service_tk_image_token_settlement_test.go`::`TestUS043_BothGatewayImageFunnelsUseTokenSettlement`
+- `backend/internal/service/billing_service_tk_image_token_settlement_test.go`::`TestUS043_GatewayMissingImageTokensReturnsBillingError`
+- `backend/internal/service/pricing_catalog_tk_test.go`::`TestUS043_PublicCatalogSurfacesImageTokenSettlementDimensions`
 - `ops/pricing/test_manage_overlay_runtime.py`::`test_sync_verifies_readback_after_one_atomic_write`
 - `ops/pricing/test_manage_overlay_runtime.py`::`test_sync_refuses_to_downgrade_newer_runtime_source`
 - `ops/pricing/test_pricing_registry_sensor.py`::`test_candidate_updates_only_existing_owner_billable_fields`

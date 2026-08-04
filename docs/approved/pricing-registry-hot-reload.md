@@ -7,7 +7,7 @@ authors: [agent]
 created: 2026-08-03
 related_prs: ["#1524 (superseded implementation)"]
 related_commits: []
-related_stories: ["US-042"]
+related_stories: ["US-043"]
 related_design: docs/approved/pricing-serving-single-source-of-truth.md, docs/approved/priced-or-it-doesnt-ship.md
 supersedes: "The global price-owner and runtime-overlay sections of pricing-serving-single-source-of-truth.md and channel-pricing-refund-gate-and-runtime-pricing.md"
 ---

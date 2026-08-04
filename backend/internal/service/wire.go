@@ -12,6 +12,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/telemetryarchive"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -461,6 +462,18 @@ func ProvideOpsMetricsCollector(
 	return collector
 }
 
+func ProvideTelemetryArchiveHealth(
+	shadow *telemetryarchive.Shadow,
+	opsRepo OpsRepository,
+) *TelemetryArchiveHealth {
+	if shadow == nil || !shadow.Enabled() {
+		return nil
+	}
+	health := NewTelemetryArchiveHealth(shadow, opsRepo)
+	health.Start()
+	return health
+}
+
 // ProvideOpsAggregationService creates and starts OpsAggregationService (hourly/daily pre-aggregation).
 func ProvideOpsAggregationService(
 	opsRepo OpsRepository,
@@ -839,6 +852,7 @@ var ProviderSet = wire.NewSet(
 	ProvideOpsIngressRejectAggregator,
 	ProvideAuditLogService,
 	ProvideOpsMetricsCollector,
+	ProvideTelemetryArchiveHealth,
 	ProvideOpsAggregationService,
 	ProvideOpsAlertEvaluatorService,
 	ProvideOpsCleanupService,

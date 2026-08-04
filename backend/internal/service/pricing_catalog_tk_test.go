@@ -151,7 +151,7 @@ func TestPublicCatalog_ChatRowsWithImageCostsStayTokenCatalogRows(t *testing.T) 
 	assert.InDelta(t, 0.012, row.Pricing.OutputPer1KTokens, 1e-12)
 }
 
-func TestUS042_PublicCatalogSurfacesImageTokenSettlementDimensions(t *testing.T) {
+func TestUS043_PublicCatalogSurfacesImageTokenSettlementDimensions(t *testing.T) {
 	inputToken := 1e-5
 	outputToken := 4e-5
 	entry := catalogRichEntry{

@@ -137,15 +137,10 @@ func (s *OpsCleanupService) stopCronLocked() {
 }
 
 // applyScheduleLocked 重新计算 effective 配置并按其 schedule 重建 cron。调用方持锁。
-// 若 effective.Enabled=false（用户在 UI 关闭清理），停旧 cron 后直接返回，不创建新 cron。
+// cleanup disabled 只禁止删除；分区维护仍需定时运行，避免月/日切换时无分区可写。
 func (s *OpsCleanupService) applyScheduleLocked(ctx context.Context) error {
 	s.computeEffectiveLocked(ctx)
 	s.stopCronLocked()
-
-	if !s.effective.Enabled {
-		logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] cron disabled by settings")
-		return nil
-	}
 
 	schedule := strings.TrimSpace(s.effective.Schedule)
 	if schedule == "" {
@@ -166,8 +161,9 @@ func (s *OpsCleanupService) applyScheduleLocked(ctx context.Context) error {
 	c.Start()
 	s.cron = c
 	logger.LegacyPrintf("service.ops_cleanup",
-		"[OpsCleanup] scheduled (schedule=%q tz=%s retention_days=err:%d/min:%d/hour:%d)",
+		"[OpsCleanup] scheduled (schedule=%q tz=%s cleanup_enabled=%t retention_days=err:%d/min:%d/hour:%d)",
 		schedule, loc.String(),
+		s.effective.Enabled,
 		s.effective.ErrorLogRetentionDays,
 		s.effective.MinuteMetricsRetentionDays,
 		s.effective.HourlyMetricsRetentionDays,
@@ -249,7 +245,7 @@ func (s *OpsCleanupService) snapshotEffective() config.OpsCleanupConfig {
 	return s.effective
 }
 
-// refreshEffectiveBeforeRun 在 cron 触发时刷新 effective，让 retention 改动当次即生效。
+// refreshEffectiveBeforeRun 在 cron 触发时刷新 effective，让 retention/enabled 改动当次即生效。
 // schedule 改动不影响当次（cron 调度由库管理，需要 Reload 才换 schedule）。
 func (s *OpsCleanupService) refreshEffectiveBeforeRun(ctx context.Context) {
 	s.mu.Lock()
@@ -278,6 +274,20 @@ func (s *OpsCleanupService) runScheduled() {
 
 	startedAt := time.Now().UTC()
 	runAt := startedAt
+	partitionResult, partitionErr := ensureOpsPartitions(ctx, s.db, runAt)
+	if partitionErr != nil {
+		s.recordJobHeartbeatError(opsPartitionJobName, runAt, time.Since(startedAt), partitionErr)
+		logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] partition maintenance failed: %v", partitionErr)
+		return
+	}
+	s.recordJobHeartbeatSuccess(opsPartitionJobName, runAt, time.Since(startedAt), "tables="+partitionResult)
+
+	// A cleanup hold must leave the destructive job heartbeat untouched. Operators
+	// can therefore prove that maintenance continued without implying deletion ran.
+	if !s.snapshotEffective().Enabled {
+		logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] cleanup disabled by settings; partition maintenance complete")
+		return
+	}
 
 	counts, err := s.runCleanupOnce(ctx)
 	if err != nil {
@@ -377,16 +387,20 @@ func (s *OpsCleanupService) tryAcquireLeaderLock(ctx context.Context) (func(), b
 }
 
 func (s *OpsCleanupService) recordHeartbeatSuccess(runAt time.Time, duration time.Duration, counts opsCleanupDeletedCounts) {
+	s.recordJobHeartbeatSuccess(opsCleanupJobName, runAt, duration, counts.String())
+}
+
+func (s *OpsCleanupService) recordJobHeartbeatSuccess(jobName string, runAt time.Time, duration time.Duration, resultText string) {
 	if s == nil || s.opsRepo == nil {
 		return
 	}
 	now := time.Now().UTC()
 	durMs := duration.Milliseconds()
-	result := truncateString(counts.String(), 2048)
+	result := truncateString(resultText, 2048)
 	ctx, cancel := context.WithTimeout(context.Background(), opsCleanupHeartbeatTimeout)
 	defer cancel()
 	_ = s.opsRepo.UpsertJobHeartbeat(ctx, &OpsUpsertJobHeartbeatInput{
-		JobName:        opsCleanupJobName,
+		JobName:        jobName,
 		LastRunAt:      &runAt,
 		LastSuccessAt:  &now,
 		LastDurationMs: &durMs,
@@ -395,6 +409,10 @@ func (s *OpsCleanupService) recordHeartbeatSuccess(runAt time.Time, duration tim
 }
 
 func (s *OpsCleanupService) recordHeartbeatError(runAt time.Time, duration time.Duration, err error) {
+	s.recordJobHeartbeatError(opsCleanupJobName, runAt, duration, err)
+}
+
+func (s *OpsCleanupService) recordJobHeartbeatError(jobName string, runAt time.Time, duration time.Duration, err error) {
 	if s == nil || s.opsRepo == nil || err == nil {
 		return
 	}
@@ -404,7 +422,7 @@ func (s *OpsCleanupService) recordHeartbeatError(runAt time.Time, duration time.
 	ctx, cancel := context.WithTimeout(context.Background(), opsCleanupHeartbeatTimeout)
 	defer cancel()
 	_ = s.opsRepo.UpsertJobHeartbeat(ctx, &OpsUpsertJobHeartbeatInput{
-		JobName:        opsCleanupJobName,
+		JobName:        jobName,
 		LastRunAt:      &runAt,
 		LastErrorAt:    &now,
 		LastError:      &msg,
