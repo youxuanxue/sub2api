@@ -229,6 +229,8 @@ fi
 if command -v python3 >/dev/null 2>&1; then
     _bg_spawn script_ref python3 ./scripts/checks/script-ref-existence.py
     _bg_spawn script_ref_test bash ./scripts/checks/script-ref-existence_test.sh
+    _bg_spawn edge_platform_migration_preflight_test \
+        python3 -m unittest ops/migration/test_edge_platform_migration_preflight.py
     _bg_spawn newapi_sibling_test bash ./scripts/checks/ensure-new-api-sibling_test.sh
     _bg_spawn redactor_test bash ./scripts/agent/redact-stream_test.sh
     _bg_spawn smoke_unittest python3 -m unittest scripts.test_smoke_suite \

@@ -1,0 +1,157 @@
+{
+  "amis": {
+    "us-east-2": {
+      "architecture": "arm64",
+      "image_id": "ami-0263206814db4826a"
+    },
+    "us-west-2": {
+      "architecture": "arm64",
+      "image_id": "ami-0159f3bbb387b05a7"
+    }
+  },
+  "blockers": [],
+  "cpu_24h": {
+    "us3": {
+      "average_pct": 14.039,
+      "p95_pct": 28.267
+    },
+    "us4": {
+      "average_pct": 14.053,
+      "p95_pct": 28.551
+    },
+    "us5": {
+      "average_pct": 5.176,
+      "p95_pct": 6.822
+    },
+    "us6": {
+      "average_pct": 13.846,
+      "p95_pct": 26.884
+    }
+  },
+  "dns": {
+    "us3": {
+      "expected_ipv4": "18.220.195.44",
+      "resolved_ipv4": [
+        "18.220.195.44"
+      ]
+    },
+    "us4": {
+      "expected_ipv4": "35.81.204.18",
+      "resolved_ipv4": [
+        "35.81.204.18"
+      ]
+    },
+    "us5": {
+      "expected_ipv4": "32.185.163.163",
+      "resolved_ipv4": [
+        "32.185.163.163"
+      ]
+    },
+    "us6": {
+      "expected_ipv4": "3.148.79.145",
+      "resolved_ipv4": [
+        "3.148.79.145"
+      ]
+    }
+  },
+  "fixed_monthly_usd": {
+    "fleet": 76.46,
+    "per_edge": {
+      "us3": 19.12,
+      "us4": 19.12,
+      "us5": 19.12,
+      "us6": 19.12
+    }
+  },
+  "fleet": [
+    {
+      "domain": "api-us3.tokenkey.dev",
+      "edge_id": "us3",
+      "expected_ipv4": "18.220.195.44",
+      "instance_name": "tokenkey-edge-us-oh1-ls",
+      "region": "us-east-2",
+      "ssm_prefix": "/tokenkey/lightsail/us3"
+    },
+    {
+      "domain": "api-us4.tokenkey.dev",
+      "edge_id": "us4",
+      "expected_ipv4": "35.81.204.18",
+      "instance_name": "tokenkey-edge-us-or1-ls",
+      "region": "us-west-2",
+      "ssm_prefix": "/tokenkey/lightsail/us4"
+    },
+    {
+      "domain": "api-us5.tokenkey.dev",
+      "edge_id": "us5",
+      "expected_ipv4": "32.185.163.163",
+      "instance_name": "tokenkey-edge-us-or2-ls",
+      "region": "us-west-2",
+      "ssm_prefix": "/tokenkey/lightsail/us5"
+    },
+    {
+      "domain": "api-us6.tokenkey.dev",
+      "edge_id": "us6",
+      "expected_ipv4": "3.148.79.145",
+      "instance_name": "edge-ls-us-oh-3",
+      "region": "us-east-2",
+      "ssm_prefix": "/tokenkey/lightsail/us6"
+    }
+  ],
+  "forecast_monthly_usd": {
+    "fleet": 152,
+    "per_edge": {
+      "us3": 41,
+      "us4": 39,
+      "us5": 36,
+      "us6": 36
+    }
+  },
+  "generated_at": "2026-08-04T15:47:08+00:00",
+  "instance_type_offerings": {
+    "us-east-2": [
+      "t4g.small"
+    ],
+    "us-west-2": [
+      "t4g.small"
+    ]
+  },
+  "network_out_30d": {
+    "us3": 127.974,
+    "us4": 107.052,
+    "us5": 72.443,
+    "us6": 66.601
+  },
+  "quotas": {
+    "us-east-2": {
+      "eip_limit": 5.0,
+      "eip_used": 0,
+      "vpc_limit": 5.0,
+      "vpc_used": 1
+    },
+    "us-west-2": {
+      "eip_limit": 5.0,
+      "eip_used": 0,
+      "vpc_limit": 5.0,
+      "vpc_used": 1
+    }
+  },
+  "schema_version": 1,
+  "ssm": {
+    "us3": {
+      "instance_id": "mi-08e84679ef1ee106d",
+      "ping_status": "Online"
+    },
+    "us4": {
+      "instance_id": "mi-03a4d6db7a3f5cdc3",
+      "ping_status": "Online"
+    },
+    "us5": {
+      "instance_id": "mi-0639450378f3c7c51",
+      "ping_status": "Online"
+    },
+    "us6": {
+      "instance_id": "mi-0420c4b9bbaf5243c",
+      "ping_status": "Online"
+    }
+  }
+}
