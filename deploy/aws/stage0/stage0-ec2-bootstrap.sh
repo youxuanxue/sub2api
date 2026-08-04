@@ -503,6 +503,50 @@ Persistent=true
 WantedBy=timers.target
 QATIMEOF
 
+install -m 0755 /dev/stdin /usr/local/bin/tokenkey-ghcr-prune-daily.sh <<'GHCRDEOF'
+#!/bin/bash
+# Daily GHCR app-tag prune + dangling Docker image cleanup.
+set -euo pipefail
+PRUNE=/usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
+[ -x "$PRUNE" ] || PRUNE=/usr/local/bin/tokenkey-prune-ghcr-app-tags.sh
+if [ -x "$PRUNE" ]; then
+  KEEP="${TOKENKEY_GHCR_KEEP_TAGS:-3}"
+  logger -t tokenkey-ghcr-prune-daily "start keep_tags=${KEEP}"
+  if ! env TOKENKEY_GHCR_KEEP_TAGS="${KEEP}" "$PRUNE"; then
+    logger -t tokenkey-ghcr-prune-daily "ghcr tag prune failed (non-fatal)"
+  fi
+else
+  logger -t tokenkey-ghcr-prune-daily "skip no prune script installed"
+fi
+docker image prune -f >/dev/null 2>&1 || true
+logger -t tokenkey-ghcr-prune-daily "done"
+GHCRDEOF
+
+cat > /etc/systemd/system/tokenkey-ghcr-prune-daily.service <<'GHCRSVCEOF'
+[Unit]
+Description=Daily GHCR app-tag prune and dangling Docker image cleanup
+After=network-online.target tokenkey.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/var/lib/tokenkey/.env
+ExecStart=/usr/local/bin/tokenkey-ghcr-prune-daily.sh
+GHCRSVCEOF
+
+cat > /etc/systemd/system/tokenkey-ghcr-prune-daily.timer <<'GHCRTMREOF'
+[Unit]
+Description=Daily GHCR prune (low-traffic window, after QA cleanup)
+
+[Timer]
+OnCalendar=*-*-* 05:00:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+GHCRTMREOF
+
 # --- 7. CloudWatch Agent ------------------------------------------------
 cat > /opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json <<'CWEOF'
 {
@@ -533,6 +577,7 @@ systemctl enable --now tokenkey.service
 systemctl enable --now tokenkey-pgdump.timer
 systemctl enable --now tokenkey-disk-metrics.timer
 systemctl enable --now tokenkey-qa-stale-cleanup.timer
+systemctl enable --now tokenkey-ghcr-prune-daily.timer
 if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
   /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
     -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json -s || true

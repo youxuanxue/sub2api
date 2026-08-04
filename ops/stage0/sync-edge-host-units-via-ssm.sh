@@ -12,6 +12,9 @@
 #   2. QA stale cleanup (tokenkey-qa-stale-cleanup.sh + .timer + retention env) — the
 #      script shipped but never ran on edges, so qa_records/qa_blobs grew unbounded
 #      (13+ days / multi-GB) while prod stayed pruned at 1.5 days.
+#   3. Daily GHCR tag prune (tokenkey-ghcr-prune-daily.sh + .timer) — deploy-time
+#      prune alone is insufficient when edges go days without a deploy; mirrors prod
+#      bootstrap timer at 05:00 UTC (after QA 04:15).
 # render-bootstrap can't grow (user-data cap), and deploy_via_ssm.sh does not re-run
 # bootstrap, so this SSM push is the path that reaches existing edges (the same
 # situation #778 solved for prod with pg_dump_refresh_via_ssm.sh). The edge deploy
@@ -20,6 +23,7 @@
 # Single source of record for the unit payloads:
 #   - deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh  (disk+mem Feishu; df /)
 #   - deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh      (QA prune; shared with prod)
+#   - deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh      (GHCR tag prune; shared with prod)
 # Edit only those files; this script base64-pushes them verbatim.
 #
 # Prereq for the alerts to actually post: TOKENKEY_FEISHU_WEBHOOK_URL/_SECRET must
@@ -64,13 +68,16 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DM_SRC="${SCRIPT_DIR}/../../deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh"
 QA_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh"
+GHCR_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh"
 [[ -f "${DM_SRC}" ]] || { echo "missing ${DM_SRC}" >&2; exit 1; }
 [[ -f "${QA_SRC}" ]] || { echo "missing ${QA_SRC}" >&2; exit 1; }
+[[ -f "${GHCR_SRC}" ]] || { echo "missing ${GHCR_SRC}" >&2; exit 1; }
 
 # Encode each payload to single-line base64 so embedding into the JSON command
 # array is shell-quoting-safe. tr -d strips both GNU and BSD base64 wrapping.
 DM_SH_B64="$(base64 <"${DM_SRC}" | tr -d '\n')"
 QA_SH_B64="$(base64 <"${QA_SRC}" | tr -d '\n')"
+GHCR_SH_B64="$(base64 <"${GHCR_SRC}" | tr -d '\n')"
 
 DM_SERVICE_B64="$(cat <<'DMSEOF' | base64 | tr -d '\n'
 [Unit]
@@ -128,6 +135,33 @@ WantedBy=timers.target
 QATEOF
 )"
 
+GHCR_SERVICE_B64="$(cat <<'GHCRSEOF' | base64 | tr -d '\n'
+[Unit]
+Description=Daily GHCR app-tag prune and dangling Docker image cleanup
+After=network-online.target tokenkey.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/var/lib/tokenkey/.env
+ExecStart=/usr/local/bin/tokenkey-ghcr-prune-daily.sh
+GHCRSEOF
+)"
+
+GHCR_TIMER_B64="$(cat <<'GHCRTEOF' | base64 | tr -d '\n'
+[Unit]
+Description=Daily GHCR prune (low-traffic window, after QA cleanup)
+
+[Timer]
+OnCalendar=*-*-* 05:00:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+GHCRTEOF
+)"
+
 # In-place sync trace: which commit the live units are now aligned to.
 TEMPLATE_SHA="${GITHUB_SHA:-local}"
 
@@ -138,12 +172,15 @@ jq -n \
   --arg qash "${QA_SH_B64}" \
   --arg qasvc "${QA_SERVICE_B64}" \
   --arg qatmr "${QA_TIMER_B64}" \
+  --arg ghcrs "${GHCR_SH_B64}" \
+  --arg ghcrsvc "${GHCR_SERVICE_B64}" \
+  --arg ghcrtmr "${GHCR_TIMER_B64}" \
   --arg qadays "${QA_RETENTION_DAYS}" \
   --arg sha "${TEMPLATE_SHA}" \
   '{
     commands: [
       "set -euo pipefail",
-      "echo === edge host-units sync: disk/memory pressure alerts + QA stale cleanup ===",
+      "echo === edge host-units sync: disk/memory pressure alerts + QA stale cleanup + GHCR daily prune ===",
       "sudo install -d -m 0755 /etc/tokenkey",
       ("echo " + $dmsh + " | base64 -d | sudo tee /usr/local/bin/tokenkey-disk-metrics.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-disk-metrics.sh",
@@ -155,13 +192,19 @@ jq -n \
       "sudo chmod +x /usr/local/bin/tokenkey-qa-stale-cleanup.sh",
       ("echo " + $qasvc + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-qa-stale-cleanup.service > /dev/null"),
       ("echo " + $qatmr + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-qa-stale-cleanup.timer > /dev/null"),
+      ("echo " + $ghcrs + " | base64 -d | sudo tee /usr/local/bin/tokenkey-ghcr-prune-daily.sh > /dev/null"),
+      "sudo chmod +x /usr/local/bin/tokenkey-ghcr-prune-daily.sh",
+      "sudo /usr/local/bin/tokenkey-ghcr-prune-daily.sh --selftest",
+      ("echo " + $ghcrsvc + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-ghcr-prune-daily.service > /dev/null"),
+      ("echo " + $ghcrtmr + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-ghcr-prune-daily.timer > /dev/null"),
       ("printf '\''TOKENKEY_QA_STALE_RETENTION_DAYS=%s\\n'\'' " + $qadays + " | sudo tee /etc/tokenkey/qa-stale-retention.env > /dev/null"),
       "sudo systemctl daemon-reload",
       "sudo systemctl enable --now tokenkey-disk-metrics.timer",
       "sudo systemctl enable --now tokenkey-qa-stale-cleanup.timer",
-      "sudo systemctl restart tokenkey-disk-metrics.timer tokenkey-qa-stale-cleanup.timer",
+      "sudo systemctl enable --now tokenkey-ghcr-prune-daily.timer",
+      "sudo systemctl restart tokenkey-disk-metrics.timer tokenkey-qa-stale-cleanup.timer tokenkey-ghcr-prune-daily.timer",
       "echo --- timers ---",
-      "sudo systemctl list-timers tokenkey-disk-metrics.timer tokenkey-qa-stale-cleanup.timer --no-pager || true",
+      "sudo systemctl list-timers tokenkey-disk-metrics.timer tokenkey-qa-stale-cleanup.timer tokenkey-ghcr-prune-daily.timer --no-pager || true",
       "echo --- retention env ---",
       "cat /etc/tokenkey/qa-stale-retention.env || true",
       "echo --- feishu webhook present in .env -- disk alert no-ops without it --",
