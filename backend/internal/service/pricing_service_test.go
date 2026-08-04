@@ -289,7 +289,7 @@ func assertGPT56FallbackPricing(t *testing.T, pricing *ModelPricing, input, cach
 	require.InDelta(t, 1.5, pricing.LongContextOutputMultiplier, 1e-12)
 }
 
-func TestParsePricingData_KeepsImageOnlyPricing(t *testing.T) {
+func TestParsePricingData_ProviderImageEvidenceCannotEnterRuntime(t *testing.T) {
 	svc := &PricingService{}
 	body := []byte(`{
 		"image-only-model": {
@@ -301,37 +301,34 @@ func TestParsePricingData_KeepsImageOnlyPricing(t *testing.T) {
 
 	data, err := svc.parsePricingData(body)
 	require.NoError(t, err)
-	pricing := data["image-only-model"]
+	require.NotContains(t, data, "image-only-model", "provider-only evidence is not a registry owner")
+	pricing := data["imagen-4.0-generate-001"]
 	require.NotNil(t, pricing)
-	require.InDelta(t, 0.034, pricing.OutputCostPerImage, 1e-12)
+	require.Positive(t, pricing.OutputCostPerImage)
 	require.Equal(t, "image_generation", pricing.Mode)
-	// 仅有图片价的条目必须标记 token 价缺失，供 token 计费路径 fail-closed。
+	// Registry image-only owners still mark token pricing absent so token funnels fail closed.
 	require.True(t, pricing.TokenPricingAbsent)
 }
 
 func TestBillingService_GetModelPricing_FailsClosedForImageOnlyEntries(t *testing.T) {
-	pricingSvc := &PricingService{}
-	data, err := pricingSvc.parsePricingData([]byte(`{
+	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
 		"imagen-9.0-generate": {
-			"output_cost_per_image": 0.04,
-			"litellm_provider": "vertex_ai-image-models",
-			"mode": "image_generation"
+			OutputCostPerImage: 0.04,
+			LiteLLMProvider:    "vertex_ai-image-models",
+			Mode:               "image_generation",
+			TokenPricingAbsent: true,
 		},
 		"gemini-image-with-token-price": {
-			"input_cost_per_token": 0.0,
-			"output_cost_per_token": 0.0,
-			"output_cost_per_image": 0.034,
-			"litellm_provider": "vertex_ai-language-models",
-			"mode": "image_generation"
-		}
-	}`))
-	require.NoError(t, err)
-	pricingSvc.pricingData = data
+			OutputCostPerImage: 0.034,
+			LiteLLMProvider:    "vertex_ai-language-models",
+			Mode:               "image_generation",
+		},
+	}}
 	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
 
 	// image-only 条目不得进入 token 计费（否则 token 流量按 $0 计费），
 	// 必须落到 fallback / ErrModelPricingUnavailable 的 fail-closed 路径。
-	_, err = billingSvc.GetModelPricing("imagen-9.0-generate")
+	_, err := billingSvc.GetModelPricing("imagen-9.0-generate")
 	require.ErrorIs(t, err, ErrModelPricingUnavailable)
 
 	// 显式 0 token 价的免费条目保持历史行为：正常返回。
@@ -345,7 +342,7 @@ func TestBillingService_GetModelPricing_FailsClosedForImageOnlyEntries(t *testin
 	require.InDelta(t, 0.04, raw.OutputCostPerImage, 1e-12)
 }
 
-func TestPricingService_MergesFallbackOnlyModels(t *testing.T) {
+func TestPricingService_FallbackProviderFileCannotAddRuntimeOwners(t *testing.T) {
 	dir := t.TempDir()
 	fallbackFile := filepath.Join(dir, "fallback.json")
 	require.NoError(t, os.WriteFile(fallbackFile, []byte(`{
@@ -373,9 +370,9 @@ func TestPricingService_MergesFallbackOnlyModels(t *testing.T) {
 	require.NoError(t, err)
 
 	merged := svc.mergeFallbackPricingData(remoteData)
-	require.InDelta(t, 0.000002, merged["remote-model"].InputCostPerToken, 1e-12)
-	require.NotNil(t, merged["gemini-3.1-flash-lite-image"])
-	require.InDelta(t, 0.034, merged["gemini-3.1-flash-lite-image"].OutputCostPerImage, 1e-12)
+	require.NotContains(t, merged, "remote-model")
+	require.NotContains(t, merged, "gemini-3.1-flash-lite-image")
+	require.NotNil(t, merged["gpt-5.5"], "active registry remains the exact runtime owner map")
 }
 
 func TestGetModelPricing_Gpt53CodexSparkUsesDedicatedSparkPricing(t *testing.T) {
@@ -458,10 +455,8 @@ func TestGetModelPricing_OpenAIFallbackMatchedLoggedAsInfo(t *testing.T) {
 	require.False(t, logSink.ContainsMessageAtLevel("[Pricing] OpenAI fallback matched gpt-5.3-codex -> gpt-5.3-codex-spark", "warn"))
 }
 
-func TestGetModelPricing_Gpt54UsesStaticFallbackWhenRemoteMissing(t *testing.T) {
-	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{},
-	}
+func TestGetModelPricing_Gpt54UsesActiveRegistry(t *testing.T) {
+	svc := NewPricingService(&config.Config{}, nil)
 
 	got := svc.GetModelPricing("gpt-5.4")
 	require.NotNil(t, got)
@@ -473,17 +468,13 @@ func TestGetModelPricing_Gpt54UsesStaticFallbackWhenRemoteMissing(t *testing.T) 
 	require.InDelta(t, 1.5, got.LongContextOutputCostMultiplier, 1e-12)
 }
 
-func TestGetModelPricing_OpenAICompactAliasUsesStaticFallback(t *testing.T) {
-	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{
-			"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
-		},
-	}
+func TestGetModelPricing_OpenAICompactAliasUsesRegistryOwner(t *testing.T) {
+	svc := NewPricingService(&config.Config{}, nil)
 
 	got := svc.GetModelPricing("openai/gpt5.5")
 	require.NotNil(t, got)
-	require.InDelta(t, 2.5e-6, got.InputCostPerToken, 1e-12)
-	require.InDelta(t, 1.5e-5, got.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 5e-6, got.InputCostPerToken, 1e-12)
+	require.InDelta(t, 3e-5, got.OutputCostPerToken, 1e-12)
 }
 
 func TestPricingService_Gemini36FlashThinkingTiersUseBasePricing(t *testing.T) {
@@ -579,10 +570,8 @@ func TestDefaultPricingIncludesCodexAutoReview(t *testing.T) {
 	require.InDelta(t, 5e-7, got.CacheReadInputTokenCost, 1e-12)
 }
 
-func TestGetModelPricing_Gpt54MiniUsesDedicatedStaticFallbackWhenRemoteMissing(t *testing.T) {
-	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{},
-	}
+func TestGetModelPricing_Gpt54MiniUsesDedicatedRegistryOwner(t *testing.T) {
+	svc := NewPricingService(&config.Config{}, nil)
 
 	got := svc.GetModelPricing("gpt-5.4-mini")
 	require.NotNil(t, got)
@@ -592,12 +581,8 @@ func TestGetModelPricing_Gpt54MiniUsesDedicatedStaticFallbackWhenRemoteMissing(t
 	require.Zero(t, got.LongContextInputTokenThreshold)
 }
 
-func TestGetModelPricing_Gpt54NanoUsesDedicatedStaticFallbackWhenRemoteMissing(t *testing.T) {
-	svc := &PricingService{
-		pricingData: map[string]*LiteLLMModelPricing{
-			"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
-		},
-	}
+func TestGetModelPricing_Gpt54NanoUsesDedicatedRegistryOwner(t *testing.T) {
+	svc := NewPricingService(&config.Config{}, nil)
 
 	got := svc.GetModelPricing("gpt-5.4-nano")
 	require.NotNil(t, got)
@@ -785,7 +770,7 @@ func TestGetModelPricing_ProviderPrefixFallbackNoFalseMatch(t *testing.T) {
 	require.Nil(t, svc.GetModelPricing("nonexistent-model-xyz"))
 }
 
-func TestParsePricingData_ParsesOutputCostPerSecond(t *testing.T) {
+func TestParsePricingData_ProviderVideoEvidenceCannotOverrideRegistry(t *testing.T) {
 	svc := &PricingService{}
 	data, err := svc.parsePricingData([]byte(`{
 		"gemini/veo-3.1-generate-preview": {
@@ -795,8 +780,9 @@ func TestParsePricingData_ParsesOutputCostPerSecond(t *testing.T) {
 		}
 	}`))
 	require.NoError(t, err)
-	require.NotNil(t, data["gemini/veo-3.1-generate-preview"])
-	require.InDelta(t, 0.4, data["gemini/veo-3.1-generate-preview"].OutputCostPerSecond, 1e-12)
+	require.NotContains(t, data, "gemini/veo-3.1-generate-preview")
+	require.NotNil(t, data["veo-3.1-generate-001"])
+	require.Positive(t, data["veo-3.1-generate-001"].OutputCostPerSecond)
 }
 
 // TestParsePricingData_TKMediaOverlayMergesWhenSourceLacksMedia proves the
@@ -826,10 +812,9 @@ func TestParsePricingData_TKMediaOverlayMergesWhenSourceLacksMedia(t *testing.T)
 	require.Greater(t, vid.OutputCostPerSecond, 0.0)
 }
 
-// TestParsePricingData_TKMediaOverlayIsFillOnly proves the overlay never overwrites
-// the loaded source: the day the source carries a bare media key natively, the source
-// value wins and the overlay entry is ignored (self-deprecating).
-func TestParsePricingData_TKMediaOverlayIsFillOnly(t *testing.T) {
+// TestParsePricingData_TKMediaRegistryReplacesSource proves provider evidence
+// cannot override a non-zero registry media price.
+func TestParsePricingData_TKMediaRegistryReplacesSource(t *testing.T) {
 	svc := &PricingService{}
 	body := []byte(`{
 		"imagen-4.0-generate-001": {"output_cost_per_image": 0.99, "mode": "image_generation", "litellm_provider": "vertex_ai"}
@@ -838,5 +823,7 @@ func TestParsePricingData_TKMediaOverlayIsFillOnly(t *testing.T) {
 	require.NoError(t, err)
 	got := pricingData["imagen-4.0-generate-001"]
 	require.NotNil(t, got)
-	require.InDelta(t, 0.99, got.OutputCostPerImage, 1e-12) // source wins, not the overlay's value
+	owner := loadTKPricingOverlay()["imagen-4.0-generate-001"]
+	require.NotNil(t, owner)
+	require.InDelta(t, owner.OutputCostPerImage, got.OutputCostPerImage, 1e-12)
 }

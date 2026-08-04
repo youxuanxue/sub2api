@@ -44,7 +44,7 @@ priced-but-hidden 等），并在测试里标明边界含义。
 按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审：
 
 - **机械化（脚本承载）**：上游可服务性 probe（`probe-servable-models.sh` 的 dashscope/qwen 与 ark/deepseek
-  族）、价格落 overlay（`apply-pricing-hotfix.py stage-overlay`，从官方源/litellm 取价）、渠道热更
+  族）、complete registry 候选编辑（`apply-pricing-hotfix.py stage-overlay`，官方源核价、provider/LiteLLM 仅作证据）、scoped 渠道热更
   （`apply-pricing-hotfix.py apply`）、仓库内价格/展示/mapping 声明一致校验
   （`scripts/checks/catalog-serving-drift.py`，经 `scripts/preflight.sh` 调用）、bundle 生成与漂移校验、
   `modelops activate` 的 evidence/digest/plan/apply 门禁、livefire 200 复测（probe 族）。
@@ -128,24 +128,22 @@ billing、公开 `/pricing` 与 fallback 通过 overlay `_config.official_list_b
 
 - `display` 对 newapi 由 manifest 直接拥有：实测可服务、已定价且完成/即将完成 activation 的公开模型用
   `true`；预热、下线或尚未开放的条目用 `false`。原生平台才额外要求 Go servable-allowlist map。
-- `price_source`：`overlay`（在 overlay 有非零价）/ `mirror`（litellm 镜像已带非零价、overlay 故意不收，
-  如 deepseek-chat/reasoner）/ `channel`（渠道定价 DB）。
+- `price_source`：`overlay`（历史枚举名，表示 complete registry 有有效 owner）/ `channel`（显式 scoped 渠道定价 DB）。Provider/LiteLLM 镜像不能作为有效价源。
 - **新 mapping floor** 的 `notes` 必须含字面 `served-via-modelops-activation`；旧账号种子态
   （qwen3.7-max / deepseek-v4-*）保留 `served-via-admin-ui`。两者都不能替代 live activation/check，
   只让静态门禁知道预期写路径。
 
 ### 3) 投影：overlay 价 + release bundle
 
-**(a) overlay 价**（fill-only，**禁臆造**）。查官方价后用 hotfix 工具固化：
+**(a) complete registry 价**（全局 SSOT，**禁臆造**）。查官方价后用 hotfix 工具生成候选：
 
 ```bash
 python3 ops/pricing/apply-pricing-hotfix.py lookup --model qwen3-8b           # litellm 全量源取价
-python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model qwen3-8b --from-litellm  # 进 overlay,提 PR
+python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model qwen3-8b --from-litellm  # 外部证据候选；核价后只改 registry 提 PR
 # 官方源未收录则用 --entry-json 手填（带真实 source URL+抓取日；思考双档加 thinking_output_cost_per_token）
 ```
 
-overlay 是 fill-only：源带非零价时源胜、overlay 被忽略；**不能纠正错的非零源价**（deepseek-chat/reasoner
-镜像仍是 pre-V4 价 → 用 `price_source=mirror`，错价要修走渠道定价 DB 而非 overlay）。
+registry owner 始终胜过外部非零价，因此可以纠正 provider/LiteLLM 的滞后或错误；但外部值只是证据，requested/routed/billing owner 与完整计费维度必须人工核对。
 
 **(b) release bundle**。manifest/Go owner 改完后生成 checksummed target artifact；禁止手改生成 JSON：
 
@@ -171,13 +169,9 @@ go run ./cmd/account-model-mapping bundle --output ../ops/pricing/model-surface-
 
   activation 只写 prod，保留兼容 extras，并在事务内拒绝会遮蔽 bundle 的 runtime mapping。必须在发布含 target
   bundle 的二进制前完成；generic deploy/rollback 永不代替这一步，也不要为新 floor 新建 mapping migration。
-- **overlay 价（热推，不等发版）**：内嵌 JSON 是**地板**，运行时活值经 settings `tk_pricing_overlay_runtime`
-  **逐 key 叠加**在地板上（runtime 胜；未推的 key 仍走内嵌；空/坏 runtime 永不跌破地板——所以也可只推单个
-  新 key 而不动其余）。PR 合并后跑 `python3 ops/pricing/manage-overlay-runtime.py sync-runtime`（先过
-  `pricing-overlay.py` 门禁 → **gzip+base64 传输绕过 SSM 97KB 上限** → 在 Postgres 内
-  `convert_from(decode(…,'base64'))` 写入、**避开 psql `:'v'` 在 `-c` 模式失效的坑** → UPSERT +
-  `PUBLISH settings_updated` 即时跨副本重载；**prod-only**，edge 不跑计费）。模型立即被定价 + 出现在公开
-  /pricing，**零镜像构建**。下次例行发版把 overlay 折进内嵌（地板追平），之后 `check` 应报「活值==内嵌」。
+- **registry 价（热推，不等发版）**：PR 只修改 `tk_pricing_overlay.json`；合并到 protected main 后，
+  `pricing-registry-publish.yml` 自动发布 exact-byte complete snapshot，所有价格、policy 和 metadata 原子替换。
+  runtime 不逐 key 叠加；坏 snapshot 或 setting 短暂缺失保留 LKG。部署/回滚镜像只读审计、绝不回写价格。
 - **紧急渠道价**（仅 channel-priced 模型，凌驾一切）：`apply-pricing-hotfix.py apply --channel-id N`，立即生效。
 
 ### 5) livefire 复测（真 200）
@@ -243,7 +237,7 @@ python3 scripts/checks/catalog-serving-drift.py              # 校验仓库内 m
 > evidence + prod gate 负责真正写入和闭环。
 
 接入 preflight：在 `scripts/preflight.sh` 追加一节（**勿改 dev-rules 模板**），紧邻既有
-`=== sub2api: pricing overlay ===` 之后，同形调用 `--selftest` 后 `--quiet`。
+`=== sub2api: complete pricing registry ===` 之后，同形调用 `--selftest` 后 `--quiet`。
 
 ## 运行期对账（column-2 SECONDARY，design-only，不门禁 PR）
 

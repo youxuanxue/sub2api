@@ -13,8 +13,8 @@ type tkOfficialListBaseTaxRule struct {
 }
 
 // tkOfficialListBaseTaxPolicy is executable pricing policy loaded from
-// tk_pricing_overlay.json::_config. The embedded document is the compile floor;
-// tk_pricing_overlay_runtime may replace this policy atomically with model prices.
+// tk_pricing_overlay.json::_config. The embedded complete registry is the startup
+// fallback; a valid protected-main snapshot replaces policy and prices atomically.
 type tkOfficialListBaseTaxPolicy struct {
 	Multiplier float64                     `json:"multiplier"`
 	Rules      []tkOfficialListBaseTaxRule `json:"rules"`
@@ -161,7 +161,14 @@ func tkApplyBaseTaxToLiteLLMModelPricingClone(p *LiteLLMModelPricing) *LiteLLMMo
 	if p == nil {
 		return p
 	}
-	multiplier, ok := tkBaseTaxMultiplierForProvider(p.LiteLLMProvider)
+	return tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(p, loadTkOfficialListBaseTaxPolicy())
+}
+
+func tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(p *LiteLLMModelPricing, policy tkOfficialListBaseTaxPolicy) *LiteLLMModelPricing {
+	if p == nil {
+		return nil
+	}
+	multiplier, ok := policy.multiplierForProvider(p.LiteLLMProvider)
 	if !ok {
 		return p
 	}
@@ -178,6 +185,10 @@ func tkApplyBaseTaxToLiteLLMModelPricingClone(p *LiteLLMModelPricing) *LiteLLMMo
 	c.CacheReadInputTokenCostPriority = tkApplyBaseTaxMultiplier(c.CacheReadInputTokenCostPriority, multiplier)
 	c.OutputCostPerImage = tkApplyBaseTaxMultiplier(c.OutputCostPerImage, multiplier)
 	c.OutputCostPerImageToken = tkApplyBaseTaxMultiplier(c.OutputCostPerImageToken, multiplier)
+	c.InputCostPerImageToken = tkApplyBaseTaxMultiplier(c.InputCostPerImageToken, multiplier)
+	c.ImagePrice1K = tkApplyBaseTaxMultiplier(c.ImagePrice1K, multiplier)
+	c.ImagePrice2K = tkApplyBaseTaxMultiplier(c.ImagePrice2K, multiplier)
+	c.ImagePrice4K = tkApplyBaseTaxMultiplier(c.ImagePrice4K, multiplier)
 	c.OutputCostPerSecond = tkApplyBaseTaxMultiplier(c.OutputCostPerSecond, multiplier)
 	if len(c.Intervals) > 0 {
 		c.Intervals = tkApplyBaseTaxToPricingIntervals(c.Intervals, multiplier)
@@ -190,6 +201,13 @@ func tkApplyBaseTaxToLiteLLMModelPricingClone(p *LiteLLMModelPricing) *LiteLLMMo
 
 func tkPresentLiteLLMModelPricing(p *LiteLLMModelPricing) *LiteLLMModelPricing {
 	return tkApplyBaseTaxToLiteLLMModelPricingClone(p)
+}
+
+func tkPresentLiteLLMModelPricingFromSnapshot(p *LiteLLMModelPricing, snapshot *tkPricingOverlaySnapshot) *LiteLLMModelPricing {
+	if snapshot == nil {
+		return nil
+	}
+	return tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(p, snapshot.BaseTax)
 }
 
 func tkApplyBaseTaxToModelPricingClone(p *ModelPricing, multiplier float64) *ModelPricing {
@@ -230,6 +248,11 @@ func tkApplyBaseTaxToPublicCatalogPricing(vendor string, p *PublicCatalogPricing
 	p.CacheReadPer1K = tkApplyBaseTaxMultiplier(p.CacheReadPer1K, multiplier)
 	p.CacheWritePer1K = tkApplyBaseTaxMultiplier(p.CacheWritePer1K, multiplier)
 	p.OutputCostPerImage = tkApplyBaseTaxMultiplier(p.OutputCostPerImage, multiplier)
+	p.InputCostPerImageToken = tkApplyBaseTaxMultiplier(p.InputCostPerImageToken, multiplier)
+	p.OutputCostPerImageToken = tkApplyBaseTaxMultiplier(p.OutputCostPerImageToken, multiplier)
+	p.ImagePrice1K = tkApplyBaseTaxMultiplier(p.ImagePrice1K, multiplier)
+	p.ImagePrice2K = tkApplyBaseTaxMultiplier(p.ImagePrice2K, multiplier)
+	p.ImagePrice4K = tkApplyBaseTaxMultiplier(p.ImagePrice4K, multiplier)
 	p.OutputCostPerSecond = tkApplyBaseTaxMultiplier(p.OutputCostPerSecond, multiplier)
 	if len(p.Tiers) > 0 {
 		for i := range p.Tiers {

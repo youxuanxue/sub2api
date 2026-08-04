@@ -1,30 +1,17 @@
 #!/usr/bin/env python3
-"""Hot-push the TK pricing overlay to prod runtime (settings) without a release.
+"""Publish or audit the protected-main TokenKey pricing registry snapshot.
 
-The embedded backend/internal/service/tk_pricing_overlay.json is the compile
-FLOOR. At runtime the gateway merges a settings blob
-(SettingKeyTKPricingOverlayRuntime = "tk_pricing_overlay_runtime") OVER the
-embedded floor (runtime wins on key conflict), so a newly-priced model surfaces
-in /pricing + bills correctly WITHOUT a new image. git (the embedded JSON) stays
-the single source of truth; this tool pushes that same JSON to prod's settings
-and the next routine release folds it into the embed (the floor catches up).
+The historical setting key remains ``tk_pricing_overlay_runtime`` for binary
+compatibility, but its value is now a transport envelope for one complete
+registry artifact. Runtime never merges this value with another pricing source.
 
-Subcommands
------------
-  check         Read-only drift audit: repo overlay (== embedded floor) vs the
-                live prod runtime settings blob. Reports:
-                  - pending : priced in git but NOT yet hot-pushed (run sync-runtime)
-                  - shadow  : runtime carries a DIFFERENT value than git for a key
-                              (stale shadow — git changed, runtime not re-pushed)
-                  - orphan  : runtime carries a key absent from git (野值)
-                Exit 0 clean / 1 drift / 2 error.
-  sync-runtime  Validate the repo overlay with scripts/checks/pricing-overlay.py,
-                then SSM-UPSERT it into prod settings + PUBLISH settings_updated
-                so every replica reloads immediately. PROD ONLY (billing/catalog
-                run on prod; edges are Caddy relays and never read pricing).
-  --selftest    Offline unit test of the drift logic (no AWS).
+``check`` is read-only. It compares the live envelope with the exact registry
+bytes committed at the locally fetched ``origin/main``.
 
-This mirrors ops/anthropic/manage-anthropic-config.py (sync-runtime/check shape).
+``sync-runtime`` is intentionally stricter: HEAD must equal ``origin/main``, the
+working-tree registry must be byte-identical to that commit, and the registry
+gate must pass before any production I/O. This makes an unmerged branch or an
+arbitrary local file ineligible for global publication.
 """
 from __future__ import annotations
 
@@ -32,215 +19,272 @@ import argparse
 import base64
 import gzip
 import hashlib
-import importlib.util
+import io
 import json
+import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OVERLAY_PATH = REPO_ROOT / "backend" / "internal" / "service" / "tk_pricing_overlay.json"
-OVERLAY_GATE = REPO_ROOT / "scripts" / "checks" / "pricing-overlay.py"
+REGISTRY_RELATIVE_PATH = "backend/internal/service/tk_pricing_overlay.json"
+REGISTRY_PATH = REPO_ROOT / REGISTRY_RELATIVE_PATH
+REGISTRY_GATE = REPO_ROOT / "scripts" / "checks" / "pricing-overlay.py"
 SETTING_KEY = "tk_pricing_overlay_runtime"
+SCHEMA_VERSION = 1
+MAX_REGISTRY_BYTES = 8 << 20
 
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
 REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
 
-# Shared prod SSM glue (resolve_prod_instance + run_shell_b64). importlib-loaded by path:
-# the module dir is not on sys.path when this script runs directly (mirrors how
-# audit-model-mapping.py loads edge_ssm_execution.py).
-_ssm_spec = importlib.util.spec_from_file_location(
-    "tk_ssm_execution", REPO_ROOT / "ops" / "stage0" / "ssm_execution.py")
-_SSM = importlib.util.module_from_spec(_ssm_spec)
+_ssm_spec = __import__("importlib.util").util.spec_from_file_location(
+    "tk_ssm_execution", REPO_ROOT / "ops" / "stage0" / "ssm_execution.py"
+)
+_SSM = __import__("importlib.util").util.module_from_spec(_ssm_spec)
+assert _ssm_spec and _ssm_spec.loader
 _ssm_spec.loader.exec_module(_SSM)
 
-_gate_spec = importlib.util.spec_from_file_location(
-    "tk_pricing_overlay_gate", OVERLAY_GATE)
-_OVERLAY_GATE = importlib.util.module_from_spec(_gate_spec)
-_gate_spec.loader.exec_module(_OVERLAY_GATE)
+_FULL_GIT_OBJECT = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
 
-def fail(msg: str) -> NoReturn:
-    print(f"ERROR: {msg}", file=sys.stderr)
-    sys.exit(2)
+def fail(message: str) -> NoReturn:
+    print(f"ERROR: {message}", file=sys.stderr)
+    raise SystemExit(2)
 
 
-# --- pure drift logic (selftest-covered, no I/O) ------------------------------
+@dataclass(frozen=True)
+class RegistryArtifact:
+    source_commit: str
+    registry_bytes: bytes
 
-def overlay_entries(doc: dict) -> dict:
-    """Return runtime-owned model rows plus executable config; drop provenance."""
-    return {k: v for k, v in doc.items() if not k.startswith("_") or k == "_config"}
-
-
-def _canon(entry) -> str:
-    return json.dumps(entry, sort_keys=True, ensure_ascii=False)
-
-
-def compute_overlay_drift(repo: dict, runtime: dict) -> dict:
-    """repo = embedded floor (git); runtime = live settings blob.
-
-    pending : key in repo, not in runtime (priced in git, not hot-pushed yet)
-    shadow  : key in both but value differs (runtime stale vs git)
-    orphan  : key in runtime, not in repo (野值 — hot-pushed then removed from git)
-    """
-    r = overlay_entries(repo)
-    rt = overlay_entries(runtime)
-    pending = sorted(k for k in r if k not in rt)
-    orphan = sorted(k for k in rt if k not in r)
-    shadow = sorted(k for k in r if k in rt and _canon(r[k]) != _canon(rt[k]))
-    return {"pending": pending, "shadow": shadow, "orphan": orphan}
+    @property
+    def registry_sha256(self) -> str:
+        return hashlib.sha256(self.registry_bytes).hexdigest()
 
 
-def drift_is_clean(drift: dict) -> bool:
-    return not (drift["pending"] or drift["shadow"] or drift["orphan"])
+@dataclass(frozen=True)
+class RuntimeInspection:
+    state: str
+    source_commit: str = ""
+    registry_sha256: str = ""
+    registry_bytes: bytes = b""
+    error: str = ""
+
+    def is_current(self, expected: RegistryArtifact) -> bool:
+        return (
+            self.state == "valid"
+            and self.source_commit == expected.source_commit
+            and self.registry_sha256 == expected.registry_sha256
+            and self.registry_bytes == expected.registry_bytes
+        )
 
 
-# --- AWS / SSM I/O: resolve_prod_instance + run_shell_b64 live in ops/stage0/ssm_execution.py
+def _validate_source_commit(source_commit: str) -> None:
+    if not isinstance(source_commit, str) or not _FULL_GIT_OBJECT.fullmatch(source_commit):
+        raise ValueError("source_commit must be a full lowercase Git object id")
 
 
-def _decode_runtime_value(out: str) -> dict:
-    """Decode the host-side `SELECT value … | gzip | base64` output back to the
-    overlay dict. Empty output (no settings row, or an empty value) -> {}. Raises
-    on a corrupt gzip/base64/JSON payload (read_runtime_blob wraps it with fail())."""
-    out = out.strip()
-    if not out:
+def build_runtime_envelope(registry_bytes: bytes, source_commit: str) -> dict:
+    _validate_source_commit(source_commit)
+    if not registry_bytes:
+        raise ValueError("registry artifact is empty")
+    if len(registry_bytes) > MAX_REGISTRY_BYTES:
+        raise ValueError(f"registry artifact exceeds {MAX_REGISTRY_BYTES} bytes")
+    json.loads(registry_bytes)
+    return {
+        "_snapshot": {
+            "schema_version": SCHEMA_VERSION,
+            "source_commit": source_commit,
+            "registry_sha256": hashlib.sha256(registry_bytes).hexdigest(),
+        },
+        "_registry_gzip_base64": base64.b64encode(
+            gzip.compress(registry_bytes, mtime=0)
+        ).decode("ascii"),
+    }
+
+
+def encode_runtime_envelope(registry_bytes: bytes, source_commit: str) -> bytes:
+    envelope = build_runtime_envelope(registry_bytes, source_commit)
+    return json.dumps(
+        envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+
+
+def _decompress_registry(encoded: str) -> bytes:
+    try:
+        compressed = base64.b64decode(encoded, validate=True)
+        with gzip.GzipFile(fileobj=io.BytesIO(compressed), mode="rb") as stream:
+            registry_bytes = stream.read(MAX_REGISTRY_BYTES + 1)
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"invalid registry gzip/base64: {exc}") from exc
+    if len(registry_bytes) > MAX_REGISTRY_BYTES:
+        raise ValueError(f"decompressed registry exceeds {MAX_REGISTRY_BYTES} bytes")
+    return registry_bytes
+
+
+def inspect_runtime_document(runtime: object) -> RuntimeInspection:
+    if runtime == {} or runtime is None:
+        return RuntimeInspection(state="absent")
+    if not isinstance(runtime, dict):
+        return RuntimeInspection(state="invalid", error="runtime value must be an object")
+    envelope_keys = {"_snapshot", "_registry_gzip_base64"}
+    if not envelope_keys.intersection(runtime):
+        return RuntimeInspection(state="legacy", error="raw overlay is not a snapshot envelope")
+    if set(runtime) != envelope_keys:
+        return RuntimeInspection(state="invalid", error="runtime envelope has missing or unknown fields")
+
+    snapshot = runtime.get("_snapshot")
+    if not isinstance(snapshot, dict) or set(snapshot) != {
+        "schema_version", "source_commit", "registry_sha256"
+    }:
+        return RuntimeInspection(state="invalid", error="snapshot metadata has missing or unknown fields")
+    if snapshot.get("schema_version") != SCHEMA_VERSION:
+        return RuntimeInspection(state="invalid", error="unsupported schema_version")
+
+    source_commit = snapshot.get("source_commit")
+    digest = snapshot.get("registry_sha256")
+    try:
+        _validate_source_commit(source_commit)
+    except ValueError as exc:
+        return RuntimeInspection(state="invalid", error=str(exc))
+    if not isinstance(digest, str) or not _SHA256.fullmatch(digest):
+        return RuntimeInspection(state="invalid", error="registry_sha256 must be lowercase SHA-256 hex")
+    encoded = runtime.get("_registry_gzip_base64")
+    if not isinstance(encoded, str) or not encoded:
+        return RuntimeInspection(state="invalid", error="registry gzip/base64 must be a non-empty string")
+    try:
+        registry_bytes = _decompress_registry(encoded)
+        json.loads(registry_bytes)
+    except (ValueError, json.JSONDecodeError) as exc:
+        return RuntimeInspection(state="invalid", error=str(exc))
+    actual_digest = hashlib.sha256(registry_bytes).hexdigest()
+    if actual_digest != digest:
+        return RuntimeInspection(state="invalid", error="registry digest mismatch")
+    return RuntimeInspection(
+        state="valid",
+        source_commit=source_commit,
+        registry_sha256=digest,
+        registry_bytes=registry_bytes,
+    )
+
+
+def _run_git(args: list[str]) -> bytes:
+    try:
+        proc = subprocess.run(
+            ["git", *args], cwd=REPO_ROOT, check=True, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.decode("utf-8", errors="replace").strip()
+        fail(f"git {' '.join(args)} failed: {detail}")
+    return proc.stdout
+
+
+def _git_is_ancestor(ancestor: str, descendant: str) -> bool:
+    _validate_source_commit(ancestor)
+    _validate_source_commit(descendant)
+    proc = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+        cwd=REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    if proc.returncode == 0:
+        return True
+    if proc.returncode == 1:
+        return False
+    detail = proc.stderr.decode("utf-8", errors="replace").strip()
+    fail(f"cannot verify pricing snapshot ancestry {ancestor}..{descendant}: {detail}")
+
+
+def load_origin_main_artifact(*, require_publishable_checkout: bool) -> RegistryArtifact:
+    source_commit = _run_git(["rev-parse", "origin/main^{commit}"]).decode().strip()
+    _validate_source_commit(source_commit)
+    registry_bytes = _run_git(["show", f"{source_commit}:{REGISTRY_RELATIVE_PATH}"])
+    if require_publishable_checkout:
+        head = _run_git(["rev-parse", "HEAD^{commit}"]).decode().strip()
+        if head != source_commit:
+            fail(f"HEAD {head} is not current origin/main {source_commit}")
+        try:
+            local_bytes = REGISTRY_PATH.read_bytes()
+        except OSError as exc:
+            fail(f"cannot read working-tree registry: {exc}")
+        if local_bytes != registry_bytes:
+            fail("working-tree registry is not byte-identical to current origin/main")
+    return RegistryArtifact(source_commit=source_commit, registry_bytes=registry_bytes)
+
+
+def _decode_runtime_value(output: str) -> dict:
+    output = output.strip()
+    if not output:
         return {}
-    raw = gzip.decompress(base64.b64decode(out)).decode("utf-8").strip()
+    raw = gzip.decompress(base64.b64decode(output)).decode("utf-8").strip()
     if not raw:
         return {}
-    return json.loads(raw)
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError("runtime settings value must be a JSON object")
+    return value
 
 
-def read_runtime_blob(instance_id: str) -> dict:
-    # The runtime overlay blob is ~80KB+ JSON; piping the raw SELECT to SSM stdout
-    # truncates at AWS GetCommandInvocation's ~24KiB cap (surfaces as an
-    # "Unterminated string" JSON error once the overlay outgrows ~24KiB — which it
-    # has). gzip|base64 the value ON THE HOST first: ~80KB -> ~13KB compressed,
-    # well under the cap; decode + gunzip client-side. Mirrors the sync-runtime
-    # WRITE path, which already gzips for exactly this reason. (json.JSONDecodeError
-    # is a ValueError subclass, so it is covered by the except below.)
+def read_runtime_document(instance_id: str) -> dict:
     shell = (
         f"{PSQL} -c \"SELECT value FROM settings WHERE key='{SETTING_KEY}';\""
         " | gzip -c | base64 | tr -d '\\n'"
     )
-    b64 = base64.b64encode(shell.encode()).decode()
-    out = _SSM.run_shell_b64(instance_id, b64, "overlay check: read runtime settings (gzip)")
+    shell_b64 = base64.b64encode(shell.encode()).decode()
+    output = _SSM.run_shell_b64(
+        instance_id, shell_b64, "pricing registry: read runtime snapshot"
+    )
     try:
-        return _decode_runtime_value(out)
-    except (OSError, ValueError) as e:
-        fail(f"runtime settings blob decode failed (host gzip|base64 read-back): {e}")
+        return _decode_runtime_value(output)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        fail(f"runtime settings blob decode failed: {exc}")
 
 
-def overlay_path(args) -> Path:
-    p = Path(getattr(args, "overlay_path", "") or OVERLAY_PATH)
-    if not p.is_absolute():
-        p = REPO_ROOT / p
-    return p
+def _run_registry_gate() -> None:
+    result = subprocess.run(
+        [sys.executable, str(REGISTRY_GATE), "--path", str(REGISTRY_PATH)],
+        cwd=REPO_ROOT,
+    )
+    if result.returncode != 0:
+        fail("pricing registry gate failed; refusing publication")
 
 
-def load_repo_overlay(path: Path = OVERLAY_PATH) -> dict:
-    try:
-        return json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as e:
-        fail(f"cannot read repo overlay {path}: {e}")
-
-
-def runtime_config_errors(doc: dict, embedded: dict | None = None) -> list[str]:
-    """Validate executable config when present; legacy rollback docs may omit it."""
-    if "_config" not in doc:
-        return []
-    errors = _OVERLAY_GATE.validate_official_list_base_tax(doc)
-    if errors:
-        return errors
-    if embedded is None:
-        embedded = load_repo_overlay()
-    embedded_policy = embedded["_config"]["official_list_base_tax"]
-    runtime_policy = doc["_config"]["official_list_base_tax"]
-    embedded_providers = {rule["provider"] for rule in embedded_policy["rules"]}
-    runtime_providers = {rule["provider"] for rule in runtime_policy["rules"]}
-    missing = sorted(embedded_providers - runtime_providers)
-    if missing:
-        errors.append(
-            "runtime official_list_base_tax drops embedded providers: " + ", ".join(missing)
+def _print_inspection(expected: RegistryArtifact, inspection: RuntimeInspection) -> None:
+    print(f"protected main: {expected.source_commit}")
+    print(f"registry sha256: {expected.registry_sha256}")
+    if inspection.is_current(expected):
+        print("OK: runtime snapshot is the exact protected-main registry artifact.")
+        return
+    if inspection.state == "valid":
+        print(
+            "DRIFT: runtime snapshot is valid but differs from protected main "
+            f"(commit={inspection.source_commit}, sha256={inspection.registry_sha256})."
         )
-    return errors
-
-
-# --- subcommands --------------------------------------------------------------
-
-def cmd_check(_args) -> int:
-    repo = load_repo_overlay(overlay_path(_args))
-    inst = _SSM.resolve_prod_instance()
-    runtime = read_runtime_blob(inst)
-    drift = compute_overlay_drift(repo, runtime)
-    print(f"prod runtime overlay entries: {len(overlay_entries(runtime))} | "
-          f"git/embedded entries: {len(overlay_entries(repo))}")
-    if drift_is_clean(drift):
-        print("OK: prod runtime overlay is consistent with git (embedded floor).")
-        return 0
-    if drift["pending"]:
-        print(f"  pending (priced in git, not hot-pushed — run sync-runtime): {drift['pending']}")
-    if drift["shadow"]:
-        print(f"  shadow (runtime value != git — stale, re-push or GC): {drift['shadow']}")
-    if drift["orphan"]:
-        print(f"  orphan (runtime has key absent from git — 野值): {drift['orphan']}")
-    return 1
-
-
-def cmd_sync_runtime(args) -> int:
-    # 1. validate the repo overlay with the SAME gate the PR ran. When deploying
-    # a historical tag, the caller passes a temp overlay extracted from that tag;
-    # do not run today's stricter anchor set against an older artifact (rollback
-    # must not be blocked by anchors added after the target tag). That tag's CI
-    # already validated its overlay; here we still parse + require non-empty below.
-    path = overlay_path(args)
-    if path.resolve() == OVERLAY_PATH.resolve():
-        gate = subprocess.run([sys.executable, str(OVERLAY_GATE), "--path", str(path)], cwd=str(REPO_ROOT))
-        if gate.returncode != 0:
-            fail("pricing-overlay.py gate failed; refusing to push an invalid overlay")
     else:
-        print(f"  note: validating non-default overlay path with parse/non-empty checks only: {path}")
-    overlay_bytes = path.read_bytes()
-    # sanity: must parse + be non-empty
-    doc = json.loads(overlay_bytes)
-    if not overlay_entries(doc):
-        fail("repo overlay has no model entries; refusing to push")
-    config_errors = runtime_config_errors(doc)
-    if config_errors:
-        fail("runtime overlay executable config is invalid: " + "; ".join(config_errors))
+        suffix = f": {inspection.error}" if inspection.error else ""
+        print(f"DRIFT: runtime snapshot state={inspection.state}{suffix}.")
 
-    if args.dry_run:
-        print(f"DRY-RUN: would UPSERT settings[{SETTING_KEY}] on prod "
-              f"({len(overlay_entries(doc))} entries) + PUBLISH settings_updated.")
-        return 0
 
-    inst = _SSM.resolve_prod_instance()
-    # Idempotency: skip the UPSERT + PUBLISH if the runtime already matches git, so a manual
-    # retry or a double-fire cron doesn't churn the settings row / re-publish needlessly.
-    if drift_is_clean(compute_overlay_drift(doc, read_runtime_blob(inst))):
-        print("runtime already in sync with git (embedded floor + runtime overlay) — nothing to push.")
-        return 0
-    # Transport: GZIP then base64 so the SSM SendCommand parameter stays well under AWS's
-    # 97KB limit. The raw overlay is ~100KB+ (long per-entry `source` strings); base64 of
-    # that alone exceeds 97KB -> MaxDocumentSizeExceeded. gzip shrinks the repetitive JSON
-    # ~6x. On the host we gunzip and re-base64 (host-side command length is NOT SSM-limited)
-    # and decode it INSIDE Postgres via convert_from(decode(...,'base64'),'UTF8'): base64 is
-    # pure ASCII so it is safe inside the single-quoted SQL literal, and this avoids the
-    # psql :'v' variable interpolation which silently fails in -c mode (syntax error at ":").
-    gz_b64 = base64.b64encode(gzip.compress(overlay_bytes)).decode()
-    if gzip.decompress(base64.b64decode(gz_b64)) != overlay_bytes:
-        fail("gzip roundtrip mismatch; refusing to push")  # never touch prod on a bad encode
-    # Decode on the host, re-base64 the plain JSON, decode that inside Postgres. The stored
-    # `value` is the exact overlay JSON (byte-identical to the old :'v' path); `check` reads
-    # it back unchanged.
-    expected_len = len(overlay_bytes.decode("utf-8"))
-    expected_md5 = hashlib.md5(overlay_bytes).hexdigest()
+def cmd_check(_args: argparse.Namespace) -> int:
+    expected = load_origin_main_artifact(require_publishable_checkout=False)
+    instance_id = _SSM.resolve_prod_instance()
+    inspection = inspect_runtime_document(read_runtime_document(instance_id))
+    _print_inspection(expected, inspection)
+    return 0 if inspection.is_current(expected) else 1
+
+
+def _write_runtime_document(instance_id: str, envelope_bytes: bytes) -> None:
+    gz_b64 = base64.b64encode(gzip.compress(envelope_bytes, mtime=0)).decode("ascii")
+    expected_len = len(envelope_bytes.decode("utf-8"))
+    expected_md5 = hashlib.md5(envelope_bytes).hexdigest()
+    raw_b64_len = len(base64.b64encode(envelope_bytes))
     shell = (
         "set -euo pipefail\n"
         f"JSON_B64=\"$(echo {gz_b64} | base64 -d | gunzip | base64 | tr -d '\\n')\"\n"
-        f"echo \"json_b64_len=${{#JSON_B64}} expected_raw_b64_len={len(base64.b64encode(overlay_bytes).decode())}\"\n"
-        "echo '=== upsert tk_pricing_overlay_runtime ==='\n"
+        f"test \"${{#JSON_B64}}\" -eq {raw_b64_len}\n"
         f"{PSQL} <<SQL\n"
         f"INSERT INTO settings (key, value, updated_at) VALUES "
         f"('{SETTING_KEY}', convert_from(decode('$JSON_B64','base64'),'UTF8'), NOW()) "
@@ -249,133 +293,77 @@ def cmd_sync_runtime(args) -> int:
         f"FROM settings WHERE key='{SETTING_KEY}';\n"
         "SQL\n"
         "echo UPSERT_OK\n"
-        "echo '=== publish settings_updated (fan-out reload) ==='\n"
-        # Best-effort: the UPSERT above is the durable truth; PUBLISH only makes the reload
-        # immediate. Surface (don't swallow) a failure so the operator knows replicas will
-        # lag to the poll interval instead of reloading now.
-        f"{REDISCLI} PUBLISH settings_updated refresh </dev/null || echo 'WARN: redis PUBLISH failed; replicas reload within the pricing poll interval, not immediately'\n"
+        f"{REDISCLI} PUBLISH settings_updated refresh </dev/null || "
+        "echo 'WARN: redis PUBLISH failed; replicas will reload on their poll interval'\n"
     )
-    b64 = base64.b64encode(shell.encode()).decode()
-    if len(b64) > 90_000:  # headroom under the 97KB SSM SendCommand parameter ceiling
-        fail(f"encoded sync payload is {len(b64)}B (>90KB) even gzipped; overlay too large "
-             f"for SSM SendCommand — stage via S3 instead")
-    out = _SSM.run_shell_b64(inst, b64, "overlay sync-runtime: upsert + publish")
-    print(out)
-    if "UPSERT_OK" not in out:
-        fail("UPSERT did not report success — inspect the SSM output above (psql error? guard?)")
+    shell_b64 = base64.b64encode(shell.encode()).decode("ascii")
+    if len(shell_b64) > 90_000:
+        fail(f"encoded sync payload is {len(shell_b64)} bytes; refusing oversized SSM command")
+    output = _SSM.run_shell_b64(
+        instance_id, shell_b64, "pricing registry: publish protected-main snapshot"
+    )
+    print(output)
     expected_line = f"{SETTING_KEY}|{expected_len}|{expected_md5}"
-    if expected_line not in out:
-        fail(f"UPSERT read-back mismatch: expected {expected_line!r} in SSM output")
-    # Post-sync verify: re-read the settings row (DB truth, not the in-memory replica cache)
-    # and confirm it now matches git. Catches a silently-partial/failed write that still
-    # returned Success (the SSM stdout-truncation class of bug that motivated this hardening).
-    post = compute_overlay_drift(doc, read_runtime_blob(inst))
-    if not drift_is_clean(post):
-        fail(f"sync reported success but post-sync verify shows drift: {post}")
-    print("synced + verified: prod runtime overlay == git.")
+    if "UPSERT_OK" not in output or expected_line not in output:
+        fail(f"runtime UPSERT read-back mismatch; expected {expected_line!r}")
+
+
+def cmd_sync_runtime(args: argparse.Namespace) -> int:
+    expected = load_origin_main_artifact(require_publishable_checkout=True)
+    _run_registry_gate()
+    envelope_bytes = encode_runtime_envelope(expected.registry_bytes, expected.source_commit)
+    if args.dry_run:
+        print(
+            "DRY-RUN: validated protected-main pricing registry "
+            f"commit={expected.source_commit} sha256={expected.registry_sha256}; no production I/O."
+        )
+        return 0
+
+    instance_id = _SSM.resolve_prod_instance()
+    current = inspect_runtime_document(read_runtime_document(instance_id))
+    if current.is_current(expected):
+        print("runtime snapshot already equals protected main; nothing to publish.")
+        return 0
+
+    # A Git revert is a newer descendant and remains publishable. An expected
+    # commit behind the active source means the local origin/main ref is stale;
+    # fail closed instead of turning a workstation or delayed run into rollback.
+    if current.state == "valid" and current.source_commit != expected.source_commit:
+        if not _git_is_ancestor(current.source_commit, expected.source_commit):
+            fail(
+                "refusing pricing snapshot downgrade: active runtime source "
+                f"{current.source_commit} is not an ancestor of expected "
+                f"protected-main source {expected.source_commit}"
+            )
+
+    _write_runtime_document(instance_id, envelope_bytes)
+    post = inspect_runtime_document(read_runtime_document(instance_id))
+    if not post.is_current(expected):
+        fail(
+            "publish returned success but exact-byte read-back verification failed: "
+            f"state={post.state} error={post.error!r}"
+        )
+    print(
+        "published + verified protected-main pricing registry "
+        f"commit={expected.source_commit} sha256={expected.registry_sha256}."
+    )
     return 0
 
 
-def cmd_selftest(_args) -> int:
-    repo = {
-        "_meta": {"note": "provenance"},
-        "_config": {"official_list_base_tax": {"multiplier": 1.06, "rules": [
-            {"provider": "dashscope", "model_prefixes": ["qwen"]},
-        ]}},
-        "qwen3-8b": {"input_cost_per_token": 1.0, "litellm_provider": "dashscope"},
-        "qwen3-32b": {"input_cost_per_token": 2.0, "litellm_provider": "dashscope"},
-        "qwen3-235b-a22b": {"input_cost_per_token": 3.0, "litellm_provider": "dashscope"},
-    }
-    cases = [
-        ("clean", repo, {"_config": repo["_config"], "qwen3-8b": repo["qwen3-8b"], "qwen3-32b": repo["qwen3-32b"],
-                         "qwen3-235b-a22b": repo["qwen3-235b-a22b"]},
-         {"pending": [], "shadow": [], "orphan": []}),
-        ("pending", repo, {"qwen3-8b": repo["qwen3-8b"]},
-         {"pending": ["_config", "qwen3-235b-a22b", "qwen3-32b"], "shadow": [], "orphan": []}),
-        ("shadow", repo,
-         {"_config": repo["_config"],
-          "qwen3-8b": {"input_cost_per_token": 9.9, "litellm_provider": "dashscope"},
-          "qwen3-32b": repo["qwen3-32b"], "qwen3-235b-a22b": repo["qwen3-235b-a22b"]},
-         {"pending": [], "shadow": ["qwen3-8b"], "orphan": []}),
-        ("config-shadow", repo,
-         {**{k: v for k, v in overlay_entries(repo).items()},
-          "_config": {"official_list_base_tax": {"multiplier": 1.07, "rules": [
-              {"provider": "dashscope", "model_prefixes": ["qwen"]},
-          ]}}},
-         {"pending": [], "shadow": ["_config"], "orphan": []}),
-        ("orphan", repo,
-         {**{k: v for k, v in overlay_entries(repo).items()},
-          "ghost-model": {"input_cost_per_token": 1.0}},
-         {"pending": [], "shadow": [], "orphan": ["ghost-model"]}),
-        ("provenance-ignored", repo,
-         {**{k: v for k, v in overlay_entries(repo).items()}, "_meta": {"x": 1}},
-         {"pending": [], "shadow": [], "orphan": []}),
-    ]
-    ok = True
-    for name, r, rt, want in cases:
-        got = compute_overlay_drift(r, rt)
-        if got != want:
-            ok = False
-            print(f"  FAIL {name}: got {got} want {want}")
-        else:
-            print(f"  PASS {name}")
-    # _decode_runtime_value: the >24KiB gzip read-back round-trip (the fix). The
-    # host pipes `SELECT value | gzip | base64`; this must reconstruct the dict.
-    try:
-        blob = {"_meta": {"n": "x"}, "m": {"input_cost_per_token": 1e-6}}
-        enc = base64.b64encode(gzip.compress((json.dumps(blob) + "\n").encode())).decode()
-        assert _decode_runtime_value(enc) == blob
-        assert _decode_runtime_value("") == {}                                              # no command output
-        assert _decode_runtime_value(base64.b64encode(gzip.compress(b"")).decode()) == {}   # settings row absent
-        print("  PASS decode-runtime-value gzip read-back round-trip")
-    except AssertionError:
-        ok = False
-        print("  FAIL decode-runtime-value gzip read-back round-trip")
-    try:
-        legacy = {"qwen3-8b": repo["qwen3-8b"]}
-        assert runtime_config_errors(legacy, repo) == []
-        invalid = {**legacy, "_config": {"official_list_base_tax": {
-            "multiplier": 0.99,
-            "rules": [{"provider": "dashscope", "model_prefixes": ["qwen"]}],
-        }}}
-        assert runtime_config_errors(invalid, repo)
-        dropped = json.loads(json.dumps(repo))
-        dropped["_config"]["official_list_base_tax"]["rules"] = [
-            {"provider": "moonshot", "model_prefixes": ["kimi-"]},
-        ]
-        assert "drops embedded providers" in runtime_config_errors(dropped, repo)[0]
-        assert runtime_config_errors(repo, repo) == []
-        print("  PASS optional executable config validation")
-    except AssertionError:
-        ok = False
-        print("  FAIL optional executable config validation")
-    print("selftest ok" if ok else "selftest FAILED")
-    return 0 if ok else 1
-
-
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--selftest", action="store_true", help="offline drift-logic test")
-    sub = ap.add_subparsers(dest="cmd")
-    cp = sub.add_parser("check", help="read-only drift audit (git vs prod runtime)")
-    cp.add_argument("--overlay-path", default=str(OVERLAY_PATH),
-                    help="pricing overlay JSON to compare (default: repo embedded overlay)")
-    sp = sub.add_parser("sync-runtime", help="hot-push repo overlay to prod settings")
-    sp.add_argument("--dry-run", action="store_true")
-    sp.add_argument("--overlay-path", default=str(OVERLAY_PATH),
-                    help="pricing overlay JSON to push (default: repo embedded overlay)")
-    args = ap.parse_args()
-
-    if args.selftest:
-        return cmd_selftest(args)
-    if args.cmd == "check":
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command")
+    sub.add_parser("check", help="read-only protected-main versus runtime audit")
+    sync = sub.add_parser("sync-runtime", help="publish the protected-main registry envelope")
+    sync.add_argument("--dry-run", action="store_true", help="validate without AWS/SSM I/O")
+    args = parser.parse_args(argv)
+    if args.command == "check":
         return cmd_check(args)
-    if args.cmd == "sync-runtime":
+    if args.command == "sync-runtime":
         return cmd_sync_runtime(args)
-    ap.print_help()
+    parser.print_help()
     return 2
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

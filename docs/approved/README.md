@@ -46,6 +46,7 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 | [`ops-unified-contract.md`](ops-unified-contract.md) | Ops unified contract |
 | [`priced-or-it-doesnt-ship.md`](priced-or-it-doesnt-ship.md) | Runtime priced-serving gate |
 | [`pricing-availability-source-of-truth.md`](pricing-availability-source-of-truth.md) | Pricing availability SSOT |
+| [`pricing-registry-hot-reload.md`](pricing-registry-hot-reload.md) | Global pricing registry owner and protected hot reload |
 | [`pricing-serving-single-source-of-truth.md`](pricing-serving-single-source-of-truth.md) | Pricing/serving ownership |
 | [`rpm-override-deferred-removal.md`](rpm-override-deferred-removal.md) | RPM override layer |
 | [`served-model-reconcile-planner.md`](served-model-reconcile-planner.md) | Modelops planner |

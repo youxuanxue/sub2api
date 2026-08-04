@@ -143,13 +143,13 @@ func TestGetModelPricing_CaseInsensitive(t *testing.T) {
 	require.Equal(t, p1.InputPricePerToken, p2.InputPricePerToken)
 }
 
-// issue #3394: fallback warn 应按模型名去重,每个模型每进程最多打一条,
+// issue #3394: alias warn 应按模型名去重,每个模型每进程最多打一条,
 // 避免热路径每请求刷屏 ops_system_logs。
 func TestGetModelPricing_FallbackWarnLoggedOncePerModel(t *testing.T) {
 	svc := newTestBillingService()
 	buf := captureStdLog(t)
 
-	// 使用没有精确定价的 Claude 变体，确保它走家族 floor 并触发 fallback warn。
+	// 使用没有精确定价的 Claude 变体，确保它走 registry alias 并触发 warn。
 	const model = "claude-unknown-warning-a"
 	for i := 0; i < 5; i++ {
 		pricing, err := svc.GetModelPricing(model)
@@ -157,8 +157,8 @@ func TestGetModelPricing_FallbackWarnLoggedOncePerModel(t *testing.T) {
 		require.NotNil(t, pricing)
 	}
 
-	got := strings.Count(buf.String(), "Using fallback pricing for model: "+model)
-	require.Equal(t, 1, got, "同一模型的 fallback warn 应只打一条,实际日志:\n%s", buf.String())
+	got := strings.Count(buf.String(), "Using registry alias pricing for model: "+model)
+	require.Equal(t, 1, got, "同一模型的 registry alias warn 应只打一条,实际日志:\n%s", buf.String())
 }
 
 // 去重按"每模型"而非全局:不同模型各打一条;大小写变体经入口 ToLower 归一,视为同一条目。
@@ -235,10 +235,10 @@ func TestGetModelPricing_OpenAICompactAliasesFallback(t *testing.T) {
 		cacheRead   float64
 		longContext int
 	}{
-		{model: "gpt5.5", inputPrice: 2.5e-6, outputPrice: 15e-6, cacheRead: 0.25e-6, longContext: 272000},
+		{model: "gpt5.5", inputPrice: 5e-6, outputPrice: 30e-6, cacheRead: 0.5e-6, longContext: 272000},
 		{model: "openai/gpt5.4", inputPrice: 2.5e-6, outputPrice: 15e-6, cacheRead: 0.25e-6, longContext: 272000},
 		{model: "gpt5.4-mini", inputPrice: 7.5e-7, outputPrice: 4.5e-6, cacheRead: 7.5e-8, longContext: 0},
-		{model: "gpt5.3codexspark", inputPrice: 1.5e-6, outputPrice: 12e-6, cacheRead: 0.15e-6, longContext: 0},
+		{model: "gpt5.3codexspark", inputPrice: 1.75e-6, outputPrice: 14e-6, cacheRead: 0.175e-6, longContext: 0},
 	}
 
 	for _, tt := range tests {
@@ -313,8 +313,8 @@ func TestCalculateCost_OpenAIGPT55ProUsesGPT55PricingPolicy(t *testing.T) {
 	cost, err := svc.CalculateCost("gpt-5.5-pro", tokens, 1.0)
 	require.NoError(t, err)
 
-	expectedInput := float64(tokens.InputTokens) * 2.5e-6 * 2.0
-	expectedOutput := float64(tokens.OutputTokens) * 15e-6 * 1.5
+	expectedInput := float64(tokens.InputTokens) * 5e-6 * 2.0
+	expectedOutput := float64(tokens.OutputTokens) * 30e-6 * 1.5
 	require.InDelta(t, expectedInput, cost.InputCost, 1e-10)
 	require.InDelta(t, expectedOutput, cost.OutputCost, 1e-10)
 	require.InDelta(t, expectedInput+expectedOutput, cost.TotalCost, 1e-10)
@@ -682,23 +682,23 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "kimi k2.6 flagship",
 			model:             "kimi-k2.6",
-			expectedInput:     tkCNYPerMTokToUSDPerToken(6.5),
-			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(27)),
-			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(1.1)),
+			expectedInput:     0.95e-6,
+			expectedOutput:    floatPtr(4e-6),
+			expectedCacheRead: floatPtr(0.15e-6),
 		},
 		{
 			name:              "kimi for coding explicit alias",
 			model:             "kimi-for-coding",
-			expectedInput:     tkCNYPerMTokToUSDPerToken(6.5),
-			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(27)),
-			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(1.1)),
+			expectedInput:     0.95e-6,
+			expectedOutput:    floatPtr(4e-6),
+			expectedCacheRead: floatPtr(0.15e-6),
 		},
 		{
 			name:              "kimi k2.5",
 			model:             "kimi-k2.5",
-			expectedInput:     tkCNYPerMTokToUSDPerToken(4),
-			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(21)),
-			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(0.7)),
+			expectedInput:     0.60e-6,
+			expectedOutput:    floatPtr(3e-6),
+			expectedCacheRead: floatPtr(0.098e-6),
 		},
 		{
 			name:              "kimi k2-thinking",
@@ -718,9 +718,9 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "kimi k2.6 vs k2 ordering",
 			model:             "kimi-k2.6",
-			expectedInput:     tkCNYPerMTokToUSDPerToken(6.5), // = k2.6 不是 k2 的旧 ¥4 档
-			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(27)),
-			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(1.1)),
+			expectedInput:     0.95e-6, // k2.6, not the older K2 family tier
+			expectedOutput:    floatPtr(4e-6),
+			expectedCacheRead: floatPtr(0.15e-6),
 		},
 		{
 			name:              "kimi k2 thinking hyphenated variant",
@@ -1165,7 +1165,7 @@ func TestCalculateCostWithLongContext_PropagatesError(t *testing.T) {
 func TestGetModelPricing_Grok45OfficialFallback(t *testing.T) {
 	svc := newTestBillingService()
 
-	for _, model := range []string{"grok", "grok-latest", "grok-4.5", "grok-4.5-latest", "grok-build-latest"} {
+	for _, model := range []string{"grok", "grok-4.5", "grok-4.5-latest", "grok-build-latest"} {
 		model := model
 		t.Run(model, func(t *testing.T) {
 			pricing, err := svc.GetModelPricing(model)
@@ -1176,6 +1176,16 @@ func TestGetModelPricing_Grok45OfficialFallback(t *testing.T) {
 			require.False(t, pricing.SupportsCacheBreakdown)
 		})
 	}
+}
+
+func TestGetModelPricing_GrokLatestUsesExplicitRegistryOwner(t *testing.T) {
+	svc := newTestBillingService()
+
+	pricing, err := svc.GetModelPricing("grok-latest")
+	require.NoError(t, err)
+	require.InDelta(t, 1.25e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 2.5e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 0.2e-6, pricing.CacheReadPricePerToken, 1e-12)
 }
 
 func TestGetModelPricing_GrokCatalogFallbacks(t *testing.T) {

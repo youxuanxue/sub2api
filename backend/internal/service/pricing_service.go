@@ -111,8 +111,8 @@ type LiteLLMModelPricing struct {
 	InputCostPerTokenPriority  float64 `json:"input_cost_per_token_priority"`
 	OutputCostPerToken         float64 `json:"output_cost_per_token"`
 	OutputCostPerTokenPriority float64 `json:"output_cost_per_token_priority"`
-	// ThinkingOutputCostPerToken is a TK-overlay-only field (litellm has no such
-	// concept): the higher output price the provider charges when the request runs
+	// ThinkingOutputCostPerToken is a registry-owned extension to the LiteLLM shape:
+	// the higher output price the provider charges when the request runs
 	// in thinking mode. Mirrors Alibaba DashScope's two-rate table for one model id
 	// (qwen3-8b/14b/32b: same id, 非思考 vs 思考 output列). Billing selects it over
 	// OutputCostPerToken when the request's enable_thinking is active — see
@@ -131,8 +131,8 @@ type LiteLLMModelPricing struct {
 	LiteLLMProvider                     string  `json:"litellm_provider"`
 	Mode                                string  `json:"mode"`
 	SupportsPromptCaching               bool    `json:"supports_prompt_caching"`
-	// Overlay-only catalog metadata travels with the same immutable overlay
-	// snapshot as pricing so billing and display cannot parse different facts.
+	// Registry-owned catalog metadata travels with the same immutable snapshot as
+	// pricing so billing and display cannot parse different facts.
 	MaxInputTokens          int     `json:"max_input_tokens"`
 	MaxOutputTokens         int     `json:"max_output_tokens"`
 	SupportsVision          bool    `json:"supports_vision"`
@@ -144,25 +144,33 @@ type LiteLLMModelPricing struct {
 	SupportsWebSearch       bool    `json:"supports_web_search"`
 	OutputCostPerImage      float64 `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
 	OutputCostPerImageToken float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
-	OutputCostPerSecond     float64 `json:"output_cost_per_second"`      // 视频生成模型每秒价格（veo 等）
+	InputCostPerImageToken  float64 `json:"input_cost_per_image_token"`  // 图片输入 token 价格
+	ImagePrice1K            float64 `json:"image_price_1k,omitempty"`
+	ImagePrice2K            float64 `json:"image_price_2k,omitempty"`
+	ImagePrice4K            float64 `json:"image_price_4k,omitempty"`
+	OutputCostPerSecond     float64 `json:"output_cost_per_second"` // 视频生成模型每秒价格（veo 等）
 
-	// Intervals 输入-token 区间分档定价（TK overlay 专用，见 tk_pricing_overlay.json
-	// 的 "intervals"）。仅 TK overlay 条目填充；litellm 源无此概念。空 = 扁平定价。
+	// Intervals 输入-token 区间分档定价（active registry 扩展，见
+	// tk_pricing_overlay.json 的 "intervals"）。空 = 扁平定价。
 	// 解析见 pricing_service_tk_overlay.go，接进 ResolvedPricing.Intervals 见
 	// model_pricing_resolver_tk_overlay_intervals.go。
 	Intervals []PricingInterval `json:"-"`
 
-	// VideoPriceTiers 视频 resolution×audio 阶梯（TK overlay 专用，见
+	// VideoPriceTiers 视频 resolution×audio 阶梯（active registry 扩展，见
 	// tk_pricing_overlay.json "video_price_tiers"）。Pre-tax USD/s；base tax at read.
 	VideoPriceTiers []PricingVideoTier `json:"-"`
 
-	// DefaultVideoResolution 客户端未指定 resolution 时的默认档位（overlay SSOT）。
+	// DefaultVideoResolution 客户端未指定 resolution 时的默认档位（registry SSOT）。
 	DefaultVideoResolution string `json:"-"`
 
 	// TokenPricingAbsent 表示源数据中 input/output token 价格均缺失（仅有图片价）。
-	// 此类条目只可用于图片计费，token 计费必须回退到 fallback 或 fail-closed，
+	// 此类条目只可用于图片计费，token 计费必须继续 registry alias 或 fail closed，
 	// 否则 token 流量会被按 $0 计费。零值（false）表示条目具备 token 价格。
 	TokenPricingAbsent bool `json:"-"`
+
+	// ExplicitFree distinguishes a deliberate free product row from an unknown
+	// all-zero placeholder. It is never inferred from numeric zeroes.
+	ExplicitFree bool `json:"-"`
 }
 
 // PricingRemoteClient 远程价格数据获取接口
@@ -201,7 +209,15 @@ type LiteLLMRawEntry struct {
 	SupportsWebSearch                   bool     `json:"supports_web_search"`
 	OutputCostPerImage                  *float64 `json:"output_cost_per_image"`
 	OutputCostPerImageToken             *float64 `json:"output_cost_per_image_token"`
+	InputCostPerImageToken              *float64 `json:"input_cost_per_image_token"`
+	ImagePrice1K                        *float64 `json:"image_price_1k"`
+	ImagePrice2K                        *float64 `json:"image_price_2k"`
+	ImagePrice4K                        *float64 `json:"image_price_4k"`
 	OutputCostPerSecond                 *float64 `json:"output_cost_per_second"`
+	InputCostPerTokenAbove272K          *float64 `json:"input_cost_per_token_above_272k_tokens"`
+	OutputCostPerTokenAbove272K         *float64 `json:"output_cost_per_token_above_272k_tokens"`
+	CacheReadInputTokenCostAbove272K    *float64 `json:"cache_read_input_token_cost_above_272k_tokens"`
+	ExplicitFree                        bool     `json:"explicit_free"`
 }
 
 // PricingService 动态价格服务
@@ -210,19 +226,24 @@ type PricingService struct {
 	remoteClient PricingRemoteClient
 	mu           sync.RWMutex
 	pricingData  map[string]*LiteLLMModelPricing
-	lastUpdated  time.Time
-	localHash    string
+	// useActiveRegistry is enabled by the constructor. Direct struct fixtures keep
+	// their injected pricingData for focused unit tests.
+	useActiveRegistry bool
+	lastUpdated       time.Time
+	localHash         string
 
 	// 停止信号
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 
-	// TK: runtime hot-pushable overlay deps (set post-construction via
-	// SetOverlayRuntimeDeps; all nil-safe). overlayRuntimeGetter reads the
-	// SettingKeyTKPricingOverlayRuntime blob; overlayCacheInvalidator busts the
-	// public-catalog mtime cache after a swap. overlayMu guards overlayRuntimeHash
-	// (the last-applied blob hash, for idempotent reloads) independently of s.mu.
+	// TK: runtime hot-pushable complete-registry deps (set post-construction via
+	// SetOverlayRuntimeDeps; all nil-safe). overlayRuntimeGetter reads the signed-off
+	// registry envelope; overlayCacheInvalidator busts the public-catalog mtime cache
+	// after an atomic swap. overlayReloadMu serializes each complete getter ->
+	// validate -> swap transaction; overlayMu guards the deps and last-applied
+	// envelope hash independently of s.mu.
 	// See pricing_service_tk_overlay_runtime.go.
+	overlayReloadMu         sync.Mutex
 	overlayMu               sync.Mutex
 	overlayRuntimeHash      string
 	overlayRuntimeGetter    func(ctx context.Context) (string, bool)
@@ -232,10 +253,11 @@ type PricingService struct {
 // NewPricingService 创建价格服务
 func NewPricingService(cfg *config.Config, remoteClient PricingRemoteClient) *PricingService {
 	s := &PricingService{
-		cfg:          cfg,
-		remoteClient: remoteClient,
-		pricingData:  make(map[string]*LiteLLMModelPricing),
-		stopCh:       make(chan struct{}),
+		cfg:               cfg,
+		remoteClient:      remoteClient,
+		pricingData:       make(map[string]*LiteLLMModelPricing),
+		useActiveRegistry: true,
+		stopCh:            make(chan struct{}),
 	}
 	return s
 }
@@ -574,14 +596,13 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		logger.LegacyPrintf("service.pricing", "[Pricing] Skipped %d invalid entries", skipped)
 	}
 
-	if len(result) == 0 {
-		return nil, fmt.Errorf("no valid pricing entries found")
-	}
-
-	// TK: fill-only overlay for models the trimmed runtime source lacks — media
-	// (imagen-*/veo-*) and text models litellm has not yet catalogued (deepseek-v4-*).
-	// See pricing_service_tk_overlay.go.
+	// TK: provider/LiteLLM documents remain sync sensors only. Preserve the
+	// upstream parser call surface, then replace every parsed row with the active
+	// complete registry so no external value can reach billing.
 	applyTKPricingOverlay(result)
+	if len(result) == 0 {
+		return nil, fmt.Errorf("complete pricing registry has no valid owners")
+	}
 
 	return result, nil
 }
@@ -714,12 +735,26 @@ func (s *PricingService) validatePricingURL(raw string) (string, error) {
 
 // GetModelPricing 获取模型价格（带模糊匹配）
 func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	if modelName == "" {
 		return nil
 	}
+	var snapshot *tkPricingOverlaySnapshot
+	if s != nil && s.useActiveRegistry {
+		snapshot = loadTKPricingOverlaySnapshot()
+	} else if s != nil {
+		s.mu.RLock()
+		pricingData := s.pricingData
+		s.mu.RUnlock()
+		snapshot = &tkPricingOverlaySnapshot{
+			Models:  pricingData,
+			BaseTax: loadTkOfficialListBaseTaxPolicy(),
+		}
+	}
+	if snapshot == nil {
+		return nil
+	}
+	pricingData := snapshot.Models
+	lookupService := &PricingService{pricingData: pricingData}
 
 	// 标准化模型名称（同时兼容 "models/xxx"、VertexAI 资源名等前缀）
 	modelLower := strings.ToLower(strings.TrimSpace(modelName))
@@ -730,8 +765,8 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 		if candidate == "" {
 			continue
 		}
-		if pricing, ok := s.pricingData[candidate]; ok {
-			return tkPresentLiteLLMModelPricing(pricing)
+		if pricing, ok := pricingData[candidate]; ok {
+			return tkPresentLiteLLMModelPricingFromSnapshot(pricing, snapshot)
 		}
 	}
 
@@ -739,37 +774,35 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	// claude-opus-4-5-20251101 -> claude-opus-4.5-20251101
 	for _, candidate := range lookupCandidates {
 		normalized := strings.ReplaceAll(candidate, "-4-5-", "-4.5-")
-		if pricing, ok := s.pricingData[normalized]; ok {
-			return tkPresentLiteLLMModelPricing(pricing)
+		if pricing, ok := pricingData[normalized]; ok {
+			return tkPresentLiteLLMModelPricingFromSnapshot(pricing, snapshot)
 		}
 	}
 
 	// 3. 尝试模糊匹配（去掉版本号后缀）
 	// claude-opus-4-5-20251101 -> claude-opus-4.5
 	baseName := s.extractBaseName(lookupCandidates[0])
-	for key, pricing := range s.pricingData {
+	for key, pricing := range pricingData {
 		keyBase := s.extractBaseName(strings.ToLower(key))
 		if keyBase == baseName {
-			return tkPresentLiteLLMModelPricing(pricing)
+			return tkPresentLiteLLMModelPricingFromSnapshot(pricing, snapshot)
 		}
 	}
 
 	// 4. 基于模型系列匹配（Claude）
-	if pricing := s.matchByModelFamily(lookupCandidates[0]); pricing != nil {
-		return tkPresentLiteLLMModelPricing(pricing)
+	if pricing := lookupService.matchByModelFamily(lookupCandidates[0]); pricing != nil {
+		return tkPresentLiteLLMModelPricingFromSnapshot(pricing, snapshot)
 	}
 
 	// 5. OpenAI 模型回退策略
 	if strings.HasPrefix(lookupCandidates[0], "gpt-") {
-		return tkPresentLiteLLMModelPricing(s.matchOpenAIModel(lookupCandidates[0]))
+		return tkPresentLiteLLMModelPricingFromSnapshot(lookupService.matchOpenAIModel(lookupCandidates[0]), snapshot)
 	}
 
-	// 6. Provider-prefixed 最后兜底：仅当运行时源恰好带前缀 key（"gemini/imagen-4.0-*"、
-	// "vertex_ai/imagen-4.0-*"）时才命中。注意这不是媒体计价的主路径——生产源（Wei-Shaw 镜像）
-	// 把这些前缀 key 全裁掉了，真正让 imagen-*/veo-* 解析出价的是 always-merged 的 TK overlay
-	// （见 pricing_service_tk_overlay.go），overlay 注入的裸名已在上面第 1 步 exact-match 命中。
-	if pricing := s.matchByProviderPrefix(lookupCandidates[0]); pricing != nil {
-		return tkPresentLiteLLMModelPricing(pricing)
+	// 6. Provider-prefixed 最后兜底仅兼容直接构造 PricingService 的聚焦测试夹具。
+	// 生产构造器读取只含 normalized bare owners 的 active registry，必在第 1 步 exact match。
+	if pricing := lookupService.matchByProviderPrefix(lookupCandidates[0]); pricing != nil {
+		return tkPresentLiteLLMModelPricingFromSnapshot(pricing, snapshot)
 	}
 
 	return nil
@@ -800,9 +833,8 @@ func (s *PricingService) matchByProviderPrefix(bareModel string) *LiteLLMModelPr
 	return best
 }
 
-// comparablePricingCost 取一个可比单价，仅用于第 6 步兜底里同名多 provider 变体的挑选。
-// 此处取最高价是「无法确定实际承接 provider 时的保守猜测」，不是计价语义的主张——主路径
-// （TK overlay）已固化按实际承接 provider（Vertex ch41）的价。优先级：每图 > 每秒(视频) > 每输出 token > 每输入 token。
+// comparablePricingCost 取一个可比单价，仅用于第 6 步测试夹具兼容路径里同名多
+// provider 变体的挑选；生产 registry 不允许 provider-prefixed owners。
 func comparablePricingCost(p *LiteLLMModelPricing) float64 {
 	if p == nil {
 		return 0
@@ -1089,44 +1121,30 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 	}
 
 	if strings.HasPrefix(model, "gpt-5.6-sol") {
-		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.6-sol(static)"))
-		return openAIGPT56SolFallbackPricing
+		return s.pricingData["gpt-5.6-sol"]
 	}
 	if strings.HasPrefix(model, "gpt-5.6-terra") {
-		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.6-terra(static)"))
-		return openAIGPT56TerraFallbackPricing
+		return s.pricingData["gpt-5.6-terra"]
 	}
 	if strings.HasPrefix(model, "gpt-5.6-luna") {
-		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.6-luna(static)"))
-		return openAIGPT56LunaFallbackPricing
+		return s.pricingData["gpt-5.6-luna"]
 	}
 
-	// GPT-5.5 回退到 GPT-5.4 定价
+	// GPT-5.5 compatibility variants resolve to the routed GPT-5.5 owner.
 	if strings.HasPrefix(model, "gpt-5.5") {
-		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.4(static)"))
-		return openAIGPT54FallbackPricing
+		return s.pricingData["gpt-5.5"]
 	}
 
 	if strings.HasPrefix(model, "gpt-5.4-mini") {
-		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.4-mini(static)"))
-		return openAIGPT54MiniFallbackPricing
+		return s.pricingData["gpt-5.4-mini"]
 	}
 
 	if strings.HasPrefix(model, "gpt-5.4-nano") {
-		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.4-nano(static)"))
-		return openAIGPT54NanoFallbackPricing
+		return s.pricingData["gpt-5.4-nano"]
 	}
 
 	if strings.HasPrefix(model, "gpt-5.4") {
-		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.4(static)"))
-		return openAIGPT54FallbackPricing
+		return s.pricingData["gpt-5.4"]
 	}
 
 	if isOpenAIImageGenerationModel(model) {

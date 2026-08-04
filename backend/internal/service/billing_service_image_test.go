@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCalculateImageCost_DefaultPricing 测试无分组配置时使用默认价格
+// TestCalculateImageCost_DefaultPricing 测试无分组配置时使用 registry 价格
 func TestCalculateImageCost_DefaultPricing(t *testing.T) {
-	svc := &BillingService{} // pricingService 为 nil，使用硬编码默认值
+	svc := &BillingService{}
 
 	// 2K 尺寸，默认价格 $0.134 * 1.5 = $0.201
 	cost := svc.CalculateImageCost("gemini-3-pro-image", "2K", 1, nil, 1.0)
@@ -152,9 +152,10 @@ func TestGetImageUnitPrice_PartialGroupConfig(t *testing.T) {
 	require.InDelta(t, 0.268, cost.TotalCost, 0.0001)
 }
 
-// TestGetDefaultImagePrice_FallbackHardcoded 测试 PricingService 无数据时使用硬编码默认值
-func TestGetDefaultImagePrice_FallbackHardcoded(t *testing.T) {
-	svc := &BillingService{} // pricingService 为 nil
+// TestGetDefaultImagePrice_RegistryOwnerOnly verifies that known owners resolve
+// from the registry while an unknown model never receives an invented price.
+func TestGetDefaultImagePrice_RegistryOwnerOnly(t *testing.T) {
+	svc := &BillingService{}
 
 	// 1K 默认价格 $0.134，2K 默认价格 $0.201 (1.5倍)
 	cost := svc.CalculateImageCost("gemini-3-pro-image", "1K", 1, nil, 1.0)
@@ -162,6 +163,9 @@ func TestGetDefaultImagePrice_FallbackHardcoded(t *testing.T) {
 
 	cost = svc.CalculateImageCost("gemini-3-pro-image", "2K", 1, nil, 1.0)
 	require.InDelta(t, 0.201, cost.TotalCost, 0.0001)
+
+	cost = svc.CalculateImageCost("unknown-image-owner", "1K", 1, nil, 1.0)
+	require.Zero(t, cost.TotalCost)
 }
 
 // TestGetImageUnitPrice_EmptyImageSize_UsesGroupTier locks the upstream

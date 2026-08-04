@@ -9,7 +9,7 @@ mechanisms and must AGREE with each:
   (1) per-account credentials.model_mapping — the runtime servable WHITELIST, written
       by the explicit modelops activation path (legacy rows may come from migrations
       or admin-UI seed state). The DECLARED-served signal.
-  (2) tk_pricing_overlay.json + the runtime litellm mirror — the PRICE.
+  (2) tk_pricing_overlay.json complete registry — the global PRICE.
   (3) display intent — newapi uses this manifest's `display` bit directly; native
       platforms still use the Go servable-allowlist maps in
       pricing_catalog_supported_models_tk.go.
@@ -19,9 +19,8 @@ but never actually wired onto the serving account's model_mapping => empty pool 
 429/503 in prod) into a mechanical CI gate (CLAUDE.md §「升级原则」). It asserts:
 
   A0 PARSE        manifest + overlay parse; every entry has the required fields/types.
-  A1 PRICE        every entry resolves to a non-zero price in its declared price_source
-                  (overlay key > 0 for the mode; mirror => overlay does not zero it;
-                  channel => notes documents the channel source).            HARD-FAIL
+  A1 PRICE        every entry resolves to a non-zero complete-registry owner;
+                  channel is allowed only as an explicitly documented scope. HARD-FAIL
   A2 DISPLAY      native display==true => model_id present in the platform's Go
                   allowlist map. newapi display is owned by this manifest.     HARD
   A3 SERVED_ON    every served_on account => a legacy tk_*.sql migration maps the model,
@@ -84,7 +83,9 @@ REQUIRED_FIELDS = {
     "price_key": str,
     "display": bool,
 }
-VALID_PRICE_SOURCES = {"overlay", "mirror", "channel"}
+# "overlay" is the retained manifest token for the historically named file; it
+# now means the complete global registry. External mirrors are sensor evidence.
+VALID_PRICE_SOURCES = {"overlay", "channel"}
 ACCOUNT_SCOPE_FIELDS = {"platform", "channel_type", "base_url"}
 
 
@@ -258,19 +259,6 @@ def evaluate(
                                 f"{key}: overlay {price_key!r} (mode={mode}) requires {f} > 0, "
                                 f"got {po.get(f)!r}"
                             )
-        elif price_source == "mirror":
-            # Static guard cannot read the live mirror; only prove the overlay does NOT
-            # zero it out (a $0 overlay row would shadow the mirror price). Deliberately
-            # weak arm (deepseek-chat/reasoner): can false-NEGATIVE, never false-POSITIVE.
-            po = overlay_entries.get(price_key)
-            if isinstance(po, dict):
-                mode = po.get("mode")
-                fields = MODE_FIELDS.get(mode, ())
-                if fields and all(not _is_pos_number(po.get(f)) for f in fields):
-                    errors.append(
-                        f"{key}: price_source=mirror but a $0 overlay row for {price_key!r} "
-                        f"shadows the mirror price (remove the zero overlay row or correct it)"
-                    )
         elif price_source == "channel":
             if "channel" not in notes.lower():
                 errors.append(
@@ -359,8 +347,8 @@ def _selftest() -> int:
                  "antigravity": set()}
     migrations = {
         "tk_900_x.sql": 'UPDATE accounts ... WHERE id = 60 ... "good-chat": "good-chat"',
-        # account 60 also gets the mirror + admin-ui entries below
-        "tk_901_y.sql": 'WHERE id = 60 ... "mirror-chat" "adminui-chat"',
+        # account 60 also gets the admin-ui entry below
+        "tk_901_y.sql": 'WHERE id = 60 ... "adminui-chat"',
     }
 
     def run(entries):
@@ -374,11 +362,6 @@ def _selftest() -> int:
             "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
             "channel_type": 17, "price_source": "overlay", "price_key": "good-chat",
             "display": True, "notes": "ok",
-        },
-        "newapi/mirror-chat": {
-            "platform": "newapi", "model_id": "mirror-chat", "served_on": ["60"],
-            "channel_type": 43, "price_source": "mirror", "price_key": "mirror-chat",
-            "display": False, "notes": "mirror priced",
         },
         "newapi/adminui-chat": {
             "platform": "newapi", "model_id": "adminui-chat", "served_on": ["60"],
@@ -436,14 +419,14 @@ def _selftest() -> int:
     }})
     if not any("requires" in e and "> 0" in e for e in errs):
         failures.append("A1: $0 overlay price not flagged")
-    # mirror shadowed by a $0 overlay row
-    errs, _ = run({"newapi/mzero": {
-        "platform": "newapi", "model_id": "zero-chat", "served_on": ["60"],
-        "channel_type": 43, "price_source": "mirror", "price_key": "zero-chat",
+    # External mirrors are evidence only and cannot satisfy the runtime price gate.
+    errs, _ = run({"newapi/mirror": {
+        "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],
+        "channel_type": 43, "price_source": "mirror", "price_key": "good-chat",
         "display": False, "notes": "served-via-admin-ui",
     }})
-    if not any("shadows the mirror" in e for e in errs):
-        failures.append("A1: $0 overlay shadowing a mirror entry not flagged")
+    if not any("price_source 'mirror' not in" in e for e in errs):
+        failures.append("A1: external mirror accepted as an effective price source")
 
     # --- A2: display=true on a no-map platform, and missing from a real map -----
     errs, _ = run({"other/disp": {
@@ -455,7 +438,7 @@ def _selftest() -> int:
         failures.append("A2: display=true on no-map platform not flagged")
     errs, _ = run({"anthropic/disp": {
         "platform": "anthropic", "model_id": "claude-ghost", "served_on": ["1"],
-        "channel_type": 0, "price_source": "mirror", "price_key": "claude-ghost",
+        "channel_type": 0, "price_source": "overlay", "price_key": "good-chat",
         "display": True, "notes": "served-via-admin-ui",
     }})
     if not any("absent from the anthropic servable-allowlist" in e for e in errs):

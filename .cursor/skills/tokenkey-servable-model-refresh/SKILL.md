@@ -303,10 +303,10 @@ python3 ops/pricing/apply-pricing-hotfix.py lookup --model <模型名>   # litel
 export TOKENKEY_ADMIN_API_KEY=...                                     # settings.admin_api_key
 python3 ops/pricing/apply-pricing-hotfix.py channels                  # 选 --channel-id
 python3 ops/pricing/apply-pricing-hotfix.py apply --model <模型名> --channel-id N --platform <平台> --from-litellm --yes   # 热更：渠道定价凌驾一切，立即生效无需发版
-python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model <模型名> --from-litellm   # 固化：fill-only 进 tk_pricing_overlay.json，提 PR
+python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model <模型名> --from-litellm   # 生成外部证据候选；核对官方价后只改 complete registry 提 PR
 ```
 
-细则（per-channel 语义、litellm 没收录时的 `--entry-json` 路径、镜像价格错误时只能用渠道定价修）
+细则（per-channel 语义、litellm 没收录时的 `--entry-json` 路径、complete registry PR 热发布）
 见 `ops/pricing/README.md` §"Pricing-missing hotfix"。
 
 ## 姊妹 skill

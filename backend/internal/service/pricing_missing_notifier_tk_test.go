@@ -58,7 +58,8 @@ func TestPricingMissingNotifier_FirstSeenSendsOnce_ThenAggregates(t *testing.T) 
 	require.Contains(t, body, "newapi", "first-seen card must name the platform")
 	require.Contains(t, body, "**user**：#16", "first-seen card must name the user")
 	require.Contains(t, body, "已照常服务", "card must state service was NOT refused")
-	require.Contains(t, body, "apply-pricing-hotfix.py", "card must point at the hot-update runbook")
+	require.Contains(t, body, "pricing registry sensor", "card must point at the evidence source")
+	require.Contains(t, body, "受保护 main", "card must point at the protected publication path")
 
 	// 同 (platform, model) 第二次:不再发即时卡,只进聚合。
 	n.NotifyPricingMissing(ev)
@@ -265,9 +266,11 @@ func TestOpenAITkNotifyServedZeroCost_FeedsNotifier(t *testing.T) {
 	})
 }
 
-func TestPricingMissingAdviceText_MentionsBothRemediationPaths(t *testing.T) {
-	require.True(t, strings.Contains(pricingMissingActionSteps, "apply-pricing-hotfix.py"))
+func TestPricingMissingAdviceText_PointsToRegistryPublication(t *testing.T) {
+	require.True(t, strings.Contains(pricingMissingActionSteps, "pricing registry sensor"))
 	require.True(t, strings.Contains(pricingMissingActionSteps, "tk_pricing_overlay.json"))
+	require.True(t, strings.Contains(pricingMissingActionSteps, "publisher 自动热生效"))
+	require.True(t, strings.Contains(pricingMissingActionSteps, "channel_model_pricing"))
 }
 
 // TestPricingMissingFirstSeenCard_GateRejectVsServed pins the R4 alert fix: a price-gate
@@ -288,7 +291,7 @@ func TestPricingMissingFirstSeenCard_GateRejectVsServed(t *testing.T) {
 	require.Contains(t, rejectedBody, "未服务", "gate-reject card must say the request was NOT served")
 	require.NotContains(t, rejectedBody, "已照常服务", "gate-reject card must NOT claim the request was served")
 	// both cards carry the same actionable remediation steps
-	require.Contains(t, rejectedBody, "apply-pricing-hotfix.py")
+	require.Contains(t, rejectedBody, "publisher 自动热生效")
 
 	// served_at_fallback (post-pivot convergence signal): served at a family FLOOR (not $0, not 404).
 	fallback := samplePricingMissingEvent()
@@ -297,5 +300,5 @@ func TestPricingMissingFirstSeenCard_GateRejectVsServed(t *testing.T) {
 	require.Contains(t, fbBody, "家族兜底", "served_at_fallback card must say it billed at a family floor")
 	require.NotContains(t, fbBody, "返回 404 拒绝", "served_at_fallback was SERVED (not 404'd)")
 	require.NotContains(t, fbBody, "已照常服务、按零成本记录", "served_at_fallback is NOT $0 (floor>0)")
-	require.Contains(t, fbBody, "apply-pricing-hotfix.py", "convergence: same fill runbook")
+	require.Contains(t, fbBody, "publisher 自动热生效", "convergence: same registry publication path")
 }
