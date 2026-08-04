@@ -58,6 +58,18 @@ func main() {
 	logger.InitBootstrap()
 	defer logger.Sync()
 
+	if partitionMaintenanceRequested(os.Args[1:]) {
+		if err := runPartitionMaintenanceCommand(
+			context.Background(),
+			os.Args[1:],
+			os.Stdout,
+			defaultPartitionMaintenanceDeps(),
+		); err != nil {
+			log.Fatalf("Partition maintenance failed: %v", err)
+		}
+		return
+	}
+
 	// Parse command line flags
 	setupMode := flag.Bool("setup", false, "Run setup wizard in CLI mode")
 	// Some imported dependencies (e.g. new-api/common) also register "-version"
