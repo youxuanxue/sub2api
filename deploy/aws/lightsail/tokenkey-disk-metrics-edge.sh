@@ -71,7 +71,7 @@ fi
 # Stamp only on body code:0 so a misconfigured webhook keeps retrying.
 tk_feishu_alert() {
   local stamp="$1" text="$2" now last sign payload resp
-  [ -n "${WEBHOOK}" ] || return 0
+  [ -n "${WEBHOOK}" ] || return 1
   now="$(date +%s)"; last=0
   [ -r "${stamp}" ] && last="$(cat "${stamp}" 2>/dev/null || echo 0)"
   [ "$((now - last))" -ge "${COOLDOWN}" ] || return 0
@@ -81,14 +81,19 @@ tk_feishu_alert() {
   else
     payload="$(printf '{"msg_type":"text","content":{"text":"%s"}}' "${text}")"
   fi
-  resp="$(curl -sS -m 10 -X POST "${WEBHOOK}" -H 'Content-Type: application/json' -d "${payload}" 2>/dev/null || true)"  # preflight-allow: swallow — curl failure ⇒ retry next tick
-  case "${resp}" in *'"code":0'*) echo "${now}" > "${stamp}" || true ;; esac  # preflight-allow: swallow — best-effort cooldown stamp
+  if ! resp="$(curl -sS -m 10 -X POST "${WEBHOOK}" -H 'Content-Type: application/json' -d "${payload}" 2>/dev/null)"; then
+    return 1
+  fi
+  case "${resp}" in
+    *'"code":0'*) echo "${now}" > "${stamp}" || true; return 0 ;;  # preflight-allow: swallow — best-effort cooldown stamp
+    *) return 1 ;;
+  esac
 }
 
 # Recovery posts bypass cooldown — operators need the paired ✅ once pressure clears.
 tk_feishu_post_now() {
   local text="$1" now sign payload resp
-  [ -n "${WEBHOOK}" ] || return 0
+  [ -n "${WEBHOOK}" ] || return 1
   now="$(date +%s)"
   if [ -n "${SECRET}" ]; then
     sign="$(printf '' | openssl dgst -sha256 -hmac "${now}"$'\n'"${SECRET}" -binary 2>/dev/null | base64)"
@@ -96,7 +101,31 @@ tk_feishu_post_now() {
   else
     payload="$(printf '{"msg_type":"text","content":{"text":"%s"}}' "${text}")"
   fi
-  curl -sS -m 10 -X POST "${WEBHOOK}" -H 'Content-Type: application/json' -d "${payload}" >/dev/null 2>&1 || true  # preflight-allow: swallow — best-effort recovery post
+  if ! resp="$(curl -sS -m 10 -X POST "${WEBHOOK}" -H 'Content-Type: application/json' -d "${payload}" 2>/dev/null)"; then
+    return 1
+  fi
+  case "${resp}" in
+    *'"code":0'*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+handle_disk_state() {
+  local used="$1" threshold="$2" recover_threshold="$3"
+  local active_stamp="$4" cooldown_stamp="$5"
+  if [ "${used}" -ge "${threshold}" ]; then
+    if tk_feishu_alert "${cooldown_stamp}" \
+      "🔴 P0 磁盘将满 ${NODE} — 根盘 / 使用率 ${used}% (阈值 ${threshold}%)。Postgres 满盘会崩溃→网关全挂。立即清 docker 镜像/日志或扩容。node=${NODE}"; then
+      echo 1 >"${active_stamp}" 2>/dev/null || true  # preflight-allow: swallow — best-effort latch; timer retries next tick
+    fi
+  elif [ "${used}" -lt "${recover_threshold}" ]; then
+    if [ -r "${active_stamp}" ] || [ -r "${cooldown_stamp}" ]; then
+      if tk_feishu_post_now \
+        "✅ P0 磁盘压力已恢复 ${NODE} — 根盘 / 使用率 ${used}% (恢复阈值 ${recover_threshold}%，告警阈值 ${threshold}%)。node=${NODE}"; then
+        rm -f "${active_stamp}" "${cooldown_stamp}" 2>/dev/null || true  # preflight-allow: swallow — clear latch + legacy cooldown for next incident
+      fi
+    fi
+  fi
 }
 
 # --- root disk-full alert + paired recovery ----------------------------------
@@ -111,17 +140,8 @@ if [ "${RECOVER_THRESHOLD}" -lt 1 ]; then
 fi
 
 if [ -n "${USED}" ]; then
-  if [ "${USED}" -ge "${THRESHOLD}" ]; then
-    tk_feishu_alert /run/tokenkey-disk-alert.stamp \
-      "🔴 P0 磁盘将满 ${NODE} — 根盘 / 使用率 ${USED}% (阈值 ${THRESHOLD}%)。Postgres 满盘会崩溃→网关全挂。立即清 docker 镜像/日志或扩容。node=${NODE}"
-    echo 1 >"${DISK_ACTIVE_STAMP}" 2>/dev/null || true  # preflight-allow: swallow — best-effort latch; timer retries next tick
-  elif [ "${USED}" -lt "${RECOVER_THRESHOLD}" ]; then
-    if [ -r "${DISK_ACTIVE_STAMP}" ] || [ -r /run/tokenkey-disk-alert.stamp ]; then
-      tk_feishu_post_now \
-        "✅ P0 磁盘压力已恢复 ${NODE} — 根盘 / 使用率 ${USED}% (恢复阈值 ${RECOVER_THRESHOLD}%，告警阈值 ${THRESHOLD}%)。node=${NODE}"
-      rm -f "${DISK_ACTIVE_STAMP}" /run/tokenkey-disk-alert.stamp 2>/dev/null || true  # preflight-allow: swallow — clear latch + legacy cooldown for next incident
-    fi
-  fi
+  handle_disk_state "${USED}" "${THRESHOLD}" "${RECOVER_THRESHOLD}" \
+    "${DISK_ACTIVE_STAMP}" /run/tokenkey-disk-alert.stamp
 fi
 
 # --- memory-pressure alert (prod parity; 2026-08-03 us6 OOM) ------------------
@@ -132,6 +152,8 @@ MEMUSEDPCT="$(awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} END{ if(t>0) printf
 if [ "${MEMUSEDPCT:-0}" -ge "${MEM_THRESHOLD}" ]; then
   SWAPPCT="$(awk '/^SwapTotal:/{t=$2} /^SwapFree:/{f=$2} END{ if(t>0) printf "%d",(t-f)*100/t; else print 0 }' /proc/meminfo 2>/dev/null || echo 0)"
   LOAD1="$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0)"
-  tk_feishu_alert /run/tokenkey-mem-alert.stamp \
-    "🟠 P1 内存压力 ${NODE} — 内存 ${MEMUSEDPCT}% (阈值 ${MEM_THRESHOLD}%), swap ${SWAPPCT}%, load1 ${LOAD1}。1GiB edge 无 headroom 会 OOM kill sub2api/networkd→主机黑洞。立即查重负载/限流或升配。node=${NODE}"
+  if ! tk_feishu_alert /run/tokenkey-mem-alert.stamp \
+    "🟠 P1 内存压力 ${NODE} — 内存 ${MEMUSEDPCT}% (阈值 ${MEM_THRESHOLD}%), swap ${SWAPPCT}%, load1 ${LOAD1}。1GiB edge 无 headroom 会 OOM kill sub2api/networkd→主机黑洞。立即查重负载/限流或升配。node=${NODE}"; then
+    : # Delivery is retried on the next timer tick.
+  fi
 fi

@@ -21,7 +21,7 @@
 #   --edges <csv>        comma-separated subset
 #   --all-deployable     every edge with deployable=true in edge-targets-lightsail.json
 #   --ssm-only           do not attempt Lightsail SSH fallback
-#   --dry-run            print targets + remote script, no AWS mutations
+#   --dry-run            resolve and print targets, no AWS mutations
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,6 +32,7 @@ LIGHTSAIL_MATRIX="${REPO_ROOT}/deploy/aws/lightsail/edge-targets-lightsail.json"
 
 GHCR_KEEP_TAGS="${TOKENKEY_GHCR_KEEP_TAGS:-3}"
 SSM_TIMEOUT="${STAGE0_SSM_TIMEOUT_SECONDS:-300}"
+RECOVER_THRESHOLD="${TOKENKEY_DISK_RECOVER_THRESHOLD:-80}"
 SSM_ONLY=0
 DRY_RUN=0
 declare -a EDGE_IDS=()
@@ -69,27 +70,74 @@ if [ "${#EDGE_IDS[@]}" -eq 0 ]; then
   exit 1
 fi
 
+if ! [[ "${GHCR_KEEP_TAGS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "remediate-edge-disk: invalid TOKENKEY_GHCR_KEEP_TAGS=${GHCR_KEEP_TAGS}" >&2
+  exit 1
+fi
+if ! [[ "${SSM_TIMEOUT}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "remediate-edge-disk: invalid STAGE0_SSM_TIMEOUT_SECONDS=${SSM_TIMEOUT}" >&2
+  exit 1
+fi
+if ! [[ "${RECOVER_THRESHOLD}" =~ ^[1-9][0-9]*$ ]] || [ "${RECOVER_THRESHOLD}" -gt 99 ]; then
+  echo "remediate-edge-disk: invalid TOKENKEY_DISK_RECOVER_THRESHOLD=${RECOVER_THRESHOLD}" >&2
+  exit 1
+fi
+
 REMOTE_CLEANUP=$(cat <<'REMOTE'
 set -u
+cleanup_failures=0
+disk_used_percent() {
+  df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}'
+}
 echo "=== df before ==="
-df -h / || true
+if ! df -h /; then echo "WARN: df before failed" >&2; fi
 PRUNE=/usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
 [ -x "$PRUNE" ] || PRUNE=/usr/local/bin/tokenkey-prune-ghcr-app-tags.sh
 if [ -x "$PRUNE" ]; then
-  sudo env TOKENKEY_GHCR_KEEP_TAGS="__KEEP__" "$PRUNE" || true
+  if ! sudo env TOKENKEY_GHCR_KEEP_TAGS="__KEEP__" "$PRUNE"; then
+    echo "WARN: GHCR tag prune failed" >&2
+    cleanup_failures=$((cleanup_failures + 1))
+  fi
+else
+  echo "WARN: no GHCR tag prune script installed" >&2
+  cleanup_failures=$((cleanup_failures + 1))
 fi
-sudo docker image prune -af || true
-sudo find /var/lib/docker/containers -name '*-json.log' -size +10M -exec truncate -s 0 {} + 2>/dev/null || true
-sudo journalctl --vacuum-size=100M 2>/dev/null || true
+if ! sudo docker image prune -af; then
+  echo "WARN: docker image prune failed" >&2
+  cleanup_failures=$((cleanup_failures + 1))
+fi
+if ! sudo find /var/lib/docker/containers -name '*-json.log' -size +10M -exec truncate -s 0 {} + 2>/dev/null; then
+  echo "WARN: container log truncation failed" >&2
+  cleanup_failures=$((cleanup_failures + 1))
+fi
+if ! sudo journalctl --vacuum-size=100M 2>/dev/null; then
+  echo "WARN: journal vacuum failed" >&2
+  cleanup_failures=$((cleanup_failures + 1))
+fi
 if [ -x /usr/local/bin/tokenkey-qa-stale-cleanup.sh ]; then
-  sudo /usr/local/bin/tokenkey-qa-stale-cleanup.sh || true
+  if ! sudo /usr/local/bin/tokenkey-qa-stale-cleanup.sh; then
+    echo "WARN: QA stale cleanup failed" >&2
+    cleanup_failures=$((cleanup_failures + 1))
+  fi
 fi
 echo "=== df after ==="
-df -h / || true
-docker system df 2>/dev/null || true
+if ! df -h /; then echo "WARN: df after failed" >&2; fi
+if ! docker system df 2>/dev/null; then echo "WARN: docker system df failed" >&2; fi
+used_after="$(disk_used_percent)"
+case "${used_after}" in
+  ''|*[!0-9]*) echo "FAIL: could not read final root usage" >&2; exit 1 ;;
+esac
+if [ "${used_after}" -ge "__RECOVER__" ]; then
+  echo "FAIL: root usage remains ${used_after}% (must be below __RECOVER__%)" >&2
+  exit 1
+fi
+if [ "${cleanup_failures}" -gt 0 ]; then
+  echo "WARN: ${cleanup_failures} cleanup stage(s) failed, but root usage recovered to ${used_after}%" >&2
+fi
 REMOTE
 )
 REMOTE_CLEANUP="${REMOTE_CLEANUP/__KEEP__/${GHCR_KEEP_TAGS}}"
+REMOTE_CLEANUP="${REMOTE_CLEANUP//__RECOVER__/${RECOVER_THRESHOLD}}"
 
 lightsail_ssh_run() {
   local lightsail_region="$1"
@@ -112,30 +160,32 @@ proc = subprocess.run(
     check=True,
 )
 access = json.loads(proc.stdout)["accessDetails"]
-td = tempfile.mkdtemp(prefix="tk-edge-ssh-")
-key_path = os.path.join(td, "temp_key.pem")
-cert_path = key_path + "-cert.pub"
-with open(key_path, "w", encoding="utf-8") as fh:
-    fh.write(access["privateKey"].strip() + "\n")
-with open(cert_path, "w", encoding="utf-8") as fh:
-    fh.write(access["certKey"].strip() + "\n")
-os.chmod(key_path, 0o600)
-os.chmod(cert_path, 0o600)
-target = f"{access['username']}@{access['ipAddress']}"
-cmd = [
-    "ssh",
-    "-o", "StrictHostKeyChecking=accept-new",
-    "-o", "ConnectTimeout=60",
-    "-o", "ServerAliveInterval=15",
-    "-i", key_path,
-    target,
-    remote,
-]
-run = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
-sys.stdout.write(run.stdout)
-if run.stderr:
-    sys.stderr.write(run.stderr)
-raise SystemExit(run.returncode)
+with tempfile.TemporaryDirectory(prefix="tk-edge-ssh-") as td:
+    key_path = os.path.join(td, "temp_key.pem")
+    cert_path = key_path + "-cert.pub"
+    known_hosts_path = os.path.join(td, "known_hosts")
+    with open(key_path, "w", encoding="utf-8") as fh:
+        fh.write(access["privateKey"].strip() + "\n")
+    with open(cert_path, "w", encoding="utf-8") as fh:
+        fh.write(access["certKey"].strip() + "\n")
+    os.chmod(key_path, 0o600)
+    os.chmod(cert_path, 0o600)
+    target = f"{access['username']}@{access['ipAddress']}"
+    cmd = [
+        "ssh",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", f"UserKnownHostsFile={known_hosts_path}",
+        "-o", "ConnectTimeout=60",
+        "-o", "ServerAliveInterval=15",
+        "-i", key_path,
+        target,
+        remote,
+    ]
+    run = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+    sys.stdout.write(run.stdout)
+    if run.stderr:
+        sys.stderr.write(run.stderr)
+    raise SystemExit(run.returncode)
 PY
 }
 
@@ -145,9 +195,9 @@ ssm_cleanup() {
   local edge_id="$3"
   local params_file
   params_file="$(mktemp /tmp/tk-edge-disk-ssm.XXXXXX.json)"
-  jq -n --arg remote "${REMOTE_CLEANUP}" '{
+  jq -n --arg remote "${REMOTE_CLEANUP}" --arg timeout "${SSM_TIMEOUT}" '{
     commands: ($remote | split("\n")),
-    executionTimeout: ["300"]
+    executionTimeout: [$timeout]
   }' > "${params_file}"
   local cmd_id
   cmd_id="$(aws ssm send-command \

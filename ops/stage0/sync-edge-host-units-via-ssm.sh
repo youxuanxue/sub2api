@@ -135,33 +135,6 @@ WantedBy=timers.target
 QATEOF
 )"
 
-GHCR_SERVICE_B64="$(cat <<'GHCRSEOF' | base64 | tr -d '\n'
-[Unit]
-Description=Daily GHCR app-tag prune and dangling Docker image cleanup
-After=network-online.target tokenkey.service
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-EnvironmentFile=-/var/lib/tokenkey/.env
-ExecStart=/usr/local/bin/tokenkey-ghcr-prune-daily.sh
-GHCRSEOF
-)"
-
-GHCR_TIMER_B64="$(cat <<'GHCRTEOF' | base64 | tr -d '\n'
-[Unit]
-Description=Daily GHCR prune (low-traffic window, after QA cleanup)
-
-[Timer]
-OnCalendar=*-*-* 05:00:00
-RandomizedDelaySec=30min
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-GHCRTEOF
-)"
-
 # In-place sync trace: which commit the live units are now aligned to.
 TEMPLATE_SHA="${GITHUB_SHA:-local}"
 
@@ -173,8 +146,6 @@ jq -n \
   --arg qasvc "${QA_SERVICE_B64}" \
   --arg qatmr "${QA_TIMER_B64}" \
   --arg ghcrs "${GHCR_SH_B64}" \
-  --arg ghcrsvc "${GHCR_SERVICE_B64}" \
-  --arg ghcrtmr "${GHCR_TIMER_B64}" \
   --arg qadays "${QA_RETENTION_DAYS}" \
   --arg sha "${TEMPLATE_SHA}" \
   '{
@@ -195,8 +166,7 @@ jq -n \
       ("echo " + $ghcrs + " | base64 -d | sudo tee /usr/local/bin/tokenkey-ghcr-prune-daily.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-ghcr-prune-daily.sh",
       "sudo /usr/local/bin/tokenkey-ghcr-prune-daily.sh --selftest",
-      ("echo " + $ghcrsvc + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-ghcr-prune-daily.service > /dev/null"),
-      ("echo " + $ghcrtmr + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-ghcr-prune-daily.timer > /dev/null"),
+      "sudo /usr/local/bin/tokenkey-ghcr-prune-daily.sh --install-units",
       ("printf '\''TOKENKEY_QA_STALE_RETENTION_DAYS=%s\\n'\'' " + $qadays + " | sudo tee /etc/tokenkey/qa-stale-retention.env > /dev/null"),
       "sudo systemctl daemon-reload",
       "sudo systemctl enable --now tokenkey-disk-metrics.timer",

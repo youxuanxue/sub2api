@@ -252,6 +252,13 @@ chmod +x "$TMP"
 exec bash "$TMP"
 LOADEREOF
 
+GHCR_DAILY_B64_PARAM_NAME="${STAGE0_PREFIX}/ghcr-prune-daily.b64"
+RAW="$(aws ssm get-parameter --name "${GHCR_DAILY_B64_PARAM_NAME}" --region "${REGION}" --query Parameter.Value --output text)"
+printf '%s' "${RAW}" | base64 -d > /usr/local/bin/tokenkey-ghcr-prune-daily.sh
+chmod +x /usr/local/bin/tokenkey-ghcr-prune-daily.sh
+/usr/local/bin/tokenkey-ghcr-prune-daily.sh --selftest
+/usr/local/bin/tokenkey-ghcr-prune-daily.sh --install-units
+
 # --- 4. secrets + .env --------------------------------------------------
 SECRET_FILE=/var/lib/tokenkey/.env.secret
 if [ ! -f "${SECRET_FILE}" ]; then
@@ -502,50 +509,6 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 QATIMEOF
-
-install -m 0755 /dev/stdin /usr/local/bin/tokenkey-ghcr-prune-daily.sh <<'GHCRDEOF'
-#!/bin/bash
-# Daily GHCR app-tag prune + dangling Docker image cleanup.
-set -euo pipefail
-PRUNE=/usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
-[ -x "$PRUNE" ] || PRUNE=/usr/local/bin/tokenkey-prune-ghcr-app-tags.sh
-if [ -x "$PRUNE" ]; then
-  KEEP="${TOKENKEY_GHCR_KEEP_TAGS:-3}"
-  logger -t tokenkey-ghcr-prune-daily "start keep_tags=${KEEP}"
-  if ! env TOKENKEY_GHCR_KEEP_TAGS="${KEEP}" "$PRUNE"; then
-    logger -t tokenkey-ghcr-prune-daily "ghcr tag prune failed (non-fatal)"
-  fi
-else
-  logger -t tokenkey-ghcr-prune-daily "skip no prune script installed"
-fi
-docker image prune -f >/dev/null 2>&1 || true
-logger -t tokenkey-ghcr-prune-daily "done"
-GHCRDEOF
-
-cat > /etc/systemd/system/tokenkey-ghcr-prune-daily.service <<'GHCRSVCEOF'
-[Unit]
-Description=Daily GHCR app-tag prune and dangling Docker image cleanup
-After=network-online.target tokenkey.service
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-EnvironmentFile=-/var/lib/tokenkey/.env
-ExecStart=/usr/local/bin/tokenkey-ghcr-prune-daily.sh
-GHCRSVCEOF
-
-cat > /etc/systemd/system/tokenkey-ghcr-prune-daily.timer <<'GHCRTMREOF'
-[Unit]
-Description=Daily GHCR prune (low-traffic window, after QA cleanup)
-
-[Timer]
-OnCalendar=*-*-* 05:00:00
-RandomizedDelaySec=30min
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-GHCRTMREOF
 
 # --- 7. CloudWatch Agent ------------------------------------------------
 cat > /opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json <<'CWEOF'

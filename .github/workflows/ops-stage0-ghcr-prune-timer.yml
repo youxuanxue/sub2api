@@ -25,6 +25,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  discover-edges:
+    if: inputs.target == 'all-deployable-edges'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      has_targets: ${{ steps.matrix.outputs.has_targets }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build deployable edge matrix
+        id: matrix
+        run: |
+          set -euo pipefail
+          python3 deploy/aws/stage0/resolve-edge-target.py \
+            --prod-ops-matrix \
+            --target-selector 'edge:*' \
+            --github-output "$GITHUB_OUTPUT"
+
   prod:
     if: inputs.target == 'prod'
     runs-on: ubuntu-latest
@@ -84,24 +101,18 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   all-deployable-edges:
-    if: inputs.target == 'all-deployable-edges'
+    needs: discover-edges
+    if: inputs.target == 'all-deployable-edges' && needs.discover-edges.outputs.has_targets == 'true'
     runs-on: ubuntu-latest
     environment: prod
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - edge_id: us3
-            region: us-east-2
-            instance_id: mi-08e84679ef1ee106d
-          - edge_id: us4
-            region: us-west-2
-            instance_id: mi-03a4d6db7a3f5cdc3
-          - edge_id: us6
-            region: us-east-2
-            instance_id: mi-0420c4b9bbaf5243c
+      matrix: ${{ fromJson(needs.discover-edges.outputs.matrix) }}
+    env:
+      EDGE_ID: ${{ matrix.edge_id }}
+      AWS_REGION: ${{ matrix.region }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -117,10 +128,21 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ matrix.region }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Resolve live SSM managed-instance id
+        id: instance
+        run: |
+          set -euo pipefail
+          IDENTITY="$(python3 ops/stage0/edge_ssm_execution.py \
+            --edge-id "$EDGE_ID" --platform lightsail --format json)"
+          INSTANCE_ID="$(jq -r .instance_id <<<"$IDENTITY")"
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "null" ]; then
+            echo "::error::could not resolve SSM managed-instance id for $EDGE_ID"
+            exit 1
+          fi
+          echo "id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
       - name: Sync edge host units (includes ghcr-prune-daily timer)
         env:
-          AWS_REGION: ${{ matrix.region }}
-          INSTANCE_ID: ${{ matrix.instance_id }}
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .
-        run: bash ops/stage0/sync-edge-host-units-via-ssm.sh "$INSTANCE_ID" "ops-ghcr-prune-timer edge=${{ matrix.edge_id }}"
+        run: bash ops/stage0/sync-edge-host-units-via-ssm.sh "$INSTANCE_ID" "ops-ghcr-prune-timer edge=$EDGE_ID"

@@ -42,39 +42,10 @@ GHCR_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh"
 
 GHCR_SH_B64="$(base64 <"${GHCR_SRC}" | tr -d '\n')"
 
-GHCR_SERVICE_B64="$(cat <<'GHCRSEOF' | base64 | tr -d '\n'
-[Unit]
-Description=Daily GHCR app-tag prune and dangling Docker image cleanup
-After=network-online.target tokenkey.service
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-EnvironmentFile=-/var/lib/tokenkey/.env
-ExecStart=/usr/local/bin/tokenkey-ghcr-prune-daily.sh
-GHCRSEOF
-)"
-
-GHCR_TIMER_B64="$(cat <<'GHCRTEOF' | base64 | tr -d '\n'
-[Unit]
-Description=Daily GHCR prune (low-traffic window, after QA cleanup)
-
-[Timer]
-OnCalendar=*-*-* 05:00:00
-RandomizedDelaySec=30min
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-GHCRTEOF
-)"
-
 TEMPLATE_SHA="${GITHUB_SHA:-local}"
 
 jq -n \
   --arg ghcrs "${GHCR_SH_B64}" \
-  --arg ghcrsvc "${GHCR_SERVICE_B64}" \
-  --arg ghcrtmr "${GHCR_TIMER_B64}" \
   --arg sha "${TEMPLATE_SHA}" \
   '{
     commands: [
@@ -83,8 +54,7 @@ jq -n \
       ("echo " + $ghcrs + " | base64 -d | sudo tee /usr/local/bin/tokenkey-ghcr-prune-daily.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-ghcr-prune-daily.sh",
       "sudo /usr/local/bin/tokenkey-ghcr-prune-daily.sh --selftest",
-      ("echo " + $ghcrsvc + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-ghcr-prune-daily.service > /dev/null"),
-      ("echo " + $ghcrtmr + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-ghcr-prune-daily.timer > /dev/null"),
+      "sudo /usr/local/bin/tokenkey-ghcr-prune-daily.sh --install-units",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable --now tokenkey-ghcr-prune-daily.timer",
       "sudo systemctl restart tokenkey-ghcr-prune-daily.timer",
