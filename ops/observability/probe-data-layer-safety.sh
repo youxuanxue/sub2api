@@ -3,8 +3,48 @@
 set -u
 
 PSQL=(docker exec -e 'PGOPTIONS=-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=2s' tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
+APP_CONTAINER="${APP_CONTAINER:-auto}"
+ACTIVE_COLOR_FILE="${ACTIVE_COLOR_FILE:-/var/lib/tokenkey/active-color}"
 
-if app_env="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' tokenkey 2>/dev/null)"; then
+container_running() {
+  local running
+  running="$(docker inspect --format '{{.State.Running}}' "$1" 2>/dev/null)" || return 1
+  [[ "$running" == true ]]
+}
+
+resolve_app_container() {
+  local color candidate
+  local -a running_candidates=()
+
+  if [[ "$APP_CONTAINER" != auto ]]; then
+    container_running "$APP_CONTAINER" || return 1
+    printf '%s\n' "$APP_CONTAINER"
+    return 0
+  fi
+
+  if [[ -r "$ACTIVE_COLOR_FILE" ]]; then
+    color="$(tr -d '[:space:]' < "$ACTIVE_COLOR_FILE" 2>/dev/null || true)" # preflight-allow: swallow - invalid active-color falls through to unambiguous running fallback
+    case "$color" in
+      blue|green)
+        candidate="tokenkey-$color"
+        if container_running "$candidate"; then
+          printf '%s\n' "$candidate"
+          return 0
+        fi
+        ;;
+    esac
+  fi
+
+  for candidate in tokenkey tokenkey-blue tokenkey-green; do
+    if container_running "$candidate"; then
+      running_candidates+=("$candidate")
+    fi
+  done
+  [[ ${#running_candidates[@]} -eq 1 ]] || return 1
+  printf '%s\n' "${running_candidates[0]}"
+}
+
+if resolved_app_container="$(resolve_app_container)" && app_env="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$resolved_app_container" 2>/dev/null)"; then
   telemetry_setting="$(printf '%s\n' "$app_env" | awk -F= '$1 == "TELEMETRY_ARCHIVE_ENABLED" {print substr($0, index($0, "=") + 1); exit}')"
   telemetry_setting="$(printf '%s' "$telemetry_setting" | tr '[:upper:]' '[:lower:]')"
   case "$telemetry_setting" in

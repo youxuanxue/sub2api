@@ -20,6 +20,9 @@ WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ops-daily-diagnostics.yml"
 REPAIR_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ops-repair-draft.yml"
 ISSUE_LIFECYCLE_NOW = dt.datetime(2026, 7, 23, 9, 0, tzinfo=dt.timezone.utc)
 
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 
 def workflow_text() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
@@ -124,9 +127,16 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         text = workflow_text()
         self.assertIn("probe-data-layer-safety.sh", text)
         self.assertIn("data_layer_safety_verdict.py", text)
-        self.assertIn("describe-snapshots", text)
         self.assertIn("data-layer-safety|$TARGET_ID|$SF_KIND", text)
         self.assertLess(text.index("CAP_VERDICT="), text.index("SAFETY_VERDICT="))
+
+        safety_start = text.index("SAFETY_OUT=")
+        safety_end = text.index("ARCHIVE_SIGNAL=", safety_start)
+        snapshot_block = text[safety_start:safety_end]
+        self.assertIn("data_layer_snapshot_signal.sh", snapshot_block)
+        self.assertNotIn("describe-instances", snapshot_block)
+        self.assertNotIn("BlockDeviceMappings[0]", snapshot_block)
+        self.assertNotIn("describe-snapshots", snapshot_block)
 
     def test_internal_health_probe_uses_drain_immune_live_endpoint(self) -> None:
         commands = extract_runtime_params_commands()

@@ -306,12 +306,7 @@ jobs:
             esac
 
             SAFETY_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-safety.sh --comment "daily data-layer protection gates" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — missing signal becomes an explicit fail-closed finding
-            VOLUME_ID="$(aws ec2 describe-instances --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].BlockDeviceMappings[0].Ebs.VolumeId' --output text 2>>"$STDERR" || true)" # preflight-allow: swallow — verdict reports missing snapshot
-            SNAPSHOT_AT=""
-            if [ -n "$VOLUME_ID" ] && [ "$VOLUME_ID" != "None" ]; then
-              SNAPSHOT_AT="$(aws ec2 describe-snapshots --region "$TARGET_REGION" --owner-ids self --filters "Name=volume-id,Values=$VOLUME_ID" "Name=status,Values=completed" --query 'reverse(sort_by(Snapshots,&StartTime))[0].StartTime' --output text 2>>"$STDERR" || true)" # preflight-allow: swallow — verdict reports missing snapshot
-            fi
-            SNAPSHOT_SIGNAL="$(jq -cn --arg value "$SNAPSHOT_AT" '{latest_snapshot_at:(if $value == "" or $value == "None" then null else $value end)}')"
+            SNAPSHOT_SIGNAL="$(bash ops/observability/data_layer_snapshot_signal.sh "$TARGET_REGION" "$STACK_NAME" 2>>"$STDERR" || echo '{"latest_snapshot_at":null}')" # preflight-allow: swallow — helper failures become an explicit missing snapshot signal
             ARCHIVE_SIGNAL="$(python3 ops/observability/data_layer_archive_health.py 2>>"$STDERR" || echo 'ARCHIVESTATS {}')"
             SAFETY_VERDICT="$(printf '%s\nSNAPSHOTSTATS %s\n%s\n' "$SAFETY_OUT" "$SNAPSHOT_SIGNAL" "$ARCHIVE_SIGNAL" | python3 ops/observability/data_layer_safety_verdict.py 2>>"$STDERR" || echo '{"verdict":"unsafe","findings":[{"kind":"data_layer_safety_probe","status":"issue_candidate","severity":"error","summary":"data-layer safety verdict failed"}]}')"
             printf 'data_layer_safety: %s\n' "$SAFETY_VERDICT" >> "$STDOUT"
