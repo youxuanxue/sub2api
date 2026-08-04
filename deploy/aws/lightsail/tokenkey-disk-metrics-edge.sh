@@ -28,6 +28,18 @@ if [ "${1:-}" = "--selftest" ]; then
   [ "$SWAPPCT" = "75" ] || { echo "FAIL swap pct awk got=$SWAPPCT want=75" >&2; fail=1; }
   USED="$(printf '%s\n' 'Filesystem 1024-blocks Used Available Capacity Mounted' '/dev/root 100 90 10 90% /' | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
   [ "$USED" = "90" ] || { echo "FAIL df awk got=$USED want=90" >&2; fail=1; }
+  THRESHOLD=85
+  RECOVER_THRESHOLD=$((THRESHOLD - 5))
+  [ "$RECOVER_THRESHOLD" = "80" ] || { echo "FAIL recover default got=$RECOVER_THRESHOLD want=80" >&2; fail=1; }
+  # latch: above alert threshold arms; below recover clears
+  alert_used=90
+  recover_used=75
+  should_arm=0
+  should_recover=0
+  if [ "$alert_used" -ge "$THRESHOLD" ]; then should_arm=1; fi
+  if [ "$recover_used" -lt "$RECOVER_THRESHOLD" ]; then should_recover=1; fi
+  [ "$should_arm" = "1" ] || { echo "FAIL latch arm" >&2; fail=1; }
+  [ "$should_recover" = "1" ] || { echo "FAIL latch recover" >&2; fail=1; }
   if [ "$fail" -ne 0 ]; then
     echo "tokenkey-disk-metrics-edge selftest FAILED" >&2
     exit 1
@@ -37,6 +49,7 @@ if [ "${1:-}" = "--selftest" ]; then
 fi
 
 COOLDOWN="${TOKENKEY_DISK_ALERT_COOLDOWN_SEC:-1800}"
+DISK_ACTIVE_STAMP="/run/tokenkey-disk-alert-active"
 WEBHOOK=""; SECRET=""; NODE="$(hostname)"
 if [ -r /var/lib/tokenkey/.env ]; then
   WEBHOOK="$(sed -n 's/^TOKENKEY_FEISHU_WEBHOOK_URL=//p' /var/lib/tokenkey/.env | head -1)"
@@ -63,12 +76,41 @@ tk_feishu_alert() {
   case "${resp}" in *'"code":0'*) echo "${now}" > "${stamp}" || true ;; esac  # preflight-allow: swallow — best-effort cooldown stamp
 }
 
-# --- root disk-full alert ----------------------------------------------------
+# Recovery posts bypass cooldown — operators need the paired ✅ once pressure clears.
+tk_feishu_post_now() {
+  local text="$1" now sign payload resp
+  [ -n "${WEBHOOK}" ] || return 0
+  now="$(date +%s)"
+  if [ -n "${SECRET}" ]; then
+    sign="$(printf '' | openssl dgst -sha256 -hmac "${now}"$'\n'"${SECRET}" -binary 2>/dev/null | base64)"
+    payload="$(printf '{"timestamp":"%s","sign":"%s","msg_type":"text","content":{"text":"%s"}}' "${now}" "${sign}" "${text}")"
+  else
+    payload="$(printf '{"msg_type":"text","content":{"text":"%s"}}' "${text}")"
+  fi
+  curl -sS -m 10 -X POST "${WEBHOOK}" -H 'Content-Type: application/json' -d "${payload}" >/dev/null 2>&1 || true  # preflight-allow: swallow — best-effort recovery post
+}
+
+# --- root disk-full alert + paired recovery ----------------------------------
 USED="$(df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
 THRESHOLD="${TOKENKEY_DISK_ALERT_THRESHOLD:-85}"
-if [ -n "${USED}" ] && [ "${USED}" -ge "${THRESHOLD}" ]; then
-  tk_feishu_alert /run/tokenkey-disk-alert.stamp \
-    "🔴 P0 磁盘将满 ${NODE} — 根盘 / 使用率 ${USED}% (阈值 ${THRESHOLD}%)。Postgres 满盘会崩溃→网关全挂。立即清 docker 镜像/日志或扩容。node=${NODE}"
+RECOVER_THRESHOLD="${TOKENKEY_DISK_RECOVER_THRESHOLD:-$((THRESHOLD - 5))}"
+if [ "${RECOVER_THRESHOLD}" -ge "${THRESHOLD}" ]; then
+  RECOVER_THRESHOLD=$((THRESHOLD - 5))
+fi
+if [ "${RECOVER_THRESHOLD}" -lt 1 ]; then
+  RECOVER_THRESHOLD=1
+fi
+
+if [ -n "${USED}" ]; then
+  if [ "${USED}" -ge "${THRESHOLD}" ]; then
+    tk_feishu_alert /run/tokenkey-disk-alert.stamp \
+      "🔴 P0 磁盘将满 ${NODE} — 根盘 / 使用率 ${USED}% (阈值 ${THRESHOLD}%)。Postgres 满盘会崩溃→网关全挂。立即清 docker 镜像/日志或扩容。node=${NODE}"
+    echo 1 >"${DISK_ACTIVE_STAMP}" 2>/dev/null || true  # preflight-allow: swallow — best-effort latch; timer retries next tick
+  elif [ -r "${DISK_ACTIVE_STAMP}" ] && [ "${USED}" -lt "${RECOVER_THRESHOLD}" ]; then
+    tk_feishu_post_now \
+      "✅ P0 磁盘压力已恢复 ${NODE} — 根盘 / 使用率 ${USED}% (恢复阈值 ${RECOVER_THRESHOLD}%，告警阈值 ${THRESHOLD}%)。node=${NODE}"
+    rm -f "${DISK_ACTIVE_STAMP}" /run/tokenkey-disk-alert.stamp 2>/dev/null || true  # preflight-allow: swallow — clear latch for next incident
+  fi
 fi
 
 # --- memory-pressure alert (prod parity; 2026-08-03 us6 OOM) ------------------
