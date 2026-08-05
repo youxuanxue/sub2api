@@ -127,6 +127,7 @@ indent_launcher() {
       printf "%sexport TK_SWAP_SIZE_GIB='\${SwapSizeGiB}'\n" "${indent}"
       printf "%sexport TK_CADDY_PROFILE='edge'\n" "${indent}"
       printf "%sexport TK_MAIN_GATEWAY_ALLOWED_CIDR='\${MainGatewayAllowedCidr}'\n" "${indent}"
+      printf "%sexport TK_CLOUDWATCH_CPU_ALARM_NAMES='\${ProjectName}-\${EdgeId}-cpu-24h-above-baseline,\${ProjectName}-\${EdgeId}-cpu-surplus-borrowing,\${ProjectName}-\${EdgeId}-cpu-surplus-charged'\n" "${indent}"
     else
       printf '%s%s\n' "${indent}" "${line}"
     fi

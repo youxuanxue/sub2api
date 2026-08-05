@@ -1630,6 +1630,15 @@ else
     echo "  ok: edge disk/memory alert awk fixtures pass"
 fi
 
+echo "=== sub2api: EC2 CloudWatch alarm delivery selftest ==="
+if ! bash ./ops/stage0/test_ec2_cloudwatch_alarm_delivery.sh >/dev/null 2>&1; then
+    echo "  FAIL: EC2 CloudWatch alarm delivery state transitions"
+    echo "        — run: bash ops/stage0/test_ec2_cloudwatch_alarm_delivery.sh"
+    errors=$((errors + 1))
+else
+    echo "  ok: EC2 CloudWatch firing/recovery delivery latches pass"
+fi
+
 echo "=== sub2api: edge disk remediation script contract ==="
 if ! bash ./ops/stage0/test_remediate_edge_disk.sh >/dev/null 2>&1; then
     echo "  FAIL: remediate-edge-disk-via-ssm contract test"

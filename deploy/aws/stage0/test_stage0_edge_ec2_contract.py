@@ -148,6 +148,29 @@ class Stage0EdgeEc2ContractTest(unittest.TestCase):
             msg="CPUCreditBalance=0 is not an availability alarm in Unlimited mode",
         )
 
+    def test_cpu_alarm_states_are_delivered_by_the_edge_host(self) -> None:
+        text = template_text()
+        role = section(text, "InstanceRole")
+        instance = section(text, "Instance")
+        self.assertIn("cloudwatch:DescribeAlarms", role)
+        self.assertIn(
+            "TK_CLOUDWATCH_CPU_ALARM_NAMES='${ProjectName}-${EdgeId}-cpu-24h-above-baseline,"
+            "${ProjectName}-${EdgeId}-cpu-surplus-borrowing,"
+            "${ProjectName}-${EdgeId}-cpu-surplus-charged'",
+            instance,
+        )
+        self.assertNotIn("AlarmSnsTopicArn", text)
+        self.assertNotIn("AlarmTopicProvided", text)
+        for alarm in (
+            "InstanceCpuAlarm",
+            "CpuSurplusCreditBalanceAlarm",
+            "CpuSurplusCreditsChargedAlarm",
+            "RootVolumeDiskAlarm",
+            "DataVolumeDiskAlarm",
+        ):
+            with self.subTest(alarm=alarm):
+                self.assertNotIn("AlarmActions", section(text, alarm))
+
     def test_required_outputs_are_exported(self) -> None:
         text = template_text()
         outputs = text.split("\nOutputs:\n", 1)[1]
