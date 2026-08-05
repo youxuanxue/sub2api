@@ -42,34 +42,30 @@ func (h *QAHandler) ExportSelfTrajectory(c *gin.Context) {
 		return
 	}
 
-	req := ExportSelfRequest{}
-	if c.Request != nil && c.Request.ContentLength != 0 {
-		if err := c.ShouldBindJSON(&req); err != nil {
-			response.InvalidRequest(c)
-			return
-		}
+	req := TrajectoryExportRequest{}
+	if c.Request == nil || c.Request.ContentLength == 0 {
+		response.BadRequest(c, "api_key_id is required")
+		return
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.APIKeyID == nil || *req.APIKeyID <= 0 {
+		response.BadRequest(c, "api_key_id is required")
+		return
+	}
+	mayExportKey, err := h.service.UserMayExportAPIKey(c.Request.Context(), subject.UserID, *req.APIKeyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if !mayExportKey {
+		response.Forbidden(c, "API key is not eligible for trajectory export")
+		return
 	}
 
 	filter := qa.ExportFilter{
-		SynthSessionID: strings.TrimSpace(req.SynthSessionID),
-		SynthRole:      strings.TrimSpace(req.SynthRole),
-		APIKeyID:       req.APIKeyID,
-		// No platform pin: the traj v2 projector now dispatches per record by
-		// wire shape (trajectory.WireShapeForRecord) and reconstructs anthropic /
-		// openai / gemini / antigravity / kiro / newapi faithfully, skipping
-		// non-conversation (Unknown-shape) records. A per-key export is already
-		// single-platform via APIKeyID, and the export chip is gated server-side
-		// to engine.TrajProjectablePlatforms() (see /auth/me traj_export_platforms),
-		// so a non-projectable key never reaches here with a misleading zip.
+		APIKeyID: req.APIKeyID,
+		// No platform pin: the traj v2 projector dispatches each record by wire
+		// shape. The service fixes every user export to this key's last 24 hours.
 		Format: strings.TrimSpace(req.Format),
-	}
-	// Per-key export ("导出该 Key 的对话记录") drops the trailing-24h default
-	// window and returns the key's full retained trajectory; the data set is
-	// already bounded by qa_capture.retention_days. The default 24h window
-	// only guards the unscoped "export my recent traffic" path.
-	if filter.SynthSessionID == "" && filter.APIKeyID == nil {
-		filter.Until = time.Now().UTC()
-		filter.Since = filter.Until.Add(-defaultQAExportWindow)
 	}
 
 	// Async: enqueue the export on the dedicated single-worker pool and return a
@@ -98,8 +94,7 @@ func (h *QAHandler) GetSelfTrajectoryExportJob(c *gin.Context) {
 		response.Unauthorized(c, "User not authenticated")
 		return
 	}
-	if !h.service.Enabled() {
-		response.Error(c, http.StatusServiceUnavailable, "QA capture is disabled in this environment")
+	if !h.requireTrajectoryExportEnabled(c, subject.UserID) {
 		return
 	}
 
@@ -122,8 +117,7 @@ func (h *QAHandler) ListSelfTrajectoryExports(c *gin.Context) {
 		response.Unauthorized(c, "User not authenticated")
 		return
 	}
-	if !h.service.Enabled() {
-		response.Error(c, http.StatusServiceUnavailable, "QA capture is disabled in this environment")
+	if !h.requireTrajectoryExportEnabled(c, subject.UserID) {
 		return
 	}
 
@@ -155,7 +149,6 @@ func (h *QAHandler) trajExportJobResponse(c *gin.Context, job qa.ExportJob) Expo
 	resp := ExportJobResponse{
 		JobID:       job.ID,
 		Status:      string(job.Status),
-		Kind:        job.Kind,
 		APIKeyID:    job.APIKeyID,
 		RecordCount: job.RecordCount,
 		Error:       job.Error,
@@ -175,8 +168,7 @@ func (h *QAHandler) DownloadSelfTrajectoryExport(c *gin.Context) {
 		return
 	}
 
-	if !h.service.Enabled() {
-		response.Error(c, http.StatusServiceUnavailable, "QA capture is disabled in this environment")
+	if !h.requireTrajectoryExportEnabled(c, subject.UserID) {
 		return
 	}
 
@@ -211,7 +203,6 @@ func (h *QAHandler) DownloadSelfTrajectoryExport(c *gin.Context) {
 type ExportJobResponse struct {
 	JobID       string    `json:"job_id"`
 	Status      string    `json:"status"`
-	Kind        string    `json:"kind,omitempty"` // manual | auto
 	APIKeyID    *int64    `json:"api_key_id,omitempty"`
 	DownloadURL string    `json:"download_url,omitempty"`
 	ExpiresAt   time.Time `json:"expires_at,omitempty"`
@@ -223,6 +214,23 @@ type ExportJobResponse struct {
 // ListExportJobsResponse is the "my exports" panel feed.
 type ListExportJobsResponse struct {
 	Exports []ExportJobResponse `json:"exports"`
+}
+
+func (h *QAHandler) requireTrajectoryExportEnabled(c *gin.Context, userID int64) bool {
+	if !h.service.Enabled() {
+		response.Error(c, http.StatusServiceUnavailable, "QA capture is disabled in this environment")
+		return false
+	}
+	authorized, err := h.service.UserTrajExportEnabled(c.Request.Context(), userID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return false
+	}
+	if !authorized {
+		response.Forbidden(c, "Conversation export is not enabled for this account")
+		return false
+	}
+	return true
 }
 
 func (h *QAHandler) clientTrajDownloadURL(c *gin.Context, downloadURL, storageKey string) string {

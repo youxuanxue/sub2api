@@ -1,7 +1,8 @@
 ---
 title: Prod-only QA 24 小时在线层与 S3 归档生命周期
-status: pending
-approved_by: pending
+status: approved
+approved_by: "user (conversation approval, 2026-08-05)"
+approved_at: 2026-08-05
 created: 2026-08-05
 authors: [agent]
 risk: high
@@ -67,8 +68,8 @@ S3 中保存的是经过现有 QA 脱敏逻辑处理的 evidence，不是未经�
 ## 3. 现状与问题
 
 当前 prod QA 默认捕获绝大多数已认证网关请求。evidence 写入本地 `qa_blobs`，元数据写入
-`qa_records`；主 BlobStore 写失败时才降级到 `qa_dlq`。用户无筛选导出默认是过去 24 小时，
-但 per-key trajectory 导出可读取全部本地 retained history。
+`qa_records`；主 BlobStore 写失败时才降级到 `qa_dlq`。用户侧只保留受 `traj_export_enabled`
+控制的 API-key trajectory export。
 
 当前主机每天只运行一次 `tokenkey-qa-stale-cleanup.timer`，以 `created_at < now()-N days`
 删除 DB 行，并用全目录 `find` 按 mtime 删除 `qa_blobs/qa_dlq`。它不使用 `retention_until`，
@@ -79,9 +80,8 @@ S3 中保存的是经过现有 QA 脱敏逻辑处理的 evidence，不是未经�
 `assert-live-host-state` 虽采集 retention，却没有把预期值纳入 verdict。Edge 也在做无业务价值的
 QA capture 和本地清理。
 
-现有应用内 auto-export 是 trajectory 投影，且只覆盖 `traj_export_enabled` 用户；它不是所有
-prod QA 的无损原始归档。现有用户导出虽然可把完成 ZIP 放到 S3，但大量本地 Blob 读取、投影和
-ZIP 生成仍发生在 prod，曾有重型导出影响数据卷和服务的事故类别。
+用户导出虽然可把完成 ZIP 放到 S3，但大量本地 Blob 读取、投影和 ZIP 生成仍发生在 prod，曾有
+重型导出影响数据卷和服务的事故类别。
 
 ## 4. 单一 QA Policy
 
@@ -142,7 +142,6 @@ edge:
 - `TOKENKEY_QA_STALE_RETENTION_DAYS`；
 - `qa_capture.retention_days` 的独立配置解释；
 - `tokenkey-qa-stale-cleanup.timer`；
-- 应用内旧 daily trajectory auto-export loop；
 - Edge QA retention 和 QA host-unit 同步。
 
 应用可保留兼容期读取，但 deploy 必须以 policy 生成的值覆盖，完成迁移后删除旧配置入口。
@@ -216,8 +215,8 @@ DB 引用和年龄分批清理。
 created_at >= now() - interval '24 hours'
 ```
 
-包括普通 QA export、per-key trajectory export、synth/session export、管理端 QA 查询和线上
-request-id 关联入口。per-key 导出不再有“全部 retained history”例外。
+包括 per-key trajectory export、管理端 QA 查询和线上 request-id 关联入口。per-key 导出不再有
+“全部 retained history”例外。普通 `/users/me/qa/export` 与 synth-session self-export 不属于产品 surface。
 
 逻辑窗口严格为 24 小时，不依赖物理 cleanup 的执行时刻。即使过期行因 crash 暂留 DB，也不能被
 普通接口返回。
@@ -372,6 +371,20 @@ cleanup 判断的是 final commit segment 集合，不把首次 base segment 当
 
 服务与磁盘安全高于冷归档完整性；S3 故障不能使 prod 本地 QA 无限增长。
 
+### 8.5 四类存储与备份边界
+
+| 存储面 | 内容 | 生命周期 owner | QA 历史恢复用途 |
+|---|---|---|---|
+| 独立 QA raw archive bucket | 全部 prod 用户/API key 的脱敏 records/evidence 小时 shard | 本文 policy；7 天 | **唯一** QA 历史恢复源 |
+| `QaExportsBucket` / `traj-exports/` | 用户请求生成的 user/key trajectory ZIP artifact | 用户导出 artifact policy；短 TTL | 否；不是 raw archive，不能反推全量 QA |
+| generic data-layer archive bucket | usage/ops archive batch、manifest、promote/cleanup ledger | data-layer approved baselines | 否；工具与 manifest 必须拒绝 QA dataset |
+| PostgreSQL `pgdump` bucket | 核心 schema/数据备份；`qa_records*` table data 明确排除 | pgdump backup policy | 否；结构可恢复不等于 QA 数据可恢复 |
+
+四者 bucket/prefix、KMS/IAM、Lifecycle 和 operator role 不得混用。不得把用户 ZIP bucket或通用
+usage/ops archive bucket 改名后当作 raw QA archive，也不得把 pgdump 中保留的 QA schema 误报为 QA
+历史备份。Phase 2 raw restore 验证前，`ops/prod/fetch-qa-dump.sh` 仅作为人工只读 break-glass；它不
+定义 lifecycle、不得定时运行、不得作为删除证据，验证通过后必须删除。
+
 ## 9. Cleanup 设计
 
 ### 9.1 DB 删除
@@ -396,8 +409,8 @@ cleanup 判断的是 final commit segment 集合，不把首次 base segment 当
 
 ### 9.3 用户主动删除不在本期范围
 
-当前产品没有用户主动删除 QA 的 UI 或 HTTP API；内部 `DeleteUserData` 方法也没有 handler/route 调用方。
-本设计不把该未接线方法扩展成产品能力，不引入 deletion tombstone、跨系统撤销或 raw shard rewrite。
+产品没有用户主动删除 QA 的 UI、HTTP API 或 service capability。本设计不引入 deletion tombstone、
+跨系统撤销或 raw shard rewrite。
 
 本期 QA 删除来源只有：
 
@@ -674,7 +687,7 @@ prod job creator 必须从服务端用户事实读取 `traj_export_enabled` 并�
 新链路分阶段激活：
 
 - archive-only 可独立关闭，不改变现有本地 retention；
-- off-prod export 上线前保留旧导出入口，但切换后若 Worker 故障只能返回暂不可用，不能回退重型 prod；
+- off-prod export 上线前仅暂留现有 API-key trajectory in-prod 实现；切换后若 Worker 故障只能返回暂不可用，不能回退重型 prod；
 - 24h cleanup 只在 archive soak/恢复演练通过后启用；
 - Edge capture=false 可通过配置回滚，但不自动恢复已删除 Edge QA；
 - emergency mode 可关闭自动动作并回到人工处置，但 P0 disk monitor 必须保留。
@@ -726,11 +739,36 @@ prod job creator 必须从服务端用户事实读取 `traj_export_enabled` 并�
 每个 phase 必须有单独 dry-run/验证证据。Phase 2 完成不自动授权 Phase 4 删除；Phase 4 与 Phase 5
 生产启用均需要独立人工批准。
 
+### 18.1 现状 owner → 唯一目标 owner → 退役门禁
+
+本表是迁移期间唯一兼容清单。表外 QA lifecycle/archive/purge/export 方案一律视为冲突，不得新增。
+“暂留”只表示避免在替代能力上线前制造保护真空，不授予旧实现继续定义数值、扩展功能或新增 caller。
+
+| 当前文件/能力 | 当前角色 | 唯一目标 owner | 处理阶段与删除门禁 |
+|---|---|---|---|
+| `docs/qa-export-s3-and-auto-archive.md`、`docs/operator/qa-export-partner.md`、US-033 | 第二方案/旧产品契约 | 本文 | 本设计审批时删除，不保留历史副本 |
+| `ops/prod/qa-export-and-purge.sh` | 全量导出后 `TRUNCATE`/删 Blob | `qa-maintenance` receipts + emergency | 本设计审批时立即删除；任何 Phase 都不得恢复 | <!-- script-ref-allow-missing -->
+| 普通 `/users/me/qa/export`、`/users/me/qa/exports/*key`、`DeleteUserData` | 无 UI entitlement 的重型/半成品 surface | 仅 API-key trajectory export | 本设计审批时删除；synth 字段只保留 capture/project metadata |
+| 应用内 daily auto-export、`ArchiveAuto`、`auto_export_enabled`、auto UI kind | 只覆盖 entitlement 用户的投影 | raw archive + Fargate export | 本设计审批时删除；不得作为 archive fallback |
+| generic data-layer rehearsal/inventory 中的 `qa` dataset、`QA_RETENTION_DAYS`、Blob scan | usage/ops 之外的重复 QA owner | 本文专属 QA pipeline | 本设计审批时删除，并以负向测试拒绝重新引入 |
+| Edge workflow/Lightsail bootstrap/host-unit sync/remediation 中的 QA capture/cleanup wiring | 现网兼容保护 | `edge.capture_enabled=false` 且无 QA unit/IAM | Phase 1 原子替换；先验证不再增长，再清存量并删除全部 wiring |
+| `ops/prod/fetch-qa-dump.sh` | 从 prod 打包的只读 break-glass | `qa-archive inspect/fetch/verify` | Phase 2 raw S3 本机 restore 验证通过后删除；之前不得定时或触发 purge |
+| 当前应用内 trajectory worker、localfs/S3 ZIP 生成和 prod 下载代理 | 用户导出的临时实现 | DynamoDB/SQS/Fargate + direct S3 | Phase 3 原子切换；切换后删除 prod 重型 build/read/proxy 与相关 env 注入 |
+| `QaExportsBucket` | 当前用户 trajectory ZIP artifact bucket | Phase 3 user artifact bucket/prefix | 可迁移或复用，但永远不是 raw archive；TTL/IAM 与 raw bucket 分离 |
+| `QaStaleRetentionDays`、retention env、daily stale timer/script、`qa_capture.retention_days` | 当前 prod 物理清理保护 | repo policy + hourly `qa-maintenance` | Phase 4 在新 timer 已安装、dry-run/restore/lock 验证通过时原子删除 |
+| `tokenkey-pgdump.sh` 的 `qa_records*` data exclusion | 避免 pgdump 被 QA 撑爆的备份边界 | raw QA archive 负责 QA 历史 | 长期保留 exclusion，但注释必须指向本文；它不是 lifecycle owner |
+
+Phase PR 必须同时删除该行所有 deploy、test、doc 和 generated fixture 引用；不得只关开关后留下可再次启用
+的旧代码。迁移完成后 repository sentinel 应只允许本文、目标 policy/maintenance/worker 及明确的负向
+契约测试出现 QA lifecycle 定义。
+
 ## 19. 测试与验收
 
 ### 19.1 确定性单元/契约测试
 
 - policy schema、派生值和 runtime hash；
+- generic data-layer rehearsal/inventory 拒绝 QA dataset，不存在第二 QA retention owner；
+- 普通 `/users/me/qa/export`、daily auto-export 和 destructive full purge 不存在；
 - Edge capture disabled 与无 QA timer/S3 权限；
 - 24h 查询硬过滤和 per-key 不再越界；
 - `retention_until` 精确为 created_at+24h，DB insert age guard 阻止 cleanup 后迟到回插；
@@ -804,13 +842,13 @@ Edge
 
 ## 21. 书面审批项
 
-- [ ] 只有 prod 启用 QA，Edge 完全退出 QA。
-- [ ] 在线查询严格过去 24 小时；物理清理最多滞后到 25h15m。
-- [ ] 一个每小时 `HH:15` maintenance 串行执行 archive→verify→cleanup。
-- [ ] raw archive 覆盖所有 prod 用户/API key，S3 保留 7 天，不受 `traj_export_enabled` 影响。
-- [ ] 只有 `traj_export_enabled=true` 用户可见/可用 API-key 导出；Fargate 从 S3 生成，禁止 prod fallback。
-- [ ] ops 从 S3 直达本机隔离分析，不经过 prod。
-- [ ] 只有执行 emergency、confirmed gap 删除，或 emergency 必须动作无法启动时发送 P0。
-- [ ] emergency 为 80% 或剩余 10 GiB，清理到 70%，不暂停 capture。
-- [ ] 本期不提供用户主动删除 QA 的 UI/API，也不引入 deletion tombstone 控制面。
-- [ ] 各 phase 按独立验证/审批推进，文档 merge 不自动授权线上写入或删除。
+- [x] 只有 prod 启用 QA，Edge 完全退出 QA。
+- [x] 在线查询严格过去 24 小时；物理清理最多滞后到 25h15m。
+- [x] 一个每小时 `HH:15` maintenance 串行执行 archive→verify→cleanup。
+- [x] raw archive 覆盖所有 prod 用户/API key，S3 保留 7 天，不受 `traj_export_enabled` 影响。
+- [x] 只有 `traj_export_enabled=true` 用户可见/可用 API-key 导出；Fargate 从 S3 生成，禁止 prod fallback。
+- [x] ops 从 S3 直达本机隔离分析，不经过 prod。
+- [x] 只有执行 emergency、confirmed gap 删除，或 emergency 必须动作无法启动时发送 P0。
+- [x] emergency 为 80% 或剩余 10 GiB，清理到 70%，不暂停 capture。
+- [x] 本期不提供用户主动删除 QA 的 UI/API，也不引入 deletion tombstone 控制面。
+- [x] 各 phase 按独立验证/审批推进，文档 merge 不自动授权线上写入或删除。

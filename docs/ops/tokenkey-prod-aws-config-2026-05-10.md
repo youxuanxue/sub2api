@@ -81,7 +81,6 @@ Data Volume 用于持久化 PostgreSQL、Redis、Caddy 状态与应用数据。C
 | GHCR PAT SSM 参数名 | `/tokenkey/ghcr/pat` |
 | Timezone | `UTC` |
 | Snapshot Schedule | `daily` |
-| QA stale retention | 1.5 days |
 
 说明：上述镜像信息来自 CloudFormation 参数与输出。生产升级通常通过 SSM 原地更新容器镜像，若需要核对主机内当前实际运行容器 tag，可再通过 SSM 进入实例查询 Docker 运行态。
 

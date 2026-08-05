@@ -35,7 +35,7 @@ related_prs: [1385]
 - `lock_timeout=100ms`，不等待 DDL/维护锁；
 - 近 30 天增长扫描 `statement_timeout=2s`；
 - 总行数来自 `pg_stat_user_tables` 估算，不做全表 `COUNT(*)`；
-- usage/ops/QA 分区表大小按叶分区汇总，禁止把无存储的分区父表误当真实占用；
+- usage/ops 分区表大小按叶分区汇总，禁止把无存储的分区父表误当真实占用；
 - 基础目录查询缺失、增长扫描超时或统计缺失一律输出 `unknown`，禁止猜成 green；
 - 不运行 `VACUUM FULL`、大表 rewrite、锁表 DDL、容器重建、重启或清理。
 
@@ -84,8 +84,8 @@ fail closed；ops 回收上界不得超过 snapshot 观测到的 ops 关系总�
 -> dry-run 水位 -> 单批 canary（仍不删）-> 独立批准后才允许小批删除
 ```
 
-候选保留策略为 usage 热 90 天、raw ops 热 30 天、QA 本机 2 天。ops 优先整分区 drop；
-usage 当前不是自动分区表，不在 prod 做 `VACUUM FULL` 或直接 rewrite 来追求 `df` 好看。
+候选保留策略为 usage 热 90 天、raw ops 热 30 天。ops 优先整分区 drop；usage 当前不是自动
+分区表，不在 prod 做 `VACUUM FULL` 或直接 rewrite 来追求 `df` 好看。QA 不由本通用设计管理。
 扩盘与归档分别审批，任何一个完成都不自动授权另一个。
 
 ## 验收门
@@ -102,5 +102,5 @@ usage 当前不是自动分区表，不在 prod 做 `VACUUM FULL` 或直接 rewr
 
 - 不连接或查询 prod，不创建 prod change set/SSM 参数。
 - 不修改当前 50 GiB 卷，不扩文件系统，不重启任何服务。
-- 不新增生产归档 schema/worker/S3 bucket，不删除 usage/ops/QA 数据。
+- 不新增生产归档 schema/worker/S3 bucket，不删除 usage/ops 数据。
 - 不改变 RDS PR #587，也不把容量缓解冒充数据库高可用。

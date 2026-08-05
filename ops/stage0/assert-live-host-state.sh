@@ -80,7 +80,7 @@ printf 'APPCONTAINER {"name":"%s"}\n' "\$app_container"
 img=\$(docker inspect "\$app_container" --format '{{.Config.Image}}' 2>/dev/null)
 printf 'RUNIMAGE {"image":"%s"}\n' "\$img"
 docker exec "\$app_container" printenv 2>/dev/null \
-  | grep -E '^(SERVER_FRONTEND_URL|QA_CAPTURE_EXPORT_STORAGE_(DRIVER|REGION|BUCKET|PREFIX)|QA_CAPTURE_AUTO_EXPORT_ENABLED)=' \
+  | grep -E '^(SERVER_FRONTEND_URL|QA_CAPTURE_EXPORT_STORAGE_(DRIVER|REGION|BUCKET|PREFIX))=' \
   | while IFS='=' read -r k v; do printf 'ENV {"key":"%s","value":"%s"}\n' "\$k" "\$v"; done
 ret=\$(sed -n 's/^TOKENKEY_QA_STALE_RETENTION_DAYS=//p' /etc/tokenkey/qa-stale-retention.env 2>/dev/null | head -1)
 printf 'RETENTION {"value":"%s"}\n' "\$ret"

@@ -25,8 +25,9 @@ Docker 数据库和专用 sentinel；生产 PostgreSQL、S3、生产 canary 和�
 - CLI 入口为 `snapshot-postgres`，只接受 `postgresql://` localhost DSN；源数据库必须精确为
   `tokenkey_archive_rehearsal`，并存在 `archive_rehearsal_sentinel(label='tokenkey_archive_rehearsal')`。
   远程主机、生产数据库名、libpq 非 URI 和缺 sentinel 均 fail closed。
-- 只读事务按白名单读取 `usage_logs`、`ops_system_logs`、`ops_error_logs`、`qa_records` 的
-  `created_at` 冷数据；设置 2 秒锁等待、显式 statement timeout 和最大导出行数。
+- 只读事务按白名单读取 `usage_logs`、`ops_system_logs`、`ops_error_logs` 的 `created_at`
+  冷数据；设置 2 秒锁等待、显式 statement timeout 和最大导出行数。QA 生命周期由独立 SSOT 管理，
+  不进入通用 data-layer rehearsal。
 - 工件仍使用 canonical JSONL + gzip + manifest + SHA-256；manifest 标记
   `source_mutated=false`、`deletion_authorized=false`，并记录 logical/artifact bytes、压缩率和
   PostgreSQL 查询指标。ops 表记录 ID 以表名前缀隔离，避免跨表冲突。
@@ -44,7 +45,7 @@ Docker 数据库和专用 sentinel；生产 PostgreSQL、S3、生产 canary 和�
 payload_json)`；dataset 只接受 `usage/ops/qa`，主键为 dataset + record_id，时间必须带时区，
 payload 必须是 finite JSON。
 
-- 数据集固定为 `usage`、`ops`、`qa`；默认热层分别为 90、30、2 天；
+- 数据集固定为 `usage`、`ops`；默认热层分别为 90、30 天；
 - 水位使用带时区的 `as_of`，仅选择严格早于 cutoff 的记录；UTC 标准化固定输出六位微秒，
   既不丢失精度，也保证 JSONL 与 SQLite 字符串排序等价于时间顺序；
 - JSONL 逐行 canonicalize，按 `created_at, record_id` 排序；

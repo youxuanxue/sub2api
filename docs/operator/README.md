@@ -11,4 +11,3 @@
 | [anthropic-prod-edge-relay.md](./anthropic-prod-edge-relay.md) | Prod 分组 + Edge OAuth 中继（例：cc-uk1-oauth） |
 | [kiro-account-onboarding.md](./kiro-account-onboarding.md) | Kiro 账号接入 |
 | [gcp-trial-vertex-onboarding.md](./gcp-trial-vertex-onboarding.md) | GCP 试用 Vertex 媒体账号 |
-| [qa-export-partner.md](./qa-export-partner.md) | Prod QA 全量导出与清理（合伙人简版） |

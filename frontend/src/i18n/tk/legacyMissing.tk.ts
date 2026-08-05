@@ -418,8 +418,6 @@ const en: LocaleOverlay = {
       "download": "Download",
       "expired": "Expired",
       "recordCount": "{count} records",
-      "kindManual": "Manual",
-      "kindAuto": "Auto",
       "status": "Status",
       "statusValue": {
         "pending": "Pending",
@@ -1357,8 +1355,6 @@ const zh: LocaleOverlay = {
       "download": "下载",
       "expired": "已过期",
       "recordCount": "{count} 条",
-      "kindManual": "立即",
-      "kindAuto": "自动",
       "status": "状态",
       "statusValue": {
         "pending": "排队中",

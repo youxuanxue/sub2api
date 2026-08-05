@@ -47,12 +47,6 @@
           <div class="min-w-0 flex-1 space-y-0.5">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ formatTime(job.created_at) }}</span>
-              <span
-                class="px-1.5 py-0.5 rounded text-xs font-medium"
-                :class="job.kind === 'auto'
-                  ? 'bg-gray-200 dark:bg-dark-700 text-gray-600 dark:text-gray-300'
-                  : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300'"
-              >{{ job.kind === 'auto' ? t('keys.exportPanel.kindAuto') : t('keys.exportPanel.kindManual') }}</span>
             </div>
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('keys.exportPanel.recordCount', { count: job.record_count }) }} ·

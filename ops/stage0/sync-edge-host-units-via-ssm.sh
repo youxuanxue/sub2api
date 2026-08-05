@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Bring a running Lightsail EDGE's host-level systemd units up to prod parity via
 # SSM Run-Command. Mirrors ops/stage0/pg_dump_refresh_via_ssm.sh.
+# TRANSITIONAL / NON-SSOT: Phase 1 must remove all QA payload/env/unit wiring
+# after edge capture=false is verified. Do not extend the QA path here.
 #
 # Why this exists: prod (deploy/aws/stage0/stage0-ec2-bootstrap.sh) installs AND
 # enables two host units that the edge bootstrap (deploy/aws/lightsail/render-bootstrap.sh)
@@ -32,7 +34,7 @@
 #
 # Usage:
 #   bash ops/stage0/sync-edge-host-units-via-ssm.sh <instance-id|mi-...> [comment]
-#   AWS_REGION=us-east-2 TK_QA_STALE_RETENTION_DAYS=1 \
+#   AWS_REGION=us-east-2 TK_QA_STALE_RETENTION_DAYS=<transitional-value> \
 #     bash ops/stage0/sync-edge-host-units-via-ssm.sh mi-...
 
 set -euo pipefail
@@ -41,9 +43,8 @@ INSTANCE_ID="${1:-${INSTANCE_ID:-}}"
 COMMENT="${2:-${SSM_COMMENT:-ops-edge-host-units-sync}}"
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-300}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
-# Edge QA retention in days (fractional OK). Default 1 = prod parity (the CFN
-# QaStaleRetentionDays default). edges are pure relays so QA there is low-value;
-# keep it short.
+# Transitional Edge QA retention compatibility only. The value is not policy;
+# Phase 1 replaces this entire QA path with capture=false and no QA unit.
 QA_RETENTION_DAYS="${TK_QA_STALE_RETENTION_DAYS:-1}"
 
 if [ -z "${INSTANCE_ID}" ]; then

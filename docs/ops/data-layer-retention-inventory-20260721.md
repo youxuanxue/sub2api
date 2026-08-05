@@ -24,9 +24,6 @@ counts and relation-size ratios are estimates only.
 | `usage_logs` older than 90 days | **0 rows** (bounded indexed count) |
 | `ops_system_logs` | 14,036,582,400 B / 7,366,754 estimated live rows (`pg_stat`) |
 | `ops_error_logs` | 3,150,708,736 B / 711,789 estimated live rows (`pg_stat`) |
-| `qa_records` | 813,129,728 B / 188,012 estimated live rows (`pg_stat`) |
-| QA partitions physically droppable now | 320,299,008 B (`2026-04`, `2026-05`) |
-| QA local blobs older than 2 days | 856,802,529 B |
 
 The ops legacy partitions currently cross the 30-day cutoff, so their
 physically droppable bytes are **0 B today**. Their exact relation sizes and
@@ -46,20 +43,18 @@ capacity promise; keep measuring it.
 
 ## Runway scenarios
 
-The offline projection uses a 90-day usage hot layer, 30-day raw ops hot
-layer, 2-day QA hot layer, an 85% operational limit, and 13 GiB/month
-residual growth. It does not treat PostgreSQL `DELETE` as filesystem reclaim.
+The offline projection uses a 90-day usage hot layer, 30-day raw ops hot layer,
+an 85% operational limit, and 13 GiB/month residual growth. It does not treat
+PostgreSQL `DELETE` as filesystem reclaim. QA is excluded from this generic
+inventory and is governed only by
+`docs/approved/design-prod-qa-24h-s3-lifecycle.md`.
 
 | Volume / reclaim evidence | To 85% | To full |
 | --- | ---: | ---: |
-| Pre-grow 50 GiB; QA partitions only (0.298 GiB) | ~0.3 mo | ~0.9 mo |
-| Pre-grow 50 GiB; ops legacy + QA partitions (10.159 GiB) | ~1.1 mo | ~1.7 mo |
-| Grow-only 100 GiB; QA partitions only | ~3.6 mo | ~4.7 mo |
-| Grow-only 100 GiB; ops legacy + QA partitions (10.159 GiB) | ~4.3 mo | ~5.5 mo |
-
-The QA blob figure is additional host filesystem space and is not included in
-the PostgreSQL partition numbers. Including it improves the scenarios by less
-than one month and does not change the decision.
+| Pre-grow 50 GiB; no reclaim | ~0.7 mo | ~1.3 mo |
+| Pre-grow 50 GiB; ops legacy reclaimed (~9.86 GiB) | ~1.4 mo | ~2.0 mo |
+| Grow-only 100 GiB; no reclaim | ~3.9 mo | ~5.1 mo |
+| Grow-only 100 GiB; ops legacy reclaimed (~9.86 GiB) | ~4.7 mo | ~5.8 mo |
 
 ## Post-inventory volume update
 
@@ -80,16 +75,17 @@ does not change the retention evidence or authorize archive deletion.
 
 - Exporting or sealing data without a later approved physical reclaim buys
   **0 months** of `df` runway.
-- QA cleanup plus the two ops legacy drops would have bought roughly **one
-  month** on the pre-grow 50 GiB volume under the measured growth profile.
+- The two ops legacy drops would have bought roughly **one additional month**
+  on the pre-grow 50 GiB volume under the measured growth profile.
 - The completed 100 GiB grow-only expansion is a short-term safety buffer, not
   an RDS replacement. At the same growth rate it buys roughly four months
   after the archive reclaim.
 - Do not approve a production drop from this inventory alone. The
   non-production `dry-run -> seal -> verify -> restore` rehearsal is complete;
   next run an export-only production canary with an independent
-  restore/checksum. A production partition drop, QA blob purge, any further
-  volume resize, and RDS migration remain separate approvals.
+  restore/checksum. A production ops partition drop, any further volume resize,
+  and RDS migration remain separate approvals. This inventory does not authorize
+  or define any QA action.
 
 Next engineering action: retain this probe and its safety test in PR #1390,
 then prepare an export-only production canary using the already completed

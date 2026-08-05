@@ -1,6 +1,6 @@
 #!/bin/bash
 # Regenerated into stage0-single-ec2.yaml by: deploy/aws/stage0/build-cfn.sh
-# Retention is set at boot via /etc/tokenkey/qa-stale-retention.env (QaStaleRetentionDays).
+# TRANSITIONAL / NON-SSOT: Phase 4 replaces this with approved qa-maintenance.
 set -euo pipefail
 RETENTION_DAYS="${TOKENKEY_QA_STALE_RETENTION_DAYS:-1}"
 if ! [[ "${RETENTION_DAYS}" =~ ^(0|[1-9][0-9]*)(\.[0-9]+)?$ ]]; then

@@ -43,8 +43,6 @@ func registerTKUserRoutes(authenticated, user *gin.RouterGroup, h *handler.Handl
 // service reads `WHERE user_id = subject.UserID` are unaffected.
 //
 // Endpoints (JWT OR API-key):
-//   - POST /api/v1/users/me/qa/export — issue #59 + #63.
-//   - GET /api/v1/users/me/qa/exports/*key — issue #67 + #68 localfs download.
 //   - POST /api/v1/users/me/qa/traj/export — enqueue async traj export (returns job_id).
 //   - GET /api/v1/users/me/qa/traj/export/jobs — "my exports" panel feed (?api_key_id=).
 //   - GET /api/v1/users/me/qa/traj/export/jobs/:job_id — poll async export status.
@@ -59,8 +57,6 @@ func registerTKUserDualAuthRoutes(
 	dualAuth.Use(gin.HandlerFunc(eitherAuth))
 	dualAuth.Use(middleware.BackendModeUserGuard(settingService))
 	{
-		dualAuth.POST("/users/me/qa/export", h.QA.ExportSelf)
-		dualAuth.GET("/users/me/qa/exports/*key", h.QA.DownloadSelfExport)
 		dualAuth.POST("/users/me/qa/traj/export", h.QA.ExportSelfTrajectory)
 		dualAuth.GET("/users/me/qa/traj/export/jobs", h.QA.ListSelfTrajectoryExports)
 		dualAuth.GET("/users/me/qa/traj/export/jobs/:job_id", h.QA.GetSelfTrajectoryExportJob)

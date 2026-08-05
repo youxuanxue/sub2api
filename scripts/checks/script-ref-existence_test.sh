@@ -97,6 +97,11 @@ run "P8 ops/X.vue (Vue path, skip)"       "import '@/views/admin/ops/D.vue'"    
 run "P9 dev-rules/scripts/X (subm-nested, fixture missing → expect fail)" \
     "see dev-rules/scripts/never-existed.py for ..."                                   fail
 
+run "P10 explicit tombstone marker (skip)" \
+    "retired ops/prod/missing-purge.sh # script-ref-allow-missing" skip
+run "P11 marker on another line does not bypass" \
+    $'script-ref-allow-missing\nbash ops/prod/missing-still-live.sh' fail
+
 # ---- result ------------------------------------------------------------------
 
 total=$((pass + fail))

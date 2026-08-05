@@ -65,6 +65,9 @@
 #        SSE Content-Type onto a JSON body. Driven by
 #        `scripts/checks/buffered-content-type-leak.py`. Mechanical replacement
 #        for "review notices the antipattern" + sentinel pinning of known sites.
+#   QA lifecycle SSOT gate      — prevents retired QA archive/purge/self-export
+#        owners from returning and keeps generic data-layer tooling usage/ops-only.
+#        Driven by `scripts/checks/qa-lifecycle-ssot.py`.
 #   QA evidence dataset validator — guards the exported QA evidence dataset contract:
 #        exported `trajectory.jsonl` artifacts must keep H1/H2/H3/D1 and structural
 #        acceptance semantics reachable through the standalone validator script,
@@ -1211,6 +1214,21 @@ elif ! python3 ./scripts/sentinels/check-engine-facade.py --quiet; then
     errors=$((errors + 1))
 else
     echo "  ok: key dispatch paths still route through Engine facade truth"
+fi
+
+# ---- sub2api: QA lifecycle single source of truth ----------------------------
+echo ""
+echo "=== sub2api: QA lifecycle SSOT ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by qa-lifecycle-ssot.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/qa-lifecycle-ssot.py --self-test >/dev/null; then
+    echo "  FAIL: QA lifecycle SSOT sentinel self-test failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/qa-lifecycle-ssot.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: one approved QA lifecycle owner; retired conflicts remain absent"
 fi
 
 # ---- sub2api: QA evidence dataset validator ----------------------------------------

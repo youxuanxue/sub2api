@@ -186,19 +186,15 @@ type QACaptureConfig struct {
 	Enabled           bool                   `mapstructure:"enabled"`
 	BodyMaxBytes      int                    `mapstructure:"body_max_bytes"`
 	OptInBodyMaxBytes int                    `mapstructure:"opt_in_body_max_bytes"`
+	// RetentionDays is transitional until Phase 4 replaces the daily cleanup;
+	// it is not the QA lifecycle source of truth.
 	RetentionDays     int                    `mapstructure:"retention_days"`
 	WorkerCount       int                    `mapstructure:"worker_count"`
 	QueueSize         int                    `mapstructure:"queue_size"`
 	Storage           QACaptureStorageConfig `mapstructure:"storage"`
-	// ExportStorage, when its driver is set, is a SEPARATE destination for the
-	// finished export ZIP (typically S3) so the large archive leaves the
-	// Postgres-shared data volume. Unset ⇒ exports reuse Storage (localfs). The
-	// daily auto-export cron + on-demand export both write here; capture blobs
-	// always use Storage.
+	// ExportStorage is the transitional user-requested ZIP artifact destination.
+	// It is not the raw QA archive; capture blobs always use Storage.
 	ExportStorage QACaptureStorageConfig `mapstructure:"export_storage"`
-	// AutoExportEnabled turns on the daily per-(user,key) archive cron. Off by
-	// default; only meaningful once ExportStorage points at durable S3.
-	AutoExportEnabled bool `mapstructure:"auto_export_enabled"`
 }
 
 type QACaptureStorageConfig struct {
@@ -2740,7 +2736,6 @@ func setEnvReachableDefaults() {
 
 	viper.SetDefault("gateway.anthropic_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.upstream_body_guards", []UpstreamBodyGuardConfig{})
-	viper.SetDefault("qa_capture.auto_export_enabled", false)
 }
 
 func (c *Config) Validate() error {
