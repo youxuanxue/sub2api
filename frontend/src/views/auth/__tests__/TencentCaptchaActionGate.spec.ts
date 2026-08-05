@@ -7,7 +7,7 @@ const loginMock = vi.fn()
 const loginWithPasskeyMock = vi.fn()
 const getPublicSettingsMock = vi.fn()
 const startOAuthLoginMock = vi.fn()
-const verifyActionMock = vi.fn()
+const acquireProofMock = vi.fn()
 const captchaResetMock = vi.fn()
 const locationState = { href: 'http://localhost/login' }
 
@@ -51,10 +51,10 @@ vi.mock('@/api/auth', async () => {
   }
 })
 
-const CaptchaChallengeStub = defineComponent({
+const AuthActionCaptchaStub = defineComponent({
   setup(_, { expose }) {
     expose({
-      verifyAction: verifyActionMock,
+      acquireProof: acquireProofMock,
       reset: captchaResetMock
     })
     return () => h('div')
@@ -64,14 +64,19 @@ const CaptchaChallengeStub = defineComponent({
 const OAuthButtonStub = defineComponent({
   emits: ['start'],
   setup(_, { emit }) {
-    return () => h('button', {
-      type: 'button',
-      'data-testid': 'oauth-start',
-      onClick: () => emit('start', {
-        provider: 'github',
-        params: { redirect: '/dashboard' }
-      })
-    })
+    return () =>
+      h(
+        'button',
+        {
+          type: 'button',
+          'data-testid': 'oauth-start',
+          onClick: () =>
+            emit('start', {
+              provider: 'github',
+              params: { redirect: '/dashboard' }
+            })
+        }
+      )
   }
 })
 
@@ -81,7 +86,7 @@ function mountLogin() {
       stubs: {
         AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
         RouterLink: true,
-        TurnstileWidget: CaptchaChallengeStub,
+        AuthActionCaptcha: AuthActionCaptchaStub,
         Icon: true,
         LoginAgreementPrompt: true,
         TotpLoginModal: true,
@@ -101,7 +106,7 @@ describe('Tencent captcha action gate', () => {
     loginWithPasskeyMock.mockReset()
     getPublicSettingsMock.mockReset()
     startOAuthLoginMock.mockReset()
-    verifyActionMock.mockReset()
+    acquireProofMock.mockReset()
     captchaResetMock.mockReset()
     getPublicSettingsMock.mockResolvedValue({
       turnstile_enabled: false,
@@ -117,7 +122,10 @@ describe('Tencent captcha action gate', () => {
     loginMock.mockResolvedValue({})
     loginWithPasskeyMock.mockResolvedValue({})
     startOAuthLoginMock.mockResolvedValue({ authorize_url: 'https://github.example/authorize' })
-    verifyActionMock.mockResolvedValue({ token: 'ticket-1', randstr: '@rand-1' })
+    acquireProofMock.mockResolvedValue({
+      tencent_captcha_ticket: 'ticket-1',
+      tencent_captcha_randstr: '@rand-1'
+    })
     Object.defineProperty(window, 'PublicKeyCredential', {
       configurable: true,
       value: class PublicKeyCredential {}
@@ -129,7 +137,7 @@ describe('Tencent captcha action gate', () => {
     })
   })
 
-  it('clicking login opens Tencent captcha before calling login', async () => {
+  it('keeps password login outside the Tencent action gate', async () => {
     const wrapper = mountLogin()
     await flushPromises()
     await wrapper.get('#email').setValue('user@example.com')
@@ -138,15 +146,15 @@ describe('Tencent captcha action gate', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    expect(verifyActionMock).toHaveBeenCalledOnce()
-    expect(loginMock).toHaveBeenCalledWith(expect.objectContaining({
-      tencent_captcha_ticket: 'ticket-1',
-      tencent_captcha_randstr: '@rand-1'
-    }))
+    expect(acquireProofMock).not.toHaveBeenCalled()
+    expect(loginMock).toHaveBeenCalledWith({
+      email: 'user@example.com',
+      password: 'secret-123'
+    })
   })
 
-  it('does not call login when Tencent captcha is closed', async () => {
-    verifyActionMock.mockResolvedValue(null)
+  it('does not let a closed action gate block password login', async () => {
+    acquireProofMock.mockResolvedValue(null)
     const wrapper = mountLogin()
     await flushPromises()
     await wrapper.get('#email').setValue('user@example.com')
@@ -155,8 +163,8 @@ describe('Tencent captcha action gate', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    expect(verifyActionMock).toHaveBeenCalledOnce()
-    expect(loginMock).not.toHaveBeenCalled()
+    expect(acquireProofMock).not.toHaveBeenCalled()
+    expect(loginMock).toHaveBeenCalledOnce()
   })
 
   it('does not open Tencent captcha when login form validation fails', async () => {
@@ -166,7 +174,7 @@ describe('Tencent captcha action gate', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    expect(verifyActionMock).not.toHaveBeenCalled()
+    expect(acquireProofMock).not.toHaveBeenCalled()
     expect(loginMock).not.toHaveBeenCalled()
   })
 
@@ -177,7 +185,7 @@ describe('Tencent captcha action gate', () => {
     await wrapper.get('[data-testid="oauth-start"]').trigger('click')
     await flushPromises()
 
-    expect(verifyActionMock).toHaveBeenCalledOnce()
+    expect(acquireProofMock).toHaveBeenCalledOnce()
     expect(startOAuthLoginMock).toHaveBeenCalledWith(
       { provider: 'github', params: { redirect: '/dashboard' } },
       {
@@ -190,7 +198,7 @@ describe('Tencent captcha action gate', () => {
   })
 
   it('does not start OAuth when Tencent captcha is closed', async () => {
-    verifyActionMock.mockResolvedValue(null)
+    acquireProofMock.mockResolvedValue(null)
     const wrapper = mountLogin()
     await flushPromises()
 
@@ -208,7 +216,7 @@ describe('Tencent captcha action gate', () => {
     await wrapper.get('button.btn-secondary.w-full').trigger('click')
     await flushPromises()
 
-    expect(verifyActionMock).toHaveBeenCalledOnce()
+    expect(acquireProofMock).toHaveBeenCalledOnce()
     expect(loginWithPasskeyMock).toHaveBeenCalledWith({
       tencent_captcha_ticket: 'ticket-1',
       tencent_captcha_randstr: '@rand-1'
@@ -217,7 +225,7 @@ describe('Tencent captcha action gate', () => {
   })
 
   it('does not invoke Passkey when Tencent captcha is closed', async () => {
-    verifyActionMock.mockResolvedValue(null)
+    acquireProofMock.mockResolvedValue(null)
     const wrapper = mountLogin()
     await flushPromises()
 

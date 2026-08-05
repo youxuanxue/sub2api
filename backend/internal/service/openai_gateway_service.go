@@ -38,7 +38,7 @@ const (
 	codexCLIUserAgentPrefix = "codex_cli_rs/"
 	codexCLIUserAgentMiddle = " (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex_cli_rs; "
 	codexCLIUserAgentSuffix = ")"
-	codexCLIUserAgent       = codexCLIUserAgentPrefix + codexCLIVersion + codexCLIUserAgentMiddle + codexCLIVersion + codexCLIUserAgentSuffix
+	codexCLIUserAgent       = DefaultOpenAICodexUserAgent
 	// codex_cli_only 拒绝时单个请求头日志长度上限（字符）
 	codexCLIOnlyHeaderValueMaxBytes = 256
 

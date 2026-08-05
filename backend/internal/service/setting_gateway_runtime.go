@@ -92,7 +92,7 @@ const DefaultOpenAICodexVersion = "0.146.0"
 
 // DefaultOpenAICodexUserAgent is the compile-time fallback. Runtime sync may
 // replace its version, but the real CLI OS and terminal fingerprint stays fixed.
-const DefaultOpenAICodexUserAgent = codexCLIUserAgent
+const DefaultOpenAICodexUserAgent = codexCLIUserAgentPrefix + DefaultOpenAICodexVersion + codexCLIUserAgentMiddle + DefaultOpenAICodexVersion + codexCLIUserAgentSuffix
 
 const (
 	codexCLIVersion         = DefaultOpenAICodexVersion
