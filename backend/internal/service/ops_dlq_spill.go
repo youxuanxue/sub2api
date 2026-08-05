@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -114,6 +115,15 @@ type opsDLQFileInfo struct {
 }
 
 func pruneOpsDLQDir(dir string, now time.Time, policy opsDLQSpillLimits) (removed int, err error) {
+	return pruneOpsDLQDirWithRemove(dir, now, policy, os.Remove)
+}
+
+func pruneOpsDLQDirWithRemove(
+	dir string,
+	now time.Time,
+	policy opsDLQSpillLimits,
+	remove func(string) error,
+) (removed int, err error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -121,7 +131,7 @@ func pruneOpsDLQDir(dir string, now time.Time, policy opsDLQSpillLimits) (remove
 		}
 		return 0, err
 	}
-	files := make([]opsDLQFileInfo, 0, len(entries))
+	remaining := make([]opsDLQFileInfo, 0, len(entries))
 	var totalBytes int64
 	cutoff := now.Add(-policy.maxAge)
 	for _, ent := range entries {
@@ -134,43 +144,34 @@ func pruneOpsDLQDir(dir string, now time.Time, policy opsDLQSpillLimits) (remove
 		}
 		info, infoErr := ent.Info()
 		if infoErr != nil {
-			continue
+			return removed, fmt.Errorf("inspect ops DLQ file %q: %w", name, infoErr)
 		}
 		fi := opsDLQFileInfo{
 			path:    filepath.Join(dir, name),
 			modTime: info.ModTime(),
 			size:    info.Size(),
 		}
-		files = append(files, fi)
-		totalBytes += fi.size
 		if fi.modTime.Before(cutoff) {
-			if rmErr := os.Remove(fi.path); rmErr == nil {
-				removed++
-				totalBytes -= fi.size
+			if rmErr := remove(fi.path); rmErr != nil && !os.IsNotExist(rmErr) {
+				return removed, fmt.Errorf("remove expired ops DLQ file %q: %w", name, rmErr)
 			}
-		}
-	}
-	if len(files)-removed <= policy.maxFiles && totalBytes <= policy.maxBytes {
-		return removed, nil
-	}
-	remaining := make([]opsDLQFileInfo, 0, len(files))
-	for _, fi := range files {
-		if _, statErr := os.Stat(fi.path); statErr != nil {
+			removed++
 			continue
 		}
 		remaining = append(remaining, fi)
+		totalBytes += fi.size
+	}
+	if len(remaining) <= policy.maxFiles && totalBytes <= policy.maxBytes {
+		return removed, nil
 	}
 	sort.Slice(remaining, func(i, j int) bool {
 		return remaining[i].modTime.Before(remaining[j].modTime)
 	})
 	for len(remaining) > policy.maxFiles || totalBytes > policy.maxBytes {
-		if len(remaining) == 0 {
-			break
-		}
 		oldest := remaining[0]
 		remaining = remaining[1:]
-		if rmErr := os.Remove(oldest.path); rmErr != nil {
-			continue
+		if rmErr := remove(oldest.path); rmErr != nil && !os.IsNotExist(rmErr) {
+			return removed, fmt.Errorf("remove excess ops DLQ file %q: %w", filepath.Base(oldest.path), rmErr)
 		}
 		removed++
 		totalBytes -= oldest.size

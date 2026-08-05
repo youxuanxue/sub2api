@@ -82,6 +82,45 @@ wait_healthy tokenkey-green
         return proc.returncode, calls, proc.stdout + proc.stderr
 
 
+def _run_target_is_reusable(
+    remote: str,
+    *,
+    image: str = "ghcr.io/youxuanxue/sub2api:1.8.134",
+    expected_image: str = "ghcr.io/youxuanxue/sub2api:1.8.134",
+    health: str = "healthy",
+    skip_chown: str = "1",
+    expected_hash: str = "expected-hash",
+    actual_hash: str = "expected-hash",
+    ready: bool = True,
+) -> tuple[int, str]:
+    start = remote.index("target_is_reusable() {")
+    end = remote.index("\n}\n\ndrain_container()", start) + len("\n}\n")
+    function = remote[start:end]
+    script = f"""{function}
+log() {{ :; }}
+container_image() {{ printf '%s\\n' {shlex.quote(image)}; }}
+container_health() {{ printf '%s\\n' {shlex.quote(health)}; }}
+compose_bg() {{ printf 'tokenkey-green %s\\n' {shlex.quote(expected_hash)}; }}
+wait_ready() {{ return {0 if ready else 1}; }}
+sudo() {{
+  case "$*" in
+    *'range .Config.Env'*) printf 'SKIP_DATA_CHOWN=%s\\n' {shlex.quote(skip_chown)} ;;
+    *'com.docker.compose.config-hash'*) printf '%s\\n' {shlex.quote(actual_hash)} ;;
+    *) return 1 ;;
+  esac
+}}
+target_is_reusable tokenkey-green {shlex.quote(expected_image)}
+"""
+    proc = subprocess.run(
+        ["bash"],
+        input=script,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.returncode, proc.stdout + proc.stderr
+
+
 class BlueGreenRenderTest(unittest.TestCase):
     def test_rejects_lightsail_edge_ids(self) -> None:
         proc, params, remote = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
@@ -167,6 +206,25 @@ class BlueGreenRenderTest(unittest.TestCase):
                 rc, calls, output = _run_wait_healthy(remote, statuses)
                 self.assertEqual(rc, expected_rc, msg=output)
                 self.assertEqual(calls, expected_calls, msg=output)
+
+    def test_target_reuse_requires_every_runtime_contract_to_match(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+
+        cases = [
+            ({}, 0),
+            ({"image": "ghcr.io/youxuanxue/sub2api:old"}, 1),
+            ({"health": "unhealthy"}, 1),
+            ({"skip_chown": "0"}, 1),
+            ({"actual_hash": "stale-hash"}, 1),
+            ({"expected_hash": ""}, 1),
+            ({"ready": False}, 1),
+        ]
+        for overrides, expected_rc in cases:
+            with self.subTest(overrides=overrides):
+                rc, output = _run_target_is_reusable(remote, **overrides)
+                self.assertEqual(rc, expected_rc, msg=output)
 
     def test_values_are_env_overridable(self) -> None:
         proc, params, _ = _render(env_extra={

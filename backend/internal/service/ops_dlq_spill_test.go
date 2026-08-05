@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -93,6 +94,47 @@ func TestPruneOpsDLQDirConvergesToMaxBytes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, removed)
 	require.Equal(t, []string{"02.json.zst"}, listDLQNames(t, dir))
+}
+
+func TestPruneOpsDLQDirReportsRemovalFailure(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	path := filepath.Join(dir, "old.json.zst")
+	require.NoError(t, os.WriteFile(path, []byte("x"), 0o644))
+	require.NoError(t, os.Chtimes(path, now.Add(-2*time.Hour), now.Add(-2*time.Hour)))
+	removeErr := fmt.Errorf("injected remove failure")
+	_, err := pruneOpsDLQDirWithRemove(dir, now, opsDLQSpillLimits{
+		maxFiles:     2,
+		maxBytes:     1 << 30,
+		maxAge:       time.Hour,
+		writesPerMin: 1000,
+	}, func(string) error { return removeErr })
+	require.ErrorIs(t, err, removeErr)
+	require.FileExists(t, path)
+}
+
+func TestOpsDLQFallbackContainsUnsafeRequestIDWithoutPathEscape(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("DATA_DIR", dataDir)
+	resetOpsDLQSpillForTest()
+	t.Cleanup(resetOpsDLQSpillForTest)
+
+	svc := &OpsService{}
+	entry := &OpsInsertErrorLogInput{
+		RequestID:  "../../escaped",
+		ErrorPhase: "upstream",
+		ErrorType:  "upstream_error",
+		CreatedAt:  time.Now().UTC(),
+	}
+	require.NoError(t, svc.persistPreparedErrorFallback(context.Background(), entry, "test"))
+	require.NoFileExists(t, filepath.Join(dataDir, "..", "escaped.json.zst"))
+	files, err := filepath.Glob(filepath.Join(dataDir, "ops_dlq", "*.json.zst"))
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	payload := readOpsFallbackPayload(t, files[0])
+	persisted, ok := payload["entry"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "../../escaped", persisted["RequestID"])
 }
 
 func TestPrepareOpsDLQSpillDropsWhenRateLimited(t *testing.T) {

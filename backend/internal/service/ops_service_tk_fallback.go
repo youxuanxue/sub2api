@@ -35,8 +35,8 @@ func (s *OpsService) persistPreparedErrorFallback(ctx context.Context, entry *Op
 	if err != nil {
 		return err
 	}
-	_, _ = pruneOpsDLQDir(dir, time.Now().UTC(), loadOpsDLQSpillLimits())
-	return nil
+	_, err = pruneOpsDLQDir(dir, time.Now().UTC(), loadOpsDLQSpillLimits())
+	return err
 }
 
 func buildOpsErrorFallbackPayload(entry *OpsInsertErrorLogInput, reason string) ([]byte, string, error) {
@@ -68,6 +68,9 @@ func buildOpsErrorFallbackPayload(entry *OpsInsertErrorLogInput, reason string) 
 		return nil, "", err
 	}
 	compressed := enc.EncodeAll(raw, make([]byte, 0, len(raw)))
+	if err := enc.Close(); err != nil {
+		return nil, "", err
+	}
 	return compressed, requestID, nil
 }
 
