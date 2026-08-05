@@ -68,6 +68,7 @@ class Ec2EdgeOidcPermCoverageTest(unittest.TestCase):
             "ec2:DescribeInstanceTypeOfferings",
             "ec2:DescribeImages",
             "ssm:GetParameter",
+            "ssm:DescribeParameters",
             "ssm:DescribeInstanceInformation",
         ):
             with self.subTest(action=action):
@@ -75,6 +76,22 @@ class Ec2EdgeOidcPermCoverageTest(unittest.TestCase):
 
     def test_missing_lightsail_source_parameter_scope_fails(self) -> None:
         self._assert_missing("parameter/tokenkey/lightsail/us*/ssm_managed_instance_id")
+
+    def test_caller_get_parameter_cannot_cover_ghcr_pat(self) -> None:
+        policy = self.addon["Resources"]["Ec2EdgeAddonPolicy"]["Properties"][
+            "PolicyDocument"
+        ]
+        exposed = []
+        for statement in policy["Statement"]:
+            actions = self.mod._as_list(statement.get("Action") or [])
+            if "ssm:GetParameter" not in actions:
+                continue
+            exposed.extend(
+                resource
+                for resource in self.mod._flatten_strings(statement.get("Resource"))
+                if "parameter/tokenkey/edge/us*/ghcr/pat" in resource
+            )
+        self.assertEqual([], exposed, f"OIDC caller can read GHCR PAT values: {exposed}")
 
     def test_missing_pass_role_permission_fails(self) -> None:
         self._assert_missing("iam:PassRole")

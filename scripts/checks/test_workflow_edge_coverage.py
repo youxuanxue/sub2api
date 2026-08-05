@@ -280,6 +280,18 @@ class Ec2WorkflowSafetyContractTest(unittest.TestCase):
                 "${{ steps.edge.outputs.cfn_execution_role_arn }}",
             )
 
+    def test_provision_checks_ghcr_pat_metadata_without_reading_the_secret(self) -> None:
+        provision_step = next(
+            step for step in self._load_steps() if step.get("id") == "provision"
+        )
+        script = str(provision_step.get("run", ""))
+        self.assertIn("aws ssm describe-parameters", script)
+        self.assertIn("Parameters[0].Type", script)
+        self.assertNotIn(
+            'aws ssm get-parameter --region "$REGION" --name "$GHCR_PAT_SSM_NAME"',
+            script,
+        )
+
     def _run_operation_validation(
         self,
         *,

@@ -223,8 +223,9 @@ jobs:
             exit 1
           fi
           GHCR_PAT_SSM_NAME="${GHCR_PAT_SSM_NAME_OVERRIDE:-${SSM_PREFIX}/ghcr/pat}"
-          PAT_TYPE="$(aws ssm get-parameter --region "$REGION" --name "$GHCR_PAT_SSM_NAME" \
-            --query 'Parameter.Type' --output text)"
+          PAT_TYPE="$(aws ssm describe-parameters --region "$REGION" \
+            --parameter-filters "Key=Name,Option=Equals,Values=$GHCR_PAT_SSM_NAME" \
+            --query 'Parameters[0].Type' --output text)"
           if [ "$PAT_TYPE" != "SecureString" ]; then
             echo "::error::GHCR PAT parameter must exist as SecureString at $GHCR_PAT_SSM_NAME"
             exit 1

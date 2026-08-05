@@ -32,6 +32,7 @@ CALLER_ACTIONS = {
     "iam:PassRole",
     "lightsail:GetInstanceMetricData",
     "servicequotas:GetServiceQuota",
+    "ssm:DescribeParameters",
     "ssm:DescribeInstanceInformation",
     "ssm:GetCommandInvocation",
     "ssm:GetParameter",
@@ -60,6 +61,7 @@ BASE_FORBIDDEN_ACTIONS = {
 LIGHTSAIL_SOURCE_PARAMETER_SUFFIX = (
     "parameter/tokenkey/lightsail/us*/ssm_managed_instance_id"
 )
+GHCR_PAT_PARAMETER_SUFFIX = "parameter/tokenkey/edge/us*/ghcr/pat"
 
 
 class _CfnLoader(yaml.SafeLoader):
@@ -168,6 +170,16 @@ def validate_contract(addon: dict, base: dict) -> list[str]:
                 "caller policy missing "
                 f"{region} {LIGHTSAIL_SOURCE_PARAMETER_SUFFIX}"
             )
+
+    for statement in _statements(caller_policy):
+        if "ssm:GetParameter" not in _actions({"Statement": [statement]}):
+            continue
+        for resource in _flatten_strings(statement.get("Resource")):
+            if GHCR_PAT_PARAMETER_SUFFIX in resource:
+                failures.append(
+                    "caller policy ssm:GetParameter must not cover GHCR PAT values"
+                )
+                break
 
     cfn_mutations = {"cloudformation:CreateChangeSet", "cloudformation:DeleteStack"}
     cfn_scope_statements = [
