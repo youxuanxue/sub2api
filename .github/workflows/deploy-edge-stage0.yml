@@ -230,7 +230,9 @@ jobs:
           cleanup_eip() {
             rc=$?
             trap - ERR
-            aws ec2 release-address --region "$REGION" --allocation-id "$ALLOC_ID" || true
+            if ! aws ec2 release-address --region "$REGION" --allocation-id "$ALLOC_ID"; then
+              echo "::warning::could not release provision EIP $ALLOC_ID in $REGION; inspect for a leaked paid address" >&2
+            fi
             exit "$rc"
           }
           trap cleanup_eip ERR
@@ -298,7 +300,7 @@ jobs:
           for attempt in $(seq 1 60); do
             STATUS="$(aws ssm describe-instance-information --region "$REGION" \
               --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
-              --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || true)"
+              --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || echo Offline)"
             if [ "$STATUS" = "Online" ]; then
               exit 0
             fi
@@ -418,7 +420,9 @@ jobs:
               --no-fail-on-empty-changeset \
               --parameter-overrides EipAllocationId="$OLD_ALLOC" PublicIpv4="$OLD_IP"
             if [ "$SOURCE" = auto ]; then
-              aws ec2 release-address --region "$REGION" --allocation-id "$NEW_ALLOC" || true
+              if ! aws ec2 release-address --region "$REGION" --allocation-id "$NEW_ALLOC"; then
+                echo "::warning::could not release candidate EIP $NEW_ALLOC in $REGION; inspect for a leaked paid address" >&2
+              fi
             fi
             exit "$rc"
           }
@@ -431,7 +435,7 @@ jobs:
           for attempt in $(seq 1 30); do
             STATUS="$(aws ssm describe-instance-information --region "$REGION" \
               --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
-              --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || true)"
+              --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || echo Offline)"
             [ "$STATUS" = Online ] && break
             sleep 10
           done

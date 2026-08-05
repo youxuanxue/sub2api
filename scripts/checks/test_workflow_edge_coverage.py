@@ -218,7 +218,13 @@ class Ec2WorkflowSafetyContractTest(unittest.TestCase):
             ["provision", "upgrade", "rollback", "smoke", "rotate_egress_ip", "decommission"],
         )
 
-    def test_candidate_rotation_uses_ssm_probe_without_public_tls(self) -> None:
+    def _run_rotation(
+        self,
+        *,
+        allow_candidate: bool,
+        curl_exit: int = 0,
+        release_exit: int = 0,
+    ) -> tuple[subprocess.CompletedProcess, bool]:
         steps = self._load_steps()
         script = next(step["run"] for step in steps if step.get("id") == "rotation")
         with tempfile.TemporaryDirectory() as d:
@@ -238,6 +244,7 @@ case \"$*\" in
   *\"ssm send-command\"*) echo cmd-123 ;;
   *\"ssm wait command-executed\"*) ;;
   *\"ssm get-command-invocation\"*) echo 2.2.2.2 ;;
+  *\"ec2 release-address\"*) echo release-denied >&2; exit \"${RELEASE_EXIT:-0}\" ;;
   *) echo \"unexpected aws call: $*\" >&2; exit 90 ;;
 esac
 """)
@@ -245,7 +252,7 @@ esac
             curl = bin_dir / "curl"
             curl.write_text("""#!/usr/bin/env bash
 printf '%s\\n' \"$*\" >> \"$CURL_LOG\"
-exit 88
+exit \"${CURL_EXIT:-0}\"
 """)
             curl.chmod(0o755)
             env = os.environ.copy()
@@ -261,7 +268,9 @@ exit 88
                 "OLD_ALLOC": "eipalloc-11111111",
                 "INPUT_CANDIDATE_ALLOC": "",
                 "INPUT_ROTATION_REASON": "migration-probe",
-                "INPUT_ALLOW_CANDIDATE": "true",
+                "INPUT_ALLOW_CANDIDATE": str(allow_candidate).lower(),
+                "CURL_EXIT": str(curl_exit),
+                "RELEASE_EXIT": str(release_exit),
                 "CFN_EXECUTION_ROLE_ARN": "arn:aws:iam::123456789012:role/tokenkey-cfn-ec2-edge-stage0",
             })
             proc = subprocess.run(
@@ -272,8 +281,25 @@ exit 88
                 text=True,
                 check=False,
             )
-            self.assertEqual(proc.returncode, 0, f"stdout:{proc.stdout}\nstderr:{proc.stderr}")
-            self.assertFalse(curl_log.exists(), "candidate rotation must not probe public TLS")
+            return proc, curl_log.exists()
+
+    def test_candidate_rotation_uses_ssm_probe_without_public_tls(self) -> None:
+        proc, curl_called = self._run_rotation(allow_candidate=True)
+        self.assertEqual(proc.returncode, 0, f"stdout:{proc.stdout}\nstderr:{proc.stderr}")
+        self.assertFalse(curl_called, "candidate rotation must not probe public TLS")
+
+    def test_rotation_revert_reports_eip_release_failure(self) -> None:
+        proc, curl_called = self._run_rotation(
+            allow_candidate=False,
+            curl_exit=88,
+            release_exit=42,
+        )
+        self.assertEqual(proc.returncode, 88)
+        self.assertTrue(curl_called)
+        self.assertIn(
+            "could not release candidate EIP eipalloc-22222222 in us-west-2",
+            proc.stderr,
+        )
 
 
 if __name__ == "__main__":
