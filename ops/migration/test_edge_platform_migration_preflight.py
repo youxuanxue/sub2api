@@ -69,14 +69,11 @@ print(json.dumps(payload))
 
 
 FAKE_DIG = r'''#!/usr/bin/env python3
+import json
+import os
 import sys
 
-addresses = {
-    "api-us3.tokenkey.dev": "18.220.195.44",
-    "api-us4.tokenkey.dev": "35.81.204.18",
-    "api-us5.tokenkey.dev": "32.185.163.163",
-    "api-us6.tokenkey.dev": "3.148.79.145",
-}
+addresses = json.loads(os.environ["FAKE_DNS_JSON"])
 print(addresses[sys.argv[3]])
 '''
 
@@ -98,6 +95,9 @@ def healthy_fixture() -> dict:
                 "expected_ipv4": ip,
                 "instance_name": f"tokenkey-{edge_id}-lightsail",
                 "ssm_prefix": f"/tokenkey/lightsail/{edge_id}",
+                "source_deployable": True,
+                "target_deployable": False,
+                "migration_candidate": True,
             },
         )
     return {
@@ -169,12 +169,16 @@ class EdgePlatformMigrationPreflightTests(unittest.TestCase):
                 completed.report_text = output_path.read_text(encoding="utf-8")  # type: ignore[attr-defined]
             return completed
 
-    def run_live(self) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
+    def run_live(
+        self,
+        *,
+        migrated_edges: frozenset[str] = frozenset(),
+    ) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
         fixture = healthy_fixture()
-        matrix = {
+        source_matrix = {
             "targets": {
                 edge["edge_id"]: {
-                    "deployable": True,
+                    "deployable": edge["edge_id"] not in migrated_edges,
                     "lightsail_region": edge["region"],
                     "domain": edge["domain"],
                     "porkbun_a_ipv4": edge["expected_ipv4"],
@@ -183,6 +187,25 @@ class EdgePlatformMigrationPreflightTests(unittest.TestCase):
                 }
                 for edge in fixture["fleet"]
             },
+        }
+        target_matrix = {
+            "targets": {
+                edge["edge_id"]: {
+                    "deployable": edge["edge_id"] in migrated_edges,
+                    "migration_candidate": edge["edge_id"] not in migrated_edges,
+                    "region": edge["region"],
+                    "domain": edge["domain"],
+                }
+                for edge in fixture["fleet"]
+            },
+        }
+        dns_addresses = {
+            edge["domain"]: (
+                "203.0.113.5"
+                if edge["edge_id"] in migrated_edges
+                else edge["expected_ipv4"]
+            )
+            for edge in fixture["fleet"]
         }
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = pathlib.Path(tmp)
@@ -194,18 +217,31 @@ class EdgePlatformMigrationPreflightTests(unittest.TestCase):
             dig_path = bin_path / "dig"
             dig_path.write_text(FAKE_DIG, encoding="utf-8")
             dig_path.chmod(0o755)
-            matrix_path = tmp_path / "matrix.json"
-            matrix_path.write_text(json.dumps(matrix), encoding="utf-8")
+            matrix_path = tmp_path / "source-matrix.json"
+            matrix_path.write_text(json.dumps(source_matrix), encoding="utf-8")
+            target_matrix_path = tmp_path / "target-matrix.json"
+            target_matrix_path.write_text(json.dumps(target_matrix), encoding="utf-8")
             aws_log = tmp_path / "aws.jsonl"
+            aws_log.touch()
             environment = os.environ.copy()
             environment.update(
                 {
                     "FAKE_AWS_LOG": str(aws_log),
+                    "FAKE_DNS_JSON": json.dumps(dns_addresses),
                     "PATH": f"{bin_path}{os.pathsep}{environment['PATH']}",
                 },
             )
             completed = subprocess.run(
-                ["bash", str(SCRIPT), "--matrix", str(matrix_path), "--format", "json"],
+                [
+                    "bash",
+                    str(SCRIPT),
+                    "--matrix",
+                    str(matrix_path),
+                    "--ec2-matrix",
+                    str(target_matrix_path),
+                    "--format",
+                    "json",
+                ],
                 cwd=REPO_ROOT,
                 env=environment,
                 text=True,
@@ -257,6 +293,47 @@ class EdgePlatformMigrationPreflightTests(unittest.TestCase):
             if call[:2] == ["lightsail", "get-instance-metric-data"]
             and call[call.index("--metric-name") + 1] != "CPUUtilization"
         ])
+
+    def test_live_collection_keeps_migrated_source_for_rollback_checks(self) -> None:
+        completed, _ = self.run_live(migrated_edges=frozenset({"us5"}))
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        report = json.loads(completed.stdout)
+        self.assertEqual(
+            ["us3", "us4", "us5", "us6"],
+            [row["edge_id"] for row in report["fleet"]],
+        )
+        us5 = next(row for row in report["fleet"] if row["edge_id"] == "us5")
+        self.assertEqual("ec2", us5["owner"])
+        self.assertEqual("Online", report["ssm"]["us5"]["ping_status"])
+        self.assertEqual([], report["blockers"])
+
+    def test_migrated_edge_uses_target_dns_and_reduces_remaining_quota(self) -> None:
+        fixture = healthy_fixture()
+        us5 = next(row for row in fixture["fleet"] if row["edge_id"] == "us5")
+        us5.update(
+            source_deployable=False,
+            target_deployable=True,
+            migration_candidate=False,
+        )
+        fixture["dns"]["us5"]["resolved_ipv4"] = ["203.0.113.5"]
+        fixture["quotas"]["us-west-2"].update(eip_used=4, vpc_used=4)
+
+        completed = self.run_fixture(fixture)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        report = json.loads(completed.stdout)
+        self.assertEqual([], report["blockers"])
+
+    def test_migrated_source_must_remain_ssm_online_for_rollback(self) -> None:
+        fixture = healthy_fixture()
+        us5 = next(row for row in fixture["fleet"] if row["edge_id"] == "us5")
+        us5.update(
+            source_deployable=False,
+            target_deployable=True,
+            migration_candidate=False,
+        )
+        fixture["dns"]["us5"]["resolved_ipv4"] = ["203.0.113.5"]
+        fixture["ssm"]["us5"]["ping_status"] = "ConnectionLost"
+        self.assert_blocked(fixture, "ssm:us5")
 
     def test_eip_quota_requires_two_spare_addresses_per_region(self) -> None:
         fixture = healthy_fixture()

@@ -24,10 +24,17 @@ CALLER_ACTIONS = {
     "cloudformation:ExecuteChangeSet",
     "ec2:AllocateAddress",
     "ec2:CreateSnapshot",
+    "ec2:DescribeAddresses",
+    "ec2:DescribeImages",
+    "ec2:DescribeInstanceTypeOfferings",
+    "ec2:DescribeVpcs",
     "ec2:ReleaseAddress",
     "iam:PassRole",
+    "lightsail:GetInstanceMetricData",
+    "servicequotas:GetServiceQuota",
     "ssm:DescribeInstanceInformation",
     "ssm:GetCommandInvocation",
+    "ssm:GetParameter",
     "ssm:SendCommand",
 }
 EXECUTION_ACTIONS = {
@@ -50,6 +57,9 @@ BASE_FORBIDDEN_ACTIONS = {
     "ec2:RunInstances",
     "iam:PassRole",
 }
+LIGHTSAIL_SOURCE_PARAMETER_SUFFIX = (
+    "parameter/tokenkey/lightsail/us*/ssm_managed_instance_id"
+)
 
 
 class _CfnLoader(yaml.SafeLoader):
@@ -149,6 +159,15 @@ def validate_contract(addon: dict, base: dict) -> list[str]:
             failures.append(f"addon missing allowed region {region}")
         if region not in caller_strings:
             failures.append(f"caller policy missing allowed region {region}")
+        if not any(
+            f":ssm:{region}:" in value
+            and LIGHTSAIL_SOURCE_PARAMETER_SUFFIX in value
+            for value in caller_strings
+        ):
+            failures.append(
+                "caller policy missing "
+                f"{region} {LIGHTSAIL_SOURCE_PARAMETER_SUFFIX}"
+            )
 
     cfn_mutations = {"cloudformation:CreateChangeSet", "cloudformation:DeleteStack"}
     cfn_scope_statements = [

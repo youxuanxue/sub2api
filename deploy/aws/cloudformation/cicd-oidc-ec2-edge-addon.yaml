@@ -191,8 +191,21 @@ Resources:
               - ec2:DescribeAddresses
               - ec2:DescribeImages
               - ec2:DescribeInstances
+              - ec2:DescribeInstanceTypeOfferings
               - ec2:DescribeSnapshots
               - ec2:DescribeVolumes
+              - ec2:DescribeVpcs
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
+          - Sid: ReadMigrationCapacityAndSourceMetrics
+            Effect: Allow
+            Action:
+              - lightsail:GetInstanceMetricData
+              - servicequotas:GetServiceQuota
             Resource: "*"
             Condition:
               StringEquals:
@@ -263,6 +276,8 @@ Resources:
               - !Sub arn:${AWS::Partition}:ssm:us-west-2::parameter/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
               - !Sub arn:${AWS::Partition}:ssm:us-east-2:${AWS::AccountId}:parameter/tokenkey/edge/us*/ghcr/pat
               - !Sub arn:${AWS::Partition}:ssm:us-west-2:${AWS::AccountId}:parameter/tokenkey/edge/us*/ghcr/pat
+              - !Sub arn:${AWS::Partition}:ssm:us-east-2:${AWS::AccountId}:parameter/tokenkey/lightsail/us*/ssm_managed_instance_id
+              - !Sub arn:${AWS::Partition}:ssm:us-west-2:${AWS::AccountId}:parameter/tokenkey/lightsail/us*/ssm_managed_instance_id
           - Sid: ReadEdgeCommandResults
             Effect: Allow
             Action:

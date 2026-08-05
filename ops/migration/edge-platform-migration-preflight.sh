@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--fixture", help="evaluate a collected fixture instead of calling AWS/DNS")
     parser.add_argument("--matrix", default="deploy/aws/lightsail/edge-targets-lightsail.json")
+    parser.add_argument("--ec2-matrix", default="deploy/aws/stage0/edge-targets.json")
     parser.add_argument("--format", choices=("json",), default="json")
     parser.add_argument("--output", help="also write the JSON receipt atomically to this path")
     return parser.parse_args()
@@ -69,24 +70,52 @@ def dns_ipv4(domain: str) -> list[str]:
     return sorted(set(addresses))
 
 
-def load_fleet(matrix_path: pathlib.Path) -> list[dict[str, Any]]:
+def load_targets(matrix_path: pathlib.Path) -> dict[str, Any]:
     data = json.loads(matrix_path.read_text(encoding="utf-8"))
     targets = data.get("targets")
     if not isinstance(targets, dict):
         raise RuntimeError(f"invalid targets object in {matrix_path}")
+    return targets
+
+
+def load_fleet(
+    source_matrix_path: pathlib.Path,
+    target_matrix_path: pathlib.Path,
+) -> list[dict[str, Any]]:
+    source_targets = load_targets(source_matrix_path)
+    target_targets = load_targets(target_matrix_path)
     fleet: list[dict[str, Any]] = []
-    for edge_id in sorted(targets):
-        target = targets[edge_id]
-        if not isinstance(target, dict) or target.get("deployable") is not True:
-            continue
+    for edge_id in EXPECTED_EDGES:
+        source = source_targets.get(edge_id)
+        target = target_targets.get(edge_id)
+        if not isinstance(source, dict):
+            raise RuntimeError(f"missing Lightsail migration source {edge_id}")
+        if not isinstance(target, dict):
+            raise RuntimeError(f"missing EC2 migration target {edge_id}")
+        if source.get("domain") != target.get("domain"):
+            raise RuntimeError(f"domain mismatch for migration target {edge_id}")
+
+        source_deployable = source.get("deployable") is True
+        target_deployable = target.get("deployable") is True
+        migration_candidate = target.get("migration_candidate") is True
+        state = (source_deployable, target_deployable, migration_candidate)
+        owner = {
+            (True, False, True): "lightsail",
+            (False, True, False): "ec2",
+        }.get(state, "invalid")
         fleet.append(
             {
                 "edge_id": edge_id,
-                "region": target.get("lightsail_region"),
+                "region": target.get("region"),
+                "source_region": source.get("lightsail_region"),
                 "domain": target.get("domain"),
-                "expected_ipv4": target.get("porkbun_a_ipv4"),
-                "instance_name": target.get("instance_name"),
-                "ssm_prefix": target.get("ssm_prefix"),
+                "expected_ipv4": source.get("porkbun_a_ipv4"),
+                "instance_name": source.get("instance_name"),
+                "ssm_prefix": source.get("ssm_prefix"),
+                "source_deployable": source_deployable,
+                "target_deployable": target_deployable,
+                "migration_candidate": migration_candidate,
+                "owner": owner,
             },
         )
     return fleet
@@ -107,7 +136,7 @@ def metric_points(
             "lightsail",
             "get-instance-metric-data",
             "--region",
-            str(edge["region"]),
+            str(edge["source_region"]),
             "--instance-name",
             str(edge["instance_name"]),
             "--metric-name",
@@ -176,8 +205,11 @@ def percentile_nearest_rank(values: list[float], percentile: float) -> float | N
     return ordered[rank - 1]
 
 
-def collect_live(matrix_path: pathlib.Path) -> dict[str, Any]:
-    fleet = load_fleet(matrix_path)
+def collect_live(
+    source_matrix_path: pathlib.Path,
+    target_matrix_path: pathlib.Path,
+) -> dict[str, Any]:
+    fleet = load_fleet(source_matrix_path, target_matrix_path)
     collected: dict[str, Any] = {
         "fleet": fleet,
         "quotas": {},
@@ -289,7 +321,7 @@ def collect_live(matrix_path: pathlib.Path) -> dict[str, Any]:
 
     for edge in fleet:
         edge_id = str(edge.get("edge_id") or "")
-        region = str(edge.get("region") or "")
+        source_region = str(edge.get("source_region") or "")
         try:
             points = metric_points(
                 edge,
@@ -324,7 +356,7 @@ def collect_live(matrix_path: pathlib.Path) -> dict[str, Any]:
                     "ssm",
                     "get-parameter",
                     "--region",
-                    region,
+                    source_region,
                     "--name",
                     f"{prefix}/ssm_managed_instance_id",
                 ],
@@ -337,7 +369,7 @@ def collect_live(matrix_path: pathlib.Path) -> dict[str, Any]:
                     "ssm",
                     "describe-instance-information",
                     "--region",
-                    region,
+                    source_region,
                     "--filters",
                     f"Key=InstanceIds,Values={instance_id}",
                 ],
@@ -367,14 +399,45 @@ def evaluate(raw: dict[str, Any]) -> dict[str, Any]:
     if tuple(edge_ids) != EXPECTED_EDGES:
         blockers.append(f"fleet:expected={','.join(EXPECTED_EDGES)}:actual={','.join(edge_ids)}")
 
+    remaining_by_region = {region: 0 for region in REGIONS}
+    for edge in fleet:
+        edge_id = str(edge.get("edge_id") or "")
+        state = (
+            edge.get("source_deployable"),
+            edge.get("target_deployable"),
+            edge.get("migration_candidate"),
+        )
+        owner = {
+            (True, False, True): "lightsail",
+            (False, True, False): "ec2",
+        }.get(state)
+        edge["owner"] = owner or "invalid"
+        if owner is None:
+            blockers.append(f"owner:{edge_id}:invalid_matrix_state")
+            continue
+        region = edge.get("region")
+        if region not in REGIONS:
+            blockers.append(f"region:{edge_id}:invalid")
+        elif owner == "lightsail":
+            remaining_by_region[region] += 1
+
     quotas = raw.get("quotas") if isinstance(raw.get("quotas"), dict) else {}
     for region in REGIONS:
+        required_spare = remaining_by_region[region]
+        if required_spare == 0:
+            continue
         row = quotas.get(region) if isinstance(quotas.get(region), dict) else {}
         for resource in ("eip", "vpc"):
             limit = row.get(f"{resource}_limit")
             used = row.get(f"{resource}_used")
-            if not numeric(limit) or not numeric(used) or float(limit) - float(used) < 2:
-                blockers.append(f"quota:{resource}:{region}:requires_2_spare")
+            if (
+                not numeric(limit)
+                or not numeric(used)
+                or float(limit) - float(used) < required_spare
+            ):
+                blockers.append(
+                    f"quota:{resource}:{region}:requires_{required_spare}_spare"
+                )
 
     offerings = (
         raw.get("instance_type_offerings")
@@ -383,6 +446,8 @@ def evaluate(raw: dict[str, Any]) -> dict[str, Any]:
     )
     amis = raw.get("amis") if isinstance(raw.get("amis"), dict) else {}
     for region in REGIONS:
+        if remaining_by_region[region] == 0:
+            continue
         region_offerings = offerings.get(region)
         if not isinstance(region_offerings, list) or "t4g.small" not in region_offerings:
             blockers.append(f"offering:{region}:t4g.small_unavailable")
@@ -401,7 +466,9 @@ def evaluate(raw: dict[str, Any]) -> dict[str, Any]:
         dns_row = dns.get(edge_id) if isinstance(dns.get(edge_id), dict) else {}
         expected_ip = edge.get("expected_ipv4")
         resolved = dns_row.get("resolved_ipv4")
-        if dns_row.get("expected_ipv4") != expected_ip or resolved != [expected_ip]:
+        if edge.get("owner") == "lightsail" and (
+            dns_row.get("expected_ipv4") != expected_ip or resolved != [expected_ip]
+        ):
             blockers.append(f"dns:{edge_id}:matrix_mismatch")
         ssm_row = ssm.get(edge_id) if isinstance(ssm.get(edge_id), dict) else {}
         if not ssm_row.get("instance_id") or ssm_row.get("ping_status") != "Online":
@@ -442,7 +509,7 @@ def main() -> int:
         if args.fixture:
             raw = json.loads(pathlib.Path(args.fixture).read_text(encoding="utf-8"))
         else:
-            raw = collect_live(pathlib.Path(args.matrix))
+            raw = collect_live(pathlib.Path(args.matrix), pathlib.Path(args.ec2_matrix))
         if not isinstance(raw, dict):
             raise RuntimeError("collector input must be a JSON object")
         report = evaluate(raw)

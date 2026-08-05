@@ -59,6 +59,23 @@ class Ec2EdgeOidcPermCoverageTest(unittest.TestCase):
     def test_missing_ssm_permission_fails(self) -> None:
         self._assert_missing("ssm:SendCommand")
 
+    def test_missing_live_preflight_permission_fails(self) -> None:
+        for action in (
+            "servicequotas:GetServiceQuota",
+            "lightsail:GetInstanceMetricData",
+            "ec2:DescribeAddresses",
+            "ec2:DescribeVpcs",
+            "ec2:DescribeInstanceTypeOfferings",
+            "ec2:DescribeImages",
+            "ssm:GetParameter",
+            "ssm:DescribeInstanceInformation",
+        ):
+            with self.subTest(action=action):
+                self._assert_missing(action)
+
+    def test_missing_lightsail_source_parameter_scope_fails(self) -> None:
+        self._assert_missing("parameter/tokenkey/lightsail/us*/ssm_managed_instance_id")
+
     def test_missing_pass_role_permission_fails(self) -> None:
         self._assert_missing("iam:PassRole")
 
