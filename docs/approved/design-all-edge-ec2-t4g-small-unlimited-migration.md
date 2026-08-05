@@ -61,9 +61,7 @@ scope: "把全部活动 Edge 从 Lightsail micro_3_0 迁移到 EC2 t4g.small Unl
 
 四台 `t4g.small` 的 EC2 计算费本身已经约 `$49.06/月`，因此在“4 台、每台 `t4g.small`”这个目标不变时，fleet 固定成本不可能维持在 `$19/月`。
 
-如果原始预算约束其实是“整个 fleet 不超过 `$19/月`”，而不是“每台约 `$19/月`”，则当前目标架构超出预算，任务 6 的任何资源创建都不得开始。此时必须另行做架构决策（减少常驻节点、降低机型、改为共享节点或接受更高预算），不能把 `$76.46/月` 当作已经批准。本计划中的 `$76.46/月` 只是固定成本估算，不是成本审批结果。
-
-Fleet 保守成本上限已批准为 `$153/月`（feng，对话审批 2026-08-05）。该批准只解除成本门禁；Task 6 的 AWS/IAM/EC2 写操作、后续 DNS 与账号写操作仍须分别取得明确授权。
+本次已基于上表完成人工成本评估并决定继续采用四台 `t4g.small`。表内金额只记录决策背景，不是部署契约、运行时预算或自动化门禁；Task 6 的 AWS/IAM/EC2 写操作、后续 DNS 与账号写操作仍须分别取得明确授权。
 
 上表尚未包含：
 
@@ -73,13 +71,7 @@ Fleet 保守成本上限已批准为 `$153/月`（feng，对话审批 2026-08-05
 - Unlimited 超出 baseline 后的 surplus charge。
 - 迁移观察期内 Lightsail 与 EC2 并行运行的短期重叠成本。
 
-迁移前必须读取每个源 Edge 最近 30 个完整自然日的 `NetworkOut`。每台使用保守预算公式：
-
-```text
-ceil(19.12 + 0.09 * network_out_gib_30d + 10.00)
-```
-
-该公式不分摊 AWS 账户级免费出站额度，避免低估。脚本只把结果写入迁移 evidence，并用实时预测与 `$153/月` 人工批准上限比较；部署 matrix 和 CloudFormation 不再保存或接收自报 `monthly_budget_usd`，避免把人工填写的数字误当成真实成本门禁。如果固定成本或含流量预测超过人工批准预算，在创建 EC2 前暂停。
+迁移自动化不为成本预测采集或保存 `NetworkOut`/Cost Explorer 数据，不在 evidence、部署 matrix 或 CloudFormation 中保存任何预算字段，也不因成本估算生成 blocker。`NetworkOut` 仍可作为候选机连通性信号使用。未来若要新增预算约束，必须作为独立决策重新设计，不能复用本文的静态估算。
 
 ## CPU Credits 监控口径
 
@@ -96,6 +88,7 @@ CloudWatch alarm 是 CPU/credits 状态的唯一探测 owner；实例已有的 h
 ## 审查收敛契约（2026-08-05 对话批准）
 
 - 迁移期基础设施容量固定为 `t4g.small`、20 GiB 根卷、20 GiB 数据卷、2 GiB swap 和 daily snapshot；matrix、resolver 与 CloudFormation 任一层偏离都必须失败。后续扩容另走成本评估与审批，不复用本次迁移授权。
+- 成本仅为静态决策背景；代码、配置、workflow、预检和 evidence 均不得实现预算输入、实时成本预测或成本 blocker。
 - `provision` 在分配 EIP 前必须用刚取得的只读 OIDC 权限运行完整 live migration preflight，并要求 `blockers=[]`；仓库里的历史 evidence 只供 review，不作为线上创建凭证。
 - CloudFormation execution role ARN 从已校验的 `AWS_OIDC_ROLE_ARN` 账户号和固定 role name 确定性派生，不依赖未登记的 GitHub variable。
 - 账号 extract 必须证明请求 ID 与返回 ID 精确一致，并完整携带 account-group bindings 和 fallback group 闭包；build 生成不含 secret value 的预期 manifest，load 后核对账号、credential key 集、group 与 binding。任一差异不得输出 `LOAD_OK`。
@@ -147,12 +140,12 @@ lightsail_active
 
 **输出契约：**
 - `edge-platform-migration-preflight.sh --format json --output docs/evidence/all-edge-ec2-migration-preflight.json`
-- JSON 包含 `fleet`、`quotas`、`network_out_30d`、`cpu_24h`、`dns`、`amis`、逐节点与 fleet 两个口径的 `fixed_monthly_usd`、`forecast_monthly_usd`、`approved_fleet_ceiling_usd`、`blockers`。
-- 仅当两个区域都有 2 个 EIP、2 个 VPC 的余量，`t4g.small` 可用，ARM64 AL2023 AMI 可解析，所有源 SSM 可达，DNS 与 matrix 一致，且成本数据完整时退出 0。
+- JSON 包含 `fleet`、`quotas`、`cpu_24h`、`dns`、`amis` 和 `blockers`，不包含成本或预算字段。
+- 仅当两个区域都有 2 个 EIP、2 个 VPC 的余量，`t4g.small` 可用，ARM64 AL2023 AMI 可解析，所有源 SSM 可达，且 DNS 与 matrix 一致时退出 0。
 
 - [ ] **步骤 1：先写 fixture 驱动的失败测试**
 
-正向 fixture 断言四个目标、单台约 `$19.12`、fleet `$76.46`；负向覆盖 EIP 配额不足、缺少 `NetworkOut`、DNS 漂移、SSM 不可达和非 ARM AMI。
+正向 fixture 断言四个目标和完整基础设施状态；负向覆盖 EIP 配额不足、DNS 漂移、SSM 不可达和非 ARM AMI，并断言输出不存在成本或预算字段。
 
 - [ ] **步骤 2：确认测试先失败**
 
@@ -164,7 +157,7 @@ python3 -m unittest ops/migration/test_edge_platform_migration_preflight.py -v #
 
 - [ ] **步骤 3：实现只读 AWS/DNS 采集**
 
-使用 AWS CLI JSON 和 Python JSON 解析，不解析 table 文本。查询 Lightsail 30 日 `NetworkOut`、EC2 offerings/AMI、Service Quotas、EIP/VPC 使用量、SSM 状态、CloudWatch CPU 指标和公共 DNS。不得读取或打印 SecureString 值。
+使用 AWS CLI JSON 和 Python JSON 解析，不解析 table 文本。查询 EC2 offerings/AMI、Service Quotas、EIP/VPC 使用量、SSM 状态、CloudWatch CPU 指标和公共 DNS。不得读取或打印 SecureString 值。
 
 - [ ] **步骤 4：接入确定性测试**
 
@@ -175,13 +168,13 @@ bash -n ops/migration/edge-platform-migration-preflight.sh # script-ref: planned
 
 同时在 `.gitignore` 放行 `docs/evidence/`，保证脱敏 receipt 可以进入 review，而不是滞留在单台工作站。
 
-- [ ] **步骤 5：运行真实只读报告并人工审批成本**
+- [ ] **步骤 5：运行真实只读报告并确认基础设施 blocker**
 
 ```bash
 bash ops/migration/edge-platform-migration-preflight.sh --format json --output docs/evidence/all-edge-ec2-migration-preflight.json # script-ref: planned
 ```
 
-任何 quota、容量、DNS、SSM 或成本 blocker 都必须在任务 6 前暂停。
+任何 quota、容量、DNS 或 SSM blocker 都必须在任务 6 前暂停。
 
 ### Task 2（任务 2）：恢复加固后的通用 EC2 Edge Stack
 
@@ -281,7 +274,7 @@ python3 -m unittest scripts/checks/test_ec2_edge_oidc_perm_coverage.py scripts/c
 
 - [ ] **步骤 1：登记四个 EC2 candidate**
 
-使用目标表中的区域、stack 和域名；统一写入 `instance_type=t4g.small`、`root_volume_gib=20`、`data_volume_gib=20`、`swap_gib=2`、`snapshot_schedule=daily`、四个 `/tokenkey/edge/us*` SSM prefix、`deployable=false` 和 `migration_candidate=true`。成本只存在于预检 evidence，不在部署 matrix 重复维护。
+使用目标表中的区域、stack 和域名；统一写入 `instance_type=t4g.small`、`root_volume_gib=20`、`data_volume_gib=20`、`swap_gib=2`、`snapshot_schedule=daily`、四个 `/tokenkey/edge/us*` SSM prefix、`deployable=false` 和 `migration_candidate=true`。不得加入成本或预算字段。
 
 - [ ] **步骤 2：先写路由测试**
 
@@ -598,9 +591,9 @@ bash ops/observability/scan-edge-health.sh --with-prod
 
 预期 `us3`、`us4`、`us5`、`us6`、`prod` 均可达，不再经过 Lightsail/Hybrid。`us3` 在补号前可以是 `thin`，但不能是 `unreachable` 或 `down`。
 
-- [ ] **步骤 2：核对四台 credits 和账单信号**
+- [ ] **步骤 2：核对四台 credits 信号**
 
-逐台确认 `CpuCredits=unlimited`，采集 24 小时 `CPUUtilization`、`CPUCreditBalance`、`CPUSurplusCreditBalance`、`CPUSurplusCreditsCharged`，并用 Cost Explorer 对账任务 1 预测。仅 credit balance 归零不导致验收失败。
+逐台确认 `CpuCredits=unlimited`，采集 24 小时 `CPUUtilization`、`CPUCreditBalance`、`CPUSurplusCreditBalance` 和 `CPUSurplusCreditsCharged`。仅 credit balance 归零不导致验收失败。
 
 - [ ] **步骤 3：运行仓库出口门禁**
 
@@ -627,5 +620,5 @@ bash ops/observability/scan-edge-health.sh --with-prod
 - 不在本迁移中给 `us3`、`us5`、`us6` 补账号；账号容量/SPOF 是另一项运营决策。
 - 不迁移 `prod`；prod 保持现有 EC2/CFN 平台与机型。
 - 不引入 ALB、Auto Scaling、多 AZ PostgreSQL 或托管 Redis。
-- 观察和成本验证完成前不购买 Savings Plans 或 Reserved Instances。
+- 本迁移不购买 Savings Plans 或 Reserved Instances。
 - 不把 Porkbun 凭据写入仓库，也不自动执行 DNS 写操作。
