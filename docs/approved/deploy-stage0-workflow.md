@@ -128,16 +128,24 @@ Steps:
 
    Every subsequent deploy alternates colors:
    `.env` backup → pull target tag into the inactive color
-   (`tokenkey-blue` or `tokenkey-green`) → start/recreate only that color →
-   wait Docker health and `/health` readiness → rewrite only the live Caddy
-   upstream to the target color and hot reload → atomically write
-   `active-color` → install/update the blue/green systemd unit → SIGUSR1/drain
-   and stop the previous color.
+   (`tokenkey-blue` or `tokenkey-green`) → reuse it only when image, Compose
+   config hash, Docker health, and `/health` readiness all match; otherwise
+   force-recreate only that color → wait up to 300 seconds for Docker health
+   (`exited`/`dead` fail immediately; three consecutive `unhealthy` checks fail
+   early) and then `/health` readiness → rewrite only the live Caddy upstream to the target
+   color and hot reload → atomically write `active-color` → install/update the
+   blue/green systemd unit → SIGUSR1/drain and stop the previous color. A
+   pre-cutover failure preserves the inactive target for evidence and retry;
+   the active color remains untouched.
 
    PostgreSQL, Redis, Caddy, `/var/lib/tokenkey/app`, and the Docker network
-   remain the single shared data layer. The generated blue/green compose only
-   contains the two app services and points them at `tokenkey-postgres` /
-   `tokenkey-redis`.
+   remain the single shared data layer. EC2/Lightsail bootstrap owns the app
+   bind-mount root as uid/gid 1000; Stage0 app containers set
+   `SKIP_DATA_CHOWN=1`, and the entrypoint also auto-detects an already-owned
+   bind mount, so startup never recursively walks large DLQ/blob trees. Other
+   deployment shapes retain the compatibility recursive ownership repair. The
+   generated blue/green compose only contains the two app services and points
+   them at `tokenkey-postgres` / `tokenkey-redis`.
 7. **External health-check** — `curl ${ApiUrl}/health`, three attempts
    spaced 10 s apart, require HTTP 200 within 5 s.
 8. **Post-deploy live-host advisory checks** — the workflow reads the active

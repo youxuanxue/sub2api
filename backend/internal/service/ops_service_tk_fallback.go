@@ -17,14 +17,26 @@ func (s *OpsService) persistPreparedErrorFallback(ctx context.Context, entry *Op
 	if s == nil || entry == nil {
 		return nil
 	}
+	dir := opsErrorFallbackDLQDir()
+	allowed, err := prepareOpsDLQSpill(dir, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return nil
+	}
 	payload, requestID, err := buildOpsErrorFallbackPayload(entry, reason)
 	if err != nil {
 		return err
 	}
-	writer := trajectory.NewWriter(nil, opsErrorFallbackDLQDir())
+	writer := trajectory.NewWriter(nil, dir)
 	key := trajectory.BlobKey(entry.CreatedAt.Year(), int(entry.CreatedAt.Month()), entry.CreatedAt.Day(), requestID)
 	_, err = writer.Write(ctx, key, payload, requestID)
-	return err
+	if err != nil {
+		return err
+	}
+	_, _ = pruneOpsDLQDir(dir, time.Now().UTC(), loadOpsDLQSpillLimits())
+	return nil
 }
 
 func buildOpsErrorFallbackPayload(entry *OpsInsertErrorLogInput, reason string) ([]byte, string, error) {

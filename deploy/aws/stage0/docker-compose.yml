@@ -48,6 +48,7 @@ services:
     volumes:
       - /var/lib/tokenkey/app:/app/data
     environment:
+      - SKIP_DATA_CHOWN=1
       - AUTO_SETUP=true
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080

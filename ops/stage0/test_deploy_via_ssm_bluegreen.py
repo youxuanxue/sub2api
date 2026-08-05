@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -44,6 +45,41 @@ def _render(instance_id: str = _PROD_IID, tag: str = "1.8.99", env_extra: dict |
     if remote_path.exists():
         remote = remote_path.read_text()
     return proc, params, remote
+
+
+def _run_wait_healthy(remote: str, statuses: list[str]) -> tuple[int, int, str]:
+    start = remote.index("wait_healthy() {")
+    end = remote.index("\n}\n\nwait_ready()", start) + len("\n}\n")
+    function = remote[start:end]
+    with tempfile.TemporaryDirectory(prefix="bluegreen-health-") as tmp:
+        root = pathlib.Path(tmp)
+        status_file = root / "statuses"
+        count_file = root / "count"
+        status_file.write_text("\n".join(statuses) + "\n")
+        count_file.write_text("1\n")
+        script = f"""{function}
+log() {{ :; }}
+sleep() {{ :; }}
+sudo() {{ :; }}
+container_health() {{
+  local n
+  n="$(cat {shlex.quote(str(count_file))})"
+  sed -n "${{n}}p" {shlex.quote(str(status_file))}
+  printf '%s\\n' "$((n + 1))" > {shlex.quote(str(count_file))}
+}}
+TOKENKEY_BLUEGREEN_HEALTH_TRIES=60
+TOKENKEY_BLUEGREEN_HEALTH_DELAY_SECONDS=0
+wait_healthy tokenkey-green
+"""
+        proc = subprocess.run(
+            ["bash"],
+            input=script,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        calls = int(count_file.read_text().strip()) - 1
+        return proc.returncode, calls, proc.stdout + proc.stderr
 
 
 class BlueGreenRenderTest(unittest.TestCase):
@@ -102,6 +138,35 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertEqual(remote.count("logging: *tokenkey-logging"), 2)
         self.assertIn('max-size: "100m"', remote)
         self.assertIn('max-file: "5"', remote)
+        self.assertEqual(remote.count("- SKIP_DATA_CHOWN=1"), 2)
+        self.assertIn('TOKENKEY_BLUEGREEN_HEALTH_TRIES:-60', remote)
+        self.assertIn('TOKENKEY_BLUEGREEN_UNHEALTHY_LIMIT:-3', remote)
+        self.assertIn('entered terminal state ${status}; failing health wait immediately', remote)
+        self.assertIn('remained unhealthy for ${unhealthy_streak} consecutive checks', remote)
+        self.assertIn('if target_is_reusable "${target_container}" "${new_img}"; then', remote)
+        self.assertIn('compose_bg config --hash "${container}"', remote)
+        self.assertIn("com.docker.compose.config-hash", remote)
+        self.assertIn('reusing healthy target ${target_container}', remote)
+        self.assertIn('compose_bg up -d --no-deps --force-recreate "${target_container}"', remote)
+        self.assertIn('preserving target ${TARGET_CONTAINER} for retry', remote)
+        self.assertNotIn('removed failed target ${TARGET_CONTAINER}', remote)
+
+    def test_health_wait_fails_fast_only_for_terminal_or_repeated_unhealthy_states(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert remote is not None
+
+        cases = [
+            (["exited"], 1, 1),
+            (["dead"], 1, 1),
+            (["unhealthy", "unhealthy", "unhealthy"], 1, 3),
+            (["unhealthy", "starting", "unhealthy", "unhealthy", "healthy"], 0, 5),
+        ]
+        for statuses, expected_rc, expected_calls in cases:
+            with self.subTest(statuses=statuses):
+                rc, calls, output = _run_wait_healthy(remote, statuses)
+                self.assertEqual(rc, expected_rc, msg=output)
+                self.assertEqual(calls, expected_calls, msg=output)
 
     def test_values_are_env_overridable(self) -> None:
         proc, params, _ = _render(env_extra={

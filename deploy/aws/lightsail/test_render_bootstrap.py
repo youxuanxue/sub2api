@@ -90,6 +90,10 @@ class RenderBootstrapTests(unittest.TestCase):
                              "so stay under 14336 here. Options: gzip more aggressively, "
                              "trim comments, or move payloads to SSM Parameter Store.")
 
+    def test_generated_artifact_prepares_app_dir_for_non_root_runtime(self):
+        content = GENERATED.read_text(encoding="utf-8")
+        self.assertIn("install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app", content)
+
     def test_generated_artifact_configures_swap_like_ec2_edge(self):
         content = GENERATED.read_text(encoding="utf-8")
         self.assertIn("SWAP_SIZE_GIB=", content)
