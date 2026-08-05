@@ -174,7 +174,7 @@ if ! grep -q '/var/lib/tokenkey' /etc/fstab; then
 fi
 
 # --- 2b. data directory layout ------------------------------------------
-install -d -m 0755 /var/lib/tokenkey/app
+install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app
 install -d -m 0700 /var/lib/tokenkey/postgres
 install -d -m 0755 /var/lib/tokenkey/redis
 install -d -m 0755 /var/lib/tokenkey/pgdump

@@ -129,8 +129,7 @@ on_err() {
   local rc=$?
   echo "::warning::blue/green deploy failed (rc=${rc}, cutover_committed=${CUTOVER_COMMITTED})"
   if [[ "${CUTOVER_COMMITTED}" = 0 && -n "${TARGET_CONTAINER}" ]]; then
-    sudo docker rm -f "${TARGET_CONTAINER}" >/dev/null 2>&1 || true
-    log "removed failed target ${TARGET_CONTAINER}"
+    log "preserving target ${TARGET_CONTAINER} for retry; active color remains untouched"
   fi
   restore_env_if_safe
   if [[ "${CUTOVER_COMMITTED}" = 1 ]]; then
@@ -198,15 +197,36 @@ container_image() {
 }
 
 container_health() {
-  sudo docker inspect "$1" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null || echo missing
+  sudo docker inspect "$1" --format '{{if or (eq .State.Status "exited") (eq .State.Status "dead")}}{{.State.Status}}{{else if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null || echo missing
 }
 
 wait_healthy() {
-  local container="$1" tries="${TOKENKEY_BLUEGREEN_HEALTH_TRIES:-30}" delay="${TOKENKEY_BLUEGREEN_HEALTH_DELAY_SECONDS:-5}" status i
+  local container="$1" tries="${TOKENKEY_BLUEGREEN_HEALTH_TRIES:-60}" delay="${TOKENKEY_BLUEGREEN_HEALTH_DELAY_SECONDS:-5}"
+  local unhealthy_limit="${TOKENKEY_BLUEGREEN_UNHEALTHY_LIMIT:-3}" unhealthy_streak=0 status i
   for i in $(seq 1 "${tries}"); do
     status="$(container_health "${container}")"
-    log "health ${container}: ${status} try=${i}/${tries}"
-    [[ "${status}" = healthy ]] && return 0
+    log "health ${container}: ${status} try=${i}/${tries} unhealthy_streak=${unhealthy_streak}/${unhealthy_limit}"
+    case "${status}" in
+      healthy)
+        return 0
+        ;;
+      exited|dead)
+        echo "::error::${container} entered terminal state ${status}; failing health wait immediately"
+        sudo docker logs "${container}" --since 3m 2>&1 | tail -80 || true
+        return 1
+        ;;
+      unhealthy)
+        unhealthy_streak=$((unhealthy_streak + 1))
+        if [[ "${unhealthy_streak}" -ge "${unhealthy_limit}" ]]; then
+          echo "::error::${container} remained unhealthy for ${unhealthy_streak} consecutive checks"
+          sudo docker logs "${container}" --since 3m 2>&1 | tail -80 || true
+          return 1
+        fi
+        ;;
+      *)
+        unhealthy_streak=0
+        ;;
+    esac
     sleep "${delay}"
   done
   echo "::error::${container} did not reach healthy state"
@@ -227,6 +247,20 @@ wait_ready() {
   echo "::error::${container} did not become ready on /health"
   sudo docker logs "${container}" --since 3m 2>&1 | tail -80 || true
   return 1
+}
+
+target_is_reusable() {
+  local container="$1" expected_image="$2" actual_image health skip_chown expected_hash actual_hash
+  actual_image="$(container_image "${container}")"
+  health="$(container_health "${container}")"
+  skip_chown="$(sudo docker inspect "${container}" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
+    | sed -n 's/^SKIP_DATA_CHOWN=//p' | tail -1)"
+  expected_hash="$(compose_bg config --hash "${container}" 2>/dev/null | awk 'NF {print $NF}' | tail -1)"
+  actual_hash="$(sudo docker inspect "${container}" --format '{{index .Config.Labels "com.docker.compose.config-hash"}}' 2>/dev/null || true)"
+  log "target reuse check ${container}: image=${actual_image:-missing} health=${health} skip_data_chown=${skip_chown:-unset} config_hash_match=$([[ -n "${expected_hash}" && "${actual_hash}" = "${expected_hash}" ]] && echo true || echo false)"
+  [[ "${actual_image}" = "${expected_image}" && "${health}" = healthy && "${skip_chown}" = 1 ]] || return 1
+  [[ -n "${expected_hash}" && "${actual_hash}" = "${expected_hash}" ]] || return 1
+  wait_ready "${container}"
 }
 
 drain_container() {
@@ -287,6 +321,7 @@ services:
     volumes:
       - /var/lib/tokenkey/app:/app/data
     environment:
+      - SKIP_DATA_CHOWN=1
       - AUTO_SETUP=true
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080
@@ -351,6 +386,7 @@ services:
     volumes:
       - /var/lib/tokenkey/app:/app/data
     environment:
+      - SKIP_DATA_CHOWN=1
       - AUTO_SETUP=true
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080
@@ -589,9 +625,13 @@ deploy_target_color() {
   write_bluegreen_compose
 
   compose_bg pull "${target_container}"
-  compose_bg up -d --no-deps --force-recreate "${target_container}"
-  wait_healthy "${target_container}"
-  wait_ready "${target_container}"
+  if target_is_reusable "${target_container}" "${new_img}"; then
+    log "reusing healthy target ${target_container}"
+  else
+    compose_bg up -d --no-deps --force-recreate "${target_container}"
+    wait_healthy "${target_container}"
+    wait_ready "${target_container}"
+  fi
 
   write_caddy_for_color "${target}"
   CUTOVER_COMMITTED=1

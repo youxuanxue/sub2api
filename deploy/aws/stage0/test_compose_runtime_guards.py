@@ -61,6 +61,10 @@ class ComposeRuntimeGuardsTest(unittest.TestCase):
     def test_all_stage0_services_use_bounded_json_logging(self) -> None:
         self.assertEqual(logging_violations(COMPOSE.read_text(encoding="utf-8")), [])
 
+    def test_app_skips_recursive_data_chown_after_host_bootstrap(self) -> None:
+        text = COMPOSE.read_text(encoding="utf-8")
+        self.assertEqual(text.count("SKIP_DATA_CHOWN=1"), 1)
+
     def test_missing_service_policy_is_rejected(self) -> None:
         text = COMPOSE.read_text(encoding="utf-8").replace(
             "    logging: *tokenkey-logging\n", "", 1

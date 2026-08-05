@@ -118,7 +118,8 @@ if ! systemctl is-active --quiet amazon-ssm-agent; then
   exit 1
 fi
 
-mkdir -p /var/lib/tokenkey/caddy/data /var/lib/tokenkey/caddy/config /var/lib/tokenkey/app
+mkdir -p /var/lib/tokenkey/caddy/data /var/lib/tokenkey/caddy/config
+install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app
 LAUNCH_HEAD
 
 cat >>"${OUT}.tmp" <<LAUNCH_EMBED

@@ -2,6 +2,7 @@ package trajectory
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,10 +45,30 @@ func (w *Writer) Write(ctx context.Context, key string, payload []byte, requestI
 	if requestID == "" {
 		requestID = "unknown"
 	}
-	dlqPath := filepath.Join(w.dlqDir, requestID+".json.zst")
+	dlqPath := filepath.Join(w.dlqDir, safeDLQFileID(requestID)+".json.zst")
 	if writeErr := os.WriteFile(dlqPath, payload, 0o644); writeErr != nil {
 		return "", writeErr
 	}
 	RecordDLQWrite()
 	return "dlq://" + dlqPath, nil
+}
+
+func safeDLQFileID(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw != "" && len(raw) <= 128 && raw != "." && raw != ".." {
+		safe := true
+		for _, ch := range []byte(raw) {
+			if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+				(ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch == '.' {
+				continue
+			}
+			safe = false
+			break
+		}
+		if safe {
+			return raw
+		}
+	}
+	digest := sha256.Sum256([]byte(raw))
+	return fmt.Sprintf("dlq-%x", digest[:16])
 }
