@@ -33,8 +33,12 @@ const (
 	openaiPlatformAPIURL            = "https://api.openai.com/v1/responses"
 	openaiPlatformAPIInputTokensURL = "https://api.openai.com/v1/responses/input_tokens"
 	openaiStickySessionTTL          = time.Hour // 粘性会话TTL
-	// Keep the forged Codex UA pinned to the runtime setting default.
-	codexCLIUserAgent = DefaultOpenAICodexUserAgent
+	// Keep the real Codex CLI OS and terminal segments verbatim. The terminal
+	// segment repeats the version, so buildCodexCLIUserAgent updates both pins.
+	codexCLIUserAgentPrefix = "codex_cli_rs/"
+	codexCLIUserAgentMiddle = " (Mac OS 26.3.1; arm64) iTerm.app/3.6.11 (codex_cli_rs; "
+	codexCLIUserAgentSuffix = ")"
+	codexCLIUserAgent       = DefaultOpenAICodexUserAgent
 	// codex_cli_only 拒绝时单个请求头日志长度上限（字符）
 	codexCLIOnlyHeaderValueMaxBytes = 256
 
@@ -337,9 +341,9 @@ func NewOpenAIGatewayService(
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 ) *OpenAIGatewayService {
 	// enforceCodexIdentityHeaders 是 HTTP / 透传 / WS / 探针 等出站路径共用的纯函数收口点，
-	// 拿不到配置，故在此发布进程级开关快照。配置取反义，零值即「归一化开启」。
+	// 拿不到配置，故在此发布进程级开关快照。配置取反义，零值即「强制统一出口开启」。
 	if cfg != nil {
-		SetCodexOriginatorNormalizationEnabled(!cfg.Gateway.DisableCodexOriginatorNormalization)
+		SetCodexIdentityEnforcementEnabled(!cfg.Gateway.DisableCodexIdentityEnforcement)
 	}
 	svc := &OpenAIGatewayService{
 		accountRepo:         accountRepo,

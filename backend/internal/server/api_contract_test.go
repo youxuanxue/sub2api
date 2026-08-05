@@ -778,6 +778,17 @@ func TestAPIContracts(t *testing.T) {
 					"turnstile_enabled": true,
 					"turnstile_site_key": "site-key",
 					"turnstile_secret_key_configured": true,
+					"tencent_captcha_enabled": false,
+					"tencent_captcha_app_id": "",
+					"tencent_captcha_app_secret_key_configured": false,
+					"tencent_captcha_cloud_secret_id_configured": false,
+					"tencent_captcha_cloud_secret_key_configured": false,
+					"aliyun_captcha_enabled": false,
+					"aliyun_captcha_access_key_id": "",
+					"aliyun_captcha_access_key_secret_configured": false,
+					"aliyun_captcha_scene_id": "",
+					"aliyun_captcha_prefix": "",
+					"aliyun_captcha_region": "cn",
 						"linuxdo_connect_enabled": false,
 						"linuxdo_connect_client_id": "",
 						"linuxdo_connect_client_secret_configured": false,
@@ -955,6 +966,9 @@ func TestAPIContracts(t *testing.T) {
 					"openai_advanced_scheduler_effective_weight_previous_response": "5",
 					"openai_advanced_scheduler_effective_weight_session_sticky": "3",
 					"openai_codex_user_agent":           "",
+					"openai_codex_client_version":       "",
+					"openai_codex_client_version_synced": "",
+					"openai_codex_version_auto_sync_enabled": true,
 					"min_codex_version": "",
 					"max_codex_version": "",
 					"codex_cli_only_blacklist": "",
@@ -1126,6 +1140,17 @@ func TestAPIContracts(t *testing.T) {
 					"turnstile_enabled": false,
 					"turnstile_site_key": "",
 					"turnstile_secret_key_configured": false,
+					"tencent_captcha_enabled": false,
+					"tencent_captcha_app_id": "",
+					"tencent_captcha_app_secret_key_configured": false,
+					"tencent_captcha_cloud_secret_id_configured": false,
+					"tencent_captcha_cloud_secret_key_configured": false,
+					"aliyun_captcha_enabled": false,
+					"aliyun_captcha_access_key_id": "",
+					"aliyun_captcha_access_key_secret_configured": false,
+					"aliyun_captcha_scene_id": "",
+					"aliyun_captcha_prefix": "",
+					"aliyun_captcha_region": "cn",
 					"linuxdo_connect_enabled": false,
 					"linuxdo_connect_client_id": "",
 					"linuxdo_connect_client_secret_configured": false,
@@ -1278,6 +1303,9 @@ func TestAPIContracts(t *testing.T) {
 					"openai_advanced_scheduler_effective_weight_previous_response": "5",
 					"openai_advanced_scheduler_effective_weight_session_sticky": "3",
 					"openai_codex_user_agent":           "",
+					"openai_codex_client_version":       "",
+					"openai_codex_client_version_synced": "",
+					"openai_codex_version_auto_sync_enabled": true,
 					"min_codex_version": "",
 					"max_codex_version": "",
 					"codex_cli_only_blacklist": "",
@@ -2260,6 +2288,9 @@ func (stubUserSubscriptionRepo) Create(ctx context.Context, sub *service.UserSub
 	return errors.New("not implemented")
 }
 func (stubUserSubscriptionRepo) GetByID(ctx context.Context, id int64) (*service.UserSubscription, error) {
+	return nil, errors.New("not implemented")
+}
+func (stubUserSubscriptionRepo) GetByIDForUpdate(ctx context.Context, id int64) (*service.UserSubscription, error) {
 	return nil, errors.New("not implemented")
 }
 func (stubUserSubscriptionRepo) GetByIDIncludeDeleted(ctx context.Context, id int64) (*service.UserSubscription, error) {

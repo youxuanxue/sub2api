@@ -468,6 +468,26 @@
       "rationale": "Normal control-plane login is intentionally not gated on Cloudflare Turnstile; PR #119 kept Turnstile on registration, verification-code, and password-recovery flows while relying on login rate limiting for this path. Upstream-shaped LoginView.vue repeatedly brings back the widget/token wiring during merges and compiles cleanly, so this negative sentinel fails preflight/merge-shape if login once again renders, waits for, or submits a Turnstile token."
     },
     {
+      "path": "frontend/src/views/auth/LoginView.vue",
+      "must_contain": [
+        "<AuthActionCaptcha",
+        "const proof = await actionCaptchaRef.value?.acquireProof()",
+        "await authStore.loginWithPasskey(proof)",
+        "startOAuthLogin(request, proof)"
+      ],
+      "rationale": "OAuth and passkey action captcha stays behind a thin auth companion while ordinary email/password login remains captcha-free. These anchors pin the companion injection and both protected action call sites so a future upstream merge cannot restore captcha to password login or silently drop Tencent/Aliyun protection from the dedicated OAuth/passkey endpoints."
+    },
+    {
+      "path": "frontend/src/components/auth/AuthActionCaptcha.vue",
+      "must_contain": [
+        ":turnstile-enabled=\"false\"",
+        "tencent_captcha_ticket: result.token",
+        "tencent_captcha_randstr: result.randstr",
+        "return { turnstile_token: result.token }"
+      ],
+      "rationale": "The auth action companion intentionally excludes Cloudflare Turnstile and maps only Tencent/Aliyun action results to their backend compatibility fields. Keeping provider details here preserves upstream captcha capabilities without expanding the normal TokenKey login gate or thickening LoginView.vue."
+    },
+    {
       "path": "frontend/src/api/admin/ops.ts",
       "must_contain": [
         "feishu: {",

@@ -96,6 +96,10 @@ func (s *TurnstileService) VerifyToken(ctx context.Context, token string, remote
 	}
 
 	secretKey := s.settingService.GetTurnstileSecretKey(ctx)
+	return s.VerifyTokenWithSecret(ctx, secretKey, token, remoteIP)
+}
+
+func (s *TurnstileService) VerifyTokenWithSecret(ctx context.Context, secretKey, token, remoteIP string) error {
 	if secretKey == "" {
 		logger.With(zap.String("component", "service.turnstile")).
 			Warn("[Turnstile] secret key not configured")
@@ -116,6 +120,9 @@ func (s *TurnstileService) VerifyToken(ctx context.Context, token string, remote
 		return ErrTurnstileVerificationFailed
 	}
 
+	if s == nil || s.verifier == nil {
+		return ErrTurnstileNotConfigured
+	}
 	result, err := s.verifier.VerifyToken(ctx, secretKey, token, remoteIP)
 	if err != nil {
 		// repository 契约：JSON 解析失败时仍会返回非 nil 的 result（带 HTTP status/latency）。

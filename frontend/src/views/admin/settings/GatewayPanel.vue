@@ -30,6 +30,15 @@ const { t } = useI18n();
 const appStore = useAppStore();
 const { form } = useSettingsState();
 
+const codexSyncedVersionLabel = computed(() => {
+  const version = form.openai_codex_client_version_synced.trim();
+  return version
+    ? t("admin.settings.gatewayForwarding.openaiCodexVersionSyncedValue", {
+        version,
+      })
+    : "";
+});
+
 // =====================================================================
 // Overload Cooldown (529)
 // =====================================================================
@@ -2769,6 +2778,36 @@ defineExpose({
               )
             }}
           </p>
+        </div>
+
+        <div>
+          <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t("admin.settings.gatewayForwarding.openaiCodexClientVersion") }}
+          </label>
+          <input
+            v-model="form.openai_codex_client_version"
+            type="text"
+            class="input w-full font-mono text-sm"
+            :placeholder="t('admin.settings.gatewayForwarding.openaiCodexClientVersionPlaceholder')"
+          />
+          <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.settings.gatewayForwarding.openaiCodexClientVersionHint") }}
+          </p>
+        </div>
+
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t("admin.settings.gatewayForwarding.openaiCodexVersionAutoSync") }}
+            </label>
+            <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.settings.gatewayForwarding.openaiCodexVersionAutoSyncHint") }}
+            </p>
+            <p v-if="codexSyncedVersionLabel" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              {{ codexSyncedVersionLabel }}
+            </p>
+          </div>
+          <Toggle v-model="form.openai_codex_version_auto_sync_enabled" />
         </div>
 
       </div>

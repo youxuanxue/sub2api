@@ -99,6 +99,7 @@ func provideCleanup(
 	upstreamBalanceSentinel *service.UpstreamBalanceSentinel,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
+	codexVersionSync *service.OpenAICodexVersionSyncService,
 	proxyExpiry *service.ProxyExpiryService,
 	subscriptionExpiry *service.SubscriptionExpiryService,
 	usageCleanup *service.UsageCleanupService,
@@ -341,6 +342,10 @@ func provideCleanup(
 			}},
 			{"AccountExpiryService", func() error {
 				accountExpiry.Stop()
+				return nil
+			}},
+			{"OpenAICodexVersionSyncService", func() error {
+				codexVersionSync.Stop()
 				return nil
 			}},
 			{"ProxyExpiryService", func() error {
