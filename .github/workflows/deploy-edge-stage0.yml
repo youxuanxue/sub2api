@@ -83,7 +83,6 @@ jobs:
     environment: edge-${{ inputs.edge_id }}
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      CFN_EXECUTION_ROLE_ARN: ${{ vars.AWS_EC2_EDGE_CFN_ROLE_ARN }}
       INPUT_EDGE_ID: ${{ inputs.edge_id }}
       INPUT_OPERATION: ${{ inputs.operation }}
       INPUT_TAG: ${{ inputs.tag }}
@@ -108,10 +107,12 @@ jobs:
             echo "::error::AWS_OIDC_ROLE_ARN repo variable is required"
             exit 1
           fi
-          if ! printf '%s' "${CFN_EXECUTION_ROLE_ARN:-}" | grep -Eq '^arn:aws(-[a-z]+)?:iam::[0-9]{12}:role/tokenkey-cfn-ec2-edge-stage0$'; then
-            echo "::error::AWS_EC2_EDGE_CFN_ROLE_ARN must reference role/tokenkey-cfn-ec2-edge-stage0"
+          if [[ ! "$OIDC_ROLE_ARN" =~ ^arn:(aws(-[a-z]+)?):iam::([0-9]{12}):role/.+$ ]]; then
+            echo "::error::AWS_OIDC_ROLE_ARN is not a valid IAM role ARN"
             exit 1
           fi
+          CFN_ROLE_ARN="arn:${BASH_REMATCH[1]}:iam::${BASH_REMATCH[3]}:role/tokenkey-cfn-ec2-edge-stage0"
+          echo "cfn_execution_role_arn=$CFN_ROLE_ARN" >> "$GITHUB_OUTPUT"
           FLAGS=()
           if [ "$INPUT_ALLOW_CANDIDATE" = "true" ]; then
             FLAGS+=(--allow-migration-candidate)
@@ -183,10 +184,20 @@ jobs:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ steps.edge.outputs.region }}
 
+      - name: Run live migration preflight
+        if: inputs.operation == 'provision'
+        env:
+          REPORT: ${{ runner.temp }}/all-edge-ec2-migration-preflight.json
+        run: |
+          set -euo pipefail
+          bash ops/migration/edge-platform-migration-preflight.sh --format json --output "$REPORT"
+          jq -e '.blockers == []' "$REPORT" >/dev/null
+
       - name: Provision EC2 candidate stack
         id: provision
         if: inputs.operation == 'provision'
         env:
+          CFN_EXECUTION_ROLE_ARN: ${{ steps.edge.outputs.cfn_execution_role_arn }}
           STACK_NAME: ${{ steps.edge.outputs.stack }}
           EDGE_ID: ${{ steps.edge.outputs.edge_id }}
           REGION: ${{ steps.edge.outputs.region }}
@@ -384,6 +395,7 @@ jobs:
         id: rotation
         if: inputs.operation == 'rotate_egress_ip'
         env:
+          CFN_EXECUTION_ROLE_ARN: ${{ steps.edge.outputs.cfn_execution_role_arn }}
           STACK_NAME: ${{ steps.edge.outputs.stack }}
           EDGE_ID: ${{ steps.edge.outputs.edge_id }}
           REGION: ${{ steps.edge.outputs.region }}

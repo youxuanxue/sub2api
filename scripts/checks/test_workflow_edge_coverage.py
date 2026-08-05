@@ -191,10 +191,12 @@ class WorkflowEdgeCoverageTest(unittest.TestCase):
 class Ec2WorkflowSafetyContractTest(unittest.TestCase):
     WORKFLOW = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows/deploy-edge-stage0.yml"
 
-    def _load_steps(self) -> list[dict]:
+    def _load_workflow(self) -> dict:
         self.assertTrue(self.WORKFLOW.is_file(), "EC2 Edge workflow is not implemented")
-        doc = yaml.safe_load(self.WORKFLOW.read_text(encoding="utf-8")) or {}
-        return doc["jobs"]["edge"]["steps"]
+        return yaml.safe_load(self.WORKFLOW.read_text(encoding="utf-8")) or {}
+
+    def _load_steps(self) -> list[dict]:
+        return self._load_workflow()["jobs"]["edge"]["steps"]
 
     def test_stack_confirmation_and_candidate_gate_precede_oidc(self) -> None:
         steps = self._load_steps()
@@ -217,6 +219,66 @@ class Ec2WorkflowSafetyContractTest(unittest.TestCase):
             operations,
             ["provision", "upgrade", "rollback", "smoke", "rotate_egress_ip", "decommission"],
         )
+
+    def test_graviton_workflow_cannot_bypass_multi_arch_release_gate(self) -> None:
+        doc = self._load_workflow()
+        on = doc.get("on", doc.get(True, {}))
+        inputs = on["workflow_dispatch"]["inputs"]
+        self.assertNotIn("simple_release_override", inputs)
+        self.assertNotIn("INPUT_OVERRIDE", doc["jobs"]["edge"].get("env", {}))
+        verify_step = next(
+            step
+            for step in doc["jobs"]["edge"]["steps"]
+            if step.get("name") == "Verify released multi-arch image"
+        )
+        self.assertEqual(
+            verify_step["run"],
+            'bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" false',
+        )
+
+    def test_ec2_provision_derives_cfn_role_and_runs_preflight_before_eip(self) -> None:
+        doc = self._load_workflow()
+        job = doc["jobs"]["edge"]
+        steps = job["steps"]
+        self.assertNotIn("CFN_EXECUTION_ROLE_ARN", job.get("env", {}))
+
+        resolve_step = next(step for step in steps if step.get("id") == "edge")
+        resolve_script = str(resolve_step.get("run", ""))
+        self.assertNotIn("AWS_EC2_EDGE_CFN_ROLE_ARN", resolve_script)
+        self.assertIn("role/tokenkey-cfn-ec2-edge-stage0", resolve_script)
+        self.assertIn("cfn_execution_role_arn=", resolve_script)
+
+        credential_index = next(
+            i for i, step in enumerate(steps)
+            if str(step.get("uses", "")).startswith("aws-actions/configure-aws-credentials@")
+        )
+        preflight_index = next(
+            i for i, step in enumerate(steps)
+            if step.get("name") == "Run live migration preflight"
+        )
+        provision_index = next(i for i, step in enumerate(steps) if step.get("id") == "provision")
+        self.assertLess(credential_index, preflight_index)
+        self.assertLess(preflight_index, provision_index)
+
+        preflight_step = steps[preflight_index]
+        self.assertEqual(preflight_step.get("if"), "inputs.operation == 'provision'")
+        self.assertEqual(
+            preflight_step.get("env", {}).get("REPORT"),
+            "${{ runner.temp }}/all-edge-ec2-migration-preflight.json",
+        )
+        preflight_script = str(preflight_step.get("run", ""))
+        self.assertIn("edge-platform-migration-preflight.sh", preflight_script)
+        self.assertIn("jq -e '.blockers == []'", preflight_script)
+
+        provision_script = str(steps[provision_index].get("run", ""))
+        self.assertIn("aws ec2 allocate-address", provision_script)
+        for step in steps:
+            if "aws cloudformation deploy" not in str(step.get("run", "")):
+                continue
+            self.assertEqual(
+                step.get("env", {}).get("CFN_EXECUTION_ROLE_ARN"),
+                "${{ steps.edge.outputs.cfn_execution_role_arn }}",
+            )
 
     def _run_operation_validation(
         self,
