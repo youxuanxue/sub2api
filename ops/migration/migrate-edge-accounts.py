@@ -17,14 +17,14 @@ SchedulerSnapshotService.triggerFullRebuild); the gateway also full-rebuilds eve
 gateway.scheduling.full_rebuild_interval_seconds (default 300s) as a backstop.
 
 Flow (run as discrete, reviewable steps):
-  extract  --from edge:us1 --account-ids 5,6,7         # us1 -> S3 -> local .cache (data + live column types)
+  extract  --from edge:us4@lightsail --account-ids 5,6,7 # source -> S3 -> local .cache
   build    --rename kiro-us1-real=kiro-us6-real \
            --rename-group kiro-us1=kiro-us6            # local: generate migrate.sql, print sanitized summary
-  load     --to edge:us6 [--execute]                   # local migrate.sql -> S3 -> us6 psql (dry-run unless --execute)
+  load     --to edge:us4@ec2 [--execute]               # local migrate.sql -> target (dry-run unless --execute)
 
 Helper write-ops (used during smoke + teardown; small UPDATEs, no secrets):
-  set-schedulable --to edge:us6 --account-name kiro-us6-real --value true|false
-  soft-delete     --from edge:us1 --account-ids 5,6,7 [--execute]
+  set-schedulable --to edge:us4@ec2 --account-name kiro-us4-real --value true|false
+  soft-delete     --from edge:us4@lightsail --account-ids 5,6,7 [--execute]
 
 All write subcommands default to dry-run; pass --execute to apply.
 """
@@ -59,7 +59,7 @@ ACCOUNT_RESET_NULL = {
     "error_message", "last_used_at", "rate_limited_at", "rate_limit_reset_at",
     "overload_until", "session_window_start", "session_window_end",
     "session_window_status", "temp_unschedulable_until", "temp_unschedulable_reason",
-    "proxy_id",  # proxy config is host-specific
+    "proxy_id", "proxy_fallback_origin_id",  # proxy config is host-specific
     "tier_id",   # FK into the target host's account_tiers; not portable
 }
 
@@ -77,9 +77,32 @@ def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, check=True, text=True, capture_output=True, **kw)
 
 
+def parse_target(target: str) -> tuple[str, str, str]:
+    """Return (kind, edge_id, platform) for prod or edge:<id>[@platform]."""
+    value = target.strip()
+    if value == "prod":
+        return "prod", "", "ec2"
+    if not value.startswith("edge:"):
+        raise ValueError("--from/--to must be 'edge:<id>[@ec2|@lightsail]' or 'prod'")
+    edge_ref = value.split(":", 1)[1]
+    if "@" in edge_ref:
+        edge_id, platform = edge_ref.split("@", 1)
+    else:
+        edge_id, platform = edge_ref, "auto"
+    if not edge_id.strip():
+        raise ValueError("edge target is missing an edge id")
+    if platform not in ("auto", "ec2", "lightsail"):
+        raise ValueError(f"unknown edge platform {platform!r}; use ec2 or lightsail")
+    return "edge", edge_id.strip(), platform
+
+
 def resolve_edge(target: str) -> tuple[str, str]:
-    """target = 'edge:<id>' or 'prod' -> (region, instance_id)."""
-    if target == "prod":
+    """Resolve prod or edge:<id>[@platform] to (region, instance_id)."""
+    try:
+        kind, edge_id, platform = parse_target(target)
+    except ValueError as exc:
+        die(str(exc))
+    if kind == "prod":
         out = run([
             "aws", "cloudformation", "describe-stacks", "--region", "us-east-1",
             "--stack-name", "tokenkey-prod-stage0",
@@ -87,12 +110,10 @@ def resolve_edge(target: str) -> tuple[str, str]:
             "--output", "text",
         ]).stdout.strip()
         return "us-east-1", out
-    if not target.startswith("edge:"):
-        die("--from/--to must be 'edge:<id>' or 'prod'")
-    edge_id = target.split(":", 1)[1]
     out = run([
         sys.executable, str(REPO_ROOT / "ops/stage0/edge_ssm_execution.py"),
-        "--repo-root", str(REPO_ROOT), "--edge-id", edge_id, "--format", "json",
+        "--repo-root", str(REPO_ROOT), "--edge-id", edge_id,
+        "--platform", platform, "--format", "json",
     ]).stdout
     obj = json.loads(out)
     return obj["region"], obj["instance_id"]
@@ -170,10 +191,10 @@ def presign(method: str, key: str) -> str:
 # extract
 # ---------------------------------------------------------------------------
 def cmd_extract(args: argparse.Namespace) -> None:
-    region, iid = resolve_edge(args.from_target)
     acct_ids = [int(x) for x in args.account_ids.split(",") if x.strip()]
     if not acct_ids:
         die("--account-ids required")
+    region, iid = resolve_edge(args.from_target)
     id_list = ",".join(str(i) for i in acct_ids)
 
     # Server-side: build one JSON doc {schema, groups, accounts, bindings} into a
@@ -385,7 +406,7 @@ def cmd_build(args: argparse.Namespace) -> None:
               f"channel_type={a.get('channel_type')}) status=active schedulable=false")
     print(f"  + 1 full_rebuild scheduler_outbox row")
     print(f"  bindings: {len(payload.get('bindings') or [])}")
-    log(f"wrote {out_sql}. review, then: load --to edge:<id> [--execute]")
+    log(f"wrote {out_sql}. review, then: load --to edge:<id>@<platform> [--execute]")
 
 
 # ---------------------------------------------------------------------------
@@ -397,7 +418,7 @@ def cmd_load(args: argparse.Namespace) -> None:
         die("no migrate.sql; run build first")
     if not args.execute:
         print("=== DRY RUN (migrate.sql NOT applied; pass --execute to apply) ===")
-        print(out_sql.read_text())
+        print(f"review local SQL at {out_sql}; credential values are intentionally not printed")
         return
     region, iid = resolve_edge(args.to_target)
     stamp = run(["date", "-u", "+%Y%m%dT%H%M%SZ"]).stdout.strip()
