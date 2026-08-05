@@ -8,15 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func requireOpenAICodexProbeHeaders(t *testing.T, h http.Header) {
-	t.Helper()
-	require.Equal(t, codexCLIUserAgent, h.Get("User-Agent"))
-	require.Equal(t, "codex_cli_rs", h.Get("Originator"))
-	require.Equal(t, codexCLIVersion, h.Get("Version"))
-	require.Equal(t, "responses=experimental", h.Get("OpenAI-Beta"))
-	require.NotEmpty(t, h.Get("X-Codex-Window-ID"))
-}
-
 // 强制统一出口：无论客户端自报什么身份，OAuth 出站的 User-Agent / originator / version
 // 一律是网关规范身份。上游在容量紧张时按客户端身份分优先级降载，统一出口确保没有请求
 // 带着第三方或陈旧身份出站。

@@ -5217,9 +5217,45 @@
       "path": "backend/internal/service/openai_gateway_forward.go",
       "must_contain": [
         "func resolveOpenAICodexUserAgent(",
-        "func (s *OpenAIGatewayService) applyOpenAICodexUserAgent("
+        "func (s *OpenAIGatewayService) applyOpenAICodexUserAgent(",
+        "enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))"
       ],
-      "rationale": "OpenAI OAuth upstream Codex fingerprint normalization (prod GPT-pro1 id=9, 2026-06-25). Non-Codex OAuth ingress (python-requests/urllib/SDK) must be re-presented upstream as official Codex: applyOpenAICodexUserAgent sets a Codex UA (precedence ForceCodexCLI > account custom UA > preserve-real-Codex-ingress > admin setting > built-in default) and resolveOpenAIUpstreamOriginator only preserves an inbound originator when IsCodexOfficialClientOriginator() accepts it, otherwise forces codex_cli_rs. Dropping these helpers/wiring silently reverts to forwarding arbitrary client identity, which OpenAI categorizes as Uncategorized and which degrades account health/risk-control — and unit tests on unrelated paths can still stay green. NOTE: anchors structural behavior only, never the codex-tui UA version literal (that is a fingerprint value governed by tokenkey-cc/openai fingerprint-alignment and is meant to drift)."
+      "rationale": "OpenAI OAuth upstream Codex fingerprint normalization (prod GPT-pro1 id=9, 2026-06-25). Non-Codex OAuth ingress must be re-presented upstream as the canonical Codex identity, and the terminal HTTP forward call must enforce a User-Agent/originator/version triple derived from one runtime version owner. Dropping the final enforcement call silently restores arbitrary or stale client identity upstream, which degrades account health while unrelated unit tests can remain green. This anchors structure only; the version literal is intentionally owned by fingerprint-alignment."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_identity.go",
+      "must_contain": [
+        "func resolveCodexOutboundIdentity(candidateUA string) codexOutboundIdentity",
+        "version := codexClientVersionFromUA(canonical)",
+        "func enforceCodexIdentityHeadersWithUA(h http.Header, overrideUA string)",
+        "identity := resolveCodexOutboundIdentity(overrideUA)",
+        "h.Set(\"version\", identity.version)"
+      ],
+      "rationale": "Canonical Codex identity is a load-bearing upstream health invariant: User-Agent, originator, and version must be rebuilt as one coherent triple from the effective runtime version. Account-level UA overrides may contribute the official client family and machine/terminal fingerprint but must not pin a stale version. This entry anchors the shared implementation used by HTTP, passthrough, WebSocket, alpha-search fallback, account tests, and usage probes."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_identity_test.go",
+      "must_contain": [
+        "TestEnforceCodexIdentityHeadersFollowsCanonicalResolver",
+        "TestEnforceCodexIdentityHeadersWithAccountOverrideUA",
+        "TestEnforceCodexIdentityHeaders_EnforcementDisabled",
+        "TestEnforceCodexIdentityHeadersIsIdempotent"
+      ],
+      "rationale": "Focused regressions pin runtime version propagation, account-level fingerprint preservation, rollback semantics, and idempotence for canonical Codex identity enforcement. These behaviors can be silently weakened at a shared helper while route smoke tests still succeed."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))"
+      ],
+      "rationale": "OpenAI OAuth passthrough must use the same canonical User-Agent/originator/version terminal enforcement as the regular HTTP forward path. Losing this call creates two client identities for the same account depending on route mode and reintroduces upstream classification and load-shed drift."
+    },
+    {
+      "path": "backend/internal/service/openai_alpha_search.go",
+      "must_contain": [
+        "enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))"
+      ],
+      "rationale": "The PAT /responses hosted web-search fallback is a Codex Responses request and must enforce the same canonical identity triple as other OAuth Responses traffic. The native SearchClient alpha/search builder remains a distinct wire protocol; this anchor applies only to the fallback request path."
     },
     {
       "rationale": "OpenAI OAuth upstream Codex fingerprint normalization (prod GPT-pro1 id=9, 2026-06-25). Non-Codex OAuth ingress (python-requests/urllib/SDK) must be re-presented upstream as official Codex: applyOpenAICodexUserAgent sets a Codex UA (precedence ForceCodexCLI > account custom UA > preserve-real-Codex-ingress > admin setting > built-in default) and resolveOpenAIUpstreamOriginator only preserves an inbound originator when IsCodexOfficialClientOriginator() accepts it, otherwise forces codex_cli_rs. Dropping these helpers/wiring silently reverts to forwarding arbitrary client identity, which OpenAI categorizes as Uncategorized and which degrades account health/risk-control — and unit tests on unrelated paths can still stay green. NOTE: anchors structural behavior only, never the codex-tui UA version literal (that is a fingerprint value governed by tokenkey-cc/openai fingerprint-alignment and is meant to drift).",
@@ -5430,9 +5466,10 @@
     {
       "path": "backend/internal/service/openai_ws_forwarder_payload.go",
       "must_contain": [
-        "resolveOpenAICodexUserAgent(context.Background(), s, account, inboundUA)"
+        "resolveOpenAICodexUserAgent(context.Background(), s, account, inboundUA)",
+        "enforceCodexIdentityHeadersWithUA(headers, s.codexIdentityOverrideUA(account))"
       ],
-      "rationale": "WS forwarder buildOpenAIWSHeaders must call resolveOpenAICodexUserAgent to normalize the upstream Codex UA for WebSocket connections, same as the HTTP path in openai_gateway_service.go. Without this call, WS connections (Codex real-time) forward arbitrary client identity upstream, which OpenAI classifies as Uncategorized and which degrades account health. The function definition is anchored in openai_gateway_service.go; this entry pins the WS call site."
+      "rationale": "WS forwarder buildOpenAIWSHeaders must normalize the upstream Codex UA and then apply the same terminal User-Agent/originator/version enforcement as HTTP traffic. Without both calls, real-time connections can diverge from canonical identity and be classified or load-shed differently from requests on the same account."
     },
     {
       "path": "backend/internal/service/openai_gateway_scheduling.go",
