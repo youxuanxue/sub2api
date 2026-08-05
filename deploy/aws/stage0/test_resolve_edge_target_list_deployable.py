@@ -13,6 +13,7 @@ import tempfile
 import unittest
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "resolve-edge-target.py"
+_REAL_MATRIX = pathlib.Path(__file__).resolve().parent / "edge-targets.json"
 
 
 def _run_with_matrix(matrix: dict, *args: str) -> subprocess.CompletedProcess:
@@ -106,6 +107,41 @@ class ListDeployableTest(unittest.TestCase):
         )
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("not a migration candidate", proc.stderr)
+
+    def test_real_migration_candidates_resolve_to_approved_capacity(self) -> None:
+        matrix = json.loads(_REAL_MATRIX.read_text(encoding="utf-8"))
+        expected = {
+            "us3": ("us-east-2", 41),
+            "us4": ("us-west-2", 39),
+            "us5": ("us-west-2", 37),
+            "us6": ("us-east-2", 36),
+        }
+        for edge_id, (region, budget) in expected.items():
+            with self.subTest(edge_id=edge_id):
+                proc = _run_with_matrix(
+                    matrix,
+                    "--edge-id", edge_id,
+                    "--confirm-stack", f"tokenkey-edge-{edge_id}-stage0",
+                    "--allow-migration-candidate",
+                )
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                outputs = dict(line.split("=", 1) for line in proc.stdout.splitlines())
+                self.assertEqual(outputs["deployable"], "false")
+                self.assertEqual(outputs["migration_candidate"], "true")
+                self.assertEqual(outputs["region"], region)
+                self.assertEqual(outputs["instance_type"], "t4g.small")
+                self.assertEqual(outputs["root_volume_gib"], "20")
+                self.assertEqual(outputs["data_volume_gib"], "20")
+                self.assertEqual(outputs["swap_gib"], "2")
+                self.assertEqual(outputs["snapshot_schedule"], "daily")
+                self.assertEqual(outputs["monthly_budget_usd"], str(budget))
+                self.assertEqual(outputs["ssm_prefix"], f"/tokenkey/edge/{edge_id}/stage0")
+
+    def test_real_migration_candidates_are_not_deployable_without_lightsail(self) -> None:
+        matrix = json.loads(_REAL_MATRIX.read_text(encoding="utf-8"))
+        proc = _run_with_matrix(matrix, "--list-deployable")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, "")
 
 
 if __name__ == "__main__":

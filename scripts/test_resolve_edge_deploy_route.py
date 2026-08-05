@@ -2,15 +2,22 @@
 """Tests for scripts/stage0/resolve-edge-deploy-route.py."""
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts/stage0/resolve-edge-deploy-route.py"
 LIGHTSAIL_MATRIX = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
+
+sys.path.insert(0, str(REPO_ROOT / "ops/stage0"))
+from edge_routing_matrix import resolve_route_tab  # noqa: E402
 
 
 def _deployable_lightsail_edge() -> str | None:
@@ -24,9 +31,29 @@ def _deployable_lightsail_edge() -> str | None:
 
 
 class ResolveEdgeDeployRouteTest(unittest.TestCase):
-    def _route(self, edge_id: str) -> dict:
+    def _fake_route_root(self, temp: pathlib.Path, ec2_target: dict) -> pathlib.Path:
+        root = temp / "repo"
+        (root / "deploy/aws/stage0").mkdir(parents=True)
+        (root / "deploy/aws/lightsail").mkdir(parents=True)
+        (root / "deploy/aws/stage0/edge-targets.json").write_text(
+            json.dumps({"targets": {"us9": ec2_target}}),
+            encoding="utf-8",
+        )
+        (root / "deploy/aws/lightsail/edge-targets-lightsail.json").write_text(
+            json.dumps({"targets": {}}),
+            encoding="utf-8",
+        )
+        return root
+
+    def _route(self, edge_id: str, *, platform: str = "auto") -> dict:
         proc = subprocess.run(
-            [sys.executable, str(SCRIPT), "--edge-id", edge_id, "--json"],
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--edge-id", edge_id,
+                "--platform", platform,
+                "--json",
+            ],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
@@ -44,11 +71,77 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
         self.assertEqual(route["confirm_flag"], "confirm_instance")
         self.assertTrue(route["confirm_value"].endswith("-ls"))
 
-    # NOTE: us1 was the last EC2 edge; it is being retired (deployable=false →
-    # decommission, replaced by the us6 Lightsail edge). With no deployable EC2 edge
-    # left in the matrix there is no live fixture for the EC2 routing branch, so the
-    # former `test_us1_routes_to_ec2` happy-path test is dropped. The rejection path
-    # below still exercises non-deployable resolution.
+    def test_explicit_ec2_routes_migration_candidate(self) -> None:
+        route = self._route("us5", platform="ec2")
+        self.assertEqual(route["platform"], "ec2")
+        self.assertEqual(route["workflow_file"], "deploy-edge-stage0.yml")
+        self.assertEqual(route["confirm_flag"], "confirm_stack")
+        self.assertEqual(route["confirm_value"], "tokenkey-edge-us5-stage0")
+        self.assertTrue(route["allow_migration_candidate"])
+
+    def test_dispatch_explicit_ec2_sets_candidate_workflow_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = pathlib.Path(tmp)
+            gh_log = temp / "gh.log"
+            fake_gh = temp / "gh"
+            fake_gh.write_text(
+                "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$GH_LOG\"\n",
+                encoding="utf-8",
+            )
+            fake_gh.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = f"{temp}:{env['PATH']}"
+            env["GH_LOG"] = str(gh_log)
+            proc = subprocess.run(
+                [
+                    "bash",
+                    "scripts/stage0/dispatch-edge-deploy.sh",
+                    "--edge-id", "us5",
+                    "--platform", "ec2",
+                    "--operation", "provision",
+                    "--tag", "1.2.3",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            args = gh_log.read_text(encoding="utf-8").splitlines()
+            self.assertIn("deploy-edge-stage0.yml", args)
+            self.assertIn("confirm_stack=tokenkey-edge-us5-stage0", args)
+            self.assertIn("allow_migration_candidate=true", args)
+
+    def test_auto_does_not_fall_back_to_ec2_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fake_route_root(
+                pathlib.Path(tmp),
+                {
+                    "deployable": False,
+                    "migration_candidate": True,
+                    "region": "us-west-2",
+                    "stack": "tokenkey-edge-us9-stage0",
+                },
+            )
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    resolve_route_tab(root, "us9", "auto")
+
+    def test_explicit_ec2_rejects_ordinary_planned_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fake_route_root(
+                pathlib.Path(tmp),
+                {
+                    "deployable": False,
+                    "migration_candidate": False,
+                    "region": "us-west-2",
+                    "stack": "tokenkey-edge-us9-stage0",
+                },
+            )
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    resolve_route_tab(root, "us9", "ec2")
 
     def test_non_deployable_edge_fails(self) -> None:
         proc = subprocess.run(

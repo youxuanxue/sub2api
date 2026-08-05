@@ -65,6 +65,13 @@ def resolve_route_tab(
     if pref == "ec2":
         if not ec2_target:
             _fail(f"unknown edge_id in EC2 matrix: {eid}")
+        if not (
+            ec2_target.get("deployable") is True
+            or ec2_target.get("migration_candidate") is True
+        ):
+            _fail(
+                f"edge {eid} is planned but neither deployable nor a migration candidate",
+            )
         region = ec2_target.get("region")
         stack = ec2_target.get("stack")
         if not region or not stack:
@@ -82,6 +89,10 @@ def resolve_route_tab(
     if not ec2_target:
         _fail(
             f"edge {eid}: no Lightsail deployable route and unknown in EC2 matrix",
+        )
+    if ec2_target.get("deployable") is not True:
+        _fail(
+            f"edge {eid}: no deployable owner; explicit --platform ec2 is required for a migration candidate",
         )
     region = ec2_target.get("region")
     stack = ec2_target.get("stack")

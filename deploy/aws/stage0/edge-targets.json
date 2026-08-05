@@ -1,7 +1,73 @@
 {
   "schema_version": 1,
+  "platform": "ec2",
   "default_profile": "edge-minimal",
-  "max_monthly_budget_usd": 16,
-  "_retired": "EC2 edge path removed 2026-06-07; edges are Lightsail-only (deploy/aws/lightsail/edge-targets-lightsail.json). prod stays EC2/CFN (tokenkey-prod-stage0). Do NOT re-add EC2 edges here — the deploy-edge-stage0.yml workflow and stage0-edge-ec2.yaml template have been deleted. File kept (not removed) because edge_routing_matrix / resolve-edge-deploy-route / edge_ssm_execution hard-fail if it is missing.",
-  "targets": {}
+  "max_monthly_budget_usd": 41,
+  "_migration": "EC2 targets remain shadow candidates until the per-edge owner cutover sets deployable=true and migration_candidate=false.",
+  "targets": {
+    "us3": {
+      "deployable": false,
+      "migration_candidate": true,
+      "profile": "edge-minimal",
+      "region": "us-east-2",
+      "domain": "api-us3.tokenkey.dev",
+      "stack": "tokenkey-edge-us3-stage0",
+      "instance_type": "t4g.small",
+      "root_volume_gib": 20,
+      "data_volume_gib": 20,
+      "swap_gib": 2,
+      "snapshot_schedule": "daily",
+      "monthly_budget_usd": 41,
+      "ssm_prefix": "/tokenkey/edge/us3/stage0",
+      "purpose": "all-edge-platform-migration-candidate"
+    },
+    "us4": {
+      "deployable": false,
+      "migration_candidate": true,
+      "profile": "edge-minimal",
+      "region": "us-west-2",
+      "domain": "api-us4.tokenkey.dev",
+      "stack": "tokenkey-edge-us4-stage0",
+      "instance_type": "t4g.small",
+      "root_volume_gib": 20,
+      "data_volume_gib": 20,
+      "swap_gib": 2,
+      "snapshot_schedule": "daily",
+      "monthly_budget_usd": 39,
+      "ssm_prefix": "/tokenkey/edge/us4/stage0",
+      "purpose": "all-edge-platform-migration-candidate"
+    },
+    "us5": {
+      "deployable": false,
+      "migration_candidate": true,
+      "profile": "edge-minimal",
+      "region": "us-west-2",
+      "domain": "api-us5.tokenkey.dev",
+      "stack": "tokenkey-edge-us5-stage0",
+      "instance_type": "t4g.small",
+      "root_volume_gib": 20,
+      "data_volume_gib": 20,
+      "swap_gib": 2,
+      "snapshot_schedule": "daily",
+      "monthly_budget_usd": 37,
+      "ssm_prefix": "/tokenkey/edge/us5/stage0",
+      "purpose": "all-edge-platform-migration-candidate"
+    },
+    "us6": {
+      "deployable": false,
+      "migration_candidate": true,
+      "profile": "edge-minimal",
+      "region": "us-east-2",
+      "domain": "api-us6.tokenkey.dev",
+      "stack": "tokenkey-edge-us6-stage0",
+      "instance_type": "t4g.small",
+      "root_volume_gib": 20,
+      "data_volume_gib": 20,
+      "swap_gib": 2,
+      "snapshot_schedule": "daily",
+      "monthly_budget_usd": 36,
+      "ssm_prefix": "/tokenkey/edge/us6/stage0",
+      "purpose": "all-edge-platform-migration-candidate"
+    }
+  }
 }
