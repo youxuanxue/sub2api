@@ -120,12 +120,15 @@ indent_launcher() {
       first_line=false
       continue
     fi
-    printf '%s%s\n' "${indent}" "${line}"
-    if [[ "${profile}" == "edge" && "${line}" == export\ TK_STAGE0_PREFIX=* ]]; then
+    if [[ -z "${line}" ]]; then
+      printf '\n'
+    elif [[ "${profile}" == "edge" && "${line}" == export\ TK_STAGE0_PREFIX=* ]]; then
       printf "%sexport TK_STAGE0_PREFIX='/\${ProjectName}/edge/\${EdgeId}/stage0'\n" "${indent}"
       printf "%sexport TK_SWAP_SIZE_GIB='\${SwapSizeGiB}'\n" "${indent}"
       printf "%sexport TK_CADDY_PROFILE='edge'\n" "${indent}"
       printf "%sexport TK_MAIN_GATEWAY_ALLOWED_CIDR='\${MainGatewayAllowedCidr}'\n" "${indent}"
+    else
+      printf '%s%s\n' "${indent}" "${line}"
     fi
   done <"${LAUNCHER_SRC}"
 }

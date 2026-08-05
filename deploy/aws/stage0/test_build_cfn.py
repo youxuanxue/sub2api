@@ -70,6 +70,19 @@ class BuildCfnSizeTest(unittest.TestCase):
         first = next((line.strip() for line in body.splitlines() if line.strip()), "")
         self.assertEqual(first, "#!/bin/bash")
 
+    def test_edge_userdata_uses_only_edge_stage0_prefix(self) -> None:
+        body = _extract_userdata_body(CFN_EDGE.read_text())
+        prefix_exports = [
+            line.strip()
+            for line in body.splitlines()
+            if line.strip().startswith("export TK_STAGE0_PREFIX=")
+        ]
+        self.assertEqual(
+            prefix_exports,
+            ["export TK_STAGE0_PREFIX='/${ProjectName}/edge/${EdgeId}/stage0'"],
+            "edge UserData must not briefly expose the prod SSM prefix before overriding it",
+        )
+
     def test_bootstrap_gzip_b64_fits_three_ssm_standard_parts(self) -> None:
         # The bootstrap gzip|base64 blob is split across SSM Standard parameters
         # (each <= 4096 chars) and reassembled by the UserData launcher. The 2-part

@@ -470,7 +470,7 @@ Resources:
           # Fn::Sub replaces ${ApiDomain} etc; bash uses ${!TK_*} for runtime expansion.
           set -euxo pipefail
           exec > >(tee -a /var/log/tokenkey-bootstrap.log) 2>&1
-          
+
           export TK_API_DOMAIN='${ApiDomain}'
           export TK_ACME_EMAIL='${AcmeEmail}'
           export TK_ADMIN_EMAIL='${AdminEmail}'
@@ -487,7 +487,7 @@ Resources:
           export TK_QA_STALE_RETENTION_DAYS='${QaStaleRetentionDays}'
           export TK_TOKENKEY_IMAGE="ghcr.io/${GhcrOwner}/${GhcrImageName}:${ImageTag}"
           export TK_STAGE0_PREFIX='/${ProjectName}/${Environment}/stage0'
-          
+
           B64=""
           B64+="$(aws ssm get-parameter --name "${!TK_STAGE0_PREFIX}/bootstrap.sh.gzip.b64.part1" --region "${!TK_AWS_REGION}" --query Parameter.Value --output text)"
           B64+="$(aws ssm get-parameter --name "${!TK_STAGE0_PREFIX}/bootstrap.sh.gzip.b64.part2" --region "${!TK_AWS_REGION}" --query Parameter.Value --output text)"
