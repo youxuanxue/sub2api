@@ -3,6 +3,64 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/ops_dlq_spill.go",
+      "must_contain": [
+        "defaultOpsDLQMaxFiles",
+        "defaultOpsDLQMaxBytes",
+        "defaultOpsDLQMaxAge",
+        "defaultOpsDLQWritesPerMin",
+        "func pruneOpsDLQDir(",
+        "func prepareOpsDLQSpill("
+      ],
+      "rationale": "Bounded TokenKey fallback for ops_error_logs persistence failures. The write-rate guard and age/file/byte pruning keep a missing partition or database outage from recreating a million-file /app/data tree on small Stage0 hosts. pruneOpsDLQDir must remain fail-closed on inspect/remove errors so the hard-cap claim cannot silently degrade to best effort."
+    },
+    {
+      "path": "backend/internal/observability/trajectory/writer.go",
+      "must_contain": [
+        "safeDLQFileID(requestID)",
+        "func safeDLQFileID(raw string) string",
+        "sha256.Sum256([]byte(raw))"
+      ],
+      "rationale": "Shared local-DLQ writer owns path-safe bounded basenames for every caller. Correlation IDs are external or cross-service inputs and may contain separators, traversal segments, or unbounded text; hashing unsafe values prevents escape from the configured DLQ directory without forcing each caller to remember a duplicate guard."
+    },
+    {
+      "path": "backend/internal/observability/trajectory/writer_test.go",
+      "must_contain": [
+        "TestWriterUsesSafeBoundedDLQBasename",
+        "TestWriterPreservesSafeCorrelationIDBasename"
+      ],
+      "rationale": "Behavior regressions for shared DLQ basename ownership: traversal and oversized IDs are bounded under the configured directory, while ordinary correlation IDs retain their operator-readable filenames."
+    },
+    {
+      "path": "backend/internal/service/ops_service_tk_fallback.go",
+      "must_contain": [
+        "allowed, err := prepareOpsDLQSpill",
+        "writer := trajectory.NewWriter(nil, dir)",
+        "_, err = pruneOpsDLQDir"
+      ],
+      "rationale": "TokenKey ops-error DLQ persistence owner. It applies the spill policy before writing, delegates path-safe local persistence to trajectory.Writer while retaining the original correlation ID in the payload, and propagates post-write prune failures. Dropping these hooks reopens unbounded retention or unsafe fallback persistence."
+    },
+    {
+      "path": "backend/internal/service/ops_service.go",
+      "must_contain": [
+        "s.persistPreparedErrorFallback(ctx, prepared, \"ops_repo_unavailable\")",
+        "s.persistPreparedErrorFallback(ctx, prepared, \"ops_insert_failed\")",
+        "return s.persistPreparedErrorFallback(ctx, prepared, reason)"
+      ],
+      "rationale": "Upstream-shaped injection points for the TokenKey ops-error DLQ companion. Repository-unavailable, insert-failed, and explicit queue-overflow fallback paths must continue to delegate to the bounded owner; the companion and its tests remain compile-clean if a future upstream merge drops these call sites."
+    },
+    {
+      "path": "backend/internal/service/ops_dlq_spill_test.go",
+      "must_contain": [
+        "TestPruneOpsDLQDirConvergesToMaxFiles",
+        "TestPruneOpsDLQDirConvergesToMaxBytes",
+        "TestPruneOpsDLQDirReportsRemovalFailure",
+        "TestOpsDLQFallbackContainsUnsafeRequestIDWithoutPathEscape",
+        "TestPrepareOpsDLQSpillDropsWhenRateLimited"
+      ],
+      "rationale": "Focused regressions for the bounded fallback: rate limiting, deterministic file/byte convergence, fail-closed deletion errors, and path-safe persistence of unsafe correlation IDs."
+    },
+    {
       "path": "backend/internal/telemetryarchive/shadow.go",
       "must_contain": [
         "type Sink interface",
