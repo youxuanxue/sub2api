@@ -79,7 +79,7 @@ Fleet 保守成本上限已批准为 `$153/月`（feng，对话审批 2026-08-05
 ceil(19.12 + 0.09 * network_out_gib_30d + 10.00)
 ```
 
-该公式不分摊 AWS 账户级免费出站额度，避免低估。脚本把结果写入各目标的 `monthly_budget_usd`；fleet 的 `monthly_budget_usd` 必须取四台预测值之和，不能取最大单台值。如果固定成本或含流量预测超过人工批准预算，在创建 EC2 前暂停。
+该公式不分摊 AWS 账户级免费出站额度，避免低估。脚本只把结果写入迁移 evidence，并用实时预测与 `$153/月` 人工批准上限比较；部署 matrix 和 CloudFormation 不再保存或接收自报 `monthly_budget_usd`，避免把人工填写的数字误当成真实成本门禁。如果固定成本或含流量预测超过人工批准预算，在创建 EC2 前暂停。
 
 ## CPU Credits 监控口径
 
@@ -90,6 +90,16 @@ ceil(19.12 + 0.09 * network_out_gib_30d + 10.00)
 - `CPUSurplusCreditBalance`：出现大于零说明开始借用 credits，发成本预警。
 - `CPUSurplusCreditsCharged`：大于零说明已产生收费，发账单告警。
 - 根卷/数据卷：沿用持续 85% 的磁盘告警门槛。
+
+CloudWatch alarm 是 CPU/credits 状态的唯一探测 owner；实例已有的 host timer 读取 alarm state，并复用 `sync-feishu-config.sh` 注入的 webhook 发送 firing 与 recovery。EC2 Edge 不引入无人消费的可选 SNS 分支。飞书未配置、alarm 缺失或状态查询失败时不得写成功 latch，下一轮 timer 必须继续重试。
+
+## 审查收敛契约（2026-08-05 对话批准）
+
+- 迁移期基础设施容量固定为 `t4g.small`、20 GiB 根卷、20 GiB 数据卷、2 GiB swap 和 daily snapshot；matrix、resolver 与 CloudFormation 任一层偏离都必须失败。后续扩容另走成本评估与审批，不复用本次迁移授权。
+- `provision` 在分配 EIP 前必须用刚取得的只读 OIDC 权限运行完整 live migration preflight，并要求 `blockers=[]`；仓库里的历史 evidence 只供 review，不作为线上创建凭证。
+- CloudFormation execution role ARN 从已校验的 `AWS_OIDC_ROLE_ARN` 账户号和固定 role name 确定性派生，不依赖未登记的 GitHub variable。
+- 账号 extract 必须证明请求 ID 与返回 ID 精确一致，并完整携带 account-group bindings 和 fallback group 闭包；build 生成不含 secret value 的预期 manifest，load 后核对账号、credential key 集、group 与 binding。任一差异不得输出 `LOAD_OK`。
+- `set-schedulable` 等单账号写操作必须要求恰好影响一行并回读最终值；零行、多行或最终值不符均失败，不得打印成功标记。
 
 ## 迁移状态机
 
@@ -137,7 +147,7 @@ lightsail_active
 
 **输出契约：**
 - `edge-platform-migration-preflight.sh --format json --output docs/evidence/all-edge-ec2-migration-preflight.json`
-- JSON 包含 `fleet`、`quotas`、`network_out_30d`、`cpu_24h`、`dns`、`amis`、逐节点与 fleet 两个口径的 `fixed_monthly_usd`、`forecast_monthly_usd`、`blockers`。
+- JSON 包含 `fleet`、`quotas`、`network_out_30d`、`cpu_24h`、`dns`、`amis`、逐节点与 fleet 两个口径的 `fixed_monthly_usd`、`forecast_monthly_usd`、`approved_fleet_ceiling_usd`、`blockers`。
 - 仅当两个区域都有 2 个 EIP、2 个 VPC 的余量，`t4g.small` 可用，ARM64 AL2023 AMI 可解析，所有源 SSM 可达，DNS 与 matrix 一致，且成本数据完整时退出 0。
 
 - [ ] **步骤 1：先写 fixture 驱动的失败测试**
@@ -203,7 +213,7 @@ python3 -m unittest deploy/aws/stage0/test_stage0_edge_ec2_contract.py -v
 
 - [ ] **步骤 4：补齐 credits 与磁盘监控**
 
-增加持续 CPU、surplus borrowing、surplus charged、根卷和数据卷告警。禁止为 `CPUCreditBalance=0` 创建宕机告警。
+增加持续 CPU、surplus borrowing、surplus charged、根卷和数据卷告警。禁止为 `CPUCreditBalance=0` 创建宕机告警。host timer 必须读取三个 CPU alarm 的状态并通过现有飞书 webhook 发送配对的 firing/recovery；CloudWatch 状态不重复实现第二套阈值判断。
 
 - [ ] **步骤 5：生成并验证 CFN 工件**
 
@@ -240,7 +250,7 @@ aws cloudformation validate-template \
 
 - [ ] **步骤 3：实现复用共享 primitive 的 workflow**
 
-强制 released multi-arch tag、精确 target confirmation、Environment approval、`aws cloudformation deploy --role-arn`、SSM health、飞书同步和现有 Edge smoke。候选模式不得修改 DNS 或 owner。active EIP 轮换必须要求 `i_understand_active_rotation_requires_manual_dns=true`，并在 summary 中给出旧/新 EIP、待人工修改的 Porkbun A 记录和 DNS 验证后的旧 EIP 释放命令；不得把 `pending_manual_dns` 冒充完整成功。迁移期间 EC2/Lightsail 两条 workflow 必须共享 `edge-stage0-${edge_id}` concurrency group，且 `cancel-in-progress: false`。
+强制 released multi-arch tag、精确 target confirmation、Environment approval、`aws cloudformation deploy --role-arn`、SSM health、飞书同步和现有 Edge smoke。execution role ARN 必须从已校验的 OIDC role ARN 确定性派生；`provision` 必须在分配 EIP 前重跑 live migration preflight。候选模式不得修改 DNS 或 owner。active EIP 轮换必须要求 `i_understand_active_rotation_requires_manual_dns=true`，并在 summary 中给出旧/新 EIP、待人工修改的 Porkbun A 记录和 DNS 验证后的旧 EIP 释放命令；不得把 `pending_manual_dns` 冒充完整成功。迁移期间 EC2/Lightsail 两条 workflow 必须共享 `edge-stage0-${edge_id}` concurrency group，且 `cancel-in-progress: false`。
 
 - [ ] **步骤 4：验证权限和 workflow 覆盖**
 
@@ -271,7 +281,7 @@ python3 -m unittest scripts/checks/test_ec2_edge_oidc_perm_coverage.py scripts/c
 
 - [ ] **步骤 1：登记四个 EC2 candidate**
 
-使用目标表中的区域、stack 和域名；统一写入 `instance_type=t4g.small`、`root_volume_gib=20`、`data_volume_gib=20`、`swap_gib=2`、`snapshot_schedule=daily`、四个 `/tokenkey/edge/us*` SSM prefix、预检计算出的预算、`deployable=false` 和 `migration_candidate=true`。
+使用目标表中的区域、stack 和域名；统一写入 `instance_type=t4g.small`、`root_volume_gib=20`、`data_volume_gib=20`、`swap_gib=2`、`snapshot_schedule=daily`、四个 `/tokenkey/edge/us*` SSM prefix、`deployable=false` 和 `migration_candidate=true`。成本只存在于预检 evidence，不在部署 matrix 重复维护。
 
 - [ ] **步骤 2：先写路由测试**
 
@@ -306,7 +316,7 @@ python3 -m unittest \
 
 - [ ] **步骤 2：写迁移安全测试**
 
-断言目标账号强制 `status=active`、`schedulable=false`，清理 host-local cooldown/error/proxy/tier，保留 credential JSON，重建 group bindings，并触发一次 scheduler full rebuild；日志不得出现 secret value。
+断言目标账号强制 `status=active`、`schedulable=false`，清理 host-local cooldown/error/proxy/tier，保留 credential JSON，重建 group bindings 与 fallback group 闭包，并触发一次 scheduler full rebuild；请求账号必须全部存在，load 后必须核对账号、credential key 集、group 与 binding，单账号状态写入必须恰好影响一行。日志不得出现 secret value。本地 credential 缓存目录必须为 `0700`、文件必须为 `0600`；远端临时文件使用 `umask 077` 和退出清理；S3 临时对象在下载、加载或验证失败时也必须删除。
 
 - [ ] **步骤 3：实现平台参数透传和隔离缓存标签**
 
@@ -336,6 +346,10 @@ aws cloudformation deploy \
 ```
 
 - [ ] **步骤 2：解析当前 release 并创建 candidate**
+
+首次创建每个区域的 candidate 前，先通过受控 secret 通道把 GHCR pull token 写入该 Edge 的 SecureString：`/tokenkey/edge/<edge_id>/ghcr/pat`。不得在命令行、日志或 evidence 中展开 token 值；workflow 会在创建 EIP/stack 前校验参数存在且类型为 `SecureString`。当前 GHCR 即使为 public，也继续使用该认证路径，保持与 prod bootstrap 的镜像拉取契约一致。
+
+workflow 取得 OIDC 后、创建 EIP 前自动重跑 live migration preflight；任一 blocker 都终止本次 provision。CloudFormation execution role ARN 由 workflow 从 OIDC role ARN 的账户号确定性派生，无需另设 `AWS_EC2_EDGE_CFN_ROLE_ARN`。
 
 ```bash
 EDGE_MIGRATION_TAG="$(gh release list -L 1 --json tagName --jq '.[0].tagName' | sed 's/^v//')"
