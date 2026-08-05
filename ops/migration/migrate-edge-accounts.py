@@ -77,6 +77,108 @@ def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, check=True, text=True, capture_output=True, **kw)
 
 
+def prepare_private_state_dir() -> None:
+    STATE_DIR.mkdir(parents=True, mode=0o700, exist_ok=True)
+    STATE_DIR.chmod(0o700)
+
+
+def mark_private(path: Path) -> None:
+    path.chmod(0o600)
+
+
+def parse_account_ids(raw: str) -> list[int]:
+    parts = [part.strip() for part in raw.split(",")]
+    if not parts or any(not part for part in parts):
+        raise ValueError("--account-ids must be a comma-separated list of positive integers")
+    try:
+        account_ids = [int(part) for part in parts]
+    except ValueError as exc:
+        raise ValueError("--account-ids must contain only positive integers") from exc
+    if any(account_id <= 0 for account_id in account_ids):
+        raise ValueError("--account-ids must contain only positive integers")
+    if len(account_ids) != len(set(account_ids)):
+        raise ValueError("--account-ids must not contain duplicates")
+    return account_ids
+
+
+def _payload_id(value: object, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{label} must be a positive integer")
+    return value
+
+
+def validate_extract_payload(payload: dict, requested_ids: list[int]) -> None:
+    if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0
+           for value in requested_ids):
+        raise ValueError("requested account ids must be positive integers")
+    if not requested_ids or len(requested_ids) != len(set(requested_ids)):
+        raise ValueError("requested account ids must be non-empty and unique")
+    requested_id_set = set(requested_ids)
+
+    recorded_ids_raw = payload.get("requested_account_ids")
+    if not isinstance(recorded_ids_raw, list):
+        raise ValueError("payload requested account ids are missing")
+    recorded_ids = [
+        _payload_id(value, "payload requested account id")
+        for value in recorded_ids_raw
+    ]
+    if len(recorded_ids) != len(set(recorded_ids)):
+        raise ValueError("payload requested account ids contain duplicates")
+    if set(recorded_ids) != requested_id_set:
+        raise ValueError("payload requested account ids do not match the request")
+
+    accounts = payload.get("accounts") or []
+    account_ids = [
+        _payload_id(account.get("id"), "account id")
+        for account in accounts
+    ]
+    if len(account_ids) != len(set(account_ids)):
+        raise ValueError("payload contains a duplicate account")
+    if set(account_ids) != requested_id_set:
+        raise ValueError("returned account ids do not match requested account ids")
+
+    groups = payload.get("groups") or []
+    group_by_id: dict[int, dict] = {}
+    for group in groups:
+        group_id = _payload_id(group.get("id"), "group id")
+        if group_id in group_by_id:
+            raise ValueError("payload contains a duplicate group")
+        group_by_id[group_id] = group
+
+    seed_group_ids: set[int] = set()
+    for binding in payload.get("bindings") or []:
+        account_id = _payload_id(binding.get("account_id"), "binding account id")
+        group_id = _payload_id(binding.get("group_id"), "binding group id")
+        if account_id not in requested_id_set:
+            raise ValueError(f"binding account {account_id} was not requested")
+        if group_id not in group_by_id:
+            raise ValueError(f"binding group {group_id} is missing")
+        seed_group_ids.add(group_id)
+
+    for group_id, group in group_by_id.items():
+        for field in ("fallback_group_id", "fallback_group_id_on_invalid_request"):
+            fallback_id = group.get(field)
+            if fallback_id is None:
+                continue
+            fallback_id = _payload_id(fallback_id, f"{field} for group {group_id}")
+            if fallback_id not in group_by_id:
+                raise ValueError(
+                    f"fallback group {fallback_id} referenced by group {group_id} is missing",
+                )
+
+    reachable = set(seed_group_ids)
+    pending = list(seed_group_ids)
+    while pending:
+        group = group_by_id[pending.pop()]
+        for field in ("fallback_group_id", "fallback_group_id_on_invalid_request"):
+            fallback_id = group.get(field)
+            if fallback_id is not None and fallback_id not in reachable:
+                reachable.add(fallback_id)
+                pending.append(fallback_id)
+    if set(group_by_id) != reachable:
+        raise ValueError("returned groups do not match the binding fallback closure")
+
+
 def parse_target(target: str) -> tuple[str, str, str]:
     """Return (kind, edge_id, platform) for prod or edge:<id>[@platform]."""
     value = target.strip()
@@ -191,9 +293,10 @@ def presign(method: str, key: str) -> str:
 # extract
 # ---------------------------------------------------------------------------
 def cmd_extract(args: argparse.Namespace) -> None:
-    acct_ids = [int(x) for x in args.account_ids.split(",") if x.strip()]
-    if not acct_ids:
-        die("--account-ids required")
+    try:
+        acct_ids = parse_account_ids(args.account_ids)
+    except ValueError as exc:
+        die(str(exc))
     region, iid = resolve_edge(args.from_target)
     id_list = ",".join(str(i) for i in acct_ids)
 
@@ -208,20 +311,42 @@ def cmd_extract(args: argparse.Namespace) -> None:
     # SQL emits a single json object. row_to_json preserves jsonb (credentials/extra)
     # as nested JSON. account_groups carries the group bindings; groups pulled via the
     # bindings' group_ids so we never hardcode group ids.
-    sql = (
-        "SELECT json_build_object("
-        "'schema', json_build_object("
-        "  'accounts', (SELECT json_agg(json_build_object('column_name',column_name,'data_type',data_type) ORDER BY ordinal_position) FROM information_schema.columns WHERE table_name='accounts'),"
-        "  'groups',   (SELECT json_agg(json_build_object('column_name',column_name,'data_type',data_type) ORDER BY ordinal_position) FROM information_schema.columns WHERE table_name='groups')"
-        "),"
-        f"'accounts', (SELECT json_agg(row_to_json(a)) FROM accounts a WHERE a.id IN ({id_list}) AND a.deleted_at IS NULL),"
-        f"'bindings', (SELECT json_agg(row_to_json(b)) FROM account_groups b WHERE b.account_id IN ({id_list})),"
-        f"'groups',   (SELECT json_agg(row_to_json(g)) FROM groups g WHERE g.id IN (SELECT DISTINCT group_id FROM account_groups WHERE account_id IN ({id_list})) AND g.deleted_at IS NULL)"
-        ")"
-    )
+    sql = f"""WITH RECURSIVE selected_accounts AS (
+  SELECT *
+  FROM accounts
+  WHERE id = ANY(ARRAY[{id_list}]::bigint[]) AND deleted_at IS NULL
+), seed_group_ids AS (
+  SELECT DISTINCT group_id
+  FROM account_groups
+  WHERE account_id IN (SELECT id FROM selected_accounts)
+), group_closure AS (
+  SELECT g.*
+  FROM groups g
+  JOIN seed_group_ids seed ON seed.group_id = g.id
+  WHERE g.deleted_at IS NULL
+  UNION
+  SELECT fallback.*
+  FROM group_closure parent
+  JOIN groups fallback
+    ON fallback.id = parent.fallback_group_id
+    OR fallback.id = parent.fallback_group_id_on_invalid_request
+  WHERE fallback.deleted_at IS NULL
+)
+SELECT json_build_object(
+  'requested_account_ids', to_json(ARRAY[{id_list}]::bigint[]),
+  'schema', json_build_object(
+    'accounts', (SELECT json_agg(json_build_object('column_name', column_name, 'data_type', data_type) ORDER BY ordinal_position) FROM information_schema.columns WHERE table_name = 'accounts'),
+    'groups', (SELECT json_agg(json_build_object('column_name', column_name, 'data_type', data_type) ORDER BY ordinal_position) FROM information_schema.columns WHERE table_name = 'groups')
+  ),
+  'accounts', (SELECT json_agg(row_to_json(a) ORDER BY a.id) FROM selected_accounts a),
+  'bindings', (SELECT json_agg(row_to_json(b) ORDER BY b.account_id, b.group_id, b.priority) FROM account_groups b WHERE b.account_id IN (SELECT id FROM selected_accounts)),
+  'groups', (SELECT json_agg(row_to_json(g) ORDER BY g.id) FROM group_closure g)
+)"""
     remote = f"/tmp/migrate-extract-{stamp}.json"
     commands = [
         "set -euo pipefail",
+        "umask 077",
+        f"trap 'rm -f {remote} {remote}.gz /tmp/migrate-put.url' EXIT",
         f"{PG} -c {shq(sql)} > {remote}",
         f"test -s {remote}",
         f"gzip -f {remote}",
@@ -233,19 +358,27 @@ def cmd_extract(args: argparse.Namespace) -> None:
     ]
     log(f"extract from={args.from_target} region={region} accounts={id_list}")
     out = ssm_run(region, iid, commands, f"migrate extract {label}")
-    if "EXTRACT_OK" not in out:
+    if "EXTRACT_OK" not in out.splitlines():
         die(f"extract did not confirm OK; stdout tail: {out[-500:]}")
 
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    prepare_private_state_dir()
     local_gz = STATE_DIR / "payload.json.gz"
     local_json = STATE_DIR / "payload.json"
-    run(["aws", "s3", "cp", "--region", S3_REGION, f"s3://{S3_BUCKET}/{key}", str(local_gz)])
-    with gzip.open(local_gz, "rb") as fi, open(local_json, "wb") as fo:
-        fo.write(fi.read())
-    local_gz.unlink(missing_ok=True)
-    run(["aws", "s3", "rm", "--region", S3_REGION, f"s3://{S3_BUCKET}/{key}"])
+    try:
+        run(["aws", "s3", "cp", "--region", S3_REGION, f"s3://{S3_BUCKET}/{key}", str(local_gz)])
+        mark_private(local_gz)
+        with gzip.open(local_gz, "rb") as fi, open(local_json, "wb") as fo:
+            fo.write(fi.read())
+        mark_private(local_json)
+        local_gz.unlink(missing_ok=True)
+    finally:
+        run(["aws", "s3", "rm", "--region", S3_REGION, f"s3://{S3_BUCKET}/{key}"])
 
     payload = json.loads(local_json.read_text())
+    try:
+        validate_extract_payload(payload, acct_ids)
+    except ValueError as exc:
+        die(f"invalid extract payload: {exc}")
     _print_payload_summary(payload)
     log(f"saved {local_json} (gitignored). next: build")
 
@@ -297,13 +430,94 @@ def _parse_renames(items: list[str]) -> dict[str, str]:
     return out
 
 
+def build_expected_manifest(
+    payload: dict,
+    account_renames: dict[str, str],
+    group_renames: dict[str, str],
+) -> dict:
+    requested_ids = payload.get("requested_account_ids")
+    validate_extract_payload(
+        payload,
+        list(requested_ids) if isinstance(requested_ids, list) else [],
+    )
+
+    account_name_by_id: dict[int, str] = {}
+    manifest_accounts = []
+    for account in payload.get("accounts") or []:
+        source_name = account["name"]
+        target_name = account_renames.get(source_name, source_name)
+        credentials = account.get("credentials") or {}
+        if not isinstance(credentials, dict):
+            raise ValueError(f"account {source_name!r} credentials must be an object")
+        account_name_by_id[int(account["id"])] = target_name
+        manifest_accounts.append({
+            "name": target_name,
+            "credential_keys": sorted(credentials),
+        })
+
+    groups = payload.get("groups") or []
+    source_group_by_id = {int(group["id"]): group for group in groups}
+    group_name_by_id = {
+        group_id: group_renames.get(group["name"], group["name"])
+        for group_id, group in source_group_by_id.items()
+    }
+    manifest_groups = []
+    for group_id, group in source_group_by_id.items():
+        fallback_id = group.get("fallback_group_id")
+        invalid_fallback_id = group.get("fallback_group_id_on_invalid_request")
+        manifest_groups.append({
+            "name": group_name_by_id[group_id],
+            "fallback_group": (
+                group_name_by_id[int(fallback_id)] if fallback_id is not None else None
+            ),
+            "invalid_request_fallback_group": (
+                group_name_by_id[int(invalid_fallback_id)]
+                if invalid_fallback_id is not None else None
+            ),
+        })
+
+    manifest_bindings = [
+        {
+            "account": account_name_by_id[int(binding["account_id"])],
+            "group": group_name_by_id[int(binding["group_id"])],
+            "priority": int(binding["priority"]),
+        }
+        for binding in payload.get("bindings") or []
+    ]
+    return {
+        "accounts": sorted(manifest_accounts, key=lambda item: item["name"]),
+        "groups": sorted(manifest_groups, key=lambda item: item["name"]),
+        "bindings": sorted(
+            manifest_bindings,
+            key=lambda item: (item["account"], item["group"], item["priority"]),
+        ),
+    }
+
+
 def cmd_build(args: argparse.Namespace) -> None:
+    prepare_private_state_dir()
     local_json = STATE_DIR / "payload.json"
     if not local_json.exists():
         die("no payload.json; run extract first")
+    mark_private(local_json)
     payload = json.loads(local_json.read_text())
     acct_renames = _parse_renames(args.rename)
     group_renames = _parse_renames(args.rename_group)
+    try:
+        expected_manifest = build_expected_manifest(payload, acct_renames, group_renames)
+    except ValueError as exc:
+        die(f"invalid extract payload: {exc}")
+    manifest_path = STATE_DIR / "expected-manifest.json"
+    manifest_path.write_text(
+        json.dumps(expected_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    mark_private(manifest_path)
+    expected_manifest_json = json.dumps(
+        expected_manifest,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
     acct_types = {c["column_name"]: c["data_type"] for c in payload["schema"]["accounts"]}
     group_types = {c["column_name"]: c["data_type"] for c in payload["schema"]["groups"]}
@@ -316,6 +530,8 @@ def cmd_build(args: argparse.Namespace) -> None:
     # so bindings + fallback ids can be remapped to the target host's id space.
     sql_parts = ["\\set ON_ERROR_STOP on", "DO $mig$", "DECLARE",
                  "  new_gid bigint;", "  new_aid bigint;", "  v jsonb;",
+                 f"  expected_manifest jsonb := {sql_lit(expected_manifest_json)}::jsonb;",
+                 "  actual_manifest jsonb;",
                  "BEGIN",
                  "  CREATE TEMP TABLE _gmap(old_id bigint primary key, new_id bigint) ON COMMIT DROP;",
                  "  CREATE TEMP TABLE _amap(old_id bigint primary key, new_id bigint) ON COMMIT DROP;"]
@@ -378,6 +594,48 @@ def cmd_build(args: argparse.Namespace) -> None:
             f"(SELECT new_id FROM _gmap WHERE old_id={int(b['group_id'])}), "
             f"{int(b['priority'])}, now());")
 
+    # The manifest comparison is inside the same transaction as every insert. Any
+    # missing or unexpected account/group/binding rolls back before scheduler reload.
+    sql_parts.extend([
+        "  SELECT jsonb_build_object(",
+        "    'accounts', COALESCE((",
+        "      SELECT jsonb_agg(jsonb_build_object(",
+        "        'name', a.name,",
+        "        'credential_keys', COALESCE((",
+        "          SELECT jsonb_agg(credential_key ORDER BY credential_key)",
+        "          FROM jsonb_object_keys(COALESCE(a.credentials, '{}'::jsonb)) AS keys(credential_key)",
+        "        ), '[]'::jsonb)",
+        "      ) ORDER BY a.name)",
+        "      FROM _amap am JOIN accounts a ON a.id = am.new_id",
+        "      WHERE a.deleted_at IS NULL",
+        "    ), '[]'::jsonb),",
+        "    'groups', COALESCE((",
+        "      SELECT jsonb_agg(jsonb_build_object(",
+        "        'name', g.name,",
+        "        'fallback_group', fallback_group.name,",
+        "        'invalid_request_fallback_group', invalid_fallback_group.name",
+        "      ) ORDER BY g.name)",
+        "      FROM _gmap gm",
+        "      JOIN groups g ON g.id = gm.new_id AND g.deleted_at IS NULL",
+        "      LEFT JOIN groups fallback_group ON fallback_group.id = g.fallback_group_id AND fallback_group.deleted_at IS NULL",
+        "      LEFT JOIN groups invalid_fallback_group ON invalid_fallback_group.id = g.fallback_group_id_on_invalid_request AND invalid_fallback_group.deleted_at IS NULL",
+        "    ), '[]'::jsonb),",
+        "    'bindings', COALESCE((",
+        "      SELECT jsonb_agg(jsonb_build_object(",
+        "        'account', a.name, 'group', g.name, 'priority', binding.priority",
+        "      ) ORDER BY a.name, g.name, binding.priority)",
+        "      FROM account_groups binding",
+        "      JOIN _amap am ON am.new_id = binding.account_id",
+        "      JOIN _gmap gm ON gm.new_id = binding.group_id",
+        "      JOIN accounts a ON a.id = binding.account_id AND a.deleted_at IS NULL",
+        "      JOIN groups g ON g.id = binding.group_id AND g.deleted_at IS NULL",
+        "    ), '[]'::jsonb)",
+        "  ) INTO actual_manifest;",
+        "  IF actual_manifest IS DISTINCT FROM expected_manifest THEN",
+        "    RAISE EXCEPTION 'migration manifest mismatch';",
+        "  END IF;",
+    ])
+
     # --- snapshot rebuild trigger ---
     sql_parts.append("  INSERT INTO scheduler_outbox (event_type, payload, created_at) "
                      "VALUES ('full_rebuild', NULL, now());")
@@ -386,15 +644,10 @@ def cmd_build(args: argparse.Namespace) -> None:
                      f"{len(payload.get('bindings') or [])};")
     sql_parts.append("END")
     sql_parts.append("$mig$;")
-    # verification SELECTs appended after the DO block (non-secret)
-    sql_parts.append(
-        "SELECT 'verify_account' AS k, a.id, a.name, a.platform, a.type, a.status, "
-        "a.schedulable, a.channel_type, (a.credentials IS NOT NULL) AS has_creds "
-        "FROM accounts a WHERE a.created_at > now() - interval '5 minutes' "
-        "AND a.deleted_at IS NULL ORDER BY a.id;")
 
     out_sql = STATE_DIR / "migrate.sql"
     out_sql.write_text("\n".join(sql_parts) + "\n")
+    mark_private(out_sql)
 
     print("=== build summary (sanitized) ===")
     for g in payload.get("groups") or []:
@@ -413,9 +666,11 @@ def cmd_build(args: argparse.Namespace) -> None:
 # load
 # ---------------------------------------------------------------------------
 def cmd_load(args: argparse.Namespace) -> None:
+    prepare_private_state_dir()
     out_sql = STATE_DIR / "migrate.sql"
     if not out_sql.exists():
         die("no migrate.sql; run build first")
+    mark_private(out_sql)
     if not args.execute:
         print("=== DRY RUN (migrate.sql NOT applied; pass --execute to apply) ===")
         print(f"review local SQL at {out_sql}; credential values are intentionally not printed")
@@ -426,64 +681,106 @@ def cmd_load(args: argparse.Namespace) -> None:
     gz = STATE_DIR / "migrate.sql.gz"
     with open(out_sql, "rb") as fi, gzip.open(gz, "wb") as fo:
         fo.write(fi.read())
+    mark_private(gz)
     run(["aws", "s3", "cp", "--region", S3_REGION, str(gz), f"s3://{S3_BUCKET}/{key}"])
     gz.unlink(missing_ok=True)
-    get_url = presign("get_object", key)
-    get_b64 = base64.b64encode(get_url.encode()).decode()
-    remote = f"/tmp/migrate-load-{stamp}.sql"
-    commands = [
-        "set -euo pipefail",
-        f"echo {get_b64} | base64 -d > /tmp/migrate-get.url",
-        f"curl -fS --max-time 600 -o {remote}.gz \"$(cat /tmp/migrate-get.url)\"",
-        "rm -f /tmp/migrate-get.url",
-        f"gunzip -f {remote}.gz",
-        f"docker cp {remote} tokenkey-postgres:{remote}",
-        f"docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 -f {remote}",
-        f"docker exec tokenkey-postgres rm -f {remote}",
-        f"rm -f {remote}",
-        "echo LOAD_OK",
-    ]
-    log(f"load to={args.to_target} region={region} (executing migrate.sql)")
-    out = ssm_run(region, iid, commands, f"migrate load {args.to_target}")
-    print(out)
-    run(["aws", "s3", "rm", "--region", S3_REGION, f"s3://{S3_BUCKET}/{key}"])
-    if "LOAD_OK" not in out:
-        die("load did not confirm OK")
+    try:
+        get_url = presign("get_object", key)
+        get_b64 = base64.b64encode(get_url.encode()).decode()
+        remote = f"/tmp/migrate-load-{stamp}.sql"
+        commands = [
+            "set -euo pipefail",
+            "umask 077",
+            f"cleanup() {{ rm -f {remote} {remote}.gz /tmp/migrate-get.url; docker exec tokenkey-postgres rm -f {remote} >/dev/null 2>&1 || true; }}",
+            "trap cleanup EXIT",
+            f"echo {get_b64} | base64 -d > /tmp/migrate-get.url",
+            f"curl -fS --max-time 600 -o {remote}.gz \"$(cat /tmp/migrate-get.url)\"",
+            "rm -f /tmp/migrate-get.url",
+            f"gunzip -f {remote}.gz",
+            f"docker cp {remote} tokenkey-postgres:{remote}",
+            f"docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 -f {remote}",
+            f"docker exec tokenkey-postgres rm -f {remote}",
+            f"rm -f {remote}",
+            "echo MIGRATION_VERIFIED",
+        ]
+        log(f"load to={args.to_target} region={region} (executing migrate.sql)")
+        out = ssm_run(region, iid, commands, f"migrate load {args.to_target}")
+    finally:
+        run(["aws", "s3", "rm", "--region", S3_REGION, f"s3://{S3_BUCKET}/{key}"])
+    if "MIGRATION_VERIFIED" not in out.splitlines():
+        die("load did not confirm manifest verification")
+    print("LOAD_OK")
     log("load complete. next: verify snapshot + smoke")
 
 
 # ---------------------------------------------------------------------------
 # set-schedulable (smoke temp-enable / restore) + soft-delete (teardown)
 # ---------------------------------------------------------------------------
+def build_set_schedulable_sql(name: str, value: bool) -> str:
+    if not isinstance(value, bool):
+        raise TypeError("value must be bool")
+    val = "true" if value else "false"
+    return "\n".join([
+        "DO $set$",
+        "DECLARE",
+        "  affected bigint;",
+        "BEGIN",
+        f"  UPDATE accounts SET schedulable = {val}, updated_at = now()",
+        f"  WHERE name = {sql_lit(name)} AND deleted_at IS NULL;",
+        "  GET DIAGNOSTICS affected = ROW_COUNT;",
+        "  IF affected <> 1 THEN",
+        "    RAISE EXCEPTION 'expected 1 account, updated %', affected;",
+        "  END IF;",
+        "  IF EXISTS (",
+        "    SELECT 1",
+        "    FROM accounts",
+        f"    WHERE name = {sql_lit(name)}",
+        "      AND deleted_at IS NULL",
+        f"      AND schedulable IS DISTINCT FROM {val}",
+        "  ) THEN",
+        "    RAISE EXCEPTION 'schedulable verification failed';",
+        "  END IF;",
+        "  INSERT INTO scheduler_outbox (event_type, payload, created_at)",
+        "  VALUES ('full_rebuild', NULL, now());",
+        "END",
+        "$set$;",
+    ])
+
+
+SELF_CHECK_EXEMPT: dict[str, str] = {}
+
+
+def iter_self_check_sql() -> list[tuple[str, str]]:
+    return [
+        ("build_set_schedulable_sql", build_set_schedulable_sql("weird'name", False)),
+    ]
+
+
 def cmd_set_schedulable(args: argparse.Namespace) -> None:
     region, iid = resolve_edge(args.to_target)
-    val = "true" if args.value == "true" else "false"
     name = args.account_name
-    sql = (
-        f"UPDATE accounts SET schedulable={val}, updated_at=now() "
-        f"WHERE name={sql_lit(name)} AND deleted_at IS NULL; "
-        "INSERT INTO scheduler_outbox (event_type, payload, created_at) "
-        "VALUES ('full_rebuild', NULL, now());"
-    )
+    value = args.value == "true"
+    val = "true" if value else "false"
+    sql = build_set_schedulable_sql(name, value)
     if not args.execute:
         print(f"DRY RUN set schedulable={val} for {name!r} on {args.to_target}")
         print(sql)
         return
-    verify_sql = (f"SELECT id||' '||name||' schedulable='||schedulable "
-                  f"FROM accounts WHERE name={sql_lit(name)} AND deleted_at IS NULL")
     out = ssm_run(region, iid, [
         "set -euo pipefail",
         f"{PG} -c {shq(sql)}",
-        f"{PG} -c {shq(verify_sql)}",
         "echo SET_OK",
     ], f"set-schedulable {name}={val}")
-    print(out)
+    if "SET_OK" not in out.splitlines():
+        die("set-schedulable did not confirm the single-row update")
+    print("SET_OK")
 
 
 def cmd_soft_delete(args: argparse.Namespace) -> None:
-    acct_ids = [int(x) for x in args.account_ids.split(",") if x.strip()]
-    if not acct_ids:
-        die("--account-ids required")
+    try:
+        acct_ids = parse_account_ids(args.account_ids)
+    except ValueError as exc:
+        die(str(exc))
     region, iid = resolve_edge(args.from_target)
     id_list = ",".join(str(i) for i in acct_ids)
     sql = (
