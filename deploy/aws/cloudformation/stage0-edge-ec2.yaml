@@ -1,184 +1,117 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: >
-  tokenkey (sub2api fork) Stage 0: single EC2 (Graviton) in 1 AZ + EIP, Caddy +
-  app + PostgreSQL + Redis via docker-compose. Daily EBS snapshot via DLM
-  (optional hourly).   Self-contained: docker-compose.yml, Caddyfile, and the EC2 bootstrap script
-  are gzip+base64 in SSM Parameters; UserData is a thin launcher (≤16 KiB) that
-  fetches bootstrap from SSM at first boot. QA/GHCR prune scripts also live in SSM.
-  The source repo can stay private.
-  Application image is pulled from a GitHub Container Registry (GHCR) private
-  repo; the PAT is read from SSM Parameter Store at runtime.
+Description: >-
+  TokenKey Stage0 EC2 Edge: AL2023 ARM64 t4g.small Unlimited, external EIP,
+  retained gp3 data volume, SSM operations, shared bootstrap, and capacity alarms.
 
-# =============================================================================
-# Regenerating embedded blocks:
-#   After editing  deploy/aws/stage0/docker-compose.yml,  Caddyfile,  or
-#   docker-compose.yml, Caddyfile, tokenkey-qa-stale-cleanup.sh,
-#   stage0-ec2-bootstrap.sh, stage0-ec2-userdata-launcher.sub.sh,
-#   tokenkey-prune-ghcr-app-tags.sh, run bash deploy/aws/stage0/build-cfn.sh to
-#   refresh SSM embeds + the thin UserData launcher (USERDATA_LAUNCHER markers).
-#
-# Fn::Sub escaping inside the UserData bash:
-#   The UserData lives inside Fn::Base64: !Sub | ... so CFN scans it for
-#   $-brace references. To get a literal "$VAR" at runtime (for bash), write
-#   it as the escaped form (open-brace, exclamation, name, close-brace);
-#   CFN renders that as the un-escaped form before the EC2 instance sees it.
-#   To pass a CFN parameter through, write the un-escaped form directly,
-#   e.g. ApiDomain.
-# =============================================================================
+# Embedded SSM values and UserData are generated from deploy/aws/stage0 sources.
+# Run deploy/aws/stage0/build-cfn.sh after changing a shared source.
 
 Parameters:
   ProjectName:
     Type: String
     Default: tokenkey
+    AllowedPattern: '^[a-z0-9-]+$'
   Environment:
     Type: String
-    Default: prod
+    Default: edge
     AllowedPattern: '^[a-z0-9-]+$'
+  EdgeId:
+    Type: String
+    AllowedPattern: '^us[0-9]+$'
   VpcCidr:
     Type: String
     Default: 10.0.0.0/16
   PublicSubnetCidr:
     Type: String
     Default: 10.0.1.0/24
-
   ApiDomain:
     Type: String
     AllowedPattern: '^[a-z0-9.-]+\.[a-z]{2,}$'
-    Description: "REQUIRED. Public hostname (DNS A-record must point to the EIP). Caddy will request a Let's Encrypt cert for it. Example: api.tokenkey.dev"
   AcmeEmail:
     Type: String
-    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
-    Description: "REQUIRED. Contact email for Let's Encrypt account (used for cert expiry notices)."
+    AllowedPattern: '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
   AdminEmail:
     Type: String
     Default: ''
-    Description: Optional admin email; if empty, defaults to admin@<ApiDomain> at runtime.
+    AllowedPattern: '^$|^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
   Timezone:
     Type: String
     Default: UTC
+    AllowedPattern: '^[A-Za-z0-9_+./-]+$'
+  MainGatewayAllowedCidr:
+    Type: String
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/(3[0-2]|[12]?[0-9])$'
+    Description: Main gateway CIDR allowed to use restricted relay paths.
 
   InstanceType:
     Type: String
     Default: t4g.small
-    AllowedValues:
-      - t4g.small
-      - t4g.medium
-      - t4g.large
-    Description: Graviton/ARM only (matches AL2023 ARM AMI parameter below).
+    AllowedValues: [t4g.small]
   RootVolumeSizeGiB:
     Type: Number
-    Default: 30
+    Default: 20
     MinValue: 20
-    MaxValue: 200
+    MaxValue: 20
   DataVolumeSizeGiB:
     Type: Number
-    Default: 50
+    Default: 20
     MinValue: 20
-    MaxValue: 500
-    Description: |
-      Size of the dedicated data EBS volume that persists PostgreSQL, Redis,
-      Caddy state, and bootstrap secrets across instance replacement
-      (DeletionPolicy: Retain + UpdateReplacePolicy: Retain). When the EC2
-      instance is replaced (e.g. by an ImageTag CFN change — see issue #8 +
-      persistent data volume hardening), this volume detaches and re-attaches to the new
-      instance with all data intact, instead of being thrown away with the
-      old root EBS. Sized for prod organic growth: live PostgreSQL + ~1.5 days
-      of QA blobs + 6 hourly pgdump retained copies; 30 GiB proved too tight.
+    MaxValue: 20
   DataVolumeIops:
     Type: Number
-    Default: 6000
+    Default: 3000
     MinValue: 3000
     MaxValue: 16000
-    Description: Dedicated gp3 data volume provisioned IOPS.
   DataVolumeThroughput:
     Type: Number
-    Default: 250
+    Default: 125
     MinValue: 125
     MaxValue: 1000
-    Description: Dedicated gp3 data volume provisioned throughput in MiB/s.
+  SwapSizeGiB:
+    Type: Number
+    Default: 2
+    AllowedValues: [2]
   AmazonLinux2023Arm64Ami:
     Type: AWS::EC2::Image::Id
-    Default: ami-0b183bb1259186479
     Description: >-
-      Pinned AL2023 ARM64 AMI id (us-east-1). DELIBERATELY pinned, NOT the SSM
-      `latest` alias: the SSM-resolved type re-resolves to the newest AMI on
-      every stack update, so any unrelated UpdateStack (a param tweak, a volume
-      grow) changes ImageId -> RequiresRecreation=Always -> the EC2 instance is
-      REPLACED and cloud-init reinstalls whatever `ImageTag` the stack carries
-      (prod runs SSM-hot-deployed images, so ImageTag lags) -- turning a
-      one-line param change into a version regression + EIP churn. Pinning makes
-      the AMI behave like ImageTag: stable across updates, bumped on purpose. To
-      bump: read the latest from SSM
-      (/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64),
-      set it here, and plan a maintenance-window instance replacement that syncs
-      ImageTag in the same op.
-
-  AdminCidr:
-    Type: String
-    Default: 127.0.0.1/32
-    Description: CIDR allowed to reach SSH (22). Default 127.0.0.1/32 = raw SSH disabled; operate via SSM Session Manager. Widen only for break-glass.
+      Required pinned AL2023 ARM64 AMI. The deployment workflow resolves this
+      on provision and reuses the stack value on updates to avoid surprise replacement.
 
   GhcrOwner:
     Type: String
     AllowedPattern: '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$'
-    Description: REQUIRED. GitHub user / org that owns the GHCR image (image will be ghcr.io/<GhcrOwner>/<GhcrImageName>:<ImageTag>).
   GhcrImageName:
     Type: String
     Default: sub2api
-    Description: GHCR image name (matches the upstream package name; do not rename for fork).
+    AllowedPattern: '^[a-z0-9]+([._-][a-z0-9]+)*$'
   ImageTag:
     Type: String
-    Default: latest
-    Description: |
-      GHCR image tag. GoReleaser publishes `:latest`, `:<MAJOR>`, `:<MAJOR.MINOR>`,
-      and `:<MAJOR.MINOR.PATCH>` on every `git tag vX.Y.Z` push.
-      Recommended:
-        - tokenkey-prod stack: pin to an immutable semver tag in CFN (for reproducible stack state).
-      `main` is NOT a valid tag — Release workflow only fires on `tags: v*`, not on main branch pushes.
+    AllowedPattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
   GhcrPullUser:
     Type: String
     AllowedPattern: '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$'
-    Description: REQUIRED. GitHub username used for `docker login ghcr.io`. Usually the same as GhcrOwner, or a dedicated machine user.
   GhcrPatSsmName:
     Type: String
     Default: /tokenkey/ghcr/pat
-    Description: SSM Parameter Store path (SecureString) holding the GHCR PAT (read:packages scope is enough). Create it ONCE before stack create.
-
-  SnapshotSchedule:
-    Type: String
-    Default: daily
-    AllowedValues: [daily, hourly]
-    Description: EBS snapshot cadence (daily=1x/day keep 7; hourly=1x/hour keep 168 = 7 days).
-
-  AlarmSnsTopicArn:
-    Type: String
-    Default: ''
-    Description: >-
-      Optional SNS topic ARN subscribed to DataVolumeDiskAlarm and InstanceCpuAlarm
-      (email/Slack). Leave empty to create alarms without SNS notifications.
-
+    AllowedPattern: '^/[A-Za-z0-9_./-]+$'
   QaStaleRetentionDays:
     Type: Number
     Default: 2
     MinValue: 0
     MaxValue: 5
-    Description: >
-      Daily QA safety-net: remove qa_records rows and on-disk files under
-      /var/lib/tokenkey/app/qa_blobs and qa_dlq older than this many days
-      (fractional days allowed, e.g. 1.5). Same surfaces as
-      ops/prod/qa-export-and-purge.sh (plus age-filtered qa_records DELETE).
-      Set to 0 to disable the timer (script no-ops). Default is 2 (not 1) so the
-      daily 02:00 UTC QA auto-archive cron has a full prior day still on disk
-      when the 04:15 cleanup runs, even if a large archive overruns — see
-      docs/qa-export-s3-and-auto-archive.md. MaxValue is 5 (not an arbitrary 90):
-      QA blobs share the ~50 GB data volume with Postgres and run ~6 GB/day, so
-      at the day-before-cleanup peak (retention+1 days) ~5 days is the disk-safe
-      ceiling. localfs retention is a short safety window — keep longer history
-      in S3 (export_storage), not by raising this.
+  SnapshotSchedule:
+    Type: String
+    Default: daily
+    AllowedValues: [daily]
 
-Conditions:
-  IsHourlySnapshots: !Equals [!Ref SnapshotSchedule, hourly]
-  AlarmTopicProvided: !Not [!Equals [!Ref AlarmSnsTopicArn, '']]
+  EipAllocationId:
+    Type: String
+    AllowedPattern: '^eipalloc-[0-9a-f]{8,17}$'
+    Description: Externally allocated EIP; the stack only owns its association.
+  PublicIpv4:
+    Type: String
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+    Description: Public address resolved from EipAllocationId by the provisioning workflow.
 
 Resources:
   VPC:
@@ -188,15 +121,17 @@ Resources:
       EnableDnsHostnames: true
       EnableDnsSupport: true
       Tags:
-        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-vpc'}
+        - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-vpc'}
         - {Key: Project, Value: !Ref ProjectName}
         - {Key: Environment, Value: !Ref Environment}
+        - {Key: EdgeId, Value: !Ref EdgeId}
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
-        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-igw'}
+        - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-igw'}
+        - {Key: EdgeId, Value: !Ref EdgeId}
 
   IGWAttach:
     Type: AWS::EC2::VPCGatewayAttachment
@@ -210,9 +145,13 @@ Resources:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [0, !GetAZs '']
       CidrBlock: !Ref PublicSubnetCidr
+      # UserData starts before the separate EIP association resource completes.
+      # The transient auto-assigned address provides first-boot egress and is
+      # released automatically when the retained external EIP is associated.
       MapPublicIpOnLaunch: true
       Tags:
-        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-public'}
+        - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-public'}
+        - {Key: EdgeId, Value: !Ref EdgeId}
         - {Key: Tier, Value: public}
 
   PublicRouteTable:
@@ -220,7 +159,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       Tags:
-        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-public-rt'}
+        - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-public-rt'}
 
   DefaultPublicRoute:
     Type: AWS::EC2::Route
@@ -239,19 +178,22 @@ Resources:
   AppSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: tokenkey Stage 0 - public 443 only; SSH from AdminCidr (default disabled, SSM only)
+      GroupDescription: TokenKey Edge public TLS ports; management uses SSM.
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        # Public port 80 intentionally NOT opened: certs use TLS-ALPN-01 on 443
-        # (Caddyfile disable_http_challenge), so HTTP-01 / the :80 redirect is unneeded.
-        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS (business + ACME TLS-ALPN-01)}
         - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: !Ref AdminCidr
-          Description: SSH (default 127.0.0.1/32 = disabled; operate via SSM Session Manager)
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS and ACME TLS-ALPN-01
+        - IpProtocol: tcp
+          FromPort: 8443
+          ToPort: 8443
+          CidrIp: 0.0.0.0/0
+          Description: Edge admin API TLS
       Tags:
-        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-sg'}
+        - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-sg'}
+        - {Key: EdgeId, Value: !Ref EdgeId}
 
   InstanceRole:
     Type: AWS::IAM::Role
@@ -266,67 +208,51 @@ Resources:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
       Policies:
-        - PolicyName: ReadGhcrPat
+        - PolicyName: EdgeBootstrapAccess
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action:
-                  - ssm:GetParameter
-                  - ssm:GetParameters
-                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GhcrPatSsmName}'
+                Action: [ssm:GetParameter, ssm:GetParameters]
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GhcrPatSsmName}'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/edge/${EdgeId}/stage0/*'
               - Effect: Allow
-                Action:
-                  - kms:Decrypt
+                Action: kms:Decrypt
                 Resource: '*'
                 Condition:
                   StringEquals:
                     'kms:ViaService': !Sub 'ssm.${AWS::Region}.amazonaws.com'
               - Effect: Allow
-                Action:
-                  - cloudwatch:PutMetricData
+                Action: [cloudwatch:PutMetricData, cloudwatch:DescribeAlarms]
                 Resource: '*'
               - Effect: Allow
-                Action:
-                  - ec2:DescribeVolumes
+                Action: ec2:DescribeVolumes
                 Resource: '*'
               - Effect: Allow
-                Action:
-                  - ec2:AttachVolume
+                Action: ec2:AttachVolume
                 Resource:
                   - !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*'
                   - !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
-              - Effect: Allow
-                Action:
-                  - ssm:GetParameter
-                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${Environment}/stage0/*'
-              # Off-box the .env SECRETS (POSTGRES_PASSWORD/JWT_SECRET/TOTP_ENCRYPTION_KEY)
-              # to an SSM SecureString via ops/stage0/backup-env-secrets-via-ssm.sh. Only
-              # PutParameter is new here — GetParameter on this param is already covered by
-              # the stage0/* read above. This is the DURABLE home for the grant (survives
-              # instance/role replacement). Until the prod stack is next CFN-updated, the
-              # identical grant is mirrored as a manual inline policy (EnvSecretsBackup) on
-              # this role via the IAM console — see RUNBOOK §4.4 / the ops script header.
-              - Effect: Allow
-                Action:
-                  - ssm:PutParameter
-                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${Environment}/stage0/env-secrets-backup'
+                Condition:
+                  StringEquals:
+                    'ec2:ResourceTag/Project': !Ref ProjectName
+                    'ec2:ResourceTag/EdgeId': !Ref EdgeId
       Tags:
         - {Key: Project, Value: !Ref ProjectName}
+        - {Key: EdgeId, Value: !Ref EdgeId}
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
       Roles: [!Ref InstanceRole]
 
-  # Large gzip+base64 payloads live in SSM (Standard ≤4096 each) so EC2 UserData stays ≤16 KiB.
   TokenkeyStage0ComposeGzipB64Parameter:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/${ProjectName}/${Environment}/stage0/docker-compose.gzip.b64'
+      Name: !Sub '/${ProjectName}/edge/${EdgeId}/stage0/docker-compose.gzip.b64'
       Type: String
       Tier: Standard
-      Description: !Sub '${ProjectName} Stage0 gzip|base64(docker-compose.yml)'
       # >>> COMPOSE_GZB64_SSM START (regenerated by build-cfn.sh) <<<
       Value: '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'
       # >>> COMPOSE_GZB64_SSM END <<<
@@ -334,21 +260,19 @@ Resources:
   TokenkeyStage0CaddyGzipB64Parameter:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/${ProjectName}/${Environment}/stage0/caddyfile.template.gzip.b64'
+      Name: !Sub '/${ProjectName}/edge/${EdgeId}/stage0/caddyfile.template.gzip.b64'
       Type: String
       Tier: Standard
-      Description: !Sub '${ProjectName} Stage0 gzip|base64(Caddyfile)'
       # >>> CADDY_GZB64_SSM START (regenerated by build-cfn.sh) <<<
-      Value: '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'
+      Value: 'H4sIAAAAAAACA61VbW8TRxD+bP+KUcIHqLB9jhOEqFBxQwBLAaIkFe2nY323trc531539xyMFSkgEghNRIoCKi8SrXgroPJSUZEmRkj9KdRnO5/yFzp7F9s4pagfKiW2d3b2mZlnZp8dBMVnqDtDq/DnG8iemYIxu0hhShH8NLRtlNh2tcAcGh+EUYf7diLnMgW+pBKoW5F+XioocAF7atmJnHn09Mls7tTcfr0cPTlmjuFyHJfEtRFgT03vmsez02Nnst+Y2fHx02fGjpqjuaOTc0mYpA6pgkdUSQIRFFyuwPPzDrN0OIHhlMB9zlwlkzodKpTUWzA9PpXIjk+cShhp2MtdGB7O7PscTkxPT2gLk2AzSfIOtSFPLaJPqBKFcVYsKUmYg1gFJugscRyYodSTnbAeFwoOGmA5XFI7GY/X4jFaxhP95cVjg0CsMjUtAiWlPHkoldLrhEQemVtMVIyhJPFY0qFKUtcSVU8luSimbIxqKS6q8bk4JhFy73tSCUrKIF3meVRt1283l+abd5eCayuNzfvBlZfdnh06aGByrduXIO9wawaChVeNjWftd7ca6/ONzbdbCyutt8+368sIvXXhXbCwAmdL2AiHwhEslc9S2xSa87MQXF+GAtryBGE6TrU53Fi91Np83bz6IIIMXtTbl1836xdbjzf/mr+IwM21PzDg1uXl4OUr/N3YWGyso/NTiEC263c8we3eGEFw56fG+kZw7alGRL9uvVENzd9+bq390ilex9irZsyO0z7ADghaoUJSE4HPVXeRgduxguPLkolTQkWFOJBIo20QggsPg403zfvzzXsPW7/ebN14GKwuQ39yyDWxFKtQaP/+ElIlShxV2q5fsQVhboLM4lRu15c0oxpxKnf8q6nJNLxfvN7xPTxiZKD9/EkECTtgrWffB1c2m1ev9opt/vDj1q0HyI6NRVMR4kUQVokiDZqDHcyUozF2GhhmEkaMDoKgOGRCaZ6JlNoTqW0/fxAijhhDqRFjGCto3lhoXrrWWF8JVp+hOfN+fg3/WquLrbVX7ReP2o8v/IOKpfajxdadm62791pPNpp37+lexGJRTqYvWCe/nrFL+YjsGRUrU+4ryGhbAe+OafuCKIbXNHQrk3OmNkvQffLd6FjVxLKUL3UJ+D+MW07exPvfO50xZM/aDZ3eCW1TgVMDXycmES+Rm4CaoGWuqFniUs3t8jnGBfbWprb+9R89JwRXHGoS+1Wm/+52AkGg1oFSgrgyVBWtE+G0xmxGnC5LISUxLUIkbHt6yOi3mAxvlWlx15VwQNMSs3jZwymQmhNeKKAJI81pRemTZB0MtYfbFM5LZUPxPPPi8dgRzTNKnU5FSy+kcIxQplKfdQ0OL/Kk5xa7hgKpMMwgiR860k7l0IH6YpQgKYlRjnrNHRiIxHQ/YKcT+K4czqRHMgcMw9gPrFz2lRbmAcxE4QiEWWhiLY4rtKSTQ9FXBneYlD7G0dIaUfdRLdaMhmpvao5Nq4S6Rt0i7RCDNYeqZ0YvTa/wSvqDolkZU/2QhQqzKd+9Dh1CyD5B/R9AYztDyLxPvppR9I+qepgEK4fT9oGE9p/YzQQOksddGwaofotE90XWj6iWGsEsRe0BGDYyfUCfiiXodz4eNfPcjpLSV16y8zjdhnHyy8gJhyzcw0vg4T3ACcVfWjG4KBMF30ru6tuO0u9A7tSx09GI/w1OHHzNwAgAAA=='
       # >>> CADDY_GZB64_SSM END <<<
 
   TokenkeyQaStaleCleanupScriptB64Parameter:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/${ProjectName}/${Environment}/stage0/qa-stale-cleanup.b64'
+      Name: !Sub '/${ProjectName}/edge/${EdgeId}/stage0/qa-stale-cleanup.b64'
       Type: String
       Tier: Standard
-      Description: !Sub '${ProjectName} Stage0 tokenkey-qa-stale-cleanup.sh as base64; refresh via build-cfn.sh'
       # >>> QA_CLEANUP_B64_PARAM START (regenerated by build-cfn.sh) <<<
       Value: 'IyEvYmluL2Jhc2gKIyBSZWdlbmVyYXRlZCBpbnRvIHN0YWdlMC1zaW5nbGUtZWMyLnlhbWwgYnk6IGRlcGxveS9hd3Mvc3RhZ2UwL2J1aWxkLWNmbi5zaAojIFJldGVudGlvbiBpcyBzZXQgYXQgYm9vdCB2aWEgL2V0Yy90b2tlbmtleS9xYS1zdGFsZS1yZXRlbnRpb24uZW52IChRYVN0YWxlUmV0ZW50aW9uRGF5cykuCnNldCAtZXVvIHBpcGVmYWlsClJFVEVOVElPTl9EQVlTPSIke1RPS0VOS0VZX1FBX1NUQUxFX1JFVEVOVElPTl9EQVlTOi0xfSIKaWYgISBbWyAiJHtSRVRFTlRJT05fREFZU30iID1+IF4oMHxbMS05XVswLTldKikoXC5bMC05XSspPyQgXV07IHRoZW4KICBsb2dnZXIgLXQgdG9rZW5rZXktcWEtc3RhbGUtY2xlYW51cCAiaW52YWxpZCBUT0tFTktFWV9RQV9TVEFMRV9SRVRFTlRJT05fREFZUz0ke1RPS0VOS0VZX1FBX1NUQUxFX1JFVEVOVElPTl9EQVlTOi19IgogIGV4aXQgMQpmaQppZiBhd2sgLXYgZD0iJHtSRVRFTlRJT05fREFZU30iICdCRUdJTiB7IGV4aXQgIShkID09IDApIH0nOyB0aGVuCiAgbG9nZ2VyIC10IHRva2Vua2V5LXFhLXN0YWxlLWNsZWFudXAgInNraXAgZGlzYWJsZWQgUWFTdGFsZVJldGVudGlvbkRheXM9MCIKICBleGl0IDAKZmkKaWYgISBzdWRvIGRvY2tlciBwcyAtLWZvcm1hdCAne3suTmFtZXN9fScgfCBncmVwIC1xeCB0b2tlbmtleS1wb3N0Z3JlczsgdGhlbgogIGxvZ2dlciAtdCB0b2tlbmtleS1xYS1zdGFsZS1jbGVhbnVwICJza2lwIHRva2Vua2V5LXBvc3RncmVzIG5vdCBydW5uaW5nIgogIGV4aXQgMApmaQppbnN0YWxsIC1kIC1tIDA3NTUgL3Zhci9saWIvdG9rZW5rZXkvYXBwL3FhX2Jsb2JzIC92YXIvbGliL3Rva2Vua2V5L2FwcC9xYV9kbHEgMj4vZGV2L251bGwgfHwgdHJ1ZQoKUEdQQVNTPSIkKHN1ZG8gZ3JlcCAnXlBPU1RHUkVTX1BBU1NXT1JEPScgL3Zhci9saWIvdG9rZW5rZXkvLmVudiB8IGN1dCAtZD0gLWYyLSkiCmlmIFsgLXogIiR7UEdQQVNTfSIgXTsgdGhlbgogIGxvZ2dlciAtdCB0b2tlbmtleS1xYS1zdGFsZS1jbGVhbnVwICJza2lwIG5vIFBPU1RHUkVTX1BBU1NXT1JEIgogIGV4aXQgMApmaQpORVQ9IiQoc3VkbyBkb2NrZXIgaW5zcGVjdCB0b2tlbmtleS1wb3N0Z3JlcyAtLWZvcm1hdCAne3tyYW5nZSAkaywkdiA6PSAuTmV0d29ya1NldHRpbmdzLk5ldHdvcmtzfX17eyRrfX17e2VuZH19JykiCgpsb2dnZXIgLXQgdG9rZW5rZXktcWEtc3RhbGUtY2xlYW51cCAicWFfcmVjb3Jkc19kZWxldGVfc3RhcnQgcmV0ZW50aW9uX2RheXM9JHtSRVRFTlRJT05fREFZU30iCmlmICEgc3VkbyBkb2NrZXIgcnVuIC0tcm0gLS1uZXR3b3JrICIke05FVH0iIC1lIFBHUEFTU1dPUkQ9IiR7UEdQQVNTfSIgcG9zdGdyZXM6MTYtYWxwaW5lIFwKICBwc3FsIC1oIHRva2Vua2V5LXBvc3RncmVzIC1VIHRva2Vua2V5IC1kIHRva2Vua2V5IC12IE9OX0VSUk9SX1NUT1A9MSBcCiAgLWMgIkRFTEVURSBGUk9NIHFhX3JlY29yZHMgV0hFUkUgY3JlYXRlZF9hdCA8IE5PVygpIC0gKCcke1JFVEVOVElPTl9EQVlTfSc6Om51bWVyaWMgKiBpbnRlcnZhbCAnMSBkYXknKTsiOyB0aGVuCiAgbG9nZ2VyIC10IHRva2Vua2V5LXFhLXN0YWxlLWNsZWFudXAgInFhX3JlY29yZHNfZGVsZXRlX2ZhaWxlZCIKICBleGl0IDEKZmkKCiMgQWxpZ24gZmlsZSBwcnVuaW5nIHdpdGggZnJhY3Rpb25hbCBkYXlzIChmaW5kIC1tdGltZSBpcyB3aG9sZSBkYXlzIG9ubHkpLgpQUlVORV9NSU5VVEVTPSIkKGF3ayAtdiBkPSIke1JFVEVOVElPTl9EQVlTfSIgJ0JFR0lOIHsgcHJpbnRmICIlZCIsIGQgKiAyNCAqIDYwICsgMC41IH0nKSIKc3VkbyBmaW5kIC92YXIvbGliL3Rva2Vua2V5L2FwcC9xYV9ibG9icyAvdmFyL2xpYi90b2tlbmtleS9hcHAvcWFfZGxxIC1taW5kZXB0aCAxIC10eXBlIGYgXAogIC1tbWluICsiJHtQUlVORV9NSU5VVEVTfSIgLWRlbGV0ZSAyPi9kZXYvbnVsbCB8fCB0cnVlCnN1ZG8gZmluZCAvdmFyL2xpYi90b2tlbmtleS9hcHAvcWFfYmxvYnMgL3Zhci9saWIvdG9rZW5rZXkvYXBwL3FhX2RscSAtZGVwdGggLW1pbmRlcHRoIDEgLXR5cGUgZCBcCiAgLWVtcHR5IC1kZWxldGUgMj4vZGV2L251bGwgfHwgdHJ1ZQoKbG9nZ2VyIC10IHRva2Vua2V5LXFhLXN0YWxlLWNsZWFudXAgImNsZWFudXBfZG9uZSIK'
       # >>> QA_CLEANUP_B64_PARAM END <<<
@@ -356,10 +280,9 @@ Resources:
   TokenkeyPgdumpScriptB64Parameter:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/${ProjectName}/${Environment}/stage0/pgdump.b64'
+      Name: !Sub '/${ProjectName}/edge/${EdgeId}/stage0/pgdump.gzip.b64'
       Type: String
       Tier: Standard
-      Description: !Sub '${ProjectName} Stage0 tokenkey-pgdump.sh as base64; refresh via build-cfn.sh'
       # >>> PGDUMP_B64_PARAM START (regenerated by build-cfn.sh) <<<
       Value: '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'
       # >>> PGDUMP_B64_PARAM END <<<
@@ -367,10 +290,9 @@ Resources:
   TokenkeyGhcrPruneScriptB64Parameter:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/${ProjectName}/${Environment}/stage0/ghcr-prune.b64'
+      Name: !Sub '/${ProjectName}/edge/${EdgeId}/stage0/ghcr-prune.b64'
       Type: String
       Tier: Standard
-      Description: !Sub '${ProjectName} Stage0 tokenkey-prune-ghcr-app-tags.sh as base64; refresh via build-cfn.sh'
       # >>> GHCR_PRUNE_B64_PARAM START (regenerated by build-cfn.sh) <<<
       Value: 'IyEvYmluL2Jhc2gKIyBUb2tlbktleSBTdGFnZTAg4oCUIHBydW5lIGxvY2FsIEdIQ1IgYXBwIGltYWdlIHRhZ3MgYWZ0ZXIgZWFjaCBjb21wb3NlIHB1bGwgKGlubmVyIHNjcmlwdCkuCiMgU2VydmVkIGZyb20gU1NNIC4uLi9naGNyLXBydW5lLmI2NCAoYmFzZTY0KTsgbG9hZGVyIGF0IC91c3IvbG9jYWwvYmluL3Rva2Vua2V5LXBydW5lLWdoY3ItYXBwLXRhZ3Muc2gKIyBmZXRjaGVzIGFuZCBleGVjcyB0aGlzIGZpbGUuIEtlZXBzIHRoZSBtb3N0IHJlY2VudCBLRUVQX04gdGFncyBieSBpbWFnZSBDcmVhdGVkIHRpbWUsIHBsdXMgZXZlcnkKIyB0YWcgZm9yIHRoZSBpbWFnZSBydW5uaW5nIGluIGNvbnRhaW5lciAidG9rZW5rZXkiLgojCiMgU291cmNlOiBkZXBsb3kvYXdzL3N0YWdlMC90b2tlbmtleS1wcnVuZS1naGNyLWFwcC10YWdzLnNoIOKAlCByZWZyZXNoIHZpYSBkZXBsb3kvYXdzL3N0YWdlMC9idWlsZC1jZm4uc2guCiMgT3B0aW9uYWw6IFRPS0VOS0VZX0dIQ1JfS0VFUF9UQUdTIGluIC92YXIvbGliL3Rva2Vua2V5Ly5lbnYgKGRlZmF1bHQgMTApLgoKc2V0IC1ldW8gcGlwZWZhaWwKCktFRVBfTj0iJHtUT0tFTktFWV9HSENSX0tFRVBfVEFHUzotMTB9IgpFTlZfRklMRT0iL3Zhci9saWIvdG9rZW5rZXkvLmVudiIKCmlmIFsgISAtZiAiJHtFTlZfRklMRX0iIF07IHRoZW4KICBlY2hvICJ0b2tlbmtleS1wcnVuZS1naGNyLWFwcC10YWdzOiBtaXNzaW5nICR7RU5WX0ZJTEV9IiA+JjIKICBleGl0IDAKZmkKCiMgc2hlbGxjaGVjayBkaXNhYmxlPVNDMTA5MApzZXQgLWEKLiAiJHtFTlZfRklMRX0iCnNldCArYQoKaWYgWyAteiAiJHtUT0tFTktFWV9JTUFHRTotfSIgXTsgdGhlbgogIGVjaG8gInRva2Vua2V5LXBydW5lLWdoY3ItYXBwLXRhZ3M6IFRPS0VOS0VZX0lNQUdFIGVtcHR5IiA+JjIKICBleGl0IDAKZmkKClJFUE89IiR7VE9LRU5LRVlfSU1BR0UlOip9IgppZiBbIC16ICIke1JFUE99IiBdIHx8IFsgIiR7UkVQT30iID0gIiR7VE9LRU5LRVlfSU1BR0V9IiBdOyB0aGVuCiAgZWNobyAidG9rZW5rZXktcHJ1bmUtZ2hjci1hcHAtdGFnczogY291bGQgbm90IHBhcnNlIHJlcG8gZnJvbSBUT0tFTktFWV9JTUFHRSIgPiYyCiAgZXhpdCAwCmZpCgpSVU5OSU5HX0lEPSIiCmlmIGRvY2tlciBpbnNwZWN0IHRva2Vua2V5ID4vZGV2L251bGwgMj4mMTsgdGhlbgogIFJVTk5JTkdfSUQ9IiQoZG9ja2VyIGluc3BlY3QgLWYgJ3t7LkltYWdlfX0nIHRva2Vua2V5KSIKZmkKCnNvcnRlZD0iJChta3RlbXApIgprZWVwZj0iJChta3RlbXApIgp0cmFwICdybSAtZiAiJHtzb3J0ZWR9IiAiJHtrZWVwZn0iJyBFWElUCgp3aGlsZSByZWFkIC1yIHJlZjsgZG8KICBbIC16ICIkcmVmIiBdICYmIGNvbnRpbnVlCiAgY2FzZSAiJHJlZiIgaW4gKic8bm9uZT4nKikgY29udGludWUgOzsgZXNhYwogIGN0aW1lPSIkKGRvY2tlciBpbnNwZWN0IC1mICd7ey5DcmVhdGVkfX0nICIkcmVmIiAyPi9kZXYvbnVsbCB8fCBlY2hvICcxOTcwLTAxLTAxVDAwOjAwOjAwWicpIgogIGlpZD0iJChkb2NrZXIgaW5zcGVjdCAtZiAne3suSWR9fScgIiRyZWYiIDI+L2Rldi9udWxsIHx8IHRydWUpIgogIHByaW50ZiAnJXNcdCVzXHQlc1xuJyAiJGN0aW1lIiAiJHJlZiIgIiRpaWQiCmRvbmUgPCA8KGRvY2tlciBpbWFnZXMgIiR7UkVQT30iIC0tZm9ybWF0ICd7ey5SZXBvc2l0b3J5fX06e3suVGFnfX0nIDI+L2Rldi9udWxsIHx8IHRydWUpIFwKICB8IExDX0FMTD1DIHNvcnQgLXQgIiQocHJpbnRmICdcdCcpIiAtazEsMXIgPiIke3NvcnRlZH0iCgo6ID4iJHtrZWVwZn0iCgp3aGlsZSBJRlM9IiQocHJpbnRmICdcdCcpIiByZWFkIC1yIF9jcmVmIHJlZiBpaWQ7IGRvCiAgWyAteiAiJHtyZWY6LX0iIF0gJiYgY29udGludWUKICBpZiBbIC1uICIke1JVTk5JTkdfSUR9IiBdICYmIFsgIiRpaWQiID0gIiR7UlVOTklOR19JRH0iIF07IHRoZW4KICAgIGVjaG8gIiRyZWYiID4+IiR7a2VlcGZ9IgogIGZpCmRvbmUgPCIke3NvcnRlZH0iCgp3aGlsZSBJRlM9IiQocHJpbnRmICdcdCcpIiByZWFkIC1yIF9jcmVmIHJlZiBfaWlkOyBkbwogIFsgLXogIiR7cmVmOi19IiBdICYmIGNvbnRpbnVlCiAga2NvdW50PTAKICBpZiBbIC1zICIke2tlZXBmfSIgXTsgdGhlbgogICAga2NvdW50PSQod2MgLWwgPCIke2tlZXBmfSIgfCB0ciAtZCAnICcpCiAgZmkKICBbICIke2tjb3VudH0iIC1nZSAiJHtLRUVQX059IiBdICYmIGJyZWFrCiAgaWYgISBncmVwIC1GeHEgIiRyZWYiICIke2tlZXBmfSIgMj4vZGV2L251bGw7IHRoZW4KICAgIGVjaG8gIiRyZWYiID4+IiR7a2VlcGZ9IgogIGZpCmRvbmUgPCIke3NvcnRlZH0iCgp3aGlsZSByZWFkIC1yIHJlZjsgZG8KICBbIC16ICIkcmVmIiBdICYmIGNvbnRpbnVlCiAgY2FzZSAiJHJlZiIgaW4gKic8bm9uZT4nKikgY29udGludWUgOzsgZXNhYwogIGlmICEgZ3JlcCAtRnhxICIkcmVmIiAiJHtrZWVwZn0iIDI+L2Rldi9udWxsOyB0aGVuCiAgICBkb2NrZXIgcm1pICIkcmVmIiAyPi9kZXYvbnVsbCB8fCB0cnVlCiAgZmkKZG9uZSA8IDwoZG9ja2VyIGltYWdlcyAiJHtSRVBPfSIgLS1mb3JtYXQgJ3t7LlJlcG9zaXRvcnl9fTp7ey5UYWd9fScgMj4vZGV2L251bGwgfHwgdHJ1ZSkKCmV4aXQgMAo='
       # >>> GHCR_PRUNE_B64_PARAM END <<<
@@ -378,10 +300,9 @@ Resources:
   TokenkeyGhcrPruneDailyScriptB64Parameter:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/${ProjectName}/${Environment}/stage0/ghcr-prune-daily.b64'
+      Name: !Sub '/${ProjectName}/edge/${EdgeId}/stage0/ghcr-prune-daily.b64'
       Type: String
       Tier: Standard
-      Description: !Sub '${ProjectName} Stage0 tokenkey-ghcr-prune-daily.sh as base64; refresh via build-cfn.sh'
       # >>> GHCR_PRUNE_DAILY_B64_PARAM START (regenerated by build-cfn.sh) <<<
       Value: 'IyEvYmluL2Jhc2gKIyBEYWlseSBHSENSIGFwcC10YWcgcHJ1bmUgKyBkYW5nbGluZyBEb2NrZXIgaW1hZ2UgY2xlYW51cC4KIyBJbnZva2VkIGJ5IHRva2Vua2V5LWdoY3ItcHJ1bmUtZGFpbHkudGltZXIgb24gcHJvZCBFQzIgYW5kIExpZ2h0c2FpbCBlZGdlcy4KIyBTU09UOiBkZXBsb3kvYXdzL3N0YWdlMC90b2tlbmtleS1naGNyLXBydW5lLWRhaWx5LnNoCnNldCAtZXVvIHBpcGVmYWlsCgppbnN0YWxsX2doY3JfcHJ1bmVfZGFpbHlfdW5pdHMoKSB7CiAgbG9jYWwgc3lzdGVtZF9kaXI9IiR7MTotL2V0Yy9zeXN0ZW1kL3N5c3RlbX0iCiAgaW5zdGFsbCAtZCAtbSAwNzU1ICIke3N5c3RlbWRfZGlyfSIKICBjYXQgPiIke3N5c3RlbWRfZGlyfS90b2tlbmtleS1naGNyLXBydW5lLWRhaWx5LnNlcnZpY2UiIDw8J0VPRicKW1VuaXRdCkRlc2NyaXB0aW9uPURhaWx5IEdIQ1IgYXBwLXRhZyBwcnVuZSBhbmQgZGFuZ2xpbmcgRG9ja2VyIGltYWdlIGNsZWFudXAKQWZ0ZXI9bmV0d29yay1vbmxpbmUudGFyZ2V0IHRva2Vua2V5LnNlcnZpY2UKV2FudHM9bmV0d29yay1vbmxpbmUudGFyZ2V0CgpbU2VydmljZV0KVHlwZT1vbmVzaG90CkVudmlyb25tZW50RmlsZT0tL3Zhci9saWIvdG9rZW5rZXkvLmVudgpFeGVjU3RhcnQ9L3Vzci9sb2NhbC9iaW4vdG9rZW5rZXktZ2hjci1wcnVuZS1kYWlseS5zaApFT0YKICBjYXQgPiIke3N5c3RlbWRfZGlyfS90b2tlbmtleS1naGNyLXBydW5lLWRhaWx5LnRpbWVyIiA8PCdFT0YnCltVbml0XQpEZXNjcmlwdGlvbj1EYWlseSBHSENSIHBydW5lIChsb3ctdHJhZmZpYyB3aW5kb3csIGFmdGVyIFFBIGNsZWFudXApCgpbVGltZXJdCk9uQ2FsZW5kYXI9Ki0qLSogMDU6MDA6MDAKUmFuZG9taXplZERlbGF5U2VjPTMwbWluClBlcnNpc3RlbnQ9dHJ1ZQoKW0luc3RhbGxdCldhbnRlZEJ5PXRpbWVycy50YXJnZXQKRU9GCn0KCnZhbGlkYXRlX2tlZXBfdGFncygpIHsKICBsb2NhbCBrZWVwPSIkMSIKICBpZiAhIFtbICIke2tlZXB9IiA9fiBeWzEtOV1bMC05XSokIF1dOyB0aGVuCiAgICBsb2dnZXIgLXQgdG9rZW5rZXktZ2hjci1wcnVuZS1kYWlseSAiaW52YWxpZCBUT0tFTktFWV9HSENSX0tFRVBfVEFHUz0ke2tlZXB9IgogICAgcmV0dXJuIDEKICBmaQp9CgpydW5fZ2hjcl9wcnVuZV9kYWlseSgpIHsKICBsb2NhbCBrZWVwPSIke1RPS0VOS0VZX0dIQ1JfS0VFUF9UQUdTOi0zfSIKICBsb2NhbCBwcnVuZT0iJHsxOi0vdXNyL2xvY2FsL2Jpbi90b2tlbmtleS1wcnVuZS1naGNyLWFwcC10YWdzLWNvcmUuc2h9IgogIGxvY2FsIGZhaWx1cmVzPTAKICB2YWxpZGF0ZV9rZWVwX3RhZ3MgIiR7a2VlcH0iIHx8IHJldHVybiAxCiAgaWYgWyAteiAiJHsxOi19IiBdICYmIFsgISAteCAiJHtwcnVuZX0iIF07IHRoZW4KICAgIHBydW5lPS91c3IvbG9jYWwvYmluL3Rva2Vua2V5LXBydW5lLWdoY3ItYXBwLXRhZ3Muc2gKICBmaQogIGlmIFsgLXggIiR7cHJ1bmV9IiBdOyB0aGVuCiAgICBsb2dnZXIgLXQgdG9rZW5rZXktZ2hjci1wcnVuZS1kYWlseSAic3RhcnQga2VlcF90YWdzPSR7a2VlcH0iCiAgICBpZiAhIGVudiBUT0tFTktFWV9HSENSX0tFRVBfVEFHUz0iJHtrZWVwfSIgIiR7cHJ1bmV9IjsgdGhlbgogICAgICBsb2dnZXIgLXQgdG9rZW5rZXktZ2hjci1wcnVuZS1kYWlseSAiZ2hjciB0YWcgcHJ1bmUgZmFpbGVkIgogICAgICBmYWlsdXJlcz0kKChmYWlsdXJlcyArIDEpKQogICAgZmkKICBlbHNlCiAgICBsb2dnZXIgLXQgdG9rZW5rZXktZ2hjci1wcnVuZS1kYWlseSAibm8gcHJ1bmUgc2NyaXB0IGluc3RhbGxlZCIKICAgIGZhaWx1cmVzPSQoKGZhaWx1cmVzICsgMSkpCiAgZmkKICBpZiAhIGRvY2tlciBpbWFnZSBwcnVuZSAtZiA+L2Rldi9udWxsIDI+JjE7IHRoZW4KICAgIGxvZ2dlciAtdCB0b2tlbmtleS1naGNyLXBydW5lLWRhaWx5ICJkb2NrZXIgaW1hZ2UgcHJ1bmUgZmFpbGVkIgogICAgZmFpbHVyZXM9JCgoZmFpbHVyZXMgKyAxKSkKICBmaQogIGlmIFsgIiR7ZmFpbHVyZXN9IiAtZ3QgMCBdOyB0aGVuCiAgICBsb2dnZXIgLXQgdG9rZW5rZXktZ2hjci1wcnVuZS1kYWlseSAiZmFpbGVkIHN0YWdlcz0ke2ZhaWx1cmVzfSIKICAgIHJldHVybiAxCiAgZmkKICBsb2dnZXIgLXQgdG9rZW5rZXktZ2hjci1wcnVuZS1kYWlseSAiZG9uZSIKfQoKbWFpbigpIHsKICBjYXNlICIkezE6LX0iIGluCiAgICAtLXNlbGZ0ZXN0KSB2YWxpZGF0ZV9rZWVwX3RhZ3MgIiR7VE9LRU5LRVlfR0hDUl9LRUVQX1RBR1M6LTN9IiA7OwogICAgLS1pbnN0YWxsLXVuaXRzKSBpbnN0YWxsX2doY3JfcHJ1bmVfZGFpbHlfdW5pdHMgOzsKICAgICcnKSBydW5fZ2hjcl9wcnVuZV9kYWlseSA7OwogICAgKikgZWNobyAidG9rZW5rZXktZ2hjci1wcnVuZS1kYWlseTogdW5rbm93biBhcmd1bWVudCAkMSIgPiYyOyByZXR1cm4gMSA7OwogIGVzYWMKfQoKaWYgWyAiJHtCQVNIX1NPVVJDRVswXX0iID0gIiQwIiBdOyB0aGVuCiAgbWFpbiAiJEAiCmZpCg=='
       # >>> GHCR_PRUNE_DAILY_B64_PARAM END <<<
@@ -389,10 +310,9 @@ Resources:
   TokenkeyStage0BootstrapGzipB64Part1Parameter:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/${ProjectName}/${Environment}/stage0/bootstrap.sh.gzip.b64.part1'
+      Name: !Sub '/${ProjectName}/edge/${EdgeId}/stage0/bootstrap.sh.gzip.b64.part1'
       Type: String
       Tier: Standard
-      Description: !Sub '${ProjectName} Stage0 bootstrap.sh gzip|base64 part 1; refresh via build-cfn.sh'
       # >>> BOOTSTRAP_GZB64_SSM_PART1 START (regenerated by build-cfn.sh) <<<
       Value: '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'
       # >>> BOOTSTRAP_GZB64_SSM_PART1 END <<<
@@ -400,10 +320,9 @@ Resources:
   TokenkeyStage0BootstrapGzipB64Part2Parameter:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/${ProjectName}/${Environment}/stage0/bootstrap.sh.gzip.b64.part2'
+      Name: !Sub '/${ProjectName}/edge/${EdgeId}/stage0/bootstrap.sh.gzip.b64.part2'
       Type: String
       Tier: Standard
-      Description: !Sub '${ProjectName} Stage0 bootstrap.sh gzip|base64 part 2; refresh via build-cfn.sh'
       # >>> BOOTSTRAP_GZB64_SSM_PART2 START (regenerated by build-cfn.sh) <<<
       Value: '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'
       # >>> BOOTSTRAP_GZB64_SSM_PART2 END <<<
@@ -411,21 +330,30 @@ Resources:
   TokenkeyStage0BootstrapGzipB64Part3Parameter:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/${ProjectName}/${Environment}/stage0/bootstrap.sh.gzip.b64.part3'
+      Name: !Sub '/${ProjectName}/edge/${EdgeId}/stage0/bootstrap.sh.gzip.b64.part3'
       Type: String
       Tier: Standard
-      Description: !Sub '${ProjectName} Stage0 bootstrap.sh gzip|base64 part 3; refresh via build-cfn.sh'
       # >>> BOOTSTRAP_GZB64_SSM_PART3 START (regenerated by build-cfn.sh) <<<
       Value: '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'
       # >>> BOOTSTRAP_GZB64_SSM_PART3 END <<<
 
-  ElasticIP:
-    Type: AWS::EC2::EIP
-    DependsOn: IGWAttach
+  DataVolume:
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
-      Domain: vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Size: !Ref DataVolumeSizeGiB
+      VolumeType: gp3
+      Iops: !Ref DataVolumeIops
+      Throughput: !Ref DataVolumeThroughput
+      Encrypted: true
       Tags:
-        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-eip'}
+        - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-data'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: EdgeId, Value: !Ref EdgeId}
+        - {Key: Backup, Value: !Sub 'stage0-edge-${EdgeId}'}
 
   Instance:
     Type: AWS::EC2::Instance
@@ -437,13 +365,15 @@ Resources:
       - TokenkeyQaStaleCleanupScriptB64Parameter
       - TokenkeyPgdumpScriptB64Parameter
       - TokenkeyGhcrPruneScriptB64Parameter
+      - TokenkeyGhcrPruneDailyScriptB64Parameter
       - TokenkeyStage0BootstrapGzipB64Part1Parameter
       - TokenkeyStage0BootstrapGzipB64Part2Parameter
       - TokenkeyStage0BootstrapGzipB64Part3Parameter
-      - TokenkeyGhcrPruneDailyScriptB64Parameter
     Properties:
       InstanceType: !Ref InstanceType
       ImageId: !Ref AmazonLinux2023Arm64Ami
+      CreditSpecification:
+        CPUCredits: unlimited
       SubnetId: !Ref PublicSubnet
       SecurityGroupIds: [!Ref AppSecurityGroup]
       IamInstanceProfile: !Ref InstanceProfile
@@ -455,13 +385,14 @@ Resources:
           Ebs:
             VolumeType: gp3
             VolumeSize: !Ref RootVolumeSizeGiB
-            DeleteOnTermination: false
+            DeleteOnTermination: true
             Encrypted: true
       Tags:
-        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-app'}
+        - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-app'}
         - {Key: Project, Value: !Ref ProjectName}
         - {Key: Environment, Value: !Ref Environment}
-        - {Key: Backup, Value: stage0}
+        - {Key: EdgeId, Value: !Ref EdgeId}
+        - {Key: Backup, Value: !Sub 'stage0-edge-${EdgeId}'}
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -486,7 +417,11 @@ Resources:
           export TK_ENVIRONMENT='${Environment}'
           export TK_QA_STALE_RETENTION_DAYS='${QaStaleRetentionDays}'
           export TK_TOKENKEY_IMAGE="ghcr.io/${GhcrOwner}/${GhcrImageName}:${ImageTag}"
-          export TK_STAGE0_PREFIX='/${ProjectName}/${Environment}/stage0'
+          export TK_STAGE0_PREFIX='/${ProjectName}/edge/${EdgeId}/stage0'
+          export TK_SWAP_SIZE_GIB='${SwapSizeGiB}'
+          export TK_CADDY_PROFILE='edge'
+          export TK_MAIN_GATEWAY_ALLOWED_CIDR='${MainGatewayAllowedCidr}'
+          export TK_CLOUDWATCH_CPU_ALARM_NAMES='${ProjectName}-${EdgeId}-cpu-24h-above-baseline,${ProjectName}-${EdgeId}-cpu-surplus-borrowing,${ProjectName}-${EdgeId}-cpu-surplus-charged'
 
           B64=""
           B64+="$(aws ssm get-parameter --name "${!TK_STAGE0_PREFIX}/bootstrap.sh.gzip.b64.part1" --region "${!TK_AWS_REGION}" --query Parameter.Value --output text)"
@@ -500,46 +435,12 @@ Resources:
           exec bash "${!TMP}"
           # >>> USERDATA_LAUNCHER END <<<
 
-
-  # ---------------------------------------------------------------------------
-  # Persistent data volume (persistent data volume hardening / issue #8)
-  # ---------------------------------------------------------------------------
-  # DeletionPolicy: Retain   — preserved if the stack is deleted (manual cleanup)
-  # UpdateReplacePolicy: Retain — preserved if a property change forces volume
-  #                              replacement; the old volume is kept and a new
-  #                              one is created (operator must reconcile).
-  # AvailabilityZone — must equal the instance's AZ; both are pinned to the
-  #                    first AZ via !Select [0, !GetAZs ''].
-  # The attach + mount is performed by UserData (see "data volume" section).
-  # All /var/lib/tokenkey/{postgres,redis,caddy,app,pgdump,.env.secret} state
-  # lives here, so that EC2 instance replacement (e.g. ImageTag CFN parameter
-  # change → UserData re-substitution → BlockDeviceMappings churn → root EBS
-  # thrown away) NO LONGER destroys application data.
-  DataVolume:
-    Type: AWS::EC2::Volume
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      AvailabilityZone: !Select [0, !GetAZs '']
-      Size: !Ref DataVolumeSizeGiB
-      VolumeType: gp3
-      Iops: !Ref DataVolumeIops
-      Throughput: !Ref DataVolumeThroughput
-      Encrypted: true
-      Tags:
-        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-data'}
-        - {Key: Project, Value: !Ref ProjectName}
-        - {Key: Environment, Value: !Ref Environment}
-        - {Key: Backup, Value: stage0}
-        - {Key: Purpose, Value: 'tokenkey-state-postgres-redis-caddy'}
-
   EIPAssoc:
     Type: AWS::EC2::EIPAssociation
     Properties:
-      AllocationId: !GetAtt ElasticIP.AllocationId
+      AllocationId: !Ref EipAllocationId
       InstanceId: !Ref Instance
 
-  # --- DLM: automated EBS snapshots (daily by default, optional hourly) -------
   DLMRole:
     Type: AWS::IAM::Role
     Properties:
@@ -555,54 +456,76 @@ Resources:
   SnapshotPolicy:
     Type: AWS::DLM::LifecyclePolicy
     Properties:
-      Description: !Sub '${ProjectName} Stage 0 EBS snapshot policy'
+      Description: !Sub '${ProjectName} ${EdgeId} Stage0 EBS snapshot policy'
       State: ENABLED
       ExecutionRoleArn: !GetAtt DLMRole.Arn
       PolicyDetails:
         PolicyType: EBS_SNAPSHOT_MANAGEMENT
         ResourceTypes: [INSTANCE]
         TargetTags:
-          - {Key: Backup, Value: stage0}
+          - {Key: Backup, Value: !Sub 'stage0-edge-${EdgeId}'}
         Schedules:
-          - Name: !If [IsHourlySnapshots, hourly-7d, daily-7d]
+          - Name: daily-7d
             CopyTags: true
-            TagsToAdd:
-              - {Key: snapshot-by, Value: dlm}
-              - {Key: snapshot-cadence, Value: !Ref SnapshotSchedule}
             CreateRule:
-              Interval: !If [IsHourlySnapshots, 1, 24]
+              Interval: 24
               IntervalUnit: HOURS
-              Times: !If [IsHourlySnapshots, !Ref AWS::NoValue, ['03:00']]
+              Times: ['03:00']
             RetainRule:
-              Count: !If [IsHourlySnapshots, 168, 7]
+              Count: 7
 
-  DataVolumeDiskAlarm:
+  InstanceCpuAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub '${ProjectName}-${Environment}-data-volume-used'
-      AlarmDescription: >-
-        tokenkey DataVolume (/var/lib/tokenkey) critical — act immediately (trim pgdump/logs or expand vol).
-      Namespace: tokenkey/EC2
-      MetricName: DataVolumeUsedPercent
+      AlarmName: !Sub '${ProjectName}-${EdgeId}-cpu-24h-above-baseline'
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
       Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      DatapointsToAlarm: 2
-      # High threshold = few false positives; pair with 24h pg_dump retention + metrics timer.
-      Threshold: 90
+      Period: 86400
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 20
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
       Dimensions:
-        - Name: InstanceId
-          Value: !Ref Instance
-      AlarmActions: !If [AlarmTopicProvided, [!Ref AlarmSnsTopicArn], !Ref AWS::NoValue]
+        - {Name: InstanceId, Value: !Ref Instance}
+
+  CpuSurplusCreditBalanceAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${EdgeId}-cpu-surplus-borrowing'
+      Namespace: AWS/EC2
+      MetricName: CPUSurplusCreditBalance
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - {Name: InstanceId, Value: !Ref Instance}
+
+  CpuSurplusCreditsChargedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${EdgeId}-cpu-surplus-charged'
+      Namespace: AWS/EC2
+      MetricName: CPUSurplusCreditsCharged
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - {Name: InstanceId, Value: !Ref Instance}
 
   RootVolumeDiskAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub '${ProjectName}-${Environment}-root-volume-used'
-      AlarmDescription: >-
-        tokenkey root volume critical — check bounded Docker logs and image cleanup before the host fills.
+      AlarmName: !Sub '${ProjectName}-${EdgeId}-root-volume-used'
       Namespace: tokenkey/EC2
       MetricName: RootVolumeUsedPercent
       Statistic: Average
@@ -613,62 +536,46 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
       Dimensions:
-        - Name: InstanceId
-          Value: !Ref Instance
-      AlarmActions: !If [AlarmTopicProvided, [!Ref AlarmSnsTopicArn], !Ref AWS::NoValue]
+        - {Name: InstanceId, Value: !Ref Instance}
 
-  InstanceCpuAlarm:
+  DataVolumeDiskAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub '${ProjectName}-${Environment}-cpu-sustained-high'
-      AlarmDescription: >-
-        tokenkey EC2 CPU > 80% (5m Average) for 15 consecutive minutes — deploy
-        burst or traffic spike; check load, active-color container, and consider resize.
-      Namespace: AWS/EC2
-      MetricName: CPUUtilization
+      AlarmName: !Sub '${ProjectName}-${EdgeId}-data-volume-used'
+      Namespace: tokenkey/EC2
+      MetricName: DataVolumeUsedPercent
       Statistic: Average
       Period: 300
-      EvaluationPeriods: 3
-      DatapointsToAlarm: 3
-      Threshold: 80
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 85
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
       Dimensions:
-        - Name: InstanceId
-          Value: !Ref Instance
-      AlarmActions: !If [AlarmTopicProvided, [!Ref AlarmSnsTopicArn], !Ref AWS::NoValue]
+        - {Name: InstanceId, Value: !Ref Instance}
 
 Outputs:
-  PublicIP:
-    Description: Elastic IP - set this as the A record for ApiDomain
-    Value: !Ref ElasticIP
   InstanceId:
-    Description: EC2 instance ID
     Value: !Ref Instance
-  DataVolumeId:
-    Description: |
-      Persistent EBS data volume (DeletionPolicy: Retain). Snapshot this for
-      backup, and reference it when migrating an existing root-volume stack to
-      the new layout (persistent data volume hardening runbook).
-    Value: !Ref DataVolume
+  PublicIP:
+    Value: !Ref PublicIpv4
+  EipAllocationId:
+    Value: !Ref EipAllocationId
   ApiUrl:
-    Description: After DNS A-record propagation + LE issuance
     Value: !Sub 'https://${ApiDomain}'
-  SsmStartSession:
-    Description: Open shell without SSH key
-    Value: !Sub 'aws ssm start-session --region ${AWS::Region} --target ${Instance}'
-  SnapshotPolicyId:
-    Description: DLM lifecycle policy ID
-    Value: !Ref SnapshotPolicy
-  ResolvedImage:
-    Description: Image reference that the EC2 instance will pull from GHCR
-    Value: !Sub 'ghcr.io/${GhcrOwner}/${GhcrImageName}:${ImageTag}'
-  DataVolumeDiskAlarmName:
-    Description: CloudWatch alarm for DataVolume utilization (tokenkey/EC2 DataVolumeUsedPercent)
-    Value: !Ref DataVolumeDiskAlarm
-  RootVolumeDiskAlarmName:
-    Description: CloudWatch alarm for root volume utilization (tokenkey/EC2 RootVolumeUsedPercent)
-    Value: !Ref RootVolumeDiskAlarm
+  DataVolumeId:
+    Value: !Ref DataVolume
+  CpuCreditMode:
+    Value: unlimited
   InstanceCpuAlarmName:
-    Description: CloudWatch alarm for sustained EC2 CPU (AWS/EC2 CPUUtilization > 80% for 15m)
     Value: !Ref InstanceCpuAlarm
+  CpuSurplusCreditBalanceAlarmName:
+    Value: !Ref CpuSurplusCreditBalanceAlarm
+  CpuSurplusCreditsChargedAlarmName:
+    Value: !Ref CpuSurplusCreditsChargedAlarm
+  RootVolumeDiskAlarmName:
+    Value: !Ref RootVolumeDiskAlarm
+  DataVolumeDiskAlarmName:
+    Value: !Ref DataVolumeDiskAlarm
+  SnapshotPolicyId:
+    Value: !Ref SnapshotPolicy

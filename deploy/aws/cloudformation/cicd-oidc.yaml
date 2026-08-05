@@ -8,13 +8,10 @@ Description: >-
   stage0 runtime stack so it can be changed without risking instance
   replacement.
 
-  Region-agnostic: the ClusteringRole name embeds ${AWS::Region}, so the same
-  template serves the us-east-1 (prod) and eu-west-2 (uk-edge) OIDC stacks.
-  EC2 Edge CloudFormation execution roles + EIP-rotation / decommission
-  permissions were removed 2026-06-07 when the EC2 Edge path was retired —
-  edges are Lightsail-only and deploy via the separate
-  tokenkey-cicd-lightsail-addon stack, not a per-edge CFN execution role.
-  (prod itself remains EC2 and is unaffected.)
+  Region-agnostic: the ClusteringRole name embeds ${AWS::Region}. Edge
+  provisioning permissions are intentionally absent here: Lightsail uses
+  tokenkey-cicd-lightsail-addon and EC2 migration candidates use the separate
+  tokenkey-cicd-ec2-edge-addon with its own CloudFormation execution role.
 
 Parameters:
   GitHubRepo:
@@ -28,7 +25,7 @@ Parameters:
     Description: >-
       Full OIDC sub claims (StringLike patterns) allowed to assume the role.
       Default allows main (for ops-daily-diagnostics.yml),
-      environment:prod (for deploy-stage0.yml), and the Lightsail edge
+      environment:prod (for deploy-stage0.yml), and the platform-neutral edge
       environments (edge-uk1/uk2/uk3, edge-fra1, edge-us1..us7). The Environment
       binding is what makes reviewer gates load-bearing on the AWS side, not
       just GitHub UI cosmetic. This is a union default across both regional

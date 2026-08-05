@@ -14,6 +14,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../../.." && pwd)"
 COMPOSE_SRC="${HERE}/docker-compose.yml"
 CADDY_SRC="${HERE}/Caddyfile"
+CADDY_EDGE_SRC="${HERE}/Caddyfile.edge"
 QA_CLEANUP_SRC="${HERE}/tokenkey-qa-stale-cleanup.sh"
 PGDUMP_SRC="${HERE}/tokenkey-pgdump.sh"
 PRUNE_SRC="${HERE}/tokenkey-prune-ghcr-app-tags.sh"
@@ -21,6 +22,7 @@ DAILY_PRUNE_SRC="${HERE}/tokenkey-ghcr-prune-daily.sh"
 BOOTSTRAP_SRC="${HERE}/stage0-ec2-bootstrap.sh"
 LAUNCHER_SRC="${HERE}/stage0-ec2-userdata-launcher.sub.sh"
 CFN_FILE="${REPO_ROOT}/deploy/aws/cloudformation/stage0-single-ec2.yaml"
+CFN_EDGE_FILE="${REPO_ROOT}/deploy/aws/cloudformation/stage0-edge-ec2.yaml"
 
 EC2_USERDATA_LIMIT=16384
 SSM_STANDARD_VALUE_LIMIT=4096
@@ -32,9 +34,9 @@ if [[ "${1:-}" == "--check" ]]; then
 fi
 
 required=(
-  "${COMPOSE_SRC}" "${CADDY_SRC}"
+  "${COMPOSE_SRC}" "${CADDY_SRC}" "${CADDY_EDGE_SRC}"
   "${QA_CLEANUP_SRC}" "${PGDUMP_SRC}" "${PRUNE_SRC}" "${DAILY_PRUNE_SRC}" "${BOOTSTRAP_SRC}" "${LAUNCHER_SRC}"
-  "${CFN_FILE}"
+  "${CFN_FILE}" "${CFN_EDGE_FILE}"
 )
 for f in "${required[@]}"; do
   [[ -f "${f}" ]] || { echo "missing ${f}" >&2; exit 1; }
@@ -73,6 +75,7 @@ split_b64_for_ssm() {
 
 COMPOSE_GZB64="$(encode_gzb64 "${COMPOSE_SRC}")"
 CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
+CADDY_EDGE_GZB64="$(encode_gzb64 "${CADDY_EDGE_SRC}")"
 QA_CLEANUP_B64="$(encode_b64 "${QA_CLEANUP_SRC}")"
 # pgdump is gzip+base64 like compose/caddy/bootstrap (not raw base64 like the other
 # ops scripts): once it carries the precious-class --exclude-table-data list it no
@@ -98,6 +101,7 @@ check_ssm_len() {
 
 check_ssm_len compose "${COMPOSE_GZB64}"
 check_ssm_len caddy "${CADDY_GZB64}"
+check_ssm_len caddy_edge "${CADDY_EDGE_GZB64}"
 check_ssm_len qa "${QA_CLEANUP_B64}"
 check_ssm_len pgdump "${PGDUMP_GZB64}"
 check_ssm_len prune "${PRUNE_B64}"
@@ -107,23 +111,47 @@ check_ssm_len bootstrap_part2 "${BOOTSTRAP_PART2}"
 check_ssm_len bootstrap_part3 "${BOOTSTRAP_PART3}"
 
 indent_launcher() {
+  local profile="$1"
   local indent='          '
+  local first_line=true
   while IFS= read -r line || [[ -n "${line}" ]]; do
-    printf '%s%s\n' "${indent}" "${line}"
+    if [[ "${first_line}" == true ]]; then
+      [[ "${line}" == '#!/bin/bash' ]] || { echo "UserData launcher must start with #!/bin/bash" >&2; exit 1; }
+      first_line=false
+      continue
+    fi
+    if [[ -z "${line}" ]]; then
+      printf '\n'
+    elif [[ "${profile}" == "edge" && "${line}" == export\ TK_STAGE0_PREFIX=* ]]; then
+      printf "%sexport TK_STAGE0_PREFIX='/\${ProjectName}/edge/\${EdgeId}/stage0'\n" "${indent}"
+      printf "%sexport TK_SWAP_SIZE_GIB='\${SwapSizeGiB}'\n" "${indent}"
+      printf "%sexport TK_CADDY_PROFILE='edge'\n" "${indent}"
+      printf "%sexport TK_MAIN_GATEWAY_ALLOWED_CIDR='\${MainGatewayAllowedCidr}'\n" "${indent}"
+      printf "%sexport TK_CLOUDWATCH_CPU_ALARM_NAMES='\${ProjectName}-\${EdgeId}-cpu-24h-above-baseline,\${ProjectName}-\${EdgeId}-cpu-surplus-borrowing,\${ProjectName}-\${EdgeId}-cpu-surplus-charged'\n" "${indent}"
+    else
+      printf '%s%s\n' "${indent}" "${line}"
+    fi
   done <"${LAUNCHER_SRC}"
 }
 
-USERDATA_BODY="$(indent_launcher)"
-USERDATA_BYTES=$(printf '%s' "${USERDATA_BODY}" | wc -c | awk '{print $1}')
-if (( USERDATA_BYTES > EC2_USERDATA_LIMIT )); then
-  echo "EC2 UserData launcher is ${USERDATA_BYTES} bytes (limit ${EC2_USERDATA_LIMIT})" >&2
-  exit 1
-fi
+PROD_USERDATA_BODY="$(indent_launcher prod)"
+EDGE_USERDATA_BODY="$(indent_launcher edge)"
+PROD_USERDATA_BYTES=$(printf '%s' "${PROD_USERDATA_BODY}" | wc -c | awk '{print $1}')
+EDGE_USERDATA_BYTES=$(printf '%s' "${EDGE_USERDATA_BODY}" | wc -c | awk '{print $1}')
+for entry in "prod:${PROD_USERDATA_BYTES}" "edge:${EDGE_USERDATA_BYTES}"; do
+  label="${entry%%:*}"
+  bytes="${entry##*:}"
+  if (( bytes > EC2_USERDATA_LIMIT )); then
+    echo "${label} EC2 UserData launcher is ${bytes} bytes (limit ${EC2_USERDATA_LIMIT})" >&2
+    exit 1
+  fi
+done
 
 refresh_template() {
   local src="$1"
   local dst="$2"
   local caddy_blob="$3"
+  local userdata_body="$4"
   local indent='      '
   local new_compose="${indent}Value: '${COMPOSE_GZB64}'"
   local new_caddy="${indent}Value: '${caddy_blob}'"
@@ -136,7 +164,7 @@ refresh_template() {
   local new_bootstrap3="${indent}Value: '${BOOTSTRAP_PART3}'"
   local userdata_tmp
   userdata_tmp="$(mktemp)"
-  printf '%s\n' "${USERDATA_BODY}" >"${userdata_tmp}"
+  printf '%s\n' "${userdata_body}" >"${userdata_tmp}"
 
   awk -v new_compose_ssm="${new_compose}" \
       -v new_caddy_ssm="${new_caddy}" \
@@ -168,12 +196,13 @@ refresh_template() {
     />>> BOOTSTRAP_GZB64_SSM_PART3 START/ { print; print new_bootstrap3_ssm; skip = 1; next }
     />>> BOOTSTRAP_GZB64_SSM_PART3 END/ { skip = 0; print; next }
     />>> USERDATA_LAUNCHER START/ {
+      print
       while ((getline line < userdata_file) > 0) print line
       close(userdata_file)
       skip = 1
       next
     }
-    />>> USERDATA_LAUNCHER END/ { skip = 0; next }
+    />>> USERDATA_LAUNCHER END/ { skip = 0; print; next }
     { if (!skip) print }
   ' "${src}" > "${dst}"
   rm -f "${userdata_tmp}"
@@ -188,8 +217,8 @@ if [[ "${mode}" == "check" ]]; then
   # across BSD vs GNU gzip, which made the pre-commit hook unsatisfiable on macOS
   # for PR #778 (the committed bytes could never match a non-CI contributor's gzip).
   drift=0
-  committed_value() {  # $1 = marker name; prints the base64 inside its Value: '...'
-    awk -v m="$1" -v q="'" '
+  committed_value() {  # $1 = template, $2 = marker; prints the embedded Value.
+    awk -v m="$2" -v q="'" '
       index($0, ">>> " m " START") { g = 1; next }
       index($0, ">>> " m " END")   { g = 0 }
       g && /Value:/ {
@@ -198,24 +227,34 @@ if [[ "${mode}" == "check" ]]; then
         sub(q "[[:space:]]*$", "", s)
         print s; g = 0
       }
-    ' "${CFN_FILE}"
+    ' "$1"
   }
   report() { echo "  drift: ${1} embed no longer decodes to its source — run: bash deploy/aws/stage0/build-cfn.sh" >&2; drift=1; }
 
-  # gzip+base64 payloads (the version-fragile ones):
-  committed_value COMPOSE_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${COMPOSE_SRC}" || report compose
-  committed_value CADDY_GZB64_SSM   | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${CADDY_SRC}"   || report caddy
-  { committed_value BOOTSTRAP_GZB64_SSM_PART1; committed_value BOOTSTRAP_GZB64_SSM_PART2; committed_value BOOTSTRAP_GZB64_SSM_PART3; } \
-    | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${BOOTSTRAP_SRC}" || report bootstrap
-  # pgdump is also gzip+base64 (legacy marker name kept; content is gzipped):
-  committed_value PGDUMP_B64_PARAM     | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${PGDUMP_SRC}" || report pgdump
-  # plain base64 payloads:
-  committed_value QA_CLEANUP_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${QA_CLEANUP_SRC}" || report qa-cleanup
-  committed_value GHCR_PRUNE_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${PRUNE_SRC}"      || report ghcr-prune
-  committed_value GHCR_PRUNE_DAILY_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${DAILY_PRUNE_SRC}" || report ghcr-prune-daily
-  # (The thin UserData launcher is a pass-through YAML block, not a marker-spliced
-  #  SSM embed, so it is not part of the gzip-drift surface; its 16 KiB size guard
-  #  above still runs in both modes.)
+  committed_userdata() {
+    awk '
+      />>> USERDATA_LAUNCHER START/ { active = 1; next }
+      />>> USERDATA_LAUNCHER END/ { active = 0 }
+      active { print }
+    ' "$1"
+  }
+
+  check_template() {
+    local template="$1" caddy_source="$2" userdata_body="$3" label
+    label="$(basename "${template}")"
+    committed_value "${template}" COMPOSE_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${COMPOSE_SRC}" || report "${label}:compose"
+    committed_value "${template}" CADDY_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${caddy_source}" || report "${label}:caddy"
+    { committed_value "${template}" BOOTSTRAP_GZB64_SSM_PART1; committed_value "${template}" BOOTSTRAP_GZB64_SSM_PART2; committed_value "${template}" BOOTSTRAP_GZB64_SSM_PART3; } \
+      | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${BOOTSTRAP_SRC}" || report "${label}:bootstrap"
+    committed_value "${template}" PGDUMP_B64_PARAM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${PGDUMP_SRC}" || report "${label}:pgdump"
+    committed_value "${template}" QA_CLEANUP_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${QA_CLEANUP_SRC}" || report "${label}:qa-cleanup"
+    committed_value "${template}" GHCR_PRUNE_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${PRUNE_SRC}" || report "${label}:ghcr-prune"
+    committed_value "${template}" GHCR_PRUNE_DAILY_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${DAILY_PRUNE_SRC}" || report "${label}:ghcr-prune-daily"
+    committed_userdata "${template}" | cmp -s - <(printf '%s\n' "${userdata_body}") || report "${label}:userdata"
+  }
+
+  check_template "${CFN_FILE}" "${CADDY_SRC}" "${PROD_USERDATA_BODY}"
+  check_template "${CFN_EDGE_FILE}" "${CADDY_EDGE_SRC}" "${EDGE_USERDATA_BODY}"
 
   if [[ "${drift}" -eq 0 ]]; then
     echo "stage0 CFN embeds are up to date (content-verified)."
@@ -224,20 +263,27 @@ if [[ "${mode}" == "check" ]]; then
 fi
 
 tmp_main="$(mktemp)"
-trap 'rm -f "${tmp_main}"' EXIT
-refresh_template "${CFN_FILE}" "${tmp_main}" "${CADDY_GZB64}"
+tmp_edge="$(mktemp)"
+trap 'rm -f "${tmp_main}" "${tmp_edge}"' EXIT
+refresh_template "${CFN_FILE}" "${tmp_main}" "${CADDY_GZB64}" "${PROD_USERDATA_BODY}"
+refresh_template "${CFN_EDGE_FILE}" "${tmp_edge}" "${CADDY_EDGE_GZB64}" "${EDGE_USERDATA_BODY}"
 mv "${tmp_main}" "${CFN_FILE}"
+mv "${tmp_edge}" "${CFN_EDGE_FILE}"
 trap - EXIT
 
 echo "stage0 CFN refreshed."
 echo "  compose gzip+base64 (SSM): ${#COMPOSE_GZB64} chars"
 echo "  caddy gzip+base64 (SSM): ${#CADDY_GZB64} chars"
+echo "  edge caddy gzip+base64 (SSM): ${#CADDY_EDGE_GZB64} chars"
 echo "  qa cleanup base64 (SSM): ${#QA_CLEANUP_B64} chars"
 echo "  pgdump gzip+base64 (SSM): ${#PGDUMP_GZB64} chars"
 echo "  ghcr prune base64 (SSM): ${#PRUNE_B64} chars"
 echo "  ghcr daily prune base64 (SSM): ${#DAILY_PRUNE_B64} chars"
 echo "  bootstrap gzip+base64 (SSM total): ${#BOOTSTRAP_GZB64} chars (part1=${#BOOTSTRAP_PART1}, part2=${#BOOTSTRAP_PART2}, part3=${#BOOTSTRAP_PART3})"
-echo "  prod UserData launcher: ${USERDATA_BYTES} bytes (EC2 limit ${EC2_USERDATA_LIMIT})"
-if (( USERDATA_BYTES > USERDATA_WARN_BYTES )); then
-  echo "WARNING: UserData approaching EC2 limit." >&2
-fi
+echo "  prod UserData launcher: ${PROD_USERDATA_BYTES} bytes (EC2 limit ${EC2_USERDATA_LIMIT})"
+echo "  edge UserData launcher: ${EDGE_USERDATA_BYTES} bytes (EC2 limit ${EC2_USERDATA_LIMIT})"
+for entry in "prod:${PROD_USERDATA_BYTES}" "edge:${EDGE_USERDATA_BYTES}"; do
+  if (( ${entry##*:} > USERDATA_WARN_BYTES )); then
+    echo "WARNING: ${entry%%:*} UserData approaching EC2 limit." >&2
+  fi
+done

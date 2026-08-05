@@ -81,6 +81,16 @@ class ProdOpsMatrixLightsailTests(unittest.TestCase):
         self.assertEqual(include[0]["target_id"], f"edge-{edge_id}-ls")
         self.assertEqual(include[0]["platform"], "lightsail")
 
+    def test_migration_candidates_do_not_enter_scheduled_prod_ops(self):
+        proc = _run("--prod-ops-matrix", "--target-selector", "all")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        included = {item["target_id"] for item in payload["matrix"]["include"]}
+        excluded = {item["target_id"] for item in payload["excluded"]}
+        for edge_id in ("us3", "us4", "us5", "us6"):
+            self.assertNotIn(f"edge-{edge_id}", included)
+            self.assertIn(f"edge-{edge_id}", excluded)
+
 
 if __name__ == "__main__":
     unittest.main()

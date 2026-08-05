@@ -229,6 +229,8 @@ fi
 if command -v python3 >/dev/null 2>&1; then
     _bg_spawn script_ref python3 ./scripts/checks/script-ref-existence.py
     _bg_spawn script_ref_test bash ./scripts/checks/script-ref-existence_test.sh
+    _bg_spawn edge_platform_migration_preflight_test \
+        python3 -m unittest ops/migration/test_edge_platform_migration_preflight.py
     _bg_spawn newapi_sibling_test bash ./scripts/checks/ensure-new-api-sibling_test.sh
     _bg_spawn redactor_test bash ./scripts/agent/redact-stream_test.sh
     _bg_spawn smoke_unittest python3 -m unittest scripts.test_smoke_suite \
@@ -1628,6 +1630,15 @@ else
     echo "  ok: edge disk/memory alert awk fixtures pass"
 fi
 
+echo "=== sub2api: EC2 CloudWatch alarm delivery selftest ==="
+if ! bash ./ops/stage0/test_ec2_cloudwatch_alarm_delivery.sh >/dev/null 2>&1; then
+    echo "  FAIL: EC2 CloudWatch alarm delivery state transitions"
+    echo "        — run: bash ops/stage0/test_ec2_cloudwatch_alarm_delivery.sh"
+    errors=$((errors + 1))
+else
+    echo "  ok: EC2 CloudWatch firing/recovery delivery latches pass"
+fi
+
 echo "=== sub2api: edge disk remediation script contract ==="
 if ! bash ./ops/stage0/test_remediate_edge_disk.sh >/dev/null 2>&1; then
     echo "  FAIL: remediate-edge-disk-via-ssm contract test"
@@ -2293,6 +2304,19 @@ if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for OIDC perm coverage check)"
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/lightsail-oidc-perm-coverage.py --quiet; then
+    errors=$((errors + 1))
+fi
+
+# ---- sub2api: EC2 Edge OIDC perm coverage -----------------------------------
+# EC2 migration uses a separate caller addon + CloudFormation execution role.
+# Parse both templates and fail if an action family, allowed region, stack scope,
+# or the separation from the base OIDC role drifts.
+echo ""
+echo "=== sub2api: EC2 Edge OIDC perm coverage ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for EC2 Edge OIDC coverage check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/ec2-edge-oidc-perm-coverage.py --quiet; then
     errors=$((errors + 1))
 fi
 

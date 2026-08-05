@@ -1,7 +1,7 @@
 #!/bin/bash
 # tokenkey Stage 0 EC2 bootstrap — fetched from SSM at first boot (see stage0-ec2-userdata-launcher.sub.sh).
 # Regenerated into SSM by deploy/aws/stage0/build-cfn.sh. Requires TK_* env vars from the launcher.
-set -euxo pipefail
+set -euo pipefail
 
 : "${TK_API_DOMAIN:?}"
 : "${TK_ACME_EMAIL:?}"
@@ -28,7 +28,7 @@ GHCR_PULL_USER="${TK_GHCR_PULL_USER}"
 GHCR_PAT_SSM_NAME="${TK_GHCR_PAT_SSM_NAME}"
 DATA_VOLUME_ID="${TK_DATA_VOLUME_ID}"
 TOKENKEY_IMAGE="${TK_TOKENKEY_IMAGE}"
-STAGE0_PREFIX="/${TK_PROJECT_NAME}/${TK_ENVIRONMENT}/stage0"
+STAGE0_PREFIX="${TK_STAGE0_PREFIX:-/${TK_PROJECT_NAME}/${TK_ENVIRONMENT}/stage0}"
 
 # --- 1. system packages -------------------------------------------------
 dnf -y update
@@ -39,7 +39,7 @@ case "${ARCH}" in
   x86_64)  CWA_ARCH="amd64" ;;
   *) echo "unsupported arch ${ARCH}" >&2; exit 1 ;;
 esac
-dnf -y install "https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/${CWA_ARCH}/latest/amazon-cloudwatch-agent.rpm" || true
+dnf -y install "https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/${CWA_ARCH}/latest/amazon-cloudwatch-agent.rpm"
 systemctl enable --now docker
 
 # Compose v2 plugin (AL2023 dnf has no docker-compose-plugin)
@@ -59,7 +59,12 @@ usermod -aG docker ec2-user
 # degradation. Lives on the ROOT volume so swap I/O never contends with
 # Postgres on /var/lib/tokenkey. Idempotent: skip if already active.
 SWAPFILE=/swapfile
-SWAP_SIZE_MB="${TK_SWAP_SIZE_MB:-4096}"
+if [[ -n "${TK_SWAP_SIZE_GIB:-}" ]]; then
+  [[ "${TK_SWAP_SIZE_GIB}" =~ ^[0-9]+$ ]] || { echo "invalid TK_SWAP_SIZE_GIB" >&2; exit 1; }
+  SWAP_SIZE_MB="$((TK_SWAP_SIZE_GIB * 1024))"
+else
+  SWAP_SIZE_MB="${TK_SWAP_SIZE_MB:-4096}"
+fi
 # Best-effort: swap is defense-in-depth, so a setup failure must NEVER abort the
 # essential bootstrap (every step here is failure-guarded under set -e), and we
 # persist the fstab entry only after swap is confirmed active so a partial setup
@@ -222,7 +227,14 @@ render_prod_caddyfile() {
   fi
   rm -f "${tmp}"
 }
-render_prod_caddyfile caddy/Caddyfile.template caddy/Caddyfile
+if [[ "${TK_CADDY_PROFILE:-prod}" == "edge" ]]; then
+  : "${TK_MAIN_GATEWAY_ALLOWED_CIDR:?}"
+  export API_DOMAIN ACME_EMAIL MAIN_GATEWAY_ALLOWED_CIDR="${TK_MAIN_GATEWAY_ALLOWED_CIDR}"
+  envsubst '$API_DOMAIN $ACME_EMAIL $MAIN_GATEWAY_ALLOWED_CIDR' \
+    < caddy/Caddyfile.template > caddy/Caddyfile
+else
+  render_prod_caddyfile caddy/Caddyfile.template caddy/Caddyfile
+fi
 
 install -d -m 0755 /etc/tokenkey
 printf 'TOKENKEY_QA_STALE_RETENTION_DAYS=%s\n' "${TK_QA_STALE_RETENTION_DAYS}" > /etc/tokenkey/qa-stale-retention.env
@@ -314,6 +326,7 @@ ADMIN_PASSWORD=
 JWT_SECRET=${JWT_SECRET}
 JWT_EXPIRE_HOUR=1
 TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}
+TOKENKEY_CLOUDWATCH_CPU_ALARM_NAMES=${TK_CLOUDWATCH_CPU_ALARM_NAMES:-}
 ENVEOF
 chmod 0600 /var/lib/tokenkey/.env
 
@@ -343,7 +356,7 @@ IID="$(curl -fsS -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.2
 # half-deadlock). This timer runs every few minutes independent of Docker, so it
 # is the robust place to fire. (2026-06-15 disk P0 + 2026-06-17 memory/IO P0.)
 # Webhook + secret injected via /var/lib/tokenkey/.env (same off-box-secret
-# point as TOKENKEY_PGDUMP_S3_URI); absent webhook => silent no-op.
+# point as TOKENKEY_PGDUMP_S3_URI).
 COOLDOWN="${TOKENKEY_DISK_ALERT_COOLDOWN_SEC:-1800}"
 WEBHOOK=""; SECRET=""; NODE="${IID}"
 if [ -r /var/lib/tokenkey/.env ]; then
@@ -353,25 +366,93 @@ if [ -r /var/lib/tokenkey/.env ]; then
   [ -n "${DOM}" ] && NODE="${DOM}"
 fi
 
+# BEGIN_TOKENKEY_CLOUDWATCH_ALARM_DELIVERY
+tk_feishu_post_now() {
+  local text="$1" now sign payload resp
+  [ -n "${WEBHOOK}" ] || return 1
+  now="$(date +%s)"
+  if [ -n "${SECRET}" ]; then
+    sign="$(printf '' | openssl dgst -sha256 -hmac "${now}"$'\n'"${SECRET}" -binary 2>/dev/null | base64)" || return 1
+    payload="$(jq -cn \
+      --arg timestamp "${now}" --arg sign "${sign}" --arg text "${text}" \
+      '{timestamp:$timestamp,sign:$sign,msg_type:"text",content:{text:$text}}')" || return 1
+  else
+    payload="$(jq -cn --arg text "${text}" \
+      '{msg_type:"text",content:{text:$text}}')" || return 1
+  fi
+  if ! resp="$(curl -sS -m 10 -X POST "${WEBHOOK}" \
+    -H 'Content-Type: application/json' -d "${payload}" 2>/dev/null)"; then
+    return 1
+  fi
+  jq -e '.code == 0' <<<"${resp}" >/dev/null 2>&1
+}
+
 # Self-contained Feishu alert with per-stamp cooldown. $1=stamp file, $2=text.
-# Feishu returns HTTP 200 even when it REJECTS; the real status is the body's
-# "code" field (0 = delivered). Stamp the cooldown only on code:0, so a
-# misconfigured webhook keeps retrying instead of silently dropping every alert.
+# Feishu returns HTTP 200 even when it rejects; only code:0 acknowledges delivery.
 tk_feishu_alert() {
-  local stamp="$1" text="$2" now last sign payload resp
-  [ -n "${WEBHOOK}" ] || return 0
+  local stamp="$1" text="$2" now last
   now="$(date +%s)"; last=0
   [ -r "${stamp}" ] && last="$(cat "${stamp}" 2>/dev/null || echo 0)"
   [ "$((now - last))" -ge "${COOLDOWN}" ] || return 0
-  if [ -n "${SECRET}" ]; then
-    sign="$(printf '' | openssl dgst -sha256 -hmac "${now}"$'\n'"${SECRET}" -binary 2>/dev/null | base64)"
-    payload="$(printf '{"timestamp":"%s","sign":"%s","msg_type":"text","content":{"text":"%s"}}' "${now}" "${sign}" "${text}")"
-  else
-    payload="$(printf '{"msg_type":"text","content":{"text":"%s"}}' "${text}")"
-  fi
-  resp="$(curl -sS -m 10 -X POST "${WEBHOOK}" -H 'Content-Type: application/json' -d "${payload}" 2>/dev/null || true)"  # preflight-allow: swallow — curl failure ⇒ retry next tick
-  case "${resp}" in *'"code":0'*) echo "${now}" > "${stamp}" || true ;; esac  # preflight-allow: swallow — best-effort cooldown stamp
+  tk_feishu_post_now "${text}" || return 1
+  printf '%s\n' "${now}" >"${stamp}" || return 1
 }
+
+handle_cloudwatch_alarm_state() {
+  local alarm="$1" state="$2" state_dir active cooldown
+  [[ "${alarm}" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+  state_dir="${TOKENKEY_ALERT_STATE_DIR:-/run}"
+  active="${state_dir}/tokenkey-cloudwatch-${alarm}.active"
+  cooldown="${state_dir}/tokenkey-cloudwatch-${alarm}.cooldown"
+  case "${state}" in
+    ALARM)
+      tk_feishu_alert "${cooldown}" \
+        "🔴 Edge CPU 告警 ${NODE} — CloudWatch alarm=${alarm} state=ALARM" || return 1
+      printf '1\n' >"${active}" || return 1
+      ;;
+    OK)
+      if [ -r "${active}" ]; then
+        tk_feishu_post_now \
+          "✅ Edge CPU 告警已恢复 ${NODE} — CloudWatch alarm=${alarm} state=OK" || return 1
+        rm -f "${active}" "${cooldown}"
+      fi
+      ;;
+    INSUFFICIENT_DATA) ;;
+    *) return 1 ;;
+  esac
+}
+
+poll_cloudwatch_cpu_alarms() {
+  local configured="${TOKENKEY_CLOUDWATCH_CPU_ALARM_NAMES:-}"
+  local alarm response state rc=0 index
+  local -a alarm_names=() states=()
+  [ -n "${configured}" ] || return 0
+  IFS=',' read -r -a alarm_names <<<"${configured}"
+  ((${#alarm_names[@]} > 0)) || return 1
+  for alarm in "${alarm_names[@]}"; do
+    [[ "${alarm}" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+  done
+  response="$(aws cloudwatch describe-alarms \
+    --alarm-names "${alarm_names[@]}" \
+    --region "${REGION}" \
+    --output json)" || return 1
+  jq -e '.MetricAlarms | type == "array"' <<<"${response}" >/dev/null 2>&1 || return 1
+  for alarm in "${alarm_names[@]}"; do
+    state="$(jq -er --arg name "${alarm}" \
+      '(.MetricAlarms // []) | map(select(.AlarmName == $name)) |
+       if length == 1 then .[0].StateValue else error("alarm response mismatch") end' \
+      <<<"${response}")" || return 1
+    case "${state}" in
+      ALARM|OK|INSUFFICIENT_DATA) states+=("${state}") ;;
+      *) return 1 ;;
+    esac
+  done
+  for index in "${!alarm_names[@]}"; do
+    handle_cloudwatch_alarm_state "${alarm_names[$index]}" "${states[$index]}" || rc=1
+  done
+  return "${rc}"
+}
+# END_TOKENKEY_CLOUDWATCH_ALARM_DELIVERY
 
 # --- DataVolume usage metric + disk-full alert (2026-06-15 prod P0) -----------
 USED="$(df -P /var/lib/tokenkey 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
@@ -410,6 +491,8 @@ if [ "${MEMUSEDPCT:-0}" -ge "${MEM_THRESHOLD}" ]; then
   LOAD1="$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0)"
   tk_feishu_alert /run/tokenkey-mem-alert.stamp "🟠 P1 内存压力 ${NODE} — 内存 ${MEMUSEDPCT}% (阈值 ${MEM_THRESHOLD}%), swap ${SWAPPCT}%, load1 ${LOAD1}。无 headroom 会驱逐 page cache→数据盘 I/O 颠簸→OS 半死锁。立即查并终止重导出/全表查询等吃内存任务。instance=${IID}"
 fi
+
+poll_cloudwatch_cpu_alarms
 DISKEOF
 
 cat > /etc/systemd/system/tokenkey.service <<'UNITEOF'
@@ -541,10 +624,8 @@ systemctl enable --now tokenkey-pgdump.timer
 systemctl enable --now tokenkey-disk-metrics.timer
 systemctl enable --now tokenkey-qa-stale-cleanup.timer
 systemctl enable --now tokenkey-ghcr-prune-daily.timer
-if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
-  /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-    -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json -s || true
-fi
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json -s
 
 sleep 30
 ( docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps || true ) \
