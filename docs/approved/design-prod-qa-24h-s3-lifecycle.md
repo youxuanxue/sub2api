@@ -44,9 +44,10 @@ S3 中保存的是经过现有 QA 脱敏逻辑处理的 evidence，不是未经�
 
 1. 用户在线只看到滚动过去 24 小时的 QA 数据。
 2. 到期数据在下一次小时维护中及时物理清理，不再形成 48–72 小时锯齿。
-3. prod 所有用户、所有 API key 的 QA 原始证据按小时归档到 S3，并保留 7 天。
+3. prod 所有用户、所有 API key 的 QA 原始证据按小时归档到 S3，并保留 7 天；不受用户导出开关影响。
 4. 归档、最终核对和 cleanup 由一个 owner 串行执行，消除两个 timer 的竞态和重复扫描。
-5. 用户 API-key 导出不在 prod 读取大量 Blob、生成 ZIP 或承载下载流量。
+5. 用户 API-key 导出仍由管理员授予的 `traj_export_enabled` 控制，且不在 prod 读取大量 Blob、生成 ZIP
+   或承载下载流量。
 6. 运维可从 S3 直接下载到本机隔离目录深度分析，不经过 prod API、数据库、磁盘或网络。
 7. 只在系统已经执行不可逆保护动作时发送 P0；普通失败和延迟只记 ledger/metrics，不推送噪声告警。
 8. Edge 不捕获、不归档、不导出、不清理 QA，也没有 QA S3 权限。
@@ -60,6 +61,7 @@ S3 中保存的是经过现有 QA 脱敏逻辑处理的 evidence，不是未经�
 - 不在磁盘压力下自动暂停 QA capture；磁盘保护通过清理最旧 QA 完成。
 - 不为 Edge 保留任何 QA 能力或兼容性旁路。
 - 不承诺 raw archive 永不丢失；服务可用性和磁盘安全高于冷归档完整性。
+- 不提供用户主动删除 QA 的 UI/API；本期删除只来自统一 retention、磁盘 emergency 和受控运维流程。
 - 不由本设计文档的 merge 自动创建 AWS 资源、修改线上配置、删除数据或部署。
 
 ## 3. 现状与问题
@@ -103,6 +105,7 @@ prod:
     raw_user_access: false
 
   user_export:
+    entitlement: users.traj_export_enabled
     source: s3_raw_archive
     compute: ecs_fargate
     download: direct_s3
@@ -348,15 +351,14 @@ commit 使用 S3 conditional write（ETag/前置条件）做 compare-and-swap，
 不得靠 read-then-unconditional-overwrite。S3 的强一致读写使读者在 commit 更新后读取确定集合。
 失败 segment 不会进入 commit，并由 partial lifecycle 或后续维护收敛。
 
-### 8.3 迟到记录、删除 tombstone 与最终核对
+### 8.3 迟到记录与最终核对
 
 `HH:15` 首次封口上一小时。之后每轮维护会重试不完整 shard。该小时即将超过在线 24 小时时，
 执行 final reconcile：将当前 DB 行和小时目录 evidence 与 commit 中已归档 record/blob identity
 做集合差，只为新增的迟到记录或 orphan evidence 创建 immutable delta segment，再原子更新 commit。
 
-用户删除后已经归档的记录不会从 S3 segment 移除，也不会被“DB 行减少”误判成 archive drift；
-它们由第 9.3 节 deletion tombstone 禁止再进入用户导出，并等待 S3 lifecycle 到期。cleanup 判断
-的是 final commit segment 集合，不把首次 base segment 当作最终完整性事实。
+cleanup 判断的是 final commit segment 集合，不把首次 base segment 当作最终完整性事实。归档器处理
+所有用户和 API key，禁止用 `traj_export_enabled` 过滤 archive 输入。
 
 ### 8.4 归档缺口
 
@@ -392,33 +394,19 @@ commit 使用 S3 conditional write（ETag/前置条件）做 compare-and-swap，
 旧布局按 DB 记录的 Blob URI 分批删除，不对整个树做每小时 `find`。每日某一轮做受限 orphan sweep，
 仅作为兜底，不承担主保留策略。
 
-### 9.3 用户主动删除与 export tombstone
+### 9.3 用户主动删除不在本期范围
 
-用户删除 QA 数据时，本地行和 Blob 按现有产品语义尽快删除；已进入 raw archive 的数据不重写
-小时 segment，S3 lifecycle policy 为 7 天，实际物理删除遵循 S3 lifecycle 的异步执行语义。
-产品隐私说明必须明确该受控安全归档窗口。
+当前产品没有用户主动删除 QA 的 UI 或 HTTP API；内部 `DeleteUserData` 方法也没有 handler/route 调用方。
+本设计不把该未接线方法扩展成产品能力，不引入 deletion tombstone、跨系统撤销或 raw shard rewrite。
 
-删除流程必须写一个耐久、可审计、供 off-prod Worker 强一致读取的
-`qa_export_deletion_tombstone`，至少包含 user、可选 API key、`deleted_before`、创建时间和覆盖 raw
-archive 最长生命周期的 expiry。它不是 S3 raw 删除指令，而是导出授权否定事实。
+本期 QA 删除来源只有：
 
-删除顺序 fail closed：
+- regular maintenance 按统一 24 小时在线生命周期清理；
+- disk emergency 按第 10 节执行 QA-only 提前清理；
+- 经独立人工批准的受控运维流程。
 
-1. 先在外部 job/auth store（目标态为 DynamoDB）以 strongly-consistent 可读方式提交 tombstone；
-2. 将该 user/key 的 pending/running export jobs 标记 revoked；
-3. 删除已经生成的 user export S3 artifacts，使已有 presigned URL 立即失效；
-4. 上述撤销成功后，再删除本地 `qa_records` 和 Blob；
-5. 任一步失败都不得向用户声称删除完成；已写 tombstone 保持导出禁用，后台幂等重试剩余动作。
-
-prod 创建 export job 时先应用 tombstone，拒绝或截断已删除范围；job 固化 tombstone version/hash。
-Export Worker 在读取 raw shard 前、生成 ZIP 后和发布对象/presigned URL 前均使用 strongly-consistent
-read 复查 tombstone；任一命中都 fail closed，删除临时/已上传未发布 ZIP，不发布下载链接。
-Deletion tombstone TTL 必须晚于其可能覆盖的 raw S3 对象生命周期和 lifecycle 异步删除余量，不能
-先于 archive 过期。
-
-普通用户接口不能再发现该数据。raw archive 只允许受信 Export Worker 在 tombstone 守卫下按授权
-job 派生，或 ops recovery role 受审计读取；ops 读取不恢复用户在线可见性。已批准的策略保持不变：
-raw 小时 archive 不因用户删除重写，等待 S3 lifecycle 到期。
+未来若正式提出用户主动删除需求，必须另行设计 UI/API、授权、导出 artifact 撤销以及 S3 归档隐私
+语义，不得把本设计解读为已批准该产品能力。
 
 ## 10. 磁盘 P0 与 Emergency
 
@@ -474,9 +462,10 @@ metrics、maintenance ledger 与 daily diagnostics，不主动推送。这样告
 
 ### 11.1 禁止 prod 重型路径
 
-用户点击 API key 导出时，prod 只做：
+只有 `users.traj_export_enabled=true` 的用户才能看到和使用 API key trajectory 导出。用户点击导出时，
+prod 只做：
 
-- JWT、user 和 API-key ownership/feature 权限校验；
+- JWT、user、`traj_export_enabled` 和 API-key ownership/platform 权限校验；
 - 固化导出窗口与 latest complete archive watermark；
 - 创建轻量 export job；
 - 返回 job ID；
@@ -504,15 +493,21 @@ prod API -> DynamoDB export job + SQS/EventBridge Pipes
          -> prod 返回短期 presigned URL
 ```
 
-队列不能由用户直接写。job 只携带或引用经过 prod 授权固化的 `user_id`、`api_key_id`、窗口、格式和
-第 9.3 节 tombstone version/hash；Worker 不接受任意跨用户 S3 路径。Worker 先以 strongly-consistent
-read 应用 tombstone，再读每小时 `records.parquet` 过滤该 user/key，并按 `evidence-index` 对
-`evidence.pack` 发 Range GET，只下载必要 payload。生成后及发布前再次复查 tombstone，消除 job
-创建、ZIP 上传与导出完成之间的删除竞态。
+队列不能由用户直接写。job 只携带或引用经过 prod 授权固化的 `user_id`、`api_key_id`、窗口和格式；
+Worker 不接受任意跨用户 S3 路径。Worker 先读每小时 `records.parquet` 过滤该 user/key，再按
+`evidence-index` 对 `evidence.pack` 发 Range GET，只下载必要 payload。
 
-用户浏览器从 S3 直接下载。用户 export bucket/prefix 与 raw archive 分权，生命周期独立且较短；
-DynamoDB job index 必须能枚举该 user/key 的未过期 artifacts，使用户删除可以撤销 job 并删除对象，
-从而让已签发 URL 失效。
+`traj_export_enabled` 是用户 trajectory 导出的 capability gate，而不是 capture/archive selector。该字段
+保持管理员在用户编辑 UI 授权、默认 false 的现有产品语义：
+
+- `false`：API key 卡片不显示导出按钮/面板；手工调用 enqueue/list/get/download API 必须服务端拒绝；
+- `true`：仅对该用户拥有且平台可投影的 API key 展示入口，并允许创建和读取该用户自己的 jobs；
+- 从 `true` 改为 `false` 后，UI 立即隐藏入口，prod API 不再创建 job、返回 job 状态或签发新的下载 URL；
+- 已合法入队的 Worker 可以离线完成并等待 artifact lifecycle 清理，Worker 不访问 prod 用户库；
+- 已经签发的 presigned URL 在自身短 TTL 内仍可能有效；该开关是功能授权门禁，不是即时撤销机制；
+- 无论开关值为何，该用户的 QA 都继续被 prod 全量捕获、归档和按统一生命周期清理。
+
+用户浏览器从 S3 直接下载。用户 export bucket/prefix 与 raw archive 分权，生命周期独立且较短。
 
 ### 11.3 新鲜度语义
 
@@ -608,7 +603,7 @@ expired_unarchived -> gap_recorded
 记录：
 
 ```text
-window / reason(normal|emergency|user_delete)
+window / reason(normal|emergency|ops_approved)
 archive_generation 或 gap_id
 deleted_rows / quarantined_files / released_bytes
 started_at / completed_at / error
@@ -626,19 +621,18 @@ local_delete_at / emergency_state / policy_hash
 
 P0 卡片引用 gap ID，避免在通知中泄漏 body 或用户数据。
 
-### 14.4 Export deletion tombstone
+### 14.4 Export authorization snapshot
 
-耐久 tombstone 记录包含：
+export job 记录必须包含授权时的服务端判定：
 
 ```text
-user_id / optional api_key_id / deleted_before
-tombstone_version / created_at / expires_at / audit_actor
+user_id / api_key_id / traj_export_authorized=true
+platform / window / requested_at
 ```
 
-其 expiry 必须覆盖 raw archive 的实际 lifecycle 窗口和异步删除余量。该事实存于 Export Worker
-可 strongly-consistent read 的外部 auth/job store。Prod job creator 与 Worker 都必须 fail closed
-消费同一 owner；不能只靠 UI 或本地 `qa_records` 已删除来推断授权。Job/artifact index 必须支持
-按 user/key 撤销 pending/running job 并删除所有未过期用户 export 对象。
+prod job creator 必须从服务端用户事实读取 `traj_export_enabled` 并校验 key ownership/platform，不能信任
+客户端字段。Worker 只消费已授权、不可由用户直接写入的 job，不读取 prod 用户库；当前开关由 prod
+在后续 list/get/download 请求再次校验。
 
 ## 15. 可观测性与静默健康信号
 
@@ -658,13 +652,12 @@ tombstone_version / created_at / expires_at / audit_actor
 - raw archive 不公开，不提供普通用户 presigned URL；
 - 用户只能下载 Worker 生成的 user/key scoped trajectory ZIP；
 - Worker job spec 由 prod 授权固化，不能由客户端构造 S3 范围；
-- 用户删除 tombstone 在 job 创建、Worker 读取、ZIP 上传/发布前多重 fail-closed 校验，并撤销已生成 artifact；
+- `traj_export_enabled` 在 UI 和服务端双层门禁，关闭后禁止 trajectory job/list/poll/download；
 - raw bucket、export bucket、prod archiver、Export Worker 和 ops recovery 使用分离 IAM role/policy；
 - S3/KMS key policy 拒绝跨边界读取；
 - secrets 不进入命令行或 systemd journal；
 - manifest、ledger 和 P0 不包含 request/response body、token、cookie 或 API key；
-- S3 raw archive 配置 7 天 expiration policy；S3 异步物理删除可能略晚，用户主动删除后已归档数据
-  不重写、等待 lifecycle 收敛；
+- S3 raw archive 配置 7 天 expiration policy；S3 异步物理删除可能略晚，由 lifecycle 收敛；
 - ops 本机恢复默认脱敏、小输出、隔离目录和显式正文确认。
 
 ## 17. 失败处理与回滚
@@ -710,9 +703,10 @@ tombstone_version / created_at / expires_at / audit_actor
 ### Phase 3：Off-prod 用户导出
 
 1. 创建 DynamoDB job、queue/Pipes、Fargate Worker 和用户 export prefix；
-2. 运行 user/key 隔离、安全负向和大体量导出测试；
-3. 验证导出期间 prod CPU、内存、磁盘 I/O 和下载带宽没有明显变化；
-4. 切换 UI/API，并禁止 prod fallback。
+2. 迁移并保留 `traj_export_enabled` UI/服务端授权门禁；
+3. 运行 user/key 隔离、安全负向和大体量导出测试；
+4. 验证导出期间 prod CPU、内存、磁盘 I/O 和下载带宽没有明显变化；
+5. 切换 UI/API，并禁止 prod fallback。
 
 ### Phase 4：24 小时在线层
 
@@ -743,8 +737,9 @@ tombstone_version / created_at / expires_at / audit_actor
 - archive 小时边界、排序、manifest/checksum；
 - `file://`/`dlq://` 读取；
 - late record 产生 append-only delta segment，commit CAS 后可读；
-- incomplete segment 不可读，用户删除不会触发 S3 segment rewrite；
-- deletion tombstone 在 job 创建/完成竞态中均 fail closed，已签发 artifact 删除后 URL 失效；
+- incomplete segment 不可读；
+- `traj_export_enabled=false` 时 UI 隐藏入口且 enqueue/list/get/download 均服务端拒绝；
+- 导出开关关闭后 prod 不再返回 job/签发 URL，Worker 无 prod DB 依赖，同时 raw archive 仍覆盖该用户；
 - cleanup 只处理完整过期小时；
 - crash 后 receipt/quarantine 重入；
 - confirmed gap 后仍按生命周期删除并生成一次 P0；
@@ -812,10 +807,10 @@ Edge
 - [ ] 只有 prod 启用 QA，Edge 完全退出 QA。
 - [ ] 在线查询严格过去 24 小时；物理清理最多滞后到 25h15m。
 - [ ] 一个每小时 `HH:15` maintenance 串行执行 archive→verify→cleanup。
-- [ ] raw archive 覆盖所有 prod 用户/API key，S3 保留 7 天。
-- [ ] 用户 API-key 导出由 Fargate 从 S3 生成，浏览器直连 S3，禁止 prod fallback。
+- [ ] raw archive 覆盖所有 prod 用户/API key，S3 保留 7 天，不受 `traj_export_enabled` 影响。
+- [ ] 只有 `traj_export_enabled=true` 用户可见/可用 API-key 导出；Fargate 从 S3 生成，禁止 prod fallback。
 - [ ] ops 从 S3 直达本机隔离分析，不经过 prod。
 - [ ] 只有执行 emergency、confirmed gap 删除，或 emergency 必须动作无法启动时发送 P0。
 - [ ] emergency 为 80% 或剩余 10 GiB，清理到 70%，不暂停 capture。
-- [ ] 用户删除先强一致撤销 jobs/artifacts，再删本地数据；raw archive 等待 7 天 lifecycle，不重写小时 segment。
+- [ ] 本期不提供用户主动删除 QA 的 UI/API，也不引入 deletion tombstone 控制面。
 - [ ] 各 phase 按独立验证/审批推进，文档 merge 不自动授权线上写入或删除。
