@@ -1,0 +1,502 @@
+name: EC2 Edge Stage0 Deploy
+
+run-name: "ec2-edge=${{ inputs.edge_id }} op=${{ inputs.operation }} tag=${{ inputs.tag || 'none' }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      edge_id:
+        description: "EC2 Edge target from deploy/aws/stage0/edge-targets.json."
+        required: true
+        type: choice
+        options:
+          - us3
+          - us4
+          - us5
+          - us6
+      operation:
+        description: "EC2 Edge lifecycle operation."
+        required: true
+        type: choice
+        options:
+          - provision
+          - upgrade
+          - rollback
+          - smoke
+          - rotate_egress_ip
+          - decommission
+      tag:
+        description: "Released image tag without leading v; required for provision/upgrade/rollback."
+        required: false
+        type: string
+      confirm_stack:
+        description: "Must exactly match the matrix stack name."
+        required: true
+        type: string
+      allow_migration_candidate:
+        description: "Explicitly allow a deployable=false migration_candidate target."
+        required: false
+        type: boolean
+        default: false
+      simple_release_override:
+        description: "Allow a single-arch image manifest. Default false for Graviton."
+        required: false
+        type: boolean
+        default: false
+      smoke_phase:
+        description: "Existing active target smoke scope: infra | edge-native-oauth | main-via-edge | full."
+        required: false
+        type: string
+        default: ""
+      rotation_reason:
+        description: "Required for rotate_egress_ip; stored in EIP tags."
+        required: false
+        type: string
+      candidate_allocation_id:
+        description: "Optional pre-vetted unassociated EIP allocation for rotate_egress_ip."
+        required: false
+        type: string
+      i_understand_decommissions_edge:
+        description: "Required for decommission; stack is deleted after a root snapshot and data volume is retained."
+        required: false
+        type: boolean
+        default: false
+      release_eip:
+        description: "Release the external EIP after decommission. Default false."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+concurrency:
+  group: edge-stage0-${{ inputs.edge_id }}
+  cancel-in-progress: false
+
+jobs:
+  edge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: edge-${{ inputs.edge_id }}
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      CFN_EXECUTION_ROLE_ARN: ${{ vars.AWS_EC2_EDGE_CFN_ROLE_ARN }}
+      INPUT_EDGE_ID: ${{ inputs.edge_id }}
+      INPUT_OPERATION: ${{ inputs.operation }}
+      INPUT_TAG: ${{ inputs.tag }}
+      INPUT_CONFIRM_STACK: ${{ inputs.confirm_stack }}
+      INPUT_ALLOW_CANDIDATE: ${{ inputs.allow_migration_candidate }}
+      INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
+      INPUT_SMOKE_PHASE: ${{ inputs.smoke_phase }}
+      INPUT_ROTATION_REASON: ${{ inputs.rotation_reason }}
+      INPUT_CANDIDATE_ALLOC: ${{ inputs.candidate_allocation_id }}
+      INPUT_DECOMMISSION_ACK: ${{ inputs.i_understand_decommissions_edge }}
+      INPUT_RELEASE_EIP: ${{ inputs.release_eip }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Resolve EC2 edge target
+        id: edge
+        run: |
+          set -euo pipefail
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable is required"
+            exit 1
+          fi
+          if ! printf '%s' "${CFN_EXECUTION_ROLE_ARN:-}" | grep -Eq '^arn:aws(-[a-z]+)?:iam::[0-9]{12}:role/tokenkey-cfn-ec2-edge-stage0$'; then
+            echo "::error::AWS_EC2_EDGE_CFN_ROLE_ARN must reference role/tokenkey-cfn-ec2-edge-stage0"
+            exit 1
+          fi
+          FLAGS=()
+          if [ "$INPUT_ALLOW_CANDIDATE" = "true" ]; then
+            FLAGS+=(--allow-migration-candidate)
+          fi
+          if [ "$INPUT_OPERATION" = "decommission" ]; then
+            FLAGS+=(--allow-planned)
+          fi
+          python3 deploy/aws/stage0/resolve-edge-target.py \
+            --edge-id "$INPUT_EDGE_ID" \
+            --confirm-stack "$INPUT_CONFIRM_STACK" \
+            "${FLAGS[@]}" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate operation inputs
+        run: |
+          set -euo pipefail
+          if [ "$INPUT_ALLOW_CANDIDATE" = "true" ] && [ "${{ steps.edge.outputs.migration_candidate }}" != "true" ]; then
+            echo "::error::allow_migration_candidate=true requires migration_candidate=true in the EC2 matrix"
+            exit 1
+          fi
+          case "$INPUT_OPERATION" in
+            provision|upgrade|rollback)
+              if [ -z "${INPUT_TAG:-}" ]; then
+                echo "::error::tag is required for operation=$INPUT_OPERATION"
+                exit 1
+              fi
+              bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
+              ;;
+            smoke) ;;
+            rotate_egress_ip)
+              if [ -z "${INPUT_ROTATION_REASON:-}" ]; then
+                echo "::error::rotation_reason is required for rotate_egress_ip"
+                exit 1
+              fi
+              if [ -n "${INPUT_CANDIDATE_ALLOC:-}" ] && ! printf '%s' "$INPUT_CANDIDATE_ALLOC" | grep -Eq '^eipalloc-[0-9a-f]{8,17}$'; then
+                echo "::error::candidate_allocation_id must be an eipalloc-* id"
+                exit 1
+              fi
+              ;;
+            decommission)
+              if [ "$INPUT_DECOMMISSION_ACK" != "true" ]; then
+                echo "::error::decommission requires i_understand_decommissions_edge=true"
+                exit 1
+              fi
+              if [ "${{ steps.edge.outputs.deployable }}" != "false" ]; then
+                echo "::error::decommission requires deployable=false in the EC2 matrix"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::unsupported operation=$INPUT_OPERATION"
+              exit 1
+              ;;
+          esac
+
+      - name: Verify released multi-arch image
+        if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ steps.edge.outputs.region }}
+
+      - name: Provision EC2 candidate stack
+        id: provision
+        if: inputs.operation == 'provision'
+        env:
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          REGION: ${{ steps.edge.outputs.region }}
+          API_DOMAIN: ${{ steps.edge.outputs.domain }}
+          INSTANCE_TYPE: ${{ steps.edge.outputs.instance_type }}
+          ROOT_VOLUME_GIB: ${{ steps.edge.outputs.root_volume_gib }}
+          DATA_VOLUME_GIB: ${{ steps.edge.outputs.data_volume_gib }}
+          SWAP_GIB: ${{ steps.edge.outputs.swap_gib }}
+          SNAPSHOT_SCHEDULE: ${{ steps.edge.outputs.snapshot_schedule }}
+          MONTHLY_BUDGET_USD: ${{ steps.edge.outputs.monthly_budget_usd }}
+          SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
+          GHCR_OWNER: ${{ github.repository_owner }}
+          ACME_EMAIL: ${{ vars.EDGE_ACME_EMAIL }}
+          MAIN_GATEWAY_ALLOWED_CIDR: ${{ vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR }}
+          GHCR_PAT_SSM_NAME_OVERRIDE: ${{ vars.EDGE_GHCR_PAT_SSM_NAME }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ACME_EMAIL:-}" ] || [ -z "${MAIN_GATEWAY_ALLOWED_CIDR:-}" ]; then
+            echo "::error::EDGE_ACME_EMAIL and EDGE_MAIN_GATEWAY_ALLOWED_CIDR are required"
+            exit 1
+          fi
+          if aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK_NAME" >/dev/null 2>&1; then
+            echo "::error::stack $STACK_NAME already exists; use upgrade/rollback, not provision"
+            exit 1
+          fi
+          GHCR_PAT_SSM_NAME="${GHCR_PAT_SSM_NAME_OVERRIDE:-${SSM_PREFIX}/ghcr/pat}"
+          PAT_TYPE="$(aws ssm get-parameter --region "$REGION" --name "$GHCR_PAT_SSM_NAME" \
+            --query 'Parameter.Type' --output text)"
+          if [ "$PAT_TYPE" != "SecureString" ]; then
+            echo "::error::GHCR PAT parameter must exist as SecureString at $GHCR_PAT_SSM_NAME"
+            exit 1
+          fi
+          AMI_ID="$(aws ssm get-parameter --region "$REGION" \
+            --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64 \
+            --query 'Parameter.Value' --output text)"
+          if ! printf '%s' "$AMI_ID" | grep -Eq '^ami-[0-9a-f]{8,17}$'; then
+            echo "::error::could not resolve pinned AL2023 ARM64 AMI"
+            exit 1
+          fi
+          ALLOC_JSON="$(aws ec2 allocate-address --region "$REGION" --domain vpc \
+            --tag-specifications "ResourceType=elastic-ip,Tags=[{Key=Project,Value=tokenkey},{Key=EdgeId,Value=$EDGE_ID},{Key=Stack,Value=$STACK_NAME},{Key=Purpose,Value=edge-egress}]" \
+            --output json)"
+          ALLOC_ID="$(jq -r '.AllocationId' <<<"$ALLOC_JSON")"
+          PUBLIC_IP="$(jq -r '.PublicIp' <<<"$ALLOC_JSON")"
+          cleanup_eip() {
+            rc=$?
+            trap - ERR
+            aws ec2 release-address --region "$REGION" --allocation-id "$ALLOC_ID" || true
+            exit "$rc"
+          }
+          trap cleanup_eip ERR
+          aws cloudformation deploy \
+            --region "$REGION" \
+            --stack-name "$STACK_NAME" \
+            --template-file deploy/aws/cloudformation/stage0-edge-ec2.yaml \
+            --role-arn "$CFN_EXECUTION_ROLE_ARN" \
+            --capabilities CAPABILITY_IAM \
+            --tags Project=tokenkey EdgeId="$EDGE_ID" ManagedBy=cloudformation \
+            --parameter-overrides \
+              EdgeId="$EDGE_ID" \
+              ApiDomain="$API_DOMAIN" \
+              AcmeEmail="$ACME_EMAIL" \
+              MainGatewayAllowedCidr="$MAIN_GATEWAY_ALLOWED_CIDR" \
+              InstanceType="$INSTANCE_TYPE" \
+              RootVolumeSizeGiB="$ROOT_VOLUME_GIB" \
+              DataVolumeSizeGiB="$DATA_VOLUME_GIB" \
+              SwapSizeGiB="$SWAP_GIB" \
+              AmazonLinux2023Arm64Ami="$AMI_ID" \
+              GhcrOwner="$GHCR_OWNER" \
+              GhcrPullUser="$GHCR_OWNER" \
+              GhcrPatSsmName="$GHCR_PAT_SSM_NAME" \
+              ImageTag="$INPUT_TAG" \
+              SnapshotSchedule="$SNAPSHOT_SCHEDULE" \
+              MonthlyBudgetUsd="$MONTHLY_BUDGET_USD" \
+              EipAllocationId="$ALLOC_ID" \
+              PublicIpv4="$PUBLIC_IP"
+          trap - ERR
+          echo "allocation_id=$ALLOC_ID" >> "$GITHUB_OUTPUT"
+          echo "public_ip=$PUBLIC_IP" >> "$GITHUB_OUTPUT"
+          echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve EC2 instance and stack outputs
+        id: instance
+        env:
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+          REGION: ${{ steps.edge.outputs.region }}
+        run: |
+          set -euo pipefail
+          ID="$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)"
+          API_URL="$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' --output text)"
+          DATA_VOLUME_ID="$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`DataVolumeId`].OutputValue' --output text)"
+          EIP_ALLOC="$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`EipAllocationId`].OutputValue' --output text)"
+          if ! printf '%s' "$ID" | grep -Eq '^i-[0-9a-f]{8,17}$'; then
+            echo "::error::could not resolve InstanceId from $STACK_NAME"
+            exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
+          echo "data_volume_id=$DATA_VOLUME_ID" >> "$GITHUB_OUTPUT"
+          echo "eip_allocation_id=$EIP_ALLOC" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for SSM Online
+        if: inputs.operation != 'decommission'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          REGION: ${{ steps.edge.outputs.region }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            STATUS="$(aws ssm describe-instance-information --region "$REGION" \
+              --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+              --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || true)"
+            if [ "$STATUS" = "Online" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::$INSTANCE_ID did not become SSM Online"
+          exit 1
+
+      - name: Upgrade or rollback via shared SSM primitive
+        id: ssm
+        if: inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: bash ops/stage0/deploy_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-edge-stage0 edge=$INPUT_EDGE_ID op=$INPUT_OPERATION"
+
+      - name: Candidate local health via SSM
+        if: inputs.operation == 'provision' || inputs.allow_migration_candidate == true
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          REGION: ${{ steps.edge.outputs.region }}
+        run: |
+          set -euo pipefail
+          jq -n '{commands:[
+            "set -euo pipefail",
+            "cd /var/lib/tokenkey",
+            "sudo docker compose --env-file .env ps",
+            "sudo docker compose --env-file .env exec -T tokenkey wget -qO- http://localhost:8080/health"
+          ]}' > /tmp/tokenkey-edge-local-smoke.json
+          CMD_ID="$(aws ssm send-command --region "$REGION" --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript --comment "candidate-local-smoke edge=$INPUT_EDGE_ID" \
+            --parameters file:///tmp/tokenkey-edge-local-smoke.json \
+            --query 'Command.CommandId' --output text)"
+          aws ssm wait command-executed --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID"
+          STATUS="$(aws ssm get-command-invocation --region "$REGION" --command-id "$CMD_ID" \
+            --instance-id "$INSTANCE_ID" --query Status --output text)"
+          if [ "$STATUS" != "Success" ]; then
+            aws ssm get-command-invocation --region "$REGION" --command-id "$CMD_ID" \
+              --instance-id "$INSTANCE_ID" --query StandardErrorContent --output text >&2
+            exit 1
+          fi
+
+      - name: External Edge health check
+        if: (inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke') && inputs.allow_migration_candidate != true
+        env:
+          API_URL: ${{ steps.instance.outputs.api_url }}
+        run: bash ops/stage0/external_health.sh "$API_URL"
+
+      - name: Sync Feishu alert config
+        if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
+        env:
+          TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+        run: bash ops/stage0/sync-feishu-config.sh --platform ec2 "${{ steps.edge.outputs.edge_id }}"
+
+      - name: Active Edge smoke
+        if: (inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke') && inputs.allow_migration_candidate != true
+        env:
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          EDGE_API_URL: ${{ steps.instance.outputs.api_url }}
+          EDGE_INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          EDGE_SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
+          TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
+          TK_SMOKE_EDGE_LOCAL_CHAT_MODELS: ${{ vars.TK_SMOKE_EDGE_LOCAL_CHAT_MODELS || 'claude-sonnet-4-6' }}
+        run: |
+          set -euo pipefail
+          PHASE="${INPUT_SMOKE_PHASE:-}"
+          if [ -z "$PHASE" ]; then
+            case "$INPUT_OPERATION" in
+              smoke) PHASE=full ;;
+              *) PHASE=infra ;;
+            esac
+          fi
+          export EDGE_SMOKE_PHASE="$PHASE"
+          export SKIP_EXTERNAL_HEALTH=1
+          bash ops/stage0/edge_post_deploy_smoke.sh
+
+      - name: Rotate external EIP with automatic revert
+        id: rotation
+        if: inputs.operation == 'rotate_egress_ip'
+        env:
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          REGION: ${{ steps.edge.outputs.region }}
+          DOMAIN: ${{ steps.edge.outputs.domain }}
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          OLD_ALLOC: ${{ steps.instance.outputs.eip_allocation_id }}
+        run: |
+          set -euo pipefail
+          OLD_IP="$(aws ec2 describe-addresses --region "$REGION" --allocation-ids "$OLD_ALLOC" \
+            --query 'Addresses[0].PublicIp' --output text)"
+          SOURCE=operator
+          if [ -n "${INPUT_CANDIDATE_ALLOC:-}" ]; then
+            NEW_ALLOC="$INPUT_CANDIDATE_ALLOC"
+            NEW_JSON="$(aws ec2 describe-addresses --region "$REGION" --allocation-ids "$NEW_ALLOC" --output json)"
+            NEW_IP="$(jq -r '.Addresses[0].PublicIp // empty' <<<"$NEW_JSON")"
+            ASSOCIATION="$(jq -r '.Addresses[0].AssociationId // empty' <<<"$NEW_JSON")"
+            if [ -z "$NEW_IP" ] || [ -n "$ASSOCIATION" ] || [ "$NEW_ALLOC" = "$OLD_ALLOC" ]; then
+              echo "::error::operator EIP must exist, be unassociated, and differ from the current EIP"
+              exit 1
+            fi
+          else
+            SOURCE=auto
+            NEW_JSON="$(aws ec2 allocate-address --region "$REGION" --domain vpc \
+              --tag-specifications "ResourceType=elastic-ip,Tags=[{Key=Project,Value=tokenkey},{Key=EdgeId,Value=$EDGE_ID},{Key=Stack,Value=$STACK_NAME},{Key=Purpose,Value=edge-egress-candidate},{Key=Reason,Value=$INPUT_ROTATION_REASON}]" \
+              --output json)"
+            NEW_ALLOC="$(jq -r '.AllocationId' <<<"$NEW_JSON")"
+            NEW_IP="$(jq -r '.PublicIp' <<<"$NEW_JSON")"
+          fi
+          revert_rotation() {
+            rc=$?
+            trap - ERR
+            echo "::warning::rotation failed; restoring $OLD_ALLOC"
+            aws cloudformation deploy --region "$REGION" --stack-name "$STACK_NAME" \
+              --template-file deploy/aws/cloudformation/stage0-edge-ec2.yaml \
+              --role-arn "$CFN_EXECUTION_ROLE_ARN" --capabilities CAPABILITY_IAM \
+              --no-fail-on-empty-changeset \
+              --parameter-overrides EipAllocationId="$OLD_ALLOC" PublicIpv4="$OLD_IP"
+            if [ "$SOURCE" = auto ]; then
+              aws ec2 release-address --region "$REGION" --allocation-id "$NEW_ALLOC" || true
+            fi
+            exit "$rc"
+          }
+          trap revert_rotation ERR
+          aws cloudformation deploy --region "$REGION" --stack-name "$STACK_NAME" \
+            --template-file deploy/aws/cloudformation/stage0-edge-ec2.yaml \
+            --role-arn "$CFN_EXECUTION_ROLE_ARN" --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides EipAllocationId="$NEW_ALLOC" PublicIpv4="$NEW_IP"
+          for attempt in $(seq 1 30); do
+            STATUS="$(aws ssm describe-instance-information --region "$REGION" \
+              --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+              --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || true)"
+            [ "$STATUS" = Online ] && break
+            sleep 10
+          done
+          [ "$STATUS" = Online ]
+          jq -n '{commands:["curl -fsS --max-time 20 https://checkip.amazonaws.com"]}' > /tmp/tokenkey-egress-probe.json
+          CMD_ID="$(aws ssm send-command --region "$REGION" --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript --comment "egress-rotation edge=$EDGE_ID" \
+            --parameters file:///tmp/tokenkey-egress-probe.json --query 'Command.CommandId' --output text)"
+          aws ssm wait command-executed --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID"
+          OBSERVED_IP="$(aws ssm get-command-invocation --region "$REGION" --command-id "$CMD_ID" \
+            --instance-id "$INSTANCE_ID" --query StandardOutputContent --output text | tr -d '[:space:]')"
+          [ "$OBSERVED_IP" = "$NEW_IP" ]
+          if [ "$INPUT_ALLOW_CANDIDATE" != "true" ]; then
+            curl -fsS --max-time 20 --resolve "${DOMAIN}:443:${NEW_IP}" "https://${DOMAIN}/health" >/dev/null
+          fi
+          trap - ERR
+          echo "old_allocation_id=$OLD_ALLOC" >> "$GITHUB_OUTPUT"
+          echo "old_public_ip=$OLD_IP" >> "$GITHUB_OUTPUT"
+          echo "new_allocation_id=$NEW_ALLOC" >> "$GITHUB_OUTPUT"
+          echo "new_public_ip=$NEW_IP" >> "$GITHUB_OUTPUT"
+
+      - name: Snapshot root and decommission stack
+        id: decommission
+        if: inputs.operation == 'decommission'
+        env:
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          REGION: ${{ steps.edge.outputs.region }}
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          EIP_ALLOC: ${{ steps.instance.outputs.eip_allocation_id }}
+        run: |
+          set -euo pipefail
+          ROOT_DEVICE="$(aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
+            --query 'Reservations[0].Instances[0].RootDeviceName' --output text)"
+          ROOT_VOLUME="$(aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
+            --query "Reservations[0].Instances[0].BlockDeviceMappings[?DeviceName=='${ROOT_DEVICE}'].Ebs.VolumeId" --output text)"
+          if ! printf '%s' "$ROOT_VOLUME" | grep -Eq '^vol-[0-9a-f]{8,17}$'; then
+            echo "::error::cannot resolve root volume; refusing decommission"
+            exit 1
+          fi
+          SNAPSHOT_ID="$(aws ec2 create-snapshot --region "$REGION" --volume-id "$ROOT_VOLUME" \
+            --description "pre-decommission $STACK_NAME root volume" \
+            --tag-specifications "ResourceType=snapshot,Tags=[{Key=Project,Value=tokenkey},{Key=EdgeId,Value=$EDGE_ID},{Key=Stack,Value=$STACK_NAME},{Key=Purpose,Value=pre-decommission-rollback},{Key=RetentionDays,Value=30}]" \
+            --query SnapshotId --output text)"
+          aws cloudformation delete-stack --region "$REGION" --stack-name "$STACK_NAME"
+          aws cloudformation wait stack-delete-complete --region "$REGION" --stack-name "$STACK_NAME"
+          if [ "$INPUT_RELEASE_EIP" = "true" ]; then
+            aws ec2 release-address --region "$REGION" --allocation-id "$EIP_ALLOC"
+          fi
+          echo "snapshot_id=$SNAPSHOT_ID" >> "$GITHUB_OUTPUT"
+          echo "preserved_data_volume_id=${{ steps.instance.outputs.data_volume_id }}" >> "$GITHUB_OUTPUT"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## EC2 Edge Stage0"
+            echo "- edge: \`${{ steps.edge.outputs.edge_id || inputs.edge_id }}\`"
+            echo "- operation: \`$INPUT_OPERATION\`"
+            echo "- stack: \`${{ steps.edge.outputs.stack || inputs.confirm_stack }}\`"
+            echo "- region: \`${{ steps.edge.outputs.region || 'unknown' }}\`"
+            echo "- instance: \`${{ steps.instance.outputs.id || 'none' }}\`"
+            echo "- candidate: \`${{ steps.edge.outputs.migration_candidate || 'unknown' }}\`"
+            echo "- provision EIP: \`${{ steps.provision.outputs.public_ip || 'none' }}\`"
+            echo "- rotation old/new: \`${{ steps.rotation.outputs.old_public_ip || 'none' }}\` → \`${{ steps.rotation.outputs.new_public_ip || 'none' }}\`"
+            echo "- decommission snapshot: \`${{ steps.decommission.outputs.snapshot_id || 'none' }}\`"
+            echo "- retained data volume: \`${{ steps.decommission.outputs.preserved_data_volume_id || steps.instance.outputs.data_volume_id || 'none' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -11,7 +11,8 @@ options dynamically, so the only defence is a drift check.
 This check reads ``scripts/checks/workflow-edge-coverage.json`` (the registry of
 per-edge workflows + their required deployable set + explicit opt-outs) and fails
 preflight if any deployable edge is missing from a workflow's options without an
-opt-out, or if an opt-out is stale (its edge is no longer deployable).
+opt-out, if an opt-out is stale, or if workflows that mutate the same edge do not
+share the registered concurrency lock.
 
 Exit codes: 0 ok · 1 coverage drift / stale opt-out · 2 unreadable input or
 missing pyyaml. stdlib + pyyaml (graceful exit 2 if absent, like sibling checks).
@@ -74,6 +75,7 @@ def main() -> int:
     }
 
     failures: list[str] = []
+    workflow_docs: dict[str, dict] = {}
     for wf_rel, cfg in (registry.get("workflows") or {}).items():
         wf_path = REPO_ROOT / wf_rel
         if not wf_path.is_file():
@@ -88,6 +90,10 @@ def main() -> int:
         except yaml.YAMLError as exc:  # type: ignore[attr-defined]
             failures.append(f"{wf_rel}: YAML parse error: {exc}")
             continue
+        if not isinstance(doc, dict):
+            failures.append(f"{wf_rel}: workflow root must be a mapping")
+            continue
+        workflow_docs[wf_rel] = doc
 
         options = _workflow_options(doc, cfg.get("input", ""))
         if options is None:
@@ -122,6 +128,41 @@ def main() -> int:
                 f"'{cfg.get('input')}' options (expected option '{prefix}<id>'). "
                 f"Add them to the workflow, or opt out in {REGISTRY.name} with a reason."
             )
+
+    for contract in registry.get("concurrency_contracts") or []:
+        name = str(contract.get("name") or "unnamed")
+        expected_group = contract.get("group")
+        expected_cancel = contract.get("cancel_in_progress")
+        workflow_paths = contract.get("workflows") or []
+        if not workflow_paths or not isinstance(expected_group, str) or not expected_group:
+            failures.append(f"concurrency contract {name!r}: workflows and group are required")
+            continue
+        if not isinstance(expected_cancel, bool):
+            failures.append(f"concurrency contract {name!r}: cancel_in_progress must be boolean")
+            continue
+        for wf_rel in workflow_paths:
+            doc = workflow_docs.get(wf_rel)
+            if doc is None:
+                failures.append(
+                    f"concurrency contract {name!r}: workflow {wf_rel!r} is not loaded from the registry"
+                )
+                continue
+            concurrency = doc.get("concurrency")
+            if not isinstance(concurrency, dict):
+                failures.append(f"{wf_rel}: missing concurrency mapping for contract {name!r}")
+                continue
+            actual_group = concurrency.get("group")
+            actual_cancel = concurrency.get("cancel-in-progress")
+            if actual_group != expected_group:
+                failures.append(
+                    f"{wf_rel}: concurrency group {actual_group!r} does not match "
+                    f"contract {name!r} group {expected_group!r}"
+                )
+            if actual_cancel is not expected_cancel:
+                failures.append(
+                    f"{wf_rel}: cancel-in-progress {actual_cancel!r} does not match "
+                    f"contract {name!r} value {expected_cancel!r}"
+                )
 
     if failures:
         print("FAIL: workflow edge coverage", file=sys.stderr)

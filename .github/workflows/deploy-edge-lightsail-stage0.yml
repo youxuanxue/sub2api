@@ -67,7 +67,7 @@ permissions:
   packages: read
 
 concurrency:
-  group: deploy-edge-lightsail-${{ inputs.edge_id }}
+  group: edge-stage0-${{ inputs.edge_id }}
   cancel-in-progress: false
 
 jobs:

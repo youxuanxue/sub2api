@@ -78,6 +78,35 @@ class ListDeployableTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(proc.stdout, "")
 
+    def test_migration_candidate_requires_explicit_opt_in(self) -> None:
+        matrix = json.loads(json.dumps(self.MATRIX))
+        matrix["targets"]["fra1"]["migration_candidate"] = True
+        proc = _run_with_matrix(matrix, "--edge-id", "fra1", "--confirm-stack", "x")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("--allow-migration-candidate", proc.stderr)
+
+    def test_explicit_migration_candidate_resolves(self) -> None:
+        matrix = json.loads(json.dumps(self.MATRIX))
+        matrix["targets"]["fra1"]["migration_candidate"] = True
+        proc = _run_with_matrix(
+            matrix,
+            "--edge-id", "fra1",
+            "--confirm-stack", "x",
+            "--allow-migration-candidate",
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("migration_candidate=true", proc.stdout)
+
+    def test_ordinary_planned_target_cannot_use_candidate_opt_in(self) -> None:
+        proc = _run_with_matrix(
+            self.MATRIX,
+            "--edge-id", "fra1",
+            "--confirm-stack", "x",
+            "--allow-migration-candidate",
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("not a migration candidate", proc.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

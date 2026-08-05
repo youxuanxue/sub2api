@@ -2298,6 +2298,19 @@ elif ! python3 ./scripts/checks/lightsail-oidc-perm-coverage.py --quiet; then
     errors=$((errors + 1))
 fi
 
+# ---- sub2api: EC2 Edge OIDC perm coverage -----------------------------------
+# EC2 migration uses a separate caller addon + CloudFormation execution role.
+# Parse both templates and fail if an action family, allowed region, stack scope,
+# or the separation from the base OIDC role drifts.
+echo ""
+echo "=== sub2api: EC2 Edge OIDC perm coverage ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for EC2 Edge OIDC coverage check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/ec2-edge-oidc-perm-coverage.py --quiet; then
+    errors=$((errors + 1))
+fi
+
 # ---- sub2api: edge platform exclusivity -------------------------------------
 # EC2 Edge and Lightsail Edge intentionally share the same <edge_id> namespace,
 # the same GitHub Environment edge-<id>, and the same DNS domain

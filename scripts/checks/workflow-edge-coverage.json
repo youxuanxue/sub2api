@@ -1,6 +1,12 @@
 {
-  "_doc": "Gate C registry: per-edge workflows whose hardcoded choice options must stay in sync with the deployable edge matrices (GitHub Actions cannot compute choice options dynamically). scripts/checks/workflow-edge-coverage.py enforces that every deployable edge appears as an option (modulo explicit opt_out_edges with a reason), and that no opt_out is stale. Adding a deployable edge to deploy/aws/stage0/edge-targets.json or deploy/aws/lightsail/edge-targets-lightsail.json fails preflight until the workflow covers it or opts it out here.",
+  "_doc": "Gate C registry: per-edge workflow choices stay in sync with deployable matrices, and workflows that mutate the same edge share one concurrency lock.",
   "workflows": {
+    ".github/workflows/deploy-edge-stage0.yml": {
+      "input": "edge_id",
+      "option_prefix": "",
+      "required_set": "ec2-deployable",
+      "opt_out_edges": []
+    },
     ".github/workflows/deploy-edge-lightsail-stage0.yml": {
       "input": "edge_id",
       "option_prefix": "",
@@ -18,5 +24,16 @@
         {"id": "us6", "reason": "pg_dump SSM refresh targets the prod EC2 instance only; Lightsail edges are out of scope for this cadence by design"}
       ]
     }
-  }
+  },
+  "concurrency_contracts": [
+    {
+      "name": "edge-stage0",
+      "workflows": [
+        ".github/workflows/deploy-edge-stage0.yml",
+        ".github/workflows/deploy-edge-lightsail-stage0.yml"
+      ],
+      "group": "edge-stage0-${{ inputs.edge_id }}",
+      "cancel_in_progress": false
+    }
+  ]
 }
