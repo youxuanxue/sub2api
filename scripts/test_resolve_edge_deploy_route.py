@@ -31,7 +31,12 @@ def _deployable_lightsail_edge() -> str | None:
 
 
 class ResolveEdgeDeployRouteTest(unittest.TestCase):
-    def _fake_route_root(self, temp: pathlib.Path, ec2_target: dict) -> pathlib.Path:
+    def _fake_route_root(
+        self,
+        temp: pathlib.Path,
+        ec2_target: dict,
+        lightsail_target: dict | None = None,
+    ) -> pathlib.Path:
         root = temp / "repo"
         (root / "deploy/aws/stage0").mkdir(parents=True)
         (root / "deploy/aws/lightsail").mkdir(parents=True)
@@ -40,7 +45,9 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
             encoding="utf-8",
         )
         (root / "deploy/aws/lightsail/edge-targets-lightsail.json").write_text(
-            json.dumps({"targets": {}}),
+            json.dumps(
+                {"targets": {"us9": lightsail_target} if lightsail_target else {}},
+            ),
             encoding="utf-8",
         )
         return root
@@ -113,6 +120,35 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
             self.assertIn("confirm_stack=tokenkey-edge-us5-stage0", args)
             self.assertIn("allow_migration_candidate=true", args)
 
+    def test_dispatch_stops_before_gh_when_route_resolution_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = pathlib.Path(tmp)
+            gh_log = temp / "gh.log"
+            fake_gh = temp / "gh"
+            fake_gh.write_text(
+                "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$GH_LOG\"\n",
+                encoding="utf-8",
+            )
+            fake_gh.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = f"{temp}:{env['PATH']}"
+            env["GH_LOG"] = str(gh_log)
+            proc = subprocess.run(
+                [
+                    "bash",
+                    "scripts/stage0/dispatch-edge-deploy.sh",
+                    "--edge-id", "fra1",
+                    "--operation", "smoke",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertFalse(gh_log.exists(), "route failure must not dispatch a workflow")
+
     def test_auto_does_not_fall_back_to_ec2_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = self._fake_route_root(
@@ -142,6 +178,25 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
             with contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit):
                     resolve_route_tab(root, "us9", "ec2")
+
+    def test_auto_rejects_dual_deployable_platforms(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fake_route_root(
+                pathlib.Path(tmp),
+                {
+                    "deployable": True,
+                    "region": "us-west-2",
+                    "stack": "tokenkey-edge-us9-stage0",
+                },
+                {
+                    "deployable": True,
+                    "lightsail_region": "us-west-2",
+                    "ssm_prefix": "/tokenkey/lightsail/us9",
+                },
+            )
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    resolve_route_tab(root, "us9", "auto")
 
     def test_non_deployable_edge_fails(self) -> None:
         proc = subprocess.run(

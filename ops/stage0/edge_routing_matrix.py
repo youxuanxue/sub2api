@@ -79,18 +79,27 @@ def resolve_route_tab(
         return ("ec2", str(region), str(stack))
 
     # auto
-    if (
+    ls_deployable = bool(
         ls_target
         and ls_target.get("deployable") is True
         and ls_target.get("lightsail_region")
-    ):
+    )
+    ec2_deployable = bool(
+        ec2_target
+        and ec2_target.get("deployable") is True
+        and ec2_target.get("region")
+        and ec2_target.get("stack")
+    )
+    if ls_deployable and ec2_deployable:
+        _fail(f"edge {eid}: both EC2 and Lightsail are deployable; owner is ambiguous")
+    if ls_deployable:
         return ("lightsail", str(ls_target["lightsail_region"]), None)
 
     if not ec2_target:
         _fail(
             f"edge {eid}: no Lightsail deployable route and unknown in EC2 matrix",
         )
-    if ec2_target.get("deployable") is not True:
+    if not ec2_deployable:
         _fail(
             f"edge {eid}: no deployable owner; explicit --platform ec2 is required for a migration candidate",
         )

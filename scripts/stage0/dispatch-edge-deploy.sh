@@ -73,6 +73,9 @@ CONFIRM_FLAG=""
 CONFIRM_VALUE=""
 PLATFORM=""
 ALLOW_MIGRATION_CANDIDATE="false"
+ROUTE_OUTPUT="$(python3 scripts/stage0/resolve-edge-deploy-route.py \
+  --edge-id "${EDGE_ID}" \
+  --platform "${PLATFORM_PREF}")"
 while IFS='=' read -r key value; do
   case "${key}" in
     workflow_file) WORKFLOW="${value}" ;;
@@ -81,9 +84,7 @@ while IFS='=' read -r key value; do
     platform) PLATFORM="${value}" ;;
     allow_migration_candidate) ALLOW_MIGRATION_CANDIDATE="${value}" ;;
   esac
-done < <(python3 scripts/stage0/resolve-edge-deploy-route.py \
-  --edge-id "${EDGE_ID}" \
-  --platform "${PLATFORM_PREF}")
+done <<<"${ROUTE_OUTPUT}"
 
 if [[ "${OPERATION}" == "rotate_egress_ip" || "${OPERATION}" == "decommission" ]]; then
   if [[ "${PLATFORM}" != "ec2" ]]; then
