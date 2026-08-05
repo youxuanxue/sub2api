@@ -54,15 +54,6 @@
       ]
     }
   },
-  "fixed_monthly_usd": {
-    "fleet": 76.46,
-    "per_edge": {
-      "us3": 19.12,
-      "us4": 19.12,
-      "us5": 19.12,
-      "us6": 19.12
-    }
-  },
   "fleet": [
     {
       "domain": "api-us3.tokenkey.dev",
@@ -97,15 +88,6 @@
       "ssm_prefix": "/tokenkey/lightsail/us6"
     }
   ],
-  "forecast_monthly_usd": {
-    "fleet": 153,
-    "per_edge": {
-      "us3": 41,
-      "us4": 39,
-      "us5": 37,
-      "us6": 36
-    }
-  },
   "generated_at": "2026-08-04T23:01:14+00:00",
   "instance_type_offerings": {
     "us-east-2": [
@@ -114,32 +96,6 @@
     "us-west-2": [
       "t4g.small"
     ]
-  },
-  "network_out_30d": {
-    "us3": {
-      "bucket_count": 30,
-      "gib": 128.414,
-      "window_end": "2026-08-04T00:00:00+00:00",
-      "window_start": "2026-07-05T00:00:00+00:00"
-    },
-    "us4": {
-      "bucket_count": 30,
-      "gib": 105.72,
-      "window_end": "2026-08-04T00:00:00+00:00",
-      "window_start": "2026-07-05T00:00:00+00:00"
-    },
-    "us5": {
-      "bucket_count": 30,
-      "gib": 82.707,
-      "window_end": "2026-08-04T00:00:00+00:00",
-      "window_start": "2026-07-05T00:00:00+00:00"
-    },
-    "us6": {
-      "bucket_count": 30,
-      "gib": 69.163,
-      "window_end": "2026-08-04T00:00:00+00:00",
-      "window_start": "2026-07-05T00:00:00+00:00"
-    }
   },
   "quotas": {
     "us-east-2": {

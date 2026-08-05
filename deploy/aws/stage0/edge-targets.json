@@ -2,7 +2,6 @@
   "schema_version": 1,
   "platform": "ec2",
   "default_profile": "edge-minimal",
-  "max_monthly_budget_usd": 41,
   "_migration": "EC2 targets remain shadow candidates until the per-edge owner cutover sets deployable=true and migration_candidate=false.",
   "targets": {
     "us3": {
@@ -17,8 +16,7 @@
       "data_volume_gib": 20,
       "swap_gib": 2,
       "snapshot_schedule": "daily",
-      "monthly_budget_usd": 41,
-      "ssm_prefix": "/tokenkey/edge/us3/stage0",
+      "ssm_prefix": "/tokenkey/edge/us3",
       "purpose": "all-edge-platform-migration-candidate"
     },
     "us4": {
@@ -33,8 +31,7 @@
       "data_volume_gib": 20,
       "swap_gib": 2,
       "snapshot_schedule": "daily",
-      "monthly_budget_usd": 39,
-      "ssm_prefix": "/tokenkey/edge/us4/stage0",
+      "ssm_prefix": "/tokenkey/edge/us4",
       "purpose": "all-edge-platform-migration-candidate"
     },
     "us5": {
@@ -49,8 +46,7 @@
       "data_volume_gib": 20,
       "swap_gib": 2,
       "snapshot_schedule": "daily",
-      "monthly_budget_usd": 37,
-      "ssm_prefix": "/tokenkey/edge/us5/stage0",
+      "ssm_prefix": "/tokenkey/edge/us5",
       "purpose": "all-edge-platform-migration-candidate"
     },
     "us6": {
@@ -65,8 +61,7 @@
       "data_volume_gib": 20,
       "swap_gib": 2,
       "snapshot_schedule": "daily",
-      "monthly_budget_usd": 36,
-      "ssm_prefix": "/tokenkey/edge/us6/stage0",
+      "ssm_prefix": "/tokenkey/edge/us6",
       "purpose": "all-edge-platform-migration-candidate"
     }
   }

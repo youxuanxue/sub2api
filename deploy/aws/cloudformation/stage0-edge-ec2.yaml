@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
   TokenKey Stage0 EC2 Edge: AL2023 ARM64 t4g.small Unlimited, external EIP,
-  retained gp3 data volume, SSM operations, shared bootstrap, and cost/capacity alarms.
+  retained gp3 data volume, SSM operations, shared bootstrap, and capacity alarms.
 
 # Embedded SSM values and UserData are generated from deploy/aws/stage0 sources.
 # Run deploy/aws/stage0/build-cfn.sh after changing a shared source.
@@ -46,17 +46,17 @@ Parameters:
   InstanceType:
     Type: String
     Default: t4g.small
-    AllowedValues: [t4g.small, t4g.medium, t4g.large]
+    AllowedValues: [t4g.small]
   RootVolumeSizeGiB:
     Type: Number
     Default: 20
     MinValue: 20
-    MaxValue: 200
+    MaxValue: 20
   DataVolumeSizeGiB:
     Type: Number
     Default: 20
     MinValue: 20
-    MaxValue: 500
+    MaxValue: 20
   DataVolumeIops:
     Type: Number
     Default: 3000
@@ -102,11 +102,7 @@ Parameters:
   SnapshotSchedule:
     Type: String
     Default: daily
-    AllowedValues: [daily, hourly]
-  MonthlyBudgetUsd:
-    Type: Number
-    MinValue: 1
-    MaxValue: 500
+    AllowedValues: [daily]
   AlarmSnsTopicArn:
     Type: String
     Default: ''
@@ -121,7 +117,6 @@ Parameters:
     Description: Public address resolved from EipAllocationId by the provisioning workflow.
 
 Conditions:
-  IsHourlySnapshots: !Equals [!Ref SnapshotSchedule, hourly]
   AlarmTopicProvided: !Not [!Equals [!Ref AlarmSnsTopicArn, '']]
 
 Resources:
@@ -475,14 +470,14 @@ Resources:
         TargetTags:
           - {Key: Backup, Value: !Sub 'stage0-edge-${EdgeId}'}
         Schedules:
-          - Name: !If [IsHourlySnapshots, hourly-7d, daily-7d]
+          - Name: daily-7d
             CopyTags: true
             CreateRule:
-              Interval: !If [IsHourlySnapshots, 1, 24]
+              Interval: 24
               IntervalUnit: HOURS
-              Times: !If [IsHourlySnapshots, !Ref 'AWS::NoValue', ['03:00']]
+              Times: ['03:00']
             RetainRule:
-              Count: !If [IsHourlySnapshots, 168, 7]
+              Count: 7
 
   InstanceCpuAlarm:
     Type: AWS::CloudWatch::Alarm

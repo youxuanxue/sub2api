@@ -38,11 +38,6 @@ on:
         required: false
         type: boolean
         default: false
-      simple_release_override:
-        description: "Allow a single-arch image manifest. Default false for Graviton."
-        required: false
-        type: boolean
-        default: false
       smoke_phase:
         description: "Existing active target smoke scope: infra | edge-native-oauth | main-via-edge | full."
         required: false
@@ -94,7 +89,6 @@ jobs:
       INPUT_TAG: ${{ inputs.tag }}
       INPUT_CONFIRM_STACK: ${{ inputs.confirm_stack }}
       INPUT_ALLOW_CANDIDATE: ${{ inputs.allow_migration_candidate }}
-      INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
       INPUT_SMOKE_PHASE: ${{ inputs.smoke_phase }}
       INPUT_ROTATION_REASON: ${{ inputs.rotation_reason }}
       INPUT_CANDIDATE_ALLOC: ${{ inputs.candidate_allocation_id }}
@@ -181,7 +175,7 @@ jobs:
         if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
+        run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" false
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v6
@@ -202,7 +196,6 @@ jobs:
           DATA_VOLUME_GIB: ${{ steps.edge.outputs.data_volume_gib }}
           SWAP_GIB: ${{ steps.edge.outputs.swap_gib }}
           SNAPSHOT_SCHEDULE: ${{ steps.edge.outputs.snapshot_schedule }}
-          MONTHLY_BUDGET_USD: ${{ steps.edge.outputs.monthly_budget_usd }}
           SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
           GHCR_OWNER: ${{ github.repository_owner }}
           ACME_EMAIL: ${{ vars.EDGE_ACME_EMAIL }}
@@ -268,7 +261,6 @@ jobs:
               GhcrPatSsmName="$GHCR_PAT_SSM_NAME" \
               ImageTag="$INPUT_TAG" \
               SnapshotSchedule="$SNAPSHOT_SCHEDULE" \
-              MonthlyBudgetUsd="$MONTHLY_BUDGET_USD" \
               EipAllocationId="$ALLOC_ID" \
               PublicIpv4="$PUBLIC_IP"
           trap - ERR

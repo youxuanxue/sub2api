@@ -10,6 +10,13 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 DEFAULT_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
 LIGHTSAIL_MATRIX = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
+APPROVED_CAPACITY = {
+    "instance_type": "t4g.small",
+    "root_volume_gib": 20,
+    "data_volume_gib": 20,
+    "swap_gib": 2,
+    "snapshot_schedule": "daily",
+}
 
 _ROUT_SPEC = importlib.util.spec_from_file_location(
     "deploy_edge_routing_matrix",
@@ -85,10 +92,9 @@ def resolve_target(
     if target_profile != default_profile:
         fail(f"edge_id {edge_id} profile {target_profile} is not the default allowed profile {default_profile}")
 
-    budget = int(target.get("monthly_budget_usd", 0))
-    max_budget = int(data.get("max_monthly_budget_usd", 16))
-    if budget > max_budget:
-        fail(f"edge_id {edge_id} budget ${budget} exceeds max ${max_budget}")
+    for key, expected in APPROVED_CAPACITY.items():
+        if target.get(key) != expected:
+            fail(f"edge_id {edge_id} {key} must be {expected!r}")
 
     stack = str(target.get("stack") or "")
     if confirm_stack and confirm_stack != stack:
@@ -103,7 +109,6 @@ def resolve_target(
         "data_volume_gib",
         "swap_gib",
         "snapshot_schedule",
-        "monthly_budget_usd",
         "ssm_prefix",
     ]
     missing = [key for key in required if key not in target or target[key] in (None, "")]
@@ -123,7 +128,6 @@ def resolve_target(
         "data_volume_gib": target["data_volume_gib"],
         "swap_gib": target["swap_gib"],
         "snapshot_schedule": target["snapshot_schedule"],
-        "monthly_budget_usd": budget,
         "ssm_prefix": target["ssm_prefix"],
         "purpose": target.get("purpose", ""),
     }

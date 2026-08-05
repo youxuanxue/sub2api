@@ -43,6 +43,18 @@ class Stage0EdgeEc2ContractTest(unittest.TestCase):
         self.assertIn("CreditSpecification:", instance)
         self.assertIn("CPUCredits: unlimited", instance)
 
+    def test_capacity_parameters_only_accept_the_approved_values(self) -> None:
+        text = template_text()
+        self.assertNotIn("Monthly" + "BudgetUsd", text)
+        self.assertIn("AllowedValues: [t4g.small]", section(text, "InstanceType"))
+        for parameter in ("RootVolumeSizeGiB", "DataVolumeSizeGiB"):
+            with self.subTest(parameter=parameter):
+                body = section(text, parameter)
+                self.assertIn("MinValue: 20", body)
+                self.assertIn("MaxValue: 20", body)
+        self.assertIn("AllowedValues: [2]", section(text, "SwapSizeGiB"))
+        self.assertIn("AllowedValues: [daily]", section(text, "SnapshotSchedule"))
+
     def test_ami_contract_is_explicitly_pinned_al2023_arm64(self) -> None:
         ami = section(template_text(), "AmazonLinux2023Arm64Ami")
         self.assertIn("Type: AWS::EC2::Image::Id", ami)
