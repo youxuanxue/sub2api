@@ -14,7 +14,7 @@ scope: "把全部活动 Edge 从 Lightsail micro_3_0 迁移到 EC2 t4g.small Unl
 
 **目标：** 将 `us3`、`us4`、`us5`、`us6` 四个活动 Edge 从 Lightsail `micro_3_0` 迁移到启用 CPU Unlimited 的 EC2 `t4g.small`，逐节点保持业务连续和可回滚；全部稳定后退役 Lightsail 云资源，并从仓库中删除 Lightsail 代码、脚本、workflow、skill 和活跃文档入口。
 
-**架构：** 恢复一套通用 EC2 Edge CloudFormation 平台，每个 Edge 使用独立 stack、VPC、EIP 和持久数据卷。迁移期间 Lightsail 继续作为正式 owner，EC2 以 `migration_candidate` 影子目标创建和验证；每次只通过一个 Edge 的矩阵 PR 与 DNS 门禁转移 owner。最后一个 Edge 稳定满 7 天后，先删除 Lightsail 云资源，再把代码库收敛为 EC2-only。
+**架构：** 恢复一套通用 EC2 Edge CloudFormation 平台，每个 Edge 使用独立 stack、VPC、EIP 和持久数据卷。迁移期间 Lightsail 继续作为正式 owner，EC2 以 `migration_candidate` 影子目标创建和验证；每次只通过一个 Edge 的矩阵 PR 与 DNS 门禁转移 owner。最后一个 Edge 稳定满 1 天后，先删除 Lightsail 云资源，再把代码库收敛为 EC2-only。
 
 **技术栈：** AWS EC2 Graviton `t4g.small`、AL2023 ARM64、EBS gp3、CloudFormation、EIP、SSM、CloudWatch、GitHub Actions OIDC、PostgreSQL、Redis、Docker Compose、Caddy、Porkbun DNS、Python 与 shell 契约测试。
 
@@ -29,7 +29,7 @@ scope: "把全部活动 Edge 从 Lightsail micro_3_0 迁移到 EC2 t4g.small Unl
 - PostgreSQL 的 groups、accounts、account-group bindings 和 credential blobs 做逻辑迁移；Redis 在目标机重建；不复制整机卷或 Caddy 证书目录。
 - 导入目标机的账号必须以 `schedulable=false` 落地。目标机本地 OAuth 实测可临时启用一个账号，测试后立即恢复 false，直到正式切流门禁。
 - 不允许并行切换两个 Edge。任何一个验收项失败，立即停止后续 fleet rollout。
-- 最后一个 Edge 切换成功后，旧 Lightsail fleet 完整保留 7 天。观察期未满，不允许删除 Lightsail 实例或 Static IP。
+- 最后一个 Edge 切换成功后，旧 Lightsail fleet 完整保留 1 天（连续 24 小时）。观察期未满，不允许删除 Lightsail 实例或 Static IP。
 - Porkbun 凭据不在仓库，DNS 修改保持人工高风险门禁。自动化只能生成计划并核验结果，不能自行推断 DNS 写权限。
 - 对 Unlimited 实例，`CPUCreditBalance=0` 不是宕机，也不能触发 P0/P1；借用和收费分别看 `CPUSurplusCreditBalance` 与 `CPUSurplusCreditsCharged`。
 - 最终状态必须为 EC2-only：Lightsail 云资源、workflow、矩阵、路由分支、脚本、skill 和活跃文档全部删除。
@@ -117,7 +117,7 @@ lightsail_active
 | --- | --- |
 | DNS 切换前 | 只删除或重建 EC2 candidate；Lightsail 仍是正式 owner |
 | DNS 已切、Lightsail 仍保留 | 启用源账号、A 记录切回已登记的 Lightsail IP、关闭目标账号、回滚矩阵 PR |
-| 7 天观察完成但 Lightsail 尚未删除 | 同上；若凭据已变化，先把目标最新状态逻辑同步回源 |
+| 1 天观察完成但 Lightsail 尚未删除 | 同上；若凭据已变化，先把目标最新状态逻辑同步回源 |
 | Lightsail 已删除 | 不再支持平台回滚；通过 EC2 retained data volume 或 EBS snapshot 恢复 |
 
 ## PR 边界
@@ -125,7 +125,7 @@ lightsail_active
 1. 审批 PR：只承载本文。merge 后改为 `status: approved` 并记录人工 approver。
 2. 平台 PR：恢复 EC2 CFN/IAM/workflow、临时候选路由、迁移工具、测试和文档；代码合并本身不创建线上资源。
 3. 四个状态 PR：每个 Edge 一个最小矩阵 owner 变更，只在该 Edge 的切流窗口合并。
-4. 退役 PR：7 天观察完成且 Lightsail 云资源删除后，清理所有 Lightsail/临时迁移代码，重建 Agent 契约，并把本文改为 `shipped`。
+4. 退役 PR：1 天观察完成且 Lightsail 云资源删除后，清理所有 Lightsail/临时迁移代码，重建 Agent 契约，并把本文改为 `shipped`。
 
 ### Task 1（任务 1）：建立只读迁移预检
 
@@ -228,7 +228,7 @@ aws cloudformation validate-template \
 - 修改：`scripts/checks/test_workflow_edge_coverage.py`
 - 修改：`scripts/preflight.sh`
 
-**输出契约：** 独立的 EC2 Edge addon policy 和 CFN execution role，仅允许 `us-east-2`、`us-west-2` 的 `tokenkey-edge-*-stage0`；workflow 支持 `provision|upgrade|rollback|smoke|rotate_egress_ip|decommission`。
+**输出契约：** 独立的 EC2 Edge addon policy 和 CFN execution role，仅允许 `us-east-2`、`us-west-2` 的 `tokenkey-edge-*-stage0`；workflow 支持 `provision|upgrade|rollback|smoke|rotate_egress_ip|decommission`。active Edge 的 `rotate_egress_ip` 必须显式确认人工 DNS 窗口，完成 EIP 绑定后进入 `pending_manual_dns`；旧 EIP 保留到 DNS 与公网健康验证完成。candidate 轮换不触达正式 DNS，成功后自动释放旧 EIP。
 
 - [ ] **步骤 1：先写 IAM/workflow 负向契约测试**
 
@@ -240,7 +240,7 @@ aws cloudformation validate-template \
 
 - [ ] **步骤 3：实现复用共享 primitive 的 workflow**
 
-强制 released multi-arch tag、精确 target confirmation、Environment approval、`aws cloudformation deploy --role-arn`、SSM health、飞书同步和现有 Edge smoke。候选模式不得修改 DNS 或 owner。迁移期间 EC2/Lightsail 两条 workflow 必须共享 `edge-stage0-${edge_id}` concurrency group，且 `cancel-in-progress: false`。
+强制 released multi-arch tag、精确 target confirmation、Environment approval、`aws cloudformation deploy --role-arn`、SSM health、飞书同步和现有 Edge smoke。候选模式不得修改 DNS 或 owner。active EIP 轮换必须要求 `i_understand_active_rotation_requires_manual_dns=true`，并在 summary 中给出旧/新 EIP、待人工修改的 Porkbun A 记录和 DNS 验证后的旧 EIP 释放命令；不得把 `pending_manual_dns` 冒充完整成功。迁移期间 EC2/Lightsail 两条 workflow 必须共享 `edge-stage0-${edge_id}` concurrency group，且 `cancel-in-progress: false`。
 
 - [ ] **步骤 4：验证权限和 workflow 覆盖**
 
@@ -363,7 +363,7 @@ aws ec2 describe-instance-credit-specifications \
 
 验证 Docker health、PostgreSQL migrations、Redis 重建、Caddy config、上游出站、disk metrics、飞书配置和 local/infra smoke。外部证书与 HTTPS 留到 DNS 切换后验证。
 
-- [ ] **步骤 5：观察 24 小时**
+- [ ] **步骤 5：观察 1 小时**
 
 要求实例/SSM 不掉线、无磁盘/内存 P0、`NetworkOut` 非零、credit mode 仍为 Unlimited、无意外 `CPUSurplusCreditsCharged`。证据只记录资源 ID、IP、时间和结果，不记录 secret。
 
@@ -407,7 +407,7 @@ aws ec2 describe-instance-credit-specifications \
 
 - [ ] **步骤 8：完成 10 分钟验收并关闭源账号**
 
-连续 10 分钟要求：SSM 在线；`/health` 与真实 OAuth smoke 通过；无 P0/P1；无新增持续 5xx；served ratio 相比切换前 2 小时下降不超过 5 个百分点；p95 延迟低于源基线 2 倍；credit mode 仍为 Unlimited；源 Lightsail 无业务请求。通过后把源端对应账号设为 `schedulable=false`。源数据库、实例、Static IP 和 SSM 注册继续保留供 7 天内回滚。surplus charge 只作为成本异常，不冒充可用性故障。
+连续 10 分钟要求：SSM 在线；`/health` 与真实 OAuth smoke 通过；无 P0/P1；无新增持续 5xx；served ratio 相比切换前 2 小时下降不超过 5 个百分点；p95 延迟低于源基线 2 倍；credit mode 仍为 Unlimited；源 Lightsail 无业务请求。通过后把源端对应账号设为 `schedulable=false`。源数据库、实例、Static IP 和 SSM 注册继续保留供 1 天内回滚。surplus charge 只作为成本异常，不冒充可用性故障。
 
 - [ ] **步骤 9：验证飞书恢复通知**
 
@@ -431,7 +431,7 @@ aws ec2 describe-instance-credit-specifications \
 
 - [ ] **步骤 5：启动 fleet 退役观察期**
 
-以 `us3` 最后一个 10 分钟验收完成时间作为 `fleet_observation_started_at`，四个 Edge 连续健康满 7 个完整自然日后才进入任务 9。
+以 `us3` 最后一个 10 分钟验收完成时间作为 `fleet_observation_started_at`，四个 Edge 连续健康满 24 小时（1 天）后才进入任务 9。
 
 ### Task 9（任务 9）：退役线上 Lightsail Fleet
 
@@ -443,10 +443,10 @@ aws ec2 describe-instance-credit-specifications \
 脚本默认只输出计划；破坏性执行必须显式传：
 
 ```text
---apply --confirm retire-lightsail-us3-us4-us5-us6-after-seven-days
+--apply --confirm retire-lightsail-us3-us4-us5-us6-after-one-day
 ```
 
-若 EC2 未全绿、任一 Lightsail 仍 deployable、DNS 不匹配 EC2 EIP、源账号仍可调度、7 天证据不足或 EC2 数据卷快照缺失，脚本必须拒绝执行。
+若 EC2 未全绿、任一 Lightsail 仍 deployable、DNS 不匹配 EC2 EIP、源账号仍可调度、连续 24 小时证据不足或 EC2 数据卷快照缺失，脚本必须拒绝执行。
 
 - [ ] **步骤 1：用 fixture 测试全部破坏性门禁**
 
@@ -603,7 +603,7 @@ bash ops/observability/scan-edge-health.sh --with-prod
 - 四个活动 Edge 域名均指向独立 EC2 EIP，实例实测为 AL2023 ARM64 `t4g.small` 且 CPU Unlimited。
 - PostgreSQL 状态和 credential blobs 完整迁移，目标账号通过真实模型请求，Redis 已重建，源账号全部不可调度。
 - 根卷/数据卷、SSM、CloudWatch 和飞书控制符合目标契约。
-- 每个 Edge 完成 10 分钟切流验收，之后完整 fleet 连续稳定 7 天才退役旧平台。
+- 每个 Edge 完成 10 分钟切流验收，之后完整 fleet 连续稳定 24 小时（1 天）才退役旧平台。
 - 所有旧 Lightsail instance、Static IP、SSM Hybrid registration/parameter/activation 和 addon IAM 资源均已删除。
 - 活跃代码、workflow、matrix、脚本、skill、Agent 导航和文档只保留 EC2 Edge 平台。
 - Lightsail 历史只存在于 git history 或明确的 archive/history 文档，Agent 无法把它选成活动工作流。

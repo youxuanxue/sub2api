@@ -210,6 +210,21 @@ class MigrationSafetyTest(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     MIGRATE.cmd_extract(args)
 
+    def test_soft_delete_empty_account_ids_fails_before_target_resolution(self) -> None:
+        args = argparse.Namespace(
+            from_target="edge:us5@lightsail",
+            account_ids="",
+            execute=False,
+        )
+        with mock.patch.object(
+            MIGRATE,
+            "resolve_edge",
+            side_effect=AssertionError("target must not resolve"),
+        ):
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    MIGRATE.cmd_soft_delete(args)
+
 
 if __name__ == "__main__":
     unittest.main()

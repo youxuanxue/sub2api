@@ -218,13 +218,72 @@ class Ec2WorkflowSafetyContractTest(unittest.TestCase):
             ["provision", "upgrade", "rollback", "smoke", "rotate_egress_ip", "decommission"],
         )
 
+    def _run_operation_validation(
+        self,
+        *,
+        deployable: bool,
+        migration_candidate: bool,
+        allow_candidate: bool,
+        active_rotation_ack: bool,
+    ) -> subprocess.CompletedProcess:
+        steps = self._load_steps()
+        script = next(
+            step["run"]
+            for step in steps
+            if step.get("name") == "Validate operation inputs"
+        )
+        script = script.replace(
+            "${{ steps.edge.outputs.migration_candidate }}",
+            str(migration_candidate).lower(),
+        ).replace(
+            "${{ steps.edge.outputs.deployable }}",
+            str(deployable).lower(),
+        )
+        env = os.environ.copy()
+        env.update({
+            "INPUT_ALLOW_CANDIDATE": str(allow_candidate).lower(),
+            "INPUT_OPERATION": "rotate_egress_ip",
+            "INPUT_TAG": "",
+            "INPUT_ROTATION_REASON": "upstream-risk-block",
+            "INPUT_CANDIDATE_ALLOC": "",
+            "INPUT_ACTIVE_ROTATION_ACK": str(active_rotation_ack).lower(),
+            "INPUT_DECOMMISSION_ACK": "false",
+        })
+        return subprocess.run(
+            ["bash", "-c", script],
+            cwd=pathlib.Path(__file__).resolve().parents[2],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_active_rotation_requires_manual_dns_acknowledgement(self) -> None:
+        proc = self._run_operation_validation(
+            deployable=True,
+            migration_candidate=False,
+            allow_candidate=False,
+            active_rotation_ack=False,
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("active EIP rotation requires", proc.stderr + proc.stdout)
+
+    def test_candidate_rotation_does_not_require_active_dns_acknowledgement(self) -> None:
+        proc = self._run_operation_validation(
+            deployable=False,
+            migration_candidate=True,
+            allow_candidate=True,
+            active_rotation_ack=False,
+        )
+        self.assertEqual(proc.returncode, 0, f"stdout:{proc.stdout}\nstderr:{proc.stderr}")
+
     def _run_rotation(
         self,
         *,
         allow_candidate: bool,
         curl_exit: int = 0,
         release_exit: int = 0,
-    ) -> tuple[subprocess.CompletedProcess, bool]:
+    ) -> tuple[subprocess.CompletedProcess, bool, str]:
         steps = self._load_steps()
         script = next(step["run"] for step in steps if step.get("id") == "rotation")
         with tempfile.TemporaryDirectory() as d:
@@ -232,10 +291,12 @@ class Ec2WorkflowSafetyContractTest(unittest.TestCase):
             bin_dir = root / "bin"
             bin_dir.mkdir()
             curl_log = root / "curl.log"
+            aws_log = root / "aws.log"
             output = root / "github-output"
             aws = bin_dir / "aws"
             aws.write_text("""#!/usr/bin/env bash
 set -euo pipefail
+printf '%s\n' "$*" >> "$AWS_LOG"
 case \"$*\" in
   *\"ec2 describe-addresses\"*) echo 1.1.1.1 ;;
   *\"ec2 allocate-address\"*) echo '{\"AllocationId\":\"eipalloc-22222222\",\"PublicIp\":\"2.2.2.2\"}' ;;
@@ -259,6 +320,7 @@ exit \"${CURL_EXIT:-0}\"
             env.update({
                 "PATH": f"{bin_dir}:{env['PATH']}",
                 "CURL_LOG": str(curl_log),
+                "AWS_LOG": str(aws_log),
                 "GITHUB_OUTPUT": str(output),
                 "STACK_NAME": "tokenkey-edge-us5-stage0",
                 "EDGE_ID": "us5",
@@ -281,15 +343,62 @@ exit \"${CURL_EXIT:-0}\"
                 text=True,
                 check=False,
             )
-            return proc, curl_log.exists()
+            return proc, curl_log.exists(), aws_log.read_text(encoding="utf-8")
 
     def test_candidate_rotation_uses_ssm_probe_without_public_tls(self) -> None:
-        proc, curl_called = self._run_rotation(allow_candidate=True)
+        proc, curl_called, aws_calls = self._run_rotation(allow_candidate=True)
         self.assertEqual(proc.returncode, 0, f"stdout:{proc.stdout}\nstderr:{proc.stderr}")
         self.assertFalse(curl_called, "candidate rotation must not probe public TLS")
+        self.assertIn(
+            "ec2 release-address --region us-west-2 --allocation-id eipalloc-11111111",
+            aws_calls,
+        )
+
+    def test_active_rotation_handoff_marks_dns_pending_and_retains_rollback_eip(self) -> None:
+        rotation, curl_called, aws_calls = self._run_rotation(allow_candidate=False)
+        self.assertEqual(
+            rotation.returncode,
+            0,
+            f"stdout:{rotation.stdout}\nstderr:{rotation.stderr}",
+        )
+        self.assertTrue(curl_called)
+        self.assertNotIn("ec2 release-address", aws_calls)
+
+        steps = self._load_steps()
+        step = next((item for item in steps if item.get("id") == "rotation_handoff"), None)
+        self.assertIsNotNone(step, "active rotation must emit an explicit DNS handoff")
+        with tempfile.TemporaryDirectory() as d:
+            summary = pathlib.Path(d) / "summary.md"
+            env = os.environ.copy()
+            env.update({
+                "GITHUB_STEP_SUMMARY": str(summary),
+                "EDGE_ID": "us4",
+                "REGION": "us-west-2",
+                "DOMAIN": "api-us4.tokenkey.dev",
+                "OLD_ALLOC": "eipalloc-11111111",
+                "OLD_IP": "1.1.1.1",
+                "NEW_ALLOC": "eipalloc-22222222",
+                "NEW_IP": "2.2.2.2",
+            })
+            proc = subprocess.run(
+                ["bash", "-c", step["run"]],
+                cwd=pathlib.Path(__file__).resolve().parents[2],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            rendered = summary.read_text(encoding="utf-8") if summary.exists() else ""
+        self.assertEqual(proc.returncode, 0, f"stdout:{proc.stdout}\nstderr:{proc.stderr}")
+        self.assertIn("pending_manual_dns", rendered)
+        self.assertIn("api-us4.tokenkey.dev", rendered)
+        self.assertIn(
+            "aws ec2 release-address --region us-west-2 --allocation-id eipalloc-11111111",
+            rendered,
+        )
 
     def test_rotation_revert_reports_eip_release_failure(self) -> None:
-        proc, curl_called = self._run_rotation(
+        proc, curl_called, _aws_calls = self._run_rotation(
             allow_candidate=False,
             curl_exit=88,
             release_exit=42,

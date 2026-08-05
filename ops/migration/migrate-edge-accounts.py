@@ -481,8 +481,10 @@ def cmd_set_schedulable(args: argparse.Namespace) -> None:
 
 
 def cmd_soft_delete(args: argparse.Namespace) -> None:
-    region, iid = resolve_edge(args.from_target)
     acct_ids = [int(x) for x in args.account_ids.split(",") if x.strip()]
+    if not acct_ids:
+        die("--account-ids required")
+    region, iid = resolve_edge(args.from_target)
     id_list = ",".join(str(i) for i in acct_ids)
     sql = (
         f"UPDATE accounts SET deleted_at=now(), schedulable=false, updated_at=now() "

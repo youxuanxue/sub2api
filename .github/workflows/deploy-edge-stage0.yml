@@ -56,6 +56,11 @@ on:
         description: "Optional pre-vetted unassociated EIP allocation for rotate_egress_ip."
         required: false
         type: string
+      i_understand_active_rotation_requires_manual_dns:
+        description: "Required for rotate_egress_ip on a deployable Edge; the single-EIP swap interrupts the old DNS path until Porkbun is updated."
+        required: false
+        type: boolean
+        default: false
       i_understand_decommissions_edge:
         description: "Required for decommission; stack is deleted after a root snapshot and data volume is retained."
         required: false
@@ -93,6 +98,7 @@ jobs:
       INPUT_SMOKE_PHASE: ${{ inputs.smoke_phase }}
       INPUT_ROTATION_REASON: ${{ inputs.rotation_reason }}
       INPUT_CANDIDATE_ALLOC: ${{ inputs.candidate_allocation_id }}
+      INPUT_ACTIVE_ROTATION_ACK: ${{ inputs.i_understand_active_rotation_requires_manual_dns }}
       INPUT_DECOMMISSION_ACK: ${{ inputs.i_understand_decommissions_edge }}
       INPUT_RELEASE_EIP: ${{ inputs.release_eip }}
     steps:
@@ -148,6 +154,10 @@ jobs:
               fi
               if [ -n "${INPUT_CANDIDATE_ALLOC:-}" ] && ! printf '%s' "$INPUT_CANDIDATE_ALLOC" | grep -Eq '^eipalloc-[0-9a-f]{8,17}$'; then
                 echo "::error::candidate_allocation_id must be an eipalloc-* id"
+                exit 1
+              fi
+              if [ "${{ steps.edge.outputs.deployable }}" = "true" ] && [ "$INPUT_ACTIVE_ROTATION_ACK" != "true" ]; then
+                echo "::error::active EIP rotation requires i_understand_active_rotation_requires_manual_dns=true and a DNS operator in the window"
                 exit 1
               fi
               ;;
@@ -452,10 +462,45 @@ jobs:
             curl -fsS --max-time 20 --resolve "${DOMAIN}:443:${NEW_IP}" "https://${DOMAIN}/health" >/dev/null
           fi
           trap - ERR
+          if [ "$INPUT_ALLOW_CANDIDATE" = "true" ]; then
+            if ! aws ec2 release-address --region "$REGION" --allocation-id "$OLD_ALLOC"; then
+              echo "::error::candidate rotated successfully, but old EIP $OLD_ALLOC could not be released"
+              exit 1
+            fi
+          fi
           echo "old_allocation_id=$OLD_ALLOC" >> "$GITHUB_OUTPUT"
           echo "old_public_ip=$OLD_IP" >> "$GITHUB_OUTPUT"
           echo "new_allocation_id=$NEW_ALLOC" >> "$GITHUB_OUTPUT"
           echo "new_public_ip=$NEW_IP" >> "$GITHUB_OUTPUT"
+
+      - name: Active EIP rotation handoff
+        id: rotation_handoff
+        if: inputs.operation == 'rotate_egress_ip' && inputs.allow_migration_candidate != true
+        env:
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          REGION: ${{ steps.edge.outputs.region }}
+          DOMAIN: ${{ steps.edge.outputs.domain }}
+          OLD_ALLOC: ${{ steps.rotation.outputs.old_allocation_id }}
+          OLD_IP: ${{ steps.rotation.outputs.old_public_ip }}
+          NEW_ALLOC: ${{ steps.rotation.outputs.new_allocation_id }}
+          NEW_IP: ${{ steps.rotation.outputs.new_public_ip }}
+        run: |
+          set -euo pipefail
+          echo "::warning::active EIP rotation is pending manual DNS: $DOMAIN must move from $OLD_IP to $NEW_IP; keep $OLD_ALLOC for rollback until DNS and health are verified"
+          {
+            echo "## Active EIP rotation: pending_manual_dns"
+            echo
+            echo "- edge: \`$EDGE_ID\`"
+            echo "- old rollback EIP: \`$OLD_IP\` (\`$OLD_ALLOC\`)"
+            echo "- new active EIP: \`$NEW_IP\` (\`$NEW_ALLOC\`)"
+            echo
+            echo "Update the Porkbun A record for \`$DOMAIN\` from \`$OLD_IP\` to \`$NEW_IP\`."
+            echo "After authoritative DNS and \`@1.1.1.1\` return only \`$NEW_IP\`, verify external health and release the retained rollback EIP:"
+            echo
+            echo "\`\`\`bash"
+            echo "aws ec2 release-address --region $REGION --allocation-id $OLD_ALLOC"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Snapshot root and decommission stack
         id: decommission
