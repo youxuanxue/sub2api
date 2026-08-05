@@ -82,10 +82,13 @@ Inputs:
 
 | Name | Type | Default | Notes |
 |---|---|---|---|
-| `tag` | string | required | image tag without leading `v`; must match `^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$` |
-| `simple_release_override` | bool | `false` | flip only when the target host is amd64 (default-deny against the §9.1 Graviton trap) |
+| `operation` | choice | `deploy` | `deploy` runs the existing image switch and acceptance path; `smoke-only` runs canonical acceptance probes without host mutation |
+| `tag` | string | required | image tag without leading `v`; must match `^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$`; in `smoke-only` it is an audit label only |
+| `simple_release_override` | bool | `false` | deploy-only; flip only when the target host is amd64 (default-deny against the §9.1 Graviton trap) |
 
-The job always binds GitHub Environment **`prod`** (OIDC subject `environment:prod`).
+Both jobs bind GitHub Environment **`prod`**. Only the `deploy` job receives
+`id-token: write` and `packages: read`; `smoke-only` receives `contents: read`
+only and therefore cannot obtain AWS credentials.
 
 Steps:
 
@@ -158,9 +161,10 @@ Steps:
    one-liner re-dispatch command for rollback. No auto-rollback (would
    mask transient failures).
 
-Concurrency `group: deploy-stage0-prod`,
-`cancel-in-progress: false`. Permissions `contents: read`,
-`id-token: write`, `packages: read`. No `contents: write`.
+Concurrency `group: deploy-stage0-prod`, `cancel-in-progress: false` is shared
+by both operations. Workflow-level permission is `contents: read`; the `deploy`
+job adds `id-token: write` and `packages: read`, while `smoke-only` remains
+read-only. No job receives `contents: write`.
 
 ## 5. Required pre-deploy operator setup
 

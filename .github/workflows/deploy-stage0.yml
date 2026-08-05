@@ -7,8 +7,16 @@ name: Stage0 Deploy
 on:
   workflow_dispatch:
     inputs:
+      operation:
+        description: "deploy changes the active prod image; smoke-only only runs canonical prod acceptance probes."
+        required: true
+        type: choice
+        options:
+          - deploy
+          - smoke-only
+        default: deploy
       tag:
-        description: "Released image tag without leading v (e.g. 1.6.0). Must already exist on GHCR."
+        description: "Released image tag without leading v (e.g. 1.6.0). In smoke-only mode this is an audit label; no image is changed."
         required: true
         type: string
       simple_release_override:
@@ -17,10 +25,10 @@ on:
         type: boolean
         default: false
 
+# Default to read-only. The deploy job explicitly opts into AWS OIDC and package
+# access; smoke-only cannot obtain either capability.
 permissions:
   contents: read
-  id-token: write
-  packages: read
 
 # Queue concurrent prod deploy requests; do not cancel an in-flight run.
 concurrency:
@@ -29,7 +37,12 @@ concurrency:
 
 jobs:
   deploy:
+    if: inputs.operation == 'deploy'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
     # Bound well above a normal prod SSM upgrade (~5-10 min) but far below the
     # 6h GHA default, so a hung describe-stacks / health-poll can't hold the
     # cancel-in-progress:false prod concurrency lock for hours.
@@ -298,4 +311,76 @@ jobs:
             echo '```bash'
             echo "gh workflow run deploy-stage0.yml -f tag=<previous>"
             echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  smoke-only:
+    if: inputs.operation == 'smoke-only'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: prod
+    permissions:
+      contents: read
+    env:
+      INPUT_TAG: ${{ inputs.tag }}
+      TOKENKEY_BASE_URL: ${{ vars.PROD_API_URL || 'https://api.tokenkey.dev' }}
+      TK_FULLTEST_BASE_URL: ${{ vars.PROD_API_URL || 'https://api.tokenkey.dev' }}
+      GATEWAY_SMOKE_SUITE: full
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Validate smoke audit tag
+        run: bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
+
+      - name: Validate prod smoke secrets
+        env:
+          TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
+          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TK_SMOKE_API_KEY:-}" ]; then
+            echo "::error::TK_SMOKE_API_KEY is not set in prod Environment."
+            exit 1
+          fi
+          if [ -z "${TK_FULLTEST_KEY:-}" ]; then
+            echo "::error::TK_FULLTEST_KEY is not set in prod Environment."
+            exit 1
+          fi
+
+      - name: Prod gateway smoke (read-only acceptance)
+        id: gateway_smoke
+        env:
+          TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
+          TK_SMOKE_ANTHROPIC_MODELS: ${{ vars.TK_SMOKE_ANTHROPIC_MODELS || 'claude-sonnet-4-6' }}
+          TK_SMOKE_GEMINI_MODELS: ${{ vars.TK_SMOKE_GEMINI_MODELS || '' }}
+          TK_SMOKE_OPENAI_OAUTH_MODELS: ${{ vars.TK_SMOKE_OPENAI_OAUTH_MODELS || 'gpt-5.4' }}
+        run: |
+          set -euo pipefail
+          bash ops/stage0/post_deploy_smoke.sh
+
+      - name: Prod SSOT display gate (read-only acceptance)
+        id: ssot_gate
+        env:
+          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
+          TK_FULLTEST_TIMEOUT: "15"
+        run: |
+          set -euo pipefail
+          bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout
+
+      - name: Job summary
+        if: always()
+        env:
+          GATEWAY_SMOKE_OUTCOME: ${{ steps.gateway_smoke.outcome }}
+          SSOT_GATE_OUTCOME: ${{ steps.ssot_gate.outcome }}
+        run: |
+          {
+            echo "## deploy-stage0"
+            echo '- operation: `smoke-only`'
+            echo '- environment: `prod`'
+            echo "- audit tag: \`${INPUT_TAG}\`"
+            echo "- api: ${TOKENKEY_BASE_URL}"
+            echo "- gateway smoke: ${GATEWAY_SMOKE_OUTCOME:-not-run}"
+            echo "- SSOT display gate: ${SSOT_GATE_OUTCOME:-not-run}"
+            echo "- safety: no image or host state was changed"
           } >> "$GITHUB_STEP_SUMMARY"
