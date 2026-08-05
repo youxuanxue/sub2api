@@ -12,20 +12,20 @@
   "blockers": [],
   "cpu_24h": {
     "us3": {
-      "average_pct": 9.874,
-      "p95_pct": 11.522
+      "average_pct": 7.757,
+      "p95_pct": 10.384
     },
     "us4": {
-      "average_pct": 10.0,
-      "p95_pct": 11.367
+      "average_pct": 8.172,
+      "p95_pct": 10.0
     },
     "us5": {
-      "average_pct": 4.946,
-      "p95_pct": 6.164
+      "average_pct": 5.114,
+      "p95_pct": 6.703
     },
     "us6": {
-      "average_pct": 10.09,
-      "p95_pct": 12.035
+      "average_pct": 7.461,
+      "p95_pct": 11.338
     }
   },
   "dns": {
@@ -60,35 +60,55 @@
       "edge_id": "us3",
       "expected_ipv4": "18.220.195.44",
       "instance_name": "tokenkey-edge-us-oh1-ls",
+      "migration_candidate": true,
+      "owner": "lightsail",
       "region": "us-east-2",
-      "ssm_prefix": "/tokenkey/lightsail/us3"
+      "source_deployable": true,
+      "source_region": "us-east-2",
+      "ssm_prefix": "/tokenkey/lightsail/us3",
+      "target_deployable": false
     },
     {
       "domain": "api-us4.tokenkey.dev",
       "edge_id": "us4",
       "expected_ipv4": "35.81.204.18",
       "instance_name": "tokenkey-edge-us-or1-ls",
+      "migration_candidate": true,
+      "owner": "lightsail",
       "region": "us-west-2",
-      "ssm_prefix": "/tokenkey/lightsail/us4"
+      "source_deployable": true,
+      "source_region": "us-west-2",
+      "ssm_prefix": "/tokenkey/lightsail/us4",
+      "target_deployable": false
     },
     {
       "domain": "api-us5.tokenkey.dev",
       "edge_id": "us5",
       "expected_ipv4": "32.185.163.163",
       "instance_name": "tokenkey-edge-us-or2-ls",
+      "migration_candidate": true,
+      "owner": "lightsail",
       "region": "us-west-2",
-      "ssm_prefix": "/tokenkey/lightsail/us5"
+      "source_deployable": true,
+      "source_region": "us-west-2",
+      "ssm_prefix": "/tokenkey/lightsail/us5",
+      "target_deployable": false
     },
     {
       "domain": "api-us6.tokenkey.dev",
       "edge_id": "us6",
       "expected_ipv4": "3.148.79.145",
       "instance_name": "edge-ls-us-oh-3",
+      "migration_candidate": true,
+      "owner": "lightsail",
       "region": "us-east-2",
-      "ssm_prefix": "/tokenkey/lightsail/us6"
+      "source_deployable": true,
+      "source_region": "us-east-2",
+      "ssm_prefix": "/tokenkey/lightsail/us6",
+      "target_deployable": false
     }
   ],
-  "generated_at": "2026-08-04T23:01:14+00:00",
+  "generated_at": "2026-08-05T15:27:36+00:00",
   "instance_type_offerings": {
     "us-east-2": [
       "t4g.small"

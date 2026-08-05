@@ -509,6 +509,40 @@ class MigrationSafetyTest(unittest.TestCase):
         ), self.assertRaises(SystemExit):
             MIGRATE.cmd_set_schedulable(args)
 
+    def test_soft_delete_requires_exactly_the_requested_rows(self) -> None:
+        builder = getattr(MIGRATE, "build_soft_delete_sql", None)
+        self.assertIsNotNone(builder, "soft-delete SQL must have one fail-closed owner")
+        sql = builder([11, 12])
+        self.assertIn("GET DIAGNOSTICS affected = ROW_COUNT", sql)
+        self.assertIn("affected <> 2", sql)
+        self.assertLess(
+            sql.index("affected <> 2"),
+            sql.index("DELETE FROM account_groups"),
+        )
+        self.assertLess(
+            sql.index("affected <> 2"),
+            sql.index("INSERT INTO scheduler_outbox"),
+        )
+
+    def test_soft_delete_rejects_missing_success_marker(self) -> None:
+        args = argparse.Namespace(
+            from_target="edge:us4@lightsail",
+            account_ids="11,12",
+            execute=True,
+        )
+        with mock.patch.object(
+            MIGRATE,
+            "resolve_edge",
+            return_value=("us-west-2", "mi-test"),
+        ), mock.patch.object(
+            MIGRATE,
+            "ssm_run",
+            return_value="UPDATE 0\n",
+        ), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+            io.StringIO(),
+        ), self.assertRaises(SystemExit):
+            MIGRATE.cmd_soft_delete(args)
+
     def test_extract_empty_account_ids_fails_before_target_resolution(self) -> None:
         args = argparse.Namespace(from_target="edge:us5@lightsail", account_ids="")
         with mock.patch.object(

@@ -137,6 +137,29 @@ class Ec2EdgeOidcPermCoverageTest(unittest.TestCase):
         failures = self.mod.validate_contract(self.addon, mutated)
         self.assertTrue(any("base OIDC role" in failure for failure in failures), failures)
 
+    def test_caller_policy_rejects_an_unapproved_action(self) -> None:
+        mutated = copy.deepcopy(self.addon)
+        policy = mutated["Resources"]["Ec2EdgeAddonPolicy"]["Properties"][
+            "PolicyDocument"
+        ]
+        policy["Statement"][0]["Action"].append("iam:CreateUser")
+        failures = self.mod.validate_contract(mutated, self.base)
+        self.assertTrue(
+            any("caller policy unexpected iam:CreateUser" in failure for failure in failures),
+            failures,
+        )
+
+    def test_execution_role_rejects_an_unapproved_action(self) -> None:
+        mutated = copy.deepcopy(self.addon)
+        role = mutated["Resources"]["Ec2EdgeCloudFormationExecutionRole"]
+        policy = role["Properties"]["Policies"][0]["PolicyDocument"]
+        policy["Statement"][0]["Action"].append("iam:CreateUser")
+        failures = self.mod.validate_contract(mutated, self.base)
+        self.assertTrue(
+            any("execution role unexpected iam:CreateUser" in failure for failure in failures),
+            failures,
+        )
+
     def test_real_repo_contract_passes(self) -> None:
         proc = subprocess.run(
             [sys.executable, str(SCRIPT), "--quiet"],

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Thin EC2 UserData launcher — embedded in stage0-single-ec2.yaml via build-cfn.sh.
 # Fn::Sub replaces ${ApiDomain} etc; bash uses ${!TK_*} for runtime expansion.
-set -euxo pipefail
+set -euo pipefail
 exec > >(tee -a /var/log/tokenkey-bootstrap.log) 2>&1
 
 export TK_API_DOMAIN='${ApiDomain}'

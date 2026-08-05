@@ -1,7 +1,7 @@
 #!/bin/bash
 # tokenkey Stage 0 EC2 bootstrap — fetched from SSM at first boot (see stage0-ec2-userdata-launcher.sub.sh).
 # Regenerated into SSM by deploy/aws/stage0/build-cfn.sh. Requires TK_* env vars from the launcher.
-set -euxo pipefail
+set -euo pipefail
 
 : "${TK_API_DOMAIN:?}"
 : "${TK_ACME_EMAIL:?}"
@@ -39,7 +39,7 @@ case "${ARCH}" in
   x86_64)  CWA_ARCH="amd64" ;;
   *) echo "unsupported arch ${ARCH}" >&2; exit 1 ;;
 esac
-dnf -y install "https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/${CWA_ARCH}/latest/amazon-cloudwatch-agent.rpm" || true
+dnf -y install "https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/${CWA_ARCH}/latest/amazon-cloudwatch-agent.rpm"
 systemctl enable --now docker
 
 # Compose v2 plugin (AL2023 dnf has no docker-compose-plugin)
@@ -624,10 +624,8 @@ systemctl enable --now tokenkey-pgdump.timer
 systemctl enable --now tokenkey-disk-metrics.timer
 systemctl enable --now tokenkey-qa-stale-cleanup.timer
 systemctl enable --now tokenkey-ghcr-prune-daily.timer
-if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
-  /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-    -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json -s || true
-fi
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json -s
 
 sleep 30
 ( docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps || true ) \

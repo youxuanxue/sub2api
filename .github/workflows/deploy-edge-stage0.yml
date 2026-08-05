@@ -211,7 +211,6 @@ jobs:
           GHCR_OWNER: ${{ github.repository_owner }}
           ACME_EMAIL: ${{ vars.EDGE_ACME_EMAIL }}
           MAIN_GATEWAY_ALLOWED_CIDR: ${{ vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR }}
-          GHCR_PAT_SSM_NAME_OVERRIDE: ${{ vars.EDGE_GHCR_PAT_SSM_NAME }}
         run: |
           set -euo pipefail
           if [ -z "${ACME_EMAIL:-}" ] || [ -z "${MAIN_GATEWAY_ALLOWED_CIDR:-}" ]; then
@@ -222,7 +221,7 @@ jobs:
             echo "::error::stack $STACK_NAME already exists; use upgrade/rollback, not provision"
             exit 1
           fi
-          GHCR_PAT_SSM_NAME="${GHCR_PAT_SSM_NAME_OVERRIDE:-${SSM_PREFIX}/ghcr/pat}"
+          GHCR_PAT_SSM_NAME="${SSM_PREFIX}/ghcr/pat"
           PAT_TYPE="$(aws ssm describe-parameters --region "$REGION" \
             --parameter-filters "Key=Name,Option=Equals,Values=$GHCR_PAT_SSM_NAME" \
             --query 'Parameters[0].Type' --output text)"
@@ -332,7 +331,7 @@ jobs:
         run: bash ops/stage0/deploy_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-edge-stage0 edge=$INPUT_EDGE_ID op=$INPUT_OPERATION"
 
       - name: Candidate local health via SSM
-        if: inputs.operation == 'provision' || inputs.allow_migration_candidate == true
+        if: (inputs.operation == 'provision' || inputs.allow_migration_candidate == true) && inputs.operation != 'decommission'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           REGION: ${{ steps.edge.outputs.region }}
@@ -340,6 +339,8 @@ jobs:
           set -euo pipefail
           jq -n '{commands:[
             "set -euo pipefail",
+            "timeout 1200 cloud-init status --wait",
+            "grep -q '\''^BOOTSTRAP_DONE '\'' /var/log/tokenkey-bootstrap.log",
             "cd /var/lib/tokenkey",
             "sudo docker compose --env-file .env ps",
             "sudo docker compose --env-file .env exec -T tokenkey wget -qO- http://localhost:8080/health"
@@ -347,13 +348,27 @@ jobs:
           CMD_ID="$(aws ssm send-command --region "$REGION" --instance-ids "$INSTANCE_ID" \
             --document-name AWS-RunShellScript --comment "candidate-local-smoke edge=$INPUT_EDGE_ID" \
             --parameters file:///tmp/tokenkey-edge-local-smoke.json \
+            --timeout-seconds 1500 \
             --query 'Command.CommandId' --output text)"
-          aws ssm wait command-executed --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID"
-          STATUS="$(aws ssm get-command-invocation --region "$REGION" --command-id "$CMD_ID" \
-            --instance-id "$INSTANCE_ID" --query Status --output text)"
+          STATUS=""
+          for attempt in $(seq 1 150); do
+            if ! STATUS="$(aws ssm get-command-invocation --region "$REGION" --command-id "$CMD_ID" \
+              --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null)"; then
+              STATUS="Pending"
+            fi
+            case "$STATUS" in
+              Success) break ;;
+              Pending|InProgress|Delayed) sleep 10 ;;
+              Failed|TimedOut|Cancelled|Cancelling) break ;;
+              *) sleep 10 ;;
+            esac
+          done
           if [ "$STATUS" != "Success" ]; then
-            aws ssm get-command-invocation --region "$REGION" --command-id "$CMD_ID" \
-              --instance-id "$INSTANCE_ID" --query StandardErrorContent --output text >&2
+            if ! aws ssm get-command-invocation --region "$REGION" --command-id "$CMD_ID" \
+              --instance-id "$INSTANCE_ID" --query StandardErrorContent --output text >&2; then
+              echo "::warning::could not read SSM command stderr for $CMD_ID" >&2
+            fi
+            echo "::error::candidate local health command ended with status=$STATUS" >&2
             exit 1
           fi
 

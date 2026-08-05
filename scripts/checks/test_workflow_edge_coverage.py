@@ -292,6 +292,140 @@ class Ec2WorkflowSafetyContractTest(unittest.TestCase):
             script,
         )
 
+    def test_provision_uses_the_edge_owned_ghcr_pat_path(self) -> None:
+        provision_step = next(
+            step for step in self._load_steps() if step.get("id") == "provision"
+        )
+        self.assertNotIn("GHCR_PAT_SSM_NAME_OVERRIDE", provision_step.get("env", {}))
+        script = str(provision_step.get("run", ""))
+        self.assertIn('GHCR_PAT_SSM_NAME="${SSM_PREFIX}/ghcr/pat"', script)
+        self.assertNotIn("GHCR_PAT_SSM_NAME_OVERRIDE", script)
+
+    def _run_candidate_health(
+        self,
+        *,
+        waiter_exit: int,
+        statuses: tuple[str, ...],
+    ) -> tuple[subprocess.CompletedProcess[str], dict, str]:
+        step = next(
+            item for item in self._load_steps()
+            if item.get("name") == "Candidate local health via SSM"
+        )
+        smoke_payload = pathlib.Path("/tmp/tokenkey-edge-local-smoke.json")
+        smoke_payload.unlink(missing_ok=True)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                root = pathlib.Path(d)
+                bin_dir = root / "bin"
+                bin_dir.mkdir()
+                aws_log = root / "aws.log"
+                payload_capture = root / "payload.json"
+                status_file = root / "statuses"
+                status_file.write_text("\n".join(statuses) + "\n", encoding="utf-8")
+                aws = bin_dir / "aws"
+                aws.write_text(r'''#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$AWS_LOG"
+case "$*" in
+  "ssm send-command"*)
+    for arg in "$@"; do
+      case "$arg" in file://*) cp "${arg#file://}" "$PAYLOAD_CAPTURE" ;; esac
+    done
+    echo cmd-123
+    ;;
+  "ssm wait command-executed"*) exit "${WAITER_EXIT}" ;;
+  *"--query Status --output text"*)
+    count="$(cat "$STATUS_COUNT" 2>/dev/null || echo 0)"
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$STATUS_COUNT"
+    value="$(sed -n "${count}p" "$STATUS_FILE")"
+    [ -n "$value" ] || value="$(tail -1 "$STATUS_FILE")"
+    printf '%s\n' "$value"
+    ;;
+  *"--query StandardErrorContent --output text"*) echo command-failed ;;
+  *) echo "unexpected aws call: $*" >&2; exit 90 ;;
+esac
+''', encoding="utf-8")
+                aws.chmod(0o755)
+                sleep = bin_dir / "sleep"
+                sleep.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+                sleep.chmod(0o755)
+                env = os.environ.copy()
+                env.update({
+                    "PATH": f"{bin_dir}:{env['PATH']}",
+                    "AWS_LOG": str(aws_log),
+                    "PAYLOAD_CAPTURE": str(payload_capture),
+                    "STATUS_COUNT": str(root / "status-count"),
+                    "STATUS_FILE": str(status_file),
+                    "WAITER_EXIT": str(waiter_exit),
+                    "INPUT_EDGE_ID": "us5",
+                    "INSTANCE_ID": "i-11111111",
+                    "REGION": "us-west-2",
+                })
+                completed = subprocess.run(
+                    ["bash", "-c", str(step["run"])],
+                    cwd=pathlib.Path(__file__).resolve().parents[2],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                payload = (
+                    json.loads(payload_capture.read_text(encoding="utf-8"))
+                    if payload_capture.exists()
+                    else {}
+                )
+                return completed, payload, aws_log.read_text(encoding="utf-8")
+        finally:
+            smoke_payload.unlink(missing_ok=True)
+
+    def test_candidate_health_waits_for_cloud_init_before_docker(self) -> None:
+        completed, payload, _ = self._run_candidate_health(
+            waiter_exit=0,
+            statuses=("Success",),
+        )
+        self.assertEqual(
+            0,
+            completed.returncode,
+            f"stdout:{completed.stdout}\nstderr:{completed.stderr}",
+        )
+        commands = payload["commands"]
+        cloud_init_commands = [
+            index for index, command in enumerate(commands)
+            if "cloud-init status --wait" in command
+        ]
+        self.assertEqual(
+            1,
+            len(cloud_init_commands),
+            f"candidate smoke must wait for cloud-init exactly once: {commands}",
+        )
+        cloud_init = cloud_init_commands[0]
+        docker = next(
+            index for index, command in enumerate(commands)
+            if "docker compose" in command
+        )
+        self.assertLess(cloud_init, docker)
+
+    def test_candidate_health_polls_long_command_without_aws_waiter_timeout(self) -> None:
+        completed, _, aws_calls = self._run_candidate_health(
+            waiter_exit=42,
+            statuses=("InProgress", "Success"),
+        )
+        self.assertEqual(
+            0,
+            completed.returncode,
+            f"stdout:{completed.stdout}\nstderr:{completed.stderr}",
+        )
+        self.assertNotIn("ssm wait command-executed", aws_calls)
+
+    def test_decommission_skips_candidate_health(self) -> None:
+        step = next(
+            item for item in self._load_steps()
+            if item.get("name") == "Candidate local health via SSM"
+        )
+        condition = str(step.get("if", ""))
+        self.assertIn("inputs.operation != 'decommission'", condition)
+
     def _run_operation_validation(
         self,
         *,

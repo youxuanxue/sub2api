@@ -747,12 +747,48 @@ def build_set_schedulable_sql(name: str, value: bool) -> str:
     ])
 
 
+def build_soft_delete_sql(account_ids: list[int]) -> str:
+    if (
+        not account_ids
+        or any(type(account_id) is not int or account_id <= 0 for account_id in account_ids)
+        or len(set(account_ids)) != len(account_ids)
+    ):
+        raise ValueError("account_ids must be unique positive integers")
+    id_list = ",".join(str(account_id) for account_id in account_ids)
+    expected_rows = len(account_ids)
+    return "\n".join([
+        "DO $delete$",
+        "DECLARE",
+        "  affected bigint;",
+        "BEGIN",
+        "  UPDATE accounts SET deleted_at = now(), schedulable = false, updated_at = now()",
+        f"  WHERE id IN ({id_list}) AND deleted_at IS NULL;",
+        "  GET DIAGNOSTICS affected = ROW_COUNT;",
+        f"  IF affected <> {expected_rows} THEN",
+        f"    RAISE EXCEPTION 'expected {expected_rows} accounts, updated %', affected;",
+        "  END IF;",
+        "  IF EXISTS (",
+        "    SELECT 1 FROM accounts",
+        f"    WHERE id IN ({id_list})",
+        "      AND (deleted_at IS NULL OR schedulable IS DISTINCT FROM false)",
+        "  ) THEN",
+        "    RAISE EXCEPTION 'soft-delete verification failed';",
+        "  END IF;",
+        f"  DELETE FROM account_groups WHERE account_id IN ({id_list});",
+        "  INSERT INTO scheduler_outbox (event_type, payload, created_at)",
+        "  VALUES ('full_rebuild', NULL, now());",
+        "END",
+        "$delete$;",
+    ])
+
+
 SELF_CHECK_EXEMPT: dict[str, str] = {}
 
 
 def iter_self_check_sql() -> list[tuple[str, str]]:
     return [
         ("build_set_schedulable_sql", build_set_schedulable_sql("weird'name", False)),
+        ("build_soft_delete_sql", build_soft_delete_sql([11, 12])),
     ]
 
 
@@ -781,28 +817,21 @@ def cmd_soft_delete(args: argparse.Namespace) -> None:
         acct_ids = parse_account_ids(args.account_ids)
     except ValueError as exc:
         die(str(exc))
-    region, iid = resolve_edge(args.from_target)
     id_list = ",".join(str(i) for i in acct_ids)
-    sql = (
-        f"UPDATE accounts SET deleted_at=now(), schedulable=false, updated_at=now() "
-        f"WHERE id IN ({id_list}) AND deleted_at IS NULL; "
-        f"DELETE FROM account_groups WHERE account_id IN ({id_list}); "
-        "INSERT INTO scheduler_outbox (event_type, payload, created_at) "
-        "VALUES ('full_rebuild', NULL, now());"
-    )
+    sql = build_soft_delete_sql(acct_ids)
+    region, iid = resolve_edge(args.from_target)
     if not args.execute:
         print(f"DRY RUN soft-delete accounts {id_list} on {args.from_target}")
         print(sql)
         return
-    verify_sql = (f"SELECT id||' deleted_at='||COALESCE(deleted_at::text,'NULL') "
-                  f"FROM accounts WHERE id IN ({id_list})")  # ops-allow-soft-deleted: verifies the soft-delete set deleted_at — must read the now-deleted rows
     out = ssm_run(region, iid, [
         "set -euo pipefail",
         f"{PG} -c {shq(sql)}",
-        f"{PG} -c {shq(verify_sql)}",
         "echo DELETE_OK",
     ], f"soft-delete {id_list}")
-    print(out)
+    if "DELETE_OK" not in out.splitlines():
+        die("soft-delete did not confirm the exact requested account set")
+    print("DELETE_OK")
 
 
 # ---------------------------------------------------------------------------

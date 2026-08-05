@@ -12,6 +12,8 @@ _REPO = pathlib.Path(__file__).resolve().parents[3]
 STAGE0 = _REPO / "deploy/aws/stage0"
 CFN_MAIN = _REPO / "deploy/aws/cloudformation/stage0-single-ec2.yaml"
 CFN_EDGE = _REPO / "deploy/aws/cloudformation/stage0-edge-ec2.yaml"
+BOOTSTRAP = STAGE0 / "stage0-ec2-bootstrap.sh"
+USERDATA_LAUNCHER = STAGE0 / "stage0-ec2-userdata-launcher.sub.sh"
 
 EC2_USERDATA_LIMIT = 16384
 SSM_STANDARD_LIMIT = 4096
@@ -40,6 +42,47 @@ def _extract_instance_body(cfn_text: str) -> str:
 
 
 class BuildCfnSizeTest(unittest.TestCase):
+    def test_bootstrap_and_userdata_launchers_do_not_enable_xtrace(self) -> None:
+        artifacts = {
+            "bootstrap": BOOTSTRAP.read_text(encoding="utf-8"),
+            "launcher": USERDATA_LAUNCHER.read_text(encoding="utf-8"),
+            "prod UserData": _extract_userdata_body(CFN_MAIN.read_text(encoding="utf-8")),
+            "edge UserData": _extract_userdata_body(CFN_EDGE.read_text(encoding="utf-8")),
+        }
+        for label, script in artifacts.items():
+            with self.subTest(artifact=label):
+                option_sets = re.findall(r"(?m)^\s*set -([A-Za-z]+)", script)
+                self.assertTrue(option_sets, f"{label} has no fail-closed shell options")
+                self.assertTrue(
+                    all("x" not in options for options in option_sets),
+                    f"{label} enables xtrace and can expose bootstrap secrets: {option_sets}",
+                )
+
+    def test_cloudwatch_agent_install_is_required(self) -> None:
+        script = BOOTSTRAP.read_text(encoding="utf-8")
+        install_line = next(
+            line for line in script.splitlines()
+            if "latest/amazon-cloudwatch-agent.rpm" in line
+        )
+        self.assertNotIn(
+            "|| true",
+            install_line,
+            "bootstrap must fail before writing agent config when the required package cannot install",
+        )
+
+    def test_cloudwatch_agent_start_is_required(self) -> None:
+        script = BOOTSTRAP.read_text(encoding="utf-8")
+        collapsed = re.sub(r"\\\n\s*", " ", script)
+        self.assertNotIn(
+            "if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then",
+            script,
+        )
+        self.assertNotRegex(
+            collapsed,
+            r"amazon-cloudwatch-agent-ctl .* -s \|\| true",
+            "BOOTSTRAP_DONE must require CloudWatch agent startup to succeed",
+        )
+
     def test_prod_userdata_under_ec2_limit(self) -> None:
         body = _extract_userdata_body(CFN_MAIN.read_text())
         self.assertLessEqual(
