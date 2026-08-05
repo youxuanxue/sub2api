@@ -99,6 +99,20 @@ class Stage0EdgeEc2ContractTest(unittest.TestCase):
         self.assertIn("AllocationId: !Ref EipAllocationId", association)
         self.assertIn("InstanceId: !Ref Instance", association)
 
+    def test_first_boot_has_egress_before_eip_association(self) -> None:
+        subnet = section(template_text(), "PublicSubnet")
+        self.assertIn(
+            "MapPublicIpOnLaunch: true",
+            subnet,
+            "UserData needs temporary public egress before the external EIP association exists",
+        )
+
+    def test_instance_can_attach_only_its_tagged_data_volume(self) -> None:
+        role = section(template_text(), "InstanceRole")
+        self.assertIn("Action: ec2:AttachVolume", role)
+        self.assertIn("'ec2:ResourceTag/Project': !Ref ProjectName", role)
+        self.assertIn("'ec2:ResourceTag/EdgeId': !Ref EdgeId", role)
+
     def test_cpu_and_disk_alarms_match_unlimited_semantics(self) -> None:
         text = template_text()
         alarms = {

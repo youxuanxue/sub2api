@@ -156,7 +156,10 @@ Resources:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [0, !GetAZs '']
       CidrBlock: !Ref PublicSubnetCidr
-      MapPublicIpOnLaunch: false
+      # UserData starts before the separate EIP association resource completes.
+      # The transient auto-assigned address provides first-boot egress and is
+      # released automatically when the retained external EIP is associated.
+      MapPublicIpOnLaunch: true
       Tags:
         - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-public'}
         - {Key: EdgeId, Value: !Ref EdgeId}
@@ -242,6 +245,10 @@ Resources:
                 Resource:
                   - !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*'
                   - !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+                Condition:
+                  StringEquals:
+                    'ec2:ResourceTag/Project': !Ref ProjectName
+                    'ec2:ResourceTag/EdgeId': !Ref EdgeId
       Tags:
         - {Key: Project, Value: !Ref ProjectName}
         - {Key: EdgeId, Value: !Ref EdgeId}
