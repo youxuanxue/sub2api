@@ -382,9 +382,8 @@ func (s *Service) UserMayExportAPIKey(ctx context.Context, userID, apiKeyID int6
 	return group != nil && slices.Contains(engine.TrajProjectablePlatforms(), group.Platform), nil
 }
 
-// exportPredicates builds the qa_records WHERE clause shared by the streaming
-// export and queryExportRecords. user_id scope is always present; APIKeyID and
-// the fixed request window narrow it.
+// exportPredicates builds the qa_records WHERE clause for streaming exports.
+// user_id scope is always present; APIKeyID and the fixed request window narrow it.
 func (s *Service) exportPredicates(userID int64, filter ExportFilter) []predicate.QARecord {
 	predicates := []predicate.QARecord{qarecord.UserIDEQ(userID)}
 	if filter.APIKeyID != nil {
@@ -397,13 +396,6 @@ func (s *Service) exportPredicates(userID int64, filter ExportFilter) []predicat
 		predicates = append(predicates, qarecord.CreatedAtLTE(filter.Until))
 	}
 	return predicates
-}
-
-func (s *Service) queryExportRecords(ctx context.Context, userID int64, filter ExportFilter) ([]*ent.QARecord, error) {
-	return s.client.QARecord.Query().
-		Where(s.exportPredicates(userID, filter)...).
-		Order(ent.Asc(qarecord.FieldCreatedAt)).
-		All(ctx)
 }
 
 func (s *Service) loadEvidenceBlob(ctx context.Context, blobURI string) ([]byte, error) {

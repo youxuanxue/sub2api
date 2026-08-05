@@ -403,7 +403,7 @@ func TestExportUserTrajectoryData_ScopedByAPIKey(t *testing.T) {
 	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{requestID: "key2-a", userID: 7, apiKeyID: 2, createdAt: now.Add(-30 * time.Minute)}, simpleBlob)
 
 	key1 := int64(1)
-	recs, err := svc.queryExportRecords(ctx, 7, ExportFilter{APIKeyID: &key1})
+	recs, err := client.QARecord.Query().Where(svc.exportPredicates(7, ExportFilter{APIKeyID: &key1})...).All(ctx)
 	require.NoError(t, err)
 	require.Len(t, recs, 2, "only key 1's two records, key 2 excluded")
 	for _, r := range recs {
@@ -411,7 +411,7 @@ func TestExportUserTrajectoryData_ScopedByAPIKey(t *testing.T) {
 	}
 
 	// Foreign user id with the same key id → zero rows (user scope ANDs first).
-	foreign, err := svc.queryExportRecords(ctx, 8, ExportFilter{APIKeyID: &key1})
+	foreign, err := client.QARecord.Query().Where(svc.exportPredicates(8, ExportFilter{APIKeyID: &key1})...).All(ctx)
 	require.NoError(t, err)
 	require.Empty(t, foreign)
 

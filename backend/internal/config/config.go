@@ -183,15 +183,15 @@ type UpdateConfig struct {
 }
 
 type QACaptureConfig struct {
-	Enabled           bool                   `mapstructure:"enabled"`
-	BodyMaxBytes      int                    `mapstructure:"body_max_bytes"`
-	OptInBodyMaxBytes int                    `mapstructure:"opt_in_body_max_bytes"`
+	Enabled           bool `mapstructure:"enabled"`
+	BodyMaxBytes      int  `mapstructure:"body_max_bytes"`
+	OptInBodyMaxBytes int  `mapstructure:"opt_in_body_max_bytes"`
 	// RetentionDays is transitional until Phase 4 replaces the daily cleanup;
 	// it is not the QA lifecycle source of truth.
-	RetentionDays     int                    `mapstructure:"retention_days"`
-	WorkerCount       int                    `mapstructure:"worker_count"`
-	QueueSize         int                    `mapstructure:"queue_size"`
-	Storage           QACaptureStorageConfig `mapstructure:"storage"`
+	RetentionDays int                    `mapstructure:"retention_days"`
+	WorkerCount   int                    `mapstructure:"worker_count"`
+	QueueSize     int                    `mapstructure:"queue_size"`
+	Storage       QACaptureStorageConfig `mapstructure:"storage"`
 	// ExportStorage is the transitional user-requested ZIP artifact destination.
 	// It is not the raw QA archive; capture blobs always use Storage.
 	ExportStorage QACaptureStorageConfig `mapstructure:"export_storage"`
