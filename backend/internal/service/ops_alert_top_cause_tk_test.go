@@ -304,3 +304,22 @@ func TestFormatRoutingRejectionByPlatform(t *testing.T) {
 		require.Contains(t, got, "#7")
 	})
 }
+
+func TestSanitizeFeishuUpstreamRootMessage_RestoresMaskedDashScopeHelpURL(t *testing.T) {
+	masked := "limit_requests: You have exceeded your current request limit. For details, see: " + maskedPublicHelpURL
+	got := sanitizeFeishuUpstreamRootMessage(masked)
+	require.Contains(t, got, dashScopeHelpURLRateLimit)
+	require.NotContains(t, got, maskedPublicHelpURL)
+	require.NotContains(t, got, "*")
+}
+
+func TestFormatUserVisibleFailureRoot_PreservesDashScopeHelpURL(t *testing.T) {
+	const upstreamMsg = "You have exceeded your current request limit. For details, see: " + dashScopeHelpURLRateLimit
+	got := formatUserVisibleFailureRoot([]*OpsUserVisibleFailureRoot{{
+		Phase: "upstream", Owner: "provider", Platform: "newapi", Model: "qwen3-14b",
+		AccountID: 60, Message: upstreamMsg, Count: 36,
+	}})
+	require.Contains(t, got, dashScopeHelpURLRateLimit)
+	require.NotContains(t, got, maskedPublicHelpURL)
+	require.Contains(t, got, "account #60")
+}
