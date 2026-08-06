@@ -95,6 +95,9 @@ run_infra_smoke() {
     "cd /var/lib/tokenkey"
     "sudo docker compose version"
     "sudo docker compose -f docker-compose.yml --env-file .env ps"
+    'qa_cap=$(sudo docker compose -f docker-compose.yml --env-file .env exec -T tokenkey printenv QA_CAPTURE_ENABLED 2>/dev/null || echo missing)'
+    'echo "tk_edge_post_deploy_smoke: container QA_CAPTURE_ENABLED=${qa_cap}"'
+    'if [ "${qa_cap}" != "false" ]; then echo "tk_edge_post_deploy_smoke: edge QA capture must be disabled (QA_CAPTURE_ENABLED=false)" >&2; exit 1; fi'
     "sudo docker compose -f docker-compose.yml --env-file .env exec -T tokenkey wget -qO- http://localhost:8080/health"
   )
 

@@ -1231,6 +1231,20 @@ else
     echo "  ok: one approved QA lifecycle owner; retired conflicts remain absent"
 fi
 
+# ---- sub2api: QA Phase 1 edge baseline probe (read-only ops) ---------------
+# Owner: ops/qa/edge_phase1_baseline.py — soak verification for edge capture=false.
+echo ""
+echo "=== sub2api: QA Phase 1 edge baseline probe ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by edge_phase1_baseline.py)"
+    errors=$((errors + 1))
+elif ! python3 -m py_compile ./ops/qa/edge_phase1_baseline.py; then
+    echo "  FAIL: edge_phase1_baseline.py does not compile"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge_phase1_baseline.py present (Phase 1 soak probe wired)"
+fi
+
 # ---- sub2api: QA evidence dataset validator ----------------------------------------
 # Source of truth: scripts/checks/qa-evidence-dataset.py. Verifies that the standalone
 # QA evidence dataset gate remains executable from repo root and the regression

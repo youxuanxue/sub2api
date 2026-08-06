@@ -86,11 +86,16 @@ class QAExportInjectionRenderTest(unittest.TestCase):
         self.assertIn('grep -q "${key}=" "$CF"', compose_cmd)    # guarded insertion
 
     def test_edge_gets_no_qa_injection(self) -> None:
-        # mi-* + EDGE_ID is the edge arm: the command list must be byte-identical
-        # to the pre-change baseline (empty injection array).
+        # mi-* + EDGE_ID is the edge arm: no prod QA export/storage injection.
         proc, commands = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertEqual(_qa_cmds(commands), [])
+
+    def test_edge_gets_qa_capture_disable_not_export(self) -> None:
+        proc, commands = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        capture_cmds = [c for c in commands if "QA_CAPTURE_ENABLED" in c]
+        self.assertEqual(len(capture_cmds), 2)
 
     def test_prod_minus_edge_is_only_the_prod_only_injections(self) -> None:
         # The only difference between prod and edge is the prod-only injected
@@ -106,7 +111,9 @@ class QAExportInjectionRenderTest(unittest.TestCase):
             or "GATEWAY_IMAGE_CONCURRENCY" in c
         )
         self.assertEqual(injected, 6)
-        self.assertEqual(len(prod) - len(edge), injected)
+        edge_capture = sum(1 for c in edge if "QA_CAPTURE_ENABLED" in c)
+        self.assertEqual(edge_capture, 2)
+        self.assertEqual(len(prod) - len(edge), injected - edge_capture)
 
     def test_values_are_env_overridable(self) -> None:
         proc, commands = _render(_PROD_IID, env_extra={
