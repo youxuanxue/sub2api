@@ -36,6 +36,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/qaarchiveshard"
 	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
@@ -839,6 +840,33 @@ func (f TraverseProxy) Traverse(ctx context.Context, q ent.Query) error {
 	return fmt.Errorf("unexpected query type %T. expect *ent.ProxyQuery", q)
 }
 
+// The QAArchiveShardFunc type is an adapter to allow the use of ordinary function as a Querier.
+type QAArchiveShardFunc func(context.Context, *ent.QAArchiveShardQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f QAArchiveShardFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.QAArchiveShardQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.QAArchiveShardQuery", q)
+}
+
+// The TraverseQAArchiveShard type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseQAArchiveShard func(context.Context, *ent.QAArchiveShardQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseQAArchiveShard) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseQAArchiveShard) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.QAArchiveShardQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.QAArchiveShardQuery", q)
+}
+
 // The QAExportJobFunc type is an adapter to allow the use of ordinary function as a Querier.
 type QAExportJobFunc func(context.Context, *ent.QAExportJobQuery) (ent.Value, error)
 
@@ -1328,6 +1356,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.PromoCodeUsageQuery, predicate.PromoCodeUsage, promocodeusage.OrderOption]{typ: ent.TypePromoCodeUsage, tq: q}, nil
 	case *ent.ProxyQuery:
 		return &query[*ent.ProxyQuery, predicate.Proxy, proxy.OrderOption]{typ: ent.TypeProxy, tq: q}, nil
+	case *ent.QAArchiveShardQuery:
+		return &query[*ent.QAArchiveShardQuery, predicate.QAArchiveShard, qaarchiveshard.OrderOption]{typ: ent.TypeQAArchiveShard, tq: q}, nil
 	case *ent.QAExportJobQuery:
 		return &query[*ent.QAExportJobQuery, predicate.QAExportJob, qaexportjob.OrderOption]{typ: ent.TypeQAExportJob, tq: q}, nil
 	case *ent.QARecordQuery:

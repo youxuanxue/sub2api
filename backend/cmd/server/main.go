@@ -70,6 +70,18 @@ func main() {
 		return
 	}
 
+	if qaMaintenanceRequested(os.Args[1:]) {
+		if err := runQAMaintenanceCommand(
+			context.Background(),
+			os.Args[1:],
+			os.Stdout,
+			defaultQAMaintenanceDeps(),
+		); err != nil {
+			log.Fatalf("QA maintenance failed: %v", err)
+		}
+		return
+	}
+
 	// Parse command line flags
 	setupMode := flag.Bool("setup", false, "Run setup wizard in CLI mode")
 	// Some imported dependencies (e.g. new-api/common) also register "-version"
