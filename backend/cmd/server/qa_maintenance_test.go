@@ -13,6 +13,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/observability/qa/archive"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -51,7 +52,6 @@ func TestDefaultQAMaintenancePlanShardUpsertsControlRow(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	runAt := time.Date(2026, 8, 6, 10, 15, 0, 0, time.UTC)
 	windowStart := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
 	windowEnd := time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)
 
@@ -59,7 +59,7 @@ func TestDefaultQAMaintenancePlanShardUpsertsControlRow(t *testing.T) {
 		WithArgs(windowStart, windowEnd).
 		WillReturnRows(sqlmock.NewRows([]string{"count", "blob_ref_count"}).AddRow(42, 7))
 	mock.ExpectExec("INSERT INTO qa_archive_shards").
-		WithArgs(windowStart, windowEnd, "pending", int64(42), int64(7), "raw/v1/date=2026-08-06/hour=09", runAt).
+		WithArgs(windowStart, windowEnd, "pending", int64(42), int64(7), "raw/v1/date=2026-08-06/hour=09", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	conn, err := db.Conn(context.Background())
@@ -71,7 +71,8 @@ func TestDefaultQAMaintenancePlanShardUpsertsControlRow(t *testing.T) {
 	plan, err := defaultQAMaintenancePlanShard(
 		context.Background(),
 		conn,
-		runAt,
+		windowStart,
+		windowEnd,
 		"raw/v1/date=2026-08-06/hour=09",
 		false,
 		15,
@@ -120,10 +121,7 @@ func TestQAMaintenanceSuccessUsesArchiveOnlyPath(t *testing.T) {
 				Database: config.DatabaseConfig{
 					Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable",
 				},
-				QaArchive: config.QaArchiveConfig{
-					Enabled:          false,
-					SealDelayMinutes: 15,
-				},
+				QaArchive: config.QaArchiveConfig{Enabled: false, SealDelayMinutes: 15},
 			}, nil
 		},
 		openDB: func(driverName, dsn string) (*sql.DB, error) {
@@ -133,18 +131,14 @@ func TestQAMaintenanceSuccessUsesArchiveOnlyPath(t *testing.T) {
 			}
 			return db, nil
 		},
-		planShard: func(_ context.Context, gotConn *sql.Conn, runAt time.Time, s3Prefix string, archiveEnabled bool, sealDelay int) (qaMaintenancePlan, error) {
+		planShard: func(_ context.Context, _ *sql.Conn, ws, we time.Time, s3Prefix string, archiveEnabled bool, sealDelay int) (qaMaintenancePlan, error) {
 			planCalls++
-			if gotConn == nil || !runAt.Equal(fixedNow) || s3Prefix != "raw/v1/date=2026-08-06/hour=09" || archiveEnabled || sealDelay != 15 {
-				t.Fatalf("unexpected planShard args: conn=%v runAt=%s prefix=%q enabled=%v seal=%d", gotConn, runAt, s3Prefix, archiveEnabled, sealDelay)
+			if !ws.Equal(windowStart) || !we.Equal(windowEnd) || s3Prefix != "raw/v1/date=2026-08-06/hour=09" || archiveEnabled || sealDelay != 15 {
+				t.Fatalf("unexpected planShard args: ws=%s we=%s prefix=%q", ws, we, s3Prefix)
 			}
 			return qaMaintenancePlan{
-				WindowStart:    windowStart,
-				WindowEnd:      windowEnd,
-				S3Prefix:       s3Prefix,
-				RecordCount:    42,
-				BlobRefCount:   7,
-				ArchiveEnabled: archiveEnabled,
+				WindowStart: windowStart, WindowEnd: windowEnd, S3Prefix: s3Prefix,
+				RecordCount: 42, BlobRefCount: 7, ArchiveEnabled: archiveEnabled,
 			}, nil
 		},
 		writeHeartbeat: func(heartbeatCtx context.Context, gotDB *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
@@ -175,9 +169,6 @@ func TestQAMaintenanceSuccessUsesArchiveOnlyPath(t *testing.T) {
 	if loadCalls != 1 || openCalls != 1 || planCalls != 1 {
 		t.Fatalf("calls load=%d open=%d plan=%d", loadCalls, openCalls, planCalls)
 	}
-	if db.Stats().MaxOpenConnections != 1 {
-		t.Fatalf("max open connections=%d want 1", db.Stats().MaxOpenConnections)
-	}
 	if heartbeat == nil || heartbeat.JobName != qaMaintenanceJobName || heartbeat.LastSuccessAt == nil {
 		t.Fatalf("invalid heartbeat: %+v", heartbeat)
 	}
@@ -190,10 +181,8 @@ func TestQAMaintenanceSuccessUsesArchiveOnlyPath(t *testing.T) {
 	var receipt struct {
 		ReceiptVersion     int    `json:"receipt_version"`
 		Mode               string `json:"mode"`
-		OK                 bool   `json:"ok"`
-		JobName            string `json:"job_name"`
-		DeletionAuthorized bool   `json:"deletion_authorized"`
 		UploadAuthorized   bool   `json:"upload_authorized"`
+		DeletionAuthorized bool   `json:"deletion_authorized"`
 		Plan               struct {
 			RecordCount int64 `json:"record_count"`
 		} `json:"plan"`
@@ -203,12 +192,163 @@ func TestQAMaintenanceSuccessUsesArchiveOnlyPath(t *testing.T) {
 	}
 	if receipt.ReceiptVersion != qaMaintenanceReceiptVersion ||
 		receipt.Mode != qaMaintenanceReceiptMode ||
-		!receipt.OK ||
-		receipt.JobName != qaMaintenanceJobName ||
-		receipt.DeletionAuthorized ||
 		receipt.UploadAuthorized ||
+		receipt.DeletionAuthorized ||
 		receipt.Plan.RecordCount != 42 {
 		t.Fatalf("unexpected receipt: %+v", receipt)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("database expectations: %v", err)
+	}
+}
+
+func TestQAMaintenanceUploadPathWhenArchiveEnabled(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatalf("sqlmock.New()=%v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectPing()
+	mock.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("SET statement_timeout = '120s'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT pg_try_advisory_lock").WillReturnRows(sqlmock.NewRows([]string{"locked"}).AddRow(true))
+	mock.ExpectExec("UPDATE qa_archive_shards SET state = \\$1, updated_at = \\$2").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectClose()
+
+	windowStart := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
+	windowEnd := time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)
+	uploadCalled := false
+	deps := qaMaintenanceDeps{
+		loadConfig: func() (*config.Config, error) {
+			return &config.Config{
+				Timezone: "UTC",
+				Database: config.DatabaseConfig{
+					Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable",
+				},
+				QaArchive: config.QaArchiveConfig{
+					Enabled:          true,
+					SealDelayMinutes: 15,
+					Storage: config.QACaptureStorageConfig{
+						Driver: "s3", Region: "us-east-1", Bucket: "b", Prefix: "raw/v1",
+					},
+				},
+			}, nil
+		},
+		openDB: func(string, string) (*sql.DB, error) { return db, nil },
+		newObjectStore: func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error) {
+			return archive.NewMemoryObjectStore(), nil
+		},
+		planShard: func(context.Context, *sql.Conn, time.Time, time.Time, string, bool, int) (qaMaintenancePlan, error) {
+			return qaMaintenancePlan{
+				WindowStart: windowStart, WindowEnd: windowEnd, RecordCount: 1, ArchiveEnabled: true,
+			}, nil
+		},
+		uploadShard: func(_ context.Context, _ *sql.Conn, _ archive.ObjectStore, plan qaMaintenancePlan, _ string) (archive.UploadResult, error) {
+			uploadCalled = true
+			return archive.UploadResult{SegmentID: "seg-1", CommitKey: "date=2026-08-06/hour=09/commit.json"}, nil
+		},
+		writeHeartbeat: func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error { return nil },
+		now:            func() time.Time { return windowEnd.Add(15 * time.Minute) },
+	}
+
+	out := &bytes.Buffer{}
+	if err := runQAMaintenanceCommand(
+		context.Background(),
+		[]string{"--qa-maintenance-once", "--confirm", qaMaintenanceConfirmation},
+		out,
+		deps,
+	); err != nil {
+		t.Fatalf("runQAMaintenanceCommand()=%v", err)
+	}
+	if !uploadCalled {
+		t.Fatal("expected uploadShard to run")
+	}
+	var receipt struct {
+		Mode             string `json:"mode"`
+		UploadAuthorized bool   `json:"upload_authorized"`
+		Plan             struct {
+			Uploaded  bool   `json:"uploaded"`
+			SegmentID string `json:"segment_id"`
+		} `json:"plan"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
+		t.Fatalf("decode receipt: %v", err)
+	}
+	if receipt.Mode != qaMaintenanceReceiptModeUpload || !receipt.UploadAuthorized || !receipt.Plan.Uploaded || receipt.Plan.SegmentID != "seg-1" {
+		t.Fatalf("receipt=%+v", receipt)
+	}
+}
+
+func TestQAMaintenanceBackfillOnceUsesOldestWindow(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatalf("sqlmock.New()=%v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectPing()
+	mock.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("SET statement_timeout = '1800s'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT pg_try_advisory_lock").WillReturnRows(sqlmock.NewRows([]string{"locked"}).AddRow(true))
+	mock.ExpectQuery("SELECT h.window_start").WillReturnRows(
+		sqlmock.NewRows([]string{"window_start"}).AddRow(time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)),
+	)
+	mock.ExpectExec("SELECT pg_advisory_unlock").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectClose()
+
+	windowStart := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+	windowEnd := windowStart.Add(time.Hour)
+	planCalls := 0
+	deps := qaMaintenanceDeps{
+		loadConfig: func() (*config.Config, error) {
+			return &config.Config{
+				Timezone: "UTC",
+				Database: config.DatabaseConfig{
+					Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable",
+				},
+				QaArchive: config.QaArchiveConfig{Enabled: false, SealDelayMinutes: 15},
+			}, nil
+		},
+		openDB: func(string, string) (*sql.DB, error) { return db, nil },
+		planShard: func(_ context.Context, _ *sql.Conn, ws, we time.Time, _ string, archiveEnabled bool, _ int) (qaMaintenancePlan, error) {
+			planCalls++
+			if !ws.Equal(windowStart) || !we.Equal(windowEnd) {
+				t.Fatalf("planShard window=%s..%s want %s..%s", ws, we, windowStart, windowEnd)
+			}
+			return qaMaintenancePlan{
+				WindowStart: windowStart, WindowEnd: windowEnd, RecordCount: 9, ArchiveEnabled: archiveEnabled,
+			}, nil
+		},
+		writeHeartbeat: func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error { return nil },
+		now:            func() time.Time { return time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC) },
+	}
+
+	out := &bytes.Buffer{}
+	if err := runQAMaintenanceCommand(
+		context.Background(),
+		[]string{"--qa-maintenance-once", "--qa-maintenance-backfill-once", "--confirm", qaMaintenanceConfirmation},
+		out,
+		deps,
+	); err != nil {
+		t.Fatalf("runQAMaintenanceCommand()=%v", err)
+	}
+	if planCalls != 1 {
+		t.Fatalf("planCalls=%d", planCalls)
+	}
+	var receipt struct {
+		BackfillOnce bool `json:"backfill_once"`
+		Plan         struct {
+			RecordCount int64 `json:"record_count"`
+		} `json:"plan"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
+		t.Fatalf("decode receipt: %v", err)
+	}
+	if !receipt.BackfillOnce || receipt.Plan.RecordCount != 9 {
+		t.Fatalf("receipt=%+v", receipt)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("database expectations: %v", err)

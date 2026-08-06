@@ -71,8 +71,21 @@ class TestQAPhaseOps(unittest.TestCase):
         )
         self.assertIn("--qa-maintenance-once", body)
         self.assertIn("tokenkey-prod-qa-maintenance-v1", body)
+        self.assertIn("--install-units", body)
         self.assertNotIn("DELETE FROM qa_records", body)
 
+    def test_qa_maintenance_ops_scripts_compile(self) -> None:
+        for rel in (
+            "ops/qa/prod_qa_maintenance.py",
+            "ops/qa/prod_qa_archive_backfill.py",
+            "ops/qa/prod_apply_tk069_migration.py",
+        ):
+            proc = subprocess.run(
+                [sys.executable, "-m", "py_compile", str(ROOT / rel)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
 
 if __name__ == "__main__":
     raise SystemExit(unittest.main())

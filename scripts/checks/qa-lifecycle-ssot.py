@@ -94,11 +94,26 @@ REQUIRED_BY_FILE = {
     ),
     Path("deploy/aws/stage0/tokenkey-qa-maintenance.sh"): (
         "--qa-maintenance-once",
-        "archive_only_start",
+        "archive_start",
+        "--install-units",
     ),
     Path("backend/cmd/server/qa_maintenance.go"): (
         "qa_maintenance_archive_only",
+        "qa_maintenance_archive",
         "deletion_authorized",
+        "UploadBaseSegment",
+        "qa-maintenance-backfill-once",
+    ),
+    Path("backend/internal/observability/qa/archive/writer.go"): (
+        "records.parquet",
+        "commit.json",
+    ),
+    Path("ops/qa/prod_qa_maintenance.py"): (
+        "tokenkey-prod-qa-maintenance-v1",
+        "deletion_authorized",
+    ),
+    Path("ops/stage0/sync-qa-maintenance-timer-via-ssm.sh"): (
+        "tokenkey-qa-maintenance.timer",
     ),
     Path("ops/archive/data_layer_archive_rehearsal.py"): (
         'DATASETS = ("usage", "ops")',
