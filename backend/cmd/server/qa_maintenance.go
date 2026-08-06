@@ -29,7 +29,7 @@ type qaMaintenanceDeps struct {
 	openDB          func(driverName, dataSourceName string) (*sql.DB, error)
 	tryAdvisoryLock func(context.Context, *sql.Conn) (bool, error)
 	unlockAdvisory  func(context.Context, *sql.Conn) error
-	planShard       func(context.Context, *sql.Conn, time.Time, string, bool) (qaMaintenancePlan, error)
+	planShard       func(context.Context, *sql.Conn, time.Time, string, bool, int) (qaMaintenancePlan, error)
 	writeHeartbeat  func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error
 	now             func() time.Time
 }
@@ -166,9 +166,10 @@ func runQAMaintenanceCommand(
 	defer func() { _ = deps.unlockAdvisory(ctx, conn) }()
 
 	startedAt := deps.now().UTC()
-	windowStart, _ := archive.PreviousSealedHour(startedAt)
+	sealDelayMinutes := cfg.QaArchive.SealDelayMinutes
+	windowStart, _ := archive.PreviousSealedHour(startedAt, sealDelayMinutes)
 	s3Prefix := archive.ShardPrefix(windowStart)
-	plan, err := deps.planShard(ctx, conn, startedAt, s3Prefix, cfg.QaArchive.Enabled)
+	plan, err := deps.planShard(ctx, conn, startedAt, s3Prefix, cfg.QaArchive.Enabled, sealDelayMinutes)
 	if err != nil {
 		return fmt.Errorf("plan qa archive shard: %w", err)
 	}
@@ -228,8 +229,9 @@ func defaultQAMaintenancePlanShard(
 	runAt time.Time,
 	s3Prefix string,
 	archiveEnabled bool,
+	sealDelayMinutes int,
 ) (qaMaintenancePlan, error) {
-	windowStart, windowEnd := archive.PreviousSealedHour(runAt)
+	windowStart, windowEnd := archive.PreviousSealedHour(runAt, sealDelayMinutes)
 	var recordCount int64
 	var blobRefCount int64
 	if err := conn.QueryRowContext(

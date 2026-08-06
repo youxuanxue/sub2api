@@ -16,11 +16,22 @@ func TestShardPrefix(t *testing.T) {
 
 func TestPreviousSealedHour(t *testing.T) {
 	runAt := time.Date(2026, 8, 6, 10, 15, 0, 0, time.UTC)
-	start, end := PreviousSealedHour(runAt)
+	start, end := PreviousSealedHour(runAt, 15)
 	if !start.Equal(time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)) {
 		t.Fatalf("start=%s", start)
 	}
 	if !end.Equal(time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)) {
+		t.Fatalf("end=%s", end)
+	}
+}
+
+func TestPreviousSealedHourRespectsSealDelay(t *testing.T) {
+	runAt := time.Date(2026, 8, 6, 10, 5, 0, 0, time.UTC)
+	start, end := PreviousSealedHour(runAt, 15)
+	if !start.Equal(time.Date(2026, 8, 6, 8, 0, 0, 0, time.UTC)) {
+		t.Fatalf("start=%s", start)
+	}
+	if !end.Equal(time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)) {
 		t.Fatalf("end=%s", end)
 	}
 }
