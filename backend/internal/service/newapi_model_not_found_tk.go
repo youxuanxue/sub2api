@@ -74,12 +74,8 @@ func TkRecordBridgeUpstreamError(c *gin.Context, upstreamStatusCode int, err *ne
 	if c == nil || err == nil {
 		return
 	}
-	code := strings.TrimSpace(string(err.GetErrorCode()))
-	msg := strings.TrimSpace(err.Error())
-	if code != "" {
-		msg = code + ": " + msg
-	}
-	SetOpsUpstreamError(c, upstreamStatusCode, msg, code)
+	msg := tkBridgeUpstreamRelayMessage(err)
+	SetOpsUpstreamError(c, upstreamStatusCode, msg, strings.TrimSpace(string(err.GetErrorCode())))
 }
 
 // tkWrapBridgeRelayError records the real upstream status of a New API bridge

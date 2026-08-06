@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -86,17 +87,46 @@ func tkBridgePenaltyStatusEligible(statusCode int) bool {
 // tkBridgeUpstreamErrorBody synthesizes an OpenAI-style error envelope from the
 // bridge relay error so RateLimitService body parsers (extractUpstreamErrorMessage,
 // parseOpenAIRateLimitResetTime, …) see the upstream message/code. NewAPIError
-// does not retain the raw upstream response body; ToOpenAIError() is the closest
-// faithful projection (it preserves the upstream message and structured code).
+// does not retain the raw upstream response body; prefer the raw RelayError
+// OpenAIError (before ToOpenAIError MaskSensitiveInfo) so ops/alert paths keep
+// public DashScope help URLs intact.
 func tkBridgeUpstreamErrorBody(apiErr *newapitypes.NewAPIError) []byte {
 	if apiErr == nil {
 		return nil
 	}
-	body, err := json.Marshal(map[string]any{"error": apiErr.ToOpenAIError()})
+	var envelope any
+	if oai, ok := tkBridgeUpstreamOpenAIError(apiErr); ok {
+		envelope = oai
+	} else {
+		envelope = apiErr.ToOpenAIError()
+	}
+	body, err := json.Marshal(map[string]any{"error": envelope})
 	if err != nil {
 		return nil
 	}
 	return body
+}
+
+// tkBridgeUpstreamRelayMessage returns the upstream message for ops_error_logs /
+// alert root-cause lines. ToOpenAIError() and MaskSensitiveInfo turn public
+// help.aliyun.com URLs into https://***.com/***/***/***, which Feishu lark_md
+// then renders as https://.com/// — use the raw RelayError envelope instead.
+func tkBridgeUpstreamRelayMessage(apiErr *newapitypes.NewAPIError) string {
+	if apiErr == nil {
+		return ""
+	}
+	code := strings.TrimSpace(string(apiErr.GetErrorCode()))
+	msg := ""
+	if oai, ok := tkBridgeUpstreamOpenAIError(apiErr); ok {
+		msg = strings.TrimSpace(oai.Message)
+	}
+	if msg == "" {
+		msg = strings.TrimSpace(apiErr.Error())
+	}
+	if code != "" && msg != "" {
+		return code + ": " + msg
+	}
+	return msg
 }
 
 // tkBridgeUpstreamOpenAIError returns the raw upstream OpenAI-style envelope

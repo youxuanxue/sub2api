@@ -69,3 +69,22 @@ func TestTkRecordBridgeUpstreamError_RecordsRealUpstream404(t *testing.T) {
 	require.True(t, IsOpenAICompatModelNotFound404(nil, msg.(string)),
 		"recorded message must be recognized as a model-not-found")
 }
+
+func TestTkRecordBridgeUpstreamError_PreservesDashScopeHelpURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	const want = dashScopeHelpURLRateLimit
+	apiErr := newapitypes.WithOpenAIError(newapitypes.OpenAIError{
+		Message: "You have exceeded your current request limit. For details, see: " + want,
+		Type:    "rate_limit_error",
+		Code:    "limit_requests",
+	}, http.StatusTooManyRequests)
+	TkRecordBridgeUpstreamError(c, apiErr.StatusCode, apiErr)
+
+	msg, ok := c.Get(OpsUpstreamErrorMessageKey)
+	require.True(t, ok)
+	require.Contains(t, msg.(string), want)
+	require.NotContains(t, msg.(string), maskedPublicHelpURL)
+}

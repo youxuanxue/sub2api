@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -176,6 +177,23 @@ func TestTkBridgeUpstreamErrorBody_OpenAIEnvelope(t *testing.T) {
 	require.Contains(t, string(body), `"error"`)
 	require.Contains(t, string(body), "Insufficient Balance")
 	require.Nil(t, tkBridgeUpstreamErrorBody(nil))
+}
+
+func TestTkBridgeUpstreamRelayMessage_PreservesDashScopeHelpURL(t *testing.T) {
+	const rateLimitMsg = "limit_requests: You have exceeded your current request limit. For details, see: " + dashScopeHelpURLRateLimit
+	err := newapitypes.WithOpenAIError(newapitypes.OpenAIError{
+		Message: rateLimitMsg,
+		Type:    "rate_limit_error",
+		Code:    "limit_requests",
+	}, http.StatusTooManyRequests)
+
+	got := tkBridgeUpstreamRelayMessage(err)
+	require.Contains(t, got, dashScopeHelpURLRateLimit)
+	require.NotContains(t, got, maskedPublicHelpURL)
+
+	body := string(tkBridgeUpstreamErrorBody(err))
+	require.Contains(t, body, dashScopeHelpURLRateLimit)
+	require.NotContains(t, body, maskedPublicHelpURL)
 }
 
 // The permanent Feishu card must render the upstream detail line when present
