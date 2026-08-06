@@ -49,6 +49,12 @@ class TestQAPhaseOps(unittest.TestCase):
         self.assertIn("QaRawArchiveBucket", body)
         self.assertIn("raw/v1/", body)
         self.assertIn("raw/partial/", body)
+        # S3 Bucket Key grants kms:GenerateDataKey with bucket-level encryption context.
+        self.assertIn(
+            "qa-raw-archive-${AWS::AccountId}'",
+            body,
+        )
+        self.assertIn("kms:EncryptionContext:aws:s3:arn", body)
 
     def test_raw_archive_cfn_grants_kms_to_bucket_principals(self) -> None:
         body = (ROOT / "deploy/aws/cloudformation/stage0-qa-raw-archive.yaml").read_text(

@@ -70,6 +70,9 @@ Resources:
                 kms:ViaService: !Sub 's3.${AWS::Region}.amazonaws.com'
               StringLike:
                 kms:EncryptionContext:aws:s3:arn:
+                  # Bucket Key uses the bucket ARN; object writes may use object ARNs.
+                  - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}/*'
                   - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}/raw/v1/*'
                   - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}/raw/partial/*'
           - !If
