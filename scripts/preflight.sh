@@ -1245,6 +1245,21 @@ else
     echo "  ok: edge_phase1_baseline.py present (Phase 1 soak probe wired)"
 fi
 
+# ---- sub2api: QA Phase 1 closeout + Phase 2 baseline ops -------------------
+echo ""
+echo "=== sub2api: QA Phase 1 closeout + Phase 2 baseline ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by QA phase ops scripts)"
+    errors=$((errors + 1))
+elif ! python3 -m py_compile ./ops/qa/edge_phase1_closeout.py ./ops/qa/prod_phase2_baseline.py; then
+    echo "  FAIL: QA phase ops scripts do not compile"
+    errors=$((errors + 1))
+elif ! python3 ./ops/qa/test_qa_phase_ops.py; then
+    errors=$((errors + 1))
+else
+    echo "  ok: Phase 1 closeout + Phase 2 baseline artifacts compile and regression tests pass"
+fi
+
 # ---- sub2api: QA evidence dataset validator ----------------------------------------
 # Source of truth: scripts/checks/qa-evidence-dataset.py. Verifies that the standalone
 # QA evidence dataset gate remains executable from repo root and the regression

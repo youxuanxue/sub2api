@@ -114,13 +114,6 @@ if ! sudo journalctl --vacuum-size=100M 2>/dev/null; then
   echo "WARN: journal vacuum failed" >&2
   cleanup_failures=$((cleanup_failures + 1))
 fi
-# TRANSITIONAL / NON-SSOT: Phase 1 removes this QA action with Edge QA wiring.
-if [ -x /usr/local/bin/tokenkey-qa-stale-cleanup.sh ]; then
-  if ! sudo /usr/local/bin/tokenkey-qa-stale-cleanup.sh; then
-    echo "WARN: QA stale cleanup failed" >&2
-    cleanup_failures=$((cleanup_failures + 1))
-  fi
-fi
 echo "=== df after ==="
 if ! df -h /; then echo "WARN: df after failed" >&2; fi
 if ! docker system df 2>/dev/null; then echo "WARN: docker system df failed" >&2; fi

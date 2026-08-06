@@ -54,6 +54,14 @@ FORBIDDEN_BY_FILE = {
         "RETBLOB",
         "TOKENKEY_QA_BLOB_DIR",
     ),
+    Path("ops/stage0/sync-edge-host-units-via-ssm.sh"): (
+        "tokenkey-qa-stale-cleanup",
+        "qa-stale-retention.env",
+        "TK_QA_STALE_RETENTION_DAYS",
+    ),
+    Path("ops/stage0/remediate-edge-disk-via-ssm.sh"): (
+        "tokenkey-qa-stale-cleanup",
+    ),
 }
 
 REQUIRED_BY_FILE = {
@@ -70,6 +78,19 @@ REQUIRED_BY_FILE = {
     Path("ops/stage0/deploy_via_ssm.sh"): (
         "edge_qa_capture_cmds",
         "QA_CAPTURE_ENABLED=false",
+    ),
+    Path("ops/qa/edge_phase1_closeout.py"): (
+        "TRUNCATE qa_records",
+        "tokenkey-qa-stale-cleanup.timer",
+    ),
+    Path("ops/qa/prod_phase2_baseline.py"): (
+        "tokenkey-prod-qa-raw-archive",
+        "QA_CAPTURE_ENABLED",
+    ),
+    Path("deploy/aws/cloudformation/stage0-qa-raw-archive.yaml"): (
+        "QaRawArchiveBucket",
+        "raw/v1/",
+        "raw/partial/",
     ),
     Path("ops/archive/data_layer_archive_rehearsal.py"): (
         'DATASETS = ("usage", "ops")',

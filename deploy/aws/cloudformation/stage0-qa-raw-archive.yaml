@@ -1,0 +1,169 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  tokenkey Stage 0 standalone QA raw archive bucket (Phase 2). Separate from
+  QaExportsBucket (user trajectory ZIP artifacts) and generic data-layer archive.
+  Lifecycle owner: docs/approved/design-prod-qa-24h-s3-lifecycle.md §8.1.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: tokenkey
+  Environment:
+    Type: String
+    Default: prod
+  RawRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 30
+    Description: Days to keep committed raw/v1/ shard objects.
+  PartialRetentionDays:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 7
+    Description: Days to keep incomplete raw/partial/ shard objects.
+  AppInstanceRoleArn:
+    Type: String
+    Description: >
+      Prod app instance role allowed to write raw archive shards (PutObject/HeadObject
+      on raw/ prefixes). Same direct-role-ARN pattern as stage0-backups.yaml.
+  OpsRecoveryRoleArn:
+    Type: String
+    Default: ''
+    Description: >
+      Optional ops recovery role for audited GetObject/ListBucket on raw/ prefixes.
+
+Conditions:
+  HasOpsRecoveryRole: !Not [!Equals [!Ref OpsRecoveryRoleArn, '']]
+
+Resources:
+  QaRawArchiveKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: SSE-KMS key for tokenkey prod QA raw archive bucket
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowRootAccountAdmin
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+
+  QaRawArchiveKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 'alias/${ProjectName}-${Environment}-qa-raw-archive'
+      TargetKeyId: !Ref QaRawArchiveKey
+
+  QaRawArchiveBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt QaRawArchiveKey.Arn
+            BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: Suspended
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-raw-v1-shards
+            Status: Enabled
+            Prefix: raw/v1/
+            ExpirationInDays: !Ref RawRetentionDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+          - Id: expire-raw-partial-shards
+            Status: Enabled
+            Prefix: raw/partial/
+            ExpirationInDays: !Ref PartialRetentionDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  QaRawArchiveBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref QaRawArchiveBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt QaRawArchiveBucket.Arn
+              - !Sub '${QaRawArchiveBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          - Sid: AllowAppInstanceRoleWriteRaw
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+              - 's3:AbortMultipartUpload'
+              - 's3:ListMultipartUploadParts'
+            Resource:
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/*'
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/partial/*'
+          - Sid: AllowAppInstanceRoleHeadRaw
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action: 's3:GetObject'
+            Resource:
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/*'
+              - !Sub '${QaRawArchiveBucket.Arn}/raw/partial/*'
+          - Sid: AllowAppInstanceRoleListRawPrefix
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action: 's3:ListBucket'
+            Resource: !GetAtt QaRawArchiveBucket.Arn
+            Condition:
+              StringLike:
+                's3:prefix':
+                  - 'raw/v1/*'
+                  - 'raw/partial/*'
+          - !If
+            - HasOpsRecoveryRole
+            - Sid: AllowOpsRecoveryRoleReadRaw
+              Effect: Allow
+              Principal:
+                AWS: !Ref OpsRecoveryRoleArn
+              Action:
+                - 's3:GetObject'
+                - 's3:ListBucket'
+              Resource:
+                - !GetAtt QaRawArchiveBucket.Arn
+                - !Sub '${QaRawArchiveBucket.Arn}/raw/*'
+            - !Ref AWS::NoValue
+
+Outputs:
+  QaRawArchiveBucketName:
+    Description: Prod QA raw archive bucket (7d committed / 1d partial lifecycle)
+    Value: !Ref QaRawArchiveBucket
+  QaRawArchiveBucketArn:
+    Value: !GetAtt QaRawArchiveBucket.Arn
+  QaRawArchiveKmsKeyArn:
+    Value: !GetAtt QaRawArchiveKey.Arn
+  QaRawArchiveS3Uri:
+    Value: !Sub 's3://${QaRawArchiveBucket}/raw/v1/'

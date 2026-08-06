@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Read-only edge QA Phase 1 baseline probe (capture env, timer, blob footprint)."""
+"""One-shot Edge QA Phase 1 closeout: purge stale QA data and remove host QA wiring."""
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import subprocess
 import sys
@@ -15,21 +16,69 @@ from edge_ssm_execution import resolve_edge_execution_identity  # noqa: E402
 
 REMOTE = r"""set -euo pipefail
 cd /var/lib/tokenkey
-tag=$(sudo docker compose -f docker-compose.yml --env-file .env ps --format json 2>/dev/null | python3 -c "import json,sys; rows=[json.loads(l) for l in sys.stdin if l.strip()]; imgs=[r.get('Image','') for r in rows if r.get('Service')=='tokenkey']; print(imgs[0].split(':')[-1] if imgs else 'unknown')" 2>/dev/null || echo unknown)
-qa_env=$(grep -E '^(QA_CAPTURE_ENABLED|QA_CAPTURE_EXPORT_STORAGE_)' .env 2>/dev/null | tr '\n' ';' || true)
+apply="__APPLY__"
+if [ "${apply}" != "true" ]; then
+  qa_timer=$(systemctl show -p ActiveState --value tokenkey-qa-stale-cleanup.timer 2>/dev/null || echo missing)
+  qa_cap=$(sudo docker compose -f docker-compose.yml --env-file .env exec -T tokenkey printenv QA_CAPTURE_ENABLED 2>/dev/null || echo missing)
+  rec_count=0
+  if sudo docker ps --format '{{.Names}}' | grep -qx tokenkey-postgres; then
+    PGPASS="$(sudo grep '^POSTGRES_PASSWORD=' /var/lib/tokenkey/.env | cut -d= -f2- || true)"
+    NET="$(sudo docker inspect tokenkey-postgres --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' 2>/dev/null || true)"
+    if [ -n "${PGPASS}" ] && [ -n "${NET}" ]; then
+      rec_count=$(sudo docker run --rm --network "${NET}" -e PGPASSWORD="${PGPASS}" postgres:16-alpine \
+        psql -h tokenkey-postgres -U tokenkey -d tokenkey -Atqc "SELECT COUNT(*) FROM qa_records;" 2>/dev/null || echo 0)
+    fi
+  fi
+  blob_count=0
+  for d in qa_blobs qa_dlq qa_exports_tmp; do
+    [ -d "$d" ] || continue
+    blob_count=$((blob_count + $(find "$d" -type f 2>/dev/null | wc -l | tr -d ' ')))
+  done
+  printf 'DRY_RUN=true\nQA_TIMER=%s\nCONTAINER_QA_CAPTURE_ENABLED=%s\nQA_RECORDS=%s\nBLOB_FILES=%s\n' \
+    "$qa_timer" "$qa_cap" "$rec_count" "$blob_count"
+  exit 0
+fi
+sudo systemctl stop tokenkey-qa-stale-cleanup.timer 2>/dev/null || true
+sudo systemctl disable tokenkey-qa-stale-cleanup.timer 2>/dev/null || true
+sudo systemctl stop tokenkey-qa-stale-cleanup.service 2>/dev/null || true
+sudo rm -f /etc/systemd/system/tokenkey-qa-stale-cleanup.service /etc/systemd/system/tokenkey-qa-stale-cleanup.timer
+sudo rm -f /usr/local/bin/tokenkey-qa-stale-cleanup.sh /etc/tokenkey/qa-stale-retention.env
+sudo systemctl daemon-reload
+sudo systemctl reset-failed tokenkey-qa-stale-cleanup.service 2>/dev/null || true
+if sudo docker ps --format '{{.Names}}' | grep -qx tokenkey-postgres; then
+  PGPASS="$(sudo grep '^POSTGRES_PASSWORD=' /var/lib/tokenkey/.env | cut -d= -f2-)"
+  NET="$(sudo docker inspect tokenkey-postgres --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')"
+  if [ -n "${PGPASS}" ] && [ -n "${NET}" ]; then
+    sudo docker run --rm --network "${NET}" -e PGPASSWORD="${PGPASS}" postgres:16-alpine \
+      psql -h tokenkey-postgres -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 \
+      -c "TRUNCATE qa_records;"
+  fi
+fi
+sudo rm -rf qa_blobs qa_dlq qa_exports_tmp
+sudo install -d -m 0755 qa_blobs qa_dlq 2>/dev/null || true
 qa_timer=$(systemctl show -p ActiveState --value tokenkey-qa-stale-cleanup.timer 2>/dev/null || echo missing)
 qa_cap=$(sudo docker compose -f docker-compose.yml --env-file .env exec -T tokenkey printenv QA_CAPTURE_ENABLED 2>/dev/null || echo missing)
-blob_count=0
-blob_bytes=0
-if [ -d qa_blobs ] || [ -d qa_dlq ]; then
-  blob_count=$(find qa_blobs qa_dlq -type f 2>/dev/null | wc -l | tr -d ' ')
-  blob_bytes=$(du -sb qa_blobs qa_dlq 2>/dev/null | awk '{s+=$1} END {print s+0}')
+rec_count=0
+if sudo docker ps --format '{{.Names}}' | grep -qx tokenkey-postgres; then
+  PGPASS="$(sudo grep '^POSTGRES_PASSWORD=' /var/lib/tokenkey/.env | cut -d= -f2- || true)"
+  NET="$(sudo docker inspect tokenkey-postgres --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' 2>/dev/null || true)"
+  if [ -n "${PGPASS}" ] && [ -n "${NET}" ]; then
+    rec_count=$(sudo docker run --rm --network "${NET}" -e PGPASSWORD="${PGPASS}" postgres:16-alpine \
+      psql -h tokenkey-postgres -U tokenkey -d tokenkey -Atqc "SELECT COUNT(*) FROM qa_records;" 2>/dev/null || echo 0)
+  fi
 fi
-printf 'TAG=%s\nQA_ENV=%s\nQA_TIMER=%s\nCONTAINER_QA_CAPTURE_ENABLED=%s\nBLOB_FILES=%s\nBLOB_BYTES=%s\n' "$tag" "$qa_env" "$qa_timer" "$qa_cap" "$blob_count" "$blob_bytes"
+blob_count=0
+for d in qa_blobs qa_dlq qa_exports_tmp; do
+  [ -d "$d" ] || continue
+  blob_count=$((blob_count + $(find "$d" -type f 2>/dev/null | wc -l | tr -d ' ')))
+done
+printf 'DRY_RUN=false\nQA_TIMER=%s\nCONTAINER_QA_CAPTURE_ENABLED=%s\nQA_RECORDS=%s\nBLOB_FILES=%s\n' \
+  "$qa_timer" "$qa_cap" "$rec_count" "$blob_count"
 """
 
 
-def _send(region: str, instance_id: str, edge_id: str, comment: str) -> str:
+def _send(region: str, instance_id: str, edge_id: str, apply: bool, comment: str) -> str:
+    remote = REMOTE.replace("__APPLY__", "true" if apply else "false")
     args = ["aws", "ssm", "send-command", "--region", region]
     if instance_id.startswith("mi-"):
         args.extend(
@@ -48,7 +97,7 @@ def _send(region: str, instance_id: str, edge_id: str, comment: str) -> str:
             "--comment",
             comment,
             "--parameters",
-            json.dumps({"commands": [REMOTE]}),
+            json.dumps({"commands": [remote]}),
             "--query",
             "Command.CommandId",
             "--output",
@@ -125,17 +174,26 @@ def _poll(region: str, command_id: str, instance_id: str) -> tuple[str, str, str
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--edge-id", required=True)
+    parser.add_argument("--apply", action="store_true", help="execute closeout (default is dry-run)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     ident = resolve_edge_execution_identity(ROOT, args.edge_id)
-    command_id = _send(ident.region, ident.instance_id, ident.edge_id, f"edge qa phase1 baseline {ident.edge_id}")
+    mode = "apply" if args.apply else "dry-run"
+    command_id = _send(
+        ident.region,
+        ident.instance_id,
+        ident.edge_id,
+        args.apply,
+        f"edge qa phase1 closeout {mode} {ident.edge_id}",
+    )
     status, stdout, stderr = _poll(ident.region, command_id, ident.instance_id)
     payload = {
         "edge_id": ident.edge_id,
         "region": ident.region,
         "instance_id": ident.instance_id,
         "command_id": command_id,
+        "apply": args.apply,
         "status": status,
         "stdout": stdout.strip(),
         "stderr": stderr.strip(),
@@ -143,7 +201,7 @@ def main() -> int:
     if args.json:
         print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
     else:
-        print(f"edge={ident.edge_id} status={status}")
+        print(f"edge={ident.edge_id} mode={mode} status={status}")
         print(stdout.strip())
         if stderr.strip():
             print(stderr.strip(), file=sys.stderr)
