@@ -19,14 +19,14 @@ import (
 )
 
 const (
-	qaMaintenanceConfirmation     = "tokenkey-prod-qa-maintenance-v1"
-	qaMaintenanceReceiptVersion   = 2
-	qaMaintenanceReceiptMode      = "qa_maintenance_archive_only"
+	qaMaintenanceConfirmation      = "tokenkey-prod-qa-maintenance-v1"
+	qaMaintenanceReceiptVersion    = 2
+	qaMaintenanceReceiptMode       = "qa_maintenance_archive_only"
 	qaMaintenanceReceiptModeUpload = "qa_maintenance_archive"
-	qaMaintenanceJobName          = "qa-maintenance"
-	qaMaintenanceAdvisoryLockID   = int64(0x51414D41) // 'QAMA'
-	qaMaintenanceHeartbeatTimeout = 5 * time.Second
-	qaMaintenanceBackfillTimeout  = 30 * time.Minute
+	qaMaintenanceJobName           = "qa-maintenance"
+	qaMaintenanceAdvisoryLockID    = int64(0x51414D41) // 'QAMA'
+	qaMaintenanceHeartbeatTimeout  = 5 * time.Second
+	qaMaintenanceBackfillTimeout   = 30 * time.Minute
 )
 
 type qaMaintenanceDeps struct {
