@@ -433,7 +433,7 @@ func localEvidencePath(blobRoot, blobURI string) string {
 		return filepath.Join(blobRoot, filepath.FromSlash(key))
 	default:
 		if blobURI == "" {
-		 return ""
+			return ""
 		}
 		return filepath.Join(blobRoot, filepath.FromSlash(strings.TrimPrefix(blobURI, "/")))
 	}
@@ -449,8 +449,12 @@ func encodeEvidenceIndex(lines []evidenceIndexLine) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		raw.Write(b)
-		raw.WriteByte('\n')
+		if _, err := raw.Write(b); err != nil {
+			return nil, err
+		}
+		if err := raw.WriteByte('\n'); err != nil {
+			return nil, err
+		}
 	}
 	var out bytes.Buffer
 	zw, err := zstd.NewWriter(&out)

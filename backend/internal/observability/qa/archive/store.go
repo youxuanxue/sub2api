@@ -60,7 +60,7 @@ func NewObjectStoreFromConfig(ctx context.Context, storage config.QACaptureStora
 			o.BaseEndpoint = &endpoint
 		}
 		if storage.ForcePathStyle {
-		 o.UsePathStyle = true
+			o.UsePathStyle = true
 		}
 		o.APIOptions = append(o.APIOptions, v4.SwapComputePayloadSHA256ForUnsignedPayloadMiddleware)
 		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
