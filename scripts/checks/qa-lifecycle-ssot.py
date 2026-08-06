@@ -102,6 +102,7 @@ REQUIRED_BY_FILE = {
         "qa_maintenance_archive",
         "deletion_authorized",
         "UploadBaseSegment",
+        "qa-maintenance-backfill-once",
     ),
     Path("backend/internal/observability/qa/archive/writer.go"): (
         "records.parquet",

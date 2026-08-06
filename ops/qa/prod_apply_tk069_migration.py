@@ -20,7 +20,7 @@ set -euo pipefail
 cd /var/lib/tokenkey
 PGPASS="$(sudo grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2-)"
 NET="$(sudo docker inspect tokenkey-postgres --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')"
-SQL=$(sudo docker exec tokenkey-postgres printenv PAGER=cat psql -U tokenkey -d tokenkey -Atqc \
+SQL=$(sudo docker exec -e PAGER=cat tokenkey-postgres psql -U tokenkey -d tokenkey -Atqc \
   "SELECT to_regclass('public.qa_archive_shards') IS NOT NULL" 2>/dev/null || echo f)
 if [ "$SQL" = "t" ]; then
   echo "qa_archive_shards already exists"

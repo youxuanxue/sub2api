@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Loop prod QA archive backfill (one oldest hour per invocation)."""
+"""Loop prod QA archive backfill (one oldest hour per invocation).
+
+Each hour loads all qa_records for that window into app memory before parquet encode.
+Keep --max-hours at 1 unless the prod container has headroom for peak-hour row counts.
+"""
 
 from __future__ import annotations
 

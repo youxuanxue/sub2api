@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -177,13 +178,20 @@ func UploadBaseSegment(
 	if err != nil {
 		return UploadResult{}, err
 	}
-	if err := store.PutIfAbsent(ctx, commitKey, commitBytes, "application/json"); err != nil {
-		return UploadResult{}, fmt.Errorf("put commit.json: %w", err)
+	commitDoc, commitBytes, err = reconcileCommitJSON(
+		ctx, store, commitKey, windowStart, windowEnd, 0, commitDoc, commitBytes,
+	)
+	if err != nil {
+		return UploadResult{}, err
 	}
+	if len(commitDoc.Segments) == 0 {
+		return UploadResult{}, fmt.Errorf("commit.json has no segments for %s", commitKey)
+	}
+	committedSegment := commitDoc.Segments[0]
 
 	checksums := map[string]string{
 		"records_sha256":        manifest.RecordsSHA256,
-		"manifest_sha256":       SHA256Hex(manifestBytes),
+		"manifest_sha256":       committedSegment.ManifestSHA256,
 		"commit_sha256":         SHA256Hex(commitBytes),
 		"evidence_pack_sha256":  manifest.EvidencePackSHA256,
 		"evidence_index_sha256": manifest.EvidenceIndexSHA256,
@@ -209,6 +217,7 @@ func UploadBaseSegment(
 		    last_error = NULL
 		  WHERE window_start = $12 AND generation = 0
 		    AND state IN ('pending', 'writing', 'failed')`,
+		// Phase 2b: skip StateVerified until segment verification worker lands (design §14.1).
 		StateCommitted,
 		stats.recordCount,
 		stats.blobRefCount,
@@ -217,7 +226,7 @@ func UploadBaseSegment(
 		stats.logicalBytes,
 		manifest.ArtifactBytes,
 		string(checksumsJSON),
-		segmentPrefix+"manifest.json",
+		committedSegment.ManifestKey,
 		commitKey,
 		commitDoc.CommittedAt,
 		windowStart,
@@ -226,8 +235,8 @@ func UploadBaseSegment(
 	}
 
 	return UploadResult{
-		SegmentID:        segmentID,
-		ManifestKey:      segmentPrefix + "manifest.json",
+		SegmentID:        committedSegment.SegmentID,
+		ManifestKey:      committedSegment.ManifestKey,
 		CommitKey:        commitKey,
 		RecordCount:      stats.recordCount,
 		BlobRefCount:     stats.blobRefCount,
@@ -245,6 +254,8 @@ type rowStats struct {
 	logicalBytes int64
 }
 
+// loadRecordRows loads one UTC hour into memory before parquet encode. Backfill ops
+// must run one hour per invocation; very dense hours need sufficient container memory.
 func loadRecordRows(ctx context.Context, conn *sql.Conn, windowStart, windowEnd time.Time) ([]RecordRow, rowStats, error) {
 	rows, err := conn.QueryContext(ctx, `
 		SELECT request_id, trajectory_id, user_id, group_id, api_key_id, account_id,
@@ -304,6 +315,44 @@ func loadRecordRows(ctx context.Context, conn *sql.Conn, windowStart, windowEnd 
 		return nil, rowStats{}, err
 	}
 	return out, stats, nil
+}
+
+// reconcileCommitJSON writes commit.json once. A byte-identical object or an existing
+// commit for the same window/generation is accepted so maintenance can retry after a
+// crash between S3 commit and DB shard update.
+func reconcileCommitJSON(
+	ctx context.Context,
+	store ObjectStore,
+	commitKey string,
+	windowStart, windowEnd time.Time,
+	generation int,
+	proposed CommitDocument,
+	proposedBytes []byte,
+) (CommitDocument, []byte, error) {
+	if err := store.PutIfAbsent(ctx, commitKey, proposedBytes, "application/json"); err == nil {
+		return proposed, proposedBytes, nil
+	} else if !stringsContains(err.Error(), "already exists") {
+		return CommitDocument{}, nil, fmt.Errorf("put commit.json: %w", err)
+	}
+
+	existingBytes, getErr := store.Get(ctx, commitKey)
+	if getErr != nil {
+		return CommitDocument{}, nil, fmt.Errorf("put commit.json: %w", getErr)
+	}
+	if bytes.Equal(existingBytes, proposedBytes) {
+		return proposed, proposedBytes, nil
+	}
+
+	var existing CommitDocument
+	if err := json.Unmarshal(existingBytes, &existing); err != nil {
+		return CommitDocument{}, nil, fmt.Errorf("put commit.json: parse existing: %w", err)
+	}
+	if existing.WindowStart.Equal(windowStart) &&
+		existing.WindowEnd.Equal(windowEnd) &&
+		existing.Generation == generation {
+		return existing, existingBytes, nil
+	}
+	return CommitDocument{}, nil, fmt.Errorf("put commit.json: existing commit.json differs for %s", commitKey)
 }
 
 func encodeRecordsParquet(rows []RecordRow) ([]byte, error) {

@@ -208,6 +208,7 @@ func runQAMaintenanceCommand(
 		if err != nil {
 			return fmt.Errorf("open qa archive object store: %w", err)
 		}
+		// Phase 2b: pending/failed -> writing -> committed (verified deferred; design §14.1).
 		if _, err := conn.ExecContext(ctx, `
 			UPDATE qa_archive_shards SET state = $1, updated_at = $2
 			 WHERE window_start = $3 AND generation = 0
