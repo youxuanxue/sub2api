@@ -58,11 +58,12 @@ class EdgeQACaptureDisableRenderTest(unittest.TestCase):
             1
             for c in prod
             if "QA_CAPTURE_EXPORT_STORAGE" in c
+            or "QA_ARCHIVE_" in c
             or "MEDIA_STORAGE_" in c
             or "GATEWAY_IMAGE_CONCURRENCY" in c
         )
         edge_only = len(_edge_qa_cmds(edge))
-        self.assertEqual(prod_only, 6)
+        self.assertEqual(prod_only, 8)
         self.assertEqual(edge_only, 2)
         self.assertEqual(len(prod) - len(edge), prod_only - edge_only)
 

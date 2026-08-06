@@ -7,6 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -17,11 +20,13 @@ import (
 
 const (
 	qaMaintenanceConfirmation     = "tokenkey-prod-qa-maintenance-v1"
-	qaMaintenanceReceiptVersion   = 1
+	qaMaintenanceReceiptVersion   = 2
 	qaMaintenanceReceiptMode      = "qa_maintenance_archive_only"
+	qaMaintenanceReceiptModeUpload = "qa_maintenance_archive"
 	qaMaintenanceJobName          = "qa-maintenance"
 	qaMaintenanceAdvisoryLockID   = int64(0x51414D41) // 'QAMA'
 	qaMaintenanceHeartbeatTimeout = 5 * time.Second
+	qaMaintenanceBackfillTimeout  = 30 * time.Minute
 )
 
 type qaMaintenanceDeps struct {
@@ -29,7 +34,9 @@ type qaMaintenanceDeps struct {
 	openDB          func(driverName, dataSourceName string) (*sql.DB, error)
 	tryAdvisoryLock func(context.Context, *sql.Conn) (bool, error)
 	unlockAdvisory  func(context.Context, *sql.Conn) error
-	planShard       func(context.Context, *sql.Conn, time.Time, string, bool, int) (qaMaintenancePlan, error)
+	planShard       func(context.Context, *sql.Conn, time.Time, time.Time, string, bool, int) (qaMaintenancePlan, error)
+	uploadShard     func(context.Context, *sql.Conn, archive.ObjectStore, qaMaintenancePlan, string) (archive.UploadResult, error)
+	newObjectStore  func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error)
 	writeHeartbeat  func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error
 	now             func() time.Time
 }
@@ -41,6 +48,9 @@ type qaMaintenancePlan struct {
 	RecordCount    int64     `json:"record_count"`
 	BlobRefCount   int64     `json:"blob_ref_count"`
 	ArchiveEnabled bool      `json:"archive_enabled"`
+	Uploaded       bool      `json:"uploaded"`
+	SegmentID      string    `json:"segment_id,omitempty"`
+	CommitKey      string    `json:"commit_key,omitempty"`
 }
 
 func defaultQAMaintenanceDeps() qaMaintenanceDeps {
@@ -60,7 +70,9 @@ func defaultQAMaintenanceDeps() qaMaintenanceDeps {
 			_, err := conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", qaMaintenanceAdvisoryLockID)
 			return err
 		},
-		planShard: defaultQAMaintenancePlanShard,
+		planShard:      defaultQAMaintenancePlanShard,
+		uploadShard:    defaultQAMaintenanceUploadShard,
+		newObjectStore: archive.NewObjectStoreFromConfig,
 		writeHeartbeat: func(ctx context.Context, db *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
 			return repository.NewOpsRepository(db).UpsertJobHeartbeat(ctx, input)
 		},
@@ -84,6 +96,12 @@ func (d qaMaintenanceDeps) withDefaults() qaMaintenanceDeps {
 	}
 	if d.planShard == nil {
 		d.planShard = defaults.planShard
+	}
+	if d.uploadShard == nil {
+		d.uploadShard = defaults.uploadShard
+	}
+	if d.newObjectStore == nil {
+		d.newObjectStore = defaults.newObjectStore
 	}
 	if d.writeHeartbeat == nil {
 		d.writeHeartbeat = defaults.writeHeartbeat
@@ -112,8 +130,10 @@ func runQAMaintenanceCommand(
 	fs := flag.NewFlagSet("qa-maintenance", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var once bool
+	var backfillOnce bool
 	var confirmation string
-	fs.BoolVar(&once, "qa-maintenance-once", false, "run QA archive-only maintenance and exit")
+	fs.BoolVar(&once, "qa-maintenance-once", false, "run QA archive maintenance and exit")
+	fs.BoolVar(&backfillOnce, "qa-maintenance-backfill-once", false, "archive the oldest uncommitted hour")
 	fs.StringVar(&confirmation, "confirm", "", "exact production QA maintenance confirmation")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("qa maintenance flags: %w", err)
@@ -152,7 +172,11 @@ func runQAMaintenanceCommand(
 	if _, err := conn.ExecContext(ctx, "SET lock_timeout = '100ms'"); err != nil {
 		return fmt.Errorf("set qa maintenance lock timeout: %w", err)
 	}
-	if _, err := conn.ExecContext(ctx, "SET statement_timeout = '120s'"); err != nil {
+	statementTimeout := "120s"
+	if backfillOnce {
+		statementTimeout = fmt.Sprintf("%ds", int(qaMaintenanceBackfillTimeout.Seconds()))
+	}
+	if _, err := conn.ExecContext(ctx, "SET statement_timeout = '"+statementTimeout+"'"); err != nil {
 		return fmt.Errorf("set qa maintenance statement timeout: %w", err)
 	}
 
@@ -167,11 +191,45 @@ func runQAMaintenanceCommand(
 
 	startedAt := deps.now().UTC()
 	sealDelayMinutes := cfg.QaArchive.SealDelayMinutes
-	windowStart, _ := archive.PreviousSealedHour(startedAt, sealDelayMinutes)
+	windowStart, windowEnd, err := resolveMaintenanceWindow(ctx, conn, startedAt, sealDelayMinutes, backfillOnce)
+	if err != nil {
+		return fmt.Errorf("resolve qa archive window: %w", err)
+	}
 	s3Prefix := archive.ShardPrefix(windowStart)
-	plan, err := deps.planShard(ctx, conn, startedAt, s3Prefix, cfg.QaArchive.Enabled, sealDelayMinutes)
+	plan, err := deps.planShard(ctx, conn, windowStart, windowEnd, s3Prefix, cfg.QaArchive.Enabled, sealDelayMinutes)
 	if err != nil {
 		return fmt.Errorf("plan qa archive shard: %w", err)
+	}
+
+	uploadAuthorized := false
+	mode := qaMaintenanceReceiptMode
+	if cfg.QaArchive.Enabled {
+		store, err := deps.newObjectStore(ctx, cfg.QaArchive.Storage)
+		if err != nil {
+			return fmt.Errorf("open qa archive object store: %w", err)
+		}
+		if _, err := conn.ExecContext(ctx, `
+			UPDATE qa_archive_shards SET state = $1, updated_at = $2
+			 WHERE window_start = $3 AND generation = 0
+			   AND state IN ('pending', 'failed')`,
+			archive.StateWriting, startedAt, windowStart,
+		); err != nil {
+			return fmt.Errorf("mark shard writing: %w", err)
+		}
+		uploadResult, err := deps.uploadShard(ctx, conn, store, plan, qaBlobRoot())
+		if err != nil {
+			_, _ = conn.ExecContext(ctx, `
+				UPDATE qa_archive_shards SET state = $1, last_error = $2, updated_at = $3
+				 WHERE window_start = $4 AND generation = 0`,
+				archive.StateFailed, truncateErr(err), deps.now().UTC(), windowStart,
+			)
+			return fmt.Errorf("upload qa archive shard: %w", err)
+		}
+		plan.Uploaded = true
+		plan.SegmentID = uploadResult.SegmentID
+		plan.CommitKey = uploadResult.CommitKey
+		uploadAuthorized = true
+		mode = qaMaintenanceReceiptModeUpload
 	}
 
 	completedAt := deps.now().UTC()
@@ -181,10 +239,12 @@ func runQAMaintenanceCommand(
 	}
 	durationMs := duration.Milliseconds()
 	lastResult := fmt.Sprintf(
-		"archive_enabled=%t window=%s records=%d deletion_authorized=false upload_authorized=false",
+		"archive_enabled=%t uploaded=%t window=%s records=%d deletion_authorized=false upload_authorized=%t",
 		plan.ArchiveEnabled,
+		plan.Uploaded,
 		plan.WindowStart.Format(time.RFC3339),
 		plan.RecordCount,
+		uploadAuthorized,
 	)
 	heartbeatCtx, cancelHeartbeat := context.WithTimeout(ctx, qaMaintenanceHeartbeatTimeout)
 	defer cancelHeartbeat()
@@ -207,15 +267,17 @@ func runQAMaintenanceCommand(
 		Plan               qaMaintenancePlan `json:"plan"`
 		DeletionAuthorized bool              `json:"deletion_authorized"`
 		UploadAuthorized   bool              `json:"upload_authorized"`
+		BackfillOnce       bool              `json:"backfill_once"`
 	}{
 		ReceiptVersion:     qaMaintenanceReceiptVersion,
-		Mode:               qaMaintenanceReceiptMode,
+		Mode:               mode,
 		OK:                 true,
 		JobName:            qaMaintenanceJobName,
 		CompletedAt:        completedAt,
 		Plan:               plan,
 		DeletionAuthorized: false,
-		UploadAuthorized:   false,
+		UploadAuthorized:   uploadAuthorized,
+		BackfillOnce:       backfillOnce,
 	}
 	if err := json.NewEncoder(out).Encode(receipt); err != nil {
 		return fmt.Errorf("encode qa maintenance receipt: %w", err)
@@ -223,15 +285,58 @@ func runQAMaintenanceCommand(
 	return nil
 }
 
-func defaultQAMaintenancePlanShard(
+func resolveMaintenanceWindow(
 	ctx context.Context,
 	conn *sql.Conn,
 	runAt time.Time,
+	sealDelayMinutes int,
+	backfillOnce bool,
+) (time.Time, time.Time, error) {
+	if backfillOnce {
+		return findOldestUncommittedHour(ctx, conn)
+	}
+	start, end := archive.PreviousSealedHour(runAt, sealDelayMinutes)
+	return start, end, nil
+}
+
+func findOldestUncommittedHour(ctx context.Context, conn *sql.Conn) (time.Time, time.Time, error) {
+	var windowStart time.Time
+	err := conn.QueryRowContext(ctx, `
+		SELECT h.window_start
+		  FROM (
+		    SELECT DISTINCT date_trunc('hour', created_at AT TIME ZONE 'UTC') AS window_start
+		      FROM qa_records
+		  ) h
+		 WHERE NOT EXISTS (
+		    SELECT 1 FROM qa_archive_shards s
+		     WHERE s.window_start = h.window_start
+		       AND s.generation = 0
+		       AND s.state = $1
+		 )
+		 ORDER BY h.window_start
+		 LIMIT 1`,
+		archive.StateCommitted,
+	).Scan(&windowStart)
+	if err == sql.ErrNoRows {
+		return time.Time{}, time.Time{}, fmt.Errorf("no qa archive backfill window remaining")
+	}
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	windowStart = windowStart.UTC()
+	return windowStart, windowStart.Add(time.Hour), nil
+}
+
+func defaultQAMaintenancePlanShard(
+	ctx context.Context,
+	conn *sql.Conn,
+	windowStart, windowEnd time.Time,
 	s3Prefix string,
 	archiveEnabled bool,
-	sealDelayMinutes int,
+	_ int,
 ) (qaMaintenancePlan, error) {
-	windowStart, windowEnd := archive.PreviousSealedHour(runAt, sealDelayMinutes)
+	windowStart = windowStart.UTC()
+	windowEnd = windowEnd.UTC()
 	var recordCount int64
 	var blobRefCount int64
 	if err := conn.QueryRowContext(
@@ -248,7 +353,7 @@ func defaultQAMaintenancePlanShard(
 		return qaMaintenancePlan{}, fmt.Errorf("count qa_records for shard window: %w", err)
 	}
 
-	now := runAt.UTC()
+	now := time.Now().UTC()
 	if _, err := conn.ExecContext(
 		ctx,
 		`INSERT INTO qa_archive_shards (
@@ -280,4 +385,34 @@ func defaultQAMaintenancePlanShard(
 		BlobRefCount:   blobRefCount,
 		ArchiveEnabled: archiveEnabled,
 	}, nil
+}
+
+func defaultQAMaintenanceUploadShard(
+	ctx context.Context,
+	conn *sql.Conn,
+	store archive.ObjectStore,
+	plan qaMaintenancePlan,
+	blobRoot string,
+) (archive.UploadResult, error) {
+	return archive.UploadBaseSegment(ctx, conn, store, archive.UploadInput{
+		WindowStart: plan.WindowStart,
+		WindowEnd:   plan.WindowEnd,
+		BlobRoot:    blobRoot,
+	})
+}
+
+func qaBlobRoot() string {
+	dataDir := strings.TrimSpace(os.Getenv("DATA_DIR"))
+	if dataDir == "" {
+		dataDir = "/app/data"
+	}
+	return filepath.Join(dataDir, "qa_blobs")
+}
+
+func truncateErr(err error) string {
+	msg := err.Error()
+	if len(msg) > 500 {
+		return msg[:500]
+	}
+	return msg
 }

@@ -107,10 +107,11 @@ class QAExportInjectionRenderTest(unittest.TestCase):
         _, edge = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
         injected = sum(
             1 for c in prod
-            if "QA_CAPTURE_EXPORT_STORAGE" in c or "MEDIA_STORAGE_" in c
+            if "QA_CAPTURE_EXPORT_STORAGE" in c or "QA_ARCHIVE_" in c
+            or "MEDIA_STORAGE_" in c
             or "GATEWAY_IMAGE_CONCURRENCY" in c
         )
-        self.assertEqual(injected, 6)
+        self.assertEqual(injected, 8)
         edge_capture = sum(1 for c in edge if "QA_CAPTURE_ENABLED" in c)
         self.assertEqual(edge_capture, 2)
         self.assertEqual(len(prod) - len(edge), injected - edge_capture)
