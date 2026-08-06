@@ -155,6 +155,8 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn("/tmp/tokenkey-bluegreen-deploy.sh", joined)
         self.assertIn("TAG='1.8.99'", joined)
         self.assertIn("QA_CAPTURE_EXPORT_STORAGE_BUCKET='tokenkey-prod-qa-exports-682751977094'", joined)
+        self.assertIn("QA_ARCHIVE_ENABLED='false'", joined)
+        self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
         self.assertIn("MEDIA_STORAGE_BUCKET='tokenkey-prod-media-682751977094'", joined)
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS='8'", joined)
 
@@ -178,6 +180,7 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn('max-size: "100m"', remote)
         self.assertIn('max-file: "5"', remote)
         self.assertEqual(remote.count("- SKIP_DATA_CHOWN=1"), 2)
+        self.assertEqual(remote.count("QA_ARCHIVE_ENABLED="), 2)
         self.assertIn('TOKENKEY_BLUEGREEN_HEALTH_TRIES:-60', remote)
         self.assertIn('TOKENKEY_BLUEGREEN_UNHEALTHY_LIMIT:-3', remote)
         self.assertIn('entered terminal state ${status}; failing health wait immediately', remote)

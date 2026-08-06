@@ -165,7 +165,14 @@ func runQAMaintenanceCommand(
 	if err != nil {
 		return fmt.Errorf("acquire qa maintenance connection: %w", err)
 	}
-	defer func() { _ = conn.Close() }()
+	connReleased := false
+	defer func() {
+		if connReleased {
+			return
+		}
+		_ = deps.unlockAdvisory(ctx, conn)
+		_ = conn.Close()
+	}()
 	if err := conn.PingContext(ctx); err != nil {
 		return fmt.Errorf("ping qa maintenance database: %w", err)
 	}
@@ -187,7 +194,6 @@ func runQAMaintenanceCommand(
 	if !locked {
 		return fmt.Errorf("qa maintenance advisory lock already held")
 	}
-	defer func() { _ = deps.unlockAdvisory(ctx, conn) }()
 
 	startedAt := deps.now().UTC()
 	sealDelayMinutes := cfg.QaArchive.SealDelayMinutes
@@ -232,6 +238,14 @@ func runQAMaintenanceCommand(
 		uploadAuthorized = true
 		mode = qaMaintenanceReceiptModeUpload
 	}
+
+	if err := deps.unlockAdvisory(ctx, conn); err != nil {
+		return fmt.Errorf("release qa maintenance advisory lock: %w", err)
+	}
+	if err := conn.Close(); err != nil {
+		return fmt.Errorf("release qa maintenance connection: %w", err)
+	}
+	connReleased = true
 
 	completedAt := deps.now().UTC()
 	duration := completedAt.Sub(startedAt)
