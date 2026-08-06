@@ -122,6 +122,20 @@ RETIRED_HTTP_ROUTES = (
         "source_literal": "/channels",
         "replacement": "/payment/checkout-info",
     },
+    {
+        "method": "POST",
+        "path": "/api/v1/users/me/qa/export",
+        "source": "backend/internal/server/routes/user_tk_routes.go",
+        "source_literal": "/users/me/qa/export",
+        "replacement": "/api/v1/users/me/qa/traj/export",
+    },
+    {
+        "method": "GET",
+        "path": "/api/v1/users/me/qa/exports/*key",
+        "source": "backend/internal/server/routes/user_tk_routes.go",
+        "source_literal": "/users/me/qa/exports/*key",
+        "replacement": "/api/v1/users/me/qa/traj/exports/*key",
+    },
 )
 
 COUNT_TOLERANCE = 0.10  # ±10% considered noise

@@ -3,7 +3,6 @@ package qa
 import (
 	"context"
 	"errors"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,7 +17,10 @@ import (
 // ErrExportBusy is returned by EnqueueExport when the single export worker's
 // queue is full — the caller should surface a "try again shortly" to the user
 // rather than pile on more work.
-var ErrExportBusy = errors.New("export queue is full")
+var (
+	ErrExportBusy         = errors.New("export queue is full")
+	ErrExportAPIKeyNeeded = errors.New("api key is required for trajectory export")
+)
 
 // ExportJobStatus is the lifecycle of an async trajectory export.
 type ExportJobStatus string
@@ -30,21 +32,14 @@ const (
 	ExportJobFailed  ExportJobStatus = "failed"
 )
 
-// export kinds — see exportStorageKey for how each maps to the blob-store key.
-const (
-	exportKindManual = "manual"
-	exportKindAuto   = "auto"
-)
-
 const (
 	// exportQueueSize bounds pending exports behind the single worker.
 	exportQueueSize = 8
 	// exportJobMaxRuntime bounds one export so a pathological run can't hold the
 	// worker forever.
 	exportJobMaxRuntime = 30 * time.Minute
-	// autoExportArtifactTTL is how long a daily auto archive stays downloadable;
-	// matches the recommended S3 lifecycle expiration for the traj-exports prefix.
-	autoExportArtifactTTL = 7 * 24 * time.Hour
+	// trajectoryExportWindow is the single user-export data window.
+	trajectoryExportWindow = 24 * time.Hour
 	// exportListLimit caps the "my exports" panel listing per (user[, key]).
 	exportListLimit = 50
 )
@@ -65,7 +60,6 @@ type ExportJob struct {
 	ID          string          `json:"job_id"`
 	UserID      int64           `json:"-"`
 	APIKeyID    *int64          `json:"api_key_id,omitempty"`
-	Kind        string          `json:"kind,omitempty"`
 	Status      ExportJobStatus `json:"status"`
 	DownloadURL string          `json:"download_url,omitempty"`
 	StorageKey  string          `json:"-"`
@@ -86,22 +80,26 @@ func (s *Service) ensureExportPool() {
 	}
 }
 
-// EnqueueExport registers a user-initiated ("立即导出") export job, persists it,
-// and submits it to the single export worker, returning immediately with a job
+// EnqueueExport is the transitional in-prod job path. Phase 3 moves job control
+// and compute off prod; until then it must remain user/key scoped and fixed to 24h.
+// It registers a user-initiated ("立即导出") job and submits it to the single worker,
 // snapshot. The heavy work (blob reads, zip build) runs off the request path so
 // it can never block or starve the gateway — the synchronous in-memory build is
 // what hung prod on 2026-06-17. Returns ErrExportBusy when the worker queue is
 // full.
 func (s *Service) EnqueueExport(ctx context.Context, userID int64, filter ExportFilter) (ExportJob, error) {
+	if filter.APIKeyID == nil || *filter.APIKeyID <= 0 {
+		return ExportJob{}, ErrExportAPIKeyNeeded
+	}
+	filter.Until = time.Now().UTC()
+	filter.Since = filter.Until.Add(-trajectoryExportWindow)
 	s.ensureExportPool()
-	filter.Kind = exportKindManual
 	jobID := uuid.New().String()
 
 	create := s.client.QAExportJob.Create().
 		SetJobID(jobID).
 		SetUserID(userID).
 		SetStatus(string(ExportJobPending)).
-		SetExportKind(exportKindManual).
 		SetFormat(exportFormatOrDefault(filter.Format))
 	if filter.APIKeyID != nil {
 		create = create.SetAPIKeyID(*filter.APIKeyID)
@@ -120,62 +118,8 @@ func (s *Service) EnqueueExport(ctx context.Context, userID int64, filter Export
 	return snap, nil
 }
 
-// ArchiveAuto registers/refreshes the daily archive for one (user, key, day)
-// and runs it to completion synchronously. The job_id is deterministic so a
-// same-day re-run upserts the same row (idempotent) instead of duplicating;
-// window covers [dayStart, dayEnd).
-//
-// Unlike the user-initiated EnqueueExport (which TrySubmits and returns busy so
-// the gateway never blocks), the daily cron calls this sequentially per pair and
-// Submit().Wait()s each one. Submitting one task at a time can never overflow the
-// worker's bounded queue, so no archive is ever dropped — and routing through the
-// SAME single worker keeps "at most one export materializes at a time" intact
-// (no auto/manual I/O overlap). The trade-off is the cron blocks per archive,
-// which is exactly what we want for an off-peak background sweep.
-func (s *Service) ArchiveAuto(ctx context.Context, userID, apiKeyID int64, dayStart time.Time) (ExportJob, error) {
-	s.ensureExportPool()
-	dayStart = dayStart.UTC().Truncate(24 * time.Hour)
-	dayEnd := dayStart.Add(24 * time.Hour)
-	jobID := autoExportJobID(userID, apiKeyID, dayStart)
-	filter := ExportFilter{
-		APIKeyID: &apiKeyID,
-		Platform: "anthropic",
-		Format:   "v2",
-		Kind:     exportKindAuto,
-		Since:    dayStart,
-		Until:    dayEnd,
-	}
-
-	// Upsert the row to pending — a re-run of an already-archived day just
-	// rebuilds it (overwriting the same dated S3 object).
-	if err := s.client.QAExportJob.Create().
-		SetJobID(jobID).
-		SetUserID(userID).
-		SetAPIKeyID(apiKeyID).
-		SetStatus(string(ExportJobPending)).
-		SetExportKind(exportKindAuto).
-		SetFormat("v2").
-		SetWindowStart(dayStart).
-		SetWindowEnd(dayEnd).
-		OnConflictColumns(qaexportjob.FieldJobID).
-		UpdateNewValues().
-		Exec(ctx); err != nil {
-		return ExportJob{}, err
-	}
-
-	// Blocking submit + wait: backpressure instead of drop, single-worker serialized.
-	// Wait() only returns non-nil if the worker task panicked (runExportJob records
-	// its own terminal state); log that so a crashed archive isn't silent.
-	if werr := s.exportPool.Submit(func() { s.runExportJob(jobID, userID, filter) }).Wait(); werr != nil {
-		logger.L().Warn("qa auto-export: worker task error", zap.String("job_id", jobID), zap.Error(werr))
-	}
-	snap, _ := s.GetExportJob(ctx, userID, jobID)
-	return snap, nil
-}
-
-// runExportJob is the worker body shared by the manual (EnqueueExport) and auto
-// (ArchiveAuto) paths. It marks the job running, builds the zip off the request
-// path (bounded by exportJobMaxRuntime), and records the terminal state.
+// runExportJob marks the job running, builds the zip off the request path
+// (bounded by exportJobMaxRuntime), and records the terminal state.
 func (s *Service) runExportJob(jobID string, userID int64, filter ExportFilter) {
 	// Background (not request) context so the export completes even after the
 	// client disconnects — bounded by exportJobMaxRuntime.
@@ -196,28 +140,17 @@ func (s *Service) runExportJob(jobID string, userID int64, filter ExportFilter) 
 		s.setExportJobFailed(jobID, exportJobErrorCode(err))
 		return
 	}
-	// expires_at follows the artifact's retention (auto archives live 7 days in
-	// S3; manual exports 24h), NOT the presigned-URL lifetime — the URL is
-	// re-signed fresh on every list, so the row's expiry is what gates how long
-	// the panel keeps offering the download.
+	// The row expiry gates how long the panel keeps offering the artifact. A
+	// fresh short-lived presigned URL is generated on each authorized read.
 	if _, uerr := s.client.QAExportJob.Update().
 		Where(qaexportjob.JobIDEQ(jobID)).
 		SetStatus(string(ExportJobDone)).
 		SetStorageKey(res.StorageKey).
 		SetRecordCount(res.RecordCount).
-		SetExpiresAt(time.Now().UTC().Add(exportArtifactTTL(filter.Kind))).
+		SetExpiresAt(time.Now().UTC().Add(presignedURLTTL)).
 		Save(context.Background()); uerr != nil {
 		logger.L().Warn("traj export: mark done failed", zap.String("job_id", jobID), zap.Error(uerr))
 	}
-}
-
-// exportArtifactTTL is how long a finished export stays downloadable: auto daily
-// archives are retained 7 days (matching the S3 lifecycle), manual exports 24h.
-func exportArtifactTTL(kind string) time.Duration {
-	if strings.EqualFold(strings.TrimSpace(kind), exportKindAuto) {
-		return autoExportArtifactTTL
-	}
-	return presignedURLTTL
 }
 
 // GetExportJob returns a snapshot of the job if it exists and is owned by userID.
@@ -289,7 +222,6 @@ func (s *Service) exportJobFromEnt(ctx context.Context, m *ent.QAExportJob) Expo
 		ID:          m.JobID,
 		UserID:      m.UserID,
 		APIKeyID:    m.APIKeyID,
-		Kind:        m.ExportKind,
 		Status:      ExportJobStatus(m.Status),
 		StorageKey:  m.StorageKey,
 		RecordCount: m.RecordCount,
@@ -330,8 +262,4 @@ func exportFormatOrDefault(f string) string {
 		return "v2"
 	}
 	return f
-}
-
-func autoExportJobID(userID, apiKeyID int64, dayStart time.Time) string {
-	return "auto:" + strconv.FormatInt(userID, 10) + ":" + strconv.FormatInt(apiKeyID, 10) + ":" + dayStart.UTC().Format("2006-01-02")
 }

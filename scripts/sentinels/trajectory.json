@@ -56,11 +56,12 @@
       "source": "backend/internal/observability/qa/service_traj_export.go",
       "must_contain": [
         "func (s *Service) UserTrajExportEnabled",
+        "func (s *Service) UserMayExportAPIKey",
+        "engine.TrajProjectablePlatforms()",
         "qarecord.APIKeyIDEQ",
-        "qarecord.PlatformEQ",
         "trajectory.RequestContinues"
       ],
-      "rationale": "The export authorization helper, the per-key (APIKeyIDEQ) and platform (PlatformEQ) scoping predicates, and the shape-aware streaming continuation (RequestContinues). Losing the helper drops the 403 backstop; losing a predicate silently widens a self-export beyond the UI gate; reverting RequestContinues to a messages-only predicate would mis-fold non-anthropic conversations."
+      "rationale": "The entitlement helper, owned-key/projectable-platform authorization backstop, per-key record predicate, and shape-aware streaming continuation must all remain. Losing one reopens export, broadens scope, diverges from the engine allowlist, or mis-folds non-anthropic conversations."
     },
     {
       "source": "backend/internal/observability/trajectory/projection_v2.go",

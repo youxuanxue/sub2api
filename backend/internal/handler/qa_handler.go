@@ -1,170 +1,23 @@
 package handler
 
 import (
-	"bytes"
-	"errors"
-	"fmt"
-	"io/fs"
-	"net/http"
 	"strings"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-
 	"github.com/gin-gonic/gin"
 )
 
-// defaultQAExportWindow bounds the data set returned when the caller does
-// not narrow by synth_session_id. Picked to cover one M0 run plus
-// generous slack; large enough that a casual user export still works,
-// small enough that "POST /qa/export with empty body" can never become
-// a "give me my entire history" foot-gun.
-const defaultQAExportWindow = 24 * time.Hour
-
-// QAHandler exposes the user-facing self-export endpoint over the
-// qa_records owned by the authenticated user. Issue #59 /
-// docs/approved/ops-unified-contract.md §2 — closes the half-shipped "100% QA
-// Capture" capability where the capture path wrote rows but no
-// user-facing read path existed.
-//
-// Auth is by user-scope JWT (NOT admin); the service layer always emits
-// `WHERE user_id = subject.UserID` so guessing another user's
-// synth_session_id still returns zero rows.
 type QAHandler struct {
 	service *qa.Service
 }
 
-// NewQAHandler wires the user-facing QA export handler. Tolerates a nil
-// service so the route can return a stable 503 (rather than 404 →
-// operator confusion) when QA capture is disabled in this environment.
 func NewQAHandler(service *qa.Service) *QAHandler {
 	return &QAHandler{service: service}
 }
 
-// ExportSelfRequest is the JSON body accepted by POST
-// /api/v1/users/me/qa/export. Matches the M0 dual-CC client contract at
-// `m0/runtime/tokenkey.py::export_user_qa()`. Unknown JSON fields (e.g.
-// the M0 client's `format: "json"`) are silently ignored — today we
-// always emit a zip containing `qa_records.jsonl`.
-type ExportSelfRequest struct {
-	SynthSessionID string `json:"synth_session_id"`
-	SynthRole      string `json:"synth_role"`
-	// APIKeyID, when non-nil, scopes the traj export to a single API key
-	// (TK per-key "导出对话记录"). When set and no synth_session_id is given,
-	// the trailing-24h default window is dropped so the export returns the
-	// key's full retained trajectory (bounded only by qa_capture.retention_days).
+type TrajectoryExportRequest struct {
 	APIKeyID *int64 `json:"api_key_id"`
-	// Format: "" / "v1" = legacy ExportRow; "v2" = traj v2 session/turns
-	// (.examples-aligned, carries thinking/signature/usage/stop_reason).
-	Format string `json:"format"`
-}
-
-// ExportSelfResponse mirrors the contract documented in issue #59.
-// `record_count` lets the M0 client distinguish "session not yet
-// captured, retry" from "captured but empty"; without it the only
-// signal would be opening the zip.
-type ExportSelfResponse struct {
-	DownloadURL string    `json:"download_url"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	RecordCount int       `json:"record_count"`
-}
-
-// ExportSelf handles POST /api/v1/users/me/qa/export.
-//
-// Behavior is deliberately minimal (one canonical path):
-//   - synth_session_id set → ignore time window, scope to that session
-//   - synth_session_id empty → trailing defaultQAExportWindow of caller's traffic
-func (h *QAHandler) ExportSelf(c *gin.Context) {
-	subject, ok := middleware2.GetAuthSubjectFromContext(c)
-	if !ok {
-		response.Unauthorized(c, "User not authenticated")
-		return
-	}
-
-	if !h.service.Enabled() {
-		response.Error(c, http.StatusServiceUnavailable, "QA capture is disabled in this environment")
-		return
-	}
-
-	req := ExportSelfRequest{}
-	if c.Request != nil && c.Request.ContentLength != 0 {
-		if err := c.ShouldBindJSON(&req); err != nil {
-			response.InvalidRequest(c)
-			return
-		}
-	}
-
-	filter := qa.ExportFilter{
-		SynthSessionID: strings.TrimSpace(req.SynthSessionID),
-		SynthRole:      strings.TrimSpace(req.SynthRole),
-	}
-	if filter.SynthSessionID == "" {
-		filter.Until = time.Now().UTC()
-		filter.Since = filter.Until.Add(-defaultQAExportWindow)
-	}
-
-	result, err := h.service.ExportUserData(c.Request.Context(), subject.UserID, filter)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	response.Success(c, ExportSelfResponse{
-		DownloadURL: h.clientDownloadURL(c, result),
-		ExpiresAt:   result.ExpiresAt,
-		RecordCount: result.RecordCount,
-	})
-}
-
-// DownloadSelfExport serves localfs-backed export zips over HTTP for external
-// SDK/CI callers. S3 deployments keep using direct presigned URLs and do not
-// hit this path.
-func (h *QAHandler) DownloadSelfExport(c *gin.Context) {
-	subject, ok := middleware2.GetAuthSubjectFromContext(c)
-	if !ok {
-		response.Unauthorized(c, "User not authenticated")
-		return
-	}
-
-	if !h.service.Enabled() {
-		response.Error(c, http.StatusServiceUnavailable, "QA capture is disabled in this environment")
-		return
-	}
-
-	key := strings.TrimPrefix(c.Param("key"), "/")
-	body, err := h.service.DownloadUserExport(c.Request.Context(), subject.UserID, key)
-	if err != nil {
-		switch {
-		case errors.Is(err, fs.ErrPermission):
-			response.Forbidden(c, "Export not owned by authenticated user")
-		case errors.Is(err, fs.ErrNotExist):
-			response.NotFound(c, "Export not found or expired")
-		default:
-			response.ErrorFrom(c, err)
-		}
-		return
-	}
-
-	filename := "qa_export.zip"
-	parts := strings.Split(strings.TrimRight(key, "/"), "/")
-	if len(parts) > 0 && strings.HasSuffix(parts[len(parts)-1], ".zip") {
-		filename = parts[len(parts)-1]
-	}
-	c.DataFromReader(http.StatusOK, int64(len(body)), "application/zip", bytes.NewReader(body), map[string]string{
-		"Content-Disposition": fmt.Sprintf(`attachment; filename="%s"`, filename),
-	})
-}
-
-func (h *QAHandler) clientDownloadURL(c *gin.Context, result *qa.ExportResult) string {
-	if result == nil {
-		return ""
-	}
-	if !strings.HasPrefix(result.DownloadURL, "file://") || result.StorageKey == "" {
-		return result.DownloadURL
-	}
-	return absoluteRequestURL(c, "/api/v1/users/me/qa/exports/"+result.StorageKey)
+	Format   string `json:"format"`
 }
 
 func absoluteRequestURL(c *gin.Context, path string) string {

@@ -21,7 +21,7 @@ CREATE TABLE archive_rehearsal_records (
 );
 ```
 
-`dataset` is `usage`, `ops`, or `qa`; `created_at` is timezone-aware ISO 8601;
+`dataset` is `usage` or `ops`; `created_at` is timezone-aware ISO 8601;
 `payload_json` is valid finite JSON. The tool opens this database with SQLite
 `mode=ro` and `query_only`. UTC normalization preserves source microseconds.
 
@@ -44,7 +44,7 @@ python3 ops/archive/data_layer_archive_rehearsal.py restore-random \
   --target /path/to/fresh-restore.sqlite --seed 20260720
 ```
 
-The defaults retain usage for 90 days, ops for 30 days, and QA for 2 days.
+The defaults retain usage for 90 days and ops for 30 days. QA uses its dedicated lifecycle owner.
 Every manifest keeps `deletion_authorized=false`; there is no deletion command.
 The sealed source path and file identity prevent restore targets from pointing
 back to the source through another path or hard link.
@@ -69,7 +69,7 @@ The source is accepted only when all of these hold:
 - URI host is `localhost`, `127.0.0.1`, or `::1`;
 - database is exactly `tokenkey_archive_rehearsal`;
 - `archive_rehearsal_sentinel` contains the label `tokenkey_archive_rehearsal`;
-- only `usage_logs`, `ops_system_logs`, `ops_error_logs`, and `qa_records` are queried.
+- only `usage_logs`, `ops_system_logs`, and `ops_error_logs` are queried.
 
 The target must be a separate database whose name starts with
 `tokenkey_archive_restore_`. The command runs `dry-run -> seal -> verify ->

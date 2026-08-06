@@ -134,7 +134,7 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 # Credentials stay EMPTY on purpose: the prod instance role + the qa-exports bucket
 # policy (Principal = prod InstanceRole ARN) grant s3:PutObject, so no static keys
 # ever land in .env. Values are env-overridable but default to the prod bucket.
-# See docs/qa-export-s3-and-auto-archive.md.
+# Lifecycle owner: docs/approved/design-prod-qa-24h-s3-lifecycle.md.
 #
 # Compose insertion anchors on the tokenkey service's SERVER_FRONTEND_URL line, NOT
 # its TZ line: every service (caddy/tokenkey/postgres/redis) carries a `- TZ=` line,

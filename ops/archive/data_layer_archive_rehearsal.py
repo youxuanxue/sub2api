@@ -28,8 +28,8 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 SCHEMA_VERSION = 1
 SOURCE_TABLE = "archive_rehearsal_records"
 RESTORE_TABLE = "archive_rehearsal_restored"
-DATASETS = ("usage", "ops", "qa")
-DEFAULT_RETENTION_DAYS = {"usage": 90, "ops": 30, "qa": 2}
+DATASETS = ("usage", "ops")
+DEFAULT_RETENTION_DAYS = {"usage": 90, "ops": 30}
 ENVIRONMENTS = ("local", "nonprod")
 POSTGRES_SOURCE_KIND = "local_docker_postgres_read_only"
 POSTGRES_REHEARSAL_DATABASE = "tokenkey_archive_rehearsal"
@@ -47,12 +47,11 @@ PROD_CANARY_CONTAINER = "tokenkey-postgres"
 PROD_CANARY_TABLES = ("ops_system_logs", "ops_error_logs")
 POSTGRES_BIGINT_MAX = 2**63 - 1
 POSTGRES_BIGINT_WIDTH = len(str(POSTGRES_BIGINT_MAX))
-POSTGRES_TABLES = ("usage_logs", "ops_system_logs", "ops_error_logs", "qa_records")
+POSTGRES_TABLES = ("usage_logs", "ops_system_logs", "ops_error_logs")
 POSTGRES_DATASETS = {
     "usage_logs": "usage",
     "ops_system_logs": "ops",
     "ops_error_logs": "ops",
-    "qa_records": "qa",
 }
 DEFAULT_POSTGRES_TIMEOUT_SECONDS = 30
 DEFAULT_POSTGRES_MAX_ROWS = 100_000
@@ -262,7 +261,7 @@ def _postgres_candidates(
     info = _postgres_dsn_info(dsn, target=False)
     normalized_as_of = _timestamp(_utc(as_of))
     policy = retention_policy(
-        retention_days["usage"], retention_days["ops"], retention_days["qa"]
+        retention_days["usage"], retention_days["ops"]
     )
     _postgres_sentinel(dsn, timeout_seconds=timeout_seconds)
     candidates = {dataset: [] for dataset in DATASETS}
@@ -391,11 +390,10 @@ def _positive_days(name: str, value: int) -> int:
     return value
 
 
-def retention_policy(usage: int, ops: int, qa: int) -> dict[str, int]:
+def retention_policy(usage: int, ops: int) -> dict[str, int]:
     return {
         "usage": _positive_days("usage retention", usage),
         "ops": _positive_days("ops retention", ops),
-        "qa": _positive_days("qa retention", qa),
     }
 
 
@@ -488,7 +486,7 @@ def collect_candidates(
     source_path = _local_path(source, must_exist=True)
     cutoff_base = _utc(as_of)
     normalized_retention = retention_policy(
-        retention_days["usage"], retention_days["ops"], retention_days["qa"]
+        retention_days["usage"], retention_days["ops"]
     )
     candidates = {dataset: [] for dataset in DATASETS}
     seen: set[tuple[str, str]] = set()
@@ -573,7 +571,7 @@ def dry_run(
     source_stat = source_path.stat()
     normalized_as_of = _timestamp(_utc(as_of))
     normalized_retention = retention_policy(
-        retention_days["usage"], retention_days["ops"], retention_days["qa"]
+        retention_days["usage"], retention_days["ops"]
     )
     candidates, source_rows = collect_candidates(
         source_path, as_of=normalized_as_of, retention_days=normalized_retention
@@ -720,7 +718,7 @@ def seal_batch(
     source_stat = source_path.stat()
     normalized_as_of = _timestamp(_utc(as_of))
     normalized_retention = retention_policy(
-        retention_days["usage"], retention_days["ops"], retention_days["qa"]
+        retention_days["usage"], retention_days["ops"]
     )
     candidates, source_rows = collect_candidates(
         source_path, as_of=normalized_as_of, retention_days=normalized_retention
@@ -862,7 +860,7 @@ def postgres_dry_run(
         source_rows,
         as_of=as_of,
         retention_days=retention_policy(
-            retention_days["usage"], retention_days["ops"], retention_days["qa"]
+            retention_days["usage"], retention_days["ops"]
         ),
         source_info=source_info,
     )
@@ -888,7 +886,7 @@ def seal_postgres_batch(
     if report["candidate_rows"] == 0:
         raise RehearsalError("cannot seal an empty PostgreSQL rehearsal batch")
     normalized_retention = retention_policy(
-        retention_days["usage"], retention_days["ops"], retention_days["qa"]
+        retention_days["usage"], retention_days["ops"]
     )
     artifacts_preview = [
         _artifact_entry(dataset, candidates[dataset])[0]
@@ -1106,7 +1104,7 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
     if not isinstance(policy, dict):
         raise RehearsalError("manifest retention_days is invalid")
     try:
-        normalized_policy = retention_policy(policy["usage"], policy["ops"], policy["qa"])
+        normalized_policy = retention_policy(policy["usage"], policy["ops"])
     except (KeyError, TypeError) as exc:
         raise RehearsalError("manifest retention_days is invalid") from exc
     if policy != normalized_policy:
@@ -1715,9 +1713,6 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--ops-retention-days", type=int, default=DEFAULT_RETENTION_DAYS["ops"]
     )
-    parser.add_argument(
-        "--qa-retention-days", type=int, default=DEFAULT_RETENTION_DAYS["qa"]
-    )
 
 
 def _add_postgres_common(parser: argparse.ArgumentParser) -> None:
@@ -1758,9 +1753,6 @@ def _add_postgres_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--ops-retention-days", type=int, default=DEFAULT_RETENTION_DAYS["ops"]
     )
-    parser.add_argument(
-        "--qa-retention-days", type=int, default=DEFAULT_RETENTION_DAYS["qa"]
-    )
     parser.add_argument("--output")
 
 
@@ -1793,9 +1785,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _policy(args: argparse.Namespace) -> dict[str, int]:
-    return retention_policy(
-        args.usage_retention_days, args.ops_retention_days, args.qa_retention_days
-    )
+    return retention_policy(args.usage_retention_days, args.ops_retention_days)
 
 
 def main(argv: Iterable[str] | None = None) -> int:

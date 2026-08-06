@@ -2,12 +2,7 @@
 
 package middleware
 
-// Issue #63 — POST /api/v1/users/me/qa/export must accept BOTH user-scope
-// JWT and user-scope API key. EitherAuth dispatches by Authorization
-// header shape and writes the same AuthSubject{UserID} into context
-// regardless of branch, so the QA handler downstream can read
-// `WHERE user_id = subject.UserID` without caring how the caller
-// authenticated.
+// EitherAuth dispatches JWT and API-key credentials into the same user subject.
 
 import (
 	"context"

@@ -19,7 +19,7 @@
 
 ## Acceptance Criteria
 
-1. **AC-001（只读水位）**：Given 本地 SQLite 含 usage/ops/QA 冷热记录，When 以 90/30/2 天保留期 dry-run，Then 只报告严格早于 cutoff 的记录，源文件 checksum 不变，带微秒的时间在 seal/restore 后精度不变。
+1. **AC-001（只读水位）**：Given 本地 SQLite 含 usage/ops 冷热记录，When 以 90/30 天保留期 dry-run，Then 只报告严格早于 cutoff 的记录，源文件 checksum 不变，带微秒的时间在 seal/restore 后精度不变；QA dataset 必须拒绝。
 2. **AC-002（可验证封口）**：Given 存在冷记录，When seal，Then 生成确定性 batch、canonical gzip JSONL 和包含行数/范围/双 checksum 的 manifest；重复 seal 复用同一批次。
 3. **AC-003（损坏拒绝）**：Given artifact 被篡改或 manifest 不一致，When verify/restore，Then 在创建恢复库或提交数据前 fail closed。
 4. **AC-004（随机恢复）**：Given 已验证批次，When 使用显式 seed 随机选取一个 artifact 恢复，Then 恢复行数和 logical checksum 与 manifest 一致。
@@ -38,6 +38,7 @@
 ## Linked Tests
 
 - `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_dry_run_uses_retention_without_mutating_source`
+- `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us044_qa_dataset_is_rejected_by_generic_data_layer_rehearsal`
 - `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_cutoff_is_strict_and_empty_batches_are_refused`
 - `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_seal_verify_and_reseal_are_deterministic`
 - `ops/archive/test_data_layer_archive_rehearsal.py`::`DataLayerArchiveRehearsalTest.test_us037_corrupt_artifact_fails_closed_before_restore`

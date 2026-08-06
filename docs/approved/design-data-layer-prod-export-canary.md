@@ -91,4 +91,5 @@ plan (no AWS call)
 
 canary 通过后仍不能删除。下一顺序为：完整导出两个 ops legacy 分区但不删除；到 2026-07-31
 后重新确认整分区完全越过 30 天水位；批准长期冷存储保留策略；最后才单独审批分区 drop。
-QA 数据必须把 `qa_records` 与 blob 成套归档；`usage_logs` 在出现 90 天冷数据前另做分区化设计。
+`usage_logs` 在出现 90 天冷数据前另做分区化设计。QA 不进入该 ops canary，由独立 QA 生命周期
+SSOT 管理。
