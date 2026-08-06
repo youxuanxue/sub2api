@@ -1486,6 +1486,47 @@ var (
 			},
 		},
 	}
+	// QaArchiveShardsColumns holds the columns for the "qa_archive_shards" table.
+	QaArchiveShardsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "window_start", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "window_end", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "generation", Type: field.TypeInt, Default: 0},
+		{Name: "state", Type: field.TypeString, Default: "pending"},
+		{Name: "record_count", Type: field.TypeInt64, Default: 0},
+		{Name: "blob_ref_count", Type: field.TypeInt64, Default: 0},
+		{Name: "blob_present_count", Type: field.TypeInt64, Default: 0},
+		{Name: "blob_missing_count", Type: field.TypeInt64, Default: 0},
+		{Name: "logical_bytes", Type: field.TypeInt64, Default: 0},
+		{Name: "artifact_bytes", Type: field.TypeInt64, Default: 0},
+		{Name: "checksums", Type: field.TypeJSON},
+		{Name: "s3_prefix", Type: field.TypeString, Default: ""},
+		{Name: "manifest_key", Type: field.TypeString, Nullable: true},
+		{Name: "commit_key", Type: field.TypeString, Nullable: true},
+		{Name: "first_attempt_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "completed_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "last_error", Type: field.TypeString, Nullable: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+	}
+	// QaArchiveShardsTable holds the schema information for the "qa_archive_shards" table.
+	QaArchiveShardsTable = &schema.Table{
+		Name:       "qa_archive_shards",
+		Columns:    QaArchiveShardsColumns,
+		PrimaryKey: []*schema.Column{QaArchiveShardsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "qaarchiveshard_window_start_generation",
+				Unique:  true,
+				Columns: []*schema.Column{QaArchiveShardsColumns[1], QaArchiveShardsColumns[3]},
+			},
+			{
+				Name:    "qaarchiveshard_state_window_start",
+				Unique:  false,
+				Columns: []*schema.Column{QaArchiveShardsColumns[4], QaArchiveShardsColumns[1]},
+			},
+		},
+	}
 	// QaExportJobsColumns holds the columns for the "qa_export_jobs" table.
 	QaExportJobsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2283,6 +2324,7 @@ var (
 		PromoCodesTable,
 		PromoCodeUsagesTable,
 		ProxiesTable,
+		QaArchiveShardsTable,
 		QaExportJobsTable,
 		QaRecordsTable,
 		RedeemCodesTable,
@@ -2404,6 +2446,9 @@ func init() {
 	ProxiesTable.ForeignKeys[0].RefTable = ProxiesTable
 	ProxiesTable.Annotation = &entsql.Annotation{
 		Table: "proxies",
+	}
+	QaArchiveShardsTable.Annotation = &entsql.Annotation{
+		Table: "qa_archive_shards",
 	}
 	QaExportJobsTable.Annotation = &entsql.Annotation{
 		Table: "qa_export_jobs",

@@ -32,6 +32,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/qaarchiveshard"
 	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
@@ -1748,6 +1749,58 @@ func init() {
 	proxyDescExpiryWarnDays := proxyFields[10].Descriptor()
 	// proxy.DefaultExpiryWarnDays holds the default value on creation for the expiry_warn_days field.
 	proxy.DefaultExpiryWarnDays = proxyDescExpiryWarnDays.Default.(int)
+	qaarchiveshardFields := schema.QAArchiveShard{}.Fields()
+	_ = qaarchiveshardFields
+	// qaarchiveshardDescGeneration is the schema descriptor for generation field.
+	qaarchiveshardDescGeneration := qaarchiveshardFields[2].Descriptor()
+	// qaarchiveshard.DefaultGeneration holds the default value on creation for the generation field.
+	qaarchiveshard.DefaultGeneration = qaarchiveshardDescGeneration.Default.(int)
+	// qaarchiveshardDescState is the schema descriptor for state field.
+	qaarchiveshardDescState := qaarchiveshardFields[3].Descriptor()
+	// qaarchiveshard.DefaultState holds the default value on creation for the state field.
+	qaarchiveshard.DefaultState = qaarchiveshardDescState.Default.(string)
+	// qaarchiveshardDescRecordCount is the schema descriptor for record_count field.
+	qaarchiveshardDescRecordCount := qaarchiveshardFields[4].Descriptor()
+	// qaarchiveshard.DefaultRecordCount holds the default value on creation for the record_count field.
+	qaarchiveshard.DefaultRecordCount = qaarchiveshardDescRecordCount.Default.(int64)
+	// qaarchiveshardDescBlobRefCount is the schema descriptor for blob_ref_count field.
+	qaarchiveshardDescBlobRefCount := qaarchiveshardFields[5].Descriptor()
+	// qaarchiveshard.DefaultBlobRefCount holds the default value on creation for the blob_ref_count field.
+	qaarchiveshard.DefaultBlobRefCount = qaarchiveshardDescBlobRefCount.Default.(int64)
+	// qaarchiveshardDescBlobPresentCount is the schema descriptor for blob_present_count field.
+	qaarchiveshardDescBlobPresentCount := qaarchiveshardFields[6].Descriptor()
+	// qaarchiveshard.DefaultBlobPresentCount holds the default value on creation for the blob_present_count field.
+	qaarchiveshard.DefaultBlobPresentCount = qaarchiveshardDescBlobPresentCount.Default.(int64)
+	// qaarchiveshardDescBlobMissingCount is the schema descriptor for blob_missing_count field.
+	qaarchiveshardDescBlobMissingCount := qaarchiveshardFields[7].Descriptor()
+	// qaarchiveshard.DefaultBlobMissingCount holds the default value on creation for the blob_missing_count field.
+	qaarchiveshard.DefaultBlobMissingCount = qaarchiveshardDescBlobMissingCount.Default.(int64)
+	// qaarchiveshardDescLogicalBytes is the schema descriptor for logical_bytes field.
+	qaarchiveshardDescLogicalBytes := qaarchiveshardFields[8].Descriptor()
+	// qaarchiveshard.DefaultLogicalBytes holds the default value on creation for the logical_bytes field.
+	qaarchiveshard.DefaultLogicalBytes = qaarchiveshardDescLogicalBytes.Default.(int64)
+	// qaarchiveshardDescArtifactBytes is the schema descriptor for artifact_bytes field.
+	qaarchiveshardDescArtifactBytes := qaarchiveshardFields[9].Descriptor()
+	// qaarchiveshard.DefaultArtifactBytes holds the default value on creation for the artifact_bytes field.
+	qaarchiveshard.DefaultArtifactBytes = qaarchiveshardDescArtifactBytes.Default.(int64)
+	// qaarchiveshardDescChecksums is the schema descriptor for checksums field.
+	qaarchiveshardDescChecksums := qaarchiveshardFields[10].Descriptor()
+	// qaarchiveshard.DefaultChecksums holds the default value on creation for the checksums field.
+	qaarchiveshard.DefaultChecksums = qaarchiveshardDescChecksums.Default.(map[string]string)
+	// qaarchiveshardDescS3Prefix is the schema descriptor for s3_prefix field.
+	qaarchiveshardDescS3Prefix := qaarchiveshardFields[11].Descriptor()
+	// qaarchiveshard.DefaultS3Prefix holds the default value on creation for the s3_prefix field.
+	qaarchiveshard.DefaultS3Prefix = qaarchiveshardDescS3Prefix.Default.(string)
+	// qaarchiveshardDescCreatedAt is the schema descriptor for created_at field.
+	qaarchiveshardDescCreatedAt := qaarchiveshardFields[17].Descriptor()
+	// qaarchiveshard.DefaultCreatedAt holds the default value on creation for the created_at field.
+	qaarchiveshard.DefaultCreatedAt = qaarchiveshardDescCreatedAt.Default.(func() time.Time)
+	// qaarchiveshardDescUpdatedAt is the schema descriptor for updated_at field.
+	qaarchiveshardDescUpdatedAt := qaarchiveshardFields[18].Descriptor()
+	// qaarchiveshard.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	qaarchiveshard.DefaultUpdatedAt = qaarchiveshardDescUpdatedAt.Default.(func() time.Time)
+	// qaarchiveshard.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	qaarchiveshard.UpdateDefaultUpdatedAt = qaarchiveshardDescUpdatedAt.UpdateDefault.(func() time.Time)
 	qaexportjobMixin := schema.QAExportJob{}.Mixin()
 	qaexportjobMixinFields0 := qaexportjobMixin[0].Fields()
 	_ = qaexportjobMixinFields0

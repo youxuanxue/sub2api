@@ -42,6 +42,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/qaarchiveshard"
 	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
@@ -121,6 +122,8 @@ type Client struct {
 	PromoCodeUsage *PromoCodeUsageClient
 	// Proxy is the client for interacting with the Proxy builders.
 	Proxy *ProxyClient
+	// QAArchiveShard is the client for interacting with the QAArchiveShard builders.
+	QAArchiveShard *QAArchiveShardClient
 	// QAExportJob is the client for interacting with the QAExportJob builders.
 	QAExportJob *QAExportJobClient
 	// QARecord is the client for interacting with the QARecord builders.
@@ -191,6 +194,7 @@ func (c *Client) init() {
 	c.PromoCode = NewPromoCodeClient(c.config)
 	c.PromoCodeUsage = NewPromoCodeUsageClient(c.config)
 	c.Proxy = NewProxyClient(c.config)
+	c.QAArchiveShard = NewQAArchiveShardClient(c.config)
 	c.QAExportJob = NewQAExportJobClient(c.config)
 	c.QARecord = NewQARecordClient(c.config)
 	c.RedeemCode = NewRedeemCodeClient(c.config)
@@ -326,6 +330,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		PromoCode:                     NewPromoCodeClient(cfg),
 		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
 		Proxy:                         NewProxyClient(cfg),
+		QAArchiveShard:                NewQAArchiveShardClient(cfg),
 		QAExportJob:                   NewQAExportJobClient(cfg),
 		QARecord:                      NewQARecordClient(cfg),
 		RedeemCode:                    NewRedeemCodeClient(cfg),
@@ -388,6 +393,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		PromoCode:                     NewPromoCodeClient(cfg),
 		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
 		Proxy:                         NewProxyClient(cfg),
+		QAArchiveShard:                NewQAArchiveShardClient(cfg),
 		QAExportJob:                   NewQAExportJobClient(cfg),
 		QARecord:                      NewQARecordClient(cfg),
 		RedeemCode:                    NewRedeemCodeClient(cfg),
@@ -440,11 +446,11 @@ func (c *Client) Use(hooks ...Hook) {
 		c.CompositeModelRoute, c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
 		c.IdentityAdoptionDecision, c.ModelAvailability, c.PaymentAuditLog,
 		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
-		c.PromoCodeUsage, c.Proxy, c.QAExportJob, c.QARecord, c.RedeemCode,
-		c.SecuritySecret, c.Setting, c.SubscriptionPlan, c.TLSFingerprintProfile,
-		c.Tier, c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
-		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
-		c.UserSubscription,
+		c.PromoCodeUsage, c.Proxy, c.QAArchiveShard, c.QAExportJob, c.QARecord,
+		c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
+		c.TLSFingerprintProfile, c.Tier, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.UserPlatformQuota, c.UserSubscription,
 	} {
 		n.Use(hooks...)
 	}
@@ -461,11 +467,11 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.CompositeModelRoute, c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
 		c.IdentityAdoptionDecision, c.ModelAvailability, c.PaymentAuditLog,
 		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
-		c.PromoCodeUsage, c.Proxy, c.QAExportJob, c.QARecord, c.RedeemCode,
-		c.SecuritySecret, c.Setting, c.SubscriptionPlan, c.TLSFingerprintProfile,
-		c.Tier, c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
-		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
-		c.UserSubscription,
+		c.PromoCodeUsage, c.Proxy, c.QAArchiveShard, c.QAExportJob, c.QARecord,
+		c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
+		c.TLSFingerprintProfile, c.Tier, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.UserPlatformQuota, c.UserSubscription,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -528,6 +534,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.PromoCodeUsage.mutate(ctx, m)
 	case *ProxyMutation:
 		return c.Proxy.mutate(ctx, m)
+	case *QAArchiveShardMutation:
+		return c.QAArchiveShard.mutate(ctx, m)
 	case *QAExportJobMutation:
 		return c.QAExportJob.mutate(ctx, m)
 	case *QARecordMutation:
@@ -4805,6 +4813,139 @@ func (c *ProxyClient) mutate(ctx context.Context, m *ProxyMutation) (Value, erro
 	}
 }
 
+// QAArchiveShardClient is a client for the QAArchiveShard schema.
+type QAArchiveShardClient struct {
+	config
+}
+
+// NewQAArchiveShardClient returns a client for the QAArchiveShard from the given config.
+func NewQAArchiveShardClient(c config) *QAArchiveShardClient {
+	return &QAArchiveShardClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `qaarchiveshard.Hooks(f(g(h())))`.
+func (c *QAArchiveShardClient) Use(hooks ...Hook) {
+	c.hooks.QAArchiveShard = append(c.hooks.QAArchiveShard, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `qaarchiveshard.Intercept(f(g(h())))`.
+func (c *QAArchiveShardClient) Intercept(interceptors ...Interceptor) {
+	c.inters.QAArchiveShard = append(c.inters.QAArchiveShard, interceptors...)
+}
+
+// Create returns a builder for creating a QAArchiveShard entity.
+func (c *QAArchiveShardClient) Create() *QAArchiveShardCreate {
+	mutation := newQAArchiveShardMutation(c.config, OpCreate)
+	return &QAArchiveShardCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of QAArchiveShard entities.
+func (c *QAArchiveShardClient) CreateBulk(builders ...*QAArchiveShardCreate) *QAArchiveShardCreateBulk {
+	return &QAArchiveShardCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *QAArchiveShardClient) MapCreateBulk(slice any, setFunc func(*QAArchiveShardCreate, int)) *QAArchiveShardCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &QAArchiveShardCreateBulk{err: fmt.Errorf("calling to QAArchiveShardClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*QAArchiveShardCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &QAArchiveShardCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for QAArchiveShard.
+func (c *QAArchiveShardClient) Update() *QAArchiveShardUpdate {
+	mutation := newQAArchiveShardMutation(c.config, OpUpdate)
+	return &QAArchiveShardUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *QAArchiveShardClient) UpdateOne(_m *QAArchiveShard) *QAArchiveShardUpdateOne {
+	mutation := newQAArchiveShardMutation(c.config, OpUpdateOne, withQAArchiveShard(_m))
+	return &QAArchiveShardUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *QAArchiveShardClient) UpdateOneID(id int64) *QAArchiveShardUpdateOne {
+	mutation := newQAArchiveShardMutation(c.config, OpUpdateOne, withQAArchiveShardID(id))
+	return &QAArchiveShardUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for QAArchiveShard.
+func (c *QAArchiveShardClient) Delete() *QAArchiveShardDelete {
+	mutation := newQAArchiveShardMutation(c.config, OpDelete)
+	return &QAArchiveShardDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *QAArchiveShardClient) DeleteOne(_m *QAArchiveShard) *QAArchiveShardDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *QAArchiveShardClient) DeleteOneID(id int64) *QAArchiveShardDeleteOne {
+	builder := c.Delete().Where(qaarchiveshard.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &QAArchiveShardDeleteOne{builder}
+}
+
+// Query returns a query builder for QAArchiveShard.
+func (c *QAArchiveShardClient) Query() *QAArchiveShardQuery {
+	return &QAArchiveShardQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeQAArchiveShard},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a QAArchiveShard entity by its id.
+func (c *QAArchiveShardClient) Get(ctx context.Context, id int64) (*QAArchiveShard, error) {
+	return c.Query().Where(qaarchiveshard.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *QAArchiveShardClient) GetX(ctx context.Context, id int64) *QAArchiveShard {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *QAArchiveShardClient) Hooks() []Hook {
+	return c.hooks.QAArchiveShard
+}
+
+// Interceptors returns the client interceptors.
+func (c *QAArchiveShardClient) Interceptors() []Interceptor {
+	return c.inters.QAArchiveShard
+}
+
+func (c *QAArchiveShardClient) mutate(ctx context.Context, m *QAArchiveShardMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&QAArchiveShardCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&QAArchiveShardUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&QAArchiveShardUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&QAArchiveShardDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown QAArchiveShard mutation op: %q", m.Op())
+	}
+}
+
 // QAExportJobClient is a client for the QAExportJob schema.
 type QAExportJobClient struct {
 	config
@@ -7397,10 +7538,11 @@ type (
 		ChannelMonitorRequestTemplate, CompositeModelRoute, ErrorPassthroughRule,
 		Group, IdempotencyRecord, IdentityAdoptionDecision, ModelAvailability,
 		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
-		PromoCode, PromoCodeUsage, Proxy, QAExportJob, QARecord, RedeemCode,
-		SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile, Tier,
-		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
-		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Hook
+		PromoCode, PromoCodeUsage, Proxy, QAArchiveShard, QAExportJob, QARecord,
+		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
+		Tier, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
+		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
+		UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
@@ -7409,10 +7551,11 @@ type (
 		ChannelMonitorRequestTemplate, CompositeModelRoute, ErrorPassthroughRule,
 		Group, IdempotencyRecord, IdentityAdoptionDecision, ModelAvailability,
 		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
-		PromoCode, PromoCodeUsage, Proxy, QAExportJob, QARecord, RedeemCode,
-		SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile, Tier,
-		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
-		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Interceptor
+		PromoCode, PromoCodeUsage, Proxy, QAArchiveShard, QAExportJob, QARecord,
+		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
+		Tier, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
+		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
+		UserSubscription []ent.Interceptor
 	}
 )
 

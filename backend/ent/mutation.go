@@ -40,6 +40,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/qaarchiveshard"
 	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
@@ -95,6 +96,7 @@ const (
 	TypePromoCode                     = "PromoCode"
 	TypePromoCodeUsage                = "PromoCodeUsage"
 	TypeProxy                         = "Proxy"
+	TypeQAArchiveShard                = "QAArchiveShard"
 	TypeQAExportJob                   = "QAExportJob"
 	TypeQARecord                      = "QARecord"
 	TypeRedeemCode                    = "RedeemCode"
@@ -39480,6 +39482,1636 @@ func (m *ProxyMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Proxy edge %s", name)
+}
+
+// QAArchiveShardMutation represents an operation that mutates the QAArchiveShard nodes in the graph.
+type QAArchiveShardMutation struct {
+	config
+	op                    Op
+	typ                   string
+	id                    *int64
+	window_start          *time.Time
+	window_end            *time.Time
+	generation            *int
+	addgeneration         *int
+	state                 *string
+	record_count          *int64
+	addrecord_count       *int64
+	blob_ref_count        *int64
+	addblob_ref_count     *int64
+	blob_present_count    *int64
+	addblob_present_count *int64
+	blob_missing_count    *int64
+	addblob_missing_count *int64
+	logical_bytes         *int64
+	addlogical_bytes      *int64
+	artifact_bytes        *int64
+	addartifact_bytes     *int64
+	checksums             *map[string]string
+	s3_prefix             *string
+	manifest_key          *string
+	commit_key            *string
+	first_attempt_at      *time.Time
+	completed_at          *time.Time
+	last_error            *string
+	created_at            *time.Time
+	updated_at            *time.Time
+	clearedFields         map[string]struct{}
+	done                  bool
+	oldValue              func(context.Context) (*QAArchiveShard, error)
+	predicates            []predicate.QAArchiveShard
+}
+
+var _ ent.Mutation = (*QAArchiveShardMutation)(nil)
+
+// qaarchiveshardOption allows management of the mutation configuration using functional options.
+type qaarchiveshardOption func(*QAArchiveShardMutation)
+
+// newQAArchiveShardMutation creates new mutation for the QAArchiveShard entity.
+func newQAArchiveShardMutation(c config, op Op, opts ...qaarchiveshardOption) *QAArchiveShardMutation {
+	m := &QAArchiveShardMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeQAArchiveShard,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withQAArchiveShardID sets the ID field of the mutation.
+func withQAArchiveShardID(id int64) qaarchiveshardOption {
+	return func(m *QAArchiveShardMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *QAArchiveShard
+		)
+		m.oldValue = func(ctx context.Context) (*QAArchiveShard, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().QAArchiveShard.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withQAArchiveShard sets the old QAArchiveShard of the mutation.
+func withQAArchiveShard(node *QAArchiveShard) qaarchiveshardOption {
+	return func(m *QAArchiveShardMutation) {
+		m.oldValue = func(context.Context) (*QAArchiveShard, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m QAArchiveShardMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m QAArchiveShardMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *QAArchiveShardMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *QAArchiveShardMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().QAArchiveShard.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetWindowStart sets the "window_start" field.
+func (m *QAArchiveShardMutation) SetWindowStart(t time.Time) {
+	m.window_start = &t
+}
+
+// WindowStart returns the value of the "window_start" field in the mutation.
+func (m *QAArchiveShardMutation) WindowStart() (r time.Time, exists bool) {
+	v := m.window_start
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWindowStart returns the old "window_start" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldWindowStart(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWindowStart is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWindowStart requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWindowStart: %w", err)
+	}
+	return oldValue.WindowStart, nil
+}
+
+// ResetWindowStart resets all changes to the "window_start" field.
+func (m *QAArchiveShardMutation) ResetWindowStart() {
+	m.window_start = nil
+}
+
+// SetWindowEnd sets the "window_end" field.
+func (m *QAArchiveShardMutation) SetWindowEnd(t time.Time) {
+	m.window_end = &t
+}
+
+// WindowEnd returns the value of the "window_end" field in the mutation.
+func (m *QAArchiveShardMutation) WindowEnd() (r time.Time, exists bool) {
+	v := m.window_end
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWindowEnd returns the old "window_end" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldWindowEnd(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWindowEnd is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWindowEnd requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWindowEnd: %w", err)
+	}
+	return oldValue.WindowEnd, nil
+}
+
+// ResetWindowEnd resets all changes to the "window_end" field.
+func (m *QAArchiveShardMutation) ResetWindowEnd() {
+	m.window_end = nil
+}
+
+// SetGeneration sets the "generation" field.
+func (m *QAArchiveShardMutation) SetGeneration(i int) {
+	m.generation = &i
+	m.addgeneration = nil
+}
+
+// Generation returns the value of the "generation" field in the mutation.
+func (m *QAArchiveShardMutation) Generation() (r int, exists bool) {
+	v := m.generation
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldGeneration returns the old "generation" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldGeneration(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldGeneration is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldGeneration requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldGeneration: %w", err)
+	}
+	return oldValue.Generation, nil
+}
+
+// AddGeneration adds i to the "generation" field.
+func (m *QAArchiveShardMutation) AddGeneration(i int) {
+	if m.addgeneration != nil {
+		*m.addgeneration += i
+	} else {
+		m.addgeneration = &i
+	}
+}
+
+// AddedGeneration returns the value that was added to the "generation" field in this mutation.
+func (m *QAArchiveShardMutation) AddedGeneration() (r int, exists bool) {
+	v := m.addgeneration
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetGeneration resets all changes to the "generation" field.
+func (m *QAArchiveShardMutation) ResetGeneration() {
+	m.generation = nil
+	m.addgeneration = nil
+}
+
+// SetState sets the "state" field.
+func (m *QAArchiveShardMutation) SetState(s string) {
+	m.state = &s
+}
+
+// State returns the value of the "state" field in the mutation.
+func (m *QAArchiveShardMutation) State() (r string, exists bool) {
+	v := m.state
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldState returns the old "state" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldState(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldState is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldState requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldState: %w", err)
+	}
+	return oldValue.State, nil
+}
+
+// ResetState resets all changes to the "state" field.
+func (m *QAArchiveShardMutation) ResetState() {
+	m.state = nil
+}
+
+// SetRecordCount sets the "record_count" field.
+func (m *QAArchiveShardMutation) SetRecordCount(i int64) {
+	m.record_count = &i
+	m.addrecord_count = nil
+}
+
+// RecordCount returns the value of the "record_count" field in the mutation.
+func (m *QAArchiveShardMutation) RecordCount() (r int64, exists bool) {
+	v := m.record_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRecordCount returns the old "record_count" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldRecordCount(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRecordCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRecordCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRecordCount: %w", err)
+	}
+	return oldValue.RecordCount, nil
+}
+
+// AddRecordCount adds i to the "record_count" field.
+func (m *QAArchiveShardMutation) AddRecordCount(i int64) {
+	if m.addrecord_count != nil {
+		*m.addrecord_count += i
+	} else {
+		m.addrecord_count = &i
+	}
+}
+
+// AddedRecordCount returns the value that was added to the "record_count" field in this mutation.
+func (m *QAArchiveShardMutation) AddedRecordCount() (r int64, exists bool) {
+	v := m.addrecord_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRecordCount resets all changes to the "record_count" field.
+func (m *QAArchiveShardMutation) ResetRecordCount() {
+	m.record_count = nil
+	m.addrecord_count = nil
+}
+
+// SetBlobRefCount sets the "blob_ref_count" field.
+func (m *QAArchiveShardMutation) SetBlobRefCount(i int64) {
+	m.blob_ref_count = &i
+	m.addblob_ref_count = nil
+}
+
+// BlobRefCount returns the value of the "blob_ref_count" field in the mutation.
+func (m *QAArchiveShardMutation) BlobRefCount() (r int64, exists bool) {
+	v := m.blob_ref_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBlobRefCount returns the old "blob_ref_count" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldBlobRefCount(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBlobRefCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBlobRefCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBlobRefCount: %w", err)
+	}
+	return oldValue.BlobRefCount, nil
+}
+
+// AddBlobRefCount adds i to the "blob_ref_count" field.
+func (m *QAArchiveShardMutation) AddBlobRefCount(i int64) {
+	if m.addblob_ref_count != nil {
+		*m.addblob_ref_count += i
+	} else {
+		m.addblob_ref_count = &i
+	}
+}
+
+// AddedBlobRefCount returns the value that was added to the "blob_ref_count" field in this mutation.
+func (m *QAArchiveShardMutation) AddedBlobRefCount() (r int64, exists bool) {
+	v := m.addblob_ref_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBlobRefCount resets all changes to the "blob_ref_count" field.
+func (m *QAArchiveShardMutation) ResetBlobRefCount() {
+	m.blob_ref_count = nil
+	m.addblob_ref_count = nil
+}
+
+// SetBlobPresentCount sets the "blob_present_count" field.
+func (m *QAArchiveShardMutation) SetBlobPresentCount(i int64) {
+	m.blob_present_count = &i
+	m.addblob_present_count = nil
+}
+
+// BlobPresentCount returns the value of the "blob_present_count" field in the mutation.
+func (m *QAArchiveShardMutation) BlobPresentCount() (r int64, exists bool) {
+	v := m.blob_present_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBlobPresentCount returns the old "blob_present_count" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldBlobPresentCount(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBlobPresentCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBlobPresentCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBlobPresentCount: %w", err)
+	}
+	return oldValue.BlobPresentCount, nil
+}
+
+// AddBlobPresentCount adds i to the "blob_present_count" field.
+func (m *QAArchiveShardMutation) AddBlobPresentCount(i int64) {
+	if m.addblob_present_count != nil {
+		*m.addblob_present_count += i
+	} else {
+		m.addblob_present_count = &i
+	}
+}
+
+// AddedBlobPresentCount returns the value that was added to the "blob_present_count" field in this mutation.
+func (m *QAArchiveShardMutation) AddedBlobPresentCount() (r int64, exists bool) {
+	v := m.addblob_present_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBlobPresentCount resets all changes to the "blob_present_count" field.
+func (m *QAArchiveShardMutation) ResetBlobPresentCount() {
+	m.blob_present_count = nil
+	m.addblob_present_count = nil
+}
+
+// SetBlobMissingCount sets the "blob_missing_count" field.
+func (m *QAArchiveShardMutation) SetBlobMissingCount(i int64) {
+	m.blob_missing_count = &i
+	m.addblob_missing_count = nil
+}
+
+// BlobMissingCount returns the value of the "blob_missing_count" field in the mutation.
+func (m *QAArchiveShardMutation) BlobMissingCount() (r int64, exists bool) {
+	v := m.blob_missing_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBlobMissingCount returns the old "blob_missing_count" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldBlobMissingCount(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBlobMissingCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBlobMissingCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBlobMissingCount: %w", err)
+	}
+	return oldValue.BlobMissingCount, nil
+}
+
+// AddBlobMissingCount adds i to the "blob_missing_count" field.
+func (m *QAArchiveShardMutation) AddBlobMissingCount(i int64) {
+	if m.addblob_missing_count != nil {
+		*m.addblob_missing_count += i
+	} else {
+		m.addblob_missing_count = &i
+	}
+}
+
+// AddedBlobMissingCount returns the value that was added to the "blob_missing_count" field in this mutation.
+func (m *QAArchiveShardMutation) AddedBlobMissingCount() (r int64, exists bool) {
+	v := m.addblob_missing_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBlobMissingCount resets all changes to the "blob_missing_count" field.
+func (m *QAArchiveShardMutation) ResetBlobMissingCount() {
+	m.blob_missing_count = nil
+	m.addblob_missing_count = nil
+}
+
+// SetLogicalBytes sets the "logical_bytes" field.
+func (m *QAArchiveShardMutation) SetLogicalBytes(i int64) {
+	m.logical_bytes = &i
+	m.addlogical_bytes = nil
+}
+
+// LogicalBytes returns the value of the "logical_bytes" field in the mutation.
+func (m *QAArchiveShardMutation) LogicalBytes() (r int64, exists bool) {
+	v := m.logical_bytes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLogicalBytes returns the old "logical_bytes" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldLogicalBytes(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLogicalBytes is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLogicalBytes requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLogicalBytes: %w", err)
+	}
+	return oldValue.LogicalBytes, nil
+}
+
+// AddLogicalBytes adds i to the "logical_bytes" field.
+func (m *QAArchiveShardMutation) AddLogicalBytes(i int64) {
+	if m.addlogical_bytes != nil {
+		*m.addlogical_bytes += i
+	} else {
+		m.addlogical_bytes = &i
+	}
+}
+
+// AddedLogicalBytes returns the value that was added to the "logical_bytes" field in this mutation.
+func (m *QAArchiveShardMutation) AddedLogicalBytes() (r int64, exists bool) {
+	v := m.addlogical_bytes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetLogicalBytes resets all changes to the "logical_bytes" field.
+func (m *QAArchiveShardMutation) ResetLogicalBytes() {
+	m.logical_bytes = nil
+	m.addlogical_bytes = nil
+}
+
+// SetArtifactBytes sets the "artifact_bytes" field.
+func (m *QAArchiveShardMutation) SetArtifactBytes(i int64) {
+	m.artifact_bytes = &i
+	m.addartifact_bytes = nil
+}
+
+// ArtifactBytes returns the value of the "artifact_bytes" field in the mutation.
+func (m *QAArchiveShardMutation) ArtifactBytes() (r int64, exists bool) {
+	v := m.artifact_bytes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldArtifactBytes returns the old "artifact_bytes" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldArtifactBytes(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldArtifactBytes is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldArtifactBytes requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldArtifactBytes: %w", err)
+	}
+	return oldValue.ArtifactBytes, nil
+}
+
+// AddArtifactBytes adds i to the "artifact_bytes" field.
+func (m *QAArchiveShardMutation) AddArtifactBytes(i int64) {
+	if m.addartifact_bytes != nil {
+		*m.addartifact_bytes += i
+	} else {
+		m.addartifact_bytes = &i
+	}
+}
+
+// AddedArtifactBytes returns the value that was added to the "artifact_bytes" field in this mutation.
+func (m *QAArchiveShardMutation) AddedArtifactBytes() (r int64, exists bool) {
+	v := m.addartifact_bytes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetArtifactBytes resets all changes to the "artifact_bytes" field.
+func (m *QAArchiveShardMutation) ResetArtifactBytes() {
+	m.artifact_bytes = nil
+	m.addartifact_bytes = nil
+}
+
+// SetChecksums sets the "checksums" field.
+func (m *QAArchiveShardMutation) SetChecksums(value map[string]string) {
+	m.checksums = &value
+}
+
+// Checksums returns the value of the "checksums" field in the mutation.
+func (m *QAArchiveShardMutation) Checksums() (r map[string]string, exists bool) {
+	v := m.checksums
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChecksums returns the old "checksums" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldChecksums(ctx context.Context) (v map[string]string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChecksums is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChecksums requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChecksums: %w", err)
+	}
+	return oldValue.Checksums, nil
+}
+
+// ResetChecksums resets all changes to the "checksums" field.
+func (m *QAArchiveShardMutation) ResetChecksums() {
+	m.checksums = nil
+}
+
+// SetS3Prefix sets the "s3_prefix" field.
+func (m *QAArchiveShardMutation) SetS3Prefix(s string) {
+	m.s3_prefix = &s
+}
+
+// S3Prefix returns the value of the "s3_prefix" field in the mutation.
+func (m *QAArchiveShardMutation) S3Prefix() (r string, exists bool) {
+	v := m.s3_prefix
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldS3Prefix returns the old "s3_prefix" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldS3Prefix(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldS3Prefix is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldS3Prefix requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldS3Prefix: %w", err)
+	}
+	return oldValue.S3Prefix, nil
+}
+
+// ResetS3Prefix resets all changes to the "s3_prefix" field.
+func (m *QAArchiveShardMutation) ResetS3Prefix() {
+	m.s3_prefix = nil
+}
+
+// SetManifestKey sets the "manifest_key" field.
+func (m *QAArchiveShardMutation) SetManifestKey(s string) {
+	m.manifest_key = &s
+}
+
+// ManifestKey returns the value of the "manifest_key" field in the mutation.
+func (m *QAArchiveShardMutation) ManifestKey() (r string, exists bool) {
+	v := m.manifest_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldManifestKey returns the old "manifest_key" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldManifestKey(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldManifestKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldManifestKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldManifestKey: %w", err)
+	}
+	return oldValue.ManifestKey, nil
+}
+
+// ClearManifestKey clears the value of the "manifest_key" field.
+func (m *QAArchiveShardMutation) ClearManifestKey() {
+	m.manifest_key = nil
+	m.clearedFields[qaarchiveshard.FieldManifestKey] = struct{}{}
+}
+
+// ManifestKeyCleared returns if the "manifest_key" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) ManifestKeyCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldManifestKey]
+	return ok
+}
+
+// ResetManifestKey resets all changes to the "manifest_key" field.
+func (m *QAArchiveShardMutation) ResetManifestKey() {
+	m.manifest_key = nil
+	delete(m.clearedFields, qaarchiveshard.FieldManifestKey)
+}
+
+// SetCommitKey sets the "commit_key" field.
+func (m *QAArchiveShardMutation) SetCommitKey(s string) {
+	m.commit_key = &s
+}
+
+// CommitKey returns the value of the "commit_key" field in the mutation.
+func (m *QAArchiveShardMutation) CommitKey() (r string, exists bool) {
+	v := m.commit_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCommitKey returns the old "commit_key" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldCommitKey(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCommitKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCommitKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCommitKey: %w", err)
+	}
+	return oldValue.CommitKey, nil
+}
+
+// ClearCommitKey clears the value of the "commit_key" field.
+func (m *QAArchiveShardMutation) ClearCommitKey() {
+	m.commit_key = nil
+	m.clearedFields[qaarchiveshard.FieldCommitKey] = struct{}{}
+}
+
+// CommitKeyCleared returns if the "commit_key" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) CommitKeyCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldCommitKey]
+	return ok
+}
+
+// ResetCommitKey resets all changes to the "commit_key" field.
+func (m *QAArchiveShardMutation) ResetCommitKey() {
+	m.commit_key = nil
+	delete(m.clearedFields, qaarchiveshard.FieldCommitKey)
+}
+
+// SetFirstAttemptAt sets the "first_attempt_at" field.
+func (m *QAArchiveShardMutation) SetFirstAttemptAt(t time.Time) {
+	m.first_attempt_at = &t
+}
+
+// FirstAttemptAt returns the value of the "first_attempt_at" field in the mutation.
+func (m *QAArchiveShardMutation) FirstAttemptAt() (r time.Time, exists bool) {
+	v := m.first_attempt_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFirstAttemptAt returns the old "first_attempt_at" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldFirstAttemptAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFirstAttemptAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFirstAttemptAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFirstAttemptAt: %w", err)
+	}
+	return oldValue.FirstAttemptAt, nil
+}
+
+// ClearFirstAttemptAt clears the value of the "first_attempt_at" field.
+func (m *QAArchiveShardMutation) ClearFirstAttemptAt() {
+	m.first_attempt_at = nil
+	m.clearedFields[qaarchiveshard.FieldFirstAttemptAt] = struct{}{}
+}
+
+// FirstAttemptAtCleared returns if the "first_attempt_at" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) FirstAttemptAtCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldFirstAttemptAt]
+	return ok
+}
+
+// ResetFirstAttemptAt resets all changes to the "first_attempt_at" field.
+func (m *QAArchiveShardMutation) ResetFirstAttemptAt() {
+	m.first_attempt_at = nil
+	delete(m.clearedFields, qaarchiveshard.FieldFirstAttemptAt)
+}
+
+// SetCompletedAt sets the "completed_at" field.
+func (m *QAArchiveShardMutation) SetCompletedAt(t time.Time) {
+	m.completed_at = &t
+}
+
+// CompletedAt returns the value of the "completed_at" field in the mutation.
+func (m *QAArchiveShardMutation) CompletedAt() (r time.Time, exists bool) {
+	v := m.completed_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCompletedAt returns the old "completed_at" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldCompletedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCompletedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCompletedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCompletedAt: %w", err)
+	}
+	return oldValue.CompletedAt, nil
+}
+
+// ClearCompletedAt clears the value of the "completed_at" field.
+func (m *QAArchiveShardMutation) ClearCompletedAt() {
+	m.completed_at = nil
+	m.clearedFields[qaarchiveshard.FieldCompletedAt] = struct{}{}
+}
+
+// CompletedAtCleared returns if the "completed_at" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) CompletedAtCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldCompletedAt]
+	return ok
+}
+
+// ResetCompletedAt resets all changes to the "completed_at" field.
+func (m *QAArchiveShardMutation) ResetCompletedAt() {
+	m.completed_at = nil
+	delete(m.clearedFields, qaarchiveshard.FieldCompletedAt)
+}
+
+// SetLastError sets the "last_error" field.
+func (m *QAArchiveShardMutation) SetLastError(s string) {
+	m.last_error = &s
+}
+
+// LastError returns the value of the "last_error" field in the mutation.
+func (m *QAArchiveShardMutation) LastError() (r string, exists bool) {
+	v := m.last_error
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastError returns the old "last_error" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldLastError(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastError is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastError requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastError: %w", err)
+	}
+	return oldValue.LastError, nil
+}
+
+// ClearLastError clears the value of the "last_error" field.
+func (m *QAArchiveShardMutation) ClearLastError() {
+	m.last_error = nil
+	m.clearedFields[qaarchiveshard.FieldLastError] = struct{}{}
+}
+
+// LastErrorCleared returns if the "last_error" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) LastErrorCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldLastError]
+	return ok
+}
+
+// ResetLastError resets all changes to the "last_error" field.
+func (m *QAArchiveShardMutation) ResetLastError() {
+	m.last_error = nil
+	delete(m.clearedFields, qaarchiveshard.FieldLastError)
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *QAArchiveShardMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *QAArchiveShardMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *QAArchiveShardMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *QAArchiveShardMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *QAArchiveShardMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *QAArchiveShardMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// Where appends a list predicates to the QAArchiveShardMutation builder.
+func (m *QAArchiveShardMutation) Where(ps ...predicate.QAArchiveShard) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the QAArchiveShardMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *QAArchiveShardMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.QAArchiveShard, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *QAArchiveShardMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *QAArchiveShardMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (QAArchiveShard).
+func (m *QAArchiveShardMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *QAArchiveShardMutation) Fields() []string {
+	fields := make([]string, 0, 19)
+	if m.window_start != nil {
+		fields = append(fields, qaarchiveshard.FieldWindowStart)
+	}
+	if m.window_end != nil {
+		fields = append(fields, qaarchiveshard.FieldWindowEnd)
+	}
+	if m.generation != nil {
+		fields = append(fields, qaarchiveshard.FieldGeneration)
+	}
+	if m.state != nil {
+		fields = append(fields, qaarchiveshard.FieldState)
+	}
+	if m.record_count != nil {
+		fields = append(fields, qaarchiveshard.FieldRecordCount)
+	}
+	if m.blob_ref_count != nil {
+		fields = append(fields, qaarchiveshard.FieldBlobRefCount)
+	}
+	if m.blob_present_count != nil {
+		fields = append(fields, qaarchiveshard.FieldBlobPresentCount)
+	}
+	if m.blob_missing_count != nil {
+		fields = append(fields, qaarchiveshard.FieldBlobMissingCount)
+	}
+	if m.logical_bytes != nil {
+		fields = append(fields, qaarchiveshard.FieldLogicalBytes)
+	}
+	if m.artifact_bytes != nil {
+		fields = append(fields, qaarchiveshard.FieldArtifactBytes)
+	}
+	if m.checksums != nil {
+		fields = append(fields, qaarchiveshard.FieldChecksums)
+	}
+	if m.s3_prefix != nil {
+		fields = append(fields, qaarchiveshard.FieldS3Prefix)
+	}
+	if m.manifest_key != nil {
+		fields = append(fields, qaarchiveshard.FieldManifestKey)
+	}
+	if m.commit_key != nil {
+		fields = append(fields, qaarchiveshard.FieldCommitKey)
+	}
+	if m.first_attempt_at != nil {
+		fields = append(fields, qaarchiveshard.FieldFirstAttemptAt)
+	}
+	if m.completed_at != nil {
+		fields = append(fields, qaarchiveshard.FieldCompletedAt)
+	}
+	if m.last_error != nil {
+		fields = append(fields, qaarchiveshard.FieldLastError)
+	}
+	if m.created_at != nil {
+		fields = append(fields, qaarchiveshard.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, qaarchiveshard.FieldUpdatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *QAArchiveShardMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case qaarchiveshard.FieldWindowStart:
+		return m.WindowStart()
+	case qaarchiveshard.FieldWindowEnd:
+		return m.WindowEnd()
+	case qaarchiveshard.FieldGeneration:
+		return m.Generation()
+	case qaarchiveshard.FieldState:
+		return m.State()
+	case qaarchiveshard.FieldRecordCount:
+		return m.RecordCount()
+	case qaarchiveshard.FieldBlobRefCount:
+		return m.BlobRefCount()
+	case qaarchiveshard.FieldBlobPresentCount:
+		return m.BlobPresentCount()
+	case qaarchiveshard.FieldBlobMissingCount:
+		return m.BlobMissingCount()
+	case qaarchiveshard.FieldLogicalBytes:
+		return m.LogicalBytes()
+	case qaarchiveshard.FieldArtifactBytes:
+		return m.ArtifactBytes()
+	case qaarchiveshard.FieldChecksums:
+		return m.Checksums()
+	case qaarchiveshard.FieldS3Prefix:
+		return m.S3Prefix()
+	case qaarchiveshard.FieldManifestKey:
+		return m.ManifestKey()
+	case qaarchiveshard.FieldCommitKey:
+		return m.CommitKey()
+	case qaarchiveshard.FieldFirstAttemptAt:
+		return m.FirstAttemptAt()
+	case qaarchiveshard.FieldCompletedAt:
+		return m.CompletedAt()
+	case qaarchiveshard.FieldLastError:
+		return m.LastError()
+	case qaarchiveshard.FieldCreatedAt:
+		return m.CreatedAt()
+	case qaarchiveshard.FieldUpdatedAt:
+		return m.UpdatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *QAArchiveShardMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case qaarchiveshard.FieldWindowStart:
+		return m.OldWindowStart(ctx)
+	case qaarchiveshard.FieldWindowEnd:
+		return m.OldWindowEnd(ctx)
+	case qaarchiveshard.FieldGeneration:
+		return m.OldGeneration(ctx)
+	case qaarchiveshard.FieldState:
+		return m.OldState(ctx)
+	case qaarchiveshard.FieldRecordCount:
+		return m.OldRecordCount(ctx)
+	case qaarchiveshard.FieldBlobRefCount:
+		return m.OldBlobRefCount(ctx)
+	case qaarchiveshard.FieldBlobPresentCount:
+		return m.OldBlobPresentCount(ctx)
+	case qaarchiveshard.FieldBlobMissingCount:
+		return m.OldBlobMissingCount(ctx)
+	case qaarchiveshard.FieldLogicalBytes:
+		return m.OldLogicalBytes(ctx)
+	case qaarchiveshard.FieldArtifactBytes:
+		return m.OldArtifactBytes(ctx)
+	case qaarchiveshard.FieldChecksums:
+		return m.OldChecksums(ctx)
+	case qaarchiveshard.FieldS3Prefix:
+		return m.OldS3Prefix(ctx)
+	case qaarchiveshard.FieldManifestKey:
+		return m.OldManifestKey(ctx)
+	case qaarchiveshard.FieldCommitKey:
+		return m.OldCommitKey(ctx)
+	case qaarchiveshard.FieldFirstAttemptAt:
+		return m.OldFirstAttemptAt(ctx)
+	case qaarchiveshard.FieldCompletedAt:
+		return m.OldCompletedAt(ctx)
+	case qaarchiveshard.FieldLastError:
+		return m.OldLastError(ctx)
+	case qaarchiveshard.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case qaarchiveshard.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown QAArchiveShard field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *QAArchiveShardMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case qaarchiveshard.FieldWindowStart:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWindowStart(v)
+		return nil
+	case qaarchiveshard.FieldWindowEnd:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWindowEnd(v)
+		return nil
+	case qaarchiveshard.FieldGeneration:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGeneration(v)
+		return nil
+	case qaarchiveshard.FieldState:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetState(v)
+		return nil
+	case qaarchiveshard.FieldRecordCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRecordCount(v)
+		return nil
+	case qaarchiveshard.FieldBlobRefCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBlobRefCount(v)
+		return nil
+	case qaarchiveshard.FieldBlobPresentCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBlobPresentCount(v)
+		return nil
+	case qaarchiveshard.FieldBlobMissingCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBlobMissingCount(v)
+		return nil
+	case qaarchiveshard.FieldLogicalBytes:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLogicalBytes(v)
+		return nil
+	case qaarchiveshard.FieldArtifactBytes:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetArtifactBytes(v)
+		return nil
+	case qaarchiveshard.FieldChecksums:
+		v, ok := value.(map[string]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChecksums(v)
+		return nil
+	case qaarchiveshard.FieldS3Prefix:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetS3Prefix(v)
+		return nil
+	case qaarchiveshard.FieldManifestKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetManifestKey(v)
+		return nil
+	case qaarchiveshard.FieldCommitKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCommitKey(v)
+		return nil
+	case qaarchiveshard.FieldFirstAttemptAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFirstAttemptAt(v)
+		return nil
+	case qaarchiveshard.FieldCompletedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCompletedAt(v)
+		return nil
+	case qaarchiveshard.FieldLastError:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastError(v)
+		return nil
+	case qaarchiveshard.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case qaarchiveshard.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown QAArchiveShard field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *QAArchiveShardMutation) AddedFields() []string {
+	var fields []string
+	if m.addgeneration != nil {
+		fields = append(fields, qaarchiveshard.FieldGeneration)
+	}
+	if m.addrecord_count != nil {
+		fields = append(fields, qaarchiveshard.FieldRecordCount)
+	}
+	if m.addblob_ref_count != nil {
+		fields = append(fields, qaarchiveshard.FieldBlobRefCount)
+	}
+	if m.addblob_present_count != nil {
+		fields = append(fields, qaarchiveshard.FieldBlobPresentCount)
+	}
+	if m.addblob_missing_count != nil {
+		fields = append(fields, qaarchiveshard.FieldBlobMissingCount)
+	}
+	if m.addlogical_bytes != nil {
+		fields = append(fields, qaarchiveshard.FieldLogicalBytes)
+	}
+	if m.addartifact_bytes != nil {
+		fields = append(fields, qaarchiveshard.FieldArtifactBytes)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *QAArchiveShardMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case qaarchiveshard.FieldGeneration:
+		return m.AddedGeneration()
+	case qaarchiveshard.FieldRecordCount:
+		return m.AddedRecordCount()
+	case qaarchiveshard.FieldBlobRefCount:
+		return m.AddedBlobRefCount()
+	case qaarchiveshard.FieldBlobPresentCount:
+		return m.AddedBlobPresentCount()
+	case qaarchiveshard.FieldBlobMissingCount:
+		return m.AddedBlobMissingCount()
+	case qaarchiveshard.FieldLogicalBytes:
+		return m.AddedLogicalBytes()
+	case qaarchiveshard.FieldArtifactBytes:
+		return m.AddedArtifactBytes()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *QAArchiveShardMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case qaarchiveshard.FieldGeneration:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddGeneration(v)
+		return nil
+	case qaarchiveshard.FieldRecordCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRecordCount(v)
+		return nil
+	case qaarchiveshard.FieldBlobRefCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBlobRefCount(v)
+		return nil
+	case qaarchiveshard.FieldBlobPresentCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBlobPresentCount(v)
+		return nil
+	case qaarchiveshard.FieldBlobMissingCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBlobMissingCount(v)
+		return nil
+	case qaarchiveshard.FieldLogicalBytes:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddLogicalBytes(v)
+		return nil
+	case qaarchiveshard.FieldArtifactBytes:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddArtifactBytes(v)
+		return nil
+	}
+	return fmt.Errorf("unknown QAArchiveShard numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *QAArchiveShardMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(qaarchiveshard.FieldManifestKey) {
+		fields = append(fields, qaarchiveshard.FieldManifestKey)
+	}
+	if m.FieldCleared(qaarchiveshard.FieldCommitKey) {
+		fields = append(fields, qaarchiveshard.FieldCommitKey)
+	}
+	if m.FieldCleared(qaarchiveshard.FieldFirstAttemptAt) {
+		fields = append(fields, qaarchiveshard.FieldFirstAttemptAt)
+	}
+	if m.FieldCleared(qaarchiveshard.FieldCompletedAt) {
+		fields = append(fields, qaarchiveshard.FieldCompletedAt)
+	}
+	if m.FieldCleared(qaarchiveshard.FieldLastError) {
+		fields = append(fields, qaarchiveshard.FieldLastError)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *QAArchiveShardMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *QAArchiveShardMutation) ClearField(name string) error {
+	switch name {
+	case qaarchiveshard.FieldManifestKey:
+		m.ClearManifestKey()
+		return nil
+	case qaarchiveshard.FieldCommitKey:
+		m.ClearCommitKey()
+		return nil
+	case qaarchiveshard.FieldFirstAttemptAt:
+		m.ClearFirstAttemptAt()
+		return nil
+	case qaarchiveshard.FieldCompletedAt:
+		m.ClearCompletedAt()
+		return nil
+	case qaarchiveshard.FieldLastError:
+		m.ClearLastError()
+		return nil
+	}
+	return fmt.Errorf("unknown QAArchiveShard nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *QAArchiveShardMutation) ResetField(name string) error {
+	switch name {
+	case qaarchiveshard.FieldWindowStart:
+		m.ResetWindowStart()
+		return nil
+	case qaarchiveshard.FieldWindowEnd:
+		m.ResetWindowEnd()
+		return nil
+	case qaarchiveshard.FieldGeneration:
+		m.ResetGeneration()
+		return nil
+	case qaarchiveshard.FieldState:
+		m.ResetState()
+		return nil
+	case qaarchiveshard.FieldRecordCount:
+		m.ResetRecordCount()
+		return nil
+	case qaarchiveshard.FieldBlobRefCount:
+		m.ResetBlobRefCount()
+		return nil
+	case qaarchiveshard.FieldBlobPresentCount:
+		m.ResetBlobPresentCount()
+		return nil
+	case qaarchiveshard.FieldBlobMissingCount:
+		m.ResetBlobMissingCount()
+		return nil
+	case qaarchiveshard.FieldLogicalBytes:
+		m.ResetLogicalBytes()
+		return nil
+	case qaarchiveshard.FieldArtifactBytes:
+		m.ResetArtifactBytes()
+		return nil
+	case qaarchiveshard.FieldChecksums:
+		m.ResetChecksums()
+		return nil
+	case qaarchiveshard.FieldS3Prefix:
+		m.ResetS3Prefix()
+		return nil
+	case qaarchiveshard.FieldManifestKey:
+		m.ResetManifestKey()
+		return nil
+	case qaarchiveshard.FieldCommitKey:
+		m.ResetCommitKey()
+		return nil
+	case qaarchiveshard.FieldFirstAttemptAt:
+		m.ResetFirstAttemptAt()
+		return nil
+	case qaarchiveshard.FieldCompletedAt:
+		m.ResetCompletedAt()
+		return nil
+	case qaarchiveshard.FieldLastError:
+		m.ResetLastError()
+		return nil
+	case qaarchiveshard.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case qaarchiveshard.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown QAArchiveShard field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *QAArchiveShardMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *QAArchiveShardMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *QAArchiveShardMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *QAArchiveShardMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *QAArchiveShardMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *QAArchiveShardMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *QAArchiveShardMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown QAArchiveShard unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *QAArchiveShardMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown QAArchiveShard edge %s", name)
 }
 
 // QAExportJobMutation represents an operation that mutates the QAExportJob nodes in the graph.

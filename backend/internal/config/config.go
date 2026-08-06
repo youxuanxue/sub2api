@@ -98,6 +98,7 @@ type Config struct {
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	QACapture               QACaptureConfig               `mapstructure:"qa_capture"`
+	QaArchive               QaArchiveConfig               `mapstructure:"qa_archive"`
 	MediaStorage            MediaStorageConfig            `mapstructure:"media_storage"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
@@ -195,6 +196,15 @@ type QACaptureConfig struct {
 	// ExportStorage is the transitional user-requested ZIP artifact destination.
 	// It is not the raw QA archive; capture blobs always use Storage.
 	ExportStorage QACaptureStorageConfig `mapstructure:"export_storage"`
+}
+
+// QaArchiveConfig controls hourly raw QA archive shards (Phase 2+).
+// Disabled by default; when enabled, maintenance writes to storage only —
+// DB cleanup remains gated until Phase 4.
+type QaArchiveConfig struct {
+	Enabled          bool                   `mapstructure:"enabled"`
+	SealDelayMinutes int                    `mapstructure:"seal_delay_minutes"`
+	Storage          QACaptureStorageConfig `mapstructure:"storage"`
 }
 
 type QACaptureStorageConfig struct {
@@ -2442,6 +2452,18 @@ func setDefaults() {
 	viper.SetDefault("qa_capture.export_storage.prefix", "")
 	viper.SetDefault("qa_capture.export_storage.force_path_style", false)
 
+	// qa_archive: raw hourly shards (Phase 2). Disabled until prod enables archive-only maintenance.
+	viper.SetDefault("qa_archive.enabled", false)
+	viper.SetDefault("qa_archive.seal_delay_minutes", 15)
+	viper.SetDefault("qa_archive.storage.driver", "")
+	viper.SetDefault("qa_archive.storage.endpoint", "")
+	viper.SetDefault("qa_archive.storage.region", "")
+	viper.SetDefault("qa_archive.storage.bucket", "")
+	viper.SetDefault("qa_archive.storage.access_key_id", "")
+	viper.SetDefault("qa_archive.storage.secret_access_key", "")
+	viper.SetDefault("qa_archive.storage.prefix", "raw/v1")
+	viper.SetDefault("qa_archive.storage.force_path_style", false)
+
 	// media_storage.* has no struct default, so pin viper keys here to enable
 	// MEDIA_STORAGE_* env injection (same nested-key reason as export_storage).
 	viper.SetDefault("media_storage.driver", "")
@@ -3364,6 +3386,9 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("qa_capture.storage.driver must be one of: localfs/s3")
 	}
+	if err := validateQaArchiveConfig(c.QaArchive); err != nil {
+		return err
+	}
 	if c.Gateway.MaxBodySize <= 0 {
 		return fmt.Errorf("gateway.max_body_size must be positive")
 	}
@@ -3833,6 +3858,29 @@ func (c *Config) Validate() error {
 	}
 	if err := ValidateDingTalkConfig(c.DingTalk); err != nil {
 		return fmt.Errorf("dingtalk_connect: %w", err)
+	}
+	return nil
+}
+
+func validateQaArchiveConfig(archive QaArchiveConfig) error {
+	if !archive.Enabled {
+		return nil
+	}
+	if archive.SealDelayMinutes < 0 || archive.SealDelayMinutes > 120 {
+		return fmt.Errorf("qa_archive.seal_delay_minutes must be between 0 and 120")
+	}
+	driver := strings.ToLower(strings.TrimSpace(archive.Storage.Driver))
+	if driver != "s3" {
+		return fmt.Errorf("qa_archive.storage.driver must be s3 when enabled")
+	}
+	if strings.TrimSpace(archive.Storage.Region) == "" {
+		return fmt.Errorf("qa_archive.storage.region is required when enabled")
+	}
+	if strings.TrimSpace(archive.Storage.Bucket) == "" {
+		return fmt.Errorf("qa_archive.storage.bucket is required when enabled")
+	}
+	if strings.Trim(strings.TrimSpace(archive.Storage.Prefix), "/") == "" {
+		return fmt.Errorf("qa_archive.storage.prefix is required when enabled")
 	}
 	return nil
 }

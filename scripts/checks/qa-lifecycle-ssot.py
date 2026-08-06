@@ -92,6 +92,14 @@ REQUIRED_BY_FILE = {
         "raw/v1/",
         "raw/partial/",
     ),
+    Path("deploy/aws/stage0/tokenkey-qa-maintenance.sh"): (
+        "--qa-maintenance-once",
+        "archive_only_start",
+    ),
+    Path("backend/cmd/server/qa_maintenance.go"): (
+        "qa_maintenance_archive_only",
+        "deletion_authorized",
+    ),
     Path("ops/archive/data_layer_archive_rehearsal.py"): (
         'DATASETS = ("usage", "ops")',
         'POSTGRES_TABLES = ("usage_logs", "ops_system_logs", "ops_error_logs")',

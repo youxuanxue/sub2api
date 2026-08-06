@@ -65,6 +65,14 @@ class TestQAPhaseOps(unittest.TestCase):
         self.assertIn("kms:ViaService", body)
         self.assertIn("AllowOpsRecoveryRoleReadViaS3", body)
 
+    def test_qa_maintenance_host_script_is_archive_only(self) -> None:
+        body = (ROOT / "deploy/aws/stage0/tokenkey-qa-maintenance.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--qa-maintenance-once", body)
+        self.assertIn("tokenkey-prod-qa-maintenance-v1", body)
+        self.assertNotIn("DELETE FROM qa_records", body)
+
 
 if __name__ == "__main__":
     raise SystemExit(unittest.main())
