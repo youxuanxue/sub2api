@@ -54,6 +54,41 @@ Resources:
               AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
             Action: 'kms:*'
             Resource: '*'
+          - Sid: AllowAppInstanceRoleUseViaS3
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action:
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:DescribeKey'
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:ViaService: !Sub 's3.${AWS::Region}.amazonaws.com'
+              StringLike:
+                kms:EncryptionContext:aws:s3:arn:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}/raw/v1/*'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}/raw/partial/*'
+          - !If
+            - HasOpsRecoveryRole
+            - Sid: AllowOpsRecoveryRoleReadViaS3
+              Effect: Allow
+              Principal:
+                AWS: !Ref OpsRecoveryRoleArn
+              Action:
+                - 'kms:Decrypt'
+                - 'kms:DescribeKey'
+              Resource: '*'
+              Condition:
+                StringEquals:
+                  kms:ViaService: !Sub 's3.${AWS::Region}.amazonaws.com'
+                StringLike:
+                  kms:EncryptionContext:aws:s3:arn:
+                    - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}/raw/*'
+            - !Ref AWS::NoValue
 
   QaRawArchiveKeyAlias:
     Type: AWS::KMS::Alias
