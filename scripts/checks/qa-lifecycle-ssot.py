@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SSOT = Path("docs/approved/design-prod-qa-24h-s3-lifecycle.md")
+POLICY = Path("ops/qa/policy.yaml")
 
 MUST_BE_ABSENT = (
     Path("docs/qa-export-s3-and-auto-archive.md"),
@@ -60,6 +61,15 @@ REQUIRED_BY_FILE = {
         "status: approved",
         "### 8.5 四类存储与备份边界",
         "### 18.1 现状 owner → 唯一目标 owner → 退役门禁",
+    ),
+    POLICY: (
+        "schema_version: 1",
+        "capture_enabled: false",
+        "edge:",
+    ),
+    Path("ops/stage0/deploy_via_ssm.sh"): (
+        "edge_qa_capture_cmds",
+        "QA_CAPTURE_ENABLED=false",
     ),
     Path("ops/archive/data_layer_archive_rehearsal.py"): (
         'DATASETS = ("usage", "ops")',
