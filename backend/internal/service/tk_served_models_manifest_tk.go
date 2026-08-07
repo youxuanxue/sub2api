@@ -228,7 +228,10 @@ func tkServedModelsManifestDisplayPresetIDsForSelector(platform string, channelT
 var qianfanSharedManifestModelIDs = []string{
 	"deepseek-v4-pro",
 	"deepseek-v4-flash",
+	"glm-5",
+	"glm-5.1",
 	"glm-5.2",
+	"kimi-k2.6",
 }
 
 func newAPIQianfanModelMappingPresetIDs() []string {

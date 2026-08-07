@@ -2758,7 +2758,7 @@
         "TestNewAPIModelMappingPresetIDsForQianfanAccount",
         "TestAccountModelMappingFloorForOpsIncludesQianfanOverride"
       ],
-      "rationale": "Manifest preset and bundle floor export for Qianfan account 90; prevents upstream merge from dropping the seven-model identity mapping floor."
+      "rationale": "Manifest preset and bundle floor export for Qianfan account 90; prevents upstream merge from dropping the v2-servable identity mapping floor (31 models as of 2026-08-07)."
     },
     {
       "path": "backend/internal/service/openai_gateway_usage_tk_video_billing_test.go",

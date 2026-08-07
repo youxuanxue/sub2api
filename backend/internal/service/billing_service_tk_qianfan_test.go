@@ -33,6 +33,8 @@ func TestTkQianfanScopedBillingModel(t *testing.T) {
 
 	require.Equal(t, "deepseek-v4-pro.qianfan", tkQianfanScopedBillingModel("deepseek-v4-pro", qianfan))
 	require.Equal(t, "deepseek-v4-flash.qianfan", tkQianfanScopedBillingModel("deepseek-v4-flash", qianfan))
+	require.Equal(t, "glm-5.2.qianfan", tkQianfanScopedBillingModel("glm-5.2", qianfan))
+	require.Equal(t, "kimi-k2.6.qianfan", tkQianfanScopedBillingModel("kimi-k2.6", qianfan))
 	require.Equal(t, "deepseek-v4-pro", tkQianfanScopedBillingModel("deepseek-v4-pro", official))
 	require.Equal(t, "deepseek-v3.2", tkQianfanScopedBillingModel("deepseek-v3.2", qianfan))
 }

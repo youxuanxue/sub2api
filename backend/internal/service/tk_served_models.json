@@ -95,7 +95,8 @@
       "model_id": "kimi-k2.6",
       "served_on": [
         "83",
-        "88"
+        "88",
+        "90"
       ],
       "channel_type": 25,
       "account_scope": {
@@ -106,7 +107,7 @@
       "price_source": "overlay",
       "price_key": "kimi-k2.6",
       "display": true,
-      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20. Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30."
+      "notes": "Moonshot China account 83 (kimi). served-via-modelops-activation. Official China price in overlay. Upstream /v1/models listed and direct chat returned 200 on 2026-07-20. Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
     },
     "newapi/kimi-k2.7-code": {
       "platform": "newapi",
@@ -769,26 +770,28 @@
       "model_id": "glm-5.1",
       "served_on": [
         "60",
-        "72"
+        "72",
+        "90"
       ],
       "channel_type": 17,
       "price_source": "overlay",
       "price_key": "glm-5.1",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time). Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
     },
     "newapi/glm-5": {
       "platform": "newapi",
       "model_id": "glm-5",
       "served_on": [
         "60",
-        "72"
+        "72",
+        "90"
       ],
       "channel_type": 17,
       "price_source": "overlay",
       "price_key": "glm-5",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time)."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time). Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
     },
     "newapi/glm-4.7": {
       "platform": "newapi",
@@ -1045,6 +1048,363 @@
       "price_key": "deepseek-v3.2-think",
       "display": true,
       "notes": "Baidu Qianfan account 90. Probe 200 on 2026-08-07 (reasoning path). Same Qianfan tier table as deepseek-v3.2; overlay uses upper tier + thinking_output_cost_per_token. served-via-modelops-activation."
+    },
+    "newapi/bge-large-en": {
+      "platform": "newapi",
+      "model_id": "bge-large-en",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "bge-large-en",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/bge-large-zh": {
+      "platform": "newapi",
+      "model_id": "bge-large-zh",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "bge-large-zh",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/deepseek-ocr": {
+      "platform": "newapi",
+      "model_id": "deepseek-ocr",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "deepseek-ocr",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/ernie-4.5-turbo-128k": {
+      "platform": "newapi",
+      "model_id": "ernie-4.5-turbo-128k",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "ernie-4.5-turbo-128k",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/ernie-4.5-turbo-20260402": {
+      "platform": "newapi",
+      "model_id": "ernie-4.5-turbo-20260402",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "ernie-4.5-turbo-20260402",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/ernie-4.5-turbo-32k": {
+      "platform": "newapi",
+      "model_id": "ernie-4.5-turbo-32k",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "ernie-4.5-turbo-32k",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/ernie-4.5-turbo-vl": {
+      "platform": "newapi",
+      "model_id": "ernie-4.5-turbo-vl",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "ernie-4.5-turbo-vl",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/ernie-5.0": {
+      "platform": "newapi",
+      "model_id": "ernie-5.0",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "ernie-5.0",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/ernie-5.0-thinking-preview": {
+      "platform": "newapi",
+      "model_id": "ernie-5.0-thinking-preview",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "ernie-5.0-thinking-preview",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/ernie-5.1": {
+      "platform": "newapi",
+      "model_id": "ernie-5.1",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "ernie-5.1",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/ernie-x1.1": {
+      "platform": "newapi",
+      "model_id": "ernie-x1.1",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "ernie-x1.1",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/ernie-x1.1-preview": {
+      "platform": "newapi",
+      "model_id": "ernie-x1.1-preview",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "ernie-x1.1-preview",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/internvl3-38b": {
+      "platform": "newapi",
+      "model_id": "internvl3-38b",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "internvl3-38b",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/qianfan-ocr": {
+      "platform": "newapi",
+      "model_id": "qianfan-ocr",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "qianfan-ocr",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/qwen3-embedding-0.6b": {
+      "platform": "newapi",
+      "model_id": "qwen3-embedding-0.6b",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "qwen3-embedding-0.6b",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/qwen3-embedding-4b": {
+      "platform": "newapi",
+      "model_id": "qwen3-embedding-4b",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "qwen3-embedding-4b",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/qwen3-embedding-8b": {
+      "platform": "newapi",
+      "model_id": "qwen3-embedding-8b",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "qwen3-embedding-8b",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/qwen3.5-122b-a10b": {
+      "platform": "newapi",
+      "model_id": "qwen3.5-122b-a10b",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "qwen3.5-122b-a10b",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/qwen3.5-27b": {
+      "platform": "newapi",
+      "model_id": "qwen3.5-27b",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "qwen3.5-27b",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/qwen3.5-35b-a3b": {
+      "platform": "newapi",
+      "model_id": "qwen3.5-35b-a3b",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "qwen3.5-35b-a3b",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/qwen3.5-397b-a17b": {
+      "platform": "newapi",
+      "model_id": "qwen3.5-397b-a17b",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "qwen3.5-397b-a17b",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). v2 upstream probe servable 2026-08-07. Priced from GET /v2/models pricing (upper tier when tiered); CNY/USD=6.7. served-via-modelops-activation."
     }
   }
 }

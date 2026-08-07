@@ -17,6 +17,10 @@ var tkDeepSeekPeakValleyExcludedModels = map[string]struct{}{
 var tkQianfanScopedOverlayModels = map[string]struct{}{
 	"deepseek-v4-pro":   {},
 	"deepseek-v4-flash": {},
+	"glm-5":             {},
+	"glm-5.1":           {},
+	"glm-5.2":           {},
+	"kimi-k2.6":         {},
 }
 
 // tkQianfanScopedBillingModel maps billing to the Qianfan overlay owner when the
