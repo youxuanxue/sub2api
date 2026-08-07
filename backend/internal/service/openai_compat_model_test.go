@@ -17,7 +17,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -1142,7 +1141,7 @@ func TestForwardAsAnthropic_ReusesOAuthCodexTurnState(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, firstResult)
 	require.Empty(t, upstream.requests[0].Header.Get("x-codex-turn-state"))
-	requireOpenAIMessagesCodexIdentity(t, upstream.requests[0], codexCLIUserAgent, openai.CodexDefaultOriginator)
+	requireOpenAIMessagesCodexIdentity(t, upstream.requests[0], codexCLIUserAgent)
 
 	secondBody := []byte(`{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"first"},{"role":"assistant","content":"ok"},{"role":"user","content":"second"}],"stream":false}`)
 	secondRec := httptest.NewRecorder()
@@ -1156,7 +1155,7 @@ func TestForwardAsAnthropic_ReusesOAuthCodexTurnState(t *testing.T) {
 	require.Equal(t, "turn_state_first", upstream.requests[1].Header.Get("x-codex-turn-state"))
 	require.Equal(t, generateSessionUUID(isolateOpenAISessionID(0, "stable-cache-key")), upstream.requests[1].Header.Get("session_id"))
 	require.Empty(t, upstream.requests[1].Header.Get("conversation_id"))
-	requireOpenAIMessagesCodexIdentity(t, upstream.requests[1], codexCLIUserAgent, openai.CodexDefaultOriginator)
+	requireOpenAIMessagesCodexIdentity(t, upstream.requests[1], codexCLIUserAgent)
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "prompt_cache_key").Exists())
 	// OAuth continuation is now enabled: previous_response_id from turn 1 is attached on turn 2.
 	require.Equal(t, "resp_oauth_first", gjson.GetBytes(upstream.bodies[1], "previous_response_id").String())
@@ -1167,15 +1166,17 @@ func TestForwardAsAnthropic_OAuthRestoresCodexIdentityHeaders(t *testing.T) {
 
 	const tuiUA = "codex-tui/9.9.9 (Mac OS X 14.0; arm64) iTerm (codex-tui; 9.9.9)"
 	const vscodeUA = "codex_vscode/9.9.9 (Mac OS X 14.0; arm64) vscode (codex_vscode; 9.9.9)"
-	// messages 桥接路径同样强制统一出站身份：三类客户端身份都收敛到规范身份。
+	// messages 桥接路径会删除 originator/OpenAI-Beta，使 enforceCodexIdentityHeaders 不补回；
+	// 官方 Codex UA 原样保留，第三方 UA 回落到规范 UA。
 	tests := []struct {
-		name       string
-		userAgent  string
-		originator string
+		name          string
+		userAgent     string
+		originator    string
+		wantUserAgent string
 	}{
-		{name: "官方vscode身份", userAgent: vscodeUA, originator: "opencode"},
-		{name: "TUI身份", userAgent: tuiUA, originator: "opencode"},
-		{name: "第三方UA", userAgent: "third-party-client/1.0.0", originator: "opencode"},
+		{name: "官方vscode身份", userAgent: vscodeUA, originator: "opencode", wantUserAgent: vscodeUA},
+		{name: "TUI身份", userAgent: tuiUA, originator: "opencode", wantUserAgent: tuiUA},
+		{name: "第三方UA", userAgent: "third-party-client/1.0.0", originator: "opencode", wantUserAgent: codexCLIUserAgent},
 	}
 
 	for _, tt := range tests {
@@ -1208,7 +1209,7 @@ func TestForwardAsAnthropic_OAuthRestoresCodexIdentityHeaders(t *testing.T) {
 			result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.4")
 			require.NoError(t, err)
 			require.NotNil(t, result)
-			requireOpenAIMessagesCodexIdentity(t, upstream.lastReq, codexCLIUserAgent, openai.CodexDefaultOriginator)
+			requireOpenAIMessagesCodexIdentity(t, upstream.lastReq, tt.wantUserAgent)
 		})
 	}
 }
@@ -1251,7 +1252,7 @@ func TestForwardAsAnthropic_OAuthDigestFallbackReusesTurnStateWithoutExplicitKey
 	firstSessionID := upstream.requests[0].Header.Get("session_id")
 	require.NotEmpty(t, firstSessionID)
 	require.Empty(t, upstream.requests[0].Header.Get("x-codex-turn-state"))
-	requireOpenAIMessagesCodexIdentity(t, upstream.requests[0], codexCLIUserAgent, openai.CodexDefaultOriginator)
+	requireOpenAIMessagesCodexIdentity(t, upstream.requests[0], codexCLIUserAgent)
 	require.False(t, gjson.GetBytes(upstream.bodies[0], "prompt_cache_key").Exists())
 
 	secondBody := []byte(`{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"first"},{"role":"assistant","content":"ok"},{"role":"user","content":"second"}],"stream":false}`)
@@ -1266,7 +1267,7 @@ func TestForwardAsAnthropic_OAuthDigestFallbackReusesTurnStateWithoutExplicitKey
 	require.Equal(t, firstSessionID, upstream.requests[1].Header.Get("session_id"))
 	require.Equal(t, "turn_state_digest_first", upstream.requests[1].Header.Get("x-codex-turn-state"))
 	require.Empty(t, upstream.requests[1].Header.Get("conversation_id"))
-	requireOpenAIMessagesCodexIdentity(t, upstream.requests[1], codexCLIUserAgent, openai.CodexDefaultOriginator)
+	requireOpenAIMessagesCodexIdentity(t, upstream.requests[1], codexCLIUserAgent)
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "prompt_cache_key").Exists())
 	// OAuth continuation is now enabled: previous_response_id from turn 1 is attached via digest prefix match.
 	require.Equal(t, "resp_oauth_digest_first", gjson.GetBytes(upstream.bodies[1], "previous_response_id").String())
@@ -1424,7 +1425,7 @@ func TestForwardAsAnthropic_OAuthKeepsSystemAsDeveloperInput(t *testing.T) {
 	instructions := gjson.GetBytes(upstream.lastBody, "instructions")
 	require.True(t, instructions.Exists())
 	require.Empty(t, instructions.String())
-	requireOpenAIMessagesCodexIdentity(t, upstream.requests[0], codexCLIUserAgent, openai.CodexDefaultOriginator)
+	requireOpenAIMessagesCodexIdentity(t, upstream.requests[0], codexCLIUserAgent)
 }
 
 func TestForwardAsAnthropic_OAuthAddsClaudeCodeTodoGuardForCompatModel(t *testing.T) {
@@ -1561,11 +1562,11 @@ func openAICompatSSECompletedResponse(responseID, model string) *http.Response {
 	}
 }
 
-func requireOpenAIMessagesCodexIdentity(t *testing.T, req *http.Request, wantUserAgent, wantOriginator string) {
+func requireOpenAIMessagesCodexIdentity(t *testing.T, req *http.Request, wantUserAgent string) {
 	t.Helper()
 	require.NotNil(t, req)
 	require.Equal(t, wantUserAgent, req.Header.Get("User-Agent"))
-	require.Equal(t, wantOriginator, req.Header.Get("originator"))
+	require.Empty(t, req.Header.Get("originator"))
 	require.Equal(t, codexCLIVersion, req.Header.Get("version"))
 	require.Empty(t, req.Header.Get("OpenAI-Beta"))
 }
