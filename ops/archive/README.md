@@ -109,7 +109,44 @@ python3 ops/archive/data_layer_archive_cleanup_hold.py verify \
 `tokenkey-prod-archive-cleanup-release-v1`. It restores only the enabled state
 captured by the receipt while preserving all current unrelated settings. Before
 restoring, it revalidates that the same receipt's hold is still active and that
-no cleanup has run since that hold began.
+no cleanup has run since that hold began. Archive closeout is health evidence,
+not a release prerequisite.
+
+After the forward QA archive, `usage_logs` partitioning, and telemetry shadow are
+active, build one read-only production impact plan. It delegates QA candidate
+selection to the fixed 24-hour cleanup owner and independently counts the two ops
+log tables at the 30-day waterline. It also binds the active image, timer states,
+historical QA failure states, partition status, telemetry zero-loss heartbeat,
+and the still-active ops hold:
+
+```bash
+python3 ops/archive/data_layer_retention_activation.py plan \
+  --cleanup-hold-receipt <active-hold.json> --output <plan.json>
+```
+
+The plan always reports `deletion_authorized=false`. Regenerate it immediately
+before final approval; the ops counts are an impact estimate because restoring the
+ops cron causes the next scheduled run to compute a new 30-day cutoff. After
+approval, the operator runs the guarded QA controller and the two separate enable paths:
+
+```bash
+python3 ops/qa/prod_qa_stale_cleanup.py apply-first \
+  --activation-plan <plan.json> --receipt <qa-first-apply.json> \
+  --confirm <nested-qa-required-confirmation>
+# Only after an interrupted apply left the matching host marker:
+python3 ops/qa/prod_qa_stale_cleanup.py resume-first \
+  --activation-plan <same-plan.json> --receipt <qa-first-apply.json> \
+  --confirm <same-nested-qa-required-confirmation>
+python3 ops/archive/data_layer_archive_cleanup_hold.py release \
+  --receipt <active-hold.json> --activation-plan <plan.json> \
+  --confirm tokenkey-prod-archive-cleanup-release-v1
+QA_STALE_TIMER_STATE=enabled QA_STALE_ACTIVATION_RECEIPT=<qa-first-apply.json> \
+  bash ops/stage0/sync-qa-stale-cleanup-timer-via-ssm.sh <prod-instance-id>
+```
+
+These remain
+three explicit guarded operations; the plan does not mutate PostgreSQL, S3,
+settings, files, or timers.
 
 The offline plan validates the fixed 30-day waterline and hard limits without
 calling AWS, Docker, PostgreSQL, or S3:
@@ -250,6 +287,12 @@ python3 ops/archive/data_layer_archive_closeout.py \
   --seed 20260803 \
   --confirm tokenkey-prod-archive-closeout-v1
 ```
+
+The 2026-08-07 business decision accepts the known historical ops archive gap;
+it is recorded in the approved design and does not participate in runtime retention
+evaluation. The first resumed cleanup still requires a separate live impact plan
+and activation confirmation. Archive closeout receipts remain restore evidence,
+not deletion eligibility inputs.
 
 Cleanup release requires both `ops_error_logs` and `ops_system_logs` closeout
 receipts. A normal hold receipt plus the old release token is insufficient; deletion

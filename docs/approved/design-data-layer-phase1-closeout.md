@@ -14,7 +14,8 @@ authors: [agent]
 S3 冷层。RDS 设计、资源、分支、迁移和切换全部 hold，不以容量告警自动触发。
 
 账务状态、余额、幂等键和聚合结果继续由 PostgreSQL 负责；S3 只接收可重放的原始
-telemetry 副本。任何 S3、归档或健康检查失败都不得阻塞在线请求，也不得授权删除热数据。
+telemetry 副本。任何 S3、归档或健康检查失败都不得阻塞在线请求。归档健康与年龄 retention
+独立：归档失败必须如实告警，但不改变已经批准的 30 天 ops retention 资格。
 
 ## 分区维护
 
@@ -41,21 +42,10 @@ cron + leader lock
 ledger 的 `more_cold_rows_remaining=false` 只是当次水位结论；时间推进后允许从原 cursor
 继续导出新变冷的尾部。
 
-回收状态机固定为：
-
-```text
-active cleanup hold
-  -> export cursor 继续到目标分区上界，最终 cutoff >= partition upper bound
-  -> 每个 batch promote，manifest checksum 与 export ledger 一致
-  -> 从长期 archive 随机下载一个 promoted batch
-  -> 独立 PostgreSQL restore，row count + logical checksum 一致
-  -> closeout receipt
-  -> guarded cleanup-hold release
-  -> runtime retention 才可 drop 已过期分区
-```
-
-任一检查失败时保留 hold 和热数据。closeout receipt 绑定表、分区上界、两个 ledger、随机
-恢复 batch 和 checksum；普通 cleanup release 不是归档回收入口。
+Archive closeout 继续证明冷数据可恢复，但不再作为年龄 retention 的前置条件。2026-08-07
+已明确接受两个 ops 表的历史冷尾缺口并停止快照恢复；该决定不把 archive 标记为完整，也不阻止
+后续按 30 天规则清理源表。cleanup hold 首次释放前仍需实时读取 cutoff、候选量、leader lock、
+当前配置和 active image，并以独立确认执行；之后 `OpsCleanupService` 继续作为唯一 retention owner。
 
 ## Usage 日分区
 
@@ -117,7 +107,7 @@ retention；本阶段不把 S3 变成账务 source of truth。
 ## 回滚边界
 
 - 分区维护回滚：关闭新维护逻辑不改变已创建的空分区；不得删除分区。
-- archive 回滚：不 release hold；staging/promoted 对象保留并可幂等重跑。
+- archive 回滚：停止 export/promote；staging/promoted 对象保留并可幂等重跑，不改变 retention 配置。
 - usage 切换前回滚：删除未使用的预验证 CHECK；切换后不自动改回普通表，需独立审批。
 - telemetry 回滚：关闭 feature flag；PostgreSQL 写路径不变。
 - 任意生产 schema、release、drop 都必须经过 preflight、人工合并批准和 Stage0 rollout。
@@ -126,8 +116,8 @@ retention；本阶段不把 S3 变成账务 source of truth。
 
 - cleanup disabled 时未来分区仍创建，只有维护 heartbeat 更新。
 - cleanup enabled 时维护成功后才执行 retention，两个 heartbeat 独立。
-- 归档尾部可从已完成 ledger 的 cursor 继续；未达到分区上界不得 closeout。
-- promote checksum 或随机 restore 不一致时拒绝 release。
+- 归档尾部可从已完成 ledger 的 cursor 继续；未达到分区上界不得报告 archive closeout。
+- promote checksum 或随机 restore 不一致时 archive health 必须失败，但不改变 30 天 retention 资格。
 - usage 切换脚本拒绝未验证约束、错误上界、活跃锁和行数漂移。
 - telemetry 未配置时零行为变化；队列满或 S3 失败不影响 PostgreSQL 成功。
 - telemetry 默认值在 Go、Compose、env 示例和设计表中完全一致；启用后没有新鲜零损失心跳则

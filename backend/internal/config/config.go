@@ -184,15 +184,12 @@ type UpdateConfig struct {
 }
 
 type QACaptureConfig struct {
-	Enabled           bool `mapstructure:"enabled"`
-	BodyMaxBytes      int  `mapstructure:"body_max_bytes"`
-	OptInBodyMaxBytes int  `mapstructure:"opt_in_body_max_bytes"`
-	// RetentionDays is transitional until Phase 4 replaces the daily cleanup;
-	// it is not the QA lifecycle source of truth.
-	RetentionDays int                    `mapstructure:"retention_days"`
-	WorkerCount   int                    `mapstructure:"worker_count"`
-	QueueSize     int                    `mapstructure:"queue_size"`
-	Storage       QACaptureStorageConfig `mapstructure:"storage"`
+	Enabled           bool                   `mapstructure:"enabled"`
+	BodyMaxBytes      int                    `mapstructure:"body_max_bytes"`
+	OptInBodyMaxBytes int                    `mapstructure:"opt_in_body_max_bytes"`
+	WorkerCount       int                    `mapstructure:"worker_count"`
+	QueueSize         int                    `mapstructure:"queue_size"`
+	Storage           QACaptureStorageConfig `mapstructure:"storage"`
 	// ExportStorage is the transitional user-requested ZIP artifact destination.
 	// It is not the raw QA archive; capture blobs always use Storage.
 	ExportStorage QACaptureStorageConfig `mapstructure:"export_storage"`
@@ -2426,7 +2423,6 @@ func setDefaults() {
 	viper.SetDefault("qa_capture.body_max_bytes", 256*1024)
 	// traj/synth opt-in 记录用更高上限，避免长 thinking 被截断。
 	viper.SetDefault("qa_capture.opt_in_body_max_bytes", 1024*1024)
-	viper.SetDefault("qa_capture.retention_days", 1)
 	viper.SetDefault("qa_capture.worker_count", 8)
 	viper.SetDefault("qa_capture.queue_size", 2048)
 	viper.SetDefault("qa_capture.storage.driver", "localfs")
@@ -3371,9 +3367,6 @@ func (c *Config) Validate() error {
 	}
 	if c.QACapture.BodyMaxBytes <= 0 {
 		return fmt.Errorf("qa_capture.body_max_bytes must be positive")
-	}
-	if c.QACapture.RetentionDays <= 0 {
-		return fmt.Errorf("qa_capture.retention_days must be positive")
 	}
 	if c.QACapture.WorkerCount <= 0 {
 		return fmt.Errorf("qa_capture.worker_count must be positive")

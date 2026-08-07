@@ -76,7 +76,6 @@ func TestDefaultQAMaintenancePlanShardUpsertsControlRow(t *testing.T) {
 		windowEnd,
 		"raw/v1/date=2026-08-06/hour=09",
 		false,
-		15,
 	)
 	if err != nil {
 		t.Fatalf("defaultQAMaintenancePlanShard()=%v", err)
@@ -132,9 +131,9 @@ func TestQAMaintenanceSuccessUsesArchiveOnlyPath(t *testing.T) {
 			}
 			return db, nil
 		},
-		planShard: func(_ context.Context, _ *sql.Conn, ws, we time.Time, s3Prefix string, archiveEnabled bool, sealDelay int) (qaMaintenancePlan, error) {
+		planShard: func(_ context.Context, _ *sql.Conn, ws, we time.Time, s3Prefix string, archiveEnabled bool) (qaMaintenancePlan, error) {
 			planCalls++
-			if !ws.Equal(windowStart) || !we.Equal(windowEnd) || s3Prefix != "raw/v1/date=2026-08-06/hour=09" || archiveEnabled || sealDelay != 15 {
+			if !ws.Equal(windowStart) || !we.Equal(windowEnd) || s3Prefix != "raw/v1/date=2026-08-06/hour=09" || archiveEnabled {
 				t.Fatalf("unexpected planShard args: ws=%s we=%s prefix=%q", ws, we, s3Prefix)
 			}
 			return qaMaintenancePlan{
@@ -341,29 +340,31 @@ func TestQAMaintenanceReconcileFailureWritesFailureHeartbeat(t *testing.T) {
 	}
 }
 
-func TestFindOldestUncommittedHourRejectsUnsealedWindow(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
+func TestQAMaintenanceRejectsRemovedBackfillFlagBeforeDependencies(t *testing.T) {
+	loadCalled := false
+	openCalled := false
+	deps := qaMaintenanceDeps{
+		loadConfig: func() (*config.Config, error) {
+			loadCalled = true
+			return nil, nil
+		},
+		openDB: func(string, string) (*sql.DB, error) {
+			openCalled = true
+			return nil, nil
+		},
 	}
-	defer func() { _ = db.Close() }()
-	conn, err := db.Conn(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = conn.Close() }()
 
-	sealedBefore := time.Date(2026, 8, 7, 2, 0, 0, 0, time.UTC)
-	mock.ExpectQuery("window_start \\+ interval '1 hour' <= \\$2").
-		WithArgs(archive.StateCommitted, sealedBefore).
-		WillReturnRows(sqlmock.NewRows([]string{"window_start"}))
-
-	_, _, err = findOldestUncommittedHour(context.Background(), conn, sealedBefore)
-	if err == nil || !strings.Contains(err.Error(), "no qa archive backfill window remaining") {
-		t.Fatalf("findOldestUncommittedHour() error=%v", err)
+	err := runQAMaintenanceCommand(
+		context.Background(),
+		[]string{"--qa-maintenance-once", "--qa-maintenance-backfill-once", "--confirm", qaMaintenanceConfirmation},
+		&bytes.Buffer{},
+		deps,
+	)
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("runQAMaintenanceCommand() error=%v", err)
 	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
+	if loadCalled || openCalled {
+		t.Fatalf("retired backfill touched dependencies: load=%v open=%v", loadCalled, openCalled)
 	}
 }
 
@@ -410,78 +411,5 @@ func TestQAMaintenanceLockContentionWritesFailureWithoutUnlock(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestQAMaintenanceBackfillOnceUsesOldestWindow(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
-	if err != nil {
-		t.Fatalf("sqlmock.New()=%v", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	mock.ExpectPing()
-	mock.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("SET statement_timeout = '1800s'").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery("SELECT pg_try_advisory_lock").WillReturnRows(sqlmock.NewRows([]string{"locked"}).AddRow(true))
-	mock.ExpectQuery("SELECT h.window_start").WillReturnRows(
-		sqlmock.NewRows([]string{"window_start"}).AddRow(time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)),
-	)
-	mock.ExpectExec("SELECT pg_advisory_unlock").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectClose()
-
-	windowStart := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
-	windowEnd := windowStart.Add(time.Hour)
-	planCalls := 0
-	deps := qaMaintenanceDeps{
-		loadConfig: func() (*config.Config, error) {
-			return &config.Config{
-				Timezone: "UTC",
-				Database: config.DatabaseConfig{
-					Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable",
-				},
-				QaArchive: config.QaArchiveConfig{Enabled: false, SealDelayMinutes: 15},
-			}, nil
-		},
-		openDB: func(string, string) (*sql.DB, error) { return db, nil },
-		planShard: func(_ context.Context, _ *sql.Conn, ws, we time.Time, _ string, archiveEnabled bool, _ int) (qaMaintenancePlan, error) {
-			planCalls++
-			if !ws.Equal(windowStart) || !we.Equal(windowEnd) {
-				t.Fatalf("planShard window=%s..%s want %s..%s", ws, we, windowStart, windowEnd)
-			}
-			return qaMaintenancePlan{
-				WindowStart: windowStart, WindowEnd: windowEnd, RecordCount: 9, ArchiveEnabled: archiveEnabled,
-			}, nil
-		},
-		writeHeartbeat: func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error { return nil },
-		now:            func() time.Time { return time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC) },
-	}
-
-	out := &bytes.Buffer{}
-	if err := runQAMaintenanceCommand(
-		context.Background(),
-		[]string{"--qa-maintenance-once", "--qa-maintenance-backfill-once", "--confirm", qaMaintenanceConfirmation},
-		out,
-		deps,
-	); err != nil {
-		t.Fatalf("runQAMaintenanceCommand()=%v", err)
-	}
-	if planCalls != 1 {
-		t.Fatalf("planCalls=%d", planCalls)
-	}
-	var receipt struct {
-		BackfillOnce bool `json:"backfill_once"`
-		Plan         struct {
-			RecordCount int64 `json:"record_count"`
-		} `json:"plan"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
-		t.Fatalf("decode receipt: %v", err)
-	}
-	if !receipt.BackfillOnce || receipt.Plan.RecordCount != 9 {
-		t.Fatalf("receipt=%+v", receipt)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("database expectations: %v", err)
 	}
 }

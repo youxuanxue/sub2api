@@ -26,7 +26,6 @@ const (
 	qaMaintenanceJobName           = "qa-maintenance"
 	qaMaintenanceAdvisoryLockID    = archive.MaintenanceAdvisoryLockID
 	qaMaintenanceHeartbeatTimeout  = 5 * time.Second
-	qaMaintenanceBackfillTimeout   = 30 * time.Minute
 )
 
 type qaMaintenanceDeps struct {
@@ -34,7 +33,7 @@ type qaMaintenanceDeps struct {
 	openDB          func(driverName, dataSourceName string) (*sql.DB, error)
 	tryAdvisoryLock func(context.Context, *sql.Conn) (bool, error)
 	unlockAdvisory  func(context.Context, *sql.Conn) error
-	planShard       func(context.Context, *sql.Conn, time.Time, time.Time, string, bool, int) (qaMaintenancePlan, error)
+	planShard       func(context.Context, *sql.Conn, time.Time, time.Time, string, bool) (qaMaintenancePlan, error)
 	reconcileShard  func(context.Context, *sql.Conn, archive.ObjectStore, archive.Window, string, string) (archive.ReconcileReceipt, error)
 	newObjectStore  func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error)
 	writeHeartbeat  func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error
@@ -42,17 +41,18 @@ type qaMaintenanceDeps struct {
 }
 
 type qaMaintenancePlan struct {
-	WindowStart    time.Time `json:"window_start"`
-	WindowEnd      time.Time `json:"window_end"`
-	S3Prefix       string    `json:"s3_prefix"`
-	RecordCount    int64     `json:"record_count"`
-	BlobRefCount   int64     `json:"blob_ref_count"`
-	ArchiveEnabled bool      `json:"archive_enabled"`
-	Uploaded       bool      `json:"uploaded"`
-	SegmentID      string    `json:"segment_id,omitempty"`
-	SegmentCount   int       `json:"segment_count,omitempty"`
-	CommitKey      string    `json:"commit_key,omitempty"`
-	CommitETag     string    `json:"commit_etag,omitempty"`
+	WindowStart          time.Time `json:"window_start"`
+	WindowEnd            time.Time `json:"window_end"`
+	S3Prefix             string    `json:"s3_prefix"`
+	RecordCount          int64     `json:"record_count"`
+	BlobRefCount         int64     `json:"blob_ref_count"`
+	AggregateRecordCount int64     `json:"aggregate_record_count"`
+	ArchiveEnabled       bool      `json:"archive_enabled"`
+	Uploaded             bool      `json:"uploaded"`
+	SegmentID            string    `json:"segment_id,omitempty"`
+	SegmentCount         int       `json:"segment_count,omitempty"`
+	CommitKey            string    `json:"commit_key,omitempty"`
+	CommitETag           string    `json:"commit_etag,omitempty"`
 }
 
 func defaultQAMaintenanceDeps() qaMaintenanceDeps {
@@ -136,10 +136,8 @@ func runQAMaintenanceCommand(
 	fs := flag.NewFlagSet("qa-maintenance", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var once bool
-	var backfillOnce bool
 	var confirmation string
 	fs.BoolVar(&once, "qa-maintenance-once", false, "run QA archive maintenance and exit")
-	fs.BoolVar(&backfillOnce, "qa-maintenance-backfill-once", false, "archive the oldest uncommitted hour")
 	fs.StringVar(&confirmation, "confirm", "", "exact production QA maintenance confirmation")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("qa maintenance flags: %w", err)
@@ -153,7 +151,6 @@ func runQAMaintenanceCommand(
 	if fs.NArg() != 0 {
 		return fmt.Errorf("qa maintenance does not accept positional arguments")
 	}
-
 	deps = deps.withDefaults()
 	cfg, err := deps.loadConfig()
 	if err != nil {
@@ -194,11 +191,7 @@ func runQAMaintenanceCommand(
 	if _, err := conn.ExecContext(ctx, "SET lock_timeout = '100ms'"); err != nil {
 		return fmt.Errorf("set qa maintenance lock timeout: %w", err)
 	}
-	statementTimeout := "120s"
-	if backfillOnce {
-		statementTimeout = fmt.Sprintf("%ds", int(qaMaintenanceBackfillTimeout.Seconds()))
-	}
-	if _, err := conn.ExecContext(ctx, "SET statement_timeout = '"+statementTimeout+"'"); err != nil {
+	if _, err := conn.ExecContext(ctx, "SET statement_timeout = '120s'"); err != nil {
 		return fmt.Errorf("set qa maintenance statement timeout: %w", err)
 	}
 
@@ -211,10 +204,7 @@ func runQAMaintenanceCommand(
 	}
 	lockAcquired = true
 	sealDelayMinutes := cfg.QaArchive.SealDelayMinutes
-	windowStart, windowEnd, err := resolveMaintenanceWindow(ctx, conn, startedAt, sealDelayMinutes, backfillOnce)
-	if err != nil {
-		return fmt.Errorf("resolve qa archive window: %w", err)
-	}
+	windowStart, windowEnd := archive.PreviousSealedHour(startedAt, sealDelayMinutes)
 	s3Prefix := archive.ShardPrefix(windowStart)
 	plan := qaMaintenancePlan{
 		WindowStart: windowStart, WindowEnd: windowEnd, S3Prefix: s3Prefix,
@@ -239,11 +229,12 @@ func runQAMaintenanceCommand(
 		plan.CommitKey = reconciled.CommitKey
 		plan.CommitETag = reconciled.CommitETag
 		plan.RecordCount = reconciled.RecordCount
+		plan.AggregateRecordCount = reconciled.RecordCount
 		plan.BlobRefCount = reconciled.BlobRefCount
 		uploadAuthorized = true
 		mode = qaMaintenanceReceiptModeUpload
 	} else {
-		plan, err = deps.planShard(ctx, conn, windowStart, windowEnd, s3Prefix, false, sealDelayMinutes)
+		plan, err = deps.planShard(ctx, conn, windowStart, windowEnd, s3Prefix, false)
 		if err != nil {
 			return fmt.Errorf("plan qa archive shard: %w", err)
 		}
@@ -265,11 +256,12 @@ func runQAMaintenanceCommand(
 	}
 	durationMs := duration.Milliseconds()
 	lastResult := fmt.Sprintf(
-		"archive_enabled=%t uploaded=%t window=%s records=%d segments=%d commit_etag=%s deletion_authorized=false upload_authorized=%t",
+		"archive_enabled=%t uploaded=%t window=%s records=%d aggregate_record_count=%d segments=%d commit_etag=%s deletion_authorized=false upload_authorized=%t",
 		plan.ArchiveEnabled,
 		plan.Uploaded,
 		plan.WindowStart.Format(time.RFC3339),
 		plan.RecordCount,
+		plan.AggregateRecordCount,
 		plan.SegmentCount,
 		plan.CommitETag,
 		uploadAuthorized,
@@ -296,7 +288,6 @@ func runQAMaintenanceCommand(
 		Plan               qaMaintenancePlan `json:"plan"`
 		DeletionAuthorized bool              `json:"deletion_authorized"`
 		UploadAuthorized   bool              `json:"upload_authorized"`
-		BackfillOnce       bool              `json:"backfill_once"`
 	}{
 		ReceiptVersion:     qaMaintenanceReceiptVersion,
 		Mode:               mode,
@@ -306,60 +297,11 @@ func runQAMaintenanceCommand(
 		Plan:               plan,
 		DeletionAuthorized: false,
 		UploadAuthorized:   uploadAuthorized,
-		BackfillOnce:       backfillOnce,
 	}
 	if err := json.NewEncoder(out).Encode(receipt); err != nil {
 		return fmt.Errorf("encode qa maintenance receipt: %w", err)
 	}
 	return nil
-}
-
-func resolveMaintenanceWindow(
-	ctx context.Context,
-	conn *sql.Conn,
-	runAt time.Time,
-	sealDelayMinutes int,
-	backfillOnce bool,
-) (time.Time, time.Time, error) {
-	if backfillOnce {
-		sealedBefore := runAt.UTC().Add(-time.Duration(max(sealDelayMinutes, 0)) * time.Minute)
-		return findOldestUncommittedHour(ctx, conn, sealedBefore)
-	}
-	start, end := archive.PreviousSealedHour(runAt, sealDelayMinutes)
-	return start, end, nil
-}
-
-func findOldestUncommittedHour(ctx context.Context, conn *sql.Conn, sealedBefore time.Time) (time.Time, time.Time, error) {
-	var windowStart time.Time
-	err := conn.QueryRowContext(ctx, `
-		SELECT h.window_start
-		  FROM (
-		    SELECT date_trunc('hour', created_at AT TIME ZONE 'UTC') AS window_start,
-		           COUNT(*)::bigint AS record_count
-		      FROM qa_records
-		     GROUP BY 1
-		  ) h
-		 WHERE h.window_start + interval '1 hour' <= $2
-		   AND NOT EXISTS (
-		    SELECT 1 FROM qa_archive_shards s
-		     WHERE s.window_start = h.window_start
-		       AND s.generation = 0
-		       AND s.state = $1
-		       AND s.aggregate_record_count = h.record_count
-		       AND s.aggregate_blob_missing_count = 0
-		 )
-		 ORDER BY h.window_start
-		 LIMIT 1`,
-		archive.StateCommitted, sealedBefore.UTC(),
-	).Scan(&windowStart)
-	if err == sql.ErrNoRows {
-		return time.Time{}, time.Time{}, fmt.Errorf("no qa archive backfill window remaining")
-	}
-	if err != nil {
-		return time.Time{}, time.Time{}, err
-	}
-	windowStart = windowStart.UTC()
-	return windowStart, windowStart.Add(time.Hour), nil
 }
 
 func defaultQAMaintenancePlanShard(
@@ -368,7 +310,6 @@ func defaultQAMaintenancePlanShard(
 	windowStart, windowEnd time.Time,
 	s3Prefix string,
 	archiveEnabled bool,
-	_ int,
 ) (qaMaintenancePlan, error) {
 	windowStart = windowStart.UTC()
 	windowEnd = windowEnd.UTC()

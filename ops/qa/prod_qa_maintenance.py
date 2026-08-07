@@ -60,16 +60,13 @@ def _resolve_instance() -> str:
     raise QAMaintenanceError("prod InstanceId missing")
 
 
-def _remote_command(backfill_once: bool) -> str:
-    flag = "--qa-maintenance-once"
-    if backfill_once:
-        flag += " --qa-maintenance-backfill-once"
+def _remote_command() -> str:
     script = "\n".join(
         [
             "set -euo pipefail",
             *resolve_app_container.remote_shell_snippet(docker="sudo docker"),
             'if [ -z "$APP_CONTAINER" ]; then echo "qa maintenance refused: ambiguous app container" >&2; exit 40; fi',
-            f'sudo docker exec "$APP_CONTAINER" /app/sub2api {flag} --confirm {CONFIRMATION}',
+            f'sudo docker exec "$APP_CONTAINER" /app/sub2api --qa-maintenance-once --confirm {CONFIRMATION}',
         ]
     )
     return "sudo bash -c " + shlex.quote(script)
@@ -119,7 +116,7 @@ def _validate_receipt(stdout: str) -> dict:
     return payload
 
 
-def run(backfill_once: bool = False) -> dict:
+def run() -> dict:
     instance_id = _resolve_instance()
     payload = _aws_json(
         [
@@ -135,7 +132,7 @@ def run(backfill_once: bool = False) -> dict:
             "--comment",
             "TokenKey QA maintenance",
             "--parameters",
-            json.dumps({"commands": [_remote_command(backfill_once)]}, separators=(",", ":")),
+            json.dumps({"commands": [_remote_command()]}, separators=(",", ":")),
             "--output",
             "json",
         ]
@@ -151,11 +148,9 @@ def run(backfill_once: bool = False) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backfill-once", action="store_true")
-    parser.add_argument("--json", action="store_true")
-    args = parser.parse_args()
+    parser.parse_args()
     try:
-        payload = run(backfill_once=args.backfill_once)
+        payload = run()
     except QAMaintenanceError as exc:
         print(f"qa maintenance refused: {exc}", file=sys.stderr)
         return 2

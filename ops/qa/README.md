@@ -31,7 +31,9 @@ Edge deploy scripts always inject `QA_CAPTURE_ENABLED=false` and never wire QA a
 | --- | --- |
 | Phase 2 baseline probe (read-only) | `ops/qa/prod_phase2_baseline.py` |
 | Hourly archive maintenance (guarded) | `ops/qa/prod_qa_maintenance.py` |
-| Archive backfill loop | `ops/qa/prod_qa_archive_backfill.py` |
+| Historical state closeout (guarded) | `ops/qa/prod_qa_historical_closeout.py` |
+| Age retention apply (first cleanup, guarded) | `ops/qa/prod_qa_stale_cleanup.py` |
 | Closeout inspect/verify/restore/repair | `ops/qa/prod_qa_archive_closeout.py` |
 | Install maintenance units (timer default off) | `ops/stage0/sync-qa-maintenance-timer-via-ssm.sh` |
+| Install stale-cleanup timer (default off) | `ops/stage0/sync-qa-stale-cleanup-timer-via-ssm.sh` |
 | Raw archive bucket stack | `ops/qa/deploy_qa_raw_archive_cfn.sh` |

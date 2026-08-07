@@ -550,7 +550,7 @@ verify an existing hold receipt
 restore the pre-hold cleanup state
 
 - `--receipt` (required):
-- `--closeout-receipt` (required; repeatable): repeat once for ops_error_logs and once for ops_system_logs
+- `--activation-plan` (required):
 - `--confirm` (required):
 
 ### `python3 ops/archive/data_layer_archive_prod_export.py`

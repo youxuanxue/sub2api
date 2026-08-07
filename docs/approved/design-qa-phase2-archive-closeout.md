@@ -14,22 +14,22 @@ related:
 
 ## Purpose
 
-Complete the production QA raw-archive phase so an hourly shard is not reported as
-complete until its immutable artifacts can be read back, verified, and reconstructed.
-The implementation must repair the known `2026-08-07 01:00 UTC` late-row gap without
-rewriting its existing base segment and must keep the `2026-08-04 04:00 UTC` shard
-blocked because 96 referenced evidence files are missing.
+Complete the production QA raw-archive runtime so a newly archived hourly shard is not
+reported as complete until its immutable artifacts can be read back, verified, and
+reconstructed. The 2026-08-07 production closeout decision stops historical repair:
+`2026-08-07 01:00 UTC` remains `failed/commit_mismatch`, and `2026-08-04 04:00 UTC`
+remains `failed/missing_evidence`. Neither S3 commit is changed and historical backfill
+is retired.
 
-This delivery does not enable physical QA deletion. The legacy stale-cleanup timer,
-the hourly maintenance timer, and the generic ops cleanup hold remain disabled until
-the rollout checks in this document pass and a separate Phase 4 approval authorizes
-deletion.
+Physical QA deletion is independently age-based under the approved 24-hour lifecycle.
+Archive incompleteness remains visible through control state and `cleanup_eligible=false`,
+but does not prevent expired source rows or files from normal retention.
 
 ## Scope
 
 ### Included
 
-- sealed-window selection for regular and backfill maintenance;
+- sealed-window selection for regular forward maintenance;
 - append-only base and late-delta segments;
 - S3 ETag compare-and-swap for `commit.json`;
 - `writing -> verified -> committed` archive transitions;
@@ -41,13 +41,13 @@ deletion.
 - systemd CPU, memory, process-priority, and I/O-priority limits;
 - operator `inspect`, `verify`, and `restore` commands that read S3 directly;
 - raw-bucket recovery IAM, VPC endpoint, and S3 data-event audit wiring;
-- an explicit repair command for the two known malformed production shards.
+- a fixed operator that records the two known malformed production shards as failed without repairing them.
 
 ### Excluded
 
-- confirming the existing 96 missing files as an accepted archive gap;
-- deleting any `qa_records`, local evidence, quarantine, or S3 object;
-- enabling the Phase 4 24-hour cleanup path;
+- recovering or fabricating the existing 96 missing files;
+- repairing the 477 late identities or replacing either historical S3 commit;
+- implementing the independent age-based cleanup path;
 - Phase 3 off-production user export and its UI/API;
 - Phase 5 emergency deletion and P0 delivery;
 - releasing the generic usage/ops cleanup hold;
@@ -67,7 +67,7 @@ deletion.
    or corrupt evidence.
 6. Database control rows and the S3 commit must describe the same ordered segment set,
    aggregate counts, and checksums before a shard reaches `committed`.
-7. Backfill only selects a window when `window_end + seal_delay <= now`.
+7. Historical backfill is retired; regular maintenance only selects the previous sealed hour.
 8. Failed maintenance writes a failed heartbeat even when failure occurs before upload,
    including advisory-lock contention and window-selection failure.
 9. Resource limits apply to scheduled and operator-invoked maintenance.
@@ -223,20 +223,17 @@ contain no bodies, credentials, cookies, or API keys.
 
 ### `2026-08-07 01:00 UTC`
 
-Treat the existing 407-row segment referenced by `commit.json` as the base. Import its
-source identities into segment membership after independently verifying the existing
-artifacts. Ignore the unreferenced 884-row base-shaped object as an orphan. Build a delta
-for the source identities absent from the 407-row base, verify it, and CAS-update the
-commit. The expected aggregate is derived at repair time; no hard-coded row count is used
-as an authorization gate. The repair receipt records before/after ETags and counts.
+Do not repair this hour. Keep the existing 407-row committed S3 base and the unreferenced
+884-row object unchanged. Set the control state to `failed` with
+`verification_error_code=commit_mismatch`, record the observed 407/884/477 counts, keep
+`cleanup_eligible=false`. No historical selector or backfill entrypoint remains.
 
 ### `2026-08-04 04:00 UTC`
 
-Reverify the existing commit and manifest. Because 96 evidence references are missing,
-set the shard to `failed` with `verification_error_code=missing_evidence`, derive
-`blocked=true`, and keep `cleanup_eligible=false`. Do not alter the S3 commit, create a
-gap receipt, or delete any source row. The repair output lists only safe request IDs and
-counts needed for later human impact review.
+Because 96 evidence references are missing, set the shard to `failed` with
+`verification_error_code=missing_evidence`, derive `blocked=true`, and keep
+`cleanup_eligible=false`. Do not alter the S3 commit, create a gap receipt, or schedule
+historical repair. Independent age-based retention may delete the expired source data.
 
 ## Heartbeats and Receipts
 
@@ -285,7 +282,7 @@ trail before change and fail closed when a production security parameter is blan
 
 ### Unit and contract
 
-- backfill refuses current/unsealed hours;
+- historical backfill flags, selectors, and scripts are absent;
 - lock acquisition failure does not unlock and writes a failure heartbeat;
 - missing evidence cannot reach verified or committed;
 - retry with no source delta creates no second base;
@@ -317,15 +314,11 @@ asserts bounded resident memory rather than merely checking that output files ex
 
 1. Keep both QA timers and generic ops cleanup disabled.
 2. Deploy schema and archive code with no scheduled execution.
-3. Run read-only `inspect` and `repair-plan` for all existing shards.
-4. Restore a seeded sample plus the complete repaired 01:00 shard to an isolated host.
-5. Apply the 01:00 delta repair and reverify the committed aggregate.
-6. Mark the 04:00 shard blocked after revalidation; do not confirm its gap.
-7. Run one sealed new hour manually through archive, verify, and restore.
-8. Observe database latency, WAL, scratch usage, RSS, CPU, S3 objects, and heartbeat.
-9. Re-enable only `tokenkey-qa-maintenance.timer` after all checks pass.
-10. Keep `tokenkey-qa-stale-cleanup.timer` disabled and keep
-    `cleanup_eligible=false`; Phase 4 requires separate approval.
+3. Mark 01:00 as `failed/commit_mismatch` and 04:00 as `failed/missing_evidence` without changing S3.
+4. Run one sealed new hour manually through archive, verify, and restore.
+5. Observe database latency, WAL, scratch usage, RSS, CPU, S3 objects, and heartbeat.
+6. Re-enable `tokenkey-qa-maintenance.timer` after all archive checks pass.
+7. Activate the independent 24-hour stale-cleanup path only after its live impact plan receives separate confirmation.
 
 ## Rollback
 
@@ -338,10 +331,9 @@ a valid commit remains invisible and expires through lifecycle policy.
 
 Phase 2 archive closeout is complete only when:
 
-- every non-blocked sealed source hour has a commit that passes independent restore;
-- the repaired 01:00 aggregate contains the base plus append-only delta and matches its
-  source identity set at final reconcile;
-- the 04:00 shard is visibly blocked with 96 missing references and no gap approval;
+- every newly processed sealed source hour has a commit that passes independent restore;
+- the 01:00 shard is visibly failed with a 477-row commit mismatch and no S3 mutation;
+- the 04:00 shard is visibly failed with 96 missing references and no S3 mutation;
 - no unsealed-hour selection or repeated orphan-base creation is possible;
 - success/failure heartbeats reflect actual commit state;
 - runtime resource limits and the raw-bucket security/audit controls are deployed;

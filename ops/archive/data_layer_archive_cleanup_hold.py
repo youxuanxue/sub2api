@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
+import datetime as dt
 import json
 import os
 import pathlib
@@ -151,60 +151,45 @@ def verify(receipt_path: str | os.PathLike[str]) -> dict[str, Any]:
     return payload
 
 
-def _verified_closeouts(
-    paths: list[str | os.PathLike[str]],
-    hold_receipt: dict[str, Any],
-    hold_receipt_path: str | os.PathLike[str],
-) -> list[dict[str, Any]]:
-    # Lazy import avoids a module cycle: closeout itself verifies this hold controller.
-    import data_layer_archive_closeout as closeout
-
-    if len(paths) != 2:
-        raise HoldControlError("cleanup release requires both ops archive closeouts")
+def _load_activation_plan(
+    path: str | os.PathLike[str],
+    receipt: dict[str, Any],
+) -> dict[str, Any]:
     try:
-        hold_receipt_sha256 = hashlib.sha256(
-            pathlib.Path(hold_receipt_path).expanduser().resolve().read_bytes()
-        ).hexdigest()
-    except OSError as exc:
-        raise HoldControlError("cleanup hold receipt cannot be hashed") from exc
-    verified: list[dict[str, Any]] = []
-    for path in paths:
-        payload = closeout.load_closeout_receipt(path)
-        try:
-            raw = pathlib.Path(path).expanduser().resolve().read_bytes()
-        except OSError as exc:
-            raise HoldControlError("archive closeout receipt cannot be hashed") from exc
-        if (
-            payload.get("instance_id") != hold_receipt["instance_id"]
-            or payload.get("hold_started_at") != hold_receipt["hold_started_at"]
-            or payload.get("cleanup_hold_receipt_sha256") != hold_receipt_sha256
-        ):
-            raise HoldControlError("archive closeout does not match the active cleanup hold")
-        verified.append(
-            {
-                "table": payload["table"],
-                "receipt_sha256": hashlib.sha256(raw).hexdigest(),
-                "restore_verified_at": payload["restore_verified_at"],
-            }
+        value = json.loads(pathlib.Path(path).expanduser().resolve().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HoldControlError("retention activation plan cannot be read") from exc
+    if (
+        not isinstance(value, dict)
+        or value.get("mode") != "prod_data_retention_activation_plan"
+        or value.get("environment") != "prod"
+        or value.get("activation_ready") is not True
+        or value.get("deletion_authorized") is not False
+        or value.get("instance_id") != receipt.get("instance_id")
+        or value.get("hold_started_at") != receipt.get("hold_started_at")
+    ):
+        raise HoldControlError("retention activation plan failed validation")
+    try:
+        server_clock = dt.datetime.fromisoformat(
+            str(value["ops"]["server_clock"]).replace("Z", "+00:00")
         )
-    if {item["table"] for item in verified} != {
-        "ops_error_logs",
-        "ops_system_logs",
-    }:
-        raise HoldControlError("cleanup release requires one closeout for each ops table")
-    return sorted(verified, key=lambda item: item["table"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HoldControlError("retention activation plan has no valid server clock") from exc
+    age = dt.datetime.now(dt.timezone.utc) - server_clock
+    if age < dt.timedelta(0) or age > dt.timedelta(minutes=10):
+        raise HoldControlError("retention activation plan is stale")
+    return value
 
 
 def release(
     receipt_path: str | os.PathLike[str],
+    activation_plan_path: str | os.PathLike[str],
     confirmation: str,
-    *,
-    closeout_receipt_paths: list[str | os.PathLike[str]],
 ) -> dict[str, Any]:
     if confirmation != RELEASE_CONFIRMATION:
         raise HoldControlError("cleanup release confirmation token is invalid")
     receipt = _load_receipt(receipt_path)
-    closeouts = _verified_closeouts(closeout_receipt_paths, receipt, receipt_path)
+    _load_activation_plan(activation_plan_path, receipt)
     previous = receipt.get("previous_cleanup_enabled")
     if not isinstance(previous, bool):
         raise HoldControlError("cleanup hold receipt has no previous enabled state")
@@ -221,7 +206,7 @@ def release(
     )
     if payload["instance_id"] != receipt["instance_id"]:
         raise HoldControlError("cleanup hold release reached a different instance")
-    return {**payload, "archive_closeouts": closeouts}
+    return payload
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -235,12 +220,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--receipt", required=True)
     release_parser = commands.add_parser("release", help="restore the pre-hold cleanup state")
     release_parser.add_argument("--receipt", required=True)
-    release_parser.add_argument(
-        "--closeout-receipt",
-        action="append",
-        required=True,
-        help="repeat once for ops_error_logs and once for ops_system_logs",
-    )
+    release_parser.add_argument("--activation-plan", required=True)
     release_parser.add_argument("--confirm", required=True)
     return parser
 
@@ -255,11 +235,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         elif args.command == "verify":
             payload = verify(args.receipt)
         elif args.command == "release":
-            payload = release(
-                args.receipt,
-                args.confirm,
-                closeout_receipt_paths=args.closeout_receipt,
-            )
+            payload = release(args.receipt, args.activation_plan, args.confirm)
         else:  # pragma: no cover
             raise HoldControlError(f"unsupported command: {args.command}")
         print(_canonical_json(payload))
