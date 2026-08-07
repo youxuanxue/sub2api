@@ -203,10 +203,14 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(SUM(account_cost), 0) as total_account_cost,
-			COALESCE(SUM(total_duration_ms), 0) as total_duration_ms
+			COALESCE(SUM(total_duration_ms), 0) as total_duration_ms,
+			COALESCE(SUM(total_gateway_latency_ms), 0) as total_gateway_latency_ms,
+			COALESCE(SUM(gateway_latency_samples), 0) as gateway_latency_samples
 		FROM usage_dashboard_daily
 	`
 	var totalDurationMs int64
+	var totalGatewayLatencyMs int64
+	var gatewayLatencySamples int64
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -221,12 +225,17 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 		&stats.TotalActualCost,
 		&stats.TotalAccountCost,
 		&totalDurationMs,
+		&totalGatewayLatencyMs,
+		&gatewayLatencySamples,
 	); err != nil {
 		return err
 	}
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
 	if stats.TotalRequests > 0 {
 		stats.AverageDurationMs = float64(totalDurationMs) / float64(stats.TotalRequests)
+	}
+	if gatewayLatencySamples > 0 {
+		stats.AverageGatewayLatencyMs = float64(totalGatewayLatencyMs) / float64(gatewayLatencySamples)
 	}
 
 	todayStatsQuery := `
@@ -292,7 +301,8 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 				total_cost,
 				actual_cost,
 				COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) AS account_cost,
-				COALESCE(duration_ms, 0) AS duration_ms
+				COALESCE(duration_ms, 0) AS duration_ms,
+				gateway_latency_ms
 			FROM usage_logs
 			WHERE created_at >= LEAST($1::timestamptz, $3::timestamptz)
 				AND created_at < GREATEST($2::timestamptz, $4::timestamptz)
@@ -307,6 +317,8 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_actual_cost,
 			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_account_cost,
 			COALESCE(SUM(duration_ms) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_duration_ms,
+			COALESCE(SUM(gateway_latency_ms) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND gateway_latency_ms IS NOT NULL), 0) AS total_gateway_latency_ms,
+			COUNT(gateway_latency_ms) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND gateway_latency_ms IS NOT NULL) AS gateway_latency_samples,
 			COUNT(*) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz) AS today_requests,
 			COALESCE(SUM(input_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_input_tokens,
 			COALESCE(SUM(output_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_output_tokens,
@@ -318,6 +330,8 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 		FROM scoped
 	`
 	var totalDurationMs int64
+	var totalGatewayLatencyMs int64
+	var gatewayLatencySamples int64
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -332,6 +346,8 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 		&stats.TotalActualCost,
 		&stats.TotalAccountCost,
 		&totalDurationMs,
+		&totalGatewayLatencyMs,
+		&gatewayLatencySamples,
 		&stats.TodayRequests,
 		&stats.TodayInputTokens,
 		&stats.TodayOutputTokens,
@@ -346,6 +362,9 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
 	if stats.TotalRequests > 0 {
 		stats.AverageDurationMs = float64(totalDurationMs) / float64(stats.TotalRequests)
+	}
+	if gatewayLatencySamples > 0 {
+		stats.AverageGatewayLatencyMs = float64(totalGatewayLatencyMs) / float64(gatewayLatencySamples)
 	}
 
 	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens

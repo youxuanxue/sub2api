@@ -27,6 +27,7 @@ export default {
       cacheToday: '今日缓存',
       performance: '性能指标',
       avgResponse: '平均响应',
+      avgGatewayLatency: '网关中转延迟',
       averageTime: '平均时间',
       active: '活跃',
       ok: '正常',

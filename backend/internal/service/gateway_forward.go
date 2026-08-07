@@ -13,6 +13,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 
 	"github.com/gin-gonic/gin"
 )
@@ -83,6 +84,19 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func (s *GatewayService) doForwardUpstreamWithLatency(
+	c *gin.Context,
+	req *http.Request,
+	proxyURL string,
+	account *Account,
+	tlsProfile *tlsfingerprint.Profile,
+) (*http.Response, error) {
+	upstreamStart := time.Now()
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, tlsProfile)
+	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
+	return resp, err
 }
 
 // Forward 转发请求到Claude API
@@ -498,7 +512,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 
 		// 发送请求
 		hwka := s.beginHeaderWaitKeepalive(c, reqStream)
+		upstreamStart := time.Now()
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		hwka.stop()
 		if err != nil {
 			if resp != nil && resp.Body != nil {
@@ -591,7 +607,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					retryReq, retryWireBody, buildErr := s.buildUpstreamRequest(retryCtx, c, account, filteredBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 					releaseRetryCtx()
 					if buildErr == nil {
-						retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+						retryResp, retryErr := s.doForwardUpstreamWithLatency(c, retryReq, proxyURL, account, tlsProfile)
 						if retryErr == nil {
 							if retryResp.StatusCode < 400 {
 								// 重试请求被上游接受后同步 ParsedRequest，保证 usage/日志看到真实请求体。
@@ -633,7 +649,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									retryReq2, retryWireBody2, buildErr2 := s.buildUpstreamRequest(retryCtx2, c, account, filteredBody2, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 									releaseRetryCtx2()
 									if buildErr2 == nil {
-										retryResp2, retryErr2 := s.httpUpstream.DoWithTLS(retryReq2, proxyURL, account.ID, account.Concurrency, tlsProfile)
+										retryResp2, retryErr2 := s.doForwardUpstreamWithLatency(c, retryReq2, proxyURL, account, tlsProfile)
 										if retryErr2 == nil {
 											if retryResp2.StatusCode < 400 {
 												// 二阶段工具块降级成功时也必须更新当前 body。
@@ -711,7 +727,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						betaRetryReq, betaWireBody, buildErr := s.buildUpstreamRequest(betaRetryCtx, c, account, body, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 						releaseBetaRetryCtx()
 						if buildErr == nil {
-							betaRetryResp, retryErr := s.httpUpstream.DoWithTLS(betaRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+							betaRetryResp, retryErr := s.doForwardUpstreamWithLatency(c, betaRetryReq, proxyURL, account, tlsProfile)
 							if retryErr == nil {
 								if betaRetryResp.StatusCode < 400 {
 									lastWireBody = betaWireBody
@@ -767,7 +783,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						adaptiveRetryReq, adaptiveWireBody, buildErr := s.buildUpstreamRequest(adaptiveRetryCtx, c, account, rectifiedBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 						releaseAdaptiveRetryCtx()
 						if buildErr == nil {
-							adaptiveRetryResp, retryErr := s.httpUpstream.DoWithTLS(adaptiveRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+							adaptiveRetryResp, retryErr := s.doForwardUpstreamWithLatency(c, adaptiveRetryReq, proxyURL, account, tlsProfile)
 							if retryErr == nil {
 								if adaptiveRetryResp.StatusCode < 400 {
 									lastWireBody = adaptiveWireBody
@@ -814,7 +830,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						budgetRetryReq, budgetWireBody, buildErr := s.buildUpstreamRequest(budgetRetryCtx, c, account, rectifiedBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 						releaseBudgetRetryCtx()
 						if buildErr == nil {
-							budgetRetryResp, retryErr := s.httpUpstream.DoWithTLS(budgetRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+							budgetRetryResp, retryErr := s.doForwardUpstreamWithLatency(c, budgetRetryReq, proxyURL, account, tlsProfile)
 							if retryErr == nil {
 								if budgetRetryResp.StatusCode < 400 {
 									// budget 修正请求成功后，ParsedRequest 也要描述被接受的修正版。
