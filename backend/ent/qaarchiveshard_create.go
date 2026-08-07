@@ -194,6 +194,160 @@ func (_c *QAArchiveShardCreate) SetNillableCommitKey(v *string) *QAArchiveShardC
 	return _c
 }
 
+// SetCommitEtag sets the "commit_etag" field.
+func (_c *QAArchiveShardCreate) SetCommitEtag(v string) *QAArchiveShardCreate {
+	_c.mutation.SetCommitEtag(v)
+	return _c
+}
+
+// SetNillableCommitEtag sets the "commit_etag" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableCommitEtag(v *string) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetCommitEtag(*v)
+	}
+	return _c
+}
+
+// SetAggregateRecordCount sets the "aggregate_record_count" field.
+func (_c *QAArchiveShardCreate) SetAggregateRecordCount(v int64) *QAArchiveShardCreate {
+	_c.mutation.SetAggregateRecordCount(v)
+	return _c
+}
+
+// SetNillableAggregateRecordCount sets the "aggregate_record_count" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableAggregateRecordCount(v *int64) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetAggregateRecordCount(*v)
+	}
+	return _c
+}
+
+// SetAggregateBlobRefCount sets the "aggregate_blob_ref_count" field.
+func (_c *QAArchiveShardCreate) SetAggregateBlobRefCount(v int64) *QAArchiveShardCreate {
+	_c.mutation.SetAggregateBlobRefCount(v)
+	return _c
+}
+
+// SetNillableAggregateBlobRefCount sets the "aggregate_blob_ref_count" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableAggregateBlobRefCount(v *int64) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetAggregateBlobRefCount(*v)
+	}
+	return _c
+}
+
+// SetAggregateBlobPresentCount sets the "aggregate_blob_present_count" field.
+func (_c *QAArchiveShardCreate) SetAggregateBlobPresentCount(v int64) *QAArchiveShardCreate {
+	_c.mutation.SetAggregateBlobPresentCount(v)
+	return _c
+}
+
+// SetNillableAggregateBlobPresentCount sets the "aggregate_blob_present_count" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableAggregateBlobPresentCount(v *int64) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetAggregateBlobPresentCount(*v)
+	}
+	return _c
+}
+
+// SetAggregateBlobMissingCount sets the "aggregate_blob_missing_count" field.
+func (_c *QAArchiveShardCreate) SetAggregateBlobMissingCount(v int64) *QAArchiveShardCreate {
+	_c.mutation.SetAggregateBlobMissingCount(v)
+	return _c
+}
+
+// SetNillableAggregateBlobMissingCount sets the "aggregate_blob_missing_count" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableAggregateBlobMissingCount(v *int64) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetAggregateBlobMissingCount(*v)
+	}
+	return _c
+}
+
+// SetVerifiedAt sets the "verified_at" field.
+func (_c *QAArchiveShardCreate) SetVerifiedAt(v time.Time) *QAArchiveShardCreate {
+	_c.mutation.SetVerifiedAt(v)
+	return _c
+}
+
+// SetNillableVerifiedAt sets the "verified_at" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableVerifiedAt(v *time.Time) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetVerifiedAt(*v)
+	}
+	return _c
+}
+
+// SetRestoreVerifiedAt sets the "restore_verified_at" field.
+func (_c *QAArchiveShardCreate) SetRestoreVerifiedAt(v time.Time) *QAArchiveShardCreate {
+	_c.mutation.SetRestoreVerifiedAt(v)
+	return _c
+}
+
+// SetNillableRestoreVerifiedAt sets the "restore_verified_at" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableRestoreVerifiedAt(v *time.Time) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetRestoreVerifiedAt(*v)
+	}
+	return _c
+}
+
+// SetVerificationErrorCode sets the "verification_error_code" field.
+func (_c *QAArchiveShardCreate) SetVerificationErrorCode(v string) *QAArchiveShardCreate {
+	_c.mutation.SetVerificationErrorCode(v)
+	return _c
+}
+
+// SetNillableVerificationErrorCode sets the "verification_error_code" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableVerificationErrorCode(v *string) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetVerificationErrorCode(*v)
+	}
+	return _c
+}
+
+// SetLastReconciledAt sets the "last_reconciled_at" field.
+func (_c *QAArchiveShardCreate) SetLastReconciledAt(v time.Time) *QAArchiveShardCreate {
+	_c.mutation.SetLastReconciledAt(v)
+	return _c
+}
+
+// SetNillableLastReconciledAt sets the "last_reconciled_at" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableLastReconciledAt(v *time.Time) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetLastReconciledAt(*v)
+	}
+	return _c
+}
+
+// SetFinalReconciledAt sets the "final_reconciled_at" field.
+func (_c *QAArchiveShardCreate) SetFinalReconciledAt(v time.Time) *QAArchiveShardCreate {
+	_c.mutation.SetFinalReconciledAt(v)
+	return _c
+}
+
+// SetNillableFinalReconciledAt sets the "final_reconciled_at" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableFinalReconciledAt(v *time.Time) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetFinalReconciledAt(*v)
+	}
+	return _c
+}
+
+// SetCleanupEligible sets the "cleanup_eligible" field.
+func (_c *QAArchiveShardCreate) SetCleanupEligible(v bool) *QAArchiveShardCreate {
+	_c.mutation.SetCleanupEligible(v)
+	return _c
+}
+
+// SetNillableCleanupEligible sets the "cleanup_eligible" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableCleanupEligible(v *bool) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetCleanupEligible(*v)
+	}
+	return _c
+}
+
 // SetFirstAttemptAt sets the "first_attempt_at" field.
 func (_c *QAArchiveShardCreate) SetFirstAttemptAt(v time.Time) *QAArchiveShardCreate {
 	_c.mutation.SetFirstAttemptAt(v)
@@ -339,6 +493,26 @@ func (_c *QAArchiveShardCreate) defaults() {
 		v := qaarchiveshard.DefaultS3Prefix
 		_c.mutation.SetS3Prefix(v)
 	}
+	if _, ok := _c.mutation.AggregateRecordCount(); !ok {
+		v := qaarchiveshard.DefaultAggregateRecordCount
+		_c.mutation.SetAggregateRecordCount(v)
+	}
+	if _, ok := _c.mutation.AggregateBlobRefCount(); !ok {
+		v := qaarchiveshard.DefaultAggregateBlobRefCount
+		_c.mutation.SetAggregateBlobRefCount(v)
+	}
+	if _, ok := _c.mutation.AggregateBlobPresentCount(); !ok {
+		v := qaarchiveshard.DefaultAggregateBlobPresentCount
+		_c.mutation.SetAggregateBlobPresentCount(v)
+	}
+	if _, ok := _c.mutation.AggregateBlobMissingCount(); !ok {
+		v := qaarchiveshard.DefaultAggregateBlobMissingCount
+		_c.mutation.SetAggregateBlobMissingCount(v)
+	}
+	if _, ok := _c.mutation.CleanupEligible(); !ok {
+		v := qaarchiveshard.DefaultCleanupEligible
+		_c.mutation.SetCleanupEligible(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := qaarchiveshard.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -386,6 +560,21 @@ func (_c *QAArchiveShardCreate) check() error {
 	}
 	if _, ok := _c.mutation.S3Prefix(); !ok {
 		return &ValidationError{Name: "s3_prefix", err: errors.New(`ent: missing required field "QAArchiveShard.s3_prefix"`)}
+	}
+	if _, ok := _c.mutation.AggregateRecordCount(); !ok {
+		return &ValidationError{Name: "aggregate_record_count", err: errors.New(`ent: missing required field "QAArchiveShard.aggregate_record_count"`)}
+	}
+	if _, ok := _c.mutation.AggregateBlobRefCount(); !ok {
+		return &ValidationError{Name: "aggregate_blob_ref_count", err: errors.New(`ent: missing required field "QAArchiveShard.aggregate_blob_ref_count"`)}
+	}
+	if _, ok := _c.mutation.AggregateBlobPresentCount(); !ok {
+		return &ValidationError{Name: "aggregate_blob_present_count", err: errors.New(`ent: missing required field "QAArchiveShard.aggregate_blob_present_count"`)}
+	}
+	if _, ok := _c.mutation.AggregateBlobMissingCount(); !ok {
+		return &ValidationError{Name: "aggregate_blob_missing_count", err: errors.New(`ent: missing required field "QAArchiveShard.aggregate_blob_missing_count"`)}
+	}
+	if _, ok := _c.mutation.CleanupEligible(); !ok {
+		return &ValidationError{Name: "cleanup_eligible", err: errors.New(`ent: missing required field "QAArchiveShard.cleanup_eligible"`)}
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "QAArchiveShard.created_at"`)}
@@ -475,6 +664,50 @@ func (_c *QAArchiveShardCreate) createSpec() (*QAArchiveShard, *sqlgraph.CreateS
 	if value, ok := _c.mutation.CommitKey(); ok {
 		_spec.SetField(qaarchiveshard.FieldCommitKey, field.TypeString, value)
 		_node.CommitKey = &value
+	}
+	if value, ok := _c.mutation.CommitEtag(); ok {
+		_spec.SetField(qaarchiveshard.FieldCommitEtag, field.TypeString, value)
+		_node.CommitEtag = &value
+	}
+	if value, ok := _c.mutation.AggregateRecordCount(); ok {
+		_spec.SetField(qaarchiveshard.FieldAggregateRecordCount, field.TypeInt64, value)
+		_node.AggregateRecordCount = value
+	}
+	if value, ok := _c.mutation.AggregateBlobRefCount(); ok {
+		_spec.SetField(qaarchiveshard.FieldAggregateBlobRefCount, field.TypeInt64, value)
+		_node.AggregateBlobRefCount = value
+	}
+	if value, ok := _c.mutation.AggregateBlobPresentCount(); ok {
+		_spec.SetField(qaarchiveshard.FieldAggregateBlobPresentCount, field.TypeInt64, value)
+		_node.AggregateBlobPresentCount = value
+	}
+	if value, ok := _c.mutation.AggregateBlobMissingCount(); ok {
+		_spec.SetField(qaarchiveshard.FieldAggregateBlobMissingCount, field.TypeInt64, value)
+		_node.AggregateBlobMissingCount = value
+	}
+	if value, ok := _c.mutation.VerifiedAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldVerifiedAt, field.TypeTime, value)
+		_node.VerifiedAt = &value
+	}
+	if value, ok := _c.mutation.RestoreVerifiedAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldRestoreVerifiedAt, field.TypeTime, value)
+		_node.RestoreVerifiedAt = &value
+	}
+	if value, ok := _c.mutation.VerificationErrorCode(); ok {
+		_spec.SetField(qaarchiveshard.FieldVerificationErrorCode, field.TypeString, value)
+		_node.VerificationErrorCode = &value
+	}
+	if value, ok := _c.mutation.LastReconciledAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldLastReconciledAt, field.TypeTime, value)
+		_node.LastReconciledAt = &value
+	}
+	if value, ok := _c.mutation.FinalReconciledAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldFinalReconciledAt, field.TypeTime, value)
+		_node.FinalReconciledAt = &value
+	}
+	if value, ok := _c.mutation.CleanupEligible(); ok {
+		_spec.SetField(qaarchiveshard.FieldCleanupEligible, field.TypeBool, value)
+		_node.CleanupEligible = value
 	}
 	if value, ok := _c.mutation.FirstAttemptAt(); ok {
 		_spec.SetField(qaarchiveshard.FieldFirstAttemptAt, field.TypeTime, value)
@@ -755,6 +988,198 @@ func (u *QAArchiveShardUpsert) UpdateCommitKey() *QAArchiveShardUpsert {
 // ClearCommitKey clears the value of the "commit_key" field.
 func (u *QAArchiveShardUpsert) ClearCommitKey() *QAArchiveShardUpsert {
 	u.SetNull(qaarchiveshard.FieldCommitKey)
+	return u
+}
+
+// SetCommitEtag sets the "commit_etag" field.
+func (u *QAArchiveShardUpsert) SetCommitEtag(v string) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldCommitEtag, v)
+	return u
+}
+
+// UpdateCommitEtag sets the "commit_etag" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateCommitEtag() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldCommitEtag)
+	return u
+}
+
+// ClearCommitEtag clears the value of the "commit_etag" field.
+func (u *QAArchiveShardUpsert) ClearCommitEtag() *QAArchiveShardUpsert {
+	u.SetNull(qaarchiveshard.FieldCommitEtag)
+	return u
+}
+
+// SetAggregateRecordCount sets the "aggregate_record_count" field.
+func (u *QAArchiveShardUpsert) SetAggregateRecordCount(v int64) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldAggregateRecordCount, v)
+	return u
+}
+
+// UpdateAggregateRecordCount sets the "aggregate_record_count" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateAggregateRecordCount() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldAggregateRecordCount)
+	return u
+}
+
+// AddAggregateRecordCount adds v to the "aggregate_record_count" field.
+func (u *QAArchiveShardUpsert) AddAggregateRecordCount(v int64) *QAArchiveShardUpsert {
+	u.Add(qaarchiveshard.FieldAggregateRecordCount, v)
+	return u
+}
+
+// SetAggregateBlobRefCount sets the "aggregate_blob_ref_count" field.
+func (u *QAArchiveShardUpsert) SetAggregateBlobRefCount(v int64) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldAggregateBlobRefCount, v)
+	return u
+}
+
+// UpdateAggregateBlobRefCount sets the "aggregate_blob_ref_count" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateAggregateBlobRefCount() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldAggregateBlobRefCount)
+	return u
+}
+
+// AddAggregateBlobRefCount adds v to the "aggregate_blob_ref_count" field.
+func (u *QAArchiveShardUpsert) AddAggregateBlobRefCount(v int64) *QAArchiveShardUpsert {
+	u.Add(qaarchiveshard.FieldAggregateBlobRefCount, v)
+	return u
+}
+
+// SetAggregateBlobPresentCount sets the "aggregate_blob_present_count" field.
+func (u *QAArchiveShardUpsert) SetAggregateBlobPresentCount(v int64) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldAggregateBlobPresentCount, v)
+	return u
+}
+
+// UpdateAggregateBlobPresentCount sets the "aggregate_blob_present_count" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateAggregateBlobPresentCount() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldAggregateBlobPresentCount)
+	return u
+}
+
+// AddAggregateBlobPresentCount adds v to the "aggregate_blob_present_count" field.
+func (u *QAArchiveShardUpsert) AddAggregateBlobPresentCount(v int64) *QAArchiveShardUpsert {
+	u.Add(qaarchiveshard.FieldAggregateBlobPresentCount, v)
+	return u
+}
+
+// SetAggregateBlobMissingCount sets the "aggregate_blob_missing_count" field.
+func (u *QAArchiveShardUpsert) SetAggregateBlobMissingCount(v int64) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldAggregateBlobMissingCount, v)
+	return u
+}
+
+// UpdateAggregateBlobMissingCount sets the "aggregate_blob_missing_count" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateAggregateBlobMissingCount() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldAggregateBlobMissingCount)
+	return u
+}
+
+// AddAggregateBlobMissingCount adds v to the "aggregate_blob_missing_count" field.
+func (u *QAArchiveShardUpsert) AddAggregateBlobMissingCount(v int64) *QAArchiveShardUpsert {
+	u.Add(qaarchiveshard.FieldAggregateBlobMissingCount, v)
+	return u
+}
+
+// SetVerifiedAt sets the "verified_at" field.
+func (u *QAArchiveShardUpsert) SetVerifiedAt(v time.Time) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldVerifiedAt, v)
+	return u
+}
+
+// UpdateVerifiedAt sets the "verified_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateVerifiedAt() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldVerifiedAt)
+	return u
+}
+
+// ClearVerifiedAt clears the value of the "verified_at" field.
+func (u *QAArchiveShardUpsert) ClearVerifiedAt() *QAArchiveShardUpsert {
+	u.SetNull(qaarchiveshard.FieldVerifiedAt)
+	return u
+}
+
+// SetRestoreVerifiedAt sets the "restore_verified_at" field.
+func (u *QAArchiveShardUpsert) SetRestoreVerifiedAt(v time.Time) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldRestoreVerifiedAt, v)
+	return u
+}
+
+// UpdateRestoreVerifiedAt sets the "restore_verified_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateRestoreVerifiedAt() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldRestoreVerifiedAt)
+	return u
+}
+
+// ClearRestoreVerifiedAt clears the value of the "restore_verified_at" field.
+func (u *QAArchiveShardUpsert) ClearRestoreVerifiedAt() *QAArchiveShardUpsert {
+	u.SetNull(qaarchiveshard.FieldRestoreVerifiedAt)
+	return u
+}
+
+// SetVerificationErrorCode sets the "verification_error_code" field.
+func (u *QAArchiveShardUpsert) SetVerificationErrorCode(v string) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldVerificationErrorCode, v)
+	return u
+}
+
+// UpdateVerificationErrorCode sets the "verification_error_code" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateVerificationErrorCode() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldVerificationErrorCode)
+	return u
+}
+
+// ClearVerificationErrorCode clears the value of the "verification_error_code" field.
+func (u *QAArchiveShardUpsert) ClearVerificationErrorCode() *QAArchiveShardUpsert {
+	u.SetNull(qaarchiveshard.FieldVerificationErrorCode)
+	return u
+}
+
+// SetLastReconciledAt sets the "last_reconciled_at" field.
+func (u *QAArchiveShardUpsert) SetLastReconciledAt(v time.Time) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldLastReconciledAt, v)
+	return u
+}
+
+// UpdateLastReconciledAt sets the "last_reconciled_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateLastReconciledAt() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldLastReconciledAt)
+	return u
+}
+
+// ClearLastReconciledAt clears the value of the "last_reconciled_at" field.
+func (u *QAArchiveShardUpsert) ClearLastReconciledAt() *QAArchiveShardUpsert {
+	u.SetNull(qaarchiveshard.FieldLastReconciledAt)
+	return u
+}
+
+// SetFinalReconciledAt sets the "final_reconciled_at" field.
+func (u *QAArchiveShardUpsert) SetFinalReconciledAt(v time.Time) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldFinalReconciledAt, v)
+	return u
+}
+
+// UpdateFinalReconciledAt sets the "final_reconciled_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateFinalReconciledAt() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldFinalReconciledAt)
+	return u
+}
+
+// ClearFinalReconciledAt clears the value of the "final_reconciled_at" field.
+func (u *QAArchiveShardUpsert) ClearFinalReconciledAt() *QAArchiveShardUpsert {
+	u.SetNull(qaarchiveshard.FieldFinalReconciledAt)
+	return u
+}
+
+// SetCleanupEligible sets the "cleanup_eligible" field.
+func (u *QAArchiveShardUpsert) SetCleanupEligible(v bool) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldCleanupEligible, v)
+	return u
+}
+
+// UpdateCleanupEligible sets the "cleanup_eligible" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateCleanupEligible() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldCleanupEligible)
 	return u
 }
 
@@ -1114,6 +1539,230 @@ func (u *QAArchiveShardUpsertOne) UpdateCommitKey() *QAArchiveShardUpsertOne {
 func (u *QAArchiveShardUpsertOne) ClearCommitKey() *QAArchiveShardUpsertOne {
 	return u.Update(func(s *QAArchiveShardUpsert) {
 		s.ClearCommitKey()
+	})
+}
+
+// SetCommitEtag sets the "commit_etag" field.
+func (u *QAArchiveShardUpsertOne) SetCommitEtag(v string) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetCommitEtag(v)
+	})
+}
+
+// UpdateCommitEtag sets the "commit_etag" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateCommitEtag() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateCommitEtag()
+	})
+}
+
+// ClearCommitEtag clears the value of the "commit_etag" field.
+func (u *QAArchiveShardUpsertOne) ClearCommitEtag() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearCommitEtag()
+	})
+}
+
+// SetAggregateRecordCount sets the "aggregate_record_count" field.
+func (u *QAArchiveShardUpsertOne) SetAggregateRecordCount(v int64) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetAggregateRecordCount(v)
+	})
+}
+
+// AddAggregateRecordCount adds v to the "aggregate_record_count" field.
+func (u *QAArchiveShardUpsertOne) AddAggregateRecordCount(v int64) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.AddAggregateRecordCount(v)
+	})
+}
+
+// UpdateAggregateRecordCount sets the "aggregate_record_count" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateAggregateRecordCount() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateAggregateRecordCount()
+	})
+}
+
+// SetAggregateBlobRefCount sets the "aggregate_blob_ref_count" field.
+func (u *QAArchiveShardUpsertOne) SetAggregateBlobRefCount(v int64) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetAggregateBlobRefCount(v)
+	})
+}
+
+// AddAggregateBlobRefCount adds v to the "aggregate_blob_ref_count" field.
+func (u *QAArchiveShardUpsertOne) AddAggregateBlobRefCount(v int64) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.AddAggregateBlobRefCount(v)
+	})
+}
+
+// UpdateAggregateBlobRefCount sets the "aggregate_blob_ref_count" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateAggregateBlobRefCount() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateAggregateBlobRefCount()
+	})
+}
+
+// SetAggregateBlobPresentCount sets the "aggregate_blob_present_count" field.
+func (u *QAArchiveShardUpsertOne) SetAggregateBlobPresentCount(v int64) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetAggregateBlobPresentCount(v)
+	})
+}
+
+// AddAggregateBlobPresentCount adds v to the "aggregate_blob_present_count" field.
+func (u *QAArchiveShardUpsertOne) AddAggregateBlobPresentCount(v int64) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.AddAggregateBlobPresentCount(v)
+	})
+}
+
+// UpdateAggregateBlobPresentCount sets the "aggregate_blob_present_count" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateAggregateBlobPresentCount() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateAggregateBlobPresentCount()
+	})
+}
+
+// SetAggregateBlobMissingCount sets the "aggregate_blob_missing_count" field.
+func (u *QAArchiveShardUpsertOne) SetAggregateBlobMissingCount(v int64) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetAggregateBlobMissingCount(v)
+	})
+}
+
+// AddAggregateBlobMissingCount adds v to the "aggregate_blob_missing_count" field.
+func (u *QAArchiveShardUpsertOne) AddAggregateBlobMissingCount(v int64) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.AddAggregateBlobMissingCount(v)
+	})
+}
+
+// UpdateAggregateBlobMissingCount sets the "aggregate_blob_missing_count" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateAggregateBlobMissingCount() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateAggregateBlobMissingCount()
+	})
+}
+
+// SetVerifiedAt sets the "verified_at" field.
+func (u *QAArchiveShardUpsertOne) SetVerifiedAt(v time.Time) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetVerifiedAt(v)
+	})
+}
+
+// UpdateVerifiedAt sets the "verified_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateVerifiedAt() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateVerifiedAt()
+	})
+}
+
+// ClearVerifiedAt clears the value of the "verified_at" field.
+func (u *QAArchiveShardUpsertOne) ClearVerifiedAt() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearVerifiedAt()
+	})
+}
+
+// SetRestoreVerifiedAt sets the "restore_verified_at" field.
+func (u *QAArchiveShardUpsertOne) SetRestoreVerifiedAt(v time.Time) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetRestoreVerifiedAt(v)
+	})
+}
+
+// UpdateRestoreVerifiedAt sets the "restore_verified_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateRestoreVerifiedAt() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateRestoreVerifiedAt()
+	})
+}
+
+// ClearRestoreVerifiedAt clears the value of the "restore_verified_at" field.
+func (u *QAArchiveShardUpsertOne) ClearRestoreVerifiedAt() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearRestoreVerifiedAt()
+	})
+}
+
+// SetVerificationErrorCode sets the "verification_error_code" field.
+func (u *QAArchiveShardUpsertOne) SetVerificationErrorCode(v string) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetVerificationErrorCode(v)
+	})
+}
+
+// UpdateVerificationErrorCode sets the "verification_error_code" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateVerificationErrorCode() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateVerificationErrorCode()
+	})
+}
+
+// ClearVerificationErrorCode clears the value of the "verification_error_code" field.
+func (u *QAArchiveShardUpsertOne) ClearVerificationErrorCode() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearVerificationErrorCode()
+	})
+}
+
+// SetLastReconciledAt sets the "last_reconciled_at" field.
+func (u *QAArchiveShardUpsertOne) SetLastReconciledAt(v time.Time) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetLastReconciledAt(v)
+	})
+}
+
+// UpdateLastReconciledAt sets the "last_reconciled_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateLastReconciledAt() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateLastReconciledAt()
+	})
+}
+
+// ClearLastReconciledAt clears the value of the "last_reconciled_at" field.
+func (u *QAArchiveShardUpsertOne) ClearLastReconciledAt() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearLastReconciledAt()
+	})
+}
+
+// SetFinalReconciledAt sets the "final_reconciled_at" field.
+func (u *QAArchiveShardUpsertOne) SetFinalReconciledAt(v time.Time) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetFinalReconciledAt(v)
+	})
+}
+
+// UpdateFinalReconciledAt sets the "final_reconciled_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateFinalReconciledAt() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateFinalReconciledAt()
+	})
+}
+
+// ClearFinalReconciledAt clears the value of the "final_reconciled_at" field.
+func (u *QAArchiveShardUpsertOne) ClearFinalReconciledAt() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearFinalReconciledAt()
+	})
+}
+
+// SetCleanupEligible sets the "cleanup_eligible" field.
+func (u *QAArchiveShardUpsertOne) SetCleanupEligible(v bool) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetCleanupEligible(v)
+	})
+}
+
+// UpdateCleanupEligible sets the "cleanup_eligible" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateCleanupEligible() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateCleanupEligible()
 	})
 }
 
@@ -1650,6 +2299,230 @@ func (u *QAArchiveShardUpsertBulk) UpdateCommitKey() *QAArchiveShardUpsertBulk {
 func (u *QAArchiveShardUpsertBulk) ClearCommitKey() *QAArchiveShardUpsertBulk {
 	return u.Update(func(s *QAArchiveShardUpsert) {
 		s.ClearCommitKey()
+	})
+}
+
+// SetCommitEtag sets the "commit_etag" field.
+func (u *QAArchiveShardUpsertBulk) SetCommitEtag(v string) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetCommitEtag(v)
+	})
+}
+
+// UpdateCommitEtag sets the "commit_etag" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateCommitEtag() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateCommitEtag()
+	})
+}
+
+// ClearCommitEtag clears the value of the "commit_etag" field.
+func (u *QAArchiveShardUpsertBulk) ClearCommitEtag() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearCommitEtag()
+	})
+}
+
+// SetAggregateRecordCount sets the "aggregate_record_count" field.
+func (u *QAArchiveShardUpsertBulk) SetAggregateRecordCount(v int64) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetAggregateRecordCount(v)
+	})
+}
+
+// AddAggregateRecordCount adds v to the "aggregate_record_count" field.
+func (u *QAArchiveShardUpsertBulk) AddAggregateRecordCount(v int64) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.AddAggregateRecordCount(v)
+	})
+}
+
+// UpdateAggregateRecordCount sets the "aggregate_record_count" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateAggregateRecordCount() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateAggregateRecordCount()
+	})
+}
+
+// SetAggregateBlobRefCount sets the "aggregate_blob_ref_count" field.
+func (u *QAArchiveShardUpsertBulk) SetAggregateBlobRefCount(v int64) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetAggregateBlobRefCount(v)
+	})
+}
+
+// AddAggregateBlobRefCount adds v to the "aggregate_blob_ref_count" field.
+func (u *QAArchiveShardUpsertBulk) AddAggregateBlobRefCount(v int64) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.AddAggregateBlobRefCount(v)
+	})
+}
+
+// UpdateAggregateBlobRefCount sets the "aggregate_blob_ref_count" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateAggregateBlobRefCount() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateAggregateBlobRefCount()
+	})
+}
+
+// SetAggregateBlobPresentCount sets the "aggregate_blob_present_count" field.
+func (u *QAArchiveShardUpsertBulk) SetAggregateBlobPresentCount(v int64) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetAggregateBlobPresentCount(v)
+	})
+}
+
+// AddAggregateBlobPresentCount adds v to the "aggregate_blob_present_count" field.
+func (u *QAArchiveShardUpsertBulk) AddAggregateBlobPresentCount(v int64) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.AddAggregateBlobPresentCount(v)
+	})
+}
+
+// UpdateAggregateBlobPresentCount sets the "aggregate_blob_present_count" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateAggregateBlobPresentCount() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateAggregateBlobPresentCount()
+	})
+}
+
+// SetAggregateBlobMissingCount sets the "aggregate_blob_missing_count" field.
+func (u *QAArchiveShardUpsertBulk) SetAggregateBlobMissingCount(v int64) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetAggregateBlobMissingCount(v)
+	})
+}
+
+// AddAggregateBlobMissingCount adds v to the "aggregate_blob_missing_count" field.
+func (u *QAArchiveShardUpsertBulk) AddAggregateBlobMissingCount(v int64) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.AddAggregateBlobMissingCount(v)
+	})
+}
+
+// UpdateAggregateBlobMissingCount sets the "aggregate_blob_missing_count" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateAggregateBlobMissingCount() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateAggregateBlobMissingCount()
+	})
+}
+
+// SetVerifiedAt sets the "verified_at" field.
+func (u *QAArchiveShardUpsertBulk) SetVerifiedAt(v time.Time) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetVerifiedAt(v)
+	})
+}
+
+// UpdateVerifiedAt sets the "verified_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateVerifiedAt() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateVerifiedAt()
+	})
+}
+
+// ClearVerifiedAt clears the value of the "verified_at" field.
+func (u *QAArchiveShardUpsertBulk) ClearVerifiedAt() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearVerifiedAt()
+	})
+}
+
+// SetRestoreVerifiedAt sets the "restore_verified_at" field.
+func (u *QAArchiveShardUpsertBulk) SetRestoreVerifiedAt(v time.Time) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetRestoreVerifiedAt(v)
+	})
+}
+
+// UpdateRestoreVerifiedAt sets the "restore_verified_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateRestoreVerifiedAt() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateRestoreVerifiedAt()
+	})
+}
+
+// ClearRestoreVerifiedAt clears the value of the "restore_verified_at" field.
+func (u *QAArchiveShardUpsertBulk) ClearRestoreVerifiedAt() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearRestoreVerifiedAt()
+	})
+}
+
+// SetVerificationErrorCode sets the "verification_error_code" field.
+func (u *QAArchiveShardUpsertBulk) SetVerificationErrorCode(v string) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetVerificationErrorCode(v)
+	})
+}
+
+// UpdateVerificationErrorCode sets the "verification_error_code" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateVerificationErrorCode() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateVerificationErrorCode()
+	})
+}
+
+// ClearVerificationErrorCode clears the value of the "verification_error_code" field.
+func (u *QAArchiveShardUpsertBulk) ClearVerificationErrorCode() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearVerificationErrorCode()
+	})
+}
+
+// SetLastReconciledAt sets the "last_reconciled_at" field.
+func (u *QAArchiveShardUpsertBulk) SetLastReconciledAt(v time.Time) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetLastReconciledAt(v)
+	})
+}
+
+// UpdateLastReconciledAt sets the "last_reconciled_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateLastReconciledAt() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateLastReconciledAt()
+	})
+}
+
+// ClearLastReconciledAt clears the value of the "last_reconciled_at" field.
+func (u *QAArchiveShardUpsertBulk) ClearLastReconciledAt() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearLastReconciledAt()
+	})
+}
+
+// SetFinalReconciledAt sets the "final_reconciled_at" field.
+func (u *QAArchiveShardUpsertBulk) SetFinalReconciledAt(v time.Time) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetFinalReconciledAt(v)
+	})
+}
+
+// UpdateFinalReconciledAt sets the "final_reconciled_at" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateFinalReconciledAt() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateFinalReconciledAt()
+	})
+}
+
+// ClearFinalReconciledAt clears the value of the "final_reconciled_at" field.
+func (u *QAArchiveShardUpsertBulk) ClearFinalReconciledAt() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.ClearFinalReconciledAt()
+	})
+}
+
+// SetCleanupEligible sets the "cleanup_eligible" field.
+func (u *QAArchiveShardUpsertBulk) SetCleanupEligible(v bool) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetCleanupEligible(v)
+	})
+}
+
+// UpdateCleanupEligible sets the "cleanup_eligible" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateCleanupEligible() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateCleanupEligible()
 	})
 }
 

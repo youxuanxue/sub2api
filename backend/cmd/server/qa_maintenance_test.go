@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -213,8 +214,6 @@ func TestQAMaintenanceUploadPathWhenArchiveEnabled(t *testing.T) {
 	mock.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec("SET statement_timeout = '120s'").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("SELECT pg_try_advisory_lock").WillReturnRows(sqlmock.NewRows([]string{"locked"}).AddRow(true))
-	mock.ExpectExec("UPDATE qa_archive_shards SET state = \\$1, updated_at = \\$2").
-		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("SELECT pg_advisory_unlock").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectClose()
 
@@ -241,14 +240,16 @@ func TestQAMaintenanceUploadPathWhenArchiveEnabled(t *testing.T) {
 		newObjectStore: func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error) {
 			return archive.NewMemoryObjectStore(), nil
 		},
-		planShard: func(context.Context, *sql.Conn, time.Time, time.Time, string, bool, int) (qaMaintenancePlan, error) {
-			return qaMaintenancePlan{
-				WindowStart: windowStart, WindowEnd: windowEnd, RecordCount: 1, ArchiveEnabled: true,
-			}, nil
-		},
-		uploadShard: func(_ context.Context, _ *sql.Conn, _ archive.ObjectStore, plan qaMaintenancePlan, _ string) (archive.UploadResult, error) {
+		reconcileShard: func(_ context.Context, _ *sql.Conn, _ archive.ObjectStore, window archive.Window, _, _ string) (archive.ReconcileReceipt, error) {
 			uploadCalled = true
-			return archive.UploadResult{SegmentID: "seg-1", CommitKey: "date=2026-08-06/hour=09/commit.json"}, nil
+			if !window.Start.Equal(windowStart) || !window.End.Equal(windowEnd) {
+				t.Fatalf("reconcile window=%+v", window)
+			}
+			return archive.ReconcileReceipt{
+				WindowStart: windowStart, WindowEnd: windowEnd, Uploaded: true,
+				CommitKey: "date=2026-08-06/hour=09/commit.json", CommitETag: "etag-v2",
+				SegmentCount: 2, RecordCount: 42, BlobRefCount: 7,
+			}, nil
 		},
 		writeHeartbeat: func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error { return nil },
 		now:            func() time.Time { return windowEnd.Add(15 * time.Minute) },
@@ -264,21 +265,151 @@ func TestQAMaintenanceUploadPathWhenArchiveEnabled(t *testing.T) {
 		t.Fatalf("runQAMaintenanceCommand()=%v", err)
 	}
 	if !uploadCalled {
-		t.Fatal("expected uploadShard to run")
+		t.Fatal("expected reconcileShard to run")
 	}
 	var receipt struct {
 		Mode             string `json:"mode"`
 		UploadAuthorized bool   `json:"upload_authorized"`
 		Plan             struct {
-			Uploaded  bool   `json:"uploaded"`
-			SegmentID string `json:"segment_id"`
+			Uploaded     bool   `json:"uploaded"`
+			SegmentCount int    `json:"segment_count"`
+			RecordCount  int64  `json:"record_count"`
+			CommitETag   string `json:"commit_etag"`
 		} `json:"plan"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
 		t.Fatalf("decode receipt: %v", err)
 	}
-	if receipt.Mode != qaMaintenanceReceiptModeUpload || !receipt.UploadAuthorized || !receipt.Plan.Uploaded || receipt.Plan.SegmentID != "seg-1" {
+	if receipt.Mode != qaMaintenanceReceiptModeUpload || !receipt.UploadAuthorized || !receipt.Plan.Uploaded ||
+		receipt.Plan.SegmentCount != 2 || receipt.Plan.RecordCount != 42 || receipt.Plan.CommitETag != "etag-v2" {
 		t.Fatalf("receipt=%+v", receipt)
+	}
+}
+
+func TestQAMaintenanceReconcileFailureWritesFailureHeartbeat(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	mock.ExpectPing()
+	mock.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("SET statement_timeout = '120s'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT pg_try_advisory_lock").WillReturnRows(sqlmock.NewRows([]string{"locked"}).AddRow(true))
+	mock.ExpectExec("SELECT pg_advisory_unlock").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectClose()
+
+	var heartbeat *service.OpsUpsertJobHeartbeatInput
+	fixedNow := time.Date(2026, 8, 7, 2, 15, 0, 0, time.UTC)
+	deps := qaMaintenanceDeps{
+		loadConfig: func() (*config.Config, error) {
+			return &config.Config{
+				Timezone: "UTC",
+				Database: config.DatabaseConfig{Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable"},
+				QaArchive: config.QaArchiveConfig{
+					Enabled: true, SealDelayMinutes: 15,
+					Storage: config.QACaptureStorageConfig{Driver: "s3", Region: "us-east-1", Bucket: "b"},
+				},
+			}, nil
+		},
+		openDB: func(string, string) (*sql.DB, error) { return db, nil },
+		newObjectStore: func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error) {
+			return archive.NewMemoryObjectStore(), nil
+		},
+		reconcileShard: func(context.Context, *sql.Conn, archive.ObjectStore, archive.Window, string, string) (archive.ReconcileReceipt, error) {
+			return archive.ReconcileReceipt{}, &archive.IntegrityError{Code: archive.IntegrityCorruptArtifact, Err: errors.New("checksum mismatch")}
+		},
+		writeHeartbeat: func(_ context.Context, _ *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
+			heartbeat = input
+			return nil
+		},
+		now: func() time.Time { return fixedNow },
+	}
+
+	err = runQAMaintenanceCommand(context.Background(), []string{
+		"--qa-maintenance-once", "--confirm", qaMaintenanceConfirmation,
+	}, &bytes.Buffer{}, deps)
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("runQAMaintenanceCommand() error=%v", err)
+	}
+	if heartbeat == nil || heartbeat.LastErrorAt == nil || heartbeat.LastSuccessAt != nil ||
+		heartbeat.LastResult == nil || !strings.Contains(*heartbeat.LastResult, "deletion_authorized=false") {
+		t.Fatalf("failure heartbeat=%+v", heartbeat)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFindOldestUncommittedHourRejectsUnsealedWindow(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	sealedBefore := time.Date(2026, 8, 7, 2, 0, 0, 0, time.UTC)
+	mock.ExpectQuery("window_start \\+ interval '1 hour' <= \\$2").
+		WithArgs(archive.StateCommitted, sealedBefore).
+		WillReturnRows(sqlmock.NewRows([]string{"window_start"}))
+
+	_, _, err = findOldestUncommittedHour(context.Background(), conn, sealedBefore)
+	if err == nil || !strings.Contains(err.Error(), "no qa archive backfill window remaining") {
+		t.Fatalf("findOldestUncommittedHour() error=%v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestQAMaintenanceLockContentionWritesFailureWithoutUnlock(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	mock.ExpectPing()
+	mock.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("SET statement_timeout = '120s'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT pg_try_advisory_lock").WillReturnRows(sqlmock.NewRows([]string{"locked"}).AddRow(false))
+	mock.ExpectClose()
+
+	var heartbeat *service.OpsUpsertJobHeartbeatInput
+	fixedNow := time.Date(2026, 8, 7, 2, 15, 0, 0, time.UTC)
+	deps := qaMaintenanceDeps{
+		loadConfig: func() (*config.Config, error) {
+			return &config.Config{
+				Timezone:  "UTC",
+				Database:  config.DatabaseConfig{Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable"},
+				QaArchive: config.QaArchiveConfig{Enabled: true, SealDelayMinutes: 15},
+			}, nil
+		},
+		openDB: func(string, string) (*sql.DB, error) { return db, nil },
+		writeHeartbeat: func(_ context.Context, _ *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
+			heartbeat = input
+			return nil
+		},
+		now: func() time.Time { return fixedNow },
+	}
+
+	err = runQAMaintenanceCommand(
+		context.Background(),
+		[]string{"--qa-maintenance-once", "--confirm", qaMaintenanceConfirmation},
+		&bytes.Buffer{}, deps,
+	)
+	if err == nil || !strings.Contains(err.Error(), "already held") {
+		t.Fatalf("runQAMaintenanceCommand() error=%v", err)
+	}
+	if heartbeat == nil || heartbeat.LastErrorAt == nil || heartbeat.LastSuccessAt != nil || heartbeat.LastError == nil {
+		t.Fatalf("failure heartbeat=%+v", heartbeat)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

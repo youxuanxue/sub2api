@@ -9,8 +9,10 @@ import (
 
 const (
 	SegmentKindBase  = "base"
+	SegmentKindDelta = "delta"
 	ManifestSchemaV1 = "qa-archive-segment-v1"
 	CommitSchemaV1   = "qa-archive-commit-v1"
+	CommitSchemaV2   = "qa-archive-commit-v2"
 )
 
 type SegmentManifest struct {
@@ -31,13 +33,17 @@ type SegmentManifest struct {
 }
 
 type CommitDocument struct {
-	SchemaVersion   string          `json:"schema_version"`
-	WindowStart     time.Time       `json:"window_start"`
-	WindowEnd       time.Time       `json:"window_end"`
-	Generation      int             `json:"generation"`
-	Segments        []CommitSegment `json:"segments"`
-	AggregateSHA256 string          `json:"aggregate_sha256"`
-	CommittedAt     time.Time       `json:"committed_at"`
+	SchemaVersion             string          `json:"schema_version"`
+	WindowStart               time.Time       `json:"window_start"`
+	WindowEnd                 time.Time       `json:"window_end"`
+	Generation                int             `json:"generation"`
+	Segments                  []CommitSegment `json:"segments"`
+	AggregateSHA256           string          `json:"aggregate_sha256"`
+	AggregateRecordCount      int64           `json:"aggregate_record_count,omitempty"`
+	AggregateBlobRefCount     int64           `json:"aggregate_blob_ref_count,omitempty"`
+	AggregateBlobPresentCount int64           `json:"aggregate_blob_present_count,omitempty"`
+	AggregateBlobMissingCount int64           `json:"aggregate_blob_missing_count,omitempty"`
+	CommittedAt               time.Time       `json:"committed_at"`
 }
 
 type CommitSegment struct {

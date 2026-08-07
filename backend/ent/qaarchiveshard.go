@@ -46,6 +46,28 @@ type QAArchiveShard struct {
 	ManifestKey *string `json:"manifest_key,omitempty"`
 	// CommitKey holds the value of the "commit_key" field.
 	CommitKey *string `json:"commit_key,omitempty"`
+	// CommitEtag holds the value of the "commit_etag" field.
+	CommitEtag *string `json:"commit_etag,omitempty"`
+	// AggregateRecordCount holds the value of the "aggregate_record_count" field.
+	AggregateRecordCount int64 `json:"aggregate_record_count,omitempty"`
+	// AggregateBlobRefCount holds the value of the "aggregate_blob_ref_count" field.
+	AggregateBlobRefCount int64 `json:"aggregate_blob_ref_count,omitempty"`
+	// AggregateBlobPresentCount holds the value of the "aggregate_blob_present_count" field.
+	AggregateBlobPresentCount int64 `json:"aggregate_blob_present_count,omitempty"`
+	// AggregateBlobMissingCount holds the value of the "aggregate_blob_missing_count" field.
+	AggregateBlobMissingCount int64 `json:"aggregate_blob_missing_count,omitempty"`
+	// VerifiedAt holds the value of the "verified_at" field.
+	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+	// RestoreVerifiedAt holds the value of the "restore_verified_at" field.
+	RestoreVerifiedAt *time.Time `json:"restore_verified_at,omitempty"`
+	// VerificationErrorCode holds the value of the "verification_error_code" field.
+	VerificationErrorCode *string `json:"verification_error_code,omitempty"`
+	// LastReconciledAt holds the value of the "last_reconciled_at" field.
+	LastReconciledAt *time.Time `json:"last_reconciled_at,omitempty"`
+	// FinalReconciledAt holds the value of the "final_reconciled_at" field.
+	FinalReconciledAt *time.Time `json:"final_reconciled_at,omitempty"`
+	// CleanupEligible holds the value of the "cleanup_eligible" field.
+	CleanupEligible bool `json:"cleanup_eligible,omitempty"`
 	// FirstAttemptAt holds the value of the "first_attempt_at" field.
 	FirstAttemptAt *time.Time `json:"first_attempt_at,omitempty"`
 	// CompletedAt holds the value of the "completed_at" field.
@@ -66,11 +88,13 @@ func (*QAArchiveShard) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case qaarchiveshard.FieldChecksums:
 			values[i] = new([]byte)
-		case qaarchiveshard.FieldID, qaarchiveshard.FieldGeneration, qaarchiveshard.FieldRecordCount, qaarchiveshard.FieldBlobRefCount, qaarchiveshard.FieldBlobPresentCount, qaarchiveshard.FieldBlobMissingCount, qaarchiveshard.FieldLogicalBytes, qaarchiveshard.FieldArtifactBytes:
+		case qaarchiveshard.FieldCleanupEligible:
+			values[i] = new(sql.NullBool)
+		case qaarchiveshard.FieldID, qaarchiveshard.FieldGeneration, qaarchiveshard.FieldRecordCount, qaarchiveshard.FieldBlobRefCount, qaarchiveshard.FieldBlobPresentCount, qaarchiveshard.FieldBlobMissingCount, qaarchiveshard.FieldLogicalBytes, qaarchiveshard.FieldArtifactBytes, qaarchiveshard.FieldAggregateRecordCount, qaarchiveshard.FieldAggregateBlobRefCount, qaarchiveshard.FieldAggregateBlobPresentCount, qaarchiveshard.FieldAggregateBlobMissingCount:
 			values[i] = new(sql.NullInt64)
-		case qaarchiveshard.FieldState, qaarchiveshard.FieldS3Prefix, qaarchiveshard.FieldManifestKey, qaarchiveshard.FieldCommitKey, qaarchiveshard.FieldLastError:
+		case qaarchiveshard.FieldState, qaarchiveshard.FieldS3Prefix, qaarchiveshard.FieldManifestKey, qaarchiveshard.FieldCommitKey, qaarchiveshard.FieldCommitEtag, qaarchiveshard.FieldVerificationErrorCode, qaarchiveshard.FieldLastError:
 			values[i] = new(sql.NullString)
-		case qaarchiveshard.FieldWindowStart, qaarchiveshard.FieldWindowEnd, qaarchiveshard.FieldFirstAttemptAt, qaarchiveshard.FieldCompletedAt, qaarchiveshard.FieldCreatedAt, qaarchiveshard.FieldUpdatedAt:
+		case qaarchiveshard.FieldWindowStart, qaarchiveshard.FieldWindowEnd, qaarchiveshard.FieldVerifiedAt, qaarchiveshard.FieldRestoreVerifiedAt, qaarchiveshard.FieldLastReconciledAt, qaarchiveshard.FieldFinalReconciledAt, qaarchiveshard.FieldFirstAttemptAt, qaarchiveshard.FieldCompletedAt, qaarchiveshard.FieldCreatedAt, qaarchiveshard.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -180,6 +204,78 @@ func (_m *QAArchiveShard) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.CommitKey = new(string)
 				*_m.CommitKey = value.String
+			}
+		case qaarchiveshard.FieldCommitEtag:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field commit_etag", values[i])
+			} else if value.Valid {
+				_m.CommitEtag = new(string)
+				*_m.CommitEtag = value.String
+			}
+		case qaarchiveshard.FieldAggregateRecordCount:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field aggregate_record_count", values[i])
+			} else if value.Valid {
+				_m.AggregateRecordCount = value.Int64
+			}
+		case qaarchiveshard.FieldAggregateBlobRefCount:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field aggregate_blob_ref_count", values[i])
+			} else if value.Valid {
+				_m.AggregateBlobRefCount = value.Int64
+			}
+		case qaarchiveshard.FieldAggregateBlobPresentCount:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field aggregate_blob_present_count", values[i])
+			} else if value.Valid {
+				_m.AggregateBlobPresentCount = value.Int64
+			}
+		case qaarchiveshard.FieldAggregateBlobMissingCount:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field aggregate_blob_missing_count", values[i])
+			} else if value.Valid {
+				_m.AggregateBlobMissingCount = value.Int64
+			}
+		case qaarchiveshard.FieldVerifiedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field verified_at", values[i])
+			} else if value.Valid {
+				_m.VerifiedAt = new(time.Time)
+				*_m.VerifiedAt = value.Time
+			}
+		case qaarchiveshard.FieldRestoreVerifiedAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field restore_verified_at", values[i])
+			} else if value.Valid {
+				_m.RestoreVerifiedAt = new(time.Time)
+				*_m.RestoreVerifiedAt = value.Time
+			}
+		case qaarchiveshard.FieldVerificationErrorCode:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field verification_error_code", values[i])
+			} else if value.Valid {
+				_m.VerificationErrorCode = new(string)
+				*_m.VerificationErrorCode = value.String
+			}
+		case qaarchiveshard.FieldLastReconciledAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field last_reconciled_at", values[i])
+			} else if value.Valid {
+				_m.LastReconciledAt = new(time.Time)
+				*_m.LastReconciledAt = value.Time
+			}
+		case qaarchiveshard.FieldFinalReconciledAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field final_reconciled_at", values[i])
+			} else if value.Valid {
+				_m.FinalReconciledAt = new(time.Time)
+				*_m.FinalReconciledAt = value.Time
+			}
+		case qaarchiveshard.FieldCleanupEligible:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field cleanup_eligible", values[i])
+			} else if value.Valid {
+				_m.CleanupEligible = value.Bool
 			}
 		case qaarchiveshard.FieldFirstAttemptAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -295,6 +391,51 @@ func (_m *QAArchiveShard) String() string {
 		builder.WriteString("commit_key=")
 		builder.WriteString(*v)
 	}
+	builder.WriteString(", ")
+	if v := _m.CommitEtag; v != nil {
+		builder.WriteString("commit_etag=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	builder.WriteString("aggregate_record_count=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AggregateRecordCount))
+	builder.WriteString(", ")
+	builder.WriteString("aggregate_blob_ref_count=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AggregateBlobRefCount))
+	builder.WriteString(", ")
+	builder.WriteString("aggregate_blob_present_count=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AggregateBlobPresentCount))
+	builder.WriteString(", ")
+	builder.WriteString("aggregate_blob_missing_count=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AggregateBlobMissingCount))
+	builder.WriteString(", ")
+	if v := _m.VerifiedAt; v != nil {
+		builder.WriteString("verified_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	if v := _m.RestoreVerifiedAt; v != nil {
+		builder.WriteString("restore_verified_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	if v := _m.VerificationErrorCode; v != nil {
+		builder.WriteString("verification_error_code=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.LastReconciledAt; v != nil {
+		builder.WriteString("last_reconciled_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	if v := _m.FinalReconciledAt; v != nil {
+		builder.WriteString("final_reconciled_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("cleanup_eligible=")
+	builder.WriteString(fmt.Sprintf("%v", _m.CleanupEligible))
 	builder.WriteString(", ")
 	if v := _m.FirstAttemptAt; v != nil {
 		builder.WriteString("first_attempt_at=")

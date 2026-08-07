@@ -16,6 +16,17 @@ Wants=network-online.target
 Type=oneshot
 EnvironmentFile=-/var/lib/tokenkey/.env
 ExecStart=/usr/local/bin/tokenkey-qa-maintenance.sh
+Nice=15
+IOSchedulingClass=idle
+CPUQuota=20%
+MemoryMax=1G
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+RuntimeDirectory=tokenkey-qa-maintenance
+RuntimeDirectoryMode=0700
+ReadWritePaths=/var/lib/tokenkey /run/tokenkey-qa-maintenance
 EOF
   cat >"${systemd_dir}/tokenkey-qa-maintenance.timer" <<'EOF'
 [Unit]
@@ -31,6 +42,7 @@ EOF
 }
 
 run_qa_maintenance() {
+  install -d -m 0700 /run/tokenkey-qa-maintenance
   cd /var/lib/tokenkey
   app_container=tokenkey
   if [ -r active-color ]; then
@@ -43,8 +55,27 @@ run_qa_maintenance() {
     logger -t tokenkey-qa-maintenance "skip ${app_container} not running"
     exit 0
   fi
+  local image env_file
+  image=$(sudo docker inspect --format '{{.Image}}' "${app_container}")
+  if [ -z "${image}" ]; then
+    logger -t tokenkey-qa-maintenance "archive_failed image_unavailable"
+    exit 1
+  fi
+  env_file=$(mktemp /run/tokenkey-qa-maintenance/env.XXXXXX)
+  chmod 0600 "${env_file}"
+  trap "rm -f -- '${env_file}'" EXIT
+  sudo docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${app_container}" >"${env_file}"
+
   logger -t tokenkey-qa-maintenance "archive_start container=${app_container}"
-  if ! sudo docker exec "${app_container}" /app/sub2api \
+  if ! sudo docker run --rm \
+    --name tokenkey-qa-maintenance-run \
+    --read-only --cap-drop=ALL --security-opt=no-new-privileges \
+    --memory=1g --memory-swap=1g --cpus=0.20 --pids-limit=128 \
+    --network="container:${app_container}" \
+    --volumes-from="${app_container}:rw" \
+    --env-file="${env_file}" \
+    --env TMPDIR=/app/data/qa_archive_tmp \
+    "${image}" /app/sub2api \
     --qa-maintenance-once \
     --confirm=tokenkey-prod-qa-maintenance-v1; then
     logger -t tokenkey-qa-maintenance "archive_failed"

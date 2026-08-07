@@ -708,11 +708,11 @@ prod job creator 必须从服务端用户事实读取 `traj_export_enabled` 并�
 ### Phase 2：Prod raw archive-only
 
 Phase 2 的独立 deploy 入口为 `ops/qa/deploy_qa_raw_archive_cfn.sh`：它要求显式传入
-`APP_INSTANCE_ROLE_ARN`（可选 `OPS_RECOVERY_ROLE_ARN`）并以 `QA_RAW_ARCHIVE_CONFIRM=yes`
-作为人工门闩，部署 `deploy/aws/cloudformation/stage0-qa-raw-archive.yaml`。该模板的
-SSE-KMS key 必须与 bucket policy 同步授权：prod app role 仅可经 S3 访问 `raw/v1/` /
-`raw/partial/` 前缀，ops recovery role（若配置）仅可经 S3 只读 `raw/` 前缀，避免出现
-bucket 允许而 KMS 拒绝的半配置状态。
+`APP_INSTANCE_ROLE_ARN`、`OPS_RECOVERY_ROLE_ARN`、prod VPC/route table 和集中审计 bucket，
+并以 `QA_RAW_ARCHIVE_CONFIRM=yes` 作为 change set 执行门闩，部署
+`deploy/aws/cloudformation/stage0-qa-raw-archive.yaml`。该模板的 SSE-KMS key 必须与 bucket
+policy 同步授权：prod app role 仅可经 S3 访问 `raw/v1/` / `raw/partial/` 前缀，ops recovery
+role 仅可经 S3 只读 `raw/` 前缀，避免出现 bucket 允许而 KMS 拒绝的半配置状态。
 
 1. 创建独立 raw bucket、KMS、VPC Endpoint、IAM、Lifecycle 和 CloudTrail Data Events；
 2. 部署 shard/control/manifest，但不删除本地数据；

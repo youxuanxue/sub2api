@@ -101,12 +101,25 @@ REQUIRED_BY_FILE = {
         "qa_maintenance_archive_only",
         "qa_maintenance_archive",
         "deletion_authorized",
-        "UploadBaseSegment",
+        "archive.NewReconciler",
         "qa-maintenance-backfill-once",
+        "aggregate_record_count",
     ),
-    Path("backend/internal/observability/qa/archive/writer.go"): (
+    Path("backend/internal/observability/qa/archive/segment_builder.go"): (
+        "BuildSegment",
         "records.parquet",
-        "commit.json",
+        "SegmentKindDelta",
+        "IntegrityMissingEvidence",
+    ),
+    Path("backend/internal/observability/qa/archive/reconciler.go"): (
+        "CompareAndSwap",
+        'commitKey := ShardRelativePrefix(window.Start) + "/commit.json"',
+        "DeletionAuthorized: false",
+    ),
+    Path("backend/internal/observability/qa/archive/verifier.go"): (
+        "VerifyCommit",
+        "manifest.BlobMissingCount != 0",
+        "IntegrityCorruptArtifact",
     ),
     Path("ops/qa/prod_qa_maintenance.py"): (
         "tokenkey-prod-qa-maintenance-v1",

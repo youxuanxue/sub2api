@@ -5980,10 +5980,26 @@
         "qaMaintenanceConfirmation",
         "qa-maintenance-backfill-once",
         "deletion_authorized=false",
-        "archive.UploadBaseSegment",
-        "connReleased"
+        "archive.NewReconciler",
+        "aggregate_record_count",
+        "lockAcquired"
       ],
-      "rationale": "Prod QA archive maintenance entry (design-prod-qa-24h-s3-lifecycle.md §7): hourly seal/backfill, S3 base-segment upload, hard denial of DB deletion. Upstream merge of cmd/server can drop this TK-only file or strip upload/backfill guards while archive-only smoke still passes."
+      "rationale": "Prod QA maintenance must retain sealed-window selection, the single verified reconciler owner, failure-safe locking, committed aggregate heartbeat, and hard denial of deletion."
+    },
+    {
+      "path": "backend/internal/observability/qa/archive/segment_builder.go",
+      "must_contain": ["func BuildSegment", "records.parquet", "SegmentKindDelta", "IntegrityMissingEvidence"],
+      "rationale": "QA base/delta artifacts must remain keyset-paged, file-backed, deterministic, and fail closed before upload when evidence is missing."
+    },
+    {
+      "path": "backend/internal/observability/qa/archive/reconciler.go",
+      "must_contain": ["func (r *Reconciler) Reconcile", "CompareAndSwap", "PendingVerified", "DeletionAuthorized: false"],
+      "rationale": "The sole QA archive state machine must preserve resume, append-only delta, bounded commit CAS, and deletion denial semantics."
+    },
+    {
+      "path": "backend/internal/observability/qa/archive/verifier.go",
+      "must_contain": ["func VerifyCommit", "manifest.BlobMissingCount != 0", "IntegrityCorruptArtifact", "verifyCommitIdentities"],
+      "rationale": "Every visible QA commit must pass read-after-write checksum, manifest integrity, missing-evidence, and duplicate-identity verification."
     }
   ]
 }

@@ -263,6 +263,224 @@ func (_u *QAArchiveShardUpdate) ClearCommitKey() *QAArchiveShardUpdate {
 	return _u
 }
 
+// SetCommitEtag sets the "commit_etag" field.
+func (_u *QAArchiveShardUpdate) SetCommitEtag(v string) *QAArchiveShardUpdate {
+	_u.mutation.SetCommitEtag(v)
+	return _u
+}
+
+// SetNillableCommitEtag sets the "commit_etag" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableCommitEtag(v *string) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetCommitEtag(*v)
+	}
+	return _u
+}
+
+// ClearCommitEtag clears the value of the "commit_etag" field.
+func (_u *QAArchiveShardUpdate) ClearCommitEtag() *QAArchiveShardUpdate {
+	_u.mutation.ClearCommitEtag()
+	return _u
+}
+
+// SetAggregateRecordCount sets the "aggregate_record_count" field.
+func (_u *QAArchiveShardUpdate) SetAggregateRecordCount(v int64) *QAArchiveShardUpdate {
+	_u.mutation.ResetAggregateRecordCount()
+	_u.mutation.SetAggregateRecordCount(v)
+	return _u
+}
+
+// SetNillableAggregateRecordCount sets the "aggregate_record_count" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableAggregateRecordCount(v *int64) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetAggregateRecordCount(*v)
+	}
+	return _u
+}
+
+// AddAggregateRecordCount adds value to the "aggregate_record_count" field.
+func (_u *QAArchiveShardUpdate) AddAggregateRecordCount(v int64) *QAArchiveShardUpdate {
+	_u.mutation.AddAggregateRecordCount(v)
+	return _u
+}
+
+// SetAggregateBlobRefCount sets the "aggregate_blob_ref_count" field.
+func (_u *QAArchiveShardUpdate) SetAggregateBlobRefCount(v int64) *QAArchiveShardUpdate {
+	_u.mutation.ResetAggregateBlobRefCount()
+	_u.mutation.SetAggregateBlobRefCount(v)
+	return _u
+}
+
+// SetNillableAggregateBlobRefCount sets the "aggregate_blob_ref_count" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableAggregateBlobRefCount(v *int64) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetAggregateBlobRefCount(*v)
+	}
+	return _u
+}
+
+// AddAggregateBlobRefCount adds value to the "aggregate_blob_ref_count" field.
+func (_u *QAArchiveShardUpdate) AddAggregateBlobRefCount(v int64) *QAArchiveShardUpdate {
+	_u.mutation.AddAggregateBlobRefCount(v)
+	return _u
+}
+
+// SetAggregateBlobPresentCount sets the "aggregate_blob_present_count" field.
+func (_u *QAArchiveShardUpdate) SetAggregateBlobPresentCount(v int64) *QAArchiveShardUpdate {
+	_u.mutation.ResetAggregateBlobPresentCount()
+	_u.mutation.SetAggregateBlobPresentCount(v)
+	return _u
+}
+
+// SetNillableAggregateBlobPresentCount sets the "aggregate_blob_present_count" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableAggregateBlobPresentCount(v *int64) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetAggregateBlobPresentCount(*v)
+	}
+	return _u
+}
+
+// AddAggregateBlobPresentCount adds value to the "aggregate_blob_present_count" field.
+func (_u *QAArchiveShardUpdate) AddAggregateBlobPresentCount(v int64) *QAArchiveShardUpdate {
+	_u.mutation.AddAggregateBlobPresentCount(v)
+	return _u
+}
+
+// SetAggregateBlobMissingCount sets the "aggregate_blob_missing_count" field.
+func (_u *QAArchiveShardUpdate) SetAggregateBlobMissingCount(v int64) *QAArchiveShardUpdate {
+	_u.mutation.ResetAggregateBlobMissingCount()
+	_u.mutation.SetAggregateBlobMissingCount(v)
+	return _u
+}
+
+// SetNillableAggregateBlobMissingCount sets the "aggregate_blob_missing_count" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableAggregateBlobMissingCount(v *int64) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetAggregateBlobMissingCount(*v)
+	}
+	return _u
+}
+
+// AddAggregateBlobMissingCount adds value to the "aggregate_blob_missing_count" field.
+func (_u *QAArchiveShardUpdate) AddAggregateBlobMissingCount(v int64) *QAArchiveShardUpdate {
+	_u.mutation.AddAggregateBlobMissingCount(v)
+	return _u
+}
+
+// SetVerifiedAt sets the "verified_at" field.
+func (_u *QAArchiveShardUpdate) SetVerifiedAt(v time.Time) *QAArchiveShardUpdate {
+	_u.mutation.SetVerifiedAt(v)
+	return _u
+}
+
+// SetNillableVerifiedAt sets the "verified_at" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableVerifiedAt(v *time.Time) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetVerifiedAt(*v)
+	}
+	return _u
+}
+
+// ClearVerifiedAt clears the value of the "verified_at" field.
+func (_u *QAArchiveShardUpdate) ClearVerifiedAt() *QAArchiveShardUpdate {
+	_u.mutation.ClearVerifiedAt()
+	return _u
+}
+
+// SetRestoreVerifiedAt sets the "restore_verified_at" field.
+func (_u *QAArchiveShardUpdate) SetRestoreVerifiedAt(v time.Time) *QAArchiveShardUpdate {
+	_u.mutation.SetRestoreVerifiedAt(v)
+	return _u
+}
+
+// SetNillableRestoreVerifiedAt sets the "restore_verified_at" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableRestoreVerifiedAt(v *time.Time) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetRestoreVerifiedAt(*v)
+	}
+	return _u
+}
+
+// ClearRestoreVerifiedAt clears the value of the "restore_verified_at" field.
+func (_u *QAArchiveShardUpdate) ClearRestoreVerifiedAt() *QAArchiveShardUpdate {
+	_u.mutation.ClearRestoreVerifiedAt()
+	return _u
+}
+
+// SetVerificationErrorCode sets the "verification_error_code" field.
+func (_u *QAArchiveShardUpdate) SetVerificationErrorCode(v string) *QAArchiveShardUpdate {
+	_u.mutation.SetVerificationErrorCode(v)
+	return _u
+}
+
+// SetNillableVerificationErrorCode sets the "verification_error_code" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableVerificationErrorCode(v *string) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetVerificationErrorCode(*v)
+	}
+	return _u
+}
+
+// ClearVerificationErrorCode clears the value of the "verification_error_code" field.
+func (_u *QAArchiveShardUpdate) ClearVerificationErrorCode() *QAArchiveShardUpdate {
+	_u.mutation.ClearVerificationErrorCode()
+	return _u
+}
+
+// SetLastReconciledAt sets the "last_reconciled_at" field.
+func (_u *QAArchiveShardUpdate) SetLastReconciledAt(v time.Time) *QAArchiveShardUpdate {
+	_u.mutation.SetLastReconciledAt(v)
+	return _u
+}
+
+// SetNillableLastReconciledAt sets the "last_reconciled_at" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableLastReconciledAt(v *time.Time) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetLastReconciledAt(*v)
+	}
+	return _u
+}
+
+// ClearLastReconciledAt clears the value of the "last_reconciled_at" field.
+func (_u *QAArchiveShardUpdate) ClearLastReconciledAt() *QAArchiveShardUpdate {
+	_u.mutation.ClearLastReconciledAt()
+	return _u
+}
+
+// SetFinalReconciledAt sets the "final_reconciled_at" field.
+func (_u *QAArchiveShardUpdate) SetFinalReconciledAt(v time.Time) *QAArchiveShardUpdate {
+	_u.mutation.SetFinalReconciledAt(v)
+	return _u
+}
+
+// SetNillableFinalReconciledAt sets the "final_reconciled_at" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableFinalReconciledAt(v *time.Time) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetFinalReconciledAt(*v)
+	}
+	return _u
+}
+
+// ClearFinalReconciledAt clears the value of the "final_reconciled_at" field.
+func (_u *QAArchiveShardUpdate) ClearFinalReconciledAt() *QAArchiveShardUpdate {
+	_u.mutation.ClearFinalReconciledAt()
+	return _u
+}
+
+// SetCleanupEligible sets the "cleanup_eligible" field.
+func (_u *QAArchiveShardUpdate) SetCleanupEligible(v bool) *QAArchiveShardUpdate {
+	_u.mutation.SetCleanupEligible(v)
+	return _u
+}
+
+// SetNillableCleanupEligible sets the "cleanup_eligible" field if the given value is not nil.
+func (_u *QAArchiveShardUpdate) SetNillableCleanupEligible(v *bool) *QAArchiveShardUpdate {
+	if v != nil {
+		_u.SetCleanupEligible(*v)
+	}
+	return _u
+}
+
 // SetFirstAttemptAt sets the "first_attempt_at" field.
 func (_u *QAArchiveShardUpdate) SetFirstAttemptAt(v time.Time) *QAArchiveShardUpdate {
 	_u.mutation.SetFirstAttemptAt(v)
@@ -444,6 +662,69 @@ func (_u *QAArchiveShardUpdate) sqlSave(ctx context.Context) (_node int, err err
 	}
 	if _u.mutation.CommitKeyCleared() {
 		_spec.ClearField(qaarchiveshard.FieldCommitKey, field.TypeString)
+	}
+	if value, ok := _u.mutation.CommitEtag(); ok {
+		_spec.SetField(qaarchiveshard.FieldCommitEtag, field.TypeString, value)
+	}
+	if _u.mutation.CommitEtagCleared() {
+		_spec.ClearField(qaarchiveshard.FieldCommitEtag, field.TypeString)
+	}
+	if value, ok := _u.mutation.AggregateRecordCount(); ok {
+		_spec.SetField(qaarchiveshard.FieldAggregateRecordCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAggregateRecordCount(); ok {
+		_spec.AddField(qaarchiveshard.FieldAggregateRecordCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AggregateBlobRefCount(); ok {
+		_spec.SetField(qaarchiveshard.FieldAggregateBlobRefCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAggregateBlobRefCount(); ok {
+		_spec.AddField(qaarchiveshard.FieldAggregateBlobRefCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AggregateBlobPresentCount(); ok {
+		_spec.SetField(qaarchiveshard.FieldAggregateBlobPresentCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAggregateBlobPresentCount(); ok {
+		_spec.AddField(qaarchiveshard.FieldAggregateBlobPresentCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AggregateBlobMissingCount(); ok {
+		_spec.SetField(qaarchiveshard.FieldAggregateBlobMissingCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAggregateBlobMissingCount(); ok {
+		_spec.AddField(qaarchiveshard.FieldAggregateBlobMissingCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.VerifiedAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldVerifiedAt, field.TypeTime, value)
+	}
+	if _u.mutation.VerifiedAtCleared() {
+		_spec.ClearField(qaarchiveshard.FieldVerifiedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.RestoreVerifiedAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldRestoreVerifiedAt, field.TypeTime, value)
+	}
+	if _u.mutation.RestoreVerifiedAtCleared() {
+		_spec.ClearField(qaarchiveshard.FieldRestoreVerifiedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.VerificationErrorCode(); ok {
+		_spec.SetField(qaarchiveshard.FieldVerificationErrorCode, field.TypeString, value)
+	}
+	if _u.mutation.VerificationErrorCodeCleared() {
+		_spec.ClearField(qaarchiveshard.FieldVerificationErrorCode, field.TypeString)
+	}
+	if value, ok := _u.mutation.LastReconciledAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldLastReconciledAt, field.TypeTime, value)
+	}
+	if _u.mutation.LastReconciledAtCleared() {
+		_spec.ClearField(qaarchiveshard.FieldLastReconciledAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.FinalReconciledAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldFinalReconciledAt, field.TypeTime, value)
+	}
+	if _u.mutation.FinalReconciledAtCleared() {
+		_spec.ClearField(qaarchiveshard.FieldFinalReconciledAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.CleanupEligible(); ok {
+		_spec.SetField(qaarchiveshard.FieldCleanupEligible, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.FirstAttemptAt(); ok {
 		_spec.SetField(qaarchiveshard.FieldFirstAttemptAt, field.TypeTime, value)
@@ -721,6 +1002,224 @@ func (_u *QAArchiveShardUpdateOne) ClearCommitKey() *QAArchiveShardUpdateOne {
 	return _u
 }
 
+// SetCommitEtag sets the "commit_etag" field.
+func (_u *QAArchiveShardUpdateOne) SetCommitEtag(v string) *QAArchiveShardUpdateOne {
+	_u.mutation.SetCommitEtag(v)
+	return _u
+}
+
+// SetNillableCommitEtag sets the "commit_etag" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableCommitEtag(v *string) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetCommitEtag(*v)
+	}
+	return _u
+}
+
+// ClearCommitEtag clears the value of the "commit_etag" field.
+func (_u *QAArchiveShardUpdateOne) ClearCommitEtag() *QAArchiveShardUpdateOne {
+	_u.mutation.ClearCommitEtag()
+	return _u
+}
+
+// SetAggregateRecordCount sets the "aggregate_record_count" field.
+func (_u *QAArchiveShardUpdateOne) SetAggregateRecordCount(v int64) *QAArchiveShardUpdateOne {
+	_u.mutation.ResetAggregateRecordCount()
+	_u.mutation.SetAggregateRecordCount(v)
+	return _u
+}
+
+// SetNillableAggregateRecordCount sets the "aggregate_record_count" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableAggregateRecordCount(v *int64) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetAggregateRecordCount(*v)
+	}
+	return _u
+}
+
+// AddAggregateRecordCount adds value to the "aggregate_record_count" field.
+func (_u *QAArchiveShardUpdateOne) AddAggregateRecordCount(v int64) *QAArchiveShardUpdateOne {
+	_u.mutation.AddAggregateRecordCount(v)
+	return _u
+}
+
+// SetAggregateBlobRefCount sets the "aggregate_blob_ref_count" field.
+func (_u *QAArchiveShardUpdateOne) SetAggregateBlobRefCount(v int64) *QAArchiveShardUpdateOne {
+	_u.mutation.ResetAggregateBlobRefCount()
+	_u.mutation.SetAggregateBlobRefCount(v)
+	return _u
+}
+
+// SetNillableAggregateBlobRefCount sets the "aggregate_blob_ref_count" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableAggregateBlobRefCount(v *int64) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetAggregateBlobRefCount(*v)
+	}
+	return _u
+}
+
+// AddAggregateBlobRefCount adds value to the "aggregate_blob_ref_count" field.
+func (_u *QAArchiveShardUpdateOne) AddAggregateBlobRefCount(v int64) *QAArchiveShardUpdateOne {
+	_u.mutation.AddAggregateBlobRefCount(v)
+	return _u
+}
+
+// SetAggregateBlobPresentCount sets the "aggregate_blob_present_count" field.
+func (_u *QAArchiveShardUpdateOne) SetAggregateBlobPresentCount(v int64) *QAArchiveShardUpdateOne {
+	_u.mutation.ResetAggregateBlobPresentCount()
+	_u.mutation.SetAggregateBlobPresentCount(v)
+	return _u
+}
+
+// SetNillableAggregateBlobPresentCount sets the "aggregate_blob_present_count" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableAggregateBlobPresentCount(v *int64) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetAggregateBlobPresentCount(*v)
+	}
+	return _u
+}
+
+// AddAggregateBlobPresentCount adds value to the "aggregate_blob_present_count" field.
+func (_u *QAArchiveShardUpdateOne) AddAggregateBlobPresentCount(v int64) *QAArchiveShardUpdateOne {
+	_u.mutation.AddAggregateBlobPresentCount(v)
+	return _u
+}
+
+// SetAggregateBlobMissingCount sets the "aggregate_blob_missing_count" field.
+func (_u *QAArchiveShardUpdateOne) SetAggregateBlobMissingCount(v int64) *QAArchiveShardUpdateOne {
+	_u.mutation.ResetAggregateBlobMissingCount()
+	_u.mutation.SetAggregateBlobMissingCount(v)
+	return _u
+}
+
+// SetNillableAggregateBlobMissingCount sets the "aggregate_blob_missing_count" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableAggregateBlobMissingCount(v *int64) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetAggregateBlobMissingCount(*v)
+	}
+	return _u
+}
+
+// AddAggregateBlobMissingCount adds value to the "aggregate_blob_missing_count" field.
+func (_u *QAArchiveShardUpdateOne) AddAggregateBlobMissingCount(v int64) *QAArchiveShardUpdateOne {
+	_u.mutation.AddAggregateBlobMissingCount(v)
+	return _u
+}
+
+// SetVerifiedAt sets the "verified_at" field.
+func (_u *QAArchiveShardUpdateOne) SetVerifiedAt(v time.Time) *QAArchiveShardUpdateOne {
+	_u.mutation.SetVerifiedAt(v)
+	return _u
+}
+
+// SetNillableVerifiedAt sets the "verified_at" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableVerifiedAt(v *time.Time) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetVerifiedAt(*v)
+	}
+	return _u
+}
+
+// ClearVerifiedAt clears the value of the "verified_at" field.
+func (_u *QAArchiveShardUpdateOne) ClearVerifiedAt() *QAArchiveShardUpdateOne {
+	_u.mutation.ClearVerifiedAt()
+	return _u
+}
+
+// SetRestoreVerifiedAt sets the "restore_verified_at" field.
+func (_u *QAArchiveShardUpdateOne) SetRestoreVerifiedAt(v time.Time) *QAArchiveShardUpdateOne {
+	_u.mutation.SetRestoreVerifiedAt(v)
+	return _u
+}
+
+// SetNillableRestoreVerifiedAt sets the "restore_verified_at" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableRestoreVerifiedAt(v *time.Time) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetRestoreVerifiedAt(*v)
+	}
+	return _u
+}
+
+// ClearRestoreVerifiedAt clears the value of the "restore_verified_at" field.
+func (_u *QAArchiveShardUpdateOne) ClearRestoreVerifiedAt() *QAArchiveShardUpdateOne {
+	_u.mutation.ClearRestoreVerifiedAt()
+	return _u
+}
+
+// SetVerificationErrorCode sets the "verification_error_code" field.
+func (_u *QAArchiveShardUpdateOne) SetVerificationErrorCode(v string) *QAArchiveShardUpdateOne {
+	_u.mutation.SetVerificationErrorCode(v)
+	return _u
+}
+
+// SetNillableVerificationErrorCode sets the "verification_error_code" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableVerificationErrorCode(v *string) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetVerificationErrorCode(*v)
+	}
+	return _u
+}
+
+// ClearVerificationErrorCode clears the value of the "verification_error_code" field.
+func (_u *QAArchiveShardUpdateOne) ClearVerificationErrorCode() *QAArchiveShardUpdateOne {
+	_u.mutation.ClearVerificationErrorCode()
+	return _u
+}
+
+// SetLastReconciledAt sets the "last_reconciled_at" field.
+func (_u *QAArchiveShardUpdateOne) SetLastReconciledAt(v time.Time) *QAArchiveShardUpdateOne {
+	_u.mutation.SetLastReconciledAt(v)
+	return _u
+}
+
+// SetNillableLastReconciledAt sets the "last_reconciled_at" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableLastReconciledAt(v *time.Time) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetLastReconciledAt(*v)
+	}
+	return _u
+}
+
+// ClearLastReconciledAt clears the value of the "last_reconciled_at" field.
+func (_u *QAArchiveShardUpdateOne) ClearLastReconciledAt() *QAArchiveShardUpdateOne {
+	_u.mutation.ClearLastReconciledAt()
+	return _u
+}
+
+// SetFinalReconciledAt sets the "final_reconciled_at" field.
+func (_u *QAArchiveShardUpdateOne) SetFinalReconciledAt(v time.Time) *QAArchiveShardUpdateOne {
+	_u.mutation.SetFinalReconciledAt(v)
+	return _u
+}
+
+// SetNillableFinalReconciledAt sets the "final_reconciled_at" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableFinalReconciledAt(v *time.Time) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetFinalReconciledAt(*v)
+	}
+	return _u
+}
+
+// ClearFinalReconciledAt clears the value of the "final_reconciled_at" field.
+func (_u *QAArchiveShardUpdateOne) ClearFinalReconciledAt() *QAArchiveShardUpdateOne {
+	_u.mutation.ClearFinalReconciledAt()
+	return _u
+}
+
+// SetCleanupEligible sets the "cleanup_eligible" field.
+func (_u *QAArchiveShardUpdateOne) SetCleanupEligible(v bool) *QAArchiveShardUpdateOne {
+	_u.mutation.SetCleanupEligible(v)
+	return _u
+}
+
+// SetNillableCleanupEligible sets the "cleanup_eligible" field if the given value is not nil.
+func (_u *QAArchiveShardUpdateOne) SetNillableCleanupEligible(v *bool) *QAArchiveShardUpdateOne {
+	if v != nil {
+		_u.SetCleanupEligible(*v)
+	}
+	return _u
+}
+
 // SetFirstAttemptAt sets the "first_attempt_at" field.
 func (_u *QAArchiveShardUpdateOne) SetFirstAttemptAt(v time.Time) *QAArchiveShardUpdateOne {
 	_u.mutation.SetFirstAttemptAt(v)
@@ -932,6 +1431,69 @@ func (_u *QAArchiveShardUpdateOne) sqlSave(ctx context.Context) (_node *QAArchiv
 	}
 	if _u.mutation.CommitKeyCleared() {
 		_spec.ClearField(qaarchiveshard.FieldCommitKey, field.TypeString)
+	}
+	if value, ok := _u.mutation.CommitEtag(); ok {
+		_spec.SetField(qaarchiveshard.FieldCommitEtag, field.TypeString, value)
+	}
+	if _u.mutation.CommitEtagCleared() {
+		_spec.ClearField(qaarchiveshard.FieldCommitEtag, field.TypeString)
+	}
+	if value, ok := _u.mutation.AggregateRecordCount(); ok {
+		_spec.SetField(qaarchiveshard.FieldAggregateRecordCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAggregateRecordCount(); ok {
+		_spec.AddField(qaarchiveshard.FieldAggregateRecordCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AggregateBlobRefCount(); ok {
+		_spec.SetField(qaarchiveshard.FieldAggregateBlobRefCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAggregateBlobRefCount(); ok {
+		_spec.AddField(qaarchiveshard.FieldAggregateBlobRefCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AggregateBlobPresentCount(); ok {
+		_spec.SetField(qaarchiveshard.FieldAggregateBlobPresentCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAggregateBlobPresentCount(); ok {
+		_spec.AddField(qaarchiveshard.FieldAggregateBlobPresentCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AggregateBlobMissingCount(); ok {
+		_spec.SetField(qaarchiveshard.FieldAggregateBlobMissingCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAggregateBlobMissingCount(); ok {
+		_spec.AddField(qaarchiveshard.FieldAggregateBlobMissingCount, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.VerifiedAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldVerifiedAt, field.TypeTime, value)
+	}
+	if _u.mutation.VerifiedAtCleared() {
+		_spec.ClearField(qaarchiveshard.FieldVerifiedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.RestoreVerifiedAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldRestoreVerifiedAt, field.TypeTime, value)
+	}
+	if _u.mutation.RestoreVerifiedAtCleared() {
+		_spec.ClearField(qaarchiveshard.FieldRestoreVerifiedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.VerificationErrorCode(); ok {
+		_spec.SetField(qaarchiveshard.FieldVerificationErrorCode, field.TypeString, value)
+	}
+	if _u.mutation.VerificationErrorCodeCleared() {
+		_spec.ClearField(qaarchiveshard.FieldVerificationErrorCode, field.TypeString)
+	}
+	if value, ok := _u.mutation.LastReconciledAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldLastReconciledAt, field.TypeTime, value)
+	}
+	if _u.mutation.LastReconciledAtCleared() {
+		_spec.ClearField(qaarchiveshard.FieldLastReconciledAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.FinalReconciledAt(); ok {
+		_spec.SetField(qaarchiveshard.FieldFinalReconciledAt, field.TypeTime, value)
+	}
+	if _u.mutation.FinalReconciledAtCleared() {
+		_spec.ClearField(qaarchiveshard.FieldFinalReconciledAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.CleanupEligible(); ok {
+		_spec.SetField(qaarchiveshard.FieldCleanupEligible, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.FirstAttemptAt(); ok {
 		_spec.SetField(qaarchiveshard.FieldFirstAttemptAt, field.TypeTime, value)
