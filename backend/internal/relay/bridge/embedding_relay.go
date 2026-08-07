@@ -36,7 +36,7 @@ func RunEmbeddingRelay(c *gin.Context, info *relaycommon.RelayInfo) (*dto.Usage,
 		return nil, types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 	}
 
-	if info.ChannelMeta != nil && info.ChannelMeta.ChannelType == newapiconstant.ChannelTypeVertexAi {
+	if info.ChannelType == newapiconstant.ChannelTypeVertexAi {
 		return runVertexEmbeddingRelay(c, info, request)
 	}
 
