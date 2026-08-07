@@ -1,46 +1,133 @@
 package archive
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"sync"
 )
+
+type memoryObject struct {
+	body []byte
+	info ObjectInfo
+}
 
 // MemoryObjectStore is an in-memory ObjectStore for unit tests.
 type MemoryObjectStore struct {
 	mu   sync.Mutex
-	objs map[string][]byte
+	objs map[string]memoryObject
 }
 
 func NewMemoryObjectStore() *MemoryObjectStore {
-	return &MemoryObjectStore{objs: map[string][]byte{}}
+	return &MemoryObjectStore{objs: map[string]memoryObject{}}
 }
 
-func (m *MemoryObjectStore) Put(_ context.Context, key string, body []byte, _ string) error {
+func readSizedBody(body io.Reader, size int64) ([]byte, error) {
+	if size < 0 {
+		return nil, fmt.Errorf("qa archive object size must be non-negative")
+	}
+	data, err := io.ReadAll(io.LimitReader(body, size+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) != size {
+		return nil, fmt.Errorf("qa archive object size mismatch: declared=%d actual=%d", size, len(data))
+	}
+	return data, nil
+}
+
+func memoryObjectInfo(body []byte) ObjectInfo {
+	return ObjectInfo{ETag: SHA256Hex(body), Size: int64(len(body))}
+}
+
+func (m *MemoryObjectStore) PutReader(_ context.Context, key string, body io.Reader, size int64, _ string) (ObjectInfo, error) {
+	data, err := readSizedBody(body, size)
+	if err != nil {
+		return ObjectInfo{}, err
+	}
+	info := memoryObjectInfo(data)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.objs[key] = append([]byte(nil), body...)
-	return nil
+	m.objs[key] = memoryObject{body: data, info: info}
+	return info, nil
 }
 
-func (m *MemoryObjectStore) PutIfAbsent(_ context.Context, key string, body []byte, _ string) error {
+func (m *MemoryObjectStore) Create(_ context.Context, key string, body io.Reader, size int64, _ string) (ObjectInfo, error) {
+	data, err := readSizedBody(body, size)
+	if err != nil {
+		return ObjectInfo{}, err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.objs[key]; ok {
-		return fmt.Errorf("qa archive object already exists: %s", key)
+		return ObjectInfo{}, fmt.Errorf("%w: %s", ErrPreconditionFailed, key)
 	}
-	m.objs[key] = append([]byte(nil), body...)
-	return nil
+	info := memoryObjectInfo(data)
+	m.objs[key] = memoryObject{body: data, info: info}
+	return info, nil
 }
 
-func (m *MemoryObjectStore) Get(_ context.Context, key string) ([]byte, error) {
+func (m *MemoryObjectStore) CompareAndSwap(_ context.Context, key, expectedETag string, body io.Reader, size int64, _ string) (ObjectInfo, error) {
+	data, err := readSizedBody(body, size)
+	if err != nil {
+		return ObjectInfo{}, err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	body, ok := m.objs[key]
-	if !ok {
-		return nil, fmt.Errorf("missing key %s", key)
+	current, ok := m.objs[key]
+	if !ok || current.info.ETag != expectedETag {
+		return ObjectInfo{}, fmt.Errorf("%w: %s", ErrPreconditionFailed, key)
 	}
-	return append([]byte(nil), body...), nil
+	info := memoryObjectInfo(data)
+	m.objs[key] = memoryObject{body: data, info: info}
+	return info, nil
+}
+
+func (m *MemoryObjectStore) Open(_ context.Context, key string) (ObjectReader, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	object, ok := m.objs[key]
+	if !ok {
+		return ObjectReader{}, fmt.Errorf("missing key %s", key)
+	}
+	return ObjectReader{
+		Info: object.info,
+		Body: io.NopCloser(bytes.NewReader(append([]byte(nil), object.body...))),
+	}, nil
+}
+
+func (m *MemoryObjectStore) HeadInfo(_ context.Context, key string) (ObjectInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	object, ok := m.objs[key]
+	if !ok {
+		return ObjectInfo{}, fmt.Errorf("missing key %s", key)
+	}
+	return object.info, nil
+}
+
+func (m *MemoryObjectStore) Put(ctx context.Context, key string, body []byte, contentType string) error {
+	_, err := m.PutReader(ctx, key, bytes.NewReader(body), int64(len(body)), contentType)
+	return err
+}
+
+func (m *MemoryObjectStore) PutIfAbsent(ctx context.Context, key string, body []byte, contentType string) error {
+	_, err := m.Create(ctx, key, bytes.NewReader(body), int64(len(body)), contentType)
+	if errors.Is(err, ErrPreconditionFailed) {
+		return fmt.Errorf("qa archive object already exists: %s", key)
+	}
+	return err
+}
+
+func (m *MemoryObjectStore) Get(ctx context.Context, key string) ([]byte, error) {
+	opened, err := m.Open(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = opened.Body.Close() }()
+	return io.ReadAll(opened.Body)
 }
 
 func (m *MemoryObjectStore) Head(_ context.Context, key string) (bool, error) {
@@ -54,8 +141,8 @@ func (m *MemoryObjectStore) Keys() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]string, 0, len(m.objs))
-	for k := range m.objs {
-		out = append(out, k)
+	for key := range m.objs {
+		out = append(out, key)
 	}
 	return out
 }

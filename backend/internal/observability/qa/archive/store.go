@@ -3,6 +3,7 @@ package archive
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -15,8 +16,28 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// ObjectStore uploads immutable raw-archive objects (design §8.1).
+var ErrPreconditionFailed = errors.New("qa archive object precondition failed")
+
+type ObjectInfo struct {
+	ETag string
+	Size int64
+}
+
+type ObjectReader struct {
+	Info ObjectInfo
+	Body io.ReadCloser
+}
+
+// ObjectStore provides immutable artifact writes and ETag-guarded commit updates.
 type ObjectStore interface {
+	PutReader(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error)
+	Create(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error)
+	CompareAndSwap(ctx context.Context, key, expectedETag string, body io.Reader, size int64, contentType string) (ObjectInfo, error)
+	Open(ctx context.Context, key string) (ObjectReader, error)
+	HeadInfo(ctx context.Context, key string) (ObjectInfo, error)
+
+	// Transitional byte helpers keep Phase 2b callers source-compatible while the
+	// segment builder moves artifact bodies to files/readers.
 	Put(ctx context.Context, key string, body []byte, contentType string) error
 	PutIfAbsent(ctx context.Context, key string, body []byte, contentType string) error
 	Get(ctx context.Context, key string) ([]byte, error)
@@ -29,8 +50,6 @@ type s3ObjectStore struct {
 	prefix string
 }
 
-// NewObjectStoreFromConfig builds the raw archive S3 client. Empty static credentials
-// defer to the instance role on prod (same pattern as qa blob_store).
 func NewObjectStoreFromConfig(ctx context.Context, storage config.QACaptureStorageConfig) (ObjectStore, error) {
 	driver := strings.ToLower(strings.TrimSpace(storage.Driver))
 	if driver != "s3" {
@@ -77,51 +96,99 @@ func (s *s3ObjectStore) fullKey(key string) string {
 	return s.prefix + "/" + key
 }
 
-func (s *s3ObjectStore) Put(ctx context.Context, key string, body []byte, contentType string) error {
-	input := &s3.PutObjectInput{
-		Bucket:      aws.String(s.bucket),
-		Key:         aws.String(s.fullKey(key)),
-		Body:        bytes.NewReader(body),
-		ContentType: aws.String(contentType),
+func (s *s3ObjectStore) put(
+	ctx context.Context,
+	key string,
+	body io.Reader,
+	size int64,
+	contentType string,
+	ifMatch *string,
+	ifNoneMatch *string,
+) (ObjectInfo, error) {
+	if size < 0 {
+		return ObjectInfo{}, fmt.Errorf("qa archive object size must be non-negative")
 	}
-	_, err := s.client.PutObject(ctx, input)
-	return err
+	out, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(s.bucket),
+		Key:           aws.String(s.fullKey(key)),
+		Body:          body,
+		ContentLength: aws.Int64(size),
+		ContentType:   aws.String(contentType),
+		IfMatch:       ifMatch,
+		IfNoneMatch:   ifNoneMatch,
+	})
+	if err != nil {
+		if stringsContains(err.Error(), "PreconditionFailed", "ConditionalRequestConflict", "412", "409") {
+			return ObjectInfo{}, fmt.Errorf("%w: %s", ErrPreconditionFailed, key)
+		}
+		return ObjectInfo{}, err
+	}
+	return ObjectInfo{ETag: aws.ToString(out.ETag), Size: size}, nil
 }
 
-func (s *s3ObjectStore) PutIfAbsent(ctx context.Context, key string, body []byte, contentType string) error {
-	input := &s3.PutObjectInput{
-		Bucket:      aws.String(s.bucket),
-		Key:         aws.String(s.fullKey(key)),
-		Body:        bytes.NewReader(body),
-		ContentType: aws.String(contentType),
-		IfNoneMatch: aws.String("*"),
-	}
-	_, err := s.client.PutObject(ctx, input)
-	if err != nil && stringsContains(err.Error(), "PreconditionFailed", "412") {
-		return fmt.Errorf("qa archive object already exists: %s", key)
-	}
-	return err
+func (s *s3ObjectStore) PutReader(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
+	return s.put(ctx, key, body, size, contentType, nil, nil)
 }
 
-func (s *s3ObjectStore) Get(ctx context.Context, key string) ([]byte, error) {
+func (s *s3ObjectStore) Create(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
+	return s.put(ctx, key, body, size, contentType, nil, aws.String("*"))
+}
+
+func (s *s3ObjectStore) CompareAndSwap(ctx context.Context, key, expectedETag string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
+	if strings.TrimSpace(expectedETag) == "" {
+		return ObjectInfo{}, fmt.Errorf("expected ETag is required")
+	}
+	return s.put(ctx, key, body, size, contentType, aws.String(expectedETag), nil)
+}
+
+func (s *s3ObjectStore) Open(ctx context.Context, key string) (ObjectReader, error) {
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(s.fullKey(key)),
 	})
 	if err != nil {
-		return nil, err
+		return ObjectReader{}, err
 	}
-	defer func() { _ = out.Body.Close() }()
-	return io.ReadAll(out.Body)
+	return ObjectReader{
+		Info: ObjectInfo{ETag: aws.ToString(out.ETag), Size: aws.ToInt64(out.ContentLength)},
+		Body: out.Body,
+	}, nil
 }
 
-func (s *s3ObjectStore) Head(ctx context.Context, key string) (bool, error) {
-	_, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+func (s *s3ObjectStore) HeadInfo(ctx context.Context, key string) (ObjectInfo, error) {
+	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(s.fullKey(key)),
 	})
 	if err != nil {
-		if stringsContains(err.Error(), "NotFound", "404") {
+		return ObjectInfo{}, err
+	}
+	return ObjectInfo{ETag: aws.ToString(out.ETag), Size: aws.ToInt64(out.ContentLength)}, nil
+}
+
+func (s *s3ObjectStore) Put(ctx context.Context, key string, body []byte, contentType string) error {
+	_, err := s.PutReader(ctx, key, bytes.NewReader(body), int64(len(body)), contentType)
+	return err
+}
+
+func (s *s3ObjectStore) PutIfAbsent(ctx context.Context, key string, body []byte, contentType string) error {
+	_, err := s.Create(ctx, key, bytes.NewReader(body), int64(len(body)), contentType)
+	return err
+}
+
+func (s *s3ObjectStore) Get(ctx context.Context, key string) ([]byte, error) {
+	opened, err := s.Open(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = opened.Body.Close() }()
+	return io.ReadAll(opened.Body)
+}
+
+func (s *s3ObjectStore) Head(ctx context.Context, key string) (bool, error) {
+	_, err := s.HeadInfo(ctx, key)
+	if err != nil {
+		if stringsContains(err.Error(), "NotFound", "404", "NoSuchKey") {
 			return false, nil
 		}
 		return false, err
