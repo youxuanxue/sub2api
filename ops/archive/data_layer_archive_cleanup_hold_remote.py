@@ -16,7 +16,8 @@ from collections.abc import Iterable
 from typing import Any
 
 
-ADMIN_URL = "https://api.tokenkey.dev/api/v1/admin/ops/advanced-settings"
+# api.tokenkey.dev 301 → tokenkey.dev；urllib 对 PUT 不跟随重定向，必须直连 canonical host
+ADMIN_URL = "https://tokenkey.dev/api/v1/admin/ops/advanced-settings"
 HOLD_CONFIRMATION = "tokenkey-prod-archive-cleanup-hold-v1"
 RELEASE_CONFIRMATION = "tokenkey-prod-archive-cleanup-release-v1"
 PG_CONTAINER = "tokenkey-postgres"
