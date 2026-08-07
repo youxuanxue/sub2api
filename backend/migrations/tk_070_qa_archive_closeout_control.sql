@@ -1,5 +1,7 @@
 -- TK: QA Phase 2 archive closeout control (design-qa-phase2-archive-closeout.md).
--- Expand-only and deletion-disabled: cleanup_eligible remains false until a later approved phase.
+-- bluegreen-safe-destructive-ok: expand-only columns have stable defaults, old app
+-- readers/writers ignore them, and new tables have no old-version callers.
+-- Deletion-disabled: cleanup_eligible remains false until a later approved phase.
 ALTER TABLE qa_archive_shards
     ADD COLUMN IF NOT EXISTS commit_etag text NULL,
     ADD COLUMN IF NOT EXISTS aggregate_record_count bigint NOT NULL DEFAULT 0,
