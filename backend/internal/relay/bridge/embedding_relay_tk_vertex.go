@@ -120,7 +120,13 @@ func runVertexEmbeddingRelay(c *gin.Context, info *relaycommon.RelayInfo, reques
 		return nil, types.NewOpenAIError(readErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 
-	openAIResponse, usage, convErr := vertexEmbeddingPredictResponseToOpenAI(c, modelName, responseBody, info.GetEstimatePromptTokens())
+	promptTokens := vertexEmbeddingPromptTokens(inputs, modelName)
+	if estimated := info.GetEstimatePromptTokens(); estimated > promptTokens {
+		promptTokens = estimated
+	}
+	info.SetEstimatePromptTokens(promptTokens)
+
+	openAIResponse, usage, convErr := vertexEmbeddingPredictResponseToOpenAI(c, modelName, responseBody, promptTokens)
 	if convErr != nil {
 		return nil, types.NewOpenAIError(convErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
@@ -131,6 +137,14 @@ func runVertexEmbeddingRelay(c *gin.Context, info *relaycommon.RelayInfo, reques
 	}
 	service.IOCopyBytesGracefully(c, resp, jsonResponse)
 	return usage, nil
+}
+
+func vertexEmbeddingPromptTokens(inputs []string, modelName string) int {
+	total := 0
+	for _, input := range inputs {
+		total += service.CountTokenInput(input, modelName)
+	}
+	return total
 }
 
 func buildVertexEmbeddingPredictPayload(inputs []string, dimensions *int) (map[string]any, error) {
