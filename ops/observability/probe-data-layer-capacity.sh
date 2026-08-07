@@ -43,6 +43,7 @@ WITH flags AS (
 )
 SELECT 'PGSTATS '||row_to_json(t)::text FROM (
   SELECT
+    catalog_probe_ok,
     CASE WHEN usage_partitioned THEN
       COALESCE((SELECT sum(pg_total_relation_size(relid)) FROM pg_partition_tree('usage_logs'::regclass) WHERE isleaf), 0)
     ELSE pg_total_relation_size('usage_logs') END                 AS usage_logs_bytes,

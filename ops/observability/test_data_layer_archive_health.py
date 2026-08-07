@@ -26,10 +26,64 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
         self.assertIsInstance(signal["hold_started_at"], str)
         self.assertFalse(signal["closeout_complete"])
 
+    def test_latest_valid_hold_receipt_is_selected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            for date, started_at in (
+                ("20260721", "2026-07-21T00:00:00Z"),
+                ("20260807", "2026-08-07T02:40:22Z"),
+            ):
+                (root / f"US-039-prod-cleanup-hold-{date}.json").write_text(
+                    json.dumps(
+                        {
+                            "action": "apply",
+                            "mode": "prod_archive_cleanup_hold",
+                            "environment": "prod",
+                            "instance_id": "i-0123456789abcdef0",
+                            "hold_active": True,
+                            "hold_started_at": started_at,
+                            "database_cleanup_enabled": False,
+                            "api_cleanup_enabled": False,
+                            "cleanup_lock_active": False,
+                            "no_cleanup_after_hold": True,
+                            "deletion_authorized": False,
+                            "reload_proven": True,
+                            "settings_mutated": True,
+                            "settings_sha256": "a" * 64,
+                            "settings_sha256_before": "b" * 64,
+                            "settings_sha256_after": "a" * 64,
+                            "verified_at": started_at,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            (root / "US-039-prod-cleanup-hold-20260808.json").write_text(
+                json.dumps(
+                    {
+                        "action": "apply",
+                        "mode": "prod_archive_cleanup_hold",
+                        "environment": "prod",
+                        "instance_id": "i-0123456789abcdef0",
+                        "hold_active": True,
+                        "hold_started_at": "2026-08-08T00:00:00Z",
+                        "database_cleanup_enabled": True,
+                        "api_cleanup_enabled": True,
+                        "no_cleanup_after_hold": True,
+                        "deletion_authorized": False,
+                        "reload_proven": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            signal = health.build_signal(root)
+
+        self.assertEqual(signal["hold_started_at"], "2026-08-07T02:40:22Z")
+        self.assertNotIn("cleanup_hold", signal["evidence_errors"])
+
     def test_minimal_unvalidated_json_cannot_report_closeout_complete(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)
-            (root / "US-039-prod-cleanup-hold-20260721.json").write_text(
+            (root / "US-039-prod-cleanup-hold-20260807.json").write_text(
                 json.dumps({"hold_started_at": "2026-07-21T00:00:00Z"}),
                 encoding="utf-8",
             )

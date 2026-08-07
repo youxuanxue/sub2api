@@ -28,22 +28,17 @@ Parameters:
     Description: >
       Prod app instance role allowed to write raw archive shards (PutObject/HeadObject
       on raw/ prefixes). Same direct-role-ARN pattern as stage0-backups.yaml.
-  OpsRecoveryRoleArn:
+  OpsRecoveryPrincipalArn:
     Type: String
     MinLength: 20
-    AllowedPattern: '^arn:[a-z0-9-]+:iam::[0-9]{12}:role/.+$'
-    Description: Required ops recovery role for audited GetObject/ListBucket on raw/ prefixes.
+    AllowedPattern: '^arn:[a-z0-9-]+:iam::[0-9]{12}:(user|role)/.+$'
+    Description: IAM principal allowed to assume the dedicated read-only QA recovery role.
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: Prod Stage0 VPC that receives the S3 Gateway endpoint.
   RouteTableIds:
     Type: CommaDelimitedList
     Description: Prod route table IDs attached to the S3 Gateway endpoint.
-  AuditLogBucketName:
-    Type: String
-    MinLength: 3
-    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
-    Description: Existing centralized audit bucket whose policy allows CloudTrail writes.
   AuditLogPrefix:
     Type: String
     Default: qa-raw-archive
@@ -51,6 +46,50 @@ Parameters:
     Description: Prefix in the centralized audit bucket for this trail.
 
 Resources:
+  QaRawArchiveRecoveryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Audited read-only recovery access to the prod QA raw archive.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref OpsRecoveryPrincipalArn
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: qa-raw-read-only
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ListRawPrefix
+                Effect: Allow
+                Action: 's3:ListBucket'
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}'
+                Condition:
+                  StringLike:
+                    's3:prefix':
+                      - raw
+                      - raw/*
+              - Sid: ReadRawObjects
+                Effect: Allow
+                Action: 's3:GetObject'
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}/raw/*'
+              - Sid: DecryptRawObjectsViaS3
+                Effect: Allow
+                Action:
+                  - 'kms:Decrypt'
+                  - 'kms:DescribeKey'
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub 's3.${AWS::Region}.amazonaws.com'
+                  StringLike:
+                    kms:EncryptionContext:aws:s3:arn:
+                      - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}'
+                      - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-${Environment}-qa-raw-archive-${AWS::AccountId}/raw/*'
+
   QaRawArchiveKey:
     Type: AWS::KMS::Key
     DeletionPolicy: Retain
@@ -74,6 +113,7 @@ Resources:
             Action:
               - 'kms:Encrypt'
               - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
               - 'kms:GenerateDataKey*'
               - 'kms:DescribeKey'
             Resource: '*'
@@ -90,7 +130,7 @@ Resources:
           - Sid: AllowOpsRecoveryRoleReadViaS3
             Effect: Allow
             Principal:
-              AWS: !Ref OpsRecoveryRoleArn
+              AWS: !GetAtt QaRawArchiveRecoveryRole.Arn
             Action:
               - 'kms:Decrypt'
               - 'kms:DescribeKey'
@@ -181,16 +221,96 @@ Resources:
             Resource:
               - !Sub '${QaRawArchiveBucket.Arn}/raw/v1/*'
               - !Sub '${QaRawArchiveBucket.Arn}/raw/partial/*'
+          - Sid: AllowAppInstanceRoleListRawPrefix
+            Effect: Allow
+            Principal:
+              AWS: !Ref AppInstanceRoleArn
+            Action: 's3:ListBucket'
+            Resource: !GetAtt QaRawArchiveBucket.Arn
+            Condition:
+              StringLike:
+                's3:prefix':
+                  - raw/v1/*
+                  - raw/partial/*
           - Sid: AllowOpsRecoveryRoleReadRaw
             Effect: Allow
             Principal:
-              AWS: !Ref OpsRecoveryRoleArn
-            Action:
-              - 's3:GetObject'
-              - 's3:ListBucket'
+              AWS: !GetAtt QaRawArchiveRecoveryRole.Arn
+            Action: 's3:GetObject'
+            Resource: !Sub '${QaRawArchiveBucket.Arn}/raw/*'
+          - Sid: AllowOpsRecoveryRoleListRawPrefix
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt QaRawArchiveRecoveryRole.Arn
+            Action: 's3:ListBucket'
+            Resource: !GetAtt QaRawArchiveBucket.Arn
+            Condition:
+              StringLike:
+                's3:prefix':
+                  - raw
+                  - raw/*
+
+  QaRawArchiveAuditBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-qa-raw-audit-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Suspended
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-qa-raw-audit
+            Status: Enabled
+            ExpirationInDays: 400
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+  QaRawArchiveAuditBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref QaRawArchiveAuditBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
             Resource:
-              - !GetAtt QaRawArchiveBucket.Arn
-              - !Sub '${QaRawArchiveBucket.Arn}/raw/*'
+              - !GetAtt QaRawArchiveAuditBucket.Arn
+              - !Sub '${QaRawArchiveAuditBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          - Sid: AllowCloudTrailAclCheck
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: 's3:GetBucketAcl'
+            Resource: !GetAtt QaRawArchiveAuditBucket.Arn
+            Condition:
+              StringEquals:
+                'aws:SourceArn': !Sub 'arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${ProjectName}-${Environment}-qa-raw-data-events'
+          - Sid: AllowCloudTrailWrite
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: 's3:PutObject'
+            Resource: !Sub '${QaRawArchiveAuditBucket.Arn}/${AuditLogPrefix}/${AWS::AccountId}/${AWS::Region}/AWSLogs/${AWS::AccountId}/*'
+            Condition:
+              StringEquals:
+                's3:x-amz-acl': bucket-owner-full-control
+                'aws:SourceArn': !Sub 'arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${ProjectName}-${Environment}-qa-raw-data-events'
 
   QaRawArchiveS3Endpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -212,10 +332,12 @@ Resources:
 
   QaRawArchiveDataTrail:
     Type: AWS::CloudTrail::Trail
-    DependsOn: QaRawArchiveBucketPolicy
+    DependsOn:
+      - QaRawArchiveBucketPolicy
+      - QaRawArchiveAuditBucketPolicy
     Properties:
       TrailName: !Sub '${ProjectName}-${Environment}-qa-raw-data-events'
-      S3BucketName: !Ref AuditLogBucketName
+      S3BucketName: !Ref QaRawArchiveAuditBucket
       S3KeyPrefix: !Sub '${AuditLogPrefix}/${AWS::AccountId}/${AWS::Region}'
       IsLogging: true
       IsMultiRegionTrail: false
@@ -239,6 +361,10 @@ Outputs:
     Value: !GetAtt QaRawArchiveKey.Arn
   QaRawArchiveS3Uri:
     Value: !Sub 's3://${QaRawArchiveBucket}/raw/v1/'
+  QaRawArchiveRecoveryRoleArn:
+    Value: !GetAtt QaRawArchiveRecoveryRole.Arn
+  QaRawArchiveAuditBucketName:
+    Value: !Ref QaRawArchiveAuditBucket
   QaRawArchiveS3EndpointId:
     Value: !Ref QaRawArchiveS3Endpoint
   QaRawArchiveDataTrailArn:

@@ -317,6 +317,21 @@ jobs:
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'skip' }}
 
+      - name: Verify published release image binaries
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME="${{ github.event.inputs.tag }}"
+          else
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG_NAME#v}"
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}"
+          PLATFORMS="linux/amd64,linux/arm64"
+          if [ "${{ env.SIMPLE_RELEASE }}" = "true" ]; then
+            PLATFORMS="linux/amd64"
+          fi
+          bash scripts/checks/release-image-binaries.sh "${IMAGE}" "${PLATFORMS}"
+
       - name: Upload model surface bundle release asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

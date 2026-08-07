@@ -43,8 +43,9 @@ RUN addgroup -g 1000 sub2api && \
 
 WORKDIR /app
 
-# Copy the pre-built binary selected by GoReleaser dockers_v2 for this target platform.
+# Copy the pre-built binaries selected by GoReleaser dockers_v2 for this target platform.
 COPY --chown=sub2api:sub2api --chmod=0755 ${TARGETPLATFORM}/sub2api /app/sub2api
+COPY --chown=sub2api:sub2api --chmod=0755 ${TARGETPLATFORM}/qa-archive /app/qa-archive
 COPY --chown=sub2api:sub2api backend/resources /app/resources
 
 # Create data directory
