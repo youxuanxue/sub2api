@@ -21,7 +21,9 @@ import (
 )
 
 const (
-	defaultSegmentPageSize = 500
+	defaultSegmentPageSize    = 500
+	maxRowsPerParquetRowGroup = 250
+	parquetPageBufferSize     = 32 * 1024
 
 	IntegrityMissingEvidence = "missing_evidence"
 )
@@ -157,7 +159,11 @@ func BuildSegment(ctx context.Context, conn *sql.Conn, input BuildInput) (_ Buil
 	}
 	defer func() { _ = identityFile.Close() }()
 
-	parquetWriter := parquet.NewGenericWriter[RecordRow](recordsHash)
+	parquetWriter := parquet.NewGenericWriter[RecordRow](
+		recordsHash,
+		parquet.MaxRowsPerRowGroup(maxRowsPerParquetRowGroup),
+		parquet.PageBufferSize(parquetPageBufferSize),
+	)
 	indexZstd, err := zstd.NewWriter(indexHash)
 	if err != nil {
 		return BuiltSegment{}, fmt.Errorf("open evidence index encoder: %w", err)
