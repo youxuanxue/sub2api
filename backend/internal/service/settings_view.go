@@ -52,6 +52,7 @@ type SystemSettings struct {
 	TencentCaptchaCloudSecretIDConfigured  bool
 	TencentCaptchaCloudSecretKey           string
 	TencentCaptchaCloudSecretKeyConfigured bool
+	TencentCaptchaRegion                   string
 	AliyunCaptchaEnabled                   bool
 	AliyunCaptchaAccessKeyID               string
 	AliyunCaptchaAccessKeySecret           string
@@ -343,6 +344,7 @@ type PublicSettings struct {
 	TurnstileSiteKey                 string
 	TencentCaptchaEnabled            bool
 	TencentCaptchaAppID              string
+	TencentCaptchaRegion             string
 	AliyunCaptchaEnabled             bool
 	AliyunCaptchaSceneID             string
 	AliyunCaptchaPrefix              string
