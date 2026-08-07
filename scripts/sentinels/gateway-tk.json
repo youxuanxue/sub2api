@@ -5972,7 +5972,8 @@
         "qaMaintenanceConfirmation",
         "qa-maintenance-backfill-once",
         "deletion_authorized=false",
-        "archive.UploadBaseSegment"
+        "archive.UploadBaseSegment",
+        "connReleased"
       ],
       "rationale": "Prod QA archive maintenance entry (design-prod-qa-24h-s3-lifecycle.md §7): hourly seal/backfill, S3 base-segment upload, hard denial of DB deletion. Upstream merge of cmd/server can drop this TK-only file or strip upload/backfill guards while archive-only smoke still passes."
     }
