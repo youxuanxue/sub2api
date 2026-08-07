@@ -33,6 +33,9 @@ type RecordUsageInput struct {
 	QuotaPlatform      string             // user×platform 配额计量平台：handler 在请求 ctx 内经 QuotaPlatform() 算定后传入（后扣运行在 worker 池 background ctx 上，取不到 ForcePlatform）
 
 	ChannelUsageFields // 渠道映射信息（由 handler 在 Forward 前解析）
+
+	// GatewayLatencyMs is TokenKey transfer latency (auth+routing+response tail), excluding upstream wait and queue waits.
+	GatewayLatencyMs *int
 }
 
 // APIKeyQuotaUpdater defines the interface for updating API Key quota and rate limit usage
@@ -562,6 +565,7 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 		APIKeyService:      input.APIKeyService,
 		QuotaPlatform:      input.QuotaPlatform,
 		ChannelUsageFields: input.ChannelUsageFields,
+		GatewayLatencyMs:   input.GatewayLatencyMs,
 	}, &recordUsageOpts{})
 }
 
@@ -631,6 +635,7 @@ type recordUsageCoreInput struct {
 	APIKeyService      APIKeyQuotaUpdater
 	QuotaPlatform      string
 	ChannelUsageFields
+	GatewayLatencyMs *int
 }
 
 // recordUsageCore 是 RecordUsage 和 RecordUsageWithLongContext 的统一实现。
@@ -1031,6 +1036,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		BillingMode:           resolveBillingMode(result, cost),
 		Stream:                result.Stream,
 		DurationMs:            &durationMs,
+		GatewayLatencyMs:      input.GatewayLatencyMs,
 		FirstTokenMs:          result.FirstTokenMs,
 		ImageCount:            result.ImageCount,
 		ImageSize:             optionalTrimmedStringPtr(result.ImageSize),

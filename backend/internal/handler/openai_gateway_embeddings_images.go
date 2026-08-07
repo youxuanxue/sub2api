@@ -304,6 +304,7 @@ func (h *OpenAIGatewayHandler) embeddings(c *gin.Context) {
 
 		tkHoldRequestID := hold.HandOffToSettlement()
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
+		gatewayLatencyMs := service.SnapshotGatewayTransferLatencyMs(c)
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			upstreamModelForUsage := ""
 			if result != nil {
@@ -322,6 +323,7 @@ func (h *OpenAIGatewayHandler) embeddings(c *gin.Context) {
 				APIKeyService:      h.apiKeyService,
 				TkHoldRequestID:    tkHoldRequestID,
 				QuotaPlatform:      quotaPlatform,
+				GatewayLatencyMs:   gatewayLatencyMs,
 				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, upstreamModelForUsage),
 			}); err != nil {
 				logger.L().With(
@@ -631,6 +633,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 
 		tkHoldRequestID := hold.HandOffToSettlement()
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
+		gatewayLatencyMs := service.SnapshotGatewayTransferLatencyMs(c)
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			upstreamModelForUsage := ""
 			if result != nil {
@@ -649,6 +652,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 				APIKeyService:      h.apiKeyService,
 				TkHoldRequestID:    tkHoldRequestID,
 				QuotaPlatform:      quotaPlatform,
+				GatewayLatencyMs:   gatewayLatencyMs,
 				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, upstreamModelForUsage),
 			}); err != nil {
 				logger.L().With(

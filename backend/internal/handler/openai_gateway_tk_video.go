@@ -275,6 +275,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	// conservative max so we never under-charge when the field is omitted.
 	videoSeconds := videoRequestedSeconds(body)
 	tkHoldRequestID := hold.HandOffToSettlement()
+	gatewayLatencyMs := service.SnapshotGatewayTransferLatencyMs(c)
 	h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 			Result: &service.OpenAIForwardResult{
@@ -299,6 +300,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 			IPAddress:        clientIP,
 			APIKeyService:    h.apiKeyService,
 			TkHoldRequestID:  tkHoldRequestID,
+			GatewayLatencyMs: gatewayLatencyMs,
 		}); err != nil {
 			logger.L().With(
 				zap.String("component", "handler.openai_gateway.video_submit"),

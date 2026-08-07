@@ -194,7 +194,7 @@
             </div>
           </div>
 
-          <!-- Avg Response Time -->
+          <!-- Gateway transfer latency -->
           <div class="card p-4">
             <div class="flex items-center gap-3">
               <div class="rounded-lg bg-rose-100 p-2 dark:bg-rose-900/30">
@@ -202,10 +202,10 @@
               </div>
               <div>
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.avgResponse') }}
+                  {{ t('admin.dashboard.avgGatewayLatency') }}
                 </p>
                 <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ formatDuration(stats.average_duration_ms) }}
+                  {{ formatDuration(stats.average_gateway_latency_ms) }}
                 </p>
                 <p class="text-xs text-gray-500 dark:text-gray-400">
                   {{ stats.active_users }} {{ t('admin.dashboard.activeUsers') }}

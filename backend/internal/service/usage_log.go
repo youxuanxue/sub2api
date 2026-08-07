@@ -166,8 +166,9 @@ type UsageLog struct {
 	RequestType  RequestType
 	Stream       bool
 	OpenAIWSMode bool
-	DurationMs   *int
-	FirstTokenMs *int
+	DurationMs        *int
+	GatewayLatencyMs  *int
+	FirstTokenMs      *int
 	UserAgent    *string
 	IPAddress    *string
 	// SessionID is the explicit client-provided request correlation identifier

@@ -57,6 +57,7 @@ var usageLogInsertArgTypes = [...]string{
 	"boolean",     // stream
 	"boolean",     // openai_ws_mode
 	"integer",     // duration_ms
+	"integer",     // gateway_latency_ms
 	"integer",     // first_token_ms
 	"text",        // user_agent
 	"text",        // ip_address
@@ -271,6 +272,7 @@ func cloneUsageLog(log *service.UsageLog) *service.UsageLog {
 	snapshot.AccountRateMultiplier = cloneUsageLogValue(log.AccountRateMultiplier)
 	snapshot.AccountStatsCost = cloneUsageLogValue(log.AccountStatsCost)
 	snapshot.DurationMs = cloneUsageLogValue(log.DurationMs)
+	snapshot.GatewayLatencyMs = cloneUsageLogValue(log.GatewayLatencyMs)
 	snapshot.FirstTokenMs = cloneUsageLogValue(log.FirstTokenMs)
 	snapshot.UserAgent = cloneUsageLogValue(log.UserAgent)
 	snapshot.IPAddress = cloneUsageLogValue(log.IPAddress)
@@ -391,6 +393,7 @@ func (r *usageLogRepository) createSinglePrepared(
 			stream,
 			openai_ws_mode,
 			duration_ms,
+			gateway_latency_ms,
 			first_token_ms,
 			user_agent,
 			ip_address,
@@ -958,6 +961,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			stream,
 			openai_ws_mode,
 			duration_ms,
+			gateway_latency_ms,
 			first_token_ms,
 			user_agent,
 			ip_address,
@@ -1206,6 +1210,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			stream,
 			openai_ws_mode,
 			duration_ms,
+			gateway_latency_ms,
 			first_token_ms,
 			user_agent,
 			ip_address,
@@ -1291,6 +1296,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			stream,
 			openai_ws_mode,
 			duration_ms,
+			gateway_latency_ms,
 			first_token_ms,
 			user_agent,
 			ip_address,
@@ -1350,6 +1356,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			stream,
 			openai_ws_mode,
 			duration_ms,
+			gateway_latency_ms,
 			first_token_ms,
 			user_agent,
 			ip_address,
@@ -1417,6 +1424,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			stream,
 			openai_ws_mode,
 			duration_ms,
+			gateway_latency_ms,
 			first_token_ms,
 			user_agent,
 			ip_address,
@@ -1478,6 +1486,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	groupID := nullInt64(log.GroupID)
 	subscriptionID := nullInt64(log.SubscriptionID)
 	duration := nullInt(log.DurationMs)
+	gatewayLatency := nullInt(log.GatewayLatencyMs)
 	firstToken := nullInt(log.FirstTokenMs)
 	userAgent := nullString(log.UserAgent)
 	ipAddress := nullString(log.IPAddress)
@@ -1546,6 +1555,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			log.Stream,
 			log.OpenAIWSMode,
 			duration,
+			gatewayLatency,
 			firstToken,
 			userAgent,
 			ipAddress,

@@ -413,6 +413,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		}
 		tkHoldRequestID := hold.HandOffToSettlement()
 		sessionID := service.ExtractClientSessionID(c)
+		gatewayLatencyMs := service.SnapshotGatewayTransferLatencyMs(c)
 		h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
@@ -429,6 +430,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				TkHoldRequestID:    tkHoldRequestID,
 				QuotaPlatform:      quotaPlatform,
 				SessionID:          sessionID,
+				GatewayLatencyMs:   gatewayLatencyMs,
 				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, requestModel, upstreamModel),
 			}); err != nil {
 				logger.L().With(

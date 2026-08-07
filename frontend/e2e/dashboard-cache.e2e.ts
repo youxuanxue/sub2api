@@ -150,6 +150,7 @@ const DASHBOARD_STATS = {
   today_actual_cost: 4,
   today_account_cost: 3.5,
   average_duration_ms: 250,
+  average_gateway_latency_ms: 45,
   uptime: 3_600,
   rpm: 12,
   tpm: 25_000,

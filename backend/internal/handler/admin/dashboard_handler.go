@@ -131,6 +131,7 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 
 		// 系统运行统计
 		"average_duration_ms": stats.AverageDurationMs,
+		"average_gateway_latency_ms": stats.AverageGatewayLatencyMs,
 		"uptime":              uptime,
 
 		// 性能指标

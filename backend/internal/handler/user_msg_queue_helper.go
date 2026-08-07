@@ -59,6 +59,7 @@ func (h *UserMsgQueueHelper) AcquireWithWait(
 
 	if result.Acquired {
 		// 获取成功，执行 RPM 自适应延迟
+		delayStart := time.Now()
 		if err := h.queueService.EnforceDelay(ctx, accountID, baseRPM); err != nil {
 			if ctx.Err() != nil {
 				// 延迟期间 context 取消，释放锁
@@ -68,12 +69,19 @@ func (h *UserMsgQueueHelper) AcquireWithWait(
 				return nil, ctx.Err()
 			}
 		}
+		service.AddOpsGatewayQueueWaitMs(c, time.Since(delayStart).Milliseconds())
 		reqLog.Debug("gateway.umq_lock_acquired", zap.Int64("account_id", accountID))
 		return h.makeReleaseFunc(accountID, result.RequestID, reqLog), nil
 	}
 
 	// 需要等待：指数退避轮询
-	return h.waitForLockWithPing(c, ctx, accountID, baseRPM, isStream, streamStarted, reqLog)
+	waitStart := time.Now()
+	releaseFunc, err = h.waitForLockWithPing(c, ctx, accountID, baseRPM, isStream, streamStarted, reqLog)
+	if err != nil {
+		return nil, err
+	}
+	service.AddOpsGatewayQueueWaitMs(c, time.Since(waitStart).Milliseconds())
+	return releaseFunc, nil
 }
 
 // waitForLockWithPing 等待获取锁，流式请求期间发送 SSE ping
@@ -133,6 +141,7 @@ func (h *UserMsgQueueHelper) waitForLockWithPing(
 			}
 			if result.Acquired {
 				// 获取成功，执行 RPM 自适应延迟
+				delayStart := time.Now()
 				if delayErr := h.queueService.EnforceDelay(ctx, accountID, baseRPM); delayErr != nil {
 					if ctx.Err() != nil {
 						bgCtx, bgCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -141,6 +150,7 @@ func (h *UserMsgQueueHelper) waitForLockWithPing(
 						return nil, ctx.Err()
 					}
 				}
+				service.AddOpsGatewayQueueWaitMs(c, time.Since(delayStart).Milliseconds())
 				reqLog.Debug("gateway.umq_lock_acquired", zap.Int64("account_id", accountID))
 				return h.makeReleaseFunc(accountID, result.RequestID, reqLog), nil
 			}
@@ -187,6 +197,11 @@ func (h *UserMsgQueueHelper) ThrottleWithPing(
 	if delay <= 0 {
 		return nil
 	}
+
+	throttleStart := time.Now()
+	defer func() {
+		service.AddOpsGatewayQueueWaitMs(c, time.Since(throttleStart).Milliseconds())
+	}()
 
 	reqLog.Debug("gateway.umq_throttle_delay",
 		zap.Int64("account_id", accountID),

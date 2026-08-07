@@ -97,6 +97,7 @@ const createDashboardStats = (): DashboardStats => ({
   today_actual_cost: 0,
   today_account_cost: 0,
   average_duration_ms: 0,
+  average_gateway_latency_ms: 0,
   uptime: 0,
   rpm: 0,
   tpm: 0

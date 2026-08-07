@@ -1915,7 +1915,8 @@ export interface DashboardStats {
   today_account_cost: number // 今日账号成本
 
   // 系统运行统计
-  average_duration_ms: number // 平均响应时间
+  average_duration_ms: number // 平均端到端响应时间
+  average_gateway_latency_ms: number // 平均网关中转延迟（auth+路由+响应收尾，不含上游/排队）
   uptime: number // 系统运行时间(秒)
 
   // 性能指标

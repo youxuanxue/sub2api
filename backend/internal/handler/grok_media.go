@@ -494,6 +494,7 @@ func recordGrokMediaUsage(
 		ChannelMappedModel: requestModel,
 	}
 	h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
+		gatewayLatencyMs := service.SnapshotGatewayTransferLatencyMs(c)
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 			Result:             result,
 			APIKey:             apiKey,
@@ -508,6 +509,7 @@ func recordGrokMediaUsage(
 			APIKeyService:      h.apiKeyService,
 			QuotaPlatform:      quotaPlatform,
 			SessionID:          sessionID,
+			GatewayLatencyMs:   gatewayLatencyMs,
 			ChannelUsageFields: channelUsageFields,
 		}); err != nil {
 			logger.L().With(
