@@ -157,6 +157,9 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn("QA_CAPTURE_EXPORT_STORAGE_BUCKET='tokenkey-prod-qa-exports-682751977094'", joined)
         self.assertIn("QA_ARCHIVE_ENABLED='false'", joined)
         self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
+        self.assertIn("TELEMETRY_ARCHIVE_ENABLED=''", joined)
+        self.assertIn("TELEMETRY_ARCHIVE_BUCKET='tokenkey-prod-archive-682751977094'", joined)
+        self.assertIn("TELEMETRY_ARCHIVE_QUEUE_MAX_BYTES='33554432'", joined)
         self.assertIn("MEDIA_STORAGE_BUCKET='tokenkey-prod-media-682751977094'", joined)
         self.assertIn("GATEWAY_IMAGE_CONCURRENCY_MAX_CONCURRENT_REQUESTS='8'", joined)
 
@@ -181,6 +184,8 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn('max-file: "5"', remote)
         self.assertEqual(remote.count("- SKIP_DATA_CHOWN=1"), 2)
         self.assertEqual(remote.count("QA_ARCHIVE_ENABLED="), 2)
+        self.assertEqual(remote.count("- TELEMETRY_ARCHIVE_ENABLED="), 2)
+        self.assertIn("env_default TELEMETRY_ARCHIVE_ENABLED false", remote)
         self.assertIn('TOKENKEY_BLUEGREEN_HEALTH_TRIES:-60', remote)
         self.assertIn('TOKENKEY_BLUEGREEN_UNHEALTHY_LIMIT:-3', remote)
         self.assertIn('entered terminal state ${status}; failing health wait immediately', remote)
@@ -192,6 +197,14 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn('compose_bg up -d --no-deps --force-recreate "${target_container}"', remote)
         self.assertIn('preserving target ${TARGET_CONTAINER} for retry', remote)
         self.assertNotIn('removed failed target ${TARGET_CONTAINER}', remote)
+
+    def test_telemetry_enable_is_explicitly_delivered(self) -> None:
+        proc, params, remote = _render(env_extra={"TELEMETRY_ARCHIVE_ENABLED": "true"})
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert params is not None
+        assert remote is not None
+        self.assertIn("TELEMETRY_ARCHIVE_ENABLED='true'", "\n".join(params["commands"]))
+        self.assertIn('env_set TELEMETRY_ARCHIVE_ENABLED "${TELEMETRY_ARCHIVE_ENABLED}"', remote)
 
     def test_health_wait_fails_fast_only_for_terminal_or_repeated_unhealthy_states(self) -> None:
         proc, _, remote = _render()

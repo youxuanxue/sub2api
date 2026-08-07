@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import importlib.util
 import json
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -14,14 +15,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _load_closeout_module():
-    path = ROOT / "ops/qa/prod_qa_archive_closeout.py"
-    spec = importlib.util.spec_from_file_location("prod_qa_archive_closeout", path)
+def _load_module(name: str, relative: str):
+    path = ROOT / relative
+    spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
-        raise RuntimeError("cannot load closeout controller")
+        raise RuntimeError(f"cannot load {name}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_closeout_module():
+    return _load_module("prod_qa_archive_closeout", "ops/qa/prod_qa_archive_closeout.py")
 
 
 class TestQAPhaseOps(unittest.TestCase):
@@ -79,6 +84,222 @@ class TestQAPhaseOps(unittest.TestCase):
         self.assertIn("kms:ViaService", body)
         self.assertIn("AllowOpsRecoveryRoleReadViaS3", body)
 
+    def test_qa_stale_cleanup_has_read_only_plan_and_exact_cutoff_apply(self) -> None:
+        body = (ROOT / "deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--plan", body)
+        self.assertIn("--apply-first", body)
+        self.assertIn("--resume-first", body)
+        self.assertIn("flock -n 9", body)
+        self.assertIn("tokenkey-prod-qa-retention-apply-v1:", body)
+        self.assertIn("created_at < TIMESTAMPTZ", body)
+        self.assertIn('TOKENKEY_ROOT="${TOKENKEY_ROOT:-/var/lib/tokenkey}"', body)
+        self.assertIn("app/qa_blobs", body)
+        self.assertIn("app/qa_dlq", body)
+        self.assertIn("expected-active-image", body)
+        self.assertIn("pg_try_advisory_xact_lock(1363234113)", body)
+        self.assertIn("first-run cleanup is incomplete", body)
+        self.assertNotIn('rm -f "${FIRST_PLAN_MARKER}"', body)
+        self.assertNotIn("TOKENKEY_QA_STALE_RETENTION_DAYS", body)
+
+    def test_qa_stale_cleanup_plan_is_read_only_behaviorally(self) -> None:
+        script = ROOT / "deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            calls = root / "calls.log"
+            (fake_bin / "docker").write_text(
+                """#!/usr/bin/env bash
+printf 'docker %s\n' "$*" >> "$CALLS"
+if [ "$1" = ps ]; then echo tokenkey-postgres; exit 0; fi
+if [ "$1" = inspect ]; then echo ghcr.io/youxuanxue/sub2api:1.8.140; exit 0; fi
+if [ "$1" = exec ]; then
+  echo '{"server_clock":"2026-08-07T12:00:00.000000Z","cutoff":"2026-08-06T12:00:00.000000Z","candidate_rows":42,"oldest_created_at":"2026-08-04T04:00:00.000000Z","newest_created_at":"2026-08-06T11:59:00.000000Z"}'
+  exit 0
+fi
+exit 9
+""",
+                encoding="utf-8",
+            )
+            (fake_bin / "find").write_text(
+                """#!/usr/bin/env bash
+printf 'find %s\n' "$*" >> "$CALLS"
+case "$1" in *qa_blobs) printf 'a\nb\n';; *qa_dlq) printf 'c\n';; esac
+""",
+                encoding="utf-8",
+            )
+            for name in ("docker", "find"):
+                (fake_bin / name).chmod(0o755)
+            (root / "active-color").write_text("blue\n", encoding="utf-8")
+            (fake_bin / "install").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            (fake_bin / "install").chmod(0o755)
+            proc = subprocess.run(
+                ["bash", str(script), "--plan"],
+                env={
+                    "PATH": f"{fake_bin}:/opt/homebrew/bin:/usr/bin:/bin",
+                    "CALLS": str(calls),
+                    "TOKENKEY_ROOT": str(root),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            payload = json.loads(proc.stdout)
+            call_text = calls.read_text(encoding="utf-8")
+        self.assertEqual(payload["candidate_rows"], 42)
+        self.assertEqual(payload["active_image"], "ghcr.io/youxuanxue/sub2api:1.8.140")
+        self.assertEqual(payload["candidate_blob_files"], 2)
+        self.assertEqual(payload["candidate_dlq_files"], 1)
+        self.assertFalse(payload["deletion_authorized"])
+        self.assertNotIn("DELETE FROM", call_text)
+        self.assertNotIn("-delete", call_text)
+
+    def test_qa_stale_cleanup_delete_batches_are_bounded_and_locked(self) -> None:
+        body = (ROOT / "deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh").read_text(
+            encoding="utf-8"
+        )
+        start = body.index("delete_rows_before() {")
+        end = body.index("\n}\n\nbind_first_plan()", start) + 3
+        function = body[start:end]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sequence = root / "sequence"
+            sql_log = root / "sql.log"
+            sequence.write_text("5000\n2\n0\n", encoding="utf-8")
+            harness = f"""{function}
+psql_value() {{
+  printf '%s\\n' "$1" >> {shlex.quote(str(sql_log))}
+  head -1 {shlex.quote(str(sequence))}
+  tail -n +2 {shlex.quote(str(sequence))} > {shlex.quote(str(sequence))}.next
+  mv {shlex.quote(str(sequence))}.next {shlex.quote(str(sequence))}
+}}
+fail() {{ printf '%s\\n' "$*" >&2; return 2; }}
+DELETE_BATCH_SIZE=5000
+delete_rows_before 2026-08-06T12:00:00.000000Z
+"""
+            proc = subprocess.run(
+                ["bash"], input=harness, capture_output=True, text=True, check=False
+            )
+            sql = sql_log.read_text(encoding="utf-8")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "5002")
+        self.assertEqual(sql.count("pg_try_advisory_xact_lock(1363234113)"), 3)
+        self.assertEqual(sql.count("LIMIT 5000"), 3)
+
+    def test_qa_stale_cleanup_service_is_bounded_and_disabled_by_default(self) -> None:
+        bootstrap = (ROOT / "deploy/aws/stage0/stage0-ec2-bootstrap.sh").read_text(
+            encoding="utf-8"
+        )
+        owner = (ROOT / "deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "tokenkey-qa-stale-cleanup.sh --install-units /etc/systemd/system",
+            bootstrap,
+        )
+        self.assertNotIn("QASVEOF", bootstrap)
+        for needle in (
+            "Nice=15",
+            "IOSchedulingClass=idle",
+            "CPUQuota=20%",
+            "MemoryMax=1G",
+            "TasksMax=128",
+            "TimeoutStartSec=30min",
+        ):
+            self.assertIn(needle, owner)
+        self.assertIn("systemctl disable --now tokenkey-qa-stale-cleanup.timer", bootstrap)
+        self.assertNotIn("EnvironmentFile=-/etc/tokenkey/qa-stale-retention.env", owner)
+        self.assertIn("OnCalendar=*-*-* *:45:00", owner)
+        self.assertIn("RandomizedDelaySec=15min", owner)
+        self.assertNotIn("OnCalendar=*-*-* 04:15:00", owner)
+
+    def test_qa_stale_timer_enable_requires_first_apply_receipt_before_aws(self) -> None:
+        script = ROOT / "ops/stage0/sync-qa-stale-cleanup-timer-via-ssm.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            aws_log = root / "aws.log"
+            (fake_bin / "aws").write_text(
+                '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$AWS_LOG"\nexit 99\n',
+                encoding="utf-8",
+            )
+            (fake_bin / "aws").chmod(0o755)
+            proc = subprocess.run(
+                ["bash", str(script), "i-0123456789abcdef0"],
+                env={
+                    "PATH": f"{fake_bin}:/opt/homebrew/bin:/usr/bin:/bin",
+                    "AWS_LOG": str(aws_log),
+                    "QA_STALE_TIMER_STATE": "enabled",
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("QA_STALE_ACTIVATION_RECEIPT is required", proc.stderr)
+            self.assertFalse(aws_log.exists())
+        sync_body = script.read_text(encoding="utf-8")
+        self.assertIn("qa-stale-first-plan.json", sync_body)
+        self.assertIn('test -f \\"\\${marker}\\"', sync_body)
+        self.assertIn('rm -f \\"\\${marker}\\"', sync_body)
+        self.assertIn("systemctl is-enabled tokenkey-qa-stale-cleanup.timer", sync_body)
+        self.assertNotIn(".activating", sync_body)
+
+    def test_qa_stale_timer_enable_renders_marker_bound_shell(self) -> None:
+        script = ROOT / "ops/stage0/sync-qa-stale-cleanup-timer-via-ssm.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            (fake_bin / "aws").write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
+            (fake_bin / "aws").chmod(0o755)
+            now = dt.datetime.now(dt.timezone.utc)
+            receipt = root / "receipt.json"
+            receipt.write_text(
+                json.dumps(
+                    {
+                        "mode": "prod_qa_age_retention_first_apply",
+                        "instance_id": "i-0123456789abcdef0",
+                        "deletion_authorized": True,
+                        "cutoff": "2026-08-06T12:00:00.000000Z",
+                        "applied_at": now.isoformat().replace("+00:00", "Z"),
+                        "authorization_expires_at": (now + dt.timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
+                        "planned_rows": 42,
+                        "remaining_rows": 0,
+                        "remaining_blob_files": 0,
+                        "remaining_dlq_files": 0,
+                        "marker_sha256": "a" * 64,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            output = root / "output"
+            proc = subprocess.run(
+                ["bash", str(script), "i-0123456789abcdef0"],
+                env={
+                    "PATH": f"{fake_bin}:/opt/homebrew/bin:/usr/bin:/bin",
+                    "QA_STALE_TIMER_STATE": "enabled",
+                    "QA_STALE_ACTIVATION_RECEIPT": str(receipt),
+                    "STAGE0_SSM_OUTPUT_DIR": str(output),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 99, (proc.stdout, proc.stderr))
+            params = json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))
+        timer_command = params["commands"][5]
+        self.assertIn("verify_marker", timer_command)
+        self.assertIn("sha256sum", timer_command)
+        self.assertIn("a" * 64, timer_command)
+        for command in params["commands"]:
+            parsed = subprocess.run(["bash", "-n"], input=command, text=True, capture_output=True)
+            self.assertEqual(parsed.returncode, 0, parsed.stderr)
+
     def test_qa_maintenance_host_script_is_archive_only(self) -> None:
         body = (ROOT / "deploy/aws/stage0/tokenkey-qa-maintenance.sh").read_text(
             encoding="utf-8"
@@ -86,6 +307,7 @@ class TestQAPhaseOps(unittest.TestCase):
         self.assertIn("--qa-maintenance-once", body)
         self.assertIn("tokenkey-prod-qa-maintenance-v1", body)
         self.assertIn("--install-units", body)
+        self.assertIn("OnCalendar=*-*-* *:15:00", body)
         self.assertNotIn("DELETE FROM qa_records", body)
 
     def test_qa_maintenance_unit_has_resource_and_filesystem_limits(self) -> None:
@@ -437,6 +659,43 @@ exit 0
 
         self.assertEqual(proc.returncode, 9)
 
+    def test_historical_backfill_entrypoints_are_absent(self) -> None:
+        self.assertFalse((ROOT / "ops/qa/prod_qa_archive_backfill.py").exists())  # script-ref-allow-missing
+        maintenance = (ROOT / "ops/qa/prod_qa_maintenance.py").read_text(encoding="utf-8")
+        go_owner = (ROOT / "backend/cmd/server/qa_maintenance.go").read_text(encoding="utf-8")
+        self.assertNotIn("backfill_once", maintenance)
+        self.assertNotIn("--backfill-once", maintenance)
+        self.assertNotIn("backfillOnce", go_owner)
+        self.assertNotIn("qa-maintenance-backfill-once", go_owner)
+
+    def test_historical_closeout_has_fixed_targets_and_safety_guards(self) -> None:
+        module = _load_module(
+            "prod_qa_historical_closeout", "ops/qa/prod_qa_historical_closeout.py"
+        )
+        plan = module._remote_script(apply=False)
+        apply = module._remote_script(apply=True)
+        for script in (plan, apply):
+            self.assertIn("2026-08-07 01:00:00+00", script)
+            self.assertIn("2026-08-04 04:00:00+00", script)
+            self.assertIn("commit_mismatch", script)
+            self.assertIn("missing_evidence", script)
+            self.assertIn("tokenkey-qa-maintenance.timer", script)
+            self.assertIn("tokenkey-qa-stale-cleanup.timer", script)
+            self.assertIn("ops:cleanup:leader", script)
+            self.assertNotIn("$WINDOW", script)
+        self.assertNotIn("UPDATE qa_archive_shards", plan)
+        self.assertIn("UPDATE qa_archive_shards", apply)
+        self.assertIn("pg_try_advisory_xact_lock", apply)
+        self.assertIn("cleanup_eligible=false", apply)
+        self.assertIn("deletion_authorized", apply)
+
+    def test_historical_closeout_rejects_wrong_confirmation_before_aws(self) -> None:
+        module = _load_module(
+            "prod_qa_historical_closeout", "ops/qa/prod_qa_historical_closeout.py"
+        )
+        with self.assertRaisesRegex(module.HistoricalCloseoutError, "confirmation"):
+            module.run("apply", "wrong")
+
     def test_qa_archive_closeout_controller_is_fail_closed(self) -> None:
         module = _load_closeout_module()
         window = module._parse_window("2026-08-07T01:00:00Z")
@@ -509,7 +768,6 @@ exit 0
     def test_qa_maintenance_ops_scripts_compile(self) -> None:
         for rel in (
             "ops/qa/prod_qa_maintenance.py",
-            "ops/qa/prod_qa_archive_backfill.py",
             "ops/qa/prod_apply_tk069_migration.py",
             "ops/qa/prod_qa_archive_closeout.py",
         ):
