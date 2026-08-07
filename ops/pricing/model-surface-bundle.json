@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "floor_sha256": "4594d7d98acbf6b7735ad0d2c6f0f0745c53809468852676529b6a0f8d40327f",
+  "floor_sha256": "317dd23f2bdd0c4c041b0bb2d8f45d9986aa121621d8b5ab96735b9d687d3521",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -63,6 +63,7 @@
         "gemini-2.5-pro": "gemini-2.5-pro",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
         "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
         "imagen-4.0-generate-001": "imagen-4.0-generate-001",
         "imagen-4.0-ultra-generate-001": "imagen-4.0-ultra-generate-001",
@@ -164,6 +165,7 @@
         "gemini-2.5-pro": "gemini-2.5-pro",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
         "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
         "imagen-4.0-generate-001": "imagen-4.0-generate-001",
         "imagen-4.0-ultra-generate-001": "imagen-4.0-ultra-generate-001",

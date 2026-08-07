@@ -5017,9 +5017,11 @@
         "hint == PlatformGemini",
         "universalAntigravityTextModel(model)",
         "engine.CapabilityForEndpoint(bridgeEndpoint)",
-        "func universalModelPlatformHint("
+        "func universalModelPlatformHint(",
+        "ShapeOpenAIEmbeddings",
+        "gemini-embedding"
       ],
-      "rationale": "Universal Key endpoint-shape -> candidate-platforms map. Candidate sets are DERIVED from engine single-source (OpenAICompatPlatforms / engine.CapabilityForEndpoint) so a sixth compat platform flows through automatically and the preflight newapi compat-pool drift guard stays satisfied. count_tokens must stay anthropic/antigravity-only; the model->platform hint biases grok/openai/newapi within the openai-compat shape. An upstream refactor hardcoding platform slices here would silently break grok routing and trip the drift guard."
+      "rationale": "Universal Key endpoint-shape -> candidate-platforms map. Candidate sets are DERIVED from engine single-source (OpenAICompatPlatforms / engine.CapabilityForEndpoint) so a sixth compat platform flows through automatically and the preflight newapi compat-pool drift guard stays satisfied. count_tokens must stay anthropic/antigravity-only; the model->platform hint biases grok/openai/newapi within the openai-compat shape. gemini-embedding-* on /v1/embeddings must hint newapi (Google-Vertex ch41 bridge), matching imagen/veo on image/video shapes. An upstream refactor hardcoding platform slices here would silently break grok routing and trip the drift guard."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk.go",

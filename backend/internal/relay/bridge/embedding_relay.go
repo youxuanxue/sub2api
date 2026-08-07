@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	newapirelay "github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -33,6 +34,10 @@ func RunEmbeddingRelay(c *gin.Context, info *relaycommon.RelayInfo) (*dto.Usage,
 	err = helper.ModelMappedHelper(c, info, request)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
+	}
+
+	if info.ChannelType == newapiconstant.ChannelTypeVertexAi {
+		return runVertexEmbeddingRelay(c, info, request)
 	}
 
 	adaptor := newapirelay.GetAdaptor(info.ApiType)

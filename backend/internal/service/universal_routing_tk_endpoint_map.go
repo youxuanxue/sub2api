@@ -239,6 +239,12 @@ func universalRequestPlatformHint(shape UniversalShape, model string) string {
 		if strings.HasPrefix(m, "imagen") || strings.HasPrefix(m, "veo") {
 			return PlatformNewAPI
 		}
+	case ShapeOpenAIEmbeddings:
+		// gemini-embedding-* is probed/served through Google-Vertex (newapi ch41),
+		// not native PlatformGemini groups.
+		if strings.HasPrefix(m, "gemini-embedding") {
+			return PlatformNewAPI
+		}
 	}
 	return universalModelPlatformHint(model)
 }
