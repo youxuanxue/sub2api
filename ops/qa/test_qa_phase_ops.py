@@ -397,6 +397,10 @@ exit 0
             self.assertIn(f"run --rm --pull=never --platform {platform}", calls)
         self.assertIn("test -x /app/sub2api", calls)
         self.assertIn("test -x /app/qa-archive", calls)
+        self.assertIn("/app/sub2api -version", calls)
+        self.assertIn("/app/qa-archive", calls)
+        self.assertIn('test "$qa_rc" -eq 2', calls)
+        self.assertIn(r'*\"error\":\"command\ required:*', calls)
 
     def test_published_release_image_check_fails_on_missing_platform_binary(self) -> None:
         script = ROOT / "scripts/checks/release-image-binaries.sh"
