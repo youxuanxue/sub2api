@@ -1417,8 +1417,7 @@
     "mode": "chat",
     "input_cost_per_token": 2.9850746268656716e-07,
     "output_cost_per_token": 4.4776119402985074e-07,
-    "thinking_output_cost_per_token": 4.4776119402985074e-07,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.002–0.004 / output ¥0.003–0.006 per 1k (tiers ≤32k/>32k); overlay intervals by input tokens; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.002–0.004 / output ¥0.003–0.006 per 1k (tiers ≤32k/>32k); dedicated think SKU bills via interval output_cost_per_token only (no flat thinking_output); CNY/USD=6.7. Serving via account 90 ch46 only.",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
@@ -9638,12 +9637,11 @@
     "mode": "chat",
     "input_cost_per_token": 8.955223880597015e-07,
     "output_cost_per_token": 3.582089552238806e-06,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.006–0.01 / output ¥0.024–0.04 per 1k (tiers ≤32k/>32k); overlay intervals by input tokens; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: input ¥0.006–0.01 / output ¥0.024–0.04 per 1k (tiers ≤32k/>32k); dedicated think SKU bills via interval output_cost_per_token only (no flat thinking_output); CNY/USD=6.7. Serving via account 90 ch46 only.",
     "supported_endpoints": [
       "/v1/chat/completions"
     ],
     "supports_reasoning": true,
-    "thinking_output_cost_per_token": 3.582089552238806e-06,
     "supports_vision": true,
     "intervals": [
       {

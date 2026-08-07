@@ -51,6 +51,17 @@ func TestTkQianfanOverlay_DeepSeekV32UsesTieredIntervals(t *testing.T) {
 	require.InDelta(t, 5.970149253731343e-07, *entry.Intervals[1].InputPrice, 1e-15)
 }
 
+func TestTkQianfanOverlay_ThinkSKUUsesIntervalOutputNotFlatThinkingRate(t *testing.T) {
+	t.Parallel()
+	entry := loadTKPricingOverlay()["deepseek-v3.2-think"]
+	require.NotNil(t, entry)
+	require.Zero(t, entry.ThinkingOutputCostPerToken,
+		"dedicated think SKU with intervals must not pin a flat thinking_output rate")
+	require.Len(t, entry.Intervals, 2)
+	require.NotNil(t, entry.Intervals[1].OutputPrice)
+	require.InDelta(t, 8.955223880597015e-07, *entry.Intervals[1].OutputPrice, 1e-15)
+}
+
 func TestTkQianfanScopedBillingModel_UsesQianfanRatesInCost(t *testing.T) {
 	t.Parallel()
 	svc := newTestBillingService()
