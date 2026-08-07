@@ -41,6 +41,28 @@ const (
 	FieldManifestKey = "manifest_key"
 	// FieldCommitKey holds the string denoting the commit_key field in the database.
 	FieldCommitKey = "commit_key"
+	// FieldCommitEtag holds the string denoting the commit_etag field in the database.
+	FieldCommitEtag = "commit_etag"
+	// FieldAggregateRecordCount holds the string denoting the aggregate_record_count field in the database.
+	FieldAggregateRecordCount = "aggregate_record_count"
+	// FieldAggregateBlobRefCount holds the string denoting the aggregate_blob_ref_count field in the database.
+	FieldAggregateBlobRefCount = "aggregate_blob_ref_count"
+	// FieldAggregateBlobPresentCount holds the string denoting the aggregate_blob_present_count field in the database.
+	FieldAggregateBlobPresentCount = "aggregate_blob_present_count"
+	// FieldAggregateBlobMissingCount holds the string denoting the aggregate_blob_missing_count field in the database.
+	FieldAggregateBlobMissingCount = "aggregate_blob_missing_count"
+	// FieldVerifiedAt holds the string denoting the verified_at field in the database.
+	FieldVerifiedAt = "verified_at"
+	// FieldRestoreVerifiedAt holds the string denoting the restore_verified_at field in the database.
+	FieldRestoreVerifiedAt = "restore_verified_at"
+	// FieldVerificationErrorCode holds the string denoting the verification_error_code field in the database.
+	FieldVerificationErrorCode = "verification_error_code"
+	// FieldLastReconciledAt holds the string denoting the last_reconciled_at field in the database.
+	FieldLastReconciledAt = "last_reconciled_at"
+	// FieldFinalReconciledAt holds the string denoting the final_reconciled_at field in the database.
+	FieldFinalReconciledAt = "final_reconciled_at"
+	// FieldCleanupEligible holds the string denoting the cleanup_eligible field in the database.
+	FieldCleanupEligible = "cleanup_eligible"
 	// FieldFirstAttemptAt holds the string denoting the first_attempt_at field in the database.
 	FieldFirstAttemptAt = "first_attempt_at"
 	// FieldCompletedAt holds the string denoting the completed_at field in the database.
@@ -72,6 +94,17 @@ var Columns = []string{
 	FieldS3Prefix,
 	FieldManifestKey,
 	FieldCommitKey,
+	FieldCommitEtag,
+	FieldAggregateRecordCount,
+	FieldAggregateBlobRefCount,
+	FieldAggregateBlobPresentCount,
+	FieldAggregateBlobMissingCount,
+	FieldVerifiedAt,
+	FieldRestoreVerifiedAt,
+	FieldVerificationErrorCode,
+	FieldLastReconciledAt,
+	FieldFinalReconciledAt,
+	FieldCleanupEligible,
 	FieldFirstAttemptAt,
 	FieldCompletedAt,
 	FieldLastError,
@@ -110,6 +143,16 @@ var (
 	DefaultChecksums map[string]string
 	// DefaultS3Prefix holds the default value on creation for the "s3_prefix" field.
 	DefaultS3Prefix string
+	// DefaultAggregateRecordCount holds the default value on creation for the "aggregate_record_count" field.
+	DefaultAggregateRecordCount int64
+	// DefaultAggregateBlobRefCount holds the default value on creation for the "aggregate_blob_ref_count" field.
+	DefaultAggregateBlobRefCount int64
+	// DefaultAggregateBlobPresentCount holds the default value on creation for the "aggregate_blob_present_count" field.
+	DefaultAggregateBlobPresentCount int64
+	// DefaultAggregateBlobMissingCount holds the default value on creation for the "aggregate_blob_missing_count" field.
+	DefaultAggregateBlobMissingCount int64
+	// DefaultCleanupEligible holds the default value on creation for the "cleanup_eligible" field.
+	DefaultCleanupEligible bool
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
@@ -189,6 +232,61 @@ func ByManifestKey(opts ...sql.OrderTermOption) OrderOption {
 // ByCommitKey orders the results by the commit_key field.
 func ByCommitKey(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCommitKey, opts...).ToFunc()
+}
+
+// ByCommitEtag orders the results by the commit_etag field.
+func ByCommitEtag(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCommitEtag, opts...).ToFunc()
+}
+
+// ByAggregateRecordCount orders the results by the aggregate_record_count field.
+func ByAggregateRecordCount(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAggregateRecordCount, opts...).ToFunc()
+}
+
+// ByAggregateBlobRefCount orders the results by the aggregate_blob_ref_count field.
+func ByAggregateBlobRefCount(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAggregateBlobRefCount, opts...).ToFunc()
+}
+
+// ByAggregateBlobPresentCount orders the results by the aggregate_blob_present_count field.
+func ByAggregateBlobPresentCount(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAggregateBlobPresentCount, opts...).ToFunc()
+}
+
+// ByAggregateBlobMissingCount orders the results by the aggregate_blob_missing_count field.
+func ByAggregateBlobMissingCount(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAggregateBlobMissingCount, opts...).ToFunc()
+}
+
+// ByVerifiedAt orders the results by the verified_at field.
+func ByVerifiedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldVerifiedAt, opts...).ToFunc()
+}
+
+// ByRestoreVerifiedAt orders the results by the restore_verified_at field.
+func ByRestoreVerifiedAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRestoreVerifiedAt, opts...).ToFunc()
+}
+
+// ByVerificationErrorCode orders the results by the verification_error_code field.
+func ByVerificationErrorCode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldVerificationErrorCode, opts...).ToFunc()
+}
+
+// ByLastReconciledAt orders the results by the last_reconciled_at field.
+func ByLastReconciledAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLastReconciledAt, opts...).ToFunc()
+}
+
+// ByFinalReconciledAt orders the results by the final_reconciled_at field.
+func ByFinalReconciledAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFinalReconciledAt, opts...).ToFunc()
+}
+
+// ByCleanupEligible orders the results by the cleanup_eligible field.
+func ByCleanupEligible(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCleanupEligible, opts...).ToFunc()
 }
 
 // ByFirstAttemptAt orders the results by the first_attempt_at field.

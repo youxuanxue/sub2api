@@ -39487,39 +39487,54 @@ func (m *ProxyMutation) ResetEdge(name string) error {
 // QAArchiveShardMutation represents an operation that mutates the QAArchiveShard nodes in the graph.
 type QAArchiveShardMutation struct {
 	config
-	op                    Op
-	typ                   string
-	id                    *int64
-	window_start          *time.Time
-	window_end            *time.Time
-	generation            *int
-	addgeneration         *int
-	state                 *string
-	record_count          *int64
-	addrecord_count       *int64
-	blob_ref_count        *int64
-	addblob_ref_count     *int64
-	blob_present_count    *int64
-	addblob_present_count *int64
-	blob_missing_count    *int64
-	addblob_missing_count *int64
-	logical_bytes         *int64
-	addlogical_bytes      *int64
-	artifact_bytes        *int64
-	addartifact_bytes     *int64
-	checksums             *map[string]string
-	s3_prefix             *string
-	manifest_key          *string
-	commit_key            *string
-	first_attempt_at      *time.Time
-	completed_at          *time.Time
-	last_error            *string
-	created_at            *time.Time
-	updated_at            *time.Time
-	clearedFields         map[string]struct{}
-	done                  bool
-	oldValue              func(context.Context) (*QAArchiveShard, error)
-	predicates            []predicate.QAArchiveShard
+	op                              Op
+	typ                             string
+	id                              *int64
+	window_start                    *time.Time
+	window_end                      *time.Time
+	generation                      *int
+	addgeneration                   *int
+	state                           *string
+	record_count                    *int64
+	addrecord_count                 *int64
+	blob_ref_count                  *int64
+	addblob_ref_count               *int64
+	blob_present_count              *int64
+	addblob_present_count           *int64
+	blob_missing_count              *int64
+	addblob_missing_count           *int64
+	logical_bytes                   *int64
+	addlogical_bytes                *int64
+	artifact_bytes                  *int64
+	addartifact_bytes               *int64
+	checksums                       *map[string]string
+	s3_prefix                       *string
+	manifest_key                    *string
+	commit_key                      *string
+	commit_etag                     *string
+	aggregate_record_count          *int64
+	addaggregate_record_count       *int64
+	aggregate_blob_ref_count        *int64
+	addaggregate_blob_ref_count     *int64
+	aggregate_blob_present_count    *int64
+	addaggregate_blob_present_count *int64
+	aggregate_blob_missing_count    *int64
+	addaggregate_blob_missing_count *int64
+	verified_at                     *time.Time
+	restore_verified_at             *time.Time
+	verification_error_code         *string
+	last_reconciled_at              *time.Time
+	final_reconciled_at             *time.Time
+	cleanup_eligible                *bool
+	first_attempt_at                *time.Time
+	completed_at                    *time.Time
+	last_error                      *string
+	created_at                      *time.Time
+	updated_at                      *time.Time
+	clearedFields                   map[string]struct{}
+	done                            bool
+	oldValue                        func(context.Context) (*QAArchiveShard, error)
+	predicates                      []predicate.QAArchiveShard
 }
 
 var _ ent.Mutation = (*QAArchiveShardMutation)(nil)
@@ -40290,6 +40305,560 @@ func (m *QAArchiveShardMutation) ResetCommitKey() {
 	delete(m.clearedFields, qaarchiveshard.FieldCommitKey)
 }
 
+// SetCommitEtag sets the "commit_etag" field.
+func (m *QAArchiveShardMutation) SetCommitEtag(s string) {
+	m.commit_etag = &s
+}
+
+// CommitEtag returns the value of the "commit_etag" field in the mutation.
+func (m *QAArchiveShardMutation) CommitEtag() (r string, exists bool) {
+	v := m.commit_etag
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCommitEtag returns the old "commit_etag" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldCommitEtag(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCommitEtag is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCommitEtag requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCommitEtag: %w", err)
+	}
+	return oldValue.CommitEtag, nil
+}
+
+// ClearCommitEtag clears the value of the "commit_etag" field.
+func (m *QAArchiveShardMutation) ClearCommitEtag() {
+	m.commit_etag = nil
+	m.clearedFields[qaarchiveshard.FieldCommitEtag] = struct{}{}
+}
+
+// CommitEtagCleared returns if the "commit_etag" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) CommitEtagCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldCommitEtag]
+	return ok
+}
+
+// ResetCommitEtag resets all changes to the "commit_etag" field.
+func (m *QAArchiveShardMutation) ResetCommitEtag() {
+	m.commit_etag = nil
+	delete(m.clearedFields, qaarchiveshard.FieldCommitEtag)
+}
+
+// SetAggregateRecordCount sets the "aggregate_record_count" field.
+func (m *QAArchiveShardMutation) SetAggregateRecordCount(i int64) {
+	m.aggregate_record_count = &i
+	m.addaggregate_record_count = nil
+}
+
+// AggregateRecordCount returns the value of the "aggregate_record_count" field in the mutation.
+func (m *QAArchiveShardMutation) AggregateRecordCount() (r int64, exists bool) {
+	v := m.aggregate_record_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAggregateRecordCount returns the old "aggregate_record_count" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldAggregateRecordCount(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAggregateRecordCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAggregateRecordCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAggregateRecordCount: %w", err)
+	}
+	return oldValue.AggregateRecordCount, nil
+}
+
+// AddAggregateRecordCount adds i to the "aggregate_record_count" field.
+func (m *QAArchiveShardMutation) AddAggregateRecordCount(i int64) {
+	if m.addaggregate_record_count != nil {
+		*m.addaggregate_record_count += i
+	} else {
+		m.addaggregate_record_count = &i
+	}
+}
+
+// AddedAggregateRecordCount returns the value that was added to the "aggregate_record_count" field in this mutation.
+func (m *QAArchiveShardMutation) AddedAggregateRecordCount() (r int64, exists bool) {
+	v := m.addaggregate_record_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAggregateRecordCount resets all changes to the "aggregate_record_count" field.
+func (m *QAArchiveShardMutation) ResetAggregateRecordCount() {
+	m.aggregate_record_count = nil
+	m.addaggregate_record_count = nil
+}
+
+// SetAggregateBlobRefCount sets the "aggregate_blob_ref_count" field.
+func (m *QAArchiveShardMutation) SetAggregateBlobRefCount(i int64) {
+	m.aggregate_blob_ref_count = &i
+	m.addaggregate_blob_ref_count = nil
+}
+
+// AggregateBlobRefCount returns the value of the "aggregate_blob_ref_count" field in the mutation.
+func (m *QAArchiveShardMutation) AggregateBlobRefCount() (r int64, exists bool) {
+	v := m.aggregate_blob_ref_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAggregateBlobRefCount returns the old "aggregate_blob_ref_count" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldAggregateBlobRefCount(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAggregateBlobRefCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAggregateBlobRefCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAggregateBlobRefCount: %w", err)
+	}
+	return oldValue.AggregateBlobRefCount, nil
+}
+
+// AddAggregateBlobRefCount adds i to the "aggregate_blob_ref_count" field.
+func (m *QAArchiveShardMutation) AddAggregateBlobRefCount(i int64) {
+	if m.addaggregate_blob_ref_count != nil {
+		*m.addaggregate_blob_ref_count += i
+	} else {
+		m.addaggregate_blob_ref_count = &i
+	}
+}
+
+// AddedAggregateBlobRefCount returns the value that was added to the "aggregate_blob_ref_count" field in this mutation.
+func (m *QAArchiveShardMutation) AddedAggregateBlobRefCount() (r int64, exists bool) {
+	v := m.addaggregate_blob_ref_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAggregateBlobRefCount resets all changes to the "aggregate_blob_ref_count" field.
+func (m *QAArchiveShardMutation) ResetAggregateBlobRefCount() {
+	m.aggregate_blob_ref_count = nil
+	m.addaggregate_blob_ref_count = nil
+}
+
+// SetAggregateBlobPresentCount sets the "aggregate_blob_present_count" field.
+func (m *QAArchiveShardMutation) SetAggregateBlobPresentCount(i int64) {
+	m.aggregate_blob_present_count = &i
+	m.addaggregate_blob_present_count = nil
+}
+
+// AggregateBlobPresentCount returns the value of the "aggregate_blob_present_count" field in the mutation.
+func (m *QAArchiveShardMutation) AggregateBlobPresentCount() (r int64, exists bool) {
+	v := m.aggregate_blob_present_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAggregateBlobPresentCount returns the old "aggregate_blob_present_count" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldAggregateBlobPresentCount(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAggregateBlobPresentCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAggregateBlobPresentCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAggregateBlobPresentCount: %w", err)
+	}
+	return oldValue.AggregateBlobPresentCount, nil
+}
+
+// AddAggregateBlobPresentCount adds i to the "aggregate_blob_present_count" field.
+func (m *QAArchiveShardMutation) AddAggregateBlobPresentCount(i int64) {
+	if m.addaggregate_blob_present_count != nil {
+		*m.addaggregate_blob_present_count += i
+	} else {
+		m.addaggregate_blob_present_count = &i
+	}
+}
+
+// AddedAggregateBlobPresentCount returns the value that was added to the "aggregate_blob_present_count" field in this mutation.
+func (m *QAArchiveShardMutation) AddedAggregateBlobPresentCount() (r int64, exists bool) {
+	v := m.addaggregate_blob_present_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAggregateBlobPresentCount resets all changes to the "aggregate_blob_present_count" field.
+func (m *QAArchiveShardMutation) ResetAggregateBlobPresentCount() {
+	m.aggregate_blob_present_count = nil
+	m.addaggregate_blob_present_count = nil
+}
+
+// SetAggregateBlobMissingCount sets the "aggregate_blob_missing_count" field.
+func (m *QAArchiveShardMutation) SetAggregateBlobMissingCount(i int64) {
+	m.aggregate_blob_missing_count = &i
+	m.addaggregate_blob_missing_count = nil
+}
+
+// AggregateBlobMissingCount returns the value of the "aggregate_blob_missing_count" field in the mutation.
+func (m *QAArchiveShardMutation) AggregateBlobMissingCount() (r int64, exists bool) {
+	v := m.aggregate_blob_missing_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAggregateBlobMissingCount returns the old "aggregate_blob_missing_count" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldAggregateBlobMissingCount(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAggregateBlobMissingCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAggregateBlobMissingCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAggregateBlobMissingCount: %w", err)
+	}
+	return oldValue.AggregateBlobMissingCount, nil
+}
+
+// AddAggregateBlobMissingCount adds i to the "aggregate_blob_missing_count" field.
+func (m *QAArchiveShardMutation) AddAggregateBlobMissingCount(i int64) {
+	if m.addaggregate_blob_missing_count != nil {
+		*m.addaggregate_blob_missing_count += i
+	} else {
+		m.addaggregate_blob_missing_count = &i
+	}
+}
+
+// AddedAggregateBlobMissingCount returns the value that was added to the "aggregate_blob_missing_count" field in this mutation.
+func (m *QAArchiveShardMutation) AddedAggregateBlobMissingCount() (r int64, exists bool) {
+	v := m.addaggregate_blob_missing_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAggregateBlobMissingCount resets all changes to the "aggregate_blob_missing_count" field.
+func (m *QAArchiveShardMutation) ResetAggregateBlobMissingCount() {
+	m.aggregate_blob_missing_count = nil
+	m.addaggregate_blob_missing_count = nil
+}
+
+// SetVerifiedAt sets the "verified_at" field.
+func (m *QAArchiveShardMutation) SetVerifiedAt(t time.Time) {
+	m.verified_at = &t
+}
+
+// VerifiedAt returns the value of the "verified_at" field in the mutation.
+func (m *QAArchiveShardMutation) VerifiedAt() (r time.Time, exists bool) {
+	v := m.verified_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVerifiedAt returns the old "verified_at" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldVerifiedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVerifiedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVerifiedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVerifiedAt: %w", err)
+	}
+	return oldValue.VerifiedAt, nil
+}
+
+// ClearVerifiedAt clears the value of the "verified_at" field.
+func (m *QAArchiveShardMutation) ClearVerifiedAt() {
+	m.verified_at = nil
+	m.clearedFields[qaarchiveshard.FieldVerifiedAt] = struct{}{}
+}
+
+// VerifiedAtCleared returns if the "verified_at" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) VerifiedAtCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldVerifiedAt]
+	return ok
+}
+
+// ResetVerifiedAt resets all changes to the "verified_at" field.
+func (m *QAArchiveShardMutation) ResetVerifiedAt() {
+	m.verified_at = nil
+	delete(m.clearedFields, qaarchiveshard.FieldVerifiedAt)
+}
+
+// SetRestoreVerifiedAt sets the "restore_verified_at" field.
+func (m *QAArchiveShardMutation) SetRestoreVerifiedAt(t time.Time) {
+	m.restore_verified_at = &t
+}
+
+// RestoreVerifiedAt returns the value of the "restore_verified_at" field in the mutation.
+func (m *QAArchiveShardMutation) RestoreVerifiedAt() (r time.Time, exists bool) {
+	v := m.restore_verified_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRestoreVerifiedAt returns the old "restore_verified_at" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldRestoreVerifiedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRestoreVerifiedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRestoreVerifiedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRestoreVerifiedAt: %w", err)
+	}
+	return oldValue.RestoreVerifiedAt, nil
+}
+
+// ClearRestoreVerifiedAt clears the value of the "restore_verified_at" field.
+func (m *QAArchiveShardMutation) ClearRestoreVerifiedAt() {
+	m.restore_verified_at = nil
+	m.clearedFields[qaarchiveshard.FieldRestoreVerifiedAt] = struct{}{}
+}
+
+// RestoreVerifiedAtCleared returns if the "restore_verified_at" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) RestoreVerifiedAtCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldRestoreVerifiedAt]
+	return ok
+}
+
+// ResetRestoreVerifiedAt resets all changes to the "restore_verified_at" field.
+func (m *QAArchiveShardMutation) ResetRestoreVerifiedAt() {
+	m.restore_verified_at = nil
+	delete(m.clearedFields, qaarchiveshard.FieldRestoreVerifiedAt)
+}
+
+// SetVerificationErrorCode sets the "verification_error_code" field.
+func (m *QAArchiveShardMutation) SetVerificationErrorCode(s string) {
+	m.verification_error_code = &s
+}
+
+// VerificationErrorCode returns the value of the "verification_error_code" field in the mutation.
+func (m *QAArchiveShardMutation) VerificationErrorCode() (r string, exists bool) {
+	v := m.verification_error_code
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVerificationErrorCode returns the old "verification_error_code" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldVerificationErrorCode(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVerificationErrorCode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVerificationErrorCode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVerificationErrorCode: %w", err)
+	}
+	return oldValue.VerificationErrorCode, nil
+}
+
+// ClearVerificationErrorCode clears the value of the "verification_error_code" field.
+func (m *QAArchiveShardMutation) ClearVerificationErrorCode() {
+	m.verification_error_code = nil
+	m.clearedFields[qaarchiveshard.FieldVerificationErrorCode] = struct{}{}
+}
+
+// VerificationErrorCodeCleared returns if the "verification_error_code" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) VerificationErrorCodeCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldVerificationErrorCode]
+	return ok
+}
+
+// ResetVerificationErrorCode resets all changes to the "verification_error_code" field.
+func (m *QAArchiveShardMutation) ResetVerificationErrorCode() {
+	m.verification_error_code = nil
+	delete(m.clearedFields, qaarchiveshard.FieldVerificationErrorCode)
+}
+
+// SetLastReconciledAt sets the "last_reconciled_at" field.
+func (m *QAArchiveShardMutation) SetLastReconciledAt(t time.Time) {
+	m.last_reconciled_at = &t
+}
+
+// LastReconciledAt returns the value of the "last_reconciled_at" field in the mutation.
+func (m *QAArchiveShardMutation) LastReconciledAt() (r time.Time, exists bool) {
+	v := m.last_reconciled_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastReconciledAt returns the old "last_reconciled_at" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldLastReconciledAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastReconciledAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastReconciledAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastReconciledAt: %w", err)
+	}
+	return oldValue.LastReconciledAt, nil
+}
+
+// ClearLastReconciledAt clears the value of the "last_reconciled_at" field.
+func (m *QAArchiveShardMutation) ClearLastReconciledAt() {
+	m.last_reconciled_at = nil
+	m.clearedFields[qaarchiveshard.FieldLastReconciledAt] = struct{}{}
+}
+
+// LastReconciledAtCleared returns if the "last_reconciled_at" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) LastReconciledAtCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldLastReconciledAt]
+	return ok
+}
+
+// ResetLastReconciledAt resets all changes to the "last_reconciled_at" field.
+func (m *QAArchiveShardMutation) ResetLastReconciledAt() {
+	m.last_reconciled_at = nil
+	delete(m.clearedFields, qaarchiveshard.FieldLastReconciledAt)
+}
+
+// SetFinalReconciledAt sets the "final_reconciled_at" field.
+func (m *QAArchiveShardMutation) SetFinalReconciledAt(t time.Time) {
+	m.final_reconciled_at = &t
+}
+
+// FinalReconciledAt returns the value of the "final_reconciled_at" field in the mutation.
+func (m *QAArchiveShardMutation) FinalReconciledAt() (r time.Time, exists bool) {
+	v := m.final_reconciled_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFinalReconciledAt returns the old "final_reconciled_at" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldFinalReconciledAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFinalReconciledAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFinalReconciledAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFinalReconciledAt: %w", err)
+	}
+	return oldValue.FinalReconciledAt, nil
+}
+
+// ClearFinalReconciledAt clears the value of the "final_reconciled_at" field.
+func (m *QAArchiveShardMutation) ClearFinalReconciledAt() {
+	m.final_reconciled_at = nil
+	m.clearedFields[qaarchiveshard.FieldFinalReconciledAt] = struct{}{}
+}
+
+// FinalReconciledAtCleared returns if the "final_reconciled_at" field was cleared in this mutation.
+func (m *QAArchiveShardMutation) FinalReconciledAtCleared() bool {
+	_, ok := m.clearedFields[qaarchiveshard.FieldFinalReconciledAt]
+	return ok
+}
+
+// ResetFinalReconciledAt resets all changes to the "final_reconciled_at" field.
+func (m *QAArchiveShardMutation) ResetFinalReconciledAt() {
+	m.final_reconciled_at = nil
+	delete(m.clearedFields, qaarchiveshard.FieldFinalReconciledAt)
+}
+
+// SetCleanupEligible sets the "cleanup_eligible" field.
+func (m *QAArchiveShardMutation) SetCleanupEligible(b bool) {
+	m.cleanup_eligible = &b
+}
+
+// CleanupEligible returns the value of the "cleanup_eligible" field in the mutation.
+func (m *QAArchiveShardMutation) CleanupEligible() (r bool, exists bool) {
+	v := m.cleanup_eligible
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCleanupEligible returns the old "cleanup_eligible" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldCleanupEligible(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCleanupEligible is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCleanupEligible requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCleanupEligible: %w", err)
+	}
+	return oldValue.CleanupEligible, nil
+}
+
+// ResetCleanupEligible resets all changes to the "cleanup_eligible" field.
+func (m *QAArchiveShardMutation) ResetCleanupEligible() {
+	m.cleanup_eligible = nil
+}
+
 // SetFirstAttemptAt sets the "first_attempt_at" field.
 func (m *QAArchiveShardMutation) SetFirstAttemptAt(t time.Time) {
 	m.first_attempt_at = &t
@@ -40543,7 +41112,7 @@ func (m *QAArchiveShardMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *QAArchiveShardMutation) Fields() []string {
-	fields := make([]string, 0, 19)
+	fields := make([]string, 0, 30)
 	if m.window_start != nil {
 		fields = append(fields, qaarchiveshard.FieldWindowStart)
 	}
@@ -40585,6 +41154,39 @@ func (m *QAArchiveShardMutation) Fields() []string {
 	}
 	if m.commit_key != nil {
 		fields = append(fields, qaarchiveshard.FieldCommitKey)
+	}
+	if m.commit_etag != nil {
+		fields = append(fields, qaarchiveshard.FieldCommitEtag)
+	}
+	if m.aggregate_record_count != nil {
+		fields = append(fields, qaarchiveshard.FieldAggregateRecordCount)
+	}
+	if m.aggregate_blob_ref_count != nil {
+		fields = append(fields, qaarchiveshard.FieldAggregateBlobRefCount)
+	}
+	if m.aggregate_blob_present_count != nil {
+		fields = append(fields, qaarchiveshard.FieldAggregateBlobPresentCount)
+	}
+	if m.aggregate_blob_missing_count != nil {
+		fields = append(fields, qaarchiveshard.FieldAggregateBlobMissingCount)
+	}
+	if m.verified_at != nil {
+		fields = append(fields, qaarchiveshard.FieldVerifiedAt)
+	}
+	if m.restore_verified_at != nil {
+		fields = append(fields, qaarchiveshard.FieldRestoreVerifiedAt)
+	}
+	if m.verification_error_code != nil {
+		fields = append(fields, qaarchiveshard.FieldVerificationErrorCode)
+	}
+	if m.last_reconciled_at != nil {
+		fields = append(fields, qaarchiveshard.FieldLastReconciledAt)
+	}
+	if m.final_reconciled_at != nil {
+		fields = append(fields, qaarchiveshard.FieldFinalReconciledAt)
+	}
+	if m.cleanup_eligible != nil {
+		fields = append(fields, qaarchiveshard.FieldCleanupEligible)
 	}
 	if m.first_attempt_at != nil {
 		fields = append(fields, qaarchiveshard.FieldFirstAttemptAt)
@@ -40637,6 +41239,28 @@ func (m *QAArchiveShardMutation) Field(name string) (ent.Value, bool) {
 		return m.ManifestKey()
 	case qaarchiveshard.FieldCommitKey:
 		return m.CommitKey()
+	case qaarchiveshard.FieldCommitEtag:
+		return m.CommitEtag()
+	case qaarchiveshard.FieldAggregateRecordCount:
+		return m.AggregateRecordCount()
+	case qaarchiveshard.FieldAggregateBlobRefCount:
+		return m.AggregateBlobRefCount()
+	case qaarchiveshard.FieldAggregateBlobPresentCount:
+		return m.AggregateBlobPresentCount()
+	case qaarchiveshard.FieldAggregateBlobMissingCount:
+		return m.AggregateBlobMissingCount()
+	case qaarchiveshard.FieldVerifiedAt:
+		return m.VerifiedAt()
+	case qaarchiveshard.FieldRestoreVerifiedAt:
+		return m.RestoreVerifiedAt()
+	case qaarchiveshard.FieldVerificationErrorCode:
+		return m.VerificationErrorCode()
+	case qaarchiveshard.FieldLastReconciledAt:
+		return m.LastReconciledAt()
+	case qaarchiveshard.FieldFinalReconciledAt:
+		return m.FinalReconciledAt()
+	case qaarchiveshard.FieldCleanupEligible:
+		return m.CleanupEligible()
 	case qaarchiveshard.FieldFirstAttemptAt:
 		return m.FirstAttemptAt()
 	case qaarchiveshard.FieldCompletedAt:
@@ -40684,6 +41308,28 @@ func (m *QAArchiveShardMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldManifestKey(ctx)
 	case qaarchiveshard.FieldCommitKey:
 		return m.OldCommitKey(ctx)
+	case qaarchiveshard.FieldCommitEtag:
+		return m.OldCommitEtag(ctx)
+	case qaarchiveshard.FieldAggregateRecordCount:
+		return m.OldAggregateRecordCount(ctx)
+	case qaarchiveshard.FieldAggregateBlobRefCount:
+		return m.OldAggregateBlobRefCount(ctx)
+	case qaarchiveshard.FieldAggregateBlobPresentCount:
+		return m.OldAggregateBlobPresentCount(ctx)
+	case qaarchiveshard.FieldAggregateBlobMissingCount:
+		return m.OldAggregateBlobMissingCount(ctx)
+	case qaarchiveshard.FieldVerifiedAt:
+		return m.OldVerifiedAt(ctx)
+	case qaarchiveshard.FieldRestoreVerifiedAt:
+		return m.OldRestoreVerifiedAt(ctx)
+	case qaarchiveshard.FieldVerificationErrorCode:
+		return m.OldVerificationErrorCode(ctx)
+	case qaarchiveshard.FieldLastReconciledAt:
+		return m.OldLastReconciledAt(ctx)
+	case qaarchiveshard.FieldFinalReconciledAt:
+		return m.OldFinalReconciledAt(ctx)
+	case qaarchiveshard.FieldCleanupEligible:
+		return m.OldCleanupEligible(ctx)
 	case qaarchiveshard.FieldFirstAttemptAt:
 		return m.OldFirstAttemptAt(ctx)
 	case qaarchiveshard.FieldCompletedAt:
@@ -40801,6 +41447,83 @@ func (m *QAArchiveShardMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetCommitKey(v)
 		return nil
+	case qaarchiveshard.FieldCommitEtag:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCommitEtag(v)
+		return nil
+	case qaarchiveshard.FieldAggregateRecordCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAggregateRecordCount(v)
+		return nil
+	case qaarchiveshard.FieldAggregateBlobRefCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAggregateBlobRefCount(v)
+		return nil
+	case qaarchiveshard.FieldAggregateBlobPresentCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAggregateBlobPresentCount(v)
+		return nil
+	case qaarchiveshard.FieldAggregateBlobMissingCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAggregateBlobMissingCount(v)
+		return nil
+	case qaarchiveshard.FieldVerifiedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVerifiedAt(v)
+		return nil
+	case qaarchiveshard.FieldRestoreVerifiedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRestoreVerifiedAt(v)
+		return nil
+	case qaarchiveshard.FieldVerificationErrorCode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVerificationErrorCode(v)
+		return nil
+	case qaarchiveshard.FieldLastReconciledAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastReconciledAt(v)
+		return nil
+	case qaarchiveshard.FieldFinalReconciledAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFinalReconciledAt(v)
+		return nil
+	case qaarchiveshard.FieldCleanupEligible:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCleanupEligible(v)
+		return nil
 	case qaarchiveshard.FieldFirstAttemptAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -40865,6 +41588,18 @@ func (m *QAArchiveShardMutation) AddedFields() []string {
 	if m.addartifact_bytes != nil {
 		fields = append(fields, qaarchiveshard.FieldArtifactBytes)
 	}
+	if m.addaggregate_record_count != nil {
+		fields = append(fields, qaarchiveshard.FieldAggregateRecordCount)
+	}
+	if m.addaggregate_blob_ref_count != nil {
+		fields = append(fields, qaarchiveshard.FieldAggregateBlobRefCount)
+	}
+	if m.addaggregate_blob_present_count != nil {
+		fields = append(fields, qaarchiveshard.FieldAggregateBlobPresentCount)
+	}
+	if m.addaggregate_blob_missing_count != nil {
+		fields = append(fields, qaarchiveshard.FieldAggregateBlobMissingCount)
+	}
 	return fields
 }
 
@@ -40887,6 +41622,14 @@ func (m *QAArchiveShardMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedLogicalBytes()
 	case qaarchiveshard.FieldArtifactBytes:
 		return m.AddedArtifactBytes()
+	case qaarchiveshard.FieldAggregateRecordCount:
+		return m.AddedAggregateRecordCount()
+	case qaarchiveshard.FieldAggregateBlobRefCount:
+		return m.AddedAggregateBlobRefCount()
+	case qaarchiveshard.FieldAggregateBlobPresentCount:
+		return m.AddedAggregateBlobPresentCount()
+	case qaarchiveshard.FieldAggregateBlobMissingCount:
+		return m.AddedAggregateBlobMissingCount()
 	}
 	return nil, false
 }
@@ -40945,6 +41688,34 @@ func (m *QAArchiveShardMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddArtifactBytes(v)
 		return nil
+	case qaarchiveshard.FieldAggregateRecordCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAggregateRecordCount(v)
+		return nil
+	case qaarchiveshard.FieldAggregateBlobRefCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAggregateBlobRefCount(v)
+		return nil
+	case qaarchiveshard.FieldAggregateBlobPresentCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAggregateBlobPresentCount(v)
+		return nil
+	case qaarchiveshard.FieldAggregateBlobMissingCount:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAggregateBlobMissingCount(v)
+		return nil
 	}
 	return fmt.Errorf("unknown QAArchiveShard numeric field %s", name)
 }
@@ -40958,6 +41729,24 @@ func (m *QAArchiveShardMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(qaarchiveshard.FieldCommitKey) {
 		fields = append(fields, qaarchiveshard.FieldCommitKey)
+	}
+	if m.FieldCleared(qaarchiveshard.FieldCommitEtag) {
+		fields = append(fields, qaarchiveshard.FieldCommitEtag)
+	}
+	if m.FieldCleared(qaarchiveshard.FieldVerifiedAt) {
+		fields = append(fields, qaarchiveshard.FieldVerifiedAt)
+	}
+	if m.FieldCleared(qaarchiveshard.FieldRestoreVerifiedAt) {
+		fields = append(fields, qaarchiveshard.FieldRestoreVerifiedAt)
+	}
+	if m.FieldCleared(qaarchiveshard.FieldVerificationErrorCode) {
+		fields = append(fields, qaarchiveshard.FieldVerificationErrorCode)
+	}
+	if m.FieldCleared(qaarchiveshard.FieldLastReconciledAt) {
+		fields = append(fields, qaarchiveshard.FieldLastReconciledAt)
+	}
+	if m.FieldCleared(qaarchiveshard.FieldFinalReconciledAt) {
+		fields = append(fields, qaarchiveshard.FieldFinalReconciledAt)
 	}
 	if m.FieldCleared(qaarchiveshard.FieldFirstAttemptAt) {
 		fields = append(fields, qaarchiveshard.FieldFirstAttemptAt)
@@ -40987,6 +41776,24 @@ func (m *QAArchiveShardMutation) ClearField(name string) error {
 		return nil
 	case qaarchiveshard.FieldCommitKey:
 		m.ClearCommitKey()
+		return nil
+	case qaarchiveshard.FieldCommitEtag:
+		m.ClearCommitEtag()
+		return nil
+	case qaarchiveshard.FieldVerifiedAt:
+		m.ClearVerifiedAt()
+		return nil
+	case qaarchiveshard.FieldRestoreVerifiedAt:
+		m.ClearRestoreVerifiedAt()
+		return nil
+	case qaarchiveshard.FieldVerificationErrorCode:
+		m.ClearVerificationErrorCode()
+		return nil
+	case qaarchiveshard.FieldLastReconciledAt:
+		m.ClearLastReconciledAt()
+		return nil
+	case qaarchiveshard.FieldFinalReconciledAt:
+		m.ClearFinalReconciledAt()
 		return nil
 	case qaarchiveshard.FieldFirstAttemptAt:
 		m.ClearFirstAttemptAt()
@@ -41046,6 +41853,39 @@ func (m *QAArchiveShardMutation) ResetField(name string) error {
 		return nil
 	case qaarchiveshard.FieldCommitKey:
 		m.ResetCommitKey()
+		return nil
+	case qaarchiveshard.FieldCommitEtag:
+		m.ResetCommitEtag()
+		return nil
+	case qaarchiveshard.FieldAggregateRecordCount:
+		m.ResetAggregateRecordCount()
+		return nil
+	case qaarchiveshard.FieldAggregateBlobRefCount:
+		m.ResetAggregateBlobRefCount()
+		return nil
+	case qaarchiveshard.FieldAggregateBlobPresentCount:
+		m.ResetAggregateBlobPresentCount()
+		return nil
+	case qaarchiveshard.FieldAggregateBlobMissingCount:
+		m.ResetAggregateBlobMissingCount()
+		return nil
+	case qaarchiveshard.FieldVerifiedAt:
+		m.ResetVerifiedAt()
+		return nil
+	case qaarchiveshard.FieldRestoreVerifiedAt:
+		m.ResetRestoreVerifiedAt()
+		return nil
+	case qaarchiveshard.FieldVerificationErrorCode:
+		m.ResetVerificationErrorCode()
+		return nil
+	case qaarchiveshard.FieldLastReconciledAt:
+		m.ResetLastReconciledAt()
+		return nil
+	case qaarchiveshard.FieldFinalReconciledAt:
+		m.ResetFinalReconciledAt()
+		return nil
+	case qaarchiveshard.FieldCleanupEligible:
+		m.ResetCleanupEligible()
 		return nil
 	case qaarchiveshard.FieldFirstAttemptAt:
 		m.ResetFirstAttemptAt()

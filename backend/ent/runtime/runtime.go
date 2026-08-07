@@ -1791,12 +1791,32 @@ func init() {
 	qaarchiveshardDescS3Prefix := qaarchiveshardFields[11].Descriptor()
 	// qaarchiveshard.DefaultS3Prefix holds the default value on creation for the s3_prefix field.
 	qaarchiveshard.DefaultS3Prefix = qaarchiveshardDescS3Prefix.Default.(string)
+	// qaarchiveshardDescAggregateRecordCount is the schema descriptor for aggregate_record_count field.
+	qaarchiveshardDescAggregateRecordCount := qaarchiveshardFields[15].Descriptor()
+	// qaarchiveshard.DefaultAggregateRecordCount holds the default value on creation for the aggregate_record_count field.
+	qaarchiveshard.DefaultAggregateRecordCount = qaarchiveshardDescAggregateRecordCount.Default.(int64)
+	// qaarchiveshardDescAggregateBlobRefCount is the schema descriptor for aggregate_blob_ref_count field.
+	qaarchiveshardDescAggregateBlobRefCount := qaarchiveshardFields[16].Descriptor()
+	// qaarchiveshard.DefaultAggregateBlobRefCount holds the default value on creation for the aggregate_blob_ref_count field.
+	qaarchiveshard.DefaultAggregateBlobRefCount = qaarchiveshardDescAggregateBlobRefCount.Default.(int64)
+	// qaarchiveshardDescAggregateBlobPresentCount is the schema descriptor for aggregate_blob_present_count field.
+	qaarchiveshardDescAggregateBlobPresentCount := qaarchiveshardFields[17].Descriptor()
+	// qaarchiveshard.DefaultAggregateBlobPresentCount holds the default value on creation for the aggregate_blob_present_count field.
+	qaarchiveshard.DefaultAggregateBlobPresentCount = qaarchiveshardDescAggregateBlobPresentCount.Default.(int64)
+	// qaarchiveshardDescAggregateBlobMissingCount is the schema descriptor for aggregate_blob_missing_count field.
+	qaarchiveshardDescAggregateBlobMissingCount := qaarchiveshardFields[18].Descriptor()
+	// qaarchiveshard.DefaultAggregateBlobMissingCount holds the default value on creation for the aggregate_blob_missing_count field.
+	qaarchiveshard.DefaultAggregateBlobMissingCount = qaarchiveshardDescAggregateBlobMissingCount.Default.(int64)
+	// qaarchiveshardDescCleanupEligible is the schema descriptor for cleanup_eligible field.
+	qaarchiveshardDescCleanupEligible := qaarchiveshardFields[24].Descriptor()
+	// qaarchiveshard.DefaultCleanupEligible holds the default value on creation for the cleanup_eligible field.
+	qaarchiveshard.DefaultCleanupEligible = qaarchiveshardDescCleanupEligible.Default.(bool)
 	// qaarchiveshardDescCreatedAt is the schema descriptor for created_at field.
-	qaarchiveshardDescCreatedAt := qaarchiveshardFields[17].Descriptor()
+	qaarchiveshardDescCreatedAt := qaarchiveshardFields[28].Descriptor()
 	// qaarchiveshard.DefaultCreatedAt holds the default value on creation for the created_at field.
 	qaarchiveshard.DefaultCreatedAt = qaarchiveshardDescCreatedAt.Default.(func() time.Time)
 	// qaarchiveshardDescUpdatedAt is the schema descriptor for updated_at field.
-	qaarchiveshardDescUpdatedAt := qaarchiveshardFields[18].Descriptor()
+	qaarchiveshardDescUpdatedAt := qaarchiveshardFields[29].Descriptor()
 	// qaarchiveshard.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	qaarchiveshard.DefaultUpdatedAt = qaarchiveshardDescUpdatedAt.Default.(func() time.Time)
 	// qaarchiveshard.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.

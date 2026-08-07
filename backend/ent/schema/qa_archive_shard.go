@@ -41,6 +41,29 @@ func (QAArchiveShard) Fields() []ent.Field {
 		field.String("s3_prefix").Default(""),
 		field.String("manifest_key").Optional().Nillable(),
 		field.String("commit_key").Optional().Nillable(),
+		field.String("commit_etag").Optional().Nillable(),
+		field.Int64("aggregate_record_count").Default(0),
+		field.Int64("aggregate_blob_ref_count").Default(0),
+		field.Int64("aggregate_blob_present_count").Default(0),
+		field.Int64("aggregate_blob_missing_count").Default(0),
+		field.Time("verified_at").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
+		field.Time("restore_verified_at").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
+		field.String("verification_error_code").Optional().Nillable(),
+		field.Time("last_reconciled_at").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
+		field.Time("final_reconciled_at").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
+		field.Bool("cleanup_eligible").Default(false),
 		field.Time("first_attempt_at").
 			Optional().
 			Nillable().

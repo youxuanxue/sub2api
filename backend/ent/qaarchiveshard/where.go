@@ -119,6 +119,61 @@ func CommitKey(v string) predicate.QAArchiveShard {
 	return predicate.QAArchiveShard(sql.FieldEQ(FieldCommitKey, v))
 }
 
+// CommitEtag applies equality check predicate on the "commit_etag" field. It's identical to CommitEtagEQ.
+func CommitEtag(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldCommitEtag, v))
+}
+
+// AggregateRecordCount applies equality check predicate on the "aggregate_record_count" field. It's identical to AggregateRecordCountEQ.
+func AggregateRecordCount(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldAggregateRecordCount, v))
+}
+
+// AggregateBlobRefCount applies equality check predicate on the "aggregate_blob_ref_count" field. It's identical to AggregateBlobRefCountEQ.
+func AggregateBlobRefCount(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldAggregateBlobRefCount, v))
+}
+
+// AggregateBlobPresentCount applies equality check predicate on the "aggregate_blob_present_count" field. It's identical to AggregateBlobPresentCountEQ.
+func AggregateBlobPresentCount(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldAggregateBlobPresentCount, v))
+}
+
+// AggregateBlobMissingCount applies equality check predicate on the "aggregate_blob_missing_count" field. It's identical to AggregateBlobMissingCountEQ.
+func AggregateBlobMissingCount(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldAggregateBlobMissingCount, v))
+}
+
+// VerifiedAt applies equality check predicate on the "verified_at" field. It's identical to VerifiedAtEQ.
+func VerifiedAt(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldVerifiedAt, v))
+}
+
+// RestoreVerifiedAt applies equality check predicate on the "restore_verified_at" field. It's identical to RestoreVerifiedAtEQ.
+func RestoreVerifiedAt(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldRestoreVerifiedAt, v))
+}
+
+// VerificationErrorCode applies equality check predicate on the "verification_error_code" field. It's identical to VerificationErrorCodeEQ.
+func VerificationErrorCode(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldVerificationErrorCode, v))
+}
+
+// LastReconciledAt applies equality check predicate on the "last_reconciled_at" field. It's identical to LastReconciledAtEQ.
+func LastReconciledAt(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldLastReconciledAt, v))
+}
+
+// FinalReconciledAt applies equality check predicate on the "final_reconciled_at" field. It's identical to FinalReconciledAtEQ.
+func FinalReconciledAt(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldFinalReconciledAt, v))
+}
+
+// CleanupEligible applies equality check predicate on the "cleanup_eligible" field. It's identical to CleanupEligibleEQ.
+func CleanupEligible(v bool) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldCleanupEligible, v))
+}
+
 // FirstAttemptAt applies equality check predicate on the "first_attempt_at" field. It's identical to FirstAttemptAtEQ.
 func FirstAttemptAt(v time.Time) predicate.QAArchiveShard {
 	return predicate.QAArchiveShard(sql.FieldEQ(FieldFirstAttemptAt, v))
@@ -782,6 +837,526 @@ func CommitKeyEqualFold(v string) predicate.QAArchiveShard {
 // CommitKeyContainsFold applies the ContainsFold predicate on the "commit_key" field.
 func CommitKeyContainsFold(v string) predicate.QAArchiveShard {
 	return predicate.QAArchiveShard(sql.FieldContainsFold(FieldCommitKey, v))
+}
+
+// CommitEtagEQ applies the EQ predicate on the "commit_etag" field.
+func CommitEtagEQ(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldCommitEtag, v))
+}
+
+// CommitEtagNEQ applies the NEQ predicate on the "commit_etag" field.
+func CommitEtagNEQ(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldCommitEtag, v))
+}
+
+// CommitEtagIn applies the In predicate on the "commit_etag" field.
+func CommitEtagIn(vs ...string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldCommitEtag, vs...))
+}
+
+// CommitEtagNotIn applies the NotIn predicate on the "commit_etag" field.
+func CommitEtagNotIn(vs ...string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldCommitEtag, vs...))
+}
+
+// CommitEtagGT applies the GT predicate on the "commit_etag" field.
+func CommitEtagGT(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldCommitEtag, v))
+}
+
+// CommitEtagGTE applies the GTE predicate on the "commit_etag" field.
+func CommitEtagGTE(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldCommitEtag, v))
+}
+
+// CommitEtagLT applies the LT predicate on the "commit_etag" field.
+func CommitEtagLT(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldCommitEtag, v))
+}
+
+// CommitEtagLTE applies the LTE predicate on the "commit_etag" field.
+func CommitEtagLTE(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldCommitEtag, v))
+}
+
+// CommitEtagContains applies the Contains predicate on the "commit_etag" field.
+func CommitEtagContains(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldContains(FieldCommitEtag, v))
+}
+
+// CommitEtagHasPrefix applies the HasPrefix predicate on the "commit_etag" field.
+func CommitEtagHasPrefix(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldHasPrefix(FieldCommitEtag, v))
+}
+
+// CommitEtagHasSuffix applies the HasSuffix predicate on the "commit_etag" field.
+func CommitEtagHasSuffix(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldHasSuffix(FieldCommitEtag, v))
+}
+
+// CommitEtagIsNil applies the IsNil predicate on the "commit_etag" field.
+func CommitEtagIsNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIsNull(FieldCommitEtag))
+}
+
+// CommitEtagNotNil applies the NotNil predicate on the "commit_etag" field.
+func CommitEtagNotNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotNull(FieldCommitEtag))
+}
+
+// CommitEtagEqualFold applies the EqualFold predicate on the "commit_etag" field.
+func CommitEtagEqualFold(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEqualFold(FieldCommitEtag, v))
+}
+
+// CommitEtagContainsFold applies the ContainsFold predicate on the "commit_etag" field.
+func CommitEtagContainsFold(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldContainsFold(FieldCommitEtag, v))
+}
+
+// AggregateRecordCountEQ applies the EQ predicate on the "aggregate_record_count" field.
+func AggregateRecordCountEQ(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldAggregateRecordCount, v))
+}
+
+// AggregateRecordCountNEQ applies the NEQ predicate on the "aggregate_record_count" field.
+func AggregateRecordCountNEQ(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldAggregateRecordCount, v))
+}
+
+// AggregateRecordCountIn applies the In predicate on the "aggregate_record_count" field.
+func AggregateRecordCountIn(vs ...int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldAggregateRecordCount, vs...))
+}
+
+// AggregateRecordCountNotIn applies the NotIn predicate on the "aggregate_record_count" field.
+func AggregateRecordCountNotIn(vs ...int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldAggregateRecordCount, vs...))
+}
+
+// AggregateRecordCountGT applies the GT predicate on the "aggregate_record_count" field.
+func AggregateRecordCountGT(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldAggregateRecordCount, v))
+}
+
+// AggregateRecordCountGTE applies the GTE predicate on the "aggregate_record_count" field.
+func AggregateRecordCountGTE(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldAggregateRecordCount, v))
+}
+
+// AggregateRecordCountLT applies the LT predicate on the "aggregate_record_count" field.
+func AggregateRecordCountLT(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldAggregateRecordCount, v))
+}
+
+// AggregateRecordCountLTE applies the LTE predicate on the "aggregate_record_count" field.
+func AggregateRecordCountLTE(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldAggregateRecordCount, v))
+}
+
+// AggregateBlobRefCountEQ applies the EQ predicate on the "aggregate_blob_ref_count" field.
+func AggregateBlobRefCountEQ(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldAggregateBlobRefCount, v))
+}
+
+// AggregateBlobRefCountNEQ applies the NEQ predicate on the "aggregate_blob_ref_count" field.
+func AggregateBlobRefCountNEQ(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldAggregateBlobRefCount, v))
+}
+
+// AggregateBlobRefCountIn applies the In predicate on the "aggregate_blob_ref_count" field.
+func AggregateBlobRefCountIn(vs ...int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldAggregateBlobRefCount, vs...))
+}
+
+// AggregateBlobRefCountNotIn applies the NotIn predicate on the "aggregate_blob_ref_count" field.
+func AggregateBlobRefCountNotIn(vs ...int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldAggregateBlobRefCount, vs...))
+}
+
+// AggregateBlobRefCountGT applies the GT predicate on the "aggregate_blob_ref_count" field.
+func AggregateBlobRefCountGT(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldAggregateBlobRefCount, v))
+}
+
+// AggregateBlobRefCountGTE applies the GTE predicate on the "aggregate_blob_ref_count" field.
+func AggregateBlobRefCountGTE(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldAggregateBlobRefCount, v))
+}
+
+// AggregateBlobRefCountLT applies the LT predicate on the "aggregate_blob_ref_count" field.
+func AggregateBlobRefCountLT(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldAggregateBlobRefCount, v))
+}
+
+// AggregateBlobRefCountLTE applies the LTE predicate on the "aggregate_blob_ref_count" field.
+func AggregateBlobRefCountLTE(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldAggregateBlobRefCount, v))
+}
+
+// AggregateBlobPresentCountEQ applies the EQ predicate on the "aggregate_blob_present_count" field.
+func AggregateBlobPresentCountEQ(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldAggregateBlobPresentCount, v))
+}
+
+// AggregateBlobPresentCountNEQ applies the NEQ predicate on the "aggregate_blob_present_count" field.
+func AggregateBlobPresentCountNEQ(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldAggregateBlobPresentCount, v))
+}
+
+// AggregateBlobPresentCountIn applies the In predicate on the "aggregate_blob_present_count" field.
+func AggregateBlobPresentCountIn(vs ...int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldAggregateBlobPresentCount, vs...))
+}
+
+// AggregateBlobPresentCountNotIn applies the NotIn predicate on the "aggregate_blob_present_count" field.
+func AggregateBlobPresentCountNotIn(vs ...int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldAggregateBlobPresentCount, vs...))
+}
+
+// AggregateBlobPresentCountGT applies the GT predicate on the "aggregate_blob_present_count" field.
+func AggregateBlobPresentCountGT(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldAggregateBlobPresentCount, v))
+}
+
+// AggregateBlobPresentCountGTE applies the GTE predicate on the "aggregate_blob_present_count" field.
+func AggregateBlobPresentCountGTE(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldAggregateBlobPresentCount, v))
+}
+
+// AggregateBlobPresentCountLT applies the LT predicate on the "aggregate_blob_present_count" field.
+func AggregateBlobPresentCountLT(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldAggregateBlobPresentCount, v))
+}
+
+// AggregateBlobPresentCountLTE applies the LTE predicate on the "aggregate_blob_present_count" field.
+func AggregateBlobPresentCountLTE(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldAggregateBlobPresentCount, v))
+}
+
+// AggregateBlobMissingCountEQ applies the EQ predicate on the "aggregate_blob_missing_count" field.
+func AggregateBlobMissingCountEQ(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldAggregateBlobMissingCount, v))
+}
+
+// AggregateBlobMissingCountNEQ applies the NEQ predicate on the "aggregate_blob_missing_count" field.
+func AggregateBlobMissingCountNEQ(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldAggregateBlobMissingCount, v))
+}
+
+// AggregateBlobMissingCountIn applies the In predicate on the "aggregate_blob_missing_count" field.
+func AggregateBlobMissingCountIn(vs ...int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldAggregateBlobMissingCount, vs...))
+}
+
+// AggregateBlobMissingCountNotIn applies the NotIn predicate on the "aggregate_blob_missing_count" field.
+func AggregateBlobMissingCountNotIn(vs ...int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldAggregateBlobMissingCount, vs...))
+}
+
+// AggregateBlobMissingCountGT applies the GT predicate on the "aggregate_blob_missing_count" field.
+func AggregateBlobMissingCountGT(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldAggregateBlobMissingCount, v))
+}
+
+// AggregateBlobMissingCountGTE applies the GTE predicate on the "aggregate_blob_missing_count" field.
+func AggregateBlobMissingCountGTE(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldAggregateBlobMissingCount, v))
+}
+
+// AggregateBlobMissingCountLT applies the LT predicate on the "aggregate_blob_missing_count" field.
+func AggregateBlobMissingCountLT(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldAggregateBlobMissingCount, v))
+}
+
+// AggregateBlobMissingCountLTE applies the LTE predicate on the "aggregate_blob_missing_count" field.
+func AggregateBlobMissingCountLTE(v int64) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldAggregateBlobMissingCount, v))
+}
+
+// VerifiedAtEQ applies the EQ predicate on the "verified_at" field.
+func VerifiedAtEQ(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldVerifiedAt, v))
+}
+
+// VerifiedAtNEQ applies the NEQ predicate on the "verified_at" field.
+func VerifiedAtNEQ(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldVerifiedAt, v))
+}
+
+// VerifiedAtIn applies the In predicate on the "verified_at" field.
+func VerifiedAtIn(vs ...time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldVerifiedAt, vs...))
+}
+
+// VerifiedAtNotIn applies the NotIn predicate on the "verified_at" field.
+func VerifiedAtNotIn(vs ...time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldVerifiedAt, vs...))
+}
+
+// VerifiedAtGT applies the GT predicate on the "verified_at" field.
+func VerifiedAtGT(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldVerifiedAt, v))
+}
+
+// VerifiedAtGTE applies the GTE predicate on the "verified_at" field.
+func VerifiedAtGTE(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldVerifiedAt, v))
+}
+
+// VerifiedAtLT applies the LT predicate on the "verified_at" field.
+func VerifiedAtLT(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldVerifiedAt, v))
+}
+
+// VerifiedAtLTE applies the LTE predicate on the "verified_at" field.
+func VerifiedAtLTE(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldVerifiedAt, v))
+}
+
+// VerifiedAtIsNil applies the IsNil predicate on the "verified_at" field.
+func VerifiedAtIsNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIsNull(FieldVerifiedAt))
+}
+
+// VerifiedAtNotNil applies the NotNil predicate on the "verified_at" field.
+func VerifiedAtNotNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotNull(FieldVerifiedAt))
+}
+
+// RestoreVerifiedAtEQ applies the EQ predicate on the "restore_verified_at" field.
+func RestoreVerifiedAtEQ(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldRestoreVerifiedAt, v))
+}
+
+// RestoreVerifiedAtNEQ applies the NEQ predicate on the "restore_verified_at" field.
+func RestoreVerifiedAtNEQ(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldRestoreVerifiedAt, v))
+}
+
+// RestoreVerifiedAtIn applies the In predicate on the "restore_verified_at" field.
+func RestoreVerifiedAtIn(vs ...time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldRestoreVerifiedAt, vs...))
+}
+
+// RestoreVerifiedAtNotIn applies the NotIn predicate on the "restore_verified_at" field.
+func RestoreVerifiedAtNotIn(vs ...time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldRestoreVerifiedAt, vs...))
+}
+
+// RestoreVerifiedAtGT applies the GT predicate on the "restore_verified_at" field.
+func RestoreVerifiedAtGT(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldRestoreVerifiedAt, v))
+}
+
+// RestoreVerifiedAtGTE applies the GTE predicate on the "restore_verified_at" field.
+func RestoreVerifiedAtGTE(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldRestoreVerifiedAt, v))
+}
+
+// RestoreVerifiedAtLT applies the LT predicate on the "restore_verified_at" field.
+func RestoreVerifiedAtLT(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldRestoreVerifiedAt, v))
+}
+
+// RestoreVerifiedAtLTE applies the LTE predicate on the "restore_verified_at" field.
+func RestoreVerifiedAtLTE(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldRestoreVerifiedAt, v))
+}
+
+// RestoreVerifiedAtIsNil applies the IsNil predicate on the "restore_verified_at" field.
+func RestoreVerifiedAtIsNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIsNull(FieldRestoreVerifiedAt))
+}
+
+// RestoreVerifiedAtNotNil applies the NotNil predicate on the "restore_verified_at" field.
+func RestoreVerifiedAtNotNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotNull(FieldRestoreVerifiedAt))
+}
+
+// VerificationErrorCodeEQ applies the EQ predicate on the "verification_error_code" field.
+func VerificationErrorCodeEQ(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldVerificationErrorCode, v))
+}
+
+// VerificationErrorCodeNEQ applies the NEQ predicate on the "verification_error_code" field.
+func VerificationErrorCodeNEQ(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldVerificationErrorCode, v))
+}
+
+// VerificationErrorCodeIn applies the In predicate on the "verification_error_code" field.
+func VerificationErrorCodeIn(vs ...string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldVerificationErrorCode, vs...))
+}
+
+// VerificationErrorCodeNotIn applies the NotIn predicate on the "verification_error_code" field.
+func VerificationErrorCodeNotIn(vs ...string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldVerificationErrorCode, vs...))
+}
+
+// VerificationErrorCodeGT applies the GT predicate on the "verification_error_code" field.
+func VerificationErrorCodeGT(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldVerificationErrorCode, v))
+}
+
+// VerificationErrorCodeGTE applies the GTE predicate on the "verification_error_code" field.
+func VerificationErrorCodeGTE(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldVerificationErrorCode, v))
+}
+
+// VerificationErrorCodeLT applies the LT predicate on the "verification_error_code" field.
+func VerificationErrorCodeLT(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldVerificationErrorCode, v))
+}
+
+// VerificationErrorCodeLTE applies the LTE predicate on the "verification_error_code" field.
+func VerificationErrorCodeLTE(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldVerificationErrorCode, v))
+}
+
+// VerificationErrorCodeContains applies the Contains predicate on the "verification_error_code" field.
+func VerificationErrorCodeContains(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldContains(FieldVerificationErrorCode, v))
+}
+
+// VerificationErrorCodeHasPrefix applies the HasPrefix predicate on the "verification_error_code" field.
+func VerificationErrorCodeHasPrefix(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldHasPrefix(FieldVerificationErrorCode, v))
+}
+
+// VerificationErrorCodeHasSuffix applies the HasSuffix predicate on the "verification_error_code" field.
+func VerificationErrorCodeHasSuffix(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldHasSuffix(FieldVerificationErrorCode, v))
+}
+
+// VerificationErrorCodeIsNil applies the IsNil predicate on the "verification_error_code" field.
+func VerificationErrorCodeIsNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIsNull(FieldVerificationErrorCode))
+}
+
+// VerificationErrorCodeNotNil applies the NotNil predicate on the "verification_error_code" field.
+func VerificationErrorCodeNotNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotNull(FieldVerificationErrorCode))
+}
+
+// VerificationErrorCodeEqualFold applies the EqualFold predicate on the "verification_error_code" field.
+func VerificationErrorCodeEqualFold(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEqualFold(FieldVerificationErrorCode, v))
+}
+
+// VerificationErrorCodeContainsFold applies the ContainsFold predicate on the "verification_error_code" field.
+func VerificationErrorCodeContainsFold(v string) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldContainsFold(FieldVerificationErrorCode, v))
+}
+
+// LastReconciledAtEQ applies the EQ predicate on the "last_reconciled_at" field.
+func LastReconciledAtEQ(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldLastReconciledAt, v))
+}
+
+// LastReconciledAtNEQ applies the NEQ predicate on the "last_reconciled_at" field.
+func LastReconciledAtNEQ(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldLastReconciledAt, v))
+}
+
+// LastReconciledAtIn applies the In predicate on the "last_reconciled_at" field.
+func LastReconciledAtIn(vs ...time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldLastReconciledAt, vs...))
+}
+
+// LastReconciledAtNotIn applies the NotIn predicate on the "last_reconciled_at" field.
+func LastReconciledAtNotIn(vs ...time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldLastReconciledAt, vs...))
+}
+
+// LastReconciledAtGT applies the GT predicate on the "last_reconciled_at" field.
+func LastReconciledAtGT(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldLastReconciledAt, v))
+}
+
+// LastReconciledAtGTE applies the GTE predicate on the "last_reconciled_at" field.
+func LastReconciledAtGTE(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldLastReconciledAt, v))
+}
+
+// LastReconciledAtLT applies the LT predicate on the "last_reconciled_at" field.
+func LastReconciledAtLT(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldLastReconciledAt, v))
+}
+
+// LastReconciledAtLTE applies the LTE predicate on the "last_reconciled_at" field.
+func LastReconciledAtLTE(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldLastReconciledAt, v))
+}
+
+// LastReconciledAtIsNil applies the IsNil predicate on the "last_reconciled_at" field.
+func LastReconciledAtIsNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIsNull(FieldLastReconciledAt))
+}
+
+// LastReconciledAtNotNil applies the NotNil predicate on the "last_reconciled_at" field.
+func LastReconciledAtNotNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotNull(FieldLastReconciledAt))
+}
+
+// FinalReconciledAtEQ applies the EQ predicate on the "final_reconciled_at" field.
+func FinalReconciledAtEQ(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldFinalReconciledAt, v))
+}
+
+// FinalReconciledAtNEQ applies the NEQ predicate on the "final_reconciled_at" field.
+func FinalReconciledAtNEQ(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldFinalReconciledAt, v))
+}
+
+// FinalReconciledAtIn applies the In predicate on the "final_reconciled_at" field.
+func FinalReconciledAtIn(vs ...time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIn(FieldFinalReconciledAt, vs...))
+}
+
+// FinalReconciledAtNotIn applies the NotIn predicate on the "final_reconciled_at" field.
+func FinalReconciledAtNotIn(vs ...time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotIn(FieldFinalReconciledAt, vs...))
+}
+
+// FinalReconciledAtGT applies the GT predicate on the "final_reconciled_at" field.
+func FinalReconciledAtGT(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGT(FieldFinalReconciledAt, v))
+}
+
+// FinalReconciledAtGTE applies the GTE predicate on the "final_reconciled_at" field.
+func FinalReconciledAtGTE(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldGTE(FieldFinalReconciledAt, v))
+}
+
+// FinalReconciledAtLT applies the LT predicate on the "final_reconciled_at" field.
+func FinalReconciledAtLT(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLT(FieldFinalReconciledAt, v))
+}
+
+// FinalReconciledAtLTE applies the LTE predicate on the "final_reconciled_at" field.
+func FinalReconciledAtLTE(v time.Time) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldLTE(FieldFinalReconciledAt, v))
+}
+
+// FinalReconciledAtIsNil applies the IsNil predicate on the "final_reconciled_at" field.
+func FinalReconciledAtIsNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldIsNull(FieldFinalReconciledAt))
+}
+
+// FinalReconciledAtNotNil applies the NotNil predicate on the "final_reconciled_at" field.
+func FinalReconciledAtNotNil() predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNotNull(FieldFinalReconciledAt))
+}
+
+// CleanupEligibleEQ applies the EQ predicate on the "cleanup_eligible" field.
+func CleanupEligibleEQ(v bool) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldCleanupEligible, v))
+}
+
+// CleanupEligibleNEQ applies the NEQ predicate on the "cleanup_eligible" field.
+func CleanupEligibleNEQ(v bool) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldCleanupEligible, v))
 }
 
 // FirstAttemptAtEQ applies the EQ predicate on the "first_attempt_at" field.
