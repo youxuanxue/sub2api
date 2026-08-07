@@ -9522,29 +9522,25 @@
   },
   "bge-large-en": {
     "litellm_provider": "dashscope",
-    "mode": "chat",
+    "mode": "embedding",
     "input_cost_per_token": 7.462686567164179e-08,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.0005/¥0.0005 per 1k in/out; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.0005/1k input; CNY/USD=6.7. Serving via account 90 ch46 only.",
     "supported_endpoints": [
-      "/v1/embeddings",
-      "/v1/chat/completions"
+      "/v1/embeddings"
     ],
     "supports_reasoning": false,
-    "supports_vision": false,
-    "output_cost_per_token": 7.462686567164179e-08
+    "supports_vision": false
   },
   "bge-large-zh": {
     "litellm_provider": "dashscope",
-    "mode": "chat",
+    "mode": "embedding",
     "input_cost_per_token": 7.462686567164179e-08,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.0005/¥0.0005 per 1k in/out; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.0005/1k input; CNY/USD=6.7. Serving via account 90 ch46 only.",
     "supported_endpoints": [
-      "/v1/embeddings",
-      "/v1/chat/completions"
+      "/v1/embeddings"
     ],
     "supports_reasoning": false,
-    "supports_vision": false,
-    "output_cost_per_token": 7.462686567164179e-08
+    "supports_vision": false
   },
   "deepseek-ocr": {
     "litellm_provider": "deepseek",
@@ -9734,42 +9730,36 @@
   },
   "qwen3-embedding-0.6b": {
     "litellm_provider": "dashscope",
-    "mode": "chat",
+    "mode": "embedding",
     "input_cost_per_token": 7.462686567164179e-08,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.0005/¥0.0005 per 1k in/out; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.0005/1k input; CNY/USD=6.7. Serving via account 90 ch46 only.",
     "supported_endpoints": [
-      "/v1/embeddings",
-      "/v1/chat/completions"
+      "/v1/embeddings"
     ],
     "supports_reasoning": false,
-    "supports_vision": false,
-    "output_cost_per_token": 7.462686567164179e-08
+    "supports_vision": false
   },
   "qwen3-embedding-4b": {
     "litellm_provider": "dashscope",
-    "mode": "chat",
+    "mode": "embedding",
     "input_cost_per_token": 7.462686567164179e-08,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.0005/¥0.0005 per 1k in/out; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.0005/1k input; CNY/USD=6.7. Serving via account 90 ch46 only.",
     "supported_endpoints": [
-      "/v1/embeddings",
-      "/v1/chat/completions"
+      "/v1/embeddings"
     ],
     "supports_reasoning": false,
-    "supports_vision": false,
-    "output_cost_per_token": 7.462686567164179e-08
+    "supports_vision": false
   },
   "qwen3-embedding-8b": {
     "litellm_provider": "dashscope",
-    "mode": "chat",
+    "mode": "embedding",
     "input_cost_per_token": 7.462686567164179e-08,
-    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.0005/¥0.0005 per 1k in/out; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.0005/1k input; CNY/USD=6.7. Serving via account 90 ch46 only.",
     "supported_endpoints": [
-      "/v1/embeddings",
-      "/v1/chat/completions"
+      "/v1/embeddings"
     ],
     "supports_reasoning": false,
-    "supports_vision": false,
-    "output_cost_per_token": 7.462686567164179e-08
+    "supports_vision": false
   },
   "qwen3.5-122b-a10b": {
     "litellm_provider": "dashscope",

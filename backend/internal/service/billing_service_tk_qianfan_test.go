@@ -90,6 +90,26 @@ func TestTkQianfanScopedBillingModel_UsesQianfanRatesInCost(t *testing.T) {
 	require.Greater(t, pricing.InputPricePerToken, officialPricing.InputPricePerToken)
 }
 
+func TestTkQianfanOverlay_EmbeddingModelsUseEmbeddingMode(t *testing.T) {
+	t.Parallel()
+	for _, model := range []string{
+		"bge-large-en",
+		"bge-large-zh",
+		"qwen3-embedding-0.6b",
+		"qwen3-embedding-4b",
+		"qwen3-embedding-8b",
+	} {
+		t.Run(model, func(t *testing.T) {
+			t.Parallel()
+			entry := loadTKPricingOverlay()[model]
+			require.NotNil(t, entry, model)
+			require.Equal(t, "embedding", entry.Mode)
+			require.Greater(t, entry.InputCostPerToken, 0.0)
+			require.Zero(t, entry.OutputCostPerToken)
+		})
+	}
+}
+
 func TestTkQianfanScopedBillingModel_ExcludesDeepSeekPeakValley(t *testing.T) {
 	t.Parallel()
 	policy := loadTkDeepSeekPeakValleyPolicy()
