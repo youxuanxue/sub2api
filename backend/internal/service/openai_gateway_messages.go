@@ -36,6 +36,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	beginUpstreamResponseModelObservation(c)
+
 	// 入口分流：APIKey 账号 + 上游不支持 Responses API → 走 CC 直转（与
 	// ForwardAsChatCompletions 对称）。缺少此分流时，/v1/messages 入站请求
 	// 会被无条件转为 Responses 格式发往上游 /v1/responses，导致只支持
@@ -682,6 +684,11 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	if finalResponse == nil {
 		return s.openAICompatBufferedMissingTerminalResult(c, account, requestID, acc, openAICompatBufferedRouteMessages)
 	}
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
+	observer.Observe(finalResponse.Model, true)
 
 	if strings.TrimSpace(finalResponse.Status) == "failed" {
 		payload, _ := json.Marshal(gin.H{"type": "response.failed", "response": finalResponse})
@@ -732,17 +739,19 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	}
 
 	return &OpenAIForwardResult{
-		RequestID:        requestID,
-		ResponseID:       finalResponse.ID,
-		Usage:            usage,
-		Model:            originalModel,
-		BillingModel:     billingModel,
-		UpstreamModel:    upstreamModel,
-		Stream:           false,
-		Duration:         time.Since(startTime),
-		StopReason:       stopReason,
-		IncompleteReason: incompleteReason,
-		ContentTextLen:   anthropicResponseContentTextLen(anthropicResp),
+		RequestID:                     requestID,
+		ResponseID:                    finalResponse.ID,
+		Usage:                         usage,
+		Model:                         originalModel,
+		BillingModel:                  billingModel,
+		UpstreamModel:                 upstreamModel,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		Stream:                        false,
+		Duration:                      time.Since(startTime),
+		StopReason:                    stopReason,
+		IncompleteReason:              incompleteReason,
+		ContentTextLen:                anthropicResponseContentTextLen(anthropicResp),
 	}, nil
 }
 
@@ -986,23 +995,29 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	if intervalTicker != nil {
 		intervalCh = intervalTicker.C
 	}
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
 
 	// resultWithUsage builds the final result snapshot.
 	resultWithUsage := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
-			RequestID:        requestID,
-			ResponseID:       responseID,
-			Usage:            usage,
-			Model:            originalModel,
-			BillingModel:     billingModel,
-			UpstreamModel:    upstreamModel,
-			Stream:           true,
-			Duration:         time.Since(startTime),
-			FirstTokenMs:     firstTokenMs,
-			StopReason:       state.StopReason,
-			IncompleteReason: state.IncompleteReason,
-			ContentTextLen:   contentTextLen,
-			ClientDisconnect: clientDisconnected,
+			RequestID:                     requestID,
+			ResponseID:                    responseID,
+			Usage:                         usage,
+			Model:                         originalModel,
+			BillingModel:                  billingModel,
+			UpstreamModel:                 upstreamModel,
+			UpstreamResponseModel:         observedUpstreamResponseModel(c),
+			UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+			Stream:                        true,
+			Duration:                      time.Since(startTime),
+			FirstTokenMs:                  firstTokenMs,
+			StopReason:                    state.StopReason,
+			IncompleteReason:              state.IncompleteReason,
+			ContentTextLen:                contentTextLen,
+			ClientDisconnect:              clientDisconnected,
 		}
 	}
 
@@ -1022,6 +1037,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			)
 			return false
 		}
+		observer.ObserveOpenAI([]byte(payload), event.Type)
 
 		// 仅按兼容转换器支持的终止事件提取 usage，避免无意扩大事件语义。
 		switch event.Type {

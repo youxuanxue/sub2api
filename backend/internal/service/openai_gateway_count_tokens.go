@@ -308,6 +308,83 @@ func writeAnthropicCountTokensError(c *gin.Context, status int, errType, message
 	})
 }
 
+func isOpenAIInputTokensUnsupported(statusCode int, body []byte) bool {
+	if statusCode != http.StatusNotFound {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+	return strings.Contains(msg, "input_tokens") && strings.Contains(msg, "not found")
+}
+
+func writeOpenAIOAuthInputTokensFallback(c *gin.Context, account *Account, prepared *openAIInputTokensCountPrepared, statusCode int) {
+	estimated := openAIInputTokensFallbackMinimum
+	if got, err := estimateOpenAIInputTokens(prepared.Request); err == nil {
+		if got > 0 {
+			estimated = got
+		}
+		logger.L().Info("openai count_tokens: oauth fallback to local tiktoken estimate",
+			zap.Int64("account_id", account.ID),
+			zap.Int("upstream_status", statusCode),
+			zap.Int("estimated_input_tokens", estimated),
+			zap.String("upstream_model", prepared.UpstreamModel),
+		)
+	} else {
+		logger.L().Warn("openai count_tokens: oauth local tiktoken fallback failed, using minimum estimate",
+			zap.Int64("account_id", account.ID),
+			zap.Int("upstream_status", statusCode),
+			zap.Int("estimated_input_tokens", estimated),
+			zap.String("upstream_model", prepared.UpstreamModel),
+			zap.Error(err),
+		)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"input_tokens": estimated,
+	})
+}
+
+func isOpenAIOAuthInputTokensUnsupported(statusCode int, body []byte) bool {
+	switch statusCode {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
+	default:
+		return false
+	}
+
+	bodyLower := strings.ToLower(string(body))
+	msg := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+	code := strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(body)))
+
+	if code == "missing_scope" ||
+		strings.Contains(bodyLower, "api.responses.write") ||
+		strings.Contains(bodyLower, "missing scopes") ||
+		strings.Contains(bodyLower, "insufficient_scope") {
+		return true
+	}
+
+	if statusCode == http.StatusNotFound && isOpenAIInputTokensUnsupported(statusCode, body) {
+		return true
+	}
+
+	// OAuth's platform endpoint can be blocked by an upstream proxy before it
+	// reaches the API and return an HTML 403 page without a structured error.
+	// Treat that endpoint-level response like the other unsupported cases so
+	// count_tokens remains a local, non-health-affecting convenience request.
+	if statusCode == http.StatusForbidden && isHTMLResponse(body) {
+		return true
+	}
+
+	return strings.Contains(msg, "input_tokens") &&
+		(strings.Contains(msg, "not found") ||
+			strings.Contains(msg, "not supported") ||
+			strings.Contains(msg, "unsupported"))
+}
+
+func isHTMLResponse(body []byte) bool {
+	trimmed := strings.TrimSpace(strings.ToLower(string(body)))
+	return strings.HasPrefix(trimmed, "<!doctype html") ||
+		strings.HasPrefix(trimmed, "<html")
+}
+
 func estimateOpenAIInputTokens(req openAIInputTokensCountRequest) (int, error) {
 	codec, err := openAIInputTokensCodecForModel(req.Model)
 	if err != nil {

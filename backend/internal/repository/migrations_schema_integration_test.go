@@ -84,6 +84,27 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 		"request_type <= 5",
 	)
 	requireConstraintValidated(t, tx, "usage_logs", "usage_logs_request_type_check")
+	requireColumn(t, tx, "usage_logs", "video_count", "integer", 0, false)
+	requireColumn(t, tx, "usage_logs", "video_resolution", "character varying", 10, true)
+	requireColumn(t, tx, "usage_logs", "video_duration_seconds", "integer", 0, true)
+	requireColumn(t, tx, "usage_logs", "upstream_response_model", "character varying", 200, true)
+	requireColumn(t, tx, "usage_logs", "upstream_model_mismatch", "boolean", 0, true)
+	requireIndex(t, tx, "usage_logs", usageLogsUpstreamModelMismatchIndex)
+
+	var mismatchIndexDef string
+	require.NoError(t, tx.QueryRowContext(context.Background(), `
+SELECT pg_get_indexdef(i.indexrelid)
+FROM pg_class idx
+JOIN pg_index i ON i.indexrelid = idx.oid
+JOIN pg_class tbl ON tbl.oid = i.indrelid
+JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+WHERE ns.nspname = 'public'
+  AND tbl.relname = 'usage_logs'
+  AND idx.relname = $1
+`, usageLogsUpstreamModelMismatchIndex).Scan(&mismatchIndexDef))
+	require.Contains(t, mismatchIndexDef, "created_at DESC")
+	require.Contains(t, mismatchIndexDef, "id DESC")
+	require.Contains(t, mismatchIndexDef, "WHERE (upstream_model_mismatch IS TRUE)")
 	requireColumn(t, tx, "usage_dashboard_group_daily", "total_requests", "bigint", 0, false)
 	requireColumn(t, tx, "usage_dashboard_group_daily", "input_tokens", "bigint", 0, false)
 	requireColumn(t, tx, "usage_dashboard_group_daily", "output_tokens", "bigint", 0, false)

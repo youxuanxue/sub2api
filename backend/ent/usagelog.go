@@ -37,6 +37,10 @@ type UsageLog struct {
 	RequestedModel *string `json:"requested_model,omitempty"`
 	// UpstreamModel holds the value of the "upstream_model" field.
 	UpstreamModel *string `json:"upstream_model,omitempty"`
+	// UpstreamResponseModel holds the value of the "upstream_response_model" field.
+	UpstreamResponseModel *string `json:"upstream_response_model,omitempty"`
+	// UpstreamModelMismatch holds the value of the "upstream_model_mismatch" field.
+	UpstreamModelMismatch *bool `json:"upstream_model_mismatch,omitempty"`
 	// 渠道 ID
 	ChannelID *int64 `json:"channel_id,omitempty"`
 	// 模型映射链
@@ -85,8 +89,6 @@ type UsageLog struct {
 	Stream bool `json:"stream,omitempty"`
 	// DurationMs holds the value of the "duration_ms" field.
 	DurationMs *int `json:"duration_ms,omitempty"`
-	// TokenKey gateway transfer latency (auth+routing+response tail), excluding upstream wait, streaming pump, and queue waits
-	GatewayLatencyMs *int `json:"gateway_latency_ms,omitempty"`
 	// FirstTokenMs holds the value of the "first_token_ms" field.
 	FirstTokenMs *int `json:"first_token_ms,omitempty"`
 	// UserAgent holds the value of the "user_agent" field.
@@ -105,8 +107,12 @@ type UsageLog struct {
 	ImageSizeSource *string `json:"image_size_source,omitempty"`
 	// ImageSizeBreakdown holds the value of the "image_size_breakdown" field.
 	ImageSizeBreakdown map[string]int `json:"image_size_breakdown,omitempty"`
-	// VideoDurationSeconds holds the value of the "video_duration_seconds" field.
-	VideoDurationSeconds *int64 `json:"video_duration_seconds,omitempty"`
+	// 视频生成数量；>0 表示本行是视频生成用量
+	VideoCount int `json:"video_count,omitempty"`
+	// 计费用视频分辨率 480p/720p/1080p
+	VideoResolution *string `json:"video_resolution,omitempty"`
+	// 提交时请求的视频时长（秒），按秒计费的乘数
+	VideoDurationSeconds *int `json:"video_duration_seconds,omitempty"`
 	// CacheTTLOverridden holds the value of the "cache_ttl_overridden" field.
 	CacheTTLOverridden bool `json:"cache_ttl_overridden,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
@@ -196,13 +202,13 @@ func (*UsageLog) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case usagelog.FieldImageSizeBreakdown:
 			values[i] = new([]byte)
-		case usagelog.FieldLongContextBillingApplied, usagelog.FieldStream, usagelog.FieldCacheTTLOverridden:
+		case usagelog.FieldUpstreamModelMismatch, usagelog.FieldLongContextBillingApplied, usagelog.FieldStream, usagelog.FieldCacheTTLOverridden:
 			values[i] = new(sql.NullBool)
 		case usagelog.FieldInputCost, usagelog.FieldOutputCost, usagelog.FieldCacheCreationCost, usagelog.FieldCacheReadCost, usagelog.FieldTotalCost, usagelog.FieldActualCost, usagelog.FieldRateMultiplier, usagelog.FieldAccountRateMultiplier:
 			values[i] = new(sql.NullFloat64)
-		case usagelog.FieldID, usagelog.FieldUserID, usagelog.FieldAPIKeyID, usagelog.FieldAccountID, usagelog.FieldChannelID, usagelog.FieldGroupID, usagelog.FieldSubscriptionID, usagelog.FieldInputTokens, usagelog.FieldOutputTokens, usagelog.FieldCacheCreationTokens, usagelog.FieldCacheReadTokens, usagelog.FieldCacheCreation5mTokens, usagelog.FieldCacheCreation1hTokens, usagelog.FieldBillingType, usagelog.FieldDurationMs, usagelog.FieldGatewayLatencyMs, usagelog.FieldFirstTokenMs, usagelog.FieldImageCount, usagelog.FieldVideoDurationSeconds:
+		case usagelog.FieldID, usagelog.FieldUserID, usagelog.FieldAPIKeyID, usagelog.FieldAccountID, usagelog.FieldChannelID, usagelog.FieldGroupID, usagelog.FieldSubscriptionID, usagelog.FieldInputTokens, usagelog.FieldOutputTokens, usagelog.FieldCacheCreationTokens, usagelog.FieldCacheReadTokens, usagelog.FieldCacheCreation5mTokens, usagelog.FieldCacheCreation1hTokens, usagelog.FieldBillingType, usagelog.FieldDurationMs, usagelog.FieldFirstTokenMs, usagelog.FieldImageCount, usagelog.FieldVideoCount, usagelog.FieldVideoDurationSeconds:
 			values[i] = new(sql.NullInt64)
-		case usagelog.FieldRequestID, usagelog.FieldModel, usagelog.FieldRequestedModel, usagelog.FieldUpstreamModel, usagelog.FieldModelMappingChain, usagelog.FieldBillingTier, usagelog.FieldBillingMode, usagelog.FieldUserAgent, usagelog.FieldIPAddress, usagelog.FieldImageSize, usagelog.FieldImageInputSize, usagelog.FieldImageOutputSize, usagelog.FieldImageSizeSource:
+		case usagelog.FieldRequestID, usagelog.FieldModel, usagelog.FieldRequestedModel, usagelog.FieldUpstreamModel, usagelog.FieldUpstreamResponseModel, usagelog.FieldModelMappingChain, usagelog.FieldBillingTier, usagelog.FieldBillingMode, usagelog.FieldUserAgent, usagelog.FieldIPAddress, usagelog.FieldImageSize, usagelog.FieldImageInputSize, usagelog.FieldImageOutputSize, usagelog.FieldImageSizeSource, usagelog.FieldVideoResolution:
 			values[i] = new(sql.NullString)
 		case usagelog.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
@@ -270,6 +276,20 @@ func (_m *UsageLog) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.UpstreamModel = new(string)
 				*_m.UpstreamModel = value.String
+			}
+		case usagelog.FieldUpstreamResponseModel:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_response_model", values[i])
+			} else if value.Valid {
+				_m.UpstreamResponseModel = new(string)
+				*_m.UpstreamResponseModel = value.String
+			}
+		case usagelog.FieldUpstreamModelMismatch:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_model_mismatch", values[i])
+			} else if value.Valid {
+				_m.UpstreamModelMismatch = new(bool)
+				*_m.UpstreamModelMismatch = value.Bool
 			}
 		case usagelog.FieldChannelID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -423,13 +443,6 @@ func (_m *UsageLog) assignValues(columns []string, values []any) error {
 				_m.DurationMs = new(int)
 				*_m.DurationMs = int(value.Int64)
 			}
-		case usagelog.FieldGatewayLatencyMs:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field gateway_latency_ms", values[i])
-			} else if value.Valid {
-				_m.GatewayLatencyMs = new(int)
-				*_m.GatewayLatencyMs = int(value.Int64)
-			}
 		case usagelog.FieldFirstTokenMs:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field first_token_ms", values[i])
@@ -493,12 +506,25 @@ func (_m *UsageLog) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field image_size_breakdown: %w", err)
 				}
 			}
+		case usagelog.FieldVideoCount:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field video_count", values[i])
+			} else if value.Valid {
+				_m.VideoCount = int(value.Int64)
+			}
+		case usagelog.FieldVideoResolution:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field video_resolution", values[i])
+			} else if value.Valid {
+				_m.VideoResolution = new(string)
+				*_m.VideoResolution = value.String
+			}
 		case usagelog.FieldVideoDurationSeconds:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field video_duration_seconds", values[i])
 			} else if value.Valid {
-				_m.VideoDurationSeconds = new(int64)
-				*_m.VideoDurationSeconds = value.Int64
+				_m.VideoDurationSeconds = new(int)
+				*_m.VideoDurationSeconds = int(value.Int64)
 			}
 		case usagelog.FieldCacheTTLOverridden:
 			if value, ok := values[i].(*sql.NullBool); !ok {
@@ -598,6 +624,16 @@ func (_m *UsageLog) String() string {
 		builder.WriteString(*v)
 	}
 	builder.WriteString(", ")
+	if v := _m.UpstreamResponseModel; v != nil {
+		builder.WriteString("upstream_response_model=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamModelMismatch; v != nil {
+		builder.WriteString("upstream_model_mismatch=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
 	if v := _m.ChannelID; v != nil {
 		builder.WriteString("channel_id=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
@@ -686,11 +722,6 @@ func (_m *UsageLog) String() string {
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")
-	if v := _m.GatewayLatencyMs; v != nil {
-		builder.WriteString("gateway_latency_ms=")
-		builder.WriteString(fmt.Sprintf("%v", *v))
-	}
-	builder.WriteString(", ")
 	if v := _m.FirstTokenMs; v != nil {
 		builder.WriteString("first_token_ms=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
@@ -731,6 +762,14 @@ func (_m *UsageLog) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("image_size_breakdown=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ImageSizeBreakdown))
+	builder.WriteString(", ")
+	builder.WriteString("video_count=")
+	builder.WriteString(fmt.Sprintf("%v", _m.VideoCount))
+	builder.WriteString(", ")
+	if v := _m.VideoResolution; v != nil {
+		builder.WriteString("video_resolution=")
+		builder.WriteString(*v)
+	}
 	builder.WriteString(", ")
 	if v := _m.VideoDurationSeconds; v != nil {
 		builder.WriteString("video_duration_seconds=")
