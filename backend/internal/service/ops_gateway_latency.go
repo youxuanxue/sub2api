@@ -4,9 +4,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// SnapshotGatewayTransferLatencyMs derives TokenKey gateway transfer latency from
-// auth, routing, and response tail timings on the gin context. It excludes upstream
-// provider wait, streaming body pump time, and queue/throttle waits.
+// SnapshotGatewayTransferLatencyMs derives TokenKey gateway transfer latency for the
+// admin dashboard from auth and routing stage timings on the gin context. It excludes
+// upstream provider wait, response body pump/transfer, and queue/throttle waits.
+//
+// OpsResponseLatencyMsKey is intentionally omitted: forwardDuration-upstreamLatency
+// measures post-header body transfer, not fixed gateway overhead.
 //
 // Returns nil when no usable stage timing remains (excluded from dashboard average).
 func SnapshotGatewayTransferLatencyMs(c *gin.Context) *int {
@@ -15,11 +18,10 @@ func SnapshotGatewayTransferLatencyMs(c *gin.Context) *int {
 	}
 	authMs, hasAuth := contextLatencyMs(c, OpsAuthLatencyMsKey)
 	routingMs, hasRouting := contextLatencyMs(c, OpsRoutingLatencyMsKey)
-	responseMs, hasResponse := contextLatencyMs(c, OpsResponseLatencyMsKey)
-	if !hasAuth && !hasRouting && !hasResponse {
+	if !hasAuth && !hasRouting {
 		return nil
 	}
-	sum := authMs + routingMs + responseMs
+	sum := authMs + routingMs
 	queueMs, _ := contextLatencyMs(c, OpsGatewayQueueWaitMsKey)
 	wsQueueMs, _ := contextLatencyMs(c, OpsOpenAIWSQueueWaitMsKey)
 	sum -= queueMs + wsQueueMs

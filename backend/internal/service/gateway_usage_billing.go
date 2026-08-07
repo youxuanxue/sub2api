@@ -34,7 +34,7 @@ type RecordUsageInput struct {
 
 	ChannelUsageFields // 渠道映射信息（由 handler 在 Forward 前解析）
 
-	// GatewayLatencyMs is TokenKey transfer latency (auth+routing+response tail), excluding upstream wait and queue waits.
+	// GatewayLatencyMs is TokenKey dashboard transfer latency (auth+routing), excluding upstream/body wait and queue waits.
 	GatewayLatencyMs *int
 }
 

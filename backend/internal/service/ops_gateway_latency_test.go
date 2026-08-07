@@ -8,18 +8,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSnapshotGatewayTransferLatencyMs_SumsAuthRoutingAndResponseTail(t *testing.T) {
+func TestSnapshotGatewayTransferLatencyMs_SumsAuthAndRoutingOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 
 	SetOpsLatencyMs(c, OpsAuthLatencyMsKey, 12)
 	SetOpsLatencyMs(c, OpsRoutingLatencyMsKey, 34)
-	SetOpsLatencyMs(c, OpsResponseLatencyMsKey, 56)
-	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, 9999)
 
 	got := SnapshotGatewayTransferLatencyMs(c)
 	require.NotNil(t, got)
-	require.Equal(t, 102, *got)
+	require.Equal(t, 46, *got)
+}
+
+func TestSnapshotGatewayTransferLatencyMs_IgnoresResponseTail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	SetOpsLatencyMs(c, OpsAuthLatencyMsKey, 12)
+	SetOpsLatencyMs(c, OpsRoutingLatencyMsKey, 34)
+	SetOpsLatencyMs(c, OpsResponseLatencyMsKey, 90000)
+	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, 100)
+
+	got := SnapshotGatewayTransferLatencyMs(c)
+	require.NotNil(t, got)
+	require.Equal(t, 46, *got)
 }
 
 func TestSnapshotGatewayTransferLatencyMs_SubtractsQueueWait(t *testing.T) {
@@ -74,6 +86,15 @@ func TestSnapshotGatewayTransferLatencyMs_ReturnsNilWhenOnlyQueueWait(t *testing
 
 	SetOpsLatencyMs(c, OpsAuthLatencyMsKey, 100)
 	AddOpsGatewayQueueWaitMs(c, 100)
+
+	require.Nil(t, SnapshotGatewayTransferLatencyMs(c))
+}
+
+func TestSnapshotGatewayTransferLatencyMs_ReturnsNilWhenOnlyResponseTail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	SetOpsLatencyMs(c, OpsResponseLatencyMsKey, 50000)
 
 	require.Nil(t, SnapshotGatewayTransferLatencyMs(c))
 }
