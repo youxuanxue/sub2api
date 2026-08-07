@@ -148,6 +148,36 @@
       "rationale": "Focused bridge regressions prove that public resolution/size/audio dimensions become the exact adaptor metadata values used upstream, including conflict precedence and metadata-only audio aliases."
     },
     {
+      "path": "backend/internal/relay/bridge/embedding_relay.go",
+      "must_contain": [
+        "RunEmbeddingRelay",
+        "runVertexEmbeddingRelay",
+        "ChannelTypeVertexAi"
+      ],
+      "rationale": "Bridge for POST /v1/embeddings on the newapi fifth platform. RunEmbeddingRelay must delegate channel_type 41 (Vertex SA) to runVertexEmbeddingRelay because upstream new-api's vertex adaptor leaves ConvertEmbeddingRequest unimplemented; dropping the injection line silently regresses every Vertex embedding request back to not implemented."
+    },
+    {
+      "path": "backend/internal/relay/bridge/embedding_relay_tk_vertex.go",
+      "must_contain": [
+        "runVertexEmbeddingRelay",
+        "buildVertexEmbeddingPredictPayload",
+        "vertexEmbeddingPredictResponseToOpenAI",
+        "vertex.BuildGoogleModelURL",
+        "RETRIEVAL_QUERY",
+        "ApplyParamOverrideWithRelayInfo"
+      ],
+      "rationale": "TK companion that implements Vertex AI text embedding via the :predict surface for channel_type 41 service accounts. Converts OpenAI /v1/embeddings requests to Vertex instances+parameters, exchanges SA JSON for OAuth, and writes OpenAI-shaped embedding JSON + usage. ParamOverride parity with the generic embedding relay path must survive upstream merges."
+    },
+    {
+      "path": "backend/internal/relay/bridge/embedding_relay_tk_vertex_test.go",
+      "must_contain": [
+        "TestBuildVertexEmbeddingPredictPayload_SingleAndBatch",
+        "TestVertexEmbeddingPredictResponseToOpenAI_EmptyPredictions",
+        "TestDispatchEmbeddings_VertexPredict_OK"
+      ],
+      "rationale": "Focused bridge regressions for Vertex embedding request shaping, empty-prediction rejection, and DispatchEmbeddings end-to-end wiring through the ch41 companion path."
+    },
+    {
       "path": "backend/internal/server/routes/gateway_test.go",
       "must_contain": [
         "TestGatewayRoutesNewAPICountTokensPathIsRegistered",
