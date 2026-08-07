@@ -2487,28 +2487,6 @@ func (h *OpenAIGatewayHandler) missingResponsesDependencies() []string {
 	return missing
 }
 
-func getContextInt64(c *gin.Context, key string) (int64, bool) {
-	if c == nil || key == "" {
-		return 0, false
-	}
-	v, ok := c.Get(key)
-	if !ok {
-		return 0, false
-	}
-	switch t := v.(type) {
-	case int64:
-		return t, true
-	case int:
-		return int64(t), true
-	case int32:
-		return int64(t), true
-	case float64:
-		return int64(t), true
-	default:
-		return 0, false
-	}
-}
-
 func (h *OpenAIGatewayHandler) submitUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
 	if task == nil {
 		return
