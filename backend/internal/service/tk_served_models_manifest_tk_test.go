@@ -147,7 +147,13 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 				out.displayIDsByScope[scope] = append(out.displayIDsByScope[scope], entry.ModelID)
 			}
 		}
-		if manifestEntryIsAgentPlanOnlyForTest(entry) {
+		if qScope := qianfanScopeKeyForTest(entry); qScope != "" {
+			out.IDsByScope[qScope] = append(out.IDsByScope[qScope], entry.ModelID)
+			if entry.Display {
+				out.displayIDsByScope[qScope] = append(out.displayIDsByScope[qScope], entry.ModelID)
+			}
+		}
+		if manifestEntryIsAgentPlanOnlyForTest(entry) || manifestEntryIsQianfanScopedOnlyForTest(entry) {
 			continue
 		}
 		out.IDsByChannel[entry.ChannelType] = append(out.IDsByChannel[entry.ChannelType], entry.ModelID)
@@ -179,7 +185,15 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 func manifestEntryIsAgentPlanOnlyForTest(entry tkServedModelsOwnerEntryForTest) bool {
 	return entry.AccountScope != nil &&
 		entry.ChannelType == entry.AccountScope.ChannelType &&
+		entry.ChannelType == 45 &&
 		manifestScopeKeyForTest(entry) != ""
+}
+
+func manifestEntryIsQianfanScopedOnlyForTest(entry tkServedModelsOwnerEntryForTest) bool {
+	return entry.AccountScope != nil &&
+		entry.ChannelType == entry.AccountScope.ChannelType &&
+		entry.ChannelType == 46 &&
+		qianfanScopeKeyForTest(entry) != ""
 }
 
 func manifestScopeKeyForTest(entry tkServedModelsOwnerEntryForTest) string {
@@ -192,6 +206,18 @@ func manifestScopeKeyForTest(entry tkServedModelsOwnerEntryForTest) string {
 		return ""
 	}
 	return "newapi:45:" + baseURL
+}
+
+func qianfanScopeKeyForTest(entry tkServedModelsOwnerEntryForTest) string {
+	if entry.AccountScope == nil {
+		return ""
+	}
+	baseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(entry.AccountScope.BaseURL)), "/")
+	if strings.ToLower(strings.TrimSpace(entry.AccountScope.Platform)) != "newapi" ||
+		entry.AccountScope.ChannelType != 46 || baseURL != "https://qianfan.baidubce.com" {
+		return ""
+	}
+	return "newapi:46:" + baseURL
 }
 
 func requireServedManifestProjectionEqualForTest(t *testing.T, name string, want, got any) {

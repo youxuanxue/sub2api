@@ -59,6 +59,7 @@ MIGRATION_GLOB = "tk_*.sql"
 # Price mode -> the field(s) that MUST be > 0 for that mode (mirrors pricing-overlay.py
 # MODE_FIELDS so the overlay arm of A1 is byte-identical to a check already green).
 MODE_FIELDS = {
+    "embedding": ("input_cost_per_token",),
     "image_generation": ("output_cost_per_image",),
     "video_generation": ("output_cost_per_second",),
     "chat": ("input_cost_per_token", "output_cost_per_token"),
@@ -342,6 +343,16 @@ def _selftest() -> int:
             "input_cost_per_token": 1e-7,
             "output_cost_per_token": 2e-7,
         },
+        "good-embedding": {
+            "litellm_provider": "dashscope",
+            "mode": "embedding",
+            "input_cost_per_token": 1e-7,
+        },
+        "zero-embedding": {
+            "litellm_provider": "dashscope",
+            "mode": "embedding",
+            "input_cost_per_token": 0,
+        },
     }
     allowlist = {"anthropic": {"claude-opus-4-8"}, "openai": set(), "gemini": set(),
                  "antigravity": set()}
@@ -419,6 +430,20 @@ def _selftest() -> int:
     }})
     if not any("requires" in e and "> 0" in e for e in errs):
         failures.append("A1: $0 overlay price not flagged")
+    errs, _ = run({"newapi/emb": {
+        "platform": "newapi", "model_id": "good-embedding", "served_on": ["60"],
+        "channel_type": 46, "price_source": "overlay", "price_key": "good-embedding",
+        "display": False, "notes": "served-via-admin-ui",
+    }})
+    if errs:
+        failures.append(f"A1: valid embedding overlay flagged: {errs}")
+    errs, _ = run({"newapi/zero-emb": {
+        "platform": "newapi", "model_id": "zero-embedding", "served_on": ["60"],
+        "channel_type": 46, "price_source": "overlay", "price_key": "zero-embedding",
+        "display": False, "notes": "served-via-admin-ui",
+    }})
+    if not any("requires" in e and "> 0" in e for e in errs):
+        failures.append("A1: $0 embedding overlay price not flagged")
     # External mirrors are evidence only and cannot satisfy the runtime price gate.
     errs, _ = run({"newapi/mirror": {
         "platform": "newapi", "model_id": "good-chat", "served_on": ["60"],

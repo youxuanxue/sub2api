@@ -250,7 +250,7 @@ func TestEmbeddedRegistryParsesAsCompleteFloor(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	snapshot, err := buildTKPricingOverlaySnapshot(nil)
 	require.NoError(t, err)
-	require.Len(t, snapshot.Models, 340)
+	require.Len(t, snapshot.Models, 371)
 	require.Equal(t, "embedded", snapshot.Metadata.SourceCommit)
 	require.InDelta(t, 0.01, snapshot.WebSearchPrice, 1e-15)
 	require.True(t, snapshot.Models["glm-4.5-flash"].ExplicitFree)

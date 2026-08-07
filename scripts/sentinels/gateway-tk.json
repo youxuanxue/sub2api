@@ -2723,9 +2723,42 @@
       "path": "backend/internal/service/openai_gateway_usage.go",
       "must_contain": [
         "isOpenAIVideoUsageResult(result)",
-        "tkTryCalculateOpenAIVideoUsageCost"
+        "tkTryCalculateOpenAIVideoUsageCost",
+        "tkMapQianfanScopedBillingModels(billingModels, account)"
       ],
-      "rationale": "Injection wiring from upstream-owned RecordUsage/calculateOpenAIRecordUsageCost into the TK video settlement companion. An upstream merge reverting these call sites leaves VideoSubmit billing on the token path again even if the companion file survives."
+      "rationale": "Injection wiring from upstream-owned RecordUsage/calculateOpenAIRecordUsageCost into TK settlement companions. VideoSubmit billing must stay on the video path; Qianfan account 90 must remap shared DeepSeek overlay ids to .qianfan billing owners before candidate resolution."
+    },
+    {
+      "path": "backend/internal/service/gateway_usage_billing.go",
+      "must_contain": [
+        "tkQianfanScopedBillingModel(billingModel, account)"
+      ],
+      "rationale": "Anthropic/generic RecordUsage funnel must switch shared DeepSeek models to .qianfan overlay owners when served from Baidu Qianfan account 90; dropping the call site restores official DeepSeek list pricing on a Qianfan channel."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_qianfan.go",
+      "must_contain": [
+        "tkQianfanScopedBillingModel",
+        "tkMapQianfanScopedBillingModels",
+        "tkQianfanOverlayPricingSuffix"
+      ],
+      "rationale": "Per-account Qianfan billing key remap for deepseek-v4-pro/flash while public catalog keeps global DeepSeek owners. Companion isolates upstream gateway insertions to one-liners."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_qianfan_test.go",
+      "must_contain": [
+        "TestTkQianfanScopedBillingModel_UsesQianfanRatesInCost",
+        "TestTkQianfanScopedBillingModel_ExcludesDeepSeekPeakValley"
+      ],
+      "rationale": "Focused regressions: Qianfan account remap and guard against applying DeepSeek official peak-valley multiplier to .qianfan overlay billing keys."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_preset_tk_qianfan_test.go",
+      "must_contain": [
+        "TestNewAPIModelMappingPresetIDsForQianfanAccount",
+        "TestAccountModelMappingFloorForOpsIncludesQianfanOverride"
+      ],
+      "rationale": "Manifest preset and bundle floor export for Qianfan account 90; prevents upstream merge from dropping the v2-servable identity mapping floor (31 models as of 2026-08-07)."
     },
     {
       "path": "backend/internal/service/openai_gateway_usage_tk_video_billing_test.go",
