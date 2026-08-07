@@ -2,12 +2,25 @@
 """Regression checks for QA Phase 1 closeout and Phase 2 baseline artifacts."""
 from __future__ import annotations
 
+import datetime as dt
+import importlib.util
+import json
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_closeout_module():
+    path = ROOT / "ops/qa/prod_qa_archive_closeout.py"
+    spec = importlib.util.spec_from_file_location("prod_qa_archive_closeout", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cannot load closeout controller")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class TestQAPhaseOps(unittest.TestCase):
@@ -74,11 +87,70 @@ class TestQAPhaseOps(unittest.TestCase):
         self.assertIn("--install-units", body)
         self.assertNotIn("DELETE FROM qa_records", body)
 
+    def test_release_images_include_qa_archive_binary(self) -> None:
+        for rel in ("Dockerfile", "deploy/Dockerfile", "backend/Dockerfile"):
+            body = (ROOT / rel).read_text(encoding="utf-8")
+            self.assertIn("./cmd/qa-archive", body, rel)
+            self.assertIn("/app/qa-archive", body, rel)
+
+    def test_qa_archive_closeout_controller_is_fail_closed(self) -> None:
+        module = _load_closeout_module()
+        window = module._parse_window("2026-08-07T01:00:00Z")
+        self.assertEqual(
+            module._window_token(module.REPAIR_CONFIRMATION_PREFIX, window),
+            "tokenkey-prod-qa-archive-repair-v1:2026-08-07T01:00:00Z",
+        )
+        proof = module._safety_proof(
+            window, dt.datetime(2026, 8, 7, 2, 0, tzinfo=dt.timezone.utc)
+        )
+        self.assertNotIn("=", proof)
+        guard = "\n".join(module._timer_guard_shell())
+        remote = module._remote_command(
+            "repair-apply",
+            window,
+            "",
+            module._window_token(module.REPAIR_CONFIRMATION_PREFIX, window),
+        )
+        self.assertIn('"$proof"', remote)
+        for needle in (
+            "tokenkey-qa-maintenance.timer",
+            "tokenkey-qa-stale-cleanup.timer",
+            "disabled:inactive",
+            "cleanup_enabled=false",
+            "ops:cleanup:leader",
+        ):
+            self.assertIn(needle, guard)
+
+    def test_qa_archive_closeout_rejects_incomplete_receipt(self) -> None:
+        module = _load_closeout_module()
+        window = module._parse_window("2026-08-07T01:00:00Z")
+        receipt = {
+            "ok": True,
+            "command": "repair-apply",
+            "window_start": "2026-08-07T01:00:00Z",
+            "cleanup_eligible": False,
+            "deletion_authorized": False,
+            "cleanup_hold_active": True,
+            "maintenance_timer_disabled": True,
+            "maintenance_timer_inactive": True,
+            "stale_cleanup_timer_disabled": True,
+            "stale_cleanup_timer_inactive": True,
+            "cleanup_runtime_disabled": True,
+        }
+        with self.assertRaises(module.QAArchiveCloseoutError):
+            module._validate_receipt(json.dumps(receipt), "repair-apply", window)
+
+    def test_qa_archive_closeout_restore_path_cannot_escape_root(self) -> None:
+        module = _load_closeout_module()
+        with self.assertRaises(module.QAArchiveCloseoutError):
+            module._validate_restore_output("/app/data/qa_archive_restore/../escaped")
+
     def test_qa_maintenance_ops_scripts_compile(self) -> None:
         for rel in (
             "ops/qa/prod_qa_maintenance.py",
             "ops/qa/prod_qa_archive_backfill.py",
             "ops/qa/prod_apply_tk069_migration.py",
+            "ops/qa/prod_qa_archive_closeout.py",
         ):
             proc = subprocess.run(
                 [sys.executable, "-m", "py_compile", str(ROOT / rel)],

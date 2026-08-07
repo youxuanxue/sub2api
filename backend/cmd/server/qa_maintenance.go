@@ -24,7 +24,7 @@ const (
 	qaMaintenanceReceiptMode       = "qa_maintenance_archive_only"
 	qaMaintenanceReceiptModeUpload = "qa_maintenance_archive"
 	qaMaintenanceJobName           = "qa-maintenance"
-	qaMaintenanceAdvisoryLockID    = int64(0x51414D41) // 'QAMA'
+	qaMaintenanceAdvisoryLockID    = archive.MaintenanceAdvisoryLockID
 	qaMaintenanceHeartbeatTimeout  = 5 * time.Second
 	qaMaintenanceBackfillTimeout   = 30 * time.Minute
 )
