@@ -224,7 +224,7 @@ func TestOpenAIGatewayService_OAuthMessagesBridgeDoesNotInjectDefaultInstruction
 	require.NotEmpty(t, upstream.lastReq.Header.Get("Session_Id"))
 	require.Empty(t, upstream.lastReq.Header.Get("Conversation_Id"))
 	require.Empty(t, upstream.lastReq.Header.Get("OpenAI-Beta"))
-	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
+	require.Empty(t, upstream.lastReq.Header.Get("originator"))
 }
 
 func TestOpenAIGatewayService_OAuthUpstreamHeadersNormalizeNonCodexIngress(t *testing.T) {
@@ -242,21 +242,21 @@ func TestOpenAIGatewayService_OAuthUpstreamHeadersNormalizeNonCodexIngress(t *te
 			path:           "/v1/responses",
 			body:           []byte(`{"model":"gpt-5.5","stream":true,"instructions":"local-test-instructions","input":[{"type":"input_text","text":"hi"}]}`),
 			userAgent:      "python-requests/2.33.1",
-			wantOriginator: "codex_cli_rs",
+			wantOriginator: openai.CodexDefaultOriginator,
 		},
 		{
 			name:           "chat completions python urllib",
 			path:           "/v1/chat/completions",
 			body:           []byte(`{"model":"gpt-5.5","stream":true,"messages":[{"role":"user","content":"hi"}]}`),
 			userAgent:      "Python-urllib/3.13",
-			wantOriginator: "codex_cli_rs",
+			wantOriginator: openai.CodexDefaultOriginator,
 		},
 		{
 			name:           "messages claude cli",
 			path:           "/v1/messages",
 			body:           []byte(`{"model":"claude-opus-4-7","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"hi"}]}`),
 			userAgent:      "claude-cli/2.1.179 (external, sdk-cli)",
-			wantOriginator: "codex_cli_rs",
+			wantOriginator: openai.CodexDefaultOriginator,
 		},
 	}
 
