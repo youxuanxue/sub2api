@@ -47,7 +47,7 @@ const codexOfficialClientFamilyPrefix = "codex "
 // 伪造绕过（gate 仍需 UA 双因子佐证）。新官方/合作客户端经 allowed_client.go 命名预设放行，
 // 或在 bump context/codex 时同步补入本集合。
 var codexOfficialClientOriginators = map[string]bool{
-	"codex_cli_rs":          true, // CLI 默认 DEFAULT_ORIGINATOR
+	"codex_cli_rs":          true, // legacy Rust CLI originator; gateway default is codex-tui
 	"codex-tui":             true, // 交互式 TUI（连字符，真实流量占比最高）
 	"codex_vscode":          true, // VSCode/Cursor 扩展
 	"codex_vscode_copilot":  true, // 扩展 GitHub Copilot 集成模式
