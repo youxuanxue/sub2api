@@ -178,11 +178,10 @@ func TestUS075_PersistCapture_DLQDowngradesCaptureStatus(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	svc := &Service{
-		client:        client,
-		store:         dlqOnlyBlobStore{},
-		cfg:           config.QACaptureConfig{Enabled: true},
-		retentionDays: 1,
-		dlqDir:        filepath.Join(t.TempDir(), "qa_dlq"),
+		client: client,
+		store:  dlqOnlyBlobStore{},
+		cfg:    config.QACaptureConfig{Enabled: true},
+		dlqDir: filepath.Join(t.TempDir(), "qa_dlq"),
 	}
 
 	err = svc.persistCapture(context.Background(), CaptureInput{
@@ -249,6 +248,7 @@ func TestUS070_PersistCapture_WritesUpstreamModel(t *testing.T) {
 		sentinelCachedTokens = 6
 	)
 
+	createdAt := time.Now().UTC()
 	err := svc.persistCapture(ctx, CaptureInput{
 		RequestID:      "capture-upstream-model",
 		UserID:         7,
@@ -262,7 +262,7 @@ func TestUS070_PersistCapture_WritesUpstreamModel(t *testing.T) {
 		InputTokens:  sentinelInputTokens,
 		OutputTokens: sentinelOutputTokens,
 		CachedTokens: sentinelCachedTokens,
-		CreatedAt:    time.Now().UTC(),
+		CreatedAt:    createdAt,
 	})
 	require.NoError(t, err)
 
@@ -273,6 +273,7 @@ func TestUS070_PersistCapture_WritesUpstreamModel(t *testing.T) {
 	require.Equal(t, sentinelInputTokens, record.InputTokens)
 	require.Equal(t, sentinelOutputTokens, record.OutputTokens)
 	require.Equal(t, sentinelCachedTokens, record.CachedTokens)
+	require.Equal(t, createdAt.Add(24*time.Hour), record.RetentionUntil)
 }
 
 func TestUS070_PersistCapture_WritesExtendedMetadata(t *testing.T) {

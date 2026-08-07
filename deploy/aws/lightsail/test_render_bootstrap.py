@@ -101,17 +101,10 @@ class RenderBootstrapTests(unittest.TestCase):
         self.assertIn("swapon /swapfile", content)
         self.assertIn("/swapfile none swap sw 0 0", content)
 
-    def test_qa_and_prune_scripts_are_gzipped(self):
-        # Both ops scripts are now gzipped before base64-encoding (was raw
-        # base64 in earlier revisions, contributing ~3.7 KB of overhead).
-        # The decoder pipe `base64 -d | gunzip` is the test contract; if a
-        # future edit drops gunzip the bootstrap silently fails at runtime.
+    def test_edge_omits_retired_qa_cleanup_and_gzips_prune_script(self):
         content = GENERATED.read_text(encoding="utf-8")
-        self.assertIn(
-            'printf \'%s\' "$QA_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-qa-stale-cleanup.sh',
-            content,
-            "QA_B64 must be gzip-decoded; otherwise user-data bloats past 16KB",
-        )
+        self.assertNotIn("QA_B64", content)
+        self.assertNotIn("tokenkey-qa-stale-cleanup.sh", content)
         self.assertIn(
             'printf \'%s\' "$PRUNE_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh',
             content,

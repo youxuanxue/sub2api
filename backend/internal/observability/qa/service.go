@@ -38,7 +38,6 @@ type Service struct {
 	pool              pond.Pool
 	bodyMaxBytes      int
 	optInBodyMaxBytes int
-	retentionDays     int
 	dlqDir            string
 
 	// Trajectory export runs off the request path on its own single-worker pool
@@ -125,7 +124,6 @@ func NewService(cfg *config.Config, client *ent.Client) (*Service, error) {
 		exportStore:       exportStore,
 		bodyMaxBytes:      cfg.QACapture.BodyMaxBytes,
 		optInBodyMaxBytes: cfg.QACapture.OptInBodyMaxBytes,
-		retentionDays:     cfg.QACapture.RetentionDays,
 		dlqDir:            filepath.Join(dataDir, "qa_dlq"),
 	}
 	svc.pool = pond.NewPool(cfg.QACapture.WorkerCount, pond.WithQueueSize(cfg.QACapture.QueueSize))
@@ -363,7 +361,7 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 		SetBlobURI(blobURI).
 		SetTags(tags).
 		SetCreatedAt(input.CreatedAt).
-		SetRetentionUntil(input.CreatedAt.Add(time.Duration(s.retentionDays) * 24 * time.Hour))
+		SetRetentionUntil(input.CreatedAt.Add(24 * time.Hour))
 	if v := strings.TrimSpace(input.TrajectoryID); v != "" {
 		create = create.SetTrajectoryID(v)
 	}

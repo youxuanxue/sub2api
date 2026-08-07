@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import json
 import pathlib
 import subprocess
@@ -18,7 +19,6 @@ sys.path.insert(0, str(_DIR))
 
 import data_layer_archive_cleanup_hold as control  # noqa: E402
 import data_layer_archive_cleanup_hold_remote as remote  # noqa: E402
-import data_layer_archive_closeout as closeout  # noqa: E402
 
 
 _INSTANCE_ID = "i-0123456789abcdef0"
@@ -278,21 +278,23 @@ class CleanupHoldControlTest(unittest.TestCase):
             "deletion_authorized": False,
         }
         with tempfile.TemporaryDirectory() as temp, mock.patch.object(
-            control,
-            "_verified_closeouts",
-            return_value=[
-                {"table": "ops_error_logs"},
-                {"table": "ops_system_logs"},
-            ],
-        ), mock.patch.object(control, "_run_remote", return_value=released) as run_remote:
-            path = pathlib.Path(temp) / "hold.json"
+            control, "_run_remote", return_value=released
+        ) as run_remote:
+            root = pathlib.Path(temp)
+            path = root / "hold.json"
+            activation = root / "activation.json"
             path.write_text(json.dumps(receipt), encoding="utf-8")
-            result = control.release(
-                path,
-                control.RELEASE_CONFIRMATION,
-                closeout_receipt_paths=["error-closeout.json", "system-closeout.json"],
-            )
-        self.assertEqual(len(result["archive_closeouts"]), 2)
+            activation.write_text(json.dumps({
+                "mode": "prod_data_retention_activation_plan",
+                "environment": "prod",
+                "activation_ready": True,
+                "deletion_authorized": False,
+                "instance_id": _INSTANCE_ID,
+                "hold_started_at": _STARTED_AT,
+                "ops": {"server_clock": dt.datetime.now(dt.timezone.utc).isoformat()},
+            }), encoding="utf-8")
+            result = control.release(path, activation, control.RELEASE_CONFIRMATION)
+        self.assertNotIn("archive_closeouts", result)
         self.assertEqual(
             run_remote.call_args.args,
             (
@@ -308,7 +310,7 @@ class CleanupHoldControlTest(unittest.TestCase):
             ),
         )
 
-    def test_release_rejects_closeout_for_a_modified_hold_receipt(self) -> None:
+    def test_release_rejects_stale_activation_plan_before_remote_call(self) -> None:
         receipt = {
             "mode": "prod_archive_cleanup_hold",
             "environment": "prod",
@@ -319,28 +321,25 @@ class CleanupHoldControlTest(unittest.TestCase):
             "previous_cleanup_enabled": True,
             "deletion_authorized": False,
         }
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(
+            control, "_run_remote"
+        ) as run_remote:
             root = pathlib.Path(temp)
             hold_path = root / "hold.json"
+            plan_path = root / "activation.json"
             hold_path.write_text(json.dumps(receipt), encoding="utf-8")
-            paths = [root / "error.json", root / "system.json"]
-            for path in paths:
-                path.write_text("{}\n", encoding="utf-8")
-            payloads = [
-                {
-                    "table": table,
-                    "instance_id": _INSTANCE_ID,
-                    "hold_started_at": _STARTED_AT,
-                    "restore_verified_at": "2026-08-03T00:00:00.000000Z",
-                    "cleanup_hold_receipt_sha256": "0" * 64,
-                }
-                for table in ("ops_error_logs", "ops_system_logs")
-            ]
-            with mock.patch.object(
-                closeout, "load_closeout_receipt", side_effect=payloads
-            ):
-                with self.assertRaisesRegex(control.HoldControlError, "active cleanup hold"):
-                    control._verified_closeouts(paths, receipt, hold_path)
+            plan_path.write_text(json.dumps({
+                "mode": "prod_data_retention_activation_plan",
+                "environment": "prod",
+                "activation_ready": True,
+                "deletion_authorized": False,
+                "instance_id": _INSTANCE_ID,
+                "hold_started_at": _STARTED_AT,
+                "ops": {"server_clock": "2026-01-01T00:00:00Z"},
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(control.HoldControlError, "stale"):
+                control.release(hold_path, plan_path, control.RELEASE_CONFIRMATION)
+        run_remote.assert_not_called()
 
     def test_us039_run_remote_fixes_prod_target_and_companion(self) -> None:
         payload = {

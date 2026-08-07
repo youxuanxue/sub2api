@@ -4,6 +4,9 @@ prod:
   capture_enabled: true
   online_window_hours: 24
   maintenance_schedule_utc: "*:15"
+  cleanup_schedule_utc: "*:45"
+  cleanup_randomized_delay_minutes: 15
+  cleanup_batch_size: 5000
   physical_cleanup_max_lag_minutes: 75
 
   archive:

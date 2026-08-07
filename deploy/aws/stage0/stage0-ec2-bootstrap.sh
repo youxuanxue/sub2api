@@ -11,7 +11,6 @@ set -euxo pipefail
 : "${TK_DATA_VOLUME_ID:?}"
 : "${TK_PROJECT_NAME:?}"
 : "${TK_ENVIRONMENT:?}"
-: "${TK_QA_STALE_RETENTION_DAYS:?}"
 : "${TK_TOKENKEY_IMAGE:?}"
 
 API_DOMAIN="${TK_API_DOMAIN}"
@@ -225,10 +224,11 @@ render_prod_caddyfile() {
 render_prod_caddyfile caddy/Caddyfile.template caddy/Caddyfile
 
 install -d -m 0755 /etc/tokenkey
-printf 'TOKENKEY_QA_STALE_RETENTION_DAYS=%s\n' "${TK_QA_STALE_RETENTION_DAYS}" > /etc/tokenkey/qa-stale-retention.env
-QA_B64_PARAM_NAME="${STAGE0_PREFIX}/qa-stale-cleanup.b64"
-RAW="$(aws ssm get-parameter --name "${QA_B64_PARAM_NAME}" --region "${REGION}" --query Parameter.Value --output text)"
-printf '%s' "${RAW}" | base64 -d > /usr/local/bin/tokenkey-qa-stale-cleanup.sh
+rm -f /etc/tokenkey/qa-stale-retention.env
+QA_B64_PARAM_PREFIX="${STAGE0_PREFIX}/qa-stale-cleanup.gzip.b64"
+RAW="$(aws ssm get-parameter --name "${QA_B64_PARAM_PREFIX}.part1" --region "${REGION}" --query Parameter.Value --output text)"
+RAW+="$(aws ssm get-parameter --name "${QA_B64_PARAM_PREFIX}.part2" --region "${REGION}" --query Parameter.Value --output text)"
+printf '%s' "${RAW}" | base64 -d | gunzip > /usr/local/bin/tokenkey-qa-stale-cleanup.sh
 chmod +x /usr/local/bin/tokenkey-qa-stale-cleanup.sh
 
 printf '%s\n' "${STAGE0_PREFIX}/ghcr-prune.b64" > /etc/tokenkey/ghcr-prune-ssm.path
@@ -484,31 +484,7 @@ RandomizedDelaySec=2min
 WantedBy=timers.target
 PTEOF
 
-cat > /etc/systemd/system/tokenkey-qa-stale-cleanup.service <<'QASVEOF'
-[Unit]
-Description=Prune QA records and blob trees older than retention
-After=network-online.target tokenkey.service
-Wants=network-online.target
-Requires=tokenkey.service
-
-[Service]
-Type=oneshot
-EnvironmentFile=-/etc/tokenkey/qa-stale-retention.env
-ExecStart=/usr/local/bin/tokenkey-qa-stale-cleanup.sh
-QASVEOF
-
-cat > /etc/systemd/system/tokenkey-qa-stale-cleanup.timer <<'QATIMEOF'
-[Unit]
-Description=Daily QA stale cleanup (low-traffic window)
-
-[Timer]
-OnCalendar=*-*-* 04:15:00
-RandomizedDelaySec=30min
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-QATIMEOF
+/usr/local/bin/tokenkey-qa-stale-cleanup.sh --install-units /etc/systemd/system
 
 # --- 7. CloudWatch Agent ------------------------------------------------
 cat > /opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json <<'CWEOF'
@@ -539,7 +515,7 @@ systemctl daemon-reload
 systemctl enable --now tokenkey.service
 systemctl enable --now tokenkey-pgdump.timer
 systemctl enable --now tokenkey-disk-metrics.timer
-systemctl enable --now tokenkey-qa-stale-cleanup.timer
+systemctl disable --now tokenkey-qa-stale-cleanup.timer
 systemctl enable --now tokenkey-ghcr-prune-daily.timer
 if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
   /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
