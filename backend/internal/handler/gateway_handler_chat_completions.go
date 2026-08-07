@@ -185,6 +185,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	for {
+		routingStart := time.Now()
 		if c.Request.Context().Err() != nil {
 			return
 		}
@@ -282,8 +283,11 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			continue
 		}
 
+		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
+
 		// 5. Forward request
 		writerSizeBeforeForward := c.Writer.Size()
+		forwardStart := time.Now()
 		forwardBody := body
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
@@ -312,6 +316,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		} else {
 			result, err = h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
 		}
+		tkRecordForwardResponseTail(c, forwardStart)
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
@@ -363,6 +368,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		sessionID := service.ExtractClientSessionID(c)
+		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 				Result:             result,
@@ -379,6 +385,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				RequestPayloadHash: requestPayloadHash,
 				APIKeyService:      h.apiKeyService,
 				SessionID:          sessionID,
+				GatewayLatencyMs:   gatewayLatencyMs,
 				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
 			}); err != nil {
 				reqLog.Error("gateway.cc.record_usage_failed",

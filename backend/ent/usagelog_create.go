@@ -421,6 +421,20 @@ func (_c *UsageLogCreate) SetNillableDurationMs(v *int) *UsageLogCreate {
 	return _c
 }
 
+// SetGatewayLatencyMs sets the "gateway_latency_ms" field.
+func (_c *UsageLogCreate) SetGatewayLatencyMs(v int) *UsageLogCreate {
+	_c.mutation.SetGatewayLatencyMs(v)
+	return _c
+}
+
+// SetNillableGatewayLatencyMs sets the "gateway_latency_ms" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableGatewayLatencyMs(v *int) *UsageLogCreate {
+	if v != nil {
+		_c.SetGatewayLatencyMs(*v)
+	}
+	return _c
+}
+
 // SetFirstTokenMs sets the "first_token_ms" field.
 func (_c *UsageLogCreate) SetFirstTokenMs(v int) *UsageLogCreate {
 	_c.mutation.SetFirstTokenMs(v)
@@ -997,6 +1011,10 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.DurationMs(); ok {
 		_spec.SetField(usagelog.FieldDurationMs, field.TypeInt, value)
 		_node.DurationMs = &value
+	}
+	if value, ok := _c.mutation.GatewayLatencyMs(); ok {
+		_spec.SetField(usagelog.FieldGatewayLatencyMs, field.TypeInt, value)
+		_node.GatewayLatencyMs = &value
 	}
 	if value, ok := _c.mutation.FirstTokenMs(); ok {
 		_spec.SetField(usagelog.FieldFirstTokenMs, field.TypeInt, value)
@@ -1714,6 +1732,30 @@ func (u *UsageLogUpsert) AddDurationMs(v int) *UsageLogUpsert {
 // ClearDurationMs clears the value of the "duration_ms" field.
 func (u *UsageLogUpsert) ClearDurationMs() *UsageLogUpsert {
 	u.SetNull(usagelog.FieldDurationMs)
+	return u
+}
+
+// SetGatewayLatencyMs sets the "gateway_latency_ms" field.
+func (u *UsageLogUpsert) SetGatewayLatencyMs(v int) *UsageLogUpsert {
+	u.Set(usagelog.FieldGatewayLatencyMs, v)
+	return u
+}
+
+// UpdateGatewayLatencyMs sets the "gateway_latency_ms" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateGatewayLatencyMs() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldGatewayLatencyMs)
+	return u
+}
+
+// AddGatewayLatencyMs adds v to the "gateway_latency_ms" field.
+func (u *UsageLogUpsert) AddGatewayLatencyMs(v int) *UsageLogUpsert {
+	u.Add(usagelog.FieldGatewayLatencyMs, v)
+	return u
+}
+
+// ClearGatewayLatencyMs clears the value of the "gateway_latency_ms" field.
+func (u *UsageLogUpsert) ClearGatewayLatencyMs() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldGatewayLatencyMs)
 	return u
 }
 
@@ -2586,6 +2628,34 @@ func (u *UsageLogUpsertOne) UpdateDurationMs() *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) ClearDurationMs() *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.ClearDurationMs()
+	})
+}
+
+// SetGatewayLatencyMs sets the "gateway_latency_ms" field.
+func (u *UsageLogUpsertOne) SetGatewayLatencyMs(v int) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetGatewayLatencyMs(v)
+	})
+}
+
+// AddGatewayLatencyMs adds v to the "gateway_latency_ms" field.
+func (u *UsageLogUpsertOne) AddGatewayLatencyMs(v int) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddGatewayLatencyMs(v)
+	})
+}
+
+// UpdateGatewayLatencyMs sets the "gateway_latency_ms" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateGatewayLatencyMs() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateGatewayLatencyMs()
+	})
+}
+
+// ClearGatewayLatencyMs clears the value of the "gateway_latency_ms" field.
+func (u *UsageLogUpsertOne) ClearGatewayLatencyMs() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearGatewayLatencyMs()
 	})
 }
 
@@ -3658,6 +3728,34 @@ func (u *UsageLogUpsertBulk) UpdateDurationMs() *UsageLogUpsertBulk {
 func (u *UsageLogUpsertBulk) ClearDurationMs() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.ClearDurationMs()
+	})
+}
+
+// SetGatewayLatencyMs sets the "gateway_latency_ms" field.
+func (u *UsageLogUpsertBulk) SetGatewayLatencyMs(v int) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetGatewayLatencyMs(v)
+	})
+}
+
+// AddGatewayLatencyMs adds v to the "gateway_latency_ms" field.
+func (u *UsageLogUpsertBulk) AddGatewayLatencyMs(v int) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddGatewayLatencyMs(v)
+	})
+}
+
+// UpdateGatewayLatencyMs sets the "gateway_latency_ms" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateGatewayLatencyMs() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateGatewayLatencyMs()
+	})
+}
+
+// ClearGatewayLatencyMs clears the value of the "gateway_latency_ms" field.
+func (u *UsageLogUpsertBulk) ClearGatewayLatencyMs() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearGatewayLatencyMs()
 	})
 }
 

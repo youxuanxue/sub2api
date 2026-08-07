@@ -76,6 +76,8 @@ const (
 	FieldStream = "stream"
 	// FieldDurationMs holds the string denoting the duration_ms field in the database.
 	FieldDurationMs = "duration_ms"
+	// FieldGatewayLatencyMs holds the string denoting the gateway_latency_ms field in the database.
+	FieldGatewayLatencyMs = "gateway_latency_ms"
 	// FieldFirstTokenMs holds the string denoting the first_token_ms field in the database.
 	FieldFirstTokenMs = "first_token_ms"
 	// FieldUserAgent holds the string denoting the user_agent field in the database.
@@ -183,6 +185,7 @@ var Columns = []string{
 	FieldBillingType,
 	FieldStream,
 	FieldDurationMs,
+	FieldGatewayLatencyMs,
 	FieldFirstTokenMs,
 	FieldUserAgent,
 	FieldIPAddress,
@@ -435,6 +438,11 @@ func ByStream(opts ...sql.OrderTermOption) OrderOption {
 // ByDurationMs orders the results by the duration_ms field.
 func ByDurationMs(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDurationMs, opts...).ToFunc()
+}
+
+// ByGatewayLatencyMs orders the results by the gateway_latency_ms field.
+func ByGatewayLatencyMs(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldGatewayLatencyMs, opts...).ToFunc()
 }
 
 // ByFirstTokenMs orders the results by the first_token_ms field.

@@ -57,6 +57,7 @@ var usageLogInsertArgTypes = [...]string{
 	"boolean",     // stream
 	"boolean",     // openai_ws_mode
 	"integer",     // duration_ms
+	"integer",     // gateway_latency_ms
 	"integer",     // first_token_ms
 	"text",        // user_agent
 	"text",        // ip_address
@@ -271,6 +272,7 @@ func cloneUsageLog(log *service.UsageLog) *service.UsageLog {
 	snapshot.AccountRateMultiplier = cloneUsageLogValue(log.AccountRateMultiplier)
 	snapshot.AccountStatsCost = cloneUsageLogValue(log.AccountStatsCost)
 	snapshot.DurationMs = cloneUsageLogValue(log.DurationMs)
+	snapshot.GatewayLatencyMs = cloneUsageLogValue(log.GatewayLatencyMs)
 	snapshot.FirstTokenMs = cloneUsageLogValue(log.FirstTokenMs)
 	snapshot.UserAgent = cloneUsageLogValue(log.UserAgent)
 	snapshot.IPAddress = cloneUsageLogValue(log.IPAddress)
@@ -391,6 +393,7 @@ func (r *usageLogRepository) createSinglePrepared(
 			stream,
 			openai_ws_mode,
 			duration_ms,
+			gateway_latency_ms,
 			first_token_ms,
 			user_agent,
 			ip_address,
@@ -422,7 +425,7 @@ func (r *usageLogRepository) createSinglePrepared(
 			$10, $11, $12, $13,
 			$14, $15, $16, $17,
 			$18, $19, $20, $21, $22, $23,
-			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
+			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58
 		)
 		ON CONFLICT DO NOTHING
 		RETURNING id, created_at
@@ -958,6 +961,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			stream,
 			openai_ws_mode,
 			duration_ms,
+			gateway_latency_ms,
 			first_token_ms,
 			user_agent,
 			ip_address,
@@ -985,7 +989,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			created_at
 		) AS (VALUES `)
 
-	// Each batch row prepends the synthetic input_index before the 57
+	// Each batch row prepends the synthetic input_index before the 58
 	// usage-log column values.
 	args := make([]any, 0, len(keys)*58)
 	argPos := 1
@@ -1048,6 +1052,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				stream,
 				openai_ws_mode,
 				duration_ms,
+				gateway_latency_ms,
 				first_token_ms,
 				user_agent,
 				ip_address,
@@ -1107,6 +1112,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				stream,
 				openai_ws_mode,
 				duration_ms,
+				gateway_latency_ms,
 				first_token_ms,
 				user_agent,
 				ip_address,
@@ -1206,6 +1212,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			stream,
 			openai_ws_mode,
 			duration_ms,
+			gateway_latency_ms,
 			first_token_ms,
 			user_agent,
 			ip_address,
@@ -1233,7 +1240,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			created_at
 		) AS (VALUES `)
 
-	args := make([]any, 0, len(preparedList)*57)
+	args := make([]any, 0, len(preparedList)*58)
 	argPos := 1
 	for idx, prepared := range preparedList {
 		if idx > 0 {
@@ -1291,6 +1298,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			stream,
 			openai_ws_mode,
 			duration_ms,
+			gateway_latency_ms,
 			first_token_ms,
 			user_agent,
 			ip_address,
@@ -1350,6 +1358,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			stream,
 			openai_ws_mode,
 			duration_ms,
+			gateway_latency_ms,
 			first_token_ms,
 			user_agent,
 			ip_address,
@@ -1417,6 +1426,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			stream,
 			openai_ws_mode,
 			duration_ms,
+			gateway_latency_ms,
 			first_token_ms,
 			user_agent,
 			ip_address,
@@ -1448,7 +1458,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			$10, $11, $12, $13,
 			$14, $15, $16, $17,
 			$18, $19, $20, $21, $22, $23,
-			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
+			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58
 		)
 		ON CONFLICT DO NOTHING
 		`, prepared.args...)
@@ -1478,6 +1488,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	groupID := nullInt64(log.GroupID)
 	subscriptionID := nullInt64(log.SubscriptionID)
 	duration := nullInt(log.DurationMs)
+	gatewayLatency := nullInt(log.GatewayLatencyMs)
 	firstToken := nullInt(log.FirstTokenMs)
 	userAgent := nullString(log.UserAgent)
 	ipAddress := nullString(log.IPAddress)
@@ -1546,6 +1557,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			log.Stream,
 			log.OpenAIWSMode,
 			duration,
+			gatewayLatency,
 			firstToken,
 			userAgent,
 			ipAddress,
