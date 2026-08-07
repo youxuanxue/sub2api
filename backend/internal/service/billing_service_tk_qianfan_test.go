@@ -76,4 +76,5 @@ func TestTkQianfanScopedBillingModel_ExcludesDeepSeekPeakValley(t *testing.T) {
 	scaled := tkApplyDeepSeekPeakValleyPricing("deepseek-v4-pro.qianfan", base, at, PricingSourceLiteLLM)
 	require.InDelta(t, base.InputPricePerToken, scaled.InputPricePerToken, 1e-12)
 	require.InDelta(t, base.OutputPricePerToken, scaled.OutputPricePerToken, 1e-12)
+	require.False(t, tkDeepSeekPeakValleyAppliesWithPolicy(policy, "deepseek-v3.2-think", PricingSourceLiteLLM))
 }

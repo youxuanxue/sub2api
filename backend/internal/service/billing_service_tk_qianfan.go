@@ -4,6 +4,14 @@ import "strings"
 
 const tkQianfanOverlayPricingSuffix = ".qianfan"
 
+// tkDeepSeekPeakValleyExcludedModels are overlay owners on Baidu Qianfan list
+// pricing, not DeepSeek official direct-API peak-valley windows.
+var tkDeepSeekPeakValleyExcludedModels = map[string]struct{}{
+	"deepseek-v3.2":          {},
+	"deepseek-v3.2-think":    {},
+	"deepseek-v4-flash-0731": {},
+}
+
 // tkQianfanScopedOverlayModels are client-facing model ids that share a global
 // overlay owner but bill at Baidu Qianfan list rates when served from account 90.
 var tkQianfanScopedOverlayModels = map[string]struct{}{
