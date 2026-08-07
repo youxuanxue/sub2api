@@ -46,7 +46,7 @@ jq -n \
       "sudo /usr/local/bin/tokenkey-qa-maintenance.sh --install-units",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable tokenkey-qa-maintenance.timer",
-      "echo --- timer (not started until QA_ARCHIVE_ENABLED=true) ---",
+      "echo \"--- timer not started until QA_ARCHIVE_ENABLED=true ---\"",
       "sudo systemctl list-timers tokenkey-qa-maintenance.timer --no-pager || true",
       ("echo Live qa-maintenance units now match deploy/aws@" + $sha + " on $(hostname)")
     ]
