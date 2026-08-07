@@ -10,7 +10,7 @@ admin-UI placeholders are examples, not fingerprint pins.
 Unlike the cc / kiro / antigravity engines this needs NO mitmproxy / pcap: the
 Codex CLI ships its fingerprint locally, so the on-wire identity is read straight
 off the installed binary and diffed against the pinned TK literals. The
-NON-version pins (``originator=codex_cli_rs``, ``OpenAI-Beta: responses=experimental``)
+NON-version pins (``originator=codex-tui``, ``OpenAI-Beta: responses=experimental``)
 are sanity-checked against the binary's strings; a change there is reported as
 ``needs_investigation`` (manual judgement, follow the SKILL), never an auto-bump.
 
@@ -56,7 +56,7 @@ NON_VERSION_PIN_GO_FILES = (
 )
 
 # Non-version pins verified (not bumped) against the installed binary's strings.
-EXPECTED_ORIGINATOR = "codex_cli_rs"
+EXPECTED_ORIGINATOR = "codex-tui"
 EXPECTED_BETA = "responses=experimental"
 
 _VER = r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?"
@@ -165,7 +165,11 @@ def load_baseline() -> Baseline:
     bl.pins.append(Pin("version_source", SETTING_GO, "bare", raw=source_version, version=source_version, found=bool(source_version)))
 
     ua_expr = _find1(setting_txt, r"DefaultOpenAICodexUserAgent\s*=\s*([^\n]+)")
-    ua_uses_source = ua_expr.count("DefaultOpenAICodexVersion") >= 2
+    service_txt = "\n".join((setting_txt, _read(GATEWAY_GO), _read(USAGE_GO)))
+    ua_uses_source = ua_expr.count("DefaultOpenAICodexVersion") >= 2 or (
+        "codexCLIUserAgent" in ua_expr
+        and re.search(r"codexCLIVersion\s*=\s*DefaultOpenAICodexVersion\b", service_txt) is not None
+    )
     bl.pins.append(Pin(
         "ua_default",
         SETTING_GO,
@@ -176,14 +180,16 @@ def load_baseline() -> Baseline:
         derivation_complete=ua_uses_source,
     ))
 
-    service_txt = "\n".join((setting_txt, _read(GATEWAY_GO), _read(USAGE_GO)))
     bl.pins.append(_alias_pin("gateway_version", SETTING_GO, "codexCLIVersion", service_txt, source_version))
     bl.pins.append(_alias_pin("probe_version", SETTING_GO, "openAICodexProbeVersion", service_txt, source_version))
 
     # Non-version pins (sanity, not bumped). These live in thin companion files
     # after the upstream merge split the gateway hot path.
     non_version_txt = "\n".join(_read(path) for path in NON_VERSION_PIN_GO_FILES)
-    bl.originator_pinned = ('"' + EXPECTED_ORIGINATOR + '"') in non_version_txt
+    bl.originator_pinned = (
+        ('"' + EXPECTED_ORIGINATOR + '"') in non_version_txt
+        or "CodexDefaultOriginator" in non_version_txt
+    )
     bl.beta_pinned = EXPECTED_BETA in non_version_txt
     return bl
 

@@ -162,7 +162,10 @@ func resolveOpenAIUpstreamOriginator(c *gin.Context, isOfficialClient bool) stri
 			}
 		}
 	}
-	return "codex_cli_rs"
+	if isOfficialClient {
+		return openai.CodexDefaultOriginator
+	}
+	return "opencode"
 }
 
 // BindStickySession sets session -> account binding with standard TTL.
