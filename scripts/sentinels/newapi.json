@@ -152,9 +152,11 @@
       "must_contain": [
         "RunEmbeddingRelay",
         "runVertexEmbeddingRelay",
-        "ChannelTypeVertexAi"
+        "ChannelTypeVertexAi",
+        "runQianfanEmbeddingRelay",
+        "ChannelTypeBaiduV2"
       ],
-      "rationale": "Bridge for POST /v1/embeddings on the newapi fifth platform. RunEmbeddingRelay must delegate channel_type 41 (Vertex SA) to runVertexEmbeddingRelay because upstream new-api's vertex adaptor leaves ConvertEmbeddingRequest unimplemented; dropping the injection line silently regresses every Vertex embedding request back to not implemented."
+      "rationale": "Bridge for POST /v1/embeddings on the newapi fifth platform. RunEmbeddingRelay must delegate channel_type 41 (Vertex SA) to runVertexEmbeddingRelay and channel_type 46 (Baidu Qianfan v2) to runQianfanEmbeddingRelay because upstream new-api adaptors leave ConvertEmbeddingRequest unimplemented; dropping either injection line silently regresses those embedding requests back to not implemented."
     },
     {
       "path": "backend/internal/relay/bridge/embedding_relay_tk_vertex.go",
@@ -179,6 +181,22 @@
         "TestDispatchEmbeddings_VertexPredict_OK"
       ],
       "rationale": "Focused bridge regressions for Vertex embedding request shaping, empty-prediction rejection, and DispatchEmbeddings end-to-end wiring through the ch41 companion path."
+    },
+    {
+      "path": "backend/internal/relay/bridge/embedding_relay_tk_qianfan.go",
+      "must_contain": [
+        "runQianfanEmbeddingRelay",
+        "ChannelTypeBaiduV2",
+        "runAdaptorEmbeddingRelay"
+      ],
+      "rationale": "TK companion that pass-through relays OpenAI /v1/embeddings to Baidu Qianfan /v2/embeddings for channel_type 46. Upstream baidu_v2.ConvertEmbeddingRequest is unimplemented even though GetRequestURL targets /v2/embeddings."
+    },
+    {
+      "path": "backend/internal/relay/bridge/embedding_relay_tk_qianfan_test.go",
+      "must_contain": [
+        "TestDispatchEmbeddings_QianfanV2_OK"
+      ],
+      "rationale": "Focused bridge regression for Qianfan embedding dispatch: upstream path /v2/embeddings, auth header, and OpenAI-shaped response + usage."
     },
     {
       "path": "backend/internal/server/routes/gateway_test.go",
