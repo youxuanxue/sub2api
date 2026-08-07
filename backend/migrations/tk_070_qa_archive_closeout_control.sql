@@ -17,7 +17,7 @@ ALTER TABLE qa_archive_shards
 
 CREATE TABLE IF NOT EXISTS qa_archive_segments (
     id                    bigserial   PRIMARY KEY,
-    shard_id              bigint      NOT NULL REFERENCES qa_archive_shards(id) ON DELETE CASCADE,
+    shard_id              bigint      NOT NULL REFERENCES qa_archive_shards(id) ON DELETE NO ACTION,
     segment_id            text        NOT NULL,
     segment_kind          text        NOT NULL,
     state                 text        NOT NULL DEFAULT 'writing',

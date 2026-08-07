@@ -107,6 +107,10 @@ class TestQAPhaseOps(unittest.TestCase):
             "--pids-limit=128",
             '--network="container:${app_container}"',
             '--volumes-from="${app_container}:rw"',
+            "{{.Image}}",
+            "--read-only",
+            "--cap-drop=ALL",
+            "TMPDIR=/app/data/qa_archive_tmp",
         ):
             self.assertIn(needle, body)
 
@@ -194,7 +198,9 @@ class TestQAPhaseOps(unittest.TestCase):
         proof = module._safety_proof(
             window, dt.datetime(2026, 8, 7, 2, 0, tzinfo=dt.timezone.utc)
         )
-        self.assertNotIn("=", proof)
+        proof_payload = json.loads(proof)
+        self.assertEqual(proof_payload["schema_version"], module.SAFETY_SCHEMA)
+        self.assertTrue(proof_payload["cleanup_runtime_disabled"])
         guard = "\n".join(module._timer_guard_shell())
         remote = module._remote_command(
             "repair-apply",
@@ -202,7 +208,22 @@ class TestQAPhaseOps(unittest.TestCase):
             "",
             module._window_token(module.REPAIR_CONFIRMATION_PREFIX, window),
         )
-        self.assertIn('"$proof"', remote)
+        self.assertNotIn("--safety-proof", remote)
+        for sidecar_needle in (
+            "{{.Image}}",
+            "docker run --rm",
+            "--user=1000:1000",
+            "--read-only",
+            "--cap-drop=ALL",
+            "--memory=1g",
+            "--memory-swap=1g",
+            "--cpus=0.20",
+            "--pids-limit=128",
+            "TMPDIR=/app/data/qa_archive_tmp",
+            "chmod 0444",
+            "$proof_file:/run/tokenkey-qa-archive-safety-proof.json:ro",
+        ):
+            self.assertIn(sidecar_needle, remote)
         for needle in (
             "tokenkey-qa-maintenance.timer",
             "tokenkey-qa-stale-cleanup.timer",

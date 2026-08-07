@@ -11,7 +11,10 @@ import (
 	"time"
 )
 
-const defaultCommitCASAttempts = 3
+const (
+	defaultCommitCASAttempts  = 3
+	failurePersistenceTimeout = 5 * time.Second
+)
 
 type Window struct {
 	Start time.Time
@@ -35,9 +38,11 @@ type ReconcileReceipt struct {
 type ReconcileControl interface {
 	EnsureShard(context.Context, *sql.Conn, Window) (int64, error)
 	ImportCommit(context.Context, *sql.Conn, int64, VerifiedCommit) error
+	OrphanIncomplete(context.Context, *sql.Conn, int64) error
 	PendingVerified(context.Context, *sql.Conn, int64) ([]CommitSegment, error)
 	StartSegment(context.Context, *sql.Conn, int64, BuiltSegment, string) (int64, error)
 	MarkSegmentVerified(context.Context, *sql.Conn, int64, VerifiedSegment) error
+	FailSegment(context.Context, *sql.Conn, int64, string, error) error
 	PersistCommit(context.Context, *sql.Conn, int64, VerifiedCommit) error
 	Fail(context.Context, *sql.Conn, int64, string, error) error
 }
@@ -87,7 +92,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 		if resultErr == nil {
 			return
 		}
-		_ = r.Control.Fail(ctx, conn, shardID, reconcileErrorCode(resultErr), resultErr)
+		failureCtx, cancel := context.WithTimeout(context.Background(), failurePersistenceTimeout)
+		defer cancel()
+		_ = r.Control.Fail(failureCtx, conn, shardID, reconcileErrorCode(resultErr), resultErr)
 	}()
 
 	commitKey := ShardRelativePrefix(window.Start) + "/commit.json"
@@ -102,6 +109,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 		}
 	}
 
+	if err := r.Control.OrphanIncomplete(ctx, conn, shardID); err != nil {
+		return ReconcileReceipt{}, fmt.Errorf("orphan interrupted archive segments: %w", err)
+	}
 	uploaded := false
 	pending, err := r.Control.PendingVerified(ctx, conn, shardID)
 	if err != nil {
@@ -135,6 +145,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 		if err != nil {
 			return ReconcileReceipt{}, fmt.Errorf("start archive segment: %w", err)
 		}
+		segmentVerified := false
+		defer func() {
+			if resultErr == nil || segmentVerified {
+				return
+			}
+			failureCtx, cancel := context.WithTimeout(context.Background(), failurePersistenceTimeout)
+			defer cancel()
+			_ = r.Control.FailSegment(failureCtx, conn, segmentDBID, reconcileErrorCode(resultErr), resultErr)
+		}()
 		if err := uploadBuiltSegment(ctx, r.Store, prefix, built); err != nil {
 			return ReconcileReceipt{}, err
 		}
@@ -154,6 +173,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 			return ReconcileReceipt{}, fmt.Errorf("persist verified segment: %w", err)
 		}
 		_ = verified.Close()
+		segmentVerified = true
 		pending = append(pending, CommitSegment{
 			SegmentID: built.SegmentID, SegmentKind: built.Manifest.SegmentKind,
 			ManifestKey: prefix + "/manifest.json", ManifestSHA256: manifestArtifact.SHA256,
@@ -284,7 +304,7 @@ func uploadBuiltSegment(ctx context.Context, store ObjectStore, prefix string, b
 		if err != nil {
 			return fmt.Errorf("open segment artifact %s: %w", artifact.Name, err)
 		}
-		_, putErr := store.Create(ctx, prefix+"/"+artifact.Name, file, artifact.Size, artifact.ContentType)
+		_, putErr := store.PutReader(ctx, prefix+"/"+artifact.Name, file, artifact.Size, artifact.ContentType)
 		closeErr := file.Close()
 		if putErr != nil {
 			return fmt.Errorf("create segment artifact %s: %w", artifact.Name, putErr)

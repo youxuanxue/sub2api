@@ -8,7 +8,18 @@ import (
 	"errors"
 	"io"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 )
+
+func TestArchiveTransferOptionsAreBounded(t *testing.T) {
+	var options transfermanager.Options
+	boundedTransferOptions(&options)
+	if options.Concurrency != 1 || options.PartSizeBytes != archiveMultipartPartSize ||
+		options.MultipartUploadThreshold != archiveMultipartPartSize {
+		t.Fatalf("transfer options=%+v", options)
+	}
+}
 
 func TestMemoryObjectStoreConditionalReaderContract(t *testing.T) {
 	ctx := context.Background()

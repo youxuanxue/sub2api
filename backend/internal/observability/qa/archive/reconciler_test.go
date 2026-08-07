@@ -19,13 +19,16 @@ import (
 )
 
 type fakeReconcileControl struct {
-	shardID     int64
-	pending     []CommitSegment
-	imported    int
-	started     int
-	verified    int
-	committed   *VerifiedCommit
-	failureCode string
+	shardID        int64
+	pending        []CommitSegment
+	imported       int
+	started        int
+	verified       int
+	segmentFailed  int
+	committed      *VerifiedCommit
+	orphaned       int
+	failureCode    string
+	failureCtxDone bool
 }
 
 func (f *fakeReconcileControl) EnsureShard(context.Context, *sql.Conn, Window) (int64, error) {
@@ -36,6 +39,10 @@ func (f *fakeReconcileControl) EnsureShard(context.Context, *sql.Conn, Window) (
 }
 func (f *fakeReconcileControl) ImportCommit(context.Context, *sql.Conn, int64, VerifiedCommit) error {
 	f.imported++
+	return nil
+}
+func (f *fakeReconcileControl) OrphanIncomplete(context.Context, *sql.Conn, int64) error {
+	f.orphaned++
 	return nil
 }
 func (f *fakeReconcileControl) PendingVerified(context.Context, *sql.Conn, int64) ([]CommitSegment, error) {
@@ -49,12 +56,17 @@ func (f *fakeReconcileControl) MarkSegmentVerified(context.Context, *sql.Conn, i
 	f.verified++
 	return nil
 }
+func (f *fakeReconcileControl) FailSegment(context.Context, *sql.Conn, int64, string, error) error {
+	f.segmentFailed++
+	return nil
+}
 func (f *fakeReconcileControl) PersistCommit(_ context.Context, _ *sql.Conn, _ int64, commit VerifiedCommit) error {
 	f.committed = &commit
 	return nil
 }
-func (f *fakeReconcileControl) Fail(_ context.Context, _ *sql.Conn, _ int64, code string, _ error) error {
+func (f *fakeReconcileControl) Fail(ctx context.Context, _ *sql.Conn, _ int64, code string, _ error) error {
 	f.failureCode = code
+	f.failureCtxDone = ctx.Err() != nil
 	return nil
 }
 
@@ -139,6 +151,39 @@ func TestReconcilerNoDeltaCreatesNoSecondBase(t *testing.T) {
 	}
 	if len(store.Keys()) != before || receipt.Uploaded || receipt.SegmentCount != 1 || control.started != 0 {
 		t.Fatalf("receipt=%+v before=%d after=%d control=%+v", receipt, before, len(store.Keys()), control)
+	}
+}
+
+func TestReconcilerVerificationFailureMarksSegmentFailed(t *testing.T) {
+	start := time.Date(2026, 8, 7, 1, 0, 0, 0, time.UTC)
+	control := &fakeReconcileControl{}
+	reconciler := NewReconciler(NewMemoryObjectStore(), control, t.TempDir())
+	reconciler.Build = func(context.Context, *sql.Conn, BuildInput) (BuiltSegment, error) {
+		return builtSegmentFixture(t, start, SegmentKindBase, "base-failed", "req-failed"), nil
+	}
+	reconciler.VerifyOne = func(context.Context, ObjectStore, SegmentDescriptor, string) (VerifiedSegment, error) {
+		return VerifiedSegment{}, &IntegrityError{Code: IntegrityCorruptArtifact, Err: errors.New("checksum mismatch")}
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), nil, Window{Start: start, End: start.Add(time.Hour)})
+	if err == nil || control.started != 1 || control.segmentFailed != 1 || control.verified != 0 {
+		t.Fatalf("err=%v control=%+v", err, control)
+	}
+}
+
+func TestReconcilerFailurePersistenceUsesLiveContextAndOrphansInterruptedSegments(t *testing.T) {
+	start := time.Date(2026, 8, 7, 1, 0, 0, 0, time.UTC)
+	control := &fakeReconcileControl{}
+	reconciler := NewReconciler(NewMemoryObjectStore(), control, t.TempDir())
+	reconciler.Build = func(context.Context, *sql.Conn, BuildInput) (BuiltSegment, error) {
+		return BuiltSegment{}, context.DeadlineExceeded
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := reconciler.Reconcile(ctx, nil, Window{Start: start, End: start.Add(time.Hour)})
+	if !errors.Is(err, context.DeadlineExceeded) || control.orphaned != 1 || control.failureCtxDone {
+		t.Fatalf("err=%v control=%+v", err, control)
 	}
 }
 
@@ -265,7 +310,7 @@ func uploadBuiltFixture(t *testing.T, store ObjectStore, built BuiltSegment) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := store.Put(context.Background(), prefix+"/"+artifact.Name, body, artifact.ContentType); err != nil {
+		if _, err := store.Create(context.Background(), prefix+"/"+artifact.Name, bytes.NewReader(body), int64(len(body)), artifact.ContentType); err != nil {
 			t.Fatal(err)
 		}
 	}

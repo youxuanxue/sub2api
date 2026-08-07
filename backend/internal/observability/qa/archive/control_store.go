@@ -62,6 +62,15 @@ func (s *SQLControlStore) ImportCommit(ctx context.Context, conn *sql.Conn, shar
 	return tx.Commit()
 }
 
+func (s *SQLControlStore) OrphanIncomplete(ctx context.Context, conn *sql.Conn, shardID int64) error {
+	_, err := conn.ExecContext(ctx, `
+UPDATE qa_archive_segments SET
+    state='orphaned', verification_error_code='interrupted_before_verify',
+    last_error='previous archive attempt ended before verification', updated_at=now()
+WHERE shard_id=$1 AND state='writing'`, shardID)
+	return err
+}
+
 func (s *SQLControlStore) PendingVerified(ctx context.Context, conn *sql.Conn, shardID int64) ([]CommitSegment, error) {
 	rows, err := conn.QueryContext(ctx, `
 SELECT segment_id, segment_kind, manifest_key, checksums->>'manifest_sha256'
@@ -153,6 +162,21 @@ WHERE id=$8 AND state IN ('writing','failed','orphaned')`,
 	return tx.Commit()
 }
 
+func (s *SQLControlStore) FailSegment(ctx context.Context, conn *sql.Conn, segmentID int64, code string, failure error) error {
+	message := "archive segment failed"
+	if failure != nil {
+		message = failure.Error()
+	}
+	if len(message) > 500 {
+		message = message[:500]
+	}
+	_, err := conn.ExecContext(ctx, `
+UPDATE qa_archive_segments SET
+    state='failed', verification_error_code=$1, last_error=$2, updated_at=now()
+WHERE id=$3 AND state='writing'`, code, message, segmentID)
+	return err
+}
+
 func (s *SQLControlStore) PersistCommit(ctx context.Context, conn *sql.Conn, shardID int64, commit VerifiedCommit) error {
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
@@ -169,7 +193,9 @@ func (s *SQLControlStore) Fail(ctx context.Context, conn *sql.Conn, shardID int6
 	if conn == nil {
 		return nil
 	}
-	code = s.failureCode(failure)
+	if strings.TrimSpace(code) == "" {
+		code = s.failureCode(failure)
+	}
 	message := "archive failed"
 	if failure != nil {
 		message = failure.Error()

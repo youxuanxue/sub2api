@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,6 +80,35 @@ func TestVerifySegmentRejectsCorruptEvidencePack(t *testing.T) {
 	}
 }
 
+func TestVerifySegmentRejectsEvidenceIndexThatDoesNotMatchParquet(t *testing.T) {
+	store, descriptor := verifiedSegmentFixture(t)
+	manifestBytes, _ := store.Get(context.Background(), descriptor.ManifestKey)
+	var manifest SegmentManifest
+	_ = json.Unmarshal(manifestBytes, &manifest)
+	badLine := evidenceIndexLine{
+		RequestID: "req-1", BlobField: "request_blob_uri", BlobURI: "file:///wrong/path",
+		Offset: 0, Length: int64(len("evidence-body")), SHA256: SHA256Hex([]byte("evidence-body")),
+	}
+	badJSON, _ := json.Marshal(badLine)
+	var encoded bytes.Buffer
+	writer, _ := zstd.NewWriter(&encoded)
+	_, _ = writer.Write(append(badJSON, '\n'))
+	_ = writer.Close()
+	manifest.EvidenceIndexSHA256 = SHA256Hex(encoded.Bytes())
+	manifest.ArtifactBytes = manifest.ArtifactBytes - int64(len(mustGet(t, store, descriptor.Prefix+"/evidence-index.jsonl.zst"))) + int64(encoded.Len())
+	manifestBytes, _ = MarshalJSON(manifest)
+	_ = store.Put(context.Background(), descriptor.Prefix+"/evidence-index.jsonl.zst", encoded.Bytes(), "application/octet-stream")
+	_ = store.Put(context.Background(), descriptor.ManifestKey, manifestBytes, "application/json")
+	descriptor.ManifestSHA256 = SHA256Hex(manifestBytes)
+
+	_, err := VerifySegment(context.Background(), store, descriptor, "")
+	var integrity *IntegrityError
+	if !errors.As(err, &integrity) || integrity.Code != IntegrityCorruptArtifact ||
+		!strings.Contains(err.Error(), "evidence index does not match parquet") {
+		t.Fatalf("VerifySegment() error=%v", err)
+	}
+}
+
 func TestVerifySegmentRejectsCorruptEvidenceIndex(t *testing.T) {
 	store, descriptor := verifiedSegmentFixture(t)
 	if err := store.Put(context.Background(), descriptor.Prefix+"/evidence-index.jsonl.zst", []byte("not-zstd"), "application/octet-stream"); err != nil {
@@ -89,6 +119,31 @@ func TestVerifySegmentRejectsCorruptEvidenceIndex(t *testing.T) {
 	var integrity *IntegrityError
 	if !errors.As(err, &integrity) || integrity.Code != IntegrityCorruptArtifact {
 		t.Fatalf("VerifySegment() error=%v", err)
+	}
+}
+
+func TestVerifyCommitRemovesPartialRestoreOnFailure(t *testing.T) {
+	store, descriptor := verifiedSegmentFixture(t)
+	manifestBytes, _ := store.Get(context.Background(), descriptor.ManifestKey)
+	var manifest SegmentManifest
+	_ = json.Unmarshal(manifestBytes, &manifest)
+	commit := CommitDocument{
+		SchemaVersion: CommitSchemaV1, WindowStart: manifest.WindowStart, WindowEnd: manifest.WindowEnd,
+		Segments:        []CommitSegment{{SegmentID: manifest.SegmentID, SegmentKind: manifest.SegmentKind, ManifestKey: descriptor.ManifestKey, ManifestSHA256: descriptor.ManifestSHA256}},
+		AggregateSHA256: descriptor.ManifestSHA256, CommittedAt: time.Now().UTC(),
+	}
+	commitBytes, _ := MarshalJSON(commit)
+	commitKey := ShardRelativePrefix(manifest.WindowStart) + "/commit.json"
+	_ = store.Put(context.Background(), commitKey, commitBytes, "application/json")
+	_ = store.Put(context.Background(), descriptor.Prefix+"/evidence.pack", []byte("corrupt"), "application/octet-stream")
+	restoreDir := filepath.Join(t.TempDir(), "partial-restore")
+
+	_, err := VerifyCommit(context.Background(), store, commitKey, restoreDir)
+	if err == nil {
+		t.Fatal("VerifyCommit() unexpectedly succeeded")
+	}
+	if _, statErr := os.Stat(restoreDir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("partial restore remains: %v", statErr)
 	}
 }
 
@@ -126,6 +181,34 @@ func TestVerifyCommitAcceptsLegacySingleBaseAndDerivesAggregate(t *testing.T) {
 	defer func() { _ = verified.Close() }()
 	if verified.RecordCount != 1 || verified.BlobRefCount != 1 || len(verified.Segments) != 1 || verified.ETag == "" {
 		t.Fatalf("verified=%+v", verified)
+	}
+}
+
+func TestVerifyCommitRejectsWindowThatDoesNotMatchObjectKey(t *testing.T) {
+	store, descriptor := verifiedSegmentFixture(t)
+	manifestBytes, _ := store.Get(context.Background(), descriptor.ManifestKey)
+	var manifest SegmentManifest
+	_ = json.Unmarshal(manifestBytes, &manifest)
+	commit := CommitDocument{
+		SchemaVersion: CommitSchemaV1,
+		WindowStart:   manifest.WindowStart.Add(time.Hour), WindowEnd: manifest.WindowEnd.Add(time.Hour),
+		Segments: []CommitSegment{{
+			SegmentID: manifest.SegmentID, SegmentKind: manifest.SegmentKind,
+			ManifestKey: descriptor.ManifestKey, ManifestSHA256: descriptor.ManifestSHA256,
+		}},
+		AggregateSHA256: descriptor.ManifestSHA256, CommittedAt: time.Now().UTC(),
+	}
+	commitBytes, _ := MarshalJSON(commit)
+	commitKey := "date=2026-08-07/hour=01/commit.json"
+	if err := store.Put(context.Background(), commitKey, commitBytes, "application/json"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := VerifyCommit(context.Background(), store, commitKey, "")
+	var integrity *IntegrityError
+	if !errors.As(err, &integrity) || integrity.BlobField != "commit.json" ||
+		!strings.Contains(err.Error(), "object key window mismatch") {
+		t.Fatalf("VerifyCommit() error=%v", err)
 	}
 }
 
@@ -196,6 +279,15 @@ func TestVerifyCommitV2RejectsAggregateMismatch(t *testing.T) {
 	if !errors.As(err, &integrity) || integrity.Code != IntegrityCorruptArtifact {
 		t.Fatalf("VerifyCommit() error=%v", err)
 	}
+}
+
+func mustGet(t *testing.T, store *MemoryObjectStore, key string) []byte {
+	t.Helper()
+	body, err := store.Get(context.Background(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
 }
 
 func verifiedSegmentFixture(t *testing.T) (*MemoryObjectStore, SegmentDescriptor) {

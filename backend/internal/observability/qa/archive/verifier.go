@@ -97,11 +97,21 @@ func VerifyCommit(ctx context.Context, store ObjectStore, commitKey, restoreDir 
 	if err := validateCommitDocument(commit); err != nil {
 		return VerifiedCommit{}, err
 	}
+	if err := validateCommitLocation(commitKey, commit); err != nil {
+		return VerifiedCommit{}, err
+	}
 
+	restoreCreated := false
 	if restoreDir != "" {
 		if err := os.Mkdir(restoreDir, 0o700); err != nil {
 			return VerifiedCommit{}, fmt.Errorf("create restore directory: %w", err)
 		}
+		restoreCreated = true
+		defer func() {
+			if resultErr != nil && restoreCreated {
+				_ = os.RemoveAll(restoreDir)
+			}
+		}()
 		if err := os.Chmod(restoreDir, 0o700); err != nil {
 			return VerifiedCommit{}, fmt.Errorf("secure restore directory: %w", err)
 		}
@@ -186,7 +196,8 @@ func VerifySegment(ctx context.Context, store ObjectStore, descriptor SegmentDes
 		return VerifiedSegment{}, corruptArtifact("records.parquet", err)
 	}
 	identityPath := filepath.Join(workDir, "record-identities.jsonl")
-	identityCount, blobRefs, err := verifyParquetIdentities(recordsPath, identityPath)
+	evidenceRefsPath := filepath.Join(workDir, "expected-evidence-refs.jsonl")
+	identityCount, blobRefs, err := verifyParquetIdentities(recordsPath, identityPath, evidenceRefsPath)
 	if err != nil {
 		return VerifiedSegment{}, corruptArtifact("records.parquet", err)
 	}
@@ -212,7 +223,7 @@ func VerifySegment(ctx context.Context, store ObjectStore, descriptor SegmentDes
 		if err != nil {
 			return VerifiedSegment{}, corruptArtifact("evidence-index.jsonl.zst", err)
 		}
-		indexCount, err := verifyEvidenceIndex(indexPath, evidencePath, evidenceSize, restoreDir)
+		indexCount, err := verifyEvidenceIndex(indexPath, evidencePath, evidenceRefsPath, evidenceSize, restoreDir)
 		if err != nil {
 			return VerifiedSegment{}, corruptArtifact("evidence-index.jsonl.zst", err)
 		}
@@ -259,6 +270,20 @@ func validateCommitDocument(commit CommitDocument) error {
 		}
 		if index > 0 && segment.SegmentKind != SegmentKindDelta {
 			return corruptArtifact("commit.json", fmt.Errorf("later segments must be delta"))
+		}
+	}
+	return nil
+}
+
+func validateCommitLocation(commitKey string, commit CommitDocument) error {
+	shardPrefix := ShardRelativePrefix(commit.WindowStart)
+	if commitKey != shardPrefix+"/commit.json" {
+		return corruptArtifact("commit.json", fmt.Errorf("object key window mismatch"))
+	}
+	for _, segment := range commit.Segments {
+		expected := shardPrefix + "/segments/" + segment.SegmentID + "/manifest.json"
+		if segment.ManifestKey != expected {
+			return corruptArtifact("commit.json", fmt.Errorf("manifest key outside commit shard"))
 		}
 	}
 	return nil
@@ -383,7 +408,7 @@ func downloadObject(ctx context.Context, store ObjectStore, key, destination, ex
 	return size, file.Close()
 }
 
-func verifyParquetIdentities(recordsPath, identityPath string) (recordCount int64, blobRefCount int64, err error) {
+func verifyParquetIdentities(recordsPath, identityPath, evidenceRefsPath string) (recordCount int64, blobRefCount int64, err error) {
 	records, err := os.Open(recordsPath)
 	if err != nil {
 		return 0, 0, err
@@ -396,7 +421,13 @@ func verifyParquetIdentities(recordsPath, identityPath string) (recordCount int6
 		return 0, 0, err
 	}
 	defer func() { _ = identities.Close() }()
+	expectedRefs, err := os.OpenFile(evidenceRefsPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer func() { _ = expectedRefs.Close() }()
 	writer := bufio.NewWriter(identities)
+	refsWriter := bufio.NewWriter(expectedRefs)
 	page := make([]RecordRow, verifyRowPageSize)
 	var previous RecordIdentity
 	for {
@@ -417,9 +448,19 @@ func verifyParquetIdentities(recordsPath, identityPath string) (recordCount int6
 				return 0, 0, writeErr
 			}
 			for _, ref := range orderedBlobRefs(row) {
-				if ref.URI != nil && strings.TrimSpace(*ref.URI) != "" {
-					blobRefCount++
+				if ref.URI == nil || strings.TrimSpace(*ref.URI) == "" {
+					continue
 				}
+				expected, marshalErr := json.Marshal(evidenceIndexLine{
+					RequestID: row.RequestID, BlobField: ref.Field, BlobURI: *ref.URI,
+				})
+				if marshalErr != nil {
+					return 0, 0, marshalErr
+				}
+				if _, writeErr := refsWriter.Write(append(expected, '\n')); writeErr != nil {
+					return 0, 0, writeErr
+				}
+				blobRefCount++
 			}
 			recordCount++
 			previous = identity
@@ -434,10 +475,19 @@ func verifyParquetIdentities(recordsPath, identityPath string) (recordCount int6
 	if err := writer.Flush(); err != nil {
 		return 0, 0, err
 	}
+	if err := refsWriter.Flush(); err != nil {
+		return 0, 0, err
+	}
 	if err := identities.Sync(); err != nil {
 		return 0, 0, err
 	}
-	return recordCount, blobRefCount, identities.Close()
+	if err := expectedRefs.Sync(); err != nil {
+		return 0, 0, err
+	}
+	if err := identities.Close(); err != nil {
+		return 0, 0, err
+	}
+	return recordCount, blobRefCount, expectedRefs.Close()
 }
 
 func compareIdentity(left, right RecordIdentity) int {
@@ -450,7 +500,7 @@ func compareIdentity(left, right RecordIdentity) int {
 	return strings.Compare(left.RequestID, right.RequestID)
 }
 
-func verifyEvidenceIndex(indexPath, evidencePath string, evidenceSize int64, restoreRoot string) (int64, error) {
+func verifyEvidenceIndex(indexPath, evidencePath, expectedRefsPath string, evidenceSize int64, restoreRoot string) (int64, error) {
 	indexFile, err := os.Open(indexPath)
 	if err != nil {
 		return 0, err
@@ -466,8 +516,15 @@ func verifyEvidenceIndex(indexPath, evidencePath string, evidenceSize int64, res
 		return 0, err
 	}
 	defer func() { _ = pack.Close() }()
+	expectedRefs, err := os.Open(expectedRefsPath)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = expectedRefs.Close() }()
 
 	scanner := bufio.NewScanner(decoder)
+	expectedScanner := bufio.NewScanner(expectedRefs)
+	expectedScanner.Buffer(make([]byte, 64*1024), maxManifestBytes)
 	scanner.Buffer(make([]byte, 64*1024), maxManifestBytes)
 	var count int64
 	var previousEnd int64
@@ -477,8 +534,18 @@ func verifyEvidenceIndex(indexPath, evidencePath string, evidenceSize int64, res
 			return 0, err
 		}
 		if line.RequestID == "" || line.BlobField == "" || line.Offset < 0 || line.Length < 0 ||
-			line.Offset < previousEnd || line.Offset+line.Length > evidenceSize {
+			line.Offset != previousEnd || line.Offset+line.Length > evidenceSize {
 			return 0, fmt.Errorf("invalid evidence range")
+		}
+		if !expectedScanner.Scan() {
+			return 0, fmt.Errorf("evidence index has unexpected reference")
+		}
+		var expected evidenceIndexLine
+		if err := json.Unmarshal(expectedScanner.Bytes(), &expected); err != nil {
+			return 0, err
+		}
+		if line.RequestID != expected.RequestID || line.BlobField != expected.BlobField || line.BlobURI != expected.BlobURI {
+			return 0, fmt.Errorf("evidence index does not match parquet")
 		}
 		section := io.NewSectionReader(pack, line.Offset, line.Length)
 		digest := sha256.New()
@@ -510,6 +577,15 @@ func verifyEvidenceIndex(indexPath, evidencePath string, evidenceSize int64, res
 	}
 	if err := scanner.Err(); err != nil {
 		return 0, err
+	}
+	if expectedScanner.Scan() {
+		return 0, fmt.Errorf("evidence index is missing parquet reference")
+	}
+	if err := expectedScanner.Err(); err != nil {
+		return 0, err
+	}
+	if previousEnd != evidenceSize {
+		return 0, fmt.Errorf("evidence pack has unindexed bytes")
 	}
 	return count, nil
 }

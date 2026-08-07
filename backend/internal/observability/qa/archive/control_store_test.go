@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -69,6 +70,37 @@ func TestSQLControlStorePersistsVerifiedCommitParity(t *testing.T) {
 	verifiedSegment := VerifiedSegment{Manifest: manifest, IdentityPath: identityPath, IdentityCount: 1}
 	require.NoError(t, control.MarkSegmentVerified(ctx, conn, segmentDBID, verifiedSegment))
 
+	interruptedManifest := manifest
+	interruptedManifest.SegmentID = "seg-interrupted"
+	interruptedManifest.SegmentKind = SegmentKindDelta
+	interrupted := BuiltSegment{
+		SegmentID: interruptedManifest.SegmentID, Manifest: interruptedManifest,
+		Artifacts: []BuiltArtifact{{Name: "manifest.json", SHA256: "interrupted-manifest"}},
+	}
+	interruptedID, err := control.StartSegment(ctx, conn, shardID, interrupted, "date=2026-08-07/hour=01/segments/seg-interrupted")
+	require.NoError(t, err)
+	require.NoError(t, control.OrphanIncomplete(ctx, conn, shardID))
+	var interruptedState, interruptedCode string
+	require.NoError(t, db.QueryRowContext(ctx, `
+SELECT state, verification_error_code FROM qa_archive_segments WHERE id=$1`, interruptedID).Scan(&interruptedState, &interruptedCode))
+	require.Equal(t, "orphaned", interruptedState)
+	require.Equal(t, "interrupted_before_verify", interruptedCode)
+
+	failedManifest := interruptedManifest
+	failedManifest.SegmentID = "seg-failed"
+	failedBuilt := BuiltSegment{
+		SegmentID: failedManifest.SegmentID, Manifest: failedManifest,
+		Artifacts: []BuiltArtifact{{Name: "manifest.json", SHA256: "failed-manifest"}},
+	}
+	failedID, err := control.StartSegment(ctx, conn, shardID, failedBuilt, "date=2026-08-07/hour=01/segments/seg-failed")
+	require.NoError(t, err)
+	require.NoError(t, control.FailSegment(ctx, conn, failedID, IntegrityCorruptArtifact, errors.New("checksum mismatch")))
+	var failedState, failedCode string
+	require.NoError(t, db.QueryRowContext(ctx, `
+SELECT state, verification_error_code FROM qa_archive_segments WHERE id=$1`, failedID).Scan(&failedState, &failedCode))
+	require.Equal(t, StateFailed, failedState)
+	require.Equal(t, IntegrityCorruptArtifact, failedCode)
+
 	pending, err := control.PendingVerified(ctx, conn, shardID)
 	require.NoError(t, err)
 	require.Equal(t, []CommitSegment{{
@@ -110,6 +142,12 @@ FROM qa_archive_shards WHERE id=$1`, shardID).Scan(
 	require.Equal(t, "etag-v2", segmentETag)
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM qa_archive_segment_records WHERE segment_id=$1`, segmentDBID).Scan(&membershipCount))
 	require.Equal(t, 1, membershipCount)
+
+	require.NoError(t, control.Fail(ctx, conn, shardID, "commit_conflict", errors.New("CAS exhausted")))
+	var persistedFailureCode string
+	require.NoError(t, db.QueryRowContext(ctx, `
+SELECT verification_error_code FROM qa_archive_shards WHERE id=$1`, shardID).Scan(&persistedFailureCode))
+	require.Equal(t, "commit_conflict", persistedFailureCode)
 }
 
 func TestSQLControlStoreFailureBlocksCleanupAndRedactsMessage(t *testing.T) {

@@ -173,9 +173,12 @@ reconstructs each indexed evidence payload from S3 bytes. The directory is remov
 verification unless an explicit operator restore command selected a destination.
 
 Successful verification changes the segment to `verified`; failures change it to
-`failed` and leave it unreferenced. Uploaded but unreferenced objects are recorded as
-`orphaned` on the next inspection and are left to the existing one-day partial/orphan
-lifecycle. Phase 2 performs no object deletion.
+`failed` and leave it unreferenced. An interrupted `writing` segment is recorded as
+`orphaned` on the next reconcile, but Phase 2 neither deletes nor retags its immutable
+objects: object tags and `commit.json` cannot be updated atomically, so a one-day orphan
+tag could delete a segment after a successful commit. Objects already uploaded under a
+formal shard therefore remain unreferenced and expire with the seven-day raw lifecycle;
+the one-day `raw/partial/` lifecycle applies only before an object enters a formal shard.
 
 ### Commit CAS
 

@@ -2,6 +2,7 @@ package archive
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"strings"
 )
@@ -49,20 +50,48 @@ type rowStats struct {
 	logicalBytes int64
 }
 
-func localEvidencePath(blobRoot, blobURI string) string {
+func localEvidencePath(blobRoot, blobURI string) (string, error) {
+	root, err := filepath.Abs(strings.TrimSpace(blobRoot))
+	if err != nil || root == "" {
+		return "", fmt.Errorf("resolve blob root: %w", err)
+	}
 	blobURI = strings.TrimSpace(blobURI)
+	var candidate string
 	switch {
 	case strings.HasPrefix(blobURI, "file://"):
-		return strings.TrimPrefix(blobURI, "file://")
+		candidate = strings.TrimPrefix(blobURI, "file://")
+		if !filepath.IsAbs(candidate) {
+			return "", fmt.Errorf("evidence path outside blob root")
+		}
 	case strings.HasPrefix(blobURI, "mem://"):
-		key := strings.TrimPrefix(blobURI, "mem://")
-		return filepath.Join(blobRoot, filepath.FromSlash(key))
+		candidate = filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(blobURI, "mem://")))
 	default:
 		if blobURI == "" {
-			return ""
+			return "", fmt.Errorf("empty evidence URI")
 		}
-		return filepath.Join(blobRoot, filepath.FromSlash(strings.TrimPrefix(blobURI, "/")))
+		candidate = filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(blobURI, "/")))
 	}
+	candidate, err = filepath.Abs(candidate)
+	if err != nil || !pathWithinRoot(root, candidate) {
+		return "", fmt.Errorf("evidence path outside blob root")
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve blob root: %w", err)
+	}
+	realCandidate, err := filepath.EvalSymlinks(candidate)
+	if err != nil {
+		return "", err
+	}
+	if !pathWithinRoot(realRoot, realCandidate) {
+		return "", fmt.Errorf("evidence path outside blob root")
+	}
+	return realCandidate, nil
+}
+
+func pathWithinRoot(root, candidate string) bool {
+	relative, err := filepath.Rel(root, candidate)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func nullStringPtr(value sql.NullString) *string {

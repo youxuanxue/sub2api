@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import datetime as dt
 import json
 import pathlib
@@ -54,7 +53,7 @@ def _validate_restore_output(value: str) -> str:
         or ".." in path.parts
         or "." in path.parts
         or path == root
-        or root not in path.parents
+        or path.parent != root
     ):
         raise QAArchiveCloseoutError(
             "restore output must be a child of /app/data/qa_archive_restore/"
@@ -74,8 +73,7 @@ def _safety_proof(window: dt.datetime, checked_at: dt.datetime) -> str:
         "cleanup_runtime_disabled": True,
         "cleanup_lock_inactive": True,
     }
-    body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")
-    return base64.urlsafe_b64encode(body).rstrip(b"=").decode("ascii")
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def _aws_json(args: list[str]) -> dict[str, Any]:
@@ -110,16 +108,16 @@ def _resolve_instance() -> str:
 
 def _timer_guard_shell() -> list[str]:
     return [
-        "maintenance_file=$(sudo systemctl show tokenkey-qa-maintenance.timer -p UnitFileState --value 2>/dev/null || true)",
-        "maintenance_active=$(sudo systemctl show tokenkey-qa-maintenance.timer -p ActiveState --value 2>/dev/null || true)",
-        "stale_file=$(sudo systemctl show tokenkey-qa-stale-cleanup.timer -p UnitFileState --value 2>/dev/null || true)",
-        "stale_active=$(sudo systemctl show tokenkey-qa-stale-cleanup.timer -p ActiveState --value 2>/dev/null || true)",
+        'maintenance_file=$(sudo systemctl show tokenkey-qa-maintenance.timer -p UnitFileState --value) || { echo "repair refused: cannot read maintenance timer enablement" >&2; exit 41; }',
+        'maintenance_active=$(sudo systemctl show tokenkey-qa-maintenance.timer -p ActiveState --value) || { echo "repair refused: cannot read maintenance timer state" >&2; exit 41; }',
+        'stale_file=$(sudo systemctl show tokenkey-qa-stale-cleanup.timer -p UnitFileState --value) || { echo "repair refused: cannot read stale cleanup timer enablement" >&2; exit 42; }',
+        'stale_active=$(sudo systemctl show tokenkey-qa-stale-cleanup.timer -p ActiveState --value) || { echo "repair refused: cannot read stale cleanup timer state" >&2; exit 42; }',
         'if [ "$maintenance_file:$maintenance_active" != "disabled:inactive" ]; then echo "repair refused: maintenance timer is not disabled/inactive" >&2; exit 41; fi',
         'if [ "$stale_file:$stale_active" != "disabled:inactive" ]; then echo "repair refused: stale cleanup timer is not disabled/inactive" >&2; exit 42; fi',
-        'app_logs=$(sudo docker logs --since 24h "$APP_CONTAINER" 2>&1 || true)',
+        'app_logs=$(sudo docker logs --since 24h "$APP_CONTAINER" 2>&1) || { echo "repair refused: cannot read app cleanup runtime logs" >&2; exit 43; }',
         'runtime_tail=$(printf "%s\\n" "$app_logs" | grep -E "cleanup_enabled=(true|false)|cleanup reload after advanced-settings update failed" | tail -1 || true)',
         'if ! printf "%s" "$runtime_tail" | grep -q "cleanup_enabled=false"; then echo "repair refused: cleanup runtime disabled state is unproven" >&2; exit 43; fi',
-        'cleanup_lock=$(sudo docker exec tokenkey-redis redis-cli --raw GET ops:cleanup:leader 2>/dev/null || true)',
+        'cleanup_lock=$(sudo docker exec tokenkey-redis redis-cli --raw GET ops:cleanup:leader) || { echo "repair refused: cannot read cleanup leader lock" >&2; exit 44; }',
         'if [ -n "$cleanup_lock" ]; then echo "repair refused: cleanup leader lock is active" >&2; exit 44; fi',
     ]
 
@@ -138,11 +136,36 @@ def _remote_command(command: str, window: dt.datetime, output: str, confirm: str
         script.extend(_timer_guard_shell())
         script.extend([
             "checked_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            f"proof=$(python3 -c {shlex.quote(_remote_proof_python(window_text))} \"$checked_at\")",
+            "proof_file=$(mktemp /run/tokenkey-qa-archive-proof.XXXXXX)",
+            "trap 'rm -f -- \"$proof_file\"' EXIT",
+            f"python3 -c {shlex.quote(_remote_proof_python(window_text))} \"$checked_at\" >\"$proof_file\"",
+            "chmod 0444 \"$proof_file\"",
         ])
-        cli.extend(["--confirm", confirm, "--safety-proof", "$proof"])
-    quoted_cli = " ".join('"$proof"' if item == "$proof" else shlex.quote(item) for item in cli)
-    script.append(f'sudo docker exec "$APP_CONTAINER" {quoted_cli}')
+        cli.extend(["--confirm", confirm])
+    script.extend([
+        'image=$(sudo docker inspect --format \'{{.Image}}\' "$APP_CONTAINER")',
+        'if [ -z "$image" ]; then echo "qa archive refused: active image unavailable" >&2; exit 45; fi',
+        'sudo docker exec "$APP_CONTAINER" /bin/sh -c \'mkdir -p /app/data/qa_archive_tmp && chmod 700 /app/data/qa_archive_tmp\'',
+        'env_file=$(mktemp /run/tokenkey-qa-archive-env.XXXXXX)',
+        'chmod 600 "$env_file"',
+        'if [ -n "${proof_file:-}" ]; then trap \'rm -f -- "$env_file" "$proof_file"\' EXIT; else trap \'rm -f -- "$env_file"\' EXIT; fi',
+        'sudo docker inspect --format \'{{range .Config.Env}}{{println .}}{{end}}\' "$APP_CONTAINER" >"$env_file"',
+    ])
+    quoted_cli = " ".join(shlex.quote(item) for item in cli)
+    proof_mount = (
+        '--volume="$proof_file:/run/tokenkey-qa-archive-safety-proof.json:ro" '
+        if command == "repair-apply"
+        else ""
+    )
+    script.append(
+        'sudo docker run --rm --name "tokenkey-qa-archive-op-$$" '
+        '--user=1000:1000 --read-only --cap-drop=ALL --security-opt=no-new-privileges '
+        '--memory=1g --memory-swap=1g --cpus=0.20 --pids-limit=128 '
+        '--network="container:$APP_CONTAINER" --volumes-from="$APP_CONTAINER:rw" '
+        f'{proof_mount}'
+        '--env-file="$env_file" --env TMPDIR=/app/data/qa_archive_tmp '
+        f'"$image" {quoted_cli}'
+    )
     return "sudo bash -c " + shlex.quote("\n".join(script))
 
 
@@ -158,11 +181,10 @@ def _remote_proof_python(window_text: str) -> str:
         "cleanup_lock_inactive": True,
     }
     return (
-        "import base64,json,sys;"
+        "import json,sys;"
         f"p={payload!r};"
         "p['checked_at']=sys.argv[1];"
-        "b=json.dumps(p,sort_keys=True,separators=(',',':')).encode('ascii');"
-        "print(base64.urlsafe_b64encode(b).rstrip(b'=').decode('ascii'))"
+        "print(json.dumps(p,sort_keys=True,separators=(',',':')))"
     )
 
 

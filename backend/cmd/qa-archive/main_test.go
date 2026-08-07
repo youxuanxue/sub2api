@@ -6,9 +6,10 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,26 @@ import (
 )
 
 var testWindow = time.Date(2026, 8, 7, 1, 0, 0, 0, time.UTC)
+
+func TestRestoreRejectsOutputOutsideIsolatedRootBeforeDependencies(t *testing.T) {
+	t.Setenv("DATA_DIR", t.TempDir())
+	called := false
+	deps := cliDeps{loadConfig: func() (*config.Config, error) {
+		called = true
+		return nil, errors.New("must not run")
+	}}
+	confirm := restoreConfirmationPrefix + ":" + testWindow.Format(time.RFC3339)
+	err := runCLI(context.Background(), []string{
+		"restore", "--window-start", testWindow.Format(time.RFC3339),
+		"--output", filepath.Join(t.TempDir(), "escaped"), "--confirm", confirm,
+	}, &bytes.Buffer{}, deps)
+	if err == nil || !strings.Contains(err.Error(), "isolated restore root") {
+		t.Fatalf("runCLI() error=%v", err)
+	}
+	if called {
+		t.Fatal("dependencies ran before restore path validation")
+	}
+}
 
 func TestRepairApplyRejectsUnboundConfirmationBeforeDependencies(t *testing.T) {
 	called := false
@@ -35,6 +56,27 @@ func TestRepairApplyRejectsUnboundConfirmationBeforeDependencies(t *testing.T) {
 	}
 	if called {
 		t.Fatal("dependencies ran before confirmation validation")
+	}
+}
+
+func TestRepairApplyRequiresControllerProofBeforeDependencies(t *testing.T) {
+	called := false
+	deps := cliDeps{
+		loadConfig: func() (*config.Config, error) {
+			called = true
+			return nil, errors.New("must not run")
+		},
+		readSafetyProof: func() ([]byte, error) { return nil, os.ErrNotExist },
+	}
+	confirm := repairConfirmationPrefix + ":" + testWindow.Format(time.RFC3339)
+	err := runCLI(context.Background(), []string{
+		"repair-apply", "--window-start", testWindow.Format(time.RFC3339), "--confirm", confirm,
+	}, &bytes.Buffer{}, deps)
+	if err == nil || !strings.Contains(err.Error(), "controller safety proof") {
+		t.Fatalf("runCLI() error=%v", err)
+	}
+	if called {
+		t.Fatal("dependencies ran before controller proof validation")
 	}
 }
 
@@ -69,7 +111,6 @@ func TestRepairApplyRefusesInactiveCleanupHold(t *testing.T) {
 	confirm := repairConfirmationPrefix + ":" + testWindow.Format(time.RFC3339)
 	err = runCLI(context.Background(), []string{
 		"repair-apply", "--window-start", testWindow.Format(time.RFC3339), "--confirm", confirm,
-		"--safety-proof", validSafetyProof(testWindow),
 	}, &bytes.Buffer{}, deps)
 	if err == nil || !strings.Contains(err.Error(), "cleanup hold is not active") {
 		t.Fatalf("runCLI() error=%v", err)
@@ -97,7 +138,6 @@ func TestRepairApplyRefusesMaintenanceLockContentionWithoutReconcile(t *testing.
 	confirm := repairConfirmationPrefix + ":" + testWindow.Format(time.RFC3339)
 	err = runCLI(context.Background(), []string{
 		"repair-apply", "--window-start", testWindow.Format(time.RFC3339), "--confirm", confirm,
-		"--safety-proof", validSafetyProof(testWindow),
 	}, &bytes.Buffer{}, deps)
 	if err == nil || !strings.Contains(err.Error(), "maintenance lock already held") {
 		t.Fatalf("runCLI() error=%v", err)
@@ -141,7 +181,6 @@ func TestRepairApplyCallsReconcilerAndDeniesDeletion(t *testing.T) {
 	out := &bytes.Buffer{}
 	if err := runCLI(context.Background(), []string{
 		"repair-apply", "--window-start", testWindow.Format(time.RFC3339), "--confirm", confirm,
-		"--safety-proof", validSafetyProof(testWindow),
 	}, out, deps); err != nil {
 		t.Fatalf("runCLI()=%v", err)
 	}
@@ -299,6 +338,7 @@ func repairTestDeps(db *sql.DB) cliDeps {
 			return archive.NewMemoryObjectStore(), nil
 		},
 		cleanupHoldActive: func(context.Context, *sql.DB) (bool, error) { return true, nil },
+		readSafetyProof:   func() ([]byte, error) { return validSafetyProof(testWindow), nil },
 		now:               func() time.Time { return testWindow.Add(2*time.Hour + time.Minute) },
 		reconcile: func(context.Context, *sql.Conn, archive.ObjectStore, archive.Window, string, string) (archive.ReconcileReceipt, error) {
 			return archive.ReconcileReceipt{}, errors.New("unexpected reconcile")
@@ -306,7 +346,7 @@ func repairTestDeps(db *sql.DB) cliDeps {
 	}
 }
 
-func validSafetyProof(window time.Time) string {
+func validSafetyProof(window time.Time) []byte {
 	payload, _ := json.Marshal(safetyProof{
 		SchemaVersion: "qa-archive-safety-v1", WindowStart: window,
 		CheckedAt:           window.Add(2 * time.Hour),
@@ -314,7 +354,7 @@ func validSafetyProof(window time.Time) string {
 		StaleCleanupDisabled: true, StaleCleanupInactive: true,
 		CleanupRuntimeDisabled: true, CleanupLockInactive: true,
 	})
-	return base64.RawURLEncoding.EncodeToString(payload)
+	return payload
 }
 
 func testStorage() config.QACaptureStorageConfig {

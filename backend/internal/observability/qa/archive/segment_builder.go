@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,7 @@ const (
 	defaultSegmentPageSize    = 500
 	maxRowsPerParquetRowGroup = 250
 	parquetPageBufferSize     = 32 * 1024
+	defaultScratchFreeBytes   = 2 << 30
 
 	IntegrityMissingEvidence = "missing_evidence"
 )
@@ -43,12 +45,14 @@ func (e *IntegrityError) Error() string {
 func (e *IntegrityError) Unwrap() error { return e.Err }
 
 type BuildInput struct {
-	WindowStart time.Time
-	WindowEnd   time.Time
-	SegmentKind string
-	BlobRoot    string
-	ScratchRoot string
-	PageSize    int
+	WindowStart         time.Time
+	WindowEnd           time.Time
+	SegmentKind         string
+	BlobRoot            string
+	ScratchRoot         string
+	PageSize            int
+	MinScratchFreeBytes int64
+	ScratchFreeBytes    func(string) (int64, error)
 }
 
 type BuiltArtifact struct {
@@ -122,6 +126,19 @@ func BuildSegment(ctx context.Context, conn *sql.Conn, input BuildInput) (_ Buil
 	}
 	if err := os.Chmod(input.ScratchRoot, 0o700); err != nil {
 		return BuiltSegment{}, fmt.Errorf("secure scratch root: %w", err)
+	}
+	if input.MinScratchFreeBytes <= 0 {
+		input.MinScratchFreeBytes = defaultScratchFreeBytes
+	}
+	if input.ScratchFreeBytes == nil {
+		input.ScratchFreeBytes = scratchFreeBytes
+	}
+	available, err := input.ScratchFreeBytes(input.ScratchRoot)
+	if err != nil {
+		return BuiltSegment{}, fmt.Errorf("inspect scratch space: %w", err)
+	}
+	if available < input.MinScratchFreeBytes {
+		return BuiltSegment{}, fmt.Errorf("insufficient scratch space: available=%d required=%d", available, input.MinScratchFreeBytes)
 	}
 	segmentID := uuid.NewString()
 	scratchDir, err := os.MkdirTemp(input.ScratchRoot, "qa-archive-"+segmentID+"-")
@@ -289,6 +306,14 @@ func BuildSegment(ctx context.Context, conn *sql.Conn, input BuildInput) (_ Buil
 	}, nil
 }
 
+func scratchFreeBytes(path string) (int64, error) {
+	var stats syscall.Statfs_t
+	if err := syscall.Statfs(path, &stats); err != nil {
+		return 0, err
+	}
+	return int64(stats.Bavail) * int64(stats.Bsize), nil
+}
+
 func createHashedFile(root, name string) (*os.File, *hashingWriter, error) {
 	path := filepath.Join(root, name)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
@@ -313,9 +338,9 @@ func orderedBlobRefs(row RecordRow) []blobRef {
 }
 
 func appendEvidenceFile(pack *hashingWriter, blobRoot, requestID, field, blobURI string) (evidenceIndexLine, error) {
-	path := localEvidencePath(blobRoot, blobURI)
-	if path == "" {
-		return evidenceIndexLine{}, fmt.Errorf("unsupported blob uri")
+	path, err := localEvidencePath(blobRoot, blobURI)
+	if err != nil {
+		return evidenceIndexLine{}, err
 	}
 	file, err := os.Open(path)
 	if err != nil {

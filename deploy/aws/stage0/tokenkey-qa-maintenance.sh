@@ -56,7 +56,7 @@ run_qa_maintenance() {
     exit 0
   fi
   local image env_file
-  image=$(sudo docker inspect --format '{{.Config.Image}}' "${app_container}")
+  image=$(sudo docker inspect --format '{{.Image}}' "${app_container}")
   if [ -z "${image}" ]; then
     logger -t tokenkey-qa-maintenance "archive_failed image_unavailable"
     exit 1
@@ -69,10 +69,12 @@ run_qa_maintenance() {
   logger -t tokenkey-qa-maintenance "archive_start container=${app_container}"
   if ! sudo docker run --rm \
     --name tokenkey-qa-maintenance-run \
+    --read-only --cap-drop=ALL --security-opt=no-new-privileges \
     --memory=1g --memory-swap=1g --cpus=0.20 --pids-limit=128 \
     --network="container:${app_container}" \
     --volumes-from="${app_container}:rw" \
     --env-file="${env_file}" \
+    --env TMPDIR=/app/data/qa_archive_tmp \
     "${image}" /app/sub2api \
     --qa-maintenance-once \
     --confirm=tokenkey-prod-qa-maintenance-v1; then

@@ -1,7 +1,6 @@
 package archive
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,10 +12,13 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 var ErrPreconditionFailed = errors.New("qa archive object precondition failed")
+
+const archiveMultipartPartSize int64 = 64 << 20
 
 type ObjectInfo struct {
 	ETag string
@@ -35,19 +37,14 @@ type ObjectStore interface {
 	CompareAndSwap(ctx context.Context, key, expectedETag string, body io.Reader, size int64, contentType string) (ObjectInfo, error)
 	Open(ctx context.Context, key string) (ObjectReader, error)
 	HeadInfo(ctx context.Context, key string) (ObjectInfo, error)
-
-	// Transitional byte helpers keep Phase 2b callers source-compatible while the
-	// segment builder moves artifact bodies to files/readers.
-	Put(ctx context.Context, key string, body []byte, contentType string) error
-	PutIfAbsent(ctx context.Context, key string, body []byte, contentType string) error
-	Get(ctx context.Context, key string) ([]byte, error)
 	Head(ctx context.Context, key string) (bool, error)
 }
 
 type s3ObjectStore struct {
-	client *s3.Client
-	bucket string
-	prefix string
+	client   *s3.Client
+	uploader *transfermanager.Client
+	bucket   string
+	prefix   string
 }
 
 func NewObjectStoreFromConfig(ctx context.Context, storage config.QACaptureStorageConfig) (ObjectStore, error) {
@@ -85,7 +82,10 @@ func NewObjectStoreFromConfig(ctx context.Context, storage config.QACaptureStora
 		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 	})
 	prefix := strings.Trim(strings.TrimSpace(storage.Prefix), "/")
-	return &s3ObjectStore{client: client, bucket: bucket, prefix: prefix}, nil
+	return &s3ObjectStore{
+		client: client, uploader: transfermanager.New(client, boundedTransferOptions),
+		bucket: bucket, prefix: prefix,
+	}, nil
 }
 
 func (s *s3ObjectStore) fullKey(key string) string {
@@ -126,8 +126,24 @@ func (s *s3ObjectStore) put(
 	return ObjectInfo{ETag: aws.ToString(out.ETag), Size: size}, nil
 }
 
+func boundedTransferOptions(options *transfermanager.Options) {
+	options.Concurrency = 1
+	options.PartSizeBytes = archiveMultipartPartSize
+	options.MultipartUploadThreshold = archiveMultipartPartSize
+}
+
 func (s *s3ObjectStore) PutReader(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
-	return s.put(ctx, key, body, size, contentType, nil, nil)
+	if size < 0 {
+		return ObjectInfo{}, fmt.Errorf("qa archive object size must be non-negative")
+	}
+	out, err := s.uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
+		Bucket: aws.String(s.bucket), Key: aws.String(s.fullKey(key)), Body: body,
+		ContentLength: aws.Int64(size), ContentType: aws.String(contentType),
+	})
+	if err != nil {
+		return ObjectInfo{}, fmt.Errorf("multipart upload archive artifact %s: %w", key, err)
+	}
+	return ObjectInfo{ETag: aws.ToString(out.ETag), Size: size}, nil
 }
 
 func (s *s3ObjectStore) Create(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error) {
@@ -164,25 +180,6 @@ func (s *s3ObjectStore) HeadInfo(ctx context.Context, key string) (ObjectInfo, e
 		return ObjectInfo{}, err
 	}
 	return ObjectInfo{ETag: aws.ToString(out.ETag), Size: aws.ToInt64(out.ContentLength)}, nil
-}
-
-func (s *s3ObjectStore) Put(ctx context.Context, key string, body []byte, contentType string) error {
-	_, err := s.PutReader(ctx, key, bytes.NewReader(body), int64(len(body)), contentType)
-	return err
-}
-
-func (s *s3ObjectStore) PutIfAbsent(ctx context.Context, key string, body []byte, contentType string) error {
-	_, err := s.Create(ctx, key, bytes.NewReader(body), int64(len(body)), contentType)
-	return err
-}
-
-func (s *s3ObjectStore) Get(ctx context.Context, key string) ([]byte, error) {
-	opened, err := s.Open(ctx, key)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = opened.Body.Close() }()
-	return io.ReadAll(opened.Body)
 }
 
 func (s *s3ObjectStore) Head(ctx context.Context, key string) (bool, error) {

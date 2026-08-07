@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,6 +24,7 @@ const (
 	repairConfirmationPrefix  = "tokenkey-prod-qa-archive-repair-v1"
 	restoreConfirmationPrefix = "tokenkey-prod-qa-archive-restore-v1"
 	safetyProofSchema         = "qa-archive-safety-v1"
+	safetyProofFile           = "/run/tokenkey-qa-archive-safety-proof.json"
 	safetyProofMaxAge         = 5 * time.Minute
 )
 
@@ -60,19 +60,23 @@ type cliDeps struct {
 	inspectControl    func(context.Context, *sql.Conn, archive.Window) (controlStatus, error)
 	planSourceDelta   func(context.Context, *sql.Conn, archive.Window, archive.VerifiedCommit) (archive.SourceDeltaPlan, error)
 	cleanupHoldActive func(context.Context, *sql.DB) (bool, error)
+	readSafetyProof   func() ([]byte, error)
 	reconcile         func(context.Context, *sql.Conn, archive.ObjectStore, archive.Window, string, string) (archive.ReconcileReceipt, error)
 	now               func() time.Time
 }
 
 func defaultDeps() cliDeps {
 	return cliDeps{
-		loadConfig:        config.Load,
+		loadConfig:        config.LoadForBootstrap,
 		openDB:            sql.Open,
 		newObjectStore:    archive.NewObjectStoreFromConfig,
 		verifyCommit:      archive.VerifyCommit,
 		inspectControl:    defaultInspectControl,
 		planSourceDelta:   archive.PlanSourceDelta,
 		cleanupHoldActive: defaultCleanupHoldActive,
+		readSafetyProof: func() ([]byte, error) {
+			return os.ReadFile(safetyProofFile)
+		},
 		reconcile: func(ctx context.Context, conn *sql.Conn, store archive.ObjectStore, window archive.Window, blobRoot, scratchRoot string) (archive.ReconcileReceipt, error) {
 			reconciler := archive.NewReconciler(store, archive.NewSQLControlStore(), scratchRoot)
 			reconciler.BlobRoot = blobRoot
@@ -109,7 +113,6 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 	windowArg := fs.String("window-start", "", "UTC hour in RFC3339 format")
 	outputDir := fs.String("output", "", "new restore directory")
 	confirm := fs.String("confirm", "", "window-bound confirmation")
-	proofArg := fs.String("safety-proof", "", "base64url safety proof")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -127,21 +130,29 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 		if *confirm != windowConfirmation(restoreConfirmationPrefix, window.Start) {
 			return fmt.Errorf("window-bound privacy confirmation required")
 		}
-		if strings.TrimSpace(*outputDir) == "" {
-			return fmt.Errorf("restore --output is required")
+		validatedOutput, err := validateRestoreOutput(*outputDir)
+		if err != nil {
+			return err
 		}
+		*outputDir = validatedOutput
 	}
 	if command == "repair-apply" {
 		if *confirm != windowConfirmation(repairConfirmationPrefix, window.Start) {
 			return fmt.Errorf("window-bound confirmation required")
 		}
-		proof, proofSHA, err = parseSafetyProof(*proofArg, window, dependencyNow(deps))
+	}
+
+	deps = fillDefaults(deps)
+	if command == "repair-apply" {
+		proofBody, readErr := deps.readSafetyProof()
+		if readErr != nil {
+			return fmt.Errorf("read controller safety proof: %w", readErr)
+		}
+		proof, proofSHA, err = parseSafetyProof(proofBody, window, dependencyNow(deps))
 		if err != nil {
 			return err
 		}
 	}
-
-	deps = fillDefaults(deps)
 	cfg, err := deps.loadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -350,6 +361,9 @@ func fillDefaults(deps cliDeps) cliDeps {
 	if deps.cleanupHoldActive == nil {
 		deps.cleanupHoldActive = defaults.cleanupHoldActive
 	}
+	if deps.readSafetyProof == nil {
+		deps.readSafetyProof = defaults.readSafetyProof
+	}
 	if deps.reconcile == nil {
 		deps.reconcile = defaults.reconcile
 	}
@@ -374,13 +388,38 @@ func parseWindow(value string) (archive.Window, error) {
 	return archive.Window{Start: parsed.UTC(), End: parsed.UTC().Add(time.Hour)}, nil
 }
 
+func validateRestoreOutput(value string) (string, error) {
+	root, err := filepath.Abs(filepath.Join(dataDir(), "qa_archive_restore"))
+	if err != nil {
+		return "", fmt.Errorf("resolve isolated restore root: %w", err)
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", fmt.Errorf("create isolated restore root: %w", err)
+	}
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("isolated restore root is not a real directory")
+	}
+	if err := os.Chmod(root, 0o700); err != nil {
+		return "", fmt.Errorf("secure isolated restore root: %w", err)
+	}
+	output, err := filepath.Abs(strings.TrimSpace(value))
+	if err != nil {
+		return "", fmt.Errorf("resolve restore output: %w", err)
+	}
+	relative, err := filepath.Rel(root, output)
+	if err != nil || relative == "." || relative == ".." || strings.Contains(relative, string(filepath.Separator)) {
+		return "", fmt.Errorf("restore output must be one new directory under isolated restore root")
+	}
+	return output, nil
+}
+
 func windowConfirmation(prefix string, start time.Time) string {
 	return prefix + ":" + start.UTC().Format(time.RFC3339)
 }
 
-func parseSafetyProof(encoded string, window archive.Window, now time.Time) (safetyProof, string, error) {
-	body, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(encoded))
-	if err != nil || len(body) == 0 || len(body) > 4096 {
+func parseSafetyProof(body []byte, window archive.Window, now time.Time) (safetyProof, string, error) {
+	if len(body) == 0 || len(body) > 4096 {
 		return safetyProof{}, "", fmt.Errorf("valid safety proof required")
 	}
 	var proof safetyProof

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -162,6 +163,23 @@ func TestBuildDeltaExcludesCommittedMembershipInSQL(t *testing.T) {
 	}
 }
 
+func TestBuildSegmentRefusesInsufficientScratchBeforeDatabaseRead(t *testing.T) {
+	db, mock, conn := segmentTestDB(t)
+	defer func() { _ = conn.Close(); _ = db.Close() }()
+	start := time.Date(2026, 8, 7, 1, 0, 0, 0, time.UTC)
+	_, err := BuildSegment(context.Background(), conn, BuildInput{
+		WindowStart: start, WindowEnd: start.Add(time.Hour), SegmentKind: SegmentKindBase,
+		BlobRoot: t.TempDir(), ScratchRoot: t.TempDir(), MinScratchFreeBytes: 1024,
+		ScratchFreeBytes: func(string) (int64, error) { return 512, nil },
+	})
+	if err == nil || !strings.Contains(err.Error(), "insufficient scratch space") {
+		t.Fatalf("BuildSegment() error=%v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBuildSegmentCreatesSecureScratchRoot(t *testing.T) {
 	db, mock, conn := segmentTestDB(t)
 	defer func() { _ = conn.Close(); _ = db.Close() }()
@@ -182,6 +200,36 @@ func TestBuildSegmentCreatesSecureScratchRoot(t *testing.T) {
 	info, err := os.Stat(scratch)
 	if err != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("scratch mode=%v err=%v", info.Mode().Perm(), err)
+	}
+}
+
+func TestBuildSegmentRejectsEvidencePathOutsideBlobRoot(t *testing.T) {
+	db, mock, conn := segmentTestDB(t)
+	defer func() { _ = conn.Close(); _ = db.Close() }()
+	start := time.Date(2026, 8, 7, 1, 0, 0, 0, time.UTC)
+	outside := filepath.Join(t.TempDir(), "secret.env")
+	if err := os.WriteFile(outside, []byte("must-not-archive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("FROM qa_records q")).
+		WithArgs(start, start.Add(time.Hour), start, "", 100).
+		WillReturnRows(segmentRows().AddRow(
+			"req-escape", nil, int64(1), nil, int64(2), nil, "anthropic", nil, "claude", nil,
+			200, true, int64(10), false, 1, 2, "a", "b",
+			nil, "file://"+outside, nil, nil, "captured", start.Add(time.Minute),
+		))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM qa_records q")).
+		WithArgs(start, start.Add(time.Hour), start.Add(time.Minute), "req-escape", 100).
+		WillReturnRows(segmentRows())
+
+	_, err := BuildSegment(context.Background(), conn, BuildInput{
+		WindowStart: start, WindowEnd: start.Add(time.Hour), SegmentKind: SegmentKindBase,
+		BlobRoot: t.TempDir(), ScratchRoot: t.TempDir(), PageSize: 100,
+	})
+	var integrity *IntegrityError
+	if !errors.As(err, &integrity) || integrity.Code != IntegrityMissingEvidence ||
+		!strings.Contains(err.Error(), "outside blob root") {
+		t.Fatalf("BuildSegment() error=%v", err)
 	}
 }
 

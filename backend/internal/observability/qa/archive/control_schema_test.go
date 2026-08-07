@@ -50,7 +50,7 @@ func TestQAArchiveCloseoutControlMigrationIsAdditiveAndIdempotent(t *testing.T) 
 	assertTable(t, db, "qa_archive_segment_records")
 	assertUniqueColumns(t, db, "qa_archive_segments", "shard_id", "segment_id")
 	assertUniqueColumns(t, db, "qa_archive_segment_records", "segment_id", "created_at", "request_id")
-	assertForeignKeyDeleteAction(t, db, "qa_archive_segments", "shard_id", "qa_archive_shards", "CASCADE")
+	assertForeignKeyDeleteAction(t, db, "qa_archive_segments", "shard_id", "qa_archive_shards", "NO ACTION")
 	assertForeignKeyDeleteAction(t, db, "qa_archive_segment_records", "segment_id", "qa_archive_segments", "CASCADE")
 
 	assertTableAbsent(t, db, "qa_archive_gaps")
