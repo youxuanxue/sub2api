@@ -6011,15 +6011,16 @@
         "OpsGatewayQueueWaitMsKey",
         "sum -= queueMs + wsQueueMs"
       ],
-      "rationale": "Single owner for admin dashboard gateway transfer latency: auth+routing+response tail minus queue/throttle waits. Dropping the queue subtraction or response-tail derivation silently restores end-to-end duration semantics on the dashboard card."
+      "rationale": "Single owner for admin dashboard gateway transfer latency: auth+routing minus queue/throttle waits. Response body pump is intentionally excluded from SnapshotGatewayTransferLatencyMs so the dashboard card does not track end-to-end duration."
     },
     {
       "path": "backend/internal/service/ops_gateway_latency_test.go",
       "must_contain": [
         "TestSnapshotGatewayTransferLatencyMs_SubtractsQueueWait",
+        "TestSnapshotGatewayTransferLatencyMs_IgnoresResponseTail",
         "TestRecordOpsResponseTransferLatencyMs_UsesForwardMinusUpstream"
       ],
-      "rationale": "Focused regressions for queue-wait exclusion and forward-minus-upstream response tail derivation."
+      "rationale": "Focused regressions for queue-wait exclusion, response-tail exclusion from dashboard snapshot, and ops-only forward-minus-upstream response timing."
     },
     {
       "path": "backend/internal/handler/handler_tk_gateway_latency.go",

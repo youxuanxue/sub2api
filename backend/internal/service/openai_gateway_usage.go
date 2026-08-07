@@ -39,7 +39,7 @@ type OpenAIRecordUsageInput struct {
 	// CyberBlocked 为 true 时把该用量行标记为 cyber（request_type=cyber），计费逻辑不变。
 	CyberBlocked bool
 	ChannelUsageFields
-	// GatewayLatencyMs is TokenKey transfer latency (auth+routing+response tail), excluding upstream wait and queue waits.
+	// GatewayLatencyMs is TokenKey dashboard transfer latency (auth+routing), excluding upstream/body wait and queue waits.
 	GatewayLatencyMs *int
 }
 
