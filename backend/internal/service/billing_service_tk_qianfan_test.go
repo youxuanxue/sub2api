@@ -39,6 +39,18 @@ func TestTkQianfanScopedBillingModel(t *testing.T) {
 	require.Equal(t, "deepseek-v3.2", tkQianfanScopedBillingModel("deepseek-v3.2", qianfan))
 }
 
+func TestTkQianfanOverlay_DeepSeekV32UsesTieredIntervals(t *testing.T) {
+	t.Parallel()
+	entry := loadTKPricingOverlay()["deepseek-v3.2"]
+	require.NotNil(t, entry)
+	require.Len(t, entry.Intervals, 2)
+	require.NotNil(t, entry.Intervals[0].MaxTokens)
+	require.Equal(t, 32000, *entry.Intervals[0].MaxTokens)
+	require.Nil(t, entry.Intervals[1].MaxTokens)
+	require.InDelta(t, 2.9850746268656716e-07, entry.InputCostPerToken, 1e-15)
+	require.InDelta(t, 5.970149253731343e-07, *entry.Intervals[1].InputPrice, 1e-15)
+}
+
 func TestTkQianfanScopedBillingModel_UsesQianfanRatesInCost(t *testing.T) {
 	t.Parallel()
 	svc := newTestBillingService()
