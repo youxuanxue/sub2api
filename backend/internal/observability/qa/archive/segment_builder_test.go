@@ -162,6 +162,29 @@ func TestBuildDeltaExcludesCommittedMembershipInSQL(t *testing.T) {
 	}
 }
 
+func TestBuildSegmentCreatesSecureScratchRoot(t *testing.T) {
+	db, mock, conn := segmentTestDB(t)
+	defer func() { _ = conn.Close(); _ = db.Close() }()
+	start := time.Date(2026, 8, 7, 1, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(regexp.QuoteMeta("FROM qa_records q")).
+		WithArgs(start, start.Add(time.Hour), start, "", 100).
+		WillReturnRows(segmentRows())
+	scratch := filepath.Join(t.TempDir(), "not-created", "qa_archive_tmp")
+
+	built, err := BuildSegment(context.Background(), conn, BuildInput{
+		WindowStart: start, WindowEnd: start.Add(time.Hour), SegmentKind: SegmentKindBase,
+		BlobRoot: t.TempDir(), ScratchRoot: scratch, PageSize: 100,
+	})
+	if err != nil {
+		t.Fatalf("BuildSegment()=%v", err)
+	}
+	defer func() { _ = built.Close() }()
+	info, err := os.Stat(scratch)
+	if err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("scratch mode=%v err=%v", info.Mode().Perm(), err)
+	}
+}
+
 func TestBuildSegmentMissingEvidenceFailsAndRemovesScratch(t *testing.T) {
 	db, mock, conn := segmentTestDB(t)
 	defer func() { _ = conn.Close(); _ = db.Close() }()

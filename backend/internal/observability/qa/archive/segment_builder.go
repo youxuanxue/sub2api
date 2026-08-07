@@ -115,6 +115,12 @@ func BuildSegment(ctx context.Context, conn *sql.Conn, input BuildInput) (_ Buil
 		return BuiltSegment{}, fmt.Errorf("scratch root is required")
 	}
 
+	if err := os.MkdirAll(input.ScratchRoot, 0o700); err != nil {
+		return BuiltSegment{}, fmt.Errorf("create scratch root: %w", err)
+	}
+	if err := os.Chmod(input.ScratchRoot, 0o700); err != nil {
+		return BuiltSegment{}, fmt.Errorf("secure scratch root: %w", err)
+	}
 	segmentID := uuid.NewString()
 	scratchDir, err := os.MkdirTemp(input.ScratchRoot, "qa-archive-"+segmentID+"-")
 	if err != nil {

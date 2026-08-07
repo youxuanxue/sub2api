@@ -28,6 +28,7 @@ type ReconcileReceipt struct {
 	BlobRefCount       int64     `json:"blob_ref_count"`
 	BlobPresentCount   int64     `json:"blob_present_count"`
 	BlobMissingCount   int64     `json:"blob_missing_count"`
+	Uploaded           bool      `json:"uploaded"`
 	DeletionAuthorized bool      `json:"deletion_authorized"`
 }
 
@@ -101,6 +102,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 		}
 	}
 
+	uploaded := false
 	pending, err := r.Control.PendingVerified(ctx, conn, shardID)
 	if err != nil {
 		return ReconcileReceipt{}, fmt.Errorf("load verified segments: %w", err)
@@ -136,6 +138,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 		if err := uploadBuiltSegment(ctx, r.Store, prefix, built); err != nil {
 			return ReconcileReceipt{}, err
 		}
+		uploaded = true
 		manifestArtifact, ok := builtArtifact(built, "manifest.json")
 		if !ok {
 			return ReconcileReceipt{}, fmt.Errorf("built segment has no manifest")
@@ -165,7 +168,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 	if err := r.Control.PersistCommit(ctx, conn, shardID, verified); err != nil {
 		return ReconcileReceipt{}, fmt.Errorf("persist committed archive state: %w", err)
 	}
-	return receiptFromVerified(commitKey, verified), nil
+	receipt := receiptFromVerified(commitKey, verified)
+	receipt.Uploaded = uploaded
+	return receipt, nil
 }
 
 func (r *Reconciler) readCommit(ctx context.Context, commitKey string) (VerifiedCommit, bool, error) {

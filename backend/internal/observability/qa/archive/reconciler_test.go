@@ -97,7 +97,7 @@ func TestReconcilerLateRowsAppendDeltaAndCASRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile()=%v", err)
 	}
-	if conflictStore.conflicts != 1 || receipt.SegmentCount != 2 || receipt.RecordCount != 2 || receipt.DeletionAuthorized {
+	if conflictStore.conflicts != 1 || !receipt.Uploaded || receipt.SegmentCount != 2 || receipt.RecordCount != 2 || receipt.DeletionAuthorized {
 		t.Fatalf("receipt=%+v conflicts=%d", receipt, conflictStore.conflicts)
 	}
 	if control.imported != 1 || control.started != 1 || control.verified != 1 || control.committed == nil {
@@ -137,7 +137,7 @@ func TestReconcilerNoDeltaCreatesNoSecondBase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile()=%v", err)
 	}
-	if len(store.Keys()) != before || receipt.SegmentCount != 1 || control.started != 0 {
+	if len(store.Keys()) != before || receipt.Uploaded || receipt.SegmentCount != 1 || control.started != 0 {
 		t.Fatalf("receipt=%+v before=%d after=%d control=%+v", receipt, before, len(store.Keys()), control)
 	}
 }
