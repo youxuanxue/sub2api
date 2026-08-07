@@ -415,6 +415,45 @@ func TestResolve_ImagenPicksVertexNewapiGroup(t *testing.T) {
 	}
 }
 
+func TestResolve_GeminiEmbeddingPicksVertexNewapiGroup(t *testing.T) {
+	ctx := context.Background()
+	span := []Group{
+		grp(2, PlatformOpenAI, 5, false),
+		grp(16, PlatformNewAPI, 10, false),
+	}
+	embeddingMapping := map[string]any{"gemini-embedding-001": "gemini-embedding-001"}
+	svc := &GatewayService{
+		accountRepo: groupAwareStubOpenAIAccountRepo{stubOpenAIAccountRepo{accounts: []Account{
+			{
+				ID:          63,
+				GroupIDs:    []int64{2},
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Schedulable: true,
+				ChannelType: 0,
+			},
+			{
+				ID:          47,
+				GroupIDs:    []int64{16},
+				Platform:    PlatformNewAPI,
+				Type:        AccountTypeServiceAccount,
+				Status:      StatusActive,
+				Schedulable: true,
+				ChannelType: 41,
+				Credentials: map[string]any{"model_mapping": embeddingMapping},
+			},
+		}}},
+	}
+	r := NewUniversalRoutingResolver(&stubSpanLister{groups: span})
+	r.SetModelSupportProvider(svc.UniversalGroupSupportsRequest)
+
+	g, err := r.Resolve(ctx, universalKey(1), ShapeOpenAIEmbeddings, "gemini-embedding-001", "")
+	if err != nil || g == nil || g.ID != 16 {
+		t.Fatalf("gemini-embedding universal must pick vertex gid=16, got=%v err=%v", g, err)
+	}
+}
+
 func TestResolve_ImagenServiceAccountPicksVertexWithDirectSchedulerSupport(t *testing.T) {
 	ctx := context.Background()
 	span := []Group{
