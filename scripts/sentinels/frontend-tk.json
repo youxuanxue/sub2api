@@ -1698,6 +1698,13 @@
       "rationale": "The admin Dashboard's own requests carry the TK window via dashboardWindowParams(): rolling presets use absolute epoch-ms and calendar presets use a server-TZ range token. Drilldowns deliberately reuse the exact successfully loaded rolling window because /admin/usage consumes absolute start_ts/end_ts, not range. The same snapshot group facet owns the prompt-cache overview: it excludes Kiro-estimated unavailable input, ranks the top five groups by prompt-token impact, and avoids an extra endpoint. These anchors prevent an upstream-shaped Dashboard rewrite from silently restoring timezone drift, widening drilldowns, or dropping cache observability while still compiling."
     },
     {
+      "path": "frontend/src/types/index.ts",
+      "must_contain": [
+        "average_gateway_latency_ms: number // 平均网关中转延迟（auth+路由，不含上游/body/排队）"
+      ],
+      "rationale": "DashboardStats gateway latency type comment documents Plan A semantics: auth+routing only, excluding upstream/body pump and queue waits. Reverting to response-tail wording silently misleads operators when the backend snapshot excludes body transfer."
+    },
+    {
       "path": "frontend/src/views/admin/UsageView.vue",
       "must_contain": [
         "import { rollingWindowTs } from '@/utils/dashboardWindow.tk'",
