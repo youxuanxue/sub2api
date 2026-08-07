@@ -85,28 +85,17 @@ cleanup unit和S3权限保持退役。
 
 ## 4. 单一 QA Policy
 
-唯一数值 owner：`ops/qa/policy.yaml`。Deploy 注入默认值与 rollout 门禁见
-`ops/qa/deploy_rollout.yaml`；目录索引见 `ops/qa/README.md`。
+唯一数值 owner：`ops/qa/policy.yaml`。字段含义与 prod/edge 目标值以该文件为准。
+Deploy 注入默认值与 rollout 门禁见 `ops/qa/deploy_rollout.yaml`；目录索引见 `ops/qa/README.md`。
 Preflight `scripts/checks/qa-lifecycle-ssot.py` 机械校验 policy 结构、deploy rollout 与
-本文语义锚点，禁止在其它文件复制一份 policy 副本。
+本文语义锚点；禁止在其它文件复制 policy 数值副本。
 
-数值语义（字段定义以 policy 文件为准）：
-
-- 在线窗口为 24 小时；
-- archive maintenance 每小时`:15`运行；
-- age cleanup每小时`:45`运行，随机延迟不超过15分钟，每批最多5000行；
-- 上一小时结束 15 分钟后封口；
-- raw archive 保留 7 天；
-- 数据卷达到 80% 或剩余低于 10 GiB 时进入 emergency；
-- emergency 清理到低于 70%；
-- 不自动暂停 capture。
-
-数值契约只在该policy中定义；`qa-lifecycle-ssot.py`结构化读取policy，并机械校验approved文档、
-CloudFormation/bootstrap、archive maintenance、age cleanup和Edge退役状态。当前production
-archive owner为`tokenkey-qa-maintenance.timer`，年龄删除owner为
-`tokenkey-qa-stale-cleanup.timer`；后者固定24小时且独立受控启用。不得再从
-`QaStaleRetentionDays`、`TOKENKEY_QA_STALE_RETENTION_DAYS`或`qa_capture.retention_days`
-派生数值。历史backfill flag、selector和脚本必须不存在，不得恢复第二套archive或retention owner。
+数值契约只在 policy 中定义；脚本结构化读取 policy，并机械校验 CloudFormation/bootstrap、
+archive maintenance、age cleanup 与 Edge 退役状态。当前 production archive owner 为
+`tokenkey-qa-maintenance.timer`，年龄删除 owner 为 `tokenkey-qa-stale-cleanup.timer`；
+后者与 `online_window_hours` 对齐且独立受控启用。不得再从
+`QaStaleRetentionDays`、`TOKENKEY_QA_STALE_RETENTION_DAYS` 或 `qa_capture.retention_days`
+派生数值。历史 backfill flag、selector 和脚本必须不存在，不得恢复第二套 archive 或 retention owner。
 
 ## 5. Prod 在线捕获
 
