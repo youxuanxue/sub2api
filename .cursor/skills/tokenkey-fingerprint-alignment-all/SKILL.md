@@ -59,7 +59,7 @@ bash ops/fingerprint/capture-all-fingerprints.sh \
 - codex 漂移：`bash ops/openai/capture-codex-fingerprint.sh emit-edits`（或带 `--version X.Y.Z`）
   bump 唯一版本 owner `DefaultOpenAICodexVersion`；UA、`version` header 与探测版本必须继续从
   owner 派生，en/zh placeholder 只是 UI 示例，不参与对齐。非版本 pin
-  （`originator=codex_cli_rs`、`OpenAI-Beta`）从不自动改；`preflight` 的 codex fingerprint
+  （`originator=codex-tui`、`OpenAI-Beta`）从不自动改；`preflight` 的 codex fingerprint
   pin consistency 守住 owner / aliases 派生契约。
 
 然后 `scripts/preflight.sh` 全绿 → 一个分支、一个 PR 覆盖各平台的产物变更。
