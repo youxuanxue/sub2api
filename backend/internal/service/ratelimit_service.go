@@ -442,6 +442,19 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				"account_id", account.ID, "platform", account.Platform, "message", upstreamMsg)
 			return false
 		}
+		// TK (prod 2026-08-07, account 90 百度/BaiduV2): Qianfan answers HTTP 401 +
+		// invalid_model when the client asks for a model this channel cannot serve
+		// (e.g. qwen3-8b routed to a Baidu apikey). Credentials are fine; this is a
+		// model-routing mismatch. Reuse the openai-compat model-not-found classifier
+		// (message/code based, status-agnostic) so failover can continue without
+		// permanently disabling the account.
+		if account.Platform == PlatformNewAPI && IsOpenAICompatModelNotFound404(responseBody, upstreamMsg) {
+			slog.Info("newapi_model_not_found_401_skip_auth_penalty",
+				"account_id", account.ID,
+				"channel_type", account.ChannelType,
+				"message", upstreamMsg)
+			return false
+		}
 		// 外审第9轮:Spark 影子无独立凭据,401 是母账号 token 问题——失效缓存 / refresh_token 判断 /
 		// 永久禁用 / 临时不可调度都必须落到凭据 owner(母账号),否则影子(无 refresh_token)必中
 		// "refresh_token missing"永久禁用分支、母账号 token cache 也不会被清,把母账号可恢复的 token
