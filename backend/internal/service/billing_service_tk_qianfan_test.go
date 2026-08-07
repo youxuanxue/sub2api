@@ -1,10 +1,14 @@
+//go:build unit
+
 package service
 
 import (
 	"testing"
+	"time"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,4 +63,17 @@ func TestTkQianfanScopedBillingModel_UsesQianfanRatesInCost(t *testing.T) {
 	officialPricing, err := svc.GetModelPricing("deepseek-v4-pro")
 	require.NoError(t, err)
 	require.Greater(t, pricing.InputPricePerToken, officialPricing.InputPricePerToken)
+}
+
+func TestTkQianfanScopedBillingModel_ExcludesDeepSeekPeakValley(t *testing.T) {
+	t.Parallel()
+	policy := loadTkDeepSeekPeakValleyPolicy()
+	require.NotNil(t, policy)
+	require.False(t, tkDeepSeekPeakValleyAppliesWithPolicy(policy, "deepseek-v4-pro.qianfan", PricingSourceLiteLLM))
+
+	at := time.Date(2026, 7, 21, 10, 0, 0, 0, timezone.Location())
+	base := &ModelPricing{InputPricePerToken: 0.012, OutputPricePerToken: 0.024}
+	scaled := tkApplyDeepSeekPeakValleyPricing("deepseek-v4-pro.qianfan", base, at, PricingSourceLiteLLM)
+	require.InDelta(t, base.InputPricePerToken, scaled.InputPricePerToken, 1e-12)
+	require.InDelta(t, base.OutputPricePerToken, scaled.OutputPricePerToken, 1e-12)
 }

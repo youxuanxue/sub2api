@@ -79,6 +79,9 @@ func tkDeepSeekPeakValleyAppliesWithPolicy(policy *tkDeepSeekPeakValleyPolicy, m
 		return false
 	}
 	lower := strings.ToLower(strings.TrimSpace(model))
+	if strings.HasSuffix(lower, tkQianfanOverlayPricingSuffix) {
+		return false
+	}
 	for _, substr := range policy.ModelContains {
 		if strings.Contains(lower, substr) {
 			return true

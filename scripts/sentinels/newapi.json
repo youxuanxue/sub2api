@@ -621,6 +621,21 @@
       "rationale": "Agent Plan base-url detection for VolcEngine ch45 accounts using /api/plan/v3 instead of pay-as-you-go /api/v3. Without it admin probes and preset selection fall back to wrong upstream paths (404 InvalidEndpointOrModel)."
     },
     {
+      "path": "backend/internal/integration/newapi/qianfan.go",
+      "must_contain": [
+        "QianfanBaseURL",
+        "IsQianfanBaseURL"
+      ],
+      "rationale": "Baidu Qianfan v2 base-url detection for ch46 accounts. Without it manifest scope, model-mapping preset, and per-account Qianfan billing keys cannot distinguish account 90 from other BaiduV2 channels."
+    },
+    {
+      "path": "backend/internal/integration/newapi/qianfan_test.go",
+      "must_contain": [
+        "TestIsQianfanBaseURL"
+      ],
+      "rationale": "Regression for Qianfan base-url normalization and channel-type guard; prevents silent misrouting when credentials omit or suffix the /v2 path."
+    },
+    {
       "path": "backend/internal/integration/newapi/ark_channel_base_url.go",
       "must_contain": [
         "VolcEngineAgentPlanBaseKey",
@@ -649,9 +664,11 @@
       "must_contain": [
         "tkServedModelsManifestPresetIDsForSelector",
         "tkServedModelsManifestDisplayPresetIDsForSelector",
-        "account_scope"
+        "account_scope",
+        "manifestEntryIsQianfanScopedOnly",
+        "newAPIQianfanModelMappingPresetIDs"
       ],
-      "rationale": "Property-scoped manifest projections keep Agent Plan user menus aligned with platform/channel/base_url while served_on remains evidence only, even when canonical channel_type values describe another upstream adaptor."
+      "rationale": "Property-scoped manifest projections keep Agent Plan and Qianfan user menus aligned with platform/channel/base_url while served_on remains evidence only, even when canonical channel_type values describe another upstream adaptor."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_volcagentplan.go",
