@@ -2,7 +2,10 @@
 # Install tokenkey-qa-maintenance.{sh,service,timer} on prod Stage0 via SSM.
 #
 # Usage:
-#   bash ops/stage0/sync-qa-maintenance-timer-via-ssm.sh <instance-id> [comment]
+#   QA_MAINTENANCE_TIMER_STATE=disabled \
+#     bash ops/stage0/sync-qa-maintenance-timer-via-ssm.sh <instance-id> [comment]
+#
+# Default is fail-safe sync-only: install the runtime and keep the timer stopped.
 
 set -euo pipefail
 
@@ -10,16 +13,29 @@ INSTANCE_ID="${1:-${INSTANCE_ID:-}}"
 COMMENT="${2:-${SSM_COMMENT:-ops-qa-maintenance-timer-sync}}"
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-300}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
+TIMER_STATE="${QA_MAINTENANCE_TIMER_STATE:-disabled}"
 
 if [ -z "${INSTANCE_ID}" ]; then
   echo "sync_qa_maintenance_timer_via_ssm: instance id is required" >&2
   exit 1
 fi
+case "${TIMER_STATE}" in
+  disabled)
+    timer_command="sudo systemctl disable --now tokenkey-qa-maintenance.timer"
+    timer_active_state="inactive"
+    ;;
+  enabled)
+    timer_command="sudo systemctl enable --now tokenkey-qa-maintenance.timer"
+    timer_active_state="active"
+    ;;
+  *)
+    echo "QA_MAINTENANCE_TIMER_STATE must be disabled or enabled" >&2
+    exit 1
+    ;;
+esac
 
-ssm_region_args=()
-if [ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]; then
-  ssm_region_args=(--region "${AWS_REGION:-${AWS_DEFAULT_REGION}}")
-fi
+REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
+ssm_region_args=(--region "${REGION}")
 
 mkdir -p "${OUTPUT_DIR}"
 params_file="${OUTPUT_DIR}/ssm-params.json"
@@ -36,6 +52,9 @@ TEMPLATE_SHA="${GITHUB_SHA:-local}"
 jq -n \
   --arg maint "${MAINT_SH_B64}" \
   --arg sha "${TEMPLATE_SHA}" \
+  --arg timer_command "${timer_command}" \
+  --arg timer_state "${TIMER_STATE}" \
+  --arg timer_active_state "${timer_active_state}" \
   '{
     commands: [
       "set -euo pipefail",
@@ -44,11 +63,13 @@ jq -n \
       "sudo chmod +x /usr/local/bin/tokenkey-qa-maintenance.sh",
       "sudo /usr/local/bin/tokenkey-qa-maintenance.sh --selftest",
       "sudo /usr/local/bin/tokenkey-qa-maintenance.sh --install-units",
+      "sudo install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/data/qa_archive_tmp",
       "sudo systemctl daemon-reload",
-      "sudo systemctl enable tokenkey-qa-maintenance.timer",
-      "echo \"--- timer not started until QA_ARCHIVE_ENABLED=true ---\"",
+      $timer_command,
+      ("test \"$(sudo systemctl is-enabled tokenkey-qa-maintenance.timer)\" = \"" + $timer_state + "\""),
+      ("test \"$(sudo systemctl is-active tokenkey-qa-maintenance.timer)\" = \"" + $timer_active_state + "\""),
       "sudo systemctl list-timers tokenkey-qa-maintenance.timer --no-pager || true",
-      ("echo Live qa-maintenance units now match deploy/aws@" + $sha + " on $(hostname)")
+      ("echo Live qa-maintenance units now match deploy/aws@" + $sha + " timer=" + $timer_state + " on $(hostname)")
     ]
   }' > "${params_file}"
 

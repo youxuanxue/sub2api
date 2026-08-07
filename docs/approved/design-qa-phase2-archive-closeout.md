@@ -269,8 +269,9 @@ and a scratch-space preflight. Insufficient scratch space fails before upload.
 
 The raw archive stack must also provide:
 
-- a non-empty ops recovery principal/role binding with read-only raw access and KMS
-  decrypt permission;
+- a dedicated ops recovery role, assumed only by a non-empty approved principal, with
+  read-only raw access and KMS decrypt permission;
+- a dedicated retained audit bucket that accepts writes only from this stack's trail;
 - an S3 Gateway VPC Endpoint attached to the prod route table;
 - CloudTrail S3 object-level data events for the raw bucket;
 - app-role permissions limited to immutable artifact writes, commit/manifest reads, and

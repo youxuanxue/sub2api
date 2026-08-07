@@ -97,6 +97,7 @@ class TestQAPhaseOps(unittest.TestCase):
             "IOSchedulingClass=idle",
             "CPUQuota=20%",
             "MemoryMax=1G",
+            "TasksMax=128",
             "PrivateTmp=true",
             "NoNewPrivileges=true",
             "ProtectSystem=strict",
@@ -111,8 +112,110 @@ class TestQAPhaseOps(unittest.TestCase):
             "--read-only",
             "--cap-drop=ALL",
             "TMPDIR=/app/data/qa_archive_tmp",
+            "install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/data/qa_archive_tmp",
         ):
             self.assertIn(needle, body)
+
+    def test_qa_maintenance_sync_defaults_to_disabled_timer(self) -> None:
+        body = (ROOT / "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('QA_MAINTENANCE_TIMER_STATE:-disabled', body)
+        self.assertIn("systemctl disable --now tokenkey-qa-maintenance.timer", body)
+        self.assertIn("systemctl is-enabled tokenkey-qa-maintenance.timer", body)
+        self.assertIn("systemctl is-active tokenkey-qa-maintenance.timer", body)
+        self.assertNotIn('\n      "sudo systemctl enable tokenkey-qa-maintenance.timer",', body)
+
+    def test_qa_maintenance_sync_emits_disabled_timer_command_by_default(self) -> None:
+        script = ROOT / "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            output = root / "output"
+            fake_bin.mkdir()
+            output.mkdir()
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+if [[ "$*" == *"ssm send-command"* ]]; then echo cmd-test; exit 0; fi
+if [[ "$*" == *"--query Status"* ]]; then echo Success; exit 0; fi
+if [[ "$*" == *"--query ResponseCode"* ]]; then echo 0; exit 0; fi
+exit 0
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            env = {
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "STAGE0_SSM_OUTPUT_DIR": str(output),
+                "STAGE0_SSM_TIMEOUT_SECONDS": "10",
+            }
+            proc = subprocess.run(
+                ["bash", str(script), "i-0123456789abcdef0"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            payload = json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))
+
+        self.assertIn(
+            "sudo systemctl disable --now tokenkey-qa-maintenance.timer",
+            payload["commands"],
+        )
+        self.assertNotIn(
+            "sudo systemctl enable --now tokenkey-qa-maintenance.timer",
+            payload["commands"],
+        )
+        self.assertIn(
+            'test "$(sudo systemctl is-active tokenkey-qa-maintenance.timer)" = "inactive"',
+            payload["commands"],
+        )
+
+    def test_qa_maintenance_sync_explicit_enable_starts_and_verifies_timer(self) -> None:
+        script = ROOT / "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            output = root / "output"
+            fake_bin.mkdir()
+            output.mkdir()
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+if [[ "$*" == *"ssm send-command"* ]]; then echo cmd-test; exit 0; fi
+if [[ "$*" == *"--query Status"* ]]; then echo Success; exit 0; fi
+if [[ "$*" == *"--query ResponseCode"* ]]; then echo 0; exit 0; fi
+exit 0
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            env = {
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "QA_MAINTENANCE_TIMER_STATE": "enabled",
+                "STAGE0_SSM_OUTPUT_DIR": str(output),
+                "STAGE0_SSM_TIMEOUT_SECONDS": "10",
+            }
+            proc = subprocess.run(
+                ["bash", str(script), "i-0123456789abcdef0"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            payload = json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))
+
+        self.assertIn(
+            "sudo systemctl enable --now tokenkey-qa-maintenance.timer",
+            payload["commands"],
+        )
+        self.assertIn(
+            'test "$(sudo systemctl is-active tokenkey-qa-maintenance.timer)" = "active"',
+            payload["commands"],
+        )
 
     def test_raw_archive_cfn_keeps_app_and_recovery_permissions_separate(self) -> None:
         body = (ROOT / "deploy/aws/cloudformation/stage0-qa-raw-archive.yaml").read_text(
@@ -123,13 +226,20 @@ class TestQAPhaseOps(unittest.TestCase):
             body.index("Sid: AllowOpsRecoveryRoleReadRaw")
         ]
         self.assertNotIn("s3:DeleteObject", app_policy)
-        self.assertNotIn("s3:ListBucket", app_policy)
+        self.assertIn("Sid: AllowAppInstanceRoleListRawPrefix", app_policy)
+        self.assertIn("s3:ListBucket", app_policy)
+        self.assertIn("raw/v1/*", app_policy)
+        self.assertIn("raw/partial/*", app_policy)
         recovery_policy = body[
             body.index("Sid: AllowOpsRecoveryRoleReadRaw") :
-            body.index("QaRawArchiveS3Endpoint:")
+            body.index("QaRawArchiveAuditBucket:")
         ]
+        self.assertIn("Sid: AllowOpsRecoveryRoleReadRaw", recovery_policy)
         self.assertIn("s3:GetObject", recovery_policy)
+        self.assertIn("Sid: AllowOpsRecoveryRoleListRawPrefix", recovery_policy)
         self.assertIn("s3:ListBucket", recovery_policy)
+        self.assertIn("'s3:prefix':", recovery_policy)
+        self.assertIn("- raw/*", recovery_policy)
         self.assertNotIn("s3:PutObject", recovery_policy)
         self.assertNotIn("s3:DeleteObject", recovery_policy)
 
@@ -138,10 +248,16 @@ class TestQAPhaseOps(unittest.TestCase):
             encoding="utf-8"
         )
         for needle in (
-            "OpsRecoveryRoleArn:",
+            "OpsRecoveryPrincipalArn:",
+            "QaRawArchiveRecoveryRole:",
+            "AWS::IAM::Role",
+            "sts:AssumeRole",
+            "QaRawArchiveAuditBucket:",
+            "AllowCloudTrailWrite",
+            "cloudtrail.amazonaws.com",
+            "aws:SourceArn",
             "VpcId:",
             "RouteTableIds:",
-            "AuditLogBucketName:",
             "AWS::EC2::VPCEndpoint",
             "Gateway",
             "AWS::CloudTrail::Trail",
@@ -150,7 +266,8 @@ class TestQAPhaseOps(unittest.TestCase):
             "EnableLogFileValidation: true",
         ):
             self.assertIn(needle, body)
-        self.assertNotIn("HasOpsRecoveryRole", body)
+        self.assertNotIn("OpsRecoveryRoleArn:", body)
+        self.assertNotIn("AuditLogBucketName:", body)
 
     def test_raw_archive_deploy_refuses_blank_security_parameters_before_aws(self) -> None:
         script = ROOT / "ops/qa/deploy_qa_raw_archive_cfn.sh"
@@ -164,15 +281,14 @@ class TestQAPhaseOps(unittest.TestCase):
             env = {
                 "PATH": f"{fake_bin}:/usr/bin:/bin",
                 "APP_INSTANCE_ROLE_ARN": "arn:aws:iam::123456789012:role/app",
-                "OPS_RECOVERY_ROLE_ARN": "",
+                "OPS_RECOVERY_PRINCIPAL_ARN": "",
                 "QA_RAW_ARCHIVE_VPC_ID": "vpc-1234",
                 "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS": "rtb-1234",
-                "QA_RAW_ARCHIVE_AUDIT_BUCKET": "audit-bucket",
                 "QA_RAW_ARCHIVE_CONFIRM": "yes",
             }
             proc = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
             self.assertNotEqual(proc.returncode, 0)
-            self.assertIn("OPS_RECOVERY_ROLE_ARN", proc.stderr)
+            self.assertIn("OPS_RECOVERY_PRINCIPAL_ARN", proc.stderr)
             self.assertFalse(marker.exists(), "aws must not run after blank security input")
 
     def test_raw_archive_deploy_prints_change_set_before_execute(self) -> None:
@@ -180,13 +296,146 @@ class TestQAPhaseOps(unittest.TestCase):
         self.assertIn("cloudformation create-change-set", body)
         self.assertIn("cloudformation describe-change-set", body)
         self.assertIn("cloudformation execute-change-set", body)
+        self.assertIn("CAPABILITY_IAM", body)
         self.assertNotIn("cloudformation deploy", body)
+
+    def test_raw_archive_deploy_rejects_replacement_even_when_confirmed(self) -> None:
+        script = ROOT / "ops/qa/deploy_qa_raw_archive_cfn.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            marker = root / "execute-called"
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+if [[ "$*" == *"sts get-caller-identity"* ]]; then echo 123456789012; exit 0; fi
+if [[ "$*" == *"cloudformation describe-stacks"* ]]; then echo '{}'; exit 0; fi
+if [[ "$*" == *"cloudformation create-change-set"* ]]; then exit 0; fi
+if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--query Status"* ]]; then
+  echo CREATE_COMPLETE
+  exit 0
+fi
+if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--output json"* ]]; then
+  printf '%s\n' '{"Changes":[{"ResourceChange":{"Action":"Modify","LogicalResourceId":"RawBucket","ResourceType":"AWS::S3::Bucket","Replacement":"Conditional"}}]}'
+  exit 0
+fi
+if [[ "$*" == *"cloudformation execute-change-set"* ]]; then touch "$EXECUTE_MARKER"; exit 0; fi
+exit 1
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            proc = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    "PATH": f"{fake_bin}:/usr/bin:/bin",
+                    "APP_INSTANCE_ROLE_ARN": "arn:aws:iam::123456789012:role/app",
+                    "OPS_RECOVERY_PRINCIPAL_ARN": "arn:aws:iam::123456789012:user/operator",
+                    "QA_RAW_ARCHIVE_VPC_ID": "vpc-1234",
+                    "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS": "rtb-1234",
+                    "QA_RAW_ARCHIVE_CONFIRM": "yes",
+                    "EXECUTE_MARKER": str(marker),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            execute_called = marker.exists()
+
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("unsafe CloudFormation change set", proc.stderr)
+        self.assertIn("replacement=Conditional", proc.stderr)
+        self.assertFalse(execute_called)
 
     def test_release_images_include_qa_archive_binary(self) -> None:
         for rel in ("Dockerfile", "deploy/Dockerfile", "backend/Dockerfile"):
             body = (ROOT / rel).read_text(encoding="utf-8")
             self.assertIn("./cmd/qa-archive", body, rel)
             self.assertIn("/app/qa-archive", body, rel)
+
+    def test_published_release_image_check_verifies_both_platforms(self) -> None:
+        script = ROOT / "scripts/checks/release-image-binaries.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            log = root / "docker.log"
+            fake_docker = fake_bin / "docker"
+            fake_docker.write_text(
+                """#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+if [ "$1" = run ] && [ -n "${FAIL_PLATFORM:-}" ] && [[ "$*" == *"$FAIL_PLATFORM"* ]]; then
+  exit 9
+fi
+exit 0
+""",
+                encoding="utf-8",
+            )
+            fake_docker.chmod(0o755)
+            env = {
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "DOCKER_LOG": str(log),
+            }
+            proc = subprocess.run(
+                [
+                    "bash",
+                    str(script),
+                    "ghcr.io/youxuanxue/sub2api:1.8.139",
+                    "linux/amd64,linux/arm64",
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            calls = log.read_text(encoding="utf-8")
+
+        for platform in ("linux/amd64", "linux/arm64"):
+            self.assertIn(f"pull --platform {platform}", calls)
+            self.assertIn(f"run --rm --pull=never --platform {platform}", calls)
+        self.assertIn("test -x /app/sub2api", calls)
+        self.assertIn("test -x /app/qa-archive", calls)
+        self.assertIn("/app/sub2api -version", calls)
+        self.assertIn("/app/qa-archive", calls)
+        self.assertIn('test "$qa_rc" -eq 2', calls)
+        self.assertIn(r'*\"error\":\"command\ required:*', calls)
+
+    def test_published_release_image_check_fails_on_missing_platform_binary(self) -> None:
+        script = ROOT / "scripts/checks/release-image-binaries.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            log = root / "docker.log"
+            fake_docker = fake_bin / "docker"
+            fake_docker.write_text(
+                """#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+if [ "$1" = run ] && [[ "$*" == *"linux/arm64"* ]]; then exit 9; fi
+exit 0
+""",
+                encoding="utf-8",
+            )
+            fake_docker.chmod(0o755)
+            proc = subprocess.run(
+                [
+                    "bash",
+                    str(script),
+                    "ghcr.io/youxuanxue/sub2api:1.8.139",
+                    "linux/amd64,linux/arm64",
+                ],
+                env={
+                    "PATH": f"{fake_bin}:/usr/bin:/bin",
+                    "DOCKER_LOG": str(log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(proc.returncode, 9)
 
     def test_qa_archive_closeout_controller_is_fail_closed(self) -> None:
         module = _load_closeout_module()

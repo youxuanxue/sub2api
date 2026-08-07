@@ -20,6 +20,7 @@ Nice=15
 IOSchedulingClass=idle
 CPUQuota=20%
 MemoryMax=1G
+TasksMax=128
 PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -43,6 +44,7 @@ EOF
 
 run_qa_maintenance() {
   install -d -m 0700 /run/tokenkey-qa-maintenance
+  install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/data/qa_archive_tmp
   cd /var/lib/tokenkey
   app_container=tokenkey
   if [ -r active-color ]; then

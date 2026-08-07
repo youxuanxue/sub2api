@@ -19,18 +19,18 @@ require_value() {
 }
 
 require_value APP_INSTANCE_ROLE_ARN "${APP_INSTANCE_ROLE_ARN:-}"
-require_value OPS_RECOVERY_ROLE_ARN "${OPS_RECOVERY_ROLE_ARN:-}"
+require_value OPS_RECOVERY_PRINCIPAL_ARN "${OPS_RECOVERY_PRINCIPAL_ARN:-}"
 require_value QA_RAW_ARCHIVE_VPC_ID "${QA_RAW_ARCHIVE_VPC_ID:-}"
 require_value QA_RAW_ARCHIVE_ROUTE_TABLE_IDS "${QA_RAW_ARCHIVE_ROUTE_TABLE_IDS:-}"
-require_value QA_RAW_ARCHIVE_AUDIT_BUCKET "${QA_RAW_ARCHIVE_AUDIT_BUCKET:-}"
 
 role_pattern='^arn:[a-z0-9-]+:iam::[0-9]{12}:role/.+$'
+principal_pattern='^arn:[a-z0-9-]+:iam::[0-9]{12}:(user|role)/.+$'
 if [[ ! "${APP_INSTANCE_ROLE_ARN}" =~ ${role_pattern} ]]; then
   echo "APP_INSTANCE_ROLE_ARN is not a role ARN" >&2
   exit 1
 fi
-if [[ ! "${OPS_RECOVERY_ROLE_ARN}" =~ ${role_pattern} ]]; then
-  echo "OPS_RECOVERY_ROLE_ARN is not a role ARN" >&2
+if [[ ! "${OPS_RECOVERY_PRINCIPAL_ARN}" =~ ${principal_pattern} ]]; then
+  echo "OPS_RECOVERY_PRINCIPAL_ARN is not a user or role ARN" >&2
   exit 1
 fi
 if [[ ! "${QA_RAW_ARCHIVE_VPC_ID}" =~ ^vpc-[0-9a-f]+$ ]]; then
@@ -48,23 +48,19 @@ for route_table in "${route_tables[@]}"; do
     exit 1
   fi
 done
-if [[ ! "${QA_RAW_ARCHIVE_AUDIT_BUCKET}" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]]; then
-  echo "QA_RAW_ARCHIVE_AUDIT_BUCKET is not an S3 bucket name" >&2
-  exit 1
-fi
-
 account_id=$(aws sts get-caller-identity --query Account --output text)
 raw_bucket="${PROJECT}-${ENVIRONMENT}-qa-raw-archive-${account_id}"
 key_alias="alias/${PROJECT}-${ENVIRONMENT}-qa-raw-archive"
 trail_name="${PROJECT}-${ENVIRONMENT}-qa-raw-data-events"
+audit_bucket="${PROJECT}-${ENVIRONMENT}-qa-raw-audit-${account_id}"
 
 echo "QA raw archive proposed security binding:"
 printf '  stack=%s region=%s\n' "${STACK}" "${REGION}"
 printf '  app_role=%s\n' "${APP_INSTANCE_ROLE_ARN}"
-printf '  recovery_role=%s\n' "${OPS_RECOVERY_ROLE_ARN}"
+printf '  recovery_principal=%s recovery_role=QaRawArchiveRecoveryRole(change-set-generated)\n' "${OPS_RECOVERY_PRINCIPAL_ARN}"
 printf '  vpc=%s route_tables=%s\n' "${QA_RAW_ARCHIVE_VPC_ID}" "${QA_RAW_ARCHIVE_ROUTE_TABLE_IDS}"
 printf '  raw_bucket=%s kms_alias=%s\n' "${raw_bucket}" "${key_alias}"
-printf '  audit_bucket=%s trail=%s\n' "${QA_RAW_ARCHIVE_AUDIT_BUCKET}" "${trail_name}"
+printf '  audit_bucket=%s trail=%s\n' "${audit_bucket}" "${trail_name}"
 
 change_type=UPDATE
 if ! aws cloudformation describe-stacks --region "${REGION}" --stack-name "${STACK}" >/dev/null 2>&1; then
@@ -72,13 +68,13 @@ if ! aws cloudformation describe-stacks --region "${REGION}" --stack-name "${STA
 fi
 
 parameters=$(python3 - "${PROJECT}" "${ENVIRONMENT}" "${APP_INSTANCE_ROLE_ARN}" \
-  "${OPS_RECOVERY_ROLE_ARN}" "${QA_RAW_ARCHIVE_VPC_ID}" \
-  "${QA_RAW_ARCHIVE_ROUTE_TABLE_IDS}" "${QA_RAW_ARCHIVE_AUDIT_BUCKET}" <<'PY'
+  "${OPS_RECOVERY_PRINCIPAL_ARN}" "${QA_RAW_ARCHIVE_VPC_ID}" \
+  "${QA_RAW_ARCHIVE_ROUTE_TABLE_IDS}" <<'PY'
 import json
 import sys
 names = (
-    "ProjectName", "Environment", "AppInstanceRoleArn", "OpsRecoveryRoleArn",
-    "VpcId", "RouteTableIds", "AuditLogBucketName",
+    "ProjectName", "Environment", "AppInstanceRoleArn", "OpsRecoveryPrincipalArn",
+    "VpcId", "RouteTableIds",
 )
 print(json.dumps([
     {"ParameterKey": name, "ParameterValue": value}
@@ -95,6 +91,7 @@ aws cloudformation create-change-set \
   --description "TokenKey QA raw archive security closeout" \
   --template-body "file://${TEMPLATE}" \
   --parameters "${parameters}" \
+  --capabilities CAPABILITY_IAM \
   --output json >/dev/null
 
 for _ in $(seq 1 60); do
@@ -122,12 +119,48 @@ if [ "${status}" != "CREATE_COMPLETE" ]; then
   exit 1
 fi
 
+change_set_file="$(mktemp)"
+trap 'rm -f -- "${change_set_file}"' EXIT
 aws cloudformation describe-change-set \
   --region "${REGION}" \
   --stack-name "${STACK}" \
   --change-set-name "${CHANGE_SET}" \
-  --query '{Status:Status,Changes:Changes[*].ResourceChange.{Action:Action,LogicalId:LogicalResourceId,Type:ResourceType,Replacement:Replacement}}' \
-  --output table
+  --output json >"${change_set_file}"
+python3 - "${change_set_file}" <<'PY'
+import json
+import pathlib
+import sys
+
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+unsafe = []
+for change in payload.get("Changes", []):
+    resource = change.get("ResourceChange", {})
+    action = resource.get("Action")
+    replacement = resource.get("Replacement")
+    if action == "Remove" or replacement in {"True", "Conditional"}:
+        unsafe.append(
+            f"{resource.get('LogicalResourceId', '<unknown>')} "
+            f"action={action} replacement={replacement}"
+        )
+if unsafe:
+    raise SystemExit("unsafe CloudFormation change set:\n" + "\n".join(unsafe))
+PY
+
+python3 - "${change_set_file}" <<'PY'
+import json
+import pathlib
+import sys
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print("Action\tLogicalId\tReplacement\tType")
+for change in payload.get("Changes", []):
+    resource = change.get("ResourceChange", {})
+    print("{}\t{}\t{}\t{}".format(
+        resource.get("Action", ""),
+        resource.get("LogicalResourceId", ""),
+        resource.get("Replacement") or "None",
+        resource.get("ResourceType", ""),
+    ))
+PY
 
 if [ "${QA_RAW_ARCHIVE_CONFIRM:-}" != "yes" ]; then
   echo "Set QA_RAW_ARCHIVE_CONFIRM=yes to execute change set ${CHANGE_SET}" >&2

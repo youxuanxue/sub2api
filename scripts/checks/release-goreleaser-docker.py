@@ -32,6 +32,7 @@ MULTIARCH_CONFIGS = [
 ]
 SIMPLE_CONFIG = REPO_ROOT / ".goreleaser.simple.yaml"
 DOCKERFILE = REPO_ROOT / "Dockerfile.goreleaser"
+RELEASE_WORKFLOW = REPO_ROOT / ".github/workflows/release.yml"
 
 
 def _rel(path: pathlib.Path) -> str:
@@ -50,8 +51,30 @@ def _load(path: pathlib.Path) -> dict:
     return doc
 
 
-def _check_no_legacy(path: pathlib.Path, doc: dict) -> list[str]:
+def _check_archive_build(path: pathlib.Path, doc: dict) -> list[str]:
     errors: list[str] = []
+    builds = doc.get("builds")
+    if not isinstance(builds, list):
+        return [f"{_rel(path)} must define GoReleaser builds"]
+    by_id = {
+        item.get("id"): item
+        for item in builds
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    archive = by_id.get("qa-archive")
+    if not isinstance(archive, dict):
+        return [f"{_rel(path)} must build the qa-archive release binary"]
+    if archive.get("dir") != "backend" or archive.get("main") != "./cmd/qa-archive":
+        errors.append(f"{_rel(path)} qa-archive build must target backend/cmd/qa-archive")
+    if archive.get("binary") != "qa-archive":
+        errors.append(f"{_rel(path)} qa-archive build must emit binary qa-archive")
+    if archive.get("goos") != ["linux"]:
+        errors.append(f"{_rel(path)} qa-archive build must stay linux-only")
+    return errors
+
+
+def _check_no_legacy(path: pathlib.Path, doc: dict) -> list[str]:
+    errors = _check_archive_build(path, doc)
     if "dockers" in doc:
         errors.append(
             f"{_rel(path)} defines legacy `dockers`; use `dockers_v2` so release "
@@ -108,8 +131,10 @@ def _check_multiarch(path: pathlib.Path, doc: dict) -> list[str]:
     if "deploy/docker-entrypoint.sh" not in (cfg.get("extra_files") or []):
         errors.append(f"{_rel(path)} must pass deploy/docker-entrypoint.sh via extra_files")
 
-    if cfg.get("ids") != ["sub2api"]:
-        errors.append(f"{_rel(path)} dockers_v2[0].ids must be ['sub2api']")
+    if cfg.get("ids") != ["sub2api", "qa-archive"]:
+        errors.append(
+            f"{_rel(path)} dockers_v2[0].ids must be ['sub2api', 'qa-archive']"
+        )
 
     return errors
 
@@ -123,8 +148,10 @@ def _check_simple(path: pathlib.Path, doc: dict) -> list[str]:
 
     if cfg.get("platforms") != ["linux/amd64"]:
         errors.append(f"{_rel(path)} must stay explicit linux/amd64-only")
-    if cfg.get("ids") != ["sub2api"]:
-        errors.append(f"{_rel(path)} dockers_v2[0].ids must be ['sub2api']")
+    if cfg.get("ids") != ["sub2api", "qa-archive"]:
+        errors.append(
+            f"{_rel(path)} dockers_v2[0].ids must be ['sub2api', 'qa-archive']"
+        )
     if cfg.get("dockerfile") != "Dockerfile.goreleaser":
         errors.append(f"{_rel(path)} dockers_v2[0].dockerfile must be Dockerfile.goreleaser")
     if "deploy/docker-entrypoint.sh" not in (cfg.get("extra_files") or []):
@@ -147,8 +174,44 @@ def _check_dockerfile() -> list[str]:
             "Dockerfile.goreleaser must copy ${TARGETPLATFORM}/sub2api from the "
             "dockers_v2 build context with final owner/mode"
         )
+    if (
+        "COPY --chown=sub2api:sub2api --chmod=0755 ${TARGETPLATFORM}/qa-archive /app/qa-archive"
+        not in text
+    ):
+        errors.append(
+            "Dockerfile.goreleaser must copy ${TARGETPLATFORM}/qa-archive from the "
+            "dockers_v2 build context with final owner/mode"
+        )
     if "COPY sub2api /app/sub2api" in text:
         errors.append("Dockerfile.goreleaser still copies legacy root-level sub2api")
+    return errors
+
+
+def _check_release_workflow() -> list[str]:
+    if not RELEASE_WORKFLOW.is_file():
+        return [f"{_rel(RELEASE_WORKFLOW)} not found"]
+    text = RELEASE_WORKFLOW.read_text()
+    marker = "      - name: Verify published release image binaries"
+    start = text.find(marker)
+    if start < 0:
+        return [f"{_rel(RELEASE_WORKFLOW)} must verify published release image binaries"]
+    end = text.find("\n      - name:", start + len(marker))
+    block = text[start:] if end < 0 else text[start:end]
+    required = (
+        'IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}"',
+        'PLATFORMS="linux/amd64,linux/arm64"',
+        'PLATFORMS="linux/amd64"',
+        'bash scripts/checks/release-image-binaries.sh "${IMAGE}" "${PLATFORMS}"',
+    )
+    errors = [
+        f"{_rel(RELEASE_WORKFLOW)} release image verification is missing {needle}"
+        for needle in required
+        if needle not in block
+    ]
+    if "continue-on-error" in block:
+        errors.append(
+            f"{_rel(RELEASE_WORKFLOW)} release image verification must fail the release"
+        )
     return errors
 
 
@@ -168,6 +231,7 @@ def main() -> int:
     except ValueError as exc:
         errors.append(str(exc))
     errors.extend(_check_dockerfile())
+    errors.extend(_check_release_workflow())
 
     if errors:
         for error in errors:

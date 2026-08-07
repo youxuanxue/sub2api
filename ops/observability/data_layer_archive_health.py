@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import hashlib
 import json
 import pathlib
@@ -30,6 +31,33 @@ def _sha256(path: pathlib.Path) -> str:
         raise ValueError(f"cannot hash archive evidence: {path}") from exc
 
 
+def _latest_hold_receipt(attachments: pathlib.Path) -> tuple[pathlib.Path, dict[str, Any]]:
+    candidates: list[tuple[dt.datetime, pathlib.Path, dict[str, Any]]] = []
+    for path in attachments.glob("US-039-prod-cleanup-hold-*.json"):
+        try:
+            receipt = cleanup_hold._load_receipt(path)
+            if (
+                receipt.get("database_cleanup_enabled") is not False
+                or receipt.get("api_cleanup_enabled") is not False
+                or receipt.get("no_cleanup_after_hold") is not True
+            ):
+                raise cleanup_hold.HoldControlError(
+                    "cleanup hold receipt does not prove cleanup is stopped"
+                )
+            timestamp = dt.datetime.fromisoformat(
+                receipt["hold_started_at"].replace("Z", "+00:00")
+            )
+            if timestamp.tzinfo is None:
+                raise ValueError("hold timestamp must include timezone")
+        except (cleanup_hold.HoldControlError, ValueError, TypeError, OSError):
+            continue
+        candidates.append((timestamp, path, receipt))
+    if not candidates:
+        raise cleanup_hold.HoldControlError("no valid cleanup hold receipt")
+    _, path, receipt = max(candidates, key=lambda item: item[0])
+    return path, receipt
+
+
 def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
     slugs = {
         "ops_error_logs": "ops-error-logs",
@@ -39,9 +67,9 @@ def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
     restores: list[str] = []
     closeout_tables: set[str] = set()
     evidence_errors: list[str] = []
-    hold_path = attachments / "US-039-prod-cleanup-hold-20260721.json"
+    hold_path = attachments / "US-039-prod-cleanup-hold-missing.json"
     try:
-        hold = cleanup_hold._load_receipt(hold_path)
+        hold_path, hold = _latest_hold_receipt(attachments)
     except (cleanup_hold.HoldControlError, OSError):
         hold = {}
         evidence_errors.append("cleanup_hold")
