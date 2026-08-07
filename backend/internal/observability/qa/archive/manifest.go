@@ -9,6 +9,7 @@ import (
 
 const (
 	SegmentKindBase  = "base"
+	SegmentKindDelta = "delta"
 	ManifestSchemaV1 = "qa-archive-segment-v1"
 	CommitSchemaV1   = "qa-archive-commit-v1"
 )
