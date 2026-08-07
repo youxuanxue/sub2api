@@ -604,12 +604,20 @@ type identityHeap []*identityStream
 func (h identityHeap) Len() int           { return len(h) }
 func (h identityHeap) Less(i, j int) bool { return compareIdentity(h[i].current, h[j].current) < 0 }
 func (h identityHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *identityHeap) Push(value any)    { *h = append(*h, value.(*identityStream)) }
+func (h *identityHeap) Push(value any)    { *h = append(*h, mustIdentityStream(value)) }
 func (h *identityHeap) Pop() any {
 	old := *h
 	item := old[len(old)-1]
 	*h = old[:len(old)-1]
 	return item
+}
+
+func mustIdentityStream(value any) *identityStream {
+	stream, ok := value.(*identityStream)
+	if !ok {
+		panic(fmt.Sprintf("identity heap contains %T", value))
+	}
+	return stream
 }
 
 func verifyCommitIdentities(segments []VerifiedSegment) error {
@@ -641,7 +649,7 @@ func verifyCommitIdentities(segments []VerifiedSegment) error {
 	var previous RecordIdentity
 	havePrevious := false
 	for queue.Len() > 0 {
-		stream := heap.Pop(&queue).(*identityStream)
+		stream := mustIdentityStream(heap.Pop(&queue))
 		if havePrevious && compareIdentity(previous, stream.current) == 0 {
 			return fmt.Errorf("duplicate record identity across segments")
 		}

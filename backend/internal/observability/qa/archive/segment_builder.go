@@ -189,7 +189,7 @@ func BuildSegment(ctx context.Context, conn *sql.Conn, input BuildInput) (_ Buil
 	indexWriter := bufio.NewWriter(indexZstd)
 
 	var stats rowStats
-	var present, missing int64
+	var present int64
 	cursorTime := input.WindowStart
 	cursorRequestID := ""
 	for {
@@ -221,7 +221,6 @@ func BuildSegment(ctx context.Context, conn *sql.Conn, input BuildInput) (_ Buil
 				stats.blobRefCount++
 				line, err := appendEvidenceFile(evidenceHash, input.BlobRoot, row.RequestID, ref.Field, *ref.URI)
 				if err != nil {
-					missing++
 					return BuiltSegment{}, &IntegrityError{
 						Code: IntegrityMissingEvidence, RequestID: row.RequestID,
 						BlobField: ref.Field, BlobURI: *ref.URI, Err: err,
@@ -275,7 +274,7 @@ func BuildSegment(ctx context.Context, conn *sql.Conn, input BuildInput) (_ Buil
 		SchemaVersion: ManifestSchemaV1, SegmentID: segmentID, SegmentKind: input.SegmentKind,
 		WindowStart: input.WindowStart, WindowEnd: input.WindowEnd,
 		RecordCount: stats.recordCount, BlobRefCount: stats.blobRefCount,
-		BlobPresentCount: present, BlobMissingCount: missing,
+		BlobPresentCount: present, BlobMissingCount: 0,
 		LogicalBytes:  stats.logicalBytes,
 		ArtifactBytes: recordsHash.size + evidenceHash.size + indexHash.size,
 		RecordsSHA256: recordsHash.sum(),

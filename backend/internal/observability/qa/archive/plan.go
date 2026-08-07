@@ -93,7 +93,7 @@ ORDER BY created_at, request_id`, window.Start, window.End)
 	}
 	for haveCommitted {
 		plan.CommittedOnlyCount++
-		currentCommitted, haveCommitted, err = committed.Next()
+		_, haveCommitted, err = committed.Next()
 		if err != nil {
 			return SourceDeltaPlan{}, err
 		}
@@ -141,7 +141,7 @@ func (i *committedIdentityIterator) Next() (RecordIdentity, bool, error) {
 	if i.queue.Len() == 0 {
 		return RecordIdentity{}, false, nil
 	}
-	stream := heap.Pop(&i.queue).(*identityStream)
+	stream := mustIdentityStream(heap.Pop(&i.queue))
 	current := stream.current
 	if i.havePrev && compareIdentity(i.previous, current) == 0 {
 		return RecordIdentity{}, false, fmt.Errorf("duplicate record identity across committed segments")
