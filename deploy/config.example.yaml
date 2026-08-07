@@ -281,8 +281,8 @@ gateway:
   #
   # 注意：开启后会影响所有客户端的行为（不仅限于 VS Code / Codex CLI），请谨慎开启。
   force_codex_cli: false
-  # Stop rewriting load-shed Codex originators to the official CLI identity.
-  # 关闭「把落在上游降载桶的 Codex originator 改写为官方 CLI 身份（codex_cli_rs）」。
+  # Stop rewriting load-shed Codex originators to the official TUI identity (codex-tui).
+  # 关闭「把落在上游降载桶的 Codex originator 改写为官方 TUI 身份（codex-tui）」。
   #
   # 上游 /backend-api/codex 按 originator 分桶调度容量：命中降载桶的请求即使 HTTP 200，
   # 也会立刻推 server_is_overloaded 错误事件，网关据此判定瞬时上游故障并冷却账号，

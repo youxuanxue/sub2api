@@ -990,7 +990,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		req.Header.Set("Authorization", "Bearer "+authToken)
 	}
 	req.Header.Set("OpenAI-Beta", "responses=experimental")
-	req.Header.Set("Originator", "codex_cli_rs")
+	req.Header.Set("Originator", openai.CodexDefaultOriginator)
 	req.Header.Set("User-Agent", codexCLIUserAgent)
 	req.Header.Set("Version", codexCLIVersion)
 	probeSessionID := compactProbeSessionID(account.ID)

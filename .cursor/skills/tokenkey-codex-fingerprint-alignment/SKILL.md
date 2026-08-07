@@ -89,11 +89,12 @@ python3 -m unittest discover -s ops/openai -p 'test_*.py' -t ops/openai
 - **仅版本漂移（最常见）**：按 `emit-edits` 更新 `DefaultOpenAICodexVersion`；UA、gateway version
   与 probe version 自动继承。i18n placeholders 以及 `request.go` / `request_test.go` 中的版本号
   都是格式示例 / 前缀匹配测试，与当前版本无关，**不改**。
-- **OS / 终端段刷新（少见，可选）**：只有你想把参考环境换到新机器时才改 UA 的
-  `(Mac OS …; arch) <terminal>/<ver>` 段；这是手工判断，不是漂移，`emit-edits` 不碰它。
+- **OS / 终端段刷新（少见，可选）**：只有你想把规范兜底 UA 的
+  `(Ubuntu …; arch) <terminal>` 段换到新参考环境时才改；官方客户端透传仍可能带 Mac/iTerm。
+  这是手工判断，不是漂移，`emit-edits` 不碰它。
 - **非版本漂移（罕见，需人判断，不自动 bump）**：只有当上游开始对伪造请求返回 4xx，或
   `diff` 的非版本行显示 originator / beta 在新 codex 里**确实换了值**时，才动
-  `resolveOpenAIUpstreamOriginator` / `OpenAI-Beta` 常量。binary-strings「not found」是
+  `openai.CodexDefaultOriginator` / `OpenAI-Beta` 常量。binary-strings「not found」是
   **不确定**信号（Rust 可能运行时拼接），**不是**漂移证据——不要据此改钉死项。
 
 ## 验证 / PR
