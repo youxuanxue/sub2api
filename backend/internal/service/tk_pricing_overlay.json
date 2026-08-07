@@ -1366,6 +1366,71 @@
     "supports_tool_choice": true,
     "supports_vision": false
   },
+  "deepseek-v4-flash.qianfan": {
+    "litellm_provider": "deepseek",
+    "mode": "chat",
+    "input_cost_per_token": 1.492537313432836e-07,
+    "output_cost_per_token": 2.985074626865672e-07,
+    "source": "Baidu Qianfan console 按量后付费, captured 2026-08-07: DeepSeek-V4-Flash ¥0.001/¥0.002 per 1k in/out; CNY/USD=6.7. Billing owner for Baidu Qianfan account 90 only (see billing_service_tk_qianfan.go).",
+    "supported_endpoints": [
+      "/v1/chat/completions"
+    ],
+    "supports_function_calling": true,
+    "supports_native_streaming": true,
+    "supports_reasoning": true,
+    "supports_system_messages": true,
+    "supports_tool_choice": true,
+    "supports_vision": false
+  },
+  "deepseek-v3.2": {
+    "litellm_provider": "deepseek",
+    "mode": "chat",
+    "input_cost_per_token": 5.970149253731343e-07,
+    "output_cost_per_token": 8.955223880597015e-07,
+    "source": "Baidu Qianfan console 按量后付费, captured 2026-08-07: DeepSeek-V3.2 tiered ¥0.002–0.004 in / ¥0.003–0.006 out per 1k; overlay uses UPPER tier (¥0.004/¥0.006); CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "supported_endpoints": [
+      "/v1/chat/completions"
+    ],
+    "supports_function_calling": true,
+    "supports_native_streaming": true,
+    "supports_reasoning": false,
+    "supports_system_messages": true,
+    "supports_tool_choice": true,
+    "supports_vision": false
+  },
+  "deepseek-v3.2-think": {
+    "litellm_provider": "deepseek",
+    "mode": "chat",
+    "input_cost_per_token": 5.970149253731343e-07,
+    "output_cost_per_token": 8.955223880597015e-07,
+    "thinking_output_cost_per_token": 8.955223880597015e-07,
+    "source": "Baidu Qianfan console 按量后付费, captured 2026-08-07: DeepSeek-V3.2-Think same tier table as deepseek-v3.2; overlay uses UPPER tier; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "supported_endpoints": [
+      "/v1/chat/completions"
+    ],
+    "supports_function_calling": true,
+    "supports_native_streaming": true,
+    "supports_reasoning": true,
+    "supports_system_messages": true,
+    "supports_tool_choice": true,
+    "supports_vision": false
+  },
+  "deepseek-v4-flash-0731": {
+    "litellm_provider": "deepseek",
+    "mode": "chat",
+    "input_cost_per_token": 1.492537313432836e-07,
+    "output_cost_per_token": 2.985074626865672e-07,
+    "source": "Baidu Qianfan console 按量后付费, captured 2026-08-07: DeepSeek-V4-Flash-0731 ¥0.001/¥0.002 per 1k in/out; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "supported_endpoints": [
+      "/v1/chat/completions"
+    ],
+    "supports_function_calling": true,
+    "supports_native_streaming": true,
+    "supports_reasoning": true,
+    "supports_system_messages": true,
+    "supports_tool_choice": true,
+    "supports_vision": false
+  },
   "deepseek-v4-pro": {
     "litellm_provider": "deepseek",
     "mode": "chat",
@@ -1391,6 +1456,38 @@
     "supports_system_messages": true,
     "supports_tool_choice": true,
     "supports_vision": false
+  },
+  "deepseek-v4-pro.qianfan": {
+    "litellm_provider": "deepseek",
+    "mode": "chat",
+    "input_cost_per_token": 1.791044776119403e-06,
+    "output_cost_per_token": 3.582089552238806e-06,
+    "source": "Baidu Qianfan console 按量后付费, captured 2026-08-07: DeepSeek-V4-Pro ¥0.012/¥0.024 per 1k in/out; CNY/USD=6.7. Billing owner for Baidu Qianfan account 90 only (see billing_service_tk_qianfan.go).",
+    "supported_endpoints": [
+      "/v1/chat/completions"
+    ],
+    "supports_function_calling": true,
+    "supports_native_streaming": true,
+    "supports_reasoning": true,
+    "supports_system_messages": true,
+    "supports_tool_choice": true,
+    "supports_vision": false
+  },
+  "ernie-4.5-turbo-vl-32k": {
+    "litellm_provider": "wenxin",
+    "mode": "chat",
+    "input_cost_per_token": 4.477611940298507e-07,
+    "output_cost_per_token": 1.343283582089552e-06,
+    "source": "Baidu Qianfan console 按量后付费, captured 2026-08-07: ERNIE-4.5-Turbo-VL-32K ¥0.003/¥0.009 per 1k in/out; CNY/USD=6.7. Serving via account 90 ch46 only.",
+    "supported_endpoints": [
+      "/v1/chat/completions"
+    ],
+    "supports_function_calling": true,
+    "supports_native_streaming": true,
+    "supports_reasoning": false,
+    "supports_system_messages": true,
+    "supports_tool_choice": true,
+    "supports_vision": true
   },
   "doubao-1-5-lite-32k-250115": {
     "litellm_provider": "volcengine",

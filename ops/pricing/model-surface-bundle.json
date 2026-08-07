@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "floor_sha256": "317dd23f2bdd0c4c041b0bb2d8f45d9986aa121621d8b5ab96735b9d687d3521",
+  "floor_sha256": "70c40f4d42e0a126426fc98f800d4eb8301e64485b81faca7497a4df54b4721c",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -226,6 +226,20 @@
           "kimi-k3": "kimi-k3",
           "minimax-m2.7": "minimax-m2.7",
           "minimax-m3": "minimax-m3"
+        }
+      },
+      {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com",
+        "model_mapping": {
+          "deepseek-v3.2": "deepseek-v3.2",
+          "deepseek-v3.2-think": "deepseek-v3.2-think",
+          "deepseek-v4-flash": "deepseek-v4-flash",
+          "deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
+          "deepseek-v4-pro": "deepseek-v4-pro",
+          "ernie-4.5-turbo-vl-32k": "ernie-4.5-turbo-vl-32k",
+          "glm-5.2": "glm-5.2"
         }
       }
     ],

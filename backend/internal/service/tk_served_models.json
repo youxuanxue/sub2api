@@ -21,7 +21,8 @@
       "model_id": "deepseek-v4-pro",
       "served_on": [
         "39",
-        "88"
+        "88",
+        "90"
       ],
       "channel_type": 43,
       "account_scope": {
@@ -32,14 +33,15 @@
       "price_source": "overlay",
       "price_key": "deepseek-v4-pro",
       "display": true,
-      "notes": "ds-官 account 39. Mapped by tk_022 (identity whitelist). Priced in overlay (litellm lags V4). served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN). Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30."
+      "notes": "ds-官 account 39. Mapped by tk_022 (identity whitelist). Priced in overlay from DeepSeek official list (https://api-docs.deepseek.com/quick_start/pricing). Baidu Qianfan account 90 bills via overlay owner deepseek-v4-pro.qianfan at runtime (¥0.012/¥0.024 per 1k). served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN). Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
     },
     "newapi/deepseek-v4-flash": {
       "platform": "newapi",
       "model_id": "deepseek-v4-flash",
       "served_on": [
         "39",
-        "88"
+        "88",
+        "90"
       ],
       "channel_type": 43,
       "account_scope": {
@@ -50,7 +52,7 @@
       "price_source": "overlay",
       "price_key": "deepseek-v4-flash",
       "display": true,
-      "notes": "ds-官 account 39. Mapped by tk_022. Priced in overlay; pricing-overlay.py anchor. served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN). Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30."
+      "notes": "ds-官 account 39. Mapped by tk_022. Priced in overlay from DeepSeek official list. Baidu Qianfan account 90 bills via overlay owner deepseek-v4-flash.qianfan at runtime (¥0.001/¥0.002 per 1k). served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN). Also on VolcEngine Agent Plan account 88; mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
     },
     "newapi/deepseek-chat": {
       "platform": "newapi",
@@ -748,7 +750,8 @@
       "served_on": [
         "60",
         "72",
-        "88"
+        "88",
+        "90"
       ],
       "channel_type": 17,
       "account_scope": {
@@ -759,7 +762,7 @@
       "price_source": "overlay",
       "price_key": "glm-5.2",
       "display": true,
-      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time). Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30."
+      "notes": "Alibaba DashScope/Qwen pool (channel_type=17); served_on is only a static mapping-evidence anchor, while live account membership comes from runtime DB/admin config. BigModel is pricing source only, not the serving path. GLM direct account/group was removed. Overlay from BigModel official pricing (https://bigmodel.cn/pricing, captured 2026-07-09; CNY/USD=6.7, overlay official_list_base_tax policy applies at resolution/catalog time). Also on VolcEngine Agent Plan account 88 (ch45 /api/plan/v3); mapped by tk_068; probe 200 on 2026-07-30. Also on Baidu Qianfan account 90 (ch46); Qianfan console confirms ¥0.008/¥0.028 per 1k in/out; probe 200 on 2026-08-07. Account 90 mapping: served-via-modelops-activation."
     },
     "newapi/glm-5.1": {
       "platform": "newapi",
@@ -974,6 +977,74 @@
       "price_key": "minimax-m3",
       "display": true,
       "notes": "VolcEngine Agent Plan account 88. Mapped by tk_068. Overlay from MiniMax official list ($0.30/$1.20 per M tokens). /api/plan/v3 responses probe 200 on 2026-07-30."
+    },
+    "newapi/ernie-4.5-turbo-vl-32k": {
+      "platform": "newapi",
+      "model_id": "ernie-4.5-turbo-vl-32k",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "ernie-4.5-turbo-vl-32k",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 (ch46). Probe 200 via account 90 + china group 19 on 2026-08-07. Priced from Qianfan console ¥0.003/¥0.009 per 1k tok in/out; CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/deepseek-v4-flash-0731": {
+      "platform": "newapi",
+      "model_id": "deepseek-v4-flash-0731",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "deepseek-v4-flash-0731",
+      "display": true,
+      "notes": "Baidu Qianfan account 90 only (dated flash SKU). Probe 200 on 2026-08-07. Qianfan ¥0.001/¥0.002 per 1k; CNY/USD=6.7. served-via-modelops-activation."
+    },
+    "newapi/deepseek-v3.2": {
+      "platform": "newapi",
+      "model_id": "deepseek-v3.2",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "deepseek-v3.2",
+      "display": true,
+      "notes": "Baidu Qianfan account 90. Probe 200 on 2026-08-07. Qianfan tiered ¥0.002–0.004 in / ¥0.003–0.006 out per 1k; overlay uses UPPER tier pending tiered billing support. served-via-modelops-activation."
+    },
+    "newapi/deepseek-v3.2-think": {
+      "platform": "newapi",
+      "model_id": "deepseek-v3.2-think",
+      "served_on": [
+        "90"
+      ],
+      "channel_type": 46,
+      "account_scope": {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com"
+      },
+      "price_source": "overlay",
+      "price_key": "deepseek-v3.2-think",
+      "display": true,
+      "notes": "Baidu Qianfan account 90. Probe 200 on 2026-08-07 (reasoning path). Same Qianfan tier table as deepseek-v3.2; overlay uses upper tier + thinking_output_cost_per_token. served-via-modelops-activation."
     }
   }
 }

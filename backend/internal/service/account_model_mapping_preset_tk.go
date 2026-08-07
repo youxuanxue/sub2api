@@ -88,6 +88,13 @@ func isNewAPIVolcEngineAgentPlanAccount(account *Account) bool {
 		newapiintegration.IsVolcEngineAgentPlanBaseURL(account.ChannelType, account.GetBaseURL())
 }
 
+func isNewAPIQianfanAccount(account *Account) bool {
+	return account != nil &&
+		account.Platform == PlatformNewAPI &&
+		account.ChannelType == newapiconstant.ChannelTypeBaiduV2 &&
+		newapiintegration.IsQianfanBaseURL(account.ChannelType, account.GetBaseURL())
+}
+
 // accountModelMappingOverrideAccounts declares account-specific mapping scopes
 // whose serving intent is narrower than their shared platform/channel floor.
 func accountModelMappingOverrideAccounts() []*Account {
@@ -98,6 +105,14 @@ func accountModelMappingOverrideAccounts() []*Account {
 			ChannelType: newapiconstant.ChannelTypeVolcEngine,
 			Credentials: map[string]any{
 				"base_url": newapiintegration.VolcEngineAgentPlanBaseURL,
+			},
+		},
+		{
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeBaiduV2,
+			Credentials: map[string]any{
+				"base_url": newapiintegration.QianfanBaseURL,
 			},
 		},
 	}
@@ -114,6 +129,11 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 		sort.Strings(ids)
 		return ids
 	}
+	if isNewAPIQianfanAccount(account) {
+		ids := newAPIQianfanModelMappingPresetIDs()
+		sort.Strings(ids)
+		return ids
+	}
 	return AccountModelMappingPresetIDs(context.Background(), account.Platform, account.ChannelType, nil)
 }
 
@@ -126,6 +146,11 @@ func NewAPIModelDisplayIDsForAccount(account *Account) []string {
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		ids := tkServedModelsManifestDisplayPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
+		sort.Strings(ids)
+		return ids
+	}
+	if isNewAPIQianfanAccount(account) {
+		ids := newAPIQianfanModelDisplayPresetIDs()
 		sort.Strings(ids)
 		return ids
 	}
