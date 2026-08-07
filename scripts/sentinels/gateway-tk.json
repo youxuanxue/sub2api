@@ -5272,6 +5272,14 @@
       "rationale": "Anthropic Messages -> Codex SSE bridge must NOT carry OpenAI-Beta and must NOT re-inject originator on compat bridge paths. Upstream merge #5351 (2026-08) aligned with upstream: compatMessagesBridge deletes originator/OpenAI-Beta in openai_gateway_forward.go so enforceCodexIdentityHeaders stays no-op. Re-adding originator on bridge paths has proven TK<->upstream churn; this anchor ties the rationale comment to the forward-path Del. Paired regression: openai_compat_model_test.go requireOpenAIMessagesCodexIdentity asserts empty originator."
     },
     {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "must_contain": [
+        "if compatMessagesBridge {",
+        "req.Header.Del(\"originator\")"
+      ],
+      "rationale": "Structural anchor for compatMessagesBridge OAuth header shaping: originator and OpenAI-Beta must be deleted before upstream so enforceCodexIdentityHeaders does not re-inject on Anthropic Messages bridge traffic. Comment-only anchors can drift; this pins the Del call site. Paired regression: openai_compat_model_test.go requireOpenAIMessagesCodexIdentity."
+    },
+    {
       "path": "backend/internal/pkg/openai/request.go",
       "must_contain": [
         "\"codex-tui/\","
