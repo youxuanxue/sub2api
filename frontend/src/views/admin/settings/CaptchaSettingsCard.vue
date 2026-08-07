@@ -7,6 +7,21 @@ import Toggle from "@/components/common/Toggle.vue";
 const { t } = useI18n();
 const { form } = useSettingsState();
 
+// 天御中国站与国际站是两套独立账号体系，控制台与文档入口不通用
+const tencentCaptchaLinks = computed(() =>
+  form.tencent_captcha_region === "intl"
+    ? {
+        console: "https://console.tencentcloud.com/captcha/graphical",
+        cloudKeys: "https://console.tencentcloud.com/cam/capi",
+        webDocs: "https://www.tencentcloud.com/document/product/1159/49680",
+      }
+    : {
+        console: "https://console.cloud.tencent.com/captcha",
+        cloudKeys: "https://console.cloud.tencent.com/cam/capi",
+        webDocs: "https://cloud.tencent.com/document/product/1110/36841",
+      },
+);
+
 type CaptchaProvider = "turnstile" | "tencent" | "aliyun";
 
 const selectedProvider = ref<CaptchaProvider>("turnstile");
@@ -110,6 +125,26 @@ watch(
         </div>
 
         <div v-else-if="selectedProvider === 'tencent'" class="grid grid-cols-1 gap-5 border-t border-gray-100 pt-4 dark:border-dark-700">
+          <div>
+            <div class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.settings.tencentCaptcha.region") }}</div>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                data-testid="tencent-captcha-region-cn"
+                class="btn btn-secondary"
+                :class="{ 'border-primary-500 text-primary-600': form.tencent_captcha_region !== 'intl' }"
+                @click="form.tencent_captcha_region = 'cn'"
+              >{{ t("admin.settings.tencentCaptcha.regionCn") }}</button>
+              <button
+                type="button"
+                data-testid="tencent-captcha-region-intl"
+                class="btn btn-secondary"
+                :class="{ 'border-primary-500 text-primary-600': form.tencent_captcha_region === 'intl' }"
+                @click="form.tencent_captcha_region = 'intl'"
+              >{{ t("admin.settings.tencentCaptcha.regionIntl") }}</button>
+            </div>
+            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.tencentCaptcha.regionHint") }}</p>
+          </div>
           <label class="space-y-2 text-sm font-medium text-gray-700 dark:text-gray-300">
             <span>{{ t("admin.settings.tencentCaptcha.appId") }}</span>
             <input v-model="form.tencent_captcha_app_id" type="text" class="input font-mono text-sm" />
@@ -127,9 +162,9 @@ watch(
             <input v-model="form.tencent_captcha_cloud_secret_key" type="password" class="input font-mono text-sm" />
           </label>
           <div class="flex flex-wrap gap-3 text-sm">
-            <a href="https://console.cloud.tencent.com/captcha" target="_blank" class="text-primary-600 hover:text-primary-500">{{ t("admin.settings.tencentCaptcha.openCaptchaConsole") }}</a>
-            <a href="https://console.cloud.tencent.com/cam/capi" target="_blank" class="text-primary-600 hover:text-primary-500">{{ t("admin.settings.tencentCaptcha.createCloudKeys") }}</a>
-            <a href="https://cloud.tencent.com/document/product/1110/36841" target="_blank" class="text-primary-600 hover:text-primary-500">{{ t("admin.settings.tencentCaptcha.openWebDocs") }}</a>
+            <a :href="tencentCaptchaLinks.console" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:text-primary-500">{{ t("admin.settings.tencentCaptcha.openCaptchaConsole") }}</a>
+            <a :href="tencentCaptchaLinks.cloudKeys" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:text-primary-500">{{ t("admin.settings.tencentCaptcha.createCloudKeys") }}</a>
+            <a :href="tencentCaptchaLinks.webDocs" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:text-primary-500">{{ t("admin.settings.tencentCaptcha.openWebDocs") }}</a>
           </div>
         </div>
 

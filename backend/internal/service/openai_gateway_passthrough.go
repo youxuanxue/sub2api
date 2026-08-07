@@ -428,7 +428,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		if req.Header.Get("OpenAI-Beta") == "" {
 			req.Header.Set("OpenAI-Beta", "responses=experimental")
 		}
-		req.Header.Set("originator", resolveOpenAIUpstreamOriginator(c, openai.IsCodexOfficialClientByHeaders(req.Header.Get("user-agent"), req.Header.Get("originator"))))
+		if req.Header.Get("originator") == "" {
+			req.Header.Set("originator", resolveOpenAIUpstreamOriginator(c, openai.IsCodexOfficialClientByHeaders(req.Header.Get("user-agent"), req.Header.Get("originator"))))
+		}
 		// 用隔离后的 session 标识符覆盖客户端透传值，防止跨用户会话碰撞。
 		if clientSessionID == "" {
 			clientSessionID = promptCacheKey

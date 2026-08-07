@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
@@ -223,7 +224,7 @@ func TestOpenAIGatewayService_OAuthMessagesBridgeDoesNotInjectDefaultInstruction
 	require.NotEmpty(t, upstream.lastReq.Header.Get("Session_Id"))
 	require.Empty(t, upstream.lastReq.Header.Get("Conversation_Id"))
 	require.Empty(t, upstream.lastReq.Header.Get("OpenAI-Beta"))
-	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
+	require.Empty(t, upstream.lastReq.Header.Get("originator"))
 }
 
 func TestOpenAIGatewayService_OAuthUpstreamHeadersNormalizeNonCodexIngress(t *testing.T) {
@@ -241,21 +242,21 @@ func TestOpenAIGatewayService_OAuthUpstreamHeadersNormalizeNonCodexIngress(t *te
 			path:           "/v1/responses",
 			body:           []byte(`{"model":"gpt-5.5","stream":true,"instructions":"local-test-instructions","input":[{"type":"input_text","text":"hi"}]}`),
 			userAgent:      "python-requests/2.33.1",
-			wantOriginator: "codex_cli_rs",
+			wantOriginator: openai.CodexDefaultOriginator,
 		},
 		{
 			name:           "chat completions python urllib",
 			path:           "/v1/chat/completions",
 			body:           []byte(`{"model":"gpt-5.5","stream":true,"messages":[{"role":"user","content":"hi"}]}`),
 			userAgent:      "Python-urllib/3.13",
-			wantOriginator: "codex_cli_rs",
+			wantOriginator: openai.CodexDefaultOriginator,
 		},
 		{
 			name:           "messages claude cli",
 			path:           "/v1/messages",
 			body:           []byte(`{"model":"claude-opus-4-7","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"hi"}]}`),
 			userAgent:      "claude-cli/2.1.179 (external, sdk-cli)",
-			wantOriginator: "codex_cli_rs",
+			wantOriginator: openai.CodexDefaultOriginator,
 		},
 	}
 
@@ -1065,10 +1066,10 @@ func TestOpenAIGatewayService_OAuthLegacy_CompositeCodexUAUsesCodexOriginator(t 
 	_, err := svc.Forward(context.Background(), c, account, inputBody)
 	require.NoError(t, err)
 	require.NotNil(t, upstream.lastReq)
-	// 浏览器型复合 UA 被替换为默认 Codex UA（CLI 形态，避开上游降载桶），
+	// 浏览器型复合 UA 被替换为默认 Codex TUI UA，
 	// originator 随最终 UA 配套（issue #3901）。
 	require.Equal(t, DefaultOpenAICodexUserAgent, upstream.lastReq.Header.Get("User-Agent"))
-	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
+	require.Equal(t, openai.CodexDefaultOriginator, upstream.lastReq.Header.Get("originator"))
 	require.NotEqual(t, "opencode", upstream.lastReq.Header.Get("originator"))
 }
 
@@ -1910,7 +1911,7 @@ func TestOpenAIGatewayService_OAuthPassthrough_OfficialIdentityUnified(t *testin
 	require.NoError(t, err)
 	require.NotNil(t, upstream.lastReq)
 	require.Equal(t, codexCLIUserAgent, upstream.lastReq.Header.Get("User-Agent"))
-	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
+	require.Equal(t, openai.CodexDefaultOriginator, upstream.lastReq.Header.Get("originator"))
 	require.Equal(t, codexCLIVersion, upstream.lastReq.Header.Get("version"))
 }
 
@@ -1954,7 +1955,7 @@ func TestOpenAIGatewayService_OAuthPassthrough_CodexTuiIdentityUnified(t *testin
 	require.NoError(t, err)
 	require.NotNil(t, upstream.lastReq)
 	require.Equal(t, codexCLIUserAgent, upstream.lastReq.Header.Get("User-Agent"))
-	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
+	require.Equal(t, openai.CodexDefaultOriginator, upstream.lastReq.Header.Get("originator"))
 	require.Equal(t, codexCLIVersion, upstream.lastReq.Header.Get("version"))
 }
 

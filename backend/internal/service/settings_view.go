@@ -52,6 +52,7 @@ type SystemSettings struct {
 	TencentCaptchaCloudSecretIDConfigured  bool
 	TencentCaptchaCloudSecretKey           string
 	TencentCaptchaCloudSecretKeyConfigured bool
+	TencentCaptchaRegion                   string
 	AliyunCaptchaEnabled                   bool
 	AliyunCaptchaAccessKeyID               string
 	AliyunCaptchaAccessKeySecret           string
@@ -251,7 +252,7 @@ type SystemSettings struct {
 	RewriteMessageCacheControl             bool   // 是否改写 messages[*].content[*].cache_control（默认 false）
 	AntigravityUserAgentVersion            string // Antigravity 上游 User-Agent 版本号；空值使用配置/默认值
 	ClaudeCodeUserAgentVersion             string // Claude Code canonical OAuth 上游 User-Agent 版本号（不含 prefix/suffix）；空值使用配置/默认值
-	OpenAICodexUserAgent                   string // OpenAI Codex 上游完整 User-Agent；空值由 Codex 客户端版本号拼出标准 CLI UA
+	OpenAICodexUserAgent                   string // OpenAI Codex 上游完整 User-Agent；空值由 Codex 客户端版本号拼出标准 TUI UA
 	OpenAICodexClientVersion               string // 出站声明的 Codex 客户端版本号（管理员覆写）；空值跟随自动同步值
 	OpenAICodexClientVersionSynced         string // 自动同步到的官方最新稳定版版本号（只读展示）
 	OpenAICodexVersionAutoSyncEnabled      bool   // 是否启用 Codex 客户端版本号自动同步（默认 true）
@@ -343,6 +344,7 @@ type PublicSettings struct {
 	TurnstileSiteKey                 string
 	TencentCaptchaEnabled            bool
 	TencentCaptchaAppID              string
+	TencentCaptchaRegion             string
 	AliyunCaptchaEnabled             bool
 	AliyunCaptchaSceneID             string
 	AliyunCaptchaPrefix              string

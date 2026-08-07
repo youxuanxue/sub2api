@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -244,7 +245,7 @@ func (s *OpenAIGatewayService) buildOpenAIAlphaSearchResponsesWebSearchRequest(c
 	if originator := openAIAlphaSearchInboundHeader(c, "Originator"); originator != "" {
 		req.Header.Set("Originator", originator)
 	} else {
-		req.Header.Set("Originator", "codex_cli_rs")
+		req.Header.Set("Originator", openai.CodexDefaultOriginator)
 	}
 	if customUA := account.GetOpenAIUserAgent(); customUA != "" {
 		req.Header.Set("User-Agent", customUA)
@@ -356,6 +357,40 @@ func (s *OpenAIGatewayService) buildOpenAIAlphaSearchRequest(ctx context.Context
 	}
 	req.URL = parsedURL
 	req.Header.Set("Accept", "application/json")
+
+	if account.Type == AccountTypeOAuth {
+		req.Host = "chatgpt.com"
+		if err := resolveAndSetOpenAIChatGPTAccountHeaders(ctx, s.accountRepo, req.Header, account); err != nil {
+			return nil, fmt.Errorf("resolve chatgpt account headers: %w", err)
+		}
+
+		if turnMetadata := openAIAlphaSearchInboundHeader(c, "X-Codex-Turn-Metadata"); turnMetadata != "" {
+			req.Header.Set("X-Codex-Turn-Metadata", turnMetadata)
+		}
+		if version := openAIAlphaSearchInboundHeader(c, "Version"); version != "" {
+			req.Header.Set("Version", version)
+		} else {
+			req.Header.Set("Version", codexCLIVersion)
+		}
+		if originator := openAIAlphaSearchInboundHeader(c, "Originator"); originator != "" {
+			req.Header.Set("Originator", originator)
+		} else {
+			req.Header.Set("Originator", openai.CodexDefaultOriginator)
+		}
+		if customUA := account.GetOpenAIUserAgent(); customUA != "" {
+			req.Header.Set("User-Agent", customUA)
+		} else if userAgent := openAIAlphaSearchInboundHeader(c, "User-Agent"); userAgent != "" {
+			req.Header.Set("User-Agent", userAgent)
+		} else {
+			req.Header.Set("User-Agent", codexCLIUserAgent)
+		}
+		if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
+			req.Header.Set("User-Agent", codexCLIUserAgent)
+		}
+		enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))
+	}
+
+	account.ApplyHeaderOverrides(req.Header)
 	stripOpenAIAlphaSearchResponsesHeaders(req.Header)
 	return req, nil
 }

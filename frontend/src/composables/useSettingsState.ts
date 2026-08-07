@@ -142,6 +142,7 @@ export type SettingsForm = {
   tencent_captcha_cloud_secret_id_configured: boolean;
   tencent_captcha_cloud_secret_key: string;
   tencent_captcha_cloud_secret_key_configured: boolean;
+  tencent_captcha_region: string;
   aliyun_captcha_enabled: boolean;
   aliyun_captcha_access_key_id: string;
   aliyun_captcha_access_key_secret: string;
