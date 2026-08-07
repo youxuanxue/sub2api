@@ -66,6 +66,16 @@ class ProbeAccountModelTest(unittest.TestCase):
         bind_at = script.index("INSERT INTO account_groups (account_id, group_id, priority, created_at)")
         self.assertLess(unbind_at, bind_at)
 
+    def test_embeddings_endpoint_uses_v1_embeddings_and_embedding_body_verdict(self) -> None:
+        script = _SCRIPT.read_text()
+
+        self.assertIn("messages|count_tokens|chat|responses|embeddings", script)
+        self.assertIn('elif endpoint == "embeddings":', script)
+        self.assertIn('"input": prompt', script)
+        self.assertIn('embeddings) PATH_SUFFIX="/v1/embeddings"', script)
+        self.assertIn('if endpoint == "embeddings":', script)
+        self.assertIn('"embedding" in data[0]', script)
+
 
 if __name__ == "__main__":
     unittest.main()

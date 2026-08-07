@@ -21,6 +21,18 @@ bash ops/observability/run-probe.sh \
   --env ENDPOINT=messages
 ```
 
+Embedding models (must use `/v1/embeddings`, not chat):
+
+```bash
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/stage0/probe_account_model.sh \
+  --with ops/pricing/probe_reserved_resources.sh \
+  --env ACCOUNT_ID=<account_id> \
+  --env MODEL=bge-large-en \
+  --env ENDPOINT=embeddings
+```
+
 For an edge account:
 
 ```bash
@@ -96,7 +108,8 @@ The JSON result includes database-derived `account_platform` and effective
 
 Useful options:
 
-- `ENDPOINT=messages|chat|responses` chooses `/v1/messages`, `/v1/chat/completions`, or `/v1/responses`.
+- `ENDPOINT=messages|chat|responses|embeddings` chooses `/v1/messages`, `/v1/chat/completions`, `/v1/responses`, or `/v1/embeddings`.
+- Embedding SKUs (for example `bge-large-en`, `text-embedding-3-small`) must use `ENDPOINT=embeddings`. Do **not** probe them via `ENDPOINT=chat`; upstream returns 401 and TokenKey may mark the account `error`.
 - `MAX_TOKENS=16` keeps cost low.
 - `PROMPT_TEXT='Reply OK only.'` changes the prompt.
 - `REQUEST_EXTRA_JSON='{"temperature":0.7,"top_p":0.9}'` merges extra top-level JSON fields into the generated payload for request-shape compatibility probes.
@@ -111,7 +124,7 @@ Useful options:
 
 The script emits one JSON object. Treat these fields as the decision surface:
 
-- `verdict=servable`: HTTP 2xx and `usage_logs` confirms `account_id == ACCOUNT_ID`.
+- `verdict=servable`: HTTP 2xx and `usage_logs` confirms `account_id == ACCOUNT_ID` (chat/messages/responses), or for `ENDPOINT=embeddings`/`count_tokens` a valid endpoint-specific 2xx body.
 - `verdict=wrong_account`: request succeeded but usage correlation shows a different account. This means the probe pool was not isolated or sticky/routing interfered.
 - `verdict=gateway_rejected`: TokenKey rejected before upstream, usually model unsupported, no available accounts, billing/RPM, or request shape.
 - `verdict=upstream_rejected`: upstream reached but rejected auth/model/request.
@@ -150,7 +163,7 @@ account capability still has to return `verdict=servable`.
 - This is a live probe. It may consume a tiny amount of quota and can update normal usage tables.
 - Default reuse mode intentionally leaves at most one reserved probe group/key per platform on each target host, disables it after cleanup, and removes account binding after the request.
 - Probe groups must stay exclusive, grant `user_allowed_groups` only to the probe key owner, and remain direct probe-key only; they must not enter universal-key routing candidates.
-- Use `ENDPOINT=messages` for Anthropic/Kiro style accounts, `chat` for OpenAI-compatible chat, and `responses` for Codex/OpenAI responses.
+- Use `ENDPOINT=messages` for Anthropic/Kiro style accounts, `chat` for OpenAI-compatible chat, `responses` for Codex/OpenAI responses, and `embeddings` for OpenAI-compatible embedding models.
 - If the goal is "can the raw upstream credential serve this model", use the platform direct upstream probe. The default gateway probe remains the authoritative TokenKey-path proof.
 
 ## Follow-Up Checks

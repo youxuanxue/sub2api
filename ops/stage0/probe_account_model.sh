@@ -4,6 +4,7 @@
 # (gateway_rejected, often "Unsupported model") from upstream account capability
 # rejection (upstream_rejected; exact text is platform-specific).
 # Batch Kiro Claude matrix: ops/stage0/probe_kiro_claude_models.sh (see tokenkey-account-model-probe skill).
+# Embedding models: use ENDPOINT=embeddings (/v1/embeddings), not chat — chat probes can 401 and mark accounts error.
 # Skill wrapper: .cursor/skills/tokenkey-account-model-probe/scripts/probe_account_model.sh
 set -euo pipefail
 
@@ -121,8 +122,8 @@ if [[ ! "$PROBE_LOCK_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$PROBE_LOCK_TIMEOUT_
   fail_json "PROBE_LOCK_TIMEOUT_SECONDS must be a positive integer"
 fi
 case "$ENDPOINT" in
-  messages|count_tokens|chat|responses) ;;
-  *) fail_json "ENDPOINT must be messages, count_tokens, chat, or responses" ;;
+  messages|count_tokens|chat|responses|embeddings) ;;
+  *) fail_json "ENDPOINT must be messages, count_tokens, chat, responses, or embeddings" ;;
 esac
 
 PROBE_ID="tkprobe-${ACCOUNT_ID}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -426,6 +427,11 @@ if endpoint == "chat":
         "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt}],
     }
+elif endpoint == "embeddings":
+    payload = {
+        "model": model,
+        "input": prompt,
+    }
 elif endpoint == "count_tokens":
     payload = {
         "model": model,
@@ -466,6 +472,7 @@ case "$ENDPOINT" in
   messages) PATH_SUFFIX="/v1/messages"; AUTH_HEADER_NAME="x-api-key";;
   count_tokens) PATH_SUFFIX="/v1/messages/count_tokens"; AUTH_HEADER_NAME="x-api-key";;
   chat) PATH_SUFFIX="/v1/chat/completions"; AUTH_HEADER_NAME="Authorization";;
+  embeddings) PATH_SUFFIX="/v1/embeddings"; AUTH_HEADER_NAME="Authorization";;
   responses) PATH_SUFFIX="/v1/responses"; AUTH_HEADER_NAME="Authorization";;
 esac
 
@@ -594,6 +601,20 @@ def classify(code: str, body_text: str, usage_row, curl_err: str):
     if 200 <= n < 300:
         if endpoint == "count_tokens":
             return "servable"
+        if endpoint == "embeddings":
+            try:
+                parsed = json.loads(body_text)
+                data = parsed.get("data")
+                if (
+                    isinstance(data, list)
+                    and data
+                    and isinstance(data[0], dict)
+                    and "embedding" in data[0]
+                ):
+                    return "servable"
+            except Exception:
+                pass
+            return "uncorrelated_success"
         if usage_row and int(usage_row.get("account_id") or 0) == int(target["id"]):
             return "servable"
         if usage_row:
