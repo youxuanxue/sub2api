@@ -223,16 +223,10 @@ func (h *OpenAIGatewayHandler) embeddings(c *gin.Context) {
 		TkSetBridgeGinAuth(c, subject.UserID, groupName)
 		result, err := h.gatewayService.ForwardAsEmbeddingsDispatched(c.Request.Context(), c, account, forwardBody, defaultMappedModel)
 
-		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
 		}
-		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
-		responseLatencyMs := forwardDurationMs
-		if upstreamLatencyMs > 0 && forwardDurationMs > upstreamLatencyMs {
-			responseLatencyMs = forwardDurationMs - upstreamLatencyMs
-		}
-		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, responseLatencyMs)
+		tkRecordForwardResponseTail(c, forwardStart)
 
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
@@ -304,7 +298,7 @@ func (h *OpenAIGatewayHandler) embeddings(c *gin.Context) {
 
 		tkHoldRequestID := hold.HandOffToSettlement()
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-		gatewayLatencyMs := service.SnapshotGatewayTransferLatencyMs(c)
+		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			upstreamModelForUsage := ""
 			if result != nil {
@@ -552,16 +546,10 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 		logOpenAIImageGenerationRequestAudit(c, apiKey, subject.UserID, account, body, forwardBody)
 		result, err := h.gatewayService.ForwardAsImageGenerationsDispatched(c.Request.Context(), c, account, forwardBody, defaultMappedModel)
 
-		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
 		}
-		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
-		responseLatencyMs := forwardDurationMs
-		if upstreamLatencyMs > 0 && forwardDurationMs > upstreamLatencyMs {
-			responseLatencyMs = forwardDurationMs - upstreamLatencyMs
-		}
-		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, responseLatencyMs)
+		tkRecordForwardResponseTail(c, forwardStart)
 
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
@@ -633,7 +621,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 
 		tkHoldRequestID := hold.HandOffToSettlement()
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-		gatewayLatencyMs := service.SnapshotGatewayTransferLatencyMs(c)
+		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			upstreamModelForUsage := ""
 			if result != nil {

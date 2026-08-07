@@ -69,7 +69,7 @@ func (h *UserMsgQueueHelper) AcquireWithWait(
 				return nil, ctx.Err()
 			}
 		}
-		service.AddOpsGatewayQueueWaitMs(c, time.Since(delayStart).Milliseconds())
+		tkRecordGatewayQueueWait(c, delayStart)
 		reqLog.Debug("gateway.umq_lock_acquired", zap.Int64("account_id", accountID))
 		return h.makeReleaseFunc(accountID, result.RequestID, reqLog), nil
 	}
@@ -80,7 +80,7 @@ func (h *UserMsgQueueHelper) AcquireWithWait(
 	if err != nil {
 		return nil, err
 	}
-	service.AddOpsGatewayQueueWaitMs(c, time.Since(waitStart).Milliseconds())
+	tkRecordGatewayQueueWait(c, waitStart)
 	return releaseFunc, nil
 }
 
@@ -150,7 +150,7 @@ func (h *UserMsgQueueHelper) waitForLockWithPing(
 						return nil, ctx.Err()
 					}
 				}
-				service.AddOpsGatewayQueueWaitMs(c, time.Since(delayStart).Milliseconds())
+				tkRecordGatewayQueueWait(c, delayStart)
 				reqLog.Debug("gateway.umq_lock_acquired", zap.Int64("account_id", accountID))
 				return h.makeReleaseFunc(accountID, result.RequestID, reqLog), nil
 			}
@@ -200,7 +200,7 @@ func (h *UserMsgQueueHelper) ThrottleWithPing(
 
 	throttleStart := time.Now()
 	defer func() {
-		service.AddOpsGatewayQueueWaitMs(c, time.Since(throttleStart).Milliseconds())
+		tkRecordGatewayQueueWait(c, throttleStart)
 	}()
 
 	reqLog.Debug("gateway.umq_throttle_delay",

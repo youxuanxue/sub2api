@@ -6000,6 +6000,57 @@
       "path": "backend/internal/observability/qa/archive/verifier.go",
       "must_contain": ["func VerifyCommit", "manifest.BlobMissingCount != 0", "IntegrityCorruptArtifact", "verifyCommitIdentities"],
       "rationale": "Every visible QA commit must pass read-after-write checksum, manifest integrity, missing-evidence, and duplicate-identity verification."
+    },
+    {
+      "path": "backend/internal/service/ops_gateway_latency.go",
+      "must_contain": [
+        "func SnapshotGatewayTransferLatencyMs",
+        "func RecordOpsResponseTransferLatencyMs",
+        "OpsGatewayQueueWaitMsKey",
+        "sum -= queueMs + wsQueueMs"
+      ],
+      "rationale": "Single owner for admin dashboard gateway transfer latency: auth+routing+response tail minus queue/throttle waits. Dropping the queue subtraction or response-tail derivation silently restores end-to-end duration semantics on the dashboard card."
+    },
+    {
+      "path": "backend/internal/service/ops_gateway_latency_test.go",
+      "must_contain": [
+        "TestSnapshotGatewayTransferLatencyMs_SubtractsQueueWait",
+        "TestRecordOpsResponseTransferLatencyMs_UsesForwardMinusUpstream"
+      ],
+      "rationale": "Focused regressions for queue-wait exclusion and forward-minus-upstream response tail derivation."
+    },
+    {
+      "path": "backend/internal/handler/handler_tk_gateway_latency.go",
+      "must_contain": [
+        "func tkRecordAuthLatency",
+        "func tkRecordRoutingLatency",
+        "func tkRecordForwardResponseTail",
+        "func tkSnapshotGatewayTransferLatencyMs",
+        "func tkRecordGatewayQueueWait"
+      ],
+      "rationale": "TK companion owning gateway latency stage hooks so upstream-shaped handler files keep one-line call sites that survive merge review."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "tkRecordAuthLatency(c, requestStart)"
+      ],
+      "rationale": "Messages auth stage timing injection must stay before user-slot acquisition; upstream merges that rewrite Messages() can drop it without a compile error while dashboard latency loses the auth component."
+    },
+    {
+      "path": "backend/internal/handler/admin/dashboard_handler.go",
+      "must_contain": [
+        "\"average_gateway_latency_ms\": stats.AverageGatewayLatencyMs"
+      ],
+      "rationale": "Admin dashboard API exposes gateway transfer latency separately from end-to-end average_duration_ms; losing this field silently reverts the card binding even when usage_logs.gateway_latency_ms is populated."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_dashboard_gateway_latency_test.go",
+      "must_contain": [
+        "TestFillDashboardUsageStatsFromUsageLogs_AverageGatewayLatencyMs",
+        "TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMs"
+      ],
+      "rationale": "Dashboard mean must divide by gateway_latency_samples (non-NULL rows only), not total_requests; this regression guards the SQL aggregation wiring."
     }
   ]
 }

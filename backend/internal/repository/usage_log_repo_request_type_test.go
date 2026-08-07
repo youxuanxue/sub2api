@@ -1294,8 +1294,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullFloat64{}, // account_rate_multiplier
 			int16(service.BillingTypeBalance),
 			int16(service.RequestTypeWSV2),
-			false, // legacy stream
-			false, // legacy openai ws
+			false,            // legacy stream
+			false,            // legacy openai ws
 			sql.NullInt64{},  // duration_ms
 			sql.NullInt64{},  // gateway_latency_ms
 			sql.NullInt64{},  // first_token_ms

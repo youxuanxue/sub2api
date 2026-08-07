@@ -201,8 +201,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 
 	TkSetBridgeGinAuth(c, subject.UserID, groupName)
 	outcome, err := h.gatewayService.ForwardAsVideoSubmitDispatched(c.Request.Context(), c, account, publicTaskID, body)
-	forwardDurationMs := time.Since(forwardStart).Milliseconds()
-	service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, forwardDurationMs)
+	tkRecordForwardResponseTail(c, forwardStart)
 
 	if err != nil {
 		if TkTryWriteNewAPIRelayErrorJSON(c, err, false, 0) {
@@ -275,7 +274,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	// conservative max so we never under-charge when the field is omitted.
 	videoSeconds := videoRequestedSeconds(body)
 	tkHoldRequestID := hold.HandOffToSettlement()
-	gatewayLatencyMs := service.SnapshotGatewayTransferLatencyMs(c)
+	gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
 	h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 			Result: &service.OpenAIForwardResult{

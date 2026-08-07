@@ -243,7 +243,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 获取订阅信息（可能为nil）- 提前获取用于后续检查
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
-	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
+	tkRecordAuthLatency(c, requestStart)
 
 	// 1. 首先获取用户并发槽位
 	userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted)
@@ -482,7 +482,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 账号槽位/等待计数需要在超时或断开时安全回收
 			accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
-			service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
+			tkRecordRoutingLatency(c, routingStart)
 
 			// 转发请求 - 根据账号平台分流
 			var result *service.ForwardResult
@@ -511,7 +511,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				c.Set(service.TKGeminiDispatchGroupContextKey, apiKey.Group)
 				result, err = h.geminiCompatService.Forward(requestCtx, c, account, body)
 			}
-			service.RecordOpsResponseTransferLatencyMs(c, time.Since(forwardStart).Milliseconds())
+			tkRecordForwardResponseTail(c, forwardStart)
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
@@ -601,7 +601,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			forceCacheBilling := fs.ForceCacheBilling
 			quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 			sessionID := service.ExtractClientSessionID(c)
-			gatewayLatencyMs := service.SnapshotGatewayTransferLatencyMs(c)
+			gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
 			h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 				if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 					Result:             result,
@@ -872,7 +872,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			attemptBody := attemptParsedReq.Body.Bytes()
 
-			service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
+			tkRecordRoutingLatency(c, routingStart)
 
 			// 转发请求 - 根据账号平台分流
 			c.Set("parsed_request", attemptParsedReq)
@@ -892,7 +892,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			} else {
 				result, err = h.gatewayService.Forward(requestCtx, c, account, attemptParsedReq)
 			}
-			service.RecordOpsResponseTransferLatencyMs(c, time.Since(forwardStart).Milliseconds())
+			tkRecordForwardResponseTail(c, forwardStart)
 
 			// 兜底释放串行锁（正常情况已通过回调提前释放）
 			if queueRelease != nil {
@@ -933,7 +933,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				forceCacheBilling := fs.ForceCacheBilling
 				quotaPlatform := service.QuotaPlatform(c.Request.Context(), currentAPIKey)
 				sessionID := service.ExtractClientSessionID(c)
-				gatewayLatencyMs := service.SnapshotGatewayTransferLatencyMs(c)
+				gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
 				h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 					if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 						Result:             result,

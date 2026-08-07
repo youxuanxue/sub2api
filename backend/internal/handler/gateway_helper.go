@@ -307,7 +307,7 @@ func (h *ConcurrencyHelper) acquireUserSlotWithWaitTimeout(c *gin.Context, userI
 	if err != nil {
 		return nil, err
 	}
-	service.AddOpsGatewayQueueWaitMs(c, time.Since(waitStart).Milliseconds())
+	tkRecordGatewayQueueWait(c, waitStart)
 	return h.withAPIKeySlotFromGin(c, releaseFunc), nil
 }
 
@@ -359,7 +359,7 @@ func (h *ConcurrencyHelper) AcquireAccountSlotWithWait(c *gin.Context, accountID
 	if err != nil {
 		return nil, err
 	}
-	service.AddOpsGatewayQueueWaitMs(c, time.Since(waitStart).Milliseconds())
+	tkRecordGatewayQueueWait(c, waitStart)
 	return releaseFunc, nil
 }
 
@@ -463,7 +463,7 @@ func (h *ConcurrencyHelper) AcquireAccountSlotWithWaitTimeout(c *gin.Context, ac
 	if err != nil {
 		return nil, err
 	}
-	service.AddOpsGatewayQueueWaitMs(c, time.Since(waitStart).Milliseconds())
+	tkRecordGatewayQueueWait(c, waitStart)
 	return releaseFunc, nil
 }
 

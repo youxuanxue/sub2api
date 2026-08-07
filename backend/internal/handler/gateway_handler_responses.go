@@ -341,7 +341,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		} else {
 			result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
 		}
-		service.RecordOpsResponseTransferLatencyMs(c, time.Since(forwardStart).Milliseconds())
+		tkRecordForwardResponseTail(c, forwardStart)
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
@@ -394,7 +394,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		sessionID := service.ExtractClientSessionID(c)
-		gatewayLatencyMs := service.SnapshotGatewayTransferLatencyMs(c)
+		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 				Result:             result,
