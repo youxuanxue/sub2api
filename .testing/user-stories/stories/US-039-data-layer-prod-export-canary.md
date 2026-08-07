@@ -10,7 +10,8 @@
 - Trace:
   - 设计锚点：`docs/approved/design-data-layer-prod-export-canary.md`
   - 前序演练：`docs/approved/design-data-layer-archive-rehearsal.md`
-  - 容量证据：`docs/ops/data-layer-retention-inventory-20260721.md`
+  - 容量探测（只读、可重跑）：`ops/observability/probe-data-layer-retention-inventory.sh`
+  - 现行 pipeline 证据路径：`ops/archive/pipeline_status.yaml`
 - Risk Focus:
   - 逻辑错误：错误水位把 30 天内热数据纳入 canary。
   - 行为回归：prod manifest 破坏既有 nonprod verify/restore 契约。

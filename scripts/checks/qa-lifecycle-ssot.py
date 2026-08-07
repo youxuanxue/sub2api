@@ -21,6 +21,10 @@ QA_CONFIG = Path("backend/internal/config/config.go")
 GO_MAINTENANCE = Path("backend/cmd/server/qa_maintenance.go")
 RAW_ARCHIVE_CFN = Path("deploy/aws/cloudformation/stage0-qa-raw-archive.yaml")
 ARCHIVE_STATE = Path("backend/internal/observability/qa/archive/state.go")
+ROLLOUT = Path("ops/qa/deploy_rollout.yaml")
+QA_README = Path("ops/qa/README.md")
+DEPLOY_SSM = Path("ops/stage0/deploy_via_ssm.sh")
+DEPLOY_BG = Path("ops/stage0/deploy_via_ssm_bluegreen.sh")
 
 MUST_BE_ABSENT = (
     Path("docs/qa-export-s3-and-auto-archive.md"),
@@ -81,17 +85,37 @@ FORBIDDEN_BY_FILE = {
 REQUIRED_BY_FILE = {
     SSOT: (
         "status: approved",
+        "ops/qa/policy.yaml",
+        "ops/qa/deploy_rollout.yaml",
         "### 8.5 四类存储与备份边界",
         "### 18.1 现状 owner → 唯一目标 owner → 退役门禁",
     ),
     POLICY: (
         "schema_version: 1",
+        "capture_enabled: true",
+        "online_window_hours: 24",
+        "cleanup_schedule_utc",
+        "archive:",
+        "enabled: true",
+        "s3_retention_days: 7",
         "capture_enabled: false",
         "edge:",
+    ),
+    ROLLOUT: (
+        "schema_version: 1",
+        "deploy_inject_default: false",
+        "policy_target: prod.archive.enabled",
+        "design-qa-phase2-archive-closeout.md",
+    ),
+    QA_README: (
+        "policy.yaml",
+        "deploy_rollout.yaml",
+        "qa-lifecycle-ssot.py",
     ),
     Path("ops/stage0/deploy_via_ssm.sh"): (
         "edge_qa_capture_cmds",
         "QA_CAPTURE_ENABLED=false",
+        "ops/qa/deploy_rollout.yaml",
     ),
     Path("ops/qa/edge_phase1_closeout.py"): (
         "TRUNCATE qa_records",
@@ -203,15 +227,6 @@ def _policy_failures(root: Path) -> list[str]:
     max_lag = prod.get("physical_cleanup_max_lag_minutes")
     raw_retention = archive.get("s3_retention_days") if isinstance(archive, dict) else None
     rendered = {
-        SSOT: (
-            f"online_window_hours: {online_hours}",
-            f'maintenance_schedule_utc: "{maintenance_schedule}"',
-            f'cleanup_schedule_utc: "{cleanup_schedule}"',
-            f"cleanup_randomized_delay_minutes: {cleanup_delay}",
-            f"cleanup_batch_size: {cleanup_batch}",
-            f"physical_cleanup_max_lag_minutes: {max_lag}",
-            f"s3_retention_days: {raw_retention}",
-        ),
         MAINTENANCE_SCRIPT: (f"OnCalendar=*-*-* *:{str(maintenance_schedule).split(':')[-1]}:00",),
         CLEANUP_SCRIPT: (
             f"RETENTION_HOURS={online_hours}",
@@ -269,6 +284,54 @@ def _policy_failures(root: Path) -> list[str]:
     return failures
 
 
+def _rollout_failures(root: Path) -> list[str]:
+    path = root / ROLLOUT
+    if not path.is_file():
+        return [f"required QA rollout file missing: {ROLLOUT}"]
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        return [f"deploy_rollout.yaml invalid: {exc}"]
+    if not isinstance(data, dict):
+        return ["deploy_rollout.yaml root must be a mapping"]
+    failures: list[str] = []
+    prod = data.get("prod")
+    edge = data.get("edge")
+    if not isinstance(prod, dict) or not isinstance(edge, dict):
+        return ["deploy_rollout.yaml prod/edge must be mappings"]
+    prod_archive = prod.get("QA_ARCHIVE_ENABLED")
+    edge_capture = edge.get("QA_CAPTURE_ENABLED")
+    if not isinstance(prod_archive, dict):
+        failures.append("rollout prod.QA_ARCHIVE_ENABLED must be a mapping")
+    else:
+        if prod_archive.get("deploy_inject_default") is not False:
+            failures.append("rollout prod.QA_ARCHIVE_ENABLED.deploy_inject_default must be false")
+        if prod_archive.get("policy_target") != "prod.archive.enabled":
+            failures.append("rollout prod.QA_ARCHIVE_ENABLED.policy_target drift")
+    if not isinstance(edge_capture, dict):
+        failures.append("rollout edge.QA_CAPTURE_ENABLED must be a mapping")
+    elif edge_capture.get("deploy_inject_default") is not False:
+        failures.append("rollout edge.QA_CAPTURE_ENABLED.deploy_inject_default must be false")
+    return failures
+
+
+def _deploy_rollout_failures(root: Path) -> list[str]:
+    failures: list[str] = []
+    for rel in (DEPLOY_SSM, DEPLOY_BG):
+        path = root / rel
+        if not path.is_file():
+            failures.append(f"deploy script missing: {rel}")
+            continue
+        body = path.read_text(encoding="utf-8")
+        if "${QA_ARCHIVE_ENABLED:-false}" not in body:
+            failures.append(
+                f"{rel} must default QA_ARCHIVE_ENABLED to false (ops/qa/deploy_rollout.yaml)"
+            )
+        if "ops/qa/deploy_rollout.yaml" not in body:
+            failures.append(f"{rel} must reference ops/qa/deploy_rollout.yaml rollout SSOT")
+    return failures
+
+
 def scan(root: Path) -> list[str]:
     failures: list[str] = []
     for rel in MUST_BE_ABSENT:
@@ -295,6 +358,8 @@ def scan(root: Path) -> list[str]:
             if needle not in body:
                 failures.append(f"required QA SSOT anchor missing from {rel}: {needle}")
     failures.extend(_policy_failures(root))
+    failures.extend(_rollout_failures(root))
+    failures.extend(_deploy_rollout_failures(root))
     return failures
 
 
@@ -311,10 +376,18 @@ def self_test() -> int:
             LIVE_HOST_ASSERT,
             RAW_ARCHIVE_CFN,
             ARCHIVE_STATE,
+            ROLLOUT,
+            QA_README,
+            DEPLOY_SSM,
+            DEPLOY_BG,
         }
         for rel in fixture_files:
+            src = ROOT / rel
             path = root / rel
             path.parent.mkdir(parents=True, exist_ok=True)
+            if src.is_file():
+                path.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+                continue
             required = REQUIRED_BY_FILE.get(rel, ())
             path.write_text("\n".join(required) + "\n", encoding="utf-8")
         policy_fixture = """schema_version: 1
@@ -339,13 +412,6 @@ edge:
   s3_access: false
 """
         (root / POLICY).write_text(policy_fixture, encoding="utf-8")
-        with (root / SSOT).open("a", encoding="utf-8") as handle:
-            handle.write(
-                'online_window_hours: 24\nmaintenance_schedule_utc: "*:15"\n'
-                'cleanup_schedule_utc: "*:45"\ncleanup_randomized_delay_minutes: 15\n'
-                'cleanup_batch_size: 5000\nphysical_cleanup_max_lag_minutes: 75\n'
-                's3_retention_days: 7\n'
-            )
         with (root / MAINTENANCE_SCRIPT).open("a", encoding="utf-8") as handle:
             handle.write("OnCalendar=*-*-* *:15:00\n")
         with (root / CLEANUP_SCRIPT).open("a", encoding="utf-8") as handle:

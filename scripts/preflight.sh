@@ -1558,6 +1558,10 @@ elif ! python3 ./ops/archive/test_data_layer_archive_cleanup_hold.py >/dev/null 
     echo "  FAIL: production archive cleanup hold contracts"
     echo "        — run: python3 ops/archive/test_data_layer_archive_cleanup_hold.py"
     errors=$((errors + 1))
+elif ! python3 ./scripts/checks/data-layer-archive-ssot.py --quiet; then
+    echo "  FAIL: data-layer archive pipeline_status ↔ rehearsal constants drift"
+    echo "        — run: python3 scripts/checks/data-layer-archive-ssot.py"
+    errors=$((errors + 1))
 else
     echo "  ok: nonprod rehearsal + cleanup hold + export canary + legacy export + archive promote"
 fi

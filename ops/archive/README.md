@@ -1,11 +1,17 @@
 # Data-layer archive rehearsal
 
+SSOT：`pipeline_status.yaml`（repo 证据路径与 hot-layer retention 天数，与
+`data_layer_archive_rehearsal.py` 机械对齐）。QA 生命周期见 [`ops/qa/README.md`](../qa/README.md)。
+
 This directory contains two deliberately separate archive surfaces. The
 rehearsal CLI is local/non-production only: its SQLite path is the deterministic
 baseline and `snapshot-postgres` accepts only a localhost Docker PostgreSQL with
 the rehearsal sentinel. The production canary CLI is an explicit, export-only
 operator command described below; it has no delete, schedule, workflow, or
 deployment integration.
+
+Retention day defaults: `pipeline_status.yaml` (preflight:
+`scripts/checks/data-layer-archive-ssot.py`).
 
 ## Source contract
 
@@ -44,7 +50,7 @@ python3 ops/archive/data_layer_archive_rehearsal.py restore-random \
   --target /path/to/fresh-restore.sqlite --seed 20260720
 ```
 
-The defaults retain usage for 90 days and ops for 30 days. QA uses its dedicated lifecycle owner.
+The defaults match `pipeline_status.yaml` hot-layer retention days. QA uses its dedicated lifecycle owner.
 Every manifest keeps `deletion_authorized=false`; there is no deletion command.
 The sealed source path and file identity prevent restore targets from pointing
 back to the source through another path or hard link.
@@ -107,8 +113,8 @@ not a release prerequisite.
 
 After the forward QA archive, `usage_logs` partitioning, and telemetry shadow are
 active, build one read-only production impact plan. It delegates QA candidate
-selection to the fixed 24-hour cleanup owner and independently counts the two ops
-log tables at the 30-day waterline. It also binds the active image, timer states,
+selection to the fixed online-window cleanup owner and independently counts the two ops
+log tables at the ops hot-layer retention waterline. It also binds the active image, timer states,
 historical QA failure states, partition status, telemetry zero-loss heartbeat,
 and the still-active ops hold:
 
@@ -286,3 +292,7 @@ it is recorded in the approved design and does not participate in runtime retent
 evaluation. The first resumed cleanup still requires a separate live impact plan
 and activation confirmation. Archive closeout receipts remain restore evidence,
 not deletion eligibility inputs.
+
+Cleanup release requires both ops tables' closeout receipts before guarded release;
+repo health: `python3 ops/observability/data_layer_archive_health.py` (see
+`pipeline_status.yaml` for evidence path templates).
