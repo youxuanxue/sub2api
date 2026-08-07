@@ -19,6 +19,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func TestVertexEmbeddingPromptTokens_SingleAndBatch(t *testing.T) {
+	t.Parallel()
+
+	single := vertexEmbeddingPromptTokens([]string{"hello embedding"}, "gemini-embedding-001")
+	if single <= 0 {
+		t.Fatalf("single prompt tokens = %d, want > 0", single)
+	}
+
+	batch := vertexEmbeddingPromptTokens([]string{"hello", "world"}, "gemini-embedding-001")
+	if batch <= single {
+		t.Fatalf("batch prompt tokens = %d, want > single %d", batch, single)
+	}
+}
+
 func TestBuildVertexEmbeddingPredictPayload_SingleAndBatch(t *testing.T) {
 	t.Parallel()
 
@@ -168,6 +182,9 @@ func TestDispatchEmbeddings_VertexPredict_OK(t *testing.T) {
 	}
 	if !bytes.Contains(w.Body.Bytes(), []byte(`"object":"embedding"`)) {
 		t.Fatalf("response body missing OpenAI embedding object: %q", w.Body.Bytes())
+	}
+	if out.Usage == nil || out.Usage.PromptTokens <= 0 {
+		t.Fatalf("expected positive prompt token usage, got %#v", out.Usage)
 	}
 }
 

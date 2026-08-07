@@ -160,6 +160,8 @@
       "path": "backend/internal/relay/bridge/embedding_relay_tk_vertex.go",
       "must_contain": [
         "runVertexEmbeddingRelay",
+        "vertexEmbeddingPromptTokens",
+        "CountTokenInput",
         "buildVertexEmbeddingPredictPayload",
         "vertexEmbeddingPredictResponseToOpenAI",
         "vertex.BuildGoogleModelURL",
@@ -171,6 +173,7 @@
     {
       "path": "backend/internal/relay/bridge/embedding_relay_tk_vertex_test.go",
       "must_contain": [
+        "TestVertexEmbeddingPromptTokens_SingleAndBatch",
         "TestBuildVertexEmbeddingPredictPayload_SingleAndBatch",
         "TestVertexEmbeddingPredictResponseToOpenAI_EmptyPredictions",
         "TestDispatchEmbeddings_VertexPredict_OK"
