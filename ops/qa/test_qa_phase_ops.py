@@ -299,6 +299,55 @@ exit 0
         self.assertIn("CAPABILITY_IAM", body)
         self.assertNotIn("cloudformation deploy", body)
 
+    def test_raw_archive_deploy_rejects_replacement_even_when_confirmed(self) -> None:
+        script = ROOT / "ops/qa/deploy_qa_raw_archive_cfn.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            marker = root / "execute-called"
+            fake_aws = fake_bin / "aws"
+            fake_aws.write_text(
+                """#!/usr/bin/env bash
+if [[ "$*" == *"sts get-caller-identity"* ]]; then echo 123456789012; exit 0; fi
+if [[ "$*" == *"cloudformation describe-stacks"* ]]; then echo '{}'; exit 0; fi
+if [[ "$*" == *"cloudformation create-change-set"* ]]; then exit 0; fi
+if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--query Status"* ]]; then
+  echo CREATE_COMPLETE
+  exit 0
+fi
+if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--output json"* ]]; then
+  printf '%s\n' '{"Changes":[{"ResourceChange":{"Action":"Modify","LogicalResourceId":"RawBucket","ResourceType":"AWS::S3::Bucket","Replacement":"Conditional"}}]}'
+  exit 0
+fi
+if [[ "$*" == *"cloudformation execute-change-set"* ]]; then touch "$EXECUTE_MARKER"; exit 0; fi
+exit 1
+""",
+                encoding="utf-8",
+            )
+            fake_aws.chmod(0o755)
+            proc = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    "PATH": f"{fake_bin}:/usr/bin:/bin",
+                    "APP_INSTANCE_ROLE_ARN": "arn:aws:iam::123456789012:role/app",
+                    "OPS_RECOVERY_PRINCIPAL_ARN": "arn:aws:iam::123456789012:user/operator",
+                    "QA_RAW_ARCHIVE_VPC_ID": "vpc-1234",
+                    "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS": "rtb-1234",
+                    "QA_RAW_ARCHIVE_CONFIRM": "yes",
+                    "EXECUTE_MARKER": str(marker),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            execute_called = marker.exists()
+
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("unsafe CloudFormation change set", proc.stderr)
+        self.assertIn("replacement=Conditional", proc.stderr)
+        self.assertFalse(execute_called)
+
     def test_release_images_include_qa_archive_binary(self) -> None:
         for rel in ("Dockerfile", "deploy/Dockerfile", "backend/Dockerfile"):
             body = (ROOT / rel).read_text(encoding="utf-8")

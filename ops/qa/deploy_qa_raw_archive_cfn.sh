@@ -119,12 +119,48 @@ if [ "${status}" != "CREATE_COMPLETE" ]; then
   exit 1
 fi
 
+change_set_file="$(mktemp)"
+trap 'rm -f -- "${change_set_file}"' EXIT
 aws cloudformation describe-change-set \
   --region "${REGION}" \
   --stack-name "${STACK}" \
   --change-set-name "${CHANGE_SET}" \
-  --query '{Status:Status,Changes:Changes[*].ResourceChange.{Action:Action,LogicalId:LogicalResourceId,Type:ResourceType,Replacement:Replacement}}' \
-  --output table
+  --output json >"${change_set_file}"
+python3 - "${change_set_file}" <<'PY'
+import json
+import pathlib
+import sys
+
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+unsafe = []
+for change in payload.get("Changes", []):
+    resource = change.get("ResourceChange", {})
+    action = resource.get("Action")
+    replacement = resource.get("Replacement")
+    if action == "Remove" or replacement in {"True", "Conditional"}:
+        unsafe.append(
+            f"{resource.get('LogicalResourceId', '<unknown>')} "
+            f"action={action} replacement={replacement}"
+        )
+if unsafe:
+    raise SystemExit("unsafe CloudFormation change set:\n" + "\n".join(unsafe))
+PY
+
+python3 - "${change_set_file}" <<'PY'
+import json
+import pathlib
+import sys
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print("Action\tLogicalId\tReplacement\tType")
+for change in payload.get("Changes", []):
+    resource = change.get("ResourceChange", {})
+    print("{}\t{}\t{}\t{}".format(
+        resource.get("Action", ""),
+        resource.get("LogicalResourceId", ""),
+        resource.get("Replacement") or "None",
+        resource.get("ResourceType", ""),
+    ))
+PY
 
 if [ "${QA_RAW_ARCHIVE_CONFIRM:-}" != "yes" ]; then
   echo "Set QA_RAW_ARCHIVE_CONFIRM=yes to execute change set ${CHANGE_SET}" >&2

@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   tokenkey Stage 0 standalone QA raw archive bucket (Phase 2). Separate from
   QaExportsBucket (user trajectory ZIP artifacts) and generic data-layer archive.
-  Lifecycle owner: docs/approved/design-prod-qa-24h-s3-lifecycle.md §8.1.
+  Lifecycle owner: docs/approved/design-prod-qa-24h-s3-lifecycle.md section 8.1.
 
 Parameters:
   ProjectName:
@@ -43,7 +43,7 @@ Parameters:
     Type: String
     Default: qa-raw-archive
     AllowedPattern: '^[A-Za-z0-9!_.*()/=-]+$'
-    Description: Prefix in the centralized audit bucket for this trail.
+    Description: Prefix in the dedicated audit bucket for this trail.
 
 Resources:
   QaRawArchiveRecoveryRole:
