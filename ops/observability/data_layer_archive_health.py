@@ -14,7 +14,6 @@ from typing import Any
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 ATTACHMENTS = REPO / ".testing" / "user-stories" / "attachments"
-TABLES = ("ops_error_logs", "ops_system_logs")
 ARCHIVE = REPO / "ops" / "archive"
 sys.path.insert(0, str(ARCHIVE))
 
@@ -22,6 +21,7 @@ import data_layer_archive_cleanup_hold as cleanup_hold  # noqa: E402
 import data_layer_archive_closeout as closeout  # noqa: E402
 import data_layer_archive_prod_export as export  # noqa: E402
 import data_layer_archive_promote_batch as promote  # noqa: E402
+import pipeline_status_loader as pipeline_status  # noqa: E402
 
 
 def _sha256(path: pathlib.Path) -> str:
@@ -31,9 +31,11 @@ def _sha256(path: pathlib.Path) -> str:
         raise ValueError(f"cannot hash archive evidence: {path}") from exc
 
 
-def _latest_hold_receipt(attachments: pathlib.Path) -> tuple[pathlib.Path, dict[str, Any]]:
+def _latest_hold_receipt(
+    attachments: pathlib.Path, cleanup_hold_glob: str
+) -> tuple[pathlib.Path, dict[str, Any]]:
     candidates: list[tuple[dt.datetime, pathlib.Path, dict[str, Any]]] = []
-    for path in attachments.glob("US-039-prod-cleanup-hold-*.json"):
+    for path in attachments.glob(cleanup_hold_glob):
         try:
             receipt = cleanup_hold._load_receipt(path)
             if (
@@ -59,23 +61,19 @@ def _latest_hold_receipt(attachments: pathlib.Path) -> tuple[pathlib.Path, dict[
 
 
 def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
-    slugs = {
-        "ops_error_logs": "ops-error-logs",
-        "ops_system_logs": "ops-system-logs",
-    }
+    layout = pipeline_status.load_evidence_layout()
     ledgers: list[dict[str, Any]] = []
     restores: list[str] = []
     closeout_tables: set[str] = set()
     evidence_errors: list[str] = []
-    hold_path = attachments / "US-039-prod-cleanup-hold-missing.json"
+    hold: dict[str, Any] = {}
+    hold_path: pathlib.Path | None = None
     try:
-        hold_path, hold = _latest_hold_receipt(attachments)
+        hold_path, hold = _latest_hold_receipt(attachments, layout.cleanup_hold_glob)
     except (cleanup_hold.HoldControlError, OSError):
-        hold = {}
         evidence_errors.append("cleanup_hold")
-    for table in TABLES:
-        slug = slugs[table]
-        export_path = attachments / f"US-040-{slug}-export-ledger.json"
+    for table in layout.tables:
+        export_path = attachments / layout.export_ledger_name(table)
         try:
             ledger = export.load_ledger(export_path)
             batches = ledger.get("completed_batches")
@@ -93,15 +91,16 @@ def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
         except (export.ExportError, OSError):
             evidence_errors.append(f"{table}:export_ledger")
 
-        closeout_path = attachments / f"US-040-{slug}-archive-closeout.json"
+        closeout_path = attachments / layout.closeout_receipt_name(table)
         if not closeout_path.exists():
             continue
-        promote_path = attachments / f"US-040-{slug}-promote-ledger.json"
+        promote_path = attachments / layout.promote_ledger_name(table)
         try:
             receipt = closeout.load_closeout_receipt(closeout_path)
             promote.load_promote_ledger(promote_path)
             if (
-                receipt.get("table") != table
+                hold_path is None
+                or receipt.get("table") != table
                 or receipt.get("instance_id") != hold.get("instance_id")
                 or receipt.get("hold_started_at") != hold.get("hold_started_at")
                 or receipt.get("export_ledger_sha256") != _sha256(export_path)
@@ -123,7 +122,7 @@ def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
     return {
         "ledgers": ledgers,
         "hold_started_at": hold.get("hold_started_at"),
-        "closeout_complete": closeout_tables == set(TABLES),
+        "closeout_complete": closeout_tables == set(layout.tables),
         "restore_verified_at": restores,
         "evidence_errors": sorted(set(evidence_errors)),
     }

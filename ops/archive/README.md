@@ -50,7 +50,7 @@ python3 ops/archive/data_layer_archive_rehearsal.py restore-random \
   --target /path/to/fresh-restore.sqlite --seed 20260720
 ```
 
-The defaults retain usage for 90 days and ops for 30 days. QA uses its dedicated lifecycle owner.
+The defaults match `pipeline_status.yaml` hot-layer retention days. QA uses its dedicated lifecycle owner.
 Every manifest keeps `deletion_authorized=false`; there is no deletion command.
 The sealed source path and file identity prevent restore targets from pointing
 back to the source through another path or hard link.
@@ -113,8 +113,8 @@ not a release prerequisite.
 
 After the forward QA archive, `usage_logs` partitioning, and telemetry shadow are
 active, build one read-only production impact plan. It delegates QA candidate
-selection to the fixed 24-hour cleanup owner and independently counts the two ops
-log tables at the 30-day waterline. It also binds the active image, timer states,
+selection to the fixed online-window cleanup owner and independently counts the two ops
+log tables at the ops hot-layer retention waterline. It also binds the active image, timer states,
 historical QA failure states, partition status, telemetry zero-loss heartbeat,
 and the still-active ops hold:
 
