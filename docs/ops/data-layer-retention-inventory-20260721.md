@@ -5,6 +5,11 @@ captured_at: 2026-07-20T16:51:37Z
 updated_at: 2026-07-21T00:32:15Z
 target: prod
 source: ops/observability/probe-data-layer-retention-inventory.sh
+supersedes_note: >
+  Point-in-time evidence only. Tables below reflect the 2026-07-20/21 probe snapshot,
+  not current live capacity. Current repo pipeline state (ledgers, hold receipts,
+  closeout gaps) is owned by ops/archive/pipeline_status.yaml and
+  ops/archive/README.md — refresh those after operator batches, not this file.
 ---
 
 # Data-layer retention inventory
@@ -87,8 +92,12 @@ does not change the retention evidence or authorize archive deletion.
   and RDS migration remain separate approvals. This inventory does not authorize
   or define any QA action.
 
-Next engineering action: retain this probe and its safety test in PR #1390,
-then prepare an export-only production canary using the already completed
-non-production `dry-run -> seal -> verify -> restore` path. The production
-canary requires a separate approval and must not include deletion, scheduling,
-or deployment wiring.
+Repo pipeline after this snapshot (see `ops/archive/pipeline_status.yaml`):
+
+- US-037 non-prod rehearsal: implemented in repo
+- US-039 prod export canary: evidence in `.testing/user-stories/attachments/US-039-prod-cleanup-hold-*.json`
+- US-040 legacy export + promote: ledgers under `.testing/user-stories/attachments/US-040-*`
+- US-042 phase1 closeout: **pending** archive closeout receipts per ops table before cleanup-hold release
+
+Re-run `ops/observability/probe-data-layer-retention-inventory.sh` for a fresh live inventory;
+do not extrapolate runway from this frozen snapshot alone.

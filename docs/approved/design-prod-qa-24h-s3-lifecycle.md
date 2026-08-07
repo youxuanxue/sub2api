@@ -85,47 +85,12 @@ QA capture 和本地清理。
 
 ## 4. 单一 QA Policy
 
-实现阶段在 repo 的 ops QA namespace 新建唯一 `policy.yaml` owner，内容契约如下：
+唯一数值 owner：`ops/qa/policy.yaml`。Deploy 注入默认值与 rollout 门禁见
+`ops/qa/deploy_rollout.yaml`；目录索引见 `ops/qa/README.md`。
+Preflight `scripts/checks/qa-lifecycle-ssot.py` 机械校验 policy 结构、deploy rollout 与
+本文语义锚点，禁止在其它文件复制一份 policy 副本。
 
-```yaml
-schema_version: 1
-
-prod:
-  capture_enabled: true
-  online_window_hours: 24
-  maintenance_schedule_utc: "*:15"
-  physical_cleanup_max_lag_minutes: 75
-
-  archive:
-    enabled: true
-    scope: all_users_all_api_keys
-    shard_minutes: 60
-    seal_delay_minutes: 15
-    s3_retention_days: 7
-    raw_user_access: false
-
-  user_export:
-    entitlement: users.traj_export_enabled
-    source: s3_raw_archive
-    compute: ecs_fargate
-    download: direct_s3
-    prod_fallback: forbidden
-
-  disk_emergency:
-    used_percent: 80
-    free_gib: 10
-    cleanup_target_percent: 70
-    pause_capture: false
-
-edge:
-  capture_enabled: false
-  archive_enabled: false
-  cleanup_enabled: false
-  export_enabled: false
-  s3_access: false
-```
-
-数值是本设计的行为契约：
+数值语义（字段定义以 policy 文件为准）：
 
 - 在线窗口为 24 小时；
 - regular maintenance 每小时运行；

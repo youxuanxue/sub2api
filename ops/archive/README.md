@@ -1,11 +1,18 @@
 # Data-layer archive rehearsal
 
+SSOT index: [`pipeline_status.yaml`](pipeline_status.yaml) (repo evidence paths and hot-layer
+retention days). QA lifecycle is a separate owner — see [`ops/qa/README.md`](../qa/README.md).
+
 This directory contains two deliberately separate archive surfaces. The
 rehearsal CLI is local/non-production only: its SQLite path is the deterministic
 baseline and `snapshot-postgres` accepts only a localhost Docker PostgreSQL with
 the rehearsal sentinel. The production canary CLI is an explicit, export-only
 operator command described below; it has no delete, schedule, workflow, or
 deployment integration.
+
+Hot-layer retention defaults (`usage` 90d, `ops` 30d) are declared in
+`pipeline_status.yaml` and implemented in `data_layer_archive_rehearsal.py`; do not
+duplicate them in docs or tests except for boundary samples.
 
 ## Source contract
 
@@ -247,3 +254,16 @@ python3 ops/archive/data_layer_archive_closeout.py \
 Cleanup release requires both `ops_error_logs` and `ops_system_logs` closeout
 receipts. A normal hold receipt plus the old release token is insufficient; deletion
 remains unauthorized until runtime retention runs after the guarded release.
+
+## Repo pipeline checklist (not live prod)
+
+Mechanical health from checked-in evidence:
+
+```bash
+python3 ops/observability/data_layer_archive_health.py
+```
+
+Closeout receipts expected at
+`.testing/user-stories/attachments/US-040-{ops-system-logs,ops-error-logs}-archive-closeout.json`.
+Until `closeout_complete` is true in the health script output, cleanup-hold release stays blocked
+(see `pipeline_status.yaml`).

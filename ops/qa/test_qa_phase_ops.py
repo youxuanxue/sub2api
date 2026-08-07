@@ -116,6 +116,24 @@ class TestQAPhaseOps(unittest.TestCase):
         ):
             self.assertIn(needle, body)
 
+    def test_qa_lifecycle_ssot_check_passes(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/checks/qa-lifecycle-ssot.py")],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_data_layer_archive_ssot_check_passes(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/checks/data-layer-archive-ssot.py")],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
     def test_qa_maintenance_sync_defaults_to_disabled_timer(self) -> None:
         body = (ROOT / "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh").read_text(
             encoding="utf-8"

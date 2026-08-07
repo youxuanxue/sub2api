@@ -170,7 +170,8 @@ fi
 
 # --- QA raw archive (prod-only, Phase 2) ---------------------------------------
 # QA_ARCHIVE_* wires hourly maintenance uploads to tokenkey-prod-qa-raw-archive-*.
-# Default enabled=false until ops verifies tk_069 migration + backfill smoke.
+# Target policy: ops/qa/policy.yaml (prod.archive.enabled). Deploy inject default
+# false until Phase 2 closeout: ops/qa/deploy_rollout.yaml (SSOT for rollout gates).
 qa_archive_cmds='[]'
 if [[ "${INSTANCE_ID}" == i-* ]]; then
   qa_archive_cmds="$(jq -n \

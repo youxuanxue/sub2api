@@ -846,6 +846,7 @@ ls -lh /var/lib/tokenkey/pgdump/ 2>/dev/null || echo '(no dumps yet — first du
 # gh workflow run ops-stage0-container-log-policy.yml -f target=prod -f confirm=recreate-caddy-for-bounded-logs
 # 旧版手工/迁移快照 `pre-*.dump` 属存量文件；确认不需回滚后可删除，新模板的 pgdump timer 也会清理。
 # QA 数据生命周期唯一基线：docs/approved/design-prod-qa-24h-s3-lifecycle.md
+# 数值 SSOT：ops/qa/policy.yaml；deploy rollout：ops/qa/deploy_rollout.yaml；索引：ops/qa/README.md
 sudo cat /var/lib/tokenkey/.env                           # 含明文密码，慎查
 ```
 

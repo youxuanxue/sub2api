@@ -1,0 +1,21 @@
+schema_version: 1
+# Deploy-time env injection defaults for Stage0 SSM deploy scripts.
+# Target runtime policy values: ops/qa/policy.yaml (SSOT).
+# Rollout gates may keep deploy defaults conservative until phase closeout docs approve enablement.
+
+prod:
+  QA_ARCHIVE_ENABLED:
+    deploy_inject_default: false
+    policy_target: prod.archive.enabled
+    enable_after: docs/approved/design-qa-phase2-archive-closeout.md
+  QA_CAPTURE_ENABLED:
+    deploy_inject: edge_only_false
+    policy_target: prod.capture_enabled
+
+edge:
+  QA_CAPTURE_ENABLED:
+    deploy_inject_default: false
+    policy_target: edge.capture_enabled
+  QA_ARCHIVE_ENABLED:
+    deploy_inject_default: false
+    policy_target: edge.archive_enabled
