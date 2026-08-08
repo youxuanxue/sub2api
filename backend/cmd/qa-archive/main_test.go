@@ -21,6 +21,91 @@ import (
 
 var testWindow = time.Date(2026, 8, 7, 1, 0, 0, 0, time.UTC)
 
+func TestUS045_SetForwardCutoverRejectsGenericWindowMoveAndUnsetBeforeDependencies(t *testing.T) {
+	called := false
+	deps := cliDeps{loadConfig: func() (*config.Config, error) {
+		called = true
+		return nil, errors.New("must not run")
+	}}
+	approved := archive.Phase2ForwardCutoverWindow()
+	confirm := forwardCutoverConfirmationPrefix + ":" + approved.Start.Format(time.RFC3339)
+	for _, args := range [][]string{
+		{"set-forward-cutover", "--window-start", approved.Start.Format(time.RFC3339), "--confirm", confirm},
+		{"move-forward-cutover"},
+		{"unset-forward-cutover"},
+	} {
+		err := runCLI(context.Background(), args, &bytes.Buffer{}, deps)
+		if err == nil {
+			t.Fatalf("runCLI(%v) unexpectedly succeeded", args)
+		}
+	}
+	if called {
+		t.Fatal("dependencies ran for a forbidden cutover surface")
+	}
+}
+
+func TestUS045_SetForwardCutoverUsesFixedApprovedWindow(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	mock.ExpectPing()
+	mock.ExpectClose()
+	approved := archive.Phase2ForwardCutoverWindow()
+	called := false
+	deps := cliDeps{
+		loadConfig: func() (*config.Config, error) {
+			return &config.Config{Timezone: "UTC", Database: config.DatabaseConfig{
+				Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable",
+			}}, nil
+		},
+		openDB: func(string, string) (*sql.DB, error) { return db, nil },
+		setForwardCutover: func(context.Context, *sql.Conn) (archive.ForwardCutover, error) {
+			called = true
+			return archive.ForwardCutover{ShardID: 45, Window: approved}, nil
+		},
+	}
+	confirm := forwardCutoverConfirmationPrefix + ":" + approved.Start.Format(time.RFC3339)
+	out := &bytes.Buffer{}
+	if err := runCLI(context.Background(), []string{
+		"set-forward-cutover", "--confirm", confirm,
+	}, out, deps); err != nil {
+		t.Fatalf("runCLI()=%v", err)
+	}
+	if !called {
+		t.Fatal("fixed cutover store operation was not called")
+	}
+	var receipt map[string]any
+	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt["command"] != "set-forward-cutover" || receipt["window_start"] != approved.Start.Format(time.RFC3339) ||
+		receipt["forward_cutover"] != true || receipt["deletion_authorized"] != false {
+		t.Fatalf("receipt=%v", receipt)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUS045_SetForwardCutoverRequiresExactConfirmationBeforeDependencies(t *testing.T) {
+	called := false
+	deps := cliDeps{loadConfig: func() (*config.Config, error) {
+		called = true
+		return nil, errors.New("must not run")
+	}}
+	err := runCLI(context.Background(), []string{
+		"set-forward-cutover", "--confirm", forwardCutoverConfirmationPrefix,
+	}, &bytes.Buffer{}, deps)
+	if err == nil || !strings.Contains(err.Error(), "exact cutover confirmation") {
+		t.Fatalf("runCLI() error=%v", err)
+	}
+	if called {
+		t.Fatal("dependencies ran before exact cutover confirmation validation")
+	}
+}
+
 func TestRestoreRejectsOutputOutsideIsolatedRootBeforeDependencies(t *testing.T) {
 	t.Setenv("DATA_DIR", t.TempDir())
 	called := false

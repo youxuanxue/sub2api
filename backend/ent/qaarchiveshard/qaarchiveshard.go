@@ -63,6 +63,8 @@ const (
 	FieldFinalReconciledAt = "final_reconciled_at"
 	// FieldCleanupEligible holds the string denoting the cleanup_eligible field in the database.
 	FieldCleanupEligible = "cleanup_eligible"
+	// FieldForwardCutover holds the string denoting the forward_cutover field in the database.
+	FieldForwardCutover = "forward_cutover"
 	// FieldFirstAttemptAt holds the string denoting the first_attempt_at field in the database.
 	FieldFirstAttemptAt = "first_attempt_at"
 	// FieldCompletedAt holds the string denoting the completed_at field in the database.
@@ -105,6 +107,7 @@ var Columns = []string{
 	FieldLastReconciledAt,
 	FieldFinalReconciledAt,
 	FieldCleanupEligible,
+	FieldForwardCutover,
 	FieldFirstAttemptAt,
 	FieldCompletedAt,
 	FieldLastError,
@@ -153,6 +156,8 @@ var (
 	DefaultAggregateBlobMissingCount int64
 	// DefaultCleanupEligible holds the default value on creation for the "cleanup_eligible" field.
 	DefaultCleanupEligible bool
+	// DefaultForwardCutover holds the default value on creation for the "forward_cutover" field.
+	DefaultForwardCutover bool
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
@@ -287,6 +292,11 @@ func ByFinalReconciledAt(opts ...sql.OrderTermOption) OrderOption {
 // ByCleanupEligible orders the results by the cleanup_eligible field.
 func ByCleanupEligible(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCleanupEligible, opts...).ToFunc()
+}
+
+// ByForwardCutover orders the results by the forward_cutover field.
+func ByForwardCutover(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldForwardCutover, opts...).ToFunc()
 }
 
 // ByFirstAttemptAt orders the results by the first_attempt_at field.

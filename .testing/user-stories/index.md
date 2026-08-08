@@ -46,3 +46,4 @@
 | US-042 | Data-layer 第一阶段安全收口 | InTest | `.testing/user-stories/stories/US-042-data-layer-phase1-closeout.md` |
 | US-043 | Global pricing has one registry owner and protected hot reload | Done | `.testing/user-stories/stories/US-043-pricing-registry-hot-reload.md` |
 | US-044 | QA 生命周期单一 owner 与唯一用户导出契约 | Done | `.testing/user-stories/stories/US-044-qa-lifecycle-single-owner-and-export-contract.md` |
+| US-045 | QA Phase 2 production integrity closeout | InTest | `.testing/user-stories/stories/US-045-qa-phase2-production-integrity.md` |

@@ -1514,6 +1514,7 @@ var (
 		{Name: "last_reconciled_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "final_reconciled_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "cleanup_eligible", Type: field.TypeBool, Default: false},
+		{Name: "forward_cutover", Type: field.TypeBool, Default: false},
 		{Name: "first_attempt_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "completed_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "last_error", Type: field.TypeString, Nullable: true},
@@ -1535,6 +1536,14 @@ var (
 				Name:    "qaarchiveshard_state_window_start",
 				Unique:  false,
 				Columns: []*schema.Column{QaArchiveShardsColumns[4], QaArchiveShardsColumns[1]},
+			},
+			{
+				Name:    "idx_qa_archive_shards_one_forward_cutover",
+				Unique:  true,
+				Columns: []*schema.Column{QaArchiveShardsColumns[26]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "forward_cutover",
+				},
 			},
 		},
 	}
@@ -2461,6 +2470,9 @@ func init() {
 	}
 	QaArchiveShardsTable.Annotation = &entsql.Annotation{
 		Table: "qa_archive_shards",
+	}
+	QaArchiveShardsTable.Annotation.Checks = map[string]string{
+		"qa_archive_shards_forward_cutover_valid": "NOT forward_cutover OR (state = 'committed' AND restore_verified_at IS NOT NULL)",
 	}
 	QaExportJobsTable.Annotation = &entsql.Annotation{
 		Table: "qa_export_jobs",

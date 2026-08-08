@@ -39526,6 +39526,7 @@ type QAArchiveShardMutation struct {
 	last_reconciled_at              *time.Time
 	final_reconciled_at             *time.Time
 	cleanup_eligible                *bool
+	forward_cutover                 *bool
 	first_attempt_at                *time.Time
 	completed_at                    *time.Time
 	last_error                      *string
@@ -40859,6 +40860,42 @@ func (m *QAArchiveShardMutation) ResetCleanupEligible() {
 	m.cleanup_eligible = nil
 }
 
+// SetForwardCutover sets the "forward_cutover" field.
+func (m *QAArchiveShardMutation) SetForwardCutover(b bool) {
+	m.forward_cutover = &b
+}
+
+// ForwardCutover returns the value of the "forward_cutover" field in the mutation.
+func (m *QAArchiveShardMutation) ForwardCutover() (r bool, exists bool) {
+	v := m.forward_cutover
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldForwardCutover returns the old "forward_cutover" field's value of the QAArchiveShard entity.
+// If the QAArchiveShard object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QAArchiveShardMutation) OldForwardCutover(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldForwardCutover is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldForwardCutover requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldForwardCutover: %w", err)
+	}
+	return oldValue.ForwardCutover, nil
+}
+
+// ResetForwardCutover resets all changes to the "forward_cutover" field.
+func (m *QAArchiveShardMutation) ResetForwardCutover() {
+	m.forward_cutover = nil
+}
+
 // SetFirstAttemptAt sets the "first_attempt_at" field.
 func (m *QAArchiveShardMutation) SetFirstAttemptAt(t time.Time) {
 	m.first_attempt_at = &t
@@ -41112,7 +41149,7 @@ func (m *QAArchiveShardMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *QAArchiveShardMutation) Fields() []string {
-	fields := make([]string, 0, 30)
+	fields := make([]string, 0, 31)
 	if m.window_start != nil {
 		fields = append(fields, qaarchiveshard.FieldWindowStart)
 	}
@@ -41188,6 +41225,9 @@ func (m *QAArchiveShardMutation) Fields() []string {
 	if m.cleanup_eligible != nil {
 		fields = append(fields, qaarchiveshard.FieldCleanupEligible)
 	}
+	if m.forward_cutover != nil {
+		fields = append(fields, qaarchiveshard.FieldForwardCutover)
+	}
 	if m.first_attempt_at != nil {
 		fields = append(fields, qaarchiveshard.FieldFirstAttemptAt)
 	}
@@ -41261,6 +41301,8 @@ func (m *QAArchiveShardMutation) Field(name string) (ent.Value, bool) {
 		return m.FinalReconciledAt()
 	case qaarchiveshard.FieldCleanupEligible:
 		return m.CleanupEligible()
+	case qaarchiveshard.FieldForwardCutover:
+		return m.ForwardCutover()
 	case qaarchiveshard.FieldFirstAttemptAt:
 		return m.FirstAttemptAt()
 	case qaarchiveshard.FieldCompletedAt:
@@ -41330,6 +41372,8 @@ func (m *QAArchiveShardMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldFinalReconciledAt(ctx)
 	case qaarchiveshard.FieldCleanupEligible:
 		return m.OldCleanupEligible(ctx)
+	case qaarchiveshard.FieldForwardCutover:
+		return m.OldForwardCutover(ctx)
 	case qaarchiveshard.FieldFirstAttemptAt:
 		return m.OldFirstAttemptAt(ctx)
 	case qaarchiveshard.FieldCompletedAt:
@@ -41523,6 +41567,13 @@ func (m *QAArchiveShardMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetCleanupEligible(v)
+		return nil
+	case qaarchiveshard.FieldForwardCutover:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetForwardCutover(v)
 		return nil
 	case qaarchiveshard.FieldFirstAttemptAt:
 		v, ok := value.(time.Time)
@@ -41886,6 +41937,9 @@ func (m *QAArchiveShardMutation) ResetField(name string) error {
 		return nil
 	case qaarchiveshard.FieldCleanupEligible:
 		m.ResetCleanupEligible()
+		return nil
+	case qaarchiveshard.FieldForwardCutover:
+		m.ResetForwardCutover()
 		return nil
 	case qaarchiveshard.FieldFirstAttemptAt:
 		m.ResetFirstAttemptAt()

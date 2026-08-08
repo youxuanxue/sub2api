@@ -174,6 +174,11 @@ func CleanupEligible(v bool) predicate.QAArchiveShard {
 	return predicate.QAArchiveShard(sql.FieldEQ(FieldCleanupEligible, v))
 }
 
+// ForwardCutover applies equality check predicate on the "forward_cutover" field. It's identical to ForwardCutoverEQ.
+func ForwardCutover(v bool) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldForwardCutover, v))
+}
+
 // FirstAttemptAt applies equality check predicate on the "first_attempt_at" field. It's identical to FirstAttemptAtEQ.
 func FirstAttemptAt(v time.Time) predicate.QAArchiveShard {
 	return predicate.QAArchiveShard(sql.FieldEQ(FieldFirstAttemptAt, v))
@@ -1357,6 +1362,16 @@ func CleanupEligibleEQ(v bool) predicate.QAArchiveShard {
 // CleanupEligibleNEQ applies the NEQ predicate on the "cleanup_eligible" field.
 func CleanupEligibleNEQ(v bool) predicate.QAArchiveShard {
 	return predicate.QAArchiveShard(sql.FieldNEQ(FieldCleanupEligible, v))
+}
+
+// ForwardCutoverEQ applies the EQ predicate on the "forward_cutover" field.
+func ForwardCutoverEQ(v bool) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldEQ(FieldForwardCutover, v))
+}
+
+// ForwardCutoverNEQ applies the NEQ predicate on the "forward_cutover" field.
+func ForwardCutoverNEQ(v bool) predicate.QAArchiveShard {
+	return predicate.QAArchiveShard(sql.FieldNEQ(FieldForwardCutover, v))
 }
 
 // FirstAttemptAtEQ applies the EQ predicate on the "first_attempt_at" field.

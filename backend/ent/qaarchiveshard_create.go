@@ -348,6 +348,20 @@ func (_c *QAArchiveShardCreate) SetNillableCleanupEligible(v *bool) *QAArchiveSh
 	return _c
 }
 
+// SetForwardCutover sets the "forward_cutover" field.
+func (_c *QAArchiveShardCreate) SetForwardCutover(v bool) *QAArchiveShardCreate {
+	_c.mutation.SetForwardCutover(v)
+	return _c
+}
+
+// SetNillableForwardCutover sets the "forward_cutover" field if the given value is not nil.
+func (_c *QAArchiveShardCreate) SetNillableForwardCutover(v *bool) *QAArchiveShardCreate {
+	if v != nil {
+		_c.SetForwardCutover(*v)
+	}
+	return _c
+}
+
 // SetFirstAttemptAt sets the "first_attempt_at" field.
 func (_c *QAArchiveShardCreate) SetFirstAttemptAt(v time.Time) *QAArchiveShardCreate {
 	_c.mutation.SetFirstAttemptAt(v)
@@ -513,6 +527,10 @@ func (_c *QAArchiveShardCreate) defaults() {
 		v := qaarchiveshard.DefaultCleanupEligible
 		_c.mutation.SetCleanupEligible(v)
 	}
+	if _, ok := _c.mutation.ForwardCutover(); !ok {
+		v := qaarchiveshard.DefaultForwardCutover
+		_c.mutation.SetForwardCutover(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := qaarchiveshard.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -575,6 +593,9 @@ func (_c *QAArchiveShardCreate) check() error {
 	}
 	if _, ok := _c.mutation.CleanupEligible(); !ok {
 		return &ValidationError{Name: "cleanup_eligible", err: errors.New(`ent: missing required field "QAArchiveShard.cleanup_eligible"`)}
+	}
+	if _, ok := _c.mutation.ForwardCutover(); !ok {
+		return &ValidationError{Name: "forward_cutover", err: errors.New(`ent: missing required field "QAArchiveShard.forward_cutover"`)}
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "QAArchiveShard.created_at"`)}
@@ -708,6 +729,10 @@ func (_c *QAArchiveShardCreate) createSpec() (*QAArchiveShard, *sqlgraph.CreateS
 	if value, ok := _c.mutation.CleanupEligible(); ok {
 		_spec.SetField(qaarchiveshard.FieldCleanupEligible, field.TypeBool, value)
 		_node.CleanupEligible = value
+	}
+	if value, ok := _c.mutation.ForwardCutover(); ok {
+		_spec.SetField(qaarchiveshard.FieldForwardCutover, field.TypeBool, value)
+		_node.ForwardCutover = value
 	}
 	if value, ok := _c.mutation.FirstAttemptAt(); ok {
 		_spec.SetField(qaarchiveshard.FieldFirstAttemptAt, field.TypeTime, value)
@@ -1180,6 +1205,18 @@ func (u *QAArchiveShardUpsert) SetCleanupEligible(v bool) *QAArchiveShardUpsert 
 // UpdateCleanupEligible sets the "cleanup_eligible" field to the value that was provided on create.
 func (u *QAArchiveShardUpsert) UpdateCleanupEligible() *QAArchiveShardUpsert {
 	u.SetExcluded(qaarchiveshard.FieldCleanupEligible)
+	return u
+}
+
+// SetForwardCutover sets the "forward_cutover" field.
+func (u *QAArchiveShardUpsert) SetForwardCutover(v bool) *QAArchiveShardUpsert {
+	u.Set(qaarchiveshard.FieldForwardCutover, v)
+	return u
+}
+
+// UpdateForwardCutover sets the "forward_cutover" field to the value that was provided on create.
+func (u *QAArchiveShardUpsert) UpdateForwardCutover() *QAArchiveShardUpsert {
+	u.SetExcluded(qaarchiveshard.FieldForwardCutover)
 	return u
 }
 
@@ -1763,6 +1800,20 @@ func (u *QAArchiveShardUpsertOne) SetCleanupEligible(v bool) *QAArchiveShardUpse
 func (u *QAArchiveShardUpsertOne) UpdateCleanupEligible() *QAArchiveShardUpsertOne {
 	return u.Update(func(s *QAArchiveShardUpsert) {
 		s.UpdateCleanupEligible()
+	})
+}
+
+// SetForwardCutover sets the "forward_cutover" field.
+func (u *QAArchiveShardUpsertOne) SetForwardCutover(v bool) *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetForwardCutover(v)
+	})
+}
+
+// UpdateForwardCutover sets the "forward_cutover" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertOne) UpdateForwardCutover() *QAArchiveShardUpsertOne {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateForwardCutover()
 	})
 }
 
@@ -2523,6 +2574,20 @@ func (u *QAArchiveShardUpsertBulk) SetCleanupEligible(v bool) *QAArchiveShardUps
 func (u *QAArchiveShardUpsertBulk) UpdateCleanupEligible() *QAArchiveShardUpsertBulk {
 	return u.Update(func(s *QAArchiveShardUpsert) {
 		s.UpdateCleanupEligible()
+	})
+}
+
+// SetForwardCutover sets the "forward_cutover" field.
+func (u *QAArchiveShardUpsertBulk) SetForwardCutover(v bool) *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.SetForwardCutover(v)
+	})
+}
+
+// UpdateForwardCutover sets the "forward_cutover" field to the value that was provided on create.
+func (u *QAArchiveShardUpsertBulk) UpdateForwardCutover() *QAArchiveShardUpsertBulk {
+	return u.Update(func(s *QAArchiveShardUpsert) {
+		s.UpdateForwardCutover()
 	})
 }
 

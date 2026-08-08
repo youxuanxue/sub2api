@@ -1,0 +1,65 @@
+# US-045-qa-phase2-production-integrity
+
+- ID: US-045
+- Title: QA Phase 2 production integrity closeout
+- Priority: P0（不可逆归档控制状态、生产恢复与数据生命周期）
+- As a / I want / So that:
+  作为 **TokenKey 生产运维者**，我希望 **QA Phase 2 归档只按已批准状态机运行，并由唯一不可变 cutover、同一受限 runner、可验证恢复、最小 IAM 与独立 stale cleanup 共同守卫**，**以便** 缺失或损坏的归档不能伪装成成功，历史 repair 不能重开，保留期清理也不能获得额外删除授权。
+- Trace:
+  - 长期设计：`docs/approved/design-prod-qa-24h-s3-lifecycle.md`
+  - Phase 2 收口：`docs/approved/design-qa-phase2-archive-closeout.md`
+- Risk Focus:
+  - 逻辑错误：cutover 指向非 `committed`、未 restore-verified 或非批准小时；normal 失败后仍补偿；保留期后无 source 的小时被写成空成功。
+  - 行为回归：任意窗口 `repair-apply`、历史 backfill、move/unset cutover、第二 catchup owner 或 archive-gated stale cleanup 被重新引入。
+  - 安全问题：共享 EC2 role 被误报为进程隔离；app 获得 raw bucket 无界 list/read；恢复正文绕过显式隐私确认或从 prod 回源。
+  - 运行时问题：timer/operator 使用不同 image、UID/GID、mount、scratch 或资源限制；host receipt、DB heartbeat 与 control state 矛盾时仍报告健康；export 临时文件清理发生竞态或计划漂移。
+
+## Acceptance Criteria
+
+1. **AC-001（正向 cutover）**：Given `2026-08-07 21:00 UTC` shard 已 `committed` 且 `restore_verified_at` 非空，When 执行唯一 exact cutover operation，Then 只标记该 row，重复执行幂等，读取返回同一 valid cutover。
+2. **AC-002（负向 cutover）**：Given shard 缺失、状态非法、未 restore-verified、window 不精确、已有不同 marker 或 control 数据损坏，When 读取或设置 cutover，Then fail closed；schema 阻止第二 marker、invalid marker、move、unset 与删除，CLI 不接受 generic cutover window 或 move/unset action。
+3. **AC-003（状态机）**：Given 每轮 normal sealed hour，When normal 成功且 restore-verified，Then 只从 cutover 后的 UTC timeline 选择至多一个 oldest retryable candidate；normal 失败不补偿，补偿失败保留 normal 成功但整轮非零，terminal failure 可见且不阻塞后续小时。
+4. **AC-004（完整性）**：Given timely zero-row hour、source retention 后首次发现的未知小时、late identity 或 missing/corrupt evidence，When reconcile，Then 分别产生可恢复空 base、`source_unavailable_after_retention`、单一 delta 或 failed/blocked control；不得合成缺失历史、授权删除或覆盖 immutable commit。
+5. **AC-005（runtime）**：Given timer、operator、self-test 与 health probe，When执行或发生 pre-app/child failure，Then它们共用唯一 host runner 与批准的 image/user/mount/scratch/resource contract，原子 receipt 始终推进且四类运行事实矛盾时 fail closed。
+6. **AC-006（IAM 与 recovery）**：Given app archive role 与 ops recovery role，When渲染 policy 或从 workstation inspect/verify/restore，Then app 只有所需 suffix-scoped artifact 权限且无无界 list/partial read，recovery 不经过 prod 主机/API/数据库，正文恢复要求 privacy confirmation，并如实保留 shared-role 风险。
+7. **AC-007（stale cleanup 与回归）**：Given独立 24 小时 stale cleanup 与 export temp crash orphan，When plan/apply，Then只处理 effective mount 内 age/type/open-handle 全部合格且 exact plan-hash 未漂移的文件；archive completeness、cutover 或 maintenance health 不改变其 owner、窗口或删除权限，已知历史坏小时与 `qa_export_jobs` 保持不变。
+
+## Assertions
+
+- `forward_cutover` 的 schema owner 是 `tk_072_qa_archive_forward_cutover.sql`；两个既有 `tk_071` migration 均先于它，且不改名。
+- 唯一 write API 不接收 window 或 boolean；批准小时由 archive package 持有，operator 只做固定确认与接线。
+- `cleanup_eligible=false` 与 `deletion_authorized=false` 在整个 Phase 2 保持不变。
+- `2026-08-07 01:00 UTC` 保持 `commit_mismatch`，`2026-08-04 04:00 UTC` 保持 `missing_evidence`，不得修改两者 S3 commit。
+- 本 Story 的 InTest 只表示仓库实现正在闭环；不表示生产 schema、IAM、timer、恢复或清理已执行。
+
+## Linked Tests
+
+- `backend/internal/observability/qa/archive/control_schema_test.go`::`TestUS045_QAArchiveForwardCutoverMigrationFollowsBothTK071Migrations`
+- `backend/internal/observability/qa/archive/control_schema_test.go`::`TestUS045_QAArchiveForwardCutoverMigrationIsAdditiveValidAndImmutable`
+- `backend/internal/observability/qa/archive/cutover_test.go`::`TestUS045_SQLControlStoreSetsOnlyApprovedForwardCutover`
+- `backend/cmd/qa-archive/main_test.go`::`TestUS045_SetForwardCutover*`
+- `backend/internal/observability/qa/archive/reconciler_test.go`::`TestUS045_TimelineCompensation*` *(planned)*
+- `backend/cmd/server/qa_maintenance_test.go`::`TestUS045_NormalFirstBoundedCompensation*` *(planned)*
+- `ops/qa/test_qa_phase_ops.py`::`QAArchivePhase2Test.test_us045_runner_receipt_and_health_contract` *(planned)*
+- `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_us045_export_orphan_plan_is_exact_and_revalidated` *(planned)*
+- `backend/cmd/qa-archive/main_test.go`::`TestUS045_WorkstationRecovery*` *(planned)*
+
+运行命令：
+
+```bash
+cd backend
+go test -tags=unit -count=1 -run 'TestUS045_' ./cmd/qa-archive
+go test -tags=integration -count=1 -run 'TestUS045_' ./internal/observability/qa/archive
+cd ..
+python3 .testing/user-stories/verify_quality.py
+```
+
+## Evidence
+
+- Task 1 已实跑 fixed CLI unit tests 与隔离 PostgreSQL migration/control integration tests；migration 只应用于 testcontainer。
+- Task 2–6 的 state-machine、runner/health、stale cleanup、IAM 与 workstation recovery links 明确标为 planned，后续 task 必须以实际 RED/GREEN 证据替换。
+- 本 Story 不构成生产操作授权；生产 restore evidence、schema/IAM apply、timer change、orphan deletion 与 break-glass retirement 仍待独立门禁。
+
+## Status
+
+- [x] InTest — Task 1 cutover schema/runtime/operator contract 已进入测试；其余 Phase 2 repository behaviors 与所有 production rollout evidence 尚未完成。

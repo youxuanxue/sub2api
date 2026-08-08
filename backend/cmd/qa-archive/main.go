@@ -21,11 +21,12 @@ import (
 )
 
 const (
-	repairConfirmationPrefix  = "tokenkey-prod-qa-archive-repair-v1"
-	restoreConfirmationPrefix = "tokenkey-prod-qa-archive-restore-v1"
-	safetyProofSchema         = "qa-archive-safety-v1"
-	safetyProofFile           = "/run/tokenkey-qa-archive-safety-proof.json"
-	safetyProofMaxAge         = 5 * time.Minute
+	repairConfirmationPrefix         = "tokenkey-prod-qa-archive-repair-v1"
+	restoreConfirmationPrefix        = "tokenkey-prod-qa-archive-restore-v1"
+	forwardCutoverConfirmationPrefix = "tokenkey-prod-qa-forward-cutover-v1"
+	safetyProofSchema                = "qa-archive-safety-v1"
+	safetyProofFile                  = "/run/tokenkey-qa-archive-safety-proof.json"
+	safetyProofMaxAge                = 5 * time.Minute
 )
 
 var Commit = "unknown"
@@ -62,6 +63,7 @@ type cliDeps struct {
 	cleanupHoldActive func(context.Context, *sql.DB) (bool, error)
 	readSafetyProof   func() ([]byte, error)
 	reconcile         func(context.Context, *sql.Conn, archive.ObjectStore, archive.Window, string, string) (archive.ReconcileReceipt, error)
+	setForwardCutover func(context.Context, *sql.Conn) (archive.ForwardCutover, error)
 	now               func() time.Time
 }
 
@@ -82,7 +84,8 @@ func defaultDeps() cliDeps {
 			reconciler.BlobRoot = blobRoot
 			return reconciler.Reconcile(ctx, conn, window)
 		},
-		now: time.Now,
+		setForwardCutover: archive.NewSQLControlStore().SetApprovedForwardCutover,
+		now:               time.Now,
 	}
 }
 
@@ -97,14 +100,55 @@ func main() {
 
 func runCLI(ctx context.Context, args []string, out io.Writer, deps cliDeps) error {
 	if len(args) == 0 {
-		return fmt.Errorf("command required: inspect, verify, restore, repair-plan, or repair-apply")
+		return fmt.Errorf("command required: inspect, verify, restore, repair-plan, repair-apply, or set-forward-cutover")
 	}
 	switch args[0] {
 	case "inspect", "verify", "restore", "repair-plan", "repair-apply":
 		return runWindowCommand(ctx, args[0], args[1:], out, deps)
+	case "set-forward-cutover":
+		return runSetForwardCutover(ctx, args[1:], out, deps)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runSetForwardCutover(ctx context.Context, args []string, out io.Writer, deps cliDeps) error {
+	fs := flag.NewFlagSet("set-forward-cutover", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	confirm := fs.String("confirm", "", "exact approved cutover confirmation")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("unexpected positional arguments")
+	}
+	approved := archive.Phase2ForwardCutoverWindow()
+	if *confirm != windowConfirmation(forwardCutoverConfirmationPrefix, approved.Start) {
+		return fmt.Errorf("exact cutover confirmation required")
+	}
+	deps = fillDefaults(deps)
+	cfg, err := deps.loadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	db, conn, err := openCLIConnection(ctx, deps, cfg)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close(); _ = db.Close() }()
+	cutover, err := deps.setForwardCutover(ctx, conn)
+	if err != nil {
+		return fmt.Errorf("set approved forward cutover: %w", err)
+	}
+	if !cutover.Window.Start.Equal(approved.Start) || !cutover.Window.End.Equal(approved.End) {
+		return fmt.Errorf("set approved forward cutover returned an unexpected window")
+	}
+	return writeJSON(out, map[string]any{
+		"ok": true, "command": "set-forward-cutover", "shard_id": cutover.ShardID,
+		"window_start": cutover.Window.Start, "window_end": cutover.Window.End,
+		"restore_verified_at": cutover.RestoreVerifiedAt,
+		"forward_cutover":     true, "deletion_authorized": false,
+	})
 }
 
 func runWindowCommand(ctx context.Context, command string, args []string, out io.Writer, deps cliDeps) error {
@@ -366,6 +410,9 @@ func fillDefaults(deps cliDeps) cliDeps {
 	}
 	if deps.reconcile == nil {
 		deps.reconcile = defaults.reconcile
+	}
+	if deps.setForwardCutover == nil {
+		deps.setForwardCutover = defaults.setForwardCutover
 	}
 	if deps.now == nil {
 		deps.now = defaults.now
