@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -41,6 +40,23 @@ func TestUS045_SetForwardCutoverRejectsGenericWindowMoveAndUnsetBeforeDependenci
 	}
 	if called {
 		t.Fatal("dependencies ran for a forbidden cutover surface")
+	}
+}
+
+func TestUS045_RepairApplyIsUnavailableBeforeDependencies(t *testing.T) {
+	called := false
+	deps := cliDeps{loadConfig: func() (*config.Config, error) {
+		called = true
+		return nil, errors.New("must not run")
+	}}
+	err := runCLI(context.Background(), []string{
+		"repair-apply", "--window-start", testWindow.Format(time.RFC3339),
+	}, &bytes.Buffer{}, deps)
+	if err == nil || !strings.Contains(err.Error(), `unknown command "repair-apply"`) {
+		t.Fatalf("runCLI() error=%v", err)
+	}
+	if called {
+		t.Fatal("retired repair-apply touched dependencies")
 	}
 }
 
@@ -126,45 +142,6 @@ func TestRestoreRejectsOutputOutsideIsolatedRootBeforeDependencies(t *testing.T)
 	}
 }
 
-func TestRepairApplyRejectsUnboundConfirmationBeforeDependencies(t *testing.T) {
-	called := false
-	deps := cliDeps{loadConfig: func() (*config.Config, error) {
-		called = true
-		return nil, errors.New("must not run")
-	}}
-	err := runCLI(context.Background(), []string{
-		"repair-apply", "--window-start", testWindow.Format(time.RFC3339),
-		"--confirm", repairConfirmationPrefix,
-	}, &bytes.Buffer{}, deps)
-	if err == nil || !strings.Contains(err.Error(), "window-bound confirmation") {
-		t.Fatalf("runCLI() error=%v", err)
-	}
-	if called {
-		t.Fatal("dependencies ran before confirmation validation")
-	}
-}
-
-func TestRepairApplyRequiresControllerProofBeforeDependencies(t *testing.T) {
-	called := false
-	deps := cliDeps{
-		loadConfig: func() (*config.Config, error) {
-			called = true
-			return nil, errors.New("must not run")
-		},
-		readSafetyProof: func() ([]byte, error) { return nil, os.ErrNotExist },
-	}
-	confirm := repairConfirmationPrefix + ":" + testWindow.Format(time.RFC3339)
-	err := runCLI(context.Background(), []string{
-		"repair-apply", "--window-start", testWindow.Format(time.RFC3339), "--confirm", confirm,
-	}, &bytes.Buffer{}, deps)
-	if err == nil || !strings.Contains(err.Error(), "controller safety proof") {
-		t.Fatalf("runCLI() error=%v", err)
-	}
-	if called {
-		t.Fatal("dependencies ran before controller proof validation")
-	}
-}
-
 func TestRestoreRequiresWindowBoundPrivacyConfirmation(t *testing.T) {
 	called := false
 	deps := cliDeps{loadConfig: func() (*config.Config, error) {
@@ -180,108 +157,6 @@ func TestRestoreRequiresWindowBoundPrivacyConfirmation(t *testing.T) {
 	}
 	if called {
 		t.Fatal("dependencies ran before privacy confirmation validation")
-	}
-}
-
-func TestRepairApplyRefusesInactiveCleanupHold(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-	mock.ExpectPing()
-	mock.ExpectClose()
-	deps := repairTestDeps(db)
-	deps.cleanupHoldActive = func(context.Context, *sql.DB) (bool, error) { return false, nil }
-	confirm := repairConfirmationPrefix + ":" + testWindow.Format(time.RFC3339)
-	err = runCLI(context.Background(), []string{
-		"repair-apply", "--window-start", testWindow.Format(time.RFC3339), "--confirm", confirm,
-	}, &bytes.Buffer{}, deps)
-	if err == nil || !strings.Contains(err.Error(), "cleanup hold is not active") {
-		t.Fatalf("runCLI() error=%v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestRepairApplyRefusesMaintenanceLockContentionWithoutReconcile(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-	mock.ExpectPing()
-	mock.ExpectQuery("SELECT pg_try_advisory_lock").WithArgs(archive.MaintenanceAdvisoryLockID).
-		WillReturnRows(sqlmock.NewRows([]string{"locked"}).AddRow(false))
-	mock.ExpectClose()
-	deps := repairTestDeps(db)
-	deps.reconcile = func(context.Context, *sql.Conn, archive.ObjectStore, archive.Window, string, string) (archive.ReconcileReceipt, error) {
-		t.Fatal("reconcile called without lock")
-		return archive.ReconcileReceipt{}, nil
-	}
-	confirm := repairConfirmationPrefix + ":" + testWindow.Format(time.RFC3339)
-	err = runCLI(context.Background(), []string{
-		"repair-apply", "--window-start", testWindow.Format(time.RFC3339), "--confirm", confirm,
-	}, &bytes.Buffer{}, deps)
-	if err == nil || !strings.Contains(err.Error(), "maintenance lock already held") {
-		t.Fatalf("runCLI() error=%v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestRepairApplyCallsReconcilerAndDeniesDeletion(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-	mock.ExpectPing()
-	mock.ExpectQuery("SELECT pg_try_advisory_lock").WithArgs(archive.MaintenanceAdvisoryLockID).
-		WillReturnRows(sqlmock.NewRows([]string{"locked"}).AddRow(true))
-	mock.ExpectExec("SELECT pg_advisory_unlock").WithArgs(archive.MaintenanceAdvisoryLockID).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectClose()
-	deps := repairTestDeps(db)
-	called := false
-	deps.reconcile = func(_ context.Context, _ *sql.Conn, _ archive.ObjectStore, window archive.Window, _, _ string) (archive.ReconcileReceipt, error) {
-		called = true
-		return archive.ReconcileReceipt{
-			WindowStart: window.Start, WindowEnd: window.End, CommitKey: archive.ShardRelativePrefix(window.Start) + "/commit.json",
-			CommitETag: "etag-after", SegmentCount: 2, RecordCount: 884, DeletionAuthorized: false,
-		}, nil
-	}
-	deps.verifyCommit = func(context.Context, archive.ObjectStore, string, string) (archive.VerifiedCommit, error) {
-		return archive.VerifiedCommit{
-			Document: archive.CommitDocument{
-				WindowStart: testWindow, WindowEnd: testWindow.Add(time.Hour),
-				Segments: []archive.CommitSegment{{SegmentID: "base-1", SegmentKind: archive.SegmentKindBase, ManifestKey: "base/manifest.json", ManifestSHA256: "sha-base"}, {SegmentID: "delta-1", SegmentKind: archive.SegmentKindDelta, ManifestKey: "delta/manifest.json", ManifestSHA256: "sha-delta"}},
-			},
-			ETag: "etag-after", RecordCount: 884,
-		}, nil
-	}
-	confirm := repairConfirmationPrefix + ":" + testWindow.Format(time.RFC3339)
-	out := &bytes.Buffer{}
-	if err := runCLI(context.Background(), []string{
-		"repair-apply", "--window-start", testWindow.Format(time.RFC3339), "--confirm", confirm,
-	}, out, deps); err != nil {
-		t.Fatalf("runCLI()=%v", err)
-	}
-	if !called {
-		t.Fatal("reconciler was not called")
-	}
-	var receipt map[string]any
-	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
-		t.Fatal(err)
-	}
-	manifests, ok := receipt["manifests"].([]any)
-	if receipt["command"] != "repair-apply" || receipt["deletion_authorized"] != false || receipt["cleanup_hold_active"] != true || !ok || len(manifests) != 2 {
-		t.Fatalf("receipt=%v", receipt)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -407,39 +282,6 @@ func TestVerifyUsesReadOnlyVerifierAndDeniesDeletion(t *testing.T) {
 	if receipt["verified"] != true || receipt["deletion_authorized"] != false || receipt["record_count"] != float64(407) {
 		t.Fatalf("receipt=%v", receipt)
 	}
-}
-
-func repairTestDeps(db *sql.DB) cliDeps {
-	return cliDeps{
-		loadConfig: func() (*config.Config, error) {
-			return &config.Config{
-				Timezone:  "UTC",
-				Database:  config.DatabaseConfig{Host: "postgres", Port: 5432, User: "tokenkey", DBName: "tokenkey", SSLMode: "disable"},
-				QaArchive: config.QaArchiveConfig{Enabled: true, Storage: testStorage()},
-			}, nil
-		},
-		openDB: func(string, string) (*sql.DB, error) { return db, nil },
-		newObjectStore: func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error) {
-			return archive.NewMemoryObjectStore(), nil
-		},
-		cleanupHoldActive: func(context.Context, *sql.DB) (bool, error) { return true, nil },
-		readSafetyProof:   func() ([]byte, error) { return validSafetyProof(testWindow), nil },
-		now:               func() time.Time { return testWindow.Add(2*time.Hour + time.Minute) },
-		reconcile: func(context.Context, *sql.Conn, archive.ObjectStore, archive.Window, string, string) (archive.ReconcileReceipt, error) {
-			return archive.ReconcileReceipt{}, errors.New("unexpected reconcile")
-		},
-	}
-}
-
-func validSafetyProof(window time.Time) []byte {
-	payload, _ := json.Marshal(safetyProof{
-		SchemaVersion: "qa-archive-safety-v1", WindowStart: window,
-		CheckedAt:           window.Add(2 * time.Hour),
-		MaintenanceDisabled: true, MaintenanceInactive: true,
-		StaleCleanupDisabled: true, StaleCleanupInactive: true,
-		CleanupRuntimeDisabled: true, CleanupLockInactive: true,
-	})
-	return payload
 }
 
 func testStorage() config.QACaptureStorageConfig {

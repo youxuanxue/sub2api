@@ -42,7 +42,17 @@
 - `backend/internal/observability/qa/archive/timeline_selector_integration_test.go`::`TestUS045_SQLTimelineSelectorPersistsTerminalAndFindsUncoveredIdentity`
 - `backend/internal/observability/qa/archive/reconciler_test.go`::`TestUS045_ReconcilerTimelyZeroRowCommitsRestorableBase`
 - `backend/internal/observability/qa/archive/reconciler_test.go`::`TestUS045_ReconcilerExpiredZeroRowBecomesSourceUnavailableFailure`
-- `backend/cmd/server/qa_maintenance_test.go`::`TestUS045_NormalFirstBoundedCompensation*` *(planned)*
+- `backend/cmd/server/qa_maintenance_phase2_test.go`::`TestUS045_DefaultPlanEnsuresNormalControlBeforeSourceInspection`
+- `backend/cmd/server/qa_maintenance_phase2_test.go`::`TestUS045_NormalFirstBoundedCompensationSkipsSelectionAfterNormalFailure`
+- `backend/cmd/server/qa_maintenance_phase2_test.go`::`TestUS045_NormalFirstBoundedCompensationStopsWhenNoCandidateExists`
+- `backend/cmd/server/qa_maintenance_phase2_test.go`::`TestUS045_NormalFirstBoundedCompensationRunsExactlyOneOldestCandidate`
+- `backend/cmd/server/qa_maintenance_phase2_test.go`::`TestUS045_NormalFirstBoundedCompensationKeepsNormalSuccessWhenCatchupFails`
+- `backend/cmd/server/qa_maintenance_phase2_test.go`::`TestUS045_NormalFirstBoundedCompensationReportsSelectionAndTerminalFailures`
+- `backend/cmd/server/qa_maintenance_phase2_test.go`::`TestUS045_QAMaintenanceCommandReportsCommittedNormalAndCompensationFacts`
+- `backend/cmd/server/qa_maintenance_phase2_test.go`::`TestUS045_QAMaintenanceCommandFailureHeartbeatPreservesNormalSuccess`
+- `backend/cmd/server/qa_maintenance_phase2_test.go`::`TestUS045_QAMaintenanceCommandUnlockFailureHeartbeatPreservesNormalSuccess`
+- `backend/cmd/qa-archive/main_test.go`::`TestUS045_RepairApplyIsUnavailableBeforeDependencies`
+- `ops/qa/test_qa_phase_ops.py`::`TestQAPhaseOps.test_us045_qa_archive_closeout_rejects_repair_apply_before_aws`
 - `ops/qa/test_qa_phase_ops.py`::`QAArchivePhase2Test.test_us045_runner_receipt_and_health_contract` *(planned)*
 - `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_us045_export_orphan_plan_is_exact_and_revalidated` *(planned)*
 - `backend/cmd/qa-archive/main_test.go`::`TestUS045_WorkstationRecovery*` *(planned)*
@@ -61,9 +71,10 @@ python3 .testing/user-stories/verify_quality.py
 
 - Task 1 已实跑 fixed CLI unit tests 与隔离 PostgreSQL migration/control integration tests；migration 只应用于 testcontainer。
 - Task 2 已实跑 timeline selector、可恢复零行 base、retention 后终态和 late-identity membership 的 unit/integration tests；PostgreSQL 仅为本地 testcontainer。
-- Task 3–6 的 maintenance orchestration、runner/health、stale cleanup、IAM 与 workstation recovery links 明确标为 planned，后续 task 必须以实际 RED/GREEN 证据替换。
+- Task 3 已实跑 maintenance normal-first/单一补偿/失败 heartbeat、archive-disabled no-write 状态、CLI 与 Python operator 的 `repair-apply` 退役测试；archive PostgreSQL integration 只使用本地 Colima testcontainer。
+- Task 4–6 的 runner/health、stale cleanup、IAM 与 workstation recovery links 明确标为 planned，后续 task 必须以实际 RED/GREEN 证据替换。
 - 本 Story 不构成生产操作授权；生产 restore evidence、schema/IAM apply、timer change、orphan deletion 与 break-glass retirement 仍待独立门禁。
 
 ## Status
 
-- [x] InTest — Task 1–2 cutover/timeline/archive integrity contract 已进入测试；Task 3–6 repository behaviors 与所有 production rollout evidence 尚未完成。
+- [x] InTest — Task 1–3 cutover/timeline/archive integrity/maintenance orchestration contract 已进入测试；Task 4–6 repository behaviors 与所有 production rollout evidence 尚未完成。

@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -714,69 +715,17 @@ exit 0
         with self.assertRaisesRegex(module.HistoricalCloseoutError, "confirmation"):
             module.run("apply", "wrong")
 
-    def test_qa_archive_closeout_controller_is_fail_closed(self) -> None:
+    def test_us045_qa_archive_closeout_rejects_repair_apply_before_aws(self) -> None:
         module = _load_closeout_module()
-        window = module._parse_window("2026-08-07T01:00:00Z")
-        self.assertEqual(
-            module._window_token(module.REPAIR_CONFIRMATION_PREFIX, window),
-            "tokenkey-prod-qa-archive-repair-v1:2026-08-07T01:00:00Z",
-        )
-        proof = module._safety_proof(
-            window, dt.datetime(2026, 8, 7, 2, 0, tzinfo=dt.timezone.utc)
-        )
-        proof_payload = json.loads(proof)
-        self.assertEqual(proof_payload["schema_version"], module.SAFETY_SCHEMA)
-        self.assertTrue(proof_payload["cleanup_runtime_disabled"])
-        guard = "\n".join(module._timer_guard_shell())
-        remote = module._remote_command(
-            "repair-apply",
-            window,
-            "",
-            module._window_token(module.REPAIR_CONFIRMATION_PREFIX, window),
-        )
-        self.assertNotIn("--safety-proof", remote)
-        for sidecar_needle in (
-            "{{.Image}}",
-            "docker run --rm",
-            "--user=1000:1000",
-            "--read-only",
-            "--cap-drop=ALL",
-            "--memory=1g",
-            "--memory-swap=1g",
-            "--cpus=0.20",
-            "--pids-limit=128",
-            "TMPDIR=/app/data/qa_archive_tmp",
-            "chmod 0444",
-            "$proof_file:/run/tokenkey-qa-archive-safety-proof.json:ro",
-        ):
-            self.assertIn(sidecar_needle, remote)
-        for needle in (
-            "tokenkey-qa-maintenance.timer",
-            "tokenkey-qa-stale-cleanup.timer",
-            "disabled:inactive",
-            "cleanup_enabled=false",
-            "ops:cleanup:leader",
-        ):
-            self.assertIn(needle, guard)
-
-    def test_qa_archive_closeout_rejects_incomplete_receipt(self) -> None:
-        module = _load_closeout_module()
-        window = module._parse_window("2026-08-07T01:00:00Z")
-        receipt = {
-            "ok": True,
-            "command": "repair-apply",
-            "window_start": "2026-08-07T01:00:00Z",
-            "cleanup_eligible": False,
-            "deletion_authorized": False,
-            "cleanup_hold_active": True,
-            "maintenance_timer_disabled": True,
-            "maintenance_timer_inactive": True,
-            "stale_cleanup_timer_disabled": True,
-            "stale_cleanup_timer_inactive": True,
-            "cleanup_runtime_disabled": True,
-        }
-        with self.assertRaises(module.QAArchiveCloseoutError):
-            module._validate_receipt(json.dumps(receipt), "repair-apply", window)
+        window_text = "2026-08-07T01:00:00Z"
+        with mock.patch.object(module, "_aws_json") as aws_json:
+            with self.assertRaisesRegex(module.QAArchiveCloseoutError, "unsupported command"):
+                module.run(
+                    "repair-apply",
+                    window_text,
+                    confirm="tokenkey-prod-qa-archive-repair-v1:" + window_text,
+                )
+        aws_json.assert_not_called()
 
     def test_qa_archive_closeout_restore_path_cannot_escape_root(self) -> None:
         module = _load_closeout_module()

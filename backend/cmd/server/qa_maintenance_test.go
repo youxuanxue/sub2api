@@ -46,48 +46,6 @@ func TestQAMaintenanceRejectsWrongConfirmationBeforeDependencies(t *testing.T) {
 	}
 }
 
-func TestDefaultQAMaintenancePlanShardUpsertsControlRow(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New()=%v", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	windowStart := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
-	windowEnd := time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC)
-
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\)").
-		WithArgs(windowStart, windowEnd).
-		WillReturnRows(sqlmock.NewRows([]string{"count", "blob_ref_count"}).AddRow(42, 7))
-	mock.ExpectExec("INSERT INTO qa_archive_shards").
-		WithArgs(windowStart, windowEnd, "pending", int64(42), int64(7), "raw/v1/date=2026-08-06/hour=09", sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	conn, err := db.Conn(context.Background())
-	if err != nil {
-		t.Fatalf("db.Conn()=%v", err)
-	}
-	defer func() { _ = conn.Close() }()
-
-	plan, err := defaultQAMaintenancePlanShard(
-		context.Background(),
-		conn,
-		windowStart,
-		windowEnd,
-		"raw/v1/date=2026-08-06/hour=09",
-		false,
-	)
-	if err != nil {
-		t.Fatalf("defaultQAMaintenancePlanShard()=%v", err)
-	}
-	if plan.RecordCount != 42 || plan.BlobRefCount != 7 || plan.ArchiveEnabled {
-		t.Fatalf("plan=%+v", plan)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("expectations: %v", err)
-	}
-}
-
 func TestQAMaintenanceSuccessUsesArchiveOnlyPath(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
 	if err != nil {
@@ -173,9 +131,13 @@ func TestQAMaintenanceSuccessUsesArchiveOnlyPath(t *testing.T) {
 		t.Fatalf("invalid heartbeat: %+v", heartbeat)
 	}
 	if heartbeat.LastResult == nil ||
+		!strings.Contains(*heartbeat.LastResult, "status=planned") ||
+		!strings.Contains(*heartbeat.LastResult, "normal_state=pending") ||
+		strings.Contains(*heartbeat.LastResult, "status=committed") ||
+		!strings.Contains(*heartbeat.LastResult, "normal_restore_verified=false") ||
 		!strings.Contains(*heartbeat.LastResult, "deletion_authorized=false") ||
 		!strings.Contains(*heartbeat.LastResult, "upload_authorized=false") {
-		t.Fatalf("heartbeat result must deny deletion/upload: %+v", heartbeat.LastResult)
+		t.Fatalf("heartbeat result must report a no-write plan and deny deletion/upload: %+v", heartbeat.LastResult)
 	}
 
 	var receipt struct {
@@ -184,7 +146,9 @@ func TestQAMaintenanceSuccessUsesArchiveOnlyPath(t *testing.T) {
 		UploadAuthorized   bool   `json:"upload_authorized"`
 		DeletionAuthorized bool   `json:"deletion_authorized"`
 		Plan               struct {
-			RecordCount int64 `json:"record_count"`
+			RecordCount     int64  `json:"record_count"`
+			State           string `json:"state"`
+			RestoreVerified bool   `json:"restore_verified"`
 		} `json:"plan"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
@@ -194,7 +158,9 @@ func TestQAMaintenanceSuccessUsesArchiveOnlyPath(t *testing.T) {
 		receipt.Mode != qaMaintenanceReceiptMode ||
 		receipt.UploadAuthorized ||
 		receipt.DeletionAuthorized ||
-		receipt.Plan.RecordCount != 42 {
+		receipt.Plan.RecordCount != 42 ||
+		receipt.Plan.State != archive.StatePending ||
+		receipt.Plan.RestoreVerified {
 		t.Fatalf("unexpected receipt: %+v", receipt)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -249,6 +215,12 @@ func TestQAMaintenanceUploadPathWhenArchiveEnabled(t *testing.T) {
 				CommitKey: "date=2026-08-06/hour=09/commit.json", CommitETag: "etag-v2",
 				SegmentCount: 2, RecordCount: 42, BlobRefCount: 7,
 			}, nil
+		},
+		selectOldest: func(_ context.Context, _ *sql.Conn, normal archive.Window, cutoff time.Time) (archive.CatchupSelection, bool, error) {
+			if normal.Start != windowStart || normal.End != windowEnd || !cutoff.Equal(windowEnd.Add(15*time.Minute-qaMaintenanceSourceRetention)) {
+				t.Fatalf("select normal=%+v cutoff=%s", normal, cutoff)
+			}
+			return archive.CatchupSelection{}, false, nil
 		},
 		writeHeartbeat: func(context.Context, *sql.DB, *service.OpsUpsertJobHeartbeatInput) error { return nil },
 		now:            func() time.Time { return windowEnd.Add(15 * time.Minute) },
