@@ -21,6 +21,7 @@ import data_layer_archive_cleanup_hold as cleanup_hold  # noqa: E402
 import data_layer_archive_closeout as closeout  # noqa: E402
 import data_layer_archive_prod_export as export  # noqa: E402
 import data_layer_archive_promote_batch as promote  # noqa: E402
+import data_layer_archive_rehearsal as rehearsal  # noqa: E402
 import pipeline_status_loader as pipeline_status  # noqa: E402
 
 
@@ -60,11 +61,32 @@ def _latest_hold_receipt(
     return path, receipt
 
 
+def _tail_batches_fully_promoted(
+    export_ledger: dict[str, Any], promote_ledger: dict[str, Any]
+) -> bool:
+    export_batches = export_ledger.get("completed_batches")
+    if not isinstance(export_batches, list) or not export_batches:
+        return False
+    promoted = {
+        entry.get("batch_id")
+        for entry in promote_ledger.get("promoted_batches", [])
+        if isinstance(entry, dict) and isinstance(entry.get("batch_id"), str)
+    }
+    expected = {
+        batch.get("batch_id")
+        for batch in export_batches
+        if isinstance(batch, dict) and isinstance(batch.get("batch_id"), str)
+    }
+    return bool(expected) and expected <= promoted
+
+
 def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
     layout = pipeline_status.load_evidence_layout()
     ledgers: list[dict[str, Any]] = []
+    tail_ledgers: list[dict[str, Any]] = []
     restores: list[str] = []
     closeout_tables: set[str] = set()
+    tail_export_tables: set[str] = set()
     evidence_errors: list[str] = []
     hold: dict[str, Any] = {}
     hold_path: pathlib.Path | None = None
@@ -119,10 +141,54 @@ def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
             continue
         closeout_tables.add(table)
         restores.append(receipt["restore_verified_at"])
+
+        tail_export_path = attachments / layout.tail_export_ledger_name(table)
+        tail_promote_path = attachments / layout.tail_promote_ledger_name(table)
+        try:
+            tail_export = export.load_ledger(tail_export_path)
+            if tail_export.get("table") != table:
+                raise export.ExportError("tail export ledger table mismatch")
+            if (
+                tail_export.get("export_scope")
+                != rehearsal.PROD_EXPORT_SCOPE_POST_LEGACY_COLD
+            ):
+                raise export.ExportError("tail export ledger scope is invalid")
+            tail_batches = tail_export.get("completed_batches")
+            final_tail = (
+                tail_batches[-1]
+                if isinstance(tail_batches, list) and tail_batches
+                else {}
+            )
+            if not isinstance(final_tail, dict):
+                raise export.ExportError("tail export ledger final batch is invalid")
+            tail_promote = promote.load_promote_ledger(tail_promote_path)
+            if not _tail_batches_fully_promoted(tail_export, tail_promote):
+                evidence_errors.append(f"{table}:tail_promote_binding")
+            elif tail_export.get("more_cold_rows_remaining") is not False:
+                evidence_errors.append(f"{table}:tail_export_incomplete")
+            else:
+                tail_ledgers.append(
+                    {
+                        "table": table,
+                        "export_scope": tail_export.get("export_scope"),
+                        "legacy_lower_inclusive": tail_export.get(
+                            "legacy_lower_inclusive"
+                        ),
+                        "final_cutoff_exclusive": final_tail.get("cutoff_exclusive"),
+                        "more_cold_rows_remaining": tail_export.get(
+                            "more_cold_rows_remaining"
+                        ),
+                    }
+                )
+                tail_export_tables.add(table)
+        except (export.ExportError, promote.PromoteError, OSError):
+            evidence_errors.append(f"{table}:tail_export_ledger")
     return {
         "ledgers": ledgers,
+        "tail_ledgers": tail_ledgers,
         "hold_started_at": hold.get("hold_started_at"),
         "closeout_complete": closeout_tables == set(layout.tables),
+        "tail_export_complete": tail_export_tables == set(layout.tables),
         "restore_verified_at": restores,
         "evidence_errors": sorted(set(evidence_errors)),
     }

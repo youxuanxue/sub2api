@@ -80,6 +80,8 @@ def _evidence_failures(root: Path, pipeline: dict) -> list[str]:
         ("cleanup_hold_glob", layout.cleanup_hold_glob),
         ("export_ledger_template", layout.export_ledger_template),
         ("promote_ledger_template", layout.promote_ledger_template),
+        ("tail_export_ledger_template", layout.tail_export_ledger_template),
+        ("tail_promote_ledger_template", layout.tail_promote_ledger_template),
         ("closeout_receipt_template", layout.closeout_receipt_template),
     )
     for key, actual in checks:

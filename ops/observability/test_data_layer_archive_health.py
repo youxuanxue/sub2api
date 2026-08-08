@@ -25,6 +25,11 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
         )
         self.assertIsInstance(signal["hold_started_at"], str)
         self.assertTrue(signal["closeout_complete"])
+        self.assertTrue(signal["tail_export_complete"])
+        self.assertEqual(
+            {ledger["table"] for ledger in signal["tail_ledgers"]},
+            {"ops_error_logs", "ops_system_logs"},
+        )
         self.assertEqual(signal["evidence_errors"], [])
 
     def test_latest_valid_hold_receipt_is_selected(self) -> None:
@@ -119,6 +124,8 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
 
         self.assertEqual(signal["ledgers"], [])
         self.assertFalse(signal["closeout_complete"])
+        self.assertFalse(signal["tail_export_complete"])
+        self.assertEqual(signal["tail_ledgers"], [])
         self.assertEqual(signal["restore_verified_at"], [])
         self.assertIsNone(signal["hold_started_at"])
         self.assertEqual(

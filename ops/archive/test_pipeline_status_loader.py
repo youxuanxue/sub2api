@@ -26,6 +26,14 @@ class PipelineStatusLoaderTest(unittest.TestCase):
             layout.closeout_receipt_name("ops_system_logs"),
             "US-040-ops-system-logs-archive-closeout.json",
         )
+        self.assertEqual(
+            layout.tail_export_ledger_name("ops_error_logs"),
+            "US-040-ops-error-logs-tail-export-ledger.json",
+        )
+        self.assertEqual(
+            layout.tail_promote_ledger_name("ops_system_logs"),
+            "US-040-ops-system-logs-tail-promote-ledger.json",
+        )
 
 
 if __name__ == "__main__":
