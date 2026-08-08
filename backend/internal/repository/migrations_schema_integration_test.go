@@ -45,8 +45,6 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	// users: columns required by repository queries
 	requireColumn(t, tx, "users", "username", "character varying", 100, false)
 	requireColumn(t, tx, "users", "notes", "text", 0, false)
-	requireIndex(t, tx, "users", usersEmailAliasDedupIndex)
-	requireIndexValid(t, tx, "users", usersEmailAliasDedupIndex)
 
 	// accounts: schedulable and rate-limit fields
 	requireColumn(t, tx, "accounts", "notes", "text", 0, true)
@@ -75,23 +73,27 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "usage_logs", "image_output_size", "character varying", 32, true)
 	requireColumn(t, tx, "usage_logs", "image_size_source", "character varying", 16, true)
 	requireColumn(t, tx, "usage_logs", "image_size_breakdown", "jsonb", 0, true)
-	requireConstraintDefinitionContains(
-		t,
-		tx,
-		"usage_logs",
-		"usage_logs_request_type_check",
-		"request_type >= 0",
-		"request_type <= 5",
-	)
-	requireConstraintValidated(t, tx, "usage_logs", "usage_logs_request_type_check")
-	requireColumn(t, tx, "usage_dashboard_group_daily", "total_requests", "bigint", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "input_tokens", "bigint", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "output_tokens", "bigint", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "cache_creation_tokens", "bigint", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "cache_read_tokens", "bigint", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "total_cost", "numeric", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "actual_cost", "numeric", 0, false)
-	requireColumn(t, tx, "usage_dashboard_group_daily", "account_cost", "numeric", 0, false)
+	requireColumn(t, tx, "usage_logs", "video_count", "integer", 0, false)
+	requireColumn(t, tx, "usage_logs", "video_resolution", "character varying", 10, true)
+	requireColumn(t, tx, "usage_logs", "video_duration_seconds", "integer", 0, true)
+	requireColumn(t, tx, "usage_logs", "upstream_response_model", "character varying", 200, true)
+	requireColumn(t, tx, "usage_logs", "upstream_model_mismatch", "boolean", 0, true)
+	requireIndex(t, tx, "usage_logs", usageLogsUpstreamModelMismatchIndex)
+
+	var mismatchIndexDef string
+	require.NoError(t, tx.QueryRowContext(context.Background(), `
+SELECT pg_get_indexdef(i.indexrelid)
+FROM pg_class idx
+JOIN pg_index i ON i.indexrelid = idx.oid
+JOIN pg_class tbl ON tbl.oid = i.indrelid
+JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+WHERE ns.nspname = 'public'
+  AND tbl.relname = 'usage_logs'
+  AND idx.relname = $1
+`, usageLogsUpstreamModelMismatchIndex).Scan(&mismatchIndexDef))
+	require.Contains(t, mismatchIndexDef, "created_at DESC")
+	require.Contains(t, mismatchIndexDef, "id DESC")
+	require.Contains(t, mismatchIndexDef, "WHERE (upstream_model_mismatch IS TRUE)")
 	requireConstraintDefinitionContains(
 		t,
 		tx,
@@ -241,28 +243,6 @@ SELECT EXISTS (
 	require.False(t, exists, "expected index %s on %s to be absent", index, table)
 }
 
-func requireIndexValid(t *testing.T, tx *sql.Tx, table, index string) {
-	t.Helper()
-
-	var (
-		valid bool
-		ready bool
-	)
-	err := tx.QueryRowContext(context.Background(), `
-SELECT i.indisvalid, i.indisready
-FROM pg_class idx
-JOIN pg_index i ON i.indexrelid = idx.oid
-JOIN pg_class tbl ON tbl.oid = i.indrelid
-JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
-WHERE ns.nspname = 'public'
-  AND tbl.relname = $1
-  AND idx.relname = $2
-`, table, index).Scan(&valid, &ready)
-	require.NoError(t, err, "query index state for %s.%s", table, index)
-	require.True(t, valid, "expected index %s on %s to be valid", index, table)
-	require.True(t, ready, "expected index %s on %s to be ready", index, table)
-}
-
 func requirePartialUniqueIndexDefinition(t *testing.T, tx *sql.Tx, table, index string, fragments ...string) {
 	t.Helper()
 
@@ -337,23 +317,6 @@ WHERE ns.nspname = 'public'
 	for _, fragment := range fragments {
 		require.Contains(t, def, fragment, "expected constraint definition for %s.%s to contain %q", table, constraint, fragment)
 	}
-}
-
-func requireConstraintValidated(t *testing.T, tx *sql.Tx, table, constraint string) {
-	t.Helper()
-
-	var validated bool
-	err := tx.QueryRowContext(context.Background(), `
-SELECT c.convalidated
-FROM pg_constraint c
-JOIN pg_class tbl ON tbl.oid = c.conrelid
-JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
-WHERE ns.nspname = 'public'
-  AND tbl.relname = $1
-  AND c.conname = $2
-`, table, constraint).Scan(&validated)
-	require.NoError(t, err, "query constraint validation state for %s.%s", table, constraint)
-	require.True(t, validated, "expected constraint %s on %s to be validated", constraint, table)
 }
 
 func requireColumnDefaultContains(t *testing.T, tx *sql.Tx, table, column string, fragments ...string) {

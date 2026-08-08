@@ -56,12 +56,6 @@ type Account struct {
 	SessionWindowEnd    *time.Time
 	SessionWindowStatus string
 
-	ChannelType int // New API channel type (>0 means use New API adaptor bridge)
-
-	// TierID 绑定的 anthropic-oauth 稳定性档位 id（tiers 表）；nil = 未绑定。
-	// 运行时由 TierExtraResolver 在账号加载边界按此解析 per-tier 配置 overlay 进 Extra。
-	TierID *int64
-
 	ParentAccountID *int64 // non-nil → 影子账号（不持凭据，透传母账号凭据）
 	QuotaDimension  string // 用量维度："" / "global" / "spark"
 
@@ -98,9 +92,15 @@ const (
 	OpenAIEndpointCapabilityLive            OpenAIEndpointCapability = "live"
 	// OpenAIEndpointCapabilityGrokMediaGeneration keeps image/video generation
 	// away from Grok accounts that are explicitly disabled or whose billing
-	// entitlement probe was forbidden.
+	// entitlement probe was forbidden. Video status lookups intentionally do not
+	// require this capability so already-submitted requests remain queryable.
 	OpenAIEndpointCapabilityGrokMediaGeneration OpenAIEndpointCapability = "grok_media_generation"
-	OpenAIEndpointCapabilityResponses           OpenAIEndpointCapability = "responses"
+	// OpenAIEndpointCapabilityResponses 表示上游确实提供 /v1/responses 端点。
+	// 与其他能力不同：支持状态来自 accounts.extra 的自动探测标记
+	// （openai_responses_supported / openai_responses_mode），而非
+	// credentials["openai_capabilities"] 配置集。仅用于生图意图的 /v1/responses
+	// 调度，避免把请求调度到会在 forward 阶段被降级为 Chat Completions 的账号（#4417）。
+	OpenAIEndpointCapabilityResponses OpenAIEndpointCapability = "responses"
 )
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
@@ -270,7 +270,7 @@ func (a *Account) IsGrokOAuth() bool {
 }
 
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && IsOpenAICompatPlatform(a.Platform)
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok)
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -615,6 +615,19 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 		}
 	}
 	if len(result) > 0 {
+		if a.Platform == domain.PlatformAntigravity {
+			ensureAntigravityDefaultPassthroughs(result, []string{
+				"gemini-3-flash",
+				"gemini-3.1-pro-high",
+				"gemini-3.1-pro-low",
+				"gemini-3.6-flash",
+				"gemini-3.6-flash-high",
+				"gemini-3.6-flash-low",
+				"gemini-3.6-flash-medium",
+				"gemini-3.6-flash-tiered",
+			})
+			applyAntigravityGemini31ProAliases(result)
+		}
 		return result
 	}
 
@@ -659,21 +672,86 @@ func modelMappingSignature(rawMapping map[string]any) uint64 {
 	return h.Sum64()
 }
 
+func ensureAntigravityDefaultPassthrough(mapping map[string]string, model string) {
+	if mapping == nil || model == "" {
+		return
+	}
+	if _, exists := mapping[model]; exists {
+		return
+	}
+	for pattern := range mapping {
+		if matchWildcard(pattern, model) {
+			return
+		}
+	}
+	mapping[model] = model
+}
+
+func ensureAntigravityDefaultPassthroughs(mapping map[string]string, models []string) {
+	for _, model := range models {
+		ensureAntigravityDefaultPassthrough(mapping, model)
+	}
+}
+
+func applyAntigravityGemini31ProAliases(mapping map[string]string) {
+	target := strings.TrimSpace(mapping[domain.AntigravityGemini31ProAgentModel])
+	if target == "" {
+		return
+	}
+
+	aliases := []struct {
+		model         string
+		legacyTargets map[string]struct{}
+	}{
+		{
+			model: "gemini-3.1-pro",
+			legacyTargets: map[string]struct{}{
+				"gemini-3.1-pro": {},
+			},
+		},
+		{
+			model: "gemini-3.1-pro-high",
+			legacyTargets: map[string]struct{}{
+				"gemini-3.1-pro-high": {},
+			},
+		},
+		{
+			model: "gemini-3.1-pro-preview",
+			legacyTargets: map[string]struct{}{
+				"gemini-3.1-pro-preview": {},
+				"gemini-3.1-pro-high":    {},
+			},
+		},
+	}
+
+	for _, alias := range aliases {
+		current, exists := mapping[alias.model]
+		if exists {
+			if _, legacy := alias.legacyTargets[current]; legacy {
+				mapping[alias.model] = target
+			}
+			continue
+		}
+		if mappingHasWildcardForModel(mapping, alias.model) {
+			continue
+		}
+		mapping[alias.model] = target
+	}
+}
+
+func mappingHasWildcardForModel(mapping map[string]string, model string) bool {
+	for pattern := range mapping {
+		if matchWildcard(pattern, model) {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 	trimmed := strings.TrimSpace(requestedModel)
 	if trimmed == "" {
 		return ""
-	}
-	if IsOpenAICompatPlatform(platform) {
-		if canonical := canonicalizeOpenAIModelAliasSpelling(trimmed); canonical != "" {
-			if alias := resolveOpenAICompatRoutingAlias(canonical); alias != "" {
-				return alias
-			}
-			return canonical
-		}
-	}
-	if canonical := normalizeGLMVolcengineDatedModelID(trimmed); canonical != "" {
-		return canonical
 	}
 	if platform != PlatformGemini && platform != PlatformAntigravity {
 		return trimmed
@@ -685,80 +763,28 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 }
 
 func mappingSupportsRequestedModel(mapping map[string]string, requestedModel string) bool {
-	_, matched := resolveRequestedModelInMapping(mapping, requestedModel)
-	return matched
+	if requestedModel == "" {
+		return false
+	}
+	if _, exists := mapping[requestedModel]; exists {
+		return true
+	}
+	for pattern := range mapping {
+		if matchWildcard(pattern, requestedModel) {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveRequestedModelInMapping(mapping map[string]string, requestedModel string) (mappedModel string, matched bool) {
-	requestedModel = strings.TrimSpace(requestedModel)
 	if requestedModel == "" {
 		return "", false
 	}
 	if mappedModel, exists := mapping[requestedModel]; exists {
 		return mappedModel, true
 	}
-	lookupKey := normalizeModelMappingLookupKey(requestedModel)
-	if lookupKey != "" && lookupKey != requestedModel {
-		if mappedModel, exists := mapping[lookupKey]; exists {
-			return mappedModel, true
-		}
-	}
-	if lookupKey != "" {
-		for _, key := range sortedModelMappingKeys(mapping) {
-			if key == requestedModel || key == lookupKey {
-				continue
-			}
-			if normalizeModelMappingLookupKey(key) == lookupKey {
-				return mapping[key], true
-			}
-		}
-	}
-	if mappedModel, matched := matchWildcardMappingResult(mapping, requestedModel); matched {
-		return mappedModel, true
-	}
-	if lookupKey != "" && lookupKey != requestedModel {
-		if mappedModel, matched := matchNormalizedWildcardMappingResult(mapping, lookupKey); matched {
-			return mappedModel, true
-		}
-	}
-	return requestedModel, false
-}
-
-func normalizeModelMappingLookupKey(model string) string {
-	return strings.ToLower(strings.TrimSpace(model))
-}
-
-func sortedModelMappingKeys(mapping map[string]string) []string {
-	keys := make([]string, 0, len(mapping))
-	for key := range mapping {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-func matchNormalizedWildcardMappingResult(mapping map[string]string, requestedModel string) (string, bool) {
-	type patternMatch struct {
-		pattern string
-		target  string
-	}
-	var matches []patternMatch
-	for pattern, target := range mapping {
-		normalizedPattern := normalizeModelMappingLookupKey(pattern)
-		if matchWildcard(normalizedPattern, requestedModel) {
-			matches = append(matches, patternMatch{pattern: pattern, target: target})
-		}
-	}
-	if len(matches) == 0 {
-		return requestedModel, false
-	}
-	sort.Slice(matches, func(i, j int) bool {
-		if len(matches[i].pattern) != len(matches[j].pattern) {
-			return len(matches[i].pattern) > len(matches[j].pattern)
-		}
-		return matches[i].pattern < matches[j].pattern
-	})
-	return matches[0].target, true
+	return matchWildcardMappingResult(mapping, requestedModel)
 }
 
 // IsModelSupported 检查模型是否在 model_mapping 中（支持通配符）
@@ -775,12 +801,6 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 	// credentials 里常残留旧的非空 model_mapping，若不在此放行，透传账号会被
 	// model_mapping 白名单错误排除出候选集，导致 no available accounts / 404（issue #4936）。
 	if a.IsOpenAIPassthroughEnabled() {
-		return true
-	}
-	if a.IsKiroMirrorStub() || a.IsKiro() {
-		return kiroMirrorStubSupportsModel(requestedModel)
-	}
-	if grokAccountServesNativeCatalogModel(a, requestedModel) {
 		return true
 	}
 	mapping := a.GetModelMapping()
@@ -900,24 +920,7 @@ func (a *Account) GetBaseURL() string {
 	}
 	baseURL := a.GetCredential("base_url")
 	if baseURL == "" {
-		// A blank base_url falls back to the Anthropic endpoint ONLY for accounts
-		// that actually speak it: the anthropic platform (and legacy rows with an
-		// empty platform string, which predate multi-platform support and were
-		// all anthropic). For any OTHER platform (newapi / openai / gemini / grok /
-		// kiro) silently returning the Anthropic host sends the request to the
-		// wrong upstream — e.g. a VolcEngine Ark account (platform=newapi,
-		// channel_type=45) with a blank base_url would POST to api.anthropic.com
-		// and return a baffling Anthropic 404/401. Return empty instead so the
-		// platform-specific resolver (newapi_bridge_usage Ark/OpenAI fallback) or a
-		// clean upstream failure applies. Create-time validation already requires
-		// base_url for newapi; this is the safety net for the update path and any
-		// legacy rows. Anthropic-context callers (gateway_service forward /
-		// count_tokens, upstream_models sync) already re-default empty to
-		// api.anthropic.com at their own call sites, so this is non-regressive.
-		if a.Platform == PlatformAnthropic || a.Platform == "" {
-			return "https://api.anthropic.com"
-		}
-		return ""
+		return "https://api.anthropic.com"
 	}
 	if a.Platform == PlatformAntigravity {
 		return strings.TrimRight(baseURL, "/") + "/antigravity"
@@ -1023,22 +1026,8 @@ func (a *Account) IsCustomErrorCodesEnabled() bool {
 	return false
 }
 
-// IsPoolMode 检查 API Key / Bedrock 账号是否启用池模式。
-// 池模式下：
-//   - 401 / 403 / 429（默认）或 per-account pool_mode_retry_status_codes 配置的
-//     状态码：在同账号 in-place retry N 次
-//     （N = GetPoolModeRetryCount，默认 3，最大 10；见 isPoolModeRetryableStatus）；
-//   - retry 全部用尽后由上层 failover 自然切下一账号。
-//
-// 「不写本地状态」只对**非 Anthropic** 平台成立：HandleUpstreamError 的 pool_mode
-// 跳过短路带 `&& Platform != PlatformAnthropic`（见 ratelimit_service.go），所以
-// **Anthropic 的 pool_mode 账号仍然走 handle429 + 3/3 阶梯冷却**——pool_mode 不豁免
-// anthropic 冷却。anthropic 侧真正的豁免是各 capacity / 非权威信封跳过：
-// tkSkipDownstreamNoAvailableAccountsPenalty / tkSkipDownstreamFailoverExhaustedPenalty /
-// tkIsAnthropicNonAuthoritative429（无 anthropic-ratelimit-* 头）。注意 pool_mode 的
-// 同账号重试此前会逐跳重喂 3/3 阶梯，故 tkRetryableOnSameAccount 对非权威 429 关掉重试。
-//
-// OAuth 账号永远返回 false（IsAPIKeyOrBedrock 前置）。
+// IsPoolMode 检查 API Key 账号是否启用池模式。
+// 池模式下，上游错误不标记本地账号状态，而是在同一账号上重试。
 func (a *Account) IsPoolMode() bool {
 	if !a.IsAPIKeyOrBedrock() || a.Credentials == nil {
 		return false
@@ -1052,19 +1041,12 @@ func (a *Account) IsPoolMode() bool {
 }
 
 const (
-	// defaultPoolModeRetryCount 默认同账号 retry 次数（每账号可在 UI 覆盖到 0..max）。
-	// 选择 3：与 admin UI 新建默认值一致；转发 stub → 上游账号池时给池内轮换更多机会。
 	defaultPoolModeRetryCount = 3
 	maxPoolModeRetryCount     = 10
 )
 
 // GetPoolModeRetryCount 返回池模式同账号重试次数。
 // 未配置或配置非法时回退为默认值 3；小于 0 按 0 处理；过大则截断到 10。
-//
-// 注意：非 pool_mode 账号也会拿到 defaultPoolModeRetryCount=3，但实际不被消费——
-// 各平台 gateway 路径中 `RetryableOnSameAccount` 都 gated on
-// `account.IsPoolMode()`（见 gateway_service.go / openai_gateway_*.go），
-// 因此非 pool_mode 账号的 same-account retry 不会触发。
 func (a *Account) GetPoolModeRetryCount() int {
 	if a == nil || !a.IsPoolMode() || a.Credentials == nil {
 		return defaultPoolModeRetryCount
@@ -1105,17 +1087,6 @@ func parsePoolModeRetryCount(value any) int {
 
 // defaultPoolModeRetryableStatusCodes 池模式下默认触发同账号重试的状态码。
 // 未在 Account.Credentials 中显式配置 pool_mode_retry_status_codes 时使用。
-//
-// 401 / 403 / 429: 上游池内当前命中的账号 token 失效 / 被封 / 限流，再打同
-// 一上游 URL 大概率轮换到下个池成员。
-//
-// 502 / 503 / 504 不在默认内：转发型拓扑（指向另一台 TokenKey / 兼容网关）
-// 的前置代理瞬时不可调度可能需要同账号重试，但默认开启会改变所有部署的行为，
-// 因此交由 per-account 的 pool_mode_retry_status_codes 显式配置（上游
-// configurable-retry 特性 21033dce）。
-//
-// 500 / 501 不在内：500 通常是上游业务 bug，501 是 Not Implemented，
-// 两者重试均无意义且会加剧 upstream 压力。
 var defaultPoolModeRetryableStatusCodes = []int{401, 403, 429}
 
 // isPoolModeRetryableStatus 池模式下应触发同账号重试的状态码（默认列表）。
@@ -1186,14 +1157,11 @@ func (a *Account) GetPoolModeRetryStatusCodes() []int {
 }
 
 // IsPoolModeRetryableStatus 在账号上下文中判断给定状态码是否应触发同账号重试。
-// 若账号未配置 pool_mode_retry_status_codes，则回退到 TK 默认列表
-// （tkDefaultPoolModeRetryableStatusCodes = {401,403,429,503,529}，见
-// account_tk_pool_retry.go；在 upstream {401,403,429} 上追加转发 stub 需要的
-// 503/529）。显式配置仍然优先覆盖（显式空列表可关闭全部）。
+// 若账号未配置 pool_mode_retry_status_codes，则回退到默认列表。
 func (a *Account) IsPoolModeRetryableStatus(statusCode int) bool {
 	codes := a.GetPoolModeRetryStatusCodes()
 	if codes == nil {
-		return tkIsPoolModeRetryableStatus(statusCode)
+		return isPoolModeRetryableStatus(statusCode)
 	}
 	for _, c := range codes {
 		if c == statusCode {
@@ -1308,24 +1276,7 @@ func (a *Account) IsOpenAIApiKey() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeAPIKey
 }
 
-// IsOpenAIAinzyRelay reports the single prod api.ainzy.net/v1 OpenAI apikey
-// account (id=76). Its servable set is probe-curated and must not inherit the
-// canonical OAuth-oriented OpenAI floor.
-func (a *Account) IsOpenAIAinzyRelay() bool {
-	if a == nil || !a.IsOpenAI() || a.Type != AccountTypeAPIKey {
-		return false
-	}
-	base := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(a.GetCredential("base_url"), "/")))
-	return base == "https://api.ainzy.net/v1" || base == "https://api.ainzy.net"
-}
-
 func (a *Account) GetOpenAIBaseURL() string {
-	if a == nil {
-		return ""
-	}
-	if a.IsGrokAPIKey() {
-		return a.GetCredential("base_url")
-	}
 	if !a.IsOpenAI() {
 		return ""
 	}
@@ -1365,20 +1316,18 @@ func (a *Account) GetGrokBaseURL() string {
 	}
 	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
 	if a.IsGrokOAuth() {
-		// Subscription traffic defaults to the supported CLI gateway. Stored
-		// official-host values (written by credential creation/refresh, or
-		// legacy variants) mean "not customized"; only an explicit custom-host
-		// forwarding address redirects traffic.
-		if baseURL == "" || xai.IsOfficialBaseURL(baseURL) {
+		// Operators switch subscription traffic between the official CLI
+		// gateway, the official/regional API hosts and third-party relays
+		// (individual endpoints go down from time to time), so a stored
+		// value is always honored as-is. Only empty or unparseable values
+		// fall back to the default CLI gateway.
+		if baseURL == "" || !xai.IsParseableBaseURL(baseURL) {
 			return xai.DefaultCLIBaseURL
 		}
-		return strings.TrimRight(baseURL, "/")
+		return baseURL
 	}
 	if baseURL != "" {
-		// TK: trim trailing slash so edge-relay base_url overrides (e.g.
-		// "https://api-us4.tokenkey.dev/") don't produce a doubled path segment
-		// when the chat-completions URL is built.
-		return strings.TrimRight(baseURL, "/")
+		return baseURL
 	}
 	return xai.DefaultBaseURL
 }
@@ -1392,12 +1341,6 @@ func (a *Account) GetGrokBaseURL() string {
 func (a *Account) GetGrokMediaBaseURL() string {
 	if !a.IsGrok() {
 		return ""
-	}
-	if a.IsGrokOAuth() {
-		rawBaseURL := strings.TrimSpace(a.GetCredential("base_url"))
-		if rawBaseURL != "" && xai.IsParseableBaseURL(rawBaseURL) && !isGrokCLIProxyTarget(rawBaseURL) {
-			return strings.TrimRight(rawBaseURL, "/")
-		}
 	}
 	baseURL := a.GetGrokBaseURL()
 	if a.IsGrokOAuth() && isGrokCLIProxyTarget(baseURL) {
@@ -1428,14 +1371,14 @@ func (a *Account) GetOpenAIIDToken() string {
 }
 
 func (a *Account) GetOpenAIApiKey() string {
-	if a == nil || (!a.IsOpenAIApiKey() && !a.IsGrokAPIKey()) {
+	if !a.IsOpenAIApiKey() {
 		return ""
 	}
 	return a.GetCredential("api_key")
 }
 
 func (a *Account) GetOpenAIUserAgent() string {
-	if a == nil || (!a.IsOpenAI() && !a.IsGrok()) {
+	if !a.IsOpenAI() {
 		return ""
 	}
 	return a.GetCredential("user_agent")
@@ -1506,6 +1449,10 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 			return true
 		case OpenAIEndpointCapabilityGrokMediaGeneration:
 			eligible, reason := a.GrokMediaGenerationEligibility()
+			// Unobserved OAuth accounts remain scheduler candidates only so the
+			// request path can run the billing probe before forwarding. The
+			// forwarding gate itself fails closed if that probe is unavailable or
+			// cannot produce positive paid-entitlement evidence.
 			return eligible || reason == "billing_unobserved"
 		default:
 			return false
@@ -1519,11 +1466,21 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 			!a.IsOpenAIPersonalAccessToken() &&
 			!a.IsOpenAIAgentIdentity()
 	case OpenAIEndpointCapabilityResponses:
+		// Responses 支持状态由 accounts.extra 的自动探测标记决定，而非
+		// credentials 能力集。已探测确认不支持 /v1/responses 的 APIKey 上游
+		// 必须排除——否则会在 forward 阶段被静默降级为 Chat Completions，
+		// 无法完成生图（#4417）。未探测/OAuth 账号保留旧行为（不排除）。
 		if a.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(a.Extra) {
 			return false
 		}
+		// 支持 Responses 的上游同样需具备 chat 能力：复用下方 chat_completions
+		// 配置集校验。
 		capability = OpenAIEndpointCapabilityChatCompletions
 	case OpenAIEndpointCapabilityAlphaSearch:
+		// alpha/search 的转发按账号类型分流：OAuth/PAT 走
+		// chatgpt.com/backend-api/codex/alpha/search，API key 走
+		// {base_url}/v1/alpha/search（见 openAIAlphaSearchURL），两类账号
+		// 都可承接独立搜索请求。上游不支持该端点时由转发层 failover 兜底。
 		if a.Type != AccountTypeOAuth && a.Type != AccountTypeAPIKey {
 			return false
 		}
@@ -1546,7 +1503,9 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 }
 
 // GrokMediaGenerationEligibility reports whether a Grok account may receive
-// new image/video generation requests.
+// new image/video generation requests. OAuth media fails closed unless billing
+// observations provide positive paid-entitlement evidence. An explicit
+// operator override takes precedence over probe data.
 func (a *Account) GrokMediaGenerationEligibility() (bool, string) {
 	if a == nil || !a.IsGrok() {
 		return false, "not_grok"
@@ -1640,18 +1599,11 @@ func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapabilit
 	if capability == "" {
 		return true
 	}
-	// openai / newapi / grok 走同一套 OpenAI 协议与 image 能力；用 compat-pool 平台
-	// 谓词作单一真值源（含 grok 第七平台），避免硬编码 openai||newapi 列表漏掉新平台。
-	// 历史 bug：只判 IsOpenAI()||newapi 时 grok 账号被 accountSupportsOpenAICapabilities
-	// 在每个 chat completions 选号上排除，导致 grok 全程 "no available accounts"。
-	if !IsOpenAICompatPlatform(a.Platform) {
+	if !a.IsOpenAI() {
 		return false
 	}
 	switch capability {
 	case OpenAIImagesCapabilityBasic, OpenAIImagesCapabilityNative:
-		if a.Platform == PlatformNewAPI && a.Type == AccountTypeServiceAccount {
-			return true
-		}
 		return a.Type == AccountTypeOAuth || a.Type == AccountTypeAPIKey
 	default:
 		return true
@@ -1939,17 +1891,6 @@ func (a *Account) IsAnthropicAPIKeyPassthroughEnabled() bool {
 	return ok && enabled
 }
 
-// IsAnthropicOAuthPassthroughEnabled 返回 Anthropic OAuth/setup-token 账号是否启用
-// 「自动透传（仅替换认证）」：跳过 fingerprint / mimic / canonical 等改写，仅替换
-// Authorization。字段：accounts.extra.anthropic_oauth_passthrough。
-func (a *Account) IsAnthropicOAuthPassthroughEnabled() bool {
-	if a == nil || a.Platform != PlatformAnthropic || !a.IsOAuth() || a.Extra == nil {
-		return false
-	}
-	enabled, ok := a.Extra["anthropic_oauth_passthrough"].(bool)
-	return ok && enabled
-}
-
 // WebSearch 模拟三态常量
 const (
 	WebSearchModeDefault  = "default"  // 跟随渠道配置
@@ -2007,6 +1948,18 @@ func (a *Account) IsCodexCLIOnlyAppServerAllowed() bool {
 	return ok && v
 }
 
+// WindowCostSchedulability 窗口费用调度状态
+type WindowCostSchedulability int
+
+const (
+	// WindowCostSchedulable 可正常调度
+	WindowCostSchedulable WindowCostSchedulability = iota
+	// WindowCostStickyOnly 仅允许粘性会话
+	WindowCostStickyOnly
+	// WindowCostNotSchedulable 完全不可调度
+	WindowCostNotSchedulable
+)
+
 // IsAnthropicOAuthOrSetupToken 判断是否为 Anthropic OAuth 或 SetupToken 类型账号
 // 仅这两类账号支持 5h 窗口额度控制和会话数量控制
 func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
@@ -2014,13 +1967,9 @@ func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
 }
 
 // IsTLSFingerprintEnabled 检查是否启用 TLS 指纹伪装
-// 适用于 Anthropic OAuth/SetupToken 账号（模拟 Claude Code Node.js 握手），
-// 以及 Kiro 账号（模拟真实 Kiro IDE 握手，见 account_tk_kiro.go）
+// 仅适用于 Anthropic OAuth/SetupToken 类型账号
+// 启用后将模拟 Claude Code (Node.js) 客户端的 TLS 握手特征
 func (a *Account) IsTLSFingerprintEnabled() bool {
-	// Kiro：默认开启，按名解析 tk_canonical_kiro_ide（详见 isKiroTLSFingerprintEnabled）
-	if a.IsKiro() {
-		return a.isKiroTLSFingerprintEnabled()
-	}
 	// 仅支持 Anthropic OAuth/SetupToken 账号
 	if !a.IsAnthropicOAuthOrSetupToken() {
 		return false
@@ -2645,6 +2594,33 @@ func (a *Account) IsQuotaExceeded() bool {
 	return false
 }
 
+// GetWindowCostLimit 获取 5h 窗口费用阈值（美元）
+// 返回 0 表示未启用
+func (a *Account) GetWindowCostLimit() float64 {
+	if a.Extra == nil {
+		return 0
+	}
+	if v, ok := a.Extra["window_cost_limit"]; ok {
+		return parseExtraFloat64(v)
+	}
+	return 0
+}
+
+// GetWindowCostStickyReserve 获取粘性会话预留额度（美元）
+// 默认值为 10
+func (a *Account) GetWindowCostStickyReserve() float64 {
+	if a.Extra == nil {
+		return 10.0
+	}
+	if v, ok := a.Extra["window_cost_sticky_reserve"]; ok {
+		val := parseExtraFloat64(v)
+		if val > 0 {
+			return val
+		}
+	}
+	return 10.0
+}
+
 // GetMaxSessions 获取最大并发会话数
 // 返回 0 表示未启用
 func (a *Account) GetMaxSessions() int {
@@ -2747,28 +2723,50 @@ func (a *Account) GetRPMStickyBuffer() int {
 }
 
 // CheckRPMSchedulability 根据当前 RPM 计数检查调度状态
-// 复用 WindowUtilSchedulability 三态：Schedulable / StickyOnly / NotSchedulable
-func (a *Account) CheckRPMSchedulability(currentRPM int) WindowUtilSchedulability {
+// 复用 WindowCostSchedulability 三态：Schedulable / StickyOnly / NotSchedulable
+func (a *Account) CheckRPMSchedulability(currentRPM int) WindowCostSchedulability {
 	baseRPM := a.GetBaseRPM()
 	if baseRPM <= 0 {
-		return WindowUtilSchedulable
+		return WindowCostSchedulable
 	}
 
 	if currentRPM < baseRPM {
-		return WindowUtilSchedulable
+		return WindowCostSchedulable
 	}
 
 	strategy := a.GetRPMStrategy()
 	if strategy == "sticky_exempt" {
-		return WindowUtilStickyOnly // 粘性豁免无红区
+		return WindowCostStickyOnly // 粘性豁免无红区
 	}
 
 	// tiered: 黄区 + 红区
 	buffer := a.GetRPMStickyBuffer()
 	if currentRPM < baseRPM+buffer {
-		return WindowUtilStickyOnly
+		return WindowCostStickyOnly
 	}
-	return WindowUtilNotSchedulable
+	return WindowCostNotSchedulable
+}
+
+// CheckWindowCostSchedulability 根据当前窗口费用检查调度状态
+// - 费用 < 阈值: WindowCostSchedulable（可正常调度）
+// - 费用 >= 阈值 且 < 阈值+预留: WindowCostStickyOnly（仅粘性会话）
+// - 费用 >= 阈值+预留: WindowCostNotSchedulable（不可调度）
+func (a *Account) CheckWindowCostSchedulability(currentWindowCost float64) WindowCostSchedulability {
+	limit := a.GetWindowCostLimit()
+	if limit <= 0 {
+		return WindowCostSchedulable
+	}
+
+	if currentWindowCost < limit {
+		return WindowCostSchedulable
+	}
+
+	stickyReserve := a.GetWindowCostStickyReserve()
+	if currentWindowCost < limit+stickyReserve {
+		return WindowCostStickyOnly
+	}
+
+	return WindowCostNotSchedulable
 }
 
 // GetCurrentWindowStartTime 获取当前有效的窗口开始时间

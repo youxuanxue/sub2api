@@ -20,18 +20,6 @@ type ClaudeRequest struct {
 	Tools       []ClaudeTool    `json:"tools,omitempty"`
 	Thinking    *ThinkingConfig `json:"thinking,omitempty"`
 	Metadata    *ClaudeMetadata `json:"metadata,omitempty"`
-	// ImageConfig is the TK gemini-native image aspect-ratio carrier. The OpenAI-compat
-	// inbound (extra_body.google.image_config.aspect_ratio) threads it onto the Anthropic
-	// /v1/messages body across the prod→edge relay; buildGenerationConfig reads it and emits
-	// generationConfig.imageConfig.aspectRatio to cloudcode-pa. Upstream honors all 10
-	// documented ratios (prod canary 2026-06-17); not a Claude-spec field.
-	ImageConfig *ClaudeImageConfig `json:"image_config,omitempty"`
-}
-
-// ClaudeImageConfig carries the gemini-native image aspect ratio from the OpenAI-compat
-// inbound to the Gemini image transform. AspectRatio is a code like "1:1" / "16:9".
-type ClaudeImageConfig struct {
-	AspectRatio string `json:"aspect_ratio,omitempty"`
 }
 
 // ClaudeMessage Claude 消息
@@ -165,9 +153,14 @@ type modelDef struct {
 
 // Antigravity 支持的 Claude 模型
 var claudeModels = []modelDef{
-	// 2026-07-07 live fetchAvailableModels for Antigravity cloudcode-pa exposes
-	// exactly these Claude ids on antigravity-oh1-ls-b; newer ids return 404.
+	{ID: "claude-fable-5", DisplayName: "Claude Fable 5", CreatedAt: "2026-06-09T00:00:00Z"},
+	{ID: "claude-opus-4-5-thinking", DisplayName: "Claude Opus 4.5 Thinking", CreatedAt: "2025-11-01T00:00:00Z"},
+	{ID: "claude-sonnet-4-5", DisplayName: "Claude Sonnet 4.5", CreatedAt: "2025-09-29T00:00:00Z"},
+	{ID: "claude-sonnet-4-5-thinking", DisplayName: "Claude Sonnet 4.5 Thinking", CreatedAt: "2025-09-29T00:00:00Z"},
+	{ID: "claude-opus-4-6", DisplayName: "Claude Opus 4.6", CreatedAt: "2026-02-05T00:00:00Z"},
 	{ID: "claude-opus-4-6-thinking", DisplayName: "Claude Opus 4.6 Thinking", CreatedAt: "2026-02-05T00:00:00Z"},
+	{ID: "claude-opus-4-7", DisplayName: "Claude Opus 4.7", CreatedAt: "2026-04-17T00:00:00Z"},
+	{ID: "claude-opus-4-8", DisplayName: "Claude Opus 4.8", CreatedAt: "2026-05-29T00:00:00Z"},
 	{ID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6", CreatedAt: "2026-02-17T00:00:00Z"},
 }
 
@@ -175,19 +168,23 @@ var claudeModels = []modelDef{
 var geminiModels = []modelDef{
 	{ID: "gemini-2.5-flash", DisplayName: "Gemini 2.5 Flash", CreatedAt: "2025-01-01T00:00:00Z"},
 	{ID: "gemini-2.5-flash-image", DisplayName: "Gemini 2.5 Flash Image", CreatedAt: "2025-01-01T00:00:00Z"},
+	{ID: "gemini-2.5-flash-image-preview", DisplayName: "Gemini 2.5 Flash Image Preview", CreatedAt: "2025-01-01T00:00:00Z"},
 	{ID: "gemini-2.5-flash-lite", DisplayName: "Gemini 2.5 Flash Lite", CreatedAt: "2025-01-01T00:00:00Z"},
 	{ID: "gemini-2.5-flash-thinking", DisplayName: "Gemini 2.5 Flash Thinking", CreatedAt: "2025-01-01T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3-flash", DisplayName: "Gemini 3 Flash", CreatedAt: "2025-06-01T00:00:00Z"},
-	{ID: "gemini-3-flash-agent", DisplayName: "Gemini 3.5 Flash (High)", CreatedAt: "2025-06-01T00:00:00Z", IsReasoning: true},
+	{ID: "gemini-3-pro-low", DisplayName: "Gemini 3 Pro Low", CreatedAt: "2025-06-01T00:00:00Z"},
+	{ID: "gemini-3-pro-high", DisplayName: "Gemini 3 Pro High", CreatedAt: "2025-06-01T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3.1-pro-low", DisplayName: "Gemini 3.1 Pro Low", CreatedAt: "2026-02-19T00:00:00Z"},
+	{ID: "gemini-3.1-pro-high", DisplayName: "Gemini 3.1 Pro High", CreatedAt: "2026-02-19T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3.1-flash-image", DisplayName: "Gemini 3.1 Flash Image", CreatedAt: "2026-02-19T00:00:00Z"},
 	{ID: "gemini-3.1-flash-image-preview", DisplayName: "Gemini 3.1 Flash Image Preview", CreatedAt: "2026-02-19T00:00:00Z"},
+	{ID: "gemini-3.6-flash", DisplayName: "Gemini 3.6 Flash", CreatedAt: "2026-07-21T00:00:00Z"},
+	{ID: "gemini-3.6-flash-high", DisplayName: "Gemini 3.6 Flash High", CreatedAt: "2026-07-21T00:00:00Z", IsReasoning: true},
+	{ID: "gemini-3.6-flash-low", DisplayName: "Gemini 3.6 Flash Low", CreatedAt: "2026-07-21T00:00:00Z", IsReasoning: true},
+	{ID: "gemini-3.6-flash-medium", DisplayName: "Gemini 3.6 Flash Medium", CreatedAt: "2026-07-21T00:00:00Z", IsReasoning: true},
+	{ID: "gemini-3.6-flash-tiered", DisplayName: "Gemini 3.6 Flash", CreatedAt: "2026-07-21T00:00:00Z", IsReasoning: true},
+	{ID: "gemini-3-pro-preview", DisplayName: "Gemini 3 Pro Preview", CreatedAt: "2025-06-01T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3-pro-image", DisplayName: "Gemini 3 Pro Image", CreatedAt: "2025-06-01T00:00:00Z"},
-	{ID: "gemini-3.5-flash", DisplayName: "Gemini 3.5 Flash", CreatedAt: "2026-06-27T00:00:00Z", IsReasoning: true},
-	{ID: "gemini-3.5-flash-low", DisplayName: "Gemini 3.5 Flash (Medium)", CreatedAt: "2026-06-27T00:00:00Z", IsReasoning: true},
-	{ID: "gemini-3.5-flash-extra-low", DisplayName: "Gemini 3.5 Flash (Low)", CreatedAt: "2026-06-27T00:00:00Z", IsReasoning: true},
-	{ID: "gemini-3.6-flash", DisplayName: "Gemini 3.6 Flash", CreatedAt: "2026-07-22T00:00:00Z", IsReasoning: true},
-	{ID: "gemini-pro-agent", DisplayName: "Gemini 3.1 Pro (High)", CreatedAt: "2026-02-19T00:00:00Z", IsReasoning: true},
 }
 
 // ========== Claude API 格式 (/v1/models) ==========
