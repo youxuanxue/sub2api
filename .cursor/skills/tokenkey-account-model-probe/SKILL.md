@@ -124,8 +124,8 @@ Useful options:
 
 The script emits one JSON object. Treat these fields as the decision surface:
 
-- `verdict=servable`: HTTP 2xx and `usage_logs` confirms `account_id == ACCOUNT_ID` (chat/messages/responses), or for `ENDPOINT=embeddings`/`count_tokens` a valid endpoint-specific 2xx body.
-- `verdict=wrong_account`: request succeeded but usage correlation shows a different account. This means the probe pool was not isolated or sticky/routing interfered.
+- `verdict=servable`: HTTP 2xx and `usage_logs` confirms `account_id == ACCOUNT_ID` (chat/messages/responses), or for `ENDPOINT=embeddings`/`count_tokens` a valid endpoint-specific 2xx body (embeddings may omit usage when logs lag).
+- `verdict=wrong_account`: request succeeded but `usage_logs` shows a different `account_id` (including `ENDPOINT=embeddings` when usage is present).
 - `verdict=gateway_rejected`: TokenKey rejected before upstream, usually model unsupported, no available accounts, billing/RPM, or request shape.
 - `verdict=upstream_rejected`: upstream reached but rejected auth/model/request.
 - `verdict=uncorrelated_success`: HTTP 2xx but no usage row was found in the poll window; inspect recent logs before trusting it.

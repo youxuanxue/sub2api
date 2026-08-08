@@ -111,6 +111,9 @@ fi
 if [[ -z "$MODEL" ]]; then
   fail_json "MODEL is required"
 fi
+if [[ ! -f "$SCRIPT_DIR/probe_account_model_verdict.py" ]]; then
+  fail_json "missing probe_account_model_verdict.py companion beside probe_account_model.sh"
+fi
 if [[ ! "$REQUEST_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$REQUEST_TIMEOUT_SECONDS" -lt 1 ]]; then
   fail_json "REQUEST_TIMEOUT_SECONDS must be a positive integer"
 fi
@@ -485,6 +488,7 @@ printf '%s' "$payload" >"$tmp_payload"
 
 PROBE_STARTED_AT="$("${PSQL[@]}" -c "SELECT to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"');" | tr -d '\n')"
 CLIENT_REQUEST_ID="$PROBE_ID"
+export PROBE_SCRIPT_DIR="$SCRIPT_DIR"
 http_code=""
 http_output=""
 if [[ "$AUTH_HEADER_NAME" == "x-api-key" ]]; then
@@ -591,47 +595,21 @@ try:
 except Exception:
     request_extra = {}
 
+import os
+import sys
+
+sys.path.insert(0, os.environ.get("PROBE_SCRIPT_DIR", "."))
+from probe_account_model_verdict import classify_probe_verdict
+
 def classify(code: str, body_text: str, usage_row, curl_err: str):
-    if not code or code == "000":
-        if curl_err:
-            return "setup_error"
-        return "gateway_rejected"
-    n = int(code)
-    low = body_text.lower()
-    if 200 <= n < 300:
-        if endpoint == "count_tokens":
-            return "servable"
-        if endpoint == "embeddings":
-            try:
-                parsed = json.loads(body_text)
-                data = parsed.get("data")
-                if (
-                    isinstance(data, list)
-                    and data
-                    and isinstance(data[0], dict)
-                    and "embedding" in data[0]
-                ):
-                    return "servable"
-            except Exception:
-                pass
-            return "uncorrelated_success"
-        if usage_row and int(usage_row.get("account_id") or 0) == int(target["id"]):
-            return "servable"
-        if usage_row:
-            return "wrong_account"
-        return "uncorrelated_success"
-    if n in (401, 403):
-        return "upstream_rejected"
-    if n == 429 and "no available accounts" in low:
-        return "gateway_rejected"
-    # Keep "Unsupported model: X" (TokenKey local floor/model_mapping rejection)
-    # as gateway_rejected. Platform-specific "not supported" errors mean the
-    # upstream path was reached and rejected the account/model/request.
-    if n in (400, 404) and any(s in low for s in ["invalid model", "model_not_found", "not supported", "does not exist", "not a valid"]):
-        return "upstream_rejected"
-    if n >= 500:
-        return "gateway_rejected"
-    return "gateway_rejected"
+    return classify_probe_verdict(
+        endpoint=endpoint,
+        http_code=code,
+        body_text=body_text,
+        target_account_id=int(target["id"]),
+        usage_row=usage_row,
+        curl_err=curl_err,
+    )
 
 log_lines = []
 for line in logs.splitlines():
