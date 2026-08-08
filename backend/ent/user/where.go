@@ -170,19 +170,9 @@ func TotalRecharged(v float64) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldTotalRecharged, v))
 }
 
-// OnboardingTourSeenAt applies equality check predicate on the "onboarding_tour_seen_at" field. It's identical to OnboardingTourSeenAtEQ.
-func OnboardingTourSeenAt(v time.Time) predicate.User {
-	return predicate.User(sql.FieldEQ(FieldOnboardingTourSeenAt, v))
-}
-
 // RpmLimit applies equality check predicate on the "rpm_limit" field. It's identical to RpmLimitEQ.
 func RpmLimit(v int) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldRpmLimit, v))
-}
-
-// TrajExportEnabled applies equality check predicate on the "traj_export_enabled" field. It's identical to TrajExportEnabledEQ.
-func TrajExportEnabled(v bool) predicate.User {
-	return predicate.User(sql.FieldEQ(FieldTrajExportEnabled, v))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
@@ -1355,56 +1345,6 @@ func TotalRechargedLTE(v float64) predicate.User {
 	return predicate.User(sql.FieldLTE(FieldTotalRecharged, v))
 }
 
-// OnboardingTourSeenAtEQ applies the EQ predicate on the "onboarding_tour_seen_at" field.
-func OnboardingTourSeenAtEQ(v time.Time) predicate.User {
-	return predicate.User(sql.FieldEQ(FieldOnboardingTourSeenAt, v))
-}
-
-// OnboardingTourSeenAtNEQ applies the NEQ predicate on the "onboarding_tour_seen_at" field.
-func OnboardingTourSeenAtNEQ(v time.Time) predicate.User {
-	return predicate.User(sql.FieldNEQ(FieldOnboardingTourSeenAt, v))
-}
-
-// OnboardingTourSeenAtIn applies the In predicate on the "onboarding_tour_seen_at" field.
-func OnboardingTourSeenAtIn(vs ...time.Time) predicate.User {
-	return predicate.User(sql.FieldIn(FieldOnboardingTourSeenAt, vs...))
-}
-
-// OnboardingTourSeenAtNotIn applies the NotIn predicate on the "onboarding_tour_seen_at" field.
-func OnboardingTourSeenAtNotIn(vs ...time.Time) predicate.User {
-	return predicate.User(sql.FieldNotIn(FieldOnboardingTourSeenAt, vs...))
-}
-
-// OnboardingTourSeenAtGT applies the GT predicate on the "onboarding_tour_seen_at" field.
-func OnboardingTourSeenAtGT(v time.Time) predicate.User {
-	return predicate.User(sql.FieldGT(FieldOnboardingTourSeenAt, v))
-}
-
-// OnboardingTourSeenAtGTE applies the GTE predicate on the "onboarding_tour_seen_at" field.
-func OnboardingTourSeenAtGTE(v time.Time) predicate.User {
-	return predicate.User(sql.FieldGTE(FieldOnboardingTourSeenAt, v))
-}
-
-// OnboardingTourSeenAtLT applies the LT predicate on the "onboarding_tour_seen_at" field.
-func OnboardingTourSeenAtLT(v time.Time) predicate.User {
-	return predicate.User(sql.FieldLT(FieldOnboardingTourSeenAt, v))
-}
-
-// OnboardingTourSeenAtLTE applies the LTE predicate on the "onboarding_tour_seen_at" field.
-func OnboardingTourSeenAtLTE(v time.Time) predicate.User {
-	return predicate.User(sql.FieldLTE(FieldOnboardingTourSeenAt, v))
-}
-
-// OnboardingTourSeenAtIsNil applies the IsNil predicate on the "onboarding_tour_seen_at" field.
-func OnboardingTourSeenAtIsNil() predicate.User {
-	return predicate.User(sql.FieldIsNull(FieldOnboardingTourSeenAt))
-}
-
-// OnboardingTourSeenAtNotNil applies the NotNil predicate on the "onboarding_tour_seen_at" field.
-func OnboardingTourSeenAtNotNil() predicate.User {
-	return predicate.User(sql.FieldNotNull(FieldOnboardingTourSeenAt))
-}
-
 // RpmLimitEQ applies the EQ predicate on the "rpm_limit" field.
 func RpmLimitEQ(v int) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldRpmLimit, v))
@@ -1443,16 +1383,6 @@ func RpmLimitLT(v int) predicate.User {
 // RpmLimitLTE applies the LTE predicate on the "rpm_limit" field.
 func RpmLimitLTE(v int) predicate.User {
 	return predicate.User(sql.FieldLTE(FieldRpmLimit, v))
-}
-
-// TrajExportEnabledEQ applies the EQ predicate on the "traj_export_enabled" field.
-func TrajExportEnabledEQ(v bool) predicate.User {
-	return predicate.User(sql.FieldEQ(FieldTrajExportEnabled, v))
-}
-
-// TrajExportEnabledNEQ applies the NEQ predicate on the "traj_export_enabled" field.
-func TrajExportEnabledNEQ(v bool) predicate.User {
-	return predicate.User(sql.FieldNEQ(FieldTrajExportEnabled, v))
 }
 
 // HasAPIKeys applies the HasEdge predicate on the "api_keys" edge.

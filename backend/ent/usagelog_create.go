@@ -449,20 +449,6 @@ func (_c *UsageLogCreate) SetNillableDurationMs(v *int) *UsageLogCreate {
 	return _c
 }
 
-// SetGatewayLatencyMs sets the "gateway_latency_ms" field.
-func (_c *UsageLogCreate) SetGatewayLatencyMs(v int) *UsageLogCreate {
-	_c.mutation.SetGatewayLatencyMs(v)
-	return _c
-}
-
-// SetNillableGatewayLatencyMs sets the "gateway_latency_ms" field if the given value is not nil.
-func (_c *UsageLogCreate) SetNillableGatewayLatencyMs(v *int) *UsageLogCreate {
-	if v != nil {
-		_c.SetGatewayLatencyMs(*v)
-	}
-	return _c
-}
-
 // SetFirstTokenMs sets the "first_token_ms" field.
 func (_c *UsageLogCreate) SetFirstTokenMs(v int) *UsageLogCreate {
 	_c.mutation.SetFirstTokenMs(v)
@@ -581,14 +567,42 @@ func (_c *UsageLogCreate) SetImageSizeBreakdown(v map[string]int) *UsageLogCreat
 	return _c
 }
 
+// SetVideoCount sets the "video_count" field.
+func (_c *UsageLogCreate) SetVideoCount(v int) *UsageLogCreate {
+	_c.mutation.SetVideoCount(v)
+	return _c
+}
+
+// SetNillableVideoCount sets the "video_count" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableVideoCount(v *int) *UsageLogCreate {
+	if v != nil {
+		_c.SetVideoCount(*v)
+	}
+	return _c
+}
+
+// SetVideoResolution sets the "video_resolution" field.
+func (_c *UsageLogCreate) SetVideoResolution(v string) *UsageLogCreate {
+	_c.mutation.SetVideoResolution(v)
+	return _c
+}
+
+// SetNillableVideoResolution sets the "video_resolution" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableVideoResolution(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetVideoResolution(*v)
+	}
+	return _c
+}
+
 // SetVideoDurationSeconds sets the "video_duration_seconds" field.
-func (_c *UsageLogCreate) SetVideoDurationSeconds(v int64) *UsageLogCreate {
+func (_c *UsageLogCreate) SetVideoDurationSeconds(v int) *UsageLogCreate {
 	_c.mutation.SetVideoDurationSeconds(v)
 	return _c
 }
 
 // SetNillableVideoDurationSeconds sets the "video_duration_seconds" field if the given value is not nil.
-func (_c *UsageLogCreate) SetNillableVideoDurationSeconds(v *int64) *UsageLogCreate {
+func (_c *UsageLogCreate) SetNillableVideoDurationSeconds(v *int) *UsageLogCreate {
 	if v != nil {
 		_c.SetVideoDurationSeconds(*v)
 	}
@@ -751,6 +765,10 @@ func (_c *UsageLogCreate) defaults() {
 		v := usagelog.DefaultImageCount
 		_c.mutation.SetImageCount(v)
 	}
+	if _, ok := _c.mutation.VideoCount(); !ok {
+		v := usagelog.DefaultVideoCount
+		_c.mutation.SetVideoCount(v)
+	}
 	if _, ok := _c.mutation.CacheTTLOverridden(); !ok {
 		v := usagelog.DefaultCacheTTLOverridden
 		_c.mutation.SetCacheTTLOverridden(v)
@@ -897,6 +915,14 @@ func (_c *UsageLogCreate) check() error {
 	if v, ok := _c.mutation.ImageSizeSource(); ok {
 		if err := usagelog.ImageSizeSourceValidator(v); err != nil {
 			return &ValidationError{Name: "image_size_source", err: fmt.Errorf(`ent: validator failed for field "UsageLog.image_size_source": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.VideoCount(); !ok {
+		return &ValidationError{Name: "video_count", err: errors.New(`ent: missing required field "UsageLog.video_count"`)}
+	}
+	if v, ok := _c.mutation.VideoResolution(); ok {
+		if err := usagelog.VideoResolutionValidator(v); err != nil {
+			return &ValidationError{Name: "video_resolution", err: fmt.Errorf(`ent: validator failed for field "UsageLog.video_resolution": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.CacheTTLOverridden(); !ok {
@@ -1053,10 +1079,6 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 		_spec.SetField(usagelog.FieldDurationMs, field.TypeInt, value)
 		_node.DurationMs = &value
 	}
-	if value, ok := _c.mutation.GatewayLatencyMs(); ok {
-		_spec.SetField(usagelog.FieldGatewayLatencyMs, field.TypeInt, value)
-		_node.GatewayLatencyMs = &value
-	}
 	if value, ok := _c.mutation.FirstTokenMs(); ok {
 		_spec.SetField(usagelog.FieldFirstTokenMs, field.TypeInt, value)
 		_node.FirstTokenMs = &value
@@ -1093,8 +1115,16 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 		_spec.SetField(usagelog.FieldImageSizeBreakdown, field.TypeJSON, value)
 		_node.ImageSizeBreakdown = value
 	}
+	if value, ok := _c.mutation.VideoCount(); ok {
+		_spec.SetField(usagelog.FieldVideoCount, field.TypeInt, value)
+		_node.VideoCount = value
+	}
+	if value, ok := _c.mutation.VideoResolution(); ok {
+		_spec.SetField(usagelog.FieldVideoResolution, field.TypeString, value)
+		_node.VideoResolution = &value
+	}
 	if value, ok := _c.mutation.VideoDurationSeconds(); ok {
-		_spec.SetField(usagelog.FieldVideoDurationSeconds, field.TypeInt64, value)
+		_spec.SetField(usagelog.FieldVideoDurationSeconds, field.TypeInt, value)
 		_node.VideoDurationSeconds = &value
 	}
 	if value, ok := _c.mutation.CacheTTLOverridden(); ok {
@@ -1812,30 +1842,6 @@ func (u *UsageLogUpsert) ClearDurationMs() *UsageLogUpsert {
 	return u
 }
 
-// SetGatewayLatencyMs sets the "gateway_latency_ms" field.
-func (u *UsageLogUpsert) SetGatewayLatencyMs(v int) *UsageLogUpsert {
-	u.Set(usagelog.FieldGatewayLatencyMs, v)
-	return u
-}
-
-// UpdateGatewayLatencyMs sets the "gateway_latency_ms" field to the value that was provided on create.
-func (u *UsageLogUpsert) UpdateGatewayLatencyMs() *UsageLogUpsert {
-	u.SetExcluded(usagelog.FieldGatewayLatencyMs)
-	return u
-}
-
-// AddGatewayLatencyMs adds v to the "gateway_latency_ms" field.
-func (u *UsageLogUpsert) AddGatewayLatencyMs(v int) *UsageLogUpsert {
-	u.Add(usagelog.FieldGatewayLatencyMs, v)
-	return u
-}
-
-// ClearGatewayLatencyMs clears the value of the "gateway_latency_ms" field.
-func (u *UsageLogUpsert) ClearGatewayLatencyMs() *UsageLogUpsert {
-	u.SetNull(usagelog.FieldGatewayLatencyMs)
-	return u
-}
-
 // SetFirstTokenMs sets the "first_token_ms" field.
 func (u *UsageLogUpsert) SetFirstTokenMs(v int) *UsageLogUpsert {
 	u.Set(usagelog.FieldFirstTokenMs, v)
@@ -2004,8 +2010,44 @@ func (u *UsageLogUpsert) ClearImageSizeBreakdown() *UsageLogUpsert {
 	return u
 }
 
+// SetVideoCount sets the "video_count" field.
+func (u *UsageLogUpsert) SetVideoCount(v int) *UsageLogUpsert {
+	u.Set(usagelog.FieldVideoCount, v)
+	return u
+}
+
+// UpdateVideoCount sets the "video_count" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateVideoCount() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldVideoCount)
+	return u
+}
+
+// AddVideoCount adds v to the "video_count" field.
+func (u *UsageLogUpsert) AddVideoCount(v int) *UsageLogUpsert {
+	u.Add(usagelog.FieldVideoCount, v)
+	return u
+}
+
+// SetVideoResolution sets the "video_resolution" field.
+func (u *UsageLogUpsert) SetVideoResolution(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldVideoResolution, v)
+	return u
+}
+
+// UpdateVideoResolution sets the "video_resolution" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateVideoResolution() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldVideoResolution)
+	return u
+}
+
+// ClearVideoResolution clears the value of the "video_resolution" field.
+func (u *UsageLogUpsert) ClearVideoResolution() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldVideoResolution)
+	return u
+}
+
 // SetVideoDurationSeconds sets the "video_duration_seconds" field.
-func (u *UsageLogUpsert) SetVideoDurationSeconds(v int64) *UsageLogUpsert {
+func (u *UsageLogUpsert) SetVideoDurationSeconds(v int) *UsageLogUpsert {
 	u.Set(usagelog.FieldVideoDurationSeconds, v)
 	return u
 }
@@ -2017,7 +2059,7 @@ func (u *UsageLogUpsert) UpdateVideoDurationSeconds() *UsageLogUpsert {
 }
 
 // AddVideoDurationSeconds adds v to the "video_duration_seconds" field.
-func (u *UsageLogUpsert) AddVideoDurationSeconds(v int64) *UsageLogUpsert {
+func (u *UsageLogUpsert) AddVideoDurationSeconds(v int) *UsageLogUpsert {
 	u.Add(usagelog.FieldVideoDurationSeconds, v)
 	return u
 }
@@ -2750,34 +2792,6 @@ func (u *UsageLogUpsertOne) ClearDurationMs() *UsageLogUpsertOne {
 	})
 }
 
-// SetGatewayLatencyMs sets the "gateway_latency_ms" field.
-func (u *UsageLogUpsertOne) SetGatewayLatencyMs(v int) *UsageLogUpsertOne {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.SetGatewayLatencyMs(v)
-	})
-}
-
-// AddGatewayLatencyMs adds v to the "gateway_latency_ms" field.
-func (u *UsageLogUpsertOne) AddGatewayLatencyMs(v int) *UsageLogUpsertOne {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.AddGatewayLatencyMs(v)
-	})
-}
-
-// UpdateGatewayLatencyMs sets the "gateway_latency_ms" field to the value that was provided on create.
-func (u *UsageLogUpsertOne) UpdateGatewayLatencyMs() *UsageLogUpsertOne {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.UpdateGatewayLatencyMs()
-	})
-}
-
-// ClearGatewayLatencyMs clears the value of the "gateway_latency_ms" field.
-func (u *UsageLogUpsertOne) ClearGatewayLatencyMs() *UsageLogUpsertOne {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.ClearGatewayLatencyMs()
-	})
-}
-
 // SetFirstTokenMs sets the "first_token_ms" field.
 func (u *UsageLogUpsertOne) SetFirstTokenMs(v int) *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
@@ -2974,15 +2988,57 @@ func (u *UsageLogUpsertOne) ClearImageSizeBreakdown() *UsageLogUpsertOne {
 	})
 }
 
+// SetVideoCount sets the "video_count" field.
+func (u *UsageLogUpsertOne) SetVideoCount(v int) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetVideoCount(v)
+	})
+}
+
+// AddVideoCount adds v to the "video_count" field.
+func (u *UsageLogUpsertOne) AddVideoCount(v int) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddVideoCount(v)
+	})
+}
+
+// UpdateVideoCount sets the "video_count" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateVideoCount() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateVideoCount()
+	})
+}
+
+// SetVideoResolution sets the "video_resolution" field.
+func (u *UsageLogUpsertOne) SetVideoResolution(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetVideoResolution(v)
+	})
+}
+
+// UpdateVideoResolution sets the "video_resolution" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateVideoResolution() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateVideoResolution()
+	})
+}
+
+// ClearVideoResolution clears the value of the "video_resolution" field.
+func (u *UsageLogUpsertOne) ClearVideoResolution() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearVideoResolution()
+	})
+}
+
 // SetVideoDurationSeconds sets the "video_duration_seconds" field.
-func (u *UsageLogUpsertOne) SetVideoDurationSeconds(v int64) *UsageLogUpsertOne {
+func (u *UsageLogUpsertOne) SetVideoDurationSeconds(v int) *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.SetVideoDurationSeconds(v)
 	})
 }
 
 // AddVideoDurationSeconds adds v to the "video_duration_seconds" field.
-func (u *UsageLogUpsertOne) AddVideoDurationSeconds(v int64) *UsageLogUpsertOne {
+func (u *UsageLogUpsertOne) AddVideoDurationSeconds(v int) *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.AddVideoDurationSeconds(v)
 	})
@@ -3892,34 +3948,6 @@ func (u *UsageLogUpsertBulk) ClearDurationMs() *UsageLogUpsertBulk {
 	})
 }
 
-// SetGatewayLatencyMs sets the "gateway_latency_ms" field.
-func (u *UsageLogUpsertBulk) SetGatewayLatencyMs(v int) *UsageLogUpsertBulk {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.SetGatewayLatencyMs(v)
-	})
-}
-
-// AddGatewayLatencyMs adds v to the "gateway_latency_ms" field.
-func (u *UsageLogUpsertBulk) AddGatewayLatencyMs(v int) *UsageLogUpsertBulk {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.AddGatewayLatencyMs(v)
-	})
-}
-
-// UpdateGatewayLatencyMs sets the "gateway_latency_ms" field to the value that was provided on create.
-func (u *UsageLogUpsertBulk) UpdateGatewayLatencyMs() *UsageLogUpsertBulk {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.UpdateGatewayLatencyMs()
-	})
-}
-
-// ClearGatewayLatencyMs clears the value of the "gateway_latency_ms" field.
-func (u *UsageLogUpsertBulk) ClearGatewayLatencyMs() *UsageLogUpsertBulk {
-	return u.Update(func(s *UsageLogUpsert) {
-		s.ClearGatewayLatencyMs()
-	})
-}
-
 // SetFirstTokenMs sets the "first_token_ms" field.
 func (u *UsageLogUpsertBulk) SetFirstTokenMs(v int) *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
@@ -4116,15 +4144,57 @@ func (u *UsageLogUpsertBulk) ClearImageSizeBreakdown() *UsageLogUpsertBulk {
 	})
 }
 
+// SetVideoCount sets the "video_count" field.
+func (u *UsageLogUpsertBulk) SetVideoCount(v int) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetVideoCount(v)
+	})
+}
+
+// AddVideoCount adds v to the "video_count" field.
+func (u *UsageLogUpsertBulk) AddVideoCount(v int) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddVideoCount(v)
+	})
+}
+
+// UpdateVideoCount sets the "video_count" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateVideoCount() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateVideoCount()
+	})
+}
+
+// SetVideoResolution sets the "video_resolution" field.
+func (u *UsageLogUpsertBulk) SetVideoResolution(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetVideoResolution(v)
+	})
+}
+
+// UpdateVideoResolution sets the "video_resolution" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateVideoResolution() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateVideoResolution()
+	})
+}
+
+// ClearVideoResolution clears the value of the "video_resolution" field.
+func (u *UsageLogUpsertBulk) ClearVideoResolution() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearVideoResolution()
+	})
+}
+
 // SetVideoDurationSeconds sets the "video_duration_seconds" field.
-func (u *UsageLogUpsertBulk) SetVideoDurationSeconds(v int64) *UsageLogUpsertBulk {
+func (u *UsageLogUpsertBulk) SetVideoDurationSeconds(v int) *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.SetVideoDurationSeconds(v)
 	})
 }
 
 // AddVideoDurationSeconds adds v to the "video_duration_seconds" field.
-func (u *UsageLogUpsertBulk) AddVideoDurationSeconds(v int64) *UsageLogUpsertBulk {
+func (u *UsageLogUpsertBulk) AddVideoDurationSeconds(v int) *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.AddVideoDurationSeconds(v)
 	})

@@ -53,14 +53,10 @@ func (UsageLog) Fields() []ent.Field {
 			MaxLen(100).
 			Optional().
 			Nillable(),
-		// UpstreamResponseModel stores the model name declared by the upstream
-		// response before any protocol conversion or client-facing rewrite.
 		field.String("upstream_response_model").
 			MaxLen(200).
 			Optional().
 			Nillable(),
-		// UpstreamModelMismatch is tri-state: NULL means the upstream response did
-		// not declare a model (or predates this field); false/true means observed.
 		field.Bool("upstream_model_mismatch").
 			Optional().
 			Nillable(),

@@ -63,9 +63,6 @@ type IdempotencyRecord func(*sql.Selector)
 // IdentityAdoptionDecision is the predicate function for identityadoptiondecision builders.
 type IdentityAdoptionDecision func(*sql.Selector)
 
-// ModelAvailability is the predicate function for modelavailability builders.
-type ModelAvailability func(*sql.Selector)
-
 // PaymentAuditLog is the predicate function for paymentauditlog builders.
 type PaymentAuditLog func(*sql.Selector)
 
@@ -87,15 +84,6 @@ type PromoCodeUsage func(*sql.Selector)
 // Proxy is the predicate function for proxy builders.
 type Proxy func(*sql.Selector)
 
-// QAArchiveShard is the predicate function for qaarchiveshard builders.
-type QAArchiveShard func(*sql.Selector)
-
-// QAExportJob is the predicate function for qaexportjob builders.
-type QAExportJob func(*sql.Selector)
-
-// QARecord is the predicate function for qarecord builders.
-type QARecord func(*sql.Selector)
-
 // RedeemCode is the predicate function for redeemcode builders.
 type RedeemCode func(*sql.Selector)
 
@@ -110,9 +98,6 @@ type SubscriptionPlan func(*sql.Selector)
 
 // TLSFingerprintProfile is the predicate function for tlsfingerprintprofile builders.
 type TLSFingerprintProfile func(*sql.Selector)
-
-// Tier is the predicate function for tier builders.
-type Tier func(*sql.Selector)
 
 // UsageCleanupTask is the predicate function for usagecleanuptask builders.
 type UsageCleanupTask func(*sql.Selector)

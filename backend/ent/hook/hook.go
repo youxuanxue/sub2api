@@ -237,18 +237,6 @@ func (f IdentityAdoptionDecisionFunc) Mutate(ctx context.Context, m ent.Mutation
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IdentityAdoptionDecisionMutation", m)
 }
 
-// The ModelAvailabilityFunc type is an adapter to allow the use of ordinary
-// function as ModelAvailability mutator.
-type ModelAvailabilityFunc func(context.Context, *ent.ModelAvailabilityMutation) (ent.Value, error)
-
-// Mutate calls f(ctx, m).
-func (f ModelAvailabilityFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
-	if mv, ok := m.(*ent.ModelAvailabilityMutation); ok {
-		return f(ctx, mv)
-	}
-	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ModelAvailabilityMutation", m)
-}
-
 // The PaymentAuditLogFunc type is an adapter to allow the use of ordinary
 // function as PaymentAuditLog mutator.
 type PaymentAuditLogFunc func(context.Context, *ent.PaymentAuditLogMutation) (ent.Value, error)
@@ -333,42 +321,6 @@ func (f ProxyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ProxyMutation", m)
 }
 
-// The QAArchiveShardFunc type is an adapter to allow the use of ordinary
-// function as QAArchiveShard mutator.
-type QAArchiveShardFunc func(context.Context, *ent.QAArchiveShardMutation) (ent.Value, error)
-
-// Mutate calls f(ctx, m).
-func (f QAArchiveShardFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
-	if mv, ok := m.(*ent.QAArchiveShardMutation); ok {
-		return f(ctx, mv)
-	}
-	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.QAArchiveShardMutation", m)
-}
-
-// The QAExportJobFunc type is an adapter to allow the use of ordinary
-// function as QAExportJob mutator.
-type QAExportJobFunc func(context.Context, *ent.QAExportJobMutation) (ent.Value, error)
-
-// Mutate calls f(ctx, m).
-func (f QAExportJobFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
-	if mv, ok := m.(*ent.QAExportJobMutation); ok {
-		return f(ctx, mv)
-	}
-	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.QAExportJobMutation", m)
-}
-
-// The QARecordFunc type is an adapter to allow the use of ordinary
-// function as QARecord mutator.
-type QARecordFunc func(context.Context, *ent.QARecordMutation) (ent.Value, error)
-
-// Mutate calls f(ctx, m).
-func (f QARecordFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
-	if mv, ok := m.(*ent.QARecordMutation); ok {
-		return f(ctx, mv)
-	}
-	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.QARecordMutation", m)
-}
-
 // The RedeemCodeFunc type is an adapter to allow the use of ordinary
 // function as RedeemCode mutator.
 type RedeemCodeFunc func(context.Context, *ent.RedeemCodeMutation) (ent.Value, error)
@@ -427,18 +379,6 @@ func (f TLSFingerprintProfileFunc) Mutate(ctx context.Context, m ent.Mutation) (
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.TLSFingerprintProfileMutation", m)
-}
-
-// The TierFunc type is an adapter to allow the use of ordinary
-// function as Tier mutator.
-type TierFunc func(context.Context, *ent.TierMutation) (ent.Value, error)
-
-// Mutate calls f(ctx, m).
-func (f TierFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
-	if mv, ok := m.(*ent.TierMutation); ok {
-		return f(ctx, mv)
-	}
-	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.TierMutation", m)
 }
 
 // The UsageCleanupTaskFunc type is an adapter to allow the use of ordinary

@@ -197,18 +197,6 @@ func (Account) Fields() []ent.Field {
 			Nillable().
 			MaxLen(20),
 
-		// channel_type: New API adaptor channel type (>0 selects adaptor; 0 = legacy path)
-		field.Int("channel_type").
-			Default(0),
-
-		// tier_id: TokenKey anthropic OAuth 稳定性档位引用（可空）。
-		// 绑定到 tiers 表，运行时按 id 解析 per-tier 配置（base_rpm / max_sessions /
-		// rpm_sticky_buffer 等）。仅 anthropic OAuth 账号使用；apikey / 其它平台为 NULL。
-		field.Int64("tier_id").
-			Optional().
-			Nillable().
-			Comment("TK: bound anthropic-oauth stability tier id (tiers table)."),
-
 		field.Int64("parent_account_id").Optional().Nillable().
 			Comment("Parent account id for a linked spark shadow (NULL = normal)."),
 		field.Enum("quota_dimension").Values("global", "spark").Default("global").
@@ -260,7 +248,6 @@ func (Account) Indexes() []ent.Index {
 		index.Fields("platform", "priority"),
 		index.Fields("priority", "status"),
 		index.Fields("deleted_at"), // 软删除查询优化
-		index.Fields("tier_id"),    // TK: 按 tier 反查引用账号（reconciler 值同步）
 		index.Fields("parent_account_id"),
 	}
 }

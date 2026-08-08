@@ -530,54 +530,6 @@ func (_u *AccountUpdate) ClearSessionWindowStatus() *AccountUpdate {
 	return _u
 }
 
-// SetChannelType sets the "channel_type" field.
-func (_u *AccountUpdate) SetChannelType(v int) *AccountUpdate {
-	_u.mutation.ResetChannelType()
-	_u.mutation.SetChannelType(v)
-	return _u
-}
-
-// SetNillableChannelType sets the "channel_type" field if the given value is not nil.
-func (_u *AccountUpdate) SetNillableChannelType(v *int) *AccountUpdate {
-	if v != nil {
-		_u.SetChannelType(*v)
-	}
-	return _u
-}
-
-// AddChannelType adds value to the "channel_type" field.
-func (_u *AccountUpdate) AddChannelType(v int) *AccountUpdate {
-	_u.mutation.AddChannelType(v)
-	return _u
-}
-
-// SetTierID sets the "tier_id" field.
-func (_u *AccountUpdate) SetTierID(v int64) *AccountUpdate {
-	_u.mutation.ResetTierID()
-	_u.mutation.SetTierID(v)
-	return _u
-}
-
-// SetNillableTierID sets the "tier_id" field if the given value is not nil.
-func (_u *AccountUpdate) SetNillableTierID(v *int64) *AccountUpdate {
-	if v != nil {
-		_u.SetTierID(*v)
-	}
-	return _u
-}
-
-// AddTierID adds value to the "tier_id" field.
-func (_u *AccountUpdate) AddTierID(v int64) *AccountUpdate {
-	_u.mutation.AddTierID(v)
-	return _u
-}
-
-// ClearTierID clears the value of the "tier_id" field.
-func (_u *AccountUpdate) ClearTierID() *AccountUpdate {
-	_u.mutation.ClearTierID()
-	return _u
-}
-
 // SetParentAccountID sets the "parent_account_id" field.
 func (_u *AccountUpdate) SetParentAccountID(v int64) *AccountUpdate {
 	_u.mutation.SetParentAccountID(v)
@@ -990,21 +942,6 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.SessionWindowStatusCleared() {
 		_spec.ClearField(account.FieldSessionWindowStatus, field.TypeString)
-	}
-	if value, ok := _u.mutation.ChannelType(); ok {
-		_spec.SetField(account.FieldChannelType, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.AddedChannelType(); ok {
-		_spec.AddField(account.FieldChannelType, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.TierID(); ok {
-		_spec.SetField(account.FieldTierID, field.TypeInt64, value)
-	}
-	if value, ok := _u.mutation.AddedTierID(); ok {
-		_spec.AddField(account.FieldTierID, field.TypeInt64, value)
-	}
-	if _u.mutation.TierIDCleared() {
-		_spec.ClearField(account.FieldTierID, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.QuotaDimension(); ok {
 		_spec.SetField(account.FieldQuotaDimension, field.TypeEnum, value)
@@ -1733,54 +1670,6 @@ func (_u *AccountUpdateOne) ClearSessionWindowStatus() *AccountUpdateOne {
 	return _u
 }
 
-// SetChannelType sets the "channel_type" field.
-func (_u *AccountUpdateOne) SetChannelType(v int) *AccountUpdateOne {
-	_u.mutation.ResetChannelType()
-	_u.mutation.SetChannelType(v)
-	return _u
-}
-
-// SetNillableChannelType sets the "channel_type" field if the given value is not nil.
-func (_u *AccountUpdateOne) SetNillableChannelType(v *int) *AccountUpdateOne {
-	if v != nil {
-		_u.SetChannelType(*v)
-	}
-	return _u
-}
-
-// AddChannelType adds value to the "channel_type" field.
-func (_u *AccountUpdateOne) AddChannelType(v int) *AccountUpdateOne {
-	_u.mutation.AddChannelType(v)
-	return _u
-}
-
-// SetTierID sets the "tier_id" field.
-func (_u *AccountUpdateOne) SetTierID(v int64) *AccountUpdateOne {
-	_u.mutation.ResetTierID()
-	_u.mutation.SetTierID(v)
-	return _u
-}
-
-// SetNillableTierID sets the "tier_id" field if the given value is not nil.
-func (_u *AccountUpdateOne) SetNillableTierID(v *int64) *AccountUpdateOne {
-	if v != nil {
-		_u.SetTierID(*v)
-	}
-	return _u
-}
-
-// AddTierID adds value to the "tier_id" field.
-func (_u *AccountUpdateOne) AddTierID(v int64) *AccountUpdateOne {
-	_u.mutation.AddTierID(v)
-	return _u
-}
-
-// ClearTierID clears the value of the "tier_id" field.
-func (_u *AccountUpdateOne) ClearTierID() *AccountUpdateOne {
-	_u.mutation.ClearTierID()
-	return _u
-}
-
 // SetParentAccountID sets the "parent_account_id" field.
 func (_u *AccountUpdateOne) SetParentAccountID(v int64) *AccountUpdateOne {
 	_u.mutation.SetParentAccountID(v)
@@ -2223,21 +2112,6 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if _u.mutation.SessionWindowStatusCleared() {
 		_spec.ClearField(account.FieldSessionWindowStatus, field.TypeString)
-	}
-	if value, ok := _u.mutation.ChannelType(); ok {
-		_spec.SetField(account.FieldChannelType, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.AddedChannelType(); ok {
-		_spec.AddField(account.FieldChannelType, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.TierID(); ok {
-		_spec.SetField(account.FieldTierID, field.TypeInt64, value)
-	}
-	if value, ok := _u.mutation.AddedTierID(); ok {
-		_spec.AddField(account.FieldTierID, field.TypeInt64, value)
-	}
-	if _u.mutation.TierIDCleared() {
-		_spec.ClearField(account.FieldTierID, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.QuotaDimension(); ok {
 		_spec.SetField(account.FieldQuotaDimension, field.TypeEnum, value)

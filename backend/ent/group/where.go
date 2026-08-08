@@ -285,16 +285,6 @@ func RpmLimit(v int) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRpmLimit, v))
 }
 
-// MessagesCompactionEnabled applies equality check predicate on the "messages_compaction_enabled" field. It's identical to MessagesCompactionEnabledEQ.
-func MessagesCompactionEnabled(v bool) predicate.Group {
-	return predicate.Group(sql.FieldEQ(FieldMessagesCompactionEnabled, v))
-}
-
-// MessagesCompactionInputTokensThreshold applies equality check predicate on the "messages_compaction_input_tokens_threshold" field. It's identical to MessagesCompactionInputTokensThresholdEQ.
-func MessagesCompactionInputTokensThreshold(v int) predicate.Group {
-	return predicate.Group(sql.FieldEQ(FieldMessagesCompactionInputTokensThreshold, v))
-}
-
 // MaxReasoningEffort applies equality check predicate on the "max_reasoning_effort" field. It's identical to MaxReasoningEffortEQ.
 func MaxReasoningEffort(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldMaxReasoningEffort, v))
@@ -2110,26 +2100,6 @@ func DefaultMappedModelContainsFold(v string) predicate.Group {
 	return predicate.Group(sql.FieldContainsFold(FieldDefaultMappedModel, v))
 }
 
-// StickyRoutingModeEQ applies the EQ predicate on the "sticky_routing_mode" field.
-func StickyRoutingModeEQ(v StickyRoutingMode) predicate.Group {
-	return predicate.Group(sql.FieldEQ(FieldStickyRoutingMode, v))
-}
-
-// StickyRoutingModeNEQ applies the NEQ predicate on the "sticky_routing_mode" field.
-func StickyRoutingModeNEQ(v StickyRoutingMode) predicate.Group {
-	return predicate.Group(sql.FieldNEQ(FieldStickyRoutingMode, v))
-}
-
-// StickyRoutingModeIn applies the In predicate on the "sticky_routing_mode" field.
-func StickyRoutingModeIn(vs ...StickyRoutingMode) predicate.Group {
-	return predicate.Group(sql.FieldIn(FieldStickyRoutingMode, vs...))
-}
-
-// StickyRoutingModeNotIn applies the NotIn predicate on the "sticky_routing_mode" field.
-func StickyRoutingModeNotIn(vs ...StickyRoutingMode) predicate.Group {
-	return predicate.Group(sql.FieldNotIn(FieldStickyRoutingMode, vs...))
-}
-
 // RpmLimitEQ applies the EQ predicate on the "rpm_limit" field.
 func RpmLimitEQ(v int) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRpmLimit, v))
@@ -2168,76 +2138,6 @@ func RpmLimitLT(v int) predicate.Group {
 // RpmLimitLTE applies the LTE predicate on the "rpm_limit" field.
 func RpmLimitLTE(v int) predicate.Group {
 	return predicate.Group(sql.FieldLTE(FieldRpmLimit, v))
-}
-
-// MessagesCompactionEnabledEQ applies the EQ predicate on the "messages_compaction_enabled" field.
-func MessagesCompactionEnabledEQ(v bool) predicate.Group {
-	return predicate.Group(sql.FieldEQ(FieldMessagesCompactionEnabled, v))
-}
-
-// MessagesCompactionEnabledNEQ applies the NEQ predicate on the "messages_compaction_enabled" field.
-func MessagesCompactionEnabledNEQ(v bool) predicate.Group {
-	return predicate.Group(sql.FieldNEQ(FieldMessagesCompactionEnabled, v))
-}
-
-// MessagesCompactionEnabledIsNil applies the IsNil predicate on the "messages_compaction_enabled" field.
-func MessagesCompactionEnabledIsNil() predicate.Group {
-	return predicate.Group(sql.FieldIsNull(FieldMessagesCompactionEnabled))
-}
-
-// MessagesCompactionEnabledNotNil applies the NotNil predicate on the "messages_compaction_enabled" field.
-func MessagesCompactionEnabledNotNil() predicate.Group {
-	return predicate.Group(sql.FieldNotNull(FieldMessagesCompactionEnabled))
-}
-
-// MessagesCompactionInputTokensThresholdEQ applies the EQ predicate on the "messages_compaction_input_tokens_threshold" field.
-func MessagesCompactionInputTokensThresholdEQ(v int) predicate.Group {
-	return predicate.Group(sql.FieldEQ(FieldMessagesCompactionInputTokensThreshold, v))
-}
-
-// MessagesCompactionInputTokensThresholdNEQ applies the NEQ predicate on the "messages_compaction_input_tokens_threshold" field.
-func MessagesCompactionInputTokensThresholdNEQ(v int) predicate.Group {
-	return predicate.Group(sql.FieldNEQ(FieldMessagesCompactionInputTokensThreshold, v))
-}
-
-// MessagesCompactionInputTokensThresholdIn applies the In predicate on the "messages_compaction_input_tokens_threshold" field.
-func MessagesCompactionInputTokensThresholdIn(vs ...int) predicate.Group {
-	return predicate.Group(sql.FieldIn(FieldMessagesCompactionInputTokensThreshold, vs...))
-}
-
-// MessagesCompactionInputTokensThresholdNotIn applies the NotIn predicate on the "messages_compaction_input_tokens_threshold" field.
-func MessagesCompactionInputTokensThresholdNotIn(vs ...int) predicate.Group {
-	return predicate.Group(sql.FieldNotIn(FieldMessagesCompactionInputTokensThreshold, vs...))
-}
-
-// MessagesCompactionInputTokensThresholdGT applies the GT predicate on the "messages_compaction_input_tokens_threshold" field.
-func MessagesCompactionInputTokensThresholdGT(v int) predicate.Group {
-	return predicate.Group(sql.FieldGT(FieldMessagesCompactionInputTokensThreshold, v))
-}
-
-// MessagesCompactionInputTokensThresholdGTE applies the GTE predicate on the "messages_compaction_input_tokens_threshold" field.
-func MessagesCompactionInputTokensThresholdGTE(v int) predicate.Group {
-	return predicate.Group(sql.FieldGTE(FieldMessagesCompactionInputTokensThreshold, v))
-}
-
-// MessagesCompactionInputTokensThresholdLT applies the LT predicate on the "messages_compaction_input_tokens_threshold" field.
-func MessagesCompactionInputTokensThresholdLT(v int) predicate.Group {
-	return predicate.Group(sql.FieldLT(FieldMessagesCompactionInputTokensThreshold, v))
-}
-
-// MessagesCompactionInputTokensThresholdLTE applies the LTE predicate on the "messages_compaction_input_tokens_threshold" field.
-func MessagesCompactionInputTokensThresholdLTE(v int) predicate.Group {
-	return predicate.Group(sql.FieldLTE(FieldMessagesCompactionInputTokensThreshold, v))
-}
-
-// MessagesCompactionInputTokensThresholdIsNil applies the IsNil predicate on the "messages_compaction_input_tokens_threshold" field.
-func MessagesCompactionInputTokensThresholdIsNil() predicate.Group {
-	return predicate.Group(sql.FieldIsNull(FieldMessagesCompactionInputTokensThreshold))
-}
-
-// MessagesCompactionInputTokensThresholdNotNil applies the NotNil predicate on the "messages_compaction_input_tokens_threshold" field.
-func MessagesCompactionInputTokensThresholdNotNil() predicate.Group {
-	return predicate.Group(sql.FieldNotNull(FieldMessagesCompactionInputTokensThreshold))
 }
 
 // MaxReasoningEffortEQ applies the EQ predicate on the "max_reasoning_effort" field.

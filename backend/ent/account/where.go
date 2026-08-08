@@ -190,16 +190,6 @@ func SessionWindowStatus(v string) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldSessionWindowStatus, v))
 }
 
-// ChannelType applies equality check predicate on the "channel_type" field. It's identical to ChannelTypeEQ.
-func ChannelType(v int) predicate.Account {
-	return predicate.Account(sql.FieldEQ(FieldChannelType, v))
-}
-
-// TierID applies equality check predicate on the "tier_id" field. It's identical to TierIDEQ.
-func TierID(v int64) predicate.Account {
-	return predicate.Account(sql.FieldEQ(FieldTierID, v))
-}
-
 // ParentAccountID applies equality check predicate on the "parent_account_id" field. It's identical to ParentAccountIDEQ.
 func ParentAccountID(v int64) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldParentAccountID, v))
@@ -1563,96 +1553,6 @@ func SessionWindowStatusEqualFold(v string) predicate.Account {
 // SessionWindowStatusContainsFold applies the ContainsFold predicate on the "session_window_status" field.
 func SessionWindowStatusContainsFold(v string) predicate.Account {
 	return predicate.Account(sql.FieldContainsFold(FieldSessionWindowStatus, v))
-}
-
-// ChannelTypeEQ applies the EQ predicate on the "channel_type" field.
-func ChannelTypeEQ(v int) predicate.Account {
-	return predicate.Account(sql.FieldEQ(FieldChannelType, v))
-}
-
-// ChannelTypeNEQ applies the NEQ predicate on the "channel_type" field.
-func ChannelTypeNEQ(v int) predicate.Account {
-	return predicate.Account(sql.FieldNEQ(FieldChannelType, v))
-}
-
-// ChannelTypeIn applies the In predicate on the "channel_type" field.
-func ChannelTypeIn(vs ...int) predicate.Account {
-	return predicate.Account(sql.FieldIn(FieldChannelType, vs...))
-}
-
-// ChannelTypeNotIn applies the NotIn predicate on the "channel_type" field.
-func ChannelTypeNotIn(vs ...int) predicate.Account {
-	return predicate.Account(sql.FieldNotIn(FieldChannelType, vs...))
-}
-
-// ChannelTypeGT applies the GT predicate on the "channel_type" field.
-func ChannelTypeGT(v int) predicate.Account {
-	return predicate.Account(sql.FieldGT(FieldChannelType, v))
-}
-
-// ChannelTypeGTE applies the GTE predicate on the "channel_type" field.
-func ChannelTypeGTE(v int) predicate.Account {
-	return predicate.Account(sql.FieldGTE(FieldChannelType, v))
-}
-
-// ChannelTypeLT applies the LT predicate on the "channel_type" field.
-func ChannelTypeLT(v int) predicate.Account {
-	return predicate.Account(sql.FieldLT(FieldChannelType, v))
-}
-
-// ChannelTypeLTE applies the LTE predicate on the "channel_type" field.
-func ChannelTypeLTE(v int) predicate.Account {
-	return predicate.Account(sql.FieldLTE(FieldChannelType, v))
-}
-
-// TierIDEQ applies the EQ predicate on the "tier_id" field.
-func TierIDEQ(v int64) predicate.Account {
-	return predicate.Account(sql.FieldEQ(FieldTierID, v))
-}
-
-// TierIDNEQ applies the NEQ predicate on the "tier_id" field.
-func TierIDNEQ(v int64) predicate.Account {
-	return predicate.Account(sql.FieldNEQ(FieldTierID, v))
-}
-
-// TierIDIn applies the In predicate on the "tier_id" field.
-func TierIDIn(vs ...int64) predicate.Account {
-	return predicate.Account(sql.FieldIn(FieldTierID, vs...))
-}
-
-// TierIDNotIn applies the NotIn predicate on the "tier_id" field.
-func TierIDNotIn(vs ...int64) predicate.Account {
-	return predicate.Account(sql.FieldNotIn(FieldTierID, vs...))
-}
-
-// TierIDGT applies the GT predicate on the "tier_id" field.
-func TierIDGT(v int64) predicate.Account {
-	return predicate.Account(sql.FieldGT(FieldTierID, v))
-}
-
-// TierIDGTE applies the GTE predicate on the "tier_id" field.
-func TierIDGTE(v int64) predicate.Account {
-	return predicate.Account(sql.FieldGTE(FieldTierID, v))
-}
-
-// TierIDLT applies the LT predicate on the "tier_id" field.
-func TierIDLT(v int64) predicate.Account {
-	return predicate.Account(sql.FieldLT(FieldTierID, v))
-}
-
-// TierIDLTE applies the LTE predicate on the "tier_id" field.
-func TierIDLTE(v int64) predicate.Account {
-	return predicate.Account(sql.FieldLTE(FieldTierID, v))
-}
-
-// TierIDIsNil applies the IsNil predicate on the "tier_id" field.
-func TierIDIsNil() predicate.Account {
-	return predicate.Account(sql.FieldIsNull(FieldTierID))
-}
-
-// TierIDNotNil applies the NotNil predicate on the "tier_id" field.
-func TierIDNotNil() predicate.Account {
-	return predicate.Account(sql.FieldNotNull(FieldTierID))
 }
 
 // ParentAccountIDEQ applies the EQ predicate on the "parent_account_id" field.

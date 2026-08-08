@@ -114,7 +114,6 @@ var DefaultAntigravityModelMapping = map[string]string{
 	// Gemini 3.1 image preview 映射
 	"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
 	// Gemini 3.6 Flash tiered models
-	"gemini-3.6-flash":        "gemini-3.6-flash",
 	"gemini-3.6-flash-high":   "gemini-3.6-flash-high",
 	"gemini-3.6-flash-low":    "gemini-3.6-flash-low",
 	"gemini-3.6-flash-medium": "gemini-3.6-flash-medium",

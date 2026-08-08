@@ -220,26 +220,10 @@ func (Group) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
 			Comment("自定义 /v1/models 展示列表配置；仅影响模型列表响应，不影响调度"),
 
-		// Sticky routing strategy for upstream prompt cache hits
-		// (added by tk_002, see docs/approved/sticky-routing.md)
-		// auto: 派生 + 注入；passthrough: 仅透传客户端已送的；off: 完全不处理
-		field.Enum("sticky_routing_mode").
-			Values("auto", "passthrough", "off").
-			Default("auto").
-			Comment("Sticky routing strategy: auto | passthrough | off"),
-
 		// 分组级每分钟请求数上限（0 = 不限制）。设置后优先于用户级兜底生效。
 		field.Int("rpm_limit").
 			Default(0).
 			Comment("分组 RPM 上限，0 表示不限制；设置后接管该分组用户的限流"),
-		field.Bool("messages_compaction_enabled").
-			Optional().
-			Nillable().
-			Comment("OpenAI /v1/messages 自动压缩开关；NULL 表示未配置"),
-		field.Int("messages_compaction_input_tokens_threshold").
-			Optional().
-			Nillable().
-			Comment("OpenAI /v1/messages 自动压缩输入 token 阈值；NULL 表示未配置"),
 
 		// OpenAI/Codex 请求的推理强度上限（空字符串表示不限制）。
 		field.String("max_reasoning_effort").

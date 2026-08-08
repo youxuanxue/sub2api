@@ -77,10 +77,6 @@ type Account struct {
 	SessionWindowEnd *time.Time `json:"session_window_end,omitempty"`
 	// SessionWindowStatus holds the value of the "session_window_status" field.
 	SessionWindowStatus *string `json:"session_window_status,omitempty"`
-	// ChannelType holds the value of the "channel_type" field.
-	ChannelType int `json:"channel_type,omitempty"`
-	// TK: bound anthropic-oauth stability tier id (tiers table).
-	TierID *int64 `json:"tier_id,omitempty"`
 	// Parent account id for a linked spark shadow (NULL = normal).
 	ParentAccountID *int64 `json:"parent_account_id,omitempty"`
 	// 'global' (default) or 'spark' (shadow reads codex_bengalfox).
@@ -179,7 +175,7 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case account.FieldRateMultiplier:
 			values[i] = new(sql.NullFloat64)
-		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldChannelType, account.FieldTierID, account.FieldParentAccountID:
+		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldParentAccountID:
 			values[i] = new(sql.NullInt64)
 		case account.FieldName, account.FieldNotes, account.FieldPlatform, account.FieldType, account.FieldStatus, account.FieldErrorMessage, account.FieldTempUnschedulableReason, account.FieldSessionWindowStatus, account.FieldQuotaDimension:
 			values[i] = new(sql.NullString)
@@ -400,19 +396,6 @@ func (_m *Account) assignValues(columns []string, values []any) error {
 				_m.SessionWindowStatus = new(string)
 				*_m.SessionWindowStatus = value.String
 			}
-		case account.FieldChannelType:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field channel_type", values[i])
-			} else if value.Valid {
-				_m.ChannelType = int(value.Int64)
-			}
-		case account.FieldTierID:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field tier_id", values[i])
-			} else if value.Valid {
-				_m.TierID = new(int64)
-				*_m.TierID = value.Int64
-			}
 		case account.FieldParentAccountID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field parent_account_id", values[i])
@@ -609,14 +592,6 @@ func (_m *Account) String() string {
 	if v := _m.SessionWindowStatus; v != nil {
 		builder.WriteString("session_window_status=")
 		builder.WriteString(*v)
-	}
-	builder.WriteString(", ")
-	builder.WriteString("channel_type=")
-	builder.WriteString(fmt.Sprintf("%v", _m.ChannelType))
-	builder.WriteString(", ")
-	if v := _m.TierID; v != nil {
-		builder.WriteString("tier_id=")
-		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")
 	if v := _m.ParentAccountID; v != nil {

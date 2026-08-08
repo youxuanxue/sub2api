@@ -906,20 +906,6 @@ func (_u *GroupUpdate) SetNillableModelsListConfig(v *domain.GroupModelsListConf
 	return _u
 }
 
-// SetStickyRoutingMode sets the "sticky_routing_mode" field.
-func (_u *GroupUpdate) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpdate {
-	_u.mutation.SetStickyRoutingMode(v)
-	return _u
-}
-
-// SetNillableStickyRoutingMode sets the "sticky_routing_mode" field if the given value is not nil.
-func (_u *GroupUpdate) SetNillableStickyRoutingMode(v *group.StickyRoutingMode) *GroupUpdate {
-	if v != nil {
-		_u.SetStickyRoutingMode(*v)
-	}
-	return _u
-}
-
 // SetRpmLimit sets the "rpm_limit" field.
 func (_u *GroupUpdate) SetRpmLimit(v int) *GroupUpdate {
 	_u.mutation.ResetRpmLimit()
@@ -938,53 +924,6 @@ func (_u *GroupUpdate) SetNillableRpmLimit(v *int) *GroupUpdate {
 // AddRpmLimit adds value to the "rpm_limit" field.
 func (_u *GroupUpdate) AddRpmLimit(v int) *GroupUpdate {
 	_u.mutation.AddRpmLimit(v)
-	return _u
-}
-
-// SetMessagesCompactionEnabled sets the "messages_compaction_enabled" field.
-func (_u *GroupUpdate) SetMessagesCompactionEnabled(v bool) *GroupUpdate {
-	_u.mutation.SetMessagesCompactionEnabled(v)
-	return _u
-}
-
-// SetNillableMessagesCompactionEnabled sets the "messages_compaction_enabled" field if the given value is not nil.
-func (_u *GroupUpdate) SetNillableMessagesCompactionEnabled(v *bool) *GroupUpdate {
-	if v != nil {
-		_u.SetMessagesCompactionEnabled(*v)
-	}
-	return _u
-}
-
-// ClearMessagesCompactionEnabled clears the value of the "messages_compaction_enabled" field.
-func (_u *GroupUpdate) ClearMessagesCompactionEnabled() *GroupUpdate {
-	_u.mutation.ClearMessagesCompactionEnabled()
-	return _u
-}
-
-// SetMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field.
-func (_u *GroupUpdate) SetMessagesCompactionInputTokensThreshold(v int) *GroupUpdate {
-	_u.mutation.ResetMessagesCompactionInputTokensThreshold()
-	_u.mutation.SetMessagesCompactionInputTokensThreshold(v)
-	return _u
-}
-
-// SetNillableMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field if the given value is not nil.
-func (_u *GroupUpdate) SetNillableMessagesCompactionInputTokensThreshold(v *int) *GroupUpdate {
-	if v != nil {
-		_u.SetMessagesCompactionInputTokensThreshold(*v)
-	}
-	return _u
-}
-
-// AddMessagesCompactionInputTokensThreshold adds value to the "messages_compaction_input_tokens_threshold" field.
-func (_u *GroupUpdate) AddMessagesCompactionInputTokensThreshold(v int) *GroupUpdate {
-	_u.mutation.AddMessagesCompactionInputTokensThreshold(v)
-	return _u
-}
-
-// ClearMessagesCompactionInputTokensThreshold clears the value of the "messages_compaction_input_tokens_threshold" field.
-func (_u *GroupUpdate) ClearMessagesCompactionInputTokensThreshold() *GroupUpdate {
-	_u.mutation.ClearMessagesCompactionInputTokensThreshold()
 	return _u
 }
 
@@ -1370,11 +1309,6 @@ func (_u *GroupUpdate) check() error {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
 		}
 	}
-	if v, ok := _u.mutation.StickyRoutingMode(); ok {
-		if err := group.StickyRoutingModeValidator(v); err != nil {
-			return &ValidationError{Name: "sticky_routing_mode", err: fmt.Errorf(`ent: validator failed for field "Group.sticky_routing_mode": %w`, err)}
-		}
-	}
 	if v, ok := _u.mutation.MaxReasoningEffort(); ok {
 		if err := group.MaxReasoningEffortValidator(v); err != nil {
 			return &ValidationError{Name: "max_reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "Group.max_reasoning_effort": %w`, err)}
@@ -1649,29 +1583,11 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.ModelsListConfig(); ok {
 		_spec.SetField(group.FieldModelsListConfig, field.TypeJSON, value)
 	}
-	if value, ok := _u.mutation.StickyRoutingMode(); ok {
-		_spec.SetField(group.FieldStickyRoutingMode, field.TypeEnum, value)
-	}
 	if value, ok := _u.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.AddedRpmLimit(); ok {
 		_spec.AddField(group.FieldRpmLimit, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.MessagesCompactionEnabled(); ok {
-		_spec.SetField(group.FieldMessagesCompactionEnabled, field.TypeBool, value)
-	}
-	if _u.mutation.MessagesCompactionEnabledCleared() {
-		_spec.ClearField(group.FieldMessagesCompactionEnabled, field.TypeBool)
-	}
-	if value, ok := _u.mutation.MessagesCompactionInputTokensThreshold(); ok {
-		_spec.SetField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.AddedMessagesCompactionInputTokensThreshold(); ok {
-		_spec.AddField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt, value)
-	}
-	if _u.mutation.MessagesCompactionInputTokensThresholdCleared() {
-		_spec.ClearField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt)
 	}
 	if value, ok := _u.mutation.MaxReasoningEffort(); ok {
 		_spec.SetField(group.FieldMaxReasoningEffort, field.TypeString, value)
@@ -2883,20 +2799,6 @@ func (_u *GroupUpdateOne) SetNillableModelsListConfig(v *domain.GroupModelsListC
 	return _u
 }
 
-// SetStickyRoutingMode sets the "sticky_routing_mode" field.
-func (_u *GroupUpdateOne) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpdateOne {
-	_u.mutation.SetStickyRoutingMode(v)
-	return _u
-}
-
-// SetNillableStickyRoutingMode sets the "sticky_routing_mode" field if the given value is not nil.
-func (_u *GroupUpdateOne) SetNillableStickyRoutingMode(v *group.StickyRoutingMode) *GroupUpdateOne {
-	if v != nil {
-		_u.SetStickyRoutingMode(*v)
-	}
-	return _u
-}
-
 // SetRpmLimit sets the "rpm_limit" field.
 func (_u *GroupUpdateOne) SetRpmLimit(v int) *GroupUpdateOne {
 	_u.mutation.ResetRpmLimit()
@@ -2915,53 +2817,6 @@ func (_u *GroupUpdateOne) SetNillableRpmLimit(v *int) *GroupUpdateOne {
 // AddRpmLimit adds value to the "rpm_limit" field.
 func (_u *GroupUpdateOne) AddRpmLimit(v int) *GroupUpdateOne {
 	_u.mutation.AddRpmLimit(v)
-	return _u
-}
-
-// SetMessagesCompactionEnabled sets the "messages_compaction_enabled" field.
-func (_u *GroupUpdateOne) SetMessagesCompactionEnabled(v bool) *GroupUpdateOne {
-	_u.mutation.SetMessagesCompactionEnabled(v)
-	return _u
-}
-
-// SetNillableMessagesCompactionEnabled sets the "messages_compaction_enabled" field if the given value is not nil.
-func (_u *GroupUpdateOne) SetNillableMessagesCompactionEnabled(v *bool) *GroupUpdateOne {
-	if v != nil {
-		_u.SetMessagesCompactionEnabled(*v)
-	}
-	return _u
-}
-
-// ClearMessagesCompactionEnabled clears the value of the "messages_compaction_enabled" field.
-func (_u *GroupUpdateOne) ClearMessagesCompactionEnabled() *GroupUpdateOne {
-	_u.mutation.ClearMessagesCompactionEnabled()
-	return _u
-}
-
-// SetMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field.
-func (_u *GroupUpdateOne) SetMessagesCompactionInputTokensThreshold(v int) *GroupUpdateOne {
-	_u.mutation.ResetMessagesCompactionInputTokensThreshold()
-	_u.mutation.SetMessagesCompactionInputTokensThreshold(v)
-	return _u
-}
-
-// SetNillableMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field if the given value is not nil.
-func (_u *GroupUpdateOne) SetNillableMessagesCompactionInputTokensThreshold(v *int) *GroupUpdateOne {
-	if v != nil {
-		_u.SetMessagesCompactionInputTokensThreshold(*v)
-	}
-	return _u
-}
-
-// AddMessagesCompactionInputTokensThreshold adds value to the "messages_compaction_input_tokens_threshold" field.
-func (_u *GroupUpdateOne) AddMessagesCompactionInputTokensThreshold(v int) *GroupUpdateOne {
-	_u.mutation.AddMessagesCompactionInputTokensThreshold(v)
-	return _u
-}
-
-// ClearMessagesCompactionInputTokensThreshold clears the value of the "messages_compaction_input_tokens_threshold" field.
-func (_u *GroupUpdateOne) ClearMessagesCompactionInputTokensThreshold() *GroupUpdateOne {
-	_u.mutation.ClearMessagesCompactionInputTokensThreshold()
 	return _u
 }
 
@@ -3360,11 +3215,6 @@ func (_u *GroupUpdateOne) check() error {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
 		}
 	}
-	if v, ok := _u.mutation.StickyRoutingMode(); ok {
-		if err := group.StickyRoutingModeValidator(v); err != nil {
-			return &ValidationError{Name: "sticky_routing_mode", err: fmt.Errorf(`ent: validator failed for field "Group.sticky_routing_mode": %w`, err)}
-		}
-	}
 	if v, ok := _u.mutation.MaxReasoningEffort(); ok {
 		if err := group.MaxReasoningEffortValidator(v); err != nil {
 			return &ValidationError{Name: "max_reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "Group.max_reasoning_effort": %w`, err)}
@@ -3656,29 +3506,11 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	if value, ok := _u.mutation.ModelsListConfig(); ok {
 		_spec.SetField(group.FieldModelsListConfig, field.TypeJSON, value)
 	}
-	if value, ok := _u.mutation.StickyRoutingMode(); ok {
-		_spec.SetField(group.FieldStickyRoutingMode, field.TypeEnum, value)
-	}
 	if value, ok := _u.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.AddedRpmLimit(); ok {
 		_spec.AddField(group.FieldRpmLimit, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.MessagesCompactionEnabled(); ok {
-		_spec.SetField(group.FieldMessagesCompactionEnabled, field.TypeBool, value)
-	}
-	if _u.mutation.MessagesCompactionEnabledCleared() {
-		_spec.ClearField(group.FieldMessagesCompactionEnabled, field.TypeBool)
-	}
-	if value, ok := _u.mutation.MessagesCompactionInputTokensThreshold(); ok {
-		_spec.SetField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.AddedMessagesCompactionInputTokensThreshold(); ok {
-		_spec.AddField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt, value)
-	}
-	if _u.mutation.MessagesCompactionInputTokensThresholdCleared() {
-		_spec.ClearField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt)
 	}
 	if value, ok := _u.mutation.MaxReasoningEffort(); ok {
 		_spec.SetField(group.FieldMaxReasoningEffort, field.TypeString, value)

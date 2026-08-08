@@ -391,34 +391,6 @@ func (_c *AccountCreate) SetNillableSessionWindowStatus(v *string) *AccountCreat
 	return _c
 }
 
-// SetChannelType sets the "channel_type" field.
-func (_c *AccountCreate) SetChannelType(v int) *AccountCreate {
-	_c.mutation.SetChannelType(v)
-	return _c
-}
-
-// SetNillableChannelType sets the "channel_type" field if the given value is not nil.
-func (_c *AccountCreate) SetNillableChannelType(v *int) *AccountCreate {
-	if v != nil {
-		_c.SetChannelType(*v)
-	}
-	return _c
-}
-
-// SetTierID sets the "tier_id" field.
-func (_c *AccountCreate) SetTierID(v int64) *AccountCreate {
-	_c.mutation.SetTierID(v)
-	return _c
-}
-
-// SetNillableTierID sets the "tier_id" field if the given value is not nil.
-func (_c *AccountCreate) SetNillableTierID(v *int64) *AccountCreate {
-	if v != nil {
-		_c.SetTierID(*v)
-	}
-	return _c
-}
-
 // SetParentAccountID sets the "parent_account_id" field.
 func (_c *AccountCreate) SetParentAccountID(v int64) *AccountCreate {
 	_c.mutation.SetParentAccountID(v)
@@ -605,10 +577,6 @@ func (_c *AccountCreate) defaults() error {
 		v := account.DefaultSchedulable
 		_c.mutation.SetSchedulable(v)
 	}
-	if _, ok := _c.mutation.ChannelType(); !ok {
-		v := account.DefaultChannelType
-		_c.mutation.SetChannelType(v)
-	}
 	if _, ok := _c.mutation.QuotaDimension(); !ok {
 		v := account.DefaultQuotaDimension
 		_c.mutation.SetQuotaDimension(v)
@@ -681,9 +649,6 @@ func (_c *AccountCreate) check() error {
 		if err := account.SessionWindowStatusValidator(v); err != nil {
 			return &ValidationError{Name: "session_window_status", err: fmt.Errorf(`ent: validator failed for field "Account.session_window_status": %w`, err)}
 		}
-	}
-	if _, ok := _c.mutation.ChannelType(); !ok {
-		return &ValidationError{Name: "channel_type", err: errors.New(`ent: missing required field "Account.channel_type"`)}
 	}
 	if _, ok := _c.mutation.QuotaDimension(); !ok {
 		return &ValidationError{Name: "quota_dimension", err: errors.New(`ent: missing required field "Account.quota_dimension"`)}
@@ -831,14 +796,6 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.SessionWindowStatus(); ok {
 		_spec.SetField(account.FieldSessionWindowStatus, field.TypeString, value)
 		_node.SessionWindowStatus = &value
-	}
-	if value, ok := _c.mutation.ChannelType(); ok {
-		_spec.SetField(account.FieldChannelType, field.TypeInt, value)
-		_node.ChannelType = value
-	}
-	if value, ok := _c.mutation.TierID(); ok {
-		_spec.SetField(account.FieldTierID, field.TypeInt64, value)
-		_node.TierID = &value
 	}
 	if value, ok := _c.mutation.QuotaDimension(); ok {
 		_spec.SetField(account.FieldQuotaDimension, field.TypeEnum, value)
@@ -1441,48 +1398,6 @@ func (u *AccountUpsert) UpdateSessionWindowStatus() *AccountUpsert {
 // ClearSessionWindowStatus clears the value of the "session_window_status" field.
 func (u *AccountUpsert) ClearSessionWindowStatus() *AccountUpsert {
 	u.SetNull(account.FieldSessionWindowStatus)
-	return u
-}
-
-// SetChannelType sets the "channel_type" field.
-func (u *AccountUpsert) SetChannelType(v int) *AccountUpsert {
-	u.Set(account.FieldChannelType, v)
-	return u
-}
-
-// UpdateChannelType sets the "channel_type" field to the value that was provided on create.
-func (u *AccountUpsert) UpdateChannelType() *AccountUpsert {
-	u.SetExcluded(account.FieldChannelType)
-	return u
-}
-
-// AddChannelType adds v to the "channel_type" field.
-func (u *AccountUpsert) AddChannelType(v int) *AccountUpsert {
-	u.Add(account.FieldChannelType, v)
-	return u
-}
-
-// SetTierID sets the "tier_id" field.
-func (u *AccountUpsert) SetTierID(v int64) *AccountUpsert {
-	u.Set(account.FieldTierID, v)
-	return u
-}
-
-// UpdateTierID sets the "tier_id" field to the value that was provided on create.
-func (u *AccountUpsert) UpdateTierID() *AccountUpsert {
-	u.SetExcluded(account.FieldTierID)
-	return u
-}
-
-// AddTierID adds v to the "tier_id" field.
-func (u *AccountUpsert) AddTierID(v int64) *AccountUpsert {
-	u.Add(account.FieldTierID, v)
-	return u
-}
-
-// ClearTierID clears the value of the "tier_id" field.
-func (u *AccountUpsert) ClearTierID() *AccountUpsert {
-	u.SetNull(account.FieldTierID)
 	return u
 }
 
@@ -2097,55 +2012,6 @@ func (u *AccountUpsertOne) UpdateSessionWindowStatus() *AccountUpsertOne {
 func (u *AccountUpsertOne) ClearSessionWindowStatus() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearSessionWindowStatus()
-	})
-}
-
-// SetChannelType sets the "channel_type" field.
-func (u *AccountUpsertOne) SetChannelType(v int) *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.SetChannelType(v)
-	})
-}
-
-// AddChannelType adds v to the "channel_type" field.
-func (u *AccountUpsertOne) AddChannelType(v int) *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.AddChannelType(v)
-	})
-}
-
-// UpdateChannelType sets the "channel_type" field to the value that was provided on create.
-func (u *AccountUpsertOne) UpdateChannelType() *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.UpdateChannelType()
-	})
-}
-
-// SetTierID sets the "tier_id" field.
-func (u *AccountUpsertOne) SetTierID(v int64) *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.SetTierID(v)
-	})
-}
-
-// AddTierID adds v to the "tier_id" field.
-func (u *AccountUpsertOne) AddTierID(v int64) *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.AddTierID(v)
-	})
-}
-
-// UpdateTierID sets the "tier_id" field to the value that was provided on create.
-func (u *AccountUpsertOne) UpdateTierID() *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.UpdateTierID()
-	})
-}
-
-// ClearTierID clears the value of the "tier_id" field.
-func (u *AccountUpsertOne) ClearTierID() *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.ClearTierID()
 	})
 }
 
@@ -2931,55 +2797,6 @@ func (u *AccountUpsertBulk) UpdateSessionWindowStatus() *AccountUpsertBulk {
 func (u *AccountUpsertBulk) ClearSessionWindowStatus() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearSessionWindowStatus()
-	})
-}
-
-// SetChannelType sets the "channel_type" field.
-func (u *AccountUpsertBulk) SetChannelType(v int) *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.SetChannelType(v)
-	})
-}
-
-// AddChannelType adds v to the "channel_type" field.
-func (u *AccountUpsertBulk) AddChannelType(v int) *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.AddChannelType(v)
-	})
-}
-
-// UpdateChannelType sets the "channel_type" field to the value that was provided on create.
-func (u *AccountUpsertBulk) UpdateChannelType() *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.UpdateChannelType()
-	})
-}
-
-// SetTierID sets the "tier_id" field.
-func (u *AccountUpsertBulk) SetTierID(v int64) *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.SetTierID(v)
-	})
-}
-
-// AddTierID adds v to the "tier_id" field.
-func (u *AccountUpsertBulk) AddTierID(v int64) *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.AddTierID(v)
-	})
-}
-
-// UpdateTierID sets the "tier_id" field to the value that was provided on create.
-func (u *AccountUpsertBulk) UpdateTierID() *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.UpdateTierID()
-	})
-}
-
-// ClearTierID clears the value of the "tier_id" field.
-func (u *AccountUpsertBulk) ClearTierID() *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.ClearTierID()
 	})
 }
 

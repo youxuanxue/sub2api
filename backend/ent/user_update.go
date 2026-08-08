@@ -411,26 +411,6 @@ func (_u *UserUpdate) AddTotalRecharged(v float64) *UserUpdate {
 	return _u
 }
 
-// SetOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field.
-func (_u *UserUpdate) SetOnboardingTourSeenAt(v time.Time) *UserUpdate {
-	_u.mutation.SetOnboardingTourSeenAt(v)
-	return _u
-}
-
-// SetNillableOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field if the given value is not nil.
-func (_u *UserUpdate) SetNillableOnboardingTourSeenAt(v *time.Time) *UserUpdate {
-	if v != nil {
-		_u.SetOnboardingTourSeenAt(*v)
-	}
-	return _u
-}
-
-// ClearOnboardingTourSeenAt clears the value of the "onboarding_tour_seen_at" field.
-func (_u *UserUpdate) ClearOnboardingTourSeenAt() *UserUpdate {
-	_u.mutation.ClearOnboardingTourSeenAt()
-	return _u
-}
-
 // SetRpmLimit sets the "rpm_limit" field.
 func (_u *UserUpdate) SetRpmLimit(v int) *UserUpdate {
 	_u.mutation.ResetRpmLimit()
@@ -449,20 +429,6 @@ func (_u *UserUpdate) SetNillableRpmLimit(v *int) *UserUpdate {
 // AddRpmLimit adds value to the "rpm_limit" field.
 func (_u *UserUpdate) AddRpmLimit(v int) *UserUpdate {
 	_u.mutation.AddRpmLimit(v)
-	return _u
-}
-
-// SetTrajExportEnabled sets the "traj_export_enabled" field.
-func (_u *UserUpdate) SetTrajExportEnabled(v bool) *UserUpdate {
-	_u.mutation.SetTrajExportEnabled(v)
-	return _u
-}
-
-// SetNillableTrajExportEnabled sets the "traj_export_enabled" field if the given value is not nil.
-func (_u *UserUpdate) SetNillableTrajExportEnabled(v *bool) *UserUpdate {
-	if v != nil {
-		_u.SetTrajExportEnabled(*v)
-	}
 	return _u
 }
 
@@ -1127,20 +1093,11 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AddedTotalRecharged(); ok {
 		_spec.AddField(user.FieldTotalRecharged, field.TypeFloat64, value)
 	}
-	if value, ok := _u.mutation.OnboardingTourSeenAt(); ok {
-		_spec.SetField(user.FieldOnboardingTourSeenAt, field.TypeTime, value)
-	}
-	if _u.mutation.OnboardingTourSeenAtCleared() {
-		_spec.ClearField(user.FieldOnboardingTourSeenAt, field.TypeTime)
-	}
 	if value, ok := _u.mutation.RpmLimit(); ok {
 		_spec.SetField(user.FieldRpmLimit, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.AddedRpmLimit(); ok {
 		_spec.AddField(user.FieldRpmLimit, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.TrajExportEnabled(); ok {
-		_spec.SetField(user.FieldTrajExportEnabled, field.TypeBool, value)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -2130,26 +2087,6 @@ func (_u *UserUpdateOne) AddTotalRecharged(v float64) *UserUpdateOne {
 	return _u
 }
 
-// SetOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field.
-func (_u *UserUpdateOne) SetOnboardingTourSeenAt(v time.Time) *UserUpdateOne {
-	_u.mutation.SetOnboardingTourSeenAt(v)
-	return _u
-}
-
-// SetNillableOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field if the given value is not nil.
-func (_u *UserUpdateOne) SetNillableOnboardingTourSeenAt(v *time.Time) *UserUpdateOne {
-	if v != nil {
-		_u.SetOnboardingTourSeenAt(*v)
-	}
-	return _u
-}
-
-// ClearOnboardingTourSeenAt clears the value of the "onboarding_tour_seen_at" field.
-func (_u *UserUpdateOne) ClearOnboardingTourSeenAt() *UserUpdateOne {
-	_u.mutation.ClearOnboardingTourSeenAt()
-	return _u
-}
-
 // SetRpmLimit sets the "rpm_limit" field.
 func (_u *UserUpdateOne) SetRpmLimit(v int) *UserUpdateOne {
 	_u.mutation.ResetRpmLimit()
@@ -2168,20 +2105,6 @@ func (_u *UserUpdateOne) SetNillableRpmLimit(v *int) *UserUpdateOne {
 // AddRpmLimit adds value to the "rpm_limit" field.
 func (_u *UserUpdateOne) AddRpmLimit(v int) *UserUpdateOne {
 	_u.mutation.AddRpmLimit(v)
-	return _u
-}
-
-// SetTrajExportEnabled sets the "traj_export_enabled" field.
-func (_u *UserUpdateOne) SetTrajExportEnabled(v bool) *UserUpdateOne {
-	_u.mutation.SetTrajExportEnabled(v)
-	return _u
-}
-
-// SetNillableTrajExportEnabled sets the "traj_export_enabled" field if the given value is not nil.
-func (_u *UserUpdateOne) SetNillableTrajExportEnabled(v *bool) *UserUpdateOne {
-	if v != nil {
-		_u.SetTrajExportEnabled(*v)
-	}
 	return _u
 }
 
@@ -2876,20 +2799,11 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	if value, ok := _u.mutation.AddedTotalRecharged(); ok {
 		_spec.AddField(user.FieldTotalRecharged, field.TypeFloat64, value)
 	}
-	if value, ok := _u.mutation.OnboardingTourSeenAt(); ok {
-		_spec.SetField(user.FieldOnboardingTourSeenAt, field.TypeTime, value)
-	}
-	if _u.mutation.OnboardingTourSeenAtCleared() {
-		_spec.ClearField(user.FieldOnboardingTourSeenAt, field.TypeTime)
-	}
 	if value, ok := _u.mutation.RpmLimit(); ok {
 		_spec.SetField(user.FieldRpmLimit, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.AddedRpmLimit(); ok {
 		_spec.AddField(user.FieldRpmLimit, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.TrajExportEnabled(); ok {
-		_spec.SetField(user.FieldTrajExportEnabled, field.TypeBool, value)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{

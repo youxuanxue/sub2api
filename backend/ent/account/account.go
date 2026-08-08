@@ -74,10 +74,6 @@ const (
 	FieldSessionWindowEnd = "session_window_end"
 	// FieldSessionWindowStatus holds the string denoting the session_window_status field in the database.
 	FieldSessionWindowStatus = "session_window_status"
-	// FieldChannelType holds the string denoting the channel_type field in the database.
-	FieldChannelType = "channel_type"
-	// FieldTierID holds the string denoting the tier_id field in the database.
-	FieldTierID = "tier_id"
 	// FieldParentAccountID holds the string denoting the parent_account_id field in the database.
 	FieldParentAccountID = "parent_account_id"
 	// FieldQuotaDimension holds the string denoting the quota_dimension field in the database.
@@ -164,8 +160,6 @@ var Columns = []string{
 	FieldSessionWindowStart,
 	FieldSessionWindowEnd,
 	FieldSessionWindowStatus,
-	FieldChannelType,
-	FieldTierID,
 	FieldParentAccountID,
 	FieldQuotaDimension,
 }
@@ -226,8 +220,6 @@ var (
 	DefaultSchedulable bool
 	// SessionWindowStatusValidator is a validator for the "session_window_status" field. It is called by the builders before save.
 	SessionWindowStatusValidator func(string) error
-	// DefaultChannelType holds the default value on creation for the "channel_type" field.
-	DefaultChannelType int
 )
 
 // QuotaDimension defines the type for the "quota_dimension" enum field.
@@ -397,16 +389,6 @@ func BySessionWindowEnd(opts ...sql.OrderTermOption) OrderOption {
 // BySessionWindowStatus orders the results by the session_window_status field.
 func BySessionWindowStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSessionWindowStatus, opts...).ToFunc()
-}
-
-// ByChannelType orders the results by the channel_type field.
-func ByChannelType(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldChannelType, opts...).ToFunc()
-}
-
-// ByTierID orders the results by the tier_id field.
-func ByTierID(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldTierID, opts...).ToFunc()
 }
 
 // ByParentAccountID orders the results by the parent_account_id field.

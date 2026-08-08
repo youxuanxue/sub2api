@@ -340,20 +340,6 @@ func (_c *UserCreate) SetNillableTotalRecharged(v *float64) *UserCreate {
 	return _c
 }
 
-// SetOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field.
-func (_c *UserCreate) SetOnboardingTourSeenAt(v time.Time) *UserCreate {
-	_c.mutation.SetOnboardingTourSeenAt(v)
-	return _c
-}
-
-// SetNillableOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field if the given value is not nil.
-func (_c *UserCreate) SetNillableOnboardingTourSeenAt(v *time.Time) *UserCreate {
-	if v != nil {
-		_c.SetOnboardingTourSeenAt(*v)
-	}
-	return _c
-}
-
 // SetRpmLimit sets the "rpm_limit" field.
 func (_c *UserCreate) SetRpmLimit(v int) *UserCreate {
 	_c.mutation.SetRpmLimit(v)
@@ -364,20 +350,6 @@ func (_c *UserCreate) SetRpmLimit(v int) *UserCreate {
 func (_c *UserCreate) SetNillableRpmLimit(v *int) *UserCreate {
 	if v != nil {
 		_c.SetRpmLimit(*v)
-	}
-	return _c
-}
-
-// SetTrajExportEnabled sets the "traj_export_enabled" field.
-func (_c *UserCreate) SetTrajExportEnabled(v bool) *UserCreate {
-	_c.mutation.SetTrajExportEnabled(v)
-	return _c
-}
-
-// SetNillableTrajExportEnabled sets the "traj_export_enabled" field if the given value is not nil.
-func (_c *UserCreate) SetNillableTrajExportEnabled(v *bool) *UserCreate {
-	if v != nil {
-		_c.SetTrajExportEnabled(*v)
 	}
 	return _c
 }
@@ -684,10 +656,6 @@ func (_c *UserCreate) defaults() error {
 		v := user.DefaultRpmLimit
 		_c.mutation.SetRpmLimit(v)
 	}
-	if _, ok := _c.mutation.TrajExportEnabled(); !ok {
-		v := user.DefaultTrajExportEnabled
-		_c.mutation.SetTrajExportEnabled(v)
-	}
 	return nil
 }
 
@@ -776,9 +744,6 @@ func (_c *UserCreate) check() error {
 	}
 	if _, ok := _c.mutation.RpmLimit(); !ok {
 		return &ValidationError{Name: "rpm_limit", err: errors.New(`ent: missing required field "User.rpm_limit"`)}
-	}
-	if _, ok := _c.mutation.TrajExportEnabled(); !ok {
-		return &ValidationError{Name: "traj_export_enabled", err: errors.New(`ent: missing required field "User.traj_export_enabled"`)}
 	}
 	return nil
 }
@@ -899,17 +864,9 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 		_spec.SetField(user.FieldTotalRecharged, field.TypeFloat64, value)
 		_node.TotalRecharged = value
 	}
-	if value, ok := _c.mutation.OnboardingTourSeenAt(); ok {
-		_spec.SetField(user.FieldOnboardingTourSeenAt, field.TypeTime, value)
-		_node.OnboardingTourSeenAt = &value
-	}
 	if value, ok := _c.mutation.RpmLimit(); ok {
 		_spec.SetField(user.FieldRpmLimit, field.TypeInt, value)
 		_node.RpmLimit = value
-	}
-	if value, ok := _c.mutation.TrajExportEnabled(); ok {
-		_spec.SetField(user.FieldTrajExportEnabled, field.TypeBool, value)
-		_node.TrajExportEnabled = value
 	}
 	if nodes := _c.mutation.APIKeysIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -1505,24 +1462,6 @@ func (u *UserUpsert) AddTotalRecharged(v float64) *UserUpsert {
 	return u
 }
 
-// SetOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field.
-func (u *UserUpsert) SetOnboardingTourSeenAt(v time.Time) *UserUpsert {
-	u.Set(user.FieldOnboardingTourSeenAt, v)
-	return u
-}
-
-// UpdateOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field to the value that was provided on create.
-func (u *UserUpsert) UpdateOnboardingTourSeenAt() *UserUpsert {
-	u.SetExcluded(user.FieldOnboardingTourSeenAt)
-	return u
-}
-
-// ClearOnboardingTourSeenAt clears the value of the "onboarding_tour_seen_at" field.
-func (u *UserUpsert) ClearOnboardingTourSeenAt() *UserUpsert {
-	u.SetNull(user.FieldOnboardingTourSeenAt)
-	return u
-}
-
 // SetRpmLimit sets the "rpm_limit" field.
 func (u *UserUpsert) SetRpmLimit(v int) *UserUpsert {
 	u.Set(user.FieldRpmLimit, v)
@@ -1538,18 +1477,6 @@ func (u *UserUpsert) UpdateRpmLimit() *UserUpsert {
 // AddRpmLimit adds v to the "rpm_limit" field.
 func (u *UserUpsert) AddRpmLimit(v int) *UserUpsert {
 	u.Add(user.FieldRpmLimit, v)
-	return u
-}
-
-// SetTrajExportEnabled sets the "traj_export_enabled" field.
-func (u *UserUpsert) SetTrajExportEnabled(v bool) *UserUpsert {
-	u.Set(user.FieldTrajExportEnabled, v)
-	return u
-}
-
-// UpdateTrajExportEnabled sets the "traj_export_enabled" field to the value that was provided on create.
-func (u *UserUpsert) UpdateTrajExportEnabled() *UserUpsert {
-	u.SetExcluded(user.FieldTrajExportEnabled)
 	return u
 }
 
@@ -1983,27 +1910,6 @@ func (u *UserUpsertOne) UpdateTotalRecharged() *UserUpsertOne {
 	})
 }
 
-// SetOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field.
-func (u *UserUpsertOne) SetOnboardingTourSeenAt(v time.Time) *UserUpsertOne {
-	return u.Update(func(s *UserUpsert) {
-		s.SetOnboardingTourSeenAt(v)
-	})
-}
-
-// UpdateOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field to the value that was provided on create.
-func (u *UserUpsertOne) UpdateOnboardingTourSeenAt() *UserUpsertOne {
-	return u.Update(func(s *UserUpsert) {
-		s.UpdateOnboardingTourSeenAt()
-	})
-}
-
-// ClearOnboardingTourSeenAt clears the value of the "onboarding_tour_seen_at" field.
-func (u *UserUpsertOne) ClearOnboardingTourSeenAt() *UserUpsertOne {
-	return u.Update(func(s *UserUpsert) {
-		s.ClearOnboardingTourSeenAt()
-	})
-}
-
 // SetRpmLimit sets the "rpm_limit" field.
 func (u *UserUpsertOne) SetRpmLimit(v int) *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
@@ -2022,20 +1928,6 @@ func (u *UserUpsertOne) AddRpmLimit(v int) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateRpmLimit() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateRpmLimit()
-	})
-}
-
-// SetTrajExportEnabled sets the "traj_export_enabled" field.
-func (u *UserUpsertOne) SetTrajExportEnabled(v bool) *UserUpsertOne {
-	return u.Update(func(s *UserUpsert) {
-		s.SetTrajExportEnabled(v)
-	})
-}
-
-// UpdateTrajExportEnabled sets the "traj_export_enabled" field to the value that was provided on create.
-func (u *UserUpsertOne) UpdateTrajExportEnabled() *UserUpsertOne {
-	return u.Update(func(s *UserUpsert) {
-		s.UpdateTrajExportEnabled()
 	})
 }
 
@@ -2635,27 +2527,6 @@ func (u *UserUpsertBulk) UpdateTotalRecharged() *UserUpsertBulk {
 	})
 }
 
-// SetOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field.
-func (u *UserUpsertBulk) SetOnboardingTourSeenAt(v time.Time) *UserUpsertBulk {
-	return u.Update(func(s *UserUpsert) {
-		s.SetOnboardingTourSeenAt(v)
-	})
-}
-
-// UpdateOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field to the value that was provided on create.
-func (u *UserUpsertBulk) UpdateOnboardingTourSeenAt() *UserUpsertBulk {
-	return u.Update(func(s *UserUpsert) {
-		s.UpdateOnboardingTourSeenAt()
-	})
-}
-
-// ClearOnboardingTourSeenAt clears the value of the "onboarding_tour_seen_at" field.
-func (u *UserUpsertBulk) ClearOnboardingTourSeenAt() *UserUpsertBulk {
-	return u.Update(func(s *UserUpsert) {
-		s.ClearOnboardingTourSeenAt()
-	})
-}
-
 // SetRpmLimit sets the "rpm_limit" field.
 func (u *UserUpsertBulk) SetRpmLimit(v int) *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
@@ -2674,20 +2545,6 @@ func (u *UserUpsertBulk) AddRpmLimit(v int) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateRpmLimit() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateRpmLimit()
-	})
-}
-
-// SetTrajExportEnabled sets the "traj_export_enabled" field.
-func (u *UserUpsertBulk) SetTrajExportEnabled(v bool) *UserUpsertBulk {
-	return u.Update(func(s *UserUpsert) {
-		s.SetTrajExportEnabled(v)
-	})
-}
-
-// UpdateTrajExportEnabled sets the "traj_export_enabled" field to the value that was provided on create.
-func (u *UserUpsertBulk) UpdateTrajExportEnabled() *UserUpsertBulk {
-	return u.Update(func(s *UserUpsert) {
-		s.UpdateTrajExportEnabled()
 	})
 }
 

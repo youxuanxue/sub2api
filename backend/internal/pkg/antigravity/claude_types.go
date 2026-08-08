@@ -18,8 +18,14 @@ type ClaudeRequest struct {
 	TopP        *float64        `json:"top_p,omitempty"`
 	TopK        *int            `json:"top_k,omitempty"`
 	Tools       []ClaudeTool    `json:"tools,omitempty"`
-	Thinking    *ThinkingConfig `json:"thinking,omitempty"`
-	Metadata    *ClaudeMetadata `json:"metadata,omitempty"`
+	Thinking    *ThinkingConfig  `json:"thinking,omitempty"`
+	Metadata    *ClaudeMetadata  `json:"metadata,omitempty"`
+	ImageConfig *ClaudeImageConfig `json:"-"` // populated from extra_body.google.image_config
+}
+
+// ClaudeImageConfig extra_body image configuration passed through to Gemini
+type ClaudeImageConfig struct {
+	AspectRatio string `json:"aspect_ratio,omitempty"`
 }
 
 // ClaudeMessage Claude 消息

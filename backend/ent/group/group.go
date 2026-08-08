@@ -3,7 +3,6 @@
 package group
 
 import (
-	"fmt"
 	"time"
 
 	"entgo.io/ent"
@@ -115,14 +114,8 @@ const (
 	FieldMessagesDispatchModelConfig = "messages_dispatch_model_config"
 	// FieldModelsListConfig holds the string denoting the models_list_config field in the database.
 	FieldModelsListConfig = "models_list_config"
-	// FieldStickyRoutingMode holds the string denoting the sticky_routing_mode field in the database.
-	FieldStickyRoutingMode = "sticky_routing_mode"
 	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
 	FieldRpmLimit = "rpm_limit"
-	// FieldMessagesCompactionEnabled holds the string denoting the messages_compaction_enabled field in the database.
-	FieldMessagesCompactionEnabled = "messages_compaction_enabled"
-	// FieldMessagesCompactionInputTokensThreshold holds the string denoting the messages_compaction_input_tokens_threshold field in the database.
-	FieldMessagesCompactionInputTokensThreshold = "messages_compaction_input_tokens_threshold"
 	// FieldMaxReasoningEffort holds the string denoting the max_reasoning_effort field in the database.
 	FieldMaxReasoningEffort = "max_reasoning_effort"
 	// FieldReasoningEffortMappings holds the string denoting the reasoning_effort_mappings field in the database.
@@ -257,10 +250,7 @@ var Columns = []string{
 	FieldDefaultMappedModel,
 	FieldMessagesDispatchModelConfig,
 	FieldModelsListConfig,
-	FieldStickyRoutingMode,
 	FieldRpmLimit,
-	FieldMessagesCompactionEnabled,
-	FieldMessagesCompactionInputTokensThreshold,
 	FieldMaxReasoningEffort,
 	FieldReasoningEffortMappings,
 	FieldProfitControlEnabled,
@@ -392,33 +382,6 @@ var (
 	// DefaultProfitSafetyBuffer holds the default value on creation for the "profit_safety_buffer" field.
 	DefaultProfitSafetyBuffer float64
 )
-
-// StickyRoutingMode defines the type for the "sticky_routing_mode" enum field.
-type StickyRoutingMode string
-
-// StickyRoutingModeAuto is the default value of the StickyRoutingMode enum.
-const DefaultStickyRoutingMode = StickyRoutingModeAuto
-
-// StickyRoutingMode values.
-const (
-	StickyRoutingModeAuto        StickyRoutingMode = "auto"
-	StickyRoutingModePassthrough StickyRoutingMode = "passthrough"
-	StickyRoutingModeOff         StickyRoutingMode = "off"
-)
-
-func (srm StickyRoutingMode) String() string {
-	return string(srm)
-}
-
-// StickyRoutingModeValidator is a validator for the "sticky_routing_mode" field enum values. It is called by the builders before save.
-func StickyRoutingModeValidator(srm StickyRoutingMode) error {
-	switch srm {
-	case StickyRoutingModeAuto, StickyRoutingModePassthrough, StickyRoutingModeOff:
-		return nil
-	default:
-		return fmt.Errorf("group: invalid enum value for sticky_routing_mode field: %q", srm)
-	}
-}
 
 // OrderOption defines the ordering options for the Group queries.
 type OrderOption func(*sql.Selector)
@@ -653,24 +616,9 @@ func ByDefaultMappedModel(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDefaultMappedModel, opts...).ToFunc()
 }
 
-// ByStickyRoutingMode orders the results by the sticky_routing_mode field.
-func ByStickyRoutingMode(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldStickyRoutingMode, opts...).ToFunc()
-}
-
 // ByRpmLimit orders the results by the rpm_limit field.
 func ByRpmLimit(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRpmLimit, opts...).ToFunc()
-}
-
-// ByMessagesCompactionEnabled orders the results by the messages_compaction_enabled field.
-func ByMessagesCompactionEnabled(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldMessagesCompactionEnabled, opts...).ToFunc()
-}
-
-// ByMessagesCompactionInputTokensThreshold orders the results by the messages_compaction_input_tokens_threshold field.
-func ByMessagesCompactionInputTokensThreshold(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldMessagesCompactionInputTokensThreshold, opts...).ToFunc()
 }
 
 // ByMaxReasoningEffort orders the results by the max_reasoning_effort field.

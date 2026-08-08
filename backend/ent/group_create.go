@@ -691,20 +691,6 @@ func (_c *GroupCreate) SetNillableModelsListConfig(v *domain.GroupModelsListConf
 	return _c
 }
 
-// SetStickyRoutingMode sets the "sticky_routing_mode" field.
-func (_c *GroupCreate) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupCreate {
-	_c.mutation.SetStickyRoutingMode(v)
-	return _c
-}
-
-// SetNillableStickyRoutingMode sets the "sticky_routing_mode" field if the given value is not nil.
-func (_c *GroupCreate) SetNillableStickyRoutingMode(v *group.StickyRoutingMode) *GroupCreate {
-	if v != nil {
-		_c.SetStickyRoutingMode(*v)
-	}
-	return _c
-}
-
 // SetRpmLimit sets the "rpm_limit" field.
 func (_c *GroupCreate) SetRpmLimit(v int) *GroupCreate {
 	_c.mutation.SetRpmLimit(v)
@@ -715,34 +701,6 @@ func (_c *GroupCreate) SetRpmLimit(v int) *GroupCreate {
 func (_c *GroupCreate) SetNillableRpmLimit(v *int) *GroupCreate {
 	if v != nil {
 		_c.SetRpmLimit(*v)
-	}
-	return _c
-}
-
-// SetMessagesCompactionEnabled sets the "messages_compaction_enabled" field.
-func (_c *GroupCreate) SetMessagesCompactionEnabled(v bool) *GroupCreate {
-	_c.mutation.SetMessagesCompactionEnabled(v)
-	return _c
-}
-
-// SetNillableMessagesCompactionEnabled sets the "messages_compaction_enabled" field if the given value is not nil.
-func (_c *GroupCreate) SetNillableMessagesCompactionEnabled(v *bool) *GroupCreate {
-	if v != nil {
-		_c.SetMessagesCompactionEnabled(*v)
-	}
-	return _c
-}
-
-// SetMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field.
-func (_c *GroupCreate) SetMessagesCompactionInputTokensThreshold(v int) *GroupCreate {
-	_c.mutation.SetMessagesCompactionInputTokensThreshold(v)
-	return _c
-}
-
-// SetNillableMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field if the given value is not nil.
-func (_c *GroupCreate) SetNillableMessagesCompactionInputTokensThreshold(v *int) *GroupCreate {
-	if v != nil {
-		_c.SetMessagesCompactionInputTokensThreshold(*v)
 	}
 	return _c
 }
@@ -1070,10 +1028,6 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultModelsListConfig
 		_c.mutation.SetModelsListConfig(v)
 	}
-	if _, ok := _c.mutation.StickyRoutingMode(); !ok {
-		v := group.DefaultStickyRoutingMode
-		_c.mutation.SetStickyRoutingMode(v)
-	}
 	if _, ok := _c.mutation.RpmLimit(); !ok {
 		v := group.DefaultRpmLimit
 		_c.mutation.SetRpmLimit(v)
@@ -1241,14 +1195,6 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.ModelsListConfig(); !ok {
 		return &ValidationError{Name: "models_list_config", err: errors.New(`ent: missing required field "Group.models_list_config"`)}
-	}
-	if _, ok := _c.mutation.StickyRoutingMode(); !ok {
-		return &ValidationError{Name: "sticky_routing_mode", err: errors.New(`ent: missing required field "Group.sticky_routing_mode"`)}
-	}
-	if v, ok := _c.mutation.StickyRoutingMode(); ok {
-		if err := group.StickyRoutingModeValidator(v); err != nil {
-			return &ValidationError{Name: "sticky_routing_mode", err: fmt.Errorf(`ent: validator failed for field "Group.sticky_routing_mode": %w`, err)}
-		}
 	}
 	if _, ok := _c.mutation.RpmLimit(); !ok {
 		return &ValidationError{Name: "rpm_limit", err: errors.New(`ent: missing required field "Group.rpm_limit"`)}
@@ -1496,21 +1442,9 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldModelsListConfig, field.TypeJSON, value)
 		_node.ModelsListConfig = value
 	}
-	if value, ok := _c.mutation.StickyRoutingMode(); ok {
-		_spec.SetField(group.FieldStickyRoutingMode, field.TypeEnum, value)
-		_node.StickyRoutingMode = value
-	}
 	if value, ok := _c.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
 		_node.RpmLimit = value
-	}
-	if value, ok := _c.mutation.MessagesCompactionEnabled(); ok {
-		_spec.SetField(group.FieldMessagesCompactionEnabled, field.TypeBool, value)
-		_node.MessagesCompactionEnabled = &value
-	}
-	if value, ok := _c.mutation.MessagesCompactionInputTokensThreshold(); ok {
-		_spec.SetField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt, value)
-		_node.MessagesCompactionInputTokensThreshold = &value
 	}
 	if value, ok := _c.mutation.MaxReasoningEffort(); ok {
 		_spec.SetField(group.FieldMaxReasoningEffort, field.TypeString, value)
@@ -2462,18 +2396,6 @@ func (u *GroupUpsert) UpdateModelsListConfig() *GroupUpsert {
 	return u
 }
 
-// SetStickyRoutingMode sets the "sticky_routing_mode" field.
-func (u *GroupUpsert) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpsert {
-	u.Set(group.FieldStickyRoutingMode, v)
-	return u
-}
-
-// UpdateStickyRoutingMode sets the "sticky_routing_mode" field to the value that was provided on create.
-func (u *GroupUpsert) UpdateStickyRoutingMode() *GroupUpsert {
-	u.SetExcluded(group.FieldStickyRoutingMode)
-	return u
-}
-
 // SetRpmLimit sets the "rpm_limit" field.
 func (u *GroupUpsert) SetRpmLimit(v int) *GroupUpsert {
 	u.Set(group.FieldRpmLimit, v)
@@ -2489,48 +2411,6 @@ func (u *GroupUpsert) UpdateRpmLimit() *GroupUpsert {
 // AddRpmLimit adds v to the "rpm_limit" field.
 func (u *GroupUpsert) AddRpmLimit(v int) *GroupUpsert {
 	u.Add(group.FieldRpmLimit, v)
-	return u
-}
-
-// SetMessagesCompactionEnabled sets the "messages_compaction_enabled" field.
-func (u *GroupUpsert) SetMessagesCompactionEnabled(v bool) *GroupUpsert {
-	u.Set(group.FieldMessagesCompactionEnabled, v)
-	return u
-}
-
-// UpdateMessagesCompactionEnabled sets the "messages_compaction_enabled" field to the value that was provided on create.
-func (u *GroupUpsert) UpdateMessagesCompactionEnabled() *GroupUpsert {
-	u.SetExcluded(group.FieldMessagesCompactionEnabled)
-	return u
-}
-
-// ClearMessagesCompactionEnabled clears the value of the "messages_compaction_enabled" field.
-func (u *GroupUpsert) ClearMessagesCompactionEnabled() *GroupUpsert {
-	u.SetNull(group.FieldMessagesCompactionEnabled)
-	return u
-}
-
-// SetMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field.
-func (u *GroupUpsert) SetMessagesCompactionInputTokensThreshold(v int) *GroupUpsert {
-	u.Set(group.FieldMessagesCompactionInputTokensThreshold, v)
-	return u
-}
-
-// UpdateMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field to the value that was provided on create.
-func (u *GroupUpsert) UpdateMessagesCompactionInputTokensThreshold() *GroupUpsert {
-	u.SetExcluded(group.FieldMessagesCompactionInputTokensThreshold)
-	return u
-}
-
-// AddMessagesCompactionInputTokensThreshold adds v to the "messages_compaction_input_tokens_threshold" field.
-func (u *GroupUpsert) AddMessagesCompactionInputTokensThreshold(v int) *GroupUpsert {
-	u.Add(group.FieldMessagesCompactionInputTokensThreshold, v)
-	return u
-}
-
-// ClearMessagesCompactionInputTokensThreshold clears the value of the "messages_compaction_input_tokens_threshold" field.
-func (u *GroupUpsert) ClearMessagesCompactionInputTokensThreshold() *GroupUpsert {
-	u.SetNull(group.FieldMessagesCompactionInputTokensThreshold)
 	return u
 }
 
@@ -3557,20 +3437,6 @@ func (u *GroupUpsertOne) UpdateModelsListConfig() *GroupUpsertOne {
 	})
 }
 
-// SetStickyRoutingMode sets the "sticky_routing_mode" field.
-func (u *GroupUpsertOne) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetStickyRoutingMode(v)
-	})
-}
-
-// UpdateStickyRoutingMode sets the "sticky_routing_mode" field to the value that was provided on create.
-func (u *GroupUpsertOne) UpdateStickyRoutingMode() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateStickyRoutingMode()
-	})
-}
-
 // SetRpmLimit sets the "rpm_limit" field.
 func (u *GroupUpsertOne) SetRpmLimit(v int) *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
@@ -3589,55 +3455,6 @@ func (u *GroupUpsertOne) AddRpmLimit(v int) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateRpmLimit() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRpmLimit()
-	})
-}
-
-// SetMessagesCompactionEnabled sets the "messages_compaction_enabled" field.
-func (u *GroupUpsertOne) SetMessagesCompactionEnabled(v bool) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetMessagesCompactionEnabled(v)
-	})
-}
-
-// UpdateMessagesCompactionEnabled sets the "messages_compaction_enabled" field to the value that was provided on create.
-func (u *GroupUpsertOne) UpdateMessagesCompactionEnabled() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateMessagesCompactionEnabled()
-	})
-}
-
-// ClearMessagesCompactionEnabled clears the value of the "messages_compaction_enabled" field.
-func (u *GroupUpsertOne) ClearMessagesCompactionEnabled() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.ClearMessagesCompactionEnabled()
-	})
-}
-
-// SetMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field.
-func (u *GroupUpsertOne) SetMessagesCompactionInputTokensThreshold(v int) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetMessagesCompactionInputTokensThreshold(v)
-	})
-}
-
-// AddMessagesCompactionInputTokensThreshold adds v to the "messages_compaction_input_tokens_threshold" field.
-func (u *GroupUpsertOne) AddMessagesCompactionInputTokensThreshold(v int) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.AddMessagesCompactionInputTokensThreshold(v)
-	})
-}
-
-// UpdateMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field to the value that was provided on create.
-func (u *GroupUpsertOne) UpdateMessagesCompactionInputTokensThreshold() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateMessagesCompactionInputTokensThreshold()
-	})
-}
-
-// ClearMessagesCompactionInputTokensThreshold clears the value of the "messages_compaction_input_tokens_threshold" field.
-func (u *GroupUpsertOne) ClearMessagesCompactionInputTokensThreshold() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.ClearMessagesCompactionInputTokensThreshold()
 	})
 }
 
@@ -4842,20 +4659,6 @@ func (u *GroupUpsertBulk) UpdateModelsListConfig() *GroupUpsertBulk {
 	})
 }
 
-// SetStickyRoutingMode sets the "sticky_routing_mode" field.
-func (u *GroupUpsertBulk) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetStickyRoutingMode(v)
-	})
-}
-
-// UpdateStickyRoutingMode sets the "sticky_routing_mode" field to the value that was provided on create.
-func (u *GroupUpsertBulk) UpdateStickyRoutingMode() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateStickyRoutingMode()
-	})
-}
-
 // SetRpmLimit sets the "rpm_limit" field.
 func (u *GroupUpsertBulk) SetRpmLimit(v int) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
@@ -4874,55 +4677,6 @@ func (u *GroupUpsertBulk) AddRpmLimit(v int) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateRpmLimit() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRpmLimit()
-	})
-}
-
-// SetMessagesCompactionEnabled sets the "messages_compaction_enabled" field.
-func (u *GroupUpsertBulk) SetMessagesCompactionEnabled(v bool) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetMessagesCompactionEnabled(v)
-	})
-}
-
-// UpdateMessagesCompactionEnabled sets the "messages_compaction_enabled" field to the value that was provided on create.
-func (u *GroupUpsertBulk) UpdateMessagesCompactionEnabled() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateMessagesCompactionEnabled()
-	})
-}
-
-// ClearMessagesCompactionEnabled clears the value of the "messages_compaction_enabled" field.
-func (u *GroupUpsertBulk) ClearMessagesCompactionEnabled() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.ClearMessagesCompactionEnabled()
-	})
-}
-
-// SetMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field.
-func (u *GroupUpsertBulk) SetMessagesCompactionInputTokensThreshold(v int) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetMessagesCompactionInputTokensThreshold(v)
-	})
-}
-
-// AddMessagesCompactionInputTokensThreshold adds v to the "messages_compaction_input_tokens_threshold" field.
-func (u *GroupUpsertBulk) AddMessagesCompactionInputTokensThreshold(v int) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.AddMessagesCompactionInputTokensThreshold(v)
-	})
-}
-
-// UpdateMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field to the value that was provided on create.
-func (u *GroupUpsertBulk) UpdateMessagesCompactionInputTokensThreshold() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateMessagesCompactionInputTokensThreshold()
-	})
-}
-
-// ClearMessagesCompactionInputTokensThreshold clears the value of the "messages_compaction_input_tokens_threshold" field.
-func (u *GroupUpsertBulk) ClearMessagesCompactionInputTokensThreshold() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.ClearMessagesCompactionInputTokensThreshold()
 	})
 }
 
