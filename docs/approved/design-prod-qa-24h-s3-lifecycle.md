@@ -260,7 +260,7 @@ preflight/lock
   -> 归档本轮上一完整 UTC 小时（normal window）
   -> normal 失败：记录失败、写 host receipt、非零退出，不执行补偿
   -> normal committed + restore-verified：
-       选择 forward_cutover 之后、normal window 之前最老的未完成小时
+       按 UTC 时间轴选择 forward_cutover 之后、normal window 之前最老的可重试未完成小时
        最多补偿一个窗口；无缺口则跳过
   -> 补偿失败：保留机器可读失败状态、写 host receipt、非零退出
   -> 收敛archive partial/tmp
@@ -271,14 +271,16 @@ preflight/lock
 `qa_archive_shards` 中唯一 `forward_cutover=true` 的 committed 且 restore-verified shard 是前向边界。
 本次生产收口以 `2026-08-07 21:00 UTC` shard 为锚点；`22:00` 缺口走上述正式补偿状态机，不恢复
 任意窗口 selector、历史 backfill flag 或第二个脚本。补偿集合不包含 cutover 及其之前的已知历史
-缺口。归档和 cleanup 不并发。普通失败不会阻塞 gateway，也不会触发密集通知。
+缺口。时间轴中不可恢复的 terminal failed 小时持续进入 archive health，但不阻塞后续可重试小时。
+归档和 cleanup 不并发。普通失败不会阻塞 gateway，也不会触发密集通知。
 
 ### 7.3 Crash 可恢复
 
 每个阶段写持久化 checkpoint；所有动作幂等：
 
 - archive 对象先写 immutable generation，再最后提交 commit manifest；
-- `forward_cutover` 通过唯一部分索引保证全库只有一个，重复设置同一锚点幂等，切换锚点需独立显式操作；
+- `forward_cutover` 通过唯一部分索引和行级有效性约束保证全库只有一个 committed +
+  restore-verified marker；本次只允许幂等设置已批准的 `2026-08-07 21:00 UTC`，不存在 move/unset 入口；
 - 进程在任一步 crash，下一轮根据 control row、segment membership 和 S3 commit 收敛；
 - host runner 在同目录临时文件完成 `fsync` 后 rename，原子写
   `/var/lib/tokenkey/qa-maintenance-last-run.json`，即使 child 在写 DB heartbeat 前失败也留下机器证据；
@@ -303,7 +305,7 @@ tokenkey-prod-qa-raw-archive-<account>
 - prod instance role 对目标 shard artifact/manifest/commit 允许精确 Put 和必要 multipart；不授予
   `s3:ListBucket`，不授予 `raw/partial/` 读取；`s3:GetObject` 只覆盖维护实际回读校验需要的
   `commit.json`、`manifest.json`、`records.parquet`、`evidence.pack` 和
-  `evidence-index.jsonl.zst` 对象后缀；
+  `evidence-index.jsonl.zst`、`orphan-evidence-index.jsonl.zst` 对象后缀；
 - Export Worker role 只读 raw archive、只写用户 export prefix；
 - ops recovery role 允许受审计 Get/List；
 - 普通用户和普通 API key 无 raw archive 权限；
@@ -347,11 +349,19 @@ commit 使用 S3 conditional write（ETag/前置条件）做 compare-and-swap，
 
 ### 8.3 迟到记录与最终核对
 
-`HH:15` 首先处理上一完整小时。只有该 normal window committed 且 restore-verified，本轮才可在
-`forward_cutover` 之后选择最老的一个不完整小时做补偿；不能一次扫描或追赶全部历史。对已有 commit
-的小时，reconcile 将当前 DB 行和 commit 中已归档 record/blob identity 做集合差，只为新增迟到记录
-创建 immutable delta segment，再原子更新 commit。对完全缺失的小时创建 base segment。normal 或
-补偿任一失败都保留机器可读状态并使本轮非零退出。
+`HH:15` 首先处理上一完整小时并在读取源数据前确保 control row。处于 retention 内的零记录 normal
+window 也必须生成可 restore-verify 的零行 base commit，不能把零流量表示成没有事实。只有该 normal
+window committed 且 restore-verified，本轮才按 UTC 小时序列枚举 `forward_cutover` 与 normal window
+之间的窗口；候选不能只从仍有源行或已有 control row 的集合反推。
+
+每轮最多选择最老的一个可重试未完成小时：缺少 control 且仍在 retention 内、control 为非终态/可重试
+failed，或 committed + restore-verified 但存在尚未进入 verified/committed segment membership 的源
+identity。对已有 commit 的小时，reconcile 做 source-minus-committed-membership 差集，只为新增迟到
+记录创建 immutable delta segment，再原子更新 commit；差集收敛后不重复创建 delta。处于 retention
+内且确认为零记录的小时创建零行 base。若时间轴上的小时首次被发现时既无 control/源行又已经过
+retention cutoff，必须创建 `failed/source_unavailable_after_retention` control；已有但尚未 committed 的
+可重试小时到达同一条件时也必须转为 terminal failed，不得伪造空 commit 或成功。该 terminal failure
+保持可见但不自动重试，以免饿死后续小时。normal 或补偿任一失败都保留机器可读状态并使本轮非零退出。
 
 archive完整性判断使用final commit segment集合，不把首次base segment当作最终完整性事实。
 归档器处理所有用户和API key，禁止用`traj_export_enabled`过滤archive输入。该判断不参与
@@ -361,7 +371,8 @@ archive完整性判断使用final commit segment集合，不把首次base segmen
 
 如果某小时archive仍无法完整提交，shard保持`failed`并记录机器可读原因，不得标记complete。
 独立年龄cleanup仍按24小时规则删除本地数据；archive health继续报告历史不可完整恢复，不自动
-创建confirmed-gap或把失败转成成功。
+创建confirmed-gap或把失败转成成功。即使失败发生在创建 control 前，cutover 后的小时也由 UTC
+时间轴重新发现；源数据已过期时落为`source_unavailable_after_retention`，不能静默消失。
 
 服务与磁盘安全高于冷归档完整性；S3 故障不能使 prod 本地 QA 无限增长。
 
@@ -628,8 +639,14 @@ expired_unarchived -> gap_recorded
 只有 `committed` generation 可被 Export Worker 和 ops 工具读取。
 
 `forward_cutover` 为非空默认 false 的 boolean，并由 `WHERE forward_cutover` 唯一部分索引保证全库最多
-一个 true。设为 true 的 shard 还必须是 committed 且 `restore_verified_at IS NOT NULL`；应用选择器和
-设置命令双重校验。它只界定自动补偿下界，不代表 cutover 之前所有历史小时完整，也不授权删除。
+一个 true；行级约束要求 true 只能出现在 committed 且 `restore_verified_at IS NOT NULL` 的 shard。
+应用选择器和设置命令再次校验。本次设置命令只接受已批准的 `2026-08-07 21:00 UTC`，重复设置幂等，
+不提供 move/unset。它只界定自动补偿下界，不代表 cutover 之前所有历史小时完整，也不授权删除。
+
+cutover 后每个已封口小时最终都必须有 durable control：成功状态是独立 restore 通过的 commit（包括
+在 retention 内确认的零行 base），失败状态至少包含机器错误码。`source_unavailable_after_retention`
+表示未 committed 小时被时间轴处理时已经没有可证明完整的源数据；它覆盖无既存 control 和已有
+retryable control 但源数据随后过期两种情况，是 terminal failed，不是空归档、confirmed gap 或删除授权。
 
 ### 14.2 Cleanup receipt
 
@@ -690,6 +707,7 @@ host receipt、新旧 DB heartbeat、对应 `qa_archive_shards`/segments/control
 关联一致、normal window committed + restore-verified、且本轮要求的 catchup 没有失败时才报告健康。
 缺 receipt、receipt stale、systemd success 但 DB 无对应进展、DB heartbeat 未记录 child 失败、或 control
 row 与 receipt 冲突都必须报告明确的 degraded/failure 原因，不能沿用最后一次成功 heartbeat 报绿。
+cutover 后任何未处置的 terminal failed 小时都使 archive health 保持 degraded，即使后续 normal 成功。
 
 ## 16. 安全与隐私边界
 
@@ -711,6 +729,8 @@ row 与 receipt 冲突都必须报告明确的 degraded/failure 原因，不能�
 
 - archive normal window 临时失败：写 DB/host 失败状态并非零退出，本轮不补偿；后续某轮 normal 成功后，
   由每轮最多一个窗口的正式补偿选择器收敛，不推送；
+- archive 在 control 创建前失败：后续按 cutover 后 UTC 时间轴重新发现；若发现时源数据已过期，写
+  terminal `source_unavailable_after_retention` 并持续报 degraded，不伪造零行成功；
 - cleanup crash：下一轮按 receipt/quarantine 重入；
 - Export Worker 失败：job 标记 failed，用户重试；不得 fallback 到 prod；
 - ops fetch 损坏：checksum fail closed，不输出不可信证据。
@@ -763,8 +783,9 @@ bucket 允许而 KMS 拒绝的半配置状态。现有 app statement 仍含 `Lis
    `/var/lib/tokenkey/app/qa_archive_tmp:/app/data/qa_archive_tmp` create/read/delete；
 4. 独立 verify/restore `2026-08-07 21:00 UTC` committed shard 后，原子设置唯一 cutover；
 5. 通过同一 runner 执行一轮 normal archive；normal 成功后由正式补偿选择器处理最老的 22:00 缺口，
-   再 verify/restore。若 22:00 源数据已被年龄清理，不创建空 commit、不写假成功，停止 rollout 并单独
-   请求不可恢复 gap 的处置批准；
+   再 verify/restore。若 22:00 源数据已被年龄清理，写
+   `failed/source_unavailable_after_retention`，不创建空 commit、不写假成功，停止 rollout 并单独请求
+   不可恢复 gap 的处置批准；
 6. 从 ops workstation assume recovery role，直接对 S3 完成独立 restore，随后删除
    `ops/prod/fetch-qa-dump.sh`；
 7. 启用 maintenance timer，观察至少两个连续正常计划轮次；每轮联合核对 systemd、host receipt、DB
@@ -838,10 +859,15 @@ Phase PR 必须同时删除该行所有 deploy、test、doc 和 generated fixtur
 - `retention_until`精确为`created_at+24h`，且cleanup源码不读取该字段；
 - archive 小时边界、排序、manifest/checksum；
 - `file://`/`dlq://` 读取；
-- late record 产生 append-only delta segment，commit CAS 后可读；
+- committed + restore-verified 小时存在未覆盖 late identity 时仍进入补偿选择，产生恰好一个
+  append-only delta segment，membership 收敛后不再重复选择；
 - incomplete segment 不可读；
-- `forward_cutover` 唯一、只能指向 committed + restore-verified shard，补偿选择严格大于 cutover；
+- `forward_cutover` 唯一、只能指向 committed + restore-verified shard，只能幂等设置批准窗口且不能
+  move/unset，补偿选择严格大于 cutover；
 - normal 失败不补偿；normal 成功最多补一个最老缺口；补偿失败写 receipt 并非零退出；
+- cutover 后候选由 UTC 小时时间轴生成；control 前 crash 后源数据过期必须形成 durable
+  `source_unavailable_after_retention`，不能从候选与 health 中消失；
+- retention 内零记录小时生成可 restore 的零行 base；过期后才首次发现的未知小时禁止生成空 commit；
 - timer/operator 都调用单一 host runner，不存在 root `docker exec` 旁路；真实 mount 下 UID/GID
   `1000:1000` selftest 行为通过；
 - `traj_export_enabled=false` 时 UI 隐藏入口且 enqueue/list/get/download 均服务端拒绝；
@@ -862,18 +888,21 @@ Phase PR 必须同时删除该行所有 deploy、test、doc 和 generated fixtur
 - 隔离 PostgreSQL + local object-store/S3-compatible 环境完成 archive→verify→restore；
 - Fargate-equivalent Worker 从 raw shard 生成 trajectory ZIP；
 - 归档中断、S3 失败、DB timeout、missing Blob、重复运行和并发 lock；
+- control 前 crash→年龄清理→terminal failure、零记录小时 empty base、committed 小时 late delta；
 - 大小时 shard 的 CPU/内存/IO 资源上限；
 - cleanup 小事务与 gateway 并发，无长锁和明显 latency 抬升；
 - S3 lifecycle、IAM/KMS deny 和 CloudTrail 读取审计。
-- app role 无 `ListBucket`/partial Get，GetObject 只覆盖验证所需后缀；共享 EC2 role 边界在测试报告中
-  不得误报为 gateway/maintenance 进程隔离。
+- app role 无 `ListBucket`/partial Get，GetObject 只覆盖验证所需后缀（含已声明的
+  `orphan-evidence-index.jsonl.zst`）；共享 EC2 role 边界在测试报告中不得误报为
+  gateway/maintenance 进程隔离。
 
 ### 19.3 生产验收
 
 - Edge 连续至少 24 小时无新增 QA 行/文件；
 - prod 在线接口严格不返回 24h 以前数据；
 - 非 emergency 时最老物理 QA 不超过 25h15m；
-- 每个应归档小时有 valid commit，或有明确 gap receipt；
+- cutover 后每个已封口小时有 valid restored commit 或明确 terminal failure；年龄清理不能让缺少 control
+  的小时静默消失；
 - 21:00 是唯一 cutover 且独立 restore 通过；22:00 由正式补偿收敛，或因源数据已过期明确停止并进入
   单独 gap 审批，不能伪造成功；
 - maintenance timer 至少两个连续正常计划轮次成功，且 systemd、host receipt、DB heartbeat、control

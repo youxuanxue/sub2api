@@ -87,7 +87,9 @@ backfill, Phase 3 user export, or Phase 5 emergency work.
    aggregate counts, and checksums before a shard reaches `committed`.
 7. Historical backfill is retired. A run selects the previous sealed hour first and, only
    after that normal window is committed and restore-verified, may select at most one
-   oldest incomplete hour strictly after the unique forward cutover.
+   oldest retryable incomplete hour strictly after the unique forward cutover. The
+   post-cutover hourly timeline is derived from time, not only from surviving source or
+   control rows; terminal failed hours remain visible without starving later retryable work.
 8. Failed maintenance writes a failed heartbeat even when failure occurs before upload,
    including advisory-lock contention and window-selection failure.
 9. Resource limits, image, UID/GID, mounts, environment, scratch, receipt, and command are
@@ -115,21 +117,23 @@ to the current S3 commit:
 - `last_reconciled_at` and `final_reconciled_at`;
 - `cleanup_eligible`, default and forced to false in Phase 2;
 - `forward_cutover boolean NOT NULL DEFAULT false`, with a unique partial index on
-  rows where it is true.
+  rows where it is true and a row-level check requiring a marked shard to be `committed`
+  with `restore_verified_at IS NOT NULL`.
 
-The command that sets the cutover requires the selected shard to be `committed`, to have
-`restore_verified_at IS NOT NULL`, and to match an exact window confirmation. Repeating
-the same setting is idempotent; moving it is a separate explicit operation. Selection
-also rechecks those conditions so a corrupt control-row update fails closed. The marker
-defines only the automatic compensation lower bound. It neither asserts that earlier
-history is complete nor grants deletion authority.
+The only Phase 2 command that sets the cutover requires the selected shard to be
+`committed`, to have `restore_verified_at IS NOT NULL`, and to match the approved exact
+`2026-08-07 21:00 UTC` window confirmation. Repeating that same setting is idempotent;
+this closeout exposes no move or unset operation, and rollback must preserve it. Selection
+rechecks the database constraint and exact window so a corrupt control-row update fails
+closed. The marker defines only the automatic compensation lower bound. It neither
+asserts that earlier history is complete nor grants deletion authority.
 
 The allowed Phase 2 states remain `pending`, `writing`, `verified`, `committed`, and
 `failed`. The operator/UI term **blocked** is a derived condition:
 
 ```text
 state = failed AND verification_error_code IN (missing_evidence, corrupt_artifact,
-commit_mismatch, restore_failed)
+commit_mismatch, restore_failed, source_unavailable_after_retention)
 ```
 
 This avoids introducing a second state-machine vocabulary while making the deletion
@@ -164,28 +168,43 @@ step after the corresponding S3 lifecycle has elapsed; this delivery does not de
 Do not create `qa_archive_gaps` or database `qa_cleanup_receipts` in Phase 2. The active
 age-based stale cleanup keeps its existing host receipt and remains independent of archive
 completeness. Missing/corrupt evidence remains represented by shard verification failure
-and `cleanup_eligible=false`. If the 22:00 source has already expired before compensation,
-this closeout stops without an empty commit or synthetic success; a future immutable gap
-command or emergency receipt schema requires separate approval.
+and `cleanup_eligible=false`. If a post-cutover hour has neither control state nor source
+rows and is already older than the database retention cutoff, maintenance creates a durable
+failed shard with `verification_error_code=source_unavailable_after_retention`; an existing
+uncommitted/retryable shard that reaches the same condition becomes terminal as well. Neither
+case creates an empty commit or synthetic success. This terminal failure remains part of
+archive health but does not starve later retryable hours. A future immutable gap command or
+emergency receipt schema requires separate approval.
 
 ## Archive Pipeline
 
 ### Window selection
 
 Every scheduled or operator run first selects the previous sealed hour as its normal
-window. If normal construction, commit, or restore verification fails, the run records
-failure and exits nonzero without compensation. Only after normal succeeds does the same
-transactionally guarded service select the oldest hour that:
+window and ensures its control row before inspecting source data. If normal construction,
+commit, or restore verification fails, the run records failure and exits nonzero without
+compensation. A timely normal window with zero source rows writes and verifies a valid
+zero-row base commit, so zero traffic is a durable success rather than an absent fact.
 
-- is strictly later than the unique `forward_cutover` window;
-- is strictly earlier than the current normal window;
-- has source rows or an existing control row; and
-- is not both committed and restore-verified.
+Only after normal succeeds does the same transactionally guarded service enumerate the
+UTC-hour sequence strictly after the unique `forward_cutover` and strictly before the
+current normal window. It selects the oldest retryable hour for which any of these is true:
 
-At most one such window is reconciled per run. A fully missing hour creates a base;
-an hour with a valid existing commit creates only the required delta. Compensation
-failure writes machine state and makes the run nonzero even though normal succeeded.
-There is no arbitrary window flag, historical selector, or separate backfill executable.
+- no control row exists and the hour is still inside the database retention boundary;
+- the control state is pending, writing, verified, or retryable failed; or
+- a committed, restore-verified shard has source identities not covered by verified or
+  committed segment membership.
+
+An enumerated uncommitted hour with no source rows is handled by its age: before the retention
+cutoff it receives a verified zero-row base commit; after the cutoff it receives the terminal
+`source_unavailable_after_retention` failed control described above, whether its control row
+was absent or held a retryable failure.
+Terminal failed hours remain visible in archive health but are not retried automatically.
+At most one candidate is reconciled or durably classified per run. A source-bearing hour
+with no commit creates a base; an hour with a valid existing commit and uncovered source
+identities creates only the required delta. Compensation failure writes machine state and
+makes the run nonzero even though normal succeeded. There is no arbitrary window flag,
+historical selector, or separate backfill executable.
 
 The maintenance advisory lock is released only when acquisition succeeded. Every exit
 path records a bounded failure heartbeat after releasing the database connection.
@@ -197,10 +216,12 @@ Parquet, evidence pack, and compressed evidence index to mode-0600 temporary fil
 dedicated scratch directory. The process never holds the full hour, full Parquet file,
 or full evidence pack in memory.
 
-For a new shard, all source identities enter one base segment. For a shard with an
-existing commit, the archiver loads committed memberships and selects only uncommitted
-source identities into a delta segment. An empty diff performs verification only and
-does not create an object.
+For a new shard, all source identities enter one base segment. A timely source-empty shard
+still emits a valid zero-row `records.parquet`, manifest, base descriptor, and commit; this
+is allowed only while the complete source window is still inside retention. For a shard
+with an existing commit, the archiver loads committed memberships and selects only
+uncommitted source identities into a delta segment. An empty diff on an existing commit
+performs verification only and does not create an object.
 
 If any referenced evidence file cannot be read or its digest cannot be established,
 segment construction fails before the segment can become verified. Diagnostic metadata
@@ -286,8 +307,9 @@ The audit observed 2217 source rows and no shard/control row. After the runner a
 are deployed, one normal window must succeed before the same run selects 22:00 as the
 oldest post-cutover gap. It then performs base construction, commit verification, and
 restore through the normal service. If age retention has already removed the source,
-stop without creating a zero-row commit or changing failure to success and request a
-separate gap decision.
+write the terminal `source_unavailable_after_retention` failed control, stop without
+creating a zero-row commit or changing failure to success, and request a separate gap
+decision.
 
 ### `2026-08-07 01:00 UTC`
 
@@ -328,7 +350,8 @@ Health evaluation correlates systemd timer/service state and last result, this h
 receipt, the DB heartbeat with the same run/window, and the corresponding shard/segment
 control rows. Missing or stale evidence, a systemd success with no DB/control progress,
 or a receipt/heartbeat/control contradiction is degraded or failed. The last successful
-DB heartbeat cannot mask a newer host-side failure.
+DB heartbeat cannot mask a newer host-side failure. Any unresolved terminal failed hour
+strictly after the cutover keeps archive health degraded even when later normal runs pass.
 
 ## Runtime and Infrastructure
 
@@ -391,10 +414,17 @@ or add job-history retention semantics.
 ### Unit and contract
 
 - historical backfill flags, selectors, and scripts are absent;
-- exactly one valid cutover is possible and compensation cannot select its window or any
-  earlier window;
+- exactly one valid cutover is possible, the marker satisfies its database validity check,
+  and no command can move/unset it or select its window or any earlier window;
 - normal failure performs no compensation; normal success performs zero or one oldest
   compensation; compensation failure makes the run nonzero;
+- post-cutover selection is derived from the hourly timeline, not only source/control
+  existence; a crash before control creation followed by retention becomes a durable
+  `source_unavailable_after_retention` failure and cannot disappear;
+- a timely zero-row normal/catch-up hour commits and restore-verifies one empty base, while
+  an unknown hour first observed after retention can never produce that empty commit;
+- a committed and restore-verified hour with one uncovered late source identity is selected,
+  creates exactly one delta, and stops qualifying after membership converges;
 - lock acquisition failure does not unlock and writes a failure heartbeat;
 - missing evidence cannot reach verified or committed;
 - retry with no source delta creates no second base;
@@ -413,8 +443,9 @@ or add job-history retention semantics.
 - export orphan plan requires age, regular-file, no-open-handle, and exact plan hash; no
   `DELETE FROM qa_export_jobs` is introduced;
 - IAM/KMS/bucket/trail/VPC endpoint templates enforce the intended principals and actions;
-- the app role has no ListBucket or partial read and only suffix-scoped GetObject; tests
-  label the shared instance-role boundary as non-isolated.
+- the app role has no ListBucket or partial read and only suffix-scoped GetObject, including
+  the declared `orphan-evidence-index.jsonl.zst` artifact; tests label the shared
+  instance-role boundary as non-isolated.
 
 ### Integration
 
@@ -429,6 +460,9 @@ crash after upload -> orphan discovery -> source row remains retryable
 normal failure -> no compensation
 normal success + missing 22:00 control -> one base compensation -> restore
 compensation failure -> normal retained + overall failed receipt
+normal zero-row hour -> empty base commit -> restore
+pre-control crash -> source cleanup -> durable source_unavailable_after_retention failure
+committed hour + late source identity -> one delta -> membership convergence
 host preflight failure -> host receipt advances while DB heartbeat does not
 ```
 
@@ -450,7 +484,7 @@ failed. This is one failed normal scheduled window, not evidence of long-term in
 5. Independently verify/restore 21:00, then set it as the one exact cutover.
 6. Through the host runner, archive and restore the normal window; only after success let
    bounded compensation select, commit, verify, and restore 22:00. If its source expired,
-   stop and request a separate gap decision.
+   persist `source_unavailable_after_retention`, stop, and request a separate gap decision.
 7. From an ops workstation, assume the recovery role and verify/restore S3 directly; after
    success remove `ops/prod/fetch-qa-dump.sh`.
 8. Enable the maintenance timer and observe at least two consecutive regular scheduled
@@ -478,6 +512,9 @@ the four-source health correlation.
 Phase 2 archive closeout is complete only when:
 
 - every newly processed sealed source hour has a commit that passes independent restore;
+- every post-cutover hour before the current normal window has durable control: a valid
+  restored commit or an explicit terminal failure; no hour can disappear merely because
+  source retention ran before control creation;
 - the 01:00 shard is visibly failed with a 477-row commit mismatch and no S3 mutation;
 - the 04:00 shard is visibly failed with 96 missing references and no S3 mutation;
 - no unsealed-hour selection or repeated orphan-base creation is possible;
