@@ -11,6 +11,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 SSOT = Path("docs/approved/design-prod-qa-24h-s3-lifecycle.md")
+PHASE2_DESIGN = Path("docs/approved/design-qa-phase2-archive-closeout.md")
 POLICY = Path("ops/qa/policy.yaml")
 MAINTENANCE_SCRIPT = Path("deploy/aws/stage0/tokenkey-qa-maintenance.sh")
 CLEANUP_SCRIPT = Path("deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh")
@@ -87,8 +88,18 @@ REQUIRED_BY_FILE = {
         "status: approved",
         "ops/qa/policy.yaml",
         "ops/qa/deploy_rollout.yaml",
+        "forward_cutover",
+        "/var/lib/tokenkey/qa-maintenance-last-run.json",
         "### 8.5 四类存储与备份边界",
         "### 18.1 现状 owner → 唯一目标 owner → 退役门禁",
+    ),
+    PHASE2_DESIGN: (
+        "status: approved",
+        "forward_cutover",
+        "/var/lib/tokenkey/app/qa_archive_tmp",
+        "/var/lib/tokenkey/qa-maintenance-last-run.json",
+        "systemd/host-receipt/DB-heartbeat/control-row",
+        "qa_exports_tmp",
     ),
     POLICY: (
         "schema_version: 1",
@@ -98,12 +109,19 @@ REQUIRED_BY_FILE = {
         "archive:",
         "enabled: true",
         "s3_retention_days: 7",
+        "max_catchup_windows_per_run: 1",
+        "host_scratch_dir: /var/lib/tokenkey/app/qa_archive_tmp",
+        "host_receipt_path: /var/lib/tokenkey/qa-maintenance-last-run.json",
+        "host_export_tmp_dir: /var/lib/tokenkey/app/qa_exports_tmp",
         "capture_enabled: false",
         "edge:",
     ),
     ROLLOUT: (
         "schema_version: 1",
         "deploy_inject_default: false",
+        "target_deploy_inject_default: true",
+        "closeout_state: pending_implementation",
+        "min_consecutive_scheduled_runs: 2",
         "policy_target: prod.archive.enabled",
         "design-qa-phase2-archive-closeout.md",
     ),
@@ -193,7 +211,15 @@ def _policy_failures(root: Path) -> list[str]:
         ("prod", "archive", "enabled"): True,
         ("prod", "archive", "shard_minutes"): 60,
         ("prod", "archive", "seal_delay_minutes"): 15,
+        ("prod", "archive", "max_catchup_windows_per_run"): 1,
         ("prod", "archive", "s3_retention_days"): 7,
+        ("prod", "archive", "runner_uid"): 1000,
+        ("prod", "archive", "runner_gid"): 1000,
+        ("prod", "archive", "host_scratch_dir"): "/var/lib/tokenkey/app/qa_archive_tmp",
+        ("prod", "archive", "container_scratch_dir"): "/app/data/qa_archive_tmp",
+        ("prod", "archive", "host_receipt_path"): "/var/lib/tokenkey/qa-maintenance-last-run.json",
+        ("prod", "cleanup", "host_export_tmp_dir"): "/var/lib/tokenkey/app/qa_exports_tmp",
+        ("prod", "cleanup", "export_tmp_owner"): "tokenkey-qa-stale-cleanup",
         ("edge", "capture_enabled"): False,
         ("edge", "archive_enabled"): False,
         ("edge", "cleanup_enabled"): False,
@@ -300,6 +326,7 @@ def _rollout_failures(root: Path) -> list[str]:
     if not isinstance(prod, dict) or not isinstance(edge, dict):
         return ["deploy_rollout.yaml prod/edge must be mappings"]
     prod_archive = prod.get("QA_ARCHIVE_ENABLED")
+    prod_timer = prod.get("tokenkey_qa_maintenance_timer")
     edge_capture = edge.get("QA_CAPTURE_ENABLED")
     if not isinstance(prod_archive, dict):
         failures.append("rollout prod.QA_ARCHIVE_ENABLED must be a mapping")
@@ -308,6 +335,23 @@ def _rollout_failures(root: Path) -> list[str]:
             failures.append("rollout prod.QA_ARCHIVE_ENABLED.deploy_inject_default must be false")
         if prod_archive.get("policy_target") != "prod.archive.enabled":
             failures.append("rollout prod.QA_ARCHIVE_ENABLED.policy_target drift")
+        if prod_archive.get("target_deploy_inject_default") is not True:
+            failures.append("rollout prod.QA_ARCHIVE_ENABLED target must become true after closeout")
+        if prod_archive.get("closeout_state") != "pending_implementation":
+            failures.append("rollout prod.QA_ARCHIVE_ENABLED closeout state drift")
+    if not isinstance(prod_timer, dict):
+        failures.append("rollout prod.tokenkey_qa_maintenance_timer must be a mapping")
+    else:
+        if prod_timer.get("closeout_deploy_state") != "disabled":
+            failures.append("rollout maintenance timer must stay disabled during closeout deploy")
+        if prod_timer.get("policy_target_state") != "enabled":
+            failures.append("rollout maintenance timer target drift")
+        if prod_timer.get("min_consecutive_scheduled_runs") != 2:
+            failures.append("rollout maintenance timer observation gate drift")
+        if prod_timer.get("health_evidence") != [
+            "systemd", "host_receipt", "database_heartbeat", "archive_control_rows"
+        ]:
+            failures.append("rollout maintenance health evidence drift")
     if not isinstance(edge_capture, dict):
         failures.append("rollout edge.QA_CAPTURE_ENABLED must be a mapping")
     elif edge_capture.get("deploy_inject_default") is not False:
@@ -403,7 +447,16 @@ prod:
     enabled: true
     shard_minutes: 60
     seal_delay_minutes: 15
+    max_catchup_windows_per_run: 1
     s3_retention_days: 7
+    runner_uid: 1000
+    runner_gid: 1000
+    host_scratch_dir: /var/lib/tokenkey/app/qa_archive_tmp
+    container_scratch_dir: /app/data/qa_archive_tmp
+    host_receipt_path: /var/lib/tokenkey/qa-maintenance-last-run.json
+  cleanup:
+    host_export_tmp_dir: /var/lib/tokenkey/app/qa_exports_tmp
+    export_tmp_owner: tokenkey-qa-stale-cleanup
 edge:
   capture_enabled: false
   archive_enabled: false
