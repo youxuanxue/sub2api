@@ -14,6 +14,7 @@ import (
 const (
 	defaultCommitCASAttempts  = 3
 	failurePersistenceTimeout = 5 * time.Second
+	defaultSourceRetention    = 24 * time.Hour
 )
 
 type Window struct {
@@ -48,22 +49,23 @@ type ReconcileControl interface {
 }
 
 type Reconciler struct {
-	Store       ObjectStore
-	Control     ReconcileControl
-	ScratchRoot string
-	BlobRoot    string
-	PageSize    int
-	CASAttempts int
-	Now         func() time.Time
-	Build       func(context.Context, *sql.Conn, BuildInput) (BuiltSegment, error)
-	VerifyOne   func(context.Context, ObjectStore, SegmentDescriptor, string) (VerifiedSegment, error)
-	VerifyAll   func(context.Context, ObjectStore, string, string) (VerifiedCommit, error)
+	Store           ObjectStore
+	Control         ReconcileControl
+	ScratchRoot     string
+	BlobRoot        string
+	PageSize        int
+	CASAttempts     int
+	SourceRetention time.Duration
+	Now             func() time.Time
+	Build           func(context.Context, *sql.Conn, BuildInput) (BuiltSegment, error)
+	VerifyOne       func(context.Context, ObjectStore, SegmentDescriptor, string) (VerifiedSegment, error)
+	VerifyAll       func(context.Context, ObjectStore, string, string) (VerifiedCommit, error)
 }
 
 func NewReconciler(store ObjectStore, control ReconcileControl, scratchRoot string) *Reconciler {
 	return &Reconciler{
 		Store: store, Control: control, ScratchRoot: scratchRoot,
-		CASAttempts: defaultCommitCASAttempts, Now: time.Now,
+		CASAttempts: defaultCommitCASAttempts, SourceRetention: defaultSourceRetention, Now: time.Now,
 		Build: BuildSegment, VerifyOne: VerifySegment, VerifyAll: VerifyCommit,
 	}
 }
@@ -82,6 +84,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 	}
 	if r.CASAttempts <= 0 {
 		r.CASAttempts = defaultCommitCASAttempts
+	}
+	if r.SourceRetention <= 0 {
+		r.SourceRetention = defaultSourceRetention
 	}
 
 	shardID, err := r.Control.EnsureShard(ctx, conn, window)
@@ -131,13 +136,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, conn *sql.Conn, window Windo
 		}
 		defer func() { _ = built.Close() }()
 		if built.Manifest.RecordCount == 0 {
-			if !exists {
-				return ReconcileReceipt{}, fmt.Errorf("sealed window has no archive records")
+			if exists {
+				if err := r.Control.PersistCommit(ctx, conn, shardID, current); err != nil {
+					return ReconcileReceipt{}, fmt.Errorf("persist verified existing commit: %w", err)
+				}
+				return receiptFromVerified(commitKey, current), nil
 			}
-			if err := r.Control.PersistCommit(ctx, conn, shardID, current); err != nil {
-				return ReconcileReceipt{}, fmt.Errorf("persist verified existing commit: %w", err)
+			if window.Start.Before(r.Now().UTC().Add(-r.SourceRetention)) {
+				return ReconcileReceipt{}, &IntegrityError{
+					Code: IntegritySourceUnavailableAfterRetention,
+					Err:  fmt.Errorf("source window is older than the retention boundary"),
+				}
 			}
-			return receiptFromVerified(commitKey, current), nil
 		}
 
 		prefix := ShardRelativePrefix(window.Start) + "/segments/" + built.SegmentID

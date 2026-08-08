@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/lib/pq"
 )
@@ -209,6 +210,164 @@ UPDATE qa_archive_shards SET
     cleanup_eligible=false, updated_at=now()
 WHERE id=$4`, StateFailed, code, message, shardID)
 	return err
+}
+
+func (s *SQLControlStore) InspectCatchupHour(ctx context.Context, conn *sql.Conn, window Window) (CatchupHourStatus, error) {
+	if conn == nil {
+		return CatchupHourStatus{}, fmt.Errorf("inspect catchup hour: nil database connection")
+	}
+	window.Start = window.Start.UTC()
+	window.End = window.End.UTC()
+	if !window.End.Equal(window.Start.Add(time.Hour)) {
+		return CatchupHourStatus{}, fmt.Errorf("inspect catchup hour: window must be one UTC hour")
+	}
+
+	var status CatchupHourStatus
+	var storedEnd sql.NullTime
+	err := conn.QueryRowContext(ctx, `
+SELECT
+    s.id IS NOT NULL,
+    COALESCE(s.id, 0),
+    s.window_end,
+    COALESCE(s.state, ''),
+    s.restore_verified_at IS NOT NULL,
+    COALESCE(s.verification_error_code, ''),
+    EXISTS (
+        SELECT 1
+        FROM qa_records q
+        WHERE q.created_at >= $1 AND q.created_at < $2
+    ),
+    EXISTS (
+        SELECT 1
+        FROM qa_records q
+        WHERE q.created_at >= $1 AND q.created_at < $2
+          AND NOT EXISTS (
+              SELECT 1
+              FROM qa_archive_segment_records sr
+              JOIN qa_archive_segments seg ON seg.id = sr.segment_id
+              WHERE seg.shard_id = s.id
+                AND seg.state IN ('verified', 'committed')
+                AND sr.created_at = q.created_at
+                AND sr.request_id = q.request_id
+          )
+    )
+FROM (SELECT 1) AS anchor
+LEFT JOIN qa_archive_shards s
+  ON s.window_start = $1 AND s.generation = 0`, window.Start, window.End).Scan(
+		&status.Exists,
+		&status.ShardID,
+		&storedEnd,
+		&status.State,
+		&status.RestoreVerified,
+		&status.VerificationErrorCode,
+		&status.SourceExists,
+		&status.UncoveredSourceExists,
+	)
+	if err != nil {
+		return CatchupHourStatus{}, fmt.Errorf("inspect catchup hour: %w", err)
+	}
+	if status.Exists && (!storedEnd.Valid || !storedEnd.Time.UTC().Equal(window.End)) {
+		return CatchupHourStatus{}, fmt.Errorf("inspect catchup hour: stored window end does not match")
+	}
+	return status, nil
+}
+
+func (s *SQLControlStore) MarkSourceUnavailableAfterRetention(ctx context.Context, conn *sql.Conn, window Window) (int64, error) {
+	if conn == nil {
+		return 0, fmt.Errorf("classify source unavailable: nil database connection")
+	}
+	window.Start = window.Start.UTC()
+	window.End = window.End.UTC()
+	if !window.End.Equal(window.Start.Add(time.Hour)) {
+		return 0, fmt.Errorf("classify source unavailable: window must be one UTC hour")
+	}
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("classify source unavailable: begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.ExecContext(ctx, `
+INSERT INTO qa_archive_shards (
+    window_start, window_end, generation, state, s3_prefix, first_attempt_at,
+    cleanup_eligible, created_at, updated_at
+) VALUES (
+    $1, $2, 0, $3, $4, now(), false, now(), now()
+)
+ON CONFLICT (window_start, generation) DO NOTHING`,
+		window.Start,
+		window.End,
+		StatePending,
+		ShardPrefix(window.Start),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("classify source unavailable: insert control: %w", err)
+	}
+
+	var shardID int64
+	var storedEnd time.Time
+	var state string
+	var code sql.NullString
+	err = tx.QueryRowContext(ctx, `
+SELECT id, window_end, state, verification_error_code
+FROM qa_archive_shards
+WHERE window_start=$1 AND generation=0
+FOR UPDATE`, window.Start).Scan(&shardID, &storedEnd, &state, &code)
+	if err != nil {
+		return 0, fmt.Errorf("classify source unavailable: lock control: %w", err)
+	}
+	if !storedEnd.UTC().Equal(window.End) {
+		return 0, fmt.Errorf("classify source unavailable: stored window end does not match")
+	}
+	if state == StateFailed && code.String == IntegritySourceUnavailableAfterRetention {
+		if err := tx.Commit(); err != nil {
+			return 0, fmt.Errorf("classify source unavailable: commit idempotent read: %w", err)
+		}
+		return shardID, nil
+	}
+	if state == StateCommitted || (state == StateFailed && IsTerminalArchiveFailure(code.String)) {
+		return 0, fmt.Errorf("classify source unavailable: immutable shard state=%s code=%s", state, code.String)
+	}
+	var sourceExists bool
+	if err := tx.QueryRowContext(ctx, `
+SELECT EXISTS (
+    SELECT 1
+    FROM qa_records
+    WHERE created_at >= $1 AND created_at < $2
+)`, window.Start, window.End).Scan(&sourceExists); err != nil {
+		return 0, fmt.Errorf("classify source unavailable: recheck source: %w", err)
+	}
+	if sourceExists {
+		return 0, fmt.Errorf("classify source unavailable: source rows still exist")
+	}
+
+	result, err := tx.ExecContext(ctx, `
+UPDATE qa_archive_shards SET
+    state=$1,
+    first_attempt_at=COALESCE(first_attempt_at, now()),
+    verification_error_code=$2,
+    last_error='source data unavailable after retention',
+    last_reconciled_at=now(),
+    cleanup_eligible=false,
+    updated_at=now()
+WHERE id=$3 AND state IN ('pending', 'writing', 'verified', 'failed')`,
+		StateFailed,
+		IntegritySourceUnavailableAfterRetention,
+		shardID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("classify source unavailable: update control: %w", err)
+	}
+	if changed, rowsErr := result.RowsAffected(); rowsErr != nil {
+		return 0, fmt.Errorf("classify source unavailable: inspect update: %w", rowsErr)
+	} else if changed != 1 {
+		return 0, fmt.Errorf("classify source unavailable: shard changed concurrently")
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("classify source unavailable: commit update: %w", err)
+	}
+	return shardID, nil
 }
 
 func (s *SQLControlStore) failureCode(err error) string {
