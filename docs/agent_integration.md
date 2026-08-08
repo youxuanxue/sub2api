@@ -560,7 +560,9 @@ restore the pre-hold cleanup state
 offline export plan
 
 - `--table` (required; choices: `ops_system_logs`, `ops_error_logs`):
+- `--export-scope` (choices: `legacy_cold`, `post_legacy_cold`; default: `legacy_cold`):
 - `--legacy-upper-exclusive` (default: `2026-07-01T00:00:00.000000Z`): exclusive upper created_at bound for legacy scope
+- `--legacy-lower-inclusive` (default: `2026-07-01T00:00:00.000000Z`): inclusive lower created_at bound for post-legacy scope
 - `--timeout-seconds` (default: `120`):
 - `--max-rows` (default: `50000`):
 - `--max-logical-bytes` (default: `268435456`):
@@ -571,11 +573,13 @@ create a continuation ledger
 
 - `--ledger` (required):
 - `--table` (required; choices: `ops_system_logs`, `ops_error_logs`):
+- `--export-scope` (choices: `legacy_cold`, `post_legacy_cold`; default: `legacy_cold`):
 - `--legacy-upper-exclusive` (default: `2026-07-01T00:00:00.000000Z`):
+- `--legacy-lower-inclusive` (default: `2026-07-01T00:00:00.000000Z`):
 
 #### `data_layer_archive_prod_export.py run-batch`
 
-export one legacy cold batch
+export one cold batch from ledger scope
 
 - `--ledger` (required):
 - `--evidence-root` (required):
