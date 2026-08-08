@@ -66,4 +66,4 @@ python3 ops/observability/test_data_layer_safety_verdict.py
 
 ## Status
 
-- [x] InTest - 自动化实现与隔离 PostgreSQL 演练已覆盖；所有生产动作和 RDS 第二阶段仍保持 hold。
+- [x] Done — prod Phase4 已完成（usage cutover、telemetry shadow、ops closeout、tail export、cleanup release）；RDS 第二阶段仍 hold。

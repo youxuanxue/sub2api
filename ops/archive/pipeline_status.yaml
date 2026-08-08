@@ -32,3 +32,5 @@ evidence_attachments:
     ops_error_logs: ops-error-logs
 
 closeout_required_before_cleanup_release: true
+# Release gate only: first cleanup-hold release requires both ops closeout receipts
+# in repo evidence. Ongoing age-based cleanup does not re-check this flag.

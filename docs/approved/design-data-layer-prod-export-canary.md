@@ -89,7 +89,7 @@ plan (no AWS call)
 
 ## 后续独立审批
 
-canary 通过后仍不能删除。下一顺序为：完整导出两个 ops legacy 分区但不删除；到 2026-07-31
-后重新确认整分区完全越过 30 天水位；批准长期冷存储保留策略；最后才单独审批分区 drop。
-`usage_logs` 在出现 90 天冷数据前另做分区化设计。QA 不进入该 ops canary，由独立 QA 生命周期
-SSOT 管理。
+canary 通过后仍不能删除。当前 prod 已完成 legacy ops export、promote、closeout、
+post-legacy tail export 与 cleanup hold release；`usage_logs` 日分区 cutover 已落地。
+剩余单独审批项：整分区完全越过 30 天水位后的分区 drop（`drop_ready` 仍不是删除授权）。
+QA 不进入该 ops canary，由独立 QA 生命周期 SSOT 管理。

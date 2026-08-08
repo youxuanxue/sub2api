@@ -58,4 +58,4 @@ python3 ops/stage0/test_cfn_datavolume_no_replace.py
 
 ## Status
 
-- [x] InTest — 本地正负向合同已覆盖；prod probe/change set/扩盘/归档均未执行且仍需独立批准。
+- [x] Done — 正式 probe/verdict 已接入 prod daily diagnostics；扩盘 change set 仍须独立批准。
