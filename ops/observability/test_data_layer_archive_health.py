@@ -24,7 +24,8 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
             {"ops_error_logs", "ops_system_logs"},
         )
         self.assertIsInstance(signal["hold_started_at"], str)
-        self.assertFalse(signal["closeout_complete"])
+        self.assertTrue(signal["closeout_complete"])
+        self.assertEqual(signal["evidence_errors"], [])
 
     def test_latest_valid_hold_receipt_is_selected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
