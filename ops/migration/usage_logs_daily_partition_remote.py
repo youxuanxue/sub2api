@@ -437,6 +437,35 @@ BEGIN
   END LOOP;
 END $$;
 
+DO $$
+DECLARE item record;
+BEGIN
+  FOR item IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = to_regclass('public.usage_logs_legacy')
+      AND contype = 'c'
+      AND conname <> '{BOUND_CONSTRAINT}'
+    ORDER BY conname
+  LOOP
+    EXECUTE format('ALTER TABLE usage_logs_legacy DROP CONSTRAINT %I', item.conname);
+  END LOOP;
+  FOR item IN
+    SELECT conname, pg_get_constraintdef(oid) AS definition
+    FROM pg_constraint
+    WHERE conrelid = to_regclass('public.usage_logs')
+      AND contype = 'c'
+      AND conname <> '{BOUND_CONSTRAINT}'
+    ORDER BY conname
+  LOOP
+    EXECUTE format(
+      'ALTER TABLE usage_logs_legacy ADD CONSTRAINT %I %s',
+      item.conname,
+      item.definition
+    );
+  END LOOP;
+END $$;
+
 ALTER TABLE usage_logs ATTACH PARTITION usage_logs_legacy
   FOR VALUES FROM (MINVALUE) TO (TIMESTAMPTZ '{upper}');
 

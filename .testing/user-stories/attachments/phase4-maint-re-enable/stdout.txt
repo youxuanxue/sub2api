@@ -1,0 +1,8 @@
+=== qa-maintenance timer sync ===
+NEXT                        LEFT       LAST                        PASSED       UNIT                          ACTIVATES
+Fri 2026-08-07 23:15:00 UTC 10min left Fri 2026-08-07 23:01:46 UTC 2min 36s ago tokenkey-qa-maintenance.timer tokenkey-qa-maintenance.service
+
+1 timers listed.
+Pass --all to see loaded but inactive timers, too.
+Live qa-maintenance units now match deploy/aws@local timer=enabled on ip-10-0-1-23.ec2.internal
+

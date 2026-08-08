@@ -1,0 +1,4 @@
+QA historical closeout refused: historical closeout SSM failed: Failed AUTH failed: ERR AUTH <password> called without any password configured for the default user. Are you sure your configuration is correct?
+ERROR:  04:00 historical counts changed: source=0 refs=0 control=1
+CONTEXT:  PL/pgSQL function inline_code_block line 30 at RAISE
+failed to run commands: exit status 1

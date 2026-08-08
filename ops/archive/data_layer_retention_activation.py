@@ -35,7 +35,7 @@ WITH bounds AS MATERIALIZED (
   WHERE job_name='telemetry_archive_shadow'
 ), maintenance AS (
   SELECT last_success_at,last_error_at,last_result FROM ops_job_heartbeats
-  WHERE job_name='partition_maintenance'
+  WHERE job_name='ops_partition_maintenance'
 ), history AS (
   SELECT jsonb_object_agg(to_char(window_start AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
     jsonb_build_object('state',state,'verification_error_code',verification_error_code)) AS windows
@@ -56,7 +56,7 @@ SELECT json_build_object(
     'aggregate_blob_missing_count',aggregate_blob_missing_count,
     'verified_at',to_char(verified_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
     'restore_verified_at',to_char(restore_verified_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
-    FROM qa_archive_shards
+  ) FROM qa_archive_shards
     WHERE generation=0 AND window_start>TIMESTAMPTZ '2026-08-07 01:00:00+00'
       AND state='committed' AND aggregate_blob_missing_count=0
       AND verified_at IS NOT NULL AND restore_verified_at IS NOT NULL
@@ -175,11 +175,18 @@ def _ready(payload: dict[str, Any]) -> tuple[bool,list[str]]:
         item = windows.get(key,{})
         if item.get("state") != state or item.get("verification_error_code") != code:
             reasons.append(f"historical QA state is not closed: {key}")
+    usage_partitioned = ops.get("usage_logs_partitioned") is True
+    usage_legacy_attached = ops.get("usage_legacy_attached") is True
+    usage_maint_clean = ops.get("usage_partition_maintenance_clean") is True
+    usage_future_partition = ops.get("usage_future_partition_exists") is True
+    usage_tomorrow_covered = usage_future_partition or (
+        usage_partitioned and usage_legacy_attached and usage_maint_clean
+    )
     if (
-        ops.get("usage_logs_partitioned") is not True
-        or ops.get("usage_legacy_attached") is not True
-        or ops.get("usage_future_partition_exists") is not True
-        or ops.get("usage_partition_maintenance_clean") is not True
+        not usage_partitioned
+        or not usage_legacy_attached
+        or not usage_maint_clean
+        or not usage_tomorrow_covered
     ):
         reasons.append("usage_logs partition cutover or maintenance proof is incomplete")
     stats = ops.get("telemetry_stats")

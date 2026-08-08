@@ -181,6 +181,7 @@ def _stage0_record_query(
     limit: int,
     cursor_after: dict[str, Any] | None = None,
     upper_exclusive: str | None = None,
+    lower_inclusive: str | None = None,
 ) -> str:
     if table not in rehearsal.PROD_CANARY_TABLES:
         raise CanaryError(f"unsupported production canary table {table!r}")
@@ -188,6 +189,11 @@ def _stage0_record_query(
     if upper_exclusive is not None:
         upper_clause = (
             f" AND created_at < {rehearsal._sql_literal(upper_exclusive)}::timestamptz"
+        )
+    lower_clause = ""
+    if lower_inclusive is not None:
+        lower_clause = (
+            f" AND created_at >= {rehearsal._sql_literal(lower_inclusive)}::timestamptz"
         )
     return (
         "SELECT json_build_object("
@@ -199,7 +205,7 @@ def _stage0_record_query(
         ")::text "
         f"FROM (SELECT * FROM {table} "
         f"WHERE created_at < {rehearsal._sql_literal(cutoff)}::timestamptz"
-        f"{upper_clause}{_cursor_predicate(cursor_after, table=table)} "
+        f"{upper_clause}{lower_clause}{_cursor_predicate(cursor_after, table=table)} "
         f"ORDER BY created_at, id LIMIT {limit}) AS row_data"
     )
 
@@ -325,6 +331,7 @@ def _collect_prod_candidates(
     request: dict[str, Any],
     cursor_after: dict[str, Any] | None = None,
     upper_exclusive: str | None = None,
+    lower_inclusive: str | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     started = time.monotonic()
     probe_sql = (
@@ -380,6 +387,7 @@ def _collect_prod_candidates(
             limit=request["max_rows"] + 1,
             cursor_after=cursor_after,
             upper_exclusive=upper_exclusive,
+            lower_inclusive=lower_inclusive,
         ),
         request["timeout_seconds"],
         output_limit,

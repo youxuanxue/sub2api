@@ -39,7 +39,13 @@ POSTGRES_SENTINEL_LABEL = "tokenkey_archive_rehearsal"
 PROD_CANARY_MODE = "prod_archive_export_canary"
 PROD_EXPORT_MODE = "prod_archive_export_batch"
 PROD_EXPORT_SCOPE_LEGACY_COLD = "legacy_cold"
+PROD_EXPORT_SCOPE_POST_LEGACY_COLD = "post_legacy_cold"
 PROD_LEGACY_UPPER_EXCLUSIVE = "2026-07-01T00:00:00.000000Z"
+PROD_LEGACY_LOWER_INCLUSIVE = PROD_LEGACY_UPPER_EXCLUSIVE
+PROD_EXPORT_SCOPES = (
+    PROD_EXPORT_SCOPE_LEGACY_COLD,
+    PROD_EXPORT_SCOPE_POST_LEGACY_COLD,
+)
 PROD_CANARY_SOURCE_KIND = "stage0_prod_docker_postgres_read_only"
 PROD_CANARY_DATABASE = "tokenkey"
 PROD_CANARY_STACK = "tokenkey-prod-stage0"
@@ -1107,8 +1113,9 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         normalized_policy = retention_policy(policy["usage"], policy["ops"])
     except (KeyError, TypeError) as exc:
         raise RehearsalError("manifest retention_days is invalid") from exc
-    if policy != normalized_policy:
-        raise RehearsalError("manifest retention_days is not canonical")
+    for key, value in normalized_policy.items():
+        if policy.get(key) != value:
+            raise RehearsalError("manifest retention_days is not canonical")
     if mode in (PROD_CANARY_MODE, PROD_EXPORT_MODE) and normalized_policy != DEFAULT_RETENTION_DAYS:
         raise RehearsalError("production archive retention policy is not approved")
     bounds = manifest.get("canary" if mode == PROD_CANARY_MODE else "export")
@@ -1139,14 +1146,13 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         first_key_name = "sample_first_key"
         last_key_name = "sample_last_key"
     elif mode == PROD_EXPORT_MODE:
-        expected_bounds_keys = {
+        base_bounds_keys = {
             "cursor_after",
             "cursor_before",
             "cutoff_exclusive",
             "export_scope",
             "first_key",
             "last_key",
-            "legacy_upper_exclusive",
             "lock_timeout_ms",
             "max_logical_bytes",
             "max_rows",
@@ -1167,6 +1173,13 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         continuation_key = "more_cold_rows_remaining"
         first_key_name = "first_key"
         last_key_name = "last_key"
+        export_scope = bounds.get("export_scope") if isinstance(bounds, dict) else None
+        if export_scope == PROD_EXPORT_SCOPE_LEGACY_COLD:
+            expected_bounds_keys = base_bounds_keys | {"legacy_upper_exclusive"}
+        elif export_scope == PROD_EXPORT_SCOPE_POST_LEGACY_COLD:
+            expected_bounds_keys = base_bounds_keys | {"legacy_lower_inclusive"}
+        else:
+            expected_bounds_keys = base_bounds_keys
     else:
         expected_bounds_keys = set()
         integer_bounds = {}
@@ -1198,15 +1211,25 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         if bounds_cutoff != expected_cutoff:
             raise RehearsalError("production archive cutoff is not the approved cold waterline")
         if mode == PROD_EXPORT_MODE:
-            if bounds.get("export_scope") != PROD_EXPORT_SCOPE_LEGACY_COLD:
+            export_scope = bounds.get("export_scope")
+            if export_scope == PROD_EXPORT_SCOPE_LEGACY_COLD:
+                legacy_upper = bounds.get("legacy_upper_exclusive")
+                if (
+                    not isinstance(legacy_upper, str)
+                    or _timestamp(_utc(legacy_upper)) != legacy_upper
+                    or legacy_upper != PROD_LEGACY_UPPER_EXCLUSIVE
+                ):
+                    raise RehearsalError("production export legacy upper bound is invalid")
+            elif export_scope == PROD_EXPORT_SCOPE_POST_LEGACY_COLD:
+                legacy_lower = bounds.get("legacy_lower_inclusive")
+                if (
+                    not isinstance(legacy_lower, str)
+                    or _timestamp(_utc(legacy_lower)) != legacy_lower
+                    or legacy_lower != PROD_LEGACY_LOWER_INCLUSIVE
+                ):
+                    raise RehearsalError("production export legacy lower bound is invalid")
+            else:
                 raise RehearsalError("production export scope is invalid")
-            legacy_upper = bounds.get("legacy_upper_exclusive")
-            if (
-                not isinstance(legacy_upper, str)
-                or _timestamp(_utc(legacy_upper)) != legacy_upper
-                or legacy_upper != PROD_LEGACY_UPPER_EXCLUSIVE
-            ):
-                raise RehearsalError("production export legacy upper bound is invalid")
             cursor_before = bounds.get("cursor_before")
             if cursor_before is not None and (
                 not isinstance(cursor_before, dict)
@@ -1277,11 +1300,21 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             if any(_utc(record["created_at"]) >= bounds_cutoff for record in records):
                 raise RehearsalError("production archive artifact contains hot or foreign rows")
             if mode == PROD_EXPORT_MODE:
-                legacy_upper = _utc(bounds["legacy_upper_exclusive"])
-                if any(_utc(record["created_at"]) >= legacy_upper for record in records):
-                    raise RehearsalError(
-                        "production export artifact contains rows outside legacy scope"
-                    )
+                export_scope = bounds.get("export_scope")
+                if export_scope == PROD_EXPORT_SCOPE_LEGACY_COLD:
+                    legacy_upper = _utc(bounds["legacy_upper_exclusive"])
+                    if any(_utc(record["created_at"]) >= legacy_upper for record in records):
+                        raise RehearsalError(
+                            "production export artifact contains rows outside legacy scope"
+                        )
+                elif export_scope == PROD_EXPORT_SCOPE_POST_LEGACY_COLD:
+                    legacy_lower = _utc(bounds["legacy_lower_inclusive"])
+                    if any(_utc(record["created_at"]) < legacy_lower for record in records):
+                        raise RehearsalError(
+                            "production export artifact contains rows outside post-legacy scope"
+                        )
+                else:
+                    raise RehearsalError("production export scope is invalid")
             ordered_keys = sorted(
                 source_keys, key=lambda item: (item["created_at"], item["id"])
             )
@@ -1317,6 +1350,9 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
     ):
         raise RehearsalError("manifest source_rows is invalid")
     try:
+        batch_retention_for_id = dict(normalized_policy)
+        if isinstance(policy.get("qa"), int) and not isinstance(policy.get("qa"), bool):
+            batch_retention_for_id["qa"] = policy["qa"]
         expected_batch_id = _batch_id(
             environment=manifest["environment"],
             sealed_at=sealed_at,
@@ -1330,7 +1366,7 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
                 )
             ),
             source_file_identity=source_file_identity,
-            retention_days=normalized_policy,
+            retention_days=batch_retention_for_id,
             artifacts=artifacts,
             prefix=(
                 "prod-canary"

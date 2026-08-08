@@ -390,7 +390,9 @@ class ProdArchiveExportTest(unittest.TestCase):
             bundle_sha256="a" * 64,
             hold_started_at=_HOLD_STARTED_AT,
             cursor_before_json="null",
+            export_scope=rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD,
             legacy_upper_exclusive=rehearsal.PROD_LEGACY_UPPER_EXCLUSIVE,
+            legacy_lower_inclusive=None,
             timeout_seconds=120,
             max_rows=50_000,
             max_logical_bytes=256 * 1024 * 1024,
@@ -415,6 +417,63 @@ class ProdArchiveExportTest(unittest.TestCase):
                     expected_manifest_sha256="a" * 64,
                 )
             self.assertNotIn("do not match", str(ctx.exception))
+
+    def test_post_legacy_plan_init_and_seal(self) -> None:
+        as_of = "2026-08-08T03:00:00.000000Z"
+        created_at = "2026-07-06T12:00:00.000000Z"
+        row = {
+            "dataset": "ops",
+            "record_id": "42",
+            "created_at": created_at,
+            "payload": {"id": 42, "created_at": created_at, "message": "tail"},
+        }
+        plan = export.build_plan(
+            table="ops_system_logs",
+            export_scope=rehearsal.PROD_EXPORT_SCOPE_POST_LEGACY_COLD,
+            timeout_seconds=60,
+            max_rows=50_000,
+            max_logical_bytes=256 * 1024 * 1024,
+        )
+        self.assertEqual(plan["export_scope"], rehearsal.PROD_EXPORT_SCOPE_POST_LEGACY_COLD)
+        self.assertEqual(
+            plan["legacy_lower_inclusive"], rehearsal.PROD_LEGACY_LOWER_INCLUSIVE
+        )
+        self.assertNotIn("legacy_upper_exclusive", plan)
+
+        with tempfile.TemporaryDirectory() as temp:
+            ledger_path = pathlib.Path(temp) / "tail-ledger.json"
+            created = export.init_ledger(
+                ledger_path,
+                table="ops_system_logs",
+                export_scope=rehearsal.PROD_EXPORT_SCOPE_POST_LEGACY_COLD,
+            )
+            self.assertEqual(
+                created["export_scope"], rehearsal.PROD_EXPORT_SCOPE_POST_LEGACY_COLD
+            )
+            self.assertIn("legacy_lower_inclusive", created)
+            sealed = export.seal_prod_export_batch(
+                temp,
+                table="ops_system_logs",
+                instance_id=_INSTANCE_ID,
+                staging_s3_base_uri=_STAGING_BASE,
+                cursor_before=None,
+                export_scope=rehearsal.PROD_EXPORT_SCOPE_POST_LEGACY_COLD,
+                query_runner=_fake_query_runner(as_of=as_of, rows=[row]),
+            )
+            manifest = json.loads(
+                (pathlib.Path(sealed["batch_dir"]) / "manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                manifest["export"]["export_scope"],
+                rehearsal.PROD_EXPORT_SCOPE_POST_LEGACY_COLD,
+            )
+            self.assertEqual(
+                manifest["export"]["legacy_lower_inclusive"],
+                rehearsal.PROD_LEGACY_LOWER_INCLUSIVE,
+            )
+            rehearsal.verify_batch(pathlib.Path(sealed["batch_dir"]))
 
 
 if __name__ == "__main__":

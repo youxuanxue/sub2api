@@ -1,0 +1,17 @@
+{
+  "applied_at": "2026-08-07T23:05:08.789632Z",
+  "authorization_expires_at": "2026-08-07T23:15:08.789667Z",
+  "command_id": "1b50ff27-92f6-4f27-aaba-db912e018280",
+  "cutoff": "2026-08-06T23:05:07.253390Z",
+  "deleted_rows_this_attempt": 1158,
+  "deletion_authorized": true,
+  "instance_id": "i-0e43099f831b03160",
+  "marker_sha256": "ac5df2bf0b66c0dfafc2d067943804992e8287c8ceaf5491f84e1f29c1173d54",
+  "mode": "prod_qa_age_retention_first_apply",
+  "planned_blob_files": 1157,
+  "planned_dlq_files": 0,
+  "planned_rows": 1158,
+  "remaining_blob_files": 0,
+  "remaining_dlq_files": 0,
+  "remaining_rows": 0
+}

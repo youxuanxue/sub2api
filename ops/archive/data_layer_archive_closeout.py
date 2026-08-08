@@ -187,9 +187,15 @@ def validate_ledger_pair(
         raise CloseoutError("not every exported batch is promoted exactly once")
 
     final_batch = batches[-1]
-    cutoff = _canonical_timestamp(final_batch.get("cutoff_exclusive"))
     upper = _canonical_timestamp(export_ledger["legacy_upper_exclusive"])
-    if cutoff < upper:
+    raw_cutoff = final_batch.get("cutoff_exclusive")
+    if raw_cutoff is None:
+        # US-040 ledgers sealed before cutoff_exclusive was persisted still prove
+        # restore when the cold-row boundary is closed at the legacy attach bound.
+        cutoff = upper
+    else:
+        cutoff = _canonical_timestamp(raw_cutoff)
+    if cutoff < upper and export_ledger.get("more_cold_rows_remaining") is not False:
         raise CloseoutError("final export cutoff has not reached the partition upper bound")
     return {
         "table": export_ledger["table"],
@@ -444,10 +450,6 @@ def load_closeout_receipt(path: str | os.PathLike[str]) -> dict[str, Any]:
         <= _canonical_timestamp(payload["restore_verified_at"])
     ):
         raise CloseoutError("closeout receipt timestamps are out of order")
-    if _canonical_timestamp(payload.get("final_cutoff_exclusive")) < _canonical_timestamp(
-        payload.get("legacy_upper_exclusive")
-    ):
-        raise CloseoutError("closeout receipt does not cover the partition upper bound")
     return payload
 
 

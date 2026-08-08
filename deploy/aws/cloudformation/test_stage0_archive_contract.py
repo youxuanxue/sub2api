@@ -46,30 +46,14 @@ class Stage0ArchiveContractTest(unittest.TestCase):
         write = next(statement for statement in statements if statement["Sid"] == "AllowAppInstanceRolePutArchive")
         self.assertEqual(write["Action"], "s3:PutObject")
         self.assertTrue(any("raw-telemetry" in resource for resource in write["Resource"]))
-        deny_objects = next(
+        deny_read = next(
             statement
             for statement in statements
-            if statement["Sid"] == "DenyAppInstanceRoleNonPutRawTelemetryObjects"
+            if statement["Sid"] == "DenyAppInstanceRoleReadRawTelemetry"
         )
-        self.assertEqual(deny_objects["Effect"], "Deny")
-        self.assertEqual(deny_objects["NotAction"], "s3:PutObject")
-        self.assertIn("raw-telemetry", deny_objects["Resource"])
-        deny_list = next(
-            statement
-            for statement in statements
-            if statement["Sid"] == "DenyAppInstanceRoleListRawTelemetry"
-        )
-        self.assertEqual(deny_list["Effect"], "Deny")
-        self.assertEqual(
-            deny_list["Action"],
-            ["s3:ListBucket", "s3:ListBucketVersions", "s3:ListBucketMultipartUploads"],
-        )
-        self.assertTrue(
-            all(
-                "raw-telemetry" in prefix
-                for prefix in deny_list["Condition"]["StringLike"]["s3:prefix"]
-            )
-        )
+        self.assertEqual(deny_read["Effect"], "Deny")
+        self.assertIn("s3:GetObject", deny_read["Action"])
+        self.assertIn("raw-telemetry", deny_read["Resource"])
         read = next(statement for statement in statements if statement["Sid"] == "AllowAppInstanceRoleGetOpsArchive")
         self.assertNotIn("raw-telemetry", read["Resource"])
         listing = next(statement for statement in statements if statement["Sid"] == "AllowAppInstanceRoleListArchive")

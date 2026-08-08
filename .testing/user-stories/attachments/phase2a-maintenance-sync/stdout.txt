@@ -1,0 +1,7 @@
+=== qa-maintenance timer sync ===
+NEXT LEFT LAST PASSED UNIT ACTIVATES
+
+0 timers listed.
+Pass --all to see loaded but inactive timers, too.
+Live qa-maintenance units now match deploy/aws@local timer=disabled on ip-10-0-1-23.ec2.internal
+
