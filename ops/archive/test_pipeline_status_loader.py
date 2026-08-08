@@ -17,6 +17,10 @@ class PipelineStatusLoaderTest(unittest.TestCase):
     def test_evidence_layout_derives_attachment_names_from_ssot(self) -> None:
         layout = loader.load_evidence_layout()
         self.assertEqual(layout.cleanup_hold_glob, "US-039-prod-cleanup-hold-*.json")
+        self.assertEqual(
+            layout.cleanup_release_receipt_glob,
+            "US-039-prod-cleanup-hold-release-*.json",
+        )
         self.assertEqual(layout.tables, ("ops_error_logs", "ops_system_logs"))
         self.assertEqual(
             layout.export_ledger_name("ops_error_logs"),

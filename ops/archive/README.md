@@ -110,7 +110,21 @@ captured by the receipt while preserving all current unrelated settings. Before
 restoring, it revalidates that the same receipt's hold is still active and that
 no cleanup has run since that hold began. The first guarded release also requires
 both ops tables' closeout receipts in repo evidence (`pipeline_status.yaml`:
-`closeout_required_before_cleanup_release`).
+`closeout_required_before_cleanup_release`). Persist the release receipt under
+`evidence_attachments.cleanup_release_receipt_glob` (optional `--output` on the
+CLI).
+
+```bash
+python3 ops/archive/data_layer_archive_cleanup_hold.py release \
+  --receipt .testing/user-stories/attachments/US-039-prod-cleanup-hold-20260807.json \
+  --activation-plan .testing/user-stories/attachments/phase4-retention-activation-plan.json \
+  --output .testing/user-stories/attachments/US-039-prod-cleanup-hold-release-20260808.json \
+  --confirm tokenkey-prod-archive-cleanup-release-v1
+```
+
+The Phase4 activation plan (`data_layer_retention_activation.py`) is a combined
+QA + generic ops gate; generic archive health does not re-run those QA checks.
+See [`ops/qa/README.md`](../qa/README.md) for QA lifecycle ownership.
 
 Verify archive closeout and tail-export evidence:
 

@@ -78,6 +78,7 @@ def _evidence_failures(root: Path, pipeline: dict) -> list[str]:
         return failures + [f"pipeline_status_loader failed: {exc}"]
     checks = (
         ("cleanup_hold_glob", layout.cleanup_hold_glob),
+        ("cleanup_release_receipt_glob", layout.cleanup_release_receipt_glob),
         ("export_ledger_template", layout.export_ledger_template),
         ("promote_ledger_template", layout.promote_ledger_template),
         ("tail_export_ledger_template", layout.tail_export_ledger_template),

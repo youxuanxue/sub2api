@@ -12,6 +12,7 @@ DEFAULT_PIPELINE = Path(__file__).resolve().parent / "pipeline_status.yaml"
 @dataclass(frozen=True)
 class EvidenceLayout:
     cleanup_hold_glob: str
+    cleanup_release_receipt_glob: str
     export_ledger_template: str
     promote_ledger_template: str
     tail_export_ledger_template: str
@@ -61,6 +62,7 @@ def load_evidence_layout(path: Path | None = None) -> EvidenceLayout:
         raise ValueError("pipeline_status.yaml evidence_attachments.table_slugs required")
     for key in (
         "cleanup_hold_glob",
+        "cleanup_release_receipt_glob",
         "export_ledger_template",
         "promote_ledger_template",
         "tail_export_ledger_template",
@@ -73,6 +75,7 @@ def load_evidence_layout(path: Path | None = None) -> EvidenceLayout:
     normalized_slugs = {str(table): str(slug) for table, slug in slugs.items()}
     return EvidenceLayout(
         cleanup_hold_glob=str(evidence["cleanup_hold_glob"]),
+        cleanup_release_receipt_glob=str(evidence["cleanup_release_receipt_glob"]),
         export_ledger_template=str(evidence["export_ledger_template"]),
         promote_ledger_template=str(evidence["promote_ledger_template"]),
         tail_export_ledger_template=str(evidence["tail_export_ledger_template"]),

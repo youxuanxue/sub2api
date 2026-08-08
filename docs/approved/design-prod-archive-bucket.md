@@ -43,7 +43,7 @@ promote receipt 齐全。
 1. 对应表 export ledger：`more_cold_rows_remaining=false`
 2. ledger 中 **每个** `batch_id` 有 promote receipt，且 archive 前缀 manifest
    sha256 与 export 一致
-3. cleanup hold 仍有效，或 drop 走单独审批工单
+3. drop 须单独审批工单（Phase4 closeout 后 cleanup hold 已 release；不得把「hold 仍有效」当作 drop 前置假设）
 
 ## 状态机
 

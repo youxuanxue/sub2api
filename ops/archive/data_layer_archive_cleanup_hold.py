@@ -185,6 +185,8 @@ def release(
     receipt_path: str | os.PathLike[str],
     activation_plan_path: str | os.PathLike[str],
     confirmation: str,
+    *,
+    output_path: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
     if confirmation != RELEASE_CONFIRMATION:
         raise HoldControlError("cleanup release confirmation token is invalid")
@@ -206,6 +208,8 @@ def release(
     )
     if payload["instance_id"] != receipt["instance_id"]:
         raise HoldControlError("cleanup hold release reached a different instance")
+    if output_path is not None:
+        _atomic_json(pathlib.Path(output_path), payload)
     return payload
 
 
@@ -221,6 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
     release_parser = commands.add_parser("release", help="restore the pre-hold cleanup state")
     release_parser.add_argument("--receipt", required=True)
     release_parser.add_argument("--activation-plan", required=True)
+    release_parser.add_argument("--output", help="optional path to persist the release receipt")
     release_parser.add_argument("--confirm", required=True)
     return parser
 
@@ -235,7 +240,12 @@ def main(argv: Iterable[str] | None = None) -> int:
         elif args.command == "verify":
             payload = verify(args.receipt)
         elif args.command == "release":
-            payload = release(args.receipt, args.activation_plan, args.confirm)
+            payload = release(
+                args.receipt,
+                args.activation_plan,
+                args.confirm,
+                output_path=args.output,
+            )
         else:  # pragma: no cover
             raise HoldControlError(f"unsupported command: {args.command}")
         print(_canonical_json(payload))
