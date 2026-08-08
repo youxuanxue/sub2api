@@ -14,6 +14,8 @@ class EvidenceLayout:
     cleanup_hold_glob: str
     export_ledger_template: str
     promote_ledger_template: str
+    tail_export_ledger_template: str
+    tail_promote_ledger_template: str
     closeout_receipt_template: str
     table_slugs: dict[str, str]
 
@@ -26,6 +28,12 @@ class EvidenceLayout:
 
     def promote_ledger_name(self, table: str) -> str:
         return self.promote_ledger_template.format(table_slug=self.table_slugs[table])
+
+    def tail_export_ledger_name(self, table: str) -> str:
+        return self.tail_export_ledger_template.format(table_slug=self.table_slugs[table])
+
+    def tail_promote_ledger_name(self, table: str) -> str:
+        return self.tail_promote_ledger_template.format(table_slug=self.table_slugs[table])
 
     def closeout_receipt_name(self, table: str) -> str:
         return self.closeout_receipt_template.format(table_slug=self.table_slugs[table])
@@ -55,6 +63,8 @@ def load_evidence_layout(path: Path | None = None) -> EvidenceLayout:
         "cleanup_hold_glob",
         "export_ledger_template",
         "promote_ledger_template",
+        "tail_export_ledger_template",
+        "tail_promote_ledger_template",
         "closeout_receipt_template",
     ):
         value = evidence.get(key)
@@ -65,6 +75,8 @@ def load_evidence_layout(path: Path | None = None) -> EvidenceLayout:
         cleanup_hold_glob=str(evidence["cleanup_hold_glob"]),
         export_ledger_template=str(evidence["export_ledger_template"]),
         promote_ledger_template=str(evidence["promote_ledger_template"]),
+        tail_export_ledger_template=str(evidence["tail_export_ledger_template"]),
+        tail_promote_ledger_template=str(evidence["tail_promote_ledger_template"]),
         closeout_receipt_template=str(evidence["closeout_receipt_template"]),
         table_slugs=normalized_slugs,
     )

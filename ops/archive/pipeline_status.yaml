@@ -24,6 +24,8 @@ evidence_attachments:
   cleanup_hold_glob: "US-039-prod-cleanup-hold-*.json"
   export_ledger_template: "US-040-{table_slug}-export-ledger.json"
   promote_ledger_template: "US-040-{table_slug}-promote-ledger.json"
+  tail_export_ledger_template: "US-040-{table_slug}-tail-export-ledger.json"
+  tail_promote_ledger_template: "US-040-{table_slug}-tail-promote-ledger.json"
   closeout_receipt_template: "US-040-{table_slug}-archive-closeout.json"
   table_slugs:
     ops_system_logs: ops-system-logs

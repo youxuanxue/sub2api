@@ -647,10 +647,12 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 func firstMapKeyForTest(t *testing.T, m map[string]struct{}) string {
 	t.Helper()
 	require.NotEmpty(t, m, "SSOT map must be populated for this assertion to be meaningful")
+	keys := make([]string, 0, len(m))
 	for k := range m {
-		return k
+		keys = append(keys, k)
 	}
-	return ""
+	sort.Strings(keys)
+	return keys[0]
 }
 
 func firstManifestDisplayIDForChannelTypeForTest(t *testing.T, channelType int) string {
