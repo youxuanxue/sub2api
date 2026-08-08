@@ -86,18 +86,10 @@ cleanup unit和S3权限保持退役。
 用户导出虽然可把完成 ZIP 放到 S3，但大量本地 Blob 读取、投影和 ZIP 生成仍发生在 prod，曾有
 重型导出影响数据卷和服务的事故类别。
 
-2026-08-08 的生产复核确认：stale cleanup 已按独立 timer 正常运行，maintenance timer 则是不久前才
-启用。`2026-08-07 22:54 UTC` 的 root `docker exec` 手工归档成功，只证明应用归档逻辑和该小时数据
-可用；随后 `23:01` 的 Persistent 补跑和 `23:15` 的第一个正常计划轮次均失败，不能据此宣称 timer
-长期不稳定，也不能把手工旁路当作 timer 健康证据。失败的直接运行时缺口是 host scratch 建在
-`/var/lib/tokenkey/data/qa_archive_tmp`，而真实数据 bind mount 是
-`/var/lib/tokenkey/app:/app/data`，且实际 scratch 为 `root:root 0700`，固定 UID/GID `1000:1000`
-无 read/write/search 权限。
-
-同次复核还发现：`2026-08-07 22:00 UTC` 有 2217 条源记录但没有 shard/control；maintenance DB
-heartbeat 停在手工成功，未记录后续失败；默认 `qa_exports_tmp` 与 PostgreSQL 共用 EBS，存在一个
-1,041,960,960-byte、无打开句柄的历史孤儿 ZIP；当前 EC2 instance role 同时被 gateway 与
-maintenance 容器继承。Phase 2 完成标准必须覆盖这些事实，不能只检查 S3 中是否出现过一个 commit。
+Phase 2 的生产复核证据、已知异常小时、一次性文件清理对象和精确 rollout/rollback 步骤只由
+[`design-qa-phase2-archive-closeout.md`](design-qa-phase2-archive-closeout.md) 维护。本文只保留由该复核
+沉淀出的长期契约：timer/operator 共用唯一 runner、前向补偿不恢复历史 backfill、年龄清理独立运行、
+健康判断必须关联 host 与数据库事实，且共享 EC2 role 不得被表述为进程级隔离。
 
 ## 4. 单一 QA Policy
 
@@ -269,10 +261,10 @@ preflight/lock
 ```
 
 `qa_archive_shards` 中唯一 `forward_cutover=true` 的 committed 且 restore-verified shard 是前向边界。
-本次生产收口以 `2026-08-07 21:00 UTC` shard 为锚点；`22:00` 缺口走上述正式补偿状态机，不恢复
-任意窗口 selector、历史 backfill flag 或第二个脚本。补偿集合不包含 cutover 及其之前的已知历史
-缺口。时间轴中不可恢复的 terminal failed 小时持续进入 archive health，但不阻塞后续可重试小时。
-归档和 cleanup 不并发。普通失败不会阻塞 gateway，也不会触发密集通知。
+精确生产锚点和首次补偿窗口由 Phase 2 closeout 文档唯一维护。补偿集合不包含 cutover 及其之前的
+历史缺口，不恢复任意窗口 selector、历史 backfill flag 或第二个脚本。时间轴中不可恢复的 terminal
+failed 小时持续进入 archive health，但不阻塞后续可重试小时。归档和 cleanup 不并发。普通失败
+不会阻塞 gateway，也不会触发密集通知。
 
 ### 7.3 Crash 可恢复
 
@@ -280,7 +272,7 @@ preflight/lock
 
 - archive 对象先写 immutable generation，再最后提交 commit manifest；
 - `forward_cutover` 通过唯一部分索引和行级有效性约束保证全库只有一个 committed +
-  restore-verified marker；本次只允许幂等设置已批准的 `2026-08-07 21:00 UTC`，不存在 move/unset 入口；
+  restore-verified marker；只允许幂等设置已批准的精确锚点，不存在 move/unset 入口；
 - 进程在任一步 crash，下一轮根据 control row、segment membership 和 S3 commit 收敛；
 - host runner 在同目录临时文件完成 `fsync` 后 rename，原子写
   `/var/lib/tokenkey/qa-maintenance-last-run.json`，即使 child 在写 DB heartbeat 前失败也留下机器证据；
@@ -422,11 +414,11 @@ container `/app/data/qa_exports_tmp`，即 host `/var/lib/tokenkey/app/qa_export
 
 正常 export 在进程内通过 `defer` 删除临时 ZIP；scheduled cleanup 只处理超过统一 24 小时 cutoff、
 regular file、位于该单一目录且没有打开句柄的 crash orphan。plan/receipt 必须增加逐文件 basename、
-size、mtime、总数和总字节，不记录文件内容。首次纳管现有
-`traj-export-4288971549.zip`（1,041,960,960 bytes）必须先输出 no-write plan，并以精确 plan hash
-确认后才删除；不能混入 timer 首次无提示清理。`qa_export_jobs` 本次只输出状态/过期分布和
-`storage_key` 一致性诊断，不删除历史行、不新增 job retention 语义，也不以 job row 作为 temp ZIP
-仍在使用的替代证据。
+size、mtime、总数和总字节，不记录文件内容。首次纳管任何现存 orphan 必须先输出 no-write plan，
+并以精确 plan hash 确认后才删除；不能混入 timer 首次无提示清理。当前生产 inventory 和一次性
+清理对象只由 Phase 2 closeout 文档维护。`qa_export_jobs` 本次只输出状态/过期分布和 `storage_key`
+一致性诊断，不删除历史行、不新增 job retention 语义，也不以 job row 作为 temp ZIP 仍在使用的
+替代证据。
 
 ### 9.3 用户主动删除不在本期范围
 
@@ -640,8 +632,8 @@ expired_unarchived -> gap_recorded
 
 `forward_cutover` 为非空默认 false 的 boolean，并由 `WHERE forward_cutover` 唯一部分索引保证全库最多
 一个 true；行级约束要求 true 只能出现在 committed 且 `restore_verified_at IS NOT NULL` 的 shard。
-应用选择器和设置命令再次校验。本次设置命令只接受已批准的 `2026-08-07 21:00 UTC`，重复设置幂等，
-不提供 move/unset。它只界定自动补偿下界，不代表 cutover 之前所有历史小时完整，也不授权删除。
+应用选择器和设置命令再次校验。设置命令只接受 Phase 2 closeout 批准的精确锚点，重复设置同一锚点
+幂等，不提供 move/unset。它只界定自动补偿下界，不代表 cutover 之前所有历史小时完整，也不授权删除。
 
 cutover 后每个已封口小时最终都必须有 durable control：成功状态是独立 restore 通过的 commit（包括
 在 retention 内确认的零行 base），失败状态至少包含机器错误码。`source_unavailable_after_retention`
@@ -746,8 +738,9 @@ cutover 后任何未处置的 terminal failed 小时都使 archive health 保持
 - emergency mode 可关闭自动动作并回到人工处置，但 P0 disk monitor 必须保留。
 
 Phase 2 运行时回滚固定为先停 maintenance timer，再回滚应用/runner。不得回滚或删除 additive schema、
-唯一 `forward_cutover`、已验证 S3 segment/commit 或 host receipt；不得把 22:00 缺口伪造为成功。旧 image
-可以忽略新字段，但下一次重新启用前必须重新通过 selftest、cutover/receipt/DB/control 联合健康检查。
+唯一 `forward_cutover`、已验证 S3 segment/commit 或 host receipt；不得把补偿失败或 terminal failure
+伪造为成功。旧 image 可以忽略新字段，但下一次重新启用前必须重新通过
+selftest、cutover/receipt/DB/control 联合健康检查。
 
 任何 generic image rollback 都不得用旧 retention 配置覆盖更晚的 live policy；policy 由独立 deploy owner
 同步并做 hash audit。
@@ -764,36 +757,19 @@ Phase 2 运行时回滚固定为先停 maintenance timer，再回滚应用/runne
 
 ### Phase 2：Prod raw archive-only
 
-Phase 2 的独立 deploy 入口为 `ops/qa/deploy_qa_raw_archive_cfn.sh`：它要求显式传入
-`APP_INSTANCE_ROLE_ARN`、`OPS_RECOVERY_PRINCIPAL_ARN` 和 prod VPC/route table，并以
-`QA_RAW_ARCHIVE_CONFIRM=yes` 作为 change set 执行门闩，部署
-`deploy/aws/cloudformation/stage0-qa-raw-archive.yaml`。栈创建专用 recovery role 和专用
-CloudTrail audit bucket：指定 principal 只能 assume 该只读角色，角色仅可读取 `raw/` 并经 S3
-解密；audit bucket 仅接受本 trail 写入。模板的 SSE-KMS key 与 bucket policy 必须同步授权，避免出现
-bucket 允许而 KMS 拒绝的半配置状态。现有 app statement 仍含 `ListBucket` 和 broad
-`raw/v1/` / `raw/partial/` read；本次 closeout 按第 8.1 节收窄。
+Phase 2 的生产 inventory、精确修复窗口、执行顺序和回滚步骤只由
+[`design-qa-phase2-archive-closeout.md`](design-qa-phase2-archive-closeout.md) 维护。本节只定义稳定退出条件：
 
-初始 raw bucket/KMS/endpoint/audit 基础设施已存在。本次 production integrity closeout 按以下顺序执行；
-`tokenkey-qa-stale-cleanup.timer` 继续运行，不能因归档修复重新暂停已经健康的年龄清理：
-
-1. 停止并确认 `tokenkey-qa-maintenance.timer` inactive；保留 stale cleanup active；
-2. 部署 additive `forward_cutover` schema、单一 host runner、真实 selftest、host receipt 和联合健康检查，
-   但不启动 scheduled maintenance；
-3. selftest 证明 UID/GID `1000:1000` 可经
-   `/var/lib/tokenkey/app/qa_archive_tmp:/app/data/qa_archive_tmp` create/read/delete；
-4. 独立 verify/restore `2026-08-07 21:00 UTC` committed shard 后，原子设置唯一 cutover；
-5. 通过同一 runner 执行一轮 normal archive；normal 成功后由正式补偿选择器处理最老的 22:00 缺口，
-   再 verify/restore。若 22:00 源数据已被年龄清理，写
-   `failed/source_unavailable_after_retention`，不创建空 commit、不写假成功，停止 rollout 并单独请求
-   不可恢复 gap 的处置批准；
-6. 从 ops workstation assume recovery role，直接对 S3 完成独立 restore，随后删除
-   `ops/prod/fetch-qa-dump.sh`；
-7. 启用 maintenance timer，观察至少两个连续正常计划轮次；每轮联合核对 systemd、host receipt、DB
-   heartbeat 和 control rows；
-8. 通过 CloudFormation change set 最后移除 app role 的 `ListBucket`/partial read，并把 GetObject 收窄到
-   实际对象后缀；执行 archive canary，失败即停 timer 并回滚 IAM change set；
-9. closeout 全部通过后，deploy rollout 才可把 prod archive 默认值从显式保守关闭迁移到 policy target；
-   历史 backfill 始终保持退休。
+1. 专用 raw bucket、KMS、VPC endpoint、recovery role 和 CloudTrail audit 边界部署完成，S3/KMS
+   授权一致，并按第 8.1 节收窄 app role；
+2. timer/operator 共用唯一 host runner，真实 bind mount 上的固定 UID/GID selftest、host receipt 和
+   DB/control 联合健康检查通过；
+3. 唯一批准 cutover 已独立 restore-verify；其后的每个已封口小时都有可恢复 commit 或明确 terminal
+   failure，正式补偿不得伪造成功；
+4. ops workstation 可经 recovery role 直接从 S3 restore，随后删除 prod-host break-glass 下载脚本；
+5. maintenance timer 达到 closeout 规定的连续健康标准，且 stale cleanup 在 rollout 全程保持运行；
+6. archive canary 和 IAM rollback 证据完整后，deploy rollout 才可把 prod archive 默认值迁移到 policy
+   target；历史 backfill 始终保持退休。
 
 ### Phase 3：Off-prod 用户导出
 
@@ -839,7 +815,7 @@ bucket 允许而 KMS 拒绝的半配置状态。现有 app statement 仍含 `Lis
 | 当前应用内 trajectory worker、localfs/S3 ZIP 生成和 prod 下载代理 | 用户导出的临时实现 | DynamoDB/SQS/Fargate + direct S3 | Phase 3 原子切换；切换后删除 prod 重型 build/read/proxy 与相关 env 注入 |
 | `tk_030` / Ent schema 中 daily auto-export、`auto` kind 的历史说明 | 已删除能力的注释残留；兼容列仍被旧数据读取 | manual job 兼容 schema + Phase 3 job model | 本次修正文案但不删列/历史 row、不新增 job retention；Phase 3 再迁移 schema 语义 |
 | `QaExportsBucket` | 当前用户 trajectory ZIP artifact bucket | Phase 3 user artifact bucket/prefix | 可迁移或复用，但永远不是 raw archive；TTL/IAM 与 raw bucket 分离 |
-| `/var/lib/tokenkey/app/qa_exports_tmp` crash orphan | in-prod export 的共享 EBS 临时文件 | `tokenkey-qa-stale-cleanup` | 本次纳入 plan/receipt；现有 1GB 文件须精确 plan 确认，Phase 3 切换后删除该 prod staging surface |
+| `/var/lib/tokenkey/app/qa_exports_tmp` crash orphan | in-prod export 的共享 EBS 临时文件 | `tokenkey-qa-stale-cleanup` | 本次纳入 plan/receipt；现有 inventory 按 Phase 2 closeout 精确确认，Phase 3 切换后删除该 prod staging surface |
 | `QaStaleRetentionDays`、retention env、daily stale timer/script、`qa_capture.retention_days` | 已退休的可变prod物理清理 | policy固定24小时、每小时`:45`的`tokenkey-qa-stale-cleanup.timer` | 删除可变retention入口；bootstrap仅可单向删除旧env文件；首次执行经实时plan确认后受控启用固定timer |
 | `tokenkey-pgdump.sh` 的 `qa_records*` data exclusion | 避免 pgdump 被 QA 撑爆的备份边界 | raw QA archive 负责 QA 历史 | 长期保留 exclusion，但注释必须指向本文；它不是 lifecycle owner |
 
@@ -875,7 +851,7 @@ Phase PR 必须同时删除该行所有 deploy、test、doc 和 generated fixtur
 - cleanup按24小时年龄处理所有过期数据，不读取archive完整性；
 - crash 后 receipt/quarantine 重入；
 - host receipt 原子替换，systemd/receipt/DB heartbeat/control 任一矛盾都不能报健康；
-- `qa_exports_tmp` 默认路径解析、24h/no-open-handle 选择、plan hash 和 1GB 首次精确确认；
+- `qa_exports_tmp` 默认路径解析、24h/no-open-handle 选择、no-write plan 和精确 plan hash 确认；
 - `qa_export_jobs` 只有诊断查询，没有历史删除 SQL；
 - confirmed gap 后仍按生命周期删除并生成一次 P0；
 - emergency 删除顺序与 70% stop 条件；
@@ -903,11 +879,11 @@ Phase PR 必须同时删除该行所有 deploy、test、doc 和 generated fixtur
 - 非 emergency 时最老物理 QA 不超过 25h15m；
 - cutover 后每个已封口小时有 valid restored commit 或明确 terminal failure；年龄清理不能让缺少 control
   的小时静默消失；
-- 21:00 是唯一 cutover 且独立 restore 通过；22:00 由正式补偿收敛，或因源数据已过期明确停止并进入
-  单独 gap 审批，不能伪造成功；
-- maintenance timer 至少两个连续正常计划轮次成功，且 systemd、host receipt、DB heartbeat、control
-  rows 四方一致；
-- stale cleanup 在 maintenance rollout 全程保持健康，`qa_exports_tmp` 现有 1GB orphan 经精确确认清除；
+- Phase 2 closeout 指定的唯一 cutover 独立 restore 通过；首次补偿窗口由正式选择器收敛，或以明确
+  terminal failure 停止并进入单独 gap 审批，不能伪造成功；
+- maintenance timer 达到 closeout 规定的连续健康标准，且 systemd、host receipt、DB heartbeat、
+  control rows 四方一致；
+- stale cleanup 在 maintenance rollout 全程保持健康，现存 `qa_exports_tmp` orphan 经精确 plan 确认清除；
 - S3 raw archive 7 天生命周期有效，partial 1 天收敛；
 - ops 从 S3 到本机恢复成功且不访问 prod；
 - 用户导出生成/下载期间 prod 无重型读取、ZIP、代理下载；
@@ -962,6 +938,7 @@ Edge
 - [x] 本期不提供用户主动删除 QA 的 UI/API，也不引入 deletion tombstone 控制面。
 - [x] 各 phase 按独立验证/审批推进，文档 merge 不自动授权线上写入或删除。
 - [x] maintenance 采用唯一 host runner；timer/operator 同路径、固定 UID/GID、真实 scratch 和原子 receipt。
-- [x] 21:00 作为唯一 forward cutover；normal 成功后每轮最多补一个最老缺口，22:00 不走历史 backfill。
-- [x] stale cleanup 唯一清理 `qa_exports_tmp`；现有 1GB orphan 删除前必须精确 plan 确认。
+- [x] forward cutover 只接受 Phase 2 closeout 批准的精确锚点；normal 成功后每轮最多补一个最老缺口，
+  不恢复历史 backfill。
+- [x] stale cleanup 唯一清理 `qa_exports_tmp`；任何现存 orphan 删除前必须经 no-write plan 和精确 hash 确认。
 - [x] 当前共享 EC2 role 不是进程级 IAM 隔离；本次只收窄整机权限并如实记录、验收。
