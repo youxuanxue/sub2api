@@ -53,4 +53,4 @@ python3 ops/archive/test_data_layer_archive_promote_batch.py
 
 ## Status
 
-- [x] Done — prod export + promote 已完成；legacy 分区 drop 仍 blocked（cleanup hold 有效）。
+- [x] Done — prod export + promote 已完成；cleanup hold 已在 closeout 后 release；legacy 分区 drop 仍须单独审批。

@@ -47,6 +47,7 @@ def _signals() -> dict:
             ],
             "hold_started_at": (NOW - dt.timedelta(days=1)).isoformat(),
             "closeout_complete": True,
+            "tail_export_complete": True,
             "restore_verified_at": [
                 (NOW - dt.timedelta(days=1)).isoformat(),
                 (NOW - dt.timedelta(days=1)).isoformat(),
@@ -61,10 +62,19 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
         self.assertEqual(result["verdict"], "green")
         self.assertEqual(result["findings"], [])
 
+    def test_closeout_and_tail_complete_skips_legacy_ledger_cutoff_checks(self) -> None:
+        signals = _signals()
+        for ledger in signals["ARCHIVESTATS"]["ledgers"]:
+            ledger.pop("final_cutoff_exclusive", None)
+            ledger["more_cold_rows_remaining"] = True
+        self.assertEqual(verdict.compute_verdict(signals)["verdict"], "green")
+
     def test_capacity_independent_failures_are_separate_findings(self) -> None:
         signals = _signals()
         signals["PARTITIONSTATS"]["usage_logs_future_covered"] = False
         signals["BACKUPSTATS"]["latest_pgdump_at"] = (NOW - dt.timedelta(hours=3)).isoformat()
+        signals["ARCHIVESTATS"]["closeout_complete"] = False
+        signals["ARCHIVESTATS"]["tail_export_complete"] = False
         signals["ARCHIVESTATS"]["ledgers"][0]["more_cold_rows_remaining"] = True
         result = verdict.compute_verdict(signals)
         self.assertEqual(result["verdict"], "unsafe")
@@ -100,6 +110,8 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
         signals["PARTITIONSTATS"]["partition_maintenance_last_error_at"] = (
             NOW - dt.timedelta(minutes=1)
         ).isoformat()
+        signals["ARCHIVESTATS"]["closeout_complete"] = False
+        signals["ARCHIVESTATS"]["tail_export_complete"] = False
         signals["ARCHIVESTATS"]["ledgers"][1]["table"] = "ops_error_logs"
         result = verdict.compute_verdict(signals)
         kinds = {finding["kind"] for finding in result["findings"]}

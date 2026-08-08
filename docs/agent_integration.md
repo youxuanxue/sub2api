@@ -551,6 +551,7 @@ restore the pre-hold cleanup state
 
 - `--receipt` (required):
 - `--activation-plan` (required):
+- `--output`: optional path to persist the release receipt
 - `--confirm` (required):
 
 ### `python3 ops/archive/data_layer_archive_prod_export.py`

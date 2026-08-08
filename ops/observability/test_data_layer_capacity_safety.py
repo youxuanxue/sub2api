@@ -195,7 +195,7 @@ class DataLayerCapacitySafetyTest(unittest.TestCase):
         body = _PROBE.read_text(encoding="utf-8")
         self.assertIn("pg_stat_user_tables", body)
         self.assertIn("pg_partition_tree", body)
-        self.assertIn("qa_records_partitioned", body)
+        self.assertIn("usage_logs_partitioned", body)
         self.assertIn("WHERE isleaf", body)
         self.assertNotIn("(SELECT count(*) FROM usage_logs)", body)
 

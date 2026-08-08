@@ -42,7 +42,6 @@ class DataLayerRetentionInventorySafetyTest(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, body.upper())
         self.assertIn("RETENTIONSTATS", body)
-        self.assertIn("RETENTIONUSAGE", body)
         self.assertIn("RETENTIONUSAGE_EXACT", body)
         self.assertIn("RETENTIONPLAN", body)
         self.assertIn("RETPARTITION", body)

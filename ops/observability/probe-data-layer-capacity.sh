@@ -38,8 +38,7 @@ WITH flags AS (
     true                                                           AS catalog_probe_ok,
     EXISTS (SELECT 1 FROM pg_partitioned_table WHERE partrelid = 'usage_logs'::regclass) AS usage_partitioned,
     EXISTS (SELECT 1 FROM pg_partitioned_table WHERE partrelid = 'ops_system_logs'::regclass) AS ops_system_partitioned,
-    EXISTS (SELECT 1 FROM pg_partitioned_table WHERE partrelid = 'ops_error_logs'::regclass) AS ops_error_partitioned,
-    EXISTS (SELECT 1 FROM pg_partitioned_table WHERE partrelid = to_regclass('qa_records')) AS qa_records_partitioned
+    EXISTS (SELECT 1 FROM pg_partitioned_table WHERE partrelid = 'ops_error_logs'::regclass) AS ops_error_partitioned
 )
 SELECT 'PGSTATS '||row_to_json(t)::text FROM (
   SELECT
@@ -54,9 +53,6 @@ SELECT 'PGSTATS '||row_to_json(t)::text FROM (
     CASE WHEN ops_error_partitioned THEN
       COALESCE((SELECT sum(pg_total_relation_size(relid)) FROM pg_partition_tree('ops_error_logs'::regclass) WHERE isleaf), 0)
     ELSE COALESCE(pg_total_relation_size(to_regclass('ops_error_logs')), 0) END AS ops_error_logs_bytes,
-    CASE WHEN qa_records_partitioned THEN
-      COALESCE((SELECT sum(pg_total_relation_size(relid)) FROM pg_partition_tree(to_regclass('qa_records')) WHERE isleaf), 0)
-    ELSE COALESCE(pg_total_relation_size(to_regclass('qa_records')), 0) END AS qa_records_bytes,
     pg_database_size(current_database())                          AS db_bytes,
     CASE WHEN usage_partitioned THEN
       COALESCE((SELECT sum(n_live_tup) FROM pg_stat_user_tables WHERE relid IN (
@@ -66,8 +62,7 @@ SELECT 'PGSTATS '||row_to_json(t)::text FROM (
     'pg_stat_user_tables'                                        AS usage_logs_rows_source,
     usage_partitioned                                            AS usage_logs_partitioned,
     ops_system_partitioned                                       AS ops_system_logs_partitioned,
-    ops_error_partitioned                                        AS ops_error_logs_partitioned,
-    qa_records_partitioned                                       AS qa_records_partitioned
+    ops_error_partitioned                                        AS ops_error_logs_partitioned
   FROM flags
 ) t;
 " 2>&1; then

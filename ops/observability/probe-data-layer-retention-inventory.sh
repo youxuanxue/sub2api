@@ -9,7 +9,6 @@
 #
 # Tagged output:
 #   RETENTIONSTATS  one row per whitelisted table (usage + ops leaf partitions)
-#   RETENTIONUSAGE  usage_logs leaf-partition rollup (same bytes/rows as RETENTIONSTATS)
 #   RETENTIONUSAGE_EXACT  bounded exact usage cutoff count
 #   RETENTIONPLAN   planner estimates without reading matching rows
 #   RETPARTITION   one row per leaf partition
@@ -127,70 +126,6 @@ FROM (
 SQL
 then
   echo 'RETENTIONSTATS {"inventory_probe_ok":false,"reason":"retention SQL timed out, was blocked, or schema was incomplete"}'
-fi
-
-echo "=== RETENTIONUSAGE (usage_logs leaf partitions) ==="
-if ! "${PSQL[@]}" \
-  -v usage_days="$USAGE_RETENTION_DAYS" \
-  -tA 2>&1 <<'SQL'
-WITH cfg AS (
-  SELECT
-    clock_timestamp() AS as_of,
-    clock_timestamp() - make_interval(days := :'usage_days'::int) AS usage_cutoff
-), leaves AS (
-  SELECT
-    c.relname AS relation_name,
-    pg_total_relation_size(tree.relid) AS relation_bytes,
-    COALESCE(s.n_live_tup::bigint, 0) AS live_rows,
-    pg_get_expr(c.relpartbound, c.oid) AS partition_bound
-  FROM pg_partition_tree(to_regclass('usage_logs')) tree
-  JOIN pg_class c ON c.oid = tree.relid
-  LEFT JOIN pg_stat_all_tables s ON s.relid = c.oid
-  WHERE tree.isleaf
-), bounded AS (
-  SELECT
-    l.*,
-    CASE
-      WHEN l.partition_bound ~ $$TO \('([^']+)'\)$$
-      THEN substring(l.partition_bound FROM $$TO \('([^']+)'\)$$)::timestamptz
-      ELSE NULL
-    END AS upper_bound
-  FROM leaves l
-), agg AS (
-  SELECT
-    bool_or(b.partition_bound IS NOT NULL) AS partitioned,
-    sum(b.relation_bytes)::bigint AS relation_bytes,
-    sum(b.live_rows)::bigint AS live_rows,
-    COALESCE(sum(b.relation_bytes) FILTER (
-      WHERE b.upper_bound IS NOT NULL AND b.upper_bound <= (SELECT usage_cutoff FROM cfg)
-    ), 0)::bigint AS physically_droppable_bytes,
-    COALESCE(sum(b.relation_bytes) FILTER (
-      WHERE b.partition_bound IS NOT NULL
-        AND (b.upper_bound IS NULL OR b.upper_bound > (SELECT usage_cutoff FROM cfg))
-    ), 0)::bigint AS straddling_partition_bytes
-  FROM bounded b
-)
-SELECT 'RETENTIONUSAGE '||row_to_json(t)::text
-FROM (
-  SELECT
-    true AS inventory_probe_ok,
-    'usage_logs' AS table_name,
-    'usage' AS dataset,
-    (SELECT as_of FROM cfg) AS as_of,
-    (SELECT usage_cutoff FROM cfg) AS cutoff,
-    a.partitioned,
-    a.live_rows,
-    a.relation_bytes,
-    a.physically_droppable_bytes,
-    a.straddling_partition_bytes,
-    :'usage_days'::int AS retention_days,
-    'pg_partition_tree leaf sum + pg_stat; no row scan' AS evidence,
-    'whole partitions only; estimates do not prove df reclaim' AS space_semantics
-  FROM agg a
-) t;
-SQL
-then
-  echo 'RETENTIONUSAGE {"inventory_probe_ok":false,"reason":"usage partition inventory timed out, was blocked, or schema was incomplete"}'
 fi
 
 echo "=== RETENTIONUSAGE_EXACT (bounded indexed count) ==="
