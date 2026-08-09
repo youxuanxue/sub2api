@@ -13,12 +13,9 @@ import sys
 import time
 from typing import Any
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "ops" / "lib"))
-import resolve_app_container  # noqa: E402
-
 PROD_REGION = "us-east-1"
 PROD_STACK = "tokenkey-prod-stage0"
+HOST_RUNNER = "/usr/local/bin/tokenkey-qa-maintenance.sh"
 RESTORE_CONFIRMATION_PREFIX = "tokenkey-prod-qa-archive-restore-v1"
 READ_COMMANDS = {"inspect", "verify", "repair-plan"}
 POLL_ATTEMPTS = 100
@@ -91,33 +88,10 @@ def _resolve_instance() -> str:
 
 def _remote_command(command: str, window: dt.datetime, output: str, confirm: str) -> str:
     window_text = window.strftime("%Y-%m-%dT%H:%M:%SZ")
-    cli = ["/app/qa-archive", command, "--window-start", window_text]
-    script = [
-        "set -euo pipefail",
-        *resolve_app_container.remote_shell_snippet(docker="sudo docker"),
-        'if [ -z "$APP_CONTAINER" ]; then echo "qa archive refused: ambiguous app container" >&2; exit 40; fi',
-    ]
+    cli = [HOST_RUNNER, "--qa-archive", command, "--window-start", window_text]
     if command == "restore":
         cli.extend(["--output", output, "--confirm", confirm])
-    script.extend([
-        'image=$(sudo docker inspect --format \'{{.Image}}\' "$APP_CONTAINER")',
-        'if [ -z "$image" ]; then echo "qa archive refused: active image unavailable" >&2; exit 45; fi',
-        'sudo docker exec "$APP_CONTAINER" /bin/sh -c \'mkdir -p /app/data/qa_archive_tmp && chmod 700 /app/data/qa_archive_tmp\'',
-        'env_file=$(mktemp /run/tokenkey-qa-archive-env.XXXXXX)',
-        'chmod 600 "$env_file"',
-        'trap \'rm -f -- "$env_file"\' EXIT',
-        'sudo docker inspect --format \'{{range .Config.Env}}{{println .}}{{end}}\' "$APP_CONTAINER" >"$env_file"',
-    ])
-    quoted_cli = " ".join(shlex.quote(item) for item in cli)
-    script.append(
-        'sudo docker run --rm --name "tokenkey-qa-archive-op-$$" '
-        '--user=1000:1000 --read-only --cap-drop=ALL --security-opt=no-new-privileges '
-        '--memory=1g --memory-swap=1g --cpus=0.20 --pids-limit=128 '
-        '--network="container:$APP_CONTAINER" --volumes-from="$APP_CONTAINER:rw" '
-        '--env-file="$env_file" --env TMPDIR=/app/data/qa_archive_tmp '
-        f'"$image" {quoted_cli}'
-    )
-    return "sudo bash -c " + shlex.quote("\n".join(script))
+    return "sudo " + " ".join(shlex.quote(item) for item in cli)
 
 def _poll(command_id: str, instance_id: str) -> str:
     for _ in range(POLL_ATTEMPTS):

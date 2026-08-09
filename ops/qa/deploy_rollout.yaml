@@ -16,6 +16,8 @@ prod:
     closeout_deploy_state: disabled
     policy_target_state: enabled
     min_consecutive_scheduled_runs: 2
+    host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh
+    health_evaluator: ops/qa/qa_phase2_health.py
     health_evidence:
       - systemd
       - host_receipt

@@ -30,8 +30,6 @@ def _guard_shell() -> list[str]:
     return [
         'test "$(systemctl is-enabled tokenkey-qa-maintenance.timer)" = disabled',
         'test "$(systemctl is-active tokenkey-qa-maintenance.timer)" = inactive',
-        'test "$(systemctl is-enabled tokenkey-qa-stale-cleanup.timer)" = disabled',
-        'test "$(systemctl is-active tokenkey-qa-stale-cleanup.timer)" = inactive',
         'runtime_tail=$(docker logs --since 24h "$APP_CONTAINER" 2>&1 | grep -E "cleanup_enabled=(true|false)|cleanup reload after advanced-settings update failed" | tail -1 || true)',
         'printf "%s" "$runtime_tail" | grep -q "cleanup_enabled=false"',
         'test -z "$(docker exec tokenkey-redis redis-cli --raw GET ops:cleanup:leader)"',

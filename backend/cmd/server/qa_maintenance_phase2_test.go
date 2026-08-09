@@ -196,6 +196,8 @@ func TestUS045_NormalFirstBoundedCompensationReportsSelectionAndTerminalFailures
 }
 
 func TestUS045_QAMaintenanceCommandReportsCommittedNormalAndCompensationFacts(t *testing.T) {
+	t.Setenv("QA_MAINTENANCE_RUN_ID", "run-045")
+	t.Setenv("QA_MAINTENANCE_TRIGGER", "operator")
 	db, mockDB, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
 	if err != nil {
 		t.Fatal(err)
@@ -258,6 +260,8 @@ func TestUS045_QAMaintenanceCommandReportsCommittedNormalAndCompensationFacts(t 
 	}
 	for _, fact := range []string{
 		"status=committed",
+		"run_id=run-045",
+		"trigger=operator",
 		"normal_commit_etag=normal-etag",
 		"normal_segment_count=2",
 		"normal_aggregate_record_count=42",
@@ -277,8 +281,10 @@ func TestUS045_QAMaintenanceCommandReportsCommittedNormalAndCompensationFacts(t 
 		}
 	}
 	var receipt struct {
-		DeletionAuthorized bool `json:"deletion_authorized"`
-		UploadAuthorized   bool `json:"upload_authorized"`
+		RunID              string `json:"run_id"`
+		Trigger            string `json:"trigger"`
+		DeletionAuthorized bool   `json:"deletion_authorized"`
+		UploadAuthorized   bool   `json:"upload_authorized"`
 		Plan               struct {
 			CommitETag      string `json:"commit_etag"`
 			RestoreVerified bool   `json:"restore_verified"`
@@ -293,7 +299,7 @@ func TestUS045_QAMaintenanceCommandReportsCommittedNormalAndCompensationFacts(t 
 	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
 		t.Fatal(err)
 	}
-	if receipt.DeletionAuthorized || !receipt.UploadAuthorized || receipt.Plan.CommitETag != "normal-etag" ||
+	if receipt.RunID != "run-045" || receipt.Trigger != "operator" || receipt.DeletionAuthorized || !receipt.UploadAuthorized || receipt.Plan.CommitETag != "normal-etag" ||
 		!receipt.Plan.RestoreVerified || receipt.Plan.CleanupEligible == nil || *receipt.Plan.CleanupEligible ||
 		receipt.Compensation == nil || receipt.Compensation.CommitETag != "compensation-etag" ||
 		!receipt.Compensation.RestoreVerified || receipt.Compensation.CleanupEligible == nil || *receipt.Compensation.CleanupEligible {
@@ -305,6 +311,8 @@ func TestUS045_QAMaintenanceCommandReportsCommittedNormalAndCompensationFacts(t 
 }
 
 func TestUS045_QAMaintenanceCommandFailureHeartbeatPreservesNormalSuccess(t *testing.T) {
+	t.Setenv("QA_MAINTENANCE_RUN_ID", "run-failure-045")
+	t.Setenv("QA_MAINTENANCE_TRIGGER", "timer")
 	normal := us045Window(3)
 	compensation := us045Window(1)
 	for _, test := range []struct {
@@ -380,6 +388,8 @@ func TestUS045_QAMaintenanceCommandFailureHeartbeatPreservesNormalSuccess(t *tes
 			}
 			for _, fact := range append([]string{
 				"status=failed",
+				"run_id=run-failure-045",
+				"trigger=timer",
 				"normal_commit_etag=normal-etag",
 				"normal_restore_verified=true",
 				"normal_aggregate_record_count=42",

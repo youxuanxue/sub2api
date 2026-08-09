@@ -53,7 +53,15 @@
 - `backend/cmd/server/qa_maintenance_phase2_test.go`::`TestUS045_QAMaintenanceCommandUnlockFailureHeartbeatPreservesNormalSuccess`
 - `backend/cmd/qa-archive/main_test.go`::`TestUS045_RepairApplyIsUnavailableBeforeDependencies`
 - `ops/qa/test_qa_phase_ops.py`::`TestQAPhaseOps.test_us045_qa_archive_closeout_rejects_repair_apply_before_aws`
-- `ops/qa/test_qa_phase_ops.py`::`QAArchivePhase2Test.test_us045_runner_receipt_and_health_contract` *(planned)*
+- `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2RunnerTest.test_us045_selftest_uses_real_image_user_and_mount_for_create_read_remove`
+- `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2RunnerTest.test_us045_runner_success_writes_atomic_correlated_receipt`
+- `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2RunnerTest.test_us045_runner_rejects_zero_exit_without_correlated_child_receipt`
+- `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2RunnerTest.test_us045_runner_records_every_pre_app_failure`
+- `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2OperatorAndHealthTest.test_us045_timer_and_operators_invoke_the_single_host_runner`
+- `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2OperatorAndHealthTest.test_us045_correlated_health_accepts_only_matching_fresh_success`
+- `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2OperatorAndHealthTest.test_us045_correlated_health_rejects_missing_stale_and_contradictory_facts`
+- `ops/qa/test_qa_phase_ops.py`::`TestQAPhaseOps.test_qa_maintenance_sync_emits_disabled_timer_command_by_default`
+- `ops/qa/test_qa_phase_ops.py`::`TestQAPhaseOps.test_historical_closeout_has_fixed_targets_and_safety_guards`
 - `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_us045_export_orphan_plan_is_exact_and_revalidated` *(planned)*
 - `backend/cmd/qa-archive/main_test.go`::`TestUS045_WorkstationRecovery*` *(planned)*
 
@@ -62,8 +70,10 @@
 ```bash
 cd backend
 go test -tags=unit -count=1 -run 'TestUS045_' ./cmd/qa-archive
+go test -tags=unit -count=1 -run 'TestUS045_' ./cmd/server
 go test -tags=integration -count=1 -run 'TestUS045_' ./internal/observability/qa/archive
 cd ..
+python3 -m unittest ops.qa.test_qa_maintenance_phase2_runtime ops.qa.test_qa_phase_ops
 python3 .testing/user-stories/verify_quality.py
 ```
 
@@ -72,9 +82,10 @@ python3 .testing/user-stories/verify_quality.py
 - Task 1 已实跑 fixed CLI unit tests 与隔离 PostgreSQL migration/control integration tests；migration 只应用于 testcontainer。
 - Task 2 已实跑 timeline selector、可恢复零行 base、retention 后终态和 late-identity membership 的 unit/integration tests；PostgreSQL 仅为本地 testcontainer。
 - Task 3 已实跑 maintenance normal-first/单一补偿/失败 heartbeat、archive-disabled no-write 状态、CLI 与 Python operator 的 `repair-apply` 退役测试；archive PostgreSQL integration 只使用本地 Colima testcontainer。
-- Task 4–6 的 runner/health、stale cleanup、IAM 与 workstation recovery links 明确标为 planned，后续 task 必须以实际 RED/GREEN 证据替换。
+- Task 4 已实跑唯一 host runner、真实 mount selftest、原子 receipt、全部 pre-app/child failure、timer/operator 收敛、Go run correlation、同步脚本与四源 health contradiction 测试；所有 Docker/AWS/systemd 边界均为本地 fake 或临时目录。
+- Task 5–6 的 stale cleanup、IAM 与 workstation recovery links 明确标为 planned，后续 task 必须以实际 RED/GREEN 证据替换。
 - 本 Story 不构成生产操作授权；生产 restore evidence、schema/IAM apply、timer change、orphan deletion 与 break-glass retirement 仍待独立门禁。
 
 ## Status
 
-- [x] InTest — Task 1–3 cutover/timeline/archive integrity/maintenance orchestration contract 已进入测试；Task 4–6 repository behaviors 与所有 production rollout evidence 尚未完成。
+- [x] InTest — Task 1–4 cutover/timeline/archive integrity/maintenance runner 与关联健康 contract 已进入测试；Task 5–6 repository behaviors 与所有 production rollout evidence 尚未完成。

@@ -9,6 +9,8 @@ Policy 数值不在此重复。Owner 表：
 | Approved design + phase gates | [`docs/approved/design-prod-qa-24h-s3-lifecycle.md`](../../docs/approved/design-prod-qa-24h-s3-lifecycle.md) |
 | Phase 2 archive closeout | [`docs/approved/design-qa-phase2-archive-closeout.md`](../../docs/approved/design-qa-phase2-archive-closeout.md) |
 | Mechanical drift guard | [`scripts/checks/qa-lifecycle-ssot.py`](../../scripts/checks/qa-lifecycle-ssot.py) |
+| Timer/operator host runner | [`deploy/aws/stage0/tokenkey-qa-maintenance.sh`](../../deploy/aws/stage0/tokenkey-qa-maintenance.sh) |
+| Correlated Phase 2 health verdict | [`qa_phase2_health.py`](qa_phase2_health.py) |
 
 Generic usage/ops data-layer archive: [`ops/archive/README.md`](../archive/README.md).
 
@@ -25,3 +27,7 @@ can move to the policy target. Edge deploy always injects `QA_CAPTURE_ENABLED=fa
 Operator scripts: `prod_qa_maintenance.py`, `prod_qa_historical_closeout.py`,
 `prod_qa_stale_cleanup.py`, `prod_qa_archive_closeout.py`, `prod_phase2_baseline.py`;
 timer install: `sync-qa-maintenance-timer-via-ssm.sh`, `sync-qa-stale-cleanup-timer-via-ssm.sh`.
+Maintenance timer and operator execution both enter through the installed host runner; the
+operator wrappers do not own a second Docker execution contract. `qa_phase2_health.py`
+evaluates a structured snapshot and fails closed unless systemd, host receipt, DB heartbeat,
+and archive control facts all describe the same fresh scheduled run.

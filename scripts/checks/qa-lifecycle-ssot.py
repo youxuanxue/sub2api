@@ -122,6 +122,8 @@ REQUIRED_BY_FILE = {
         "target_deploy_inject_default: true",
         "closeout_state: pending_implementation",
         "min_consecutive_scheduled_runs: 2",
+        "host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh",
+        "health_evaluator: ops/qa/qa_phase2_health.py",
         "policy_target: prod.archive.enabled",
         "design-qa-phase2-archive-closeout.md",
     ),
@@ -129,6 +131,8 @@ REQUIRED_BY_FILE = {
         "policy.yaml",
         "deploy_rollout.yaml",
         "qa-lifecycle-ssot.py",
+        "qa_phase2_health.py",
+        "tokenkey-qa-maintenance.sh",
     ),
     Path("ops/stage0/deploy_via_ssm.sh"): (
         "edge_qa_capture_cmds",
@@ -150,8 +154,13 @@ REQUIRED_BY_FILE = {
     ),
     MAINTENANCE_SCRIPT: (
         "--qa-maintenance-once",
+        "tokenkey-prod-qa-maintenance-v1",
         "archive_start",
         "--install-units",
+        "/usr/local/lib/tokenkey/resolve-app-container.sh",
+        "/var/lib/tokenkey/app/qa_archive_tmp",
+        "/var/lib/tokenkey/qa-maintenance-last-run.json",
+        '"deletion_authorized": False',
     ),
     GO_MAINTENANCE: (
         "qa_maintenance_archive_only",
@@ -178,11 +187,14 @@ REQUIRED_BY_FILE = {
         "IntegrityCorruptArtifact",
     ),
     Path("ops/qa/prod_qa_maintenance.py"): (
-        "tokenkey-prod-qa-maintenance-v1",
+        "/usr/local/bin/tokenkey-qa-maintenance.sh",
+        "qa-maintenance-runner-v1",
         "deletion_authorized",
     ),
     Path("ops/stage0/sync-qa-maintenance-timer-via-ssm.sh"): (
         "tokenkey-qa-maintenance.timer",
+        "/usr/local/lib/tokenkey/resolve-app-container.sh",
+        "/var/lib/tokenkey/app/qa_archive_tmp",
     ),
     Path("ops/archive/data_layer_archive_rehearsal.py"): (
         'DATASETS = ("usage", "ops")',

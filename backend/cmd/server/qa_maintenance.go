@@ -263,6 +263,8 @@ func runQAMaintenanceCommand(
 	if fs.NArg() != 0 {
 		return fmt.Errorf("qa maintenance does not accept positional arguments")
 	}
+	runID := strings.TrimSpace(os.Getenv("QA_MAINTENANCE_RUN_ID"))
+	trigger := strings.TrimSpace(os.Getenv("QA_MAINTENANCE_TRIGGER"))
 	deps = deps.withDefaults()
 	cfg, err := deps.loadConfig()
 	if err != nil {
@@ -280,8 +282,8 @@ func runQAMaintenanceCommand(
 	windowStart, windowEnd := archive.PreviousSealedHour(startedAt, sealDelayMinutes)
 	normalWindow := archive.Window{Start: windowStart, End: windowEnd}
 	failureLastResult := fmt.Sprintf(
-		"status=failed stage=preflight error_code=maintenance_preflight_failed normal_window=%s deletion_authorized=false upload_authorized=false",
-		windowStart.Format(time.RFC3339),
+		"status=failed run_id=%s trigger=%s stage=preflight error_code=maintenance_preflight_failed normal_window=%s deletion_authorized=false upload_authorized=false",
+		runID, trigger, windowStart.Format(time.RFC3339),
 	)
 
 	conn, err := db.Conn(ctx)
@@ -371,7 +373,7 @@ func runQAMaintenanceCommand(
 				plan.State = archive.StateFailed
 				plan.VerificationErrorCode = cycle.FailureCode
 			}
-			failureLastResult = qaMaintenanceCycleLastResult("failed", plan, compensationPlan, cycle.FailureStage, cycle.FailureCode)
+			failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, cycle.FailureStage, cycle.FailureCode)
 			return cycleErr
 		}
 		uploadAuthorized = true
@@ -385,12 +387,12 @@ func runQAMaintenanceCommand(
 	}
 
 	if err := deps.unlockAdvisory(ctx, conn); err != nil {
-		failureLastResult = qaMaintenanceCycleLastResult("failed", plan, compensationPlan, "advisory_unlock", "advisory_unlock_failed")
+		failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, "advisory_unlock", "advisory_unlock_failed")
 		return fmt.Errorf("release qa maintenance advisory lock: %w", err)
 	}
 	lockAcquired = false
 	if err := conn.Close(); err != nil {
-		failureLastResult = qaMaintenanceCycleLastResult("failed", plan, compensationPlan, "connection_release", "connection_release_failed")
+		failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, "connection_release", "connection_release_failed")
 		return fmt.Errorf("release qa maintenance connection: %w", err)
 	}
 	connReleased = true
@@ -405,8 +407,8 @@ func runQAMaintenanceCommand(
 	if !plan.ArchiveEnabled {
 		status = "planned"
 	}
-	lastResult := qaMaintenanceCycleLastResult(status, plan, compensationPlan, "", "")
-	failureLastResult = qaMaintenanceCycleLastResult("failed", plan, compensationPlan, "heartbeat_write", "heartbeat_write_failed")
+	lastResult := qaMaintenanceCycleLastResult(status, runID, trigger, plan, compensationPlan, "", "")
+	failureLastResult = qaMaintenanceCycleLastResult("failed", runID, trigger, plan, compensationPlan, "heartbeat_write", "heartbeat_write_failed")
 	heartbeatCtx, cancelHeartbeat := context.WithTimeout(context.Background(), qaMaintenanceHeartbeatTimeout)
 	defer cancelHeartbeat()
 	if err := deps.writeHeartbeat(heartbeatCtx, db, &service.OpsUpsertJobHeartbeatInput{
@@ -425,6 +427,8 @@ func runQAMaintenanceCommand(
 		Mode               string             `json:"mode"`
 		OK                 bool               `json:"ok"`
 		JobName            string             `json:"job_name"`
+		RunID              string             `json:"run_id"`
+		Trigger            string             `json:"trigger"`
 		CompletedAt        time.Time          `json:"completed_at"`
 		Plan               qaMaintenancePlan  `json:"plan"`
 		Compensation       *qaMaintenancePlan `json:"compensation,omitempty"`
@@ -435,6 +439,8 @@ func runQAMaintenanceCommand(
 		Mode:               mode,
 		OK:                 true,
 		JobName:            qaMaintenanceJobName,
+		RunID:              runID,
+		Trigger:            trigger,
 		CompletedAt:        completedAt,
 		Plan:               plan,
 		Compensation:       compensationPlan,
@@ -531,9 +537,11 @@ func qaMaintenancePlanFromReceipt(receipt archive.ReconcileReceipt, archiveEnabl
 	}
 }
 
-func qaMaintenanceCycleLastResult(status string, normal qaMaintenancePlan, compensation *qaMaintenancePlan, failureStage, failureCode string) string {
+func qaMaintenanceCycleLastResult(status, runID, trigger string, normal qaMaintenancePlan, compensation *qaMaintenancePlan, failureStage, failureCode string) string {
 	parts := []string{
 		"status=" + status,
+		"run_id=" + runID,
+		"trigger=" + trigger,
 	}
 	if failureStage != "" {
 		parts = append(parts, "stage="+failureStage)

@@ -311,34 +311,6 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
         self.assertIn("OnCalendar=*-*-* *:15:00", body)
         self.assertNotIn("DELETE FROM qa_records", body)
 
-    def test_qa_maintenance_unit_has_resource_and_filesystem_limits(self) -> None:
-        body = (ROOT / "deploy/aws/stage0/tokenkey-qa-maintenance.sh").read_text(
-            encoding="utf-8"
-        )
-        for needle in (
-            "Nice=15",
-            "IOSchedulingClass=idle",
-            "CPUQuota=20%",
-            "MemoryMax=1G",
-            "TasksMax=128",
-            "PrivateTmp=true",
-            "NoNewPrivileges=true",
-            "ProtectSystem=strict",
-            "ReadWritePaths=/var/lib/tokenkey",
-            "--memory=1g",
-            "--memory-swap=1g",
-            "--cpus=0.20",
-            "--pids-limit=128",
-            '--network="container:${app_container}"',
-            '--volumes-from="${app_container}:rw"',
-            "{{.Image}}",
-            "--read-only",
-            "--cap-drop=ALL",
-            "TMPDIR=/app/data/qa_archive_tmp",
-            "install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/data/qa_archive_tmp",
-        ):
-            self.assertIn(needle, body)
-
     def test_qa_lifecycle_ssot_check_passes(self) -> None:
         proc = subprocess.run(
             [sys.executable, str(ROOT / "scripts/checks/qa-lifecycle-ssot.py")],
@@ -412,6 +384,26 @@ exit 0
         self.assertIn(
             'test "$(sudo systemctl is-active tokenkey-qa-maintenance.timer)" = "inactive"',
             payload["commands"],
+        )
+        commands = payload["commands"]
+        resolver_install = next(
+            command
+            for command in commands
+            if "/usr/local/lib/tokenkey/resolve-app-container.sh" in command
+        )
+        self.assertIn("base64 -d", resolver_install)
+        scratch_prepare = (
+            "sudo test -e /var/lib/tokenkey/app/qa_archive_tmp || "
+            "sudo install -d -m 0700 -o 1000 -g 1000 "
+            "/var/lib/tokenkey/app/qa_archive_tmp"
+        )
+        self.assertIn(scratch_prepare, commands)
+        self.assertLess(
+            commands.index(scratch_prepare),
+            commands.index("sudo /usr/local/bin/tokenkey-qa-maintenance.sh --selftest"),
+        )
+        self.assertFalse(
+            any("/var/lib/tokenkey/data/qa_archive_tmp" in command for command in commands)
         )
 
     def test_qa_maintenance_sync_explicit_enable_starts_and_verifies_timer(self) -> None:
@@ -699,7 +691,7 @@ exit 0
             self.assertIn("commit_mismatch", script)
             self.assertIn("missing_evidence", script)
             self.assertIn("tokenkey-qa-maintenance.timer", script)
-            self.assertIn("tokenkey-qa-stale-cleanup.timer", script)
+            self.assertNotIn("tokenkey-qa-stale-cleanup.timer", script)
             self.assertIn("ops:cleanup:leader", script)
             self.assertNotIn("$WINDOW", script)
         self.assertNotIn("UPDATE qa_archive_shards", plan)

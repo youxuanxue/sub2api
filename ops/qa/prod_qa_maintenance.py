@@ -5,18 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import pathlib
-import shlex
 import subprocess
 import sys
 import time
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "ops" / "lib"))
-import resolve_app_container  # noqa: E402
-
 PROD_REGION = "us-east-1"
-CONFIRMATION = "tokenkey-prod-qa-maintenance-v1"
+HOST_RUNNER = "/usr/local/bin/tokenkey-qa-maintenance.sh"
+HOST_RECEIPT = "/var/lib/tokenkey/qa-maintenance-last-run.json"
 POLL_ATTEMPTS = 100
 POLL_INTERVAL_SECONDS = 3
 
@@ -61,15 +56,11 @@ def _resolve_instance() -> str:
 
 
 def _remote_command() -> str:
-    script = "\n".join(
-        [
-            "set -euo pipefail",
-            *resolve_app_container.remote_shell_snippet(docker="sudo docker"),
-            'if [ -z "$APP_CONTAINER" ]; then echo "qa maintenance refused: ambiguous app container" >&2; exit 40; fi',
-            f'sudo docker exec "$APP_CONTAINER" /app/sub2api --qa-maintenance-once --confirm {CONFIRMATION}',
-        ]
+    return (
+        "set -uo pipefail; "
+        f"sudo {HOST_RUNNER} --trigger=operator; runner_rc=$?; "
+        f"sudo cat {HOST_RECEIPT}; exit $runner_rc"
     )
-    return "sudo bash -c " + shlex.quote(script)
 
 
 def _poll(command_id: str, instance_id: str) -> str:
@@ -108,11 +99,23 @@ def _validate_receipt(stdout: str) -> dict:
     payload = json.loads(lines[-1])
     if (
         not isinstance(payload, dict)
-        or payload.get("ok") is not True
+        or payload.get("schema_version") != "qa-maintenance-runner-v1"
+        or payload.get("trigger") != "operator"
+        or payload.get("runner_exit_code") != 0
+        or payload.get("child_exit_code") != 0
         or payload.get("deletion_authorized") is not False
-        or payload.get("job_name") != "qa-maintenance"
+        or not isinstance(payload.get("run_id"), str)
+        or not payload.get("run_id")
     ):
         raise QAMaintenanceError("remote receipt failed safety validation")
+    normal = payload.get("normal")
+    if (
+        not isinstance(normal, dict)
+        or normal.get("state") != "committed"
+        or normal.get("restore_verified") is not True
+        or normal.get("cleanup_eligible") is not False
+    ):
+        raise QAMaintenanceError("remote receipt lacks committed normal result")
     return payload
 
 
