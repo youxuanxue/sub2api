@@ -216,10 +216,11 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
             gh_issues=[{"number": 42, "state": "OPEN", "closedAt": None, "createdAt": "2026-07-20T08:00:00Z"}],
         )
         self.assertTrue(any(call[:4] == ["gh", "issue", "list", "--label"] for call in calls))
-        self.assertEqual(
-            [call for call in calls if call[:3] == ["gh", "issue", "comment"]],
-            [["gh", "issue", "comment", "42", "--body-file", "issue-1.md"]],
-        )
+        comment_calls = [call for call in calls if call[:3] == ["gh", "issue", "comment"]]
+        self.assertEqual(len(comment_calls), 1)
+        self.assertEqual(comment_calls[0][:4], ["gh", "issue", "comment", "42"])
+        self.assertTrue(str(comment_calls[0][5]).endswith("issue-1.md"))
+        self.assertIn("prod-ops-issue", str(comment_calls[0][5]))
         self.assertNotIn(["gh", "issue", "create"], [call[:3] for call in calls])
         self.assertIn("updated issue #42 for ops-sig:", output)
 

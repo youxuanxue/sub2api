@@ -13,6 +13,9 @@ import sys
 from ops.observability.daily_error_report import issue_analysis_markdown
 from ops.observability.prod_ops_issue_decision import decide_issue_action  # ops/observability/prod_ops_issue_decision.py
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+DEFAULT_CACHE_DIR = REPO_ROOT / ".cache/observability/prod-ops-issue"
+
 BASE_LABELS = {
     "prod-ops": ("BFD4F2", "Prod Ops signal"),
     "automated": ("C5DEF5", "Automated signal"),
@@ -125,9 +128,12 @@ def finding_body(
 def sync_issues(
     report: dict[str, object],
     daily_report: dict[str, object],
+    *,
+    cache_dir: pathlib.Path = DEFAULT_CACHE_DIR,
 ) -> list[dict[str, object]]:
     """Open/update active findings and close recovered prod-ops signatures."""
     ensure_base_labels()
+    cache_dir.mkdir(parents=True, exist_ok=True)
     links: list[dict[str, object]] = []
     findings = report.get("issue_candidates") or []
     active_sig_labels: set[str] = set()
@@ -139,7 +145,7 @@ def sync_issues(
         active_sig_labels.add(ops_label)
         title = f"[prod-ops] {target_id} {kind}: {finding.get('title', 'finding')}"[:250]
         body = finding_body(finding, report=report, daily_report=daily_report)
-        body_file = pathlib.Path(f"issue-{index}.md")
+        body_file = cache_dir / f"issue-{index}.md"
         body_file.write_text(body, encoding="utf-8")
 
         existing = json.loads(sh([
@@ -210,6 +216,12 @@ def main(argv: list[str] | None = None) -> int:
         default=pathlib.Path("daily-error-report.json"),
     )
     ap.add_argument("--links-json", type=pathlib.Path)
+    ap.add_argument(
+        "--cache-dir",
+        type=pathlib.Path,
+        default=DEFAULT_CACHE_DIR,
+        help="Directory for ephemeral issue body files (not repo root)",
+    )
     args = ap.parse_args(argv)
 
     if not args.ops_report.is_file():
@@ -221,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.daily_error_report.is_file():
         daily_report = json.loads(args.daily_error_report.read_text(encoding="utf-8"))
 
-    links = sync_issues(report, daily_report)
+    links = sync_issues(report, daily_report, cache_dir=args.cache_dir)
     if args.links_json:
         args.links_json.parent.mkdir(parents=True, exist_ok=True)
         args.links_json.write_text(

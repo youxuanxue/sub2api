@@ -93,8 +93,9 @@ class OpenProdOpsIssuesTest(unittest.TestCase):
             raise AssertionError(f"unexpected subprocess.run: {args!r}")
 
         with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp)
             with patch("ops.observability.open_prod_ops_issues.sh", side_effect=fake_run):
-                links = sync_issues(report, {})
+                links = sync_issues(report, {}, cache_dir=cache_dir)
 
         closed = [link for link in links if link.get("status") == "closed"]
         self.assertEqual(len(closed), 1)
