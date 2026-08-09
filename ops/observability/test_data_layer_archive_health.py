@@ -150,13 +150,13 @@ class DataLayerArchiveHealthReleaseTest(unittest.TestCase):
             root = pathlib.Path(temp)
             hold_path = root / "data-layer-cleanup-hold-apply.json"
             hold_path.write_text(
-                (health.ATTACHMENTS / "data-layer-cleanup-hold-apply.json").read_text(
+                (health.EVIDENCE_DIR / "data-layer-cleanup-hold-apply.json").read_text(
                     encoding="utf-8"
                 ),
                 encoding="utf-8",
             )
             release = json.loads(
-                (health.ATTACHMENTS / "data-layer-cleanup-hold-release.json").read_text(
+                (health.EVIDENCE_DIR / "data-layer-cleanup-hold-release.json").read_text(
                     encoding="utf-8"
                 )
             )
@@ -165,7 +165,7 @@ class DataLayerArchiveHealthReleaseTest(unittest.TestCase):
                 json.dumps(release),
                 encoding="utf-8",
             )
-            for name in health.ATTACHMENTS.glob("data-layer-ops-*"):
+            for name in health.EVIDENCE_DIR.glob("data-layer-ops-*"):
                 (root / name.name).write_text(name.read_text(encoding="utf-8"), encoding="utf-8")
 
             signal = health.build_signal(root)

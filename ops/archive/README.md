@@ -92,7 +92,7 @@ Generic usage/ops data-layer prod is in **release steady state**:
 | --- | --- |
 | `OpsCleanupService` | Daily age retention: capped row DELETE + whole-partition DROP when `upper_bound <= now - hot_layer_days` |
 | `ops/archive/` CLIs | Export/promote/closeout/hold **only** on the re-export exception path; **no** DROP CLI |
-| Repo attachments + `pipeline_status.yaml` | Archive evidence SSOT (not live prod) |
+| `ops/archive/evidence/` + `pipeline_status.yaml` | Archive evidence SSOT (not live prod) |
 
 Verify steady state:
 
@@ -127,7 +127,7 @@ Run **only** when new cold ops rows appear after a completed tail export
    `data_layer_retention_activation.py` plan; persist receipt under
    `pipeline_status.yaml` → `cleanup_release_receipt_glob`
 
-Refresh ledgers/receipts under `.testing/user-stories/attachments/` after each batch.
+Refresh ledgers/receipts under `ops/archive/evidence/` after each batch.
 First-time canary or legacy-scope export mechanics: CLI `--help` on
 `data_layer_archive_prod_canary.py` and `data_layer_archive_prod_export.py`.
 Design baselines: `docs/approved/design-data-layer-prod-export-canary.md`,

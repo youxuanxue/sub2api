@@ -84,7 +84,7 @@ fail closed；ops 回收上界不得超过 snapshot 观测到的 ops 关系总�
 ```
 
 候选保留策略为 usage 热 90 天、raw ops 热 30 天。ops 优先整分区 drop；prod 上
-`usage_logs` 已于 Phase4 完成日分区 cutover（见 `design-data-layer-phase1-closeout.md`），
+`usage_logs` 已完成日分区 cutover（见 `design-data-layer-phase1-closeout.md`），
 不在 prod 做 `VACUUM FULL` 或直接 rewrite 来追求 `df` 好看。QA 不由本通用设计管理。
 扩盘与归档分别审批，任何一个完成都不自动授权另一个。
 

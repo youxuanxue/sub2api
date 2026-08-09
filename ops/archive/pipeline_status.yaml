@@ -1,6 +1,6 @@
 schema_version: 1
 # Repo-evidence SSOT for generic usage/ops data-layer archive (not live prod).
-# Refresh attachments after re-export exception-path batches only.
+# Refresh repo evidence under ops/archive/evidence/ after re-export exception-path batches only.
 # Live probes: ops/observability/probe-data-layer-*.sh
 
 design_anchors:

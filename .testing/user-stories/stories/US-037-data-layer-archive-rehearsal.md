@@ -66,4 +66,4 @@ python3 ops/archive/test_data_layer_archive_rehearsal.py
 
 ## Status
 
-- [x] Done — 非生产 SQLite + PostgreSQL 演练闭环已覆盖；prod export/canary 由 US-039 及后续 Story 单独审批。
+- [x] Done — 非生产 SQLite + PostgreSQL 演练闭环已覆盖；prod steady state 见 `ops/archive/README.md` 与 `archive_health`。
