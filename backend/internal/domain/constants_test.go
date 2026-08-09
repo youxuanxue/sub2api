@@ -145,6 +145,10 @@ func TestDefaultAntigravityModelMapping_DropsUnpricedAndUnsupportedFamilies(t *t
 	for _, blocked := range blockedKeys {
 		if _, ok := DefaultAntigravityModelMapping[blocked]; ok {
 			t.Fatalf("unsupported/unpriced antigravity model %q must not remain in default mapping", blocked)
+func TestDefaultAntigravityModelMapping_Gemini36FlashModels(t *testing.T) {
+	for _, model := range []string{"gemini-3.6-flash", "gemini-3.6-flash-high", "gemini-3.6-flash-low", "gemini-3.6-flash-medium", "gemini-3.6-flash-tiered"} {
+		if got := DefaultAntigravityModelMapping[model]; got != model {
+			t.Fatalf("expected %s to map to itself, got %q", model, got)
 		}
 	}
 }

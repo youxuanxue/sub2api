@@ -68,6 +68,15 @@ describe('useModelWhitelist', () => {
     expect(getModelsByPlatform('totally-unknown')).toEqual([])
   })
 
+  it('xAI 模型列表包含 Grok 4.5 官方模型和别名', () => {
+    const models = getModelsByPlatform('grok')
+
+    expect(models).toContain('grok-4.5')
+    expect(models).toContain('grok-4.5-latest')
+    expect(models).toContain('grok-build-latest')
+    expect(models).toContain('grok-imagine-video-1.5-preview')
+  })
+
   it('antigravity 预设映射包含 Gemini 3.1 Pro 通用别名', () => {
     const mappings = getPresetMappingsByPlatform('antigravity')
 
@@ -76,6 +85,36 @@ describe('useModelWhitelist', () => {
         expect.objectContaining({ from: 'gemini-3.1-pro', to: 'gemini-pro-agent' }),
       ])
     )
+  })
+
+  it('grok 模型列表包含 Composer 默认项和兼容别名', () => {
+    const models = getModelsByPlatform('grok')
+
+    expect(models).toContain('grok-composer-2.5-fast')
+    expect(models).not.toContain('grok-composer')
+    expect(models).toContain('composer-2.5')
+  })
+
+  it('gemini 模型列表包含原生生图模型', () => {
+    const models = getModelsByPlatform('gemini')
+
+    expect(models).toContain('gemini-2.5-flash-image')
+    expect(models).toContain('gemini-3.1-flash-image')
+    expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.0-flash'))
+    expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
+  })
+
+  it('antigravity 模型列表会把新的 Gemini 图片模型排在前面', () => {
+    const models = getModelsByPlatform('antigravity')
+
+    expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
+    expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash-lite'))
+  })
+
+  it('antigravity 模型列表包含 Gemini 3.1 Pro 通用别名', () => {
+    const models = getModelsByPlatform('antigravity')
+
+    expect(models).toContain('gemini-3.1-pro')
   })
 
   it('whitelist 模式会忽略通配符条目', () => {

@@ -68,6 +68,16 @@ func (g *Group) ResolveMessagesDispatchModel(requestedModel string) string {
 		return ""
 	}
 
+	if g.Platform == PlatformGrok {
+		if claudeMessagesDispatchFamily(requestedModel) == "" {
+			return ""
+		}
+		opts := xai.RuntimeModelMappingOptions()
+		if !opts.EnableCrossClientMap {
+			return ""
+		}
+		return xai.ModelMappingWithOptions(opts)["claude-*"]
+	}
 	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)
 	if mappedModel := strings.TrimSpace(cfg.ExactModelMappings[requestedModel]); mappedModel != "" {
 		return mappedModel

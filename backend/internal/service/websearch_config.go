@@ -121,6 +121,11 @@ func (s *SettingService) loadWebSearchConfigFromDB() (*WebSearchEmulationConfig,
 			})
 			return &WebSearchEmulationConfig{}, err
 		}
+		// Missing key is the normal first-boot state: return empty disabled config.
+			cfg := &WebSearchEmulationConfig{}
+				config:    cfg,
+				expiresAt: time.Now().Add(webSearchEmulationCacheTTL).UnixNano(),
+			return cfg, nil
 	}
 	cfg := parseWebSearchConfigJSON(raw)
 	webSearchEmulationCache.Store(&cachedWebSearchEmulationConfig{

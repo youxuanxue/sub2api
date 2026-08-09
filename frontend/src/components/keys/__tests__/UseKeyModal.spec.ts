@@ -36,7 +36,7 @@ const STUBS = {
 function mountModal(props: Record<string, unknown>) {
   return mount(UseKeyModal, {
     props: { show: true, apiKey: 'sk-test', baseUrl: 'https://example.com/v1', ...props },
-    global: { stubs: STUBS }
+    global: { stubs: STUBS },
   })
 }
 
@@ -60,6 +60,64 @@ beforeEach(() => {
   getPublicPricing.mockReset()
   getMePricingCatalog.mockResolvedValue({ models: [] })
   getPublicPricing.mockResolvedValue({ data: [] })
+})
+
+describe('UseKeyModal — Grok via Codex Responses gateway', () => {
+  it('renders Codex custom provider setup through the Grok Responses gateway', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-grok-codex-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'grok'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+    const codexTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.codexCli')
+    )
+    expect(codexTab).toBeDefined()
+    await codexTab!.trigger('click')
+    await nextTick()
+    let codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+    const configToml = codeBlocks.find((content) => content.includes('[model_providers.sub2api]'))
+    expect(configToml).toBeDefined()
+    expect(configToml).toContain('model_provider = "sub2api"')
+    expect(configToml).toContain('model = "grok-4.5"')
+    expect(configToml).toContain('base_url = "https://example.com/v1"')
+    expect(configToml).toContain('env_key = "SUB2API_API_KEY"')
+    expect(configToml).toContain('wire_api = "responses"')
+    // API-key provider: Codex must not require a ChatGPT OAuth login.
+    expect(configToml).toContain('requires_openai_auth = false')
+    expect(configToml).toContain('supports_websockets = false')
+    expect(configToml).toContain('grok-4.20-multi-agent-0309 (text / web_search)')
+    expect(configToml).toContain('grok-imagine-image')
+    expect(configToml).toContain('grok-imagine-video')
+    // Hardcoded bearer is only a commented fallback when env cannot be set.
+    expect(configToml).toMatch(/# experimental_bearer_token = "sk-grok-codex-test"/)
+    expect(configToml).not.toContain('supports_websockets = true')
+    expect(configToml).not.toContain('responses_websockets_v2')
+    expect(wrapper.text()).not.toContain('auth.json')
+    expect(codeBlocks.join('\n')).toContain('SUB2API_API_KEY')
+    const windowsTab = wrapper.findAll('button').find(
+      (button) => button.text().trim() === 'Windows'
+    )
+    expect(windowsTab).toBeDefined()
+    await windowsTab!.trigger('click')
+    await nextTick()
+    codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+    expect(wrapper.text().toLowerCase()).toContain('%userprofile%\\.codex\\config.toml'.toLowerCase())
+    expect(codeBlocks.join('\n')).toContain('experimental_bearer_token = "sk-grok-codex-test"')
+  })
 })
 
 describe('UseKeyModal — preserved snippet correctness', () => {

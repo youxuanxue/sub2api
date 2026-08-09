@@ -225,3 +225,6 @@ exports/
 /ssm-params.json
 /stdout.txt
 /stderr.txt
+
+# Vitest / Vite cache at repo root
+.vite/
