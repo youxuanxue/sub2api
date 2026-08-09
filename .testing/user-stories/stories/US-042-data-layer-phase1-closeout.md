@@ -10,7 +10,7 @@
 - Trace:
   - 设计锚点：`docs/approved/design-data-layer-phase1-closeout.md`
   - 生产启用门禁：`docs/approved/design-phase1-prod-activation-gates.md`
-  - 前序归档：US-039、US-040
+  - 归档设计：`docs/approved/design-data-layer-prod-export-canary.md`、`docs/approved/design-prod-archive-bucket.md`
 - Risk Focus:
   - 逻辑错误：错误分区边界、ledger 水位或 checksum 允许热数据删除。
   - 行为回归：cleanup hold 关闭分区维护，或 PostgreSQL 成功后 telemetry shadow 丢失。
@@ -66,11 +66,6 @@ python3 ops/archive/test_data_layer_archive_closeout.py
 python3 ops/observability/test_data_layer_archive_health.py
 python3 ops/observability/test_data_layer_safety_verdict.py
 ```
-
-## Evidence
-
-- Repo archive health：`python3 ops/observability/data_layer_archive_health.py`（steady state：
-  `closeout_complete` + `tail_export_complete` + `cleanup_release_complete`）
 
 ## Status
 

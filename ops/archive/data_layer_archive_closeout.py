@@ -190,7 +190,7 @@ def validate_ledger_pair(
     upper = _canonical_timestamp(export_ledger["legacy_upper_exclusive"])
     raw_cutoff = final_batch.get("cutoff_exclusive")
     if raw_cutoff is None:
-        # US-040 ledgers sealed before cutoff_exclusive was persisted still prove
+        # Legacy export ledgers sealed before cutoff_exclusive was persisted still prove
         # restore when the cold-row boundary is closed at the legacy attach bound.
         cutoff = upper
     else:

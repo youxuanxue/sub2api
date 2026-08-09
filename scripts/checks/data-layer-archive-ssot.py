@@ -14,9 +14,7 @@ REHEARSAL = ROOT / "ops" / "archive" / "data_layer_archive_rehearsal.py"
 LOADER = ROOT / "ops" / "archive" / "pipeline_status_loader.py"
 HEALTH = ROOT / "ops" / "observability" / "data_layer_archive_health.py"
 
-_HARDCODED_EVIDENCE = re.compile(
-    r"US-039-prod-cleanup-hold-|US-040-|ops-error-logs|ops-system-logs"
-)
+_HARDCODED_EVIDENCE = re.compile(r"US-039|US-040|phase4-")
 
 
 def _load_yaml(path: Path) -> dict:

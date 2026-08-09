@@ -55,12 +55,6 @@ python3 ops/archive/test_data_layer_archive_prod_canary.py
 python3 ops/archive/test_data_layer_archive_cleanup_hold.py
 ```
 
-## Evidence
-
-- cleanup hold / release receipts：`.testing/user-stories/attachments/US-039-prod-cleanup-hold-*.json`、
-  `US-039-prod-cleanup-hold-release-*.json`（steady state 以 `archive_health` 为准）。
-- 单元测试使用 stubbed AWS/S3/admin API command runner；集成测试使用临时 `postgres:18-alpine` 源库与独立恢复库。
-
 ## Status
 
 - [x] Done — prod steady state：`OpsCleanupService` retention + `archive_health` 三 flag 绿。

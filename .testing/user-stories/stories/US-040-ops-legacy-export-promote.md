@@ -9,7 +9,7 @@
 
 - Trace:
   - 设计锚点：`docs/approved/design-prod-archive-bucket.md`
-  - 前序 canary：`docs/approved/design-data-layer-prod-export-canary.md`（US-039）
+  - 前序 canary：`docs/approved/design-data-layer-prod-export-canary.md`
 - Risk Focus:
   - 逻辑错误：export  scope 越过 legacy 冷水位或 cursor 乱序。
   - 行为回归：promote 破坏 manifest-last / checksum 契约。
@@ -46,11 +46,6 @@
 python3 ops/archive/test_data_layer_archive_prod_export.py
 python3 ops/archive/test_data_layer_archive_promote_batch.py
 ```
-
-## Evidence
-
-- export ledger：`.testing/user-stories/attachments/US-040-ops-system-logs-export-ledger.json`、`.testing/user-stories/attachments/US-040-ops-error-logs-export-ledger.json`
-- promote ledger：`.testing/user-stories/attachments/US-040-ops-system-logs-promote-ledger.json`、`.testing/user-stories/attachments/US-040-ops-error-logs-promote-ledger.json`
 
 ## Status
 
