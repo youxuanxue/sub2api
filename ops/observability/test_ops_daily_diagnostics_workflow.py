@@ -56,20 +56,12 @@ def extract_log_signal_classifier() -> str:
     return textwrap.dedent(text[start:end])
 
 
-def extract_issue_lifecycle_script() -> str:
-    marker = "          # Lifecycle policy owner: ops/observability/prod_ops_issue_decision.py\n"
-    text = workflow_text()
-    start = text.rindex("          import hashlib", 0, text.index(marker))
-    end = text.index("\n          PY", start)
-    return textwrap.dedent(text[start:end])
-
-
 def run_issue_lifecycle(
     *,
     issue_candidates: list[dict],
     gh_issues: list[dict],
+    open_prod_ops_issues: list[dict] | None = None,
 ) -> tuple[list[list[str]], str]:
-    script = extract_issue_lifecycle_script()
     finding = {
         "target_id": "prod",
         "kind": "openai_previous_response_fallback",
@@ -85,40 +77,46 @@ def run_issue_lifecycle(
     def fake_run(args, **kwargs):
         calls.append(list(args))
         if args[:3] == ["gh", "issue", "list"]:
+            if "--state" in args and "open" in args:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=json.dumps(open_prod_ops_issues or []),
+                )
             return subprocess.CompletedProcess(args, 0, stdout=json.dumps(gh_issues))
         if args[:3] == ["gh", "issue", "comment"]:
             return subprocess.CompletedProcess(args, 0, stdout="")
         if args[:3] == ["gh", "issue", "create"]:
             return subprocess.CompletedProcess(args, 0, stdout="https://github.com/example/issues/99")
+        if args[:3] == ["gh", "issue", "close"]:
+            return subprocess.CompletedProcess(args, 0, stdout="")
+        if args[:3] == ["gh", "issue", "view"]:
+            return subprocess.CompletedProcess(args, 0, stdout="https://github.com/example/issues/42\n")
         if args[:2] == ["gh", "label"]:
             return subprocess.CompletedProcess(args, 0, stdout="")
         raise AssertionError(f"unexpected subprocess.run: {args!r}")
 
-    with tempfile.TemporaryDirectory() as tmp_raw:
-        root = Path(tmp_raw)
-        root.joinpath("ops-report.json").write_text(
-            json.dumps({"run_url": "https://example/run", "run_id": "123", "issue_candidates": candidates}),
-            encoding="utf-8",
-        )
-        root.joinpath("daily-error-report.json").write_text("{}", encoding="utf-8")
-        old_cwd = Path.cwd()
-        stdout = io.StringIO()
-        from ops.observability.prod_ops_issue_decision import decide_issue_action as real_decide_issue_action
+    report = {
+        "run_url": "https://example/run",
+        "run_id": "123",
+        "issue_candidates": candidates,
+    }
+    stdout = io.StringIO()
+    from ops.observability.prod_ops_issue_decision import decide_issue_action as real_decide_issue_action
 
-        def fixed_decide_issue_action(issues: list[dict]) -> dict:
-            return real_decide_issue_action(issues, now=ISSUE_LIFECYCLE_NOW)
+    def fixed_decide_issue_action(issues: list[dict]) -> dict:
+        return real_decide_issue_action(issues, now=ISSUE_LIFECYCLE_NOW)
 
-        try:
-            os.chdir(root)
-            with mock.patch("subprocess.run", fake_run):
-                with mock.patch(
-                    "ops.observability.prod_ops_issue_decision.decide_issue_action",
-                    fixed_decide_issue_action,
-                ):
-                    with contextlib.redirect_stdout(stdout):
-                        exec(compile(script, str(WORKFLOW), "exec"), {})
-        finally:
-            os.chdir(old_cwd)
+    try:
+        with mock.patch("ops.observability.open_prod_ops_issues.sh", side_effect=fake_run):
+            with mock.patch(
+                "ops.observability.open_prod_ops_issues.decide_issue_action",
+                fixed_decide_issue_action,
+            ):
+                with contextlib.redirect_stdout(stdout):
+                    from ops.observability.open_prod_ops_issues import sync_issues
+
+                    sync_issues(report, {})
+    except Exception:
+        raise
     return calls, stdout.getvalue()
 
 
@@ -252,6 +250,35 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertFalse(any(call[:3] == ["gh", "issue", "create"] for call in calls))
         self.assertIn("unknown closedAt; fail-closed suppress", output)
 
+    def test_issue_lifecycle_closes_recovered_open_signatures(self) -> None:
+        from ops.observability.open_prod_ops_issues import signature_label
+
+        active_sig = signature_label("log-signal|prod|openai-previous-response-fallback")
+        stale_sig = signature_label("data-layer-safety|prod|partition_coverage")
+        calls, output = run_issue_lifecycle(
+            issue_candidates=[],
+            gh_issues=[{"number": 42, "state": "OPEN", "closedAt": None, "createdAt": "2026-07-20T08:00:00Z"}],
+            open_prod_ops_issues=[
+                {
+                    "number": 1553,
+                    "labels": [{"name": "prod-ops"}, {"name": stale_sig}],
+                },
+                {
+                    "number": 42,
+                    "labels": [{"name": "prod-ops"}, {"name": active_sig}],
+                },
+            ],
+        )
+        self.assertTrue(any(call[:4] == ["gh", "issue", "close", "1553"] for call in calls))
+        self.assertFalse(any(call[:4] == ["gh", "issue", "close", "42"] for call in calls))
+        self.assertIn("closed issue #1553", output)
+
+    def test_workflow_uses_prod_ops_issue_sync_module(self) -> None:
+        text = workflow_text()
+        self.assertIn("python3 ops/observability/open_prod_ops_issues.py", text)
+        self.assertIn("decision-and-issue:", text)
+        self.assertNotIn("from ops.observability.daily_error_report import issue_analysis_markdown", text)
+
     def test_missing_target_reports_skipped_when_diagnose_cancelled(self) -> None:
         text = workflow_text()
         self.assertIn("DISCOVER_TARGETS_RESULT", text)
@@ -316,9 +343,10 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertNotIn("ANTHROPIC_AUTH_TOKEN", text)
         self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", text)
         self.assertNotIn("max_budget_usd:", text)
-        self.assertIn("issue_analysis_markdown", text)
-        self.assertIn("## Deterministic error analysis", text)
-        self.assertIn("needs.aggregate-report.outputs.needs_issue == 'true'", text)
+        self.assertIn("open_prod_ops_issues.py", text)
+        self.assertIn("## Deterministic error analysis", Path("ops/observability/open_prod_ops_issues.py").read_text(encoding="utf-8"))
+        self.assertIn("if: needs.aggregate-report.result == 'success'", text)
+        self.assertNotIn("needs.aggregate-report.outputs.needs_issue == 'true'", text)
 
         repair = REPAIR_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("uses: ./.github/actions/run-headless-agent", repair)

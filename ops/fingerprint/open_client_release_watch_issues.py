@@ -60,6 +60,42 @@ def issue_url(number: str) -> str:
     return sh(["gh", "issue", "view", number, "--json", "url", "--jq", ".url"]).stdout.strip()
 
 
+def close_superseded_drift_issues(
+    *,
+    platform_label: str,
+    keep_number: str,
+    keep_sig_label: str,
+    upstream: str,
+    run_url: str,
+) -> None:
+    """Close older open drift issues for the same platform when a newer signature is active."""
+    existing_raw = sh([
+        "gh", "issue", "list", "--state", "open", "--label", platform_label,
+        "--json", "number,labels", "--limit", "50",
+    ]).stdout.strip()
+    if not existing_raw or existing_raw == "[]":
+        return
+    comment = "\n".join([
+        "Superseded by a newer upstream release drift signature for the same platform.",
+        "",
+        f"- Canonical issue: #{keep_number}",
+        f"- Active signature label: `{keep_sig_label}`",
+        f"- Upstream latest: `{upstream}`",
+        f"- Watchdog run: {run_url}",
+    ]) + "\n"
+    for row in json.loads(existing_raw):
+        number = str(row["number"])
+        if number == keep_number:
+            continue
+        labels = {lbl["name"] for lbl in row.get("labels") or []}
+        if "client-release:drift" not in labels:
+            continue
+        if keep_sig_label in labels:
+            continue
+        sh(["gh", "issue", "close", number, "--comment", comment])
+        print(f"closed superseded drift issue #{number} for {platform_label}")
+
+
 def sync_issues(report: dict, *, cache_dir: pathlib.Path, umbrella: bool) -> list[dict[str, object]]:
     ensure_base_labels()
     links: list[dict[str, object]] = []
@@ -130,6 +166,7 @@ def sync_issues(report: dict, *, cache_dir: pathlib.Path, umbrella: bool) -> lis
             if existing:
                 sh(["gh", "issue", "comment", existing, "--body-file", str(body_path)])
                 sh(["gh", "issue", "edit", existing, "--add-label", labels_csv])
+                canonical = existing
                 links.append({
                     "kind": "issue",
                     "signal_type": "release-drift",
@@ -145,16 +182,25 @@ def sync_issues(report: dict, *, cache_dir: pathlib.Path, umbrella: bool) -> lis
                     "gh", "issue", "create", "--title", title, "--body-file", str(body_path), "--label", labels_csv,
                 ]).stdout.strip()
                 number_match = re.search(r"/issues/(\d+)(?:$|[?#])", created_url)
+                canonical = number_match.group(1) if number_match else ""
                 links.append({
                     "kind": "issue",
                     "signal_type": "release-drift",
                     "platform_id": platform_id,
                     "title": title,
-                    "number": int(number_match.group(1)) if number_match else None,
+                    "number": int(canonical) if canonical else None,
                     "url": created_url,
                     "status": "created",
                 })
                 print(f"created drift issue for {platform_id}")
+            if canonical:
+                close_superseded_drift_issues(
+                    platform_label=platform_label,
+                    keep_number=canonical,
+                    keep_sig_label=sig_label,
+                    upstream=upstream,
+                    run_url=report.get("run_url") or "n/a",
+                )
             continue
 
         existing_raw = sh([
