@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -187,6 +188,7 @@ func TestUS045_WorkstationRecoveryInspectUsesDirectS3WithoutAppConfigOrDatabase(
 		"inspect", "--workstation", "--window-start", testWindow.Format(time.RFC3339),
 		"--region", "us-east-1", "--bucket", "tokenkey-prod-qa-raw-archive-123456789012",
 		"--recovery-role-arn", "arn:aws:iam::123456789012:role/tokenkey-prod-qa-raw-recovery",
+		"--recovery-run-id", "recovery-test-run",
 	}, out, deps)
 	if err != nil {
 		t.Fatalf("runCLI()=%v", err)
@@ -215,9 +217,10 @@ func TestUS045_WorkstationRecoveryRequiresAllDirectS3ParametersBeforeDependencie
 		return nil, errors.New("must not run")
 	}}
 	for _, args := range [][]string{
-		{"verify", "--workstation", "--window-start", testWindow.Format(time.RFC3339), "--bucket", "bucket", "--recovery-role-arn", "arn:aws:iam::123456789012:role/recovery"},
-		{"verify", "--workstation", "--window-start", testWindow.Format(time.RFC3339), "--region", "us-east-1", "--recovery-role-arn", "arn:aws:iam::123456789012:role/recovery"},
-		{"verify", "--workstation", "--window-start", testWindow.Format(time.RFC3339), "--region", "us-east-1", "--bucket", "bucket"},
+		{"verify", "--workstation", "--window-start", testWindow.Format(time.RFC3339), "--bucket", "bucket", "--recovery-role-arn", "arn:aws:iam::123456789012:role/recovery", "--recovery-run-id", "run"},
+		{"verify", "--workstation", "--window-start", testWindow.Format(time.RFC3339), "--region", "us-east-1", "--recovery-role-arn", "arn:aws:iam::123456789012:role/recovery", "--recovery-run-id", "run"},
+		{"verify", "--workstation", "--window-start", testWindow.Format(time.RFC3339), "--region", "us-east-1", "--bucket", "bucket", "--recovery-run-id", "run"},
+		{"verify", "--workstation", "--window-start", testWindow.Format(time.RFC3339), "--region", "us-east-1", "--bucket", "bucket", "--recovery-role-arn", "arn:aws:iam::123456789012:role/recovery"},
 	} {
 		if err := runCLI(context.Background(), args, &bytes.Buffer{}, deps); err == nil {
 			t.Fatalf("runCLI(%v) unexpectedly succeeded", args)
@@ -225,6 +228,139 @@ func TestUS045_WorkstationRecoveryRequiresAllDirectS3ParametersBeforeDependencie
 	}
 	if called {
 		t.Fatal("recovery store opened before parameter validation")
+	}
+}
+
+func TestUS045_WorkstationRecoveryInspectReportsMissingAndCorruptEvidenceWithoutDependencies(t *testing.T) {
+	for _, code := range []string{archive.IntegrityMissingEvidence, archive.IntegrityCorruptArtifact} {
+		t.Run(code, func(t *testing.T) {
+			calledConfig := false
+			calledDB := false
+			deps := cliDeps{
+				loadConfig: func() (*config.Config, error) { calledConfig = true; return nil, errors.New("must not run") },
+				openDB:     func(string, string) (*sql.DB, error) { calledDB = true; return nil, errors.New("must not run") },
+				newRecoveryStore: func(context.Context, archive.WorkstationRecoveryConfig) (archive.ReadOnlyObjectStore, error) {
+					return archive.NewMemoryObjectStore(), nil
+				},
+				verifyCommit: func(context.Context, archive.ReadOnlyObjectStore, string, string) (archive.VerifiedCommit, error) {
+					return archive.VerifiedCommit{}, &archive.IntegrityError{Code: code, RequestID: "request-safe", Err: errors.New("fixture")}
+				},
+			}
+			out := &bytes.Buffer{}
+			err := runCLI(context.Background(), workstationArgs("inspect"), out, deps)
+			if err != nil {
+				t.Fatalf("runCLI()=%v", err)
+			}
+			var receipt map[string]any
+			if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
+				t.Fatal(err)
+			}
+			if receipt["verified"] != false || receipt["blocked"] != true || receipt["verification_error_code"] != code ||
+				receipt["source"] != "ops-workstation-s3" || receipt["database_accessed"] != false {
+				t.Fatalf("receipt=%v", receipt)
+			}
+			if calledConfig || calledDB {
+				t.Fatalf("config=%v db=%v", calledConfig, calledDB)
+			}
+		})
+	}
+}
+
+func TestUS045_WorkstationRecoveryVerifyUsesDirectS3WithoutAppConfigOrDatabase(t *testing.T) {
+	calledConfig := false
+	calledDB := false
+	deps := cliDeps{
+		loadConfig: func() (*config.Config, error) { calledConfig = true; return nil, errors.New("must not run") },
+		openDB:     func(string, string) (*sql.DB, error) { calledDB = true; return nil, errors.New("must not run") },
+		newRecoveryStore: func(context.Context, archive.WorkstationRecoveryConfig) (archive.ReadOnlyObjectStore, error) {
+			return archive.NewMemoryObjectStore(), nil
+		},
+		verifyCommit: func(context.Context, archive.ReadOnlyObjectStore, string, string) (archive.VerifiedCommit, error) {
+			return archive.VerifiedCommit{Document: archive.CommitDocument{WindowStart: testWindow, WindowEnd: testWindow.Add(time.Hour)}, ETag: "verify-etag"}, nil
+		},
+	}
+	out := &bytes.Buffer{}
+	if err := runCLI(context.Background(), workstationArgs("verify"), out, deps); err != nil {
+		t.Fatalf("runCLI()=%v", err)
+	}
+	var receipt map[string]any
+	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt["verified"] != true || receipt["metadata_only"] != true || receipt["database_accessed"] != false {
+		t.Fatalf("receipt=%v", receipt)
+	}
+	if calledConfig || calledDB {
+		t.Fatalf("config=%v db=%v", calledConfig, calledDB)
+	}
+}
+
+func TestUS045_WorkstationRecoveryRestoreUsesExplicitLocalRootAndSecureModes(t *testing.T) {
+	restoreRoot := filepath.Join(t.TempDir(), "workstation-restore-root")
+	output := filepath.Join(restoreRoot, "window-20260807T0100Z")
+	calledConfig := false
+	calledDB := false
+	deps := cliDeps{
+		loadConfig: func() (*config.Config, error) { calledConfig = true; return nil, errors.New("must not run") },
+		openDB:     func(string, string) (*sql.DB, error) { calledDB = true; return nil, errors.New("must not run") },
+		newRecoveryStore: func(context.Context, archive.WorkstationRecoveryConfig) (archive.ReadOnlyObjectStore, error) {
+			return archive.NewMemoryObjectStore(), nil
+		},
+		verifyCommit: func(_ context.Context, _ archive.ReadOnlyObjectStore, _ string, restoreDir string) (archive.VerifiedCommit, error) {
+			if restoreDir != output {
+				t.Fatalf("restoreDir=%q want=%q", restoreDir, output)
+			}
+			if err := os.Mkdir(restoreDir, 0o700); err != nil {
+				return archive.VerifiedCommit{}, err
+			}
+			if err := os.WriteFile(filepath.Join(restoreDir, "evidence.bin"), []byte("body"), 0o600); err != nil {
+				return archive.VerifiedCommit{}, err
+			}
+			return archive.VerifiedCommit{Document: archive.CommitDocument{WindowStart: testWindow, WindowEnd: testWindow.Add(time.Hour)}, ETag: "restore-etag"}, nil
+		},
+	}
+	args := append(workstationArgs("restore"),
+		"--restore-root", restoreRoot, "--output", output,
+		"--confirm", windowConfirmation(restoreConfirmationPrefix, testWindow),
+	)
+	out := &bytes.Buffer{}
+	if err := runCLI(context.Background(), args, out, deps); err != nil {
+		t.Fatalf("runCLI()=%v", err)
+	}
+	for path, mode := range map[string]os.FileMode{restoreRoot: 0o700, output: 0o700, filepath.Join(output, "evidence.bin"): 0o600} {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != mode {
+			t.Fatalf("path=%s mode=%v err=%v", path, info.Mode().Perm(), err)
+		}
+	}
+	if calledConfig || calledDB {
+		t.Fatalf("config=%v db=%v", calledConfig, calledDB)
+	}
+}
+
+func TestUS045_WorkstationRecoveryRestoreRejectsMissingPrivacyConfirmationBeforeDependencies(t *testing.T) {
+	called := false
+	args := append(workstationArgs("restore"), "--restore-root", t.TempDir(), "--output", filepath.Join(t.TempDir(), "restore"))
+	err := runCLI(context.Background(), args, &bytes.Buffer{}, cliDeps{
+		newRecoveryStore: func(context.Context, archive.WorkstationRecoveryConfig) (archive.ReadOnlyObjectStore, error) {
+			called = true
+			return nil, errors.New("must not run")
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "privacy confirmation") {
+		t.Fatalf("runCLI() error=%v", err)
+	}
+	if called {
+		t.Fatal("dependencies ran before privacy confirmation")
+	}
+}
+
+func workstationArgs(command string) []string {
+	return []string{
+		command, "--workstation", "--window-start", testWindow.Format(time.RFC3339),
+		"--region", "us-east-1", "--bucket", "tokenkey-prod-qa-raw-archive-123456789012",
+		"--recovery-role-arn", "arn:aws:iam::123456789012:role/recovery",
+		"--recovery-run-id", "recovery-test-run",
 	}
 }
 

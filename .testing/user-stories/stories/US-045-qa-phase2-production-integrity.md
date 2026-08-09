@@ -70,13 +70,22 @@
 - `deploy/aws/stage0/test_build_cfn.py`::`BuildCfnSizeTest.test_qa_orphan_helper_is_distributed_within_ssm_standard_limits`
 - `ops/archive/test_data_layer_retention_activation.py`::`RetentionActivationTest.test_qa_cleanup_readiness_is_independent_of_archive_and_maintenance`
 - `backend/cmd/qa-archive/main_test.go`::`TestUS045_WorkstationRecoveryInspectUsesDirectS3WithoutAppConfigOrDatabase`
+- `backend/cmd/qa-archive/main_test.go`::`TestUS045_WorkstationRecoveryInspectReportsMissingAndCorruptEvidenceWithoutDependencies`
+- `backend/cmd/qa-archive/main_test.go`::`TestUS045_WorkstationRecoveryVerifyUsesDirectS3WithoutAppConfigOrDatabase`
+- `backend/cmd/qa-archive/main_test.go`::`TestUS045_WorkstationRecoveryRestoreUsesExplicitLocalRootAndSecureModes`
+- `backend/cmd/qa-archive/main_test.go`::`TestUS045_WorkstationRecoveryRestoreRejectsMissingPrivacyConfirmationBeforeDependencies`
 - `backend/cmd/qa-archive/main_test.go`::`TestUS045_WorkstationRecoveryRequiresAllDirectS3ParametersBeforeDependencies`
 - `deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py`::`Stage0QARawArchiveContractTest.test_us045_app_role_has_suffix_scoped_access_without_list_or_partial_reads`
 - `deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py`::`Stage0QARawArchiveContractTest.test_us045_recovery_role_is_nonempty_read_only_and_audited`
+- `deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py`::`Stage0QARawArchiveContractTest.test_us045_structured_contract_rejects_broadened_actions_resources_and_removed_conditions`
 - `deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py`::`Stage0QARawArchiveContractTest.test_us045_deploy_renders_exact_security_binding_and_shared_role_boundary`
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_missing_recovery_evidence_preserves_break_glass_path`
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_mismatched_recovery_evidence_preserves_break_glass_path`
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_verified_synthetic_evidence_authorizes_only_planned_transition`
+- `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_relabeled_synthetic_evidence_cannot_claim_production_success`
+- `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_copied_command_receipts_cannot_be_production_evidence`
+- `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_production_evidence_requires_hash_bound_human_approval`
+- `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_stale_production_receipts_cannot_authorize_retirement`
 
 运行命令：
 
@@ -104,4 +113,4 @@ python3 .testing/user-stories/verify_quality.py
 
 ## Status
 
-- [x] Done — Task 1–6 repository contract 与测试已闭环；production schema/IAM apply、timer change、独立 workstation recovery evidence、orphan deletion 与 break-glass retirement 仍未执行且继续受审批门禁约束。
+- [ ] InTest — Task 1–6 repository contract 与测试已闭环；production schema/IAM apply、timer change、独立 workstation recovery evidence、orphan deletion 与 break-glass retirement 仍未执行且继续受审批门禁约束。

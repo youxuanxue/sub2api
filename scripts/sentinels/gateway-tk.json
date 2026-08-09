@@ -6012,6 +6012,18 @@
       "rationale": "Catalog builder is the seller onboarding contract owner; pricing/features/schema drift here breaks OpenRouter provider application compliance."
     },
     {
+      "path": "backend/cmd/qa-archive/main.go",
+      "must_contain": [
+        "NewReadOnlyObjectStoreForWorkstation",
+        "buildInspectReceipt",
+        "validRecoveryRunID",
+        "validateSecureRestoreTree",
+        "shared_ec2_instance_role_no_process_isolation",
+        "window-bound privacy confirmation required"
+      ],
+      "rationale": "QA recovery CLI is the single metadata-first inspect/verify/restore adapter. Workstation reads must keep direct recovery-role S3 access without app config or PostgreSQL, correlate three distinct receipts, preserve structured integrity failures, and enforce isolated 0700/0600 restore output. These guards are load-bearing but can be dropped by an upstream CLI rewrite while the verifier package still compiles."
+    },
+    {
       "path": "backend/cmd/server/qa_maintenance.go",
       "must_contain": [
         "qaMaintenanceConfirmation",

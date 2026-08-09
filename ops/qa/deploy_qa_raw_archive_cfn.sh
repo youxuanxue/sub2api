@@ -53,7 +53,25 @@ raw_bucket="${PROJECT}-${ENVIRONMENT}-qa-raw-archive-${account_id}"
 key_alias="alias/${PROJECT}-${ENVIRONMENT}-qa-raw-archive"
 trail_name="${PROJECT}-${ENVIRONMENT}-qa-raw-data-events"
 audit_bucket="${PROJECT}-${ENVIRONMENT}-qa-raw-audit-${account_id}"
-recovery_role="arn:aws:iam::${account_id}:role/${PROJECT}-${ENVIRONMENT}-qa-raw-recovery"
+
+change_type=UPDATE
+if recovery_role=$(aws cloudformation describe-stacks \
+  --region "${REGION}" --stack-name "${STACK}" \
+  --query "Stacks[0].Outputs[?OutputKey=='QaRawArchiveRecoveryRoleArn'].OutputValue | [0]" \
+  --output text 2>/dev/null); then
+  require_value QaRawArchiveRecoveryRoleArn "${recovery_role}"
+  if [ "${recovery_role}" = "None" ]; then
+    echo "QaRawArchiveRecoveryRoleArn stack output is required" >&2
+    exit 1
+  fi
+  if [[ ! "${recovery_role}" =~ ${role_pattern} ]]; then
+    echo "QaRawArchiveRecoveryRoleArn stack output is not a role ARN" >&2
+    exit 1
+  fi
+else
+  change_type=CREATE
+  recovery_role="resolved-after-create:${STACK}.QaRawArchiveRecoveryRoleArn"
+fi
 
 echo "QA raw archive proposed security binding:"
 printf '  stack=%s region=%s\n' "${STACK}" "${REGION}"
@@ -63,11 +81,6 @@ printf '  vpc=%s route_tables=%s\n' "${QA_RAW_ARCHIVE_VPC_ID}" "${QA_RAW_ARCHIVE
 printf '  raw_bucket=%s kms_alias=%s\n' "${raw_bucket}" "${key_alias}"
 printf '  audit_bucket=%s trail=%s\n' "${audit_bucket}" "${trail_name}"
 printf '  iam_boundary=shared_ec2_instance_role_no_process_isolation\n'
-
-change_type=UPDATE
-if ! aws cloudformation describe-stacks --region "${REGION}" --stack-name "${STACK}" >/dev/null 2>&1; then
-  change_type=CREATE
-fi
 
 parameters=$(python3 - "${PROJECT}" "${ENVIRONMENT}" "${APP_INSTANCE_ROLE_ARN}" \
   "${OPS_RECOVERY_PRINCIPAL_ARN}" "${QA_RAW_ARCHIVE_VPC_ID}" \
@@ -93,7 +106,7 @@ aws cloudformation create-change-set \
   --description "TokenKey QA raw archive security closeout" \
   --template-body "file://${TEMPLATE}" \
   --parameters "${parameters}" \
-  --capabilities CAPABILITY_NAMED_IAM \
+  --capabilities CAPABILITY_IAM \
   --output json >/dev/null
 
 for _ in $(seq 1 60); do

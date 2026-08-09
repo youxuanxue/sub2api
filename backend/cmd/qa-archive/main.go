@@ -124,11 +124,13 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 	fs.SetOutput(io.Discard)
 	windowArg := fs.String("window-start", "", "UTC hour in RFC3339 format")
 	outputDir := fs.String("output", "", "new restore directory")
+	restoreRoot := fs.String("restore-root", "", "isolated parent directory for workstation restore")
 	confirm := fs.String("confirm", "", "window-bound confirmation")
 	workstation := fs.Bool("workstation", false, "read S3 directly from an ops workstation")
 	region := fs.String("region", "", "AWS region for workstation recovery")
 	bucket := fs.String("bucket", "", "raw archive bucket for workstation recovery")
 	recoveryRoleARN := fs.String("recovery-role-arn", "", "dedicated recovery role ARN")
+	recoveryRunID := fs.String("recovery-run-id", "", "shared identifier for inspect, verify, and restore receipts")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -144,7 +146,23 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 		if *confirm != windowConfirmation(restoreConfirmationPrefix, window.Start) {
 			return fmt.Errorf("window-bound privacy confirmation required")
 		}
-		validatedOutput, err := validateRestoreOutput(*outputDir)
+	}
+	if *workstation {
+		if command == "repair-plan" {
+			return fmt.Errorf("repair-plan is unavailable in workstation mode")
+		}
+		if strings.TrimSpace(*region) == "" || strings.TrimSpace(*bucket) == "" || strings.TrimSpace(*recoveryRoleARN) == "" {
+			return fmt.Errorf("workstation mode requires --region, --bucket, and --recovery-role-arn")
+		}
+		if !validRecoveryRunID(*recoveryRunID) {
+			return fmt.Errorf("workstation mode requires a safe --recovery-run-id")
+		}
+	}
+	if command == "restore" {
+		if *workstation && strings.TrimSpace(*restoreRoot) == "" {
+			return fmt.Errorf("workstation restore requires --restore-root")
+		}
+		validatedOutput, err := validateRestoreOutput(*outputDir, *restoreRoot)
 		if err != nil {
 			return err
 		}
@@ -154,12 +172,6 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 	var cfg *config.Config
 	var store archive.ReadOnlyObjectStore
 	if *workstation {
-		if command == "repair-plan" {
-			return fmt.Errorf("repair-plan is unavailable in workstation mode")
-		}
-		if strings.TrimSpace(*region) == "" || strings.TrimSpace(*bucket) == "" || strings.TrimSpace(*recoveryRoleARN) == "" {
-			return fmt.Errorf("workstation mode requires --region, --bucket, and --recovery-role-arn")
-		}
 		store, err = deps.newRecoveryStore(ctx, archive.WorkstationRecoveryConfig{
 			Region: *region, Bucket: *bucket, Prefix: "raw/v1", RoleARN: *recoveryRoleARN,
 		})
@@ -181,7 +193,7 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 	switch command {
 	case "inspect":
 		if *workstation {
-			return runWorkstationInspect(ctx, out, deps, store, window, commitKey, *bucket, *recoveryRoleARN)
+			return runWorkstationInspect(ctx, out, deps, store, window, commitKey, *bucket, *recoveryRoleARN, *recoveryRunID)
 		}
 		return runInspect(ctx, out, deps, cfg, store, window, commitKey)
 	case "verify":
@@ -192,7 +204,7 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 		defer func() { _ = verified.Close() }()
 		receipt := verifiedReceipt(command, commitKey, verified)
 		if *workstation {
-			addWorkstationReceipt(receipt, command == "verify", *bucket, *recoveryRoleARN)
+			addWorkstationReceipt(receipt, command, true, *bucket, *recoveryRoleARN, *recoveryRunID)
 		}
 		return writeJSON(out, receipt)
 	case "restore":
@@ -207,11 +219,14 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 			return fmt.Errorf("restore archive commit: %w", err)
 		}
 		defer func() { _ = verified.Close() }()
+		if err := validateSecureRestoreTree(filepath.Clean(*outputDir)); err != nil {
+			return err
+		}
 		receipt := verifiedReceipt(command, commitKey, verified)
 		receipt["restore_dir"] = filepath.Clean(*outputDir)
 		receipt["privacy_confirmed"] = true
 		if *workstation {
-			addWorkstationReceipt(receipt, false, *bucket, *recoveryRoleARN)
+			addWorkstationReceipt(receipt, command, false, *bucket, *recoveryRoleARN, *recoveryRunID)
 		}
 		return writeJSON(out, receipt)
 	case "repair-plan":
@@ -232,41 +247,58 @@ func runInspect(ctx context.Context, out io.Writer, deps cliDeps, cfg *config.Co
 	}
 	verified, verifyErr := deps.verifyCommit(ctx, store, commitKey, "")
 	defer func() { _ = verified.Close() }()
+	receipt, err := buildInspectReceipt(window, commitKey, verified, verifyErr, &control)
+	if err != nil {
+		return err
+	}
+	return writeJSON(out, receipt)
+}
+
+func buildInspectReceipt(
+	window archive.Window,
+	commitKey string,
+	verified archive.VerifiedCommit,
+	verifyErr error,
+	control *controlStatus,
+) (map[string]any, error) {
 	receipt := map[string]any{
 		"ok": true, "command": "inspect", "window_start": window.Start, "window_end": window.End,
-		"control": control, "verified": verifyErr == nil, "blocked": false,
+		"verified": verifyErr == nil, "blocked": false,
 		"cleanup_eligible": false, "deletion_authorized": false,
+	}
+	if control != nil {
+		receipt["control"] = *control
 	}
 	if verifyErr == nil {
 		for key, value := range verifiedReceipt("inspect", commitKey, verified) {
 			receipt[key] = value
 		}
-		return writeJSON(out, receipt)
+		return receipt, nil
 	}
 	var integrity *archive.IntegrityError
 	if !errors.As(verifyErr, &integrity) {
-		return fmt.Errorf("inspect archive commit: %w", verifyErr)
+		return nil, fmt.Errorf("inspect archive commit: %w", verifyErr)
 	}
 	receipt["verification_error_code"] = integrity.Code
 	receipt["blocked"] = isBlockedCode(integrity.Code)
 	if integrity.RequestID != "" {
 		receipt["request_id"] = integrity.RequestID
 	}
-	return writeJSON(out, receipt)
+	return receipt, nil
 }
 
-func runWorkstationInspect(ctx context.Context, out io.Writer, deps cliDeps, store archive.ReadOnlyObjectStore, window archive.Window, commitKey, bucket, recoveryRoleARN string) error {
-	verified, err := deps.verifyCommit(ctx, store, commitKey, "")
-	if err != nil {
-		return fmt.Errorf("inspect workstation archive commit: %w", err)
-	}
+func runWorkstationInspect(ctx context.Context, out io.Writer, deps cliDeps, store archive.ReadOnlyObjectStore, window archive.Window, commitKey, bucket, recoveryRoleARN, recoveryRunID string) error {
+	verified, verifyErr := deps.verifyCommit(ctx, store, commitKey, "")
 	defer func() { _ = verified.Close() }()
-	receipt := verifiedReceipt("inspect", commitKey, verified)
-	addWorkstationReceipt(receipt, true, bucket, recoveryRoleARN)
+	receipt, err := buildInspectReceipt(window, commitKey, verified, verifyErr, nil)
+	if err != nil {
+		return err
+	}
+	addWorkstationReceipt(receipt, "inspect", true, bucket, recoveryRoleARN, recoveryRunID)
 	return writeJSON(out, receipt)
 }
 
-func addWorkstationReceipt(receipt map[string]any, metadataOnly bool, bucket, recoveryRoleARN string) {
+func addWorkstationReceipt(receipt map[string]any, command string, metadataOnly bool, bucket, recoveryRoleARN, recoveryRunID string) {
 	receipt["source"] = "ops-workstation-s3"
 	receipt["metadata_only"] = metadataOnly
 	receipt["database_accessed"] = false
@@ -274,6 +306,9 @@ func addWorkstationReceipt(receipt map[string]any, metadataOnly bool, bucket, re
 	receipt["iam_boundary"] = "shared_ec2_instance_role_no_process_isolation"
 	receipt["bucket"] = strings.TrimSpace(bucket)
 	receipt["recovery_role_arn"] = strings.TrimSpace(recoveryRoleARN)
+	receipt["recovery_run_id"] = strings.TrimSpace(recoveryRunID)
+	receipt["receipt_id"] = strings.TrimSpace(recoveryRunID) + ":" + command
+	receipt["captured_at"] = time.Now().UTC()
 }
 
 func runRepairPlan(ctx context.Context, out io.Writer, deps cliDeps, cfg *config.Config, store archive.ReadOnlyObjectStore, window archive.Window, commitKey string) error {
@@ -346,8 +381,11 @@ func parseWindow(value string) (archive.Window, error) {
 	return archive.Window{Start: parsed.UTC(), End: parsed.UTC().Add(time.Hour)}, nil
 }
 
-func validateRestoreOutput(value string) (string, error) {
-	root, err := filepath.Abs(filepath.Join(dataDir(), "qa_archive_restore"))
+func validateRestoreOutput(value, rootValue string) (string, error) {
+	if strings.TrimSpace(rootValue) == "" {
+		rootValue = filepath.Join(dataDir(), "qa_archive_restore")
+	}
+	root, err := filepath.Abs(strings.TrimSpace(rootValue))
 	if err != nil {
 		return "", fmt.Errorf("resolve isolated restore root: %w", err)
 	}
@@ -370,6 +408,46 @@ func validateRestoreOutput(value string) (string, error) {
 		return "", fmt.Errorf("restore output must be one new directory under isolated restore root")
 	}
 	return output, nil
+}
+
+func validRecoveryRunID(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '-' || char == '_' || char == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validateSecureRestoreTree(root string) error {
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("inspect restored path: %w", err)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("inspect restored path: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("restored path contains a symlink")
+		}
+		if entry.IsDir() {
+			if info.Mode().Perm() != 0o700 {
+				return fmt.Errorf("restored directory mode must be 0700")
+			}
+			return nil
+		}
+		if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+			return fmt.Errorf("restored files must be regular mode-0600 files")
+		}
+		return nil
+	})
 }
 
 func windowConfirmation(prefix string, start time.Time) string {

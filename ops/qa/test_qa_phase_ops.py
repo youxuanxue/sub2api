@@ -601,7 +601,8 @@ exit 0
         self.assertIn("cloudformation create-change-set", body)
         self.assertIn("cloudformation describe-change-set", body)
         self.assertIn("cloudformation execute-change-set", body)
-        self.assertIn("CAPABILITY_NAMED_IAM", body)
+        self.assertIn("CAPABILITY_IAM", body)
+        self.assertNotIn("CAPABILITY_NAMED_IAM", body)
         self.assertNotIn("cloudformation deploy", body)
 
     def test_raw_archive_deploy_rejects_replacement_even_when_confirmed(self) -> None:
@@ -615,7 +616,7 @@ exit 0
             fake_aws.write_text(
                 """#!/usr/bin/env bash
 if [[ "$*" == *"sts get-caller-identity"* ]]; then echo 123456789012; exit 0; fi
-if [[ "$*" == *"cloudformation describe-stacks"* ]]; then echo '{}'; exit 0; fi
+if [[ "$*" == *"cloudformation describe-stacks"* ]]; then echo arn:aws:iam::123456789012:role/generated-existing-role; exit 0; fi
 if [[ "$*" == *"cloudformation create-change-set"* ]]; then exit 0; fi
 if [[ "$*" == *"cloudformation describe-change-set"* && "$*" == *"--query Status"* ]]; then
   echo CREATE_COMPLETE

@@ -26,6 +26,7 @@ RAW_ARCHIVE_DEPLOY = Path("ops/qa/deploy_qa_raw_archive_cfn.sh")
 ARCHIVE_CLI = Path("backend/cmd/qa-archive/main.go")
 RECOVERY_GATE = Path("ops/qa/qa_archive_recovery_gate.py")
 BREAK_GLASS = Path("ops/prod/fetch-qa-dump.sh")
+PREFLIGHT = Path("scripts/preflight.sh")
 ARCHIVE_STATE = Path("backend/internal/observability/qa/archive/state.go")
 ROLLOUT = Path("ops/qa/deploy_rollout.yaml")
 QA_README = Path("ops/qa/README.md")
@@ -187,6 +188,11 @@ REQUIRED_BY_FILE = {
     ),
     BREAK_GLASS: (
         "Export all prod qa_records",
+    ),
+    PREFLIGHT: (
+        "QA Phase 2 recovery and IAM contracts",
+        "deploy.aws.cloudformation.test_stage0_qa_raw_archive_contract",
+        "ops.qa.test_qa_archive_recovery_gate",
     ),
     MAINTENANCE_SCRIPT: (
         "--qa-maintenance-once",
@@ -592,6 +598,20 @@ edge:
             print("self-test failed to detect QA policy drift")
             return 1
         (root / POLICY).write_text(policy_fixture, encoding="utf-8")
+
+        preflight = root / PREFLIGHT
+        preflight.write_text(
+            preflight.read_text(encoding="utf-8").replace(
+                "ops.qa.test_qa_archive_recovery_gate",
+                "ops.qa.test_removed_recovery_gate",
+            ),
+            encoding="utf-8",
+        )
+        failures = scan(root)
+        if not any("ops.qa.test_qa_archive_recovery_gate" in item for item in failures):
+            print("self-test failed to detect recovery contract test unwiring")
+            return 1
+        preflight.write_text((ROOT / PREFLIGHT).read_text(encoding="utf-8"), encoding="utf-8")
 
         retired = root / MUST_BE_ABSENT[0]
         retired.parent.mkdir(parents=True, exist_ok=True)

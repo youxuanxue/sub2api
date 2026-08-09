@@ -288,6 +288,16 @@ The CLI defaults to metadata-only output. Restoring evidence bodies requires an 
 privacy confirmation. Local directories are mode 0700, files are mode 0600, and receipts
 contain no bodies, credentials, cookies, or API keys.
 
+Workstation `inspect`, `verify`, and `restore` use the same operator-generated
+`--recovery-run-id`; the receipts bind distinct commands to one window, bucket and recovery
+role. Workstation restore requires an explicit local `--restore-root` and a new direct-child
+`--output`, rather than inheriting the container-only `/app/data` default. Synthetic receipt
+bundles can validate repository shape only. A production retirement plan additionally
+requires exact expected window/bucket/role values and a separate unexpired human high-risk
+approval record hash-bound to the evidence bytes and issued after the final receipt. The
+production receipts expire from this gate after 24 hours; changing a scope label or copying
+one command receipt cannot claim production success.
+
 After an independent workstation verify/restore succeeds, remove
 `ops/prod/fetch-qa-dump.sh`. Until then it remains manual read-only break-glass and is not
 a timer, lifecycle owner, or deletion prerequisite.

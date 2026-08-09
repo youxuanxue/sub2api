@@ -47,9 +47,17 @@ path does not depend on archive completeness, cutover, or maintenance timer heal
 never deletes `qa_export_jobs` rows.
 
 `qa-archive inspect|verify|restore --workstation` assumes the dedicated recovery role and
-reads the raw S3 window without loading app config or opening PostgreSQL. Restore requires
-the window-bound privacy confirmation. `qa_archive_recovery_gate.py plan-retirement` only
-validates evidence and emits a planned transition; it never removes
+reads the raw S3 window without loading app config or opening PostgreSQL. The three commands
+must share an operator-generated `--recovery-run-id`; each receipt binds that run to the
+window, bucket, role and command. Workstation restore additionally requires an explicit
+`--restore-root`, a new direct child `--output`, and the window-bound privacy confirmation.
+The root/output directories are mode 0700 and restored files are mode 0600.
+
+`qa_archive_recovery_gate.py plan-retirement` treats synthetic evidence as shape validation
+only. Production scope also requires exact expected window/bucket/role arguments and a
+separate unexpired human high-risk approval JSON whose `evidence_sha256` binds the reviewed
+receipt bundle. Production receipts must be no older than 24 hours and the approval must
+postdate the final receipt. The gate emits a planned transition but never removes
 `ops/prod/fetch-qa-dump.sh`. Actual IAM apply, independent production recovery evidence,
 and script retirement remain approval-gated. Gateway and maintenance still share the EC2
 instance role, so the current bucket policy is not process-level isolation.

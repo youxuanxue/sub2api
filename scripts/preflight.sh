@@ -1231,6 +1231,24 @@ else
     echo "  ok: one approved QA lifecycle owner; retired conflicts remain absent"
 fi
 
+# ---- sub2api: QA Phase 2 recovery and IAM contracts ------------------------
+echo ""
+echo "=== sub2api: QA Phase 2 recovery and IAM contracts ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by QA recovery contract tests)"
+    errors=$((errors + 1))
+elif ! python3 -m py_compile \
+    ./ops/qa/qa_archive_recovery_gate.py \
+    ./deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py; then
+    errors=$((errors + 1))
+elif ! python3 -m unittest \
+    deploy.aws.cloudformation.test_stage0_qa_raw_archive_contract \
+    ops.qa.test_qa_archive_recovery_gate; then
+    errors=$((errors + 1))
+else
+    echo "  ok: exact QA IAM sets and approval-bound workstation recovery gate pass"
+fi
+
 # ---- sub2api: QA Phase 1 edge baseline probe (read-only ops) ---------------
 # Owner: ops/qa/edge_phase1_baseline.py — soak verification for edge capture=false.
 echo ""
