@@ -16,6 +16,10 @@ import pipeline_status_loader as loader  # noqa: E402
 class PipelineStatusLoaderTest(unittest.TestCase):
     def test_evidence_layout_derives_attachment_names_from_ssot(self) -> None:
         layout = loader.load_evidence_layout()
+        self.assertEqual(
+            layout.evidence_dir,
+            (_DIR / "evidence").resolve(),
+        )
         self.assertEqual(layout.cleanup_hold_glob, "data-layer-cleanup-hold-*.json")
         self.assertEqual(
             layout.cleanup_release_receipt_glob,

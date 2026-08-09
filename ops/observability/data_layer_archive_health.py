@@ -13,7 +13,6 @@ from typing import Any
 
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
-EVIDENCE_DIR = REPO / "ops" / "archive" / "evidence"
 ARCHIVE = REPO / "ops" / "archive"
 sys.path.insert(0, str(ARCHIVE))
 
@@ -80,8 +79,10 @@ def _tail_batches_fully_promoted(
     return bool(expected) and expected <= promoted
 
 
-def build_signal(evidence_dir: pathlib.Path = EVIDENCE_DIR) -> dict[str, Any]:
+def build_signal(evidence_dir: pathlib.Path | None = None) -> dict[str, Any]:
     layout = pipeline_status.load_evidence_layout()
+    if evidence_dir is None:
+        evidence_dir = layout.evidence_dir
     ledgers: list[dict[str, Any]] = []
     tail_ledgers: list[dict[str, Any]] = []
     restores: list[str] = []
@@ -217,9 +218,16 @@ def build_signal(evidence_dir: pathlib.Path = EVIDENCE_DIR) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--evidence-dir", type=pathlib.Path, default=EVIDENCE_DIR)
+    layout = pipeline_status.load_evidence_layout()
+    parser.add_argument(
+        "--evidence-dir",
+        type=pathlib.Path,
+        default=None,
+        help=f"override repo evidence directory (default: {layout.evidence_dir})",
+    )
     args = parser.parse_args()
-    print("ARCHIVESTATS " + json.dumps(build_signal(args.evidence_dir), sort_keys=True))
+    evidence_dir = layout.evidence_dir if args.evidence_dir is None else args.evidence_dir
+    print("ARCHIVESTATS " + json.dumps(build_signal(evidence_dir), sort_keys=True))
     return 0
 
 

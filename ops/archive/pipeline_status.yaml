@@ -15,6 +15,7 @@ retention_hot_layer_days:
 legacy_export_upper_exclusive: "2026-07-01T00:00:00.000000Z"
 
 evidence_attachments:
+  evidence_dir: ops/archive/evidence
   cleanup_hold_glob: "data-layer-cleanup-hold-*.json"
   cleanup_release_receipt_glob: "data-layer-cleanup-hold-release*.json"
   export_ledger_template: "data-layer-{table_slug}-export-ledger.json"

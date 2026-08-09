@@ -16,6 +16,10 @@ sys.path.insert(0, str(_DIR))
 import data_layer_archive_health as health  # noqa: E402
 
 
+def _checked_in_evidence_dir() -> pathlib.Path:
+    return health.pipeline_status.load_evidence_layout().evidence_dir
+
+
 class DataLayerArchiveHealthTest(unittest.TestCase):
     def test_checked_in_ledgers_pass_their_owner_validator(self) -> None:
         signal = health.build_signal()
@@ -150,13 +154,13 @@ class DataLayerArchiveHealthReleaseTest(unittest.TestCase):
             root = pathlib.Path(temp)
             hold_path = root / "data-layer-cleanup-hold-apply.json"
             hold_path.write_text(
-                (health.EVIDENCE_DIR / "data-layer-cleanup-hold-apply.json").read_text(
+                (_checked_in_evidence_dir() / "data-layer-cleanup-hold-apply.json").read_text(
                     encoding="utf-8"
                 ),
                 encoding="utf-8",
             )
             release = json.loads(
-                (health.EVIDENCE_DIR / "data-layer-cleanup-hold-release.json").read_text(
+                (_checked_in_evidence_dir() / "data-layer-cleanup-hold-release.json").read_text(
                     encoding="utf-8"
                 )
             )
@@ -165,7 +169,7 @@ class DataLayerArchiveHealthReleaseTest(unittest.TestCase):
                 json.dumps(release),
                 encoding="utf-8",
             )
-            for name in health.EVIDENCE_DIR.glob("data-layer-ops-*"):
+            for name in _checked_in_evidence_dir().glob("data-layer-ops-*"):
                 (root / name.name).write_text(name.read_text(encoding="utf-8"), encoding="utf-8")
 
             signal = health.build_signal(root)

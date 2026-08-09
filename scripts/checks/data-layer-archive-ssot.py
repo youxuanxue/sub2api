@@ -15,7 +15,7 @@ LOADER = ROOT / "ops" / "archive" / "pipeline_status_loader.py"
 HEALTH = ROOT / "ops" / "observability" / "data_layer_archive_health.py"
 
 _HARDCODED_EVIDENCE = re.compile(
-    r"US-039|US-040|phase4-|\.testing/user-stories/attachments"
+    r"US-039|US-040|phase4-|\.testing/user-stories/attachments|ops/archive/evidence"
 )
 
 
@@ -77,6 +77,7 @@ def _evidence_failures(root: Path, pipeline: dict) -> list[str]:
     except (OSError, ValueError, RuntimeError) as exc:
         return failures + [f"pipeline_status_loader failed: {exc}"]
     checks = (
+        ("evidence_dir", str(layout.evidence_dir.relative_to(root))),
         ("cleanup_hold_glob", layout.cleanup_hold_glob),
         ("cleanup_release_receipt_glob", layout.cleanup_release_receipt_glob),
         ("export_ledger_template", layout.export_ledger_template),
