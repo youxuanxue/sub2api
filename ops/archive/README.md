@@ -136,6 +136,11 @@ python3 ops/qa/prod_qa_stale_cleanup.py apply-first \
 python3 ops/qa/prod_qa_stale_cleanup.py resume-first \
   --activation-plan <same-plan.json> --receipt <qa-first-apply.json> \
   --confirm <same-nested-qa-required-confirmation>
+# Independently confirm the exact export crash-orphan inventory. This does not require
+# archive/cutover readiness and must use qa.export_tmp.required_confirmation.
+python3 ops/qa/prod_qa_stale_cleanup.py apply-export-orphans \
+  --activation-plan <plan.json> --receipt <qa-export-orphan-apply.json> \
+  --confirm <qa-export-tmp-required-confirmation>
 python3 ops/archive/data_layer_archive_cleanup_hold.py release \
   --receipt <active-hold.json> --activation-plan <plan.json> \
   --confirm tokenkey-prod-archive-cleanup-release-v1
@@ -143,8 +148,7 @@ QA_STALE_TIMER_STATE=enabled QA_STALE_ACTIVATION_RECEIPT=<qa-first-apply.json> \
   bash ops/stage0/sync-qa-stale-cleanup-timer-via-ssm.sh <prod-instance-id>
 ```
 
-These remain
-three explicit guarded operations; the plan does not mutate PostgreSQL, S3,
+These remain explicit guarded operations; the plan does not mutate PostgreSQL, S3,
 settings, files, or timers.
 
 The offline plan validates the fixed 30-day waterline and hard limits without

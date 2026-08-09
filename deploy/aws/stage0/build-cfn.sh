@@ -15,6 +15,7 @@ REPO_ROOT="$(cd "${HERE}/../../.." && pwd)"
 COMPOSE_SRC="${HERE}/docker-compose.yml"
 CADDY_SRC="${HERE}/Caddyfile"
 QA_CLEANUP_SRC="${HERE}/tokenkey-qa-stale-cleanup.sh"
+QA_EXPORT_ORPHAN_SRC="${HERE}/tokenkey-qa-export-orphan.py"
 PGDUMP_SRC="${HERE}/tokenkey-pgdump.sh"
 PRUNE_SRC="${HERE}/tokenkey-prune-ghcr-app-tags.sh"
 DAILY_PRUNE_SRC="${HERE}/tokenkey-ghcr-prune-daily.sh"
@@ -33,7 +34,7 @@ fi
 
 required=(
   "${COMPOSE_SRC}" "${CADDY_SRC}"
-  "${QA_CLEANUP_SRC}" "${PGDUMP_SRC}" "${PRUNE_SRC}" "${DAILY_PRUNE_SRC}" "${BOOTSTRAP_SRC}" "${LAUNCHER_SRC}"
+  "${QA_CLEANUP_SRC}" "${QA_EXPORT_ORPHAN_SRC}" "${PGDUMP_SRC}" "${PRUNE_SRC}" "${DAILY_PRUNE_SRC}" "${BOOTSTRAP_SRC}" "${LAUNCHER_SRC}"
   "${CFN_FILE}"
 )
 for f in "${required[@]}"; do
@@ -76,6 +77,9 @@ CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
 QA_CLEANUP_GZB64="$(encode_gzb64 "${QA_CLEANUP_SRC}")"
 QA_CLEANUP_PART1="${QA_CLEANUP_GZB64:0:${SSM_STANDARD_VALUE_LIMIT}}"
 QA_CLEANUP_PART2="${QA_CLEANUP_GZB64:${SSM_STANDARD_VALUE_LIMIT}}"
+QA_EXPORT_ORPHAN_GZB64="$(encode_gzb64 "${QA_EXPORT_ORPHAN_SRC}")"
+QA_EXPORT_ORPHAN_PART1="${QA_EXPORT_ORPHAN_GZB64:0:${SSM_STANDARD_VALUE_LIMIT}}"
+QA_EXPORT_ORPHAN_PART2="${QA_EXPORT_ORPHAN_GZB64:${SSM_STANDARD_VALUE_LIMIT}}"
 # pgdump is gzip+base64 like compose/caddy/bootstrap (not raw base64 like the other
 # ops scripts): once it carries the precious-class --exclude-table-data list it no
 # longer fits the 4096-char SSM Standard-tier limit as raw base64. Decoded in
@@ -102,6 +106,8 @@ check_ssm_len compose "${COMPOSE_GZB64}"
 check_ssm_len caddy "${CADDY_GZB64}"
 check_ssm_len qa_part1 "${QA_CLEANUP_PART1}"
 check_ssm_len qa_part2 "${QA_CLEANUP_PART2}"
+check_ssm_len qa_export_orphan_part1 "${QA_EXPORT_ORPHAN_PART1}"
+check_ssm_len qa_export_orphan_part2 "${QA_EXPORT_ORPHAN_PART2}"
 check_ssm_len pgdump "${PGDUMP_GZB64}"
 check_ssm_len prune "${PRUNE_B64}"
 check_ssm_len daily_prune "${DAILY_PRUNE_B64}"
@@ -132,6 +138,8 @@ refresh_template() {
   local new_caddy="${indent}Value: '${caddy_blob}'"
   local new_qa1="${indent}Value: '${QA_CLEANUP_PART1}'"
   local new_qa2="${indent}Value: '${QA_CLEANUP_PART2}'"
+  local new_qa_export_orphan1="${indent}Value: '${QA_EXPORT_ORPHAN_PART1}'"
+  local new_qa_export_orphan2="${indent}Value: '${QA_EXPORT_ORPHAN_PART2}'"
   local new_pgdump="${indent}Value: '${PGDUMP_GZB64}'"
   local new_prune="${indent}Value: '${PRUNE_B64}'"
   local new_daily_prune="${indent}Value: '${DAILY_PRUNE_B64}'"
@@ -146,6 +154,8 @@ refresh_template() {
       -v new_caddy_ssm="${new_caddy}" \
       -v new_qa1_ssm="${new_qa1}" \
       -v new_qa2_ssm="${new_qa2}" \
+      -v new_qa_export_orphan1_ssm="${new_qa_export_orphan1}" \
+      -v new_qa_export_orphan2_ssm="${new_qa_export_orphan2}" \
       -v new_pgdump_ssm="${new_pgdump}" \
       -v new_prune_ssm="${new_prune}" \
       -v new_daily_prune_ssm="${new_daily_prune}" \
@@ -162,6 +172,10 @@ refresh_template() {
     />>> QA_CLEANUP_GZB64_SSM_PART1 END/ { skip = 0; print; next }
     />>> QA_CLEANUP_GZB64_SSM_PART2 START/ { print; print new_qa2_ssm; skip = 1; next }
     />>> QA_CLEANUP_GZB64_SSM_PART2 END/ { skip = 0; print; next }
+    />>> QA_EXPORT_ORPHAN_GZB64_SSM_PART1 START/ { print; print new_qa_export_orphan1_ssm; skip = 1; next }
+    />>> QA_EXPORT_ORPHAN_GZB64_SSM_PART1 END/ { skip = 0; print; next }
+    />>> QA_EXPORT_ORPHAN_GZB64_SSM_PART2 START/ { print; print new_qa_export_orphan2_ssm; skip = 1; next }
+    />>> QA_EXPORT_ORPHAN_GZB64_SSM_PART2 END/ { skip = 0; print; next }
     />>> PGDUMP_B64_PARAM START/ { print; print new_pgdump_ssm; skip = 1; next }
     />>> PGDUMP_B64_PARAM END/ { skip = 0; print; next }
     />>> GHCR_PRUNE_B64_PARAM START/ { print; print new_prune_ssm; skip = 1; next }
@@ -218,6 +232,8 @@ if [[ "${mode}" == "check" ]]; then
   committed_value PGDUMP_B64_PARAM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${PGDUMP_SRC}" || report pgdump
   { committed_value QA_CLEANUP_GZB64_SSM_PART1; committed_value QA_CLEANUP_GZB64_SSM_PART2; } \
     | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${QA_CLEANUP_SRC}" || report qa-cleanup
+  { committed_value QA_EXPORT_ORPHAN_GZB64_SSM_PART1; committed_value QA_EXPORT_ORPHAN_GZB64_SSM_PART2; } \
+    | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${QA_EXPORT_ORPHAN_SRC}" || report qa-export-orphan
   # plain base64 payloads:
   committed_value GHCR_PRUNE_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${PRUNE_SRC}"      || report ghcr-prune
   committed_value GHCR_PRUNE_DAILY_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${DAILY_PRUNE_SRC}" || report ghcr-prune-daily
@@ -241,6 +257,7 @@ echo "stage0 CFN refreshed."
 echo "  compose gzip+base64 (SSM): ${#COMPOSE_GZB64} chars"
 echo "  caddy gzip+base64 (SSM): ${#CADDY_GZB64} chars"
 echo "  qa cleanup gzip+base64 (SSM total): ${#QA_CLEANUP_GZB64} chars (part1=${#QA_CLEANUP_PART1}, part2=${#QA_CLEANUP_PART2})"
+echo "  qa export orphan gzip+base64 (SSM total): ${#QA_EXPORT_ORPHAN_GZB64} chars (part1=${#QA_EXPORT_ORPHAN_PART1}, part2=${#QA_EXPORT_ORPHAN_PART2})"
 echo "  pgdump gzip+base64 (SSM): ${#PGDUMP_GZB64} chars"
 echo "  ghcr prune base64 (SSM): ${#PRUNE_B64} chars"
 echo "  ghcr daily prune base64 (SSM): ${#DAILY_PRUNE_B64} chars"

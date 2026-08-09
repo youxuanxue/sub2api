@@ -11,12 +11,14 @@ Policy 数值不在此重复。Owner 表：
 | Mechanical drift guard | [`scripts/checks/qa-lifecycle-ssot.py`](../../scripts/checks/qa-lifecycle-ssot.py) |
 | Timer/operator host runner | [`deploy/aws/stage0/tokenkey-qa-maintenance.sh`](../../deploy/aws/stage0/tokenkey-qa-maintenance.sh) |
 | Correlated Phase 2 health verdict | [`qa_phase2_health.py`](qa_phase2_health.py) |
+| Age cleanup + export crash-orphan owner | [`tokenkey-qa-stale-cleanup.sh`](../../deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh) |
 
 Generic usage/ops data-layer archive: [`ops/archive/README.md`](../archive/README.md).
 
 `policy.yaml` also owns the archive runner UID/GID, real host/container scratch paths,
 atomic host receipt path, one-window catch-up bound, and the stale-cleanup-owned export
-temp path. The production cutover timestamp is live database control state, not policy.
+temp host/container paths. The production cutover timestamp is live database control state,
+not policy.
 
 `deploy_rollout.yaml` keeps `QA_ARCHIVE_ENABLED` deploy injection at `false` until the
 approved Phase 2 production-integrity closeout is implemented and verified; approval of
@@ -31,3 +33,13 @@ Maintenance timer and operator execution both enter through the installed host r
 operator wrappers do not own a second Docker execution contract. `qa_phase2_health.py`
 evaluates a structured snapshot and fails closed unless systemd, host receipt, DB heartbeat,
 and archive control facts all describe the same fresh scheduled run.
+
+`tokenkey-qa-stale-cleanup.sh --plan` always inventories the effective export temp bind,
+including the default `/app/data/qa_exports_tmp` to
+`/var/lib/tokenkey/app/qa_exports_tmp` mapping, and emits basename/size/mtime facts plus an
+exact canonical plan hash without deleting files. The first export-orphan deletion uses
+`prod_qa_stale_cleanup.py apply-export-orphans` with the plan's separate confirmation and
+creates `/var/lib/tokenkey/qa-export-orphan-cleanup-activated.json`; until that marker exists,
+scheduled stale cleanup continues age retention but only reports export candidates. This
+path does not depend on archive completeness, cutover, or maintenance timer health, and it
+never deletes `qa_export_jobs` rows.

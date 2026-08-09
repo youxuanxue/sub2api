@@ -15,6 +15,7 @@ PHASE2_DESIGN = Path("docs/approved/design-qa-phase2-archive-closeout.md")
 POLICY = Path("ops/qa/policy.yaml")
 MAINTENANCE_SCRIPT = Path("deploy/aws/stage0/tokenkey-qa-maintenance.sh")
 CLEANUP_SCRIPT = Path("deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh")
+EXPORT_ORPHAN_HELPER = Path("deploy/aws/stage0/tokenkey-qa-export-orphan.py")
 BOOTSTRAP = Path("deploy/aws/stage0/stage0-ec2-bootstrap.sh")
 LIVE_HOST_ASSERT = Path("ops/stage0/assert-live-host-state.sh")
 QA_SERVICE = Path("backend/internal/observability/qa/service.go")
@@ -24,6 +25,7 @@ RAW_ARCHIVE_CFN = Path("deploy/aws/cloudformation/stage0-qa-raw-archive.yaml")
 ARCHIVE_STATE = Path("backend/internal/observability/qa/archive/state.go")
 ROLLOUT = Path("ops/qa/deploy_rollout.yaml")
 QA_README = Path("ops/qa/README.md")
+STALE_OPERATOR = Path("ops/qa/prod_qa_stale_cleanup.py")
 DEPLOY_SSM = Path("ops/stage0/deploy_via_ssm.sh")
 DEPLOY_BG = Path("ops/stage0/deploy_via_ssm_bluegreen.sh")
 
@@ -113,6 +115,7 @@ REQUIRED_BY_FILE = {
         "host_scratch_dir: /var/lib/tokenkey/app/qa_archive_tmp",
         "host_receipt_path: /var/lib/tokenkey/qa-maintenance-last-run.json",
         "host_export_tmp_dir: /var/lib/tokenkey/app/qa_exports_tmp",
+        "container_export_tmp_dir: /app/data/qa_exports_tmp",
         "capture_enabled: false",
         "edge:",
     ),
@@ -124,6 +127,7 @@ REQUIRED_BY_FILE = {
         "min_consecutive_scheduled_runs: 2",
         "host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh",
         "health_evaluator: ops/qa/qa_phase2_health.py",
+        "export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json",
         "policy_target: prod.archive.enabled",
         "design-qa-phase2-archive-closeout.md",
     ),
@@ -133,6 +137,8 @@ REQUIRED_BY_FILE = {
         "qa-lifecycle-ssot.py",
         "qa_phase2_health.py",
         "tokenkey-qa-maintenance.sh",
+        "tokenkey-qa-stale-cleanup.sh",
+        "apply-export-orphans",
     ),
     Path("ops/stage0/deploy_via_ssm.sh"): (
         "edge_qa_capture_cmds",
@@ -196,6 +202,23 @@ REQUIRED_BY_FILE = {
         "/usr/local/lib/tokenkey/resolve-app-container.sh",
         "/var/lib/tokenkey/app/qa_archive_tmp",
     ),
+    CLEANUP_SCRIPT: (
+        "EXPORT_ORPHAN_HELPER",
+        "/var/lib/tokenkey/app/qa_exports_tmp",
+        "tokenkey-prod-qa-export-orphan-apply-v1:",
+        "qa-export-orphan-cleanup-activated.json",
+        "--apply-export-orphans",
+    ),
+    EXPORT_ORPHAN_HELPER: (
+        "QA_EXPORT_TMP_DIR=",
+        "/app/data/qa_exports_tmp",
+        "qa-export-orphan-plan-v1",
+    ),
+    STALE_OPERATOR: (
+        "apply_export_orphans",
+        "--apply-export-orphans",
+        "tokenkey-prod-qa-export-orphan-apply-v1:",
+    ),
     Path("ops/archive/data_layer_archive_rehearsal.py"): (
         'DATASETS = ("usage", "ops")',
         'POSTGRES_TABLES = ("usage_logs", "ops_system_logs", "ops_error_logs")',
@@ -231,6 +254,7 @@ def _policy_failures(root: Path) -> list[str]:
         ("prod", "archive", "container_scratch_dir"): "/app/data/qa_archive_tmp",
         ("prod", "archive", "host_receipt_path"): "/var/lib/tokenkey/qa-maintenance-last-run.json",
         ("prod", "cleanup", "host_export_tmp_dir"): "/var/lib/tokenkey/app/qa_exports_tmp",
+        ("prod", "cleanup", "container_export_tmp_dir"): "/app/data/qa_exports_tmp",
         ("prod", "cleanup", "export_tmp_owner"): "tokenkey-qa-stale-cleanup",
         ("edge", "capture_enabled"): False,
         ("edge", "archive_enabled"): False,
@@ -273,6 +297,11 @@ def _policy_failures(root: Path) -> list[str]:
             f"RandomizedDelaySec={cleanup_delay}min",
             "--resume-first",
             "flock -n 9",
+            "/var/lib/tokenkey/app/qa_exports_tmp",
+            "--apply-export-orphans",
+        ),
+        EXPORT_ORPHAN_HELPER: (
+            "/app/data/qa_exports_tmp",
         ),
         QA_SERVICE: (f"input.CreatedAt.Add({online_hours} * time.Hour)",),
         BOOTSTRAP: (
@@ -314,6 +343,10 @@ def _policy_failures(root: Path) -> list[str]:
         failures.append("bootstrap duplicates the QA cleanup systemd owner")
     if "retention_until" in cleanup:
         failures.append("QA cleanup must not read retention_until")
+    if "tokenkey-qa-maintenance.timer" in cleanup:
+        failures.append("QA cleanup must not depend on maintenance timer state")
+    if re.search(r"DELETE\s+FROM\s+qa_export_jobs", cleanup, re.IGNORECASE):
+        failures.append("QA cleanup must not delete qa_export_jobs")
     if re.search(r"OnCalendar=\*-\*-\* 04:15:00|Description=Daily QA", cleanup):
         failures.append(f"retired daily QA cleanup schedule remains in {CLEANUP_SCRIPT}")
     live_assert = (root / LIVE_HOST_ASSERT).read_text(encoding="utf-8") if (root / LIVE_HOST_ASSERT).is_file() else ""
@@ -339,6 +372,7 @@ def _rollout_failures(root: Path) -> list[str]:
         return ["deploy_rollout.yaml prod/edge must be mappings"]
     prod_archive = prod.get("QA_ARCHIVE_ENABLED")
     prod_timer = prod.get("tokenkey_qa_maintenance_timer")
+    prod_cleanup = prod.get("tokenkey_qa_stale_cleanup")
     edge_capture = edge.get("QA_CAPTURE_ENABLED")
     if not isinstance(prod_archive, dict):
         failures.append("rollout prod.QA_ARCHIVE_ENABLED must be a mapping")
@@ -364,6 +398,15 @@ def _rollout_failures(root: Path) -> list[str]:
             "systemd", "host_receipt", "database_heartbeat", "archive_control_rows"
         ]:
             failures.append("rollout maintenance health evidence drift")
+    if not isinstance(prod_cleanup, dict):
+        failures.append("rollout prod.tokenkey_qa_stale_cleanup must be a mapping")
+    else:
+        if prod_cleanup.get("policy_target_state") != "enabled":
+            failures.append("rollout stale cleanup target drift")
+        if prod_cleanup.get("archive_independent") is not True:
+            failures.append("rollout stale cleanup must remain archive-independent")
+        if prod_cleanup.get("activation_state") != "pending_production_exact_plan":
+            failures.append("rollout export orphan activation evidence drift")
     if not isinstance(edge_capture, dict):
         failures.append("rollout edge.QA_CAPTURE_ENABLED must be a mapping")
     elif edge_capture.get("deploy_inject_default") is not False:
@@ -468,6 +511,7 @@ prod:
     host_receipt_path: /var/lib/tokenkey/qa-maintenance-last-run.json
   cleanup:
     host_export_tmp_dir: /var/lib/tokenkey/app/qa_exports_tmp
+    container_export_tmp_dir: /app/data/qa_exports_tmp
     export_tmp_owner: tokenkey-qa-stale-cleanup
 edge:
   capture_enabled: false

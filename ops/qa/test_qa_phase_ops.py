@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import datetime as dt
+import base64
+import gzip
 import importlib.util
 import json
+import re
 import shlex
 import subprocess
 import sys
@@ -115,9 +118,16 @@ class TestQAPhaseOps(unittest.TestCase):
                 """#!/usr/bin/env bash
 printf 'docker %s\n' "$*" >> "$CALLS"
 if [ "$1" = ps ]; then echo tokenkey-postgres; exit 0; fi
-if [ "$1" = inspect ]; then echo ghcr.io/youxuanxue/sub2api:1.8.140; exit 0; fi
+if [ "$1" = inspect ]; then
+  if [[ "$*" == *--format* ]]; then
+    echo ghcr.io/youxuanxue/sub2api:1.8.140
+  else
+    printf '[{"Config":{"Image":"ghcr.io/youxuanxue/sub2api:1.8.140","Env":[]},"Mounts":[{"Type":"bind","Source":"%s/app","Destination":"/app/data","RW":true}]}]\n' "$TOKENKEY_ROOT"
+  fi
+  exit 0
+fi
 if [ "$1" = exec ]; then
-  echo '{"server_clock":"2026-08-07T12:00:00.000000Z","cutoff":"2026-08-06T12:00:00.000000Z","candidate_rows":42,"oldest_created_at":"2026-08-04T04:00:00.000000Z","newest_created_at":"2026-08-06T11:59:00.000000Z"}'
+  echo '{"server_clock":"2026-08-07T12:00:00.000000Z","cutoff":"2026-08-06T12:00:00.000000Z","candidate_rows":42,"oldest_created_at":"2026-08-04T04:00:00.000000Z","newest_created_at":"2026-08-06T11:59:00.000000Z","export_jobs":{"total_rows":0,"expired_rows":0,"status_counts":{},"done_without_storage_key":0,"non_done_with_storage_key":0}}'
   exit 0
 fi
 exit 9
@@ -134,6 +144,7 @@ case "$1" in *qa_blobs) printf 'a\nb\n';; *qa_dlq) printf 'c\n';; esac
             for name in ("docker", "find"):
                 (fake_bin / name).chmod(0o755)
             (root / "active-color").write_text("blue\n", encoding="utf-8")
+            (root / "proc").mkdir()
             (fake_bin / "install").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
             (fake_bin / "install").chmod(0o755)
             proc = subprocess.run(
@@ -142,6 +153,10 @@ case "$1" in *qa_blobs) printf 'a\nb\n';; *qa_dlq) printf 'c\n';; esac
                     "PATH": f"{fake_bin}:/opt/homebrew/bin:/usr/bin:/bin",
                     "CALLS": str(calls),
                     "TOKENKEY_ROOT": str(root),
+                    "QA_STALE_PROC_ROOT": str(root / "proc"),
+                    "EXPORT_ORPHAN_HELPER": str(
+                        ROOT / "deploy/aws/stage0/tokenkey-qa-export-orphan.py"
+                    ),
                 },
                 capture_output=True,
                 text=True,
@@ -293,10 +308,22 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
             )
             self.assertEqual(proc.returncode, 99, (proc.stdout, proc.stderr))
             params = json.loads((output / "ssm-params.json").read_text(encoding="utf-8"))
-        timer_command = params["commands"][5]
+        timer_command = next(command for command in params["commands"] if "verify_marker" in command)
         self.assertIn("verify_marker", timer_command)
         self.assertIn("sha256sum", timer_command)
         self.assertIn("a" * 64, timer_command)
+        helper_command = next(
+            command
+            for command in params["commands"]
+            if "qa-export-orphan.py" in command and "printf %s" in command
+        )
+        payload = re.search(r"printf %s '([^']+)'", helper_command)
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        self.assertEqual(
+            gzip.decompress(base64.b64decode(payload.group(1))),
+            (ROOT / "deploy/aws/stage0/tokenkey-qa-export-orphan.py").read_bytes(),
+        )
         for command in params["commands"]:
             parsed = subprocess.run(["bash", "-n"], input=command, text=True, capture_output=True)
             self.assertEqual(parsed.returncode, 0, parsed.stderr)

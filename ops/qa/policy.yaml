@@ -25,6 +25,7 @@ prod:
 
   cleanup:
     host_export_tmp_dir: /var/lib/tokenkey/app/qa_exports_tmp
+    container_export_tmp_dir: /app/data/qa_exports_tmp
     export_tmp_owner: tokenkey-qa-stale-cleanup
 
   user_export:

@@ -23,6 +23,13 @@ prod:
       - host_receipt
       - database_heartbeat
       - archive_control_rows
+  tokenkey_qa_stale_cleanup:
+    policy_target_state: enabled
+    archive_independent: true
+    export_orphan_plan_command: /usr/local/bin/tokenkey-qa-stale-cleanup.sh --plan
+    export_orphan_apply_command: /usr/local/bin/tokenkey-qa-stale-cleanup.sh --apply-export-orphans
+    export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json
+    activation_state: pending_production_exact_plan
   QA_CAPTURE_ENABLED:
     deploy_inject: edge_only_false
     policy_target: prod.capture_enabled

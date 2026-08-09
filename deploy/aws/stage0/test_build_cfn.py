@@ -76,6 +76,38 @@ class BuildCfnSizeTest(unittest.TestCase):
             msg=f"build-cfn --check failed:\nstdout={proc.stdout}\nstderr={proc.stderr}",
         )
 
+    def test_qa_orphan_helper_is_distributed_within_ssm_standard_limits(self) -> None:
+        """The generated template must ship both parts of stale-cleanup ownership."""
+        proc = subprocess.run(
+            ["bash", str(STAGE0 / "build-cfn.sh")],
+            cwd=_REPO,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            proc.returncode,
+            0,
+            msg=f"build-cfn failed:\nstdout={proc.stdout}\nstderr={proc.stderr}",
+        )
+        cfn_text = CFN_MAIN.read_text(encoding="utf-8")
+        parts = []
+        for part in (1, 2):
+            helper = re.search(
+                rf"# >>> QA_EXPORT_ORPHAN_GZB64_SSM_PART{part} START[^\n]*\n\s*Value: '([^']*)'\n"
+                rf"\s*# >>> QA_EXPORT_ORPHAN_GZB64_SSM_PART{part} END",
+                cfn_text,
+            )
+            self.assertIsNotNone(helper, "CFN must carry the export-orphan helper payload")
+            assert helper is not None
+            self.assertLessEqual(len(helper.group(1)), SSM_STANDARD_LIMIT)
+            parts.append(helper.group(1))
+        helper_bytes = gzip.decompress(__import__("base64").b64decode("".join(parts)))
+        self.assertEqual(
+            helper_bytes,
+            (STAGE0 / "tokenkey-qa-export-orphan.py").read_bytes(),
+        )
+
     def test_build_cfn_check_detects_source_drift(self) -> None:
         # Negative path: the content-based --check must FAIL when a source script
         # changes but its embedded CFN blob is not regenerated — that drift gate is

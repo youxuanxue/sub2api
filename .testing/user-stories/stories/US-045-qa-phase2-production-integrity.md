@@ -62,7 +62,13 @@
 - `ops/qa/test_qa_maintenance_phase2_runtime.py`::`QAPhase2OperatorAndHealthTest.test_us045_correlated_health_rejects_missing_stale_and_contradictory_facts`
 - `ops/qa/test_qa_phase_ops.py`::`TestQAPhaseOps.test_qa_maintenance_sync_emits_disabled_timer_command_by_default`
 - `ops/qa/test_qa_phase_ops.py`::`TestQAPhaseOps.test_historical_closeout_has_fixed_targets_and_safety_guards`
-- `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_us045_export_orphan_plan_is_exact_and_revalidated` *(planned)*
+- `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_us045_export_orphan_plan_is_exact_and_revalidated`
+- `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_scheduled_export_cleanup_waits_for_exact_first_activation`
+- `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_export_orphan_apply_rejects_plan_drift_before_removal`
+- `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_export_tmp_override_resolves_its_effective_bind`
+- `ops/qa/test_prod_qa_stale_cleanup.py`::`ProdQAStaleCleanupTest.test_age_retention_first_apply_does_not_depend_on_maintenance_timer`
+- `deploy/aws/stage0/test_build_cfn.py`::`BuildCfnSizeTest.test_qa_orphan_helper_is_distributed_within_ssm_standard_limits`
+- `ops/archive/test_data_layer_retention_activation.py`::`RetentionActivationTest.test_qa_cleanup_readiness_is_independent_of_archive_and_maintenance`
 - `backend/cmd/qa-archive/main_test.go`::`TestUS045_WorkstationRecovery*` *(planned)*
 
 运行命令：
@@ -74,6 +80,7 @@ go test -tags=unit -count=1 -run 'TestUS045_' ./cmd/server
 go test -tags=integration -count=1 -run 'TestUS045_' ./internal/observability/qa/archive
 cd ..
 python3 -m unittest ops.qa.test_qa_maintenance_phase2_runtime ops.qa.test_qa_phase_ops
+python3 -m unittest ops.qa.test_prod_qa_stale_cleanup ops.archive.test_data_layer_retention_activation
 python3 .testing/user-stories/verify_quality.py
 ```
 
@@ -83,9 +90,10 @@ python3 .testing/user-stories/verify_quality.py
 - Task 2 已实跑 timeline selector、可恢复零行 base、retention 后终态和 late-identity membership 的 unit/integration tests；PostgreSQL 仅为本地 testcontainer。
 - Task 3 已实跑 maintenance normal-first/单一补偿/失败 heartbeat、archive-disabled no-write 状态、CLI 与 Python operator 的 `repair-apply` 退役测试；archive PostgreSQL integration 只使用本地 Colima testcontainer。
 - Task 4 已实跑唯一 host runner、真实 mount selftest、原子 receipt、全部 pre-app/child failure、timer/operator 收敛、Go run correlation、同步脚本与四源 health contradiction 测试；所有 Docker/AWS/systemd 边界均为本地 fake 或临时目录。
-- Task 5–6 的 stale cleanup、IAM 与 workstation recovery links 明确标为 planned，后续 task 必须以实际 RED/GREEN 证据替换。
+- Task 5 已实跑 effective export mount 解析、24 小时边界、regular-file/symlink/open-handle 选择、canonical plan hash、drift revalidation、首次 activation 与后续 scheduled cleanup 测试；helper 经实际 runner、CFN/SSM payload 与 timer-sync payload 分发验证。全部文件删除只发生在本地临时目录，`qa_export_jobs` 仅输出诊断。
+- Task 6 的 IAM 与 workstation recovery links 明确标为 planned，后续 task 必须以实际 RED/GREEN 证据替换。
 - 本 Story 不构成生产操作授权；生产 restore evidence、schema/IAM apply、timer change、orphan deletion 与 break-glass retirement 仍待独立门禁。
 
 ## Status
 
-- [x] InTest — Task 1–4 cutover/timeline/archive integrity/maintenance runner 与关联健康 contract 已进入测试；Task 5–6 repository behaviors 与所有 production rollout evidence 尚未完成。
+- [x] InTest — Task 1–5 cutover/timeline/archive integrity/maintenance runner、关联健康与独立 stale cleanup contract 已进入测试；Task 6 repository behaviors 与所有 production rollout evidence 尚未完成。

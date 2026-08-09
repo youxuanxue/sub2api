@@ -36,12 +36,6 @@ WITH bounds AS MATERIALIZED (
 ), maintenance AS (
   SELECT last_success_at,last_error_at,last_result FROM ops_job_heartbeats
   WHERE job_name='partition_maintenance'
-), history AS (
-  SELECT jsonb_object_agg(to_char(window_start AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-    jsonb_build_object('state',state,'verification_error_code',verification_error_code)) AS windows
-  FROM qa_archive_shards
-  WHERE generation=0 AND window_start IN (
-    TIMESTAMPTZ '2026-08-04 04:00:00+00', TIMESTAMPTZ '2026-08-07 01:00:00+00')
 )
 SELECT json_build_object(
   'server_clock',(SELECT to_char(server_clock AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') FROM bounds),
@@ -49,18 +43,6 @@ SELECT json_build_object(
   'ops_cutoff',(SELECT to_char(cutoff AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') FROM bounds),
   'ops_error_log_candidates',(SELECT count(*) FROM ops_error_logs WHERE created_at<(SELECT cutoff FROM bounds)),
   'ops_system_log_candidates',(SELECT count(*) FROM ops_system_logs WHERE created_at<(SELECT cutoff FROM bounds)),
-  'historical_windows',COALESCE((SELECT windows FROM history),'{}'::jsonb),
-  'forward_archive_window',(SELECT json_build_object(
-    'window_start',to_char(window_start AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-    'state',state,'aggregate_record_count',aggregate_record_count,
-    'aggregate_blob_missing_count',aggregate_blob_missing_count,
-    'verified_at',to_char(verified_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
-    'restore_verified_at',to_char(restore_verified_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
-    FROM qa_archive_shards
-    WHERE generation=0 AND window_start>TIMESTAMPTZ '2026-08-07 01:00:00+00'
-      AND state='committed' AND aggregate_blob_missing_count=0
-      AND verified_at IS NOT NULL AND restore_verified_at IS NOT NULL
-    ORDER BY window_start DESC LIMIT 1),
   'usage_logs_partitioned',EXISTS(SELECT 1 FROM pg_partitioned_table p JOIN pg_class c ON c.oid=p.partrelid WHERE c.relname='usage_logs'),
   'usage_legacy_attached',EXISTS(SELECT 1 FROM pg_inherits WHERE inhparent=to_regclass('public.usage_logs') AND inhrelid=to_regclass('public.usage_logs_legacy')),
   'usage_future_partition_exists',to_regclass('public.usage_logs_' || to_char((clock_timestamp() AT TIME ZONE 'UTC')::date+1,'YYYYMMDD')) IS NOT NULL,
@@ -153,28 +135,14 @@ def _run_remote(instance_id: str) -> dict[str, Any]:
 def _ready(payload: dict[str, Any]) -> tuple[bool,list[str]]:
     reasons: list[str] = []
     timers = payload.get("timers",{})
-    if timers.get("qa_maintenance",{}).get("enabled") != "enabled" or timers.get("qa_maintenance",{}).get("active") != "active":
-        reasons.append("qa maintenance timer is not active")
     if timers.get("qa_stale_cleanup",{}).get("enabled") != "disabled" or timers.get("qa_stale_cleanup",{}).get("active") != "inactive":
         reasons.append("qa stale cleanup timer must remain disabled before first apply")
     qa = payload.get("qa",{})
     if qa.get("active_image") != payload.get("active_image"):
         reasons.append("QA plan active image does not match the host")
     ops = payload.get("ops",{})
-    forward = ops.get("forward_archive_window")
-    if not isinstance(forward,dict) or forward.get("state") != "committed":
-        reasons.append("no new sealed QA hour has passed verify and restore")
     if ops.get("ops_retention_days") != 30:
         reasons.append("ops retention is not 30 days")
-    expected = {
-        "2026-08-04T04:00:00Z":("failed","missing_evidence"),
-        "2026-08-07T01:00:00Z":("failed","commit_mismatch"),
-    }
-    windows = ops.get("historical_windows",{})
-    for key,(state,code) in expected.items():
-        item = windows.get(key,{})
-        if item.get("state") != state or item.get("verification_error_code") != code:
-            reasons.append(f"historical QA state is not closed: {key}")
     if (
         ops.get("usage_logs_partitioned") is not True
         or ops.get("usage_legacy_attached") is not True
