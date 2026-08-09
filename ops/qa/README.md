@@ -12,6 +12,8 @@ Policy 数值不在此重复。Owner 表：
 | Timer/operator host runner | [`deploy/aws/stage0/tokenkey-qa-maintenance.sh`](../../deploy/aws/stage0/tokenkey-qa-maintenance.sh) |
 | Correlated Phase 2 health verdict | [`qa_phase2_health.py`](qa_phase2_health.py) |
 | Age cleanup + export crash-orphan owner | [`tokenkey-qa-stale-cleanup.sh`](../../deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh) |
+| Direct workstation recovery | [`backend/cmd/qa-archive`](../../backend/cmd/qa-archive) |
+| Break-glass retirement evidence gate | [`qa_archive_recovery_gate.py`](qa_archive_recovery_gate.py) |
 
 Generic usage/ops data-layer archive: [`ops/archive/README.md`](../archive/README.md).
 
@@ -43,3 +45,11 @@ creates `/var/lib/tokenkey/qa-export-orphan-cleanup-activated.json`; until that 
 scheduled stale cleanup continues age retention but only reports export candidates. This
 path does not depend on archive completeness, cutover, or maintenance timer health, and it
 never deletes `qa_export_jobs` rows.
+
+`qa-archive inspect|verify|restore --workstation` assumes the dedicated recovery role and
+reads the raw S3 window without loading app config or opening PostgreSQL. Restore requires
+the window-bound privacy confirmation. `qa_archive_recovery_gate.py plan-retirement` only
+validates evidence and emits a planned transition; it never removes
+`ops/prod/fetch-qa-dump.sh`. Actual IAM apply, independent production recovery evidence,
+and script retirement remain approval-gated. Gateway and maintenance still share the EC2
+instance role, so the current bucket policy is not process-level isolation.

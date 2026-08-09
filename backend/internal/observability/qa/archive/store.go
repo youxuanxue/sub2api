@@ -12,8 +12,10 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
 var ErrPreconditionFailed = errors.New("qa archive object precondition failed")
@@ -32,12 +34,23 @@ type ObjectReader struct {
 
 // ObjectStore provides immutable artifact writes and ETag-guarded commit updates.
 type ObjectStore interface {
+	ReadOnlyObjectStore
 	PutReader(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error)
 	Create(ctx context.Context, key string, body io.Reader, size int64, contentType string) (ObjectInfo, error)
 	CompareAndSwap(ctx context.Context, key, expectedETag string, body io.Reader, size int64, contentType string) (ObjectInfo, error)
+}
+
+type ReadOnlyObjectStore interface {
 	Open(ctx context.Context, key string) (ObjectReader, error)
 	HeadInfo(ctx context.Context, key string) (ObjectInfo, error)
 	Head(ctx context.Context, key string) (bool, error)
+}
+
+type WorkstationRecoveryConfig struct {
+	Region  string
+	Bucket  string
+	Prefix  string
+	RoleARN string
 }
 
 type s3ObjectStore struct {
@@ -85,6 +98,34 @@ func NewObjectStoreFromConfig(ctx context.Context, storage config.QACaptureStora
 	return &s3ObjectStore{
 		client: client, uploader: transfermanager.New(client, boundedTransferOptions),
 		bucket: bucket, prefix: prefix,
+	}, nil
+}
+
+func NewReadOnlyObjectStoreForWorkstation(ctx context.Context, input WorkstationRecoveryConfig) (ReadOnlyObjectStore, error) {
+	region := strings.TrimSpace(input.Region)
+	bucket := strings.TrimSpace(input.Bucket)
+	roleARN := strings.TrimSpace(input.RoleARN)
+	if region == "" || bucket == "" || roleARN == "" {
+		return nil, fmt.Errorf("workstation recovery region, bucket, and role ARN are required")
+	}
+	if !strings.HasPrefix(roleARN, "arn:") || !strings.Contains(roleARN, ":iam::") || !strings.Contains(roleARN, ":role/") {
+		return nil, fmt.Errorf("workstation recovery role ARN is invalid")
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
+	if err != nil {
+		return nil, fmt.Errorf("load workstation aws config: %w", err)
+	}
+	provider := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(awsCfg), roleARN, func(options *stscreds.AssumeRoleOptions) {
+		options.RoleSessionName = "tokenkey-qa-archive-recovery"
+	})
+	awsCfg.Credentials = aws.NewCredentialsCache(provider)
+	client := s3.NewFromConfig(awsCfg, func(options *s3.Options) {
+		options.APIOptions = append(options.APIOptions, v4.SwapComputePayloadSHA256ForUnsignedPayloadMiddleware)
+		options.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+	})
+	return &s3ObjectStore{
+		client: client, uploader: transfermanager.New(client, boundedTransferOptions),
+		bucket: bucket, prefix: strings.Trim(strings.TrimSpace(input.Prefix), "/"),
 	}, nil
 }
 

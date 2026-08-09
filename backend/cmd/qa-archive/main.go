@@ -37,7 +37,8 @@ type cliDeps struct {
 	loadConfig        func() (*config.Config, error)
 	openDB            func(string, string) (*sql.DB, error)
 	newObjectStore    func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error)
-	verifyCommit      func(context.Context, archive.ObjectStore, string, string) (archive.VerifiedCommit, error)
+	newRecoveryStore  func(context.Context, archive.WorkstationRecoveryConfig) (archive.ReadOnlyObjectStore, error)
+	verifyCommit      func(context.Context, archive.ReadOnlyObjectStore, string, string) (archive.VerifiedCommit, error)
 	inspectControl    func(context.Context, *sql.Conn, archive.Window) (controlStatus, error)
 	planSourceDelta   func(context.Context, *sql.Conn, archive.Window, archive.VerifiedCommit) (archive.SourceDeltaPlan, error)
 	setForwardCutover func(context.Context, *sql.Conn) (archive.ForwardCutover, error)
@@ -48,6 +49,7 @@ func defaultDeps() cliDeps {
 		loadConfig:        config.LoadForBootstrap,
 		openDB:            sql.Open,
 		newObjectStore:    archive.NewObjectStoreFromConfig,
+		newRecoveryStore:  archive.NewReadOnlyObjectStoreForWorkstation,
 		verifyCommit:      archive.VerifyCommit,
 		inspectControl:    defaultInspectControl,
 		planSourceDelta:   archive.PlanSourceDelta,
@@ -123,6 +125,10 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 	windowArg := fs.String("window-start", "", "UTC hour in RFC3339 format")
 	outputDir := fs.String("output", "", "new restore directory")
 	confirm := fs.String("confirm", "", "window-bound confirmation")
+	workstation := fs.Bool("workstation", false, "read S3 directly from an ops workstation")
+	region := fs.String("region", "", "AWS region for workstation recovery")
+	bucket := fs.String("bucket", "", "raw archive bucket for workstation recovery")
+	recoveryRoleARN := fs.String("recovery-role-arn", "", "dedicated recovery role ARN")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -145,18 +151,38 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 		*outputDir = validatedOutput
 	}
 	deps = fillDefaults(deps)
-	cfg, err := deps.loadConfig()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-	store, err := deps.newObjectStore(ctx, cfg.QaArchive.Storage)
-	if err != nil {
-		return fmt.Errorf("open archive store: %w", err)
+	var cfg *config.Config
+	var store archive.ReadOnlyObjectStore
+	if *workstation {
+		if command == "repair-plan" {
+			return fmt.Errorf("repair-plan is unavailable in workstation mode")
+		}
+		if strings.TrimSpace(*region) == "" || strings.TrimSpace(*bucket) == "" || strings.TrimSpace(*recoveryRoleARN) == "" {
+			return fmt.Errorf("workstation mode requires --region, --bucket, and --recovery-role-arn")
+		}
+		store, err = deps.newRecoveryStore(ctx, archive.WorkstationRecoveryConfig{
+			Region: *region, Bucket: *bucket, Prefix: "raw/v1", RoleARN: *recoveryRoleARN,
+		})
+		if err != nil {
+			return fmt.Errorf("open workstation recovery store: %w", err)
+		}
+	} else {
+		cfg, err = deps.loadConfig()
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		store, err = deps.newObjectStore(ctx, cfg.QaArchive.Storage)
+		if err != nil {
+			return fmt.Errorf("open archive store: %w", err)
+		}
 	}
 	commitKey := archive.ShardRelativePrefix(window.Start) + "/commit.json"
 
 	switch command {
 	case "inspect":
+		if *workstation {
+			return runWorkstationInspect(ctx, out, deps, store, window, commitKey, *bucket, *recoveryRoleARN)
+		}
 		return runInspect(ctx, out, deps, cfg, store, window, commitKey)
 	case "verify":
 		verified, err := deps.verifyCommit(ctx, store, commitKey, "")
@@ -164,7 +190,11 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 			return fmt.Errorf("verify archive commit: %w", err)
 		}
 		defer func() { _ = verified.Close() }()
-		return writeJSON(out, verifiedReceipt(command, commitKey, verified))
+		receipt := verifiedReceipt(command, commitKey, verified)
+		if *workstation {
+			addWorkstationReceipt(receipt, command == "verify", *bucket, *recoveryRoleARN)
+		}
+		return writeJSON(out, receipt)
 	case "restore":
 		if _, err := os.Lstat(*outputDir); !errors.Is(err, os.ErrNotExist) {
 			if err == nil {
@@ -180,6 +210,9 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 		receipt := verifiedReceipt(command, commitKey, verified)
 		receipt["restore_dir"] = filepath.Clean(*outputDir)
 		receipt["privacy_confirmed"] = true
+		if *workstation {
+			addWorkstationReceipt(receipt, false, *bucket, *recoveryRoleARN)
+		}
 		return writeJSON(out, receipt)
 	case "repair-plan":
 		return runRepairPlan(ctx, out, deps, cfg, store, window, commitKey)
@@ -187,7 +220,7 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 	return fmt.Errorf("unsupported command %q", command)
 }
 
-func runInspect(ctx context.Context, out io.Writer, deps cliDeps, cfg *config.Config, store archive.ObjectStore, window archive.Window, commitKey string) error {
+func runInspect(ctx context.Context, out io.Writer, deps cliDeps, cfg *config.Config, store archive.ReadOnlyObjectStore, window archive.Window, commitKey string) error {
 	db, conn, err := openCLIConnection(ctx, deps, cfg)
 	if err != nil {
 		return err
@@ -222,7 +255,28 @@ func runInspect(ctx context.Context, out io.Writer, deps cliDeps, cfg *config.Co
 	return writeJSON(out, receipt)
 }
 
-func runRepairPlan(ctx context.Context, out io.Writer, deps cliDeps, cfg *config.Config, store archive.ObjectStore, window archive.Window, commitKey string) error {
+func runWorkstationInspect(ctx context.Context, out io.Writer, deps cliDeps, store archive.ReadOnlyObjectStore, window archive.Window, commitKey, bucket, recoveryRoleARN string) error {
+	verified, err := deps.verifyCommit(ctx, store, commitKey, "")
+	if err != nil {
+		return fmt.Errorf("inspect workstation archive commit: %w", err)
+	}
+	defer func() { _ = verified.Close() }()
+	receipt := verifiedReceipt("inspect", commitKey, verified)
+	addWorkstationReceipt(receipt, true, bucket, recoveryRoleARN)
+	return writeJSON(out, receipt)
+}
+
+func addWorkstationReceipt(receipt map[string]any, metadataOnly bool, bucket, recoveryRoleARN string) {
+	receipt["source"] = "ops-workstation-s3"
+	receipt["metadata_only"] = metadataOnly
+	receipt["database_accessed"] = false
+	receipt["prod_host_accessed"] = false
+	receipt["iam_boundary"] = "shared_ec2_instance_role_no_process_isolation"
+	receipt["bucket"] = strings.TrimSpace(bucket)
+	receipt["recovery_role_arn"] = strings.TrimSpace(recoveryRoleARN)
+}
+
+func runRepairPlan(ctx context.Context, out io.Writer, deps cliDeps, cfg *config.Config, store archive.ReadOnlyObjectStore, window archive.Window, commitKey string) error {
 	db, conn, err := openCLIConnection(ctx, deps, cfg)
 	if err != nil {
 		return err
@@ -265,6 +319,9 @@ func fillDefaults(deps cliDeps) cliDeps {
 	}
 	if deps.newObjectStore == nil {
 		deps.newObjectStore = defaults.newObjectStore
+	}
+	if deps.newRecoveryStore == nil {
+		deps.newRecoveryStore = defaults.newRecoveryStore
 	}
 	if deps.verifyCommit == nil {
 		deps.verifyCommit = defaults.verifyCommit
@@ -338,7 +395,7 @@ func openCLIConnection(ctx context.Context, deps cliDeps, cfg *config.Config) (*
 	return db, conn, nil
 }
 
-func readOptionalCommit(ctx context.Context, deps cliDeps, store archive.ObjectStore, key string) (archive.VerifiedCommit, bool, error) {
+func readOptionalCommit(ctx context.Context, deps cliDeps, store archive.ReadOnlyObjectStore, key string) (archive.VerifiedCommit, bool, error) {
 	exists, err := store.Head(ctx, key)
 	if err != nil {
 		return archive.VerifiedCommit{}, false, fmt.Errorf("head archive commit: %w", err)

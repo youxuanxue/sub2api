@@ -160,6 +160,74 @@ func TestRestoreRequiresWindowBoundPrivacyConfirmation(t *testing.T) {
 	}
 }
 
+func TestUS045_WorkstationRecoveryInspectUsesDirectS3WithoutAppConfigOrDatabase(t *testing.T) {
+	calledConfig := false
+	calledDB := false
+	calledRecovery := false
+	deps := cliDeps{
+		loadConfig: func() (*config.Config, error) { calledConfig = true; return nil, errors.New("must not run") },
+		openDB:     func(string, string) (*sql.DB, error) { calledDB = true; return nil, errors.New("must not run") },
+		newRecoveryStore: func(_ context.Context, input archive.WorkstationRecoveryConfig) (archive.ReadOnlyObjectStore, error) {
+			calledRecovery = true
+			if input.Region != "us-east-1" || input.Bucket != "tokenkey-prod-qa-raw-archive-123456789012" ||
+				input.RoleARN != "arn:aws:iam::123456789012:role/tokenkey-prod-qa-raw-recovery" || input.Prefix != "raw/v1" {
+				t.Fatalf("recovery input=%+v", input)
+			}
+			return archive.NewMemoryObjectStore(), nil
+		},
+		verifyCommit: func(_ context.Context, _ archive.ReadOnlyObjectStore, key, restoreDir string) (archive.VerifiedCommit, error) {
+			if key != archive.ShardRelativePrefix(testWindow)+"/commit.json" || restoreDir != "" {
+				t.Fatalf("key=%q restoreDir=%q", key, restoreDir)
+			}
+			return archive.VerifiedCommit{Document: archive.CommitDocument{WindowStart: testWindow, WindowEnd: testWindow.Add(time.Hour)}, ETag: "etag-workstation"}, nil
+		},
+	}
+	out := &bytes.Buffer{}
+	err := runCLI(context.Background(), []string{
+		"inspect", "--workstation", "--window-start", testWindow.Format(time.RFC3339),
+		"--region", "us-east-1", "--bucket", "tokenkey-prod-qa-raw-archive-123456789012",
+		"--recovery-role-arn", "arn:aws:iam::123456789012:role/tokenkey-prod-qa-raw-recovery",
+	}, out, deps)
+	if err != nil {
+		t.Fatalf("runCLI()=%v", err)
+	}
+	if calledConfig || calledDB || !calledRecovery {
+		t.Fatalf("config=%v db=%v recovery=%v", calledConfig, calledDB, calledRecovery)
+	}
+	var receipt map[string]any
+	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt["source"] != "ops-workstation-s3" || receipt["metadata_only"] != true ||
+		receipt["database_accessed"] != false || receipt["iam_boundary"] != "shared_ec2_instance_role_no_process_isolation" {
+		t.Fatalf("receipt=%v", receipt)
+	}
+	if receipt["bucket"] != "tokenkey-prod-qa-raw-archive-123456789012" ||
+		receipt["recovery_role_arn"] != "arn:aws:iam::123456789012:role/tokenkey-prod-qa-raw-recovery" {
+		t.Fatalf("unbound recovery receipt=%v", receipt)
+	}
+}
+
+func TestUS045_WorkstationRecoveryRequiresAllDirectS3ParametersBeforeDependencies(t *testing.T) {
+	called := false
+	deps := cliDeps{newRecoveryStore: func(context.Context, archive.WorkstationRecoveryConfig) (archive.ReadOnlyObjectStore, error) {
+		called = true
+		return nil, errors.New("must not run")
+	}}
+	for _, args := range [][]string{
+		{"verify", "--workstation", "--window-start", testWindow.Format(time.RFC3339), "--bucket", "bucket", "--recovery-role-arn", "arn:aws:iam::123456789012:role/recovery"},
+		{"verify", "--workstation", "--window-start", testWindow.Format(time.RFC3339), "--region", "us-east-1", "--recovery-role-arn", "arn:aws:iam::123456789012:role/recovery"},
+		{"verify", "--workstation", "--window-start", testWindow.Format(time.RFC3339), "--region", "us-east-1", "--bucket", "bucket"},
+	} {
+		if err := runCLI(context.Background(), args, &bytes.Buffer{}, deps); err == nil {
+			t.Fatalf("runCLI(%v) unexpectedly succeeded", args)
+		}
+	}
+	if called {
+		t.Fatal("recovery store opened before parameter validation")
+	}
+}
+
 func TestRepairPlanReportsControlMismatch(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
 	if err != nil {
@@ -182,7 +250,7 @@ func TestRepairPlanReportsControlMismatch(t *testing.T) {
 		},
 		openDB:         func(string, string) (*sql.DB, error) { return db, nil },
 		newObjectStore: func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error) { return store, nil },
-		verifyCommit: func(context.Context, archive.ObjectStore, string, string) (archive.VerifiedCommit, error) {
+		verifyCommit: func(context.Context, archive.ReadOnlyObjectStore, string, string) (archive.VerifiedCommit, error) {
 			return archive.VerifiedCommit{Document: archive.CommitDocument{WindowStart: testWindow, WindowEnd: testWindow.Add(time.Hour)}, ETag: "etag-s3", RecordCount: 407}, nil
 		},
 		inspectControl: func(context.Context, *sql.Conn, archive.Window) (controlStatus, error) {
@@ -231,7 +299,7 @@ func TestInspectReportsBlockedIntegrityFailureWithoutWriting(t *testing.T) {
 		inspectControl: func(context.Context, *sql.Conn, archive.Window) (controlStatus, error) {
 			return controlStatus{Exists: true, State: archive.StateFailed, VerificationErrorCode: archive.IntegrityMissingEvidence, CleanupEligible: false}, nil
 		},
-		verifyCommit: func(context.Context, archive.ObjectStore, string, string) (archive.VerifiedCommit, error) {
+		verifyCommit: func(context.Context, archive.ReadOnlyObjectStore, string, string) (archive.VerifiedCommit, error) {
 			return archive.VerifiedCommit{}, &archive.IntegrityError{Code: archive.IntegrityMissingEvidence, RequestID: "safe-request-id", Err: errors.New("file not found")}
 		},
 	}
@@ -259,7 +327,7 @@ func TestVerifyUsesReadOnlyVerifierAndDeniesDeletion(t *testing.T) {
 		newObjectStore: func(context.Context, config.QACaptureStorageConfig) (archive.ObjectStore, error) {
 			return archive.NewMemoryObjectStore(), nil
 		},
-		verifyCommit: func(_ context.Context, _ archive.ObjectStore, key, restoreDir string) (archive.VerifiedCommit, error) {
+		verifyCommit: func(_ context.Context, _ archive.ReadOnlyObjectStore, key, restoreDir string) (archive.VerifiedCommit, error) {
 			if key != archive.ShardRelativePrefix(testWindow)+"/commit.json" || restoreDir != "" {
 				t.Fatalf("key=%q restore=%q", key, restoreDir)
 			}

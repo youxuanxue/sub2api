@@ -66,7 +66,13 @@ func NewReconciler(store ObjectStore, control ReconcileControl, scratchRoot stri
 	return &Reconciler{
 		Store: store, Control: control, ScratchRoot: scratchRoot,
 		CASAttempts: defaultCommitCASAttempts, SourceRetention: defaultSourceRetention, Now: time.Now,
-		Build: BuildSegment, VerifyOne: VerifySegment, VerifyAll: VerifyCommit,
+		Build: BuildSegment,
+		VerifyOne: func(ctx context.Context, store ObjectStore, descriptor SegmentDescriptor, restoreDir string) (VerifiedSegment, error) {
+			return VerifySegment(ctx, store, descriptor, restoreDir)
+		},
+		VerifyAll: func(ctx context.Context, store ObjectStore, commitKey, restoreDir string) (VerifiedCommit, error) {
+			return VerifyCommit(ctx, store, commitKey, restoreDir)
+		},
 	}
 }
 

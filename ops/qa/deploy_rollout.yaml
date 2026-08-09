@@ -10,7 +10,7 @@ prod:
     policy_target: prod.archive.enabled
     target_deploy_inject_default: true
     enable_after: docs/approved/design-qa-phase2-archive-closeout.md#production-rollout
-    closeout_state: pending_implementation
+    closeout_state: repository_ready_production_pending
   tokenkey_qa_maintenance_timer:
     observed_live_state: recently_enabled_requires_recloseout
     closeout_deploy_state: disabled
@@ -33,6 +33,14 @@ prod:
   QA_CAPTURE_ENABLED:
     deploy_inject: edge_only_false
     policy_target: prod.capture_enabled
+  raw_archive_recovery:
+    repository_state: ready
+    production_iam_state: pending_apply
+    independent_evidence_state: pending
+    recovery_cli: backend/cmd/qa-archive
+    retirement_gate: ops/qa/qa_archive_recovery_gate.py
+    break_glass_path: ops/prod/fetch-qa-dump.sh
+    shared_role_boundary: shared_ec2_instance_role_no_process_isolation
 
 edge:
   QA_CAPTURE_ENABLED:

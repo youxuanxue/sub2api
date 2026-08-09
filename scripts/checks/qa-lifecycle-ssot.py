@@ -22,6 +22,10 @@ QA_SERVICE = Path("backend/internal/observability/qa/service.go")
 QA_CONFIG = Path("backend/internal/config/config.go")
 GO_MAINTENANCE = Path("backend/cmd/server/qa_maintenance.go")
 RAW_ARCHIVE_CFN = Path("deploy/aws/cloudformation/stage0-qa-raw-archive.yaml")
+RAW_ARCHIVE_DEPLOY = Path("ops/qa/deploy_qa_raw_archive_cfn.sh")
+ARCHIVE_CLI = Path("backend/cmd/qa-archive/main.go")
+RECOVERY_GATE = Path("ops/qa/qa_archive_recovery_gate.py")
+BREAK_GLASS = Path("ops/prod/fetch-qa-dump.sh")
 ARCHIVE_STATE = Path("backend/internal/observability/qa/archive/state.go")
 ROLLOUT = Path("ops/qa/deploy_rollout.yaml")
 QA_README = Path("ops/qa/README.md")
@@ -123,7 +127,7 @@ REQUIRED_BY_FILE = {
         "schema_version: 1",
         "deploy_inject_default: false",
         "target_deploy_inject_default: true",
-        "closeout_state: pending_implementation",
+        "closeout_state: repository_ready_production_pending",
         "min_consecutive_scheduled_runs: 2",
         "host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh",
         "health_evaluator: ops/qa/qa_phase2_health.py",
@@ -157,6 +161,32 @@ REQUIRED_BY_FILE = {
         "QaRawArchiveBucket",
         "raw/v1/",
         "raw/partial/",
+        "orphan-evidence-index.jsonl.zst",
+        "QaRawArchiveRecoveryRole",
+        "QaRawArchiveS3Endpoint",
+        "QaRawArchiveDataTrail",
+    ),
+    RAW_ARCHIVE_DEPLOY: (
+        "OPS_RECOVERY_PRINCIPAL_ARN",
+        "QA_RAW_ARCHIVE_VPC_ID",
+        "QA_RAW_ARCHIVE_ROUTE_TABLE_IDS",
+        "iam_boundary=shared_ec2_instance_role_no_process_isolation",
+    ),
+    ARCHIVE_CLI: (
+        "NewReadOnlyObjectStoreForWorkstation",
+        "ops-workstation-s3",
+        "database_accessed",
+        "shared_ec2_instance_role_no_process_isolation",
+        "window-bound privacy confirmation required",
+    ),
+    RECOVERY_GATE: (
+        "planned_transition_authorized",
+        "planned_removal_only",
+        "production_evidence_validated",
+        "ops/prod/fetch-qa-dump.sh",
+    ),
+    BREAK_GLASS: (
+        "Export all prod qa_records",
     ),
     MAINTENANCE_SCRIPT: (
         "--qa-maintenance-once",
@@ -383,7 +413,7 @@ def _rollout_failures(root: Path) -> list[str]:
             failures.append("rollout prod.QA_ARCHIVE_ENABLED.policy_target drift")
         if prod_archive.get("target_deploy_inject_default") is not True:
             failures.append("rollout prod.QA_ARCHIVE_ENABLED target must become true after closeout")
-        if prod_archive.get("closeout_state") != "pending_implementation":
+        if prod_archive.get("closeout_state") != "repository_ready_production_pending":
             failures.append("rollout prod.QA_ARCHIVE_ENABLED closeout state drift")
     if not isinstance(prod_timer, dict):
         failures.append("rollout prod.tokenkey_qa_maintenance_timer must be a mapping")
@@ -411,6 +441,17 @@ def _rollout_failures(root: Path) -> list[str]:
         failures.append("rollout edge.QA_CAPTURE_ENABLED must be a mapping")
     elif edge_capture.get("deploy_inject_default") is not False:
         failures.append("rollout edge.QA_CAPTURE_ENABLED.deploy_inject_default must be false")
+    recovery = prod.get("raw_archive_recovery")
+    if not isinstance(recovery, dict) or recovery != {
+        "repository_state": "ready",
+        "production_iam_state": "pending_apply",
+        "independent_evidence_state": "pending",
+        "recovery_cli": "backend/cmd/qa-archive",
+        "retirement_gate": "ops/qa/qa_archive_recovery_gate.py",
+        "break_glass_path": "ops/prod/fetch-qa-dump.sh",
+        "shared_role_boundary": "shared_ec2_instance_role_no_process_isolation",
+    }:
+        failures.append("rollout raw archive recovery contract drift")
     return failures
 
 
@@ -563,6 +604,13 @@ edge:
             return 1
         if not any("retired QA contract reintroduced" in item for item in failures):
             print("self-test failed to detect retired route")
+            return 1
+        retired.unlink()
+        route.write_text("retired surface absent\n", encoding="utf-8")
+        (root / RECOVERY_GATE).unlink()
+        failures = scan(root)
+        if not any(str(RECOVERY_GATE) in item for item in failures):
+            print("self-test failed to detect missing recovery retirement gate")
             return 1
     print("qa lifecycle SSOT self-test: OK")
     return 0

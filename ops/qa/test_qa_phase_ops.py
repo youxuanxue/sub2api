@@ -530,10 +530,11 @@ exit 0
             body.index("Sid: AllowOpsRecoveryRoleReadRaw")
         ]
         self.assertNotIn("s3:DeleteObject", app_policy)
-        self.assertIn("Sid: AllowAppInstanceRoleListRawPrefix", app_policy)
-        self.assertIn("s3:ListBucket", app_policy)
-        self.assertIn("raw/v1/*", app_policy)
-        self.assertIn("raw/partial/*", app_policy)
+        self.assertNotIn("Sid: AllowAppInstanceRoleListRawPrefix", app_policy)
+        self.assertNotIn("s3:ListBucket", app_policy)
+        self.assertIn("raw/v1/date=*/hour=*/commit.json", app_policy)
+        self.assertNotIn("raw/partial/*", app_policy)
+        self.assertIn("orphan-evidence-index.jsonl.zst", app_policy)
         recovery_policy = body[
             body.index("Sid: AllowOpsRecoveryRoleReadRaw") :
             body.index("QaRawArchiveAuditBucket:")
@@ -600,7 +601,7 @@ exit 0
         self.assertIn("cloudformation create-change-set", body)
         self.assertIn("cloudformation describe-change-set", body)
         self.assertIn("cloudformation execute-change-set", body)
-        self.assertIn("CAPABILITY_IAM", body)
+        self.assertIn("CAPABILITY_NAMED_IAM", body)
         self.assertNotIn("cloudformation deploy", body)
 
     def test_raw_archive_deploy_rejects_replacement_even_when_confirmed(self) -> None:

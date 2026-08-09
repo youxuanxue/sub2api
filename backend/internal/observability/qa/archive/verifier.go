@@ -70,7 +70,7 @@ func (v *VerifiedSegment) Close() error {
 	return os.RemoveAll(v.scratchDir)
 }
 
-func VerifyCommit(ctx context.Context, store ObjectStore, commitKey, restoreDir string) (_ VerifiedCommit, resultErr error) {
+func VerifyCommit(ctx context.Context, store ReadOnlyObjectStore, commitKey, restoreDir string) (_ VerifiedCommit, resultErr error) {
 	opened, err := store.Open(ctx, commitKey)
 	if err != nil {
 		return VerifiedCommit{}, corruptArtifact("commit.json", err)
@@ -158,7 +158,7 @@ func VerifyCommit(ctx context.Context, store ObjectStore, commitKey, restoreDir 
 	return verified, nil
 }
 
-func VerifySegment(ctx context.Context, store ObjectStore, descriptor SegmentDescriptor, restoreDir string) (_ VerifiedSegment, resultErr error) {
+func VerifySegment(ctx context.Context, store ReadOnlyObjectStore, descriptor SegmentDescriptor, restoreDir string) (_ VerifiedSegment, resultErr error) {
 	manifestBytes, err := readObjectBounded(ctx, store, descriptor.ManifestKey, maxManifestBytes)
 	if err != nil {
 		return VerifiedSegment{}, corruptArtifact("manifest.json", err)
@@ -358,7 +358,7 @@ func verificationDirectory(restoreDir string) (workDir string, scratch string, e
 	return scratch, scratch, nil
 }
 
-func readObjectBounded(ctx context.Context, store ObjectStore, key string, limit int64) ([]byte, error) {
+func readObjectBounded(ctx context.Context, store ReadOnlyObjectStore, key string, limit int64) ([]byte, error) {
 	opened, err := store.Open(ctx, key)
 	if err != nil {
 		return nil, err
@@ -377,7 +377,7 @@ func readObjectBounded(ctx context.Context, store ObjectStore, key string, limit
 	return body, nil
 }
 
-func downloadObject(ctx context.Context, store ObjectStore, key, destination, expectedSHA256 string) (int64, error) {
+func downloadObject(ctx context.Context, store ReadOnlyObjectStore, key, destination, expectedSHA256 string) (int64, error) {
 	if expectedSHA256 == "" {
 		return 0, fmt.Errorf("expected checksum is required")
 	}
