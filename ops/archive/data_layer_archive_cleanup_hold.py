@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import pathlib
@@ -122,6 +123,75 @@ def verify_receipt_for_instance(
     if receipt["instance_id"] != instance_id:
         raise HoldControlError("cleanup hold receipt targets a different production instance")
     return receipt
+
+
+def _load_release_receipt(
+    path: str | os.PathLike[str],
+    *,
+    hold_receipt: dict[str, Any],
+    hold_receipt_path: str | os.PathLike[str],
+) -> dict[str, Any]:
+    resolved = pathlib.Path(path).expanduser().resolve()
+    try:
+        value = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HoldControlError("cleanup release receipt cannot be read") from exc
+    if (
+        not isinstance(value, dict)
+        or value.get("mode") != "prod_archive_cleanup_hold_release"
+        or value.get("environment") != "prod"
+        or value.get("hold_active") is not False
+        or value.get("database_cleanup_enabled") is not True
+        or value.get("api_cleanup_enabled") is not True
+        or value.get("reload_proven") is not True
+        or value.get("deletion_authorized") is not False
+        or value.get("restored_cleanup_enabled") is not True
+        or not isinstance(value.get("hold_started_at"), str)
+        or not isinstance(value.get("verified_at"), str)
+        or INSTANCE_RE.fullmatch(str(value.get("instance_id", ""))) is None
+    ):
+        raise HoldControlError("cleanup release receipt failed validation")
+    if value["instance_id"] != hold_receipt["instance_id"]:
+        raise HoldControlError("cleanup release receipt targets a different production instance")
+    if value["hold_started_at"] != hold_receipt["hold_started_at"]:
+        raise HoldControlError("cleanup release receipt does not bind to the hold receipt")
+    try:
+        hold_digest = hashlib.sha256(
+            pathlib.Path(hold_receipt_path).expanduser().resolve().read_bytes()
+        ).hexdigest()
+    except OSError as exc:
+        raise HoldControlError("cleanup hold receipt digest cannot be computed") from exc
+    if value.get("hold_receipt_sha256") != hold_digest:
+        raise HoldControlError("cleanup release receipt does not bind to the hold receipt digest")
+    return value
+
+
+def _latest_release_receipt(
+    attachments: pathlib.Path,
+    cleanup_release_receipt_glob: str,
+    hold_receipt: dict[str, Any],
+    hold_receipt_path: pathlib.Path,
+) -> tuple[pathlib.Path, dict[str, Any]]:
+    candidates: list[tuple[dt.datetime, pathlib.Path, dict[str, Any]]] = []
+    for path in attachments.glob(cleanup_release_receipt_glob):
+        try:
+            receipt = _load_release_receipt(
+                path,
+                hold_receipt=hold_receipt,
+                hold_receipt_path=hold_receipt_path,
+            )
+            timestamp = dt.datetime.fromisoformat(
+                receipt["verified_at"].replace("Z", "+00:00")
+            )
+            if timestamp.tzinfo is None:
+                raise ValueError("release timestamp must include timezone")
+        except (HoldControlError, ValueError, TypeError, OSError):
+            continue
+        candidates.append((timestamp, path, receipt))
+    if not candidates:
+        raise HoldControlError("no valid cleanup release receipt")
+    _, path, receipt = max(candidates, key=lambda item: item[0])
+    return path, receipt
 
 
 def apply(receipt_path: str | os.PathLike[str], confirmation: str) -> dict[str, Any]:

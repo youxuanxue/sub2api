@@ -42,10 +42,18 @@ cron + leader lock
 ledger 的 `more_cold_rows_remaining=false` 只是当次水位结论；时间推进后允许从原 cursor
 继续导出新变冷的尾部。
 
-Archive closeout 继续证明冷数据可恢复，但不再作为年龄 retention 的前置条件。2026-08-07
-已明确接受两个 ops 表的历史冷尾缺口并停止快照恢复；该决定不把 archive 标记为完整，也不阻止
-后续按 30 天规则清理源表。cleanup hold 首次释放前仍需实时读取 cutoff、候选量、leader lock、
-当前配置和 active image，并以独立确认执行；之后 `OpsCleanupService` 继续作为唯一 retention owner。
+Archive closeout 继续证明冷数据可恢复，但不再作为年龄 retention 的前置条件。
+
+**Prod 终态**由 repo 证据 + `python3 ops/observability/data_layer_archive_health.py` 定义：
+`closeout_complete`、`tail_export_complete`、`cleanup_release_complete` 均为 true，且
+`evidence_errors` 为空。日常回收唯一 owner 是 `OpsCleanupService`（ops 月分区在
+`upper_bound <= now-30d` 时整分区 DROP；跨边界宽分区 capped 行级 DELETE；
+`usage_logs_legacy` 走 attach-legacy + 90d DELETE/DropExpired）。promote ledger 的
+`drop_ready` 只证明 export 证据齐全，**不授权**删除。
+
+若 tail export 完成后出现新的 post-legacy 冷行，走 re-export 例外路径（新 hold →
+`post_legacy_cold` export → promote → closeout → release）；见 `ops/archive/README.md`
+§Exception path。
 
 ## Usage 日分区
 
@@ -116,7 +124,8 @@ retention；本阶段不把 S3 变成账务 source of truth。
 
 - cleanup disabled 时未来分区仍创建，只有维护 heartbeat 更新。
 - cleanup enabled 时维护成功后才执行 retention，两个 heartbeat 独立。
-- 归档尾部可从已完成 ledger 的 cursor 继续；未达到分区上界不得报告 archive closeout。
+- 归档尾部可从已完成 ledger 的 cursor 继续；steady state 下仅 re-export 例外路径续跑
+  `post_legacy_cold` export。
 - promote checksum 或随机 restore 不一致时 archive health 必须失败，但不改变 30 天 retention 资格。
 - usage 切换脚本拒绝未验证约束、错误上界、活跃锁和行数漂移。
 - telemetry 未配置时零行为变化；队列满或 S3 失败不影响 PostgreSQL 成功。

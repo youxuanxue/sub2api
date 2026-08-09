@@ -11,6 +11,7 @@ DEFAULT_PIPELINE = Path(__file__).resolve().parent / "pipeline_status.yaml"
 
 @dataclass(frozen=True)
 class EvidenceLayout:
+    evidence_dir: Path
     cleanup_hold_glob: str
     cleanup_release_receipt_glob: str
     export_ledger_template: str
@@ -40,6 +41,19 @@ class EvidenceLayout:
         return self.closeout_receipt_template.format(table_slug=self.table_slugs[table])
 
 
+def _repo_root(pipeline_path: Path) -> Path:
+    return pipeline_path.resolve().parents[2]
+
+
+def _resolve_evidence_dir(repo_root: Path, spec: str) -> Path:
+    raw = spec.strip()
+    if not raw or raw.startswith(("/", "\\")) or ".." in raw.replace("\\", "/").split("/"):
+        raise ValueError("pipeline_status.yaml evidence_attachments.evidence_dir must be a safe repo-relative path")
+    resolved = (repo_root / raw).resolve()
+    if resolved != repo_root and repo_root not in resolved.parents:
+        raise ValueError("pipeline_status.yaml evidence_attachments.evidence_dir escapes repo root")
+    return resolved
+
 def load_pipeline_status(path: Path | None = None) -> dict[str, Any]:
     path = DEFAULT_PIPELINE if path is None else path
     try:
@@ -53,7 +67,8 @@ def load_pipeline_status(path: Path | None = None) -> dict[str, Any]:
 
 
 def load_evidence_layout(path: Path | None = None) -> EvidenceLayout:
-    data = load_pipeline_status(path)
+    pipeline_path = DEFAULT_PIPELINE if path is None else path
+    data = load_pipeline_status(pipeline_path)
     evidence = data.get("evidence_attachments")
     if not isinstance(evidence, dict):
         raise ValueError("pipeline_status.yaml evidence_attachments must be a mapping")
@@ -61,6 +76,7 @@ def load_evidence_layout(path: Path | None = None) -> EvidenceLayout:
     if not isinstance(slugs, dict) or not slugs:
         raise ValueError("pipeline_status.yaml evidence_attachments.table_slugs required")
     for key in (
+        "evidence_dir",
         "cleanup_hold_glob",
         "cleanup_release_receipt_glob",
         "export_ledger_template",
@@ -73,7 +89,9 @@ def load_evidence_layout(path: Path | None = None) -> EvidenceLayout:
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"pipeline_status.yaml evidence_attachments.{key} required")
     normalized_slugs = {str(table): str(slug) for table, slug in slugs.items()}
+    repo_root = _repo_root(pipeline_path)
     return EvidenceLayout(
+        evidence_dir=_resolve_evidence_dir(repo_root, str(evidence["evidence_dir"])),
         cleanup_hold_glob=str(evidence["cleanup_hold_glob"]),
         cleanup_release_receipt_glob=str(evidence["cleanup_release_receipt_glob"]),
         export_ledger_template=str(evidence["export_ledger_template"]),

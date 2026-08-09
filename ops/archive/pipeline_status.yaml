@@ -1,7 +1,7 @@
 schema_version: 1
-# Repo-evidence pipeline state for generic usage/ops data-layer archive (not live prod).
-# Refresh ledgers/receipts under .testing/user-stories/attachments/ after each operator batch.
-# Live probes: ops/observability/probe-data-layer-*.sh (read-only; do not treat this file as runtime truth).
+# Repo-evidence SSOT for generic usage/ops data-layer archive (not live prod).
+# Refresh repo evidence under ops/archive/evidence/ after re-export exception-path batches only.
+# Live probes: ops/observability/probe-data-layer-*.sh
 
 design_anchors:
   phase1_closeout: docs/approved/design-data-layer-phase1-closeout.md
@@ -14,24 +14,19 @@ retention_hot_layer_days:
 
 legacy_export_upper_exclusive: "2026-07-01T00:00:00.000000Z"
 
-stories:
-  rehearsal: US-037
-  prod_canary: US-039
-  legacy_export_promote: US-040
-  phase1_closeout: US-042
-
 evidence_attachments:
-  cleanup_hold_glob: "US-039-prod-cleanup-hold-*.json"
-  cleanup_release_receipt_glob: "US-039-prod-cleanup-hold-release-*.json"
-  export_ledger_template: "US-040-{table_slug}-export-ledger.json"
-  promote_ledger_template: "US-040-{table_slug}-promote-ledger.json"
-  tail_export_ledger_template: "US-040-{table_slug}-tail-export-ledger.json"
-  tail_promote_ledger_template: "US-040-{table_slug}-tail-promote-ledger.json"
-  closeout_receipt_template: "US-040-{table_slug}-archive-closeout.json"
+  evidence_dir: ops/archive/evidence
+  cleanup_hold_glob: "data-layer-cleanup-hold-*.json"
+  cleanup_release_receipt_glob: "data-layer-cleanup-hold-release*.json"
+  export_ledger_template: "data-layer-{table_slug}-export-ledger.json"
+  promote_ledger_template: "data-layer-{table_slug}-promote-ledger.json"
+  tail_export_ledger_template: "data-layer-{table_slug}-tail-export-ledger.json"
+  tail_promote_ledger_template: "data-layer-{table_slug}-tail-promote-ledger.json"
+  closeout_receipt_template: "data-layer-{table_slug}-archive-closeout.json"
   table_slugs:
     ops_system_logs: ops-system-logs
     ops_error_logs: ops-error-logs
 
 closeout_required_before_cleanup_release: true
-# Release gate only: first cleanup-hold release requires both ops closeout receipts
-# in repo evidence. Ongoing age-based cleanup does not re-check this flag.
+# Steady-state evidence: archive_health validates closeout, tail export, hold binding, release.
+# closeout_required_before_cleanup_release applies only to first hold release.

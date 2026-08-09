@@ -35,7 +35,7 @@
 - 本 Story 只验收本地和非生产安全工件，不授权 prod 查询或写入。
 - prod plan 也算线上写动作，因为会创建临时 SSM 参数和 no-execute change set。
 - 唯一允许的容量估计是显式假设的 offline projection；未知证据不自动补零。
-- 归档 worker、S3 写入、恢复 canary 和删除属于下一审批阶段。
+- 归档 steady state 见 `ops/archive/README.md` 与 `archive_health`；Exception path CLI 见 approved 归档/canary 设计。
 - 本变更无 Web surface；运维入口只在 CLI/CI。
 
 ## Linked Tests

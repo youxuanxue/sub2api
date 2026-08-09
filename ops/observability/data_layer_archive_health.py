@@ -13,7 +13,6 @@ from typing import Any
 
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
-ATTACHMENTS = REPO / ".testing" / "user-stories" / "attachments"
 ARCHIVE = REPO / "ops" / "archive"
 sys.path.insert(0, str(ARCHIVE))
 
@@ -80,8 +79,10 @@ def _tail_batches_fully_promoted(
     return bool(expected) and expected <= promoted
 
 
-def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
+def build_signal(evidence_dir: pathlib.Path | None = None) -> dict[str, Any]:
     layout = pipeline_status.load_evidence_layout()
+    if evidence_dir is None:
+        evidence_dir = layout.evidence_dir
     ledgers: list[dict[str, Any]] = []
     tail_ledgers: list[dict[str, Any]] = []
     restores: list[str] = []
@@ -91,11 +92,11 @@ def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
     hold: dict[str, Any] = {}
     hold_path: pathlib.Path | None = None
     try:
-        hold_path, hold = _latest_hold_receipt(attachments, layout.cleanup_hold_glob)
+        hold_path, hold = _latest_hold_receipt(evidence_dir, layout.cleanup_hold_glob)
     except (cleanup_hold.HoldControlError, OSError):
         evidence_errors.append("cleanup_hold")
     for table in layout.tables:
-        export_path = attachments / layout.export_ledger_name(table)
+        export_path = evidence_dir / layout.export_ledger_name(table)
         try:
             ledger = export.load_ledger(export_path)
             batches = ledger.get("completed_batches")
@@ -113,10 +114,10 @@ def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
         except (export.ExportError, OSError):
             evidence_errors.append(f"{table}:export_ledger")
 
-        closeout_path = attachments / layout.closeout_receipt_name(table)
+        closeout_path = evidence_dir / layout.closeout_receipt_name(table)
         if not closeout_path.exists():
             continue
-        promote_path = attachments / layout.promote_ledger_name(table)
+        promote_path = evidence_dir / layout.promote_ledger_name(table)
         try:
             receipt = closeout.load_closeout_receipt(closeout_path)
             promote.load_promote_ledger(promote_path)
@@ -142,8 +143,8 @@ def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
         closeout_tables.add(table)
         restores.append(receipt["restore_verified_at"])
 
-        tail_export_path = attachments / layout.tail_export_ledger_name(table)
-        tail_promote_path = attachments / layout.tail_promote_ledger_name(table)
+        tail_export_path = evidence_dir / layout.tail_export_ledger_name(table)
+        tail_promote_path = evidence_dir / layout.tail_promote_ledger_name(table)
         try:
             tail_export = export.load_ledger(tail_export_path)
             if tail_export.get("table") != table:
@@ -183,12 +184,33 @@ def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
                 tail_export_tables.add(table)
         except (export.ExportError, promote.PromoteError, OSError):
             evidence_errors.append(f"{table}:tail_export_ledger")
+    closeout_complete = closeout_tables == set(layout.tables)
+    tail_export_complete = tail_export_tables == set(layout.tables)
+    cleanup_release_complete = False
+    cleanup_release_verified_at: str | None = None
+    if closeout_complete and tail_export_complete:
+        if hold_path is None:
+            evidence_errors.append("cleanup_release")
+        else:
+            try:
+                _, release = cleanup_hold._latest_release_receipt(
+                    evidence_dir,
+                    layout.cleanup_release_receipt_glob,
+                    hold,
+                    hold_path,
+                )
+                cleanup_release_complete = True
+                cleanup_release_verified_at = release.get("verified_at")
+            except cleanup_hold.HoldControlError:
+                evidence_errors.append("cleanup_release")
     return {
         "ledgers": ledgers,
         "tail_ledgers": tail_ledgers,
         "hold_started_at": hold.get("hold_started_at"),
-        "closeout_complete": closeout_tables == set(layout.tables),
-        "tail_export_complete": tail_export_tables == set(layout.tables),
+        "closeout_complete": closeout_complete,
+        "tail_export_complete": tail_export_complete,
+        "cleanup_release_complete": cleanup_release_complete,
+        "cleanup_release_verified_at": cleanup_release_verified_at,
         "restore_verified_at": restores,
         "evidence_errors": sorted(set(evidence_errors)),
     }
@@ -196,9 +218,16 @@ def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--attachments", type=pathlib.Path, default=ATTACHMENTS)
+    layout = pipeline_status.load_evidence_layout()
+    parser.add_argument(
+        "--evidence-dir",
+        type=pathlib.Path,
+        default=None,
+        help=f"override repo evidence directory (default: {layout.evidence_dir})",
+    )
     args = parser.parse_args()
-    print("ARCHIVESTATS " + json.dumps(build_signal(args.attachments), sort_keys=True))
+    evidence_dir = layout.evidence_dir if args.evidence_dir is None else args.evidence_dir
+    print("ARCHIVESTATS " + json.dumps(build_signal(evidence_dir), sort_keys=True))
     return 0
 
 
