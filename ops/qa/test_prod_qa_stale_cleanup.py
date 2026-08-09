@@ -17,6 +17,12 @@ SPEC = importlib.util.spec_from_file_location("prod_qa_stale_cleanup", HERE / "p
 assert SPEC is not None and SPEC.loader is not None
 control = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(control)
+HELPER_SPEC = importlib.util.spec_from_file_location(
+    "tokenkey_qa_export_orphan", HERE.parent.parent / "deploy/aws/stage0/tokenkey-qa-export-orphan.py"
+)
+assert HELPER_SPEC is not None and HELPER_SPEC.loader is not None
+orphan_helper = importlib.util.module_from_spec(HELPER_SPEC)
+HELPER_SPEC.loader.exec_module(orphan_helper)
 
 INSTANCE = "i-0123456789abcdef0"
 CUTOFF = "2026-08-06T12:00:00.000000Z"
@@ -78,6 +84,88 @@ def plan(clock: str | None = None) -> dict:
 
 
 class ProdQAStaleCleanupTest(unittest.TestCase):
+    def _orphan_action_args(
+        self, export_root: pathlib.Path, proc_root: pathlib.Path
+    ) -> tuple[object, dict[str, str]]:
+        runtime = {
+            "container_dir": "/app/data/qa_exports_tmp",
+            "host_dir": str(export_root),
+        }
+        plan = orphan_helper._with_hash(
+            orphan_helper._base_plan(runtime, CUTOFF, proc_root)
+        )
+        return type("Args", (), {
+            "mode": "apply",
+            "cutoff": CUTOFF,
+            "runtime_json": json.dumps(runtime),
+            "proc_root": str(proc_root),
+            "expected_hash": plan["plan_hash"],
+            "activation_marker": str(export_root.parent / "activation.json"),
+        })(), runtime
+
+    def test_export_orphan_rechecks_each_file_before_unlink(self) -> None:
+        cutoff = dt.datetime.strptime(CUTOFF, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+            tzinfo=dt.timezone.utc
+        )
+        old_ns = int((cutoff - dt.timedelta(seconds=1)).timestamp() * 1_000_000_000)
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            export_root = root / "exports"
+            export_root.mkdir()
+            proc_root = root / "proc"
+            proc_root.mkdir()
+            first = export_root / "first.zip"
+            replacement = export_root / "second.zip"
+            for path in (first, replacement):
+                path.write_bytes(b"planned")
+                os.utime(path, ns=(old_ns, old_ns))
+            args, _ = self._orphan_action_args(export_root, proc_root)
+            real_unlink = orphan_helper.os.unlink
+
+            def replace_second_after_first_unlink(name, *unlink_args, **unlink_kwargs):
+                real_unlink(name, *unlink_args, **unlink_kwargs)
+                if name == first.name:
+                    replacement.write_bytes(b"replacement")
+                    os.utime(replacement, ns=(old_ns, old_ns))
+
+            with mock.patch.object(orphan_helper.os, "unlink", side_effect=replace_second_after_first_unlink):
+                with self.assertRaisesRegex(orphan_helper.ExportOrphanError, "changed before removal"):
+                    orphan_helper._action(args)
+            self.assertFalse(first.exists())
+            self.assertTrue(replacement.exists())
+
+    def test_export_orphan_rechecks_open_handles_before_each_unlink(self) -> None:
+        cutoff = dt.datetime.strptime(CUTOFF, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+            tzinfo=dt.timezone.utc
+        )
+        old_ns = int((cutoff - dt.timedelta(seconds=1)).timestamp() * 1_000_000_000)
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            export_root = root / "exports"
+            export_root.mkdir()
+            proc_root = root / "proc"
+            proc_root.mkdir()
+            first = export_root / "first.zip"
+            opened = export_root / "second.zip"
+            for path in (first, opened):
+                path.write_bytes(b"planned")
+                os.utime(path, ns=(old_ns, old_ns))
+            args, _ = self._orphan_action_args(export_root, proc_root)
+            real_unlink = orphan_helper.os.unlink
+
+            def open_second_after_first_unlink(name, *unlink_args, **unlink_kwargs):
+                real_unlink(name, *unlink_args, **unlink_kwargs)
+                if name == first.name:
+                    fd_dir = proc_root / "909/fd"
+                    fd_dir.mkdir(parents=True)
+                    (fd_dir / "8").symlink_to(opened)
+
+            with mock.patch.object(orphan_helper.os, "unlink", side_effect=open_second_after_first_unlink):
+                with self.assertRaisesRegex(orphan_helper.ExportOrphanError, "changed before removal"):
+                    orphan_helper._action(args)
+            self.assertFalse(first.exists())
+            self.assertTrue(opened.exists())
+
     def _host_sandbox(
         self,
         root: pathlib.Path,

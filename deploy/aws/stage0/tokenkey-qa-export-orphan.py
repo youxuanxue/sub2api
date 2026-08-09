@@ -170,6 +170,23 @@ def _write_activation(path: pathlib.Path, plan_hash: str) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _revalidate_candidate(
+    directory_fd: int, item: dict[str, Any], cutoff_ns: int, opened: set[tuple[int, int]]
+) -> None:
+    name = item["basename"]
+    if name in {"", ".", ".."} or "/" in name:
+        raise ExportOrphanError("QA export orphan basename is unsafe")
+    value = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    if (
+        not stat.S_ISREG(value.st_mode)
+        or value.st_size != item["size_bytes"]
+        or value.st_mtime_ns != item["mtime"]
+        or value.st_mtime_ns >= cutoff_ns
+        or (value.st_dev, value.st_ino) in opened
+    ):
+        raise ExportOrphanError(f"QA export orphan changed before removal: {name}")
+
+
 def _action(args: argparse.Namespace) -> dict[str, Any]:
     try:
         runtime = json.loads(args.runtime_json)
@@ -192,19 +209,11 @@ def _action(args: argparse.Namespace) -> dict[str, Any]:
         try:
             opened = _open_identities(proc_root)
             for item in plan["files"]:
-                name = item["basename"]
-                if name in {"", ".", ".."} or "/" in name:
-                    raise ExportOrphanError("QA export orphan basename is unsafe")
-                value = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
-                if (
-                    not stat.S_ISREG(value.st_mode)
-                    or value.st_size != item["size_bytes"]
-                    or value.st_mtime_ns != item["mtime"]
-                    or value.st_mtime_ns >= cutoff_ns
-                    or (value.st_dev, value.st_ino) in opened
-                ):
-                    raise ExportOrphanError(f"QA export orphan changed before removal: {name}")
+                _revalidate_candidate(directory_fd, item, cutoff_ns, opened)
             for item in plan["files"]:
+                _revalidate_candidate(
+                    directory_fd, item, cutoff_ns, _open_identities(proc_root)
+                )
                 os.unlink(item["basename"], dir_fd=directory_fd)
         finally:
             os.close(directory_fd)

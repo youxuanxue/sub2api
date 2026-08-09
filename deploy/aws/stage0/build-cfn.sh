@@ -21,7 +21,7 @@ PRUNE_SRC="${HERE}/tokenkey-prune-ghcr-app-tags.sh"
 DAILY_PRUNE_SRC="${HERE}/tokenkey-ghcr-prune-daily.sh"
 BOOTSTRAP_SRC="${HERE}/stage0-ec2-bootstrap.sh"
 LAUNCHER_SRC="${HERE}/stage0-ec2-userdata-launcher.sub.sh"
-CFN_FILE="${REPO_ROOT}/deploy/aws/cloudformation/stage0-single-ec2.yaml"
+CFN_FILE="${CFN_FILE:-${REPO_ROOT}/deploy/aws/cloudformation/stage0-single-ec2.yaml}"
 
 EC2_USERDATA_LIMIT=16384
 SSM_STANDARD_VALUE_LIMIT=4096

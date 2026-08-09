@@ -312,12 +312,33 @@ delete_rows_before 2026-08-06T12:00:00.000000Z
         self.assertIn("verify_marker", timer_command)
         self.assertIn("sha256sum", timer_command)
         self.assertIn("a" * 64, timer_command)
-        helper_command = next(
-            command
-            for command in params["commands"]
+        helper_index, helper_command = next(
+            (index, command)
+            for index, command in enumerate(params["commands"])
             if "qa-export-orphan.py" in command and "printf %s" in command
         )
-        payload = re.search(r"printf %s '([^']+)'", helper_command)
+        runner_index, runner_command = next(
+            (index, command)
+            for index, command in enumerate(params["commands"])
+            if "tokenkey-qa-stale-cleanup.sh" in command and "printf %s" in command
+        )
+        self.assertLess(helper_index, runner_index)
+        helper_parts = shlex.split(helper_command)
+        runner_parts = shlex.split(runner_command)
+        self.assertEqual(helper_parts[:3], ["sudo", "bash", "-c"])
+        self.assertEqual(runner_parts[:3], ["sudo", "bash", "-c"])
+        helper_install = helper_parts[3]
+        runner_install = runner_parts[3]
+        for install, destination in (
+            (helper_install, "/usr/local/lib/tokenkey/qa-export-orphan.py"),
+            (runner_install, "/usr/local/bin/tokenkey-qa-stale-cleanup.sh"),
+        ):
+            self.assertIn('directory=$(dirname "$destination")', install)
+            self.assertIn('temporary=$(mktemp "$directory/.${destination##*/}.XXXXXX")', install)
+            self.assertIn('chmod 0755 "$temporary"', install)
+            self.assertIn('mv -f "$temporary" "$destination"', install)
+            self.assertIn(destination, install)
+        payload = re.search(r"printf %s '([^']+)'", helper_install)
         self.assertIsNotNone(payload)
         assert payload is not None
         self.assertEqual(

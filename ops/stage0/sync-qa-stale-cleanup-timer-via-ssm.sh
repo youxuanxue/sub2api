@@ -53,13 +53,22 @@ stdout="${OUTPUT_DIR}/stdout.txt"
 stderr="${OUTPUT_DIR}/stderr.txt"
 
 jq -n --arg payload "${payload}" --arg helper_payload "${helper_payload}" --arg command "${timer_command}" \
-  --arg timer_state "${TIMER_STATE}" --arg active_state "${active_state}" '{commands:[
+  --arg timer_state "${TIMER_STATE}" --arg active_state "${active_state}" '
+  def atomic_install($artifact; $destination):
+    "sudo bash -c " + (
+      (
+        "set -euo pipefail; destination=" + ($destination | @sh)
+        + "; directory=$(dirname \"$destination\"); install -d -m 0755 \"$directory\""
+        + "; temporary=$(mktemp \"$directory/.${destination##*/}.XXXXXX\")"
+        + "; trap \"rm -f \\\"$temporary\\\"\" EXIT"
+        + "; printf %s " + ($artifact | @sh) + " | base64 -d | gunzip > \"$temporary\""
+        + "; chmod 0755 \"$temporary\"; mv -f \"$temporary\" \"$destination\""
+      ) | @sh
+    );
+  {commands:[
     "set -euo pipefail",
-    ("printf %s " + ($payload|@sh) + " | base64 -d | gunzip | sudo tee /usr/local/bin/tokenkey-qa-stale-cleanup.sh >/dev/null"),
-    "sudo chmod +x /usr/local/bin/tokenkey-qa-stale-cleanup.sh",
-    "sudo install -d -m 0755 /usr/local/lib/tokenkey",
-    ("printf %s " + ($helper_payload|@sh) + " | base64 -d | gunzip | sudo tee /usr/local/lib/tokenkey/qa-export-orphan.py >/dev/null"),
-    "sudo chmod 0755 /usr/local/lib/tokenkey/qa-export-orphan.py",
+    atomic_install($helper_payload; "/usr/local/lib/tokenkey/qa-export-orphan.py"),
+    atomic_install($payload; "/usr/local/bin/tokenkey-qa-stale-cleanup.sh"),
     "sudo /usr/local/bin/tokenkey-qa-stale-cleanup.sh --install-units",
     "sudo systemctl daemon-reload",
     $command,
