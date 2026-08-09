@@ -24,6 +24,7 @@ class RetentionActivationTest(unittest.TestCase):
         self.assertIn("ops_system_logs", script)
         self.assertIn("active_image", script)
         self.assertIn("telemetry_archive_shadow", script)
+        self.assertIn("ops_partition_maintenance", script)
         self.assertNotIn("forward_archive_window", script)
         self.assertNotIn("qa_archive_shards", script)
         self.assertIn("WITH bounds AS MATERIALIZED", script)
@@ -34,6 +35,27 @@ class RetentionActivationTest(unittest.TestCase):
         self.assertNotIn("UPDATE ", script)
         self.assertNotIn("cleanup_eligible", script)
         self.assertNotIn("commit_key", script)
+
+    def test_ready_accepts_legacy_window_without_tomorrow_child_partition(self) -> None:
+        payload = {
+            "active_image": "ghcr.io/youxuanxue/sub2api:1.8.140",
+            "timers": {
+                "qa_maintenance": {"enabled": "disabled", "active": "inactive"},
+                "qa_stale_cleanup": {"enabled": "disabled", "active": "inactive"},
+            },
+            "qa": {"active_image": "ghcr.io/youxuanxue/sub2api:1.8.140"},
+            "ops": {
+                "ops_retention_days": 30,
+                "usage_logs_partitioned": True,
+                "usage_legacy_attached": True,
+                "usage_future_partition_exists": False,
+                "usage_partition_maintenance_clean": True,
+                "telemetry_clean": True,
+                "telemetry_stats": {"dropped": 0, "failed": 0},
+            },
+        }
+        ready, reasons = activation._ready(payload)
+        self.assertTrue(ready, reasons)
 
     def test_plan_rejects_invalid_hold_before_remote_resolution(self) -> None:
         called = False

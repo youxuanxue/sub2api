@@ -50,6 +50,8 @@ class UsageLogsDailyPartitionTest(unittest.TestCase):
         self.assertIn("obj_description(oid, 'pg_constraint')", sql)
         self.assertIn("usage_logs_partition_index_map", sql)
         self.assertIn("contype = 'c'", sql)
+        self.assertIn("ALTER TABLE usage_logs_legacy DROP CONSTRAINT", sql)
+        self.assertIn("ALTER TABLE usage_logs_legacy ADD CONSTRAINT", sql)
         self.assertNotIn("INSERT INTO usage_logs SELECT", sql)
         self.assertNotIn("DROP TABLE usage_logs_legacy", sql)
         self.assertIn("legacy row count drifted below prepare receipt", sql)

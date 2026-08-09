@@ -45,6 +45,9 @@ class DataLayerRetentionInventorySafetyTest(unittest.TestCase):
         self.assertIn("RETENTIONUSAGE_EXACT", body)
         self.assertIn("RETENTIONPLAN", body)
         self.assertIn("RETPARTITION", body)
+        self.assertIn("pg_partition_tree(to_regclass('usage_logs'))", body)
+        self.assertNotIn("non-partitioned usage", body)
+        self.assertNotIn("non-partitioned relation", body)
         self.assertNotIn("RETBLOB", body)
         self.assertIn('for value in "$USAGE_RETENTION_DAYS" "$OPS_RETENTION_DAYS"', body)
 

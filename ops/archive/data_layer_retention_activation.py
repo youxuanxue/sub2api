@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Build the read-only production retention activation plan."""
+"""Build the read-only production retention activation plan.
+
+Bundles QA age-retention readiness with generic ops preconditions before a
+guarded cleanup-hold release. QA stale cleanup remains independent of archive
+completeness and maintenance health; its owner is documented in ``ops/qa/``.
+"""
 from __future__ import annotations
 
 import argparse
@@ -35,7 +40,7 @@ WITH bounds AS MATERIALIZED (
   WHERE job_name='telemetry_archive_shadow'
 ), maintenance AS (
   SELECT last_success_at,last_error_at,last_result FROM ops_job_heartbeats
-  WHERE job_name='partition_maintenance'
+  WHERE job_name='ops_partition_maintenance'
 )
 SELECT json_build_object(
   'server_clock',(SELECT to_char(server_clock AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') FROM bounds),
@@ -143,11 +148,18 @@ def _ready(payload: dict[str, Any]) -> tuple[bool,list[str]]:
     ops = payload.get("ops",{})
     if ops.get("ops_retention_days") != 30:
         reasons.append("ops retention is not 30 days")
+    usage_partitioned = ops.get("usage_logs_partitioned") is True
+    usage_legacy_attached = ops.get("usage_legacy_attached") is True
+    usage_maint_clean = ops.get("usage_partition_maintenance_clean") is True
+    usage_future_partition = ops.get("usage_future_partition_exists") is True
+    usage_tomorrow_covered = usage_future_partition or (
+        usage_partitioned and usage_legacy_attached and usage_maint_clean
+    )
     if (
-        ops.get("usage_logs_partitioned") is not True
-        or ops.get("usage_legacy_attached") is not True
-        or ops.get("usage_future_partition_exists") is not True
-        or ops.get("usage_partition_maintenance_clean") is not True
+        not usage_partitioned
+        or not usage_legacy_attached
+        or not usage_maint_clean
+        or not usage_tomorrow_covered
     ):
         reasons.append("usage_logs partition cutover or maintenance proof is incomplete")
     stats = ops.get("telemetry_stats")

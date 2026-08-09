@@ -1,0 +1,17 @@
+{
+  "api_cleanup_enabled": true,
+  "cleanup_lock_active": false,
+  "database_cleanup_enabled": true,
+  "deletion_authorized": false,
+  "environment": "prod",
+  "hold_active": false,
+  "hold_receipt_sha256": "38c6e556bcf43c3b672af82ea1030e6a1caf27e584fcceec4a75ddc8d667bec7",
+  "hold_started_at": "2026-08-07T02:40:22.768966Z",
+  "instance_id": "i-0e43099f831b03160",
+  "mode": "prod_archive_cleanup_hold_release",
+  "reload_proven": true,
+  "restored_cleanup_enabled": true,
+  "settings_mutated": true,
+  "settings_sha256": "a0294b4f2588741b4f66e5b42cd59ac7d1272f342234fda808818be28570ac01",
+  "verified_at": "2026-08-08T09:17:10.638737Z"
+}

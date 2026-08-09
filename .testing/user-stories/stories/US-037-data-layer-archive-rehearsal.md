@@ -66,4 +66,4 @@ python3 ops/archive/test_data_layer_archive_rehearsal.py
 
 ## Status
 
-- [x] InTest — 本地/非生产归档恢复闭环已覆盖；所有 prod 操作仍需独立审批。
+- [x] Done — 非生产 SQLite + PostgreSQL 演练闭环已覆盖；prod steady state 见 `ops/archive/README.md` 与 `archive_health`。

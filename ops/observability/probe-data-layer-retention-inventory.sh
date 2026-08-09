@@ -8,8 +8,7 @@
 # supports physical filesystem reclamation.
 #
 # Tagged output:
-#   RETENTIONSTATS  one row per whitelisted table
-#   RETENTIONUSAGE  relation metadata for non-partitioned usage logs
+#   RETENTIONSTATS  one row per whitelisted table (usage + ops leaf partitions)
 #   RETENTIONUSAGE_EXACT  bounded exact usage cutoff count
 #   RETENTIONPLAN   planner estimates without reading matching rows
 #   RETPARTITION   one row per leaf partition
@@ -43,6 +42,7 @@ WITH cfg AS (
 ), objects(table_name, dataset, cutoff, retention_days) AS (
   SELECT 'ops_system_logs', 'ops', ops_cutoff, :'ops_days'::int FROM cfg
   UNION ALL SELECT 'ops_error_logs', 'ops', ops_cutoff, :'ops_days'::int FROM cfg
+  UNION ALL SELECT 'usage_logs', 'usage', usage_cutoff, :'usage_days'::int FROM cfg
 ), leaves AS (
   SELECT
     o.table_name,
@@ -86,17 +86,9 @@ WITH cfg AS (
   FROM bounded b
   GROUP BY b.table_name, b.dataset, b.cutoff
 ), expired AS (
-  SELECT
-    'ops_system_logs' AS table_name,
-    NULL::bigint AS expired_rows,
-    NULL::bigint AS expired_blob_refs
-  FROM cfg
-  UNION ALL
-  SELECT
-    'ops_error_logs',
-    NULL::bigint,
-    NULL::bigint
-  FROM cfg
+  SELECT 'ops_system_logs' AS table_name, NULL::bigint AS expired_rows, NULL::bigint AS expired_blob_refs FROM cfg
+  UNION ALL SELECT 'ops_error_logs', NULL::bigint, NULL::bigint FROM cfg
+  UNION ALL SELECT 'usage_logs', NULL::bigint, NULL::bigint FROM cfg
 )
 SELECT 'RETENTIONSTATS '||row_to_json(result)::text
 FROM (
@@ -136,41 +128,30 @@ then
   echo 'RETENTIONSTATS {"inventory_probe_ok":false,"reason":"retention SQL timed out, was blocked, or schema was incomplete"}'
 fi
 
-echo "=== RETENTIONUSAGE (non-partitioned usage relation) ==="
-if usage_meta=$(docker exec -i -e "PGOPTIONS=$PGOPTIONS_VALUE" tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -tAc "
-SELECT 'RETENTIONUSAGE '||row_to_json(t)::text
-FROM (
-  SELECT
-    true AS inventory_probe_ok,
-    'usage_logs' AS table_name,
-    pg_total_relation_size('usage_logs')::bigint AS relation_bytes,
-    COALESCE((SELECT n_live_tup::bigint FROM pg_stat_user_tables
-      WHERE relid = 'usage_logs'::regclass), 0) AS live_rows,
-    $USAGE_RETENTION_DAYS::int AS retention_days,
-    now() - make_interval(days := $USAGE_RETENTION_DAYS::int) AS cutoff,
-    'pg_total_relation_size + pg_stat_user_tables; no row scan' AS evidence,
-    'non-partitioned relation: expired bytes require a separate bounded export/delete rehearsal' AS space_semantics
-) t;
-" 2>/dev/null); then
-  printf '%s\n' "$usage_meta"
-else
-  echo 'RETENTIONUSAGE {"inventory_probe_ok":false,"reason":"usage relation metadata unavailable"}'
-fi
-
 echo "=== RETENTIONUSAGE_EXACT (bounded indexed count) ==="
 if usage_expired=$(docker exec -i -e "PGOPTIONS=$PGOPTIONS_VALUE" tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -tAc "
+WITH leaf_stats AS (
+  SELECT
+    COALESCE(sum(pg_total_relation_size(tree.relid)), 0)::bigint AS relation_bytes,
+    COALESCE(sum(s.n_live_tup), 0)::bigint AS live_rows
+  FROM pg_partition_tree(to_regclass('usage_logs')) tree
+  LEFT JOIN pg_stat_all_tables s ON s.relid = tree.relid
+  WHERE tree.isleaf
+)
 SELECT 'RETENTIONUSAGE_EXACT '||row_to_json(t)::text
 FROM (
   SELECT
     true AS inventory_probe_ok,
-    count(*)::bigint AS expired_rows,
-    pg_total_relation_size('usage_logs')::bigint AS relation_bytes,
-    COALESCE((SELECT n_live_tup::bigint FROM pg_stat_user_tables
-      WHERE relid = 'usage_logs'::regclass), 0) AS live_rows,
+    (
+      SELECT count(*)::bigint
+      FROM usage_logs
+      WHERE created_at < now() - make_interval(days := $USAGE_RETENTION_DAYS::int)
+    ) AS expired_rows,
+    leaf_stats.relation_bytes,
+    leaf_stats.live_rows,
     $USAGE_RETENTION_DAYS::int AS retention_days,
     now() - make_interval(days := $USAGE_RETENTION_DAYS::int) AS cutoff
-  FROM usage_logs
-  WHERE created_at < now() - make_interval(days := $USAGE_RETENTION_DAYS::int)
+  FROM leaf_stats
 ) t;
 " 2>/dev/null); then
   printf '%s\n' "$usage_expired"
@@ -206,6 +187,7 @@ WITH cfg AS (
 ), objects(table_name, dataset, cutoff, retention_days) AS (
   SELECT 'ops_system_logs', 'ops', ops_cutoff, :'ops_days'::int FROM cfg
   UNION ALL SELECT 'ops_error_logs', 'ops', ops_cutoff, :'ops_days'::int FROM cfg
+  UNION ALL SELECT 'usage_logs', 'usage', usage_cutoff, :'usage_days'::int FROM cfg
 ), parts AS (
   SELECT
     o.table_name,

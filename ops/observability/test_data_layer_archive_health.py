@@ -16,6 +16,10 @@ sys.path.insert(0, str(_DIR))
 import data_layer_archive_health as health  # noqa: E402
 
 
+def _checked_in_evidence_dir() -> pathlib.Path:
+    return health.pipeline_status.load_evidence_layout().evidence_dir
+
+
 class DataLayerArchiveHealthTest(unittest.TestCase):
     def test_checked_in_ledgers_pass_their_owner_validator(self) -> None:
         signal = health.build_signal()
@@ -24,16 +28,24 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
             {"ops_error_logs", "ops_system_logs"},
         )
         self.assertIsInstance(signal["hold_started_at"], str)
-        self.assertFalse(signal["closeout_complete"])
+        self.assertTrue(signal["closeout_complete"])
+        self.assertTrue(signal["tail_export_complete"])
+        self.assertTrue(signal["cleanup_release_complete"])
+        self.assertIsInstance(signal["cleanup_release_verified_at"], str)
+        self.assertEqual(
+            {ledger["table"] for ledger in signal["tail_ledgers"]},
+            {"ops_error_logs", "ops_system_logs"},
+        )
+        self.assertEqual(signal["evidence_errors"], [])
 
     def test_latest_valid_hold_receipt_is_selected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)
-            for date, started_at in (
-                ("20260721", "2026-07-21T00:00:00Z"),
-                ("20260807", "2026-08-07T02:40:22Z"),
+            for name, started_at in (
+                ("data-layer-cleanup-hold-20260721.json", "2026-07-21T00:00:00Z"),
+                ("data-layer-cleanup-hold-apply.json", "2026-08-07T02:40:22Z"),
             ):
-                (root / f"US-039-prod-cleanup-hold-{date}.json").write_text(
+                (root / name).write_text(
                     json.dumps(
                         {
                             "action": "apply",
@@ -57,7 +69,7 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
-            (root / "US-039-prod-cleanup-hold-20260808.json").write_text(
+            (root / "data-layer-cleanup-hold-invalid.json").write_text(
                 json.dumps(
                     {
                         "action": "apply",
@@ -83,7 +95,7 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
     def test_minimal_unvalidated_json_cannot_report_closeout_complete(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)
-            (root / "US-039-prod-cleanup-hold-20260807.json").write_text(
+            (root / "data-layer-cleanup-hold-apply.json").write_text(
                 json.dumps({"hold_started_at": "2026-07-21T00:00:00Z"}),
                 encoding="utf-8",
             )
@@ -91,7 +103,7 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
                 ("ops_error_logs", "ops-error-logs"),
                 ("ops_system_logs", "ops-system-logs"),
             ):
-                (root / f"US-040-{slug}-export-ledger.json").write_text(
+                (root / f"data-layer-{slug}-export-ledger.json").write_text(
                     json.dumps(
                         {
                             "table": table,
@@ -104,7 +116,7 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
-                (root / f"US-040-{slug}-archive-closeout.json").write_text(
+                (root / f"data-layer-{slug}-archive-closeout.json").write_text(
                     json.dumps(
                         {
                             "table": table,
@@ -118,6 +130,10 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
 
         self.assertEqual(signal["ledgers"], [])
         self.assertFalse(signal["closeout_complete"])
+        self.assertFalse(signal["tail_export_complete"])
+        self.assertFalse(signal["cleanup_release_complete"])
+        self.assertIsNone(signal["cleanup_release_verified_at"])
+        self.assertEqual(signal["tail_ledgers"], [])
         self.assertEqual(signal["restore_verified_at"], [])
         self.assertIsNone(signal["hold_started_at"])
         self.assertEqual(
@@ -130,6 +146,36 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
                 "ops_system_logs:closeout_receipt",
             },
         )
+
+
+class DataLayerArchiveHealthReleaseTest(unittest.TestCase):
+    def test_release_receipt_must_bind_to_latest_hold(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            hold_path = root / "data-layer-cleanup-hold-apply.json"
+            hold_path.write_text(
+                (_checked_in_evidence_dir() / "data-layer-cleanup-hold-apply.json").read_text(
+                    encoding="utf-8"
+                ),
+                encoding="utf-8",
+            )
+            release = json.loads(
+                (_checked_in_evidence_dir() / "data-layer-cleanup-hold-release.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            release["hold_receipt_sha256"] = "deadbeef"
+            (root / "data-layer-cleanup-hold-release.json").write_text(
+                json.dumps(release),
+                encoding="utf-8",
+            )
+            for name in _checked_in_evidence_dir().glob("data-layer-ops-*"):
+                (root / name.name).write_text(name.read_text(encoding="utf-8"), encoding="utf-8")
+
+            signal = health.build_signal(root)
+
+        self.assertIn("cleanup_release", signal["evidence_errors"])
+        self.assertFalse(signal["cleanup_release_complete"])
 
 
 if __name__ == "__main__":

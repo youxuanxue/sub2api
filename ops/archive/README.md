@@ -84,164 +84,56 @@ timeouts and a row cap, and reports elapsed time, source/candidate rows,
 logical/artifact bytes, compression ratio, and restore verification. It never
 deletes source or target data.
 
-## Production export-only canary
+## Production steady state
 
-Production archive work first requires an explicit cleanup hold. The controller
-reads the current advanced settings through the admin API and cross-checks the
-database heartbeat. `apply` preserves the complete settings document and changes
-only `data_retention.cleanup_enabled`; it then proves the runtime cron reload and
-writes a receipt. Repeating `apply` while a hold is already active is refused so
-the receipt cannot lose the original enabled state. It does not export or delete data.
+Generic usage/ops data-layer prod is in **release steady state**:
 
-```bash
-python3 ops/archive/data_layer_archive_cleanup_hold.py plan
+| Owner | Responsibility |
+| --- | --- |
+| `OpsCleanupService` | Daily age retention: capped row DELETE + whole-partition DROP when `upper_bound <= now - hot_layer_days` |
+| `ops/archive/` CLIs | Export/promote/closeout/hold **only** on the re-export exception path; **no** DROP CLI |
+| `ops/archive/evidence/` + `pipeline_status.yaml` | Archive evidence SSOT (not live prod) |
 
-python3 ops/archive/data_layer_archive_cleanup_hold.py apply \
-  --receipt /path/to/cleanup-hold.json \
-  --confirm tokenkey-prod-archive-cleanup-hold-v1
-
-python3 ops/archive/data_layer_archive_cleanup_hold.py verify \
-  --receipt /path/to/cleanup-hold.json
-```
-
-`release` is a separate production change and requires
-`tokenkey-prod-archive-cleanup-release-v1`. It restores only the enabled state
-captured by the receipt while preserving all current unrelated settings. Before
-restoring, it revalidates that the same receipt's hold is still active and that
-no cleanup has run since that hold began. Archive closeout is health evidence,
-not a release prerequisite.
-
-After the forward QA archive, `usage_logs` partitioning, and telemetry shadow are
-active, build one read-only production impact plan. It delegates QA candidate
-selection to the fixed online-window cleanup owner and independently counts the two ops
-log tables at the ops hot-layer retention waterline. It also binds the active image, timer states,
-historical QA failure states, partition status, telemetry zero-loss heartbeat,
-and the still-active ops hold:
+Verify steady state:
 
 ```bash
-python3 ops/archive/data_layer_retention_activation.py plan \
-  --cleanup-hold-receipt <active-hold.json> --output <plan.json>
+python3 ops/observability/data_layer_archive_health.py
 ```
 
-The plan always reports `deletion_authorized=false`. Regenerate it immediately
-before final approval; the ops counts are an impact estimate because restoring the
-ops cron causes the next scheduled run to compute a new 30-day cutoff. After
-approval, the operator runs the guarded QA controller and the two separate enable paths:
+All must hold:
 
-```bash
-python3 ops/qa/prod_qa_stale_cleanup.py apply-first \
-  --activation-plan <plan.json> --receipt <qa-first-apply.json> \
-  --confirm <nested-qa-required-confirmation>
-# Only after an interrupted apply left the matching host marker:
-python3 ops/qa/prod_qa_stale_cleanup.py resume-first \
-  --activation-plan <same-plan.json> --receipt <qa-first-apply.json> \
-  --confirm <same-nested-qa-required-confirmation>
-# Independently confirm the exact export crash-orphan inventory. This does not require
-# archive/cutover readiness and must use qa.export_tmp.required_confirmation.
-python3 ops/qa/prod_qa_stale_cleanup.py apply-export-orphans \
-  --activation-plan <plan.json> --receipt <qa-export-orphan-apply.json> \
-  --confirm <qa-export-tmp-required-confirmation>
-python3 ops/archive/data_layer_archive_cleanup_hold.py release \
-  --receipt <active-hold.json> --activation-plan <plan.json> \
-  --confirm tokenkey-prod-archive-cleanup-release-v1
-QA_STALE_TIMER_STATE=enabled QA_STALE_ACTIVATION_RECEIPT=<qa-first-apply.json> \
-  bash ops/stage0/sync-qa-stale-cleanup-timer-via-ssm.sh <prod-instance-id>
-```
+- `closeout_complete=true`
+- `tail_export_complete=true`
+- `cleanup_release_complete=true`
+- `evidence_errors=[]`
 
-These remain explicit guarded operations; the plan does not mutate PostgreSQL, S3,
-settings, files, or timers.
+Do not treat hold **apply** receipts as current prod state. `archive_health` binds the
+**release** receipt to the latest valid hold apply receipt. QA lifecycle is separate:
+[`ops/qa/README.md`](../qa/README.md).
 
-The offline plan validates the fixed 30-day waterline and hard limits without
-calling AWS, Docker, PostgreSQL, or S3:
+Physical DROP semantics: `docs/approved/design-prod-archive-bucket.md` §分区回收门禁.
+Promote ledger `drop_ready` proves export evidence only; it does **not** authorize deletion.
 
-```bash
-python3 ops/archive/data_layer_archive_prod_canary.py plan \
-  --table ops_system_logs \
-  --as-of 2026-07-21T03:00:00Z
-```
+## Exception path: post-legacy cold re-export
 
-The `run` command is a separately approved production operation. It resolves
-only `tokenkey-prod-stage0` in `us-east-1`, verifies
-`Project=tokenkey`/`Environment=prod`, exports through SSM from the local
-`tokenkey-postgres` container in a read-only transaction, and accepts only
-`ops_system_logs` or `ops_error_logs`. It uploads the artifact before the
-manifest under `prod/pgdump/archive-canary/`, verifies S3 encryption and
-checksums, then restores into an independent localhost database named
-`tokenkey_archive_restore_*`.
+Run **only** when new cold ops rows appear after a completed tail export
+(`tail_export_complete=true` with a fresh `post_legacy_cold` ledger gap — health will fail).
 
-The controller ships its deterministic Python bundle through an encrypted,
-checksum-bound object under `prod/pgdump/archive-canary/control/`; SSM carries
-only the bounded loader command. The source host verifies that bundle and the
-live cleanup hold before opening the read-only source query.
+1. **Hold** — `data_layer_archive_cleanup_hold.py` plan → apply → verify (new receipt)
+2. **Export** — `data_layer_archive_prod_export.py run-batch` with scope `post_legacy_cold`
+3. **Promote** — `data_layer_archive_promote_batch.py promote-ledger`
+4. **Closeout** — `data_layer_archive_closeout.py` per ops table (hold still active)
+5. **Release** — `data_layer_archive_cleanup_hold.py release` after
+   `data_layer_retention_activation.py` plan; persist receipt under
+   `pipeline_status.yaml` → `cleanup_release_receipt_glob`
 
-The source query selects one deterministic page ordered by `(created_at, id)`.
-It seals at most `max_rows`, records the first/last key and whether another cold
-row exists, and does not refuse merely because the table has a larger cold
-backlog. `run` requires `--cleanup-hold-receipt` and re-verifies the current
-setting plus cleanup heartbeat on both the controller path and the source host
-immediately before the export. Bigint source IDs use an order-preserving encoding
-inside the artifact while manifest cursor keys retain the numeric `id`.
+Refresh ledgers/receipts under `ops/archive/evidence/` after each batch.
+First-time canary or legacy-scope export mechanics: CLI `--help` on
+`data_layer_archive_prod_canary.py` and `data_layer_archive_prod_export.py`.
+Design baselines: `docs/approved/design-data-layer-prod-export-canary.md`,
+`docs/approved/design-prod-archive-bucket.md`.
 
-The existing `tokenkey-stage0-backups` pgdump bucket expires this prefix with
-the same short retention used for pgdump copies (seven days under the approved
-stack configuration). This is canary staging, not long-term archive storage and
-never evidence that production rows may be deleted. Merge does not authorize a
-run: every execution still requires explicit approval plus the exact
-confirmation string `tokenkey-prod-archive-export-only-v1`.
-
-## Production legacy cold batch export
-
-After the canary proves the export-only path, legacy cold rows can be exported in
-deterministic `(created_at, id)` pages without waiting for the partition-drop
-calendar. Scope is strictly:
-
-- `created_at < min(now - 30d, 2026-07-01T00:00:00Z)` (legacy attach bound)
-- read-only source query with cursor continuation
-- export-only: no delete, no partition drop
-
-Staging uses a separate prefix `prod/pgdump/archive-export/` in the same
-short-retention backup bucket (seven days). A local ledger records
-`cursor_after` and `more_cold_rows_remaining` between batches.
-
-Offline plan:
-
-```bash
-python3 ops/archive/data_layer_archive_prod_export.py plan \
-  --table ops_system_logs
-```
-
-Initialize a continuation ledger once per table:
-
-```bash
-python3 ops/archive/data_layer_archive_prod_export.py init-ledger \
-  --ledger .testing/user-stories/attachments/US-040-ops-system-logs-export-ledger.json \
-  --table ops_system_logs
-```
-
-Export one batch (requires active cleanup hold receipt):
-
-```bash
-python3 ops/archive/data_layer_archive_prod_export.py run-batch \
-  --ledger .testing/user-stories/attachments/US-040-ops-system-logs-export-ledger.json \
-  --evidence-root /tmp/tokenkey-prod-export-evidence \
-  --cleanup-hold-receipt .testing/user-stories/attachments/US-039-prod-cleanup-hold-20260721.json \
-  --confirm tokenkey-prod-archive-export-batch-v1
-```
-
-Repeat `run-batch` until the ledger reports `more_cold_rows_remaining=false`.
-Each batch still requires the exact confirmation string
-`tokenkey-prod-archive-export-batch-v1` and an active cleanup hold.
-
-## Long-term archive bucket and promote
-
-Staging (`archive-export/` in the pgdump bucket) expires in **seven days**. Promote
-copies committed export batches into the dedicated archive bucket (**90d Standard →
-400d total retention**). Design baseline:
-`docs/approved/design-prod-archive-bucket.md` (approved).
-
-Deploy the archive stack once (same `AppInstanceRoleArn` pattern as backups).
-Lifecycle 仅暴露 `ArchiveGlacierTransitionDay`（默认 91 → 前 90 天 Standard）与
-`ArchiveExpireDays`（默认 400）；勿单独再配「Standard 天数」参数。
+Long-term archive bucket CFN (once per account):
 
 ```bash
 aws cloudformation deploy \
@@ -250,53 +142,3 @@ aws cloudformation deploy \
   --template-file deploy/aws/cloudformation/stage0-archive.yaml \
   --parameter-overrides AppInstanceRoleArn=<prod InstanceRole ARN>
 ```
-
-Promote one batch after export:
-
-```bash
-python3 ops/archive/data_layer_archive_promote_batch.py plan \
-  --batch-id prod-export-20260722T112823.174855Z-8a928e2ea2c9
-
-python3 ops/archive/data_layer_archive_promote_batch.py promote \
-  --batch-id prod-export-20260722T112823.174855Z-8a928e2ea2c9 \
-  --confirm tokenkey-prod-archive-promote-batch-v1
-```
-
-Promote every batch listed in an export ledger (idempotent):
-
-```bash
-python3 ops/archive/data_layer_archive_promote_batch.py promote-ledger \
-  --export-ledger .testing/user-stories/attachments/US-040-ops-system-logs-export-ledger.json \
-  --promote-ledger .testing/user-stories/attachments/US-040-ops-system-logs-promote-ledger.json \
-  --confirm tokenkey-prod-archive-promote-batch-v1
-```
-
-`more_cold_rows_remaining=false` is point-in-time only. On a later day, run another
-batch from the same cursor so newly cold tail rows are checked and the final batch
-records `cutoff_exclusive >= legacy_upper_exclusive`.
-
-After every batch is promoted, create one closeout per ops table by downloading a
-seeded random batch from the long-term archive and restoring it into an independent
-PostgreSQL database:
-
-```bash
-python3 ops/archive/data_layer_archive_closeout.py \
-  --export-ledger <table-export-ledger.json> \
-  --promote-ledger <table-promote-ledger.json> \
-  --cleanup-hold-receipt <active-hold.json> \
-  --closeout-receipt <table-archive-closeout.json> \
-  --evidence-root /tmp/tokenkey-archive-closeout \
-  --restore-target-dsn '<independent restore DSN>' \
-  --seed 20260803 \
-  --confirm tokenkey-prod-archive-closeout-v1
-```
-
-The 2026-08-07 business decision accepts the known historical ops archive gap;
-it is recorded in the approved design and does not participate in runtime retention
-evaluation. The first resumed cleanup still requires a separate live impact plan
-and activation confirmation. Archive closeout receipts remain restore evidence,
-not deletion eligibility inputs.
-
-Cleanup release requires both ops tables' closeout receipts before guarded release;
-repo health: `python3 ops/observability/data_layer_archive_health.py` (see
-`pipeline_status.yaml` for evidence path templates).
