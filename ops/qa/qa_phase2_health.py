@@ -150,6 +150,8 @@ def evaluate(snapshot: dict[str, Any], *, now: dt.datetime | None = None) -> dic
             reasons.append("database_heartbeat_deletion_not_denied")
         if receipt is not None and heartbeat.get("run_id") != receipt.get("run_id"):
             reasons.append("run_id_mismatch")
+        if receipt is not None and heartbeat.get("trigger") != receipt.get("trigger"):
+            reasons.append("trigger_mismatch")
         heartbeat_run = _timestamp(database.get("last_run_at"))
         if heartbeat_run is None:
             reasons.append("database_last_run_invalid")
@@ -178,7 +180,8 @@ def evaluate(snapshot: dict[str, Any], *, now: dt.datetime | None = None) -> dic
             reasons.append("normal_receipt_missing")
         else:
             _same_fact(reasons, "normal", normal, heartbeat, _mapping(archive.get("normal")))
-        compensation = _mapping(receipt.get("compensation"))
+        raw_compensation = receipt.get("compensation")
+        compensation = _mapping(raw_compensation)
         if compensation is not None:
             _same_fact(
                 reasons,
@@ -187,6 +190,13 @@ def evaluate(snapshot: dict[str, Any], *, now: dt.datetime | None = None) -> dic
                 heartbeat,
                 _mapping(archive.get("compensation")),
             )
+        elif raw_compensation is not None:
+            reasons.append("compensation_receipt_invalid")
+        else:
+            if archive.get("compensation") is not None:
+                reasons.append("compensation_control_without_receipt")
+            if any(key.startswith("compensation_") for key in heartbeat):
+                reasons.append("compensation_heartbeat_without_receipt")
         terminal = archive.get("terminal_failures_after_cutover")
         if not isinstance(terminal, list):
             reasons.append("terminal_failure_inventory_missing")

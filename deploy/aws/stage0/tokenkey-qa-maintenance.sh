@@ -379,33 +379,35 @@ run_qa_archive_command() {
   CHILD_STDERR=""
   load_app_runtime
   local -a restore_mount=()
-  local argument restore_output="" expect_output=false
+  local argument restore_output="" expect_output=false output_seen=false
   for argument in "$@"; do
     if [ "${expect_output}" = true ]; then
-      if [ -n "${restore_output}" ]; then
-        cleanup_runtime_files
-        qa_fail restore_path_invalid 51 "restore output may be specified only once"
-        return
-      fi
       restore_output="${argument}"
       expect_output=false
       continue
     fi
     case "${argument}" in
       --output)
-        expect_output=true
-        ;;
-      --output=*)
-        if [ -n "${restore_output}" ]; then
+        if [ "${output_seen}" = true ]; then
           cleanup_runtime_files
           qa_fail restore_path_invalid 51 "restore output may be specified only once"
           return
         fi
+        output_seen=true
+        expect_output=true
+        ;;
+      --output=*)
+        if [ "${output_seen}" = true ]; then
+          cleanup_runtime_files
+          qa_fail restore_path_invalid 51 "restore output may be specified only once"
+          return
+        fi
+        output_seen=true
         restore_output="${argument#--output=}"
         ;;
     esac
   done
-  if [ "${expect_output}" = true ]; then
+  if [ "${expect_output}" = true ] || { [ "${output_seen}" = true ] && [ -z "${restore_output}" ]; }; then
     cleanup_runtime_files
     qa_fail restore_path_invalid 51 "restore output value is missing"
     return
@@ -414,11 +416,13 @@ run_qa_archive_command() {
     case "${restore_output}" in
       /app/data/qa_archive_restore/*)
         local restore_name="${restore_output#/app/data/qa_archive_restore/}"
-        if [ -z "${restore_name}" ] || [[ "${restore_name}" == */* ]]; then
-          cleanup_runtime_files
-          qa_fail restore_path_invalid 51 "restore output must be one child directory"
-          return
-        fi
+        case "${restore_name}" in
+          '' | . | .. | */*)
+            cleanup_runtime_files
+            qa_fail restore_path_invalid 51 "restore output must be one child directory"
+            return
+            ;;
+        esac
         local restore_root="${APP_DATA_SOURCE}/qa_archive_restore"
         if [ ! -e "${restore_root}" ] && [ ! -L "${restore_root}" ]; then
           install -d -m 0700 -o "${QA_MAINTENANCE_UID}" -g "${QA_MAINTENANCE_GID}" "${restore_root}"

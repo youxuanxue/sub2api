@@ -431,6 +431,45 @@ esac
                 else:
                     self.assertNotIn("/app/qa-archive restore", calls)
 
+    def test_us045_archive_restore_rejects_dot_segments_and_empty_output_reuse(self) -> None:
+        invalid_arguments = (
+            ("dot", "--output=/app/data/qa_archive_restore/."),
+            ("dotdot", "--output=/app/data/qa_archive_restore/.."),
+            ("empty equals", "--output="),
+            (
+                "duplicate after empty",
+                "--output=",
+                "--output=/app/data/qa_archive_restore/run-045",
+            ),
+        )
+        for arguments in invalid_arguments:
+            with self.subTest(name=arguments[0]), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                env, _, docker_log, _, _ = self._sandbox(root)
+                (root / "app/qa_archive_restore").mkdir(mode=0o700)
+                proc = subprocess.run(
+                    [
+                        "bash",
+                        str(RUNNER),
+                        "--qa-archive",
+                        "restore",
+                        "--window-start",
+                        "2026-08-08T20:00:00Z",
+                        *arguments[1:],
+                        "--confirm",
+                        "privacy-confirmation",
+                    ],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(proc.returncode, 51, (proc.stdout, proc.stderr))
+                self.assertNotIn(
+                    "/app/qa-archive restore",
+                    docker_log.read_text(encoding="utf-8"),
+                )
+
 
 class QAPhase2OperatorAndHealthTest(unittest.TestCase):
     def test_us045_timer_and_operators_invoke_the_single_host_runner(self) -> None:
@@ -490,7 +529,7 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
                 "last_success_at": "2026-08-08T22:16:03Z",
                 "last_error_at": None,
                 "last_result": (
-                    "status=committed run_id=run-045 normal_window="
+                    "status=committed run_id=run-045 trigger=timer normal_window="
                     + window
                     + " normal_state=committed normal_commit_etag=etag-045 "
                     "normal_restore_verified=true deletion_authorized=false"
@@ -536,6 +575,11 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
                 "last_result"
             ].replace("run-045", "run-other")
 
+        def mutate_heartbeat_trigger(value: dict) -> None:
+            value["database_heartbeat"]["last_result"] = value["database_heartbeat"][
+                "last_result"
+            ].replace("trigger=timer", "trigger=operator")
+
         def mutate_operator_trigger(value: dict) -> None:
             value["host_receipt"]["trigger"] = "operator"
 
@@ -564,11 +608,26 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
                 }
             ]
 
+        def mutate_phantom_control_compensation(value: dict) -> None:
+            value["archive_control"]["compensation"] = {
+                "window_start": "2026-08-07T22:00:00Z",
+                "state": "committed",
+                "commit_etag": "etag-phantom",
+                "restore_verified": True,
+                "cleanup_eligible": False,
+            }
+
+        def mutate_phantom_heartbeat_compensation(value: dict) -> None:
+            value["database_heartbeat"]["last_result"] += (
+                " compensation_window=2026-08-07T22:00:00Z"
+            )
+
         for name, mutation in (
             ("missing receipt", mutate_missing_receipt),
             ("stale receipt", mutate_stale_receipt),
             ("systemd failure", mutate_systemd_failure),
             ("run mismatch", mutate_run_mismatch),
+            ("heartbeat trigger mismatch", mutate_heartbeat_trigger),
             ("operator trigger", mutate_operator_trigger),
             ("missing runner identity", mutate_missing_runner_identity),
             ("run time mismatch", mutate_run_time_mismatch),
@@ -576,6 +635,8 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
             ("etag mismatch", mutate_etag_mismatch),
             ("newer host failure", mutate_newer_host_failure),
             ("terminal failure", mutate_terminal_failure),
+            ("phantom control compensation", mutate_phantom_control_compensation),
+            ("phantom heartbeat compensation", mutate_phantom_heartbeat_compensation),
         ):
             with self.subTest(name=name):
                 snapshot = copy.deepcopy(baseline)
