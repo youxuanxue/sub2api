@@ -379,15 +379,37 @@ run_qa_archive_command() {
   CHILD_STDERR=""
   load_app_runtime
   local -a restore_mount=()
-  local previous=""
-  local argument restore_output=""
+  local argument restore_output="" expect_output=false
   for argument in "$@"; do
-    if [ "${previous}" = --output ]; then
+    if [ "${expect_output}" = true ]; then
+      if [ -n "${restore_output}" ]; then
+        cleanup_runtime_files
+        qa_fail restore_path_invalid 51 "restore output may be specified only once"
+        return
+      fi
       restore_output="${argument}"
-      break
+      expect_output=false
+      continue
     fi
-    previous="${argument}"
+    case "${argument}" in
+      --output)
+        expect_output=true
+        ;;
+      --output=*)
+        if [ -n "${restore_output}" ]; then
+          cleanup_runtime_files
+          qa_fail restore_path_invalid 51 "restore output may be specified only once"
+          return
+        fi
+        restore_output="${argument#--output=}"
+        ;;
+    esac
   done
+  if [ "${expect_output}" = true ]; then
+    cleanup_runtime_files
+    qa_fail restore_path_invalid 51 "restore output value is missing"
+    return
+  fi
   if [ -n "${restore_output}" ]; then
     case "${restore_output}" in
       /app/data/qa_archive_restore/*)
@@ -398,8 +420,20 @@ run_qa_archive_command() {
           return
         fi
         local restore_root="${APP_DATA_SOURCE}/qa_archive_restore"
-        if [ ! -e "${restore_root}" ]; then
+        if [ ! -e "${restore_root}" ] && [ ! -L "${restore_root}" ]; then
           install -d -m 0700 -o "${QA_MAINTENANCE_UID}" -g "${QA_MAINTENANCE_GID}" "${restore_root}"
+        fi
+        if [ ! -d "${restore_root}" ] || [ -L "${restore_root}" ]; then
+          cleanup_runtime_files
+          qa_fail restore_path_invalid 51 "restore root is missing or unsafe"
+          return
+        fi
+        local restore_fact
+        restore_fact="$(stat -c '%u:%g:%a' "${restore_root}" 2>/dev/null)" || restore_fact=""
+        if [ "${restore_fact}" != "${QA_MAINTENANCE_UID}:${QA_MAINTENANCE_GID}:700" ]; then
+          cleanup_runtime_files
+          qa_fail restore_path_invalid 51 "restore root owner or mode is invalid"
+          return
         fi
         restore_mount+=(--volume="${restore_root}:/app/data/qa_archive_restore:rw")
         ;;
@@ -411,8 +445,13 @@ run_qa_archive_command() {
     esac
   fi
   set +e
-  qa_container_run "tokenkey-qa-archive-op-$$" "${restore_mount[@]}" \
-    "${APP_IMAGE}" /app/qa-archive "$@"
+  if [ "${#restore_mount[@]}" -gt 0 ]; then
+    qa_container_run "tokenkey-qa-archive-op-$$" "${restore_mount[@]}" \
+      "${APP_IMAGE}" /app/qa-archive "$@"
+  else
+    qa_container_run "tokenkey-qa-archive-op-$$" \
+      "${APP_IMAGE}" /app/qa-archive "$@"
+  fi
   local result=$?
   set -e
   cleanup_runtime_files

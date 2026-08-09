@@ -63,6 +63,9 @@ jq -n \
     commands: [
       "set -euo pipefail",
       "echo === qa-maintenance timer sync ===",
+      "if sudo systemctl list-unit-files tokenkey-qa-maintenance.timer --no-legend 2>/dev/null | grep -q \"^tokenkey-qa-maintenance[.]timer\"; then sudo systemctl disable --now tokenkey-qa-maintenance.timer; fi",
+      "! sudo systemctl is-active --quiet tokenkey-qa-maintenance.timer",
+      "! sudo systemctl is-active --quiet tokenkey-qa-maintenance.service",
       ("echo " + $maint + " | base64 -d | sudo tee /usr/local/bin/tokenkey-qa-maintenance.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-qa-maintenance.sh",
       "sudo install -d -m 0755 /usr/local/lib/tokenkey",

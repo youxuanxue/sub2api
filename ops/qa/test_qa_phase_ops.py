@@ -386,6 +386,20 @@ exit 0
             payload["commands"],
         )
         commands = payload["commands"]
+        quiesce_timer = (
+            "if sudo systemctl list-unit-files tokenkey-qa-maintenance.timer "
+            '--no-legend 2>/dev/null | grep -q "^tokenkey-qa-maintenance[.]timer"; '
+            "then sudo systemctl disable --now tokenkey-qa-maintenance.timer; fi"
+        )
+        self.assertIn(quiesce_timer, commands)
+        self.assertIn(
+            "! sudo systemctl is-active --quiet tokenkey-qa-maintenance.timer",
+            commands,
+        )
+        self.assertIn(
+            "! sudo systemctl is-active --quiet tokenkey-qa-maintenance.service",
+            commands,
+        )
         resolver_install = next(
             command
             for command in commands
@@ -398,6 +412,15 @@ exit 0
             "/var/lib/tokenkey/app/qa_archive_tmp"
         )
         self.assertIn(scratch_prepare, commands)
+        self.assertLess(
+            commands.index(quiesce_timer),
+            next(
+                index
+                for index, command in enumerate(commands)
+                if "/usr/local/bin/tokenkey-qa-maintenance.sh" in command
+                and "base64 -d" in command
+            ),
+        )
         self.assertLess(
             commands.index(scratch_prepare),
             commands.index("sudo /usr/local/bin/tokenkey-qa-maintenance.sh --selftest"),

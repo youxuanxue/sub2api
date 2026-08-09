@@ -111,6 +111,7 @@ exit 8
 target="${@: -1}"
 case "$target" in
   */.qa-maintenance-selftest) printf '%s\n' '1000:1000:600' ;;
+  */qa_archive_restore) printf '%s\n' "${TEST_RESTORE_FACT:-1000:1000:700}" ;;
   *) printf '%s\n' "${TEST_SCRATCH_FACT:-1000:1000:700}" ;;
 esac
 """,
@@ -157,6 +158,7 @@ esac
             "TEST_MOUNT_FACT": f"bind|{data_root}|true",
             "TEST_SCRATCH": str(scratch),
             "TEST_SCRATCH_FACT": "1000:1000:700",
+            "TEST_RESTORE_FACT": "1000:1000:700",
             "TEST_IMAGE": image,
             "TEST_CHILD_RC": str(child_rc),
             "TEST_CHILD_JSON": json.dumps(child, separators=(",", ":")),
@@ -372,6 +374,62 @@ esac
                 "PrivateTmp=true",
             ):
                 self.assertIn(line, service)
+
+    def test_us045_archive_restore_accepts_only_the_isolated_owned_root(self) -> None:
+        for name, prepare, expected_code in (
+            (
+                "valid",
+                lambda root, env: (root / "app/qa_archive_restore").mkdir(mode=0o700),
+                0,
+            ),
+            (
+                "symlink",
+                lambda root, env: (root / "app/qa_archive_restore").symlink_to(
+                    root / "outside", target_is_directory=True
+                ),
+                51,
+            ),
+            (
+                "wrong mode",
+                lambda root, env: (
+                    (root / "app/qa_archive_restore").mkdir(mode=0o700),
+                    env.update({"TEST_RESTORE_FACT": "1000:1000:755"}),
+                ),
+                51,
+            ),
+        ):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                env, _, docker_log, _, _ = self._sandbox(root)
+                (root / "outside").mkdir()
+                prepare(root, env)
+                proc = subprocess.run(
+                    [
+                        "bash",
+                        str(RUNNER),
+                        "--qa-archive",
+                        "restore",
+                        "--window-start",
+                        "2026-08-08T20:00:00Z",
+                        "--output=/app/data/qa_archive_restore/run-045",
+                        "--confirm",
+                        "privacy-confirmation",
+                    ],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(proc.returncode, expected_code, (proc.stdout, proc.stderr))
+                calls = docker_log.read_text(encoding="utf-8")
+                if expected_code == 0:
+                    self.assertIn(
+                        f"{root / 'app/qa_archive_restore'}:/app/data/qa_archive_restore:rw",
+                        calls,
+                    )
+                    self.assertIn("/app/qa-archive restore", calls)
+                else:
+                    self.assertNotIn("/app/qa-archive restore", calls)
 
 
 class QAPhase2OperatorAndHealthTest(unittest.TestCase):
