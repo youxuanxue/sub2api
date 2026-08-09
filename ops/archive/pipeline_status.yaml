@@ -34,8 +34,6 @@ evidence_attachments:
 
 closeout_required_before_cleanup_release: true
 # Phase4 steady state (2026-08-08+): hold released; cleanup enabled; tail export complete.
-# archive_health validates closeout + tail ledgers + hold apply receipt binding.
-# Release receipt (cleanup_release_receipt_glob) is operator evidence; not yet bound-checked
-# by data_layer_archive_health.py — see ops/archive/README.md §Phase4 production steady state.
+# archive_health validates closeout + tail ledgers + hold apply receipt binding + release receipt.
 # Release gate only: first cleanup-hold release requires both ops closeout receipts
 # in repo evidence. Ongoing age-based cleanup does not re-check this flag.

@@ -48,6 +48,8 @@ def _signals() -> dict:
             "hold_started_at": (NOW - dt.timedelta(days=1)).isoformat(),
             "closeout_complete": True,
             "tail_export_complete": True,
+            "cleanup_release_complete": True,
+            "cleanup_release_verified_at": (NOW - dt.timedelta(days=1)).isoformat(),
             "restore_verified_at": [
                 (NOW - dt.timedelta(days=1)).isoformat(),
                 (NOW - dt.timedelta(days=1)).isoformat(),
@@ -68,6 +70,16 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
             ledger.pop("final_cutoff_exclusive", None)
             ledger["more_cold_rows_remaining"] = True
         self.assertEqual(verdict.compute_verdict(signals)["verdict"], "green")
+
+    def test_missing_cleanup_release_fails_when_phase4_complete(self) -> None:
+        signals = _signals()
+        signals["ARCHIVESTATS"]["cleanup_release_complete"] = False
+        result = verdict.compute_verdict(signals)
+        self.assertEqual(result["verdict"], "unsafe")
+        self.assertEqual(
+            [finding["kind"] for finding in result["findings"]],
+            ["archive_evidence"],
+        )
 
     def test_capacity_independent_failures_are_separate_findings(self) -> None:
         signals = _signals()

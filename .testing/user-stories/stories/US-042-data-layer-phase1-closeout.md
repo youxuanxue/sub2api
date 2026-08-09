@@ -47,6 +47,8 @@
 - `backend/internal/telemetryarchive/shadow_test.go`::`TestShadowQueueFullDropsOnlyShadowCopy`
 - `backend/internal/telemetryarchive/shadow_test.go`::`TestShadowQueueBytesAndEventSizeAreBounded`
 - `backend/internal/service/telemetry_archive_health_test.go`::`TestTelemetryArchiveHealthPublishesCleanAndFailedStats`
+- `ops/observability/test_data_layer_archive_health.py`::`DataLayerArchiveHealthTest.test_checked_in_ledgers_pass_their_owner_validator`
+- `ops/observability/test_data_layer_archive_health.py`::`DataLayerArchiveHealthReleaseTest.test_release_receipt_must_bind_to_latest_hold`
 - `ops/observability/test_data_layer_safety_verdict.py`::`DataLayerSafetyVerdictTest.test_capacity_independent_failures_are_separate_findings`
 - `ops/observability/test_data_layer_safety_verdict.py`::`DataLayerSafetyVerdictTest.test_enabled_telemetry_requires_fresh_clean_zero_loss_stats`
 - `backend/internal/pkg/partitionmaintenance/maintenance_test.go`::`TestEnsureStrictCreatesAndVerifiesAllTargets`
@@ -61,16 +63,17 @@ cd backend && go test -tags unit ./cmd/server ./internal/pkg/partitionmaintenanc
 python3 ops/migration/test_usage_logs_daily_partition.py
 python3 ops/migration/test_data_layer_partition_maintenance.py
 python3 ops/archive/test_data_layer_archive_closeout.py
+python3 ops/observability/test_data_layer_archive_health.py
 python3 ops/observability/test_data_layer_safety_verdict.py
 ```
-
-## Status
-
-- [x] Done — prod Phase4 已完成（usage cutover、telemetry shadow、ops closeout、tail export、
-  cleanup release）；age retention 由 `OpsCleanupService` 运行；RDS 第二阶段仍 hold。
 
 ## Evidence
 
 - Phase4 release receipt：`.testing/user-stories/attachments/US-039-prod-cleanup-hold-release-20260808.json`
 - Repo archive health：`python3 ops/observability/data_layer_archive_health.py`（期望
-  `closeout_complete` + `tail_export_complete`）
+  `closeout_complete` + `tail_export_complete` + `cleanup_release_complete`）
+
+## Status
+
+- [x] Done — prod Phase4 已完成（usage cutover、telemetry shadow、ops closeout、tail export、
+  cleanup release）；age retention 由 `OpsCleanupService` 运行；RDS 第二阶段仍 hold。

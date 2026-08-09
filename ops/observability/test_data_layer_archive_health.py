@@ -26,6 +26,8 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
         self.assertIsInstance(signal["hold_started_at"], str)
         self.assertTrue(signal["closeout_complete"])
         self.assertTrue(signal["tail_export_complete"])
+        self.assertTrue(signal["cleanup_release_complete"])
+        self.assertIsInstance(signal["cleanup_release_verified_at"], str)
         self.assertEqual(
             {ledger["table"] for ledger in signal["tail_ledgers"]},
             {"ops_error_logs", "ops_system_logs"},
@@ -125,6 +127,8 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
         self.assertEqual(signal["ledgers"], [])
         self.assertFalse(signal["closeout_complete"])
         self.assertFalse(signal["tail_export_complete"])
+        self.assertFalse(signal["cleanup_release_complete"])
+        self.assertIsNone(signal["cleanup_release_verified_at"])
         self.assertEqual(signal["tail_ledgers"], [])
         self.assertEqual(signal["restore_verified_at"], [])
         self.assertIsNone(signal["hold_started_at"])
@@ -138,6 +142,36 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
                 "ops_system_logs:closeout_receipt",
             },
         )
+
+
+class DataLayerArchiveHealthReleaseTest(unittest.TestCase):
+    def test_release_receipt_must_bind_to_latest_hold(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            hold_path = root / "US-039-prod-cleanup-hold-20260807.json"
+            hold_path.write_text(
+                (health.ATTACHMENTS / "US-039-prod-cleanup-hold-20260807.json").read_text(
+                    encoding="utf-8"
+                ),
+                encoding="utf-8",
+            )
+            release = json.loads(
+                (health.ATTACHMENTS / "US-039-prod-cleanup-hold-release-20260808.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            release["hold_receipt_sha256"] = "deadbeef"
+            (root / "US-039-prod-cleanup-hold-release-20260808.json").write_text(
+                json.dumps(release),
+                encoding="utf-8",
+            )
+            for name in health.ATTACHMENTS.glob("US-040-*"):
+                (root / name.name).write_text(name.read_text(encoding="utf-8"), encoding="utf-8")
+
+            signal = health.build_signal(root)
+
+        self.assertIn("cleanup_release", signal["evidence_errors"])
+        self.assertFalse(signal["cleanup_release_complete"])
 
 
 if __name__ == "__main__":

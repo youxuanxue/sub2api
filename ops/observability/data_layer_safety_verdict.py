@@ -202,7 +202,13 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
             )
         )
     elif closeout_complete and tail_export_complete:
-        pass
+        if archive.get("cleanup_release_complete") is not True:
+            findings.append(
+                _finding(
+                    "archive_evidence",
+                    "cleanup hold release evidence is missing or invalid",
+                )
+            )
     elif closeout_complete and not tail_export_complete:
         findings.append(
             _finding(

@@ -13,8 +13,9 @@ related_prs: [1401]
 ## 决策
 
 export staging（`tokenkey-stage0-backups` / `prod/pgdump/archive-export/`）仅 **7 天**
-周转；长期归档使用 **独立 S3 桶**，一条 canonical promote 路径，drop 分区前必须
-promote receipt 齐全。
+周转；长期归档使用 **独立 S3 桶**，一条 canonical promote 路径。ops 月分区回收前 export/promote
+证据须齐全（`drop_ready` 仍不授权删除）；Phase4 稳态下 physical DROP 由 `OpsCleanupService`
+执行，见 `ops/archive/README.md` §Phase4 production steady state 与下文 §分区回收门禁。
 
 不接入 workflow / schedule / runtime；v1 为显式 CLI + CFN 栈。
 

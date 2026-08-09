@@ -51,7 +51,7 @@ Archive closeout 继续证明冷数据可恢复，但不再作为年龄 retentio
 **Phase4 收口（2026-08-08）**：legacy export + promote、closeout、post-legacy tail export
 （scope `post_legacy_cold`）、cleanup hold release 均已完成。repo 健康：
 `python3 ops/observability/data_layer_archive_health.py`（期望 `closeout_complete=true`、
-`tail_export_complete=true`）。`<2026-07-01` 的 cold 行在 legacy export 中覆盖；
+`tail_export_complete=true`、`cleanup_release_complete=true`）。`<2026-07-01` 的 cold 行在 legacy export 中覆盖；
 `2026-07-01` 至 cutover 的变冷尾部在 tail export 中覆盖。
 
 cleanup hold **首次** release 前仍需实时读取 cutoff、候选量、leader lock、当前配置和 active

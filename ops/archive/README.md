@@ -99,7 +99,8 @@ Repo evidence health:
 python3 ops/observability/data_layer_archive_health.py
 ```
 
-Expect `closeout_complete=true`, `tail_export_complete=true`, and empty `evidence_errors`.
+Expect `closeout_complete=true`, `tail_export_complete=true`, `cleanup_release_complete=true`,
+and empty `evidence_errors`.
 Hold **apply** receipts (`US-039-prod-cleanup-hold-*.json`) are historical snapshots taken while
 cleanup was disabled (`hold_active=true` at apply time). Current prod state is proven by the
 **release receipt** (`.testing/user-stories/attachments/US-039-prod-cleanup-hold-release-20260808.json`)
@@ -322,5 +323,5 @@ eligibility inputs; physical DROP is owned by `OpsCleanupService`, not this dire
 Cleanup release requires both ops tables' closeout receipts before the first guarded release;
 repo health: `python3 ops/observability/data_layer_archive_health.py` (see `pipeline_status.yaml`
 for evidence path templates). Release receipt path:
-`evidence_attachments.cleanup_release_receipt_glob` (validated by operator workflow; not yet
-bound-checked by `data_layer_archive_health.py`).
+`evidence_attachments.cleanup_release_receipt_glob`; `data_layer_archive_health.py` validates
+binding to the latest hold apply receipt when Phase4 closeout and tail export are complete.

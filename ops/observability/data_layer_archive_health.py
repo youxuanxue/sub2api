@@ -183,12 +183,33 @@ def build_signal(attachments: pathlib.Path = ATTACHMENTS) -> dict[str, Any]:
                 tail_export_tables.add(table)
         except (export.ExportError, promote.PromoteError, OSError):
             evidence_errors.append(f"{table}:tail_export_ledger")
+    closeout_complete = closeout_tables == set(layout.tables)
+    tail_export_complete = tail_export_tables == set(layout.tables)
+    cleanup_release_complete = False
+    cleanup_release_verified_at: str | None = None
+    if closeout_complete and tail_export_complete:
+        if hold_path is None:
+            evidence_errors.append("cleanup_release")
+        else:
+            try:
+                _, release = cleanup_hold._latest_release_receipt(
+                    attachments,
+                    layout.cleanup_release_receipt_glob,
+                    hold,
+                    hold_path,
+                )
+                cleanup_release_complete = True
+                cleanup_release_verified_at = release.get("verified_at")
+            except cleanup_hold.HoldControlError:
+                evidence_errors.append("cleanup_release")
     return {
         "ledgers": ledgers,
         "tail_ledgers": tail_ledgers,
         "hold_started_at": hold.get("hold_started_at"),
-        "closeout_complete": closeout_tables == set(layout.tables),
-        "tail_export_complete": tail_export_tables == set(layout.tables),
+        "closeout_complete": closeout_complete,
+        "tail_export_complete": tail_export_complete,
+        "cleanup_release_complete": cleanup_release_complete,
+        "cleanup_release_verified_at": cleanup_release_verified_at,
         "restore_verified_at": restores,
         "evidence_errors": sorted(set(evidence_errors)),
     }
