@@ -44,23 +44,16 @@ ledger 的 `more_cold_rows_remaining=false` 只是当次水位结论；时间推
 
 Archive closeout 继续证明冷数据可恢复，但不再作为年龄 retention 的前置条件。
 
-**历史决定（2026-08-07）**：停止对两个 ops 表**早于 cutover 的 EBS 快照恢复链**做历史 backfill。
-该决定针对快照/恢复证据缺口，**不是**对 post-legacy 冷尾 export 的永久放弃，也不阻止后续按
-30 天规则清理源表。
+**Prod 终态**由 repo 证据 + `python3 ops/observability/data_layer_archive_health.py` 定义：
+`closeout_complete`、`tail_export_complete`、`cleanup_release_complete` 均为 true，且
+`evidence_errors` 为空。日常回收唯一 owner 是 `OpsCleanupService`（ops 月分区在
+`upper_bound <= now-30d` 时整分区 DROP；跨边界宽分区 capped 行级 DELETE；
+`usage_logs_legacy` 走 attach-legacy + 90d DELETE/DropExpired）。promote ledger 的
+`drop_ready` 只证明 export 证据齐全，**不授权**删除。
 
-**Phase4 收口（2026-08-08）**：legacy export + promote、closeout、post-legacy tail export
-（scope `post_legacy_cold`）、cleanup hold release 均已完成。repo 健康：
-`python3 ops/observability/data_layer_archive_health.py`（期望 `closeout_complete=true`、
-`tail_export_complete=true`、`cleanup_release_complete=true`）。`<2026-07-01` 的 cold 行在 legacy export 中覆盖；
-`2026-07-01` 至 cutover 的变冷尾部在 tail export 中覆盖。
-
-cleanup hold **首次** release 前仍需实时读取 cutoff、候选量、leader lock、当前配置和 active
-image，并以独立确认执行（release receipt：
-`.testing/user-stories/attachments/US-039-prod-cleanup-hold-release-20260808.json`）。release
-之后 `OpsCleanupService` 继续作为唯一 retention owner：ops 月分区整分区 DROP 由
-`pgpartition.DropExpired` 在 `upper_bound <= now-30d` 时自动执行；promote ledger 的
-`drop_ready` 只证明归档证据齐全，**不授权**删除。`usage_logs_legacy` 走 attach-legacy + 90d
-行级 DELETE/DropExpired，与 ops 月分区模型不同。
+若 tail export 完成后出现新的 post-legacy 冷行，走 re-export 例外路径（新 hold →
+`post_legacy_cold` export → promote → closeout → release）；见 `ops/archive/README.md`
+§Exception path。
 
 ## Usage 日分区
 
@@ -131,8 +124,8 @@ retention；本阶段不把 S3 变成账务 source of truth。
 
 - cleanup disabled 时未来分区仍创建，只有维护 heartbeat 更新。
 - cleanup enabled 时维护成功后才执行 retention，两个 heartbeat 独立。
-- 归档尾部可从已完成 ledger 的 cursor 继续；Phase4 tail export 完成后，仅在新 post-legacy
-  冷尾出现时才续跑 `post_legacy_cold` export；未达到 export 上界不得报告 archive closeout。
+- 归档尾部可从已完成 ledger 的 cursor 继续；steady state 下仅 re-export 例外路径续跑
+  `post_legacy_cold` export。
 - promote checksum 或随机 restore 不一致时 archive health 必须失败，但不改变 30 天 retention 资格。
 - usage 切换脚本拒绝未验证约束、错误上界、活跃锁和行数漂移。
 - telemetry 未配置时零行为变化；队列满或 S3 失败不影响 PostgreSQL 成功。

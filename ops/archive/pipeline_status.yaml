@@ -33,7 +33,5 @@ evidence_attachments:
     ops_error_logs: ops-error-logs
 
 closeout_required_before_cleanup_release: true
-# Phase4 steady state (2026-08-08+): hold released; cleanup enabled; tail export complete.
-# archive_health validates closeout + tail ledgers + hold apply receipt binding + release receipt.
-# Release gate only: first cleanup-hold release requires both ops closeout receipts
-# in repo evidence. Ongoing age-based cleanup does not re-check this flag.
+# Steady-state evidence: archive_health validates closeout, tail export, hold binding, release.
+# Release gate only for first hold release; ongoing cleanup does not re-check this flag.

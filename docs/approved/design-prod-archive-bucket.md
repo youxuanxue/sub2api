@@ -14,8 +14,8 @@ related_prs: [1401]
 
 export staging（`tokenkey-stage0-backups` / `prod/pgdump/archive-export/`）仅 **7 天**
 周转；长期归档使用 **独立 S3 桶**，一条 canonical promote 路径。ops 月分区回收前 export/promote
-证据须齐全（`drop_ready` 仍不授权删除）；Phase4 稳态下 physical DROP 由 `OpsCleanupService`
-执行，见 `ops/archive/README.md` §Phase4 production steady state 与下文 §分区回收门禁。
+证据须齐全（`drop_ready` 仍不授权删除）；steady state 下 physical DROP 由 `OpsCleanupService`
+执行；终态与 re-export 例外路径见 `ops/archive/README.md`。
 
 不接入 workflow / schedule / runtime；v1 为显式 CLI + CFN 栈。
 
@@ -45,8 +45,8 @@ export staging（`tokenkey-stage0-backups` / `prod/pgdump/archive-export/`）仅
 1. 对应表 export ledger：`more_cold_rows_remaining=false`
 2. ledger 中 **每个** `batch_id` 有 promote receipt，且 archive 前缀 manifest
    sha256 与 export 一致
-3. Phase4 closeout + cleanup hold release 已完成（2026-08-08）；`drop_ready` **不是**删除授权；
-   不得把「hold 仍有效」当作 drop 前置假设
+3. `cleanup_release_complete=true`（`data_layer_archive_health.py`）；`drop_ready`
+   **不是**删除授权
 
 `usage_logs_legacy`（attach-legacy，90d 热层）与 ops 月分区模型不同：回收走行级 DELETE 与
 DropExpired，不由本 promote 路径手工 DROP。

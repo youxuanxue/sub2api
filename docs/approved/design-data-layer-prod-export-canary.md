@@ -87,10 +87,9 @@ plan (no AWS call)
 - control bundle、artifact 或 manifest 任一损坏、S3 未加密、SSM 参数超限或 restore 内容冲突时，canary 失败。
 - 真实 PostgreSQL 集成测试证明导出前后源行数与内容不变，恢复行数和 logical SHA-256 一致。
 
-## 后续独立审批
+## Prod 终态
 
-canary 通过后仍不能删除。当前 prod 已完成 legacy ops export、promote、closeout、
-post-legacy tail export 与 cleanup hold release；`usage_logs` 日分区 cutover 已落地。
-age retention 已由 `OpsCleanupService` 接管：ops 月分区在 `upper_bound <= now-30d` 时由
-cleanup cron 整分区 DROP；跨边界的宽分区走 capped 行级 DELETE。`drop_ready` 仍不是删除授权，
-只表示 promote 证据齐全。QA 不进入该 ops canary，由独立 QA 生命周期 SSOT 管理。
+canary 与 export CLI **不删除** prod 行。Prod steady state：`OpsCleanupService` 负责 age
+retention；repo 证据由 `data_layer_archive_health.py` 校验（`closeout_complete`、
+`tail_export_complete`、`cleanup_release_complete`）。`drop_ready` 只表示 promote 证据齐全。
+Re-export 例外路径见 `ops/archive/README.md` §Exception path。QA 由独立 SSOT 管理。

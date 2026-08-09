@@ -69,11 +69,9 @@ python3 ops/observability/test_data_layer_safety_verdict.py
 
 ## Evidence
 
-- Phase4 release receipt：`.testing/user-stories/attachments/US-039-prod-cleanup-hold-release-20260808.json`
-- Repo archive health：`python3 ops/observability/data_layer_archive_health.py`（期望
+- Repo archive health：`python3 ops/observability/data_layer_archive_health.py`（steady state：
   `closeout_complete` + `tail_export_complete` + `cleanup_release_complete`）
 
 ## Status
 
-- [x] Done — prod Phase4 已完成（usage cutover、telemetry shadow、ops closeout、tail export、
-  cleanup release）；age retention 由 `OpsCleanupService` 运行；RDS 第二阶段仍 hold。
+- [x] Done — prod steady state 已达成；`OpsCleanupService` 运行 retention；RDS 第二阶段仍 hold。

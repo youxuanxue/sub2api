@@ -27,8 +27,8 @@
 ## Assertions
 
 - export / promote 无 UI；行为测试 + stubbed AWS runner 覆盖正向与负向。
-- `drop_ready=true` 不是删除授权；Phase4 cleanup hold 已在 closeout 后 release（见 US-039
-  release receipt）；age retention 由 `OpsCleanupService` 接管，与 export 证据解耦。
+- `drop_ready=true` 不是删除授权；steady state 下 retention 由 `OpsCleanupService` 负责，
+  release 证据由 `archive_health` 校验。
 - staging 7 天过期；promote 必须在窗口内完成或重 export。
 
 ## Linked Tests
@@ -54,5 +54,4 @@ python3 ops/archive/test_data_layer_archive_promote_batch.py
 
 ## Status
 
-- [x] Done — prod export + promote 已完成；cleanup hold 已在 closeout 后 release；整分区 DROP
-  由 `OpsCleanupService` 在 bound 到期时自动执行；`drop_ready` 不是删除授权。
+- [x] Done — export/promote 证据在 repo；steady state 见 `archive_health`；DROP 由 cleanup 自动执行。

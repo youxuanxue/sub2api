@@ -40,7 +40,7 @@ python3 ops/migration/usage_logs_daily_partition.py cutover \
 ## 分区维护一次性入口
 
 `data_layer_partition_maintenance.py` 只面向固定的 `us-east-1` / `tokenkey-prod-stage0`，
-不接受 target、instance、script 或 command 参数。Prod 已在 Phase4 执行一次（证据：
+不接受 target、instance、script 或 command 参数。Prod 分区维护已在 cutover 后执行一次（证据：
 `.testing/user-stories/attachments/prod-partition-maintenance.json`）；后续仅在
 分区覆盖漂移或 cutover 后补洞时使用，每次仍须显式确认串与独立审批。
 

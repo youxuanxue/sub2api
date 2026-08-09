@@ -57,11 +57,10 @@ python3 ops/archive/test_data_layer_archive_cleanup_hold.py
 
 ## Evidence
 
-- cleanup hold receipt：`.testing/user-stories/attachments/US-039-prod-cleanup-hold-20260721.json`、`.testing/user-stories/attachments/US-039-prod-cleanup-hold-20260807.json`。
-- cleanup hold release receipt：`.testing/user-stories/attachments/US-039-prod-cleanup-hold-release-20260808.json`（Phase4 closeout 后 release；2026-08-08 只读 plan 复核 `hold_active=false`）。
+- cleanup hold / release receipts：`.testing/user-stories/attachments/US-039-prod-cleanup-hold-*.json`、
+  `US-039-prod-cleanup-hold-release-*.json`（steady state 以 `archive_health` 为准）。
 - 单元测试使用 stubbed AWS/S3/admin API command runner；集成测试使用临时 `postgres:18-alpine` 源库与独立恢复库。
 
 ## Status
 
-- [x] Done — prod canary 已执行；legacy 分批 export 与 promote 见 US-040；Phase4 hold release
-  后 age retention 由 `OpsCleanupService` 接管；`drop_ready` 不是删除授权。
+- [x] Done — prod steady state：`OpsCleanupService` retention + `archive_health` 三 flag 绿。
