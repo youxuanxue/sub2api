@@ -74,18 +74,16 @@ fail closed；ops 回收上界不得超过 snapshot 观测到的 ops 关系总�
 小于 live `DataVolumeSizeGiB`、出现 `Instance`/`EIPAssoc`、卷 replacement 或 Size 之外
 的属性，计划必须拒绝。
 
-## 后续归档闭环
+## 归档 steady state
 
-归档实现进入下一审批阶段，顺序固定为：
+Generic usage/ops archive 已收口：`archive_health` 三 flag 绿 +
+`OpsCleanupService` 日常 retention。Exception path 与 CLI 契约见
+`ops/archive/README.md`、`design-prod-archive-bucket.md`、
+`design-data-layer-prod-export-canary.md`。
 
-```text
-非生产封口批次 -> 导出 -> manifest/行数/checksum -> 随机恢复
--> dry-run 水位 -> 单批 canary（仍不删）-> 独立批准后才允许小批删除
-```
-
-候选保留策略为 usage 热 90 天、raw ops 热 30 天。ops 优先整分区 drop；prod 上
-`usage_logs` 已完成日分区 cutover（见 `design-data-layer-phase1-closeout.md`），
-不在 prod 做 `VACUUM FULL` 或直接 rewrite 来追求 `df` 好看。QA 不由本通用设计管理。
+候选保留策略为 usage 热 90 天、raw ops 热 30 天。prod 上 `usage_logs`
+已完成日分区 cutover（见 `design-data-layer-phase1-closeout.md`），不在 prod
+做 `VACUUM FULL` 或直接 rewrite 来追求 `df` 好看。QA 不由本通用设计管理。
 扩盘与归档分别审批，任何一个完成都不自动授权另一个。
 
 ## 验收门

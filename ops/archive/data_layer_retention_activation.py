@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Build the read-only production retention activation plan.
 
-Phase4 combined gate: bundles QA timer/shard readiness with generic ops
-preconditions (usage cutover, telemetry shadow, ops retention). Required for
-the first guarded cleanup-hold release after closeout. Ongoing generic archive
-diagnostics use ``ops/observability/data_layer_archive_health.py`` and capacity
-probes; QA-specific sections are owned by ``ops/qa/`` (see ``ops/qa/README.md``).
+Bundles QA timer/shard readiness with generic ops preconditions before the
+first guarded cleanup-hold release after closeout. Steady-state archive
+health uses ``ops/observability/data_layer_archive_health.py``; QA sections
+are owned by ``ops/qa/`` (``ops/qa/README.md``).
 """
 from __future__ import annotations
 

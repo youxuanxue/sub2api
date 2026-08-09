@@ -71,7 +71,7 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
             ledger["more_cold_rows_remaining"] = True
         self.assertEqual(verdict.compute_verdict(signals)["verdict"], "green")
 
-    def test_missing_cleanup_release_fails_when_phase4_complete(self) -> None:
+    def test_missing_cleanup_release_fails_when_archive_steady_state_complete(self) -> None:
         signals = _signals()
         signals["ARCHIVESTATS"]["cleanup_release_complete"] = False
         result = verdict.compute_verdict(signals)

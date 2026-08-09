@@ -7,7 +7,7 @@ runner 自动执行，也不会复制历史明细。
 
 ```bash
 python3 ops/migration/usage_logs_daily_partition.py prepare \
-  --receipt .testing/user-stories/attachments/usage-prepare.json \
+  --receipt /path/to/usage-prepare-receipt.json \
   --confirm tokenkey-prod-usage-daily-prepare-v1
 ```
 
@@ -16,7 +16,7 @@ python3 ops/migration/usage_logs_daily_partition.py prepare \
 
 ```bash
 python3 ops/migration/usage_logs_daily_partition.py abort \
-  --receipt .testing/user-stories/attachments/usage-abort.json \
+  --receipt /path/to/usage-abort-receipt.json \
   --legacy-upper-exclusive '<legacy_upper_exclusive>' \
   --confirm 'tokenkey-prod-usage-daily-abort-v1:<legacy_upper_exclusive>'
 ```
@@ -28,8 +28,8 @@ python3 ops/migration/usage_logs_daily_partition.py abort \
 
 ```bash
 python3 ops/migration/usage_logs_daily_partition.py cutover \
-  --prepare-receipt .testing/user-stories/attachments/usage-prepare.json \
-  --cutover-receipt .testing/user-stories/attachments/usage-cutover.json \
+  --prepare-receipt /path/to/usage-prepare-receipt.json \
+  --cutover-receipt /path/to/usage-cutover-receipt.json \
   --confirm '<required_cutover_confirmation>'
 ```
 
@@ -40,15 +40,15 @@ python3 ops/migration/usage_logs_daily_partition.py cutover \
 ## 分区维护一次性入口
 
 `data_layer_partition_maintenance.py` 只面向固定的 `us-east-1` / `tokenkey-prod-stage0`，
-不接受 target、instance、script 或 command 参数。Prod 分区维护已在 cutover 后执行一次（证据：
-`.testing/user-stories/attachments/prod-partition-maintenance.json`）；后续仅在
-分区覆盖漂移或 cutover 后补洞时使用，每次仍须显式确认串与独立审批。
+不接受 target、instance、script 或 command 参数。steady state 下日常分区维护由
+`OpsCleanupService` 负责；本入口仅在 cutover 后补洞或覆盖漂移时使用，每次仍须显式确认串与
+独立审批。
 
 命令形状固定为：
 
 ```bash
 python3 ops/migration/data_layer_partition_maintenance.py run \
-  --receipt .testing/user-stories/attachments/prod-partition-maintenance.json \
+  --receipt /path/to/partition-maintenance-receipt.json \
   --confirm tokenkey-prod-partition-maintenance-v1
 ```
 

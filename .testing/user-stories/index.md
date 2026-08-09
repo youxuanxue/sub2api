@@ -40,9 +40,6 @@
 | US-036 | Capacity-first 数据层安全保护 | Done   | `.testing/user-stories/stories/US-036-capacity-first-data-layer-safety.md` |
 | US-037 | Data-layer 非生产归档恢复演练 | Done   | `.testing/user-stories/stories/US-037-data-layer-archive-rehearsal.md` |
 | US-038 | Kiro CONTENT_FILTERED 返回客户端错误且不触发 failover | InTest | `.testing/user-stories/stories/US-038-kiro-content-filter-client-error.md` |
-| US-039 | Data-layer 生产只读导出 canary | Archived | `.testing/user-stories/stories/US-039-data-layer-prod-export-canary.md` |
-| US-040 | Legacy 冷数据分批 export 与长期 archive promote | Archived | `.testing/user-stories/stories/US-040-ops-legacy-export-promote.md` |
 | US-041 | Kiro Claude Code completion continuity preserves unfinished work | InTest | `.testing/user-stories/stories/US-041-kiro-claude-code-completion-continuity.md` |
-| US-042 | Data-layer 第一阶段安全收口 | Archived | `.testing/user-stories/stories/US-042-data-layer-phase1-closeout.md` |
 | US-043 | Global pricing has one registry owner and protected hot reload | Done | `.testing/user-stories/stories/US-043-pricing-registry-hot-reload.md` |
 | US-044 | QA 生命周期单一 owner 与唯一用户导出契约 | Done | `.testing/user-stories/stories/US-044-qa-lifecycle-single-owner-and-export-contract.md` |

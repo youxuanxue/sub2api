@@ -1,13 +1,16 @@
 ---
 title: Data-layer 生产只读导出 canary
 status: approved
-approved_by: "xuejiao (phase 4 approval, 2026-07-21)"
+approved_by: "xuejiao (export canary approval, 2026-07-21)"
 approved_at: 2026-07-21
 authors: [agent]
 created: 2026-07-21
 ---
 
 # Data-layer 生产只读导出 canary
+
+> **Prod 日常**：`python3 ops/observability/data_layer_archive_health.py` +
+> `ops/archive/README.md` steady state。本文档仅保留 Exception path / canary CLI 契约。
 
 ## 决策
 
@@ -16,7 +19,7 @@ created: 2026-07-21
 workflow、schedule、deploy 或 runtime，也不提供 `DELETE`、`DROP PARTITION`、`TRUNCATE`、
 `VACUUM` 或清理能力。
 
-PR #587 的 RDS/cutover 工件不进入本路径。Phase 3 的 nonprod CLI 继续只接受 localhost
+RDS cutover 工件不进入本路径。nonprod rehearsal CLI 继续只接受 localhost
 rehearsal 数据库；生产能力放在独立入口，不能通过修改 DSN 绕过。
 
 ## 固定边界
