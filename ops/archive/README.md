@@ -84,7 +84,42 @@ timeouts and a row cap, and reports elapsed time, source/candidate rows,
 logical/artifact bytes, compression ratio, and restore verification. It never
 deletes source or target data.
 
+## Phase4 production steady state (2026-08-08+)
+
+Generic usage/ops data-layer Phase4 is complete in prod:
+
+- legacy export + promote + closeout for both ops tables
+- post-legacy tail export + promote (`more_cold_rows_remaining=false`)
+- cleanup hold **released**; age-based retention runs via `OpsCleanupService`
+- `usage_logs` daily partition cutover done
+
+Repo evidence health:
+
+```bash
+python3 ops/observability/data_layer_archive_health.py
+```
+
+Expect `closeout_complete=true`, `tail_export_complete=true`, and empty `evidence_errors`.
+Hold **apply** receipts (`US-039-prod-cleanup-hold-*.json`) are historical snapshots taken while
+cleanup was disabled (`hold_active=true` at apply time). Current prod state is proven by the
+**release receipt** (`.testing/user-stories/attachments/US-039-prod-cleanup-hold-release-20260808.json`)
+and live cleanup heartbeats—not by re-reading an apply receipt.
+
+**Ongoing retention:** `OpsCleanupService` runs capped row DELETE and whole-partition DROP when
+monthly child `upper_bound <= now - 30d`. No operator CLI in this directory performs DROP; see
+`docs/approved/design-prod-archive-bucket.md` §分区回收门禁.
+
+**Re-export only if needed:** when new post-legacy cold rows appear after tail export, apply a
+**new** cleanup hold, run `post_legacy_cold` batches, promote, and update ledgers. Do not assume
+the 2026-07 hold receipt is still active.
+
+---
+
 ## Production export-only canary
+
+The sections below document the **Phase4 one-time** archive workflow (hold → export → promote →
+closeout → tail export → release). They remain the canonical procedure if a future re-export is
+required; they are not the current steady-state daily path.
 
 Production archive work first requires an explicit cleanup hold. The controller
 reads the current advanced settings through the admin API and cross-checks the
@@ -132,11 +167,11 @@ Verify archive closeout and tail-export evidence:
 python3 ops/observability/data_layer_archive_health.py
 ```
 
-Ongoing ops retention runs through `OpsCleanupService` age-based DELETE while
-partition maintenance stays independent. When new post-legacy cold rows appear,
-export them with `run-batch` using scope `post_legacy_cold` and the same hold,
-promote, and ledger patterns documented below. QA lifecycle is separate:
-[`ops/qa/README.md`](../qa/README.md).
+Ongoing ops retention runs through `OpsCleanupService` age-based DELETE and bound-driven
+whole-partition DROP while partition maintenance stays independent. **Only if** new post-legacy
+cold rows appear after the completed tail export, export them with `run-batch` using scope
+`post_legacy_cold` under a **new** cleanup hold, then promote and update ledgers using the
+patterns below. QA lifecycle is separate: [`ops/qa/README.md`](../qa/README.md).
 
 The offline plan validates the fixed 30-day waterline and hard limits without
 calling AWS, Docker, PostgreSQL, or S3:
@@ -205,19 +240,19 @@ python3 ops/archive/data_layer_archive_prod_export.py init-ledger \
   --table ops_system_logs
 ```
 
-Export one batch (requires active cleanup hold receipt):
+Export one batch (**Phase4 one-time workflow**; requires an **active** cleanup hold receipt):
 
 ```bash
 python3 ops/archive/data_layer_archive_prod_export.py run-batch \
   --ledger .testing/user-stories/attachments/US-040-ops-system-logs-export-ledger.json \
   --evidence-root /tmp/tokenkey-prod-export-evidence \
-  --cleanup-hold-receipt .testing/user-stories/attachments/US-039-prod-cleanup-hold-20260721.json \
+  --cleanup-hold-receipt .testing/user-stories/attachments/US-039-prod-cleanup-hold-20260807.json \
   --confirm tokenkey-prod-archive-export-batch-v1
 ```
 
 Repeat `run-batch` until the ledger reports `more_cold_rows_remaining=false`.
 Each batch still requires the exact confirmation string
-`tokenkey-prod-archive-export-batch-v1` and an active cleanup hold.
+`tokenkey-prod-archive-export-batch-v1` and an active cleanup hold (not satisfied after release).
 
 ## Long-term archive bucket and promote
 
@@ -262,15 +297,15 @@ python3 ops/archive/data_layer_archive_promote_batch.py promote-ledger \
 batch from the same cursor so newly cold tail rows are checked and the final batch
 records `cutoff_exclusive >= legacy_upper_exclusive`.
 
-After every batch is promoted, create one closeout per ops table by downloading a
-seeded random batch from the long-term archive and restoring it into an independent
-PostgreSQL database:
+After every batch is promoted, create one closeout per ops table (**while hold is still active**)
+by downloading a seeded random batch from the long-term archive and restoring it into an
+independent PostgreSQL database:
 
 ```bash
 python3 ops/archive/data_layer_archive_closeout.py \
   --export-ledger <table-export-ledger.json> \
   --promote-ledger <table-promote-ledger.json> \
-  --cleanup-hold-receipt <active-hold.json> \
+  --cleanup-hold-receipt <active-hold-at-closeout-time.json> \
   --closeout-receipt <table-archive-closeout.json> \
   --evidence-root /tmp/tokenkey-archive-closeout \
   --restore-target-dsn '<independent restore DSN>' \
@@ -278,11 +313,14 @@ python3 ops/archive/data_layer_archive_closeout.py \
   --confirm tokenkey-prod-archive-closeout-v1
 ```
 
-The 2026-08-07 business decision accepts the known historical ops archive gap;
-it is recorded in the approved design and does not participate in runtime retention
-evaluation. Archive closeout receipts remain restore evidence, not deletion
-eligibility inputs.
+**Historical context (2026-08-07):** prod stopped backfilling the pre-cutover EBS snapshot
+restore chain for two ops tables. That decision does **not** mean post-legacy cold tail export
+was abandoned—Phase4 tail export (2026-08-08) closed the `post_legacy_cold` ledgers with
+`more_cold_rows_remaining=false`. Archive closeout receipts remain restore evidence, not deletion
+eligibility inputs; physical DROP is owned by `OpsCleanupService`, not this directory.
 
-Cleanup release requires both ops tables' closeout receipts before the first
-guarded release; repo health: `python3 ops/observability/data_layer_archive_health.py`
-(see `pipeline_status.yaml` for evidence path templates).
+Cleanup release requires both ops tables' closeout receipts before the first guarded release;
+repo health: `python3 ops/observability/data_layer_archive_health.py` (see `pipeline_status.yaml`
+for evidence path templates). Release receipt path:
+`evidence_attachments.cleanup_release_receipt_glob` (validated by operator workflow; not yet
+bound-checked by `data_layer_archive_health.py`).

@@ -91,5 +91,6 @@ plan (no AWS call)
 
 canary 通过后仍不能删除。当前 prod 已完成 legacy ops export、promote、closeout、
 post-legacy tail export 与 cleanup hold release；`usage_logs` 日分区 cutover 已落地。
-剩余单独审批项：整分区完全越过 30 天水位后的分区 drop（`drop_ready` 仍不是删除授权）。
-QA 不进入该 ops canary，由独立 QA 生命周期 SSOT 管理。
+age retention 已由 `OpsCleanupService` 接管：ops 月分区在 `upper_bound <= now-30d` 时由
+cleanup cron 整分区 DROP；跨边界的宽分区走 capped 行级 DELETE。`drop_ready` 仍不是删除授权，
+只表示 promote 证据齐全。QA 不进入该 ops canary，由独立 QA 生命周期 SSOT 管理。

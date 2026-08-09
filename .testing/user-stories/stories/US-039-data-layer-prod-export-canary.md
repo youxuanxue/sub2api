@@ -63,4 +63,5 @@ python3 ops/archive/test_data_layer_archive_cleanup_hold.py
 
 ## Status
 
-- [x] Done — prod canary 已执行；legacy 分批 export 与 promote 见 US-040；分区 drop 仍须单独审批。
+- [x] Done — prod canary 已执行；legacy 分批 export 与 promote 见 US-040；Phase4 hold release
+  后 age retention 由 `OpsCleanupService` 接管；`drop_ready` 不是删除授权。

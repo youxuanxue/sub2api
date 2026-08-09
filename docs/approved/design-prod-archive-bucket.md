@@ -36,14 +36,19 @@ promote receipt 齐全。
 - 输出 `prod_archive_promote_receipt`；`promote-ledger` 按 export ledger 批量推进
 - `source_mutated=false`、`deletion_authorized=false` 不变
 
-### Drop 分区门禁（本文件不实现 drop）
+### 分区回收门禁（本文件不实现 drop；执行 owner 为 `OpsCleanupService`）
 
-以下 **全部** 满足后才可批准 legacy 分区 drop：
+以下 **全部** 满足后，ops **月分区** 才可在 bound 到期时做整分区 DROP（由 daily cleanup 的
+`pgpartition.DropExpired` 自动执行，**不是**本目录 operator CLI）：
 
 1. 对应表 export ledger：`more_cold_rows_remaining=false`
 2. ledger 中 **每个** `batch_id` 有 promote receipt，且 archive 前缀 manifest
    sha256 与 export 一致
-3. drop 须单独审批工单（Phase4 closeout 后 cleanup hold 已 release；不得把「hold 仍有效」当作 drop 前置假设）
+3. Phase4 closeout + cleanup hold release 已完成（2026-08-08）；`drop_ready` **不是**删除授权；
+   不得把「hold 仍有效」当作 drop 前置假设
+
+`usage_logs_legacy`（attach-legacy，90d 热层）与 ops 月分区模型不同：回收走行级 DELETE 与
+DropExpired，不由本 promote 路径手工 DROP。
 
 ## 状态机
 

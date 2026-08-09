@@ -42,10 +42,25 @@ cron + leader lock
 ledger 的 `more_cold_rows_remaining=false` 只是当次水位结论；时间推进后允许从原 cursor
 继续导出新变冷的尾部。
 
-Archive closeout 继续证明冷数据可恢复，但不再作为年龄 retention 的前置条件。2026-08-07
-已明确接受两个 ops 表的历史冷尾缺口并停止快照恢复；该决定不把 archive 标记为完整，也不阻止
-后续按 30 天规则清理源表。cleanup hold 首次释放前仍需实时读取 cutoff、候选量、leader lock、
-当前配置和 active image，并以独立确认执行；之后 `OpsCleanupService` 继续作为唯一 retention owner。
+Archive closeout 继续证明冷数据可恢复，但不再作为年龄 retention 的前置条件。
+
+**历史决定（2026-08-07）**：停止对两个 ops 表**早于 cutover 的 EBS 快照恢复链**做历史 backfill。
+该决定针对快照/恢复证据缺口，**不是**对 post-legacy 冷尾 export 的永久放弃，也不阻止后续按
+30 天规则清理源表。
+
+**Phase4 收口（2026-08-08）**：legacy export + promote、closeout、post-legacy tail export
+（scope `post_legacy_cold`）、cleanup hold release 均已完成。repo 健康：
+`python3 ops/observability/data_layer_archive_health.py`（期望 `closeout_complete=true`、
+`tail_export_complete=true`）。`<2026-07-01` 的 cold 行在 legacy export 中覆盖；
+`2026-07-01` 至 cutover 的变冷尾部在 tail export 中覆盖。
+
+cleanup hold **首次** release 前仍需实时读取 cutoff、候选量、leader lock、当前配置和 active
+image，并以独立确认执行（release receipt：
+`.testing/user-stories/attachments/US-039-prod-cleanup-hold-release-20260808.json`）。release
+之后 `OpsCleanupService` 继续作为唯一 retention owner：ops 月分区整分区 DROP 由
+`pgpartition.DropExpired` 在 `upper_bound <= now-30d` 时自动执行；promote ledger 的
+`drop_ready` 只证明归档证据齐全，**不授权**删除。`usage_logs_legacy` 走 attach-legacy + 90d
+行级 DELETE/DropExpired，与 ops 月分区模型不同。
 
 ## Usage 日分区
 
@@ -116,7 +131,8 @@ retention；本阶段不把 S3 变成账务 source of truth。
 
 - cleanup disabled 时未来分区仍创建，只有维护 heartbeat 更新。
 - cleanup enabled 时维护成功后才执行 retention，两个 heartbeat 独立。
-- 归档尾部可从已完成 ledger 的 cursor 继续；未达到分区上界不得报告 archive closeout。
+- 归档尾部可从已完成 ledger 的 cursor 继续；Phase4 tail export 完成后，仅在新 post-legacy
+  冷尾出现时才续跑 `post_legacy_cold` export；未达到 export 上界不得报告 archive closeout。
 - promote checksum 或随机 restore 不一致时 archive health 必须失败，但不改变 30 天 retention 资格。
 - usage 切换脚本拒绝未验证约束、错误上界、活跃锁和行数漂移。
 - telemetry 未配置时零行为变化；队列满或 S3 失败不影响 PostgreSQL 成功。

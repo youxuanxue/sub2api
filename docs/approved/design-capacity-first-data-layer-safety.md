@@ -98,9 +98,13 @@ fail closed；ops 回收上界不得超过 snapshot 观测到的 ops 关系总�
 - [ ] plan shell 不含 execute path，不调用部署、SSM run-command 或容器命令。
 - [ ] 本地 preflight 全绿后提交人工审查；merge 不代表批准任何 prod 操作。
 
-## 明确不做
+## 明确不做（本设计范围内）
 
-- 不连接或查询 prod，不创建 prod change set/SSM 参数。
-- 不修改当前 50 GiB 卷，不扩文件系统，不重启任何服务。
-- 不新增生产归档 schema/worker/S3 bucket，不删除 usage/ops 数据。
+- 不通过本设计自动创建 prod change set/SSM 参数或执行 DataVolume 变更（prod plan 预览仍须
+  单独确认串与人工审批）。
+- 不自动扩文件系统、不重启任何服务。
+- 不新增生产归档 schema/worker/S3 bucket，不通过本设计删除 usage/ops 数据。
 - 不改变 RDS PR #587，也不把容量缓解冒充数据库高可用。
+
+注：只读 prod 容量探针已在 Phase1 activation gates 晋升（见上文「零影响边界」）；「原型阶段
+禁止 prod 查询」不再适用于 daily diagnostics 路径。
