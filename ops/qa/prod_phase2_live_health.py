@@ -6,7 +6,6 @@ import argparse
 import base64
 import datetime as dt
 import json
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any

@@ -321,6 +321,85 @@ func TestUS045_QAMaintenanceCommandReportsCommittedNormalAndCompensationFacts(t 
 	}
 }
 
+func TestUS045_QAMaintenanceCommandSucceedsWithTerminalCatchupGap(t *testing.T) {
+	t.Setenv("QA_MAINTENANCE_RUN_ID", "run-terminal-045")
+	t.Setenv("QA_MAINTENANCE_TRIGGER", "timer")
+	db, mockDB, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	mockDB.ExpectPing()
+	mockDB.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mockDB.ExpectExec("SET statement_timeout = '120s'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mockDB.ExpectClose()
+
+	normal := us045Window(3)
+	terminal := us045Window(1)
+	now := normal.End.Add(15 * time.Minute)
+	reconcileCalls := 0
+	var heartbeat *service.OpsUpsertJobHeartbeatInput
+	deps := us045CommandDeps(db, now)
+	deps.reconcileShard = func(_ context.Context, _ *sql.Conn, _ archive.ObjectStore, window archive.Window, _, _ string) (archive.ReconcileReceipt, error) {
+		reconcileCalls++
+		if window != normal {
+			t.Fatalf("reconcile window=%+v", window)
+		}
+		return us045Receipt(normal, "normal-etag"), nil
+	}
+	deps.selectOldest = func(_ context.Context, _ *sql.Conn, gotNormal archive.Window, _ time.Time) (archive.CatchupSelection, bool, error) {
+		if gotNormal != normal {
+			t.Fatalf("normal=%+v", gotNormal)
+		}
+		return archive.CatchupSelection{
+			Window:      terminal,
+			ShardID:     46,
+			Disposition: archive.CatchupDispositionSourceUnavailableAfterRetention,
+		}, true, nil
+	}
+	deps.writeHeartbeat = func(_ context.Context, _ *sql.DB, input *service.OpsUpsertJobHeartbeatInput) error {
+		heartbeat = input
+		return nil
+	}
+
+	out := &bytes.Buffer{}
+	if err := runQAMaintenanceCommand(context.Background(), []string{
+		"--qa-maintenance-once", "--confirm", qaMaintenanceConfirmation,
+	}, out, deps); err != nil {
+		t.Fatal(err)
+	}
+	if reconcileCalls != 1 {
+		t.Fatalf("reconcileCalls=%d", reconcileCalls)
+	}
+	if heartbeat == nil || heartbeat.LastResult == nil || !strings.Contains(*heartbeat.LastResult, "status=committed") {
+		t.Fatalf("heartbeat=%+v", heartbeat)
+	}
+	if !strings.Contains(*heartbeat.LastResult, "compensation_error_code="+archive.IntegritySourceUnavailableAfterRetention) {
+		t.Fatalf("heartbeat result %q missing terminal compensation fact", *heartbeat.LastResult)
+	}
+	var receipt struct {
+		OK           bool `json:"ok"`
+		Plan         struct {
+			CommitETag string `json:"commit_etag"`
+		} `json:"plan"`
+		Compensation *struct {
+			State                 string `json:"state"`
+			VerificationErrorCode string `json:"verification_error_code"`
+		} `json:"compensation"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if !receipt.OK || receipt.Plan.CommitETag != "normal-etag" || receipt.Compensation == nil ||
+		receipt.Compensation.State != archive.StateFailed ||
+		receipt.Compensation.VerificationErrorCode != archive.IntegritySourceUnavailableAfterRetention {
+		t.Fatalf("receipt=%+v", receipt)
+	}
+	if err := mockDB.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestUS045_QAMaintenanceCommandFailureHeartbeatPreservesNormalSuccess(t *testing.T) {
 	t.Setenv("QA_MAINTENANCE_RUN_ID", "run-failure-045")
 	t.Setenv("QA_MAINTENANCE_TRIGGER", "timer")

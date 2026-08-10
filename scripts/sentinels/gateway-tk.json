@@ -6034,9 +6034,11 @@
         "deletion_authorized=false",
         "archive.NewReconciler",
         "aggregate_record_count",
-        "lockAcquired"
+        "lockAcquired",
+        "CatchupDispositionSourceUnavailableAfterRetention",
+        "Terminal catchup gap is recorded during select"
       ],
-      "rationale": "Prod QA maintenance must retain sealed-window selection, the single verified reconciler owner, failure-safe locking, committed aggregate heartbeat, and hard denial of deletion."
+      "rationale": "Prod QA maintenance must retain sealed-window selection, the single verified reconciler owner, failure-safe locking, committed aggregate heartbeat, hard denial of deletion, and terminal catchup gaps that do not fail the sealed normal hour."
     },
     {
       "path": "backend/internal/observability/qa/archive/segment_builder.go",
