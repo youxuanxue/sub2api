@@ -23,13 +23,57 @@ export TK_TIMER_ACTIVE="${timer_active}"
 export TK_SERVICE_RESULT="${service_result}"
 export TK_SERVICE_FINISHED="${service_finished}"
 
+RECEIPT_COMP_WINDOW=""
+if [ -r "${RECEIPT}" ]; then
+  RECEIPT_COMP_WINDOW="$(python3 - "${RECEIPT}" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    payload = None
+if isinstance(payload, dict):
+    compensation = payload.get("compensation")
+    if isinstance(compensation, dict):
+        window_start = compensation.get("window_start")
+        if isinstance(window_start, str) and window_start.strip():
+            print(window_start.strip())
+PY
+)"
+fi
+export TK_RECEIPT_COMP_WINDOW="${RECEIPT_COMP_WINDOW}"
+
 python3 - <<'PY'
+import datetime
 import json
 import os
 
-def _finished_at() -> str | None:
+
+def _finished_at():
     value = os.environ.get("TK_SERVICE_FINISHED", "").strip()
-    return value or None
+    if not value or value.lower() in {"n/a", "none", "[n/a]"}:
+        return None
+    for fmt in ("%a %Y-%m-%d %H:%M:%S UTC", "%a %Y-%m-%d %H:%M:%S.%f UTC"):
+        try:
+            parsed = datetime.datetime.strptime(value, fmt)
+            return parsed.replace(tzinfo=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            continue
+    if value.endswith("Z"):
+        iso = value[:-1] + "+00:00"
+    else:
+        iso = value
+    try:
+        parsed = datetime.datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
 
 payload = {
     "timer_enabled": os.environ.get("TK_TIMER_ENABLED") == "true",
@@ -57,7 +101,7 @@ else
   printf 'PHASE2RECEIPT null\n'
 fi
 
-"${PSQL[@]}" -c "
+"${PSQL[@]}" -v receipt_comp_window="${RECEIPT_COMP_WINDOW}" -c "
 WITH heartbeat AS (
   SELECT last_run_at, last_success_at, last_error_at, last_result
   FROM ops_job_heartbeats
@@ -78,17 +122,25 @@ WITH heartbeat AS (
     AND s.window_start >= c.window_start
   ORDER BY s.window_start DESC
   LIMIT 1
+), comp_target AS (
+  SELECT NULLIF(trim(:'receipt_comp_window'), '')::timestamptz AS window_start
 ), latest_comp AS (
   SELECT s.window_start, s.state, s.commit_etag, s.cleanup_eligible,
-         (s.restore_verified_at IS NOT NULL) AS restore_verified
+         (s.restore_verified_at IS NOT NULL) AS restore_verified,
+         s.verification_error_code
   FROM qa_archive_shards s
   CROSS JOIN cutover c
   CROSS JOIN latest_normal n
+  CROSS JOIN comp_target t
   WHERE s.generation = 0
     AND s.window_start >= c.window_start
     AND s.window_start < n.window_start
-    AND s.state <> 'committed'
-  ORDER BY s.window_start ASC
+    AND (
+      t.window_start IS NOT NULL AND s.window_start = t.window_start
+      OR t.window_start IS NULL AND s.state <> 'committed'
+    )
+  ORDER BY CASE WHEN t.window_start IS NOT NULL THEN 0 ELSE 1 END,
+           s.window_start ASC
   LIMIT 1
 ), terminal AS (
   SELECT COALESCE(
@@ -112,12 +164,11 @@ WITH heartbeat AS (
 ), qa_parts AS (
   SELECT EXISTS (
     SELECT 1
-    FROM pg_inherits i
-    JOIN pg_class parent ON parent.oid = i.inhparent
-    JOIN pg_class child ON child.oid = i.inhrelid
-    WHERE parent.relname = 'qa_records'
-      AND child.relname <> 'qa_records_default'
-  ) AS has_non_default_partitions
+    FROM qa_records r
+    CROSS JOIN cutover c
+    WHERE r.created_at >= c.window_start
+      AND r.tableoid <> 'qa_records_default'::regclass
+  ) AS recent_rows_outside_default
 )
 SELECT 'PHASE2HEARTBEAT ' || COALESCE((SELECT row_to_json(h)::text FROM heartbeat h), 'null')
 UNION ALL
@@ -131,7 +182,8 @@ FROM (
     ) n) AS normal,
     (SELECT row_to_json(c) FROM (
       SELECT to_char(window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS window_start,
-             state, commit_etag, cleanup_eligible, restore_verified
+             state, commit_etag, cleanup_eligible, restore_verified,
+             verification_error_code
       FROM latest_comp
     ) c) AS compensation,
     (SELECT items FROM terminal) AS terminal_failures_after_cutover
@@ -139,7 +191,7 @@ FROM (
 UNION ALL
 SELECT 'PHASE2QARECORDS ' || row_to_json(v)::text
 FROM (
-  SELECT CASE WHEN has_non_default_partitions THEN 'partitioned' ELSE 'default_only' END AS partition_owner
+  SELECT CASE WHEN recent_rows_outside_default THEN 'partitioned' ELSE 'default_only' END AS partition_owner
   FROM qa_parts
 ) v;
 "

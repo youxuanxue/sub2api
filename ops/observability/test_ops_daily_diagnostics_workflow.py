@@ -140,6 +140,8 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         text = workflow_text()
         self.assertIn("probe-qa-phase2-live-health.sh", text)
         self.assertIn("prod_phase2_live_health.py --from-probe-stdin", text)
+        self.assertIn("jq -e . >/dev/null", text)
+        self.assertNotIn("qa_phase2_live_health_eval_failed\"}}')", text)
         self.assertIn("qa-phase2-live-health|$TARGET_ID", text)
         self.assertIn("qa-raw-archive-iam|$TARGET_ID", text)
         self.assertLess(text.index("SAFETY_VERDICT="), text.index("PHASE2_PROBE="))

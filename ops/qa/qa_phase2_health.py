@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import email.utils
 import json
 import pathlib
 import sys
@@ -13,24 +14,43 @@ from typing import Any
 MAX_RECEIPT_AGE = dt.timedelta(hours=2)
 MAX_CORRELATION_SKEW = dt.timedelta(minutes=5)
 DEFAULT_CATCHUP_GAP_POLICY = "accepted_terminal"
+TERMINAL_CATCHUP_ERROR = "source_unavailable_after_retention"
 
 
 def _mapping(value: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _parse_systemd_timestamp(text: str) -> dt.datetime | None:
+    for fmt in ("%a %Y-%m-%d %H:%M:%S UTC", "%a %Y-%m-%d %H:%M:%S.%f UTC"):
+        try:
+            parsed = dt.datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+        return parsed.replace(tzinfo=dt.timezone.utc)
+    return None
+
+
 def _timestamp(value: Any) -> dt.datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
     text = value.strip()
+    if text.lower() in {"n/a", "none", "[n/a]"}:
+        return None
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
+    parsed: dt.datetime | None = None
     try:
         parsed = dt.datetime.fromisoformat(text)
     except ValueError:
-        return None
+        parsed = _parse_systemd_timestamp(text)
+        if parsed is None:
+            try:
+                parsed = email.utils.parsedate_to_datetime(text)
+            except (TypeError, ValueError):
+                return None
     if parsed.tzinfo is None:
-        return None
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return parsed.astimezone(dt.timezone.utc)
 
 
@@ -74,6 +94,45 @@ def _same_fact(
         reasons.append(f"{label}_cleanup_not_denied")
 
 
+def _is_terminal_compensation(plan: dict[str, Any]) -> bool:
+    return (
+        plan.get("state") == "failed"
+        and plan.get("verification_error_code") == TERMINAL_CATCHUP_ERROR
+    )
+
+
+def _terminal_inventory(archive: dict[str, Any]) -> list[dict[str, Any]]:
+    terminal = archive.get("terminal_failures_after_cutover")
+    if not isinstance(terminal, list):
+        return []
+    return [item for item in terminal if isinstance(item, dict)]
+
+
+def _evaluate_terminal_compensation(
+    reasons: list[str],
+    compensation: dict[str, Any],
+    heartbeat: dict[str, str],
+    archive: dict[str, Any],
+) -> None:
+    window = compensation.get("window_start")
+    terminal = _terminal_inventory(archive)
+    if window and not any(entry.get("window_start") == window for entry in terminal):
+        reasons.append("compensation_window_not_in_terminal_inventory")
+    if heartbeat.get("compensation_window") != str(window):
+        reasons.append("compensation_window_heartbeat_mismatch")
+    if heartbeat.get("compensation_state") != "failed":
+        reasons.append("compensation_state_heartbeat_mismatch")
+    if heartbeat.get("compensation_error_code") != TERMINAL_CATCHUP_ERROR:
+        reasons.append("compensation_error_code_heartbeat_mismatch")
+
+    control = _mapping(archive.get("compensation"))
+    if control is not None and control.get("window_start") == window:
+        if control.get("state") != "failed":
+            reasons.append("compensation_state_control_mismatch")
+        if control.get("verification_error_code") != TERMINAL_CATCHUP_ERROR:
+            reasons.append("compensation_error_code_control_mismatch")
+
+
 def _evaluate_catchup(
     reasons: list[str],
     *,
@@ -86,7 +145,10 @@ def _evaluate_catchup(
     raw_compensation = receipt.get("compensation") if receipt is not None else None
     compensation = _mapping(raw_compensation)
     if compensation is not None:
-        _same_fact(reasons, "compensation", compensation, heartbeat, _mapping(archive.get("compensation")))
+        if catchup_gap_policy == "accepted_terminal" and _is_terminal_compensation(compensation):
+            _evaluate_terminal_compensation(reasons, compensation, heartbeat, archive)
+        else:
+            _same_fact(reasons, "compensation", compensation, heartbeat, _mapping(archive.get("compensation")))
     elif raw_compensation is not None:
         reasons.append("compensation_receipt_invalid")
         failed = True

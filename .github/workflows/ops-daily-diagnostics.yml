@@ -325,7 +325,10 @@ jobs:
 
           if [ "$TARGET_ID" = "prod" ]; then
             PHASE2_PROBE="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-qa-phase2-live-health.sh --with ops/lib/resolve-app-container.sh --comment "daily qa phase2 live health" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — probe failure becomes explicit finding
-            PHASE2_VERDICT="$(printf '%s' "$PHASE2_PROBE" | python3 ops/qa/prod_phase2_live_health.py --from-probe-stdin --json 2>>"$STDERR" || echo '{"health":{"status":"failed","reasons":["qa_phase2_live_health_eval_failed"]},"iam_contract":{"ok":false,"status":"unknown"}}')"
+            PHASE2_VERDICT="$(printf '%s' "$PHASE2_PROBE" | python3 ops/qa/prod_phase2_live_health.py --from-probe-stdin --json 2>>"$STDERR" || true)"
+            if [ -z "$PHASE2_VERDICT" ] || ! printf '%s' "$PHASE2_VERDICT" | jq -e . >/dev/null 2>&1; then
+              PHASE2_VERDICT='{"health":{"status":"failed","reasons":["qa_phase2_live_health_eval_failed"]},"iam_contract":{"ok":false,"status":"unknown","failures":["evaluator output invalid or empty"]}}'
+            fi
             printf 'qa_phase2_live_health: %s\n' "$PHASE2_VERDICT" >> "$STDOUT"
             PHASE2_STATUS="$(printf '%s' "$PHASE2_VERDICT" | jq -r '.health.status // "failed"')"
             PHASE2_REASONS="$(printf '%s' "$PHASE2_VERDICT" | jq -r '[.health.reasons[]?] | join("; ")')"
