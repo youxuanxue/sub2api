@@ -113,7 +113,15 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
         )
 
     snapshot_at = _timestamp(snapshot.get("latest_snapshot_at")) if isinstance(snapshot, dict) else None
-    if not _fresh(snapshot_at, now, SNAPSHOT_MAX_AGE):
+    if isinstance(snapshot, dict) and snapshot.get("probe_ok") is False:
+        probe_error = str(snapshot.get("probe_error") or "snapshot query failed").strip()
+        findings.append(
+            _finding(
+                "ebs_snapshot_freshness",
+                f"EBS snapshot probe failed: {probe_error}",
+            )
+        )
+    elif not _fresh(snapshot_at, now, SNAPSHOT_MAX_AGE):
         findings.append(
             _finding(
                 "ebs_snapshot_freshness",

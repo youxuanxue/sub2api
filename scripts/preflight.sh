@@ -2365,6 +2365,16 @@ elif ! python3 ./scripts/checks/lightsail-oidc-perm-coverage.py --quiet; then
     errors=$((errors + 1))
 fi
 
+# ---- sub2api: diagnostics OIDC perm coverage -------------------------------
+echo ""
+echo "=== sub2api: diagnostics OIDC perm coverage ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for diagnostics OIDC perm coverage check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/diagnostics-oidc-perm-coverage.py --quiet; then
+    errors=$((errors + 1))
+fi
+
 # ---- sub2api: edge platform exclusivity -------------------------------------
 # EC2 Edge and Lightsail Edge intentionally share the same <edge_id> namespace,
 # the same GitHub Environment edge-<id>, and the same DNS domain

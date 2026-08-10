@@ -130,6 +130,21 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
         self.assertIn("partition_maintenance_error", kinds)
         self.assertIn("archive_lag", kinds)
 
+    def test_snapshot_probe_failure_surfaces_access_error(self) -> None:
+        signals = _signals()
+        signals["SNAPSHOTSTATS"] = {
+            "latest_snapshot_at": None,
+            "probe_ok": False,
+            "probe_error": "AccessDenied when calling DescribeSnapshots",
+        }
+        result = verdict.compute_verdict(signals)
+        snapshot_findings = [
+            f for f in result["findings"] if f["kind"] == "ebs_snapshot_freshness"
+        ]
+        self.assertEqual(len(snapshot_findings), 1)
+        self.assertIn("probe failed", snapshot_findings[0]["summary"])
+        self.assertIn("AccessDenied", snapshot_findings[0]["summary"])
+
     def test_future_dated_freshness_evidence_fails_closed(self) -> None:
         cases = (
             ("heartbeat", "PARTITIONSTATS", "partition_maintenance_last_success_at", "partition_maintenance_heartbeat"),
