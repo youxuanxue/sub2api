@@ -739,6 +739,7 @@ const pricingModality = ref<PricingModality>('all')
 const modalityOptions = computed<{ value: PricingModality; label: string }[]>(() => [
   { value: 'all', label: t('pricing.modality.all') },
   { value: 'text', label: t('pricing.modality.text') },
+  { value: 'embedding', label: t('pricing.modality.embedding') },
   { value: 'image', label: t('pricing.modality.image') },
   { value: 'video', label: t('pricing.modality.video') }
 ])

@@ -17,6 +17,7 @@ export function resolveCatalogVendorIconKey(vendor: string): string | null {
   ) {
     return 'gemini'
   }
+  if (raw === 'antigravity') return 'antigravity'
   if (raw === 'xai' || raw.includes('grok')) return 'xai'
   if (raw === 'volcengine' || raw.includes('doubao') || raw.includes('bytedance')) return 'doubao'
   if (raw.includes('qwen') || raw.includes('alibaba') || raw.includes('dashscope')) return 'qwen'
@@ -70,6 +71,10 @@ export function formatCatalogVendorLabel(vendor: string): string {
     hunyuan: 'Hunyuan',
     midjourney: 'Midjourney',
     perplexity: 'Perplexity',
+    antigravity: 'Antigravity',
+    wenxin: 'Qianfan',
+    qianfan: 'Qianfan',
+    baidu: 'Qianfan',
   }
   const key = slug.toLowerCase()
   if (labels[key]) return labels[key]

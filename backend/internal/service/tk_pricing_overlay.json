@@ -9521,7 +9521,7 @@
     "default_video_resolution": "1080p"
   },
   "bge-large-en": {
-    "litellm_provider": "dashscope",
+    "litellm_provider": "wenxin",
     "mode": "embedding",
     "input_cost_per_token": 7.462686567164179e-08,
     "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.0005/1k input; CNY/USD=6.7. Serving via account 90 ch46 only.",
@@ -9532,7 +9532,7 @@
     "supports_vision": false
   },
   "bge-large-zh": {
-    "litellm_provider": "dashscope",
+    "litellm_provider": "wenxin",
     "mode": "embedding",
     "input_cost_per_token": 7.462686567164179e-08,
     "source": "Baidu Qianfan GET /v2/models pricing, captured 2026-08-07: ¥0.0005/1k input; CNY/USD=6.7. Serving via account 90 ch46 only.",

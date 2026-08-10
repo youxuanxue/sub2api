@@ -100,6 +100,7 @@ const en: LocaleOverlay = {
     "modality": {
       "all": "All",
       "text": "Text",
+      "embedding": "Embedding",
       "image": "Image",
       "video": "Video"
     },
@@ -364,6 +365,7 @@ const en: LocaleOverlay = {
     "subtitle": "Browse and compare AI models by capability, provider, and price",
     "filterAll": "All",
     "filterText": "Text",
+    "filterEmbedding": "Embedding",
     "filterImage": "Image",
     "filterVideo": "Video",
     "searchPlaceholder": "Search models...",
@@ -1037,6 +1039,7 @@ const zh: LocaleOverlay = {
     "modality": {
       "all": "全部",
       "text": "文本",
+      "embedding": "向量",
       "image": "图片",
       "video": "视频"
     },
@@ -1301,6 +1304,7 @@ const zh: LocaleOverlay = {
     "subtitle": "按能力、供应商和价格浏览对比 AI 模型",
     "filterAll": "全部",
     "filterText": "文本",
+    "filterEmbedding": "向量",
     "filterImage": "图片",
     "filterVideo": "视频",
     "searchPlaceholder": "搜索模型...",

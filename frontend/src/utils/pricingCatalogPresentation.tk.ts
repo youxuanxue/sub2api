@@ -1,4 +1,4 @@
-export type PricingCatalogModality = 'text' | 'image' | 'video'
+export type PricingCatalogModality = 'text' | 'image' | 'video' | 'embedding'
 
 /** Catalog API stores token prices per 1K; UI displays per 1M for readability. */
 export const CATALOG_TOKEN_DISPLAY_UNIT = 1_000_000 as const
@@ -7,6 +7,7 @@ export const CATALOG_TOKEN_STORAGE_UNIT = 1_000 as const
 export function pricingCatalogModality(billingMode?: string): PricingCatalogModality {
   if (billingMode === 'image') return 'image'
   if (billingMode === 'video') return 'video'
+  if (billingMode === 'embedding') return 'embedding'
   return 'text'
 }
 
