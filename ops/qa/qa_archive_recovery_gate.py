@@ -197,7 +197,7 @@ def evaluate(
             "production_evidence_validated": True,
             "production_success_claimed": False,
             "script_action": "planned_removal_only",
-            "note": "production evidence is hash-bound to an unexpired human high-risk approval; the gate authorizes a plan without claiming success or changing the tracked script",
+            "note": "production evidence is hash-bound to an unexpired human high-risk approval; the gate authorizes retirement without claiming operational success",
         })
         return 0, result
 

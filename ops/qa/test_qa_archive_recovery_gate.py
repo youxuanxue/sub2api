@@ -33,7 +33,7 @@ class QAArchiveRecoveryGateTest(unittest.TestCase):
     def test_us045_break_glass_script_is_retired(self) -> None:
         self.assertFalse(RETIRED_BREAK_GLASS.exists())
 
-    def test_us045_missing_recovery_evidence_preserves_break_glass_state(self) -> None:
+    def test_us045_missing_recovery_evidence_rejects_without_authorizing_transition(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             proc, payload = self.run_gate(pathlib.Path(temp_dir) / "missing.json")
         self.assertNotEqual(proc.returncode, 0)
@@ -41,7 +41,7 @@ class QAArchiveRecoveryGateTest(unittest.TestCase):
         self.assertEqual(payload["script_action"], "preserve")
         self.assertEqual(payload["break_glass_state"], "retired")
 
-    def test_us045_mismatched_recovery_evidence_preserves_break_glass_state(self) -> None:
+    def test_us045_mismatched_recovery_evidence_rejects_without_authorizing_transition(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             evidence = pathlib.Path(temp_dir) / "evidence.json"
             evidence.write_text(json.dumps(self.valid_evidence(restore_role="arn:aws:iam::123456789012:role/other")), encoding="utf-8")

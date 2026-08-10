@@ -80,8 +80,8 @@
 - `deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py`::`Stage0QARawArchiveContractTest.test_us045_structured_contract_rejects_broadened_actions_resources_and_removed_conditions`
 - `deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py`::`Stage0QARawArchiveContractTest.test_us045_deploy_renders_exact_security_binding_and_shared_role_boundary`
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_break_glass_script_is_retired`
-- `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_missing_recovery_evidence_preserves_break_glass_state`
-- `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_mismatched_recovery_evidence_preserves_break_glass_state`
+- `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_missing_recovery_evidence_rejects_without_authorizing_transition`
+- `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_mismatched_recovery_evidence_rejects_without_authorizing_transition`
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_verified_synthetic_evidence_authorizes_only_planned_transition`
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_relabeled_synthetic_evidence_cannot_claim_production_success`
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_copied_command_receipts_cannot_be_production_evidence`
