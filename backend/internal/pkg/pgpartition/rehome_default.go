@@ -67,7 +67,10 @@ func RehomeDefaultMonthly(
 	}
 	for _, monthStart := range orderRehomeMonths(months, now) {
 		monthEnd := monthStart.AddDate(0, 1, 0)
-		partitionName := fmt.Sprintf("%s_%s", table, monthStart.Format("200601"))
+		partitionName, err := resolveMonthlyPartitionName(ctx, db, table, monthStart)
+		if err != nil {
+			return result, err
+		}
 		moved, err := rehomeDefaultMonth(ctx, db, table, defaultName, partitionName, timeCol, monthStart, monthEnd, batchSize)
 		if err != nil {
 			return result, fmt.Errorf("pgpartition: rehome %s: %w", partitionName, err)
@@ -223,6 +226,28 @@ func rehomeDefaultMonth(
 		}
 	}
 	return moved, nil
+}
+
+func monthlyPartitionNameCandidates(table string, monthStart time.Time) []string {
+	compact := fmt.Sprintf("%s_%s", table, monthStart.Format("200601"))
+	legacy := fmt.Sprintf("%s_%s", table, monthStart.Format("2006_01"))
+	if compact == legacy {
+		return []string{compact}
+	}
+	return []string{compact, legacy}
+}
+
+func resolveMonthlyPartitionName(ctx context.Context, db DB, table string, monthStart time.Time) (string, error) {
+	for _, candidate := range monthlyPartitionNameCandidates(table, monthStart) {
+		attached, err := childPartitionExists(ctx, db, table, candidate)
+		if err != nil {
+			return "", err
+		}
+		if attached {
+			return candidate, nil
+		}
+	}
+	return monthlyPartitionNameCandidates(table, monthStart)[0], nil
 }
 
 func childPartitionExists(ctx context.Context, db DB, table, partitionName string) (bool, error) {

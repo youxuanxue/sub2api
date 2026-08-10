@@ -126,7 +126,7 @@ func runPartitionMaintenanceCommand(
 	if _, err := conn.ExecContext(ctx, "SET lock_timeout = '100ms'"); err != nil {
 		return fmt.Errorf("set partition maintenance lock timeout: %w", err)
 	}
-	if _, err := conn.ExecContext(ctx, "SET statement_timeout = '5s'"); err != nil {
+	if _, err := conn.ExecContext(ctx, "SET statement_timeout = '120s'"); err != nil {
 		return fmt.Errorf("set partition maintenance statement timeout: %w", err)
 	}
 

@@ -54,7 +54,7 @@ func TestPartitionMaintenanceSuccessUsesStrictBoundedPath(t *testing.T) {
 	}
 	mock.ExpectPing()
 	mock.ExpectExec("SET lock_timeout = '100ms'").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("SET statement_timeout = '5s'").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("SET statement_timeout = '120s'").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectClose()
 
 	fixedNow := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)

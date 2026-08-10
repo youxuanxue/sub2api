@@ -36,6 +36,33 @@ func TestOrderRehomeMonthsPrefersCurrentThenFutureThenPast(t *testing.T) {
 	}
 }
 
+func TestResolveMonthlyPartitionNamePrefersAttachedLegacyName(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	month := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("qa_records", "qa_records_202608").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("qa_records", "qa_records_2026_08").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	name, err := resolveMonthlyPartitionName(context.Background(), db, "qa_records", month)
+	if err != nil {
+		t.Fatalf("resolveMonthlyPartitionName: %v", err)
+	}
+	if name != "qa_records_2026_08" {
+		t.Fatalf("name=%q", name)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("database expectations: %v", err)
+	}
+}
+
 func TestRehomeDefaultMonthlyReturnsEarlyWithoutDefaultPartition(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -78,6 +105,12 @@ func TestRehomeDefaultMonthlyMovesOneMonthAndAttachesPartition(t *testing.T) {
 	mock.ExpectQuery("SELECT EXISTS").
 		WithArgs("qa_records", "qa_records_202608").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("qa_records", "qa_records_2026_08").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("qa_records", "qa_records_202608").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectExec("CREATE TABLE \"qa_records_202608\"").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec("WITH moved AS").
@@ -116,6 +149,12 @@ func TestRehomeDefaultMonthlyDropsUnusedStagingPartition(t *testing.T) {
 	mock.ExpectQuery("SELECT DISTINCT date_trunc").
 		WillReturnRows(sqlmock.NewRows([]string{"month"}).
 			AddRow(time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)))
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("qa_records", "qa_records_202608").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery("SELECT EXISTS").
+		WithArgs("qa_records", "qa_records_2026_08").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectQuery("SELECT EXISTS").
 		WithArgs("qa_records", "qa_records_202608").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
