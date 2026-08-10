@@ -141,7 +141,7 @@ REQUIRED_BY_FILE = {
         "repository_iam_state: contract_ready",
         "observed_iam_state: pending_live_verification",
         "iam_contract_verifier: ops/qa/verify_raw_archive_iam_contract.py",
-        "partition_owner_repository: default_only",
+        "partition_owner_repository: ops_partition_maintenance",
         "phase3_worker_observed_state: transitional_in_prod",
         "design-qa-phase2-archive-closeout.md",
     ),
@@ -435,7 +435,7 @@ def _rollout_failures(root: Path) -> list[str]:
     else:
         if prod_timer.get("closeout_deploy_state") != "enabled":
             failures.append("rollout maintenance timer closeout deploy state drift")
-        if prod_timer.get("repository_closeout_state") != "production_recloseout_verified":
+        if prod_timer.get("repository_closeout_state") != "implementation_ready_pending_live_verification":
             failures.append("rollout maintenance timer repository closeout state drift")
         if prod_timer.get("observed_live_state") != "pending_live_reconciliation":
             failures.append("rollout maintenance timer observed live state drift")
@@ -482,7 +482,7 @@ def _rollout_failures(root: Path) -> list[str]:
         failures.append("rollout raw archive recovery contract drift")
     qa_records = prod.get("qa_records")
     if not isinstance(qa_records, dict) or qa_records != {
-        "partition_owner_repository": "default_only",
+        "partition_owner_repository": "ops_partition_maintenance",
         "partition_owner_observed": "pending_live_probe",
     }:
         failures.append("rollout qa_records partition owner contract drift")

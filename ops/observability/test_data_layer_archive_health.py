@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import pathlib
 import sys
@@ -22,7 +23,7 @@ def _checked_in_evidence_dir() -> pathlib.Path:
 
 class DataLayerArchiveHealthTest(unittest.TestCase):
     def test_checked_in_ledgers_pass_their_owner_validator(self) -> None:
-        signal = health.build_signal()
+        signal = health.build_signal(now=dt.datetime(2026, 7, 10, tzinfo=dt.timezone.utc))
         self.assertEqual(
             {ledger["table"] for ledger in signal["ledgers"]},
             {"ops_error_logs", "ops_system_logs"},
@@ -30,6 +31,8 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
         self.assertIsInstance(signal["hold_started_at"], str)
         self.assertTrue(signal["closeout_complete"])
         self.assertTrue(signal["tail_export_complete"])
+        self.assertFalse(signal["tail_export_stale"])
+        self.assertTrue(signal["archive_coverage_current"])
         self.assertTrue(signal["cleanup_release_complete"])
         self.assertIsInstance(signal["cleanup_release_verified_at"], str)
         self.assertEqual(
@@ -37,6 +40,13 @@ class DataLayerArchiveHealthTest(unittest.TestCase):
             {"ops_error_logs", "ops_system_logs"},
         )
         self.assertEqual(signal["evidence_errors"], [])
+
+    def test_checked_in_tail_export_is_stale_for_current_coverage(self) -> None:
+        signal = health.build_signal(now=dt.datetime(2026, 8, 10, tzinfo=dt.timezone.utc))
+        self.assertTrue(signal["closeout_complete"])
+        self.assertTrue(signal["tail_export_complete"])
+        self.assertTrue(signal["tail_export_stale"])
+        self.assertFalse(signal["archive_coverage_current"])
 
     def test_latest_valid_hold_receipt_is_selected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

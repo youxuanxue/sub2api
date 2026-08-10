@@ -101,7 +101,17 @@ else
   printf 'PHASE2RECEIPT null\n'
 fi
 
-"${PSQL[@]}" -v receipt_comp_window="${RECEIPT_COMP_WINDOW}" -c "
+python3 - <<'PY' | "${PSQL[@]}" -f -
+import os
+
+window = os.environ.get("TK_RECEIPT_COMP_WINDOW", "").strip().replace("'", "''")
+if window:
+    comp_target = f"SELECT '{window}'::timestamptz AS window_start"
+else:
+    comp_target = "SELECT NULL::timestamptz AS window_start"
+
+print(
+    f"""
 WITH heartbeat AS (
   SELECT last_run_at, last_success_at, last_error_at, last_result
   FROM ops_job_heartbeats
@@ -123,7 +133,7 @@ WITH heartbeat AS (
   ORDER BY s.window_start DESC
   LIMIT 1
 ), comp_target AS (
-  SELECT NULLIF(trim(:'receipt_comp_window'), '')::timestamptz AS window_start
+  {comp_target}
 ), latest_comp AS (
   SELECT s.window_start, s.state, s.commit_etag, s.cleanup_eligible,
          (s.restore_verified_at IS NOT NULL) AS restore_verified,
@@ -146,7 +156,7 @@ WITH heartbeat AS (
   SELECT COALESCE(
     json_agg(
       json_build_object(
-        'window_start', to_char(s.window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),
+        'window_start', to_char(s.window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
         'verification_error_code', s.verification_error_code
       )
       ORDER BY s.window_start
@@ -161,14 +171,19 @@ WITH heartbeat AS (
     AND s.window_start < n.window_start
     AND s.state = 'failed'
     AND s.verification_error_code IS NOT NULL
-), qa_parts AS (
-  SELECT EXISTS (
-    SELECT 1
-    FROM qa_records r
-    CROSS JOIN cutover c
-    WHERE r.created_at >= c.window_start
-      AND r.tableoid <> 'qa_records_default'::regclass
-  ) AS recent_rows_outside_default
+), qa_counts AS (
+  SELECT
+    count(*) FILTER (WHERE r.tableoid = 'qa_records_default'::regclass) AS default_rows,
+    count(*) FILTER (WHERE r.tableoid <> 'qa_records_default'::regclass) AS non_default_rows
+  FROM qa_records r
+  CROSS JOIN cutover c
+  WHERE r.created_at >= c.window_start
+), current_write AS (
+  SELECT child.relname AS partition_name
+  FROM pg_class child
+  WHERE child.oid = (
+    SELECT tableoid FROM qa_records ORDER BY id DESC LIMIT 1
+  )
 )
 SELECT 'PHASE2HEARTBEAT ' || COALESCE((SELECT row_to_json(h)::text FROM heartbeat h), 'null')
 UNION ALL
@@ -176,12 +191,12 @@ SELECT 'PHASE2ARCHIVE ' || row_to_json(v)::text
 FROM (
   SELECT
     (SELECT row_to_json(n) FROM (
-      SELECT to_char(window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS window_start,
+      SELECT to_char(window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS window_start,
              state, commit_etag, cleanup_eligible, restore_verified
       FROM latest_normal
     ) n) AS normal,
     (SELECT row_to_json(c) FROM (
-      SELECT to_char(window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS window_start,
+      SELECT to_char(window_start AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS window_start,
              state, commit_etag, cleanup_eligible, restore_verified,
              verification_error_code
       FROM latest_comp
@@ -191,7 +206,18 @@ FROM (
 UNION ALL
 SELECT 'PHASE2QARECORDS ' || row_to_json(v)::text
 FROM (
-  SELECT CASE WHEN recent_rows_outside_default THEN 'partitioned' ELSE 'default_only' END AS partition_owner
-  FROM qa_parts
+  SELECT
+    CASE
+      WHEN q.non_default_rows > 0 AND q.default_rows = 0 THEN 'partitioned'
+      WHEN q.non_default_rows > 0 AND q.default_rows > 0 THEN 'mixed'
+      ELSE 'default_only'
+    END AS partition_owner,
+    q.default_rows,
+    q.non_default_rows,
+    cw.partition_name AS current_write_partition
+  FROM qa_counts q
+  LEFT JOIN current_write cw ON true
 ) v;
-"
+"""
+)
+PY

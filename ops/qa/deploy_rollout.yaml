@@ -14,7 +14,7 @@ prod:
     repository_closeout_state: production_closeout_verified
     observed_live_state: pending_live_reconciliation
   tokenkey_qa_maintenance_timer:
-    repository_closeout_state: production_recloseout_verified
+    repository_closeout_state: implementation_ready_pending_live_verification
     observed_live_state: pending_live_reconciliation
     closeout_deploy_state: enabled
     policy_target_state: enabled
@@ -37,7 +37,7 @@ prod:
     export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json
     activation_state: production_export_orphan_activated
   qa_records:
-    partition_owner_repository: default_only
+    partition_owner_repository: ops_partition_maintenance
     partition_owner_observed: pending_live_probe
   user_export:
     phase3_worker_repository_state: approved_fargate_worker

@@ -14,6 +14,7 @@ from typing import Any
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 ARCHIVE = REPO / "ops" / "archive"
+TAIL_EXPORT_MAX_AGE = dt.timedelta(days=7)
 sys.path.insert(0, str(ARCHIVE))
 
 import data_layer_archive_cleanup_hold as cleanup_hold  # noqa: E402
@@ -79,10 +80,36 @@ def _tail_batches_fully_promoted(
     return bool(expected) and expected <= promoted
 
 
-def build_signal(evidence_dir: pathlib.Path | None = None) -> dict[str, Any]:
+def _parse_cutoff(value: Any) -> dt.datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = dt.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def _tail_export_stale(tail_ledgers: list[dict[str, Any]], now: dt.datetime) -> bool:
+    if not tail_ledgers:
+        return False
+    for ledger in tail_ledgers:
+        cutoff = _parse_cutoff(ledger.get("final_cutoff_exclusive"))
+        if cutoff is None or now - cutoff > TAIL_EXPORT_MAX_AGE:
+            return True
+    return False
+
+
+def build_signal(evidence_dir: pathlib.Path | None = None, *, now: dt.datetime | None = None) -> dict[str, Any]:
     layout = pipeline_status.load_evidence_layout()
     if evidence_dir is None:
         evidence_dir = layout.evidence_dir
+    now = (now or dt.datetime.now(dt.timezone.utc)).astimezone(dt.timezone.utc)
     ledgers: list[dict[str, Any]] = []
     tail_ledgers: list[dict[str, Any]] = []
     restores: list[str] = []
@@ -186,6 +213,8 @@ def build_signal(evidence_dir: pathlib.Path | None = None) -> dict[str, Any]:
             evidence_errors.append(f"{table}:tail_export_ledger")
     closeout_complete = closeout_tables == set(layout.tables)
     tail_export_complete = tail_export_tables == set(layout.tables)
+    tail_export_stale = _tail_export_stale(tail_ledgers, now)
+    archive_coverage_current = tail_export_complete and not tail_export_stale
     cleanup_release_complete = False
     cleanup_release_verified_at: str | None = None
     if closeout_complete and tail_export_complete:
@@ -209,6 +238,8 @@ def build_signal(evidence_dir: pathlib.Path | None = None) -> dict[str, Any]:
         "hold_started_at": hold.get("hold_started_at"),
         "closeout_complete": closeout_complete,
         "tail_export_complete": tail_export_complete,
+        "tail_export_stale": tail_export_stale,
+        "archive_coverage_current": archive_coverage_current,
         "cleanup_release_complete": cleanup_release_complete,
         "cleanup_release_verified_at": cleanup_release_verified_at,
         "restore_verified_at": restores,

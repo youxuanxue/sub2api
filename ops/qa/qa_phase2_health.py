@@ -113,24 +113,39 @@ def _evaluate_terminal_compensation(
     compensation: dict[str, Any],
     heartbeat: dict[str, str],
     archive: dict[str, Any],
-) -> None:
+) -> bool:
+    """Return True when terminal compensation facts contradict across sources."""
+    failed = False
     window = compensation.get("window_start")
     terminal = _terminal_inventory(archive)
     if window and not any(entry.get("window_start") == window for entry in terminal):
         reasons.append("compensation_window_not_in_terminal_inventory")
+        failed = True
     if heartbeat.get("compensation_window") != str(window):
         reasons.append("compensation_window_heartbeat_mismatch")
+        failed = True
     if heartbeat.get("compensation_state") != "failed":
         reasons.append("compensation_state_heartbeat_mismatch")
+        failed = True
     if heartbeat.get("compensation_error_code") != TERMINAL_CATCHUP_ERROR:
         reasons.append("compensation_error_code_heartbeat_mismatch")
+        failed = True
 
     control = _mapping(archive.get("compensation"))
-    if control is not None and control.get("window_start") == window:
+    if control is None:
+        reasons.append("compensation_control_missing")
+        failed = True
+    elif control.get("window_start") != window:
+        reasons.append("compensation_window_control_mismatch")
+        failed = True
+    else:
         if control.get("state") != "failed":
             reasons.append("compensation_state_control_mismatch")
+            failed = True
         if control.get("verification_error_code") != TERMINAL_CATCHUP_ERROR:
             reasons.append("compensation_error_code_control_mismatch")
+            failed = True
+    return failed
 
 
 def _evaluate_catchup(
@@ -146,7 +161,8 @@ def _evaluate_catchup(
     compensation = _mapping(raw_compensation)
     if compensation is not None:
         if catchup_gap_policy == "accepted_terminal" and _is_terminal_compensation(compensation):
-            _evaluate_terminal_compensation(reasons, compensation, heartbeat, archive)
+            if _evaluate_terminal_compensation(reasons, compensation, heartbeat, archive):
+                failed = True
         else:
             _same_fact(reasons, "compensation", compensation, heartbeat, _mapping(archive.get("compensation")))
     elif raw_compensation is not None:

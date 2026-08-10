@@ -127,6 +127,33 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
             dt.datetime(2026, 8, 10, 13, 15, 1, tzinfo=dt.timezone.utc),
         )
 
+    def test_terminal_compensation_contradiction_fails_closed(self) -> None:
+        snapshot, now = _fresh_snapshot()
+        terminal_window = "2026-08-07T22:00:00Z"
+        snapshot["host_receipt"]["compensation"] = {
+            "window_start": terminal_window,
+            "state": "failed",
+            "verification_error_code": "source_unavailable_after_retention",
+            "restore_verified": False,
+            "cleanup_eligible": False,
+        }
+        snapshot["database_heartbeat"]["last_result"] += (
+            " compensation_window=2026-08-07T23:00:00Z"
+            " compensation_state=failed"
+            " compensation_error_code=source_unavailable_after_retention"
+        )
+        snapshot["archive_control"]["compensation"] = None
+        snapshot["archive_control"]["terminal_failures_after_cutover"] = [
+            {
+                "window_start": terminal_window,
+                "verification_error_code": "source_unavailable_after_retention",
+            }
+        ]
+        verdict = health.evaluate(snapshot, now=now, catchup_gap_policy="accepted_terminal")
+        self.assertEqual(verdict["status"], "failed", verdict)
+        self.assertIn("compensation_control_missing", verdict["catchup_reasons"], verdict)
+        self.assertIn("compensation_window_heartbeat_mismatch", verdict["catchup_reasons"], verdict)
+
     def test_terminal_compensation_receipt_stays_degraded(self) -> None:
         snapshot, now = _fresh_snapshot()
         terminal_window = "2026-08-07T22:00:00Z"
@@ -210,31 +237,54 @@ class VerifyRawArchiveIAMContractTest(unittest.TestCase):
             statements=statements,
         )
         self.assertFalse(verdict["ok"])
-        self.assertIn("AllowAppInstanceRoleList:forbidden_action:s3:ListBucket", verdict["failures"])
+        self.assertIn("unexpected_app_sid:AllowAppInstanceRoleList", verdict["failures"])
 
     def test_accepts_suffix_scoped_app_role(self) -> None:
         role = "arn:aws:iam::123456789012:role/app"
         bucket = "tokenkey-prod-qa-raw-archive-123456789012"
-        suffix_resources = [
-            f"arn:aws:s3:::{bucket}/raw/v1/date=*/hour=*/{suffix}"
-            for suffix in iam_contract.EXPECTED_SUFFIXES
-        ]
+        resources = iam_contract._expected_app_resources(bucket)
         statements = [
             {
                 "Sid": "AllowAppInstanceRoleWriteRaw",
+                "Effect": "Allow",
                 "Principal": {"AWS": role},
-                "Action": ["s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
-                "Resource": suffix_resources,
+                "Action": sorted(iam_contract.EXPECTED_WRITE_ACTIONS),
+                "Resource": resources,
             },
             {
                 "Sid": "AllowAppInstanceRoleVerifyRaw",
+                "Effect": "Allow",
                 "Principal": {"AWS": role},
-                "Action": "s3:GetObject",
-                "Resource": suffix_resources,
+                "Action": sorted(iam_contract.EXPECTED_VERIFY_ACTIONS),
+                "Resource": resources,
             },
         ]
         verdict = iam_contract.evaluate(bucket=bucket, app_role_arn=role, statements=statements)
         self.assertTrue(verdict["ok"], verdict)
+
+    def test_rejects_delete_object_on_app_role(self) -> None:
+        role = "arn:aws:iam::123456789012:role/app"
+        bucket = "tokenkey-prod-qa-raw-archive-123456789012"
+        resources = iam_contract._expected_app_resources(bucket)
+        statements = [
+            {
+                "Sid": "AllowAppInstanceRoleWriteRaw",
+                "Effect": "Allow",
+                "Principal": {"AWS": role},
+                "Action": ["s3:PutObject", "s3:DeleteObject"],
+                "Resource": resources,
+            },
+            {
+                "Sid": "AllowAppInstanceRoleVerifyRaw",
+                "Effect": "Allow",
+                "Principal": {"AWS": role},
+                "Action": "s3:GetObject",
+                "Resource": resources,
+            },
+        ]
+        verdict = iam_contract.evaluate(bucket=bucket, app_role_arn=role, statements=statements)
+        self.assertFalse(verdict["ok"])
+        self.assertTrue(any("unexpected_action" in item or "missing_action" in item for item in verdict["failures"]))
 
 
 if __name__ == "__main__":
