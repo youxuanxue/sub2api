@@ -82,9 +82,12 @@
       "must_contain": [
         "{table: \"ops_system_logs\"",
         "{table: \"ops_error_logs\"",
+        "{table: \"qa_records\"",
         "{table: \"usage_logs\"",
         "pgpartition.EnsureMonthly(ctx, db, target.table, now, target.ahead)",
         "pgpartition.EnsureDaily(ctx, db, target.table, now, target.ahead)",
+        "pgpartition.RehomeDefaultMonthly(",
+        "qaRecordsTable",
         "ModeRequireAllPartitioned",
         "pg_get_expr(child.relpartbound, child.oid, true)",
         "FOR VALUES FROM (MINVALUE)%' AS lower_unbounded",
