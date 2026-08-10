@@ -20,6 +20,7 @@ type dashboardAggregationRepository struct {
 
 const usageLogsCleanupBatchSize = 10000
 const usageBillingDedupCleanupBatchSize = 10000
+
 // usageLogsStraddleReclaimMaxRowsPerRun caps expired-row DELETE from bound-straddling
 // partitions (notably usage_logs_legacy) in one retention pass.
 const usageLogsStraddleReclaimMaxRowsPerRun = 1_000_000
