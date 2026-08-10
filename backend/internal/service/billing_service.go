@@ -1454,6 +1454,16 @@ func (s *BillingService) CalculateWebSearchCost(callCount int, groupPrice *float
 	}
 }
 
+const (
+	// Grok /v1/web_search 与 SearchCount 附加费：与 Codex 对齐 $10/1000 次（按 1k 计价字段存储）。
+	defaultSearchPricePer1k = 10.0
+
+	// Grok Voice 默认价（分组列 NULL 时使用；显式配 0 表示免费）。
+	defaultAudioRealtimePricePerMin     = 0.10
+	defaultAudioTTSPricePerMillionChars = 15.0
+	defaultAudioSTTPricePerHour         = 0.36
+)
+
 // CalculateSearchCost bills search/tool invocations (e.g. web_search) per 1k calls.
 // groupPricePer1k: nil → defaultSearchPricePer1k; explicit 0 → free; >0 → that rate.
 func (s *BillingService) CalculateSearchCost(numCalls int, groupPricePer1k *float64, rateMultiplier float64) *CostBreakdown {

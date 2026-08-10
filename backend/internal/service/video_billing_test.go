@@ -118,7 +118,7 @@ func TestVideoModelPriceMissingTierFallsBackToFlatTierPrice(t *testing.T) {
 		ModelPrices: map[string]map[string]float64{
 			VideoPriceFamilyGrokImagineVideo: {VideoBillingResolution480P: 0.05},
 		},
-	}, 1)
+	}, 1.0, nil)
 
 	require.InDelta(t, flat720P, result.TotalCost, 1e-9)
 }

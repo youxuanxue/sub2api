@@ -126,7 +126,7 @@ func openAICompatNoCandidateError(requestedModel, groupPlatform string, compactB
 	if groupPlatform != "" && groupPlatform != PlatformOpenAI {
 		return fmt.Errorf("no available accounts for platform %q", openAICompatErrorPlatformLabel(groupPlatform))
 	}
-	return noAvailableOpenAISelectionError(requestedModel, compactBlocked, groupPlatform)
+	return noAvailableOpenAISelectionError(requestedModel, compactBlocked, groupPlatform, "")
 }
 
 // collectOpenAICompatSelectionFailureStats categorizes each schedulable account

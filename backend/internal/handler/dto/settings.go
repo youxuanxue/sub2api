@@ -30,6 +30,7 @@ type SystemSettings struct {
 	RegistrationEnabled                    bool                     `json:"registration_enabled"`
 	EmailVerifyEnabled                     bool                     `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist       []string                 `json:"registration_email_suffix_whitelist"`
+	RegistrationEmailDomainQuotaEnabled    bool                     `json:"registration_email_domain_quota_enabled"`
 	PromoCodeEnabled                       bool                     `json:"promo_code_enabled"`
 	AnthropicCanonicalIngressStrictEnabled bool                     `json:"anthropic_canonical_ingress_strict_enabled"` // TK: canonical 入口 UA strict 拒绝（拒非 CC，#1#2，默认 false / 零回归）
 	AnthropicCanonicalHaikuMimicryEnabled  bool                     `json:"anthropic_canonical_haiku_mimicry_enabled"`  // TK: canonical 非 CC haiku 出口 mimicry 补全（放行+兜底，#3，默认 false / 零回归）
@@ -435,8 +436,10 @@ type PublicSettings struct {
 	SignupBonusEnabled           bool    `json:"signup_bonus_enabled"`
 	SignupBonusBalanceDisplayUSD float64 `json:"signup_bonus_balance_usd"`
 
-	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
-	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
+	ChannelMonitorEnabled                bool   `json:"channel_monitor_enabled"`
+	ChannelMonitorMode                   string `json:"channel_monitor_mode"`
+	ChannelMonitorDefaultIntervalSeconds int    `json:"channel_monitor_default_interval_seconds"`
+	ChannelMonitorHideThroughput         bool   `json:"channel_monitor_hide_throughput"`
 
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
 

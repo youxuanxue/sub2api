@@ -46,9 +46,6 @@ const (
 	PlatformKiro        = domain.PlatformKiro
 	PlatformGrok        = domain.PlatformGrok
 	PlatformComposite   = domain.PlatformComposite
-	// PlatformKiro is retained for unsupported-platform threshold tests and legacy
-	// account rows. Scheduling-threshold evaluation never pauses kiro accounts.
-	PlatformKiro = "kiro"
 )
 
 // AllowedQuotaPlatforms 是允许设置 user × platform quota 的平台列表（单一权威来源）。
@@ -233,6 +230,7 @@ const (
 	SettingKeyRegistrationEnabled              = "registration_enabled"                // 是否开放注册
 	SettingKeyEmailVerifyEnabled               = "email_verify_enabled"                // 是否开启邮件验证
 	SettingKeyRegistrationEmailSuffixWhitelist = "registration_email_suffix_whitelist" // 注册邮箱后缀白名单（JSON 数组）
+	SettingKeyRegistrationEmailDomainQuotaEnabled = "registration_email_domain_quota_enabled" // 白名单非空时是否放行非白名单域名限量注册
 	SettingKeyPromoCodeEnabled                 = "promo_code_enabled"                  // 是否启用优惠码功能
 	SettingKeyPasswordResetEnabled             = "password_reset_enabled"              // 是否启用忘记密码功能（需要先开启邮件验证）
 	SettingKeyFrontendURL                      = "frontend_url"                        // 前端基础URL，用于生成邮件中的重置密码链接

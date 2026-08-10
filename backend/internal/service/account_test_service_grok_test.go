@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -116,7 +117,7 @@ func TestAccountTestService_GrokAPIKeyRoutesToResponses(t *testing.T) {
 		},
 	}
 
-	err := svc.testGrokAccountConnection(c, account, "claude-sonnet-4-6", "hi")
+	err := svc.testGrokAccountConnection(c, account, "", "hi", AccountTestModeDefault, AccountTestOptions{})
 	require.NoError(t, err)
 	require.Len(t, upstream.requests, 1)
 	req := upstream.requests[0]
@@ -136,17 +137,20 @@ func TestAccountTestService_GrokOAuthRoutesToXAIResponses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	resp := newJSONResponse(http.StatusOK, "")
-	resp.Header.Set("Content-Type", "application/json")
-	resp.Body = ioNopCloserString(`{"status":"completed","model":"grok-code-fast-1","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}`)
+	resp.Header.Set("Content-Type", "text/event-stream")
+	resp.Body = ioNopCloserString("data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\ndata: {\"type\":\"response.completed\"}\n\n")
 	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/6/test", nil)
 
+	baseRepo := &mockAccountRepoForGemini{accountsByID: map[int64]*Account{}}
 	svc := &AccountTestService{
-		httpUpstream: upstream,
-		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false, AllowInsecureHTTP: true}}},
+		accountRepo:       baseRepo,
+		grokTokenProvider: NewGrokTokenProvider(baseRepo, nil),
+		httpUpstream:      upstream,
+		cfg:               &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false, AllowInsecureHTTP: true}}},
 	}
 	account := &Account{
 		ID:          6,
@@ -154,16 +158,18 @@ func TestAccountTestService_GrokOAuthRoutesToXAIResponses(t *testing.T) {
 		Type:        AccountTypeOAuth,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"access_token": "grok-oauth-token",
-			"base_url":     "https://api.x.ai/v1",
+			"access_token":  "grok-oauth-token",
+			"refresh_token": "grok-refresh-token",
+			"expires_at":    time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
+			"base_url":      "https://api.x.ai/v1",
 		},
 	}
 
-	err := svc.testGrokAccountConnection(c, account, "grok-code-fast-1", "")
+	err := svc.testGrokAccountConnection(c, account, "grok-code-fast-1", "", AccountTestModeDefault, AccountTestOptions{})
 	require.NoError(t, err)
 	require.Len(t, upstream.requests, 1)
 	req := upstream.requests[0]
-	require.Equal(t, "https://cli-chat-proxy.grok.com/v1/responses", req.URL.String())
+	require.Equal(t, xai.DefaultBaseURL+"/responses", req.URL.String())
 	require.Equal(t, "Bearer grok-oauth-token", req.Header.Get("Authorization"))
 	require.Contains(t, rec.Body.String(), `"model":"grok-code-fast-1"`)
 	require.Contains(t, rec.Body.String(), `"success":true`)
@@ -196,19 +202,18 @@ func TestAccountTestService_GrokRejectsDisallowedBaseURL(t *testing.T) {
 		},
 	}
 
-	err := svc.testGrokAccountConnection(c, account, "grok-4.3", "hi")
+	err := svc.testGrokAccountConnection(c, account, "grok-4.3", "hi", AccountTestModeDefault, AccountTestOptions{})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "Invalid base URL:")
+	require.Contains(t, err.Error(), "Invalid Grok base URL:")
 	require.Empty(t, upstream.requests, "invalid base_url must be rejected before any upstream request")
 	require.Contains(t, rec.Body.String(), `"type":"error"`)
-	require.Contains(t, rec.Body.String(), "Invalid base URL:")
+	require.Contains(t, rec.Body.String(), "Invalid Grok base URL:")
 }
 
 func TestNormalizeGrokAdminTestModelFallsBackForNonChatModels(t *testing.T) {
-	require.Equal(t, defaultGrokTestModelID, normalizeGrokAdminTestModel(""))
-	require.Equal(t, defaultGrokTestModelID, normalizeGrokAdminTestModel("claude-sonnet-4-6"))
-	require.Equal(t, defaultGrokTestModelID, normalizeGrokAdminTestModel("grok-imagine-image"))
-	require.Equal(t, "grok-code-fast-1", normalizeGrokAdminTestModel("grok-code-fast-1"))
+	require.Equal(t, "grok-imagine-image", resolveGrokImageTestModel(&Account{}, ""))
+	require.Equal(t, "grok-imagine-image", resolveGrokImageTestModel(&Account{}, "grok-imagine-image"))
+	require.Equal(t, "grok-imagine-video", resolveGrokVideoTestModel(&Account{}, ""))
 }
 
 func ioNopCloserString(s string) io.ReadCloser {

@@ -200,6 +200,11 @@ func (s *OpenAIGatewayService) shouldFailoverGrokUpstreamError(statusCode int, r
 	if tkIsGrokEntitlement403(statusCode, responseBody) {
 		return false
 	}
+	decision := classifyGrokUpstreamFailure(statusCode, responseBody, "")
+	switch decision.Class {
+	case GrokFailureFreeUsage, GrokFailureEmptyUpstream, GrokFailureBilling, GrokFailureModelCapacity:
+		return decision.ShouldFailover
+	}
 	return s.shouldFailoverUpstreamError(statusCode)
 }
 

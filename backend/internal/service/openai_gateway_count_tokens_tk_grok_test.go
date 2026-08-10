@@ -25,7 +25,7 @@ func TestResolveGrokInputTokensUpstream_OAuthUsesResponsesInputTokensPath(t *tes
 
 	got, err := svc.resolveGrokInputTokensUpstream(account)
 	require.NoError(t, err)
-	require.Equal(t, xai.DefaultCLIBaseURL+"/responses/input_tokens", got)
+	require.Equal(t, xai.DefaultBaseURL+"/responses/input_tokens", got)
 }
 
 func TestResolveGrokInputTokensUpstream_RelayUsesOpenAICompatBase(t *testing.T) {

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
 
 // PricingVideoTier is one resolution (and optional audio / image-input) bracket
@@ -94,7 +96,7 @@ func tkOverlayVideoTierForResolution(p *LiteLLMModelPricing, resolution string) 
 	if p == nil {
 		return nil
 	}
-	resolution = NormalizeVideoBillingResolutionOrDefault(resolution)
+	resolution = normalizeOverlayVideoBillingResolution(resolution)
 	for i := range p.VideoPriceTiers {
 		if p.VideoPriceTiers[i].Resolution == resolution {
 			return &p.VideoPriceTiers[i]
@@ -147,7 +149,7 @@ func tkVideoNormalizeResolutionFromPricing(p *LiteLLMModelPricing, resolution st
 	if strings.TrimSpace(resolution) == "" {
 		return tkOverlayVideoDefaultResolutionFromPricing(p)
 	}
-	resolution = NormalizeVideoBillingResolutionOrDefault(resolution)
+	resolution = normalizeOverlayVideoBillingResolution(resolution)
 	if p == nil {
 		return resolution
 	}
@@ -155,6 +157,21 @@ func tkVideoNormalizeResolutionFromPricing(p *LiteLLMModelPricing, resolution st
 		return resolution
 	}
 	return tkOverlayVideoDefaultResolutionFromPricing(p)
+}
+
+func normalizeOverlayVideoBillingResolution(resolution string) string {
+	if normalized, ok := LookupVideoBillingResolution(resolution); ok {
+		return normalized
+	}
+	if canonical, ok := canonicalOverlayVideoResolution(strings.TrimSpace(resolution)); ok {
+		return canonical
+	}
+	if normalized, ok := newapiintegration.NormalizeVideoTaskResolution(resolution); ok {
+		if canonical, ok := canonicalOverlayVideoResolution(normalized); ok {
+			return canonical
+		}
+	}
+	return NormalizeVideoBillingResolutionOrDefault(resolution)
 }
 
 func tkOverlayVideoMinUnitPriceUSD(model string) (float64, bool) {

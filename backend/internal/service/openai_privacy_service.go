@@ -172,7 +172,7 @@ func parseChatGPTAccountInfo(accounts map[string]any, orgID string) *ChatGPTAcco
 		if acctRaw, ok := accounts[orgID]; ok {
 			if acct, ok := acctRaw.(map[string]any); ok {
 				if isUsableChatGPTAccountCandidate(acct, now) {
-					fillAccountInfo(info, acct)
+					fillAccountInfo(info, acct, orgID)
 				}
 			}
 		}

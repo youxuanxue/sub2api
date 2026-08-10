@@ -71,7 +71,7 @@ func (r *userRepository) create(ctx context.Context, userIn *service.User, guard
 	// Reuse an outer ent transaction (e.g. balance-grant ledger paths) without
 	// opening/committing a nested tx — same pattern as Delete.
 	if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
-		return r.createUser(ctx, existingTx.Client(), userIn, guardEmailAlias)
+		return r.createUser(ctx, existingTx.Client(), userIn, guardEmailAlias, domainLimit)
 	}
 
 	// 统一使用 ent 的事务：保证用户与允许分组的更新原子化，
@@ -81,20 +81,20 @@ func (r *userRepository) create(ctx context.Context, userIn *service.User, guard
 		if errors.Is(err, dbent.ErrTxStarted) {
 			// Repo was constructed with a tx-bound client (integration tests) but
 			// ctx carries no TxFromContext — write through r.client; caller owns commit.
-			return r.createUser(ctx, r.client, userIn, guardEmailAlias)
+			return r.createUser(ctx, r.client, userIn, guardEmailAlias, domainLimit)
 		}
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	txCtx := dbent.NewTxContext(ctx, tx)
-	if err := r.createUser(txCtx, tx.Client(), userIn, guardEmailAlias); err != nil {
+	if err := r.createUser(txCtx, tx.Client(), userIn, guardEmailAlias, domainLimit); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func (r *userRepository) createUser(ctx context.Context, txClient *dbent.Client, userIn *service.User, guardEmailAlias bool) error {
+func (r *userRepository) createUser(ctx context.Context, txClient *dbent.Client, userIn *service.User, guardEmailAlias bool, domainLimit string) error {
 	lockKeys := []string{normalizedEmailUniquenessLockKey(userIn.Email)}
 	if guardEmailAlias {
 		// 别名变体的字面量不同，唯一索引无法兜底；用收件箱身份锁把同一收件箱的并发注册串行化。
@@ -113,6 +113,16 @@ func (r *userRepository) createUser(ctx context.Context, txClient *dbent.Client,
 		return err
 	}
 	defer releaseEmailLock()
+
+	if domainLimit != "" {
+		count, err := countUsersByEmailDomainWithClient(ctx, txClient, domainLimit)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			return service.ErrEmailDomainRegistrationLimit
+		}
+	}
 
 	if err := ensureNormalizedEmailAvailableWithClient(ctx, txClient, 0, userIn.Email); err != nil {
 		return err

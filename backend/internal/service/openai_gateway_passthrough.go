@@ -431,9 +431,6 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		if req.Header.Get("version") == "" {
 			req.Header.Set("version", codexCLIVersion)
 		}
-		if req.Header.Get("OpenAI-Beta") == "" {
-			req.Header.Set("OpenAI-Beta", "responses=experimental")
-		}
 		if req.Header.Get("originator") == "" {
 			req.Header.Set("originator", resolveOpenAIUpstreamOriginator(c, openai.IsCodexOfficialClientByHeaders(req.Header.Get("user-agent"), req.Header.Get("originator"))))
 		}

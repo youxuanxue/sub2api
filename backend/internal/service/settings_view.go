@@ -15,6 +15,7 @@ type SystemSettings struct {
 	RegistrationEnabled                    bool
 	EmailVerifyEnabled                     bool
 	RegistrationEmailSuffixWhitelist       []string
+	RegistrationEmailDomainQuotaEnabled    bool
 	PromoCodeEnabled                       bool
 	AnthropicCanonicalIngressStrictEnabled bool // TK: canonical 入口 UA strict 拒绝（拒非 CC，#1#2，默认 false / 零回归）
 	AnthropicCanonicalHaikuMimicryEnabled  bool // TK: canonical 非 CC haiku 出口 mimicry 补全（放行+兜底，#3，默认 false / 零回归）

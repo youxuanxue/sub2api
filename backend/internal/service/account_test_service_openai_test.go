@@ -28,8 +28,14 @@ type queuedHTTPUpstream struct {
 	tlsFlags  []bool
 }
 
-func (u *queuedHTTPUpstream) Do(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
-	return nil, fmt.Errorf("unexpected Do call")
+func (u *queuedHTTPUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	u.requests = append(u.requests, req)
+	if len(u.responses) == 0 {
+		return nil, fmt.Errorf("no mocked response")
+	}
+	resp := u.responses[0]
+	u.responses = u.responses[1:]
+	return resp, nil
 }
 
 func (u *queuedHTTPUpstream) DoWithTLS(req *http.Request, _ string, _ int64, _ int, profile *tlsfingerprint.Profile) (*http.Response, error) {

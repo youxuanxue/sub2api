@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"os"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -12,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/telemetryarchive"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
@@ -893,7 +895,7 @@ var ProviderSet = wire.NewSet(
 	wire.Bind(new(AccountRuntimeBlocker), new(*OpenAIGatewayService)),
 	NewOAuthService,
 	ProvideOpenAIOAuthService,
-	NewGrokOAuthService,
+	ProvideGrokOAuthService,
 	NewGeminiOAuthService,
 	NewGeminiQuotaService,
 	NewCompositeTokenCacheInvalidator,

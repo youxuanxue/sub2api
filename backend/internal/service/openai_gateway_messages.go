@@ -1003,7 +1003,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 
 	// resultWithUsage builds the final result snapshot.
 	resultWithUsage := func() *OpenAIForwardResult {
-		return &OpenAIForwardResult{
+		out := &OpenAIForwardResult{
 			RequestID:        requestID,
 			ResponseID:       responseID,
 			Usage:            usage,

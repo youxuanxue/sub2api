@@ -88,6 +88,51 @@ const accountSchedulingThresholdsCacheTTL = 60 * time.Second
 const accountSchedulingThresholdsErrorTTL = 5 * time.Second
 const accountSchedulingThresholdsDBTimeout = 5 * time.Second
 
+// GetAccountSchedulingThresholds returns cached per-platform auto-pause utilization thresholds.
+func (s *SettingService) GetAccountSchedulingThresholds(ctx context.Context) map[string]int {
+	if s == nil {
+		return defaultAccountSchedulingThresholds()
+	}
+	if cached, ok := accountSchedulingThresholdsCache.Load().(*cachedAccountSchedulingThresholds); ok && cached != nil {
+		if cached.thresholds != nil && time.Now().UnixNano() < cached.expiresAt {
+			return cloneAccountSchedulingThresholds(cached.thresholds)
+		}
+	}
+	result, _, _ := accountSchedulingThresholdsSF.Do(SettingKeyAccountSchedulingThresholds, func() (any, error) {
+		if cached, ok := accountSchedulingThresholdsCache.Load().(*cachedAccountSchedulingThresholds); ok && cached != nil {
+			if cached.thresholds != nil && time.Now().UnixNano() < cached.expiresAt {
+				return cloneAccountSchedulingThresholds(cached.thresholds), nil
+			}
+		}
+		thresholds := defaultAccountSchedulingThresholds()
+		ttl := accountSchedulingThresholdsCacheTTL
+		if s.settingRepo != nil {
+			dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountSchedulingThresholdsDBTimeout)
+			defer cancel()
+			raw, err := s.settingRepo.GetValue(dbCtx, SettingKeyAccountSchedulingThresholds)
+			if err == nil {
+				if parsed, parseErr := parseAccountSchedulingThresholdsSetting(raw); parseErr == nil {
+					thresholds = parsed
+				}
+			} else if !errors.Is(err, ErrSettingNotFound) {
+				ttl = accountSchedulingThresholdsErrorTTL
+				if cached, ok := accountSchedulingThresholdsCache.Load().(*cachedAccountSchedulingThresholds); ok && cached != nil && cached.thresholds != nil {
+					return cloneAccountSchedulingThresholds(cached.thresholds), nil
+				}
+			}
+		}
+		accountSchedulingThresholdsCache.Store(&cachedAccountSchedulingThresholds{
+			thresholds: cloneAccountSchedulingThresholds(thresholds),
+			expiresAt:  time.Now().Add(ttl).UnixNano(),
+		})
+		return cloneAccountSchedulingThresholds(thresholds), nil
+	})
+	if thresholds, ok := result.(map[string]int); ok {
+		return thresholds
+	}
+	return defaultAccountSchedulingThresholds()
+}
+
 // cachedAntigravityUserAgentVersion 缓存 Antigravity UA 版本号（进程内缓存，60s TTL）
 type cachedAntigravityUserAgentVersion struct {
 	version   string

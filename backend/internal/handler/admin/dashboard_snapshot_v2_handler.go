@@ -204,6 +204,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 				filters.RequestType,
 				filters.Stream,
 				filters.BillingType,
+				filters.UpstreamModelMismatch,
 			)
 			if err != nil {
 				return errors.New("failed to get usage trend")
@@ -227,6 +228,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 				filters.RequestType,
 				filters.Stream,
 				filters.BillingType,
+				filters.UpstreamModelMismatch,
 			)
 			if err != nil {
 				return errors.New("failed to get model statistics")
@@ -249,6 +251,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 				filters.RequestType,
 				filters.Stream,
 				filters.BillingType,
+				filters.UpstreamModelMismatch,
 			)
 			if err != nil {
 				return errors.New("failed to get group statistics")

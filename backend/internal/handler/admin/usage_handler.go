@@ -248,6 +248,12 @@ func (h *UsageHandler) List(c *gin.Context) {
 		return
 	}
 
+	upstreamModelMismatch, err := parseOptionalBoolDashboardFilter(c, "upstream_model_mismatch")
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
 	params := pagination.PaginationParams{
 		Page:      page,
 		PageSize:  pageSize,

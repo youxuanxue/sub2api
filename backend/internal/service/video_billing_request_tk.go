@@ -3,6 +3,7 @@ package service
 import (
 	"strings"
 
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/tidwall/gjson"
 )
 
@@ -31,7 +32,11 @@ func VideoSubmitBillingParamsFromBody(body []byte) VideoSubmitBillingParams {
 	}
 	for _, path := range []string{"resolution", "size", "metadata.resolution", "metadata.size"} {
 		if v := strings.TrimSpace(gjson.GetBytes(body, path).String()); v != "" {
-			out.Resolution = v
+			if normalized, ok := newapiintegration.NormalizeVideoTaskResolution(v); ok {
+				out.Resolution = normalized
+			} else {
+				out.Resolution = v
+			}
 			break
 		}
 	}

@@ -1369,20 +1369,37 @@ func (a *Account) GetGrokBaseURL() string {
 		return ""
 	}
 	if a.IsGrokOAuth() {
-		// Subscription traffic defaults to the supported CLI gateway. Stored
-		// official-host values (written by credential creation/refresh, or
-		// legacy variants) mean "not customized"; only an explicit custom-host
-		// forwarding address redirects traffic.
-		if baseURL == "" || xai.IsOfficialBaseURL(baseURL) {
-			return xai.DefaultCLIBaseURL
+		return a.GetGrokBaseURLOr(xai.DefaultCLIBaseURL)
+	}
+	return a.GetGrokBaseURLOr(xai.DefaultBaseURL)
+}
+
+// GetGrokBaseURLOr resolves an explicit account endpoint, falling back to the
+// supplied default. Official OAuth endpoints are normalized here; custom
+// endpoints are retained for the request builder's operator URL policy.
+func (a *Account) GetGrokBaseURLOr(defaultBaseURL string) string {
+	if a == nil || !a.IsGrok() {
+		return ""
+	}
+	defaultBaseURL = strings.TrimRight(strings.TrimSpace(defaultBaseURL), "/")
+	if defaultBaseURL == "" {
+		if a.IsGrokOAuth() {
+			defaultBaseURL = xai.DefaultCLIBaseURL
+		} else {
+			defaultBaseURL = xai.DefaultBaseURL
 		}
+	}
+	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
+	if baseURL == "" {
+		return defaultBaseURL
+	}
+	if !a.IsGrokOAuth() {
 		return strings.TrimRight(baseURL, "/")
 	}
-	if baseURL != "" {
-		// TK: trim trailing slash so edge-relay base_url overrides (e.g.
-		// "https://api-us4.tokenkey.dev/") don't produce a doubled path segment
-		// when the chat-completions URL is built.
-		return strings.TrimRight(baseURL, "/")
+	// Explicit regional/API or custom values remain pinned. Custom endpoints are checked by the
+	// operator URL policy at the request builder, which has access to config.
+	if validated, err := xai.ValidateTrustedBaseURL(baseURL); err == nil {
+		return validated
 	}
 	if parsed, err := url.Parse(baseURL); err == nil && parsed.Scheme != "" && parsed.Host != "" &&
 		parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" {

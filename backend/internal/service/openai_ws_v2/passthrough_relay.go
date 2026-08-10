@@ -697,7 +697,7 @@ func observeUpstreamMessage(
 	}
 	var turnTiming *relayTurnTiming
 	if responseID != "" {
-		turnTiming := openAIWSRelayGetOrInitTurnTiming(state, responseID, now)
+		turnTiming = openAIWSRelayGetOrInitTurnTiming(state, responseID, now)
 		if turnTiming != nil && turnTiming.firstTokenMs == nil && marksClientVisibleProgress(eventType, message) {
 			ms := int(now.Sub(turnTiming.startAt).Milliseconds())
 			if ms >= 0 {

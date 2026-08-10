@@ -75,7 +75,7 @@ func isNativeOpenAIMediaPlatform(platform string) bool {
 
 func isGrokNativeVideoGenerationRoute(c *gin.Context) bool {
 	switch c.FullPath() {
-	case "/v1/videos/generations", "/videos/generations":
+	case "/v1/videos", "/videos", "/v1/videos/generations", "/videos/generations":
 		return true
 	default:
 		return false
@@ -84,7 +84,24 @@ func isGrokNativeVideoGenerationRoute(c *gin.Context) bool {
 
 func isGrokNativeVideoStatusRoute(c *gin.Context) bool {
 	switch c.FullPath() {
-	case "/v1/videos/:task_id", "/videos/:task_id", "/v1/videos/:request_id", "/videos/:request_id":
+	case "/v1/videos/:task_id", "/videos/:task_id",
+		"/v1/videos/:request_id", "/videos/:request_id",
+		"/v1/videos/generations/:request_id", "/videos/generations/:request_id",
+		"/v1/videos/edits/:request_id", "/videos/edits/:request_id",
+		"/v1/videos/extensions/:request_id", "/videos/extensions/:request_id":
+		return true
+	default:
+		return false
+	}
+}
+
+func isGrokNativeVideoContentRoute(c *gin.Context) bool {
+	switch c.FullPath() {
+	case "/v1/videos/:task_id/content", "/videos/:task_id/content",
+		"/v1/videos/:request_id/content", "/videos/:request_id/content",
+		"/v1/videos/generations/:request_id/content", "/videos/generations/:request_id/content",
+		"/v1/videos/edits/:request_id/content", "/videos/edits/:request_id/content",
+		"/v1/videos/extensions/:request_id/content", "/videos/extensions/:request_id/content":
 		return true
 	default:
 		return false
@@ -248,7 +265,7 @@ func tkOpenAICompatGrokVideoExtensionHandler(h *handler.Handlers) gin.HandlerFun
 // content requests do not carry a model for composite resolution.
 func tkOpenAICompatVideoContentHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if getGroupPlatform(c) == service.PlatformGrok || getGroupPlatform(c) == service.PlatformComposite {
+		if (getGroupPlatform(c) == service.PlatformGrok || getGroupPlatform(c) == service.PlatformComposite) && isGrokNativeVideoContentRoute(c) {
 			h.OpenAIGateway.GrokVideoContent(c)
 			return
 		}
@@ -295,6 +312,12 @@ func registerTKOpenAICompatVideoRoutes(group *gin.RouterGroup, h *handler.Handle
 	group.POST("/videos/generations", submit)
 	group.POST("/videos/edits", tkOpenAICompatGrokVideoEditHandler(h))
 	group.POST("/videos/extensions", tkOpenAICompatGrokVideoExtensionHandler(h))
+	group.GET("/videos/generations/:request_id", fetch)
+	group.GET("/videos/edits/:request_id", fetch)
+	group.GET("/videos/extensions/:request_id", fetch)
+	group.GET("/videos/generations/:request_id/content", tkOpenAICompatVideoContentHandler(h))
+	group.GET("/videos/edits/:request_id/content", tkOpenAICompatVideoContentHandler(h))
+	group.GET("/videos/extensions/:request_id/content", tkOpenAICompatVideoContentHandler(h))
 }
 
 // registerTKOpenAICompatVideoRoutesNoPrefix mirrors the above for the
@@ -320,4 +343,10 @@ func registerTKOpenAICompatVideoRoutesNoPrefix(r *gin.Engine, h *handler.Handler
 	r.POST("/videos/generations", chain(submit)...)
 	r.POST("/videos/edits", chain(tkOpenAICompatGrokVideoEditHandler(h))...)
 	r.POST("/videos/extensions", chain(tkOpenAICompatGrokVideoExtensionHandler(h))...)
+	r.GET("/videos/generations/:request_id", chain(fetch)...)
+	r.GET("/videos/edits/:request_id", chain(fetch)...)
+	r.GET("/videos/extensions/:request_id", chain(fetch)...)
+	r.GET("/videos/generations/:request_id/content", chain(tkOpenAICompatVideoContentHandler(h))...)
+	r.GET("/videos/edits/:request_id/content", chain(tkOpenAICompatVideoContentHandler(h))...)
+	r.GET("/videos/extensions/:request_id/content", chain(tkOpenAICompatVideoContentHandler(h))...)
 }

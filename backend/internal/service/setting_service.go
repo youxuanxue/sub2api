@@ -154,6 +154,9 @@ type SettingService struct {
 	openAIQuotaAutoPauseSettingsCache atomic.Value // *cachedOpenAIQuotaAutoPauseSettings
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
 
+	channelMonitorRuntimeListenersMu sync.Mutex
+	channelMonitorRuntimeListeners   []func()
+
 	tkAdminComplianceGateCache atomic.Value // *cachedTkComplianceGate
 	tkAdminComplianceGateSF    singleflight.Group
 	settingsPubSub             *settingsPubSubHub

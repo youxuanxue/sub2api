@@ -22262,8 +22262,17 @@ type GroupMutation struct {
 	addvideo_price_720p                           *float64
 	video_price_1080p                             *float64
 	addvideo_price_1080p                          *float64
+	video_model_prices                            *map[string]map[string]float64
 	web_search_price_per_call                     *float64
 	addweb_search_price_per_call                  *float64
+	search_price_per_1k                           *float64
+	addsearch_price_per_1k                        *float64
+	audio_realtime_price_per_min                  *float64
+	addaudio_realtime_price_per_min               *float64
+	audio_tts_price_per_million_chars             *float64
+	addaudio_tts_price_per_million_chars          *float64
+	audio_stt_price_per_hour                      *float64
+	addaudio_stt_price_per_hour                   *float64
 	claude_code_only                              *bool
 	fallback_group_id                             *int64
 	addfallback_group_id                          *int64
@@ -25951,7 +25960,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 58)
+	fields := make([]string, 0, 63)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -56619,7 +56628,7 @@ func (m *UsageLogMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UsageLogMutation) Fields() []string {
-	fields := make([]string, 0, 44)
+	fields := make([]string, 0, 46)
 	if m.user != nil {
 		fields = append(fields, usagelog.FieldUserID)
 	}

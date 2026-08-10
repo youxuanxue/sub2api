@@ -375,6 +375,12 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		}
 		replayCollector.AddEvent(eventType, upstreamMessage)
 
+		clientMessage := upstreamMessage
+		if eventType == "error" || eventType == "response.failed" {
+			if rewritten, changed := sanitizeOpenAICapacityShedErrorCodeForClient(clientMessage); changed {
+				clientMessage = rewritten
+			}
+		}
 		if !clientDisconnected {
 			if err := writeClientMessage(clientMessage); err != nil {
 				if isOpenAIWSClientDisconnectError(err) {

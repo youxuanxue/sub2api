@@ -3120,17 +3120,22 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	if account.Platform == PlatformAnthropic {
 		return false
 	}
+	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
+	if modelKey == "" {
+		return false
+	}
 	// TK: ChatGPT OAuth accounts share a subscription-tier catalog; when the
 	// operator floor already maps the requested model, a 404 is a wire/config
 	// fault (missing Codex Version header, stale mapping rollout) — not a
 	// per-account catalog gap. Cooling account×model here blocks the only OAuth
 	// account for 30m after a transient false positive (gpt-5.6-luna P0).
 	if reason == upstreamModelNotFoundReason && account.Platform == PlatformOpenAI && account.IsOAuth() && account.IsModelSupported(requestedModel) {
-		return false
+		if !IsGPTImageGenerationModel(requestedModel) && !IsGPTImageGenerationModel(modelKey) {
+			return false
+		}
 	}
-	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
-	if modelKey == "" {
-		return false
+	if shouldSkipCodexPlanGatedImageModelCooldown(ctx, reason, requestedModel, modelKey) {
+		return true
 	}
 	resetAt := time.Now().Add(cooldown)
 	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelKey, resetAt, reason); err != nil {
@@ -3156,6 +3161,18 @@ func modelRateLimitKeyForUpstreamModelNotFound(ctx context.Context, account *Acc
 		return mapped
 	}
 	return modelKey
+}
+
+// shouldSkipCodexPlanGatedImageModelCooldown 判断这次 Codex plan-gated 400 是否
+// 属于"图片模型被文本端点拒绝"。
+func shouldSkipCodexPlanGatedImageModelCooldown(ctx context.Context, reason, requestedModel, modelKey string) bool {
+	if reason != upstreamCodexPlanGatedModelReason {
+		return false
+	}
+	if OpenAIImagesEndpointFromContext(ctx) {
+		return false
+	}
+	return IsGPTImageGenerationModel(requestedModel) || IsGPTImageGenerationModel(modelKey)
 }
 
 func (s *RateLimitService) tryTempUnschedulable(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel ...string) bool {

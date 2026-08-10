@@ -215,13 +215,13 @@ func (s *OpenAIGatewayService) TkReserveVideoHold(ctx context.Context, requestID
 func (s *OpenAIGatewayService) tkEstimateVideoHoldAmount(ctx context.Context, model string, apiKey *APIKey, seconds int64, resolution string, multiplier float64, opts *VideoBillingOptions) float64 {
 	resolution = NormalizeVideoBillingResolutionForModel(model, resolution)
 	groupConfig := videoPriceConfigFromAPIKey(apiKey)
-	if apiKeyHasConfiguredVideoPrice(apiKey, resolution) {
+	if apiKeyHasConfiguredVideoPrice(apiKey, model, resolution) {
 		return s.billingService.EstimateVideoHold(model, seconds, multiplier, resolution, groupConfig, opts)
 	}
 	if refreshed := s.apiKeyWithFreshGroupMediaPricing(ctx, apiKey); refreshed != apiKey {
 		apiKey = refreshed
 		groupConfig = videoPriceConfigFromAPIKey(apiKey)
-		if apiKeyHasConfiguredVideoPrice(apiKey, resolution) {
+		if apiKeyHasConfiguredVideoPrice(apiKey, model, resolution) {
 			return s.billingService.EstimateVideoHold(model, seconds, multiplier, resolution, groupConfig, opts)
 		}
 	}

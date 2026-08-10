@@ -11,7 +11,6 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // IsRegistrationEnabled 检查是否开放注册

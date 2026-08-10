@@ -141,6 +141,8 @@ func TestAccountSchedulingThresholds_InvalidStoredValueUsesSameDefaultsInSetting
 }
 
 func TestGetAccountSchedulingThresholds_NilRepoReturnsDefaults(t *testing.T) {
+	accountSchedulingThresholdsSF.Forget(SettingKeyAccountSchedulingThresholds)
+	accountSchedulingThresholdsCache.Store(&cachedAccountSchedulingThresholds{})
 	svc := &SettingService{}
 	got := svc.GetAccountSchedulingThresholds(context.Background())
 	require.Equal(t, map[string]int{

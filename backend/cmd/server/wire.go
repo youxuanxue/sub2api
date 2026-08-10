@@ -126,6 +126,7 @@ func provideCleanup(
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
+	channelMonitorV2Aggregator *service.ChannelMonitorV2Aggregator,
 	// TokenKey: account-incident Feishu notifier. Passed so its digest ticker is
 	// Stopped at shutdown, and so wire forces evaluation of
 	// ProvideTKAccountIncidentNotifier (which attaches it onto RateLimitService).

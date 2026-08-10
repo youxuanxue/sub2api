@@ -1693,7 +1693,7 @@ type stubUserSubscriptionRepo struct {
 	getActive          func(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error)
 	listActiveByUserID func(ctx context.Context, userID int64) ([]service.UserSubscription, error)
 	updateStatus       func(ctx context.Context, subscriptionID int64, status string) error
-	activateWindow     func(ctx context.Context, id int64, start time.Time) error
+	activateWindow     func(ctx context.Context, id int64, dailyStart, periodicStart time.Time) error
 	resetDaily         func(ctx context.Context, id int64, start time.Time) error
 	resetWeekly        func(ctx context.Context, id int64, start time.Time) error
 	resetMonthly       func(ctx context.Context, id int64, start time.Time) error

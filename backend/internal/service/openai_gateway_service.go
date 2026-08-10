@@ -176,6 +176,8 @@ type OpenAIForwardResult struct {
 	VideoGenerateAudio    *bool
 	VideoHasInputImage    bool
 	WebSearchCalls        int
+	SearchCount           int
+	AudioUsage            *AudioUsage
 
 	wsReplayInput       []json.RawMessage
 	wsReplayInputExists bool

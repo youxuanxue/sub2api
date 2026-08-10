@@ -1638,32 +1638,61 @@ func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Contex
 	}
 	now := time.Now()
 	s.updateGrokUsageSnapshot(ctx, account, parseGrokQuotaSnapshot(headers, statusCode, now))
-	switch statusCode {
-	case http.StatusUnauthorized:
-		if !account.IsPoolMode() {
-			s.tempUnscheduleGrok(ctx, account, 10*time.Minute, "grok credentials unauthorized")
+
+	// Body-first free-usage / empty / billing / capacity must run before the
+	// status switch so non-429 free-usage bodies still cool the account.
+	decision := classifyGrokUpstreamFailure(statusCode, responseBody, firstRequestedModel(requestedModel))
+	if decision.ShouldCooldown && decision.Class != GrokFailureNone && decision.Class != GrokFailureRateLimit {
+		if account.IsPoolMode() {
+			// Allow configured temp rules (403) below; skip default body cools.
+		} else {
+			if decision.Class == GrokFailureFreeUsage {
+				if resetAt, limited := grokRateLimitResetAtForAccount(account, parseGrokQuotaSnapshot(headers, statusCode, now), now); limited && resetAt.After(now) {
+					if decision.Model != "" && isGrokModelSpecificFreeUsage(strings.ToLower(decision.Reason), decision.Model) {
+						markGrokModelQuotaBlock(account.ID, decision.Model, resetAt)
+						return
+					}
+					s.rateLimitGrok(ctx, account, resetAt)
+					return
+				}
+			}
+			if s.applyGrokUpstreamFailureDecision(ctx, account, decision) {
+				return
+			}
 		}
-	case http.StatusPaymentRequired:
-		if !account.IsPoolMode() {
-			s.tempUnscheduleGrok(ctx, account, 30*time.Minute, "grok payment required")
-		}
-	case http.StatusForbidden:
-		if s.applyGrokForbiddenPolicy(ctx, account, responseBody) {
+	}
+
+	if statusCode == http.StatusForbidden && s.applyGrokForbiddenPolicy(ctx, account, responseBody) {
+		return
+	}
+	if account.IsPoolMode() {
+		if statusCode == http.StatusTooManyRequests && s.tkHandleGrok429UpstreamError(ctx, account, headers, responseBody, requestedModel...) {
 			return
 		}
+		slog.Info("grok_pool_mode_error_state_skipped", "account_id", account.ID, "status_code", statusCode)
+		return
+	}
+	switch statusCode {
+	case http.StatusUnauthorized:
+		s.tempUnscheduleGrok(ctx, account, 10*time.Minute, "grok credentials unauthorized")
+	case http.StatusPaymentRequired:
+		s.tempUnscheduleGrok(ctx, account, 30*time.Minute, "grok payment required")
+	case http.StatusForbidden:
 		if s.tkHandleGrokEntitlement403AccountSideEffect(ctx, account, statusCode, responseBody) {
 			return
 		}
-		if !account.IsPoolMode() {
-			s.tempUnscheduleGrok(ctx, account, 30*time.Minute, "grok access or entitlement denied")
+		if isGrokSpendingLimitError(responseBody) {
+			s.rateLimitGrok(ctx, account, grokSpendingLimitResetAt(account, time.Now()))
+			return
 		}
+		s.tempUnscheduleGrok(ctx, account, 30*time.Minute, "grok access or entitlement denied")
 	case http.StatusTooManyRequests:
 		if s.tkHandleGrok429UpstreamError(ctx, account, headers, responseBody, requestedModel...) {
 			return
 		}
-		// updateGrokUsageSnapshot installs both runtime and durable rate-limit state.
+		// updateGrokUsageSnapshot installs rate-limit state for non-pool accounts.
 	default:
-		if statusCode >= 500 && !account.IsPoolMode() {
+		if statusCode >= 500 {
 			s.tempUnscheduleGrok(ctx, account, 2*time.Minute, "grok upstream temporary error")
 		}
 	}

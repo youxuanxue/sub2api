@@ -371,7 +371,7 @@ func (r *usageLogRepository) GetModelStatsWithUsageFiltersBySource(ctx context.C
 	return r.getModelStatsWithFiltersBySource(ctx, startTime, endTime, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType, source, filters.BillingMode, filters.UpstreamModelMismatch)
 }
 
-func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, source string, billingMode string) (results []ModelStat, err error) {
+func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, source string, billingMode string, upstreamModelMismatch *bool) (results []ModelStat, err error) {
 	if strings.TrimSpace(model) == "" &&
 		strings.TrimSpace(billingMode) == "" &&
 		shouldUseModelDailyRollup(userID, apiKeyID, accountID, groupID, requestType, stream, billingType, source) {
@@ -467,7 +467,7 @@ func (r *usageLogRepository) GetGroupStatsWithUsageFilters(ctx context.Context, 
 	return r.getGroupStatsWithFilters(ctx, startTime, endTime, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType, filters.BillingMode, filters.UpstreamModelMismatch)
 }
 
-func (r *usageLogRepository) getGroupStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, billingMode string) (results []usagestats.GroupStat, err error) {
+func (r *usageLogRepository) getGroupStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, billingMode string, upstreamModelMismatch *bool) (results []usagestats.GroupStat, err error) {
 	if strings.TrimSpace(model) == "" &&
 		strings.TrimSpace(billingMode) == "" &&
 		shouldUseGroupDailyStatsRollup(userID, apiKeyID, accountID, requestType, stream, billingType) {
@@ -524,6 +524,9 @@ func (r *usageLogRepository) getGroupStatsWithFilters(ctx context.Context, start
 		args = append(args, int16(*billingType))
 	}
 	query, args = appendUsageLogBillingModeQueryFilter(query, args, billingMode, "ul")
+	if upstreamModelMismatch != nil {
+		query += " AND " + upstreamModelMismatchCondition("ul.upstream_model_mismatch", *upstreamModelMismatch)
+	}
 	query += " GROUP BY ul.group_id, g.name ORDER BY (COALESCE(SUM(ul.input_tokens), 0) + COALESCE(SUM(ul.output_tokens), 0) + COALESCE(SUM(ul.cache_creation_tokens), 0) + COALESCE(SUM(ul.cache_read_tokens), 0)) DESC"
 
 	rows, err := r.sql.QueryContext(ctx, query, args...)

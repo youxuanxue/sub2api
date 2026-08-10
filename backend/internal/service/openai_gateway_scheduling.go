@@ -5,6 +5,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -255,7 +256,9 @@ func normalizeOpenAICompatiblePlatform(platform string) string {
 	return PlatformOpenAI
 }
 
-func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool, platforms ...string) error {
+// details carries an optional machine-parseable exclusion summary appended in
+// parentheses. platform selects the human-readable pool label (P1-2 newapi vs openai).
+func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool, platform string, details string) error {
 	if err := tkDeprecatedOpenAISelectionFailure(requestedModel); err != nil {
 		return err
 	}
@@ -263,16 +266,29 @@ func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool,
 		return ErrNoAvailableCompactAccounts
 	}
 	label := "OpenAI"
-	if len(platforms) > 0 {
-		platform := strings.TrimSpace(platforms[0])
-		if platform != "" && platform != PlatformOpenAI {
-			label = openAICompatErrorPlatformLabel(platform)
-		}
+	if p := strings.TrimSpace(platform); p != "" && p != PlatformOpenAI {
+		label = openAICompatErrorPlatformLabel(p)
 	}
+	message := fmt.Sprintf("no available %s accounts", label)
 	if requestedModel != "" {
-		return fmt.Errorf("no available %s accounts supporting model: %s", label, requestedModel)
+		message = fmt.Sprintf("no available %s accounts supporting model: %s", label, requestedModel)
 	}
-	return fmt.Errorf("no available %s accounts", label)
+	if details != "" {
+		message += " (" + details + ")"
+	}
+	return openAINoAvailableSelectionError{message: message}
+}
+
+type openAINoAvailableSelectionError struct {
+	message string
+}
+
+func (e openAINoAvailableSelectionError) Error() string {
+	return e.message
+}
+
+func (e openAINoAvailableSelectionError) Is(target error) bool {
+	return target == ErrNoAvailableAccounts
 }
 
 // openAICompactSupportTier classifies an OpenAI account by compact capability.
@@ -306,6 +322,12 @@ func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *A
 		return false
 	}
 	return true
+}
+
+// isOpenAICompatibleAccountEligibleForRequestBeforeProfit applies ordinary scheduling
+// gates before profit veto classification (upstream naming preserved for merge compat).
+func isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
+	return openAICompatAccountMeetsSchedulingPrerequisites(ctx, account, platform, requestedModel, requireCompact, requiredCapability)
 }
 
 func openAICompatAccountMeetsSchedulingPrerequisites(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
@@ -417,14 +439,19 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 	selected, compactBlocked, filterStats := s.selectBestAccount(ctx, groupID, platform, accounts, requestedModel, excludedIDs, requireCompact, requiredCapability, preferLowUpstreamRate)
 
 	if selected == nil {
-		return nil, openAICompatNoCandidateError(requestedModel, platform, compactBlocked, accounts, excludedIDs, &openAICompatNoCandidateEval{
-			ctx:                ctx,
-			svc:                s,
-			groupID:            groupID,
-			platform:           platform,
-			requireCompact:     requireCompact,
-			requiredCapability: requiredCapability,
-		})
+		if !gatewayProfitControlGateActive(ctx) && requestedModel != "" {
+			if compatErr := openAICompatNoCandidateError(requestedModel, platform, compactBlocked, accounts, excludedIDs, &openAICompatNoCandidateEval{
+				ctx:                ctx,
+				svc:                s,
+				groupID:            groupID,
+				platform:           platform,
+				requireCompact:     requireCompact,
+				requiredCapability: requiredCapability,
+			}); errors.Is(compatErr, ErrUnsupportedModel) {
+				return nil, compatErr
+			}
+		}
+		return nil, noAvailableOpenAISelectionError(requestedModel, compactBlocked, platform, filterStats.summary(""))
 	}
 
 	hydrated, err := s.hydrateSelectedAccount(ctx, selected)
@@ -576,9 +603,9 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 
 	if len(eligible) == 0 {
 		if len(windowDropped) > 0 {
-			return leastUtilizedOpenAIAccount(windowDropped, time.Now()), compactBlocked
+			return leastUtilizedOpenAIAccount(windowDropped, time.Now()), compactBlocked, filterStats
 		}
-		return nil, compactBlocked
+		return nil, compactBlocked, filterStats
 	}
 
 	rateOrder := openAILegacyUpstreamRateOrder{}
