@@ -64,6 +64,19 @@ func TestShouldRefreshOpenAICodexSnapshot(t *testing.T) {
 	}, usage, now) {
 		t.Fatal("expected stale ws snapshot to trigger refresh")
 	}
+
+	if !shouldRefreshOpenAICodexSnapshot(&Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_5h_used_percent": 10.0,
+			"codex_5h_reset_at":     now.Add(-time.Hour).UTC().Format(time.RFC3339),
+			"codex_7d_used_percent": 20.0,
+			"codex_7d_reset_at":     now.Add(48 * time.Hour).UTC().Format(time.RFC3339),
+		},
+	}, usage, now) {
+		t.Fatal("expected expired 5h codex window to trigger refresh even when 7d is still active")
+	}
 }
 
 // TestShouldRefreshOpenAICodexSnapshot_SparkShadowIgnoresWSv2 外审第9轮 P1:spark 影子用量走
@@ -245,20 +258,14 @@ func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
 
-	t.Run("expired 5h window zeroes utilization", func(t *testing.T) {
+	t.Run("expired 5h window drops stale upstream sample", func(t *testing.T) {
 		extra := map[string]any{
 			"codex_5h_used_percent": 42.0,
 			"codex_5h_reset_at":     "2026-03-16T10:00:00Z", // 2h ago
 		}
 		progress := buildCodexUsageProgressFromExtra(extra, "5h", now)
-		if progress == nil {
-			t.Fatal("expected non-nil progress")
-		}
-		if progress.Utilization != 0 {
-			t.Fatalf("expected Utilization=0 for expired window, got %v", progress.Utilization)
-		}
-		if progress.RemainingSeconds != 0 {
-			t.Fatalf("expected RemainingSeconds=0, got %v", progress.RemainingSeconds)
+		if progress != nil {
+			t.Fatalf("expected nil progress for expired window, got %#v", progress)
 		}
 	})
 
@@ -277,17 +284,14 @@ func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 		}
 	})
 
-	t.Run("expired 7d window zeroes utilization", func(t *testing.T) {
+	t.Run("expired 7d window drops stale upstream sample", func(t *testing.T) {
 		extra := map[string]any{
 			"codex_7d_used_percent": 88.0,
 			"codex_7d_reset_at":     "2026-03-15T00:00:00Z", // yesterday
 		}
 		progress := buildCodexUsageProgressFromExtra(extra, "7d", now)
-		if progress == nil {
-			t.Fatal("expected non-nil progress")
-		}
-		if progress.Utilization != 0 {
-			t.Fatalf("expected Utilization=0 for expired 7d window, got %v", progress.Utilization)
+		if progress != nil {
+			t.Fatalf("expected nil progress for expired 7d window, got %#v", progress)
 		}
 	})
 }

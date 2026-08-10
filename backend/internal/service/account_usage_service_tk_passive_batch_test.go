@@ -140,6 +140,40 @@ func TestGetPassiveUsageBatch_EqualsSinglePerAccount(t *testing.T) {
 	require.Zero(t, logRepo.singleCalls.Load(), "prefetched cache must spare per-account window-stats single queries")
 }
 
+func TestAccountUsageService_GetPassiveUsage_OpenAIOAuthExpiredCodexFallsBackToLocalWindowStats(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	acct := Account{
+		ID:       56,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_5h_used_percent": 42.0,
+			"codex_5h_reset_at":     now.Add(-2 * time.Hour).UTC().Format(time.RFC3339),
+			"codex_7d_used_percent": 34.0,
+			"codex_7d_reset_at":     now.Add(5 * 24 * time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	logRepo := &passiveBatchUsageLogRepo{
+		cost: map[int64]float64{56: 9.5},
+	}
+	svc := &AccountUsageService{
+		accountRepo:  &passiveBatchAccountRepo{accounts: []Account{acct}},
+		usageLogRepo: logRepo,
+	}
+
+	usage, err := svc.GetPassiveUsage(context.Background(), 56)
+	require.NoError(t, err)
+	require.NotNil(t, usage.FiveHour)
+	require.Zero(t, usage.FiveHour.Utilization, "expired codex 5h must not surface stale used%%")
+	require.NotNil(t, usage.FiveHour.WindowStats)
+	require.Equal(t, int64(1), usage.FiveHour.WindowStats.Requests)
+	require.Equal(t, 9.5, usage.FiveHour.WindowStats.Cost)
+	require.NotNil(t, usage.SevenDay)
+	require.Equal(t, 34.0, usage.SevenDay.Utilization)
+}
+
 func TestGetPassiveUsageBatch_IncludesGrokLocalWindows(t *testing.T) {
 	accounts := []Account{
 		{ID: 9, Platform: PlatformGrok, Type: AccountTypeAPIKey, Status: StatusActive},
