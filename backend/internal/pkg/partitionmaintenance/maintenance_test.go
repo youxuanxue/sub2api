@@ -31,6 +31,12 @@ func expectCoverage(mock sqlmock.Sqlmock, table string, covered int) {
 		WillReturnRows(sqlmock.NewRows([]string{"covered_ranges"}).AddRow(covered))
 }
 
+func expectNoDefaultRehome(mock sqlmock.Sqlmock, table string) {
+	mock.ExpectQuery("pg_inherits").
+		WithArgs(table).
+		WillReturnRows(sqlmock.NewRows([]string{"relname", "bound_expr"}))
+}
+
 func TestEnsureStrictCreatesAndVerifiesAllTargets(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
@@ -50,6 +56,9 @@ func TestEnsureStrictCreatesAndVerifiesAllTargets(t *testing.T) {
 		expectPartitioned(mock, target.table, true)
 		expectCreates(mock, target.count)
 		expectCoverage(mock, target.table, target.count)
+		if target.table == qaRecordsTable {
+			expectNoDefaultRehome(mock, target.table)
+		}
 	}
 
 	result, err := Ensure(context.Background(), db, maintenanceNow, ModeRequireAllPartitioned)

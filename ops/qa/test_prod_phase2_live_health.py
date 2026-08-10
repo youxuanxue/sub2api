@@ -52,7 +52,7 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
                 "PHASE2RECEIPT " + json.dumps(snapshot["host_receipt"], sort_keys=True),
                 "PHASE2HEARTBEAT " + json.dumps(snapshot["database_heartbeat"], sort_keys=True),
                 "PHASE2ARCHIVE " + json.dumps(snapshot["archive_control"], sort_keys=True),
-                "PHASE2QARECORDS " + json.dumps({"partition_owner": "default_only"}, sort_keys=True),
+                "PHASE2QARECORDS " + json.dumps({"partition_owner": "partitioned"}, sort_keys=True),
             ]
         )
 
@@ -60,14 +60,15 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         snapshot = live_health._parse_probe_output(self._healthy_probe_text())
         self.assertIn("systemd", snapshot)
         self.assertIn("host_receipt", snapshot)
-        self.assertEqual(snapshot["qa_records"]["partition_owner"], "default_only")
+        self.assertEqual(snapshot["qa_records"]["partition_owner"], "partitioned")
 
-    def test_evaluate_snapshot_marks_default_only_partition_warning(self) -> None:
+    def test_evaluate_snapshot_marks_default_only_partition_degraded(self) -> None:
         snapshot, now = _fresh_snapshot()
         snapshot["qa_records"] = {"partition_owner": "default_only"}
         payload = live_health.evaluate_snapshot(snapshot, skip_iam=True, now=now)
         self.assertIn("qa_records_partition_owner_default_only", payload["warnings"])
-        self.assertEqual(payload["health"]["status"], "healthy")
+        self.assertEqual(payload["health"]["status"], "degraded")
+        self.assertIn("qa_records_partition_owner_default_only", payload["health"]["reasons"])
 
     def test_cli_from_probe_stdin(self) -> None:
         proc = subprocess.run(
@@ -153,6 +154,27 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         self.assertEqual(verdict["status"], "failed", verdict)
         self.assertIn("compensation_control_missing", verdict["catchup_reasons"], verdict)
         self.assertIn("compensation_window_heartbeat_mismatch", verdict["catchup_reasons"], verdict)
+
+    def test_terminal_inventory_without_receipt_stays_degraded(self) -> None:
+        snapshot, now = _fresh_snapshot()
+        terminal_window = "2026-08-07T22:00:00Z"
+        snapshot["archive_control"]["compensation"] = {
+            "window_start": terminal_window,
+            "state": "failed",
+            "verification_error_code": "source_unavailable_after_retention",
+            "restore_verified": False,
+            "cleanup_eligible": False,
+        }
+        snapshot["archive_control"]["terminal_failures_after_cutover"] = [
+            {
+                "window_start": terminal_window,
+                "verification_error_code": "source_unavailable_after_retention",
+            }
+        ]
+        verdict = health.evaluate(snapshot, now=now, catchup_gap_policy="accepted_terminal")
+        self.assertEqual(verdict["status"], "degraded", verdict)
+        self.assertIn("catchup_terminal_gaps_present", verdict["catchup_reasons"], verdict)
+        self.assertNotIn("compensation_control_without_receipt", verdict["catchup_reasons"], verdict)
 
     def test_terminal_compensation_receipt_stays_degraded(self) -> None:
         snapshot, now = _fresh_snapshot()

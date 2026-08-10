@@ -71,10 +71,19 @@ def evaluate_snapshot(
     qa_records = snapshot.get("qa_records")
     if isinstance(qa_records, dict):
         owner = qa_records.get("partition_owner")
-        if owner == "default_only":
-            warnings.append("qa_records_partition_owner_default_only")
-        elif owner == "mixed":
-            warnings.append("qa_records_partition_owner_mixed")
+        if owner in {"default_only", "mixed"}:
+            reason = f"qa_records_partition_owner_{owner}"
+            warnings.append(reason)
+            forward = health.setdefault("forward_reasons", [])
+            if reason not in forward:
+                forward.append(reason)
+            health["forward_reasons"] = sorted(set(forward))
+            health.setdefault("reasons", [])
+            if reason not in health["reasons"]:
+                health["reasons"] = sorted(set([*health["reasons"], reason]))
+            if health.get("status") == "healthy":
+                health["status"] = "degraded"
+            health["healthy"] = False
     if skip_iam:
         iam: dict[str, Any] = {"ok": True, "status": "skipped", "failures": []}
     else:

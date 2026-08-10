@@ -148,6 +148,31 @@ def _evaluate_terminal_compensation(
     return failed
 
 
+def _evaluate_terminal_inventory_control(
+    reasons: list[str],
+    control: dict[str, Any],
+    heartbeat: dict[str, str],
+    archive: dict[str, Any],
+) -> bool:
+    """Return True when a historical terminal control row contradicts other sources."""
+    failed = False
+    window = control.get("window_start")
+    terminal = _terminal_inventory(archive)
+    if window and not any(entry.get("window_start") == window for entry in terminal):
+        reasons.append("compensation_window_not_in_terminal_inventory")
+        failed = True
+    if any(key.startswith("compensation_") for key in heartbeat):
+        reasons.append("compensation_heartbeat_without_receipt")
+        failed = True
+    if control.get("state") != "failed":
+        reasons.append("compensation_state_control_mismatch")
+        failed = True
+    if control.get("verification_error_code") != TERMINAL_CATCHUP_ERROR:
+        reasons.append("compensation_error_code_control_mismatch")
+        failed = True
+    return failed
+
+
 def _evaluate_catchup(
     reasons: list[str],
     *,
@@ -169,10 +194,17 @@ def _evaluate_catchup(
         reasons.append("compensation_receipt_invalid")
         failed = True
     else:
-        if archive.get("compensation") is not None:
-            reasons.append("compensation_control_without_receipt")
-            failed = True
-        if any(key.startswith("compensation_") for key in heartbeat):
+        control = _mapping(archive.get("compensation"))
+        heartbeat_checked = False
+        if control is not None:
+            if catchup_gap_policy == "accepted_terminal" and _is_terminal_compensation(control):
+                if _evaluate_terminal_inventory_control(reasons, control, heartbeat, archive):
+                    failed = True
+                heartbeat_checked = True
+            else:
+                reasons.append("compensation_control_without_receipt")
+                failed = True
+        if not heartbeat_checked and any(key.startswith("compensation_") for key in heartbeat):
             reasons.append("compensation_heartbeat_without_receipt")
             failed = True
 

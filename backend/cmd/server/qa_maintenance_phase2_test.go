@@ -175,7 +175,8 @@ func TestUS045_NormalFirstBoundedCompensationReportsSelectionAndTerminalFailures
 			selectCandidate: func(context.Context, archive.Window, time.Time) (archive.CatchupSelection, bool, error) {
 				return archive.CatchupSelection{Window: us045Window(1), ShardID: 46, Disposition: archive.CatchupDispositionSourceUnavailableAfterRetention}, true, nil
 			},
-			wantErr: false,
+			wantErr:      true,
+			wantContains: "source unavailable after retention",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -321,7 +322,7 @@ func TestUS045_QAMaintenanceCommandReportsCommittedNormalAndCompensationFacts(t 
 	}
 }
 
-func TestUS045_QAMaintenanceCommandSucceedsWithTerminalCatchupGap(t *testing.T) {
+func TestUS045_QAMaintenanceCommandFailsClosedOnTerminalCatchupGap(t *testing.T) {
 	t.Setenv("QA_MAINTENANCE_RUN_ID", "run-terminal-045")
 	t.Setenv("QA_MAINTENANCE_TRIGGER", "timer")
 	db, mockDB, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
@@ -363,37 +364,26 @@ func TestUS045_QAMaintenanceCommandSucceedsWithTerminalCatchupGap(t *testing.T) 
 	}
 
 	out := &bytes.Buffer{}
-	if err := runQAMaintenanceCommand(context.Background(), []string{
+	err = runQAMaintenanceCommand(context.Background(), []string{
 		"--qa-maintenance-once", "--confirm", qaMaintenanceConfirmation,
-	}, out, deps); err != nil {
-		t.Fatal(err)
+	}, out, deps)
+	if err == nil {
+		t.Fatal("runQAMaintenanceCommand() unexpectedly succeeded on terminal compensation")
 	}
 	if reconcileCalls != 1 {
 		t.Fatalf("reconcileCalls=%d", reconcileCalls)
 	}
-	if heartbeat == nil || heartbeat.LastResult == nil || !strings.Contains(*heartbeat.LastResult, "status=committed") {
+	if heartbeat == nil || heartbeat.LastResult == nil || !strings.Contains(*heartbeat.LastResult, "status=failed") {
 		t.Fatalf("heartbeat=%+v", heartbeat)
 	}
 	if !strings.Contains(*heartbeat.LastResult, "compensation_error_code="+archive.IntegritySourceUnavailableAfterRetention) {
 		t.Fatalf("heartbeat result %q missing terminal compensation fact", *heartbeat.LastResult)
 	}
-	var receipt struct {
-		OK           bool `json:"ok"`
-		Plan         struct {
-			CommitETag string `json:"commit_etag"`
-		} `json:"plan"`
-		Compensation *struct {
-			State                 string `json:"state"`
-			VerificationErrorCode string `json:"verification_error_code"`
-		} `json:"compensation"`
+	if !strings.Contains(*heartbeat.LastResult, "normal_commit_etag=normal-etag") {
+		t.Fatalf("heartbeat result %q missing normal success fact", *heartbeat.LastResult)
 	}
-	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
-		t.Fatal(err)
-	}
-	if !receipt.OK || receipt.Plan.CommitETag != "normal-etag" || receipt.Compensation == nil ||
-		receipt.Compensation.State != archive.StateFailed ||
-		receipt.Compensation.VerificationErrorCode != archive.IntegritySourceUnavailableAfterRetention {
-		t.Fatalf("receipt=%+v", receipt)
+	if out.Len() > 0 {
+		t.Fatalf("unexpected success receipt on terminal compensation: %s", out.String())
 	}
 	if err := mockDB.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

@@ -105,8 +105,15 @@ func runQAMaintenanceArchiveCycle(
 	}
 	result.CompensationSelection = &selection
 	if selection.Disposition == archive.CatchupDispositionSourceUnavailableAfterRetention {
-		// Terminal catchup gap is recorded during select; the sealed normal hour stands alone.
-		return result, nil
+		return failQAMaintenanceCycle(
+			result,
+			"compensation_terminal",
+			archive.IntegritySourceUnavailableAfterRetention,
+			fmt.Errorf(
+				"compensation %s: source unavailable after retention",
+				selection.Window.Start.Format(time.RFC3339),
+			),
+		)
 	}
 	if selection.Disposition != archive.CatchupDispositionReconcile {
 		return failQAMaintenanceCycle(

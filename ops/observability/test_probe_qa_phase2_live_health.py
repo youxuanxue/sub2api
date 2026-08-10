@@ -39,6 +39,16 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
                     #!/usr/bin/env bash
                     set -u
                     if [ "$1" = exec ] && [[ "$*" == *" psql "* ]] && [[ "$*" == *" -f -"* ]]; then
+                      has_i=false
+                      for arg in "$@"; do
+                        if [ "$arg" = "-i" ]; then
+                          has_i=true
+                          break
+                        fi
+                      done
+                      if [ "$has_i" != true ]; then
+                        exit 2
+                      fi
                       cat >> "$PSQL_LOG"
                       cat "$PSQL_OUTPUT"
                       exit 0
@@ -89,6 +99,42 @@ class ProbeQAPhase2LiveHealthTest(unittest.TestCase):
         ]
         _, sql_log = self.run_probe(psql_lines=psql_lines)
         self.assertIn("SELECT NULL::timestamptz AS window_start", sql_log)
+
+    def test_probe_without_docker_exec_i_skips_psql(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            fakebin = root / "bin"
+            fakebin.mkdir()
+            docker = fakebin / "docker"
+            docker.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    set -u
+                    if [ "$1" = exec ] && [[ "$*" == *" psql "* ]] && [[ "$*" == *" -f -"* ]]; then
+                      exit 2
+                    fi
+                    exit 2
+                    """
+                ),
+                encoding="utf-8",
+            )
+            docker.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = f"{fakebin}:{env['PATH']}"
+            completed = subprocess.run(
+                ["bash", str(_SCRIPT)],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+        output = completed.stdout + completed.stderr
+        self.assertIn("PHASE2SYSTEMD", output)
+        self.assertIn("PHASE2RECEIPT null", output)
+        self.assertNotIn("PHASE2HEARTBEAT", output)
+        self.assertNotIn("PHASE2ARCHIVE", output)
+        self.assertNotIn("PHASE2QARECORDS", output)
 
 
 if __name__ == "__main__":

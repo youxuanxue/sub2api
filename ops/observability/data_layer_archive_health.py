@@ -14,7 +14,7 @@ from typing import Any
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 ARCHIVE = REPO / "ops" / "archive"
-TAIL_EXPORT_MAX_AGE = dt.timedelta(days=7)
+TAIL_EXPORT_GRACE = dt.timedelta(days=1)
 sys.path.insert(0, str(ARCHIVE))
 
 import data_layer_archive_cleanup_hold as cleanup_hold  # noqa: E402
@@ -95,12 +95,27 @@ def _parse_cutoff(value: Any) -> dt.datetime | None:
     return parsed.astimezone(dt.timezone.utc)
 
 
-def _tail_export_stale(tail_ledgers: list[dict[str, Any]], now: dt.datetime) -> bool:
+def _ops_retention_days() -> int:
+    try:
+        retention = pipeline_status.load_pipeline_status().get("retention_hot_layer_days", {})
+    except (OSError, ValueError, RuntimeError):
+        return 30
+    if isinstance(retention, dict):
+        ops_days = retention.get("ops")
+        if isinstance(ops_days, int) and ops_days > 0:
+            return ops_days
+    return 30
+
+
+def _tail_export_stale(
+    tail_ledgers: list[dict[str, Any]], now: dt.datetime, ops_retention_days: int
+) -> bool:
     if not tail_ledgers:
         return False
+    max_age = dt.timedelta(days=ops_retention_days) + TAIL_EXPORT_GRACE
     for ledger in tail_ledgers:
         cutoff = _parse_cutoff(ledger.get("final_cutoff_exclusive"))
-        if cutoff is None or now - cutoff > TAIL_EXPORT_MAX_AGE:
+        if cutoff is None or now - cutoff > max_age:
             return True
     return False
 
@@ -213,7 +228,7 @@ def build_signal(evidence_dir: pathlib.Path | None = None, *, now: dt.datetime |
             evidence_errors.append(f"{table}:tail_export_ledger")
     closeout_complete = closeout_tables == set(layout.tables)
     tail_export_complete = tail_export_tables == set(layout.tables)
-    tail_export_stale = _tail_export_stale(tail_ledgers, now)
+    tail_export_stale = _tail_export_stale(tail_ledgers, now, _ops_retention_days())
     archive_coverage_current = tail_export_complete and not tail_export_stale
     cleanup_release_complete = False
     cleanup_release_verified_at: str | None = None

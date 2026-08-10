@@ -17,6 +17,10 @@ const (
 
 	opsMonthsAhead = 3
 	usageDaysAhead = 7
+
+	qaRecordsTable       = "qa_records"
+	qaRecordsTimeColumn  = "created_at"
+	defaultRehomeBatchSz = 5000
 )
 
 type Mode uint8
@@ -27,8 +31,9 @@ const (
 )
 
 type TableResult struct {
-	Table      string `json:"table"`
-	RangeCount int    `json:"range_count"`
+	Table           string                      `json:"table"`
+	RangeCount      int                         `json:"range_count"`
+	DefaultRehome   *pgpartition.RehomeDefaultResult `json:"default_rehome,omitempty"`
 }
 
 type Result struct {
@@ -119,7 +124,24 @@ func Ensure(
 				len(ranges),
 			)
 		}
-		result.Tables = append(result.Tables, TableResult{Table: target.table, RangeCount: covered})
+		tableResult := TableResult{Table: target.table, RangeCount: covered}
+		if target.table == qaRecordsTable {
+			rehome, rehomeErr := pgpartition.RehomeDefaultMonthly(
+				ctx,
+				db,
+				qaRecordsTable,
+				qaRecordsTimeColumn,
+				now,
+				defaultRehomeBatchSz,
+			)
+			if rehomeErr != nil {
+				return result, fmt.Errorf("partitionmaintenance: rehome %s default: %w", target.table, rehomeErr)
+			}
+			if rehome.DefaultPartition != "" || len(rehome.Months) > 0 || rehome.RemainingRows > 0 {
+				tableResult.DefaultRehome = &rehome
+			}
+		}
+		result.Tables = append(result.Tables, tableResult)
 	}
 
 	return result, nil

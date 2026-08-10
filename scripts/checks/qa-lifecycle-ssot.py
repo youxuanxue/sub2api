@@ -128,7 +128,7 @@ REQUIRED_BY_FILE = {
         "schema_version: 1",
         "deploy_inject_default: true",
         "target_deploy_inject_default: true",
-        "repository_closeout_state: production_closeout_verified",
+        "repository_closeout_state: implementation_ready_pending_live_verification",
         "observed_live_state: pending_live_reconciliation",
         "min_consecutive_scheduled_runs: 2",
         "host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh",
@@ -426,7 +426,7 @@ def _rollout_failures(root: Path) -> list[str]:
             failures.append("rollout prod.QA_ARCHIVE_ENABLED.policy_target drift")
         if prod_archive.get("target_deploy_inject_default") is not True:
             failures.append("rollout prod.QA_ARCHIVE_ENABLED target must become true after closeout")
-        if prod_archive.get("repository_closeout_state") != "production_closeout_verified":
+        if prod_archive.get("repository_closeout_state") != "implementation_ready_pending_live_verification":
             failures.append("rollout prod.QA_ARCHIVE_ENABLED repository closeout state drift")
         if prod_archive.get("observed_live_state") != "pending_live_reconciliation":
             failures.append("rollout prod.QA_ARCHIVE_ENABLED observed live state drift")
@@ -509,6 +509,40 @@ def _deploy_rollout_failures(root: Path) -> list[str]:
     return failures
 
 
+def _closeout_implementation_failures(root: Path) -> list[str]:
+    failures: list[str] = []
+    probe = root / "ops/observability/probe-qa-phase2-live-health.sh"
+    if probe.is_file():
+        body = probe.read_text(encoding="utf-8")
+        if "docker exec -i " not in body and "docker exec -i" not in body.replace("\n", " "):
+            failures.append("phase2 live probe must use docker exec -i for psql stdin")
+    maintenance = root / GO_MAINTENANCE
+    if maintenance.is_file():
+        body = maintenance.read_text(encoding="utf-8")
+        if "compensation_terminal" not in body:
+            failures.append("qa maintenance must fail closed on terminal compensation")
+    rehome = root / "backend/internal/pkg/pgpartition/rehome_default.go"
+    if not rehome.is_file():
+        failures.append("qa_records default rehome implementation missing")
+    archive_health = root / "ops/observability/data_layer_archive_health.py"
+    if archive_health.is_file():
+        body = archive_health.read_text(encoding="utf-8")
+        if "TAIL_EXPORT_MAX_AGE = dt.timedelta(days=7)" in body:
+            failures.append("archive health stale threshold must follow ops retention SSOT")
+        if "_ops_retention_days" not in body:
+            failures.append("archive health must derive tail export freshness from retention SSOT")
+    rollout = root / ROLLOUT
+    if rollout.is_file():
+        try:
+            data = yaml.safe_load(rollout.read_text(encoding="utf-8"))
+            prod_archive = (data.get("prod") or {}).get("QA_ARCHIVE_ENABLED") or {}
+            if prod_archive.get("repository_closeout_state") == "production_closeout_verified":
+                failures.append("rollout repository closeout must not claim production_closeout_verified before live reconciliation")
+        except (OSError, yaml.YAMLError):
+            pass
+    return failures
+
+
 def scan(root: Path) -> list[str]:
     failures: list[str] = []
     for rel in MUST_BE_ABSENT:
@@ -537,6 +571,7 @@ def scan(root: Path) -> list[str]:
     failures.extend(_policy_failures(root))
     failures.extend(_rollout_failures(root))
     failures.extend(_deploy_rollout_failures(root))
+    failures.extend(_closeout_implementation_failures(root))
     return failures
 
 
@@ -550,6 +585,7 @@ def self_test() -> int:
             BOOTSTRAP,
             QA_SERVICE,
             QA_CONFIG,
+            GO_MAINTENANCE,
             LIVE_HOST_ASSERT,
             RAW_ARCHIVE_CFN,
             ARCHIVE_STATE,
@@ -557,6 +593,9 @@ def self_test() -> int:
             QA_README,
             DEPLOY_SSM,
             DEPLOY_BG,
+            Path("ops/observability/probe-qa-phase2-live-health.sh"),
+            Path("ops/observability/data_layer_archive_health.py"),
+            Path("backend/internal/pkg/pgpartition/rehome_default.go"),
         }
         for rel in fixture_files:
             src = ROOT / rel

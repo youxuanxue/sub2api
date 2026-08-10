@@ -11,7 +11,7 @@ prod:
     policy_target: prod.archive.enabled
     target_deploy_inject_default: true
     enable_after: docs/approved/design-qa-phase2-archive-closeout.md#production-rollout
-    repository_closeout_state: production_closeout_verified
+    repository_closeout_state: implementation_ready_pending_live_verification
     observed_live_state: pending_live_reconciliation
   tokenkey_qa_maintenance_timer:
     repository_closeout_state: implementation_ready_pending_live_verification
