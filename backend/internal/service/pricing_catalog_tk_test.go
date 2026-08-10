@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,6 +128,24 @@ func TestPublicCatalog_SurfacesMediaUnits(t *testing.T) {
 	require.True(t, ok, "pure media rows without mode keep the backwards-compatible media fallback")
 	assert.Equal(t, "image", legacy.Pricing.BillingMode)
 	assert.InDelta(t, 0.02, legacy.Pricing.OutputCostPerImage, 1e-9)
+}
+
+func TestPublicCatalog_SurfacesEmbeddingBillingMode(t *testing.T) {
+	const fixture = `{
+	  "bge-large-en": {
+	    "input_cost_per_token": 7.462686567164179e-08,
+	    "mode": "embedding",
+	    "litellm_provider": "wenxin"
+	  }
+	}`
+	resp := buildCatalogFromBytes([]byte(fixture), time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC))
+	require.NotNil(t, resp)
+	require.Len(t, resp.Data, 1)
+	row := resp.Data[0]
+	assert.Equal(t, "bge-large-en", row.ModelID)
+	assert.Equal(t, "wenxin", row.Vendor)
+	assert.Equal(t, "embedding", row.Pricing.BillingMode)
+	assert.Greater(t, row.Pricing.InputPer1KTokens, 0.0)
 }
 
 func TestPublicCatalog_ChatRowsWithImageCostsStayTokenCatalogRows(t *testing.T) {
@@ -663,6 +682,20 @@ func firstManifestDisplayIDForChannelTypeForTest(t *testing.T, channelType int) 
 	return ids[0]
 }
 
+func firstQianfanManifestDisplayIDForTest(t *testing.T) string {
+	t.Helper()
+	loadTkServedModelsManifest()
+	ids := make([]string, 0, 8)
+	for id := range tkServedModelsManifestDisplayIDs {
+		if strings.HasPrefix(id, "ernie-") || strings.HasPrefix(id, "bge-") || id == "qianfan-ocr" {
+			ids = append(ids, id)
+		}
+	}
+	require.NotEmpty(t, ids, "manifest must expose at least one qianfan display model")
+	sort.Strings(ids)
+	return ids[0]
+}
+
 // TestIsPublicCatalogModelSupported exercises each branch of the gate by
 // reference to its backing SSOT (the supported*CatalogModels maps in
 // pricing_catalog_supported_models_tk.go / the served-models manifest), not by
@@ -746,6 +779,12 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		displayed := firstManifestDisplayIDForChannelTypeForTest(t, newapiconstant.ChannelTypeDeepSeek)
 		assert.True(t, isPublicCatalogModelSupported("deepseek", displayed), "owner-derived deepseek model is manifest display=true")
 		assert.False(t, isPublicCatalogModelSupported("deepseek", "deepseek-totally-unlisted-zzz"))
+	})
+
+	t.Run("qianfan wenxin vendor requires manifest display=true", func(t *testing.T) {
+		displayed := firstQianfanManifestDisplayIDForTest(t)
+		assert.True(t, isPublicCatalogModelSupported("wenxin", displayed), "owner-derived qianfan model is manifest display=true")
+		assert.False(t, isPublicCatalogModelSupported("wenxin", "ernie-totally-unlisted-zzz"))
 	})
 
 	t.Run("unmapped vendor stays hidden until a universal platform mapping exists", func(t *testing.T) {

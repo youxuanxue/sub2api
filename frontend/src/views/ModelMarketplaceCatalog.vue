@@ -287,6 +287,7 @@ const activeVendor = ref<string | null>(null)
 const categoryFilters = computed(() => [
   { key: 'all', label: t('models.filterAll') },
   { key: 'text', label: t('models.filterText') },
+  { key: 'embedding', label: t('models.filterEmbedding') },
   { key: 'image', label: t('models.filterImage') },
   { key: 'video', label: t('models.filterVideo') },
 ])
@@ -407,6 +408,9 @@ const filteredByCategory = computed(() => {
   }
   if (activeCategory.value === 'video') {
     return models.value.filter((m) => modelListingCategory(m) === 'video')
+  }
+  if (activeCategory.value === 'embedding') {
+    return models.value.filter((m) => modelListingCategory(m) === 'embedding')
   }
   return models.value.filter((m) => modelListingCategory(m) === 'text')
 })

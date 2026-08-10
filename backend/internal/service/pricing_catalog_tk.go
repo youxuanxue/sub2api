@@ -92,8 +92,8 @@ type PublicCatalogPricing struct {
 	ThinkingOutputPer1KTokens float64 `json:"thinking_output_per_1k_tokens,omitempty"`
 	CacheReadPer1K            float64 `json:"cache_read_per_1k,omitempty"`
 	CacheWritePer1K           float64 `json:"cache_write_per_1k,omitempty"`
-	// TK media units. BillingMode is "token" (default, omitted), "image"
-	// (per-generated-image) or "video" (per-second). The per-image / per-second
+	// TK media/embedding units. BillingMode is "token" (default, omitted), "embedding"
+	// (vector / embeddings endpoint), "image" (per-generated-image) or "video" (per-second). The per-image / per-second
 	// field is meaningful only when BillingMode says it is a media catalog row:
 	// some chat rows carry image-related price fields for multimodal inputs.
 	BillingMode             string  `json:"billing_mode,omitempty"`
@@ -586,6 +586,9 @@ func catalogModelFromEntry(name string, e *catalogRichEntry) PublicCatalogModel 
 	// media modes, and keep a conservative fallback only for pure media rows
 	// whose mirrors forgot `mode`. Do not infer media from a per-image field on
 	// token-priced chat rows (Gemini chat rows can carry image-related costs).
+	if e.Mode == "embedding" {
+		pricing.BillingMode = "embedding"
+	}
 	switch catalogMediaBillingMode(e) {
 	case "video":
 		pricing.BillingMode = "video"

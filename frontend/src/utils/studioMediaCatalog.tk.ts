@@ -18,7 +18,7 @@ export function buildCatalogBillingIndex(
   const map = new Map<string, StudioModality>()
   for (const m of publicModels) {
     const mode = pricingCatalogModality(m.pricing?.billing_mode)
-    if (mode !== 'text') map.set(m.model_id, mode)
+    if (mode === 'image' || mode === 'video') map.set(m.model_id, mode)
   }
   return map
 }
@@ -73,7 +73,7 @@ function mediaPriceFromCatalogRow(
   videoTiersRaw?: readonly PublicPricingVideoTier[]
 ): MediaPrice | undefined {
   const billingMode = pricingCatalogModality(billingModeRaw)
-  if (billingMode === 'text') return undefined
+  if (billingMode === 'text' || billingMode === 'embedding') return undefined
   const hasImage = perImage != null && perImage > 0
   const hasVideo = perSecond != null && perSecond > 0
   if ((billingMode === 'image' && !hasImage) || (billingMode === 'video' && !hasVideo && !videoTiersRaw?.length)) return undefined
