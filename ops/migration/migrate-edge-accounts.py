@@ -691,7 +691,7 @@ def cmd_load(args: argparse.Namespace) -> None:
         commands = [
             "set -euo pipefail",
             "umask 077",
-            f"cleanup() {{ rm -f {remote} {remote}.gz /tmp/migrate-get.url; docker exec tokenkey-postgres rm -f {remote} >/dev/null 2>&1 || true; }}",
+            f"cleanup() {{ rm -f {remote} {remote}.gz /tmp/migrate-get.url; docker exec tokenkey-postgres rm -f {remote} >/dev/null 2>&1 || true; }}",  # preflight-allow: swallow -- EXIT trap must preserve the primary failure
             "trap cleanup EXIT",
             f"echo {get_b64} | base64 -d > /tmp/migrate-get.url",
             f"curl -fS --max-time 600 -o {remote}.gz \"$(cat /tmp/migrate-get.url)\"",

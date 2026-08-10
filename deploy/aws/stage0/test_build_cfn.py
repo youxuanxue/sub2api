@@ -67,7 +67,7 @@ class BuildCfnSizeTest(unittest.TestCase):
             if "latest/amazon-cloudwatch-agent.rpm" in line
         )
         self.assertNotIn(
-            "|| true",
+            "|| true",  # preflight-allow: swallow -- asserted text, not shell execution
             install_line,
             "bootstrap must fail before writing agent config when the required package cannot install",
         )
