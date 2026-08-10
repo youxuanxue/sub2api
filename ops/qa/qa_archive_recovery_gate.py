@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate independent recovery evidence and plan break-glass retirement without deleting it."""
+"""Validate independent recovery evidence and authorize break-glass retirement (script removed post-closeout)."""
 from __future__ import annotations
 
 import argparse

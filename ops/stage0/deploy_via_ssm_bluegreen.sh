@@ -158,8 +158,8 @@ ensure_prod_defaults() {
   env_default QA_CAPTURE_EXPORT_STORAGE_BUCKET "${QA_CAPTURE_EXPORT_STORAGE_BUCKET:-tokenkey-prod-qa-exports-682751977094}"
   env_default QA_CAPTURE_EXPORT_STORAGE_PREFIX "${QA_CAPTURE_EXPORT_STORAGE_PREFIX:-traj-exports}"
 
-  # Target: ops/qa/policy.yaml prod.archive.enabled. Rollout gate default false:
-  # ops/qa/deploy_rollout.yaml until Phase 2 closeout completes.
+  # Target: ops/qa/policy.yaml prod.archive.enabled. Rollout gate default true
+  # after Phase 2 recovery closeout: ops/qa/deploy_rollout.yaml (SSOT).
   env_default QA_ARCHIVE_ENABLED "${QA_ARCHIVE_ENABLED:-true}"
   env_default QA_ARCHIVE_STORAGE_DRIVER "${QA_ARCHIVE_STORAGE_DRIVER:-s3}"
   env_default QA_ARCHIVE_STORAGE_REGION "${QA_ARCHIVE_STORAGE_REGION:-us-east-1}"
