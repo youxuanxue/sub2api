@@ -835,6 +835,7 @@ jobs:
       - name: Open, update, or close issues
         env:
           GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: .
         run: |
           set -euo pipefail
           python3 ops/observability/open_prod_ops_issues.py \

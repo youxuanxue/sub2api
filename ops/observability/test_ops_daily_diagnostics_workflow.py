@@ -280,6 +280,13 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertIn("decision-and-issue:", text)
         self.assertNotIn("from ops.observability.daily_error_report import issue_analysis_markdown", text)
 
+    def test_decision_and_issue_sets_pythonpath(self) -> None:
+        text = workflow_text()
+        start = text.index("decision-and-issue:")
+        block = text[start : start + 3000]
+        self.assertIn("PYTHONPATH: .", block)
+        self.assertIn("open_prod_ops_issues.py", block)
+
     def test_missing_target_reports_skipped_when_diagnose_cancelled(self) -> None:
         text = workflow_text()
         self.assertIn("DISCOVER_TARGETS_RESULT", text)
