@@ -68,7 +68,7 @@ PostgreSQL 的 groups、accounts、account-group bindings 和 credential blobs �
 | EC2 OIDC 权限 | `deploy/aws/cloudformation/cicd-oidc-ec2-edge-addon.yaml` |
 | 实时基础设施预检 | `ops/migration/edge-platform-migration-preflight.sh` |
 | 账号迁移 | `ops/migration/migrate-edge-accounts.py` |
-| 单 Edge 切换验收 | `ops/migration/edge-platform-cutover-check.sh` <!-- script-ref: planned --> |
+| 单 Edge 切换验收 | `ops/migration/edge-platform-cutover-check.sh` |
 | Fleet 退役 | `ops/migration/retire-lightsail-fleet.sh` <!-- script-ref: planned --> |
 
 迁移工具可以接受显式 `@lightsail` 或 `@ec2` 目标；普通 deploy、diagnostics、health watch 和 rollout 只能跟随唯一 `deployable=true` 的 owner。两套 matrix 同时把同一 Edge 标为 deployable 时，preflight 必须失败。

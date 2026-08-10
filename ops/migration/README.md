@@ -1,3 +1,42 @@
+# Edge 平台迁移
+
+所有 Edge 固定按 `us5 -> us4 -> us6 -> us3` 迁移。基础设施预检和单 Edge
+切换门禁均只读；它们不修改 DNS、账号或 AWS 资源。
+
+创建 candidate 前运行 Fleet 实时预检：
+
+```bash
+bash ops/migration/edge-platform-migration-preflight.sh \
+  --output "${RUNNER_TEMP:-/tmp}/edge-migration-preflight.json"
+```
+
+单 Edge 门禁支持 `candidate`、`plan`、`post-dns` 和 `rollback-ready`。离线 fixture：
+
+```bash
+bash ops/migration/edge-platform-cutover-check.sh \
+  --phase post-dns \
+  --fixture /path/to/collected-observation.json \
+  --output "${RUNNER_TEMP:-/tmp}/edge-cutover.json"
+```
+
+live 模式显式读取两个平台的 SSM 身份，并要求 `--context` 提供本轮真实模型
+smoke、源端基线、告警恢复和飞书投递结果；这些不能由工具猜测：
+
+```bash
+bash ops/migration/edge-platform-cutover-check.sh \
+  --phase plan \
+  --edge-id us5 \
+  --source-ip 32.185.163.163 \
+  --target-ip <candidate-eip> \
+  --candidate-observation-started-at <iso-8601> \
+  --context /path/to/current-cutover-context.json \
+  --output "${RUNNER_TEMP:-/tmp}/us5-plan.json"
+```
+
+`context` 是脱敏 JSON 对象，只保留 `rollback_ipv4`、`baseline`、`alerts` 和
+`target.oauth_model_smoke_ok`。每个阶段都重新采集，不使用仓库快照；任一缺失信号
+或 blocker 使命令非零退出。
+
 # usage_logs 日分区切换
 
 该目录的 `usage_logs_daily_partition.py` 是唯一生产入口。它不会由应用启动或 migration

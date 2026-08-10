@@ -234,6 +234,8 @@ if command -v python3 >/dev/null 2>&1; then
     _bg_spawn script_ref_test bash ./scripts/checks/script-ref-existence_test.sh
     _bg_spawn edge_platform_migration_preflight_test \
         python3 -m unittest ops/migration/test_edge_platform_migration_preflight.py
+    _bg_spawn edge_platform_cutover_test \
+        python3 -m unittest ops/migration/test_edge_platform_cutover_check.py
     _bg_spawn newapi_sibling_test bash ./scripts/checks/ensure-new-api-sibling_test.sh
     _bg_spawn redactor_test bash ./scripts/agent/redact-stream_test.sh
     _bg_spawn smoke_unittest python3 -m unittest scripts.test_smoke_suite \
@@ -2374,6 +2376,36 @@ if ! command -v python3 >/dev/null 2>&1; then
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/lightsail-oidc-perm-coverage.py --quiet; then
     errors=$((errors + 1))
+fi
+
+# ---- sub2api: Edge platform migration gates ---------------------------------
+echo ""
+echo "=== sub2api: Edge platform migration gates ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for Edge migration gate tests)"
+    errors=$((errors + 1))
+else
+    _edge_migration_failed=0
+    for _edge_migration_key in \
+        edge_platform_migration_preflight_test \
+        edge_platform_cutover_test; do
+        _bg_rc=1
+        if _bg_spawned "$_edge_migration_key"; then
+            _bg_join "$_edge_migration_key"
+        fi
+        if [ "$_bg_rc" -ne 0 ]; then
+            if [ -f "$_preflight_bg_dir/$_edge_migration_key.out" ]; then
+                cat "$_preflight_bg_dir/$_edge_migration_key.out"
+            fi
+            echo "  FAIL: $_edge_migration_key"
+            errors=$((errors + 1))
+            _edge_migration_failed=1
+        fi
+    done
+    if [ "$_edge_migration_failed" -eq 0 ]; then
+        echo "  ok: infrastructure preflight and single-Edge cutover fixture suites pass"
+    fi
+    unset _edge_migration_key _edge_migration_failed
 fi
 
 # ---- sub2api: diagnostics OIDC perm coverage -------------------------------
