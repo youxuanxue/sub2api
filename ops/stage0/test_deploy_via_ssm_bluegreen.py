@@ -155,7 +155,7 @@ class BlueGreenRenderTest(unittest.TestCase):
         self.assertIn("/tmp/tokenkey-bluegreen-deploy.sh", joined)
         self.assertIn("TAG='1.8.99'", joined)
         self.assertIn("QA_CAPTURE_EXPORT_STORAGE_BUCKET='tokenkey-prod-qa-exports-682751977094'", joined)
-        self.assertIn("QA_ARCHIVE_ENABLED='false'", joined)
+        self.assertIn("QA_ARCHIVE_ENABLED='true'", joined)
         self.assertIn("QA_ARCHIVE_STORAGE_BUCKET='tokenkey-prod-qa-raw-archive-682751977094'", joined)
         self.assertIn("TELEMETRY_ARCHIVE_ENABLED=''", joined)
         self.assertIn("TELEMETRY_ARCHIVE_BUCKET='tokenkey-prod-archive-682751977094'", joined)
