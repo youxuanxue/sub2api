@@ -3,7 +3,9 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
@@ -18,6 +20,9 @@ type dashboardAggregationRepository struct {
 
 const usageLogsCleanupBatchSize = 10000
 const usageBillingDedupCleanupBatchSize = 10000
+// usageLogsStraddleReclaimMaxRowsPerRun caps expired-row DELETE from bound-straddling
+// partitions (notably usage_logs_legacy) in one retention pass.
+const usageLogsStraddleReclaimMaxRowsPerRun = 1_000_000
 const dashboardHistoricalBackfillMinRemaining = 5 * time.Minute
 
 // NewDashboardAggregationRepository 创建仪表盘预聚合仓储。
@@ -276,8 +281,7 @@ func (r *dashboardAggregationRepository) CleanupUsageLogs(ctx context.Context, c
 		return err
 	}
 	if isPartitioned {
-		_, err := pgpartition.DropExpired(ctx, r.sql, "usage_logs", cutoff.UTC())
-		return err
+		return r.cleanupPartitionedUsageLogs(ctx, cutoff.UTC())
 	}
 	for {
 		res, err := r.sql.ExecContext(ctx, `
@@ -301,6 +305,91 @@ func (r *dashboardAggregationRepository) CleanupUsageLogs(ctx context.Context, c
 			return nil
 		}
 	}
+}
+
+func (r *dashboardAggregationRepository) cleanupPartitionedUsageLogs(ctx context.Context, cutoff time.Time) error {
+	db, ok := r.sql.(pgpartition.DB)
+	if !ok {
+		_, err := pgpartition.DropExpired(ctx, r.sql, "usage_logs", cutoff)
+		return err
+	}
+	if _, err := pgpartition.DropExpired(ctx, db, "usage_logs", cutoff); err != nil {
+		return err
+	}
+	straddling, err := pgpartition.ListStraddling(ctx, db, "usage_logs", "created_at", cutoff)
+	if err != nil {
+		return err
+	}
+	remaining := usageLogsStraddleReclaimMaxRowsPerRun
+	for _, child := range straddling {
+		if remaining <= 0 {
+			break
+		}
+		n, delErr := deleteOldUsageLogRowsByID(ctx, db, child, cutoff, usageLogsCleanupBatchSize, remaining)
+		if delErr != nil {
+			return delErr
+		}
+		remaining -= int(n)
+	}
+	return nil
+}
+
+func deleteOldUsageLogRowsByID(
+	ctx context.Context,
+	db pgpartition.DropExecutor,
+	table string,
+	cutoff time.Time,
+	batchSize int,
+	maxRows int,
+) (int64, error) {
+	if db == nil {
+		return 0, nil
+	}
+	if batchSize <= 0 {
+		batchSize = usageLogsCleanupBatchSize
+	}
+	qTable := pq.QuoteIdentifier(table)
+	q := fmt.Sprintf(`
+WITH batch AS (
+  SELECT id FROM %s
+  WHERE created_at < $1
+  ORDER BY id
+  LIMIT $2
+)
+DELETE FROM %s
+WHERE id IN (SELECT id FROM batch)
+`, qTable, qTable)
+
+	var total int64
+	for {
+		res, err := db.ExecContext(ctx, q, cutoff, batchSize)
+		if err != nil {
+			if isMissingUsageLogsRelationError(err) {
+				return total, nil
+			}
+			return total, err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return total, err
+		}
+		total += affected
+		if affected == 0 {
+			break
+		}
+		if maxRows > 0 && total >= int64(maxRows) {
+			break
+		}
+	}
+	return total, nil
+}
+
+func isMissingUsageLogsRelationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "does not exist") && strings.Contains(s, "relation")
 }
 
 func (r *dashboardAggregationRepository) CleanupUsageBillingDedup(ctx context.Context, cutoff time.Time) error {
