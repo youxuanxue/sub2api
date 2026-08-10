@@ -128,7 +128,7 @@ REQUIRED_BY_FILE = {
         "schema_version: 1",
         "deploy_inject_default: false",
         "target_deploy_inject_default: true",
-        "closeout_state: repository_ready_production_pending",
+        "closeout_state: production_closeout_verified",
         "min_consecutive_scheduled_runs: 2",
         "host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh",
         "health_evaluator: ops/qa/qa_phase2_health.py",
@@ -419,13 +419,15 @@ def _rollout_failures(root: Path) -> list[str]:
             failures.append("rollout prod.QA_ARCHIVE_ENABLED.policy_target drift")
         if prod_archive.get("target_deploy_inject_default") is not True:
             failures.append("rollout prod.QA_ARCHIVE_ENABLED target must become true after closeout")
-        if prod_archive.get("closeout_state") != "repository_ready_production_pending":
+        if prod_archive.get("closeout_state") != "production_closeout_verified":
             failures.append("rollout prod.QA_ARCHIVE_ENABLED closeout state drift")
     if not isinstance(prod_timer, dict):
         failures.append("rollout prod.tokenkey_qa_maintenance_timer must be a mapping")
     else:
-        if prod_timer.get("closeout_deploy_state") != "disabled":
-            failures.append("rollout maintenance timer must stay disabled during closeout deploy")
+        if prod_timer.get("closeout_deploy_state") != "enabled":
+            failures.append("rollout maintenance timer closeout deploy state drift")
+        if prod_timer.get("observed_live_state") != "production_recloseout_verified":
+            failures.append("rollout maintenance timer observed live state drift")
         if prod_timer.get("policy_target_state") != "enabled":
             failures.append("rollout maintenance timer target drift")
         if prod_timer.get("min_consecutive_scheduled_runs") != 2:
@@ -441,7 +443,7 @@ def _rollout_failures(root: Path) -> list[str]:
             failures.append("rollout stale cleanup target drift")
         if prod_cleanup.get("archive_independent") is not True:
             failures.append("rollout stale cleanup must remain archive-independent")
-        if prod_cleanup.get("activation_state") != "pending_production_exact_plan":
+        if prod_cleanup.get("activation_state") != "production_export_orphan_activated":
             failures.append("rollout export orphan activation evidence drift")
     if not isinstance(edge_capture, dict):
         failures.append("rollout edge.QA_CAPTURE_ENABLED must be a mapping")
@@ -450,7 +452,7 @@ def _rollout_failures(root: Path) -> list[str]:
     recovery = prod.get("raw_archive_recovery")
     if not isinstance(recovery, dict) or recovery != {
         "repository_state": "ready",
-        "production_iam_state": "pending_apply",
+        "production_iam_state": "applied",
         "independent_evidence_state": "pending",
         "recovery_cli": "backend/cmd/qa-archive",
         "retirement_gate": "ops/qa/qa_archive_recovery_gate.py",
