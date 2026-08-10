@@ -622,6 +622,21 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
                 " compensation_window=2026-08-07T22:00:00Z"
             )
 
+        for name, mutation, policy, want_healthy, want_status in (
+            ("terminal failure strict", mutate_terminal_failure, "strict", False, "failed"),
+            ("terminal failure accepted", mutate_terminal_failure, "accepted_terminal", False, "degraded"),
+        ):
+            with self.subTest(name=name):
+                snapshot = copy.deepcopy(baseline)
+                mutation(snapshot)
+                verdict = health.evaluate(snapshot, now=now, catchup_gap_policy=policy)
+                self.assertIs(verdict["healthy"], want_healthy, verdict)
+                self.assertEqual(verdict["status"], want_status, verdict)
+                if policy == "accepted_terminal":
+                    self.assertIn("catchup_terminal_gaps_present", verdict["catchup_reasons"], verdict)
+                else:
+                    self.assertIn("terminal_failures_after_cutover", verdict["catchup_reasons"], verdict)
+
         for name, mutation in (
             ("missing receipt", mutate_missing_receipt),
             ("stale receipt", mutate_stale_receipt),
@@ -634,7 +649,6 @@ class QAPhase2OperatorAndHealthTest(unittest.TestCase):
             ("window mismatch", mutate_window_mismatch),
             ("etag mismatch", mutate_etag_mismatch),
             ("newer host failure", mutate_newer_host_failure),
-            ("terminal failure", mutate_terminal_failure),
             ("phantom control compensation", mutate_phantom_control_compensation),
             ("phantom heartbeat compensation", mutate_phantom_heartbeat_compensation),
         ):

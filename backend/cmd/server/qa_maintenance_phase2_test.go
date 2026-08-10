@@ -159,21 +159,23 @@ func TestUS045_NormalFirstBoundedCompensationReportsSelectionAndTerminalFailures
 	for _, test := range []struct {
 		name            string
 		selectCandidate func(context.Context, archive.Window, time.Time) (archive.CatchupSelection, bool, error)
-		want            string
+		wantErr         bool
+		wantContains    string
 	}{
 		{
 			name: "selection failure",
 			selectCandidate: func(context.Context, archive.Window, time.Time) (archive.CatchupSelection, bool, error) {
 				return archive.CatchupSelection{}, false, errors.New("cutover unavailable")
 			},
-			want: "select compensation",
+			wantErr:      true,
+			wantContains: "select compensation",
 		},
 		{
 			name: "terminal classification",
 			selectCandidate: func(context.Context, archive.Window, time.Time) (archive.CatchupSelection, bool, error) {
 				return archive.CatchupSelection{Window: us045Window(1), ShardID: 46, Disposition: archive.CatchupDispositionSourceUnavailableAfterRetention}, true, nil
 			},
-			want: archive.IntegritySourceUnavailableAfterRetention,
+			wantErr: false,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -185,11 +187,20 @@ func TestUS045_NormalFirstBoundedCompensationReportsSelectionAndTerminalFailures
 				},
 				selectOldest: test.selectCandidate,
 			})
-			if err == nil || !strings.Contains(err.Error(), test.want) {
+			if test.wantErr {
+				if err == nil || !strings.Contains(err.Error(), test.wantContains) {
+					t.Fatalf("err=%v", err)
+				}
+			} else if err != nil {
 				t.Fatalf("err=%v", err)
 			}
 			if reconcileCalls != 1 || result.Normal.CommitETag != "normal-etag" {
 				t.Fatalf("calls=%d result=%+v", reconcileCalls, result)
+			}
+			if !test.wantErr &&
+				(result.CompensationSelection == nil ||
+					result.CompensationSelection.Disposition != archive.CatchupDispositionSourceUnavailableAfterRetention) {
+				t.Fatalf("result=%+v", result)
 			}
 		})
 	}

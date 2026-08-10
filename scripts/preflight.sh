@@ -1239,11 +1239,15 @@ if ! command -v python3 >/dev/null 2>&1; then
     errors=$((errors + 1))
 elif ! python3 -m py_compile \
     ./ops/qa/qa_archive_recovery_gate.py \
+    ./ops/qa/prod_phase2_live_health.py \
+    ./ops/qa/verify_raw_archive_iam_contract.py \
+    ./ops/qa/qa_phase2_health.py \
     ./deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py; then
     errors=$((errors + 1))
 elif ! python3 -m unittest \
     deploy.aws.cloudformation.test_stage0_qa_raw_archive_contract \
-    ops.qa.test_qa_archive_recovery_gate; then
+    ops.qa.test_qa_archive_recovery_gate \
+    ops.qa.test_prod_phase2_live_health; then
     errors=$((errors + 1))
 else
     echo "  ok: exact QA IAM sets and approval-bound workstation recovery gate pass"
