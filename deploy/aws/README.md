@@ -861,9 +861,9 @@ aws cloudformation delete-stack --region us-east-1 --stack-name <旧栈名>
 ### Prod QA break-glass 读取
 
 QA 数据生命周期、归档、导出和清理只以
-`docs/approved/design-prod-qa-24h-s3-lifecycle.md` 为准。过渡期只读工具
-`ops/prod/fetch-qa-dump.sh` 仅用于 raw S3 恢复路径上线前的人工 break-glass；它不能作为删除证据，
-不得定时运行，并在 Phase 2 恢复验证通过后删除。仓库不提供全量 `TRUNCATE`/purge 工具。
+`docs/approved/design-prod-qa-24h-s3-lifecycle.md` 为准。过渡期 break-glass prod QA
+dump 工具已在 Phase 2 workstation S3 recovery 验证通过后退役；canonical recovery 走
+`backend/cmd/qa-archive --workstation`。仓库不提供全量 `TRUNCATE`/purge 工具。
 
 ## CI 通过 OIDC 调度 SSM（Error Clustering Daily 等）
 

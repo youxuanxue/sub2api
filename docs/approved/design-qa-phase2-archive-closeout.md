@@ -298,9 +298,9 @@ approval record hash-bound to the evidence bytes and issued after the final rece
 production receipts expire from this gate after 24 hours; changing a scope label or copying
 one command receipt cannot claim production success.
 
-After an independent workstation verify/restore succeeds, remove
-`ops/prod/fetch-qa-dump.sh`. Until then it remains manual read-only break-glass and is not
-a timer, lifecycle owner, or deletion prerequisite.
+After an independent workstation verify/restore succeeds, retire the transitional
+prod QA break-glass dump tooling. Before that gate it remained manual read-only break-glass and was not
+a timer, lifecycle owner, or deletion prerequisite. **Shipped 2026-08-10:** break-glass retired.
 
 ## Known Production Repair
 
@@ -496,7 +496,7 @@ failed. This is one failed normal scheduled window, not evidence of long-term in
    bounded compensation select, commit, verify, and restore 22:00. If its source expired,
    persist `source_unavailable_after_retention`, stop, and request a separate gap decision.
 7. From an ops workstation, assume the recovery role and verify/restore S3 directly; after
-   success remove `ops/prod/fetch-qa-dump.sh`.
+   success retire the transitional prod QA break-glass dump tooling.
 8. Enable the maintenance timer and observe at least two consecutive regular scheduled
    runs while correlating systemd, host receipt, DB heartbeat/control, DB latency, WAL,
    scratch, RSS, CPU, and S3 objects.
@@ -539,5 +539,5 @@ Phase 2 archive closeout is complete only when:
   explicitly retained rather than reported as process isolation;
 - stale cleanup remains active, owns `qa_exports_tmp`, and the first 1GB orphan is removed
   only by exact confirmed plan; `qa_export_jobs` history is untouched;
-- workstation S3 restore succeeds and `ops/prod/fetch-qa-dump.sh` is removed;
+- workstation S3 restore succeeds and transitional break-glass dump tooling is retired;
 - emergency QA cleanup and generic ops cleanup remain disabled.

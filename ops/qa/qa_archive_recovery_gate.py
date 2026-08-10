@@ -93,7 +93,7 @@ def evaluate(
         "planned_transition_authorized": False,
         "production_success_claimed": False,
         "script_action": "preserve",
-        "break_glass_path": "ops/prod/fetch-qa-dump.sh",
+        "break_glass_state": "retired",
     }
     try:
         evidence_bytes = evidence_path.read_bytes()

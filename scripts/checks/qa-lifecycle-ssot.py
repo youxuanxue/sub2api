@@ -25,7 +25,6 @@ RAW_ARCHIVE_CFN = Path("deploy/aws/cloudformation/stage0-qa-raw-archive.yaml")
 RAW_ARCHIVE_DEPLOY = Path("ops/qa/deploy_qa_raw_archive_cfn.sh")
 ARCHIVE_CLI = Path("backend/cmd/qa-archive/main.go")
 RECOVERY_GATE = Path("ops/qa/qa_archive_recovery_gate.py")
-BREAK_GLASS = Path("ops/prod/fetch-qa-dump.sh")
 PREFLIGHT = Path("scripts/preflight.sh")
 ARCHIVE_STATE = Path("backend/internal/observability/qa/archive/state.go")
 ROLLOUT = Path("ops/qa/deploy_rollout.yaml")
@@ -38,6 +37,7 @@ MUST_BE_ABSENT = (
     Path("docs/qa-export-s3-and-auto-archive.md"),
     Path("docs/operator/qa-export-partner.md"),
     Path("ops/prod/qa-export-and-purge.sh"),  # script-ref-allow-missing
+    Path("ops/prod/fetch-qa-dump.sh"),  # script-ref-allow-missing
     Path("ops/qa/prod_qa_archive_backfill.py"),  # script-ref-allow-missing
     Path(".testing/user-stories/stories/US-033-qa-self-export-and-synth-fields.md"),
     Path("backend/internal/observability/qa/service_traj_export_auto.go"),
@@ -126,7 +126,7 @@ REQUIRED_BY_FILE = {
     ),
     ROLLOUT: (
         "schema_version: 1",
-        "deploy_inject_default: false",
+        "deploy_inject_default: true",
         "target_deploy_inject_default: true",
         "closeout_state: production_closeout_verified",
         "min_consecutive_scheduled_runs: 2",
@@ -184,10 +184,7 @@ REQUIRED_BY_FILE = {
         "planned_transition_authorized",
         "planned_removal_only",
         "production_evidence_validated",
-        "ops/prod/fetch-qa-dump.sh",
-    ),
-    BREAK_GLASS: (
-        "Export all prod qa_records",
+        "break_glass_state",
     ),
     PREFLIGHT: (
         "QA Phase 2 recovery and IAM contracts",
@@ -413,8 +410,8 @@ def _rollout_failures(root: Path) -> list[str]:
     if not isinstance(prod_archive, dict):
         failures.append("rollout prod.QA_ARCHIVE_ENABLED must be a mapping")
     else:
-        if prod_archive.get("deploy_inject_default") is not False:
-            failures.append("rollout prod.QA_ARCHIVE_ENABLED.deploy_inject_default must be false")
+        if prod_archive.get("deploy_inject_default") is not True:
+            failures.append("rollout prod.QA_ARCHIVE_ENABLED.deploy_inject_default must be true")
         if prod_archive.get("policy_target") != "prod.archive.enabled":
             failures.append("rollout prod.QA_ARCHIVE_ENABLED.policy_target drift")
         if prod_archive.get("target_deploy_inject_default") is not True:
@@ -453,10 +450,10 @@ def _rollout_failures(root: Path) -> list[str]:
     if not isinstance(recovery, dict) or recovery != {
         "repository_state": "ready",
         "production_iam_state": "applied",
-        "independent_evidence_state": "pending",
+        "independent_evidence_state": "production_workstation_recovery_verified",
         "recovery_cli": "backend/cmd/qa-archive",
         "retirement_gate": "ops/qa/qa_archive_recovery_gate.py",
-        "break_glass_path": "ops/prod/fetch-qa-dump.sh",
+        "break_glass_state": "retired",
         "shared_role_boundary": "shared_ec2_instance_role_no_process_isolation",
     }:
         failures.append("rollout raw archive recovery contract drift")
@@ -471,9 +468,9 @@ def _deploy_rollout_failures(root: Path) -> list[str]:
             failures.append(f"deploy script missing: {rel}")
             continue
         body = path.read_text(encoding="utf-8")
-        if "${QA_ARCHIVE_ENABLED:-false}" not in body:
+        if "${QA_ARCHIVE_ENABLED:-true}" not in body:
             failures.append(
-                f"{rel} must default QA_ARCHIVE_ENABLED to false (ops/qa/deploy_rollout.yaml)"
+                f"{rel} must default QA_ARCHIVE_ENABLED to true (ops/qa/deploy_rollout.yaml)"
             )
         if "ops/qa/deploy_rollout.yaml" not in body:
             failures.append(f"{rel} must reference ops/qa/deploy_rollout.yaml rollout SSOT")

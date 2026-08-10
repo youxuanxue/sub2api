@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import importlib.util
 import hashlib
 import json
 import pathlib
@@ -13,7 +12,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 GATE = ROOT / "ops/qa/qa_archive_recovery_gate.py"
-BREAK_GLASS = ROOT / "ops/prod/fetch-qa-dump.sh"
+RETIRED_BREAK_GLASS = ROOT / "ops" / "prod" / "fetch-qa-dump.sh"
 
 
 class QAArchiveRecoveryGateTest(unittest.TestCase):
@@ -31,17 +30,18 @@ class QAArchiveRecoveryGateTest(unittest.TestCase):
         payload = json.loads(proc.stdout) if proc.stdout else {}
         return proc, payload
 
-    def test_us045_missing_recovery_evidence_preserves_break_glass_path(self) -> None:
-        before = BREAK_GLASS.read_bytes()
+    def test_us045_break_glass_script_is_retired(self) -> None:
+        self.assertFalse(RETIRED_BREAK_GLASS.exists())
+
+    def test_us045_missing_recovery_evidence_preserves_break_glass_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             proc, payload = self.run_gate(pathlib.Path(temp_dir) / "missing.json")
         self.assertNotEqual(proc.returncode, 0)
         self.assertFalse(payload["planned_transition_authorized"])
         self.assertEqual(payload["script_action"], "preserve")
-        self.assertEqual(BREAK_GLASS.read_bytes(), before)
+        self.assertEqual(payload["break_glass_state"], "retired")
 
-    def test_us045_mismatched_recovery_evidence_preserves_break_glass_path(self) -> None:
-        before = BREAK_GLASS.read_bytes()
+    def test_us045_mismatched_recovery_evidence_preserves_break_glass_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             evidence = pathlib.Path(temp_dir) / "evidence.json"
             evidence.write_text(json.dumps(self.valid_evidence(restore_role="arn:aws:iam::123456789012:role/other")), encoding="utf-8")
@@ -49,10 +49,9 @@ class QAArchiveRecoveryGateTest(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertFalse(payload["planned_transition_authorized"])
         self.assertEqual(payload["script_action"], "preserve")
-        self.assertEqual(BREAK_GLASS.read_bytes(), before)
+        self.assertEqual(payload["break_glass_state"], "retired")
 
     def test_us045_verified_synthetic_evidence_authorizes_only_planned_transition(self) -> None:
-        before = BREAK_GLASS.read_bytes()
         with tempfile.TemporaryDirectory() as temp_dir:
             evidence = pathlib.Path(temp_dir) / "evidence.json"
             evidence.write_text(json.dumps(self.valid_evidence()), encoding="utf-8")
@@ -61,10 +60,9 @@ class QAArchiveRecoveryGateTest(unittest.TestCase):
         self.assertTrue(payload["planned_transition_authorized"])
         self.assertFalse(payload["production_success_claimed"])
         self.assertEqual(payload["script_action"], "planned_removal_only")
-        self.assertEqual(BREAK_GLASS.read_bytes(), before)
+        self.assertEqual(payload["break_glass_state"], "retired")
 
     def test_us045_relabeled_synthetic_evidence_cannot_claim_production_success(self) -> None:
-        before = BREAK_GLASS.read_bytes()
         with tempfile.TemporaryDirectory() as temp_dir:
             evidence = pathlib.Path(temp_dir) / "evidence.json"
             payload = self.valid_evidence()
@@ -75,7 +73,6 @@ class QAArchiveRecoveryGateTest(unittest.TestCase):
         self.assertFalse(result["production_success_claimed"])
         self.assertFalse(result["planned_transition_authorized"])
         self.assertEqual(result["script_action"], "preserve")
-        self.assertEqual(BREAK_GLASS.read_bytes(), before)
 
     def test_us045_copied_command_receipts_cannot_be_production_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

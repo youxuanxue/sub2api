@@ -79,8 +79,9 @@
 - `deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py`::`Stage0QARawArchiveContractTest.test_us045_recovery_role_is_nonempty_read_only_and_audited`
 - `deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py`::`Stage0QARawArchiveContractTest.test_us045_structured_contract_rejects_broadened_actions_resources_and_removed_conditions`
 - `deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py`::`Stage0QARawArchiveContractTest.test_us045_deploy_renders_exact_security_binding_and_shared_role_boundary`
-- `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_missing_recovery_evidence_preserves_break_glass_path`
-- `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_mismatched_recovery_evidence_preserves_break_glass_path`
+- `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_break_glass_script_is_retired`
+- `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_missing_recovery_evidence_preserves_break_glass_state`
+- `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_mismatched_recovery_evidence_preserves_break_glass_state`
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_verified_synthetic_evidence_authorizes_only_planned_transition`
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_relabeled_synthetic_evidence_cannot_claim_production_success`
 - `ops/qa/test_qa_archive_recovery_gate.py`::`QAArchiveRecoveryGateTest.test_us045_copied_command_receipts_cannot_be_production_evidence`
@@ -108,9 +109,10 @@ python3 .testing/user-stories/verify_quality.py
 - Task 3 已实跑 maintenance normal-first/单一补偿/失败 heartbeat、archive-disabled no-write 状态、CLI 与 Python operator 的 `repair-apply` 退役测试；archive PostgreSQL integration 只使用本地 Colima testcontainer。
 - Task 4 已实跑唯一 host runner、真实 mount selftest、原子 receipt、全部 pre-app/child failure、timer/operator 收敛、Go run correlation、同步脚本与四源 health contradiction 测试；所有 Docker/AWS/systemd 边界均为本地 fake 或临时目录。
 - Task 5 已实跑 effective export mount 解析、24 小时边界、regular-file/symlink/open-handle 选择、canonical plan hash、drift revalidation、首次 activation 与后续 scheduled cleanup 测试；helper 经实际 runner、CFN/SSM payload 与 timer-sync payload 分发验证。全部文件删除只发生在本地临时目录，`qa_export_jobs` 仅输出诊断。
-- Task 6 已实跑结构化 IAM、部署渲染、workstation direct-S3 CLI 边界与 recovery retirement gate 测试；全部 AWS/DB/S3 边界使用本地 fake、memory store 或临时目录。仓库 gate 只规划 transition，不删除 tracked break-glass script，也不声称 production recovery 已成功。
-- 本 Story 不构成生产操作授权；生产 restore evidence、schema/IAM apply、timer change、orphan deletion 与 break-glass retirement 仍待独立门禁。
+- Task 6 已实跑结构化 IAM、部署渲染、workstation direct-S3 CLI 边界与 recovery retirement gate 测试；全部 AWS/DB/S3 边界使用本地 fake、memory store 或临时目录。
+- 2026-08-10 production workstation recovery：`2026-08-07T21:00:00Z` cutover window 经 recovery role 完成 inspect/verify/restore；gate `plan-retirement` 在 `approved_by=feng` approval 下通过；证据见 `.testing/user-stories/attachments/us045-workstation-recovery-20260810/`。
+- break-glass prod QA dump 工具已退役；prod deploy 默认注入 `QA_ARCHIVE_ENABLED=true`。
 
 ## Status
 
-- [ ] InTest — Task 1–6 repository contract 与测试已闭环；production schema/IAM apply、timer change、独立 workstation recovery evidence、orphan deletion 与 break-glass retirement 仍未执行且继续受审批门禁约束。
+- [x] Done — Phase 2 production integrity closeout 已完成：prod re-closeout、age retention、export orphan、workstation recovery evidence、break-glass 退役、deploy inject flip 均已在 prod/仓库 SSOT 对齐。

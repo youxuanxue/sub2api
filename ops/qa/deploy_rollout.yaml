@@ -6,7 +6,7 @@ schema_version: 1
 
 prod:
   QA_ARCHIVE_ENABLED:
-    deploy_inject_default: false
+    deploy_inject_default: true
     policy_target: prod.archive.enabled
     target_deploy_inject_default: true
     enable_after: docs/approved/design-qa-phase2-archive-closeout.md#production-rollout
@@ -36,10 +36,10 @@ prod:
   raw_archive_recovery:
     repository_state: ready
     production_iam_state: applied
-    independent_evidence_state: pending
+    independent_evidence_state: production_workstation_recovery_verified
     recovery_cli: backend/cmd/qa-archive
     retirement_gate: ops/qa/qa_archive_recovery_gate.py
-    break_glass_path: ops/prod/fetch-qa-dump.sh
+    break_glass_state: retired
     shared_role_boundary: shared_ec2_instance_role_no_process_isolation
 
 edge:

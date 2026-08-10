@@ -176,7 +176,7 @@ qa_archive_cmds='[]'
 if [[ "${INSTANCE_ID}" == i-* ]]; then
   qa_archive_cmds="$(jq -n \
     --arg tag "${TAG}" \
-    --arg enabled "${QA_ARCHIVE_ENABLED:-false}" \
+    --arg enabled "${QA_ARCHIVE_ENABLED:-true}" \
     --arg driver "${QA_ARCHIVE_STORAGE_DRIVER:-s3}" \
     --arg region "${QA_ARCHIVE_STORAGE_REGION:-us-east-1}" \
     --arg bucket "${QA_ARCHIVE_STORAGE_BUCKET:-tokenkey-prod-qa-raw-archive-682751977094}" \
