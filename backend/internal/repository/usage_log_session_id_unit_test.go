@@ -71,6 +71,12 @@ func TestPrepareUsageLogInsert_SessionIDNullWhenAbsent(t *testing.T) {
 func TestUsageLogInsertQueries_IncludeSessionID(t *testing.T) {
 	require.Contains(t, usageLogSelectColumns, "session_id",
 		"SELECT column list must include session_id")
+	require.Contains(t, usageLogSelectColumns, "upstream_response_model",
+		"SELECT column list must include upstream_response_model")
+	require.Contains(t, usageLogSelectColumns, "upstream_model_mismatch",
+		"SELECT column list must include upstream_model_mismatch")
+	require.Equal(t, len(usageLogInsertArgTypes)+1, strings.Count(usageLogSelectColumns, ",")+1,
+		"SELECT column count must match insert arg count plus id")
 
 	sessionID := "sess-in-query"
 	log := newSessionIDUsageLog(&sessionID)
