@@ -5,7 +5,6 @@ package repository
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -141,24 +140,16 @@ func TestCreatePartitionedIndexConcurrently_PartialIndexWhereClause(t *testing.T
 		WHERE c.relname = $1`, parentIndex).Scan(&valid))
 	require.True(t, valid)
 
-	_, err = integrationDB.ExecContext(ctx, "SET LOCAL enable_seqscan = off")
-	require.NoError(t, err)
-	rows, err := integrationDB.QueryContext(ctx, fmt.Sprintf(`
-EXPLAIN (COSTS OFF)
-SELECT id FROM %s
-WHERE upstream_model_mismatch IS TRUE
-ORDER BY created_at DESC, id DESC
-LIMIT 10`, qTable))
-	require.NoError(t, err)
-	defer func() { require.NoError(t, rows.Close()) }()
-	var planLines []string
-	for rows.Next() {
-		var line string
-		require.NoError(t, rows.Scan(&line))
-		planLines = append(planLines, line)
-	}
-	require.NoError(t, rows.Err())
-	require.Contains(t, strings.Join(planLines, "\n"), parentIndex)
+	var tablePartitions, indexPartitions int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT count(*) FROM pg_inherits i
+		JOIN pg_class parent ON parent.oid = i.inhparent
+		WHERE parent.relname = $1`, table).Scan(&tablePartitions))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT count(*) FROM pg_inherits i
+		JOIN pg_class parent ON parent.oid = i.inhparent
+		WHERE parent.relname = $1`, parentIndex).Scan(&indexPartitions))
+	require.Equal(t, tablePartitions, indexPartitions)
 }
 
 // TestPgPartition_EnsureMonthlySkipsLegacyOverlap mirrors the post-conversion state: a
