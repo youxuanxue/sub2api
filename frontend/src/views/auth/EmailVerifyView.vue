@@ -587,12 +587,7 @@ async function sendCode(): Promise<void> {
 
     showResendTurnstile.value = false
   } catch (error: unknown) {
-    errorMessage.value = buildAuthErrorMessage(error, {
-      fallback: t('auth.sendCodeFailed'),
-      reasonOverrides: {
-        TURNSTILE_VERIFICATION_FAILED: t('auth.turnstileFailedRefresh')
-      }
-    })
+    errorMessage.value = buildRegistrationErrorMessage(error, t('auth.sendCodeFailed'))
 
     appStore.showError(errorMessage.value)
   } finally {
@@ -755,12 +750,7 @@ async function handleVerify(): Promise<void> {
     // Redirect: pending target → quickstart for new users → dashboard
     await router.push(pendingRedirect.value || '/quickstart')
   } catch (error: unknown) {
-    errorMessage.value = buildAuthErrorMessage(error, {
-      fallback: t('auth.verifyFailed'),
-      reasonOverrides: {
-        TURNSTILE_VERIFICATION_FAILED: t('auth.turnstileFailedRefresh')
-      }
-    })
+    errorMessage.value = buildRegistrationErrorMessage(error, t('auth.verifyFailed'))
 
     appStore.showError(errorMessage.value)
   } finally {
@@ -801,7 +791,12 @@ function buildRegistrationErrorMessage(error: unknown, fallback: string): string
   if (extractApiErrorCode(error) === 'EMAIL_DOMAIN_REGISTRATION_LIMIT') {
     return t('auth.emailDomainRegistrationLimit')
   }
-  return buildAuthErrorMessage(error, { fallback })
+  return buildAuthErrorMessage(error, {
+    fallback,
+    reasonOverrides: {
+      TURNSTILE_VERIFICATION_FAILED: t('auth.turnstileFailedRefresh')
+    }
+  })
 }
 </script>
 

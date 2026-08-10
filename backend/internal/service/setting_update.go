@@ -794,6 +794,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	if s.onUpdate != nil {
 		s.onUpdate() // Invalidate cache after settings update
 	}
+	s.notifyChannelMonitorRuntimeListeners()
 	s.notifySettingsPubSub()
 }
 

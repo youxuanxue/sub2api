@@ -728,6 +728,26 @@ const sortTestModels = (models: AccountModelOption[]) => {
   })
 }
 
+const pickDefaultModelForMode = () => {
+  const options = modelOptionsForMode.value
+  selectedModelId.value = options[0]?.id ?? ''
+}
+
+const applyDefaultPromptForMode = () => {
+  testPrompt.value = ''
+  if (!isGrokAccount.value) return
+  if (grokTestMode.value === 'image' || grokTestMode.value === 'video') {
+    testPrompt.value = t('admin.accounts.imagePromptDefault')
+  }
+}
+
+watch(grokTestMode, () => {
+  if (!isGrokAccount.value) return
+  pickDefaultModelForMode()
+  applyDefaultPromptForMode()
+  clearMediaUploads()
+})
+
 // Load available models when the modal becomes shown (a reopen toggles show).
 watch(
   () => props.show,

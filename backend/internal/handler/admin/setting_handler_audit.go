@@ -601,6 +601,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if !equalPlatformQuotaSettings(before.DefaultPlatformQuotas, after.DefaultPlatformQuotas) {
 		changed = append(changed, service.SettingKeyDefaultPlatformQuotas)
 	}
+	if !equalAccountSchedulingThresholds(before.AccountSchedulingThresholds, after.AccountSchedulingThresholds) {
+		changed = append(changed, service.SettingKeyAccountSchedulingThresholds)
+	}
 	changed = append(changed, tkDiffColdStartSettings(before, after)...)
 	changed = appendAuthSourceDefaultChanges(changed, beforeAuthSourceDefaults, afterAuthSourceDefaults)
 	return changed

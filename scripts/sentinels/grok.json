@@ -211,7 +211,7 @@
       "path": "backend/internal/service/account_test_service.go",
       "must_contain": [
         "if account.IsGrok() {",
-        "return s.testGrokAccountConnection(c, account, modelID, prompt)"
+        "return s.testGrokAccountConnection(c, account, modelID, prompt, normalizeGrokAccountTestMode(mode), testOpts)"
       ],
       "rationale": "The admin account-test dispatcher must route grok accounts to the grok-specific probe before the generic Claude /v1/messages fallback. Losing this branch makes grok relay stubs test through messages dispatch instead of the dedicated /v1/responses probe."
     },
@@ -220,8 +220,8 @@
       "must_contain": [
         "func (s *AccountTestService) testGrokAccountConnection",
         "testGrokResponsesConnection",
-        "buildOpenAIResponsesURL",
-        "defaultGrokTestModelID"
+        "normalizeGrokAccountTestMode(mode)",
+        "grokDefaultResponsesModel"
       ],
       "rationale": "Grok-specific admin test companion: API-key relay stubs use GetOpenAIApiKey/GetOpenAIBaseURL against the edge via /v1/responses; OAuth grok uses GetGrokAccessToken/GetGrokBaseURL against api.x.ai /responses; requested model is normalized to a chat-capable grok default. User-facing /v1/chat/completions and /v1/messages are separately enabled on grok groups; admin probe intentionally stays on /v1/responses for OAuth parity."
     },

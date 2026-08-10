@@ -1052,12 +1052,7 @@ async function handleRegister(): Promise<void> {
     tencentCaptchaRandstr.value = ''
 
     // Keep stale challenge failures actionable across all auth entry points.
-    errorMessage.value = buildAuthErrorMessage(error, {
-      fallback: t('auth.registrationFailed'),
-      reasonOverrides: {
-        TURNSTILE_VERIFICATION_FAILED: t('auth.turnstileFailedRefresh')
-      }
-    })
+    errorMessage.value = buildRegistrationErrorMessage(error, t('auth.registrationFailed'))
 
     // Also show error toast
     appStore.showError(errorMessage.value)
@@ -1073,7 +1068,12 @@ function buildRegistrationErrorMessage(error: unknown, fallback: string): string
   if (extractApiErrorCode(error) === 'EMAIL_DOMAIN_REGISTRATION_LIMIT') {
     return t('auth.emailDomainRegistrationLimit')
   }
-  return buildAuthErrorMessage(error, { fallback })
+  return buildAuthErrorMessage(error, {
+    fallback,
+    reasonOverrides: {
+      TURNSTILE_VERIFICATION_FAILED: t('auth.turnstileFailedRefresh')
+    }
+  })
 }
 </script>
 
