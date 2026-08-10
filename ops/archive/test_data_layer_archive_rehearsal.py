@@ -64,8 +64,6 @@ def _fixture_rows() -> list[tuple[str, str, str, object]]:
         ("usage", "usage-hot-1", "2026-07-01T00:00:00Z", {"tokens": 200}),
         ("ops", "ops-cold-1", "2026-06-01T00:00:00Z", {"kind": "error"}),
         ("ops", "ops-hot-1", "2026-07-01T00:00:00Z", {"kind": "system"}),
-        ("qa", "qa-cold-1", "2026-07-16T00:00:00Z", {"blob": "a"}),
-        ("qa", "qa-hot-1", "2026-07-19T12:00:00Z", {"blob": "b"}),
     ]
 
 
@@ -105,17 +103,31 @@ class DataLayerArchiveRehearsalTest(unittest.TestCase):
         after = _file_sha(self.source)
 
         self.assertEqual(before, after)
-        self.assertEqual(report["source_rows"], 6)
-        self.assertEqual(report["candidate_rows"], 3)
+        self.assertEqual(report["source_rows"], 4)
+        self.assertEqual(report["candidate_rows"], 2)
         self.assertEqual(
             {
                 item["dataset"]: (item["retention_days"], item["candidate_rows"])
                 for item in report["datasets"]
             },
-            {"usage": (90, 1), "ops": (30, 1), "qa": (2, 1)},
+            {"usage": (90, 1), "ops": (30, 1)},
         )
         self.assertFalse(report["source_mutated"])
         self.assertFalse(report["deletion_authorized"])
+
+    def test_us044_qa_dataset_is_rejected_by_generic_data_layer_rehearsal(self) -> None:
+        qa_source = self.root / "qa-source.sqlite"
+        _create_source(
+            qa_source,
+            [("qa", "qa-record", "2026-01-01T00:00:00Z", {"blob": "x"})],
+        )
+        with self.assertRaisesRegex(rehearsal.RehearsalError, "unsupported dataset"):
+            rehearsal.dry_run(
+                qa_source,
+                environment="local",
+                as_of=self.as_of,
+                retention_days=self.policy,
+            )
 
     def test_us037_cutoff_is_strict_and_empty_batches_are_refused(self) -> None:
         boundary_source = self.root / "boundary.sqlite"
@@ -148,10 +160,10 @@ class DataLayerArchiveRehearsalTest(unittest.TestCase):
         self.assertFalse(first["idempotent_reuse"])
         self.assertTrue(second["idempotent_reuse"])
         self.assertEqual(first["batch_id"], second["batch_id"])
-        self.assertEqual(first["total_rows"], 3)
-        self.assertEqual([item["dataset"] for item in first["artifacts"]], ["usage", "ops", "qa"])
+        self.assertEqual(first["total_rows"], 2)
+        self.assertEqual([item["dataset"] for item in first["artifacts"]], ["usage", "ops"])
         self.assertTrue(verified["verified"])
-        self.assertEqual(verified["row_count"], 3)
+        self.assertEqual(verified["row_count"], 2)
         self.assertEqual(
             _file_sha(batch / "manifest.json"), verified["manifest_sha256"]
         )
@@ -736,12 +748,10 @@ class PostgresArchiveRehearsalIntegrationTest(unittest.TestCase):
             CREATE TABLE usage_logs (id bigint, created_at timestamptz, model text, input_tokens integer);
             CREATE TABLE ops_system_logs (id bigint, created_at timestamptz, level text, message text);
             CREATE TABLE ops_error_logs (id bigint, created_at timestamptz, error_type text, error_message text);
-            CREATE TABLE qa_records (id bigint, created_at timestamptz, request_id text, status_code integer);
             INSERT INTO usage_logs VALUES
               (1,'2026-04-01T00:00:00Z','model-a',10),(2,'2026-07-01T00:00:00Z','model-b',20);
             INSERT INTO ops_system_logs VALUES (1,'2026-06-01T00:00:00Z','WARN','old');
             INSERT INTO ops_error_logs VALUES (1,'2026-06-02T00:00:00Z','upstream','old');
-            INSERT INTO qa_records VALUES (1,'2026-07-16T00:00:00Z','req-old',500);
             """
             seeded = cls._psql(cls._source_dsn, schema)
             if seeded.returncode != 0:
@@ -833,7 +843,7 @@ class PostgresArchiveRehearsalIntegrationTest(unittest.TestCase):
             )
             self.assertEqual(cli.returncode, 0, cli.stderr)
             first = json.loads(cli.stdout)
-            self.assertEqual(first["dry_run"]["candidate_rows"], 4)
+            self.assertEqual(first["dry_run"]["candidate_rows"], 3)
             self.assertTrue(first["verify"]["verified"])
             self.assertTrue(first["restore"]["verified"])
             self.assertGreater(first["metrics"]["logical_bytes"], 0)
@@ -858,11 +868,10 @@ class PostgresArchiveRehearsalIntegrationTest(unittest.TestCase):
                 self._source_dsn,
                 "SELECT (SELECT count(*) FROM usage_logs) + "
                 "(SELECT count(*) FROM ops_system_logs) + "
-                "(SELECT count(*) FROM ops_error_logs) + "
-                "(SELECT count(*) FROM qa_records)",
+                "(SELECT count(*) FROM ops_error_logs)",
             )
             self.assertEqual(source_counts.returncode, 0, source_counts.stderr)
-            self.assertEqual(source_counts.stdout.strip(), "5")
+            self.assertEqual(source_counts.stdout.strip(), "4")
 
 
 if __name__ == "__main__":

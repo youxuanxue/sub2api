@@ -9,13 +9,16 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
+	"github.com/Wei-Shaw/sub2api/internal/engine"
 	"github.com/Wei-Shaw/sub2api/internal/observability/trajectory"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
@@ -27,7 +30,9 @@ const trajectoryExportFilename = "trajectory.jsonl"
 // the whole result set (or a long-running query / table lock) at once.
 const exportPageSize = 500
 
-// ExportUserTrajectoryData builds the trajectory zip for one user/key and uploads
+// ExportUserTrajectoryData is the transitional in-prod trajectory builder.
+// Phase 3 replaces it with the approved raw-S3/Fargate worker; do not add fallback
+// callers or broaden its user/key/24h scope. It builds one user/key zip and uploads
 // it to the blob store, returning a presigned download URL. It is designed to run
 // off the request path (the export worker calls it) and to never put pressure on
 // the live gateway — the 2026-06-17 incident was the old in-memory, unbounded,
@@ -37,6 +42,9 @@ const exportPageSize = 500
 // every record (client disconnect stops the work), and missing/corrupt blobs
 // skipped rather than aborting the whole export.
 func (s *Service) ExportUserTrajectoryData(ctx context.Context, userID int64, filter ExportFilter) (*ExportResult, error) {
+	if filter.APIKeyID == nil || *filter.APIKeyID <= 0 {
+		return nil, ErrExportAPIKeyNeeded
+	}
 	tmp, err := os.CreateTemp(s.exportTmpDir(), "traj-export-*.zip")
 	if err != nil {
 		return nil, err
@@ -152,7 +160,7 @@ func (s *Service) ExportUserTrajectoryData(ctx context.Context, userID int64, fi
 		return nil, err
 	}
 
-	key := exportStorageKey(userID, filter)
+	key := exportStorageKey(userID, *filter.APIKeyID)
 	signedAt := time.Now().UTC()
 	if _, err := s.exportStore.PutReader(ctx, key, tmp, "application/zip"); err != nil {
 		return nil, err
@@ -315,9 +323,9 @@ func (s *Service) DownloadUserTrajectoryExport(ctx context.Context, userID int64
 	if strings.Contains(key, "\\") || strings.HasPrefix(key, "/") || hasUnsafePathSegment(key) {
 		return nil, fs.ErrPermission
 	}
-	// TTL gate from the key's own timestamp (manual: trailing nanos; auto: the
-	// dated filename) — see exportKeyExpired. This is the localfs proxy path;
-	// S3 users download via the presigned URL directly. The host cleanup / S3
+	// TTL gate from the key's trailing timestamp — see exportKeyExpired. This is
+	// the localfs proxy path; S3 users download via the presigned URL directly.
+	// The host cleanup / S3
 	// lifecycle is the real expirer; this is the belt-and-suspenders 404.
 	if exportKeyExpired(key, time.Now().UTC()) {
 		return nil, fs.ErrNotExist
@@ -329,23 +337,12 @@ func (s *Service) DownloadUserTrajectoryExport(ctx context.Context, userID int64
 	return body, err
 }
 
-// exportStorageKey lays out the blob-store key for one export. user_id is always
-// the first segment so DownloadUserTrajectoryExport's ownership prefix check
-// holds. Auto (daily cron) keys embed the date and are therefore idempotent
-// across same-day re-runs; manual keys use unix-nanos for per-click uniqueness.
+// exportStorageKey lays out the blob-store key for one user-requested export.
+// user_id is always the first segment so the download ownership check holds.
 //
-//	traj-exports/<user>/<key|all>/auto/<YYYY-MM-DD>.zip
-//	traj-exports/<user>/<key|all>/manual/<unix_nanos>.zip
-func exportStorageKey(userID int64, f ExportFilter) string {
-	keySeg := "all"
-	if f.APIKeyID != nil {
-		keySeg = strconv.FormatInt(*f.APIKeyID, 10)
-	}
-	base := fmt.Sprintf("traj-exports/%d/%s", userID, keySeg)
-	if strings.EqualFold(strings.TrimSpace(f.Kind), exportKindAuto) {
-		day := f.Since.UTC().Format("2006-01-02")
-		return fmt.Sprintf("%s/auto/%s.zip", base, day)
-	}
+//	traj-exports/<user>/<key>/manual/<unix_nanos>.zip
+func exportStorageKey(userID, apiKeyID int64) string {
+	base := fmt.Sprintf("traj-exports/%d/%s", userID, strconv.FormatInt(apiKeyID, 10))
 	return fmt.Sprintf("%s/manual/%d.zip", base, time.Now().UnixNano())
 }
 
@@ -364,38 +361,41 @@ func (s *Service) UserTrajExportEnabled(ctx context.Context, userID int64) (bool
 	return u.TrajExportEnabled, nil
 }
 
-// exportPredicates builds the qa_records WHERE clause shared by the streaming
-// export and queryExportRecords. user_id scope is always present; APIKeyID and
-// Platform AND-narrow it; SynthSessionID overrides the Since/Until window.
+// UserMayExportAPIKey reports whether apiKeyID is an owned, non-deleted direct
+// key whose group platform is projectable. Missing, foreign, no-group/universal,
+// deleted, and unprojectable keys all resolve to false without leaking which
+// authorization condition failed. The platform allowlist shares the engine SSOT
+// used by /auth/me and the frontend visibility gate.
+func (s *Service) UserMayExportAPIKey(ctx context.Context, userID, apiKeyID int64) (bool, error) {
+	key, err := s.client.APIKey.Query().Where(
+		apikey.IDEQ(apiKeyID),
+		apikey.UserIDEQ(userID),
+		apikey.DeletedAtIsNil(),
+	).WithGroup().Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	group := key.Edges.Group
+	return group != nil && slices.Contains(engine.TrajProjectablePlatforms(), group.Platform), nil
+}
+
+// exportPredicates builds the qa_records WHERE clause for streaming exports.
+// user_id scope is always present; APIKeyID and the fixed request window narrow it.
 func (s *Service) exportPredicates(userID int64, filter ExportFilter) []predicate.QARecord {
 	predicates := []predicate.QARecord{qarecord.UserIDEQ(userID)}
 	if filter.APIKeyID != nil {
 		predicates = append(predicates, qarecord.APIKeyIDEQ(*filter.APIKeyID))
 	}
-	if p := strings.TrimSpace(filter.Platform); p != "" {
-		predicates = append(predicates, qarecord.PlatformEQ(p))
+	if !filter.Since.IsZero() {
+		predicates = append(predicates, qarecord.CreatedAtGTE(filter.Since))
 	}
-	if synthSession := strings.TrimSpace(filter.SynthSessionID); synthSession != "" {
-		predicates = append(predicates, qarecord.SynthSessionIDEQ(synthSession))
-	} else {
-		if !filter.Since.IsZero() {
-			predicates = append(predicates, qarecord.CreatedAtGTE(filter.Since))
-		}
-		if !filter.Until.IsZero() {
-			predicates = append(predicates, qarecord.CreatedAtLTE(filter.Until))
-		}
-	}
-	if role := strings.TrimSpace(filter.SynthRole); role != "" {
-		predicates = append(predicates, qarecord.SynthRoleEQ(role))
+	if !filter.Until.IsZero() {
+		predicates = append(predicates, qarecord.CreatedAtLTE(filter.Until))
 	}
 	return predicates
-}
-
-func (s *Service) queryExportRecords(ctx context.Context, userID int64, filter ExportFilter) ([]*ent.QARecord, error) {
-	return s.client.QARecord.Query().
-		Where(s.exportPredicates(userID, filter)...).
-		Order(ent.Asc(qarecord.FieldCreatedAt)).
-		All(ctx)
 }
 
 func (s *Service) loadEvidenceBlob(ctx context.Context, blobURI string) ([]byte, error) {

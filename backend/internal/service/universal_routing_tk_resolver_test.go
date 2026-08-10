@@ -220,6 +220,9 @@ func TestUniversalRequestPlatformHint_OpenAICompatVertexMedia(t *testing.T) {
 	if got := universalRequestPlatformHint(ShapeOpenAIChat, "gemini-3.5-flash"); got != PlatformAntigravity {
 		t.Fatalf("antigravity-only chat model should hint antigravity, got %q", got)
 	}
+	if got := universalRequestPlatformHint(ShapeOpenAIEmbeddings, "gemini-embedding-001"); got != PlatformNewAPI {
+		t.Fatalf("gemini-embedding on OpenAI embeddings should hint newapi vertex, got %q", got)
+	}
 }
 
 func TestResolve_PicksByPlatformAndHint(t *testing.T) {

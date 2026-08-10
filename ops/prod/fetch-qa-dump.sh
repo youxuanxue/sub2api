@@ -25,8 +25,9 @@
 #   QA_DUMP_S3_BUCKET=my-bucket bash ops/prod/fetch-qa-dump.sh
 #   bash ops/prod/fetch-qa-dump.sh --check
 #
-# After a verified export, optional full prod cleanup (DB + EBS blobs + S3 staging):
-#   ops/prod/qa-export-and-purge.sh
+# Transitional break-glass only. This command is read-only with respect to prod
+# QA data and MUST NOT be used as evidence authorizing deletion. Remove it after
+# the canonical raw-S3 archive restore path is verified.
 #
 set -euo pipefail
 

@@ -3,7 +3,9 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pgpartition"
@@ -18,6 +20,10 @@ type dashboardAggregationRepository struct {
 
 const usageLogsCleanupBatchSize = 10000
 const usageBillingDedupCleanupBatchSize = 10000
+
+// usageLogsStraddleReclaimMaxRowsPerRun caps expired-row DELETE from bound-straddling
+// partitions (notably usage_logs_legacy) in one retention pass.
+const usageLogsStraddleReclaimMaxRowsPerRun = 1_000_000
 const dashboardHistoricalBackfillMinRemaining = 5 * time.Minute
 
 // NewDashboardAggregationRepository 创建仪表盘预聚合仓储。
@@ -276,8 +282,7 @@ func (r *dashboardAggregationRepository) CleanupUsageLogs(ctx context.Context, c
 		return err
 	}
 	if isPartitioned {
-		_, err := pgpartition.DropExpired(ctx, r.sql, "usage_logs", cutoff.UTC())
-		return err
+		return r.cleanupPartitionedUsageLogs(ctx, cutoff.UTC())
 	}
 	for {
 		res, err := r.sql.ExecContext(ctx, `
@@ -301,6 +306,91 @@ func (r *dashboardAggregationRepository) CleanupUsageLogs(ctx context.Context, c
 			return nil
 		}
 	}
+}
+
+func (r *dashboardAggregationRepository) cleanupPartitionedUsageLogs(ctx context.Context, cutoff time.Time) error {
+	db, ok := r.sql.(pgpartition.DB)
+	if !ok {
+		_, err := pgpartition.DropExpired(ctx, r.sql, "usage_logs", cutoff)
+		return err
+	}
+	if _, err := pgpartition.DropExpired(ctx, db, "usage_logs", cutoff); err != nil {
+		return err
+	}
+	straddling, err := pgpartition.ListStraddling(ctx, db, "usage_logs", "created_at", cutoff)
+	if err != nil {
+		return err
+	}
+	remaining := usageLogsStraddleReclaimMaxRowsPerRun
+	for _, child := range straddling {
+		if remaining <= 0 {
+			break
+		}
+		n, delErr := deleteOldUsageLogRowsByID(ctx, db, child, cutoff, usageLogsCleanupBatchSize, remaining)
+		if delErr != nil {
+			return delErr
+		}
+		remaining -= int(n)
+	}
+	return nil
+}
+
+func deleteOldUsageLogRowsByID(
+	ctx context.Context,
+	db pgpartition.DropExecutor,
+	table string,
+	cutoff time.Time,
+	batchSize int,
+	maxRows int,
+) (int64, error) {
+	if db == nil {
+		return 0, nil
+	}
+	if batchSize <= 0 {
+		batchSize = usageLogsCleanupBatchSize
+	}
+	qTable := pq.QuoteIdentifier(table)
+	q := fmt.Sprintf(`
+WITH batch AS (
+  SELECT id FROM %s
+  WHERE created_at < $1
+  ORDER BY id
+  LIMIT $2
+)
+DELETE FROM %s
+WHERE id IN (SELECT id FROM batch)
+`, qTable, qTable)
+
+	var total int64
+	for {
+		res, err := db.ExecContext(ctx, q, cutoff, batchSize)
+		if err != nil {
+			if isMissingUsageLogsRelationError(err) {
+				return total, nil
+			}
+			return total, err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return total, err
+		}
+		total += affected
+		if affected == 0 {
+			break
+		}
+		if maxRows > 0 && total >= int64(maxRows) {
+			break
+		}
+	}
+	return total, nil
+}
+
+func isMissingUsageLogsRelationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "does not exist") && strings.Contains(s, "relation")
 }
 
 func (r *dashboardAggregationRepository) CleanupUsageBillingDedup(ctx context.Context, cutoff time.Time) error {
@@ -377,7 +467,9 @@ func (r *dashboardAggregationRepository) upsertHourlyAggregates(ctx context.Cont
 				COALESCE(SUM(total_cost), 0) AS total_cost,
 				COALESCE(SUM(actual_cost), 0) AS actual_cost,
 				COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) AS account_cost,
-				COALESCE(SUM(COALESCE(duration_ms, 0)), 0) AS total_duration_ms
+				COALESCE(SUM(COALESCE(duration_ms, 0)), 0) AS total_duration_ms,
+				COALESCE(SUM(gateway_latency_ms) FILTER (WHERE gateway_latency_ms IS NOT NULL), 0) AS total_gateway_latency_ms,
+				COUNT(gateway_latency_ms) FILTER (WHERE gateway_latency_ms IS NOT NULL) AS gateway_latency_samples
 			FROM usage_logs
 			WHERE created_at >= $1 AND created_at < $2
 			GROUP BY 1
@@ -399,6 +491,8 @@ func (r *dashboardAggregationRepository) upsertHourlyAggregates(ctx context.Cont
 			actual_cost,
 			account_cost,
 			total_duration_ms,
+			total_gateway_latency_ms,
+			gateway_latency_samples,
 			active_users,
 			computed_at
 		)
@@ -413,6 +507,8 @@ func (r *dashboardAggregationRepository) upsertHourlyAggregates(ctx context.Cont
 			hourly.actual_cost,
 			hourly.account_cost,
 			hourly.total_duration_ms,
+			hourly.total_gateway_latency_ms,
+			hourly.gateway_latency_samples,
 			COALESCE(user_counts.active_users, 0) AS active_users,
 			NOW()
 		FROM hourly
@@ -428,6 +524,8 @@ func (r *dashboardAggregationRepository) upsertHourlyAggregates(ctx context.Cont
 			actual_cost = EXCLUDED.actual_cost,
 			account_cost = EXCLUDED.account_cost,
 			total_duration_ms = EXCLUDED.total_duration_ms,
+			total_gateway_latency_ms = EXCLUDED.total_gateway_latency_ms,
+			gateway_latency_samples = EXCLUDED.gateway_latency_samples,
 			active_users = EXCLUDED.active_users,
 			computed_at = EXCLUDED.computed_at
 	`
@@ -449,7 +547,9 @@ func (r *dashboardAggregationRepository) upsertDailyAggregates(ctx context.Conte
 				COALESCE(SUM(total_cost), 0) AS total_cost,
 				COALESCE(SUM(actual_cost), 0) AS actual_cost,
 				COALESCE(SUM(account_cost), 0) AS account_cost,
-				COALESCE(SUM(total_duration_ms), 0) AS total_duration_ms
+				COALESCE(SUM(total_duration_ms), 0) AS total_duration_ms,
+				COALESCE(SUM(total_gateway_latency_ms), 0) AS total_gateway_latency_ms,
+				COALESCE(SUM(gateway_latency_samples), 0) AS gateway_latency_samples
 			FROM usage_dashboard_hourly
 			WHERE bucket_start >= $1 AND bucket_start < $2
 			GROUP BY (bucket_start AT TIME ZONE $5)::date
@@ -471,6 +571,8 @@ func (r *dashboardAggregationRepository) upsertDailyAggregates(ctx context.Conte
 			actual_cost,
 			account_cost,
 			total_duration_ms,
+			total_gateway_latency_ms,
+			gateway_latency_samples,
 			active_users,
 			computed_at
 		)
@@ -485,6 +587,8 @@ func (r *dashboardAggregationRepository) upsertDailyAggregates(ctx context.Conte
 			daily.actual_cost,
 			daily.account_cost,
 			daily.total_duration_ms,
+			daily.total_gateway_latency_ms,
+			daily.gateway_latency_samples,
 			COALESCE(user_counts.active_users, 0) AS active_users,
 			NOW()
 		FROM daily
@@ -500,6 +604,8 @@ func (r *dashboardAggregationRepository) upsertDailyAggregates(ctx context.Conte
 			actual_cost = EXCLUDED.actual_cost,
 			account_cost = EXCLUDED.account_cost,
 			total_duration_ms = EXCLUDED.total_duration_ms,
+			total_gateway_latency_ms = EXCLUDED.total_gateway_latency_ms,
+			gateway_latency_samples = EXCLUDED.gateway_latency_samples,
 			active_users = EXCLUDED.active_users,
 			computed_at = EXCLUDED.computed_at
 	`

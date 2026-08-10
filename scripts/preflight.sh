@@ -65,6 +65,9 @@
 #        SSE Content-Type onto a JSON body. Driven by
 #        `scripts/checks/buffered-content-type-leak.py`. Mechanical replacement
 #        for "review notices the antipattern" + sentinel pinning of known sites.
+#   QA lifecycle SSOT gate      — prevents retired QA archive/purge/self-export
+#        owners from returning and keeps generic data-layer tooling usage/ops-only.
+#        Driven by `scripts/checks/qa-lifecycle-ssot.py`.
 #   QA evidence dataset validator — guards the exported QA evidence dataset contract:
 #        exported `trajectory.jsonl` artifacts must keep H1/H2/H3/D1 and structural
 #        acceptance semantics reachable through the standalone validator script,
@@ -1215,6 +1218,68 @@ else
     echo "  ok: key dispatch paths still route through Engine facade truth"
 fi
 
+# ---- sub2api: QA lifecycle single source of truth ----------------------------
+echo ""
+echo "=== sub2api: QA lifecycle SSOT ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by qa-lifecycle-ssot.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/qa-lifecycle-ssot.py --self-test >/dev/null; then
+    echo "  FAIL: QA lifecycle SSOT sentinel self-test failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/qa-lifecycle-ssot.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: one approved QA lifecycle owner; retired conflicts remain absent"
+fi
+
+# ---- sub2api: QA Phase 2 recovery and IAM contracts ------------------------
+echo ""
+echo "=== sub2api: QA Phase 2 recovery and IAM contracts ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by QA recovery contract tests)"
+    errors=$((errors + 1))
+elif ! python3 -m py_compile \
+    ./ops/qa/qa_archive_recovery_gate.py \
+    ./deploy/aws/cloudformation/test_stage0_qa_raw_archive_contract.py; then
+    errors=$((errors + 1))
+elif ! python3 -m unittest \
+    deploy.aws.cloudformation.test_stage0_qa_raw_archive_contract \
+    ops.qa.test_qa_archive_recovery_gate; then
+    errors=$((errors + 1))
+else
+    echo "  ok: exact QA IAM sets and approval-bound workstation recovery gate pass"
+fi
+
+# ---- sub2api: QA Phase 1 edge baseline probe (read-only ops) ---------------
+# Owner: ops/qa/edge_phase1_baseline.py — soak verification for edge capture=false.
+echo ""
+echo "=== sub2api: QA Phase 1 edge baseline probe ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by edge_phase1_baseline.py)"
+    errors=$((errors + 1))
+elif ! python3 -m py_compile ./ops/qa/edge_phase1_baseline.py; then
+    echo "  FAIL: edge_phase1_baseline.py does not compile"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge_phase1_baseline.py present (Phase 1 soak probe wired)"
+fi
+
+# ---- sub2api: QA Phase 1 closeout + Phase 2 baseline ops -------------------
+echo ""
+echo "=== sub2api: QA Phase 1 closeout + Phase 2 baseline ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by QA phase ops scripts)"
+    errors=$((errors + 1))
+elif ! python3 -m py_compile ./ops/qa/edge_phase1_closeout.py ./ops/qa/prod_phase2_baseline.py; then
+    echo "  FAIL: QA phase ops scripts do not compile"
+    errors=$((errors + 1))
+elif ! python3 ./ops/qa/test_qa_phase_ops.py; then
+    errors=$((errors + 1))
+else
+    echo "  ok: Phase 1 closeout + Phase 2 baseline artifacts compile and regression tests pass"
+fi
+
 # ---- sub2api: QA evidence dataset validator ----------------------------------------
 # Source of truth: scripts/checks/qa-evidence-dataset.py. Verifies that the standalone
 # QA evidence dataset gate remains executable from repo root and the regression
@@ -1512,6 +1577,10 @@ elif ! python3 ./ops/archive/test_data_layer_archive_promote_batch.py >/dev/null
 elif ! python3 ./ops/archive/test_data_layer_archive_cleanup_hold.py >/dev/null 2>&1; then
     echo "  FAIL: production archive cleanup hold contracts"
     echo "        — run: python3 ops/archive/test_data_layer_archive_cleanup_hold.py"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/data-layer-archive-ssot.py --quiet; then
+    echo "  FAIL: data-layer archive pipeline_status ↔ rehearsal constants drift"
+    echo "        — run: python3 scripts/checks/data-layer-archive-ssot.py"
     errors=$((errors + 1))
 else
     echo "  ok: nonprod rehearsal + cleanup hold + export canary + legacy export + archive promote"
@@ -2304,6 +2373,16 @@ if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for OIDC perm coverage check)"
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/lightsail-oidc-perm-coverage.py --quiet; then
+    errors=$((errors + 1))
+fi
+
+# ---- sub2api: diagnostics OIDC perm coverage -------------------------------
+echo ""
+echo "=== sub2api: diagnostics OIDC perm coverage ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for diagnostics OIDC perm coverage check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/diagnostics-oidc-perm-coverage.py --quiet; then
     errors=$((errors + 1))
 fi
 

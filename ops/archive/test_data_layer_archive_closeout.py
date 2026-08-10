@@ -105,14 +105,27 @@ def _write_ledgers(root: pathlib.Path, *, cutoff: str = _UPPER, checksum: str = 
 
 
 class ArchiveCloseoutTest(unittest.TestCase):
-    def test_ledger_pair_requires_cutoff_at_partition_upper(self) -> None:
+    def test_ledger_pair_requires_cutoff_at_partition_upper_when_export_incomplete(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = pathlib.Path(temp)
             export_path, promote_path = _write_ledgers(
                 root, cutoff="2026-06-30T23:59:59.000000Z"
             )
-            with self.assertRaisesRegex(closeout.CloseoutError, "partition upper"):
+            export_payload = json.loads(export_path.read_text(encoding="utf-8"))
+            export_payload["more_cold_rows_remaining"] = True
+            export._atomic_json(export_path, export_payload)
+            with self.assertRaisesRegex(closeout.CloseoutError, "cold-row boundary"):
                 closeout.validate_ledger_pair(export_path, promote_path)
+
+    def test_ledger_pair_accepts_legacy_ledger_without_cutoff_exclusive(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            export_path, promote_path = _write_ledgers(root)
+            export_payload = json.loads(export_path.read_text(encoding="utf-8"))
+            export_payload["completed_batches"][0].pop("cutoff_exclusive", None)
+            export._atomic_json(export_path, export_payload)
+            proof = closeout.validate_ledger_pair(export_path, promote_path)
+            self.assertEqual(proof["final_cutoff_exclusive"], _UPPER)
 
     def test_ledger_pair_requires_exact_promote_checksum(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

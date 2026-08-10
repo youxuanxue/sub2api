@@ -1,7 +1,7 @@
 ---
 name: tokenkey-codex-fingerprint-alignment
 description: >-
-  Align the TokenKey OpenAI-platform Codex client fingerprint to the locally-installed Codex CLI. Use when `codex` upgrades and the forged UA / `version` header / probe version need a version bump, or to diff the TK version owner and derived aliases against the installed CLI. Reads the installed binary (no mitmproxy); updates only `DefaultOpenAICodexVersion`, never treats admin-UI examples as fingerprint pins, never auto-changes the non-version pins (originator=codex_cli_rs, OpenAI-Beta), and keeps the OS/terminal UA segment verbatim.
+  Align the TokenKey OpenAI-platform Codex client fingerprint to the locally-installed Codex CLI. Use when `codex` upgrades and the forged UA / `version` header / probe version need a version bump, or to diff the TK version owner and derived aliases against the installed CLI. Reads the installed binary (no mitmproxy); updates only `DefaultOpenAICodexVersion`, never treats admin-UI examples as fingerprint pins, never auto-changes the non-version pins (originator=codex-tui, OpenAI-Beta), and keeps the OS/terminal UA segment verbatim.
 ---
 
 # TokenKey：Codex 指纹对齐（读本机 codex CLI → diff 常量 → 改常量 → PR）
@@ -22,13 +22,16 @@ description: >-
 - **Codex 的指纹直接随 CLI 本地发行**：承重信号就是 codex 的**版本号**（嵌在 UA、`version`
   请求头、用量探测 `Version` 头里）。所以 ground truth = `codex --version` + native 二进制
   strings，**不需要抓任何网络流量**。这是最简单的一条引擎。
-- **OS / 终端段不承重**：UA 里的 `Mac OS 26.3.1; arm64` / `iTerm.app/3.6.11` 是采集机器的
-  **参考环境**，引擎只把 **codex 版本 token** 当对齐目标，bump 时其余字面量**原样保留**
+- **OS / 终端段不承重**：规范兜底 UA 后缀当前为 `Ubuntu 22.4.0; x86_64` / `xterm-256color`
+  （见 `openai_gateway_service.go` `codexCLIUserAgentSuffix`）；官方客户端透传时仍可能带
+  Mac/iTerm 等真实环境。引擎只把 **codex 版本 token** 当对齐目标，bump 时其余字面量**原样保留**
   （除非你主动想刷新参考环境——那是手工判断，不是漂移）。
-- **非版本钉死项只读不改**：`originator=codex_cli_rs`、`OpenAI-Beta: responses=experimental`
-  是 TK 故意钉死的，引擎拿二进制 strings 做**正向确认**（best-effort），但**绝不**因为
-  strings 里没搜到就判漂移——Rust 二进制可能在运行时拼接该值。真要变只有上游开始 400 拒
-  伪造请求时才查（见下「非版本漂移」）。
+- **非版本钉死项只读不改**：`originator=codex-tui`（`openai.CodexDefaultOriginator`）、
+  `OpenAI-Beta: responses=experimental` 是 TK 故意钉死的，引擎拿二进制 strings 做**正向确认**
+  （best-effort），但**绝不**因为 strings 里没搜到就判漂移——Rust 二进制可能在运行时拼接该值。
+  真要变只有上游开始 400 拒伪造请求时才查（见下「非版本漂移」）。
+- **messages 桥接例外**：`/v1/messages` compat 路径会显式删除 `originator` / `OpenAI-Beta`，
+  使 `enforceCodexIdentityHeaders` 不补回；这与 OAuth 强制统一出口不同，不算指纹漂移。
 
 ## 对齐靶（一个可编辑 owner + 派生 aliases，无 baseline JSON）
 
@@ -38,7 +41,7 @@ description: >-
 | `ua_default` | 同文件 `DefaultOpenAICodexUserAgent` | 从 owner 派生的强制 / 兜底 UA 与后台设置默认值 |
 | `gateway_version` | 同文件 `codexCLIVersion` | 从 owner 派生的上游 `version` 请求头 |
 | `probe_version` | 同文件 `openAICodexProbeVersion` | 从 owner 派生的用量探测 `Version` 请求头 |
-| originator（非版本）| `openai_gateway_scheduling.go` `resolveOpenAIUpstreamOriginator` | `codex_cli_rs`（只读确认，不 bump）|
+| originator（非版本）| `internal/pkg/openai/request.go` `CodexDefaultOriginator` | `codex-tui`（只读确认，不 bump）|
 | OpenAI-Beta（非版本）| `openai_gateway_forward.go` / `openai_gateway_passthrough.go` | `responses=experimental`（只读确认，不 bump）|
 
 `frontend/src/i18n/locales/{en,zh}/admin/settings.ts` 的 `openaiCodexUserAgentPlaceholder` 是 UI
@@ -86,11 +89,12 @@ python3 -m unittest discover -s ops/openai -p 'test_*.py' -t ops/openai
 - **仅版本漂移（最常见）**：按 `emit-edits` 更新 `DefaultOpenAICodexVersion`；UA、gateway version
   与 probe version 自动继承。i18n placeholders 以及 `request.go` / `request_test.go` 中的版本号
   都是格式示例 / 前缀匹配测试，与当前版本无关，**不改**。
-- **OS / 终端段刷新（少见，可选）**：只有你想把参考环境换到新机器时才改 UA 的
-  `(Mac OS …; arch) <terminal>/<ver>` 段；这是手工判断，不是漂移，`emit-edits` 不碰它。
+- **OS / 终端段刷新（少见，可选）**：只有你想把规范兜底 UA 的
+  `(Ubuntu …; arch) <terminal>` 段换到新参考环境时才改；官方客户端透传仍可能带 Mac/iTerm。
+  这是手工判断，不是漂移，`emit-edits` 不碰它。
 - **非版本漂移（罕见，需人判断，不自动 bump）**：只有当上游开始对伪造请求返回 4xx，或
   `diff` 的非版本行显示 originator / beta 在新 codex 里**确实换了值**时，才动
-  `resolveOpenAIUpstreamOriginator` / `OpenAI-Beta` 常量。binary-strings「not found」是
+  `openai.CodexDefaultOriginator` / `OpenAI-Beta` 常量。binary-strings「not found」是
   **不确定**信号（Rust 可能运行时拼接），**不是**漂移证据——不要据此改钉死项。
 
 ## 验证 / PR

@@ -85,7 +85,8 @@ type DashboardStats struct {
 	TodayAccountCost         float64 `json:"today_account_cost"` // 今日账号成本
 
 	// 系统运行统计
-	AverageDurationMs float64 `json:"average_duration_ms"` // 平均响应时间
+	AverageDurationMs       float64 `json:"average_duration_ms"`        // 平均端到端响应时间
+	AverageGatewayLatencyMs float64 `json:"average_gateway_latency_ms"` // 平均网关中转延迟（auth+路由，不含上游/body/排队）
 
 	// 性能指标
 	Rpm int64 `json:"rpm"` // 近5分钟平均每分钟请求数
@@ -167,6 +168,7 @@ type UserUsageTrendPoint struct {
 type UserSpendingRankingItem struct {
 	UserID     int64   `json:"user_id"`
 	Email      string  `json:"email"`
+	Username   string  `json:"username"`
 	ActualCost float64 `json:"actual_cost"` // 实际扣除
 	Requests   int64   `json:"requests"`
 	Tokens     int64   `json:"tokens"`

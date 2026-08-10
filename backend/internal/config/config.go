@@ -32,7 +32,7 @@ const (
 
 // DefaultCSPPolicy is the default Content-Security-Policy with nonce support
 // __CSP_NONCE__ will be replaced with actual nonce at request time by the SecurityHeaders middleware
-const DefaultCSPPolicy = "default-src 'self'; script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com https://static.cloudflareinsights.com https://*.stripe.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https:; frame-src https://challenges.cloudflare.com https://*.stripe.com https://checkout.airwallex.com https://checkout-demo.airwallex.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+const DefaultCSPPolicy = "default-src 'self'; worker-src 'self' blob:; script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com https://*.alicdn.com https://static.cloudflareinsights.com https://turing.captcha.qcloud.com https://turing.captcha.gtimg.com https://ca.turing.captcha.qcloud.com https://global.turing.captcha.gtimg.com https://www.tycaptcha.com https://cloudcache.tencentcs.com https://*.stripe.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; style-src 'self' 'unsafe-inline' https://*.captcha.gtimg.com https://fonts.googleapis.com https://*.alicdn.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://turing.captcha.qcloud.com https://www.tycaptcha.com https://rce.tencentrio.com https:; frame-src https://challenges.cloudflare.com https://turing.captcha.qcloud.com https://ca.turing.captcha.qcloud.com https://www.tycaptcha.com https://*.stripe.com https://checkout.airwallex.com https://checkout-demo.airwallex.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
 // UMQ（用户消息队列）模式常量
 const (
@@ -98,6 +98,7 @@ type Config struct {
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	QACapture               QACaptureConfig               `mapstructure:"qa_capture"`
+	QaArchive               QaArchiveConfig               `mapstructure:"qa_archive"`
 	MediaStorage            MediaStorageConfig            `mapstructure:"media_storage"`
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
@@ -186,19 +187,21 @@ type QACaptureConfig struct {
 	Enabled           bool                   `mapstructure:"enabled"`
 	BodyMaxBytes      int                    `mapstructure:"body_max_bytes"`
 	OptInBodyMaxBytes int                    `mapstructure:"opt_in_body_max_bytes"`
-	RetentionDays     int                    `mapstructure:"retention_days"`
 	WorkerCount       int                    `mapstructure:"worker_count"`
 	QueueSize         int                    `mapstructure:"queue_size"`
 	Storage           QACaptureStorageConfig `mapstructure:"storage"`
-	// ExportStorage, when its driver is set, is a SEPARATE destination for the
-	// finished export ZIP (typically S3) so the large archive leaves the
-	// Postgres-shared data volume. Unset ⇒ exports reuse Storage (localfs). The
-	// daily auto-export cron + on-demand export both write here; capture blobs
-	// always use Storage.
+	// ExportStorage is the transitional user-requested ZIP artifact destination.
+	// It is not the raw QA archive; capture blobs always use Storage.
 	ExportStorage QACaptureStorageConfig `mapstructure:"export_storage"`
-	// AutoExportEnabled turns on the daily per-(user,key) archive cron. Off by
-	// default; only meaningful once ExportStorage points at durable S3.
-	AutoExportEnabled bool `mapstructure:"auto_export_enabled"`
+}
+
+// QaArchiveConfig controls hourly raw QA archive shards (Phase 2+).
+// Disabled by default; when enabled, maintenance writes to storage only —
+// DB cleanup remains gated until Phase 4.
+type QaArchiveConfig struct {
+	Enabled          bool                   `mapstructure:"enabled"`
+	SealDelayMinutes int                    `mapstructure:"seal_delay_minutes"`
+	Storage          QACaptureStorageConfig `mapstructure:"storage"`
 }
 
 type QACaptureStorageConfig struct {
@@ -1019,13 +1022,17 @@ type GatewayConfig struct {
 	// ForceCodexCLI: 强制将 OpenAI `/v1/responses` 请求按 Codex CLI 处理。
 	// 用于网关未透传/改写 User-Agent 时的兼容兜底（默认关闭，避免影响其他客户端）。
 	ForceCodexCLI bool `mapstructure:"force_codex_cli"`
-	// DisableCodexOriginatorNormalization: 关闭「把落在上游降载桶的 Codex originator 改写为
-	// 官方 CLI 身份」。上游 /backend-api/codex 按 originator 分桶调度容量，命中降载桶的请求会被回
-	// server_is_overloaded，网关据此冷却账号，表现为账号频繁过载不可用。
+	// DisableCodexIdentityEnforcement: 关闭「强制统一 Codex 出站身份」。上游 /backend-api/codex
+	// 在容量紧张时按客户端身份分优先级降载，被降载的请求会拿到 HTTP 200 + 流内
+	// server_is_overloaded，该次请求失败。默认强制统一出口：所有 OAuth 出站的
+	// User-Agent / originator / version 都改写为网关规范身份，确保没有请求带着第三方或陈旧身份
+	// 出站。置 true 后退回「仅按最终 User-Agent 配对 originator」的收口语义，供上游策略变动时回滚。
 	//
 	// 取反义命名是为了让零值安全：该开关会发布为进程级快照，未经 viper 加载而手工构造的
-	// Config（测试、工具）其零值必须落在「归一化开启」这一侧，否则会静默丢掉这层保护。
-	// 仅当上游调整分桶、使归一化反而落入降载桶时才置 true。
+	// Config（测试、工具）其零值必须落在「强制统一开启」这一侧，否则会静默丢掉这层保护。
+	DisableCodexIdentityEnforcement bool `mapstructure:"disable_codex_identity_enforcement"`
+	// DisableCodexOriginatorNormalization: 已废弃，等价于 DisableCodexIdentityEnforcement。
+	// 保留以兼容既有配置文件；加载时会折叠进新键，不要在新代码里直接读取。
 	DisableCodexOriginatorNormalization bool `mapstructure:"disable_codex_originator_normalization"`
 	// CodexImageGenerationBridgeEnabled: 是否为 Codex `/v1/responses` 自动注入 image_generation 工具和桥接指令。
 	// 默认关闭，避免纯文本 Codex 请求被意外改写；显式携带 image_generation 工具的请求仍按分组能力转发。
@@ -1939,6 +1946,13 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 		cfg.Gateway.ForcedCodexInstructionsTemplate = string(content)
 	}
 
+	// 兼容旧键 gateway.disable_codex_originator_normalization：语义已被
+	// disable_codex_identity_enforcement 取代（身份改写升级为强制统一出口），
+	// 任一为 true 即关闭强制统一。
+	if cfg.Gateway.DisableCodexOriginatorNormalization {
+		cfg.Gateway.DisableCodexIdentityEnforcement = true
+	}
+
 	// 兼容旧键 gateway.openai_ws.sticky_previous_response_ttl_seconds。
 	// 新键未配置（<=0）时回退旧键；新键优先。
 	if cfg.Gateway.OpenAIWS.StickyResponseIDTTLSeconds <= 0 && cfg.Gateway.OpenAIWS.StickyPreviousResponseTTLSeconds > 0 {
@@ -2409,7 +2423,6 @@ func setDefaults() {
 	viper.SetDefault("qa_capture.body_max_bytes", 256*1024)
 	// traj/synth opt-in 记录用更高上限，避免长 thinking 被截断。
 	viper.SetDefault("qa_capture.opt_in_body_max_bytes", 1024*1024)
-	viper.SetDefault("qa_capture.retention_days", 1)
 	viper.SetDefault("qa_capture.worker_count", 8)
 	viper.SetDefault("qa_capture.queue_size", 2048)
 	viper.SetDefault("qa_capture.storage.driver", "localfs")
@@ -2434,6 +2447,18 @@ func setDefaults() {
 	viper.SetDefault("qa_capture.export_storage.secret_access_key", "")
 	viper.SetDefault("qa_capture.export_storage.prefix", "")
 	viper.SetDefault("qa_capture.export_storage.force_path_style", false)
+
+	// qa_archive: raw hourly shards (Phase 2). Disabled until prod enables archive-only maintenance.
+	viper.SetDefault("qa_archive.enabled", false)
+	viper.SetDefault("qa_archive.seal_delay_minutes", 15)
+	viper.SetDefault("qa_archive.storage.driver", "")
+	viper.SetDefault("qa_archive.storage.endpoint", "")
+	viper.SetDefault("qa_archive.storage.region", "")
+	viper.SetDefault("qa_archive.storage.bucket", "")
+	viper.SetDefault("qa_archive.storage.access_key_id", "")
+	viper.SetDefault("qa_archive.storage.secret_access_key", "")
+	viper.SetDefault("qa_archive.storage.prefix", "raw/v1")
+	viper.SetDefault("qa_archive.storage.force_path_style", false)
 
 	// media_storage.* has no struct default, so pin viper keys here to enable
 	// MEDIA_STORAGE_* env injection (same nested-key reason as export_storage).
@@ -2461,6 +2486,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.max_account_switches", 10)
 	viper.SetDefault("gateway.max_account_switches_gemini", 3)
 	viper.SetDefault("gateway.force_codex_cli", false)
+	viper.SetDefault("gateway.disable_codex_identity_enforcement", false)
 	viper.SetDefault("gateway.disable_codex_originator_normalization", false)
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
 	viper.SetDefault("gateway.responses_short_stream_buffer_bytes", 0)
@@ -2728,7 +2754,6 @@ func setEnvReachableDefaults() {
 
 	viper.SetDefault("gateway.anthropic_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.upstream_body_guards", []UpstreamBodyGuardConfig{})
-	viper.SetDefault("qa_capture.auto_export_enabled", false)
 }
 
 func (c *Config) Validate() error {
@@ -3343,9 +3368,6 @@ func (c *Config) Validate() error {
 	if c.QACapture.BodyMaxBytes <= 0 {
 		return fmt.Errorf("qa_capture.body_max_bytes must be positive")
 	}
-	if c.QACapture.RetentionDays <= 0 {
-		return fmt.Errorf("qa_capture.retention_days must be positive")
-	}
 	if c.QACapture.WorkerCount <= 0 {
 		return fmt.Errorf("qa_capture.worker_count must be positive")
 	}
@@ -3356,6 +3378,9 @@ func (c *Config) Validate() error {
 	case "", "localfs", "s3":
 	default:
 		return fmt.Errorf("qa_capture.storage.driver must be one of: localfs/s3")
+	}
+	if err := validateQaArchiveConfig(c.QaArchive); err != nil {
+		return err
 	}
 	if c.Gateway.MaxBodySize <= 0 {
 		return fmt.Errorf("gateway.max_body_size must be positive")
@@ -3826,6 +3851,29 @@ func (c *Config) Validate() error {
 	}
 	if err := ValidateDingTalkConfig(c.DingTalk); err != nil {
 		return fmt.Errorf("dingtalk_connect: %w", err)
+	}
+	return nil
+}
+
+func validateQaArchiveConfig(archive QaArchiveConfig) error {
+	if !archive.Enabled {
+		return nil
+	}
+	if archive.SealDelayMinutes < 0 || archive.SealDelayMinutes > 120 {
+		return fmt.Errorf("qa_archive.seal_delay_minutes must be between 0 and 120")
+	}
+	driver := strings.ToLower(strings.TrimSpace(archive.Storage.Driver))
+	if driver != "s3" {
+		return fmt.Errorf("qa_archive.storage.driver must be s3 when enabled")
+	}
+	if strings.TrimSpace(archive.Storage.Region) == "" {
+		return fmt.Errorf("qa_archive.storage.region is required when enabled")
+	}
+	if strings.TrimSpace(archive.Storage.Bucket) == "" {
+		return fmt.Errorf("qa_archive.storage.bucket is required when enabled")
+	}
+	if strings.Trim(strings.TrimSpace(archive.Storage.Prefix), "/") == "" {
+		return fmt.Errorf("qa_archive.storage.prefix is required when enabled")
 	}
 	return nil
 }

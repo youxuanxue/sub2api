@@ -34,9 +34,9 @@ const (
 	AntigravityUserAgentVersionEnv = "ANTIGRAVITY_USER_AGENT_VERSION"
 
 	// DefaultUserAgentVersion 是未通过环境变量或后台设置覆盖时使用的默认版本号。
-	// 2026-07-29 发布包校验：Homebrew cask antigravity 2.4.3；UA 版本随 IDE 自更新，
+	// 2026-08-09 发布包校验：Homebrew cask antigravity 2.6.0；UA 版本随 IDE 自更新，
 	// 运行时可经 admin 设置 antigravity_user_agent_version 热推覆盖。
-	DefaultUserAgentVersion = "2.4.3"
+	DefaultUserAgentVersion = "2.6.0"
 
 	// 固定的 redirect_uri（用户需手动复制 code）
 	RedirectURI = "http://localhost:8085/callback"

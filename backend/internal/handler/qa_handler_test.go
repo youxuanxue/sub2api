@@ -2,21 +2,7 @@
 
 package handler
 
-// Issue #59 Gap 1 — POST /api/v1/users/me/qa/export handler tests.
-//
-// We exercise the REAL `QAHandler.ExportSelf` against a real
-// `*qa.Service` wired to an in-memory ent client and an in-memory blob
-// store. This pins the handler contract end-to-end:
-//
-//   - 401 when the auth subject is missing (defense-in-depth: middleware
-//     already enforces JWT, but the handler MUST also reject so an
-//     accidental route mis-mount can't leak data)
-//   - 503 when QA capture is disabled in this environment (see
-//     observability/qa/service.go Enabled())
-//   - 200 with the documented {download_url, expires_at, record_count}
-//     envelope on success
-//   - the body's `synth_session_id` field is forwarded to the service
-//     filter (verified by record_count delta)
+// API-key trajectory export handler tests.
 
 import (
 	"archive/zip"
@@ -28,6 +14,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -128,9 +115,8 @@ func newQAHandlerRouterWithStore(
 			c.Next()
 		})
 	}
-	r.POST("/api/v1/users/me/qa/export", h.ExportSelf)
-	r.GET("/api/v1/users/me/qa/exports/*key", h.DownloadSelfExport)
 	r.POST("/api/v1/users/me/qa/traj/export", h.ExportSelfTrajectory)
+	r.GET("/api/v1/users/me/qa/traj/export/jobs", h.ListSelfTrajectoryExports)
 	r.GET("/api/v1/users/me/qa/traj/export/jobs/:job_id", h.GetSelfTrajectoryExportJob)
 	r.GET("/api/v1/users/me/qa/traj/exports/*key", h.DownloadSelfTrajectoryExport)
 	return r, h
@@ -188,242 +174,29 @@ func seedTrajExportUser(t *testing.T, ctx context.Context, client *dbent.Client,
 	return u.ID
 }
 
-func TestUS059_ExportSelf_Unauthenticated_401(t *testing.T) {
-	r, _, _ := newQAHandlerTestEnv(t, false, 0)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/export", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestUS059_ExportSelf_DisabledService_503(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	h := NewQAHandler(nil)
-	r := gin.New()
-	r.Use(func(c *gin.Context) {
-		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1})
-		c.Next()
-	})
-	r.POST("/api/v1/users/me/qa/export", h.ExportSelf)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/export", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusServiceUnavailable, w.Code)
-}
-
-func TestUS059_ExportSelf_BySynthSessionID_200(t *testing.T) {
-	r, client, _ := newQAHandlerTestEnv(t, true, 7)
-	ctx := context.Background()
-	now := time.Now().UTC()
-
-	// One record under user 7 in the target session, plus one un-tagged
-	// record (must NOT be exported).
-	_, err := client.QARecord.Create().
-		SetRequestID("r1").
-		SetUserID(7).
-		SetAPIKeyID(1).
-		SetPlatform("anthropic").
-		SetSynthSessionID("m0-XYZ").
-		SetSynthRole("user-simulator").
-		SetDialogSynth(true).
-		SetCreatedAt(now).
-		SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
+func seedTrajExportAPIKey(t *testing.T, ctx context.Context, client *dbent.Client, userID int64, platform string) int64 {
+	t.Helper()
+	group, err := client.Group.Create().
+		SetName("trajectory export " + platform + " group " + strconv.FormatInt(userID, 10)).
+		SetPlatform(platform).
 		Save(ctx)
 	require.NoError(t, err)
-	_, err = client.QARecord.Create().
-		SetRequestID("r2").
-		SetUserID(7).
-		SetAPIKeyID(1).
-		SetPlatform("anthropic").
-		SetCreatedAt(now).
-		SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
+	key, err := client.APIKey.Create().
+		SetUserID(userID).
+		SetGroupID(group.ID).
+		SetKey("sk-traj-export-" + strconv.FormatInt(userID, 10)).
+		SetName("trajectory export test key").
 		Save(ctx)
 	require.NoError(t, err)
-
-	body := bytes.NewBufferString(`{"synth_session_id":"m0-XYZ","format":"json"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/export", body)
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
-
-	var env response.Response
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	require.Equal(t, 0, env.Code)
-	dataMap, ok := env.Data.(map[string]any)
-	require.True(t, ok, "data should be a JSON object")
-	require.Contains(t, dataMap, "download_url")
-	require.Contains(t, dataMap, "expires_at")
-	require.Contains(t, dataMap, "record_count")
-	// Numeric JSON field comes back as float64.
-	require.Equal(t, float64(1), dataMap["record_count"], "session filter must isolate exactly the one tagged record")
+	return key.ID
 }
 
-func TestUS059_ExportSelf_DefaultsTo24hWindow(t *testing.T) {
-	r, client, _ := newQAHandlerTestEnv(t, true, 9)
-	ctx := context.Background()
-	now := time.Now().UTC()
-
-	// inside window
-	_, err := client.QARecord.Create().
-		SetRequestID("in").
-		SetUserID(9).
-		SetAPIKeyID(1).
-		SetPlatform("anthropic").
-		SetCreatedAt(now.Add(-1 * time.Hour)).
-		SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
-		Save(ctx)
-	require.NoError(t, err)
-	// outside window (48h ago, default cutoff is 24h)
-	_, err = client.QARecord.Create().
-		SetRequestID("old").
-		SetUserID(9).
-		SetAPIKeyID(1).
-		SetPlatform("anthropic").
-		SetCreatedAt(now.Add(-48 * time.Hour)).
-		SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
-		Save(ctx)
-	require.NoError(t, err)
-
-	// Empty body — must default to last 24h.
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/export", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
-	var env response.Response
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	dataMap := env.Data.(map[string]any)
-	require.Equal(t, float64(1), dataMap["record_count"], "default window must be 24h, not unbounded")
-}
-
-func TestUS059_ExportSelf_BadRequest_InvalidJSON(t *testing.T) {
-	r, _, _ := newQAHandlerTestEnv(t, true, 1)
-	body := bytes.NewBufferString(`{not json`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/export", body)
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-// Defense in depth: even if a malicious user submits a synth_session_id
-// belonging to a different user, the service-layer `WHERE user_id =`
-// predicate must return zero records (and the handler must not 500).
-func TestUS059_ExportSelf_CannotEscapeUserScope(t *testing.T) {
-	r, client, _ := newQAHandlerTestEnv(t, true, 100)
-	ctx := context.Background()
-	now := time.Now().UTC()
-
-	// Record owned by user 200, NOT 100.
-	_, err := client.QARecord.Create().
-		SetRequestID("victim").
-		SetUserID(200).
-		SetAPIKeyID(2).
-		SetPlatform("anthropic").
-		SetSynthSessionID("m0-VICTIM").
-		SetCreatedAt(now).
-		SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
-		Save(ctx)
-	require.NoError(t, err)
-
-	body := bytes.NewBufferString(`{"synth_session_id":"m0-VICTIM"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/export", body)
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	var env response.Response
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	dataMap := env.Data.(map[string]any)
-	require.Equal(t, float64(0), dataMap["record_count"],
-		"attacker (user 100) must NOT see another user's records even with the right synth_session_id")
-}
-
-func TestUS033_ExportSelf_LocalFSDownloadURLIsHTTPReachable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	db, err := sql.Open("sqlite", "file:qa_handler_localfs_test?mode=memory&cache=shared")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	_, err = db.Exec("PRAGMA foreign_keys = ON")
-	require.NoError(t, err)
-	drv := entsql.OpenDB(dialect.SQLite, db)
-	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(drv)))
-	t.Cleanup(func() { _ = client.Close() })
-
-	ctx := context.Background()
-	now := time.Now().UTC()
-	_, err = client.QARecord.Create().
-		SetRequestID("localfs-row").
-		SetUserID(7).
-		SetAPIKeyID(1).
-		SetPlatform("anthropic").
-		SetSynthSessionID("m0-HTTP").
-		SetSynthRole("user-simulator").
-		SetRequestedModel("claude-sonnet").
-		SetUpstreamModel("claude-sonnet-4-5").
-		SetInputTokens(3).
-		SetOutputTokens(5).
-		SetCreatedAt(now).
-		SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
-		Save(ctx)
-	require.NoError(t, err)
-
-	store := &qaLocalFSLikeBlobStore{qaMemBlobStore{objects: map[string][]byte{}}}
-	r, _ := newQAHandlerRouterWithStore(7, true, client, store)
-
-	body := bytes.NewBufferString(`{"synth_session_id":"m0-HTTP"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/export", body)
-	req.Host = "api.tokenkey.test"
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Forwarded-Proto", "https")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
-	var env response.Response
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	dataMap := env.Data.(map[string]any)
-	downloadURL, ok := dataMap["download_url"].(string)
-	require.True(t, ok)
-	require.True(t, strings.HasPrefix(downloadURL, "https://api.tokenkey.test/api/v1/users/me/qa/exports/"))
-	require.NotContains(t, downloadURL, "file://", "external SDK clients must receive an HTTP(S) URL")
-
-	downloadPath := strings.TrimPrefix(downloadURL, "https://api.tokenkey.test")
-	downloadReq := httptest.NewRequest(http.MethodGet, downloadPath, nil)
-	downloadW := httptest.NewRecorder()
-	r.ServeHTTP(downloadW, downloadReq)
-
-	require.Equal(t, http.StatusOK, downloadW.Code, "body=%s", downloadW.Body.String())
-	require.Equal(t, "application/zip", downloadW.Header().Get("Content-Type"))
-	zr, err := zip.NewReader(bytes.NewReader(downloadW.Body.Bytes()), int64(downloadW.Body.Len()))
-	require.NoError(t, err)
-	require.Len(t, zr.File, 1)
-	rc, err := zr.File[0].Open()
-	require.NoError(t, err)
-	defer func() { _ = rc.Close() }()
-	raw, err := io.ReadAll(rc)
-	require.NoError(t, err)
-	var row map[string]any
-	require.NoError(t, json.Unmarshal(bytes.TrimSpace(raw), &row))
-	for _, field := range []string{"api_key_id", "upstream_model", "input_tokens", "output_tokens", "synth_session_id"} {
-		require.Contains(t, row, field, "M0 D6-required export field must stay snake_case")
-	}
-	require.Equal(t, "m0-HTTP", row["synth_session_id"])
-}
-
-func TestUS077_ExportSelfTrajectory_BySynthSessionID_200(t *testing.T) {
+func TestExportSelfTrajectory_ByAPIKeyID_200(t *testing.T) {
 	r, client, _ := newQAHandlerTestEnv(t, true, 7)
 	ctx := context.Background()
 	now := time.Now().UTC()
 	uid := seedTrajExportUser(t, ctx, client, true)
+	apiKeyID := seedTrajExportAPIKey(t, ctx, client, uid, "anthropic")
 
 	store := &qaMemBlobStore{objects: map[string][]byte{}}
 	blob := bytes.Buffer{}
@@ -437,7 +210,7 @@ func TestUS077_ExportSelfTrajectory_BySynthSessionID_200(t *testing.T) {
 	_, err = client.QARecord.Create().
 		SetRequestID("traj-handler").
 		SetUserID(uid).
-		SetAPIKeyID(1).
+		SetAPIKeyID(apiKeyID).
 		SetPlatform("anthropic").
 		SetSynthSessionID("m0-TRAJ-H").
 		SetSynthRole("user-simulator").
@@ -449,9 +222,9 @@ func TestUS077_ExportSelfTrajectory_BySynthSessionID_200(t *testing.T) {
 	require.NoError(t, err)
 
 	r, _ = newQAHandlerRouterWithStore(uid, true, client, store)
-	job := pollTrajExport(t, r, `{"synth_session_id":"m0-TRAJ-H"}`)
+	job := pollTrajExport(t, r, `{"api_key_id":`+strconv.FormatInt(apiKeyID, 10)+`,"format":"v2"}`)
 	require.Equal(t, "done", job["status"], "job=%v", job)
-	require.Equal(t, float64(4), job["record_count"])
+	require.Equal(t, float64(1), job["record_count"])
 	require.Contains(t, job, "download_url")
 }
 
@@ -469,6 +242,7 @@ func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing
 	ctx := context.Background()
 	now := time.Now().UTC()
 	uid := seedTrajExportUser(t, ctx, client, true)
+	apiKeyID := seedTrajExportAPIKey(t, ctx, client, uid, "anthropic")
 	blob := bytes.Buffer{}
 	enc, err := zstd.NewWriter(&blob)
 	require.NoError(t, err)
@@ -479,7 +253,7 @@ func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing
 	_, err = client.QARecord.Create().
 		SetRequestID("traj-localfs").
 		SetUserID(uid).
-		SetAPIKeyID(1).
+		SetAPIKeyID(apiKeyID).
 		SetPlatform("anthropic").
 		SetSynthSessionID("m0-TRAJ-HTTP").
 		SetSynthRole("user-simulator").
@@ -493,7 +267,7 @@ func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing
 	store := &qaLocalFSLikeBlobStore{qaMemBlobStore{objects: map[string][]byte{"evidence/traj-localfs.zst": blob.Bytes()}}}
 	r, _ := newQAHandlerRouterWithStore(uid, true, client, store)
 
-	job := pollTrajExport(t, r, `{"synth_session_id":"m0-TRAJ-HTTP"}`)
+	job := pollTrajExport(t, r, `{"api_key_id":`+strconv.FormatInt(apiKeyID, 10)+`,"format":"v2"}`)
 	require.Equal(t, "done", job["status"], "job=%v", job)
 	downloadURL, ok := job["download_url"].(string)
 	require.True(t, ok)
@@ -514,13 +288,97 @@ func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing
 
 // Per-user authorization backstop: a user whose traj_export_enabled switch is
 // off (the default) gets 403 even with a valid auth subject and captured data.
+func TestExportSelfTrajectory_RequiresAPIKeyID(t *testing.T) {
+	r, client, _ := newQAHandlerTestEnv(t, true, 7)
+	ctx := context.Background()
+	uid := seedTrajExportUser(t, ctx, client, true)
+	r, _ = newQAHandlerRouterWithStore(uid, true, client, &qaMemBlobStore{objects: map[string][]byte{}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", bytes.NewBufferString(`{"format":"v2"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUS044_ExportSelfTrajectory_RejectsForeignAPIKey(t *testing.T) {
+	r, client, _ := newQAHandlerTestEnv(t, true, 7)
+	ctx := context.Background()
+	uid := seedTrajExportUser(t, ctx, client, true)
+	other, err := client.User.Create().
+		SetEmail("other-traj-export@test.local").
+		SetPasswordHash("x").
+		Save(ctx)
+	require.NoError(t, err)
+	foreignKeyID := seedTrajExportAPIKey(t, ctx, client, other.ID, "anthropic")
+	r, _ = newQAHandlerRouterWithStore(uid, true, client, &qaMemBlobStore{objects: map[string][]byte{}})
+
+	body := bytes.NewBufferString(`{"api_key_id":` + strconv.FormatInt(foreignKeyID, 10) + `,"format":"v2"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusForbidden, w.Code, "body=%s", w.Body.String())
+	count, err := client.QAExportJob.Query().Count(ctx)
+	require.NoError(t, err)
+	require.Zero(t, count)
+}
+
+func TestUS044_ExportSelfTrajectory_RejectsUnprojectablePlatform(t *testing.T) {
+	r, client, _ := newQAHandlerTestEnv(t, true, 7)
+	ctx := context.Background()
+	uid := seedTrajExportUser(t, ctx, client, true)
+	apiKeyID := seedTrajExportAPIKey(t, ctx, client, uid, "unprojectable-test-platform")
+	r, _ = newQAHandlerRouterWithStore(uid, true, client, &qaMemBlobStore{objects: map[string][]byte{}})
+
+	body := bytes.NewBufferString(`{"api_key_id":` + strconv.FormatInt(apiKeyID, 10) + `,"format":"v2"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusForbidden, w.Code, "body=%s", w.Body.String())
+	count, err := client.QAExportJob.Query().Count(ctx)
+	require.NoError(t, err)
+	require.Zero(t, count)
+}
+
+func TestUS044_ExportSelfTrajectory_RejectsNoGroupOrDeletedAPIKey(t *testing.T) {
+	r, client, _ := newQAHandlerTestEnv(t, true, 7)
+	ctx := context.Background()
+	uid := seedTrajExportUser(t, ctx, client, true)
+	noGroupKey, err := client.APIKey.Create().
+		SetUserID(uid).
+		SetKey("sk-traj-export-no-group").
+		SetName("trajectory export no-group key").
+		Save(ctx)
+	require.NoError(t, err)
+	deletedKeyID := seedTrajExportAPIKey(t, ctx, client, uid, "anthropic")
+	require.NoError(t, client.APIKey.DeleteOneID(deletedKeyID).Exec(ctx))
+	r, _ = newQAHandlerRouterWithStore(uid, true, client, &qaMemBlobStore{objects: map[string][]byte{}})
+
+	for _, apiKeyID := range []int64{noGroupKey.ID, deletedKeyID} {
+		body := bytes.NewBufferString(`{"api_key_id":` + strconv.FormatInt(apiKeyID, 10) + `,"format":"v2"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		require.Equal(t, http.StatusForbidden, w.Code, "api_key_id=%d body=%s", apiKeyID, w.Body.String())
+	}
+	count, err := client.QAExportJob.Query().Count(ctx)
+	require.NoError(t, err)
+	require.Zero(t, count)
+}
+
 func TestExportSelfTrajectory_Forbidden_WhenSwitchOff(t *testing.T) {
 	r, client, _ := newQAHandlerTestEnv(t, true, 7)
 	ctx := context.Background()
 	uid := seedTrajExportUser(t, ctx, client, false) // admin switch OFF
 	r, _ = newQAHandlerRouterWithStore(uid, true, client, &qaMemBlobStore{objects: map[string][]byte{}})
 
-	body := bytes.NewBufferString(`{"format":"v2"}`)
+	body := bytes.NewBufferString(`{"api_key_id":1,"format":"v2"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -529,12 +387,32 @@ func TestExportSelfTrajectory_Forbidden_WhenSwitchOff(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, w.Code, "body=%s", w.Body.String())
 }
 
-func TestUS033_DownloadSelfExport_RejectsCrossUserAndTraversalKeys(t *testing.T) {
-	r, _, _ := newQAHandlerTestEnv(t, true, 7)
+func TestUS044_TrajectoryExportReadSurfaces_ForbiddenWhenSwitchOff(t *testing.T) {
+	r, client, _ := newQAHandlerTestEnv(t, true, 7)
+	ctx := context.Background()
+	uid := seedTrajExportUser(t, ctx, client, false)
+	store := &qaMemBlobStore{objects: map[string][]byte{}}
+	r, _ = newQAHandlerRouterWithStore(uid, true, client, store)
+
+	jobID := "disabled-user-job"
+	key := "traj-exports/" + strconv.FormatInt(uid, 10) + "/1/manual/" + strconv.FormatInt(time.Now().UnixNano(), 10) + ".zip"
+	_, err := client.QAExportJob.Create().
+		SetJobID(jobID).
+		SetUserID(uid).
+		SetAPIKeyID(1).
+		SetStatus("done").
+		SetExportKind("manual").
+		SetStorageKey(key).
+		SetRecordCount(1).
+		SetExpiresAt(time.Now().UTC().Add(time.Hour)).
+		Save(ctx)
+	require.NoError(t, err)
+	store.objects[key] = []byte("zip")
 
 	for _, path := range []string{
-		"/api/v1/users/me/qa/exports/exports/8/123.zip",
-		"/api/v1/users/me/qa/exports/exports/7/../8/123.zip",
+		"/api/v1/users/me/qa/traj/export/jobs?api_key_id=1",
+		"/api/v1/users/me/qa/traj/export/jobs/" + jobID,
+		"/api/v1/users/me/qa/traj/exports/" + key,
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()

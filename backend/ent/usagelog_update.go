@@ -645,6 +645,33 @@ func (_u *UsageLogUpdate) ClearDurationMs() *UsageLogUpdate {
 	return _u
 }
 
+// SetGatewayLatencyMs sets the "gateway_latency_ms" field.
+func (_u *UsageLogUpdate) SetGatewayLatencyMs(v int) *UsageLogUpdate {
+	_u.mutation.ResetGatewayLatencyMs()
+	_u.mutation.SetGatewayLatencyMs(v)
+	return _u
+}
+
+// SetNillableGatewayLatencyMs sets the "gateway_latency_ms" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableGatewayLatencyMs(v *int) *UsageLogUpdate {
+	if v != nil {
+		_u.SetGatewayLatencyMs(*v)
+	}
+	return _u
+}
+
+// AddGatewayLatencyMs adds value to the "gateway_latency_ms" field.
+func (_u *UsageLogUpdate) AddGatewayLatencyMs(v int) *UsageLogUpdate {
+	_u.mutation.AddGatewayLatencyMs(v)
+	return _u
+}
+
+// ClearGatewayLatencyMs clears the value of the "gateway_latency_ms" field.
+func (_u *UsageLogUpdate) ClearGatewayLatencyMs() *UsageLogUpdate {
+	_u.mutation.ClearGatewayLatencyMs()
+	return _u
+}
+
 // SetFirstTokenMs sets the "first_token_ms" field.
 func (_u *UsageLogUpdate) SetFirstTokenMs(v int) *UsageLogUpdate {
 	_u.mutation.ResetFirstTokenMs()
@@ -1196,6 +1223,15 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.DurationMsCleared() {
 		_spec.ClearField(usagelog.FieldDurationMs, field.TypeInt)
+	}
+	if value, ok := _u.mutation.GatewayLatencyMs(); ok {
+		_spec.SetField(usagelog.FieldGatewayLatencyMs, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedGatewayLatencyMs(); ok {
+		_spec.AddField(usagelog.FieldGatewayLatencyMs, field.TypeInt, value)
+	}
+	if _u.mutation.GatewayLatencyMsCleared() {
+		_spec.ClearField(usagelog.FieldGatewayLatencyMs, field.TypeInt)
 	}
 	if value, ok := _u.mutation.FirstTokenMs(); ok {
 		_spec.SetField(usagelog.FieldFirstTokenMs, field.TypeInt, value)
@@ -2044,6 +2080,33 @@ func (_u *UsageLogUpdateOne) ClearDurationMs() *UsageLogUpdateOne {
 	return _u
 }
 
+// SetGatewayLatencyMs sets the "gateway_latency_ms" field.
+func (_u *UsageLogUpdateOne) SetGatewayLatencyMs(v int) *UsageLogUpdateOne {
+	_u.mutation.ResetGatewayLatencyMs()
+	_u.mutation.SetGatewayLatencyMs(v)
+	return _u
+}
+
+// SetNillableGatewayLatencyMs sets the "gateway_latency_ms" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableGatewayLatencyMs(v *int) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetGatewayLatencyMs(*v)
+	}
+	return _u
+}
+
+// AddGatewayLatencyMs adds value to the "gateway_latency_ms" field.
+func (_u *UsageLogUpdateOne) AddGatewayLatencyMs(v int) *UsageLogUpdateOne {
+	_u.mutation.AddGatewayLatencyMs(v)
+	return _u
+}
+
+// ClearGatewayLatencyMs clears the value of the "gateway_latency_ms" field.
+func (_u *UsageLogUpdateOne) ClearGatewayLatencyMs() *UsageLogUpdateOne {
+	_u.mutation.ClearGatewayLatencyMs()
+	return _u
+}
+
 // SetFirstTokenMs sets the "first_token_ms" field.
 func (_u *UsageLogUpdateOne) SetFirstTokenMs(v int) *UsageLogUpdateOne {
 	_u.mutation.ResetFirstTokenMs()
@@ -2625,6 +2688,15 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if _u.mutation.DurationMsCleared() {
 		_spec.ClearField(usagelog.FieldDurationMs, field.TypeInt)
+	}
+	if value, ok := _u.mutation.GatewayLatencyMs(); ok {
+		_spec.SetField(usagelog.FieldGatewayLatencyMs, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedGatewayLatencyMs(); ok {
+		_spec.AddField(usagelog.FieldGatewayLatencyMs, field.TypeInt, value)
+	}
+	if _u.mutation.GatewayLatencyMsCleared() {
+		_spec.ClearField(usagelog.FieldGatewayLatencyMs, field.TypeInt)
 	}
 	if value, ok := _u.mutation.FirstTokenMs(); ok {
 		_spec.SetField(usagelog.FieldFirstTokenMs, field.TypeInt, value)

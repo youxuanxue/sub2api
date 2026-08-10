@@ -32,6 +32,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/qaarchiveshard"
 	"github.com/Wei-Shaw/sub2api/ent/qaexportjob"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
@@ -1748,6 +1749,82 @@ func init() {
 	proxyDescExpiryWarnDays := proxyFields[10].Descriptor()
 	// proxy.DefaultExpiryWarnDays holds the default value on creation for the expiry_warn_days field.
 	proxy.DefaultExpiryWarnDays = proxyDescExpiryWarnDays.Default.(int)
+	qaarchiveshardFields := schema.QAArchiveShard{}.Fields()
+	_ = qaarchiveshardFields
+	// qaarchiveshardDescGeneration is the schema descriptor for generation field.
+	qaarchiveshardDescGeneration := qaarchiveshardFields[2].Descriptor()
+	// qaarchiveshard.DefaultGeneration holds the default value on creation for the generation field.
+	qaarchiveshard.DefaultGeneration = qaarchiveshardDescGeneration.Default.(int)
+	// qaarchiveshardDescState is the schema descriptor for state field.
+	qaarchiveshardDescState := qaarchiveshardFields[3].Descriptor()
+	// qaarchiveshard.DefaultState holds the default value on creation for the state field.
+	qaarchiveshard.DefaultState = qaarchiveshardDescState.Default.(string)
+	// qaarchiveshardDescRecordCount is the schema descriptor for record_count field.
+	qaarchiveshardDescRecordCount := qaarchiveshardFields[4].Descriptor()
+	// qaarchiveshard.DefaultRecordCount holds the default value on creation for the record_count field.
+	qaarchiveshard.DefaultRecordCount = qaarchiveshardDescRecordCount.Default.(int64)
+	// qaarchiveshardDescBlobRefCount is the schema descriptor for blob_ref_count field.
+	qaarchiveshardDescBlobRefCount := qaarchiveshardFields[5].Descriptor()
+	// qaarchiveshard.DefaultBlobRefCount holds the default value on creation for the blob_ref_count field.
+	qaarchiveshard.DefaultBlobRefCount = qaarchiveshardDescBlobRefCount.Default.(int64)
+	// qaarchiveshardDescBlobPresentCount is the schema descriptor for blob_present_count field.
+	qaarchiveshardDescBlobPresentCount := qaarchiveshardFields[6].Descriptor()
+	// qaarchiveshard.DefaultBlobPresentCount holds the default value on creation for the blob_present_count field.
+	qaarchiveshard.DefaultBlobPresentCount = qaarchiveshardDescBlobPresentCount.Default.(int64)
+	// qaarchiveshardDescBlobMissingCount is the schema descriptor for blob_missing_count field.
+	qaarchiveshardDescBlobMissingCount := qaarchiveshardFields[7].Descriptor()
+	// qaarchiveshard.DefaultBlobMissingCount holds the default value on creation for the blob_missing_count field.
+	qaarchiveshard.DefaultBlobMissingCount = qaarchiveshardDescBlobMissingCount.Default.(int64)
+	// qaarchiveshardDescLogicalBytes is the schema descriptor for logical_bytes field.
+	qaarchiveshardDescLogicalBytes := qaarchiveshardFields[8].Descriptor()
+	// qaarchiveshard.DefaultLogicalBytes holds the default value on creation for the logical_bytes field.
+	qaarchiveshard.DefaultLogicalBytes = qaarchiveshardDescLogicalBytes.Default.(int64)
+	// qaarchiveshardDescArtifactBytes is the schema descriptor for artifact_bytes field.
+	qaarchiveshardDescArtifactBytes := qaarchiveshardFields[9].Descriptor()
+	// qaarchiveshard.DefaultArtifactBytes holds the default value on creation for the artifact_bytes field.
+	qaarchiveshard.DefaultArtifactBytes = qaarchiveshardDescArtifactBytes.Default.(int64)
+	// qaarchiveshardDescChecksums is the schema descriptor for checksums field.
+	qaarchiveshardDescChecksums := qaarchiveshardFields[10].Descriptor()
+	// qaarchiveshard.DefaultChecksums holds the default value on creation for the checksums field.
+	qaarchiveshard.DefaultChecksums = qaarchiveshardDescChecksums.Default.(map[string]string)
+	// qaarchiveshardDescS3Prefix is the schema descriptor for s3_prefix field.
+	qaarchiveshardDescS3Prefix := qaarchiveshardFields[11].Descriptor()
+	// qaarchiveshard.DefaultS3Prefix holds the default value on creation for the s3_prefix field.
+	qaarchiveshard.DefaultS3Prefix = qaarchiveshardDescS3Prefix.Default.(string)
+	// qaarchiveshardDescAggregateRecordCount is the schema descriptor for aggregate_record_count field.
+	qaarchiveshardDescAggregateRecordCount := qaarchiveshardFields[15].Descriptor()
+	// qaarchiveshard.DefaultAggregateRecordCount holds the default value on creation for the aggregate_record_count field.
+	qaarchiveshard.DefaultAggregateRecordCount = qaarchiveshardDescAggregateRecordCount.Default.(int64)
+	// qaarchiveshardDescAggregateBlobRefCount is the schema descriptor for aggregate_blob_ref_count field.
+	qaarchiveshardDescAggregateBlobRefCount := qaarchiveshardFields[16].Descriptor()
+	// qaarchiveshard.DefaultAggregateBlobRefCount holds the default value on creation for the aggregate_blob_ref_count field.
+	qaarchiveshard.DefaultAggregateBlobRefCount = qaarchiveshardDescAggregateBlobRefCount.Default.(int64)
+	// qaarchiveshardDescAggregateBlobPresentCount is the schema descriptor for aggregate_blob_present_count field.
+	qaarchiveshardDescAggregateBlobPresentCount := qaarchiveshardFields[17].Descriptor()
+	// qaarchiveshard.DefaultAggregateBlobPresentCount holds the default value on creation for the aggregate_blob_present_count field.
+	qaarchiveshard.DefaultAggregateBlobPresentCount = qaarchiveshardDescAggregateBlobPresentCount.Default.(int64)
+	// qaarchiveshardDescAggregateBlobMissingCount is the schema descriptor for aggregate_blob_missing_count field.
+	qaarchiveshardDescAggregateBlobMissingCount := qaarchiveshardFields[18].Descriptor()
+	// qaarchiveshard.DefaultAggregateBlobMissingCount holds the default value on creation for the aggregate_blob_missing_count field.
+	qaarchiveshard.DefaultAggregateBlobMissingCount = qaarchiveshardDescAggregateBlobMissingCount.Default.(int64)
+	// qaarchiveshardDescCleanupEligible is the schema descriptor for cleanup_eligible field.
+	qaarchiveshardDescCleanupEligible := qaarchiveshardFields[24].Descriptor()
+	// qaarchiveshard.DefaultCleanupEligible holds the default value on creation for the cleanup_eligible field.
+	qaarchiveshard.DefaultCleanupEligible = qaarchiveshardDescCleanupEligible.Default.(bool)
+	// qaarchiveshardDescForwardCutover is the schema descriptor for forward_cutover field.
+	qaarchiveshardDescForwardCutover := qaarchiveshardFields[25].Descriptor()
+	// qaarchiveshard.DefaultForwardCutover holds the default value on creation for the forward_cutover field.
+	qaarchiveshard.DefaultForwardCutover = qaarchiveshardDescForwardCutover.Default.(bool)
+	// qaarchiveshardDescCreatedAt is the schema descriptor for created_at field.
+	qaarchiveshardDescCreatedAt := qaarchiveshardFields[29].Descriptor()
+	// qaarchiveshard.DefaultCreatedAt holds the default value on creation for the created_at field.
+	qaarchiveshard.DefaultCreatedAt = qaarchiveshardDescCreatedAt.Default.(func() time.Time)
+	// qaarchiveshardDescUpdatedAt is the schema descriptor for updated_at field.
+	qaarchiveshardDescUpdatedAt := qaarchiveshardFields[30].Descriptor()
+	// qaarchiveshard.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	qaarchiveshard.DefaultUpdatedAt = qaarchiveshardDescUpdatedAt.Default.(func() time.Time)
+	// qaarchiveshard.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	qaarchiveshard.UpdateDefaultUpdatedAt = qaarchiveshardDescUpdatedAt.UpdateDefault.(func() time.Time)
 	qaexportjobMixin := schema.QAExportJob{}.Mixin()
 	qaexportjobMixinFields0 := qaexportjobMixin[0].Fields()
 	_ = qaexportjobMixinFields0
@@ -2314,39 +2391,39 @@ func init() {
 	// usagelog.DefaultStream holds the default value on creation for the stream field.
 	usagelog.DefaultStream = usagelogDescStream.Default.(bool)
 	// usagelogDescUserAgent is the schema descriptor for user_agent field.
-	usagelogDescUserAgent := usagelogFields[32].Descriptor()
+	usagelogDescUserAgent := usagelogFields[33].Descriptor()
 	// usagelog.UserAgentValidator is a validator for the "user_agent" field. It is called by the builders before save.
 	usagelog.UserAgentValidator = usagelogDescUserAgent.Validators[0].(func(string) error)
 	// usagelogDescIPAddress is the schema descriptor for ip_address field.
-	usagelogDescIPAddress := usagelogFields[33].Descriptor()
+	usagelogDescIPAddress := usagelogFields[34].Descriptor()
 	// usagelog.IPAddressValidator is a validator for the "ip_address" field. It is called by the builders before save.
 	usagelog.IPAddressValidator = usagelogDescIPAddress.Validators[0].(func(string) error)
 	// usagelogDescImageCount is the schema descriptor for image_count field.
-	usagelogDescImageCount := usagelogFields[34].Descriptor()
+	usagelogDescImageCount := usagelogFields[35].Descriptor()
 	// usagelog.DefaultImageCount holds the default value on creation for the image_count field.
 	usagelog.DefaultImageCount = usagelogDescImageCount.Default.(int)
 	// usagelogDescImageSize is the schema descriptor for image_size field.
-	usagelogDescImageSize := usagelogFields[35].Descriptor()
+	usagelogDescImageSize := usagelogFields[36].Descriptor()
 	// usagelog.ImageSizeValidator is a validator for the "image_size" field. It is called by the builders before save.
 	usagelog.ImageSizeValidator = usagelogDescImageSize.Validators[0].(func(string) error)
 	// usagelogDescImageInputSize is the schema descriptor for image_input_size field.
-	usagelogDescImageInputSize := usagelogFields[36].Descriptor()
+	usagelogDescImageInputSize := usagelogFields[37].Descriptor()
 	// usagelog.ImageInputSizeValidator is a validator for the "image_input_size" field. It is called by the builders before save.
 	usagelog.ImageInputSizeValidator = usagelogDescImageInputSize.Validators[0].(func(string) error)
 	// usagelogDescImageOutputSize is the schema descriptor for image_output_size field.
-	usagelogDescImageOutputSize := usagelogFields[37].Descriptor()
+	usagelogDescImageOutputSize := usagelogFields[38].Descriptor()
 	// usagelog.ImageOutputSizeValidator is a validator for the "image_output_size" field. It is called by the builders before save.
 	usagelog.ImageOutputSizeValidator = usagelogDescImageOutputSize.Validators[0].(func(string) error)
 	// usagelogDescImageSizeSource is the schema descriptor for image_size_source field.
-	usagelogDescImageSizeSource := usagelogFields[38].Descriptor()
+	usagelogDescImageSizeSource := usagelogFields[39].Descriptor()
 	// usagelog.ImageSizeSourceValidator is a validator for the "image_size_source" field. It is called by the builders before save.
 	usagelog.ImageSizeSourceValidator = usagelogDescImageSizeSource.Validators[0].(func(string) error)
 	// usagelogDescCacheTTLOverridden is the schema descriptor for cache_ttl_overridden field.
-	usagelogDescCacheTTLOverridden := usagelogFields[41].Descriptor()
+	usagelogDescCacheTTLOverridden := usagelogFields[42].Descriptor()
 	// usagelog.DefaultCacheTTLOverridden holds the default value on creation for the cache_ttl_overridden field.
 	usagelog.DefaultCacheTTLOverridden = usagelogDescCacheTTLOverridden.Default.(bool)
 	// usagelogDescCreatedAt is the schema descriptor for created_at field.
-	usagelogDescCreatedAt := usagelogFields[42].Descriptor()
+	usagelogDescCreatedAt := usagelogFields[43].Descriptor()
 	// usagelog.DefaultCreatedAt holds the default value on creation for the created_at field.
 	usagelog.DefaultCreatedAt = usagelogDescCreatedAt.Default.(func() time.Time)
 	userMixin := schema.User{}.Mixin()

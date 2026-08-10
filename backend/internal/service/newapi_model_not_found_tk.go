@@ -9,10 +9,12 @@ import (
 )
 
 // IsOpenAICompatModelNotFound404 reports whether an OpenAI-compatible / newapi
-// upstream 404 is a CALLER-fault "the requested model does not exist / is not
+// upstream response is a CALLER-fault "the requested model does not exist / is not
 // accessible on this channel" rather than a provider-health failure. The newapi
-// fifth-platform sibling of IsAnthropicModelNotFound404. Two real upstream shapes
-// (both captured by direct probe, 2026-06-10):
+// fifth-platform sibling of IsAnthropicModelNotFound404. Matched primarily by
+// message/code (status-agnostic): some vendors (Baidu Qianfan channel_type=46)
+// return HTTP 401 + invalid_model with the same prose VolcEngine/DashScope use
+// on 404. Two canonical upstream shapes (direct probe, 2026-06-10):
 //
 //	VolcEngine Ark (channel_type=45): un-activated / retired model →
 //	  {"error":{"code":"InvalidEndpointOrModel.NotFound",
@@ -44,10 +46,11 @@ func IsOpenAICompatModelNotFound404(responseBody []byte, upstreamMsg string) boo
 	}
 	if strings.Contains(combined, "invalidendpointormodel.notfound") ||
 		strings.Contains(combined, "model_not_found") ||
+		strings.Contains(combined, "invalid_model") ||
 		strings.Contains(combined, "does not exist or you do not have access") {
 		return true
 	}
-	if code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.code").String())); code == "invalidendpointormodel.notfound" || code == "model_not_found" {
+	if code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.code").String())); code == "invalidendpointormodel.notfound" || code == "model_not_found" || code == "invalid_model" {
 		return true
 	}
 	return false
@@ -74,12 +77,8 @@ func TkRecordBridgeUpstreamError(c *gin.Context, upstreamStatusCode int, err *ne
 	if c == nil || err == nil {
 		return
 	}
-	code := strings.TrimSpace(string(err.GetErrorCode()))
-	msg := strings.TrimSpace(err.Error())
-	if code != "" {
-		msg = code + ": " + msg
-	}
-	SetOpsUpstreamError(c, upstreamStatusCode, msg, code)
+	msg := tkBridgeUpstreamRelayMessage(err)
+	SetOpsUpstreamError(c, upstreamStatusCode, msg, strings.TrimSpace(string(err.GetErrorCode())))
 }
 
 // tkWrapBridgeRelayError records the real upstream status of a New API bridge

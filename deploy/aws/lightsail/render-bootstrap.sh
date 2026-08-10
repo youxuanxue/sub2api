@@ -17,19 +17,15 @@ fi
 for f in \
   "${STAGE0}/docker-compose.yml" \
   "${STAGE0}/Caddyfile.edge" \
-  "${STAGE0}/tokenkey-qa-stale-cleanup.sh" \
   "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh"; do
   [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }
 done
 
-# All four embedded files are gzipped before base64 to keep user-data under
-# Lightsail's hard 16 KB limit. The two ops scripts (qa-stale-cleanup,
-# prune-ghcr-app-tags) used to ship as raw base64 — combined ~6.4 KB —
-# which pushed total user-data over 16 KB once env prefix and bootstrap
-# preamble were added. Gzip saves ~3.7 KB total.
+# Embedded files are gzipped before base64 to keep user-data under Lightsail's
+# hard 16 KB limit. Edge QA capture is retired, so prod QA cleanup is deliberately
+# not shipped to Lightsail.
 compose_b64="$(gzip -9n -c "${STAGE0}/docker-compose.yml" | base64 | tr -d '\n')"
 caddy_b64="$(gzip -9n -c "${STAGE0}/Caddyfile.edge" | base64 | tr -d '\n')"
-qa_b64="$(gzip -9n -c "${STAGE0}/tokenkey-qa-stale-cleanup.sh" | base64 | tr -d '\n')"
 prune_b64="$(gzip -9n -c "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh" | base64 | tr -d '\n')"
 
 cat >"${OUT}.tmp" <<'LAUNCH_HEAD'
@@ -125,7 +121,6 @@ LAUNCH_HEAD
 cat >>"${OUT}.tmp" <<LAUNCH_EMBED
 COMPOSE_GZB64='${compose_b64}'
 CADDY_GZB64='${caddy_b64}'
-QA_B64='${qa_b64}'
 PRUNE_B64='${prune_b64}'
 LAUNCH_EMBED
 
@@ -145,8 +140,6 @@ printf '%s' "$CADDY_GZB64" | base64 -d | gunzip > /var/lib/tokenkey/caddy/Caddyf
 envsubst '${API_DOMAIN} ${ACME_EMAIL} ${MAIN_GATEWAY_ALLOWED_CIDR}' \
   < /var/lib/tokenkey/caddy/Caddyfile.template > /var/lib/tokenkey/caddy/Caddyfile
 
-printf '%s' "$QA_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-qa-stale-cleanup.sh
-chmod +x /usr/local/bin/tokenkey-qa-stale-cleanup.sh
 printf '%s' "$PRUNE_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
 chmod +x /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
 

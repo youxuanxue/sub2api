@@ -12,14 +12,6 @@ import (
 // the gin context, so handlers downstream do not need to know which
 // branch took it.
 //
-// Shipped for issue #63: M0's dual-CC pipeline (and any other SDK / CI
-// caller of TokenKey) holds an API key, not a JWT — TokenKey's notion of
-// "developer credential" is the API key. The QA self-export endpoint
-// MUST therefore accept both, otherwise the same Bearer token that
-// authenticates `POST /v1/messages` (200) gets rejected by
-// `POST /api/v1/users/me/qa/export` (401), which is the bug #63
-// describes verbatim.
-//
 // Dispatch is by token shape on the Authorization header:
 //   - "Bearer eyJ..." (or any value with two dots and the JWT base64-url
 //     prefix) → JWT branch

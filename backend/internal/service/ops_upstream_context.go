@@ -59,6 +59,9 @@ const (
 	OpsUpstreamLatencyMsKey  = "ops_upstream_latency_ms"
 	OpsResponseLatencyMsKey  = "ops_response_latency_ms"
 	OpsTimeToFirstTokenMsKey = "ops_time_to_first_token_ms"
+	// OpsGatewayQueueWaitMsKey accumulates concurrency-slot and user-message-queue
+	// wait time excluded from gateway transfer latency dashboards.
+	OpsGatewayQueueWaitMsKey = "ops_gateway_queue_wait_ms"
 	// OpenAI WS 关键观测字段
 	OpsOpenAIWSQueueWaitMsKey = "ops_openai_ws_queue_wait_ms"
 	OpsOpenAIWSConnPickMsKey  = "ops_openai_ws_conn_pick_ms"
@@ -116,6 +119,18 @@ func SetOpsLatencyMs(c *gin.Context, key string, value int64) {
 		return
 	}
 	c.Set(key, value)
+}
+
+func AddOpsLatencyMs(c *gin.Context, key string, delta int64) {
+	if c == nil || strings.TrimSpace(key) == "" || delta <= 0 {
+		return
+	}
+	existing, _ := contextLatencyMs(c, key)
+	SetOpsLatencyMs(c, key, existing+delta)
+}
+
+func AddOpsGatewayQueueWaitMs(c *gin.Context, waitMs int64) {
+	AddOpsLatencyMs(c, OpsGatewayQueueWaitMsKey, waitMs)
 }
 
 func setOpsUpstreamRequestBody(c *gin.Context, body []byte) {

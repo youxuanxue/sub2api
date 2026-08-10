@@ -55,7 +55,7 @@ const createStats = () =>
       'total_cache_read_tokens', 'total_tokens', 'total_cost', 'total_actual_cost',
       'total_account_cost', 'today_requests', 'today_input_tokens', 'today_output_tokens',
       'today_cache_creation_tokens', 'today_cache_read_tokens', 'today_tokens',
-      'today_cost', 'today_actual_cost', 'today_account_cost', 'average_duration_ms',
+      'today_cost', 'today_actual_cost', 'today_account_cost', 'average_duration_ms', 'average_gateway_latency_ms',
       'uptime', 'rpm', 'tpm'
     ].map((k) => [k, 0])
   )

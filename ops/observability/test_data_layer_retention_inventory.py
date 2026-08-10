@@ -26,8 +26,10 @@ class DataLayerRetentionInventorySafetyTest(unittest.TestCase):
         self.assertIn("default_transaction_read_only=on", body)
         self.assertIn("lock_timeout=100ms", body)
         self.assertIn("statement_timeout=20s", body)
-        for table in ("usage_logs", "ops_system_logs", "ops_error_logs", "qa_records"):
+        for table in ("usage_logs", "ops_system_logs", "ops_error_logs"):
             self.assertIn(f"'{table}'", body)
+        self.assertNotIn("qa_records", body)
+        self.assertNotIn("QA_RETENTION_DAYS", body)
         for forbidden in (
             "DELETE FROM",
             "DROP TABLE",
@@ -43,7 +45,11 @@ class DataLayerRetentionInventorySafetyTest(unittest.TestCase):
         self.assertIn("RETENTIONUSAGE_EXACT", body)
         self.assertIn("RETENTIONPLAN", body)
         self.assertIn("RETPARTITION", body)
-        self.assertIn("RETBLOB", body)
+        self.assertIn("pg_partition_tree(to_regclass('usage_logs'))", body)
+        self.assertNotIn("non-partitioned usage", body)
+        self.assertNotIn("non-partitioned relation", body)
+        self.assertNotIn("RETBLOB", body)
+        self.assertIn('for value in "$USAGE_RETENTION_DAYS" "$OPS_RETENTION_DAYS"', body)
 
     def test_invalid_retention_input_fails_closed_without_docker(self) -> None:
         result = subprocess.run(
@@ -56,56 +62,6 @@ class DataLayerRetentionInventorySafetyTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn('"inventory_probe_ok":false', result.stdout)
         self.assertIn("positive integers", result.stdout)
-
-    def test_blob_scope_fails_closed_without_docker(self) -> None:
-        result = subprocess.run(
-            ["bash", str(_PROBE)],
-            env={
-                "PATH": "/usr/bin:/bin",
-                "TOKENKEY_QA_BLOB_DIR": "/",
-            },
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn('"blob_inventory_ok":false', result.stdout)
-        self.assertIn("outside the bounded data directory", result.stdout)
-
-    def test_blob_command_failure_is_reported(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = pathlib.Path(temp_dir)
-            bin_dir = root / "bin"
-            data_dir = root / "data"
-            blob_dir = data_dir / "app" / "qa_blobs"
-            bin_dir.mkdir()
-            blob_dir.mkdir(parents=True)
-
-            stubs = {
-                "docker": "#!/bin/sh\nexit 1\n",
-                "date": "#!/bin/sh\nprintf '%s\\n' '2026-07-19T00:00:00Z'\n",
-                "find": "#!/bin/sh\nexit 1\n",
-            }
-            for name, body in stubs.items():
-                path = bin_dir / name
-                path.write_text(body, encoding="utf-8")
-                path.chmod(0o755)
-
-            env = os.environ.copy()
-            env["PATH"] = f"{bin_dir}:/usr/bin:/bin"
-            env["TOKENKEY_DATA_DIR"] = str(data_dir)
-            env["TOKENKEY_QA_BLOB_DIR"] = str(blob_dir)
-            result = subprocess.run(
-                ["bash", str(_PROBE)],
-                env=env,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn('"blob_inventory_ok":false', result.stdout)
-        self.assertIn("filesystem inventory command failed", result.stdout)
 
 
 if __name__ == "__main__":

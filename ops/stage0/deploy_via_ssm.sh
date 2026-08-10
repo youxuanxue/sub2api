@@ -134,7 +134,7 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 # Credentials stay EMPTY on purpose: the prod instance role + the qa-exports bucket
 # policy (Principal = prod InstanceRole ARN) grant s3:PutObject, so no static keys
 # ever land in .env. Values are env-overridable but default to the prod bucket.
-# See docs/qa-export-s3-and-auto-archive.md.
+# Lifecycle owner: docs/approved/design-prod-qa-24h-s3-lifecycle.md.
 #
 # Compose insertion anchors on the tokenkey service's SERVER_FRONTEND_URL line, NOT
 # its TZ line: every service (caddy/tokenkey/postgres/redis) carries a `- TZ=` line,
@@ -168,7 +168,37 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
     ]')"
 fi
 
-# --- Generated-media → S3 offload (prod-only) --------------------------------
+# --- QA raw archive (prod-only, Phase 2) ---------------------------------------
+# QA_ARCHIVE_* wires hourly maintenance uploads to tokenkey-prod-qa-raw-archive-*.
+# Target policy: ops/qa/policy.yaml (prod.archive.enabled). Deploy inject default
+# false until Phase 2 closeout: ops/qa/deploy_rollout.yaml (SSOT for rollout gates).
+qa_archive_cmds='[]'
+if [[ "${INSTANCE_ID}" == i-* ]]; then
+  qa_archive_cmds="$(jq -n \
+    --arg tag "${TAG}" \
+    --arg enabled "${QA_ARCHIVE_ENABLED:-false}" \
+    --arg driver "${QA_ARCHIVE_STORAGE_DRIVER:-s3}" \
+    --arg region "${QA_ARCHIVE_STORAGE_REGION:-us-east-1}" \
+    --arg bucket "${QA_ARCHIVE_STORAGE_BUCKET:-tokenkey-prod-qa-raw-archive-682751977094}" \
+    --arg prefix "${QA_ARCHIVE_STORAGE_PREFIX:-raw/v1}" '
+    [
+      ( "qa_a_en=" + ($enabled|@sh) + "; qa_a_d=" + ($driver|@sh) + "; qa_a_r=" + ($region|@sh)
+        + "; qa_a_b=" + ($bucket|@sh) + "; qa_a_p=" + ($prefix|@sh)
+        + "; for kv in \"ENABLED=$qa_a_en\" \"STORAGE_DRIVER=$qa_a_d\" \"STORAGE_REGION=$qa_a_r\" \"STORAGE_BUCKET=$qa_a_b\" \"STORAGE_PREFIX=$qa_a_p\"; do"
+        + " key=\"QA_ARCHIVE_${kv%%=*}\"; val=\"${kv#*=}\";"
+        + " if ! grep -q \"^${key}=\" /var/lib/tokenkey/.env; then echo \"${key}=${val}\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured ${key}\";"
+        + " else echo \"${key} already present\"; fi; done" ),
+      ( "CF=/var/lib/tokenkey/docker-compose.yml; if [ -f \"$CF\" ]; then miss=0;"
+        + " for k in ENABLED STORAGE_DRIVER STORAGE_REGION STORAGE_BUCKET STORAGE_PREFIX; do grep -q \"QA_ARCHIVE_${k}=\" \"$CF\" || miss=1; done;"
+        + " if [ \"$miss\" = 1 ]; then sudo cp -a \"$CF\" \"$CF.qa-archive-before-" + $tag + "\";"
+        + " for k in STORAGE_PREFIX STORAGE_BUCKET STORAGE_REGION STORAGE_DRIVER ENABLED; do key=\"QA_ARCHIVE_$k\";"
+        + " grep -q \"${key}=\" \"$CF\" || sudo sed -i '\''/^      - SERVER_FRONTEND_URL=/a\\      - '\''\"$key\"'\''=${'\''\"$key\"'\'':-}'\'' \"$CF\"; done;"
+        + " if grep -q QA_ARCHIVE_ENABLED \"$CF\"; then echo ensured-compose-QA_ARCHIVE-mappings;"
+        + " else echo '\''::warning::failed to insert compose QA_ARCHIVE mappings'\''; fi;"
+        + " else echo compose-QA_ARCHIVE-mappings-present; fi; fi" )
+    ]')"
+fi
+
 # Same proven mechanism as the QA-export block above (additive, grep-guarded,
 # idempotent .env + compose-mapping patches on a LIVE host). Wires the media store:
 # MEDIA_STORAGE_DRIVER/REGION/BUCKET. Credentials stay EMPTY on purpose — the prod
@@ -220,6 +250,29 @@ fi
 # going live, when sustained large-body generation traffic becomes likely. All
 # three knobs are env-overridable. Prod-only (EC2 `i-*`); edges (Lightsail `mi-*`)
 # never serve generation and get [] (byte-identical command list as before).
+# --- Edge QA capture off (Lightsail mi-* only) -------------------------------
+# Phase 1 of docs/approved/design-prod-qa-24h-s3-lifecycle.md: edges must not
+# capture, archive, export, or retain QA. Prod-only blocks above stay gated to
+# EC2 i-*; this block is the symmetric edge gate. Values derive from ops/qa/policy.yaml.
+edge_qa_capture_cmds='[]'
+if [[ "${INSTANCE_ID}" == mi-* ]]; then
+  edge_qa_capture_cmds="$(jq -n \
+    --arg tag "${TAG}" '
+    [
+      ( "if grep -q '\''^QA_CAPTURE_ENABLED='\'' /var/lib/tokenkey/.env; then"
+        + " sudo sed -i '\''s|^QA_CAPTURE_ENABLED=.*|QA_CAPTURE_ENABLED=false|'\'' /var/lib/tokenkey/.env; echo ensured-QA_CAPTURE_ENABLED=false;"
+        + " else echo QA_CAPTURE_ENABLED=false | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo ensured-QA_CAPTURE_ENABLED=false; fi" ),
+      ( "CF=/var/lib/tokenkey/docker-compose.yml; if [ -f \"$CF\" ]; then"
+        + " if ! grep -q \"QA_CAPTURE_ENABLED=\" \"$CF\"; then"
+        + " sudo cp -a \"$CF\" \"$CF.edge-qa-capture-before-" + $tag + "\";"
+        + " sudo sed -i '\''/^      - SERVER_FRONTEND_URL=/a\\      - QA_CAPTURE_ENABLED=${QA_CAPTURE_ENABLED:-}'\'' \"$CF\";"
+        + " fi;"
+        + " if grep -q \"QA_CAPTURE_ENABLED=\" \"$CF\"; then echo ensured-compose-QA_CAPTURE_ENABLED-mapping;"
+        + " else echo '\''::warning::failed to insert compose QA_CAPTURE_ENABLED mapping'\''; fi;"
+        + " else echo compose-file-missing-skip-QA_CAPTURE_ENABLED; fi" )
+    ]')"
+fi
+
 image_concurrency_cmds='[]'
 if [[ "${INSTANCE_ID}" == i-* ]]; then
   image_concurrency_cmds="$(jq -n \
@@ -244,7 +297,7 @@ if [[ "${INSTANCE_ID}" == i-* ]]; then
     ]')"
 fi
 
-jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" --argjson media_cmds "${media_storage_cmds}" --argjson ic_cmds "${image_concurrency_cmds}" '{
+jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" --argjson qa_archive_cmds "${qa_archive_cmds}" --argjson media_cmds "${media_storage_cmds}" --argjson ic_cmds "${image_concurrency_cmds}" --argjson edge_qa_cmds "${edge_qa_capture_cmds}" '{
   commands: ([
     "set -euo pipefail",
     ("echo === deploy stage0 to tag=" + $tag + " ==="),
@@ -260,7 +313,7 @@ jq -n --arg tag "${TAG}" --argjson qa_cmds "${qa_export_cmds}" --argjson media_c
     "if ! grep -q '\''^SERVER_FRONTEND_URL='\'' /var/lib/tokenkey/.env; then d=$(sed -n '\''s/^API_DOMAIN=//p'\'' /var/lib/tokenkey/.env | head -1); if [ -n \"$d\" ]; then echo \"SERVER_FRONTEND_URL=https://$d\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured SERVER_FRONTEND_URL=https://$d\"; else echo \"API_DOMAIN empty; skip SERVER_FRONTEND_URL backfill\"; fi; else echo \"SERVER_FRONTEND_URL already present\"; fi",
     "if ! grep -q '\''^TOKENKEY_GHCR_KEEP_TAGS='\'' /var/lib/tokenkey/.env; then echo '\''TOKENKEY_GHCR_KEEP_TAGS=3'\'' | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo '\''ensured TOKENKEY_GHCR_KEEP_TAGS=3'\''; else echo '\''TOKENKEY_GHCR_KEEP_TAGS already present'\''; fi",
     ("if [ -f /var/lib/tokenkey/docker-compose.yml ] && ! grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then sudo cp -a /var/lib/tokenkey/docker-compose.yml /var/lib/tokenkey/docker-compose.yml.compose-before-" + $tag + "; sudo sed -i '\''/^      - TZ=/a\\      - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}'\'' /var/lib/tokenkey/docker-compose.yml; if grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then echo ensured-compose-SERVER_FRONTEND_URL-mapping; else echo '\''::warning::failed to insert compose SERVER_FRONTEND_URL mapping'\''; fi; else echo compose-SERVER_FRONTEND_URL-mapping-present-or-no-compose; fi")
-  ] + $qa_cmds + $media_cmds + $ic_cmds + [
+  ] + $qa_cmds + $qa_archive_cmds + $media_cmds + $ic_cmds + $edge_qa_cmds + [
     "echo \"=== pull new image BEFORE drain (old container keeps serving 100% traffic) ===\"",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "echo \"=== pre-drain: SIGUSR1 + wait in_flight=0 (only when outgoing container healthy) ===\"",

@@ -1,13 +1,10 @@
 package qa
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,7 +16,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/apipath"
 
 	"github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/engine"
@@ -42,7 +38,6 @@ type Service struct {
 	pool              pond.Pool
 	bodyMaxBytes      int
 	optInBodyMaxBytes int
-	retentionDays     int
 	dlqDir            string
 
 	// Trajectory export runs off the request path on its own single-worker pool
@@ -58,11 +53,6 @@ type Service struct {
 	// the large archive leaves the Postgres-shared data volume; capture blobs
 	// still go to `store`.
 	exportStore BlobStore
-
-	// autoExportStop signals the daily auto-export loop to exit; closed by Stop().
-	// Only created when qa_capture.auto_export_enabled is set.
-	autoExportStop chan struct{}
-	autoExportOnce sync.Once
 }
 
 var (
@@ -134,7 +124,6 @@ func NewService(cfg *config.Config, client *ent.Client) (*Service, error) {
 		exportStore:       exportStore,
 		bodyMaxBytes:      cfg.QACapture.BodyMaxBytes,
 		optInBodyMaxBytes: cfg.QACapture.OptInBodyMaxBytes,
-		retentionDays:     cfg.QACapture.RetentionDays,
 		dlqDir:            filepath.Join(dataDir, "qa_dlq"),
 	}
 	svc.pool = pond.NewPool(cfg.QACapture.WorkerCount, pond.WithQueueSize(cfg.QACapture.QueueSize))
@@ -146,21 +135,12 @@ func NewService(cfg *config.Config, client *ent.Client) (*Service, error) {
 	if rcErr := svc.ReconcileOrphanedExports(context.Background()); rcErr != nil {
 		logger.L().Warn("qa export: orphan reconcile failed", zap.Error(rcErr))
 	}
-	// Daily per-(user,key) archive to the export store. Ships dormant — only
-	// runs when explicitly enabled (and only meaningful once export_storage
-	// points at durable S3, since localfs purges the source blobs each day).
-	if cfg.QACapture.AutoExportEnabled {
-		svc.StartAutoExportLoop()
-	}
 	return svc, nil
 }
 
 func (s *Service) Stop() {
 	if s == nil {
 		return
-	}
-	if s.autoExportStop != nil {
-		s.autoExportOnce.Do(func() { close(s.autoExportStop) })
 	}
 	if s.pool != nil {
 		s.pool.StopAndWait()
@@ -381,7 +361,7 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 		SetBlobURI(blobURI).
 		SetTags(tags).
 		SetCreatedAt(input.CreatedAt).
-		SetRetentionUntil(input.CreatedAt.Add(time.Duration(s.retentionDays) * 24 * time.Hour))
+		SetRetentionUntil(input.CreatedAt.Add(24 * time.Hour))
 	if v := strings.TrimSpace(input.TrajectoryID); v != "" {
 		create = create.SetTrajectoryID(v)
 	}
@@ -440,110 +420,7 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 	return err
 }
 
-// presignedURLTTL is how long the export download URL stays valid.
-// Picked to comfortably cover the M0 retry/backoff loop without leaving
-// the link harvestable for days.
 const presignedURLTTL = 24 * time.Hour
-
-// ExportUserData is the canonical export path for issue #59.
-// It enforces row-level ownership (`WHERE user_id = ?`) and additionally
-// filters by synth_session_id / synth_role when set, so the M0 dual-CC
-// pipeline can isolate one ~30s session out of densely interleaved
-// traffic. When no time bounds AND no synth filter are supplied the
-// caller would get every record they own; the HTTP handler MUST therefore
-// default to a bounded window — see handler.QAHandler.ExportSelf.
-//
-// Caller MUST gate on Service.Enabled() before invoking — this method
-// does not re-check (one canonical guard, owned by the caller).
-func (s *Service) ExportUserData(ctx context.Context, userID int64, filter ExportFilter) (*ExportResult, error) {
-	records, err := s.queryExportRecords(ctx, userID, filter)
-	if err != nil {
-		return nil, err
-	}
-
-	var buf bytes.Buffer
-	zipWriter := zip.NewWriter(&buf)
-	indexWriter, err := zipWriter.Create("qa_records.jsonl")
-	if err != nil {
-		return nil, err
-	}
-	for _, record := range records {
-		row, err := json.Marshal(exportQARecordRow(record))
-		if err != nil {
-			return nil, err
-		}
-		if _, err := indexWriter.Write(append(row, '\n')); err != nil {
-			return nil, err
-		}
-	}
-	if err := zipWriter.Close(); err != nil {
-		return nil, err
-	}
-
-	key := fmt.Sprintf("exports/%d/%d.zip", userID, time.Now().UnixNano())
-	signedAt := time.Now().UTC()
-	if _, err := s.store.Put(ctx, key, buf.Bytes(), "application/zip"); err != nil {
-		return nil, err
-	}
-	url, err := s.store.PresignURL(ctx, key, presignedURLTTL)
-	if err != nil {
-		return nil, err
-	}
-	return &ExportResult{
-		DownloadURL: url,
-		ExpiresAt:   signedAt.Add(presignedURLTTL),
-		RecordCount: len(records),
-		StorageKey:  key,
-	}, nil
-}
-
-func exportQARecordRow(record *ent.QARecord) map[string]any {
-	row := map[string]any{}
-	raw, err := json.Marshal(record)
-	if err == nil {
-		_ = json.Unmarshal(raw, &row)
-	}
-	// Ent's generated JSON tags use omitempty, but M0's external consumer
-	// contract needs stable snake_case keys even when a value is nil/zero.
-	row["api_key_id"] = record.APIKeyID
-	row["upstream_model"] = record.UpstreamModel
-	row["input_tokens"] = record.InputTokens
-	row["output_tokens"] = record.OutputTokens
-	row["cached_tokens"] = record.CachedTokens
-	row["stream"] = record.Stream
-	row["tool_calls_present"] = record.ToolCallsPresent
-	row["multimodal_present"] = record.MultimodalPresent
-	if record.Tags == nil {
-		row["tags"] = []string{}
-	} else {
-		row["tags"] = record.Tags
-	}
-	row["synth_session_id"] = record.SynthSessionID
-	return row
-}
-
-// DownloadUserExport reads a previously generated export zip after checking
-// that the storage key belongs to the authenticated user. This is the localfs
-// HTTP download proxy used by external SDK/CI clients; S3 users still receive
-// direct presigned URLs from ExportUserData.
-func (s *Service) DownloadUserExport(ctx context.Context, userID int64, key string) ([]byte, error) {
-	key = strings.TrimSpace(key)
-	prefix := fmt.Sprintf("exports/%d/", userID)
-	if key == "" || !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, ".zip") {
-		return nil, fs.ErrPermission
-	}
-	if strings.Contains(key, "\\") || strings.HasPrefix(key, "/") || hasUnsafePathSegment(key) {
-		return nil, fs.ErrPermission
-	}
-	if exportKeyExpired(key, time.Now().UTC()) {
-		return nil, fs.ErrNotExist
-	}
-	body, err := s.store.Get(ctx, key)
-	if err != nil && os.IsNotExist(err) {
-		return nil, fs.ErrNotExist
-	}
-	return body, err
-}
 
 func hasUnsafePathSegment(path string) bool {
 	for _, segment := range strings.Split(path, "/") {
@@ -556,56 +433,10 @@ func hasUnsafePathSegment(path string) bool {
 
 func exportKeyExpired(key string, now time.Time) bool {
 	stamp := strings.TrimSuffix(filepath.Base(key), ".zip")
-	// manual exports embed unix-nanos in the filename.
 	if nanos, err := strconv.ParseInt(stamp, 10, 64); err == nil {
 		return !now.Before(time.Unix(0, nanos).UTC().Add(presignedURLTTL))
 	}
-	// auto exports embed the archived day (YYYY-MM-DD) and are retained for the
-	// longer auto-archive TTL (matching their S3 lifecycle), not the 24h URL TTL.
-	if day, err := time.Parse("2006-01-02", stamp); err == nil {
-		return !now.Before(day.UTC().Add(autoExportArtifactTTL))
-	}
-	// Unparseable (legacy or unexpected) keys are not gated here; the store's
-	// own lifecycle (host cleanup / S3 expiration) remains the backstop.
 	return false
-}
-
-func (s *Service) DeleteUserData(ctx context.Context, userID int64, before *time.Time) (int, error) {
-	query := s.client.QARecord.Query().Where(qarecord.UserIDEQ(userID))
-	if before != nil {
-		query = query.Where(qarecord.CreatedAtLT(*before))
-	}
-	records, err := query.All(ctx)
-	if err != nil {
-		return 0, err
-	}
-	for _, record := range records {
-		if record.BlobURI != nil {
-			blobURI := strings.TrimSpace(*record.BlobURI)
-			if blobURI == "" {
-				continue
-			}
-			if key := s.keyFromBlobURI(blobURI); key != "" {
-				_ = s.store.Delete(ctx, key)
-			}
-		}
-	}
-	deleteQuery := s.client.QARecord.Delete().Where(qarecord.UserIDEQ(userID))
-	if before != nil {
-		deleteQuery = deleteQuery.Where(qarecord.CreatedAtLT(*before))
-	}
-	deleted, err := deleteQuery.Exec(ctx)
-	if err != nil {
-		return 0, err
-	}
-	_, _ = s.client.PaymentAuditLog.Create().
-		SetOrderID(fmt.Sprintf("qa-data:%d", userID)).
-		SetAction("qa_data_delete").
-		SetDetail("user requested QA data deletion").
-		SetOperator("user").
-		SetCreatedAt(time.Now()).
-		Save(ctx)
-	return deleted, nil
 }
 
 func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []string, error) {

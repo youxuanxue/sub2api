@@ -52,6 +52,8 @@ import (
 //     predict surface; re-probe via chat to add them). veo-3.1-generate-001 was
 //     added after the 2026-07-04 post-#1198 paid gate returned direct/universal
 //     200 queued video for the Vertex group.
+//   - gemini-embedding-001 (2026-08-07 direct upstream probe on prod Vertex
+//     accounts 47/57/58/59/74): :predict returned 200 with embedding values.
 //
 // Maintenance: this is an empirical snapshot, refreshed by re-running the
 // probe (ops/observability/run-probe.sh) when the served fleet changes. An
@@ -168,6 +170,7 @@ var supportedGeminiCatalogModels = map[string]struct{}{
 	"imagen-4.0-generate-001":       {},
 	"imagen-4.0-ultra-generate-001": {},
 	"veo-3.1-generate-001":          {},
+	"gemini-embedding-001":          {},
 	// servable-allowlist:end gemini
 }
 

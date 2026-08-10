@@ -2,6 +2,7 @@
 """Unit tests for client-release-watch issue helpers."""
 from __future__ import annotations
 
+import json
 import sys
 import subprocess
 import tempfile
@@ -62,6 +63,8 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
         }
 
         def fake_sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+            if args[:3] == ["gh", "issue", "list"] and "--json" in args and "number,labels" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
             if args[:3] == ["gh", "issue", "list"]:
                 return subprocess.CompletedProcess(args, 0, stdout="1136", stderr="")
             if args[:3] == ["gh", "issue", "view"]:
@@ -85,6 +88,65 @@ class OpenClientReleaseWatchIssuesTest(unittest.TestCase):
         self.assertEqual(links[0]["number"], 1136)
         self.assertEqual(links[0]["status"], "updated")
         self.assertEqual(links[0]["url"], "https://github.com/youxuanxue/sub2api/issues/1136")
+
+    def test_sync_issues_closes_superseded_drift_for_same_platform(self) -> None:
+        report = {
+            "run_url": "https://github.com/youxuanxue/sub2api/actions/runs/1",
+            "platforms": [
+                {
+                    "id": "claude-code",
+                    "name": "Claude Code",
+                    "pinned": "2.1.220",
+                    "upstream_latest": "2.1.226",
+                    "status": "drift",
+                    "pin_path": "deploy/aws/stage0/anthropic-http-mimicry-baselines.json",
+                    "skill": "tokenkey-cc-fingerprint-alignment",
+                    "upstream_sources": {},
+                    "drift": True,
+                }
+            ],
+        }
+        calls: list[list[str]] = []
+
+        def fake_sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+            calls.append(list(args))
+            if args[:3] == ["gh", "issue", "list"] and "--json" in args and "number,labels" in args:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout=json.dumps([
+                        {"number": 1549, "labels": [{"name": "client-release:drift"}, {"name": "client-release:claude-code"}, {"name": "cr-sig:claude-code-2.1.222"}]},
+                        {"number": 1589, "labels": [{"name": "client-release:drift"}, {"name": "client-release:claude-code"}, {"name": "cr-sig:claude-code-2.1.224"}]},
+                    ]),
+                    stderr="",
+                )
+            if args[:3] == ["gh", "issue", "list"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["gh", "issue", "create"]:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout="https://github.com/youxuanxue/sub2api/issues/1596",
+                    stderr="",
+                )
+            if args[:3] == ["gh", "issue", "view"]:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout="https://github.com/youxuanxue/sub2api/issues/1596\n",
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp, \
+            patch("open_client_release_watch_issues.ensure_base_labels"), \
+            patch("open_client_release_watch_issues.ensure_label"), \
+            patch("open_client_release_watch_issues.sh", side_effect=fake_sh):
+            sync_issues(report, cache_dir=Path(tmp), umbrella=True)
+
+        self.assertTrue(any(call[:4] == ["gh", "issue", "close", "1549"] for call in calls))
+        self.assertTrue(any(call[:4] == ["gh", "issue", "close", "1589"] for call in calls))
+        self.assertFalse(any(call[:4] == ["gh", "issue", "close", "1596"] for call in calls))
 
 
 if __name__ == "__main__":

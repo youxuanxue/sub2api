@@ -440,7 +440,7 @@ func formatUserVisibleFailureRoot(roots []*OpsUserVisibleFailureRoot) string {
 		if r.AccountID > 0 {
 			seg += fmt.Sprintf(" / account #%d", r.AccountID)
 		}
-		if msg := sanitizeFeishuLabel(r.Message); msg != "" {
+		if msg := sanitizeFeishuUpstreamRootMessage(r.Message); msg != "" {
 			seg += " / " + msg
 		}
 		parts = append(parts, fmt.Sprintf("%s ×%d", seg, r.Count))
@@ -481,6 +481,42 @@ var feishuLabelSanitizer = strings.NewReplacer(
 // trims surrounding whitespace. Returns "" for an all-blank/empty name.
 func sanitizeFeishuLabel(s string) string {
 	return strings.TrimSpace(feishuLabelSanitizer.Replace(s))
+}
+
+const (
+	dashScopeHelpURLRateLimit = "https://help.aliyun.com/zh/model-studio/error-code#rate-limit"
+	dashScopeHelpURLOverdue   = "https://help.aliyun.com/zh/model-studio/error-code#overdue-payment"
+	maskedPublicHelpURL       = "https://***.com/***/***/***"
+)
+
+// restoreDashScopeHelpURL reverses new-api MaskSensitiveInfo on public Aliyun
+// documentation links already persisted in ops_error_logs. Safe to call on
+// unmasked messages (no-op when the placeholder is absent).
+func restoreDashScopeHelpURL(msg string) string {
+	if msg == "" || !strings.Contains(msg, "https://***.com") {
+		return msg
+	}
+	lower := strings.ToLower(msg)
+	replacement := dashScopeHelpURLRateLimit
+	switch {
+	case strings.Contains(lower, "good standing"), strings.Contains(lower, "arrear"), strings.Contains(lower, "overdue"):
+		replacement = dashScopeHelpURLOverdue
+	case strings.Contains(lower, "limit_requests"), strings.Contains(lower, "request limit"), strings.Contains(lower, "rate limit"):
+		replacement = dashScopeHelpURLRateLimit
+	}
+	return strings.ReplaceAll(msg, maskedPublicHelpURL, replacement)
+}
+
+// sanitizeFeishuUpstreamRootMessage prepares provider-owned upstream error text
+// for lark_md cards. Unlike sanitizeFeishuLabel it keeps URL punctuation intact
+// and defangs asterisks so MaskSensitiveInfo placeholders are not eaten as bold.
+func sanitizeFeishuUpstreamRootMessage(msg string) string {
+	msg = strings.TrimSpace(restoreDashScopeHelpURL(msg))
+	if msg == "" {
+		return ""
+	}
+	msg = strings.ReplaceAll(msg, "*", "＊")
+	return escapeFeishuText(msg)
 }
 
 // truncateRunes shortens s to at most max runes (rune-safe for multibyte key

@@ -11,10 +11,12 @@ describe('studioMediaCatalog', () => {
       { model_id: 'imagen-4.0-generate-001', pricing: { billing_mode: 'image' } },
       { model_id: 'grok-imagine-video', pricing: { billing_mode: 'video' } },
       { model_id: 'grok-4.3', pricing: { billing_mode: 'token' } },
+      { model_id: 'bge-large-en', pricing: { billing_mode: 'embedding' } },
     ])
     expect(idx.get('imagen-4.0-generate-001')).toBe('image')
     expect(idx.get('grok-imagine-video')).toBe('video')
     expect(idx.has('grok-4.3')).toBe(false)
+    expect(idx.has('bge-large-en')).toBe(false)
   })
 
   it('priceMapFromPublicCatalog carries billingMode and vendor', () => {

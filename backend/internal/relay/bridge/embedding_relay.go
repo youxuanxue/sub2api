@@ -6,8 +6,10 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	newapirelay "github.com/QuantumNous/new-api/relay"
+	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
@@ -35,6 +37,13 @@ func RunEmbeddingRelay(c *gin.Context, info *relaycommon.RelayInfo) (*dto.Usage,
 		return nil, types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 	}
 
+	if info.ChannelType == newapiconstant.ChannelTypeVertexAi {
+		return runVertexEmbeddingRelay(c, info, request)
+	}
+	if info.ChannelType == newapiconstant.ChannelTypeBaiduV2 {
+		return runQianfanEmbeddingRelay(c, info, request)
+	}
+
 	adaptor := newapirelay.GetAdaptor(info.ApiType)
 	if adaptor == nil {
 		return nil, types.NewError(fmt.Errorf("invalid api type: %d", info.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
@@ -45,6 +54,10 @@ func RunEmbeddingRelay(c *gin.Context, info *relaycommon.RelayInfo) (*dto.Usage,
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
+	return runAdaptorEmbeddingRelay(c, info, adaptor, convertedRequest)
+}
+
+func runAdaptorEmbeddingRelay(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, convertedRequest any) (*dto.Usage, *types.NewAPIError) {
 	relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
 	jsonData, err := common.Marshal(convertedRequest)
 	if err != nil {

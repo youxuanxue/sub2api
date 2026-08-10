@@ -17,7 +17,6 @@ export TK_GHCR_PAT_SSM_NAME='${GhcrPatSsmName}'
 export TK_DATA_VOLUME_ID='${DataVolume}'
 export TK_PROJECT_NAME='${ProjectName}'
 export TK_ENVIRONMENT='${Environment}'
-export TK_QA_STALE_RETENTION_DAYS='${QaStaleRetentionDays}'
 export TK_TOKENKEY_IMAGE="ghcr.io/${GhcrOwner}/${GhcrImageName}:${ImageTag}"
 export TK_STAGE0_PREFIX='/${ProjectName}/${Environment}/stage0'
 

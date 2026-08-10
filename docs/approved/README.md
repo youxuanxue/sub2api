@@ -37,7 +37,9 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 | [`channel-pricing-refund-gate-and-runtime-pricing.md`](channel-pricing-refund-gate-and-runtime-pricing.md) | Runtime pricing and refund gate |
 | [`design-all-edge-ec2-t4g-small-unlimited-migration.md`](design-all-edge-ec2-t4g-small-unlimited-migration.md) | 全部活动 Edge 迁移到 EC2 `t4g.small` Unlimited，并退役 Lightsail 平台与 Agent 契约 |
 | [`design-data-layer-prod-export-canary.md`](design-data-layer-prod-export-canary.md) | 生产只读、export-only、无删除归档 canary |
-| [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 archive 桶 + promote |
+| [`design-capacity-first-data-layer-safety.md`](design-capacity-first-data-layer-safety.md) | Capacity-first 阈值契约；正式 probe 已晋升进 daily diagnostics |
+| [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 ops archive 桶 + promote |
+| [`design-prod-qa-24h-s3-lifecycle.md`](design-prod-qa-24h-s3-lifecycle.md) | Prod-only QA 24h 在线层与 7d raw S3 生命周期 SSOT |
 | [`disable-cancel-storm-detector.md`](disable-cancel-storm-detector.md) | Cancel-storm detector retirement |
 | [`glm-direct-zhipuv4-onboarding.md`](glm-direct-zhipuv4-onboarding.md) | GLM direct onboarding |
 | [`grok-relay-first-class-platform.md`](grok-relay-first-class-platform.md) | Grok relay platform |
@@ -59,6 +61,4 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 
 ## Pending baselines
 
-| File | Topic |
-| --- | --- |
-| [`design-capacity-first-data-layer-safety.md`](design-capacity-first-data-layer-safety.md) | Capacity-first 本地/非生产安全原型；不授权 prod 操作 |
+（当前无 pending 项。）

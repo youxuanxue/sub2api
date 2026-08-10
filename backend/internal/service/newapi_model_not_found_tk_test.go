@@ -29,6 +29,7 @@ func TestIsOpenAICompatModelNotFound404(t *testing.T) {
 		// and the structured code, so a vendor reword of either still classifies.
 		{"dashscope model_not_found JSON body", `{"error":{"message":"The model ` + "`qwen-x`" + ` does not exist or you do not have access to it.","type":"invalid_request_error","code":"model_not_found"}}`, "", true},
 		{"dashscope code-prefixed message (bridge path)", "", "model_not_found: The model `qwen-x` does not exist or you do not have access to it.", true},
+		{"baidu qianfan 401 invalid_model (prod account 90 incident)", `{"error":{"code":"invalid_model","message":"The model does not exist or you do not have access to it."}}`, "invalid_model: The model does not exist or you do not have access to it.", true},
 		{"model_not_found structured code alone (prose reworded)", `{"error":{"code":"model_not_found","message":"whatever wording the vendor uses"}}`, "", true},
 		{"genuine 5xx is NOT model-not-found", `{"error":{"message":"upstream service temporarily unavailable"}}`, "Upstream request failed", false},
 		{"rate limit is NOT model-not-found", "", "Upstream rate limit exceeded, please retry later", false},
@@ -68,4 +69,23 @@ func TestTkRecordBridgeUpstreamError_RecordsRealUpstream404(t *testing.T) {
 	// the single-field message key) can see the InvalidEndpointOrModel.NotFound signal.
 	require.True(t, IsOpenAICompatModelNotFound404(nil, msg.(string)),
 		"recorded message must be recognized as a model-not-found")
+}
+
+func TestTkRecordBridgeUpstreamError_PreservesDashScopeHelpURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	const want = dashScopeHelpURLRateLimit
+	apiErr := newapitypes.WithOpenAIError(newapitypes.OpenAIError{
+		Message: "You have exceeded your current request limit. For details, see: " + want,
+		Type:    "rate_limit_error",
+		Code:    "limit_requests",
+	}, http.StatusTooManyRequests)
+	TkRecordBridgeUpstreamError(c, apiErr.StatusCode, apiErr)
+
+	msg, ok := c.Get(OpsUpstreamErrorMessageKey)
+	require.True(t, ok)
+	require.Contains(t, msg.(string), want)
+	require.NotContains(t, msg.(string), maskedPublicHelpURL)
 }

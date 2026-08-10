@@ -28,8 +28,8 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 SCHEMA_VERSION = 1
 SOURCE_TABLE = "archive_rehearsal_records"
 RESTORE_TABLE = "archive_rehearsal_restored"
-DATASETS = ("usage", "ops", "qa")
-DEFAULT_RETENTION_DAYS = {"usage": 90, "ops": 30, "qa": 2}
+DATASETS = ("usage", "ops")
+DEFAULT_RETENTION_DAYS = {"usage": 90, "ops": 30}
 ENVIRONMENTS = ("local", "nonprod")
 POSTGRES_SOURCE_KIND = "local_docker_postgres_read_only"
 POSTGRES_REHEARSAL_DATABASE = "tokenkey_archive_rehearsal"
@@ -39,7 +39,13 @@ POSTGRES_SENTINEL_LABEL = "tokenkey_archive_rehearsal"
 PROD_CANARY_MODE = "prod_archive_export_canary"
 PROD_EXPORT_MODE = "prod_archive_export_batch"
 PROD_EXPORT_SCOPE_LEGACY_COLD = "legacy_cold"
+PROD_EXPORT_SCOPE_POST_LEGACY_COLD = "post_legacy_cold"
 PROD_LEGACY_UPPER_EXCLUSIVE = "2026-07-01T00:00:00.000000Z"
+PROD_LEGACY_LOWER_INCLUSIVE = PROD_LEGACY_UPPER_EXCLUSIVE
+PROD_EXPORT_SCOPES = (
+    PROD_EXPORT_SCOPE_LEGACY_COLD,
+    PROD_EXPORT_SCOPE_POST_LEGACY_COLD,
+)
 PROD_CANARY_SOURCE_KIND = "stage0_prod_docker_postgres_read_only"
 PROD_CANARY_DATABASE = "tokenkey"
 PROD_CANARY_STACK = "tokenkey-prod-stage0"
@@ -47,12 +53,11 @@ PROD_CANARY_CONTAINER = "tokenkey-postgres"
 PROD_CANARY_TABLES = ("ops_system_logs", "ops_error_logs")
 POSTGRES_BIGINT_MAX = 2**63 - 1
 POSTGRES_BIGINT_WIDTH = len(str(POSTGRES_BIGINT_MAX))
-POSTGRES_TABLES = ("usage_logs", "ops_system_logs", "ops_error_logs", "qa_records")
+POSTGRES_TABLES = ("usage_logs", "ops_system_logs", "ops_error_logs")
 POSTGRES_DATASETS = {
     "usage_logs": "usage",
     "ops_system_logs": "ops",
     "ops_error_logs": "ops",
-    "qa_records": "qa",
 }
 DEFAULT_POSTGRES_TIMEOUT_SECONDS = 30
 DEFAULT_POSTGRES_MAX_ROWS = 100_000
@@ -262,7 +267,7 @@ def _postgres_candidates(
     info = _postgres_dsn_info(dsn, target=False)
     normalized_as_of = _timestamp(_utc(as_of))
     policy = retention_policy(
-        retention_days["usage"], retention_days["ops"], retention_days["qa"]
+        retention_days["usage"], retention_days["ops"]
     )
     _postgres_sentinel(dsn, timeout_seconds=timeout_seconds)
     candidates = {dataset: [] for dataset in DATASETS}
@@ -391,11 +396,10 @@ def _positive_days(name: str, value: int) -> int:
     return value
 
 
-def retention_policy(usage: int, ops: int, qa: int) -> dict[str, int]:
+def retention_policy(usage: int, ops: int) -> dict[str, int]:
     return {
         "usage": _positive_days("usage retention", usage),
         "ops": _positive_days("ops retention", ops),
-        "qa": _positive_days("qa retention", qa),
     }
 
 
@@ -488,7 +492,7 @@ def collect_candidates(
     source_path = _local_path(source, must_exist=True)
     cutoff_base = _utc(as_of)
     normalized_retention = retention_policy(
-        retention_days["usage"], retention_days["ops"], retention_days["qa"]
+        retention_days["usage"], retention_days["ops"]
     )
     candidates = {dataset: [] for dataset in DATASETS}
     seen: set[tuple[str, str]] = set()
@@ -573,7 +577,7 @@ def dry_run(
     source_stat = source_path.stat()
     normalized_as_of = _timestamp(_utc(as_of))
     normalized_retention = retention_policy(
-        retention_days["usage"], retention_days["ops"], retention_days["qa"]
+        retention_days["usage"], retention_days["ops"]
     )
     candidates, source_rows = collect_candidates(
         source_path, as_of=normalized_as_of, retention_days=normalized_retention
@@ -720,7 +724,7 @@ def seal_batch(
     source_stat = source_path.stat()
     normalized_as_of = _timestamp(_utc(as_of))
     normalized_retention = retention_policy(
-        retention_days["usage"], retention_days["ops"], retention_days["qa"]
+        retention_days["usage"], retention_days["ops"]
     )
     candidates, source_rows = collect_candidates(
         source_path, as_of=normalized_as_of, retention_days=normalized_retention
@@ -862,7 +866,7 @@ def postgres_dry_run(
         source_rows,
         as_of=as_of,
         retention_days=retention_policy(
-            retention_days["usage"], retention_days["ops"], retention_days["qa"]
+            retention_days["usage"], retention_days["ops"]
         ),
         source_info=source_info,
     )
@@ -888,7 +892,7 @@ def seal_postgres_batch(
     if report["candidate_rows"] == 0:
         raise RehearsalError("cannot seal an empty PostgreSQL rehearsal batch")
     normalized_retention = retention_policy(
-        retention_days["usage"], retention_days["ops"], retention_days["qa"]
+        retention_days["usage"], retention_days["ops"]
     )
     artifacts_preview = [
         _artifact_entry(dataset, candidates[dataset])[0]
@@ -1106,11 +1110,12 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
     if not isinstance(policy, dict):
         raise RehearsalError("manifest retention_days is invalid")
     try:
-        normalized_policy = retention_policy(policy["usage"], policy["ops"], policy["qa"])
+        normalized_policy = retention_policy(policy["usage"], policy["ops"])
     except (KeyError, TypeError) as exc:
         raise RehearsalError("manifest retention_days is invalid") from exc
-    if policy != normalized_policy:
-        raise RehearsalError("manifest retention_days is not canonical")
+    for key, value in normalized_policy.items():
+        if policy.get(key) != value:
+            raise RehearsalError("manifest retention_days is not canonical")
     if mode in (PROD_CANARY_MODE, PROD_EXPORT_MODE) and normalized_policy != DEFAULT_RETENTION_DAYS:
         raise RehearsalError("production archive retention policy is not approved")
     bounds = manifest.get("canary" if mode == PROD_CANARY_MODE else "export")
@@ -1141,14 +1146,13 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         first_key_name = "sample_first_key"
         last_key_name = "sample_last_key"
     elif mode == PROD_EXPORT_MODE:
-        expected_bounds_keys = {
+        base_bounds_keys = {
             "cursor_after",
             "cursor_before",
             "cutoff_exclusive",
             "export_scope",
             "first_key",
             "last_key",
-            "legacy_upper_exclusive",
             "lock_timeout_ms",
             "max_logical_bytes",
             "max_rows",
@@ -1169,6 +1173,13 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         continuation_key = "more_cold_rows_remaining"
         first_key_name = "first_key"
         last_key_name = "last_key"
+        export_scope = bounds.get("export_scope") if isinstance(bounds, dict) else None
+        if export_scope == PROD_EXPORT_SCOPE_LEGACY_COLD:
+            expected_bounds_keys = base_bounds_keys | {"legacy_upper_exclusive"}
+        elif export_scope == PROD_EXPORT_SCOPE_POST_LEGACY_COLD:
+            expected_bounds_keys = base_bounds_keys | {"legacy_lower_inclusive"}
+        else:
+            expected_bounds_keys = base_bounds_keys
     else:
         expected_bounds_keys = set()
         integer_bounds = {}
@@ -1200,15 +1211,25 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
         if bounds_cutoff != expected_cutoff:
             raise RehearsalError("production archive cutoff is not the approved cold waterline")
         if mode == PROD_EXPORT_MODE:
-            if bounds.get("export_scope") != PROD_EXPORT_SCOPE_LEGACY_COLD:
+            export_scope = bounds.get("export_scope")
+            if export_scope == PROD_EXPORT_SCOPE_LEGACY_COLD:
+                legacy_upper = bounds.get("legacy_upper_exclusive")
+                if (
+                    not isinstance(legacy_upper, str)
+                    or _timestamp(_utc(legacy_upper)) != legacy_upper
+                    or legacy_upper != PROD_LEGACY_UPPER_EXCLUSIVE
+                ):
+                    raise RehearsalError("production export legacy upper bound is invalid")
+            elif export_scope == PROD_EXPORT_SCOPE_POST_LEGACY_COLD:
+                legacy_lower = bounds.get("legacy_lower_inclusive")
+                if (
+                    not isinstance(legacy_lower, str)
+                    or _timestamp(_utc(legacy_lower)) != legacy_lower
+                    or legacy_lower != PROD_LEGACY_LOWER_INCLUSIVE
+                ):
+                    raise RehearsalError("production export legacy lower bound is invalid")
+            else:
                 raise RehearsalError("production export scope is invalid")
-            legacy_upper = bounds.get("legacy_upper_exclusive")
-            if (
-                not isinstance(legacy_upper, str)
-                or _timestamp(_utc(legacy_upper)) != legacy_upper
-                or legacy_upper != PROD_LEGACY_UPPER_EXCLUSIVE
-            ):
-                raise RehearsalError("production export legacy upper bound is invalid")
             cursor_before = bounds.get("cursor_before")
             if cursor_before is not None and (
                 not isinstance(cursor_before, dict)
@@ -1279,11 +1300,21 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
             if any(_utc(record["created_at"]) >= bounds_cutoff for record in records):
                 raise RehearsalError("production archive artifact contains hot or foreign rows")
             if mode == PROD_EXPORT_MODE:
-                legacy_upper = _utc(bounds["legacy_upper_exclusive"])
-                if any(_utc(record["created_at"]) >= legacy_upper for record in records):
-                    raise RehearsalError(
-                        "production export artifact contains rows outside legacy scope"
-                    )
+                export_scope = bounds.get("export_scope")
+                if export_scope == PROD_EXPORT_SCOPE_LEGACY_COLD:
+                    legacy_upper = _utc(bounds["legacy_upper_exclusive"])
+                    if any(_utc(record["created_at"]) >= legacy_upper for record in records):
+                        raise RehearsalError(
+                            "production export artifact contains rows outside legacy scope"
+                        )
+                elif export_scope == PROD_EXPORT_SCOPE_POST_LEGACY_COLD:
+                    legacy_lower = _utc(bounds["legacy_lower_inclusive"])
+                    if any(_utc(record["created_at"]) < legacy_lower for record in records):
+                        raise RehearsalError(
+                            "production export artifact contains rows outside post-legacy scope"
+                        )
+                else:
+                    raise RehearsalError("production export scope is invalid")
             ordered_keys = sorted(
                 source_keys, key=lambda item: (item["created_at"], item["id"])
             )
@@ -1319,6 +1350,9 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
     ):
         raise RehearsalError("manifest source_rows is invalid")
     try:
+        batch_retention_for_id = dict(normalized_policy)
+        if isinstance(policy.get("qa"), int) and not isinstance(policy.get("qa"), bool):
+            batch_retention_for_id["qa"] = policy["qa"]
         expected_batch_id = _batch_id(
             environment=manifest["environment"],
             sealed_at=sealed_at,
@@ -1332,7 +1366,7 @@ def verify_batch(batch: str | os.PathLike[str]) -> dict[str, Any]:
                 )
             ),
             source_file_identity=source_file_identity,
-            retention_days=normalized_policy,
+            retention_days=batch_retention_for_id,
             artifacts=artifacts,
             prefix=(
                 "prod-canary"
@@ -1715,9 +1749,6 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--ops-retention-days", type=int, default=DEFAULT_RETENTION_DAYS["ops"]
     )
-    parser.add_argument(
-        "--qa-retention-days", type=int, default=DEFAULT_RETENTION_DAYS["qa"]
-    )
 
 
 def _add_postgres_common(parser: argparse.ArgumentParser) -> None:
@@ -1758,9 +1789,6 @@ def _add_postgres_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--ops-retention-days", type=int, default=DEFAULT_RETENTION_DAYS["ops"]
     )
-    parser.add_argument(
-        "--qa-retention-days", type=int, default=DEFAULT_RETENTION_DAYS["qa"]
-    )
     parser.add_argument("--output")
 
 
@@ -1793,9 +1821,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _policy(args: argparse.Namespace) -> dict[str, int]:
-    return retention_policy(
-        args.usage_retention_days, args.ops_retention_days, args.qa_retention_days
-    )
+    return retention_policy(args.usage_retention_days, args.ops_retention_days)
 
 
 def main(argv: Iterable[str] | None = None) -> int:

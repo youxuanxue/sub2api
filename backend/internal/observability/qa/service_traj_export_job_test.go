@@ -37,44 +37,48 @@ func waitExport(t *testing.T, svc *Service, userID int64, jobID string) ExportJo
 	return ExportJob{}
 }
 
-// exportStorageKey lays out user-first keys so the download ownership prefix
-// check holds; auto keys are dated (idempotent), manual keys nanos-unique.
+// exportStorageKey lays out user/key-first keys so the download ownership
+// prefix check holds and each artifact is bound to one API key.
 func TestExportStorageKeyLayout(t *testing.T) {
-	noKey := exportStorageKey(7, ExportFilter{})
-	require.True(t, strings.HasPrefix(noKey, "traj-exports/7/all/manual/"), noKey)
-	require.True(t, strings.HasSuffix(noKey, ".zip"))
-
-	key9 := int64(9)
-	manual := exportStorageKey(7, ExportFilter{APIKeyID: &key9})
-	require.True(t, strings.HasPrefix(manual, "traj-exports/7/9/manual/"), manual)
-
-	day := time.Date(2026, 6, 17, 13, 0, 0, 0, time.UTC)
-	auto := exportStorageKey(7, ExportFilter{APIKeyID: &key9, Kind: exportKindAuto, Since: day})
-	require.Equal(t, "traj-exports/7/9/auto/2026-06-17.zip", auto)
-	// user_id-first ownership boundary holds for every layout.
-	for _, k := range []string{noKey, manual, auto} {
-		require.True(t, strings.HasPrefix(k, "traj-exports/7/"), k)
-	}
+	key := exportStorageKey(7, 9)
+	require.True(t, strings.HasPrefix(key, "traj-exports/7/9/manual/"), key)
+	require.True(t, strings.HasSuffix(key, ".zip"))
 }
 
 // A finished export must remain queryable after a "redeploy" (a fresh Service
 // over the same DB) — the persistence fix for the orphaned-download bug.
-func TestEnqueueExport_PersistsAndSurvivesRestart(t *testing.T) {
+func TestUS044_EnqueueExport_RejectsMissingAPIKey(t *testing.T) {
+	svc, _, _ := newQAExportTestService(t)
+	job, err := svc.EnqueueExport(context.Background(), 7, ExportFilter{})
+	require.ErrorIs(t, err, ErrExportAPIKeyNeeded)
+	require.Empty(t, job.ID)
+}
+
+func TestUS044_EnqueueExport_ClampsTo24HoursAndSurvivesRestart(t *testing.T) {
 	svc, client, store := newQAExportTestService(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
 	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{
-		requestID: "enq-1", userID: 7, apiKeyID: 3, createdAt: now, synthSession: "m0-ENQ",
+		requestID: "enq-current", userID: 7, apiKeyID: 3, createdAt: now, synthSession: "m0-ENQ",
+	}, trajBlobFixture())
+	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{
+		requestID: "enq-too-old", userID: 7, apiKeyID: 3, createdAt: now.Add(-30 * time.Hour), synthSession: "m0-ENQ",
 	}, trajBlobFixture())
 
-	job, err := svc.EnqueueExport(ctx, 7, ExportFilter{SynthSessionID: "m0-ENQ"})
+	key3 := int64(3)
+	job, err := svc.EnqueueExport(ctx, 7, ExportFilter{
+		APIKeyID: &key3,
+		Since:    now.Add(-365 * 24 * time.Hour),
+		Until:    now.Add(24 * time.Hour),
+		Format:   "v2",
+	})
 	require.NoError(t, err)
 	require.NotEmpty(t, job.ID)
 
 	done := waitExport(t, svc, 7, job.ID)
 	require.Equal(t, ExportJobDone, done.Status, "err=%s", done.Error)
 	require.NotEmpty(t, done.StorageKey)
-	require.Greater(t, done.RecordCount, 0)
+	require.Equal(t, 1, done.RecordCount, "service must clamp caller window to the last 24 hours")
 
 	// Simulate a redeploy: a new Service over the same client/store.
 	svc2 := NewServiceForTest(client, store)
@@ -94,7 +98,7 @@ func TestReconcileOrphanedExports_FailsOnlyInFlight(t *testing.T) {
 	ctx := context.Background()
 	mk := func(jobID, status string) {
 		_, err := client.QAExportJob.Create().
-			SetJobID(jobID).SetUserID(7).SetStatus(status).SetExportKind("manual").Save(ctx)
+			SetJobID(jobID).SetUserID(7).SetStatus(status).Save(ctx)
 		require.NoError(t, err)
 	}
 	mk("pend", string(ExportJobPending))
@@ -123,7 +127,7 @@ func TestListExports_OwnerIsolationAndKeyScope(t *testing.T) {
 	mk := func(jobID string, userID, apiKeyID int64) {
 		_, err := client.QAExportJob.Create().
 			SetJobID(jobID).SetUserID(userID).SetAPIKeyID(apiKeyID).
-			SetStatus(string(ExportJobDone)).SetExportKind("manual").
+			SetStatus(string(ExportJobDone)).
 			SetStorageKey("traj-exports/x/" + jobID + ".zip").SetRecordCount(1).
 			SetExpiresAt(future).Save(ctx)
 		require.NoError(t, err)
@@ -149,36 +153,4 @@ func TestListExports_OwnerIsolationAndKeyScope(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, all8, 1)
 	require.Equal(t, "u8k1", all8[0].ID)
-}
-
-// The daily archive runs synchronously (ArchiveAuto blocks to completion), is
-// idempotent (re-running the same (user, key, day) upserts one row), and stamps
-// the longer auto retention window on expires_at (7d, not the 24h URL TTL).
-func TestArchiveAuto_IdempotentAndArchivesDay(t *testing.T) {
-	svc, client, store := newQAExportTestService(t)
-	ctx := context.Background()
-	day := time.Now().UTC().Truncate(24 * time.Hour)
-	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{
-		requestID: "auto-1", userID: 7, apiKeyID: 9, createdAt: day.Add(time.Hour),
-	}, trajBlobFixture())
-
-	job, err := svc.ArchiveAuto(ctx, 7, 9, day)
-	require.NoError(t, err)
-	require.Equal(t, autoExportJobID(7, 9, day), job.ID)
-	// ArchiveAuto is synchronous — the returned snapshot is already terminal.
-	require.Equal(t, ExportJobDone, job.Status, "err=%s", job.Error)
-	require.Contains(t, job.StorageKey, "/9/auto/")
-	require.Contains(t, job.StorageKey, day.Format("2006-01-02"))
-
-	// R-001: an auto archive is downloadable for the 7-day retention window, not
-	// the 24h presigned-URL TTL.
-	require.WithinDuration(t, time.Now().UTC().Add(autoExportArtifactTTL), job.ExpiresAt, 5*time.Minute)
-	require.Greater(t, job.ExpiresAt.Sub(time.Now().UTC()), presignedURLTTL, "auto TTL exceeds the 24h manual TTL")
-
-	// Re-run the same day → still exactly one row.
-	_, err = svc.ArchiveAuto(ctx, 7, 9, day)
-	require.NoError(t, err)
-	n, err := client.QAExportJob.Query().Where(qaexportjob.JobIDEQ(job.ID)).Count(ctx)
-	require.NoError(t, err)
-	require.Equal(t, 1, n, "same-day re-run upserts one row")
 }

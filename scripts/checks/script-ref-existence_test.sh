@@ -113,6 +113,13 @@ run "P13 unmarked ref in approved doc (fail)" \
     '- 新建：`scripts/missing-unmarked-approved.sh`' \
     fail "docs/approved/fixture.md"
 
+# ---- explicit absence contracts ---------------------------------------------
+
+run "P14 explicit tombstone marker (skip)" \
+    "retired ops/prod/missing-purge.sh # script-ref-allow-missing" skip
+run "P15 marker on another line does not bypass" \
+    $'script-ref-allow-missing\nbash ops/prod/missing-still-live.sh' fail
+
 # ---- result ------------------------------------------------------------------
 
 total=$((pass + fail))

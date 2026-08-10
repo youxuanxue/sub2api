@@ -468,6 +468,26 @@
       "rationale": "Normal control-plane login is intentionally not gated on Cloudflare Turnstile; PR #119 kept Turnstile on registration, verification-code, and password-recovery flows while relying on login rate limiting for this path. Upstream-shaped LoginView.vue repeatedly brings back the widget/token wiring during merges and compiles cleanly, so this negative sentinel fails preflight/merge-shape if login once again renders, waits for, or submits a Turnstile token."
     },
     {
+      "path": "frontend/src/views/auth/LoginView.vue",
+      "must_contain": [
+        "<AuthActionCaptcha",
+        "const proof = await actionCaptchaRef.value?.acquireProof()",
+        "await authStore.loginWithPasskey(proof)",
+        "startOAuthLogin(request, proof)"
+      ],
+      "rationale": "OAuth and passkey action captcha stays behind a thin auth companion while ordinary email/password login remains captcha-free. These anchors pin the companion injection and both protected action call sites so a future upstream merge cannot restore captcha to password login or silently drop Tencent/Aliyun protection from the dedicated OAuth/passkey endpoints."
+    },
+    {
+      "path": "frontend/src/components/auth/AuthActionCaptcha.vue",
+      "must_contain": [
+        ":turnstile-enabled=\"false\"",
+        "tencent_captcha_ticket: result.token",
+        "tencent_captcha_randstr: result.randstr",
+        "return { turnstile_token: result.token }"
+      ],
+      "rationale": "The auth action companion intentionally excludes Cloudflare Turnstile and maps only Tencent/Aliyun action results to their backend compatibility fields. Keeping provider details here preserves upstream captcha capabilities without expanding the normal TokenKey login gate or thickening LoginView.vue."
+    },
+    {
       "path": "frontend/src/api/admin/ops.ts",
       "must_contain": [
         "feishu: {",
@@ -1671,9 +1691,18 @@
         "const promptCacheOverview = computed(() => {",
         "cache_telemetry_unavailable_input_tokens",
         "data-testid=\"prompt-cache-overall-status\"",
-        "include_group_stats: true"
+        "include_group_stats: true",
+        "stats.average_gateway_latency_ms",
+        "admin.dashboard.avgGatewayLatency"
       ],
       "rationale": "The admin Dashboard's own requests carry the TK window via dashboardWindowParams(): rolling presets use absolute epoch-ms and calendar presets use a server-TZ range token. Drilldowns deliberately reuse the exact successfully loaded rolling window because /admin/usage consumes absolute start_ts/end_ts, not range. The same snapshot group facet owns the prompt-cache overview: it excludes Kiro-estimated unavailable input, ranks the top five groups by prompt-token impact, and avoids an extra endpoint. These anchors prevent an upstream-shaped Dashboard rewrite from silently restoring timezone drift, widening drilldowns, or dropping cache observability while still compiling."
+    },
+    {
+      "path": "frontend/src/types/index.ts",
+      "must_contain": [
+        "average_gateway_latency_ms: number // 平均网关中转延迟（auth+路由，不含上游/body/排队）"
+      ],
+      "rationale": "DashboardStats gateway latency type comment documents Plan A semantics: auth+routing only, excluding upstream/body pump and queue waits. Reverting to response-tail wording silently misleads operators when the backend snapshot excludes body transfer."
     },
     {
       "path": "frontend/src/views/admin/UsageView.vue",

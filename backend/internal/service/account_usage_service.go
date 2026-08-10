@@ -626,7 +626,7 @@ func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, acc
 	case accountUsageWindowAdapterOpenAI:
 		// OpenAI OAuth（codex）账号：从 Extra 的 codex_*_used_percent 被动采样重建
 		// 5h/7d 窗口，绝不调用上游 /responses 探测。
-		info := s.buildPassiveOpenAIUsage(account)
+		info := s.buildPassiveOpenAIUsage(ctx, account)
 		attachUpstreamQuotaForAccount(account, info)
 		return info, nil
 	case accountUsageWindowAdapterKiro:
@@ -672,11 +672,10 @@ func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, acc
 // /responses 探测——这正是它与 getOpenAIUsage 的区别：后者会按条件主动探测，
 // 而被动列表端点（edge accounts overview）跨全部账号扇出，渲染概览时不能打上游。
 //
-// 刻意不补本地 usage 日志的窗口统计：edge 概览的 DTO（toEdgeUsageWindows）只取
-// utilization + reset，per-window 统计由前端从 today_stats 单独提供；没有任何调用
-// 方会读这里的 WindowStats，补了即死代码。无 codex 采样时窗口留空（cell 显示
-// "-"），与 anthropic 被动路径（buildPassiveWindow 无采样即 nil）同口径。
-func (s *AccountUsageService) buildPassiveOpenAIUsage(account *Account) *UsageInfo {
+// 当上游 codex 快照过期（窗口已 roll 但未收到新 x-codex 头）时，used% 会被丢弃，
+// 改由本地 usage 日志的 rolling 5h/7d WindowStats 让运营仍能看到近期 TokenKey 侧
+// 计费活动——与 getOpenAIUsage 主动路径同口径，避免「今日统计很高、5h 条却 0%」。
+func (s *AccountUsageService) buildPassiveOpenAIUsage(ctx context.Context, account *Account, preloaded ...*localWindowStatsForPassive) *UsageInfo {
 	now := time.Now()
 	usage := &UsageInfo{Source: "passive", UpdatedAt: &now}
 	if account == nil {
@@ -690,6 +689,11 @@ func (s *AccountUsageService) buildPassiveOpenAIUsage(account *Account) *UsageIn
 		usage.SevenDay = progress
 	}
 
+	if len(preloaded) > 0 && preloaded[0] != nil {
+		applyPreloadedCodexWindowStats(usage, preloaded[0])
+	} else {
+		s.attachOpenAICodexWindowStats(ctx, account, usage, now)
+	}
 	return usage
 }
 
@@ -844,21 +848,26 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		return usage, nil
 	}
 
+	s.attachOpenAICodexWindowStats(ctx, account, usage, now)
+	return usage, nil
+}
+
+func (s *AccountUsageService) attachOpenAICodexWindowStats(ctx context.Context, account *Account, usage *UsageInfo, now time.Time) {
+	if s == nil || s.usageLogRepo == nil || account == nil || usage == nil {
+		return
+	}
 	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(usage.FiveHour, 5*time.Hour, now)); err == nil {
 		if usage.FiveHour == nil {
 			usage.FiveHour = &UsageProgress{Utilization: 0}
 		}
 		usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
 	}
-
 	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(usage.SevenDay, 7*24*time.Hour, now)); err == nil {
 		if usage.SevenDay == nil {
 			usage.SevenDay = &UsageProgress{Utilization: 0}
 		}
 		usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
 	}
-
-	return usage, nil
 }
 
 func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now time.Time) bool {
@@ -873,6 +882,11 @@ func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now ti
 	}
 	if account.IsRateLimited() {
 		return true
+	}
+	if account.Extra != nil {
+		if openAIQuotaWindowReset(account.Extra, "5h", now) || openAIQuotaWindowReset(account.Extra, "7d", now) {
+			return true
+		}
 	}
 	return isOpenAICodexSnapshotStale(account, now)
 }
@@ -959,7 +973,7 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("OpenAI-Beta", "responses=experimental")
-	req.Header.Set("Originator", "codex_cli_rs")
+	req.Header.Set("Originator", openaipkg.CodexDefaultOriginator)
 	req.Header.Set("Version", openAICodexProbeVersion)
 	req.Header.Set("User-Agent", codexCLIUserAgent)
 	if s.identityCache != nil {
@@ -967,9 +981,10 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 			req.Header.Set("User-Agent", strings.TrimSpace(fp.UserAgent))
 		}
 	}
-	// 与真实转发一致：originator 与最终 User-Agent（可能来自指纹缓存）首段配套，否则探针被上游
-	// 404（issue #3901）；缓存里的降载桶身份同样在此归一化，避免探针被回 server_is_overloaded。
-	enforceCodexIdentityHeaders(req.Header)
+	// 与真实转发一致：账号级自定义 UA 同样作为管理员显式配置传入。
+	// 上面写进 header 的指纹缓存 UA 只在强制统一被关闭时才参与配对（保持回滚后的历史语义）；
+	// 强制统一开启时客户端身份不参与构造，探针与真实转发用同一套规范身份出站。
+	enforceCodexIdentityHeadersWithUA(req.Header, account.GetOpenAIUserAgent())
 	setOpenAIChatGPTAccountHeaders(req.Header, account)
 
 	proxyURL := ""
@@ -1529,9 +1544,11 @@ func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now t
 		}
 	}
 
-	// 窗口已过期（resetAt 在 now 之前）→ 额度已重置，归零
+	// 窗口已过期（resetAt 在 now 之前）且快照未刷新：used% 属于上一窗口，丢弃以免
+	// 展示误导性的 0%（旧实现）或过期高利用率。运营侧 rolling 窗口统计由
+	// attachOpenAICodexWindowStats 从本地 usage 日志补全。
 	if progress.ResetsAt != nil && !now.Before(*progress.ResetsAt) {
-		progress.Utilization = 0
+		return nil
 	}
 
 	return progress

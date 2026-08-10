@@ -1,0 +1,32 @@
+schema_version: 1
+# Repo-evidence SSOT for generic usage/ops data-layer archive (not live prod).
+# Refresh repo evidence under ops/archive/evidence/ after re-export exception-path batches only.
+# Live probes: ops/observability/probe-data-layer-*.sh
+
+design_anchors:
+  phase1_closeout: docs/approved/design-data-layer-phase1-closeout.md
+  archive_bucket: docs/approved/design-prod-archive-bucket.md
+  export_canary: docs/approved/design-data-layer-prod-export-canary.md
+
+retention_hot_layer_days:
+  usage: 90
+  ops: 30
+
+legacy_export_upper_exclusive: "2026-07-01T00:00:00.000000Z"
+
+evidence_attachments:
+  evidence_dir: ops/archive/evidence
+  cleanup_hold_glob: "data-layer-cleanup-hold-*.json"
+  cleanup_release_receipt_glob: "data-layer-cleanup-hold-release*.json"
+  export_ledger_template: "data-layer-{table_slug}-export-ledger.json"
+  promote_ledger_template: "data-layer-{table_slug}-promote-ledger.json"
+  tail_export_ledger_template: "data-layer-{table_slug}-tail-export-ledger.json"
+  tail_promote_ledger_template: "data-layer-{table_slug}-tail-promote-ledger.json"
+  closeout_receipt_template: "data-layer-{table_slug}-archive-closeout.json"
+  table_slugs:
+    ops_system_logs: ops-system-logs
+    ops_error_logs: ops-error-logs
+
+closeout_required_before_cleanup_release: true
+# Steady-state evidence: archive_health validates closeout, tail export, hold binding, release.
+# closeout_required_before_cleanup_release applies only to first hold release.

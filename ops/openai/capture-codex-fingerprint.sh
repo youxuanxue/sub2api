@@ -7,7 +7,7 @@
 # binary (`codex --version` + native-binary strings). There is no client traffic
 # to intercept — the load-bearing signal is the codex VERSION embedded in the UA /
 # `version` header / probe header, plus the stable non-version pins
-# (originator=codex_cli_rs, OpenAI-Beta: responses=experimental).
+# (originator=codex-tui, OpenAI-Beta: responses=experimental).
 #
 # Deterministic parse / diff / gate is delegated to capture_codex_fingerprint.py;
 # this shell is only a thin dispatcher.

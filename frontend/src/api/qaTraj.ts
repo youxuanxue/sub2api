@@ -20,8 +20,6 @@ export type TrajExportStatus = 'pending' | 'running' | 'done' | 'failed'
 export interface TrajExportJob {
   job_id: string
   status: TrajExportStatus
-  /** 'manual' = user-triggered "export now"; 'auto' = server-scheduled snapshot. */
-  kind?: 'manual' | 'auto'
   /** The API key this export belongs to. */
   api_key_id?: number
   download_url?: string

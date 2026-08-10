@@ -1,0 +1,51 @@
+schema_version: 1
+# Deploy-time env injection defaults for Stage0 SSM deploy scripts.
+# Target runtime policy values: ops/qa/policy.yaml (SSOT).
+# Rollout gates keep deploy defaults conservative until the approved Phase 2 production-
+# integrity closeout is implemented and verified; document approval alone does not open the gate.
+
+prod:
+  QA_ARCHIVE_ENABLED:
+    deploy_inject_default: false
+    policy_target: prod.archive.enabled
+    target_deploy_inject_default: true
+    enable_after: docs/approved/design-qa-phase2-archive-closeout.md#production-rollout
+    closeout_state: production_closeout_verified
+  tokenkey_qa_maintenance_timer:
+    observed_live_state: production_recloseout_verified
+    closeout_deploy_state: enabled
+    policy_target_state: enabled
+    min_consecutive_scheduled_runs: 2
+    host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh
+    health_evaluator: ops/qa/qa_phase2_health.py
+    health_evidence:
+      - systemd
+      - host_receipt
+      - database_heartbeat
+      - archive_control_rows
+  tokenkey_qa_stale_cleanup:
+    policy_target_state: enabled
+    archive_independent: true
+    export_orphan_plan_command: /usr/local/bin/tokenkey-qa-stale-cleanup.sh --plan
+    export_orphan_apply_command: /usr/local/bin/tokenkey-qa-stale-cleanup.sh --apply-export-orphans
+    export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json
+    activation_state: production_export_orphan_activated
+  QA_CAPTURE_ENABLED:
+    deploy_inject: edge_only_false
+    policy_target: prod.capture_enabled
+  raw_archive_recovery:
+    repository_state: ready
+    production_iam_state: applied
+    independent_evidence_state: pending
+    recovery_cli: backend/cmd/qa-archive
+    retirement_gate: ops/qa/qa_archive_recovery_gate.py
+    break_glass_path: ops/prod/fetch-qa-dump.sh
+    shared_role_boundary: shared_ec2_instance_role_no_process_isolation
+
+edge:
+  QA_CAPTURE_ENABLED:
+    deploy_inject_default: false
+    policy_target: edge.capture_enabled
+  QA_ARCHIVE_ENABLED:
+    deploy_inject_default: false
+    policy_target: edge.archive_enabled

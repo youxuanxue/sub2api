@@ -56,7 +56,7 @@ EXCLUDE_DATA_GLOBS=(
   'ops_system_logs*'   # ~4.3G operational system logs (own retention)
   'usage_logs*'        # ~2.3G per-request usage detail (NOT billing SoT post-071; 90d retention)
   'ops_error_logs*'    # ~1.4G operational error logs (own retention)
-  'qa_records*'        # ~0.8G QA trajectory evidence (already partitioned; own retention)
+  'qa_records*'        # QA row data is excluded; only the dedicated raw-QA archive is its history backup
 )
 exclude_args=()
 for _g in "${EXCLUDE_DATA_GLOBS[@]}"; do

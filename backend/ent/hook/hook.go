@@ -333,6 +333,18 @@ func (f ProxyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ProxyMutation", m)
 }
 
+// The QAArchiveShardFunc type is an adapter to allow the use of ordinary
+// function as QAArchiveShard mutator.
+type QAArchiveShardFunc func(context.Context, *ent.QAArchiveShardMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f QAArchiveShardFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.QAArchiveShardMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.QAArchiveShardMutation", m)
+}
+
 // The QAExportJobFunc type is an adapter to allow the use of ordinary
 // function as QAExportJob mutator.
 type QAExportJobFunc func(context.Context, *ent.QAExportJobMutation) (ent.Value, error)

@@ -133,7 +133,6 @@ for needle in \
   'remediate-edge-disk-via-ssm.sh' \
   'get-instance-access-details' \
   'tokenkey-prune-ghcr-app-tags-core.sh' \
-  'tokenkey-qa-stale-cleanup.sh' \
   'edge_ssm_execution.py' \
   'all-deployable'; do
   if ! printf '%s' "${text}" | grep -F -e "${needle}" >/dev/null; then

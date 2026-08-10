@@ -68,6 +68,8 @@ type Tx struct {
 	PromoCodeUsage *PromoCodeUsageClient
 	// Proxy is the client for interacting with the Proxy builders.
 	Proxy *ProxyClient
+	// QAArchiveShard is the client for interacting with the QAArchiveShard builders.
+	QAArchiveShard *QAArchiveShardClient
 	// QAExportJob is the client for interacting with the QAExportJob builders.
 	QAExportJob *QAExportJobClient
 	// QARecord is the client for interacting with the QARecord builders.
@@ -258,6 +260,7 @@ func (tx *Tx) init() {
 	tx.PromoCode = NewPromoCodeClient(tx.config)
 	tx.PromoCodeUsage = NewPromoCodeUsageClient(tx.config)
 	tx.Proxy = NewProxyClient(tx.config)
+	tx.QAArchiveShard = NewQAArchiveShardClient(tx.config)
 	tx.QAExportJob = NewQAExportJobClient(tx.config)
 	tx.QARecord = NewQARecordClient(tx.config)
 	tx.RedeemCode = NewRedeemCodeClient(tx.config)

@@ -2723,9 +2723,42 @@
       "path": "backend/internal/service/openai_gateway_usage.go",
       "must_contain": [
         "isOpenAIVideoUsageResult(result)",
-        "tkTryCalculateOpenAIVideoUsageCost"
+        "tkTryCalculateOpenAIVideoUsageCost",
+        "tkMapQianfanScopedBillingModels(billingModels, account)"
       ],
-      "rationale": "Injection wiring from upstream-owned RecordUsage/calculateOpenAIRecordUsageCost into the TK video settlement companion. An upstream merge reverting these call sites leaves VideoSubmit billing on the token path again even if the companion file survives."
+      "rationale": "Injection wiring from upstream-owned RecordUsage/calculateOpenAIRecordUsageCost into TK settlement companions. VideoSubmit billing must stay on the video path; Qianfan account 90 must remap shared DeepSeek overlay ids to .qianfan billing owners before candidate resolution."
+    },
+    {
+      "path": "backend/internal/service/gateway_usage_billing.go",
+      "must_contain": [
+        "tkQianfanScopedBillingModel(billingModel, account)"
+      ],
+      "rationale": "Anthropic/generic RecordUsage funnel must switch shared DeepSeek models to .qianfan overlay owners when served from Baidu Qianfan account 90; dropping the call site restores official DeepSeek list pricing on a Qianfan channel."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_qianfan.go",
+      "must_contain": [
+        "tkQianfanScopedBillingModel",
+        "tkMapQianfanScopedBillingModels",
+        "tkQianfanOverlayPricingSuffix"
+      ],
+      "rationale": "Per-account Qianfan billing key remap for deepseek-v4-pro/flash while public catalog keeps global DeepSeek owners. Companion isolates upstream gateway insertions to one-liners."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_qianfan_test.go",
+      "must_contain": [
+        "TestTkQianfanScopedBillingModel_UsesQianfanRatesInCost",
+        "TestTkQianfanScopedBillingModel_ExcludesDeepSeekPeakValley"
+      ],
+      "rationale": "Focused regressions: Qianfan account remap and guard against applying DeepSeek official peak-valley multiplier to .qianfan overlay billing keys."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_preset_tk_qianfan_test.go",
+      "must_contain": [
+        "TestNewAPIModelMappingPresetIDsForQianfanAccount",
+        "TestAccountModelMappingFloorForOpsIncludesQianfanOverride"
+      ],
+      "rationale": "Manifest preset and bundle floor export for Qianfan account 90; prevents upstream merge from dropping the v2-servable identity mapping floor (31 models as of 2026-08-07)."
     },
     {
       "path": "backend/internal/service/openai_gateway_usage_tk_video_billing_test.go",
@@ -4401,9 +4434,11 @@
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "tkIsCapabilityScope401(statusCode, responseBody)",
-        "capability_scope_401_skip_penalty"
+        "capability_scope_401_skip_penalty",
+        "IsOpenAICompatModelNotFound404(responseBody, upstreamMsg)",
+        "newapi_model_not_found_401_skip_auth_penalty"
       ],
-      "rationale": "Injection point: HandleUpstreamError case 401 short-circuits a capability-scope 401 to shouldDisable=false BEFORE any temp_unschedulable / SetError path, so the account stays schedulable for every other model. Anchors the no-cooldown guard against silent upstream-merge reversion (paired with ratelimit_service_tk_capability_scope_401.go)."
+      "rationale": "Injection point: HandleUpstreamError case 401 short-circuits (a) capability-scope 401 and (b) newapi openai-compat model-not-found on 401 (Baidu Qianfan invalid_model, prod 2026-08-07 account 90) to shouldDisable=false BEFORE any temp_unschedulable / SetError path, so the account stays schedulable for every other model. Anchors the no-cooldown guards against silent upstream-merge reversion (paired with ratelimit_service_tk_capability_scope_401.go and newapi_model_not_found_tk.go)."
     },
     {
       "rationale": "Injection points: shouldFailoverOpenAIUpstreamResponse suppresses failover for a capability-scope 401 (every pool account shares the missing scope), and the non-failover handleErrorResponse/handleCompatErrorResponse 401 sites map it to a client 400 invalid_request_error. Anchors the no-failover + client-400 guards against silent upstream-merge reversion.",
@@ -4848,9 +4883,12 @@
         "if err := r.upsertGroupDailyAggregates(ctx, dayStart, dayEnd); err != nil {",
         "if err := r.deleteUserPlatformDailyRange(ctx, dayStart, dayEnd); err != nil {",
         "if err := r.deleteGroupDailyRange(ctx, dayStart, dayEnd); err != nil {",
-        "if err := r.cleanupUserPlatformDaily(ctx, dailyCutoffUTC); err != nil {"
+        "if err := r.cleanupUserPlatformDaily(ctx, dailyCutoffUTC); err != nil {",
+        "func (r *dashboardAggregationRepository) cleanupPartitionedUsageLogs(",
+        "pgpartition.ListStraddling(ctx, db, \"usage_logs\", \"created_at\", cutoff)",
+        "usageLogsStraddleReclaimMaxRowsPerRun"
       ],
-      "rationale": "Thin injection of TK rollup feeders into the upstream-shaped aggregation repo: user-platform and group daily upsert calls live in both aggregateRangeInTx and recomputeRangeInTx, range deletes prevent stale rows after recompute, user-platform retention prune follows the daily cutoff, and group metrics backfill runs before group distribution trusts the extended table. These are single-line hooks into upstream-shaped functions; an upstream merge resolving DashboardAggregationService could silently drop them, leaving rollups unpopulated and admin pages reading stale/empty history or raw-scanning again."
+      "rationale": "Thin injection of TK rollup feeders into the upstream-shaped aggregation repo: user-platform and group daily upsert calls live in both aggregateRangeInTx and recomputeRangeInTx, range deletes prevent stale rows after recompute, user-platform retention prune follows the daily cutoff, and group metrics backfill runs before group distribution trusts the extended table. Partitioned usage_logs retention must also reclaim expired rows from bound-straddling partitions (notably usage_logs_legacy) via ListStraddling and capped id-ordered DELETE after DropExpired; without these hooks an upstream merge can revert to drop-only retention and leave legacy rows past the 90d window undeleted. These are single-line hooks into upstream-shaped functions; an upstream merge resolving DashboardAggregationService could silently drop them, leaving rollups unpopulated and admin pages reading stale/empty history or raw-scanning again."
     },
     {
       "path": "backend/internal/repository/usage_log_repo_tk_user_platform_rollup.go",
@@ -5017,9 +5055,11 @@
         "hint == PlatformGemini",
         "universalAntigravityTextModel(model)",
         "engine.CapabilityForEndpoint(bridgeEndpoint)",
-        "func universalModelPlatformHint("
+        "func universalModelPlatformHint(",
+        "ShapeOpenAIEmbeddings",
+        "gemini-embedding"
       ],
-      "rationale": "Universal Key endpoint-shape -> candidate-platforms map. Candidate sets are DERIVED from engine single-source (OpenAICompatPlatforms / engine.CapabilityForEndpoint) so a sixth compat platform flows through automatically and the preflight newapi compat-pool drift guard stays satisfied. count_tokens must stay anthropic/antigravity-only; the model->platform hint biases grok/openai/newapi within the openai-compat shape. An upstream refactor hardcoding platform slices here would silently break grok routing and trip the drift guard."
+      "rationale": "Universal Key endpoint-shape -> candidate-platforms map. Candidate sets are DERIVED from engine single-source (OpenAICompatPlatforms / engine.CapabilityForEndpoint) so a sixth compat platform flows through automatically and the preflight newapi compat-pool drift guard stays satisfied. count_tokens must stay anthropic/antigravity-only; the model->platform hint biases grok/openai/newapi within the openai-compat shape. gemini-embedding-* on /v1/embeddings must hint newapi (Google-Vertex ch41 bridge), matching imagen/veo on image/video shapes. An upstream refactor hardcoding platform slices here would silently break grok routing and trip the drift guard."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
@@ -5217,12 +5257,48 @@
       "path": "backend/internal/service/openai_gateway_forward.go",
       "must_contain": [
         "func resolveOpenAICodexUserAgent(",
-        "func (s *OpenAIGatewayService) applyOpenAICodexUserAgent("
+        "func (s *OpenAIGatewayService) applyOpenAICodexUserAgent(",
+        "enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))"
       ],
-      "rationale": "OpenAI OAuth upstream Codex fingerprint normalization (prod GPT-pro1 id=9, 2026-06-25). Non-Codex OAuth ingress (python-requests/urllib/SDK) must be re-presented upstream as official Codex: applyOpenAICodexUserAgent sets a Codex UA (precedence ForceCodexCLI > account custom UA > preserve-real-Codex-ingress > admin setting > built-in default) and resolveOpenAIUpstreamOriginator only preserves an inbound originator when IsCodexOfficialClientOriginator() accepts it, otherwise forces codex_cli_rs. Dropping these helpers/wiring silently reverts to forwarding arbitrary client identity, which OpenAI categorizes as Uncategorized and which degrades account health/risk-control — and unit tests on unrelated paths can still stay green. NOTE: anchors structural behavior only, never the codex-tui UA version literal (that is a fingerprint value governed by tokenkey-cc/openai fingerprint-alignment and is meant to drift)."
+      "rationale": "OpenAI OAuth upstream Codex fingerprint normalization (prod GPT-pro1 id=9, 2026-06-25). Non-Codex OAuth ingress must be re-presented upstream as the canonical Codex identity, and the terminal HTTP forward call must enforce a User-Agent/originator/version triple derived from one runtime version owner. Dropping the final enforcement call silently restores arbitrary or stale client identity upstream, which degrades account health while unrelated unit tests can remain green. This anchors structure only; the version literal is intentionally owned by fingerprint-alignment."
     },
     {
-      "rationale": "OpenAI OAuth upstream Codex fingerprint normalization (prod GPT-pro1 id=9, 2026-06-25). Non-Codex OAuth ingress (python-requests/urllib/SDK) must be re-presented upstream as official Codex: applyOpenAICodexUserAgent sets a Codex UA (precedence ForceCodexCLI > account custom UA > preserve-real-Codex-ingress > admin setting > built-in default) and resolveOpenAIUpstreamOriginator only preserves an inbound originator when IsCodexOfficialClientOriginator() accepts it, otherwise forces codex_cli_rs. Dropping these helpers/wiring silently reverts to forwarding arbitrary client identity, which OpenAI categorizes as Uncategorized and which degrades account health/risk-control — and unit tests on unrelated paths can still stay green. NOTE: anchors structural behavior only, never the codex-tui UA version literal (that is a fingerprint value governed by tokenkey-cc/openai fingerprint-alignment and is meant to drift).",
+      "path": "backend/internal/service/openai_codex_identity.go",
+      "must_contain": [
+        "func resolveCodexOutboundIdentity(candidateUA string) codexOutboundIdentity",
+        "version := codexClientVersionFromUA(canonical)",
+        "func enforceCodexIdentityHeadersWithUA(h http.Header, overrideUA string)",
+        "identity := resolveCodexOutboundIdentity(overrideUA)",
+        "h.Set(\"version\", identity.version)"
+      ],
+      "rationale": "Canonical Codex identity is a load-bearing upstream health invariant: User-Agent, originator, and version must be rebuilt as one coherent triple from the effective runtime version. Account-level UA overrides may contribute the official client family and machine/terminal fingerprint but must not pin a stale version. This entry anchors the shared implementation used by HTTP, passthrough, WebSocket, alpha-search fallback, account tests, and usage probes."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_identity_test.go",
+      "must_contain": [
+        "TestEnforceCodexIdentityHeadersFollowsCanonicalResolver",
+        "TestEnforceCodexIdentityHeadersWithAccountOverrideUA",
+        "TestEnforceCodexIdentityHeaders_EnforcementDisabled",
+        "TestEnforceCodexIdentityHeadersIsIdempotent"
+      ],
+      "rationale": "Focused regressions pin runtime version propagation, account-level fingerprint preservation, rollback semantics, and idempotence for canonical Codex identity enforcement. These behaviors can be silently weakened at a shared helper while route smoke tests still succeed."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))"
+      ],
+      "rationale": "OpenAI OAuth passthrough must use the same canonical User-Agent/originator/version terminal enforcement as the regular HTTP forward path. Losing this call creates two client identities for the same account depending on route mode and reintroduces upstream classification and load-shed drift."
+    },
+    {
+      "path": "backend/internal/service/openai_alpha_search.go",
+      "must_contain": [
+        "enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))"
+      ],
+      "rationale": "The PAT /responses hosted web-search fallback is a Codex Responses request and must enforce the same canonical identity triple as other OAuth Responses traffic. The native SearchClient alpha/search builder remains a distinct wire protocol; this anchor applies only to the fallback request path."
+    },
+    {
+      "rationale": "OpenAI OAuth upstream Codex fingerprint normalization (prod GPT-pro1 id=9, 2026-06-25). Non-Codex OAuth ingress (python-requests/urllib/SDK) must be re-presented upstream as official Codex: applyOpenAICodexUserAgent sets a Codex UA (precedence ForceCodexCLI > account custom UA > preserve-real-Codex-ingress > admin setting > built-in default) and resolveOpenAIUpstreamOriginator only preserves an inbound originator when IsCodexOfficialClientOriginator() accepts it, otherwise forces openai.CodexDefaultOriginator (codex-tui). Dropping these helpers/wiring silently reverts to forwarding arbitrary client identity, which OpenAI categorizes as Uncategorized and which degrades account health/risk-control — and unit tests on unrelated paths can still stay green. NOTE: anchors structural behavior only, never the codex-tui UA version literal (that is a fingerprint value governed by tokenkey-cc/openai fingerprint-alignment and is meant to drift).",
       "path": "backend/internal/service/openai_client_restriction_detector.go",
       "must_contain": [
         "openai.IsCodexOfficialClientOriginator(originator)"
@@ -5231,9 +5307,17 @@
     {
       "path": "backend/internal/service/openai_gateway_messages.go",
       "must_contain": [
-        "classifies the request under the official Codex surface"
+        "strip originator in openai_gateway_forward.go"
       ],
-      "rationale": "Anthropic Messages -> Codex SSE bridge must KEEP the originator header (set to codex_cli_rs upstream) so ChatGPT classifies the request under the official Codex surface, NOT delete it. This reverses the earlier req.Header.Del(\"originator\") that the prior code carried; that exact spot has proven TK<->upstream churn, so an upstream merge re-adding the Del would silently re-introduce Uncategorized classification. Anchoring the rationale comment forces any revert to also drop the comment, surfacing the change in preflight + the upstream-merge PR shape check. Paired regression tests live in openai_compat_model_test.go (TestForwardAsAnthropic_* assert originator==codex_cli_rs)."
+      "rationale": "Anthropic Messages -> Codex SSE bridge must NOT carry OpenAI-Beta and must NOT re-inject originator on compat bridge paths. Upstream merge #5351 (2026-08) aligned with upstream: compatMessagesBridge deletes originator/OpenAI-Beta in openai_gateway_forward.go so enforceCodexIdentityHeaders stays no-op. Re-adding originator on bridge paths has proven TK<->upstream churn; this anchor ties the rationale comment to the forward-path Del. Paired regression: openai_compat_model_test.go requireOpenAIMessagesCodexIdentity asserts empty originator."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "must_contain": [
+        "if compatMessagesBridge {",
+        "req.Header.Del(\"originator\")"
+      ],
+      "rationale": "Structural anchor for compatMessagesBridge OAuth header shaping: originator and OpenAI-Beta must be deleted before upstream so enforceCodexIdentityHeaders does not re-inject on Anthropic Messages bridge traffic. Comment-only anchors can drift; this pins the Del call site. Paired regression: openai_compat_model_test.go requireOpenAIMessagesCodexIdentity."
     },
     {
       "path": "backend/internal/pkg/openai/request.go",
@@ -5247,7 +5331,7 @@
       "must_contain": [
         "TestOpenAIGatewayService_OAuthUpstreamHeadersNormalizeNonCodexIngress"
       ],
-      "rationale": "Regression anchor for the Codex fingerprint normalization: non-Codex OAuth ingress (python-requests / Python-urllib / claude-cli) across /v1/responses, /v1/chat/completions, /v1/messages must reach upstream with a Codex UA and originator==codex_cli_rs, never the inbound client identity. Pins the test so an upstream refactor cannot silently drop the only end-to-end guard for the mimicry behavior."
+      "rationale": "Regression anchor for Codex fingerprint normalization on OAuth responses/chat paths: non-Codex ingress (python-requests / Python-urllib / claude-cli) must reach upstream with canonical Codex UA and originator==openai.CodexDefaultOriginator (codex-tui), never the inbound client identity. Messages compat bridge empty-originator behavior is covered separately in openai_compat_model_test.go."
     },
     {
       "path": "backend/internal/handler/admin/dashboard_handler_tk_window.go",
@@ -5430,9 +5514,10 @@
     {
       "path": "backend/internal/service/openai_ws_forwarder_payload.go",
       "must_contain": [
-        "resolveOpenAICodexUserAgent(context.Background(), s, account, inboundUA)"
+        "resolveOpenAICodexUserAgent(context.Background(), s, account, inboundUA)",
+        "enforceCodexIdentityHeadersWithUA(headers, s.codexIdentityOverrideUA(account))"
       ],
-      "rationale": "WS forwarder buildOpenAIWSHeaders must call resolveOpenAICodexUserAgent to normalize the upstream Codex UA for WebSocket connections, same as the HTTP path in openai_gateway_service.go. Without this call, WS connections (Codex real-time) forward arbitrary client identity upstream, which OpenAI classifies as Uncategorized and which degrades account health. The function definition is anchored in openai_gateway_service.go; this entry pins the WS call site."
+      "rationale": "WS forwarder buildOpenAIWSHeaders must normalize the upstream Codex UA and then apply the same terminal User-Agent/originator/version enforcement as HTTP traffic. Without both calls, real-time connections can diverge from canonical identity and be classified or load-shed differently from requests on the same account."
     },
     {
       "path": "backend/internal/service/openai_gateway_scheduling.go",
@@ -5928,6 +6013,97 @@
         "openRouterProviderCatalogCandidates"
       ],
       "rationale": "Catalog builder is the seller onboarding contract owner; pricing/features/schema drift here breaks OpenRouter provider application compliance."
+    },
+    {
+      "path": "backend/cmd/qa-archive/main.go",
+      "must_contain": [
+        "NewReadOnlyObjectStoreForWorkstation",
+        "buildInspectReceipt",
+        "validRecoveryRunID",
+        "validateSecureRestoreTree",
+        "shared_ec2_instance_role_no_process_isolation",
+        "window-bound privacy confirmation required"
+      ],
+      "rationale": "QA recovery CLI is the single metadata-first inspect/verify/restore adapter. Workstation reads must keep direct recovery-role S3 access without app config or PostgreSQL, correlate three distinct receipts, preserve structured integrity failures, and enforce isolated 0700/0600 restore output. These guards are load-bearing but can be dropped by an upstream CLI rewrite while the verifier package still compiles."
+    },
+    {
+      "path": "backend/cmd/server/qa_maintenance.go",
+      "must_contain": [
+        "qaMaintenanceConfirmation",
+        "archive.PreviousSealedHour",
+        "deletion_authorized=false",
+        "archive.NewReconciler",
+        "aggregate_record_count",
+        "lockAcquired"
+      ],
+      "rationale": "Prod QA maintenance must retain sealed-window selection, the single verified reconciler owner, failure-safe locking, committed aggregate heartbeat, and hard denial of deletion."
+    },
+    {
+      "path": "backend/internal/observability/qa/archive/segment_builder.go",
+      "must_contain": ["func BuildSegment", "records.parquet", "SegmentKindDelta", "IntegrityMissingEvidence"],
+      "rationale": "QA base/delta artifacts must remain keyset-paged, file-backed, deterministic, and fail closed before upload when evidence is missing."
+    },
+    {
+      "path": "backend/internal/observability/qa/archive/reconciler.go",
+      "must_contain": ["func (r *Reconciler) Reconcile", "CompareAndSwap", "PendingVerified", "DeletionAuthorized: false"],
+      "rationale": "The sole QA archive state machine must preserve resume, append-only delta, bounded commit CAS, and deletion denial semantics."
+    },
+    {
+      "path": "backend/internal/observability/qa/archive/verifier.go",
+      "must_contain": ["func VerifyCommit", "manifest.BlobMissingCount != 0", "IntegrityCorruptArtifact", "verifyCommitIdentities"],
+      "rationale": "Every visible QA commit must pass read-after-write checksum, manifest integrity, missing-evidence, and duplicate-identity verification."
+    },
+    {
+      "path": "backend/internal/service/ops_gateway_latency.go",
+      "must_contain": [
+        "func SnapshotGatewayTransferLatencyMs",
+        "func RecordOpsResponseTransferLatencyMs",
+        "OpsGatewayQueueWaitMsKey",
+        "sum -= queueMs + wsQueueMs"
+      ],
+      "rationale": "Single owner for admin dashboard gateway transfer latency: auth+routing minus queue/throttle waits. Response body pump is intentionally excluded from SnapshotGatewayTransferLatencyMs so the dashboard card does not track end-to-end duration."
+    },
+    {
+      "path": "backend/internal/service/ops_gateway_latency_test.go",
+      "must_contain": [
+        "TestSnapshotGatewayTransferLatencyMs_SubtractsQueueWait",
+        "TestSnapshotGatewayTransferLatencyMs_IgnoresResponseTail",
+        "TestRecordOpsResponseTransferLatencyMs_UsesForwardMinusUpstream"
+      ],
+      "rationale": "Focused regressions for queue-wait exclusion, response-tail exclusion from dashboard snapshot, and ops-only forward-minus-upstream response timing."
+    },
+    {
+      "path": "backend/internal/handler/handler_tk_gateway_latency.go",
+      "must_contain": [
+        "func tkRecordAuthLatency",
+        "func tkRecordRoutingLatency",
+        "func tkRecordForwardResponseTail",
+        "func tkSnapshotGatewayTransferLatencyMs",
+        "func tkRecordGatewayQueueWait"
+      ],
+      "rationale": "TK companion owning gateway latency stage hooks so upstream-shaped handler files keep one-line call sites that survive merge review."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "tkRecordAuthLatency(c, requestStart)"
+      ],
+      "rationale": "Messages auth stage timing injection must stay before user-slot acquisition; upstream merges that rewrite Messages() can drop it without a compile error while dashboard latency loses the auth component."
+    },
+    {
+      "path": "backend/internal/handler/admin/dashboard_handler.go",
+      "must_contain": [
+        "\"average_gateway_latency_ms\": stats.AverageGatewayLatencyMs"
+      ],
+      "rationale": "Admin dashboard API exposes gateway transfer latency separately from end-to-end average_duration_ms; losing this field silently reverts the card binding even when usage_logs.gateway_latency_ms is populated."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_dashboard_gateway_latency_test.go",
+      "must_contain": [
+        "TestFillDashboardUsageStatsFromUsageLogs_AverageGatewayLatencyMs",
+        "TestFillDashboardUsageStatsAggregated_AverageGatewayLatencyMs"
+      ],
+      "rationale": "Dashboard mean must divide by gateway_latency_samples (non-NULL rows only), not total_requests; this regression guards the SQL aggregation wiring."
     }
   ]
 }

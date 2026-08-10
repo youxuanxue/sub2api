@@ -1486,6 +1486,67 @@ var (
 			},
 		},
 	}
+	// QaArchiveShardsColumns holds the columns for the "qa_archive_shards" table.
+	QaArchiveShardsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "window_start", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "window_end", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "generation", Type: field.TypeInt, Default: 0},
+		{Name: "state", Type: field.TypeString, Default: "pending"},
+		{Name: "record_count", Type: field.TypeInt64, Default: 0},
+		{Name: "blob_ref_count", Type: field.TypeInt64, Default: 0},
+		{Name: "blob_present_count", Type: field.TypeInt64, Default: 0},
+		{Name: "blob_missing_count", Type: field.TypeInt64, Default: 0},
+		{Name: "logical_bytes", Type: field.TypeInt64, Default: 0},
+		{Name: "artifact_bytes", Type: field.TypeInt64, Default: 0},
+		{Name: "checksums", Type: field.TypeJSON},
+		{Name: "s3_prefix", Type: field.TypeString, Default: ""},
+		{Name: "manifest_key", Type: field.TypeString, Nullable: true},
+		{Name: "commit_key", Type: field.TypeString, Nullable: true},
+		{Name: "commit_etag", Type: field.TypeString, Nullable: true},
+		{Name: "aggregate_record_count", Type: field.TypeInt64, Default: 0},
+		{Name: "aggregate_blob_ref_count", Type: field.TypeInt64, Default: 0},
+		{Name: "aggregate_blob_present_count", Type: field.TypeInt64, Default: 0},
+		{Name: "aggregate_blob_missing_count", Type: field.TypeInt64, Default: 0},
+		{Name: "verified_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "restore_verified_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "verification_error_code", Type: field.TypeString, Nullable: true},
+		{Name: "last_reconciled_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "final_reconciled_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "cleanup_eligible", Type: field.TypeBool, Default: false},
+		{Name: "forward_cutover", Type: field.TypeBool, Default: false},
+		{Name: "first_attempt_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "completed_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "last_error", Type: field.TypeString, Nullable: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+	}
+	// QaArchiveShardsTable holds the schema information for the "qa_archive_shards" table.
+	QaArchiveShardsTable = &schema.Table{
+		Name:       "qa_archive_shards",
+		Columns:    QaArchiveShardsColumns,
+		PrimaryKey: []*schema.Column{QaArchiveShardsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "qaarchiveshard_window_start_generation",
+				Unique:  true,
+				Columns: []*schema.Column{QaArchiveShardsColumns[1], QaArchiveShardsColumns[3]},
+			},
+			{
+				Name:    "qaarchiveshard_state_window_start",
+				Unique:  false,
+				Columns: []*schema.Column{QaArchiveShardsColumns[4], QaArchiveShardsColumns[1]},
+			},
+			{
+				Name:    "idx_qa_archive_shards_one_forward_cutover",
+				Unique:  true,
+				Columns: []*schema.Column{QaArchiveShardsColumns[26]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "forward_cutover",
+				},
+			},
+		},
+	}
 	// QaExportJobsColumns holds the columns for the "qa_export_jobs" table.
 	QaExportJobsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -1833,6 +1894,7 @@ var (
 		{Name: "billing_type", Type: field.TypeInt8, Default: 0},
 		{Name: "stream", Type: field.TypeBool, Default: false},
 		{Name: "duration_ms", Type: field.TypeInt, Nullable: true},
+		{Name: "gateway_latency_ms", Type: field.TypeInt, Nullable: true},
 		{Name: "first_token_ms", Type: field.TypeInt, Nullable: true},
 		{Name: "user_agent", Type: field.TypeString, Nullable: true, Size: 512},
 		{Name: "ip_address", Type: field.TypeString, Nullable: true, Size: 45},
@@ -1859,31 +1921,31 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "usage_logs_api_keys_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[39]},
+				Columns:    []*schema.Column{UsageLogsColumns[40]},
 				RefColumns: []*schema.Column{APIKeysColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "usage_logs_accounts_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[40]},
+				Columns:    []*schema.Column{UsageLogsColumns[41]},
 				RefColumns: []*schema.Column{AccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "usage_logs_groups_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[41]},
+				Columns:    []*schema.Column{UsageLogsColumns[42]},
 				RefColumns: []*schema.Column{GroupsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "usage_logs_users_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[42]},
+				Columns:    []*schema.Column{UsageLogsColumns[43]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "usage_logs_user_subscriptions_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[43]},
+				Columns:    []*schema.Column{UsageLogsColumns[44]},
 				RefColumns: []*schema.Column{UserSubscriptionsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -1892,32 +1954,32 @@ var (
 			{
 				Name:    "usagelog_user_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[42]},
+				Columns: []*schema.Column{UsageLogsColumns[43]},
 			},
 			{
 				Name:    "usagelog_api_key_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[39]},
+				Columns: []*schema.Column{UsageLogsColumns[40]},
 			},
 			{
 				Name:    "usagelog_account_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[40]},
+				Columns: []*schema.Column{UsageLogsColumns[41]},
 			},
 			{
 				Name:    "usagelog_group_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[41]},
+				Columns: []*schema.Column{UsageLogsColumns[42]},
 			},
 			{
 				Name:    "usagelog_subscription_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[43]},
+				Columns: []*schema.Column{UsageLogsColumns[44]},
 			},
 			{
 				Name:    "usagelog_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[38]},
+				Columns: []*schema.Column{UsageLogsColumns[39]},
 			},
 			{
 				Name:    "usagelog_model",
@@ -1937,17 +1999,17 @@ var (
 			{
 				Name:    "usagelog_user_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[42], UsageLogsColumns[38]},
+				Columns: []*schema.Column{UsageLogsColumns[43], UsageLogsColumns[39]},
 			},
 			{
 				Name:    "usagelog_api_key_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[39], UsageLogsColumns[38]},
+				Columns: []*schema.Column{UsageLogsColumns[40], UsageLogsColumns[39]},
 			},
 			{
 				Name:    "usagelog_group_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[41], UsageLogsColumns[38]},
+				Columns: []*schema.Column{UsageLogsColumns[42], UsageLogsColumns[39]},
 			},
 		},
 	}
@@ -2283,6 +2345,7 @@ var (
 		PromoCodesTable,
 		PromoCodeUsagesTable,
 		ProxiesTable,
+		QaArchiveShardsTable,
 		QaExportJobsTable,
 		QaRecordsTable,
 		RedeemCodesTable,
@@ -2404,6 +2467,12 @@ func init() {
 	ProxiesTable.ForeignKeys[0].RefTable = ProxiesTable
 	ProxiesTable.Annotation = &entsql.Annotation{
 		Table: "proxies",
+	}
+	QaArchiveShardsTable.Annotation = &entsql.Annotation{
+		Table: "qa_archive_shards",
+	}
+	QaArchiveShardsTable.Annotation.Checks = map[string]string{
+		"qa_archive_shards_forward_cutover_valid": "NOT forward_cutover OR (state = 'committed' AND restore_verified_at IS NOT NULL)",
 	}
 	QaExportJobsTable.Annotation = &entsql.Annotation{
 		Table: "qa_export_jobs",

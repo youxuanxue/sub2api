@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -112,6 +113,30 @@ func TestTkHandleBridgeUpstreamPenalty_401DisablesAccount(t *testing.T) {
 	require.Contains(t, repo.lastErrorMsg, "Authentication failed (401)")
 }
 
+// 401 + invalid_model on a newapi account is a model-routing mismatch (Baidu
+// Qianfan prod 2026-08-07); must NOT permanently disable the account.
+func TestTkHandleBridgeUpstreamPenalty_401ModelNotFoundSkipsPenalty(t *testing.T) {
+	svc, repo, blocker, incidents := newBridgePenaltyTestService()
+	account := &Account{
+		ID:          90,
+		Name:        "百度",
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: 46,
+	}
+	body := []byte(`{"error":{"code":"invalid_model","message":"The model does not exist or you do not have access to it."}}`)
+	tkHandleBridgeUpstreamPenalty(context.Background(), svc, account,
+		newapitypes.NewErrorWithStatusCode(errors.New("invalid_model: The model does not exist or you do not have access to it."), newapitypes.ErrorCode("invalid_model"), 401))
+
+	require.Zero(t, repo.setErrorCalls, "model-not-found 401 must not SetError")
+	require.Zero(t, repo.setRateLimitedCalls)
+	require.Empty(t, blocker.reasons)
+	require.Empty(t, incidents.reasons)
+
+	shouldDisable := svc.HandleUpstreamError(context.Background(), account, 401, http.Header{}, body)
+	require.False(t, shouldDisable)
+}
+
 // Client-induced statuses must NEVER penalize the account (the #617 lesson:
 // cooling accounts on client 400s drains the pool). 404 model-not-found and
 // the synthetic 400 bridge errors are all out of the allowlist.
@@ -176,6 +201,23 @@ func TestTkBridgeUpstreamErrorBody_OpenAIEnvelope(t *testing.T) {
 	require.Contains(t, string(body), `"error"`)
 	require.Contains(t, string(body), "Insufficient Balance")
 	require.Nil(t, tkBridgeUpstreamErrorBody(nil))
+}
+
+func TestTkBridgeUpstreamRelayMessage_PreservesDashScopeHelpURL(t *testing.T) {
+	const rateLimitMsg = "limit_requests: You have exceeded your current request limit. For details, see: " + dashScopeHelpURLRateLimit
+	err := newapitypes.WithOpenAIError(newapitypes.OpenAIError{
+		Message: rateLimitMsg,
+		Type:    "rate_limit_error",
+		Code:    "limit_requests",
+	}, http.StatusTooManyRequests)
+
+	got := tkBridgeUpstreamRelayMessage(err)
+	require.Contains(t, got, dashScopeHelpURLRateLimit)
+	require.NotContains(t, got, maskedPublicHelpURL)
+
+	body := string(tkBridgeUpstreamErrorBody(err))
+	require.Contains(t, body, dashScopeHelpURLRateLimit)
+	require.NotContains(t, body, maskedPublicHelpURL)
 }
 
 // The permanent Feishu card must render the upstream detail line when present

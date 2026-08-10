@@ -2,38 +2,17 @@
 # Bring a running Lightsail EDGE's host-level systemd units up to prod parity via
 # SSM Run-Command. Mirrors ops/stage0/pg_dump_refresh_via_ssm.sh.
 #
-# Why this exists: prod (deploy/aws/stage0/stage0-ec2-bootstrap.sh) installs AND
-# enables two host units that the edge bootstrap (deploy/aws/lightsail/render-bootstrap.sh)
-# does NOT wire — render-bootstrap is capped at 14336 bytes of Lightsail user-data
-# and only `chmod +x`'s the scripts. So existing + new edges silently lacked:
-#   1. on-box disk-full + memory-pressure Feishu alerts (tokenkey-disk-metrics.sh +
-#      .timer) — prod #778/#811; without them a full root volume or 1GiB OOM
-#      (2026-08-03 us6) can wedge the host with NO on-box page.
-#   2. QA stale cleanup (tokenkey-qa-stale-cleanup.sh + .timer + retention env) — the
-#      script shipped but never ran on edges, so qa_records/qa_blobs grew unbounded
-#      (13+ days / multi-GB) while prod stayed pruned at 1.5 days.
-#   3. Daily GHCR tag prune (tokenkey-ghcr-prune-daily.sh + .timer) — deploy-time
-#      prune alone is insufficient when edges go days without a deploy; mirrors prod
-#      bootstrap timer at 05:00 UTC (after QA 04:15).
-# render-bootstrap can't grow (user-data cap), and deploy_via_ssm.sh does not re-run
-# bootstrap, so this SSM push is the path that reaches existing edges (the same
-# situation #778 solved for prod with pg_dump_refresh_via_ssm.sh). The edge deploy
-# workflow calls this after provision/upgrade; run it standalone to backfill a node.
+# Phase 1 closeout removed all Edge QA wiring (capture=false, no QA timer/script).
+# This script now pushes only non-QA host units:
+#   1. on-box disk-full + memory-pressure Feishu alerts (tokenkey-disk-metrics.sh)
+#   2. Daily GHCR tag prune (tokenkey-ghcr-prune-daily.sh)
 #
 # Single source of record for the unit payloads:
-#   - deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh  (disk+mem Feishu; df /)
-#   - deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh      (QA prune; shared with prod)
-#   - deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh      (GHCR tag prune; shared with prod)
-# Edit only those files; this script base64-pushes them verbatim.
-#
-# Prereq for the alerts to actually post: TOKENKEY_FEISHU_WEBHOOK_URL/_SECRET must
-# be present in /var/lib/tokenkey/.env (the alert no-ops silently otherwise). The edge
-# deploy workflow's sync-feishu-config step mirrors them there.
+#   - deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh
+#   - deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh
 #
 # Usage:
 #   bash ops/stage0/sync-edge-host-units-via-ssm.sh <instance-id|mi-...> [comment]
-#   AWS_REGION=us-east-2 TK_QA_STALE_RETENTION_DAYS=1 \
-#     bash ops/stage0/sync-edge-host-units-via-ssm.sh mi-...
 
 set -euo pipefail
 
@@ -41,17 +20,9 @@ INSTANCE_ID="${1:-${INSTANCE_ID:-}}"
 COMMENT="${2:-${SSM_COMMENT:-ops-edge-host-units-sync}}"
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-300}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
-# Edge QA retention in days (fractional OK). Default 1 = prod parity (the CFN
-# QaStaleRetentionDays default). edges are pure relays so QA there is low-value;
-# keep it short.
-QA_RETENTION_DAYS="${TK_QA_STALE_RETENTION_DAYS:-1}"
 
 if [ -z "${INSTANCE_ID}" ]; then
   echo "stage0_sync_edge_host_units_via_ssm: instance id is required" >&2
-  exit 1
-fi
-if ! printf '%s' "${QA_RETENTION_DAYS}" | grep -Eq '^(0|[1-9][0-9]*)(\.[0-9]+)?$'; then
-  echo "stage0_sync_edge_host_units_via_ssm: invalid TK_QA_STALE_RETENTION_DAYS=${QA_RETENTION_DAYS}" >&2
   exit 1
 fi
 
@@ -67,16 +38,11 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DM_SRC="${SCRIPT_DIR}/../../deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh"
-QA_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh"
 GHCR_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh"
 [[ -f "${DM_SRC}" ]] || { echo "missing ${DM_SRC}" >&2; exit 1; }
-[[ -f "${QA_SRC}" ]] || { echo "missing ${QA_SRC}" >&2; exit 1; }
 [[ -f "${GHCR_SRC}" ]] || { echo "missing ${GHCR_SRC}" >&2; exit 1; }
 
-# Encode each payload to single-line base64 so embedding into the JSON command
-# array is shell-quoting-safe. tr -d strips both GNU and BSD base64 wrapping.
 DM_SH_B64="$(base64 <"${DM_SRC}" | tr -d '\n')"
-QA_SH_B64="$(base64 <"${QA_SRC}" | tr -d '\n')"
 GHCR_SH_B64="$(base64 <"${GHCR_SRC}" | tr -d '\n')"
 
 DM_SERVICE_B64="$(cat <<'DMSEOF' | base64 | tr -d '\n'
@@ -107,76 +73,35 @@ WantedBy=timers.target
 DMTEOF
 )"
 
-QA_SERVICE_B64="$(cat <<'QASEOF' | base64 | tr -d '\n'
-[Unit]
-Description=Prune QA records and blob trees older than retention
-After=network-online.target tokenkey.service
-Wants=network-online.target
-Requires=tokenkey.service
-
-[Service]
-Type=oneshot
-EnvironmentFile=-/etc/tokenkey/qa-stale-retention.env
-ExecStart=/usr/local/bin/tokenkey-qa-stale-cleanup.sh
-QASEOF
-)"
-
-QA_TIMER_B64="$(cat <<'QATEOF' | base64 | tr -d '\n'
-[Unit]
-Description=Daily QA stale cleanup (low-traffic window)
-
-[Timer]
-OnCalendar=*-*-* 04:15:00
-RandomizedDelaySec=30min
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-QATEOF
-)"
-
-# In-place sync trace: which commit the live units are now aligned to.
 TEMPLATE_SHA="${GITHUB_SHA:-local}"
 
 jq -n \
   --arg dmsh "${DM_SH_B64}" \
   --arg dmsvc "${DM_SERVICE_B64}" \
   --arg dmtmr "${DM_TIMER_B64}" \
-  --arg qash "${QA_SH_B64}" \
-  --arg qasvc "${QA_SERVICE_B64}" \
-  --arg qatmr "${QA_TIMER_B64}" \
   --arg ghcrs "${GHCR_SH_B64}" \
-  --arg qadays "${QA_RETENTION_DAYS}" \
   --arg sha "${TEMPLATE_SHA}" \
   '{
     commands: [
       "set -euo pipefail",
-      "echo === edge host-units sync: disk/memory pressure alerts + QA stale cleanup + GHCR daily prune ===",
+      "echo === edge host-units sync: disk/memory pressure alerts + GHCR daily prune, no QA ===",
       "sudo install -d -m 0755 /etc/tokenkey",
       ("echo " + $dmsh + " | base64 -d | sudo tee /usr/local/bin/tokenkey-disk-metrics.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-disk-metrics.sh",
-      "grep -E -c '\''memory-pressure alert|MemAvailable|磁盘压力已恢复'\'' /usr/local/bin/tokenkey-disk-metrics.sh || true",  # preflight-allow: swallow — host-side diagnostic count; 0 matches must not abort the remote script
+      "grep -E -c '\''memory-pressure alert|MemAvailable|磁盘压力已恢复'\'' /usr/local/bin/tokenkey-disk-metrics.sh || true",
       "sudo /usr/local/bin/tokenkey-disk-metrics.sh --selftest",
       ("echo " + $dmsvc + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-disk-metrics.service > /dev/null"),
       ("echo " + $dmtmr + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-disk-metrics.timer > /dev/null"),
-      ("echo " + $qash + " | base64 -d | sudo tee /usr/local/bin/tokenkey-qa-stale-cleanup.sh > /dev/null"),
-      "sudo chmod +x /usr/local/bin/tokenkey-qa-stale-cleanup.sh",
-      ("echo " + $qasvc + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-qa-stale-cleanup.service > /dev/null"),
-      ("echo " + $qatmr + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-qa-stale-cleanup.timer > /dev/null"),
       ("echo " + $ghcrs + " | base64 -d | sudo tee /usr/local/bin/tokenkey-ghcr-prune-daily.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-ghcr-prune-daily.sh",
       "sudo /usr/local/bin/tokenkey-ghcr-prune-daily.sh --selftest",
       "sudo /usr/local/bin/tokenkey-ghcr-prune-daily.sh --install-units",
-      ("printf '\''TOKENKEY_QA_STALE_RETENTION_DAYS=%s\\n'\'' " + $qadays + " | sudo tee /etc/tokenkey/qa-stale-retention.env > /dev/null"),
       "sudo systemctl daemon-reload",
       "sudo systemctl enable --now tokenkey-disk-metrics.timer",
-      "sudo systemctl enable --now tokenkey-qa-stale-cleanup.timer",
       "sudo systemctl enable --now tokenkey-ghcr-prune-daily.timer",
-      "sudo systemctl restart tokenkey-disk-metrics.timer tokenkey-qa-stale-cleanup.timer tokenkey-ghcr-prune-daily.timer",
+      "sudo systemctl restart tokenkey-disk-metrics.timer tokenkey-ghcr-prune-daily.timer",
       "echo --- timers ---",
-      "sudo systemctl list-timers tokenkey-disk-metrics.timer tokenkey-qa-stale-cleanup.timer tokenkey-ghcr-prune-daily.timer --no-pager || true",
-      "echo --- retention env ---",
-      "cat /etc/tokenkey/qa-stale-retention.env || true",
+      "sudo systemctl list-timers tokenkey-disk-metrics.timer tokenkey-ghcr-prune-daily.timer --no-pager || true",
       "echo --- feishu webhook present in .env -- disk alert no-ops without it --",
       "grep -cE '\''^TOKENKEY_FEISHU_WEBHOOK_URL='\'' /var/lib/tokenkey/.env || true",
       ("echo Live edge host units now match deploy/aws@" + $sha + " on $(hostname)")

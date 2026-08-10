@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,6 +130,24 @@ func TestPublicCatalog_SurfacesMediaUnits(t *testing.T) {
 	assert.InDelta(t, 0.02, legacy.Pricing.OutputCostPerImage, 1e-9)
 }
 
+func TestPublicCatalog_SurfacesEmbeddingBillingMode(t *testing.T) {
+	const fixture = `{
+	  "bge-large-en": {
+	    "input_cost_per_token": 7.462686567164179e-08,
+	    "mode": "embedding",
+	    "litellm_provider": "wenxin"
+	  }
+	}`
+	resp := buildCatalogFromBytes([]byte(fixture), time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC))
+	require.NotNil(t, resp)
+	require.Len(t, resp.Data, 1)
+	row := resp.Data[0]
+	assert.Equal(t, "bge-large-en", row.ModelID)
+	assert.Equal(t, "wenxin", row.Vendor)
+	assert.Equal(t, "embedding", row.Pricing.BillingMode)
+	assert.Greater(t, row.Pricing.InputPer1KTokens, 0.0)
+}
+
 func TestPublicCatalog_ChatRowsWithImageCostsStayTokenCatalogRows(t *testing.T) {
 	const fixture = `{
 	  "gemini-3.1-pro-low": {
@@ -220,6 +239,10 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	assert.Equal(t, "anthropic", opus5.Vendor)
 	assert.ElementsMatch(t, []string{"vision", "tool_use", "prompt_caching", "reasoning", "response_schema", "pdf_input"}, opus5.Capabilities)
 
+	cnyPer1K := func(cny float64) float64 {
+		return tkCNYPerMTokToUSDPerToken(cny) * 1_000
+	}
+
 	pro, ok := byID["deepseek-v4-pro"]
 	require.True(t, ok, "overlay-only deepseek-v4-pro must surface in catalog")
 	assert.InDelta(t, 0.000435*tkOfficialListBaseTaxMultiplier(), pro.Pricing.InputPer1KTokens, 1e-9, "deepseek-v4-pro input = overlay official × base tax")
@@ -229,9 +252,6 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	glm52, ok := byID["glm-5.2"]
 	require.True(t, ok, "BigModel GLM overlay model must surface")
 	assert.Equal(t, PlatformNewAPI, inferPlatformFromVendor(glm52.Vendor), "zhipu provider must classify as newapi")
-	cnyPer1K := func(cny float64) float64 {
-		return tkCNYPerMTokToUSDPerToken(cny) * 1_000
-	}
 	assert.InDelta(t, cnyPer1K(8)*tkOfficialListBaseTaxMultiplier(), glm52.Pricing.InputPer1KTokens, 1e-12)
 	assert.InDelta(t, cnyPer1K(28)*tkOfficialListBaseTaxMultiplier(), glm52.Pricing.OutputPer1KTokens, 1e-12)
 	assert.InDelta(t, cnyPer1K(2)*tkOfficialListBaseTaxMultiplier(), glm52.Pricing.CacheReadPer1K, 1e-12)
@@ -646,16 +666,32 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 func firstMapKeyForTest(t *testing.T, m map[string]struct{}) string {
 	t.Helper()
 	require.NotEmpty(t, m, "SSOT map must be populated for this assertion to be meaningful")
+	keys := make([]string, 0, len(m))
 	for k := range m {
-		return k
+		keys = append(keys, k)
 	}
-	return ""
+	sort.Strings(keys)
+	return keys[0]
 }
 
 func firstManifestDisplayIDForChannelTypeForTest(t *testing.T, channelType int) string {
 	t.Helper()
 	ids := tkServedModelsManifestDisplayPresetIDsByChannelType(channelType)
 	require.NotEmpty(t, ids, "channel_type %d must have a display=true manifest sample", channelType)
+	sort.Strings(ids)
+	return ids[0]
+}
+
+func firstQianfanManifestDisplayIDForTest(t *testing.T) string {
+	t.Helper()
+	loadTkServedModelsManifest()
+	ids := make([]string, 0, 8)
+	for id := range tkServedModelsManifestDisplayIDs {
+		if strings.HasPrefix(id, "ernie-") || strings.HasPrefix(id, "bge-") || id == "qianfan-ocr" {
+			ids = append(ids, id)
+		}
+	}
+	require.NotEmpty(t, ids, "manifest must expose at least one qianfan display model")
 	sort.Strings(ids)
 	return ids[0]
 }
@@ -743,6 +779,12 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		displayed := firstManifestDisplayIDForChannelTypeForTest(t, newapiconstant.ChannelTypeDeepSeek)
 		assert.True(t, isPublicCatalogModelSupported("deepseek", displayed), "owner-derived deepseek model is manifest display=true")
 		assert.False(t, isPublicCatalogModelSupported("deepseek", "deepseek-totally-unlisted-zzz"))
+	})
+
+	t.Run("qianfan wenxin vendor requires manifest display=true", func(t *testing.T) {
+		displayed := firstQianfanManifestDisplayIDForTest(t)
+		assert.True(t, isPublicCatalogModelSupported("wenxin", displayed), "owner-derived qianfan model is manifest display=true")
+		assert.False(t, isPublicCatalogModelSupported("wenxin", "ernie-totally-unlisted-zzz"))
 	})
 
 	t.Run("unmapped vendor stays hidden until a universal platform mapping exists", func(t *testing.T) {

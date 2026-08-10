@@ -118,6 +118,10 @@ func (UsageLog) Fields() []ent.Field {
 		field.Int("duration_ms").
 			Optional().
 			Nillable(),
+		field.Int("gateway_latency_ms").
+			Optional().
+			Nillable().
+			Comment("TokenKey gateway transfer latency (auth+routing+response tail), excluding upstream wait, streaming pump, and queue waits"),
 		field.Int("first_token_ms").
 			Optional().
 			Nillable(),

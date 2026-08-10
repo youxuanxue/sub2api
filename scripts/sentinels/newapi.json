@@ -148,6 +148,57 @@
       "rationale": "Focused bridge regressions prove that public resolution/size/audio dimensions become the exact adaptor metadata values used upstream, including conflict precedence and metadata-only audio aliases."
     },
     {
+      "path": "backend/internal/relay/bridge/embedding_relay.go",
+      "must_contain": [
+        "RunEmbeddingRelay",
+        "runVertexEmbeddingRelay",
+        "ChannelTypeVertexAi",
+        "runQianfanEmbeddingRelay",
+        "ChannelTypeBaiduV2"
+      ],
+      "rationale": "Bridge for POST /v1/embeddings on the newapi fifth platform. RunEmbeddingRelay must delegate channel_type 41 (Vertex SA) to runVertexEmbeddingRelay and channel_type 46 (Baidu Qianfan v2) to runQianfanEmbeddingRelay because upstream new-api adaptors leave ConvertEmbeddingRequest unimplemented; dropping either injection line silently regresses those embedding requests back to not implemented."
+    },
+    {
+      "path": "backend/internal/relay/bridge/embedding_relay_tk_vertex.go",
+      "must_contain": [
+        "runVertexEmbeddingRelay",
+        "vertexEmbeddingPromptTokens",
+        "CountTokenInput",
+        "buildVertexEmbeddingPredictPayload",
+        "vertexEmbeddingPredictResponseToOpenAI",
+        "vertex.BuildGoogleModelURL",
+        "RETRIEVAL_QUERY",
+        "ApplyParamOverrideWithRelayInfo"
+      ],
+      "rationale": "TK companion that implements Vertex AI text embedding via the :predict surface for channel_type 41 service accounts. Converts OpenAI /v1/embeddings requests to Vertex instances+parameters, exchanges SA JSON for OAuth, and writes OpenAI-shaped embedding JSON + usage. ParamOverride parity with the generic embedding relay path must survive upstream merges."
+    },
+    {
+      "path": "backend/internal/relay/bridge/embedding_relay_tk_vertex_test.go",
+      "must_contain": [
+        "TestVertexEmbeddingPromptTokens_SingleAndBatch",
+        "TestBuildVertexEmbeddingPredictPayload_SingleAndBatch",
+        "TestVertexEmbeddingPredictResponseToOpenAI_EmptyPredictions",
+        "TestDispatchEmbeddings_VertexPredict_OK"
+      ],
+      "rationale": "Focused bridge regressions for Vertex embedding request shaping, empty-prediction rejection, and DispatchEmbeddings end-to-end wiring through the ch41 companion path."
+    },
+    {
+      "path": "backend/internal/relay/bridge/embedding_relay_tk_qianfan.go",
+      "must_contain": [
+        "runQianfanEmbeddingRelay",
+        "ChannelTypeBaiduV2",
+        "runAdaptorEmbeddingRelay"
+      ],
+      "rationale": "TK companion that pass-through relays OpenAI /v1/embeddings to Baidu Qianfan /v2/embeddings for channel_type 46. Upstream baidu_v2.ConvertEmbeddingRequest is unimplemented even though GetRequestURL targets /v2/embeddings."
+    },
+    {
+      "path": "backend/internal/relay/bridge/embedding_relay_tk_qianfan_test.go",
+      "must_contain": [
+        "TestDispatchEmbeddings_QianfanV2_OK"
+      ],
+      "rationale": "Focused bridge regression for Qianfan embedding dispatch: upstream path /v2/embeddings, auth header, and OpenAI-shaped response + usage."
+    },
+    {
       "path": "backend/internal/server/routes/gateway_test.go",
       "must_contain": [
         "TestGatewayRoutesNewAPICountTokensPathIsRegistered",
@@ -588,6 +639,21 @@
       "rationale": "Agent Plan base-url detection for VolcEngine ch45 accounts using /api/plan/v3 instead of pay-as-you-go /api/v3. Without it admin probes and preset selection fall back to wrong upstream paths (404 InvalidEndpointOrModel)."
     },
     {
+      "path": "backend/internal/integration/newapi/qianfan.go",
+      "must_contain": [
+        "QianfanBaseURL",
+        "IsQianfanBaseURL"
+      ],
+      "rationale": "Baidu Qianfan v2 base-url detection for ch46 accounts. Without it manifest scope, model-mapping preset, and per-account Qianfan billing keys cannot distinguish account 90 from other BaiduV2 channels."
+    },
+    {
+      "path": "backend/internal/integration/newapi/qianfan_test.go",
+      "must_contain": [
+        "TestIsQianfanBaseURL"
+      ],
+      "rationale": "Regression for Qianfan base-url normalization and channel-type guard; prevents silent misrouting when credentials omit or suffix the /v2 path."
+    },
+    {
       "path": "backend/internal/integration/newapi/ark_channel_base_url.go",
       "must_contain": [
         "VolcEngineAgentPlanBaseKey",
@@ -616,9 +682,11 @@
       "must_contain": [
         "tkServedModelsManifestPresetIDsForSelector",
         "tkServedModelsManifestDisplayPresetIDsForSelector",
-        "account_scope"
+        "account_scope",
+        "manifestEntryIsQianfanScopedOnly",
+        "newAPIQianfanModelMappingPresetIDs"
       ],
-      "rationale": "Property-scoped manifest projections keep Agent Plan user menus aligned with platform/channel/base_url while served_on remains evidence only, even when canonical channel_type values describe another upstream adaptor."
+      "rationale": "Property-scoped manifest projections keep Agent Plan and Qianfan user menus aligned with platform/channel/base_url while served_on remains evidence only, even when canonical channel_type values describe another upstream adaptor."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_volcagentplan.go",

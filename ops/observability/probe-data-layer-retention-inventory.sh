@@ -8,33 +8,23 @@
 # supports physical filesystem reclamation.
 #
 # Tagged output:
-#   RETENTIONSTATS  one row per whitelisted table
-#   RETENTIONUSAGE  relation metadata for non-partitioned usage logs
+#   RETENTIONSTATS  one row per whitelisted table (usage + ops leaf partitions)
 #   RETENTIONUSAGE_EXACT  bounded exact usage cutoff count
 #   RETENTIONPLAN   planner estimates without reading matching rows
 #   RETPARTITION   one row per leaf partition
-#   RETBLOB        local QA blob filesystem evidence
 #
 # This script intentionally contains no write-side SQL or cleanup operation.
 set -u -o pipefail
 
 USAGE_RETENTION_DAYS="${USAGE_RETENTION_DAYS:-90}"
 OPS_RETENTION_DAYS="${OPS_RETENTION_DAYS:-30}"
-QA_RETENTION_DAYS="${QA_RETENTION_DAYS:-2}"
-DATA_DIR="${TOKENKEY_DATA_DIR:-/var/lib/tokenkey}"
-QA_BLOB_DIR="${TOKENKEY_QA_BLOB_DIR:-$DATA_DIR/app/qa_blobs}"
 
-for value in "$USAGE_RETENTION_DAYS" "$OPS_RETENTION_DAYS" "$QA_RETENTION_DAYS"; do
+for value in "$USAGE_RETENTION_DAYS" "$OPS_RETENTION_DAYS"; do
   if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
     echo "RETENTIONSTATS {\"inventory_probe_ok\":false,\"reason\":\"retention days must be positive integers\"}"
     exit 0
   fi
 done
-
-if [[ ! "$DATA_DIR" =~ ^/[A-Za-z0-9._/-]+$ || "$DATA_DIR" == "/" || "$QA_BLOB_DIR" != "$DATA_DIR/app/qa_blobs" ]]; then
-  echo 'RETBLOB {"inventory_probe_ok":false,"blob_inventory_ok":false,"reason":"QA blob inventory path is outside the bounded data directory"}'
-  exit 0
-fi
 
 PGOPTIONS_VALUE="-c default_transaction_read_only=on -c lock_timeout=100ms -c statement_timeout=20s"
 PSQL=(docker exec -i -e "PGOPTIONS=$PGOPTIONS_VALUE" tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
@@ -43,18 +33,16 @@ echo "=== RETENTIONSTATS (catalog estimates + reclaim classification) ==="
 if ! "${PSQL[@]}" \
   -v usage_days="$USAGE_RETENTION_DAYS" \
   -v ops_days="$OPS_RETENTION_DAYS" \
-  -v qa_days="$QA_RETENTION_DAYS" \
   -tA 2>&1 <<'SQL'
 WITH cfg AS (
   SELECT
     clock_timestamp() AS as_of,
     clock_timestamp() - make_interval(days := :'usage_days'::int) AS usage_cutoff,
-    clock_timestamp() - make_interval(days := :'ops_days'::int) AS ops_cutoff,
-    clock_timestamp() - make_interval(days := :'qa_days'::int) AS qa_cutoff
+    clock_timestamp() - make_interval(days := :'ops_days'::int) AS ops_cutoff
 ), objects(table_name, dataset, cutoff, retention_days) AS (
   SELECT 'ops_system_logs', 'ops', ops_cutoff, :'ops_days'::int FROM cfg
   UNION ALL SELECT 'ops_error_logs', 'ops', ops_cutoff, :'ops_days'::int FROM cfg
-  UNION ALL SELECT 'qa_records', 'qa', qa_cutoff, :'qa_days'::int FROM cfg
+  UNION ALL SELECT 'usage_logs', 'usage', usage_cutoff, :'usage_days'::int FROM cfg
 ), leaves AS (
   SELECT
     o.table_name,
@@ -98,23 +86,9 @@ WITH cfg AS (
   FROM bounded b
   GROUP BY b.table_name, b.dataset, b.cutoff
 ), expired AS (
-  SELECT
-    'ops_system_logs' AS table_name,
-    NULL::bigint AS expired_rows,
-    NULL::bigint AS expired_blob_refs
-  FROM cfg
-  UNION ALL
-  SELECT
-    'ops_error_logs',
-    NULL::bigint,
-    NULL::bigint
-  FROM cfg
-  UNION ALL
-  SELECT
-    'qa_records',
-    NULL::bigint,
-    NULL::bigint
-  FROM cfg
+  SELECT 'ops_system_logs' AS table_name, NULL::bigint AS expired_rows, NULL::bigint AS expired_blob_refs FROM cfg
+  UNION ALL SELECT 'ops_error_logs', NULL::bigint, NULL::bigint FROM cfg
+  UNION ALL SELECT 'usage_logs', NULL::bigint, NULL::bigint FROM cfg
 )
 SELECT 'RETENTIONSTATS '||row_to_json(result)::text
 FROM (
@@ -154,41 +128,30 @@ then
   echo 'RETENTIONSTATS {"inventory_probe_ok":false,"reason":"retention SQL timed out, was blocked, or schema was incomplete"}'
 fi
 
-echo "=== RETENTIONUSAGE (non-partitioned usage relation) ==="
-if usage_meta=$(docker exec -i -e "PGOPTIONS=$PGOPTIONS_VALUE" tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -tAc "
-SELECT 'RETENTIONUSAGE '||row_to_json(t)::text
-FROM (
-  SELECT
-    true AS inventory_probe_ok,
-    'usage_logs' AS table_name,
-    pg_total_relation_size('usage_logs')::bigint AS relation_bytes,
-    COALESCE((SELECT n_live_tup::bigint FROM pg_stat_user_tables
-      WHERE relid = 'usage_logs'::regclass), 0) AS live_rows,
-    $USAGE_RETENTION_DAYS::int AS retention_days,
-    now() - make_interval(days := $USAGE_RETENTION_DAYS::int) AS cutoff,
-    'pg_total_relation_size + pg_stat_user_tables; no row scan' AS evidence,
-    'non-partitioned relation: expired bytes require a separate bounded export/delete rehearsal' AS space_semantics
-) t;
-" 2>/dev/null); then
-  printf '%s\n' "$usage_meta"
-else
-  echo 'RETENTIONUSAGE {"inventory_probe_ok":false,"reason":"usage relation metadata unavailable"}'
-fi
-
 echo "=== RETENTIONUSAGE_EXACT (bounded indexed count) ==="
 if usage_expired=$(docker exec -i -e "PGOPTIONS=$PGOPTIONS_VALUE" tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1 -tAc "
+WITH leaf_stats AS (
+  SELECT
+    COALESCE(sum(pg_total_relation_size(tree.relid)), 0)::bigint AS relation_bytes,
+    COALESCE(sum(s.n_live_tup), 0)::bigint AS live_rows
+  FROM pg_partition_tree(to_regclass('usage_logs')) tree
+  LEFT JOIN pg_stat_all_tables s ON s.relid = tree.relid
+  WHERE tree.isleaf
+)
 SELECT 'RETENTIONUSAGE_EXACT '||row_to_json(t)::text
 FROM (
   SELECT
     true AS inventory_probe_ok,
-    count(*)::bigint AS expired_rows,
-    pg_total_relation_size('usage_logs')::bigint AS relation_bytes,
-    COALESCE((SELECT n_live_tup::bigint FROM pg_stat_user_tables
-      WHERE relid = 'usage_logs'::regclass), 0) AS live_rows,
+    (
+      SELECT count(*)::bigint
+      FROM usage_logs
+      WHERE created_at < now() - make_interval(days := $USAGE_RETENTION_DAYS::int)
+    ) AS expired_rows,
+    leaf_stats.relation_bytes,
+    leaf_stats.live_rows,
     $USAGE_RETENTION_DAYS::int AS retention_days,
     now() - make_interval(days := $USAGE_RETENTION_DAYS::int) AS cutoff
-  FROM usage_logs
-  WHERE created_at < now() - make_interval(days := $USAGE_RETENTION_DAYS::int)
+  FROM leaf_stats
 ) t;
 " 2>/dev/null); then
   printf '%s\n' "$usage_expired"
@@ -211,23 +174,20 @@ emit_plan() {
 emit_plan usage_logs "$USAGE_RETENTION_DAYS"
 emit_plan ops_system_logs "$OPS_RETENTION_DAYS"
 emit_plan ops_error_logs "$OPS_RETENTION_DAYS"
-emit_plan qa_records "$QA_RETENTION_DAYS"
 
 echo "=== RETPARTITION (partition bounds and physical candidates) ==="
 if ! "${PSQL[@]}" \
   -v usage_days="$USAGE_RETENTION_DAYS" \
   -v ops_days="$OPS_RETENTION_DAYS" \
-  -v qa_days="$QA_RETENTION_DAYS" \
   -tA 2>&1 <<'SQL'
 WITH cfg AS (
   SELECT
     clock_timestamp() - make_interval(days := :'usage_days'::int) AS usage_cutoff,
-    clock_timestamp() - make_interval(days := :'ops_days'::int) AS ops_cutoff,
-    clock_timestamp() - make_interval(days := :'qa_days'::int) AS qa_cutoff
+    clock_timestamp() - make_interval(days := :'ops_days'::int) AS ops_cutoff
 ), objects(table_name, dataset, cutoff, retention_days) AS (
   SELECT 'ops_system_logs', 'ops', ops_cutoff, :'ops_days'::int FROM cfg
   UNION ALL SELECT 'ops_error_logs', 'ops', ops_cutoff, :'ops_days'::int FROM cfg
-  UNION ALL SELECT 'qa_records', 'qa', qa_cutoff, :'qa_days'::int FROM cfg
+  UNION ALL SELECT 'usage_logs', 'usage', usage_cutoff, :'usage_days'::int FROM cfg
 ), parts AS (
   SELECT
     o.table_name,
@@ -277,39 +237,3 @@ SQL
 then
   echo 'RETPARTITION {"inventory_probe_ok":false,"reason":"partition inventory timed out or was blocked"}'
 fi
-
-echo "=== RETBLOB (QA local filesystem evidence) ==="
-if [[ ! -d "$QA_BLOB_DIR" ]]; then
-  echo "RETBLOB {\"inventory_probe_ok\":false,\"blob_inventory_ok\":false,\"qa_blob_dir\":\"$QA_BLOB_DIR\",\"reason\":\"QA blob directory is absent\"}"
-  exit 0
-fi
-
-QA_CUTOFF=""
-if command -v date >/dev/null 2>&1; then
-  QA_CUTOFF=$(date -u -d "-${QA_RETENTION_DAYS} days" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || true)
-fi
-if [[ -z "$QA_CUTOFF" ]]; then
-  echo "RETBLOB {\"inventory_probe_ok\":false,\"blob_inventory_ok\":false,\"qa_blob_dir\":\"$QA_BLOB_DIR\",\"reason\":\"GNU date cutoff calculation unavailable\"}"
-  exit 0
-fi
-
-blob_inventory_failed=0
-if ! total_bytes=$(du -s -B1 "$QA_BLOB_DIR" 2>/dev/null | awk 'NR==1 {print $1}'); then
-  blob_inventory_failed=1
-fi
-if ! total_files=$(find "$QA_BLOB_DIR" -type f -print 2>/dev/null | wc -l | tr -d '[:space:]'); then
-  blob_inventory_failed=1
-fi
-if ! expired_bytes=$(find "$QA_BLOB_DIR" -type f -not -newermt "$QA_CUTOFF" -printf '%s\n' 2>/dev/null | awk '{sum += $1} END {printf "%.0f", sum + 0}'); then
-  blob_inventory_failed=1
-fi
-if ! expired_files=$(find "$QA_BLOB_DIR" -type f -not -newermt "$QA_CUTOFF" -print 2>/dev/null | wc -l | tr -d '[:space:]'); then
-  blob_inventory_failed=1
-fi
-
-if [[ "$blob_inventory_failed" -ne 0 || -z "$total_bytes" || -z "$total_files" || -z "$expired_bytes" || -z "$expired_files" ]]; then
-  echo "RETBLOB {\"inventory_probe_ok\":false,\"blob_inventory_ok\":false,\"qa_blob_dir\":\"$QA_BLOB_DIR\",\"reason\":\"filesystem inventory command failed\"}"
-  exit 0
-fi
-printf 'RETBLOB {"inventory_probe_ok":true,"blob_inventory_ok":true,"qa_blob_dir":"%s","cutoff":"%s","total_files":%s,"total_bytes":%s,"files_older_than_cutoff":%s,"bytes_older_than_cutoff":%s,"evidence":"host filesystem mtime + du","space_semantics":"external blob bytes are separate from PostgreSQL relation bytes; S3 bytes are not included"}\n' \
-  "$QA_BLOB_DIR" "$QA_CUTOFF" "$total_files" "$total_bytes" "$expired_files" "$expired_bytes"

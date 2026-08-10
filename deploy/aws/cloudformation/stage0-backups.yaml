@@ -5,8 +5,8 @@ Description: >
   directly (same-account resource-based grant), so no update-stack on
   tokenkey-prod-stage0. Holds three buckets, all direct-role-ARN pattern:
   (1) pg_dump ledger backups (tokenkey-pgdump.sh hourly; RetentionDays);
-  (2) QA trajectory exports (qa_capture.export_storage; QaExportsRetentionDays;
-  see docs/qa-export-s3-and-auto-archive.md);
+  (2) user-requested QA trajectory export artifacts (qa_capture.export_storage;
+  QaExportsRetentionDays; lifecycle owner: docs/approved/design-prod-qa-24h-s3-lifecycle.md);
   (3) generated-media offload (media_storage): OPT-IN image offload only (set
   MEDIA_STORAGE_IMAGE_OFFLOAD_ENABLED=true), plus re-presign of legacy
   already-offloaded video records. By default NEITHER image nor video rehosts
@@ -273,13 +273,13 @@ Outputs:
     Value: !Sub 's3://${PgdumpBackupBucket}/${Environment}/pgdump'
   QaExportsBucketName:
     Description: >
-      QA trajectory export bucket. Matches the QA_CAPTURE_EXPORT_STORAGE_BUCKET default
-      self-healed by ops/stage0/deploy_via_ssm.sh on the prod host.
+      User-requested trajectory ZIP artifact bucket; never the raw QA archive.
+      Matches the transitional QA_CAPTURE_EXPORT_STORAGE_BUCKET prod default.
     Value: !Ref QaExportsBucket
   QaExportsS3Uri:
     Description: >
-      s3:// base for QA exports; objects land under QA_CAPTURE_EXPORT_STORAGE_PREFIX
-      (default traj-exports/), which the expire-traj-exports lifecycle rule reaps.
+      s3:// base for user trajectory ZIP artifacts only; objects land under
+      QA_CAPTURE_EXPORT_STORAGE_PREFIX and are reaped by the artifact lifecycle.
     Value: !Sub 's3://${QaExportsBucket}'
   EnvSecretsSsmParam:
     Description: Set this as TOKENKEY_ENV_SECRETS_SSM in /var/lib/tokenkey/.env; SecureString holding the off-box .env secrets.

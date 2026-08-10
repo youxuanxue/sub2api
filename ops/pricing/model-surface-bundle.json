@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "floor_sha256": "4594d7d98acbf6b7735ad0d2c6f0f0745c53809468852676529b6a0f8d40327f",
+  "floor_sha256": "67349952acd4e382e8338dddbaf84ec699e40bf4232360ea9f6f2cebb9ac7c8f",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -63,6 +63,7 @@
         "gemini-2.5-pro": "gemini-2.5-pro",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
         "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
         "imagen-4.0-generate-001": "imagen-4.0-generate-001",
         "imagen-4.0-ultra-generate-001": "imagen-4.0-ultra-generate-001",
@@ -164,6 +165,7 @@
         "gemini-2.5-pro": "gemini-2.5-pro",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
         "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
         "imagen-4.0-generate-001": "imagen-4.0-generate-001",
         "imagen-4.0-ultra-generate-001": "imagen-4.0-ultra-generate-001",
@@ -224,6 +226,44 @@
           "kimi-k3": "kimi-k3",
           "minimax-m2.7": "minimax-m2.7",
           "minimax-m3": "minimax-m3"
+        }
+      },
+      {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com",
+        "model_mapping": {
+          "bge-large-en": "bge-large-en",
+          "bge-large-zh": "bge-large-zh",
+          "deepseek-ocr": "deepseek-ocr",
+          "deepseek-v3.2": "deepseek-v3.2",
+          "deepseek-v3.2-think": "deepseek-v3.2-think",
+          "deepseek-v4-flash": "deepseek-v4-flash",
+          "deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
+          "deepseek-v4-pro": "deepseek-v4-pro",
+          "ernie-4.5-turbo-128k": "ernie-4.5-turbo-128k",
+          "ernie-4.5-turbo-20260402": "ernie-4.5-turbo-20260402",
+          "ernie-4.5-turbo-32k": "ernie-4.5-turbo-32k",
+          "ernie-4.5-turbo-vl": "ernie-4.5-turbo-vl",
+          "ernie-4.5-turbo-vl-32k": "ernie-4.5-turbo-vl-32k",
+          "ernie-5.0": "ernie-5.0",
+          "ernie-5.0-thinking-preview": "ernie-5.0-thinking-preview",
+          "ernie-5.1": "ernie-5.1",
+          "ernie-x1.1": "ernie-x1.1",
+          "ernie-x1.1-preview": "ernie-x1.1-preview",
+          "glm-5": "glm-5",
+          "glm-5.1": "glm-5.1",
+          "glm-5.2": "glm-5.2",
+          "internvl3-38b": "internvl3-38b",
+          "kimi-k2.6": "kimi-k2.6",
+          "qianfan-ocr": "qianfan-ocr",
+          "qwen3-embedding-0.6b": "qwen3-embedding-0.6b",
+          "qwen3-embedding-4b": "qwen3-embedding-4b",
+          "qwen3-embedding-8b": "qwen3-embedding-8b",
+          "qwen3.5-122b-a10b": "qwen3.5-122b-a10b",
+          "qwen3.5-27b": "qwen3.5-27b",
+          "qwen3.5-35b-a3b": "qwen3.5-35b-a3b",
+          "qwen3.5-397b-a17b": "qwen3.5-397b-a17b"
         }
       }
     ],

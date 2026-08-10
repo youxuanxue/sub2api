@@ -10,9 +10,10 @@ import {
 } from '../pricingCatalogPresentation.tk'
 
 describe('pricingCatalogPresentation', () => {
-  it('derives text, image, and video from the catalog billing mode', () => {
+  it('derives text, image, video, and embedding from the catalog billing mode', () => {
     expect(pricingCatalogModality('image')).toBe('image')
     expect(pricingCatalogModality('video')).toBe('video')
+    expect(pricingCatalogModality('embedding')).toBe('embedding')
     expect(pricingCatalogModality('token')).toBe('text')
     expect(pricingCatalogModality(undefined)).toBe('text')
   })

@@ -1,41 +1,40 @@
 ---
-title: Capacity-first 数据层安全原型
+title: Capacity-first 数据层安全设计（原型已晋升）
 status: approved
 approved_by: "xuejiao (design approval, 2026-07-20)"
 approved_at: 2026-07-20
 related_prs: [1385]
 ---
 
-# Capacity-first 数据层安全原型
+# Capacity-first 数据层安全设计（原型已晋升）
 
 ## 决策
 
 先用低成本扩盘保险丝和可验证冷热分离解除容量倒计时，再根据可靠性、恢复责任和长期
-净增长决定是否迁 RDS。本阶段只实现本地与非生产工件的设计/测试，不批准任何 prod
-查询、CloudFormation/SSM 写入、卷扩容、容器重启、数据导出或删除。
+净增长决定是否迁 RDS。
 
-当前原型只交付三个安全构件：
+PR #1385 交付了三个安全构件的原型实现；正式 prod 只读容量探针与 verdict 已在
+`docs/approved/design-phase1-prod-activation-gates.md`（PR #1536 及后续）晋升完成。
+当前唯一 owner：
 
-1. 有锁等待和执行时间上限的只读容量探针；
-2. 输入假设全部显式化的离线容量投影器；
-3. 只创建并验证 no-execute change set 的 DataVolume plan 工具。
+1. `ops/observability/probe-data-layer-capacity.sh` + `data_layer_capacity_verdict.py`（daily diagnostics 只读 prod 采样）；
+2. `ops/observability/data_layer_capacity_projection.py`（离线投影，不连网）；
+3. `ops/stage0/cfn_datavolume_parameter_plan.py` + `reconcile-cfn-datavolume-no-replace.sh`（no-execute change set 预览；执行仍须单独审批）。
 
-归档 worker、S3 bucket、生产保留期、在线文件系统扩容和数据删除不在本原型实现范围。
-本原型在 PR #1385 中保持休眠；后续正式晋升由独立审批基线
-`docs/approved/design-phase1-prod-activation-gates.md` 约束。晋升完成后删除 prototype
-源码副本，由正式 probe/verdict 和对应测试成为唯一 owner。任何 merge 均不自动部署或
-执行生产命令。
+归档 worker、S3 bucket、生产保留期、在线文件系统扩容和数据删除不在本设计范围。
+本文件保留 PR #1385 的设计契约与阈值；**不再**描述「禁止 prod 查询」——那只适用于
+原型阶段。任何 prod 卷扩容或 change set 执行仍须独立确认串与人工审批。
 
 ## 零影响边界
 
 “不影响线上”定义为不得产生用户可感知影响，而不是宣称生产归档完全不消耗 CPU/IO。
-本原型更严格：不执行任何 prod 命令。未来进入只读核验时也必须满足：
+原型阶段不执行任何 prod 命令；晋升后的只读 prod 核验必须满足：
 
 - PostgreSQL session 强制 `default_transaction_read_only=on`；
 - `lock_timeout=100ms`，不等待 DDL/维护锁；
 - 近 30 天增长扫描 `statement_timeout=2s`；
 - 总行数来自 `pg_stat_user_tables` 估算，不做全表 `COUNT(*)`；
-- usage/ops/QA 分区表大小按叶分区汇总，禁止把无存储的分区父表误当真实占用；
+- usage/ops 分区表大小按叶分区汇总，禁止把无存储的分区父表误当真实占用；
 - 基础目录查询缺失、增长扫描超时或统计缺失一律输出 `unknown`，禁止猜成 green；
 - 不运行 `VACUUM FULL`、大表 rewrite、锁表 DDL、容器重建、重启或清理。
 
@@ -75,32 +74,35 @@ fail closed；ops 回收上界不得超过 snapshot 观测到的 ops 关系总�
 小于 live `DataVolumeSizeGiB`、出现 `Instance`/`EIPAssoc`、卷 replacement 或 Size 之外
 的属性，计划必须拒绝。
 
-## 后续归档闭环
+## 归档 steady state
 
-归档实现进入下一审批阶段，顺序固定为：
+Generic usage/ops archive 已收口：`archive_health` 三 flag 绿 +
+`OpsCleanupService` 日常 retention。Exception path 与 CLI 契约见
+`ops/archive/README.md`、`design-prod-archive-bucket.md`、
+`design-data-layer-prod-export-canary.md`。
 
-```text
-非生产封口批次 -> 导出 -> manifest/行数/checksum -> 随机恢复
--> dry-run 水位 -> 单批 canary（仍不删）-> 独立批准后才允许小批删除
-```
-
-候选保留策略为 usage 热 90 天、raw ops 热 30 天、QA 本机 2 天。ops 优先整分区 drop；
-usage 当前不是自动分区表，不在 prod 做 `VACUUM FULL` 或直接 rewrite 来追求 `df` 好看。
+候选保留策略为 usage 热 90 天、raw ops 热 30 天。prod 上 `usage_logs`
+已完成日分区 cutover（见 `design-data-layer-phase1-closeout.md`），不在 prod
+做 `VACUUM FULL` 或直接 rewrite 来追求 `df` 好看。QA 不由本通用设计管理。
 扩盘与归档分别审批，任何一个完成都不自动授权另一个。
 
 ## 验收门
 
-- [ ] 探针正向返回字段化 snapshot，超时/缺统计负向返回 `unknown`。
-- [ ] PR #1385 合并时 prod 接线保持不变；后续晋升必须绑定独立生产审批基线。
+- [x] 探针正向返回字段化 snapshot，超时/缺统计负向返回 `unknown`（正式 probe + 单测）。
+- [x] 容量探针已按 `design-phase1-prod-activation-gates.md` 晋升；DataVolume plan 执行仍须单独审批。
 - [ ] 离线投影对 50→100 GiB 和低/高回收 scenario 的计算由测试覆盖。
 - [ ] DataVolume 参数计划拒绝缩盘、缺 size 和错误 prod 确认串。
 - [ ] change-set guard 只接受恰好一条 `DataVolume/Modify/Replacement=False/Properties/Size`。
 - [ ] plan shell 不含 execute path，不调用部署、SSM run-command 或容器命令。
 - [ ] 本地 preflight 全绿后提交人工审查；merge 不代表批准任何 prod 操作。
 
-## 明确不做
+## 明确不做（本设计范围内）
 
-- 不连接或查询 prod，不创建 prod change set/SSM 参数。
-- 不修改当前 50 GiB 卷，不扩文件系统，不重启任何服务。
-- 不新增生产归档 schema/worker/S3 bucket，不删除 usage/ops/QA 数据。
+- 不通过本设计自动创建 prod change set/SSM 参数或执行 DataVolume 变更（prod plan 预览仍须
+  单独确认串与人工审批）。
+- 不自动扩文件系统、不重启任何服务。
+- 不新增生产归档 schema/worker/S3 bucket，不通过本设计删除 usage/ops 数据。
 - 不改变 RDS PR #587，也不把容量缓解冒充数据库高可用。
+
+注：只读 prod 容量探针已在 Phase1 activation gates 晋升（见上文「零影响边界」）；「原型阶段
+禁止 prod 查询」不再适用于 daily diagnostics 路径。

@@ -839,14 +839,14 @@ sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/
 sudo journalctl -u tokenkey -n 200 --no-pager
 sudo systemctl list-timers tokenkey-pgdump.timer
 sudo systemctl list-timers tokenkey-disk-metrics.timer   # → CloudWatch tokenkey/EC2 DataVolumeUsedPercent + RootVolumeUsedPercent
-sudo systemctl list-timers tokenkey-qa-stale-cleanup.timer
 ls -lh /var/lib/tokenkey/pgdump/ 2>/dev/null || echo '(no dumps yet — first dump runs on next scheduled timer tick)'
 # pg_dump 每小时一次，本地只滚动保留最近 6 份 tokenkey-*.sql.gz（S3 TOKENKEY_PGDUMP_S3_URI 才是归档源，本地仅供快速恢复）；清理在 dump 之前先跑以自愈满盘死锁。卷使用率告警：CFN DataVolumeDiskAlarm + RootVolumeDiskAlarm（探测）和 tokenkey-disk-metrics timer 的 on-box 飞书告警（通知）/ 主文档 §3.8。live root alarm 用 `bash ops/stage0/sync-instance-root-disk-alarm.sh --stack tokenkey-prod-stage0` 单独 upsert，避免整栈更新。CPU 持续高负载：CloudWatch `tokenkey-prod-cpu-sustained-high`（AWS/EC2 CPUUtilization 5m Average >80% 连续 15min；`ops/stage0/sync-instance-cpu-alarm.sh` 可不经全栈 CFN 单独同步）。
 
 # 现有 Caddy json log 无界时，用带 prod Environment 门禁的 workflow 同步 canonical compose 并仅重建 Caddy；Postgres/Redis/active app 不重启：
 # gh workflow run ops-stage0-container-log-policy.yml -f target=prod -f confirm=recreate-caddy-for-bounded-logs
 # 旧版手工/迁移快照 `pre-*.dump` 属存量文件；确认不需回滚后可删除，新模板的 pgdump timer 也会清理。
-# QA：`QaStaleRetentionDays`（默认 1.5 天）每日清理旧 qa_records + qa_blobs/qa_dlq；与 ops/prod/qa-export-and-purge.sh 范围对齐，0=关闭
+# QA 数据生命周期唯一基线：docs/approved/design-prod-qa-24h-s3-lifecycle.md
+# 数值 SSOT：ops/qa/policy.yaml；deploy rollout：ops/qa/deploy_rollout.yaml；索引：ops/qa/README.md
 sudo cat /var/lib/tokenkey/.env                           # 含明文密码，慎查
 ```
 
@@ -858,35 +858,12 @@ sudo cat /var/lib/tokenkey/.env                           # 含明文密码，�
 aws cloudformation delete-stack --region us-east-1 --stack-name <旧栈名>
 ```
 
-### Prod QA 全量导出与清理（operator IAM）
+### Prod QA break-glass 读取
 
-用于把 **Stage-0 单机上** 的 `qa_records`（PostgreSQL 分区表）与 **`/var/lib/tokenkey/app/qa_blobs`**（含用户自助导出的 `exports/` 树）一次性拉到本地 `./.dump_qa/`，在**本地校验非空、manifest 计数与 checksum** 之后，再 **TRUNCATE 表 + 清空 blob 目录 + 删除 S3 暂存 tar**，避免 EBS 与 staging bucket 长期堆积。
-
-- **脚本**：`ops/prod/fetch-qa-dump.sh`（仅导出）；`ops/prod/qa-export-and-purge.sh`（导出 + 清理）。
-- **凭证**：与 `deploy-error-clustering-binary.sh` 同类 — 操作员 IAM 需 `ssm:SendCommand` / `GetCommandInvocation`，以及 staging bucket 的 `s3:PutObject`（预签名 PUT 由本机 boto3 生成）、`s3:GetObject`（下载）、`s3:DeleteObject`（清理暂存对象）。
-- **线上影响**：TRUNCATE 会短时间锁 `qa_records`；网关主路径不依赖该表。归档窗口与 TRUNCATE 之间若有新写入，**可能未被 tar 包收录即被删掉**，低峰执行或接受尾部丢失。
-- **演练**：`PROD_QA_PURGE_DRY_RUN=1` 或 `--dry-run` 只跑导出与本地校验，打印将执行的 purge / `s3 rm`，不写库、不删盘、不删对象。
-- **降低「导出快照之后、TRUNCATE 之前」新写入被误删风险**：（1）低峰窗口操作；（2）设置 **`PURGE_MAX_EXTRA_ROWS`**（如 `0` 表示远程 `count(*)` 不得大于导出的 `qa_records_lines`，多一行即中止 purge；或 `5` 允许最多多 5 行）— 会在 TRUNCATE 前多跑一次 SSM 只做计数比对；（3）短时关闭或降低 QA 捕获（配置 `qa_capture.enabled` 等）后再 purge（需按你们部署方式 reload）；（4）接受 jsonl 与 tar 内 `qa_blobs` 之间仍有极短非原子窗口时，仍以磁盘为准做二次导出比对。
-
-```bash
-# 仅导出
-QA_DUMP_S3_BUCKET=<staging-bucket> bash ops/prod/fetch-qa-dump.sh
-
-# 导出成功后清理 prod + 删除 staging 对象（须字面确认）
-QA_DUMP_S3_BUCKET=<staging-bucket> \
-  PROD_QA_PURGE_CONFIRM=yes-delete-prod-qa-data \
-  PURGE_MAX_EXTRA_ROWS=0 \
-  bash ops/prod/qa-export-and-purge.sh
-```
-
-**定期自动（本机一条链路）**：在常用开发机上用 `cron` / `LaunchAgent` 调用上述脚本即可（数据直接进 `./.dump_qa`，不经 GitHub）。示例：`RM_LOCAL_TAR_AFTER_EXTRACT=1` 可在解压后删掉本机 `.tar.gz`；用 `flock` 避免与上一次运行重叠。
-
-```bash
-# crontab 示例：每周日 05:00（机器本地时区）
-0 5 * * 0 cd /path/to/sub2api && flock -n /tmp/fetch-prod-qa-dump.lock \
-  env QA_DUMP_S3_BUCKET=<staging-bucket> RM_LOCAL_TAR_AFTER_EXTRACT=1 \
-  bash ops/prod/fetch-qa-dump.sh
-```
+QA 数据生命周期、归档、导出和清理只以
+`docs/approved/design-prod-qa-24h-s3-lifecycle.md` 为准。过渡期只读工具
+`ops/prod/fetch-qa-dump.sh` 仅用于 raw S3 恢复路径上线前的人工 break-glass；它不能作为删除证据，
+不得定时运行，并在 Phase 2 恢复验证通过后删除。仓库不提供全量 `TRUNCATE`/purge 工具。
 
 ## CI 通过 OIDC 调度 SSM（Error Clustering Daily 等）
 

@@ -186,11 +186,16 @@ class DataLayerCapacitySafetyTest(unittest.TestCase):
                 operational_limit_pct=85,
             )
 
+    def test_probe_pgstats_serializes_catalog_success_flag(self) -> None:
+        body = _PROBE.read_text(encoding="utf-8")
+        serialized_projection = body.split("SELECT 'PGSTATS '", 1)[1].split("FROM flags", 1)[0]
+        self.assertIn("catalog_probe_ok", serialized_projection)
+
     def test_probe_is_read_only_and_scan_bounded(self) -> None:
         body = _PROBE.read_text(encoding="utf-8")
         self.assertIn("pg_stat_user_tables", body)
         self.assertIn("pg_partition_tree", body)
-        self.assertIn("qa_records_partitioned", body)
+        self.assertIn("usage_logs_partitioned", body)
         self.assertIn("WHERE isleaf", body)
         self.assertNotIn("(SELECT count(*) FROM usage_logs)", body)
 

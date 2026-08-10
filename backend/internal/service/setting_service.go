@@ -57,6 +57,8 @@ type SettingService struct {
 	antigravityUAVersionSF         singleflight.Group
 	openAICodexUACache             atomic.Value // *cachedOpenAICodexUserAgent
 	openAICodexUASF                singleflight.Group
+	openAICodexVersionCache        atomic.Value // *cachedOpenAICodexClientVersion
+	openAICodexVersionSF           singleflight.Group
 	claudeCodeUAVersionCache       atomic.Value // *cachedClaudeCodeUserAgentVersion
 	claudeCodeUAVersionSF          singleflight.Group
 	claudeCodeMimicryManifestCache atomic.Value // *cachedClaudeCodeHTTPMimicryManifest

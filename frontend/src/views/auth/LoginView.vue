@@ -121,6 +121,12 @@
         />
 
         <div v-if="showPasskeyLogin || showOAuthLogin" class="space-y-3 pt-1">
+          <AuthActionCaptcha
+            ref="actionCaptchaRef"
+            :settings="publicSettings"
+            @error="handleActionCaptchaError"
+          />
+
           <div class="flex items-center gap-3">
             <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
             <span class="text-xs text-gray-500 dark:text-dark-400">
@@ -145,28 +151,33 @@
             :github-enabled="githubOAuthEnabled"
             :google-enabled="googleOAuthEnabled"
             :show-divider="false"
+            @start="handleOAuthStart"
           />
 
           <LinuxDoOAuthSection
             v-if="linuxdoOAuthEnabled"
             :disabled="authActionDisabled"
             :show-divider="false"
+            @start="handleOAuthStart"
           />
           <DingTalkOAuthSection
             v-if="dingtalkOAuthEnabled"
             :disabled="authActionDisabled"
             :show-divider="false"
+            @start="handleOAuthStart"
           />
           <WechatOAuthSection
             v-if="wechatOAuthEnabled"
             :disabled="authActionDisabled"
             :show-divider="false"
+            @start="handleOAuthStart"
           />
           <OidcOAuthSection
             v-if="oidcOAuthEnabled"
             :disabled="authActionDisabled"
             :provider-name="oidcOAuthProviderName"
             :show-divider="false"
+            @start="handleOAuthStart"
           />
         </div>
       </form>
@@ -207,12 +218,20 @@ import DingTalkOAuthSection from '@/components/auth/DingTalkOAuthSection.vue'
 import OidcOAuthSection from '@/components/auth/OidcOAuthSection.vue'
 import WechatOAuthSection from '@/components/auth/WechatOAuthSection.vue'
 import EmailOAuthButtons from '@/components/auth/EmailOAuthButtons.vue'
+import AuthActionCaptcha from '@/components/auth/AuthActionCaptcha.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import TotpLoginModal from '@/components/auth/TotpLoginModal.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAuthStore, useAppStore } from '@/stores'
-import { getPublicSettings, isTotp2FARequired, isWeChatWebOAuthEnabled } from '@/api/auth'
-import type { LoginAgreementDocument, TotpLoginResponse } from '@/types'
+import {
+  buildOAuthLoginStartURL,
+  getPublicSettings,
+  isTotp2FARequired,
+  isWeChatWebOAuthEnabled,
+  startOAuthLogin,
+  type OAuthLoginStart
+} from '@/api/auth'
+import type { LoginAgreementDocument, PublicSettings, TotpLoginResponse } from '@/types'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { clearAllAffiliateReferralCodes } from '@/utils/oauthAffiliate'
 
@@ -234,6 +253,7 @@ const showPassword = ref<boolean>(false)
 const publicSettingsLoaded = ref<boolean>(false)
 
 // Public settings
+const publicSettings = ref<PublicSettings | null>(null)
 const linuxdoOAuthEnabled = ref<boolean>(false)
 const dingtalkOAuthEnabled = ref<boolean>(false)
 const wechatOAuthEnabled = ref<boolean>(false)
@@ -251,6 +271,8 @@ const loginAgreementRevision = ref<string>('')
 const loginAgreementDocuments = ref<LoginAgreementDocument[]>([])
 const agreementAccepted = ref<boolean>(false)
 const showAgreementModal = ref<boolean>(false)
+
+const actionCaptchaRef = ref<InstanceType<typeof AuthActionCaptcha> | null>(null)
 
 // 2FA state
 const show2FAModal = ref<boolean>(false)
@@ -312,6 +334,7 @@ onMounted(async () => {
 
   try {
     const settings = await getPublicSettings()
+    publicSettings.value = settings
     linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
     dingtalkOAuthEnabled.value = settings.dingtalk_oauth_enabled ?? false
     wechatOAuthEnabled.value = isWeChatWebOAuthEnabled(settings)
@@ -394,6 +417,12 @@ function rejectLoginAgreement(): void {
   appStore.showWarning(t('legal.loginAgreementPrompt.loginRejectedWarning'))
 }
 
+function handleActionCaptchaError(): void {
+  const message = t('auth.turnstileFailed')
+  errorMessage.value = message
+  appStore.showError(message)
+}
+
 // ==================== Validation ====================
 
 function validateForm(): boolean {
@@ -446,7 +475,6 @@ async function handleLogin(): Promise<void> {
   isLoading.value = true
 
   try {
-    // Call auth store login
     const response = await authStore.login({
       email: formData.email,
       password: formData.password
@@ -490,7 +518,10 @@ async function handlePasskeyLogin(): Promise<void> {
 
   passkeyLoading.value = true
   try {
-    await authStore.loginWithPasskey()
+    const proof = await actionCaptchaRef.value?.acquireProof()
+    if (proof === null) return
+
+    await authStore.loginWithPasskey(proof)
     clearAllAffiliateReferralCodes()
     appStore.showSuccess(t('auth.loginSuccess'))
     const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
@@ -502,7 +533,36 @@ async function handlePasskeyLogin(): Promise<void> {
     errorMessage.value = extractI18nErrorMessage(error, t, 'auth.errors', fallback)
     appStore.showError(errorMessage.value)
   } finally {
+    actionCaptchaRef.value?.reset()
     passkeyLoading.value = false
+  }
+}
+
+async function handleOAuthStart(request: OAuthLoginStart): Promise<void> {
+  if (authActionDisabled.value) return
+
+  isLoading.value = true
+  try {
+    const proof = await actionCaptchaRef.value?.acquireProof()
+    if (proof === null) return
+    if (proof === undefined) {
+      window.location.href = buildOAuthLoginStartURL(request)
+      return
+    }
+
+    const result = await startOAuthLogin(request, proof)
+    window.location.href = result.authorize_url
+  } catch (error: unknown) {
+    errorMessage.value = extractI18nErrorMessage(
+      error,
+      t,
+      'auth.errors',
+      t('auth.turnstileFailed')
+    )
+    appStore.showError(errorMessage.value)
+  } finally {
+    actionCaptchaRef.value?.reset()
+    isLoading.value = false
   }
 }
 

@@ -1,0 +1,49 @@
+schema_version: 1
+
+prod:
+  capture_enabled: true
+  online_window_hours: 24
+  maintenance_schedule_utc: "*:15"
+  cleanup_schedule_utc: "*:45"
+  cleanup_randomized_delay_minutes: 15
+  cleanup_batch_size: 5000
+  physical_cleanup_max_lag_minutes: 75
+
+  archive:
+    enabled: true
+    scope: all_users_all_api_keys
+    shard_minutes: 60
+    seal_delay_minutes: 15
+    max_catchup_windows_per_run: 1
+    s3_retention_days: 7
+    raw_user_access: false
+    runner_uid: 1000
+    runner_gid: 1000
+    host_scratch_dir: /var/lib/tokenkey/app/qa_archive_tmp
+    container_scratch_dir: /app/data/qa_archive_tmp
+    host_receipt_path: /var/lib/tokenkey/qa-maintenance-last-run.json
+
+  cleanup:
+    host_export_tmp_dir: /var/lib/tokenkey/app/qa_exports_tmp
+    container_export_tmp_dir: /app/data/qa_exports_tmp
+    export_tmp_owner: tokenkey-qa-stale-cleanup
+
+  user_export:
+    entitlement: users.traj_export_enabled
+    source: s3_raw_archive
+    compute: ecs_fargate
+    download: direct_s3
+    prod_fallback: forbidden
+
+  disk_emergency:
+    used_percent: 80
+    free_gib: 10
+    cleanup_target_percent: 70
+    pause_capture: false
+
+edge:
+  capture_enabled: false
+  archive_enabled: false
+  cleanup_enabled: false
+  export_enabled: false
+  s3_access: false

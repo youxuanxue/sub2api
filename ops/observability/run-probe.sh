@@ -136,6 +136,12 @@ for _tk_resolver in \
     WITH_FILES+=("$_tk_resolver")
   fi
 done
+if [ "$(basename "$SCRIPT_PATH")" = "probe_account_model.sh" ]; then
+  _tk_probe_verdict="$REPO_ROOT/ops/stage0/probe_account_model_verdict.py"
+  if [ -f "$_tk_probe_verdict" ]; then
+    WITH_FILES+=("$_tk_probe_verdict")
+  fi
+fi
 
 # Local macOS/Homebrew preflight: catch the known aws/pyexpat loader breakage
 # before the first real AWS call. Diagnose only; repair stays explicit in the

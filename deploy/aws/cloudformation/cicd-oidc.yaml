@@ -147,6 +147,17 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-cicd-oidc/*"
                   - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-prod-stage0/*"
+              - Sid: ReadEbsSnapshotsForDiagnostics
+                # ops-daily-diagnostics data_layer_snapshot_signal.sh runs on the
+                # GHA runner (OIDC creds), not via SSM — needs direct EC2 read.
+                Effect: Allow
+                Action:
+                  - ec2:DescribeSnapshots
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "aws:RequestedRegion":
+                      - !Ref AWS::Region
       Tags:
         - Key: Project
           Value: tokenkey

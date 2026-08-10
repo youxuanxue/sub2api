@@ -4,6 +4,7 @@
 # (gateway_rejected, often "Unsupported model") from upstream account capability
 # rejection (upstream_rejected; exact text is platform-specific).
 # Batch Kiro Claude matrix: ops/stage0/probe_kiro_claude_models.sh (see tokenkey-account-model-probe skill).
+# Embedding models: use ENDPOINT=embeddings (/v1/embeddings), not chat — chat probes can 401 and mark accounts error.
 # Skill wrapper: .cursor/skills/tokenkey-account-model-probe/scripts/probe_account_model.sh
 set -euo pipefail
 
@@ -110,6 +111,9 @@ fi
 if [[ -z "$MODEL" ]]; then
   fail_json "MODEL is required"
 fi
+if [[ ! -f "$SCRIPT_DIR/probe_account_model_verdict.py" ]]; then
+  fail_json "missing probe_account_model_verdict.py companion beside probe_account_model.sh"
+fi
 if [[ ! "$REQUEST_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$REQUEST_TIMEOUT_SECONDS" -lt 1 ]]; then
   fail_json "REQUEST_TIMEOUT_SECONDS must be a positive integer"
 fi
@@ -121,8 +125,8 @@ if [[ ! "$PROBE_LOCK_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$PROBE_LOCK_TIMEOUT_
   fail_json "PROBE_LOCK_TIMEOUT_SECONDS must be a positive integer"
 fi
 case "$ENDPOINT" in
-  messages|count_tokens|chat|responses) ;;
-  *) fail_json "ENDPOINT must be messages, count_tokens, chat, or responses" ;;
+  messages|count_tokens|chat|responses|embeddings) ;;
+  *) fail_json "ENDPOINT must be messages, count_tokens, chat, responses, or embeddings" ;;
 esac
 
 PROBE_ID="tkprobe-${ACCOUNT_ID}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -426,6 +430,11 @@ if endpoint == "chat":
         "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt}],
     }
+elif endpoint == "embeddings":
+    payload = {
+        "model": model,
+        "input": prompt,
+    }
 elif endpoint == "count_tokens":
     payload = {
         "model": model,
@@ -466,6 +475,7 @@ case "$ENDPOINT" in
   messages) PATH_SUFFIX="/v1/messages"; AUTH_HEADER_NAME="x-api-key";;
   count_tokens) PATH_SUFFIX="/v1/messages/count_tokens"; AUTH_HEADER_NAME="x-api-key";;
   chat) PATH_SUFFIX="/v1/chat/completions"; AUTH_HEADER_NAME="Authorization";;
+  embeddings) PATH_SUFFIX="/v1/embeddings"; AUTH_HEADER_NAME="Authorization";;
   responses) PATH_SUFFIX="/v1/responses"; AUTH_HEADER_NAME="Authorization";;
 esac
 
@@ -478,6 +488,7 @@ printf '%s' "$payload" >"$tmp_payload"
 
 PROBE_STARTED_AT="$("${PSQL[@]}" -c "SELECT to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"');" | tr -d '\n')"
 CLIENT_REQUEST_ID="$PROBE_ID"
+export PROBE_SCRIPT_DIR="$SCRIPT_DIR"
 http_code=""
 http_output=""
 if [[ "$AUTH_HEADER_NAME" == "x-api-key" ]]; then
@@ -584,33 +595,21 @@ try:
 except Exception:
     request_extra = {}
 
+import os
+import sys
+
+sys.path.insert(0, os.environ.get("PROBE_SCRIPT_DIR", "."))
+from probe_account_model_verdict import classify_probe_verdict
+
 def classify(code: str, body_text: str, usage_row, curl_err: str):
-    if not code or code == "000":
-        if curl_err:
-            return "setup_error"
-        return "gateway_rejected"
-    n = int(code)
-    low = body_text.lower()
-    if 200 <= n < 300:
-        if endpoint == "count_tokens":
-            return "servable"
-        if usage_row and int(usage_row.get("account_id") or 0) == int(target["id"]):
-            return "servable"
-        if usage_row:
-            return "wrong_account"
-        return "uncorrelated_success"
-    if n in (401, 403):
-        return "upstream_rejected"
-    if n == 429 and "no available accounts" in low:
-        return "gateway_rejected"
-    # Keep "Unsupported model: X" (TokenKey local floor/model_mapping rejection)
-    # as gateway_rejected. Platform-specific "not supported" errors mean the
-    # upstream path was reached and rejected the account/model/request.
-    if n in (400, 404) and any(s in low for s in ["invalid model", "model_not_found", "not supported", "does not exist", "not a valid"]):
-        return "upstream_rejected"
-    if n >= 500:
-        return "gateway_rejected"
-    return "gateway_rejected"
+    return classify_probe_verdict(
+        endpoint=endpoint,
+        http_code=code,
+        body_text=body_text,
+        target_account_id=int(target["id"]),
+        usage_row=usage_row,
+        curl_err=curl_err,
+    )
 
 log_lines = []
 for line in logs.splitlines():

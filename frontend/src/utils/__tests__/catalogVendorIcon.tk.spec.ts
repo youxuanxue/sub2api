@@ -17,10 +17,14 @@ describe('catalogVendorIcon.tk', () => {
     expect(resolveCatalogVendorIconKey('volcengine')).toBe('doubao')
     expect(resolveCatalogVendorIconKey('xai')).toBe('xai')
     expect(resolveCatalogVendorIconKey('deepseek')).toBe('deepseek')
+    expect(resolveCatalogVendorIconKey('antigravity')).toBe('antigravity')
+    expect(resolveCatalogVendorIconKey('wenxin')).toBe('wenxin')
   })
 
   it('formats friendly vendor labels for display', () => {
     expect(formatCatalogVendorLabel('vertex_ai')).toBe('Vertex AI')
     expect(formatCatalogVendorLabel('volcengine')).toBe('VolcEngine')
+    expect(formatCatalogVendorLabel('antigravity')).toBe('Antigravity')
+    expect(formatCatalogVendorLabel('wenxin')).toBe('Qianfan')
   })
 })

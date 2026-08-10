@@ -113,7 +113,15 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
         )
 
     snapshot_at = _timestamp(snapshot.get("latest_snapshot_at")) if isinstance(snapshot, dict) else None
-    if not _fresh(snapshot_at, now, SNAPSHOT_MAX_AGE):
+    if isinstance(snapshot, dict) and snapshot.get("probe_ok") is False:
+        probe_error = str(snapshot.get("probe_error") or "snapshot query failed").strip()
+        findings.append(
+            _finding(
+                "ebs_snapshot_freshness",
+                f"EBS snapshot probe failed: {probe_error}",
+            )
+        )
+    elif not _fresh(snapshot_at, now, SNAPSHOT_MAX_AGE):
         findings.append(
             _finding(
                 "ebs_snapshot_freshness",
@@ -185,6 +193,10 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
     evidence_errors = (
         archive.get("evidence_errors") if isinstance(archive, dict) else None
     )
+    closeout_complete = archive.get("closeout_complete") is True if isinstance(archive, dict) else False
+    tail_export_complete = (
+        archive.get("tail_export_complete") is True if isinstance(archive, dict) else False
+    )
     if evidence_errors:
         valid_errors = (
             sorted({str(item) for item in evidence_errors})
@@ -197,36 +209,49 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
                 "archive evidence failed validation: " + ", ".join(valid_errors),
             )
         )
-    expected_tables = {"ops_error_logs", "ops_system_logs"}
-    ledger_tables = {
-        ledger.get("table") for ledger in ledgers if isinstance(ledger, dict)
-    } if isinstance(ledgers, list) else set()
-    if (
-        not isinstance(ledgers, list)
-        or len(ledgers) != 2
-        or ledger_tables != expected_tables
-    ):
-        findings.append(_finding("archive_lag", "archive ledger coverage is missing for one or both ops tables"))
-    else:
-        for ledger in ledgers:
-            if not isinstance(ledger, dict):
-                findings.append(_finding("archive_lag", "archive ledger signal is invalid"))
-                continue
-            table = str(ledger.get("table") or "unknown")
-            cutoff = _timestamp(ledger.get("final_cutoff_exclusive"))
-            upper = _timestamp(ledger.get("legacy_upper_exclusive"))
-            if (
-                ledger.get("more_cold_rows_remaining") is not False
-                or cutoff is None
-                or upper is None
-                or cutoff < upper
-            ):
-                findings.append(
-                    _finding("archive_lag", f"{table} archive has not reached its partition upper bound")
+    elif closeout_complete and tail_export_complete:
+        if archive.get("cleanup_release_complete") is not True:
+            findings.append(
+                _finding(
+                    "archive_evidence",
+                    "cleanup hold release evidence is missing or invalid",
                 )
+            )
+    elif closeout_complete and not tail_export_complete:
+        findings.append(
+            _finding(
+                "archive_lag",
+                "post-legacy tail export is incomplete for one or both ops tables",
+            )
+        )
+    else:
+        expected_tables = {"ops_error_logs", "ops_system_logs"}
+        ledger_tables = {
+            ledger.get("table") for ledger in ledgers if isinstance(ledger, dict)
+        } if isinstance(ledgers, list) else set()
+        if (
+            not isinstance(ledgers, list)
+            or len(ledgers) != 2
+            or ledger_tables != expected_tables
+        ):
+            findings.append(
+                _finding(
+                    "archive_lag",
+                    "archive ledger coverage is missing for one or both ops tables",
+                )
+            )
+        else:
+            for ledger in ledgers:
+                if not isinstance(ledger, dict):
+                    findings.append(_finding("archive_lag", "archive ledger signal is invalid"))
+                    continue
+                table = str(ledger.get("table") or "unknown")
+                if ledger.get("more_cold_rows_remaining") is not False:
+                    findings.append(
+                        _finding("archive_lag", f"{table} legacy export is incomplete")
+                    )
 
     hold_started = _timestamp(archive.get("hold_started_at")) if isinstance(archive, dict) else None
-    closeout_complete = archive.get("closeout_complete") is True if isinstance(archive, dict) else False
     if hold_started is not None and not closeout_complete and now - hold_started > HOLD_MAX_AGE:
         findings.append(
             _finding(

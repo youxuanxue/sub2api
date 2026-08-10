@@ -56,6 +56,7 @@ GLOB_OR_REGEX = set("*?[]{}$\\")
 PLANNED_REFERENCE_RE = re.compile(
     r"(?:<!--[ \t]*script-ref:[ \t]*planned[ \t]*-->|#[ \t]*script-ref:[ \t]*planned[ \t]*$)",
 )
+ALLOW_MISSING_MARKER = "script-ref-allow-missing"
 
 # File extensions whose contents we scan.
 SCAN_EXTS = {
@@ -187,6 +188,11 @@ def main() -> int:
             print(f"::warning::could not read {relpath}: {exc}", file=sys.stderr)
             continue
         for lineno, line in enumerate(text.splitlines(), start=1):
+            # Explicit tombstones/absence contracts may name a path that MUST
+            # remain deleted. Keep this line-level and mechanically test it so
+            # ordinary runbook or invocation references cannot bypass the gate.
+            if ALLOW_MISSING_MARKER in line:
+                continue
             for m in PATH_RE.finditer(line):
                 captured = m.group(1)
                 if not is_literal_path(captured):

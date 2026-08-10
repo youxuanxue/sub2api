@@ -75,6 +75,32 @@ def _validated_legacy_upper(value: str) -> str:
     return normalized
 
 
+def _validated_legacy_lower(value: str) -> str:
+    normalized = canary._canonical_timestamp(value)
+    if normalized != rehearsal.PROD_LEGACY_LOWER_INCLUSIVE:
+        raise ExportError(
+            "legacy_lower_inclusive must match the approved post-legacy lower bound"
+        )
+    return normalized
+
+
+def _validated_export_scope(value: str) -> str:
+    if value not in rehearsal.PROD_EXPORT_SCOPES:
+        raise ExportError(
+            "export_scope must be one of "
+            f"{', '.join(rehearsal.PROD_EXPORT_SCOPES)}"
+        )
+    return value
+
+
+def _ledger_scope_bounds(ledger: dict[str, Any]) -> tuple[str, str | None, str | None]:
+    scope = _validated_export_scope(str(ledger["export_scope"]))
+    if scope == rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD:
+        return scope, _validated_legacy_upper(str(ledger["legacy_upper_exclusive"])), None
+    lower = _validated_legacy_lower(str(ledger["legacy_lower_inclusive"]))
+    return scope, None, lower
+
+
 def _validated_request(
     *,
     table: str,
@@ -118,26 +144,28 @@ def _validated_request(
 def build_plan(
     *,
     table: str,
-    legacy_upper_exclusive: str,
+    export_scope: str = rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD,
+    legacy_upper_exclusive: str | None = None,
+    legacy_lower_inclusive: str | None = None,
     timeout_seconds: int,
     max_rows: int,
     max_logical_bytes: int,
 ) -> dict[str, Any]:
+    scope = _validated_export_scope(export_scope)
     request = _validated_request(
         table=table,
         timeout_seconds=timeout_seconds,
         max_rows=max_rows,
         max_logical_bytes=max_logical_bytes,
     )
-    return {
+    plan: dict[str, Any] = {
         "schema_version": rehearsal.SCHEMA_VERSION,
         "mode": "prod_archive_export_batch_plan",
         "environment": "prod",
         "region": canary.PROD_REGION,
         "stack": canary.PROD_STACK,
         "backup_stack": canary.BACKUP_STACK,
-        "export_scope": rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD,
-        "legacy_upper_exclusive": _validated_legacy_upper(legacy_upper_exclusive),
+        "export_scope": scope,
         "staging_key_base": S3_KEY_BASE,
         "staging_retention_days": canary.BACKUP_RETENTION_DAYS,
         "source_mutated": False,
@@ -152,32 +180,51 @@ def build_plan(
         },
         **request,
     }
+    if scope == rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD:
+        plan["legacy_upper_exclusive"] = _validated_legacy_upper(
+            legacy_upper_exclusive or rehearsal.PROD_LEGACY_UPPER_EXCLUSIVE
+        )
+    else:
+        plan["legacy_lower_inclusive"] = _validated_legacy_lower(
+            legacy_lower_inclusive or rehearsal.PROD_LEGACY_LOWER_INCLUSIVE
+        )
+    return plan
 
 
 def init_ledger(
     path: str | os.PathLike[str],
     *,
     table: str,
-    legacy_upper_exclusive: str,
+    export_scope: str = rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD,
+    legacy_upper_exclusive: str | None = None,
+    legacy_lower_inclusive: str | None = None,
 ) -> dict[str, Any]:
     if table not in rehearsal.PROD_CANARY_TABLES:
         raise ExportError(f"table must be one of {rehearsal.PROD_CANARY_TABLES}")
+    scope = _validated_export_scope(export_scope)
     ledger_path = pathlib.Path(path).expanduser().resolve()
     if ledger_path.exists():
         raise ExportError("export ledger already exists; refuse to overwrite")
-    payload = {
+    payload: dict[str, Any] = {
         "schema_version": LEDGER_SCHEMA_VERSION,
         "mode": LEDGER_MODE,
         "environment": "prod",
         "table": table,
-        "export_scope": rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD,
-        "legacy_upper_exclusive": _validated_legacy_upper(legacy_upper_exclusive),
+        "export_scope": scope,
         "cursor_after": None,
         "completed_batches": [],
         "more_cold_rows_remaining": True,
         "source_mutated": False,
         "deletion_authorized": False,
     }
+    if scope == rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD:
+        payload["legacy_upper_exclusive"] = _validated_legacy_upper(
+            legacy_upper_exclusive or rehearsal.PROD_LEGACY_UPPER_EXCLUSIVE
+        )
+    else:
+        payload["legacy_lower_inclusive"] = _validated_legacy_lower(
+            legacy_lower_inclusive or rehearsal.PROD_LEGACY_LOWER_INCLUSIVE
+        )
     _atomic_json(ledger_path, payload)
     return payload
 
@@ -194,7 +241,7 @@ def load_ledger(path: str | os.PathLike[str]) -> dict[str, Any]:
         or payload.get("schema_version") != LEDGER_SCHEMA_VERSION
         or payload.get("mode") != LEDGER_MODE
         or payload.get("environment") != "prod"
-        or payload.get("export_scope") != rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD
+        or payload.get("export_scope") not in rehearsal.PROD_EXPORT_SCOPES
         or payload.get("table") not in rehearsal.PROD_CANARY_TABLES
         or payload.get("source_mutated") is not False
         or payload.get("deletion_authorized") is not False
@@ -202,7 +249,15 @@ def load_ledger(path: str | os.PathLike[str]) -> dict[str, Any]:
         or not isinstance(payload.get("more_cold_rows_remaining"), bool)
     ):
         raise ExportError("export ledger failed validation")
-    _validated_legacy_upper(str(payload["legacy_upper_exclusive"]))
+    scope = str(payload["export_scope"])
+    if scope == rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD:
+        if "legacy_lower_inclusive" in payload:
+            raise ExportError("export ledger failed validation")
+        _validated_legacy_upper(str(payload["legacy_upper_exclusive"]))
+    else:
+        if "legacy_upper_exclusive" in payload:
+            raise ExportError("export ledger failed validation")
+        _validated_legacy_lower(str(payload["legacy_lower_inclusive"]))
     cursor = payload.get("cursor_after")
     if cursor is not None and (
         not isinstance(cursor, dict) or set(cursor) != {"created_at", "id"}
@@ -218,19 +273,42 @@ def seal_prod_export_batch(
     instance_id: str,
     staging_s3_base_uri: str,
     cursor_before: dict[str, Any] | None,
-    legacy_upper_exclusive: str,
+    export_scope: str = rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD,
+    legacy_upper_exclusive: str | None = None,
+    legacy_lower_inclusive: str | None = None,
     query_runner: canary.QueryRunner = canary._run_stage0_psql,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     max_rows: int = DEFAULT_MAX_ROWS,
     max_logical_bytes: int = DEFAULT_MAX_LOGICAL_BYTES,
 ) -> dict[str, Any]:
+    scope = _validated_export_scope(export_scope)
     request = _validated_request(
         table=table,
         timeout_seconds=timeout_seconds,
         max_rows=max_rows,
         max_logical_bytes=max_logical_bytes,
     )
-    legacy_upper = _validated_legacy_upper(legacy_upper_exclusive)
+    upper_exclusive: str | None
+    lower_inclusive: str | None
+    export_bounds: dict[str, str]
+    if scope == rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD:
+        upper_exclusive = _validated_legacy_upper(
+            legacy_upper_exclusive or rehearsal.PROD_LEGACY_UPPER_EXCLUSIVE
+        )
+        lower_inclusive = None
+        export_bounds = {
+            "export_scope": scope,
+            "legacy_upper_exclusive": upper_exclusive,
+        }
+    else:
+        upper_exclusive = None
+        lower_inclusive = _validated_legacy_lower(
+            legacy_lower_inclusive or rehearsal.PROD_LEGACY_LOWER_INCLUSIVE
+        )
+        export_bounds = {
+            "export_scope": scope,
+            "legacy_lower_inclusive": lower_inclusive,
+        }
     if (
         not isinstance(instance_id, str)
         or not instance_id.startswith("i-")
@@ -242,7 +320,8 @@ def seal_prod_export_batch(
         query_runner,
         request=request,
         cursor_after=cursor_before,
-        upper_exclusive=legacy_upper,
+        upper_exclusive=upper_exclusive,
+        lower_inclusive=lower_inclusive,
     )
     artifacts_preview = [rehearsal._artifact_entry("ops", candidates["ops"])[0]]
     source_identity = {
@@ -280,8 +359,7 @@ def seal_prod_export_batch(
         "staging_s3_prefix": f"{staging_base}/{batch_id}",
         "export": {
             "table": table,
-            "export_scope": rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD,
-            "legacy_upper_exclusive": legacy_upper,
+            **export_bounds,
             "cutoff_exclusive": metrics["cutoff_exclusive"],
             "server_clock": metrics["server_clock"],
             "lock_timeout_ms": canary.LOCK_TIMEOUT_MS,
@@ -376,7 +454,9 @@ def _remote_host_command(
     bundle_sha256: str,
     hold_started_at: str,
     cursor_before_json: str,
-    legacy_upper_exclusive: str,
+    export_scope: str,
+    legacy_upper_exclusive: str | None,
+    legacy_lower_inclusive: str | None,
     timeout_seconds: int,
     max_rows: int,
     max_logical_bytes: int,
@@ -399,8 +479,8 @@ def _remote_host_command(
         staging_s3_base_uri,
         "--hold-started-at",
         hold_started_at,
-        "--legacy-upper-exclusive",
-        legacy_upper_exclusive,
+        "--export-scope",
+        export_scope,
         "--cursor-before-json",
         cursor_before_json,
         "--timeout-seconds",
@@ -412,6 +492,10 @@ def _remote_host_command(
         "--confirm",
         PROD_EXPORT_CONFIRMATION,
     ]
+    if legacy_upper_exclusive is not None:
+        args.extend(["--legacy-upper-exclusive", legacy_upper_exclusive])
+    if legacy_lower_inclusive is not None:
+        args.extend(["--legacy-lower-inclusive", legacy_lower_inclusive])
     rendered_args = " ".join(
         item if item.startswith("$WORK/") else shlex.quote(item) for item in args
     )
@@ -443,7 +527,9 @@ def host_export(
     instance_id: str,
     staging_s3_base_uri: str,
     hold_started_at: str,
-    legacy_upper_exclusive: str,
+    export_scope: str,
+    legacy_upper_exclusive: str | None,
+    legacy_lower_inclusive: str | None,
     cursor_before_json: str,
     confirmation: str,
     timeout_seconds: int,
@@ -473,7 +559,9 @@ def host_export(
             instance_id=instance_id,
             staging_s3_base_uri=staging_s3_base_uri,
             cursor_before=cursor_before,
+            export_scope=export_scope,
             legacy_upper_exclusive=legacy_upper_exclusive,
+            legacy_lower_inclusive=legacy_lower_inclusive,
             timeout_seconds=timeout_seconds,
             max_rows=max_rows,
             max_logical_bytes=max_logical_bytes,
@@ -511,6 +599,7 @@ def _validated_export_receipt(
     objects = receipt.get("objects")
     hold = receipt.get("cleanup_hold")
     export_block = receipt.get("export")
+    export_scope = export_block.get("export_scope") if isinstance(export_block, dict) else None
     if (
         receipt.get("mode") != "prod_archive_export_canary_upload"
         or receipt.get("s3_prefix") != expected_prefix
@@ -523,8 +612,13 @@ def _validated_export_receipt(
         or not isinstance(hold, dict)
         or hold.get("hold_started_at") != expected_hold_started_at
         or not isinstance(export_block, dict)
-        or export_block.get("export_scope") != rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD
+        or export_scope not in rehearsal.PROD_EXPORT_SCOPES
     ):
+        raise ExportError("production export receipt failed commit validation")
+    if export_scope == rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD:
+        if export_block.get("legacy_upper_exclusive") != rehearsal.PROD_LEGACY_UPPER_EXCLUSIVE:
+            raise ExportError("production export receipt failed commit validation")
+    elif export_block.get("legacy_lower_inclusive") != rehearsal.PROD_LEGACY_LOWER_INCLUSIVE:
         raise ExportError("production export receipt failed commit validation")
     return receipt
 
@@ -541,7 +635,7 @@ def run_export_batch(args: argparse.Namespace) -> dict[str, Any]:
     )
     if request["table"] != ledger["table"]:
         raise ExportError("export table does not match ledger")
-    legacy_upper = str(ledger["legacy_upper_exclusive"])
+    export_scope, legacy_upper, legacy_lower = _ledger_scope_bounds(ledger)
     instance_id = canary._prod_instance()
     hold_receipt = cleanup_hold.verify_receipt_for_instance(
         args.cleanup_hold_receipt, instance_id
@@ -565,7 +659,9 @@ def run_export_batch(args: argparse.Namespace) -> dict[str, Any]:
         bundle_sha256=remote_bundle["sha256"],
         hold_started_at=hold_receipt["hold_started_at"],
         cursor_before_json=cursor_json,
+        export_scope=export_scope,
         legacy_upper_exclusive=legacy_upper,
+        legacy_lower_inclusive=legacy_lower,
         timeout_seconds=request["timeout_seconds"],
         max_rows=request["max_rows"],
         max_logical_bytes=request["max_logical_bytes"],
@@ -640,9 +736,19 @@ def run_export_batch(args: argparse.Namespace) -> dict[str, Any]:
 def _add_limits(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--table", choices=rehearsal.PROD_CANARY_TABLES, required=True)
     parser.add_argument(
+        "--export-scope",
+        choices=rehearsal.PROD_EXPORT_SCOPES,
+        default=rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD,
+    )
+    parser.add_argument(
         "--legacy-upper-exclusive",
         default=rehearsal.PROD_LEGACY_UPPER_EXCLUSIVE,
         help="exclusive upper created_at bound for legacy scope",
+    )
+    parser.add_argument(
+        "--legacy-lower-inclusive",
+        default=rehearsal.PROD_LEGACY_LOWER_INCLUSIVE,
+        help="inclusive lower created_at bound for post-legacy scope",
     )
     parser.add_argument(
         "--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS
@@ -666,10 +772,18 @@ def build_parser() -> argparse.ArgumentParser:
     init_ledger_parser.add_argument("--ledger", required=True)
     init_ledger_parser.add_argument("--table", choices=rehearsal.PROD_CANARY_TABLES, required=True)
     init_ledger_parser.add_argument(
+        "--export-scope",
+        choices=rehearsal.PROD_EXPORT_SCOPES,
+        default=rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD,
+    )
+    init_ledger_parser.add_argument(
         "--legacy-upper-exclusive", default=rehearsal.PROD_LEGACY_UPPER_EXCLUSIVE
     )
+    init_ledger_parser.add_argument(
+        "--legacy-lower-inclusive", default=rehearsal.PROD_LEGACY_LOWER_INCLUSIVE
+    )
 
-    run = commands.add_parser("run-batch", help="export one legacy cold batch")
+    run = commands.add_parser("run-batch", help="export one cold batch from ledger scope")
     run.add_argument("--ledger", required=True)
     run.add_argument("--evidence-root", required=True)
     run.add_argument("--cleanup-hold-receipt", required=True)
@@ -689,7 +803,13 @@ def build_parser() -> argparse.ArgumentParser:
     host.add_argument("--instance-id", required=True)
     host.add_argument("--staging-s3-base-uri", required=True)
     host.add_argument("--hold-started-at", required=True)
-    host.add_argument("--legacy-upper-exclusive", required=True)
+    host.add_argument(
+        "--export-scope",
+        choices=rehearsal.PROD_EXPORT_SCOPES,
+        required=True,
+    )
+    host.add_argument("--legacy-upper-exclusive", default="")
+    host.add_argument("--legacy-lower-inclusive", default="")
     host.add_argument("--cursor-before-json", required=True)
     host.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
     host.add_argument("--max-rows", type=int, default=DEFAULT_MAX_ROWS)
@@ -707,7 +827,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         if args.command == "plan":
             payload = build_plan(
                 table=args.table,
+                export_scope=args.export_scope,
                 legacy_upper_exclusive=args.legacy_upper_exclusive,
+                legacy_lower_inclusive=args.legacy_lower_inclusive,
                 timeout_seconds=args.timeout_seconds,
                 max_rows=args.max_rows,
                 max_logical_bytes=args.max_logical_bytes,
@@ -716,7 +838,9 @@ def main(argv: Iterable[str] | None = None) -> int:
             payload = init_ledger(
                 args.ledger,
                 table=args.table,
+                export_scope=args.export_scope,
                 legacy_upper_exclusive=args.legacy_upper_exclusive,
+                legacy_lower_inclusive=args.legacy_lower_inclusive,
             )
         elif args.command == "run-batch":
             if args.verify_restore:
@@ -732,12 +856,20 @@ def main(argv: Iterable[str] | None = None) -> int:
                 raise ExportError("ssm_timeout_seconds must be between 30 and 900")
             payload = run_export_batch(args)
         elif args.command == "host-export":
+            upper = args.legacy_upper_exclusive or None
+            lower = args.legacy_lower_inclusive or None
+            if args.export_scope == rehearsal.PROD_EXPORT_SCOPE_LEGACY_COLD:
+                lower = None
+            else:
+                upper = None
             payload = host_export(
                 table=args.table,
                 instance_id=args.instance_id,
                 staging_s3_base_uri=args.staging_s3_base_uri,
                 hold_started_at=args.hold_started_at,
-                legacy_upper_exclusive=args.legacy_upper_exclusive,
+                export_scope=args.export_scope,
+                legacy_upper_exclusive=upper,
+                legacy_lower_inclusive=lower,
                 cursor_before_json=args.cursor_before_json,
                 confirmation=args.confirm,
                 timeout_seconds=args.timeout_seconds,

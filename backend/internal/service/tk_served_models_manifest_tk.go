@@ -95,7 +95,7 @@ func loadTkServedModelsManifest() {
 					}
 					displayByScope[scope][e.ModelID] = struct{}{}
 				}
-				if manifestEntryIsAgentPlanOnly(e) {
+				if manifestEntryIsAgentPlanOnly(e) || manifestEntryIsQianfanScopedOnly(e) {
 					continue
 				}
 			}
@@ -162,17 +162,34 @@ func manifestEntryIsAgentPlanOnly(e tkServedModelsManifestEntry) bool {
 		newapiintegration.IsVolcEngineAgentPlanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL)
 }
 
+func manifestEntryIsQianfanScopedOnly(e tkServedModelsManifestEntry) bool {
+	return strings.EqualFold(strings.TrimSpace(e.Platform), PlatformNewAPI) &&
+		e.AccountScope != nil &&
+		e.ChannelType == e.AccountScope.ChannelType &&
+		e.ChannelType == newapiconstant.ChannelTypeBaiduV2 &&
+		newapiintegration.IsQianfanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL)
+}
+
 func manifestEntryScopeKey(e tkServedModelsManifestEntry) string {
 	if e.AccountScope == nil ||
-		!strings.EqualFold(strings.TrimSpace(e.AccountScope.Platform), PlatformNewAPI) ||
-		!newapiintegration.IsVolcEngineAgentPlanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL) {
+		!strings.EqualFold(strings.TrimSpace(e.AccountScope.Platform), PlatformNewAPI) {
 		return ""
 	}
-	return normalizeAccountModelMappingOverrideScope(
-		e.AccountScope.Platform,
-		e.AccountScope.ChannelType,
-		e.AccountScope.BaseURL,
-	)
+	if newapiintegration.IsVolcEngineAgentPlanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL) {
+		return normalizeAccountModelMappingOverrideScope(
+			e.AccountScope.Platform,
+			e.AccountScope.ChannelType,
+			e.AccountScope.BaseURL,
+		)
+	}
+	if newapiintegration.IsQianfanBaseURL(e.AccountScope.ChannelType, e.AccountScope.BaseURL) {
+		return normalizeAccountModelMappingOverrideScope(
+			e.AccountScope.Platform,
+			e.AccountScope.ChannelType,
+			e.AccountScope.BaseURL,
+		)
+	}
+	return ""
 }
 
 func normalizeAccountModelMappingOverrideScope(platform string, channelType int, baseURL string) string {
@@ -203,6 +220,70 @@ func tkServedModelsManifestDisplayPresetIDsForSelector(platform string, channelT
 	}
 	out := make([]string, len(ids))
 	copy(out, ids)
+	return out
+}
+
+// qianfanSharedManifestModelIDs lists manifest rows also served on Baidu Qianfan
+// account 90 but indexed under other channel_type keys (manifest forbids duplicate model_id).
+var qianfanSharedManifestModelIDs = []string{
+	"deepseek-v4-pro",
+	"deepseek-v4-flash",
+	"glm-5",
+	"glm-5.1",
+	"glm-5.2",
+	"kimi-k2.6",
+}
+
+func newAPIQianfanModelMappingPresetIDs() []string {
+	scoped := tkServedModelsManifestPresetIDsForSelector(
+		PlatformNewAPI,
+		newapiconstant.ChannelTypeBaiduV2,
+		newapiintegration.QianfanBaseURL,
+	)
+	return mergeSortedManifestModelIDs(scoped, qianfanSharedManifestModelIDs)
+}
+
+func newAPIQianfanModelDisplayPresetIDs() []string {
+	scoped := tkServedModelsManifestDisplayPresetIDsForSelector(
+		PlatformNewAPI,
+		newapiconstant.ChannelTypeBaiduV2,
+		newapiintegration.QianfanBaseURL,
+	)
+	return mergeSortedManifestModelIDs(scoped, qianfanSharedManifestModelIDs)
+}
+
+func mergeSortedManifestModelIDs(primary, extra []string) []string {
+	if len(primary) == 0 && len(extra) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(primary)+len(extra))
+	out := make([]string, 0, len(primary)+len(extra))
+	for _, id := range primary {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	for _, id := range extra {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -289,11 +370,11 @@ func isTkCuratedNewAPICatalogRowDisplayed(vendor, modelID string) bool {
 
 // isNewAPILongTailCatalogVendor reports whether a catalog row's vendor string
 // belongs to the fifth-platform newapi curated long-tail (qwen/deepseek/GLM/
-// Moonshot/VolcEngine Ark), as opposed to the four native platforms + grok which carry
-// their own servable allowlists.
+// Moonshot/VolcEngine Ark / Baidu Qianfan wenxin), as opposed to the four native
+// platforms + grok which carry their own servable allowlists.
 func isNewAPILongTailCatalogVendor(vendor string) bool {
 	switch vendor {
-	case "newapi", "volcengine", "deepseek", "dashscope", "alibaba", "zhipu", "bigmodel", "zai", "moonshot", "kimi":
+	case "newapi", "volcengine", "deepseek", "dashscope", "alibaba", "zhipu", "bigmodel", "zai", "moonshot", "kimi", "wenxin", "qianfan", "baidu":
 		return true
 	default:
 		return false
