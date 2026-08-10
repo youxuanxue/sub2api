@@ -338,6 +338,38 @@ func TestUS045_WorkstationRecoveryRestoreUsesExplicitLocalRootAndSecureModes(t *
 	}
 }
 
+func TestUS045_WorkstationRecoveryRestoreRemovesOutputWhenSecureValidationFails(t *testing.T) {
+	restoreRoot := filepath.Join(t.TempDir(), "workstation-restore-root")
+	output := filepath.Join(restoreRoot, "window-20260807T0100Z")
+	deps := cliDeps{
+		loadConfig: func() (*config.Config, error) { return nil, errors.New("must not run") },
+		openDB:     func(string, string) (*sql.DB, error) { return nil, errors.New("must not run") },
+		newRecoveryStore: func(context.Context, archive.WorkstationRecoveryConfig) (archive.ReadOnlyObjectStore, error) {
+			return archive.NewMemoryObjectStore(), nil
+		},
+		verifyCommit: func(_ context.Context, _ archive.ReadOnlyObjectStore, _ string, restoreDir string) (archive.VerifiedCommit, error) {
+			if err := os.Mkdir(restoreDir, 0o700); err != nil {
+				return archive.VerifiedCommit{}, err
+			}
+			if err := os.Symlink("/etc/passwd", filepath.Join(restoreDir, "leak")); err != nil {
+				return archive.VerifiedCommit{}, err
+			}
+			return archive.VerifiedCommit{Document: archive.CommitDocument{WindowStart: testWindow, WindowEnd: testWindow.Add(time.Hour)}, ETag: "restore-etag"}, nil
+		},
+	}
+	args := append(workstationArgs("restore"),
+		"--restore-root", restoreRoot, "--output", output,
+		"--confirm", windowConfirmation(restoreConfirmationPrefix, testWindow),
+	)
+	err := runCLI(context.Background(), args, &bytes.Buffer{}, deps)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("runCLI() error=%v", err)
+	}
+	if _, statErr := os.Stat(output); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("output dir still exists after failed secure validation: statErr=%v", statErr)
+	}
+}
+
 func TestUS045_WorkstationRecoveryRestoreRejectsMissingPrivacyConfirmationBeforeDependencies(t *testing.T) {
 	called := false
 	args := append(workstationArgs("restore"), "--restore-root", t.TempDir(), "--output", filepath.Join(t.TempDir(), "restore"))

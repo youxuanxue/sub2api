@@ -136,6 +136,14 @@ class OpsDailyDiagnosticsWorkflowTest(unittest.TestCase):
         self.assertNotIn("BlockDeviceMappings[0]", snapshot_block)
         self.assertNotIn("describe-snapshots", snapshot_block)
 
+    def test_qa_phase2_live_health_probe_is_wired_for_prod(self) -> None:
+        text = workflow_text()
+        self.assertIn("probe-qa-phase2-live-health.sh", text)
+        self.assertIn("prod_phase2_live_health.py --from-probe-stdin", text)
+        self.assertIn("qa-phase2-live-health|$TARGET_ID", text)
+        self.assertIn("qa-raw-archive-iam|$TARGET_ID", text)
+        self.assertLess(text.index("SAFETY_VERDICT="), text.index("PHASE2_PROBE="))
+
     def test_internal_health_probe_uses_drain_immune_live_endpoint(self) -> None:
         commands = extract_runtime_params_commands()
         internal_start = commands.index("echo ===INTERNAL_HEALTH===")

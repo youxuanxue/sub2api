@@ -220,6 +220,7 @@ func runWindowCommand(ctx context.Context, command string, args []string, out io
 		}
 		defer func() { _ = verified.Close() }()
 		if err := validateSecureRestoreTree(filepath.Clean(*outputDir)); err != nil {
+			_ = os.RemoveAll(filepath.Clean(*outputDir))
 			return err
 		}
 		receipt := verifiedReceipt(command, commitKey, verified)

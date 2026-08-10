@@ -323,6 +323,36 @@ jobs:
             fi
           fi
 
+          if [ "$TARGET_ID" = "prod" ]; then
+            PHASE2_PROBE="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-qa-phase2-live-health.sh --with ops/lib/resolve-app-container.sh --comment "daily qa phase2 live health" --timeout-seconds 120 2>>"$STDERR" || true)" # preflight-allow: swallow — probe failure becomes explicit finding
+            PHASE2_VERDICT="$(printf '%s' "$PHASE2_PROBE" | python3 ops/qa/prod_phase2_live_health.py --from-probe-stdin --json 2>>"$STDERR" || echo '{"health":{"status":"failed","reasons":["qa_phase2_live_health_eval_failed"]},"iam_contract":{"ok":false,"status":"unknown"}}')"
+            printf 'qa_phase2_live_health: %s\n' "$PHASE2_VERDICT" >> "$STDOUT"
+            PHASE2_STATUS="$(printf '%s' "$PHASE2_VERDICT" | jq -r '.health.status // "failed"')"
+            PHASE2_REASONS="$(printf '%s' "$PHASE2_VERDICT" | jq -r '[.health.reasons[]?] | join("; ")')"
+            PHASE2_IAM_OK="$(printf '%s' "$PHASE2_VERDICT" | jq -r '.iam_contract.ok // false')"
+            case "$PHASE2_STATUS" in
+              healthy)
+                add_finding "qa_phase2_live_health" "ok" "info" "QA Phase 2 live maintenance health passed ($TARGET_ID)" "Forward archive systemd/receipt/heartbeat/control facts are correlated." "qa-phase2-live-health|$TARGET_ID"
+                ;;
+              degraded)
+                add_finding "qa_phase2_live_health" "warning" "warning" "QA Phase 2 live maintenance health degraded ($TARGET_ID)" "$PHASE2_REASONS" "qa-phase2-live-health|$TARGET_ID"
+                ;;
+              *)
+                add_finding "qa_phase2_live_health" "issue_candidate" "error" "QA Phase 2 live maintenance health failed ($TARGET_ID)" "$PHASE2_REASONS" "qa-phase2-live-health|$TARGET_ID"
+                ;;
+            esac
+            if [ "$PHASE2_IAM_OK" != "true" ]; then
+              PHASE2_IAM_FAIL="$(printf '%s' "$PHASE2_VERDICT" | jq -r '[.iam_contract.failures[]?] | join("; ")')"
+              add_finding "qa_raw_archive_iam_contract" "issue_candidate" "error" "QA raw archive IAM contract drift ($TARGET_ID)" "$PHASE2_IAM_FAIL" "qa-raw-archive-iam|$TARGET_ID"
+            else
+              add_finding "qa_raw_archive_iam_contract" "ok" "info" "QA raw archive IAM contract matches repository ($TARGET_ID)" "Live bucket policy matches suffix-scoped app role contract." "qa-raw-archive-iam|$TARGET_ID"
+            fi
+            while IFS= read -r PHASE2_WARNING; do
+              [ -n "$PHASE2_WARNING" ] || continue
+              add_finding "qa_phase2_live_health" "warning" "warning" "QA Phase 2 live probe warning ($TARGET_ID)" "$PHASE2_WARNING" "qa-phase2-live-warning|$TARGET_ID|$PHASE2_WARNING"
+            done < <(printf '%s' "$PHASE2_VERDICT" | jq -r '.warnings[]?')
+          fi
+
           if [ "$TARGET_KIND" = "edge" ] && [ -n "$API_URL" ]; then
             BLOCKED_CODE="$(curl -sS -o "$OUT/edge-blocked.json" -w '%{http_code}' -H 'Authorization: Bearer tk_edge_smoke_should_not_work' "$API_URL/v1/models" 2>>"$STDERR" || echo 000)"
             if [ "$BLOCKED_CODE" = "403" ]; then

@@ -15,6 +15,7 @@ prod:
     shard_minutes: 60
     seal_delay_minutes: 15
     max_catchup_windows_per_run: 1
+    catchup_gap_policy: accepted_terminal
     s3_retention_days: 7
     raw_user_access: false
     runner_uid: 1000

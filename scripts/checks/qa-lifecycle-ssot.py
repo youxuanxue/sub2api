@@ -128,12 +128,21 @@ REQUIRED_BY_FILE = {
         "schema_version: 1",
         "deploy_inject_default: true",
         "target_deploy_inject_default: true",
-        "closeout_state: production_closeout_verified",
+        "repository_closeout_state: production_closeout_verified",
+        "observed_live_state: pending_live_reconciliation",
         "min_consecutive_scheduled_runs: 2",
         "host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh",
         "health_evaluator: ops/qa/qa_phase2_health.py",
+        "live_health_probe: ops/observability/probe-qa-phase2-live-health.sh",
+        "live_health_evaluator: ops/qa/prod_phase2_live_health.py",
+        "catchup_gap_policy: accepted_terminal",
         "export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json",
         "policy_target: prod.archive.enabled",
+        "repository_iam_state: contract_ready",
+        "observed_iam_state: pending_live_verification",
+        "iam_contract_verifier: ops/qa/verify_raw_archive_iam_contract.py",
+        "partition_owner_repository: default_only",
+        "phase3_worker_observed_state: transitional_in_prod",
         "design-qa-phase2-archive-closeout.md",
     ),
     QA_README: (
@@ -280,6 +289,7 @@ def _policy_failures(root: Path) -> list[str]:
         ("prod", "archive", "shard_minutes"): 60,
         ("prod", "archive", "seal_delay_minutes"): 15,
         ("prod", "archive", "max_catchup_windows_per_run"): 1,
+        ("prod", "archive", "catchup_gap_policy"): "accepted_terminal",
         ("prod", "archive", "s3_retention_days"): 7,
         ("prod", "archive", "runner_uid"): 1000,
         ("prod", "archive", "runner_gid"): 1000,
@@ -416,19 +426,29 @@ def _rollout_failures(root: Path) -> list[str]:
             failures.append("rollout prod.QA_ARCHIVE_ENABLED.policy_target drift")
         if prod_archive.get("target_deploy_inject_default") is not True:
             failures.append("rollout prod.QA_ARCHIVE_ENABLED target must become true after closeout")
-        if prod_archive.get("closeout_state") != "production_closeout_verified":
-            failures.append("rollout prod.QA_ARCHIVE_ENABLED closeout state drift")
+        if prod_archive.get("repository_closeout_state") != "production_closeout_verified":
+            failures.append("rollout prod.QA_ARCHIVE_ENABLED repository closeout state drift")
+        if prod_archive.get("observed_live_state") != "pending_live_reconciliation":
+            failures.append("rollout prod.QA_ARCHIVE_ENABLED observed live state drift")
     if not isinstance(prod_timer, dict):
         failures.append("rollout prod.tokenkey_qa_maintenance_timer must be a mapping")
     else:
         if prod_timer.get("closeout_deploy_state") != "enabled":
             failures.append("rollout maintenance timer closeout deploy state drift")
-        if prod_timer.get("observed_live_state") != "production_recloseout_verified":
+        if prod_timer.get("repository_closeout_state") != "production_recloseout_verified":
+            failures.append("rollout maintenance timer repository closeout state drift")
+        if prod_timer.get("observed_live_state") != "pending_live_reconciliation":
             failures.append("rollout maintenance timer observed live state drift")
         if prod_timer.get("policy_target_state") != "enabled":
             failures.append("rollout maintenance timer target drift")
         if prod_timer.get("min_consecutive_scheduled_runs") != 2:
             failures.append("rollout maintenance timer observation gate drift")
+        if prod_timer.get("catchup_gap_policy") != "accepted_terminal":
+            failures.append("rollout maintenance catchup gap policy drift")
+        if prod_timer.get("live_health_probe") != "ops/observability/probe-qa-phase2-live-health.sh":
+            failures.append("rollout maintenance live health probe drift")
+        if prod_timer.get("live_health_evaluator") != "ops/qa/prod_phase2_live_health.py":
+            failures.append("rollout maintenance live health evaluator drift")
         if prod_timer.get("health_evidence") != [
             "systemd", "host_receipt", "database_heartbeat", "archive_control_rows"
         ]:
@@ -447,16 +467,28 @@ def _rollout_failures(root: Path) -> list[str]:
     elif edge_capture.get("deploy_inject_default") is not False:
         failures.append("rollout edge.QA_CAPTURE_ENABLED.deploy_inject_default must be false")
     recovery = prod.get("raw_archive_recovery")
-    if not isinstance(recovery, dict) or recovery != {
+    expected_recovery = {
         "repository_state": "ready",
-        "production_iam_state": "applied",
+        "repository_iam_state": "contract_ready",
+        "observed_iam_state": "pending_live_verification",
+        "iam_contract_verifier": "ops/qa/verify_raw_archive_iam_contract.py",
         "independent_evidence_state": "production_workstation_recovery_verified",
         "recovery_cli": "backend/cmd/qa-archive",
         "retirement_gate": "ops/qa/qa_archive_recovery_gate.py",
         "break_glass_state": "retired",
         "shared_role_boundary": "shared_ec2_instance_role_no_process_isolation",
-    }:
+    }
+    if not isinstance(recovery, dict) or recovery != expected_recovery:
         failures.append("rollout raw archive recovery contract drift")
+    qa_records = prod.get("qa_records")
+    if not isinstance(qa_records, dict) or qa_records != {
+        "partition_owner_repository": "default_only",
+        "partition_owner_observed": "pending_live_probe",
+    }:
+        failures.append("rollout qa_records partition owner contract drift")
+    user_export = prod.get("user_export")
+    if not isinstance(user_export, dict) or user_export.get("phase3_worker_observed_state") != "transitional_in_prod":
+        failures.append("rollout user export phase3 observed state drift")
     return failures
 
 
@@ -549,6 +581,7 @@ prod:
     shard_minutes: 60
     seal_delay_minutes: 15
     max_catchup_windows_per_run: 1
+    catchup_gap_policy: accepted_terminal
     s3_retention_days: 7
     runner_uid: 1000
     runner_gid: 1000

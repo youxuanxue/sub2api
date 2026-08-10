@@ -3,6 +3,7 @@ schema_version: 1
 # Target runtime policy values: ops/qa/policy.yaml (SSOT).
 # Rollout gates keep deploy defaults conservative until the approved Phase 2 production-
 # integrity closeout is implemented and verified; document approval alone does not open the gate.
+# Repository states describe code/design readiness; observed_* fields are reconciled by live probes.
 
 prod:
   QA_ARCHIVE_ENABLED:
@@ -10,14 +11,19 @@ prod:
     policy_target: prod.archive.enabled
     target_deploy_inject_default: true
     enable_after: docs/approved/design-qa-phase2-archive-closeout.md#production-rollout
-    closeout_state: production_closeout_verified
+    repository_closeout_state: production_closeout_verified
+    observed_live_state: pending_live_reconciliation
   tokenkey_qa_maintenance_timer:
-    observed_live_state: production_recloseout_verified
+    repository_closeout_state: production_recloseout_verified
+    observed_live_state: pending_live_reconciliation
     closeout_deploy_state: enabled
     policy_target_state: enabled
     min_consecutive_scheduled_runs: 2
     host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh
     health_evaluator: ops/qa/qa_phase2_health.py
+    live_health_probe: ops/observability/probe-qa-phase2-live-health.sh
+    live_health_evaluator: ops/qa/prod_phase2_live_health.py
+    catchup_gap_policy: accepted_terminal
     health_evidence:
       - systemd
       - host_receipt
@@ -30,12 +36,20 @@ prod:
     export_orphan_apply_command: /usr/local/bin/tokenkey-qa-stale-cleanup.sh --apply-export-orphans
     export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json
     activation_state: production_export_orphan_activated
+  qa_records:
+    partition_owner_repository: default_only
+    partition_owner_observed: pending_live_probe
+  user_export:
+    phase3_worker_repository_state: approved_fargate_worker
+    phase3_worker_observed_state: transitional_in_prod
   QA_CAPTURE_ENABLED:
     deploy_inject: edge_only_false
     policy_target: prod.capture_enabled
   raw_archive_recovery:
     repository_state: ready
-    production_iam_state: applied
+    repository_iam_state: contract_ready
+    observed_iam_state: pending_live_verification
+    iam_contract_verifier: ops/qa/verify_raw_archive_iam_contract.py
     independent_evidence_state: production_workstation_recovery_verified
     recovery_cli: backend/cmd/qa-archive
     retirement_gate: ops/qa/qa_archive_recovery_gate.py

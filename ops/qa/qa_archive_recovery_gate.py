@@ -42,6 +42,7 @@ def _production_approval_failures(
     expected_bucket: str,
     expected_recovery_role_arn: str,
     latest_receipt_at: datetime | None,
+    expected_approval_issuer: str = "",
 ) -> list[str]:
     if approval_path is None:
         return ["production_approval"]
@@ -73,6 +74,12 @@ def _production_approval_failures(
         failures.append("production_approval.receipt_order")
     if expires_at is None or expires_at <= now or (approved_at is not None and expires_at <= approved_at):
         failures.append("production_approval.expires_at")
+    issuer = approval.get("approval_issuer")
+    if expected_approval_issuer:
+        if issuer != expected_approval_issuer:
+            failures.append("production_approval.approval_issuer")
+    elif issuer not in {None, ""} and not isinstance(issuer, str):
+        failures.append("production_approval.approval_issuer")
     try:
         if approval_path.stat().st_mode & 0o022:
             failures.append("production_approval.permissions")
@@ -87,6 +94,7 @@ def evaluate(
     expected_window_start: str = "",
     expected_bucket: str = "",
     expected_recovery_role_arn: str = "",
+    expected_approval_issuer: str = "",
 ) -> tuple[int, dict[str, Any]]:
     result: dict[str, Any] = {
         "ok": False,
@@ -186,6 +194,7 @@ def evaluate(
             expected_bucket,
             expected_recovery_role_arn,
             latest_receipt_at,
+            expected_approval_issuer,
         ))
         if failures:
             result["error"] = "production recovery evidence is not independently approved"
@@ -220,6 +229,7 @@ def main() -> int:
     plan.add_argument("--expected-window-start", default="")
     plan.add_argument("--expected-bucket", default="")
     plan.add_argument("--expected-recovery-role-arn", default="")
+    plan.add_argument("--expected-approval-issuer", default="")
     args = parser.parse_args()
     code, result = evaluate(
         args.evidence,
@@ -227,6 +237,7 @@ def main() -> int:
         args.expected_window_start,
         args.expected_bucket,
         args.expected_recovery_role_arn,
+        args.expected_approval_issuer,
     )
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     return code
