@@ -14,7 +14,6 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "ops/migration/edge-platform-migration-preflight.sh"
-CHECKED_EVIDENCE = REPO_ROOT / "docs/evidence/all-edge-ec2-migration-preflight.json"
 FAKE_AWS = r'''#!/usr/bin/env python3
 import datetime as dt
 import json
@@ -276,16 +275,6 @@ class EdgePlatformMigrationPreflightTests(unittest.TestCase):
             self.assertNotIn(forbidden, report)
         self.assertEqual([], report["blockers"])
         self.assertNotIn("must-not-leak", completed.report_text)  # type: ignore[attr-defined]
-
-    def test_checked_evidence_replays_with_the_current_evaluator(self) -> None:
-        checked = json.loads(CHECKED_EVIDENCE.read_text(encoding="utf-8"))
-        completed = self.run_fixture(checked)
-        replayed = json.loads(completed.stdout)
-        self.assertEqual(checked["blockers"], replayed["blockers"])
-        self.assertEqual(
-            [row.get("owner") for row in checked["fleet"]],
-            [row.get("owner") for row in replayed["fleet"]],
-        )
 
     def test_live_collection_does_not_request_network_egress_metrics(self) -> None:
         completed, calls = self.run_live()

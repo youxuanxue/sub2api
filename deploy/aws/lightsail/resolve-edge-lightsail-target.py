@@ -59,7 +59,6 @@ def resolve_target(
         "blueprint_id",
         "availability_zone",
         "ssm_prefix",
-        "monthly_budget_usd",
     ]
     missing = [key for key in required if key not in target or target[key] in (None, "")]
     if missing:
@@ -69,11 +68,6 @@ def resolve_target(
     profile = str(target.get("profile") or "")
     if profile != default_profile:
         fail(f"edge_id {edge_id} profile {profile} != default {default_profile}")
-
-    budget = int(target.get("monthly_budget_usd", 0))
-    max_budget = int(data.get("max_monthly_budget_usd", 12))
-    if budget > max_budget:
-        fail(f"edge_id {edge_id} budget ${budget} exceeds max ${max_budget}")
 
     swap_gib = int(target.get("swap_gib", 2))
 
@@ -90,7 +84,6 @@ def resolve_target(
         "static_ip_name": target["static_ip_name"],
         "bundle_id": target["bundle_id"],
         "blueprint_id": target["blueprint_id"],
-        "monthly_budget_usd": budget,
         "ssm_prefix": target["ssm_prefix"],
         "purpose": target.get("purpose", ""),
     }

@@ -2,7 +2,6 @@
   "schema_version": 1,
   "platform": "lightsail",
   "default_profile": "edge-lightsail-minimal",
-  "max_monthly_budget_usd": 12,
   "notes": [
     "lightsail_region is the Lightsail API region (not always equal to EC2 edge region).",
     "Paris (fra1) has no Lightsail region; map to eu-central-1 (Frankfurt) for PoC only.",
@@ -22,7 +21,6 @@
       "static_ip_name": "vless-uk-fresh-1",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
-      "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/uk1",
       "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed"
     },
@@ -38,7 +36,6 @@
       "static_ip_name": "tokenkey-edge-us1-ls-ip",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
-      "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us1",
       "purpose": "us-west-2-clean-egress-lightsail-planned (deployable=false until provisioned)"
     },
@@ -54,7 +51,6 @@
       "static_ip_name": "tokenkey-edge-fra1-ls-ip",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
-      "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/fra1",
       "purpose": "frankfurt-lightsail-substitute-no-paris-region"
     },
@@ -70,7 +66,6 @@
       "static_ip_name": "tokenkey-edge-sg1-ls-ip",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
-      "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/sg1",
       "purpose": "sg-egress-planned"
     },
@@ -87,7 +82,6 @@
       "static_ip_name": "StaticIp-oh-2",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
-      "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us2",
       "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed; had adopted StaticIp-oh-2 after us-east-1 100.48.129.133 pollution"
     },
@@ -104,7 +98,6 @@
       "static_ip_name": "vless-oh-fresh-1",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
-      "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us3",
       "purpose": "us-east-2-ohio-egress (rotated 2026-06-16: swapped to vless-oh-fresh-1 / 18.220.195.44 after Static-oh-1 / 3.128.102.134 upstream API risk-block; old Static-oh-1 detached, recorded in edge-polluted-ips.json)"
     },
@@ -121,7 +114,6 @@
       "static_ip_name": "Static-or-1",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
-      "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us4",
       "purpose": "us-west-2-oregon-egress (pre-provisioned Static-or-1 / tokenkey-edge-us-or1-ls)"
     },
@@ -138,7 +130,6 @@
       "static_ip_name": "vless-or-fresh-1",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
-      "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us5",
       "purpose": "us-west-2-oregon-egress-2 (rotated 2026-06-16: swapped to vless-or-fresh-1 / 32.185.163.163 after StaticIp-or-2 / 44.224.133.40 upstream API risk-block; old StaticIp-or-2 detached, recorded in edge-polluted-ips.json)"
     },
@@ -155,7 +146,6 @@
       "static_ip_name": "StaticIp-oh-3",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
-      "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us6",
       "purpose": "us-east-2-ohio-egress (rehomed 2026-06-05 to adopted console-created edge-ls-us-oh-3 / StaticIp-oh-3; corrected 2026-06-08: A record was stale at ephemeral 52.15.35.197 which AWS re-adopted to *.coverahealth.com — StaticIp-oh-3 truth is 3.148.79.145)"
     },
@@ -172,7 +162,6 @@
       "static_ip_name": "StaticIp-oh-4-b",
       "bundle_id": "micro_3_0",
       "blueprint_id": "amazon_linux_2023",
-      "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us7",
       "purpose": "retired 2026-06-23: Lightsail instance, Static IP, SSM managed instance, SSM params, DNS, and prod mirror account removed; had been rehomed 2026-06-05 to adopted console-created edge-ls-us-oh-4"
     }

@@ -96,6 +96,18 @@ class ResolveEdgeLightsailTargetTests(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("unknown edge_id", proc.stderr)
 
+    def test_matrix_and_resolver_do_not_expose_budget_contract(self):
+        self.assertNotIn("max_monthly_budget_usd", self.data)
+        for edge_id, target in self.data.get("targets", {}).items():
+            with self.subTest(edge_id=edge_id):
+                self.assertNotIn("monthly_budget_usd", target)
+
+        edge_id = self.deployable_id or self.planned_id
+        if not edge_id:
+            self.skipTest("matrix empty")
+        resolved = run_resolver(edge_id, allow_planned=edge_id == self.planned_id)
+        self.assertNotIn("monthly_budget_usd", resolved)
+
 
 if __name__ == "__main__":
     unittest.main()
