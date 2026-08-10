@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const usageLogsUpstreamModelMismatchIndex = "idx_usage_logs_upstream_model_mismatch_created_at"
+
 func TestUsageLog_UpstreamModelMismatchFilterAndPartialIndex(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
