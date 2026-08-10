@@ -4883,9 +4883,12 @@
         "if err := r.upsertGroupDailyAggregates(ctx, dayStart, dayEnd); err != nil {",
         "if err := r.deleteUserPlatformDailyRange(ctx, dayStart, dayEnd); err != nil {",
         "if err := r.deleteGroupDailyRange(ctx, dayStart, dayEnd); err != nil {",
-        "if err := r.cleanupUserPlatformDaily(ctx, dailyCutoffUTC); err != nil {"
+        "if err := r.cleanupUserPlatformDaily(ctx, dailyCutoffUTC); err != nil {",
+        "func (r *dashboardAggregationRepository) cleanupPartitionedUsageLogs(",
+        "pgpartition.ListStraddling(ctx, db, \"usage_logs\", \"created_at\", cutoff)",
+        "usageLogsStraddleReclaimMaxRowsPerRun"
       ],
-      "rationale": "Thin injection of TK rollup feeders into the upstream-shaped aggregation repo: user-platform and group daily upsert calls live in both aggregateRangeInTx and recomputeRangeInTx, range deletes prevent stale rows after recompute, user-platform retention prune follows the daily cutoff, and group metrics backfill runs before group distribution trusts the extended table. These are single-line hooks into upstream-shaped functions; an upstream merge resolving DashboardAggregationService could silently drop them, leaving rollups unpopulated and admin pages reading stale/empty history or raw-scanning again."
+      "rationale": "Thin injection of TK rollup feeders into the upstream-shaped aggregation repo: user-platform and group daily upsert calls live in both aggregateRangeInTx and recomputeRangeInTx, range deletes prevent stale rows after recompute, user-platform retention prune follows the daily cutoff, and group metrics backfill runs before group distribution trusts the extended table. Partitioned usage_logs retention must also reclaim expired rows from bound-straddling partitions (notably usage_logs_legacy) via ListStraddling and capped id-ordered DELETE after DropExpired; without these hooks an upstream merge can revert to drop-only retention and leave legacy rows past the 90d window undeleted. These are single-line hooks into upstream-shaped functions; an upstream merge resolving DashboardAggregationService could silently drop them, leaving rollups unpopulated and admin pages reading stale/empty history or raw-scanning again."
     },
     {
       "path": "backend/internal/repository/usage_log_repo_tk_user_platform_rollup.go",
