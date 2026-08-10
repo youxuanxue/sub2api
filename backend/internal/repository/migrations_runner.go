@@ -67,6 +67,8 @@ const opsSystemLogsHostIndexMigration = "175a_add_ops_system_logs_host_index_not
 const opsSystemLogsHostIndex = "idx_ops_system_logs_host_created_at"
 const usersEmailAliasDedupIndexMigration = "190_add_users_email_alias_dedup_index_notx.sql"
 const usersEmailAliasDedupIndex = "idx_users_email_dot_stripped"
+const upstreamModelMismatchIndexMigration = "195_add_usage_log_upstream_model_mismatch_index_notx.sql"
+const upstreamModelMismatchIndex = "idx_usage_logs_upstream_model_mismatch_created_at"
 
 // migrationDB is the session-scoped database surface used by the migration
 // runner. Both *sql.DB and *sql.Conn satisfy it, but production migrations use a
@@ -84,6 +86,7 @@ type nonTransactionalIndexPolicy struct {
 	partitionedTable       string
 	partitionedFallbackDDL string
 	partitionedIndexExpr   string
+	partitionedIndexWhere  string
 }
 
 var nonTransactionalIndexPolicies = map[string]nonTransactionalIndexPolicy{
@@ -105,6 +108,12 @@ var nonTransactionalIndexPolicies = map[string]nonTransactionalIndexPolicy{
 		indexName:            opsSystemLogsHostIndex,
 		partitionedTable:     "ops_system_logs",
 		partitionedIndexExpr: "host, created_at DESC",
+	},
+	upstreamModelMismatchIndexMigration: {
+		indexName:             upstreamModelMismatchIndex,
+		partitionedTable:      "usage_logs",
+		partitionedIndexExpr:  "created_at DESC, id DESC",
+		partitionedIndexWhere: "upstream_model_mismatch IS TRUE",
 	},
 }
 
