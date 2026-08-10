@@ -348,7 +348,7 @@ run_selftest() {
   local sentinel="${QA_MAINTENANCE_HOST_SCRATCH}/.qa-maintenance-selftest"
   rm -f -- "${sentinel}"
   run_selftest_container "tokenkey-qa-maintenance-selftest-create-$$" /bin/sh -ceu \
-    'printf %s qa-maintenance-selftest-ok > /app/data/qa_archive_tmp/.qa-maintenance-selftest; test "$(cat /app/data/qa_archive_tmp/.qa-maintenance-selftest)" = qa-maintenance-selftest-ok # qa-maintenance-selftest-create'
+    'umask 077; printf %s qa-maintenance-selftest-ok > /app/data/qa_archive_tmp/.qa-maintenance-selftest; test "$(cat /app/data/qa_archive_tmp/.qa-maintenance-selftest)" = qa-maintenance-selftest-ok # qa-maintenance-selftest-create'
   if [ ! -f "${sentinel}" ] || [ "$(cat "${sentinel}")" != qa-maintenance-selftest-ok ]; then
     cleanup_runtime_files
     qa_fail selftest_host_visibility_failed 48 "selftest sentinel is not visible on the host"

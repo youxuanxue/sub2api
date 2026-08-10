@@ -10,10 +10,10 @@ prod:
     policy_target: prod.archive.enabled
     target_deploy_inject_default: true
     enable_after: docs/approved/design-qa-phase2-archive-closeout.md#production-rollout
-    closeout_state: repository_ready_production_pending
+    closeout_state: production_closeout_verified
   tokenkey_qa_maintenance_timer:
-    observed_live_state: recently_enabled_requires_recloseout
-    closeout_deploy_state: disabled
+    observed_live_state: production_recloseout_verified
+    closeout_deploy_state: enabled
     policy_target_state: enabled
     min_consecutive_scheduled_runs: 2
     host_runner: /usr/local/bin/tokenkey-qa-maintenance.sh
@@ -29,13 +29,13 @@ prod:
     export_orphan_plan_command: /usr/local/bin/tokenkey-qa-stale-cleanup.sh --plan
     export_orphan_apply_command: /usr/local/bin/tokenkey-qa-stale-cleanup.sh --apply-export-orphans
     export_orphan_activation_marker: /var/lib/tokenkey/qa-export-orphan-cleanup-activated.json
-    activation_state: pending_production_exact_plan
+    activation_state: production_export_orphan_activated
   QA_CAPTURE_ENABLED:
     deploy_inject: edge_only_false
     policy_target: prod.capture_enabled
   raw_archive_recovery:
     repository_state: ready
-    production_iam_state: pending_apply
+    production_iam_state: applied
     independent_evidence_state: pending
     recovery_cli: backend/cmd/qa-archive
     retirement_gate: ops/qa/qa_archive_recovery_gate.py
