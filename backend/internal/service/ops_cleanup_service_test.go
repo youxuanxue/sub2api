@@ -117,8 +117,10 @@ func TestOpsCleanupScheduled_DisabledStillMaintainsPartitionsWithoutCleanupHeart
 			WithArgs(table, sqlmock.AnyArg(), sqlmock.AnyArg()).
 			WillReturnRows(sqlmock.NewRows([]string{"covered_ranges"}).AddRow(4))
 	}
-	mock.ExpectQuery("pg_partitioned_table").WithArgs("usage_logs").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	for _, table := range []string{"qa_records", "usage_logs"} {
+		mock.ExpectQuery("pg_partitioned_table").WithArgs(table).
+			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	}
 
 	repo := &opsCleanupHeartbeatCapture{}
 	cfg := &config.Config{RunMode: config.RunModeSimple}

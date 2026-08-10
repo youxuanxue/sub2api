@@ -12,20 +12,39 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 PROD_REGION = "us-east-1"
-STACK = "tokenkey-prod-stage0"
 RAW_ARCHIVE_STACK = "tokenkey-prod-qa-raw-archive"
 
 APP_WRITE_SID = "AllowAppInstanceRoleWriteRaw"
 APP_VERIFY_SID = "AllowAppInstanceRoleVerifyRaw"
-FORBIDDEN_APP_ACTIONS = {"s3:ListBucket", "s3:ListBucketMultipartUploads", "s3:GetBucketLocation"}
-EXPECTED_SUFFIXES = [
-    "commit.json",
-    "manifest.json",
-    "records.parquet",
-    "evidence.pack",
-    "evidence-index.jsonl.zst",
-    "orphan-evidence-index.jsonl.zst",
+APP_SIDS = {APP_WRITE_SID, APP_VERIFY_SID}
+FORBIDDEN_APP_ACTIONS = {
+    "s3:*",
+    "s3:ListBucket",
+    "s3:ListBucketMultipartUploads",
+    "s3:GetBucketLocation",
+    "s3:DeleteObject",
+    "s3:DeleteObjectVersion",
+    "s3:PutObjectAcl",
+    "s3:GetObjectAcl",
+}
+EXPECTED_WRITE_ACTIONS = {
+    "s3:PutObject",
+    "s3:AbortMultipartUpload",
+    "s3:ListMultipartUploadParts",
+}
+EXPECTED_VERIFY_ACTIONS = {"s3:GetObject"}
+EXPECTED_APP_RESOURCES = [
+    "/commit.json",
+    "/segments/*/manifest.json",
+    "/segments/*/records.parquet",
+    "/segments/*/evidence.pack",
+    "/segments/*/evidence-index.jsonl.zst",
+    "/segments/*/orphan-evidence-index.jsonl.zst",
 ]
+EXPECTED_SID_ACTIONS = {
+    APP_WRITE_SID: EXPECTED_WRITE_ACTIONS,
+    APP_VERIFY_SID: EXPECTED_VERIFY_ACTIONS,
+}
 
 
 def _aws_json(args: list[str]) -> dict[str, Any]:
@@ -77,31 +96,6 @@ def resolve_app_role_arn() -> str:
     return _stack_parameter(RAW_ARCHIVE_STACK, "AppInstanceRoleArn")
 
 
-def _stack_output(stack_name: str, key: str) -> str:
-    payload = _aws_json(
-        [
-            "aws",
-            "cloudformation",
-            "describe-stacks",
-            "--region",
-            PROD_REGION,
-            "--stack-name",
-            stack_name,
-            "--output",
-            "json",
-        ]
-    )
-    stacks = payload.get("Stacks")
-    if not isinstance(stacks, list) or not stacks:
-        raise RuntimeError(f"stack missing: {stack_name}")
-    for item in stacks[0].get("Outputs", []):
-        if isinstance(item, dict) and item.get("OutputKey") == key:
-            value = item.get("OutputValue")
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    raise RuntimeError(f"{stack_name} output missing: {key}")
-
-
 def _live_bucket_policy(bucket: str) -> list[dict[str, Any]]:
     payload = _aws_json(
         [
@@ -138,6 +132,29 @@ def _statement_for_principal(statements: list[dict[str, Any]], principal_arn: st
     return matched
 
 
+def _action_set(statement: dict[str, Any]) -> set[str]:
+    actions = statement.get("Action")
+    if isinstance(actions, str):
+        return {actions}
+    if isinstance(actions, list):
+        return {str(item) for item in actions if isinstance(item, str)}
+    return set()
+
+
+def _resource_list(statement: dict[str, Any]) -> list[str]:
+    resources = statement.get("Resource")
+    if isinstance(resources, str):
+        return [resources]
+    if isinstance(resources, list):
+        return [str(item) for item in resources if isinstance(item, str)]
+    return []
+
+
+def _expected_app_resources(bucket: str) -> list[str]:
+    base = f"arn:aws:s3:::{bucket}/raw/v1/date=*/hour=*"
+    return sorted(f"{base}{suffix}" for suffix in EXPECTED_APP_RESOURCES)
+
+
 def evaluate(
     *,
     bucket: str,
@@ -152,39 +169,38 @@ def evaluate(
             return {"ok": False, "status": "unknown", "failures": [str(exc)], "bucket": bucket}
 
     app = _statement_for_principal(statements, app_role_arn)
-    missing_sids = {APP_WRITE_SID, APP_VERIFY_SID} - set(app)
+    missing_sids = APP_SIDS - set(app)
     if missing_sids:
         failures.extend(f"missing_app_sid:{sid}" for sid in sorted(missing_sids))
 
+    expected_resources = _expected_app_resources(bucket)
     for sid, statement in app.items():
-        actions = statement.get("Action")
-        action_set = {actions} if isinstance(actions, str) else set(actions or [])
+        if sid not in APP_SIDS:
+            failures.append(f"unexpected_app_sid:{sid}")
+            continue
+        if statement.get("Effect") != "Allow":
+            failures.append(f"{sid}:effect_not_allow")
+        action_set = _action_set(statement)
         forbidden = sorted(action_set & FORBIDDEN_APP_ACTIONS)
         if forbidden:
             failures.append(f"{sid}:forbidden_action:{','.join(forbidden)}")
-        resources = statement.get("Resource")
-        resource_list = resources if isinstance(resources, list) else [resources]
-        for resource in resource_list:
-            if not isinstance(resource, str):
-                failures.append(f"{sid}:invalid_resource")
-                continue
+        expected_actions = EXPECTED_SID_ACTIONS[sid]
+        extra = sorted(action_set - expected_actions)
+        missing = sorted(expected_actions - action_set)
+        if extra:
+            failures.append(f"{sid}:unexpected_action:{','.join(extra)}")
+        if missing:
+            failures.append(f"{sid}:missing_action:{','.join(missing)}")
+        resources = _resource_list(statement)
+        for resource in resources:
             if "raw/partial/" in resource:
                 failures.append(f"{sid}:partial_prefix_allowed")
             if sid == APP_VERIFY_SID and resource.endswith("/*"):
                 failures.append(f"{sid}:broad_raw_prefix_read")
-
-    if APP_WRITE_SID in app and APP_VERIFY_SID in app:
-        write_resources = app[APP_WRITE_SID].get("Resource")
-        verify_resources = app[APP_VERIFY_SID].get("Resource")
-        write_list = write_resources if isinstance(write_resources, list) else [write_resources]
-        verify_list = verify_resources if isinstance(verify_resources, list) else [verify_resources]
-        for statement_resources in (write_list, verify_list):
-            suffixes = [resource.rsplit("/", 1)[-1] for resource in statement_resources if isinstance(resource, str)]
-            if suffixes != EXPECTED_SUFFIXES:
-                failures.append("app_suffix_scope_drift")
-                break
-            if not all("raw/v1/date=*/hour=*" in resource for resource in statement_resources if isinstance(resource, str)):
-                failures.append("app_hour_prefix_drift")
+            if not resource.startswith(f"arn:aws:s3:::{bucket}/raw/v1/date=*/hour=*"):
+                failures.append(f"{sid}:resource_prefix_drift")
+        if sorted(resources) != expected_resources:
+            failures.append(f"{sid}:resource_scope_drift")
 
     status = "applied" if not failures else "drift"
     return {

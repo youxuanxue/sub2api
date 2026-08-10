@@ -3,7 +3,7 @@ title: QA Phase 2 Archive Closeout
 status: approved
 approved_by: "feng (conversation approvals, 2026-08-07 and 2026-08-08)"
 date: 2026-08-07
-last_reviewed: 2026-08-08
+last_reviewed: 2026-08-10
 supersedes: null
 related:
   - docs/approved/design-prod-qa-24h-s3-lifecycle.md
@@ -101,6 +101,32 @@ backfill, Phase 3 user export, or Phase 5 emergency work.
     machine-readable control state and makes the overall run fail.
 12. Stale cleanup remains active during this closeout and is the only owner allowed to
     remove `qa_exports_tmp` crash orphans.
+
+### Catchup gap policy (`accepted_terminal`)
+
+Runtime policy lives in `ops/qa/policy.yaml` as `archive.catchup_gap_policy`. Production
+uses `accepted_terminal`:
+
+- **Host runner / receipt:** compensation failure still makes the overall run nonzero;
+  `source_unavailable_after_retention` on a *new* selection still persists durable
+  terminal control for that hour.
+- **Health correlation:** pre-cutover and historical post-cutover hours that are already
+  terminal in control rows may remain in the `terminal_failures_after_cutover` inventory.
+  When systemd, host receipt, DB heartbeat, and control rows **agree** on those terminal
+  facts, correlated health is `degraded` with `catchup_terminal_gaps_present`, not
+  `healthy`. Any contradiction across the four sources is `failed` (fail closed).
+- **Rollout stop vs degraded:** `accepted_terminal` does **not** treat an already-terminal
+  historical gap such as `2026-08-07 22:00 UTC` as a blocker for forward scheduled runs
+  once facts correlate. A **new** gap discovered during closeout still requires a separate
+  immutable gap decision before compensation can be retried; until then rollout remains
+  `observed_live_state: pending_live_reconciliation`.
+- **`strict` alternative:** inventory presence or any terminal gap fails correlated health
+  and blocks rollout observation gates.
+
+Repository SSOT (`ops/qa/deploy_rollout.yaml`) separates `repository_closeout_state`
+(implementation ready in code) from `observed_live_state` (live probe reconciliation).
+Neither field may read `production_recloseout_verified` until live probes, IAM contract,
+partition owner, and completion criteria below are satisfied on production.
 
 ## Persistent Model
 
@@ -493,8 +519,11 @@ failed. This is one failed normal scheduled window, not evidence of long-term in
 4. Preserve the 01:00 and 04:00 failed control states and their immutable S3 evidence.
 5. Independently verify/restore 21:00, then set it as the one exact cutover.
 6. Through the host runner, archive and restore the normal window; only after success let
-   bounded compensation select, commit, verify, and restore 22:00. If its source expired,
-   persist `source_unavailable_after_retention`, stop, and request a separate gap decision.
+   bounded compensation select, commit, verify, and restore 22:00. If its source expired on
+   a **new** selection attempt, persist `source_unavailable_after_retention`, stop that
+   compensation attempt, and request a separate gap decision. Under `accepted_terminal`, an
+   already-terminal 22:00 hour recorded in control rows does not block forward runs once
+   the four-source health probe correlates; contradictory facts fail closed.
 7. From an ops workstation, assume the recovery role and verify/restore S3 directly; after
    success retire the transitional prod QA break-glass dump tooling.
 8. Enable the maintenance timer and observe at least two consecutive regular scheduled

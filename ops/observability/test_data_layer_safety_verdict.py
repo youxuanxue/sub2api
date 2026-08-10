@@ -48,6 +48,7 @@ def _signals() -> dict:
             "hold_started_at": (NOW - dt.timedelta(days=1)).isoformat(),
             "closeout_complete": True,
             "tail_export_complete": True,
+            "archive_coverage_current": True,
             "cleanup_release_complete": True,
             "cleanup_release_verified_at": (NOW - dt.timedelta(days=1)).isoformat(),
             "restore_verified_at": [
@@ -59,6 +60,16 @@ def _signals() -> dict:
 
 
 class DataLayerSafetyVerdictTest(unittest.TestCase):
+    def test_stale_tail_export_reports_archive_lag(self) -> None:
+        signals = _signals()
+        signals["ARCHIVESTATS"]["archive_coverage_current"] = False
+        result = verdict.compute_verdict(signals)
+        self.assertEqual(result["verdict"], "unsafe")
+        self.assertIn(
+            "archive_lag",
+            {finding["kind"] for finding in result["findings"]},
+        )
+
     def test_all_gates_green(self) -> None:
         result = verdict.compute_verdict(_signals())
         self.assertEqual(result["verdict"], "green")

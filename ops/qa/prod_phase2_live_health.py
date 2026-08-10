@@ -69,8 +69,12 @@ def evaluate_snapshot(
     health = qa_phase2_health.evaluate(snapshot, now=now, catchup_gap_policy=catchup_gap_policy)
     warnings: list[str] = []
     qa_records = snapshot.get("qa_records")
-    if isinstance(qa_records, dict) and qa_records.get("partition_owner") == "default_only":
-        warnings.append("qa_records_partition_owner_default_only")
+    if isinstance(qa_records, dict):
+        owner = qa_records.get("partition_owner")
+        if owner == "default_only":
+            warnings.append("qa_records_partition_owner_default_only")
+        elif owner == "mixed":
+            warnings.append("qa_records_partition_owner_mixed")
     if skip_iam:
         iam: dict[str, Any] = {"ok": True, "status": "skipped", "failures": []}
     else:

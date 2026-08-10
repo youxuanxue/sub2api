@@ -59,6 +59,7 @@ type target struct {
 var targets = [...]target{
 	{table: "ops_system_logs", cadence: cadenceMonthly, ahead: opsMonthsAhead},
 	{table: "ops_error_logs", cadence: cadenceMonthly, ahead: opsMonthsAhead},
+	{table: "qa_records", cadence: cadenceMonthly, ahead: opsMonthsAhead},
 	{table: "usage_logs", cadence: cadenceDaily, ahead: usageDaysAhead},
 }
 

@@ -210,7 +210,14 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
             )
         )
     elif closeout_complete and tail_export_complete:
-        if archive.get("cleanup_release_complete") is not True:
+        if archive.get("archive_coverage_current") is not True:
+            findings.append(
+                _finding(
+                    "archive_lag",
+                    "checked-in archive tail export ledger is stale relative to current cold rows",
+                )
+            )
+        elif archive.get("cleanup_release_complete") is not True:
             findings.append(
                 _finding(
                     "archive_evidence",

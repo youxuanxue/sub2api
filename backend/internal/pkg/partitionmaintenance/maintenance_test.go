@@ -44,6 +44,7 @@ func TestEnsureStrictCreatesAndVerifiesAllTargets(t *testing.T) {
 	}{
 		{"ops_system_logs", 4},
 		{"ops_error_logs", 4},
+		{"qa_records", 4},
 		{"usage_logs", 8},
 	} {
 		expectPartitioned(mock, target.table, true)
@@ -58,6 +59,7 @@ func TestEnsureStrictCreatesAndVerifiesAllTargets(t *testing.T) {
 	want := []TableResult{
 		{Table: "ops_system_logs", RangeCount: 4},
 		{Table: "ops_error_logs", RangeCount: 4},
+		{Table: "qa_records", RangeCount: 4},
 		{Table: "usage_logs", RangeCount: 8},
 	}
 	if len(result.Tables) != len(want) {
@@ -100,6 +102,7 @@ func TestEnsureAllowUnpartitionedSkipsCompatibilityTarget(t *testing.T) {
 	expectPartitioned(mock, "ops_error_logs", true)
 	expectCreates(mock, 4)
 	expectCoverage(mock, "ops_error_logs", 4)
+	expectPartitioned(mock, "qa_records", false)
 	expectPartitioned(mock, "usage_logs", false)
 
 	result, err := Ensure(context.Background(), db, maintenanceNow, ModeAllowUnpartitioned)
