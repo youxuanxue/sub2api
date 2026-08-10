@@ -1137,3 +1137,4 @@ func (s *GatewayService) ResolveChannelMappingAndRestrict(ctx context.Context, g
 	}
 	return s.channelService.ResolveChannelMappingAndRestrict(ctx, groupID, model)
 }
+

@@ -685,11 +685,36 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	if pricingData == nil || present == nil {
 		return nil
 	}
-	lookupService := &PricingService{pricingData: pricingData}
-
 	// 标准化模型名称（同时兼容 "models/xxx"、VertexAI 资源名等前缀）
 	modelLower := strings.ToLower(strings.TrimSpace(modelName))
 	lookupCandidates := s.buildModelLookupCandidates(modelLower)
+
+	// 1~3. 确定性识别（精确名 / 已知拼写变体 / 去掉日期版本后缀）
+	if pricing := s.lookupIdentifiedModelPricingLocked(lookupCandidates, pricingData, present); pricing != nil {
+		return pricing
+	}
+
+	// 4. 基于模型系列匹配（Claude）
+	if pricing := s.matchByModelFamily(lookupCandidates[0]); pricing != nil {
+		return pricing
+	}
+
+	// 5. OpenAI 模型回退策略
+	if strings.HasPrefix(lookupCandidates[0], "gpt-") {
+		return s.matchOpenAIModel(lookupCandidates[0])
+	}
+
+	return nil
+}
+
+// lookupIdentifiedModelPricingLocked 只做"确定性识别"的三步查找：精确键、已知拼写
+// 变体、去掉日期/版本后缀后的同名条目。它刻意不包含 matchByModelFamily /
+// matchOpenAIModel 这类按子串猜系列的兜底——那些兜底会给任意名字都返回一个价格。
+// pricingData 和 present 由 GetModelPricing 根据数据来源（overlay / s.pricingData）解析后传入。
+func (s *PricingService) lookupIdentifiedModelPricingLocked(lookupCandidates []string, pricingData map[string]*LiteLLMModelPricing, present func(*LiteLLMModelPricing) *LiteLLMModelPricing) *LiteLLMModelPricing {
+	if len(lookupCandidates) == 0 {
+		return nil
+	}
 
 	// 1. 精确匹配
 	for _, candidate := range lookupCandidates {
@@ -718,22 +743,6 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 		if keyBase == baseName {
 			return present(pricing)
 		}
-	}
-
-	// 4. 基于模型系列匹配（Claude）
-	if pricing := lookupService.matchByModelFamily(lookupCandidates[0]); pricing != nil {
-		return present(pricing)
-	}
-
-	// 5. OpenAI 模型回退策略
-	if strings.HasPrefix(lookupCandidates[0], "gpt-") {
-		return present(lookupService.matchOpenAIModel(lookupCandidates[0]))
-	}
-
-	// 6. Provider-prefixed 最后兜底仅兼容直接构造 PricingService 的聚焦测试夹具。
-	// 生产构造器读取只含 normalized bare owners 的 active registry，必在第 1 步 exact match。
-	if pricing := lookupService.matchByProviderPrefix(lookupCandidates[0]); pricing != nil {
-		return present(pricing)
 	}
 
 	return nil
@@ -780,6 +789,23 @@ func comparablePricingCost(p *LiteLLMModelPricing) float64 {
 		return p.OutputCostPerToken
 	}
 	return p.InputCostPerToken
+}
+
+// GetIdentifiedModelPricing 在价格表中确定性地识别模型，识别不到时返回 nil。
+// 与 GetModelPricing 的区别：不会退化成按 "opus"/"haiku" 之类子串猜出的系列兜底价。
+// 用于必须区分"这是价格表里已知的模型"和"这只是名字里带某个关键词"的场景。
+func (s *PricingService) GetIdentifiedModelPricing(modelName string) *LiteLLMModelPricing {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	modelLower := strings.ToLower(strings.TrimSpace(modelName))
+	if modelLower == "" {
+		return nil
+	}
+	return s.lookupIdentifiedModelPricingLocked(s.buildModelLookupCandidates(modelLower))
 }
 
 func (s *PricingService) buildModelLookupCandidates(modelLower string) []string {
