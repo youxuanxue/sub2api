@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/lib/pq"
 )
@@ -42,11 +43,12 @@ func createPartitionedIndexConcurrently(ctx context.Context, db migrationDB, pol
 			}
 		}
 		createDDL := fmt.Sprintf(
-			"CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s.%s (%s)",
+			"CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s.%s (%s)%s",
 			pq.QuoteIdentifier(childIndex),
 			pq.QuoteIdentifier(partition.schema),
 			pq.QuoteIdentifier(partition.name),
 			policy.partitionedIndexExpr,
+			partitionedIndexWhereSuffix(policy.partitionedIndexWhere),
 		)
 		if _, err := db.ExecContext(ctx, createDDL); err != nil {
 			return fmt.Errorf("create partition index %s: %w", childIndex, err)
@@ -54,10 +56,11 @@ func createPartitionedIndexConcurrently(ctx context.Context, db migrationDB, pol
 	}
 
 	parentDDL := fmt.Sprintf(
-		"CREATE INDEX IF NOT EXISTS %s ON ONLY %s (%s)",
+		"CREATE INDEX IF NOT EXISTS %s ON ONLY %s (%s)%s",
 		pq.QuoteIdentifier(policy.indexName),
 		pq.QuoteIdentifier(policy.partitionedTable),
 		policy.partitionedIndexExpr,
+		partitionedIndexWhereSuffix(policy.partitionedIndexWhere),
 	)
 	if _, err := db.ExecContext(ctx, parentDDL); err != nil {
 		return fmt.Errorf("create partitioned parent index %s: %w", policy.indexName, err)
@@ -91,6 +94,14 @@ func createPartitionedIndexConcurrently(ctx context.Context, db migrationDB, pol
 		return fmt.Errorf("partitioned parent index %s remains invalid after attaching all known partitions", policy.indexName)
 	}
 	return nil
+}
+
+func partitionedIndexWhereSuffix(where string) string {
+	where = strings.TrimSpace(where)
+	if where == "" {
+		return ""
+	}
+	return " WHERE " + where
 }
 
 func listTablePartitions(ctx context.Context, db migrationDB, table string) ([]tablePartition, error) {

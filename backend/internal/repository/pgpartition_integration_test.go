@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,6 +97,68 @@ func TestCreatePartitionedIndexConcurrently_AttachesEveryPartitionAndRetries(t *
 		JOIN pg_class parent ON parent.oid = i.inhparent
 		WHERE parent.relname = $1`, parentIndex).Scan(&indexPartitions))
 	require.Equal(t, tablePartitions, indexPartitions)
+}
+
+func TestCreatePartitionedIndexConcurrently_PartialIndexWhereClause(t *testing.T) {
+	ctx := context.Background()
+	table := "pgpart_itest_partial_online_index"
+	parentIndex := "idx_pgpart_itest_partial_mismatch_created"
+	qTable := pq.QuoteIdentifier(table)
+	_, _ = integrationDB.ExecContext(ctx, "DROP TABLE IF EXISTS "+qTable+" CASCADE")
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+qTable+" CASCADE")
+	})
+
+	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(`
+		CREATE TABLE %s (
+			id BIGSERIAL,
+			created_at TIMESTAMPTZ NOT NULL,
+			upstream_model_mismatch BOOLEAN
+		) PARTITION BY RANGE (created_at);
+		CREATE TABLE %s PARTITION OF %s FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
+		CREATE TABLE %s PARTITION OF %s FOR VALUES FROM ('2026-02-01') TO ('2026-03-01');
+		INSERT INTO %s VALUES (DEFAULT, '2026-01-15', true), (DEFAULT, '2026-02-15', false);`,
+		qTable,
+		pq.QuoteIdentifier(table+"_p1"), qTable,
+		pq.QuoteIdentifier(table+"_p2"), qTable,
+		qTable,
+	))
+	require.NoError(t, err)
+
+	policy := nonTransactionalIndexPolicy{
+		indexName:             parentIndex,
+		partitionedTable:      table,
+		partitionedIndexExpr:  "created_at DESC, id DESC",
+		partitionedIndexWhere: "upstream_model_mismatch IS TRUE",
+	}
+	require.NoError(t, createPartitionedIndexConcurrently(ctx, integrationDB, policy))
+	require.NoError(t, createPartitionedIndexConcurrently(ctx, integrationDB, policy))
+
+	var valid bool
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT i.indisvalid
+		FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+		WHERE c.relname = $1`, parentIndex).Scan(&valid))
+	require.True(t, valid)
+
+	_, err = integrationDB.ExecContext(ctx, "SET LOCAL enable_seqscan = off")
+	require.NoError(t, err)
+	rows, err := integrationDB.QueryContext(ctx, fmt.Sprintf(`
+EXPLAIN (COSTS OFF)
+SELECT id FROM %s
+WHERE upstream_model_mismatch IS TRUE
+ORDER BY created_at DESC, id DESC
+LIMIT 10`, qTable))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, rows.Close()) }()
+	var planLines []string
+	for rows.Next() {
+		var line string
+		require.NoError(t, rows.Scan(&line))
+		planLines = append(planLines, line)
+	}
+	require.NoError(t, rows.Err())
+	require.Contains(t, strings.Join(planLines, "\n"), parentIndex)
 }
 
 // TestPgPartition_EnsureMonthlySkipsLegacyOverlap mirrors the post-conversion state: a
