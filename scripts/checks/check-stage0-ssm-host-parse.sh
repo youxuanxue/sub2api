@@ -98,7 +98,7 @@ check_one "deploy_via_ssm_bluegreen.sh"     bgdeploy  bash "${OPS}/deploy_via_ss
 check_one "warm_pull_via_ssm.sh"            warm      bash "${OPS}/warm_pull_via_ssm.sh" 1.0.0 i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh prod"  sync-prod bash "${OPS}/sync_caddyfile_via_ssm.sh" prod i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh edge"  sync-edge bash "${OPS}/sync_caddyfile_via_ssm.sh" edge i-0stub probe
-check_one "sync_docs_pages.sh"              sync-docs bash "${OPS}/sync_docs_pages.sh" i-0stub
+check_one "sync_docs_pages.sh"              sync-docs bash "${OPS}/sync_docs_pages.sh" i-0stub ops/stage0/fixtures/sync_docs_page_sample.md
 # sync-feishu-config.sh requires the shared webhook/secret in env; pass dummies so
 # it reaches params emission (the stubbed aws makes the later verify exit nonzero,
 # which check_one swallows — we only assert the joined host script parses).

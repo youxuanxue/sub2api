@@ -1,32 +1,17 @@
 name: sync-docs-to-pages
 
-# Sync docs/public/*.md files to the prod server's pages directory whenever they
-# change on main. Pages are served by GET /api/v1/pages/:slug and rendered
-# by the CustomPageView component. After first-time setup (registering the
-# slug in custom_menu_items via Admin → Settings), subsequent content updates
-# happen automatically through this workflow.
+# Manual sync of docs/public/*.md files to prod pages storage.
+# Pages are served by GET /api/v1/pages/:slug and rendered by CustomPageView
+# after the slug is registered in Admin → Settings → custom menu items.
 #
-# IMPORTANT: only docs/public/* files are synced. Internal docs (docs/approved/,
-# docs/ops/, docs/spec-delta-*, docs/accounts/, etc.) must never appear here.
-#
-# Slug derivation: docs/public/USER_GUIDE_CLAUDE_CODE.md → user-guide-claude-code
-# Page URL in TokenKey UI: /pages/user-guide-claude-code
-# Admin menu entry: { "url": "md:user-guide-claude-code", ... }
+# CC/tool onboarding uses /quickstart; no public pages auto-sync on push.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'docs/public/**'    # only user-facing public docs; docs/ root and
-                            # subdirectories (approved/, ops/, spec-delta-*,
-                            # accounts/, etc.) contain internal content and
-                            # must never be auto-synced to prod pages.
   workflow_dispatch:
     inputs:
       files:
-        description: 'Space-separated list of docs/public/*.md files to sync (leave empty for defaults)'
-        required: false
-        default: ''
+        description: 'Space-separated docs/public/*.md files to sync (required)'
+        required: true
 
 permissions:
   contents: read
@@ -41,10 +26,6 @@ jobs:
     name: sync docs → prod pages
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # No `environment: prod` here intentionally: this workflow runs on push to
-    # main (OIDC sub = ref:refs/heads/main, which cicd-oidc.yaml trusts) and
-    # must not block on the prod Environment approval gate — that gate is only
-    # appropriate for irreversible production deploys, not idempotent doc syncs.
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
@@ -82,12 +63,12 @@ jobs:
         run: |
           set -euo pipefail
           INPUT_FILES="${{ inputs.files }}"
-          if [ -n "$INPUT_FILES" ]; then
-            # shellcheck disable=SC2086
-            bash ops/stage0/sync_docs_pages.sh "$INSTANCE_ID" $INPUT_FILES
-          else
-            bash ops/stage0/sync_docs_pages.sh "$INSTANCE_ID"
+          if [ -z "${INPUT_FILES// /}" ]; then
+            echo "::error::files input is required (space-separated docs/public/*.md paths)" >&2
+            exit 1
           fi
+          # shellcheck disable=SC2086
+          bash ops/stage0/sync_docs_pages.sh "$INSTANCE_ID" $INPUT_FILES
 
       - name: Summary
         if: always()
@@ -100,9 +81,5 @@ jobs:
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Note:** If this is the first time syncing a slug, register it in Admin → Settings → 自定义菜单 as:" >> "$GITHUB_STEP_SUMMARY"
-          echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          echo '{ "label": "Claude Code 接入指南", "url": "md:user-guide-claude-code", "icon": "book" }' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Only \`docs/public/**\` files are eligible for sync. docs/ root and internal subdirectories are never synced." >> "$GITHUB_STEP_SUMMARY"
+          echo "Register new slugs in Admin → Settings → custom menu (url: \`md:<slug>\`)." >> "$GITHUB_STEP_SUMMARY"
+          echo "Only \`docs/public/*.md\` files are eligible for sync." >> "$GITHUB_STEP_SUMMARY"
