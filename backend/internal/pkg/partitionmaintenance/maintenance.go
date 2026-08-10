@@ -31,9 +31,9 @@ const (
 )
 
 type TableResult struct {
-	Table           string                      `json:"table"`
-	RangeCount      int                         `json:"range_count"`
-	DefaultRehome   *pgpartition.RehomeDefaultResult `json:"default_rehome,omitempty"`
+	Table         string                           `json:"table"`
+	RangeCount    int                              `json:"range_count"`
+	DefaultRehome *pgpartition.RehomeDefaultResult `json:"default_rehome,omitempty"`
 }
 
 type Result struct {
