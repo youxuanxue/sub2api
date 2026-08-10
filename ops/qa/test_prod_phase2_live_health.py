@@ -8,11 +8,13 @@ import sys
 import unittest
 import datetime as dt
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ops" / "qa"))
 
 import prod_phase2_live_health as live_health  # noqa: E402
+import qa_phase2_health as health  # noqa: E402
 import verify_raw_archive_iam_contract as iam_contract  # noqa: E402
 
 
@@ -84,8 +86,98 @@ class ProdPhase2LiveHealthTest(unittest.TestCase):
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["health"]["status"], "healthy")
 
+    def test_cli_degraded_exit_zero(self) -> None:
+        snapshot, now = _fresh_snapshot()
+        snapshot["archive_control"]["terminal_failures_after_cutover"] = [
+            {
+                "window_start": "2026-08-07T22:00:00Z",
+                "verification_error_code": "source_unavailable_after_retention",
+            }
+        ]
+        probe_text = "\n".join(
+            [
+                "PHASE2SYSTEMD " + json.dumps(snapshot["systemd"], sort_keys=True),
+                "PHASE2RECEIPT " + json.dumps(snapshot["host_receipt"], sort_keys=True),
+                "PHASE2HEARTBEAT " + json.dumps(snapshot["database_heartbeat"], sort_keys=True),
+                "PHASE2ARCHIVE " + json.dumps(snapshot["archive_control"], sort_keys=True),
+            ]
+        )
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "ops/qa/prod_phase2_live_health.py"),
+                "--from-probe-stdin",
+                "--skip-iam",
+            ],
+            input=probe_text,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["health"]["status"], "degraded")
+
+    def test_timestamp_parses_systemd_finished_at(self) -> None:
+        parsed = health._timestamp("Mon 2026-08-10 13:15:01 UTC")
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(
+            parsed,
+            dt.datetime(2026, 8, 10, 13, 15, 1, tzinfo=dt.timezone.utc),
+        )
+
+    def test_terminal_compensation_receipt_stays_degraded(self) -> None:
+        snapshot, now = _fresh_snapshot()
+        terminal_window = "2026-08-07T22:00:00Z"
+        snapshot["host_receipt"]["compensation"] = {
+            "window_start": terminal_window,
+            "state": "failed",
+            "verification_error_code": "source_unavailable_after_retention",
+            "restore_verified": False,
+            "cleanup_eligible": False,
+        }
+        snapshot["database_heartbeat"]["last_result"] += (
+            f" compensation_window={terminal_window}"
+            " compensation_state=failed"
+            " compensation_error_code=source_unavailable_after_retention"
+        )
+        snapshot["archive_control"]["compensation"] = {
+            "window_start": terminal_window,
+            "state": "failed",
+            "verification_error_code": "source_unavailable_after_retention",
+            "restore_verified": False,
+            "cleanup_eligible": False,
+        }
+        snapshot["archive_control"]["terminal_failures_after_cutover"] = [
+            {
+                "window_start": terminal_window,
+                "verification_error_code": "source_unavailable_after_retention",
+            },
+            {
+                "window_start": "2026-08-07T23:00:00Z",
+                "verification_error_code": "source_unavailable_after_retention",
+            },
+        ]
+        verdict = health.evaluate(snapshot, now=now, catchup_gap_policy="accepted_terminal")
+        self.assertEqual(verdict["status"], "degraded", verdict)
+        self.assertNotIn("compensation_not_committed_restore_verified", verdict["reasons"], verdict)
+        self.assertIn("catchup_terminal_gaps_present", verdict["catchup_reasons"], verdict)
+
 
 class VerifyRawArchiveIAMContractTest(unittest.TestCase):
+    def test_resolve_app_role_arn_reads_stack_parameter(self) -> None:
+        with mock.patch.object(
+            iam_contract,
+            "_stack_parameter",
+            return_value="arn:aws:iam::123456789012:role/tokenkey-prod-app",
+        ) as mocked:
+            self.assertEqual(
+                iam_contract.resolve_app_role_arn(),
+                "arn:aws:iam::123456789012:role/tokenkey-prod-app",
+            )
+            mocked.assert_called_once_with("tokenkey-prod-qa-raw-archive", "AppInstanceRoleArn")
+
     def test_rejects_list_bucket_on_app_role(self) -> None:
         role = "arn:aws:iam::123456789012:role/app"
         statements = [

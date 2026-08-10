@@ -48,6 +48,35 @@ def _account_id() -> str:
     return out
 
 
+def _stack_parameter(stack_name: str, key: str) -> str:
+    payload = _aws_json(
+        [
+            "aws",
+            "cloudformation",
+            "describe-stacks",
+            "--region",
+            PROD_REGION,
+            "--stack-name",
+            stack_name,
+            "--output",
+            "json",
+        ]
+    )
+    stacks = payload.get("Stacks")
+    if not isinstance(stacks, list) or not stacks:
+        raise RuntimeError(f"stack missing: {stack_name}")
+    for item in stacks[0].get("Parameters", []):
+        if isinstance(item, dict) and item.get("ParameterKey") == key:
+            value = item.get("ParameterValue")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    raise RuntimeError(f"{stack_name} parameter missing: {key}")
+
+
+def resolve_app_role_arn() -> str:
+    return _stack_parameter(RAW_ARCHIVE_STACK, "AppInstanceRoleArn")
+
+
 def _stack_output(stack_name: str, key: str) -> str:
     payload = _aws_json(
         [
@@ -174,7 +203,7 @@ def main() -> int:
 
     account_id = _account_id()
     bucket = f"tokenkey-prod-qa-raw-archive-{account_id}"
-    app_role_arn = _stack_output(STACK, "InstanceRoleArn")
+    app_role_arn = resolve_app_role_arn()
     verdict = evaluate(bucket=bucket, app_role_arn=app_role_arn)
     print(json.dumps(verdict, ensure_ascii=True, sort_keys=True))
     return 0 if verdict["ok"] else 2

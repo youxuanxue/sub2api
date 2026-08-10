@@ -77,7 +77,7 @@ def evaluate_snapshot(
         try:
             account_id = iam_contract._account_id()
             bucket = f"tokenkey-prod-qa-raw-archive-{account_id}"
-            app_role_arn = iam_contract._stack_output(iam_contract.STACK, "InstanceRoleArn")
+            app_role_arn = iam_contract.resolve_app_role_arn()
             iam = iam_contract.evaluate(bucket=bucket, app_role_arn=app_role_arn)
         except RuntimeError as exc:
             iam = {"ok": False, "status": "unknown", "failures": [str(exc)]}
@@ -132,7 +132,9 @@ def main() -> int:
     health_status = payload["health"].get("status", "failed")
     if not args.skip_iam and not payload.get("iam_contract", {}).get("ok", False):
         return 2
-    return 0 if health_status == "healthy" else 2
+    if health_status in {"healthy", "degraded"}:
+        return 0
+    return 2
 
 
 if __name__ == "__main__":
