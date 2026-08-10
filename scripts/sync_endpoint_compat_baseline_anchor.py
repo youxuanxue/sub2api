@@ -15,7 +15,23 @@ VERSION_FILE = REPO_ROOT / "backend/cmd/server/VERSION"
 RUNTIME_ANCHOR_RE = re.compile(
     r"(\| Runtime code anchor \| `)v[\d.]+(` release \(`backend/cmd/server/VERSION`\); last live deploy `)v[\d.]+(`\.)"
 )
+RUNTIME_ANCHOR_ROW_RE = re.compile(
+    r"\| Runtime code anchor \| `(?P<release>v[\d.]+)` release \(`backend/cmd/server/VERSION`\); "
+    r"last live deploy `(?P<last_deploy>v[\d.]+)`\."
+)
 BASELINE_DATE_RE = re.compile(r"(\| Baseline date \| )[\d-]+( \|)")
+
+
+def parse_runtime_anchor(text: str) -> tuple[str, str]:
+    """Return (release_tag, last_deploy_tag) from the baseline runtime anchor row."""
+    if not RUNTIME_ANCHOR_RE.search(text):
+        raise ValueError(
+            "Runtime code anchor row not found or not syncable by release-bump-and-tag"
+        )
+    match = RUNTIME_ANCHOR_ROW_RE.search(text)
+    if match is None:
+        raise ValueError("Runtime code anchor row shape drifted from sync parser")
+    return match.group("release"), match.group("last_deploy")
 
 
 def normalize_tag(tag: str) -> str:
@@ -70,6 +86,7 @@ def main() -> int:
         out = sync_baseline_text(sample, "1.1.0", "v1.0.0")
         assert "`v1.1.0` release" in out and "last live deploy `v1.0.0`" in out
         assert "| Baseline date | " in out
+        assert parse_runtime_anchor(sample) == ("v1.0.0", "v0.9.9")
         print("sync_endpoint_compat_baseline_anchor selftest: ok")
         return 0
 
