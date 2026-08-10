@@ -61,11 +61,12 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	// 3. Upstream streaming shape. Native Anthropic upstreams are forced to SSE
 	// even for non-streaming CC clients so handleCCBufferedFromAnthropic can
 	// assemble the response. Kiro (native + prod mirror stubs relaying to edge)
-	// must preserve stream=false — forced SSE on multi-turn agent payloads was
-	// timing out (~32s) with upstream 502 before any content arrived.
+	// and Bedrock must preserve stream=false — forced SSE on multi-turn agent
+	// payloads was timing out (~32s) with upstream 502 before any content arrived;
+	// Bedrock non-stream invoke returns JSON directly.
 	reqStream := clientStream
 	anthropicReq.Stream = clientStream
-	if !tkCCPreservesKiroUpstreamStream(account, clientStream) {
+	if !tkCCPreservesKiroUpstreamStream(account, clientStream) && !account.IsBedrock() {
 		anthropicReq.Stream = true
 		reqStream = true
 	}
@@ -140,6 +141,13 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	if account.IsKiro() {
 		return s.forwardAsChatCompletionsViaKiro(
+			ctx, c, account, body, originalModel, mappedModel, anthropicBody,
+			clientStream, includeUsage, startTime,
+		)
+	}
+
+	if account.IsBedrock() {
+		return s.forwardAsChatCompletionsViaBedrock(
 			ctx, c, account, body, originalModel, mappedModel, anthropicBody,
 			clientStream, includeUsage, startTime,
 		)
