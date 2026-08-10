@@ -110,7 +110,7 @@ python3 .testing/user-stories/verify_quality.py
 - Task 4 已实跑唯一 host runner、真实 mount selftest、原子 receipt、全部 pre-app/child failure、timer/operator 收敛、Go run correlation、同步脚本与四源 health contradiction 测试；所有 Docker/AWS/systemd 边界均为本地 fake 或临时目录。
 - Task 5 已实跑 effective export mount 解析、24 小时边界、regular-file/symlink/open-handle 选择、canonical plan hash、drift revalidation、首次 activation 与后续 scheduled cleanup 测试；helper 经实际 runner、CFN/SSM payload 与 timer-sync payload 分发验证。全部文件删除只发生在本地临时目录，`qa_export_jobs` 仅输出诊断。
 - Task 6 已实跑结构化 IAM、部署渲染、workstation direct-S3 CLI 边界与 recovery retirement gate 测试；全部 AWS/DB/S3 边界使用本地 fake、memory store 或临时目录。
-- 2026-08-10 production workstation recovery：`2026-08-07T21:00:00Z` cutover window 经 recovery role 完成 inspect/verify/restore；gate `plan-retirement` 在 `approved_by=feng` approval 下通过；证据见 `.testing/user-stories/attachments/us045-workstation-recovery-20260810/`。
+- 2026-08-10 production workstation recovery：`2026-08-07T21:00:00Z` cutover window 经 recovery role 完成 inspect/verify/restore；gate `plan-retirement` 在 `approved_by=feng` approval 下通过。生产 receipt/approval _bundle 由 operator 本地保管（不入库）；执行时证据目录示例 `/tmp/tk-qa-workstation-recovery-20260810T071805Z/`（含 `recovery-evidence.json`、`production-approval.json`）。
 - break-glass prod QA dump 工具已退役；prod deploy 默认注入 `QA_ARCHIVE_ENABLED=true`。
 
 ## Status
