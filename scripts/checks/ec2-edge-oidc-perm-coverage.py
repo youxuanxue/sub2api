@@ -18,6 +18,8 @@ ALLOWED_REGIONS = ("us-east-2", "us-west-2")
 EDGE_STACK_PATTERN = "tokenkey-edge-*-stage0"
 
 CALLER_ACTIONS = {
+    "cloudwatch:DescribeAlarmHistory",
+    "cloudwatch:DescribeAlarms",
     "cloudformation:CreateChangeSet",
     "cloudformation:DeleteChangeSet",
     "cloudformation:DeleteStack",

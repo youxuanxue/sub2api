@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
+import importlib.util
 import json
 import os
 import pathlib
@@ -44,15 +46,362 @@ AWS_CALLS = {
         "iam_action": "ssm:DeregisterManagedInstance",
     },
 }
+AWS_READ_CALLS = {
+    "caller_identity": ("sts", "get-caller-identity", "sts:GetCallerIdentity"),
+    "lightsail_instance": ("lightsail", "get-instance", "lightsail:GetInstance"),
+    "lightsail_static_ip": ("lightsail", "get-static-ip", "lightsail:GetStaticIp"),
+    "ssm_parameter": ("ssm", "get-parameter", "ssm:GetParameter"),
+    "ssm_inventory": (
+        "ssm",
+        "describe-instance-information",
+        "ssm:DescribeInstanceInformation",
+    ),
+    "ssm_probe": ("ssm", "send-command", "ssm:SendCommand"),
+    "ssm_probe_result": (
+        "ssm",
+        "get-command-invocation",
+        "ssm:GetCommandInvocation",
+    ),
+    "stack": (
+        "cloudformation",
+        "describe-stacks",
+        "cloudformation:DescribeStacks",
+    ),
+    "data_snapshot": ("ec2", "describe-snapshots", "ec2:DescribeSnapshots"),
+    "alarms": ("cloudwatch", "describe-alarms", "cloudwatch:DescribeAlarms"),
+    "alarm_history": (
+        "cloudwatch",
+        "describe-alarm-history",
+        "cloudwatch:DescribeAlarmHistory",
+    ),
+}
 
 
 class Runner(Protocol):
     def run(self, argv: list[str]) -> None: ...
 
 
+class LiveCollector(Protocol):
+    def collect(
+        self,
+        snapshot: dict[str, Any],
+        now: dt.datetime,
+    ) -> dict[str, Any]: ...
+
+
 class AwsRunner:
     def run(self, argv: list[str]) -> None:
-        subprocess.run(argv, check=True)
+        subprocess.run(
+            argv,
+            check=True,
+            env={**os.environ, "AWS_PAGER": ""},
+        )
+
+
+def _load_cutover_module():
+    path = REPO_ROOT / "ops/migration/edge_platform_cutover_check.py"
+    spec = importlib.util.spec_from_file_location("retirement_cutover_reads", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load live read owner: {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _read_argv(name: str, *args: str) -> list[str]:
+    service, command, _ = AWS_READ_CALLS[name]
+    return [service, command, *args]
+
+
+class DefaultLiveAdapter:
+    def __init__(self) -> None:
+        self.cutover = _load_cutover_module()
+
+    def current_commit(self) -> str:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            text=True,
+        ).strip()
+
+    def aws_json(self, args: list[str]) -> dict[str, Any]:
+        return self.cutover._aws_json(args)
+
+    def aws_optional_json(self, args: list[str]) -> dict[str, Any] | None:
+        completed = subprocess.run(
+            ["aws", *args, "--output", "json"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            error = completed.stderr.strip()
+            if any(
+                code in error
+                for code in ("NotFoundException", "ParameterNotFound", "InvalidInstanceId")
+            ):
+                return None
+            raise RuntimeError(f"aws {' '.join(args)} failed: {error}")
+        value = json.loads(completed.stdout)
+        if not isinstance(value, dict):
+            raise RuntimeError(f"aws {' '.join(args)} returned non-object JSON")
+        return value
+
+    def ssm_status(self, region: str, instance_id: str) -> str:
+        payload = self.aws_json(_read_argv(
+            "ssm_inventory",
+            "--region", region,
+            "--filters", f"Key=InstanceIds,Values={instance_id}",
+        ))
+        rows = payload.get("InstanceInformationList")
+        if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+            return ""
+        return str(rows[0].get("PingStatus") or "")
+
+    def remote_probe(self, region: str, instance_id: str, since: str) -> dict[str, Any]:
+        return self.cutover._run_remote_probe(region, instance_id, since)
+
+    def stack_output(self, region: str, stack: str, key: str) -> str:
+        return self.cutover._stack_output(region, stack, key)
+
+    def authoritative_ipv4(self, domain: str) -> list[str]:
+        return self.cutover._authoritative_ipv4(domain)
+
+    def public_ipv4(self, domain: str) -> list[str]:
+        return self.cutover._dig_ipv4(domain, "1.1.1.1")
+
+    def public_health(self, domain: str, ipv4: str) -> bool:
+        return self.cutover._public_health(domain, ipv4)
+
+
+def _iso_utc(value: dt.datetime) -> str:
+    return value.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _history_entered_alarm(item: object) -> bool:
+    if not isinstance(item, dict):
+        return True
+    data = item.get("HistoryData")
+    if isinstance(data, str) and data:
+        try:
+            parsed = json.loads(data)
+        except json.JSONDecodeError:
+            return True
+        new_state = parsed.get("newState") if isinstance(parsed, dict) else None
+        if isinstance(new_state, dict):
+            return new_state.get("stateValue") == "ALARM"
+    summary = str(item.get("HistorySummary") or "").lower()
+    if not summary:
+        return True
+    return "to alarm" in summary or "进入 alarm" in summary
+
+
+class AwsLiveCollector:
+    def __init__(self, adapter: object | None = None):
+        self.adapter = adapter or DefaultLiveAdapter()
+
+    def collect(
+        self,
+        snapshot: dict[str, Any],
+        now: dt.datetime,
+    ) -> dict[str, Any]:
+        if now.tzinfo is None:
+            raise ValueError("now must be timezone-aware")
+        now = now.astimezone(dt.timezone.utc)
+        anchor_fields = (
+            "schema_version",
+            "execution_commit",
+            "expected_aws_account_id",
+            "final_cutover_receipt",
+            "fleet_observation_started_at",
+        )
+        live = {
+            field: copy.deepcopy(snapshot[field])
+            for field in anchor_fields
+            if field in snapshot
+        }
+        adapter = self.adapter
+
+        identity = adapter.aws_json(_read_argv("caller_identity"))
+        live["aws_account_id"] = str(identity.get("Account") or "")
+        live["runtime_commit"] = adapter.current_commit()
+
+        lightsail_targets = _load_targets(LIGHTSAIL_MATRIX)
+        ec2_targets = _load_targets(EC2_MATRIX)
+        observation_started = _parse_time(live.get("fleet_observation_started_at"))
+        edges: dict[str, Any] = {}
+        for edge_id in EDGE_ORDER:
+            source = lightsail_targets[edge_id]
+            target = ec2_targets[edge_id]
+            source_region = str(source["lightsail_region"])
+            target_region = str(target["region"])
+            stack = str(target["stack"])
+            instance_name = str(source["instance_name"])
+            static_ip_name = str(source["static_ip_name"])
+
+            instance_payload = adapter.aws_optional_json(_read_argv(
+                "lightsail_instance",
+                "--region", source_region,
+                "--instance-name", instance_name,
+            ))
+            static_payload = adapter.aws_optional_json(_read_argv(
+                "lightsail_static_ip",
+                "--region", source_region,
+                "--static-ip-name", static_ip_name,
+            ))
+            parameter = adapter.aws_optional_json(_read_argv(
+                "ssm_parameter",
+                "--region", str(source["ec2_equivalent_region"]),
+                "--name", f"{source['ssm_prefix']}/ssm_managed_instance_id",
+            ))
+            managed_id = str(((parameter or {}).get("Parameter") or {}).get("Value") or "")
+            managed_status = (
+                adapter.ssm_status(str(source["ec2_equivalent_region"]), managed_id)
+                if managed_id
+                else ""
+            )
+            managed_exists = bool(managed_status)
+            managed_online = managed_status == "Online"
+            source_probe: dict[str, Any] = {}
+            if managed_online:
+                source_probe = adapter.remote_probe(
+                    str(source["ec2_equivalent_region"]),
+                    managed_id,
+                    "15m",
+                )
+
+            target_instance = adapter.stack_output(target_region, stack, "InstanceId")
+            target_ip = adapter.stack_output(target_region, stack, "PublicIP")
+            data_volume = adapter.stack_output(target_region, stack, "DataVolumeId")
+            target_online = adapter.ssm_status(target_region, target_instance) == "Online"
+            target_probe = (
+                adapter.remote_probe(target_region, target_instance, "15m")
+                if target_online
+                else {}
+            )
+
+            alarm_names = [
+                adapter.stack_output(target_region, stack, key)
+                for key in (
+                    "InstanceCpuAlarmName",
+                    "RootVolumeDiskAlarmName",
+                    "DataVolumeDiskAlarmName",
+                )
+            ]
+            alarm_payload = adapter.aws_json(_read_argv(
+                "alarms", "--region", target_region, "--alarm-names", *alarm_names,
+            ))
+            alarm_rows = alarm_payload.get("MetricAlarms") or []
+            current_alarm_state = {
+                str(row.get("AlarmName")): str(row.get("StateValue"))
+                for row in alarm_rows
+                if isinstance(row, dict)
+            }
+            alarms_healthy = (
+                set(current_alarm_state) == set(alarm_names)
+                and all(current_alarm_state[name] == "OK" for name in alarm_names)
+            )
+            for alarm_name in alarm_names:
+                history = adapter.aws_json(_read_argv(
+                    "alarm_history",
+                    "--region", target_region,
+                    "--alarm-name", alarm_name,
+                    "--history-item-type", "StateUpdate",
+                    "--start-date", _iso_utc(observation_started),
+                ))
+                if any(
+                    _history_entered_alarm(item)
+                    for item in (history.get("AlarmHistoryItems") or [])
+                ):
+                    alarms_healthy = False
+                if history.get("NextToken"):
+                    alarms_healthy = False
+
+            snapshot_payload = adapter.aws_json(_read_argv(
+                "data_snapshot",
+                "--region", target_region,
+                "--owner-ids", "self",
+                "--filters", f"Name=volume-id,Values={data_volume}",
+                "Name=status,Values=completed",
+            ))
+            completed_snapshots = [
+                row for row in (snapshot_payload.get("Snapshots") or [])
+                if isinstance(row, dict)
+                and row.get("State") == "completed"
+                and row.get("SnapshotId")
+                and row.get("StartTime")
+            ]
+            latest_snapshot = max(
+                completed_snapshots,
+                key=lambda row: str(row["StartTime"]),
+                default={},
+            )
+
+            authoritative = adapter.authoritative_ipv4(str(target["domain"]))
+            public = adapter.public_ipv4(str(target["domain"]))
+            target_public_health = adapter.public_health(str(target["domain"]), target_ip)
+            ec2_healthy = all((
+                target_online,
+                target_probe.get("docker_healthy") is True,
+                target_probe.get("health_ok") is True,
+                target_public_health,
+                alarms_healthy,
+            ))
+            static_row = (static_payload or {}).get("staticIp") or {}
+            reports_attached = bool(static_row.get("isAttached"))
+            attached_to = str(static_row.get("attachedTo") or "")
+            static_attached = reports_attached and attached_to == instance_name
+            static_attachment_safe = (
+                (not reports_attached and not attached_to) or static_attached
+            )
+
+            edges[edge_id] = {
+                "owner": (
+                    "ec2"
+                    if target.get("deployable") is True
+                    and source.get("deployable") is False
+                    else "invalid"
+                ),
+                "lightsail_deployable": source.get("deployable") is True,
+                "ec2_deployable": target.get("deployable") is True,
+                "ec2_healthy": ec2_healthy,
+                "ec2_health_window_ok": alarms_healthy,
+                "ec2_eip": target_ip,
+                "dns_ipv4": public,
+                "dns_authoritative_ipv4": authoritative,
+                "dns_public_ipv4": public,
+                "source_schedulable_accounts": (
+                    source_probe.get("schedulable_accounts")
+                    if managed_exists
+                    else (0 if instance_payload is None else None)
+                ),
+                "logical_backup": target_probe.get("logical_backup") or {
+                    "verified": False,
+                },
+                "data_snapshot": {
+                    "snapshot_id": latest_snapshot.get("SnapshotId"),
+                    "state": latest_snapshot.get("State"),
+                    "start_time": latest_snapshot.get("StartTime"),
+                },
+                "lightsail": {
+                    "region": source_region,
+                    "instance_name": instance_name,
+                    "instance_exists": instance_payload is not None,
+                    "static_ip_name": static_ip_name,
+                    "static_ip_exists": static_payload is not None,
+                    "static_ip_attached": static_attached,
+                    "static_ip_attachment_safe": static_attachment_safe,
+                    "managed_instance_id": managed_id or None,
+                    "managed_instance_exists": managed_exists,
+                    "ssm_prefix": source["ssm_prefix"],
+                    "ec2_region": target_region,
+                    "ec2_stack": stack,
+                },
+            }
+        live["edges"] = edges
+        live["generated_at"] = _iso_utc(now)
+        return live
 
 
 def _parse_time(value: object) -> dt.datetime:
@@ -139,6 +488,7 @@ def build_retirement_plan(
             block("invalid:generated_at")
 
     execution_commit = required("execution_commit")
+    runtime_commit = required("runtime_commit")
     receipt_commit = required("final_cutover_receipt.commit")
     if execution_commit is not _MISSING and receipt_commit is not _MISSING:
         check(
@@ -146,6 +496,28 @@ def build_retirement_plan(
             execution_commit == receipt_commit,
             {"execution": execution_commit, "receipt": receipt_commit},
         )
+    if execution_commit is not _MISSING and runtime_commit is not _MISSING:
+        check(
+            "runtime_commit_mismatch",
+            execution_commit == runtime_commit,
+            {"execution": execution_commit, "runtime": runtime_commit},
+        )
+
+    expected_account = required("expected_aws_account_id")
+    actual_account = required("aws_account_id")
+    if expected_account is not _MISSING and actual_account is not _MISSING:
+        valid_accounts = all(
+            isinstance(value, str) and len(value) == 12 and value.isdigit()
+            for value in (expected_account, actual_account)
+        )
+        if not valid_accounts:
+            block("invalid:aws_account_id")
+        else:
+            check(
+                "aws_account_mismatch",
+                expected_account == actual_account,
+                {"expected": expected_account, "actual": actual_account},
+            )
 
     observation_started = required("fleet_observation_started_at")
     if observation_started is not _MISSING:
@@ -159,10 +531,12 @@ def build_retirement_plan(
         except ValueError:
             block("invalid:fleet_observation_started_at")
 
+    cutover_completed_at: dt.datetime | None = None
     cutover_completed = required("final_cutover_receipt.completed_at")
     if cutover_completed is not _MISSING:
         try:
-            elapsed = now - _parse_time(cutover_completed)
+            cutover_completed_at = _parse_time(cutover_completed)
+            elapsed = now - cutover_completed_at
             check(
                 "final_cutover_under_1d",
                 elapsed >= MIN_FLEET_OBSERVATION,
@@ -170,13 +544,6 @@ def build_retirement_plan(
             )
         except ValueError:
             block("invalid:final_cutover_receipt.completed_at")
-
-    unexpected = required("unexpected_resources")
-    if unexpected is not _MISSING:
-        if not isinstance(unexpected, list):
-            block("invalid:unexpected_resources")
-        else:
-            check("unexpected_lightsail_resources", not unexpected, unexpected)
 
     edges = required("edges")
     if not isinstance(edges, dict):
@@ -212,6 +579,12 @@ def build_retirement_plan(
 
         for path, code, expected in (
             ("ec2_healthy", f"ec2_unhealthy:{edge_id}", True),
+            ("ec2_deployable", f"ec2_not_deployable:{edge_id}", True),
+            (
+                "ec2_health_window_ok",
+                f"ec2_health_window_failed:{edge_id}",
+                True,
+            ),
             (
                 "lightsail_deployable",
                 f"lightsail_still_deployable:{edge_id}",
@@ -226,9 +599,17 @@ def build_retirement_plan(
                 check(code, value is expected, value)
 
         eip = row_value("ec2_eip")
-        dns = row_value("dns_ipv4")
-        if eip is not _MISSING and dns is not _MISSING:
-            check(f"dns_not_ec2:{edge_id}", dns == [eip], dns)
+        dns_values = {
+            "combined": row_value("dns_ipv4"),
+            "authoritative": row_value("dns_authoritative_ipv4"),
+            "public": row_value("dns_public_ipv4"),
+        }
+        if eip is not _MISSING and all(value is not _MISSING for value in dns_values.values()):
+            check(
+                f"dns_not_ec2:{edge_id}",
+                all(value == [eip] for value in dns_values.values()),
+                dns_values,
+            )
 
         schedulable = row_value("source_schedulable_accounts")
         if isinstance(schedulable, int) and not isinstance(schedulable, bool):
@@ -237,25 +618,42 @@ def build_retirement_plan(
             block(f"invalid:edges.{edge_id}.source_schedulable_accounts")
 
         backup_verified = row_value("logical_backup.verified")
-        backup_key = row_value("logical_backup.s3_key")
+        backup_path = row_value("logical_backup.path")
+        backup_size = row_value("logical_backup.size_bytes")
         backup_checksum = row_value("logical_backup.checksum")
         backup_ok = (
             backup_verified is True
-            and isinstance(backup_key, str)
-            and bool(backup_key)
+            and isinstance(backup_path, str)
+            and backup_path.startswith("/var/lib/tokenkey/pgdump/tokenkey")
+            and isinstance(backup_size, int)
+            and not isinstance(backup_size, bool)
+            and backup_size >= 2048
             and isinstance(backup_checksum, str)
-            and bool(backup_checksum)
+            and backup_checksum.startswith("sha256:")
+            and len(backup_checksum) == len("sha256:") + 64
+            and all(char in "0123456789abcdef" for char in backup_checksum[7:])
         )
         check(f"logical_backup_unverified:{edge_id}", backup_ok)
 
         snapshot_id = row_value("data_snapshot.snapshot_id")
         snapshot_state = row_value("data_snapshot.state")
+        snapshot_started = row_value("data_snapshot.start_time")
         data_snapshot_ok = (
             isinstance(snapshot_id, str)
             and snapshot_id.startswith("snap-")
             and snapshot_state == "completed"
         )
         check(f"data_snapshot_incomplete:{edge_id}", data_snapshot_ok, snapshot_state)
+        if snapshot_started is not _MISSING:
+            try:
+                started_at = _parse_time(snapshot_started)
+                check(
+                    f"data_snapshot_before_cutover:{edge_id}",
+                    cutover_completed_at is not None and started_at >= cutover_completed_at,
+                    snapshot_started,
+                )
+            except ValueError:
+                block(f"invalid:edges.{edge_id}.data_snapshot.start_time")
 
         source = row.get("lightsail")
         if not isinstance(source, dict):
@@ -284,13 +682,7 @@ def build_retirement_plan(
                     actual,
                 )
 
-        managed_id = row_value("lightsail.managed_instance_id")
-        if managed_id is not _MISSING:
-            check(
-                f"invalid_managed_instance_id:{edge_id}",
-                isinstance(managed_id, str) and managed_id.startswith("mi-"),
-                managed_id,
-            )
+        managed_id = _path_get(row, "lightsail.managed_instance_id")
 
         existence: dict[str, bool] = {}
         for field in (
@@ -304,6 +696,26 @@ def build_retirement_plan(
                 existence[field] = value
             elif value is not _MISSING:
                 block(f"invalid:edges.{edge_id}.lightsail.{field}")
+
+        managed_id_missing = managed_id is _MISSING or managed_id is None or managed_id == ""
+        if existence.get("managed_instance_exists") and managed_id_missing:
+            block(f"missing:edges.{edge_id}.lightsail.managed_instance_id")
+        elif not managed_id_missing:
+            check(
+                f"invalid_managed_instance_id:{edge_id}",
+                isinstance(managed_id, str) and managed_id.startswith("mi-"),
+                managed_id,
+            )
+
+        attachment_safe = row_value("lightsail.static_ip_attachment_safe")
+        if isinstance(attachment_safe, bool):
+            check(
+                f"static_ip_attached_elsewhere:{edge_id}",
+                attachment_safe,
+                attachment_safe,
+            )
+        elif attachment_safe is not _MISSING:
+            block(f"invalid:edges.{edge_id}.lightsail.static_ip_attachment_safe")
 
         if existence.get("static_ip_attached") and not existence.get("static_ip_exists"):
             block(f"invalid_resource_state:{edge_id}:static_ip_attached_without_ip")
@@ -341,6 +753,13 @@ def build_retirement_plan(
         "blockers": blockers,
         "actions": actions,
         "mode": "plan",
+        "observed_at": _iso_utc(now),
+        "execution_commit": execution_commit if execution_commit is not _MISSING else None,
+        "runtime_commit": runtime_commit if runtime_commit is not _MISSING else None,
+        "aws_account_id": actual_account if actual_account is not _MISSING else None,
+        "fleet_observation_started_at": (
+            observation_started if observation_started is not _MISSING else None
+        ),
     }
 
 
@@ -350,11 +769,18 @@ def run_retirement(
     apply: bool,
     confirm: str,
     runner: Runner,
+    collector: LiveCollector | None = None,
     now: dt.datetime | None = None,
 ) -> dict[str, Any]:
     """Build the plan and optionally execute it in fail-fast order."""
     if apply and confirm != CONFIRMATION:
         raise ValueError(f"--apply requires exact confirmation: {CONFIRMATION}")
+    input_snapshot = snapshot
+    collection_started_at = now or dt.datetime.now(dt.timezone.utc)
+    if collector is not None:
+        snapshot = collector.collect(input_snapshot, collection_started_at)
+    elif apply:
+        raise ValueError("--apply requires live revalidation")
     observed_at = now or dt.datetime.now(dt.timezone.utc)
     result = build_retirement_plan(snapshot, observed_at)
     result["mode"] = "apply" if apply else "plan"
@@ -372,6 +798,26 @@ def run_retirement(
             )
             break
         action["status"] = "applied"
+
+    verification_started_at = now or dt.datetime.now(dt.timezone.utc)
+    verified_snapshot = collector.collect(input_snapshot, verification_started_at)
+    verification = build_retirement_plan(
+        verified_snapshot,
+        now or dt.datetime.now(dt.timezone.utc),
+    )
+    remaining_actions = [
+        {"edge_id": action["edge_id"], "name": action["name"]}
+        for action in verification["actions"]
+    ]
+    result["post_apply"] = {
+        "observed_at": verification["observed_at"],
+        "blockers": verification["blockers"],
+        "remaining_actions": remaining_actions,
+    }
+    if verification["blockers"]:
+        result["blockers"].append("post_apply_revalidation_failed")
+    if remaining_actions:
+        result["blockers"].append("retirement_incomplete")
     return result
 
 
@@ -407,8 +853,15 @@ def main(argv: list[str] | None = None) -> int:
             apply=args.apply,
             confirm=args.confirm,
             runner=AwsRunner(),
+            collector=AwsLiveCollector(),
         )
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
+    except (
+        OSError,
+        RuntimeError,
+        subprocess.SubprocessError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 2
 

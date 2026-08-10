@@ -69,7 +69,7 @@ PostgreSQL 的 groups、accounts、account-group bindings 和 credential blobs �
 | 实时基础设施预检 | `ops/migration/edge-platform-migration-preflight.sh` |
 | 账号迁移 | `ops/migration/migrate-edge-accounts.py` |
 | 单 Edge 切换验收 | `ops/migration/edge-platform-cutover-check.sh` |
-| Fleet 退役 | `ops/migration/retire-lightsail-fleet.sh` <!-- script-ref: planned --> |
+| Fleet 退役 | `ops/migration/retire-lightsail-fleet.sh` |
 
 迁移工具可以接受显式 `@lightsail` 或 `@ec2` 目标；普通 deploy、diagnostics、health watch 和 rollout 只能跟随唯一 `deployable=true` 的 owner。两套 matrix 同时把同一 Edge 标为 deployable 时，preflight 必须失败。
 
@@ -80,8 +80,6 @@ PostgreSQL 的 groups、accounts、account-group bindings 和 credential blobs �
 仓库不保存运行时快照。每次危险动作前重新查询 AWS、SSM、CloudWatch、DNS、账号和 matrix 现状，并要求所有 blocker 为空。
 
 执行工具可以输出脱敏 JSON receipt，默认写入 runner 临时目录或 GitHub Actions artifact。receipt 必须包含执行 commit、资源 ID、观察起止时间、输入摘要和检查结果，不得包含 secret。artifact 只用于审计和定位，不能替代下一步的实时检查。
-
-旧的 `docs/evidence/all-edge-ec2-migration-preflight.json` 必须删除；测试使用 fixture，不依赖仓库中的在线快照。
 
 ## 迁移状态机
 
@@ -105,7 +103,7 @@ lightsail_active
 
 ## 顺序执行
 
-Fleet 固定按 `us5 -> us4 -> us6 -> us3` 推进。开始前重新扫描账号；如果 `us5` 已承载账号且 `us6` 仍为空，可以交换两个无账号基础设施 canary 的位置，`us4` 仍是首个真实流量 canary，`us3` 仍最后迁移。
+Fleet 固定按 `us5 -> us4 -> us6 -> us3` 推进，开始前重新扫描账号。顺序不因账号分布变化而调整；账号现状只决定该 Edge 是否需要执行账号逻辑迁移。
 
 ### 1. 实时预检
 
@@ -159,7 +157,6 @@ Fleet 固定按 `us5 -> us4 -> us6 -> us3` 推进。开始前重新扫描账号�
 - prod 与 EC2 Edge CloudFormation 由同一生成 owner 重建并通过 drift check。
 - 迁移、路由、workflow、OIDC、告警和退役的正向/负向测试通过。
 - 活跃仓库 surface 不存在成本/预算运行时契约。
-- 历史 remediation 计划和在线 evidence 已删除。
 - `scripts/preflight.sh` 与代码审查均通过。
 
 合并平台 PR 不授权线上写操作。IAM、candidate provision、账号、DNS、Lightsail 删除分别在实际执行点取得明确授权。

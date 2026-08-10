@@ -212,6 +212,17 @@ Resources:
                 aws:RequestedRegion:
                   - us-east-2
                   - us-west-2
+          - Sid: ReadEdgeAlarmHealthWindow
+            Effect: Allow
+            Action:
+              - cloudwatch:DescribeAlarms
+              - cloudwatch:DescribeAlarmHistory
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  - us-east-2
+                  - us-west-2
           - Sid: AllocateAndSnapshotEdgeResources
             Effect: Allow
             Action:

@@ -7,6 +7,7 @@ import copy
 import datetime as dt
 import importlib.util
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -17,6 +18,7 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 MODULE_PATH = REPO_ROOT / "ops/migration/edge_platform_cutover_check.py"
 WRAPPER = REPO_ROOT / "ops/migration/edge-platform-cutover-check.sh"
+REMOTE_PROBE = REPO_ROOT / "ops/migration/probe-edge-platform-cutover.sh"
 SPEC = importlib.util.spec_from_file_location("edge_platform_cutover_check", MODULE_PATH)
 assert SPEC and SPEC.loader
 CUTOVER = importlib.util.module_from_spec(SPEC)
@@ -264,6 +266,63 @@ class EdgePlatformCutoverCheckTests(unittest.TestCase):
             )
         self.assertEqual(1, completed.returncode, completed.stderr)
         self.assertIn("missing:target.docker_healthy", completed.stdout)
+
+    def test_remote_probe_verifies_the_latest_logical_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            bin_dir = root / "bin"
+            lib_dir = root / "lib"
+            bin_dir.mkdir()
+            lib_dir.mkdir()
+            (lib_dir / "resolve-app-container.sh").write_text(
+                "tk_resolve_app_container() { echo tokenkey-app; }\n",
+                encoding="utf-8",
+            )
+            tools = {
+                "docker": r'''#!/usr/bin/env bash
+case "$*" in
+  *".State.Running"*) echo true ;;
+  *".State.Health"*) echo healthy ;;
+  *".Config.Image"*) echo ghcr.io/tokenkey/sub2api:1.8.141 ;;
+  "exec tokenkey-postgres"*) echo '0|0' ;;
+  "logs tokenkey-app"*) echo '{"msg":"http request completed","status_code":200,"latency_ms":10}' ;;
+  "exec tokenkey-app wget"*) exit 0 ;;
+  *) echo "unexpected docker call: $*" >&2; exit 90 ;;
+esac
+''',
+                "find": "#!/usr/bin/env bash\necho /var/lib/tokenkey/pgdump/tokenkey.sql.gz\n",
+                "stat": "#!/usr/bin/env bash\necho 4096\n",
+                "gzip": "#!/usr/bin/env bash\nexit 0\n",
+                "sha256sum": "#!/usr/bin/env bash\necho 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  '$2\n",
+            }
+            for name, body in tools.items():
+                path = bin_dir / name
+                path.write_text(body, encoding="utf-8")
+                path.chmod(0o755)
+            env = os.environ.copy()
+            env.update({
+                "PATH": f"{bin_dir}:{env['PATH']}",
+                "TK_LIB_DIR": str(lib_dir),
+            })
+            completed = subprocess.run(
+                ["bash", str(REMOTE_PROBE)],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(
+            {
+                "verified": True,
+                "path": "/var/lib/tokenkey/pgdump/tokenkey.sql.gz",
+                "size_bytes": 4096,
+                "checksum": "sha256:" + "a" * 64,
+            },
+            payload.get("logical_backup"),
+        )
 
 
 if __name__ == "__main__":

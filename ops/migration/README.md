@@ -37,10 +37,23 @@ bash ops/migration/edge-platform-cutover-check.sh \
 `target.oauth_model_smoke_ok`。每个阶段都重新采集，不使用仓库快照；任一缺失信号
 或 blocker 使命令非零退出。
 
-最后一个 Edge 切换成功并继续观察完整 1 天后，先对 15 分钟内生成的实时 Fleet
-snapshot 运行退役计划。snapshot 必须绑定最后切换 receipt 的 commit，并逐 Edge
-包含 EC2 健康、DNS 唯一指向 EIP、源账号不可调度、逻辑备份校验、data snapshot
-完成状态，以及 Lightsail 实例、Static IP 和 SSM managed-instance 的精确资源身份：
+最后一个 Edge 切换成功并继续观察完整 1 天后，运行 Fleet 退役计划。输入 snapshot
+只提供 `schema_version`、预期 AWS account、执行 commit、最后切换 receipt 和 Fleet
+观察起点；工具会重新查询 matrix、AWS、SSM、CloudWatch、DNS、账号、逻辑备份和
+data snapshot，不接受输入文件自报这些实时状态：
+
+```json
+{
+  "schema_version": 1,
+  "expected_aws_account_id": "<12-digit-aws-account-id>",
+  "execution_commit": "<full-git-sha>",
+  "final_cutover_receipt": {
+    "commit": "<same-full-git-sha>",
+    "completed_at": "<UTC-ISO-8601>"
+  },
+  "fleet_observation_started_at": "<UTC-ISO-8601>"
+}
+```
 
 ```bash
 bash ops/migration/retire-lightsail-fleet.sh \
@@ -48,8 +61,11 @@ bash ops/migration/retire-lightsail-fleet.sh \
   --output "${RUNNER_TEMP:-/tmp}/lightsail-fleet-retirement-plan.json"
 ```
 
-默认只输出计划，不调用 AWS。确认计划无 blocker 后，执行仍需显式提供固定确认串；
-工具按 `us5 -> us4 -> us6 -> us3` 顺序逐资源执行，失败立即停止，已不存在的资源跳过：
+默认只输出计划，不调用 AWS 写操作。确认实时计划无 blocker 后，执行仍需显式提供
+固定确认串，并在删除前再次完成同一套实时查询。工具按 `us5 -> us4 -> us6 -> us3`
+顺序逐资源执行，失败立即停止，已不存在的资源跳过。全部写调用返回后工具再次实时
+查询；AWS 异步删除尚未完成时返回 `retirement_incomplete`，稍后重跑同一命令，直到
+`post_apply.remaining_actions` 为空：
 
 ```bash
 bash ops/migration/retire-lightsail-fleet.sh \

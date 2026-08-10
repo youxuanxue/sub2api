@@ -55,6 +55,16 @@ class LightsailOidcPermCoverageTests(unittest.TestCase):
             "lightsail:DeleteInstance",
             "lightsail:ReleaseStaticIp",
             "ssm:DeregisterManagedInstance",
+            "lightsail:GetInstance",
+            "lightsail:GetStaticIp",
+            "ssm:GetParameter",
+            "ssm:DescribeInstanceInformation",
+            "ssm:SendCommand",
+            "ssm:GetCommandInvocation",
+            "cloudformation:DescribeStacks",
+            "ec2:DescribeSnapshots",
+            "cloudwatch:DescribeAlarms",
+            "cloudwatch:DescribeAlarmHistory",
         }
         expected = {action for action, _ in self.mod.EXPECTED_ACTIONS}
         self.assertTrue(retirement_actions <= expected, retirement_actions - expected)

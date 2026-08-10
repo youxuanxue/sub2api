@@ -55,15 +55,43 @@ docker logs "$app_container" --since "$SINCE" >"$log_file" 2>&1
 image="$(docker inspect -f '{{.Config.Image}}' "$app_container")"
 app_tag="${image##*:}"
 
+backup_path="$(find /var/lib/tokenkey/pgdump -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -printf '%T@\t%p\n' 2>/dev/null \
+  | sort -n | tail -1 | cut -f2-)"
+backup_verified=false
+backup_size=0
+backup_checksum=""
+if [ -n "$backup_path" ]; then
+  backup_size="$(stat -c %s "$backup_path")"
+  if [ "$backup_size" -ge 2048 ] && gzip -t "$backup_path"; then
+    read -r backup_sha _ < <(sha256sum "$backup_path")
+    if [[ "$backup_sha" =~ ^[0-9a-f]{64}$ ]]; then
+      backup_verified=true
+      backup_checksum="sha256:${backup_sha}"
+    fi
+  fi
+fi
+
 python3 - "$log_file" "$account_total" "$schedulable_accounts" \
-  "$docker_healthy" "$health_ok" "$app_tag" <<'PY'
+  "$docker_healthy" "$health_ok" "$app_tag" "$backup_verified" \
+  "$backup_path" "$backup_size" "$backup_checksum" <<'PY'
 import json
 import math
 import pathlib
 import re
 import sys
 
-path, total, schedulable, docker_healthy, health_ok, app_tag = sys.argv[1:]
+(
+    path,
+    total,
+    schedulable,
+    docker_healthy,
+    health_ok,
+    app_tag,
+    backup_verified,
+    backup_path,
+    backup_size,
+    backup_checksum,
+) = sys.argv[1:]
 status_re = re.compile(r'"status_code"\s*:\s*([0-9]+)')
 latency_re = re.compile(r'"latency_ms"\s*:\s*([0-9]+(?:\.[0-9]+)?)')
 business_requests = 0
@@ -101,5 +129,11 @@ print(json.dumps({
     "server_errors": server_errors,
     "p95_latency_ms": p95,
     "app_tag": app_tag,
+    "logical_backup": {
+        "verified": backup_verified == "true",
+        "path": backup_path,
+        "size_bytes": int(backup_size),
+        "checksum": backup_checksum,
+    },
 }, sort_keys=True))
 PY

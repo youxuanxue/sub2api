@@ -56,6 +56,7 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ADDON_CFN = REPO_ROOT / "deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml"
 BASE_CFN = REPO_ROOT / "deploy/aws/cloudformation/cicd-oidc.yaml"
+EC2_ADDON_CFN = REPO_ROOT / "deploy/aws/cloudformation/cicd-oidc-ec2-edge-addon.yaml"
 RETIREMENT_TOOL = REPO_ROOT / "ops/migration/retire_lightsail_fleet.py"
 
 
@@ -66,10 +67,16 @@ def _retirement_actions() -> list[tuple[str, str]]:
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    return [
+    actions = [
         (call["iam_action"], f"fleet retirement: {call['service']} {call['command']}")
         for call in module.AWS_CALLS.values()
     ]
+    actions.extend(
+        (iam_action, f"fleet retirement live read: {service} {command}")
+        for service, command, iam_action in module.AWS_READ_CALLS.values()
+        if iam_action != "sts:GetCallerIdentity"
+    )
+    return actions
 
 # Hard-coded list of every AWS action the Lightsail Edge workflow issues.
 # Maintenance contract: when provision-edge.sh / render-bootstrap.sh /
@@ -120,6 +127,7 @@ def _missing_actions(
     expected: list[tuple[str, str]],
     addon_text: str,
     base_text: str,
+    ec2_addon_text: str = "",
 ) -> list[tuple[str, str, str]]:
     """Return [(action, where_checked, notes)] for every expected action not
     present in either policy text.
@@ -134,7 +142,9 @@ def _missing_actions(
             continue
         if action in base_text:
             continue
-        missing.append((action, "addon+base", notes))
+        if action in ec2_addon_text:
+            continue
+        missing.append((action, "lightsail-addon+base+ec2-addon", notes))
     return missing
 
 
@@ -157,8 +167,16 @@ def main() -> int:
     except OSError as exc:
         print(f"FAIL: cannot read {BASE_CFN.relative_to(REPO_ROOT)}: {exc}", file=sys.stderr)
         return 2
+    try:
+        ec2_addon_text = _load(EC2_ADDON_CFN)
+    except OSError as exc:
+        print(
+            f"FAIL: cannot read {EC2_ADDON_CFN.relative_to(REPO_ROOT)}: {exc}",
+            file=sys.stderr,
+        )
+        return 2
 
-    missing = _missing_actions(EXPECTED_ACTIONS, addon_text, base_text)
+    missing = _missing_actions(EXPECTED_ACTIONS, addon_text, base_text, ec2_addon_text)
     if not missing:
         if not args.quiet:
             print(
@@ -170,7 +188,8 @@ def main() -> int:
 
     print(
         "FAIL: actions used by the Lightsail edge workflow are not granted by "
-        "either addon or base OIDC role policy. The next workflow dispatch will "
+        "the Lightsail addon, EC2 addon, or base OIDC role policy. The next "
+        "workflow dispatch will "
         "AccessDenied on these:",
         file=sys.stderr,
     )
