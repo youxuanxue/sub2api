@@ -8,7 +8,7 @@
         :utilization="usageInfo.five_hour.utilization"
         :resets-at="usageInfo.five_hour.resets_at"
         :window-stats="usageInfo.five_hour.window_stats"
-        :show-now-when-idle="true"
+        :show-now-when-idle="showNowWhenIdleForWindow(usageInfo.five_hour)"
         color="indigo"
       />
       <UsageProgressBar
@@ -17,7 +17,7 @@
         :utilization="usageInfo.seven_day.utilization"
         :resets-at="usageInfo.seven_day.resets_at"
         :window-stats="usageInfo.seven_day.window_stats"
-        :show-now-when-idle="true"
+        :show-now-when-idle="showNowWhenIdleForWindow(usageInfo.seven_day)"
         color="emerald"
       />
       <UpstreamQuotaSummary
@@ -99,4 +99,17 @@ const { loading, activeQueryLoading, usageInfo, loadActiveUsage } = useAccountUs
 const hasOpenAIUsageFallback = computed(() => {
   return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day
 })
+
+/** Upstream codex % missing/stale but local rolling window stats show activity — don't show「现在」. */
+function showNowWhenIdleForWindow(
+  progress: { utilization?: number; resets_at?: string | null; window_stats?: { requests?: number; tokens?: number } | null } | null | undefined
+): boolean {
+  if (!progress) return true
+  const ws = progress.window_stats
+  const hasLocalActivity = !!(ws && ((ws.requests ?? 0) > 0 || (ws.tokens ?? 0) > 0))
+  if (progress.utilization != null && progress.utilization <= 0 && hasLocalActivity && !progress.resets_at) {
+    return false
+  }
+  return true
+}
 </script>
