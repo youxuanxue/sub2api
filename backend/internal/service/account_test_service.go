@@ -52,21 +52,84 @@ type TestEvent struct {
 	Status   string `json:"status,omitempty"`
 	Code     string `json:"code,omitempty"`
 	ImageURL string `json:"image_url,omitempty"`
+	// AudioURL / VideoURL are data: or https URLs for in-browser media players.
+	AudioURL string `json:"audio_url,omitempty"`
+	VideoURL string `json:"video_url,omitempty"`
 	MimeType string `json:"mime_type,omitempty"`
 	Data     any    `json:"data,omitempty"`
 	Success  bool   `json:"success,omitempty"`
 	Error    string `json:"error,omitempty"`
 }
 
+// AccountTestOptions carries optional media for admin connectivity tests.
+// ImageDataURL / AudioDataURL are full data URLs (data:<mime>;base64,...).
+type AccountTestOptions struct {
+	ImageDataURL string
+	AudioDataURL string
+}
+
+func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
+	if len(opts) == 0 {
+		return AccountTestOptions{}
+	}
+	return opts[0]
+}
+
+// maxAccountTestMediaBytes caps inbound data-URL payloads for admin tests (~8 MiB).
+const maxAccountTestMediaBytes = 8 << 20
+
 const (
 	defaultGeminiTextTestPrompt  = "hi"
 	defaultGeminiImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
 	defaultOpenAIImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
+	defaultGrokImageTestPrompt   = "Generate a cute orange cat astronaut sticker on a clean pastel background."
+	defaultGrokVideoTestPrompt   = "A red ball bouncing once on a white floor, short simple motion."
+	defaultGrokSearchTestQuery   = "xAI Grok"
+	defaultGrokTTSTestText       = "Hello from Sub2API account connectivity test."
+
+	// Grok account-test modes (admin UI). Empty / default / text = Responses probe.
+	// image/video may also be inferred from model_id when mode is default.
+	AccountTestModeGrokText     = "text"
+	AccountTestModeGrokImage    = "image"
+	AccountTestModeGrokVideo    = "video"
+	AccountTestModeGrokSearch   = "search"
+	AccountTestModeGrokTTS      = "tts"
+	AccountTestModeGrokSTT      = "stt"
+	AccountTestModeGrokRealtime = "realtime"
+
+	defaultGrokRealtimeTestModel = "grok-voice-latest"
+	grokRealtimeProbeTimeout     = 12 * time.Second
 )
 
 // isOpenAIImageModel checks if the model is an OpenAI image generation model (e.g. gpt-image-2).
 func isOpenAIImageModel(model string) bool {
 	return strings.HasPrefix(strings.ToLower(model), "gpt-image-")
+}
+
+func isGrokVideoGenerationModel(model string) bool {
+	return isGrokVideoBillingModel(model) ||
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "grok-video")
+}
+
+func normalizeGrokAccountTestMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case AccountTestModeGrokText:
+		return AccountTestModeGrokText
+	case AccountTestModeGrokImage:
+		return AccountTestModeGrokImage
+	case AccountTestModeGrokVideo:
+		return AccountTestModeGrokVideo
+	case AccountTestModeGrokSearch:
+		return AccountTestModeGrokSearch
+	case AccountTestModeGrokTTS:
+		return AccountTestModeGrokTTS
+	case AccountTestModeGrokSTT:
+		return AccountTestModeGrokSTT
+	case AccountTestModeGrokRealtime:
+		return AccountTestModeGrokRealtime
+	default:
+		return AccountTestModeDefault
+	}
 }
 
 // AccountTestService handles account testing operations
@@ -80,9 +143,19 @@ type AccountTestService struct {
 	rateLimitService          *RateLimitService
 	httpUpstream              HTTPUpstream
 	cfg                       *config.Config
+	settingService            *SettingService
 	tlsFPProfileService       *TLSFingerprintProfileService
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
+	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
+	// WS dialer when nil (supports proxy + coder/websocket handshake).
+	grokWSDialer openAIWSClientDialer
+}
+
+func (s *AccountTestService) SetSettingService(settingService *SettingService) {
+	if s != nil {
+		s.settingService = settingService
+	}
 }
 
 // NewAccountTestService creates a new AccountTestService
@@ -196,8 +269,11 @@ func createTestPayload(modelID string) (map[string]any, error) {
 // All account types use full Claude Code client characteristics, only auth header differs
 // modelID is optional - if empty, defaults to claude.DefaultTestModel
 // mode is optional - "compact" routes OpenAI accounts to the /responses/compact probe path
-func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string) error {
+// opts is optional media (image/audio data URLs for real generation / STT).
+func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
 	ctx := c.Request.Context()
+	testOpts := firstAccountTestOptions(opts)
+	_ = testOpts
 
 	// Get account
 	account, err := s.accountRepo.GetByID(ctx, accountID)
@@ -237,7 +313,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.IsGrok() {
-		return s.testGrokAccountConnection(c, account, modelID, prompt)
+		return s.testGrokAccountConnection(c, account, modelID, prompt, normalizeGrokAccountTestMode(mode), testOpts)
 	}
 
 	if account.IsKiro() {

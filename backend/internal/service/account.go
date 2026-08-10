@@ -6,6 +6,7 @@ import (
 	"errors"
 	"hash/fnv"
 	"log/slog"
+	"net/url"
 	"reflect"
 	"sort"
 	"strconv"
@@ -77,6 +78,7 @@ type Account struct {
 	modelMappingCacheRawPtr         uintptr
 	modelMappingCacheRawLen         int
 	modelMappingCacheRawSig         uint64
+	modelMappingCacheRuntimeVersion uint64
 
 	// header_overrides 热路径缓存（非持久化字段，同 model_mapping 缓存先例）
 	headerOverrideCache               map[string]string
@@ -553,6 +555,7 @@ func stringMappingFromRaw(raw any) map[string]string {
 }
 
 func (a *Account) GetModelMapping() map[string]string {
+	runtimeVersion := xai.RuntimeModelMappingVersion()
 	credentialsPtr := mapPtr(a.Credentials)
 	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
 	rawPtr := mapPtr(rawMapping)
@@ -563,7 +566,8 @@ func (a *Account) GetModelMapping() map[string]string {
 	if a.modelMappingCacheReady &&
 		a.modelMappingCacheCredentialsPtr == credentialsPtr &&
 		a.modelMappingCacheRawPtr == rawPtr &&
-		a.modelMappingCacheRawLen == rawLen {
+		a.modelMappingCacheRawLen == rawLen &&
+		a.modelMappingCacheRuntimeVersion == runtimeVersion {
 		rawSig = modelMappingSignature(rawMapping)
 		rawSigReady = true
 		if a.modelMappingCacheRawSig == rawSig {
@@ -582,6 +586,7 @@ func (a *Account) GetModelMapping() map[string]string {
 	a.modelMappingCacheRawPtr = rawPtr
 	a.modelMappingCacheRawLen = rawLen
 	a.modelMappingCacheRawSig = rawSig
+	a.modelMappingCacheRuntimeVersion = runtimeVersion
 	return mapping
 }
 
@@ -1360,27 +1365,47 @@ func (a *Account) GetOpenAIRefreshToken() string {
 // traffic (OAuth authorization and token refresh) always uses the official
 // auth endpoints regardless of this value.
 func (a *Account) GetGrokBaseURL() string {
-	if !a.IsGrok() {
+	if a == nil || !a.IsGrok() {
 		return ""
 	}
-	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
 	if a.IsGrokOAuth() {
-		// Subscription traffic defaults to the supported CLI gateway. Stored
-		// official-host values (written by credential creation/refresh, or
-		// legacy variants) mean "not customized"; only an explicit custom-host
-		// forwarding address redirects traffic.
-		if baseURL == "" || xai.IsOfficialBaseURL(baseURL) {
-			return xai.DefaultCLIBaseURL
+		return a.GetGrokBaseURLOr(xai.DefaultCLIBaseURL)
+	}
+	return a.GetGrokBaseURLOr(xai.DefaultBaseURL)
+}
+
+// GetGrokBaseURLOr resolves an explicit account endpoint, falling back to the
+// supplied default. Official OAuth endpoints are normalized here; custom
+// endpoints are retained for the request builder's operator URL policy.
+func (a *Account) GetGrokBaseURLOr(defaultBaseURL string) string {
+	if a == nil || !a.IsGrok() {
+		return ""
+	}
+	defaultBaseURL = strings.TrimRight(strings.TrimSpace(defaultBaseURL), "/")
+	if defaultBaseURL == "" {
+		if a.IsGrokOAuth() {
+			defaultBaseURL = xai.DefaultCLIBaseURL
+		} else {
+			defaultBaseURL = xai.DefaultBaseURL
 		}
+	}
+	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
+	if baseURL == "" {
+		return defaultBaseURL
+	}
+	if !a.IsGrokOAuth() {
 		return strings.TrimRight(baseURL, "/")
 	}
-	if baseURL != "" {
-		// TK: trim trailing slash so edge-relay base_url overrides (e.g.
-		// "https://api-us4.tokenkey.dev/") don't produce a doubled path segment
-		// when the chat-completions URL is built.
+	// Explicit regional/API or custom values remain pinned. Custom endpoints are checked by the
+	// operator URL policy at the request builder, which has access to config.
+	if validated, err := xai.ValidateTrustedBaseURL(baseURL); err == nil {
+		return validated
+	}
+	if parsed, err := url.Parse(baseURL); err == nil && parsed.Scheme != "" && parsed.Host != "" &&
+		parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" {
 		return strings.TrimRight(baseURL, "/")
 	}
-	return xai.DefaultBaseURL
+	return defaultBaseURL
 }
 
 // GetGrokMediaBaseURL selects the upstream used by Grok Imagine APIs.

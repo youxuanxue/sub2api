@@ -32,7 +32,7 @@ func newSessionIDUsageLog(sessionID *string) *service.UsageLog {
 // arg slice / arg-type table so the five INSERT column lists stay in sync. session_id
 // is the penultimate arg (created_at is always last).
 func TestPrepareUsageLogInsert_SessionIDArgWiring(t *testing.T) {
-	require.Len(t, usageLogInsertArgTypes, 58, "arg-type table must include gateway_latency_ms and session_id")
+	require.Len(t, usageLogInsertArgTypes, 60, "arg-type table must include upstream_response_model, upstream_model_mismatch, gateway_latency_ms and session_id")
 
 	sessionID := "sess-persisted-123"
 	prepared := prepareUsageLogInsert(newSessionIDUsageLog(&sessionID))
@@ -71,6 +71,12 @@ func TestPrepareUsageLogInsert_SessionIDNullWhenAbsent(t *testing.T) {
 func TestUsageLogInsertQueries_IncludeSessionID(t *testing.T) {
 	require.Contains(t, usageLogSelectColumns, "session_id",
 		"SELECT column list must include session_id")
+	require.Contains(t, usageLogSelectColumns, "upstream_response_model",
+		"SELECT column list must include upstream_response_model")
+	require.Contains(t, usageLogSelectColumns, "upstream_model_mismatch",
+		"SELECT column list must include upstream_model_mismatch")
+	require.Equal(t, len(usageLogInsertArgTypes)+1, strings.Count(usageLogSelectColumns, ",")+1,
+		"SELECT column count must match insert arg count plus id")
 
 	sessionID := "sess-in-query"
 	log := newSessionIDUsageLog(&sessionID)

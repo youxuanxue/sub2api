@@ -12,6 +12,7 @@ import type { Ref, Reactive, ComputedRef } from "vue";
 import type {
   AuthSourceDefaultsState,
   AuthSourceType,
+  AccountSchedulingThresholdsMap,
   DefaultPlatformQuotasMap,
 } from "@/api/admin/settings";
 import type {
@@ -54,6 +55,7 @@ export type SettingsForm = {
   registration_enabled: boolean;
   email_verify_enabled: boolean;
   registration_email_suffix_whitelist: string[];
+  registration_email_domain_quota_enabled: boolean;
   promo_code_enabled: boolean;
   invitation_code_enabled: boolean;
   password_reset_enabled: boolean;
@@ -234,6 +236,10 @@ export type SettingsForm = {
   fallback_model_openai: string;
   fallback_model_gemini: string;
   fallback_model_antigravity: string;
+  grok_default_text_model: string;
+  grok_cross_client_model_map_enabled: boolean;
+  grok_default_base_url_mode: string;
+  account_scheduling_thresholds: AccountSchedulingThresholdsMap;
   enable_identity_patch: boolean;
   identity_patch_prompt: string;
   ops_monitoring_enabled: boolean;
@@ -293,7 +299,9 @@ export type SettingsForm = {
   auto_generate_default_token_name: string;
   pricing_catalog_public: boolean;
   channel_monitor_enabled: boolean;
+  channel_monitor_mode: "v1" | "v2";
   channel_monitor_default_interval_seconds: number;
+  channel_monitor_hide_throughput: boolean;
   available_channels_enabled: boolean;
   model_plaza_enabled: boolean;
   model_plaza_require_auth: boolean;

@@ -56,6 +56,46 @@ export function sanitizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | nul
   return result
 }
 
+export type SchedulingThresholdPlatform = "openai" | "anthropic" | "grok";
+
+export const SCHEDULING_THRESHOLD_PLATFORMS: SchedulingThresholdPlatform[] = [
+  "openai",
+  "anthropic",
+  "grok",
+];
+
+export type AccountSchedulingThresholdsMap = Partial<
+  Record<SchedulingThresholdPlatform, number>
+>;
+
+function clampSchedulingThresholdPercent(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 100;
+  }
+  const rounded = Math.round(value);
+  if (rounded <= 0) return 1;
+  if (rounded >= 100) return 100;
+  return rounded;
+}
+
+/** Normalize to all supported platforms; missing → 100 (disabled). */
+export function normalizeAccountSchedulingThresholdsMap(
+  input?: AccountSchedulingThresholdsMap | null,
+): AccountSchedulingThresholdsMap {
+  const result: AccountSchedulingThresholdsMap = {};
+  for (const platform of SCHEDULING_THRESHOLD_PLATFORMS) {
+    result[platform] = clampSchedulingThresholdPercent(input?.[platform]);
+  }
+  return result;
+}
+
+/** Sanitize before submit; always returns all supported platforms. */
+export function sanitizeAccountSchedulingThresholdsMap(
+  input?: AccountSchedulingThresholdsMap | null,
+): AccountSchedulingThresholdsMap {
+  return normalizeAccountSchedulingThresholdsMap(input);
+}
+
 export type AuthSourceType =
   | "email"
   | "linuxdo"
@@ -359,6 +399,7 @@ export interface SystemSettings {
   registration_enabled: boolean;
   email_verify_enabled: boolean;
   registration_email_suffix_whitelist: string[];
+  registration_email_domain_quota_enabled: boolean;
   promo_code_enabled: boolean;
   password_reset_enabled: boolean;
   frontend_url: string;
@@ -556,6 +597,12 @@ export interface SystemSettings {
   fallback_model_openai: string;
   fallback_model_gemini: string;
   fallback_model_antigravity: string;
+  grok_default_text_model: string;
+  grok_cross_client_model_map_enabled: boolean;
+  grok_default_base_url_mode: string;
+
+  // Per-platform account auto-pause thresholds (100 = disabled)
+  account_scheduling_thresholds: AccountSchedulingThresholdsMap;
 
   // Identity patch configuration (Claude -> Gemini)
   enable_identity_patch: boolean;
@@ -680,7 +727,9 @@ export interface SystemSettings {
 
   // Channel Monitor feature switch
   channel_monitor_enabled: boolean;
+  channel_monitor_mode?: 'v1' | 'v2';
   channel_monitor_default_interval_seconds: number;
+  channel_monitor_hide_throughput?: boolean;
 
   // Available Channels feature switch
   available_channels_enabled: boolean;
@@ -704,6 +753,7 @@ export interface UpdateSettingsRequest {
   registration_enabled?: boolean;
   email_verify_enabled?: boolean;
   registration_email_suffix_whitelist?: string[];
+  registration_email_domain_quota_enabled?: boolean;
   promo_code_enabled?: boolean;
   password_reset_enabled?: boolean;
   frontend_url?: string;
@@ -883,6 +933,10 @@ export interface UpdateSettingsRequest {
   fallback_model_openai?: string;
   fallback_model_gemini?: string;
   fallback_model_antigravity?: string;
+  grok_default_text_model?: string;
+  grok_cross_client_model_map_enabled?: boolean;
+  grok_default_base_url_mode?: string;
+  account_scheduling_thresholds?: AccountSchedulingThresholdsMap;
   enable_identity_patch?: boolean;
   identity_patch_prompt?: string;
   ops_monitoring_enabled?: boolean;
@@ -981,7 +1035,9 @@ export interface UpdateSettingsRequest {
 
   // Channel Monitor feature switch
   channel_monitor_enabled?: boolean;
+  channel_monitor_mode?: 'v1' | 'v2';
   channel_monitor_default_interval_seconds?: number;
+  channel_monitor_hide_throughput?: boolean;
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;

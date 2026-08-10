@@ -120,19 +120,19 @@ func TestGrokOAuthURLPolicy(t *testing.T) {
 		require.Equal(t, xai.DefaultCLIBaseURL+"/responses", target)
 	})
 
-	t.Run("stored official-host variant stays on CLI gateway", func(t *testing.T) {
+	t.Run("stored official API endpoint is honored (manual endpoint switch)", func(t *testing.T) {
 		account := &Account{
 			Platform: PlatformGrok,
 			Type:     AccountTypeOAuth,
 			Credentials: map[string]any{
-				"base_url": "HTTPS://API.X.AI:443/",
+				"base_url": xai.DefaultBaseURL,
 			},
 		}
 		cfg := &config.Config{}
 
 		target, err := buildGrokResponsesURL(account, cfg)
 		require.NoError(t, err)
-		require.Equal(t, xai.DefaultCLIBaseURL+"/responses", target)
+		require.Equal(t, xai.DefaultBaseURL+"/responses", target)
 	})
 
 	t.Run("custom forwarding address follows operator policy", func(t *testing.T) {
@@ -232,6 +232,26 @@ func TestGrokOAuthURLPolicy(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, xai.DefaultCLIBaseURL+"/responses", target)
 	})
+}
+
+func TestBuildGrokBillingURLUsesCLIForOfficialAPIHosts(t *testing.T) {
+	for _, baseURL := range []string{xai.DefaultBaseURL, "https://us-west-2.api.x.ai/v1"} {
+		account := &Account{Platform: PlatformGrok, Type: AccountTypeOAuth, Credentials: map[string]any{"base_url": baseURL}}
+
+		weekly, err := buildGrokBillingURL(account, &config.Config{}, true)
+		require.NoError(t, err)
+		require.Equal(t, xai.DefaultCLIBaseURL+xai.BillingWeeklyPath, weekly)
+	}
+}
+
+func TestBuildGrokBillingURLKeepsCustomRelay(t *testing.T) {
+	account := &Account{Platform: PlatformGrok, Type: AccountTypeOAuth, Credentials: map[string]any{
+		"base_url": "https://relay.example.test/xai/v1",
+	}}
+
+	monthly, err := buildGrokBillingURL(account, &config.Config{}, false)
+	require.NoError(t, err)
+	require.Equal(t, "https://relay.example.test/xai/v1"+xai.BillingMonthlyPath, monthly)
 }
 
 func TestGrokBillingURLFollowsAccountBaseURL(t *testing.T) {

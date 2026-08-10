@@ -62,6 +62,7 @@ const opsSystemLogsAPIKeyIDIndexDDL = `CREATE INDEX IF NOT EXISTS idx_ops_system
 const opsMonthlyPartitionsMigration = "tk_041_provision_ops_monthly_partitions.sql"
 const latestAPIKeyIPIndexMigration = "174_add_usage_logs_api_key_latest_ip_index_notx.sql"
 const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
+
 const opsSystemLogsHostIndexMigration = "175a_add_ops_system_logs_host_index_notx.sql"
 const opsSystemLogsHostIndex = "idx_ops_system_logs_host_created_at"
 const usersEmailAliasDedupIndexMigration = "190_add_users_email_alias_dedup_index_notx.sql"

@@ -106,9 +106,9 @@ func TestNoAvailableOpenAISelectionError_DeprecatedModelBeatsEmptyPool(t *testin
 	// The two direct call sites in openai_account_scheduler.go (len(accounts)==0
 	// fast paths) route through this shared helper, so the deprecated gate must
 	// live here too, not just in openAICompatNoCandidateError.
-	err := noAvailableOpenAISelectionError("gpt-5.5", false, PlatformOpenAI)
+	err := noAvailableOpenAISelectionError("gpt-5.5", false, PlatformOpenAI, "")
 	require.False(t, errors.Is(err, ErrDeprecatedOpenAIModel))
 
-	err = noAvailableOpenAISelectionError("codex-auto-review", false, PlatformOpenAI)
+	err = noAvailableOpenAISelectionError("codex-auto-review", false, PlatformOpenAI, "")
 	require.False(t, errors.Is(err, ErrDeprecatedOpenAIModel))
 }
