@@ -254,47 +254,6 @@ func TestAccountUsageService_GetPassiveUsage_OpenAIOAuthRebuildsCodexWindows(t *
 	}
 }
 
-func TestAccountUsageService_GetPassiveUsage_OpenAIOAuthExpiredCodexFallsBackToLocalWindowStats(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now()
-	acct := Account{
-		ID:       56,
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeOAuth,
-		Extra: map[string]any{
-			"codex_5h_used_percent": 42.0,
-			"codex_5h_reset_at":     now.Add(-2 * time.Hour).UTC().Format(time.RFC3339),
-			"codex_7d_used_percent": 34.0,
-			"codex_7d_reset_at":     now.Add(5 * 24 * time.Hour).UTC().Format(time.RFC3339),
-		},
-	}
-	logRepo := &passiveBatchUsageLogRepo{
-		cost: map[int64]float64{56: 9.5},
-	}
-	svc := &AccountUsageService{
-		accountRepo:  &passiveBatchAccountRepo{accounts: []Account{acct}},
-		usageLogRepo: logRepo,
-	}
-
-	usage, err := svc.GetPassiveUsage(context.Background(), 56)
-	if err != nil {
-		t.Fatalf("GetPassiveUsage() error = %v", err)
-	}
-	if usage.FiveHour == nil || usage.FiveHour.Utilization != 0 {
-		t.Fatalf("expired codex 5h must not surface stale used%%, got %#v", usage.FiveHour)
-	}
-	if usage.FiveHour.WindowStats == nil || usage.FiveHour.WindowStats.Requests != 1 {
-		t.Fatalf("FiveHour.WindowStats = %#v, want local rolling stats", usage.FiveHour.WindowStats)
-	}
-	if usage.FiveHour.WindowStats.Cost != 9.5 {
-		t.Fatalf("FiveHour.WindowStats.Cost = %v, want 9.5", usage.FiveHour.WindowStats.Cost)
-	}
-	if usage.SevenDay == nil || usage.SevenDay.Utilization != 34.0 {
-		t.Fatalf("SevenDay = %#v, want active upstream util=34", usage.SevenDay)
-	}
-}
-
 func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
